@@ -1,4 +1,5 @@
 <a href="https://ibb.co/CMDBVRS"><img src="https://i.ibb.co/wwjyp52/Ad-Guard-Home.jpg" alt="Ad-Guard-Home" border="0"></a>
+
 # Asuswrt-Merlin-AdGuardHome-Installer
 The Official Installer of AdGuardHome for Asuswrt-Merlin
 
@@ -18,6 +19,7 @@ The Official Installer of AdGuardHome for Asuswrt-Merlin
 
 # AdGuardHome Supports Multiple Features
 <a href="https://ibb.co/ZhTX4N4"><img src="https://i.ibb.co/cNT3fxf/Features.jpg" alt="Features" border="0"></a>
+
 -94.140.14.140: plain DNS (over UDP).
 -tls://dns-unfiltered.adguard.com: encrypted DNS-over-TLS.
 -https://cloudflare-dns.com/dns-query: encrypted DNS-over-HTTPS.
@@ -25,6 +27,7 @@ The Official Installer of AdGuardHome for Asuswrt-Merlin
 -tcp://1.1.1.1: plain DNS (over TCP).
 -sdns://...: DNS Stamps for DNSCrypt or DNS-over-HTTPS resolvers.
 -[/example.local/]1.1.1.1: DNS upstream for specific domains, see below.
+
 <a href="https://ibb.co/txhZqvt"><img src="https://i.ibb.co/SdxQtM8/Upstream-DNS.jpg" alt="Upstream-DNS" border="0"></a>
 
 # Setting Up Your Routers Reverse DNS
