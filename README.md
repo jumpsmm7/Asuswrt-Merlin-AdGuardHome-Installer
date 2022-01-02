@@ -20,21 +20,24 @@ The Official Installer of AdGuardHome for Asuswrt-Merlin
 # AdGuardHome Supports Multiple Features
 <a href="https://ibb.co/ZhTX4N4"><img src="https://i.ibb.co/cNT3fxf/Features.jpg" alt="Features" border="0"></a>
 
--94.140.14.140: plain DNS (over UDP).
--tls://dns-unfiltered.adguard.com: encrypted DNS-over-TLS.
--https://cloudflare-dns.com/dns-query: encrypted DNS-over-HTTPS.
--quic://dns-unfiltered.adguard.com:784: experimental DNS-over-QUIC support.
--tcp://1.1.1.1: plain DNS (over TCP).
--sdns://...: DNS Stamps for DNSCrypt or DNS-over-HTTPS resolvers.
--[/example.local/]1.1.1.1: DNS upstream for specific domains, see below.
+- 94.140.14.140: plain DNS (over UDP).
+- tls://dns-unfiltered.adguard.com: encrypted DNS-over-TLS.
+- https://cloudflare-dns.com/dns-query: encrypted DNS-over-HTTPS.
+- quic://dns-unfiltered.adguard.com:784: experimental DNS-over-QUIC support.
+- tcp://1.1.1.1: plain DNS (over TCP).
+- sdns://...: DNS Stamps for DNSCrypt or DNS-over-HTTPS resolvers.
+- [/example.local/]1.1.1.1: DNS upstream for specific domains, see below.
 
 <a href="https://ibb.co/txhZqvt"><img src="https://i.ibb.co/SdxQtM8/Upstream-DNS.jpg" alt="Upstream-DNS" border="0"></a>
 
 # Setting Up Your Routers Reverse DNS
 <a href="https://imgbb.com/"><img src="https://i.ibb.co/QvJ5nNV/Lan.jpg" alt="Lan" border="0"></a>
--Under Lan DHCP page on Asuswrt-Merlin define a domain such as lan or some-domain like in the image above.
+
+- Under Lan DHCP page on Asuswrt-Merlin define a domain such as lan or some-domain like in the image above.
+
 <a href="https://ibb.co/vDRpFQh"><img src="https://i.ibb.co/4J3zqY2/Reverse-DNS.jpg" alt="Reverse-DNS" border="0"></a>
--Define the appropriate rules inside the Private Reverse DNS Servers.
+
+- Define the appropriate rules inside the Private Reverse DNS Servers.
 
 # Changelog:
 https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/commits/master
