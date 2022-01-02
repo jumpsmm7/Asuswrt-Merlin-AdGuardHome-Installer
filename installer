@@ -82,9 +82,9 @@ AdGuardHome_authen () {
   fi
   local PW1_ENCRYPTED
   PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"
-  PTXT "users:" \ 
-    "- name: ${USERNAME}" \  
-    "password: ${PW1_ENCRYPTED}" >> YAML_ORI
+  PTXT "users:" \
+    "- name: ${USERNAME}" \
+    "  password: ${PW1_ENCRYPTED}" >> $YAML_ORI
 }
 
 backup_restore () {
@@ -118,17 +118,19 @@ backup_restore () {
     chmod 644 "${TARG_DIR}/AdGuardHome.yaml"
     ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
     write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "port=553\nlocal=/192.in-addr.arpa/\nlocal=/10.in-addr.arpa/\n" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
-    write_command_script /opt/etc/init.d/S61AdGuardHome "ENABLED=yes
-WORK_DIR=/opt/etc/AdGuardHome
-PROCS=AdGuardHome
-ARGS="-c $WORK_DIR/AdGuardHome.yaml -w "$WORK_DIR" --no-check-update -l syslog"
-PREARGS="nohup"
-PRECMD="killall -9 dnsmasq"
-POSTCMD="service restart_dnsmasq >/dev/null 2>&1"
-DESC=$PROCS
-PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-export TZ=$(cat /etc/TZ)
-. /opt/etc/init.d/rc.func"
+    PTXT '#!/bin/sh' \
+         'ENABLED=yes' \
+         'WORK_DIR=/opt/etc/AdGuardHome' \
+         'PROCS=AdGuardHome' \
+         'ARGS="-c $WORK_DIR/AdGuardHome.yaml -w "$WORK_DIR" --no-check-update -l syslog"' \
+         'PREARGS="nohup"' \
+         'PRECMD="killall -9 dnsmasq"' \
+         'POSTCMD="service restart_dnsmasq >/dev/null 2>&1"' \
+         'DESC=$PROCS' \
+         'PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
+         'export TZ=$(cat /etc/TZ)' \
+         '. /opt/etc/init.d/rc.func' > /opt/etc/init.d/S61AdGuardHome
+    chmod 755 /opt/etc/init.d/S61AdGuardHome
     opkg install go
     export PATH=$PATH:/opt/bin/go/bin
     export GOROOT=/opt/bin/go
@@ -164,7 +166,7 @@ check_AdGuardHome_yaml () {
   [ ! -f "$1" ] && return
   chmod 644 $1
   PTXT "$INFO Checking AdGuardHome configuration..."
-  ${TARG_DIR}/AdGuardHome --check-config "$1"
+  ${TARG_DIR}/AdGuardHome --check-config -c "$1"
   if [ "$?" -ne 0 ]; then
     PTXT "$INFO Move invalid configuration file to $YAML_ERR" \
       "$INFO Operation will continue with clean config file."
@@ -455,17 +457,19 @@ inst_AdGuardHome () {
       ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
   fi
   write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "port=553\nlocal=/192.in-addr.arpa/\nlocal=/10.in-addr.arpa/\n" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
-  write_command_script /opt/etc/init.d/S61AdGuardHome "ENABLED=yes
-WORK_DIR=/opt/etc/AdGuardHome
-PROCS=AdGuardHome
-ARGS="-c $WORK_DIR/AdGuardHome.yaml -w "$WORK_DIR" --no-check-update -l syslog"
-PREARGS="nohup"
-PRECMD="killall -9 dnsmasq"
-POSTCMD="service restart_dnsmasq >/dev/null 2>&1"
-DESC=$PROCS
-PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-export TZ=$(cat /etc/TZ)
-. /opt/etc/init.d/rc.func"
+  PTXT '#!/bin/sh' \
+       'ENABLED=yes' \
+       'WORK_DIR=/opt/etc/AdGuardHome' \
+       'PROCS=AdGuardHome' \
+       'ARGS="-c $WORK_DIR/AdGuardHome.yaml -w "$WORK_DIR" --no-check-update -l syslog"' \
+       'PREARGS="nohup"' \
+       'PRECMD="killall -9 dnsmasq"' \
+       'POSTCMD="service restart_dnsmasq >/dev/null 2>&1"' \
+       'DESC=$PROCS' \
+       'PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
+       'export TZ=$(cat /etc/TZ)' \
+       '. /opt/etc/init.d/rc.func' > /opt/etc/init.d/S61AdGuardHome
+  chmod 755 /opt/etc/init.d/S61AdGuardHome
   opkg install go
   export PATH=$PATH:/opt/bin/go/bin
   export GOROOT=/opt/bin/go
@@ -599,9 +603,9 @@ setup_AdGuardHome_impl () {
        "bind_port: 14711" > "$YAML_ORI"
      PTXT "$INFO Set the Username and Password which will be encrypted to the yaml file."
      AdGuardHome_authen 1
-     PTXT "dns:" \  
-          "bind_host: 0.0.0.0" \
-          "port: 53" >> "$YAML_ORI"
+     PTXT "dns:" \
+          "  bind_host: 0.0.0.0" \
+          "  port: 53" >> "$YAML_ORI"
      PTXT "$INFO Set the DNS server(s) for initializing AdGuardHome" \
        "$INFO and router services (e.g. ntp) at boot"
      read_input_dns "Default is" 9.9.9.9
@@ -679,14 +683,14 @@ write_command_script () {
   FILENAME="$(basename "$TARG")"
   if [ ! -f "$TARG" ]; then
     PTXT "$INFO Creating $FILENAME file"
-    echo "#!/bin/sh" > "$TARG"
+    PTXT "#!/bin/sh" > "$TARG"
   fi
   chmod 755 "$TARG"
   if [ "$(grep -c -F "$COMMAND" "$TARG")" -gt 0 ]; then
     PTXT "$INFO $FILENAME file already configured"
   else
     PTXT "$INFO Configure $FILENAME file"
-    echo "$COMMAND" >> "$TARG"
+    PTXT "$COMMAND" >> "$TARG"
   fi
 }
 
@@ -782,4 +786,3 @@ menu () {
 }
 
 menu
-
