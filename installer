@@ -442,7 +442,7 @@ inst_AdGuardHome () {
       PTXT "$INFO ADGUARDHOME_VER=${LVERSION}"
     fi
   else
-    download_file "$TARG_DIR" 644 "https://static.adguard.com/adguardhome/release/${ADGUARD_TAR}"
+    download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/release/${ADGUARD_TAR}"
     tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}"
     if [ "$?" -ne 0 ]; then
       PTXT "$ERROR Unable to download AdGuardHome package for your router"
