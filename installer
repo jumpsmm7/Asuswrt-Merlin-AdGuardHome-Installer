@@ -703,7 +703,7 @@ URL_ARCH="https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/raw/$
 
 clear
 
-sed -n '2,24p' "$0"
+sed -n '2,22p' "$0"
 
 case "$ROUTER_MODEL" in
   #RT-AX56U|RT-AX58U|RT-AX3000)
