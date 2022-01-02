@@ -1,0 +1,785 @@
+#!/bin/sh
+############################################################################################
+#                                             _            __  __              _  _        #
+#     /\                                     | |          |  \/  |            | |(_)       #
+#    /  \    ___  _   _  ___ __      __ _ __ | |_  ______ | \  / |  ___  _ __ | | _  _ __  #
+#   / /\ \  / __|| | | |/ __|\ \ /\ / /| '__|| __||______|| |\/| | / _ \| '__|| || || '_ \ #
+#  / ____ \ \__ \| |_| |\__ \ \ V  V / | |   | |_         | |  | ||  __/| |   | || || | | |#
+# /_/    \_\|___/ \__,_||___/  \_/\_/  |_|    \__|        |_|  |_| \___||_|   |_||_||_| |_|#
+#               _   _____                         _  _    _                                #
+#     /\       | | / ____|                       | || |  | |                               #
+#    /  \    __| || |  __  _   _   __ _  _ __  __| || |__| |  ___   _ __ ___    ___        #
+#   / /\ \  / _` || | |_ || | | | / _` || '__|/ _` ||  __  | / _ \ | '_ ` _ \  / _ \       #
+#  / ____ \| (_| || |__| || |_| || (_| || |  | (_| || |  | || (_) || | | | | ||  __/       #
+# /_/    \_\\__,_| \_____| \__,_| \__,_||_|   \__,_||_|  |_| \___/ |_| |_| |_| \___|       #
+#  _____              _          _  _                                                      #
+# |_   _|            | |        | || |                Author:                              #        
+#   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #                           
+#   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        # 
+#  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder         # 
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.0.0                               #       
+#                                                                                          #             
+############################################################################################
+
+AI_VERSION="v1.0.0"
+readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest"
+readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | grep "tag_name" | head -1 | cut -d \" -f 4)"
+
+readonly BASE_DIR="/opt/etc"
+readonly TARG_DIR="${BASE_DIR}/AdGuardHome"
+readonly CONF_FILE="${TARG_DIR}/.config"
+readonly YAML_FILE="${TARG_DIR}/AdGuardHome.yaml"
+readonly YAML_BAK="${TARG_DIR}/AdGuardHome.yaml.bak"
+readonly YAML_ERR="${TARG_DIR}/AdGuardHome.yaml.err"
+readonly YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
+readonly SCRIPT_LOC="$(readlink -f "$0")"
+readonly LOCAL_VER="$(${TARG_DIR}/AdGuardHome --version | cut -d" "  -f4-)"
+
+readonly BOLD="$(printf "\033[1m")"
+readonly NORM="$(printf "\033[0m")"
+readonly INFO="$(printf "%s" "${BOLD} Info: ${NORM}")"
+readonly ERROR="$(printf "%s" "${BOLD} *** Error: ${NORM}")"
+readonly WARNING="$(printf "%s" "${BOLD} * Warning: ${NORM}")"
+readonly INPUT="$(printf "%s" "${BOLD} => ${NORM}")"
+
+_quote() {
+  printf "%s\n" "$1" | sed 's/[]\/()$*.^|[]/\\&/g'
+}
+
+PTXT() {
+  case "$1" in
+    -n)
+      for i in "${@:2}"; do
+        printf "%s" "$i"
+      done
+      ;;
+    *)
+      for i in "$@"; do
+        printf "%s\n" "$i"
+      done
+      ;;
+  esac
+}
+
+AdGuardHome_authen () {
+  local USERNAME
+  local PW1
+  local PW2
+  if [ "$1" -eq 0 ]; then
+    return
+  fi
+  PTXT -n "$INPUT Please enter AdGuardHome username${NORM}: "
+  read -r USERNAME
+  PTXT -n "$INPUT Please enter AdGuardHome password${NORM}: "
+  read -rs PW1
+  PTXT " "
+  PTXT -n "$INPUT Please reenter AdGuardHome password${NORM}: "
+  read -rs PW2
+  PTXT " "
+  if [ -z "$PW1" ] || [ -z "$PW2" ] || [ "$PW1" != "$PW2" ]; then
+    PTXT "$ERROR Password entered incorrectly!"
+    AdGuardHome_authen 1
+  fi
+  local PW1_ENCRYPTED
+  PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"
+  PTXT "users:" \ 
+    "- name: ${USERNAME}" \  
+    "password: ${PW1_ENCRYPTED}" >> YAML_ORI
+}
+
+backup_restore () {
+  if [ "$1" = "BACKUP" ] && [ -d "$TARG_DIR" ] && [ -f "${TARG_DIR}/AdGuardHome" ]; then
+    PTXT "$INFO This operation will backup AdGuardHome(<4MB)to ENTWARE /opt/etc." \
+      "$INFO Please wait a moment."
+    if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
+      PTXT "$INFO There is an old backup detected."
+      local USE_OLD
+      read_yesno "Do you want to continue?(this will remove the old backup)" && USE_OLD="NO" || USE_OLD="YES"
+      if [ "$USE_OLD" = "YES" ]; then
+        PTXT "$INFO Leaving Old Backup."
+        end_op_message
+      elif [ "$USE_OLD" = "NO" ]; then
+	PTXT "$INFO Removing Old Backup."
+	rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"
+      fi
+    fi
+    tar -czvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "$TARG_DIR" ../AdGuardHome/ >/dev/null 2>&1    
+    PTXT "$INFO Backup complete"
+    [ "$2" -ne 0 ] && end_op_message 0
+  elif [ "$1" = "BACKUP" ] && [ ! -d "$TARG_DIR" ] && [ ! -f "${TARG_DIR}/AdGuardHome" ]; then
+    PTXT "$ERROR No ${TARG_DIR}/AdGuardHome to Backup!"
+    end_op_message
+  fi
+  if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
+    PTXT "$INFO Please wait a moment."
+    tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "$BASE_DIR" >/dev/null 2>&1
+    chown "$(nvram get http_username)":root "${TARG_DIR}/*"
+    chmod 755 "${TARG_DIR}/AdGuardHome"
+    chmod 644 "${TARG_DIR}/AdGuardHome.yaml"
+    ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
+    write_command_script /jffs/scripts/dnsmasq.postconf "[ "$(pidof AdGuardHome)" ] && printf "port=553\nlocal=/192.in-addr.arpa/\nlocal=/10.in-addr.arpa/\n" >> $1 #Asuswrt-Merlin AdGuardHome Installer"
+    write_command_script /opt/etc/init.d/S61AdGuardHome "ENABLED=yes
+WORK_DIR=/opt/etc/AdGuardHome
+PROCS=AdGuardHome
+ARGS="-c $WORK_DIR/AdGuardHome.yaml -w "$WORK_DIR" --no-check-update -l syslog"
+PREARGS="nohup"
+PRECMD="killall -9 dnsmasq"
+POSTCMD="service restart_dnsmasq >/dev/null 2>&1"
+DESC=$PROCS
+PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export TZ=$(cat /etc/TZ)
+. /opt/etc/init.d/rc.func"
+    opkg install go
+    export PATH=$PATH:/opt/bin/go/bin
+    export GOROOT=/opt/bin/go
+    export GOBIN=/opt/bin/
+    go install gophers.dev/cmds/bcrypt-tool@latest
+    setup_AdGuardHome
+    if [ "$?" -ne 0 ]; then
+      end_op_message
+      return
+    fi
+
+   PTXT "$INFO Starting AdGuardHome..."
+   /opt/etc/init.d/S61AdGuardHome start
+   sleep 1
+   if [ -z "$(pidof AdGuardHome)" ]; then
+     PTXT "$ERROR Couldn't start AdGuardHome" \
+       "$ERROR Please send WebUI System Log to dev"
+     end_op_message
+     return
+   fi
+   AdGuard_restart
+   PTXT "$INFO You are all set."
+   end_op_message 0
+  elif [ ! -f "${BASE_DIR}/backup_dnscrypt.tar.gz" ] && [ "$1" = "RESTORE" ]; then
+    PTXT "$ERROR No Backup found!" \
+      "$ERROR Please make sure Backup Resides in $BASE_DIR"
+    end_op_message
+    return
+  fi
+}
+
+check_AdGuardHome_yaml () {
+  [ ! -f "$1" ] && return
+  chmod 644 $1
+  PTXT "$INFO Checking AdGuardHome configuration..."
+  ${TARG_DIR}/AdGuardHome --check-config "$1"
+  if [ "$?" -ne 0 ]; then
+    PTXT "$INFO Move invalid configuration file to $YAML_ERR" \
+      "$INFO Operation will continue with clean config file."
+    mv "$1" "$YAML_ERR"
+    setup_AdGuardHome_impl x
+  else
+    cp -a "$1" "$YAML_BAK"
+    mv "$YAML_BAK" "$YAML_FILE"
+  fi   
+}
+
+check_dns_environment () {
+  if [ -f "/opt/etc/init.d/S61stubby" ] || [ -f "/opt/sbin/stubby" ] || [ -f "/opt/bin/install_stubby" ] || [ -f "/jffs/scripts/install_stubby.sh" ]; then
+    PTXT "$ERROR Potential stubby installation detected." \
+      "$ERROR Please remove before attempting to continue." \
+      "$ERROR Exiting..."
+    exit 1
+  fi    
+  local DNSPRIV
+  DNSPRIV="$(nvram get dnspriv_enable)"
+  if [ "$DNSPRIV" -ne 0 ]; then
+    PTXT "$INFO Setting up Correct DNS Environment."
+    nvram set dnspriv_enable=0
+    nvram commit
+    killall -q -9 stubby
+    service restart_dnsmasq >/dev/null 2>&1
+    PTXT "$INFO DNS Environment is Ready."
+  else
+    PTXT "$INFO DNS Environment is Ready."
+  fi
+
+}
+
+check_dns_filter () {
+  local DNSFIL
+  DNSFIL="$(nvram get dnsfilter_enable_x)"
+  local USE_SOME
+  if [ "$1" -eq 0 ] && [ "$DNSFIL" -ne 0 ]; then
+    nvram set dnsfilter_enable_x="0"
+    nvram commit
+    service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1
+    PTXT "$INFO DNS will not be forced through this proxy."
+    return
+  fi
+  if [ "$1" -eq 1 ] && [ "$DNSFIL" -ne 1 ]; then
+    nvram set dnsfilter_enable_x="1"
+    USE_SOME=1
+  elif [ "$1" -eq 1 ] && [ "$DNSFIL" -ne 0 ]; then
+    PTXT "$INFO DNSFilter is Already on." \
+      "$INFO You can choose to keep any custom dnsfilter values and only redirect non-custom traffic or send all traffic through to AdGuardHome."
+    read_yesno "Do you want to redirect only SOME DNS resolutions on your network through AdGuardHome?" && USE_SOME="0" || USE_SOME="1"
+  fi
+  if [ "$USE_SOME" -eq 0 ]; then
+    nvram set dnsfilter_mode="11"
+    nvram commit
+    service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1
+    PTXT "$INFO DNSFilter is set to control DNS through this proxy, while leaving any Custom Rules and Values."
+    return
+  fi
+  if [ "$USE_SOME" -eq 1 ]; then
+    nvram set dnsfilter_custom1=""
+    nvram set dnsfilter_custom2=""
+    nvram set dnsfilter_custom3=""
+    nvram set dnsfilter_mode="11"
+    nvram set dnsfilter_rulelist=""
+    nvram set dnsfilter_rulelist1=""
+    nvram set dnsfilter_rulelist2=""
+    nvram set dnsfilter_rulelist3=""
+    nvram set dnsfilter_rulelist4=""
+    nvram set dnsfilter_rulelist5=""
+    nvram set dhcp_dns1_x=""
+    nvram set dhcp_dns2_x=""
+    nvram set dhcpd_dns_router="1"
+    nvram commit
+    service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1
+    PTXT "$INFO DNS is set to redirect All DNS resolutions through this proxy."
+    return
+  fi
+}
+
+check_jffs_enabled () {
+  if [ "$(nvram get jffs2_format)" = "1" ]; then
+    PTXT "$ERROR JFFS partition is scheduled to be reformatted." \
+      "$ERROR Please reboot to format or disable that setting and try again." \
+      "$ERROR Exiting..."
+    exit 1
+  fi
+  local JFFS2_SCRIPTS
+  local JFFS2_ENABLED
+  local jffs2_on
+  JFFS2_SCRIPTS="$(nvram get jffs2_scripts)"
+  [ -z "$(nvram get jffs2_enable)" ] && JFFS2_ENABLED="$(nvram get jffs2_on)" || JFFS2_ENABLED="$(nvram get jffs2_enable)"
+  [ -z "$(nvram get jffs2_enable)" ] && jffs2_on="jffs2_on" || jffs2_on="jffs2_enable"
+  if [ "$JFFS2_ENABLED" -ne 1 ] || [ "$JFFS2_SCRIPTS" -ne 1 ]; then
+    PTXT "$INFO JFFS custom scripts and configs are not enabled." \
+      "$INFO Enabling them now!"
+    nvram set ${jffs2_on}=1
+    nvram set jffs2_scripts=1
+    nvram commit
+  else
+    PTXT "$INFO JFFS custom scripts and configs are already enabled."
+  fi
+}
+
+check_version () {
+  if [ -f "${TARG_DIR}/installer" ] && [ -f "${TARG_DIR}/AdGuardHome" ]; then
+    local NW_STATE
+    local RES_STATE
+    ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1
+    NW_STATE="$?"
+    nslookup google.com >/dev/null 2>&1
+    RES_STATE="$?"
+    if [ -z "$(pidof AdGuardHome)" ] || [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then
+      PTXT "$ERROR No Internet Detected or AdGuardHome is Dead, Skipping Version Check."
+    else
+      local RURL
+      local RMNSTALL
+      local LINSTALL
+      local MD5SUM_L
+      local MD5SUM_R
+      RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/master/installer"
+      LINSTALL="v$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
+      RMNSTALL="v$(curl -sL "$RURL" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
+      MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)"
+      MD5SUM_R="$(curl -fsL "$RURL" | md5sum | awk '{print $1}')"
+      [ -z "$LINSTALL" ] && exit 1
+      [ -z "$RMNSTALL" ] && exit 1
+      if [ "$RMNSTALL" != "$LINSTALL" ]; then
+        PTXT "$INFO New AI_VERSION=${RMNSTALL} Available!" \
+          "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
+      elif [ "$MD5SUM_R" = "$MD5SUM_L" ]; then
+        PTXT "$INFO AI_VERSION=$LINSTALL"
+      else
+        PTXT "$INFO AI_VERSION=${LINSTALL}, but a New Minor Update is Available!" \
+          "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
+      fi
+      local LVERSION
+      LVERSION="$LOCAL_VER"
+      [ -z "$LVERSION" ] && exit 1
+      [ -z "$REMOTE_VER" ] && exit 1
+      if [ "$REMOTE_VER" != "$LVERSION" ]; then
+        PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
+          "$INFO Run Option 1 of the Installer to upgrade AdGuardHome."
+      else
+        PTXT "$INFO ADGUARDHOME_VER=${LVERSION}"
+      fi
+    fi
+  fi
+}
+
+create_dir () {
+  mkdir -p "$1"
+  if [ "$?" -ne 0 ]; then
+    PTXT "$ERROR Unable to create $1!"
+    return 1
+  fi
+}
+
+del_between_magic () {
+  local TARG
+  TARG="$1"
+  local MAGIC
+  MAGIC="$2"
+  [ -f "$TARG" ] || return
+  local BOUNDS 
+  BOUNDS="$(awk -v PATT="$MAGIC" '($0 ~ PATT) {printf NR","}' "$TARG")"
+  if [ "$BOUNDS" ]; then
+    sed -i "${BOUNDS%,}d" "$TARG"
+  fi
+}
+
+download_file () {
+  local TARG
+  TARG="$1"; shift
+  local PERM
+  PERM="$1"; shift
+  local URL
+  local FILENAME
+  local MD5SUM_OLD
+  local MD5SUM_CURR
+  for URL in "$@"; do
+    FILENAME="$(basename "$URL")"
+    MD5SUM_OLD="$([ -f "${TARG}/${FILENAME}" ] && md5sum "${TARG}/${FILENAME}" | cut -d' ' -f1)"
+    MD5SUM_CURR="$(curl -fsL "$URL" | md5sum | awk '{print $1}')"
+    if [ "$(PTXT -n "$MD5SUM_CURR" | wc -c)" -eq 32 ] && [ "$MD5SUM_CURR" = "$MD5SUM_OLD" ]; then
+      PTXT "$INFO $FILENAME is up to date. Skipping..."
+    else
+      local COUNT
+      COUNT="0"
+      while [ "$COUNT" -lt 3 ]; do
+        PTXT "$INFO Downloading $FILENAME"
+        curl -L -k -s "$URL" -o "${TARG}/${FILENAME}"
+        if [ "$?" -eq 0 ]; then
+          chmod "$PERM" "${TARG}/${FILENAME}"
+          break
+        fi
+        COUNT="$((COUNT+1))"
+      done
+      if [ "$COUNT" -eq 3 ]; then
+        PTXT "$ERROR Unable to download ${BOLD}${URL}${NORM}"
+      fi
+    fi
+  done
+}
+
+end_op_message () {
+  [ "$1" = "0" ] && PTXT "$INFO Operation completed. You can quit or continue"
+  [ "$1" = "1" ] && PTXT "$INFO Operation aborted. You can quit or continue"
+  PTXT "====================================================="
+  PTXT " "
+  PTXT " "
+  sleep 3
+  if [ ! -f "${TARG_DIR}/installer" ]; then
+    chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1 && exec "$SCRIPT_LOC" && exit
+  else
+    chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1 && exec "${TARG_DIR}/installer" && exit
+  fi
+}
+
+inst_AdGuardHome () {
+  local ADGUARD_TAR
+  ADGUARD_TAR=AdGuardHome_${ADGUARD_ARCH}.tar.gz
+  local RURL
+  RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/master/installer"
+  if [ ! -d "$TARG_DIR" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
+    PTXT "$INFO Backup is detected."
+    local USE_OLD
+    read_yesno "Do you want Restore instead?" && USE_OLD="YES" || USE_OLD="NO"
+    if [ "$USE_OLD" = "YES" ]; then
+      PTXT "$INFO Installing from an old backup!"
+      backup_restore RESTORE
+    elif [ "$USE_OLD" = "NO" ]; then
+      PTXT "$INFO Continuing without restoring from backup!"
+    fi
+  elif [ -d "$TARG_DIR" ] && [ -f "${TARG_DIR}/AdGuardHome" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
+    read_yesno "Do you want create a backup before updating?" && backup_restore BACKUP 0 || PTXT "$INFO continuing without making a backup."
+  fi
+  local NW_STATE
+  local RES_STATE
+  ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1
+  NW_STATE="$?"
+  nslookup google.com >/dev/null 2>&1
+  RES_STATE="$?"
+  if [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then
+    PTXT "$ERROR Unable to detect the Internet!"
+    end_op_message
+    return
+  fi
+  create_dir "$TARG_DIR"
+  if [ "$?" -ne 0 ]; then
+    end_op_message
+    return
+  fi  
+  download_file "$TARG_DIR" 755 "$RURL"
+  if [ -f "${TARG_DIR}/AdGuardHome" ]; then
+    local LVERSION
+    LVERSION="$LOCAL_VER"
+    [ -z "$LVERSION" ] && exit 1
+    [ -z "$REMOTE_VER" ] && exit 1
+    if [ "$REMOTE_VER" != "$LVERSION" ]; then
+      PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
+        "$INFO Updating ADGUARDHOME_VER=${LVERSION} to $REMOTE_VER ."
+      download_file "$TARG_DIR" 644 "https://static.adguard.com/adguardhome/release/${ADGUARD_TAR}"
+      tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}"
+      if [ "$?" -ne 0 ]; then
+        PTXT "$ERROR Unable to download AdGuardHome package for your router"
+        end_op_message
+        return
+      fi
+      chown "$(nvram get http_username)":root ${TARG_DIR}/*
+      rm -r "${BASE_DIR}/${ADGUARD_TAR}"
+      chmod 755 "${TARG_DIR}/AdGuardHome"
+      ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
+    else
+      PTXT "$INFO ADGUARDHOME_VER=${LVERSION}"
+    fi
+  else
+    download_file "$TARG_DIR" 644 "https://static.adguard.com/adguardhome/release/${ADGUARD_TAR}"
+    tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}"
+    if [ "$?" -ne 0 ]; then
+      PTXT "$ERROR Unable to download AdGuardHome package for your router"
+      end_op_message
+      return
+    fi
+      chown "$(nvram get http_username)":root ${TARG_DIR}/*
+      rm -r "${BASE_DIR}/${ADGUARD_TAR}"
+      chmod 755 "${TARG_DIR}/AdGuardHome"
+      ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
+  fi
+  write_command_script /jffs/scripts/dnsmasq.postconf "[ "$(pidof AdGuardHome)" ] && printf "port=553\nlocal=/192.in-addr.arpa/\nlocal=/10.in-addr.arpa/\n" >> $1 #Asuswrt-Merlin AdGuardHome Installer"
+  write_command_script /opt/etc/init.d/S61AdGuardHome "ENABLED=yes
+WORK_DIR=/opt/etc/AdGuardHome
+PROCS=AdGuardHome
+ARGS="-c $WORK_DIR/AdGuardHome.yaml -w "$WORK_DIR" --no-check-update -l syslog"
+PREARGS="nohup"
+PRECMD="killall -9 dnsmasq"
+POSTCMD="service restart_dnsmasq >/dev/null 2>&1"
+DESC=$PROCS
+PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export TZ=$(cat /etc/TZ)
+. /opt/etc/init.d/rc.func"
+  opkg install go
+  export PATH=$PATH:/opt/bin/go/bin
+  export GOROOT=/opt/bin/go
+  export GOBIN=/opt/bin/
+  go install gophers.dev/cmds/bcrypt-tool@latest
+  setup_AdGuardHome
+  if [ "$?" -ne 0 ]; then
+    end_op_message
+    return
+  fi
+  PTXT "$INFO Starting AdGuardHome..."
+  /opt/etc/init.d/S61AdGuardHome start
+  sleep 1
+  if [ -z "$(pidof AdGuardHome)" ]; then
+    PTXT "$ERROR Couldn't start AdGuardHome" \
+      "$ERROR Please send WebUI System Log to dev"
+    end_op_message
+    return
+  fi
+  AdGuard_restart
+  PTXT "$INFO AdGuardHome setup is complete." \
+    "$INFO  To visit AdGuardHome," \
+    "$INFO  please go to http://router.asus.com:14711 ." \
+    "$INFO  You can use the WebUI to change things to your liking!"
+  end_op_message 0
+}
+
+AdGuard_restart () {
+  local MAN_PID 
+  MAN_PID="$(pidof AdGuardHome)"
+  local PID
+  if [ "$MAN_PID" ]; then
+    for PID in $MAN_PID; do
+      if [ "$(awk '{ print }' "/proc/${PID}/cmdline" | grep AdGuardHome)" ]; then
+        kill -9 "$PID"
+        break
+      fi
+    done
+  fi
+  /opt/etc/init.d/S61AdGuardHome start
+}
+  
+
+read_input_dns () {
+  PTXT -n "$INPUT $1 ${BOLD}${2}: ${NORM}"
+  local DNS_SERVER
+  read DNS_SERVER
+  [ -z "$DNS_SERVER" ] && DNS_SERVER="$2"
+  if [ "$(PTXT "$DNS_SERVER" | awk -F'.' 'NF != 4 || $1 < 0 || $1 > 255 || $2 < 0 || $2 > 255 || $3 < 0 || $3 > 255 || $4 < 0 || $4 > 255 {print}')" ]; then
+    PTXT "$ERROR Invalid DNS server address entered"
+    read_input_dns "$@"
+  fi
+  case "$1" in
+    "Default is")
+      BOOTSTRAP1="$DNS_SERVER"
+      ;;
+    "2nd Default is")
+      BOOTSTRAP2="$DNS_SERVER"
+      ;;
+  esac
+}
+
+read_input_num () {
+  local RANGE
+  [ -z "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}]"
+  [ -n "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}]"
+  [ -n "$4" ] && [ -n "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}/${5}]"
+  [ -n "$4" ] && [ -n "$5" ] && [ -n "$6" ] && RANGE="[${2}-${3}/${4}/${5}/${6}]"  
+  PTXT -n "$INPUT $1, ${BOLD}${RANGE}${NORM}: "
+  read CHOSEN
+  case "$1" in
+    "Set log level, default is 2, 0 is the most verbose")
+      [ -z "$CHOSEN" ] && CHOSEN="2"
+      ;;
+    "Select your strategy"|"Select your mode")
+      [ -z "$CHOSEN" ] && CHOSEN="1"
+      ;;
+  esac
+  case "$CHOSEN" in
+    "$4"|"$5"|"$6")
+      return 1
+      ;;
+  esac
+  if [ -z "$(PTXT "$CHOSEN" | grep -E '^[0-9]+$')" ]; then
+    PTXT "$ERROR Invalid character entered! Retrying..."
+    read_input_num "$@"
+    return
+  fi
+  if [ "$CHOSEN" -lt "$2" ] || [ "$CHOSEN" -gt "$3" ] ; then
+    PTXT "$ERROR Chosen number is not in range! Retrying..."
+    read_input_num "$@"
+    return
+  fi
+}
+
+read_yesno () {
+  PTXT -n "$INPUT $1 ${BOLD}[y/n]${NORM}: "
+  local YESNO
+  read YESNO
+  case "$YESNO" in
+    y|Y)
+      return 0
+      ;;
+    n|N)
+      return 1
+      ;;
+    *)
+      PTXT "$ERROR Invalid input!"
+      read_yesno "$@"
+      ;;
+  esac
+}
+
+setup_AdGuardHome () {
+  if [ ! -d "${TARG_DIR}" ] || [ ! -f "${TARG_DIR}/AdGuardHome" ]; then
+    PTXT "$ERROR AdGuardHome is not installed. Aborting..."
+    end_op_message
+    return
+  fi
+  PTXT "$INFO Configuring AdGuardHome..."
+  setup_AdGuardHome_impl
+}
+
+setup_AdGuardHome_impl () {
+   if [ -z "$1" ]; then
+      read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?" && check_dns_filter 1 || check_dns_filter 0
+   fi
+   if [ ! -f "$YAML_ORI" ] || [ ! -f "$YAML_FILE" ]; then
+     PTXT "$INFO Requesting entries for the for AdGuardHome initial configuration..."
+     PTXT "bind_host: 0.0.0.0" \
+       "bind_port: 14711" > "$YAML_ORI"
+     PTXT "$INFO Set the Username and Password which will be encrypted to the yaml file."
+     AdGuardHome_authen 1
+     PTXT "dns:" \  
+          "bind_host: 0.0.0.0" \
+          "port: 53" >> "$YAML_ORI"
+     PTXT "$INFO Set the DNS server(s) for initializing AdGuardHome" \
+       "$INFO and router services (e.g. ntp) at boot"
+     read_input_dns "Default is" 9.9.9.9
+     read_input_dns "2nd Default is" 8.8.8.8
+     PTXT "  bootstrap_dns:" \
+          "  - $BOOTSTRAP1" \
+          "  - $BOOTSTRAP2" >> "$YAML_ORI"
+     PTXT "  upstream_dns:" \
+          "  - $BOOTSTRAP1" \
+          "  - $BOOTSTRAP2" >> "$YAML_ORI"
+     PTXT "$INFO Writing AdGuardHome configuration..."
+     check_AdGuardHome_yaml $YAML_ORI
+     if [ "$?" -ne 0 ]; then
+       PTXT "$INFO Writing AdGuardHome configuration failed " \
+        "$INFO Please send $YAML_ERR file and screen log of " \
+        "$INFO all operations you have made to this script dev"
+       return 1
+     fi
+  elif [ -f "$YAML_FILE" ]; then
+    check_AdGuardHome_yaml $YAML_FILE
+  fi
+}
+
+yaml_nvars_insert () {
+  PATTERN="$(_quote "$1")"
+  CONTENT="$(_quote "$2")"
+  sed -i "/${PATTERN}/a${CONTENT}" "$3"
+}
+
+yaml_nvars_replace () {
+  PATTERN="$(_quote "$1")"
+  CONTENT="$(_quote "$2")"
+  sed -i "s/${PATTERN}/${CONTENT}/" "$3"
+}
+
+yaml_nvars_append () {
+  echo "$1" >> "$2"
+}
+
+yaml_nvars_delete () {
+  PATTERN="$(_quote "$1")"
+  sed -i "/${PATTERN}/d" "$2"
+}
+
+uninst_all () {
+  if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
+    PTXT "$INFO Old Backup Detected!"
+    read_yesno "Do you want to remove backup?(this will prevent resorting later)" && rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz" || PTXT "$INFO Keeping backup instead."
+  fi
+  rm -rf "$TARG_DIR"
+  rm -rf "/opt/etc/init.d/S61AdGuardHome"
+  yaml_nvars_delete "[ "$(pidof AdGuardHome)" ] && printf "port=553\nlocal=/192.in-addr.arpa/\nlocal=/10.in-addr.arpa/\n" >> $1 #Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf 
+  killall -q -9 AdGuardHome
+  local MAN_PID
+  MAN_PID="$(pidof AdGuardHome)"
+  local PID
+  if [ "$MAN_PID" ]; then
+    for PID in $MAN_PID; do
+      if [ "$(awk '{ print }' "/proc/${PID}/cmdline" | grep AdGuardHome)" ]; then
+        kill -9 "$PID"
+        break
+      fi
+    done
+  fi
+  service restart_dnsmasq >/dev/null 2>&1
+  end_op_message 0
+}
+
+write_command_script () {
+  local TARG
+  TARG="$1"
+  local COMMAND 
+  COMMAND="$2"
+  local FILENAME
+  FILENAME="$(basename "$TARG")"
+  if [ ! -f "$TARG" ]; then
+    PTXT "$INFO Creating $FILENAME file"
+    echo "#!/bin/sh" > "$TARG"
+  fi
+  chmod 755 "$TARG"
+  if [ "$(grep -c -F "$COMMAND" "$TARG")" -gt 0 ]; then
+    PTXT "$INFO $FILENAME file already configured"
+  else
+    PTXT "$INFO Configure $FILENAME file"
+    echo "$COMMAND" >> "$TARG"
+  fi
+}
+
+[ "$1" ] && BRANCH="$1" || BRANCH="master"
+[ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
+ROUTER_OS="$(uname)"
+ROUTER_ARCH="$(uname -m)"
+URL_GEN="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}/gen"
+URL_ARCH="https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/raw/${BRANCH}"
+
+clear
+
+sed -n '2,24p' "$0"
+
+case "$ROUTER_MODEL" in
+  #RT-AX56U|RT-AX58U|RT-AX3000)
+  #  PTXT "$ERROR This is an unsupported router, sorry."
+  #  exit 1
+  #  ;;
+  *)
+    PTXT "$INFO Detected $ROUTER_MODEL router."
+    ;;
+esac
+
+case "$ROUTER_OS" in
+  "Linux")
+    PTXT "$INFO Detected $ROUTER_OS platform."
+    ROUTER_OS="linux"
+    ;;
+  *)
+    PTXT "$ERROR This is an unsupported platform, sorry."
+    exit 1
+    ;;
+esac
+
+case "$ROUTER_ARCH" in 
+  "aarch64"|"arm64")
+    ROUTER_ARCH="arm64"
+    ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
+    PTXT "$INFO Detected ARMv8 architecture."
+    ;;
+  "armv7l")
+    ROUTER_ARCH="armv5"
+    ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
+    PTXT "$INFO Detected ARMv7 architecture."
+    ;;
+  *)
+    PTXT "$ERROR This is an unsupported architecture, sorry."
+    exit 1
+    ;;
+esac
+
+check_jffs_enabled
+check_dns_environment
+check_version
+
+menu () {
+  PTXT "$INFO Choose what you want to do:" \
+   "  1) Install/Update AdGuardHome" \
+   "  2) Uninstall"
+  [ -d "$TARG_DIR" ] && [ -f "${TARG_DIR}/AdGuardHome" ] && PTXT "  b) Backup"
+  [ -d "$TARG_DIR" ] && [ -f "${TARG_DIR}/AdGuardHome" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && PTXT "  r) Restore"
+  PTXT "  q) Quit"
+  [ ! -d "$TARG_DIR" ] || [ ! -f "${TARG_DIR}/AdGuardHome" ] && read_input_num "Please enter the number that designates your selection:" 1 2 q
+  [ -d "$TARG_DIR" ] && [ -f "${TARG_DIR}/AdGuardHome" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && read_input_num "Please enter the number that designates your selection:" 1 2 b q
+  [ -d "$TARG_DIR" ] && [ -f "${TARG_DIR}/AdGuardHome" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && read_input_num "Please enter the number that designates your selection:" 1 2 b r q
+  case "$CHOSEN" in
+    1)
+      PTXT "$INFO This operation will install AdGuardHome and related files (<6MB)" \
+        "$INFO to ENTWARE, no other data will be changed." \
+        "$INFO Also some start scripts will be installed/modified as required."
+      read_yesno "Do you want to install AdGuardHome to ENTWARE?" && inst_AdGuardHome || end_op_message 1
+      ;;
+    2)
+      PTXT "$INFO This operation will cleanup everything installed by this script."
+      read_yesno "Do you want to continue?" && uninst_all || end_op_message 1
+      ;;
+    b|B)
+      PTXT "$INFO This operation will backup everything!"
+      read_yesno "Do you want to continue?" && backup_restore BACKUP || end_op_message 1
+      ;;
+    r|R)
+      PTXT "$INFO This operation will restore everything!"
+      read_yesno "Do you want to continue?" && backup_restore RESTORE || end_op_message 1
+      ;;
+    q|Q)
+      PTXT "$INFO Operations have been applied if any has been made" \
+        "$INFO In case of anomaly, please reboot your router!"
+      sleep 3
+      clear
+      ;;
+  esac
+}
+
+menu
+
