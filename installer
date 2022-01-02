@@ -427,7 +427,7 @@ inst_AdGuardHome () {
     if [ "$REMOTE_VER" != "$LVERSION" ]; then
       PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
         "$INFO Updating ADGUARDHOME_VER=${LVERSION} to $REMOTE_VER ."
-      download_file "$TARG_DIR" 644 "https://static.adguard.com/adguardhome/release/${ADGUARD_TAR}"
+      download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/release/${ADGUARD_TAR}"
       tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}"
       if [ "$?" -ne 0 ]; then
         PTXT "$ERROR Unable to download AdGuardHome package for your router"
