@@ -136,6 +136,7 @@ backup_restore () {
     export GOROOT=/opt/bin/go
     export GOBIN=/opt/bin/
     go install gophers.dev/cmds/bcrypt-tool@latest
+    rm -rf go
     setup_AdGuardHome
     if [ "$?" -ne 0 ]; then
       end_op_message
