@@ -117,7 +117,7 @@ backup_restore () {
     chmod 755 "${TARG_DIR}/AdGuardHome"
     chmod 644 "${TARG_DIR}/AdGuardHome.yaml"
     ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
-    write_command_script /jffs/scripts/dnsmasq.postconf "[ "$(pidof AdGuardHome)" ] && printf "port=553\nlocal=/192.in-addr.arpa/\nlocal=/10.in-addr.arpa/\n" >> $1 #Asuswrt-Merlin AdGuardHome Installer"
+    write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "port=553\nlocal=/192.in-addr.arpa/\nlocal=/10.in-addr.arpa/\n" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
     write_command_script /opt/etc/init.d/S61AdGuardHome "ENABLED=yes
 WORK_DIR=/opt/etc/AdGuardHome
 PROCS=AdGuardHome
@@ -454,7 +454,7 @@ inst_AdGuardHome () {
       chmod 755 "${TARG_DIR}/AdGuardHome"
       ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
   fi
-  write_command_script /jffs/scripts/dnsmasq.postconf "[ "$(pidof AdGuardHome)" ] && printf "port=553\nlocal=/192.in-addr.arpa/\nlocal=/10.in-addr.arpa/\n" >> $1 #Asuswrt-Merlin AdGuardHome Installer"
+  write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "port=553\nlocal=/192.in-addr.arpa/\nlocal=/10.in-addr.arpa/\n" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
   write_command_script /opt/etc/init.d/S61AdGuardHome "ENABLED=yes
 WORK_DIR=/opt/etc/AdGuardHome
 PROCS=AdGuardHome
