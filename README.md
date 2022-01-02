@@ -34,6 +34,10 @@ Run this command from ssh shell and following the prompt for AdGuardHome:
 ```
 curl -L -s -k -O https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/master/installer && sh installer ; rm installer
 ```
+# Commands to Stop/Start/Restart AdGuardHome
+```
+/opt/etc/init.d/S61AdGuardHome {stop|start|restart}
+```
 # How to check if it works
 Run this command in the ssh shell:
 ```
