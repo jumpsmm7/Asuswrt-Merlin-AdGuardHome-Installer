@@ -132,7 +132,7 @@ backup_restore () {
          '. /opt/etc/init.d/rc.func' > /opt/etc/init.d/S61AdGuardHome
     chmod 755 /opt/etc/init.d/S61AdGuardHome
     opkg install go
-    export PATH=$PATH:/opt/bin/go/bin
+    export PATH="$PATH":/opt/bin/go/bin
     export GOROOT=/opt/bin/go
     export GOBIN=/opt/bin/
     go install gophers.dev/cmds/bcrypt-tool@latest
@@ -171,7 +171,7 @@ backup_restore () {
 
 check_AdGuardHome_yaml () {
   [ ! -f "$1" ] && return
-  chmod 644 $1
+  chmod 644 "$1"
   PTXT "$INFO Checking AdGuardHome configuration..."
   ${TARG_DIR}/AdGuardHome --check-config -c "$1"
   if [ "$?" -ne 0 ]; then
@@ -531,7 +531,6 @@ AdGuard_restart () {
   /opt/etc/init.d/S61AdGuardHome start
 }
   
-
 read_input_dns () {
   PTXT -n "$INPUT $1 ${BOLD}${2}: ${NORM}"
   local DNS_SERVER
@@ -628,17 +627,16 @@ setup_AdGuardHome_impl () {
      PTXT "$INFO Set the DNS server(s) for initializing AdGuardHome" \
        "$INFO and router services (e.g. ntp) at boot"
      read_input_dns "Default is" 9.9.9.9
-     read_input_dns "2nd Default is" 8.8.8.8
-     PTXT "  bootstrap_dns:" \
-          "  - $BOOTSTRAP1" \
-          "  - $BOOTSTRAP2" >> "$YAML_ORI"
+     read_input_dns "2nd Default is" 8.8.8.8     local DOMAIN
+     [ ! -z "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)"
+     [ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="$DOMAIN" && nvram commit     
      PTXT "  upstream_dns:" \
           "  - $BOOTSTRAP1" \
-          "  - $BOOTSTRAP2" >> "$YAML_ORI"
-     local DOMAIN
-     [ ! -z "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)"
-     [ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="$DOMAIN" && nvram commit
-     PTXT "  resolve_clients: true" \
+          "  - $BOOTSTRAP2" \
+          "  bootstrap_dns:" \
+          "  - $BOOTSTRAP1" \
+          "  - $BOOTSTRAP2" \
+          "  resolve_clients: true" \
           "  use_private_ptr_resolvers: true" \
           "  local_ptr_upstreams:" \
 	  "  - '[/10.in-addr.arpa/]$(nvram get lan_ipaddr):553'" \
@@ -723,10 +721,8 @@ write_command_script () {
 
 [ "$1" ] && BRANCH="$1" || BRANCH="master"
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
-ROUTER_OS="$(uname)"
-ROUTER_ARCH="$(uname -m)"
-URL_GEN="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}/gen"
-URL_ARCH="https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/raw/${BRANCH}"
+ROUTER_OS="$(/bin/uname)"
+ROUTER_ARCH="$(/bin/uname -m)"
 
 clear
 
