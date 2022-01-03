@@ -634,6 +634,9 @@ setup_AdGuardHome_impl () {
      PTXT "  upstream_dns:" \
           "  - $BOOTSTRAP1" \
           "  - $BOOTSTRAP2" \
+	  "  bootstrap_dns:" \
+          "  - $BOOTSTRAP1" \
+          "  - $BOOTSTRAP2" \
           "  resolve_clients: true" \
           "  use_private_ptr_resolvers: true" \
           "  local_ptr_upstreams:" \
