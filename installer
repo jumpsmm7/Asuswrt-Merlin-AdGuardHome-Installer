@@ -627,7 +627,8 @@ setup_AdGuardHome_impl () {
      PTXT "$INFO Set the DNS server(s) for initializing AdGuardHome" \
        "$INFO and router services (e.g. ntp) at boot"
      read_input_dns "Default is" 9.9.9.9
-     read_input_dns "2nd Default is" 8.8.8.8     local DOMAIN
+     read_input_dns "2nd Default is" 8.8.8.8
+     local DOMAIN
      [ ! -z "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)"
      [ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="$DOMAIN" && nvram commit     
      PTXT "  upstream_dns:" \
