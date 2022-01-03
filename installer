@@ -199,20 +199,15 @@ check_dns_environment () {
     nvram set dnspriv_enable=0
     nvram commit
     killall -q -9 stubby
-    nvram set dhcp_dns1_x="$(nvram get lan_ipaddr)"
-    nvram set dhcp_dns2_x=""
-    nvram set dhcpd_dns_router="1"
-    nvram commit
     PTXT "$INFO DNS Environment is Ready."
   else
     PTXT "$INFO DNS Environment is Ready."
-    nvram set dhcp_dns1_x="$(nvram get lan_ipaddr)"
-    nvram set dhcp_dns2_x=""
-    nvram set dhcpd_dns_router="1"
-    nvram commit
-    service restart_dnsmasq >/dev/null 2>&1
   fi
-
+  nvram set dhcp_dns1_x="$(nvram get lan_ipaddr)"
+  nvram set dhcp_dns2_x=""
+  nvram set dhcpd_dns_router="1"
+  nvram commit
+  service restart_dnsmasq >/dev/null 2>&1
 }
 
 check_dns_filter () {
