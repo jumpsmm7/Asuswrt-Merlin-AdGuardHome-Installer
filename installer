@@ -206,6 +206,7 @@ check_dns_environment () {
   nvram set dhcp_dns1_x=""
   nvram set dhcp_dns2_x=""
   nvram set dhcpd_dns_router="1"
+  nvram commit
   service restart_dnsmasq >/dev/null 2>&1
 }
 
