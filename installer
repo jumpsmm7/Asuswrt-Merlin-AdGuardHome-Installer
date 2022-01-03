@@ -17,11 +17,11 @@
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #                           
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        # 
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder         # 
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.0.0                               #       
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.0.1                               #       
 #                                                                                          #             
 ############################################################################################
 
-AI_VERSION="v1.0.0"
+AI_VERSION="v1.0.1"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | grep "tag_name" | head -1 | cut -d \" -f 4)"
 
@@ -199,10 +199,18 @@ check_dns_environment () {
     nvram set dnspriv_enable=0
     nvram commit
     killall -q -9 stubby
-    service restart_dnsmasq >/dev/null 2>&1
+    nvram set dhcp_dns1_x="$(nvram get lan_ipaddr)"
+    nvram set dhcp_dns2_x=""
+    nvram set dhcpd_dns_router="1"
+    nvram commit
     PTXT "$INFO DNS Environment is Ready."
   else
     PTXT "$INFO DNS Environment is Ready."
+    nvram set dhcp_dns1_x="$(nvram get lan_ipaddr)"
+    nvram set dhcp_dns2_x=""
+    nvram set dhcpd_dns_router="1"
+    nvram commit
+    service restart_dnsmasq >/dev/null 2>&1
   fi
 
 }
@@ -244,7 +252,7 @@ check_dns_filter () {
     nvram set dnsfilter_rulelist3=""
     nvram set dnsfilter_rulelist4=""
     nvram set dnsfilter_rulelist5=""
-    nvram set dhcp_dns1_x=""
+    nvram set dhcp_dns1_x="$(nvram get lan_ipaddr)"
     nvram set dhcp_dns2_x=""
     nvram set dhcpd_dns_router="1"
     nvram commit
@@ -632,6 +640,15 @@ setup_AdGuardHome_impl () {
      PTXT "  upstream_dns:" \
           "  - $BOOTSTRAP1" \
           "  - $BOOTSTRAP2" >> "$YAML_ORI"
+     local DOMAIN
+     [ ! -z "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)"
+     [ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="$DOMAIN" && nvram commit
+     PTXT "  resolve_clients: true" \
+          "  use_private_ptr_resolvers: true" \
+          "  local_ptr_upstreams:" \
+	  "  - '[/10.in-addr.arpa/]$(nvram get lan_ipaddr):553'" \
+          "  - '[/192.in-addr.arpa/]$(nvram get lan_ipaddr):553'" \
+          "  - '[/$DOMAIN/]$(nvram get lan_ipaddr):553'" >> "$YAML_ORI"
      PTXT "$INFO Writing AdGuardHome configuration..."
      check_AdGuardHome_yaml $YAML_ORI
      if [ "$?" -ne 0 ]; then
