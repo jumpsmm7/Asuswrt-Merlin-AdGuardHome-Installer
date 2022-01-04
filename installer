@@ -122,7 +122,7 @@ backup_restore () {
          'ENABLED=yes' \
          'WORK_DIR=/opt/etc/AdGuardHome' \
          'PROCS=AdGuardHome' \
-         'ARGS="-c $WORK_DIR/AdGuardHome.yaml -w "$WORK_DIR" --no-check-update -l syslog"' \
+         'ARGS="-s run -c $WORK_DIR/AdGuardHome.yaml -w "$WORK_DIR" --no-check-update -l syslog"' \
          'PREARGS="nohup"' \
          'PRECMD="killall -9 dnsmasq"' \
          'POSTCMD="service restart_dnsmasq >/dev/null 2>&1"' \
@@ -476,7 +476,7 @@ inst_AdGuardHome () {
        'ENABLED=yes' \
        'WORK_DIR=/opt/etc/AdGuardHome' \
        'PROCS=AdGuardHome' \
-       'ARGS="-c $WORK_DIR/AdGuardHome.yaml -w "$WORK_DIR" --no-check-update -l syslog"' \
+       'ARGS="-s run -c $WORK_DIR/AdGuardHome.yaml -w "$WORK_DIR" --no-check-update -l syslog"' \
        'PREARGS="nohup"' \
        'PRECMD="killall -9 dnsmasq"' \
        'POSTCMD="service restart_dnsmasq >/dev/null 2>&1"' \
