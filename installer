@@ -131,7 +131,21 @@ backup_restore () {
          'export TZ=$(cat /etc/TZ)' \
          '. /opt/etc/init.d/rc.func' > /opt/etc/init.d/S61AdGuardHome
     chmod 755 /opt/etc/init.d/S61AdGuardHome
-    opkg install go
+    case "$(/bin/uname -m)" in 
+    "aarch64"|"arm64")
+      opkg install go
+      ;;
+    "armv7l")
+      if [ -z "$(opkg list | grep -w 'go_nohf')" ]; then
+        opkg install go
+      else
+        opkg install go_nohf
+      fi
+      ;;
+    *)
+      opkg install go
+      ;;
+    esac
     export PATH="$PATH":/opt/bin/go/bin
     export GOROOT=/opt/bin/go
     export GOBIN=/opt/bin/
