@@ -118,8 +118,8 @@ backup_restore () {
     chmod 644 "${TARG_DIR}/AdGuardHome.yaml"
     ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
     yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-    [ "$(nvram get ipv6_fw_enable)" != "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/"' "local=/10.in-addr.arpa/" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
-    [ "$(nvram get ipv6_fw_enable)" = "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/"' "local=/10.in-addr.arpa/" '"local=/$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/"' >> $1 #Asuswrt-Merlin AdGuardHome Installer'
+    [ "$(nvram get ipv6_fw_enable)" != "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" ''"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/"'' "local=/10.in-addr.arpa/" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
+    [ "$(nvram get ipv6_fw_enable)" = "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" ''"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/"'' "local=/10.in-addr.arpa/" ''"local=/$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/"'' >> $1 #Asuswrt-Merlin AdGuardHome Installer'
     PTXT '#!/bin/sh' \
          'ENABLED=yes' \
          'WORK_DIR=/opt/etc/AdGuardHome' \
@@ -495,8 +495,8 @@ inst_AdGuardHome () {
       ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
   fi
   yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-  [ "$(nvram get ipv6_fw_enable)" != "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/"' "local=/10.in-addr.arpa/" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
-  [ "$(nvram get ipv6_fw_enable)" = "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/"' "local=/10.in-addr.arpa/" '"local=/$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/"' >> $1 #Asuswrt-Merlin AdGuardHome Installer'
+  [ "$(nvram get ipv6_fw_enable)" != "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" ''"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/"'' "local=/10.in-addr.arpa/" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
+  [ "$(nvram get ipv6_fw_enable)" = "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" ''"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/"'' "local=/10.in-addr.arpa/" ''"local=/$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/"'' >> $1 #Asuswrt-Merlin
   PTXT '#!/bin/sh' \
        'ENABLED=yes' \
        'WORK_DIR=/opt/etc/AdGuardHome' \
