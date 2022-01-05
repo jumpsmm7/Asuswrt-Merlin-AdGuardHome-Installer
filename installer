@@ -117,7 +117,9 @@ backup_restore () {
     chmod 755 "${TARG_DIR}/AdGuardHome"
     chmod 644 "${TARG_DIR}/AdGuardHome.yaml"
     ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
-    write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "port=553\nlocal=/192.in-addr.arpa/\nlocal=/10.in-addr.arpa/\n" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
+    yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
+    [ "$(nvram get ipv6_fw_enable)" != "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "port=553\nlocal=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\nlocal=/10.in-addr.arpa/\n" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
+    [ "$(nvram get ipv6_fw_enable)" = "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "port=553\nlocal=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\nlocal=/10.in-addr.arpa/\nlocal=/$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/\n" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
     PTXT '#!/bin/sh' \
          'ENABLED=yes' \
          'WORK_DIR=/opt/etc/AdGuardHome' \
@@ -492,7 +494,9 @@ inst_AdGuardHome () {
       chmod 755 "${TARG_DIR}/AdGuardHome"
       ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
   fi
-  write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "port=553\nlocal=/192.in-addr.arpa/\nlocal=/10.in-addr.arpa/\n" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
+  yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
+  [ "$(nvram get ipv6_fw_enable)" != "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "port=553\nlocal=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\nlocal=/10.in-addr.arpa/\n" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
+  [ "$(nvram get ipv6_fw_enable)" = "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "port=553\nlocal=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\nlocal=/10.in-addr.arpa/\nlocal=/$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/\n" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
   PTXT '#!/bin/sh' \
        'ENABLED=yes' \
        'WORK_DIR=/opt/etc/AdGuardHome' \
@@ -677,8 +681,12 @@ setup_AdGuardHome_impl () {
           "  use_private_ptr_resolvers: true" \
           "  local_ptr_upstreams:" \
 	  "  - '[/10.in-addr.arpa/]$(nvram get lan_ipaddr):553'" \
-          "  - '[/192.in-addr.arpa/]$(nvram get lan_ipaddr):553'" \
-          "  - '[/$DOMAIN/]$(nvram get lan_ipaddr):553'" >> "$YAML_ORI"
+          "  - '[/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/]$(nvram get lan_ipaddr):553'" \
+          "  - '[/$DOMAIN/]$(nvram get lan_ipaddr):553'" \
+          "  - '[/router.asus.com/]$(nvram get lan_ipaddr):553'" \
+          "  - '[/www.asusnetwork.net/]$(nvram get lan_ipaddr):553'" \
+          "  - '[/www.asusrouter.com/]$(nvram get lan_ipaddr):553'" >> "$YAML_ORI"
+     [ "$(nvram get ipv6_fw_enable)" = "1" ] && PTXT "  - '[/$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/]$(nvram get ipv6_rtr_addr):553'" >> "$YAML_ORI"
      PTXT "$INFO Writing AdGuardHome configuration..."
      check_AdGuardHome_yaml $YAML_ORI
      if [ "$?" -ne 0 ]; then
