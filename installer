@@ -81,7 +81,7 @@ AdGuardHome_authen () {
     AdGuardHome_authen 1
   fi
   local PW1_ENCRYPTED
-  PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"
+  PW1_ENCRYPTED="$(/opt/bin/htpasswd -B -n -b ${USERNAME} ${PW1} | sed 's/.*://')"
   PTXT "users:" \
     "- name: ${USERNAME}" \
     "  password: ${PW1_ENCRYPTED}" >> $YAML_ORI
@@ -134,26 +134,26 @@ backup_restore () {
          'export TZ=$(cat /etc/TZ)' \
          '. /opt/etc/init.d/rc.func' > /opt/etc/init.d/S61AdGuardHome
     chmod 755 /opt/etc/init.d/S61AdGuardHome
-    case "$(/bin/uname -m)" in 
-    "aarch64"|"arm64")
-      opkg install go
-      ;;
-    "armv7l")
-      if [ -z "$(opkg list | grep -w 'go_nohf')" ]; then
-        opkg install go
-      else
-        opkg install go_nohf
-      fi
-      ;;
-    *)
-      opkg install go
-      ;;
-    esac
-    export PATH="$PATH":/opt/bin/go/bin
-    export GOROOT=/opt/bin/go
-    export GOBIN=/opt/bin/
-    go install gophers.dev/cmds/bcrypt-tool@latest
-    rm -rf go
+    #case "$(/bin/uname -m)" in 
+    #"aarch64"|"arm64")
+    #  opkg install go
+    #  ;;
+    #"armv7l")
+    #  if [ -z "$(opkg list | grep -w 'go_nohf')" ]; then
+    #    opkg install go
+    #  else
+    #    opkg install go_nohf
+    #  fi
+    #  ;;
+    #*)
+    #  opkg install go
+    #  ;;
+    #esac
+    #export PATH="$PATH":/opt/bin/go/bin
+    #export GOROOT=/opt/bin/go
+    #export GOBIN=/opt/bin/
+    #go install gophers.dev/cmds/bcrypt-tool@latest
+    #rm -rf go
     setup_AdGuardHome
     if [ "$?" -ne 0 ]; then
       end_op_message
@@ -511,26 +511,26 @@ inst_AdGuardHome () {
        'export TZ=$(cat /etc/TZ)' \
        '. /opt/etc/init.d/rc.func' > /opt/etc/init.d/S61AdGuardHome
   chmod 755 /opt/etc/init.d/S61AdGuardHome
-  case "$(/bin/uname -m)" in 
-  "aarch64"|"arm64")
-    opkg install go
-    ;;
-  "armv7l")
-    if [ -z "$(opkg list | grep -w 'go_nohf')" ]; then
-      opkg install go
-    else
-      opkg install go_nohf
-    fi
-    ;;
-  *)
-    opkg install go
-    ;;
-  esac
-  export PATH=$PATH:/opt/bin/go/bin
-  export GOROOT=/opt/bin/go
-  export GOBIN=/opt/bin/
-  go install gophers.dev/cmds/bcrypt-tool@latest
-  rm -rf go
+  #case "$(/bin/uname -m)" in 
+  #"aarch64"|"arm64")
+  #  opkg install go
+  #  ;;
+  #"armv7l")
+  #  if [ -z "$(opkg list | grep -w 'go_nohf')" ]; then
+  #    opkg install go
+  #  else
+  #    opkg install go_nohf
+  #  fi
+  #  ;;
+  #*)
+  #  opkg install go
+  #  ;;
+  #esac
+  #export PATH="$PATH":/opt/bin/go/bin
+  #export GOROOT=/opt/bin/go
+  #export GOBIN=/opt/bin/
+  #go install gophers.dev/cmds/bcrypt-tool@latest
+  #rm -rf go
   setup_AdGuardHome
   if [ "$?" -ne 0 ]; then
     end_op_message
