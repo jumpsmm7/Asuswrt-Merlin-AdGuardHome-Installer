@@ -154,7 +154,9 @@ backup_restore () {
     #export GOBIN=/opt/bin/
     #go install gophers.dev/cmds/bcrypt-tool@latest
     #rm -rf go
-    [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils && rm -rf /opt/etc/init.d/S80apache && opkg flag hold apache apache-utils
+   [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils
+   [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils && rm -rf /opt/etc/init.d/S80apache
+   [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ] && opkg flag hold apache apache-utils
     setup_AdGuardHome
     if [ "$?" -ne 0 ]; then
       end_op_message
@@ -532,7 +534,9 @@ inst_AdGuardHome () {
   #export GOBIN=/opt/bin/
   #go install gophers.dev/cmds/bcrypt-tool@latest
   #rm -rf go
-  [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils && rm -rf /opt/etc/init.d/S80apache && opkg flag hold apache apache-utils
+  [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils
+  [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils && rm -rf /opt/etc/init.d/S80apache
+  [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ] && opkg flag hold apache apache-utils
   setup_AdGuardHome
   if [ "$?" -ne 0 ]; then
     end_op_message
