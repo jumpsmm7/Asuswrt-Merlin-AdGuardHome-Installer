@@ -154,33 +154,33 @@ backup_restore () {
     #export GOBIN=/opt/bin/
     #go install gophers.dev/cmds/bcrypt-tool@latest
     #rm -rf go
-   [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils
-   [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils && rm -rf /opt/etc/init.d/S80apache
-   [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ] && opkg flag hold apache apache-utils
+    [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils
+    [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils && rm -rf /opt/etc/init.d/S80apache
+    [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ] && opkg flag hold apache apache-utils
     setup_AdGuardHome
     if [ "$?" -ne 0 ]; then
       end_op_message
       return
     fi
 
-   PTXT "$INFO Starting AdGuardHome..."
-   /opt/etc/init.d/S61AdGuardHome start
-   sleep 1
-   if [ -z "$(pidof AdGuardHome)" ]; then
-     PTXT "$ERROR Couldn't start AdGuardHome" \
-       "$ERROR Please send WebUI System Log to dev"
-     end_op_message
-     return
-   fi
-   AdGuard_restart
-   PTXT "$INFO You are all set." \
-	"$INFO To visit AdGuardHome," \
-        "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
-        "$INFO You can use the WebUI to change things to your liking!" \
-	"$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
-	"$INFO for any configuration needs. "
-   sleep 5
-   end_op_message 0
+    PTXT "$INFO Starting AdGuardHome..."
+    /opt/etc/init.d/S61AdGuardHome start
+    sleep 1
+    if [ -z "$(pidof AdGuardHome)" ]; then
+      PTXT "$ERROR Couldn't start AdGuardHome" \
+        "$ERROR Please send WebUI System Log to dev"
+      end_op_message
+      return
+    fi
+    AdGuard_restart
+    PTXT "$INFO You are all set." \
+	 "$INFO To visit AdGuardHome," \
+         "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
+         "$INFO You can use the WebUI to change things to your liking!" \
+	 "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
+	 "$INFO for any configuration needs. "
+    sleep 5
+    end_op_message 0
   elif [ ! -f "${BASE_DIR}/backup_dnscrypt.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$ERROR No Backup found!" \
       "$ERROR Please make sure Backup Resides in $BASE_DIR"
