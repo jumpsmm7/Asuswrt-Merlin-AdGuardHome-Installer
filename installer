@@ -678,8 +678,8 @@ setup_AdGuardHome_impl () {
      [ ! -z "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)"
      [ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="$DOMAIN" && nvram commit     
      PTXT "  upstream_dns:" \
-          "  - '[/use-application-dns.net/]192.168.1.1:553'" \
-	  "  - '[/dns.resolver.arpa/]192.168.1.1:553'" \
+          "  - '[/use-application-dns.net/]$(nvram get lan_ipaddr):553'" \
+	  "  - '[/dns.resolver.arpa/]$(nvram get lan_ipaddr):553'" \
           "  - $BOOTSTRAP1" \
           "  - $BOOTSTRAP2" \
 	  "  bootstrap_dns:" \
