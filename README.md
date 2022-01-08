@@ -24,6 +24,7 @@ The Official Installer of AdGuardHome for Asuswrt-Merlin
 <a href="https://ibb.co/txhZqvt"><img src="https://i.ibb.co/SdxQtM8/Upstream-DNS.jpg" alt="Upstream-DNS" border="0"></a>
 
 This forum link will provide you with a link to more dns servers and instructional use:
+
 http://www.snbforums.com/threads/release-asuswrt-merlin-adguardhome-installer-amaghi.76506/post-735471
 
 # Setting Up Your Routers Reverse DNS
