@@ -22,8 +22,10 @@ The Official Installer of AdGuardHome for Asuswrt-Merlin
 - sdns://...: DNS Stamps for DNSCrypt or DNS-over-HTTPS resolvers.
 - [/example.local/]1.1.1.1: DNS upstream for specific domains, see below.
 <a href="https://ibb.co/txhZqvt"><img src="https://i.ibb.co/SdxQtM8/Upstream-DNS.jpg" alt="Upstream-DNS" border="0"></a>
+
 This forum link will provide you with a link to more dns servers and instructional use:
 http://www.snbforums.com/threads/release-asuswrt-merlin-adguardhome-installer-amaghi.76506/post-735471
+
 # Setting Up Your Routers Reverse DNS
 <a href="https://imgbb.com/"><img src="https://i.ibb.co/QvJ5nNV/Lan.jpg" alt="Lan" border="0"></a>
 - Under Lan DHCP page on Asuswrt-Merlin define a domain such as lan or some-domain like in the image above.
