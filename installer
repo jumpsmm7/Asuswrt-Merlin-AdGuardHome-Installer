@@ -678,8 +678,13 @@ setup_AdGuardHome_impl () {
      [ ! -z "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)"
      [ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="$DOMAIN" && nvram commit     
      PTXT "  upstream_dns:" \
+          "  - '[/router.asus.com/]$(nvram get lan_ipaddr):553'" \
+          "  - '[/www.asusnetwork.net/]$(nvram get lan_ipaddr):553'" \
+          "  - '[/www.asusrouter.com/]$(nvram get lan_ipaddr):553'" \
           "  - '[/use-application-dns.net/]$(nvram get lan_ipaddr):553'" \
 	  "  - '[/dns.resolver.arpa/]$(nvram get lan_ipaddr):553'" \
+	  "  - '[/$DOMAIN/]$(nvram get lan_ipaddr):553'" \
+	  "  - '[//]$(nvram get lan_ipaddr):553'" \
           "  - $BOOTSTRAP1" \
           "  - $BOOTSTRAP2" \
 	  "  bootstrap_dns:" \
@@ -689,11 +694,7 @@ setup_AdGuardHome_impl () {
           "  use_private_ptr_resolvers: true" \
           "  local_ptr_upstreams:" \
 	  "  - '[/10.in-addr.arpa/]$(nvram get lan_ipaddr):553'" \
-          "  - '[/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/]$(nvram get lan_ipaddr):553'" \
-          "  - '[/$DOMAIN/]$(nvram get lan_ipaddr):553'" \
-          "  - '[/router.asus.com/]$(nvram get lan_ipaddr):553'" \
-          "  - '[/www.asusnetwork.net/]$(nvram get lan_ipaddr):553'" \
-          "  - '[/www.asusrouter.com/]$(nvram get lan_ipaddr):553'" >> "$YAML_ORI"
+          "  - '[/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/]$(nvram get lan_ipaddr):553'" >> "$YAML_ORI"
      [ "$(nvram get ipv6_fw_enable)" = "1" ] && PTXT "  - '[/0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" >> "$YAML_ORI"
      PTXT "$INFO Writing AdGuardHome configuration..."
      check_AdGuardHome_yaml $YAML_ORI
