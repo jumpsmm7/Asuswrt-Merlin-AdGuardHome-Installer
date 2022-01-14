@@ -323,7 +323,7 @@ check_version () {
       local LINSTALL
       local MD5SUM_L
       local MD5SUM_R
-      RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/master/installer"
+      RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}/installer"
       LINSTALL="v$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
       RMNSTALL="v$(curl -sL "$RURL" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
       MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)"
@@ -421,9 +421,9 @@ end_op_message () {
   PTXT " "
   sleep 3
   if [ ! -f "${TARG_DIR}/installer" ]; then
-    chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1 && exec "$SCRIPT_LOC" && exit
+    chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1 && exec "$SCRIPT_LOC" "$BRANCH" && exit
   else
-    chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1 && exec "${TARG_DIR}/installer" && exit
+    chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1 && exec "${TARG_DIR}/installer" "$BRANCH" && exit
   fi
 }
 
