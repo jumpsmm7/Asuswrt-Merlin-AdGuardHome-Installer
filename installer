@@ -358,6 +358,39 @@ check_version () {
   fi
 }
 
+choose_branch () {
+  local BUILD
+  BUILD="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")"
+  if [ "$1" = "1" ]; then
+    del_conf ADGUARD_BRANCH
+  fi
+  if [ ! f "$CONF_FILE" ] || [ -z "$BUILD" ]; then
+    PTXT "$INFO Choose which build of AdGuardHome to install:" \
+      "  1) Release" \
+      "  2) Beta" \
+      "  3) Edge"
+    read_input_num "Select your mode" 1 3
+    case "$CHOSEN" in
+      1)  
+        
+        BUILD=release
+        write_conf ADGUARD_BRANCH "\"$BUILD\""
+        ;;
+      2)
+        BUILD=beta
+        write_conf ADGUARD_BRANCH "\"$BUILD\""
+        ;;
+      3)
+        BUILD=edge
+        write_conf ADGUARD_BRANCH "\"$BUILD\""
+        ;;
+    esac
+  else
+    read_yesno "Do you want to switch AdGuardHome Builds of AdGuardHome?" && choose_branch 1 || PTXT "$INFO continuing without changing builds."
+  fi
+  inst_AdGuardHome
+}
+
 create_dir () {
   mkdir -p "$1"
   if [ "$?" -ne 0 ]; then
@@ -377,6 +410,14 @@ del_between_magic () {
   if [ "$BOUNDS" ]; then
     sed -i "${BOUNDS%,}d" "$TARG"
   fi
+}
+
+del_conf () {
+  [ ! -f "$CONF_FILE" ] && return
+  local KEY
+  for KEY in "$@"; do
+    sed -i "/^$KEY=.*$/d" $CONF_FILE
+  done
 }
 
 download_file () {
@@ -431,7 +472,7 @@ inst_AdGuardHome () {
   local ADGUARD_TAR
   ADGUARD_TAR=AdGuardHome_${ADGUARD_ARCH}.tar.gz
   local RURL
-  RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/master/installer"
+  RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}/installer"
   if [ ! -d "$TARG_DIR" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
     PTXT "$INFO Backup is detected."
     local USE_OLD
@@ -470,7 +511,7 @@ inst_AdGuardHome () {
     if [ "$REMOTE_VER" != "$LVERSION" ]; then
       PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
         "$INFO Updating ADGUARDHOME_VER=${LVERSION} to $REMOTE_VER ."
-      download_file "$BASE_DIR" 644 "https://github.com/AdguardTeam/AdGuardHome/releases/download/${REMOTE_VER}/${ADGUARD_TAR}"
+      download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
       tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}"
       if [ "$?" -ne 0 ]; then
         PTXT "$ERROR Unable to download AdGuardHome package for your router"
@@ -485,7 +526,7 @@ inst_AdGuardHome () {
       PTXT "$INFO ADGUARDHOME_VER=${LVERSION}"
     fi
   else
-    download_file "$BASE_DIR" 644 "https://github.com/AdguardTeam/AdGuardHome/releases/download/${REMOTE_VER}/${ADGUARD_TAR}"
+    download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
     tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}"
     if [ "$?" -ne 0 ]; then
       PTXT "$ERROR Unable to download AdGuardHome package for your router"
@@ -753,6 +794,22 @@ uninst_all () {
   end_op_message 0
 }
 
+write_conf () {
+  local VAR
+  VAR="$1"
+  local VALUE 
+  VALUE="$2"
+  if [ ! -f "$CONF_FILE" ]; then
+    touch "$CONF_FILE" && chmod 644 "$CONF_FILE"
+  fi
+  if [ "$(grep "$VAR" "$CONF_FILE")" ]; then
+    VALUE=$(_quote "$VALUE")
+    sed -i "/^$VAR=/s/=.*/=$VALUE/" "$CONF_FILE"
+  else
+    echo "$VAR=$VALUE" >> "$CONF_FILE"
+  fi
+}
+
 write_command_script () {
   local TARG
   TARG="$1"
@@ -839,7 +896,7 @@ menu () {
       PTXT "$INFO This operation will install AdGuardHome and related files (<6MB)" \
         "$INFO to ENTWARE, no other data will be changed." \
         "$INFO Also some start scripts will be installed/modified as required."
-      read_yesno "Do you want to install AdGuardHome to ENTWARE?" && inst_AdGuardHome || end_op_message 1
+      read_yesno "Do you want to install AdGuardHome to ENTWARE?" && choose_branch || end_op_message 1
       ;;
     2)
       PTXT "$INFO This operation will cleanup everything installed by this script."
