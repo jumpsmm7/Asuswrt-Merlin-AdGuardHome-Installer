@@ -22,6 +22,7 @@
 ############################################################################################
 
 AI_VERSION="v1.0.5"
+
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | grep "tag_name" | head -1 | cut -d \" -f 4)"
 
@@ -357,7 +358,7 @@ check_version () {
          edge)
             PTXT "$INFO ADGUARDHOME_BUILD=Edge"
             ;;
-	esac  
+	      esac  
         PTXT "$INFO ADGUARDHOME_VER=${LVERSION}" \
           "$INFO If desired, run Option 1 of the Installer to upgrade AdGuardHome."	
       fi
@@ -536,15 +537,15 @@ inst_AdGuardHome () {
       ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
     else
       case "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" in
-         release)        
-            PTXT "$INFO ADGUARDHOME_BUILD=Release"
-            ;;
-         beta)
-            PTXT "$INFO ADGUARDHOME_BUILD=Beta"
-            ;;
-         edge)
-            PTXT "$INFO ADGUARDHOME_BUILD=Edge"
-            ;;
+       release)        
+          PTXT "$INFO ADGUARDHOME_BUILD=Release"
+          ;;
+       beta)
+          PTXT "$INFO ADGUARDHOME_BUILD=Beta"
+          ;;
+       edge)
+          PTXT "$INFO ADGUARDHOME_BUILD=Edge"
+          ;;
       esac  
       PTXT "$INFO ADGUARDHOME_VER=${LVERSION}"
     fi
@@ -557,10 +558,10 @@ inst_AdGuardHome () {
       end_op_message
       return
     fi
-      chown "$(nvram get http_username)":root ${TARG_DIR}/*
-      rm -r "${BASE_DIR}/${ADGUARD_TAR}"
-      chmod 755 "${TARG_DIR}/AdGuardHome"
-      ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
+    chown "$(nvram get http_username)":root ${TARG_DIR}/*
+    rm -r "${BASE_DIR}/${ADGUARD_TAR}"
+    chmod 755 "${TARG_DIR}/AdGuardHome"
+    ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
   fi
   yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
   [ "$(nvram get ipv6_fw_enable)" != "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"\"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\""' "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
