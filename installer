@@ -17,11 +17,11 @@
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #                           
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        # 
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder         # 
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.0.4                               #       
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.0.5                               #       
 #                                                                                          #             
 ############################################################################################
 
-AI_VERSION="v1.0.4"
+AI_VERSION="v1.0.5"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | grep "tag_name" | head -1 | cut -d \" -f 4)"
 
@@ -181,7 +181,7 @@ backup_restore () {
 	 "$INFO for any configuration needs. "
     sleep 5
     end_op_message 0
-  elif [ ! -f "${BASE_DIR}/backup_dnscrypt.tar.gz" ] && [ "$1" = "RESTORE" ]; then
+  elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$ERROR No Backup found!" \
       "$ERROR Please make sure Backup Resides in $BASE_DIR"
     end_op_message
@@ -343,19 +343,64 @@ check_version () {
       LVERSION="$LOCAL_VER"
       [ -z "$LVERSION" ] && exit 1
       [ -z "$REMOTE_VER" ] && exit 1
-      if [ "$REMOTE_VER" != "$LVERSION" ]; then
+      if [ "$REMOTE_VER" != "$LVERSION" ] && [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" = "release" ]; then
         PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
-          "$INFO Run Option 1 of the Installer to upgrade AdGuardHome."
-      else
+          "$INFO If desired, run Option 1 of the Installer to upgrade AdGuardHome."
+      else 
+        case "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" in
+         release)        
+            PTXT "$INFO ADGUARDHOME_BUILD=Release"
+            ;;
+         beta)
+            PTXT "$INFO ADGUARDHOME_BUILD=Beta"
+            ;;
+         edge)
+            PTXT "$INFO ADGUARDHOME_BUILD=Edge"
+            ;;
+	      esac  
         PTXT "$INFO ADGUARDHOME_VER=${LVERSION}" \
-	     "$INFO To visit AdGuardHome," \
-             "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
-             "$INFO You can use the WebUI to change things to your liking!" \
-	     "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
-	     "$INFO for any configuration needs. "
+          "$INFO If desired, run Option 1 of the Installer to upgrade AdGuardHome."	
       fi
+      PTXT "$INFO To visit AdGuardHome," \
+          "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
+          "$INFO You can use the WebUI to change things to your liking!" \
+	  "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
+	  "$INFO for any configuration needs. "
     fi
   fi
+}
+
+choose_branch () {
+  local BUILD
+  if [ "$1" = "1" ]; then
+    del_conf ADGUARD_BRANCH
+  fi
+  if [ ! -f "$CONF_FILE" ] || [ -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" ]; then
+    PTXT "$INFO Choose which build of AdGuardHome to install:" \
+      "  1) Release" \
+      "  2) Beta" \
+      "  3) Edge"
+    read_input_num "Select your mode" 1 3
+    case "$CHOSEN" in
+      1)          
+        BUILD=release
+        write_conf ADGUARD_BRANCH "\"$BUILD\""
+        ;;
+      2)
+        BUILD=beta
+        write_conf ADGUARD_BRANCH "\"$BUILD\""
+        ;;
+      3)
+        BUILD=edge
+        write_conf ADGUARD_BRANCH "\"$BUILD\""
+        ;;
+    esac
+  else
+    read_yesno "Do you want to switch AdGuardHome Builds of AdGuardHome?" && choose_branch 1 || PTXT "$INFO continuing without changing builds."
+  fi
+  local ADGUARD_BRANCH
+  ADGUARD_BRANCH=$BUILD
+  inst_AdGuardHome
 }
 
 create_dir () {
@@ -377,6 +422,14 @@ del_between_magic () {
   if [ "$BOUNDS" ]; then
     sed -i "${BOUNDS%,}d" "$TARG"
   fi
+}
+
+del_conf () {
+  [ ! -f "$CONF_FILE" ] && return
+  local KEY
+  for KEY in "$@"; do
+    sed -i "/^$KEY=.*$/d" $CONF_FILE
+  done
 }
 
 download_file () {
@@ -431,7 +484,7 @@ inst_AdGuardHome () {
   local ADGUARD_TAR
   ADGUARD_TAR=AdGuardHome_${ADGUARD_ARCH}.tar.gz
   local RURL
-  RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/master/installer"
+  RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}/installer"
   if [ ! -d "$TARG_DIR" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
     PTXT "$INFO Backup is detected."
     local USE_OLD
@@ -467,10 +520,10 @@ inst_AdGuardHome () {
     LVERSION="$LOCAL_VER"
     [ -z "$LVERSION" ] && exit 1
     [ -z "$REMOTE_VER" ] && exit 1
-    if [ "$REMOTE_VER" != "$LVERSION" ]; then
+    if [ "$REMOTE_VER" != "$LVERSION" ] && [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" = "release" ]; then
       PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
         "$INFO Updating ADGUARDHOME_VER=${LVERSION} to $REMOTE_VER ."
-      download_file "$BASE_DIR" 644 "https://github.com/AdguardTeam/AdGuardHome/releases/download/${REMOTE_VER}/${ADGUARD_TAR}"
+      download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
       tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}"
       if [ "$?" -ne 0 ]; then
         PTXT "$ERROR Unable to download AdGuardHome package for your router"
@@ -482,20 +535,32 @@ inst_AdGuardHome () {
       chmod 755 "${TARG_DIR}/AdGuardHome"
       ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
     else
+      case "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" in
+       release)        
+          PTXT "$INFO ADGUARDHOME_BUILD=Release"
+          ;;
+       beta)
+          PTXT "$INFO ADGUARDHOME_BUILD=Beta"
+          ;;
+       edge)
+          PTXT "$INFO ADGUARDHOME_BUILD=Edge"
+          ;;
+      esac  
       PTXT "$INFO ADGUARDHOME_VER=${LVERSION}"
     fi
-  else
-    download_file "$BASE_DIR" 644 "https://github.com/AdguardTeam/AdGuardHome/releases/download/${REMOTE_VER}/${ADGUARD_TAR}"
+  fi
+  if [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" != "release" ] || [ -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" ]; then
+    download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
     tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}"
     if [ "$?" -ne 0 ]; then
       PTXT "$ERROR Unable to download AdGuardHome package for your router"
       end_op_message
       return
     fi
-      chown "$(nvram get http_username)":root ${TARG_DIR}/*
-      rm -r "${BASE_DIR}/${ADGUARD_TAR}"
-      chmod 755 "${TARG_DIR}/AdGuardHome"
-      ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
+    chown "$(nvram get http_username)":root ${TARG_DIR}/*
+    rm -r "${BASE_DIR}/${ADGUARD_TAR}"
+    chmod 755 "${TARG_DIR}/AdGuardHome"
+    ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
   fi
   yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
   [ "$(nvram get ipv6_fw_enable)" != "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"\"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\""' "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
@@ -753,6 +818,22 @@ uninst_all () {
   end_op_message 0
 }
 
+write_conf () {
+  local VAR
+  VAR="$1"
+  local VALUE 
+  VALUE="$2"
+  if [ ! -f "$CONF_FILE" ]; then
+    touch "$CONF_FILE" && chmod 644 "$CONF_FILE"
+  fi
+  if [ "$(grep "$VAR" "$CONF_FILE")" ]; then
+    VALUE=$(_quote "$VALUE")
+    sed -i "/^$VAR=/s/=.*/=$VALUE/" "$CONF_FILE"
+  else
+    echo "$VAR=$VALUE" >> "$CONF_FILE"
+  fi
+}
+
 write_command_script () {
   local TARG
   TARG="$1"
@@ -839,7 +920,7 @@ menu () {
       PTXT "$INFO This operation will install AdGuardHome and related files (<6MB)" \
         "$INFO to ENTWARE, no other data will be changed." \
         "$INFO Also some start scripts will be installed/modified as required."
-      read_yesno "Do you want to install AdGuardHome to ENTWARE?" && inst_AdGuardHome || end_op_message 1
+      read_yesno "Do you want to install AdGuardHome to ENTWARE?" && choose_branch || end_op_message 1
       ;;
     2)
       PTXT "$INFO This operation will cleanup everything installed by this script."
