@@ -22,7 +22,6 @@
 ############################################################################################
 
 AI_VERSION="v1.0.5"
-
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | grep "tag_name" | head -1 | cut -d \" -f 4)"
 
