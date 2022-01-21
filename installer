@@ -371,6 +371,30 @@ check_version () {
 }
 
 choose_branch () {
+  local NW_STATE
+  local RES_STATE
+  ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1
+  NW_STATE="$?"
+  nslookup google.com >/dev/null 2>&1
+  RES_STATE="$?"
+  if [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then
+    PTXT "$ERROR Unable to detect the Internet!"
+    end_op_message
+    return
+  fi
+  if [ ! -d "$TARG_DIR" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
+    PTXT "$INFO Backup is detected."
+    local USE_OLD
+    read_yesno "Do you want Restore instead?" && USE_OLD="YES" || USE_OLD="NO"
+    if [ "$USE_OLD" = "YES" ]; then
+      PTXT "$INFO Installing from an old backup!"
+      backup_restore RESTORE
+    elif [ "$USE_OLD" = "NO" ]; then
+      PTXT "$INFO Continuing without restoring from backup!"
+    fi
+  elif [ -d "$TARG_DIR" ] && [ -f "${TARG_DIR}/AdGuardHome" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
+    read_yesno "Do you want create a backup before updating?" && backup_restore BACKUP 0 || PTXT "$INFO continuing without making a backup."
+  fi 
   create_dir "$TARG_DIR"
   if [ "$?" -ne 0 ]; then
     end_op_message
@@ -490,30 +514,6 @@ inst_AdGuardHome () {
   ADGUARD_TAR=AdGuardHome_${ADGUARD_ARCH}.tar.gz
   local RURL
   RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}/installer"
-  if [ ! -d "$TARG_DIR" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
-    PTXT "$INFO Backup is detected."
-    local USE_OLD
-    read_yesno "Do you want Restore instead?" && USE_OLD="YES" || USE_OLD="NO"
-    if [ "$USE_OLD" = "YES" ]; then
-      PTXT "$INFO Installing from an old backup!"
-      backup_restore RESTORE
-    elif [ "$USE_OLD" = "NO" ]; then
-      PTXT "$INFO Continuing without restoring from backup!"
-    fi
-  elif [ -d "$TARG_DIR" ] && [ -f "${TARG_DIR}/AdGuardHome" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
-    read_yesno "Do you want create a backup before updating?" && backup_restore BACKUP 0 || PTXT "$INFO continuing without making a backup."
-  fi
-  local NW_STATE
-  local RES_STATE
-  ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1
-  NW_STATE="$?"
-  nslookup google.com >/dev/null 2>&1
-  RES_STATE="$?"
-  if [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then
-    PTXT "$ERROR Unable to detect the Internet!"
-    end_op_message
-    return
-  fi
   download_file "$TARG_DIR" 755 "$RURL"
   if [ -f "${TARG_DIR}/AdGuardHome" ]; then
     local LVERSION
