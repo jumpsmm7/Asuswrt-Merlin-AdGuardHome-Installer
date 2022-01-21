@@ -181,7 +181,7 @@ backup_restore () {
 	 "$INFO for any configuration needs. "
     sleep 5
     end_op_message 0
-  elif [ ! -f "${BASE_DIR}/backup_dnscrypt.tar.gz" ] && [ "$1" = "RESTORE" ]; then
+  elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$ERROR No Backup found!" \
       "$ERROR Please make sure Backup Resides in $BASE_DIR"
     end_op_message
