@@ -395,7 +395,7 @@ choose_branch () {
     elif [ "$USE_OLD" = "NO" ]; then
       PTXT "$INFO Continuing without restoring from backup!"
     fi
-  elif [ -d "$TARG_DIR" ] && [ -f "${TARG_DIR}/AdGuardHome" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" ]; then
+  elif [ -d "$TARG_DIR" ] && [ -f "${TARG_DIR}/AdGuardHome" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ ! -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" ]; then
     read_yesno "Do you want create a backup before updating?" && backup_restore BACKUP 0 || PTXT "$INFO continuing without making a backup."
   fi 
   create_dir "$TARG_DIR"
