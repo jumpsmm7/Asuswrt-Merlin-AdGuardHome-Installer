@@ -343,11 +343,11 @@ check_version () {
       LVERSION="$LOCAL_VER"
       [ -z "$LVERSION" ] && exit 1
       [ -z "$REMOTE_VER" ] && exit 1
-      if [ "$REMOTE_VER" != "$LVERSION" ] && [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" = "release" ]; then
+      if [ "$REMOTE_VER" != "$LVERSION" ] && [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "release" ]; then
         PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
           "$INFO If desired, run Option 1 of the Installer to upgrade AdGuardHome."
       else 
-        case "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" in
+        case "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" in
          release)        
             PTXT "$INFO ADGUARDHOME_BUILD=Release"
             ;;
@@ -395,7 +395,7 @@ choose_branch () {
     elif [ "$USE_OLD" = "NO" ]; then
       PTXT "$INFO Continuing without restoring from backup!"
     fi
-  elif [ -d "$TARG_DIR" ] && [ -f "${TARG_DIR}/AdGuardHome" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ ! -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" ]; then
+  elif [ -d "$TARG_DIR" ] && [ -f "${TARG_DIR}/AdGuardHome" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ ! -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ]; then
     read_yesno "Do you want create a backup before updating?" && backup_restore BACKUP 0 || PTXT "$INFO continuing without making a backup."
   fi 
   create_dir "$TARG_DIR"
@@ -404,7 +404,7 @@ choose_branch () {
     return
   fi  
   local BUILD
-  if [ ! -f "$CONF_FILE" ] || [ -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" ]; then
+  if [ ! -f "$CONF_FILE" ] || [ -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ]; then
     PTXT "$INFO Choose which build of AdGuardHome to install:" \
       "  1) Release" \
       "  2) Beta" \
@@ -428,7 +428,7 @@ choose_branch () {
     read_yesno "Do you want to switch AdGuardHome builds?" && choose_branch 1 || PTXT "$INFO continuing without changing builds."
   fi
   local ADGUARD_BRANCH
-  ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")"
+  ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
   inst_AdGuardHome
 }
 
@@ -525,7 +525,7 @@ inst_AdGuardHome () {
     LVERSION="$LOCAL_VER"
     [ -z "$LVERSION" ] && exit 1
     [ -z "$REMOTE_VER" ] && exit 1
-    if [ "$REMOTE_VER" != "$LVERSION" ] && [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" = "release" ]; then
+    if [ "$REMOTE_VER" != "$LVERSION" ] && [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "release" ]; then
       PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
         "$INFO Updating ADGUARDHOME_VER=${LVERSION} to $REMOTE_VER ."
       download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
@@ -559,7 +559,7 @@ inst_AdGuardHome () {
       PTXT "$INFO ADGUARDHOME_VER=${LVERSION}"
     fi
   fi
-  if [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" != "release" ] || [ -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" ]; then
+  if [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" != "release" ] || [ -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ]; then
     download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
     tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}"
     if [ "$?" -ne 0 ]; then
