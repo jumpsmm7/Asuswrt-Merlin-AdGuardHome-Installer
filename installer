@@ -539,7 +539,9 @@ inst_AdGuardHome () {
       rm -r "${BASE_DIR}/${ADGUARD_TAR}"
       chmod 755 "${TARG_DIR}/AdGuardHome"
       ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
-      if [ "$?" -ne 0 ] || [ -z "$LOCAL_VER" ]; then
+      local LVERSION
+      LVERSION="$LOCAL_VER"
+      if [ -z "$LVERSION" ]; then
         PTXT "$ERROR Failed to download AdGuardHome package for your router"
         end_op_message
         return
@@ -555,7 +557,9 @@ inst_AdGuardHome () {
        edge)
           PTXT "$INFO ADGUARDHOME_BUILD=Edge"
           ;;
-      esac  
+      esac
+      local LVERSION
+      LVERSION="$LOCAL_VER"
       PTXT "$INFO ADGUARDHOME_VER=${LVERSION}"
     fi
   fi
@@ -571,7 +575,9 @@ inst_AdGuardHome () {
     rm -r "${BASE_DIR}/${ADGUARD_TAR}"
     chmod 755 "${TARG_DIR}/AdGuardHome"
     ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
-    if [ "$?" -ne 0 ] || [ -z "$LOCAL_VER" ]; then
+    local LVERSION
+    LVERSION="$LOCAL_VER"
+    if [ -z "$LVERSION" ]; then
       PTXT "$ERROR Failed to download AdGuardHome package for your router"
       end_op_message
       return
