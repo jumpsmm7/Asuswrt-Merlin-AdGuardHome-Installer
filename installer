@@ -375,7 +375,7 @@ choose_branch () {
   if [ "$1" = "1" ]; then
     del_conf ADGUARD_BRANCH
   fi
-  if [ ! f "$CONF_FILE" ] || [ -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" ]; then
+  if [ ! -f "$CONF_FILE" ] || [ -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" ]; then
     PTXT "$INFO Choose which build of AdGuardHome to install:" \
       "  1) Release" \
       "  2) Beta" \
