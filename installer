@@ -371,6 +371,11 @@ check_version () {
 }
 
 choose_branch () {
+  create_dir "$TARG_DIR"
+  if [ "$?" -ne 0 ]; then
+    end_op_message
+    return
+  fi  
   local BUILD
   if [ "$1" = "1" ]; then
     del_conf ADGUARD_BRANCH
@@ -509,11 +514,6 @@ inst_AdGuardHome () {
     end_op_message
     return
   fi
-  create_dir "$TARG_DIR"
-  if [ "$?" -ne 0 ]; then
-    end_op_message
-    return
-  fi  
   download_file "$TARG_DIR" 755 "$RURL"
   if [ -f "${TARG_DIR}/AdGuardHome" ]; then
     local LVERSION
