@@ -425,10 +425,10 @@ choose_branch () {
         ;;
     esac
   else
-    read_yesno "Do you want to switch AdGuardHome Builds of AdGuardHome?" && choose_branch 1 || PTXT "$INFO continuing without changing builds."
+    read_yesno "Do you want to switch AdGuardHome builds?" && choose_branch 1 || PTXT "$INFO continuing without changing builds."
   fi
   local ADGUARD_BRANCH
-  ADGUARD_BRANCH=$BUILD
+  ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")"
   inst_AdGuardHome
 }
 
