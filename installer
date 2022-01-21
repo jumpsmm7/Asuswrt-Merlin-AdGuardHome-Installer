@@ -17,11 +17,11 @@
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #                           
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        # 
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder         # 
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.0.4                               #       
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.0.5                               #       
 #                                                                                          #             
 ############################################################################################
 
-AI_VERSION="v1.0.4"
+AI_VERSION="v1.0.5"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | grep "tag_name" | head -1 | cut -d \" -f 4)"
 
@@ -343,36 +343,46 @@ check_version () {
       LVERSION="$LOCAL_VER"
       [ -z "$LVERSION" ] && exit 1
       [ -z "$REMOTE_VER" ] && exit 1
-      if [ "$REMOTE_VER" != "$LVERSION" ]; then
+      if [ "$REMOTE_VER" != "$LVERSION" ] && [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" = "release" ]; then
         PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
-          "$INFO Run Option 1 of the Installer to upgrade AdGuardHome."
-      else
+          "$INFO If desired, run Option 1 of the Installer to upgrade AdGuardHome."
+      else 
+        case "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" in
+         release)        
+            PTXT "$INFO ADGUARDHOME_BUILD=Release"
+            ;;
+         beta)
+            PTXT "$INFO ADGUARDHOME_BUILD=Beta"
+            ;;
+         edge)
+            PTXT "$INFO ADGUARDHOME_BUILD=Edge"
+            ;;
+	esac  
         PTXT "$INFO ADGUARDHOME_VER=${LVERSION}" \
-	     "$INFO To visit AdGuardHome," \
-             "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
-             "$INFO You can use the WebUI to change things to your liking!" \
-	     "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
-	     "$INFO for any configuration needs. "
+          "$INFO If desired, run Option 1 of the Installer to upgrade AdGuardHome."	
       fi
+      PTXT "$INFO To visit AdGuardHome," \
+          "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
+          "$INFO You can use the WebUI to change things to your liking!" \
+	  "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
+	  "$INFO for any configuration needs. "
     fi
   fi
 }
 
 choose_branch () {
   local BUILD
-  BUILD="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")"
   if [ "$1" = "1" ]; then
     del_conf ADGUARD_BRANCH
   fi
-  if [ ! f "$CONF_FILE" ] || [ -z "$BUILD" ]; then
+  if [ ! f "$CONF_FILE" ] || [ -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" ]; then
     PTXT "$INFO Choose which build of AdGuardHome to install:" \
       "  1) Release" \
       "  2) Beta" \
       "  3) Edge"
     read_input_num "Select your mode" 1 3
     case "$CHOSEN" in
-      1)  
-        
+      1)          
         BUILD=release
         write_conf ADGUARD_BRANCH "\"$BUILD\""
         ;;
@@ -388,6 +398,8 @@ choose_branch () {
   else
     read_yesno "Do you want to switch AdGuardHome Builds of AdGuardHome?" && choose_branch 1 || PTXT "$INFO continuing without changing builds."
   fi
+  local ADGUARD_BRANCH
+  ADGUARD_BRANCH=$BUILD
   inst_AdGuardHome
 }
 
@@ -508,7 +520,7 @@ inst_AdGuardHome () {
     LVERSION="$LOCAL_VER"
     [ -z "$LVERSION" ] && exit 1
     [ -z "$REMOTE_VER" ] && exit 1
-    if [ "$REMOTE_VER" != "$LVERSION" ]; then
+    if [ "$REMOTE_VER" != "$LVERSION" ] && [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" = "release" ]; then
       PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
         "$INFO Updating ADGUARDHOME_VER=${LVERSION} to $REMOTE_VER ."
       download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
@@ -523,9 +535,21 @@ inst_AdGuardHome () {
       chmod 755 "${TARG_DIR}/AdGuardHome"
       ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
     else
+      case "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" in
+         release)        
+            PTXT "$INFO ADGUARDHOME_BUILD=Release"
+            ;;
+         beta)
+            PTXT "$INFO ADGUARDHOME_BUILD=Beta"
+            ;;
+         edge)
+            PTXT "$INFO ADGUARDHOME_BUILD=Edge"
+            ;;
+      esac  
       PTXT "$INFO ADGUARDHOME_VER=${LVERSION}"
     fi
-  else
+  fi
+  if [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" != "release" ] || [ -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" ]; then
     download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
     tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}"
     if [ "$?" -ne 0 ]; then
