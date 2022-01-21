@@ -515,6 +515,11 @@ inst_AdGuardHome () {
   local RURL
   RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}/installer"
   download_file "$TARG_DIR" 755 "$RURL"
+  if [ "$?" -ne 0 ] || [ -z "$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')" ]; then
+    PTXT "$ERROR Failed to download installer."
+    end_op_message
+    return
+  fi
   if [ -f "${TARG_DIR}/AdGuardHome" ]; then
     local LVERSION
     LVERSION="$LOCAL_VER"
@@ -534,6 +539,11 @@ inst_AdGuardHome () {
       rm -r "${BASE_DIR}/${ADGUARD_TAR}"
       chmod 755 "${TARG_DIR}/AdGuardHome"
       ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
+      if [ "$?" -ne 0 ] || [ -z "$LOCAL_VER" ]; then
+        PTXT "$ERROR Failed to download AdGuardHome package for your router"
+        end_op_message
+        return
+      fi
     else
       case "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" in
        release)        
@@ -561,6 +571,11 @@ inst_AdGuardHome () {
     rm -r "${BASE_DIR}/${ADGUARD_TAR}"
     chmod 755 "${TARG_DIR}/AdGuardHome"
     ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
+    if [ "$?" -ne 0 ] || [ -z "$LOCAL_VER" ]; then
+      PTXT "$ERROR Failed to download AdGuardHome package for your router"
+      end_op_message
+      return
+    fi
   fi
   yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
   [ "$(nvram get ipv6_fw_enable)" != "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"\"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\""' "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
