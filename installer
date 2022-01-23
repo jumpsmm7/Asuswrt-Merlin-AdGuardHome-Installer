@@ -82,7 +82,7 @@ AdGuardHome_authen () {
   fi
   local PW1_ENCRYPTED
   [ -n "$(opkg list-installed | grep apache-utils )" ] && PW1_ENCRYPTED="$(/opt/bin/htpasswd -B -n -b ${USERNAME} ${PW1} | sed 's/.*://')"
-  [ -z "$(opkg list-installed | grep apache-utils )" ] && PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)
+  [ -z "$(opkg list-installed | grep apache-utils )" ] && PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"
   PTXT "users:" \
     "- name: ${USERNAME}" \
     "  password: ${PW1_ENCRYPTED}" >> $YAML_ORI
