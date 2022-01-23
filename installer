@@ -427,8 +427,6 @@ choose_branch () {
   else
     read_yesno "Do you want to switch AdGuardHome builds?" && choose_branch 1 || PTXT "$INFO continuing without changing builds."
   fi
-  local ADGUARD_BRANCH
-  ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
   inst_AdGuardHome
 }
 
@@ -510,6 +508,8 @@ end_op_message () {
 }
 
 inst_AdGuardHome () {
+  local ADGUARD_BRANCH
+  ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
   local ADGUARD_TAR
   ADGUARD_TAR=AdGuardHome_${ADGUARD_ARCH}.tar.gz
   local RURL
@@ -525,7 +525,7 @@ inst_AdGuardHome () {
     LVERSION="$LOCAL_VER"
     [ -z "$LVERSION" ] && exit 1
     [ -z "$REMOTE_VER" ] && exit 1
-    if [ "$REMOTE_VER" != "$LVERSION" ] && [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "release" ]; then
+    if [ "$REMOTE_VER" != "$LVERSION" ] && [ "$ADGUARD_BRANCH" = "release" ]; then
       PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
         "$INFO Updating ADGUARDHOME_VER=${LVERSION} to $REMOTE_VER ."
       download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
@@ -545,7 +545,7 @@ inst_AdGuardHome () {
         return
       fi
     else
-      case "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE")" in
+      case "$ADGUARD_BRANCH" in
        release)        
           PTXT "$INFO ADGUARDHOME_BUILD=Release"
           ;;
@@ -561,7 +561,7 @@ inst_AdGuardHome () {
       PTXT "$INFO ADGUARDHOME_VER=${LVERSION}"
     fi
   fi
-  if [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" != "release" ] || [ -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ]; then
+  if [ "$ADGUARD_BRANCH" != "release" ] || [ -z "$(${TARG_DIR}/AdGuardHome --version | cut -d" "  -f4-)" ]; then
     download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
     tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}"
     if [ "$?" -ne 0 ]; then
