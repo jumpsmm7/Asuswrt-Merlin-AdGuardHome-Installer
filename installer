@@ -625,6 +625,7 @@ inst_AdGuardHome () {
     return
   fi
   PTXT "$INFO Starting AdGuardHome..."
+  [ -n "$(pidof AdGuardHome)" ] && /opt/etc/init.d/S61AdGuardHome stop && /opt/etc/init.d/S61AdGuardHome kill
   /opt/etc/init.d/S61AdGuardHome start
   sleep 1
   if [ -z "$(pidof AdGuardHome)" ]; then
@@ -633,7 +634,7 @@ inst_AdGuardHome () {
     end_op_message
     return
   fi
-  AdGuard_restart
+  /opt/etc/init.d/S61AdGuardHome restart
   PTXT "$INFO AdGuardHome setup is complete." \
        "$INFO To visit AdGuardHome," \
        "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
@@ -642,21 +643,6 @@ inst_AdGuardHome () {
        "$INFO for any configuration needs. "
        sleep 5
   end_op_message 0
-}
-
-AdGuard_restart () {
-  local MAN_PID 
-  MAN_PID="$(pidof AdGuardHome)"
-  local PID
-  if [ "$MAN_PID" ]; then
-    for PID in $MAN_PID; do
-      if [ "$(awk '{ print }' "/proc/${PID}/cmdline" | grep AdGuardHome)" ]; then
-        kill -9 "$PID"
-        break
-      fi
-    done
-  fi
-  /opt/etc/init.d/S61AdGuardHome start
 }
   
 read_input_dns () {
@@ -817,20 +803,9 @@ uninst_all () {
     PTXT "$INFO Old Backup Detected!"
     read_yesno "Do you want to remove backup?(this will prevent resorting later)" && rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz" || PTXT "$INFO Keeping backup instead."
   fi
+  [ -n "$(pidof AdGuardHome)" ] && /opt/etc/init.d/S61AdGuardHome stop && /opt/etc/init.d/S61AdGuardHome kill
   rm -rf "$TARG_DIR" "/opt/etc/init.d/S61AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool"
-  yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf 
-  killall -q -9 AdGuardHome
-  local MAN_PID
-  MAN_PID="$(pidof AdGuardHome)"
-  local PID
-  if [ "$MAN_PID" ]; then
-    for PID in $MAN_PID; do
-      if [ "$(awk '{ print }' "/proc/${PID}/cmdline" | grep AdGuardHome)" ]; then
-        kill -9 "$PID"
-        break
-      fi
-    done
-  fi
+  yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
   service restart_dnsmasq >/dev/null 2>&1
   end_op_message 0
 }
