@@ -561,7 +561,7 @@ inst_AdGuardHome () {
       PTXT "$INFO ADGUARDHOME_VER=${LVERSION}"
     fi
   fi
-  if [ "$ADGUARD_BRANCH" != "release" ] || [ -z "$(${TARG_DIR}/AdGuardHome --version | cut -d" "  -f4-)" ]; then
+  if [ "$ADGUARD_BRANCH" != "release" ] || [ ! -f "${TARG_DIR}/AdGuardHome" ]; then
     download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
     tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}"
     if [ "$?" -ne 0 ]; then
