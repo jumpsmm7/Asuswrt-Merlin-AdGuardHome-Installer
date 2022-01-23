@@ -17,11 +17,11 @@
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #                           
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        # 
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder         # 
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.0.5                               #       
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.0.6                               #       
 #                                                                                          #             
 ############################################################################################
 
-AI_VERSION="v1.0.5"
+AI_VERSION="v1.0.6"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | grep "tag_name" | head -1 | cut -d \" -f 4)"
 
@@ -81,7 +81,8 @@ AdGuardHome_authen () {
     AdGuardHome_authen 1
   fi
   local PW1_ENCRYPTED
-  PW1_ENCRYPTED="$(/opt/bin/htpasswd -B -n -b ${USERNAME} ${PW1} | sed 's/.*://')"
+  [ -n "$(opkg list-installed | grep apache-utils )" ] && PW1_ENCRYPTED="$(/opt/bin/htpasswd -B -n -b ${USERNAME} ${PW1} | sed 's/.*://')"
+  [ -z "$(opkg list-installed | grep apache-utils )" ] && PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)
   PTXT "users:" \
     "- name: ${USERNAME}" \
     "  password: ${PW1_ENCRYPTED}" >> $YAML_ORI
@@ -134,29 +135,31 @@ backup_restore () {
          'export TZ=$(cat /etc/TZ)' \
          '. /opt/etc/init.d/rc.func' > /opt/etc/init.d/S61AdGuardHome
     chmod 755 /opt/etc/init.d/S61AdGuardHome
-    #case "$(/bin/uname -m)" in 
-    #"aarch64"|"arm64")
-    #  opkg install go
-    #  ;;
-    #"armv7l")
-    #  if [ -z "$(opkg list | grep -w 'go_nohf')" ]; then
-    #    opkg install go
-    #  else
-    #    opkg install go_nohf
-    #  fi
-    #  ;;
-    #*)
-    #  opkg install go
-    #  ;;
-    #esac
-    #export PATH="$PATH":/opt/bin/go/bin
-    #export GOROOT=/opt/bin/go
-    #export GOBIN=/opt/bin/
-    #go install gophers.dev/cmds/bcrypt-tool@latest
-    #rm -rf go
     [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils
     [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils && rm -rf /opt/etc/init.d/S80apache
     [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ] && opkg flag hold apache apache-utils
+    if [ -z "$(opkg list-installed | grep apache-utils )" ]; then
+      case "$(/bin/uname -m)" in 
+      "aarch64"|"arm64")
+        opkg install go
+        ;;
+      "armv7l")
+        if [ -z "$(opkg list | grep -w 'go_nohf')" ]; then
+          opkg install go
+        else
+          opkg install go_nohf
+        fi
+        ;;
+      *)
+        opkg install go
+        ;;
+      esac
+      export PATH="$PATH":/opt/bin/go/bin
+      export GOROOT=/opt/bin/go
+      export GOBIN=/opt/bin/
+      go install gophers.dev/cmds/bcrypt-tool@latest
+      rm -rf go
+    fi
     setup_AdGuardHome
     if [ "$?" -ne 0 ]; then
       end_op_message
@@ -596,36 +599,39 @@ inst_AdGuardHome () {
        'export TZ=$(cat /etc/TZ)' \
        '. /opt/etc/init.d/rc.func' > /opt/etc/init.d/S61AdGuardHome
   chmod 755 /opt/etc/init.d/S61AdGuardHome
-  #case "$(/bin/uname -m)" in 
-  #"aarch64"|"arm64")
-  #  opkg install go
-  #  ;;
-  #"armv7l")
-  #  if [ -z "$(opkg list | grep -w 'go_nohf')" ]; then
-  #    opkg install go
-  #  else
-  #    opkg install go_nohf
-  #  fi
-  #  ;;
-  #*)
-  #  opkg install go
-  #  ;;
-  #esac
-  #export PATH="$PATH":/opt/bin/go/bin
-  #export GOROOT=/opt/bin/go
-  #export GOBIN=/opt/bin/
-  #go install gophers.dev/cmds/bcrypt-tool@latest
-  #rm -rf go
   [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils
   [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils && rm -rf /opt/etc/init.d/S80apache
   [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ] && opkg flag hold apache apache-utils
+  if [ -z "$(opkg list-installed | grep apache-utils )" ]; then
+    case "$(/bin/uname -m)" in 
+    "aarch64"|"arm64")
+      opkg install go
+      ;;
+    "armv7l")
+      if [ -z "$(opkg list | grep -w 'go_nohf')" ]; then
+        opkg install go
+      else
+        opkg install go_nohf
+      fi
+      ;;
+    *)
+      opkg install go
+      ;;
+    esac
+    export PATH="$PATH":/opt/bin/go/bin
+    export GOROOT=/opt/bin/go
+    export GOBIN=/opt/bin/
+    go install gophers.dev/cmds/bcrypt-tool@latest
+    rm -rf go
+  fi
   setup_AdGuardHome
   if [ "$?" -ne 0 ]; then
     end_op_message
     return
   fi
   PTXT "$INFO Starting AdGuardHome..."
-  /opt/etc/init.d/S61AdGuardHome start
+  [ -n "$(pidof AdGuardHome)" ] && /opt/etc/init.d/S61AdGuardHome stop && /opt/etc/init.d/S61AdGuardHome kill
+  [ -z "$(pidof AdGuardHome)" ] && /opt/etc/init.d/S61AdGuardHome start
   sleep 1
   if [ -z "$(pidof AdGuardHome)" ]; then
     PTXT "$ERROR Couldn't start AdGuardHome" \
@@ -633,7 +639,7 @@ inst_AdGuardHome () {
     end_op_message
     return
   fi
-  AdGuard_restart
+  /opt/etc/init.d/S61AdGuardHome restart
   PTXT "$INFO AdGuardHome setup is complete." \
        "$INFO To visit AdGuardHome," \
        "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
@@ -642,21 +648,6 @@ inst_AdGuardHome () {
        "$INFO for any configuration needs. "
        sleep 5
   end_op_message 0
-}
-
-AdGuard_restart () {
-  local MAN_PID 
-  MAN_PID="$(pidof AdGuardHome)"
-  local PID
-  if [ "$MAN_PID" ]; then
-    for PID in $MAN_PID; do
-      if [ "$(awk '{ print }' "/proc/${PID}/cmdline" | grep AdGuardHome)" ]; then
-        kill -9 "$PID"
-        break
-      fi
-    done
-  fi
-  /opt/etc/init.d/S61AdGuardHome start
 }
   
 read_input_dns () {
@@ -757,8 +748,8 @@ setup_AdGuardHome_impl () {
      read_input_dns "Default is" 9.9.9.9
      read_input_dns "2nd Default is" 8.8.8.8
      local DOMAIN
-     [ ! -z "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)"
-     [ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="$DOMAIN" && nvram commit     
+     [ ! -z "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)" && write_conf ADGUARD_DOMAIN "\"no\""
+     [ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="$DOMAIN" && nvram commit && write_conf ADGUARD_DOMAIN "\"yes\""
      PTXT "  upstream_dns:" \
           "  - '[/router.asus.com/]$(nvram get lan_ipaddr):553'" \
           "  - '[/www.asusnetwork.net/]$(nvram get lan_ipaddr):553'" \
@@ -817,20 +808,10 @@ uninst_all () {
     PTXT "$INFO Old Backup Detected!"
     read_yesno "Do you want to remove backup?(this will prevent resorting later)" && rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz" || PTXT "$INFO Keeping backup instead."
   fi
+  [ -n "$(pidof AdGuardHome)" ] && /opt/etc/init.d/S61AdGuardHome stop && /opt/etc/init.d/S61AdGuardHome kill
+  [ "$(awk -F'=' '/ADGUARD_DOMAIN/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "yes" ] && nvram set lan_domain="" && nvram commit
   rm -rf "$TARG_DIR" "/opt/etc/init.d/S61AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool"
-  yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf 
-  killall -q -9 AdGuardHome
-  local MAN_PID
-  MAN_PID="$(pidof AdGuardHome)"
-  local PID
-  if [ "$MAN_PID" ]; then
-    for PID in $MAN_PID; do
-      if [ "$(awk '{ print }' "/proc/${PID}/cmdline" | grep AdGuardHome)" ]; then
-        kill -9 "$PID"
-        break
-      fi
-    done
-  fi
+  yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
   service restart_dnsmasq >/dev/null 2>&1
   end_op_message 0
 }
