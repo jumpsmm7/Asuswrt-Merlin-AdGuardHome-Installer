@@ -133,8 +133,8 @@ backup_restore () {
          'DESC=$PROCS' \
          'PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
          'export TZ=$(cat /etc/TZ)' \
-         'SCRIPT_LOC="$(readlink -f "$0")"' \
-         'SCRIPT_NAME="$(basename $0)"' \
+	 'SCRIPT_NAME="$(basename $0)"' \
+         'SCRIPT_LOC="/opt/etc/init.d/${SCRIPT_NAME}' \
          'case "$1" in' \
          '  check)' \
          '   if [ -z "$(pidof AdGuardHome)" ]; then' \
@@ -618,8 +618,8 @@ inst_AdGuardHome () {
        'DESC=$PROCS' \
        'PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
        'export TZ=$(cat /etc/TZ)' \
-       'SCRIPT_LOC="$(readlink -f "$0")"' \
        'SCRIPT_NAME="$(basename $0)"' \
+       'SCRIPT_LOC="/opt/etc/init.d/${SCRIPT_NAME}' \
        'case "$1" in' \
        '  check)' \
        '   if [ -z "$(pidof AdGuardHome)" ]; then' \
