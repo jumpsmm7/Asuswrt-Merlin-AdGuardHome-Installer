@@ -144,7 +144,7 @@ backup_restore () {
          '   fi' \
          '   ;;' \
          '  stop)' \
-         '   STARTUPLINECOUNT=$(cru l | grep -c "$SCRIPT_NAME")' \	 
+         '   STARTUPLINECOUNT=$(cru l | grep -c "$SCRIPT_NAME")' \
          '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
 	 '     logger -st $NAME "AdGuardHome has been stopped. Removing all checks."' \
          '     cru d "$SCRIPT_NAME"' \
@@ -633,7 +633,7 @@ inst_AdGuardHome () {
        '   fi' \
        '   ;;' \
        '  stop)' \
-       '   STARTUPLINECOUNT=$(cru l | grep -c "$SCRIPT_NAME")' \	 
+       '   STARTUPLINECOUNT=$(cru l | grep -c "$SCRIPT_NAME")' \
        '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
        '     logger -st $NAME "AdGuardHome has been stopped. Removing all checks."' \
        '     cru d "$SCRIPT_NAME"' \
