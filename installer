@@ -17,11 +17,11 @@
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #                           
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        # 
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder         # 
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.0.6                               #       
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.0.7                               #       
 #                                                                                          #             
 ############################################################################################
 
-AI_VERSION="v1.0.6"
+AI_VERSION="v1.0.7"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | grep "tag_name" | head -1 | cut -d \" -f 4)"
 
