@@ -98,7 +98,7 @@ backup_restore () {
       read_yesno "Do you want to continue?(this will remove the old backup)" && USE_OLD="NO" || USE_OLD="YES"
       if [ "$USE_OLD" = "YES" ]; then
         PTXT "$INFO Leaving Old Backup."
-        end_op_message
+        end_op_message Abort
       elif [ "$USE_OLD" = "NO" ]; then
 	PTXT "$INFO Removing Old Backup."
 	rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"
@@ -106,10 +106,10 @@ backup_restore () {
     fi
     tar -czvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "$TARG_DIR" ../AdGuardHome/ >/dev/null 2>&1    
     PTXT "$INFO Backup complete"
-    [ "$2" -ne 0 ] && end_op_message 0
+    [ "$2" -ne 0 ] && end_op_message Success
   elif [ "$1" = "BACKUP" ] && [ ! -d "$TARG_DIR" ] && [ ! -f "${TARG_DIR}/AdGuardHome" ]; then
     PTXT "$ERROR No ${TARG_DIR}/AdGuardHome to Backup!"
-    end_op_message
+    end_op_message Abort
   fi
   if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$INFO Please wait a moment."
@@ -170,59 +170,54 @@ backup_restore () {
          'esac' \
          '. /opt/etc/init.d/rc.func' > /opt/etc/init.d/S61AdGuardHome
     chmod 755 /opt/etc/init.d/S61AdGuardHome
-    [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils
-    [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils && rm -rf /opt/etc/init.d/S80apache
-    [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ] && opkg flag hold apache apache-utils
+    [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils >/dev/null 2>&1
+    [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils >/dev/null 2>&1 && rm -rf /opt/etc/init.d/S80apache
+    [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ] && opkg flag hold apache apache-utils >/dev/null 2>&1
     if [ -z "$(opkg list-installed | grep apache-utils )" ]; then
       case "$(/bin/uname -m)" in 
       "aarch64"|"arm64")
-        opkg install go
+        opkg install go >/dev/null 2>&1
         ;;
       "armv7l")
         if [ -z "$(opkg list | grep -w 'go_nohf')" ]; then
-          opkg install go
+          opkg install go >/dev/null 2>&1
         else
-          opkg install go_nohf
+          opkg install go_nohf >/dev/null 2>&1
         fi
         ;;
       *)
-        opkg install go
+        opkg install go >/dev/null 2>&1
         ;;
       esac
       export PATH="$PATH":/opt/bin/go/bin
       export GOROOT=/opt/bin/go
       export GOBIN=/opt/bin/
-      go install gophers.dev/cmds/bcrypt-tool@latest
+      go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
       rm -rf go
     fi
     setup_AdGuardHome
     if [ "$?" -ne 0 ]; then
-      end_op_message
+      end_op_message Abort
       return
     fi
 
     PTXT "$INFO Starting AdGuardHome..."
-    /opt/etc/init.d/S61AdGuardHome start
+    [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stopping AdGuardHome first..." && /opt/etc/init.d/S61AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S61AdGuardHome kill >/dev/null 2>&1 
+    [ -z "$(pidof AdGuardHome)" ] && PTXT "$INFO Starting AdGuardHome..." && /opt/etc/init.d/S61AdGuardHome start >/dev/null 2>&1
     sleep 1
     if [ -z "$(pidof AdGuardHome)" ]; then
       PTXT "$ERROR Couldn't start AdGuardHome" \
         "$ERROR Please send WebUI System Log to dev"
-      end_op_message
+      end_op_message Abort
       return
     fi
-    AdGuard_restart
-    PTXT "$INFO You are all set." \
-	 "$INFO To visit AdGuardHome," \
-         "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
-         "$INFO You can use the WebUI to change things to your liking!" \
-	 "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
-	 "$INFO for any configuration needs. "
-    sleep 5
-    end_op_message 0
+    /opt/etc/init.d/S61AdGuardHome restart >/dev/null 2>&1
+    PTXT "$INFO You are all set."
+    end_op_message Success
   elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$ERROR No Backup found!" \
       "$ERROR Please make sure Backup Resides in $BASE_DIR"
-    end_op_message
+    end_op_message Abort
     return
   fi
 }
@@ -231,12 +226,12 @@ check_AdGuardHome_yaml () {
   [ ! -f "$1" ] && return
   chmod 644 "$1"
   PTXT "$INFO Checking AdGuardHome configuration..."
-  ${TARG_DIR}/AdGuardHome --check-config -c "$1"
+  ${TARG_DIR}/AdGuardHome --check-config -c "$1" >/dev/null 2>&1
   if [ "$1" = "$YAML_ORI" ]; then
     yaml_nvars_insert "  bootstrap_dns:" "\  - $BOOTSTRAP2" "$1"
     yaml_nvars_insert "  bootstrap_dns:" "\  - $BOOTSTRAP1" "$1"
     yaml_nvars_delete "[$BOOTSTRAP1 $BOOTSTRAP2]" "$1"
-    ${TARG_DIR}/AdGuardHome --check-config -c "$1"
+    ${TARG_DIR}/AdGuardHome --check-config -c "$1" >/dev/null 2>&1
   fi
   if [ "$?" -ne 0 ]; then
     PTXT "$INFO Move invalid configuration file to $YAML_ERR" \
@@ -349,12 +344,12 @@ check_version () {
   if [ -f "${TARG_DIR}/installer" ] && [ -f "${TARG_DIR}/AdGuardHome" ]; then
     local NW_STATE
     local RES_STATE
-    ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1
-    NW_STATE="$?"
-    nslookup google.com >/dev/null 2>&1
-    RES_STATE="$?"
-    if [ -z "$(pidof AdGuardHome)" ] || [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then
-      PTXT "$ERROR No Internet Detected or AdGuardHome is Dead, Skipping Version Check."
+    NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"
+    RES_STATE="$(nslookup google.com >/dev/null 2>&1; echo $?)"
+    if [ -z "$(pidof AdGuardHome)" ]; then
+      PTXT "$ERROR AdGuardHome is dead, skipping version check."
+    elif [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then
+      PTXT "$ERROR AdGuardHome is not responding, skipping version check."
     else
       local RURL
       local RMNSTALL
@@ -382,8 +377,7 @@ check_version () {
       [ -z "$LVERSION" ] && exit 1
       [ -z "$REMOTE_VER" ] && exit 1
       if [ "$REMOTE_VER" != "$LVERSION" ] && [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "release" ]; then
-        PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
-          "$INFO If desired, run Option 1 of the Installer to upgrade AdGuardHome."
+        PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!"
       else 
         case "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" in
          release)        
@@ -396,14 +390,14 @@ check_version () {
             PTXT "$INFO ADGUARDHOME_BUILD=Edge"
             ;;
 	      esac  
-        PTXT "$INFO ADGUARDHOME_VER=${LVERSION}" \
-          "$INFO If desired, run Option 1 of the Installer to upgrade AdGuardHome."	
       fi
-      PTXT "$INFO To visit AdGuardHome," \
-          "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
-          "$INFO You can use the WebUI to change things to your liking!" \
-	  "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
-	  "$INFO for any configuration needs. "
+      PTXT "$INFO ADGUARDHOME_VER=${LVERSION}" \
+           "$INFO Run Option 1 to upgrade or change builds." \
+           "$INFO To visit AdGuardHome," \
+           "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
+           "$INFO You can use the WebUI to change things to your liking!" \
+	   "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
+	   "$INFO for any configuration needs. "
     fi
   fi
 }
@@ -414,13 +408,11 @@ choose_branch () {
   fi
   local NW_STATE
   local RES_STATE
-  ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1
-  NW_STATE="$?"
-  nslookup google.com >/dev/null 2>&1
-  RES_STATE="$?"
+  NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"
+  RES_STATE="$(nslookup google.com >/dev/null 2>&1; echo $?)"
   if [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then
     PTXT "$ERROR Unable to detect the Internet!"
-    end_op_message
+    end_op_message Abort
     return
   fi
   if [ ! -d "$TARG_DIR" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
@@ -438,7 +430,7 @@ choose_branch () {
   fi 
   create_dir "$TARG_DIR"
   if [ "$?" -ne 0 ]; then
-    end_op_message
+    end_op_message Abort
     return
   fi  
   local BUILD
@@ -532,16 +524,16 @@ download_file () {
 }
 
 end_op_message () {
-  [ "$1" = "0" ] && PTXT "$INFO Operation completed. You can quit or continue"
-  [ "$1" = "1" ] && PTXT "$INFO Operation aborted. You can quit or continue"
+  [ "$1" = "Success" ] && PTXT "$INFO Operation completed. You can quit or continue"
+  [ "$1" = "Abort" ] && PTXT "$INFO Operation aborted. You can quit or continue"
   PTXT "====================================================="
   PTXT " "
   PTXT " "
   sleep 3
   if [ ! -f "${TARG_DIR}/installer" ]; then
-    chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1 && exec "$SCRIPT_LOC" "$BRANCH" && exit
+    chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1 && "$SCRIPT_LOC" "$BRANCH" && exit
   else
-    chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1 && exec "${TARG_DIR}/installer" "$BRANCH" && exit
+    chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1 && "${TARG_DIR}/installer" "$BRANCH" && exit
   fi
 }
 
@@ -549,13 +541,13 @@ inst_AdGuardHome () {
   local ADGUARD_BRANCH
   ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
   local ADGUARD_TAR
-  ADGUARD_TAR=AdGuardHome_${ADGUARD_ARCH}.tar.gz
+  ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
   local RURL
   RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}/installer"
   download_file "$TARG_DIR" 755 "$RURL"
   if [ "$?" -ne 0 ] || [ -z "$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')" ]; then
     PTXT "$ERROR Failed to download installer."
-    end_op_message
+    end_op_message Abort
     return
   fi
   if [ -f "${TARG_DIR}/AdGuardHome" ]; then
@@ -567,10 +559,10 @@ inst_AdGuardHome () {
       PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
         "$INFO Updating ADGUARDHOME_VER=${LVERSION} to $REMOTE_VER ."
       download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
-      tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}"
+      tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
       if [ "$?" -ne 0 ]; then
         PTXT "$ERROR Unable to download AdGuardHome package for your router"
-        end_op_message
+        end_op_message Abort
         return
       fi
       chown "$(nvram get http_username)":root ${TARG_DIR}/*
@@ -579,32 +571,35 @@ inst_AdGuardHome () {
       ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
       if [ "$?" -ne 0 ] || [ -z "$(${TARG_DIR}/AdGuardHome --version | cut -d" "  -f4-)" ]; then
         PTXT "$ERROR Failed to download AdGuardHome package for your router"
-        end_op_message
+        end_op_message Abort
         return
       fi
     else
-      case "$ADGUARD_BRANCH" in
-       release)        
-          PTXT "$INFO ADGUARDHOME_BUILD=Release"
-          ;;
-       beta)
-          PTXT "$INFO ADGUARDHOME_BUILD=Beta"
-          ;;
-       edge)
-          PTXT "$INFO ADGUARDHOME_BUILD=Edge"
-          ;;
-      esac
       local LVERSION
       LVERSION="$(${TARG_DIR}/AdGuardHome --version | cut -d" "  -f4-)"
-      PTXT "$INFO ADGUARDHOME_VER=${LVERSION}"
+      case "$ADGUARD_BRANCH" in
+       release)        
+          PTXT "$INFO ADGUARDHOME_BUILD=Release" \
+	       "$INFO No new release version available." \
+	       "$INFO ADGUARDHOME_VER=${LVERSION}"
+          ;;
+       beta)
+          PTXT "$INFO ADGUARDHOME_BUILD=Beta" \
+	       "$INFO Downloading the lastest Beta version to replace ADGUARDHOME_VER=${LVERSION}."
+          ;;
+       edge)
+          PTXT "$INFO ADGUARDHOME_BUILD=Edge" \
+	       "$INFO Downloading the lastest Edge version to replace ADGUARDHOME_VER=${LVERSION}."
+          ;;
+      esac
     fi
   fi
   if [ "$ADGUARD_BRANCH" != "release" ] || [ ! -f "${TARG_DIR}/AdGuardHome" ]; then
     download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
-    tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}"
+    tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
     if [ "$?" -ne 0 ]; then
       PTXT "$ERROR Unable to download AdGuardHome package for your router"
-      end_op_message
+      end_op_message Abort
       return
     fi
     chown "$(nvram get http_username)":root ${TARG_DIR}/*
@@ -613,7 +608,7 @@ inst_AdGuardHome () {
     ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
     if [ "$?" -ne 0 ] || [ -z "$(${TARG_DIR}/AdGuardHome --version | cut -d" "  -f4-)" ]; then
       PTXT "$ERROR Failed to download AdGuardHome package for your router"
-      end_op_message
+      end_op_message Abort
       return
     fi
   fi
@@ -669,55 +664,48 @@ inst_AdGuardHome () {
        'esac' \
        '. /opt/etc/init.d/rc.func' > /opt/etc/init.d/S61AdGuardHome
   chmod 755 /opt/etc/init.d/S61AdGuardHome
-  [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils
-  [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils && rm -rf /opt/etc/init.d/S80apache
-  [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ] && opkg flag hold apache apache-utils
+  [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils >/dev/null 2>&1
+  [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils >/dev/null 2>&1 && rm -rf /opt/etc/init.d/S80apache
+  [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ] && opkg flag hold apache apache-utils >/dev/null 2>&1
   if [ -z "$(opkg list-installed | grep apache-utils )" ]; then
     case "$(/bin/uname -m)" in 
     "aarch64"|"arm64")
-      opkg install go
+      opkg install go >/dev/null 2>&1
       ;;
     "armv7l")
       if [ -z "$(opkg list | grep -w 'go_nohf')" ]; then
-        opkg install go
+        opkg install go >/dev/null 2>&1
       else
-        opkg install go_nohf
+        opkg install go_nohf >/dev/null 2>&1
       fi
       ;;
     *)
-      opkg install go
+      opkg install go >/dev/null 2>&1
       ;;
     esac
     export PATH="$PATH":/opt/bin/go/bin
     export GOROOT=/opt/bin/go
     export GOBIN=/opt/bin/
-    go install gophers.dev/cmds/bcrypt-tool@latest
+    go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
     rm -rf go
   fi
   setup_AdGuardHome
   if [ "$?" -ne 0 ]; then
-    end_op_message
+    end_op_message Abort
     return
   fi
-  PTXT "$INFO Starting AdGuardHome..."
-  [ -n "$(pidof AdGuardHome)" ] && /opt/etc/init.d/S61AdGuardHome stop && /opt/etc/init.d/S61AdGuardHome kill
-  [ -z "$(pidof AdGuardHome)" ] && /opt/etc/init.d/S61AdGuardHome start
+  [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stopping AdGuardHome first..." && /opt/etc/init.d/S61AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S61AdGuardHome kill >/dev/null 2>&1 
+  [ -z "$(pidof AdGuardHome)" ] && PTXT "$INFO Starting AdGuardHome..." && /opt/etc/init.d/S61AdGuardHome start >/dev/null 2>&1
   sleep 1
   if [ -z "$(pidof AdGuardHome)" ]; then
     PTXT "$ERROR Couldn't start AdGuardHome" \
       "$ERROR Please send WebUI System Log to dev"
-    end_op_message
+    end_op_message Abort
     return
   fi
-  /opt/etc/init.d/S61AdGuardHome restart
-  PTXT "$INFO AdGuardHome setup is complete." \
-       "$INFO To visit AdGuardHome," \
-       "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
-       "$INFO You can use the WebUI to change things to your liking!" \
-       "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
-       "$INFO for any configuration needs. "
-       sleep 5
-  end_op_message 0
+  /opt/etc/init.d/S61AdGuardHome restart >/dev/null 2>&1
+  PTXT "$INFO AdGuardHome setup is complete."
+  end_op_message Success
 }
   
 read_input_dns () {
@@ -793,7 +781,7 @@ read_yesno () {
 setup_AdGuardHome () {
   if [ ! -d "${TARG_DIR}" ] || [ ! -f "${TARG_DIR}/AdGuardHome" ]; then
     PTXT "$ERROR AdGuardHome is not installed. Aborting..."
-    end_op_message
+    end_op_message Abort
     return
   fi
   PTXT "$INFO Configuring AdGuardHome..."
@@ -878,12 +866,12 @@ uninst_all () {
     PTXT "$INFO Old Backup Detected!"
     read_yesno "Do you want to remove backup?(this will prevent resorting later)" && rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz" || PTXT "$INFO Keeping backup instead."
   fi
-  [ -n "$(pidof AdGuardHome)" ] && /opt/etc/init.d/S61AdGuardHome stop && /opt/etc/init.d/S61AdGuardHome kill
+  [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stopping AdGuardHome first..." && /opt/etc/init.d/S61AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S61AdGuardHome kill >/dev/null 2>&1
   [ "$(awk -F'=' '/ADGUARD_DOMAIN/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "yes" ] && nvram set lan_domain="" && nvram commit
   rm -rf "$TARG_DIR" "/opt/etc/init.d/S61AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool"
   yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
   service restart_dnsmasq >/dev/null 2>&1
-  end_op_message 0
+  end_op_message Success
 }
 
 write_conf () {
@@ -990,19 +978,19 @@ menu () {
       PTXT "$INFO This operation will install AdGuardHome and related files (<6MB)" \
         "$INFO to ENTWARE, no other data will be changed." \
         "$INFO Also some start scripts will be installed/modified as required."
-      read_yesno "Do you want to install AdGuardHome to ENTWARE?" && choose_branch || end_op_message 1
+      read_yesno "Do you want to install AdGuardHome to ENTWARE?" && choose_branch || end_op_message Abort
       ;;
     2)
       PTXT "$INFO This operation will cleanup everything installed by this script."
-      read_yesno "Do you want to continue?" && uninst_all || end_op_message 1
+      read_yesno "Do you want to continue?" && uninst_all || end_op_message Abort
       ;;
     b|B)
       PTXT "$INFO This operation will backup everything!"
-      read_yesno "Do you want to continue?" && backup_restore BACKUP || end_op_message 1
+      read_yesno "Do you want to continue?" && backup_restore BACKUP || end_op_message Abort
       ;;
     r|R)
       PTXT "$INFO This operation will restore everything!"
-      read_yesno "Do you want to continue?" && backup_restore RESTORE || end_op_message 1
+      read_yesno "Do you want to continue?" && backup_restore RESTORE || end_op_message Abort
       ;;
     q|Q)
       PTXT "$INFO Operations have been applied if any has been made" \
