@@ -135,37 +135,37 @@ backup_restore () {
          'export TZ=$(cat /etc/TZ)' \
          'SCRIPT_NAME="$(basename $0)"' \
          'SCRIPT_LOC="/opt/etc/init.d/${SCRIPT_NAME}"' \
-         'NAME="$SCRIPT_NAME[$$]"' \
+         'NAME="${SCRIPT_NAME}[$$]"' \
          'case "$1" in' \
          '  check)' \
          '   local NW_STATE' \
          '   local RES_STATE' \
          '   NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
          '   RES_STATE="$(nslookup google.com >/dev/null 2>&1; echo $?)"' \
-         '   while [ -z "$(pidof AdGuardHome)" ] || [ -f "$PID_FILE" ]; do ' \
+         '   while [ -z "$(pidof AdGuardHome)" ] || [ -f "$PID_FILE" ]; do' \
          '   if [ -z "$(pidof AdGuardHome)" ]; then' \
-         '     logger -st $NAME "AdGuardHome found dead on checks. Starting before completing checks."' \
-         '     exec "$SCRIPT_LOC" start >/dev/null 2>&1; continue' \
-         '   elif [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then ' \
-         '     logger -st $NAME "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
-         '     exec "$SCRIPT_LOC" start >/dev/null 2>&1; continue' \
+         '     logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
+         '     if "exec "$SCRIPT_LOC" start >/dev/null 2>&1"; then continue; else break; fi' \
+         '   elif [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then' \
+         '     logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
+         '     if "exec "$SCRIPT_LOC" start >/dev/null 2>&1"; then continue; else break; fi' \
          '   else' \
-         '     logger -st $NAME "AdGuardHome found alive. Completing checks."' \
+         '     logger -st "$NAME" "AdGuardHome found alive. Completing checks."' \
          '     break' \
          '   fi' \
          '   done' \
          '   ;;' \
          '  stop)' \
-         '   STARTUPLINECOUNT=$(cru l | grep -c "$SCRIPT_NAME")' \
+         '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
          '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
-         '     logger -st $NAME "AdGuardHome has been stopped. Removing all checks."' \
+         '     logger -st "$NAME" "AdGuardHome has been stopped. Removing all checks."' \
          '     cru d "$SCRIPT_NAME"' \
          '   fi' \
          '   ;;' \
          '   *)' \
          '   STARTUPLINECOUNT=$(cru l | grep -c "$SCRIPT_NAME")' \
          '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
-         '     logger -st $NAME "AdGuardHome has been started. Adding all checks."' \
+         '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
          '     cru a "$SCRIPT_NAME" "* */6 * * * $SCRIPT_LOC check >/dev/null 2>&1"' \
          '   fi' \
          '   ;;' \
@@ -636,37 +636,37 @@ inst_AdGuardHome () {
        'export TZ=$(cat /etc/TZ)' \
        'SCRIPT_NAME="$(basename $0)"' \
        'SCRIPT_LOC="/opt/etc/init.d/${SCRIPT_NAME}"' \
-       'NAME="$SCRIPT_NAME[$$]"' \
+       'NAME="${SCRIPT_NAME}[$$]"' \
        'case "$1" in' \
        '  check)' \
        '   local NW_STATE' \
        '   local RES_STATE' \
        '   NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
        '   RES_STATE="$(nslookup google.com >/dev/null 2>&1; echo $?)"' \
-       '   while [ -z "$(pidof AdGuardHome)" ] || [ -f "$PID_FILE" ]; do ' \
+       '   while [ -z "$(pidof AdGuardHome)" ] || [ -f "$PID_FILE" ]; do' \
        '   if [ -z "$(pidof AdGuardHome)" ]; then' \
-       '     logger -st $NAME "AdGuardHome found dead on checks. Starting before completing checks."' \
-       '     exec "$SCRIPT_LOC" start >/dev/null 2>&1; continue' \
-       '   elif [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then ' \
-       '     logger -st $NAME "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
-       '     exec "$SCRIPT_LOC" start >/dev/null 2>&1; continue' \
+       '     logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
+       '     if "exec "$SCRIPT_LOC" start >/dev/null 2>&1"; then continue; else break; fi' \
+       '   elif [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then' \
+       '     logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
+       '     if "exec "$SCRIPT_LOC" start >/dev/null 2>&1"; then continue; else break; fi' \
        '   else' \
-       '     logger -st $NAME "AdGuardHome found alive. Completing checks."' \
+       '     logger -st "$NAME" "AdGuardHome found alive. Completing checks."' \
        '     break' \
        '   fi' \
        '   done' \
        '   ;;' \
        '  stop)' \
-       '   STARTUPLINECOUNT=$(cru l | grep -c "$SCRIPT_NAME")' \
+       '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
        '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
-       '     logger -st $NAME "AdGuardHome has been stopped. Removing all checks."' \
+       '     logger -st "$NAME" "AdGuardHome has been stopped. Removing all checks."' \
        '     cru d "$SCRIPT_NAME"' \
        '   fi' \
        '   ;;' \
        '   *)' \
        '   STARTUPLINECOUNT=$(cru l | grep -c "$SCRIPT_NAME")' \
        '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
-       '     logger -st $NAME "AdGuardHome has been started. Adding all checks."' \
+       '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
        '     cru a "$SCRIPT_NAME" "* */6 * * * $SCRIPT_LOC check >/dev/null 2>&1"' \
        '   fi' \
        '   ;;' \
