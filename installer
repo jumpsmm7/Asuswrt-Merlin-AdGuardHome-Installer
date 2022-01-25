@@ -933,6 +933,8 @@ ROUTER_ARCH="$(/bin/uname -m)"
 
 clear
 
+[ -z "$ROUTER_MODEL" ] && PTXT "$ERROR This is an unsupported router, sorry." && exit 1
+
 sed -n '2,22p' "$0"
 
 case "$ROUTER_MODEL" in
