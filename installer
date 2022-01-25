@@ -812,7 +812,7 @@ setup_AdGuardHome_impl () {
           "  - $BOOTSTRAP1" \
           "  - $BOOTSTRAP2" \
           "  - tcp://${BOOTSTRAP1}" \
-          "  - tcp://${BOOTSTRAP2}" \	  
+          "  - tcp://${BOOTSTRAP2}" \
 	  "  bootstrap_dns:" \
           "  - $BOOTSTRAP1" \
           "  - $BOOTSTRAP2" \
