@@ -741,7 +741,7 @@ read_input_num () {
       return 1
       ;;
   esac
-  if [ -z "$(PTXT -n "$CHOSEN" | grep -E '^[0-9]+$')" ]; then
+  if [ -z "$(PTXT "$CHOSEN" | grep -E '^[0-9]+$')" ]; then
     PTXT "$ERROR Invalid character entered! Retrying..."
     read_input_num "$@"
     return
