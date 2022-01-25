@@ -139,7 +139,7 @@ backup_restore () {
          'case "$1" in' \
          '  check)' \
          '   NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
-         '   RES_STATE="$(nslookup google.com >/dev/null 2>&1; echo $?)"' \
+         '   RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
          '   while [ -z "$(pidof AdGuardHome)" ] || [ -f "$PID_FILE" ]; do' \
          '   if [ -z "$(pidof AdGuardHome)" ]; then' \
          '     logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
@@ -629,7 +629,7 @@ inst_AdGuardHome () {
        'case "$1" in' \
        '  check)' \
        '   NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
-       '   RES_STATE="$(nslookup google.com >/dev/null 2>&1; echo $?)"' \
+       '   RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
        '   while [ -z "$(pidof AdGuardHome)" ] || [ -f "$PID_FILE" ]; do' \
        '   if [ -z "$(pidof AdGuardHome)" ]; then' \
        '     logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
