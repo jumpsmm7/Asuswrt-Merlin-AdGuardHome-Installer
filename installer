@@ -732,11 +732,8 @@ read_input_num () {
   PTXT -n "$INPUT $1, ${BOLD}${RANGE}${NORM}: "
   read CHOSEN
   case "$1" in
-    "Set log level, default is 2, 0 is the most verbose")
-      [ -z "$CHOSEN" ] && CHOSEN="2"
-      ;;
-    "Select your strategy"|"Select your mode")
-      [ -z "$CHOSEN" ] && CHOSEN="1"
+    "Please enter the number that designates your selection:")
+      [ -z "$CHOSEN" ] && PTXT "$ERROR No character entered! Retrying..." && read_input_num "$@" && return
       ;;
   esac
   case "$CHOSEN" in
@@ -744,8 +741,8 @@ read_input_num () {
       return 1
       ;;
   esac
-  if [ -z "$(PTXT "$CHOSEN" | grep -E '^[0-9]+$')" ] || [ -z "$(PTXT "$CHOSEN")" ]; then
-    PTXT "$ERROR Invalid or no character entered! Retrying..."
+  if [ -z "$(PTXT -n "$CHOSEN" | grep -E '^[0-9]+$')" ]; then
+    PTXT "$ERROR Invalid character entered! Retrying..."
     read_input_num "$@"
     return
   fi
