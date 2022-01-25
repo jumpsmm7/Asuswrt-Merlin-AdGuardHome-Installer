@@ -122,22 +122,22 @@ backup_restore () {
     [ "$(nvram get ipv6_fw_enable)" != "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"\"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\""' "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
     [ "$(nvram get ipv6_fw_enable)" = "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"\"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\""' "local=/10.in-addr.arpa/" '"\"local=/$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/\""' "dhcp-option=lan,6,0.0.0.0" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
     PTXT '#!/bin/sh' \
-         'ENABLED=yes' \
+         'ENABLED="yes"' \
          'WORK_DIR="/opt/etc/AdGuardHome"' \
          'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
-         'PROCS=AdGuardHome' \
-         'ARGS="-s run -c $WORK_DIR/AdGuardHome.yaml -w "$WORK_DIR" --pidfile $PID_FILE --no-check-update -l syslog"' \
+         'PROCS="AdGuardHome"' \
+         'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l syslog"' \
          'PREARGS="nohup"' \
          'PRECMD="killall -9 dnsmasq"' \
          'POSTCMD="service restart_dnsmasq"' \
-         'DESC=$PROCS' \
-         'PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
-         'export TZ=$(cat /etc/TZ)' \
+         'DESC="$PROCS"' \
+         'PATH="/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"' \
+         'export TZ="$(cat /etc/TZ)"' \
          'SCRIPT_NAME="$(basename $0)"' \
          'SCRIPT_LOC="/opt/etc/init.d/${SCRIPT_NAME}"' \
          'NAME="${SCRIPT_NAME}[$$]"' \
          'case "$1" in' \
-         '  check)' \
+         '  "check")' \
          '   NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
          '   RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
          '   while [ -z "$(pidof AdGuardHome)" ] || [ -f "$PID_FILE" ]; do' \
@@ -153,14 +153,14 @@ backup_restore () {
          '   fi' \
          '   done' \
          '   ;;' \
-         '  start|restart)' \
+         '  "start"|"restart")' \
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
          '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
          '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
-         '     cru a "$SCRIPT_NAME" "0 */6 * * * $SCRIPT_LOC check >/dev/null 2>&1"' \
+         '     cru a "$SCRIPT_NAME" "0 */3 * * * $SCRIPT_LOC check >/dev/null 2>&1"' \
          '   fi' \
          '   ;;' \
-         '  stop|kill)' \
+         '  "stop"|"kill")' \
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
          '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
          '     logger -st "$NAME" "AdGuardHome has been stopped. Removing all checks."' \
@@ -345,7 +345,7 @@ check_version () {
     local NW_STATE
     local RES_STATE
     NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"
-    RES_STATE="$(nslookup google.com >/dev/null 2>&1; echo $?)"
+    RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"
     if [ -z "$(pidof AdGuardHome)" ]; then
       PTXT "$ERROR AdGuardHome is dead, skipping version check."
     elif [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then
@@ -409,7 +409,7 @@ choose_branch () {
   local NW_STATE
   local RES_STATE
   NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"
-  RES_STATE="$(nslookup google.com >/dev/null 2>&1; echo $?)"
+  RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"
   if [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then
     PTXT "$ERROR Unable to detect the Internet!"
     end_op_message Abort
@@ -612,22 +612,22 @@ inst_AdGuardHome () {
   [ "$(nvram get ipv6_fw_enable)" != "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"\"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\""' "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
   [ "$(nvram get ipv6_fw_enable)" = "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"\"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\""' "local=/10.in-addr.arpa/" '"\"local=/$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/\""' "dhcp-option=lan,6,0.0.0.0" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
   PTXT '#!/bin/sh' \
-       'ENABLED=yes' \
+       'ENABLED="yes"' \
        'WORK_DIR="/opt/etc/AdGuardHome"' \
        'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
-       'PROCS=AdGuardHome' \
-       'ARGS="-s run -c $WORK_DIR/AdGuardHome.yaml -w "$WORK_DIR" --pidfile $PID_FILE --no-check-update -l syslog"' \
+       'PROCS="AdGuardHome"' \
+       'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l syslog"' \
        'PREARGS="nohup"' \
        'PRECMD="killall -9 dnsmasq"' \
        'POSTCMD="service restart_dnsmasq"' \
-       'DESC=$PROCS' \
-       'PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
-       'export TZ=$(cat /etc/TZ)' \
+       'DESC="$PROCS"' \
+       'PATH="/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"' \
+       'export TZ="$(cat /etc/TZ)"' \
        'SCRIPT_NAME="$(basename $0)"' \
        'SCRIPT_LOC="/opt/etc/init.d/${SCRIPT_NAME}"' \
        'NAME="${SCRIPT_NAME}[$$]"' \
        'case "$1" in' \
-       '  check)' \
+       '  "check")' \
        '   NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
        '   RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
        '   while [ -z "$(pidof AdGuardHome)" ] || [ -f "$PID_FILE" ]; do' \
@@ -643,14 +643,14 @@ inst_AdGuardHome () {
        '   fi' \
        '   done' \
        '   ;;' \
-       '  start|restart)' \
+       '  "start"|"restart")' \
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
        '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
        '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
-       '     cru a "$SCRIPT_NAME" "0 */6 * * * $SCRIPT_LOC check >/dev/null 2>&1"' \
+       '     cru a "$SCRIPT_NAME" "0 */3 * * * $SCRIPT_LOC check >/dev/null 2>&1"' \
        '   fi' \
        '   ;;' \
-       '  stop|kill)' \
+       '  "stop"|"kill")' \
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
        '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
        '     logger -st "$NAME" "AdGuardHome has been stopped. Removing all checks."' \
