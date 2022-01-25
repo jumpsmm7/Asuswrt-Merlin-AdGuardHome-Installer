@@ -148,25 +148,25 @@ backup_restore () {
          '     if "exec "$SCRIPT_LOC" start >/dev/null 2>&1"; then continue; else break; fi' \
          '   elif [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then' \
          '     logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
-         '     if "exec "$SCRIPT_LOC" start >/dev/null 2>&1"; then continue; else break; fi' \
+         '     if "exec "$SCRIPT_LOC" restart >/dev/null 2>&1"; then continue; else break; fi' \
          '   else' \
          '     logger -st "$NAME" "AdGuardHome found alive. Completing checks."' \
          '     break' \
          '   fi' \
          '   done' \
          '   ;;' \
-         '  stop)' \
-         '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
-         '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
-         '     logger -st "$NAME" "AdGuardHome has been stopped. Removing all checks."' \
-         '     cru d "$SCRIPT_NAME"' \
-         '   fi' \
-         '   ;;' \
-         '   *)' \
+         '  start|restart)' \
          '   STARTUPLINECOUNT=$(cru l | grep -c "$SCRIPT_NAME")' \
          '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
          '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
          '     cru a "$SCRIPT_NAME" "* */6 * * * $SCRIPT_LOC check >/dev/null 2>&1"' \
+         '   fi' \
+         '   ;;' \
+         '  stop|kill)' \
+         '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
+         '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
+         '     logger -st "$NAME" "AdGuardHome has been stopped. Removing all checks."' \
+         '     cru d "$SCRIPT_NAME"' \
          '   fi' \
          '   ;;' \
          'esac' \
@@ -649,25 +649,25 @@ inst_AdGuardHome () {
        '     if "exec "$SCRIPT_LOC" start >/dev/null 2>&1"; then continue; else break; fi' \
        '   elif [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then' \
        '     logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
-       '     if "exec "$SCRIPT_LOC" start >/dev/null 2>&1"; then continue; else break; fi' \
+       '     if "exec "$SCRIPT_LOC" restart >/dev/null 2>&1"; then continue; else break; fi' \
        '   else' \
        '     logger -st "$NAME" "AdGuardHome found alive. Completing checks."' \
        '     break' \
        '   fi' \
        '   done' \
        '   ;;' \
-       '  stop)' \
-       '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
-       '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
-       '     logger -st "$NAME" "AdGuardHome has been stopped. Removing all checks."' \
-       '     cru d "$SCRIPT_NAME"' \
-       '   fi' \
-       '   ;;' \
-       '   *)' \
+       '  start|restart)' \
        '   STARTUPLINECOUNT=$(cru l | grep -c "$SCRIPT_NAME")' \
        '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
        '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
        '     cru a "$SCRIPT_NAME" "* */6 * * * $SCRIPT_LOC check >/dev/null 2>&1"' \
+       '   fi' \
+       '   ;;' \
+       '  stop|kill)' \
+       '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
+       '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
+       '     logger -st "$NAME" "AdGuardHome has been stopped. Removing all checks."' \
+       '     cru d "$SCRIPT_NAME"' \
        '   fi' \
        '   ;;' \
        'esac' \
