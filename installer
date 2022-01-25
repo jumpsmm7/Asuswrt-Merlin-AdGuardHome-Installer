@@ -202,7 +202,7 @@ backup_restore () {
     fi
 
     PTXT "$INFO Starting AdGuardHome..."
-    [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stoping AdGuardHome first..." && /opt/etc/init.d/S61AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S61AdGuardHome kill >/dev/null 2>&1 
+    [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stopping AdGuardHome first..." && /opt/etc/init.d/S61AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S61AdGuardHome kill >/dev/null 2>&1 
     [ -z "$(pidof AdGuardHome)" ] && PTXT "$INFO Starting AdGuardHome..." && /opt/etc/init.d/S61AdGuardHome start >/dev/null 2>&1
     sleep 1
     if [ -z "$(pidof AdGuardHome)" ]; then
@@ -694,7 +694,7 @@ inst_AdGuardHome () {
     end_op_message
     return
   fi
-  [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stoping AdGuardHome first..." && /opt/etc/init.d/S61AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S61AdGuardHome kill >/dev/null 2>&1 
+  [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stopping AdGuardHome first..." && /opt/etc/init.d/S61AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S61AdGuardHome kill >/dev/null 2>&1 
   [ -z "$(pidof AdGuardHome)" ] && PTXT "$INFO Starting AdGuardHome..." && /opt/etc/init.d/S61AdGuardHome start >/dev/null 2>&1
   sleep 1
   if [ -z "$(pidof AdGuardHome)" ]; then
@@ -866,7 +866,7 @@ uninst_all () {
     PTXT "$INFO Old Backup Detected!"
     read_yesno "Do you want to remove backup?(this will prevent resorting later)" && rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz" || PTXT "$INFO Keeping backup instead."
   fi
-  [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stoping AdGuardHome first..." && /opt/etc/init.d/S61AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S61AdGuardHome kill >/dev/null 2>&1
+  [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stopping AdGuardHome first..." && /opt/etc/init.d/S61AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S61AdGuardHome kill >/dev/null 2>&1
   [ "$(awk -F'=' '/ADGUARD_DOMAIN/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "yes" ] && nvram set lan_domain="" && nvram commit
   rm -rf "$TARG_DIR" "/opt/etc/init.d/S61AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool"
   yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
