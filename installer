@@ -530,7 +530,7 @@ end_op_message () {
   PTXT " "
   PTXT " "
   sleep 3
-  if [ ! -f "${TARG_DIR}/installer" ]; then chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1; exec "$SCRIPT_LOC" "$BRANCH" && exit; elif [ -f "${TARG_DIR}/installer" ]; then chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1; exec "${TARG_DIR}/installer" "$BRANCH" && exit; else exit; fi
+  if [ ! -f "${TARG_DIR}/installer" ]; then chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1; exec "$SCRIPT_LOC" "$BRANCH" && exit; elif [ -f "${TARG_DIR}/installer" ]; then chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1; exec "${TARG_DIR}/installer" "$BRANCH" && exit; else clear && exit; fi
 }
 
 inst_AdGuardHome () {
@@ -732,11 +732,8 @@ read_input_num () {
   PTXT -n "$INPUT $1, ${BOLD}${RANGE}${NORM}: "
   read CHOSEN
   case "$1" in
-    "Set log level, default is 2, 0 is the most verbose")
-      [ -z "$CHOSEN" ] && CHOSEN="2"
-      ;;
-    "Select your strategy"|"Select your mode")
-      [ -z "$CHOSEN" ] && CHOSEN="1"
+    "Please enter the number that designates your selection:")
+      [ -z "$CHOSEN" ] && PTXT "$ERROR No character entered! Retrying..." && read_input_num "$@" && return
       ;;
   esac
   case "$CHOSEN" in
@@ -744,7 +741,7 @@ read_input_num () {
       return 1
       ;;
   esac
-  if [ -z "$(PTXT "$CHOSEN" | grep -E '^[0-9]+$')" ]; then
+  if [ -z "$(PTXT -n "$CHOSEN" | grep -E '^[0-9]+$')" ]; then
     PTXT "$ERROR Invalid character entered! Retrying..."
     read_input_num "$@"
     return
