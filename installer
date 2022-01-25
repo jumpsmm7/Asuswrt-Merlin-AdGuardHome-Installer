@@ -530,11 +530,7 @@ end_op_message () {
   PTXT " "
   PTXT " "
   sleep 3
-  if [ ! -f "${TARG_DIR}/installer" ]; then
-    chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1 && "$SCRIPT_LOC" "$BRANCH" && exit
-  else
-    chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1 && "${TARG_DIR}/installer" "$BRANCH" && exit
-  fi
+  if [ ! -f "${TARG_DIR}/installer" ]; then chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1; "$SCRIPT_LOC" "$BRANCH"; exit; elif [ -f "${TARG_DIR}/installer" ]; then chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1; "${TARG_DIR}/installer" "$BRANCH"; exit; else; exit; fi
 }
 
 inst_AdGuardHome () {
