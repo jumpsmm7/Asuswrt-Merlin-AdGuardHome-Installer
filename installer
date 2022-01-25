@@ -212,13 +212,7 @@ backup_restore () {
       return
     fi
     /opt/etc/init.d/S61AdGuardHome restart >/dev/null 2>&1
-    PTXT "$INFO You are all set." \
-	 "$INFO To visit AdGuardHome," \
-         "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
-         "$INFO You can use the WebUI to change things to your liking!" \
-	 "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
-	 "$INFO for any configuration needs. "
-    sleep 5
+    PTXT "$INFO You are all set."
     end_op_message 0
   elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$ERROR No Backup found!" \
@@ -383,8 +377,7 @@ check_version () {
       [ -z "$LVERSION" ] && exit 1
       [ -z "$REMOTE_VER" ] && exit 1
       if [ "$REMOTE_VER" != "$LVERSION" ] && [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "release" ]; then
-        PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
-          "$INFO If desired, run Option 1 of the Installer to upgrade AdGuardHome."
+        PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!"
       else 
         case "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" in
          release)        
@@ -397,14 +390,14 @@ check_version () {
             PTXT "$INFO ADGUARDHOME_BUILD=Edge"
             ;;
 	      esac  
-        PTXT "$INFO ADGUARDHOME_VER=${LVERSION}" \
-          "$INFO If desired, run Option 1 of the Installer to upgrade AdGuardHome."	
       fi
-      PTXT "$INFO To visit AdGuardHome," \
-          "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
-          "$INFO You can use the WebUI to change things to your liking!" \
-	  "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
-	  "$INFO for any configuration needs. "
+      PTXT "$INFO ADGUARDHOME_VER=${LVERSION}" \
+           "$INFO Run Option 1 to upgrade or change builds." \
+           "$INFO To visit AdGuardHome," \
+           "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
+           "$INFO You can use the WebUI to change things to your liking!" \
+	   "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
+	   "$INFO for any configuration needs. "
     fi
   fi
 }
@@ -538,9 +531,9 @@ end_op_message () {
   PTXT " "
   sleep 3
   if [ ! -f "${TARG_DIR}/installer" ]; then
-    chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1 && exec "$SCRIPT_LOC" "$BRANCH" && exit
+    chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1 && exec "$SCRIPT_LOC $BRANCH" && exit
   else
-    chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1 && exec "${TARG_DIR}/installer" "$BRANCH" && exit
+    chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1 && exec "${TARG_DIR}/installer $BRANCH" && exit
   fi
 }
 
@@ -711,13 +704,7 @@ inst_AdGuardHome () {
     return
   fi
   /opt/etc/init.d/S61AdGuardHome restart >/dev/null 2>&1
-  PTXT "$INFO AdGuardHome setup is complete." \
-       "$INFO To visit AdGuardHome," \
-       "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
-       "$INFO You can use the WebUI to change things to your liking!" \
-       "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
-       "$INFO for any configuration needs. "
-       sleep 5
+  PTXT "$INFO AdGuardHome setup is complete."
   end_op_message 0
 }
   
