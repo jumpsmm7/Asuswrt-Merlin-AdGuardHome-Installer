@@ -136,24 +136,35 @@ backup_restore () {
          'SCRIPT_NAME="$(basename $0)"' \
          'SCRIPT_LOC="/opt/etc/init.d/${SCRIPT_NAME}"' \
          'NAME="${SCRIPT_NAME}[$$]"' \
+         'NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
+         'RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
+         'HOST_STATE="$(host www.google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
+         'INTERVAL="3"' \
+         'MAXCOUNT="10"' \
          'case "$1" in' \
          '  "check")' \
-         '   NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
-         '   RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
          '   while [ -z "$(pidof AdGuardHome)" ] || [ -f "$PID_FILE" ]; do' \
-         '   if [ -z "$(pidof AdGuardHome)" ]; then' \
-         '     logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
-         '     if "$SCRIPT_LOC" start >/dev/null 2>&1; then continue; else break; fi' \
-         '   elif [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then' \
-         '     logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
-         '     if "$SCRIPT_LOC" restart >/dev/null 2>&1; then continue; else break; fi' \
-         '   else' \
-         '     logger -st "$NAME" "AdGuardHome found alive. Completing checks."' \
-         '     break' \
-         '   fi' \
+         '     if [ -z "$(pidof AdGuardHome)" ]; then' \
+         '       logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
+         '       if "$SCRIPT_LOC" start >/dev/null 2>&1; then continue; else break; fi' \
+         '     elif [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then' \
+         '       logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
+         '       if "$SCRIPT_LOC" restart >/dev/null 2>&1; then continue; else break; fi' \
+         '     else' \
+         '       logger -st "$NAME" "AdGuardHome found alive. Completing checks."' \
+         '       break' \
+         '     fi' \
          '   done' \
          '   ;;' \
          '  "start"|"restart")' \
+         '   if [ -z "$(pidof AdGuardHome)" ]; then' \
+         '     i="1"' \
+         '     while [ "$NW_STATE" -ne 0 ] || [ "$RES_STATE" -ne 0 ] || [ "$HOST_STATE" -ne 0 ]; do' \
+         '       [ "$i" -eq "$MAXCOUNT" ] && logger -st $NAME "Internet remains inactive; continuing anyway." && break' \
+         '       [ "$i" -eq 1 ] && service restart_dnsmasq >/dev/null 2>&1 && logger -st $NAME "Waiting for the internet (attempt ${i}/${MAXCOUNT})"' \
+         '       [ "$i" -le "$MAXCOUNT" ] && sleep $INTERVAL && i="$((i+1))"' \
+         '     done' \
+         '   fi' \
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
          '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
          '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
@@ -623,24 +634,35 @@ inst_AdGuardHome () {
        'SCRIPT_NAME="$(basename $0)"' \
        'SCRIPT_LOC="/opt/etc/init.d/${SCRIPT_NAME}"' \
        'NAME="${SCRIPT_NAME}[$$]"' \
+       'NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
+       'RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
+       'HOST_STATE="$(host www.google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
+       'INTERVAL="3"' \
+       'MAXCOUNT="10"' \
        'case "$1" in' \
        '  "check")' \
-       '   NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
-       '   RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
        '   while [ -z "$(pidof AdGuardHome)" ] || [ -f "$PID_FILE" ]; do' \
-       '   if [ -z "$(pidof AdGuardHome)" ]; then' \
-       '     logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
-       '     if "$SCRIPT_LOC" start >/dev/null 2>&1; then continue; else break; fi' \
-       '   elif [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then' \
-       '     logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
-       '     if "$SCRIPT_LOC" restart >/dev/null 2>&1; then continue; else break; fi' \
-       '   else' \
-       '     logger -st "$NAME" "AdGuardHome found alive. Completing checks."' \
-       '     break' \
-       '   fi' \
+       '     if [ -z "$(pidof AdGuardHome)" ]; then' \
+       '       logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
+       '       if "$SCRIPT_LOC" start >/dev/null 2>&1; then continue; else break; fi' \
+       '     elif [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then' \
+       '       logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
+       '       if "$SCRIPT_LOC" restart >/dev/null 2>&1; then continue; else break; fi' \
+       '     else' \
+       '       logger -st "$NAME" "AdGuardHome found alive. Completing checks."' \
+       '       break' \
+       '     fi' \
        '   done' \
        '   ;;' \
        '  "start"|"restart")' \
+       '   if [ -z "$(pidof AdGuardHome)" ]; then' \
+       '     i="1"' \
+       '     while [ "$NW_STATE" -ne 0 ] || [ "$RES_STATE" -ne 0 ] || [ "$HOST_STATE" -ne 0 ]; do' \
+       '       [ "$i" -eq "$MAXCOUNT" ] && logger -st $NAME "Internet remains inactive; continuing anyway." && break' \
+       '       [ "$i" -eq 1 ] && service restart_dnsmasq >/dev/null 2>&1 && logger -st $NAME "Waiting for the internet (attempt ${i}/${MAXCOUNT})"' \
+       '       [ "$i" -le "$MAXCOUNT" ] && sleep $INTERVAL && i="$((i+1))"' \
+       '     done' \
+       '   fi' \
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
        '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
        '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
