@@ -169,7 +169,7 @@ backup_restore () {
          '       logger -st "$NAME" "Waiting for the internet (attempt ${i}/"$((MAXCOUNT-i))")"' \
          '       if [ "$i" -le "$MAXCOUNT" ]; then sleep "$INTERVAL"; i="$((i+1))"; fi' \
          '       ALIVE="$((ALIVE+NW_STATE+RES_STATE+HOST_STATE+CURL_STATE+SPIDER_STATE))"' \
-         '       if [ "$ALIVE" -le "3" ]; break; else service restart_dnsmasq >/dev/null 2>&1; fi' \
+         '       if [ "$ALIVE" -le "3" ]; then break; else service restart_dnsmasq >/dev/null 2>&1; fi' \
          '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st "$NAME" "Internet remains inactive; continuing anyway."; break; fi' \
          '     done' \
          '   fi' \
@@ -681,7 +681,7 @@ inst_AdGuardHome () {
        '       logger -st "$NAME" "Waiting for the internet (attempt ${i}/"$((MAXCOUNT-i))")"' \
        '       if [ "$i" -le "$MAXCOUNT" ]; then sleep "$INTERVAL"; i="$((i+1))"; fi' \
        '       ALIVE="$((ALIVE+NW_STATE+RES_STATE+HOST_STATE+CURL_STATE+SPIDER_STATE))"' \
-       '       if [ "$ALIVE" -le "3" ]; break; else service restart_dnsmasq >/dev/null 2>&1; fi' \
+       '       if [ "$ALIVE" -le "3" ]; then break; else service restart_dnsmasq >/dev/null 2>&1; fi' \
        '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st "$NAME" "Internet remains inactive; continuing anyway."; break; fi' \
        '     done' \
        '   fi' \
