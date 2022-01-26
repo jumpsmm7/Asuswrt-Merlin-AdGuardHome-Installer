@@ -160,9 +160,10 @@ backup_restore () {
          '   if [ -z "$(pidof AdGuardHome)" ]; then' \
          '     i="1"' \
          '     while [ "$NW_STATE" -ne 0 ] || [ "$RES_STATE" -ne 0 ] || [ "$HOST_STATE" -ne 0 ]; do' \
-         '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st $NAME "Internet remains inactive; continuing anyway."; break; fi' \
-         '       if [ "$i" -eq 1 ]; then service restart_dnsmasq >/dev/null 2>&1; logger -st $NAME "Waiting for the internet (attempt ${i}/${MAXCOUNT})"; fi' \
+         '       if [ "$i" -eq 1 ]; then service restart_dnsmasq >/dev/null 2>&1; fi' \
+	 '       logger -st $NAME "Waiting for the internet (attempt ${i}/${MAXCOUNT})"' \
          '       if [ "$i" -le "$MAXCOUNT" ]; then sleep $INTERVAL; i="$((i+1))"; fi' \
+	 '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st $NAME "Internet remains inactive; continuing anyway."; break; fi' \
          '     done' \
          '   fi' \
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
@@ -179,7 +180,8 @@ backup_restore () {
          '   fi' \
          '   ;;' \
          'esac' \
-         '. /opt/etc/init.d/rc.func' > /opt/etc/init.d/S61AdGuardHome
+         '. /opt/etc/init.d/rc.func' \
+	 '[ -z "$(pidof AdGuardHome)" ] && service restart_dnsmasq' > /opt/etc/init.d/S61AdGuardHome
     chmod 755 /opt/etc/init.d/S61AdGuardHome
     [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils >/dev/null 2>&1
     [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils >/dev/null 2>&1 && rm -rf /opt/etc/init.d/S80apache
@@ -234,13 +236,13 @@ check_AdGuardHome_yaml () {
   chmod 644 "$1"
   PTXT "$INFO Checking AdGuardHome configuration..."
   if [ "$1" = "$YAML_ORI" ]; then
-    ${TARG_DIR}/AdGuardHome --check-config -c "$1" >/dev/null 2>&1
+    ${TARG_DIR}/AdGuardHome --check-config -c "$1" --no-check-update -l syslog" >/dev/null 2>&1
     yaml_nvars_insert "  bootstrap_dns:" "\  - $BOOTSTRAP2" "$1"
     yaml_nvars_insert "  bootstrap_dns:" "\  - $BOOTSTRAP1" "$1"
     yaml_nvars_delete "[$BOOTSTRAP1 $BOOTSTRAP2]" "$1"
   fi
-  yaml_nvars_replace "log_localtime: false" "log_localtime: true" "$1"
-  ${TARG_DIR}/AdGuardHome --check-config -c "$1" >/dev/null 2>&1
+  yaml_nvars_replace 'log_localtime: false' 'log_localtime: true' "$1"
+  ${TARG_DIR}/AdGuardHome --check-config -c "$1" --no-check-update -l syslog" >/dev/null 2>&1
   if [ "$?" -ne 0 ]; then
     PTXT "$INFO Move invalid configuration file to $YAML_ERR" \
       "$INFO Operation will continue with clean config file."
@@ -658,9 +660,10 @@ inst_AdGuardHome () {
        '   if [ -z "$(pidof AdGuardHome)" ]; then' \
        '     i="1"' \
        '     while [ "$NW_STATE" -ne 0 ] || [ "$RES_STATE" -ne 0 ] || [ "$HOST_STATE" -ne 0 ]; do' \
-       '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st $NAME "Internet remains inactive; continuing anyway."; break; fi' \
-       '       if [ "$i" -eq 1 ]; then service restart_dnsmasq >/dev/null 2>&1; logger -st $NAME "Waiting for the internet (attempt ${i}/${MAXCOUNT})"; fi' \
+       '       if [ "$i" -eq 1 ]; then service restart_dnsmasq >/dev/null 2>&1; fi' \
+       '       logger -st $NAME "Waiting for the internet (attempt ${i}/${MAXCOUNT})"' \
        '       if [ "$i" -le "$MAXCOUNT" ]; then sleep $INTERVAL; i="$((i+1))"; fi' \
+       '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st $NAME "Internet remains inactive; continuing anyway."; break; fi' \
        '     done' \
        '   fi' \
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
@@ -677,7 +680,8 @@ inst_AdGuardHome () {
        '   fi' \
        '   ;;' \
        'esac' \
-       '. /opt/etc/init.d/rc.func' > /opt/etc/init.d/S61AdGuardHome
+       '. /opt/etc/init.d/rc.func' \
+       '[ -z "$(pidof AdGuardHome)" ] && service restart_dnsmasq' > /opt/etc/init.d/S61AdGuardHome
   chmod 755 /opt/etc/init.d/S61AdGuardHome
   [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils >/dev/null 2>&1
   [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils >/dev/null 2>&1 && rm -rf /opt/etc/init.d/S80apache
