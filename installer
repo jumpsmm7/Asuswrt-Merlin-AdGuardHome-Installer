@@ -181,8 +181,8 @@ backup_restore () {
          '   ;;' \
          'esac' \
          '. /opt/etc/init.d/rc.func' \
-	 '[ -z "$(pidof AdGuardHome)" ] && service restart_dnsmasq >/dev/null 2>&1' > /opt/etc/init.d/S61AdGuardHome
-    chmod 755 /opt/etc/init.d/S61AdGuardHome
+	 '[ -z "$(pidof AdGuardHome)" ] && service restart_dnsmasq >/dev/null 2>&1' > /opt/etc/init.d/S99AdGuardHome
+    chmod 755 /opt/etc/init.d/S99AdGuardHome
     [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils >/dev/null 2>&1
     [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils >/dev/null 2>&1 && rm -rf /opt/etc/init.d/S80apache
     [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ] && opkg flag hold apache apache-utils >/dev/null 2>&1
@@ -211,8 +211,8 @@ backup_restore () {
     fi
 
     PTXT "$INFO Starting AdGuardHome..."
-    [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stopping AdGuardHome first..." && /opt/etc/init.d/S61AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S61AdGuardHome kill >/dev/null 2>&1 
-    [ -z "$(pidof AdGuardHome)" ] && PTXT "$INFO Starting AdGuardHome..." && /opt/etc/init.d/S61AdGuardHome start >/dev/null 2>&1
+    [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stopping AdGuardHome first..." && /opt/etc/init.d/S99AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S99AdGuardHome kill >/dev/null 2>&1 
+    [ -z "$(pidof AdGuardHome)" ] && PTXT "$INFO Starting AdGuardHome..." && /opt/etc/init.d/S99AdGuardHome start >/dev/null 2>&1
     sleep 1
     if [ -z "$(pidof AdGuardHome)" ]; then
       PTXT "$ERROR Couldn't start AdGuardHome" \
@@ -220,7 +220,7 @@ backup_restore () {
       end_op_message Abort
       return
     fi
-    /opt/etc/init.d/S61AdGuardHome restart >/dev/null 2>&1
+    /opt/etc/init.d/S99AdGuardHome restart >/dev/null 2>&1
     PTXT "$INFO You are all set."
     end_op_message Success
   elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
@@ -470,6 +470,10 @@ choose_branch () {
   inst_AdGuardHome
 }
 
+cleanup () {
+  /opt/etc/init.d/S61AdGuardHome stop >/dev/null 2>&1; mv /opt/etc/init.d/S61AdGuardHome /opt/etc/init.d/S99AdGuardHome; /opt/etc/init.d/S99AdGuardHome start >/dev/null 2>&1
+}
+
 create_dir () {
   mkdir -p "$1"
   if [ "$?" -ne 0 ]; then
@@ -681,8 +685,8 @@ inst_AdGuardHome () {
        '   ;;' \
        'esac' \
        '. /opt/etc/init.d/rc.func' \
-       '[ -z "$(pidof AdGuardHome)" ] && service restart_dnsmasq >/dev/null 2>&1' > /opt/etc/init.d/S61AdGuardHome
-  chmod 755 /opt/etc/init.d/S61AdGuardHome
+       '[ -z "$(pidof AdGuardHome)" ] && service restart_dnsmasq >/dev/null 2>&1' > /opt/etc/init.d/S99AdGuardHome
+  chmod 755 /opt/etc/init.d/S99AdGuardHome
   [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils >/dev/null 2>&1
   [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils >/dev/null 2>&1 && rm -rf /opt/etc/init.d/S80apache
   [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ] && opkg flag hold apache apache-utils >/dev/null 2>&1
@@ -709,8 +713,8 @@ inst_AdGuardHome () {
     end_op_message Abort
     return
   fi
-  [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stopping AdGuardHome first..." && /opt/etc/init.d/S61AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S61AdGuardHome kill >/dev/null 2>&1 
-  [ -z "$(pidof AdGuardHome)" ] && PTXT "$INFO Starting AdGuardHome..." && /opt/etc/init.d/S61AdGuardHome start >/dev/null 2>&1
+  [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stopping AdGuardHome first..." && /opt/etc/init.d/S99AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S99AdGuardHome kill >/dev/null 2>&1 
+  [ -z "$(pidof AdGuardHome)" ] && PTXT "$INFO Starting AdGuardHome..." && /opt/etc/init.d/S99AdGuardHome start >/dev/null 2>&1
   sleep 1
   if [ -z "$(pidof AdGuardHome)" ]; then
     PTXT "$ERROR Couldn't start AdGuardHome" \
@@ -718,7 +722,7 @@ inst_AdGuardHome () {
     end_op_message Abort
     return
   fi
-  /opt/etc/init.d/S61AdGuardHome restart >/dev/null 2>&1
+  /opt/etc/init.d/S99AdGuardHome restart >/dev/null 2>&1
   PTXT "$INFO AdGuardHome setup is complete."
   end_op_message Success
 }
@@ -880,9 +884,9 @@ uninst_all () {
     PTXT "$INFO Old Backup Detected!"
     read_yesno "Do you want to remove backup?(this will prevent resorting later)" && rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz" || PTXT "$INFO Keeping backup instead."
   fi
-  [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stopping AdGuardHome first..." && /opt/etc/init.d/S61AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S61AdGuardHome kill >/dev/null 2>&1
+  [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stopping AdGuardHome first..." && /opt/etc/init.d/S99AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S99AdGuardHome kill >/dev/null 2>&1
   [ "$(awk -F'=' '/ADGUARD_DOMAIN/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "yes" ] && nvram set lan_domain="" && nvram commit
-  rm -rf "$TARG_DIR" "/opt/etc/init.d/S61AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool"
+  rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool"
   yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
   service restart_dnsmasq >/dev/null 2>&1
   end_op_message Success
@@ -973,6 +977,7 @@ case "$ROUTER_ARCH" in
     ;;
 esac
 
+cleanup
 check_jffs_enabled
 check_dns_environment
 check_version
