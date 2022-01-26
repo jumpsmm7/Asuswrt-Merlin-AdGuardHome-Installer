@@ -159,7 +159,7 @@ backup_restore () {
          '  "start"|"restart")' \
          '   if [ -z "$(pidof AdGuardHome)" ]; then' \
          '     i="1"' \
-         '     while [ "$i" -eq "$MAXCOUNT" ]; do' \
+         '     while [ "$i" -ne "$MAXCOUNT" ]; do' \
          '       if [ "$YEAR" -gt 1970 ]; then ALIVE="0"; else ALIVE="1"; fi' \
          '       if [ "$NW_STATE" = "0" ]; then NW_STATE="0"; else NW_STATE="1"; fi' \
          '       if [ "$RES_STATE" = "0" ]; then RES_STATE="0"; else RES_STATE="1"; fi' \
@@ -671,7 +671,7 @@ inst_AdGuardHome () {
        '  "start"|"restart")' \
        '   if [ -z "$(pidof AdGuardHome)" ]; then' \
        '     i="1"' \
-       '     while [ "$i" -eq "$MAXCOUNT" ]; do' \
+       '     while [ "$i" -ne "$MAXCOUNT" ]; do' \
        '       if [ "$YEAR" -gt 1970 ]; then ALIVE="0"; else ALIVE="1"; fi' \
        '       if [ "$NW_STATE" = "0" ]; then NW_STATE="0"; else NW_STATE="1"; fi' \
        '       if [ "$RES_STATE" = "0" ]; then RES_STATE="0"; else RES_STATE="1"; fi' \
