@@ -136,6 +136,7 @@ backup_restore () {
          'SCRIPT_NAME="$(basename $0)"' \
          'SCRIPT_LOC="/opt/etc/init.d/${SCRIPT_NAME}"' \
          'NAME="${SCRIPT_NAME}[$$]"' \
+	 'YEAR="$(/bin/date +"%Y")"' \
          'NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
          'RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
          'HOST_STATE="$(host www.google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
@@ -650,6 +651,7 @@ inst_AdGuardHome () {
        'SCRIPT_NAME="$(basename $0)"' \
        'SCRIPT_LOC="/opt/etc/init.d/${SCRIPT_NAME}"' \
        'NAME="${SCRIPT_NAME}[$$]"' \
+       'YEAR="$(/bin/date +"%Y")"' \
        'NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
        'RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
        'HOST_STATE="$(host www.google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
