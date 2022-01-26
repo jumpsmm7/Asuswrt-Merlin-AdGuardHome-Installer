@@ -159,7 +159,7 @@ backup_restore () {
          '  "start"|"restart")' \
          '   if [ -z "$(pidof AdGuardHome)" ]; then' \
          '     i="1"' \
-         '     while [ "$NW_STATE" -ne 0 ] || [ "$RES_STATE" -ne 0 ] || [ "$HOST_STATE" -ne 0 ]; do' \
+         '     while [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ] && [ "$HOST_STATE" -ne 0 ]; do' \
          '       if [ "$i" -eq 1 ]; then service restart_dnsmasq >/dev/null 2>&1; fi' \
 	 '       logger -st $NAME "Waiting for the internet (attempt ${i}/${MAXCOUNT})"' \
          '       if [ "$i" -le "$MAXCOUNT" ]; then sleep $INTERVAL; i="$((i+1))"; fi' \
@@ -659,7 +659,7 @@ inst_AdGuardHome () {
        '  "start"|"restart")' \
        '   if [ -z "$(pidof AdGuardHome)" ]; then' \
        '     i="1"' \
-       '     while [ "$NW_STATE" -ne 0 ] || [ "$RES_STATE" -ne 0 ] || [ "$HOST_STATE" -ne 0 ]; do' \
+       '     while [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ] && [ "$HOST_STATE" -ne 0 ]; do' \
        '       if [ "$i" -eq 1 ]; then service restart_dnsmasq >/dev/null 2>&1; fi' \
        '       logger -st $NAME "Waiting for the internet (attempt ${i}/${MAXCOUNT})"' \
        '       if [ "$i" -le "$MAXCOUNT" ]; then sleep $INTERVAL; i="$((i+1))"; fi' \
