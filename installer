@@ -139,6 +139,8 @@ backup_restore () {
          'NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
          'RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
          'HOST_STATE="$(host www.google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
+	 'CURL_STATE="$(curl -Is  http://www.google.com | head -n 1 >/dev/null 2>&1; echo $?)"' \
+         'SPIDER_STATE="$(wget -q --spider http://google.com >/dev/null 2>&1; echo $?)"' \
          'INTERVAL="7"' \
          'MAXCOUNT="13"' \
          'case "$1" in' \
@@ -651,6 +653,8 @@ inst_AdGuardHome () {
        'NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
        'RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
        'HOST_STATE="$(host www.google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
+       'CURL_STATE="$(curl -Is  http://www.google.com | head -n 1 >/dev/null 2>&1; echo $?)"' \
+       'SPIDER_STATE="$(wget -q --spider http://google.com >/dev/null 2>&1; echo $?)"' \
        'INTERVAL="7"' \
        'MAXCOUNT="13"' \
        'case "$1" in' \
