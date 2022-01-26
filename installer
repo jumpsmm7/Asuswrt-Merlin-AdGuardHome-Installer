@@ -168,7 +168,7 @@ backup_restore () {
          '       if [ "$RES_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
          '       if [ "$HOST_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
          '       if [ "$CURL_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
-         '       if [ "$SPIDER_STATE" = "0" ]; then SPIDER_STATE="0"; else SPIDER_STATE="1"; fi' \
+         '       if [ "$SPIDER_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
          '       if [ "$ALIVE" -le "3" ]; then break; else service restart_dnsmasq >/dev/null 2>&1; fi' \
 	 '       logger -st "$NAME" "Waiting for the internet (attempt ${i}/"$((MAXCOUNT-i))")"' \
          '       if [ "$i" -le "$MAXCOUNT" ]; then sleep "$INTERVAL"; i="$((i+1))"; fi' \
@@ -682,7 +682,7 @@ inst_AdGuardHome () {
        '       if [ "$RES_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
        '       if [ "$HOST_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
        '       if [ "$CURL_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
-       '       if [ "$SPIDER_STATE" = "0" ]; then SPIDER_STATE="0"; else SPIDER_STATE="1"; fi' \
+       '       if [ "$SPIDER_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
        '       if [ "$ALIVE" -le "3" ]; then break; else service restart_dnsmasq >/dev/null 2>&1; fi' \
        '       logger -st "$NAME" "Waiting for the internet (attempt ${i}/"$((MAXCOUNT-i))")"' \
        '       if [ "$i" -le "$MAXCOUNT" ]; then sleep "$INTERVAL"; i="$((i+1))"; fi' \
