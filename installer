@@ -139,8 +139,8 @@ backup_restore () {
          'NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
          'RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
          'HOST_STATE="$(host www.google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
-         'INTERVAL="3"' \
-         'MAXCOUNT="10"' \
+         'INTERVAL="7"' \
+         'MAXCOUNT="13"' \
          'case "$1" in' \
          '  "check")' \
          '   while [ -z "$(pidof AdGuardHome)" ] || [ -f "$PID_FILE" ]; do' \
@@ -637,8 +637,8 @@ inst_AdGuardHome () {
        'NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
        'RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
        'HOST_STATE="$(host www.google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
-       'INTERVAL="3"' \
-       'MAXCOUNT="10"' \
+       'INTERVAL="7"' \
+       'MAXCOUNT="13"' \
        'case "$1" in' \
        '  "check")' \
        '   while [ -z "$(pidof AdGuardHome)" ] || [ -f "$PID_FILE" ]; do' \
