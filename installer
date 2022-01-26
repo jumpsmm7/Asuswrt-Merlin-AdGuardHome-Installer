@@ -471,7 +471,7 @@ choose_branch () {
 }
 
 cleanup () {
-  /opt/etc/init.d/S61AdGuardHome stop >/dev/null 2>&1; mv /opt/etc/init.d/S61AdGuardHome /opt/etc/init.d/S99AdGuardHome; /opt/etc/init.d/S99AdGuardHome start >/dev/null 2>&1
+  /opt/etc/init.d/S61AdGuardHome stop >/dev/null 2>&1; mv /opt/etc/init.d/S61AdGuardHome /opt/etc/init.d/S99AdGuardHome >/dev/null 2>&1; /opt/etc/init.d/S99AdGuardHome start >/dev/null 2>&1
 }
 
 create_dir () {
