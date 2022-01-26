@@ -161,9 +161,9 @@ backup_restore () {
          '     i="1"' \
          '     while [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ] && [ "$HOST_STATE" -ne 0 ]; do' \
          '       if [ "$i" -eq 1 ]; then service restart_dnsmasq >/dev/null 2>&1; fi' \
-	 '       logger -st $NAME "Waiting for the internet (attempt ${i}/${MAXCOUNT})"' \
-         '       if [ "$i" -le "$MAXCOUNT" ]; then sleep $INTERVAL; i="$((i+1))"; fi' \
-	 '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st $NAME "Internet remains inactive; continuing anyway."; break; fi' \
+	 '       logger -st "$NAME" "Waiting for the internet (attempt ${i}/"$((MAXCOUNT-i))")"' \
+         '       if [ "$i" -le "$MAXCOUNT" ]; then sleep "$INTERVAL"; i="$((i+1))"; fi' \
+	 '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st "$NAME" "Internet remains inactive; continuing anyway."; break; fi' \
          '     done' \
          '   fi' \
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
@@ -665,9 +665,9 @@ inst_AdGuardHome () {
        '     i="1"' \
        '     while [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ] && [ "$HOST_STATE" -ne 0 ]; do' \
        '       if [ "$i" -eq 1 ]; then service restart_dnsmasq >/dev/null 2>&1; fi' \
-       '       logger -st $NAME "Waiting for the internet (attempt ${i}/${MAXCOUNT})"' \
-       '       if [ "$i" -le "$MAXCOUNT" ]; then sleep $INTERVAL; i="$((i+1))"; fi' \
-       '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st $NAME "Internet remains inactive; continuing anyway."; break; fi' \
+       '       logger -st "$NAME" "Waiting for the internet (attempt ${i}/"$((MAXCOUNT-i))")"' \
+       '       if [ "$i" -le "$MAXCOUNT" ]; then sleep "$INTERVAL"; i="$((i+1))"; fi' \
+       '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st "$NAME" "Internet remains inactive; continuing anyway."; break; fi' \
        '     done' \
        '   fi' \
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
