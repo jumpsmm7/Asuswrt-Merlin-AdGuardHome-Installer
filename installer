@@ -553,8 +553,8 @@ end_op_message () {
   PTXT "====================================================="
   PTXT " "
   PTXT " "
-  sleep 3
-  if [ -f "${TARG_DIR}/installer" ]; then chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1; exec "${TARG_DIR}/installer" "$BRANCH" && exit; elif [ ! -f "${TARG_DIR}/installer" ] && [ -f "$SCRIPT_LOC" ]; then chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1; exec "$SCRIPT_LOC" "$BRANCH" && exit; else clear && end_op_header && exit; fi
+  sleep 3 && clear
+  if [ -f "${TARG_DIR}/installer" ]; then chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1; exec "${TARG_DIR}/installer" "$BRANCH" && exit; elif [ ! -f "${TARG_DIR}/installer" ] && [ -f "$SCRIPT_LOC" ]; then chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1; exec "$SCRIPT_LOC" "$BRANCH" && exit; elif [ -f "/tmp/home/root/installer" ]; then exec /tmp/home/root/installer "$BRANCH" && exit; else clear && end_op_header && exit; fi
 }
 
 end_op_header () {
