@@ -191,7 +191,7 @@ backup_restore () {
          '   ;;' \
          'esac' \
          '. /opt/etc/init.d/rc.func' \
-	 'if [ -z "$(pidof AdGuardHome)" ] && [ "$1" = "stop" -o "kill" ]; && service restart_dnsmasq >/dev/null 2>&1; fi' > /opt/etc/init.d/S99AdGuardHome
+	 'if [ -z "$(pidof AdGuardHome)" ] && [ "$1" = "stop" -o "kill" ]; then service restart_dnsmasq >/dev/null 2>&1; fi' > /opt/etc/init.d/S99AdGuardHome
     chmod 755 /opt/etc/init.d/S99AdGuardHome
     [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils >/dev/null 2>&1
     [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils >/dev/null 2>&1 && rm -rf /opt/etc/init.d/S80apache
@@ -708,7 +708,7 @@ inst_AdGuardHome () {
        '   ;;' \
        'esac' \
        '. /opt/etc/init.d/rc.func' \
-       'if [ -z "$(pidof AdGuardHome)" ] && [ "$1" = "stop" -o "kill" ]; && service restart_dnsmasq >/dev/null 2>&1; fi' > /opt/etc/init.d/S99AdGuardHome
+       'if [ -z "$(pidof AdGuardHome)" ] && [ "$1" = "stop" -o "kill" ]; then service restart_dnsmasq >/dev/null 2>&1; fi' > /opt/etc/init.d/S99AdGuardHome
   chmod 755 /opt/etc/init.d/S99AdGuardHome
   [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils >/dev/null 2>&1
   [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils >/dev/null 2>&1 && rm -rf /opt/etc/init.d/S80apache
