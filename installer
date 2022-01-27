@@ -1038,8 +1038,8 @@ menu () {
     q|Q)
       PTXT "$INFO Operations have been applied if any has been made" \
         "$INFO In case of anomaly, please reboot your router!"
-      sleep 3
       if [ -f "${HOME}/installer" ]; then rm -rf "${HOME}/installer"; fi
+      sleep 3
       clear
       ;;
   esac
