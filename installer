@@ -13,12 +13,12 @@
 #  / ____ \| (_| || |__| || |_| || (_| || |  | (_| || |  | || (_) || | | | | ||  __/       #
 # /_/    \_\\__,_| \_____| \__,_| \__,_||_|   \__,_||_|  |_| \___/ |_| |_| |_| \___|       #
 #  _____              _          _  _                                                      #
-# |_   _|            | |        | || |                Author:                              #        
-#   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #                           
-#   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        # 
-#  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder         # 
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.1.0                               #       
-#                                                                                          #             
+# |_   _|            | |        | || |                Author:                              #
+#   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #
+#   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        #
+#  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder         #
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.1.0                               #
+#                                                                                          #
 ############################################################################################
 
 AI_VERSION="v1.1.0"
@@ -106,7 +106,7 @@ backup_restore () {
     fi
     tar -czvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "$TARG_DIR" ../AdGuardHome/ >/dev/null 2>&1    
     PTXT "$INFO Backup complete"
-    [ "$2" -ne 0 ] && end_op_message Success
+    [ "$2" -ne 0 ] && end_op_message 0
   elif [ "$1" = "BACKUP" ] && [ ! -d "$TARG_DIR" ] && [ ! -f "${TARG_DIR}/AdGuardHome" ]; then
     PTXT "$ERROR No ${TARG_DIR}/AdGuardHome to Backup!"
     end_op_message 1
@@ -232,7 +232,7 @@ backup_restore () {
     fi
     /opt/etc/init.d/S99AdGuardHome restart >/dev/null 2>&1
     PTXT "$INFO You are all set."
-    end_op_message Success
+    end_op_message 0
   elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$ERROR No Backup found!" \
       "$ERROR Please make sure Backup Resides in $BASE_DIR"
@@ -546,7 +546,7 @@ download_file () {
 }
 
 end_op_message () {
-  [ "$1" = "Success" ] && PTXT "$INFO Operation completed. You can quit or continue"
+  [ "$1" = "0" ] && PTXT "$INFO Operation completed. You can quit or continue"
   [ "$1" = "1" ] && PTXT "$INFO Operation aborted. You can quit or continue"
   PTXT "====================================================="
   PTXT " "
@@ -745,7 +745,7 @@ inst_AdGuardHome () {
   fi
   /opt/etc/init.d/S99AdGuardHome restart >/dev/null 2>&1
   PTXT "$INFO AdGuardHome setup is complete."
-  end_op_message Success
+  end_op_message 0
 }
   
 read_input_dns () {
@@ -911,7 +911,7 @@ uninst_all () {
   rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool"
   yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
   service restart_dnsmasq >/dev/null 2>&1
-  end_op_message Success
+  end_op_message 0
 }
 
 write_conf () {
