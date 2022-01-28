@@ -119,8 +119,8 @@ backup_restore () {
     chmod 644 "${TARG_DIR}/AdGuardHome.yaml"
     ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
     yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-    [ "$(nvram get ipv6_fw_enable)" != "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"\"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\""' "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
-    [ "$(nvram get ipv6_fw_enable)" = "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"\"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\""' "local=/10.in-addr.arpa/" '"\"local=/$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/\""' "dhcp-option=lan,6,0.0.0.0" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
+    if [ "$(nvram get ipv6_fw_enable)" != "1" ]; then write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"\"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\""' "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $1 #Asuswrt-Merlin AdGuardHome Installer'; fi
+    if [ "$(nvram get ipv6_fw_enable)" = "1" ]; then write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"\"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\""' "local=/10.in-addr.arpa/" '"\"local=/$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/\""' "dhcp-option=lan,6,0.0.0.0" >> $1 #Asuswrt-Merlin AdGuardHome Installer'; fi
     PTXT '#!/bin/sh' \
          'ENABLED="yes"' \
          'WORK_DIR="/opt/etc/AdGuardHome"' \
@@ -195,9 +195,9 @@ backup_restore () {
          '. /opt/etc/init.d/rc.func' \
 	 'if [ -z "$(pidof AdGuardHome)" ] && [ "$1" = "stop" -o "kill" ]; then service restart_dnsmasq >/dev/null 2>&1; fi' > /opt/etc/init.d/S99AdGuardHome
     chmod 755 /opt/etc/init.d/S99AdGuardHome
-    [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils >/dev/null 2>&1
-    [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils >/dev/null 2>&1 && rm -rf /opt/etc/init.d/S80apache
-    [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ] && opkg flag hold apache apache-utils >/dev/null 2>&1
+    if [ -f "/opt/etc/init.d/S80apache" ]; then opkg install apache-utils >/dev/null 2>&1; fi
+    if [ -z "$(opkg list-installed | grep apache-utils )" ]; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
+    if [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ]; then opkg flag hold apache apache-utils >/dev/null 2>&1; fi
     if [ -z "$(opkg list-installed | grep apache-utils )" ]; then
       case "$(/bin/uname -m)" in 
       "aarch64"|"arm64")
@@ -216,8 +216,7 @@ backup_restore () {
       go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
       rm -rf go
     fi
-    PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"
-    set_timezone
+    if [ ! -f "${TARG_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
     setup_AdGuardHome
     if [ "$?" -ne 0 ]; then
       end_op_message 1
@@ -225,8 +224,8 @@ backup_restore () {
     fi
 
     PTXT "$INFO Starting AdGuardHome..."
-    [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stopping AdGuardHome first..." && /opt/etc/init.d/S99AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S99AdGuardHome kill >/dev/null 2>&1 
-    [ -z "$(pidof AdGuardHome)" ] && PTXT "$INFO Starting AdGuardHome..." && /opt/etc/init.d/S99AdGuardHome start >/dev/null 2>&1
+    if [ -n "$(pidof AdGuardHome)" ]; then PTXT "$INFO Stopping AdGuardHome first..."; /opt/etc/init.d/S99AdGuardHome stop >/dev/null 2>&1; /opt/etc/init.d/S99AdGuardHome kill >/dev/null 2>&1; fi
+    if [ -z "$(pidof AdGuardHome)" ]; then PTXT "$INFO Starting AdGuardHome..."; /opt/etc/init.d/S99AdGuardHome start >/dev/null 2>&1; fi
     sleep 1
     if [ -z "$(pidof AdGuardHome)" ]; then
       PTXT "$ERROR Couldn't start AdGuardHome" \
@@ -639,8 +638,8 @@ inst_AdGuardHome () {
     fi
   fi
   yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-  [ "$(nvram get ipv6_fw_enable)" != "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"\"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\""' "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
-  [ "$(nvram get ipv6_fw_enable)" = "1" ] && write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"\"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\""' "local=/10.in-addr.arpa/" '"\"local=/$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/\""' "dhcp-option=lan,6,0.0.0.0" >> $1 #Asuswrt-Merlin AdGuardHome Installer'
+  if [ "$(nvram get ipv6_fw_enable)" != "1" ]; then write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"\"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\""' "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $1 #Asuswrt-Merlin AdGuardHome Installer'; fi
+  if [ "$(nvram get ipv6_fw_enable)" = "1" ]; then write_command_script /jffs/scripts/dnsmasq.postconf '[ "$(pidof AdGuardHome)" ] && printf "%s\n" "port=553" '"\"local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/\""' "local=/10.in-addr.arpa/" '"\"local=/$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/\""' "dhcp-option=lan,6,0.0.0.0" >> $1 #Asuswrt-Merlin AdGuardHome Installer'; fi
   PTXT '#!/bin/sh' \
        'ENABLED="yes"' \
        'WORK_DIR="/opt/etc/AdGuardHome"' \
@@ -715,9 +714,9 @@ inst_AdGuardHome () {
        '. /opt/etc/init.d/rc.func' \
        'if [ -z "$(pidof AdGuardHome)" ] && [ "$1" = "stop" -o "kill" ]; then service restart_dnsmasq >/dev/null 2>&1; fi' > /opt/etc/init.d/S99AdGuardHome
   chmod 755 /opt/etc/init.d/S99AdGuardHome
-  [ -f "/opt/etc/init.d/S80apache" ] && opkg install apache-utils >/dev/null 2>&1
-  [ -z "$(opkg list-installed | grep apache-utils )" ] && opkg install apache-utils >/dev/null 2>&1 && rm -rf /opt/etc/init.d/S80apache
-  [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ] && opkg flag hold apache apache-utils >/dev/null 2>&1
+  if [ -f "/opt/etc/init.d/S80apache" ]; then opkg install apache-utils >/dev/null 2>&1; fi
+  if [ -z "$(opkg list-installed | grep apache-utils )" ]; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
+  if [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ]; then opkg flag hold apache apache-utils >/dev/null 2>&1; fi
   if [ -z "$(opkg list-installed | grep apache-utils )" ]; then
     case "$(/bin/uname -m)" in 
     "aarch64"|"arm64")
@@ -736,15 +735,14 @@ inst_AdGuardHome () {
     go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
     rm -rf go
   fi
-  PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"
-  set_timezone
+  if [ ! -f "${TARG_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
   setup_AdGuardHome
   if [ "$?" -ne 0 ]; then
     end_op_message 1
     return
   fi
-  [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stopping AdGuardHome first..." && /opt/etc/init.d/S99AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S99AdGuardHome kill >/dev/null 2>&1 
-  [ -z "$(pidof AdGuardHome)" ] && PTXT "$INFO Starting AdGuardHome..." && /opt/etc/init.d/S99AdGuardHome start >/dev/null 2>&1
+  if [ -n "$(pidof AdGuardHome)" ]; then PTXT "$INFO Stopping AdGuardHome first..."; /opt/etc/init.d/S99AdGuardHome stop >/dev/null 2>&1; /opt/etc/init.d/S99AdGuardHome kill >/dev/null 2>&1; fi
+  if [ -z "$(pidof AdGuardHome)" ]; then PTXT "$INFO Starting AdGuardHome..."; /opt/etc/init.d/S99AdGuardHome start >/dev/null 2>&1; fi
   sleep 1
   if [ -z "$(pidof AdGuardHome)" ]; then
     PTXT "$ERROR Couldn't start AdGuardHome" \
@@ -830,7 +828,7 @@ set_timezone () {
   local INDEX
   TZ_ZONE="/opt/share/zoneinfo"  
   TZ_DATA="${TZ_ZONE}/zone.tab"
-  opkg install $(opkg list zoneinfo* | printf "%s\n" "$(awk '{printf $1" "}')") >/dev/null 2>&1  
+  opkg install $(opkg list zoneinfo* | printf "%s\n" "$(awk '{printf $1" "}')") >/dev/null 2>&1
   local INDEX
   INDEX="$(awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}' | sort -u | wc -l)"
   PTXT "$INFO Available timezones/locations:"
@@ -937,7 +935,7 @@ uninst_all () {
     PTXT "$INFO Old Backup Detected!"
     read_yesno "Do you want to remove backup?(this will prevent resorting later)" && rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz" || PTXT "$INFO Keeping backup instead."
   fi
-  [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stopping AdGuardHome first..." && /opt/etc/init.d/S99AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S99AdGuardHome kill >/dev/null 2>&1
+  if [ -n "$(pidof AdGuardHome)" ]; then PTXT "$INFO Stopping AdGuardHome first..."; /opt/etc/init.d/S99AdGuardHome stop >/dev/null 2>&1; /opt/etc/init.d/S99AdGuardHome kill >/dev/null 2>&1; fi
   [ "$(awk -F'=' '/ADGUARD_DOMAIN/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "yes" ] && nvram set lan_domain="" && nvram commit
   mv "${TARG_DIR}/installer" "${HOME}/installer"
   rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool"
