@@ -385,13 +385,13 @@ check_version () {
       if [ "$RMNSTALL" != "$LINSTALL" ]; then
         PTXT "$INFO New AI_VERSION=${RMNSTALL} Available!" \
           "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
-	  AUTO_UPDATE="update"
+	AUTO_UPDATE="update"
       elif [ "$MD5SUM_R" = "$MD5SUM_L" ]; then
         PTXT "$INFO AI_VERSION=$LINSTALL"
       else
         PTXT "$INFO AI_VERSION=${LINSTALL}, but a New Minor Update is Available!" \
           "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
-	  AUTO_UPDATE="update"
+	AUTO_UPDATE="update"
       fi
       local LVERSION
       LVERSION="$LOCAL_VER"
