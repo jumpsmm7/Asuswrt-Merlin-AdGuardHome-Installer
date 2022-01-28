@@ -177,7 +177,6 @@ backup_restore () {
          '     done' \
          '   fi' \
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
-         '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
          '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
          '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
          '     cru a "$SCRIPT_NAME" "0 */3 * * * $SCRIPT_LOC check >/dev/null 2>&1"' \
@@ -193,7 +192,7 @@ backup_restore () {
          '   ;;' \
          'esac' \
          '. /opt/etc/init.d/rc.func' \
-	 'if [ -z "$(pidof AdGuardHome)" ] && [ "$1" = "stop" -o "kill" ]; then service restart_dnsmasq >/dev/null 2>&1; fi' > /opt/etc/init.d/S99AdGuardHome
+	 'if [ -z "$(pidof AdGuardHome)" ] && [ "$1" = "stop" -o "$1" = "kill" ]; then service restart_dnsmasq >/dev/null 2>&1; exit; fi' > /opt/etc/init.d/S99AdGuardHome
     chmod 755 /opt/etc/init.d/S99AdGuardHome
     if [ -f "/opt/etc/init.d/S80apache" ]; then opkg install apache-utils >/dev/null 2>&1; fi
     if [ -z "$(opkg list-installed | grep apache-utils )" ]; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
@@ -696,7 +695,6 @@ inst_AdGuardHome () {
        '     done' \
        '   fi' \
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
-       '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
        '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
        '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
        '     cru a "$SCRIPT_NAME" "0 */3 * * * $SCRIPT_LOC check >/dev/null 2>&1"' \
@@ -712,7 +710,7 @@ inst_AdGuardHome () {
        '   ;;' \
        'esac' \
        '. /opt/etc/init.d/rc.func' \
-       'if [ -z "$(pidof AdGuardHome)" ] && [ "$1" = "stop" -o "kill" ]; then service restart_dnsmasq >/dev/null 2>&1; fi' > /opt/etc/init.d/S99AdGuardHome
+       'if [ -z "$(pidof AdGuardHome)" ] && [ "$1" = "stop" -o "$1" = "kill" ]; then service restart_dnsmasq >/dev/null 2>&1; exit; fi' > /opt/etc/init.d/S99AdGuardHome
   chmod 755 /opt/etc/init.d/S99AdGuardHome
   if [ -f "/opt/etc/init.d/S80apache" ]; then opkg install apache-utils >/dev/null 2>&1; fi
   if [ -z "$(opkg list-installed | grep apache-utils )" ]; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
