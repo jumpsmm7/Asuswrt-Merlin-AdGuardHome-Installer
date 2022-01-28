@@ -177,7 +177,6 @@ backup_restore () {
          '     done' \
          '   fi' \
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
-         '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
          '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
          '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
          '     cru a "$SCRIPT_NAME" "0 */3 * * * $SCRIPT_LOC check >/dev/null 2>&1"' \
@@ -695,7 +694,6 @@ inst_AdGuardHome () {
        '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st "$NAME" "Internet remains inactive; continuing anyway."; break; fi' \
        '     done' \
        '   fi' \
-       '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
        '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
        '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
