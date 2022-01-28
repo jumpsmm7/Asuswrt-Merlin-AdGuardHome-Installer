@@ -127,12 +127,12 @@ backup_restore () {
          'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
          'PROCS="AdGuardHome"' \
          'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l syslog"' \
-         'PREARGS="nohup"' \
+         'PREARGS="env TZ=${WORK_DIR}/localtime nohup"' \
          'PRECMD="killall -9 dnsmasq"' \
          'POSTCMD="service restart_dnsmasq"' \
          'DESC="$PROCS"' \
          'PATH="/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"' \
-         'export TZ="$(cat /etc/TZ)"' \
+	 'export TZ="$(cat /etc/TZ)"' \
          'SCRIPT_NAME="$(basename $0)"' \
          'SCRIPT_LOC="/opt/etc/init.d/${SCRIPT_NAME}"' \
          'NAME="${SCRIPT_NAME}[$$]"' \
@@ -160,6 +160,7 @@ backup_restore () {
          '   done' \
          '   ;;' \
          '  "start"|"restart")' \
+	 '   [ ! -f "/etc/localtime" ] && ln -sf "${WORK_DIR}/localtime" "/etc/localtime" >/dev/null 2>&1' \
          '   if [ -z "$(pidof AdGuardHome)" ]; then' \
          '     i="1"' \
          '     while [ "$i" -le "$MAXCOUNT" ]; do' \
@@ -183,6 +184,7 @@ backup_restore () {
          '   fi' \
          '   ;;' \
          '  "stop"|"kill")' \
+	 '   [ -f "/etc/localtime" ] && rm -rf /etc/localtime >/dev/null 2>&1' \
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
          '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
          '     logger -st "$NAME" "AdGuardHome has been stopped. Removing all checks."' \
@@ -214,6 +216,8 @@ backup_restore () {
       go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
       rm -rf go
     fi
+    PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"
+    set_timezone
     setup_AdGuardHome
     if [ "$?" -ne 0 ]; then
       end_op_message 1
@@ -643,7 +647,7 @@ inst_AdGuardHome () {
        'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
        'PROCS="AdGuardHome"' \
        'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l syslog"' \
-       'PREARGS="nohup"' \
+       'PREARGS="env TZ=${WORK_DIR}/localtime nohup"' \
        'PRECMD="killall -9 dnsmasq"' \
        'POSTCMD="service restart_dnsmasq"' \
        'DESC="$PROCS"' \
@@ -676,6 +680,7 @@ inst_AdGuardHome () {
        '   done' \
        '   ;;' \
        '  "start"|"restart")' \
+       '   [ ! -f "/etc/localtime" ] && ln -sf "${WORK_DIR}/localtime" "/etc/localtime" >/dev/null 2>&1' \
        '   if [ -z "$(pidof AdGuardHome)" ]; then' \
        '     i="1"' \
        '     while [ "$i" -le "$MAXCOUNT" ]; do' \
@@ -692,12 +697,14 @@ inst_AdGuardHome () {
        '     done' \
        '   fi' \
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
+       '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
        '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
        '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
        '     cru a "$SCRIPT_NAME" "0 */3 * * * $SCRIPT_LOC check >/dev/null 2>&1"' \
        '   fi' \
        '   ;;' \
        '  "stop"|"kill")' \
+       '   [ -f "/etc/localtime" ] && rm -rf /etc/localtime >/dev/null 2>&1' \
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
        '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
        '     logger -st "$NAME" "AdGuardHome has been stopped. Removing all checks."' \
@@ -729,6 +736,8 @@ inst_AdGuardHome () {
     go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
     rm -rf go
   fi
+  PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"
+  set_timezone
   setup_AdGuardHome
   if [ "$?" -ne 0 ]; then
     end_op_message 1
@@ -813,6 +822,29 @@ read_yesno () {
       read_yesno "$@"
       ;;
   esac
+}
+
+set_timezone () {
+  local TZ_ZONE
+  local TZ_DATA
+  local INDEX
+  TZ_ZONE="/opt/share/zoneinfo"  
+  TZ_DATA="${TZ_ZONE}/zone.tab"
+  opkg install $(opkg list zoneinfo* | printf "%s\n" "$(awk '{printf $1" "}')") >/dev/null 2>&1  
+  local INDEX
+  INDEX="$(awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}' | sort -u | wc -l)"
+  PTXT "$INFO Available timezones/locations:"
+  awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}' | sort -u | awk -v INDEX=0 -F'/' '!/\/$/ {++INDEX;printf "  " INDEX") ";for (i=5; i<NF; i++)  printf $i "/"; print $NF}'
+  read_input_num "Select your timezone/location" 1 "$INDEX"
+  local TZ_FILE 
+  TZ_FILE="${TZ_ZONE}/$(awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}' | sort -u | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
+  PTXT "$INFO $(basename "$TZ_FILE") selected"
+  cp -a "${TZ_FILE}" "${TARG_DIR}/localtime"
+  if [ "$?" -ne 0 ]; then
+    PTXT "$ERROR Unable to set your timezone file"
+    end_op_message 1
+    return
+  fi
 }
 
 setup_AdGuardHome () {
