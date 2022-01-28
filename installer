@@ -379,16 +379,19 @@ check_version () {
     MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)"
     MD5SUM_R="$(curl -fsL "$RURL" | md5sum | awk '{print $1}')"
     if [ "$NW_STATE" = "0" -a "$RES_STATE" = "0" ] || [ -n "$RMNSTALL" -a "$REMOTE_VER" ]; then
+      local AUTO_UPDATE
       [ -z "$LINSTALL" ] && exit 1
       [ -z "$RMNSTALL" ] && exit 1
       if [ "$RMNSTALL" != "$LINSTALL" ]; then
         PTXT "$INFO New AI_VERSION=${RMNSTALL} Available!" \
           "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
+	  AUTO_UPDATE="update"
       elif [ "$MD5SUM_R" = "$MD5SUM_L" ]; then
         PTXT "$INFO AI_VERSION=$LINSTALL"
       else
         PTXT "$INFO AI_VERSION=${LINSTALL}, but a New Minor Update is Available!" \
           "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
+	  AUTO_UPDATE="update"
       fi
       local LVERSION
       LVERSION="$LOCAL_VER"
@@ -574,6 +577,7 @@ inst_AdGuardHome () {
     end_op_message 1
     return
   fi
+  if [ "$AUTO_UPDATE" = "update" ]; then exec "${TARG_DIR}/installer" "$BRANCH" "$AUTO_UPDATE" && exit; fi
   if [ -f "${TARG_DIR}/AdGuardHome" ]; then
     local LVERSION
     LVERSION="$LOCAL_VER"
@@ -979,6 +983,7 @@ write_command_script () {
 }
 
 [ "$1" ] && BRANCH="$1" || BRANCH="master"
+[ "$2" = "update" ] && inst_AdGuardHome
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
 ROUTER_OS="$(/bin/uname)"
 ROUTER_ARCH="$(/bin/uname -m)"
