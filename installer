@@ -13,15 +13,15 @@
 #  / ____ \| (_| || |__| || |_| || (_| || |  | (_| || |  | || (_) || | | | | ||  __/       #
 # /_/    \_\\__,_| \_____| \__,_| \__,_||_|   \__,_||_|  |_| \___/ |_| |_| |_| \___|       #
 #  _____              _          _  _                                                      #
-# |_   _|            | |        | || |                Author:                              #        
-#   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #                           
-#   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        # 
-#  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder         # 
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.0.9                               #       
-#                                                                                          #             
+# |_   _|            | |        | || |                Author:                              #
+#   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #
+#   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        #
+#  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder         #
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.1.0                               #
+#                                                                                          #
 ############################################################################################
 
-AI_VERSION="v1.0.9"
+AI_VERSION="v1.1.0"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | grep "tag_name" | head -1 | cut -d \" -f 4)"
 
@@ -98,7 +98,7 @@ backup_restore () {
       read_yesno "Do you want to continue?(this will remove the old backup)" && USE_OLD="NO" || USE_OLD="YES"
       if [ "$USE_OLD" = "YES" ]; then
         PTXT "$INFO Leaving Old Backup."
-        end_op_message Abort
+        end_op_message 1
       elif [ "$USE_OLD" = "NO" ]; then
 	PTXT "$INFO Removing Old Backup."
 	rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"
@@ -106,10 +106,10 @@ backup_restore () {
     fi
     tar -czvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "$TARG_DIR" ../AdGuardHome/ >/dev/null 2>&1    
     PTXT "$INFO Backup complete"
-    [ "$2" -ne 0 ] && end_op_message Success
+    [ "$2" -ne 0 ] && end_op_message 0
   elif [ "$1" = "BACKUP" ] && [ ! -d "$TARG_DIR" ] && [ ! -f "${TARG_DIR}/AdGuardHome" ]; then
     PTXT "$ERROR No ${TARG_DIR}/AdGuardHome to Backup!"
-    end_op_message Abort
+    end_op_message 1
   fi
   if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$INFO Please wait a moment."
@@ -162,7 +162,7 @@ backup_restore () {
          '  "start"|"restart")' \
          '   if [ -z "$(pidof AdGuardHome)" ]; then' \
          '     i="1"' \
-         '     while [ "$i" -ne "$MAXCOUNT" ]; do' \
+         '     while [ "$i" -le "$MAXCOUNT" ]; do' \
          '       if [ "$YEAR" -gt 1970 ]; then ALIVE="0"; else ALIVE="1"; fi' \
          '       if [ "$NW_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
          '       if [ "$RES_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
@@ -170,7 +170,7 @@ backup_restore () {
          '       if [ "$CURL_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
          '       if [ "$SPIDER_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
          '       if [ "$ALIVE" -le "3" ]; then break; else service restart_dnsmasq >/dev/null 2>&1; fi' \
-	 '       logger -st "$NAME" "Waiting for the internet (attempt ${i}/"$((MAXCOUNT-i))")"' \
+	 '       logger -st "$NAME" "Waiting for the internet (attempt ${i}/${MAXCOUNT})"' \
          '       if [ "$i" -le "$MAXCOUNT" ]; then sleep "$INTERVAL"; i="$((i+1))"; fi' \
          '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st "$NAME" "Internet remains inactive; continuing anyway."; break; fi' \
          '     done' \
@@ -216,7 +216,7 @@ backup_restore () {
     fi
     setup_AdGuardHome
     if [ "$?" -ne 0 ]; then
-      end_op_message Abort
+      end_op_message 1
       return
     fi
 
@@ -227,16 +227,16 @@ backup_restore () {
     if [ -z "$(pidof AdGuardHome)" ]; then
       PTXT "$ERROR Couldn't start AdGuardHome" \
         "$ERROR Please send WebUI System Log to dev"
-      end_op_message Abort
+      end_op_message 1
       return
     fi
     /opt/etc/init.d/S99AdGuardHome restart >/dev/null 2>&1
     PTXT "$INFO You are all set."
-    end_op_message Success
+    end_op_message 0
   elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$ERROR No Backup found!" \
       "$ERROR Please make sure Backup Resides in $BASE_DIR"
-    end_op_message Abort
+    end_op_message 1
     return
   fi
 }
@@ -362,25 +362,21 @@ check_jffs_enabled () {
 
 check_version () {
   if [ -f "${TARG_DIR}/installer" ] && [ -f "${TARG_DIR}/AdGuardHome" ]; then
+    local RURL
+    local RMNSTALL
+    local LINSTALL
+    local MD5SUM_L
+    local MD5SUM_R
     local NW_STATE
-    local RES_STATE
+    local RES_STATE    
     NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"
     RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"
-    if [ -z "$(pidof AdGuardHome)" ]; then
-      PTXT "$ERROR AdGuardHome is dead, skipping version check."
-    elif [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then
-      PTXT "$ERROR AdGuardHome is not responding, skipping version check."
-    else
-      local RURL
-      local RMNSTALL
-      local LINSTALL
-      local MD5SUM_L
-      local MD5SUM_R
-      RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}/installer"
-      LINSTALL="v$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
-      RMNSTALL="v$(curl -sL "$RURL" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
-      MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)"
-      MD5SUM_R="$(curl -fsL "$RURL" | md5sum | awk '{print $1}')"
+    RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}/installer"
+    LINSTALL="v$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
+    RMNSTALL="v$(curl -sL "$RURL" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
+    MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)"
+    MD5SUM_R="$(curl -fsL "$RURL" | md5sum | awk '{print $1}')"
+    if [ "$NW_STATE" = "0" -a "$RES_STATE" = "0" ] || [ -n "$RMNSTALL" -a "$REMOTE_VER" ]; then
       [ -z "$LINSTALL" ] && exit 1
       [ -z "$RMNSTALL" ] && exit 1
       if [ "$RMNSTALL" != "$LINSTALL" ]; then
@@ -418,6 +414,8 @@ check_version () {
            "$INFO You can use the WebUI to change things to your liking!" \
 	   "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
 	   "$INFO for any configuration needs. "
+    elif [ "$NW_STATE" = "0" -a "$RES_STATE" != "0" ] || [ -z "$(pidof AdGuardHome)" ] || [ -z "$REMOTE_VER" ]; then
+      PTXT "$ERROR AdGuardHome is dead or internet is not responding, skipping version check."
     fi
   fi
 }
@@ -430,9 +428,9 @@ choose_branch () {
   local RES_STATE
   NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"
   RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"
-  if [ "$NW_STATE" -eq 0 ] && [ "$RES_STATE" -ne 0 ]; then
+  if [ "$NW_STATE" = "0" -a "$RES_STATE" != "0" ] || [ -z "$REMOTE_VER" ]; then
     PTXT "$ERROR Unable to detect the Internet!"
-    end_op_message Abort
+    end_op_message 1
     return
   fi
   if [ ! -d "$TARG_DIR" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
@@ -450,7 +448,7 @@ choose_branch () {
   fi 
   create_dir "$TARG_DIR"
   if [ "$?" -ne 0 ]; then
-    end_op_message Abort
+    end_op_message 1
     return
   fi  
   local BUILD
@@ -548,8 +546,8 @@ download_file () {
 }
 
 end_op_message () {
-  [ "$1" = "Success" ] && PTXT "$INFO Operation completed. You can quit or continue"
-  [ "$1" = "Abort" ] && PTXT "$INFO Operation aborted. You can quit or continue"
+  [ "$1" = "0" ] && PTXT "$INFO Operation completed. You can quit or continue"
+  [ "$1" = "1" ] && PTXT "$INFO Operation aborted. You can quit or continue"
   PTXT "====================================================="
   PTXT " "
   PTXT " "
@@ -558,7 +556,7 @@ end_op_message () {
 }
 
 end_op_header () {
-  sed -n -e '1,1007p' "$0" > ${0}.tmp && sh ${0}.tmp && menu && rm -rf ${0}.tmp
+   sed -n -e "1,$(($(grep -wn 'menu () {' "$0" | cut -d':' -f1)-1))p" "$0" > ${0}.tmp && sh ${0}.tmp && menu && rm -rf ${0}.tmp
 }
 
 inst_AdGuardHome () {
@@ -571,7 +569,7 @@ inst_AdGuardHome () {
   download_file "$TARG_DIR" 755 "$RURL"
   if [ "$?" -ne 0 ] || [ -z "$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')" ]; then
     PTXT "$ERROR Failed to download installer."
-    end_op_message Abort
+    end_op_message 1
     return
   fi
   if [ -f "${TARG_DIR}/AdGuardHome" ]; then
@@ -586,7 +584,7 @@ inst_AdGuardHome () {
       tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
       if [ "$?" -ne 0 ]; then
         PTXT "$ERROR Unable to download AdGuardHome package for your router"
-        end_op_message Abort
+        end_op_message 1
         return
       fi
       chown "$(nvram get http_username)":root ${TARG_DIR}/*
@@ -595,7 +593,7 @@ inst_AdGuardHome () {
       ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
       if [ "$?" -ne 0 ] || [ -z "$(${TARG_DIR}/AdGuardHome --version | cut -d" "  -f4-)" ]; then
         PTXT "$ERROR Failed to download AdGuardHome package for your router"
-        end_op_message Abort
+        end_op_message 1
         return
       fi
     else
@@ -623,7 +621,7 @@ inst_AdGuardHome () {
     tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
     if [ "$?" -ne 0 ]; then
       PTXT "$ERROR Unable to download AdGuardHome package for your router"
-      end_op_message Abort
+      end_op_message 1
       return
     fi
     chown "$(nvram get http_username)":root ${TARG_DIR}/*
@@ -632,7 +630,7 @@ inst_AdGuardHome () {
     ln -sf ${TARG_DIR}/AdGuardHome /opt/sbin/AdGuardHome
     if [ "$?" -ne 0 ] || [ -z "$(${TARG_DIR}/AdGuardHome --version | cut -d" "  -f4-)" ]; then
       PTXT "$ERROR Failed to download AdGuardHome package for your router"
-      end_op_message Abort
+      end_op_message 1
       return
     fi
   fi
@@ -680,7 +678,7 @@ inst_AdGuardHome () {
        '  "start"|"restart")' \
        '   if [ -z "$(pidof AdGuardHome)" ]; then' \
        '     i="1"' \
-       '     while [ "$i" -ne "$MAXCOUNT" ]; do' \
+       '     while [ "$i" -le "$MAXCOUNT" ]; do' \
        '       if [ "$YEAR" -gt 1970 ]; then ALIVE="0"; else ALIVE="1"; fi' \
        '       if [ "$NW_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
        '       if [ "$RES_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
@@ -688,7 +686,7 @@ inst_AdGuardHome () {
        '       if [ "$CURL_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
        '       if [ "$SPIDER_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
        '       if [ "$ALIVE" -le "3" ]; then break; else service restart_dnsmasq >/dev/null 2>&1; fi' \
-       '       logger -st "$NAME" "Waiting for the internet (attempt ${i}/"$((MAXCOUNT-i))")"' \
+       '       logger -st "$NAME" "Waiting for the internet (attempt ${i}/${MAXCOUNT})"' \
        '       if [ "$i" -le "$MAXCOUNT" ]; then sleep "$INTERVAL"; i="$((i+1))"; fi' \
        '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st "$NAME" "Internet remains inactive; continuing anyway."; break; fi' \
        '     done' \
@@ -733,7 +731,7 @@ inst_AdGuardHome () {
   fi
   setup_AdGuardHome
   if [ "$?" -ne 0 ]; then
-    end_op_message Abort
+    end_op_message 1
     return
   fi
   [ -n "$(pidof AdGuardHome)" ] && PTXT "$INFO Stopping AdGuardHome first..." && /opt/etc/init.d/S99AdGuardHome stop >/dev/null 2>&1 && /opt/etc/init.d/S99AdGuardHome kill >/dev/null 2>&1 
@@ -742,12 +740,12 @@ inst_AdGuardHome () {
   if [ -z "$(pidof AdGuardHome)" ]; then
     PTXT "$ERROR Couldn't start AdGuardHome" \
       "$ERROR Please send WebUI System Log to dev"
-    end_op_message Abort
+    end_op_message 1
     return
   fi
   /opt/etc/init.d/S99AdGuardHome restart >/dev/null 2>&1
   PTXT "$INFO AdGuardHome setup is complete."
-  end_op_message Success
+  end_op_message 0
 }
   
 read_input_dns () {
@@ -820,7 +818,7 @@ read_yesno () {
 setup_AdGuardHome () {
   if [ ! -d "${TARG_DIR}" ] || [ ! -f "${TARG_DIR}/AdGuardHome" ]; then
     PTXT "$ERROR AdGuardHome is not installed. Aborting..."
-    end_op_message Abort
+    end_op_message 1
     return
   fi
   PTXT "$INFO Configuring AdGuardHome..."
@@ -913,7 +911,7 @@ uninst_all () {
   rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool"
   yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
   service restart_dnsmasq >/dev/null 2>&1
-  end_op_message Success
+  end_op_message 0
 }
 
 write_conf () {
@@ -960,6 +958,7 @@ ROUTER_ARCH="$(/bin/uname -m)"
 clear
 
 [ -z "$ROUTER_MODEL" ] && PTXT "$ERROR This is an unsupported router, sorry." && exit 1
+[ "$(nvram get sw_mode)" != "1" ] && PTXT "$ERROR You are not running in router mode, sorry." && exit 1
 
 sed -n '2,22p' "$0"
 
@@ -1021,19 +1020,19 @@ menu () {
       PTXT "$INFO This operation will install AdGuardHome and related files (<6MB)" \
         "$INFO to ENTWARE, no other data will be changed." \
         "$INFO Also some start scripts will be installed/modified as required."
-      read_yesno "Do you want to install AdGuardHome to ENTWARE?" && choose_branch || end_op_message Abort
+      read_yesno "Do you want to install AdGuardHome to ENTWARE?" && choose_branch || end_op_message 1
       ;;
     2)
       PTXT "$INFO This operation will cleanup everything installed by this script."
-      read_yesno "Do you want to continue?" && uninst_all || end_op_message Abort
+      read_yesno "Do you want to continue?" && uninst_all || end_op_message 1
       ;;
     b|B)
       PTXT "$INFO This operation will backup everything!"
-      read_yesno "Do you want to continue?" && backup_restore BACKUP || end_op_message Abort
+      read_yesno "Do you want to continue?" && backup_restore BACKUP || end_op_message 1
       ;;
     r|R)
       PTXT "$INFO This operation will restore everything!"
-      read_yesno "Do you want to continue?" && backup_restore RESTORE || end_op_message Abort
+      read_yesno "Do you want to continue?" && backup_restore RESTORE || end_op_message 1
       ;;
     q|Q)
       PTXT "$INFO Operations have been applied if any has been made" \
