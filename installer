@@ -571,6 +571,7 @@ inst_AdGuardHome () {
     fi
     if [ "$AUTO_UPDATE" = "update" ]; then exec "${TARG_DIR}/installer" "$BRANCH" "$AUTO_UPDATE" && exit; fi
   fi
+  if [ -n "$(pidof AdGuardHome)" ]; then "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; sleep 1; "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; sleep 1; fi
   choose_branch
   local ADGUARD_BRANCH
   ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
@@ -581,7 +582,6 @@ inst_AdGuardHome () {
       PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
         "$INFO Updating ADGUARDHOME_VER=${LOCAL_VER} to $REMOTE_VER ."
       download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
-      if [ -n "$(pidof AdGuardHome)" ]; then "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; sleep 1; "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; sleep 1; fi
       tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
       if [ "$?" -ne 0 ]; then
         PTXT "$ERROR Unable to download AdGuardHome package for your router"
@@ -617,7 +617,6 @@ inst_AdGuardHome () {
   fi
   if [ "$ADGUARD_BRANCH" != "release" ] || [ ! -f "$AGH_FILE" ]; then
     download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
-    if [ -n "$(pidof AdGuardHome)" ]; then "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; sleep 1; "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; sleep 1; fi
     tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
     if [ "$?" -ne 0 ]; then
       PTXT "$ERROR Unable to download AdGuardHome package for your router"
