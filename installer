@@ -224,8 +224,8 @@ backup_restore () {
     fi
 
     PTXT "$INFO Starting AdGuardHome..."
-    if [ -n "$(pidof AdGuardHome)" ]; then PTXT "$INFO Stopping AdGuardHome first..."; /opt/etc/init.d/S99AdGuardHome kill >/dev/null 2>&1; /opt/etc/init.d/S99AdGuardHome stop >/dev/null 2>&1; fi
-    if [ -z "$(pidof AdGuardHome)" ]; then PTXT "$INFO Starting AdGuardHome..."; /opt/etc/init.d/S99AdGuardHome start >/dev/null 2>&1; fi
+    if [ -n "$(pidof AdGuardHome)" ]; then PTXT "$INFO Stopping AdGuardHome first..."; "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; fi
+    if [ -z "$(pidof AdGuardHome)" ]; then PTXT "$INFO Starting AdGuardHome..."; "/opt/etc/init.d/S99AdGuardHome" "start" >/dev/null 2>&1; fi
     sleep 1
     if [ -z "$(pidof AdGuardHome)" ]; then
       PTXT "$ERROR Couldn't start AdGuardHome" \
@@ -233,7 +233,7 @@ backup_restore () {
       end_op_message 1
       return
     fi
-    /opt/etc/init.d/S99AdGuardHome restart >/dev/null 2>&1
+    "/opt/etc/init.d/S99AdGuardHome" "restart" >/dev/null 2>&1
     PTXT "$INFO You are all set."
     end_op_message 0
   elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
@@ -452,7 +452,7 @@ choose_branch () {
 }
 
 cleanup () {
-  /opt/etc/init.d/S61AdGuardHome stop >/dev/null 2>&1; mv /opt/etc/init.d/S61AdGuardHome /opt/etc/init.d/S99AdGuardHome >/dev/null 2>&1; /opt/etc/init.d/S99AdGuardHome start >/dev/null 2>&1
+  "/opt/etc/init.d/S61AdGuardHome" "stop" >/dev/null 2>&1; mv "/opt/etc/init.d/S61AdGuardHome" "/opt/etc/init.d/S99AdGuardHome" >/dev/null 2>&1; "/opt/etc/init.d/S99AdGuardHome" "start" >/dev/null 2>&1
 }
 
 create_dir () {
@@ -735,8 +735,8 @@ inst_AdGuardHome () {
     end_op_message 1
     return
   fi
-  if [ -n "$(pidof AdGuardHome)" ]; then PTXT "$INFO Stopping AdGuardHome first..."; /opt/etc/init.d/S99AdGuardHome kill >/dev/null 2>&1; /opt/etc/init.d/S99AdGuardHome stop >/dev/null 2>&1; fi
-  if [ -z "$(pidof AdGuardHome)" ]; then PTXT "$INFO Starting AdGuardHome..."; /opt/etc/init.d/S99AdGuardHome start >/dev/null 2>&1; fi
+  if [ -n "$(pidof AdGuardHome)" ]; then PTXT "$INFO Stopping AdGuardHome first..."; "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; fi
+  if [ -z "$(pidof AdGuardHome)" ]; then PTXT "$INFO Starting AdGuardHome..."; "/opt/etc/init.d/S99AdGuardHome" "start" >/dev/null 2>&1; fi
   sleep 1
   if [ -z "$(pidof AdGuardHome)" ]; then
     PTXT "$ERROR Couldn't start AdGuardHome" \
@@ -929,7 +929,7 @@ uninst_all () {
     PTXT "$INFO Old Backup Detected!"
     read_yesno "Do you want to remove backup?(this will prevent resorting later)" && rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz" || PTXT "$INFO Keeping backup instead."
   fi
-  if [ -n "$(pidof AdGuardHome)" ]; then PTXT "$INFO Stopping AdGuardHome first..."; /opt/etc/init.d/S99AdGuardHome kill >/dev/null 2>&1; /opt/etc/init.d/S99AdGuardHome stop >/dev/null 2>&1; fi
+  if [ -n "$(pidof AdGuardHome)" ]; then "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; fi
   [ "$(awk -F'=' '/ADGUARD_DOMAIN/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "yes" ] && nvram set lan_domain="" && nvram commit
   mv "${TARG_DIR}/installer" "${HOME}/installer"
   rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool"
