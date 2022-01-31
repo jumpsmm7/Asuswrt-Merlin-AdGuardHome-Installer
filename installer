@@ -34,7 +34,6 @@ readonly YAML_BAK="${TARG_DIR}/AdGuardHome.yaml.bak"
 readonly YAML_ERR="${TARG_DIR}/AdGuardHome.yaml.err"
 readonly YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
 readonly SCRIPT_LOC="$(readlink -f "$0")"
-if [ -f "$AGH_FILE" ]; then readonly LOCAL_VER="$(${TARG_DIR}/AdGuardHome --version | cut -d" "  -f4-)"; fi
 
 readonly BOLD="$(printf "\033[1m")"
 readonly NORM="$(printf "\033[0m")"
@@ -42,6 +41,8 @@ readonly INFO="$(printf "%s" "${BOLD} Info: ${NORM}")"
 readonly ERROR="$(printf "%s" "${BOLD} *** Error: ${NORM}")"
 readonly WARNING="$(printf "%s" "${BOLD} * Warning: ${NORM}")"
 readonly INPUT="$(printf "%s" "${BOLD} => ${NORM}")"
+
+[ -f "$AGH_FILE" ] && readonly LOCAL_VER="$(${TARG_DIR}/AdGuardHome --version | cut -d" "  -f4-)"
 
 _quote() {
   printf "%s\n" "$1" | sed 's/[]\/()$*.^|[]/\\&/g'
