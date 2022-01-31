@@ -37,7 +37,7 @@ https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/commits/master
 # Install/Update/Reconfig/Uninstall:
 Run this command from ssh shell and following the prompt for AdGuardHome:
 ```
-curl -L -s -k -O https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/master/installer && sh installer ; rm installer
+curl -L -s -k -O https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/master/installer && sh installer
 ```
 # Commands to Stop/Start/Restart AdGuardHome
 ```
