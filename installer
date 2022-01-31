@@ -32,7 +32,6 @@ readonly YAML_BAK="${YAML_FILE}.bak"
 readonly YAML_ERR="${YAML_FILE}.err"
 readonly YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
 readonly SCRIPT_LOC="$(readlink -f "$0")"
-readonly LOCAL_VER="$($AGH_FILE --version | cut -d" "  -f4-)"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | grep "tag_name" | head -1 | cut -d \" -f 4)"
 
@@ -391,9 +390,9 @@ check_version () {
           "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
 	AUTO_UPDATE="update"
       fi
-      [ -z "$LOCAL_VER" ] && exit 1
+      [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ] && exit 1
       [ -z "$REMOTE_VER" ] && exit 1
-      if [ "$REMOTE_VER" != "$LOCAL_VER" ] && [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "release" ]; then
+      if [ "$REMOTE_VER" != "$($AGH_FILE --version | cut -d" "  -f4-)" ] && [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "release" ]; then
         PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!"
       else 
         case "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" in
@@ -408,7 +407,7 @@ check_version () {
             ;;
 	      esac  
       fi
-      PTXT "$INFO ADGUARDHOME_VER=${LOCAL_VER}" \
+      PTXT "$INFO ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-)" \
            "$INFO Run Option 1 to upgrade or change builds." \
            "$INFO To visit AdGuardHome," \
            "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
@@ -576,11 +575,11 @@ inst_AdGuardHome () {
   local ADGUARD_BRANCH
   ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
   if [ -f "$AGH_FILE" ]; then
-    [ -z "$LOCAL_VER" ] && exit 1
+    [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ] && exit 1
     [ -z "$REMOTE_VER" ] && exit 1
-    if [ "$REMOTE_VER" != "$LOCAL_VER" ] && [ "$ADGUARD_BRANCH" = "release" ]; then
+    if [ "$REMOTE_VER" != "$($AGH_FILE --version | cut -d" "  -f4-)" ] && [ "$ADGUARD_BRANCH" = "release" ]; then
       PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
-        "$INFO Updating ADGUARDHOME_VER=${LOCAL_VER} to $REMOTE_VER ."
+        "$INFO Updating ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-) to $REMOTE_VER ."
       download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
       tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
       if [ "$?" -ne 0 ]; then
@@ -592,7 +591,7 @@ inst_AdGuardHome () {
       rm -r "${BASE_DIR}/${ADGUARD_TAR}"
       chmod 755 "$AGH_FILE"
       ln -sf $AGH_FILE /opt/sbin/AdGuardHome
-      if [ "$?" -ne 0 ] || [ -z "$LOCAL_VER" ]; then
+      if [ "$?" -ne 0 ] || [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ]; then
         PTXT "$ERROR Failed to download AdGuardHome package for your router"
         end_op_message 1
         return
@@ -602,15 +601,15 @@ inst_AdGuardHome () {
        release)        
           PTXT "$INFO ADGUARDHOME_BUILD=Release" \
 	       "$INFO No new release version available." \
-	       "$INFO ADGUARDHOME_VER=${LOCAL_VER}"
+	       "$INFO ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-)"
           ;;
        beta)
           PTXT "$INFO ADGUARDHOME_BUILD=Beta" \
-	       "$INFO Downloading the lastest Beta version to replace ADGUARDHOME_VER=${LOCAL_VER}."
+	       "$INFO Downloading the lastest Beta version to replace ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-)."
           ;;
        edge)
           PTXT "$INFO ADGUARDHOME_BUILD=Edge" \
-	       "$INFO Downloading the lastest Edge version to replace ADGUARDHOME_VER=${LOCAL_VER}."
+	       "$INFO Downloading the lastest Edge version to replace ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-)."
           ;;
       esac
     fi
@@ -627,7 +626,7 @@ inst_AdGuardHome () {
     rm -r "${BASE_DIR}/${ADGUARD_TAR}"
     chmod 755 "$AGH_FILE"
     ln -sf $AGH_FILE /opt/sbin/AdGuardHome
-    if [ "$?" -ne 0 ] || [ -z "$LOCAL_VER" ]; then
+    if [ "$?" -ne 0 ] || [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ]; then
       PTXT "$ERROR Failed to download AdGuardHome package for your router"
       end_op_message 1
       return
