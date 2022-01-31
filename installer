@@ -32,7 +32,7 @@ readonly YAML_BAK="${YAML_FILE}.bak"
 readonly YAML_ERR="${YAML_FILE}.err"
 readonly YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
 readonly SCRIPT_LOC="$(readlink -f "$0")"
-readonly LOCAL_VER="$($AGH_FILE --version | cut -d" "  -f4- 2>/dev/null)"
+readonly LOCAL_VER="$($AGH_FILE --version | cut -d" "  -f4-)"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | grep "tag_name" | head -1 | cut -d \" -f 4)"
 
