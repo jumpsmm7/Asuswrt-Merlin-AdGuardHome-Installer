@@ -114,6 +114,7 @@ backup_restore () {
   fi
   if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$INFO Please wait a moment."
+    if [ -n "$(pidof AdGuardHome)" ]; then "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; fi
     tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "$BASE_DIR" >/dev/null 2>&1
     chown "$(nvram get http_username)":root "${TARG_DIR}/*"
     chmod 755 "$AGH_FILE"
@@ -224,7 +225,6 @@ backup_restore () {
     fi
 
     PTXT "$INFO Starting AdGuardHome..."
-    if [ -n "$(pidof AdGuardHome)" ]; then PTXT "$INFO Stopping AdGuardHome first..."; "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; fi
     if [ -z "$(pidof AdGuardHome)" ]; then PTXT "$INFO Starting AdGuardHome..."; "/opt/etc/init.d/S99AdGuardHome" "start" >/dev/null 2>&1; fi
     sleep 1
     if [ -z "$(pidof AdGuardHome)" ]; then
@@ -581,6 +581,7 @@ inst_AdGuardHome () {
       PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
         "$INFO Updating ADGUARDHOME_VER=${LOCAL_VER} to $REMOTE_VER ."
       download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
+      if [ -n "$(pidof AdGuardHome)" ]; then "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; fi
       tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
       if [ "$?" -ne 0 ]; then
         PTXT "$ERROR Unable to download AdGuardHome package for your router"
@@ -616,6 +617,7 @@ inst_AdGuardHome () {
   fi
   if [ "$ADGUARD_BRANCH" != "release" ] || [ ! -f "$AGH_FILE" ]; then
     download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
+    if [ -n "$(pidof AdGuardHome)" ]; then "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; fi
     tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
     if [ "$?" -ne 0 ]; then
       PTXT "$ERROR Unable to download AdGuardHome package for your router"
@@ -735,7 +737,6 @@ inst_AdGuardHome () {
     end_op_message 1
     return
   fi
-  if [ -n "$(pidof AdGuardHome)" ]; then PTXT "$INFO Stopping AdGuardHome first..."; "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; fi
   if [ -z "$(pidof AdGuardHome)" ]; then PTXT "$INFO Starting AdGuardHome..."; "/opt/etc/init.d/S99AdGuardHome" "start" >/dev/null 2>&1; fi
   sleep 1
   if [ -z "$(pidof AdGuardHome)" ]; then
