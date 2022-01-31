@@ -744,7 +744,7 @@ inst_AdGuardHome () {
     end_op_message 1
     return
   fi
-  /opt/etc/init.d/S99AdGuardHome restart >/dev/null 2>&1
+  "/opt/etc/init.d/S99AdGuardHome" "restart" >/dev/null 2>&1
   PTXT "$INFO AdGuardHome setup is complete."
   end_op_message 0
 }
