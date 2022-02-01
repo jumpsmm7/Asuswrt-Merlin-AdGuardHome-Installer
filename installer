@@ -22,8 +22,9 @@
 ############################################################################################
 
 AI_VERSION="v1.1.3"
-readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest"
-readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | grep "tag_name" | head -1 | cut -d \" -f 4)"
+readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
+readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
+readonly REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
 
 readonly BASE_DIR="/opt/etc"
 readonly TARG_DIR="${BASE_DIR}/AdGuardHome"
@@ -390,12 +391,24 @@ check_version () {
           "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
 	AUTO_UPDATE="update"
       fi
+      local ADGUARD_BRANCH
+      ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
       [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ] && exit 1
       [ -z "$REMOTE_VER" ] && exit 1
-      if [ "$REMOTE_VER" != "$($AGH_FILE --version | cut -d" "  -f4-)" ] && [ "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "release" ]; then
-        PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!"
+      [ -z "$REMOTE_BETA" ] && exit 1      
+      if[ "$ADGUARD_BRANCH" != "edge" ]; then
+        if [ "$REMOTE_VER" != "$($AGH_FILE --version | cut -d" "  -f4-)" -a "$ADGUARD_BRANCH" = "release" ] || [ "$REMOTE_BETA" != "$($AGH_FILE --version | cut -d" "  -f4-)" -a "$ADGUARD_BRANCH" = "beta" ]; then
+          case "$ADGUARD_BRANCH" in
+           release)        
+              PTXT "$INFO New RELEASE ADGUARDHOME_VER=${REMOTE_VER} Available!"
+              ;;
+           beta)
+              PTXT "$INFO New BETA ADGUARDHOME_VER=${REMOTE_BETA} Available!"
+              ;;
+          esac
+        fi
       else 
-        case "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" in
+        case "$ADGUARD_BRANCH" in
          release)        
             PTXT "$INFO ADGUARDHOME_BUILD=Release"
             ;;
@@ -405,7 +418,7 @@ check_version () {
          edge)
             PTXT "$INFO ADGUARDHOME_BUILD=Edge"
             ;;
-	      esac  
+	esac  
       fi
       PTXT "$INFO ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-)" \
            "$INFO Run Option 1 to upgrade or change builds." \
@@ -574,12 +587,21 @@ inst_AdGuardHome () {
   choose_branch
   local ADGUARD_BRANCH
   ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
-  if [ -f "$AGH_FILE" ]; then
+  if [ -f "$AGH_FILE" ] && [ "$ADGUARD_BRANCH" != "edge" ]; then
     [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ] && exit 1
     [ -z "$REMOTE_VER" ] && exit 1
-    if [ "$REMOTE_VER" != "$($AGH_FILE --version | cut -d" "  -f4-)" ] && [ "$ADGUARD_BRANCH" = "release" ]; then
-      PTXT "$INFO New ADGUARDHOME_VER=${REMOTE_VER} Available!" \
-        "$INFO Updating ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-) to $REMOTE_VER ."
+    [ -z "$REMOTE_BETA" ] && exit 1
+    if [ "$REMOTE_VER" != "$($AGH_FILE --version | cut -d" "  -f4-)" -a "$ADGUARD_BRANCH" = "release" ] || [ "$REMOTE_BETA" != "$($AGH_FILE --version | cut -d" "  -f4-)" -a "$ADGUARD_BRANCH" = "beta" ]; then
+      case "$ADGUARD_BRANCH" in
+       release)        
+          PTXT "$INFO New RELEASE ADGUARDHOME_VER=${REMOTE_VER} Available!" \
+               "$INFO Updating ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-) to $REMOTE_VER ."
+          ;;
+       beta)
+          PTXT "$INFO New BETA ADGUARDHOME_VER=${REMOTE_BETA} Available!" \
+               "$INFO Updating ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-) to $REMOTE_BETA ."
+          ;;
+      esac
       download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
       tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
       if [ "$?" -ne 0 ]; then
@@ -605,7 +627,8 @@ inst_AdGuardHome () {
           ;;
        beta)
           PTXT "$INFO ADGUARDHOME_BUILD=Beta" \
-	       "$INFO Downloading the lastest Beta version to replace ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-)."
+	       "$INFO No new beta version available." \
+	       "$INFO ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-)"
           ;;
        edge)
           PTXT "$INFO ADGUARDHOME_BUILD=Edge" \
@@ -614,7 +637,7 @@ inst_AdGuardHome () {
       esac
     fi
   fi
-  if [ "$ADGUARD_BRANCH" != "release" ] || [ ! -f "$AGH_FILE" ]; then
+  if [ "$ADGUARD_BRANCH" = "edge" ] || [ ! -f "$AGH_FILE" ]; then
     download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
     tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
     if [ "$?" -ne 0 ]; then
