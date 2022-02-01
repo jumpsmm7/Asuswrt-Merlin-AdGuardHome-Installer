@@ -1000,6 +1000,7 @@ write_command_script () {
 RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}/installer"
 ROUTER_OS="$(/bin/uname)"
 ROUTER_ARCH="$(/bin/uname -m)"
+NAT_ENV="$(nvram get wan_ipaddr | grep -E '^(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)')"
 
 clear
 
@@ -1007,6 +1008,13 @@ clear
 [ "$(nvram get sw_mode)" != "1" ] && PTXT "$ERROR You are not running in router mode, sorry." && exit 1
 
 sed -n '2,22p' "$0"
+
+if [ -n "$NAT_ENV" ]; then
+  PTXT "$WARNING This router is in a Double-Nat Environment. While for some users of AdGuardHome this may work fine," \
+       "$WARNING Consider this a warning that there is no guarentee that it will." \ 
+       "$WARNING The script developer cannot help in this scenario." \
+       "$WARNING However you are still welcome to use the script."  
+fi
 
 case "$ROUTER_MODEL" in
   #RT-AX56U|RT-AX58U|RT-AX3000)
