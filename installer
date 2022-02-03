@@ -128,14 +128,14 @@ backup_restore () {
          'if [ -n "$(route | grep "br" | grep -v "br0" | grep -E "^(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | ''awk'' '\''{print $1}'\'' | sed -e "/^a/!s/.$/1/;:a; N; $!ba;s/\n/ /g")" ] ; then #Asuswrt-Merlin AdGuardHome Installer' \
          '  iCOUNT="0" #Asuswrt-Merlin AdGuardHome Installer' \
          '  for iVARS in $(route | grep "br" | grep -v "br0" | grep -E "(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | ''awk'' '\''{print $8}'\'' | sed -e ":a; N; $!ba;s/\n/ /g"); do #Asuswrt-Merlin AdGuardHome Installer' \
-         '    iVARS${iCOUNT}="$iVARS" #Asuswrt-Merlin AdGuardHome Installer' \
-         '    [ "$COUNT" = "0" ] && COUNT="$iCOUNT" #Asuswrt-Merlin AdGuardHome Installer' \
-         '    [ "$COUNT" != "0" ] && COUNT="$COUNT $iCOUNT" #Asuswrt-Merlin AdGuardHome Installer' \
+         '    eval "iVARS${iCOUNT}="$iVARS"" #Asuswrt-Merlin AdGuardHome Installer' \
+         '    [ "$iCOUNT" = "0" ] && COUNT="$iCOUNT" #Asuswrt-Merlin AdGuardHome Installer' \
+         '    [ "$iCOUNT" != "0" ] && COUNT="$COUNT $iCOUNT" #Asuswrt-Merlin AdGuardHome Installer' \
          '    iCOUNT="$((iCOUNT+1))" #Asuswrt-Merlin AdGuardHome Installer' \
          '  done #Asuswrt-Merlin AdGuardHome Installer' \
          '  dCOUNT="0" #Asuswrt-Merlin AdGuardHome Installer' \
          '  for dVARS in $(route | grep "br" | grep -v "br0" | grep -E "192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | ''awk'' '\''{print $1}'\'' | sed -e "/^a/!s/.$/1/;:a; N; $!ba;s/\n/ /g"); do #Asuswrt-Merlin AdGuardHome Installer' \
-         '    dVARS${dCOUNT}="$dVARS" #Asuswrt-Merlin AdGuardHome Installer' \
+         '    eval "dVARS${dCOUNT}="$dVARS"" #Asuswrt-Merlin AdGuardHome Installer' \
          '    dCOUNT="$((dCOUNT+1))" #Asuswrt-Merlin AdGuardHome Installer' \
          '  done #Asuswrt-Merlin AdGuardHome Installer' \
          '  for i in $COUNT; do #Asuswrt-Merlin AdGuardHome Installer' \
@@ -685,14 +685,14 @@ inst_AdGuardHome () {
        'if [ -n "$(route | grep "br" | grep -v "br0" | grep -E "^(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | ''awk'' '\''{print $1}'\'' | sed -e "/^a/!s/.$/1/;:a; N; $!ba;s/\n/ /g")" ] ; then #Asuswrt-Merlin AdGuardHome Installer' \
        '  iCOUNT="0" #Asuswrt-Merlin AdGuardHome Installer' \
        '  for iVARS in $(route | grep "br" | grep -v "br0" | grep -E "(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | ''awk'' '\''{print $8}'\'' | sed -e ":a; N; $!ba;s/\n/ /g"); do #Asuswrt-Merlin AdGuardHome Installer' \
-       '    iVARS${iCOUNT}="$iVARS" #Asuswrt-Merlin AdGuardHome Installer' \
-       '    [ "$COUNT" = "0" ] && COUNT="$iCOUNT" #Asuswrt-Merlin AdGuardHome Installer' \
-       '    [ "$COUNT" != "0" ] && COUNT="$COUNT $iCOUNT" #Asuswrt-Merlin AdGuardHome Installer' \
+       '    eval "iVARS${iCOUNT}="$iVARS"" #Asuswrt-Merlin AdGuardHome Installer' \
+       '    [ "$iCOUNT" = "0" ] && COUNT="$iCOUNT" #Asuswrt-Merlin AdGuardHome Installer' \
+       '    [ "$iCOUNT" != "0" ] && COUNT="$COUNT $iCOUNT" #Asuswrt-Merlin AdGuardHome Installer' \
        '    iCOUNT="$((iCOUNT+1))" #Asuswrt-Merlin AdGuardHome Installer' \
        '  done #Asuswrt-Merlin AdGuardHome Installer' \
        '  dCOUNT="0" #Asuswrt-Merlin AdGuardHome Installer' \
        '  for dVARS in $(route | grep "br" | grep -v "br0" | grep -E "192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | ''awk'' '\''{print $1}'\'' | sed -e "/^a/!s/.$/1/;:a; N; $!ba;s/\n/ /g"); do #Asuswrt-Merlin AdGuardHome Installer' \
-       '    dVARS${dCOUNT}="$dVARS" #Asuswrt-Merlin AdGuardHome Installer' \
+       '    eval "dVARS${dCOUNT}="$dVARS"" #Asuswrt-Merlin AdGuardHome Installer' \
        '    dCOUNT="$((dCOUNT+1))" #Asuswrt-Merlin AdGuardHome Installer' \
        '  done #Asuswrt-Merlin AdGuardHome Installer' \
        '  for i in $COUNT; do #Asuswrt-Merlin AdGuardHome Installer' \
