@@ -17,11 +17,11 @@
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        #
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder         #
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.1.3                               #
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.1.4                               #
 #                                                                                          #
 ############################################################################################
 
-AI_VERSION="v1.1.3"
+AI_VERSION="v1.1.4"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
 readonly REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
@@ -141,9 +141,9 @@ backup_restore () {
          '  for i in $COUNT; do #Asuswrt-Merlin AdGuardHome Installer' \
          '    if [ "$(pidof AdGuardHome)" ]; then printf "%s\n" "dhcp-option=${iVARS}${i},6,${dVARS}${i}" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
          '  done #Asuswrt-Merlin AdGuardHome Installer' \
-         'fi #Asuswrt-Merlin AdGuardHome Installer' >> /jffs/addons/amtm/AdGuardHome.d/AdGuardHome.sh
+         'fi #Asuswrt-Merlin AdGuardHome Installer' >> /jffs/addons/AdGuardHome.d/AdGuardHome.sh
     [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-    write_command_script /jffs/scripts/dnsmasq.postconf '[ -d "/jffs/addons/amtm/AdGuardHome.d/" ] && for file in $(ls /jffs/scripts/dnsmasq.scripts.d/*.sh); do . $file; done #Asuswrt-Merlin AdGuardHome Installer'
+    write_command_script /jffs/scripts/dnsmasq.postconf '[ -d "/jffs/addons/AdGuardHome.d/" ] && for file in $(ls /jffs/addons/AdGuardHome.d/*.sh); do . $file; done #Asuswrt-Merlin AdGuardHome Installer'
     PTXT '#!/bin/sh' \
          'ENABLED="yes"' \
          'WORK_DIR="/opt/etc/AdGuardHome"' \
@@ -695,9 +695,9 @@ inst_AdGuardHome () {
        '  for i in $COUNT; do #Asuswrt-Merlin AdGuardHome Installer' \
        '    if [ "$(pidof AdGuardHome)" ]; then printf "%s\n" "dhcp-option=${iVARS}${i},6,${dVARS}${i}" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
        '  done #Asuswrt-Merlin AdGuardHome Installer' \
-       'fi #Asuswrt-Merlin AdGuardHome Installer' >> /jffs/addons/amtm/AdGuardHome.d/AdGuardHome.sh
+       'fi #Asuswrt-Merlin AdGuardHome Installer' >> /jffs/addons/AdGuardHome.d/AdGuardHome.sh
   [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-  write_command_script /jffs/scripts/dnsmasq.postconf '[ -d "/jffs/addons/amtm/AdGuardHome.d/" ] && for file in $(ls /jffs/scripts/dnsmasq.scripts.d/*.sh); do . $file; done #Asuswrt-Merlin AdGuardHome Installer'
+  write_command_script /jffs/scripts/dnsmasq.postconf '[ -d "/jffs/addons/AdGuardHome.d/" ] && for file in $(ls /jffs/addons/AdGuardHome.d/*.sh); do . $file; done #Asuswrt-Merlin AdGuardHome Installer'
   PTXT '#!/bin/sh' \
        'ENABLED="yes"' \
        'WORK_DIR="/opt/etc/AdGuardHome"' \
@@ -994,7 +994,7 @@ uninst_all () {
   if [ -n "$(pidof AdGuardHome)" ]; then "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; sleep 1; "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; sleep 1; fi
   [ "$(awk -F'=' '/ADGUARD_DOMAIN/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "yes" ] && nvram set lan_domain="" && nvram commit
   mv "${TARG_DIR}/installer" "${HOME}/installer"
-  rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool"
+  rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "/jffs/addons/AdGuardHome.d"
   yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
   service restart_dnsmasq >/dev/null 2>&1
   end_op_message 0
