@@ -555,12 +555,11 @@ end_op_message () {
   PTXT "====================================================="
   PTXT " "
   PTXT " "
-  sleep 3 && clear
   if [ -f "${TARG_DIR}/installer" ]; then chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1; exec "${TARG_DIR}/installer" "$BRANCH" && exit; elif [ ! -f "${TARG_DIR}/installer" ] && [ -f "$SCRIPT_LOC" ]; then chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1; exec "$SCRIPT_LOC" "$BRANCH" && exit; elif [ -f "${HOME}/installer" ]; then chmod 755 "${HOME}/installer" && exec "${HOME}/installer" "$BRANCH" && exit; else clear && end_op_header && exit; fi
 }
 
 end_op_header () {
-   sed -n -e "1,$(($(grep -wn 'menu () {' "$0" | cut -d':' -f1)-1))p" "$0" > ${0}.tmp && sh ${0}.tmp && menu && rm -rf ${0}.tmp
+  sed -n -e "1,$(($(grep -wn 'menu () {' "$0" | cut -d':' -f1)-1))p" "$0" > ${0}.tmp && sh ${0}.tmp && menu && rm -rf ${0}.tmp
 }
 
 inst_AdGuardHome () {
