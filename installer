@@ -141,7 +141,7 @@ backup_restore () {
          '  for i in $COUNT; do #Asuswrt-Merlin AdGuardHome Installer' \
          '    if [ "$(pidof AdGuardHome)" ]; then printf "%s\n" "dhcp-option=${iVARS}${i},6,${dVARS}${i}" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
          '  done #Asuswrt-Merlin AdGuardHome Installer' \
-         'fi #Asuswrt-Merlin AdGuardHome Installer' >> /jffs/addons/AdGuardHome.d/AdGuardHome.sh
+         'fi #Asuswrt-Merlin AdGuardHome Installer' > /jffs/addons/AdGuardHome.d/AdGuardHome.sh
     [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
     write_command_script /jffs/scripts/dnsmasq.postconf '[ -d "/jffs/addons/AdGuardHome.d/" ] && for file in $(ls /jffs/addons/AdGuardHome.d/*.sh); do . $file; done #Asuswrt-Merlin AdGuardHome Installer'
     PTXT '#!/bin/sh' \
@@ -695,7 +695,7 @@ inst_AdGuardHome () {
        '  for i in $COUNT; do #Asuswrt-Merlin AdGuardHome Installer' \
        '    if [ "$(pidof AdGuardHome)" ]; then printf "%s\n" "dhcp-option=${iVARS}${i},6,${dVARS}${i}" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
        '  done #Asuswrt-Merlin AdGuardHome Installer' \
-       'fi #Asuswrt-Merlin AdGuardHome Installer' >> /jffs/addons/AdGuardHome.d/AdGuardHome.sh
+       'fi #Asuswrt-Merlin AdGuardHome Installer' > /jffs/addons/AdGuardHome.d/AdGuardHome.sh
   [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
   write_command_script /jffs/scripts/dnsmasq.postconf '[ -d "/jffs/addons/AdGuardHome.d/" ] && for file in $(ls /jffs/addons/AdGuardHome.d/*.sh); do . $file; done #Asuswrt-Merlin AdGuardHome Installer'
   PTXT '#!/bin/sh' \
