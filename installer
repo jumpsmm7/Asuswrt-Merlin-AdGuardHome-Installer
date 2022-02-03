@@ -120,7 +120,7 @@ backup_restore () {
     chmod 755 "$AGH_FILE"
     chmod 644 "$YAML_FILE"
     ln -sf $AGH_FILE /opt/sbin/AdGuardHome
-    create_dir /jffs/addons/amtm/AdGuardHome.d
+    create_dir /jffs/addons/AdGuardHome.d
     [ -f "/jffs/addons/amtm/AdGuardHome.d/AdGuardHome.sh" ] && rm -rf /jffs/addons/amtm/AdGuardHome.d/AdGuardHome.sh
     PTXT '#!/bin/sh' \
          'if [ "$(pidof AdGuardHome)" ] && [ "$(nvram get ipv6_fw_enable)" != "1" ]; then printf "%s\n" "port=553" "local=/$(nvram get lan_ipaddr | awk ''BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}'')/" "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
@@ -673,7 +673,7 @@ inst_AdGuardHome () {
       return
     fi
   fi
-  create_dir /jffs/addons/amtm/AdGuardHome.d
+  create_dir /jffs/addons/AdGuardHome.d
   [ -f "/jffs/addons/amtm/AdGuardHome.d/AdGuardHome.sh" ] && rm -rf /jffs/addons/amtm/AdGuardHome.d/AdGuardHome.sh
   PTXT '#!/bin/sh' \
        'if [ "$(pidof AdGuardHome)" ] && [ "$(nvram get ipv6_fw_enable)" != "1" ]; then printf "%s\n" "port=553" "local=/$(nvram get lan_ipaddr | awk ''BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}'')/" "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
