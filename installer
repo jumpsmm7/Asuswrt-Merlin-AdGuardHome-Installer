@@ -115,6 +115,7 @@ backup_restore () {
   if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$INFO Please wait a moment."
     if [ -n "$(pidof AdGuardHome)" ]; then "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; sleep 1; "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; sleep 1; fi
+    sleep 1
     tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "$BASE_DIR" >/dev/null 2>&1
     chown "$(nvram get http_username)":root "${TARG_DIR}/*"
     chmod 755 "$AGH_FILE"
@@ -141,6 +142,7 @@ backup_restore () {
          '    if [ "$(pidof AdGuardHome)" ]; then printf "%s\n" "dhcp-option=${iVARS}${i},6,${dVARS}${i}" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
          '  done #Asuswrt-Merlin AdGuardHome Installer' \
          'fi #Asuswrt-Merlin AdGuardHome Installer' > /jffs/addons/AdGuardHome.d/AdGuardHome.sh
+    chmod 755 /jffs/addons/AdGuardHome.d/AdGuardHome.sh
     [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
     write_command_script /jffs/scripts/dnsmasq.postconf '[ -d "/jffs/addons/AdGuardHome.d/" ] && for file in $(ls /jffs/addons/AdGuardHome.d/*.sh); do . $file; done #Asuswrt-Merlin AdGuardHome Installer'
     PTXT '#!/bin/sh' \
@@ -554,6 +556,7 @@ end_op_message () {
   PTXT "====================================================="
   PTXT " "
   PTXT " "
+  sleep 3 && clear
   if [ -f "${TARG_DIR}/installer" ]; then chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1; exec "${TARG_DIR}/installer" "$BRANCH" && exit; elif [ ! -f "${TARG_DIR}/installer" ] && [ -f "$SCRIPT_LOC" ]; then chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1; exec "$SCRIPT_LOC" "$BRANCH" && exit; elif [ -f "${HOME}/installer" ]; then chmod 755 "${HOME}/installer" && exec "${HOME}/installer" "$BRANCH" && exit; else clear && end_op_header && exit; fi
 }
 
@@ -601,6 +604,7 @@ inst_AdGuardHome () {
     if [ "$AUTO_UPDATE" = "update" ]; then exec "${TARG_DIR}/installer" "$BRANCH" "$AUTO_UPDATE" && exit; fi
   fi
   if [ -n "$(pidof AdGuardHome)" ]; then "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; sleep 1; "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; sleep 1; fi
+  sleep 1
   choose_branch
   local ADGUARD_BRANCH
   ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
@@ -693,6 +697,7 @@ inst_AdGuardHome () {
        '    if [ "$(pidof AdGuardHome)" ]; then printf "%s\n" "dhcp-option=${iVARS}${i},6,${dVARS}${i}" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
        '  done #Asuswrt-Merlin AdGuardHome Installer' \
        'fi #Asuswrt-Merlin AdGuardHome Installer' > /jffs/addons/AdGuardHome.d/AdGuardHome.sh
+  chmod 755 /jffs/addons/AdGuardHome.d/AdGuardHome.sh
   [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
   write_command_script /jffs/scripts/dnsmasq.postconf '[ -d "/jffs/addons/AdGuardHome.d/" ] && for file in $(ls /jffs/addons/AdGuardHome.d/*.sh); do . $file; done #Asuswrt-Merlin AdGuardHome Installer'
   PTXT '#!/bin/sh' \
