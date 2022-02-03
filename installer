@@ -139,7 +139,7 @@ backup_restore () {
          '    dCOUNT="$((dCOUNT+1))" #Asuswrt-Merlin AdGuardHome Installer' \
          '  done #Asuswrt-Merlin AdGuardHome Installer' \
          '  for i in $COUNT; do #Asuswrt-Merlin AdGuardHome Installer' \
-         '    if [ "$(pidof AdGuardHome)" ]; then printf "%s\n" "dhcp-option=${iVARS}${i},6,${dVARS}${i}" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
+         '    if [ "$(pidof AdGuardHome)" ]; then printf "%s\n" "dhcp-option=${iVARS${i}},6,${dVARS${i}}" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
          '  done #Asuswrt-Merlin AdGuardHome Installer' \
          'fi #Asuswrt-Merlin AdGuardHome Installer' > /jffs/addons/AdGuardHome.d/AdGuardHome.sh
     chmod 755 /jffs/addons/AdGuardHome.d/AdGuardHome.sh
@@ -694,7 +694,7 @@ inst_AdGuardHome () {
        '    dCOUNT="$((dCOUNT+1))" #Asuswrt-Merlin AdGuardHome Installer' \
        '  done #Asuswrt-Merlin AdGuardHome Installer' \
        '  for i in $COUNT; do #Asuswrt-Merlin AdGuardHome Installer' \
-       '    if [ "$(pidof AdGuardHome)" ]; then printf "%s\n" "dhcp-option=${iVARS}${i},6,${dVARS}${i}" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
+       '    if [ "$(pidof AdGuardHome)" ]; then printf "%s\n" "dhcp-option=${iVARS{$i}},6,${dVARS${i}}" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
        '  done #Asuswrt-Merlin AdGuardHome Installer' \
        'fi #Asuswrt-Merlin AdGuardHome Installer' > /jffs/addons/AdGuardHome.d/AdGuardHome.sh
   chmod 755 /jffs/addons/AdGuardHome.d/AdGuardHome.sh
