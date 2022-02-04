@@ -114,12 +114,12 @@ backup_restore () {
   fi
   if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$INFO Please wait a moment."
-    if [ -n "$(pidof AdGuardHome)" ]; then "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; sleep 1; "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; sleep 1; fi
-    sleep 1
+    if [ -n "$(pidof AdGuardHome)" ]; then /opt/etc/init.d/S99AdGuardHome stop >/dev/null 2>&1; sleep 1; /opt/etc/init.d/S99AdGuardHome kill >/dev/null 2>&1; sleep 1; killall -q -9 AdGuardHome; sleep 1; fi
     tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "$BASE_DIR" >/dev/null 2>&1
     chown "$(nvram get http_username)":root "${TARG_DIR}/*"
     chmod 755 "$AGH_FILE"
     chmod 644 "$YAML_FILE"
+    [ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
     ln -sf $AGH_FILE /opt/sbin/AdGuardHome
     create_dir /jffs/addons/AdGuardHome.d
     PTXT '#!/bin/sh' \
@@ -257,7 +257,7 @@ backup_restore () {
       end_op_message 1
       return
     fi
-    "/opt/etc/init.d/S99AdGuardHome" "restart" >/dev/null 2>&1
+    /opt/etc/init.d/S99AdGuardHome restart >/dev/null 2>&1
     PTXT "$INFO You are all set."
     end_op_message 0
   elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
@@ -605,8 +605,7 @@ inst_AdGuardHome () {
     fi
     if [ "$AUTO_UPDATE" = "update" ]; then exec "${TARG_DIR}/installer" "$BRANCH" "$AUTO_UPDATE" && exit; fi
   fi
-  if [ -n "$(pidof AdGuardHome)" ]; then "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; sleep 1; "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; sleep 1; fi
-  sleep 1
+  if [ -n "$(pidof AdGuardHome)" ]; then /opt/etc/init.d/S99AdGuardHome stop >/dev/null 2>&1; sleep 1; /opt/etc/init.d/S99AdGuardHome kill >/dev/null 2>&1; sleep 1; killall -q -9 AdGuardHome; sleep 1; fi
   choose_branch
   local ADGUARD_BRANCH
   ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
@@ -635,6 +634,7 @@ inst_AdGuardHome () {
       chown "$(nvram get http_username)":root ${TARG_DIR}/*
       rm -r "${BASE_DIR}/${ADGUARD_TAR}"
       chmod 755 "$AGH_FILE"
+      [ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
       ln -sf $AGH_FILE /opt/sbin/AdGuardHome
       if [ "$?" -ne 0 ] || [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ]; then
         PTXT "$ERROR Failed to download AdGuardHome package for your router"
@@ -671,6 +671,7 @@ inst_AdGuardHome () {
     chown "$(nvram get http_username)":root ${TARG_DIR}/*
     rm -r "${BASE_DIR}/${ADGUARD_TAR}"
     chmod 755 "$AGH_FILE"
+    [ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
     ln -sf $AGH_FILE /opt/sbin/AdGuardHome
     if [ "$?" -ne 0 ] || [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ]; then
       PTXT "$ERROR Failed to download AdGuardHome package for your router"
@@ -804,7 +805,7 @@ inst_AdGuardHome () {
     end_op_message 1
     return
   fi
-  if [ -z "$(pidof AdGuardHome)" ]; then PTXT "$INFO Starting AdGuardHome..."; "/opt/etc/init.d/S99AdGuardHome" "start" >/dev/null 2>&1; fi
+  if [ -z "$(pidof AdGuardHome)" ]; then PTXT "$INFO Starting AdGuardHome..."; /opt/etc/init.d/S99AdGuardHome start >/dev/null 2>&1; sleep 1; fi
   sleep 1
   if [ -z "$(pidof AdGuardHome)" ]; then
     PTXT "$ERROR Couldn't start AdGuardHome" \
@@ -812,7 +813,7 @@ inst_AdGuardHome () {
     end_op_message 1
     return
   fi
-  "/opt/etc/init.d/S99AdGuardHome" "restart" >/dev/null 2>&1
+  /opt/etc/init.d/S99AdGuardHome restart >/dev/null 2>&1
   PTXT "$INFO AdGuardHome setup is complete."
   end_op_message 0
 }
@@ -997,7 +998,7 @@ uninst_all () {
     PTXT "$INFO Old Backup Detected!"
     read_yesno "Do you want to remove backup?(this will prevent resorting later)" && rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz" || PTXT "$INFO Keeping backup instead."
   fi
-  if [ -n "$(pidof AdGuardHome)" ]; then "/opt/etc/init.d/S99AdGuardHome" "stop" >/dev/null 2>&1; sleep 1; "/opt/etc/init.d/S99AdGuardHome" "kill" >/dev/null 2>&1; sleep 1; fi
+  if [ -n "$(pidof AdGuardHome)" ]; then /opt/etc/init.d/S99AdGuardHome stop >/dev/null 2>&1; sleep 1; /opt/etc/init.d/S99AdGuardHome kill >/dev/null 2>&1; sleep 1; killall -q -9 AdGuardHome; sleep 1; fi
   [ "$(awk -F'=' '/ADGUARD_DOMAIN/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "yes" ] && nvram set lan_domain="" && nvram commit
   mv "${TARG_DIR}/installer" "${HOME}/installer"
   rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "/jffs/addons/AdGuardHome.d"
