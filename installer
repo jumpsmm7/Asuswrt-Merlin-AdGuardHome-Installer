@@ -1101,10 +1101,10 @@ case "$ROUTER_ARCH" in
     ;;
 esac
 
-[ "$2" = "update" ] && inst_AdGuardHome $2
 cleanup
 check_jffs_enabled
 check_dns_environment
+[ "$2" = "update" ] && inst_AdGuardHome $2
 check_version
 
 menu () {
