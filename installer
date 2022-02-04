@@ -136,7 +136,7 @@ backup_restore () {
          '  for dVARS in $(route | grep "br" | grep -v "br0" | grep -E "192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | ''awk'' '\''{print $1}'\'' | sed -e '\''s/[0-9]$/1/'\'' | sed -e '\'':a; N; $!ba;s/\n/ /g'\''); do #Asuswrt-Merlin AdGuardHome Installer' \
          '    [ "$dCOUNT" = "1" ] && DVARS="$dVARS" #Asuswrt-Merlin AdGuardHome Installer' \
          '    [ "$dCOUNT" != "1" ] && DVARS="$DVARS $dVARS" #Asuswrt-Merlin AdGuardHome Installer' \
-         '    iCOUNT="$((iCOUNT+1))" #Asuswrt-Merlin AdGuardHome Installer' \
+         '    dCOUNT="$((dCOUNT+1))" #Asuswrt-Merlin AdGuardHome Installer' \
          '  done #Asuswrt-Merlin AdGuardHome Installer' \
          '  for i in $COUNT; do #Asuswrt-Merlin AdGuardHome Installer' \
          '    NIVARS="$(printf "%s\n" "$IVARS" | ''cut'' ''-d'''\'' '\'' ''-f''''$i'')" #Asuswrt-Merlin AdGuardHome Installer' \
@@ -693,7 +693,7 @@ inst_AdGuardHome () {
        '  for dVARS in $(route | grep "br" | grep -v "br0" | grep -E "192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | ''awk'' '\''{print $1}'\'' | sed -e '\''s/[0-9]$/1/'\'' | sed -e '\'':a; N; $!ba;s/\n/ /g'\''); do #Asuswrt-Merlin AdGuardHome Installer' \
        '    [ "$dCOUNT" = "1" ] && DVARS="$dVARS" #Asuswrt-Merlin AdGuardHome Installer' \
        '    [ "$dCOUNT" != "1" ] && DVARS="$DVARS $dVARS" #Asuswrt-Merlin AdGuardHome Installer' \
-       '    iCOUNT="$((iCOUNT+1))" #Asuswrt-Merlin AdGuardHome Installer' \
+       '    dCOUNT="$((dCOUNT+1))" #Asuswrt-Merlin AdGuardHome Installer' \
        '  done #Asuswrt-Merlin AdGuardHome Installer' \
        '  for i in $COUNT; do #Asuswrt-Merlin AdGuardHome Installer' \
        '    NIVARS="$(printf "%s\n" "$IVARS" | ''cut'' ''-d'''\'' '\'' ''-f''''$i'')" #Asuswrt-Merlin AdGuardHome Installer' \
