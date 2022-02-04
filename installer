@@ -1043,7 +1043,6 @@ write_command_script () {
 }
 
 [ "$1" ] && BRANCH="$1" || BRANCH="master"
-[ "$2" = "update" ] && inst_AdGuardHome $2
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
 RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}/installer"
 ROUTER_OS="$(/bin/uname)"
@@ -1106,6 +1105,7 @@ cleanup
 check_jffs_enabled
 check_dns_environment
 check_version
+[ "$2" = "update" ] && inst_AdGuardHome $2
 
 menu () {
   PTXT "$INFO Choose what you want to do:" \
