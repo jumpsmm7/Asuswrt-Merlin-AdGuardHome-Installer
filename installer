@@ -180,7 +180,7 @@ backup_restore () {
          '     elif [ "$NW_STATE" -eq 0 -a "$RES_STATE" -ne 0 ]; then' \
          '       logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
          '       if "$SCRIPT_LOC" restart; then break; else continue; fi' \
-         '     elif [ "$i" eq "$INTERVAL" ]; then' \
+         '     elif [ "$i" -eq "$INTERVAL" ]; then' \
          '       break ' \
          '     else' \
          '       continue' \
@@ -739,7 +739,7 @@ inst_AdGuardHome () {
        '     elif [ "$NW_STATE" -eq 0 -a "$RES_STATE" -ne 0 ]; then' \
        '       logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
        '       if "$SCRIPT_LOC" restart; then break; else continue; fi' \
-       '     elif [ "$i" eq "$INTERVAL" ]; then' \
+       '     elif [ "$i" -eq "$INTERVAL" ]; then' \
        '       break ' \
        '     else' \
        '       continue' \
