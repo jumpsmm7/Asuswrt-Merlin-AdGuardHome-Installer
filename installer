@@ -17,11 +17,11 @@
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        #
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder         #
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.1.6                               #
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.1.7                               #
 #                                                                                          #
 ############################################################################################
 
-AI_VERSION="v1.1.6"
+AI_VERSION="v1.1.7"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
 readonly REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
@@ -158,35 +158,38 @@ backup_restore () {
          'POSTCMD="service restart_dnsmasq"' \
          'DESC="$PROCS"' \
          'PATH="/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"' \
-	 'export TZ="$(cat /etc/TZ)"' \
+         'export TZ="$(cat /etc/TZ)"' \
          'SCRIPT_NAME="$(basename $0)"' \
          'SCRIPT_LOC="/opt/etc/init.d/${SCRIPT_NAME}"' \
          'NAME="${SCRIPT_NAME}[$$]"' \
-	 'YEAR="$(/bin/date +"%Y")"' \
+         'YEAR="$(/bin/date +"%Y")"' \
          'NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
          'RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
          'HOST_STATE="$(host www.google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
-	 'CURL_STATE="$(curl -Is  http://www.google.com | head -n 1 >/dev/null 2>&1; echo $?)"' \
+         'CURL_STATE="$(curl -Is  http://www.google.com | head -n 1 >/dev/null 2>&1; echo $?)"' \
          'SPIDER_STATE="$(wget -q --spider http://google.com >/dev/null 2>&1; echo $?)"' \
          'INTERVAL="5"' \
          'MAXCOUNT="15"' \
          'case "$1" in' \
          '  "check")' \
+         '   i="0" ' \
          '   while [ -z "$(pidof AdGuardHome)" -o -f "$PID_FILE" ]; do' \
          '     if [ -z "$(pidof AdGuardHome)" ]; then' \
          '       logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
-         '       if "$SCRIPT_LOC" start >/dev/null 2>&1; then continue; else break; fi' \
+         '       if "$SCRIPT_LOC" start; then break; else continue; fi' \
          '     elif [ "$NW_STATE" -eq 0 -a "$RES_STATE" -ne 0 ]; then' \
          '       logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
-         '       if "$SCRIPT_LOC" restart >/dev/null 2>&1; then continue; else break; fi' \
+         '       if "$SCRIPT_LOC" restart; then break; else continue; fi' \
+         '     elif [ "$i" eq "$INTERVAL" ]; then' \
+         '       break ' \
          '     else' \
-         '       logger -st "$NAME" "AdGuardHome found alive. Completing checks."' \
-         '       break' \
+         '       continue' \
          '     fi' \
+         '     i="$((i+1))"' \
          '   done' \
          '   ;;' \
          '  "start"|"restart")' \
-	 '   if [ ! -f "/etc/localtime" ]; then ln -sf "${WORK_DIR}/localtime" "/etc/localtime" >/dev/null 2>&1; fi' \
+         '   if [ ! -f "/etc/localtime" ]; then ln -sf "${WORK_DIR}/localtime" "/etc/localtime" >/dev/null 2>&1; fi' \
          '   if [ -z "$(pidof AdGuardHome)" ]; then' \
          '     i="1"' \
          '     while [ "$i" -le "$MAXCOUNT" ]; do' \
@@ -196,8 +199,8 @@ backup_restore () {
          '       if [ "$HOST_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
          '       if [ "$CURL_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
          '       if [ "$SPIDER_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
-         '       if [ "$ALIVE" -le 1 ]; then break; else service restart_dnsmasq >/dev/null 2>&1; fi' \
-	 '       logger -st "$NAME" "Waiting for the internet (attempt ${i}/${MAXCOUNT})"' \
+         '       if [ "$ALIVE" -le 1 ]; then break; else service restart_dnsmasq >/dev/null 2>&1; sleep $INTERVAL; fi' \
+         '       logger -st "$NAME" "Waiting for the internet (attempt ${i}/${MAXCOUNT})"' \
          '       if [ "$i" -le "$MAXCOUNT" ]; then sleep "$((INTERVAL+MAXCOUNT))"; i="$((i+1))"; fi' \
          '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st "$NAME" "Internet remains inactive; continuing anyway."; break; fi' \
          '     done' \
@@ -205,11 +208,11 @@ backup_restore () {
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
          '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
          '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
-         '     cru a "$SCRIPT_NAME" "0 */3 * * * $SCRIPT_LOC check >/dev/null 2>&1"' \
+         '     cru a "$SCRIPT_NAME" "*/2 * * * * for i in {1..$INTERVAL}; do $SCRIPT_LOC check; sleep $MAXCOUNT; done"' \
          '   fi' \
          '   ;;' \
          '  "stop"|"kill")' \
-	 '   if [ -f "/etc/localtime" ]; then rm -rf /etc/localtime >/dev/null 2>&1; fi' \
+         '   if [ -f "/etc/localtime" ]; then rm -rf /etc/localtime >/dev/null 2>&1; fi' \
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
          '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
          '     logger -st "$NAME" "AdGuardHome has been stopped. Removing all checks."' \
@@ -218,7 +221,7 @@ backup_restore () {
          '   ;;' \
          'esac' \
          '. /opt/etc/init.d/rc.func' \
-	 'if [ -z "$(pidof AdGuardHome)" ] && [ "$1" = "stop" -o "$1" = "kill" ]; then service restart_dnsmasq >/dev/null 2>&1; exit; fi' > /opt/etc/init.d/S99AdGuardHome
+         'if [ -z "$(pidof AdGuardHome)" ] && [ "$1" = "stop" -o "$1" = "kill" ]; then service restart_dnsmasq >/dev/null 2>&1; exit; fi' > /opt/etc/init.d/S99AdGuardHome
     chmod 755 /opt/etc/init.d/S99AdGuardHome
     if [ -f "/opt/etc/init.d/S80apache" ]; then opkg install apache-utils >/dev/null 2>&1; fi
     if [ -z "$(opkg list-installed | grep apache-utils )" ]; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
@@ -728,17 +731,20 @@ inst_AdGuardHome () {
        'MAXCOUNT="15"' \
        'case "$1" in' \
        '  "check")' \
+       '   i="0" ' \
        '   while [ -z "$(pidof AdGuardHome)" -o -f "$PID_FILE" ]; do' \
        '     if [ -z "$(pidof AdGuardHome)" ]; then' \
        '       logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
-       '       if "$SCRIPT_LOC" start >/dev/null 2>&1; then continue; else break; fi' \
+       '       if "$SCRIPT_LOC" start; then break; else continue; fi' \
        '     elif [ "$NW_STATE" -eq 0 -a "$RES_STATE" -ne 0 ]; then' \
        '       logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
-       '       if "$SCRIPT_LOC" restart >/dev/null 2>&1; then continue; else break; fi' \
+       '       if "$SCRIPT_LOC" restart; then break; else continue; fi' \
+       '     elif [ "$i" eq "$INTERVAL" ]; then' \
+       '       break ' \
        '     else' \
-       '       logger -st "$NAME" "AdGuardHome found alive. Completing checks."' \
-       '       break' \
+       '       continue' \
        '     fi' \
+       '     i="$((i+1))"' \
        '   done' \
        '   ;;' \
        '  "start"|"restart")' \
@@ -752,7 +758,7 @@ inst_AdGuardHome () {
        '       if [ "$HOST_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
        '       if [ "$CURL_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
        '       if [ "$SPIDER_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
-       '       if [ "$ALIVE" -le 1 ]; then break; else service restart_dnsmasq >/dev/null 2>&1; fi' \
+       '       if [ "$ALIVE" -le 1 ]; then break; else service restart_dnsmasq >/dev/null 2>&1; sleep $INTERVAL; fi' \
        '       logger -st "$NAME" "Waiting for the internet (attempt ${i}/${MAXCOUNT})"' \
        '       if [ "$i" -le "$MAXCOUNT" ]; then sleep "$((INTERVAL+MAXCOUNT))"; i="$((i+1))"; fi' \
        '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st "$NAME" "Internet remains inactive; continuing anyway."; break; fi' \
@@ -761,7 +767,7 @@ inst_AdGuardHome () {
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
        '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
        '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
-       '     cru a "$SCRIPT_NAME" "0 */3 * * * $SCRIPT_LOC check >/dev/null 2>&1"' \
+       '     cru a "$SCRIPT_NAME" "*/2 * * * * for i in {1..$INTERVAL}; do $SCRIPT_LOC check; sleep $MAXCOUNT; done"' \
        '   fi' \
        '   ;;' \
        '  "stop"|"kill")' \
