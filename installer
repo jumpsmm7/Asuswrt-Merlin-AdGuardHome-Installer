@@ -183,9 +183,9 @@ backup_restore () {
          '     elif [ "$i" -eq "$INTERVAL" ]; then' \
          '       break ' \
          '     else' \
+	 '       i="$((i+1))"' \
          '       continue' \
          '     fi' \
-         '     i="$((i+1))"' \
          '   done' \
          '   ;;' \
          '  "start"|"restart")' \
@@ -742,9 +742,9 @@ inst_AdGuardHome () {
        '     elif [ "$i" -eq "$INTERVAL" ]; then' \
        '       break ' \
        '     else' \
+       '       i="$((i+1))"' \
        '       continue' \
        '     fi' \
-       '     i="$((i+1))"' \
        '   done' \
        '   ;;' \
        '  "start"|"restart")' \
