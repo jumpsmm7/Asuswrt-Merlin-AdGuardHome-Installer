@@ -151,8 +151,8 @@ backup_restore () {
          'ENABLED="yes"' \
          'WORK_DIR="/opt/etc/AdGuardHome"' \
          'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
-	 'LOG_FILE="/opt/var/log/AdGuardHome.log"' \
-	 'LOG_VERB="--verbose" #to enable verbose remove the comment infront of $LOG_VERB' \
+         'LOG_FILE="/opt/var/log/AdGuardHome.log"' \
+         'LOG_VERB="--verbose" #to enable verbose remove the comment infront of $LOG_VERB' \
          'PROCS="AdGuardHome"' \
          'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "$LOG_FILE" #$LOG_VERB"' \
          'PREARGS="env TZ=${WORK_DIR}/localtime nohup"' \
@@ -175,7 +175,7 @@ backup_restore () {
          'case "$1" in' \
          '  "check")' \
          '   i="0" ' \
-	 '   if [ "$2" = "watch" ]; then' \
+         '   if [ "$2" = "watch" ]; then' \
          '     while [ -z "$(pidof AdGuardHome)" -o -f "$PID_FILE" ]; do' \
          '       if [ -z "$(pidof AdGuardHome)" ]; then' \
          '         logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
@@ -183,17 +183,19 @@ backup_restore () {
          '       elif [ "$NW_STATE" -eq 0 -a "$RES_STATE" -ne 0 ]; then' \
          '         logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
          '         if "$SCRIPT_LOC" restart; then break; else continue; fi' \
-	 '       elif [ "$i" -eq "5" ]; then '\
-	 '         break ' \
+         '       elif [ "$i" -eq "5" ]; then '\
+         '         break ' \
          '       else' \
          '         i="$((i+1))"' \
-	 '         continue' \
+         '         continue' \
          '       fi' \
          '     done' \
-	 '   fi' \
+         '   fi' \
          '   ;;' \
          '  "start"|"restart")' \
          '   if [ ! -f "/etc/localtime" ]; then ln -sf "${WORK_DIR}/localtime" "/etc/localtime" >/dev/null 2>&1; fi' \
+         '   if [ ! -f "/tmp/stats.db" ]; then ln -sf "${WORK_DIR}/data/stats.db" "/tmp/stats.db" >/dev/null 2>&1; fi' \
+         '   if [ ! -f "/tmp/sessions.db" ]; then ln -sf "${WORK_DIR}/data/sessions.db" "/tmp/sessions.db" >/dev/null 2>&1; fi' \
          '   if [ -z "$(pidof AdGuardHome)" ]; then' \
          '     i="1"' \
          '     while [ "$i" -le "$MAXCOUNT" ]; do' \
@@ -216,7 +218,9 @@ backup_restore () {
          '   fi' \
          '   ;;' \
          '  "stop"|"kill")' \
-         '   if [ -f "/etc/localtime" ]; then rm -rf /etc/localtime >/dev/null 2>&1; fi' \
+         '   if [ -f "/etc/localtime" ]; then rm -rf "/etc/localtime" >/dev/null 2>&1; fi' \
+         '   if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi' \
+         '   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi' \
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
          '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
          '     logger -st "$NAME" "AdGuardHome has been stopped. Removing all checks."' \
@@ -782,7 +786,7 @@ inst_AdGuardHome () {
        '   fi' \
        '   ;;' \
        '  "stop"|"kill")' \
-       '   if [ -f "/etc/localtime" ]; then rm -rf /etc/localtime >/dev/null 2>&1; fi' \
+       '   if [ -f "/etc/localtime" ]; then rm -rf "/etc/localtime" >/dev/null 2>&1; fi' \
        '   if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi' \
        '   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi' \
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
