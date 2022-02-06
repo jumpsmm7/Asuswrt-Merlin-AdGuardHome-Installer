@@ -180,11 +180,8 @@ backup_restore () {
          '     elif [ "$NW_STATE" -eq 0 -a "$RES_STATE" -ne 0 ]; then' \
          '       logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
          '       if "$SCRIPT_LOC" restart; then break; else continue; fi' \
-         '     elif [ "$i" -eq "$INTERVAL" ]; then' \
-         '       break ' \
          '     else' \
-	 '       i="$((i+1))"' \
-         '       continue' \
+         '       break ' \
          '     fi' \
          '   done' \
          '   ;;' \
@@ -208,7 +205,7 @@ backup_restore () {
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
          '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
          '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
-         '     cru a "$SCRIPT_NAME" "*/15 * * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
+         '     cru a "$SCRIPT_NAME" "15,30,45 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
          '   fi' \
          '   ;;' \
          '  "stop"|"kill")' \
@@ -250,6 +247,7 @@ backup_restore () {
       end_op_message 1
       return
     fi
+    [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
     [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome" "$ERROR Please send WebUI System Log to dev"; end_op_message 1; return; fi
     sleep 1
     if [ -z "$(pidof AdGuardHome)" ]; then
@@ -739,11 +737,8 @@ inst_AdGuardHome () {
        '     elif [ "$NW_STATE" -eq 0 -a "$RES_STATE" -ne 0 ]; then' \
        '       logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
        '       if "$SCRIPT_LOC" restart; then break; else continue; fi' \
-       '     elif [ "$i" -eq "$INTERVAL" ]; then' \
+       '     else [ "$i" -eq "$INTERVAL" ]; then' \
        '       break ' \
-       '     else' \
-       '       i="$((i+1))"' \
-       '       continue' \
        '     fi' \
        '   done' \
        '   ;;' \
@@ -767,7 +762,7 @@ inst_AdGuardHome () {
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
        '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
        '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
-       '     cru a "$SCRIPT_NAME" "*/15 * * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
+       '     cru a "$SCRIPT_NAME" "15,30,45 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
        '   fi' \
        '   ;;' \
        '  "stop"|"kill")' \
@@ -809,6 +804,7 @@ inst_AdGuardHome () {
     end_op_message 1
     return
   fi
+  [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
   [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome" "$ERROR Please send WebUI System Log to dev"; end_op_message 1; return; fi
   sleep 1
   if [ -z "$(pidof AdGuardHome)" ]; then
