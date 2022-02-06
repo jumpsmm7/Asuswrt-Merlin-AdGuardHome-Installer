@@ -205,7 +205,7 @@ backup_restore () {
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
          '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
          '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
-         '     cru a "$SCRIPT_NAME" "*/15 * * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
+         '     cru a "$SCRIPT_NAME" "15,30,45 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
          '   fi' \
          '   ;;' \
          '  "stop"|"kill")' \
@@ -762,7 +762,7 @@ inst_AdGuardHome () {
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
        '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
        '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
-       '     cru a "$SCRIPT_NAME" "*/15 * * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
+       '     cru a "$SCRIPT_NAME" "15,30,45 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
        '   fi' \
        '   ;;' \
        '  "stop"|"kill")' \
