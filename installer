@@ -152,8 +152,9 @@ backup_restore () {
          'WORK_DIR="/opt/etc/AdGuardHome"' \
          'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
 	 'LOG_FILE="/opt/var/log/AdGuardHome.log"' \
+	 'LOG_VERB="--verbose" #to enable verbose remove the comment infront of $LOG_VERB' \
          'PROCS="AdGuardHome"' \
-         'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "$LOG_FILE" --verbose"' \
+         'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "$LOG_FILE" #$LOG_VERB"' \
          'PREARGS="env TZ=${WORK_DIR}/localtime nohup"' \
          'PRECMD="killall -9 dnsmasq"' \
          'POSTCMD="service restart_dnsmasq"' \
@@ -715,8 +716,9 @@ inst_AdGuardHome () {
        'WORK_DIR="/opt/etc/AdGuardHome"' \
        'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
        'LOG_FILE="/opt/var/log/AdGuardHome.log"' \
+       'LOG_VERB="--verbose" #to enable verbose remove the comment infront of $LOG_VERB' \
        'PROCS="AdGuardHome"' \
-       'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "$LOG_FILE" --verbose"' \
+       'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "$LOG_FILE" #$LOG_VERB"' \
        'PREARGS="env TZ=${WORK_DIR}/localtime nohup"' \
        'PRECMD="killall -9 dnsmasq"' \
        'POSTCMD="service restart_dnsmasq"' \
@@ -756,6 +758,8 @@ inst_AdGuardHome () {
        '   ;;' \
        '  "start"|"restart")' \
        '   if [ ! -f "/etc/localtime" ]; then ln -sf "${WORK_DIR}/localtime" "/etc/localtime" >/dev/null 2>&1; fi' \
+       '   if [ ! -f "/tmp/stats.db" ]; then ln -sf "${WORK_DIR}/data/stats.db" "/tmp/stats.db" >/dev/null 2>&1; fi' \
+       '   if [ ! -f "/tmp/sessions.db" ]; then ln -sf "${WORK_DIR}/data/sessions.db" "/tmp/sessions.db" >/dev/null 2>&1; fi' \
        '   if [ -z "$(pidof AdGuardHome)" ]; then' \
        '     i="1"' \
        '     while [ "$i" -le "$MAXCOUNT" ]; do' \
@@ -779,6 +783,8 @@ inst_AdGuardHome () {
        '   ;;' \
        '  "stop"|"kill")' \
        '   if [ -f "/etc/localtime" ]; then rm -rf /etc/localtime >/dev/null 2>&1; fi' \
+       '   if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi' \
+       '   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi' \
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
        '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
        '     logger -st "$NAME" "AdGuardHome has been stopped. Removing all checks."' \
