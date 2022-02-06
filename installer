@@ -17,11 +17,11 @@
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        #
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder         #
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.1.8                               #
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.1.9                               #
 #                                                                                          #
 ############################################################################################
 
-AI_VERSION="v1.1.8"
+AI_VERSION="v1.1.9"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
 readonly REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
@@ -173,17 +173,22 @@ backup_restore () {
          'case "$1" in' \
          '  "check")' \
          '   i="0" ' \
-         '   while [ -z "$(pidof AdGuardHome)" -o -f "$PID_FILE" ]; do' \
-         '     if [ -z "$(pidof AdGuardHome)" ]; then' \
-         '       logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
-         '       if "$SCRIPT_LOC" start; then break; else continue; fi' \
-         '     elif [ "$NW_STATE" -eq 0 -a "$RES_STATE" -ne 0 ]; then' \
-         '       logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
-         '       if "$SCRIPT_LOC" restart; then break; else continue; fi' \
-         '     else' \
-         '       break ' \
-         '     fi' \
-         '   done' \
+	 '   if [ "$2" = "watch" ]; then' \
+         '     while [ -z "$(pidof AdGuardHome)" -o -f "$PID_FILE" ]; do' \
+         '       if [ -z "$(pidof AdGuardHome)" ]; then' \
+         '         logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
+         '         if "$SCRIPT_LOC" start; then break; else continue; fi' \
+         '       elif [ "$NW_STATE" -eq 0 -a "$RES_STATE" -ne 0 ]; then' \
+         '         logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
+         '         if "$SCRIPT_LOC" restart; then break; else continue; fi' \
+	 '       elif [ "$i" -eq "5" ]; then '\
+	 '         break ' \
+         '       else' \
+         '         i="$((i+1))' \
+	 '         continue' \
+         '       fi' \
+         '     done' \
+	 '   fi' \
          '   ;;' \
          '  "start"|"restart")' \
          '   if [ ! -f "/etc/localtime" ]; then ln -sf "${WORK_DIR}/localtime" "/etc/localtime" >/dev/null 2>&1; fi' \
@@ -205,7 +210,7 @@ backup_restore () {
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
          '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
          '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
-         '     cru a "$SCRIPT_NAME" "15,30,45 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
+         '     cru a "$SCRIPT_NAME" "15,30,45 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check watch; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
          '   fi' \
          '   ;;' \
          '  "stop"|"kill")' \
@@ -730,17 +735,22 @@ inst_AdGuardHome () {
        'case "$1" in' \
        '  "check")' \
        '   i="0" ' \
-       '   while [ -z "$(pidof AdGuardHome)" -o -f "$PID_FILE" ]; do' \
-       '     if [ -z "$(pidof AdGuardHome)" ]; then' \
-       '       logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
-       '       if "$SCRIPT_LOC" start; then break; else continue; fi' \
-       '     elif [ "$NW_STATE" -eq 0 -a "$RES_STATE" -ne 0 ]; then' \
-       '       logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
-       '       if "$SCRIPT_LOC" restart; then break; else continue; fi' \
-       '     else' \
-       '       break ' \
-       '     fi' \
-       '   done' \
+       '   if [ "$2" = "watch" ]; then' \
+       '     while [ -z "$(pidof AdGuardHome)" -o -f "$PID_FILE" ]; do' \
+       '       if [ -z "$(pidof AdGuardHome)" ]; then' \
+       '         logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
+       '         if "$SCRIPT_LOC" start; then break; else continue; fi' \
+       '       elif [ "$NW_STATE" -eq 0 -a "$RES_STATE" -ne 0 ]; then' \
+       '         logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
+       '         if "$SCRIPT_LOC" restart; then break; else continue; fi' \
+       '       elif [ "$i" -eq "5" ]; then '\
+       '         break ' \
+       '       else' \
+       '         i="$((i+1))' \
+       '         continue' \
+       '       fi' \
+       '     done' \
+       '   fi' \
        '   ;;' \
        '  "start"|"restart")' \
        '   if [ ! -f "/etc/localtime" ]; then ln -sf "${WORK_DIR}/localtime" "/etc/localtime" >/dev/null 2>&1; fi' \
@@ -762,7 +772,7 @@ inst_AdGuardHome () {
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
        '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
        '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
-       '     cru a "$SCRIPT_NAME" "15,30,45 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
+       '     cru a "$SCRIPT_NAME" "15,30,45 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check watch; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
        '   fi' \
        '   ;;' \
        '  "stop"|"kill")' \
