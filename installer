@@ -151,8 +151,9 @@ backup_restore () {
          'ENABLED="yes"' \
          'WORK_DIR="/opt/etc/AdGuardHome"' \
          'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
+	 'LOG_FILE="/opt/var/log/AdGuardHome.log"' \
          'PROCS="AdGuardHome"' \
-         'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l syslog"' \
+         'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "$LOG_FILE" --verbose"' \
          'PREARGS="env TZ=${WORK_DIR}/localtime nohup"' \
          'PRECMD="killall -9 dnsmasq"' \
          'POSTCMD="service restart_dnsmasq"' \
@@ -277,13 +278,13 @@ check_AdGuardHome_yaml () {
   chmod 644 "$1"
   PTXT "$INFO Checking AdGuardHome configuration..."
   if [ "$1" = "$YAML_ORI" ]; then
-    $AGH_FILE --check-config -c "$1" --no-check-update -l syslog >/dev/null 2>&1
+    $AGH_FILE --check-config -c "$1" --no-check-update -l "/opt/var/log/AdGuardHome.log" --verbose
     yaml_nvars_insert "  bootstrap_dns:" "\  - $BOOTSTRAP2" "$1"
     yaml_nvars_insert "  bootstrap_dns:" "\  - $BOOTSTRAP1" "$1"
     yaml_nvars_delete "[$BOOTSTRAP1 $BOOTSTRAP2]" "$1"
   fi
   yaml_nvars_replace 'log_localtime: false' 'log_localtime: true' "$1"
-  $AGH_FILE --check-config -c "$1" --no-check-update -l syslog >/dev/null 2>&1
+  $AGH_FILE --check-config -c "$1" --no-check-update -l "/opt/var/log/AdGuardHome.log" --verbose
   if [ "$?" -ne 0 ]; then
     PTXT "$INFO Move invalid configuration file to $YAML_ERR" \
       "$INFO Operation will continue with clean config file."
@@ -713,8 +714,9 @@ inst_AdGuardHome () {
        'ENABLED="yes"' \
        'WORK_DIR="/opt/etc/AdGuardHome"' \
        'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
+       'LOG_FILE="/opt/var/log/AdGuardHome.log"' \
        'PROCS="AdGuardHome"' \
-       'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l syslog"' \
+       'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "$LOG_FILE" --verbose"' \
        'PREARGS="env TZ=${WORK_DIR}/localtime nohup"' \
        'PRECMD="killall -9 dnsmasq"' \
        'POSTCMD="service restart_dnsmasq"' \
@@ -1011,7 +1013,7 @@ uninst_all () {
   [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
   [ "$(awk -F'=' '/ADGUARD_DOMAIN/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "yes" ] && nvram set lan_domain="" && nvram commit
   mv "${TARG_DIR}/installer" "${HOME}/installer"
-  rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "/jffs/addons/AdGuardHome.d"
+  rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "/jffs/addons/AdGuardHome.d" "/opt/var/log/AdGuardHome.log"
   yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
   service restart_dnsmasq >/dev/null 2>&1
   end_op_message 0
