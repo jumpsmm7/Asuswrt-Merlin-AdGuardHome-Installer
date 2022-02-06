@@ -152,9 +152,9 @@ backup_restore () {
          'WORK_DIR="/opt/etc/AdGuardHome"' \
          'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
          'LOG_FILE="/opt/var/log/AdGuardHome.log"' \
-         'LOG_VERB="--verbose" #to enable verbose remove the comment infront of $LOG_VERB' \
+         'LOG_VERB="--verbose" #to enable verbose add $LOG_VERB to the end of ARGS' \
          'PROCS="AdGuardHome"' \
-         'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "$LOG_FILE" #$LOG_VERB"' \
+         'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "$LOG_FILE""' \
          'PREARGS="env TZ=${WORK_DIR}/localtime nohup"' \
          'PRECMD="killall -9 dnsmasq"' \
          'POSTCMD="service restart_dnsmasq"' \
@@ -720,9 +720,9 @@ inst_AdGuardHome () {
        'WORK_DIR="/opt/etc/AdGuardHome"' \
        'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
        'LOG_FILE="/opt/var/log/AdGuardHome.log"' \
-       'LOG_VERB="--verbose" #to enable verbose remove the comment infront of $LOG_VERB' \
+       'LOG_VERB="--verbose" #to enable verbose add $LOG_VERB to the end of ARGS' \
        'PROCS="AdGuardHome"' \
-       'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "$LOG_FILE" #$LOG_VERB"' \
+       'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "$LOG_FILE""' \
        'PREARGS="env TZ=${WORK_DIR}/localtime nohup"' \
        'PRECMD="killall -9 dnsmasq"' \
        'POSTCMD="service restart_dnsmasq"' \
