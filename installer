@@ -152,7 +152,7 @@ backup_restore () {
          'WORK_DIR="/opt/etc/AdGuardHome"' \
          'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
          'PROCS="AdGuardHome"' \
-         'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update"' \
+         'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "/dev/null""' \
          'PREARGS="env TZ=${WORK_DIR}/localtime nohup"' \
          'PRECMD="killall -9 dnsmasq"' \
          'POSTCMD="service restart_dnsmasq"' \
@@ -281,13 +281,13 @@ check_AdGuardHome_yaml () {
   chmod 644 "$1"
   PTXT "$INFO Checking AdGuardHome configuration..."
   if [ "$1" = "$YAML_ORI" ]; then
-    $AGH_FILE --check-config -c "$1" --no-check-update -l "/opt/var/log/AdGuardHome.log" --verbose
+    $AGH_FILE --check-config -c "$1" --no-check-update -l "/dev/null"
     yaml_nvars_insert "  bootstrap_dns:" "\  - $BOOTSTRAP2" "$1"
     yaml_nvars_insert "  bootstrap_dns:" "\  - $BOOTSTRAP1" "$1"
     yaml_nvars_delete "[$BOOTSTRAP1 $BOOTSTRAP2]" "$1"
   fi
   yaml_nvars_replace 'log_localtime: false' 'log_localtime: true' "$1"
-  $AGH_FILE --check-config -c "$1" --no-check-update -l "/opt/var/log/AdGuardHome.log" --verbose
+  $AGH_FILE --check-config -c "$1" --no-check-update -l "/dev/null"
   if [ "$?" -ne 0 ]; then
     PTXT "$INFO Move invalid configuration file to $YAML_ERR" \
       "$INFO Operation will continue with clean config file."
@@ -718,7 +718,7 @@ inst_AdGuardHome () {
        'WORK_DIR="/opt/etc/AdGuardHome"' \
        'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
        'PROCS="AdGuardHome"' \
-       'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update"' \
+       'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "/dev/null""' \
        'PREARGS="env TZ=${WORK_DIR}/localtime nohup"' \
        'PRECMD="killall -9 dnsmasq"' \
        'POSTCMD="service restart_dnsmasq"' \
