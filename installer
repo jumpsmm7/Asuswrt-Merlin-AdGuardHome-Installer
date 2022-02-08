@@ -17,11 +17,11 @@
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        #
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder         #
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.1.9                               #
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.2.0                               #
 #                                                                                          #
 ############################################################################################
 
-AI_VERSION="v1.1.9"
+AI_VERSION="v1.2.0"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
 readonly REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
@@ -152,8 +152,8 @@ backup_restore () {
          'WORK_DIR="/opt/etc/AdGuardHome"' \
          'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
          'PROCS="AdGuardHome"' \
-         'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "/dev/null""' \
-         'PREARGS="env TZ=${WORK_DIR}/localtime nohup"' \
+         'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "syslog""' \
+         'PREARGS="nohup env TZ=/etc/localtime"' \
          'PRECMD="killall -9 dnsmasq"' \
          'POSTCMD="service restart_dnsmasq"' \
          'DESC="$PROCS"' \
@@ -191,7 +191,7 @@ backup_restore () {
          '   fi' \
          '   ;;' \
          '  "start"|"restart")' \
-         '   if [ ! -f "/etc/localtime" ]; then ln -sf "${WORK_DIR}/localtime" "/etc/localtime" >/dev/null 2>&1; fi' \
+         '   if [ ! -f "/etc/localtime" -a "${WORK_DIR}/localtime" ]; then ln -sf "${WORK_DIR}/localtime" "/etc/localtime" >/dev/null 2>&1; fi' \
          '   if [ ! -f "/tmp/stats.db" ]; then ln -sf "${WORK_DIR}/data/stats.db" "/tmp/stats.db" >/dev/null 2>&1; fi' \
          '   if [ ! -f "/tmp/sessions.db" ]; then ln -sf "${WORK_DIR}/data/sessions.db" "/tmp/sessions.db" >/dev/null 2>&1; fi' \
          '   if [ -z "$(pidof AdGuardHome)" ]; then' \
@@ -212,11 +212,10 @@ backup_restore () {
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
          '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
          '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
-         '     cru a "$SCRIPT_NAME" "15,30,45 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check watch; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
+         '     cru a "$SCRIPT_NAME" "*/15 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check watch; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
          '   fi' \
          '   ;;' \
          '  "stop"|"kill")' \
-         '   if [ -f "/etc/localtime" ]; then rm -rf "/etc/localtime" >/dev/null 2>&1; fi' \
          '   if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi' \
          '   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi' \
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
@@ -250,7 +249,7 @@ backup_restore () {
       go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
       rm -rf go
     fi
-    if [ ! -f "${TARG_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
+    if [ ! -f "/etc/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
     setup_AdGuardHome
     if [ "$?" -ne 0 ]; then
       end_op_message 1
@@ -718,8 +717,8 @@ inst_AdGuardHome () {
        'WORK_DIR="/opt/etc/AdGuardHome"' \
        'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
        'PROCS="AdGuardHome"' \
-       'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "/dev/null""' \
-       'PREARGS="env TZ=${WORK_DIR}/localtime nohup"' \
+       'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "syslog""' \
+       'PREARGS="nohup env TZ=/etc/localtime"' \
        'PRECMD="killall -9 dnsmasq"' \
        'POSTCMD="service restart_dnsmasq"' \
        'DESC="$PROCS"' \
@@ -757,7 +756,7 @@ inst_AdGuardHome () {
        '   fi' \
        '   ;;' \
        '  "start"|"restart")' \
-       '   if [ ! -f "/etc/localtime" ]; then ln -sf "${WORK_DIR}/localtime" "/etc/localtime" >/dev/null 2>&1; fi' \
+       '   if [ ! -f "/etc/localtime" -a "${WORK_DIR}/localtime" ]; then ln -sf "${WORK_DIR}/localtime" "/etc/localtime" >/dev/null 2>&1; fi' \
        '   if [ ! -f "/tmp/stats.db" ]; then ln -sf "${WORK_DIR}/data/stats.db" "/tmp/stats.db" >/dev/null 2>&1; fi' \
        '   if [ ! -f "/tmp/sessions.db" ]; then ln -sf "${WORK_DIR}/data/sessions.db" "/tmp/sessions.db" >/dev/null 2>&1; fi' \
        '   if [ -z "$(pidof AdGuardHome)" ]; then' \
@@ -778,11 +777,10 @@ inst_AdGuardHome () {
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
        '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
        '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
-       '     cru a "$SCRIPT_NAME" "15,30,45 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check watch; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
+       '     cru a "$SCRIPT_NAME" "*/15 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check watch; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
        '   fi' \
        '   ;;' \
        '  "stop"|"kill")' \
-       '   if [ -f "/etc/localtime" ]; then rm -rf "/etc/localtime" >/dev/null 2>&1; fi' \
        '   if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi' \
        '   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi' \
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
@@ -816,7 +814,7 @@ inst_AdGuardHome () {
     go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
     rm -rf go
   fi
-  if [ ! -f "${TARG_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
+  if [ ! -f "/etc/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
   setup_AdGuardHome
   if [ "$?" -ne 0 ]; then
     end_op_message 1
