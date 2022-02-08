@@ -152,7 +152,7 @@ backup_restore () {
          'WORK_DIR="/opt/etc/AdGuardHome"' \
          'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
          'PROCS="AdGuardHome"' \
-         'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "/dev/null""' \
+         'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "syslog""' \
          'PREARGS="nohup env TZ=/etc/localtime"' \
          'PRECMD="killall -9 dnsmasq"' \
          'POSTCMD="service restart_dnsmasq"' \
@@ -212,7 +212,7 @@ backup_restore () {
          '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
          '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
          '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
-         '     cru a "$SCRIPT_NAME" "15,30,45 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check watch; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
+         '     cru a "$SCRIPT_NAME" "*/15 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check watch; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
          '   fi' \
          '   ;;' \
          '  "stop"|"kill")' \
@@ -249,7 +249,7 @@ backup_restore () {
       go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
       rm -rf go
     fi
-    if [ ! -f "${TARG_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
+    if [ ! -f "/etc/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
     setup_AdGuardHome
     if [ "$?" -ne 0 ]; then
       end_op_message 1
@@ -717,7 +717,7 @@ inst_AdGuardHome () {
        'WORK_DIR="/opt/etc/AdGuardHome"' \
        'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
        'PROCS="AdGuardHome"' \
-       'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "/dev/null""' \
+       'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "syslog""' \
        'PREARGS="nohup env TZ=/etc/localtime"' \
        'PRECMD="killall -9 dnsmasq"' \
        'POSTCMD="service restart_dnsmasq"' \
@@ -777,7 +777,7 @@ inst_AdGuardHome () {
        '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
        '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
        '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
-       '     cru a "$SCRIPT_NAME" "15,30,45 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check watch; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
+       '     cru a "$SCRIPT_NAME" "*/15 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check watch; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
        '   fi' \
        '   ;;' \
        '  "stop"|"kill")' \
