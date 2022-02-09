@@ -106,7 +106,7 @@ backup_restore () {
 	rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"
       fi
     fi
-    tar -czvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "$TARG_DIR" ../AdGuardHome/ >/dev/null 2>&1    
+    tar -czvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "$TARG_DIR" ../AdGuardHome/ >/dev/null 2>&1
     PTXT "$INFO Backup complete"
     [ "$2" -ne 0 ] && end_op_message 0
   elif [ "$1" = "BACKUP" ] && [ ! -d "$TARG_DIR" ] && [ ! -f "$AGH_FILE" ]; then
@@ -392,7 +392,7 @@ choose_branch () {
 }
 
 cleanup () {
-  "/opt/etc/init.d/S61AdGuardHome" "stop" >/dev/null 2>&1; mv "/opt/etc/init.d/S61AdGuardHome" "/opt/etc/init.d/S99AdGuardHome" >/dev/null 2>&1; "/opt/etc/init.d/S99AdGuardHome" "start" >/dev/null 2>&1
+  "/opt/etc/init.d/S61AdGuardHome" "stop" >/dev/null 2>&1; mv "/opt/etc/init.d/S61AdGuardHome" "/opt/etc/init.d/S99AdGuardHome" >/dev/null 2>&1; "/opt/etc/init.d/S99AdGuardHome" "start" >/dev/null 2>&1; [ "$(cru l | grep -c "S99AdGuardHome")" -gt 0 ] && cru -d "S99AdGuardHome"
 }
 
 create_dir () {
