@@ -120,7 +120,7 @@ case $1 in
     timezone
     ;;
   "stop"|"kill"|"check")
-    . /opt/etc/init.d/rc.func
     [ "$1" != "check" ] && stop_AdGuardHome
+    . /opt/etc/init.d/rc.func
     ;;
 esac
