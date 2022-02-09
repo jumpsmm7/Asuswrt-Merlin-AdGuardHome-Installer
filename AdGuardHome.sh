@@ -3,7 +3,7 @@
 [ ! -f "/opt/etc/init.d/S99AdGuardHome" ] && exit 1
 
 NAME="$(basename $0)[$$]"
-SCRIPT_LOC="$(readlink -f "$0")"
+SCRIPT_LOC="/opt/etc/init.d/S99AdGuardHome"
 
 dnsmasq_params () {
   local CONFIG
@@ -114,18 +114,18 @@ case $1 in
   "dnsmasq")
     dnsmasq_params
     ;;
-  "start")
-    timezone
-    $SCRIPT_LOC monitor-start >/dev/null 2>&1
-    ;;
   "services-stop")
     timezone
     ;;
-  "restart"|"check")
-    . /opt/etc/init.d/rc.func
-    ;;
+  "start")
+    timezone
+    $SCRIPT_LOC monitor-start >/dev/null 2>&1
+    ;;&
   "stop"|"kill")
     stop_AdGuardHome
+    ;;&
+  *)
+    . /opt/etc/init.d/rc.func
     ;;
 esac
 
