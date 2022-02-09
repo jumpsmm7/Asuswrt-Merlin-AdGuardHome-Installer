@@ -120,5 +120,6 @@ case $1 in
     ;;
   "stop"|"kill")
     stop_AdGuardHome
+    killall -q -9 S99AdGuardHome
     ;;
 esac
