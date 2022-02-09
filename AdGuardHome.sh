@@ -115,7 +115,7 @@ case $1 in
 esac
 
 case $1 in
-  "start"|"stop"|"kill"|"check")
+  "start"|"check")
     . /opt/etc/init.d/rc.func
     ;;
   "stop"|"kill")
