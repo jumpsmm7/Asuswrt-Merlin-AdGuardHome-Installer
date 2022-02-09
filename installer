@@ -307,7 +307,7 @@ check_version () {
     RMNSTALL="$(curl -sL "${RURL}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
     MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)"
     MD5SUM_R="$(curl -fsL "$RURL" | md5sum | awk '{print $1}')"
-    if { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" = "0" ]; } || { [ -n "$RMNSTALL" ] && [ -n "$REMOTE_VER" ]; }; then
+    if { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" = "0" ]; } || { [ -n "$LINSTALL" ] && [ -n "$RMNSTALL" ]; }; then
       [ -z "$LINSTALL" ] && exit 1
       [ -z "$RMNSTALL" ] && exit 1
       if [ "$RMNSTALL" != "$LINSTALL" ]; then
