@@ -38,10 +38,8 @@ start_AdGuardHome () {
 }
 
 stop_AdGuardHome () {
-  . /opt/etc/init.d/rc.func
   if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi
-  $SCRIPT_LOC stop
   service restart_dnsmasq >/dev/null 2>&1
 }
 
