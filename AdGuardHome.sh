@@ -32,15 +32,13 @@ dnsmasq_params () {
 }
 
 start_AdGuardHome () {
-  killall -q AdGuardHome
-  logger -st "$NAME" "Starting AdGuardHome"
-  $PREARGS $PROCS $ARGS >/dev/null 2>&1 </dev/null &
+  $SCRIPT_LOC restart
   if [ ! -f "/tmp/stats.db" ]; then ln -sf "${WORK_DIR}/data/stats.db" "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ ! -f "/tmp/sessions.db" ]; then ln -sf "${WORK_DIR}/data/sessions.db" "/tmp/sessions.db" >/dev/null 2>&1; fi
-  sleep 1 && $SCRIPT_LOC check
 }
 
 stop_AdGuardHome () {
+  . /opt/etc/init.d/rc.func
   if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi
   local MAN_PID 
@@ -108,30 +106,27 @@ timezone () {
 }
 
 unset TZ
+
 case $1 in
-  "start")
-    timezone
-    $SCRIPT_LOC monitor-start >/dev/null 2>&1
-    start_AdGuardHome
-    ;;
-  "restart")
-    $SCRIPT_LOC check > /dev/null && $SCRIPT_LOC stop
-    $SCRIPT_LOC start
+  "monitor-start")
+    start_monitor &
     ;;
   "dnsmasq")
     dnsmasq_params
     ;;
-  "monitor-start")
-    start_monitor &
+  "start")
+    timezone
+    $SCRIPT_LOC monitor-start >/dev/null 2>&1
     ;;
   "services-stop")
     timezone
     ;;
-  "stop"|"kill")
-    stop_AdGuardHome 
-    [ "$1" = "kill" ] && $SCRIPT_LOC check
-    ;;
-  "check")
+  "restart"|"check")
     . /opt/etc/init.d/rc.func
     ;;
+  "stop"|"kill")
+    stop_AdGuardHome
+    ;;
 esac
+
+
