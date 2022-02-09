@@ -34,9 +34,10 @@ dnsmasq_params () {
 start_AdGuardHome () {
   killall -q AdGuardHome
   logger -st "$NAME" "Starting AdGuardHome"
-  $PREARGS AdGuardHome $ARGS >/dev/null 2>&1 </dev/null &
+  $PREARGS $PROCS $ARGS >/dev/null 2>&1 </dev/null &
   if [ ! -f "/tmp/stats.db" ]; then ln -sf "${WORK_DIR}/data/stats.db" "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ ! -f "/tmp/sessions.db" ]; then ln -sf "${WORK_DIR}/data/sessions.db" "/tmp/sessions.db" >/dev/null 2>&1; fi
+  $SCRIPT_LOC check
 }
 
 stop_AdGuardHome () {
@@ -46,6 +47,7 @@ stop_AdGuardHome () {
   for PROCESS in S99AdGuardHome AdGuardHome.sh; do 
     while [ -n "$(pidof $PROCESS)" ]; do killall -q -9 $PROCESS; done
   done
+  $SCRIPT_LOC check
 }
 
 start_monitor () {
@@ -102,9 +104,8 @@ unset TZ
 case $1 in
   "start"|"restart")
     timezone
-    $SCRIPT_LOC monitor-start
     start_AdGuardHome
-    $SCRIPT_LOC check
+    $SCRIPT_LOC monitor-start
     ;;
   "dnsmasq")
     dnsmasq_params
@@ -116,7 +117,7 @@ case $1 in
     timezone
     ;;
   "stop"|"kill"|"check")
-    . /opt/etc/init.d/rc.func $1
+    . /opt/etc/init.d/rc.func
     [ "$1" != "check" ] && stop_AdGuardHome
     ;;
 esac
