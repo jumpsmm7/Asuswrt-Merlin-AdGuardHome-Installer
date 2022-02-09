@@ -116,6 +116,6 @@ case $1 in
     timezone
     ;;
   "stop"|"kill")
-    stop_AdGuardHom
+    stop_AdGuardHome
     ;;
 esac
