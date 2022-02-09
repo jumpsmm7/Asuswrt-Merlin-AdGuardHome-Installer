@@ -123,8 +123,8 @@ backup_restore () {
     [ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
     ln -sf $AGH_FILE /opt/sbin/AdGuardHome
     create_dir "$ADDON_DIR"
-    download_file 755 "$ADDON_DIR" "${RURL}/AdGuardHome.sh"
-    download_file 755 /opt/etc/init.d "${RURL}/S99AdGuardHome"
+    download_file "$ADDON_DIR" 755 "${RURL}/AdGuardHome.sh"
+    download_file /opt/etc/init.d 755 "${RURL}/S99AdGuardHome"
     [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
     write_manager_script /jffs/scripts/post-mount start
     write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
@@ -615,8 +615,8 @@ inst_AdGuardHome () {
     fi
   fi
   create_dir "$ADDON_DIR"
-  download_file 755 "$ADDON_DIR" "${RURL}/AdGuardHome.sh"
-  download_file 755 /opt/etc/init.d "${RURL}/S99AdGuardHome"
+  download_file "$ADDON_DIR" 755 "${RURL}/AdGuardHome.sh"
+  download_file /opt/etc/init.d 755 "${RURL}/S99AdGuardHome"
   [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
   write_manager_script /jffs/scripts/post-mount start
   write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
