@@ -1,7 +1,5 @@
 #!/bin/sh
 
-if [ ! -f "/opt/etc/init.d/S99AdGuardHome" ]; then exit 1; else . / opt/etc/init.d/S99AdGuardHome; fi
-
 NAME="$(basename $0)[$$]"
 SCRIPT_LOC="$(readlink -f "$0")"
 
@@ -104,5 +102,14 @@ case $1 in
     ;;
   "services-stop")
     timezone
+    ;;
+  "stop"|"kill")
+    for PROCESS in AdGuardHome; do 
+      while [ -n "$(pidof $PROCESS)" ]; do killall -q -9 $PROCESS done
+    done
+    service restart_dnsmasq >/dev/null 2>&1
+    for PROCESS in S99AdGuardHome AdGuardHome.sh; do 
+      while [ -n "$(pidof $PROCESS)" ]; do killall -q -9 $PROCESS done
+    done
     ;;
 esac
