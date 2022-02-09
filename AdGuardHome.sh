@@ -120,13 +120,14 @@ case $1 in
   "start")
     timezone
     $SCRIPT_LOC monitor-start >/dev/null 2>&1
-    ;;&
+    ;;
   "stop"|"kill")
     stop_AdGuardHome
-    ;;&
-  *)
-    . /opt/etc/init.d/rc.func
     ;;
 esac
 
-
+case $1 in
+  "start"|"stop"|"kill"|"check")
+     . /opt/etc/init.d/rc.func
+    ;;
+esac
