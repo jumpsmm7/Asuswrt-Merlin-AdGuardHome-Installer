@@ -111,7 +111,7 @@ unset TZ
 case $1 in
   "start")
     timezone
-    $SCRIPT_LOC monitor-start
+    $SCRIPT_LOC monitor-start >/dev/null 2>&1
     start_AdGuardHome
     ;;
   "restart")
@@ -128,8 +128,9 @@ case $1 in
     timezone
     ;;
   "stop"|"kill")
-   stop_AdGuardHome 
-   [ "$1" = "kill" ] && $SCRIPT_LOC check
+    stop_AdGuardHome 
+    [ "$1" = "kill" ] && $SCRIPT_LOC check
+    ;;
   "check")
     . /opt/etc/init.d/rc.func
     ;;
