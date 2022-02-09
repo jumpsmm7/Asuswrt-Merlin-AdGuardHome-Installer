@@ -41,17 +41,7 @@ stop_AdGuardHome () {
   . /opt/etc/init.d/rc.func
   if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi
-  local MAN_PID 
-  MAN_PID="$(pidof S99AdGuardHome)"
-  local PID
-  if [ "$MAN_PID" ]; then
-    for PID in $MAN_PID; do
-      if [ "$(awk '{ print }' "/proc/${PID}/cmdline" | grep AdGuardHome)" ]; then
-        kill -9 "$PID"
-        break
-      fi
-    done
-  fi
+  $SCRIPT_LOC stop
   service restart_dnsmasq >/dev/null 2>&1
 }
 
