@@ -40,9 +40,6 @@ start_AdGuardHome () {
 }
 
 stop_AdGuardHome () {
-  for PROCESS in AdGuardHome; do 
-    while [ -n "$(pidof $PROCESS)" ]; do killall -q -9 $PROCESS done
-  done
   if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi
   service restart_dnsmasq >/dev/null 2>&1
@@ -106,7 +103,8 @@ case $1 in
   "start"|"restart")
     timezone
     $SCRIPT_LOC monitor-start
-    start_AdGuardHome 
+    start_AdGuardHome
+    $SCRIPT_LOC check
     ;;
   "dnsmasq")
     dnsmasq_params
@@ -117,9 +115,8 @@ case $1 in
   "services-stop")
     timezone
     ;;
-  "stop"|"kill")
-    stop_AdGuardHome
+  "stop"|"kill"|"check")
+    . /opt/etc/init.d/rc.func $1
+    [ "$1" != "check" ] && stop_AdGuardHome
     ;;
 esac
-
-. /opt/etc/init.d/rc.func
