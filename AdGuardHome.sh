@@ -37,6 +37,18 @@ start_AdGuardHome () {
   if [ ! -f "/tmp/sessions.db" ]; then ln -sf "${WORK_DIR}/data/sessions.db" "/tmp/sessions.db" >/dev/null 2>&1; fi
 }
 
+stop_AdGuardHome () {
+  for PROCESS in AdGuardHome; do 
+    while [ -n "$(pidof $PROCESS)" ]; do killall -q -9 $PROCESS done
+  done
+  if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi
+  if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi
+  service restart_dnsmasq >/dev/null 2>&1
+  for PROCESS in S99AdGuardHome AdGuardHome.sh; do 
+    while [ -n "$(pidof $PROCESS)" ]; do killall -q -9 $PROCESS done
+  done
+}
+
 start_monitor () {
   trap "" 1 2
   while [ "$(nvram get ntp_ready)" -eq 0 ]; do sleep 1; done
@@ -104,12 +116,6 @@ case $1 in
     timezone
     ;;
   "stop"|"kill")
-    for PROCESS in AdGuardHome; do 
-      while [ -n "$(pidof $PROCESS)" ]; do killall -q -9 $PROCESS done
-    done
-    service restart_dnsmasq >/dev/null 2>&1
-    for PROCESS in S99AdGuardHome AdGuardHome.sh; do 
-      while [ -n "$(pidof $PROCESS)" ]; do killall -q -9 $PROCESS done
-    done
+    stop_AdGuardHom
     ;;
 esac
