@@ -44,7 +44,7 @@ stop_AdGuardHome () {
   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi
   service restart_dnsmasq >/dev/null 2>&1
   for PROCESS in S99AdGuardHome AdGuardHome.sh; do 
-    while [ -n "$(pidof $PROCESS)" ]; do killall -q -9 $PROCESS done
+    while [ -n "$(pidof $PROCESS)" ]; do killall -q -9 $PROCESS; done
   done
 }
 
