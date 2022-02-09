@@ -37,7 +37,7 @@ start_AdGuardHome () {
   $PREARGS $PROCS $ARGS >/dev/null 2>&1 </dev/null &
   if [ ! -f "/tmp/stats.db" ]; then ln -sf "${WORK_DIR}/data/stats.db" "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ ! -f "/tmp/sessions.db" ]; then ln -sf "${WORK_DIR}/data/sessions.db" "/tmp/sessions.db" >/dev/null 2>&1; fi
-  $SCRIPT_LOC check
+  sleep 1 && $SCRIPT_LOC check
 }
 
 stop_AdGuardHome () {
@@ -47,7 +47,7 @@ stop_AdGuardHome () {
   for PROCESS in S99AdGuardHome AdGuardHome.sh; do 
     while [ -n "$(pidof $PROCESS)" ]; do killall -q -9 $PROCESS; done
   done
-  $SCRIPT_LOC check
+  sleep 1 && $SCRIPT_LOC check
 }
 
 start_monitor () {
@@ -102,10 +102,14 @@ timezone () {
 
 unset TZ
 case $1 in
-  "start"|"restart")
+  "start")
     timezone
     start_AdGuardHome
     $SCRIPT_LOC monitor-start
+    ;;
+  "restart")
+    $SCRIPT_LOC stop
+    $SCRIPT_LOC start
     ;;
   "dnsmasq")
     dnsmasq_params
