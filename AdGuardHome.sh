@@ -47,7 +47,6 @@ stop_AdGuardHome () {
   for PROCESS in S99AdGuardHome AdGuardHome.sh; do 
     while [ -n "$(pidof $PROCESS)" ]; do killall -q -9 $PROCESS; done
   done
-  sleep 1 && $SCRIPT_LOC check
 }
 
 start_monitor () {
@@ -104,11 +103,11 @@ unset TZ
 case $1 in
   "start")
     timezone
-    start_AdGuardHome
     $SCRIPT_LOC monitor-start
+    start_AdGuardHome
     ;;
   "restart")
-    $SCRIPT_LOC stop
+    $SCRIPT_LOC check > /dev/null && $SCRIPT_LOC stop
     $SCRIPT_LOC start
     ;;
   "dnsmasq")
