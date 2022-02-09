@@ -1,8 +1,7 @@
 #!/bin/sh
 
-if [ ! -f "/opt/etc/init.d/S99AdGuardHome" ]; then exit 1; fi
+if [ ! -f "/opt/etc/init.d/S99AdGuardHome" ]; then exit 1; else . / opt/etc/init.d/S99AdGuardHome; fi
 
-ARGS="$@"
 NAME="$(basename $0)[$$]"
 
 dnsmasq_params () {
@@ -34,7 +33,7 @@ dnsmasq_params () {
 start_AdGuardHome () {
   killall -q AdGuardHome
   logger -st "$NAME" "Starting AdGuardHome"
-  nohup env TZ=/etc/localtime AdGuardHome $ARGS >/dev/null 2>&1 </dev/null &
+  $PREARGS AdGuardHome $ARGS >/dev/null 2>&1 </dev/null &
   if [ ! -f "/tmp/stats.db" ]; then ln -sf "${WORK_DIR}/data/stats.db" "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ ! -f "/tmp/sessions.db" ]; then ln -sf "${WORK_DIR}/data/sessions.db" "/tmp/sessions.db" >/dev/null 2>&1; fi
 }
