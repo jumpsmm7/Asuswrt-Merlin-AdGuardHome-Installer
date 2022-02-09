@@ -119,3 +119,5 @@ case $1 in
     stop_AdGuardHome
     ;;
 esac
+
+. /opt/etc/init.d/rc.func
