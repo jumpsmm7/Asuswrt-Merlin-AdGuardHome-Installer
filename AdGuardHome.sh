@@ -3,6 +3,7 @@
 if [ ! -f "/opt/etc/init.d/S99AdGuardHome" ]; then exit 1; else . / opt/etc/init.d/S99AdGuardHome; fi
 
 NAME="$(basename $0)[$$]"
+SCRIPT_LOC="$(readlink -f "$0")"
 
 dnsmasq_params () {
   local CONFIG
@@ -92,7 +93,7 @@ unset TZ
 case $1 in
   "start"|"restart")
     timezone
-    $0 monitor-start
+    $SCRIPT_LOC monitor-start
     start_AdGuardHome 
     ;;
   "dnsmasq")
