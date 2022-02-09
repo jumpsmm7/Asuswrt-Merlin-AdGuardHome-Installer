@@ -8,6 +8,6 @@ PREARGS="nohup env TZ=/etc/localtime"
 PRECMD="killall -9 dnsmasq"
 POSTCMD="service restart_dnsmasq"
 DESC="$PROCS"
-PATH="/jffs/addons/AdGuardHome.d:/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+PATH="/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export TZ="$(cat /etc/TZ)"
 . /jffs/addons/AdGuardHome.d/AdGuardHome.sh
