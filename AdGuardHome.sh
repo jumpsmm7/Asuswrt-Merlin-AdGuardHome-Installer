@@ -1,6 +1,6 @@
 #!/bin/sh
 
-[ -f "/opt/etc/init.d/S99AdGuardHome" ] && . /opt/etc/init.d/S99AdGuardHome
+if [ -f "/opt/etc/init.d/S99AdGuardHome" ]; then . /opt/etc/init.d/S99AdGuardHome; else exit 1; fi
 
 NAME="$(basename $0)[$$]"
 
@@ -77,18 +77,19 @@ timezone () {
   if [ -f "$TARGET" ]; then
       if [ "$NOW" -ge "$SANITY" ]; then
         touch "$0"
-      fi
+      elif [ "$NOW" -le "$SANITY" ]; then
+        date -u -s "$(date -u -r \"$0\" '+%Y-%m-%d %H:%M:%S')"
+      fi 
   elif [ -f "$TIMEZONE" ] || [ ! -f "$TARGET" ]; then
     ln -sf $TIMEZONE $TARGET
-    if [ "$NOW" -le "$SANITY" ]; then
-      date -u -s "$(date -u -r \"$0\" '+%Y-%m-%d %H:%M:%S')"
-    fi
+    timezone
   fi
 }
 
 unset TZ
 case $1 in
-  "start"|"restart")    
+  "start"|"restart")
+    timezone
     $0 monitor-start
     start_AdGuardHome 
     ;;
