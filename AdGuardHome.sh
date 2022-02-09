@@ -1,5 +1,7 @@
 #!/bin/sh
 
+[ ! -f "/opt/etc/init.d/S99AdGuardHome" ] && exit 1
+
 NAME="$(basename $0)[$$]"
 SCRIPT_LOC="$(readlink -f "$0")"
 
