@@ -297,8 +297,6 @@ check_version () {
   if [ -f "${TARG_DIR}/installer" ] && [ -f "$AGH_FILE" ]; then
     local RMNSTALL
     local LINSTALL
-    local RMNSTALLV
-    local LINSTALLV
     local MD5SUM_L
     local MD5SUM_R
     local NW_STATE
@@ -310,18 +308,16 @@ check_version () {
     MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)"
     MD5SUM_R="$(curl -fsL "$RURL" | md5sum | awk '{print $1}')"
     if { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" = "0" ]; } || { [ -n "$RMNSTALL" ] && [ -n "$REMOTE_VER" ]; }; then
-      LINSTALLV="v${LINSTALL}"
-      RMNSTALLV="v${RINSTALL}"
-      [ -z "$LINSTALLV" ] && exit 1
-      [ -z "$RMNSTALLV" ] && exit 1
-      if [ "$RMNSTALLV" != "$LINSTALLV" ]; then
-        PTXT "$INFO New AI_VERSION=${RMNSTALLV} Available!" \
+      [ -z "$LINSTALL" ] && exit 1
+      [ -z "$RMNSTALL" ] && exit 1
+      if [ "$RMNSTALL" != "$LINSTALL" ]; then
+        PTXT "$INFO New AI_VERSION=v${RMNSTALL} Available!" \
           "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
 	AUTO_UPDATE="update"
       elif [ "$MD5SUM_R" = "$MD5SUM_L" ]; then
-        PTXT "$INFO AI_VERSION=$LINSTALL"
+        PTXT "$INFO AI_VERSION=v$LINSTALL"
       else
-        PTXT "$INFO AI_VERSION=${LINSTALLV}, but a New Minor Update is Available!" \
+        PTXT "$INFO AI_VERSION=v${LINSTALL}, but a New Minor Update is Available!" \
           "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
 	AUTO_UPDATE="update"
       fi
