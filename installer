@@ -305,7 +305,7 @@ check_version () {
     NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"
     RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"
     LINSTALL="v$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
-    RMNSTALL="v$(curl -sL "${RURL}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
+    RMNSTALL="v$(curl -sL ${RURL}/installer | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
     MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)"
     MD5SUM_R="$(curl -fsL "$RURL" | md5sum | awk '{print $1}')"
     if [ "$NW_STATE" = "0" -a "$RES_STATE" = "0" ] || [ -n "$RMNSTALL" -a "$REMOTE_VER" ]; then
