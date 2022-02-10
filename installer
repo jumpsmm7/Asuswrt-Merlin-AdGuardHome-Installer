@@ -133,10 +133,10 @@ backup_restore () {
     ln -sf $AGH_FILE /opt/sbin/AdGuardHome
     create_dir "$ADDON_DIR"
     download_file "$ADDON_DIR" 755 "${RURL}/AdGuardHome.sh"
-    download_file /opt/etc/init.d 755 "${RURL}/S99AdGuardHome"
+    download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome"
     [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-    write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
-    write_manager_script /jffs/scripts/services-stop services-stop
+    write_manager_script "/jffs/scripts/dnsmasq.postconf" "dnsmasq"
+    write_manager_script "/jffs/scripts/services-stop" "services-stop"
     if [ -f /opt/etc/init.d/S80apache ]; then opkg install apache-utils >/dev/null 2>&1; fi
     if ! opkg list-installed | grep -q apache-utils; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
     if opkg list-installed | grep -q apache-utils && [ ! -f /opt/etc/init.d/S80apache ]; then opkg flag hold apache apache-utils >/dev/null 2>&1; fi
@@ -525,7 +525,7 @@ inst_AdGuardHome () {
     elif [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
       read_yesno "Do you want create a backup before updating?" && backup_restore BACKUP 0 || PTXT "$INFO continuing without making a backup."
     fi
-    NW_STATR=""
+    NW_STATE=""
     RES_STATE=""
     NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"
     RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"
@@ -626,8 +626,8 @@ inst_AdGuardHome () {
   download_file "$ADDON_DIR" 755 "${RURL}/AdGuardHome.sh"
   download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome"
   [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-  write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
-  write_manager_script /jffs/scripts/services-stop services-stop
+  write_manager_script "/jffs/scripts/dnsmasq.postconf" "dnsmasq"
+  write_manager_script "/jffs/scripts/services-stop" "services-stop"
   if [ -f /opt/etc/init.d/S80apache ]; then opkg install apache-utils >/dev/null 2>&1; fi
   if ! opkg list-installed | grep -q apache-utils; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
   if opkg list-installed | grep -q apache-utils && [ ! -f /opt/etc/init.d/S80apache ]; then opkg flag hold apache apache-utils >/dev/null 2>&1; fi
@@ -854,8 +854,8 @@ uninst_all () {
   mv "${TARG_DIR}/installer" "${HOME}/installer"
   rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "$ADDON_DIR" "/opt/var/log/AdGuardHome.log"
   yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-  del_jffs_script /jffs/scripts/dnsmasq.postconf
-  del_jffs_script /jffs/scripts/services-stop
+  del_jffs_script "/jffs/scripts/dnsmasq.postconf"
+  del_jffs_script "/jffs/scripts/services-stop"
   service restart_dnsmasq >/dev/null 2>&1
   end_op_message 0
 }
@@ -911,16 +911,16 @@ write_manager_script () {
   fi
   chmod 755 "$TARG" "$COMMAND"
   del_between_magic "$TARG" Asuswrt-Merlin-AdGuardHome-Installer
-  if [ "$(grep -c -F "[ -x $COMMAND ] && $COMMAND $OP" "$TARG")" -gt 0 ]; then
+  if [ "$(grep -c -F "[ -x ${COMMAND} ] && ${COMMAND} ${OP}" "$TARG")" -gt 0 ]; then
     PTXT "$INFO $FILENAME file already configured"
   else
     PTXT "$INFO Configure $FILENAME file"
-    if grep -q \"^$COMMAND\" "$TARG"; then
-      sed -i "s~^$COMMAND~[ -x $COMMAND ] \&\& $COMMAND $OP~" "$TARG"
+    if grep -q \"^${COMMAND}\" "$TARG"; then
+      sed -i "s~^${COMMAND}~[ -x ${COMMAND} ] \&\& ${COMMAND} ${OP}~" "$TARG"
     else
       del_jffs_script "$TARG" !manager
       [ "$(tail -1 "$TARG"| grep -c '^$')" -eq 0 ] && echo "" >> "$TARG"
-      echo "[ -x $COMMAND ] && $COMMAND $OP" >> "$TARG"
+      echo "[ -x ${COMMAND} ] && ${COMMAND} ${OP}" >> "$TARG"
     fi
   fi
 }
