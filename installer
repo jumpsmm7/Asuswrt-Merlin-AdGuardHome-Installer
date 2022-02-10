@@ -438,9 +438,9 @@ del_jffs_script () {
     OP=""
     OP="${2:0:1}"
     if [ "$OP" = "!" ]; then
-      LINE_NUM="$(grep -n -F "[ -x $ADDON_DIR/" "$TARG" | grep -v "$(_quote "$2")"|cut -d':' -f1)"
+      LINE_NUM="$(grep -n -F "[ -x $ADDON_DIR/" "$TARG" | grep -v "$(_quote "$2")"| cut -d':' -f1)"
     else
-      LINE_NUM="$(grep -n -F "[ -x $ADDON_DIR/" "$TARG" | grep "$(_quote "$2")"|cut -d':' -f1)"
+      LINE_NUM="$(grep -n -F "[ -x $ADDON_DIR/" "$TARG" | grep "$(_quote "$2")"| cut -d':' -f1)"
     fi
   else
     LINE_NUM="$(grep -n -F "[ -x $ADDON_DIR/" "$TARG" | cut -d':' -f1)"
