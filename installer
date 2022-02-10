@@ -464,7 +464,7 @@ download_file () {
   TARG=""
   TARG="$1"; shift
   PERM=""
-  PERM="$1"; shift 
+  PERM="$1"; shift
   URL=""
   FILENAME=""
   MD5SUM_OLD=""
