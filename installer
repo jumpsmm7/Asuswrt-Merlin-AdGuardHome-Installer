@@ -214,6 +214,7 @@ check_dns_environment () {
       "$ERROR Exiting..."
     exit 1
   fi
+  DNSPRIV=""
   DNSPRIV="$(nvram get dnspriv_enable)"
   if [ "$DNSPRIV" -ne 0 ]; then
     PTXT "$INFO Setting up Correct DNS Environment."
@@ -232,6 +233,7 @@ check_dns_environment () {
 }
 
 check_dns_filter () {
+  DNSFIL=""
   DNSFIL="$(nvram get dnsfilter_enable_x)"
   USE_SOME=""
   if [ "$1" -eq 0 ] && [ "$DNSFIL" -ne 0 ]; then
@@ -408,6 +410,8 @@ create_dir () {
 }
 
 del_between_magic () {
+  TARG=""
+  MAGIC=""
   TARG="$1"
   MAGIC="$2"
   [ -f "$TARG" ] || return
@@ -841,13 +845,15 @@ uninst_all () {
 }
 
 write_conf () {
+  VAR=""
+  VALUE=""
   VAR="$1"
   VALUE="$2"
   if [ ! -f "$CONF_FILE" ]; then
     touch "$CONF_FILE" && chmod 644 "$CONF_FILE"
   fi
   if grep -q "$VAR" "$CONF_FILE"; then
-    VALUE=$(_quote "$VALUE")
+    VALUE="$(_quote "$VALUE")"
     sed -i "/^$VAR=/s/=.*/=$VALUE/" "$CONF_FILE"
   else
     echo "$VAR=$VALUE" >> "$CONF_FILE"
@@ -855,6 +861,8 @@ write_conf () {
 }
 
 write_command_script () {
+  TARG=""
+  COMMAND=""
   TARG="$1"
   COMMAND="$2"
   FILENAME="$(basename "$TARG")"
