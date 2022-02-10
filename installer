@@ -286,6 +286,9 @@ check_jffs_enabled () {
       "$ERROR Exiting..."
     exit 1
   fi
+  JFFS2_SCRIPTS=""
+  JFFS2_ENABLED=""
+  jffs2_on=""
   JFFS2_SCRIPTS="$(nvram get jffs2_scripts)"
   [ -z "$(nvram get jffs2_enable)" ] && JFFS2_ENABLED="$(nvram get jffs2_on)" || JFFS2_ENABLED="$(nvram get jffs2_enable)"
   [ -z "$(nvram get jffs2_enable)" ] && jffs2_on="jffs2_on" || jffs2_on="jffs2_enable"
@@ -411,10 +414,11 @@ create_dir () {
 
 del_between_magic () {
   TARG=""
-  MAGIC=""
   TARG="$1"
+  MAGIC=""
   MAGIC="$2"
   [ -f "$TARG" ] || return
+  BOUNDS=""
   BOUNDS="$(awk -v PATT="$MAGIC" '($0 ~ PATT) {printf NR","}' "$TARG")"
   if [ "$BOUNDS" ]; then
     sed -i "${BOUNDS%,}d" "$TARG"
@@ -423,6 +427,7 @@ del_between_magic () {
 
 del_conf () {
   [ ! -f "$CONF_FILE" ] && return
+  KEY=""
   for KEY in "$@"; do
     sed -i "/^$KEY=.*$/d" $CONF_FILE
   done
@@ -456,8 +461,10 @@ del_jffs_script () {
 }
 
 download_file () {
+  TARG=""
   TARG="$1"; shift
-  PERM="$1"; shift
+  PERM=""
+  PERM="$1"; shift 
   URL=""
   FILENAME=""
   MD5SUM_OLD=""
@@ -469,6 +476,7 @@ download_file () {
     if [ "$(PTXT -n "$MD5SUM_CURR" | wc -c)" -eq 32 ] && [ "$MD5SUM_CURR" = "$MD5SUM_OLD" ]; then
       PTXT "$INFO $FILENAME is up to date. Skipping..."
     else
+      COUNT=""
       COUNT="0"
       while [ "$COUNT" -lt 3 ]; do
         PTXT "$INFO Downloading $FILENAME"
@@ -501,6 +509,7 @@ end_op_header () {
 }
 
 inst_AdGuardHome () {
+  ADGUARD_TAR=""
   ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
   if [ -z "$1" ]; then
     if [ ! -d "$TARG_DIR" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
@@ -516,6 +525,8 @@ inst_AdGuardHome () {
     elif [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
       read_yesno "Do you want create a backup before updating?" && backup_restore BACKUP 0 || PTXT "$INFO continuing without making a backup."
     fi
+    NW_STATR=""
+    RES_STATE=""
     NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"
     RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"
     if { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; } || [ -z "$REMOTE_VER" ]; then
@@ -539,6 +550,7 @@ inst_AdGuardHome () {
   fi
   [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
   choose_branch
+  ADGUARD_BRANCH=""
   ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
   if [ -f "$AGH_FILE" ]; then
     [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ] && exit 1
@@ -725,6 +737,9 @@ read_yesno () {
 }
 
 set_timezone () {
+  TZ_ZONE=""
+  TZ_DATA=""
+  INDEX=""
   TZ_ZONE="/opt/share/zoneinfo"
   TZ_DATA="${TZ_ZONE}/zone.tab"
   opkg install "$(opkg list zoneinfo* | printf "%s\n" "$(awk '{printf $1" "}')")" >/dev/null 2>&1
@@ -733,6 +748,7 @@ set_timezone () {
   PTXT "$INFO Available timezones/locations:"
   printf "%s\n" "$(ls -laH ${TZ_ZONE} | grep -v '^d' | sed '/zone.tab/d' | awk '{print $9}';awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}'; ls -laH -d ${TZ_ZONE}/*/* | grep -v '^d' | awk '{print $9}' | sed -e "s!${TZ_ZONE}/!!")" | sort -u | awk -v INDEX=0 -F'/' '!/\/$/ {++INDEX;printf "  " INDEX") ";for (i=5; i<NF; i++)  printf $i "/"; print $0}' | column
   read_input_num "Select your timezone/location" 1 "$INDEX"
+  TZ_FILE=""
   TZ_FILE="${TZ_ZONE}/$(printf "%s\n" "$(ls -laH ${TZ_ZONE} | grep -v '^d' | sed '/zone.tab/d' | awk '{print $9}';awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}'; ls -laH -d ${TZ_ZONE}/*/* | grep -v '^d' | awk '{print $9}' | sed -e "s!${TZ_ZONE}/!!")" | sort -u | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
   PTXT "$INFO $(basename "$TZ_FILE") selected"
   cp -a "${TZ_FILE}" "${TARG_DIR}/localtime"
@@ -846,8 +862,8 @@ uninst_all () {
 
 write_conf () {
   VAR=""
-  VALUE=""
   VAR="$1"
+  VALUE=""
   VALUE="$2"
   if [ ! -f "$CONF_FILE" ]; then
     touch "$CONF_FILE" && chmod 644 "$CONF_FILE"
@@ -862,9 +878,10 @@ write_conf () {
 
 write_command_script () {
   TARG=""
-  COMMAND=""
   TARG="$1"
+  COMMAND=""
   COMMAND="$2"
+  FILENAME=""
   FILENAME="$(basename "$TARG")"
   if [ ! -f "$TARG" ]; then
     PTXT "$INFO Creating $FILENAME file"
