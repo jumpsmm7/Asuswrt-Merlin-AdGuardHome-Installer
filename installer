@@ -16,16 +16,18 @@
 # |_   _|            | |        | || |                Author:                              #
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        #
-#  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder         #
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.2.0                               #
+#  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder,        #
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|             Jack-Yaz                       #
+#                                                     v1.3.0                               #
 #                                                                                          #
 ############################################################################################
 
-AI_VERSION="v1.2.0"
+AI_VERSION="v1.3.0"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
 readonly REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
 
+readonly ADDON_DIR="/jffs/addons/AdGuardHome.d"
 readonly BASE_DIR="/opt/etc"
 readonly TARG_DIR="${BASE_DIR}/AdGuardHome"
 readonly AGH_FILE="${TARG_DIR}/AdGuardHome"
@@ -114,22 +116,23 @@ backup_restore () {
   fi
   if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$INFO Please wait a moment."
-    [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
     tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "$BASE_DIR" >/dev/null 2>&1
     chown "$(nvram get http_username)":root "${TARG_DIR}/*"
     chmod 755 "$AGH_FILE"
     chmod 644 "$YAML_FILE"
     [ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
     ln -sf $AGH_FILE /opt/sbin/AdGuardHome
-    create_dir /jffs/addons/AdGuardHome.d
-    chmod 755 /jffs/addons/AdGuardHome.d/AdGuardHome.sh
+    create_dir "$ADDON_DIR"
+    download_file "$ADDON_DIR" 755 "${RURL}/AdGuardHome.sh"
+    download_file /opt/etc/init.d 755 "${RURL}/S99AdGuardHome"
     [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-    write_command_script /jffs/scripts/dnsmasq.postconf '[ -d "/jffs/addons/AdGuardHome.d/" ] && for file in $(ls /jffs/addons/AdGuardHome.d/*.sh); do . $file; done #Asuswrt-Merlin AdGuardHome Installer'
+    write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
+    write_manager_script /jffs/scripts/services-stop services-stop
     if [ -f /opt/etc/init.d/S80apache ]; then opkg install apache-utils >/dev/null 2>&1; fi
     if ! opkg list-installed | grep -q apache-utils; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
     if opkg list-installed | grep -q apache-utils && [ ! -f /opt/etc/init.d/S80apache ]; then opkg flag hold apache apache-utils >/dev/null 2>&1; fi
     if ! opkg list-installed | grep -q apache-utils; then
-      case "$(/bin/uname -m)" in
+      case "$(/bin/uname -m)" in 
       "aarch64"|"arm64")
         opkg install go >/dev/null 2>&1
         ;;
@@ -152,7 +155,7 @@ backup_restore () {
       end_op_message 1
       return
     fi
-    [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
+    [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
     [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome" "$ERROR Please send WebUI System Log to dev"; end_op_message 1; return; fi
     sleep 1
     if [ -z "$(pidof AdGuardHome)" ]; then
@@ -296,21 +299,21 @@ check_version () {
     RES_STATE=""
     NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"
     RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"
-    LINSTALL="v$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
-    RMNSTALL="v$(curl -sL "$RURL" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
+    LINSTALL="$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
+    RMNSTALL="$(curl -sL "${RURL}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
     MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)"
-    MD5SUM_R="$(curl -fsL "$RURL" | md5sum | awk '{print $1}')"
-    if { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" = "0" ]; } || { [ -n "$RMNSTALL" ] && [ "$REMOTE_VER" ]; }; then
+    MD5SUM_R="$(curl -fsL "${RURL}/installer" | md5sum | awk '{print $1}')"
+    if { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" = "0" ]; } || { [ -n "$LINSTALL" ] && [ -n "$RMNSTALL" ]; }; then
       [ -z "$LINSTALL" ] && exit 1
       [ -z "$RMNSTALL" ] && exit 1
       if [ "$RMNSTALL" != "$LINSTALL" ]; then
-        PTXT "$INFO New AI_VERSION=${RMNSTALL} Available!" \
+        PTXT "$INFO New AI_VERSION=v${RMNSTALL} Available!" \
           "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
 	AUTO_UPDATE="update"
       elif [ "$MD5SUM_R" = "$MD5SUM_L" ]; then
-        PTXT "$INFO AI_VERSION=$LINSTALL"
+        PTXT "$INFO AI_VERSION=v${LINSTALL}"
       else
-        PTXT "$INFO AI_VERSION=${LINSTALL}, but a New Minor Update is Available!" \
+        PTXT "$INFO AI_VERSION=v${LINSTALL}, but a New Minor Update is Available!" \
           "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
 	AUTO_UPDATE="update"
       fi
@@ -384,7 +387,7 @@ choose_branch () {
 }
 
 cleanup () {
-  "/opt/etc/init.d/S61AdGuardHome" "stop" >/dev/null 2>&1; mv "/opt/etc/init.d/S61AdGuardHome" "/opt/etc/init.d/S99AdGuardHome" >/dev/null 2>&1; "/opt/etc/init.d/S99AdGuardHome" "start" >/dev/null 2>&1
+  "/opt/etc/init.d/S61AdGuardHome" "stop" >/dev/null 2>&1; mv "/opt/etc/init.d/S61AdGuardHome" "/opt/etc/init.d/S99AdGuardHome" >/dev/null 2>&1; "/opt/etc/init.d/S99AdGuardHome" "start" >/dev/null 2>&1; [ "$(cru l | grep -c "S99AdGuardHome")" -gt 0 ] && cru -d "S99AdGuardHome"
 }
 
 create_dir () {
@@ -410,6 +413,33 @@ del_conf () {
   for KEY in "$@"; do
     sed -i "/^$KEY=.*$/d" $CONF_FILE
   done
+}
+
+del_jffs_script () {
+  local TARG
+  TARG="$1"
+  local LINE_NUM
+  local LINE_ABOVE
+  [ -f "$TARG" ] || return
+  if [ "$2" ]; then
+    local OP
+    OP="${2:0:1}"
+    if [ "$OP" = "!" ]; then
+      LINE_NUM="$(grep -n -F "[ -x $ADDON_DIR/" "$TARG"|grep -v "$(_quote "$2")"|cut -d':' -f1)"
+    else
+      LINE_NUM="$(grep -n -F "[ -x $ADDON_DIR/" "$TARG"|grep "$(_quote "$2")"|cut -d':' -f1)"
+    fi
+  else
+    LINE_NUM="$(grep -n -F "[ -x $ADDON_DIR/" "$TARG"|cut -d':' -f1)"
+  fi
+  [ -z "$LINE_NUM" ] && return
+  sed -i "${LINE_NUM}d" "$TARG"
+  if [ "$LINE_NUM" -gt 1 ]; then
+    LINE_NUM="$((LINE_NUM-1))"
+    LINE_ABOVE="$(sed "${LINE_NUM}q;d" "$TARG")"
+    [ -z "$LINE_ABOVE" ] && sed -i "${LINE_NUM}d" "$TARG"
+  fi
+  [ "$(awk '{ print }' "$TARG")" = "#!/bin/sh" ] && rm -f "$TARG"
 }
 
 download_file () {
@@ -485,15 +515,16 @@ inst_AdGuardHome () {
       end_op_message 1
       return
     fi
-    download_file "$TARG_DIR" 755 "$RURL"
+    download_file "$TARG_DIR" 755 "${RURL}/installer"
     if [ "$?" -ne 0 ] || ! awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -qoE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})'; then
+
       PTXT "$ERROR Failed to download installer."
       end_op_message 1
       return
     fi
     if [ "$AUTO_UPDATE" = "update" ]; then exec "${TARG_DIR}/installer" "$BRANCH" "$AUTO_UPDATE" && exit; fi
   fi
-  [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
+  [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
   choose_branch
   ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
   if [ -f "$AGH_FILE" ]; then
@@ -566,9 +597,12 @@ inst_AdGuardHome () {
       return
     fi
   fi
-  create_dir /jffs/addons/AdGuardHome.d
+  create_dir "$ADDON_DIR"
+  download_file "$ADDON_DIR" 755 "${RURL}/AdGuardHome.sh"
+  download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome"
   [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-  write_command_script /jffs/scripts/dnsmasq.postconf '[ -d "/jffs/addons/AdGuardHome.d/" ] && for file in $(ls /jffs/addons/AdGuardHome.d/*.sh); do . $file; done #Asuswrt-Merlin AdGuardHome Installer'
+  write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
+  write_manager_script /jffs/scripts/services-stop services-stop
   if [ -f /opt/etc/init.d/S80apache ]; then opkg install apache-utils >/dev/null 2>&1; fi
   if ! opkg list-installed | grep -q apache-utils; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
   if opkg list-installed | grep -q apache-utils && [ ! -f /opt/etc/init.d/S80apache ]; then opkg flag hold apache apache-utils >/dev/null 2>&1; fi
@@ -596,7 +630,7 @@ inst_AdGuardHome () {
     end_op_message 1
     return
   fi
-  [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
+  [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
   [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome" "$ERROR Please send WebUI System Log to dev"; end_op_message 1; return; fi
   sleep 1
   if [ -z "$(pidof AdGuardHome)" ]; then
@@ -746,7 +780,7 @@ setup_AdGuardHome_impl () {
           "  local_ptr_upstreams:" \
 	  "  - '[/10.in-addr.arpa/]$(nvram get lan_ipaddr):553'" \
           "  - '[/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/]$(nvram get lan_ipaddr):553'" >> "$YAML_ORI"
-     [ "$(nvram get ipv6_fw_enable)" = "1" ] && PTXT "  - '[/0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" >> "$YAML_ORI"
+     [ -n "$(nvram get ipv6_rtr_addr)" ] && PTXT "  - '[/0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" >> "$YAML_ORI"
      PTXT "$INFO Writing AdGuardHome configuration..."
      check_AdGuardHome_yaml $YAML_ORI
      if [ "$?" -ne 0 ]; then
@@ -786,11 +820,13 @@ uninst_all () {
     PTXT "$INFO Old Backup Detected!"
     read_yesno "Do you want to remove backup?(this will prevent resorting later)" && rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz" || PTXT "$INFO Keeping backup instead."
   fi
-  [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
+  [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
   [ "$(awk -F'=' '/ADGUARD_DOMAIN/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "yes" ] && nvram set lan_domain="" && nvram commit
   mv "${TARG_DIR}/installer" "${HOME}/installer"
-  rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "/jffs/addons/AdGuardHome.d" "/opt/var/log/AdGuardHome.log"
+  rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "$ADDON_DIR" "/opt/var/log/AdGuardHome.log"
   yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
+  del_jffs_script /jffs/scripts/dnsmasq.postconf
+  del_jffs_script /jffs/scripts/services-stop
   service restart_dnsmasq >/dev/null 2>&1
   end_op_message 0
 }
@@ -826,9 +862,38 @@ write_command_script () {
   fi
 }
 
+write_manager_script () {
+  local TARG
+  TARG="$1"
+  local OP
+  OP="$2"
+  local FILENAME
+  FILENAME="$(basename "$TARG")"
+  local COMMAND
+  COMMAND="${ADDON_DIR}/AdGuardHome.sh"
+  if [ ! -f "$TARG" ]; then
+    PTXT "$INFO Creating $FILENAME file"
+    echo "#!/bin/sh" > "$TARG"
+  fi
+  chmod 755 "$TARG" "$COMMAND"
+  del_between_magic "$TARG" Asuswrt-Merlin-AdGuardHome-Installer
+  if [ "$(grep -c -F "[ -x $COMMAND ] && $COMMAND $OP" "$TARG")" -gt 0 ]; then
+    PTXT "$INFO $FILENAME file already configured"
+  else
+    PTXT "$INFO Configure $FILENAME file"
+    if [ "$(grep \"^$COMMAND\" "$TARG")" ]; then
+      sed -i "s~^$COMMAND~[ -x $COMMAND ] \&\& $COMMAND $OP~" "$TARG"
+    else
+      del_jffs_script "$TARG" !manager
+      [ "$(tail -1 "$TARG"|grep -c '^$')" -eq 0 ] && echo "" >> "$TARG"
+      echo "[ -x $COMMAND ] && $COMMAND $OP" >> "$TARG"
+    fi
+  fi
+}
+
 [ "$1" ] && BRANCH="$1" || BRANCH="master"
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
-RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}/installer"
+RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}"
 ROUTER_OS="$(/bin/uname)"
 ROUTER_ARCH="$(/bin/uname -m)"
 NAT_ENV="$(nvram get wan_ipaddr | grep -E '^(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)')"
