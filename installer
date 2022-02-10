@@ -413,12 +413,9 @@ create_dir () {
 }
 
 del_between_magic () {
-  TARG=""
   TARG="$1"
-  MAGIC=""
   MAGIC="$2"
   [ -f "$TARG" ] || return
-  BOUNDS=""
   BOUNDS="$(awk -v PATT="$MAGIC" '($0 ~ PATT) {printf NR","}' "$TARG")"
   if [ "$BOUNDS" ]; then
     sed -i "${BOUNDS%,}d" "$TARG"
@@ -427,20 +424,15 @@ del_between_magic () {
 
 del_conf () {
   [ ! -f "$CONF_FILE" ] && return
-  KEY=""
   for KEY in "$@"; do
     sed -i "/^$KEY=.*$/d" $CONF_FILE
   done
 }
 
 del_jffs_script () {
-  TARG=""
   TARG="$1"
-  LINE_NUM=""
-  LINE_ABOVE=""
   [ -f "$TARG" ] || return
   if [ "$2" ]; then
-    OP=""
     OP="${2:0:1}"
     if [ "$OP" = "!" ]; then
       LINE_NUM="$(grep -n -F "[ -x $ADDON_DIR/" "$TARG" | grep -v "$(_quote "$2")" | cut -d':' -f1)"
@@ -861,9 +853,7 @@ uninst_all () {
 }
 
 write_conf () {
-  VAR=""
   VAR="$1"
-  VALUE=""
   VALUE="$2"
   if [ ! -f "$CONF_FILE" ]; then
     touch "$CONF_FILE" && chmod 644 "$CONF_FILE"
@@ -877,11 +867,8 @@ write_conf () {
 }
 
 write_command_script () {
-  TARG=""
   TARG="$1"
-  COMMAND=""
   COMMAND="$2"
-  FILENAME=""
   FILENAME="$(basename "$TARG")"
   if [ ! -f "$TARG" ]; then
     PTXT "$INFO Creating $FILENAME file"
@@ -897,13 +884,9 @@ write_command_script () {
 }
 
 write_manager_script () {
-  TARG=""
   TARG="$1"
-  OP=""
   OP="$2"
-  FILENAME=""
   FILENAME="$(basename "$TARG")"
-  COMMAND=""
   COMMAND="${ADDON_DIR}/AdGuardHome.sh"
   if [ ! -f "$TARG" ]; then
     PTXT "$INFO Creating $FILENAME file"
