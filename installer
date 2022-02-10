@@ -425,13 +425,13 @@ del_conf () {
 }
 
 del_jffs_script () {
-  local TARG
+  TARG=""
   TARG="$1"
-  local LINE_NUM
-  local LINE_ABOVE
+  LINE_NUM=""
+  LINE_ABOVE=""
   [ -f "$TARG" ] || return
   if [ "$2" ]; then
-    local OP
+    OP=""
     OP="${2:0:1}"
     if [ "$OP" = "!" ]; then
       LINE_NUM="$(grep -n -F "[ -x $ADDON_DIR/" "$TARG"|grep -v "$(_quote "$2")"|cut -d':' -f1)"
@@ -872,13 +872,13 @@ write_command_script () {
 }
 
 write_manager_script () {
-  local TARG
+  TARG=""
   TARG="$1"
-  local OP
+  OP=""
   OP="$2"
-  local FILENAME
+  FILENAME=""
   FILENAME="$(basename "$TARG")"
-  local COMMAND
+  COMMAND=""
   COMMAND="${ADDON_DIR}/AdGuardHome.sh"
   if [ ! -f "$TARG" ]; then
     PTXT "$INFO Creating $FILENAME file"
@@ -890,7 +890,7 @@ write_manager_script () {
     PTXT "$INFO $FILENAME file already configured"
   else
     PTXT "$INFO Configure $FILENAME file"
-    if [ "$(grep \"^$COMMAND\" "$TARG")" ]; then
+    if grep -q \"^$COMMAND\" "$TARG"; then
       sed -i "s~^$COMMAND~[ -x $COMMAND ] \&\& $COMMAND $OP~" "$TARG"
     else
       del_jffs_script "$TARG" !manager
@@ -1011,4 +1011,3 @@ menu () {
 }
 
 menu
-
