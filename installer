@@ -22,11 +22,11 @@
 ############################################################################################
 
 AI_VERSION="v1.2.1"
+
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
 readonly REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
 
-readonly ADDON_DIR="/jffs/addons/AdGuardHome.d"
 readonly BASE_DIR="/opt/etc"
 readonly TARG_DIR="${BASE_DIR}/AdGuardHome"
 readonly AGH_FILE="${TARG_DIR}/AdGuardHome"
@@ -64,9 +64,9 @@ PTXT() {
 }
 
 AdGuardHome_authen () {
-  local USERNAME
-  local PW1
-  local PW2
+  USERNAME=""
+  PW1=""
+  PW2=""
   if [ "$1" -eq 0 ]; then
     return
   fi
@@ -82,9 +82,9 @@ AdGuardHome_authen () {
     PTXT "$ERROR Password entered incorrectly!"
     AdGuardHome_authen 1
   fi
-  local PW1_ENCRYPTED
-  [ -n "$(opkg list-installed | grep apache-utils )" ] && PW1_ENCRYPTED="$(/opt/bin/htpasswd -B -n -b ${USERNAME} ${PW1} | sed 's/.*://')"
-  [ -z "$(opkg list-installed | grep apache-utils )" ] && PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"
+  PW1_ENCRYPTED=""
+  opkg list-installed | grep -q apache-utils && PW1_ENCRYPTED="$(/opt/bin/htpasswd -B -n -b "${USERNAME}" "${PW1}" | sed 's/.*://')"
+  opkg list-installed | grep -q apache-utils || PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"
   PTXT "users:" \
     "- name: ${USERNAME}" \
     "  password: ${PW1_ENCRYPTED}" >> $YAML_ORI
@@ -96,7 +96,7 @@ backup_restore () {
       "$INFO Please wait a moment."
     if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
       PTXT "$INFO There is an old backup detected."
-      local USE_OLD
+      USE_OLD=""
       read_yesno "Do you want to continue?(this will remove the old backup)" && USE_OLD="NO" || USE_OLD="YES"
       if [ "$USE_OLD" = "YES" ]; then
         PTXT "$INFO Leaving Old Backup."
@@ -115,31 +115,133 @@ backup_restore () {
   fi
   if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$INFO Please wait a moment."
+    [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
     tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "$BASE_DIR" >/dev/null 2>&1
     chown "$(nvram get http_username)":root "${TARG_DIR}/*"
     chmod 755 "$AGH_FILE"
     chmod 644 "$YAML_FILE"
     [ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
     ln -sf $AGH_FILE /opt/sbin/AdGuardHome
-    create_dir "$ADDON_DIR"
-    download_file "$ADDON_DIR" 755 "${RURL}/AdGuardHome.sh"
-    download_file /opt/etc/init.d 755 "${RURL}/S99AdGuardHome"
+    create_dir /jffs/addons/AdGuardHome.d
+    PTXT '#!/bin/sh' \
+         'if [ "$(pidof AdGuardHome)" ] && [ "$(nvram get ipv6_fw_enable)" != "1" ]; then printf "%s\n" "port=553" "local=/$(nvram get lan_ipaddr | ''awk'' '\''BEGIN''{FS=''"."'}{'print'' ''$2''"."''$1''".in-addr.arpa"'}\'')/" "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
+         'if [ "$(pidof AdGuardHome)" ] && [ "$(nvram get ipv6_fw_enable)" = "1" ]; then printf "%s\n" "port=553" "local=/$(nvram get lan_ipaddr | ''awk'' '\''BEGIN''{FS=''"."'}{'print'' ''$2''"."''$1''".in-addr.arpa"'}\'')/" "local=/10.in-addr.arpa/" "local=/$(nvram get ipv6_prefix | sed "s/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/")/" "dhcp-option=lan,6,0.0.0.0" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
+         'if [ -n "$(route | grep "br" | grep -v "br0" | grep -E "^(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | ''awk'' '\''{print $1}'\'' | sed -e '\''s/[0-9]$/1/'\'' | sed -e '\'':a; N; $!ba;s/\n/ /g'\'')" ] ; then #Asuswrt-Merlin AdGuardHome Installer' \
+         '  iCOUNT="1" #Asuswrt-Merlin AdGuardHome Installer' \
+         '  for iVARS in $(route | grep "br" | grep -v "br0" | grep -E "(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | ''awk'' '\''{print $8}'\'' | sed -e '\'':a; N; $!ba;s/\n/ /g'\''); do #Asuswrt-Merlin AdGuardHome Installer' \
+         '    [ "$iCOUNT" = "1" ] && COUNT="$iCOUNT" && IVARS="$iVARS" #Asuswrt-Merlin AdGuardHome Installer' \
+         '    [ "$iCOUNT" != "1" ] && COUNT="$COUNT $iCOUNT" && IVARS="$IVARS $iVARS" #Asuswrt-Merlin AdGuardHome Installer' \
+         '    iCOUNT="$((iCOUNT+1))" #Asuswrt-Merlin AdGuardHome Installer' \
+         '  done #Asuswrt-Merlin AdGuardHome Installer' \
+         '  dCOUNT="1" #Asuswrt-Merlin AdGuardHome Installer' \
+         '  for dVARS in $(route | grep "br" | grep -v "br0" | grep -E "192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | ''awk'' '\''{print $1}'\'' | sed -e '\''s/[0-9]$/1/'\'' | sed -e '\'':a; N; $!ba;s/\n/ /g'\''); do #Asuswrt-Merlin AdGuardHome Installer' \
+         '    [ "$dCOUNT" = "1" ] && DVARS="$dVARS" #Asuswrt-Merlin AdGuardHome Installer' \
+         '    [ "$dCOUNT" != "1" ] && DVARS="$DVARS $dVARS" #Asuswrt-Merlin AdGuardHome Installer' \
+         '    dCOUNT="$((dCOUNT+1))" #Asuswrt-Merlin AdGuardHome Installer' \
+         '  done #Asuswrt-Merlin AdGuardHome Installer' \
+         '  for i in $COUNT; do #Asuswrt-Merlin AdGuardHome Installer' \
+         '    NIVARS="$(printf "%s\n" "$IVARS" | ''cut'' ''-d'''\'' '\'' ''-f''''$i'')" #Asuswrt-Merlin AdGuardHome Installer' \
+         '    NDVARS="$(printf "%s\n" "$DVARS" | ''cut'' ''-d'''\'' '\'' ''-f''''$i'')" #Asuswrt-Merlin AdGuardHome Installer' \
+         '    if [ "$(pidof AdGuardHome)" ]; then printf "%s\n" "dhcp-option=$NIVARS,6,$NDVARS" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
+         '  done #Asuswrt-Merlin AdGuardHome Installer' \
+         'fi #Asuswrt-Merlin AdGuardHome Installer' > /jffs/addons/AdGuardHome.d/AdGuardHome.sh
+    chmod 755 /jffs/addons/AdGuardHome.d/AdGuardHome.sh
     [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-    write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
-    write_manager_script /jffs/scripts/services-stop services-stop
-    if [ -f "/opt/etc/init.d/S80apache" ]; then opkg install apache-utils >/dev/null 2>&1; fi
-    if [ -z "$(opkg list-installed | grep apache-utils )" ]; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
-    if [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ]; then opkg flag hold apache apache-utils >/dev/null 2>&1; fi
-    if [ -z "$(opkg list-installed | grep apache-utils )" ]; then
-      case "$(/bin/uname -m)" in 
+    write_command_script /jffs/scripts/dnsmasq.postconf '[ -d "/jffs/addons/AdGuardHome.d/" ] && for file in $(ls /jffs/addons/AdGuardHome.d/*.sh); do . $file; done #Asuswrt-Merlin AdGuardHome Installer'
+    PTXT '#!/bin/sh' \
+         'ENABLED="yes"' \
+         'WORK_DIR="/opt/etc/AdGuardHome"' \
+         'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
+         'PROCS="AdGuardHome"' \
+         'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "syslog""' \
+         'PREARGS="nohup env TZ=/etc/localtime"' \
+         'PRECMD="killall -9 dnsmasq"' \
+         'POSTCMD="service restart_dnsmasq"' \
+         'DESC="$PROCS"' \
+         'PATH="/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"' \
+         'export TZ="$(cat /etc/TZ)"' \
+         'SCRIPT_NAME="$(basename $0)"' \
+         'SCRIPT_LOC="/opt/etc/init.d/${SCRIPT_NAME}"' \
+         'NAME="${SCRIPT_NAME}[$$]"' \
+         'YEAR="$(/bin/date +"%Y")"' \
+         'NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
+         'RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
+         'HOST_STATE="$(host www.google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
+         'CURL_STATE="$(curl -Is  http://www.google.com | head -n 1 >/dev/null 2>&1; echo $?)"' \
+         'SPIDER_STATE="$(wget -q --spider http://google.com >/dev/null 2>&1; echo $?)"' \
+         'INTERVAL="5"' \
+         'MAXCOUNT="15"' \
+         'case "$1" in' \
+         '  "check")' \
+         '   i="0" ' \
+         '   if [ "$2" = "watch" ]; then' \
+         '     while [ -z "$(pidof AdGuardHome)" -o -f "$PID_FILE" ]; do' \
+         '       if [ -z "$(pidof AdGuardHome)" ]; then' \
+         '         logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
+         '         if "$SCRIPT_LOC" start; then break; else continue; fi' \
+         '       elif [ "$NW_STATE" -eq 0 -a "$RES_STATE" -ne 0 ]; then' \
+         '         logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
+         '         if "$SCRIPT_LOC" restart; then break; else continue; fi' \
+         '       elif [ "$i" -eq "5" ]; then '\
+         '         break ' \
+         '       else' \
+         '         i="$((i+1))"' \
+         '         continue' \
+         '       fi' \
+         '     done' \
+         '   fi' \
+         '   ;;' \
+         '  "start"|"restart")' \
+         '   if [ ! -f "/etc/localtime" -a "${WORK_DIR}/localtime" ]; then ln -sf "${WORK_DIR}/localtime" "/etc/localtime" >/dev/null 2>&1; fi' \
+         '   if [ ! -f "/tmp/stats.db" ]; then ln -sf "${WORK_DIR}/data/stats.db" "/tmp/stats.db" >/dev/null 2>&1; fi' \
+         '   if [ ! -f "/tmp/sessions.db" ]; then ln -sf "${WORK_DIR}/data/sessions.db" "/tmp/sessions.db" >/dev/null 2>&1; fi' \
+         '   if [ -z "$(pidof AdGuardHome)" ]; then' \
+         '     i="1"' \
+         '     while [ "$i" -le "$MAXCOUNT" ]; do' \
+         '       if [ "$YEAR" -gt 1970 ]; then ALIVE="0"; else ALIVE="1"; fi' \
+         '       if [ "$NW_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
+         '       if [ "$RES_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
+         '       if [ "$HOST_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
+         '       if [ "$CURL_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
+         '       if [ "$SPIDER_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
+         '       if [ "$ALIVE" -le 1 ]; then break; else service restart_dnsmasq >/dev/null 2>&1; sleep $INTERVAL; fi' \
+         '       logger -st "$NAME" "Waiting for the internet (attempt ${i}/${MAXCOUNT})"' \
+         '       if [ "$i" -le "$MAXCOUNT" ]; then sleep "$((INTERVAL+MAXCOUNT))"; i="$((i+1))"; fi' \
+         '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st "$NAME" "Internet remains inactive; continuing anyway."; break; fi' \
+         '     done' \
+         '   fi' \
+         '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
+         '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
+         '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
+         '     cru a "$SCRIPT_NAME" "*/15 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check watch; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
+         '   fi' \
+         '   ;;' \
+         '  "stop"|"kill")' \
+         '   if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi' \
+         '   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi' \
+         '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
+         '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
+         '     logger -st "$NAME" "AdGuardHome has been stopped. Removing all checks."' \
+         '     cru d "$SCRIPT_NAME"' \
+         '   fi' \
+         '   ;;' \
+         'esac' \
+         '. /opt/etc/init.d/rc.func' \
+         'if [ -z "$(pidof AdGuardHome)" ] && [ "$1" = "stop" -o "$1" = "kill" ]; then service restart_dnsmasq >/dev/null 2>&1; exit; fi' > /opt/etc/init.d/S99AdGuardHome
+    chmod 755 /opt/etc/init.d/S99AdGuardHome
+    if [ -f /opt/etc/init.d/S80apache ]; then opkg install apache-utils >/dev/null 2>&1; fi
+    if ! opkg list-installed | grep -q apache-utils; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
+    if opkg list-installed | grep -q apache-utils && [ ! -f /opt/etc/init.d/S80apache ]; then opkg flag hold apache apache-utils >/dev/null 2>&1; fi
+    if ! opkg list-installed | grep -q apache-utils; then
+      case "$(/bin/uname -m)" in
       "aarch64"|"arm64")
         opkg install go >/dev/null 2>&1
         ;;
       "armv7l")
-        if [ -z "$(opkg list | grep -w 'go_nohf')" ]; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
+        if ! opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
         ;;
       *)
-        if [ -z "$(opkg list | grep -w 'go_nohf')" ]; then opkg install go >/dev/null 2>&1; fi
+        if ! opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; fi
         ;;
       esac
       export PATH="$PATH":/opt/bin/go/bin
@@ -154,7 +256,7 @@ backup_restore () {
       end_op_message 1
       return
     fi
-    [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
+    [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
     [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome" "$ERROR Please send WebUI System Log to dev"; end_op_message 1; return; fi
     sleep 1
     if [ -z "$(pidof AdGuardHome)" ]; then
@@ -194,7 +296,7 @@ check_AdGuardHome_yaml () {
   else
     cp -a "$1" "$YAML_BAK"
     mv "$YAML_BAK" "$YAML_FILE"
-  fi   
+  fi
 }
 
 check_dns_environment () {
@@ -203,8 +305,7 @@ check_dns_environment () {
       "$ERROR Please remove before attempting to continue." \
       "$ERROR Exiting..."
     exit 1
-  fi    
-  local DNSPRIV
+  fi
   DNSPRIV="$(nvram get dnspriv_enable)"
   if [ "$DNSPRIV" -ne 0 ]; then
     PTXT "$INFO Setting up Correct DNS Environment."
@@ -223,9 +324,8 @@ check_dns_environment () {
 }
 
 check_dns_filter () {
-  local DNSFIL
   DNSFIL="$(nvram get dnsfilter_enable_x)"
-  local USE_SOME
+  USE_SOME=""
   if [ "$1" -eq 0 ] && [ "$DNSFIL" -ne 0 ]; then
     nvram set dnsfilter_enable_x="0"
     nvram commit
@@ -276,9 +376,6 @@ check_jffs_enabled () {
       "$ERROR Exiting..."
     exit 1
   fi
-  local JFFS2_SCRIPTS
-  local JFFS2_ENABLED
-  local jffs2_on
   JFFS2_SCRIPTS="$(nvram get jffs2_scripts)"
   [ -z "$(nvram get jffs2_enable)" ] && JFFS2_ENABLED="$(nvram get jffs2_on)" || JFFS2_ENABLED="$(nvram get jffs2_enable)"
   [ -z "$(nvram get jffs2_enable)" ] && jffs2_on="jffs2_on" || jffs2_on="jffs2_enable"
@@ -295,49 +392,48 @@ check_jffs_enabled () {
 
 check_version () {
   if [ -f "${TARG_DIR}/installer" ] && [ -f "$AGH_FILE" ]; then
-    local RMNSTALL
-    local LINSTALL
-    local MD5SUM_L
-    local MD5SUM_R
-    local NW_STATE
-    local RES_STATE
+    RMNSTALL=""
+    LINSTALL=""
+    MD5SUM_L=""
+    MD5SUM_R=""
+    NW_STATE=""
+    RES_STATE=""
     NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"
     RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"
-    LINSTALL="$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
-    RMNSTALL="$(curl -sL "${RURL}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
+    LINSTALL="v$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
+    RMNSTALL="v$(curl -sL "$RURL" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
     MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)"
-    MD5SUM_R="$(curl -fsL "${RURL}/installer" | md5sum | awk '{print $1}')"
-    if { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" = "0" ]; } || { [ -n "$LINSTALL" ] && [ -n "$RMNSTALL" ]; }; then
+    MD5SUM_R="$(curl -fsL "$RURL" | md5sum | awk '{print $1}')"
+    if { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" = "0" ]; } || { [ -n "$RMNSTALL" ] && [ "$REMOTE_VER" ]; }; then
       [ -z "$LINSTALL" ] && exit 1
       [ -z "$RMNSTALL" ] && exit 1
       if [ "$RMNSTALL" != "$LINSTALL" ]; then
-        PTXT "$INFO New AI_VERSION=v${RMNSTALL} Available!" \
+        PTXT "$INFO New AI_VERSION=${RMNSTALL} Available!" \
           "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
 	AUTO_UPDATE="update"
       elif [ "$MD5SUM_R" = "$MD5SUM_L" ]; then
-        PTXT "$INFO AI_VERSION=v${LINSTALL}"
+        PTXT "$INFO AI_VERSION=$LINSTALL"
       else
-        PTXT "$INFO AI_VERSION=v${LINSTALL}, but a New Minor Update is Available!" \
+        PTXT "$INFO AI_VERSION=${LINSTALL}, but a New Minor Update is Available!" \
           "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
 	AUTO_UPDATE="update"
       fi
-      local ADGUARD_BRANCH
       ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
       [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ] && exit 1
       [ -z "$REMOTE_VER" ] && exit 1
       [ -z "$REMOTE_BETA" ] && exit 1
-      if [ "$REMOTE_VER" != "$($AGH_FILE --version | cut -d" "  -f4-)" -a "$ADGUARD_BRANCH" = "release" ] || [ "$REMOTE_BETA" != "$($AGH_FILE --version | cut -d" "  -f4-)" -a "$ADGUARD_BRANCH" = "beta" ]; then
+      if { [ "$REMOTE_VER" != "$($AGH_FILE --version | cut -d" "  -f4-)" ] && [ "$ADGUARD_BRANCH" = "release" ]; } || { [ "$REMOTE_BETA" != "$($AGH_FILE --version | cut -d" "  -f4-)" ] && [ "$ADGUARD_BRANCH" = "beta" ]; }; then
         case "$ADGUARD_BRANCH" in
-          release)        
+          release)
              PTXT "$INFO New RELEASE ADGUARDHOME_VER=${REMOTE_VER} Available!"
              ;;
           beta)
              PTXT "$INFO New BETA ADGUARDHOME_VER=${REMOTE_BETA} Available!"
              ;;
         esac
-      else 
+      else
         case "$ADGUARD_BRANCH" in
-         release)        
+         release)
             PTXT "$INFO ADGUARDHOME_BUILD=Release"
             ;;
          beta)
@@ -346,7 +442,7 @@ check_version () {
          edge)
             PTXT "$INFO ADGUARDHOME_BUILD=Edge"
             ;;
-	esac  
+	esac
       fi
       PTXT "$INFO ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-)" \
            "$INFO Run Option 1 to upgrade or change builds." \
@@ -355,7 +451,7 @@ check_version () {
            "$INFO You can use the WebUI to change things to your liking!" \
 	   "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
 	   "$INFO for any configuration needs. "
-    elif [ "$NW_STATE" = "0" -a "$RES_STATE" != "0" ] || [ -z "$(pidof AdGuardHome)" ] || [ -z "$REMOTE_VER" ]; then
+	 elif { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; } || [ -z "$(pidof AdGuardHome)" ] || [ -z "$REMOTE_VER" ]; then
       PTXT "$ERROR AdGuardHome is dead or internet is not responding, skipping version check."
     fi
   fi
@@ -365,7 +461,7 @@ choose_branch () {
   if [ "$1" = "1" ]; then
     del_conf ADGUARD_BRANCH
   fi
-  local BUILD
+  BUILD=""
   if [ ! -f "$CONF_FILE" ] || [ -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ]; then
     PTXT "$INFO Choose which build of AdGuardHome to install:" \
       "  1) Release" \
@@ -373,7 +469,7 @@ choose_branch () {
       "  3) Edge"
     read_input_num "Select your mode" 1 3
     case "$CHOSEN" in
-      1)          
+      1)
         BUILD=release
         write_conf ADGUARD_BRANCH "\"$BUILD\""
         ;;
@@ -392,7 +488,7 @@ choose_branch () {
 }
 
 cleanup () {
-  "/opt/etc/init.d/S61AdGuardHome" "stop" >/dev/null 2>&1; mv "/opt/etc/init.d/S61AdGuardHome" "/opt/etc/init.d/S99AdGuardHome" >/dev/null 2>&1; "/opt/etc/init.d/S99AdGuardHome" "start" >/dev/null 2>&1; [ "$(cru l | grep -c "S99AdGuardHome")" -gt 0 ] && cru -d "S99AdGuardHome"
+  "/opt/etc/init.d/S61AdGuardHome" "stop" >/dev/null 2>&1; mv "/opt/etc/init.d/S61AdGuardHome" "/opt/etc/init.d/S99AdGuardHome" >/dev/null 2>&1; "/opt/etc/init.d/S99AdGuardHome" "start" >/dev/null 2>&1
 }
 
 create_dir () {
@@ -404,12 +500,9 @@ create_dir () {
 }
 
 del_between_magic () {
-  local TARG
   TARG="$1"
-  local MAGIC
   MAGIC="$2"
   [ -f "$TARG" ] || return
-  local BOUNDS 
   BOUNDS="$(awk -v PATT="$MAGIC" '($0 ~ PATT) {printf NR","}' "$TARG")"
   if [ "$BOUNDS" ]; then
     sed -i "${BOUNDS%,}d" "$TARG"
@@ -418,48 +511,18 @@ del_between_magic () {
 
 del_conf () {
   [ ! -f "$CONF_FILE" ] && return
-  local KEY
   for KEY in "$@"; do
     sed -i "/^$KEY=.*$/d" $CONF_FILE
   done
 }
 
-del_jffs_script () {
-  local TARG
-  TARG="$1"
-  local LINE_NUM
-  local LINE_ABOVE
-  [ -f "$TARG" ] || return
-  if [ "$2" ]; then
-    local OP
-    OP="${2:0:1}"
-    if [ "$OP" = "!" ]; then
-      LINE_NUM="$(grep -n -F "[ -x $ADDON_DIR/" "$TARG"|grep -v "$(_quote "$2")"|cut -d':' -f1)"
-    else
-      LINE_NUM="$(grep -n -F "[ -x $ADDON_DIR/" "$TARG"|grep "$(_quote "$2")"|cut -d':' -f1)"
-    fi
-  else
-    LINE_NUM="$(grep -n -F "[ -x $ADDON_DIR/" "$TARG"|cut -d':' -f1)"
-  fi
-  [ -z "$LINE_NUM" ] && return
-  sed -i "${LINE_NUM}d" "$TARG"
-  if [ "$LINE_NUM" -gt 1 ]; then
-    LINE_NUM="$((LINE_NUM-1))"
-    LINE_ABOVE="$(sed "${LINE_NUM}q;d" "$TARG")"
-    [ -z "$LINE_ABOVE" ] && sed -i "${LINE_NUM}d" "$TARG"
-  fi
-  [ "$(awk '{ print }' "$TARG")" = "#!/bin/sh" ] && rm -f "$TARG"
-}
-
 download_file () {
-  local TARG
   TARG="$1"; shift
-  local PERM
   PERM="$1"; shift
-  local URL
-  local FILENAME
-  local MD5SUM_OLD
-  local MD5SUM_CURR
+  URL=""
+  FILENAME=""
+  MD5SUM_OLD=""
+  MD5SUM_CURR=""
   for URL in "$@"; do
     FILENAME="$(basename "$URL")"
     MD5SUM_OLD="$([ -f "${TARG}/${FILENAME}" ] && md5sum "${TARG}/${FILENAME}" | cut -d' ' -f1)"
@@ -467,7 +530,6 @@ download_file () {
     if [ "$(PTXT -n "$MD5SUM_CURR" | wc -c)" -eq 32 ] && [ "$MD5SUM_CURR" = "$MD5SUM_OLD" ]; then
       PTXT "$INFO $FILENAME is up to date. Skipping..."
     else
-      local COUNT
       COUNT="0"
       while [ "$COUNT" -lt 3 ]; do
         PTXT "$INFO Downloading $FILENAME"
@@ -496,16 +558,15 @@ end_op_message () {
 }
 
 end_op_header () {
-  sed -n -e "1,$(($(grep -wn 'menu () {' "$0" | cut -d':' -f1)-1))p" "$0" > ${0}.tmp && sh ${0}.tmp && menu && rm -rf ${0}.tmp
+  sed -n -e "1,$(($(grep -wn 'menu () {' "$0" | cut -d':' -f1)-1))p" "$0" > "${0}.tmp" && sh "${0}.tmp" && menu && rm -rf "${0}.tmp"
 }
 
 inst_AdGuardHome () {
-  local ADGUARD_TAR
   ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
   if [ -z "$1" ]; then
     if [ ! -d "$TARG_DIR" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
       PTXT "$INFO Backup is detected."
-      local USE_OLD
+      USE_OLD=""
       read_yesno "Do you want Restore instead?" && USE_OLD="YES" || USE_OLD="NO"
       if [ "$USE_OLD" = "YES" ]; then
         PTXT "$INFO Installing from an old backup!"
@@ -516,39 +577,36 @@ inst_AdGuardHome () {
     elif [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
       read_yesno "Do you want create a backup before updating?" && backup_restore BACKUP 0 || PTXT "$INFO continuing without making a backup."
     fi
-    local NW_STATE
-    local RES_STATE
     NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"
     RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"
-    if [ "$NW_STATE" = "0" -a "$RES_STATE" != "0" ] || [ -z "$REMOTE_VER" ]; then
+    if { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; } || [ -z "$REMOTE_VER" ]; then
       PTXT "$ERROR Unable to detect the Internet!"
       end_op_message 1
       return
-    fi 
+    fi
     create_dir "$TARG_DIR"
     if [ "$?" -ne 0 ]; then
       end_op_message 1
       return
     fi
-    download_file "$TARG_DIR" 755 "${RURL}/installer"
-    if [ "$?" -ne 0 ] || [ -z "$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')" ]; then
+    download_file "$TARG_DIR" 755 "$RURL"
+    if [ "$?" -ne 0 ] || ! awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -qoE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})'; then
       PTXT "$ERROR Failed to download installer."
       end_op_message 1
       return
     fi
     if [ "$AUTO_UPDATE" = "update" ]; then exec "${TARG_DIR}/installer" "$BRANCH" "$AUTO_UPDATE" && exit; fi
   fi
-  [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
+  [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
   choose_branch
-  local ADGUARD_BRANCH
   ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
   if [ -f "$AGH_FILE" ]; then
     [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ] && exit 1
     [ -z "$REMOTE_VER" ] && exit 1
     [ -z "$REMOTE_BETA" ] && exit 1
-    if [ "$REMOTE_VER" != "$($AGH_FILE --version | cut -d" "  -f4-)" -a "$ADGUARD_BRANCH" = "release" ] || [ "$REMOTE_BETA" != "$($AGH_FILE --version | cut -d" "  -f4-)" -a "$ADGUARD_BRANCH" = "beta" ]; then
+    if { [ "$REMOTE_VER" != "$($AGH_FILE --version | cut -d" "  -f4-)" ] && [ "$ADGUARD_BRANCH" = "release" ]; } || { [ "$REMOTE_BETA" != "$($AGH_FILE --version | cut -d" "  -f4-)" ] && [ "$ADGUARD_BRANCH" = "beta" ]; }; then
       case "$ADGUARD_BRANCH" in
-       release)        
+       release)
           PTXT "$INFO New RELEASE ADGUARDHOME_VER=${REMOTE_VER} Available!" \
                "$INFO Updating ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-) to $REMOTE_VER ."
           ;;
@@ -565,7 +623,7 @@ inst_AdGuardHome () {
         return
       fi
       chown "$(nvram get http_username)":root ${TARG_DIR}/*
-      rm -r "${BASE_DIR}/${ADGUARD_TAR}"
+      rm -r "${BASE_DIR:?}/${ADGUARD_TAR}"
       chmod 755 "$AGH_FILE"
       [ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
       ln -sf $AGH_FILE /opt/sbin/AdGuardHome
@@ -576,7 +634,7 @@ inst_AdGuardHome () {
       fi
     else
       case "$ADGUARD_BRANCH" in
-       release)        
+       release)
           PTXT "$INFO ADGUARDHOME_BUILD=Release" \
 	       "$INFO No new release version available." \
 	       "$INFO ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-)"
@@ -602,7 +660,7 @@ inst_AdGuardHome () {
       return
     fi
     chown "$(nvram get http_username)":root ${TARG_DIR}/*
-    rm -r "${BASE_DIR}/${ADGUARD_TAR}"
+    rm -r "${BASE_DIR:?}/${ADGUARD_TAR}"
     chmod 755 "$AGH_FILE"
     [ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
     ln -sf $AGH_FILE /opt/sbin/AdGuardHome
@@ -612,25 +670,126 @@ inst_AdGuardHome () {
       return
     fi
   fi
-  create_dir "$ADDON_DIR"
-  download_file "$ADDON_DIR" 755 "${RURL}/AdGuardHome.sh"
-  download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome"
+  create_dir /jffs/addons/AdGuardHome.d
+  PTXT '#!/bin/sh' \
+       'if [ "$(pidof AdGuardHome)" ] && [ "$(nvram get ipv6_fw_enable)" != "1" ]; then printf "%s\n" "port=553" "local=/$(nvram get lan_ipaddr | ''awk'' '\''BEGIN''{FS=''"."'}{'print'' ''$2''"."''$1''".in-addr.arpa"'}\'')/" "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
+       'if [ "$(pidof AdGuardHome)" ] && [ "$(nvram get ipv6_fw_enable)" = "1" ]; then printf "%s\n" "port=553" "local=/$(nvram get lan_ipaddr | ''awk'' '\''BEGIN''{FS=''"."'}{'print'' ''$2''"."''$1''".in-addr.arpa"'}\'')/" "local=/10.in-addr.arpa/" "local=/$(nvram get ipv6_prefix | sed "s/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/")/" "dhcp-option=lan,6,0.0.0.0" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
+       'if [ -n "$(route | grep "br" | grep -v "br0" | grep -E "^(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | ''awk'' '\''{print $1}'\'' | sed -e '\''s/[0-9]$/1/'\'' | sed -e '\'':a; N; $!ba;s/\n/ /g'\'')" ] ; then #Asuswrt-Merlin AdGuardHome Installer' \
+       '  iCOUNT="1" #Asuswrt-Merlin AdGuardHome Installer' \
+       '  for iVARS in $(route | grep "br" | grep -v "br0" | grep -E "(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | ''awk'' '\''{print $8}'\'' | sed -e '\'':a; N; $!ba;s/\n/ /g'\''); do #Asuswrt-Merlin AdGuardHome Installer' \
+       '    [ "$iCOUNT" = "1" ] && COUNT="$iCOUNT" && IVARS="$iVARS" #Asuswrt-Merlin AdGuardHome Installer' \
+       '    [ "$iCOUNT" != "1" ] && COUNT="$COUNT $iCOUNT" && IVARS="$IVARS $iVARS" #Asuswrt-Merlin AdGuardHome Installer' \
+       '    iCOUNT="$((iCOUNT+1))" #Asuswrt-Merlin AdGuardHome Installer' \
+       '  done #Asuswrt-Merlin AdGuardHome Installer' \
+       '  dCOUNT="1" #Asuswrt-Merlin AdGuardHome Installer' \
+       '  for dVARS in $(route | grep "br" | grep -v "br0" | grep -E "192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | ''awk'' '\''{print $1}'\'' | sed -e '\''s/[0-9]$/1/'\'' | sed -e '\'':a; N; $!ba;s/\n/ /g'\''); do #Asuswrt-Merlin AdGuardHome Installer' \
+       '    [ "$dCOUNT" = "1" ] && DVARS="$dVARS" #Asuswrt-Merlin AdGuardHome Installer' \
+       '    [ "$dCOUNT" != "1" ] && DVARS="$DVARS $dVARS" #Asuswrt-Merlin AdGuardHome Installer' \
+       '    dCOUNT="$((dCOUNT+1))" #Asuswrt-Merlin AdGuardHome Installer' \
+       '  done #Asuswrt-Merlin AdGuardHome Installer' \
+       '  for i in $COUNT; do #Asuswrt-Merlin AdGuardHome Installer' \
+       '    NIVARS="$(printf "%s\n" "$IVARS" | ''cut'' ''-d'''\'' '\'' ''-f''''$i'')" #Asuswrt-Merlin AdGuardHome Installer' \
+       '    NDVARS="$(printf "%s\n" "$DVARS" | ''cut'' ''-d'''\'' '\'' ''-f''''$i'')" #Asuswrt-Merlin AdGuardHome Installer' \
+       '    if [ "$(pidof AdGuardHome)" ]; then printf "%s\n" "dhcp-option=$NIVARS,6,$NDVARS" >> $1; fi #Asuswrt-Merlin AdGuardHome Installer' \
+       '  done #Asuswrt-Merlin AdGuardHome Installer' \
+       'fi #Asuswrt-Merlin AdGuardHome Installer' > /jffs/addons/AdGuardHome.d/AdGuardHome.sh
+  chmod 755 /jffs/addons/AdGuardHome.d/AdGuardHome.sh
   [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-  write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
-  write_manager_script /jffs/scripts/services-stop services-stop
-  if [ -f "/opt/etc/init.d/S80apache" ]; then opkg install apache-utils >/dev/null 2>&1; fi
-  if [ -z "$(opkg list-installed | grep apache-utils )" ]; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
-  if [ -n "$(opkg list-installed | grep apache-utils )" ] && [ ! -f "/opt/etc/init.d/S80apache" ]; then opkg flag hold apache apache-utils >/dev/null 2>&1; fi
-  if [ -z "$(opkg list-installed | grep apache-utils )" ]; then
-    case "$(/bin/uname -m)" in 
+  write_command_script /jffs/scripts/dnsmasq.postconf '[ -d "/jffs/addons/AdGuardHome.d/" ] && for file in $(ls /jffs/addons/AdGuardHome.d/*.sh); do . $file; done #Asuswrt-Merlin AdGuardHome Installer'
+  PTXT '#!/bin/sh' \
+       'ENABLED="yes"' \
+       'WORK_DIR="/opt/etc/AdGuardHome"' \
+       'PID_FILE="/opt/var/run/AdGuardHome.pid"' \
+       'PROCS="AdGuardHome"' \
+       'ARGS="-s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "$WORK_DIR" --pidfile "$PID_FILE" --no-check-update -l "syslog""' \
+       'PREARGS="nohup env TZ=/etc/localtime"' \
+       'PRECMD="killall -9 dnsmasq"' \
+       'POSTCMD="service restart_dnsmasq"' \
+       'DESC="$PROCS"' \
+       'PATH="/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"' \
+       'export TZ="$(cat /etc/TZ)"' \
+       'SCRIPT_NAME="$(basename $0)"' \
+       'SCRIPT_LOC="/opt/etc/init.d/${SCRIPT_NAME}"' \
+       'NAME="${SCRIPT_NAME}[$$]"' \
+       'YEAR="$(/bin/date +"%Y")"' \
+       'NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"' \
+       'RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
+       'HOST_STATE="$(host www.google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"' \
+       'CURL_STATE="$(curl -Is  http://www.google.com | head -n 1 >/dev/null 2>&1; echo $?)"' \
+       'SPIDER_STATE="$(wget -q --spider http://google.com >/dev/null 2>&1; echo $?)"' \
+       'INTERVAL="5"' \
+       'MAXCOUNT="15"' \
+       'case "$1" in' \
+       '  "check")' \
+       '   i="0" ' \
+       '   if [ "$2" = "watch" ]; then' \
+       '     while [ -z "$(pidof AdGuardHome)" -o -f "$PID_FILE" ]; do' \
+       '       if [ -z "$(pidof AdGuardHome)" ]; then' \
+       '         logger -st "$NAME" "AdGuardHome found dead on checks. Starting before completing checks."' \
+       '         if "$SCRIPT_LOC" start; then break; else continue; fi' \
+       '       elif [ "$NW_STATE" -eq 0 -a "$RES_STATE" -ne 0 ]; then' \
+       '         logger -st "$NAME" "AdGuardHome found alive, but not responding to checks. Starting before completing checks."' \
+       '         if "$SCRIPT_LOC" restart; then break; else continue; fi' \
+       '       elif [ "$i" -eq "5" ]; then '\
+       '         break ' \
+       '       else' \
+       '         i="$((i+1))"' \
+       '         continue' \
+       '       fi' \
+       '     done' \
+       '   fi' \
+       '   ;;' \
+       '  "start"|"restart")' \
+       '   if [ ! -f "/etc/localtime" -a "${WORK_DIR}/localtime" ]; then ln -sf "${WORK_DIR}/localtime" "/etc/localtime" >/dev/null 2>&1; fi' \
+       '   if [ ! -f "/tmp/stats.db" ]; then ln -sf "${WORK_DIR}/data/stats.db" "/tmp/stats.db" >/dev/null 2>&1; fi' \
+       '   if [ ! -f "/tmp/sessions.db" ]; then ln -sf "${WORK_DIR}/data/sessions.db" "/tmp/sessions.db" >/dev/null 2>&1; fi' \
+       '   if [ -z "$(pidof AdGuardHome)" ]; then' \
+       '     i="1"' \
+       '     while [ "$i" -le "$MAXCOUNT" ]; do' \
+       '       if [ "$YEAR" -gt 1970 ]; then ALIVE="0"; else ALIVE="1"; fi' \
+       '       if [ "$NW_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
+       '       if [ "$RES_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
+       '       if [ "$HOST_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
+       '       if [ "$CURL_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
+       '       if [ "$SPIDER_STATE" = "0" ]; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi' \
+       '       if [ "$ALIVE" -le 1 ]; then break; else service restart_dnsmasq >/dev/null 2>&1; sleep $INTERVAL; fi' \
+       '       logger -st "$NAME" "Waiting for the internet (attempt ${i}/${MAXCOUNT})"' \
+       '       if [ "$i" -le "$MAXCOUNT" ]; then sleep "$((INTERVAL+MAXCOUNT))"; i="$((i+1))"; fi' \
+       '       if [ "$i" -eq "$MAXCOUNT" ]; then logger -st "$NAME" "Internet remains inactive; continuing anyway."; break; fi' \
+       '     done' \
+       '   fi' \
+       '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
+       '   if [ "$STARTUPLINECOUNT" -eq 0 ]; then' \
+       '     logger -st "$NAME" "AdGuardHome has been started. Adding all checks."' \
+       '     cru a "$SCRIPT_NAME" "*/15 */1 * * * for 1 2 3 4 $INTERVAL; do $SCRIPT_LOC check watch; sleep $((MAXCOUNT+MAXCOUNT)); done"' \
+       '   fi' \
+       '   ;;' \
+       '  "stop"|"kill")' \
+       '   if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi' \
+       '   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi' \
+       '   STARTUPLINECOUNT="$(cru l | grep -c "$SCRIPT_NAME")"' \
+       '   if [ "$STARTUPLINECOUNT" -gt 0 ]; then' \
+       '     logger -st "$NAME" "AdGuardHome has been stopped. Removing all checks."' \
+       '     cru d "$SCRIPT_NAME"' \
+       '   fi' \
+       '   ;;' \
+       'esac' \
+       '. /opt/etc/init.d/rc.func' \
+       'if [ -z "$(pidof AdGuardHome)" ] && [ "$1" = "stop" -o "$1" = "kill" ]; then service restart_dnsmasq >/dev/null 2>&1; exit; fi' > /opt/etc/init.d/S99AdGuardHome
+  chmod 755 /opt/etc/init.d/S99AdGuardHome
+  if [ -f /opt/etc/init.d/S80apache ]; then opkg install apache-utils >/dev/null 2>&1; fi
+  if ! opkg list-installed | grep -q apache-utils; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
+  if opkg list-installed | grep -q apache-utils && [ ! -f /opt/etc/init.d/S80apache ]; then opkg flag hold apache apache-utils >/dev/null 2>&1; fi
+  if ! opkg list-installed | grep -q apache-utils; then
+    case "$(/bin/uname -m)" in
     "aarch64"|"arm64")
       opkg install go >/dev/null 2>&1
       ;;
     "armv7l")
-      if [ -z "$(opkg list | grep -w 'go_nohf')" ]; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
+      if opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
       ;;
     *)
-      if [ -z "$(opkg list | grep -w 'go_nohf')" ]; then opkg install go >/dev/null 2>&1; fi
+      if opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; fi
       ;;
     esac
     export PATH="$PATH":/opt/bin/go/bin
@@ -645,7 +804,7 @@ inst_AdGuardHome () {
     end_op_message 1
     return
   fi
-  [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
+  [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
   [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome" "$ERROR Please send WebUI System Log to dev"; end_op_message 1; return; fi
   sleep 1
   if [ -z "$(pidof AdGuardHome)" ]; then
@@ -661,8 +820,8 @@ inst_AdGuardHome () {
   
 read_input_dns () {
   PTXT -n "$INPUT $1 ${BOLD}${2}: ${NORM}"
-  local DNS_SERVER
-  read DNS_SERVER
+  DNS_SERVER=""
+  read -r DNS_SERVER
   [ -z "$DNS_SERVER" ] && DNS_SERVER="$2"
   if [ "$(PTXT "$DNS_SERVER" | awk -F'.' 'NF != 4 || $1 < 0 || $1 > 255 || $2 < 0 || $2 > 255 || $3 < 0 || $3 > 255 || $4 < 0 || $4 > 255 {print}')" ]; then
     PTXT "$ERROR Invalid DNS server address entered"
@@ -679,13 +838,13 @@ read_input_dns () {
 }
 
 read_input_num () {
-  local RANGE
+  RANGE=""
   [ -z "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}]"
   [ -n "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}]"
   [ -n "$4" ] && [ -n "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}/${5}]"
-  [ -n "$4" ] && [ -n "$5" ] && [ -n "$6" ] && RANGE="[${2}-${3}/${4}/${5}/${6}]"  
+  [ -n "$4" ] && [ -n "$5" ] && [ -n "$6" ] && RANGE="[${2}-${3}/${4}/${5}/${6}]"
   PTXT -n "$INPUT $1, ${BOLD}${RANGE}${NORM}: "
-  read CHOSEN
+  read -r CHOSEN
   case "$1" in
     "Please enter the number that designates your selection:")
       [ -z "$CHOSEN" ] && PTXT "$ERROR No character entered! Retrying..." && read_input_num "$@" && return
@@ -696,7 +855,7 @@ read_input_num () {
       return 1
       ;;
   esac
-  if [ -z "$(PTXT "$CHOSEN" | grep -E '^[0-9]+$')" ]; then
+  if ! PTXT "$CHOSEN" | grep -qE '^[0-9]+$'; then
     PTXT "$ERROR Invalid character entered! Retrying..."
     read_input_num "$@"
     return
@@ -710,8 +869,8 @@ read_input_num () {
 
 read_yesno () {
   PTXT -n "$INPUT $1 ${BOLD}[y/n]${NORM}: "
-  local YESNO
-  read YESNO
+  YESNO=""
+  read -r YESNO
   case "$YESNO" in
     y|Y)
       return 0
@@ -727,18 +886,14 @@ read_yesno () {
 }
 
 set_timezone () {
-  local TZ_ZONE
-  local TZ_DATA
-  local INDEX
-  TZ_ZONE="/opt/share/zoneinfo"  
+  TZ_ZONE="/opt/share/zoneinfo"
   TZ_DATA="${TZ_ZONE}/zone.tab"
-  opkg install $(opkg list zoneinfo* | printf "%s\n" "$(awk '{printf $1" "}')") >/dev/null 2>&1
-  local INDEX
+  opkg install "$(opkg list zoneinfo* | printf "%s\n" "$(awk '{printf $1" "}')")" >/dev/null 2>&1
+	opkg install column >/dev/null 2>&1
   INDEX="$(printf "%s\n" "$(ls -laH ${TZ_ZONE} | grep -v '^d' | sed '/zone.tab/d' | awk '{print $9}';awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}'; ls -laH -d ${TZ_ZONE}/*/* | grep -v '^d' | awk '{print $9}' | sed -e "s!${TZ_ZONE}/!!")" | sort -u | wc -l)"
   PTXT "$INFO Available timezones/locations:"
-  printf "%s\n" "$(ls -laH ${TZ_ZONE} | grep -v '^d' | sed '/zone.tab/d' | awk '{print $9}';awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}'; ls -laH -d ${TZ_ZONE}/*/* | grep -v '^d' | awk '{print $9}' | sed -e "s!${TZ_ZONE}/!!")" | sort -u | awk -v INDEX=0 -F'/' '!/\/$/ {++INDEX;printf "  " INDEX") ";for (i=5; i<NF; i++)  printf $i "/"; print $0}'
+  printf "%s\n" "$(ls -laH ${TZ_ZONE} | grep -v '^d' | sed '/zone.tab/d' | awk '{print $9}';awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}'; ls -laH -d ${TZ_ZONE}/*/* | grep -v '^d' | awk '{print $9}' | sed -e "s!${TZ_ZONE}/!!")" | sort -u | awk -v INDEX=0 -F'/' '!/\/$/ {++INDEX;printf "  " INDEX") ";for (i=5; i<NF; i++)  printf $i "/"; print $0}' | column
   read_input_num "Select your timezone/location" 1 "$INDEX"
-  local TZ_FILE 
   TZ_FILE="${TZ_ZONE}/$(printf "%s\n" "$(ls -laH ${TZ_ZONE} | grep -v '^d' | sed '/zone.tab/d' | awk '{print $9}';awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}'; ls -laH -d ${TZ_ZONE}/*/* | grep -v '^d' | awk '{print $9}' | sed -e "s!${TZ_ZONE}/!!")" | sort -u | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
   PTXT "$INFO $(basename "$TZ_FILE") selected"
   cp -a "${TZ_FILE}" "${TARG_DIR}/localtime"
@@ -776,8 +931,8 @@ setup_AdGuardHome_impl () {
        "$INFO and router services (e.g. ntp) at boot"
      read_input_dns "Default is" 9.9.9.9
      read_input_dns "2nd Default is" 8.8.8.8
-     local DOMAIN
-     [ ! -z "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)" && write_conf ADGUARD_DOMAIN "\"no\""
+     DOMAIN=""
+     [ -n "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)" && write_conf ADGUARD_DOMAIN "\"no\""
      [ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="$DOMAIN" && nvram commit && write_conf ADGUARD_DOMAIN "\"yes\""
      PTXT "  upstream_dns:" \
           "  - '[/router.asus.com/]$(nvram get lan_ipaddr):553'" \
@@ -799,7 +954,7 @@ setup_AdGuardHome_impl () {
           "  local_ptr_upstreams:" \
 	  "  - '[/10.in-addr.arpa/]$(nvram get lan_ipaddr):553'" \
           "  - '[/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/]$(nvram get lan_ipaddr):553'" >> "$YAML_ORI"
-     [ -n "$(nvram get ipv6_rtr_addr)" ] && PTXT "  - '[/0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" >> "$YAML_ORI"
+     [ "$(nvram get ipv6_fw_enable)" = "1" ] && PTXT "  - '[/0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" >> "$YAML_ORI"
      PTXT "$INFO Writing AdGuardHome configuration..."
      check_AdGuardHome_yaml $YAML_ORI
      if [ "$?" -ne 0 ]; then
@@ -839,26 +994,22 @@ uninst_all () {
     PTXT "$INFO Old Backup Detected!"
     read_yesno "Do you want to remove backup?(this will prevent resorting later)" && rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz" || PTXT "$INFO Keeping backup instead."
   fi
-  [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
+  [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
   [ "$(awk -F'=' '/ADGUARD_DOMAIN/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "yes" ] && nvram set lan_domain="" && nvram commit
   mv "${TARG_DIR}/installer" "${HOME}/installer"
-  rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "$ADDON_DIR" "/opt/var/log/AdGuardHome.log"
+  rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "/jffs/addons/AdGuardHome.d" "/opt/var/log/AdGuardHome.log"
   yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-  del_jffs_script /jffs/scripts/dnsmasq.postconf
-  del_jffs_script /jffs/scripts/services-stop
   service restart_dnsmasq >/dev/null 2>&1
   end_op_message 0
 }
 
 write_conf () {
-  local VAR
   VAR="$1"
-  local VALUE 
   VALUE="$2"
   if [ ! -f "$CONF_FILE" ]; then
     touch "$CONF_FILE" && chmod 644 "$CONF_FILE"
   fi
-  if [ "$(grep "$VAR" "$CONF_FILE")" ]; then
+  if grep -q "$VAR" "$CONF_FILE"; then
     VALUE=$(_quote "$VALUE")
     sed -i "/^$VAR=/s/=.*/=$VALUE/" "$CONF_FILE"
   else
@@ -867,11 +1018,8 @@ write_conf () {
 }
 
 write_command_script () {
-  local TARG
   TARG="$1"
-  local COMMAND 
   COMMAND="$2"
-  local FILENAME
   FILENAME="$(basename "$TARG")"
   if [ ! -f "$TARG" ]; then
     PTXT "$INFO Creating $FILENAME file"
@@ -886,38 +1034,9 @@ write_command_script () {
   fi
 }
 
-write_manager_script () {
-  local TARG
-  TARG="$1"
-  local OP
-  OP="$2"
-  local FILENAME
-  FILENAME="$(basename "$TARG")"
-  local COMMAND
-  COMMAND="${ADDON_DIR}/AdGuardHome.sh"
-  if [ ! -f "$TARG" ]; then
-    PTXT "$INFO Creating $FILENAME file"
-    echo "#!/bin/sh" > "$TARG"
-  fi
-  chmod 755 "$TARG" "$COMMAND"
-  del_between_magic "$TARG" Asuswrt-Merlin-AdGuardHome-Installer
-  if [ "$(grep -c -F "[ -x $COMMAND ] && $COMMAND $OP" "$TARG")" -gt 0 ]; then
-    PTXT "$INFO $FILENAME file already configured"
-  else
-    PTXT "$INFO Configure $FILENAME file"
-    if [ "$(grep \"^$COMMAND\" "$TARG")" ]; then
-      sed -i "s~^$COMMAND~[ -x $COMMAND ] \&\& $COMMAND $OP~" "$TARG"
-    else
-      del_jffs_script "$TARG" !manager
-      [ "$(tail -1 "$TARG"|grep -c '^$')" -eq 0 ] && echo "" >> "$TARG"
-      echo "[ -x $COMMAND ] && $COMMAND $OP" >> "$TARG"
-    fi
-  fi
-}
-
 [ "$1" ] && BRANCH="$1" || BRANCH="master"
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
-RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}"
+RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}/installer"
 ROUTER_OS="$(/bin/uname)"
 ROUTER_ARCH="$(/bin/uname -m)"
 NAT_ENV="$(nvram get wan_ipaddr | grep -E '^(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)')"
@@ -957,7 +1076,7 @@ case "$ROUTER_OS" in
     ;;
 esac
 
-case "$ROUTER_ARCH" in 
+case "$ROUTER_ARCH" in
   "aarch64"|"arm64")
     ROUTER_ARCH="arm64"
     ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
@@ -974,9 +1093,9 @@ case "$ROUTER_ARCH" in
     ;;
 esac
 
-case "$2" in 
+case "$2" in
   "update")
-    inst_AdGuardHome $2
+    inst_AdGuardHome "$2"
     ;;
   *)
     cleanup
