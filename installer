@@ -306,7 +306,7 @@ check_version () {
     LINSTALL="$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
     RMNSTALL="$(curl -sL "${RURL}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
     MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)"
-    MD5SUM_R="$(curl -fsL "$RURL" | md5sum | awk '{print $1}')"
+    MD5SUM_R="$(curl -fsL "${RURL}/installer" | md5sum | awk '{print $1}')"
     if { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" = "0" ]; } || { [ -n "$LINSTALL" ] && [ -n "$RMNSTALL" ]; }; then
       [ -z "$LINSTALL" ] && exit 1
       [ -z "$RMNSTALL" ] && exit 1
@@ -315,7 +315,7 @@ check_version () {
           "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
 	AUTO_UPDATE="update"
       elif [ "$MD5SUM_R" = "$MD5SUM_L" ]; then
-        PTXT "$INFO AI_VERSION=v$LINSTALL"
+        PTXT "$INFO AI_VERSION=v${LINSTALL}"
       else
         PTXT "$INFO AI_VERSION=v${LINSTALL}, but a New Minor Update is Available!" \
           "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
