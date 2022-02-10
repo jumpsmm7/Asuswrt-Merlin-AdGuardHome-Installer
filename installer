@@ -19,8 +19,17 @@
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder,        #
 # |_____||_| |_||___/ \__|\__,_||_||_| \___||_|             Jack-Yaz                       #
 #                                                     v1.3.0                               #
-#                                                                                          #
 ############################################################################################
+
+# shellcheck disable=SC1083
+# shellcheck disable=SC2010
+# shellcheck disable=SC2015
+# shellcheck disable=SC2016
+# shellcheck disable=SC2034
+# shellcheck disable=SC2155
+# shellcheck disable=SC2181
+# shellcheck disable=SC3045
+# shellcheck disable=SC3057
 
 AI_VERSION="v1.3.0"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
