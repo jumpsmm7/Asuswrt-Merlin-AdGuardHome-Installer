@@ -87,7 +87,7 @@ timezone () {
   local TIMEZONE
   local TARGET
   #local LINK
-  SANITY="$(date -u -r \"$0\" '+%s')"
+  SANITY="$(date -u -r "$0" '+%s')"
   NOW="$(date -u '+%s')"
   TIMEZONE="/opt/etc/AdGuardHome/localtime"
   TARGET="/etc/localtime"
