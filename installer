@@ -16,13 +16,22 @@
 # |_   _|            | |        | || |                Author:                              #
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        #
-#  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             gspannu,thelonelycoder         #
+#  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             JackYaz,gspannu,thelonelycoder #
 # |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.3.0                               #
 #                                                                                          #
 ############################################################################################
 
-AI_VERSION="v1.3.0"
+# shellcheck disable=SC1083
+# shellcheck disable=SC2010
+# shellcheck disable=SC2015
+# shellcheck disable=SC2016
+# shellcheck disable=SC2034
+# shellcheck disable=SC2155
+# shellcheck disable=SC2181
+# shellcheck disable=SC3045
+# shellcheck disable=SC3057
 
+AI_VERSION="v1.3.0"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
 readonly REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
@@ -367,7 +376,7 @@ choose_branch () {
     del_conf ADGUARD_BRANCH
   fi
   local BUILD
-  if [ ! -f "$CONF_FILE" ] || ! awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//'; then
+  if [ ! -f "$CONF_FILE" ] || [ -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ]; then
     PTXT "$INFO Choose which build of AdGuardHome to install:" \
       "  1) Release" \
       "  2) Beta" \
