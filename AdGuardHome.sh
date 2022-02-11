@@ -72,11 +72,11 @@ start_monitor () {
     if [ -f "/opt/sbin/AdGuardHome" ]; then
       if [ -z "$(pidof AdGuardHome)" ]; then
         logger -st "$NAME" "Warning: AdGuardHome is dead"
-        UPPER_SCRIPT_LOC start
+        UPPER_SCRIPT_LOC start && break
       elif { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
         logger -st "$NAME" "Warning: AdGuardHome is not responding"
         killall -q -9 AdGuardHome
-        UPPER_SCRIPT_LOC start
+        UPPER_SCRIPT_LOC start && break
       fi
     fi
     sleep 10
