@@ -54,7 +54,7 @@ stop_AdGuardHome () {
 }
 
 start_monitor () {
-  trap "" 1 2
+  trap "" 1
   while [ "$(nvram get ntp_ready)" -eq 0 ]; do sleep 1; done
   local NW_STATE
   local RES_STATE
