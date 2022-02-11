@@ -733,7 +733,8 @@ set_timezone () {
   local TZ_DATA
   TZ_DATA="${TZ_ZONE}/zone.tab"
   opkg install "$(opkg list zoneinfo* | printf "%s\n" "$(awk '{printf $1" "}')")" >/dev/null 2>&1
-	opkg install column >/dev/null 2>&1
+  opkg install column >/dev/null 2>&1
+  local INDEX
   INDEX="$(printf "%s\n" "$(ls -laH ${TZ_ZONE} | grep -v '^d' | sed '/zone.tab/d' | awk '{print $9}';awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}'; ls -laH -d ${TZ_ZONE}/*/* | grep -v '^d' | awk '{print $9}' | sed -e "s!${TZ_ZONE}/!!")" | sort -u | wc -l)"
   PTXT "$INFO Available timezones/locations:"
   printf "%s\n" "$(ls -laH ${TZ_ZONE} | grep -v '^d' | sed '/zone.tab/d' | awk '{print $9}';awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}'; ls -laH -d ${TZ_ZONE}/*/* | grep -v '^d' | awk '{print $9}' | sed -e "s!${TZ_ZONE}/!!")" | sort -u | awk -v INDEX=0 -F'/' '!/\/$/ {++INDEX;printf "  " INDEX") ";for (i=5; i<NF; i++)  printf $i "/"; print $0}' | column
@@ -909,7 +910,7 @@ write_manager_script () {
       sed -i "s~^$COMMAND~[ -x $COMMAND ] \&\& $COMMAND $OP~" "$TARG"
     else
       del_jffs_script "$TARG" !manager
-      [ "$(tail -1 "$TARG" | grep -c '^$')" -eq 0 ] && echo "" >> "$TARG"
+      [ "$(tail -1 "$TARG"|grep -c '^$')" -eq 0 ] && echo "" >> "$TARG"
       echo "[ -x $COMMAND ] && $COMMAND $OP" >> "$TARG"
     fi
   fi
