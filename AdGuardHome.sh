@@ -74,10 +74,10 @@ start_monitor () {
     if [ -f "/opt/sbin/AdGuardHome" ]; then
       if [ -z "$(pidof AdGuardHome)" ]; then
         logger -st "$NAME" "Warning: AdGuardHome is dead"
-        start_AdGuardHome
+        exec UPPER_SCRIPT_LOC start && kill -9 $$
       elif { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" = "0" ]; }; then
         logger -st "$NAME" "Warning: AdGuardHome is not responding"
-        start_AdGuardHome
+        exec UPPER_SCRIPT_LOC restart && kill -9 $$
       fi
     fi
     sleep 10
@@ -110,12 +110,6 @@ timezone () {
 unset TZ
 
 case $1 in
-  "start"|"restart"|"check"|"stop"|"kill")
-    $LOWER_SCRIPT_LOC
-    ;;
-esac
-
-case $1 in
   "monitor-start")
     start_monitor &
     ;;
@@ -125,14 +119,19 @@ case $1 in
   "services-stop")
     timezone
     ;;
-  "start")
+  "start"|"restart")
     timezone
-    $SCRIPT_LOC monitor-start >/dev/null 2>&1
     start_AdGuardHome
+    $SCRIPT_LOC monitor-start >/dev/null 2>&1
+    ;;
+esac
+
+case $1 in
+  "check")
+    $LOWER_SCRIPT_LOC
     ;;
   "stop"|"kill")
     stop_AdGuardHome
     killall -q -9 S99AdGuardHome AdGuardHome.sh AdGuardHome
     ;;
 esac
-
