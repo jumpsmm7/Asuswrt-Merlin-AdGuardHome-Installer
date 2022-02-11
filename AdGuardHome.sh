@@ -3,7 +3,9 @@
 [ ! -f "/opt/etc/init.d/S99AdGuardHome" ] && exit 1
 
 NAME="$(basename "$0")[$$]"
-SCRIPT_LOC="/opt/etc/init.d/S99AdGuardHome"
+SCRIPT_LOC="$(readlink -f "$0")"
+UPPER_SCRIPT_LOC="/opt/etc/init.d/S99AdGuardHome"
+LOWER_SCRIPT_LOC=". /opt/etc/init.d/rc.func"
 
 dnsmasq_params () {
   local CONFIG
@@ -42,19 +44,20 @@ dnsmasq_params () {
 }
 
 start_AdGuardHome () {
-  $SCRIPT_LOC restart
+  $LOWER_SCRIPT_LOC
   if [ ! -f "/tmp/stats.db" ]; then ln -sf "${WORK_DIR}/data/stats.db" "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ ! -f "/tmp/sessions.db" ]; then ln -sf "${WORK_DIR}/data/sessions.db" "/tmp/sessions.db" >/dev/null 2>&1; fi
 }
 
 stop_AdGuardHome () {
+  $LOWER_SCRIPT_LOC
   if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi
   service restart_dnsmasq >/dev/null 2>&1
 }
 
 start_monitor () {
-  trap "" 1
+  trap "" 1 2 3 15
   while [ "$(nvram get ntp_ready)" -eq 0 ]; do sleep 1; done
   local NW_STATE
   local RES_STATE
@@ -107,6 +110,12 @@ timezone () {
 unset TZ
 
 case $1 in
+  "start"|"restart"|"check"|"stop"|"kill")
+    $LOWER_SCRIPT_LOC
+    ;;
+esac
+
+case $1 in
   "monitor-start")
     start_monitor &
     ;;
@@ -122,16 +131,8 @@ case $1 in
     start_AdGuardHome
     ;;
   "stop"|"kill")
-    . /opt/etc/init.d/rc.func
+    stop_AdGuardHome
+    killall -q -9 S99AdGuardHome AdGuardHome.sh AdGuardHome
     ;;
 esac
 
-case $1 in
-  "start"|"restart"|"check")
-    . /opt/etc/init.d/rc.func
-    ;;
-  "stop"|"kill")
-    stop_AdGuardHome
-    killall -q -9 S99AdGuardHome
-    ;;
-esac
