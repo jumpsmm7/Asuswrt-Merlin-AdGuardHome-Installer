@@ -103,7 +103,7 @@ AdGuardHome_authen () {
 backup_restore () {
   if [ "$1" = "BACKUP" ] && [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ]; then
     PTXT "$INFO This operation will backup AdGuardHome(<4MB)to ENTWARE /opt/etc." \
-      "$INFO Please wait a moment."
+         "$INFO Please wait a moment."
     if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
       PTXT "$INFO There is an old backup detected."
       local USE_OLD
@@ -165,11 +165,11 @@ backup_restore () {
       return
     fi
     [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
-    [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome" "$ERROR Please send WebUI System Log to dev"; end_op_message 1; return; fi
+    [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
     sleep 1
     if [ -z "$(pidof AdGuardHome)" ]; then
       PTXT "$ERROR Couldn't start AdGuardHome" \
-        "$ERROR Please send WebUI System Log to dev"
+           "$ERROR Please send WebUI System Log to dev."
       end_op_message 1
       return
     fi
@@ -178,7 +178,7 @@ backup_restore () {
     end_op_message 0
   elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$ERROR No Backup found!" \
-      "$ERROR Please make sure Backup Resides in $BASE_DIR"
+         "$ERROR Please make sure Backup Resides in $BASE_DIR"
     end_op_message 1
     return
   fi
@@ -210,8 +210,8 @@ check_AdGuardHome_yaml () {
 check_dns_environment () {
   if [ -f "/opt/etc/init.d/S61stubby" ] || [ -f "/opt/sbin/stubby" ] || [ -f "/opt/bin/install_stubby" ] || [ -f "/jffs/scripts/install_stubby.sh" ]; then
     PTXT "$ERROR Potential stubby installation detected." \
-      "$ERROR Please remove before attempting to continue." \
-      "$ERROR Exiting..."
+         "$ERROR Please remove before attempting to continue." \
+         "$ERROR Exiting..."
     exit 1
   fi
   local DNSPRIV
@@ -282,8 +282,8 @@ check_dns_filter () {
 check_jffs_enabled () {
   if [ "$(nvram get jffs2_format)" = "1" ]; then
     PTXT "$ERROR JFFS partition is scheduled to be reformatted." \
-      "$ERROR Please reboot to format or disable that setting and try again." \
-      "$ERROR Exiting..."
+         "$ERROR Please reboot to format or disable that setting and try again." \
+         "$ERROR Exiting..."
     exit 1
   fi
   local JFFS2_SCRIPTS
@@ -294,7 +294,7 @@ check_jffs_enabled () {
   [ -z "$(nvram get jffs2_enable)" ] && jffs2_on="jffs2_on" || jffs2_on="jffs2_enable"
   if [ "$JFFS2_ENABLED" -ne 1 ] || [ "$JFFS2_SCRIPTS" -ne 1 ]; then
     PTXT "$INFO JFFS custom scripts and configs are not enabled." \
-      "$INFO Enabling them now!"
+         "$INFO Enabling them now!"
     nvram set ${jffs2_on}=1
     nvram set jffs2_scripts=1
     nvram commit
@@ -322,14 +322,14 @@ check_version () {
       [ -z "$RMNSTALL" ] && exit 1
       if [ "$RMNSTALL" != "$LINSTALL" ]; then
         PTXT "$INFO New AI_VERSION=v${RMNSTALL} Available!" \
-          "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
-	      AUTO_UPDATE="update"
+             "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
+	AUTO_UPDATE="update"
       elif [ "$MD5SUM_R" = "$MD5SUM_L" ]; then
         PTXT "$INFO AI_VERSION=v${LINSTALL}"
       else
         PTXT "$INFO AI_VERSION=v${LINSTALL}, but a New Minor Update is Available!" \
-          "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
-	      AUTO_UPDATE="update"
+             "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
+        AUTO_UPDATE="update"
       fi
       local ADGUARD_BRANCH
       ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
@@ -363,8 +363,8 @@ check_version () {
            "$INFO To visit AdGuardHome," \
            "$INFO please go to http://$(nvram get lan_ipaddr):14711 ." \
            "$INFO You can use the WebUI to change things to your liking!" \
-	         "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
-	         "$INFO for any configuration needs. "
+	   "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
+	   "$INFO for any configuration needs. "
 	  elif { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; } || [ -z "$(pidof AdGuardHome)" ] || [ -z "$REMOTE_VER" ]; then
       PTXT "$ERROR AdGuardHome is dead or internet is not responding, skipping version check."
     fi
@@ -378,9 +378,9 @@ choose_branch () {
   local BUILD
   if [ ! -f "$CONF_FILE" ] || [ -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ]; then
     PTXT "$INFO Choose which build of AdGuardHome to install:" \
-      "  1) Release" \
-      "  2) Beta" \
-      "  3) Edge"
+         "  1) Release" \
+         "  2) Beta" \
+         "  3) Edge"
     read_input_num "Select your mode" 1 3
     case "$CHOSEN" in
       1)
@@ -656,11 +656,11 @@ inst_AdGuardHome () {
     return
   fi
   [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
-  [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome" "$ERROR Please send WebUI System Log to dev"; end_op_message 1; return; fi
+  [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
   sleep 1
   if [ -z "$(pidof AdGuardHome)" ]; then
-    PTXT "$ERROR Couldn't start AdGuardHome" \
-      "$ERROR Please send WebUI System Log to dev"
+    PTXT "$ERROR Couldn't start AdGuardHome!" \
+         "$ERROR Please send WebUI System Log to dev."
     end_op_message 1
     return
   fi
@@ -776,7 +776,7 @@ setup_AdGuardHome_impl () {
    if [ ! -f "$YAML_ORI" ] || [ ! -f "$YAML_FILE" ]; then
      PTXT "$INFO Requesting entries for the for AdGuardHome initial configuration..."
      PTXT "bind_host: 0.0.0.0" \
-       "bind_port: 14711" > "$YAML_ORI"
+          "bind_port: 14711" > "$YAML_ORI"
      PTXT "$INFO Set the Username and Password which will be encrypted to the yaml file."
      AdGuardHome_authen 1
      PTXT "dns:" \
@@ -794,28 +794,28 @@ setup_AdGuardHome_impl () {
           "  - '[/www.asusnetwork.net/]$(nvram get lan_ipaddr):553'" \
           "  - '[/www.asusrouter.com/]$(nvram get lan_ipaddr):553'" \
           "  - '[/use-application-dns.net/]$(nvram get lan_ipaddr):553'" \
-	        "  - '[/dns.resolver.arpa/]$(nvram get lan_ipaddr):553'" \
-	        "  - '[/$DOMAIN/]$(nvram get lan_ipaddr):553'" \
-	        "  - '[//]$(nvram get lan_ipaddr):553'" \
+	  "  - '[/dns.resolver.arpa/]$(nvram get lan_ipaddr):553'" \
+	  "  - '[/$DOMAIN/]$(nvram get lan_ipaddr):553'" \
+	  "  - '[//]$(nvram get lan_ipaddr):553'" \
           "  - $BOOTSTRAP1" \
           "  - $BOOTSTRAP2" \
           "  - tcp://${BOOTSTRAP1}" \
           "  - tcp://${BOOTSTRAP2}" \
-	        "  bootstrap_dns:" \
+	  "  bootstrap_dns:" \
           "  - $BOOTSTRAP1" \
           "  - $BOOTSTRAP2" \
           "  resolve_clients: true" \
           "  use_private_ptr_resolvers: true" \
           "  local_ptr_upstreams:" \
-	        "  - '[/10.in-addr.arpa/]$(nvram get lan_ipaddr):553'" \
+	  "  - '[/10.in-addr.arpa/]$(nvram get lan_ipaddr):553'" \
           "  - '[/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/]$(nvram get lan_ipaddr):553'" >> "$YAML_ORI"
      [ -n "$(nvram get ipv6_rtr_addr)" ] && PTXT "  - '[/0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" >> "$YAML_ORI"
      PTXT "$INFO Writing AdGuardHome configuration..."
      check_AdGuardHome_yaml $YAML_ORI
      if [ "$?" -ne 0 ]; then
        PTXT "$INFO Writing AdGuardHome configuration failed " \
-        "$INFO Please send $YAML_ERR file and screen log of " \
-        "$INFO all operations you have made to this script dev"
+            "$INFO Please send $YAML_ERR file and screen log of " \
+            "$INFO all operations you have made to this script dev."
        return 1
      fi
   elif [ -f "$YAML_FILE" ]; then
@@ -1009,8 +1009,8 @@ menu () {
   case "$CHOSEN" in
     1)
       PTXT "$INFO This operation will install AdGuardHome and related files (<6MB)" \
-        "$INFO to ENTWARE, no other data will be changed." \
-        "$INFO Also some start scripts will be installed/modified as required."
+           "$INFO to ENTWARE, no other data will be changed." \
+           "$INFO Also some start scripts will be installed/modified as required."
       read_yesno "Do you want to install AdGuardHome to ENTWARE?" && inst_AdGuardHome || end_op_message 1
       ;;
     2)
@@ -1027,7 +1027,7 @@ menu () {
       ;;
     q|Q)
       PTXT "$INFO Operations have been applied if any has been made" \
-        "$INFO In case of anomaly, please reboot your router!"
+           "$INFO In case of anomaly, please reboot your router!"
       if [ -f "${HOME}/installer" ]; then rm -rf "${HOME}/installer"; fi
       sleep 3
       clear
