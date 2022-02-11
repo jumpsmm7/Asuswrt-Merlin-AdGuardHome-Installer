@@ -165,10 +165,10 @@ backup_restore () {
       return
     fi
     [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
-    [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
+    [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
     sleep 1
     if [ -z "$(pidof AdGuardHome)" ]; then
-      PTXT "$ERROR Couldn't start AdGuardHome" \
+      PTXT "$ERROR Couldn't start AdGuardHome!" \
            "$ERROR Please send WebUI System Log to dev."
       end_op_message 1
       return
