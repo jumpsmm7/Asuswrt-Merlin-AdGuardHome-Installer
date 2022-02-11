@@ -73,12 +73,13 @@ start_monitor () {
       if [ -z "$(pidof AdGuardHome)" ]; then
         logger -st "$NAME" "Warning: AdGuardHome is dead"
         trap 1 2 3 15
-        exec $UPPER_SCRIPT_LOC start && kill -9 $$
+        $UPPER_SCRIPT_LOC start
+        break
       elif { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
         logger -st "$NAME" "Warning: AdGuardHome is not responding"
         trap 1 2 3 15
         killall -q -9 AdGuardHome
-        exec $UPPER_SCRIPT_LOC start && kill -9 $$
+        $UPPER_SCRIPT_LOC start
         break
       fi
     fi
@@ -122,7 +123,7 @@ case $1 in
     timezone
     ;;
   "start")
-    if [ -z "$(pidof AdGuardHome)" ]; then $LOWER_SCRIPT_LOC && $SCRIPT_LOC monitor-start >/dev/null 2>&1; else $LOWER_SCRIPT_LOC; fi
+    if [ -z "$(pidof AdGuardHome)" ]; then $LOWER_SCRIPT_LOC; $SCRIPT_LOC monitor-start >/dev/null 2>&1; else $LOWER_SCRIPT_LOC; fi
     timezone
     start_AdGuardHome
     ;;
