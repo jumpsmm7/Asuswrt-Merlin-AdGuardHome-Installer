@@ -77,7 +77,8 @@ start_monitor () {
         exec UPPER_SCRIPT_LOC start && kill -9 $$
       elif { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" = "0" ]; }; then
         logger -st "$NAME" "Warning: AdGuardHome is not responding"
-        exec UPPER_SCRIPT_LOC restart && kill -9 $$
+        killall -q -9 AdGuardHome
+        exec UPPER_SCRIPT_LOC start && kill -9 $$
       fi
     fi
     sleep 10
@@ -119,7 +120,7 @@ case $1 in
   "services-stop")
     timezone
     ;;
-  "start"|"restart")
+  "start")
     timezone
     start_AdGuardHome
     $SCRIPT_LOC monitor-start >/dev/null 2>&1
@@ -127,11 +128,11 @@ case $1 in
 esac
 
 case $1 in
-  "check")
+  "check"|"restart")
     $LOWER_SCRIPT_LOC
     ;;
   "stop"|"kill")
     stop_AdGuardHome
-    killall -q -9 S99AdGuardHome AdGuardHome.sh AdGuardHome
+    killall -q -9 AdGuardHome S99AdGuardHome AdGuardHome.sh
     ;;
 esac
