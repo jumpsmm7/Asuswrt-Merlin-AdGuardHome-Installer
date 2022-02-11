@@ -108,6 +108,9 @@ timezone () {
 unset TZ
 
 case $1 in
+  "check"|"restart")
+    $LOWER_SCRIPT_LOC
+    ;;
   "monitor-start")
     start_monitor &
     ;;
@@ -125,9 +128,6 @@ case $1 in
 esac
 
 case $1 in
-  "check"|"restart")
-    $LOWER_SCRIPT_LOC
-    ;;
   "stop"|"kill")
     $LOWER_SCRIPT_LOC
     stop_AdGuardHome
