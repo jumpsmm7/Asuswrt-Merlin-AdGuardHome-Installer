@@ -65,9 +65,9 @@ PTXT() {
 }
 
 AdGuardHome_authen () {
-  LOCAL USERNAME
-  LOCAL PW1
-  LOCAL PW2
+  local USERNAME
+  local PW1
+  local PW2
   if [ "$1" -eq 0 ]; then
     return
   fi
@@ -83,7 +83,7 @@ AdGuardHome_authen () {
     PTXT "$ERROR Password entered incorrectly!"
     AdGuardHome_authen 1
   fi
-  LOCAL PW1_ENCRYPTED
+  local PW1_ENCRYPTED
   opkg list-installed | grep -q apache-utils && PW1_ENCRYPTED="$(/opt/bin/htpasswd -B -n -b "${USERNAME}" "${PW1}" | sed 's/.*://')"
   opkg list-installed | grep -q apache-utils || PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"
   PTXT "users:" \
@@ -97,7 +97,7 @@ backup_restore () {
       "$INFO Please wait a moment."
     if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
       PTXT "$INFO There is an old backup detected."
-      LOCAL USE_OLD
+      local USE_OLD
       read_yesno "Do you want to continue?(this will remove the old backup)" && USE_OLD="NO" || USE_OLD="YES"
       if [ "$USE_OLD" = "YES" ]; then
         PTXT "$INFO Leaving Old Backup."
@@ -205,7 +205,7 @@ check_dns_environment () {
       "$ERROR Exiting..."
     exit 1
   fi
-  LOCAL DNSPRIV
+  local DNSPRIV
   DNSPRIV="$(nvram get dnspriv_enable)"
   if [ "$DNSPRIV" -ne 0 ]; then
     PTXT "$INFO Setting up Correct DNS Environment."
@@ -224,9 +224,9 @@ check_dns_environment () {
 }
 
 check_dns_filter () {
-  LOCAL DNSFIL
+  local DNSFIL
   DNSFIL="$(nvram get dnsfilter_enable_x)"
-  LOCAL USE_SOME
+  local USE_SOME
   if [ "$1" -eq 0 ] && [ "$DNSFIL" -ne 0 ]; then
     nvram set dnsfilter_enable_x="0"
     nvram commit
@@ -322,7 +322,7 @@ check_version () {
           "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
 	      AUTO_UPDATE="update"
       fi
-      LOCAL ADGUARD_BRANCH
+      local ADGUARD_BRANCH
       ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
       [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ] && exit 1
       [ -z "$REMOTE_VER" ] && exit 1
@@ -366,7 +366,7 @@ choose_branch () {
   if [ "$1" = "1" ]; then
     del_conf ADGUARD_BRANCH
   fi
-  LOCAL BUILD
+  local BUILD
   if [ ! -f "$CONF_FILE" ] || ! awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//'; then
     PTXT "$INFO Choose which build of AdGuardHome to install:" \
       "  1) Release" \
@@ -405,12 +405,12 @@ create_dir () {
 }
 
 del_between_magic () {
-  LOCAL TARG
+  local TARG
   TARG="$1"
-  LOCAL MAGIC
+  local MAGIC
   MAGIC="$2"
   [ -f "$TARG" ] || return
-  LOCAL BOUNDS
+  local BOUNDS
   BOUNDS="$(awk -v PATT="$MAGIC" '($0 ~ PATT) {printf NR","}' "$TARG")"
   if [ "$BOUNDS" ]; then
     sed -i "${BOUNDS%,}d" "$TARG"
@@ -419,7 +419,7 @@ del_between_magic () {
 
 del_conf () {
   [ ! -f "$CONF_FILE" ] && return
-  LOCAL KEY
+  local KEY
   for KEY in "$@"; do
     sed -i "/^$KEY=.*$/d" $CONF_FILE
   done
@@ -453,14 +453,14 @@ del_jffs_script () {
 }
 
 download_file () {
-  LOCAL TARG
+  local TARG
   TARG="$1"; shift
-  LOCAL PERM
+  local PERM
   PERM="$1"; shift
-  LOCAL URL 
-  LOCAL FILENAME
-  LOCAL MD5SUM_OLD
-  LOCAL MD5SUM_CURR
+  local URL
+  local FILENAME
+  local MD5SUM_OLD
+  local MD5SUM_CURR
   for URL in "$@"; do
     FILENAME="$(basename "$URL")"
     MD5SUM_OLD="$([ -f "${TARG}/${FILENAME}" ] && md5sum "${TARG}/${FILENAME}" | cut -d' ' -f1)"
@@ -468,7 +468,7 @@ download_file () {
     if [ "$(PTXT -n "$MD5SUM_CURR" | wc -c)" -eq 32 ] && [ "$MD5SUM_CURR" = "$MD5SUM_OLD" ]; then
       PTXT "$INFO $FILENAME is up to date. Skipping..."
     else
-      LOCAL COUNT
+      local COUNT
       COUNT="0"
       while [ "$COUNT" -lt 3 ]; do
         PTXT "$INFO Downloading $FILENAME"
@@ -501,12 +501,12 @@ end_op_header () {
 }
 
 inst_AdGuardHome () {
-  LOCAL ADGUARD_TAR
+  local ADGUARD_TAR
   ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
   if [ -z "$1" ]; then
     if [ ! -d "$TARG_DIR" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
       PTXT "$INFO Backup is detected."
-      LOCAL USE_OLD
+      local USE_OLD
       read_yesno "Do you want Restore instead?" && USE_OLD="YES" || USE_OLD="NO"
       if [ "$USE_OLD" = "YES" ]; then
         PTXT "$INFO Installing from an old backup!"
@@ -517,8 +517,8 @@ inst_AdGuardHome () {
     elif [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
       read_yesno "Do you want create a backup before updating?" && backup_restore BACKUP 0 || PTXT "$INFO continuing without making a backup."
     fi
-    LOCAL NW_STATE
-    LOCAL RES_STATE
+    local NW_STATE
+    local RES_STATE
     NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"
     RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"
     if { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; } || [ -z "$REMOTE_VER" ]; then
@@ -541,7 +541,7 @@ inst_AdGuardHome () {
   fi
   [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
   choose_branch
-  LOCAL ADGUARD_BRANCH
+  local ADGUARD_BRANCH
   ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
   if [ -f "$AGH_FILE" ]; then
     [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ] && exit 1
@@ -662,7 +662,7 @@ inst_AdGuardHome () {
   
 read_input_dns () {
   PTXT -n "$INPUT $1 ${BOLD}${2}: ${NORM}"
-  LOCAL DNS_SERVER
+  local DNS_SERVER
   read -r DNS_SERVER
   [ -z "$DNS_SERVER" ] && DNS_SERVER="$2"
   if [ "$(PTXT "$DNS_SERVER" | awk -F'.' 'NF != 4 || $1 < 0 || $1 > 255 || $2 < 0 || $2 > 255 || $3 < 0 || $3 > 255 || $4 < 0 || $4 > 255 {print}')" ]; then
@@ -680,7 +680,7 @@ read_input_dns () {
 }
 
 read_input_num () {
-  LOCAL RANGE
+  local RANGE
   [ -z "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}]"
   [ -n "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}]"
   [ -n "$4" ] && [ -n "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}/${5}]"
@@ -711,7 +711,7 @@ read_input_num () {
 
 read_yesno () {
   PTXT -n "$INPUT $1 ${BOLD}[y/n]${NORM}: "
-  LOCAL YESNO
+  local YESNO
   read -r YESNO
   case "$YESNO" in
     y|Y)
@@ -728,9 +728,9 @@ read_yesno () {
 }
 
 set_timezone () {
-  LOCAL TZ_ZONE
+  local TZ_ZONE
   TZ_ZONE="/opt/share/zoneinfo"
-  LOCAL TZ_DATA
+  local TZ_DATA
   TZ_DATA="${TZ_ZONE}/zone.tab"
   opkg install "$(opkg list zoneinfo* | printf "%s\n" "$(awk '{printf $1" "}')")" >/dev/null 2>&1
 	opkg install column >/dev/null 2>&1
@@ -738,7 +738,7 @@ set_timezone () {
   PTXT "$INFO Available timezones/locations:"
   printf "%s\n" "$(ls -laH ${TZ_ZONE} | grep -v '^d' | sed '/zone.tab/d' | awk '{print $9}';awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}'; ls -laH -d ${TZ_ZONE}/*/* | grep -v '^d' | awk '{print $9}' | sed -e "s!${TZ_ZONE}/!!")" | sort -u | awk -v INDEX=0 -F'/' '!/\/$/ {++INDEX;printf "  " INDEX") ";for (i=5; i<NF; i++)  printf $i "/"; print $0}' | column
   read_input_num "Select your timezone/location" 1 "$INDEX"
-  LOCAL TZ_FILE
+  local TZ_FILE
   TZ_FILE="${TZ_ZONE}/$(printf "%s\n" "$(ls -laH ${TZ_ZONE} | grep -v '^d' | sed '/zone.tab/d' | awk '{print $9}';awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}'; ls -laH -d ${TZ_ZONE}/*/* | grep -v '^d' | awk '{print $9}' | sed -e "s!${TZ_ZONE}/!!")" | sort -u | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
   PTXT "$INFO $(basename "$TZ_FILE") selected"
   cp -a "${TZ_FILE}" "${TARG_DIR}/localtime"
@@ -776,7 +776,7 @@ setup_AdGuardHome_impl () {
        "$INFO and router services (e.g. ntp) at boot"
      read_input_dns "Default is" 9.9.9.9
      read_input_dns "2nd Default is" 8.8.8.8
-     LOCAL DOMAIN
+     local DOMAIN
      [ -n "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)" && write_conf ADGUARD_DOMAIN "\"no\""
      [ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="$DOMAIN" && nvram commit && write_conf ADGUARD_DOMAIN "\"yes\""
      PTXT "  upstream_dns:" \
@@ -851,9 +851,9 @@ uninst_all () {
 }
 
 write_conf () {
-  LOCAL VAR
+  local VAR
   VAR="$1"
-  LOCAL VALUE
+  local VALUE
   VALUE="$2"
   if [ ! -f "$CONF_FILE" ]; then
     touch "$CONF_FILE" && chmod 644 "$CONF_FILE"
@@ -867,11 +867,11 @@ write_conf () {
 }
 
 write_command_script () {
-  LOCAL TARG
+  local TARG
   TARG="$1"
-  LOCAL COMMAND
+  local COMMAND
   COMMAND="$2"
-  LOCAL FILENAME
+  local FILENAME
   FILENAME="$(basename "$TARG")"
   if [ ! -f "$TARG" ]; then
     PTXT "$INFO Creating $FILENAME file"
@@ -909,7 +909,7 @@ write_manager_script () {
       sed -i "s~^$COMMAND~[ -x $COMMAND ] \&\& $COMMAND $OP~" "$TARG"
     else
       del_jffs_script "$TARG" !manager
-      [ "$(tail -1 "$TARG"|grep -c '^$')" -eq 0 ] && echo "" >> "$TARG"
+      [ "$(tail -1 "$TARG" | grep -c '^$')" -eq 0 ] && echo "" >> "$TARG"
       echo "[ -x $COMMAND ] && $COMMAND $OP" >> "$TARG"
     fi
   fi
