@@ -44,13 +44,11 @@ dnsmasq_params () {
 }
 
 start_AdGuardHome () {
-  $LOWER_SCRIPT_LOC
   if [ ! -f "/tmp/stats.db" ]; then ln -sf "${WORK_DIR}/data/stats.db" "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ ! -f "/tmp/sessions.db" ]; then ln -sf "${WORK_DIR}/data/sessions.db" "/tmp/sessions.db" >/dev/null 2>&1; fi
 }
 
 stop_AdGuardHome () {
-  $LOWER_SCRIPT_LOC
   if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi
   service restart_dnsmasq >/dev/null 2>&1
@@ -121,6 +119,7 @@ case $1 in
     timezone
     ;;
   "start")
+    $LOWER_SCRIPT_LOC
     timezone
     start_AdGuardHome
     $SCRIPT_LOC monitor-start >/dev/null 2>&1
@@ -132,6 +131,7 @@ case $1 in
     $LOWER_SCRIPT_LOC
     ;;
   "stop"|"kill")
+    $LOWER_SCRIPT_LOC
     stop_AdGuardHome
     killall -q -9 AdGuardHome S99AdGuardHome AdGuardHome.sh
     ;;
