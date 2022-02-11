@@ -125,12 +125,13 @@ case $1 in
     timezone
     start_AdGuardHome
     ;;
-esac
-
-case $1 in
   "stop"|"kill")
     $LOWER_SCRIPT_LOC
     stop_AdGuardHome
     killall -q -9 AdGuardHome S99AdGuardHome AdGuardHome.sh
     ;;
+   *)
+    $LOWER_SCRIPT_LOC
+    ;;
 esac
+
