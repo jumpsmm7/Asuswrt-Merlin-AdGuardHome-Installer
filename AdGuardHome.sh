@@ -139,8 +139,5 @@ case $1 in
     stop_AdGuardHome
     killall -q -9 AdGuardHome S99AdGuardHome AdGuardHome.sh
     ;;
-   *)
-    lower_script $1
-    ;;
 esac
 
