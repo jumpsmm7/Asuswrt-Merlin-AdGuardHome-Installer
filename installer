@@ -784,7 +784,7 @@ setup_AdGuardHome_impl () {
           "  bind_host: 0.0.0.0" \
           "  port: 53" >> "$YAML_ORI"
      PTXT "$INFO Set the DNS server(s) for initializing AdGuardHome" \
-       "$INFO and router services (e.g. ntp) at boot"
+          "$INFO and router services (e.g. ntp) at boot"
      read_input_dns "Default is" 9.9.9.9
      read_input_dns "2nd Default is" 8.8.8.8
      local DOMAIN
