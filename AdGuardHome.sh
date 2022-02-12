@@ -5,12 +5,12 @@
 NAME="$(basename "$0")[$$]"
 SCRIPT_LOC="$(readlink -f "$0")"
 UPPER_SCRIPT_LOC="/opt/etc/init.d/S99AdGuardHome"
-LOWER_SCRIPT_LOC=". /opt/etc/init.d/rc.func"
+LOWER_SCRIPT_LOC=". /opt/etc/init.d/rc.func.AdGuardHome"
 
 lower_script () {
-  case $LOWER_SCRIPT_LOC in
-    *)
-      $1 $NAME
+  case $1 in
+    start|stop|kill|check)
+      $LOWER_SCRIPT_LOC $1 $NAME
       ;;
   esac
 }
@@ -52,19 +52,19 @@ dnsmasq_params () {
 }
 
 start_AdGuardHome () {
-  if [ -z "$(pidof AdGuardHome)" ]; then lower_script restart && killall -q -9 AdGuardHome; fi
+  if [ -z "$(pidof AdGuardHome)" ]; then lower_script start; else lower_script restart; fi
   "$PRARGS" "$PROCS" "$ARGS" >/dev/null 2>&1 </dev/null &
   if [ ! -f "/tmp/stats.db" ]; then ln -sf "${WORK_DIR}/data/stats.db" "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ ! -f "/tmp/sessions.db" ]; then ln -sf "${WORK_DIR}/data/sessions.db" "/tmp/sessions.db" >/dev/null 2>&1; fi
-  $LOWER_SCRIPT_LOC check
+  lower_script check
 }
 
 stop_AdGuardHome () {
-  if [ -n "$(pidof AdGuardHome)" ]; then lower_script stop; lower_script kill; fi
+  if [ -n "$(pidof AdGuardHome)" ]; then lower_script stop; lower_script kill; else lower_script check; fi
   if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi
   service restart_dnsmasq >/dev/null 2>&1
-  $LOWER_SCRIPT_LOC check
+  lower_script check
 }
 
 start_monitor () {
@@ -121,8 +121,6 @@ timezone () {
 unset TZ
 
 case $1 in
-  "check")
-    $LOWER_SCRIPT_LOC
     ;;
   "monitor-start")
     start_monitor &
@@ -142,7 +140,7 @@ case $1 in
     killall -q -9 AdGuardHome S99AdGuardHome AdGuardHome.sh
     ;;
    *)
-    $LOWER_SCRIPT_LOC
+    lower_script $1
     ;;
 esac
 
