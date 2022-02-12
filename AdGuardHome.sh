@@ -7,6 +7,14 @@ SCRIPT_LOC="$(readlink -f "$0")"
 UPPER_SCRIPT_LOC="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT_LOC=". /opt/etc/init.d/rc.func"
 
+lower_script () {
+  case $LOWER_SCRIPT_LOC in
+    *)
+      $1 $NAME
+      ;;
+  esac
+}
+
 dnsmasq_params () {
   local CONFIG
   local COUNT
@@ -44,14 +52,19 @@ dnsmasq_params () {
 }
 
 start_AdGuardHome () {
+  if [ -z "$(pidof AdGuardHome)" ]; then lower_script restart && killall -q -9 AdGuardHome; fi
+  "$PRARGS" "$PROCS" "$ARGS" >/dev/null 2>&1 </dev/null &
   if [ ! -f "/tmp/stats.db" ]; then ln -sf "${WORK_DIR}/data/stats.db" "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ ! -f "/tmp/sessions.db" ]; then ln -sf "${WORK_DIR}/data/sessions.db" "/tmp/sessions.db" >/dev/null 2>&1; fi
+  $LOWER_SCRIPT_LOC check
 }
 
 stop_AdGuardHome () {
+  if [ -n "$(pidof AdGuardHome)" ]; then lower_script stop; lower_script kill; fi
   if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi
   service restart_dnsmasq >/dev/null 2>&1
+  $LOWER_SCRIPT_LOC check
 }
 
 start_monitor () {
@@ -72,10 +85,10 @@ start_monitor () {
     if [ -f "/opt/sbin/AdGuardHome" ]; then
       if [ -z "$(pidof AdGuardHome)" ]; then
         logger -st "$NAME" "Warning: AdGuardHome is dead"
-        $UPPER_SCRIPT_LOC restart
+        start_AdGuardHome
       elif { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
         logger -st "$NAME" "Warning: AdGuardHome is not responding"
-        $UPPER_SCRIPT_LOC restart
+        start_AdGuardHome
       fi
     fi
     sleep 10
@@ -108,7 +121,7 @@ timezone () {
 unset TZ
 
 case $1 in
-  "check"|"restart")
+  "check")
     $LOWER_SCRIPT_LOC
     ;;
   "monitor-start")
@@ -120,13 +133,11 @@ case $1 in
   "services-stop")
     timezone
     ;;
-  "start")
-    if [ -z "$(pidof AdGuardHome)" ]; then $LOWER_SCRIPT_LOC; $SCRIPT_LOC monitor-start >/dev/null 2>&1; else $LOWER_SCRIPT_LOC; fi
+  "start"|"restart")
+    if [ -z "$(pidof AdGuardHome)" ]; then start_AdGuardHome; $SCRIPT_LOC monitor-start >/dev/null 2>&1; else start_AdGuardHome; fi
     timezone
-    start_AdGuardHome
     ;;
   "stop"|"kill")
-    $LOWER_SCRIPT_LOC
     stop_AdGuardHome
     killall -q -9 AdGuardHome S99AdGuardHome AdGuardHome.sh
     ;;
