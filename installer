@@ -257,7 +257,7 @@ check_dns_filter () {
     USE_SOME=1
   elif [ "$1" -eq 1 ] && [ "$DNSFIL" -ne 0 ]; then
     PTXT "$INFO DNSFilter is Already on." \
-      "$INFO You can choose to keep any custom dnsfilter values and only redirect non-custom traffic or send all traffic through to AdGuardHome."
+         "$INFO You can choose to keep any custom dnsfilter values and only redirect non-custom traffic or send all traffic through to AdGuardHome."
     read_yesno "Do you want to redirect only SOME DNS resolutions on your network through AdGuardHome?" && USE_SOME="0" || USE_SOME="1"
   fi
   if [ "$USE_SOME" -eq 0 ]; then
@@ -321,7 +321,7 @@ check_version () {
     local NW_STATE
     local RES_STATE
     NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s\n" "$?")";
-    RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s\n" "$?")"; sleep 1
+    RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s\n" "$?")";
     LINSTALL="$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')";
     RMNSTALL="$(curl -sL "${RURL}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')";
     MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)";
