@@ -90,6 +90,7 @@ start_monitor () {
       elif { [ "$COUNT" -eq 30 ] || [ "$COUNT" -eq 60 ] || [ "$COUNT" -eq 90 ]; } && { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
         logger -st "$NAME" "Warning: $PROCS is not responding; $NAME will re-start it!"
         start_AdGuardHome
+        while [ "$RES_STATE" != "0" ]; do sleep 1; done
       fi
     fi
     sleep 10
