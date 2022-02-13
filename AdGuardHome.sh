@@ -5,9 +5,9 @@ SCRIPT_LOC="$(readlink -f "$0")"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 
-[ ! -f "$UPPER_SCRIPT" ] && exit 1 || UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"
+[ ! -f "$UPPER_SCRIPT" ] && exit 1 || UPPER_SCRIPT_LOC="source $UPPER_SCRIPT"
 [ ! -f "$LOWER_SCRIPT" ] && exit 1 || LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"
-[ "$(basename "$0")" != "$UPPER_SCRIPT" ] && $UPPER_SCRIPT_LOC
+$UPPER_SCRIPT_LOC
 
 lower_script () {
   case $1 in
