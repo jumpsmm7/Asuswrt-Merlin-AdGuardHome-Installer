@@ -76,7 +76,7 @@ start_monitor () {
   local COUNT
   COUNT=0
   while true; do
-    if [ "$COUNT" -eq 90 ]; then
+    if [ "$COUNT" -gt 90 ]; then
       COUNT=0
       timezone
     fi
@@ -87,7 +87,7 @@ start_monitor () {
       if [ -z "$(pidof "$PROCS")" ]; then
         logger -st "$NAME" "Warning: $PROCS is dead; $NAME will force-start it!"
         start_AdGuardHome
-      elif { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
+      elif { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; } && { [ "$COUNT" -eq 30 ] || [ "$COUNT" -eq 60 ] || [ "$COUNT" -eq 90 ]; }; then
         logger -st "$NAME" "Warning: $PROCS is not responding; $NAME will re-start it!"
         start_AdGuardHome
       fi
