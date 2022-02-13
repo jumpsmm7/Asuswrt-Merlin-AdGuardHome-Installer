@@ -122,7 +122,6 @@ timezone () {
 unset TZ
 
 case $1 in
-    ;;
   "monitor-start")
     start_monitor &
     ;;
