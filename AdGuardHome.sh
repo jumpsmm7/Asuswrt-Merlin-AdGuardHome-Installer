@@ -2,7 +2,7 @@
 
 NAME="$(basename "$0")[$$]"
 SCRIPT_LOC="$(readlink -f "$0")"
-UPPER_SCRIPT"/opt/etc/init.d/S99AdGuardHome"
+UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 
 [ ! -f "$UPPER_SCRIPT" ] && exit 1 || UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"
