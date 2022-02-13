@@ -132,7 +132,7 @@ case $1 in
     timezone
     ;;
   "start"|"restart")
-    if [ -z "$(pidof "$PROCS")" ]; then $SCRIPT_LOC monitor-start >/dev/null 2>&1; else start_AdGuardHome; fi
+    if [ -z "$(pidof "$PROCS")" ]; then start_AdGuardHome; $SCRIPT_LOC monitor-start >/dev/null 2>&1; else start_AdGuardHome; fi
     timezone
     ;;
   "stop"|"kill")
