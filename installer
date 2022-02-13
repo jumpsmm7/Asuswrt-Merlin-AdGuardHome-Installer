@@ -232,6 +232,7 @@ check_dns_environment () {
   nvram set dhcpd_dns_router="1"
   nvram commit
   service restart_dnsmasq >/dev/null 2>&1
+  while [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s\n" "$?")" != "0" ]; do sleep 1; done
 }
 
 check_dns_filter () {
@@ -668,6 +669,8 @@ inst_AdGuardHome () {
     return
   fi
   [ -f "/opt/etc/init.d/S99AdGuardHome" ] && /opt/etc/init.d/S99AdGuardHome restart
+  PTXT "$INFO please wait while we perform one last check."
+  while [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s\n" "$?")" != "0" ]; do sleep 1; done
   PTXT "$INFO AdGuardHome setup is complete."
   end_op_message 0
 }
