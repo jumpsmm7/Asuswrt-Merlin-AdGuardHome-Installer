@@ -15,10 +15,10 @@ ansi_rev="\033[7m";
 ansi_ul="\033[4m";
 
 start() {
-    [ "$CRITICAL" != "yes" -a "$CALLER" = "cron" ] && return 7
-        [ "$ENABLED" != "yes" ] && return 8
+    { [ "$CRITICAL" != "yes" ] && [ "$CALLER" = "cron" ]; } && return 7
+    [ "$ENABLED" != "yes" ] && return 8
     echo -e -n "$ansi_white Starting $DESC... $ansi_std"
-    if [ -n "`pidof $PROC`" ]; then
+    if [ -n "$(pidof "$PROC")" ]; then
         echo -e "            $ansi_yellow already running. $ansi_std"
         return 0
     fi
@@ -27,13 +27,13 @@ start() {
     #echo $PREARGS $PROC $ARGS 
     COUNTER=0
     LIMIT=10
-    while [ -z "`pidof $PROC`" -a "$COUNTER" -le "$LIMIT" ]; do
+    while { [ -z "$(pidof "$PROC")" ] && [ "$COUNTER" -le "$LIMIT" ]; }; do
         sleep 1;
-        COUNTER=`expr $COUNTER + 1`
+        COUNTER="$(expr $COUNTER + 1)"
     done
     $POSTCMD > /dev/null 2>&1
 
-    if [ -z "`pidof $PROC`" ]; then
+    if [ -z "$(pidof "$PROC")" ]; then
         echo -e "            $ansi_red failed. $ansi_std"
         logger "Failed to start $DESC from $CALLER."
         return 255
@@ -51,9 +51,9 @@ stop() {
             killall $PROC 2>/dev/null
             COUNTER=0
             LIMIT=10
-            while [ -n "`pidof $PROC`" -a "$COUNTER" -le "$LIMIT" ]; do
+            while { [ -n "$(pidof "$PROC")" ] && [ "$COUNTER" -le "$LIMIT" ]; }; do
                 sleep 1;
-                COUNTER=`expr $COUNTER + 1`
+                COUNTER="$(expr $COUNTER + 1)"
             done
             ;;
         kill)
@@ -62,7 +62,7 @@ stop() {
             ;;
     esac
 
-    if [ -n "`pidof $PROC`" ]; then
+    if [ -n "$(pidof "$PROC")" ]; then
         echo -e "            $ansi_red failed. $ansi_std"
         return 255
     else
@@ -73,7 +73,7 @@ stop() {
 
 check() {
     echo -e -n "$ansi_white Checking $DESC... "
-    if [ -n "`pidof $PROC`" ]; then
+    if [ -n "$(pidof "$PROC")" ]; then
         echo -e "            $ansi_green alive. $ansi_std";
         return 0
     else
