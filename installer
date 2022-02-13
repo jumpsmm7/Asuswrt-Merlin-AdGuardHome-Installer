@@ -320,15 +320,15 @@ check_version () {
     local MD5SUM_R
     local NW_STATE
     local RES_STATE
-    NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s\n" "$?")"; sleep 1
+    NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s\n" "$?")";
     RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s\n" "$?")"; sleep 1
-    LINSTALL="$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"; sleep 1
-    RMNSTALL="$(curl -sL "${RURL}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"; sleep 1
-    MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)"; sleep 1
-    MD5SUM_R="$(curl -fsL "${RURL}/installer" | md5sum | awk '{print $1}')"; sleep 1
+    LINSTALL="$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')";
+    RMNSTALL="$(curl -sL "${RURL}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')";
+    MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)";
+    MD5SUM_R="$(curl -fsL "${RURL}/installer" | md5sum | awk '{print $1}')";
     if { [ -n "$LINSTALL" ] && [ -n "$RMNSTALL" ]; } || { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" = "0" ]; }; then
-      [ -z "$LINSTALL" ] && exit 1 || sleep 1
-      [ -z "$RMNSTALL" ] && exit 1 || sleep 1
+      [ -z "$LINSTALL" ] && exit 1
+      [ -z "$RMNSTALL" ] && exit 1
       if [ "$RMNSTALL" != "$LINSTALL" ]; then
         PTXT "$INFO New AI_VERSION=v${RMNSTALL} Available!" \
              "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
@@ -342,9 +342,9 @@ check_version () {
       fi
       local ADGUARD_BRANCH
       ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
-      [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ] && exit 1 || sleep 1
-      [ -z "$REMOTE_VER" ] && exit 1 || sleep 1
-      [ -z "$REMOTE_BETA" ] && exit 1 || sleep 1
+      [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ] && exit 1
+      [ -z "$REMOTE_VER" ] && exit 1
+      [ -z "$REMOTE_BETA" ] && exit 1
       if { [ "$REMOTE_VER" != "$($AGH_FILE --version | cut -d" "  -f4-)" ] && [ "$ADGUARD_BRANCH" = "release" ]; } || { [ "$REMOTE_BETA" != "$($AGH_FILE --version | cut -d" "  -f4-)" ] && [ "$ADGUARD_BRANCH" = "beta" ]; }; then
         case "$ADGUARD_BRANCH" in
           release)
@@ -537,8 +537,8 @@ inst_AdGuardHome () {
     fi
     local NW_STATE
     local RES_STATE
-    NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s\n" "$?")"; sleep 1
-    RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s\n" "$?")"; sleep 1
+    NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s\n" "$?")";
+    RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s\n" "$?")";
     if [ -z "$REMOTE_VER" ] || { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
       PTXT "$ERROR Unable to detect the Internet!"
       end_op_message 1
@@ -562,9 +562,9 @@ inst_AdGuardHome () {
   local ADGUARD_BRANCH
   ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
   if [ -f "$AGH_FILE" ]; then
-    [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ] && exit 1 || sleep 1
-    [ -z "$REMOTE_VER" ] && exit 1 || sleep 1
-    [ -z "$REMOTE_BETA" ] && exit 1 || sleep 1
+    [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ] && exit 1
+    [ -z "$REMOTE_VER" ] && exit 1
+    [ -z "$REMOTE_BETA" ] && exit 1
     if { [ "$REMOTE_VER" != "$($AGH_FILE --version | cut -d" "  -f4-)" ] && [ "$ADGUARD_BRANCH" = "release" ]; } || { [ "$REMOTE_BETA" != "$($AGH_FILE --version | cut -d" "  -f4-)" ] && [ "$ADGUARD_BRANCH" = "beta" ]; }; then
       case "$ADGUARD_BRANCH" in
        release)
