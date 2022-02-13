@@ -137,6 +137,6 @@ case $1 in
     ;;
   "stop"|"kill")
     stop_AdGuardHome
-    killall -q -9 AdGuardHome S99AdGuardHome AdGuardHome.sh 2>/dev/null
+    killall -q -9 $PROCS S99${PROCS} ${PROCS}.sh 2>/dev/null
     ;;
 esac
