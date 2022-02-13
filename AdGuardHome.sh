@@ -90,6 +90,9 @@ start_monitor () {
       elif { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
         logger -st "$NAME" "Warning: AdGuardHome is not responding"
         start_AdGuardHome
+      elif [ "$(pidof "$PROCS")" le "$$" ]; then
+        logger -st "$NAME" "Warning: $NAME reharmonizing $PROCS"
+        start_AdGuardHome
       fi
     fi
     sleep 10
