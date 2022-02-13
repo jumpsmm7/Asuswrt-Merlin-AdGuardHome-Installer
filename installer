@@ -320,12 +320,12 @@ check_version () {
     local MD5SUM_R
     local NW_STATE
     local RES_STATE
-    NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s\n" "$?")";
-    RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s\n" "$?")";
-    LINSTALL="$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')";
-    RMNSTALL="$(curl -sL "${RURL}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')";
-    MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)";
-    MD5SUM_R="$(curl -fsL "${RURL}/installer" | md5sum | awk '{print $1}')";
+    NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s\n" "$?")"
+    RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s\n" "$?")"
+    LINSTALL="$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
+    RMNSTALL="$(curl -sL "${RURL}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
+    MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)"
+    MD5SUM_R="$(curl -fsL "${RURL}/installer" | md5sum | awk '{print $1}')"
     if { [ -n "$LINSTALL" ] && [ -n "$RMNSTALL" ]; } || { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" = "0" ]; }; then
       [ -z "$LINSTALL" ] && exit 1
       [ -z "$RMNSTALL" ] && exit 1
@@ -537,8 +537,8 @@ inst_AdGuardHome () {
     fi
     local NW_STATE
     local RES_STATE
-    NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s\n" "$?")";
-    RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s\n" "$?")";
+    NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s\n" "$?")"
+    RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s\n" "$?")"
     if [ -z "$REMOTE_VER" ] || { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
       PTXT "$ERROR Unable to detect the Internet!"
       end_op_message 1
@@ -676,7 +676,7 @@ inst_AdGuardHome () {
   fi
   [ -f "/opt/etc/init.d/S99AdGuardHome" ] && /opt/etc/init.d/S99AdGuardHome restart
   PTXT "$INFO please wait while we perform one last check."
-  while [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s\n" "$?")" != "0" ]; do sleep 1; done
+  while [ "$RES_STATE" != "0" ]; do sleep 1; done
   PTXT "$INFO AdGuardHome setup is complete."
   end_op_message 0
 }
