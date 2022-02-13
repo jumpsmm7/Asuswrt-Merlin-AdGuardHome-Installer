@@ -7,7 +7,7 @@ LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 
 [ ! -f "$UPPER_SCRIPT" ] && exit 1 || UPPER_SCRIPT_LOC="source $UPPER_SCRIPT"
 [ ! -f "$LOWER_SCRIPT" ] && exit 1 || LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"
-$UPPER_SCRIPT_LOC
+[ -z "$PROCS" ] && $UPPER_SCRIPT_LOC
 
 lower_script () {
   case $1 in
