@@ -90,9 +90,6 @@ start_monitor () {
       elif { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
         logger -st "$NAME" "Warning: $PROCS is not responding; $NAME will re-start it!"
         start_AdGuardHome
-      elif [ "$(pidof "$PROCS" | head -1 |  cut -d" " -f 1)" -lt "$(pidof "$(basename "$UPPER_SCRIPT")" | head -1 |  cut -d" " -f 1)" ]; then
-        logger -st "$NAME" "Warning: $NAME reharmonizing $PROCS with $NAME."
-        start_AdGuardHome
       fi
     fi
     sleep 10
@@ -140,6 +137,6 @@ case $1 in
     ;;
   "stop"|"kill")
     stop_AdGuardHome
-    killall -q -9 AdGuardHome S99AdGuardHome AdGuardHome.sh
+    killall -q -9 AdGuardHome S99AdGuardHome AdGuardHome.sh >/dev/null 2>&1
     ;;
 esac
