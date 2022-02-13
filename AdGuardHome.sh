@@ -11,7 +11,7 @@ LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 
 lower_script () {
   case $1 in
-    start|stop|kill|check)
+    start|stop|restart|kill|check)
       $LOWER_SCRIPT_LOC $1 $NAME
       ;;
   esac
