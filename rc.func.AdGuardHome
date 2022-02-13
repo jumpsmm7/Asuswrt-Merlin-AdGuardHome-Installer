@@ -48,17 +48,18 @@ stop() {
     case "$ACTION" in
         stop | restart)
             echo -e -n "$ansi_white Shutting down $PROC... $ansi_std"
-            killall $PROC 2>/dev/null
+            killall -q $PROC 2>/dev/null
             COUNTER=0
             LIMIT=10
             while { [ -n "$(pidof "$PROC")" ] && [ "$COUNTER" -le "$LIMIT" ]; }; do
                 sleep 1;
                 COUNTER="$(expr $COUNTER + 1)"
             done
+            [ -n "$(pidof "$PROC")" ] && killall -q -9 $PROC 2>/dev/null
             ;;
         kill)
             echo -e -n "$ansi_white Killing $PROC... $ansi_std"
-            killall -9 $PROC 2>/dev/null
+            killall -q -9 $PROC 2>/dev/null
             ;;
     esac
 
@@ -82,13 +83,6 @@ check() {
     fi
 }
 
-reconfigure() {
-    SIGNAL=SIGHUP
-    echo -e "$ansi_white Sending $SIGNAL to $PROC... $ansi_std"
-    killall -$SIGNAL $PROC 2>/dev/null
-}
-
-
 for PROC in $PROCS; do
     case $ACTION in
         start)
@@ -104,11 +98,8 @@ for PROC in $PROCS; do
         check)
             check
             ;;
-        reconfigure)
-            reconfigure
-            ;;
         *)
-            echo -e "$ansi_white Usage: $0 (start|stop|restart|check|kill|reconfigure)$ansi_std"
+            echo -e "$ansi_white Usage: $0 (start|stop|restart|check|kill)$ansi_std"
             exit 1
             ;;
     esac
