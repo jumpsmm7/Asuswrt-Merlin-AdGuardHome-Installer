@@ -374,8 +374,8 @@ check_version () {
            "$INFO You can use the WebUI to change things to your liking!" \
 	   "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
 	   "$INFO for any configuration needs. "
-    elif { [ -z "$(pidof AdGuardHome)" ] && [ -z "$REMOTE_VER" ]; } || { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
-      PTXT "$ERROR AdGuardHome is dead and/or the internet DNS is not responding, skipping the version check."
+    elif { [ -z "$LINSTALL" ] && [ -z "$RMNSTALL" ]; } || { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
+      PTXT "$ERROR AdGuardHome is dead and/or the internet is not responding, skipping the version check."
     fi
   fi
 }
