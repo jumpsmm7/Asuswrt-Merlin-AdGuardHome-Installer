@@ -85,13 +85,13 @@ start_monitor () {
     RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"
     if [ -f "/opt/sbin/AdGuardHome" ]; then
       if [ -z "$(pidof "$PROCS")" ]; then
-        logger -st "$NAME" "Warning: AdGuardHome is dead"
+        logger -st "$NAME" "Warning: $PROCS is dead; $NAME will force-start it!"
         start_AdGuardHome
       elif { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
-        logger -st "$NAME" "Warning: AdGuardHome is not responding"
+        logger -st "$NAME" "Warning: $PROCS is not responding; $NAME will re-start it!"
         start_AdGuardHome
       elif [ "$(pidof "$PROCS")" le "$$" ]; then
-        logger -st "$NAME" "Warning: $NAME reharmonizing $PROCS"
+        logger -st "$NAME" "Warning: $NAME reharmonizing $PROCS with $NAME."
         start_AdGuardHome
       fi
     fi
