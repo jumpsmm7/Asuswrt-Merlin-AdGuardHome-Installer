@@ -90,7 +90,7 @@ start_monitor () {
       elif { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
         logger -st "$NAME" "Warning: $PROCS is not responding; $NAME will re-start it!"
         start_AdGuardHome
-      elif [ "$(pidof "$PROCS")" < "$(pidof "$(basename "$UPPER_SCRIPT")")" ]; then
+      elif [ "$(pidof "$PROCS" | awk '{ print $1 }')" < "$(pidof "$(basename "$UPPER_SCRIPT")" | awk '{ print $1 }')" ]; then
         logger -st "$NAME" "Warning: $NAME reharmonizing $PROCS with $NAME."
         start_AdGuardHome
       fi
