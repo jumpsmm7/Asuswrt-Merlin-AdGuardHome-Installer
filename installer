@@ -17,7 +17,7 @@
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        #
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             JackYaz,gspannu,thelonelycoder #
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.3.0                               #
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.3.1                               #
 #                                                                                          #
 ############################################################################################
 
@@ -32,7 +32,7 @@
 # shellcheck disable=SC3045
 # shellcheck disable=SC3057
 
-AI_VERSION="v1.3.0"
+AI_VERSION="v1.3.1"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
 readonly REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
@@ -218,20 +218,27 @@ check_dns_environment () {
   fi
   local DNSPRIV
   DNSPRIV="$(nvram get dnspriv_enable)"
+  local DHCPDNS
+  DHCPDNS="$(nvram get dhcpd_dns_router)"
+  local DHCPDNS1
+  DHCPDNS1="$(nvram get nvram set dhcp_dns1_x)"
+  local DHCPDNS2
+  DHCPDNS1="$(nvram get nvram set dhcp_dns2_x)" 
   if [ "$DNSPRIV" -ne 0 ]; then
     PTXT "$INFO Setting up Correct DNS Environment."
     nvram set dnspriv_enable=0
     nvram commit
     killall -q -9 stubby
-    PTXT "$INFO DNS Environment is Ready."
-  else
-    PTXT "$INFO DNS Environment is Ready."
+    check_dns_environment x
+  elif [ "$DHCPDNS" -ne 1 ] || [ -n "$DHCPDNS1" ] || [ -n "$DHCPDNS2" ] || [ -n "$1" ]; then
+    nvram set dhcp_dns1_x=""
+    nvram set dhcp_dns2_x=""
+    nvram set dhcpd_dns_router="1"
+    nvram commit
+    service restart_dnsmasq >/dev/null 2>&1
+    while [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" != "0" ]; do sleep 1; done
   fi
-  nvram set dhcp_dns1_x=""
-  nvram set dhcp_dns2_x=""
-  nvram set dhcpd_dns_router="1"
-  nvram commit
-  service restart_dnsmasq >/dev/null 2>&1
+  PTXT "$INFO DNS Environment is Ready."
 }
 
 check_dns_filter () {
@@ -250,7 +257,7 @@ check_dns_filter () {
     USE_SOME=1
   elif [ "$1" -eq 1 ] && [ "$DNSFIL" -ne 0 ]; then
     PTXT "$INFO DNSFilter is Already on." \
-      "$INFO You can choose to keep any custom dnsfilter values and only redirect non-custom traffic or send all traffic through to AdGuardHome."
+         "$INFO You can choose to keep any custom dnsfilter values and only redirect non-custom traffic or send all traffic through to AdGuardHome."
     read_yesno "Do you want to redirect only SOME DNS resolutions on your network through AdGuardHome?" && USE_SOME="0" || USE_SOME="1"
   fi
   if [ "$USE_SOME" -eq 0 ]; then
@@ -306,20 +313,20 @@ check_jffs_enabled () {
 }
 
 check_version () {
-  if [ -f "${TARG_DIR}/installer" ] && [ -f "$AGH_FILE" ]; then
+  if [ -f "${TARG_DIR}/installer" ] && [ -f "$AGH_FILE" ] && [ -z "$2" ]; then
     local RMNSTALL
     local LINSTALL
     local MD5SUM_L
     local MD5SUM_R
     local NW_STATE
     local RES_STATE
-    NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"
-    RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"
+    NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"
+    RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"
     LINSTALL="$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
     RMNSTALL="$(curl -sL "${RURL}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
     MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)"
     MD5SUM_R="$(curl -fsL "${RURL}/installer" | md5sum | awk '{print $1}')"
-    if { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" = "0" ]; } || { [ -n "$LINSTALL" ] && [ -n "$RMNSTALL" ]; }; then
+    if { [ -n "$LINSTALL" ] && [ -n "$RMNSTALL" ]; } || { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" = "0" ]; }; then
       [ -z "$LINSTALL" ] && exit 1
       [ -z "$RMNSTALL" ] && exit 1
       if [ "$RMNSTALL" != "$LINSTALL" ]; then
@@ -358,7 +365,7 @@ check_version () {
           edge)
              PTXT "$INFO ADGUARDHOME_BUILD=Edge"
              ;;
-	      esac
+	esac
       fi
       PTXT "$INFO ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-)" \
            "$INFO Run Option 1 to upgrade or change builds." \
@@ -367,8 +374,9 @@ check_version () {
            "$INFO You can use the WebUI to change things to your liking!" \
 	   "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
 	   "$INFO for any configuration needs. "
-	  elif { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; } || [ -z "$(pidof AdGuardHome)" ] || [ -z "$REMOTE_VER" ]; then
-      PTXT "$ERROR AdGuardHome is dead or internet is not responding, skipping version check."
+    elif { [ -z "$LINSTALL" ] && [ -z "$RMNSTALL" ]; } || { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
+      [ -z "$1" ] && while [ "$RES_STATE" != "0" ]; do sleep 1; RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"; done && check_version x
+      [ -n "$1" ] && check_version x x
     fi
   fi
 }
@@ -404,7 +412,7 @@ choose_branch () {
 }
 
 cleanup () {
-  "/opt/etc/init.d/S61AdGuardHome" "stop" >/dev/null 2>&1; mv "/opt/etc/init.d/S61AdGuardHome" "/opt/etc/init.d/S99AdGuardHome" >/dev/null 2>&1; "/opt/etc/init.d/S99AdGuardHome" "start" >/dev/null 2>&1; [ "$(cru l | grep -c "S99AdGuardHome")" -gt 0 ] && cru -d "S99AdGuardHome"
+  mv "/opt/etc/init.d/S61AdGuardHome" "/opt/etc/init.d/S99AdGuardHome" >/dev/null 2>&1; [ "$(cru l | grep -c "S99AdGuardHome")" -gt 0 ] && cru -d "S99AdGuardHome"
 }
 
 create_dir () {
@@ -503,7 +511,7 @@ end_op_message () {
   PTXT "====================================================="
   PTXT " "
   PTXT " "
-  sleep 3 && clear
+  clear
   if [ -f "${TARG_DIR}/installer" ]; then chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1; exec "${TARG_DIR}/installer" "$BRANCH" && exit; elif [ ! -f "${TARG_DIR}/installer" ] && [ -f "$SCRIPT_LOC" ]; then chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1; exec "$SCRIPT_LOC" "$BRANCH" && exit; elif [ -f "${HOME}/installer" ]; then chmod 755 "${HOME}/installer" && exec "${HOME}/installer" "$BRANCH" && exit; else clear && end_op_header && exit; fi
 }
 
@@ -530,9 +538,9 @@ inst_AdGuardHome () {
     fi
     local NW_STATE
     local RES_STATE
-    NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"
-    RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"
-    if { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; } || [ -z "$REMOTE_VER" ]; then
+    NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"
+    RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"
+    if [ -z "$REMOTE_VER" ] || { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
       PTXT "$ERROR Unable to detect the Internet!"
       end_op_message 1
       return
@@ -668,6 +676,8 @@ inst_AdGuardHome () {
     return
   fi
   [ -f "/opt/etc/init.d/S99AdGuardHome" ] && /opt/etc/init.d/S99AdGuardHome restart
+  PTXT "$INFO please wait while we perform one last check."
+  while [ "$RES_STATE" != "0" ]; do sleep 1; RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"; done
   PTXT "$INFO AdGuardHome setup is complete."
   end_op_message 0
 }

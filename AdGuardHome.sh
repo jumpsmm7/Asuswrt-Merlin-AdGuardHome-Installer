@@ -81,15 +81,20 @@ start_monitor () {
       timezone
     fi
     COUNT="$((COUNT + 1))"
-    NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; echo $?)"
-    RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; echo $?)"
+    case $COUNT in
+      "30"|"60"|"90")
+        NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"
+        RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"
+        ;;
+    esac
     if [ -f "/opt/sbin/AdGuardHome" ]; then
       if [ -z "$(pidof "$PROCS")" ]; then
         logger -st "$NAME" "Warning: $PROCS is dead; $NAME will force-start it!"
         start_AdGuardHome
-      elif { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; } && { [ "$COUNT" -eq 30 ] || [ "$COUNT" -eq 60 ] || [ "$COUNT" -eq 90 ]; }; then
+      elif { [ "$COUNT" -eq 30 ] || [ "$COUNT" -eq 60 ] || [ "$COUNT" -eq 90 ]; } && { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
         logger -st "$NAME" "Warning: $PROCS is not responding; $NAME will re-start it!"
         start_AdGuardHome
+        while [ "$RES_STATE" != "0" ]; do sleep 1; RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"; done
       fi
     fi
     sleep 10
