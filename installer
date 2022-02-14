@@ -676,7 +676,7 @@ inst_AdGuardHome () {
   fi
   [ -f "/opt/etc/init.d/S99AdGuardHome" ] && /opt/etc/init.d/S99AdGuardHome restart
   PTXT "$INFO please wait while we perform one last check."
-  while [ "$RES_STATE" != "0" ]; do sleep 1; done
+  while [ "$RES_STATE" != "0" ]; do sleep 1; RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"; done
   PTXT "$INFO AdGuardHome setup is complete."
   end_op_message 0
 }
