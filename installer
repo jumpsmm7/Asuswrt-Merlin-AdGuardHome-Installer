@@ -236,7 +236,7 @@ check_dns_environment () {
     nvram set dhcpd_dns_router="1"
     nvram commit
     service restart_dnsmasq >/dev/null 2>&1
-    while [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s\n" "$?")" != "0" ]; do sleep 1; done
+    while [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" != "0" ]; do sleep 1; done
   fi
   PTXT "$INFO DNS Environment is Ready."
 }
@@ -320,8 +320,8 @@ check_version () {
     local MD5SUM_R
     local NW_STATE
     local RES_STATE
-    NW_STATE='$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s\n" "$?")'
-    RES_STATE='$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s\n" "$?")'
+    NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"
+    RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"
     LINSTALL="$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
     RMNSTALL="$(curl -sL "${RURL}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
     MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)"
@@ -537,8 +537,8 @@ inst_AdGuardHome () {
     fi
     local NW_STATE
     local RES_STATE
-    NW_STATE='$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s\n" "$?")'
-    RES_STATE='$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s\n" "$?")'
+    NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"
+    RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"
     if [ -z "$REMOTE_VER" ] || { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
       PTXT "$ERROR Unable to detect the Internet!"
       end_op_message 1
