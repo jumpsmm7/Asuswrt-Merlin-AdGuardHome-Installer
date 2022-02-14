@@ -17,7 +17,7 @@
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        #
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             JackYaz,gspannu,thelonelycoder #
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.3.0                               #
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.3.1                               #
 #                                                                                          #
 ############################################################################################
 
@@ -313,7 +313,7 @@ check_jffs_enabled () {
 }
 
 check_version () {
-  if [ -f "${TARG_DIR}/installer" ] && [ -f "$AGH_FILE" ]; then
+  if [ -f "${TARG_DIR}/installer" ] && [ -f "$AGH_FILE" ] && [ -z "$2" ]; then
     local RMNSTALL
     local LINSTALL
     local MD5SUM_L
@@ -365,7 +365,7 @@ check_version () {
           edge)
              PTXT "$INFO ADGUARDHOME_BUILD=Edge"
              ;;
-	      esac
+	esac
       fi
       PTXT "$INFO ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-)" \
            "$INFO Run Option 1 to upgrade or change builds." \
@@ -375,7 +375,8 @@ check_version () {
 	   "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
 	   "$INFO for any configuration needs. "
     elif { [ -z "$LINSTALL" ] && [ -z "$RMNSTALL" ]; } || { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
-      PTXT "$ERROR AdGuardHome is dead and/or the internet is not responding, skipping the version check."
+      [ -z "$1" ] && while [ "$RES_STATE" != "0" ]; do sleep 1; RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"; done && check_version x
+      [ -n "$1" ] && check_version x x
     fi
   fi
 }
