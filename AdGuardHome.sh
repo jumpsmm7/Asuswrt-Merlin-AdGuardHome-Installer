@@ -51,7 +51,7 @@ dnsmasq_params () {
       if [ "$(pidof "$PROCS")" ]; then printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >> $CONFIG; fi
     done
   fi
-  if [ "$(pidof "$PROCS")" ] && [ "$(nvram get dns_local_cache)" != "1" ]; then mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; fi
+  if [ "$(pidof "$PROCS")" ] && [ "$(nvram get dns_local_cache)" != "1" ]; then umount /tmp/resolv.conf; mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; fi
 }
 
 start_AdGuardHome () {
