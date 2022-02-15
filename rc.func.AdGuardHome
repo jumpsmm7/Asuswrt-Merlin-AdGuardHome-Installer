@@ -47,7 +47,7 @@ start() {
 stop() {
     case "$ACTION" in
         stop | restart)
-            printf "%s\n" "$ansi_white Shutting down $PROC... $ansi_std"
+            printf "%s" "$ansi_white Shutting down $PROC... $ansi_std"
             killall -q $PROC 2>/dev/null
             COUNTER=0
             LIMIT=10
@@ -55,14 +55,19 @@ stop() {
                 sleep 1;
                 COUNTER="$((COUNTER + 1))"
             done
-            [ -n "$(pidof "$PROC")" ] && printf "%s\n" "$ansi_white Killing $PROC... $ansi_std" && killall -q -9 $PROC 2>/dev/null
+            [ -n "$(pidof "$PROC")" ] && stop kill
             ;;
         kill)
-            printf "%s\n" "$ansi_white Killing $PROC... $ansi_std"
+            printf "%s" "$ansi_white Killing $PROC... $ansi_std"
             killall -q -9 $PROC 2>/dev/null
             ;;
     esac
-
+    case "$1" in
+        kill)
+            printf "%s" "$ansi_white Killing $PROC... $ansi_std"
+            killall -q -9 $PROC 2>/dev/null
+            ;;
+    esac
     if [ -n "$(pidof "$PROC")" ]; then
         printf "%s\n" "            $ansi_red failed. $ansi_std"
         return 255
