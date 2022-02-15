@@ -674,8 +674,8 @@ inst_AdGuardHome () {
     end_op_message 1
     return
   fi
-  [ -f "/opt/etc/init.d/S99AdGuardHome" ] && /opt/etc/init.d/S99AdGuardHome restart
   PTXT "$INFO please wait while we perform one last check."
+  [ -f "/opt/etc/init.d/S99AdGuardHome" ] && /opt/etc/init.d/S99AdGuardHome restart
   PTXT "$INFO AdGuardHome setup is complete."
   end_op_message 0
 }
