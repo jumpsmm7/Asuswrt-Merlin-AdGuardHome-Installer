@@ -167,7 +167,7 @@ backup_restore () {
       return
     fi
     [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
-    [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
+    [ -z "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
     sleep 1
     if [ -z "$(pidof AdGuardHome)" ]; then
       PTXT "$ERROR Couldn't start AdGuardHome!" \
@@ -175,7 +175,8 @@ backup_restore () {
       end_op_message 1
       return
     fi
-    [ -f "/opt/etc/init.d/S99AdGuardHome" ] && /opt/etc/init.d/S99AdGuardHome restart
+    PTXT "$INFO Please wait while we perform one last check."
+    [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome restart; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
     PTXT "$INFO You are all set."
     end_op_message 0
   elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
@@ -666,7 +667,7 @@ inst_AdGuardHome () {
     return
   fi
   [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome; rm -rf /opt/var/run/AdGuardHome.pid; sleep 1; fi
-  [ -f "/opt/etc/init.d/S99AdGuardHome" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
+  [ -z "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
   sleep 1
   if [ -z "$(pidof AdGuardHome)" ]; then
     PTXT "$ERROR Couldn't start AdGuardHome!" \
@@ -674,8 +675,8 @@ inst_AdGuardHome () {
     end_op_message 1
     return
   fi
-  PTXT "$INFO please wait while we perform one last check."
-  [ -f "/opt/etc/init.d/S99AdGuardHome" ] && /opt/etc/init.d/S99AdGuardHome restart
+  PTXT "$INFO Please wait while we perform one last check."
+  [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome restart; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
   PTXT "$INFO AdGuardHome setup is complete."
   end_op_message 0
 }

@@ -67,11 +67,9 @@ start_AdGuardHome () {
 }
 
 stop_AdGuardHome () {
-  if [ -n "$(pidof "$PROCS")" ]; then lower_script stop; lower_script kill; else lower_script check; fi
+  if [ -n "$(pidof "$PROCS")" ]; then lower_script stop; lower_script kill; service restart_dnsmasq >/dev/null 2>&1; else lower_script check; fi
   if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi
   if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi
-  service restart_dnsmasq >/dev/null 2>&1
-  lower_script check
 }
 
 start_monitor () {
