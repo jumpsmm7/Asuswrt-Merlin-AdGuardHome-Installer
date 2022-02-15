@@ -62,13 +62,11 @@ stop() {
             ;;
     esac
     [ -n "$(pidof "$PROC")" ] && PROC_PID="$(pidof "$PROC")"
-    case "$PROC_PID" in
-        *)
-            printf "\n"
-            printf "%s" "$ansi_white Killing $PROC_PID... $ansi_std"
-            killall -q -9 $PROC_PID 2>/dev/null
-            ;;
-    esac
+    if [ -n "$PROC_PID" ]; then
+      printf "%s\n" "            $ansi_red failed. $ansi_std"
+      printf "%s" "$ansi_white Killing $PROC_PID... $ansi_std"
+      killall -q -9 $PROC_PID 2>/dev/null
+    fi
     if [ -n "$(pidof "$PROC")" ]; then
         printf "%s\n" "            $ansi_red failed. $ansi_std"
         return 255
