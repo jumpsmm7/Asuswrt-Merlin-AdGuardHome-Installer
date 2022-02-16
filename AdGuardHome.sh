@@ -1,7 +1,8 @@
 #!/bin/sh
 
 NAME="$(basename "$0")[$$]"
-SCRIPT_LOC="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
+SCRIPT_LOC="$(readlink -f "$0")"
+MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 
@@ -114,16 +115,16 @@ timezone () {
   local TIMEZONE
   local TARGET
   #local LINK
-  SANITY="$(date -u -r "$SCRIPT_LOC" '+%s')"
+  SANITY="$(date -u -r "$MID_SCRIPT" '+%s')"
   NOW="$(date -u '+%s')"
   TIMEZONE="/jffs/addons/AdGuardHome.d/localtime"
   TARGET="/etc/localtime"
   #LINK="$(readlink "$TARGET")"
   if [ -f "$TARGET" ]; then
       if [ "$NOW" -ge "$SANITY" ]; then
-        touch "$SCRIPT_LOC"
+        touch "$MID_SCRIPT"
       elif [ "$NOW" -le "$SANITY" ]; then
-        date -u -s "$(date -u -r \"$SCRIPT_LOC\" '+%Y-%m-%d %H:%M:%S')"
+        date -u -s "$(date -u -r \"$MID_SCRIPT\" '+%Y-%m-%d %H:%M:%S')"
       fi 
   elif [ -f "$TIMEZONE" ] || [ ! -f "$TARGET" ]; then
     ln -sf $TIMEZONE $TARGET
@@ -136,7 +137,7 @@ unset TZ
 case $1 in
   "start"|"restart")
     script_loc
-    if [ "$?" = "0" ]; then "$UPPER_SCRIPT" monitor-start >/dev/null 2>&1; start_AdGuardHome; fi
+    if [ "$?" = "0" ]; then "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; start_AdGuardHome; fi
     ;;
   "dnsmasq")
     script_loc
