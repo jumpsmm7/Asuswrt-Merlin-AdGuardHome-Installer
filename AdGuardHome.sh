@@ -51,6 +51,8 @@ lower_script () {
 }
 
 script_loc () {
+  local UPPER_SCRIPT_LOC
+  local LOWER_SCRIPT_LOC
   [ ! -f "$UPPER_SCRIPT" ] && return 1 || UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"
   [ ! -f "$LOWER_SCRIPT" ] && return 1 || LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"
   [ -z "$PROCS" ] && $UPPER_SCRIPT_LOC
