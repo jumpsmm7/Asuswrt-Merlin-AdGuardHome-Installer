@@ -129,6 +129,9 @@ unset TZ
 
 if [ -n "$PROCS" ]; then
   case "$1" in
+    "monitor-start")
+      start_monitor &
+      ;;
     "start"|"restart")
       timezone
       if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; fi
@@ -150,8 +153,5 @@ case "$1" in
   "init-start"|"services-stop")
     [ "$1" = "init-start" ] && printf "1" > /proc/sys/vm/overcommit_memory
     timezone
-    ;;
-  "monitor-start")
-    start_monitor &
     ;;
 esac
