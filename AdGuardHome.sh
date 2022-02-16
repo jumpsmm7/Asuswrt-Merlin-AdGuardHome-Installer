@@ -68,20 +68,18 @@ start_AdGuardHome () {
 
 start_monitor () {
   trap "" 1 2 3 15
-  while [ "$(nvram get ntp_ready)" -eq 0 ]; do sleep 1; done
+  while [ "$(nvram get ntp_ready)" -eq "0" ]; do sleep 1; done
   local NW_STATE
   local RES_STATE
   local COUNT
-  COUNT=0
+  COUNT="0"
   while true; do
-    if [ "$COUNT" -gt 90 ]; then
-      COUNT=0
-      timezone
-    fi
+    [ "$COUNT" -gt "90" ] && COUNT="0"
     COUNT="$((COUNT + 1))"
     if [ -f "/opt/sbin/AdGuardHome" ]; then
       case $COUNT in
         "30"|"60"|"90")
+          timezone
           NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"
           RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"
           ;;
@@ -89,7 +87,7 @@ start_monitor () {
       if [ -z "$(pidof "$PROCS")" ]; then
         logger -st "$NAME" "Warning: $PROCS is dead; $NAME will force-start it!"
         start_AdGuardHome
-      elif { [ "$COUNT" -eq 30 ] || [ "$COUNT" -eq 60 ] || [ "$COUNT" -eq 90 ]; } && { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
+      elif { [ "$COUNT" -eq "30" ] || [ "$COUNT" -eq "60" ] || [ "$COUNT" -eq "90" ]; } && { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
         logger -st "$NAME" "Warning: $PROCS is not responding; $NAME will re-start it!"
         start_AdGuardHome
       fi
