@@ -143,6 +143,7 @@ case $1 in
     [ "$?" = "0" ] && dnsmasq_params
     ;;
   "init-start"|"services-stop")
+    [ "$1" = "init-start" ] && printf "1" > /proc/sys/vm/overcommit_memory
     timezone
     ;;
   "monitor-start")
