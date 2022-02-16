@@ -6,6 +6,10 @@ MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 
+[ -f "$UPPER_SCRIPT" ] && UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"
+[ -f "$LOWER_SCRIPT" ] && LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"
+[ -z "$PROCS" ] && $UPPER_SCRIPT_LOC
+
 dnsmasq_params () {
   local CONFIG
   local COUNT
@@ -49,14 +53,6 @@ lower_script () {
       $LOWER_SCRIPT_LOC $1 $NAME
       ;;
   esac
-}
-
-script_loc () {
-  local UPPER_SCRIPT_LOC
-  local LOWER_SCRIPT_LOC
-  [ ! -f "$UPPER_SCRIPT" ] && return 1 || UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"
-  [ ! -f "$LOWER_SCRIPT" ] && return 1 || LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"
-  [ -z "$PROCS" ] && $UPPER_SCRIPT_LOC
 }
 
 start_AdGuardHome () {
@@ -136,12 +132,10 @@ unset TZ
 
 case $1 in
   "start"|"restart")
-    script_loc
-    if [ "$?" = "0" ]; then "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; start_AdGuardHome; fi
+    if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; start_AdGuardHome; fi
     ;;
   "dnsmasq")
-    script_loc
-    [ "$?" = "0" ] && dnsmasq_params
+    dnsmasq_params
     ;;
   "init-start"|"services-stop")
     [ "$1" = "init-start" ] && printf "1" > /proc/sys/vm/overcommit_memory
@@ -151,7 +145,6 @@ case $1 in
     start_monitor &
     ;;
   "stop"|"kill")
-    script_loc
     stop_AdGuardHome
     killall -q -9 $PROCS S99${PROCS} ${PROCS}.sh 2>/dev/null
     ;;
