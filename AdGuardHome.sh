@@ -134,7 +134,7 @@ unset TZ
 case $1 in
   "start"|"restart")
     script_loc
-    if [ "$?" = "0" ]; then "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; start_AdGuardHome; fi
+    if [ "$?" = "0" ]; then "$UPPER_SCRIPT" monitor-start >/dev/null 2>&1; start_AdGuardHome; fi
     ;;
   "dnsmasq")
     script_loc
