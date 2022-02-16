@@ -6,9 +6,8 @@ MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 
-[ -f "$UPPER_SCRIPT" ] && UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"
-[ -f "$LOWER_SCRIPT" ] && LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"
-[ -z "$PROCS" ] && $UPPER_SCRIPT_LOC
+if [ "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
+if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
 
 dnsmasq_params () {
   local CONFIG
@@ -130,10 +129,21 @@ timezone () {
 
 unset TZ
 
-case $1 in
-  "start"|"restart")
-    if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; start_AdGuardHome; fi
-    ;;
+if [ -n "$PROCS" ]; then
+  case "$1" in
+    "start"|"restart")
+      if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; start_AdGuardHome; else start_AdGuardHome; fi
+      ;;
+    "stop"|"kill")
+      stop_AdGuardHome
+      killall -q -9 $PROCS S99${PROCS} ${PROCS}.sh 2>/dev/null
+      ;;
+   esac
+else
+  $UPPER_SCRIPT_LOC
+fi
+
+case "$1" in
   "dnsmasq")
     dnsmasq_params
     ;;
@@ -143,9 +153,5 @@ case $1 in
     ;;
   "monitor-start")
     start_monitor &
-    ;;
-  "stop"|"kill")
-    stop_AdGuardHome
-    killall -q -9 $PROCS S99${PROCS} ${PROCS}.sh 2>/dev/null
     ;;
 esac
