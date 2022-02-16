@@ -138,7 +138,7 @@ if [ -n "$PROCS" ]; then
       stop_AdGuardHome
       killall -q -9 $PROCS S99${PROCS} ${PROCS}.sh 2>/dev/null
       ;;
-   esac
+  esac
 else
   $UPPER_SCRIPT_LOC
 fi
