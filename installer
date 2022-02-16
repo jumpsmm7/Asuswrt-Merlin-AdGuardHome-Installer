@@ -664,7 +664,7 @@ inst_AdGuardHome () {
     go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
     rm -rf go
   fi
-  if [ ! -f "/etc/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
+  if [ ! -f "${ADDON_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
   setup_AdGuardHome
   if [ "$?" -ne 0 ]; then
     end_op_message 1
