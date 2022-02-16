@@ -137,7 +137,7 @@ backup_restore () {
     download_file /opt/etc/init.d 755 "${RURL}/S99AdGuardHome"
     download_file "/opt/etc/init.d" 644 "${RURL}/rc.func.AdGuardHome"
     [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-    write_manager_script /jffs/scripts/initial-start initial-start
+    write_manager_script /jffs/scripts/init-start init-start
     write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
     write_manager_script /jffs/scripts/services-stop services-stop
     if [ -f "/opt/etc/init.d/S80apache" ]; then opkg install apache-utils >/dev/null 2>&1; fi
@@ -640,7 +640,7 @@ inst_AdGuardHome () {
   download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome"
   download_file "/opt/etc/init.d" 644 "${RURL}/rc.func.AdGuardHome"
   [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-  write_manager_script /jffs/scripts/initial-start initial-start
+  write_manager_script /jffs/scripts/init-start init-start
   write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
   write_manager_script /jffs/scripts/services-stop services-stop
   if [ -f "/opt/etc/init.d/S80apache" ]; then opkg install apache-utils >/dev/null 2>&1; fi
