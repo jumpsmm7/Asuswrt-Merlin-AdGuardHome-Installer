@@ -132,7 +132,9 @@ unset TZ
 if [ -n "$PROCS" ]; then
   case "$1" in
     "start"|"restart")
-      if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; start_AdGuardHome; else start_AdGuardHome; fi
+      timezone
+      if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; fi
+      start_AdGuardHome
       ;;
     "stop"|"kill")
       stop_AdGuardHome
