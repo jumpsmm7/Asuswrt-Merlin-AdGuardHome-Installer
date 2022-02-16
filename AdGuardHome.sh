@@ -2,20 +2,12 @@
 
 NAME="$(basename "$0")[$$]"
 SCRIPT_LOC="$(readlink -f "$0")"
+MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 
-[ ! -f "$UPPER_SCRIPT" ] && exit 1 || UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"
-[ ! -f "$LOWER_SCRIPT" ] && exit 1 || LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"
-[ -z "$PROCS" ] && $UPPER_SCRIPT_LOC
-
-lower_script () {
-  case $1 in
-    start|stop|restart|kill|check)
-      $LOWER_SCRIPT_LOC $1 $NAME
-      ;;
-  esac
-}
+if [ "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
+if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
 
 dnsmasq_params () {
   local CONFIG
@@ -31,7 +23,7 @@ dnsmasq_params () {
   local i 
   CONFIG="/etc/dnsmasq.conf"
   if [ "$(pidof "$PROCS")" ] && [ -z "$(nvram get ipv6_rtr_addr)" ]; then printf "%s\n" "port=553" "local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/" "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $CONFIG; fi
-  if [ "$(pidof "$PROCS")" ] && [ -n "$(nvram get ipv6_rtr_addr)" ]; then printf "%s\n" "port=553" "local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/" "local=/10.in-addr.arpa/" "local=/$(nvram get ipv6_prefix | sed "s/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/")/" "dhcp-option=lan,6,0.0.0.0" >> $CONFIG; fi
+  if [ "$(pidof "$PROCS")" ] && [ -n "$(nvram get ipv6_rtr_addr)" ]; then printf "%s\n" "port=553" "local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/" "local=/10.in-addr.arpa/" "local=/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/" "dhcp-option=lan,6,0.0.0.0" >> $CONFIG; fi
   if [ -n "$(route | grep "br" | grep -v "br0" | grep -E "^(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | awk '{print $1}' | sed -e 's/[0-9]$/1/' | sed -e ':a; N; $!ba;s/\n/ /g')" ]; then
     iCOUNT="1"
     for iVARS in $(route | grep "br" | grep -v "br0" | grep -E "(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | awk '{print $8}' | sed -e ':a; N; $!ba;s/\n/ /g'); do
@@ -51,7 +43,15 @@ dnsmasq_params () {
       if [ "$(pidof "$PROCS")" ]; then printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >> $CONFIG; fi
     done
   fi
-  if [ "$(pidof "$PROCS")" ] && [ "$(nvram get dns_local_cache)" != "1" ]; then umount /tmp/resolv.conf; mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; fi
+  if [ "$(pidof "$PROCS")" ] && [ "$(nvram get dns_local_cache)" != "1" ]; then umount /tmp/resolv.conf 2>/dev/null; mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; fi
+}
+
+lower_script () {
+  case $1 in
+    start|stop|restart|kill|check)
+      $LOWER_SCRIPT_LOC $1 $NAME
+      ;;
+  esac
 }
 
 start_AdGuardHome () {
@@ -66,28 +66,20 @@ start_AdGuardHome () {
   lower_script check
 }
 
-stop_AdGuardHome () {
-  if [ -n "$(pidof "$PROCS")" ]; then lower_script stop; lower_script kill; service restart_dnsmasq >/dev/null 2>&1; else lower_script check; fi
-  if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi
-  if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi
-}
-
 start_monitor () {
   trap "" 1 2 3 15
-  while [ "$(nvram get ntp_ready)" -eq 0 ]; do sleep 1; done
+  while [ "$(nvram get ntp_ready)" -eq "0" ]; do sleep 1; done
   local NW_STATE
   local RES_STATE
   local COUNT
-  COUNT=0
+  COUNT="0"
   while true; do
-    if [ "$COUNT" -gt 90 ]; then
-      COUNT=0
-      timezone
-    fi
+    [ "$COUNT" -gt "90" ] && COUNT="0"
     COUNT="$((COUNT + 1))"
     if [ -f "/opt/sbin/AdGuardHome" ]; then
       case $COUNT in
         "30"|"60"|"90")
+          timezone
           NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"
           RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"
           ;;
@@ -95,7 +87,7 @@ start_monitor () {
       if [ -z "$(pidof "$PROCS")" ]; then
         logger -st "$NAME" "Warning: $PROCS is dead; $NAME will force-start it!"
         start_AdGuardHome
-      elif { [ "$COUNT" -eq 30 ] || [ "$COUNT" -eq 60 ] || [ "$COUNT" -eq 90 ]; } && { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
+      elif { [ "$COUNT" -eq "30" ] || [ "$COUNT" -eq "60" ] || [ "$COUNT" -eq "90" ]; } && { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
         logger -st "$NAME" "Warning: $PROCS is not responding; $NAME will re-start it!"
         start_AdGuardHome
       fi
@@ -104,22 +96,28 @@ start_monitor () {
   done
 }
 
+stop_AdGuardHome () {
+  if [ -n "$(pidof "$PROCS")" ]; then lower_script stop; lower_script kill; service restart_dnsmasq >/dev/null 2>&1; else lower_script check; fi
+  if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi
+  if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi
+}
+
 timezone () {
   local SANITY
   local NOW
   local TIMEZONE
   local TARGET
   #local LINK
-  SANITY="$(date -u -r "$0" '+%s')"
+  SANITY="$(date -u -r "$MID_SCRIPT" '+%s')"
   NOW="$(date -u '+%s')"
-  TIMEZONE="${WORK_DIR}/localtime"
+  TIMEZONE="/jffs/addons/AdGuardHome.d/localtime"
   TARGET="/etc/localtime"
   #LINK="$(readlink "$TARGET")"
   if [ -f "$TARGET" ]; then
       if [ "$NOW" -ge "$SANITY" ]; then
-        touch "$0"
+        touch "$MID_SCRIPT"
       elif [ "$NOW" -le "$SANITY" ]; then
-        date -u -s "$(date -u -r \"$0\" '+%Y-%m-%d %H:%M:%S')"
+        date -u -s "$(date -u -r "$MID_SCRIPT" '+%Y-%m-%d %H:%M:%S')"
       fi 
   elif [ -f "$TIMEZONE" ] || [ ! -f "$TARGET" ]; then
     ln -sf $TIMEZONE $TARGET
@@ -129,22 +127,31 @@ timezone () {
 
 unset TZ
 
-case $1 in
-  "monitor-start")
-    start_monitor &
-    ;;
+if [ -n "$PROCS" ]; then
+  case "$1" in
+    "monitor-start")
+      start_monitor &
+      ;;
+    "start"|"restart")
+      timezone
+      if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; fi
+      start_AdGuardHome
+      ;;
+    "stop"|"kill")
+      stop_AdGuardHome
+      killall -q -9 $PROCS S99${PROCS} ${PROCS}.sh 2>/dev/null
+      ;;
+  esac
+else
+  $UPPER_SCRIPT_LOC
+fi
+
+case "$1" in
   "dnsmasq")
     dnsmasq_params
     ;;
-  "services-stop")
+  "init-start"|"services-stop")
+    [ "$1" = "init-start" ] && printf "1" > /proc/sys/vm/overcommit_memory
     timezone
-    ;;
-  "start"|"restart")
-    if [ -z "$(pidof "$PROCS")" ]; then start_AdGuardHome; $SCRIPT_LOC monitor-start >/dev/null 2>&1; else start_AdGuardHome; fi
-    timezone
-    ;;
-  "stop"|"kill")
-    stop_AdGuardHome
-    killall -q -9 $PROCS S99${PROCS} ${PROCS}.sh 2>/dev/null
     ;;
 esac
