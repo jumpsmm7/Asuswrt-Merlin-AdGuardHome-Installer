@@ -1,21 +1,9 @@
 #!/bin/sh
 
 NAME="$(basename "$0")[$$]"
-SCRIPT_LOC="$(readlink -f "$0")"
+SCRIPT_LOC="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
-
-[ ! -f "$UPPER_SCRIPT" ] && exit 1 || UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"
-[ ! -f "$LOWER_SCRIPT" ] && exit 1 || LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"
-[ -z "$PROCS" ] && $UPPER_SCRIPT_LOC
-
-lower_script () {
-  case $1 in
-    start|stop|restart|kill|check)
-      $LOWER_SCRIPT_LOC $1 $NAME
-      ;;
-  esac
-}
 
 dnsmasq_params () {
   local CONFIG
@@ -51,7 +39,23 @@ dnsmasq_params () {
       if [ "$(pidof "$PROCS")" ]; then printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >> $CONFIG; fi
     done
   fi
-  if [ "$(pidof "$PROCS")" ] && [ "$(nvram get dns_local_cache)" != "1" ]; then umount /tmp/resolv.conf; mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; fi
+  if [ "$(pidof "$PROCS")" ] && [ "$(nvram get dns_local_cache)" != "1" ]; then umount /tmp/resolv.conf 2>/dev/null; mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; fi
+}
+
+lower_script () {
+  case $1 in
+    start|stop|restart|kill|check)
+      $LOWER_SCRIPT_LOC $1 $NAME
+      ;;
+  esac
+}
+
+script_loc () {
+  local UPPER_SCRIPT_LOC
+  local LOWER_SCRIPT_LOC
+  [ ! -f "$UPPER_SCRIPT" ] && return 1 || UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"
+  [ ! -f "$LOWER_SCRIPT" ] && return 1 || LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"
+  [ -z "$PROCS" ] && $UPPER_SCRIPT_LOC
 }
 
 start_AdGuardHome () {
@@ -64,12 +68,6 @@ start_AdGuardHome () {
   RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"
   while { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; do sleep 1; NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"; RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"; done
   lower_script check
-}
-
-stop_AdGuardHome () {
-  if [ -n "$(pidof "$PROCS")" ]; then lower_script stop; lower_script kill; service restart_dnsmasq >/dev/null 2>&1; else lower_script check; fi
-  if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi
-  if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi
 }
 
 start_monitor () {
@@ -104,22 +102,28 @@ start_monitor () {
   done
 }
 
+stop_AdGuardHome () {
+  if [ -n "$(pidof "$PROCS")" ]; then lower_script stop; lower_script kill; service restart_dnsmasq >/dev/null 2>&1; else lower_script check; fi
+  if [ -f "/tmp/stats.db" ]; then rm -rf "/tmp/stats.db" >/dev/null 2>&1; fi
+  if [ -f "/tmp/sessions.db" ]; then rm -rf "/tmp/sessions.db" >/dev/null 2>&1; fi
+}
+
 timezone () {
   local SANITY
   local NOW
   local TIMEZONE
   local TARGET
   #local LINK
-  SANITY="$(date -u -r "$0" '+%s')"
+  SANITY="$(date -u -r "$SCRIPT_LOC" '+%s')"
   NOW="$(date -u '+%s')"
-  TIMEZONE="${WORK_DIR}/localtime"
+  TIMEZONE="/jffs/addons/AdGuardHome.d/localtime"
   TARGET="/etc/localtime"
   #LINK="$(readlink "$TARGET")"
   if [ -f "$TARGET" ]; then
       if [ "$NOW" -ge "$SANITY" ]; then
-        touch "$0"
+        touch "$SCRIPT_LOC"
       elif [ "$NOW" -le "$SANITY" ]; then
-        date -u -s "$(date -u -r \"$0\" '+%Y-%m-%d %H:%M:%S')"
+        date -u -s "$(date -u -r \"$SCRIPT_LOC\" '+%Y-%m-%d %H:%M:%S')"
       fi 
   elif [ -f "$TIMEZONE" ] || [ ! -f "$TARGET" ]; then
     ln -sf $TIMEZONE $TARGET
@@ -130,20 +134,22 @@ timezone () {
 unset TZ
 
 case $1 in
+  "start"|"restart")
+    script_loc
+    if [ "$?" = "0" ]; then "$0" monitor-start >/dev/null 2>&1; start_AdGuardHome; fi
+    ;;
+  "dnsmasq")
+    script_loc
+    [ "$?" = "0" ] && dnsmasq_params
+    ;;
+  "init-start"|"services-stop")
+    timezone
+    ;;
   "monitor-start")
     start_monitor &
     ;;
-  "dnsmasq")
-    dnsmasq_params
-    ;;
-  "services-stop")
-    timezone
-    ;;
-  "start"|"restart")
-    if [ -z "$(pidof "$PROCS")" ]; then start_AdGuardHome; $SCRIPT_LOC monitor-start >/dev/null 2>&1; else start_AdGuardHome; fi
-    timezone
-    ;;
   "stop"|"kill")
+    script_loc
     stop_AdGuardHome
     killall -q -9 $PROCS S99${PROCS} ${PROCS}.sh 2>/dev/null
     ;;
