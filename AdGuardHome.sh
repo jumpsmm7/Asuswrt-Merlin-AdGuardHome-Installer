@@ -74,7 +74,7 @@ start_monitor () {
   local COUNT
   COUNT="0"
   while true; do
-    [ "$COUNT" -gt "90" ] && COUNT="0"
+    if [ "$COUNT" -gt "90" ]; then COUNT="0"; timezone; fi
     COUNT="$((COUNT + 1))"
     if [ -f "/opt/sbin/AdGuardHome" ]; then
       case $COUNT in
