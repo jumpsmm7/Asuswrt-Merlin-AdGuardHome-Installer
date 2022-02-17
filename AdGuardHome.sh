@@ -107,21 +107,22 @@ timezone () {
   local NOW
   local TIMEZONE
   local TARGET
-  #local LINK
+  local LINK
   SANITY="$(date -u -r "$MID_SCRIPT" '+%s')"
   NOW="$(date -u '+%s')"
   TIMEZONE="/jffs/addons/AdGuardHome.d/localtime"
   TARGET="/etc/localtime"
-  #LINK="$(readlink "$TARGET")"
-  if [ -f "$TARGET" ]; then
-      if [ "$NOW" -ge "$SANITY" ]; then
-        touch "$MID_SCRIPT"
-      elif [ "$NOW" -le "$SANITY" ]; then
-        date -u -s "$(date -u -r "$MID_SCRIPT" '+%Y-%m-%d %H:%M:%S')"
-      fi 
-  elif [ -f "$TIMEZONE" ] || [ ! -f "$TARGET" ]; then
+  LINK="$(readlink "$TARGET")"
+  if [ -f "$TIMEZONE" ] && [ "$LINK" = "$TIMEZONE" ]; then
+    if [ "$NOW" -ge "$SANITY" ]; then
+      touch "$MID_SCRIPT"
+    fi
+  elif [ -f "$TIMEZONE" ]; then
     ln -sf $TIMEZONE $TARGET
     timezone
+    if [ "$NOW" -le "$SANITY" ]; then
+      date -u -s "$(date -u -r "$MID_SCRIPT" '+%Y-%m-%d %H:%M:%S')"
+    fi
   fi
 }
 
