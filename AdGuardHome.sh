@@ -119,7 +119,6 @@ timezone () {
     fi
   elif [ -f "$TIMEZONE" ]; then
     ln -sf $TIMEZONE $TARGET
-    timezone
     if [ "$NOW" -le "$SANITY" ]; then
       date -u -s "$(date -u -r "$MID_SCRIPT" '+%Y-%m-%d %H:%M:%S')"
     fi
