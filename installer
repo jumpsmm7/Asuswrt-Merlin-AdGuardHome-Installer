@@ -777,7 +777,7 @@ set_timezone () {
   local TZ_FILE
   TZ_FILE=TZ_FILE="$(tar tjf "${TMP}/${TZ_DATA}" | awk -F'/' '!/\/$/ &&  /\/posix\//' | sort | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
   PTXT "$INFO $(basename "$TZ_FILE") selected"
-  tar xjf "${TMP}/${TZ_DATA}" -C "$TMP" ./usr/share/zoneinfo/posix
+  tar xjf "${TMP}/${TZ_DATA}" -C "$TMP" /usr/share/zoneinfo/posix
   mv "${TMP}/${TZ_FILE}" "${ADDON_DIR}/localtime"
   if [ "$?" -ne 0 ]; then
     PTXT "$ERROR Unable to set your timezone file"
