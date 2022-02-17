@@ -775,9 +775,9 @@ set_timezone () {
   tar tjf "${TMP}/${TZ_DATA}" | awk -F'/' '!/\/$/ && /\/posix\//' | sort | cut -d'/' -f2- | awk -v INDEX=0 -F'/' '!/\/$/ {++INDEX;printf "  " INDEX") ";for (i=5; i<NF; i++)  printf $i "/"; print $NF}' | column
   read_input_num "Select your timezone/location" 1 "$INDEX"
   local TZ_FILE
-  TZ_FILE=TZ_FILE="$(tar tjf "${TMP}/${TZ_DATA}" | awk -F'/' '!/\/$/ &&  /\/posix\//' | sort | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
+  TZ_FILE="$(tar tjf "${TMP}/${TZ_DATA}" | awk -F'/' '!/\/$/ &&  /\/posix\//' | sort | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
   PTXT "$INFO $(basename "$TZ_FILE") selected"
-  tar xjf "${TMP}/${TZ_DATA}" -C "$TMP" usr/share/zoneinfo/posix
+  tar xjf "${TMP}/${TZ_DATA}" -C "$TMP" ./usr/share/zoneinfo/posix
   mv "${TMP}/${TZ_FILE}" "${ADDON_DIR}/localtime"
   if [ "$?" -ne 0 ]; then
     PTXT "$ERROR Unable to set your timezone file"
