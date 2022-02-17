@@ -753,21 +753,32 @@ read_yesno () {
 }
 
 set_timezone () {
-  local TZ_ZONE
-  TZ_ZONE="/opt/share/zoneinfo"
+  local TMP
+  TMP="/root"
+  local TZ_ARCH
+  TZ_ARCH="$(uname -m)"
+  case $TZ_ARCH in
+    "aarch64"|"arm64")
+      TZ_ARCH="aarch64"
+    ;;
+    "armv7l")
+      TZ_ARCH="arm"
+    ;;
+  esac
   local TZ_DATA
-  TZ_DATA="${TZ_ZONE}/zone.tab"
-  opkg install "$(opkg list zoneinfo* | printf "%s\n" "$(awk '{printf $1" "}')")" >/dev/null 2>&1
+  TZ_DATA="tzdata-2021e-1-${TZ_ARCH}.pkg.tar.bz2"
   opkg install column >/dev/null 2>&1
+  download_file "$TMP" 644 "${RURL}/${TZ_DATA}"
   local INDEX
-  INDEX="$(printf "%s\n" "$(ls -laH ${TZ_ZONE} | grep -v '^d' | sed '/zone.tab/d' | awk '{print $9}';awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}'; ls -laH -d ${TZ_ZONE}/*/* | grep -v '^d' | awk '{print $9}' | sed -e "s!${TZ_ZONE}/!!")" | sort -u | wc -l)"
+  INDEX="$(tar tjf "${TMP}/${TZ_DATA}" | awk -F'/' '!/\/$/ && /\/posix\//' | wc -l)"
   PTXT "$INFO Available timezones/locations:"
-  printf "%s\n" "$(ls -laH ${TZ_ZONE} | grep -v '^d' | sed '/zone.tab/d' | awk '{print $9}';awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}'; ls -laH -d ${TZ_ZONE}/*/* | grep -v '^d' | awk '{print $9}' | sed -e "s!${TZ_ZONE}/!!")" | sort -u | awk -v INDEX=0 -F'/' '!/\/$/ {++INDEX;printf "  " INDEX") ";for (i=5; i<NF; i++)  printf $i "/"; print $0}' | column
+  tar tjf "${TMP}/${TZ_DATA}" | awk -F'/' '!/\/$/ && /\/posix\//' | sort | cut -d'/' -f2- | awk -v INDEX=0 -F'/' '!/\/$/ {++INDEX;printf "  " INDEX") ";for (i=5; i<NF; i++)  printf $i "/"; print $NF}' | column
   read_input_num "Select your timezone/location" 1 "$INDEX"
   local TZ_FILE
-  TZ_FILE="${TZ_ZONE}/$(printf "%s\n" "$(ls -laH ${TZ_ZONE} | grep -v '^d' | sed '/zone.tab/d' | awk '{print $9}';awk '{ print }' "$TZ_DATA" | sed '/^\s*#/d' | awk '{print $3}'; ls -laH -d ${TZ_ZONE}/*/* | grep -v '^d' | awk '{print $9}' | sed -e "s!${TZ_ZONE}/!!")" | sort -u | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
+  TZ_FILE=TZ_FILE="$(tar tjf "${TMP}/${TZ_DATA}" | awk -F'/' '!/\/$/ &&  /\/posix\//' | sort | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
   PTXT "$INFO $(basename "$TZ_FILE") selected"
-  cp -a "${TZ_FILE}" "${ADDON_DIR}/localtime"
+  tar xjf "${TMP}/${TZ_DATA}" -C "$TMP" ./usr/share/zoneinfo/posix
+  mv "${TMP}/${TZ_FILE}" "${ADDON_DIR}/localtime"
   if [ "$?" -ne 0 ]; then
     PTXT "$ERROR Unable to set your timezone file"
     end_op_message 1
