@@ -9,6 +9,28 @@ LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 if [ "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
 
+check_dns_environment () {
+  local DNSPRIV
+  DNSPRIV="$(nvram get dnspriv_enable)"
+  local DHCPDNS
+  DHCPDNS="$(nvram get dhcpd_dns_router)"
+  local DHCPDNS1
+  DHCPDNS1="$(nvram get nvram set dhcp_dns1_x)"
+  local DHCPDNS2
+  DHCPDNS1="$(nvram get nvram set dhcp_dns2_x)" 
+  if [ "$DNSPRIV" -ne 0 ]; then
+    nvram set dnspriv_enable=0
+    nvram commit
+    killall -q -9 stubby
+    check_dns_environment x
+  elif [ "$DHCPDNS" -ne 1 ] || [ -n "$DHCPDNS1" ] || [ -n "$DHCPDNS2" ] || [ -n "$1" ]; then
+    nvram set dhcp_dns1_x=""
+    nvram set dhcp_dns2_x=""
+    nvram set dhcpd_dns_router="1"
+    nvram commit
+  fi
+}
+
 dnsmasq_params () {
   local CONFIG
   local COUNT
@@ -130,6 +152,8 @@ timezone () {
 
 unset TZ
 
+check_dns_environment
+
 if [ -n "$PROCS" ]; then
   case "$1" in
     "monitor-start")
@@ -156,5 +180,5 @@ case "$1" in
   "init-start"|"services-stop")
     [ "$1" = "init-start" ] && printf "1" > /proc/sys/vm/overcommit_memory
     timezone
-    ;;
+    ;;    
 esac
