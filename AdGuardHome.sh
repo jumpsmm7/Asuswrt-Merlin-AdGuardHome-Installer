@@ -55,6 +55,7 @@ lower_script () {
 }
 
 start_AdGuardHome () {
+  local COUNT
   local NW_STATE
   local RES_STATE
   if [ -z "$(pidof "$PROCS")" ]; then lower_script start; else lower_script restart; fi
