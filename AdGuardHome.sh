@@ -18,17 +18,12 @@ check_dns_environment () {
   DHCPDNS1="$(nvram get nvram set dhcp_dns1_x)"
   local DHCPDNS2
   DHCPDNS1="$(nvram get nvram set dhcp_dns2_x)" 
-  if [ "$DNSPRIV" -ne 0 ]; then
-    nvram set dnspriv_enable=0
-    nvram commit
-    killall -q -9 stubby
-    check_dns_environment x
-  elif [ "$DHCPDNS" -ne 1 ] || [ -n "$DHCPDNS1" ] || [ -n "$DHCPDNS2" ] || [ -n "$1" ]; then
-    nvram set dhcp_dns1_x=""
-    nvram set dhcp_dns2_x=""
-    nvram set dhcpd_dns_router="1"
-    nvram commit
-  fi
+  nvram set dnspriv_enable=0
+  killall -q -9 stubby
+  nvram set dhcp_dns1_x=""
+  nvram set dhcp_dns2_x=""
+  nvram set dhcpd_dns_router="1"
+  nvram commit
 }
 
 dnsmasq_params () {
