@@ -10,14 +10,6 @@ if [ "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
 
 check_dns_environment () {
-  local DNSPRIV
-  DNSPRIV="$(nvram get dnspriv_enable)"
-  local DHCPDNS
-  DHCPDNS="$(nvram get dhcpd_dns_router)"
-  local DHCPDNS1
-  DHCPDNS1="$(nvram get nvram set dhcp_dns1_x)"
-  local DHCPDNS2
-  DHCPDNS1="$(nvram get nvram set dhcp_dns2_x)" 
   nvram set dnspriv_enable=0
   killall -q -9 stubby
   nvram set dhcp_dns1_x=""
