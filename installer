@@ -784,6 +784,7 @@ set_timezone () {
     end_op_message 1
     return
   fi
+  rm -rf "${TMP:?}/${TZ_DATA}" "${TMP:?}/usr"
 }
 
 setup_AdGuardHome () {
