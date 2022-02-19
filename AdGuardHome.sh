@@ -149,8 +149,8 @@ if [ -n "$PROCS" ]; then
       start_monitor &
       ;;
     "start"|"restart")
-      if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" init-start >/dev/null 2>&1; fi
       start_AdGuardHome
+      if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" init-start >/dev/null 2>&1; fi
       ;;
     "stop"|"kill")
       stop_AdGuardHome
