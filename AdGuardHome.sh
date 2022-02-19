@@ -6,7 +6,8 @@ UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
-if [ "$MID_SCRIPT" != "$SCRIPT_LOC" ]; then exec $MID_SCRIPT $@ && exit; else $UPPER_SCRIPT_LOC; fi
+if [ "$1" = "init-start" ]; then while [ ! -f "$UPPER_SCRIPT" ]; do sleep 1; done ; fi
+if [ "$UPPER_SCRIPT" != "$SCRIPT_LOC" ] && [ -f "$UPPER_SCRIPT" ]; then exec $UPPER_SCRIPT $@ && exit; fi
 NAME="$(basename "$0")[$$]"
 
 check_dns_environment () {
