@@ -6,7 +6,7 @@ MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 
-if [ "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
+if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
 
 check_dns_environment () {
