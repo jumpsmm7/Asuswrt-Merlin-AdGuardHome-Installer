@@ -149,13 +149,12 @@ if [ -n "$PROCS" ]; then
       start_monitor &
       ;;
     "start"|"restart")
-      timezone
-      if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; fi
+      if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" init-start >/dev/null 2>&1; fi
       start_AdGuardHome
       ;;
     "stop"|"kill")
       stop_AdGuardHome
-      killall -q -9 $PROCS S99${PROCS} ${PROCS}.sh 2>/dev/null
+      "$SCRIPT_LOC" services-stop >/dev/null 2>&1
       ;;
   esac
 else
@@ -167,7 +166,8 @@ case "$1" in
     dnsmasq_params
     ;;
   "init-start"|"services-stop")
-    [ "$1" = "init-start" ] && printf "1" > /proc/sys/vm/overcommit_memory
     timezone
+    if [ "$1" = "init-start" ]; then printf "1" > /proc/sys/vm/overcommit_memory; "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; fi
+    if [ "$1" = "services-stop" ] && [ -n "$PROCS" ]; then killall -q -9 $PROCS S99${PROCS} ${PROCS}.sh 2>/dev/null; fi
     ;;    
 esac
