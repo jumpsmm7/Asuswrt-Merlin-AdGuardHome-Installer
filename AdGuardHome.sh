@@ -1,13 +1,13 @@
 #!/bin/sh
 
-NAME="$(basename "$0")[$$]"
 SCRIPT_LOC="$(readlink -f "$0")"
 MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
-
 if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
+if [ "$MID_SCRIPT" != "$SCRIPT_LOC" ]; then exec $MID_SCRIPT $@ && exit; fi
+NAME="$(basename "$0")[$$]"
 
 check_dns_environment () {
   local NVCHECK
