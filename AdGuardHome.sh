@@ -7,7 +7,7 @@ LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
 if [ "$1" = "init-start" ] && [ ! -f "$UPPER_SCRIPT" ]; then timezone; while [ ! -f "$UPPER_SCRIPT" ]; do sleep 1; done; fi
-if [ "$UPPER_SCRIPT" != "$SCRIPT_LOC" ] && [ -f "$UPPER_SCRIPT" ]; then exec $UPPER_SCRIPT $@ && exit; fi
+if [ "$(readlink -f "$UPPER_SCRIPT")" != "$SCRIPT_LOC" ] && [ -f "$UPPER_SCRIPT" ]; then exec $UPPER_SCRIPT $@ && exit; fi
 NAME="$(basename "$0")[$$]"
 
 check_dns_environment () {
@@ -149,8 +149,7 @@ case "$1" in
     start_monitor &
     ;;
   "start"|"restart")
-    start_AdGuardHome
-    if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" init-start >/dev/null 2>&1; fi
+    if [ -z "$(pidof "$PROCS")" ]; then start_AdGuardHome; "$SCRIPT_LOC" init-start >/dev/null 2>&1; else start_AdGuardHome; fi
     ;;
   "stop"|"kill")
     stop_AdGuardHome
