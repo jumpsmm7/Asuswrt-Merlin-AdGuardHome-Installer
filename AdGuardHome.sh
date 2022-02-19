@@ -6,7 +6,7 @@ UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
-if [ "$MID_SCRIPT" != "$SCRIPT_LOC" ]; then exec $MID_SCRIPT $@ && exit; fi
+if [ "$MID_SCRIPT" != "$SCRIPT_LOC" ]; then exec $MID_SCRIPT $@ && exit; else $UPPER_SCRIPT_LOC; fi
 NAME="$(basename "$0")[$$]"
 
 check_dns_environment () {
@@ -143,31 +143,24 @@ unset TZ
 
 check_dns_environment
 
-if [ -n "$PROCS" ]; then
-  case "$1" in
-    "monitor-start")
-      start_monitor &
-      ;;
-    "start"|"restart")
-      start_AdGuardHome
-      if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" init-start >/dev/null 2>&1; fi
-      ;;
-    "stop"|"kill")
-      stop_AdGuardHome
-      "$SCRIPT_LOC" services-stop >/dev/null 2>&1
-      ;;
-  esac
-else
-  $UPPER_SCRIPT_LOC
-fi
-
 case "$1" in
+  "monitor-start")
+    start_monitor &
+    ;;
+  "start"|"restart")
+    start_AdGuardHome
+    if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" init-start >/dev/null 2>&1; fi
+    ;;
+  "stop"|"kill")
+    stop_AdGuardHome
+    "$SCRIPT_LOC" services-stop >/dev/null 2>&1
+    ;;
   "dnsmasq")
     dnsmasq_params
     ;;
   "init-start"|"services-stop")
     timezone
     if [ "$1" = "init-start" ]; then printf "1" > /proc/sys/vm/overcommit_memory; "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; fi
-    if [ "$1" = "services-stop" ] && [ -n "$PROCS" ]; then killall -q -9 $PROCS S99${PROCS} ${PROCS}.sh 2>/dev/null; fi
+    if [ "$1" = "services-stop" ]; then killall -q -9 $PROCS S99${PROCS} ${PROCS}.sh 2>/dev/null; fi
     ;;    
 esac
