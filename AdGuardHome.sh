@@ -10,12 +10,14 @@ if [ "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
 
 check_dns_environment () {
-  nvram set dnspriv_enable=0
-  killall -q -9 stubby
-  nvram set dhcp_dns1_x=""
-  nvram set dhcp_dns2_x=""
-  nvram set dhcpd_dns_router="1"
-  nvram commit
+  local NVCHECK
+  NVCHECK="0"
+  if [ "$(nvram get dnspriv_enable)" != "0" ]; then nvram set dnspriv_enable="0"; NVCHECK="$((NVCHECK+1))"; fi
+  if [ "$(pidof stubby)" ]; then killall -q -9 stubby; NVCHECK="$((NVCHECK+1))"; fi
+  if [ "$(nvram get dhcp_dns1_x)" ]; then nvram set dhcp_dns1_x=""; NVCHECK="$((NVCHECK+1))"; fi
+  if [ "$(nvram get dhcp_dns2_x)" ]; then nvram set dhcp_dns2_x=""; NVCHECK="$((NVCHECK+1))"; fi
+  if [ "$(nvram get dhcpd_dns_router)" != "1" ]; then nvram set dhcpd_dns_router="1"; NVCHECK="$((NVCHECK+1))"; fi
+  if [ "$NVCHECK" != "0" ]; then nvram commit; fi
 }
 
 dnsmasq_params () {
