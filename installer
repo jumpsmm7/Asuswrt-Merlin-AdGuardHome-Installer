@@ -804,14 +804,14 @@ setup_AdGuardHome_impl () {
      [ -n "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)" && write_conf ADGUARD_DOMAIN "\"no\""
      [ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="$DOMAIN" && nvram commit && write_conf ADGUARD_DOMAIN "\"yes\""
      PTXT "  upstream_dns:" >> "$YAML_ORI"
-     [ -n "$(nvram get ipv6_rtr_addr)" ] && PTXT "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x; print ":0000:0000"}' | cut -c 2- | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::1]:553'" >> "$YAML_ORI"
-     PTXT "  - '[/router.asus.com/]127.0.0.1:553'" \
-          "  - '[/www.asusnetwork.net/]127.0.0.1:553'" \
-          "  - '[/www.asusrouter.com/]127.0.0.1:553'" \
-          "  - '[/use-application-dns.net/]127.0.0.1:553'" \
-	  "  - '[/dns.resolver.arpa/]127.0.0.1:553'" \
-	  "  - '[/$DOMAIN/]127.0.0.1:553'" \
-	  "  - '[//]127.0.0.1:553'" \
+     [ -n "$(nvram get ipv6_rtr_addr)" ] && PTXT "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x; print ":0000:0000"}' | cut -c 2- | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" >> "$YAML_ORI"
+     PTXT "  - '[/router.asus.com/][::]:553'" \
+          "  - '[/www.asusnetwork.net/][::]:553'" \
+          "  - '[/www.asusrouter.com/][::]:553'" \
+          "  - '[/use-application-dns.net/][::]:553'" \
+	  "  - '[/dns.resolver.arpa/][::]:553'" \
+	  "  - '[/$DOMAIN/][::]:553'" \
+	  "  - '[//][::]:553'" \
           "  - $BOOTSTRAP1" \
           "  - $BOOTSTRAP2" \
           "  - tcp://${BOOTSTRAP1}" \
@@ -822,10 +822,9 @@ setup_AdGuardHome_impl () {
           "  resolve_clients: true" \
           "  use_private_ptr_resolvers: true" \
           "  local_ptr_upstreams:" \
-	  "  - '127.0.0.1:553'" \
-          "  - '[::1]:553'" \
-	  "  - '[/10.in-addr.arpa/]127.0.0.1:553'" \
-          "  - '[/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/]127.0.0.1:553'" >> "$YAML_ORI"
+          "  - '[::]:553'" \
+	  "  - '[/10.in-addr.arpa/][::]:553'" \
+          "  - '[/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/][::]:553'" >> "$YAML_ORI"
      PTXT "$INFO Writing AdGuardHome configuration..."
      check_AdGuardHome_yaml $YAML_ORI
      if [ "$?" -ne 0 ]; then
