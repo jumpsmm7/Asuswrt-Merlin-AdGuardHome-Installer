@@ -1,13 +1,15 @@
 #!/bin/sh
 
-NAME="$(basename "$0")[$$]"
 SCRIPT_LOC="$(readlink -f "$0")"
 MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
-
 if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
+if [ "$1" = "init-start" ] && [ ! -f "$UPPER_SCRIPT" ]; then timezone; while [ ! -f "$UPPER_SCRIPT" ]; do sleep 1; done; fi
+if [ -f "$UPPER_SCRIPT" ] && [ "$(readlink -f "$UPPER_SCRIPT")" != "$SCRIPT_LOC" ]; then exec $UPPER_SCRIPT $@ && exit; elif [ -z "$PROCS" ]; then exit; fi
+
+NAME="$(basename "$0")[$$]"
 
 check_dns_environment () {
   local NVCHECK
@@ -143,31 +145,23 @@ unset TZ
 
 check_dns_environment
 
-if [ -n "$PROCS" ]; then
-  case "$1" in
-    "monitor-start")
-      start_monitor &
-      ;;
-    "start"|"restart")
-      timezone
-      if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; fi
-      start_AdGuardHome
-      ;;
-    "stop"|"kill")
-      stop_AdGuardHome
-      killall -q -9 $PROCS S99${PROCS} ${PROCS}.sh 2>/dev/null
-      ;;
-  esac
-else
-  $UPPER_SCRIPT_LOC
-fi
-
 case "$1" in
+  "monitor-start")
+    start_monitor &
+    ;;
+  "start"|"restart")
+    if [ -z "$(pidof "$PROCS")" ]; then start_AdGuardHome; "$SCRIPT_LOC" init-start >/dev/null 2>&1; else start_AdGuardHome; fi
+    ;;
+  "stop"|"kill")
+    stop_AdGuardHome
+    "$SCRIPT_LOC" services-stop >/dev/null 2>&1
+    ;;
   "dnsmasq")
     dnsmasq_params
     ;;
   "init-start"|"services-stop")
-    [ "$1" = "init-start" ] && printf "1" > /proc/sys/vm/overcommit_memory
     timezone
+    if [ "$1" = "init-start" ]; then printf "1" > /proc/sys/vm/overcommit_memory; "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; fi
+    if [ "$1" = "services-stop" ]; then killall -q -9 $PROCS S99${PROCS} ${PROCS}.sh 2>/dev/null; fi
     ;;    
 esac
