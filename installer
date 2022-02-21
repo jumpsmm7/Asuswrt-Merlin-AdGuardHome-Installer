@@ -17,7 +17,7 @@
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        #
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             JackYaz,gspannu,thelonelycoder #
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.3.5                               #
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.3.6                               #
 #                                                                                          #
 ############################################################################################
 
@@ -32,7 +32,7 @@
 # shellcheck disable=SC3045
 # shellcheck disable=SC3057
 
-AI_VERSION="v1.3.5"
+AI_VERSION="v1.3.6"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
 readonly REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
@@ -804,7 +804,7 @@ setup_AdGuardHome_impl () {
      [ -n "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)" && write_conf ADGUARD_DOMAIN "\"no\""
      [ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="$DOMAIN" && nvram commit && write_conf ADGUARD_DOMAIN "\"yes\""
      PTXT "  upstream_dns:" >> "$YAML_ORI"
-     [ -n "$(nvram get ipv6_rtr_addr)" ] && PTXT "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x; print ":0000:0000"}' | cut -c 2- | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" >> "$YAML_ORI"
+     [ -n "$(nvram get ipv6_rtr_addr)" ] && PTXT "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x; print ":0000:000"}' | cut -c 2- | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" >> "$YAML_ORI"
      PTXT "  - '[/router.asus.com/][::]:553'" \
           "  - '[/www.asusnetwork.net/][::]:553'" \
           "  - '[/www.asusrouter.com/][::]:553'" \
@@ -834,7 +834,21 @@ setup_AdGuardHome_impl () {
        return 1
      fi
   elif [ -f "$YAML_FILE" ]; then
-    [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_replace "  - '[/0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x; print ":0000:0000"}' | cut -c 2- | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" "$YAML_FILE"
+    [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_delete "  - '[/0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" "$YAML_FILE"
+    [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_delete "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x; print ":0000:0000"}' | cut -c 2- | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" "$YAML_FILE"
+    [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_insert "  upstream_dns:" "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x; print ":0000:000"}' | cut -c 2- | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" "$YAML_FILE"
+    local DOMAIN
+    [ -n "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)"
+    yaml_nvars_replace "  - '[/router.asus.com/]$(nvram get lan_ipaddr):553'" "  - '[/router.asus.com/][::]:553'" "$YAML_FILE"
+    yaml_nvars_replace "  - '[/www.asusnetwork.net/]$(nvram get lan_ipaddr):553'" "  - '[/www.asusnetwork.net/][::]:553'" "$YAML_FILE"
+    yaml_nvars_replace "  - '[/www.asusrouter.com/]$(nvram get lan_ipaddr):553'" "  - '[/www.asusrouter.com/][::]:553'" "$YAML_FILE"
+    yaml_nvars_replace "  - '[/use-application-dns.net/]$(nvram get lan_ipaddr):553'" "  - '[/use-application-dns.net/][::]:553'" "$YAML_FILE"
+    yaml_nvars_replace "  - '[/dns.resolver.arpa/]$(nvram get lan_ipaddr):553'" "  - '[/dns.resolver.arpa/][::]:553'" "$YAML_FILE"
+    [ -n "$(nvram get lan_domain)" ] && yaml_nvars_replace "  - '[/$DOMAIN/]$(nvram get lan_ipaddr):553'" "  - '[/$DOMAIN/][::]:553'" "$YAML_FILE"
+    yaml_nvars_replace "  - '[//]$(nvram get lan_ipaddr):553'" "  - '[//][::]:553'" "$YAML_FILE"
+    yaml_nvars_insert "  local_ptr_upstreams:" "  - '[::]:553'" "$YAML_FILE"
+    yaml_nvars_replace "  - '[/10.in-addr.arpa/]$(nvram get lan_ipaddr):553'" "  - '[/10.in-addr.arpa/][::]:553'" "$YAML_FILE"
+    yaml_nvars_replace "  - '[/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/]$(nvram get lan_ipaddr):553'" "  - '[/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/][::]:553'" "$YAML_FILE"
     check_AdGuardHome_yaml $YAML_FILE
   fi
 }
