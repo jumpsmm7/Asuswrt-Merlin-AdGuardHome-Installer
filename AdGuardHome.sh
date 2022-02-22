@@ -7,7 +7,7 @@ LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
 if [ "$1" = "init-start" ] && [ ! -f "$UPPER_SCRIPT" ]; then timezone; while [ ! -f "$UPPER_SCRIPT" ]; do sleep 1; done; fi
-if [ -f "$UPPER_SCRIPT" ] && [ "$(readlink -f "$UPPER_SCRIPT")" != "$SCRIPT_LOC" ]; then (exec $UPPER_SCRIPT $@ && exit); elif [ -z "$PROCS" ]; then exit; fi
+if [ -f "$UPPER_SCRIPT" ] && [ "$(readlink -f "$UPPER_SCRIPT")" != "$SCRIPT_LOC" ]; then (exec $UPPER_SCRIPT $@); elif [ -z "$PROCS" ]; then exit; fi
 
 NAME="$(basename "$0")[$$]"
 
@@ -147,10 +147,10 @@ case "$1" in
     start_monitor &
     ;;
   "start"|"restart")
-    if [ -z "$(pidof "$PROCS")" ]; then (exec "$SCRIPT_LOC" init-start && exit); else start_AdGuardHome; fi
+    if [ -z "$(pidof "$PROCS")" ]; then (exec "$SCRIPT_LOC" init-start); else start_AdGuardHome; fi
     ;;
   "stop"|"kill")
-    if [ -n "$(pidof "$PROCS")" ]; then (exec "$SCRIPT_LOC" services-stop && exit); else stop_AdGuardHome; fi
+    if [ -n "$(pidof "$PROCS")" ]; then (exec "$SCRIPT_LOC" services-stop); else stop_AdGuardHome; fi
     ;;
   "dnsmasq")
     dnsmasq_params
