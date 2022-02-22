@@ -23,7 +23,7 @@ start() {
         return 0
     fi
     $PRECMD > /dev/null 2>&1
-    $PREARGS "$PROC" "$ARGS" >/dev/null 2>&1 </dev/null &
+    $PREARGS $PROC $ARGS >/dev/null 2>&1 </dev/null &
     #echo $PREARGS $PROC $ARGS
     COUNTER="0";
     LIMIT="10";
@@ -46,13 +46,10 @@ start() {
 stop() {
     case "$ACTION" in
         "stop"|"restart")
-            printf "%s" "$ansi_white Shutting down $PROC... $ansi_std";
-            killall -q "$(pidof "$PROC")" "$PROC" 2>/dev/null
             COUNTER="0";
             LIMIT="10";
             while { [ -n "$(pidof "$PROC")" ] && [ "$COUNTER" -le "$LIMIT" ]; }; do
-                [ "$COUNTER" = "0" ] && printf "%s\n" "            $ansi_red failed. $ansi_std";
-                printf "%s" "$ansi_white Killing $PROC..(${COUNTER}/${LIMIT})... $ansi_std";
+                [ "$COUNTER" = "0" ] && printf "%s" "$ansi_white Shutting down $PROC... $ansi_std";
                 killall -q -9 "$(pidof "$PROC")" "$PROC" 2>/dev/null
                 [ -z "$(pidof "$PROC")" ] && break
                 sleep 1;
