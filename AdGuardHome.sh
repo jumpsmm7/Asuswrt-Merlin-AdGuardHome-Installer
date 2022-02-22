@@ -147,10 +147,10 @@ case "$1" in
     start_monitor &
     ;;
   "start"|"restart")
-    if [ -z "$(pidof "$PROCS")" ]; then (exec "$SCRIPT_LOC" init-start && exit); else start_AdGuardHome; fi
+    if [ -z "$(pidof "$PROCS")" ]; then (exec "$SCRIPT_LOC" init-start); else start_AdGuardHome; fi
     ;;
   "stop"|"kill")
-    if [ -n "$(pidof "$PROCS")" ]; then (exec "$SCRIPT_LOC" services-stop && exit); else stop_AdGuardHome; fi
+    if [ -n "$(pidof "$PROCS")" ]; then (exec "$SCRIPT_LOC" services-stop); else stop_AdGuardHome; fi
     ;;
   "dnsmasq")
     dnsmasq_params
