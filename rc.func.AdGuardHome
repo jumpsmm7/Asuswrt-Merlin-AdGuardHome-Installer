@@ -22,8 +22,8 @@ start() {
         printf "%s\n" "            $ansi_yellow already running. $ansi_std";
         return 0
     fi
-    { $PRECMD > /dev/null 2>&1 }
-    { $PREARGS $PROC $ARGS >/dev/null 2>&1 </dev/null & }
+    { $PRECMD > /dev/null 2>&1; };
+    { $PREARGS $PROC $ARGS >/dev/null 2>&1 </dev/null &; };
     #echo $PREARGS $PROC $ARGS
     COUNTER="0";
     LIMIT="10";
@@ -31,7 +31,7 @@ start() {
         sleep 1;
         COUNTER="$((COUNTER + 1))"
     done
-    { $POSTCMD > /dev/null 2>&1 }
+    { $POSTCMD > /dev/null 2>&1; };
     if [ -z "$(pidof "$PROC")" ]; then
         printf "%s\n" "            $ansi_red failed. $ansi_std";
         logger -st "$CALLER" "Failed to start $DESC from $CALLER.";
@@ -50,7 +50,7 @@ stop() {
             LIMIT="10";
             while { [ -n "$(pidof "$PROC")" ] && [ "$COUNTER" -le "$LIMIT" ]; }; do
                 [ "$COUNTER" = "0" ] && printf "%s" "$ansi_white Shutting down $PROC... $ansi_std";
-                { kill -9 "$(pidof "$PROC")" 2>/dev/null } && { killall -q -9 "$PROC" 2>/dev/null }
+                { kill -9 "$(pidof "$PROC")" 2>/dev/null; } && { killall -q -9 "$PROC" 2>/dev/null; };
                 [ -z "$(pidof "$PROC")" ] && break
                 sleep 1;
                 COUNTER="$((COUNTER + 1))"
@@ -58,7 +58,7 @@ stop() {
             ;;
         "kill")
             printf "%s" "$ansi_white Killing $PROC... $ansi_std";
-            { kill -9 "$(pidof "$PROC")" 2>/dev/null } && { killall -q -9 "$PROC" 2>/dev/null }
+            { kill -9 "$(pidof "$PROC")" 2>/dev/null; } && { killall -q -9 "$PROC" 2>/dev/null; };
             ;;
     esac
     if [ -n "$(pidof "$PROC")" ]; then
@@ -90,7 +90,7 @@ for PROC in $PROCS; do
             check && stop
             ;;
         "restart")
-            { check > /dev/null } && stop
+            { check > /dev/null; } && stop
             start
             ;;
         "check")
