@@ -156,8 +156,8 @@ case "$1" in
     if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; start_AdGuardHome; { "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; }; fi
     if [ "$1" = "services-stop" ]; then stop_AdGuardHome; { [ -n "$(pidof "$PROCS" "S99${PROCS}" "${PROCS}.sh")" ] && kill -9 "$(pidof "$PROCS" "S99${PROCS}" "${PROCS}.sh")" 2>/dev/null; }; { [ -n "$(pidof "$PROCS" "S99${PROCS}" "${PROCS}.sh")" ] && killall -q -9 "$PROCS" "S99${PROCS}" "${PROCS}.sh" 2>/dev/null; }; fi
     ;;
-  "check"|*)
-    { lower_script "$1"; } && exit
+  *)
+    { $LOWER_SCRIPT_LOC "$1"; } && exit
     ;;
 esac
 check_dns_environment
