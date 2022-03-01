@@ -7,7 +7,7 @@ LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
 if [ "$1" = "init-start" ] && [ ! -f "$UPPER_SCRIPT" ]; then timezone; while [ ! -f "$UPPER_SCRIPT" ]; do sleep 1; done; fi
-if [ -f "$UPPER_SCRIPT" ] && [ "$(readlink -f "$UPPER_SCRIPT")" != "$SCRIPT_LOC" ]; then { exec $UPPER_SCRIPT $@; } && exit; elif [ -z "$PROCS" ]; then exit; fi
+if [ -f "$UPPER_SCRIPT" ] && [ "$(readlink -f "$UPPER_SCRIPT")" != "$SCRIPT_LOC" ]; then { exec $UPPER_SCRIPT "$@"; } && exit; elif [ -z "$PROCS" ]; then exit; fi
 
 NAME="$(basename "$0")[$$]"
 
@@ -19,7 +19,7 @@ check_dns_environment () {
   if [ "$(nvram get dhcp_dns1_x)" ]; then { nvram set dhcp_dns1_x=""; }; NVCHECK="$((NVCHECK+1))"; fi
   if [ "$(nvram get dhcp_dns2_x)" ]; then { nvram set dhcp_dns2_x=""; }; NVCHECK="$((NVCHECK+1))"; fi
   if [ "$(nvram get dhcpd_dns_router)" != "1" ]; then { nvram set dhcpd_dns_router="1"; }; NVCHECK="$((NVCHECK+1))"; fi
-  if [ "$NVCHECK" != "0" ]; then {nvram commit; }; { service restart_dnsmasq >/dev/null 2>&1; }; while { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" != "0" ]; }; do sleep 1; done; fi
+  if [ "$NVCHECK" != "0" ]; then { nvram commit; }; { service restart_dnsmasq >/dev/null 2>&1; }; while { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" != "0" ]; }; do sleep 1; done; fi
 }
 
 dnsmasq_params () {
@@ -113,7 +113,7 @@ start_monitor () {
 }
 
 stop_AdGuardHome () {
-  if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill } && { lower_script check; }; { service restart_dnsmasq >/dev/null 2>&1; }; else { lower_script check; }; fi
+  if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; } && { lower_script check; }; { service restart_dnsmasq >/dev/null 2>&1; }; else { lower_script check; }; fi
   if [ -f "/tmp/stats.db" ]; then { rm -rf "/tmp/stats.db" >/dev/null 2>&1; }; fi
   if [ -f "/tmp/sessions.db" ]; then { rm -rf "/tmp/sessions.db" >/dev/null 2>&1; }; fi
 }
