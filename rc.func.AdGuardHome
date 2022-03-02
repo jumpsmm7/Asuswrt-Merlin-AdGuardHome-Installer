@@ -23,7 +23,7 @@ start() {
         return 0
     fi
     { $PRECMD > /dev/null 2>&1; };
-    { $PREARGS $PROC $ARGS >/dev/null 2>&1 </dev/null & };
+    { $PREARGS ./$PROC $ARGS >/dev/null 2>&1 </dev/null & };
     #echo $PREARGS $PROC $ARGS
     COUNTER="0";
     LIMIT="10";
@@ -50,15 +50,15 @@ stop() {
             LIMIT="10";
             while { [ -n "$(pidof "$PROC")" ] && [ "$COUNTER" -le "$LIMIT" ]; }; do
                 [ "$COUNTER" = "0" ] && printf "%s" "$ansi_white Shutting down $PROC... $ansi_std";
-                { $PREARGS $PROC $ARGS >/dev/null 2>&1 </dev/null & };
-                [ -z "$(pidof "$PROC")" ] && break || { kill -9 "$(pidof "$PROC")" 2>/dev/null; } && { killall -q -9 "$PROC" 2>/dev/null; };
+                { $PREARGS ./$PROC $ARGS >/dev/null 2>&1 </dev/null & };
+                [ -z "$(pidof "$PROC")" ] && break || { kill -9 "$(pidof "$PROC")" 2>/dev/null; killall -q -9 "$PROC" 2>/dev/null; };
                 sleep 1;
                 COUNTER="$((COUNTER + 1))"
             done
             ;;
         "kill")
             printf "%s" "$ansi_white Killing $PROC... $ansi_std";
-            { kill -9 "$(pidof "$PROC")" 2>/dev/null; } && { killall -q -9 "$PROC" 2>/dev/null; };
+            { kill -9 "$(pidof "$PROC")" 2>/dev/null; killall -q -9 "$PROC" 2>/dev/null; };
             ;;
     esac
     if [ -n "$(pidof "$PROC")" ]; then
@@ -90,8 +90,7 @@ for PROC in $PROCS; do
             check && stop
             ;;
         "restart")
-            { check > /dev/null; } && stop
-            start
+            { check > /dev/null; } && start || stop
             ;;
         "check")
             check
