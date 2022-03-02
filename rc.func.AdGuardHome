@@ -23,7 +23,7 @@ start() {
         return 0
     fi
     { $PRECMD > /dev/null 2>&1; };
-    { $PREARGS .${PATH}${PROC} $ARGS >/dev/null 2>&1 </dev/null & };
+    { $PREARGS $PROC $ARGS >/dev/null 2>&1 </dev/null & };
     #echo $PREARGS $PROC $ARGS
     COUNTER="0";
     LIMIT="10";
