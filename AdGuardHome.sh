@@ -83,13 +83,16 @@ start_AdGuardHome () {
 }
 
 start_monitor () {
-  trap "" 1 2 3 15
+  trap '' 1 2 3 15
+  trap "EXIT="1"" 9
   while [ "$(nvram get ntp_ready)" -eq "0" ]; do sleep 1; done
   local NW_STATE
   local RES_STATE
   local COUNT
   COUNT="0"
+  EXIT="0"
   while true; do
+    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping Monitor"; trap 1 2 3 15; stop_AdGuardHome; break; fi 
     if [ "$COUNT" -gt "90" ]; then COUNT="0"; timezone; fi
     COUNT="$((COUNT + 1))"
     if [ -f "/opt/sbin/AdGuardHome" ]; then
@@ -101,10 +104,8 @@ start_monitor () {
           ;;
       esac
       if [ -z "$(pidof "$PROCS")" ]; then
-        logger -st "$NAME" "Warning: $PROCS is dead; $NAME will force-start it!"
         start_AdGuardHome
       elif { [ "$COUNT" -eq "30" ] || [ "$COUNT" -eq "60" ] || [ "$COUNT" -eq "90" ]; } && { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
-        logger -st "$NAME" "Warning: $PROCS is not responding; $NAME will re-start it!"
         start_AdGuardHome
       fi
     fi
@@ -153,8 +154,8 @@ case "$1" in
     ;;
   "init-start"|"services-stop")
     timezone
-    if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; start_AdGuardHome; { "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; }; fi
-    if [ "$1" = "services-stop" ]; then stop_AdGuardHome; { while [ -n "$(pidof "$PROCS" "S99${PROCS}" "${PROCS}.sh")" ]; do kill -9 "$(pidof "$PROCS" "S99${PROCS}" "${PROCS}.sh")" 2>/dev/null || killall -q -9 "$PROCS" "S99${PROCS}" "${PROCS}.sh" 2>/dev/null; done; }; fi
+    if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; { "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; }; fi
+    if [ "$1" = "services-stop" ]; then trap '' 9; [ -n "$(pidof "S99${PROCS}")" ] && { kill -9 "$(pidof "S99${PROCS}")" 2>/dev/null || killall -q -9 "S99${PROCS}" 2>/dev/null; }; trap 9; fi
     ;;
   *)
     { $LOWER_SCRIPT_LOC "$1"; } && exit
