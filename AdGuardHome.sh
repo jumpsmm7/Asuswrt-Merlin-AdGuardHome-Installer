@@ -61,7 +61,7 @@ dnsmasq_params () {
 
 lower_script () {
   case $1 in
-    start|stop|restart|kill|check)
+    install|uninstall|start|stop|restart|reload|kill|check|status)
       $LOWER_SCRIPT_LOC "$1" "$NAME"
       ;;
   esac
