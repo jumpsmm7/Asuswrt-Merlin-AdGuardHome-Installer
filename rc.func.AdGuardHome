@@ -50,7 +50,6 @@ stop() {
             LIMIT="10";
             while { [ -n "$(pidof "$PROC")" ] && [ "$COUNTER" -le "$LIMIT" ]; }; do
                 [ "$COUNTER" = "0" ] && printf "%s" "$ansi_white Shutting down $PROC... $ansi_std";
-                { $PREARGS ./$PROC $ARGS >/dev/null 2>&1 </dev/null & };
                 [ -z "$(pidof "$PROC")" ] && break || { kill -9 "$(pidof "$PROC")" 2>/dev/null; killall -q -9 "$PROC" 2>/dev/null; };
                 sleep 1;
                 COUNTER="$((COUNTER + 1))"
@@ -90,7 +89,7 @@ for PROC in $PROCS; do
             check && stop
             ;;
         "restart")
-            { check > /dev/null; } && start || stop
+            { check > /dev/null; } && stop || start
             ;;
         "check")
             check
