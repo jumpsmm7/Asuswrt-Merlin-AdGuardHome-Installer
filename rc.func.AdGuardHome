@@ -27,6 +27,7 @@ start() {
     (
     { $PREARGS $PROC $ARGS >/dev/null 2>&1 </dev/null & };
     )
+    trap 1 2 3 15
     #echo $PREARGS $PROC $ARGS
     COUNTER="0";
     LIMIT="10";
@@ -44,7 +45,6 @@ start() {
         logger -st "$CALLER" "Started $DESC from $CALLER.";
         return 0
     fi
-    trap 1 2 3 15
 }
 
 stop() {
