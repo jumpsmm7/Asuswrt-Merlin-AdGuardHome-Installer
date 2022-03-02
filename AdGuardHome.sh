@@ -32,7 +32,7 @@ dnsmasq_params () {
   local dVARS
   local DVARS
   local NIVARS
-  local NDCARS
+  local NDVARS
   local i 
   CONFIG="/etc/dnsmasq.conf"
   [ -z "$(pidof "$PROCS")" ] && exit
