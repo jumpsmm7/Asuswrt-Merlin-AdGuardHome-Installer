@@ -93,7 +93,7 @@ start_monitor () {
   EXIT="0"
   logger -st "$NAME" "Starting_Monitor: $NAME"
   while true; do
-    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping_Monitor: $NAME"; trap 1 2 3 10 15; stop_AdGuardHome; break; fi 
+    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping_Monitor: $NAME"; trap 1 2 3 10 15; break; fi 
     if [ "$COUNT" -gt "90" ]; then COUNT="0"; timezone; fi
     COUNT="$((COUNT + 1))"
     if [ -f "/opt/sbin/AdGuardHome" ]; then
@@ -144,8 +144,7 @@ timezone () {
 unset TZ
 case "$1" in
   "monitor-start")
-    for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID" >/dev/null 2>&1; }; break; fi; done
-    start_monitor &
+    start_monitor & 
     ;;
   "start"|"restart")
     if [ -z "$(pidof "$PROCS")" ]; then { "$SCRIPT_LOC" init-start; }; else start_AdGuardHome; fi
@@ -158,8 +157,9 @@ case "$1" in
     ;;
   "init-start"|"services-stop")
     timezone
+    for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID" >/dev/null 2>&1; }; fi; done
     if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; { "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; }; start_AdGuardHome; fi
-    if [ "$1" = "services-stop" ]; then stop_AdGuardHome; { for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID" >/dev/null 2>&1; }; break; fi; done; }; fi
+    if [ "$1" = "services-stop" ]; then stop_AdGuardHome; fi
     ;;
   *)
     { $LOWER_SCRIPT_LOC "$1"; } && exit
