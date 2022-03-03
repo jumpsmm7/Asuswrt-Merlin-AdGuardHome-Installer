@@ -84,7 +84,7 @@ start_AdGuardHome () {
 
 start_monitor () {
   trap '' 1 2 3 15
-  trap 'EXIT="1"' 5
+  trap 'EXIT="1"' 10
   while [ "$(nvram get ntp_ready)" -eq "0" ]; do sleep 1; done
   local NW_STATE
   local RES_STATE
@@ -141,7 +141,7 @@ timezone () {
 unset TZ
 case "$1" in
   "monitor-start")
-    if [ "$(pidof "S99${PROCS}" | wc -w)" -le 1 ]; then start_monitor &; fi
+    if [ "$(pidof "S99${PROCS}" | wc -w)" -le 1 ]; then { start_monitor & }; fi
     ;;
   "start"|"restart")
     if [ -z "$(pidof "$PROCS")" ]; then { "$SCRIPT_LOC" init-start; }; else start_AdGuardHome; fi
@@ -155,7 +155,7 @@ case "$1" in
   "init-start"|"services-stop")
     timezone
     if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; { "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; }; fi
-    if [ "$1" = "services-stop" ]; then trap '' 5; [ -n "$(pidof "S99${PROCS}")" ] && { kill -9 "$(pidof "S99${PROCS}")" 2>/dev/null || killall -q -9 "S99${PROCS}" 2>/dev/null; }; trap 5; fi
+    if [ "$1" = "services-stop" ]; then trap '' 10; [ -n "$(pidof "S99${PROCS}")" ] && { kill -10 "$(pidof "S99${PROCS}")" 2>/dev/null || killall -q -10 "S99${PROCS}" 2>/dev/null; }; trap 10; fi
     ;;
   *)
     { $LOWER_SCRIPT_LOC "$1"; } && exit
