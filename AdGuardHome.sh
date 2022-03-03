@@ -141,7 +141,7 @@ timezone () {
 unset TZ
 case "$1" in
   "monitor-start")
-    trap '{ start_monitor & }; exit' 10
+    trap '{ start_monitor & }' 10
     kill -s 10 "$(pidof "S99${PROCS}")" 2>/dev/null
     ;;
   "start"|"restart")
