@@ -32,7 +32,7 @@ dnsmasq_params () {
   local dVARS
   local DVARS
   local NIVARS
-  local NDCARS
+  local NDVARS
   local i 
   CONFIG="/etc/dnsmasq.conf"
   [ -z "$(pidof "$PROCS")" ] && exit
@@ -61,7 +61,7 @@ dnsmasq_params () {
 
 lower_script () {
   case $1 in
-    start|stop|restart|kill|check)
+    *)
       $LOWER_SCRIPT_LOC "$1" "$NAME"
       ;;
   esac
@@ -83,13 +83,17 @@ start_AdGuardHome () {
 }
 
 start_monitor () {
-  trap "" 1 2 3 15
+  trap '' 1 2 3 15
+  trap 'EXIT="1"' 10
   while [ "$(nvram get ntp_ready)" -eq "0" ]; do sleep 1; done
   local NW_STATE
   local RES_STATE
   local COUNT
   COUNT="0"
+  EXIT="0"
+  logger -st "$NAME" "Starting_Monitor: $NAME"
   while true; do
+    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping_Monitor: $NAME"; trap 1 2 3 10 15; stop_AdGuardHome; break; fi
     if [ "$COUNT" -gt "90" ]; then COUNT="0"; timezone; fi
     COUNT="$((COUNT + 1))"
     if [ -f "/opt/sbin/AdGuardHome" ]; then
@@ -110,6 +114,10 @@ start_monitor () {
     fi
     sleep 10
   done
+}
+
+stop_monitor () {
+  for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID"; }; fi; done
 }
 
 stop_AdGuardHome () {
@@ -140,7 +148,8 @@ timezone () {
 unset TZ
 case "$1" in
   "monitor-start")
-    start_monitor &
+    stop_monitor  >/dev/null 2>&1
+    { start_monitor & } >/dev/null 2>&1
     ;;
   "start"|"restart")
     if [ -z "$(pidof "$PROCS")" ]; then { "$SCRIPT_LOC" init-start; }; else start_AdGuardHome; fi
@@ -153,8 +162,8 @@ case "$1" in
     ;;
   "init-start"|"services-stop")
     timezone
-    if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; start_AdGuardHome; { "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; }; fi
-    if [ "$1" = "services-stop" ]; then stop_AdGuardHome; { [ -n "$(pidof "$PROCS" "S99${PROCS}" "${PROCS}.sh")" ] && kill -9 "$(pidof "$PROCS" "S99${PROCS}" "${PROCS}.sh")" 2>/dev/null; }; { [ -n "$(pidof "$PROCS" "S99${PROCS}" "${PROCS}.sh")" ] && killall -q -9 "$PROCS" "S99${PROCS}" "${PROCS}.sh" 2>/dev/null; }; fi
+    if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; start_AdGuardHome; { "$SCRIPT_LOC" monitor-start; }; fi
+    if [ "$1" = "services-stop" ]; then stop_AdGuardHome; { stop_monitor >/dev/null 2>&1; }; fi
     ;;
   *)
     { $LOWER_SCRIPT_LOC "$1"; } && exit
