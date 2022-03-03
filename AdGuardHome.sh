@@ -116,6 +116,10 @@ start_monitor () {
   done
 }
 
+stop_monitor () {
+  for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID" }; fi; done
+}
+
 stop_AdGuardHome () {
   if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; } && { lower_script check; }; { service restart_dnsmasq >/dev/null 2>&1; }; else { lower_script check; }; fi
   if [ -f "/tmp/stats.db" ]; then { rm -rf "/tmp/stats.db" >/dev/null 2>&1; }; fi
@@ -144,6 +148,7 @@ timezone () {
 unset TZ
 case "$1" in
   "monitor-start")
+    stop_monitor
     start_monitor & 
     ;;
   "start"|"restart")
@@ -157,9 +162,8 @@ case "$1" in
     ;;
   "init-start"|"services-stop")
     timezone
-    for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID" >/dev/null 2>&1; }; fi; done
     if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; { "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; }; start_AdGuardHome; fi
-    if [ "$1" = "services-stop" ]; then stop_AdGuardHome; fi
+    if [ "$1" = "services-stop" ]; then { stop_monitor >/dev/null 2>&1; }; stop_AdGuardHome; fi
     ;;
   *)
     { $LOWER_SCRIPT_LOC "$1"; } && exit
