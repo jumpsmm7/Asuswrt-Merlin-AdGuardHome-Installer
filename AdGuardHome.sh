@@ -141,8 +141,8 @@ timezone () {
 unset TZ
 case "$1" in
   "monitor-start")
-    trap '{ start_monitor & }' 10
     [ -n "$(pidof "S99${PROCS}" | sed "s/\<$$\>//g")" ] && { kill -s 10 "$(pidof "S99${PROCS}" | sed "s/\<$$\>//g")" 2>/dev/null; };
+    start_monitor &
     ;;
   "start"|"restart")
     if [ -z "$(pidof "$PROCS")" ]; then { "$SCRIPT_LOC" init-start; }; else start_AdGuardHome; fi
