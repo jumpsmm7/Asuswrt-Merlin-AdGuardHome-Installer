@@ -155,9 +155,10 @@ case "$1" in
   "init-start"|"services-stop")
     timezone
     if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; trap '{ "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; }; start_AdGuardHome; exit' 10; fi
-    if [ "$1" = "services-stop" ]; then trap 'exit' 10; fi
+    if [ "$1" = "services-stop" ]; then trap 'stop_AdGuardHome; exit' 10; fi
     { kill -s -10 "$(pidof "S99${PROCS}")" 2>/dev/null || killall -q -10 "S99${PROCS}" 2>/dev/null; };
     [ "$1" = "init-start" ] && { while [ -z "$(pidof "$PROCS")" ]; do sleep 1; done; };
+    [ "$1" = "services-stop" ] && { while [ -n "$(pidof "$PROCS")" ]; do sleep 1; done; };
     ;;
   *)
     { $LOWER_SCRIPT_LOC "$1"; } && exit
