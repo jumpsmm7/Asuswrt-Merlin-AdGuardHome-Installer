@@ -7,7 +7,7 @@ LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
 if [ "$1" = "init-start" ] && [ ! -f "$UPPER_SCRIPT" ]; then timezone; while [ ! -f "$UPPER_SCRIPT" ]; do sleep 1; done; fi
-if [ -f "$UPPER_SCRIPT" ] && [ "$(readlink -f "$UPPER_SCRIPT")" != "$SCRIPT_LOC" ]; then { exec $UPPER_SCRIPT "$@"; } && exit; elif [ -z "$PROCS" ]; then exit; fi
+if [ -f "$UPPER_SCRIPT" ]; then { if { [ "$(readlink -f "$UPPER_SCRIPT")" != "$SCRIPT_LOC" ] || [ "$0" != "$UPPER_SCRIPT" ]; }; then { exec $UPPER_SCRIPT "$@"; } && exit; fi; }; elif { if [ -z "$PROCS" ]; then exit; fi; }; fi
 
 NAME="$(basename "$0")[$$]"
 
@@ -117,7 +117,7 @@ start_monitor () {
 }
 
 stop_monitor () {
-  for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID"; }; fi; done
+  for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID" || kill -s 9 "$PID"; }; fi; done
 }
 
 stop_AdGuardHome () {
