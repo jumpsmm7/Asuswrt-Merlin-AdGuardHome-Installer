@@ -117,7 +117,7 @@ start_monitor () {
 }
 
 stop_monitor () {
-  for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID" }; fi; done
+  for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID"; }; fi; done
 }
 
 stop_AdGuardHome () {
