@@ -93,7 +93,7 @@ start_monitor () {
   EXIT="0"
   logger -st "$NAME" "Starting_Monitor: $NAME"
   while true; do
-    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping_Monitor: $NAME"; trap 1 2 3 10 15; break; fi 
+    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping_Monitor: $NAME"; trap 1 2 3 10 15; stop_AdGuardHome; break; fi
     if [ "$COUNT" -gt "90" ]; then COUNT="0"; timezone; fi
     COUNT="$((COUNT + 1))"
     if [ -f "/opt/sbin/AdGuardHome" ]; then
@@ -162,8 +162,8 @@ case "$1" in
     ;;
   "init-start"|"services-stop")
     timezone
-    if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; { "$SCRIPT_LOC" monitor-start; }; start_AdGuardHome; fi
-    if [ "$1" = "services-stop" ]; then { stop_monitor >/dev/null 2>&1; }; stop_AdGuardHome; fi
+    if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; start_AdGuardHome; { "$SCRIPT_LOC" monitor-start; }; fi
+    if [ "$1" = "services-stop" ]; then stop_AdGuardHome; { stop_monitor >/dev/null 2>&1; }; fi
     ;;
   *)
     { $LOWER_SCRIPT_LOC "$1"; } && exit
