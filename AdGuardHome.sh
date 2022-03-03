@@ -141,8 +141,8 @@ timezone () {
 unset TZ
 case "$1" in
   "monitor-start")
-    [ -n "$(pidof "S99${PROCS}" | sed "s/\<$$\>//g")" ] && { kill -s 10 "$(pidof "S99${PROCS}" | sed "s/\<$$\>//g")" 2>/dev/null; };
-    start_monitor &
+    trap '{ start_monitor & }; exit' 10
+    kill -s 10 "$(pidof "S99${PROCS}")" 2>/dev/null
     ;;
   "start"|"restart")
     if [ -z "$(pidof "$PROCS")" ]; then { "$SCRIPT_LOC" init-start; }; else start_AdGuardHome; fi
@@ -154,6 +154,7 @@ case "$1" in
     dnsmasq_params
     ;;
   "init-start"|"services-stop")
+    trap '' 10
     timezone
     if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; { "$SCRIPT_LOC" monitor-start >/dev/null 2>&1; }; start_AdGuardHome; fi
     if [ "$1" = "services-stop" ]; then trap 'exit 0' 10; stop_AdGuardHome; { kill -s 10 "$(pidof "S99${PROCS}")" 2>/dev/null || killall -q -10 "S99${PROCS}" 2>/dev/null; }; fi
