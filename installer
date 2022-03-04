@@ -496,13 +496,13 @@ download_file () {
 }
 
 end_op_message () {
-  clear && sleep 3
-  [ "$1" = "0" ] && PTXT "$INFO Operation completed, returning to Main Menu. You can quit or continue"
-  [ "$1" = "1" ] && PTXT "$INFO Operation aborted, returning to Main Menu. You can quit or continue"
-  [ "$1" = "2" ] && PTXT "$INFO Abnormal Operations, returning to Main Menu. You can quit or continue"
+  [ "$1" = "0" ] && PTXT "$INFO Operation completed, returning to Main Menu. You can quit or continue."
+  [ "$1" = "1" ] && PTXT "$INFO Operation aborted, returning to Main Menu. You can quit or continue."
+  [ "$1" = "2" ] && PTXT "$INFO Abnormal operations, returning to Main Menu. You can quit or continue."
   PTXT "====================================================="
   PTXT " "
   PTXT " "
+  sleep 3 && clear
   if [ -f "${TARG_DIR}/installer" ]; then chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1; exec "${TARG_DIR}/installer" "$BRANCH" && exit; elif [ ! -f "${TARG_DIR}/installer" ] && [ -f "$SCRIPT_LOC" ]; then chmod 755 "$SCRIPT_LOC" >/dev/null 2>&1; exec "$SCRIPT_LOC" "$BRANCH" && exit; elif [ -f "${HOME}/installer" ]; then chmod 755 "${HOME}/installer" && exec "${HOME}/installer" "$BRANCH" && exit; else clear && end_op_header && exit; fi
 }
 
@@ -960,7 +960,7 @@ write_manager_script () {
 }
 
 trap - 1 2 3 6 15
-trap 'end_op_message 2' 1 2 3 6 15
+trap 'clear; end_op_message 2' 1 2 3 6 15
 [ "$1" ] && BRANCH="$1" || BRANCH="master"
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
 RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}"
