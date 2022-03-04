@@ -93,7 +93,7 @@ start_monitor () {
   EXIT="0"
   logger -st "$NAME" "Starting_Monitor: $NAME"
   while true; do
-    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping_Monitor: $NAME"; trap 1 2 3 10 15; stop_AdGuardHome; break; fi
+    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping_Monitor: $NAME"; trap - 1 2 3 6 10 15; stop_AdGuardHome; break; fi
     if [ "$COUNT" -gt "90" ]; then COUNT="0"; timezone; fi
     COUNT="$((COUNT + 1))"
     if [ -f "/opt/sbin/AdGuardHome" ]; then
