@@ -496,6 +496,7 @@ download_file () {
 }
 
 end_op_message () {
+  trap - 1 2 3 6 15
   [ "$1" = "0" ] && PTXT "$INFO Operation completed, returning to Main Menu. You can quit or continue"
   [ "$1" = "1" ] && PTXT "$INFO Operation aborted, returning to Main Menu. You can quit or continue"
   [ "$1" = "2" ] && PTXT "$INFO Abnormal Operations, returning to Main Menu. You can quit or continue"
