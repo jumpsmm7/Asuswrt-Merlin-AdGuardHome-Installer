@@ -39,8 +39,8 @@ start() {
     else
         printf "%s\n" "            $ansi_green done. $ansi_std";
         logger -st "$CALLER" "Started $DESC from $CALLER.";
-        trap "kill -s 18 "$(pidof "$PROC")"" 19 
         kill -s 19 "$(pidof "$PROC")"
+        kill -s 18 "$(pidof "$PROC")"
         return 0
     fi
 }
