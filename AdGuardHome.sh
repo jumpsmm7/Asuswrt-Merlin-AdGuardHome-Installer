@@ -83,7 +83,7 @@ start_AdGuardHome () {
 }
 
 start_monitor () {
-  trap '' 1 2 3 15
+  trap '' 1 2 3 6 15
   trap 'EXIT="1"' 10
   while [ "$(nvram get ntp_ready)" -eq "0" ]; do sleep 1; done
   local NW_STATE
