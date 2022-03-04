@@ -7,7 +7,7 @@ LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
 if [ "$1" = "init-start" ] && [ ! -f "$UPPER_SCRIPT" ]; then timezone; while [ ! -f "$UPPER_SCRIPT" ]; do sleep 1; done; fi
-if [ -f "$UPPER_SCRIPT" ] && [ "$(readlink -f "$UPPER_SCRIPT")" != "$SCRIPT_LOC" ]; then { exec $UPPER_SCRIPT "$@"; } && exit; elif [ -z "$PROCS" ]; then exit; fi
+if [ -f "$UPPER_SCRIPT" ]; then { if { [ "$(readlink -f "$UPPER_SCRIPT")" != "$SCRIPT_LOC" ] || [ "$0" != "$UPPER_SCRIPT" ]; }; then { exec $UPPER_SCRIPT "$@"; } && exit; fi; }; else { if [ -z "$PROCS" ]; then exit; fi; }; fi
 
 NAME="$(basename "$0")[$$]"
 
@@ -83,7 +83,7 @@ start_AdGuardHome () {
 }
 
 start_monitor () {
-  trap '' 1 2 3 15
+  trap '' 1 2 3 6 15
   trap 'EXIT="1"' 10
   while [ "$(nvram get ntp_ready)" -eq "0" ]; do sleep 1; done
   local NW_STATE
@@ -93,7 +93,7 @@ start_monitor () {
   EXIT="0"
   logger -st "$NAME" "Starting_Monitor: $NAME"
   while true; do
-    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping_Monitor: $NAME"; trap 1 2 3 10 15; stop_AdGuardHome; break; fi
+    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping_Monitor: $NAME"; trap - 1 2 3 6 10 15; stop_AdGuardHome; break; fi
     if [ "$COUNT" -gt "90" ]; then COUNT="0"; timezone; fi
     COUNT="$((COUNT + 1))"
     if [ -f "/opt/sbin/AdGuardHome" ]; then
@@ -117,7 +117,7 @@ start_monitor () {
 }
 
 stop_monitor () {
-  for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID"; }; fi; done
+  for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID" || kill -s 9 "$PID"; }; fi; done
 }
 
 stop_AdGuardHome () {
