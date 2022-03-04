@@ -496,7 +496,7 @@ download_file () {
 }
 
 end_op_message () {
-  trap - 1 2 3 6 13 15 17
+  trap - 1 2 3 6 13 15
   clear && sleep 3
   [ "$1" = "0" ] && PTXT "$INFO Operation completed, returning to Main Menu. You can quit or continue"
   [ "$1" = "1" ] && PTXT "$INFO Operation aborted, returning to Main Menu. You can quit or continue"
@@ -960,7 +960,7 @@ write_manager_script () {
   fi
 }
 
-trap 'end_op_message 2' 1 2 3 6 13 15 17
+trap 'end_op_message 2' 1 2 3 6 13 15
 [ "$1" ] && BRANCH="$1" || BRANCH="master"
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
 RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}"
