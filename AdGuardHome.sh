@@ -105,7 +105,6 @@ start_monitor () {
           ;;
       esac
       if [ -z "$(pidof "$PROCS")" ]; then
-        logger -st "$NAME" "Warning: $PROCS is dead; $NAME will force-start it!"
         start_AdGuardHome
       elif { [ "$COUNT" -eq "30" ] || [ "$COUNT" -eq "60" ] || [ "$COUNT" -eq "90" ]; } && { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
         logger -st "$NAME" "Warning: $PROCS is not responding; $NAME will re-start it!"
@@ -121,7 +120,7 @@ stop_monitor () {
 }
 
 stop_AdGuardHome () {
-  if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; } && { lower_script check; }; { service restart_dnsmasq >/dev/null 2>&1; }; else { lower_script check; }; fi
+  if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; }; { service restart_dnsmasq >/dev/null 2>&1; }; else { lower_script check; }; fi
   if [ -f "/tmp/stats.db" ]; then { rm -rf "/tmp/stats.db" >/dev/null 2>&1; }; fi
   if [ -f "/tmp/sessions.db" ]; then { rm -rf "/tmp/sessions.db" >/dev/null 2>&1; }; fi
 }
@@ -152,18 +151,18 @@ case "$1" in
     { start_monitor & } >/dev/null 2>&1
     ;;
   "start"|"restart")
-    if [ -z "$(pidof "$PROCS")" ]; then { "$SCRIPT_LOC" init-start; }; else start_AdGuardHome; fi
+    "$SCRIPT_LOC" init-start
     ;;
   "stop"|"kill")
-    if [ -n "$(pidof "$PROCS")" ]; then { "$SCRIPT_LOC" services-stop; }; else stop_AdGuardHome; fi
+    "$SCRIPT_LOC" services-stop
     ;;
   "dnsmasq")
     dnsmasq_params
     ;;
   "init-start"|"services-stop")
     timezone
-    if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; start_AdGuardHome; { "$SCRIPT_LOC" monitor-start; }; fi
-    if [ "$1" = "services-stop" ]; then stop_AdGuardHome; stop_monitor >/dev/null 2>&1; fi
+    if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; { "$SCRIPT_LOC" monitor-start; }; fi
+    if [ "$1" = "services-stop" ]; then { stop_monitor >/dev/null 2>&1; }; fi
     ;;
   *)
     { $LOWER_SCRIPT_LOC "$1"; } && exit
