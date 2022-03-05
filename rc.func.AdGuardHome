@@ -23,7 +23,7 @@ start() {
         return 0
     fi
     { $PRECMD > /dev/null 2>&1; };
-    eval $(echo "$PREARGS $PROC $ARGS >/dev/null 2>&1 </dev/null &" ) &
+    { eval $(echo -e "$PREARGS $PROC $ARGS >/dev/null 2>&1 </dev/null &") & | /bin/sh }
     #echo $PREARGS $PROC $ARGS
     COUNTER="0";
     LIMIT="10";
