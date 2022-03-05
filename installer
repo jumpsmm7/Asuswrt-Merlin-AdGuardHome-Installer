@@ -178,7 +178,7 @@ backup_restore () {
       return
     fi
     PTXT "$INFO Please wait while we perform one last check."
-    [ -n "$(pidof AdGuardHome)" ] && if service restart_AdGuardHome; elif /opt/etc/init.d/S99AdGuardHome restart; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
+    [ -n "$(pidof AdGuardHome)" ] && if service restart_AdGuardHome; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome restart; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
     /opt/etc/init.d/S99AdGuardHome check
     end_op_message 0
   elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
@@ -669,12 +669,12 @@ inst_AdGuardHome () {
     return
   fi
   PTXT "$INFO Please wait while we perform one last check."
-  [ -n "$(pidof AdGuardHome)" ] && if service restart_AdGuardHome; elif /opt/etc/init.d/S99AdGuardHome restart; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
+  [ -n "$(pidof AdGuardHome)" ] && if service restart_AdGuardHome; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome restart; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
   /opt/etc/init.d/S99AdGuardHome check
   PTXT "$INFO AdGuardHome setup is complete."
   end_op_message 0
 }
-  
+
 read_input_dns () {
   PTXT -n "$INPUT $1 ${BOLD}${2}: ${NORM}"
   local DNS_SERVER
