@@ -148,7 +148,7 @@ timezone () {
 unset TZ
 case "$1" in
   "monitor-start")
-    { stop_monitor & } >/dev/null 2>&1
+    stop_monitor >/dev/null 2>&1
     { start_monitor & } >/dev/null 2>&1
     ;;
   "start"|"restart")
@@ -163,7 +163,7 @@ case "$1" in
   "init-start"|"services-stop")
     timezone
     if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; start_AdGuardHome; { "$SCRIPT_LOC" monitor-start; }; fi
-    if [ "$1" = "services-stop" ]; then stop_AdGuardHome; { stop_monitor & } >/dev/null 2>&1; fi
+    if [ "$1" = "services-stop" ]; then stop_AdGuardHome; stop_monitor >/dev/null 2>&1; fi
     ;;
   *)
     { $LOWER_SCRIPT_LOC "$1"; } && exit
