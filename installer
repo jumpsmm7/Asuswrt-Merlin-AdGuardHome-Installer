@@ -887,7 +887,7 @@ uninst_all () {
     PTXT "$INFO Old Backup Detected!"
     read_yesno "Do you want to remove backup?(this will prevent resorting later)" && rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz" || PTXT "$INFO Keeping backup instead."
   fi
-  [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome 2>/dev/null; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi
+  [ -n "$(pidof AdGuardHome)" ] && if service stop_AdGuardHome; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome 2>/dev/null; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi
   [ "$(awk -F'=' '/ADGUARD_DOMAIN/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "yes" ] && nvram set lan_domain="" && nvram commit
   mv "${TARG_DIR}/installer" "${HOME}/installer"
   rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "$ADDON_DIR" "/opt/var/log/AdGuardHome.log"
