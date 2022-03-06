@@ -17,7 +17,7 @@
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        #
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             JackYaz,gspannu,thelonelycoder #
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.4.0                               #
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.4.1                               #
 #                                                                                          #
 ############################################################################################
 
@@ -32,7 +32,7 @@
 # shellcheck disable=SC3045
 # shellcheck disable=SC3057
 
-AI_VERSION="v1.4.0"
+AI_VERSION="v1.4.1"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
 readonly REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
@@ -140,6 +140,7 @@ backup_restore () {
     write_manager_script /jffs/scripts/init-start init-start
     write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
     write_manager_script /jffs/scripts/services-stop services-stop
+    write_command_script /jffs/scripts/service-event-end 'if echo "$2" | /bin/grep -q "^AdGuardHome"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
     if [ -f "/opt/etc/init.d/S80apache" ]; then opkg install apache-utils >/dev/null 2>&1; fi
     if ! opkg list-installed | grep -q apache-utils; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
     if opkg list-installed | grep -q apache-utils && [ ! -f "/opt/etc/init.d/S80apache" ]; then opkg flag hold apache apache-utils >/dev/null 2>&1; fi
@@ -167,8 +168,10 @@ backup_restore () {
       end_op_message 1
       return
     fi
-    [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome 2>/dev/null; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi
-    [ -z "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
+    [ -n "$(pidof AdGuardHome)" ] && { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1; else { killall -q -9 AdGuardHome 2>/dev/null; }; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi; };
+    while [ -n "$(pidof AdGuardHome)" ]; do sleep 1; done
+    [ -z "$(pidof AdGuardHome)" ] && { if { service start_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome start; }; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi; };
+    /opt/etc/init.d/S99AdGuardHome check
     sleep 1
     if [ -z "$(pidof AdGuardHome)" ]; then
       PTXT "$ERROR Couldn't start AdGuardHome!" \
@@ -177,8 +180,8 @@ backup_restore () {
       return
     fi
     PTXT "$INFO Please wait while we perform one last check."
-    [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome restart; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
-    PTXT "$INFO You are all set."
+    [ -n "$(pidof AdGuardHome)" ] && { if { service restart_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome restart; }; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi; };
+    { while { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" != "0" ]; }; do sleep 3; done; } && /opt/etc/init.d/S99AdGuardHome check
     end_op_message 0
   elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$ERROR No Backup found!" \
@@ -363,7 +366,7 @@ check_version () {
 	   "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
 	   "$INFO for any configuration needs. "
     elif { [ -z "$LINSTALL" ] && [ -z "$RMNSTALL" ]; } || { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
-      [ -z "$1" ] && while { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; do sleep 1; NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"; RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"; done && check_version x
+      [ -z "$1" ] && { while { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; do sleep 1; NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"; RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"; done; } && check_version x
       [ -n "$1" ] && check_version x x
     fi
   fi
@@ -630,6 +633,7 @@ inst_AdGuardHome () {
   write_manager_script /jffs/scripts/init-start init-start
   write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
   write_manager_script /jffs/scripts/services-stop services-stop
+  write_command_script /jffs/scripts/service-event-end 'if echo "$2" | /bin/grep -q "^AdGuardHome"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
   if [ -f "/opt/etc/init.d/S80apache" ]; then opkg install apache-utils >/dev/null 2>&1; fi
   if ! opkg list-installed | grep -q apache-utils; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
   if opkg list-installed | grep -q apache-utils && [ ! -f "/opt/etc/init.d/S80apache" ]; then opkg flag hold apache apache-utils >/dev/null 2>&1; fi
@@ -657,8 +661,10 @@ inst_AdGuardHome () {
     end_op_message 1
     return
   fi
-  [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome 2>/dev/null; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi
-  [ -z "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome start; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
+  [ -n "$(pidof AdGuardHome)" ] && { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1; else { killall -q -9 AdGuardHome 2>/dev/null; }; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi; };
+  while [ -n "$(pidof AdGuardHome)" ]; do sleep 1; done
+  [ -z "$(pidof AdGuardHome)" ] && { if { service start_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome start; }; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi; };
+  /opt/etc/init.d/S99AdGuardHome check
   sleep 1
   if [ -z "$(pidof AdGuardHome)" ]; then
     PTXT "$ERROR Couldn't start AdGuardHome!" \
@@ -667,11 +673,12 @@ inst_AdGuardHome () {
     return
   fi
   PTXT "$INFO Please wait while we perform one last check."
-  [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome restart; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi
+  [ -n "$(pidof AdGuardHome)" ] && { if { service restart_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome restart; }; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi; };
+  { while { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" != "0" ]; }; do sleep 3; done; } && /opt/etc/init.d/S99AdGuardHome check
   PTXT "$INFO AdGuardHome setup is complete."
   end_op_message 0
 }
-  
+
 read_input_dns () {
   PTXT -n "$INPUT $1 ${BOLD}${2}: ${NORM}"
   local DNS_SERVER
@@ -882,7 +889,8 @@ uninst_all () {
     PTXT "$INFO Old Backup Detected!"
     read_yesno "Do you want to remove backup?(this will prevent resorting later)" && rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz" || PTXT "$INFO Keeping backup instead."
   fi
-  [ -n "$(pidof AdGuardHome)" ] && if /opt/etc/init.d/S99AdGuardHome stop; then sleep 1; elif /opt/etc/init.d/S99AdGuardHome kill; then sleep 1; else killall -q -9 AdGuardHome 2>/dev/null; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi
+  [ -n "$(pidof AdGuardHome)" ] && { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1; else { killall -q -9 AdGuardHome 2>/dev/null; }; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi; };
+  while [ -n "$(pidof AdGuardHome)" ]; do sleep 1; done
   [ "$(awk -F'=' '/ADGUARD_DOMAIN/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "yes" ] && nvram set lan_domain="" && nvram commit
   mv "${TARG_DIR}/installer" "${HOME}/installer"
   rm -rf "$TARG_DIR" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "$ADDON_DIR" "/opt/var/log/AdGuardHome.log"
@@ -890,6 +898,7 @@ uninst_all () {
   del_jffs_script /jffs/scripts/init-start
   del_jffs_script /jffs/scripts/dnsmasq.postconf
   del_jffs_script /jffs/scripts/services-stop
+  del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
   service restart_dnsmasq >/dev/null 2>&1
   end_op_message 0
 }
