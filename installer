@@ -140,6 +140,7 @@ backup_restore () {
     write_manager_script /jffs/scripts/init-start init-start
     write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
     write_manager_script /jffs/scripts/services-stop services-stop
+    write_command_script /jffs/scripts/service-event-end 'if echo "$2" | /bin/grep -q "^AdGuardHome"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
     if [ -f "/opt/etc/init.d/S80apache" ]; then opkg install apache-utils >/dev/null 2>&1; fi
     if ! opkg list-installed | grep -q apache-utils; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
     if opkg list-installed | grep -q apache-utils && [ ! -f "/opt/etc/init.d/S80apache" ]; then opkg flag hold apache apache-utils >/dev/null 2>&1; fi
@@ -631,6 +632,7 @@ inst_AdGuardHome () {
   write_manager_script /jffs/scripts/init-start init-start
   write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
   write_manager_script /jffs/scripts/services-stop services-stop
+  write_command_script /jffs/scripts/service-event-end 'if echo "$2" | /bin/grep -q "^AdGuardHome"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
   if [ -f "/opt/etc/init.d/S80apache" ]; then opkg install apache-utils >/dev/null 2>&1; fi
   if ! opkg list-installed | grep -q apache-utils; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
   if opkg list-installed | grep -q apache-utils && [ ! -f "/opt/etc/init.d/S80apache" ]; then opkg flag hold apache apache-utils >/dev/null 2>&1; fi
@@ -893,6 +895,7 @@ uninst_all () {
   del_jffs_script /jffs/scripts/init-start
   del_jffs_script /jffs/scripts/dnsmasq.postconf
   del_jffs_script /jffs/scripts/services-stop
+  del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
   service restart_dnsmasq >/dev/null 2>&1
   end_op_message 0
 }
