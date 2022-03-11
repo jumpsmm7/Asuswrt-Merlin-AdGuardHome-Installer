@@ -17,7 +17,7 @@
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        #
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             JackYaz,gspannu,thelonelycoder #
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.4.1                               #
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.4.2                               #
 #                                                                                          #
 ############################################################################################
 
@@ -32,7 +32,7 @@
 # shellcheck disable=SC3045
 # shellcheck disable=SC3057
 
-AI_VERSION="v1.4.1"
+AI_VERSION="v1.4.2"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
 readonly REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
@@ -223,60 +223,56 @@ check_dns_environment () {
   fi
   local NVCHECK
   NVCHECK="0"
-  if [ "$(nvram get dnspriv_enable)" != "0" ]; then nvram set dnspriv_enable="0"; NVCHECK="$((NVCHECK+1))"; fi
-  if [ "$(pidof stubby)" ]; then killall -q -9 stubby; NVCHECK="$((NVCHECK+1))"; fi
-  if [ "$(nvram get dhcp_dns1_x)" ]; then nvram set dhcp_dns1_x=""; NVCHECK="$((NVCHECK+1))"; fi
-  if [ "$(nvram get dhcp_dns2_x)" ]; then nvram set dhcp_dns2_x=""; NVCHECK="$((NVCHECK+1))"; fi
-  if [ "$(nvram get dhcpd_dns_router)" != "1" ]; then nvram set dhcpd_dns_router="1"; NVCHECK="$((NVCHECK+1))"; fi
-  if [ "$NVCHECK" != "0" ]; then nvram commit; service restart_dnsmasq >/dev/null 2>&1; while { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" != "0" ]; }; do sleep 1; done; fi
+  if [ "$(nvram get dnspriv_enable)" != "0" ]; then { nvram set dnspriv_enable="0"; }; NVCHECK="$((NVCHECK+1))"; fi
+  if [ "$(pidof stubby)" ]; then { killall -q -9 stubby; }; NVCHECK="$((NVCHECK+1))"; fi
+  if [ "$(nvram get dhcp_dns1_x)" ]; then { nvram set dhcp_dns1_x=""; }; NVCHECK="$((NVCHECK+1))"; fi
+  if [ "$(nvram get dhcp_dns2_x)" ]; then { nvram set dhcp_dns2_x=""; }; NVCHECK="$((NVCHECK+1))"; fi
+  if [ "$(nvram get dhcpd_dns_router)" != "1" ]; then { nvram set dhcpd_dns_router="1"; }; NVCHECK="$((NVCHECK+1))"; fi
+  if [ "$NVCHECK" != "0" ]; then { nvram commit; }; { service restart_dnsmasq >/dev/null 2>&1; }; while { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" != "0" ]; }; do sleep 1; done; fi
   PTXT "$INFO DNS Environment is Ready."
 }
 
 check_dns_filter () {
-  local DNSFIL
-  DNSFIL="$(nvram get dnsfilter_enable_x)"
+  local NVCHECK
+  NVCHECK="0"
   local USE_SOME
-  if [ "$1" -eq 0 ] && [ "$DNSFIL" -ne 0 ]; then
+  if [ "$1" -eq 0 ] && [ "$(nvram get dnsfilter_enable_x)" -ne 0 ]; then
     nvram set dnsfilter_enable_x="0"
-    nvram commit
-    service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1
+    NVCHECK="$((NVCHECK+1))"
     PTXT "$INFO DNS will not be forced through this proxy."
-    return
+  elif [ "$1" -eq 0 ]; then
+    NVCHECK="0"
   fi
-  if [ "$1" -eq 1 ] && [ "$DNSFIL" -ne 1 ]; then
-    nvram set dnsfilter_enable_x="1"
-    USE_SOME=1
-  elif [ "$1" -eq 1 ] && [ "$DNSFIL" -ne 0 ]; then
-    PTXT "$INFO DNSFilter is Already on." \
-         "$INFO You can choose to keep any custom dnsfilter values and only redirect non-custom traffic or send all traffic through to AdGuardHome."
-    read_yesno "Do you want to redirect only SOME DNS resolutions on your network through AdGuardHome?" && USE_SOME="0" || USE_SOME="1"
+  if [ "$1" -eq 1 ]; then
+    if [ "$(nvram get dnsfilter_enable_x)" -ne 1 ]; then
+      nvram set dnsfilter_enable_x="1"
+      NVCHECK="$((NVCHECK+1))"
+    fi
+    PTXT "$INFO You can choose to keep any custom dnsfilter values by only redirect non-custom traffic or send all traffic through to AdGuardHome."
+    read_yesno "Do you want to redirect only NON-CUSTOM DNS resolutions on your network through AdGuardHome?" && USE_SOME="0" || USE_SOME="1"
+    if [ "$USE_SOME" -eq 0 ]; then
+      nvram set dnsfilter_mode="11"
+      NVCHECK="$((NVCHECK+1))"
+      PTXT "$INFO DNSFilter is set to control DNS through this proxy, while leaving any Custom Rules and Values."
+    fi
+    if [ "$USE_SOME" -eq 1 ]; then
+      if [ "$(nvram get dnsfilter_custom1)" ]; then { nvram set dnsfilter_custom1=""; }; NVCHECK="$((NVCHECK+1))"; fi
+      if [ "$(nvram get dnsfilter_custom2)" ]; then { nvram set dnsfilter_custom2=""; }; NVCHECK="$((NVCHECK+1))"; fi
+      if [ "$(nvram get dnsfilter_custom3)" ]; then { nvram set dnsfilter_custom3=""; }; NVCHECK="$((NVCHECK+1))"; fi
+      if [ "$(nvram get dnsfilter_mode)" != "11" ]; then { nvram set dnsfilter_mode="11"; }; NVCHECK="$((NVCHECK+1))"; fi
+      if [ "$(nvram get dnsfilter_rulelist)" ]; then { nvram set dnsfilter_rulelist=""; }; NVCHECK="$((NVCHECK+1))"; fi
+      if [ "$(nvram get dnsfilter_rulelist1)" ]; then { nvram set dnsfilter_rulelist1=""; }; NVCHECK="$((NVCHECK+1))"; fi
+      if [ "$(nvram get dnsfilter_rulelist2)" ]; then { nvram set dnsfilter_rulelist2=""; }; NVCHECK="$((NVCHECK+1))"; fi
+      if [ "$(nvram get dnsfilter_rulelist3)" ]; then { nvram set dnsfilter_rulelist3=""; }; NVCHECK="$((NVCHECK+1))"; fi
+      if [ "$(nvram get dnsfilter_rulelist4)" ]; then { nvram set dnsfilter_rulelist4=""; }; NVCHECK="$((NVCHECK+1))"; fi
+      if [ "$(nvram get dnsfilter_rulelist5)" ]; then { nvram set dnsfilter_rulelist5=""; }; NVCHECK="$((NVCHECK+1))"; fi
+      if [ "$(nvram get dhcp_dns1_x)" ]; then { nvram set dhcp_dns1_x=""; }; NVCHECK="$((NVCHECK+1))"; fi
+      if [ "$(nvram get dhcp_dns2_x)" ]; then { nvram set dhcp_dns2_x=""; }; NVCHECK="$((NVCHECK+1))"; fi
+      if [ "$(nvram get dhcpd_dns_router)" != "1" ]; then { nvram set dhcpd_dns_router="1"; }; NVCHECK="$((NVCHECK+1))"; fi
+      PTXT "$INFO DNS is set to redirect All DNS resolutions through this proxy."
+    fi
   fi
-  if [ "$USE_SOME" -eq 0 ]; then
-    nvram set dnsfilter_mode="11"
-    nvram commit
-    service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1
-    PTXT "$INFO DNSFilter is set to control DNS through this proxy, while leaving any Custom Rules and Values."
-    return
-  fi
-  if [ "$USE_SOME" -eq 1 ]; then
-    nvram set dnsfilter_custom1=""
-    nvram set dnsfilter_custom2=""
-    nvram set dnsfilter_custom3=""
-    nvram set dnsfilter_mode="11"
-    nvram set dnsfilter_rulelist=""
-    nvram set dnsfilter_rulelist1=""
-    nvram set dnsfilter_rulelist2=""
-    nvram set dnsfilter_rulelist3=""
-    nvram set dnsfilter_rulelist4=""
-    nvram set dnsfilter_rulelist5=""
-    nvram set dhcp_dns1_x=""
-    nvram set dhcp_dns2_x=""
-    nvram set dhcpd_dns_router="1"
-    nvram commit
-    service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1
-    PTXT "$INFO DNS is set to redirect All DNS resolutions through this proxy."
-    return
-  fi
+  if [ "$NVCHECK" != "0" ]; then { nvram commit; }; { service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1; }; while { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" != "0" ]; }; do sleep 1; done; fi
 }
 
 check_jffs_enabled () {
@@ -887,7 +883,7 @@ yaml_nvars_delete () {
 uninst_all () {
   if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
     PTXT "$INFO Old Backup Detected!"
-    read_yesno "Do you want to remove backup?(this will prevent resorting later)" && rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz" || PTXT "$INFO Keeping backup instead."
+    read_yesno "Do you want to remove backup?(this will prevent restoring from backups later)" && rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz" || PTXT "$INFO Keeping backup instead."
   fi
   [ -n "$(pidof AdGuardHome)" ] && { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1; else { killall -q -9 AdGuardHome 2>/dev/null; }; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi; };
   while [ -n "$(pidof AdGuardHome)" ]; do sleep 1; done
