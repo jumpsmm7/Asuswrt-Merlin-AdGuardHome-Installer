@@ -15,7 +15,7 @@ check_dns_environment () {
   local NVCHECK
   NVCHECK="0"
   if [ "$(nvram get dnspriv_enable)" != "0" ]; then { nvram set dnspriv_enable="0"; }; NVCHECK="$((NVCHECK+1))"; fi
-  if [ "$(pidof stubby)" ]; then { killall -q -9 stubby; }; NVCHECK="$((NVCHECK+1))"; fi
+  if [ "$(pidof stubby)" ]; then { killall -q -9 stubby 2>/dev/null; }; NVCHECK="$((NVCHECK+1))"; fi
   if [ "$(nvram get dhcp_dns1_x)" ]; then { nvram set dhcp_dns1_x=""; }; NVCHECK="$((NVCHECK+1))"; fi
   if [ "$(nvram get dhcp_dns2_x)" ]; then { nvram set dhcp_dns2_x=""; }; NVCHECK="$((NVCHECK+1))"; fi
   if [ "$(nvram get dhcpd_dns_router)" != "1" ]; then { nvram set dhcpd_dns_router="1"; }; NVCHECK="$((NVCHECK+1))"; fi
@@ -117,7 +117,8 @@ start_monitor () {
 }
 
 stop_monitor () {
-  for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID" || kill -s 9 "$PID"; }; fi; done
+  stop_AdGuardHome
+  for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID" 2>/dev/null || kill -s 9 "$PID" 2>/dev/null; }; fi; done
 }
 
 stop_AdGuardHome () {
