@@ -236,12 +236,9 @@ check_dns_filter () {
   local NVCHECK
   NVCHECK="0"
   local USE_SOME
-  if [ "$1" -eq 0 ] && [ "$(nvram get dnsfilter_enable_x)" -ne 0 ]; then
-    nvram set dnsfilter_enable_x="0"
-    NVCHECK="$((NVCHECK+1))"
+  if [ "$1" -eq 0 ]; then
+    if [ "$(nvram get dnsfilter_enable_x)" -ne 0 ]; then { nvram set dnsfilter_enable_x="0"; }; NVCHECK="$((NVCHECK+1))"; fi
     PTXT "$INFO DNS will not be forced through this proxy."
-  elif [ "$1" -eq 0 ]; then
-    NVCHECK="0"
   fi
   if [ "$1" -eq 1 ]; then
     if [ "$(nvram get dnsfilter_enable_x)" -ne 1 ]; then
@@ -251,8 +248,7 @@ check_dns_filter () {
     PTXT "$INFO You can choose to keep any custom dnsfilter values by only redirect non-custom traffic or send all traffic through to AdGuardHome."
     read_yesno "Do you want to redirect only NON-CUSTOM DNS resolutions on your network through AdGuardHome?" && USE_SOME="0" || USE_SOME="1"
     if [ "$USE_SOME" -eq 0 ]; then
-      nvram set dnsfilter_mode="11"
-      NVCHECK="$((NVCHECK+1))"
+      if [ "$(nvram get dnsfilter_mode)" != "11" ]; then { nvram set dnsfilter_mode="11"; }; NVCHECK="$((NVCHECK+1))"; fi
       PTXT "$INFO DNSFilter is set to control DNS through this proxy, while leaving any Custom Rules and Values."
     fi
     if [ "$USE_SOME" -eq 1 ]; then
