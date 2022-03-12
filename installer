@@ -169,9 +169,9 @@ backup_restore () {
       return
     fi
     [ -n "$(pidof AdGuardHome)" ] && { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1; else { killall -q -9 AdGuardHome 2>/dev/null; }; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi; };
-    { until [ -z "$(pidof AdGuardHome)" ]; do sleep 1; done; } && /opt/etc/init.d/S99AdGuardHome check
+    { until [ -z "$(pidof AdGuardHome)" ]; do sleep 1; done; }
     [ -z "$(pidof AdGuardHome)" ] && { if { service start_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome start; }; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi; };
-    { until [ -n "$(pidof AdGuardHome)" ]; do sleep 1; done; } && /opt/etc/init.d/S99AdGuardHome check
+    { until { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; } && [ -n "$(pidof AdGuardHome)" ]; do sleep 1; done; } && /opt/etc/init.d/S99AdGuardHome check
     if [ -z "$(pidof AdGuardHome)" ]; then
       PTXT "$ERROR Couldn't start AdGuardHome!" \
            "$ERROR Please send WebUI System Log to dev."
@@ -180,8 +180,7 @@ backup_restore () {
     fi
     PTXT "$INFO Please wait while we perform one last check."
     [ -n "$(pidof AdGuardHome)" ] && { if { service restart_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome restart; }; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi; };
-    { until [ -n "$(pidof AdGuardHome)" ]; do sleep 1; done; };
-    { while { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" != "0" ]; }; do sleep 1; done; } && /opt/etc/init.d/S99AdGuardHome check
+    { until { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; } && [ -n "$(pidof AdGuardHome)" ]; do sleep 1; done; } && /opt/etc/init.d/S99AdGuardHome check
     PTXT "$INFO AdGuardHome setup is complete."
     end_op_message 0
   elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
@@ -652,9 +651,9 @@ inst_AdGuardHome () {
     return
   fi
   [ -n "$(pidof AdGuardHome)" ] && { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1; else { killall -q -9 AdGuardHome 2>/dev/null; }; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi; };
-  { until [ -z "$(pidof AdGuardHome)" ]; do sleep 1; done; } && /opt/etc/init.d/S99AdGuardHome check
+  { until [ -z "$(pidof AdGuardHome)" ]; do sleep 1; done; };
   [ -z "$(pidof AdGuardHome)" ] && { if { service start_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome start; }; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi; };
-  { until [ -n "$(pidof AdGuardHome)" ]; do sleep 1; done; } && /opt/etc/init.d/S99AdGuardHome check
+  { until { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; } && [ -n "$(pidof AdGuardHome)" ]; do sleep 1; done; } && /opt/etc/init.d/S99AdGuardHome check
   if [ -z "$(pidof AdGuardHome)" ]; then
     PTXT "$ERROR Couldn't start AdGuardHome!" \
          "$ERROR Please send WebUI System Log to dev."
@@ -663,8 +662,7 @@ inst_AdGuardHome () {
   fi
   PTXT "$INFO Please wait while we perform one last check."
   [ -n "$(pidof AdGuardHome)" ] && { if { service restart_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome restart; }; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi; };
-  { until [ -n "$(pidof AdGuardHome)" ]; do sleep 1; done; };
-  { while { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" != "0" ]; }; do sleep 1; done; } && /opt/etc/init.d/S99AdGuardHome check
+  { until { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; } && [ -n "$(pidof AdGuardHome)" ]; do sleep 1; done; } && /opt/etc/init.d/S99AdGuardHome check
   PTXT "$INFO AdGuardHome setup is complete."
   end_op_message 0
 }
