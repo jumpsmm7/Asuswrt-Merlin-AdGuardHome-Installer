@@ -48,7 +48,7 @@ stop() {
         "stop"|"restart")
             COUNTER="0";
             LIMIT="10";
-            until { [ -z "$(pidof "$PROC")" ] && [ "$COUNTER" -le "$LIMIT" ]; }; do
+            while { [ -n "$(pidof "$PROC")" ] && [ "$COUNTER" -le "$LIMIT" ]; }; do
                 [ "$COUNTER" = "0" ] && printf "%s" "$ansi_white Shutting down $PROC... $ansi_std";
                 [ -z "$(pidof "$PROC")" ] && break || { kill -s 2 "$(pidof "$PROC")" 2>/dev/null || killall -q -2 "$PROC" 2>/dev/null; };
                 sleep "$LIMIT";
