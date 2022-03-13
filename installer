@@ -181,6 +181,7 @@ backup_restore () {
     fi
     PTXT "$INFO Please wait while we perform one last check."
     if [ -n "$(pidof AdGuardHome)" ]; then { if { service restart_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome restart; }; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi; }; fi; sleep 1;
+    if [ -n "$(pidof AdGuardHome)" ]; then { until [ -z "$(pidof AdGuardHome)" ]; do sleep 1; done; }; else { /opt/etc/init.d/S99AdGuardHome check; }; fi; sleep 1;
     if [ -z "$(pidof AdGuardHome)" ]; then { until [ -n "$(pidof AdGuardHome)" ]; do sleep 1; done; }; else { /opt/etc/init.d/S99AdGuardHome check; }; fi; sleep 1;
     if [ -n "$(pidof AdGuardHome)" ]; then { until { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; }; do sleep 1; done; }; else { /opt/etc/init.d/S99AdGuardHome check; }; fi; sleep 1;
     PTXT "$INFO AdGuardHome setup is complete."
@@ -665,6 +666,7 @@ inst_AdGuardHome () {
   fi
   PTXT "$INFO Please wait while we perform one last check."
   if [ -n "$(pidof AdGuardHome)" ]; then { if { service restart_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome restart; }; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi; }; fi; sleep 1;
+  if [ -n "$(pidof AdGuardHome)" ]; then { until [ -z "$(pidof AdGuardHome)" ]; do sleep 1; done; }; else { /opt/etc/init.d/S99AdGuardHome check; }; fi; sleep 1;
   if [ -z "$(pidof AdGuardHome)" ]; then { until [ -n "$(pidof AdGuardHome)" ]; do sleep 1; done; }; else { /opt/etc/init.d/S99AdGuardHome check; }; fi; sleep 1;
   if [ -n "$(pidof AdGuardHome)" ]; then { until { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; }; do sleep 1; done; }; else { /opt/etc/init.d/S99AdGuardHome check; }; fi; sleep 1;
   PTXT "$INFO AdGuardHome setup is complete."
