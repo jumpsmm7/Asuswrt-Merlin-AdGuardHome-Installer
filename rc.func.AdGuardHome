@@ -48,16 +48,16 @@ stop() {
         "stop"|"restart")
             COUNTER="0";
             LIMIT="10";
-            while { [ -n "$(pidof "$PROC")" ] && [ "$COUNTER" -le "$LIMIT" ]; }; do
+            until { [ -z "$(pidof "$PROC")" ] && [ "$COUNTER" -le "$LIMIT" ]; }; do
                 [ "$COUNTER" = "0" ] && printf "%s" "$ansi_white Shutting down $PROC... $ansi_std";
-                [ -z "$(pidof "$PROC")" ] && break || { kill -s 9 "$(pidof "$PROC")" 2>/dev/null || killall -q -9 "$PROC" 2>/dev/null; };
-                sleep 1;
+                [ -z "$(pidof "$PROC")" ] && break || { kill -s 2 "$(pidof "$PROC")" 2>/dev/null || killall -q -2 "$PROC" 2>/dev/null; };
+                sleep $LIMIT
                 COUNTER="$((COUNTER + 1))"
             done
             ;;
         "kill")
             printf "%s" "$ansi_white Killing $PROC... $ansi_std";
-            { kill -s 9 "$(pidof "$PROC")" 2>/dev/null || killall -q -9 "$PROC" 2>/dev/null; };
+            { kill -s 2 "$(pidof "$PROC")" 2>/dev/null || killall -q -2 "$PROC" 2>/dev/null; };
             ;;
     esac
     if [ -n "$(pidof "$PROC")" ]; then
