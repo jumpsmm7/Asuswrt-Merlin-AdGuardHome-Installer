@@ -125,7 +125,7 @@ stop_monitor () {
 stop_AdGuardHome () {
   if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; }; { service restart_dnsmasq >/dev/null 2>&1; }; fi
   for db in stats.db sessions.db; do
-    if [ "$(readlink -f "/tmp/${db}")" = "${WORK_DIR}/data/${db}" ]; then { rm "/tmp/${db}" >/dev/null 2>&1; }; fi
+    if [ "$(readlink -f "/tmp/${db}")" = "${WORK_DIR}/data/${db}" ]; then { rm -f "/tmp/${db}" >/dev/null 2>&1; }; fi
   done
 }
 
