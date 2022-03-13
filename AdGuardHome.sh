@@ -123,10 +123,12 @@ stop_monitor () {
 }
 
 stop_AdGuardHome () {
-  if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; }; { service restart_dnsmasq >/dev/null 2>&1; }; fi
+  if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; }; fi
   for db in stats.db sessions.db; do
     if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { rm "/tmp/${db}" >/dev/null 2>&1; }; fi
   done
+  { until [ -z "$(pidof "$PROCS")" ]; do sleep 1; done; };
+  { service restart_dnsmasq >/dev/null 2>&1; };
 }
 
 timezone () {
