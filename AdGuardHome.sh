@@ -159,10 +159,10 @@ case "$1" in
     { start_monitor & };
     ;;
   "start"|"restart")
-    if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" init-start; else 
+    if [ -z "$(pidof "$PROCS")" ]; then { "$SCRIPT_LOC" init-start >/dev/null 2>&1; }; else { stop_monitor 2; }; fi
     ;;
   "stop"|"kill")
-    "$SCRIPT_LOC" services-stop
+    { "$SCRIPT_LOC" services-stop >/dev/null 2>&1; };
     ;;
   "dnsmasq")
     dnsmasq_params
