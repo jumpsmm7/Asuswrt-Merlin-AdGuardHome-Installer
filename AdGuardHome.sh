@@ -86,6 +86,7 @@ start_AdGuardHome () {
 start_monitor () {
   trap '' 1 2 3 6 15
   trap 'EXIT="1"' 10
+  trap 'EXIT="2"' 12
   while [ "$(nvram get ntp_ready)" -eq "0" ]; do sleep 1; done
   local NW_STATE
   local RES_STATE
@@ -95,6 +96,7 @@ start_monitor () {
   logger -st "$NAME" "Starting_Monitor: $NAME"
   while true; do
     if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping_Monitor: $NAME"; trap - 1 2 3 6 10 15; stop_AdGuardHome; break; fi
+    if [ "$EXIT" = "2" ]; then start_AdGuardHome; EXIT="0"; fi
     if [ "$COUNT" -gt "90" ]; then COUNT="0"; timezone; fi
     COUNT="$((COUNT + 1))"
     if [ -f "/opt/sbin/AdGuardHome" ]; then
@@ -118,8 +120,8 @@ start_monitor () {
 }
 
 stop_monitor () {
-  stop_AdGuardHome
-  for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID" 2>/dev/null || kill -s 9 "$PID" 2>/dev/null; }; fi; done
+  [ "$1" = "1" ] && { for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID" 2>/dev/null; }; fi; done; };
+  [ "$1" = "2" ] && { for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 12 "$PID" 2>/dev/null; }; fi; done; };
 }
 
 stop_AdGuardHome () {
@@ -153,10 +155,11 @@ timezone () {
 unset TZ
 case "$1" in
   "monitor-start")
-    stop_monitor && { start_monitor & }
+    { stop_monitor 1; };
+    { start_monitor & };
     ;;
   "start"|"restart")
-    "$SCRIPT_LOC" init-start
+    if [ -z "$(pidof "$PROCS")" ]; then "$SCRIPT_LOC" init-start; else 
     ;;
   "stop"|"kill")
     "$SCRIPT_LOC" services-stop
@@ -167,7 +170,7 @@ case "$1" in
   "init-start"|"services-stop")
     timezone
     if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; { "$SCRIPT_LOC" monitor-start; }; fi
-    if [ "$1" = "services-stop" ]; then { stop_monitor; }; fi
+    if [ "$1" = "services-stop" ]; then { stop_monitor 1; }; fi
     ;;
   *)
     { $LOWER_SCRIPT_LOC "$1"; } && exit
