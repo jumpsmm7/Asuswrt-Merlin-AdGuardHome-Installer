@@ -126,10 +126,8 @@ stop_monitor () {
     "$MON_PID")
       SIGNAL="12"
       ;;
-  esac
-  case "$MON_PID" in
-    *)
-      [ -z "$SIGNAL" ] && SIGNAL="10"
+    "$$")
+      SIGNAL="10"
       ;;
   esac
   [ -n "$SIGNAL" ] && { kill -s "$SIGNAL" "$MON_PID" 2>/dev/null; };
@@ -179,7 +177,7 @@ case "$1" in
         { "$SCRIPT_LOC" monitor-start; }
         ;;
       "services-stop")
-        { stop_monitor; };
+        { stop_monitor "$$"; };
         ;;
     esac
     ;;
