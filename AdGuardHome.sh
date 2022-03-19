@@ -151,7 +151,7 @@ timezone () {
     { ln -sf "$TIMEZONE" "$TARGET"; };    
   fi
   if [ -f "$TARGET" ] || [ "$(readlink "$TARGET")" ]; then
-    [ "$(date -u '+%s')" -le "$(date -u -r "$MID_SCRIPT" '+%s')" ] && { date -u -s "$(date -u -r "$MID_SCRIPT" '+%Y-%m-%d %H:%M:%S')"; }; || { touch "$MID_SCRIPT"; };   
+    [ "$(date -u '+%s')" -le "$(date -u -r "$MID_SCRIPT" '+%s')" ] && { date -u -s "$(date -u -r "$MID_SCRIPT" '+%Y-%m-%d %H:%M:%S')"; } || { touch "$MID_SCRIPT"; };
   fi
 }
 
