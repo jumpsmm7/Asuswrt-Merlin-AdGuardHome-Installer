@@ -126,8 +126,10 @@ stop_monitor () {
     "$MON_PID")
       SIGNAL="12"
       ;;
+  esac
+  case "$MON_PID" in
     *)
-      [ -n "$MAN_PID" ] && SIGNAL="10"
+      [ -z "$SIGNAL" ] && SIGNAL="10"
       ;;
   esac
   [ -n "$SIGNAL" ] && { kill -s "$SIGNAL" "$MON_PID" 2>/dev/null; };
