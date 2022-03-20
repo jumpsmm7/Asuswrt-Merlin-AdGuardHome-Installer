@@ -8,6 +8,7 @@ if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
 if [ "$1" = "init-start" ] && [ ! -f "$UPPER_SCRIPT" ]; then timezone; while [ ! -f "$UPPER_SCRIPT" ]; do sleep 1; done; fi
 if [ -f "$UPPER_SCRIPT" ]; then { if { [ "$(readlink -f "$UPPER_SCRIPT")" != "$SCRIPT_LOC" ] || [ "$0" != "$UPPER_SCRIPT" ]; }; then { exec $UPPER_SCRIPT "$@"; } && exit; fi; }; else { if [ -z "$PROCS" ]; then exit; fi; }; fi
+{ for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { MON_PID="$PID"; }; fi; done; };
 
 NAME="$(basename "$0")[$$]"
 
@@ -73,9 +74,7 @@ start_AdGuardHome () {
   local NW_STATE
   local RES_STATE
   if [ -z "$(pidof "$PROCS")" ]; then { lower_script start; }; else { lower_script restart; }; fi
-  for db in stats.db sessions.db; do
-    if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1; }; fi
-  done
+  for db in stats.db sessions.db; do { if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done
   STATE="0"
   [ -z "$1" ] && NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"
   [ -z "$1" ] && RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"
@@ -86,17 +85,19 @@ start_AdGuardHome () {
 start_monitor () {
   trap '' 1 2 3 6 15
   trap 'EXIT="1"' 10
+  trap 'EXIT="2"' 12
   while [ "$(nvram get ntp_ready)" -eq "0" ]; do sleep 1; done
   local NW_STATE
   local RES_STATE
   local COUNT
-  COUNT="0"
+  local EXIT
   EXIT="0"
   logger -st "$NAME" "Starting_Monitor: $NAME"
   while true; do
-    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping_Monitor: $NAME"; trap - 1 2 3 6 10 15; stop_AdGuardHome; break; fi
-    if [ "$COUNT" -gt "90" ]; then COUNT="0"; timezone; fi
-    COUNT="$((COUNT + 1))"
+    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping_Monitor: $NAME"; trap - 1 2 3 6 10 12 15; stop_AdGuardHome; break; fi
+    if [ "$EXIT" = "2" ]; then start_AdGuardHome; EXIT="0"; fi
+    if [ -z "$COUNT" ]; then COUNT="0"; timezone; fi
+    if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi
     if [ -f "/opt/sbin/AdGuardHome" ]; then
       case $COUNT in
         "30"|"60"|"90")
@@ -118,56 +119,57 @@ start_monitor () {
 }
 
 stop_monitor () {
-  stop_AdGuardHome
-  for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { kill -s 10 "$PID" 2>/dev/null || kill -s 9 "$PID" 2>/dev/null; }; fi; done
+  local SIGNAL
+  case "$1" in
+    "$MON_PID")
+      SIGNAL="12"
+      ;;
+    "$$")
+      if [ -n "$MON_PID" ]; then SIGNAL="10"; else { stop_AdGuardHome; }; fi
+      ;;
+  esac
+  [ -n "$SIGNAL" ] && { kill -s "$SIGNAL" "$MON_PID" 2>/dev/null; };
 }
 
 stop_AdGuardHome () {
-  if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; }; fi
-  for db in stats.db sessions.db; do
-    if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { rm "/tmp/${db}" >/dev/null 2>&1; }; fi
-  done
-  { until [ -z "$(pidof "$PROCS")" ]; do sleep 1; done; };
-  { service restart_dnsmasq >/dev/null 2>&1; };
+  if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; }; { until [ -z "$(pidof "$PROCS")" ]; do sleep 1; done; }; { service restart_dnsmasq >/dev/null 2>&1; }; fi
+  for db in stats.db sessions.db; do { if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { rm "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done
 }
 
 timezone () {
-  local SANITY
-  local NOW
   local TIMEZONE
   local TARGET
-  local LINK
-  SANITY="$(date -u -r "$MID_SCRIPT" '+%s')"
-  NOW="$(date -u '+%s')"
   TIMEZONE="/jffs/addons/AdGuardHome.d/localtime"
   TARGET="/etc/localtime"
-  LINK="$(readlink "$TARGET")"
-  if [ -f "$TIMEZONE" ] && [ "$LINK" = "$TIMEZONE" ]; then
-    [ "$NOW" -ge "$SANITY" ] && { touch "$MID_SCRIPT"; };
-  elif [ -f "$TIMEZONE" ]; then
-    ln -sf $TIMEZONE $TARGET
-    [ "$NOW" -le "$SANITY" ] && { date -u -s "$(date -u -r "$MID_SCRIPT" '+%Y-%m-%d %H:%M:%S')"; };
-  fi
+  if { [ ! -f "$TARGET" ] && [ -f "$TIMEZONE" ]; }; then { ln -sf "$TIMEZONE" "$TARGET"; }; fi
+  if [ -f "$TARGET" ] || [ "$(readlink "$TARGET")" ]; then { if [ "$(date -u '+%s')" -le "$(date -u -r "$MID_SCRIPT" '+%s')" ]; then { date -u -s "$(date -u -r "$MID_SCRIPT" '+%Y-%m-%d %H:%M:%S')"; }; else { touch "$MID_SCRIPT"; }; fi; }; fi
 }
 
 unset TZ
 case "$1" in
   "monitor-start")
-    stop_monitor && { start_monitor & }
+    if [ -n "$MON_PID" ]; then { stop_monitor "$MON_PID"; }; else { start_monitor & }; fi
     ;;
   "start"|"restart")
-    "$SCRIPT_LOC" init-start
+    { "$SCRIPT_LOC" init-start >/dev/null 2>&1; };
     ;;
   "stop"|"kill")
-    "$SCRIPT_LOC" services-stop
+    { "$SCRIPT_LOC" services-stop >/dev/null 2>&1; };
     ;;
   "dnsmasq")
     dnsmasq_params
     ;;
   "init-start"|"services-stop")
     timezone
-    if [ "$1" = "init-start" ]; then { printf "1" > /proc/sys/vm/overcommit_memory; }; { "$SCRIPT_LOC" monitor-start; }; fi
-    if [ "$1" = "services-stop" ]; then { stop_monitor; }; fi
+    case "$1" in
+      "init-start")
+        { printf "1" > /proc/sys/vm/overcommit_memory; }
+        { "$SCRIPT_LOC" monitor-start; }
+        ;;
+      "services-stop")
+        { stop_monitor "$$"; };
+        ;;
+    esac
     ;;
   *)
     { $LOWER_SCRIPT_LOC "$1"; } && exit
