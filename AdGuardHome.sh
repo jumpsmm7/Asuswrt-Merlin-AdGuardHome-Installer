@@ -125,7 +125,7 @@ stop_monitor () {
       SIGNAL="12"
       ;;
     "$$")
-      [ -n "$MON_PID" ] && SIGNAL="10" || stop_AdGuardHome
+      if [ -n "$MON_PID" ]; then SIGNAL="10"; else { stop_AdGuardHome; }; fi
       ;;
   esac
   [ -n "$SIGNAL" ] && { kill -s "$SIGNAL" "$MON_PID" 2>/dev/null; };
@@ -148,7 +148,7 @@ timezone () {
 unset TZ
 case "$1" in
   "monitor-start")
-    [ -n "$MON_PID" ] && { stop_monitor "$MON_PID"; } || { start_monitor & };
+    if [ -n "$MON_PID" ]; then { stop_monitor "$MON_PID"; }; else { start_monitor & }; fi
     ;;
   "start"|"restart")
     { "$SCRIPT_LOC" init-start >/dev/null 2>&1; };
