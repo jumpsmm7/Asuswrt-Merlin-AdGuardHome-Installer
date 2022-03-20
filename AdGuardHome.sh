@@ -163,8 +163,8 @@ case "$1" in
     timezone
     case "$1" in
       "init-start")
-        { printf "1" > /proc/sys/vm/overcommit_memory; }
-        { "$SCRIPT_LOC" monitor-start; }
+        { printf "1" > /proc/sys/vm/overcommit_memory; };
+        { "$SCRIPT_LOC" monitor-start; };
         ;;
       "services-stop")
         { stop_monitor "$$"; };
