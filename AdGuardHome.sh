@@ -74,9 +74,7 @@ start_AdGuardHome () {
   local NW_STATE
   local RES_STATE
   if [ -z "$(pidof "$PROCS")" ]; then { lower_script start; }; else { lower_script restart; }; fi
-  for db in stats.db sessions.db; do
-    if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1; }; fi
-  done
+  for db in stats.db sessions.db; do { if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done
   STATE="0"
   [ -z "$1" ] && NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"
   [ -z "$1" ] && RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"
@@ -127,19 +125,15 @@ stop_monitor () {
       SIGNAL="12"
       ;;
     "$$")
-      SIGNAL="10"
+      [ -n "$MON_PID" ] && SIGNAL="10" || stop_AdGuardHome
       ;;
   esac
   [ -n "$SIGNAL" ] && { kill -s "$SIGNAL" "$MON_PID" 2>/dev/null; };
 }
 
 stop_AdGuardHome () {
-  if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; }; fi
-  for db in stats.db sessions.db; do
-    if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { rm "/tmp/${db}" >/dev/null 2>&1; }; fi
-  done
-  { until [ -z "$(pidof "$PROCS")" ]; do sleep 1; done; };
-  { service restart_dnsmasq >/dev/null 2>&1; };
+  if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; }; { until [ -z "$(pidof "$PROCS")" ]; do sleep 1; done; }; { service restart_dnsmasq >/dev/null 2>&1; }; fi
+  for db in stats.db sessions.db; do { if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { rm "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done
 }
 
 timezone () {
@@ -147,12 +141,8 @@ timezone () {
   local TARGET
   TIMEZONE="/jffs/addons/AdGuardHome.d/localtime"
   TARGET="/etc/localtime"
-  if { [ ! -f "$TARGET" ] && [ -f "$TIMEZONE" ]; }; then 
-    { ln -sf "$TIMEZONE" "$TARGET"; };    
-  fi
-  if [ -f "$TARGET" ] || [ "$(readlink "$TARGET")" ]; then
-    if [ "$(date -u '+%s')" -le "$(date -u -r "$MID_SCRIPT" '+%s')" ]; then { date -u -s "$(date -u -r "$MID_SCRIPT" '+%Y-%m-%d %H:%M:%S')"; }; else { touch "$MID_SCRIPT"; }; fi
-  fi
+  if { [ ! -f "$TARGET" ] && [ -f "$TIMEZONE" ]; }; then { ln -sf "$TIMEZONE" "$TARGET"; }; fi
+  if [ -f "$TARGET" ] || [ "$(readlink "$TARGET")" ]; then { if [ "$(date -u '+%s')" -le "$(date -u -r "$MID_SCRIPT" '+%s')" ]; then { date -u -s "$(date -u -r "$MID_SCRIPT" '+%Y-%m-%d %H:%M:%S')"; }; else { touch "$MID_SCRIPT"; }; fi; }; fi
 }
 
 unset TZ
