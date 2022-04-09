@@ -41,11 +41,11 @@ curl -L -s -k -O https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGua
 ```
 # Terminal commands to for AdGuardHome are
 ```
-/opt/etc/init.d/S99AdGuardHome {stop|start|restart|check|kill|reload}
+/opt/etc/init.d/S99AdGuardHome {start|stop|restart|check|kill|reload}
 ```
 or
 ```
-service {stop|start|restart|kill|reload}_AdGuardHome
+service {start|stop|restart|check|kill|reload}_AdGuardHome
 ```
 # How to check if it works
 Run this command in the ssh shell:
@@ -53,6 +53,14 @@ Run this command in the ssh shell:
 pidof AdGuardHome
 ```
 will return a number.
+```
+or
+```
+/opt/etc/init.d/S99AdGuardHome check
+```
+which will return
+```
+  Checking AdGuardHome...              alive.
 # How to report issue:
 I need following directory:
 ```
