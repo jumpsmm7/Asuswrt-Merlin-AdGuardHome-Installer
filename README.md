@@ -53,6 +53,7 @@ Run this command in the ssh shell:
 pidof AdGuardHome
 ```
 will return a number.
+
 or:
 ```
 /opt/etc/init.d/S99AdGuardHome check
@@ -60,6 +61,7 @@ or:
 which will return
 ```
   Checking AdGuardHome...              alive.
+```
 # How to report issue:
 I need following directory:
 ```
