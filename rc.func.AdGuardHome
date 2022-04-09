@@ -80,6 +80,12 @@ check() {
     fi
 }
 
+reload() {
+    SIGNAL="SIGHUP"
+    printf "%s\n" "$ansi_white Sending $SIGNAL to $PROC... $ansi_std";
+    if [ -z "$(pidof "$PROC")" ]; then { printf "%s\n" "            $ansi_red dead. $ansi_std"; }; return 1; else { kill -s $SIGNAL "$(pidof "$PROC")" 2>/dev/null || killall -$SIGNAL "$PROC" 2>/dev/null; }; return 0; fi
+}
+
 for PROC in $PROCS; do
     case "$ACTION" in
         "start")
@@ -95,8 +101,11 @@ for PROC in $PROCS; do
         "check")
             check
             ;;
+        "reload")
+            reload
+            ;;
         *)
-            printf "%s\n" "$ansi_white Usage: $0 (start|stop|restart|check|kill)$ansi_std";
+            printf "%s\n" "$ansi_white Usage: $0 (start|stop|restart|check|kill|reload)$ansi_std";
             exit 1
             ;;
     esac
