@@ -41,11 +41,11 @@ curl -L -s -k -O https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGua
 ```
 # Terminal commands to for AdGuardHome are
 ```
-/opt/etc/init.d/S99AdGuardHome {stop|start|restart|kill|check}
+/opt/etc/init.d/S99AdGuardHome {stop|start|restart|check|kill|reload}
 ```
 or
 ```
-service {stop|start|restart|kill}_AdGuardHome
+service {stop|start|restart|kill|reload}_AdGuardHome
 ```
 # How to check if it works
 Run this command in the ssh shell:
