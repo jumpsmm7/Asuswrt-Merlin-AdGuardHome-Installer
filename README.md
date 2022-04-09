@@ -45,7 +45,7 @@ curl -L -s -k -O https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGua
 ```
 or (recommended commands)
 ```
-service {start|stop|restart|check|kill|reload}_AdGuardHome
+service {start|stop|restart|kill|reload}_AdGuardHome
 ```
 # How to check if it works
 Run this command in the ssh shell:
