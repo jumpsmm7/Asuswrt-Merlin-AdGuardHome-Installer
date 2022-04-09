@@ -53,8 +53,7 @@ Run this command in the ssh shell:
 pidof AdGuardHome
 ```
 will return a number.
-```
-or
+or:
 ```
 /opt/etc/init.d/S99AdGuardHome check
 ```
