@@ -43,7 +43,7 @@ curl -L -s -k -O https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGua
 ```
 /opt/etc/init.d/S99AdGuardHome {start|stop|restart|check|kill|reload}
 ```
-or
+or (recommended commands)
 ```
 service {start|stop|restart|check|kill|reload}_AdGuardHome
 ```
