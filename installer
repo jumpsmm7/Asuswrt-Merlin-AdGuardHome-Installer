@@ -94,9 +94,7 @@ AdGuardHome_authen () {
     AdGuardHome_authen 1
   fi
   local PW1_ENCRYPTED
-  var1=${PW1}
-  export var1
-  opkg list-installed | grep -q python3-bcrypt && PW1_ENCRYPTED="$(python -c 'import bcrypt; import sys; print(bcrypt.hashpw(b"sys.argv[1]", bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))' "$var1")"
+  opkg list-installed | grep -q python3-bcrypt && PW1_ENCRYPTED="$(python -c 'import bcrypt; password = b"'${PW1}'"; print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))')"
   opkg list-installed | grep -q python3-bcrypt || PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"
   PTXT "users:" \
     "- name: ${USERNAME}" \
