@@ -94,8 +94,10 @@ AdGuardHome_authen () {
     AdGuardHome_authen 1
   fi
   local PW1_ENCRYPTED
-  opkg list-installed | grep -q apache-utils && PW1_ENCRYPTED="$(/opt/bin/htpasswd -B -n -b "${USERNAME}" "${PW1}" | sed 's/.*://')"
-  opkg list-installed | grep -q apache-utils || PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"
+  var1=${PW1}
+  export var1
+  opkg list-installed | grep -q python3-bcrypt && PW1_ENCRYPTED="$(python -c 'import bcrypt; import sys; print(bcrypt.hashpw(b"sys.argv[1]", bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))' "$var1")"
+  opkg list-installed | grep -q python3-bcrypt || PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"
   PTXT "users:" \
     "- name: ${USERNAME}" \
     "  password: ${PW1_ENCRYPTED}" >> $YAML_ORI
@@ -141,19 +143,18 @@ backup_restore () {
     write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
     write_manager_script /jffs/scripts/services-stop services-stop
     write_command_script /jffs/scripts/service-event-end 'if echo "$2" | /bin/grep -q "^AdGuardHome"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
-    if [ -f "/opt/etc/init.d/S80apache" ]; then opkg install apache-utils >/dev/null 2>&1; fi
-    if ! opkg list-installed | grep -q apache-utils; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
-    if opkg list-installed | grep -q apache-utils && [ ! -f "/opt/etc/init.d/S80apache" ]; then opkg flag hold apache apache-utils >/dev/null 2>&1; fi
-    if ! opkg list-installed | grep -q apache-utils; then
+    opkg install python3 python3-pip python3-bcrypt >/dev/null 2>&1
+    if opkg list-installed | grep -q apache; then opkg flag user apache apache-utils >/dev/null 2>&1; opkg remove apache apache-utils --force-removal-of-dependent-packages >/dev/null 2>&1; fi
+    if ! opkg list-installed | grep -q python3-bcrypt; then
       case "$(/bin/uname -m)" in
       "aarch64"|"arm64")
         opkg install go >/dev/null 2>&1
         ;;
       "armv7l")
-        if ! opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
+        if opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
         ;;
       *)
-        if ! opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; fi
+        if opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; fi
         ;;
       esac
       export PATH="$PATH":/opt/bin/go/bin
@@ -161,6 +162,8 @@ backup_restore () {
       export GOBIN=/opt/bin/
       go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
       rm -rf go
+    else
+      pip3 install bcrypt >/dev/null 2>&1
     fi
     if [ ! -f "/etc/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
     setup_AdGuardHome
@@ -624,10 +627,9 @@ inst_AdGuardHome () {
   write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
   write_manager_script /jffs/scripts/services-stop services-stop
   write_command_script /jffs/scripts/service-event-end 'if echo "$2" | /bin/grep -q "^AdGuardHome"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
-  if [ -f "/opt/etc/init.d/S80apache" ]; then opkg install apache-utils >/dev/null 2>&1; fi
-  if ! opkg list-installed | grep -q apache-utils; then opkg install apache-utils >/dev/null 2>&1; rm -rf /opt/etc/init.d/S80apache; fi
-  if opkg list-installed | grep -q apache-utils && [ ! -f "/opt/etc/init.d/S80apache" ]; then opkg flag hold apache apache-utils >/dev/null 2>&1; fi
-  if ! opkg list-installed | grep -q apache-utils; then
+  opkg install python3 python3-pip python3-bcrypt >/dev/null 2>&1
+  if opkg list-installed | grep -q apache; then opkg flag user apache apache-utils >/dev/null 2>&1; opkg remove apache apache-utils --force-removal-of-dependent-packages >/dev/null 2>&1; fi
+  if ! opkg list-installed | grep -q python3-bcrypt; then
     case "$(/bin/uname -m)" in
     "aarch64"|"arm64")
       opkg install go >/dev/null 2>&1
@@ -644,6 +646,8 @@ inst_AdGuardHome () {
     export GOBIN=/opt/bin/
     go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
     rm -rf go
+  else
+    pip3 install bcrypt >/dev/null 2>&1
   fi
   if [ ! -f "${ADDON_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
   setup_AdGuardHome
