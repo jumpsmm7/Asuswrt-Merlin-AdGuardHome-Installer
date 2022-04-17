@@ -78,11 +78,10 @@ AdGuardHome_authen () {
   local USERNAME
   local PW1
   local PW2
-  if [ "$1" -eq 0 ]; then
-    return
+  if [ -z "$PW1" ] || [ -z "$PW2" ]; then
+    PTXT -n "$INPUT Please enter AdGuardHome username${NORM}: "
+    read -r USERNAME
   fi
-  PTXT -n "$INPUT Please enter AdGuardHome username${NORM}: "
-  read -r USERNAME
   PTXT -n "$INPUT Please enter AdGuardHome password${NORM}: "
   read -rs PW1
   PTXT " "
@@ -91,14 +90,38 @@ AdGuardHome_authen () {
   PTXT " "
   if [ -z "$PW1" ] || [ -z "$PW2" ] || [ "$PW1" != "$PW2" ]; then
     PTXT "$ERROR Password entered incorrectly!"
-    AdGuardHome_authen 1
+    AdGuardHome_authen $1
   fi
   local PW1_ENCRYPTED
   opkg list-installed | grep -q python3-bcrypt && PW1_ENCRYPTED="$(python -c 'import bcrypt; password = b"'${PW1}'"; print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))')"
   opkg list-installed | grep -q python3-bcrypt || PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"
-  PTXT "users:" \
-    "- name: ${USERNAME}" \
-    "  password: ${PW1_ENCRYPTED}" >> $YAML_ORI
+  if [ "$1" -eq 0 ]; then
+    yaml_nvars_delete "- name:" $YAML_FILE
+    yaml_nvars_delete "  password:" $YAML_FILE
+    yaml_nvars_insert "users:" "  password: ${PW1_ENCRYPTED}" $YAML_FILE
+    yaml_nvars_insert "users:" "- name: ${USERNAME}" $YAML_FILE
+    check_AdGuardHome_yaml $YAML_FILE
+    PTXT "$INFO Starting AdGuardHome..."
+    if [ -n "$(pidof AdGuardHome)" ]; then { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1; else { killall -q -9 AdGuardHome 2>/dev/null; }; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi; }; fi; sleep 1;
+    { until [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -lt "1" ]; do sleep 1; done; }; sleep 1; { /opt/etc/init.d/S99AdGuardHome check; };
+    if [ -z "$(pidof AdGuardHome)" ]; then { if { service start_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome start; }; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi; }; fi; sleep 1;
+    { until [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -eq "2" ]; do sleep 1; done; }; sleep 1; { /opt/etc/init.d/S99AdGuardHome check; };
+    if [ -z "$(pidof AdGuardHome)" ]; then
+      PTXT "$ERROR Couldn't start AdGuardHome!" \
+           "$ERROR Please send WebUI System Log to dev."
+      end_op_message 1
+      return
+    fi
+    PTXT "$INFO Please wait while we perform one last check."
+    if [ -n "$(pidof AdGuardHome)" ]; then { if { service restart_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome restart; }; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi; }; fi; sleep 1;
+    { until { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -eq "2" ]; }; do sleep 1; done; }; sleep 1; { /opt/etc/init.d/S99AdGuardHome check; };
+    PTXT "$INFO AdGuardHome setup is complete."
+    end_op_message 0
+  else
+    PTXT "users:" \
+         "- name: ${USERNAME}" \
+         "  password: ${PW1_ENCRYPTED}" >> $YAML_ORI
+  fi
 }
 
 backup_restore () {
@@ -1037,12 +1060,13 @@ menu () {
   PTXT "$INFO Choose what you want to do:" \
    "  1) Install/Update AdGuardHome" \
    "  2) Uninstall"
-  [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && PTXT "  b) Backup"
-  [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && PTXT "  r) Restore"
+  [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && PTXT "  3) Change Username/Password" "  b) Backup"
+  [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && PTXT "  r) Restore"
   PTXT "  q) Quit"
-  [ ! -d "$TARG_DIR" ] || [ ! -f "$AGH_FILE" ] && read_input_num "Please enter the number that designates your selection:" 1 2 q
-  [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && read_input_num "Please enter the number that designates your selection:" 1 2 b q
-  [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && read_input_num "Please enter the number that designates your selection:" 1 2 b r q
+  [ ! -d "$TARG_DIR" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && read_input_num "Please enter the number that designates your selection:" 1 2 q
+  [ ! -d "$TARG_DIR" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && read_input_num "Please enter the number that designates your selection:" 1 2 r q
+  [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && read_input_num "Please enter the number that designates your selection:" 1 3 b q
+  [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && read_input_num "Please enter the number that designates your selection:" 1 3 b r q
   case "$CHOSEN" in
     1)
       PTXT "$INFO This operation will install AdGuardHome and related files (<6MB)" \
@@ -1053,6 +1077,10 @@ menu () {
     2)
       PTXT "$INFO This operation will cleanup everything installed by this script."
       read_yesno "Do you want to continue?" && uninst_all || end_op_message 1
+      ;;
+    3)
+      PTXT "$INFO This operation will allow you to change your username and password."
+      read_yesno "Do you want to continue?" && AdGuardHome_authen 0 || end_op_message 1
       ;;
     b|B)
       PTXT "$INFO This operation will backup everything!"
