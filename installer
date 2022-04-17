@@ -96,14 +96,14 @@ AdGuardHome_authen () {
   opkg list-installed | grep -q python3-bcrypt && PW1_ENCRYPTED="$(python -c 'import bcrypt; password = b"'${PW1}'"; print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))')"
   opkg list-installed | grep -q python3-bcrypt || PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"
   if [ "$1" -eq 0 ]; then
-    if [ -n "$(pidof AdGuardHome)" ]; then { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1; else { killall -q -9 AdGuardHome 2>/dev/null; }; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi; }; fi; sleep 1;
-    { until [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -lt "1" ]; do sleep 1; done; }; sleep 1; { /opt/etc/init.d/S99AdGuardHome check; };
     yaml_nvars_delete "- name:" $YAML_FILE
     yaml_nvars_delete "  password:" $YAML_FILE
-    yaml_nvars_insert "users:" "  password: ${PW1_ENCRYPTED}" $YAML_FILE
+    yaml_nvars_insert "users:" "\  password: ${PW1_ENCRYPTED}" $YAML_FILE
     yaml_nvars_insert "users:" "- name: ${USERNAME}" $YAML_FILE
     check_AdGuardHome_yaml $YAML_FILE
     PTXT "$INFO Starting AdGuardHome..."
+    if [ -n "$(pidof AdGuardHome)" ]; then { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1; else { killall -q -9 AdGuardHome 2>/dev/null; }; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi; }; fi; sleep 1;
+    { until [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -lt "1" ]; do sleep 1; done; }; sleep 1; { /opt/etc/init.d/S99AdGuardHome check; };
     if [ -z "$(pidof AdGuardHome)" ]; then { if { service start_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome start; }; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi; }; fi; sleep 1;
     { until [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -eq "2" ]; do sleep 1; done; }; sleep 1; { /opt/etc/init.d/S99AdGuardHome check; };
     if [ -z "$(pidof AdGuardHome)" ]; then
