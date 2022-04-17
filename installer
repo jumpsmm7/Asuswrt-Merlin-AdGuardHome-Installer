@@ -75,13 +75,13 @@ PTXT() {
 }
 
 AdGuardHome_authen () {
-  local USERNAME
-  local PW1
-  local PW2
   if [ -z "$PW1" ] || [ -z "$PW2" ]; then
+    local USERNAME
     PTXT -n "$INPUT Please enter AdGuardHome username${NORM}: "
     read -r USERNAME
   fi
+  local PW1
+  local PW2
   PTXT -n "$INPUT Please enter AdGuardHome password${NORM}: "
   read -rs PW1
   PTXT " "
@@ -90,7 +90,7 @@ AdGuardHome_authen () {
   PTXT " "
   if [ -z "$PW1" ] || [ -z "$PW2" ] || [ "$PW1" != "$PW2" ]; then
     PTXT "$ERROR Password entered incorrectly!"
-    AdGuardHome_authen $1
+    AdGuardHome_authen "$1"
   fi
   local PW1_ENCRYPTED
   opkg list-installed | grep -q python3-bcrypt && PW1_ENCRYPTED="$(python -c 'import bcrypt; password = b"'${PW1}'"; print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))')"
