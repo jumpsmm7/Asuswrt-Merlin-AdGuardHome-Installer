@@ -172,10 +172,10 @@ backup_restore () {
         opkg install go >/dev/null 2>&1
         ;;
       "armv7l")
-        if opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
+        if ! opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
         ;;
       *)
-        if opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; fi
+        if ! opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
         ;;
       esac
       export PATH="$PATH":/opt/bin/go/bin
@@ -649,17 +649,16 @@ inst_AdGuardHome () {
   write_manager_script /jffs/scripts/services-stop services-stop
   write_command_script /jffs/scripts/service-event-end 'if echo "$2" | /bin/grep -q "^AdGuardHome"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
   opkg install python3 python3-pip python3-bcrypt >/dev/null 2>&1
-  if opkg list-installed | grep -q apache; then opkg flag user apache apache-utils >/dev/null 2>&1; opkg remove apache apache-utils --force-removal-of-dependent-packages >/dev/null 2>&1; fi
   if ! opkg list-installed | grep -q python3-bcrypt; then
     case "$(/bin/uname -m)" in
     "aarch64"|"arm64")
       opkg install go >/dev/null 2>&1
       ;;
     "armv7l")
-      if opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
+      if ! opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
       ;;
     *)
-      if opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; fi
+      if ! opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
       ;;
     esac
     export PATH="$PATH":/opt/bin/go/bin
