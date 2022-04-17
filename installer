@@ -17,7 +17,7 @@
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        #
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             JackYaz,gspannu,thelonelycoder #
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.4.3                               #
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.4.4                               #
 #                                                                                          #
 ############################################################################################
 
@@ -171,10 +171,7 @@ backup_restore () {
       "aarch64"|"arm64")
         opkg install go >/dev/null 2>&1
         ;;
-      "armv7l")
-        if ! opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
-        ;;
-      *)
+      "armv7l"|*)
         if ! opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
         ;;
       esac
@@ -654,10 +651,7 @@ inst_AdGuardHome () {
     "aarch64"|"arm64")
       opkg install go >/dev/null 2>&1
       ;;
-    "armv7l")
-      if ! opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
-      ;;
-    *)
+    "armv7l"|*)
       if ! opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
       ;;
     esac
