@@ -86,7 +86,11 @@ start_monitor () {
   trap '' 1 2 3 6 15
   trap 'EXIT="1"' 10
   trap 'EXIT="2"' 12
+  local NTP
+  local NTP_STATE
   while [ "$(nvram get ntp_ready)" -eq "0" ]; do sleep 1; done
+  for NTP in /opt/etc/init.d/S77ntpd /opt/etc/init.d/S77chronyd; do { if [ -f "$NTP" ]; then NTP_STATE="$NTP"; fi; }; { [ -n "$NTP_STATE" ] && break; }; done
+  [ -n "$NTP_STATE" ] && { while $NTP_STATE check | grep -q "dead" && [ -z "$(pidof "$(printf "%s" "$NTP_STATE" | sed "s/\/opt\/etc\/init.d\/S77//")")" ]; do sleep 1; done; };
   local NW_STATE
   local RES_STATE
   local COUNT
