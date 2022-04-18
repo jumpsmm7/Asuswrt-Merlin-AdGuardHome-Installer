@@ -35,10 +35,9 @@ dnsmasq_params () {
   local NIVARS
   local NDVARS
   local i 
-  CONFIG="/etc/dnsmasq.conf"
-  [ -z "$(pidof "$PROCS")" ] && printf "server=1.1.1.1" >> $CONFIG 
+  CONFIG="/etc/dnsmasq.conf" 
   if [ "$(nvram get dns_local_cache)" != "1" ] && [ "$(readlink -f /tmp/resolv.conf)" = "/rom/etc/resolv.conf" ]; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
-  [ -z "$(pidof "$PROCS")" ] && exit
+  if [ -z "$(pidof "$PROCS")" ]; then { printf "server=1.1.1.1\n" >> $CONFIG; }; { if [ "$(nvram get dns_local_cache)" != "1" ]; then { for RESOLV in /tmp/resolv.conf /etc/resolv.conf; do printf "nameserver 1.1.1.1\n" > RESOLV; done; }; fi; }; exit; fi
   if [ -z "$(nvram get ipv6_rtr_addr)" ]; then { printf "%s\n" "port=553" "local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/" "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $CONFIG; }; else { printf "%s\n" "port=553" "local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/" "local=/10.in-addr.arpa/" "local=/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/" "dhcp-option=lan,6,0.0.0.0" >> $CONFIG; }; fi
   if [ -n "$(route | grep "br" | grep -v "br0" | grep -E "^(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | awk '{print $1}' | sed -e 's/[0-9]$/1/' | sed -e ':a; N; $!ba;s/\n/ /g')" ]; then
     iCOUNT="1"
