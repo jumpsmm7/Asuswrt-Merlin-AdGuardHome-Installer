@@ -36,29 +36,31 @@ dnsmasq_params () {
   local NDVARS
   local i 
   CONFIG="/etc/dnsmasq.conf"
-  if [ "$(nvram get dns_local_cache)" != "1" ] && [ "$(readlink -f /tmp/resolv.conf)" = "/rom/etc/resolv.conf" ]; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
-  [ -z "$(pidof "$PROCS")" ] && exit
-  if [ -z "$(nvram get ipv6_rtr_addr)" ]; then { printf "%s\n" "port=553" "local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/" "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $CONFIG; }; else { printf "%s\n" "port=553" "local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/" "local=/10.in-addr.arpa/" "local=/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/" "dhcp-option=lan,6,0.0.0.0" >> $CONFIG; }; fi
-  if [ -n "$(route | grep "br" | grep -v "br0" | grep -E "^(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | awk '{print $1}' | sed -e 's/[0-9]$/1/' | sed -e ':a; N; $!ba;s/\n/ /g')" ]; then
-    iCOUNT="1"
-    for iVARS in $(route | grep "br" | grep -v "br0" | grep -E "(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | awk '{print $8}' | sed -e ':a; N; $!ba;s/\n/ /g'); do
-      [ "$iCOUNT" = "1" ] && COUNT="$iCOUNT" && IVARS="$iVARS"
-      [ "$iCOUNT" != "1" ] && COUNT="$COUNT $iCOUNT" && IVARS="$IVARS $iVARS"
-      iCOUNT="$((iCOUNT+1))"
-    done
-    dCOUNT="1"
-    for dVARS in $(route | grep "br" | grep -v "br0" | grep -E "192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | awk '{print $1}' | sed -e 's/[0-9]$/1/' | sed -e ':a; N; $!ba;s/\n/ /g'); do
-      [ "$dCOUNT" = "1" ] && DVARS="$dVARS"
-      [ "$dCOUNT" != "1" ] && DVARS="$DVARS $dVARS"
-      dCOUNT="$((dCOUNT+1))"
-    done
-    for i in $COUNT; do
-      NIVARS="$(printf "%s\n" "$IVARS" | cut -d' ' -f"$i")"
-      NDVARS="$(printf "%s\n" "$DVARS" | cut -d' ' -f"$i")"
-      printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >> $CONFIG
-    done
+  if [ -z "$(pidof "$PROCS")" ]; then
+    if [ "$(nvram get dns_local_cache)" != "1" ] && [ "$(readlink -f /tmp/resolv.conf)" = "/rom/etc/resolv.conf" ]; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
+  else
+    if [ -z "$(nvram get ipv6_rtr_addr)" ]; then { printf "%s\n" "port=553" "local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/" "local=/10.in-addr.arpa/" "dhcp-option=lan,6,0.0.0.0" >> $CONFIG; }; else { printf "%s\n" "port=553" "local=/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/" "local=/10.in-addr.arpa/" "local=/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/" "dhcp-option=lan,6,0.0.0.0" >> $CONFIG; }; fi
+    if [ -n "$(route | grep "br" | grep -v "br0" | grep -E "^(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | awk '{print $1}' | sed -e 's/[0-9]$/1/' | sed -e ':a; N; $!ba;s/\n/ /g')" ]; then
+      iCOUNT="1"
+      for iVARS in $(route | grep "br" | grep -v "br0" | grep -E "(192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | awk '{print $8}' | sed -e ':a; N; $!ba;s/\n/ /g'); do
+        [ "$iCOUNT" = "1" ] && COUNT="$iCOUNT" && IVARS="$iVARS"
+        [ "$iCOUNT" != "1" ] && COUNT="$COUNT $iCOUNT" && IVARS="$IVARS $iVARS"
+        iCOUNT="$((iCOUNT+1))"
+      done
+      dCOUNT="1"
+      for dVARS in $(route | grep "br" | grep -v "br0" | grep -E "192\.168|10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.)" | awk '{print $1}' | sed -e 's/[0-9]$/1/' | sed -e ':a; N; $!ba;s/\n/ /g'); do
+        [ "$dCOUNT" = "1" ] && DVARS="$dVARS"
+        [ "$dCOUNT" != "1" ] && DVARS="$DVARS $dVARS"
+        dCOUNT="$((dCOUNT+1))"
+      done
+      for i in $COUNT; do
+        NIVARS="$(printf "%s\n" "$IVARS" | cut -d' ' -f"$i")"
+        NDVARS="$(printf "%s\n" "$DVARS" | cut -d' ' -f"$i")"
+        printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >> $CONFIG
+      done
+    fi
+    if [ "$(nvram get dns_local_cache)" != "1" ]; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
   fi
-  if [ "$(nvram get dns_local_cache)" != "1" ]; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
 }
 
 lower_script () {
@@ -67,6 +69,22 @@ lower_script () {
       $LOWER_SCRIPT_LOC "$1" "$NAME"
       ;;
   esac
+}
+
+proc_optimizations () {
+  { printf "0" > /proc/sys/vm/overcommit_memory; }; # Ensure kernal algorithm checks properly work.
+  { printf "2500000" > /proc/sys/net/core/rmem_max; }; # Ensure UDP receive buffer set to 2.5M.
+  { printf "0" > /proc/sys/net/ipv4/icmp_ratelimit; }; # Ensure Control over MTRS
+  { printf "256" > /proc/sys/net/ipv4/neigh/default/gc_thresh1; }; # Increase ARP cache sizes and GC thresholds
+  { printf "1024" > /proc/sys/net/ipv4/neigh/default/gc_thresh2; }; # Increase ARP cache sizes and GC thresholds
+  { printf "2048" > /proc/sys/net/ipv4/neigh/default/gc_thresh3; }; # Increase ARP cache sizes and GC thresholds
+  { printf "240" > /proc/sys/net/netfilter/nf_conntrack_tcp_timeout_max_retrans; }; # Lower conntrack tcp_timeout_max_retrans from 300 to 240
+  if [ -n "$(nvram get ipv6_service)" ]; then #IPV6 proc variants
+    { printf "0" > /proc/sys/net/ipv6/icmp/ratelimit; };
+    { printf "256" > /proc/sys/net/ipv6/neigh/default/gc_thresh1; };
+    { printf "1024" > /proc/sys/net/ipv6/neigh/default/gc_thresh2; };
+    { printf "2048" > /proc/sys/net/ipv6/neigh/default/gc_thresh3; };
+  fi
 }
 
 start_AdGuardHome () {
@@ -163,7 +181,7 @@ case "$1" in
     timezone
     case "$1" in
       "init-start")
-        { printf "0" > /proc/sys/vm/overcommit_memory; }; # Ensure kernal algorithm checks properly work.
+        proc_optimizations
         { "$SCRIPT_LOC" monitor-start; };
         ;;
       "services-stop")
