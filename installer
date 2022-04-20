@@ -289,6 +289,20 @@ check_dns_filter () {
   if [ "$NVCHECK" != "0" ]; then { nvram commit; }; { service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1; }; while { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" != "0" ]; }; do sleep 1; done; fi
 }
 
+check_dns_local () {
+  local LOCAL_CACHE
+  case "$1" in
+    0)
+      LOCAL_CACHE="NO"
+      write_conf ADGUARD_LOCAL "\"$LOCAL_CACHE\""
+    ;;
+    1)
+      LOCAL_CACHE="YES"
+      write_conf ADGUARD_LOCAL "\"$LOCAL_CACHE\""
+    ;;
+  esac
+}
+
 check_jffs_enabled () {
   if [ "$(nvram get jffs2_format)" = "1" ]; then
     PTXT "$ERROR JFFS partition is scheduled to be reformatted." \
@@ -783,6 +797,7 @@ setup_AdGuardHome () {
 setup_AdGuardHome_impl () {
    if [ -z "$1" ]; then
       read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?" && check_dns_filter 1 || check_dns_filter 0
+      read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?" && check_dns_local 1 || check_dns_local 0
    fi
    if [ ! -f "$YAML_ORI" ] || [ ! -f "$YAML_FILE" ]; then
      PTXT "$INFO Requesting entries for the for AdGuardHome initial configuration..."
