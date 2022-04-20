@@ -17,7 +17,7 @@
 #   | |   _ __   ___ | |_  __ _ | || |  ___  _ __           SomeWhereOverTheRainBow        #
 #   | |  | '_ \ / __|| __|/ _` || || | / _ \| '__|    Contributors:                        #
 #  _| |_ | | | |\__ \| |_| (_| || || ||  __/| |             JackYaz,gspannu,thelonelycoder #
-# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.4.6                               #
+# |_____||_| |_||___/ \__|\__,_||_||_| \___||_|       v1.4.7                               #
 #                                                                                          #
 ############################################################################################
 
@@ -32,7 +32,7 @@
 # shellcheck disable=SC3045
 # shellcheck disable=SC3057
 
-AI_VERSION="v1.4.6"
+AI_VERSION="v1.4.7"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
 readonly REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
@@ -112,7 +112,7 @@ AdGuardHome_authen () {
     pip3 install bcrypt >/dev/null 2>&1
   fi
   local PW1_ENCRYPTED
-  if opkg list-installed | grep -q python3-bcrypt; then PW1_ENCRYPTED="$(python -c 'import bcrypt; password = b"'${PW1}'"; print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))')"; elif [ -f "/opt/bin/bcrypt-tool" ]; then PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"; else PTXT "$ERROR Password could not be set!" "$ERROR Please contact dev."; end_op_message 1; return; fi
+  if opkg list-installed | grep -q python3-bcrypt; then PW1_ENCRYPTED="$(python -c 'import bcrypt; password = b"'"${PW1}"'"; print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))')"; elif [ -f "/opt/bin/bcrypt-tool" ]; then PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"; else PTXT "$ERROR Password could not be set!" "$ERROR Please contact dev."; end_op_message 1; return; fi
   if [ "$1" -eq 0 ]; then
     yaml_nvars_delete "- name:" $YAML_FILE
     yaml_nvars_delete "  password:" $YAML_FILE
@@ -287,6 +287,20 @@ check_dns_filter () {
     fi
   fi
   if [ "$NVCHECK" != "0" ]; then { nvram commit; }; { service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1; }; while { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" != "0" ]; }; do sleep 1; done; fi
+}
+
+check_dns_local () {
+  local LOCAL_CACHE
+  case "$1" in
+    0)
+      LOCAL_CACHE="NO"
+      write_conf ADGUARD_LOCAL "\"$LOCAL_CACHE\""
+    ;;
+    1)
+      LOCAL_CACHE="YES"
+      write_conf ADGUARD_LOCAL "\"$LOCAL_CACHE\""
+    ;;
+  esac
 }
 
 check_jffs_enabled () {
@@ -783,6 +797,7 @@ setup_AdGuardHome () {
 setup_AdGuardHome_impl () {
    if [ -z "$1" ]; then
       read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?" && check_dns_filter 1 || check_dns_filter 0
+      read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?" && check_dns_local 1 || check_dns_local 0
    fi
    if [ ! -f "$YAML_ORI" ] || [ ! -f "$YAML_FILE" ]; then
      PTXT "$INFO Requesting entries for the for AdGuardHome initial configuration..."
@@ -835,19 +850,7 @@ setup_AdGuardHome_impl () {
     [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_delete "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x; print ":0000:0000"}' | cut -c 2- | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" "$YAML_FILE"
     [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_delete "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" "$YAML_FILE"
     [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_insert "  upstream_dns:" "\  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" "$YAML_FILE"
-    local DOMAIN
-    [ -n "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)"
-    yaml_nvars_replace "  - '[/router.asus.com/]$(nvram get lan_ipaddr):553'" "  - '[/router.asus.com/][::]:553'" "$YAML_FILE"
-    yaml_nvars_replace "  - '[/www.asusnetwork.net/]$(nvram get lan_ipaddr):553'" "  - '[/www.asusnetwork.net/][::]:553'" "$YAML_FILE"
-    yaml_nvars_replace "  - '[/www.asusrouter.com/]$(nvram get lan_ipaddr):553'" "  - '[/www.asusrouter.com/][::]:553'" "$YAML_FILE"
-    yaml_nvars_replace "  - '[/use-application-dns.net/]$(nvram get lan_ipaddr):553'" "  - '[/use-application-dns.net/][::]:553'" "$YAML_FILE"
-    yaml_nvars_replace "  - '[/dns.resolver.arpa/]$(nvram get lan_ipaddr):553'" "  - '[/dns.resolver.arpa/][::]:553'" "$YAML_FILE"
-    [ -n "$(nvram get lan_domain)" ] && yaml_nvars_replace "  - '[/$DOMAIN/]$(nvram get lan_ipaddr):553'" "  - '[/$DOMAIN/][::]:553'" "$YAML_FILE"
-    yaml_nvars_delete "  - '[::]:553'" "$YAML_FILE"
-    yaml_nvars_replace "  - '[//]$(nvram get lan_ipaddr):553'" "  - '[//][::]:553'" "$YAML_FILE"
-    yaml_nvars_insert "  local_ptr_upstreams:" "\  - '[::]:553'" "$YAML_FILE"
-    yaml_nvars_replace "  - '[/10.in-addr.arpa/]$(nvram get lan_ipaddr):553'" "  - '[/10.in-addr.arpa/][::]:553'" "$YAML_FILE"
-    yaml_nvars_replace "  - '[/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/]$(nvram get lan_ipaddr):553'" "  - '[/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/][::]:553'" "$YAML_FILE"
+    yaml_nvars_replace "$(nvram get lan_ipaddr):553" "[::]:553" "$YAML_FILE"
     check_AdGuardHome_yaml $YAML_FILE
   fi
 }
