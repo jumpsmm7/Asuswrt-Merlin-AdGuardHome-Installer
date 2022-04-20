@@ -112,7 +112,7 @@ AdGuardHome_authen () {
     pip3 install bcrypt >/dev/null 2>&1
   fi
   local PW1_ENCRYPTED
-  if opkg list-installed | grep -q python3-bcrypt; then PW1_ENCRYPTED="$(python -c 'import bcrypt; password = b"'${PW1}'"; print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))')"; elif [ -f "/opt/bin/bcrypt-tool" ]; then PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"; else PTXT "$ERROR Password could not be set!" "$ERROR Please contact dev."; end_op_message 1; return; fi
+  if opkg list-installed | grep -q python3-bcrypt; then PW1_ENCRYPTED="$(python -c 'import bcrypt; password = b"'"${PW1}"'"; print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))')"; elif [ -f "/opt/bin/bcrypt-tool" ]; then PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"; else PTXT "$ERROR Password could not be set!" "$ERROR Please contact dev."; end_op_message 1; return; fi
   if [ "$1" -eq 0 ]; then
     yaml_nvars_delete "- name:" $YAML_FILE
     yaml_nvars_delete "  password:" $YAML_FILE
