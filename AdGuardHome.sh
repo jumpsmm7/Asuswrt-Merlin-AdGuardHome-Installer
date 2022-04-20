@@ -1,6 +1,7 @@
 #!/bin/sh
 
 SCRIPT_LOC="$(readlink -f "$0")"
+CONF_FILE="/opt/etc/AdGuardHome/.config"
 MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
@@ -34,7 +35,7 @@ dnsmasq_params () {
   local DVARS
   local NIVARS
   local NDVARS
-  local i 
+  local i
   CONFIG="/etc/dnsmasq.conf"
   if [ -z "$(pidof "$PROCS")" ]; then
     if [ "$(nvram get dns_local_cache)" != "1" ] && [ "$(readlink -f /tmp/resolv.conf)" = "/rom/etc/resolv.conf" ]; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
@@ -59,7 +60,7 @@ dnsmasq_params () {
         printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >> $CONFIG
       done
     fi
-    if [ "$(nvram get dns_local_cache)" != "1" ]; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
+    if [ "$(nvram get dns_local_cache)" != "1" ] && [ "$(awk -F'=' '/ADGUARD_LOCAL/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "YES" ]; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
   fi
 }
 
