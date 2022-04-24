@@ -797,7 +797,7 @@ setup_AdGuardHome () {
 setup_AdGuardHome_impl () {
    if [ -z "$1" ]; then
       read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?" && check_dns_filter 1 || check_dns_filter 0
-      read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?" && check_dns_local 1 || check_dns_local 0
+      if [ "$(nvram get dns_local_cache)" != "1" ]; then { read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?" && check_dns_local 1 || check_dns_local 0; }; else { check_dns_local 0; }; fi
    fi
    if [ ! -f "$YAML_ORI" ] || [ ! -f "$YAML_FILE" ]; then
      PTXT "$INFO Requesting entries for the for AdGuardHome initial configuration..."
