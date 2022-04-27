@@ -182,7 +182,7 @@ backup_restore () {
     write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
     write_manager_script /jffs/scripts/services-stop services-stop
     write_command_script /jffs/scripts/service-event-end 'if echo "$2" | /bin/grep -q "^AdGuardHome"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
-    if [ ! -f "/etc/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
+    if [ ! -f "${ADDON_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
     setup_AdGuardHome
     if [ "$?" -ne 0 ]; then
       end_op_message 1
@@ -960,8 +960,8 @@ write_manager_script () {
   fi
 }
 
-trap - 1 2 3 6 15
-trap 'clear; end_op_message 2' 1 2 3 6 15
+trap - HUP INT QUIT ABRT TERM
+trap 'clear; end_op_message 2' HUP INT QUIT ABRT TERM
 [ "$1" ] && BRANCH="$1" || BRANCH="master"
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
 RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}"
