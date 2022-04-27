@@ -13,6 +13,22 @@ if [ -f "$UPPER_SCRIPT" ]; then { if { [ "$(readlink -f "$UPPER_SCRIPT")" != "$S
 
 NAME="$(basename "$0")[$$]"
 
+AdGuardHome_Run () {
+  local lock_dir
+  local pid_file
+  lock_dir="/tmp/AdGuardHome"
+  pid_file="${lock_dir}/pid"
+  if ( mkdir ${lock_dir} ) 2> /dev/null; then
+    printf "%s\n" "$$" > $pid_file
+    trap 'rm -rf "$lock_dir"; exit $?' EXIT
+    $@
+    rm -rf "$lock_dir"
+    trap - EXIT
+  else
+    logger -st "$NAME" "Lock Exists: $NAME owned by $(cat $pid_file)"
+  fi
+}
+
 check_dns_environment () {
   local NVCHECK
   NVCHECK="0"
@@ -101,9 +117,9 @@ start_AdGuardHome () {
 }
 
 start_monitor () {
-  trap '' 1 2 3 6 15
-  trap 'EXIT="1"' 10
-  trap 'EXIT="2"' 12
+  trap '' HUP INT QUIT ABRT TERM
+  trap 'EXIT="1"' USR1
+  trap 'EXIT="2"' USR2
   while [ "$(nvram get ntp_ready)" -eq "0" ]; do sleep 1; done
   local NW_STATE
   local RES_STATE
@@ -112,8 +128,8 @@ start_monitor () {
   EXIT="0"
   logger -st "$NAME" "Starting_Monitor: $NAME"
   while true; do
-    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping_Monitor: $NAME"; trap - 1 2 3 6 10 12 15; stop_AdGuardHome; break; fi
-    if [ "$EXIT" = "2" ]; then start_AdGuardHome; EXIT="0"; fi
+    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping_Monitor: $NAME"; trap - HUP INT QUIT ABRT USR1 USR2 TERM; { AdGuardHome_Run stop_AdGuardHome; }; break; fi
+    if [ "$EXIT" = "2" ]; then { AdGuardHome_Run start_AdGuardHome; }; EXIT="0"; fi
     if [ -z "$COUNT" ]; then COUNT="0"; timezone; fi
     if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi
     if [ -f "/opt/sbin/AdGuardHome" ]; then
@@ -126,10 +142,10 @@ start_monitor () {
       esac
       if [ -z "$(pidof "$PROCS")" ]; then
         logger -st "$NAME" "Warning: $PROCS is dead; $NAME will start it!"
-        start_AdGuardHome
+        AdGuardHome_Run start_AdGuardHome
       elif { [ "$COUNT" -eq "30" ] || [ "$COUNT" -eq "60" ] || [ "$COUNT" -eq "90" ]; } && { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
         logger -st "$NAME" "Warning: $PROCS is not responding; $NAME will re-start it!"
-        start_AdGuardHome
+        AdGuardHome_Run start_AdGuardHome
       fi
     fi
     sleep 10
@@ -140,10 +156,10 @@ stop_monitor () {
   local SIGNAL
   case "$1" in
     "$MON_PID")
-      SIGNAL="12"
+      SIGNAL="USR2"
       ;;
     "$$")
-      if [ -n "$MON_PID" ]; then SIGNAL="10"; else { stop_AdGuardHome; }; fi
+      if [ -n "$MON_PID" ]; then SIGNAL="USR1"; else { AdGuardHome_Run stop_AdGuardHome; }; fi
       ;;
   esac
   [ -n "$SIGNAL" ] && { kill -s "$SIGNAL" "$MON_PID" 2>/dev/null; };
