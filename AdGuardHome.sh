@@ -21,11 +21,15 @@ AdGuardHome_Run () {
   if ( mkdir ${lock_dir} ) 2> /dev/null; then
     printf "%s\n" "$$" > $pid_file
     trap 'rm -rf "$lock_dir"; exit $?' EXIT
+    start="$(date +%s)"
     $@
+    end="$(date +%s)"
+    runtime="$((end-start))"
+    logger -st "$NAME" "$@ took $runtime second(s) to complete."
     rm -rf "$lock_dir"
     trap - EXIT
   else
-    logger -st "$NAME" "Lock Exists: $NAME owned by $(cat $pid_file)"
+    logger -st "$NAME" "Lock owned by $(cat $pid_file) exists; preventing duplicate runs!"
   fi
 }
 
@@ -126,9 +130,9 @@ start_monitor () {
   local COUNT
   local EXIT
   EXIT="0"
-  logger -st "$NAME" "Starting_Monitor: $NAME"
+  logger -st "$NAME" "Starting Monitor!"
   while true; do
-    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping_Monitor: $NAME"; trap - HUP INT QUIT ABRT USR1 USR2 TERM; { AdGuardHome_Run stop_AdGuardHome; }; break; fi
+    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping Monitor!"; trap - HUP INT QUIT ABRT USR1 USR2 TERM; { AdGuardHome_Run stop_AdGuardHome; }; break; fi
     if [ "$EXIT" = "2" ]; then { AdGuardHome_Run start_AdGuardHome; }; EXIT="0"; fi
     if [ -z "$COUNT" ]; then COUNT="0"; timezone; fi
     if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi
@@ -141,10 +145,10 @@ start_monitor () {
           ;;
       esac
       if [ -z "$(pidof "$PROCS")" ]; then
-        logger -st "$NAME" "Warning: $PROCS is dead; $NAME will start it!"
+        logger -st "$NAME" "Warning: $PROCS is dead; Monitor will start it!"
         AdGuardHome_Run start_AdGuardHome
       elif { [ "$COUNT" -eq "30" ] || [ "$COUNT" -eq "60" ] || [ "$COUNT" -eq "90" ]; } && { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
-        logger -st "$NAME" "Warning: $PROCS is not responding; $NAME will re-start it!"
+        logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"
         AdGuardHome_Run start_AdGuardHome
       fi
     fi
