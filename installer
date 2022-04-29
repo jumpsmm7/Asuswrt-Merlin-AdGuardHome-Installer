@@ -430,6 +430,7 @@ cleanup () {
   mv "/opt/etc/init.d/S61AdGuardHome" "/opt/etc/init.d/S99AdGuardHome" >/dev/null 2>&1
   [ "$(cru l | grep -c "S99AdGuardHome")" -gt 0 ] && cru -d "S99AdGuardHome"
   if [ -f "${TARG_DIR}/localtime" ]; then mv "${TARG_DIR}/localtime" "${ADDON_DIR}/localtime"; fi
+  if opkg list-installed | grep -q apache; then opkg flag user apache apache-utils >/dev/null 2>&1; opkg remove apache apache-utils --force-removal-of-dependent-packages >/dev/null 2>&1; fi
 }
 
 create_dir () {
@@ -1037,13 +1038,13 @@ menu () {
   PTXT "$INFO Choose what you want to do:" \
    "  1) Install/Update AdGuardHome" \
    "  2) Uninstall"
-  [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && PTXT "  3) Change Username/Password" "  b) Backup"
-  [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && PTXT "  r) Restore"
+  if { [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ]; }; then { PTXT "  3) Change Username/Password" "  b) Backup"; }; fi
+  if { [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { PTXT "  r) Restore"; }; fi
   PTXT "  q) Quit"
-  [ ! -d "$TARG_DIR" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && read_input_num "Please enter the number that designates your selection:" 1 2 q
-  [ ! -d "$TARG_DIR" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && read_input_num "Please enter the number that designates your selection:" 1 2 r q
-  [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && read_input_num "Please enter the number that designates your selection:" 1 3 b q
-  [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && read_input_num "Please enter the number that designates your selection:" 1 3 b r q
+  if { [ ! -d "$TARG_DIR" ] || [ ! -f "$AGH_FILE" ]; } && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 q; }; fi
+  if { [ ! -d "$TARG_DIR" ] || [ ! -f "$AGH_FILE" ]; } && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 r q; }; fi
+  if { [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 3 b q; }; fi
+  if { [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 3 b r q; }; fi
   case "$CHOSEN" in
     1)
       PTXT "$INFO This operation will install AdGuardHome and related files (<6MB)" \
