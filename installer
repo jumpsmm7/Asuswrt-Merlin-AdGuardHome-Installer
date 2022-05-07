@@ -168,7 +168,7 @@ backup_restore () {
   if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
     PTXT "$INFO Please wait a moment."
     tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "$BASE_DIR" >/dev/null 2>&1
-    chown "$(nvram get http_username)":root "${TARG_DIR}/*"
+    chown "$(nvram get http_username)":root ${TARG_DIR}/*
     chmod 755 "$AGH_FILE"
     chmod 644 "$YAML_FILE"
     [ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
