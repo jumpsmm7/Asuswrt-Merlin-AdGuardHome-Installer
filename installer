@@ -1079,3 +1079,4 @@ menu () {
 }
 
 menu
+printf '\033[?7h'
