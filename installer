@@ -160,7 +160,7 @@ backup_restore () {
     fi
     tar -czvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "$TARG_DIR" ../AdGuardHome/ >/dev/null 2>&1
     PTXT "$INFO Backup complete"
-    [ "$2" -ne 0 ] && end_op_message 0
+    [ -z "$2" ] && end_op_message 0 || continue
   elif [ "$1" = "BACKUP" ] && [ ! -d "$TARG_DIR" ] && [ ! -f "$AGH_FILE" ]; then
     PTXT "$ERROR No $AGH_FILE to Backup!"
     end_op_message 1
