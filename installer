@@ -984,11 +984,13 @@ if [ -n "$NAT_ENV" ] && [ -z "$2" ]; then
   sleep 3
 fi
 
-printf '\e[8;50;125t'
-printf '\033[?7l'
-clear
-sed -n '2,21p' "$0"
-printf '\033[?7h'
+if [ -z "$2" ]; then
+  printf '\e[8;50;125t'
+  printf '\033[?7l'
+  clear
+  sed -n '2,21p' "$0"
+  printf '\033[?7h'
+fi
 
 case "$ROUTER_MODEL" in
   #RT-AX56U|RT-AX58U|RT-AX3000)
@@ -996,13 +998,13 @@ case "$ROUTER_MODEL" in
   #  exit 1
   #  ;;
   *)
-    PTXT "$INFO Detected $ROUTER_MODEL router."
+    [ -z "$2" ] && PTXT "$INFO Detected $ROUTER_MODEL router."
     ;;
 esac
 
 case "$ROUTER_OS" in
   "Linux")
-    PTXT "$INFO Detected $ROUTER_OS platform."
+    [ -z "$2" ] && PTXT "$INFO Detected $ROUTER_OS platform."
     ROUTER_OS="linux"
     ;;
   *)
@@ -1015,12 +1017,12 @@ case "$ROUTER_ARCH" in
   "aarch64"|"arm64")
     ROUTER_ARCH="arm64"
     ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
-    PTXT "$INFO Detected ARMv8 architecture."
+    [ -z "$2" ] && PTXT "$INFO Detected ARMv8 architecture."
     ;;
   "armv7l")
     ROUTER_ARCH="armv5"
     ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
-    PTXT "$INFO Detected ARMv7 architecture."
+    [ -z "$2" ] && PTXT "$INFO Detected ARMv7 architecture."
     ;;
   *)
     PTXT "$ERROR This is an unsupported architecture, sorry."
