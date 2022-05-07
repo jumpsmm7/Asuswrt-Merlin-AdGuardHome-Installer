@@ -1,4 +1,4 @@
-<a href="https://ibb.co/CMDBVRS"><img src="https://i.ibb.co/wwjyp52/Ad-Guard-Home.jpg" alt="Ad-Guard-Home" border="0"></a>
+<a href="https://ibb.co/Zm7hLhD"><img src="https://i.ibb.co/0tvfDfb/image.png" alt="image" border="0"></a>
 # Asuswrt-Merlin-AdGuardHome-Installer
 The Official Installer of AdGuardHome for Asuswrt-Merlin
 # Requirements:
