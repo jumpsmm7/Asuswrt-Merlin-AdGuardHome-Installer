@@ -976,7 +976,7 @@ clear
 [ "$(nvram get sw_mode)" != "1" ] && PTXT "$ERROR You are not running in router mode, sorry." && exit 1
 
 sed -n '2,21p' "$0"
-printf '\033[?47l'
+printf '\\033c'
 
 if [ -n "$NAT_ENV" ]; then
   PTXT "$WARNING This router is in a Double-Nat Environment. While for some users of AdGuardHome this may work fine," \
