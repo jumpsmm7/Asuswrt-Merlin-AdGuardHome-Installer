@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.5.0                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.5.1                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -31,7 +31,7 @@
 # shellcheck disable=SC3045
 # shellcheck disable=SC3057
 
-AI_VERSION="v1.5.0"
+AI_VERSION="v1.5.1"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
 readonly REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
@@ -683,7 +683,6 @@ inst_AdGuardHome () {
 }
 
 read_input_dns () {
-  trap - HUP INT QUIT ABRT TERM
   PTXT -n "$INPUT $1 ${BOLD}${2}: ${NORM}"
   local DNS_SERVER
   read -r DNS_SERVER
@@ -700,11 +699,9 @@ read_input_dns () {
       BOOTSTRAP2="$DNS_SERVER"
       ;;
   esac
-  trap 'clear; end_op_message 2' HUP INT QUIT ABRT TERM
 }
 
 read_input_num () {
-  trap - HUP INT QUIT ABRT TERM
   local RANGE
   [ -z "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}]"
   [ -n "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}]"
@@ -732,11 +729,9 @@ read_input_num () {
     read_input_num "$@"
     return
   fi
-  trap 'clear; end_op_message 2' HUP INT QUIT ABRT TERM
 }
 
 read_yesno () {
-  trap - HUP INT QUIT ABRT TERM
   PTXT -n "$INPUT $1 ${BOLD}[y/n]${NORM}: "
   local YESNO
   read -r YESNO
@@ -752,7 +747,6 @@ read_yesno () {
       read_yesno "$@"
       ;;
   esac
-  trap 'clear; end_op_message 2' HUP INT QUIT ABRT TERM
 }
 
 set_timezone () {
@@ -1043,6 +1037,7 @@ case "$2" in
 esac
 
 menu () {
+  trap - HUP INT QUIT ABRT TERM
   PTXT "$INFO Choose what you want to do:" \
    "  1) Install/Update AdGuardHome" \
    "  2) Uninstall"
@@ -1053,6 +1048,7 @@ menu () {
   if { [ ! -d "$TARG_DIR" ] || [ ! -f "$AGH_FILE" ]; } && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 r q; }; fi
   if { [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 3 b q; }; fi
   if { [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 3 b r q; }; fi
+  [ -n "$CHOSEN" ] && trap 'clear; end_op_message 2' HUP INT QUIT ABRT TERM
   case "$CHOSEN" in
     1)
       PTXT "$INFO This operation will install AdGuardHome and related files (<6MB)" \
