@@ -16,25 +16,23 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.5.1                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.5.2                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
-# shellcheck disable=SC1083
-# shellcheck disable=SC2010
-# shellcheck disable=SC2015
 # shellcheck disable=SC2016
-# shellcheck disable=SC2034
-# shellcheck disable=SC2155
-# shellcheck disable=SC2181
 # shellcheck disable=SC3043
 # shellcheck disable=SC3045
 # shellcheck disable=SC3057
 
-AI_VERSION="v1.5.1"
+AI_VERSION="v1.5.2"
+export AI_VERSION
+
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
-readonly REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
-readonly REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)"
+REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)" || true
+readonly REMOTE_VER
+REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)" || true
+readonly REMOTE_BETA
 
 readonly ADDON_DIR="/jffs/addons/AdGuardHome.d"
 readonly BASE_DIR="/opt/etc"
@@ -45,14 +43,21 @@ readonly YAML_FILE="${AGH_FILE}.yaml"
 readonly YAML_BAK="${YAML_FILE}.bak"
 readonly YAML_ERR="${YAML_FILE}.err"
 readonly YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
-readonly SCRIPT_LOC="$(readlink -f "$0")"
+SCRIPT_LOC="$(readlink -f "$0")" || true
+readonly SCRIPT_LOC
 
-readonly BOLD="$(printf "\033[1m")"
-readonly NORM="$(printf "\033[0m")"
-readonly INFO="$(printf "%s" "${BOLD} Info: ${NORM}")"
-readonly ERROR="$(printf "%s" "${BOLD} *** Error: ${NORM}")"
-readonly WARNING="$(printf "%s" "${BOLD} * Warning: ${NORM}")"
-readonly INPUT="$(printf "%s" "${BOLD} => ${NORM}")"
+BOLD="$(printf "\033[1m")" || true
+readonly BOLD
+NORM="$(printf "\033[0m")" || true
+readonly NORM
+INFO="$(printf "%s" "${BOLD} Info: ${NORM}")" || true
+readonly INFO
+ERROR="$(printf "%s" "${BOLD} *** Error: ${NORM}")" || true
+readonly ERROR
+WARNING="$(printf "%s" "${BOLD} * Warning: ${NORM}")" || true
+readonly WARNING
+INPUT="$(printf "%s" "${BOLD} => ${NORM}")" || true
+readonly INPUT
 
 _quote() {
   printf "%s\n" "$1" | sed 's/[]\/()$*.^|[]/\\&/g'
@@ -146,7 +151,7 @@ backup_restore () {
     if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
       PTXT "$INFO There is an old backup detected."
       local USE_OLD
-      read_yesno "Do you want to continue?(this will remove the old backup)" && USE_OLD="NO" || USE_OLD="YES"
+      if read_yesno "Do you want to continue?(this will remove the old backup)"; then USE_OLD="NO"; else USE_OLD="YES"; fi
       if [ "$USE_OLD" = "YES" ]; then
         PTXT "$INFO Leaving Old Backup."
         end_op_message 1
@@ -159,7 +164,7 @@ backup_restore () {
          "$INFO Please wait a moment."
     tar -czvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "$TARG_DIR" ../AdGuardHome/ >/dev/null 2>&1
     PTXT "$INFO Backup complete"
-    [ -z "$2" ] && end_op_message 0 || continue
+    [ -z "$2" ] && end_op_message 0 || return 0
   elif [ "$1" = "BACKUP" ] && [ ! -d "$TARG_DIR" ] && [ ! -f "$AGH_FILE" ]; then
     PTXT "$ERROR No $AGH_FILE to Backup!"
     end_op_message 1
@@ -182,8 +187,8 @@ backup_restore () {
     write_manager_script /jffs/scripts/services-stop services-stop
     write_command_script /jffs/scripts/service-event-end 'if echo "$2" | /bin/grep -q "^AdGuardHome"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
     if [ ! -f "${ADDON_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
-    setup_AdGuardHome
-    if [ "$?" -ne 0 ]; then
+    
+    if ! setup_AdGuardHome; then
       end_op_message 1
       return
     fi
@@ -222,8 +227,7 @@ check_AdGuardHome_yaml () {
     yaml_nvars_delete "[$BOOTSTRAP1 $BOOTSTRAP2]" "$1"
   fi
   yaml_nvars_replace 'log_localtime: false' 'log_localtime: true' "$1"
-  $AGH_FILE --check-config -c "$1" --no-check-update -l "/dev/null"
-  if [ "$?" -ne 0 ]; then
+  if ! $AGH_FILE --check-config -c "$1" --no-check-update -l "/dev/null"; then
     PTXT "$INFO Move invalid configuration file to $YAML_ERR" \
       "$INFO Operation will continue with clean config file."
     mv "$1" "$YAML_ERR"
@@ -263,7 +267,7 @@ check_dns_filter () {
   if [ "$1" -eq 1 ]; then
     if [ "$(nvram get dnsfilter_enable_x)" -ne 1 ]; then { nvram set dnsfilter_enable_x="1"; }; NVCHECK="$((NVCHECK+1))"; fi
     PTXT "$INFO You can choose to keep any custom dnsfilter values by only redirect non-custom traffic or send all traffic through to AdGuardHome."
-    read_yesno "Do you want to redirect only NON-CUSTOM DNS resolutions on your network through to AdGuardHome?" && USE_SOME="0" || USE_SOME="1"
+    if read_yesno "Do you want to redirect only NON-CUSTOM DNS resolutions on your network through to AdGuardHome?"; then USE_SOME="0"; else USE_SOME="1"; fi
     if [ "$USE_SOME" -eq 0 ]; then
       if [ "$(nvram get dnsfilter_mode)" != "11" ]; then { nvram set dnsfilter_mode="11"; }; NVCHECK="$((NVCHECK+1))"; fi
       PTXT "$INFO DNSFilter is set to control DNS through to AdGuardHome, while leaving any Custom Rules and Values."
@@ -421,7 +425,7 @@ choose_branch () {
         ;;
     esac
   else
-    read_yesno "Do you want to switch AdGuardHome builds?" && choose_branch 1 || PTXT "$INFO continuing without changing builds."
+   if read_yesno "Do you want to switch AdGuardHome builds?"; then choose_branch 1; else PTXT "$INFO continuing without changing builds."; fi
   fi
 }
 
@@ -433,8 +437,7 @@ cleanup () {
 }
 
 create_dir () {
-  mkdir -p "$1"
-  if [ "$?" -ne 0 ]; then
+  if ! mkdir -p "$1"; then
     PTXT "$ERROR Unable to create $1!"
     return 1
   fi
@@ -508,8 +511,7 @@ download_file () {
       COUNT="0"
       while [ "$COUNT" -lt 3 ]; do
         PTXT "$INFO Downloading $FILENAME"
-        curl -L -k -s "$URL" -o "${TARG}/${FILENAME}"
-        if [ "$?" -eq 0 ]; then
+        if curl -L -k -s "$URL" -o "${TARG}/${FILENAME}"; then
           chmod "$PERM" "${TARG}/${FILENAME}"
           break
         fi
@@ -544,7 +546,7 @@ inst_AdGuardHome () {
     if [ ! -d "$TARG_DIR" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
       PTXT "$INFO Backup is detected."
       local USE_OLD
-      read_yesno "Do you want Restore instead?" && USE_OLD="YES" || USE_OLD="NO"
+      if read_yesno "Do you want Restore instead?"; then USE_OLD="YES"; else USE_OLD="NO"; fi
       if [ "$USE_OLD" = "YES" ]; then
         PTXT "$INFO Installing from an old backup!"
         backup_restore RESTORE
@@ -552,7 +554,7 @@ inst_AdGuardHome () {
         PTXT "$INFO Continuing without restoring from backup!"
       fi
     elif [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
-      read_yesno "Do you want create a backup before updating?" && backup_restore BACKUP 0 || PTXT "$INFO continuing without making a backup."
+      if read_yesno "Do you want create a backup before updating?"; then backup_restore BACKUP 0; else PTXT "$INFO continuing without making a backup."; fi
     fi
     local NW_STATE
     local RES_STATE
@@ -563,13 +565,11 @@ inst_AdGuardHome () {
       end_op_message 1
       return
     fi
-    create_dir "$TARG_DIR"
-    if [ "$?" -ne 0 ]; then
+    if ! create_dir "$TARG_DIR"; then
       end_op_message 1
       return
     fi
-    download_file "$TARG_DIR" 755 "${RURL}/installer"
-    if [ "$?" -ne 0 ] || ! awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -qoE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})'; then
+    if ! download_file "$TARG_DIR" 755 "${RURL}/installer" || ! awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -qoE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})'; then
       PTXT "$ERROR Failed to download installer."
       end_op_message 1
       return
@@ -594,19 +594,17 @@ inst_AdGuardHome () {
                "$INFO Updating ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-) to $REMOTE_BETA ."
           ;;
       esac
-      download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
-      tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
-      if [ "$?" -ne 0 ]; then
+      if ! download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"; then
         PTXT "$ERROR Unable to download AdGuardHome package for your router"
         end_op_message 1
         return
       fi
+      tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
       chown "$(nvram get http_username)":root ${TARG_DIR}/*
       rm -r "${BASE_DIR:?}/${ADGUARD_TAR}"
       chmod 755 "$AGH_FILE"
       [ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
-      ln -sf $AGH_FILE /opt/sbin/AdGuardHome
-      if [ "$?" -ne 0 ] || [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ]; then
+      if ! ln -sf $AGH_FILE /opt/sbin/AdGuardHome || [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ]; then
         PTXT "$ERROR Failed to download AdGuardHome package for your router"
         end_op_message 1
         return
@@ -631,19 +629,17 @@ inst_AdGuardHome () {
     fi
   fi
   if [ "$ADGUARD_BRANCH" = "edge" ] || [ ! -f "$AGH_FILE" ]; then
-    download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"
-    tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
-    if [ "$?" -ne 0 ]; then
+    if ! download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"; then
       PTXT "$ERROR Unable to download AdGuardHome package for your router"
       end_op_message 1
       return
     fi
+    tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
     chown "$(nvram get http_username)":root ${TARG_DIR}/*
     rm -r "${BASE_DIR:?}/${ADGUARD_TAR}"
     chmod 755 "$AGH_FILE"
     [ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
-    ln -sf $AGH_FILE /opt/sbin/AdGuardHome
-    if [ "$?" -ne 0 ] || [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ]; then
+    if ! ln -sf $AGH_FILE /opt/sbin/AdGuardHome || [ -z "$($AGH_FILE --version | cut -d" "  -f4-)" ]; then
       PTXT "$ERROR Failed to download AdGuardHome package for your router"
       end_op_message 1
       return
@@ -659,8 +655,7 @@ inst_AdGuardHome () {
   write_manager_script /jffs/scripts/services-stop services-stop
   write_command_script /jffs/scripts/service-event-end 'if echo "$2" | /bin/grep -q "^AdGuardHome"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
   if [ ! -f "${ADDON_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
-  setup_AdGuardHome
-  if [ "$?" -ne 0 ]; then
+  if ! setup_AdGuardHome; then
     end_op_message 1
     return
   fi
@@ -775,8 +770,7 @@ set_timezone () {
   TZ_FILE="$(tar tjf "${TMP}/${TZ_DATA}" | awk -F'/' '!/\/$/ &&  /\/posix\//' | sort | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
   PTXT "$INFO $(basename "$TZ_FILE") selected"
   tar xjf "${TMP}/${TZ_DATA}" -C "$TMP" ./usr/share/zoneinfo/posix
-  mv "${TMP}/${TZ_FILE}" "${ADDON_DIR}/localtime"
-  if [ "$?" -ne 0 ]; then
+  if ! mv "${TMP}/${TZ_FILE}" "${ADDON_DIR}/localtime"; then
     PTXT "$ERROR Unable to set your timezone file"
     end_op_message 1
     return
@@ -796,8 +790,8 @@ setup_AdGuardHome () {
 
 setup_AdGuardHome_impl () {
    if [ -z "$1" ]; then
-      read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?" && check_dns_filter 1 || check_dns_filter 0
-      if [ "$(nvram get dns_local_cache)" != "1" ]; then { read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?" && check_dns_local 1 || check_dns_local 0; }; else { check_dns_local 0; }; fi
+      if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
+      if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
    fi
    if [ ! -f "$YAML_ORI" ] || [ ! -f "$YAML_FILE" ]; then
      PTXT "$INFO Requesting entries for the for AdGuardHome initial configuration..."
@@ -838,8 +832,7 @@ setup_AdGuardHome_impl () {
 	  "  - '[/10.in-addr.arpa/][::]:553'" \
           "  - '[/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/][::]:553'" >> "$YAML_ORI"
      PTXT "$INFO Writing AdGuardHome configuration..."
-     check_AdGuardHome_yaml $YAML_ORI
-     if [ "$?" -ne 0 ]; then
+     if ! check_AdGuardHome_yaml $YAML_ORI; then
        PTXT "$INFO Writing AdGuardHome configuration failed " \
             "$INFO Please send $YAML_ERR file and screen log of " \
             "$INFO all operations you have made to this script dev."
@@ -879,7 +872,7 @@ yaml_nvars_delete () {
 uninst_all () {
   if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
     PTXT "$INFO Old Backup Detected!"
-    read_yesno "Do you want to remove backup?(this will prevent restoring from backups later)" && rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz" || PTXT "$INFO Keeping backup instead."
+    if read_yesno "Do you want to remove backup?(this will prevent restoring from backups later)"; then rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"; else PTXT "$INFO Keeping backup instead."; fi
   fi
   if [ -n "$(pidof AdGuardHome)" ]; then { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1; else { killall -q -9 AdGuardHome 2>/dev/null; }; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi; }; fi
   { until [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -lt "1" ]; do sleep 1; done; }; sleep 1; { /opt/etc/init.d/S99AdGuardHome check; };
@@ -1054,23 +1047,23 @@ menu () {
       PTXT "$INFO This operation will install AdGuardHome and related files (<6MB)" \
            "$INFO to ENTWARE, no other data will be changed." \
            "$INFO Also some start scripts will be installed/modified as required."
-      read_yesno "Do you want to install AdGuardHome to ENTWARE?" && inst_AdGuardHome || end_op_message 1
+      if read_yesno "Do you want to install AdGuardHome to ENTWARE?"; then inst_AdGuardHome; else end_op_message 1; fi
       ;;
     2)
       PTXT "$INFO This operation will cleanup everything installed by this script."
-      read_yesno "Do you want to continue?" && uninst_all || end_op_message 1
+      if read_yesno "Do you want to continue?"; then uninst_all; else end_op_message 1; fi
       ;;
     3)
       PTXT "$INFO This operation will allow you to change your username and password."
-      read_yesno "Do you want to continue?" && AdGuardHome_authen 0 || end_op_message 1
+      if read_yesno "Do you want to continue?"; then AdGuardHome_authen 0; else end_op_message 1; fi
       ;;
     b|B)
       PTXT "$INFO This operation will backup everything!"
-      read_yesno "Do you want to continue?" && backup_restore BACKUP || end_op_message 1
+      if read_yesno "Do you want to continue?"; then backup_restore BACKUP; else end_op_message 1; fi
       ;;
     r|R)
       PTXT "$INFO This operation will restore everything!"
-      read_yesno "Do you want to continue?" && backup_restore RESTORE || end_op_message 1
+      if read_yesno "Do you want to continue?"; then backup_restore RESTORE; else end_op_message 1; fi
       ;;
     q|Q)
       PTXT "$INFO Operations have been applied if any has been made" \
