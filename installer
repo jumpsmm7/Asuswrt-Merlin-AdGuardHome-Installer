@@ -513,12 +513,13 @@ download_file () {
         PTXT "$INFO Downloading $FILENAME"
         if curl -L -k -s "$URL" -o "${TARG}/${FILENAME}"; then
           chmod "$PERM" "${TARG}/${FILENAME}"
-          break
+          return 0
         fi
         COUNT="$((COUNT+1))"
       done
       if [ "$COUNT" -eq 3 ]; then
         PTXT "$ERROR Unable to download ${BOLD}${URL}${NORM}"
+	return 1
       fi
     fi
   done
