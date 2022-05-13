@@ -808,7 +808,7 @@ setup_AdGuardHome_impl () {
       setup_AdGuardHome_impl x
       return
     fi
-    if read_yesno "Do you want to explore reconfiguration options?"; then PTXT "$INFO Skip reconfiguration."; else setup_AdGuardHome_impl x; fi
+    if read_yesno "Do you want to skip reconfiguration options?"; then PTXT "$INFO Skip reconfiguration."; else setup_AdGuardHome_impl x; fi
   else
     if [ -f "$YAML_FILE" ] && [ -f "$YAML_ORI" ]; then
       if [ "$1" = "reconfig" ]; then
