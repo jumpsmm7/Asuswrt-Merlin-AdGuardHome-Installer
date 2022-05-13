@@ -708,12 +708,7 @@ read_input_num () {
       if [ -z "$CHOSEN" ]; then PTXT "$ERROR No character entered! Retrying..."; read_input_num "$@"; return; fi
       ;;
   esac
-  case "$CHOSEN" in
-    "$4"|"$5"|"$6")
-      return 1
-      ;;
-  esac
-  if [ -z "$CHOSEN" ] || [ "$(PTXT "$CHOSEN" | grep -qE '^[0-9]+$'; printf "%s" "$?")" = "1" ]; then
+  if [ -z "$CHOSEN" ] || ! PTXT "$CHOSEN" | grep -qE '^[0-9]+$'; then
     PTXT "$ERROR Missing or invalid character entered! Retrying..."
     read_input_num "$@"
     return
@@ -723,6 +718,11 @@ read_input_num () {
     read_input_num "$@"
     return
   fi
+  case "$CHOSEN" in
+    "$4"|"$5"|"$6")
+      return 1
+      ;;
+  esac
 }
 
 read_yesno () {
