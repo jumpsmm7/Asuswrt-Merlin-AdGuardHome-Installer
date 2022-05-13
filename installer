@@ -820,7 +820,7 @@ setup_AdGuardHome_impl () {
       PTXT "$INFO Found previous AdGuardHome config file"
       PTXT "$INFO How do you want to configure:" \
            "$INFO   1) Use previous settings file" \
-           "$INFO   2) Start from default configuration selections"
+           "$INFO   2) Restore default configuration selections"
       read_input_num "Your selection" 1 2
       case "$CHOSEN" in
         1)
