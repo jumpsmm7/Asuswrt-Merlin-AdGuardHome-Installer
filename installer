@@ -788,7 +788,9 @@ setup_AdGuardHome () {
   if [ "$1" = "reconfig" ]; then
     if [ "$RET" -eq 0 ]; then
       PTXT "$INFO Restarting AdGuardHome with new config..."
-      service restart_AdGuardHome
+      if [ -n "$(pidof AdGuardHome)" ]; then { if { service restart_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome restart; }; then sleep 1; else PTXT "$ERROR Couldn't start AdGuardHome!" "$ERROR Please send WebUI System Log to dev."; end_op_message 1; return; fi; }; fi; sleep 1;
+      { until { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -eq "2" ]; }; do sleep 1; done; }; sleep 1; { /opt/etc/init.d/S99AdGuardHome check; };
+      PTXT "$INFO AdGuardHome setup is complete."   
       end_op_message 0
     else
       end_op_message 0
@@ -806,8 +808,7 @@ setup_AdGuardHome_impl () {
       setup_AdGuardHome_impl x
       return
     fi
-    PTXT "$INFO Found previous AdGuardHome config file"
-    if read_yesno "Do you want to use this file without reconfiguring?"; then PTXT "$INFO Use previous settings file"; else setup_AdGuardHome_impl x; fi
+    if read_yesno "Do you want to explore reconfiguration options?"; then PTXT "$INFO Skip reconfiguration."; else setup_AdGuardHome_impl x; fi
   else
     if [ -f "$YAML_FILE" ] && [ -f "$YAML_ORI" ]; then
       if [ "$1" = "reconfig" ]; then
@@ -815,24 +816,15 @@ setup_AdGuardHome_impl () {
           setup_AdGuardHome_impl x
           return
         fi
-	PTXT "$INFO Found previous AdGuardHome config file"
       fi
+      PTXT "$INFO Found previous AdGuardHome config file"
       PTXT "$INFO How do you want to configure:" \
            "$INFO   1) Use previous settings file" \
-           "$INFO   2) Start from default config selections"
+           "$INFO   2) Start from default configuration selections"
       read_input_num "Your selection" 1 2
       case "$CHOSEN" in
         1)
           PTXT "$INFO Use previous settings file"
-	  [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_delete "  - '[/0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" "$YAML_FILE"
-          [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_delete "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x; print ":0000:0000"}' | cut -c 2- | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" "$YAML_FILE"
-          [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_delete "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" "$YAML_FILE"
-          [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_insert "  upstream_dns:" "\  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" "$YAML_FILE"
-          yaml_nvars_replace "$(nvram get lan_ipaddr):553" "[::]:553" "$YAML_FILE"
-          if ! check_AdGuardHome_yaml $YAML_FILE; then
-            setup_AdGuardHome_impl x
-            return
-          fi
           ;;
         2)
           PTXT "$INFO Backing up previous settings file..."
