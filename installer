@@ -824,7 +824,7 @@ setup_AdGuardHome_impl () {
       read_input_num "Your selection" 1 2
       case "$CHOSEN" in
         1)
-          PTXT "$INFO Use previous settings file"
+          PTXT "$INFO Using previous settings file"
 	  if [ -f "$YAML_BAK" ] && check_AdGuardHome_yaml $YAML_BAK; then
 	    mv $YAML_BAK $YAML_FILE
 	    return
