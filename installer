@@ -703,13 +703,8 @@ read_input_num () {
   [ -n "$4" ] && [ -n "$5" ] && [ -n "$6" ] && RANGE="[${2}-${3}/${4}/${5}/${6}]"
   PTXT -n "$INPUT $1, ${BOLD}${RANGE}${NORM}: "
   read -r CHOSEN
-  case "$1" in
-    "Please enter the number that designates your selection:")
-      if [ -z "$CHOSEN" ]; then PTXT "$ERROR No character entered! Retrying..."; read_input_num "$@"; return; fi
-      ;;
-  esac
   if [ -z "$CHOSEN" ] || ! PTXT "$CHOSEN" | grep -qE '^[0-9]+$'; then
-    PTXT "$ERROR Missing or invalid character entered! Retrying..."
+    PTXT "$ERROR Invalid or no character(s) entered! Retrying..."
     read_input_num "$@"
     return
   fi
