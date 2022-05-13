@@ -228,12 +228,11 @@ check_AdGuardHome_yaml () {
   yaml_nvars_replace 'log_localtime: false' 'log_localtime: true' "$1"
   if ! $AGH_FILE --check-config -c "$1" --no-check-update -l "/dev/null"; then
     PTXT "$INFO Move invalid configuration file to $YAML_ERR" \
-      "$INFO Operation will continue with clean config file."
+         "$INFO Operation will continue with clean config file."
     mv "$1" "$YAML_ERR"
-    setup_AdGuardHome_impl x
-  else
-    cp -a "$1" "$YAML_BAK"
-    cp -a "$YAML_BAK" "$YAML_FILE"
+    return 1
+  elif [ "$1" = "$YAML_ORI" ]; then
+    cp -a "$1" "$YAML_FILE"
   fi
 }
 
@@ -780,71 +779,116 @@ set_timezone () {
 
 setup_AdGuardHome () {
   if [ ! -d "${TARG_DIR}" ] || [ ! -f "$AGH_FILE" ]; then
-    PTXT "$ERROR AdGuardHome is not installed. Aborting..."
-    end_op_message 1
-    return
+    PTXT "$ERROR AdGuardHome is not installed. Aborting...."
+    return 1
   fi
   PTXT "$INFO Configuring AdGuardHome..."
-  setup_AdGuardHome_impl
+  setup_AdGuardHome_impl "$@"
+  local RET="$?"
+  if [ "$1" = "reconfig" ]; then
+    if [ "$RET" -eq 0 ]; then
+      PTXT "$INFO Restarting AdGuardHome with new config..."
+      service restart_AdGuardHome
+      end_op_message 0
+    else
+      end_op_message 0
+    fi
+  fi
 }
 
 setup_AdGuardHome_impl () {
-   if [ -z "$1" ]; then
-      if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
-      if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
-   fi
-   if [ ! -f "$YAML_ORI" ] || [ ! -f "$YAML_FILE" ]; then
-     PTXT "$INFO Requesting entries for the for AdGuardHome initial configuration..."
-     PTXT "bind_host: 0.0.0.0" \
-          "bind_port: 14711" > "$YAML_ORI"
-     PTXT "$INFO Set the Username and Password which will be encrypted to the yaml file."
-     AdGuardHome_authen 1
-     PTXT "dns:" \
-          "  bind_host: 0.0.0.0" \
-          "  port: 53" >> "$YAML_ORI"
-     PTXT "$INFO Set the DNS server(s) for initializing AdGuardHome" \
-          "$INFO and router services (e.g. ntp) at boot"
-     read_input_dns "Default is" 9.9.9.9
-     read_input_dns "2nd Default is" 8.8.8.8
-     local DOMAIN
-     [ -n "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)" && write_conf ADGUARD_DOMAIN "\"no\""
-     [ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="$DOMAIN" && nvram commit && write_conf ADGUARD_DOMAIN "\"yes\""
-     PTXT "  upstream_dns:" >> "$YAML_ORI"
-     [ -n "$(nvram get ipv6_rtr_addr)" ] && PTXT "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" >> "$YAML_ORI"
-     PTXT "  - '[/router.asus.com/][::]:553'" \
-          "  - '[/www.asusnetwork.net/][::]:553'" \
-          "  - '[/www.asusrouter.com/][::]:553'" \
-          "  - '[/use-application-dns.net/][::]:553'" \
-	  "  - '[/dns.resolver.arpa/][::]:553'" \
-	  "  - '[/$DOMAIN/][::]:553'" \
-	  "  - '[//][::]:553'" \
-          "  - $BOOTSTRAP1" \
-          "  - $BOOTSTRAP2" \
-          "  - tcp://${BOOTSTRAP1}" \
-          "  - tcp://${BOOTSTRAP2}" \
-	  "  bootstrap_dns:" \
-          "  - $BOOTSTRAP1" \
-          "  - $BOOTSTRAP2" \
-          "  resolve_clients: true" \
-          "  use_private_ptr_resolvers: true" \
-          "  local_ptr_upstreams:" \
-          "  - '[::]:553'" \
-	  "  - '[/10.in-addr.arpa/][::]:553'" \
-          "  - '[/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/][::]:553'" >> "$YAML_ORI"
-     PTXT "$INFO Writing AdGuardHome configuration..."
-     if ! check_AdGuardHome_yaml $YAML_ORI; then
-       PTXT "$ERROR Writing AdGuardHome configuration failed " \
-            "$ERROR Please send $YAML_ERR file and screen log of " \
-            "$ERROR terminal all operations to the script developer."
-       return 1
-     fi
-  elif [ -f "$YAML_FILE" ]; then
-    [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_delete "  - '[/0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" "$YAML_FILE"
-    [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_delete "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x; print ":0000:0000"}' | cut -c 2- | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" "$YAML_FILE"
-    [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_delete "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" "$YAML_FILE"
-    [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_insert "  upstream_dns:" "\  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" "$YAML_FILE"
-    yaml_nvars_replace "$(nvram get lan_ipaddr):553" "[::]:553" "$YAML_FILE"
-    check_AdGuardHome_yaml $YAML_FILE
+  if [ -z "$1" ]; then
+    if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
+    if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
+  fi
+  if [ -z "$1" ] && [ -f "$YAML_FILE" ]; then
+    if ! check_AdGuardHome_yaml $YAML_FILE; then
+      setup_AdGuardHome_impl x
+      return
+    fi
+    PTXT "$INFO Found previous AdGuardHome config file"
+    if read_yesno "Do you want to use this file without reconfiguring?"; then PTXT "$INFO Use previous settings file"; else setup_AdGuardHome_impl x; fi
+  else
+    if [ -f "$YAML_FILE" ] && [ -f "$YAML_ORI" ]; then
+      if [ "$1" = "reconfig" ]; then
+        if ! check_AdGuardHome_yaml $YAML_FILE; then
+          setup_AdGuardHome_impl x
+          return
+        fi
+	PTXT "$INFO Found previous AdGuardHome config file"
+      fi
+      PTXT "$INFO How do you want to configure:" \
+           "$INFO   1) Use previous settings file" \
+           "$INFO   2) Start from default config selections"
+      read_input_num "Your selection" 1 2
+      case "$CHOSEN" in
+        1)
+          PTXT "$INFO Use previous settings file"
+	  [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_delete "  - '[/0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.$(nvram get ipv6_prefix | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" "$YAML_FILE"
+          [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_delete "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x; print ":0000:0000"}' | cut -c 2- | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][$(nvram get ipv6_rtr_addr)]:553'" "$YAML_FILE"
+          [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_delete "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" "$YAML_FILE"
+          [ -n "$(nvram get ipv6_rtr_addr)" ] && yaml_nvars_insert "  upstream_dns:" "\  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" "$YAML_FILE"
+          yaml_nvars_replace "$(nvram get lan_ipaddr):553" "[::]:553" "$YAML_FILE"
+          if ! check_AdGuardHome_yaml $YAML_FILE; then
+            setup_AdGuardHome_impl x
+            return
+          fi
+          ;;
+        2)
+          PTXT "$INFO Backing up previous settings file..."
+          mv "$YAML_FILE" "$YAML_BAK"
+          if ! check_AdGuardHome_yaml $YAML_ORI; then
+            setup_AdGuardHome_impl x
+            return
+	  fi
+          ;;
+      esac
+    elif [ ! -f "$YAML_ORI" ] && [ ! -f "$YAML_FILE" ]; then
+      PTXT "$INFO Requesting entries for AdGuardHome initial configuration..."
+      PTXT "bind_host: 0.0.0.0" \
+           "bind_port: 14711" > "$YAML_ORI"
+      PTXT "$INFO Set the Username and Password which will be encrypted to the yaml file."
+      AdGuardHome_authen 1
+      PTXT "dns:" \
+           "  bind_host: 0.0.0.0" \
+           "  port: 53" >> "$YAML_ORI"
+      PTXT "$INFO Set the DNS server(s) for initializing AdGuardHome" \
+           "$INFO and router services (e.g. ntp) at boot"
+      read_input_dns "Default is" 9.9.9.9
+      read_input_dns "2nd Default is" 8.8.8.8
+      local DOMAIN
+      [ -n "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)" && write_conf ADGUARD_DOMAIN "\"no\""
+      [ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="$DOMAIN" && nvram commit && write_conf ADGUARD_DOMAIN "\"yes\""
+      PTXT "  upstream_dns:" >> "$YAML_ORI"
+      [ -n "$(nvram get ipv6_rtr_addr)" ] && PTXT "  - '[/$(nvram get ipv6_prefix | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" >> "$YAML_ORI"
+      PTXT "  - '[/router.asus.com/][::]:553'" \
+           "  - '[/www.asusnetwork.net/][::]:553'" \
+           "  - '[/www.asusrouter.com/][::]:553'" \
+           "  - '[/use-application-dns.net/][::]:553'" \
+           "  - '[/dns.resolver.arpa/][::]:553'" \
+           "  - '[/$DOMAIN/][::]:553'" \
+           "  - '[//][::]:553'" \
+           "  - $BOOTSTRAP1" \
+           "  - $BOOTSTRAP2" \
+           "  - tcp://${BOOTSTRAP1}" \
+           "  - tcp://${BOOTSTRAP2}" \
+	   "  bootstrap_dns:" \
+           "  - $BOOTSTRAP1" \
+           "  - $BOOTSTRAP2" \
+           "  resolve_clients: true" \
+           "  use_private_ptr_resolvers: true" \
+           "  local_ptr_upstreams:" \
+           "  - '[::]:553'" \
+           "  - '[/10.in-addr.arpa/][::]:553'" \
+           "  - '[/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/][::]:553'" >> "$YAML_ORI"
+      PTXT "$INFO Writing AdGuardHome configuration..."
+      if ! check_AdGuardHome_yaml $YAML_ORI; then
+        PTXT "$ERROR Writing AdGuardHome configuration failed " \
+             "$ERROR Please send $YAML_ERR file and screen log of " \
+             "$ERROR terminal all operations to the script developer."
+        return 1
+      fi
+    fi
   fi
 }
 
@@ -1034,13 +1078,13 @@ menu () {
   PTXT "$INFO Choose what you want to do:" \
    "  1) Install/Update AdGuardHome" \
    "  2) Uninstall"
-  if { [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ]; }; then { PTXT "  3) Change Username/Password" "  b) Backup"; }; fi
+  if { [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ]; }; then { PTXT "  3) Change Username/Password" "  4) Reconfigure" "  b) Backup"; }; fi
   if { [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { PTXT "  r) Restore"; }; fi
   PTXT "  q) Quit"
   if { [ ! -d "$TARG_DIR" ] || [ ! -f "$AGH_FILE" ]; } && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 q; }; fi
   if { [ ! -d "$TARG_DIR" ] || [ ! -f "$AGH_FILE" ]; } && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 r q; }; fi
-  if { [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 3 b q; }; fi
-  if { [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 3 b r q; }; fi
+  if { [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 4 b q; }; fi
+  if { [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 4 b r q; }; fi
   [ -n "$CHOSEN" ] && trap 'clear; end_op_message 2' HUP INT QUIT ABRT TERM
   case "$CHOSEN" in
     1)
@@ -1056,6 +1100,10 @@ menu () {
     3)
       PTXT "$INFO This operation will allow you to change your username and password."
       if read_yesno "Do you want to continue?"; then AdGuardHome_authen 0; else end_op_message 1; fi
+      ;;
+    4)
+      PTXT "$INFO This operation allows you to configure AdGuardHome"
+      if read_yesno "Do you want to proceed?"; then setup_AdGuardHome reconfig; else end_op_message 1; fi
       ;;
     b|B)
       PTXT "$INFO This operation will backup everything!"
