@@ -713,7 +713,7 @@ read_input_num () {
       return 1
       ;;
   esac
-  if [ -z "$CHOSEN" ] || ! PTXT "$CHOSEN" | grep -qE '^[0-9]+$'; then
+  if [ -z "$CHOSEN" ] || [ "$(PTXT "$CHOSEN" | grep -qE '^[0-9]+$'; printf "%s" "$?")" = "1" ]; then
     PTXT "$ERROR Missing or invalid character entered! Retrying..."
     read_input_num "$@"
     return
