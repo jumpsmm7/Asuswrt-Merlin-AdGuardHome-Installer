@@ -705,7 +705,7 @@ read_input_num () {
   read -r CHOSEN
   case "$1" in
     "Please enter the number that designates your selection:")
-      if [ -z "$CHOSEN" ]; then PTXT "$ERROR No character entered! Retrying..."; read_input_num "$@"; return 1; else; return 0; fi
+      if [ -z "$CHOSEN" ]; then PTXT "$ERROR No character entered! Retrying..."; read_input_num "$@"; return 1; else return 0; fi
       ;;
   esac
   case "$CHOSEN" in
