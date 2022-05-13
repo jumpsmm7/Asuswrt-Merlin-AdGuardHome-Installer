@@ -878,12 +878,12 @@ setup_AdGuardHome_impl () {
            "  - '[/10.in-addr.arpa/][::]:553'" \
            "  - '[/$(nvram get lan_ipaddr | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/][::]:553'" >> "$YAML_ORI"
       PTXT "$INFO Writing AdGuardHome configuration..."
-      if ! check_AdGuardHome_yaml $YAML_ORI; then
-        PTXT "$ERROR Writing AdGuardHome configuration failed " \
-             "$ERROR Please send $YAML_ERR file and screen log of " \
-             "$ERROR terminal all operations to the script developer."
-        return 1
-      fi
+    fi
+    if [ -f "$YAML_ORI" ] && [ ! -f "$YAML_FILE" ] && ! check_AdGuardHome_yaml $YAML_ORI; then
+      PTXT "$ERROR Writing AdGuardHome configuration failed " \
+           "$ERROR Please send $YAML_ERR file and screen log of " \
+           "$ERROR terminal all operations to the script developer."
+      return 1
     fi
   fi
 }
