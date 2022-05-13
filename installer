@@ -221,9 +221,7 @@ check_AdGuardHome_yaml () {
   PTXT "$INFO Checking AdGuardHome configuration..."
   if [ "$1" = "$YAML_ORI" ]; then
     $AGH_FILE --check-config -c "$1" --no-check-update -l "/dev/null"
-    yaml_nvars_insert "  bootstrap_dns:" "\  - $BOOTSTRAP2" "$1"
-    yaml_nvars_insert "  bootstrap_dns:" "\  - $BOOTSTRAP1" "$1"
-    yaml_nvars_delete "[$BOOTSTRAP1 $BOOTSTRAP2]" "$1"
+    if yaml_nvars_delete "[$BOOTSTRAP1 $BOOTSTRAP2]" "$1"; then yaml_nvars_insert "  bootstrap_dns:" "\  - $BOOTSTRAP2" "$1"; yaml_nvars_insert "  bootstrap_dns:" "\  - $BOOTSTRAP1" "$1"; fi
   fi
   yaml_nvars_replace 'log_localtime: false' 'log_localtime: true' "$1"
   if ! $AGH_FILE --check-config -c "$1" --no-check-update -l "/dev/null"; then
