@@ -703,19 +703,21 @@ read_input_num () {
   [ -n "$4" ] && [ -n "$5" ] && [ -n "$6" ] && RANGE="[${2}-${3}/${4}/${5}/${6}]"
   PTXT -n "$INPUT $1, ${BOLD}${RANGE}${NORM}: "
   read -r CHOSEN
-  if [ -z "$CHOSEN" ] || ! PTXT "$CHOSEN" | grep -qE '^[0-9]+$'; then
-    PTXT "$ERROR Invalid or no character(s) entered! Retrying..."
-    read_input_num "$@"
-    return
-  fi
-  if [ "$CHOSEN" -lt "$2" ] || [ "$CHOSEN" -gt "$3" ] ; then
-    PTXT "$ERROR Chosen number is not in range! Retrying..."
-    read_input_num "$@"
-    return
-  fi
   case "$CHOSEN" in
     "$4"|"$5"|"$6")
       return 1
+      ;;
+    "$2"|"$3"|*)
+      if [ -z "$CHOSEN" ] || ! PTXT "$CHOSEN" | grep -qE '^[0-9]+$'; then
+        PTXT "$ERROR Invalid or no character(s) entered! Retrying..."
+        read_input_num "$@"
+        return
+      fi
+      if [ "$CHOSEN" -lt "$2" ] || [ "$CHOSEN" -gt "$3" ] ; then
+        PTXT "$ERROR Chosen number is not in range! Retrying..."
+        read_input_num "$@"
+        return
+      fi
       ;;
   esac
 }
