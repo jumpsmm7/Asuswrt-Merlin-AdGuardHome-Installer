@@ -703,18 +703,8 @@ read_input_num () {
   [ -n "$4" ] && [ -n "$5" ] && [ -n "$6" ] && RANGE="[${2}-${3}/${4}/${5}/${6}]"
   PTXT -n "$INPUT $1, ${BOLD}${RANGE}${NORM}: "
   read -r CHOSEN
-  case "$1" in
-    "Please enter the number that designates your selection:")
-      [ -z "$CHOSEN" ] && PTXT "$ERROR No character entered! Retrying..." && read_input_num "$@" && return
-      ;;
-  esac
-  case "$CHOSEN" in
-    "$4"|"$5"|"$6")
-      return 1
-      ;;
-  esac
-  if ! PTXT "$CHOSEN" | grep -qE '^[0-9]+$'; then
-    PTXT "$ERROR Invalid character entered! Retrying..."
+  if [ -z "$CHOSEN" ] || ! PTXT "$CHOSEN" | grep -qE '^[0-9]+$'; then
+    PTXT "$ERROR Invalid or no character(s) entered! Retrying..."
     read_input_num "$@"
     return
   fi
@@ -723,6 +713,11 @@ read_input_num () {
     read_input_num "$@"
     return
   fi
+  case "$CHOSEN" in
+    "$4"|"$5"|"$6")
+      return 1
+      ;;
+  esac
 }
 
 read_yesno () {
@@ -782,7 +777,7 @@ setup_AdGuardHome () {
     PTXT "$ERROR AdGuardHome is not installed. Aborting...."
     return 1
   fi
-  PTXT "$INFO Configuring AdGuardHome..."
+  PTXT "$INFO Configuring AdGuardHome..." 
   setup_AdGuardHome_impl "$@"
   local RET="$?"
   if [ "$1" = "reconfig" ]; then
@@ -827,8 +822,9 @@ setup_AdGuardHome_impl () {
           PTXT "$INFO Using previous settings file"
 	  if [ -f "$YAML_BAK" ] && check_AdGuardHome_yaml $YAML_BAK; then
 	    mv $YAML_BAK $YAML_FILE
-	    return
+	    return 0
 	  fi
+	  return 1
           ;;
         2)
           PTXT "$INFO Backing up previous settings file..."
