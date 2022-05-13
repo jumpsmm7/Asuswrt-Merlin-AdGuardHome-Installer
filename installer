@@ -705,7 +705,7 @@ read_input_num () {
   read -r CHOSEN
   case "$1" in
     "Please enter the number that designates your selection:")
-      if [ -z "$CHOSEN" ]; then PTXT "$ERROR No character entered! Retrying..."; read_input_num "$@"; return 1; else return 0; fi
+      if [ -z "$CHOSEN" ]; then PTXT "$ERROR No character entered! Retrying..."; read_input_num "$@"; return; fi
       ;;
   esac
   case "$CHOSEN" in
@@ -782,9 +782,8 @@ setup_AdGuardHome () {
     PTXT "$ERROR AdGuardHome is not installed. Aborting...."
     return 1
   fi
-  PTXT "$INFO Configuring AdGuardHome..."
+  PTXT "$INFO Configuring AdGuardHome..." 
   setup_AdGuardHome_impl "$@"
-  local RET="$?"
   if [ "$1" = "reconfig" ]; then
     if [ "$RET" -eq 0 ]; then
       PTXT "$INFO Restarting AdGuardHome with new config..."
@@ -827,8 +826,9 @@ setup_AdGuardHome_impl () {
           PTXT "$INFO Using previous settings file"
 	  if [ -f "$YAML_BAK" ] && check_AdGuardHome_yaml $YAML_BAK; then
 	    mv $YAML_BAK $YAML_FILE
-	    return
+	    return 0
 	  fi
+	  return 1
           ;;
         2)
           PTXT "$INFO Backing up previous settings file..."
