@@ -784,6 +784,7 @@ setup_AdGuardHome () {
   fi
   PTXT "$INFO Configuring AdGuardHome..." 
   setup_AdGuardHome_impl "$@"
+  local RET="$?"
   if [ "$1" = "reconfig" ]; then
     if [ "$RET" -eq 0 ]; then
       PTXT "$INFO Restarting AdGuardHome with new config..."
