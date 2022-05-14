@@ -681,19 +681,17 @@ read_input_dns () {
   local DNS_SERVER
   read -r DNS_SERVER
   [ -z "$DNS_SERVER" ] && DNS_SERVER="$2"
-  if [ "$(PTXT "$DNS_SERVER" | awk -F'.' 'NF != 4 || $1 < 0 || $1 > 255 || $2 < 0 || $2 > 255 || $3 < 0 || $3 > 255 || $4 < 0 || $4 > 255 {print}')" ]; then
+  if ! PTXT "$DNS_SERVER" | grep -oE "\b((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"; then
     PTXT "$ERROR Invalid DNS server address entered"
     read_input_dns "$@"
   fi
-  if [ "$PROBE" = "$DNS_SERVER" ]; then PTXT "$ERROR $DNS_SERVER DNS server address already entered, please try again!"; read_input_dns "$@"; fi
+  if [ "$DNS_SERVER1" = "$DNS_SERVER" ]; then PTXT "$ERROR $DNS_SERVER DNS server address already entered, please try again!"; read_input_dns "$@"; fi
   case "$1" in
     "Default is")
-      local BOOTSTRAP1
       BOOTSTRAP1="$DNS_SERVER"
-      PROBE="$DNS_SERVER"
+      DNS_SERVER1="$DNS_SERVER"
       ;;
     "2nd Default is")
-      local BOOTSTRAP2
       BOOTSTRAP2="$DNS_SERVER"
       ;;
   esac
