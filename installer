@@ -681,7 +681,7 @@ read_input_dns () {
   local DNS_SERVER
   read -r DNS_SERVER
   [ -z "$DNS_SERVER" ] && DNS_SERVER="$2"
-  if ! PTXT "$DNS_SERVER" | grep -oE "\b((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"; then
+  if ! PTXT "$DNS_SERVER" | grep -qoE "\b((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"; then
     PTXT "$ERROR Invalid DNS server address entered"
     read_input_dns "$@"
   fi
