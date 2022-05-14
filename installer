@@ -713,7 +713,7 @@ read_input_num () {
       return 1
       ;;
     "$2"|"$3"|*)
-      if [ -z "$CHOSEN" ] || ! PTXT "$CHOSEN" | grep -qE '^[0-9]+$'; then
+      if ! PTXT "$CHOSEN" | grep -qE '^[0-9]+$'; then
         PTXT "$ERROR Invalid character(s) entered! Retrying..."
         read_input_num "$@"
         return
