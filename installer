@@ -689,7 +689,6 @@ read_input_dns () {
     "Default is")
       local BOOTSTRAP1
       BOOTSTRAP1="$DNS_SERVER"
-      export BOOTSTRAP1
       ;;
     "2nd Default is")
       local BOOTSTRAP2
