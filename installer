@@ -693,6 +693,7 @@ read_input_dns () {
     "2nd Default is")
       local BOOTSTRAP2
       BOOTSTRAP2="$DNS_SERVER"
+      if [ "$BOOTSTRAP2" = "$BOOTSTRAP1" ]; then PTXT "$ERROR $DNS_SERVER DNS server address already entered, please try again!"; read_input_dns "$@"; fi
       ;;
   esac
 }
