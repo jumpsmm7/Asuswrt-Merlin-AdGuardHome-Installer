@@ -687,9 +687,11 @@ read_input_dns () {
   fi
   case "$1" in
     "Default is")
+      local BOOTSTRAP1
       BOOTSTRAP1="$DNS_SERVER"
       ;;
     "2nd Default is")
+      local BOOTSTRAP2
       BOOTSTRAP2="$DNS_SERVER"
       ;;
   esac
