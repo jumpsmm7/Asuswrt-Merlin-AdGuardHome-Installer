@@ -20,14 +20,13 @@ AdGuardHome_Run () {
   pid_file="${lock_dir}/pid"
   if ( mkdir ${lock_dir} ) 2> /dev/null; then
     printf "%s\n" "$$" > $pid_file
-    trap 'rm -rf "$lock_dir"; exit $?' EXIT
+    trap 'rm -rf /tmp/AdGuardHome; exit $?' EXIT
     start="$(date +%s)"
     $1
     end="$(date +%s)"
     runtime="$((end-start))"
     logger -st "$NAME" "$@ took $runtime second(s) to complete."
     rm -rf "$lock_dir"
-    trap - EXIT
   else
     logger -st "$NAME" "Lock owned by $(cat $pid_file) exists; preventing duplicate runs!"
   fi
