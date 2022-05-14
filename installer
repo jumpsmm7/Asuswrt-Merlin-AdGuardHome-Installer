@@ -685,6 +685,7 @@ read_input_dns () {
     PTXT "$ERROR Invalid DNS server address entered"
     read_input_dns "$@"
   fi
+  if [ "$BOOTSTRAP2" = "$BOOTSTRAP1" ]; then PTXT "$ERROR $DNS_SERVER DNS server address already entered, please try again!"; read_input_dns "$@"; fi
   case "$1" in
     "Default is")
       local BOOTSTRAP1
@@ -693,7 +694,6 @@ read_input_dns () {
     "2nd Default is")
       local BOOTSTRAP2
       BOOTSTRAP2="$DNS_SERVER"
-      if [ "$BOOTSTRAP2" = "$BOOTSTRAP1" ]; then PTXT "$ERROR $DNS_SERVER DNS server address already entered, please try again!"; read_input_dns "$@"; fi
       ;;
   esac
 }
