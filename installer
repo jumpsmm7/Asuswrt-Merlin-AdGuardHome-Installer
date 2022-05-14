@@ -800,6 +800,7 @@ setup_AdGuardHome () {
       end_op_message 0
     fi
   fi
+  return "$RET"
 }
 
 setup_AdGuardHome_impl () {
