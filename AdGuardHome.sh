@@ -22,7 +22,7 @@ AdGuardHome_Run () {
     printf "%s\n" "$$" > $pid_file
     trap 'rm -rf "$lock_dir"; exit $?' EXIT
     start="$(date +%s)"
-    $@
+    $1
     end="$(date +%s)"
     runtime="$((end-start))"
     logger -st "$NAME" "$@ took $runtime second(s) to complete."
