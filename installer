@@ -511,7 +511,7 @@ download_file () {
         PTXT "$INFO Downloading $FILENAME"
         if curl -L -k -s "$URL" -o "${TARG}/${FILENAME}"; then
           chmod "$PERM" "${TARG}/${FILENAME}"
-          return 0
+          break
         fi
         COUNT="$((COUNT+1))"
       done
@@ -703,13 +703,18 @@ read_input_num () {
   [ -n "$4" ] && [ -n "$5" ] && [ -n "$6" ] && RANGE="[${2}-${3}/${4}/${5}/${6}]"
   PTXT -n "$INPUT $1, ${BOLD}${RANGE}${NORM}: "
   read -r CHOSEN
+  case "$1" in
+    *)
+      if [ -z "$CHOSEN" ]; then PTXT "$ERROR Invalid character(s) entered! Retrying..."; read_input_num "$@"; return; fi
+      ;;
+  esac
   case "$CHOSEN" in
     "$4"|"$5"|"$6")
       return 1
       ;;
     "$2"|"$3"|*)
       if [ -z "$CHOSEN" ] || ! PTXT "$CHOSEN" | grep -qE '^[0-9]+$'; then
-        PTXT "$ERROR Invalid or no character(s) entered! Retrying..."
+        PTXT "$ERROR Invalid character(s) entered! Retrying..."
         read_input_num "$@"
         return
       fi
