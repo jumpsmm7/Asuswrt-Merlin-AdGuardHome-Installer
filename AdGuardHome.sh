@@ -128,9 +128,7 @@ start_monitor () {
   local EXIT
   EXIT="0"
   logger -st "$NAME" "Starting Monitor!"
-  while true; do
-    if [ -z "$COUNT" ]; then COUNT="0"; timezone; fi
-    if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi
+  while true; do  
     if [ -f "/opt/sbin/AdGuardHome" ]; then
       case $EXIT in
         "0")
@@ -138,9 +136,13 @@ start_monitor () {
             "30"|"60"|"90")
               timezone
               if { ! netcheck && [ -n "$(pidof "$PROCS")" ]; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; { AdGuardHome_Run start_AdGuardHome; }; fi
+              if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi
+              ;;
+             *)
+              if [ -z "$COUNT" ]; then COUNT="0"; timezone; else COUNT="$((COUNT + 1))"; fi
               ;;
           esac
-          if [ -z "$(pidof "$PROCS")" ]; then; logger -st "$NAME" "Warning: $PROCS is dead; Monitor will start it!"; { AdGuardHome_Run start_AdGuardHome; }; fi
+          if [ -z "$(pidof "$PROCS")" ]; then logger -st "$NAME" "Warning: $PROCS is dead; Monitor will start it!"; { AdGuardHome_Run start_AdGuardHome; }; fi
           ;;
         "1")
           logger -st "$NAME" "Stopping Monitor!"; trap - HUP INT QUIT ABRT USR1 USR2 TERM;
