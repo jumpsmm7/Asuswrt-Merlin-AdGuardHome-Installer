@@ -106,7 +106,7 @@ netcheck() {
   if { [ "$(/bin/date +"%Y")" -gt "1970" ] || [ "$(nvram get ntp_ready)" -ne "0" ]; }; then ALIVE="0"; else ALIVE="1"; fi
   if { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; }; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi
   if { [ "$(curl -Is  http://www.google.com | head -n 1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] || [ "$(wget -q --spider http://google.com >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; }; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi
-  if [ "$ALIVE" -ne "0" ]; then return 0; else return 1; fi
+  if [ "$ALIVE" -ne "0" ]; then return 1; else return 0; fi
 }
 
 start_AdGuardHome () {
