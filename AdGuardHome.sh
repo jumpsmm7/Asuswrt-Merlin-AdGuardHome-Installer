@@ -35,7 +35,7 @@ check_dns_environment () {
   if [ "$(nvram get dhcp_dns1_x)" ] && [ "$NVCHECK" != "0" ]; then { nvram set dhcp_dns1_x=""; }; NVCHECK="$((NVCHECK+1))"; fi
   if [ "$(nvram get dhcp_dns2_x)" ] && [ "$NVCHECK" != "0" ]; then { nvram set dhcp_dns2_x=""; }; NVCHECK="$((NVCHECK+1))"; fi
   if [ "$(nvram get dhcpd_dns_router)" != "1" ] && [ "$NVCHECK" != "0" ]; then { nvram set dhcpd_dns_router="1"; }; NVCHECK="$((NVCHECK+1))"; fi
-  if [ "$NVCHECK" != "0" ]; then { nvram commit; }; { service restart_dnsmasq >/dev/null 2>&1; }; while { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" != "0" ]; }; do sleep 1; done; fi
+  if [ "$NVCHECK" != "0" ]; then { nvram commit; }; { service restart_dnsmasq >/dev/null 2>&1; }; while { ! netcheck; }; do sleep 1; done; fi
 }
 
 dnsmasq_params () {
@@ -101,16 +101,21 @@ proc_optimizations () {
   fi
 }
 
+netcheck() {
+  local ALIVE
+  if { [ "$(/bin/date +"%Y")" -gt "1970" ] || [ "$(nvram get ntp_ready)" -ne "0" ]; }; then ALIVE="0"; else ALIVE="1"; fi
+  if { [ "$(nvram get wan0_state_t)" -eq "2" ] || [ "$(nvram get wan1_state_t)" -eq "2" ]; }; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi
+  if { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; }; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi
+  if { [ "$(curl -Is  http://www.google.com | head -n 1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] || [ "$(wget -q --spider http://google.com >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; }; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi
+  if [ "$ALIVE" -ne "0" ]; then return 0; else return 1; fi
+}
+
 start_AdGuardHome () {
   local STATE
-  local NW_STATE
-  local RES_STATE
   if [ -z "$(pidof "$PROCS")" ]; then { lower_script start; }; else { lower_script restart; }; fi
   for db in stats.db sessions.db; do { if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done
   STATE="0"
-  [ -z "$1" ] && NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"
-  [ -z "$1" ] && RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"
-  [ -z "$1" ] && while { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ] && [ "$STATE" -lt "10" ]; }; do sleep 1; NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"; RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"; STATE="$((STATE + 1))"; done
+  [ -z "$1" ] && while { ! netcheck && [ "$STATE" -lt "10" ]; }; do sleep 1; STATE="$((STATE + 1))"; done
   [ "$STATE" -eq "10" ] && start_AdGuardHome x
 }
 
@@ -118,33 +123,36 @@ start_monitor () {
   trap '' HUP INT QUIT ABRT TERM
   trap 'EXIT="1"' USR1
   trap 'EXIT="2"' USR2
-  while [ "$(nvram get ntp_ready)" -eq "0" ]; do sleep 1; done
-  local NW_STATE
-  local RES_STATE
+  while { ! netcheck; }; do sleep 1; done
   local COUNT
   local EXIT
   EXIT="0"
   logger -st "$NAME" "Starting Monitor!"
   while true; do
-    if [ "$EXIT" = "1" ]; then logger -st "$NAME" "Stopping Monitor!"; trap - HUP INT QUIT ABRT USR1 USR2 TERM; { AdGuardHome_Run stop_AdGuardHome; }; break; fi
-    if [ "$EXIT" = "2" ]; then { AdGuardHome_Run start_AdGuardHome; }; EXIT="0"; fi
     if [ -z "$COUNT" ]; then COUNT="0"; timezone; fi
     if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi
     if [ -f "/opt/sbin/AdGuardHome" ]; then
-      case $COUNT in
-        "30"|"60"|"90")
-          timezone
-          NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"
-          RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"
+      case $EXIT in
+        "0")
+          case $COUNT in
+            "30"|"60"|"90")
+              timezone
+              if { ! netcheck && [ -n "$(pidof "$PROCS")" ]; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; { AdGuardHome_Run start_AdGuardHome; }; fi
+              ;;
+          esac
+          if [ -z "$(pidof "$PROCS")" ]; then; logger -st "$NAME" "Warning: $PROCS is dead; Monitor will start it!"; { AdGuardHome_Run start_AdGuardHome; }; fi
+          ;;
+        "1")
+          logger -st "$NAME" "Stopping Monitor!"; trap - HUP INT QUIT ABRT USR1 USR2 TERM;
+          { AdGuardHome_Run stop_AdGuardHome; };
+          break;
+          ;;
+        "2")
+          { AdGuardHome_Run start_AdGuardHome; };
+          unset COUNT;
+          EXIT="0";
           ;;
       esac
-      if [ -z "$(pidof "$PROCS")" ]; then
-        logger -st "$NAME" "Warning: $PROCS is dead; Monitor will start it!"
-        AdGuardHome_Run start_AdGuardHome
-      elif { [ "$COUNT" -eq "30" ] || [ "$COUNT" -eq "60" ] || [ "$COUNT" -eq "90" ]; } && { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
-        logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"
-        AdGuardHome_Run start_AdGuardHome
-      fi
     fi
     sleep 10
   done
