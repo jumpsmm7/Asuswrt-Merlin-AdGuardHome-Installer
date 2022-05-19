@@ -20,7 +20,7 @@ AdGuardHome_Run () {
     $1
     end="$(date +%s)"
     runtime="$((end-start))"
-    logger -st "$NAME" "$@ took $runtime second(s) to complete."
+    logger -st "$NAME" "$1 took $runtime second(s) to complete."
     rm -rf "$lock_dir"
   else
     logger -st "$NAME" "Lock owned by $(cat $pid_file) exists; preventing duplicate runs!"
