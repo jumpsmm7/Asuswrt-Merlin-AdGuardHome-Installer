@@ -130,6 +130,7 @@ start_monitor () {
   logger -st "$NAME" "Starting Monitor!"
   while true; do  
     if [ -f "/opt/sbin/AdGuardHome" ]; then
+      if [ -z "$COUNT" ]; then COUNT="0"; timezone; { AdGuardHome_Run start_AdGuardHome; }; fi
       case $EXIT in
         "0")
           case $COUNT in
@@ -139,7 +140,7 @@ start_monitor () {
               if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi
               ;;
              *)
-              if [ -z "$COUNT" ]; then COUNT="0"; timezone; else COUNT="$((COUNT + 1))"; fi
+              COUNT="$((COUNT + 1))"
               ;;
           esac
           if [ -z "$(pidof "$PROCS")" ]; then logger -st "$NAME" "Warning: $PROCS is dead; Monitor will start it!"; { AdGuardHome_Run start_AdGuardHome; }; fi
@@ -150,7 +151,6 @@ start_monitor () {
           break;
           ;;
         "2")
-          { AdGuardHome_Run start_AdGuardHome; };
           unset COUNT;
           EXIT="0";
           ;;
