@@ -143,6 +143,7 @@ start_monitor () {
               ;;
           esac
           if [ -z "$(pidof "$PROCS")" ]; then logger -st "$NAME" "Warning: $PROCS is dead; Monitor will start it!"; { AdGuardHome_Run start_AdGuardHome; }; fi
+          sleep 10
           ;;
         "1")
           logger -st "$NAME" "Stopping Monitor!";
@@ -151,12 +152,14 @@ start_monitor () {
           break;
           ;;
         "2")
+          logger -st "$NAME" "Monitor is restarting AdGuardHome!"
           unset COUNT;
           EXIT="0";
           ;;
       esac
+    else
+      sleep 1
     fi
-    if [ -n "$COUNT" ]; then sleep 10; else logger -st "$NAME" "Monitor is restarting AdGuardHome!"; fi
   done
 }
 
