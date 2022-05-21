@@ -145,7 +145,8 @@ start_monitor () {
           if [ -z "$(pidof "$PROCS")" ]; then logger -st "$NAME" "Warning: $PROCS is dead; Monitor will start it!"; { AdGuardHome_Run start_AdGuardHome; }; fi
           ;;
         "1")
-          logger -st "$NAME" "Stopping Monitor!"; trap - HUP INT QUIT ABRT USR1 USR2 TERM;
+          logger -st "$NAME" "Stopping Monitor!";
+          trap - HUP INT QUIT ABRT USR1 USR2 TERM;
           { AdGuardHome_Run stop_AdGuardHome; };
           break;
           ;;
