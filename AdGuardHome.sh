@@ -155,7 +155,7 @@ start_monitor () {
           ;;
       esac
     fi
-    sleep 10
+    if [ -n "$COUNT" ]; then sleep 10; else logger -st "$NAME" "Monitor is restarting AdGuardHome!"; fi
   done
 }
 
