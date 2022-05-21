@@ -127,7 +127,7 @@ start_monitor () {
   local EXIT
   EXIT="0"
   logger -st "$NAME" "Starting Monitor!"
-  while true; do  
+  while true; do
     if [ -f "/opt/sbin/AdGuardHome" ]; then
       if [ -z "$COUNT" ]; then COUNT="0"; timezone; { AdGuardHome_Run start_AdGuardHome; }; fi
       case $EXIT in
