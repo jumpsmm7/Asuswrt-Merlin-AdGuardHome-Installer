@@ -134,16 +134,15 @@ start_monitor () {
         "0")
           case $COUNT in
             "30"|"60"|"90")
-              timezone
-              if { ! netcheck && [ -n "$(pidof "$PROCS")" ]; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; { AdGuardHome_Run start_AdGuardHome; }; fi
-              if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi
+              timezone;
+              if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi;
+              if { ! netcheck && [ -n "$(pidof "$PROCS")" ]; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; fi;
               ;;
              *)
-              COUNT="$((COUNT + 1))"
+              COUNT="$((COUNT + 1))";
               ;;
           esac
-          if [ -z "$(pidof "$PROCS")" ]; then logger -st "$NAME" "Warning: $PROCS is dead; Monitor will start it!"; { AdGuardHome_Run start_AdGuardHome; }; fi
-          sleep 10
+          if [ -z "$(pidof "$PROCS")" ]; then logger -st "$NAME" "Warning: $PROCS is dead; Monitor will start it!"; unset COUNT; fi;
           ;;
         "1")
           logger -st "$NAME" "Stopping Monitor!";
@@ -152,14 +151,13 @@ start_monitor () {
           break;
           ;;
         "2")
-          logger -st "$NAME" "Monitor is restarting AdGuardHome!"
+          logger -st "$NAME" "Monitor is restarting AdGuardHome!";
           unset COUNT;
           EXIT="0";
           ;;
       esac
-    else
-      sleep 1
     fi
+    if [ -z "$COUNT" ]; then sleep 1; else sleep 10; fi
   done
 }
 
