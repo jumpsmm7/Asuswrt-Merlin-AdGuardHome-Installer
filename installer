@@ -219,13 +219,13 @@ check_AdGuardHome_yaml () {
   [ ! -f "$1" ] && return 1
   chmod 644 "$1"
   PTXT "$INFO Checking AdGuardHome configuration..."
-  #if [ "$1" = "$YAML_ORI" ] && [ ! -f "$YAML_BAK" ]; then
+  #if [ "$1" = "$YAML_ORI" ] && [ ! -f "$YAML_BAK" ]; then # old code, adding correct schema to .yaml resolved the issue.
     #$AGH_FILE --check-config -c "$1" --no-check-update -l "/dev/null"
     #yaml_nvars_insert "  bootstrap_dns:" "\  - $BOOTSTRAP2" "$1"
     #yaml_nvars_insert "  bootstrap_dns:" "\  - $BOOTSTRAP1" "$1"
     #yaml_nvars_delete "[$BOOTSTRAP1 $BOOTSTRAP2]" "$1"
   #fi
-  yaml_nvars_replace 'log_localtime: false' 'log_localtime: true' "$1"
+  #yaml_nvars_replace 'log_localtime: false' 'log_localtime: true' "$1" # no need for this, pointless directive.
   if ! $AGH_FILE --check-config -c "$1" --no-check-update -l "/dev/null"; then
     PTXT "$INFO Move invalid configuration file to $YAML_ERR" \
          "$INFO Operation will continue with clean config file."
