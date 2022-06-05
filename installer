@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.5.3                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.5.4                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -25,7 +25,7 @@
 # shellcheck disable=SC3045
 # shellcheck disable=SC3057
 
-AI_VERSION="v1.5.3"
+AI_VERSION="v1.5.4"
 export AI_VERSION
 
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
@@ -182,9 +182,10 @@ backup_restore () {
     download_file /opt/etc/init.d 755 "${RURL}/S99AdGuardHome"
     download_file "/opt/etc/init.d" 644 "${RURL}/rc.func.AdGuardHome"
     [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-    write_manager_script /jffs/scripts/init-start init-start
+    for i in init-start services-stop; do { if { ! grep -q "${ADDON_DIR}/AdGuardHome.sh $i &" "/jffs/scripts/${i}" && grep -q "${ADDON_DIR}/AdGuardHome.sh $i" "/jffs/scripts/${i}"; }; then del_jffs_script "/jffs/scripts/${i}"; fi; }; done
+    write_manager_script /jffs/scripts/init-start "init-start &"
     write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
-    write_manager_script /jffs/scripts/services-stop services-stop
+    write_manager_script /jffs/scripts/services-stop "services-stop &"
     write_command_script /jffs/scripts/service-event-end 'if echo "$2" | /bin/grep -q "^AdGuardHome"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
     if [ ! -f "${ADDON_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi    
     if ! setup_AdGuardHome; then
@@ -652,9 +653,10 @@ inst_AdGuardHome () {
   download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome"
   download_file "/opt/etc/init.d" 644 "${RURL}/rc.func.AdGuardHome"
   [ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-  write_manager_script /jffs/scripts/init-start init-start
+  for i in init-start services-stop; do if { ! grep -q "${ADDON_DIR}/AdGuardHome.sh $i &" "/jffs/scripts/${i}" && grep -q "${ADDON_DIR}/AdGuardHome.sh $i" "/jffs/scripts/${i}"; }; then del_jffs_script "/jffs/scripts/${i}"; fi; done
+  write_manager_script /jffs/scripts/init-start "init-start &"
   write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
-  write_manager_script /jffs/scripts/services-stop services-stop
+  write_manager_script /jffs/scripts/services-stop "services-stop &"
   write_command_script /jffs/scripts/service-event-end 'if echo "$2" | /bin/grep -q "^AdGuardHome"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
   if [ ! -f "${ADDON_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
   if ! setup_AdGuardHome; then
@@ -991,6 +993,7 @@ write_manager_script () {
   del_between_magic "$TARG" Asuswrt-Merlin-AdGuardHome-Installer
   if [ "$(grep -c -F "[ -x $COMMAND ] && $COMMAND $OP" "$TARG")" -gt 0 ]; then
     PTXT "$INFO $FILENAME file already configured"
+    [
   else
     PTXT "$INFO Configure $FILENAME file"
     if grep -q "^$COMMAND" "$TARG"; then
