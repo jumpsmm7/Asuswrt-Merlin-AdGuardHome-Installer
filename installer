@@ -993,7 +993,6 @@ write_manager_script () {
   del_between_magic "$TARG" Asuswrt-Merlin-AdGuardHome-Installer
   if [ "$(grep -c -F "[ -x $COMMAND ] && $COMMAND $OP" "$TARG")" -gt 0 ]; then
     PTXT "$INFO $FILENAME file already configured"
-    [
   else
     PTXT "$INFO Configure $FILENAME file"
     if grep -q "^$COMMAND" "$TARG"; then
