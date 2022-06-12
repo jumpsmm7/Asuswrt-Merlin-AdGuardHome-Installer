@@ -186,7 +186,7 @@ backup_restore () {
     write_manager_script /jffs/scripts/init-start "init-start &"
     write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
     write_manager_script /jffs/scripts/services-stop "services-stop &"
-    yaml_nvars_replace '{ sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" & }' '{ sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" x & }' /jffs/scripts/service-event-end
+    del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
     write_command_script /jffs/scripts/service-event-end 'if echo "$2" | /bin/grep -q "^AdGuardHome"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
     if [ ! -f "${ADDON_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi    
     if ! setup_AdGuardHome; then
@@ -658,7 +658,7 @@ inst_AdGuardHome () {
   write_manager_script /jffs/scripts/init-start "init-start &"
   write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
   write_manager_script /jffs/scripts/services-stop "services-stop &"
-  yaml_nvars_replace '{ sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" & }' '{ sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" x & }' /jffs/scripts/service-event-end
+  del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
   write_command_script /jffs/scripts/service-event-end 'if echo "$2" | /bin/grep -q "^AdGuardHome"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "${1}" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
   if [ ! -f "${ADDON_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
   if ! setup_AdGuardHome; then
