@@ -190,7 +190,7 @@ timezone () {
 
 if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
-if { [ "$2" != "x" ] && echo "$1" | grep -qE "^(start|stop|restart|check|kill|reload)"; }; then { service "$1"_AdGuardHome >/dev/null 2>&1; exit; }; fi
+if { [ "$2" != "x" ] && echo "$1" | grep -qE "^(start|stop|restart|check|kill|reload)"; }; then { service "$1"_AdGuardHome; exit; }; fi
 if [ "$1" = "init-start" ] && [ ! -f "$UPPER_SCRIPT" ]; then timezone; trap '' HUP INT QUIT ABRT TERM; trap 'exec $MID_SCRIPT "$@"; exit $?' EXIT; while [ ! -f "$UPPER_SCRIPT" ]; do sleep 1; { if [ -f "$UPPER_SCRIPT" ]; then break; fi; }; done; trap - HUP INT QUIT ABRT TERM EXIT; fi
 if [ -f "$UPPER_SCRIPT" ]; then { if { [ "$(readlink -f "$UPPER_SCRIPT")" != "$SCRIPT_LOC" ] || [ "$0" != "$UPPER_SCRIPT" ]; }; then { exec $UPPER_SCRIPT "$@"; exit; }; fi; }; else { if [ -z "$PROCS" ]; then exit; fi; }; fi
 { for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { MON_PID="$PID"; }; fi; done; };
@@ -201,10 +201,10 @@ case "$1" in
     if [ -n "$MON_PID" ]; then { stop_monitor "$MON_PID"; }; else { start_monitor & }; fi
     ;;
   "start"|"restart")
-    { "$SCRIPT_LOC" init-start >/dev/null 2>&1; };
+    { "$SCRIPT_LOC" init-start; };
     ;;
   "stop"|"kill")
-    { "$SCRIPT_LOC" services-stop >/dev/null 2>&1; };
+    { "$SCRIPT_LOC" services-stop; };
     ;;
   "dnsmasq")
     dnsmasq_params
