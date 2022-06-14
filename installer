@@ -869,9 +869,9 @@ setup_AdGuardHome_impl () {
       local NET_ADDR
       local NET_ADDR6
       local LAN_IF
-      LAN_IF="$(/bin/nvram get lan_ifname)"
-      [ -n "$LAN_IF" ] && NET_ADDR="$(/usr/sbin/ip -o -4 addr list "$LAN_IF" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR="$(/bin/nvram get lan_ipaddr)"
-      [ -n "$LAN_IF" ] && NET_ADDR6="$(/usr/sbin/ip -o -6 addr list "$LAN_IF" scope global | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR6="$(/bin/nvram get ipv6_rtr_addr)"
+      LAN_IF="$(nvram get lan_ifname)"
+      [ -n "$LAN_IF" ] && NET_ADDR="$(ip -o -4 addr list "$LAN_IF" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR="$(nvram get lan_ipaddr)"
+      [ -n "$LAN_IF" ] && NET_ADDR6="$(ip -o -6 addr list "$LAN_IF" scope global | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR6="$(nvram get ipv6_rtr_addr)"
       [ -n "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)" && write_conf ADGUARD_DOMAIN "\"no\""
       [ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="$DOMAIN" && nvram commit && write_conf ADGUARD_DOMAIN "\"yes\""
       PTXT "  upstream_dns:" >> "$YAML_ORI"
