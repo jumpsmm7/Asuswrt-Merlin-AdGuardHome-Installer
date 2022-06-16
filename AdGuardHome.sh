@@ -10,20 +10,21 @@ NAME="$(basename "$0")[$$]"
 
 AdGuardHome_Run () {
   local lock_dir
+  local pid
   local pid_file
   lock_dir="/tmp/AdGuardHome"
   pid_file="${lock_dir}/pid"
-  if ( mkdir ${lock_dir} ) 2> /dev/null; then
-    printf "%s\n" "$$" > $pid_file
+  if ( mkdir ${lock_dir} ) 2> /dev/null || { [ -e "${pid_file}" ] && [ "$(kill -0 "$(cat $pid_file)" >/dev/null 2>&1; printf "%s" "$?")" -ne "0" ]; }; then
     trap 'rm -rf "$lock_dir"; exit $?' EXIT
     start="$(date +%s)"
-    $1
+    $1 & pid="$!"
+    printf "%s\n" "$pid" > $pid_file
     end="$(date +%s)"
     runtime="$((end-start))"
     logger -st "$NAME" "$1 took $runtime second(s) to complete."
     rm -rf "$lock_dir"
   else
-    logger -st "$NAME" "Lock owned by $(cat $pid_file) exists; preventing duplicate runs!"
+    logger -st "$NAME" "Lock owned by kill -0 1114 >/dev/null 2>&1; printf "%s\n" "$?" exists; preventing duplicate runs!"
   fi
 }
 
