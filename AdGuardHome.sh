@@ -17,7 +17,8 @@ AdGuardHome_Run () {
   if ( mkdir ${lock_dir} ) 2> /dev/null || { [ -e "${pid_file}" ] && [ "$(kill -0 "$(cat $pid_file)" >/dev/null 2>&1; printf "%s" "$?")" -ne "0" ]; }; then
     trap 'rm -rf "$lock_dir"; exit $?' EXIT
     start="$(date +%s)"
-    $1 & pid="$!"
+    $1
+    pid="$!"
     printf "%s\n" "$pid" > $pid_file
     end="$(date +%s)"
     runtime="$((end-start))"
