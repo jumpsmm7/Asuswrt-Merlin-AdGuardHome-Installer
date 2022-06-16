@@ -12,21 +12,17 @@ AdGuardHome_Run () {
   local lock_dir
   local pid
   local pid_file
+  local start
+  local end
+  local runtime
   lock_dir="/tmp/AdGuardHome"
   pid_file="${lock_dir}/pid"
-  if ( mkdir ${lock_dir} ) 2> /dev/null || { [ -e "${pid_file}" ] && [ "$(kill -0 "$(cat $pid_file)" >/dev/null 2>&1; printf "%s" "$?")" -ne "0" ]; }; then
-    trap 'rm -rf "$lock_dir"; exit $?' EXIT
-    start="$(date +%s)"
-    $1
-    pid="$!"
-    printf "%s\n" "$pid" > $pid_file
-    end="$(date +%s)"
-    runtime="$((end-start))"
-    logger -st "$NAME" "$1 took $runtime second(s) to complete."
-    rm -rf "$lock_dir"
+  if ( mkdir ${lock_dir} ) 2> /dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' $pid_file)" ]; }; then
+    ( trap 'rm -rf "$lock_dir"; exit $?' EXIT; while [ -z "$(sed -n '2p' $pid_file)" ]; do sleep 1; done; rm -rf "$lock_dir"; )& pid="$!"
+    { printf "%s\n" "$pid" > $pid_file; start="$(date +%s)"; $1; end="$(date +%s)"; runtime="$((end-start))"; printf "%s\n" "$runtime" >> $pid_file; logger -st "$NAME" "$1 took $runtime second(s) to complete."; };
   else
-    logger -st "$NAME" "Lock owned by "$(cat $pid_file)" exists; preventing duplicate runs!"
-fi
+    logger -st "$NAME" "Lock owned by $(sed -n '1p' $pid_file) exists; preventing duplicate runs!"
+  fi
 }
 
 check_dns_environment () {
