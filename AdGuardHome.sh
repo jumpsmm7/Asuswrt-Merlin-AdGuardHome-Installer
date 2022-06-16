@@ -25,8 +25,8 @@ AdGuardHome_Run () {
     logger -st "$NAME" "$1 took $runtime second(s) to complete."
     rm -rf "$lock_dir"
   else
-    logger -st "$NAME" "Lock owned by kill -0 1114 >/dev/null 2>&1; printf "%s\n" "$?" exists; preventing duplicate runs!"
-  fi
+    logger -st "$NAME" "Lock owned by "$(cat $pid_file)" exists; preventing duplicate runs!"
+fi
 }
 
 check_dns_environment () {
