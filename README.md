@@ -2,8 +2,8 @@
 # Asuswrt-Merlin-AdGuardHome-Installer:
 The Official Installer of AdGuardHome for Asuswrt-Merlin
 # Requirements:
-- ARM based ASUS routers that use Asuswrt-Merlin Firmware
-- JFFS support and enabled
+- ARM based ASUS routers that use Asuswrt-Merlin Firmware, and Entware Repository.
+- JFFS support and enabled.
 # Incompatibilities:
 - No known issue
 # Current features:
