@@ -63,14 +63,21 @@ which will return
   Checking AdGuardHome...              alive.
 ```
 # How to report issue:
-I need following directory:
+I need following directories and files:
 ```
 /opt/etc/AdGuardHome
+/opt/sbin/AdGuardHome
+/opt/etc/init.d/S99AdGuardHome
+/opt/etc/init.d/rc.func.AdGuardHome
+/jffs/addons/AdGuardHome.d
+/jffs/scripts/init-start
 /jffs/scripts/dnsmasq.postconf
+/jffs/scripts/services-stop
+/jffs/scripts/service-event-end
 ```
 One can use this command to create a tar archive of these files:
 ```
-echo .config > exclude-files; tar -cvf AdGuardHome.tar -X exclude-files /opt/etc/AdGuardHome /jffs/scripts/dnsmasq.postconf; rm exclude-files
+echo .config > exclude-files; tar -cvf AdGuardHome.tar -X exclude-files /opt/etc/AdGuardHome /opt/sbin/AdGuardHome /opt/etc/init.d/S99AdGuardHome /opt/etc/init.d/rc.func.AdGuardHome /jffs/addons/AdGuardHome.d /jffs/scripts/init-start /jffs/scripts/dnsmasq.postconf /jffs/scripts/services-stop /jffs/scripts/service-event-end; rm exclude-files
 ```
 in current directory and send me the archive for debug.
 I also need following information:
