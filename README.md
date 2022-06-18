@@ -36,6 +36,15 @@ https://adguard-dns.io/kb/general/dns-providers/
 - Under Lan DHCP page on Asuswrt-Merlin define a domain such as lan or some-domain like in the image above.
 <a href="https://ibb.co/vDRpFQh"><img src="https://i.ibb.co/4J3zqY2/Reverse-DNS.jpg" alt="Reverse-DNS" border="0"></a>
 - Define the appropriate rules inside the Private Reverse DNS Servers.
+
+# Best AdGuardHome Setup Guide:
+For the Best AdGuardHome Setup Guide please refer to their wiki:
+https://github.com/AdguardTeam/AdGuardHome/wiki
+
+# AdGuardHome Developement
+For issues pertaining with AdGuardHome itself, please refer to this link:
+https://github.com/AdguardTeam/AdGuardHome/issues
+
 # Changelog:
 https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/commits/master
 # Install/Update/Reconfig/Uninstall:
