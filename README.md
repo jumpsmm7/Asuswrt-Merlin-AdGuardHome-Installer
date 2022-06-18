@@ -27,6 +27,10 @@ This forum link will provide you with a link to more dns servers and instruction
 
 http://www.snbforums.com/threads/release-asuswrt-merlin-adguardhome-installer-amaghi.76506/post-735471
 
+also
+
+https://adguard-dns.io/kb/general/dns-providers/
+
 # Setting Up Your Routers Reverse DNS
 <a href="https://imgbb.com/"><img src="https://i.ibb.co/QvJ5nNV/Lan.jpg" alt="Lan" border="0"></a>
 - Under Lan DHCP page on Asuswrt-Merlin define a domain such as lan or some-domain like in the image above.
