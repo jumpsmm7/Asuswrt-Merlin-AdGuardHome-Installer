@@ -134,20 +134,33 @@ start_monitor () {
   logger -st "$NAME" "Starting Monitor!"
   while true; do
     if [ -f "/opt/sbin/AdGuardHome" ]; then
-      if [ -z "$COUNT" ]; then COUNT="0"; timezone; { AdGuardHome_Run start_AdGuardHome; }; fi
       case $EXIT in
         "0")
-          case $COUNT in
-            "30"|"60"|"90")
-              timezone;
-              if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi;
-              if { ! netcheck && [ -n "$(pidof "$PROCS")" ]; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; fi;
-              ;;
-             *)
-              COUNT="$((COUNT + 1))";
+          timezone;
+          case "$COUNT" in
+            "")
+              COUNT="0";
+              { AdGuardHome_Run start_AdGuardHome; };
               ;;
           esac
-          if [ -z "$(pidof "$PROCS")" ]; then logger -st "$NAME" "Warning: $PROCS is dead; Monitor will start it!"; unset COUNT; fi;
+          case "$(pidof "$PROCS")" in
+            "")
+              logger -st "$NAME" "Warning: $PROCS is dead; Monitor will start it!";
+              unset COUNT;
+              ;;
+            *)
+              case "$COUNT" in
+                "30"|"60"|"90")
+                  if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi 
+                  if { ! netcheck }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; fi;
+                ;;
+                *)
+                  COUNT="$((COUNT + 1))";
+                ;;
+              esac 
+              if [ -n "$COUNT" ]; then sleep 10; fi
+              ;;
+          esac
           ;;
         "1")
           logger -st "$NAME" "Stopping Monitor!";
@@ -157,12 +170,11 @@ start_monitor () {
           ;;
         "2")
           logger -st "$NAME" "Monitor is restarting AdGuardHome!";
-          unset COUNT;
+          unset COUNT
           EXIT="0";
           ;;
       esac
     fi
-    if [ -z "$COUNT" ]; then sleep 1; else sleep 10; fi
   done
 }
 
