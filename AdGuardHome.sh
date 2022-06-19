@@ -151,14 +151,14 @@ start_monitor () {
             *)
               case "$COUNT" in
                 "30"|"60"|"90")
-                  if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi 
+                  if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi;
                   if { ! netcheck }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; fi;
-                ;;
+                  ;;
                 *)
                   COUNT="$((COUNT + 1))";
-                ;;
+                  ;;
               esac 
-              if [ -n "$COUNT" ]; then sleep 10; fi
+              if [ -n "$COUNT" ]; then sleep 10; fi;
               ;;
           esac
           ;;
