@@ -52,7 +52,7 @@ dnsmasq_params () {
   local LAN_IF
   local i
   CONFIG="/etc/dnsmasq.conf"
-  if { [ "$(nvram get dns_local_cache)" != "1" ] && [ "$(readlink -f /tmp/resolv.conf)" = "/rom/etc/resolv.conf" ]; }; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
+  if { ! readlink -f /etc/resolv.conf | grep -qE ^'/rom/etc/resolv.conf' && readlink -f /tmp/resolv.conf | grep -qE ^'/rom/etc/resolv.conf'; }; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
   if [ -n "$(pidof "$PROCS")" ]; then
     LAN_IF="$(nvram get lan_ifname)"
     [ -n "$LAN_IF" ] && NET_ADDR="$(ip -o -4 addr list "$LAN_IF" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR="$(nvram get lan_ipaddr)"
@@ -78,7 +78,7 @@ dnsmasq_params () {
         printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >> $CONFIG
       done
     fi
-    if { [ "$(nvram get dns_local_cache)" != "1" ] && [ "$(awk -F'=' '/ADGUARD_LOCAL/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" = "YES" ]; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
+    if { ! readlink -f /etc/resolv.conf | grep -qE ^'/rom/etc/resolv.conf' && awk -F'=' '/ADGUARD_LOCAL/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//' | grep -qE ^'YES'; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
   fi
 }
 
@@ -202,7 +202,7 @@ timezone () {
   TIMEZONE="/jffs/addons/AdGuardHome.d/localtime"
   TARGET="/etc/localtime"
   if { [ ! -f "$TARGET" ] && [ -f "$TIMEZONE" ]; }; then { ln -sf "$TIMEZONE" "$TARGET"; }; fi
-  if [ -f "$TARGET" ] || [ "$(readlink "$TARGET")" ]; then { if [ "$(date -u '+%s')" -le "$(date -u -r "$MID_SCRIPT" '+%s')" ]; then { date -u -s "$(date -u -r "$MID_SCRIPT" '+%Y-%m-%d %H:%M:%S')"; }; else { touch "$MID_SCRIPT"; }; fi; }; fi
+  if [ -f "$TARGET" ] || [ "$(readlink "$TARGET")" ]; then { if [ "$(/bin/date -u '+%s')" -le "$(/bin/date -u -r "$MID_SCRIPT" '+%s')" ]; then { /bin/date -u -s "$(/bin/date -u -r "$MID_SCRIPT" '+%Y-%m-%d %H:%M:%S')"; }; else { touch "$MID_SCRIPT"; }; fi; }; fi
 }
 
 if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
