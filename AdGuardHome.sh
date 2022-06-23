@@ -52,7 +52,7 @@ dnsmasq_params () {
   local LAN_IF
   local i
   CONFIG="/etc/dnsmasq.conf"
-  if { ! readlink -f /etc/resolv.conf | grep -qE ^'/rom/etc/resolv.conf' && readlink -f /tmp/resolv.conf | grep -qE ^'/rom/etc/resolv.conf'; }; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
+  if { ! readlink -f /etc/resolv.conf | grep -qE ^'/rom/etc/resolv.conf' && df -h | grep -qoE '/tmp/resolv.conf'; }; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
   if [ -n "$(pidof "$PROCS")" ]; then
     LAN_IF="$(nvram get lan_ifname)"
     [ -n "$LAN_IF" ] && NET_ADDR="$(ip -o -4 addr list "$LAN_IF" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR="$(nvram get lan_ipaddr)"
