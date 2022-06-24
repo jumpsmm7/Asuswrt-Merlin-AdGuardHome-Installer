@@ -91,6 +91,7 @@ lower_script () {
 }
 
 proc_optimizations () {
+  { printf "4194304" > /proc/sys/kernel/pid_max; }; # Ensure max PID coverage
   { printf "2" > /proc/sys/vm/overcommit_memory; }; # Ensure ratio algorithm checks properly work including swap.
   { printf "2500000" > /proc/sys/net/core/rmem_max; }; # Ensure UDP receive buffer set to 2.5M.
   { printf "0" > /proc/sys/net/ipv4/icmp_ratelimit; }; # Ensure Control over MTRS
@@ -170,7 +171,7 @@ start_monitor () {
           ;;
         "2")
           logger -st "$NAME" "Monitor is restarting AdGuardHome!";
-          unset COUNT
+          unset COUNT;
           EXIT="0";
           ;;
       esac
