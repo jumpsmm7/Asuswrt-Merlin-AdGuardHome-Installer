@@ -8,6 +8,17 @@ LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 
 NAME="$(basename "$0")[$$]"
 
+Service_Wait () {
+  umask 022
+  ( 
+    { timezone; cd '/'; trap '' HUP INT QUIT ABRT TERM TSTP; trap 'exec $MID_SCRIPT "$@"; exit $?' EXIT; }; 
+    { exec 0< '/dev/null'; exec 1> '/dev/null'; exec 2> '/dev/null'; };
+    { local maxwait="300" i="0"; while [ "$i" -le "$maxwait" ]; do if [ "$(nvram get success_start_service)" == '1' ] && [ -f "$UPPER_SCRIPT" ]; then break; fi; sleep 10; i="$((i + 10))"; done; if [ "$i" -gt "$maxwait" ]; then return 1; fi; }; 
+    { trap - HUP INT QUIT ABRT TERM TSTP EXIT; return 0; }; 
+  )& local PID="$!"; wait $PID;
+  return "$?";
+}
+
 AdGuardHome_Run () {
   local lock_dir
   local pid
@@ -125,7 +136,7 @@ start_AdGuardHome () {
 }
 
 start_monitor () {
-  trap '' HUP INT QUIT ABRT TERM
+  trap '' HUP INT QUIT ABRT TERM TSTP
   trap 'EXIT="1"' USR1
   trap 'EXIT="2"' USR2
   while { ! netcheck; }; do sleep 1; done
@@ -165,7 +176,7 @@ start_monitor () {
           ;;
         "1")
           logger -st "$NAME" "Stopping Monitor!";
-          trap - HUP INT QUIT ABRT USR1 USR2 TERM;
+          trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP;
           { AdGuardHome_Run stop_AdGuardHome; };
           break;
           ;;
@@ -209,7 +220,7 @@ timezone () {
 if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
 if { [ "$2" != "x" ] && printf "%s" "$1" | /bin/grep -qE "^((start|stop|restart|kill|reload)$)"; }; then { service "$1"_AdGuardHome >/dev/null 2>&1; exit; }; fi
-if [ "$1" = "init-start" ] && [ ! -f "$UPPER_SCRIPT" ]; then timezone; trap '' HUP INT QUIT ABRT TERM; trap 'exec $MID_SCRIPT "$@"; exit $?' EXIT; while [ ! -f "$UPPER_SCRIPT" ]; do sleep 1; { if [ -f "$UPPER_SCRIPT" ]; then break; fi; }; done; trap - HUP INT QUIT ABRT TERM EXIT; fi
+if [ "$1" = "init-start" ] && [ ! -f "$UPPER_SCRIPT" ]; then Service_Wait & WAIT_PID="$!"; wait $WAIT_PID; fi
 if [ -f "$UPPER_SCRIPT" ]; then { if { [ "$(readlink -f "$UPPER_SCRIPT")" != "$SCRIPT_LOC" ] || [ "$0" != "$UPPER_SCRIPT" ]; }; then { exec $UPPER_SCRIPT "$@"; exit; }; fi; }; else { if [ -z "$PROCS" ]; then exit; fi; }; fi
 { for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { MON_PID="$PID"; }; fi; done; };
 
