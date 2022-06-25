@@ -8,7 +8,7 @@ LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 
 NAME="$(basename "$0")[$$]"
 
-Boot_Wait () {
+Service_Wait () {
   umask 022
   ( 
     { timezone; cd '/'; trap '' HUP INT QUIT ABRT TERM TSTP; trap 'exec $MID_SCRIPT "$@"; exit $?' EXIT }; 
@@ -220,7 +220,7 @@ timezone () {
 if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
 if { [ "$2" != "x" ] && printf "%s" "$1" | /bin/grep -qE "^((start|stop|restart|kill|reload)$)"; }; then { service "$1"_AdGuardHome >/dev/null 2>&1; exit; }; fi
-if [ "$1" = "init-start" ] && [ ! -f "$UPPER_SCRIPT" ]; then Boot_Wait & WAIT_PID="$!"; wait $WAIT_PID; fi
+if [ "$1" = "init-start" ] && [ ! -f "$UPPER_SCRIPT" ]; then Service_Wait & WAIT_PID="$!"; wait $WAIT_PID; fi
 if [ -f "$UPPER_SCRIPT" ]; then { if { [ "$(readlink -f "$UPPER_SCRIPT")" != "$SCRIPT_LOC" ] || [ "$0" != "$UPPER_SCRIPT" ]; }; then { exec $UPPER_SCRIPT "$@"; exit; }; fi; }; else { if [ -z "$PROCS" ]; then exit; fi; }; fi
 { for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { MON_PID="$PID"; }; fi; done; };
 
