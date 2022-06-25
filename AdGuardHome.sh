@@ -11,12 +11,12 @@ NAME="$(basename "$0")[$$]"
 Service_Wait () {
   umask 022
   ( 
-    { timezone; cd '/'; trap '' HUP INT QUIT ABRT TERM TSTP; trap 'exec $MID_SCRIPT "$@"; exit $?' EXIT }; 
+    { timezone; cd '/'; trap '' HUP INT QUIT ABRT TERM TSTP; trap 'exec $MID_SCRIPT "$@"; exit $?' EXIT; }; 
     { exec 0< '/dev/null'; exec 1> '/dev/null'; exec 2> '/dev/null'; };
     { local maxwait="300" i="0"; while [ "$i" -le "$maxwait" ]; do if [ "$(nvram get success_start_service)" == '1' ] && [ -f "$UPPER_SCRIPT" ]; then break; fi; sleep 10; i="$((i + 10))"; done; if [ "$i" -gt "$maxwait" ]; then return 1; fi; }; 
     { trap - HUP INT QUIT ABRT TERM TSTP EXIT; return 0; }; 
-  )& local PID="$!"; wait $PID
-  return "$?"
+  )& local PID="$!"; wait $PID;
+  return "$?";
 }
 
 AdGuardHome_Run () {
