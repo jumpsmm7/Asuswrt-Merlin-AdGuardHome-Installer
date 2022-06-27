@@ -11,10 +11,10 @@ NAME="$(basename "$0")[$$]"
 Service_Wait () {
   umask 022
   ( 
-    { timezone; cd '/'; trap '' HUP INT QUIT ABRT TERM TSTP; trap 'exec $MID_SCRIPT "$@"; exit $?' EXIT; }; 
+    { timezone; cd '/'; trap '' HUP INT QUIT ABRT TERM TSTP; }; 
     { exec 0< '/dev/null'; exec 1> '/dev/null'; exec 2> '/dev/null'; };
-    { local maxwait="300" i="0"; while [ "$i" -le "$maxwait" ]; do if [ "$(nvram get success_start_service)" == '1' ] && [ -f "$UPPER_SCRIPT" ]; then break; fi; sleep 10; i="$((i + 10))"; done; if [ "$i" -gt "$maxwait" ]; then return 1; fi; }; 
-    { trap - HUP INT QUIT ABRT TERM TSTP EXIT; return 0; }; 
+    { local maxwait="300" i="0"; while [ "$i" -le "$maxwait" ]; do if [ "$(nvram get success_start_service)" = '1' ] && { "$1"; }; then break; fi; sleep 10; i="$((i + 10))"; done; if [ "$i" -gt "$maxwait" ]; then return 1; fi; }; 
+    { trap - HUP INT QUIT ABRT TERM TSTP; return 0; }; 
   )& local PID="$!"; wait $PID;
   return "$?";
 }
@@ -28,12 +28,19 @@ AdGuardHome_Run () {
   local runtime
   lock_dir="/tmp/AdGuardHome"
   pid_file="${lock_dir}/pid"
-  if ( mkdir ${lock_dir} ) 2> /dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' $pid_file)" ]; }; then
-    ( trap 'rm -rf "$lock_dir"; exit $?' EXIT; while [ -z "$(sed -n '2p' $pid_file)" ]; do sleep 1; done; rm -rf "$lock_dir"; )& pid="$!"
-    { printf "%s\n" "$pid" > $pid_file; start="$(date +%s)"; $1; end="$(date +%s)"; runtime="$((end-start))"; printf "%s\n" "$runtime" >> $pid_file; logger -st "$NAME" "$1 took $runtime second(s) to complete."; };
-  else
-    logger -st "$NAME" "Lock owned by $(sed -n '1p' $pid_file) exists; preventing duplicate runs!"
-  fi
+  case "$1" in
+    "")
+      if [ -z "$(sed -n '2p' $pid_file)" ] || [ ! -f "$UPPER_SCRIPT" ]; then return 1; else return 0; fi
+      ;;
+    *)
+      if ( mkdir ${lock_dir} ) 2> /dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' $pid_file)" ]; }; then
+        ( trap 'rm -rf "$lock_dir"; exit $?' EXIT; { Service_Wait AdGuardHome_Run; }& local PID="$!"; wait $PID; rm -rf "$lock_dir"; )& pid="$!"
+        { printf "%s\n" "$pid" > $pid_file; start="$(date +%s)"; $1; end="$(date +%s)"; runtime="$((end-start))"; printf "%s\n" "$runtime" >> $pid_file; logger -st "$NAME" "$1 took $runtime second(s) to complete."; };
+      else
+        logger -st "$NAME" "Lock owned by $(sed -n '1p' $pid_file) exists; preventing duplicate runs!"
+      fi
+      ;;
+  esac
 }
 
 check_dns_environment () {
@@ -44,7 +51,7 @@ check_dns_environment () {
   if [ "$(nvram get dhcp_dns1_x)" ] && [ "$NVCHECK" != "0" ]; then { nvram set dhcp_dns1_x=""; }; NVCHECK="$((NVCHECK+1))"; fi
   if [ "$(nvram get dhcp_dns2_x)" ] && [ "$NVCHECK" != "0" ]; then { nvram set dhcp_dns2_x=""; }; NVCHECK="$((NVCHECK+1))"; fi
   if [ "$(nvram get dhcpd_dns_router)" != "1" ] && [ "$NVCHECK" != "0" ]; then { nvram set dhcpd_dns_router="1"; }; NVCHECK="$((NVCHECK+1))"; fi
-  if [ "$NVCHECK" != "0" ]; then { nvram commit; }; { service restart_dnsmasq >/dev/null 2>&1; }; while { ! netcheck; }; do sleep 1; done; fi
+  if [ "$NVCHECK" != "0" ]; then { nvram commit; }; { service restart_dnsmasq >/dev/null 2>&1; }; { Service_Wait netcheck; }& local PID="$!"; wait $PID; fi
 }
 
 dnsmasq_params () {
@@ -127,19 +134,17 @@ netcheck() {
 }
 
 start_AdGuardHome () {
-  local STATE
-  if [ -z "$(pidof "$PROCS")" ]; then { lower_script start; }; else { lower_script restart; }; fi
+  if [ -z "$(pidof "$PROCS")" ]; then { lower_script start; }& local PID="$!"; wait $PID; else { lower_script restart; }& local PID="$!"; wait $PID; fi
   for db in stats.db sessions.db; do { if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done
-  STATE="0"
-  [ -z "$1" ] && while { ! netcheck && [ "$STATE" -lt "10" ]; }; do sleep 1; STATE="$((STATE + 1))"; done
-  [ "$STATE" -eq "10" ] && start_AdGuardHome x
+  { Service_Wait netcheck; }& local PID="$!"; wait $PID;
+  if [ "$?" = "1" ] && [ -z "$1" ]; then start_AdGuardHome x; fi
 }
 
 start_monitor () {
   trap '' HUP INT QUIT ABRT TERM TSTP
   trap 'EXIT="1"' USR1
   trap 'EXIT="2"' USR2
-  while { ! netcheck; }; do sleep 1; done
+  { Service_Wait netcheck; }& local PID="$!"; wait $PID;
   local COUNT
   local EXIT
   EXIT="0"
@@ -204,7 +209,7 @@ stop_monitor () {
 }
 
 stop_AdGuardHome () {
-  if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; }; { until [ -z "$(pidof "$PROCS")" ]; do sleep 1; done; }; { service restart_dnsmasq >/dev/null 2>&1; }; fi
+  if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; }& local PID="$!"; wait $PID; elif [ -z "$(pidof "$PROCS")" ]; then return 0; fi; { Service_Wait stop_AdGuardHome; }& local PID="$!"; wait $PID; { service restart_dnsmasq >/dev/null 2>&1; };
   for db in stats.db sessions.db; do { if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { rm "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done
 }
 
@@ -220,7 +225,7 @@ timezone () {
 if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi
 if { [ "$2" != "x" ] && printf "%s" "$1" | /bin/grep -qE "^((start|stop|restart|kill|reload)$)"; }; then { service "$1"_AdGuardHome >/dev/null 2>&1; exit; }; fi
-if [ "$1" = "init-start" ] && [ ! -f "$UPPER_SCRIPT" ]; then Service_Wait & WAIT_PID="$!"; wait $WAIT_PID; fi
+if [ "$1" = "init-start" ] && [ ! -f "$UPPER_SCRIPT" ]; then { Service_Wait AdGuardHome_Run; }& WAIT_PID="$!"; wait $WAIT_PID; fi
 if [ -f "$UPPER_SCRIPT" ]; then { if { [ "$(readlink -f "$UPPER_SCRIPT")" != "$SCRIPT_LOC" ] || [ "$0" != "$UPPER_SCRIPT" ]; }; then { exec $UPPER_SCRIPT "$@"; exit; }; fi; }; else { if [ -z "$PROCS" ]; then exit; fi; }; fi
 { for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { MON_PID="$PID"; }; fi; done; };
 
