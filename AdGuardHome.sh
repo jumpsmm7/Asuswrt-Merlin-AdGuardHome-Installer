@@ -125,7 +125,7 @@ start_monitor () {
   trap '' HUP INT QUIT ABRT TERM TSTP;
   trap 'EXIT="1"' USR1;
   trap 'EXIT="2"' USR2;
-  { Service_Wait netcheck; }& local PID="$!"; wait $PID;
+  { Service_Wait netcheck; };
   local COUNT EXIT
   EXIT="0";
   logger -st "$NAME" "Starting Monitor!";
