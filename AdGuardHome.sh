@@ -10,19 +10,21 @@ NAME="$(basename "$0")[$$]"
 
 Service_Wait () {
   umask 022
+  local OPT
+  [ -z "$2" ] && OPT="10" || OPT="$2";
   ( 
     { timezone; cd '/'; trap '' HUP INT QUIT ABRT TERM TSTP; }; 
     { exec 0< '/dev/null'; exec 1> '/dev/null'; exec 2> '/dev/null'; };
-    { local maxwait="300" i="0"; while [ "$i" -le "$maxwait" ]; do if [ "$(nvram get success_start_service)" = '1' ] && { "$@"; }; then break; fi; sleep 10; i="$((i + 10))"; done; if [ "$i" -gt "$maxwait" ]; then return 1; fi; }; 
-    { trap - HUP INT QUIT ABRT TERM TSTP; return 0; }; 
+    { local maxwait i; maxwait="300"; i="0"; while [ "$i" -le "$maxwait" ]; do if [ "$(nvram get success_start_service)" = '1' ] && { "$1"; }; then break; fi; sleep 10; i="$((i + OPT))"; done; }; 
+    { trap - HUP INT QUIT ABRT TERM TSTP; if [ "$i" -gt "$maxwait" ]; then return 1; else return 0; fi; }; 
   )& local PID="$!"; wait $PID;
   return "$?";
 }
 
 AdGuardHome_Run () {
   local lock_dir pid pid_file start end runtime
-  lock_dir="/tmp/AdGuardHome"
-  pid_file="${lock_dir}/pid"
+  lock_dir="/tmp/AdGuardHome";
+  pid_file="${lock_dir}/pid";
   case "$1" in
     "")
       if [ -z "$(sed -n '2p' $pid_file)" ] || [ ! -f "$UPPER_SCRIPT" ]; then return 1; else return 0; fi;
@@ -30,9 +32,9 @@ AdGuardHome_Run () {
     *)
       if ( mkdir ${lock_dir} ) 2> /dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' $pid_file)" ]; }; then
         ( trap 'rm -rf "$lock_dir"; exit $?' EXIT; { Service_Wait AdGuardHome_Run; }; rm -rf "$lock_dir"; )& pid="$!";
-        { printf "%s\n" "$pid" > $pid_file; start="$(date +%s)"; { Service_Wait $1; }; end="$(date +%s)"; runtime="$((end-start))"; printf "%s\n" "$runtime" >> $pid_file; logger -st "$NAME" "$1 took $runtime second(s) to complete."; };
+        { printf "%s\n" "$pid" > $pid_file; start="$(date +%s)"; { Service_Wait "$1" 30; }; end="$(date +%s)"; runtime="$((end-start))"; printf "%s\n" "$runtime" >> $pid_file; logger -st "$NAME" "$1 took $runtime second(s) to complete."; };
       else
-        logger -st "$NAME" "Lock owned by $(sed -n '1p' $pid_file) exists; preventing duplicate runs!"
+        logger -st "$NAME" "Lock owned by $(sed -n '1p' $pid_file) exists; preventing duplicate runs!";
       fi
       ;;
   esac
@@ -46,7 +48,7 @@ check_dns_environment () {
   if [ "$(nvram get dhcp_dns1_x)" ] && [ "$NVCHECK" != "0" ]; then { nvram set dhcp_dns1_x=""; }; NVCHECK="$((NVCHECK+1))"; fi;
   if [ "$(nvram get dhcp_dns2_x)" ] && [ "$NVCHECK" != "0" ]; then { nvram set dhcp_dns2_x=""; }; NVCHECK="$((NVCHECK+1))"; fi;
   if [ "$(nvram get dhcpd_dns_router)" != "1" ] && [ "$NVCHECK" != "0" ]; then { nvram set dhcpd_dns_router="1"; }; NVCHECK="$((NVCHECK+1))"; fi;
-  if [ "$NVCHECK" != "0" ]; then { nvram commit; }; { service restart_dnsmasq >/dev/null 2>&1; }; { Service_Wait netcheck; }; fi;
+  if [ "$NVCHECK" != "0" ]; then { nvram commit; }; { service restart_dnsmasq >/dev/null 2>&1; }; { Service_Wait netcheck 100; }; fi;
 }
 
 dnsmasq_params () {
@@ -118,7 +120,7 @@ netcheck() {
 start_AdGuardHome () {
   if [ -z "$(pidof "$PROCS")" ]; then { lower_script start; }; else { lower_script restart; }; fi;
   for db in stats.db sessions.db; do { if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done;
-  if [ -n "$(pidof "$PROCS")" ] && { Service_Wait netcheck; }; then return "0"; else return "1"; fi;
+  if [ -n "$(pidof "$PROCS")" ] && { Service_Wait netcheck 100; }; then return "0"; else return "1"; fi;
 }
 
 start_monitor () {
@@ -149,7 +151,7 @@ start_monitor () {
               case "$COUNT" in
                 "30"|"60"|"90")
                   if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi;
-                  if { ! Service_Wait netcheck; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; fi;
+                  if { ! Service_Wait netcheck 100; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; fi;
                   ;;
                 *)
                   COUNT="$((COUNT + 1))";
@@ -191,7 +193,7 @@ stop_monitor () {
 stop_AdGuardHome () {
   if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; }; fi; { service restart_dnsmasq >/dev/null 2>&1; };
   for db in stats.db sessions.db; do { if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { rm "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done;
-  if [ -z "$(pidof "$PROCS")" ] && { Service_Wait netcheck; }; then return 0; else return 1; fi;
+  if [ -z "$(pidof "$PROCS")" ] && { Service_Wait netcheck 100; }; then return 0; else return 1; fi;
 }
 
 timezone () {
