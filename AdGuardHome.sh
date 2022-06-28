@@ -30,7 +30,7 @@ AdGuardHome_Run () {
     *)
       if ( mkdir ${lock_dir} ) 2> /dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' $pid_file)" ]; }; then
         ( trap 'rm -rf "$lock_dir"; exit $?' EXIT; { Service_Wait AdGuardHome_Run; }; rm -rf "$lock_dir"; )& pid="$!";
-        { printf "%s\n" "$pid" > $pid_file; start="$(date +%s)"; $1; end="$(date +%s)"; runtime="$((end-start))"; printf "%s\n" "$runtime" >> $pid_file; logger -st "$NAME" "$1 took $runtime second(s) to complete."; };
+        { printf "%s\n" "$pid" > $pid_file; start="$(date +%s)"; { Service_Wait $1; }; end="$(date +%s)"; runtime="$((end-start))"; printf "%s\n" "$runtime" >> $pid_file; logger -st "$NAME" "$1 took $runtime second(s) to complete."; };
       else
         logger -st "$NAME" "Lock owned by $(sed -n '1p' $pid_file) exists; preventing duplicate runs!"
       fi
@@ -118,8 +118,7 @@ netcheck() {
 start_AdGuardHome () {
   if [ -z "$(pidof "$PROCS")" ]; then { lower_script start; }; else { lower_script restart; }; fi;
   for db in stats.db sessions.db; do { if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done;
-  { Service_Wait netcheck; };
-  if [ -z "$(pidof "$PROCS")" ]; then return "1"; else return "$?"; fi;
+  if [ -n "$(pidof "$PROCS")" ] && { Service_Wait netcheck; }; then return "0"; else return "1"; fi;
 }
 
 start_monitor () {
@@ -138,7 +137,7 @@ start_monitor () {
           case "$COUNT" in
             "")
               COUNT="0";
-              { Service_Wait AdGuardHome_Run start_AdGuardHome; };
+              { AdGuardHome_Run start_AdGuardHome; };
               ;;
           esac
           case "$(pidof "$PROCS")" in
@@ -150,7 +149,7 @@ start_monitor () {
               case "$COUNT" in
                 "30"|"60"|"90")
                   if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi;
-                  if { ! netcheck; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; fi;
+                  if { ! Service_Wait netcheck; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; fi;
                   ;;
                 *)
                   COUNT="$((COUNT + 1))";
@@ -163,7 +162,7 @@ start_monitor () {
         "1")
           logger -st "$NAME" "Stopping Monitor!";
           trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP;
-          { Service_Wait AdGuardHome_Run stop_AdGuardHome; };
+          { AdGuardHome_Run stop_AdGuardHome; };
           break;
           ;;
         "2")
@@ -183,7 +182,7 @@ stop_monitor () {
       SIGNAL="USR2";
       ;;
     "$$")
-      if [ -n "$MON_PID" ]; then SIGNAL="USR1"; else { Service_Wait AdGuardHome_Run stop_AdGuardHome; }; fi;
+      if [ -n "$MON_PID" ]; then SIGNAL="USR1"; else { AdGuardHome_Run stop_AdGuardHome; }; fi;
       ;;
   esac
   [ -n "$SIGNAL" ] && { kill -s "$SIGNAL" "$MON_PID" 2>/dev/null; };
@@ -192,7 +191,7 @@ stop_monitor () {
 stop_AdGuardHome () {
   if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; }; fi; { service restart_dnsmasq >/dev/null 2>&1; };
   for db in stats.db sessions.db; do { if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { rm "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done;
-  if [ -z "$(pidof "$PROCS")" ]; then return 0; else return 1; fi;
+  if [ -z "$(pidof "$PROCS")" ] && { Service_Wait netcheck; }; then return 0; else return 1; fi;
 }
 
 timezone () {
