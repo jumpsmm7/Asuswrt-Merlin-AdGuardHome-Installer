@@ -48,7 +48,7 @@ check_dns_environment () {
   if [ "$(nvram get dhcp_dns1_x)" ] && [ "$NVCHECK" != "0" ]; then { nvram set dhcp_dns1_x=""; }; NVCHECK="$((NVCHECK+1))"; fi;
   if [ "$(nvram get dhcp_dns2_x)" ] && [ "$NVCHECK" != "0" ]; then { nvram set dhcp_dns2_x=""; }; NVCHECK="$((NVCHECK+1))"; fi;
   if [ "$(nvram get dhcpd_dns_router)" != "1" ] && [ "$NVCHECK" != "0" ]; then { nvram set dhcpd_dns_router="1"; }; NVCHECK="$((NVCHECK+1))"; fi;
-  if [ "$NVCHECK" != "0" ]; then { nvram commit; }; { service restart_dnsmasq >/dev/null 2>&1; }; { Service_Wait netcheck 100; }; fi;
+  if [ "$NVCHECK" != "0" ]; then { nvram commit; }; { service restart_dnsmasq >/dev/null 2>&1; }; { Service_Wait netcheck 150; }; fi;
 }
 
 dnsmasq_params () {
@@ -120,7 +120,7 @@ netcheck() {
 start_AdGuardHome () {
   if [ -z "$(pidof "$PROCS")" ]; then { lower_script start; }; else { lower_script restart; }; fi;
   for db in stats.db sessions.db; do { if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done;
-  if [ -n "$(pidof "$PROCS")" ] && { Service_Wait netcheck 100; }; then return "0"; else return "1"; fi;
+  if [ -n "$(pidof "$PROCS")" ] && { Service_Wait netcheck 300; }; then return "0"; else return "1"; fi;
 }
 
 start_monitor () {
@@ -151,7 +151,7 @@ start_monitor () {
               case "$COUNT" in
                 "30"|"60"|"90")
                   if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi;
-                  if { ! Service_Wait netcheck 100; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; fi;
+                  if { ! Service_Wait netcheck 150; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; fi;
                   ;;
                 *)
                   COUNT="$((COUNT + 1))";
@@ -193,7 +193,7 @@ stop_monitor () {
 stop_AdGuardHome () {
   if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; }; fi; { service restart_dnsmasq >/dev/null 2>&1; };
   for db in stats.db sessions.db; do { if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { rm "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done;
-  if [ -z "$(pidof "$PROCS")" ] && { Service_Wait netcheck 100; }; then return 0; else return 1; fi;
+  if [ -z "$(pidof "$PROCS")" ] && { Service_Wait netcheck 300; }; then return 0; else return 1; fi;
 }
 
 timezone () {
