@@ -83,14 +83,7 @@ check() {
 reload() {
     SIGNAL="HUP";
     printf "%s\n" "$ansi_white Sending $SIGNAL to $PROC... $ansi_std";
-    if [ -z "$(pidof "$PROC")" ]; then 
-      printf "%s\n" "            $ansi_red dead. $ansi_std"; 
-      return 1; 
-    else 
-      { kill -s $SIGNAL "$(pidof "$PROC")" 2>/dev/null || killall -$SIGNAL "$PROC" 2>/dev/null; };
-      printf "%s\n" "            $ansi_green done. $ansi_std";
-      return 0; 
-    fi;
+    { kill -s $SIGNAL "$(pidof "$PROC")" 2>/dev/null || killall -$SIGNAL "$PROC" 2>/dev/null; };
 }
 
 for PROC in $PROCS; do
@@ -109,7 +102,7 @@ for PROC in $PROCS; do
             check;
             ;;
         "reload")
-            reload;
+            { check > /dev/null; } && reload;
             ;;
         *)
             printf "%s\n" "$ansi_white Usage: $0 (start|stop|restart|check|kill|reload)$ansi_std";
