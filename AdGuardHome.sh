@@ -1,27 +1,14 @@
 #!/bin/sh
 
-SCRIPT_LOC="$(readlink -f "$0")"
-CONF_FILE="/opt/etc/AdGuardHome/.config"
-MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
-UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
-LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
+SCRIPT_LOC="$(readlink -f "$0")";
+CONF_FILE="/opt/etc/AdGuardHome/.config";
+MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh";
+UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome";
+LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome";
 
-NAME="$(basename "$0")[$$]"
+NAME="$(basename "$0")[$$]";
 
-Service_Wait () {
-  umask 022
-  local OPT
-  [ -z "$2" ] && OPT="10" || OPT="$2";
-  ( 
-    { timezone; cd '/'; trap '' HUP INT QUIT ABRT TERM TSTP; }; 
-    { exec 0< '/dev/null'; exec 1> '/dev/null'; exec 2> '/dev/null'; };
-    { local maxwait i; maxwait="300"; i="0"; while [ "$i" -le "$maxwait" ]; do if [ "$(nvram get success_start_service)" = '1' ] && { "$1"; }; then break; fi; sleep 10; i="$((i + OPT))"; done; }; 
-    { trap - HUP INT QUIT ABRT TERM TSTP; if [ "$i" -gt "$maxwait" ]; then return 1; else return 0; fi; }; 
-  )& local PID="$!"; wait $PID;
-  return "$?";
-}
-
-AdGuardHome_Run () {
+adguardhome_run () {
   local lock_dir pid pid_file start end runtime
   lock_dir="/tmp/AdGuardHome";
   pid_file="${lock_dir}/pid";
@@ -31,8 +18,8 @@ AdGuardHome_Run () {
       ;;
     *)
       if ( mkdir ${lock_dir} ) 2> /dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' $pid_file)" ]; }; then
-        ( trap 'rm -rf "$lock_dir"; exit $?' EXIT; { Service_Wait AdGuardHome_Run; }; rm -rf "$lock_dir"; )& pid="$!";
-        { printf "%s\n" "$pid" > $pid_file; start="$(date +%s)"; { Service_Wait "$1" 30; }; end="$(date +%s)"; runtime="$((end-start))"; printf "%s\n" "$runtime" >> $pid_file; logger -st "$NAME" "$1 took $runtime second(s) to complete."; };
+        ( trap 'rm -rf "$lock_dir"; exit $?' EXIT; { service_wait adguardhome_run; }; rm -rf "$lock_dir"; )& pid="$!";
+        { printf "%s\n" "$pid" > $pid_file; start="$(date +%s)"; { service_wait "$1" 30; }; end="$(date +%s)"; runtime="$((end-start))"; printf "%s\n" "$runtime" >> $pid_file; logger -st "$NAME" "$1 took $runtime second(s) to complete."; };
       else
         logger -st "$NAME" "Lock owned by $(sed -n '1p' $pid_file) exists; preventing duplicate runs!";
       fi
@@ -48,7 +35,7 @@ check_dns_environment () {
   if [ "$(nvram get dhcp_dns1_x)" ] && [ "$NVCHECK" != "0" ]; then { nvram set dhcp_dns1_x=""; }; NVCHECK="$((NVCHECK+1))"; fi;
   if [ "$(nvram get dhcp_dns2_x)" ] && [ "$NVCHECK" != "0" ]; then { nvram set dhcp_dns2_x=""; }; NVCHECK="$((NVCHECK+1))"; fi;
   if [ "$(nvram get dhcpd_dns_router)" != "1" ] && [ "$NVCHECK" != "0" ]; then { nvram set dhcpd_dns_router="1"; }; NVCHECK="$((NVCHECK+1))"; fi;
-  if [ "$NVCHECK" != "0" ]; then { nvram commit; }; { service restart_dnsmasq >/dev/null 2>&1; }; { Service_Wait netcheck 150; }; fi;
+  if [ "$NVCHECK" != "0" ]; then { nvram commit; }; { service restart_dnsmasq >/dev/null 2>&1; }; { service_wait netcheck 150; }; fi;
 }
 
 dnsmasq_params () {
@@ -89,7 +76,15 @@ lower_script () {
     *)
       $LOWER_SCRIPT_LOC "$1" "$NAME";
       ;;
-  esac
+  esac;
+}
+
+netcheck() {
+  local ALIVE
+  if { [ "$(/bin/date -u +"%Y")" -gt "1970" ] || [ "$(/bin/date -u '+%s')" -ge "$(/bin/date -u -r "$MID_SCRIPT" '+%s')" ]; }; then ALIVE="0"; else ALIVE="1"; fi;
+  if { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; }; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi;
+  if { [ "$(curl -Is  http://www.google.com | head -n 1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] || [ "$(wget -q --spider http://google.com >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; }; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi;
+  if [ "$ALIVE" -ne "0" ]; then return 1; else return 0; fi;
 }
 
 proc_optimizations () {
@@ -106,28 +101,33 @@ proc_optimizations () {
     { printf "256" > /proc/sys/net/ipv6/neigh/default/gc_thresh1; };
     { printf "1024" > /proc/sys/net/ipv6/neigh/default/gc_thresh2; };
     { printf "2048" > /proc/sys/net/ipv6/neigh/default/gc_thresh3; };
-  fi
+  fi;
 }
 
-netcheck() {
-  local ALIVE
-  if { [ "$(/bin/date -u +"%Y")" -gt "1970" ] || [ "$(/bin/date -u '+%s')" -ge "$(/bin/date -u -r "$MID_SCRIPT" '+%s')" ]; }; then ALIVE="0"; else ALIVE="1"; fi;
-  if { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; }; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi;
-  if { [ "$(curl -Is  http://www.google.com | head -n 1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] || [ "$(wget -q --spider http://google.com >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; }; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi;
-  if [ "$ALIVE" -ne "0" ]; then return 1; else return 0; fi;
+service_wait () {
+  umask 022
+  local OPT
+  [ -z "$2" ] && OPT="10" || OPT="$2";
+  ( 
+    { timezone; cd '/'; trap '' HUP INT QUIT ABRT TERM TSTP; }; 
+    { exec 0< '/dev/null'; exec 1> '/dev/null'; exec 2> '/dev/null'; };
+    { local maxwait i; maxwait="300"; i="0"; while [ "$i" -le "$maxwait" ]; do if [ "$(nvram get success_start_service)" = '1' ] && { "$1"; }; then break; fi; sleep 10; i="$((i + OPT))"; done; }; 
+    { trap - HUP INT QUIT ABRT TERM TSTP; if [ "$i" -gt "$maxwait" ]; then return 1; else return 0; fi; }; 
+  )& local PID="$!"; wait $PID;
+  return "$?";
 }
 
-start_AdGuardHome () {
+start_adguardhome () {
   if [ -z "$(pidof "$PROCS")" ]; then { lower_script start; }; else { lower_script restart; }; fi;
   for db in stats.db sessions.db; do { if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done;
-  if [ -n "$(pidof "$PROCS")" ] && { Service_Wait netcheck 300; }; then return "0"; else return "1"; fi;
+  if [ -n "$(pidof "$PROCS")" ] && { service_wait netcheck 300; }; then return "0"; else return "1"; fi;
 }
 
 start_monitor () {
   trap '' HUP INT QUIT ABRT TERM TSTP;
   trap 'EXIT="1"' USR1;
   trap 'EXIT="2"' USR2;
-  { Service_Wait netcheck; };
+  { service_wait netcheck; };
   local COUNT EXIT
   EXIT="0";
   logger -st "$NAME" "Starting Monitor!";
@@ -139,9 +139,9 @@ start_monitor () {
           case "$COUNT" in
             "")
               COUNT="0";
-              { AdGuardHome_Run start_AdGuardHome; };
+              { adguardhome_run start_adguardhome; };
               ;;
-          esac
+          esac;
           case "$(pidof "$PROCS")" in
             "")
               logger -st "$NAME" "Warning: $PROCS is dead; Monitor will start it!";
@@ -151,20 +151,20 @@ start_monitor () {
               case "$COUNT" in
                 "30"|"60"|"90")
                   if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi;
-                  if { ! Service_Wait netcheck 150; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; fi;
+                  if { ! service_wait netcheck 150; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; fi;
                   ;;
                 *)
                   COUNT="$((COUNT + 1))";
                   ;;
-              esac 
+              esac; 
               if [ -n "$COUNT" ]; then sleep 10; fi;
               ;;
-          esac
+          esac;
           ;;
         "1")
           logger -st "$NAME" "Stopping Monitor!";
           trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP;
-          { AdGuardHome_Run stop_AdGuardHome; };
+          { adguardhome_run stop_adguardhome; };
           break;
           ;;
         "2")
@@ -172,9 +172,15 @@ start_monitor () {
           unset COUNT;
           EXIT="0";
           ;;
-      esac
-    fi
-  done
+      esac;
+    fi;
+  done;
+}
+
+stop_adguardhome () {
+  if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; }; fi; { service restart_dnsmasq >/dev/null 2>&1; };
+  for db in stats.db sessions.db; do { if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { rm "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done;
+  if [ -z "$(pidof "$PROCS")" ] && { service_wait netcheck 300; }; then return 0; else return 1; fi;
 }
 
 stop_monitor () {
@@ -184,16 +190,10 @@ stop_monitor () {
       SIGNAL="USR2";
       ;;
     "$$")
-      if [ -n "$MON_PID" ]; then SIGNAL="USR1"; else { AdGuardHome_Run stop_AdGuardHome; }; fi;
+      if [ -n "$MON_PID" ]; then SIGNAL="USR1"; else { adguardhome_run stop_adguardhome; }; fi;
       ;;
-  esac
+  esac;
   [ -n "$SIGNAL" ] && { kill -s "$SIGNAL" "$MON_PID" 2>/dev/null; };
-}
-
-stop_AdGuardHome () {
-  if [ -n "$(pidof "$PROCS")" ]; then { lower_script stop || lower_script kill; }; fi; { service restart_dnsmasq >/dev/null 2>&1; };
-  for db in stats.db sessions.db; do { if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { rm "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done;
-  if [ -z "$(pidof "$PROCS")" ] && { Service_Wait netcheck 300; }; then return 0; else return 1; fi;
 }
 
 timezone () {
@@ -207,11 +207,11 @@ timezone () {
 if [ -f "$UPPER_SCRIPT" ]; then UPPER_SCRIPT_LOC=". $UPPER_SCRIPT"; fi;
 if [ -f "$LOWER_SCRIPT" ]; then LOWER_SCRIPT_LOC=". $LOWER_SCRIPT"; fi;
 if { [ "$2" != "x" ] && printf "%s" "$1" | /bin/grep -qE "^((start|stop|restart|kill|reload)$)"; }; then { service "$1"_AdGuardHome >/dev/null 2>&1; exit; }; fi;
-if [ "$1" = "init-start" ] && [ ! -f "$UPPER_SCRIPT" ]; then { Service_Wait AdGuardHome_Run; }; fi;
+if [ "$1" = "init-start" ] && [ ! -f "$UPPER_SCRIPT" ]; then { service_wait adguardhome_run; }; fi;
 if [ -f "$UPPER_SCRIPT" ]; then { if { [ "$(readlink -f "$UPPER_SCRIPT")" != "$SCRIPT_LOC" ] || [ "$0" != "$UPPER_SCRIPT" ]; }; then { exec $UPPER_SCRIPT "$@"; exit; }; fi; }; else { if [ -z "$PROCS" ]; then exit; fi; }; fi;
 { for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "$PID" != "$$" ]; then { MON_PID="$PID"; }; fi; done; };
 
-unset TZ
+unset TZ;
 case "$1" in
   "monitor-start")
     if [ -n "$MON_PID" ]; then { stop_monitor "$MON_PID"; }; else { start_monitor & }; fi;
@@ -235,10 +235,10 @@ case "$1" in
       "services-stop")
         { stop_monitor "$$"; };
         ;;
-    esac
+    esac;
     ;;
   *)
     { $LOWER_SCRIPT_LOC "$1"; } && exit;
     ;;
-esac
+esac;
 check_dns_environment
