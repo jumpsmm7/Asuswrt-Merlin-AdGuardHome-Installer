@@ -84,8 +84,7 @@ AdGuardHome_authen () {
     PTXT -n "$INPUT Please enter AdGuardHome username${NORM}: "
     read -r USERNAME
   fi
-  local PW1
-  local PW2
+  local PW1 PW2
   PTXT -n "$INPUT Please enter AdGuardHome password${NORM}: "
   read -rs PW1
   PTXT " "
@@ -257,9 +256,8 @@ check_dns_environment () {
 }
 
 check_dns_filter () {
-  local NVCHECK
+  local NVCHECK USE_SOME
   NVCHECK="0"
-  local USE_SOME
   if [ "$1" -eq 0 ]; then
     if [ "$(nvram get dnsfilter_enable_x)" -ne 0 ]; then { nvram set dnsfilter_enable_x="0"; }; NVCHECK="$((NVCHECK+1))"; fi
     PTXT "$INFO DNS will not be forced through to AdGuardHome."
@@ -313,9 +311,7 @@ check_jffs_enabled () {
          "$ERROR Exiting..."
     exit 1
   fi
-  local JFFS2_SCRIPTS
-  local JFFS2_ENABLED
-  local jffs2_on
+  local JFFS2_SCRIPTS JFFS2_ENABLED jffs2_on
   JFFS2_SCRIPTS="$(nvram get jffs2_scripts)"
   [ -z "$(nvram get jffs2_enable)" ] && JFFS2_ENABLED="$(nvram get jffs2_on)" || JFFS2_ENABLED="$(nvram get jffs2_enable)"
   [ -z "$(nvram get jffs2_enable)" ] && jffs2_on="jffs2_on" || jffs2_on="jffs2_enable"
@@ -332,12 +328,7 @@ check_jffs_enabled () {
 
 check_version () {
   if [ -f "${TARG_DIR}/installer" ] && [ -f "$AGH_FILE" ] && [ -z "$2" ]; then
-    local RMNSTALL
-    local LINSTALL
-    local MD5SUM_L
-    local MD5SUM_R
-    local NW_STATE
-    local RES_STATE
+    local RMNSTALL LINSTALL MD5SUM_L MD5SUM_R NW_STATE RES_STATE
     [ -z "$1" ] && NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"
     [ -z "$1" ] && RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"
     LINSTALL="$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
@@ -444,12 +435,10 @@ create_dir () {
 }
 
 del_between_magic () {
-  local TARG
+  local TARG MAGIC BOUNDS
   TARG="$1"
-  local MAGIC
   MAGIC="$2"
   [ -f "$TARG" ] || return
-  local BOUNDS
   BOUNDS="$(awk -v PATT="$MAGIC" '($0 ~ PATT) {printf NR","}' "$TARG")"
   if [ "$BOUNDS" ]; then
     sed -i "${BOUNDS%,}d" "$TARG"
@@ -465,13 +454,10 @@ del_conf () {
 }
 
 del_jffs_script () {
-  local TARG
+  local TARG LINE_NUM LINE_ABOVE OP
   TARG="$1"
-  local LINE_NUM
-  local LINE_ABOVE
   [ -f "$TARG" ] || return
   if [ "$2" ]; then
-    local OP
     OP="${2:0:1}"
     if [ "$OP" = "!" ]; then
       LINE_NUM="$(grep -n -F "[ -x $ADDON_DIR/" "$TARG" | grep -v "$(_quote "$2")" | cut -d':' -f1)"
@@ -492,15 +478,9 @@ del_jffs_script () {
 }
 
 download_file () {
-  local TARG
-  TARG="$1"; shift
-  local PERM
+  local TARG PERM URL RET FILENAME MD5SUM_OLD MD5SUM_CURR
+  TARG="$1"; shift 
   PERM="$1"; shift
-  local URL
-  local RET
-  local FILENAME
-  local MD5SUM_OLD
-  local MD5SUM_CURR
   for URL in "$@"; do
     FILENAME="$(basename "$URL")"
     MD5SUM_OLD="$([ -f "${TARG}/${FILENAME}" ] && md5sum "${TARG}/${FILENAME}" | cut -d' ' -f1)"
@@ -560,8 +540,7 @@ inst_AdGuardHome () {
     elif [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
       if read_yesno "Do you want create a backup before updating?"; then backup_restore BACKUP 0; else PTXT "$INFO continuing without making a backup."; fi
     fi
-    local NW_STATE
-    local RES_STATE
+    local NW_STATE RES_STATE
     NW_STATE="$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")"
     RES_STATE="$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")"
     if [ -z "$REMOTE_VER" ] || { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
@@ -755,9 +734,8 @@ read_yesno () {
 }
 
 set_timezone () {
-  local TMP
+  local TMP TZ_ARCH TZ_DATA INDEX TZ_FILE
   TMP="/root"
-  local TZ_ARCH
   TZ_ARCH="$(uname -m)"
   case $TZ_ARCH in
     "aarch64"|"arm64")
@@ -767,16 +745,13 @@ set_timezone () {
       TZ_ARCH="arm"
     ;;
   esac
-  local TZ_DATA
   TZ_DATA="tzdata-2021e-1-${TZ_ARCH}.pkg.tar.bz2"
   opkg install column >/dev/null 2>&1
-  download_file "$TMP" 644 "${RURL}/${TZ_DATA}"
-  local INDEX
+  download_file "$TMP" 644 "${RURL}/${TZ_DATA}" 
   INDEX="$(tar tjf "${TMP}/${TZ_DATA}" | awk -F'/' '!/\/$/ && /\/posix\//' | wc -l)"
   PTXT "$INFO Available timezones/locations:"
   tar tjf "${TMP}/${TZ_DATA}" | awk -F'/' '!/\/$/ && /\/posix\//' | sort | cut -d'/' -f2- | awk -v INDEX=0 -F'/' '!/\/$/ {++INDEX;printf "  " INDEX") ";for (i=5; i<NF; i++)  printf $i "/"; print $NF}' | column
-  read_input_num "Select your timezone/location" 1 "$INDEX"
-  local TZ_FILE
+  read_input_num "Select your timezone/location" 1 "$INDEX" 
   TZ_FILE="$(tar tjf "${TMP}/${TZ_DATA}" | awk -F'/' '!/\/$/ &&  /\/posix\//' | sort | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
   PTXT "$INFO $(basename "$TZ_FILE") selected"
   tar xjf "${TMP}/${TZ_DATA}" -C "$TMP" ./usr/share/zoneinfo/posix
@@ -865,10 +840,7 @@ setup_AdGuardHome_impl () {
            "$INFO and router services (e.g. ntp) at boot"
       read_input_dns "Default is" 9.9.9.9
       read_input_dns "2nd Default is" 8.8.8.8
-      local DOMAIN
-      local NET_ADDR
-      local NET_ADDR6
-      local LAN_IF
+      local DOMAIN NET_ADDR NET_ADDR6 LAN_IF
       LAN_IF="$(nvram get lan_ifname)"
       [ -n "$LAN_IF" ] && NET_ADDR="$(ip -o -4 addr list "$LAN_IF" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR="$(nvram get lan_ipaddr)"
       [ -n "$LAN_IF" ] && NET_ADDR6="$(ip -o -6 addr list "$LAN_IF" scope global | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR6="$(nvram get ipv6_rtr_addr)"
@@ -949,9 +921,8 @@ uninst_all () {
 }
 
 write_conf () {
-  local VAR
+  local VAR VALUE
   VAR="$1"
-  local VALUE
   VALUE="$2"
   if [ ! -f "$CONF_FILE" ]; then
     touch "$CONF_FILE" && chmod 644 "$CONF_FILE"
@@ -965,11 +936,9 @@ write_conf () {
 }
 
 write_command_script () {
-  local TARG
+  local TARG COMMAND FILENAME
   TARG="$1"
-  local COMMAND
   COMMAND="$2"
-  local FILENAME
   FILENAME="$(basename "$TARG")"
   if [ ! -f "$TARG" ]; then
     PTXT "$INFO Creating $FILENAME file"
@@ -985,13 +954,10 @@ write_command_script () {
 }
 
 write_manager_script () {
-  local TARG
+  local TARG OP FILENAME COMMAND
   TARG="$1"
-  local OP
   OP="$2"
-  local FILENAME
   FILENAME="$(basename "$TARG")"
-  local COMMAND
   COMMAND="${ADDON_DIR}/AdGuardHome.sh"
   if [ ! -f "$TARG" ]; then
     PTXT "$INFO Creating $FILENAME file"
