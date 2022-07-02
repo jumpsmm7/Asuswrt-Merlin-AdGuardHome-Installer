@@ -237,6 +237,13 @@ case "$1" in
         ;;
     esac;
     ;;
+  "wan-event")
+    case "${@:3}" in
+      connected)
+        if [ n "$(pidof AdGuardHome)" ] && [ -n "$MON_PID" ]; then service restart_AdGuardHome >/dev/null 2>&1; fi;
+        ;;
+    esac;
+    ;;
   *)
     { $LOWER_SCRIPT_LOC "$1"; } && exit;
     ;;
