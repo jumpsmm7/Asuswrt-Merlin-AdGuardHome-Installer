@@ -175,6 +175,10 @@ start_monitor () {
   while true; do
     if [ -f "/opt/sbin/AdGuardHome" ]; then
       case $EXIT in
+        "")
+          logger -st "$NAME" "Warning: Internet Connection is dead; Monitor will bail out until it is restored!";
+          EXIT="1"
+          ;;
         "0")
           timezone;
           case "$COUNT" in
@@ -189,17 +193,15 @@ start_monitor () {
               unset COUNT;
               ;;
             *)
-              case "$COUNT" in
-                "30"|"60"|"90")
-                  if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi;
-                  if { [ -n "$(get_wan_setting ifname)" ] && ! service_wait netcheck 150; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; fi;
+              case "$(get_wan_setting ifname)" in
+                "")
+                  unset EXIT;
                   ;;
                 *)
-                  case "$(get_wan_setting ifname)" in
-                    "")
-                      logger -st "$NAME" "Warning: Internet Connection is dead; Monitor will bail out until it is restored!";
-                      unset COUNT;
-                      EXIT="1"
+                  case "$COUNT" in
+                    "30"|"60"|"90")
+                      if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi;
+                      if { [ -n "$(get_wan_setting ifname)" ] && ! service_wait netcheck 150; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; elif [ -z "$(get_wan_setting ifname)" ]; then unset EXIT; fi;
                       ;;
                     *)
                       COUNT="$((COUNT + 1))";
@@ -207,7 +209,7 @@ start_monitor () {
                   esac;
                   ;;
               esac; 
-              if [ -n "$COUNT" ]; then sleep 10; fi;
+              if [ -n "$COUNT" ] && [ -n "$EXIT" ]; then sleep 10; fi;
               ;;
           esac;
           ;;
