@@ -71,6 +71,47 @@ dnsmasq_params () {
   fi;
 }
 
+##borrowed from Dave. Thanks!
+get_wan_setting() {
+    local varname varval
+    varname="${1}"
+    prefixes="wan0_ wan1_"
+
+    if [ "$(nvram get wans_mode)" = "lb" ] ; then
+        for prefix in $prefixes; do
+            state="$(nvram get "${prefix}"state_t)"
+            sbstate="$(nvram get "${prefix}"sbstate_t)"
+            auxstate="$(nvram get "${prefix}"auxstate_t)"
+
+            # is_wan_connect()
+            [ "${state}" = "2" ] || continue
+            [ "${sbstate}" = "0" ] || continue
+            [ "${auxstate}" = "0" ] || [ "${auxstate}" = "2" ] || continue
+
+            # get_wan_ifname()
+            proto="$(nvram get "${prefix}"proto)"
+            if [ "${proto}" = "pppoe" ] || [ "${proto}" = "pptp" ] || [ "${proto}" = "l2tp" ] ; then
+                varval="$(nvram get "${prefix}"pppoe_"${varname}")"
+            else
+                varval="$(nvram get "${prefix}""${varname}")"
+            fi
+        done
+    else
+        for prefix in $prefixes; do
+            primary="$(nvram get "${prefix}"primary)"
+            [ "${primary}" = "1" ] && break
+        done
+
+        proto="$(nvram get "${prefix}"proto)"
+        if [ "${proto}" = "pppoe" ] || [ "${proto}" = "pptp" ] || [ "${proto}" = "l2tp" ] ; then
+            varval="$(nvram get "${prefix}"pppoe_"${varname}")"
+        else
+            varval="$(nvram get "${prefix}""${varname}")"
+        fi
+    fi
+    printf "%s" "${varval}"
+} # get_wan_setting
+
 lower_script () {
   case $1 in
     *)
@@ -82,7 +123,7 @@ lower_script () {
 netcheck() {
   local ALIVE
   if { [ "$(/bin/date -u +"%Y")" -gt "1970" ] || [ "$(/bin/date -u '+%s')" -ge "$(/bin/date -u -r "$MID_SCRIPT" '+%s')" ]; }; then ALIVE="0"; else ALIVE="1"; fi;
-  if { [ "$(ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; }; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi;
+  if { [ "$(ping -I "$(get_wan_setting ifname)" 1.1.1.1 -c1 -W2 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] && [ "$(nslookup google.com 127.0.0.1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; }; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi;
   if { [ "$(curl -Is  http://www.google.com | head -n 1 >/dev/null 2>&1; printf "%s" "$?")" = "0" ] || [ "$(wget -q --spider http://google.com >/dev/null 2>&1; printf "%s" "$?")" = "0" ]; }; then ALIVE="0"; else ALIVE="$((ALIVE+1))"; fi;
   if [ "$ALIVE" -ne "0" ]; then return 1; else return 0; fi;
 }
@@ -238,10 +279,20 @@ case "$1" in
     esac;
     ;;
   "wan-event")
-    case "${@:3}" in
-      connected)
-        if [ n "$(pidof AdGuardHome)" ] && [ -n "$MON_PID" ]; then service restart_AdGuardHome >/dev/null 2>&1; fi;
+    case "$(get_wan_setting ifname)" in
+      "")
+        case "$3" in
+          stopped)
+            if [ -n "$(pidof AdGuardHome)" ] && [ -n "$MON_PID" ]; then service stop_AdGuardHome >/dev/null 2>&1; fi;
+            ;;
+        esac;
         ;;
+      *)
+        case "$3" in
+          connected)
+            if [ -n "$(pidof AdGuardHome)" ] && [ -n "$MON_PID" ]; then service restart_AdGuardHome >/dev/null 2>&1; elif [ "$(pidof "S99${PROCS}" | wc -w)" -eq "1" ]; then service start_AdGuardHome >/dev/null 2>&1; fi;
+            ;;
+        esac;
     esac;
     ;;
   *)
