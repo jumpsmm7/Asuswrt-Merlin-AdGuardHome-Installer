@@ -192,10 +192,19 @@ start_monitor () {
               case "$COUNT" in
                 "30"|"60"|"90")
                   if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi;
-                  if { ! service_wait netcheck 150; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; fi;
+                  if { [ -n "$(get_wan_setting ifname)" ] && ! service_wait netcheck 150; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; fi;
                   ;;
                 *)
-                  COUNT="$((COUNT + 1))";
+                  case "$(get_wan_setting ifname)" in
+                    "")
+                      logger -st "$NAME" "Warning: Internet Connection is dead; Monitor will bail out until it is restored!";
+                      unset COUNT;
+                      EXIT="1"
+                      ;;
+                    *)
+                      COUNT="$((COUNT + 1))";
+                      ;;
+                  esac;
                   ;;
               esac; 
               if [ -n "$COUNT" ]; then sleep 10; fi;
@@ -280,13 +289,6 @@ case "$1" in
     ;;
   "wan-event")
     case "$(get_wan_setting ifname)" in
-      "")
-        case "$3" in
-          stopped)
-            if [ -n "$(pidof AdGuardHome)" ] && [ -n "$MON_PID" ]; then service stop_AdGuardHome >/dev/null 2>&1; fi;
-            ;;
-        esac;
-        ;;
       *)
         case "$3" in
           connected)
