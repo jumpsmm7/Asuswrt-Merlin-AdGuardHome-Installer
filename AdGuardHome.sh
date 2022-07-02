@@ -177,7 +177,7 @@ start_monitor () {
       case $EXIT in
         "")
           logger -st "$NAME" "Warning: Internet Connection is dead; Monitor will bail out until it is restored!";
-          EXIT="1"
+          EXIT="1";
           ;;
         "0")
           timezone;
