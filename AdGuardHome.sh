@@ -283,13 +283,13 @@ case "$1" in
           ;;
         esac;
         ;;
-      #disconnected)
-      #  case "$(get_wan_setting ifname)" in
-      #    "")
-      #    if [ -n "$(pidof AdGuardHome)" ] && [ -n "$MON_PID" ]; then service stop_AdGuardHome >/dev/null 2>&1; fi;
-      #    ;;
-      #  esac;
-      #  ;;
+      disconnected|stopped)
+        case "$(get_wan_setting ifname)" in
+          "")
+          if [ -n "$(pidof AdGuardHome)" ] && [ -n "$MON_PID" ]; then service stop_AdGuardHome >/dev/null 2>&1; fi;
+          ;;
+        esac;
+        ;;
     esac;
     ;;
   *)
