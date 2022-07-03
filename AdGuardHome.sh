@@ -91,21 +91,21 @@ get_wan_setting() {
         varval="$(nvram get "${prefix}"pppoe_"${varname}")";
       else
         varval="$(nvram get "${prefix}""${varname}")";
-      fi
-    done
+      fi;
+    done;
   else
     for prefix in $prefixes; do
       primary="$(nvram get "${prefix}"primary)";
       { [ "${primary}" = "1" ] && break; };
-    done
+    done;
     proto="$(nvram get "${prefix}"proto)";
     if { [ "${proto}" = "pppoe" ] || [ "${proto}" = "pptp" ] || [ "${proto}" = "l2tp" ]; }; then
       varval="$(nvram get "${prefix}"pppoe_"${varname}")";
     else
       varval="$(nvram get "${prefix}""${varname}")";
-    fi
-  fi
-  printf "%s" "${varval}"
+    fi;
+  fi;
+  printf "%s" "${varval}";
 } # get_wan_setting
 
 lower_script () {
