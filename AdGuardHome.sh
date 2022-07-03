@@ -276,18 +276,18 @@ case "$1" in
     ;;
   "wan-event")
     case "$(get_wan_setting ifname)" in
+      "")
+        if [ -n "$(pidof AdGuardHome)" ] && [ -n "$MON_PID" ]; then service stop_AdGuardHome >/dev/null 2>&1; fi;
+        ;;
        *)
         case "$3" in
           connected|connecting|init)
             if [ -n "$(pidof AdGuardHome)" ] && [ -n "$MON_PID" ]; then service restart_AdGuardHome >/dev/null 2>&1; elif [ "$(pidof "S99${PROCS}" | wc -w)" -eq "1" ]; then service start_AdGuardHome >/dev/null 2>&1; fi;
             ;;
-          disconnected|stopped|stopping|disabled)         
+          disconnected|stopped|stopping|disabled|*)
             if [ -n "$(pidof AdGuardHome)" ] && [ -n "$MON_PID" ]; then service stop_AdGuardHome >/dev/null 2>&1; fi;
             ;;
         esac;
-        ;;
-      "")
-        if [ -n "$(pidof AdGuardHome)" ] && [ -n "$MON_PID" ]; then service stop_AdGuardHome >/dev/null 2>&1; fi;
         ;;
     esac;
     ;;
