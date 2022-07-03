@@ -73,43 +73,39 @@ dnsmasq_params () {
 
 ##borrowed from Dave. Thanks!
 get_wan_setting() {
-    local varname varval
-    varname="${1}"
-    prefixes="wan0_ wan1_"
-
-    if [ "$(nvram get wans_mode)" = "lb" ] ; then
-        for prefix in $prefixes; do
-            state="$(nvram get "${prefix}"state_t)"
-            sbstate="$(nvram get "${prefix}"sbstate_t)"
-            auxstate="$(nvram get "${prefix}"auxstate_t)"
-
-            # is_wan_connect()
-            [ "${state}" = "2" ] || continue
-            [ "${sbstate}" = "0" ] || continue
-            [ "${auxstate}" = "0" ] || [ "${auxstate}" = "2" ] || continue
-
-            # get_wan_ifname()
-            proto="$(nvram get "${prefix}"proto)"
-            if [ "${proto}" = "pppoe" ] || [ "${proto}" = "pptp" ] || [ "${proto}" = "l2tp" ] ; then
-                varval="$(nvram get "${prefix}"pppoe_"${varname}")"
-            else
-                varval="$(nvram get "${prefix}""${varname}")"
-            fi
-        done
+  local varname varval
+  varname="${1}";
+  prefixes="wan0_ wan1_";
+  if [ "$(nvram get wans_mode)" = "lb" ] ; then
+    for prefix in $prefixes; do
+      bstate="$(nvram get "${prefix}"state_t)";
+      sbstate="$(nvram get "${prefix}"sbstate_t)";
+      auxstate="$(nvram get "${prefix}"auxstate_t)";
+      # is_wan_connect()
+      { [ "${state}" = "2" ] || continue; };
+      { [ "${sbstate}" = "0" ] || continue; };
+      { [ "${auxstate}" = "0" ] || [ "${auxstate}" = "2" ] || continue; };
+      # get_wan_ifname()
+      proto="$(nvram get "${prefix}"proto)";
+      if { [ "${proto}" = "pppoe" ] || [ "${proto}" = "pptp" ] || [ "${proto}" = "l2tp" ]; }; then
+        varval="$(nvram get "${prefix}"pppoe_"${varname}")";
+      else
+        varval="$(nvram get "${prefix}""${varname}")";
+      fi
+    done
+  else
+    for prefix in $prefixes; do
+      primary="$(nvram get "${prefix}"primary)";
+      { [ "${primary}" = "1" ] && break; };
+    done
+    proto="$(nvram get "${prefix}"proto)";
+    if { [ "${proto}" = "pppoe" ] || [ "${proto}" = "pptp" ] || [ "${proto}" = "l2tp" ]; }; then
+      varval="$(nvram get "${prefix}"pppoe_"${varname}")";
     else
-        for prefix in $prefixes; do
-            primary="$(nvram get "${prefix}"primary)"
-            [ "${primary}" = "1" ] && break
-        done
-
-        proto="$(nvram get "${prefix}"proto)"
-        if [ "${proto}" = "pppoe" ] || [ "${proto}" = "pptp" ] || [ "${proto}" = "l2tp" ] ; then
-            varval="$(nvram get "${prefix}"pppoe_"${varname}")"
-        else
-            varval="$(nvram get "${prefix}""${varname}")"
-        fi
+      varval="$(nvram get "${prefix}""${varname}")";
     fi
-    printf "%s" "${varval}"
+  fi
+  printf "%s" "${varval}"
 } # get_wan_setting
 
 lower_script () {
@@ -175,10 +171,6 @@ start_monitor () {
   while true; do
     if [ -f "/opt/sbin/AdGuardHome" ]; then
       case $EXIT in
-        "")
-          logger -st "$NAME" "Warning: Internet Connection is dead; Monitor will bail out until it is restored!";
-          EXIT="1";
-          ;;
         "0")
           timezone;
           case "$COUNT" in
@@ -193,23 +185,16 @@ start_monitor () {
               unset COUNT;
               ;;
             *)
-              case "$(get_wan_setting ifname)" in
-                "")
-                  unset EXIT;
+              case "$COUNT" in
+                "30"|"60"|"90")
+                  if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi;
+                  if { ! service_wait netcheck 150; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; fi;
                   ;;
                 *)
-                  case "$COUNT" in
-                    "30"|"60"|"90")
-                      if [ "$COUNT" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi;
-                      if { [ -n "$(get_wan_setting ifname)" ] && ! service_wait netcheck 150; }; then logger -st "$NAME" "Warning: $PROCS is not responding; Monitor will re-start it!"; unset COUNT; elif [ -z "$(get_wan_setting ifname)" ]; then unset EXIT; fi;
-                      ;;
-                    *)
-                      COUNT="$((COUNT + 1))";
-                      ;;
-                  esac;
+                  COUNT="$((COUNT + 1))";
                   ;;
               esac; 
-              if [ -n "$COUNT" ] && [ -n "$EXIT" ]; then sleep 10; fi;
+              if [ -n "$COUNT" ]; then sleep 10; fi;
               ;;
           esac;
           ;;
@@ -292,7 +277,18 @@ case "$1" in
   "wan-event")
     case "$3" in
       connected)
-        if [ -n "$(pidof AdGuardHome)" ] && [ -n "$MON_PID" ]; then service restart_AdGuardHome >/dev/null 2>&1; elif [ "$(pidof "S99${PROCS}" | wc -w)" -eq "1" ]; then service start_AdGuardHome >/dev/null 2>&1; fi;
+        case "$(get_wan_setting ifname)" in
+          *)
+          if [ -n "$(pidof AdGuardHome)" ] && [ -n "$MON_PID" ]; then service restart_AdGuardHome >/dev/null 2>&1; elif [ "$(pidof "S99${PROCS}" | wc -w)" -eq "1" ]; then service start_AdGuardHome >/dev/null 2>&1; fi;
+          ;;
+        esac;
+        ;;
+      disconnected)
+        case "$(get_wan_setting ifname)" in
+          "")
+          if [ -n "$(pidof AdGuardHome)" ] && [ -n "$MON_PID" ]; then service stop_AdGuardHome >/dev/null 2>&1; fi;
+          ;;
+        esac;
         ;;
     esac;
     ;;
