@@ -5,7 +5,7 @@ The Official Installer of AdGuardHome for Asuswrt-Merlin
 - ARM based ASUS routers that use Asuswrt-Merlin Firmware, and Entware Repository.
 - JFFS support and enabled.
 # Incompatibilities:
-- No known issue, but may not be compatible with doule-nat or dual-wan environments since AdGuardHome takes over DNSMASQ placement on port 53. DNSMASQ uses port 553 instead.
+- No known issue, but may not be compatible with "some" doule-nat or dual-wan environments since AdGuardHome takes over DNSMASQ placement on port 53. DNSMASQ uses port 553 instead.
 # Current features:
 - [AdGuardHome](https://github.com/AdguardTeam/AdGuardHome) Network-wide ads & trackers blocking DNS server, with multiple dns protocol encryption, and other features.
 - Support ARM based routers
