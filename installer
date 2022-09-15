@@ -25,7 +25,7 @@
 # shellcheck disable=SC3045
 # shellcheck disable=SC3057
 
-AI_VERSION="v1.5.6"
+AI_VERSION="v1.5.7"
 export AI_VERSION
 
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
@@ -1006,10 +1006,10 @@ if [ -z "$2" ]; then
 fi
 
 case "$ROUTER_MODEL" in
-  #RT-AX56U|RT-AX58U|RT-AX3000)
-  #  PTXT "$ERROR This is an unsupported router, sorry."
-  #  exit 1
-  #  ;;
+  RT-AX56U|RT-AX58U|RT-AX3000|RT-AX68U|RT-AX86U|RT-AX86S)
+    [ -z "$2" ] && PTXT "$INFO Detected $ROUTER_MODEL router."
+    [ "$(/bin/uname -m)" != "armv7l" ] && ROUTER_ARCH="$(/bin/uname -m)" || ROUTER_ARCH="armv7"
+    ;;
   *)
     [ -z "$2" ] && PTXT "$INFO Detected $ROUTER_MODEL router."
     ;;
@@ -1034,6 +1034,11 @@ case "$ROUTER_ARCH" in
     ;;
   "armv7l")
     ROUTER_ARCH="armv5"
+    ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
+    [ -z "$2" ] && PTXT "$INFO Detected ARMv7 architecture."
+    ;;
+  "armv7")
+    ROUTER_ARCH="armv7"
     ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
     [ -z "$2" ] && PTXT "$INFO Detected ARMv7 architecture."
     ;;
