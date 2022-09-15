@@ -238,8 +238,8 @@ check_AdGuardHome_yaml () {
 }
 
 check_dns_environment () {
-  if [ -f "/opt/etc/init.d/S61stubby" ] || [ -f "/opt/sbin/stubby" ] || [ -f "/opt/bin/install_stubby" ] || [ -f "/jffs/scripts/install_stubby.sh" ]; then
-    PTXT "$ERROR Potential stubby installation detected." \
+  if [ -f "/opt/etc/init.d/S61stubby" ] || [ -f "/opt/sbin/stubby" ] || [ -f "/opt/bin/install_stubby" ] || [ -f "/jffs/scripts/install_stubby.sh" ] || [ -d "/jffs/dnscrypt" ] || [ -f "/opt/etc/init.d/S09dnscrypt-proxy" ]; then
+    PTXT "$ERROR Potential stubby or dnscrypt-proxy installation detected." \
          "$ERROR Please remove before attempting to continue." \
          "$ERROR Exiting..."
     exit 1
