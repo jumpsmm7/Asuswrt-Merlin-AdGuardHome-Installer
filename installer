@@ -1006,10 +1006,10 @@ if [ -z "$2" ]; then
 fi
 
 case "$ROUTER_MODEL" in
-  #RT-AX56U|RT-AX58U|RT-AX3000)
-  #  PTXT "$ERROR This is an unsupported router, sorry."
-  #  exit 1
-  #  ;;
+  RT-AX56U|RT-AX58U|RT-AX3000)
+    [ -z "$2" ] && PTXT "$INFO Detected $ROUTER_MODEL router."
+    ROUTER_ARCH="armv7"
+    ;;
   *)
     [ -z "$2" ] && PTXT "$INFO Detected $ROUTER_MODEL router."
     ;;
@@ -1034,6 +1034,11 @@ case "$ROUTER_ARCH" in
     ;;
   "armv7l")
     ROUTER_ARCH="armv5"
+    ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
+    [ -z "$2" ] && PTXT "$INFO Detected ARMv7 architecture."
+    ;;
+  "armv7")
+    ROUTER_ARCH="armv7"
     ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
     [ -z "$2" ] && PTXT "$INFO Detected ARMv7 architecture."
     ;;
