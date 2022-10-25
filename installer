@@ -1006,7 +1006,7 @@ if [ -z "$2" ]; then
 fi
 
 case "$ROUTER_MODEL" in
-  RT-AX56U|RT-AX58U|RT-AX3000|RT-AX68U|RT-AX86U|RT-AX86S)
+  RT-AX56U|RT-AX58U|RT-AX3000|RT-AX68U|RT-AX86U|RT-AX86S|DSL-AX82U|DSL-AX5400|RT-AX82U|TUF-AX5400|TUF-AX3000|RT-AX95Q)
     [ -z "$2" ] && PTXT "$INFO Detected $ROUTER_MODEL router."
     [ "$(/bin/uname -m)" != "armv7l" ] && ROUTER_ARCH="$(/bin/uname -m)" || ROUTER_ARCH="armv7"
     ;;
