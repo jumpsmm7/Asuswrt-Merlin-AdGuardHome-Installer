@@ -196,6 +196,10 @@ stop_monitor () {
   [ -n "$SIGNAL" ] && { kill -s "$SIGNAL" "$MON_PID" 2>/dev/null; };
 }
 
+timekeeper () {
+  if [ "$(pidof chronyd ntpd | wc -w)" -ge 1 ] && [ "$(pidof timeserverd | wc -w)" -ge 1 ]; then { killall -q chronyd ntpd; }; fi;
+}
+
 timezone () {
   local TIMEZONE TARGET
   TIMEZONE="/jffs/addons/AdGuardHome.d/localtime";
@@ -236,6 +240,7 @@ case "$1" in
         { stop_monitor "$$"; };
         ;;
     esac;
+    timekeeper;
     ;;
   *)
     { $LOWER_SCRIPT_LOC "$1"; } && exit;
