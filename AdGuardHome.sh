@@ -198,7 +198,7 @@ stop_monitor () {
 
 timekeeper () {
   local NTP_PID
-  for NTP_PID in chronyd ntpd; do { if [ "$(pidof "${NTP_PID}" | wc -w)" -ge 1 ] && [ "$(pidof timeserverd | wc -w)" -ge 1 ]; then { /opt/etc/init.d/${NTP_PID} restart; }; fi; };done
+  for NTP_PID in chronyd ntpd; do { if [ "$(pidof "${NTP_PID}" | wc -w)" -ge 1 ] && [ "$(pidof timeserverd | wc -w)" -ge 1 ]; then { /opt/etc/init.d/${NTP_PID} restart; }; fi; }; done
 }
 
 timezone () {
