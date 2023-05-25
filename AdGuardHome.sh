@@ -90,7 +90,10 @@ netcheck() {
 proc_optimizations () {
   { printf "4194304" > /proc/sys/kernel/pid_max; }; # Ensure max PID coverage
   { printf "2" > /proc/sys/vm/overcommit_memory; }; # Ensure ratio algorithm checks properly work including swap.
-  { printf "2500000" > /proc/sys/net/core/rmem_max; }; # Ensure UDP receive buffer set to 2.5M.
+  { printf "60" > /proc/sys/vm/swappiness; }; # Ensure swappiness is set for more readily usability.
+  { printf "50" > /proc/sys/vm/overcommit_ratio; }; # Ensure a proper overcommit policy is available.
+  { printf "4194304" > /proc/sys/net/core/rmem_max; }; # Ensure UDP receive buffer set to 4M.
+  { printf "1048576" > /proc/sys/net/core/wmem_max; }; # Ensure 1M for wmem_max.
   { printf "0" > /proc/sys/net/ipv4/icmp_ratelimit; }; # Ensure Control over MTRS
   { printf "256" > /proc/sys/net/ipv4/neigh/default/gc_thresh1; }; # Increase ARP cache sizes and GC thresholds
   { printf "1024" > /proc/sys/net/ipv4/neigh/default/gc_thresh2; }; # Increase ARP cache sizes and GC thresholds
