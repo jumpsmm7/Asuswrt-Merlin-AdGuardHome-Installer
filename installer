@@ -647,7 +647,7 @@ inst_AdGuardHome () {
     end_op_message 1
     return
   fi
-  if [ "$(awk -F: '/.*address\:.*/{ print $3 }' $YAML_FILE)" ] = "3000"]; then yaml_nvars_replace "  address: 0.0.0.0:3000" "  address: 0.0.0.0:14711" $YAML_FILE; fi
+  if [ "$(awk -F: '/.*address\:.*/{ print $3 }' $YAML_FILE)" = "3000"]; then yaml_nvars_replace "  address: 0.0.0.0:3000" "  address: 0.0.0.0:14711" $YAML_FILE; fi
   PTXT "$INFO Starting AdGuardHome..."
   ( if [ -n "$(pidof AdGuardHome)" ]; then { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1; else { killall -q -9 AdGuardHome 2>/dev/null; }; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi; }; fi; sleep 1; )& local PID="$!"; wait $PID 2>/dev/null;
   ( { until [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -lt "1" ]; do sleep 1; done; } )& local PID="$!"; wait $PID 2>/dev/null; sleep 1; { /opt/etc/init.d/S99AdGuardHome check; };
