@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.6.1                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.6.2                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -382,7 +382,7 @@ check_version () {
       PTXT "$INFO ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-)" \
            "$INFO Run Option 1 to upgrade or change builds." \
            "$INFO To visit AdGuardHome," \
-           "$INFO please go to http://$(nvram get lan_ipaddr):$(awk '/bind_port:/{print $2}' $YAML_FILE)." \
+           "$INFO please go to http://$(nvram get lan_ipaddr):$(awk -F: '/.*address\:.*/{ print $3 }' $YAML_FILE)." \
            "$INFO You can use the WebUI to change things to your liking!" \
 	   "$INFO Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
 	   "$INFO for any configuration needs. "
@@ -832,8 +832,8 @@ setup_AdGuardHome_impl () {
       esac
     elif [ ! -f "$YAML_ORI" ] && [ ! -f "$YAML_FILE" ]; then
       PTXT "$INFO Requesting entries for AdGuardHome initial configuration..."
-      PTXT "bind_host: 0.0.0.0" \
-           "bind_port: 14711" > "$YAML_ORI"
+      PTXT "http:" \
+           "  address: 0.0.0.0:14711" > "$YAML_ORI"
       PTXT "$INFO Set the Username and Password which will be encrypted to the yaml file."
       AdGuardHome_authen 1
       PTXT "dns:" \
