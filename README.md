@@ -6,9 +6,9 @@ The Official Installer of AdGuardHome for Asuswrt-Merlin
 - JFFS support and enabled.
 - REQUIRES ENTWARE(!) for package management, and a separate USB drive for storage -i.e. the same drive Entware is stored.
 - Entware must be fully up-to-date as well `opkg update && opkg upgrade`.
-- Minimum Recommended to have a 2gb swap file. (up to 10gb can be made with AMTM).
-- Minimum Supported Firmware Version is 384.11.
-- It is Recommended to use a Router stronger than the RT-AC68U.
+- Minimum recommended to have a 2gb swap file. (up to 10gb can be made with AMTM).
+- Minimum supported firmware version is 384.11.
+- It is recommended to use a Router stronger than the RT-AC68U, even though the AdGuardHome can be used at a limited capacity on the RT-AC68U.
 # Incompatibilities:
 - No known issue, but may not be compatible with "some" doule-nat or dual-wan environments since AdGuardHome takes over DNSMASQ placement on port 53. DNSMASQ uses port 553 instead.
 # Current features:
