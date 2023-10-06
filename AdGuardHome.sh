@@ -17,7 +17,7 @@ adguardhome_run () {
       if [ -z "$(sed -n '2p' $pid_file)" ] || [ ! -f "$UPPER_SCRIPT" ]; then return 1; else return 0; fi;
       ;;
     *)
-      if ( mkdir ${lock_dir} ) 2> /dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' $pid_file)" ]; }; then
+      if ( mkdir ${lock_dir} ) 2> /dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' $pid_file)" ]; } || { [ "$1" = "stop_adguardhome" ]; }; then
         ( trap 'rm -rf "$lock_dir"; exit $?' EXIT; { service_wait adguardhome_run; }; rm -rf "$lock_dir"; )& pid="$!";
         { printf "%s\n" "$pid" > $pid_file; start="$(date +%s)"; { service_wait "$1" 30; }; end="$(date +%s)"; runtime="$((end-start))"; printf "%s\n" "$runtime" >> $pid_file; logger -st "$NAME" "$1 took $runtime second(s) to complete."; };
       else
