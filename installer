@@ -872,7 +872,7 @@ setup_AdGuardHome_impl () {
            "  - '[::]:553'" \
            "  - '[/10.in-addr.arpa/][::]:553'" \
            "  - '[/$(printf "%s\n" "$NET_ADDR" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/][::]:553'" \
-	   "schema_version: 24" >> "$YAML_ORI"
+	   "schema_version: 27" >> "$YAML_ORI"
       PTXT "$INFO Writing AdGuardHome configuration..."
     fi
     if [ -f "$YAML_ORI" ] && [ ! -f "$YAML_FILE" ] && ! check_AdGuardHome_yaml $YAML_ORI; then
