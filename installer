@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.6.2                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.6.3                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -28,7 +28,7 @@
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:$PATH"
 
-AI_VERSION="v1.6.2"
+AI_VERSION="v1.6.3"
 export AI_VERSION
 
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
@@ -36,6 +36,8 @@ REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail
 readonly REMOTE_VER
 REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)" || true
 readonly REMOTE_BETA
+SCHEMA_VER="$(curl -sL "$LATEST_URL" | grep -m1 -oE 'schema.*to[[:space:]][0-9]{1,2}' | awk '{ print $NF }')" || true
+readonly SCHEMA_VER
 
 readonly ADDON_DIR="/jffs/addons/AdGuardHome.d"
 readonly BASE_DIR="/opt/etc"
@@ -647,7 +649,8 @@ inst_AdGuardHome () {
     end_op_message 1
     return
   fi
-  if [ "$(awk -F: '/.*address\:.*/{ print $3 }' $YAML_FILE)" = "3000" ]; then yaml_nvars_replace "  address: 0.0.0.0:3000" "  address: 0.0.0.0:14711" $YAML_FILE; fi
+  if [ -n "$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" ] && [ "$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" != "14711" ]; then yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:14711" $YAML_FILE; fi
+  if [ -n "$(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" ] && [ "$(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" != "$SCHEMA_VER" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" "schema_version: $SCHEMA_VER" $YAML_FILE; fi
   PTXT "$INFO Starting AdGuardHome..."
   ( if [ -n "$(pidof AdGuardHome)" ]; then { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1; else { killall -q -9 AdGuardHome 2>/dev/null; }; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi; }; fi; sleep 1; )& local PID="$!"; wait $PID 2>/dev/null;
   ( { until [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -lt "1" ]; do sleep 1; done; } )& local PID="$!"; wait $PID 2>/dev/null; sleep 1; { /opt/etc/init.d/S99AdGuardHome check; };
@@ -872,7 +875,7 @@ setup_AdGuardHome_impl () {
            "  - '[::]:553'" \
            "  - '[/10.in-addr.arpa/][::]:553'" \
            "  - '[/$(printf "%s\n" "$NET_ADDR" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/][::]:553'" \
-	   "schema_version: 27" >> "$YAML_ORI"
+	   "schema_version: $SCHEMA_VER" >> "$YAML_ORI"
       PTXT "$INFO Writing AdGuardHome configuration..."
     fi
     if [ -f "$YAML_ORI" ] && [ ! -f "$YAML_FILE" ] && ! check_AdGuardHome_yaml $YAML_ORI; then
