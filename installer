@@ -193,7 +193,7 @@ backup_restore () {
     del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
     write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
     if [ ! -f "${ADDON_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi    
-    if ! setup_AdGuardHome; then
+    if ! setup_AdGuardHome "" x; then
       end_op_message 1
       return
     fi
@@ -802,7 +802,9 @@ setup_AdGuardHome_impl () {
       setup_AdGuardHome_impl x
       return
     fi
+  if [ -z "$2" ]; then
     if read_yesno "Do you want to skip reconfiguration options?"; then PTXT "$INFO Skipping reconfiguration options."; else setup_AdGuardHome_impl x; fi
+  if
   else
     if [ -f "$YAML_FILE" ] && [ -f "$YAML_ORI" ]; then
       if [ "$1" = "reconfig" ]; then
