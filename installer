@@ -819,7 +819,15 @@ setup_AdGuardHome_impl () {
     fi
     case "$2" in
       "install")
-        if [ -n "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ] && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" != "$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" ]; then yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" $YAML_FILE; fi
+        if [ -n "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ] && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" != "$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" ]; then 
+          yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" $YAML_FILE
+        elif [ -z "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ]; then
+          PTXT "$INFO Web Port for AdGuardHome WebUI has not been manually configured." \
+               "$INFO Please set the preferred Web Port for AdGuardHome WebUI now."
+          read_input_port "Default is" 3000
+          write_conf ADGUARD_WEBUI_PORT "\"$WEB_PORT\""
+          yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" $YAML_FILE
+        fi 
         if [ -n "$(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" ] && [ "$(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" != "$SCHEMA_VER" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" "schema_version: $SCHEMA_VER" $YAML_FILE; fi
         if read_yesno "Do you want to skip reconfiguration options?"; then PTXT "$INFO Skipping reconfiguration options."; else setup_AdGuardHome_impl x; fi
       ;;
