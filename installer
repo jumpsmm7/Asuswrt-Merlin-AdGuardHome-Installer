@@ -193,7 +193,7 @@ backup_restore () {
     del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
     write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
     if [ ! -f "${ADDON_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi    
-    if ! setup_AdGuardHome; then
+    if ! setup_AdGuardHome "" "$1"; then
       end_op_message 1
       return
     fi
@@ -645,7 +645,7 @@ inst_AdGuardHome () {
   del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
   write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
   if [ ! -f "${ADDON_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
-  if ! setup_AdGuardHome "" install; then
+  if ! setup_AdGuardHome "" "${1:-install}"; then
     end_op_message 1
     return
   fi
@@ -808,30 +808,31 @@ setup_AdGuardHome () {
 }
 
 setup_AdGuardHome_impl () {
-  if [ -z "$1" ]; then
-    if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
-    if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
-  fi
-  if [ -z "$1" ] && [ -f "$YAML_FILE" ]; then
-    if ! check_AdGuardHome_yaml $YAML_FILE; then
-      setup_AdGuardHome_impl x
-      return
-    fi
-    case "$2" in
-      "install")
+  case "$2" in
+    "install")
+      if [ -f "$YAML_FILE" ]; then
         if [ -n "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ] && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" != "$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" ]; then 
-          yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" $YAML_FILE
+          yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:$WEB_PORT" $YAML_FILE
         elif [ -z "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ]; then
           PTXT "$INFO Web Port for AdGuardHome WebUI has not been manually configured." \
                "$INFO Please set the preferred Web Port for AdGuardHome WebUI now."
           read_input_port "Default is" 3000
           write_conf ADGUARD_WEBUI_PORT "\"$WEB_PORT\""
           yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" $YAML_FILE
-        fi 
+        fi
         if [ -n "$(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" ] && [ "$(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" != "$SCHEMA_VER" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" "schema_version: $SCHEMA_VER" $YAML_FILE; fi
-        if read_yesno "Do you want to skip reconfiguration options?"; then PTXT "$INFO Skipping reconfiguration options."; else setup_AdGuardHome_impl x; fi
-      ;;
-    esac
+      else
+        if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
+        if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
+      fi
+    ;;
+  esac
+  if [ -z "$1" ] && [ -f "$YAML_FILE" ]; then
+    if ! check_AdGuardHome_yaml $YAML_FILE; then
+      setup_AdGuardHome_impl x
+      return
+    fi
+    if read_yesno "Do you want to skip reconfiguration options?"; then PTXT "$INFO Skipping reconfiguration options."; else setup_AdGuardHome_impl x; fi
   else
     if [ -f "$YAML_FILE" ] && [ -f "$YAML_ORI" ]; then
       if [ "$1" = "reconfig" ]; then
