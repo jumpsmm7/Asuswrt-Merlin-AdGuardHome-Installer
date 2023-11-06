@@ -645,12 +645,10 @@ inst_AdGuardHome () {
   del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
   write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
   if [ ! -f "${ADDON_DIR}/localtime" ]; then PTXT "$INFO Before setting up AdGuardHome, please choose your right timezone!"; set_timezone; fi
-  if ! setup_AdGuardHome; then
+  if ! setup_AdGuardHome "" install; then
     end_op_message 1
     return
   fi
-  if [ -n "$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" ] && [ "$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" != "14711" ]; then yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:14711" $YAML_FILE; fi
-  if [ -n "$(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" ] && [ "$(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" != "$SCHEMA_VER" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" "schema_version: $SCHEMA_VER" $YAML_FILE; fi
   PTXT "$INFO Starting AdGuardHome..."
   ( if [ -n "$(pidof AdGuardHome)" ]; then { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1; else { killall -q -9 AdGuardHome 2>/dev/null; }; rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null; sleep 1; fi; }; fi; sleep 1; )& local PID="$!"; wait $PID 2>/dev/null;
   ( { until [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -lt "1" ]; do sleep 1; done; } )& local PID="$!"; wait $PID 2>/dev/null; sleep 1; { /opt/etc/init.d/S99AdGuardHome check; };
@@ -728,7 +726,7 @@ read_input_port () {
   read -r WEB_PORT
   [ -z "$WEB_PORT" ] && WEB_PORT="$2"
   if ! PTXT "$WEB_PORT" | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$'; then
-    PTXT "$ERROR Invalid Port entered, only ports 3000-65535 are selectable"
+    PTXT "$ERROR Invalid Web Port entered, only Web Ports residing on or within 3000-65535 are selectable."
     read_input_port "$@"
   fi
   if netstat -nlp | grep -qE "(:$WEB_PORT[[:space:]])"; then PTXT "$ERROR $WEB_PORT already in use, please choose a different port!"; read_input_port "$@"; fi
@@ -819,7 +817,13 @@ setup_AdGuardHome_impl () {
       setup_AdGuardHome_impl x
       return
     fi
-    if read_yesno "Do you want to skip reconfiguration options?"; then PTXT "$INFO Skipping reconfiguration options."; else setup_AdGuardHome_impl x; fi
+    case "$2" in
+      "install")
+        if [ -n "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ] && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" != "$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" ]; then yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" $YAML_FILE; fi
+        if [ -n "$(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" ] && [ "$(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" != "$SCHEMA_VER" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" "schema_version: $SCHEMA_VER" $YAML_FILE; fi
+        if read_yesno "Do you want to skip reconfiguration options?"; then PTXT "$INFO Skipping reconfiguration options."; else setup_AdGuardHome_impl x; fi
+      ;;
+    esac
   else
     if [ -f "$YAML_FILE" ] && [ -f "$YAML_ORI" ]; then
       if [ "$1" = "reconfig" ]; then
@@ -855,7 +859,7 @@ setup_AdGuardHome_impl () {
       PTXT "$INFO Requesting entries for AdGuardHome initial configuration..." \
            "$INFO Set the Web Port for AdGuardHome WebUI"
       read_input_port "Default is" 3000
-      ADGUARD_WEBUI_PORT "\"$WEB_PORT\""
+      write_conf ADGUARD_WEBUI_PORT "\"$WEB_PORT\""
       PTXT "http:" \
            "  address: 0.0.0.0:$WEB_PORT" > "$YAML_ORI"
       PTXT "$INFO Set the Username and Password which will be encrypted to the yaml file."
