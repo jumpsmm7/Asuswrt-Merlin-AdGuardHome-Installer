@@ -724,17 +724,17 @@ read_input_num () {
 
 read_input_port () {
   PTXT -n "$INPUT $1 ${BOLD}${2}: ${NORM}"
-  local DNS_PORT
-  read -r DNS_PORT
-  [ -z "$DNS_PORT" ] && DNS_PORT="$2"
-  if ! PTXT "$DNS_PORT" | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$'; then
+  local WEB_PORT
+  read -r WEB_PORT
+  [ -z "$WEB_PORT" ] && WEB_PORT="$2"
+  if ! PTXT "$WEB_PORT" | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$'; then
     PTXT "$ERROR Invalid Port entered, only ports 3000-65535 are selectable"
     read_input_port "$@"
   fi
-  if netstat -nlp | grep -qE "(:$DNS_PORT[[:space:]])"; then PTXT "$ERROR $DNS_PORT already in use, please choose a different port!"; read_input_port "$@"; fi
+  if netstat -nlp | grep -qE "(:$WEB_PORT[[:space:]])"; then PTXT "$ERROR $WEB_PORT already in use, please choose a different port!"; read_input_port "$@"; fi
   case "$1" in
     "Default is")
-      export DNS_PORT
+      export WEB_PORT
     ;;
   esac
 }
@@ -853,11 +853,11 @@ setup_AdGuardHome_impl () {
       esac
     elif [ ! -f "$YAML_ORI" ] && [ ! -f "$YAML_FILE" ]; then
       PTXT "$INFO Requesting entries for AdGuardHome initial configuration..." \
-           "$INFO Set the Port for AdGuardHome WebUI"
+           "$INFO Set the Web Port for AdGuardHome WebUI"
       read_input_port "Default is" 3000
-      ADGUARD_WEBUI_PORT "\"$DNS_PORT\""
+      ADGUARD_WEBUI_PORT "\"$WEB_PORT\""
       PTXT "http:" \
-           "  address: 0.0.0.0:$DNS_PORT" > "$YAML_ORI"
+           "  address: 0.0.0.0:$WEB_PORT" > "$YAML_ORI"
       PTXT "$INFO Set the Username and Password which will be encrypted to the yaml file."
       AdGuardHome_authen 1
       PTXT "dns:" \
