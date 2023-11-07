@@ -233,11 +233,10 @@ check_AdGuardHome_yaml () {
   #fi
   #yaml_nvars_replace 'log_localtime: false' 'log_localtime: true' "$1" # no need for this, pointless directive.
   if ! $AGH_FILE --check-config -c "$1" --no-check-update -l "/dev/null"; then
-    PTXT "$INFO Move invalid configuration file to $YAML_ERR" \
-         "$INFO Operation will continue with clean config file."
+    PTXT "$INFO Moving invalid configuration file to $YAML_ERR."
     mv "$1" "$YAML_ERR"
     return 1
-  elif [ "$1" = "$YAML_ORI" ]; then
+  elif [ "$1" = "$YAML_ORI" ] || [ "$1" = "$YAML_BAK" ]; then
     cp -a "$1" "$YAML_FILE"
   fi
 }
@@ -347,12 +346,14 @@ check_version () {
         PTXT "$INFO New AI_VERSION=v${RMNSTALL} Available!" \
              "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
 	AUTO_UPDATE="update"
+        export AUTO_UPDATE
       elif [ "$MD5SUM_R" = "$MD5SUM_L" ]; then
         PTXT "$INFO AI_VERSION=v${LINSTALL}"
       else
         PTXT "$INFO AI_VERSION=v${LINSTALL}, but a New Minor Update is Available!" \
              "$INFO Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
         AUTO_UPDATE="update"
+        export AUTO_UPDATE
       fi
       local ADGUARD_BRANCH
       ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
@@ -368,6 +369,8 @@ check_version () {
              PTXT "$INFO New BETA ADGUARDHOME_VER=${REMOTE_BETA} Available!"
              ;;
         esac
+        AUTO_UPDATE="update"
+        export AUTO_UPDATE
       else
         case "$ADGUARD_BRANCH" in
           release)
@@ -382,7 +385,7 @@ check_version () {
 	esac
       fi
       PTXT "$INFO ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" "  -f4-)" \
-           "$INFO Run Option 1 to upgrade or change builds." \
+           "$INFO Run Option 1 to if you want to change builds or upgrade when updates are available." \
            "$INFO To visit AdGuardHome," \
            "$INFO please go to http://$(nvram get lan_ipaddr):$(awk -F: '/.*address\:.*/{ print $3 }' $YAML_FILE)." \
            "$INFO You can use the WebUI to change things to your liking!" \
@@ -531,7 +534,7 @@ end_op_header () {
 inst_AdGuardHome () {
   local ADGUARD_TAR
   ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
-  if [ -z "$1" ]; then
+  if [ "${1:-install}" = "install" ]; then
     if [ ! -d "$TARG_DIR" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
       PTXT "$INFO Backup is detected."
       local USE_OLD
@@ -564,7 +567,7 @@ inst_AdGuardHome () {
     fi
     if [ "$AUTO_UPDATE" = "update" ]; then exec "${TARG_DIR}/installer" "$BRANCH" "$AUTO_UPDATE" && exit; fi
   fi
-  choose_branch
+  if [ "${1:-install}" != "update" ]; then choose_branch; fi
   local ADGUARD_BRANCH
   ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
   if [ -f "$AGH_FILE" ]; then
@@ -804,7 +807,6 @@ setup_AdGuardHome () {
       end_op_message 0
     fi
   fi
-  return "$RET"
 }
 
 setup_AdGuardHome_impl () {
@@ -826,13 +828,18 @@ setup_AdGuardHome_impl () {
         if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
       fi
     ;;
+    "reconfig")
+      if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
+      if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
+    ;;
   esac
   if [ -z "$1" ] && [ -f "$YAML_FILE" ]; then
     if ! check_AdGuardHome_yaml $YAML_FILE; then
       setup_AdGuardHome_impl x
       return
     fi
-    if read_yesno "Do you want to skip reconfiguration options?"; then PTXT "$INFO Skipping reconfiguration options."; else setup_AdGuardHome_impl x; fi
+    PTXT "$INFO Found previous AdGuardHome config file"
+    if read_yesno "Do you want to use this file without reconfiguring?"; then PTXT "$INFO Use previous settings file"; else setup_AdGuardHome_impl x; fi
   else
     if [ -f "$YAML_FILE" ] && [ -f "$YAML_ORI" ]; then
       if [ "$1" = "reconfig" ]; then
@@ -840,28 +847,24 @@ setup_AdGuardHome_impl () {
           setup_AdGuardHome_impl x
           return
         fi
+        PTXT "$INFO Found previous AdGuardHome config file"
       fi
-      PTXT "$INFO Found previous AdGuardHome config file"
-      PTXT "$INFO How do you want to configure:" \
+      PTXT "$INFO How do you want to reconfigure:" \
            "$INFO   1) Use previous settings file" \
-           "$INFO   2) Restore default configuration selections"
-      read_input_num "Your selection" 1 2
+           "$INFO   2) Restore original configuration selections" \
+           "$INFO   3) Choose new configuration selections"
+      read_input_num "Your selection" 1 3
       case "$CHOSEN" in
         1)
           PTXT "$INFO Using previous settings file"
-	  if [ -f "$YAML_BAK" ] && check_AdGuardHome_yaml $YAML_BAK; then
-	    mv $YAML_BAK $YAML_FILE
-	    return 0
-	  fi
-	  return 1
+	  [ -f "$YAML_BAK" ] && check_AdGuardHome_yaml $YAML_BAK
           ;;
-        2)
+        2|3)
           PTXT "$INFO Backing up previous settings file..."
           mv "$YAML_FILE" "$YAML_BAK"
-          if ! check_AdGuardHome_yaml $YAML_ORI; then
-            setup_AdGuardHome_impl x
-            return
-	  fi
+          [ "$CHOSEN" = "3" ] && rm -rf "$YAML_ORI" 2>/dev/null
+          setup_AdGuardHome_impl x
+          return
           ;;
       esac
     elif [ ! -f "$YAML_ORI" ] && [ ! -f "$YAML_FILE" ]; then
@@ -914,7 +917,7 @@ setup_AdGuardHome_impl () {
     if [ -f "$YAML_ORI" ] && [ ! -f "$YAML_FILE" ] && ! check_AdGuardHome_yaml $YAML_ORI; then
       PTXT "$ERROR Writing AdGuardHome configuration failed " \
            "$ERROR Please send $YAML_ERR file and screen log of " \
-           "$ERROR terminal all operations to the script developer."
+           "$ERROR all ssh terminal operations to the script developer."
       return 1
     fi
   fi
@@ -1114,7 +1117,7 @@ menu () {
       PTXT "$INFO This operation will install AdGuardHome and related files (<6MB)" \
            "$INFO to ENTWARE, no other data will be changed." \
            "$INFO Also some start scripts will be installed/modified as required."
-      if read_yesno "Do you want to install AdGuardHome to ENTWARE?"; then inst_AdGuardHome; else end_op_message 1; fi
+      if read_yesno "Do you want to install AdGuardHome?"; then inst_AdGuardHome; else end_op_message 1; fi
       ;;
     2)
       PTXT "$INFO This operation will cleanup everything installed by this script."
