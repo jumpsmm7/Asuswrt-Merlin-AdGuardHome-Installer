@@ -733,8 +733,8 @@ read_input_port () {
   PTXT -n "$INPUT $1 ${BOLD}${2}: ${NORM}"
   read -r WEB_PORT
   [ -z "$WEB_PORT" ] && WEB_PORT="$2"
-  if ! PTXT "$WEB_PORT" | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$'; then
-    PTXT "$ERROR Invalid Web Port entered, only Web Ports residing on or within 3000-65535 are selectable."
+  if ! PTXT "$WEB_PORT" | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' || { [ "$WEB_PORT" -lt 3000 ] || [ "$WEB_PORT" -gt 65535 ] }; then
+    PTXT "$ERROR Invalid Web Port entered, only Web Ports residing within the port range 3000-65535 are selectable."
     read_input_port "$@"
   fi
   if netstat -nlp | grep -qE "(:${WEB_PORT}[[:space:]])"; then PTXT "$ERROR $WEB_PORT already in use, please choose a different port!"; read_input_port "$@"; fi
@@ -818,7 +818,9 @@ setup_AdGuardHome_impl () {
           yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:$WEB_PORT" $YAML_FILE
         elif [ -z "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ]; then
           PTXT "$INFO Web Port for AdGuardHome WebUI has not been manually configured." \
-               "$INFO Please set the preferred Web Port for AdGuardHome WebUI now."
+               "$INFO Please set the preferred Web Port for AdGuardHome WebUI." \
+               "$INFO The chosen port must reside within the port range 3000-65535" \
+               "$INFO and not already in use by any other service."
           read_input_port "Default is" 3000
           write_conf ADGUARD_WEBUI_PORT "\"$WEB_PORT\""
           yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" $YAML_FILE
@@ -866,7 +868,9 @@ setup_AdGuardHome_impl () {
       esac
     elif [ ! -f "$YAML_ORI" ] && [ ! -f "$YAML_FILE" ]; then
       PTXT "$INFO Requesting entries for AdGuardHome initial configuration..." \
-           "$INFO Set the Web Port for AdGuardHome WebUI"
+           "$INFO Please set the preferred Web Port for AdGuardHome WebUI." \
+           "$INFO The chosen port must reside within the port range 3000-65535" \
+           "$INFO and not already in use by any other service."
       read_input_port "Default is" 3000
       write_conf ADGUARD_WEBUI_PORT "\"$WEB_PORT\""
       PTXT "http:" \
