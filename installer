@@ -234,6 +234,7 @@ check_AdGuardHome_yaml () {
   #yaml_nvars_replace 'log_localtime: false' 'log_localtime: true' "$1" # no need for this, pointless directive.
   if ! $AGH_FILE --check-config -c "$1" --no-check-update -l "/dev/null"; then
     PTXT "$INFO Moving invalid configuration file to $YAML_ERR."
+    [ "$1" = "$YAML_ORI" ] && PTXT "$INFO Operation will continue with clean config file."
     mv "$1" "$YAML_ERR"
     return 1
   elif [ "$1" = "$YAML_ORI" ] || [ "$1" = "$YAML_BAK" ]; then
@@ -517,9 +518,17 @@ download_file () {
 }
 
 end_op_message () {
-  [ "$1" = "0" ] && PTXT "$INFO Operation completed, returning to Main Menu. You can quit or continue."
-  [ "$1" = "1" ] && PTXT "$INFO Operation aborted, returning to Main Menu. You can quit or continue."
-  [ "$1" = "2" ] && PTXT "$INFO Abnormal operations, returning to Main Menu. You can quit or continue."
+  case "${1:-0}" in
+    0)
+      PTXT "$INFO Operation completed, returning to Main Menu. You can quit or continue."
+      ;;
+    1)
+      PTXT "$INFO Operation aborted, returning to Main Menu. You can quit or continue."
+      ;;
+    2)
+      PTXT "$INFO Abnormal operations, returning to Main Menu. You can quit or continue."
+      ;;
+  esac
   PTXT "====================================================="
   PTXT " "
   PTXT " "
@@ -732,7 +741,7 @@ read_input_port () {
     PTXT "$ERROR Invalid Web Port entered, only Web Ports residing on or within 3000-65535 are selectable."
     read_input_port "$@"
   fi
-  if netstat -nlp | grep -qE "(:$WEB_PORT[[:space:]])"; then PTXT "$ERROR $WEB_PORT already in use, please choose a different port!"; read_input_port "$@"; fi
+  if netstat -nlp | grep -qE "(:${WEB_PORT}[[:space:]])"; then PTXT "$ERROR $WEB_PORT already in use, please choose a different port!"; read_input_port "$@"; fi
   case "$1" in
     "Default is")
       export WEB_PORT
@@ -810,9 +819,9 @@ setup_AdGuardHome () {
 }
 
 setup_AdGuardHome_impl () {
-  case "$2" in
-    "install")
-      if [ -f "$YAML_FILE" ]; then
+  case "${2:-reconfig}" in
+    "install"|"update"|"reconfig")
+      if [ -f "$YAML_FILE" ] && [ "$2" != "reconfig" ]; then
         if [ -n "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ] && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" != "$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" ]; then 
           yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:$WEB_PORT" $YAML_FILE
         elif [ -z "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ]; then
@@ -827,11 +836,7 @@ setup_AdGuardHome_impl () {
         if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
         if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
       fi
-    ;;
-    "reconfig")
-      if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
-      if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
-    ;;
+      ;;
   esac
   if [ -z "$1" ] && [ -f "$YAML_FILE" ]; then
     if ! check_AdGuardHome_yaml $YAML_FILE; then
@@ -857,12 +862,12 @@ setup_AdGuardHome_impl () {
       case "$CHOSEN" in
         1)
           PTXT "$INFO Using previous settings file"
-	  [ -f "$YAML_BAK" ] && check_AdGuardHome_yaml $YAML_BAK
+	  if [ -f "$YAML_BAK" ]; then check_AdGuardHome_yaml $YAML_BAK; else mv "$YAML_FILE" "$YAML_BAK"; fi
           ;;
         2|3)
           PTXT "$INFO Backing up previous settings file..."
           mv "$YAML_FILE" "$YAML_BAK"
-          [ "$CHOSEN" = "3" ] && rm -rf "$YAML_ORI" 2>/dev/null
+          if [ "$CHOSEN" = "3" ]; then rm -rf "$YAML_ORI" 2>/dev/null; fi
           setup_AdGuardHome_impl x
           return
           ;;
@@ -1089,7 +1094,7 @@ esac
 
 case "$2" in
   "update")
-    inst_AdGuardHome "$2"
+    if [ ! -d "$TARG_DIR" ]; then exit 1; else inst_AdGuardHome "$2"; fi
     ;;
   *)
     cleanup
