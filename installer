@@ -672,13 +672,8 @@ del_jffs_script() {
 	local TARG LINE_NUM LINE_ABOVE OP
 	TARG="$1"
 	[ -f "$TARG" ] || return
-	if [ -n "$2" ]; then
-		OP="${2%%:*}" # Extract the first character of the second argument
-	else
-		OP="" # Default value when the second argument is not provided
-	fi
 	if [ "$2" ]; then
-		#OP="${2:0:1}"
+		OP="${2:0:1}"
 		if [ "$OP" = "!" ]; then
 			LINE_NUM="$(grep -n -F "[ -x $ADDON_DIR/" "$TARG" | grep -v "$(_quote "$2")" | cut -d':' -f1)"
 		else
