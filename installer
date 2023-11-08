@@ -817,7 +817,7 @@ setup_AdGuardHome_impl () {
         if [ -n "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ] && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" != "$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" ]; then 
           yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:$WEB_PORT" $YAML_FILE
         elif [ -z "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ]; then
-          PTXT "$INFO Web Port for AdGuardHome WebUI has not been manually configured." \
+          PTXT "$INFO The Web Port for AdGuardHome WebUI has not been manually configured." \
                "$INFO Please set the preferred Web Port for AdGuardHome WebUI." \
                "$INFO The chosen port must reside within the port range 3000-65535" \
                "$INFO and not already in use by any other service."
