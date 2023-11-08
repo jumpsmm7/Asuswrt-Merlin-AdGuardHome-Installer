@@ -737,7 +737,7 @@ read_input_port () {
     PTXT "$ERROR Invalid Web Port entered, only Web Ports residing within the port range 3000-65535 are selectable."
     read_input_port "$@"
   fi
-  if netstat -nlp | grep -qE "(:${WEB_PORT}[[:space:]])"; then PTXT "$ERROR $WEB_PORT already in use, please choose a different port!"; read_input_port "$@"; fi
+  if netstat -nlp 2>/dev/null | grep -qE "(:${WEB_PORT}[[:space:]])"; then PTXT "$ERROR $WEB_PORT already in use, please choose a different port!"; read_input_port "$@"; fi
 }
 
 read_yesno () {
