@@ -1401,7 +1401,7 @@ esac
 case "$2" in
 "install" | "update")
 	if [ ! -d "$TARG_DIR" ] && [ "$2" = "update" ]; then exit 1; fi
-	inst_dnscrypt "$2"
+	inst_AdGuardHome "$2"
 	;;
 "uninstall")
 	if [ ! -d "$TARG_DIR" ]; then exit 1; fi
