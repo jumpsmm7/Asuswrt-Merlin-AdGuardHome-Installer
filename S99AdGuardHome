@@ -1,7 +1,7 @@
 #!/bin/sh
 ENABLED="yes"
 WORK_DIR="/opt/etc/AdGuardHome"
-LOG_FILE="/jffs/syslog.log"
+LOG_FILE="syslog"
 PID_FILE="/opt/var/run/AdGuardHome.pid"
 PROCS="AdGuardHome"
 ARGS="-s run -c ${WORK_DIR}/AdGuardHome.yaml -w $WORK_DIR --pidfile $PID_FILE --no-check-update -l $LOG_FILE"
