@@ -1407,10 +1407,6 @@ case "$2" in
 	if [ ! -d "$TARG_DIR" ]; then exit 1; fi
 	uninst_all
 	;;
-"set" | "unset")
-	if [ ! -d "$TARG_DIR" ]; then exit 1; fi
-	${2}_timezone
-	;;
 "BACKUP" | "RESTORE")
 	if { [ ! -d "$TARG_DIR" ] && [ ! -f "$AGH_FILE" ] && [ "$2" = "BACKUP" ]; }; then exit 1; fi
 	if { [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$2" = "RESTORE" ]; }; then exit 1; fi 
