@@ -716,7 +716,7 @@ inst_AdGuardHome() {
 		end_op_message 1
 		return
 	fi
-	if [  "${1:-RESTORE}" != "${RESTORE}" ]; then
+	if [  "${1:-RESTORE}" != "RESTORE" ]; then
 		if [ "${1:-install}" != "update" ]; then choose_branch; fi
 		local ADGUARD_BRANCH
 		ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
