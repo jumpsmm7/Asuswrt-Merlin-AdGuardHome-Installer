@@ -740,6 +740,21 @@ inst_AdGuardHome() {
 					"$INFO Downloading the lastest Edge version to replace ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" " -f4-)."
 				;;
 			esac
+			if ! download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"; then
+				PTXT "$ERROR Unable to download AdGuardHome package for your router"
+				end_op_message 1
+				return
+			fi
+			tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
+			chown "$(nvram get http_username)":root ${TARG_DIR}/*
+			rm -r "${BASE_DIR:?}/${ADGUARD_TAR}"
+			chmod 755 "$AGH_FILE"
+			[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
+			if ! ln -sf $AGH_FILE /opt/sbin/AdGuardHome || [ -z "$($AGH_FILE --version | cut -d" " -f4-)" ]; then
+				PTXT "$ERROR Failed to download AdGuardHome package for your router"
+				end_op_message 1
+				return
+			fi
 		else
 			case "$ADGUARD_BRANCH" in
 			release)
@@ -753,21 +768,6 @@ inst_AdGuardHome() {
 					"$INFO ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" " -f4-)"
 				;;
 			esac
-		fi
-		if ! download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"; then
-			PTXT "$ERROR Unable to download AdGuardHome package for your router"
-			end_op_message 1
-			return
-		fi
-		tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
-		chown "$(nvram get http_username)":root ${TARG_DIR}/*
-		rm -r "${BASE_DIR:?}/${ADGUARD_TAR}"
-		chmod 755 "$AGH_FILE"
-		[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
-		if ! ln -sf $AGH_FILE /opt/sbin/AdGuardHome || [ -z "$($AGH_FILE --version | cut -d" " -f4-)" ]; then
-			PTXT "$ERROR Failed to download AdGuardHome package for your router"
-			end_op_message 1
-			return
 		fi
 	fi
 	create_dir "$ADDON_DIR"
