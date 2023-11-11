@@ -678,94 +678,94 @@ end_op_header() {
 inst_AdGuardHome() {
 	local ADGUARD_TAR
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
-	if [ "${1:-RESTORE}" != "RESTORE" ]; then
-		if [ ! -d "$TARG_DIR" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
-			PTXT "$INFO Backup is detected."
-			local USE_OLD
-			if read_yesno "Do you want Restore instead?"; then USE_OLD="YES"; else USE_OLD="NO"; fi
-			if [ "$USE_OLD" = "YES" ]; then
-				PTXT "$INFO Installing from an old backup!"
-				backup_restore RESTORE
-			elif [ "$USE_OLD" = "NO" ]; then
-				PTXT "$INFO Continuing without restoring from backup!"
-			fi
-		elif [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
-			if read_yesno "Do you want create a backup before updating?"; then backup_restore BACKUP 0; else PTXT "$INFO continuing without making a backup."; fi
-		fi
-	fi
-	local NW_STATE RES_STATE
-	NW_STATE="$(
-		ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1
-		printf "%s" "$?"
-	)"
-	RES_STATE="$(
-		nslookup google.com 127.0.0.1 >/dev/null 2>&1
-		printf "%s" "$?"
-	)"
-	if [ -z "$REMOTE_VER" ] || { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
-		PTXT "$ERROR Unable to detect the Internet!"
-		end_op_message 1
-		return
-	fi
-	if ! create_dir "$TARG_DIR"; then
-		end_op_message 1
-		return
-	fi
-	if ! download_file "$TARG_DIR" 755 "${RURL}/installer" || ! awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -qoE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})'; then
-		PTXT "$ERROR Failed to download installer."
-		end_op_message 1
-		return
-	fi
-	if [  "${1:-RESTORE}" != "RESTORE" ]; then
-		if [ "${1:-install}" != "update" ]; then choose_branch; fi
-		local ADGUARD_BRANCH
-		ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
-		if [ ! -f "$AGH_FILE" ]; then
-			if ! download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"; then
-				PTXT "$ERROR Unable to download AdGuardHome package for your router"
-				end_op_message 1
-				return
-			fi
-		else
-                	[ -z "$($AGH_FILE --version | cut -d" " -f4-)" ] && exit 1
-			[ -z "$REMOTE_VER" ] && exit 1
-			[ -z "$REMOTE_BETA" ] && exit 1
-			if { [ "$REMOTE_VER" != "$($AGH_FILE --version | cut -d" " -f4-)" ] && [ "$ADGUARD_BRANCH" = "release" ]; } || { [ "$REMOTE_BETA" != "$($AGH_FILE --version | cut -d" " -f4-)" ] && [ "$ADGUARD_BRANCH" = "beta" ]; } || [ "$ADGUARD_BRANCH" = "edge" ]; then
-				case "$ADGUARD_BRANCH" in
-				release)
-					PTXT "$INFO New RELEASE ADGUARDHOME_VER=${REMOTE_VER} Available!" \
-						"$INFO Updating ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" " -f4-) to $REMOTE_VER ."
-					;;
-				beta)
-					PTXT "$INFO New BETA ADGUARDHOME_VER=${REMOTE_BETA} Available!" \
-						"$INFO Updating ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" " -f4-) to $REMOTE_BETA ."
-					;;
-				edge)
-					PTXT "$INFO ADGUARDHOME_BUILD=Edge" \
-						"$INFO Downloading the lastest Edge version to replace ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" " -f4-)."
-					;;
-				esac
-				if ! download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"; then
-					PTXT "$ERROR Unable to download AdGuardHome package for your router"
-					end_op_message 1
-					return
+	if [ -z "$2" ]; then
+		if [ "${1:-RESTORE}" != "RESTORE" ]; then
+			if [ ! -d "$TARG_DIR" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
+				PTXT "$INFO Backup is detected."
+				local USE_OLD
+				if read_yesno "Do you want Restore instead?"; then USE_OLD="YES"; else USE_OLD="NO"; fi
+				if [ "$USE_OLD" = "YES" ]; then
+					PTXT "$INFO Installing from an old backup!"
+					backup_restore RESTORE
+				elif [ "$USE_OLD" = "NO" ]; then
+					PTXT "$INFO Continuing without restoring from backup!"
 				fi
-			else
-				case "$ADGUARD_BRANCH" in
-				release)
-					PTXT "$INFO ADGUARDHOME_BUILD=Release" \
-						"$INFO No new release version available." \
-						"$INFO ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" " -f4-)"
-					;;
-				beta)
-					PTXT "$INFO ADGUARDHOME_BUILD=Beta" \
-						"$INFO No new beta version available." \
-						"$INFO ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" " -f4-)"
-					;;
-				esac
+			elif [ -d "$TARG_DIR" ] && [ -f "$AGH_FILE" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
+				if read_yesno "Do you want create a backup before updating?"; then backup_restore BACKUP 0; else PTXT "$INFO continuing without making a backup."; fi
 			fi
 		fi
-		tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
+		local NW_STATE RES_STATE
+		NW_STATE="$(
+			ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1
+			printf "%s" "$?"
+		)"
+		RES_STATE="$(
+			nslookup google.com 127.0.0.1 >/dev/null 2>&1
+			printf "%s" "$?"
+		)"
+		if [ -z "$REMOTE_VER" ] || { [ "$NW_STATE" = "0" ] && [ "$RES_STATE" != "0" ]; }; then
+			PTXT "$ERROR Unable to detect the Internet!"
+			end_op_message 1
+			return
+		fi
+		if ! create_dir "$TARG_DIR"; then
+			end_op_message 1
+			return
+		fi
+		if ! download_file "$TARG_DIR" 755 "${RURL}/installer" || ! awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -qoE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})'; then
+			PTXT "$ERROR Failed to download installer."
+			end_op_message 1
+			return
+		fi
+		if [  "${1:-RESTORE}" != "RESTORE" ]; then
+			if [ "${1:-install}" != "update" ]; then choose_branch; fi
+			local ADGUARD_BRANCH
+			ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
+			if [ ! -f "$AGH_FILE" ]; then
+				inst_AdGuardHome "${1:-install}" x
+			else
+                		[ -z "$($AGH_FILE --version | cut -d" " -f4-)" ] && exit 1
+				[ -z "$REMOTE_VER" ] && exit 1
+				[ -z "$REMOTE_BETA" ] && exit 1
+				if { [ "$REMOTE_VER" != "$($AGH_FILE --version | cut -d" " -f4-)" ] && [ "$ADGUARD_BRANCH" = "release" ]; } || { [ "$REMOTE_BETA" != "$($AGH_FILE --version | cut -d" " -f4-)" ] && [ "$ADGUARD_BRANCH" = "beta" ]; } || [ "$ADGUARD_BRANCH" = "edge" ]; then
+					case "$ADGUARD_BRANCH" in
+					release)
+						PTXT "$INFO New RELEASE ADGUARDHOME_VER=${REMOTE_VER} Available!" \
+							"$INFO Updating ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" " -f4-) to $REMOTE_VER ."
+						;;
+					beta)
+						PTXT "$INFO New BETA ADGUARDHOME_VER=${REMOTE_BETA} Available!" \
+							"$INFO Updating ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" " -f4-) to $REMOTE_BETA ."
+						;;
+					edge)
+						PTXT "$INFO ADGUARDHOME_BUILD=Edge" \
+							"$INFO Downloading the lastest Edge version to replace ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" " -f4-)."
+						;;
+					esac
+					inst_AdGuardHome "${1:-update}" x
+				else
+					case "$ADGUARD_BRANCH" in
+					release)
+						PTXT "$INFO ADGUARDHOME_BUILD=Release" \
+							"$INFO No new release version available." \
+							"$INFO ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" " -f4-)"
+						;;
+					beta)
+						PTXT "$INFO ADGUARDHOME_BUILD=Beta" \
+							"$INFO No new beta version available." \
+							"$INFO ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" " -f4-)"
+						;;
+					esac
+				fi
+			fi
+		fi
+	else
+		if ! download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"; then
+			PTXT "$ERROR Unable to download AdGuardHome package for your router"
+			end_op_message 1
+			return
+		fi
+        	tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
 		chown "$(nvram get http_username)":root ${TARG_DIR}/*
 		rm -r "${BASE_DIR:?}/${ADGUARD_TAR}"
 		chmod 755 "$AGH_FILE"
