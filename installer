@@ -722,7 +722,7 @@ inst_AdGuardHome() {
 			local ADGUARD_BRANCH
 			ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
 			if [ ! -f "$AGH_FILE" ]; then
-				inst_AdGuardHome "${1:-install}" x
+				inst_AdGuardHome "${1:-install}" "$ADGUARD_BRANCH"
 			else
                 		[ -z "$($AGH_FILE --version | cut -d" " -f4-)" ] && exit 1
 				[ -z "$REMOTE_VER" ] && exit 1
@@ -742,7 +742,7 @@ inst_AdGuardHome() {
 							"$INFO Downloading the lastest Edge version to replace ADGUARDHOME_VER=$($AGH_FILE --version | cut -d" " -f4-)."
 						;;
 					esac
-					inst_AdGuardHome "${1:-update}" x
+					inst_AdGuardHome "${1:-update}" "$ADGUARD_BRANCH"
 				else
 					case "$ADGUARD_BRANCH" in
 					release)
@@ -760,7 +760,7 @@ inst_AdGuardHome() {
 			fi
 		fi
 	else
-		if ! download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${ADGUARD_BRANCH}/${ADGUARD_TAR}"; then
+		if ! download_file "$BASE_DIR" 644 "https://static.adguard.com/adguardhome/${2}/${ADGUARD_TAR}"; then
 			PTXT "$ERROR Unable to download AdGuardHome package for your router"
 			end_op_message 1
 			return
