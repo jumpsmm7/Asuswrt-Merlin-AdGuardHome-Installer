@@ -717,14 +717,14 @@ inst_AdGuardHome() {
 			end_op_message 1
 			return
 		fi
-		if [  "${1:-RESTORE}" != "RESTORE" ]; then
+		if [ "${1:-RESTORE}" != "RESTORE" ]; then
 			if [ "${1:-install}" != "update" ]; then choose_branch; fi
 			local ADGUARD_BRANCH
 			ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
 			if [ ! -f "$AGH_FILE" ]; then
 				inst_AdGuardHome "${1:-install}" "$ADGUARD_BRANCH"
 			else
-                		[ -z "$($AGH_FILE --version | cut -d" " -f4-)" ] && exit 1
+				[ -z "$($AGH_FILE --version | cut -d" " -f4-)" ] && exit 1
 				[ -z "$REMOTE_VER" ] && exit 1
 				[ -z "$REMOTE_BETA" ] && exit 1
 				if { [ "$REMOTE_VER" != "$($AGH_FILE --version | cut -d" " -f4-)" ] && [ "$ADGUARD_BRANCH" = "release" ]; } || { [ "$REMOTE_BETA" != "$($AGH_FILE --version | cut -d" " -f4-)" ] && [ "$ADGUARD_BRANCH" = "beta" ]; } || [ "$ADGUARD_BRANCH" = "edge" ]; then
@@ -765,7 +765,7 @@ inst_AdGuardHome() {
 			end_op_message 1
 			return
 		fi
-        	tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
+		tar xzv -C "$BASE_DIR" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
 		chown "$(nvram get http_username)":root ${TARG_DIR}/*
 		rm -r "${BASE_DIR:?}/${ADGUARD_TAR}"
 		chmod 755 "$AGH_FILE"
@@ -1320,7 +1320,7 @@ case "$2" in
 	;;
 "BACKUP" | "RESTORE")
 	if { [ ! -d "$TARG_DIR" ] && [ ! -f "$AGH_FILE" ] && [ "$2" = "BACKUP" ]; }; then exit 1; fi
-	if { [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$2" = "RESTORE" ]; }; then exit 1; fi 
+	if { [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$2" = "RESTORE" ]; }; then exit 1; fi
 	backup_restore "$2"
 	;;
 *)
