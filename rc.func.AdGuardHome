@@ -23,7 +23,7 @@ start() {
 		return 0
 	fi
 	if [ "$PROC" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then { $PRECMD >/dev/null 2>&1; }; fi
-	{ $PREARGS $PROC $ARGS >/dev/null 2>&1 </dev/null & }
+	{ $PREARGS nohup $PROC $ARGS >/dev/null 2>&1 </dev/null & }
 	#echo $PREARGS $PROC $ARGS
 	COUNTER="0"
 	LIMIT="10"
