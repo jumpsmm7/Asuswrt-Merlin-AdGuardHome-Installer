@@ -80,6 +80,7 @@ dnsmasq_params() {
 		[ -n "$LAN_IF" ] && NET_ADDR6="$(ip -o -6 addr list "$LAN_IF" scope global | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR6="$(nvram get ipv6_rtr_addr)"
 		{
 			sed -i "/^port=.*$/d" $CONFIG
+   			sed -i "/^dhcp-option=lan,6.*$/d" $CONFIG
 			printf "%s\n" "port=553" "local=/$(printf "%s\n" "$NET_ADDR" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/" "local=/10.in-addr.arpa/" "local=//" "dhcp-option=lan,6,0.0.0.0" >>$CONFIG
 		}
 		if [ -n "$NET_ADDR6" ]; then { printf "%s\n" "local=/$(printf "%s\n" "$NET_ADDR6" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/" >>$CONFIG; }; fi
