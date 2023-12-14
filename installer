@@ -1056,9 +1056,9 @@ setup_AdGuardHome_impl() {
 			2 | 3)
 				PTXT "$INFO Backing up previous settings file..."
 				mv "$YAML_FILE" "$YAML_BAK"
-				if [ "$CHOSEN" = "3" ]; then 
+				if [ "$CHOSEN" = "3" ]; then
 					rm -rf "$YAML_ORI" 2>/dev/null
-				else 
+				else
 					cp -f "$YAML_ORI" "$YAML_FILE"
 				fi
 				;;
@@ -1110,7 +1110,7 @@ setup_AdGuardHome_impl() {
 					"  bootstrap_dns:" \
 					"  - $BOOTSTRAP1" \
 					"  - $BOOTSTRAP2" \
-					"  fallback_dns:"
+					"  fallback_dns:" \
 					"  - $BOOTSTRAP1" \
 					"  - $BOOTSTRAP2" \
 					"  - tcp://${BOOTSTRAP1}" \
