@@ -1015,6 +1015,20 @@ setup_AdGuardHome() {
 
 setup_AdGuardHome_impl() {
 	if [ -z "$1" ] && [ -f "$YAML_FILE" ]; then
+		############################################################ Drop-in code to be removed/modified as needed. #############################################################################################################################################################
+		if [ -n "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ] && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" != "$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" ]; then
+			yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:$WEB_PORT" $YAML_FILE
+		elif [ -z "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ]; then
+			PTXT "$INFO The Web Port for AdGuardHome WebUI has not been manually configured." \
+				"$INFO Please set the preferred Web Port for AdGuardHome WebUI." \
+				"$INFO The chosen port must reside within the port range 3000-65535" \
+				"$INFO and not already in use by any other service."
+			read_input_port "Default is" 3000
+			write_conf ADGUARD_WEBUI_PORT "\"$WEB_PORT\""
+			yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" $YAML_FILE
+		fi
+		##########################################################################################################################################################################################################################################################################
+		if [ -n "$(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" ] && [ "$(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" != "$SCHEMA_VER" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" "schema_version: $SCHEMA_VER" $YAML_FILE; fi
 		if ! check_AdGuardHome_yaml; then
 			setup_AdGuardHome_impl x
 			return
@@ -1053,11 +1067,9 @@ setup_AdGuardHome_impl() {
 			cp -f "$YAML_ORI" "$YAML_FILE"
 		fi
 		case "${2:-reconfig}" in
-		"install" | "update" | "reconfig")
-			if [ "$2" != "update" ]; then
-				if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
-				if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
-			fi
+		"install" | "reconfig")
+			if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
+			if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
 			if [ ! -f "$YAML_ORI" ] && [ ! -f "$YAML_FILE" ]; then
 				PTXT "$INFO Requesting entries for AdGuardHome initial configuration..." \
 					"$INFO Please set the preferred Web Port for AdGuardHome WebUI." \
@@ -1112,19 +1124,6 @@ setup_AdGuardHome_impl() {
 					"schema_version: $SCHEMA_VER" >>"$YAML_ORI"
 				PTXT "$INFO Writing AdGuardHome configuration..."
 				cp -f "$YAML_ORI" "$YAML_FILE"
-			elif [ -f "$YAML_FILE" ]; then
-				if [ -n "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ] && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" != "$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" ]; then
-					yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:$WEB_PORT" $YAML_FILE
-				elif [ -z "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" ]; then
-					PTXT "$INFO The Web Port for AdGuardHome WebUI has not been manually configured." \
-						"$INFO Please set the preferred Web Port for AdGuardHome WebUI." \
-						"$INFO The chosen port must reside within the port range 3000-65535" \
-						"$INFO and not already in use by any other service."
-					read_input_port "Default is" 3000
-					write_conf ADGUARD_WEBUI_PORT "\"$WEB_PORT\""
-					yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' $YAML_FILE)" "  address: 0.0.0.0:$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')" $YAML_FILE
-				fi
-				if [ -n "$(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" ] && [ "$(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" != "$SCHEMA_VER" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema\:.*/{ print $2 }' $YAML_FILE)" "schema_version: $SCHEMA_VER" $YAML_FILE; fi
 			fi
 			if ! check_AdGuardHome_yaml; then
 				PTXT "$ERROR Writing AdGuardHome configuration failed " \
