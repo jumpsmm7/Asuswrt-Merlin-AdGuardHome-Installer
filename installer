@@ -36,7 +36,7 @@ REMOTE_VER="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": false,/q;p' | tail
 readonly REMOTE_VER
 REMOTE_BETA="$(curl -sL "$LATEST_URL" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)" || true
 readonly REMOTE_BETA
-SCHEMA_VER="$(curl -sL "$LATEST_URL" | grep -m1 -oE 'schema.*to[[:space:]][0-9]{1,2}' | awk '{ print $NF }')" || true
+SCHEMA_VER="$(curl -sL "https://raw.githubusercontent.com/AdguardTeam/AdGuardHome/master/CHANGELOG.md" | grep -m1 -oE 'schema.*to[[:space:]][0-9]{1,2}' | awk '{ print $NF }')" || true
 readonly SCHEMA_VER
 
 readonly ADDON_DIR="/jffs/addons/AdGuardHome.d"
