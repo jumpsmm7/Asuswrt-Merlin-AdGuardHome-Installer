@@ -487,7 +487,6 @@ check_version() {
 					;;
 				edge)
 					PTXT "$INFO ADGUARDHOME_BUILD=Edge"
-					AUTO_UPDATE="update"
 					;;
 				esac
 			fi
@@ -1068,8 +1067,10 @@ setup_AdGuardHome_impl() {
 		fi
 		case "${2:-reconfig}" in
 		"install" | "reconfig")
-			if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
-			if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
+			if [ ! -f "$YAML_FILE" ] || [ "$2" = "reconfig" ]; then
+				if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
+				if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
+			fi
 			if [ ! -f "$YAML_ORI" ] && [ ! -f "$YAML_FILE" ]; then
 				PTXT "$INFO Requesting entries for AdGuardHome initial configuration..." \
 					"$INFO Please set the preferred Web Port for AdGuardHome WebUI." \
