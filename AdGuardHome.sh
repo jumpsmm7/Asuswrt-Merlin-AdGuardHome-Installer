@@ -117,7 +117,7 @@ lower_script() {
 
 netcheck() {
 	local livecheck="0" i
-        until { [ "$(/bin/date -u +"%Y")" -gt "1970" ] || [ "$(/bin/date -u '+%s')" -ge "$(/bin/date -u -r "$MID_SCRIPT" '+%s')" ]; } && [ "$(nvram get ntp_ready)" -eq 0 ]; do sleep 1s; done
+        until { [ "$(/bin/date -u +"%Y")" -gt "1970" ] || [ "$(/bin/date -u '+%s')" -ge "$(/bin/date -u -r "$MID_SCRIPT" '+%s')" ]; } && [ "$(nvram get ntp_ready)" -gt 0 ]; do sleep 1s; done
 	while [ "$livecheck" != "4" ]; do
 		for i in google.com github.com snbforums.com; do
 			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
@@ -125,18 +125,15 @@ netcheck() {
 			elif { ! curl -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget -q --spider "http://${i}" >/dev/null 2>&1; }; then
 				continue
 			fi
-                        livecheck="0"
-			break && break
+			return 0
 		done
 		livecheck="$((livecheck + 1))"
 		if [ "$livecheck" != "4" ]; then
 			sleep 10s
 		else
-			livecheck="1"
-			break
+  			return 1
 		fi
 	done
-	return $livecheck
 }
 
 proc_optimizations() {
