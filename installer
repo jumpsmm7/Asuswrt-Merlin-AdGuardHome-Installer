@@ -260,17 +260,19 @@ check_connection() {
 				continue
 			elif { ! curl -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget -q --spider "http://${i}" >/dev/null 2>&1; }; then
 				continue
-			else
-				return "0"
 			fi
+                        livecheck="0"
+			break && break
 		done
 		livecheck="$((livecheck + 1))"
 		if [ "$livecheck" != "4" ]; then
-			sleep 10
+			sleep 10s
 		else
-			return "1"
+			livecheck="1"
+			break
 		fi
 	done
+	return $livecheck
 }
 ########################################################################################################################
 
