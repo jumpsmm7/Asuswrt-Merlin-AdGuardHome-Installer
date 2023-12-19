@@ -124,8 +124,9 @@ netcheck() {
 				continue
 			elif { ! curl -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget -q --spider "http://${i}" >/dev/null 2>&1; }; then
 				continue
-			fi
-			return 0
+			else
+				return 0
+    			fi
 		done
 		livecheck="$((livecheck + 1))"
 		if [ "$livecheck" != "4" ]; then
