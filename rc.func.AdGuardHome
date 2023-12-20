@@ -2,6 +2,7 @@
 
 ACTION="$1"
 CALLER="$2"
+DESC="${DESC:-$PROC}"
 
 ansi_red="$(printf "\033[1;31m")"
 ansi_white="$(printf "\033[1;37m")"
@@ -25,8 +26,7 @@ start() {
 	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then { ${PRECMD} >/dev/null 2>&1; }; fi
 	{ ${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null & }
 	#echo ${PREARGS} ${PROC} ${ARGS}
-	COUNTER="0"
-	LIMIT="10"
+	local COUNTER="0" LIMIT="10"
 	while { [ -z "$(pidof "${PROC}")" ] && [ "${COUNTER}" -le "${LIMIT}" ]; }; do
 		sleep 1s
 		COUNTER="$((COUNTER + 1))"
