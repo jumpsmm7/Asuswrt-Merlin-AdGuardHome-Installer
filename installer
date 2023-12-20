@@ -87,7 +87,7 @@ PTXT() {
 }
 
 AdGuardHome_authen() {
-	if [ -z "$PW1" ] || [ -z "$PW2" ]; then
+	if [ -z "${PW1}" ] || [ -z "${PW2}" ]; then
 		local USERNAME
 		PTXT -n "${INPUT} Please enter AdGuardHome username${NORM}: "
 		read -r USERNAME
