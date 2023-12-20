@@ -649,13 +649,18 @@ end_op_message() {
 	elif [ ! -f "${TARG_DIR}/installer" ] && [ -f "${SCRIPT_LOC}" ]; then
 		chmod 755 "${SCRIPT_LOC}" >/dev/null 2>&1
 		exec "${SCRIPT_LOC}" "${BRANCH}" && exit
-	elif [ -f "${HOME}/installer" ]; then chmod 755 "${HOME}/installer" && exec "${HOME}/installer" "${BRANCH}" && exit; else clear && end_op_header && exit; fi
+	elif [ -f "${HOME}/installer" ]; then 
+		chmod 755 "${HOME}/installer"
+		exec "${HOME}/installer" "${BRANCH}" && exit; 
+	else 
+		clear && end_op_header && exit; 
+	fi
 }
 
 end_op_header() {
-	sed -n -e "1,$(($(grep -wn 'esac' "$0" | cut -d':' -f1 | tail -n1) + 1))p" "$0" >"${0}.tmp" && \
-        chmod 755 "${0}.tmp" >/dev/null 2>&1 && \
-        exec "${0}.tmp" "${BRANCH}" && \
+	sed -n -e "1,$(($(grep -wn 'esac' "$0" | cut -d':' -f1 | tail -n1) + 1))p" "$0" >"${0}.tmp"
+        chmod 755 "${0}.tmp" >/dev/null 2>&1
+        exec "${0}.tmp" "${BRANCH}"
 	rm -rf "${0}.tmp"
 }
 
