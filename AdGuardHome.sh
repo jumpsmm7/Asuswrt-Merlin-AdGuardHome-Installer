@@ -116,23 +116,25 @@ lower_script() {
 }
 
 netcheck() {
-	local ALIVE
-	if { [ "$(/bin/date -u +"%Y")" -gt "1970" ] || [ "$(/bin/date -u '+%s')" -ge "$(/bin/date -u -r "$MID_SCRIPT" '+%s')" ]; }; then ALIVE="0"; else ALIVE="1"; fi
-	if { [ "$(
-		ping 1.1.1.1 -c1 -W2 >/dev/null 2>&1
-		printf "%s" "$?"
-	)" = "0" ] && [ "$(
-		nslookup google.com 127.0.0.1 >/dev/null 2>&1
-		printf "%s" "$?"
-	)" = "0" ]; }; then ALIVE="0"; else ALIVE="$((ALIVE + 1))"; fi
-	if { [ "$(
-		curl -Is http://www.google.com | head -n 1 >/dev/null 2>&1
-		printf "%s" "$?"
-	)" = "0" ] || [ "$(
-		wget -q --spider http://google.com >/dev/null 2>&1
-		printf "%s" "$?"
-	)" = "0" ]; }; then ALIVE="0"; else ALIVE="$((ALIVE + 1))"; fi
-	if [ "$ALIVE" -ne "0" ]; then return 1; else return 0; fi
+	local livecheck="0" i
+        until { [ "$(/bin/date -u +"%Y")" -gt "1970" ] || [ "$(/bin/date -u '+%s')" -ge "$(/bin/date -u -r "$MID_SCRIPT" '+%s')" ]; } && [ "$(nvram get ntp_ready)" -gt 0 ]; do sleep 1s; done
+	while [ "$livecheck" != "4" ]; do
+		for i in google.com github.com snbforums.com; do
+			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
+				continue
+			elif { ! curl -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget -q --spider "http://${i}" >/dev/null 2>&1; }; then
+				continue
+			else
+				return 0
+    			fi
+		done
+		livecheck="$((livecheck + 1))"
+		if [ "$livecheck" != "4" ]; then
+			sleep 10s
+		else
+  			return 1
+		fi
+	done
 }
 
 proc_optimizations() {
@@ -176,7 +178,7 @@ service_wait() {
 			i="0"
 			while [ "$i" -le "$maxwait" ]; do
 				if [ "$(nvram get success_start_service)" = '1' ] && { "$1"; }; then break; fi
-				sleep 10
+				sleep 10s
 				i="$((i + OPT))"
 			done
 		}
@@ -233,7 +235,7 @@ start_monitor() {
 						COUNT="$((COUNT + 1))"
 						;;
 					esac
-					if [ -n "$COUNT" ]; then sleep 10; fi
+					if [ -n "$COUNT" ]; then sleep 10s; fi
 					;;
 				esac
 				;;
