@@ -43,7 +43,7 @@ start() {
 }
 
 stop() {
-	case "$ACTION" in
+	case "${ACTION}" in
 	"stop" | "restart")
 		local COUNTER="0" LIMIT="10"
 		while { [ -n "$(pidof "${PROC}")" ] && [ "${COUNTER}" -le "${LIMIT}" ]; }; do
@@ -81,7 +81,7 @@ check() {
 reload() {
 	SIGNAL="HUP"
 	printf "%s\n" "${ansi_white} Sending ${SIGNAL} to ${PROC}... ${ansi_std}"
-	{ kill -s ${SIGNAL} "$(pidof "${PROC}")" 2>/dev/null || killall -${SIGNAL} "${PROC}" 2>/dev/null; }
+	{ kill -s "${SIGNAL}" "$(pidof "${PROC}")" 2>/dev/null || killall -"${SIGNAL}" "${PROC}" 2>/dev/null; }
 }
 
 for PROC in ${PROCS}; do
@@ -104,7 +104,7 @@ for PROC in ${PROCS}; do
 		{ check >/dev/null; } && reload
 		;;
 	*)
-		printf "%s\n" "$ansi_white Usage: $0 (start|stop|restart|check|kill|reload)$ansi_std"
+		printf "%s\n" "${ansi_white} Usage: $0 (start|stop|restart|check|kill|reload)${ansi_std}"
 		exit 1
 		;;
 	esac
