@@ -261,7 +261,7 @@ check_connection() {
 			elif { ! curl -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget -q --spider "http://${i}" >/dev/null 2>&1; }; then
 				continue
 			else
-                        	return 0
+				return 0
 			fi
 		done
 		livecheck="$((livecheck + 1))"
@@ -1301,34 +1301,34 @@ menu() {
 	esac
 	[ -n "${CHOSEN}" ] && trap 'clear; end_op_message 2' HUP INT QUIT ABRT TERM
 	case "${CHOSEN}" in
-	"1"|"install"|"update")
+	"1" | "install" | "update")
 		[ "${CHOSEN}" = "update" ] && AUTO_UPDATE="update"
 		PTXT "${INFO} This operation will install AdGuardHome and related files (<6MB)" \
 			"${INFO} to ENTWARE, no other data will be changed." \
 			"${INFO} Also some start scripts will be installed/modified as required."
 		if read_yesno "Do you want to install AdGuardHome?"; then inst_AdGuardHome "${AUTO_UPDATE:-install}"; else end_op_message 1; fi
 		;;
-	"2"|"uninstall")
+	"2" | "uninstall")
 		PTXT "${INFO} This operation will cleanup everything installed by this script."
 		if read_yesno "Do you want to continue?"; then uninst_all; else end_op_message 1; fi
 		;;
-	"3"|"changepw")
+	"3" | "changepw")
 		PTXT "${INFO} This operation will allow you to change your username and password."
 		if read_yesno "Do you want to continue?"; then AdGuardHome_authen 0; else end_op_message 1; fi
 		;;
-	"4"|"reconfigure")
+	"4" | "reconfigure")
 		PTXT "${INFO} This operation allows you to configure AdGuardHome"
 		if read_yesno "Do you want to proceed?"; then setup_AdGuardHome reconfig; else end_op_message 1; fi
 		;;
-	"b"|"B"|"backup")
+	"b" | "B" | "backup")
 		PTXT "${INFO} This operation will backup everything!"
 		if read_yesno "Do you want to continue?"; then backup_restore BACKUP; else end_op_message 1; fi
 		;;
-	"r"|"R"|"restore")
+	"r" | "R" | "restore")
 		PTXT "${INFO} This operation will restore everything!"
 		if read_yesno "Do you want to continue?"; then backup_restore RESTORE; else end_op_message 1; fi
 		;;
-	"q"|"Q")
+	"q" | "Q")
 		PTXT "${INFO} Operations have been applied if any has been made" \
 			"${INFO} In case of anomaly, please reboot your router!"
 		if [ -f "${HOME}/installer" ]; then rm -rf "${HOME}/installer"; fi
@@ -1346,7 +1346,7 @@ case "$2" in
 	check_version
 	menu
 	;;
-[1-4]|"install"|"update"|"uninstall"|"changepw"|"reconfigure"|[bB]|"backup"|[rR]|"restore")
+[1-4] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | [bB] | "backup" | [rR] | "restore")
 	menu "$2"
 	;;
 *)
