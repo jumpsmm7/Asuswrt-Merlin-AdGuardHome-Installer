@@ -15,30 +15,30 @@ ansi_rev="$(printf "\033[7m")"
 ansi_ul="$(printf "\033[4m")"
 
 start() {
-	{ [ "$CRITICAL" != "yes" ] && [ "$CALLER" = "cron" ]; } && return 7
-	[ "$ENABLED" != "yes" ] && return 8
-	printf "%s" "$ansi_white Starting $DESC... $ansi_std"
-	if [ -n "$(pidof "$PROC")" ]; then
-		printf "%s\n" "            $ansi_yellow already running. $ansi_std"
+	{ [ "${CRITICAL}" != "yes" ] && [ "${CALLER}" = "cron" ]; } && return 7
+	[ "${ENABLED}" != "yes" ] && return 8
+	printf "%s" "${ansi_white} Starting ${DESC}... ${ansi_std}"
+	if [ -n "$(pidof "${PROC}")" ]; then
+		printf "%s\n" "            ${ansi_yellow} already running. ${ansi_std}"
 		return 0
 	fi
-	if [ "$PROC" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then { $PRECMD >/dev/null 2>&1; }; fi
-	{ $PREARGS nohup $PROC $ARGS >/dev/null 2>&1 </dev/null & }
-	#echo $PREARGS $PROC $ARGS
+	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then { ${PRECMD} >/dev/null 2>&1; }; fi
+	{ ${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null & }
+	#echo ${PREARGS} ${PROC} ${ARGS}
 	COUNTER="0"
 	LIMIT="10"
-	while { [ -z "$(pidof "$PROC")" ] && [ "$COUNTER" -le "$LIMIT" ]; }; do
-		sleep 1
+	while { [ -z "$(pidof "${PROC}")" ] && [ "${COUNTER}" -le "${LIMIT}" ]; }; do
+		sleep 1s
 		COUNTER="$((COUNTER + 1))"
 	done
-	if [ "$PROC" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then { $POSTCMD >/dev/null 2>&1; }; fi
-	if [ -z "$(pidof "$PROC")" ]; then
-		printf "%s\n" "            $ansi_red failed. $ansi_std"
-		logger -st "$CALLER" "Failed to start $DESC from $CALLER."
+	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then { ${POSTCMD} >/dev/null 2>&1; }; fi
+	if [ -z "$(pidof "${PROC}")" ]; then
+		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
+		logger -st "${CALLER}" "Failed to start ${DESC} from ${CALLER}."
 		return 255
 	else
-		{ printf "%s\n" "            $ansi_green done. $ansi_std"; }
-		logger -st "$CALLER" "Started $DESC from $CALLER."
+		{ printf "%s\n" "            ${ansi_green} done. ${ansi_std}"; }
+		logger -st "${CALLER}" "Started ${DESC} from ${CALLER}."
 		return 0
 	fi
 }
@@ -48,46 +48,46 @@ stop() {
 	"stop" | "restart")
 		COUNTER="0"
 		LIMIT="10"
-		while { [ -n "$(pidof "$PROC")" ] && [ "$COUNTER" -le "$LIMIT" ]; }; do
-			[ "$COUNTER" = "0" ] && printf "%s" "$ansi_white Shutting down $PROC... $ansi_std"
-			[ -z "$(pidof "$PROC")" ] && break || { kill -s 2 "$(pidof "$PROC")" 2>/dev/null || killall -q -2 "$PROC" 2>/dev/null; }
-			sleep "$LIMIT"
+		while { [ -n "$(pidof "${PROC}")" ] && [ "${COUNTER}" -le "${LIMIT}" ]; }; do
+			[ "${COUNTER}" = "0" ] && printf "%s" "${ansi_white} Shutting down ${PROC}... ${ansi_std}"
+			[ -z "$(pidof "${PROC}")" ] && break || { kill -s 2 "$(pidof "${PROC}")" 2>/dev/null || killall -q -2 "${PROC}" 2>/dev/null; }
+			sleep "${LIMIT}"s
 			COUNTER="$((COUNTER + 1))"
 		done
 		;;
 	"kill")
-		printf "%s" "$ansi_white Killing $PROC... $ansi_std"
-		{ kill -s 2 "$(pidof "$PROC")" 2>/dev/null || killall -q -2 "$PROC" 2>/dev/null; }
+		printf "%s" "${ansi_white} Killing ${PROC}... ${ansi_std}"
+		{ kill -s 2 "$(pidof "${PROC}")" 2>/dev/null || killall -q -2 "${PROC}" 2>/dev/null; }
 		;;
 	esac
-	if [ -n "$(pidof "$PROC")" ]; then
-		printf "%s\n" "            $ansi_red failed. $ansi_std"
+	if [ -n "$(pidof "${PROC}")" ]; then
+		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 		return 255
 	else
-		printf "%s\n" "            $ansi_green done. $ansi_std"
+		printf "%s\n" "            ${ansi_green} done. ${ansi_std}"
 		return 0
 	fi
 }
 
 check() {
-	printf "%s" "$ansi_white Checking $DESC... "
-	if [ -n "$(pidof "$PROC")" ]; then
-		printf "%s\n" "            $ansi_green alive. $ansi_std"
+	printf "%s" "${ansi_white} Checking ${DESC}... "
+	if [ -n "$(pidof "${PROC}")" ]; then
+		printf "%s\n" "            ${ansi_green} alive. ${ansi_std}"
 		return 0
 	else
-		printf "%s\n" "            $ansi_red dead. $ansi_std"
+		printf "%s\n" "            ${ansi_red} dead. ${ansi_std}"
 		return 1
 	fi
 }
 
 reload() {
 	SIGNAL="HUP"
-	printf "%s\n" "$ansi_white Sending $SIGNAL to $PROC... $ansi_std"
-	{ kill -s $SIGNAL "$(pidof "$PROC")" 2>/dev/null || killall -$SIGNAL "$PROC" 2>/dev/null; }
+	printf "%s\n" "${ansi_white} Sending ${SIGNAL} to ${PROC}... ${ansi_std}"
+	{ kill -s ${SIGNAL} "$(pidof "${PROC}")" 2>/dev/null || killall -${SIGNAL} "${PROC}" 2>/dev/null; }
 }
 
-for PROC in $PROCS; do
-	case "$ACTION" in
+for PROC in ${PROCS}; do
+	case "${ACTION}" in
 	"start")
 		start
 		;;
