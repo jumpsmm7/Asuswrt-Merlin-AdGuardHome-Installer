@@ -653,13 +653,13 @@ end_op_message() {
 		chmod 755 "${HOME}/installer"
 		exec "${HOME}/installer" "${BRANCH}" && exit
 	else
-		clear && end_op_header && exit
+		clear && { end_op_header 2>/dev/null; } && exit
 	fi
 }
 
 end_op_header() {
 	sed -n -e "1,$(($(grep -wn 'esac' "$0" | cut -d':' -f1 | tail -n1) + 1))p" "$0" >"${0}.tmp"
-	chmod 755 "${0}.tmp" >/dev/null 2>&1
+	chmod 755 "${0}.tmp"
 	exec "${0}.tmp" "${BRANCH}"
 	rm -rf "${0}.tmp"
 }
