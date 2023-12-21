@@ -121,19 +121,19 @@ netcheck() {
 	while [ "${livecheck}" != "4" ]; do
 		for i in google.com github.com snbforums.com; do
 			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
-				if { ! curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-all-errors -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget --no-cache --no-cookies --timeout=20 --waitretry=10 --tries=5 --retry-connrefused -q --spider "http://${i}" >/dev/null 2>&1; }; then
-    					sleep 1s
+				if { ! curl --connect-timeout 3 --retry-delay 3 --retry 3 --retry-max-time $((3 * 20)) --retry-all-errors -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget --no-cache --no-cookies --timeout=3 --waitretry=3 --tries=3 --retry-connrefused -q --spider "http://${i}" >/dev/null 2>&1; }; then
+					sleep 1s
 					continue
 				fi
 				return 0
-    			fi
+			fi
 			return 0
 		done
 		livecheck="$((livecheck + 1))"
 		if [ "${livecheck}" != "4" ]; then
 			sleep 10s
-   			continue
-      		fi
+			continue
+		fi
 		return 1
 	done
 }
