@@ -110,7 +110,7 @@ dnsmasq_params() {
 lower_script() {
 	case "$1" in
 	*)
-		"${LOWER_SCRIPT_LOC}" "$1" "${NAME}"
+		${LOWER_SCRIPT_LOC} "$1" "${NAME}"
 		;;
 	esac
 }
@@ -324,7 +324,7 @@ case "$1" in
 	esac
 	;;
 *)
-	{ "${LOWER_SCRIPT_LOC}" "$1"; } && exit
+	{ ${LOWER_SCRIPT_LOC} "$1"; } && exit
 	;;
 esac
 check_dns_environment
