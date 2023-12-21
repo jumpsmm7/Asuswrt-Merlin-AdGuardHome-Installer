@@ -32,11 +32,11 @@ AI_VERSION="v1.7.0"
 export AI_VERSION
 
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
-REMOTE_VER="$(curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-delay 1 --retry-all-errors -sL "${LATEST_URL}" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)" || true
+REMOTE_VER="$(curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-all-errors -sL "${LATEST_URL}" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)" || true
 readonly REMOTE_VER
-REMOTE_BETA="$(curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-delay 1 --retry-all-errors -sL "${LATEST_URL}" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)" || true
+REMOTE_BETA="$(curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-all-errors -sL "${LATEST_URL}" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4)" || true
 readonly REMOTE_BETA
-SCHEMA_VER="$(curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-delay 1 --retry-all-errors -sL "https://raw.githubusercontent.com/AdguardTeam/AdGuardHome/master/CHANGELOG.md" | grep -m1 -oE 'schema.*to[[:space:]][0-9]{1,2}' | awk '{ print $NF }')" || true
+SCHEMA_VER="$(curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-all-errors -sL "https://raw.githubusercontent.com/AdguardTeam/AdGuardHome/master/CHANGELOG.md" | grep -m1 -oE 'schema.*to[[:space:]][0-9]{1,2}' | awk '{ print $NF }')" || true
 readonly SCHEMA_VER
 
 readonly ADDON_DIR="/jffs/addons/AdGuardHome.d"
@@ -257,7 +257,7 @@ check_connection() {
 	while [ "${livecheck}" != "4" ]; do
 		for i in google.com github.com snbforums.com; do
 			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
-				if { ! curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-delay 1 --retry-all-errors -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget --no-cache --no-cookies --timeout=20 --waitretry=10 --tries=5 --retry-connrefused -q --spider "http://${i}" >/dev/null 2>&1; }; then
+				if { ! curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-all-errors -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget --no-cache --no-cookies --timeout=20 --waitretry=10 --tries=5 --retry-connrefused -q --spider "http://${i}" >/dev/null 2>&1; }; then
     					sleep 1s
 					continue
 				fi
@@ -444,9 +444,9 @@ check_version() {
 	if [ -f "${TARG_DIR}/installer" ] && [ -f "${AGH_FILE}" ] && [ -z "$2" ]; then
 		if [ -n "$1" ] || { check_connection; }; then
 			LINSTALL="$(awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
-			RMNSTALL="$(curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-delay 1 --retry-all-errors -sL "${RURL}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
+			RMNSTALL="$(curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-all-errors -sL "${RURL}/installer" | grep -m1 "^AI_VERSION=" | grep -oE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')"
 			MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | cut -d' ' -f1)"
-			MD5SUM_R="$(curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-delay 1 --retry-all-errors -fsL "${RURL}/installer" | md5sum | awk '{print $1}')"
+			MD5SUM_R="$(curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-all-errors -fsL "${RURL}/installer" | md5sum | awk '{print $1}')"
 			if { [ -n "${LINSTALL}" ] && [ -n "${RMNSTALL}" ]; }; then
 				[ -z "${LINSTALL}" ] && exit 1
 				[ -z "${RMNSTALL}" ] && exit 1
@@ -604,7 +604,7 @@ download_file() {
 	for URL in "$@"; do
 		FILENAME="$(basename "${URL}")"
 		MD5SUM_OLD="$([ -f "${TARG}/${FILENAME}" ] && md5sum "${TARG}/${FILENAME}" | cut -d' ' -f1)"
-		MD5SUM_CURR="$(curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-delay 1 --retry-all-errors -fsL "${URL}" | md5sum | awk '{print $1}')"
+		MD5SUM_CURR="$(curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-all-errors -fsL "${URL}" | md5sum | awk '{print $1}')"
 		if [ "$(PTXT -n "${MD5SUM_CURR}" | wc -c)" -eq 32 ] && [ "${MD5SUM_CURR}" = "${MD5SUM_OLD}" ]; then
 			PTXT "${INFO} ${FILENAME} is up to date. Skipping..."
 		else
@@ -612,7 +612,7 @@ download_file() {
 			COUNT="0"
 			while [ "${COUNT}" -lt 3 ]; do
 				PTXT "${INFO} Downloading ${FILENAME}"
-				if curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-delay 1 --retry-all-errors -L -k -s "${URL}" -o "${TARG}/${FILENAME}"; then
+				if curl --connect-timeout 20 --retry-delay 10 --retry 5 --retry-max-time $((5 * 20)) --retry-all-errors -L -k -s "${URL}" -o "${TARG}/${FILENAME}"; then
 					chmod "${PERM}" "${TARG}/${FILENAME}"
 					break
 				fi
