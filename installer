@@ -257,9 +257,11 @@ check_connection() {
 	while [ "${livecheck}" != "4" ]; do
 		for i in google.com github.com snbforums.com; do
 			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
-				continue
-			elif { ! curl -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget -q --spider "http://${i}" >/dev/null 2>&1; }; then
-				continue
+				if { ! curl -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget -q --spider "http://${i}" >/dev/null 2>&1; }; then
+					continue
+				else
+					return 0
+				fi
 			else
 				return 0
 			fi
