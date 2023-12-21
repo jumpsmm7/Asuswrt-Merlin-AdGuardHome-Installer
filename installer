@@ -30,8 +30,8 @@ export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
 AI_VERSION="v1.7.1"
 export AI_VERSION
+readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 until [ -n "$REMOTE_VER" ] && [ -n "$REMOTE_BETA" ] && [ -n "$SCHEMA_VER" ]; do 
-	readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 	REMOTE_VER="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-all-errors -sL "${LATEST_URL}" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4 &)" || true
 	readonly REMOTE_VER
 	REMOTE_BETA="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-all-errors -sL "${LATEST_URL}" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4 &)" || true
