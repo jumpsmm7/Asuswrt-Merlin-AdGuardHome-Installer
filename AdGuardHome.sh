@@ -125,7 +125,6 @@ netcheck() {
 					sleep 1s
 					continue
 				fi
-				return 0
 			fi
 			return 0
 		done
