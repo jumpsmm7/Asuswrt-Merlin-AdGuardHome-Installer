@@ -628,7 +628,7 @@ download_file() {
 			if [ -f "${TARG}/${FILENAME}" ]; then
 				[ -z "${MD5SUM_OLD} ] && MD5SUM_OLD="$(md5sum "${TARG}/${FILENAME}" | cut -d' ' -f1 &)" || true
 			fi
-			[ -z "${MD5SUM_CURR} ] && MD5SUM_CURR="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-all-errors -fsL "${URL}" | md5sum | awk '{print $1}' &)" || true
+			[ -z "${MD5SUM_CURR}" ] && MD5SUM_CURR="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-all-errors -fsL "${URL}" | md5sum | awk '{print $1}' &)" || true
 			varcnt="$((varcnt + 1 ))"
 			if [ "${varcnt}" -eq 1 ]; then
 				wait
