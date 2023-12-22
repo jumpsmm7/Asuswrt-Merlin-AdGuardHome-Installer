@@ -32,9 +32,9 @@ AI_VERSION="v1.7.1"
 export AI_VERSION
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 until [ -n "$REMOTE_VER" ] && [ -n "$REMOTE_BETA" ] && [ -n "$SCHEMA_VER" ]; do 
-	REMOTE_VER="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-all-errors -sL "${LATEST_URL}" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4 &)" || true
-	REMOTE_BETA="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-all-errors -sL "${LATEST_URL}" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4 &)" || true
-	SCHEMA_VER="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-all-errors -sL "https://raw.githubusercontent.com/AdguardTeam/AdGuardHome/master/CHANGELOG.md" | grep -m1 -oE 'schema.*to[[:space:]][0-9]{1,2}' | awk '{ print $NF }' &)" || true
+	[ -z "$REMOTE_VER" ] && REMOTE_VER="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-all-errors -sL "${LATEST_URL}" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4 &)" || true
+	[ -z "$REMOTE_BETA" ] && REMOTE_BETA="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-all-errors -sL "${LATEST_URL}" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4 &)" || true
+	[ -z "$SCHEMA_VER" ] && SCHEMA_VER="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-all-errors -sL "https://raw.githubusercontent.com/AdguardTeam/AdGuardHome/master/CHANGELOG.md" | grep -m1 -oE 'schema.*to[[:space:]][0-9]{1,2}' | awk '{ print $NF }' &)" || true
 	wait
 done
 wait
@@ -262,7 +262,6 @@ check_connection() {
 					sleep 1s
 					continue
 				fi
-				return 0
 			fi
 			return 0
 		done
