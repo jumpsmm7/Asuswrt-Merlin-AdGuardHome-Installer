@@ -518,7 +518,7 @@ check_version() {
 					"${INFO} for any configuration needs. "
 			fi
 		elif [ -z "${LINSTALL}" ] && [ -z "${RMNSTALL}" ] && [ -z "$1" ]; then
-			while { ! check_connection; }; do sleep 1; done && check_version x
+			while { ! check_connection; }; do sleep 1s; done && check_version x
 		else
 			check_version x x
 		fi
