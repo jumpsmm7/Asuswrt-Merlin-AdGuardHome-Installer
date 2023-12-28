@@ -160,7 +160,7 @@ AdGuardHome_authen() {
 		({ until [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -lt "1" ]; do sleep 1s; done; }) &
 		local PID="$!"
 		wait "${PID}" 2>/dev/null
-		sleep 1
+		sleep 1s
 		{ /opt/etc/init.d/S99AdGuardHome check; }
 		(
 			if [ -z "$(pidof AdGuardHome)" ]; then { if { service start_AdGuardHome >/dev/null 2>&1; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome start; }; then sleep 1s; else
@@ -405,7 +405,7 @@ check_dns_filter() {
 	if [ "${NVCHECK}" != "0" ]; then
 		{ nvram commit; }
 		{ service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1; }
-		(while { ! check_connection; }; do sleep 1; done) &
+		(while { ! check_connection; }; do sleep 1s; done) &
 		local PID="$!"
 		wait "${PID}" 2>/dev/null
 	fi
@@ -675,7 +675,7 @@ end_op_message() {
 	PTXT "====================================================="
 	PTXT " "
 	PTXT " "
-	sleep 3 && clear
+	sleep 3s && clear
 	if [ -f "${TARG_DIR}/installer" ]; then
 		chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1
 		exec "${TARG_DIR}/installer" "${BRANCH}" && exit
@@ -1207,7 +1207,7 @@ write_conf() {
 		VALUE=$(_quote "${VALUE}")
 		sed -i "/^${VAR}=/s/=.*/=${VALUE}/" "${CONF_FILE}"
 	else
-		echo "${VAR}=${VALUE}" >>"${CONF_FILE}"
+		PTXT "${VAR}=${VALUE}" >>"${CONF_FILE}"
 	fi
 }
 
@@ -1237,7 +1237,7 @@ write_manager_script() {
 	COMMAND="${ADDON_DIR}/AdGuardHome.sh"
 	if [ ! -f "${TARG}" ]; then
 		PTXT "${INFO} Creating ${FILENAME} file"
-		echo "#!/bin/sh" >"${TARG}"
+		PTXT "#!/bin/sh" >"${TARG}"
 	fi
 	chmod 755 "${TARG}" "${COMMAND}"
 	del_between_magic "${TARG}" Asuswrt-Merlin-AdGuardHome-Installer
@@ -1249,8 +1249,8 @@ write_manager_script() {
 			sed -i "s~^${COMMAND}~[ -x ${COMMAND} ] \&\& ${COMMAND} ${OP}~" "${TARG}"
 		else
 			del_jffs_script "${TARG}" !manager
-			[ "$(tail -1 "${TARG}" | grep -c '^$')" -eq 0 ] && echo "" >>"${TARG}"
-			echo "[ -x ${COMMAND} ] && ${COMMAND} ${OP}" >>"${TARG}"
+			[ "$(tail -1 "${TARG}" | grep -c '^$')" -eq 0 ] && PTXT "" >>"${TARG}"
+			PTXT "[ -x ${COMMAND} ] && ${COMMAND} ${OP}" >>"${TARG}"
 		fi
 	fi
 }
