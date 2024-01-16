@@ -32,10 +32,9 @@ AI_VERSION="v1.7.3"
 export AI_VERSION
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 varcnt=0
-until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ] && [ -n "${SCHEMA_VER}" ]; do
+until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
 	[ -z "${REMOTE_VER}" ] && REMOTE_VER="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4 &)" || true
 	[ -z "${REMOTE_BETA}" ] && REMOTE_BETA="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4 &)" || true
-	[ -z "${SCHEMA_VER}" ] && SCHEMA_VER="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "https://raw.githubusercontent.com/AdguardTeam/AdGuardHome/master/CHANGELOG.md" | grep -m1 -oE 'schema.*to[[:space:]][0-9]{1,2}' | awk '{ print $NF }' &)" || true
 	varcnt="$((varcnt + 1))"
 	if [ "${varcnt}" -le 84 ]; then
 		wait
@@ -47,7 +46,7 @@ until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ] && [ -n "${SCHEMA_VER}" 
 done
 wait
 unset varcnt
-readonly REMOTE_VER REMOTE_BETA SCHEMA_VER
+readonly REMOTE_VER REMOTE_BETA
 readonly ADDON_DIR="/jffs/addons/AdGuardHome.d"
 readonly BASE_DIR="/opt/etc"
 readonly TARG_DIR="${BASE_DIR}/AdGuardHome"
@@ -1022,6 +1021,8 @@ setup_AdGuardHome() {
 }
 
 setup_AdGuardHome_impl() {
+	local SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
+	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ -z "$1" ] && [ -f "${YAML_FILE}" ]; then
 		############################################################ Drop-in code to be removed/modified as needed. #############################################################################################################################################################
 		if ! awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$'; then
@@ -1092,7 +1093,8 @@ setup_AdGuardHome_impl() {
 				PTXT "${INFO} Set the Username and Password which will be encrypted to the yaml file."
 				AdGuardHome_authen 1
 				PTXT "dns:" \
-					"  bind_host: 0.0.0.0" \
+					"  bind_host:" \
+					"    - 0.0.0.0" \
 					"  port: 53" >>"${YAML_ORI}"
 				PTXT "${INFO} Set the DNS server(s) for initializing AdGuardHome" \
 					"${INFO} and router services (e.g. ntp) at boot"
