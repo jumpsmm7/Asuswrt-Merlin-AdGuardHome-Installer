@@ -460,7 +460,7 @@ check_version() {
 				if [ "${varcnt}" -le 84 ]; then
 					wait
 				else
-					printf "%s/n" "One or more critical variables could not be set in a timely mannor." "Please check your internet connection, or try again later." "The installer script will now exit."
+					printf "%s/n" "One or more critical variables could not be set in a timely manner." "Please check your internet connection, or try again later." "The installer script will now exit."
 					sleep 3s
 					exit 1
 				fi
