@@ -111,6 +111,13 @@ AdGuardHome_authen() {
 		PTXT "${ERROR} Password entered incorrectly!"
 		AdGuardHome_authen "$1"
 	fi
+	for i in python3 python3-pip python3-bcrypt; do
+		if ! opkg list-installed | grep -q $i; then
+			opkg install $i >/dev/null 2>&1
+		else
+			opkg reinstall $i >/dev/null 2>&1
+		fi
+	done
 	opkg install python3 python3-pip python3-bcrypt >/dev/null 2>&1
 	if opkg list-installed | grep -q apache; then
 		opkg flag user apache apache-utils >/dev/null 2>&1
