@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.7.4                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.7.5                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -28,7 +28,7 @@
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v1.7.4"
+AI_VERSION="v1.7.5"
 export AI_VERSION
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 varcnt=0
@@ -111,6 +111,15 @@ AdGuardHome_authen() {
 		PTXT "${ERROR} Password entered incorrectly!"
 		AdGuardHome_authen "$1"
 	fi
+	for i in python3 python3-pip python3-bcrypt; do
+		if ! opkg list-installed | grep -q $i; then
+			opkg install $i &
+		else
+			opkg reinstall $i &
+		fi
+		wait 2&>/dev/null
+	done
+	wait 2&>/dev/null
 	opkg install python3 python3-pip python3-bcrypt >/dev/null 2>&1
 	if opkg list-installed | grep -q apache; then
 		opkg flag user apache apache-utils >/dev/null 2>&1
