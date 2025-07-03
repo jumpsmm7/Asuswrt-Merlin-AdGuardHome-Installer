@@ -805,6 +805,7 @@ inst_AdGuardHome() {
 	write_manager_script /jffs/scripts/init-start "init-start &"
 	write_manager_script /jffs/scripts/services-stop "services-stop &"
 	write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
+	write_manager_script /jffs/scripts/dnsmasq-sdn.postconf dnsmasq-sdn
 	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
 	write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
 	if [ ! -f "${ADDON_DIR}/localtime" ]; then
@@ -1201,6 +1202,7 @@ uninst_all() {
 	yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
 	del_jffs_script /jffs/scripts/init-start
 	del_jffs_script /jffs/scripts/dnsmasq.postconf
+	del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf
 	del_jffs_script /jffs/scripts/services-stop
 	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
 	service restart_dnsmasq >/dev/null 2>&1
