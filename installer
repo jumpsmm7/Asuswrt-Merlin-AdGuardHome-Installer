@@ -33,8 +33,8 @@ export AI_VERSION
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 varcnt=0
 until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
-	[ -z "${REMOTE_VER}" ] && REMOTE_VER="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}" | sed -n '/"prerelease": false,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4 &)" || true
-	[ -z "${REMOTE_BETA}" ] && REMOTE_BETA="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}" | sed -n '/"prerelease": true,/q;p' | tail -4 | grep "tag_name" | cut -d \" -f 4 &)" || true
+	[ -z "${REMOTE_VER}" ] && REMOTE_VER="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}" | awk 'BEGIN { found=0 } /"prerelease": false/ { found=1 } found && /"tag_name"/ { gsub(/[",]/, "", $2); print $2; exit }' &)" || true
+	[ -z "${REMOTE_BETA}" ] && REMOTE_BETA="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}" | awk 'BEGIN { found=0 } /"prerelease": true/ { found=1 } found && /"tag_name"/ { gsub(/[",]/, "", $2); print $2; exit }' &)" || true
 	varcnt="$((varcnt + 1))"
 	if [ "${varcnt}" -le 84 ]; then
 		wait
