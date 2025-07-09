@@ -34,8 +34,8 @@ readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releas
 varcnt=0
 readonly MAX_RETRIES="2"
 until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
-	if [ -z "${REMOTE_VER}" ]; then REMOTE_VER="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}" | awk 'BEGIN { found=0 } /"prerelease": false/ { found=1 } found && /"tag_name"/ { gsub(/[",]/, "", $2); print $2; exit }')"; fi
-	if [ -z "${REMOTE_BETA}" ]; then REMOTE_BETA="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}" | awk 'BEGIN { found=0 } /"prerelease": true/ { found=1 } found && /"tag_name"/ { gsub(/[",]/, "", $2); print $2; exit }')"; fi
+	if [ -z "${REMOTE_VER}" ]; then REMOTE_VER="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}" | awk 'BEGIN { found=0 } /"prerelease": true/ { found=1 } found && /"tag_name"/ { gsub(/[",]/, "", $2); print $2; exit }')"; fi
+	if [ -z "${REMOTE_BETA}" ]; then REMOTE_BETA="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}" | awk 'BEGIN { found=0 } /"prerelease": false/ { found=1 } found && /"tag_name"/ { gsub(/[",]/, "", $2); print $2; exit }')"; fi
 	varcnt="$((varcnt + 1))"
 	if [ "${varcnt}" -ge "${MAX_RETRIES}" ]; then
 		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit, or your internet maybe down." "Please check your internet connection, or try again in an hour." "The installer script will now exit."
