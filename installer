@@ -36,7 +36,7 @@ if openssl version | grep -q "1.1.1"; then
 	API_AUTH="$(printf "%s\n" "U2FsdGVkX193tvNAm/h0gqP8WFAbXP6rvJH+2ydlGOgX4nVc0jt4pVLTZhchaAvA" | openssl enc -aes-256-cbc -d -base64 -pass pass:adguardhome -pbkdf2)"
 	API_SECRET="$(printf "%s\n" "U2FsdGVkX1/o/jNigvt2vDaQ8cn+8zHIxbS2NUKKCjMrPGCq3b1HIDE0f8q3gDXe8SxfTh9HQcxxnR2grWBwuwkTqwbAcE7okW4EHMHVpTXRNthxm2RYkNLFIrRKYDP0rLbdd7/g28c3trlPGqc9ng==" | openssl enc -aes-256-cbc -d -base64 -pass pass:adguardhome -pbkdf2)"
 	API_HEADER="${API_AUTH} ${API_SECRET}"
-	API_HEADER="-H \"${API_HEADER}\""
+	API_HEADER="-H "\""${API_HEADER}"\"""
 fi
 varcnt=0
 readonly MAX_RETRIES="1"
