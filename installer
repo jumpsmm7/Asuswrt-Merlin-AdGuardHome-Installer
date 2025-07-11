@@ -32,11 +32,11 @@ AI_VERSION="v1.8.3"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
-readonly GITHUB_TOKEN="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"
+readonly API_SECRET="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"
 varcnt=0
 readonly MAX_RETRIES="1"
 until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
-	curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL -H "Authorization: token ${GITHUB_TOKEN}" "${LATEST_URL}?per_page=3" -o "${API_FILE}"
+	curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL -H "Authorization: token ${API_SECRET}" "${LATEST_URL}?per_page=3" -o "${API_FILE}"
 	if [ -z "${REMOTE_VER}" ]; then REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"; fi
 	if [ -z "${REMOTE_BETA}" ]; then REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"; fi
 	varcnt="$((varcnt + 1))"
