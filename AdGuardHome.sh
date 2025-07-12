@@ -105,14 +105,13 @@ dnsmasq_params() {
 				done
 			fi
 			if { ! readlink -f /etc/resolv.conf | grep -qE ^'/rom/etc/resolv.conf' && awk -F'=' '/ADGUARD_LOCAL/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -qE ^'YES'; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
-   		elif [ "$1" = "sdn" ] && nvram get webs_state_info | grep -q "3006" && [ -n "$(ls /etc/dnsmasq-*.conf 2>/dev/null | wc -l)" ]; then
-     			for SDN in $(ls /etc/dnsmasq-*.conf 2>/dev/null | sed -n 's/.*dnsmasq-\([0-9]\+\)\.conf/\1/p' | xargs); do
-     				CONFIG="/etc/dnsmasq-${SDN}.conf"
-				for PARAM in "port=" "add-subnet=" "add-mac"; do
-	 				sed -i "/^${PARAM}.*$/d" "${CONFIG}"
-     				done
-     				printf "%s\n" "port=553" "add-mac" "add-subnet=32,128" >>"${CONFIG}"
-	 		done
+   		elif [ -n "$1" ] && nvram get webs_state_info | grep -q "3006" && [ -n "$(ls /etc/dnsmasq-*.conf 2>/dev/null | wc -l)" ]; then
+     			SDN="$1"
+     			CONFIG="/etc/dnsmasq-${SDN}.conf"
+			for PARAM in "port=" "add-subnet=" "add-mac"; do
+	 			sed -i "/^${PARAM}.*$/d" "${CONFIG}"
+     			done
+     			printf "%s\n" "port=553" "add-mac" "add-subnet=32,128" >>"${CONFIG}"
     		fi
 	fi
 }
@@ -323,7 +322,7 @@ case "$1" in
 		dnsmasq_params
 		;;
 	"dnsmasq-sdn")
-		dnsmasq_params sdn
+		dnsmasq_params "$2"
 		;;
 	esac
 	;;
