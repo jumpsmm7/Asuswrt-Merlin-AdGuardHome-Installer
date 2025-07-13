@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.8.5                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.8.6                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -28,7 +28,7 @@
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v1.8.5"
+AI_VERSION="v1.8.6"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
@@ -40,15 +40,18 @@ fi
 varcnt=0
 readonly MAX_RETRIES="1"
 until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
-	curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}?per_page=5" -o "${API_FILE}" "${API_HEADER}"
-	if [ -z "${REMOTE_VER}" ]; then REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"; fi
-	if [ -z "${REMOTE_BETA}" ]; then REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"; fi
-	varcnt="$((varcnt + 1))"
-	if [ "${varcnt}" -gt "${MAX_RETRIES}" ]; then
-		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit, or your internet maybe down." "Please check your internet connection, or try again in an hour." "The installer script will now exit."
+	if [ "${varcnt}" -lt "${MAX_RETRIES}" ] || { [ "${varcnt}" -eq "${MAX_RETRIES}" ] && [ -z "${API_HEADER}" ]; }; then
+		curl -D /tmp/$$_headers.out --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}?per_page=5" -o "${API_FILE}"
+	elif { [ "${varcnt}" -eq "${MAX_RETRIES}" ] && [ -n "${API_HEADER}" ]; }; then
+		curl -D /tmp/$$_headers.out --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}?per_page=5" -o "${API_FILE}" "${API_HEADER}"
+	elif [ "${varcnt}" -gt "${MAX_RETRIES}" ]; then
+		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr), and our token work around did not work (5000req./hr)." "For more information, please read /tmp/$$_headers.out." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
 		sleep 3s
 		exit 1
 	fi
+	if [ -z "${REMOTE_VER}" ]; then REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"; fi
+	if [ -z "${REMOTE_BETA}" ]; then REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"; fi
+	varcnt="$((varcnt + 1))"
 done
 rm -rf "$API_FILE"
 wait
