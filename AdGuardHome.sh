@@ -105,7 +105,7 @@ dnsmasq_params() {
 				done
 			fi
 			if { ! readlink -f /etc/resolv.conf | grep -qE ^'/rom/etc/resolv.conf' && awk -F'=' '/ADGUARD_LOCAL/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -qE ^'YES'; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
-   		elif [ -n "$1" ] && nvram get webs_state_info | grep -q "3006" && [ -n "$(ls /etc/dnsmasq-*.conf 2>/dev/null | wc -l)" ]; then
+   		elif [ -n "$1" ] && nvram get webs_state_info | grep -q "3006" && [ "$(ls /etc/dnsmasq-*.conf 2>/dev/null | wc -l)" != "0" ]; then
      			SDN="$1"
      			CONFIG="/etc/dnsmasq-${SDN}.conf"
 			for PARAM in "port=" "add-subnet=" "add-mac"; do
