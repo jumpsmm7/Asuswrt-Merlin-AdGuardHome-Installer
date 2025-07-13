@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.8.6                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.8.7                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -28,7 +28,7 @@
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v1.8.6"
+AI_VERSION="v1.8.7"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
@@ -49,8 +49,8 @@ until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
 		sleep 3s
 		exit 1
 	fi
-	if [ -z "${REMOTE_VER}" ]; then REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"; fi
-	if [ -z "${REMOTE_BETA}" ]; then REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"; fi
+	if [ -z "${REMOTE_VER}" ] && [ -f "${API_FILE}" ]; then REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"; fi
+	if [ -z "${REMOTE_BETA}" ] && [ -f "${API_FILE}" ]; then REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"; fi
 	varcnt="$((varcnt + 1))"
 done
 rm -rf "$API_FILE"
