@@ -22,7 +22,7 @@ start() {
 		printf "%s\n" "            ${ansi_yellow} already running. ${ansi_std}"
 		return 0
 	fi
-	if [ "${PROC}" != "AdGuardHome" ] || { for file in /etc/dnsmasq.conf /etc/dnsmasq-[0-9]*.conf; do [ -e "$file" ] || continue; ! grep -q '^port=553' "$file" && false; done; true; }; then { ${PRECMD} >/dev/null 2>&1; }; fi
+	if [ "${PROC}" != "AdGuardHome" ] || { for file in /etc/dnsmasq.conf /etc/dnsmasq-[0-9]*.conf; do [ -e "$file" ] || continue; ! grep -q '^port=553' "$file" && break; done; }; then { ${PRECMD} >/dev/null 2>&1; }; fi
 	{ ${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null & }
 	#echo ${PREARGS} ${PROC} ${ARGS}
 	local COUNTER="0" LIMIT="10"
@@ -30,7 +30,7 @@ start() {
 		sleep 1s
 		COUNTER="$((COUNTER + 1))"
 	done
-	if [ "${PROC}" != "AdGuardHome" ] || { for file in /etc/dnsmasq.conf /etc/dnsmasq-[0-9]*.conf; do [ -e "$file" ] || continue; ! grep -q '^port=553' "$file" && false; done; true; }; then { ${POSTCMD} >/dev/null 2>&1; }; fi
+	if [ "${PROC}" != "AdGuardHome" ] || { for file in /etc/dnsmasq.conf /etc/dnsmasq-[0-9]*.conf; do [ -e "$file" ] || continue; ! grep -q '^port=553' "$file" && break; done; }; then { ${POSTCMD} >/dev/null 2>&1; }; fi
 	if [ -z "$(pidof "${PROC}")" ]; then
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 		logger -st "${CALLER}" "Failed to start ${DESC} from ${CALLER}."
