@@ -74,14 +74,14 @@ dnsmasq_params() {
 	local CONFIG COUNT iCOUNT dCOUNT iVARS IVARS dVARS DVARS NIVARS NDVARS NET_ADDR NET_ADDR6 LAN_IF i
 	if { ! readlink -f /etc/resolv.conf | grep -qE ^'/rom/etc/resolv.conf' && df -h | grep -qoE '/tmp/resolv.conf'; }; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
 	if [ -n "$(pidof "${PROCS}")" ]; then
- 		if [ -z "$1" ]; then
-   			CONFIG="/etc/dnsmasq.conf"
+		if [ -z "$1" ]; then
+			CONFIG="/etc/dnsmasq.conf"
 			LAN_IF="$(nvram get lan_ifname)"
 			[ -n "${LAN_IF}" ] && NET_ADDR="$(ip -o -4 addr list "${LAN_IF}" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR="$(nvram get lan_ipaddr)"
 			[ -n "${LAN_IF}" ] && NET_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR6="$(nvram get ipv6_rtr_addr)"
 			{
 				sed -i "/^port=.*$/d" "${CONFIG}"
-   				sed -i "/^dhcp-option=lan,6.*$/d" "${CONFIG}"
+				sed -i "/^dhcp-option=lan,6.*$/d" "${CONFIG}"
 				printf "%s\n" "port=553" "local=/$(printf "%s\n" "${NET_ADDR}" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/" "local=/10.in-addr.arpa/" "local=//" "dhcp-option=lan,6,0.0.0.0" "add-mac" >>"${CONFIG}"
 			}
 			if [ -n "${NET_ADDR6}" ]; then { printf "%s\n" "local=/$(printf "%s\n" "${NET_ADDR6}" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/" "add-subnet=32,128" >>"${CONFIG}"; }; else { printf "%s\n" "add-subnet=32" >>"${CONFIG}"; }; fi
@@ -105,14 +105,14 @@ dnsmasq_params() {
 				done
 			fi
 			if { ! readlink -f /etc/resolv.conf | grep -qE ^'/rom/etc/resolv.conf' && awk -F'=' '/ADGUARD_LOCAL/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -qE ^'YES'; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
-   		elif [ -n "$1" ] && nvram get rc_support | grep -q 'mtlancfg' && [ "$(ls /etc/dnsmasq-*.conf 2>/dev/null | wc -l)" != "0" ]; then
-     			SDN="$1"
-     			CONFIG="/etc/dnsmasq-${SDN}.conf"
+		elif [ -n "$1" ] && nvram get rc_support | grep -q 'mtlancfg' && [ "$(ls /etc/dnsmasq-*.conf 2>/dev/null | wc -l)" != "0" ]; then
+			SDN="$1"
+			CONFIG="/etc/dnsmasq-${SDN}.conf"
 			for PARAM in "port=" "add-subnet=" "add-mac"; do
-	 			sed -i "/^${PARAM}.*$/d" "${CONFIG}"
-     			done
-     			printf "%s\n" "port=0" "add-mac" "add-subnet=32,128" >>"${CONFIG}"
-    		fi
+				sed -i "/^${PARAM}.*$/d" "${CONFIG}"
+			done
+			printf "%s\n" "port=0" "add-mac" "add-subnet=32,128" >>"${CONFIG}"
+		fi
 	fi
 }
 
@@ -126,7 +126,7 @@ lower_script() {
 
 netcheck() {
 	local livecheck="0" i
-        until { [ "$(/bin/date -u +"%Y")" -gt "1970" ] || [ "$(/bin/date -u '+%s')" -ge "$(/bin/date -u -r "${MID_SCRIPT}" '+%s')" ]; } && [ "$(nvram get ntp_ready)" -gt 0 ]; do sleep 1s; done
+	until { [ "$(/bin/date -u +"%Y")" -gt "1970" ] || [ "$(/bin/date -u '+%s')" -ge "$(/bin/date -u -r "${MID_SCRIPT}" '+%s')" ]; } && [ "$(nvram get ntp_ready)" -gt 0 ]; do sleep 1s; done
 	while [ "${livecheck}" != "4" ]; do
 		for i in google.com github.com snbforums.com; do
 			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
