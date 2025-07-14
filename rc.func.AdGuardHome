@@ -22,7 +22,8 @@ start() {
 		printf "%s\n" "            ${ansi_yellow} already running. ${ansi_std}"
 		return 0
 	fi
-	if [ "${PROC}" != "AdGuardHome" ] || { for file in /etc/dnsmasq.conf /etc/dnsmasq-[0-9]*.conf; do [ -e "$file" ] || continue; ! grep -q '^port=553' "$file" && break; done; }; then { ${PRECMD} >/dev/null 2>&1; }; fi
+	local PHX DNS_COUNT PHX_NEEDED
+	PHX="0"; DNS_COUNT="$(ls /etc/dnsmasq-*.conf 2>/dev/null | wc -l)"; while true; do PHX_NEEDED="0"; if [ "${PROC}" != "AdGuardHome" ] || { for file in /etc/dnsmasq.conf $(awk -v max="${DNS_COUNT}" 'BEGIN { for (i = 1; i <= max; i++) printf "/etc/dnsmasq-%s.conf ", i }'); do if [ ! -e "${file}" ]; then PHX="$((PHX + 1))"; continue; elif ! grep -q '^port=553' "${file}"; then PHX_NEEDED="1"; break; fi; done; }; then { if [ "${PHX_NEEDED}" -eq "1" ] && [ "${DNS_COUNT}" -gt "0" ]; then ${PRECMD} "${PHX}" >/dev/null 2>&1; if [ "${PHX}" -eq "${DNS_COUNT}" ]; then break; fi; elif [ "${PHX_NEEDED}" -eq "1" ] && [ "${DNS_COUNT}" -eq "0" ]; then ${PRECMD} >/dev/null 2>&1; break; fi; }; fi; PHX="$((PHX + 1))"; done
 	{ ${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null & }
 	#echo ${PREARGS} ${PROC} ${ARGS}
 	local COUNTER="0" LIMIT="10"
@@ -30,7 +31,7 @@ start() {
 		sleep 1s
 		COUNTER="$((COUNTER + 1))"
 	done
-	if [ "${PROC}" != "AdGuardHome" ] || { for file in /etc/dnsmasq.conf /etc/dnsmasq-[0-9]*.conf; do [ -e "$file" ] || continue; ! grep -q '^port=553' "$file" && break; done; }; then { ${POSTCMD} >/dev/null 2>&1; }; fi
+	PHX="0"; while true; do PHX_NEEDED="0"; if [ "${PROC}" != "AdGuardHome" ] || { for file in /etc/dnsmasq.conf $(awk -v max="${DNS_COUNT}" 'BEGIN { for (i = 1; i <= max; i++) printf "/etc/dnsmasq-%s.conf ", i }'); do if [ ! -e "${file}" ]; then PHX="$((PHX + 1))"; continue; elif ! grep -q '^port=553' "${file}"; then PHX_NEEDED="1"; break; fi; done; }; then { if [ "${PHX_NEEDED}" -eq "1" ] && [ "${DNS_COUNT}" -gt "0" ]; then ${POSTCMD} "${PHX}" >/dev/null 2>&1; if [ "${PHX}" -eq "${DNS_COUNT}" ]; then break; fi; elif [ "${PHX_NEEDED}" -eq "1" ] && [ "${DNS_COUNT}" -eq "0" ]; then ${POSTCMD} >/dev/null 2>&1; break; fi; }; fi; PHX="$((PHX + 1))"; done
 	if [ -z "$(pidof "${PROC}")" ]; then
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 		logger -st "${CALLER}" "Failed to start ${DESC} from ${CALLER}."
