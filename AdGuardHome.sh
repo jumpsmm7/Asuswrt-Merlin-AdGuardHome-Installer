@@ -111,7 +111,7 @@ dnsmasq_params() {
 			for PARAM in "port=" "add-subnet=" "add-mac"; do
 	 			sed -i "/^${PARAM}.*$/d" "${CONFIG}"
      			done
-     			printf "%s\n" "port=553" "add-mac" "add-subnet=32,128" >>"${CONFIG}"
+     			printf "%s\n" "port=0" "add-mac" "add-subnet=32,128" >>"${CONFIG}"
     		fi
 	fi
 }
