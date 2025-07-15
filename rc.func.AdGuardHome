@@ -28,7 +28,6 @@ start() {
 	while true; do
 		PHX_NEEDED="0"
 		if [ "${PROC}" != "AdGuardHome" ] || { for file in /etc/dnsmasq.conf $(awk -v max="${DNS_COUNT}" 'BEGIN { for (i = 1; i <= max; i++) printf "/etc/dnsmasq-%s.conf ", i }'); do if [ ! -e "${file}" ]; then
-			PHX="$((PHX + 1))"
 			continue
 		elif { [ "${file}" = "/etc/dnsmasq.conf" ] && ! grep -q '^port=553' "${file}"; } || { [ "${file}" != "/etc/dnsmasq.conf" ] && ! grep -q '^port=0' "${file}"; }; then
 			PHX_NEEDED="1"
@@ -53,7 +52,6 @@ start() {
 	while true; do
 		PHX_NEEDED="0"
 		if [ "${PROC}" != "AdGuardHome" ] || { for file in /etc/dnsmasq.conf $(awk -v max="${DNS_COUNT}" 'BEGIN { for (i = 1; i <= max; i++) printf "/etc/dnsmasq-%s.conf ", i }'); do if [ ! -e "${file}" ]; then
-			PHX="$((PHX + 1))"
 			continue
 		elif { [ "${file}" = "/etc/dnsmasq.conf" ] && ! grep -q '^port=553' "${file}"; } || { [ "${file}" != "/etc/dnsmasq.conf" ] && ! grep -q '^port=0' "${file}"; }; then
 			PHX_NEEDED="1"
