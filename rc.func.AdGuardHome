@@ -35,11 +35,11 @@ start() {
 			break
 		fi; done; }; then { if [ "${PHX_NEEDED}" -eq "1" ] && [ "${DNS_COUNT}" -gt "0" ]; then
 			${PRECMD} "${PHX}" >/dev/null 2>&1
-			if [ "${PHX}" -eq "${DNS_COUNT}" ]; then break; fi
 		elif [ "${PHX_NEEDED}" -eq "1" ] && [ "${DNS_COUNT}" -eq "0" ]; then
 			${PRECMD} >/dev/null 2>&1
 			break
 		fi; }; fi
+		if [ "${PHX}" -eq "${DNS_COUNT}" ]; then break; fi
 		PHX="$((PHX + 1))"
 	done
 	{ ${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null & }
@@ -60,11 +60,11 @@ start() {
 			break
 		fi; done; }; then { if [ "${PHX_NEEDED}" -eq "1" ] && [ "${DNS_COUNT}" -gt "0" ]; then
 			${POSTCMD} "${PHX}" >/dev/null 2>&1
-			if [ "${PHX}" -eq "${DNS_COUNT}" ]; then break; fi
 		elif [ "${PHX_NEEDED}" -eq "1" ] && [ "${DNS_COUNT}" -eq "0" ]; then
 			${POSTCMD} >/dev/null 2>&1
 			break
 		fi; }; fi
+		if [ "${PHX}" -eq "${DNS_COUNT}" ]; then break; fi
 		PHX="$((PHX + 1))"
 	done
 	if [ -z "$(pidof "${PROC}")" ]; then
