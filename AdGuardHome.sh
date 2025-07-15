@@ -105,9 +105,8 @@ dnsmasq_params() {
 				done
 			fi
 			if { ! readlink -f /etc/resolv.conf | grep -qE ^'/rom/etc/resolv.conf' && awk -F'=' '/ADGUARD_LOCAL/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -qE ^'YES'; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
-		elif [ -n "$1" ] && nvram get rc_support | grep -q 'mtlancfg' && [ "$(ls /etc/dnsmasq-*.conf 2>/dev/null | wc -l)" != "0" ]; then
-			SDN="$1"
-			CONFIG="/etc/dnsmasq-${SDN}.conf"
+		elif [ -n "$1" ] && nvram get rc_support | grep -q 'mtlancfg'; then
+			CONFIG="/etc/dnsmasq-${1}.conf"
 			for PARAM in "port=" "add-subnet=" "add-mac"; do
 				sed -i "/^${PARAM}.*$/d" "${CONFIG}"
 			done
@@ -317,14 +316,7 @@ case "$1" in
 	{ "${SCRIPT_LOC}" services-stop >/dev/null 2>&1; }
 	;;
 "dnsmasq" | "dnsmasq-sdn")
-	case "$1" in
-	"dnsmasq")
-		dnsmasq_params
-		;;
-	"dnsmasq-sdn")
-		dnsmasq_params "$2"
-		;;
-	esac
+	if [ -n "${2}" ]; then { dnsmasq_params "${2}"; }; else { dnsmasq_params; }; fi
 	;;
 "init-start" | "services-stop")
 	timezone
