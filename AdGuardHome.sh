@@ -116,7 +116,7 @@ dnsmasq_params() {
 				for PARAM in "port=" "add-mac" "dhcp-option=${LAN_IF_SDN},6"; do
 					sed -i "/^${PARAM}.*$/d" "${CONFIG}"
 				done
-				printf "%s\n" "port=553" "add-mac" "dhcp-option=${LAN_IF_SDN},6,$(ip -o -4 addr list "${LAN_IF_SDN}" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" >>"${CONFIG}"
+				printf "%s\n" "port=553" "add-mac" "dhcp-option=${LAN_IF_SDN},6,${NET_ADDR}" >>"${CONFIG}"
     			fi
 		fi
 	fi
