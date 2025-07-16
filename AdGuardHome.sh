@@ -71,7 +71,7 @@ check_dns_environment() {
 }
 
 dnsmasq_params() {
-	local CONFIG COUNT iCOUNT dCOUNT iVARS IVARS dVARS DVARS NIVARS NDVARS NET_ADDR NET_ADDR6 LAN_IF i
+	local CONFIG COUNT iCOUNT dCOUNT iVARS IVARS dVARS DVARS NIVARS NDVARS NET_ADDR NET_ADDR6 LAN_IF i LAN_IF_SDN
 	if { ! readlink -f /etc/resolv.conf | grep -qE ^'/rom/etc/resolv.conf' && df -h | grep -qoE '/tmp/resolv.conf'; }; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
 	if [ -n "$(pidof "${PROCS}")" ]; then
 		if [ -z "$1" ]; then
@@ -107,10 +107,17 @@ dnsmasq_params() {
 			if { ! readlink -f /etc/resolv.conf | grep -qE ^'/rom/etc/resolv.conf' && awk -F'=' '/ADGUARD_LOCAL/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -qE ^'YES'; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
 		elif [ -n "$1" ] && nvram get rc_support | grep -q 'mtlancfg'; then
 			CONFIG="/etc/dnsmasq-${1}.conf"
-			for PARAM in "port=" "add-subnet=" "add-mac"; do
-				sed -i "/^${PARAM}.*$/d" "${CONFIG}"
-			done
-			printf "%s\n" "port=553" "add-mac" "add-subnet=32,128" >>"${CONFIG}"
+   			LAN_IF_SDN="$(nvram get lan"${1}"_ifname)"
+      			[ -z "${LAN_IF_SDN}" ] && LAN_IF_SDN="$(nvram get br"${1}"_ifname)"
+      			if [ -n "${LAN_IF_SDN}" ]; then
+	 			NET_ADDR="$(ip -o -4 addr list "${LAN_IF_SDN}" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
+     				NET_ADDR6="$(ip -o -6 addr list "${LAN_IF_SDN}" scope global | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
+	 			[ -z "${NET_ADDR}" ] && exit || { sed -i "/^add-subnet=.*$/d" "${CONFIG}"; printf "%s\n" "add-subnet=32" >>"${CONFIG}"; };
+				for PARAM in "port=" "add-mac" "dhcp-option=${LAN_IF_SDN},6"; do
+					sed -i "/^${PARAM}.*$/d" "${CONFIG}"
+				done
+				printf "%s\n" "port=553" "add-mac" "dhcp-option=${LAN_IF_SDN},6,$(ip -o -4 addr list "${LAN_IF_SDN}" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" >>"${CONFIG}"
+    			fi
 		fi
 	fi
 }
