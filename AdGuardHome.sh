@@ -109,7 +109,7 @@ dnsmasq_params() {
 			CONFIG="/etc/dnsmasq-${1}.conf"
 			LAN_IF_SDN="$(nvram get lan"${1}"_ifname)"
 			[ -z "${LAN_IF_SDN}" ] && LAN_IF_SDN="$(nvram get br"${1}"_ifname)"
-			if [ -n "${LAN_IF_SDN}" ]; then
+			if [ -n "${LAN_IF_SDN}" ] && [ ! -e "/jffs/addons/AdGuardHome.d/dnsmasq-${1}.disable" ]; then
 				NET_ADDR="$(ip -o -4 addr list "${LAN_IF_SDN}" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
 				NET_ADDR6="$(ip -o -6 addr list "${LAN_IF_SDN}" scope global | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
 				if [ -z "${NET_ADDR}" ]; then exit; else {
