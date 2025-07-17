@@ -72,7 +72,7 @@ check_dns_environment() {
 
 dnsmasq_params() {
 	local CONFIG COUNT iCOUNT dCOUNT iVARS IVARS dVARS DVARS NIVARS NDVARS NET_ADDR NET_ADDR6 LAN_IF i LAN_IF_SDN
-	if { ! readlink -f /etc/resolv.conf | grep -qE ^'/rom/etc/resolv.conf' && df -h | grep -qoE '/tmp/resolv.conf'; }; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
+	if { ! readlink -f /etc/resolv.conf | grep -qE '^/rom/etc/resolv.conf' && df -h | grep -qoE '/tmp/resolv.conf'; }; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
 	if [ -n "$(pidof "${PROCS}")" ]; then
 		if [ -z "$1" ]; then
 			CONFIG="/etc/dnsmasq.conf"
@@ -82,7 +82,7 @@ dnsmasq_params() {
 			{
 				sed -i "/^port=.*$/d" "${CONFIG}"
 				sed -i "/^dhcp-option=lan,6.*$/d" "${CONFIG}"
-				printf "%s\n" "port=553" "local=/$(printf "%s\n" "${NET_ADDR}" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/" "local=/10.in-addr.arpa/" "local=//" "dhcp-option=lan,6,0.0.0.0" "add-mac" >>"${CONFIG}"
+				printf "%s\n" "port=553" "local=/$(printf "%s\n" "${NET_ADDR}" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/" "local=/10.in-addr.arpa/" "local=//" "dhcp-option=lan,6,${NET_ADDR}" "add-mac" >>"${CONFIG}"
 			}
 			if [ -n "${NET_ADDR6}" ]; then { printf "%s\n" "local=/$(printf "%s\n" "${NET_ADDR6}" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/" "add-subnet=32,128" >>"${CONFIG}"; }; else { printf "%s\n" "add-subnet=32" >>"${CONFIG}"; }; fi
 			if ! nvram get rc_support | grep -q 'mtlancfg' && [ -n "$(route | grep "br" | grep -v "br0" | grep -oE '\b^(((10|127)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3})|(((172\.(1[6-9]|2[0-9]|3[0-1]))|(192\.168))(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){2}))\b' | awk '{print $1}' | sed -e 's/[0-9]$/1/' | sed -e ':a; N; $!ba;s/\n/ /g')" ]; then
@@ -104,7 +104,7 @@ dnsmasq_params() {
 					printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >>"${CONFIG}"
 				done
 			fi
-			if { ! readlink -f /etc/resolv.conf | grep -qE ^'/rom/etc/resolv.conf' && awk -F'=' '/ADGUARD_LOCAL/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -qE ^'YES'; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
+			if { ! readlink -f /etc/resolv.conf | grep -qE '^/rom/etc/resolv.conf' && awk -F'=' '/ADGUARD_LOCAL/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -qE ^'YES'; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
 		elif [ -n "$1" ] && nvram get rc_support | grep -q 'mtlancfg'; then
 			CONFIG="/etc/dnsmasq-${1}.conf"
    			LAN_IF_SDN="$(nvram get lan"${1}"_ifname)"
@@ -112,11 +112,12 @@ dnsmasq_params() {
       			if [ -n "${LAN_IF_SDN}" ]; then
 	 			NET_ADDR="$(ip -o -4 addr list "${LAN_IF_SDN}" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
      				NET_ADDR6="$(ip -o -6 addr list "${LAN_IF_SDN}" scope global | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
-	 			[ -z "${NET_ADDR}" ] && exit || { sed -i "/^add-subnet=.*$/d" "${CONFIG}"; printf "%s\n" "add-subnet=32" >>"${CONFIG}"; };
+	 			if [ -z "${NET_ADDR}" ]; then exit; else { sed -i "/^add-subnet=.*$/d" "${CONFIG}"; printf "%s\n" "add-subnet=32" "local=/$(printf "%s\n" "${NET_ADDR}" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/" "local=//" >>"${CONFIG}"; }; fi
 				for PARAM in "port=" "add-mac" "dhcp-option=${LAN_IF_SDN},6"; do
 					sed -i "/^${PARAM}.*$/d" "${CONFIG}"
 				done
 				printf "%s\n" "port=553" "add-mac" "dhcp-option=${LAN_IF_SDN},6,${NET_ADDR}" >>"${CONFIG}"
+				if [ -n "${NET_ADDR6}" ]; then { sed -i "/^add-subnet=.*$/d" "${CONFIG}"; printf "%s\n" "add-subnet=32,128" "local=/$(printf "%s\n" "${NET_ADDR6}" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/" >>"${CONFIG}"; }; fi
     			fi
 		fi
 	fi
