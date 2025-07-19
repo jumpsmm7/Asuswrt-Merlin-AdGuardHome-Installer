@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.9.1                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.9.2                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -28,29 +28,24 @@
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v1.9.1"
+AI_VERSION="v1.9.2"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
-if openssl version | grep -q "1.1.1"; then
-	API_AUTH="$(printf "%s\n" "U2FsdGVkX193tvNAm/h0gqP8WFAbXP6rvJH+2ydlGOgX4nVc0jt4pVLTZhchaAvA" | openssl enc -aes-256-cbc -d -base64 -pass pass:adguardhome -pbkdf2)"
-	API_SECRET="$(printf "%s\n" "U2FsdGVkX1/o/jNigvt2vDaQ8cn+8zHIxbS2NUKKCjMrPGCq3b1HIDE0f8q3gDXe8SxfTh9HQcxxnR2grWBwuwkTqwbAcE7okW4EHMHVpTXRNthxm2RYkNLFIrRKYDP0rLbdd7/g28c3trlPGqc9ng==" | openssl enc -aes-256-cbc -d -base64 -pass pass:adguardhome -pbkdf2)"
-	API_HEADER="-H "\""${API_AUTH} ${API_SECRET}"\"""
-fi
 varcnt=0
 readonly MAX_RETRIES="1"
 until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
-	if [ "${varcnt}" -lt "${MAX_RETRIES}" ] || { [ "${varcnt}" -eq "${MAX_RETRIES}" ] && [ -z "${API_HEADER}" ]; }; then
-		curl -D /tmp/$$_headers.out --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}?per_page=5" -o "${API_FILE}"
-	elif { [ "${varcnt}" -eq "${MAX_RETRIES}" ] && [ -n "${API_HEADER}" ]; }; then
-		curl -D /tmp/$$_headers.out --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}?per_page=5" -o "${API_FILE}" "${API_HEADER}"
-	elif [ "${varcnt}" -gt "${MAX_RETRIES}" ]; then
-		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr), and our token work around did not work (5000req./hr)." "For more information, please read /tmp/$$_headers.out." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
+	curl -D /tmp/$$_headers.out --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}?per_page=5" -o "${API_FILE}"
+	if [ -s "${API_FILE}" ]; then
+		REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
+		REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
+		break
+	fi
+	if [ "${varcnt}" -gt "${MAX_RETRIES}" ]; then
+		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr) per requesters IP." "For more information, please read /tmp/$$_headers.out." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
 		sleep 3s
 		exit 1
 	fi
-	if [ -z "${REMOTE_VER}" ] && [ -f "${API_FILE}" ]; then REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"; fi
-	if [ -z "${REMOTE_BETA}" ] && [ -f "${API_FILE}" ]; then REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"; fi
 	varcnt="$((varcnt + 1))"
 done
 rm -rf "$API_FILE" "/tmp/$$_headers.out"
