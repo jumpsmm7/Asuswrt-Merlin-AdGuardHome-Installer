@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.9.2                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.9.3                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -28,14 +28,14 @@
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v1.9.2"
+AI_VERSION="v1.9.3"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 varcnt=0
 readonly MAX_RETRIES="1"
 until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
-	curl -D /tmp/$$_headers.out --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${LATEST_URL}?per_page=5" -o "${API_FILE}"
+	curl -D /tmp/$$_headers.out --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -sL "${LATEST_URL}?per_page=5" -o "${API_FILE}"
 	if [ -s "${API_FILE}" ]; then
 		REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
 		REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
@@ -279,7 +279,7 @@ check_connection() {
 	while [ "${livecheck}" != "4" ]; do
 		for i in google.com github.com snbforums.com; do
 			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
-				if { ! curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget --no-cache --no-cookies --tries=3 --timeout=3 --waitretry=1 --retry-connrefused -q --spider "http://${i}" >/dev/null 2>&1; }; then
+				if { ! curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 --retry-connrefused -q --spider "http://${i}" >/dev/null 2>&1; }; then
 					sleep 1s
 					continue
 				fi
@@ -467,9 +467,9 @@ check_version() {
 			local varcnt=0
 			until [ -n "${LINSTALL}" ] && [ -n "${RMNSTALL}" ] && [ -n "${MD5SUM_L}" ] && [ -n "${MD5SUM_R}" ]; do
 				if [ -z "${LINSTALL}" ]; then LINSTALL="$(awk -F= '/^AI_VERSION=/ { gsub(/"/, "", $2); sub(/^v/, "", $2); if ($2 ~ /^[0-9]{1,2}(\.[0-9]{1,2}){2}$/) print $2; exit }' "${TARG_DIR}/installer")"; fi
-				if [ -z "${RMNSTALL}" ]; then RMNSTALL="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -sL "${RURL}/installer" | awk -F= '/^AI_VERSION=/ { gsub(/"/, "", $2); sub(/^v/, "", $2); if ($2 ~ /^[0-9]{1,2}(\.[0-9]{1,2}){2}$/) print $2; exit }')"; fi
+				if [ -z "${RMNSTALL}" ]; then RMNSTALL="$(curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -sL "${RURL}/installer" | awk -F= '/^AI_VERSION=/ { gsub(/"/, "", $2); sub(/^v/, "", $2); if ($2 ~ /^[0-9]{1,2}(\.[0-9]{1,2}){2}$/) print $2; exit }')"; fi
 				if [ -z "${MD5SUM_L}" ]; then MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | awk '{print $1; exit}')"; fi
-				if [ -z "${MD5SUM_R}" ]; then MD5SUM_R="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -fsL "${RURL}/installer" | md5sum | awk '{print $1; exit}')"; fi
+				if [ -z "${MD5SUM_R}" ]; then MD5SUM_R="$(curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -fsL "${RURL}/installer" | md5sum | awk '{print $1; exit}')"; fi
 				varcnt="$((varcnt + 1))"
 				if [ "${varcnt}" -ge 2 ]; then
 					printf "%s\n" "One or more critical variables could not be set in a timely manner." "Please check your internet connection, or try again later." "The installer script will now exit."
@@ -639,7 +639,7 @@ download_file() {
 			if [ -f "${TARG}/${FILENAME}" ]; then
 				if [ -z "${MD5SUM_OLD}" ]; then MD5SUM_OLD="$(md5sum "${TARG}/${FILENAME}" | awk '{print $1; exit}')"; fi
 			fi
-			if [ -z "${MD5SUM_CURR}" ]; then MD5SUM_CURR="$(curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -fsL "${URL}" | md5sum | awk '{print $1; exit}')"; fi
+			if [ -z "${MD5SUM_CURR}" ]; then MD5SUM_CURR="$(curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -fsL "${URL}" | md5sum | awk '{print $1; exit}')"; fi
 			varcnt="$((varcnt + 1))"
 			if [ "${varcnt}" -eq 1 ]; then
 				wait
@@ -655,7 +655,7 @@ download_file() {
 			COUNT="0"
 			while [ "${COUNT}" -lt 3 ]; do
 				PTXT "${INFO} Downloading ${FILENAME}"
-				if curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -L -k -s "${URL}" -o "${TARG}/${FILENAME}"; then
+				if curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -L -k -s "${URL}" -o "${TARG}/${FILENAME}"; then
 					chmod "${PERM}" "${TARG}/${FILENAME}"
 					break
 				fi
