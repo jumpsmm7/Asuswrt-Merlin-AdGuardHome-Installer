@@ -143,7 +143,7 @@ netcheck() {
 	while [ "${livecheck}" != "4" ]; do
 		for i in google.com github.com snbforums.com; do
 			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
-				if { ! curl --retry 3 --connect-timeout 3 --retry-delay 1 --max-time $((3 * 5)) --retry-connrefused -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget --no-cache --no-cookies --tries=3 --timeout=3 --waitretry=1 --retry-connrefused -q --spider "http://${i}" >/dev/null 2>&1; }; then
+				if { ! curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 --retry-connrefused -q --spider "http://${i}" >/dev/null 2>&1; }; then
 					sleep 1s
 					continue
 				fi
