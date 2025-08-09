@@ -107,8 +107,7 @@ dnsmasq_params() {
 			if { ! readlink -f /etc/resolv.conf | grep -qE '^/rom/etc/resolv.conf' && awk -F'=' '/ADGUARD_LOCAL/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -qE '^YES'; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
 		elif [ -n "$1" ] && nvram get rc_support | grep -q 'mtlancfg'; then
 			CONFIG="/etc/dnsmasq-${1}.conf"
-			LAN_IF_SDN="$(nvram get lan"${1}"_ifname)"
-			[ -z "${LAN_IF_SDN}" ] && LAN_IF_SDN="$(nvram get br"${1}"_ifname)"
+			LAN_IF_SDN="$(get_mtlan | awk -v idx="$1" '/^[[:space:]]*\|-enable:/ {br=""; sdn=""} /^[[:space:]]*\|-br_ifname:/ {s=index($0,"["); e=index($0,"]"); if(s>0&&e>s) br=substr($0,s+1,e-s-1)} /^[[:space:]]*\|-sdn_idx:/ {s=index($0,"["); e=index($0,"]"); if(s>0&&e>s) {sdn=substr($0,s+1,e-s-1); if(sdn==idx) {print br; exit}}}')"
 			if [ -n "${LAN_IF_SDN}" ]; then
 				NET_ADDR="$(ip -o -4 addr list "${LAN_IF_SDN}" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
 				NET_ADDR6="$(ip -o -6 addr list "${LAN_IF_SDN}" scope global | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
@@ -124,6 +123,8 @@ dnsmasq_params() {
 					sed -i "/^add-subnet=.*$/d" "${CONFIG}"
 					printf "%s\n" "add-subnet=32,128" "local=/$(printf "%s\n" "${NET_ADDR6}" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/" >>"${CONFIG}"
 				}; fi
+			else
+				exit
 			fi
 		fi
 	fi
