@@ -107,7 +107,7 @@ dnsmasq_params() {
 			if { ! readlink -f /etc/resolv.conf | grep -qE '^/rom/etc/resolv.conf' && awk -F'=' '/ADGUARD_LOCAL/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -qE '^YES'; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
 		elif [ -n "$1" ] && nvram get rc_support | grep -q 'mtlancfg'; then
 			CONFIG="/etc/dnsmasq-${1}.conf"
-			LAN_IF_SDN="$(get_mtlan | awk -v idx="$1" '/^[[:space:]]*\|-enable:/ {br=""; sdn=""} /^[[:space:]]*\|-br_ifname:/ {s=index($0,"["); e=index($0,"]"); if(s>0&&e>s) br=substr($0,s+1,e-s-1)} /^[[:space:]]*\|-sdn_idx:/ {s=index($0,"["); e=index($0,"]"); if(s>0&&e>s) {sdn=substr($0,s+1,e-s-1); if(sdn==idx) {print br; exit}}}')"
+			LAN_IF_SDN="$(get_mtlan | awk -v idx="$1" '/^[[:space:]]*\|-enable:/ {e=""; br=""; sdn=""} /^[[:space:]]*\|-enable:/ {s=index($0,"["); c=index($0,"]"); if(s>0&&c>s) e=substr($0,s+1,c-s-1)} /^[[:space:]]*\|-br_ifname:/ {s=index($0,"["); c=index($0,"]"); if(s>0&&c>s) br=substr($0,s+1,c-s-1)} /^[[:space:]]*\|-sdn_idx:/ {s=index($0,"["); c=index($0,"]"); if(s>0&&c>s) {sdn=substr($0,s+1,c-s-1); if(sdn==idx&&e=="1"){print br; exit}}}')"
 			if [ -n "${LAN_IF_SDN}" ]; then
 				NET_ADDR="$(ip -o -4 addr list "${LAN_IF_SDN}" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
 				NET_ADDR6="$(ip -o -6 addr list "${LAN_IF_SDN}" scope global | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
