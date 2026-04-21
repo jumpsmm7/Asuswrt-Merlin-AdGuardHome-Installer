@@ -1412,6 +1412,7 @@ menu() {
 	"5" )
 		PTXT "${INFO} This operation allows you to enable/disable AMTM's ability to manage for this script updates."
 		if read_yesno "Do you want to proceed?"; then setup_amtmupdate; else end_op_message 1; fi
+		;;
 	"b" | "B" | "backup")
 		PTXT "${INFO} This operation will backup everything!"
 		if read_yesno "Do you want to continue?"; then backup_restore BACKUP; else end_op_message 1; fi
