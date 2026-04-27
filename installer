@@ -1167,14 +1167,15 @@ setup_AdGuardHome_impl() {
 }
 
 setup_amtmupdate() {
-		local AMTM_UPDATE
-		if [ ! -f "${CONF_FILE}" ] || [ -z "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" ] || { [ -f "${CONF_FILE}" ] && [ "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" = "DISABLED" ]; }; then
-			AMTM_UPDATE="ENABLED"
-		else
-			AMTM_UPDATE="DISABLED"
-		fi
-		PTXT "${INFO} The installer will now set AMTM Update to ${AMTM_UPDATE}."
-		write_conf AMTM_UPDATE "\"${AMTM_UPDATE}\""
+	local AMTM_UPDATE
+	if [ ! -f "${CONF_FILE}" ] || [ -z "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" ] || { [ -f "${CONF_FILE}" ] && [ "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" = "DISABLED" ]; }; then
+		AMTM_UPDATE="ENABLED"
+	else
+		AMTM_UPDATE="DISABLED"
+	fi
+	PTXT "${INFO} The installer will now set AMTM Update to ${AMTM_UPDATE}."
+	write_conf AMTM_UPDATE "\"${AMTM_UPDATE}\""
+	end_op_message 0
 }
 
 yaml_nvars_insert() {
