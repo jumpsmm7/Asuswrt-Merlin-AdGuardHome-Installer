@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.9.6                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.9.7                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -28,7 +28,7 @@
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v1.9.6"
+AI_VERSION="v1.9.7"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
@@ -1168,11 +1168,12 @@ setup_AdGuardHome_impl() {
 
 setup_amtmupdate() {
 		local AMTM_UPDATE
-		if [ ! -f "${CONF_FILE}" ] || [ -z "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" ] || [ "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" = "DISABLED" ]; then
+		if [ ! -f "${CONF_FILE}" ] || [ -z "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" ] || { [ -f "${CONF_FILE}" ] && [ "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" = "DISABLED" ]; }; then
 			AMTM_UPDATE="ENABLED"
 		else
 			AMTM_UPDATE="DISABLED"
 		fi
+		PTXT "${INFO} The installer will now set AMTM Update to ${AMTM_UPDATE}."
 		write_conf AMTM_UPDATE "\"${AMTM_UPDATE}\""
 }
 
@@ -1391,12 +1392,13 @@ menu() {
 	"1" | "install" | "update" | "amtmupdate")
 		if [ "${CHOSEN}" = "amtmupdate" ] || [ "${CHOSEN}" = "update" ]; then
 			AUTO_UPDATE="update"
-            inst_AdGuardHome "${AUTO_UPDATE:-update}"
+			inst_AdGuardHome "${AUTO_UPDATE:-update}"
+		else
+			PTXT "${INFO} This operation will install AdGuardHome and related files (<6MB)" \
+				"${INFO} to ENTWARE, no other data will be changed." \
+				"${INFO} Also some start scripts will be installed/modified as required."
+			if read_yesno "Do you want to install AdGuardHome?"; then inst_AdGuardHome "${AUTO_UPDATE:-install}"; else end_op_message 1; fi
 		fi
-		PTXT "${INFO} This operation will install AdGuardHome and related files (<6MB)" \
-			"${INFO} to ENTWARE, no other data will be changed." \
-			"${INFO} Also some start scripts will be installed/modified as required."
-		if read_yesno "Do you want to install AdGuardHome?"; then inst_AdGuardHome "${AUTO_UPDATE:-install}"; else end_op_message 1; fi
 		;;
 	"2" | "uninstall")
 		PTXT "${INFO} This operation will cleanup everything installed by this script."
@@ -1411,7 +1413,9 @@ menu() {
 		if read_yesno "Do you want to proceed?"; then setup_AdGuardHome reconfig; else end_op_message 1; fi
 		;;
 	"5" )
-		PTXT "${INFO} This operation allows you to enable/disable AMTM's ability to manage for this script updates."
+		PTXT "${INFO} This operation allows you to enable or disable AMTM's ability to manage updates for this script and by extension, AdGuardHome."
+		PTXT "${INFO} If the option is already disabled and you choose to proceed, then you will be enabling."
+		PTXT "${INFO} The same is true if the opposite is true and you choose to proceed."
 		if read_yesno "Do you want to proceed?"; then setup_amtmupdate; else end_op_message 1; fi
 		;;
 	"b" | "B" | "backup")
