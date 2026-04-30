@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.9.7                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.9.8                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -28,7 +28,7 @@
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v1.9.7"
+AI_VERSION="v1.9.8"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
@@ -1413,7 +1413,7 @@ menu() {
 		PTXT "${INFO} This operation allows you to configure AdGuardHome"
 		if read_yesno "Do you want to proceed?"; then setup_AdGuardHome reconfig; else end_op_message 1; fi
 		;;
-	"5" )
+	"5" | "setamtmupdate")
 		PTXT "${INFO} This operation allows you to enable or disable AMTM's ability to manage updates for this script and by extension, AdGuardHome."
 		PTXT "${INFO} If the option is already disabled and you choose to proceed, then you will be enabling."
 		PTXT "${INFO} The same is true if the opposite is true and you choose to proceed."
@@ -1449,9 +1449,9 @@ case "$2" in
 	menu "$2"
 	;;
 *)
-	PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - amtmupdate | {b/B} - backup | {r/R} - restore)" \
+	PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update/amtmupdate} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | {b/B} - backup | {r/R} - restore)" \
 		"${INFO} Branch or Tag must be represented by a value or empty quotes in place of string e.g. \"\" in the \$1 string position." \
-		"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - amtmupdate | {b/B} - backup | {r/R} - restore) in the \$2 string position." \
+		"${INFO} Action must be represented by a value (1 - {install/update/amtmupdate} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | {b/B} - backup | {r/R} - restore) in the \$2 string position." \
 		"${INFO} An update example sh installer master update, or just use the regular menu by not specifying an Action."
 	;;
 esac
