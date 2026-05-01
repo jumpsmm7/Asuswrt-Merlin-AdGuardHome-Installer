@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v1.9.9                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.0.0                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -28,7 +28,7 @@
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v1.9.9"
+AI_VERSION="v2.0.0"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
@@ -1289,6 +1289,7 @@ write_manager_script() {
 	fi
 }
 
+[ "$1" ] && BRANCH="$1" || BRANCH="master"
 case "$1" in
 "amtmupdate")
 	case "$2" in
@@ -1300,13 +1301,12 @@ case "$1" in
 		fi
 		;;
 	"")
-		exec "${SCRIPT_LOC}" "" "$@" > /dev/null 2>&1
+		exec "${SCRIPT_LOC}" "${BRANCH}" update > /dev/null 2>&1
 		exit $?
 		;;
 	esac
 	;;
 esac
-[ "$1" ] && BRANCH="$1" || BRANCH="master"
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
 RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}"
 ROUTER_OS="$(/bin/uname)"
@@ -1392,8 +1392,8 @@ menu() {
 	esac
 	[ -n "${CHOSEN}" ] && trap 'clear; end_op_message 2' HUP INT QUIT ABRT TERM
 	case "${CHOSEN}" in
-	"1" | "install" | "update" | "amtmupdate")
-		if [ "${CHOSEN}" = "amtmupdate" ] || [ "${CHOSEN}" = "update" ]; then
+	"1" | "install" | "update")
+		if [ "${CHOSEN}" = "update" ]; then
 			AUTO_UPDATE="update"
 			inst_AdGuardHome "${AUTO_UPDATE:-update}"
 		else
@@ -1451,9 +1451,9 @@ case "$2" in
 	menu "$2"
 	;;
 *)
-	PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update/amtmupdate} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | {b/B} - backup | {r/R} - restore)" \
+	PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | {b/B} - backup | {r/R} - restore)" \
 		"${INFO} Branch or Tag must be represented by a value or empty quotes in place of string e.g. \"\" in the \$1 string position." \
-		"${INFO} Action must be represented by a value (1 - {install/update/amtmupdate} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | {b/B} - backup | {r/R} - restore) in the \$2 string position." \
+		"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | {b/B} - backup | {r/R} - restore) in the \$2 string position." \
 		"${INFO} An update example sh installer master update, or just use the regular menu by not specifying an Action."
 	;;
 esac
