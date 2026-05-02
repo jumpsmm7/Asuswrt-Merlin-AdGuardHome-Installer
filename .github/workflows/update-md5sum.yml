@@ -1,0 +1,85 @@
+name: Update md5sum files
+
+on:
+  push:
+    branches:
+      - master
+      - 'dev/**'
+    paths:
+      - installer
+      - S99AdGuardHome
+      - rc.func.AdGuardHome
+      - tools/update-md5.sh
+      - .github/workflows/update-md5sum.yml
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: Branch to update; defaults to the branch that started the workflow
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-md5sum-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  update-md5sum:
+    name: Update md5sum files
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'branch'
+
+    steps:
+      - name: Resolve target branch
+        id: branch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.target_branch }}" ]; then
+            target_branch="${{ inputs.target_branch }}"
+          else
+            target_branch="${GITHUB_REF_NAME}"
+          fi
+
+          case "${target_branch}" in
+            ""|*..*|/*|*' '*|*'~'*|*'^'*|*':'*|*'?'*|*'['*|*'\\'*)
+              echo "Invalid target branch: ${target_branch}" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "target=${target_branch}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.branch.outputs.target }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Update md5sum files
+        run: |
+          sh tools/update-md5.sh installer S99AdGuardHome rc.func.AdGuardHome
+
+      - name: Commit md5sum updates
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- installer.md5sum S99AdGuardHome.md5sum rc.func.AdGuardHome.md5sum; then
+            echo "No md5sum updates needed."
+            exit 0
+          fi
+
+          git status --short
+          git add installer.md5sum S99AdGuardHome.md5sum rc.func.AdGuardHome.md5sum
+          git commit -m "chore: update md5sum files"
+          git push origin HEAD:${{ steps.branch.outputs.target }}
