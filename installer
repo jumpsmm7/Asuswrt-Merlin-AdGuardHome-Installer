@@ -142,8 +142,18 @@ safe_download() {
 
 AdGuardHome_authen() {
 	local USERNAME PW1 PW2
-	PTXT -n "${INPUT} Please enter AdGuardHome username${NORM}: "
-	read -r USERNAME
+	while :; do
+		PTXT -n "${INPUT} Please enter AdGuardHome username${NORM}: "
+		read -r USERNAME
+		case "${USERNAME}" in
+		''|*[!A-Za-z0-9._-]*)
+			PTXT "${ERROR} Username must contain only letters, numbers, dots, underscores, or hyphens."
+			;;
+		*)
+			break
+			;;
+		esac
+	done
 	while :; do
 		PTXT -n "${INPUT} Please enter AdGuardHome password${NORM}: "
 		read -rs PW1
@@ -178,13 +188,18 @@ AdGuardHome_authen() {
 		export GOROOT="/opt/bin/go"
 		export GOBIN="/opt/bin/"
 		go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
-		rm -rf go
+		rm -rf "${HOME:-/tmp}/go"
 	else
 		pip3 install bcrypt >/dev/null 2>&1
 	fi
 	local PW1_ENCRYPTED
 	if opkg_installed python3-bcrypt; then PW1_ENCRYPTED="$(printf '%s' "${PW1}" | hash_password_python3)"; elif [ -f "/opt/bin/bcrypt-tool" ]; then PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"; else
 		PTXT "${ERROR} Password could not be set!" "${ERROR} Please contact dev."
+		end_op_message 1
+		return
+	fi
+	if [ -z "${PW1_ENCRYPTED}" ]; then
+		PTXT "${ERROR} Password hash could not be generated!" "${ERROR} Please contact dev."
 		end_op_message 1
 		return
 	fi
@@ -290,7 +305,11 @@ backup_restore() {
 			end_op_message 1
 			return
 		fi
-		tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${BASE_DIR}" >/dev/null 2>&1
+		if ! tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${BASE_DIR}" >/dev/null 2>&1; then
+			PTXT "${ERROR} Backup archive could not be restored."
+			end_op_message 1
+			return
+		fi
 		for restored_file in "${TARG_DIR}"/*; do
 			[ -e "${restored_file}" ] || continue
 			chown "$(nvram get http_username)":root "${restored_file}"
