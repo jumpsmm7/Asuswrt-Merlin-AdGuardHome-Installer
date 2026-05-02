@@ -12,61 +12,45 @@ permissions:
 
 jobs:
   posix-syntax:
-    name: POSIX shell syntax
+    name: BusyBox ash syntax
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check POSIX shell syntax
-        shell: bash
+      - name: Install BusyBox
         run: |
-          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y busybox-static
+
+      - name: Check router-side syntax with BusyBox ash
+        run: |
+          set -eu
 
           scripts_file="$(mktemp)"
           trap 'rm -f "${scripts_file}"' EXIT HUP INT TERM
 
-          is_shell_script() {
-            local path first_line
-            path="$1"
-            first_line="$(sed -n '1p' "${path}" 2>/dev/null || true)"
-
-            case "${path}" in
-              installer|*.sh|S99AdGuardHome|rc.func.AdGuardHome|*/S99AdGuardHome|*/rc.func.AdGuardHome)
-                return 0
-                ;;
-            esac
-
-            case "${first_line}" in
-              '#!'*'/sh'|'#!'*'/sh\ *|'#!'*' sh'|'#!'*' sh\ *|\
-              '#!'*'/ash'|'#!'*'/ash\ *|'#!'*' ash'|'#!'*' ash\ *|\
-              '#!'*'/dash'|'#!'*'/dash\ *|'#!'*' dash'|'#!'*' dash\ *)
-                return 0
-                ;;
-            esac
-
-            return 1
-          }
-
-          while IFS= read -r file; do
-            path="${file#./}"
-            if is_shell_script "${path}"; then
-              printf '%s\n' "${path}" >> "${scripts_file}"
-            fi
-          done < <(find . -type f ! -path './.git/*' | sort)
+          busybox ash tools/list-shell-scripts.sh > "${scripts_file}"
 
           if [ ! -s "${scripts_file}" ]; then
-            echo "No POSIX shell scripts found."
+            echo "No shell scripts found."
             exit 0
           fi
 
           while IFS= read -r script; do
-            echo "sh -n: ${script}"
-            sh -n "${script}"
+            echo "busybox ash -n: ${script}"
+            busybox ash -n "${script}"
           done < "${scripts_file}"
 
+      - name: Check helper scripts with dash
+        run: |
+          set -eu
+          dash -n tools/list-shell-scripts.sh
+          dash -n tools/check-md5.sh
+          dash -n tools/update-md5.sh
+
   shellcheck:
-    name: ShellCheck
+    name: ShellCheck POSIX ash profile
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -77,42 +61,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y shellcheck
 
-      - name: Run ShellCheck
-        shell: bash
+      - name: Run ShellCheck with sh dialect
         run: |
-          set -euo pipefail
+          set -eu
 
           scripts_file="$(mktemp)"
           trap 'rm -f "${scripts_file}"' EXIT HUP INT TERM
 
-          is_shell_script() {
-            local path first_line
-            path="$1"
-            first_line="$(sed -n '1p' "${path}" 2>/dev/null || true)"
-
-            case "${path}" in
-              installer|*.sh|S99AdGuardHome|rc.func.AdGuardHome|*/S99AdGuardHome|*/rc.func.AdGuardHome)
-                return 0
-                ;;
-            esac
-
-            case "${first_line}" in
-              '#!'*'/sh'|'#!'*'/sh\ *|'#!'*' sh'|'#!'*' sh\ *|\
-              '#!'*'/ash'|'#!'*'/ash\ *|'#!'*' ash'|'#!'*' ash\ *|\
-              '#!'*'/dash'|'#!'*'/dash\ *|'#!'*' dash'|'#!'*' dash\ *)
-                return 0
-                ;;
-            esac
-
-            return 1
-          }
-
-          while IFS= read -r file; do
-            path="${file#./}"
-            if is_shell_script "${path}"; then
-              printf '%s\n' "${path}" >> "${scripts_file}"
-            fi
-          done < <(find . -type f ! -path './.git/*' | sort)
+          sh tools/list-shell-scripts.sh > "${scripts_file}"
 
           if [ ! -s "${scripts_file}" ]; then
             echo "No shell scripts found for ShellCheck."
@@ -131,9 +87,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate md5sum files
+      - name: Install BusyBox
         run: |
-          sh tools/check-md5.sh installer S99AdGuardHome rc.func.AdGuardHome
+          sudo apt-get update
+          sudo apt-get install -y busybox-static
+
+      - name: Validate md5sum files with BusyBox ash
+        run: |
+          busybox ash tools/check-md5.sh installer S99AdGuardHome rc.func.AdGuardHome
 
   shfmt:
     name: shfmt mksh recommendations
@@ -154,7 +115,6 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
 
       - name: Show shfmt mksh formatting recommendations
-        shell: bash
         run: |
           set -u
 
@@ -163,34 +123,7 @@ jobs:
           errors_file="$(mktemp)"
           trap 'rm -f "${scripts_file}" "${diff_file}" "${errors_file}"' EXIT HUP INT TERM
 
-          is_shell_script() {
-            local path first_line
-            path="$1"
-            first_line="$(sed -n '1p' "${path}" 2>/dev/null || true)"
-
-            case "${path}" in
-              installer|*.sh|S99AdGuardHome|rc.func.AdGuardHome|*/S99AdGuardHome|*/rc.func.AdGuardHome)
-                return 0
-                ;;
-            esac
-
-            case "${first_line}" in
-              '#!'*'/sh'|'#!'*'/sh\ *|'#!'*' sh'|'#!'*' sh\ *|\
-              '#!'*'/ash'|'#!'*'/ash\ *|'#!'*' ash'|'#!'*' ash\ *|\
-              '#!'*'/dash'|'#!'*'/dash\ *|'#!'*' dash'|'#!'*' dash\ *)
-                return 0
-                ;;
-            esac
-
-            return 1
-          }
-
-          while IFS= read -r file; do
-            path="${file#./}"
-            if is_shell_script "${path}"; then
-              printf '%s\n' "${path}" >> "${scripts_file}"
-            fi
-          done < <(find . -type f ! -path './.git/*' | sort)
+          sh tools/list-shell-scripts.sh > "${scripts_file}"
 
           if [ ! -s "${scripts_file}" ]; then
             echo "No shell scripts found for shfmt."
