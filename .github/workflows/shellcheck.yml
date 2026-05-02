@@ -12,20 +12,62 @@ permissions:
 
 jobs:
   syntax:
-    name: POSIX shell syntax check
+    name: Shell script syntax check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check installer syntax
-        run: sh -n installer
-
-      - name: Check helper script syntax
+      - name: Check shell script syntax
         run: |
-          if [ -d tools ]; then
-            find tools -type f -name '*.sh' -print -exec sh -n {} \;
+          set -eu
+
+          scripts_file="$(mktemp)"
+          trap 'rm -f "${scripts_file}"' EXIT HUP INT TERM
+
+          is_shell_script() {
+            path="$1"
+            first_line="$(sed -n '1p' "${path}" 2>/dev/null || true)"
+
+            case "${path}" in
+              installer|*.sh) return 0 ;;
+            esac
+
+            case "${first_line}" in
+              '#!'*'/sh'|'#!'*'/sh '*|'#!'*' sh'|'#!'*' sh '*|\
+              '#!'*'/ash'|'#!'*'/ash '*|'#!'*' ash'|'#!'*' ash '*|\
+              '#!'*'/dash'|'#!'*'/dash '*|'#!'*' dash'|'#!'*' dash '*|\
+              '#!'*'/bash'|'#!'*'/bash '*|'#!'*' bash'|'#!'*' bash '*) return 0 ;;
+            esac
+
+            return 1
+          }
+
+          syntax_check() {
+            path="$1"
+            first_line="$(sed -n '1p' "${path}" 2>/dev/null || true)"
+            case "${first_line}" in
+              '#!'*'/bash'|'#!'*'/bash '*|'#!'*' bash'|'#!'*' bash '*) bash -n "${path}" ;;
+              *) sh -n "${path}" ;;
+            esac
+          }
+
+          find . -type f ! -path './.git/*' | sort | while IFS= read -r file; do
+            path="${file#./}"
+            if is_shell_script "${path}"; then
+              printf '%s\n' "${path}" >> "${scripts_file}"
+            fi
+          done
+
+          if [ ! -s "${scripts_file}" ]; then
+            echo "No shell scripts found."
+            exit 0
           fi
+
+          while IFS= read -r script; do
+            echo "syntax: ${script}"
+            syntax_check "${script}"
+          done < "${scripts_file}"
 
       - name: Check router compatibility
         run: |
@@ -61,18 +103,35 @@ jobs:
         run: |
           set -eu
 
-          tmp_files="$(mktemp)"
-          trap 'rm -f "${tmp_files}"' EXIT HUP INT TERM
+          scripts_file="$(mktemp)"
+          trap 'rm -f "${scripts_file}" shfmt.diff' EXIT HUP INT TERM
 
-          if [ -f installer ]; then
-            printf '%s\n' installer >> "${tmp_files}"
-          fi
+          is_shell_script() {
+            path="$1"
+            first_line="$(sed -n '1p' "${path}" 2>/dev/null || true)"
 
-          if [ -d tools ]; then
-            find tools -type f -name '*.sh' | sort >> "${tmp_files}"
-          fi
+            case "${path}" in
+              installer|*.sh) return 0 ;;
+            esac
 
-          if [ ! -s "${tmp_files}" ]; then
+            case "${first_line}" in
+              '#!'*'/sh'|'#!'*'/sh '*|'#!'*' sh'|'#!'*' sh '*|\
+              '#!'*'/ash'|'#!'*'/ash '*|'#!'*' ash'|'#!'*' ash '*|\
+              '#!'*'/dash'|'#!'*'/dash '*|'#!'*' dash'|'#!'*' dash '*|\
+              '#!'*'/bash'|'#!'*'/bash '*|'#!'*' bash'|'#!'*' bash '*) return 0 ;;
+            esac
+
+            return 1
+          }
+
+          find . -type f ! -path './.git/*' | sort | while IFS= read -r file; do
+            path="${file#./}"
+            if is_shell_script "${path}"; then
+              printf '%s\n' "${path}" >> "${scripts_file}"
+            fi
+          done
+
+          if [ ! -s "${scripts_file}" ]; then
             echo "No shell scripts found for shfmt."
             exit 0
           fi
@@ -81,11 +140,11 @@ jobs:
           while IFS= read -r script; do
             echo "shfmt: ${script}"
             shfmt -d -i 0 -ci "${script}"
-          done < "${tmp_files}" > shfmt.diff
+          done < "${scripts_file}" > shfmt.diff
 
           if [ -s shfmt.diff ]; then
             cat shfmt.diff
-            echo "Shell formatting changes are needed. Run: shfmt -w -i 0 -ci installer tools/*.sh" >&2
+            echo "Shell formatting changes are needed. Run shfmt -w -i 0 -ci against the files shown above." >&2
             exit 1
           fi
 
@@ -105,19 +164,46 @@ jobs:
 
       - name: Run ShellCheck advisory report
         run: |
+          set -eu
+
           status=0
+          scripts_file="$(mktemp)"
+          trap 'rm -f "${scripts_file}"' EXIT HUP INT TERM
+
+          is_shell_script() {
+            path="$1"
+            first_line="$(sed -n '1p' "${path}" 2>/dev/null || true)"
+
+            case "${path}" in
+              installer|*.sh) return 0 ;;
+            esac
+
+            case "${first_line}" in
+              '#!'*'/sh'|'#!'*'/sh '*|'#!'*' sh'|'#!'*' sh '*|\
+              '#!'*'/ash'|'#!'*'/ash '*|'#!'*' ash'|'#!'*' ash '*|\
+              '#!'*'/dash'|'#!'*'/dash '*|'#!'*' dash'|'#!'*' dash '*|\
+              '#!'*'/bash'|'#!'*'/bash '*|'#!'*' bash'|'#!'*' bash '*) return 0 ;;
+            esac
+
+            return 1
+          }
+
+          find . -type f ! -path './.git/*' | sort | while IFS= read -r file; do
+            path="${file#./}"
+            if is_shell_script "${path}"; then
+              printf '%s\n' "${path}" >> "${scripts_file}"
+            fi
+          done
 
           echo "Running ShellCheck advisory checks. Warnings are reported below but do not fail this job."
 
-          if [ -f installer ]; then
-            shellcheck --severity=warning installer || status=1
-          fi
-
-          if [ -d tools ]; then
-            find tools -type f -name '*.sh' | sort | while read -r script; do
+          if [ -s "${scripts_file}" ]; then
+            while IFS= read -r script; do
               echo "ShellCheck: ${script}"
-              shellcheck --severity=warning "${script}" || true
-            done
+              shellcheck --severity=warning "${script}" || status=1
+            done < "${scripts_file}"
+          else
+            echo "No shell scripts found for ShellCheck."
           fi
 
           if [ "${status}" -ne 0 ]; then
