@@ -15,6 +15,14 @@ on:
         options:
           - "true"
           - "false"
+      hardening_phase:
+        description: Installer hardening phase to apply
+        required: true
+        default: phase1
+        type: choice
+        options:
+          - phase1
+          - phase2
 
 permissions:
   contents: write
@@ -62,8 +70,23 @@ jobs:
           fi
 
       - name: Apply installer hardening
+        env:
+          HARDENING_PHASE: ${{ inputs.hardening_phase }}
         run: |
-          python3 tools/apply-installer-hardening-ci.py
+          set -eu
+
+          case "${HARDENING_PHASE}" in
+            phase1)
+              python3 tools/apply-installer-hardening-ci.py
+              ;;
+            phase2)
+              python3 tools/apply-installer-hardening-phase2.py
+              ;;
+            *)
+              echo "Unknown hardening phase: ${HARDENING_PHASE}" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Ensure installer.md5 exists
         run: |
@@ -100,6 +123,7 @@ jobs:
       - name: Commit generated changes
         env:
           TARGET_BRANCH: ${{ inputs.target_branch }}
+          HARDENING_PHASE: ${{ inputs.hardening_phase }}
         run: |
           set -eu
 
@@ -111,5 +135,5 @@ jobs:
 
           git status --short
           git add installer installer.md5 tools docs .github
-          git commit -m "installer: apply hardening changes and update checksums"
+          git commit -m "installer: apply ${HARDENING_PHASE} hardening changes and update checksums"
           git push --force-with-lease origin HEAD:"${TARGET_BRANCH}"
