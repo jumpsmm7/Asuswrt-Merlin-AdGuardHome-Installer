@@ -94,7 +94,7 @@ jobs:
 
       - name: Validate md5sum files with BusyBox ash
         run: |
-          busybox ash tools/check-md5.sh installer S99AdGuardHome rc.func.AdGuardHome
+          busybox ash tools/check-md5.sh installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
 
   shfmt:
     name: shfmt mksh recommendations
