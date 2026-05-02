@@ -83,6 +83,9 @@ jobs:
   md5sum:
     name: MD5SUM validation
     runs-on: ubuntu-latest
+    # On push, the separate Update md5sum files workflow commits the chore update first.
+    # This job then runs on that bot commit instead of racing the updater on the original source-file push.
+    if: github.event_name == 'pull_request' || github.actor == 'github-actions[bot]'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
