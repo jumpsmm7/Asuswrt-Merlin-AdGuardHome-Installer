@@ -7,14 +7,6 @@ on:
         description: Branch to update with generated installer hardening changes
         required: true
         default: dev/installer-code-hardening-squash
-      reset_target_from_master:
-        description: Recreate/reset target branch from current master before applying changes
-        required: true
-        default: "true"
-        type: choice
-        options:
-          - "true"
-          - "false"
 
 permissions:
   contents: write
@@ -24,44 +16,24 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout master
+      - name: Checkout target branch
         uses: actions/checkout@v4
         with:
-          ref: master
-          fetch-depth: 0
-          persist-credentials: true
+          ref: ${{ inputs.target_branch }}
 
       - name: Configure git identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Prepare target branch
-        env:
-          TARGET_BRANCH: ${{ inputs.target_branch }}
-          RESET_TARGET_FROM_MASTER: ${{ inputs.reset_target_from_master }}
-        run: |
-          set -eu
-
-          git fetch origin master
-
-          if [ "${RESET_TARGET_FROM_MASTER}" = "true" ]; then
-            git checkout -B "${TARGET_BRANCH}" origin/master
-          elif git ls-remote --exit-code --heads origin "${TARGET_BRANCH}" >/dev/null 2>&1; then
-            git fetch origin "${TARGET_BRANCH}"
-            git checkout -B "${TARGET_BRANCH}" "origin/${TARGET_BRANCH}"
-          else
-            git checkout -B "${TARGET_BRANCH}" origin/master
-          fi
-
       - name: Apply installer hardening
         run: |
-          python3 tools/apply-installer-hardening-ci.py
+          python3 tools/apply-installer-hardening.py
 
       - name: Ensure installer.md5 exists
         run: |
           if [ -f installer ] && [ ! -f installer.md5 ]; then
-            md5sum installer | awk '{print $1 "  installer"}' > installer.md5
+            sh tools/update-md5.sh installer.md5
           fi
 
       - name: Update changed MD5 files
@@ -91,18 +63,13 @@ jobs:
           fi
 
       - name: Commit generated changes
-        env:
-          TARGET_BRANCH: ${{ inputs.target_branch }}
         run: |
-          set -eu
-
           if git diff --quiet; then
             echo "No generated changes to commit."
-            git push --force-with-lease origin HEAD:"${TARGET_BRANCH}"
             exit 0
           fi
 
           git status --short
           git add installer installer.md5 tools docs .github
           git commit -m "installer: apply hardening changes and update checksums"
-          git push --force-with-lease origin HEAD:"${TARGET_BRANCH}"
+          git push origin HEAD:${{ inputs.target_branch }}
