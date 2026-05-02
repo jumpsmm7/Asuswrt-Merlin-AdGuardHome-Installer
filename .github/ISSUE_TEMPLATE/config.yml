@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: AdGuard Home upstream issues
+    url: https://github.com/AdguardTeam/AdGuardHome/issues
+    about: Report issues with AdGuard Home itself upstream.
+  - name: SNBForums support thread
+    url: http://www.snbforums.com/threads/release-asuswrt-merlin-adguardhome-installer-amaghi.76506/
+    about: Community discussion and support for the installer.
