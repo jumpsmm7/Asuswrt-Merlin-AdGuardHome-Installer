@@ -9,18 +9,18 @@ is_shell_script() {
 	_first_line="$(sed -n '1p' "${_path}" 2>/dev/null || true)"
 
 	case "${_path}" in
-	installer|*.sh|S99AdGuardHome|rc.func.AdGuardHome|*/S99AdGuardHome|*/rc.func.AdGuardHome)
-		return 0
-		;;
+		installer | *.sh | S99AdGuardHome | rc.func.AdGuardHome | */S99AdGuardHome | */rc.func.AdGuardHome)
+			return 0
+			;;
 	esac
 
 	case "${_first_line}" in
-	'#!'*'/sh'*) return 0 ;;
-	'#!'*' sh'*) return 0 ;;
-	'#!'*'/ash'*) return 0 ;;
-	'#!'*' ash'*) return 0 ;;
-	'#!'*'/dash'*) return 0 ;;
-	'#!'*' dash'*) return 0 ;;
+		'#!'*'/sh'*) return 0 ;;
+		'#!'*' sh'*) return 0 ;;
+		'#!'*'/ash'*) return 0 ;;
+		'#!'*' ash'*) return 0 ;;
+		'#!'*'/dash'*) return 0 ;;
+		'#!'*' dash'*) return 0 ;;
 	esac
 
 	return 1
