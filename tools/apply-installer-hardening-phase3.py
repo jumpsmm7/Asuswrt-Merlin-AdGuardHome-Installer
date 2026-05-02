@@ -57,14 +57,14 @@ safe_download() {
 
 	rm -f "${_tmp_output}"
 
-	if command -v curl >/dev/null 2>&1; then
+	if which curl >/dev/null 2>&1; then
 		if curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -fsL "${_url}" -o "${_tmp_output}" && [ -s "${_tmp_output}" ]; then
 			mv "${_tmp_output}" "${_output}"
 			return 0
 		fi
 	fi
 
-	if command -v wget >/dev/null 2>&1; then
+	if which wget >/dev/null 2>&1; then
 		if wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 -q "${_url}" -O "${_tmp_output}" && [ -s "${_tmp_output}" ]; then
 			mv "${_tmp_output}" "${_output}"
 			return 0
