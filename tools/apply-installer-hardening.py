@@ -3,8 +3,8 @@
 Apply targeted installer hardening changes to the full installer file.
 
 This script is intended to be run from a local clone where the complete installer
-file is available. It performs exact, conservative replacements and then updates
-matching .md5 files when they exist.
+file is available. It performs exact, conservative replacements. Matching
+.md5sum checksum files are handled by the shell helpers/workflow.
 
 Usage:
     python3 tools/apply-installer-hardening.py
@@ -19,7 +19,6 @@ After running:
 from __future__ import annotations
 
 import argparse
-import hashlib
 from pathlib import Path
 import sys
 
@@ -52,25 +51,6 @@ def insert_after_once(text: str, marker: str, insertion: str, label: str) -> tup
         fail(f"{label}: expected one marker, found {count}")
     print(f"APPLY: {label}")
     return text.replace(marker, marker + insertion, 1), True
-
-
-def md5_file(path: Path) -> str:
-    digest = hashlib.md5()  # noqa: S324 - repository uses MD5 checksum files intentionally
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def update_matching_md5(path: Path) -> None:
-    md5_path = Path(str(path) + ".md5")
-    if not md5_path.exists():
-        print(f"SKIP: {md5_path.relative_to(ROOT)} does not exist")
-        return
-    rel = path.relative_to(ROOT).as_posix()
-    value = md5_file(path)
-    md5_path.write_text(f"{value}  {rel}\n", encoding="utf-8", newline="\n")
-    print(f"UPDATED: {md5_path.relative_to(ROOT)} -> {value}")
 
 
 def harden_installer(text: str) -> tuple[str, int]:
@@ -215,7 +195,8 @@ def main() -> None:
     if not INSTALLER.exists():
         fail("installer file not found; run from the repository root")
 
-    original = INSTALLER.read_text(encoding="utf-8", newline="")
+    with INSTALLER.open("r", encoding="utf-8", newline="") as fh:
+        original = fh.read()
     updated, changes = harden_installer(original)
 
     if changes == 0:
@@ -226,9 +207,9 @@ def main() -> None:
         print(f"Would apply {changes} installer hardening change(s).")
         return
 
-    INSTALLER.write_text(updated, encoding="utf-8", newline="\n")
+    with INSTALLER.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(updated)
     print(f"Applied {changes} installer hardening change(s).")
-    update_matching_md5(INSTALLER)
 
 
 if __name__ == "__main__":

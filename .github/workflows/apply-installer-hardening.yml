@@ -88,17 +88,20 @@ jobs:
               ;;
           esac
 
-      - name: Ensure installer.md5 exists
+      - name: Ensure installer.md5sum exists
         run: |
-          if [ -f installer ] && [ ! -f installer.md5 ]; then
-            md5sum installer | awk '{print $1 "  installer"}' > installer.md5
+          if [ -f installer ] && [ ! -f installer.md5sum ]; then
+            md5sum installer | awk '{print $1}' > installer.md5sum
+          fi
+          if [ -f installer.md5 ]; then
+            rm -f installer.md5
           fi
 
-      - name: Update changed MD5 files
+      - name: Update changed MD5SUM files
         run: |
           sh tools/update-changed-md5.sh --all
 
-      - name: Validate MD5 files
+      - name: Validate MD5SUM files
         run: |
           sh tools/check-md5.sh
 
@@ -134,6 +137,7 @@ jobs:
           fi
 
           git status --short
-          git add installer installer.md5 tools docs .github
+          git add installer installer.md5sum tools docs .github
+          git rm -f installer.md5 2>/dev/null || true
           git commit -m "installer: apply ${HARDENING_PHASE} hardening changes and update checksums"
           git push --force-with-lease origin HEAD:"${TARGET_BRANCH}"
