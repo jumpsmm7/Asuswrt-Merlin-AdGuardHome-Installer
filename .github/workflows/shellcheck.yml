@@ -30,7 +30,7 @@ jobs:
             first_line="$(sed -n '1p' "${path}" 2>/dev/null || true)"
 
             case "${path}" in
-              installer|*.sh) return 0 ;;
+              installer|*.sh|S99AdGuardHome|rc.func.AdGuardHome|*/S99AdGuardHome|*/rc.func.AdGuardHome) return 0 ;;
             esac
 
             case "${first_line}" in
@@ -111,7 +111,7 @@ jobs:
             first_line="$(sed -n '1p' "${path}" 2>/dev/null || true)"
 
             case "${path}" in
-              installer|*.sh) return 0 ;;
+              installer|*.sh|S99AdGuardHome|rc.func.AdGuardHome|*/S99AdGuardHome|*/rc.func.AdGuardHome) return 0 ;;
             esac
 
             case "${first_line}" in
@@ -175,7 +175,7 @@ jobs:
             first_line="$(sed -n '1p' "${path}" 2>/dev/null || true)"
 
             case "${path}" in
-              installer|*.sh) return 0 ;;
+              installer|*.sh|S99AdGuardHome|rc.func.AdGuardHome|*/S99AdGuardHome|*/rc.func.AdGuardHome) return 0 ;;
             esac
 
             case "${first_line}" in
