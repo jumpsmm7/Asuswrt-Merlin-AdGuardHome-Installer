@@ -124,6 +124,15 @@ jobs:
             return 1
           }
 
+          shfmt_language() {
+            path="$1"
+            first_line="$(sed -n '1p' "${path}" 2>/dev/null || true)"
+            case "${path}:${first_line}" in
+              installer:*|*:'#!'*'/bash'|*:'#!'*'/bash '*|*:'#!'*' bash'|*:'#!'*' bash '*) printf '%s\n' bash ;;
+              *) printf '%s\n' posix ;;
+            esac
+          }
+
           find . -type f ! -path './.git/*' | sort | while IFS= read -r file; do
             path="${file#./}"
             if is_shell_script "${path}"; then
@@ -138,13 +147,14 @@ jobs:
 
           echo "Checking shell formatting with shfmt."
           while IFS= read -r script; do
-            echo "shfmt: ${script}"
-            shfmt -d -i 0 -ci "${script}"
+            shell_lang="$(shfmt_language "${script}")"
+            echo "shfmt (${shell_lang}): ${script}"
+            shfmt -d -ln "${shell_lang}" -i 0 -ci "${script}"
           done < "${scripts_file}" > shfmt.diff
 
           if [ -s shfmt.diff ]; then
             cat shfmt.diff
-            echo "Shell formatting changes are needed. Run shfmt -w -i 0 -ci against the files shown above." >&2
+            echo "Shell formatting changes are needed. Run shfmt -w -ln bash -i 0 -ci installer for installer, or shfmt -w -ln posix -i 0 -ci for POSIX scripts shown above." >&2
             exit 1
           fi
 
