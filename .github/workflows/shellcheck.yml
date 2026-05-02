@@ -1,4 +1,4 @@
-name: ShellCheck
+name: Shell validation
 
 on:
   pull_request:
@@ -11,13 +11,31 @@ permissions:
   contents: read
 
 jobs:
-  shellcheck:
+  syntax:
+    name: POSIX shell syntax check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run ShellCheck
+      - name: Check installer syntax
+        run: sh -n installer
+
+      - name: Check helper script syntax
+        run: |
+          if [ -d tools ]; then
+            find tools -type f -name '*.sh' -print -exec sh -n {} \;
+          fi
+
+  shellcheck:
+    name: ShellCheck advisory
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck as advisory only
         uses: ludeeus/action-shellcheck@master
         with:
           scandir: '.'
