@@ -1,0 +1,52 @@
+name: Update matching md5sum files
+
+on:
+  push:
+    branches:
+      - '**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-md5sum-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  update-md5sum:
+    name: Update matching .md5sum files
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'branch'
+
+    steps:
+      - name: Checkout pushed branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Update all matching .md5sum files
+        run: |
+          set -eu
+          sh tools/update-md5.sh
+
+      - name: Commit md5sum updates
+        run: |
+          set -eu
+
+          if git diff --quiet -- '*.md5sum'; then
+            echo "No .md5sum updates needed."
+            exit 0
+          fi
+
+          git status --short
+          git add '*.md5sum' '**/*.md5sum'
+          git commit -m "chore: update matching md5sum files"
+          git push
