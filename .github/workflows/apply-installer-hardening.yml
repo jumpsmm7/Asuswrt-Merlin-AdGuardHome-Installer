@@ -27,6 +27,7 @@ on:
           - phase4
           - phase5
           - final
+          - improve
 
 permissions:
   contents: write
@@ -98,6 +99,9 @@ jobs:
             final)
               python3 tools/apply-installer-hardening-final.py
               ;;
+            improve)
+              python3 tools/apply-installer-improvements.py
+              ;;
             *)
               echo "Unknown hardening phase: ${HARDENING_PHASE}" >&2
               exit 1
@@ -127,6 +131,10 @@ jobs:
           if [ -d tools ]; then
             find tools -type f -name '*.sh' -print -exec sh -n {} \;
           fi
+
+      - name: Validate router compatibility
+        run: |
+          sh tools/check-router-compat.sh installer
 
       - name: ShellCheck advisory
         run: |
