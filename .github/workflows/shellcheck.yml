@@ -39,6 +39,58 @@ jobs:
             echo "No .md5sum files present; checksum validation skipped."
           fi
 
+  shfmt:
+    name: shfmt formatting check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go for shfmt
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: false
+
+      - name: Install shfmt
+        run: |
+          go install mvdan.cc/sh/v3/cmd/shfmt@v3.10.0
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+
+      - name: Check shell formatting
+        run: |
+          set -eu
+
+          tmp_files="$(mktemp)"
+          trap 'rm -f "${tmp_files}"' EXIT HUP INT TERM
+
+          if [ -f installer ]; then
+            printf '%s\n' installer >> "${tmp_files}"
+          fi
+
+          if [ -d tools ]; then
+            find tools -type f -name '*.sh' | sort >> "${tmp_files}"
+          fi
+
+          if [ ! -s "${tmp_files}" ]; then
+            echo "No shell scripts found for shfmt."
+            exit 0
+          fi
+
+          echo "Checking shell formatting with shfmt."
+          while IFS= read -r script; do
+            echo "shfmt: ${script}"
+            shfmt -d -i 0 -ci "${script}"
+          done < "${tmp_files}" > shfmt.diff
+
+          if [ -s shfmt.diff ]; then
+            cat shfmt.diff
+            echo "Shell formatting changes are needed. Run: shfmt -w -i 0 -ci installer tools/*.sh" >&2
+            exit 1
+          fi
+
+          echo "Shell formatting looks good."
+
   shellcheck:
     name: ShellCheck advisory
     runs-on: ubuntu-latest
