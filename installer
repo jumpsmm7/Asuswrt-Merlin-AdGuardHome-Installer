@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.0.0                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.0.1                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -28,7 +28,7 @@
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v2.0.0"
+AI_VERSION="v2.0.1"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
@@ -1290,7 +1290,7 @@ write_manager_script() {
 }
 
 [ "$1" ] && BRANCH="$1" || BRANCH="master"
-case "$1" in
+case "${BRANCH}" in
 "amtmupdate")
 	case "$2" in
 	"check")
@@ -1301,7 +1301,9 @@ case "$1" in
 		fi
 		;;
 	"")
-		exec "${SCRIPT_LOC}" "${BRANCH}" update > /dev/null 2>&1
+		unset BRANCH
+		BRANCH="master"
+		exec "${SCRIPT_LOC}" "${BRANCH}" "${1}" >/dev/null 2>&1
 		exit $?
 		;;
 	esac
