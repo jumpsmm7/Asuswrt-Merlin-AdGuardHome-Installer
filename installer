@@ -41,8 +41,7 @@ until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
 	elif which wget >/dev/null 2>&1; then
 		wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 -q "${LATEST_URL}?per_page=5" -O "${API_FILE}"
 	else
-		printf "%s
-" "Neither curl nor wget is available. The installer cannot query GitHub releases."
+		printf "%s\n" "Neither curl nor wget is available. The installer cannot query GitHub releases."
 		exit 1
 	fi
 	if [ -s "${API_FILE}" ]; then
@@ -107,7 +106,6 @@ PTXT() {
 	esac
 }
 
-
 opkg_installed() {
 	[ -n "$1" ] || return 1
 	opkg list-installed 2>/dev/null | awk -v pkg="$1" '$1 == pkg { found=1; exit } END { exit found ? 0 : 1 }'
@@ -118,7 +116,6 @@ opkg_available() {
 	opkg list 2>/dev/null | awk -v pkg="$1" '$1 == pkg { found=1; exit } END { exit found ? 0 : 1 }'
 }
 
-
 cmd_exists() {
 	[ -n "$1" ] || return 1
 	which "$1" >/dev/null 2>&1
@@ -127,7 +124,6 @@ cmd_exists() {
 hash_password_python3() {
 	python3 -c 'import sys, bcrypt; password = sys.stdin.buffer.read(); print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))'
 }
-
 
 safe_download() {
 	_url="$1"
@@ -138,23 +134,19 @@ safe_download() {
 	*) return 1 ;;
 	esac
 	_tmp_output="${_output}.$$"
-
 	rm -f "${_tmp_output}"
-
 	if cmd_exists curl; then
 		if curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -fsL "${_url}" -o "${_tmp_output}" && [ -s "${_tmp_output}" ]; then
 			mv -f "${_tmp_output}" "${_output}"
 			return 0
 		fi
 	fi
-
 	if cmd_exists wget; then
 		if wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 -q "${_url}" -O "${_tmp_output}" && [ -s "${_tmp_output}" ]; then
 			mv -f "${_tmp_output}" "${_output}"
 			return 0
 		fi
 	fi
-
 	rm -f "${_tmp_output}"
 	return 1
 }
@@ -917,7 +909,7 @@ inst_AdGuardHome() {
 		[ -e "/opt/sbin/AdGuardHome" ] && rm -f /opt/sbin/AdGuardHome
 		if ! if ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome; then
 			PTXT "${ERROR} Could not create /opt/sbin/AdGuardHome symlink."
-			end_op_message 1
+			end_op_message 1 "$1"
 			return
 		fi || [ -z "$("${AGH_FILE}" --version | cut -d" " -f4-)" ]; then
 			PTXT "${ERROR} Failed to download AdGuardHome package for your router"
