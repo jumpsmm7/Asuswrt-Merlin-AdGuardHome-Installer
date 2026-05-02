@@ -1,0 +1,160 @@
+name: Create shfmt formatting PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: Branch to format; defaults to the branch that started the workflow
+        required: false
+        default: ""
+  push:
+    branches:
+      - master
+      - 'dev/**'
+    paths:
+      - installer
+      - S99AdGuardHome
+      - rc.func.AdGuardHome
+      - '**/*.sh'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: shfmt-format-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  shfmt-fix-pr:
+    name: Create shfmt formatting PR
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'branch'
+
+    steps:
+      - name: Resolve target branch
+        id: branch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.target_branch }}" ]; then
+            target_branch="${{ inputs.target_branch }}"
+          else
+            target_branch="${GITHUB_REF_NAME}"
+          fi
+
+          case "${target_branch}" in
+            ""|*..*|/*|*' '*|*'~'*|*'^'*|*':'*|*'?'*|*'['*|*'\\'*)
+              echo "Invalid target branch: ${target_branch}" >&2
+              exit 1
+              ;;
+          esac
+
+          safe_branch="$(printf '%s' "${target_branch}" | tr '/@' '--' | tr -cd 'A-Za-z0-9._-')"
+          echo "target=${target_branch}" >> "${GITHUB_OUTPUT}"
+          echo "safe=${safe_branch}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.branch.outputs.target }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Go for shfmt
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: false
+
+      - name: Install shfmt
+        run: |
+          go install mvdan.cc/sh/v3/cmd/shfmt@v3.10.0
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+
+      - name: Apply shfmt mksh formatting
+        shell: bash
+        run: |
+          set -u
+
+          scripts_file="$(mktemp)"
+          errors_file="$(mktemp)"
+          trap 'rm -f "${scripts_file}" "${errors_file}"' EXIT HUP INT TERM
+
+          is_shell_script() {
+            local path first_line
+            path="$1"
+            first_line="$(sed -n '1p' "${path}" 2>/dev/null || true)"
+
+            case "${path}" in
+              installer|*.sh|S99AdGuardHome|rc.func.AdGuardHome|*/S99AdGuardHome|*/rc.func.AdGuardHome)
+                return 0
+                ;;
+            esac
+
+            case "${first_line}" in
+              '#!'*'/sh'|'#!'*'/sh\ *|'#!'*' sh'|'#!'*' sh\ *|\
+              '#!'*'/ash'|'#!'*'/ash\ *|'#!'*' ash'|'#!'*' ash\ *|\
+              '#!'*'/dash'|'#!'*'/dash\ *|'#!'*' dash'|'#!'*' dash\ *)
+                return 0
+                ;;
+            esac
+
+            return 1
+          }
+
+          while IFS= read -r file; do
+            path="${file#./}"
+            if is_shell_script "${path}"; then
+              printf '%s\n' "${path}" >> "${scripts_file}"
+            fi
+          done < <(find . -type f ! -path './.git/*' | sort)
+
+          if [ ! -s "${scripts_file}" ]; then
+            echo "No shell scripts found for shfmt."
+            exit 0
+          fi
+
+          while IFS= read -r script; do
+            echo "shfmt -w -ln mksh: ${script}"
+            if ! shfmt -w -ln mksh -i 0 -ci "${script}" 2>> "${errors_file}"; then
+              echo "shfmt could not parse ${script}; skipped automatic formatting for this file." >> "${errors_file}"
+            fi
+          done < "${scripts_file}"
+
+          if [ -s "${errors_file}" ]; then
+            echo "shfmt parser warnings:"
+            cat "${errors_file}"
+          fi
+
+          if git diff --quiet; then
+            echo "No shfmt formatting changes were needed."
+          else
+            echo "shfmt changed these files:"
+            git diff --name-only
+          fi
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: ${{ steps.branch.outputs.target }}
+          branch: automation/shfmt-mksh-${{ steps.branch.outputs.safe }}
+          delete-branch: true
+          commit-message: "style: apply shfmt mksh formatting"
+          title: "style: apply shfmt mksh formatting"
+          body: |
+            ## Summary
+
+            Applies `shfmt -ln mksh -i 0 -ci` formatting to shell scripts that can be parsed safely.
+
+            ## Coverage
+
+            - `installer`
+            - `S99AdGuardHome`
+            - `rc.func.AdGuardHome`
+            - `*.sh`
+            - shell scripts detected by POSIX shell shebangs
+
+            Files that shfmt cannot parse are skipped and reported in the workflow log.
