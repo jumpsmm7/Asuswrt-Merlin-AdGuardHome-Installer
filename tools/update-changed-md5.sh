@@ -44,10 +44,10 @@ already_seen() {
 	case "
 ${SEEN_FILES}
 " in
-	*"
+		*"
 ${_case_file}
 "*) return 0 ;;
-	*) return 1 ;;
+		*) return 1 ;;
 	esac
 }
 
@@ -60,7 +60,7 @@ update_for_source() {
 	_src_file="$1"
 
 	case "${_src_file}" in
-	*.md5sum|.git/*|*/.git/*) return 0 ;;
+		*.md5sum | .git/* | */.git/*) return 0 ;;
 	esac
 
 	[ -n "${_src_file}" ] || return 0
@@ -102,48 +102,48 @@ update_for_source() {
 
 write_git_changed_files() {
 	case "${MODE}" in
-	staged)
-		git diff --cached --name-only --diff-filter=ACMR >"${FILES_TMP}"
-		;;
-	all)
-		{
-			git diff --name-only --diff-filter=ACMR
-			git diff --cached --name-only --diff-filter=ACMR
-			git ls-files --others --exclude-standard
-		} | sort -u >"${FILES_TMP}"
-		;;
-	changed|*)
-		{
-			git diff --name-only --diff-filter=ACMR
-			git diff --cached --name-only --diff-filter=ACMR
-		} | sort -u >"${FILES_TMP}"
-		;;
+		staged)
+			git diff --cached --name-only --diff-filter=ACMR >"${FILES_TMP}"
+			;;
+		all)
+			{
+				git diff --name-only --diff-filter=ACMR
+				git diff --cached --name-only --diff-filter=ACMR
+				git ls-files --others --exclude-standard
+			} | sort -u >"${FILES_TMP}"
+			;;
+		changed | *)
+			{
+				git diff --name-only --diff-filter=ACMR
+				git diff --cached --name-only --diff-filter=ACMR
+			} | sort -u >"${FILES_TMP}"
+			;;
 	esac
 }
 
 if [ "$#" -gt 0 ]; then
 	case "$1" in
-	--staged)
-		MODE="staged"
-		shift
-		;;
-	--all)
-		MODE="all"
-		shift
-		;;
-	--changed)
-		MODE="changed"
-		shift
-		;;
-	--help|-h)
-		printf '%s\n' \
-			'Usage:' \
-			'  sh tools/update-changed-md5.sh [--changed|--staged|--all]' \
-			'  sh tools/update-changed-md5.sh FILE [FILE ...]' \
-			'' \
-			'Updates FILE.md5sum when FILE changed and FILE.md5sum exists.'
-		exit 0
-		;;
+		--staged)
+			MODE="staged"
+			shift
+			;;
+		--all)
+			MODE="all"
+			shift
+			;;
+		--changed)
+			MODE="changed"
+			shift
+			;;
+		--help | -h)
+			printf '%s\n' \
+				'Usage:' \
+				'  sh tools/update-changed-md5.sh [--changed|--staged|--all]' \
+				'  sh tools/update-changed-md5.sh FILE [FILE ...]' \
+				'' \
+				'Updates FILE.md5sum when FILE changed and FILE.md5sum exists.'
+			exit 0
+			;;
 	esac
 fi
 
