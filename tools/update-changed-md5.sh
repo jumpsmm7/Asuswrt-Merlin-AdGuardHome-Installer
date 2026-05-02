@@ -1,10 +1,13 @@
 #!/bin/sh
-# Update .md5 files for changed source files.
+# Update .md5sum files for changed source files.
 # BusyBox/ash-compatible, intended for local use before committing.
 #
 # Mapping rule:
-#   file        -> file.md5
-#   path/file   -> path/file.md5
+#   file        -> file.md5sum
+#   path/file   -> path/file.md5sum
+#
+# File format:
+#   checksum only, no filename
 #
 # Examples:
 #   sh tools/update-changed-md5.sh
@@ -51,13 +54,13 @@ update_for_source() {
 	_src_file="$1"
 
 	case "${_src_file}" in
-	*.md5|.git/*|*/.git/*) return 0 ;;
+	*.md5sum|.git/*|*/.git/*) return 0 ;;
 	esac
 
 	[ -n "${_src_file}" ] || return 0
 	[ -f "${_src_file}" ] || return 0
 
-	_md5_file="${_src_file}.md5"
+	_md5_file="${_src_file}.md5sum"
 	[ -f "${_md5_file}" ] || return 0
 
 	if already_seen "${_md5_file}"; then
@@ -77,7 +80,7 @@ update_for_source() {
 		return 1
 	fi
 
-	printf '%s  %s\n' "${_md5_value}" "${_src_file}" >"${_md5_file}"
+	printf '%s\n' "${_md5_value}" >"${_md5_file}"
 	printf '%s\n' "Updated ${_md5_file}: ${_md5_value}"
 	UPDATED="$((UPDATED + 1))"
 }
@@ -123,7 +126,7 @@ if [ "$#" -gt 0 ]; then
 			'  sh tools/update-changed-md5.sh [--changed|--staged|--all]' \
 			'  sh tools/update-changed-md5.sh FILE [FILE ...]' \
 			'' \
-			'Updates FILE.md5 when FILE changed and FILE.md5 exists.'
+			'Updates FILE.md5sum when FILE changed and FILE.md5sum exists.'
 		exit 0
 		;;
 	esac
@@ -149,5 +152,5 @@ if [ "${FAILED}" -ne 0 ]; then
 fi
 
 if [ "${UPDATED}" -eq 0 ]; then
-	printf '%s\n' 'No matching changed .md5 files needed updates.'
+	printf '%s\n' 'No matching changed .md5sum files needed updates.'
 fi
