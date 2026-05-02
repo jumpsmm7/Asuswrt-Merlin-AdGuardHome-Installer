@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.0.1                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.0.2                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 # shellcheck disable=SC2016
@@ -31,7 +31,7 @@
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v2.0.1"
+AI_VERSION="v2.0.2"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
