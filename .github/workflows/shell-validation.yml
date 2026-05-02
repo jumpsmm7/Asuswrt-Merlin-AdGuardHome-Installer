@@ -83,17 +83,68 @@ jobs:
   md5sum:
     name: MD5SUM validation
     runs-on: ubuntu-latest
-    # On push, the separate Update md5sum files workflow commits the chore update first.
-    # This job then runs on that bot commit instead of racing the updater on the original source-file push.
+    # Pull request runs can start before the separate md5sum updater workflow
+    # has pushed its chore commit. This job waits for that branch update and
+    # validates the latest PR head. Non-bot push runs are skipped so they do not
+    # race the updater workflow.
     if: github.event_name == 'pull_request' || github.actor == 'github-actions[bot]'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+          fetch-depth: 0
 
       - name: Install BusyBox
         run: |
           sudo apt-get update
           sudo apt-get install -y busybox-static
+
+      - name: Wait for md5sum chore commit on pull requests
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          target_branch="${{ github.event.pull_request.head.ref }}"
+          original_sha="${{ github.event.pull_request.head.sha }}"
+          md5_files=(
+            installer.md5sum
+            AdGuardHome.sh.md5sum
+            S99AdGuardHome.md5sum
+            rc.func.AdGuardHome.md5sum
+          )
+
+          busybox ash tools/update-md5.sh installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
+
+          if git diff --quiet -- "${md5_files[@]}"; then
+            echo "MD5 files are already current on the checked-out PR head."
+            git reset --hard
+            exit 0
+          fi
+
+          echo "MD5 files are stale on ${original_sha}. Waiting for update-md5sum chore commit on ${target_branch}."
+          git reset --hard
+
+          for attempt in $(seq 1 30); do
+            git fetch --quiet origin "${target_branch}"
+            remote_sha="$(git rev-parse FETCH_HEAD)"
+            remote_subject="$(git log -1 --format=%s "${remote_sha}")"
+
+            echo "Attempt ${attempt}: ${remote_sha} ${remote_subject}"
+
+            if [ "${remote_sha}" != "${original_sha}" ] && [ "${remote_subject}" = "chore: update md5sum files" ]; then
+              git reset --hard "${remote_sha}"
+              echo "Using md5sum chore commit ${remote_sha}."
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "Timed out waiting for chore: update md5sum files on ${target_branch}." >&2
+          echo "Run the Update md5sum files workflow or push the generated .md5sum updates." >&2
+          exit 1
 
       - name: Validate md5sum files with BusyBox ash
         run: |
