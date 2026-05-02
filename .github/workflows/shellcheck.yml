@@ -27,6 +27,10 @@ jobs:
             find tools -type f -name '*.sh' -print -exec sh -n {} \;
           fi
 
+      - name: Check router compatibility
+        run: |
+          sh tools/check-router-compat.sh installer
+
       - name: Check md5sum files
         run: |
           if find . -type f -name '*.md5sum' ! -path './.git/*' | grep -q .; then
