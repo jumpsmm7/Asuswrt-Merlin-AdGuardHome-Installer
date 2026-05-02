@@ -35,7 +35,15 @@ readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releas
 varcnt=0
 readonly MAX_RETRIES="1"
 until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
-	curl -D /tmp/$$_headers.out --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -sL "${LATEST_URL}?per_page=5" -o "${API_FILE}"
+	if which curl >/dev/null 2>&1; then
+		curl -D "/tmp/$$_headers.out" --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -sL "${LATEST_URL}?per_page=5" -o "${API_FILE}"
+	elif which wget >/dev/null 2>&1; then
+		wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 -q "${LATEST_URL}?per_page=5" -O "${API_FILE}"
+	else
+		printf "%s
+" "Neither curl nor wget is available. The installer cannot query GitHub releases."
+		exit 1
+	fi
 	if [ -s "${API_FILE}" ]; then
 		REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
 		REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
@@ -220,7 +228,7 @@ AdGuardHome_authen() {
 		(
 			if [ -n "$(pidof AdGuardHome)" ]; then { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1s; else
 				{ killall -q -9 AdGuardHome 2>/dev/null; }
-				rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null
+				rm -f /opt/var/run/AdGuardHome.pid 2>/dev/null
 				sleep 1s
 			fi; }; fi
 			sleep 1s
@@ -283,13 +291,19 @@ backup_restore() {
 		if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 			PTXT "${INFO} There is an old backup detected."
 			local USE_OLD
-			if read_yesno "Do you want to continue?(this will remove the old backup)"; then USE_OLD="NO"; else USE_OLD="YES"; fi
+			if read_yesno "Do you want to continue?(this will rotate the old backup)"; then USE_OLD="NO"; else USE_OLD="YES"; fi
 			if [ "${USE_OLD}" = "YES" ]; then
 				PTXT "${INFO} Leaving Old Backup."
 				end_op_message 1
 			elif [ "${USE_OLD}" = "NO" ]; then
-				PTXT "${INFO} Removing Old Backup."
-				rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"
+				local OLD_BACKUP_FILE
+				OLD_BACKUP_FILE="${BASE_DIR}/backup_AdGuardHome-previous-$(date +%Y%m%d-%H%M%S 2>/dev/null || date +%s).tar.gz"
+				PTXT "${INFO} Rotating old backup to ${OLD_BACKUP_FILE}."
+				if ! mv "${BASE_DIR}/backup_AdGuardHome.tar.gz" "${OLD_BACKUP_FILE}"; then
+					PTXT "${ERROR} Old backup could not be rotated."
+					end_op_message 1
+					return
+				fi
 			fi
 		fi
 		PTXT "${INFO} This operation will backup AdGuardHome(<4MB)to ENTWARE /opt/etc." \
@@ -331,7 +345,7 @@ backup_restore() {
 		done
 		chmod 755 "${AGH_FILE}"
 		chmod 644 "${YAML_FILE}"
-		[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
+		[ -e "/opt/sbin/AdGuardHome" ] && rm -f /opt/sbin/AdGuardHome
 		ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome
 		inst_AdGuardHome "${1:-RESTORE}"
 	elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
@@ -351,7 +365,10 @@ check_AdGuardHome_yaml() {
 		YAML_ERR_TS="${YAML_ERR}.$(date +%Y%m%d-%H%M%S 2>/dev/null || date +%s)"
 		PTXT "${INFO} Moving invalid configuration file to ${YAML_ERR_TS}." \
 			"${INFO} Operation will continue with clean config file."
-		mv "${YAML_FILE}" "${YAML_ERR_TS}"
+		if ! mv "${YAML_FILE}" "${YAML_ERR_TS}"; then
+			PTXT "${ERROR} Invalid configuration file could not be moved aside."
+			return 1
+		fi
 		return 1
 	fi
 }
@@ -362,7 +379,7 @@ check_connection() {
 	while [ "${livecheck}" != "4" ]; do
 		for i in google.com github.com snbforums.com; do
 			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
-				if { cmd_exists curl && curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { cmd_exists wget && wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 --retry-connrefused -q --spider "http://${i}" >/dev/null 2>&1; }; then
+				if { cmd_exists curl && curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { cmd_exists wget && wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 -q --spider "http://${i}" >/dev/null 2>&1; }; then
 			:
 		else
 					sleep 1s
@@ -424,7 +441,7 @@ check_dns_filter() {
 	local NVCHECK USE_SOME
 	NVCHECK="0"
 	if [ "$1" -eq 0 ]; then
-		if [ "$(nvram get dnsfilter_enable_x)" -ne 0 ]; then
+		if [ "$(nvram get dnsfilter_enable_x)" != "0" ]; then
 			{ nvram set dnsfilter_enable_x="0"; }
 			NVCHECK="$((NVCHECK + 1))"
 		fi
@@ -437,14 +454,14 @@ check_dns_filter() {
 		fi
 		PTXT "${INFO} You can choose to keep any custom dnsfilter values by only redirect non-custom traffic or send all traffic through to AdGuardHome."
 		if read_yesno "Do you want to redirect only NON-CUSTOM DNS resolutions on your network through to AdGuardHome?"; then USE_SOME="0"; else USE_SOME="1"; fi
-		if [ "$USE_SOME" -eq 0 ]; then
+		if [ "${USE_SOME}" = "0" ]; then
 			if [ "$(nvram get dnsfilter_mode)" != "11" ]; then
 				{ nvram set dnsfilter_mode="11"; }
 				NVCHECK="$((NVCHECK + 1))"
 			fi
 			PTXT "${INFO} DNSFilter is set to control DNS through to AdGuardHome, while leaving any Custom Rules and Values."
 		fi
-		if [ "$USE_SOME" -eq 1 ]; then
+		if [ "${USE_SOME}" = "1" ]; then
 			if [ "$(nvram get dnsfilter_custom1)" ]; then
 				{ nvram set dnsfilter_custom1=""; }
 				NVCHECK="$((NVCHECK + 1))"
@@ -880,7 +897,7 @@ inst_AdGuardHome() {
 		chown "$(nvram get http_username)":root ${TARG_DIR}/*
 		rm -r "${BASE_DIR:?}/${ADGUARD_TAR}"
 		chmod 755 "${AGH_FILE}"
-		[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
+		[ -e "/opt/sbin/AdGuardHome" ] && rm -f /opt/sbin/AdGuardHome
 		if ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome || [ -z "$("${AGH_FILE}" --version | cut -d" " -f4-)" ]; then
 			PTXT "${ERROR} Failed to download AdGuardHome package for your router"
 			end_op_message 1 "$1"
@@ -914,7 +931,7 @@ inst_AdGuardHome() {
 	(
 		if [ -n "$(pidof AdGuardHome)" ]; then { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1s; else
 			{ killall -q -9 AdGuardHome 2>/dev/null; }
-			rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null
+			rm -f /opt/var/run/AdGuardHome.pid 2>/dev/null
 			sleep 1s
 		fi; }; fi
 		sleep 1s
@@ -1292,7 +1309,7 @@ uninst_all() {
 	fi
 	(if [ -n "$(pidof AdGuardHome)" ]; then { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1s; else
 		{ killall -q -9 AdGuardHome 2>/dev/null; }
-		rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null
+		rm -f /opt/var/run/AdGuardHome.pid 2>/dev/null
 		sleep 1s
 	fi; }; fi) &
 	local PID="$!"
