@@ -15,11 +15,12 @@ is_shell_script() {
 	esac
 
 	case "${_first_line}" in
-	'#!'*'/sh'|'#!'*'/sh '*|'#!'*' sh'|'#!'*' sh '*|
-	'#!'*'/ash'|'#!'*'/ash '*|'#!'*' ash'|'#!'*' ash '*|
-	'#!'*'/dash'|'#!'*'/dash '*|'#!'*' dash'|'#!'*' dash '*)
-		return 0
-		;;
+	'#!'*'/sh'*) return 0 ;;
+	'#!'*' sh'*) return 0 ;;
+	'#!'*'/ash'*) return 0 ;;
+	'#!'*' ash'*) return 0 ;;
+	'#!'*'/dash'*) return 0 ;;
+	'#!'*' dash'*) return 0 ;;
 	esac
 
 	return 1
