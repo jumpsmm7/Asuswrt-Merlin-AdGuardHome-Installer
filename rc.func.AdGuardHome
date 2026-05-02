@@ -44,19 +44,19 @@ start() {
 
 stop() {
 	case "${ACTION}" in
-	"stop" | "restart")
-		local COUNTER="0" LIMIT="10"
-		while { [ -n "$(pidof "${PROC}")" ] && [ "${COUNTER}" -le "${LIMIT}" ]; }; do
-			[ "${COUNTER}" = "0" ] && printf "%s" "${ansi_white} Shutting down ${PROC}... ${ansi_std}"
-			[ -z "$(pidof "${PROC}")" ] && break || { kill -s 2 "$(pidof "${PROC}")" 2>/dev/null || killall -q -2 "${PROC}" 2>/dev/null; }
-			sleep "${LIMIT}"s
-			COUNTER="$((COUNTER + 1))"
-		done
-		;;
-	"kill")
-		printf "%s" "${ansi_white} Killing ${PROC}... ${ansi_std}"
-		{ kill -s 2 "$(pidof "${PROC}")" 2>/dev/null || killall -q -2 "${PROC}" 2>/dev/null; }
-		;;
+		"stop" | "restart")
+			local COUNTER="0" LIMIT="10"
+			while { [ -n "$(pidof "${PROC}")" ] && [ "${COUNTER}" -le "${LIMIT}" ]; }; do
+				[ "${COUNTER}" = "0" ] && printf "%s" "${ansi_white} Shutting down ${PROC}... ${ansi_std}"
+				[ -z "$(pidof "${PROC}")" ] && break || { kill -s 2 "$(pidof "${PROC}")" 2>/dev/null || killall -q -2 "${PROC}" 2>/dev/null; }
+				sleep "${LIMIT}"s
+				COUNTER="$((COUNTER + 1))"
+			done
+			;;
+		"kill")
+			printf "%s" "${ansi_white} Killing ${PROC}... ${ansi_std}"
+			{ kill -s 2 "$(pidof "${PROC}")" 2>/dev/null || killall -q -2 "${PROC}" 2>/dev/null; }
+			;;
 	esac
 	if [ -n "$(pidof "${PROC}")" ]; then
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
@@ -87,26 +87,26 @@ reload() {
 for PROC in ${PROCS}; do
 	DESC="${DESC:-$PROC}"
 	case "${ACTION}" in
-	"start")
-		start
-		;;
-	"stop" | "kill")
-		check && stop
-		;;
-	"restart")
-		{ check >/dev/null; } && stop
-		start
-		;;
-	"check")
-		check
-		;;
-	"reload")
-		{ check >/dev/null; } && reload
-		;;
-	*)
-		printf "%s\n" "${ansi_white} Usage: $0 (start|stop|restart|check|kill|reload)${ansi_std}"
-		exit 1
-		;;
+		"start")
+			start
+			;;
+		"stop" | "kill")
+			check && stop
+			;;
+		"restart")
+			{ check >/dev/null; } && stop
+			start
+			;;
+		"check")
+			check
+			;;
+		"reload")
+			{ check >/dev/null; } && reload
+			;;
+		*)
+			printf "%s\n" "${ansi_white} Usage: $0 (start|stop|restart|check|kill|reload)${ansi_std}"
+			exit 1
+			;;
 	esac
 done
 

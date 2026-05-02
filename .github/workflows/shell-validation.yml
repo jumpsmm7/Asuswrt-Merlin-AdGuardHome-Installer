@@ -1,0 +1,209 @@
+name: Shell validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - 'dev/**'
+
+permissions:
+  contents: read
+
+jobs:
+  posix-syntax:
+    name: BusyBox ash syntax
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install BusyBox
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y busybox-static
+
+      - name: Check router-side syntax with BusyBox ash
+        run: |
+          set -eu
+
+          scripts_file="$(mktemp)"
+          trap 'rm -f "${scripts_file}"' EXIT HUP INT TERM
+
+          busybox ash tools/list-shell-scripts.sh > "${scripts_file}"
+
+          if [ ! -s "${scripts_file}" ]; then
+            echo "No shell scripts found."
+            exit 0
+          fi
+
+          while IFS= read -r script; do
+            echo "busybox ash -n: ${script}"
+            busybox ash -n "${script}"
+          done < "${scripts_file}"
+
+      - name: Check helper scripts with dash
+        run: |
+          set -eu
+          dash -n tools/list-shell-scripts.sh
+          dash -n tools/check-md5.sh
+          dash -n tools/update-md5.sh
+
+  shellcheck:
+    name: ShellCheck POSIX ash profile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run ShellCheck with sh dialect
+        run: |
+          set -eu
+
+          scripts_file="$(mktemp)"
+          trap 'rm -f "${scripts_file}"' EXIT HUP INT TERM
+
+          sh tools/list-shell-scripts.sh > "${scripts_file}"
+
+          if [ ! -s "${scripts_file}" ]; then
+            echo "No shell scripts found for ShellCheck."
+            exit 0
+          fi
+
+          while IFS= read -r script; do
+            echo "shellcheck -s sh: ${script}"
+            shellcheck -s sh --severity=warning "${script}"
+          done < "${scripts_file}"
+
+  md5sum:
+    name: MD5SUM validation
+    runs-on: ubuntu-latest
+    # Pull request runs can start before the separate md5sum updater workflow
+    # has pushed its chore commit. This job waits for that branch update and
+    # validates the latest PR head. Non-bot push runs are skipped so they do not
+    # race the updater workflow.
+    if: github.event_name == 'pull_request' || github.actor == 'github-actions[bot]'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Install BusyBox
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y busybox-static
+
+      - name: Wait for md5sum chore commit on pull requests
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          target_branch="${{ github.event.pull_request.head.ref }}"
+          original_sha="${{ github.event.pull_request.head.sha }}"
+          md5_files=(
+            installer.md5sum
+            AdGuardHome.sh.md5sum
+            S99AdGuardHome.md5sum
+            rc.func.AdGuardHome.md5sum
+          )
+
+          busybox ash tools/update-md5.sh installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
+
+          if git diff --quiet -- "${md5_files[@]}"; then
+            echo "MD5 files are already current on the checked-out PR head."
+            git reset --hard
+            exit 0
+          fi
+
+          echo "MD5 files are stale on ${original_sha}. Waiting for update-md5sum chore commit on ${target_branch}."
+          git reset --hard
+
+          for attempt in $(seq 1 30); do
+            git fetch --quiet origin "${target_branch}"
+            remote_sha="$(git rev-parse FETCH_HEAD)"
+            remote_subject="$(git log -1 --format=%s "${remote_sha}")"
+
+            echo "Attempt ${attempt}: ${remote_sha} ${remote_subject}"
+
+            if [ "${remote_sha}" != "${original_sha}" ] && [ "${remote_subject}" = "chore: update md5sum files" ]; then
+              git reset --hard "${remote_sha}"
+              echo "Using md5sum chore commit ${remote_sha}."
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "Timed out waiting for chore: update md5sum files on ${target_branch}." >&2
+          echo "Run the Update md5sum files workflow or push the generated .md5sum updates." >&2
+          exit 1
+
+      - name: Validate md5sum files with BusyBox ash
+        run: |
+          busybox ash tools/check-md5.sh installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
+
+  shfmt:
+    name: shfmt mksh recommendations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go for shfmt
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: false
+
+      - name: Install shfmt
+        run: |
+          go install mvdan.cc/sh/v3/cmd/shfmt@v3.10.0
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+
+      - name: Show shfmt mksh formatting recommendations
+        run: |
+          set -u
+
+          scripts_file="$(mktemp)"
+          diff_file="$(mktemp)"
+          errors_file="$(mktemp)"
+          trap 'rm -f "${scripts_file}" "${diff_file}" "${errors_file}"' EXIT HUP INT TERM
+
+          sh tools/list-shell-scripts.sh > "${scripts_file}"
+
+          if [ ! -s "${scripts_file}" ]; then
+            echo "No shell scripts found for shfmt."
+            exit 0
+          fi
+
+          : > "${diff_file}"
+          : > "${errors_file}"
+
+          while IFS= read -r script; do
+            echo "shfmt -ln mksh: ${script}"
+            if ! shfmt -d -ln mksh -i 0 -ci "${script}" >> "${diff_file}" 2>> "${errors_file}"; then
+              echo "shfmt could not parse ${script}; syntax checks run separately." >> "${errors_file}"
+            fi
+          done < "${scripts_file}"
+
+          if [ -s "${diff_file}" ]; then
+            echo "shfmt mksh formatting recommendations:"
+            cat "${diff_file}"
+          else
+            echo "shfmt found no formatting recommendations."
+          fi
+
+          if [ -s "${errors_file}" ]; then
+            echo "shfmt parser warnings:"
+            cat "${errors_file}"
+          fi
+
+          exit 0
