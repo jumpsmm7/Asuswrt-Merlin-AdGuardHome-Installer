@@ -48,7 +48,7 @@ until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
 	fi
 	varcnt="$((varcnt + 1))"
 done
-rm -rf "$API_FILE" "/tmp/$$_headers.out"
+rm -f "$API_FILE" "/tmp/$$_headers.out"
 wait
 unset varcnt
 readonly REMOTE_VER REMOTE_BETA
@@ -112,6 +112,32 @@ opkg_available() {
 
 hash_password_python3() {
 	python3 -c 'import sys, bcrypt; password = sys.stdin.buffer.read(); print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))'
+}
+
+
+safe_download() {
+	_url="$1"
+	_output="$2"
+	_tmp_output="${_output}.$$"
+
+	rm -f "${_tmp_output}"
+
+	if which curl >/dev/null 2>&1; then
+		if curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -fsL "${_url}" -o "${_tmp_output}" && [ -s "${_tmp_output}" ]; then
+			mv "${_tmp_output}" "${_output}"
+			return 0
+		fi
+	fi
+
+	if which wget >/dev/null 2>&1; then
+		if wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 -q "${_url}" -O "${_tmp_output}" && [ -s "${_tmp_output}" ]; then
+			mv "${_tmp_output}" "${_output}"
+			return 0
+		fi
+	fi
+
+	rm -f "${_tmp_output}"
+	return 1
 }
 
 AdGuardHome_authen() {
@@ -255,9 +281,15 @@ backup_restore() {
 	elif [ "$1" = "BACKUP" ] && [ ! -d "${TARG_DIR}" ] && [ ! -f "${AGH_FILE}" ]; then
 		PTXT "${ERROR} No ${AGH_FILE} to Backup!"
 		end_op_message 1
+		return
 	fi
 	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
 		PTXT "${INFO} Please wait a moment."
+		if ! tar -tzf "${BASE_DIR}/backup_AdGuardHome.tar.gz" >/dev/null 2>&1; then
+			PTXT "${ERROR} Backup archive is invalid or unreadable."
+			end_op_message 1
+			return
+		fi
 		tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${BASE_DIR}" >/dev/null 2>&1
 		for restored_file in "${TARG_DIR}"/*; do
 			[ -e "${restored_file}" ] || continue
@@ -270,7 +302,7 @@ backup_restore() {
 		inst_AdGuardHome "${1:-RESTORE}"
 	elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
 		PTXT "${ERROR} No Backup found!" \
-			"${ERROR} Please make sure Backup Resides in ${BASE_DIR}"
+			"${ERROR} Please make sure backup_AdGuardHome.tar.gz resides in ${BASE_DIR}"
 		end_op_message 1
 		return
 	fi
