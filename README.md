@@ -1,82 +1,152 @@
 <a href="https://ibb.co/Zm7hLhD"><img src="https://i.ibb.co/0tvfDfb/image.png" alt="image" border="0"></a>
-# Asuswrt-Merlin-AdGuardHome-Installer:
-The Official Installer of AdGuardHome for Asuswrt-Merlin
-# Requirements:
-- ARM based ASUS routers that use Asuswrt-Merlin Firmware, and Entware Repository.
-- JFFS support and enabled.
-- REQUIRES ENTWARE(!) for package management, and a separate USB drive for storage -i.e. the same drive Entware is stored.
-- Entware must be fully up-to-date as well `opkg update && opkg upgrade`.
-- Minimum recommended to have a 2gb swap file. (up to 10gb can be made with AMTM).
-- Minimum supported firmware version is 384.11.
-- It is recommended to use a Router stronger than the RT-AC68U, even though the AdGuardHome can be used at a limited capacity on the RT-AC68U.
-# Incompatibilities:
-- No known issue, but may not be compatible with "some" doule-nat or dual-wan environments since AdGuardHome takes over DNSMASQ placement on port 53. DNSMASQ uses port 553 instead.
-# Current features:
-- [AdGuardHome](https://github.com/AdguardTeam/AdGuardHome) Network-wide ads & trackers blocking DNS server, with multiple dns protocol encryption, and other features.
-- Support ARM based routers
-- Redirect all DNS queries on your network to AdGuardHome if user chooses to use Merlin DNS Filter Option
-- Ability to update AdGuardHome without reinstalling/reconfiguring
-- Improved Installer/Update/Backup Functions.
-# AdGuardHome Supports Multiple Features:
+
+# Asuswrt-Merlin-AdGuardHome-Installer
+
+The official installer for [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) on Asuswrt-Merlin.
+
+## Requirements
+
+- ARM-based ASUS router running Asuswrt-Merlin firmware.
+- Entware installed on a separate USB drive used for storage.
+- JFFS custom scripts and configs enabled.
+- Entware fully updated before installing:
+
+```sh
+opkg update && opkg upgrade
+```
+
+- A swap file is strongly recommended. A minimum of 2 GB is recommended, and larger swap files can be created with AMTM if needed.
+- Minimum supported Asuswrt-Merlin firmware version: `384.11`.
+- A router stronger than the RT-AC68U is recommended. AdGuard Home can run on the RT-AC68U, but only at a limited capacity.
+
+## Incompatibilities and Important Notes
+
+- There are no confirmed universal incompatibilities at this time.
+- Some double-NAT or dual-WAN environments may require additional testing or manual adjustment.
+- AdGuard Home takes over DNS service placement on port `53`.
+- `dnsmasq` is moved to port `553` by the installer.
+- Do not run another DNS service on port `53` at the same time unless you know exactly how it interacts with this installer.
+
+## Current Features
+
+- Installs and manages [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome), a network-wide DNS server for blocking ads, trackers, and malicious domains.
+- Supports encrypted DNS protocols such as DNS-over-HTTPS, DNS-over-TLS, and DNS-over-QUIC when configured in AdGuard Home.
+- Supports ARM-based Asuswrt-Merlin routers.
+- Can redirect LAN DNS queries to AdGuard Home when the user chooses the Merlin DNS Filter option.
+- Supports updating AdGuard Home without a full reinstall or full reconfiguration.
+- Includes installer, update, backup, restore, and uninstall functions.
+
+## AdGuard Home Supports Multiple Upstream DNS Formats
+
 <a href="https://ibb.co/ZhTX4N4"><img src="https://i.ibb.co/cNT3fxf/Features.jpg" alt="Features" border="0"></a>
-- 94.140.14.140: plain DNS (over UDP).
-- tls://dns-unfiltered.adguard.com: encrypted DNS-over-TLS.
-- https://cloudflare-dns.com/dns-query: encrypted DNS-over-HTTPS.
-- quic://dns-unfiltered.adguard.com:784: experimental DNS-over-QUIC support.
-- tcp://1.1.1.1: plain DNS (over TCP).
-- sdns://...: DNS Stamps for DNSCrypt or DNS-over-HTTPS resolvers.
-- [/example.local/]1.1.1.1: DNS upstream for specific domains, see below.
+
+Examples:
+
+- `94.140.14.140`: plain DNS over UDP.
+- `tls://dns-unfiltered.adguard.com`: encrypted DNS-over-TLS.
+- `https://cloudflare-dns.com/dns-query`: encrypted DNS-over-HTTPS.
+- `quic://dns-unfiltered.adguard.com:784`: DNS-over-QUIC.
+- `tcp://1.1.1.1`: plain DNS over TCP.
+- `sdns://...`: DNS stamps for DNSCrypt or DNS-over-HTTPS resolvers.
+- `[/example.local/]1.1.1.1`: upstream DNS server for a specific domain.
+
 <a href="https://ibb.co/txhZqvt"><img src="https://i.ibb.co/SdxQtM8/Upstream-DNS.jpg" alt="Upstream-DNS" border="0"></a>
 
-This forum link will provide you with a link to more dns servers and instructional use:
-http://www.snbforums.com/threads/release-asuswrt-merlin-adguardhome-installer-amaghi.76506/post-735471
-also,
-https://adguard-dns.io/kb/general/dns-providers/
-# Setting Up Your Routers Reverse DNS:
+Additional DNS provider references:
+
+- SNBForums setup discussion: http://www.snbforums.com/threads/release-asuswrt-merlin-adguardhome-installer-amaghi.76506/post-735471
+- AdGuard DNS providers: https://adguard-dns.io/kb/general/dns-providers/
+
+## Setting Up Router Reverse DNS
+
 <a href="https://imgbb.com/"><img src="https://i.ibb.co/QvJ5nNV/Lan.jpg" alt="Lan" border="0"></a>
-- Under Lan DHCP page on Asuswrt-Merlin define a domain such as lan or some-domain like in the image above.
+
+- On the Asuswrt-Merlin LAN DHCP page, define a local domain such as `lan` or another preferred local domain.
+
 <a href="https://ibb.co/vDRpFQh"><img src="https://i.ibb.co/4J3zqY2/Reverse-DNS.jpg" alt="Reverse-DNS" border="0"></a>
-- Define the appropriate rules inside the Private Reverse DNS Servers.
-The AdGuardHome Installer already does this, but the information is more for user personal education. 
-# Best AdGuardHome Setup Guide:
-For the Best AdGuardHome Setup Guide please refer to their wiki:
+
+- Define the appropriate rules inside **Private reverse DNS servers**.
+- The installer already configures the needed reverse DNS behavior, but this section is included for user reference and troubleshooting.
+
+## Best AdGuard Home Setup Guide
+
+For AdGuard Home configuration guidance, see the official wiki:
+
 https://github.com/AdguardTeam/AdGuardHome/wiki
-# AdGuardHome Developement:
-For issues pertaining with AdGuardHome itself, please refer to this link:
+
+## AdGuard Home Development and Upstream Issues
+
+For issues with AdGuard Home itself, report them upstream:
+
 https://github.com/AdguardTeam/AdGuardHome/issues
-# Changelog:
+
+## Changelog
+
 https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/commits/master
-# Install/Update/Reconfig/Uninstall:
-Run this command from ssh shell and following the prompt for AdGuardHome:
-```
+
+## Install, Update, Reconfigure, or Uninstall
+
+Run this command from an SSH shell on the router and follow the prompts:
+
+```sh
 curl -L -s -O https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/master/installer && sh installer; rm installer
 ```
-# Terminal commands to for AdGuardHome are:
+
+For development branch testing only:
+
+```sh
+curl -L -s -O https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/dev/readme-installer-improvements/installer && sh installer; rm installer
 ```
+
+## Service Commands
+
+Direct init script command:
+
+```sh
 /opt/etc/init.d/S99AdGuardHome {start|stop|restart|check|kill|reload}
 ```
-or (recommended commands)
-```
+
+Recommended service commands:
+
+```sh
 service {start|stop|restart|kill|reload}_AdGuardHome
 ```
-# How to check if it works:
-Run this command in the ssh shell:
-```
+
+## How to Check Whether AdGuard Home Is Running
+
+Run:
+
+```sh
 pidof AdGuardHome
 ```
-will return a number.
 
-or:
-```
+If AdGuard Home is running, the command returns one or more process IDs.
+
+You can also run:
+
+```sh
 /opt/etc/init.d/S99AdGuardHome check
 ```
-which will return
-```
+
+Expected output:
+
+```text
   Checking AdGuardHome...              alive.
 ```
-# How to report issue:
-I need following directories and files:
-```
+
+## How to Report an Issue
+
+When reporting an issue, include the following information:
+
+- DNS server option selected during AdGuard Home installation.
+- Router model.
+- Asuswrt-Merlin firmware version.
+- Whether your setup uses dual WAN, double NAT, VPN Director, DNS Director, or other DNS-related scripts.
+- Any relevant install or update error messages.
+
+The following directories and files are useful for debugging:
+
+```text
 /opt/etc/AdGuardHome
 /opt/sbin/AdGuardHome
 /opt/etc/init.d/S99AdGuardHome
@@ -87,18 +157,21 @@ I need following directories and files:
 /jffs/scripts/services-stop
 /jffs/scripts/service-event-end
 ```
-One can use this command to create a tar archive of these files:
-```
+
+You can create a debug archive with:
+
+```sh
 echo .config > exclude-files; tar -cvf AdGuardHome.tar -X exclude-files /opt/etc/AdGuardHome /opt/sbin/AdGuardHome /opt/etc/init.d/S99AdGuardHome /opt/etc/init.d/rc.func.AdGuardHome /jffs/addons/AdGuardHome.d /jffs/scripts/init-start /jffs/scripts/dnsmasq.postconf /jffs/scripts/services-stop /jffs/scripts/service-event-end; rm exclude-files
 ```
-in current directory and send me the archive for debug.
-I also need following information:
-- Which dns server you selected during AdGuardHome installation
-- Which router you're using
-- Firmware and its version
-# How I made this:
-- Use AdGuardHome binary packages from https://github.com/AdguardTeam/AdGuardHome
-- I wrote the installer script with stuff inspired from entware-setup.sh from asuswrt-merlin
-- You can look at all the stuff here https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer
-# Donate:
-This script will always be open source and free to use under [GPL-3.0 License](https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/master/LICENSE), but if you want to support future development you can do so by [Donating With PayPal](https://paypal.me/swotrb) or [Buy me a coffee](https://www.buymeacoffee.com/swotrb).
+
+The archive is created in the current directory as `AdGuardHome.tar`. Review the archive before sharing it to make sure it does not contain private information.
+
+## How This Installer Was Made
+
+- Uses AdGuard Home binary packages from https://github.com/AdguardTeam/AdGuardHome
+- Installer logic was inspired by `entware-setup.sh` from Asuswrt-Merlin.
+- Source code is available at https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer
+
+## Donate
+
+This script will always be open source and free to use under the [GPL-3.0 License](https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/master/LICENSE). If you want to support future development, you can donate through [PayPal](https://paypal.me/swotrb) or [Buy Me a Coffee](https://www.buymeacoffee.com/swotrb).
