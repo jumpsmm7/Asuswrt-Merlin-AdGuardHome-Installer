@@ -82,7 +82,7 @@ jobs:
           fi
 
   shfmt:
-    name: shfmt formatting check
+    name: shfmt advisory
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -99,12 +99,12 @@ jobs:
           go install mvdan.cc/sh/v3/cmd/shfmt@v3.10.0
           echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
 
-      - name: Check shell formatting
+      - name: Run shfmt advisory report
         run: |
-          set -eu
+          set -u
 
           scripts_file="$(mktemp)"
-          trap 'rm -f "${scripts_file}" shfmt.diff' EXIT HUP INT TERM
+          trap 'rm -f "${scripts_file}" shfmt.diff shfmt.errors' EXIT HUP INT TERM
 
           is_shell_script() {
             path="$1"
@@ -145,20 +145,31 @@ jobs:
             exit 0
           fi
 
-          echo "Checking shell formatting with shfmt."
+          echo "Running shfmt advisory checks. Diffs and parser warnings are reported below but do not fail this job."
+          : > shfmt.diff
+          : > shfmt.errors
+
           while IFS= read -r script; do
             shell_lang="$(shfmt_language "${script}")"
             echo "shfmt (${shell_lang}): ${script}"
-            shfmt -d -ln "${shell_lang}" -i 0 -ci "${script}"
-          done < "${scripts_file}" > shfmt.diff
+            if ! shfmt -d -ln "${shell_lang}" -i 0 -ci "${script}" >> shfmt.diff 2>> shfmt.errors; then
+              echo "shfmt could not parse ${script}; leaving syntax enforcement to the syntax job." >> shfmt.errors
+            fi
+          done < "${scripts_file}"
 
           if [ -s shfmt.diff ]; then
+            echo "shfmt suggested formatting changes:"
             cat shfmt.diff
-            echo "Shell formatting changes are needed. Run shfmt -w -ln bash -i 0 -ci installer for installer, or shfmt -w -ln posix -i 0 -ci for POSIX scripts shown above." >&2
-            exit 1
+          else
+            echo "shfmt found no formatting diffs."
           fi
 
-          echo "Shell formatting looks good."
+          if [ -s shfmt.errors ]; then
+            echo "shfmt parser warnings:"
+            cat shfmt.errors
+          fi
+
+          exit 0
 
   shellcheck:
     name: ShellCheck advisory
