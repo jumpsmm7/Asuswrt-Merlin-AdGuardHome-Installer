@@ -95,7 +95,7 @@ curl -L -s -O https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardH
 For development branch testing only:
 
 ```sh
-curl -L -s -O https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/dev/readme-installer-improvements/installer && sh installer; rm installer
+curl -L -s -O https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/dev/installer && sh installer; rm installer
 ```
 
 ## Service Commands
