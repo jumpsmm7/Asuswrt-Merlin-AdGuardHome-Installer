@@ -110,6 +110,12 @@ opkg_available() {
 	opkg list 2>/dev/null | awk -v pkg="$1" '$1 == pkg { found=1; exit } END { exit found ? 0 : 1 }'
 }
 
+
+cmd_exists() {
+	[ -n "$1" ] || return 1
+	which "$1" >/dev/null 2>&1
+}
+
 hash_password_python3() {
 	python3 -c 'import sys, bcrypt; password = sys.stdin.buffer.read(); print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))'
 }
@@ -122,14 +128,14 @@ safe_download() {
 
 	rm -f "${_tmp_output}"
 
-	if which curl >/dev/null 2>&1; then
+	if cmd_exists curl; then
 		if curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -fsL "${_url}" -o "${_tmp_output}" && [ -s "${_tmp_output}" ]; then
 			mv "${_tmp_output}" "${_output}"
 			return 0
 		fi
 	fi
 
-	if which wget >/dev/null 2>&1; then
+	if cmd_exists wget; then
 		if wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 -q "${_url}" -O "${_tmp_output}" && [ -s "${_tmp_output}" ]; then
 			mv "${_tmp_output}" "${_output}"
 			return 0
@@ -193,7 +199,7 @@ AdGuardHome_authen() {
 		pip3 install bcrypt >/dev/null 2>&1
 	fi
 	local PW1_ENCRYPTED
-	if opkg_installed python3-bcrypt; then PW1_ENCRYPTED="$(printf '%s' "${PW1}" | hash_password_python3)"; elif [ -f "/opt/bin/bcrypt-tool" ]; then PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"; else
+	if opkg_installed python3-bcrypt && cmd_exists python3; then PW1_ENCRYPTED="$(printf '%s' "${PW1}" | hash_password_python3)"; elif [ -x "/opt/bin/bcrypt-tool" ]; then PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"; else
 		PTXT "${ERROR} Password could not be set!" "${ERROR} Please contact dev."
 		end_op_message 1
 		return
@@ -347,7 +353,9 @@ check_connection() {
 	while [ "${livecheck}" != "4" ]; do
 		for i in google.com github.com snbforums.com; do
 			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
-				if { ! curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } && { ! wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 --retry-connrefused -q --spider "http://${i}" >/dev/null 2>&1; }; then
+				if { cmd_exists curl && curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { cmd_exists wget && wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 --retry-connrefused -q --spider "http://${i}" >/dev/null 2>&1; }; then
+			:
+		else
 					sleep 1s
 					continue
 				fi
