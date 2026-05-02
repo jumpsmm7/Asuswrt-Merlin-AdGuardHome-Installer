@@ -1,0 +1,49 @@
+name: Feature request
+description: Suggest an installer improvement or new option
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for installer features, maintenance improvements, or Asuswrt-Merlin integration ideas.
+
+  - type: textarea
+    id: feature
+    attributes:
+      label: Feature description
+      description: What should be added or changed?
+    validations:
+      required: true
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: What problem does this solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_behavior
+    attributes:
+      label: Proposed behavior
+      description: How should the installer behave?
+    validations:
+      required: false
+
+  - type: input
+    id: router_model
+    attributes:
+      label: Router model, if relevant
+      placeholder: RT-AX86U, GT-AX6000, RT-BE88U, etc.
+    validations:
+      required: false
+
+  - type: input
+    id: firmware
+    attributes:
+      label: Asuswrt-Merlin firmware version, if relevant
+      placeholder: 3004.388.x, 3006.102.x, etc.
+    validations:
+      required: false

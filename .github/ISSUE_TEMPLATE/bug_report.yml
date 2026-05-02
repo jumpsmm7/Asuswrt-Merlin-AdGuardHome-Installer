@@ -8,7 +8,7 @@ body:
       value: |
         Thanks for reporting an issue. Please provide enough detail to reproduce the problem.
 
-        If the problem is with AdGuard Home itself rather than this installer, please report it upstream first:
+        If the problem is with AdGuard Home itself rather than this installer, report it upstream first:
         https://github.com/AdguardTeam/AdGuardHome/issues
 
   - type: textarea
@@ -16,7 +16,6 @@ body:
     attributes:
       label: Problem description
       description: What happened? What did you expect to happen?
-      placeholder: Describe the failure, error message, or unexpected behavior.
     validations:
       required: true
 
@@ -77,7 +76,7 @@ body:
     id: dns_environment
     attributes:
       label: DNS/network environment
-      description: Select or describe anything relevant.
+      description: Include anything relevant to DNS or routing.
       placeholder: |
         - Dual WAN: yes/no
         - Double NAT: yes/no
