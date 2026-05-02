@@ -25,6 +25,7 @@ on:
           - phase2
           - phase3
           - phase4
+          - phase5
 
 permissions:
   contents: write
@@ -89,6 +90,9 @@ jobs:
               ;;
             phase4)
               python3 tools/apply-installer-hardening-phase4.py
+              ;;
+            phase5)
+              python3 tools/apply-installer-hardening-phase5.py
               ;;
             *)
               echo "Unknown hardening phase: ${HARDENING_PHASE}" >&2
