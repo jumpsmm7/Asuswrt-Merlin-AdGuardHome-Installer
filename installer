@@ -124,20 +124,21 @@ hash_password_python3() {
 safe_download() {
 	_url="$1"
 	_output="$2"
+	[ -n "${_url}" ] && [ -n "${_output}" ] || return 1
 	_tmp_output="${_output}.$$"
 
 	rm -f "${_tmp_output}"
 
 	if cmd_exists curl; then
 		if curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -fsL "${_url}" -o "${_tmp_output}" && [ -s "${_tmp_output}" ]; then
-			mv "${_tmp_output}" "${_output}"
+			mv -f "${_tmp_output}" "${_output}"
 			return 0
 		fi
 	fi
 
 	if cmd_exists wget; then
 		if wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 -q "${_url}" -O "${_tmp_output}" && [ -s "${_tmp_output}" ]; then
-			mv "${_tmp_output}" "${_output}"
+			mv -f "${_tmp_output}" "${_output}"
 			return 0
 		fi
 	fi
@@ -295,8 +296,16 @@ backup_restore() {
 			"${INFO} Please wait a moment."
 		local BACKUP_FILE
 		BACKUP_FILE="${BASE_DIR}/backup_AdGuardHome-$(date +%Y%m%d-%H%M%S 2>/dev/null || date +%s).tar.gz"
-		tar -czvf "${BACKUP_FILE}" -C "${TARG_DIR}" ../AdGuardHome/ >/dev/null 2>&1
-		cp -f "${BACKUP_FILE}" "${BASE_DIR}/backup_AdGuardHome.tar.gz"
+		if ! tar -czvf "${BACKUP_FILE}" -C "${TARG_DIR}" ../AdGuardHome/ >/dev/null 2>&1; then
+			PTXT "${ERROR} Backup archive could not be created."
+			end_op_message 1
+			return
+		fi
+		if ! cp -f "${BACKUP_FILE}" "${BASE_DIR}/backup_AdGuardHome.tar.gz"; then
+			PTXT "${ERROR} Latest backup copy could not be refreshed."
+			end_op_message 1
+			return
+		fi
 		PTXT "${INFO} Backup complete: ${BACKUP_FILE}"
 		[ -z "$2" ] && end_op_message 0 || return 0
 	elif [ "$1" = "BACKUP" ] && [ ! -d "${TARG_DIR}" ] && [ ! -f "${AGH_FILE}" ]; then
