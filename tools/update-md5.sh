@@ -1,6 +1,6 @@
 #!/bin/sh
-# Update .md5sum files for installer/service script artifacts.
-# BusyBox/ash-compatible.
+# Update .md5sum files for router-side installer/service artifacts.
+# BusyBox/ash-compatible. Avoids bashisms and command -v for Asuswrt-Merlin ash.
 
 set -u
 
@@ -8,15 +8,32 @@ FAILED=0
 UPDATED=0
 TARGETS="installer S99AdGuardHome rc.func.AdGuardHome"
 
+have_cmd() {
+	which "$1" >/dev/null 2>&1
+}
+
 calc_md5() {
 	_file="$1"
-	if command -v md5sum >/dev/null 2>&1; then
+	if have_cmd md5sum; then
 		md5sum "${_file}" | awk '{print $1; exit}'
-	elif command -v openssl >/dev/null 2>&1; then
+	elif have_cmd openssl; then
 		openssl dgst -md5 "${_file}" | awk '{print $NF; exit}'
 	else
 		return 1
 	fi
+}
+
+is_md5_hex() {
+	_value="$1"
+	case "${_value}" in
+	????????????????????????????????)
+		case "${_value}" in
+		*[!0123456789abcdefABCDEF]*) return 1 ;;
+		*) return 0 ;;
+		esac
+		;;
+	*) return 1 ;;
+	esac
 }
 
 update_one() {
@@ -34,8 +51,8 @@ update_one() {
 		return 1
 	}
 
-	if [ -z "${_md5_value}" ]; then
-		printf '%s\n' "Error: could not calculate checksum for ${_src_file}" >&2
+	if ! is_md5_hex "${_md5_value}"; then
+		printf '%s\n' "Error: could not calculate valid checksum for ${_src_file}" >&2
 		FAILED=1
 		return 1
 	fi
@@ -50,7 +67,11 @@ update_one() {
 		return 0
 	fi
 
-	printf '%s\n' "${_md5_value}" >"${_md5_file}"
+	printf '%s\n' "${_md5_value}" >"${_md5_file}" || {
+		printf '%s\n' "Error: could not write ${_md5_file}" >&2
+		FAILED=1
+		return 1
+	}
 	printf '%s\n' "Updated ${_md5_file}: ${_md5_value}"
 	UPDATED="$((UPDATED + 1))"
 }
