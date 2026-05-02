@@ -27,12 +27,12 @@ jobs:
             find tools -type f -name '*.sh' -print -exec sh -n {} \;
           fi
 
-      - name: Check installer md5
+      - name: Check md5 files
         run: |
-          if [ -f installer.md5 ]; then
-            sh tools/check-installer-md5.sh installer installer.md5
+          if find . -type f -name '*.md5' ! -path './.git/*' | grep -q .; then
+            sh tools/check-md5.sh
           else
-            echo "installer.md5 not present; checksum validation skipped."
+            echo "No .md5 files present; checksum validation skipped."
           fi
 
   shellcheck:
