@@ -21,6 +21,12 @@ MODE="changed"
 FAILED=0
 UPDATED=0
 SEEN_FILES=""
+FILES_TMP="/tmp/update-changed-md5.$$"
+
+cleanup() {
+	rm -f "${FILES_TMP}"
+}
+trap cleanup EXIT HUP INT TERM
 
 calc_md5() {
 	_file="$1"
@@ -80,28 +86,37 @@ update_for_source() {
 		return 1
 	fi
 
+	_current_value=""
+	if [ -f "${_md5_file}" ]; then
+		_current_value="$(awk 'NF {print $1; exit}' "${_md5_file}")"
+	fi
+
+	if [ "${_current_value}" = "${_md5_value}" ]; then
+		return 0
+	fi
+
 	printf '%s\n' "${_md5_value}" >"${_md5_file}"
 	printf '%s\n' "Updated ${_md5_file}: ${_md5_value}"
 	UPDATED="$((UPDATED + 1))"
 }
 
-process_git_changed_files() {
+write_git_changed_files() {
 	case "${MODE}" in
 	staged)
-		git diff --cached --name-only --diff-filter=ACMR
+		git diff --cached --name-only --diff-filter=ACMR >"${FILES_TMP}"
 		;;
 	all)
 		{
 			git diff --name-only --diff-filter=ACMR
 			git diff --cached --name-only --diff-filter=ACMR
 			git ls-files --others --exclude-standard
-		} | sort -u
+		} | sort -u >"${FILES_TMP}"
 		;;
 	changed|*)
 		{
 			git diff --name-only --diff-filter=ACMR
 			git diff --cached --name-only --diff-filter=ACMR
-		} | sort -u
+		} | sort -u >"${FILES_TMP}"
 		;;
 	esac
 }
@@ -142,9 +157,10 @@ else
 		exit 1
 	fi
 
-	process_git_changed_files | while read -r src_file; do
-		update_for_source "${src_file}" || exit 1
-	done || FAILED=1
+	write_git_changed_files
+	while IFS= read -r src_file; do
+		update_for_source "${src_file}" || FAILED=1
+	done <"${FILES_TMP}"
 fi
 
 if [ "${FAILED}" -ne 0 ]; then
