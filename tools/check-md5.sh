@@ -5,7 +5,7 @@
 set -u
 
 FAILED=0
-TARGETS="installer S99AdGuardHome rc.func.AdGuardHome"
+TARGETS="installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome"
 
 have_cmd() {
 	which "$1" >/dev/null 2>&1
