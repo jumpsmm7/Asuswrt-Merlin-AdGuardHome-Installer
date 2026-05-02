@@ -28,6 +28,7 @@ on:
           - phase5
           - final
           - improve
+          - improve2
 
 permissions:
   contents: write
@@ -101,6 +102,9 @@ jobs:
               ;;
             improve)
               python3 tools/apply-installer-improvements.py
+              ;;
+            improve2)
+              python3 tools/apply-installer-improvements-2.py
               ;;
             *)
               echo "Unknown hardening phase: ${HARDENING_PHASE}" >&2
