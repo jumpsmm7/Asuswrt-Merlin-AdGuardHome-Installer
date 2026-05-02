@@ -1,0 +1,112 @@
+name: Bug report
+description: Report an installer, update, DNS, or service issue
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting an issue. Please provide enough detail to reproduce the problem.
+
+        If the problem is with AdGuard Home itself rather than this installer, report it upstream first:
+        https://github.com/AdguardTeam/AdGuardHome/issues
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem description
+      description: What happened? What did you expect to happen?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operation
+    attributes:
+      label: Operation
+      description: Which installer operation were you running?
+      options:
+        - Fresh install
+        - Update
+        - Reconfigure
+        - Uninstall
+        - Backup
+        - Restore
+        - Service start/stop/restart
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: router_model
+    attributes:
+      label: Router model
+      placeholder: RT-AX86U, GT-AX6000, RT-BE88U, etc.
+    validations:
+      required: true
+
+  - type: input
+    id: firmware
+    attributes:
+      label: Asuswrt-Merlin firmware version
+      placeholder: 3004.388.x, 3006.102.x, etc.
+    validations:
+      required: true
+
+  - type: input
+    id: installer_version
+    attributes:
+      label: Installer version
+      placeholder: v2.0.1
+    validations:
+      required: false
+
+  - type: dropdown
+    id: entware
+    attributes:
+      label: Entware status
+      options:
+        - Installed and updated
+        - Installed but not recently updated
+        - Not sure
+        - Not installed
+    validations:
+      required: true
+
+  - type: textarea
+    id: dns_environment
+    attributes:
+      label: DNS/network environment
+      description: Include anything relevant to DNS or routing.
+      placeholder: |
+        - Dual WAN: yes/no
+        - Double NAT: yes/no
+        - VPN Director: yes/no
+        - DNS Director/DNSFilter: yes/no
+        - Stubby/dnscrypt-proxy/other DNS service: yes/no
+        - Another service on port 53: yes/no
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output or logs
+      description: Paste error output here. Review logs before posting and remove private values.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: checks
+    attributes:
+      label: Basic checks
+      description: Paste the output of any commands that apply.
+      value: |
+        ```sh
+        pidof AdGuardHome
+        /opt/etc/init.d/S99AdGuardHome check
+        netstat -lnp | grep ':53 '
+        opkg list-installed | grep -E 'python3|bcrypt|go|AdGuardHome'
+        ```
+    validations:
+      required: false
