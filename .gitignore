@@ -1,0 +1,27 @@
+# OS/editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+*.err
+*.pid
+
+# Local debug archives
+AdGuardHome.tar
+AdGuardHome-debug-*.tar.gz
+*.tar.gz
+
+# Local test output
+/tmp/
+tmp/
+.cache/
+
+# Entware/router-local artifacts that should not be committed accidentally
+opt/
+jffs/
