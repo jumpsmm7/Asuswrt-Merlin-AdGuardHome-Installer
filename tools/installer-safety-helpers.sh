@@ -32,7 +32,10 @@ agh_mktemp_file() {
 		mktemp "${_prefix}.XXXXXX" 2>/dev/null && return 0
 	fi
 	_tmp="${_prefix}.$$"
-	(set -C; : >"${_tmp}") 2>/dev/null || return 1
+	(
+		set -C
+		: >"${_tmp}"
+	) 2>/dev/null || return 1
 	printf '%s\n' "${_tmp}"
 }
 

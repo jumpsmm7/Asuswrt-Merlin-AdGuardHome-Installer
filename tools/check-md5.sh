@@ -30,11 +30,11 @@ calc_md5() {
 check_one() {
 	_md5_file="$1"
 	case "${_md5_file}" in
-	*.md5sum) ;;
-	*)
-		printf '%s\n' "Skipping non-md5sum file: ${_md5_file}" >&2
-		return 0
-		;;
+		*.md5sum) ;;
+		*)
+			printf '%s\n' "Skipping non-md5sum file: ${_md5_file}" >&2
+			return 0
+			;;
 	esac
 
 	_src_file="${_md5_file%.md5sum}"
