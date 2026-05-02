@@ -7,6 +7,7 @@ on:
       - 'dev/**'
     paths:
       - installer
+      - AdGuardHome.sh
       - S99AdGuardHome
       - rc.func.AdGuardHome
       - tools/update-md5.sh
@@ -67,19 +68,19 @@ jobs:
 
       - name: Update md5sum files
         run: |
-          sh tools/update-md5.sh installer S99AdGuardHome rc.func.AdGuardHome
+          sh tools/update-md5.sh installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
 
       - name: Commit md5sum updates
         shell: bash
         run: |
           set -euo pipefail
 
-          if git diff --quiet -- installer.md5sum S99AdGuardHome.md5sum rc.func.AdGuardHome.md5sum; then
+          if git diff --quiet -- installer.md5sum AdGuardHome.sh.md5sum S99AdGuardHome.md5sum rc.func.AdGuardHome.md5sum; then
             echo "No md5sum updates needed."
             exit 0
           fi
 
           git status --short
-          git add installer.md5sum S99AdGuardHome.md5sum rc.func.AdGuardHome.md5sum
+          git add installer.md5sum AdGuardHome.sh.md5sum S99AdGuardHome.md5sum rc.func.AdGuardHome.md5sum
           git commit -m "chore: update md5sum files"
           git push origin HEAD:${{ steps.branch.outputs.target }}
