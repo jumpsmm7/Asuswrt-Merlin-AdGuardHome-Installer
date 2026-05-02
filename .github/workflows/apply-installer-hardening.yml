@@ -15,6 +15,14 @@ on:
         options:
           - "true"
           - "false"
+      hardening_phase:
+        description: Installer hardening phase to apply
+        required: true
+        default: phase1
+        type: choice
+        options:
+          - phase1
+          - phase2
 
 permissions:
   contents: write
@@ -62,20 +70,38 @@ jobs:
           fi
 
       - name: Apply installer hardening
+        env:
+          HARDENING_PHASE: ${{ inputs.hardening_phase }}
         run: |
-          python3 tools/apply-installer-hardening-ci.py
+          set -eu
 
-      - name: Ensure installer.md5 exists
+          case "${HARDENING_PHASE}" in
+            phase1)
+              python3 tools/apply-installer-hardening-ci.py
+              ;;
+            phase2)
+              python3 tools/apply-installer-hardening-phase2.py
+              ;;
+            *)
+              echo "Unknown hardening phase: ${HARDENING_PHASE}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Ensure installer.md5sum exists
         run: |
-          if [ -f installer ] && [ ! -f installer.md5 ]; then
-            md5sum installer | awk '{print $1 "  installer"}' > installer.md5
+          if [ -f installer ] && [ ! -f installer.md5sum ]; then
+            md5sum installer | awk '{print $1}' > installer.md5sum
+          fi
+          if [ -f installer.md5 ]; then
+            rm -f installer.md5
           fi
 
-      - name: Update changed MD5 files
+      - name: Update changed MD5SUM files
         run: |
           sh tools/update-changed-md5.sh --all
 
-      - name: Validate MD5 files
+      - name: Validate MD5SUM files
         run: |
           sh tools/check-md5.sh
 
@@ -100,6 +126,7 @@ jobs:
       - name: Commit generated changes
         env:
           TARGET_BRANCH: ${{ inputs.target_branch }}
+          HARDENING_PHASE: ${{ inputs.hardening_phase }}
         run: |
           set -eu
 
@@ -110,6 +137,7 @@ jobs:
           fi
 
           git status --short
-          git add installer installer.md5 tools docs .github
-          git commit -m "installer: apply hardening changes and update checksums"
+          git add installer installer.md5sum tools docs .github
+          git rm -f installer.md5 2>/dev/null || true
+          git commit -m "installer: apply ${HARDENING_PHASE} hardening changes and update checksums"
           git push --force-with-lease origin HEAD:"${TARGET_BRANCH}"
