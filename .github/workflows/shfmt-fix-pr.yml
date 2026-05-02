@@ -74,7 +74,6 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
 
       - name: Apply shfmt mksh formatting
-        shell: bash
         run: |
           set -u
 
@@ -82,34 +81,7 @@ jobs:
           errors_file="$(mktemp)"
           trap 'rm -f "${scripts_file}" "${errors_file}"' EXIT HUP INT TERM
 
-          is_shell_script() {
-            local path first_line
-            path="$1"
-            first_line="$(sed -n '1p' "${path}" 2>/dev/null || true)"
-
-            case "${path}" in
-              installer|*.sh|S99AdGuardHome|rc.func.AdGuardHome|*/S99AdGuardHome|*/rc.func.AdGuardHome)
-                return 0
-                ;;
-            esac
-
-            case "${first_line}" in
-              '#!'*'/sh'|'#!'*'/sh\ *|'#!'*' sh'|'#!'*' sh\ *|\
-              '#!'*'/ash'|'#!'*'/ash\ *|'#!'*' ash'|'#!'*' ash\ *|\
-              '#!'*'/dash'|'#!'*'/dash\ *|'#!'*' dash'|'#!'*' dash\ *)
-                return 0
-                ;;
-            esac
-
-            return 1
-          }
-
-          while IFS= read -r file; do
-            path="${file#./}"
-            if is_shell_script "${path}"; then
-              printf '%s\n' "${path}" >> "${scripts_file}"
-            fi
-          done < <(find . -type f ! -path './.git/*' | sort)
+          sh tools/list-shell-scripts.sh > "${scripts_file}"
 
           if [ ! -s "${scripts_file}" ]; then
             echo "No shell scripts found for shfmt."
