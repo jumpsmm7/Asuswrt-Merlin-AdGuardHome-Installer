@@ -31,17 +31,17 @@ export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 AI_VERSION="v2.0.1"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
+readonly HEADER_FILE="/tmp/AGH_GIT_HEADERS_$$.out"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 varcnt=0
 readonly MAX_RETRIES="1"
 until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
 	if which curl >/dev/null 2>&1; then
-		curl -D "/tmp/$$_headers.out" --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -sL "${LATEST_URL}?per_page=5" -o "${API_FILE}"
+		curl -D "${HEADER_FILE}" --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -sL "${LATEST_URL}?per_page=5" -o "${API_FILE}"
 	elif which wget >/dev/null 2>&1; then
 		wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 -q "${LATEST_URL}?per_page=5" -O "${API_FILE}"
 	else
-		printf "%s
-" "Neither curl nor wget is available. The installer cannot query GitHub releases."
+		printf "%s\n" "Neither curl nor wget is available. The installer cannot query GitHub releases."
 		exit 1
 	fi
 	if [ -s "${API_FILE}" ]; then
@@ -50,14 +50,13 @@ until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
 		break
 	fi
 	if [ "${varcnt}" -gt "${MAX_RETRIES}" ]; then
-		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr) per requesters IP." "For more information, please read /tmp/$$_headers.out." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
+		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr) per requesters IP." "For more information, please read ${HEADER_FILE}." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
 		sleep 3s
 		exit 1
 	fi
 	varcnt="$((varcnt + 1))"
 done
-rm -f "$API_FILE" "/tmp/$$_headers.out"
-wait
+rm -f "${API_FILE}" "${HEADER_FILE}"
 unset varcnt
 readonly REMOTE_VER REMOTE_BETA
 readonly ADDON_DIR="/jffs/addons/AdGuardHome.d"
@@ -107,7 +106,6 @@ PTXT() {
 	esac
 }
 
-
 opkg_installed() {
 	[ -n "$1" ] || return 1
 	opkg list-installed 2>/dev/null | awk -v pkg="$1" '$1 == pkg { found=1; exit } END { exit found ? 0 : 1 }'
@@ -118,7 +116,6 @@ opkg_available() {
 	opkg list 2>/dev/null | awk -v pkg="$1" '$1 == pkg { found=1; exit } END { exit found ? 0 : 1 }'
 }
 
-
 cmd_exists() {
 	[ -n "$1" ] || return 1
 	which "$1" >/dev/null 2>&1
@@ -128,29 +125,28 @@ hash_password_python3() {
 	python3 -c 'import sys, bcrypt; password = sys.stdin.buffer.read(); print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))'
 }
 
-
 safe_download() {
 	_url="$1"
 	_output="$2"
 	[ -n "${_url}" ] && [ -n "${_output}" ] || return 1
+	case "${_output}" in
+	/*) ;;
+	*) return 1 ;;
+	esac
 	_tmp_output="${_output}.$$"
-
 	rm -f "${_tmp_output}"
-
 	if cmd_exists curl; then
 		if curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -fsL "${_url}" -o "${_tmp_output}" && [ -s "${_tmp_output}" ]; then
 			mv -f "${_tmp_output}" "${_output}"
 			return 0
 		fi
 	fi
-
 	if cmd_exists wget; then
 		if wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 -q "${_url}" -O "${_tmp_output}" && [ -s "${_tmp_output}" ]; then
 			mv -f "${_tmp_output}" "${_output}"
 			return 0
 		fi
 	fi
-
 	rm -f "${_tmp_output}"
 	return 1
 }
@@ -218,7 +214,7 @@ AdGuardHome_authen() {
 		end_op_message 1
 		return
 	fi
-	if [ "$1" -eq 0 ]; then
+	if [ "${1:-}" = "0" ]; then
 		yaml_nvars_delete "- name:" "${YAML_FILE}"
 		yaml_nvars_delete "  password:" "${YAML_FILE}"
 		yaml_nvars_insert "users:" "\  password: ${PW1_ENCRYPTED}" "${YAML_FILE}"
@@ -287,7 +283,7 @@ AdGuardHome_authen() {
 }
 
 backup_restore() {
-	if [ "$1" = "BACKUP" ] && [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; then
+	if [ "${1:-}" = "BACKUP" ] && [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; then
 		if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 			PTXT "${INFO} There is an old backup detected."
 			local USE_OLD
@@ -322,12 +318,12 @@ backup_restore() {
 		fi
 		PTXT "${INFO} Backup complete: ${BACKUP_FILE}"
 		[ -z "$2" ] && end_op_message 0 || return 0
-	elif [ "$1" = "BACKUP" ] && [ ! -d "${TARG_DIR}" ] && [ ! -f "${AGH_FILE}" ]; then
+	elif [ "${1:-}" = "BACKUP" ] && [ ! -d "${TARG_DIR}" ] && [ ! -f "${AGH_FILE}" ]; then
 		PTXT "${ERROR} No ${AGH_FILE} to Backup!"
 		end_op_message 1
 		return
 	fi
-	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
+	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "${1:-}" = "RESTORE" ]; then
 		PTXT "${INFO} Please wait a moment."
 		if ! tar -tzf "${BASE_DIR}/backup_AdGuardHome.tar.gz" >/dev/null 2>&1; then
 			PTXT "${ERROR} Backup archive is invalid or unreadable."
@@ -343,12 +339,24 @@ backup_restore() {
 			[ -e "${restored_file}" ] || continue
 			chown "$(nvram get http_username)":root "${restored_file}"
 		done
-		chmod 755 "${AGH_FILE}"
-		chmod 644 "${YAML_FILE}"
+		if ! chmod 755 "${AGH_FILE}"; then
+			PTXT "${ERROR} Could not set AdGuardHome executable permissions."
+			end_op_message 1
+			return
+		fi
+		if ! chmod 644 "${YAML_FILE}"; then
+			PTXT "${ERROR} Could not set AdGuardHome YAML permissions."
+			end_op_message 1
+			return
+		fi
 		[ -e "/opt/sbin/AdGuardHome" ] && rm -f /opt/sbin/AdGuardHome
-		ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome
+		if ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome; then
+			PTXT "${ERROR} Could not create /opt/sbin/AdGuardHome symlink."
+			end_op_message 1
+			return
+		fi
 		inst_AdGuardHome "${1:-RESTORE}"
-	elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
+	elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "${1:-}" = "RESTORE" ]; then
 		PTXT "${ERROR} No Backup found!" \
 			"${ERROR} Please make sure backup_AdGuardHome.tar.gz resides in ${BASE_DIR}"
 		end_op_message 1
@@ -440,14 +448,14 @@ check_dns_environment() {
 check_dns_filter() {
 	local NVCHECK USE_SOME
 	NVCHECK="0"
-	if [ "$1" -eq 0 ]; then
+	if [ "${1:-}" = "0" ]; then
 		if [ "$(nvram get dnsfilter_enable_x)" != "0" ]; then
 			{ nvram set dnsfilter_enable_x="0"; }
 			NVCHECK="$((NVCHECK + 1))"
 		fi
 		PTXT "${INFO} DNS will not be forced through to AdGuardHome."
 	fi
-	if [ "$1" -eq 1 ]; then
+	if [ "${1:-}" = "1" ]; then
 		if [ "$(nvram get dnsfilter_enable_x)" != "1" ]; then
 			{ nvram set dnsfilter_enable_x="1"; }
 			NVCHECK="$((NVCHECK + 1))"
@@ -519,7 +527,8 @@ check_dns_filter() {
 	fi
 	if [ "${NVCHECK}" != "0" ]; then
 		{ nvram commit; }
-		{ service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1; }
+		{ service restart_firewall >/dev/null 2>&1
+		service restart_dnsmasq >/dev/null 2>&1; }
 		(while { ! check_connection; }; do sleep 1s; done) &
 		local PID="$!"
 		wait "${PID}" 2>/dev/null
@@ -898,7 +907,11 @@ inst_AdGuardHome() {
 		rm -r "${BASE_DIR:?}/${ADGUARD_TAR}"
 		chmod 755 "${AGH_FILE}"
 		[ -e "/opt/sbin/AdGuardHome" ] && rm -f /opt/sbin/AdGuardHome
-		if ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome || [ -z "$("${AGH_FILE}" --version | cut -d" " -f4-)" ]; then
+		if ! if ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome; then
+			PTXT "${ERROR} Could not create /opt/sbin/AdGuardHome symlink."
+			end_op_message 1 "$1"
+			return
+		fi || [ -z "$("${AGH_FILE}" --version | cut -d" " -f4-)" ]; then
 			PTXT "${ERROR} Failed to download AdGuardHome package for your router"
 			end_op_message 1 "$1"
 			return
