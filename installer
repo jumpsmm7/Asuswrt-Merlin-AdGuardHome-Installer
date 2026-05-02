@@ -24,6 +24,7 @@
 # shellcheck disable=SC3043
 # shellcheck disable=SC3045
 # shellcheck disable=SC3057
+# shellcheck shell=bash
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
