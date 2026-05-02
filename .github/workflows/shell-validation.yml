@@ -1,0 +1,222 @@
+name: Shell validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - 'dev/**'
+
+permissions:
+  contents: read
+
+jobs:
+  posix-syntax:
+    name: POSIX shell syntax
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check POSIX shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          scripts_file="$(mktemp)"
+          trap 'rm -f "${scripts_file}"' EXIT HUP INT TERM
+
+          is_shell_script() {
+            local path first_line
+            path="$1"
+            first_line="$(sed -n '1p' "${path}" 2>/dev/null || true)"
+
+            case "${path}" in
+              installer|*.sh|S99AdGuardHome|rc.func.AdGuardHome|*/S99AdGuardHome|*/rc.func.AdGuardHome)
+                return 0
+                ;;
+            esac
+
+            case "${first_line}" in
+              '#!'*'/sh'|'#!'*'/sh\ *|'#!'*' sh'|'#!'*' sh\ *|\
+              '#!'*'/ash'|'#!'*'/ash\ *|'#!'*' ash'|'#!'*' ash\ *|\
+              '#!'*'/dash'|'#!'*'/dash\ *|'#!'*' dash'|'#!'*' dash\ *)
+                return 0
+                ;;
+            esac
+
+            return 1
+          }
+
+          while IFS= read -r file; do
+            path="${file#./}"
+            if is_shell_script "${path}"; then
+              printf '%s\n' "${path}" >> "${scripts_file}"
+            fi
+          done < <(find . -type f ! -path './.git/*' | sort)
+
+          if [ ! -s "${scripts_file}" ]; then
+            echo "No POSIX shell scripts found."
+            exit 0
+          fi
+
+          while IFS= read -r script; do
+            echo "sh -n: ${script}"
+            sh -n "${script}"
+          done < "${scripts_file}"
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run ShellCheck
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          scripts_file="$(mktemp)"
+          trap 'rm -f "${scripts_file}"' EXIT HUP INT TERM
+
+          is_shell_script() {
+            local path first_line
+            path="$1"
+            first_line="$(sed -n '1p' "${path}" 2>/dev/null || true)"
+
+            case "${path}" in
+              installer|*.sh|S99AdGuardHome|rc.func.AdGuardHome|*/S99AdGuardHome|*/rc.func.AdGuardHome)
+                return 0
+                ;;
+            esac
+
+            case "${first_line}" in
+              '#!'*'/sh'|'#!'*'/sh\ *|'#!'*' sh'|'#!'*' sh\ *|\
+              '#!'*'/ash'|'#!'*'/ash\ *|'#!'*' ash'|'#!'*' ash\ *|\
+              '#!'*'/dash'|'#!'*'/dash\ *|'#!'*' dash'|'#!'*' dash\ *)
+                return 0
+                ;;
+            esac
+
+            return 1
+          }
+
+          while IFS= read -r file; do
+            path="${file#./}"
+            if is_shell_script "${path}"; then
+              printf '%s\n' "${path}" >> "${scripts_file}"
+            fi
+          done < <(find . -type f ! -path './.git/*' | sort)
+
+          if [ ! -s "${scripts_file}" ]; then
+            echo "No shell scripts found for ShellCheck."
+            exit 0
+          fi
+
+          while IFS= read -r script; do
+            echo "shellcheck -s sh: ${script}"
+            shellcheck -s sh --severity=warning "${script}"
+          done < "${scripts_file}"
+
+  md5sum:
+    name: MD5SUM validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate md5sum files
+        run: |
+          sh tools/check-md5.sh installer S99AdGuardHome rc.func.AdGuardHome
+
+  shfmt:
+    name: shfmt mksh recommendations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go for shfmt
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: false
+
+      - name: Install shfmt
+        run: |
+          go install mvdan.cc/sh/v3/cmd/shfmt@v3.10.0
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+
+      - name: Show shfmt mksh formatting recommendations
+        shell: bash
+        run: |
+          set -u
+
+          scripts_file="$(mktemp)"
+          diff_file="$(mktemp)"
+          errors_file="$(mktemp)"
+          trap 'rm -f "${scripts_file}" "${diff_file}" "${errors_file}"' EXIT HUP INT TERM
+
+          is_shell_script() {
+            local path first_line
+            path="$1"
+            first_line="$(sed -n '1p' "${path}" 2>/dev/null || true)"
+
+            case "${path}" in
+              installer|*.sh|S99AdGuardHome|rc.func.AdGuardHome|*/S99AdGuardHome|*/rc.func.AdGuardHome)
+                return 0
+                ;;
+            esac
+
+            case "${first_line}" in
+              '#!'*'/sh'|'#!'*'/sh\ *|'#!'*' sh'|'#!'*' sh\ *|\
+              '#!'*'/ash'|'#!'*'/ash\ *|'#!'*' ash'|'#!'*' ash\ *|\
+              '#!'*'/dash'|'#!'*'/dash\ *|'#!'*' dash'|'#!'*' dash\ *)
+                return 0
+                ;;
+            esac
+
+            return 1
+          }
+
+          while IFS= read -r file; do
+            path="${file#./}"
+            if is_shell_script "${path}"; then
+              printf '%s\n' "${path}" >> "${scripts_file}"
+            fi
+          done < <(find . -type f ! -path './.git/*' | sort)
+
+          if [ ! -s "${scripts_file}" ]; then
+            echo "No shell scripts found for shfmt."
+            exit 0
+          fi
+
+          : > "${diff_file}"
+          : > "${errors_file}"
+
+          while IFS= read -r script; do
+            echo "shfmt -ln mksh: ${script}"
+            if ! shfmt -d -ln mksh -i 0 -ci "${script}" >> "${diff_file}" 2>> "${errors_file}"; then
+              echo "shfmt could not parse ${script}; syntax checks run separately." >> "${errors_file}"
+            fi
+          done < "${scripts_file}"
+
+          if [ -s "${diff_file}" ]; then
+            echo "shfmt mksh formatting recommendations:"
+            cat "${diff_file}"
+          else
+            echo "shfmt found no formatting recommendations."
+          fi
+
+          if [ -s "${errors_file}" ]; then
+            echo "shfmt parser warnings:"
+            cat "${errors_file}"
+          fi
+
+          exit 0
