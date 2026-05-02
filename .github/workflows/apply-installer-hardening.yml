@@ -1,0 +1,37 @@
+name: Apply installer hardening
+
+targets:
+  - "dev/installer-code-hardening-squash"
+
+on:
+  push:
+    branches:
+      - "dev/installer-code-hardening-squash"
+  pull_request:
+    branches:
+      - "dev/installer-code-hardening-squash"
+
+jobs:
+  apply-installer-hardening:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Apply installer hardening
+        run: |
+          python3 tools/apply-installer-hardening.py
+
+      - name: Update MD5 checksums
+        run: |
+          sh tools/update-changed-md5.sh --all
+          sh tools/check-md5.sh
+
+      - name: Shellcheck
+        run: |
+          shellcheck installer || true
+
+      - name: Validate syntax
+        run: |
+          sh -n installer
