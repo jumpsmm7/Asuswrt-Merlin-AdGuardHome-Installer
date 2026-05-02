@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """CI-safe wrapper for apply-installer-hardening.py.
 
-The original helper uses pathlib read/write helpers with a newline argument that
-is not supported on every GitHub Actions Python runtime. This wrapper imports the
-existing hardening rules but performs file I/O with built-in open().
+This wrapper imports the existing hardening rules but performs installer file I/O
+with built-in open(). It avoids pathlib read_text/write_text keyword differences
+across Python runtimes.
 """
 
 from __future__ import annotations
