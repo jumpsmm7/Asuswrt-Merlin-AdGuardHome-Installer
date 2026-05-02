@@ -1,0 +1,11 @@
+# Shared ShellCheck configuration for CI.
+# Keep the shell dialect controlled by the workflow with `shellcheck -s sh`
+# so router-side scripts are still checked against POSIX/BusyBox ash behavior.
+
+disable=SC2016
+disable=SC2034
+disable=SC2140
+disable=SC2155
+disable=SC3043
+disable=SC3045
+disable=SC3057
