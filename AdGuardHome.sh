@@ -1,4 +1,9 @@
 #!/bin/sh
+# shellcheck disable=SC2016
+# shellcheck disable=SC3043
+# shellcheck disable=SC3045
+# shellcheck disable=SC3057
+# shellcheck shell=bash
 
 SCRIPT_LOC="$(readlink -f "$0")"
 CONF_FILE="/opt/etc/AdGuardHome/.config"
