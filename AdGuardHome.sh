@@ -13,30 +13,30 @@ adguardhome_run() {
 	lock_dir="/tmp/AdGuardHome"
 	pid_file="${lock_dir}/pid"
 	case "$1" in
-	"")
-		if [ -z "$(sed -n '2p' ${pid_file})" ] || [ ! -f "${UPPER_SCRIPT}" ]; then return 1; else return 0; fi
-		;;
-	*)
-		if (mkdir ${lock_dir}) 2>/dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' ${pid_file})" ]; } || { [ "$1" = "stop_adguardhome" ]; }; then
-			(
-				trap 'rm -rf "${lock_dir}"; exit $?' EXIT
-				{ service_wait adguardhome_run; }
-				rm -rf "${lock_dir}"
-			) &
-			pid="$!"
-			{
-				printf "%s\n" "${pid}" >"${pid_file}"
-				start="$(date +%s)"
-				{ service_wait "$1" 30; }
-				end="$(date +%s)"
-				runtime="$((end - start))"
-				printf "%s\n" "${runtime}" >>"${pid_file}"
-				logger -st "${NAME}" "$1 took ${runtime} second(s) to complete."
-			}
-		else
-			logger -st "${NAME}" "Lock owned by $(sed -n '1p' ${pid_file}) exists; preventing duplicate runs!"
-		fi
-		;;
+		"")
+			if [ -z "$(sed -n '2p' ${pid_file})" ] || [ ! -f "${UPPER_SCRIPT}" ]; then return 1; else return 0; fi
+			;;
+		*)
+			if (mkdir ${lock_dir}) 2>/dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' ${pid_file})" ]; } || { [ "$1" = "stop_adguardhome" ]; }; then
+				(
+					trap 'rm -rf "${lock_dir}"; exit $?' EXIT
+					{ service_wait adguardhome_run; }
+					rm -rf "${lock_dir}"
+				) &
+				pid="$!"
+				{
+					printf "%s\n" "${pid}" >"${pid_file}"
+					start="$(date +%s)"
+					{ service_wait "$1" 30; }
+					end="$(date +%s)"
+					runtime="$((end - start))"
+					printf "%s\n" "${runtime}" >>"${pid_file}"
+					logger -st "${NAME}" "$1 took ${runtime} second(s) to complete."
+				}
+			else
+				logger -st "${NAME}" "Lock owned by $(sed -n '1p' ${pid_file}) exists; preventing duplicate runs!"
+			fi
+			;;
 	esac
 }
 
@@ -137,9 +137,9 @@ dnsmasq_params() {
 
 lower_script() {
 	case "$1" in
-	*)
-		${LOWER_SCRIPT_LOC} "$1" "${NAME}"
-		;;
+		*)
+			${LOWER_SCRIPT_LOC} "$1" "${NAME}"
+			;;
 	esac
 }
 
@@ -237,47 +237,47 @@ start_monitor() {
 	while true; do
 		if [ -f "/opt/sbin/AdGuardHome" ]; then
 			case ${EXIT} in
-			"0")
-				timezone
-				case "${COUNT}" in
-				"")
-					COUNT="0"
-					{ adguardhome_run start_adguardhome; }
-					;;
-				esac
-				case "$(pidof "${PROCS}")" in
-				"")
-					logger -st "${NAME}" "Warning: ${PROCS} is dead; Monitor will start it!"
-					unset COUNT
-					;;
-				*)
+				"0")
+					timezone
 					case "${COUNT}" in
-					"30" | "60" | "90")
-						if [ "${COUNT}" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi
-						if { ! service_wait netcheck 150; }; then
-							logger -st "${NAME}" "Warning: ${PROCS} is not responding; Monitor will re-start it!"
-							unset COUNT
-						fi
-						;;
-					*)
-						COUNT="$((COUNT + 1))"
-						;;
+						"")
+							COUNT="0"
+							{ adguardhome_run start_adguardhome; }
+							;;
 					esac
-					if [ -n "${COUNT}" ]; then sleep 10s; fi
+					case "$(pidof "${PROCS}")" in
+						"")
+							logger -st "${NAME}" "Warning: ${PROCS} is dead; Monitor will start it!"
+							unset COUNT
+							;;
+						*)
+							case "${COUNT}" in
+								"30" | "60" | "90")
+									if [ "${COUNT}" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi
+									if { ! service_wait netcheck 150; }; then
+										logger -st "${NAME}" "Warning: ${PROCS} is not responding; Monitor will re-start it!"
+										unset COUNT
+									fi
+									;;
+								*)
+									COUNT="$((COUNT + 1))"
+									;;
+							esac
+							if [ -n "${COUNT}" ]; then sleep 10s; fi
+							;;
+					esac
 					;;
-				esac
-				;;
-			"1")
-				logger -st "${NAME}" "Stopping Monitor!"
-				trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
-				{ adguardhome_run stop_adguardhome; }
-				break
-				;;
-			"2")
-				logger -st "${NAME}" "Monitor is restarting AdGuardHome!"
-				unset COUNT
-				EXIT="0"
-				;;
+				"1")
+					logger -st "${NAME}" "Stopping Monitor!"
+					trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
+					{ adguardhome_run stop_adguardhome; }
+					break
+					;;
+				"2")
+					logger -st "${NAME}" "Monitor is restarting AdGuardHome!"
+					unset COUNT
+					EXIT="0"
+					;;
 			esac
 		fi
 	done
@@ -293,12 +293,12 @@ stop_adguardhome() {
 stop_monitor() {
 	local SIGNAL
 	case "$1" in
-	"${MON_PID}")
-		SIGNAL="USR2"
-		;;
-	"$$")
-		if [ -n "${MON_PID}" ]; then SIGNAL="USR1"; else { adguardhome_run stop_adguardhome; }; fi
-		;;
+		"${MON_PID}")
+			SIGNAL="USR2"
+			;;
+		"$$")
+			if [ -n "${MON_PID}" ]; then SIGNAL="USR1"; else { adguardhome_run stop_adguardhome; }; fi
+			;;
 	esac
 	[ -n "${SIGNAL}" ] && { kill -s "${SIGNAL}" "${MON_PID}" 2>/dev/null; }
 }
@@ -326,32 +326,32 @@ if [ -f "${UPPER_SCRIPT}" ]; then { if { [ "$(readlink -f "${UPPER_SCRIPT}")" !=
 
 unset TZ
 case "$1" in
-"monitor-start")
-	if [ -n "${MON_PID}" ]; then { stop_monitor "${MON_PID}"; }; else { start_monitor & } fi
-	;;
-"start" | "restart")
-	{ "${SCRIPT_LOC}" init-start >/dev/null 2>&1; }
-	;;
-"stop" | "kill")
-	{ "${SCRIPT_LOC}" services-stop >/dev/null 2>&1; }
-	;;
-"dnsmasq" | "dnsmasq-sdn")
-	if [ -n "${2}" ]; then { dnsmasq_params "${2}"; }; else { dnsmasq_params; }; fi
-	;;
-"init-start" | "services-stop")
-	timezone
-	case "$1" in
-	"init-start")
-		proc_optimizations
-		{ "${SCRIPT_LOC}" monitor-start; }
+	"monitor-start")
+		if [ -n "${MON_PID}" ]; then { stop_monitor "${MON_PID}"; }; else { start_monitor & } fi
 		;;
-	"services-stop")
-		{ stop_monitor "$$"; }
+	"start" | "restart")
+		{ "${SCRIPT_LOC}" init-start >/dev/null 2>&1; }
 		;;
-	esac
-	;;
-*)
-	{ ${LOWER_SCRIPT_LOC} "$1"; } && exit
-	;;
+	"stop" | "kill")
+		{ "${SCRIPT_LOC}" services-stop >/dev/null 2>&1; }
+		;;
+	"dnsmasq" | "dnsmasq-sdn")
+		if [ -n "${2}" ]; then { dnsmasq_params "${2}"; }; else { dnsmasq_params; }; fi
+		;;
+	"init-start" | "services-stop")
+		timezone
+		case "$1" in
+			"init-start")
+				proc_optimizations
+				{ "${SCRIPT_LOC}" monitor-start; }
+				;;
+			"services-stop")
+				{ stop_monitor "$$"; }
+				;;
+		esac
+		;;
+	*)
+		{ ${LOWER_SCRIPT_LOC} "$1"; } && exit
+		;;
 esac
 check_dns_environment

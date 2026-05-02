@@ -84,19 +84,19 @@ _quote() {
 
 PTXT() {
 	case "$1" in
-	-n)
-		shift
-		while [ $# -gt 0 ]; do
-			printf "%s" "$1"
+		-n)
 			shift
-		done
-		;;
-	*)
-		while [ $# -gt 0 ]; do
-			printf "%s\n" "$1"
-			shift
-		done
-		;;
+			while [ $# -gt 0 ]; do
+				printf "%s" "$1"
+				shift
+			done
+			;;
+		*)
+			while [ $# -gt 0 ]; do
+				printf "%s\n" "$1"
+				shift
+			done
+			;;
 	esac
 }
 
@@ -133,12 +133,12 @@ AdGuardHome_authen() {
 	fi
 	if ! opkg list-installed | grep -q python3-bcrypt; then
 		case "$(/bin/uname -m)" in
-		"aarch64" | "arm64")
-			opkg install go >/dev/null 2>&1
-			;;
-		"armv7l" | *)
-			if ! opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
-			;;
+			"aarch64" | "arm64")
+				opkg install go >/dev/null 2>&1
+				;;
+			"armv7l" | *)
+				if ! opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
+				;;
 		esac
 		export PATH="${PATH}:/opt/bin/go/bin"
 		export GOROOT="/opt/bin/go"
@@ -428,14 +428,14 @@ check_dns_filter() {
 check_dns_local() {
 	local LOCAL_CACHE
 	case "$1" in
-	0)
-		LOCAL_CACHE="NO"
-		write_conf ADGUARD_LOCAL "\"${LOCAL_CACHE}\""
-		;;
-	1)
-		LOCAL_CACHE="YES"
-		write_conf ADGUARD_LOCAL "\"${LOCAL_CACHE}\""
-		;;
+		0)
+			LOCAL_CACHE="NO"
+			write_conf ADGUARD_LOCAL "\"${LOCAL_CACHE}\""
+			;;
+		1)
+			LOCAL_CACHE="YES"
+			write_conf ADGUARD_LOCAL "\"${LOCAL_CACHE}\""
+			;;
 	esac
 }
 
@@ -500,25 +500,25 @@ check_version() {
 				[ -z "${REMOTE_BETA}" ] && exit 1
 				if { [ "${REMOTE_VER}" != "$(${AGH_FILE} --version | cut -d" " -f4-)" ] && [ "${ADGUARD_BRANCH}" = "release" ]; } || { [ "${REMOTE_BETA}" != "$(${AGH_FILE} --version | cut -d" " -f4-)" ] && [ "${ADGUARD_BRANCH}" = "beta" ]; }; then
 					case "${ADGUARD_BRANCH}" in
-					release)
-						PTXT "${INFO} New RELEASE ADGUARDHOME_VER=${REMOTE_VER} Available!"
-						;;
-					beta)
-						PTXT "${INFO} New BETA ADGUARDHOME_VER=${REMOTE_BETA} Available!"
-						;;
+						release)
+							PTXT "${INFO} New RELEASE ADGUARDHOME_VER=${REMOTE_VER} Available!"
+							;;
+						beta)
+							PTXT "${INFO} New BETA ADGUARDHOME_VER=${REMOTE_BETA} Available!"
+							;;
 					esac
 					AUTO_UPDATE="update"
 				else
 					case "${ADGUARD_BRANCH}" in
-					release)
-						PTXT "${INFO} ADGUARDHOME_BUILD=Release"
-						;;
-					beta)
-						PTXT "${INFO} ADGUARDHOME_BUILD=Beta"
-						;;
-					edge)
-						PTXT "${INFO} ADGUARDHOME_BUILD=Edge"
-						;;
+						release)
+							PTXT "${INFO} ADGUARDHOME_BUILD=Release"
+							;;
+						beta)
+							PTXT "${INFO} ADGUARDHOME_BUILD=Beta"
+							;;
+						edge)
+							PTXT "${INFO} ADGUARDHOME_BUILD=Edge"
+							;;
 					esac
 				fi
 				PTXT "${INFO} ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-)" \
@@ -549,18 +549,18 @@ choose_branch() {
 			"  3) Edge"
 		read_input_num "Select your mode" 1 3
 		case "${CHOSEN}" in
-		1)
-			BUILD=release
-			write_conf ADGUARD_BRANCH "\"${BUILD}\""
-			;;
-		2)
-			BUILD=beta
-			write_conf ADGUARD_BRANCH "\"${BUILD}\""
-			;;
-		3)
-			BUILD=edge
-			write_conf ADGUARD_BRANCH "\"${BUILD}\""
-			;;
+			1)
+				BUILD=release
+				write_conf ADGUARD_BRANCH "\"${BUILD}\""
+				;;
+			2)
+				BUILD=beta
+				write_conf ADGUARD_BRANCH "\"${BUILD}\""
+				;;
+			3)
+				BUILD=edge
+				write_conf ADGUARD_BRANCH "\"${BUILD}\""
+				;;
 		esac
 	else
 		if read_yesno "Do you want to switch AdGuardHome builds?"; then choose_branch 1; else PTXT "${INFO} continuing without changing builds."; fi
@@ -674,17 +674,17 @@ download_file() {
 
 end_op_message() {
 	case "${1:-0}" in
-	0)
-		[ "$2" = "update" ] && exit 0
-		PTXT "${INFO} Operation completed, returning to Main Menu. You can quit or continue."
-		;;
-	1)
-		[ "$2" = "update" ] && exit 1
-		PTXT "${INFO} Operation aborted, returning to Main Menu. You can quit or continue."
-		;;
-	2)
-		PTXT "${INFO} Abnormal operations, returning to Main Menu. You can quit or continue."
-		;;
+		0)
+			[ "$2" = "update" ] && exit 0
+			PTXT "${INFO} Operation completed, returning to Main Menu. You can quit or continue."
+			;;
+		1)
+			[ "$2" = "update" ] && exit 1
+			PTXT "${INFO} Operation aborted, returning to Main Menu. You can quit or continue."
+			;;
+		2)
+			PTXT "${INFO} Abnormal operations, returning to Main Menu. You can quit or continue."
+			;;
 	esac
 	PTXT "====================================================="
 	PTXT " "
@@ -756,32 +756,32 @@ inst_AdGuardHome() {
 				[ -z "${REMOTE_BETA}" ] && exit 1
 				if { [ "${REMOTE_VER}" != "$("${AGH_FILE}" --version | cut -d" " -f4-)" ] && [ "${ADGUARD_BRANCH}" = "release" ]; } || { [ "${REMOTE_BETA}" != "$("${AGH_FILE}" --version | cut -d" " -f4-)" ] && [ "${ADGUARD_BRANCH}" = "beta" ]; } || [ "${ADGUARD_BRANCH}" = "edge" ]; then
 					case "${ADGUARD_BRANCH}" in
-					release)
-						PTXT "${INFO} New RELEASE ADGUARDHOME_VER=${REMOTE_VER} Available!" \
-							"${INFO} Updating ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-) to ${REMOTE_VER}."
-						;;
-					beta)
-						PTXT "${INFO} New BETA ADGUARDHOME_VER=${REMOTE_BETA} Available!" \
-							"${INFO} Updating ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-) to ${REMOTE_BETA}."
-						;;
-					edge)
-						PTXT "${INFO} ADGUARDHOME_BUILD=Edge" \
-							"${INFO} Downloading the lastest Edge version to replace ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-)."
-						;;
+						release)
+							PTXT "${INFO} New RELEASE ADGUARDHOME_VER=${REMOTE_VER} Available!" \
+								"${INFO} Updating ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-) to ${REMOTE_VER}."
+							;;
+						beta)
+							PTXT "${INFO} New BETA ADGUARDHOME_VER=${REMOTE_BETA} Available!" \
+								"${INFO} Updating ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-) to ${REMOTE_BETA}."
+							;;
+						edge)
+							PTXT "${INFO} ADGUARDHOME_BUILD=Edge" \
+								"${INFO} Downloading the lastest Edge version to replace ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-)."
+							;;
 					esac
 					inst_AdGuardHome "${1:-update}" "${ADGUARD_BRANCH}"
 				else
 					case "${ADGUARD_BRANCH}" in
-					release)
-						PTXT "${INFO} ADGUARDHOME_BUILD=Release" \
-							"${INFO} No new release version available." \
-							"${INFO} ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-)"
-						;;
-					beta)
-						PTXT "${INFO} ADGUARDHOME_BUILD=Beta" \
-							"${INFO} No new beta version available." \
-							"${INFO} ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-)"
-						;;
+						release)
+							PTXT "${INFO} ADGUARDHOME_BUILD=Release" \
+								"${INFO} No new release version available." \
+								"${INFO} ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-)"
+							;;
+						beta)
+							PTXT "${INFO} ADGUARDHOME_BUILD=Beta" \
+								"${INFO} No new beta version available." \
+								"${INFO} ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-)"
+							;;
 					esac
 				fi
 			fi
@@ -897,13 +897,13 @@ read_input_dns() {
 		read_input_dns "$@"
 	fi
 	case "$1" in
-	"Default is")
-		BOOTSTRAP1="${DNS_SERVER}"
-		DNS_SERVER1="${DNS_SERVER}"
-		;;
-	"2nd Default is")
-		BOOTSTRAP2="${DNS_SERVER}"
-		;;
+		"Default is")
+			BOOTSTRAP1="${DNS_SERVER}"
+			DNS_SERVER1="${DNS_SERVER}"
+			;;
+		"2nd Default is")
+			BOOTSTRAP2="${DNS_SERVER}"
+			;;
 	esac
 }
 
@@ -916,30 +916,30 @@ read_input_num() {
 	PTXT -n "${INPUT} ${1}, ${BOLD}${RANGE}${NORM}: "
 	read -r CHOSEN
 	case "$1" in
-	*)
-		if [ -z "${CHOSEN}" ]; then
-			PTXT "${ERROR} Invalid character(s) entered! Retrying..."
-			read_input_num "$@"
-			return
-		fi
-		;;
+		*)
+			if [ -z "${CHOSEN}" ]; then
+				PTXT "${ERROR} Invalid character(s) entered! Retrying..."
+				read_input_num "$@"
+				return
+			fi
+			;;
 	esac
 	case "${CHOSEN}" in
-	"$4" | "$5" | "$6")
-		return 1
-		;;
-	"$2" | "$3" | *)
-		if ! PTXT "${CHOSEN}" | grep -qE '^[0-9]+$'; then
-			PTXT "${ERROR} Invalid character(s) entered! Retrying..."
-			read_input_num "$@"
-			return
-		fi
-		if [ "${CHOSEN}" -lt "$2" ] || [ "${CHOSEN}" -gt "$3" ]; then
-			PTXT "${ERROR} Chosen number is not in range! Retrying..."
-			read_input_num "$@"
-			return
-		fi
-		;;
+		"$4" | "$5" | "$6")
+			return 1
+			;;
+		"$2" | "$3" | *)
+			if ! PTXT "${CHOSEN}" | grep -qE '^[0-9]+$'; then
+				PTXT "${ERROR} Invalid character(s) entered! Retrying..."
+				read_input_num "$@"
+				return
+			fi
+			if [ "${CHOSEN}" -lt "$2" ] || [ "${CHOSEN}" -gt "$3" ]; then
+				PTXT "${ERROR} Chosen number is not in range! Retrying..."
+				read_input_num "$@"
+				return
+			fi
+			;;
 	esac
 }
 
@@ -962,16 +962,16 @@ read_yesno() {
 	local YESNO
 	read -r YESNO
 	case "${YESNO}" in
-	y | Y)
-		return 0
-		;;
-	n | N)
-		return 1
-		;;
-	*)
-		PTXT "${ERROR} Invalid input!"
-		read_yesno "$@"
-		;;
+		y | Y)
+			return 0
+			;;
+		n | N)
+			return 1
+			;;
+		*)
+			PTXT "${ERROR} Invalid input!"
+			read_yesno "$@"
+			;;
 	esac
 }
 
@@ -980,12 +980,12 @@ set_timezone() {
 	TMP="/root"
 	TZ_ARCH="$(uname -m)"
 	case "${TZ_ARCH}" in
-	"aarch64" | "arm64")
-		TZ_ARCH="aarch64"
-		;;
-	"armv7l")
-		TZ_ARCH="arm"
-		;;
+		"aarch64" | "arm64")
+			TZ_ARCH="aarch64"
+			;;
+		"armv7l")
+			TZ_ARCH="arm"
+			;;
 	esac
 	TZ_DATA="tzdata-2021e-1-${TZ_ARCH}.pkg.tar.bz2"
 	opkg install column >/dev/null 2>&1
@@ -1079,91 +1079,91 @@ setup_AdGuardHome_impl() {
 				"${INFO}   3) Choose new configuration selections"
 			read_input_num "Your selection" 1 3
 			case "${CHOSEN}" in
-			1)
-				PTXT "${INFO} Using previous settings file"
-				;;
-			2 | 3)
-				PTXT "${INFO} Backing up previous settings file..."
-				mv "${YAML_FILE}" "${YAML_BAK}"
-				if [ "${CHOSEN}" = "3" ]; then
-					rm -rf "${YAML_ORI}" 2>/dev/null
-				else
-					cp -f "${YAML_ORI}" "${YAML_FILE}"
-				fi
-				;;
+				1)
+					PTXT "${INFO} Using previous settings file"
+					;;
+				2 | 3)
+					PTXT "${INFO} Backing up previous settings file..."
+					mv "${YAML_FILE}" "${YAML_BAK}"
+					if [ "${CHOSEN}" = "3" ]; then
+						rm -rf "${YAML_ORI}" 2>/dev/null
+					else
+						cp -f "${YAML_ORI}" "${YAML_FILE}"
+					fi
+					;;
 			esac
 		elif [ ! -f "${YAML_FILE}" ] && [ -f "${YAML_ORI}" ]; then
 			cp -f "${YAML_ORI}" "${YAML_FILE}"
 		fi
 		case "${2:-reconfig}" in
-		"install" | "reconfig")
-			if [ ! -f "${YAML_FILE}" ] || [ "$2" = "reconfig" ]; then
-				if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
-				if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
-			fi
-			if [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; then
-				PTXT "${INFO} Requesting entries for AdGuardHome initial configuration..." \
-					"${INFO} Please set the preferred Web Port for AdGuardHome WebUI." \
-					"${INFO} The chosen port must reside within the port range 3000-65535" \
-					"${INFO} and not already in use by any other service."
-				read_input_port "Default is" 3000
-				write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT}\""
-				PTXT "http:" \
-					"  address: 0.0.0.0:${WEB_PORT}" >"${YAML_ORI}"
-				PTXT "${INFO} Set the Username and Password which will be encrypted to the yaml file."
-				AdGuardHome_authen 1
-				PTXT "dns:" \
-					"  bind_hosts:" \
-					"    - 0.0.0.0" \
-					"  port: 53" >>"${YAML_ORI}"
-				PTXT "${INFO} Set the DNS server(s) for initializing AdGuardHome" \
-					"${INFO} and router services (e.g. ntp) at boot"
-				read_input_dns "Default is" 9.9.9.9
-				read_input_dns "2nd Default is" 8.8.8.8
-				local DOMAIN NET_ADDR NET_ADDR6 LAN_IF
-				LAN_IF="$(nvram get lan_ifname)"
-				[ -n "${LAN_IF}" ] && NET_ADDR="$(ip -o -4 addr list "${LAN_IF}" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR="$(nvram get lan_ipaddr)"
-				[ -n "${LAN_IF}" ] && NET_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR6="$(nvram get ipv6_rtr_addr)"
-				[ -n "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)" && write_conf ADGUARD_DOMAIN "\"no\""
-				[ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="${DOMAIN}" && nvram commit && write_conf ADGUARD_DOMAIN "\"yes\""
-				PTXT "  upstream_dns:" >>"${YAML_ORI}"
-				[ -n "${NET_ADDR6}" ] && PTXT "  - '[/$(printf "%s\n" "${NET_ADDR6}" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" >>"${YAML_ORI}"
-				PTXT "  - '[/router.asus.com/][::]:553'" \
-					"  - '[/www.asusnetwork.net/][::]:553'" \
-					"  - '[/www.asusrouter.com/][::]:553'" \
-					"  - '[/use-application-dns.net/][::]:553'" \
-					"  - '[/dns.resolver.arpa/][::]:553'" \
-					"  - '[/${DOMAIN}/][::]:553'" \
-					"  - '[//][::]:553'" \
-					"  - ${BOOTSTRAP1}" \
-					"  - ${BOOTSTRAP2}" \
-					"  - tcp://${BOOTSTRAP1}" \
-					"  - tcp://${BOOTSTRAP2}" \
-					"  bootstrap_dns:" \
-					"  - ${BOOTSTRAP1}" \
-					"  - ${BOOTSTRAP2}" \
-					"  fallback_dns:" \
-					"  - ${BOOTSTRAP1}" \
-					"  - ${BOOTSTRAP2}" \
-					"  - tcp://${BOOTSTRAP1}" \
-					"  - tcp://${BOOTSTRAP2}" \
-					"  resolve_clients: true" \
-					"  use_private_ptr_resolvers: true" \
-					"  local_ptr_upstreams:" \
-					"  - '[::]:553'" \
-					"  - '[/10.in-addr.arpa/][::]:553'" \
-					"  - '[/$(printf "%s\n" "${NET_ADDR}" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/][::]:553'" \
-					"schema_version: ${SCHEMA_VER}" >>"${YAML_ORI}"
-				PTXT "${INFO} Writing AdGuardHome configuration..."
-				cp -f "${YAML_ORI}" "${YAML_FILE}"
-			fi
-			if ! check_AdGuardHome_yaml; then
-				PTXT "${ERROR} Writing AdGuardHome configuration failed " \
-					"${ERROR} Please send ${YAML_ERR} file and screen log of " \
-					"${ERROR} all ssh terminal operations to the script developer."
-				return 1
-			fi
-			;;
+			"install" | "reconfig")
+				if [ ! -f "${YAML_FILE}" ] || [ "$2" = "reconfig" ]; then
+					if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
+					if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
+				fi
+				if [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; then
+					PTXT "${INFO} Requesting entries for AdGuardHome initial configuration..." \
+						"${INFO} Please set the preferred Web Port for AdGuardHome WebUI." \
+						"${INFO} The chosen port must reside within the port range 3000-65535" \
+						"${INFO} and not already in use by any other service."
+					read_input_port "Default is" 3000
+					write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT}\""
+					PTXT "http:" \
+						"  address: 0.0.0.0:${WEB_PORT}" >"${YAML_ORI}"
+					PTXT "${INFO} Set the Username and Password which will be encrypted to the yaml file."
+					AdGuardHome_authen 1
+					PTXT "dns:" \
+						"  bind_hosts:" \
+						"    - 0.0.0.0" \
+						"  port: 53" >>"${YAML_ORI}"
+					PTXT "${INFO} Set the DNS server(s) for initializing AdGuardHome" \
+						"${INFO} and router services (e.g. ntp) at boot"
+					read_input_dns "Default is" 9.9.9.9
+					read_input_dns "2nd Default is" 8.8.8.8
+					local DOMAIN NET_ADDR NET_ADDR6 LAN_IF
+					LAN_IF="$(nvram get lan_ifname)"
+					[ -n "${LAN_IF}" ] && NET_ADDR="$(ip -o -4 addr list "${LAN_IF}" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR="$(nvram get lan_ipaddr)"
+					[ -n "${LAN_IF}" ] && NET_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR6="$(nvram get ipv6_rtr_addr)"
+					[ -n "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)" && write_conf ADGUARD_DOMAIN "\"no\""
+					[ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="${DOMAIN}" && nvram commit && write_conf ADGUARD_DOMAIN "\"yes\""
+					PTXT "  upstream_dns:" >>"${YAML_ORI}"
+					[ -n "${NET_ADDR6}" ] && PTXT "  - '[/$(printf "%s\n" "${NET_ADDR6}" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" >>"${YAML_ORI}"
+					PTXT "  - '[/router.asus.com/][::]:553'" \
+						"  - '[/www.asusnetwork.net/][::]:553'" \
+						"  - '[/www.asusrouter.com/][::]:553'" \
+						"  - '[/use-application-dns.net/][::]:553'" \
+						"  - '[/dns.resolver.arpa/][::]:553'" \
+						"  - '[/${DOMAIN}/][::]:553'" \
+						"  - '[//][::]:553'" \
+						"  - ${BOOTSTRAP1}" \
+						"  - ${BOOTSTRAP2}" \
+						"  - tcp://${BOOTSTRAP1}" \
+						"  - tcp://${BOOTSTRAP2}" \
+						"  bootstrap_dns:" \
+						"  - ${BOOTSTRAP1}" \
+						"  - ${BOOTSTRAP2}" \
+						"  fallback_dns:" \
+						"  - ${BOOTSTRAP1}" \
+						"  - ${BOOTSTRAP2}" \
+						"  - tcp://${BOOTSTRAP1}" \
+						"  - tcp://${BOOTSTRAP2}" \
+						"  resolve_clients: true" \
+						"  use_private_ptr_resolvers: true" \
+						"  local_ptr_upstreams:" \
+						"  - '[::]:553'" \
+						"  - '[/10.in-addr.arpa/][::]:553'" \
+						"  - '[/$(printf "%s\n" "${NET_ADDR}" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/][::]:553'" \
+						"schema_version: ${SCHEMA_VER}" >>"${YAML_ORI}"
+					PTXT "${INFO} Writing AdGuardHome configuration..."
+					cp -f "${YAML_ORI}" "${YAML_FILE}"
+				fi
+				if ! check_AdGuardHome_yaml; then
+					PTXT "${ERROR} Writing AdGuardHome configuration failed " \
+						"${ERROR} Please send ${YAML_ERR} file and screen log of " \
+						"${ERROR} all ssh terminal operations to the script developer."
+					return 1
+				fi
+				;;
 		esac
 	fi
 }
@@ -1292,23 +1292,23 @@ write_manager_script() {
 
 [ "$1" ] && BRANCH="$1" || BRANCH="master"
 case "${BRANCH}" in
-"amtmupdate")
-	case "$2" in
-	"check")
-		if [ !-f "${CONF_FILE}" ] || [ "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" = "DISABLED" ]; then
-			exit 1
-		elif [ "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" = "ENABLED" ]; then
-			exit 0
-		fi
+	"amtmupdate")
+		case "$2" in
+			"check")
+				if [ !-f "${CONF_FILE}" ] || [ "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" = "DISABLED" ]; then
+					exit 1
+				elif [ "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" = "ENABLED" ]; then
+					exit 0
+				fi
+				;;
+			"")
+				unset BRANCH
+				BRANCH="master"
+				exec "${SCRIPT_LOC}" "${BRANCH}" "${1}" >/dev/null 2>&1
+				exit $?
+				;;
+		esac
 		;;
-	"")
-		unset BRANCH
-		BRANCH="master"
-		exec "${SCRIPT_LOC}" "${BRANCH}" "${1}" >/dev/null 2>&1
-		exit $?
-		;;
-	esac
-	;;
 esac
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
 RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}"
@@ -1336,127 +1336,127 @@ if [ -z "$2" ]; then
 fi
 
 case "${ROUTER_MODEL}" in
-*)
-	[ -z "$2" ] && PTXT "${INFO} Detected ${ROUTER_MODEL} router."
-	;;
+	*)
+		[ -z "$2" ] && PTXT "${INFO} Detected ${ROUTER_MODEL} router."
+		;;
 esac
 
 case "${ROUTER_OS}" in
-"Linux")
-	[ -z "$2" ] && PTXT "${INFO} Detected ${ROUTER_OS} platform."
-	ROUTER_OS="linux"
-	;;
-*)
-	PTXT "${ERROR} This is an unsupported platform, sorry."
-	exit 1
-	;;
+	"Linux")
+		[ -z "$2" ] && PTXT "${INFO} Detected ${ROUTER_OS} platform."
+		ROUTER_OS="linux"
+		;;
+	*)
+		PTXT "${ERROR} This is an unsupported platform, sorry."
+		exit 1
+		;;
 esac
 
 case "${ROUTER_ARCH}" in
-"aarch64" | "arm64")
-	ROUTER_ARCH="arm64"
-	ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
-	[ -z "$2" ] && PTXT "${INFO} Detected ARMv8 architecture."
-	;;
-"armv7l")
-	ROUTER_ARCH="armv7"
-	ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
-	[ -z "$2" ] && PTXT "${INFO} Detected ARMv7 architecture."
-	;;
-"armv7")
-	ROUTER_ARCH="armv5"
-	ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
-	[ -z "$2" ] && PTXT "${INFO} Detected ARMv7 architecture."
-	;;
-*)
-	PTXT "${ERROR} This is an unsupported architecture, sorry."
-	exit 1
-	;;
+	"aarch64" | "arm64")
+		ROUTER_ARCH="arm64"
+		ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
+		[ -z "$2" ] && PTXT "${INFO} Detected ARMv8 architecture."
+		;;
+	"armv7l")
+		ROUTER_ARCH="armv7"
+		ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
+		[ -z "$2" ] && PTXT "${INFO} Detected ARMv7 architecture."
+		;;
+	"armv7")
+		ROUTER_ARCH="armv5"
+		ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
+		[ -z "$2" ] && PTXT "${INFO} Detected ARMv7 architecture."
+		;;
+	*)
+		PTXT "${ERROR} This is an unsupported architecture, sorry."
+		exit 1
+		;;
 esac
 
 menu() {
 	trap - HUP INT QUIT ABRT TERM
 	case "$1" in
-	"")
-		PTXT "${INFO} Choose what you want to do:" \
-			"  1) Install/Update AdGuardHome" \
-			"  2) Uninstall"
-		if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then { PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  b) Backup"; }; fi
-		if { [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { PTXT "  r) Restore"; }; fi
-		PTXT "  q) Quit"
-		if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 q; }; fi
-		if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 r q; }; fi
-		if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 5 b q; }; fi
-		if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 5 b r q; }; fi
-		;;
-	*)
-		CHOSEN="$1"
-		;;
+		"")
+			PTXT "${INFO} Choose what you want to do:" \
+				"  1) Install/Update AdGuardHome" \
+				"  2) Uninstall"
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then { PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  b) Backup"; }; fi
+			if { [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { PTXT "  r) Restore"; }; fi
+			PTXT "  q) Quit"
+			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 q; }; fi
+			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 r q; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 5 b q; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 5 b r q; }; fi
+			;;
+		*)
+			CHOSEN="$1"
+			;;
 	esac
 	[ -n "${CHOSEN}" ] && trap 'clear; end_op_message 2' HUP INT QUIT ABRT TERM
 	case "${CHOSEN}" in
-	"1" | "install" | "update")
-		if [ "${CHOSEN}" = "update" ]; then
-			AUTO_UPDATE="update"
-			inst_AdGuardHome "${AUTO_UPDATE:-update}"
-		else
-			PTXT "${INFO} This operation will install AdGuardHome and related files (<6MB)" \
-				"${INFO} to ENTWARE, no other data will be changed." \
-				"${INFO} Also some start scripts will be installed/modified as required."
-			if read_yesno "Do you want to install AdGuardHome?"; then inst_AdGuardHome "${AUTO_UPDATE:-install}"; else end_op_message 1; fi
-		fi
-		;;
-	"2" | "uninstall")
-		PTXT "${INFO} This operation will cleanup everything installed by this script."
-		if read_yesno "Do you want to continue?"; then uninst_all; else end_op_message 1; fi
-		;;
-	"3" | "changepw")
-		PTXT "${INFO} This operation will allow you to change your username and password."
-		if read_yesno "Do you want to continue?"; then AdGuardHome_authen 0; else end_op_message 1; fi
-		;;
-	"4" | "reconfigure")
-		PTXT "${INFO} This operation allows you to configure AdGuardHome"
-		if read_yesno "Do you want to proceed?"; then setup_AdGuardHome reconfig; else end_op_message 1; fi
-		;;
-	"5" | "setamtmupdate")
-		PTXT "${INFO} This operation allows you to enable or disable AMTM's ability to manage updates for this script and by extension, AdGuardHome."
-		PTXT "${INFO} If the option is already disabled and you choose to proceed, then you will be enabling."
-		PTXT "${INFO} The same is true if the opposite is true and you choose to proceed."
-		if read_yesno "Do you want to proceed?"; then setup_amtmupdate; else end_op_message 1; fi
-		;;
-	"b" | "B" | "backup")
-		PTXT "${INFO} This operation will backup everything!"
-		if read_yesno "Do you want to continue?"; then backup_restore BACKUP; else end_op_message 1; fi
-		;;
-	"r" | "R" | "restore")
-		PTXT "${INFO} This operation will restore everything!"
-		if read_yesno "Do you want to continue?"; then backup_restore RESTORE; else end_op_message 1; fi
-		;;
-	"q" | "Q")
-		PTXT "${INFO} Operations have been applied if any has been made" \
-			"${INFO} In case of anomaly, please reboot your router!"
-		if [ -f "${HOME}/installer" ]; then rm -rf "${HOME}/installer"; fi
-		sleep 3s
-		clear
-		;;
+		"1" | "install" | "update")
+			if [ "${CHOSEN}" = "update" ]; then
+				AUTO_UPDATE="update"
+				inst_AdGuardHome "${AUTO_UPDATE:-update}"
+			else
+				PTXT "${INFO} This operation will install AdGuardHome and related files (<6MB)" \
+					"${INFO} to ENTWARE, no other data will be changed." \
+					"${INFO} Also some start scripts will be installed/modified as required."
+				if read_yesno "Do you want to install AdGuardHome?"; then inst_AdGuardHome "${AUTO_UPDATE:-install}"; else end_op_message 1; fi
+			fi
+			;;
+		"2" | "uninstall")
+			PTXT "${INFO} This operation will cleanup everything installed by this script."
+			if read_yesno "Do you want to continue?"; then uninst_all; else end_op_message 1; fi
+			;;
+		"3" | "changepw")
+			PTXT "${INFO} This operation will allow you to change your username and password."
+			if read_yesno "Do you want to continue?"; then AdGuardHome_authen 0; else end_op_message 1; fi
+			;;
+		"4" | "reconfigure")
+			PTXT "${INFO} This operation allows you to configure AdGuardHome"
+			if read_yesno "Do you want to proceed?"; then setup_AdGuardHome reconfig; else end_op_message 1; fi
+			;;
+		"5" | "setamtmupdate")
+			PTXT "${INFO} This operation allows you to enable or disable AMTM's ability to manage updates for this script and by extension, AdGuardHome."
+			PTXT "${INFO} If the option is already disabled and you choose to proceed, then you will be enabling."
+			PTXT "${INFO} The same is true if the opposite is true and you choose to proceed."
+			if read_yesno "Do you want to proceed?"; then setup_amtmupdate; else end_op_message 1; fi
+			;;
+		"b" | "B" | "backup")
+			PTXT "${INFO} This operation will backup everything!"
+			if read_yesno "Do you want to continue?"; then backup_restore BACKUP; else end_op_message 1; fi
+			;;
+		"r" | "R" | "restore")
+			PTXT "${INFO} This operation will restore everything!"
+			if read_yesno "Do you want to continue?"; then backup_restore RESTORE; else end_op_message 1; fi
+			;;
+		"q" | "Q")
+			PTXT "${INFO} Operations have been applied if any has been made" \
+				"${INFO} In case of anomaly, please reboot your router!"
+			if [ -f "${HOME}/installer" ]; then rm -rf "${HOME}/installer"; fi
+			sleep 3s
+			clear
+			;;
 	esac
 }
 
 case "$2" in
-"")
-	cleanup
-	check_jffs_enabled
-	check_dns_environment
-	check_version
-	menu
-	;;
-[1-5] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | "amtmupdate" | [bB] | "backup" | [rR] | "restore")
-	menu "$2"
-	;;
-*)
-	PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | {b/B} - backup | {r/R} - restore)" \
-		"${INFO} Branch or Tag must be represented by a value or empty quotes in place of string e.g. \"\" in the \$1 string position." \
-		"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | {b/B} - backup | {r/R} - restore) in the \$2 string position." \
-		"${INFO} An update example sh installer master update, or just use the regular menu by not specifying an Action."
-	;;
+	"")
+		cleanup
+		check_jffs_enabled
+		check_dns_environment
+		check_version
+		menu
+		;;
+	[1-5] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | "amtmupdate" | [bB] | "backup" | [rR] | "restore")
+		menu "$2"
+		;;
+	*)
+		PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | {b/B} - backup | {r/R} - restore)" \
+			"${INFO} Branch or Tag must be represented by a value or empty quotes in place of string e.g. \"\" in the \$1 string position." \
+			"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | {b/B} - backup | {r/R} - restore) in the \$2 string position." \
+			"${INFO} An update example sh installer master update, or just use the regular menu by not specifying an Action."
+		;;
 esac
