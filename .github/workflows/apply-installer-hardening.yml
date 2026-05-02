@@ -56,7 +56,7 @@ jobs:
 
       - name: Apply installer hardening
         run: |
-          python3 tools/apply-installer-hardening.py
+          python3 tools/apply-installer-hardening-ci.py
 
       - name: Ensure installer.md5 exists
         run: |
