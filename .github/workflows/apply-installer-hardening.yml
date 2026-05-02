@@ -1,37 +1,75 @@
 name: Apply installer hardening
 
-targets:
-  - "dev/installer-code-hardening-squash"
-
 on:
-  push:
-    branches:
-      - "dev/installer-code-hardening-squash"
-  pull_request:
-    branches:
-      - "dev/installer-code-hardening-squash"
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: Branch to update with generated installer hardening changes
+        required: true
+        default: dev/installer-code-hardening-squash
+
+permissions:
+  contents: write
 
 jobs:
   apply-installer-hardening:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout target branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_branch }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Apply installer hardening
         run: |
           python3 tools/apply-installer-hardening.py
 
-      - name: Update MD5 checksums
+      - name: Ensure installer.md5 exists
+        run: |
+          if [ -f installer ] && [ ! -f installer.md5 ]; then
+            sh tools/update-md5.sh installer.md5
+          fi
+
+      - name: Update changed MD5 files
         run: |
           sh tools/update-changed-md5.sh --all
+
+      - name: Validate MD5 files
+        run: |
           sh tools/check-md5.sh
 
-      - name: Shellcheck
-        run: |
-          shellcheck installer || true
-
-      - name: Validate syntax
+      - name: Validate POSIX shell syntax
         run: |
           sh -n installer
+          if [ -d tools ]; then
+            find tools -type f -name '*.sh' -print -exec sh -n {} \;
+          fi
+
+      - name: ShellCheck advisory
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck installer || true
+          if [ -d tools ]; then
+            find tools -type f -name '*.sh' | sort | while read -r script; do
+              shellcheck "${script}" || true
+            done
+          fi
+
+      - name: Commit generated changes
+        run: |
+          if git diff --quiet; then
+            echo "No generated changes to commit."
+            exit 0
+          fi
+
+          git status --short
+          git add installer installer.md5 tools docs .github
+          git commit -m "installer: apply hardening changes and update checksums"
+          git push origin HEAD:${{ inputs.target_branch }}
