@@ -1,10 +1,10 @@
-name: Create shfmt formatting PR
+name: Create script improvement PR
 
 on:
   workflow_dispatch:
     inputs:
       target_branch:
-        description: Branch to format; defaults to the branch that started the workflow
+        description: Branch to improve; defaults to the branch that started the workflow
         required: false
         default: ""
   push:
@@ -13,23 +13,27 @@ on:
       - 'dev/**'
     paths:
       - installer
+      - AdGuardHome.sh
       - S99AdGuardHome
       - rc.func.AdGuardHome
       - '**/*.sh'
+      - tools/list-shell-scripts.sh
+      - tools/update-md5.sh
+      - .github/workflows/shfmt-fix-pr.yml
 
 permissions:
   contents: write
   pull-requests: write
 
 concurrency:
-  group: shfmt-format-${{ github.ref }}
+  group: script-improvements-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  shfmt-fix-pr:
-    name: Create shfmt formatting PR
+  improve-scripts:
+    name: Create script improvement PR
     runs-on: ubuntu-latest
-    if: github.ref_type == 'branch'
+    if: github.ref_type == 'branch' && github.actor != 'github-actions[bot]'
 
     steps:
       - name: Resolve target branch
@@ -73,6 +77,44 @@ jobs:
           go install mvdan.cc/sh/v3/cmd/shfmt@v3.10.0
           echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
 
+      - name: Normalize shell text
+        run: |
+          set -eu
+
+          scripts_file="$(mktemp)"
+          trap 'rm -f "${scripts_file}"' EXIT HUP INT TERM
+
+          sh tools/list-shell-scripts.sh > "${scripts_file}"
+
+          if [ ! -s "${scripts_file}" ]; then
+            echo "No shell scripts found."
+            exit 0
+          fi
+
+          while IFS= read -r script; do
+            echo "normalize text: ${script}"
+            python3 - "${script}" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+data = path.read_bytes()
+text = data.decode("utf-8")
+
+# Safe text-only cleanup:
+# - CRLF/CR to LF
+# - remove trailing spaces/tabs
+# - exactly one final newline
+text = text.replace("\r\n", "\n").replace("\r", "\n")
+text = "\n".join(line.rstrip(" \t") for line in text.split("\n"))
+text = text.rstrip("\n") + "\n"
+new = text.encode("utf-8")
+
+if new != data:
+    path.write_bytes(new)
+PY
+          done < "${scripts_file}"
+
       - name: Apply shfmt mksh formatting
         run: |
           set -u
@@ -100,10 +142,16 @@ jobs:
             cat "${errors_file}"
           fi
 
+      - name: Refresh md5sum files after script improvements
+        run: |
+          sh tools/update-md5.sh installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
+
+      - name: Show changed files
+        run: |
           if git diff --quiet; then
-            echo "No shfmt formatting changes were needed."
+            echo "No automatic script improvements were needed."
           else
-            echo "shfmt changed these files:"
+            echo "Automatic script improvements changed these files:"
             git diff --name-only
           fi
 
@@ -112,21 +160,19 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           base: ${{ steps.branch.outputs.target }}
-          branch: automation/shfmt-mksh-${{ steps.branch.outputs.safe }}
+          branch: automation/script-improvements-${{ steps.branch.outputs.safe }}
           delete-branch: true
-          commit-message: "style: apply shfmt mksh formatting"
-          title: "style: apply shfmt mksh formatting"
+          commit-message: "style: apply automatic script improvements"
+          title: "style: apply automatic script improvements"
           body: |
             ## Summary
 
-            Applies `shfmt -ln mksh -i 0 -ci` formatting to shell scripts that can be parsed safely.
+            Applies safe automatic script improvements:
 
-            ## Coverage
-
-            - `installer`
-            - `S99AdGuardHome`
-            - `rc.func.AdGuardHome`
-            - `*.sh`
-            - shell scripts detected by POSIX shell shebangs
+            - `shfmt -ln mksh -i 0 -ci` formatting where scripts parse cleanly
+            - CRLF to LF normalization
+            - trailing whitespace cleanup
+            - final newline normalization
+            - refreshed `.md5sum` files after script changes
 
             Files that shfmt cannot parse are skipped and reported in the workflow log.
