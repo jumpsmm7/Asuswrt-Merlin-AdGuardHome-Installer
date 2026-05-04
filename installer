@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.0.4                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.0.5                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v2.0.4"
+AI_VERSION="v2.0.5"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
@@ -1287,6 +1287,8 @@ write_manager_script() {
 [ "$1" ] && BRANCH="$1" || BRANCH="master"
 case "${BRANCH}" in
 	"amtmupdate")
+		unset BRANCH
+		BRANCH="master"
 		case "$2" in
 			"check")
 				if [ ! -f "${CONF_FILE}" ] || [ "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" = "DISABLED" ]; then
@@ -1296,9 +1298,8 @@ case "${BRANCH}" in
 				fi
 				;;
 			"")
-				unset BRANCH
-				BRANCH="master"
 				CHOSEN="${1#amtm}"
+				chmod 755 "${SCRIPT_LOC}" >/dev/null 2>&1
 				exec "${SCRIPT_LOC}" "${BRANCH}" "${CHOSEN}" >/dev/null 2>&1
 				exit $?
 				;;
