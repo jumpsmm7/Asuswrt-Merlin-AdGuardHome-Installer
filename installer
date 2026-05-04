@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.0.5                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.0.6                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v2.0.5"
+AI_VERSION="v2.0.6"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
@@ -1288,7 +1288,7 @@ write_manager_script() {
 case "${BRANCH}" in
 	"amtmupdate")
 		unset BRANCH
-		BRANCH="master"
+		BRANCH="$(awk -F'=' '/INSTALLER_BRANCH/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')"
 		case "$2" in
 			"check")
 				if [ ! -f "${CONF_FILE}" ] || [ "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" = "DISABLED" ]; then
@@ -1304,6 +1304,9 @@ case "${BRANCH}" in
 				exit $?
 				;;
 		esac
+		;;
+	*)
+		write_conf INSTALLER_BRANCH "\"${BRANCH}\""
 		;;
 esac
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
