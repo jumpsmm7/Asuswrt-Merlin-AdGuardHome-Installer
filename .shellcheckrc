@@ -5,8 +5,11 @@ shell=bash
 
 disable=SC2016
 disable=SC2034
+disable=SC2124
 disable=SC2140
 disable=SC2155
+disable=SC3028
 disable=SC3043
 disable=SC3045
 disable=SC3057
+disable=SC3060
