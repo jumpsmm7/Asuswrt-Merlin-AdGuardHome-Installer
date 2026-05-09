@@ -1,19 +1,62 @@
 #!/bin/sh
-renice -10 $$
+renice -10 $$ >/dev/null 2>&1
 ENABLED="yes"
 WORK_DIR="/opt/etc/AdGuardHome"
 LOG_FILE="syslog"
 PID_FILE="/opt/var/run/AdGuardHome.pid"
 PROCS="AdGuardHome"
 GOGC="40"
-GOMAXPROCS="$(grep -c "processor" /proc/cpuinfo)"
-GOMAXPROCS="$((GOMAXPROCS == 4 ? 2 : (GOMAXPROCS == 2 ? 1 : 1)))"
-GOMEMLIMIT="$(free | awk -v VAR=$GOMAXPROCS '/Mem/{print int(($4*0.9537/1024)/VAR)}')MiB"
-ARGS="-s run -c ${WORK_DIR}/AdGuardHome.yaml -w $WORK_DIR --pidfile $PID_FILE --no-check-update -l $LOG_FILE"
+CPU_COUNT="$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)"
+case "${CPU_COUNT}" in
+	"4") GOMAXPROCS="2" ;;
+	*) GOMAXPROCS="1" ;;
+esac
+GOMEMLIMIT="$(free | awk -v VAR="${GOMAXPROCS}" '/Mem/{print int(($4*0.9537/1024)/VAR)}')MiB"
+ARGS="-s run -c ${WORK_DIR}/AdGuardHome.yaml -w ${WORK_DIR} --pidfile ${PID_FILE} --no-check-update -l ${LOG_FILE}"
 PREARGS="env TZ=/etc/localtime GOGC=${GOGC} GOMAXPROCS=${GOMAXPROCS} GOMEMLIMIT=${GOMEMLIMIT} QUIC_GO_DISABLE_ECN=true"
-PRECMD="{ ulimit -v 1750000; ulimit -m 450000; ulimit -s 8192; } && { if pidof syslog-ng logrotate | wc -w | grep -qE '^[^0]$'; then scribe restart; fi; until pidof $PROCS | grep -qE '.*' && netstat -nlp 2>/dev/null | grep -qE "\""^(tcp|udp)6?\s+[0-9]+\s+[0-9]+\s+([0-9.:]+\:53|\[::\]:53)\s.*$(pidof $PROCS)/$PROCS(.*|$)"\""; do { killall -9 $(netstat -nlp 2>/dev/null | awk -F/ -v VAR=$PROCS '$0 ~ /.*:53[[:space:]].*/ && $0 !~ VAR {if(!x[$2]++) printf "%s ", $2}') || kill -s 9 $(netstat -nlp 2>/dev/null | awk -v VAR=$PROCS '$0 ~ /.*:53[[:space:]].*/ && $0 !~ VAR {match($7, /[0-9]+/); if (RSTART && !x[$7]++) printf "%s ", substr($7, RSTART, RLENGTH)}'); }; service stop_dnsmasq; done; } &"
-POSTCMD="service restart_dnsmasq"
-DESC="$PROCS"
+
+adguardhome_owns_dns() {
+	pidof "${PROCS}" >/dev/null 2>&1 || return 1
+	netstat -nlp 2>/dev/null | awk -v proc="${PROCS}" '
+		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && $0 ~ "/" proc "([[:space:]]|$)" { found=1 }
+		END { exit(found ? 0 : 1) }
+	'
+}
+
+kill_dns_port_owners() {
+	_dns_pids="$(netstat -nlp 2>/dev/null | awk -v proc="${PROCS}" '
+		$0 ~ /:53[[:space:]]/ && $0 !~ "/" proc "([[:space:]]|$)" {
+			split($7, pid_parts, "/")
+			if (pid_parts[1] ~ /^[0-9]+$/ && !seen[pid_parts[1]]++) printf "%s ", pid_parts[1]
+		}
+	')"
+	[ -n "${_dns_pids}" ] && kill -s 9 ${_dns_pids} 2>/dev/null
+}
+
+pre_start_adguardhome() {
+	(
+		ulimit -v 1750000
+		ulimit -m 450000
+		ulimit -s 8192
+		if [ "$(pidof syslog-ng logrotate | wc -w)" -gt 0 ] && which scribe >/dev/null 2>&1; then
+			scribe restart
+		fi
+		while ! adguardhome_owns_dns; do
+			kill_dns_port_owners
+			service stop_dnsmasq
+			sleep 1s
+		done
+	) &
+}
+
+post_start_adguardhome() {
+	service restart_dnsmasq
+}
+
+PRECMD="pre_start_adguardhome"
+POSTCMD="post_start_adguardhome"
+DESC="${PROCS}"
 PATH="/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-export TZ="$(cat /etc/TZ)"
-[ -z "$SCRIPT_LOC" ] && . /jffs/addons/AdGuardHome.d/AdGuardHome.sh
+TZ="$(sed -n '1p' /etc/TZ 2>/dev/null)"
+export TZ
+[ -z "${SCRIPT_LOC}" ] && . /jffs/addons/AdGuardHome.d/AdGuardHome.sh
