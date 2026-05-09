@@ -14,11 +14,31 @@ ansi_std="$(printf "\033[m")"
 ansi_rev="$(printf "\033[7m")"
 ansi_ul="$(printf "\033[4m")"
 
+process_pids() {
+	pidof "$1" 2>/dev/null
+}
+
+process_running() {
+	[ -n "$(process_pids "$1")" ]
+}
+
+signal_process() {
+	_SIGNAL="$1"
+	_PROC="$2"
+	_PIDS="$(process_pids "${_PROC}")"
+	if [ -n "${_PIDS}" ]; then
+		# Intentional word splitting: pidof returns a whitespace-delimited PID list.
+		kill -s "${_SIGNAL}" ${_PIDS} 2>/dev/null || killall -q "-${_SIGNAL}" "${_PROC}" 2>/dev/null
+	else
+		killall -q "-${_SIGNAL}" "${_PROC}" 2>/dev/null
+	fi
+}
+
 start() {
 	{ [ "${CRITICAL}" != "yes" ] && [ "${CALLER}" = "cron" ]; } && return 7
 	[ "${ENABLED}" != "yes" ] && return 8
 	printf "%s" "${ansi_white} Starting ${DESC}... ${ansi_std}"
-	if [ -n "$(pidof "${PROC}")" ]; then
+	if process_running "${PROC}"; then
 		printf "%s\n" "            ${ansi_yellow} already running. ${ansi_std}"
 		return 0
 	fi
@@ -26,12 +46,12 @@ start() {
 	{ ${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null & }
 	#echo ${PREARGS} ${PROC} ${ARGS}
 	local COUNTER="0" LIMIT="10"
-	while { [ -z "$(pidof "${PROC}")" ] && [ "${COUNTER}" -le "${LIMIT}" ]; }; do
+	while { ! process_running "${PROC}" && [ "${COUNTER}" -le "${LIMIT}" ]; }; do
 		sleep 1s
 		COUNTER="$((COUNTER + 1))"
 	done
 	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then { ${POSTCMD} >/dev/null 2>&1; }; fi
-	if [ -z "$(pidof "${PROC}")" ]; then
+	if ! process_running "${PROC}"; then
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 		logger -st "${CALLER}" "Failed to start ${DESC} from ${CALLER}."
 		return 255
@@ -46,19 +66,19 @@ stop() {
 	case "${ACTION}" in
 		"stop" | "restart")
 			local COUNTER="0" LIMIT="10"
-			while { [ -n "$(pidof "${PROC}")" ] && [ "${COUNTER}" -le "${LIMIT}" ]; }; do
+			while { process_running "${PROC}" && [ "${COUNTER}" -le "${LIMIT}" ]; }; do
 				[ "${COUNTER}" = "0" ] && printf "%s" "${ansi_white} Shutting down ${PROC}... ${ansi_std}"
-				[ -z "$(pidof "${PROC}")" ] && break || { kill -s 2 "$(pidof "${PROC}")" 2>/dev/null || killall -q -2 "${PROC}" 2>/dev/null; }
+				! process_running "${PROC}" && break || signal_process 2 "${PROC}"
 				sleep "${LIMIT}"s
 				COUNTER="$((COUNTER + 1))"
 			done
 			;;
 		"kill")
 			printf "%s" "${ansi_white} Killing ${PROC}... ${ansi_std}"
-			{ kill -s 2 "$(pidof "${PROC}")" 2>/dev/null || killall -q -2 "${PROC}" 2>/dev/null; }
+			signal_process 2 "${PROC}"
 			;;
 	esac
-	if [ -n "$(pidof "${PROC}")" ]; then
+	if process_running "${PROC}"; then
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 		return 255
 	else
@@ -69,7 +89,7 @@ stop() {
 
 check() {
 	printf "%s" "${ansi_white} Checking ${DESC}... "
-	if [ -n "$(pidof "${PROC}")" ]; then
+	if process_running "${PROC}"; then
 		printf "%s\n" "            ${ansi_green} alive. ${ansi_std}"
 		return 0
 	else
@@ -81,7 +101,7 @@ check() {
 reload() {
 	SIGNAL="HUP"
 	printf "%s\n" "${ansi_white} Sending ${SIGNAL} to ${PROC}... ${ansi_std}"
-	{ kill -s "${SIGNAL}" "$(pidof "${PROC}")" 2>/dev/null || killall -"${SIGNAL}" "${PROC}" 2>/dev/null; }
+	signal_process "${SIGNAL}" "${PROC}"
 }
 
 for PROC in ${PROCS}; do
