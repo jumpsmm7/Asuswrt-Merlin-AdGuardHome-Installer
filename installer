@@ -26,24 +26,133 @@ export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 AI_VERSION="v2.0.7"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
+readonly API_HEADERS="/tmp/AGH_GIT_API_$$_headers.out"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
+
+ai_have_cmd() {
+	which "$1" >/dev/null 2>&1
+}
+
+wget_help() {
+	if [ -z "${WGET_HELP_CACHE_SET:-}" ]; then
+		WGET_HELP_CACHE="$(wget --help 2>&1)"
+		WGET_HELP_CACHE_SET="1"
+	fi
+	printf '%s\n' "${WGET_HELP_CACHE}"
+}
+
+wget_has_option() {
+	wget_help | grep -q -e "$1"
+}
+
+wget_common_args() {
+	if [ -z "${WGET_COMMON_ARGS_SET:-}" ]; then
+		WGET_COMMON_ARGS=""
+		wget_has_option '--no-cache' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --no-cache"
+		wget_has_option '--no-cookies' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --no-cookies"
+		wget_has_option '--tries' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --tries=5"
+		wget_has_option '--timeout' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --timeout=25"
+		wget_has_option '--waitretry' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --waitretry=5"
+		wget_has_option '--retry-connrefused' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --retry-connrefused"
+		WGET_COMMON_ARGS_SET="1"
+	fi
+	printf '%s' "${WGET_COMMON_ARGS}"
+}
+
+wget_insecure_arg() {
+	if [ -z "${WGET_INSECURE_ARG_SET:-}" ]; then
+		WGET_INSECURE_ARG=""
+		wget_has_option '--no-check-certificate' && WGET_INSECURE_ARG=" --no-check-certificate"
+		WGET_INSECURE_ARG_SET="1"
+	fi
+	printf '%s' "${WGET_INSECURE_ARG}"
+}
+
+http_get_file() {
+	local URL OUT HEADERS INSECURE WGET_ARGS
+	URL="$1"
+	OUT="$2"
+	HEADERS="${3:-}"
+	INSECURE="${4:-}"
+	if ai_have_cmd curl; then
+		if [ -n "${HEADERS}" ]; then
+			if [ "${INSECURE}" = "insecure" ]; then
+				curl -D "${HEADERS}" --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -f -k -sL "${URL}" -o "${OUT}"
+			else
+				curl -D "${HEADERS}" --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -f -sL "${URL}" -o "${OUT}"
+			fi
+		elif [ "${INSECURE}" = "insecure" ]; then
+			curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -f -k -sL "${URL}" -o "${OUT}"
+		else
+			curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -f -sL "${URL}" -o "${OUT}"
+		fi
+	elif ai_have_cmd wget; then
+		WGET_ARGS="$(wget_common_args)"
+		[ "${INSECURE}" = "insecure" ] && WGET_ARGS="${WGET_ARGS}$(wget_insecure_arg)"
+		if [ -n "${HEADERS}" ] && wget_has_option '--server-response'; then
+			wget ${WGET_ARGS} --server-response -q -O "${OUT}" "${URL}" 2>"${HEADERS}"
+		else
+			[ -n "${HEADERS}" ] && : >"${HEADERS}"
+			wget ${WGET_ARGS} -q -O "${OUT}" "${URL}"
+		fi
+	else
+		return 127
+	fi
+}
+
+http_get_stdout() {
+	local URL INSECURE WGET_ARGS
+	URL="$1"
+	INSECURE="${2:-}"
+	if ai_have_cmd curl; then
+		if [ "${INSECURE}" = "insecure" ]; then
+			curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -f -k -sL "${URL}"
+		else
+			curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -f -sL "${URL}"
+		fi
+	elif ai_have_cmd wget; then
+		WGET_ARGS="$(wget_common_args)"
+		[ "${INSECURE}" = "insecure" ] && WGET_ARGS="${WGET_ARGS}$(wget_insecure_arg)"
+		wget ${WGET_ARGS} -q -O - "${URL}"
+	else
+		return 127
+	fi
+}
+
+http_probe() {
+	local URL WGET_ARGS
+	URL="$1"
+	if ai_have_cmd curl; then
+		curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -f -sL -I -o /dev/null "${URL}"
+	elif ai_have_cmd wget; then
+		WGET_ARGS="$(wget_common_args)"
+		if wget_has_option '--spider'; then
+			wget ${WGET_ARGS} -q --spider "${URL}"
+		else
+			wget ${WGET_ARGS} -q -O /dev/null "${URL}"
+		fi
+	else
+		return 127
+	fi
+}
+
 varcnt=0
 readonly MAX_RETRIES="1"
 until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
-	curl -D /tmp/$$_headers.out --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -sL "${LATEST_URL}?per_page=5" -o "${API_FILE}"
+	http_get_file "${LATEST_URL}?per_page=5" "${API_FILE}" "${API_HEADERS}"
 	if [ -s "${API_FILE}" ]; then
 		REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
 		REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
 		break
 	fi
 	if [ "${varcnt}" -gt "${MAX_RETRIES}" ]; then
-		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr) per requesters IP." "For more information, please read /tmp/$$_headers.out." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
+		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr) per requesters IP." "For more information, please read ${API_HEADERS}." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
 		sleep 3s
 		exit 1
 	fi
 	varcnt="$((varcnt + 1))"
 done
-rm -rf "$API_FILE" "/tmp/$$_headers.out"
+rm -f "${API_FILE}" "${API_HEADERS}"
 wait
 unset varcnt
 readonly REMOTE_VER REMOTE_BETA
@@ -274,7 +383,7 @@ check_connection() {
 	while [ "${livecheck}" != "4" ]; do
 		for i in google.com github.com snbforums.com; do
 			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
-				if { ! curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 --retry-connrefused -q --spider "http://${i}" >/dev/null 2>&1; }; then
+				if ! http_probe "http://${i}" >/dev/null 2>&1; then
 					sleep 1s
 					continue
 				fi
@@ -456,73 +565,78 @@ check_jffs_enabled() {
 }
 
 check_version() {
-	local RMNSTALL LINSTALL MD5SUM_L MD5SUM_R
+	local RMNSTALL LINSTALL MD5SUM_L MD5SUM_R REMOTE_INSTALLER ADGUARD_BRANCH ADGUARD_VER varcnt
 	if [ -f "${TARG_DIR}/installer" ] && [ -f "${AGH_FILE}" ] && [ -z "$2" ]; then
 		if [ -n "$1" ] || { check_connection; }; then
-			local varcnt=0
+			REMOTE_INSTALLER="${TARG_DIR}/.installer.remote.$$"
+			varcnt="0"
 			until [ -n "${LINSTALL}" ] && [ -n "${RMNSTALL}" ] && [ -n "${MD5SUM_L}" ] && [ -n "${MD5SUM_R}" ]; do
 				if [ -z "${LINSTALL}" ]; then LINSTALL="$(awk -F= '/^AI_VERSION=/ { gsub(/"/, "", $2); sub(/^v/, "", $2); if ($2 ~ /^[0-9]{1,2}(\.[0-9]{1,2}){2}$/) print $2; exit }' "${TARG_DIR}/installer")"; fi
-				if [ -z "${RMNSTALL}" ]; then RMNSTALL="$(curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -sL "${RURL}/installer" | awk -F= '/^AI_VERSION=/ { gsub(/"/, "", $2); sub(/^v/, "", $2); if ($2 ~ /^[0-9]{1,2}(\.[0-9]{1,2}){2}$/) print $2; exit }')"; fi
 				if [ -z "${MD5SUM_L}" ]; then MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | awk '{print $1; exit}')"; fi
-				if [ -z "${MD5SUM_R}" ]; then MD5SUM_R="$(curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -fsL "${RURL}/installer" | md5sum | awk '{print $1; exit}')"; fi
+				if [ -z "${RMNSTALL}" ] || [ -z "${MD5SUM_R}" ]; then
+					rm -f "${REMOTE_INSTALLER}"
+					if http_get_file "${RURL}/installer" "${REMOTE_INSTALLER}" && [ -s "${REMOTE_INSTALLER}" ]; then
+						RMNSTALL="$(awk -F= '/^AI_VERSION=/ { gsub(/"/, "", $2); sub(/^v/, "", $2); if ($2 ~ /^[0-9]{1,2}(\.[0-9]{1,2}){2}$/) print $2; exit }' "${REMOTE_INSTALLER}")"
+						MD5SUM_R="$(md5sum "${REMOTE_INSTALLER}" | awk '{print $1; exit}')"
+					fi
+				fi
 				varcnt="$((varcnt + 1))"
 				if [ "${varcnt}" -ge 2 ]; then
+					rm -f "${REMOTE_INSTALLER}"
 					printf "%s\n" "One or more critical variables could not be set in a timely manner." "Please check your internet connection, or try again later." "The installer script will now exit."
 					sleep 3s
 					exit 1
 				fi
 			done
-			wait
-			if { [ -n "${LINSTALL}" ] && [ -n "${RMNSTALL}" ]; }; then
-				[ -z "${LINSTALL}" ] && exit 1
-				[ -z "${RMNSTALL}" ] && exit 1
-				if [ "${RMNSTALL}" != "${LINSTALL}" ]; then
-					PTXT "${INFO} New AI_VERSION=v${RMNSTALL} Available!" \
-						"${INFO} Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
-					AUTO_UPDATE="update"
-				elif [ "${MD5SUM_R}" = "${MD5SUM_L}" ]; then
-					PTXT "${INFO} AI_VERSION=v${LINSTALL}"
-				else
-					PTXT "${INFO} AI_VERSION=v${LINSTALL}, but a New Minor Update is Available!" \
-						"${INFO} Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
-					AUTO_UPDATE="update"
-				fi
-				local ADGUARD_BRANCH
-				ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "$CONF_FILE" | sed -e 's/^"//' -e 's/"$//')"
-				[ -z "$(${AGH_FILE} --version | cut -d" " -f4-)" ] && exit 1
-				[ -z "${REMOTE_VER}" ] && exit 1
-				[ -z "${REMOTE_BETA}" ] && exit 1
-				if { [ "${REMOTE_VER}" != "$(${AGH_FILE} --version | cut -d" " -f4-)" ] && [ "${ADGUARD_BRANCH}" = "release" ]; } || { [ "${REMOTE_BETA}" != "$(${AGH_FILE} --version | cut -d" " -f4-)" ] && [ "${ADGUARD_BRANCH}" = "beta" ]; }; then
-					case "${ADGUARD_BRANCH}" in
-						release)
-							PTXT "${INFO} New RELEASE ADGUARDHOME_VER=${REMOTE_VER} Available!"
-							;;
-						beta)
-							PTXT "${INFO} New BETA ADGUARDHOME_VER=${REMOTE_BETA} Available!"
-							;;
-					esac
-					AUTO_UPDATE="update"
-				else
-					case "${ADGUARD_BRANCH}" in
-						release)
-							PTXT "${INFO} ADGUARDHOME_BUILD=Release"
-							;;
-						beta)
-							PTXT "${INFO} ADGUARDHOME_BUILD=Beta"
-							;;
-						edge)
-							PTXT "${INFO} ADGUARDHOME_BUILD=Edge"
-							;;
-					esac
-				fi
-				PTXT "${INFO} ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-)" \
-					"${INFO} Run Option 1 to if you want to change builds or upgrade when updates are available." \
-					"${INFO} To visit AdGuardHome," \
-					"${INFO} please go to http://$(nvram get lan_ipaddr):$(awk -F: '/.*address\:.*/{ print $3 }' ${YAML_FILE})." \
-					"${INFO} You can use the WebUI to change things to your liking!" \
-					"${INFO} Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
-					"${INFO} for any configuration needs. "
+			rm -f "${REMOTE_INSTALLER}"
+			ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')"
+			ADGUARD_VER="$("${AGH_FILE}" --version | cut -d" " -f4-)"
+			[ -z "${LINSTALL}" ] && exit 1
+			[ -z "${RMNSTALL}" ] && exit 1
+			[ -z "${ADGUARD_VER}" ] && exit 1
+			[ -z "${REMOTE_VER}" ] && exit 1
+			[ -z "${REMOTE_BETA}" ] && exit 1
+			if [ "${RMNSTALL}" != "${LINSTALL}" ]; then
+				PTXT "${INFO} New AI_VERSION=v${RMNSTALL} Available!" \
+					"${INFO} Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
+				AUTO_UPDATE="update"
+			elif [ "${MD5SUM_R}" = "${MD5SUM_L}" ]; then
+				PTXT "${INFO} AI_VERSION=v${LINSTALL}"
+			else
+				PTXT "${INFO} AI_VERSION=v${LINSTALL}, but a New Minor Update is Available!" \
+					"${INFO} Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
+				AUTO_UPDATE="update"
 			fi
+			if { [ "${REMOTE_VER}" != "${ADGUARD_VER}" ] && [ "${ADGUARD_BRANCH}" = "release" ]; } || { [ "${REMOTE_BETA}" != "${ADGUARD_VER}" ] && [ "${ADGUARD_BRANCH}" = "beta" ]; }; then
+				case "${ADGUARD_BRANCH}" in
+					release)
+						PTXT "${INFO} New RELEASE ADGUARDHOME_VER=${REMOTE_VER} Available!"
+						;;
+					beta)
+						PTXT "${INFO} New BETA ADGUARDHOME_VER=${REMOTE_BETA} Available!"
+						;;
+				esac
+				AUTO_UPDATE="update"
+			else
+				case "${ADGUARD_BRANCH}" in
+					release)
+						PTXT "${INFO} ADGUARDHOME_BUILD=Release"
+						;;
+					beta)
+						PTXT "${INFO} ADGUARDHOME_BUILD=Beta"
+						;;
+					edge)
+						PTXT "${INFO} ADGUARDHOME_BUILD=Edge"
+						;;
+				esac
+			fi
+			PTXT "${INFO} ADGUARDHOME_VER=${ADGUARD_VER}" \
+				"${INFO} Run Option 1 to if you want to change builds or upgrade when updates are available." \
+				"${INFO} To visit AdGuardHome," \
+				"${INFO} please go to http://$(nvram get lan_ipaddr):$(awk -F: '/.*address\:.*/{ print $3 }' "${YAML_FILE}")." \
+				"${INFO} You can use the WebUI to change things to your liking!" \
+				"${INFO} Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
+				"${INFO} for any configuration needs. "
 		elif [ -z "${LINSTALL}" ] && [ -z "${RMNSTALL}" ] && [ -z "$1" ]; then
 			while { ! check_connection; }; do sleep 1s; done && check_version x
 		else
@@ -601,8 +715,8 @@ del_jffs_script() {
 	local TARG LINE_NUM LINE_ABOVE OP
 	TARG="$1"
 	[ -f "${TARG}" ] || return
-	if [ "$2" ]; then
-		OP="${2:0:1}"
+	if [ "${2:-}" ]; then
+		OP="$(printf '%.1s' "$2")"
 		if [ "$OP" = "!" ]; then
 			LINE_NUM="$(grep -n -F "[ -x ${ADDON_DIR}/" "${TARG}" | grep -v "$(_quote "$2")" | cut -d':' -f1)"
 		else
@@ -612,57 +726,62 @@ del_jffs_script() {
 		LINE_NUM="$(grep -n -F "[ -x ${ADDON_DIR}/" "${TARG}" | cut -d':' -f1)"
 	fi
 	[ -z "${LINE_NUM}" ] && return
-	sed -i "${LINE_NUM}d" "${TARG}"
-	if [ "${LINE_NUM}" -gt 1 ]; then
-		LINE_NUM="$((LINE_NUM - 1))"
-		LINE_ABOVE="$(sed "${LINE_NUM}q;d" "${TARG}")"
-		[ -z "${LINE_ABOVE}" ] && sed -i "${LINE_NUM}d" "${TARG}"
-	fi
+	printf "%s\n" "${LINE_NUM}" | sort -rn | while IFS= read -r LINE_NUM; do
+		[ -z "${LINE_NUM}" ] && continue
+		sed -i "${LINE_NUM}d" "${TARG}"
+		if [ "${LINE_NUM}" -gt 1 ]; then
+			LINE_NUM="$((LINE_NUM - 1))"
+			LINE_ABOVE="$(sed "${LINE_NUM}q;d" "${TARG}")"
+			[ -z "${LINE_ABOVE}" ] && sed -i "${LINE_NUM}d" "${TARG}"
+		fi
+	done
 	[ "$(awk '{ print }' "${TARG}")" = "#!/bin/sh" ] && rm -f "${TARG}"
 }
 
 download_file() {
-	local TARG PERM URL RET FILENAME MD5SUM_OLD MD5SUM_CURR
+	local TARG PERM URL RET FILENAME TMP_FILE MD5SUM_OLD MD5SUM_CURR COUNT
 	TARG="$1"
 	shift
 	PERM="$1"
 	shift
+	RET="0"
 	for URL in "$@"; do
 		FILENAME="$(basename "${URL}")"
-		local varcnt="0"
-		until [ -n "${MD5SUM_CURR}" ]; do
-			if [ -f "${TARG}/${FILENAME}" ]; then
-				if [ -z "${MD5SUM_OLD}" ]; then MD5SUM_OLD="$(md5sum "${TARG}/${FILENAME}" | awk '{print $1; exit}')"; fi
-			fi
-			if [ -z "${MD5SUM_CURR}" ]; then MD5SUM_CURR="$(curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -fsL "${URL}" | md5sum | awk '{print $1; exit}')"; fi
-			varcnt="$((varcnt + 1))"
-			if [ "${varcnt}" -eq 1 ]; then
-				wait
-			else
+		TMP_FILE="${TARG}/.${FILENAME}.$$"
+		MD5SUM_OLD=""
+		MD5SUM_CURR=""
+		COUNT="0"
+		[ -f "${TARG}/${FILENAME}" ] && MD5SUM_OLD="$(md5sum "${TARG}/${FILENAME}" | awk '{print $1; exit}')"
+		while [ "${COUNT}" -lt 3 ]; do
+			PTXT "${INFO} Downloading ${FILENAME}"
+			rm -f "${TMP_FILE}"
+			if http_get_file "${URL}" "${TMP_FILE}" "" insecure && [ -s "${TMP_FILE}" ]; then
+				MD5SUM_CURR="$(md5sum "${TMP_FILE}" | awk '{print $1; exit}')"
 				break
 			fi
+			COUNT="$((COUNT + 1))"
 		done
-		wait
-		if [ "$(PTXT -n "${MD5SUM_CURR}" | wc -c)" -eq 32 ] && [ "${MD5SUM_CURR}" = "${MD5SUM_OLD}" ]; then
-			PTXT "${INFO} ${FILENAME} is up to date. Skipping..."
-		else
-			local COUNT
-			COUNT="0"
-			while [ "${COUNT}" -lt 3 ]; do
-				PTXT "${INFO} Downloading ${FILENAME}"
-				if curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -L -k -s "${URL}" -o "${TARG}/${FILENAME}"; then
-					chmod "${PERM}" "${TARG}/${FILENAME}"
-					break
-				fi
-				COUNT="$((COUNT + 1))"
-			done
-			if [ "${COUNT}" -eq 3 ]; then
-				PTXT "${ERROR} Unable to download ${BOLD}${URL}${NORM}"
-				if [ -z "${RET}" ]; then RET="1"; else RET="$((RET + 1))"; fi
-			fi
+		if [ "${COUNT}" -eq 3 ]; then
+			rm -f "${TMP_FILE}"
+			PTXT "${ERROR} Unable to download ${BOLD}${URL}${NORM}"
+			RET="$((RET + 1))"
+			continue
 		fi
+		if [ "$(PTXT -n "${MD5SUM_CURR}" | wc -c)" -eq 32 ] && [ "${MD5SUM_CURR}" = "${MD5SUM_OLD}" ]; then
+			rm -f "${TMP_FILE}"
+			PTXT "${INFO} ${FILENAME} is up to date. Skipping..."
+			continue
+		fi
+		if mv "${TMP_FILE}" "${TARG}/${FILENAME}" && chmod "${PERM}" "${TARG}/${FILENAME}"; then
+			continue
+		fi
+		rm -f "${TMP_FILE}"
+		PTXT "${ERROR} Unable to install ${BOLD}${FILENAME}${NORM}"
+		RET="$((RET + 1))"
 	done
-	if [ -z "${RET}" ]; then RET="0"; else PTXT "${ERROR} One or more download failures has occured." "${ERROR} It is recommended to rerun the installer, or restore from a backup!"; fi
+	if [ "${RET}" -ne 0 ]; then
+		PTXT "${ERROR} One or more download failures has occurred." "${ERROR} It is recommended to rerun the installer, or restore from a backup!"
+	fi
 	return "${RET}"
 }
 
@@ -740,27 +859,28 @@ inst_AdGuardHome() {
 		fi
 		if [ "${1:-RESTORE}" != "RESTORE" ]; then
 			if [ "${1:-install}" != "update" ]; then choose_branch; fi
-			local ADGUARD_BRANCH
+			local ADGUARD_BRANCH ADGUARD_VER
 			ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')"
 			if [ ! -f "${AGH_FILE}" ]; then
 				inst_AdGuardHome "${1:-install}" "$ADGUARD_BRANCH"
 			else
-				[ -z "$("${AGH_FILE}" --version | cut -d" " -f4-)" ] && exit 1
+				ADGUARD_VER="$("${AGH_FILE}" --version | cut -d" " -f4-)"
+				[ -z "${ADGUARD_VER}" ] && exit 1
 				[ -z "${REMOTE_VER}" ] && exit 1
 				[ -z "${REMOTE_BETA}" ] && exit 1
-				if { [ "${REMOTE_VER}" != "$("${AGH_FILE}" --version | cut -d" " -f4-)" ] && [ "${ADGUARD_BRANCH}" = "release" ]; } || { [ "${REMOTE_BETA}" != "$("${AGH_FILE}" --version | cut -d" " -f4-)" ] && [ "${ADGUARD_BRANCH}" = "beta" ]; } || [ "${ADGUARD_BRANCH}" = "edge" ]; then
+				if { [ "${REMOTE_VER}" != "${ADGUARD_VER}" ] && [ "${ADGUARD_BRANCH}" = "release" ]; } || { [ "${REMOTE_BETA}" != "${ADGUARD_VER}" ] && [ "${ADGUARD_BRANCH}" = "beta" ]; } || [ "${ADGUARD_BRANCH}" = "edge" ]; then
 					case "${ADGUARD_BRANCH}" in
 						release)
 							PTXT "${INFO} New RELEASE ADGUARDHOME_VER=${REMOTE_VER} Available!" \
-								"${INFO} Updating ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-) to ${REMOTE_VER}."
+								"${INFO} Updating ADGUARDHOME_VER=${ADGUARD_VER} to ${REMOTE_VER}."
 							;;
 						beta)
 							PTXT "${INFO} New BETA ADGUARDHOME_VER=${REMOTE_BETA} Available!" \
-								"${INFO} Updating ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-) to ${REMOTE_BETA}."
+								"${INFO} Updating ADGUARDHOME_VER=${ADGUARD_VER} to ${REMOTE_BETA}."
 							;;
 						edge)
 							PTXT "${INFO} ADGUARDHOME_BUILD=Edge" \
-								"${INFO} Downloading the lastest Edge version to replace ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-)."
+								"${INFO} Downloading the lastest Edge version to replace ADGUARDHOME_VER=${ADGUARD_VER}."
 							;;
 					esac
 					inst_AdGuardHome "${1:-update}" "${ADGUARD_BRANCH}"
@@ -769,12 +889,12 @@ inst_AdGuardHome() {
 						release)
 							PTXT "${INFO} ADGUARDHOME_BUILD=Release" \
 								"${INFO} No new release version available." \
-								"${INFO} ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-)"
+								"${INFO} ADGUARDHOME_VER=${ADGUARD_VER}"
 							;;
 						beta)
 							PTXT "${INFO} ADGUARDHOME_BUILD=Beta" \
 								"${INFO} No new beta version available." \
-								"${INFO} ADGUARDHOME_VER=$(${AGH_FILE} --version | cut -d" " -f4-)"
+								"${INFO} ADGUARDHOME_VER=${ADGUARD_VER}"
 							;;
 					esac
 				fi
@@ -1046,12 +1166,12 @@ setup_AdGuardHome_impl() {
 				"${INFO} and not already in use by any other service."
 			read_input_port "Default is" 3000
 			write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT}\""
-			yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' ${YAML_FILE} | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "  address: 0.0.0.0:${WEB_PORT}" "${YAML_FILE}"
+			yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "  address: 0.0.0.0:${WEB_PORT}" "${YAML_FILE}"
 		elif awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" != "$(awk -F':' '/.*address\:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" ]; then
-			yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' ${YAML_FILE} | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "  address: 0.0.0.0:$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' ${CONF_FILE} | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "${YAML_FILE}"
+			yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "  address: 0.0.0.0:$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "${YAML_FILE}"
 		fi
 		##########################################################################################################################################################################################################################################################################
-		if [ -n "$(awk -F': ' '/.*schema\:.*/{ print $2 }' "${YAML_FILE}")" ] && [ "$(awk -F': ' '/.*schema\:.*/{ print $2 }' "${YAML_FILE}")" != "${SCHEMA_VER}" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema\:.*/{ print $2 }' ${YAML_FILE})" "schema_version: ${SCHEMA_VER}" "${YAML_FILE}"; fi
+		if [ -n "$(awk -F': ' '/.*schema\:.*/{ print $2 }' "${YAML_FILE}")" ] && [ "$(awk -F': ' '/.*schema\:.*/{ print $2 }' "${YAML_FILE}")" != "${SCHEMA_VER}" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema\:.*/{ print $2 }' "${YAML_FILE}")" "schema_version: ${SCHEMA_VER}" "${YAML_FILE}"; fi
 		if ! check_AdGuardHome_yaml; then
 			setup_AdGuardHome_impl x
 			return

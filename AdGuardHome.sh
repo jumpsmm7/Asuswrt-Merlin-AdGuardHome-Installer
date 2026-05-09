@@ -8,16 +8,63 @@ LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 
 NAME="$(basename "$0")[$$]"
 
+have_cmd() {
+	which "$1" >/dev/null 2>&1
+}
+
+wget_help() {
+	if [ -z "${WGET_HELP_CACHE_SET:-}" ]; then
+		WGET_HELP_CACHE="$(wget --help 2>&1)"
+		WGET_HELP_CACHE_SET="1"
+	fi
+	printf '%s\n' "${WGET_HELP_CACHE}"
+}
+
+wget_has_option() {
+	wget_help | grep -q -e "$1"
+}
+
+wget_common_args() {
+	if [ -z "${WGET_COMMON_ARGS_SET:-}" ]; then
+		WGET_COMMON_ARGS=""
+		wget_has_option '--no-cache' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --no-cache"
+		wget_has_option '--no-cookies' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --no-cookies"
+		wget_has_option '--tries' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --tries=5"
+		wget_has_option '--timeout' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --timeout=25"
+		wget_has_option '--waitretry' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --waitretry=5"
+		wget_has_option '--retry-connrefused' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --retry-connrefused"
+		WGET_COMMON_ARGS_SET="1"
+	fi
+	printf '%s' "${WGET_COMMON_ARGS}"
+}
+
+http_probe() {
+	local URL WGET_ARGS
+	URL="$1"
+	if have_cmd curl; then
+		curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -f -sL -I -o /dev/null "${URL}"
+	elif have_cmd wget; then
+		WGET_ARGS="$(wget_common_args)"
+		if wget_has_option '--spider'; then
+			wget ${WGET_ARGS} -q --spider "${URL}"
+		else
+			wget ${WGET_ARGS} -q -O /dev/null "${URL}"
+		fi
+	else
+		return 127
+	fi
+}
+
 adguardhome_run() {
 	local lock_dir pid pid_file start end runtime
 	lock_dir="/tmp/AdGuardHome"
 	pid_file="${lock_dir}/pid"
 	case "$1" in
 		"")
-			if [ -z "$(sed -n '2p' ${pid_file})" ] || [ ! -f "${UPPER_SCRIPT}" ]; then return 1; else return 0; fi
+			if [ -z "$(sed -n '2p' "${pid_file}" 2>/dev/null)" ] || [ ! -f "${UPPER_SCRIPT}" ]; then return 1; else return 0; fi
 			;;
 		*)
-			if (mkdir ${lock_dir}) 2>/dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' ${pid_file})" ]; } || { [ "$1" = "stop_adguardhome" ]; }; then
+			if (mkdir "${lock_dir}") 2>/dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' "${pid_file}" 2>/dev/null)" ]; } || { [ "$1" = "stop_adguardhome" ]; }; then
 				(
 					trap 'rm -rf "${lock_dir}"; exit $?' EXIT
 					{ service_wait adguardhome_run; }
@@ -34,7 +81,7 @@ adguardhome_run() {
 					logger -st "${NAME}" "$1 took ${runtime} second(s) to complete."
 				}
 			else
-				logger -st "${NAME}" "Lock owned by $(sed -n '1p' ${pid_file}) exists; preventing duplicate runs!"
+				logger -st "${NAME}" "Lock owned by $(sed -n '1p' "${pid_file}" 2>/dev/null) exists; preventing duplicate runs!"
 			fi
 			;;
 	esac
@@ -149,7 +196,7 @@ netcheck() {
 	while [ "${livecheck}" != "4" ]; do
 		for i in google.com github.com snbforums.com; do
 			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
-				if { ! curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -Is "http://${i}" | head -n 1 >/dev/null 2>&1; } || { ! wget --no-cache --no-cookies --tries=5 --timeout=25 --waitretry=5 --retry-connrefused -q --spider "http://${i}" >/dev/null 2>&1; }; then
+				if ! http_probe "http://${i}" >/dev/null 2>&1; then
 					sleep 1s
 					continue
 				fi
@@ -187,8 +234,8 @@ proc_optimizations() {
 
 service_wait() {
 	umask 022
-	local OPT
-	[ -z "$2" ] && OPT="10" || OPT="$2"
+	local maxwait
+	[ -z "$2" ] && maxwait="300" || maxwait="$2"
 	(
 		{
 			timezone
@@ -201,18 +248,18 @@ service_wait() {
 			exec 2>'/dev/null'
 		}
 		{
-			local maxwait i
-			maxwait="300"
-			i="0"
-			while [ "${i}" -le "${maxwait}" ]; do
+			local elapsed interval
+			elapsed="0"
+			interval="10"
+			while [ "${elapsed}" -le "${maxwait}" ]; do
 				if [ "$(nvram get success_start_service)" = '1' ] && { "$1"; }; then break; fi
-				sleep 10s
-				i="$((i + OPT))"
+				sleep "${interval}s"
+				elapsed="$((elapsed + interval))"
 			done
 		}
 		{
 			trap - HUP INT QUIT ABRT TERM TSTP
-			if [ "${i}" -gt "${maxwait}" ]; then return 1; else return 0; fi
+			if [ "${elapsed}" -gt "${maxwait}" ]; then return 1; else return 0; fi
 		}
 	) &
 	local PID="$!"
