@@ -6,7 +6,6 @@ set -u
 
 FAILED=0
 UPDATED=0
-TARGETS="installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome"
 
 have_cmd() {
 	which "$1" >/dev/null 2>&1
@@ -76,11 +75,11 @@ update_one() {
 	UPDATED="$((UPDATED + 1))"
 }
 
-if [ "$#" -gt 0 ]; then
-	TARGETS="$*"
+if [ "$#" -eq 0 ]; then
+	set -- installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
 fi
 
-for target in ${TARGETS}; do
+for target do
 	update_one "${target}" || true
 done
 
