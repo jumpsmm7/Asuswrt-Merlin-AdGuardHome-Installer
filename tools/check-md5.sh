@@ -5,7 +5,6 @@
 set -u
 
 FAILED=0
-TARGETS="installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome"
 
 have_cmd() {
 	which "$1" >/dev/null 2>&1
@@ -80,11 +79,11 @@ validate_one() {
 	printf '%s\n' "OK: ${_md5_file} matches ${_src_file}"
 }
 
-if [ "$#" -gt 0 ]; then
-	TARGETS="$*"
+if [ "$#" -eq 0 ]; then
+	set -- installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
 fi
 
-for target in ${TARGETS}; do
+for target do
 	validate_one "${target}" || true
 done
 

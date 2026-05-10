@@ -14,8 +14,10 @@ Review scope:
 Useful local checks:
 - `tools/code-quality.sh`
 - `tools/check-md5.sh`
-- `tools/list-shell-scripts.sh | xargs shellcheck`
-- `tools/list-shell-scripts.sh | xargs shfmt -d`
+- `tools/list-shell-scripts.sh | xargs shellcheck -s sh --severity=warning`
+- `tools/list-shell-scripts.sh | xargs shfmt -d -ln mksh -i 0 -ci`
+
+The runtime prompt includes the latest `tools/code-quality.sh` output. If that output shows `shfmt` formatting differences, call out the exact failing formatting check and recommend running `tools/code-quality.sh --fix` locally or the `Create shfmt formatting PR` workflow against the pull request branch.
 
 Response format:
 1. Start with a short risk summary.

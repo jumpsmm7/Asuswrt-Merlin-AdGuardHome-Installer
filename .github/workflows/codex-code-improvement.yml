@@ -87,9 +87,15 @@ jobs:
           sudo apt-get install -y shellcheck shfmt
 
       - name: Run local code quality checks
+        id: local-quality
         if: steps.changed-files.outputs.should_run == 'true'
-        continue-on-error: true
-        run: tools/code-quality.sh
+        run: |
+          set +e
+          tools/code-quality.sh > codex-code-quality.log 2>&1
+          status=$?
+          cat codex-code-quality.log
+          printf 'exit_code=%s\n' "$status" >>"$GITHUB_OUTPUT"
+          exit 0
 
       - name: Compose Codex prompt
         if: steps.changed-files.outputs.should_run == 'true' && env.HAS_OPENAI_API_KEY == 'true'
@@ -108,6 +114,13 @@ jobs:
             printf '%s\n' "- Base SHA: $BASE_SHA"
             printf '%s\n' "- Head SHA: $HEAD_SHA"
             printf '%s\n' "- Extra instructions: $EXTRA_INSTRUCTIONS"
+            printf '%s\n' "- Local code quality exit code: ${{ steps.local-quality.outputs.exit_code || 'not-run' }}"
+            printf '\nLocal code quality output:\n'
+            if [ -f codex-code-quality.log ]; then
+              cat codex-code-quality.log
+            else
+              printf '%s\n' 'No local code quality log was produced.'
+            fi
           } >> .github/prompts/codex-runtime.md
 
       - name: Skip Codex when API key is unavailable

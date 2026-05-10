@@ -28,3 +28,12 @@ jobs:
 
       - name: Run code quality checks
         run: tools/code-quality.sh
+
+      - name: Explain formatting remediation
+        if: failure()
+        run: |
+          {
+            printf '%s\n' '## Code quality remediation'
+            printf '%s\n' ''
+            printf '%s\n' 'If the failure above is from `shfmt`, run `tools/code-quality.sh --fix` locally and commit the formatting changes, or dispatch the `Create shfmt formatting PR` workflow against this branch.'
+          } >> "$GITHUB_STEP_SUMMARY"
