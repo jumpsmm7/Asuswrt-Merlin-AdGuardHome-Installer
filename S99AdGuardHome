@@ -18,15 +18,24 @@ PREARGS="env TZ=/etc/localtime GOGC=${GOGC} GOMAXPROCS=${GOMAXPROCS} GOMEMLIMIT=
 adguardhome_owns_dns() {
 	pidof "${PROCS}" >/dev/null 2>&1 || return 1
 	netstat -nlp 2>/dev/null | awk -v proc="${PROCS}" '
-		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && $0 ~ "/" proc "([[:space:]]|$)" { found=1 }
-		END { exit(found ? 0 : 1) }
+		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
+			if ($0 ~ "/" proc "([[:space:]]|$)") tcp_found=1; else other_found=1
+		}
+		$0 ~ /^(udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
+			if ($0 ~ "/" proc "([[:space:]]|$)") udp_found=1; else other_found=1
+		}
+		END { exit(tcp_found && udp_found && !other_found ? 0 : 1) }
 	'
 }
 
 kill_dns_port_owners() {
 	_dns_pids="$(netstat -nlp 2>/dev/null | awk -v proc="${PROCS}" '
-		$0 ~ /:53[[:space:]]/ && $0 !~ "/" proc "([[:space:]]|$)" {
+		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && $0 !~ "/" proc "([[:space:]]|$)" {
 			split($7, pid_parts, "/")
+			if (pid_parts[1] ~ /^[0-9]+$/ && !seen[pid_parts[1]]++) printf "%s ", pid_parts[1]
+		}
+		$0 ~ /^(udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && $0 !~ "/" proc "([[:space:]]|$)" {
+			split($6, pid_parts, "/")
 			if (pid_parts[1] ~ /^[0-9]+$/ && !seen[pid_parts[1]]++) printf "%s ", pid_parts[1]
 		}
 	')"
