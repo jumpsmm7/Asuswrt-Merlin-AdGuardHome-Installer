@@ -33,6 +33,80 @@ ai_have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
 
+opkg_pkg_installed() {
+	_pkg="$1"
+	opkg list-installed 2>/dev/null | awk -v pkg="${_pkg}" '$1 == pkg { found = 1; exit } END { exit(found ? 0 : 1) }'
+}
+
+opkg_pkg_available() {
+	_pkg="$1"
+	opkg list "${_pkg}" 2>/dev/null | awk -v pkg="${_pkg}" '$1 == pkg { found = 1; exit } END { exit(found ? 0 : 1) }'
+}
+
+ensure_opkg_package() {
+	_pkg="$1"
+	if opkg_pkg_installed "${_pkg}"; then
+		return 0
+	fi
+
+	if ! opkg install "${_pkg}" >/dev/null 2>&1; then
+		return 1
+	fi
+
+	opkg_pkg_installed "${_pkg}"
+}
+
+remove_conflicting_apache() {
+	if opkg_pkg_installed apache || opkg_pkg_installed apache-utils; then
+		opkg flag user apache apache-utils >/dev/null 2>&1
+		opkg remove apache apache-utils --force-removal-of-dependent-packages >/dev/null 2>&1
+	fi
+}
+
+python_bcrypt_available() {
+	ai_have_cmd python3 && python3 -c 'import bcrypt' >/dev/null 2>&1
+}
+
+hash_password_python() {
+	_password="$1"
+	printf '%s' "${_password}" | python3 -c 'import sys, bcrypt; password = sys.stdin.buffer.read(); print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))'
+}
+
+ensure_bcrypt_tool() {
+	if [ -f "/opt/bin/bcrypt-tool" ]; then
+		return 0
+	fi
+
+	case "$(/bin/uname -m)" in
+		"aarch64" | "arm64")
+			ensure_opkg_package go || return 1
+			;;
+		"armv7l" | *)
+			if opkg_pkg_available go_nohf; then
+				ensure_opkg_package go_nohf || return 1
+			else
+				ensure_opkg_package go || return 1
+			fi
+			;;
+	esac
+
+	export PATH="${PATH}:/opt/bin/go/bin"
+	export GOROOT="/opt/bin/go"
+	export GOBIN="/opt/bin/"
+	ai_have_cmd go || return 1
+	go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
+}
+
+ensure_password_hash_tool() {
+	ensure_opkg_package python3 || true
+	ensure_opkg_package python3-bcrypt || true
+	if python_bcrypt_available; then
+		return 0
+	fi
+
+	ensure_bcrypt_tool
+}
+
 wget_help() {
 	if [ -z "${WGET_HELP_CACHE_SET:-}" ]; then
 		WGET_HELP_CACHE="$(wget --help 2>&1)"
@@ -203,6 +277,107 @@ PTXT() {
 	esac
 }
 
+agh_is_running() {
+	[ -n "$(pidof AdGuardHome)" ]
+}
+
+agh_process_count() {
+	pidof AdGuardHome S99AdGuardHome | wc -w
+}
+
+agh_check() {
+	/opt/etc/init.d/S99AdGuardHome check
+}
+
+agh_wait_stopped() {
+	until [ "$(agh_process_count)" -lt "1" ]; do sleep 1s; done
+}
+
+agh_wait_started() {
+	until [ "$(agh_process_count)" -eq "2" ]; do sleep 1s; done
+}
+
+agh_wait_ready() {
+	until { check_connection && [ "$(agh_process_count)" -eq "2" ]; }; do sleep 1s; done
+}
+
+agh_stop() {
+	if agh_is_running; then
+		if service stop_AdGuardHome >/dev/null 2>&1; then
+			sleep 1s
+		elif /opt/etc/init.d/S99AdGuardHome stop; then
+			sleep 1s
+		elif /opt/etc/init.d/S99AdGuardHome kill; then
+			sleep 1s
+		else
+			killall -q -9 AdGuardHome 2>/dev/null
+			rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null
+			sleep 1s
+		fi
+	fi
+	sleep 1s
+	agh_wait_stopped
+	sleep 1s
+	agh_check
+}
+
+agh_start() {
+	if ! agh_is_running; then
+		if service start_AdGuardHome >/dev/null 2>&1; then
+			sleep 1s
+		elif /opt/etc/init.d/S99AdGuardHome start; then
+			sleep 1s
+		else
+			return 1
+		fi
+	fi
+	sleep 1s
+	agh_wait_started
+	sleep 1s
+	agh_check
+	agh_is_running
+}
+
+agh_restart() {
+	if agh_is_running; then
+		if service restart_AdGuardHome >/dev/null 2>&1; then
+			sleep 1s
+		elif /opt/etc/init.d/S99AdGuardHome restart; then
+			sleep 1s
+		else
+			return 1
+		fi
+	else
+		agh_start || return 1
+	fi
+	sleep 1s
+	agh_wait_ready
+	sleep 1s
+	agh_check
+	agh_is_running
+}
+
+agh_start_error() {
+	PTXT "${ERROR} Couldn't start AdGuardHome!" \
+		"${ERROR} Please send WebUI System Log to dev."
+}
+
+agh_complete_startup() {
+	PTXT "${INFO} Starting AdGuardHome..."
+	agh_stop
+	if ! agh_start; then
+		agh_start_error
+		return 1
+	fi
+	PTXT "${INFO} Please wait while we perform one last check."
+	if ! agh_restart; then
+		agh_start_error
+		return 1
+	fi
+	PTXT "${INFO} AdGuardHome setup is complete."
+	return 0
+}
+
 AdGuardHome_authen() {
 	if [ -z "${PW1}" ] || [ -z "${PW2}" ]; then
 		local USERNAME
@@ -219,104 +394,41 @@ AdGuardHome_authen() {
 	if [ -z "${PW1}" ] || [ -z "${PW2}" ] || [ "${PW1}" != "${PW2}" ]; then
 		PTXT "${ERROR} Password entered incorrectly!"
 		AdGuardHome_authen "$1"
+		return
 	fi
-	for i in python3 python3-pip python3-bcrypt; do
-		if ! opkg list-installed | grep -q $i; then
-			opkg install $i &
-		else
-			opkg install $i --force-reinstall &
-		fi
-		wait 2>/dev/null
-	done
-	wait 2>/dev/null
-	opkg install python3 python3-pip python3-bcrypt >/dev/null 2>&1
-	if opkg list-installed | grep -q apache; then
-		opkg flag user apache apache-utils >/dev/null 2>&1
-		opkg remove apache apache-utils --force-removal-of-dependent-packages >/dev/null 2>&1
-	fi
-	if ! opkg list-installed | grep -q python3-bcrypt; then
-		case "$(/bin/uname -m)" in
-			"aarch64" | "arm64")
-				opkg install go >/dev/null 2>&1
-				;;
-			"armv7l" | *)
-				if ! opkg list | grep -qw 'go_nohf'; then opkg install go >/dev/null 2>&1; else opkg install go_nohf >/dev/null 2>&1; fi
-				;;
-		esac
-		export PATH="${PATH}:/opt/bin/go/bin"
-		export GOROOT="/opt/bin/go"
-		export GOBIN="/opt/bin/"
-		go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
-		rm -rf go
-	else
-		pip3 install bcrypt >/dev/null 2>&1
-	fi
-	local PW1_ENCRYPTED
-	if opkg list-installed | grep -q python3-bcrypt; then PW1_ENCRYPTED="$(python -c 'import bcrypt; password = b"'"${PW1}"'"; print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))')"; elif [ -f "/opt/bin/bcrypt-tool" ]; then PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)"; else
-		PTXT "${ERROR} Password could not be set!" "${ERROR} Please contact dev."
+	remove_conflicting_apache
+	if ! ensure_password_hash_tool; then
+		PTXT "${ERROR} Unable to install a password hashing tool from Entware."
 		end_op_message 1
 		return
 	fi
+
+	local PW1_ENCRYPTED
+	PW1_ENCRYPTED=""
+	if python_bcrypt_available; then
+		PW1_ENCRYPTED="$(hash_password_python "${PW1}")" || PW1_ENCRYPTED=""
+	fi
+	if [ -z "${PW1_ENCRYPTED}" ] && [ -f "/opt/bin/bcrypt-tool" ]; then
+		PW1_ENCRYPTED="$(/opt/bin/bcrypt-tool hash "${PW1}" 10)" || PW1_ENCRYPTED=""
+	fi
+	case "${PW1_ENCRYPTED}" in
+		\$2a\$10\$*) ;;
+		*)
+			PTXT "${ERROR} Password could not be set!" "${ERROR} Please contact dev."
+			end_op_message 1
+			return
+			;;
+	esac
 	if [ "$1" -eq 0 ]; then
 		yaml_nvars_delete "- name:" "${YAML_FILE}"
 		yaml_nvars_delete "  password:" "${YAML_FILE}"
 		yaml_nvars_insert "users:" "\  password: ${PW1_ENCRYPTED}" "${YAML_FILE}"
 		yaml_nvars_insert "users:" "- name: ${USERNAME}" "${YAML_FILE}"
 		check_AdGuardHome_yaml "${YAML_FILE}"
-		PTXT "${INFO} Starting AdGuardHome..."
-		(
-			if [ -n "$(pidof AdGuardHome)" ]; then { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1s; else
-				{ killall -q -9 AdGuardHome 2>/dev/null; }
-				rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null
-				sleep 1s
-			fi; }; fi
-			sleep 1s
-		) &
-		local PID="$!"
-		wait "${PID}" 2>/dev/null
-		({ until [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -lt "1" ]; do sleep 1s; done; }) &
-		local PID="$!"
-		wait "${PID}" 2>/dev/null
-		sleep 1s
-		{ /opt/etc/init.d/S99AdGuardHome check; }
-		(
-			if [ -z "$(pidof AdGuardHome)" ]; then { if { service start_AdGuardHome >/dev/null 2>&1; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome start; }; then sleep 1s; else
-				PTXT "${ERROR} Couldn't start AdGuardHome!" "${ERROR} Please send WebUI System Log to dev."
-				end_op_message 1
-				return
-			fi; }; fi
-			sleep 1s
-		) &
-		local PID="$!"
-		wait "${PID}" 2>/dev/null
-		({ until [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -eq "2" ]; do sleep 1s; done; }) &
-		local PID="$!"
-		wait "${PID}" 2>/dev/null
-		sleep 1s
-		{ /opt/etc/init.d/S99AdGuardHome check; }
-		if [ -z "$(pidof AdGuardHome)" ]; then
-			PTXT "${ERROR} Couldn't start AdGuardHome!" \
-				"${ERROR} Please send WebUI System Log to dev."
+		if ! agh_complete_startup; then
 			end_op_message 1
 			return
 		fi
-		PTXT "${INFO} Please wait while we perform one last check."
-		(
-			if [ -n "$(pidof AdGuardHome)" ]; then { if { service restart_AdGuardHome >/dev/null 2>&1; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome restart; }; then sleep 1s; else
-				PTXT "${ERROR} Couldn't start AdGuardHome!" "${ERROR} Please send WebUI System Log to dev."
-				end_op_message 1
-				return
-			fi; }; fi
-			sleep 1s
-		) &
-		local PID="$!"
-		wait "${PID}" 2>/dev/null
-		({ until { check_connection && [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -eq "2" ]; }; do sleep 1s; done; }) &
-		local PID="$!"
-		wait "${PID}" 2>/dev/null
-		sleep 1s
-		{ /opt/etc/init.d/S99AdGuardHome check; }
-		PTXT "${INFO} AdGuardHome setup is complete."
 		end_op_message 0
 	else
 		PTXT "users:" \
@@ -679,10 +791,7 @@ cleanup() {
 	mv "/opt/etc/init.d/S61AdGuardHome" "/opt/etc/init.d/S99AdGuardHome" >/dev/null 2>&1
 	[ "$(cru l | grep -c "S99AdGuardHome")" -gt 0 ] && cru -d "S99AdGuardHome"
 	if [ -f "${TARG_DIR}/localtime" ]; then mv "${TARG_DIR}/localtime" "${ADDON_DIR}/localtime"; fi
-	if opkg list-installed | grep -q apache; then
-		opkg flag user apache apache-utils >/dev/null 2>&1
-		opkg remove apache apache-utils --force-removal-of-dependent-packages >/dev/null 2>&1
-	fi
+	remove_conflicting_apache
 }
 
 create_dir() {
@@ -940,60 +1049,10 @@ inst_AdGuardHome() {
 			return
 		fi
 	fi
-	PTXT "${INFO} Starting AdGuardHome..."
-	(
-		if [ -n "$(pidof AdGuardHome)" ]; then { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1s; else
-			{ killall -q -9 AdGuardHome 2>/dev/null; }
-			rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null
-			sleep 1s
-		fi; }; fi
-		sleep 1s
-	) &
-	local PID="$!"
-	wait "${PID}" 2>/dev/null
-	({ until [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -lt "1" ]; do sleep 1s; done; }) &
-	local PID="$!"
-	wait "${PID}" 2>/dev/null
-	sleep 1s
-	{ /opt/etc/init.d/S99AdGuardHome check; }
-	(
-		if [ -z "$(pidof AdGuardHome)" ]; then { if { service start_AdGuardHome >/dev/null 2>&1; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome start; }; then sleep 1s; else
-			PTXT "${ERROR} Couldn't start AdGuardHome!" "${ERROR} Please send WebUI System Log to dev."
-			end_op_message 1 "$1"
-			return
-		fi; }; fi
-		sleep 1s
-	) &
-	local PID="$!"
-	wait "${PID}" 2>/dev/null
-	({ until [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -eq "2" ]; do sleep 1s; done; }) &
-	local PID="$!"
-	wait "${PID}" 2>/dev/null
-	sleep 1s
-	{ /opt/etc/init.d/S99AdGuardHome check; }
-	if [ -z "$(pidof AdGuardHome)" ]; then
-		PTXT "${ERROR} Couldn't start AdGuardHome!" \
-			"${ERROR} Please send WebUI System Log to dev."
+	if ! agh_complete_startup; then
 		end_op_message 1 "$1"
 		return
 	fi
-	PTXT "${INFO} Please wait while we perform one last check."
-	(
-		if [ -n "$(pidof AdGuardHome)" ]; then { if { service restart_AdGuardHome >/dev/null 2>&1; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome restart; }; then sleep 1s; else
-			PTXT "${ERROR} Couldn't start AdGuardHome!" "${ERROR} Please send WebUI System Log to dev."
-			end_op_message 1 "$1"
-			return
-		fi; }; fi
-		sleep 1s
-	) &
-	local PID="$!"
-	wait "${PID}" 2>/dev/null
-	({ until { check_connection && [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -eq "2" ]; }; do sleep 1s; done; }) &
-	local PID="$!"
-	wait "${PID}" 2>/dev/null
-	sleep 1s
-	{ /opt/etc/init.d/S99AdGuardHome check; }
-	PTXT "${INFO} AdGuardHome setup is complete."
 	end_op_message 0 "$1"
 }
 
@@ -1130,21 +1189,11 @@ setup_AdGuardHome() {
 	if [ "$1" = "reconfig" ]; then
 		if [ "$RET" -eq 0 ]; then
 			PTXT "${INFO} Restarting AdGuardHome with new config..."
-			(
-				if [ -n "$(pidof AdGuardHome)" ]; then { if { service restart_AdGuardHome >/dev/null 2>&1; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome restart; }; then sleep 1s; else
-					PTXT "${ERROR} Couldn't start AdGuardHome!" "${ERROR} Please send WebUI System Log to dev."
-					end_op_message 1
-					return
-				fi; }; fi
-				sleep 1s
-			) &
-			local PID="$!"
-			wait "${PID}" 2>/dev/null
-			({ until { check_connection && [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -eq "2" ]; }; do sleep 1s; done; }) &
-			local PID="$!"
-			wait "${PID}" 2>/dev/null
-			sleep 1s
-			{ /opt/etc/init.d/S99AdGuardHome check; }
+			if ! agh_restart; then
+				agh_start_error
+				end_op_message 1
+				return
+			fi
 			PTXT "${INFO} AdGuardHome setup is complete."
 			end_op_message 0
 		else
@@ -1320,18 +1369,7 @@ uninst_all() {
 		PTXT "${INFO} Old Backup Detected!"
 		if read_yesno "Do you want to remove backup?(this will prevent restoring from backups later)"; then rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"; else PTXT "${INFO} Keeping backup instead."; fi
 	fi
-	(if [ -n "$(pidof AdGuardHome)" ]; then { if { service stop_AdGuardHome >/dev/null 2>&1; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome stop; }; then sleep 1s; elif { /opt/etc/init.d/S99AdGuardHome kill; }; then sleep 1s; else
-		{ killall -q -9 AdGuardHome 2>/dev/null; }
-		rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null
-		sleep 1s
-	fi; }; fi) &
-	local PID="$!"
-	wait "${PID}" 2>/dev/null
-	({ until [ "$(pidof AdGuardHome S99AdGuardHome | wc -w)" -lt "1" ]; do sleep 1s; done; }) &
-	local PID="$!"
-	wait "${PID}" 2>/dev/null
-	sleep 1s
-	{ /opt/etc/init.d/S99AdGuardHome check; }
+	agh_stop
 	[ "$(awk -F'=' '/ADGUARD_DOMAIN/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" = "yes" ] && nvram set lan_domain="" && nvram commit
 	mv "${TARG_DIR}/installer" "${HOME}/installer"
 	rm -rf "${TARG_DIR}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"
