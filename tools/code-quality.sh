@@ -54,6 +54,8 @@ run_script_list_check() {
 		printf '%s\n' "FAILED: ${_name}" >&2
 		FAILED=1
 	fi
+
+	return "${_check_failed}"
 }
 
 require_cmd() {
@@ -85,14 +87,19 @@ fi
 run_check 'md5sum files match installer artifacts' sh tools/check-md5.sh
 
 if require_cmd shellcheck; then
-	run_script_list_check 'ShellCheck static analysis' shellcheck
+	run_script_list_check 'ShellCheck POSIX sh static analysis' shellcheck -s sh --severity=warning
 fi
 
 if require_cmd shfmt; then
+	SHFMT_FAILED=0
 	if [ "${FIX}" -eq 1 ]; then
-		run_script_list_check 'shfmt formatting update' shfmt -w
+		run_script_list_check 'shfmt mksh formatting update' shfmt -w -ln mksh -i 0 -ci || SHFMT_FAILED=1
 	else
-		run_script_list_check 'shfmt formatting check' shfmt -d
+		run_script_list_check 'shfmt mksh formatting check' shfmt -d -ln mksh -i 0 -ci || SHFMT_FAILED=1
+	fi
+
+	if [ "${SHFMT_FAILED}" -ne 0 ] && [ "${FIX}" -eq 0 ]; then
+		printf '%s\n' 'Hint: shfmt reported formatting differences. Run tools/code-quality.sh --fix locally, or run the Create shfmt formatting PR workflow against this branch.' >&2
 	fi
 fi
 
