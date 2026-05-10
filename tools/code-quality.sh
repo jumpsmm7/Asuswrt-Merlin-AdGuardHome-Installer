@@ -1,0 +1,101 @@
+#!/bin/sh
+# Run local quality checks for shell scripts and installer checksums.
+# BusyBox/ash-compatible; keep this script POSIX sh only.
+# Use --fix to apply shfmt formatting instead of checking the diff.
+
+set -u
+
+FAILED=0
+FIX=0
+SCRIPT_LIST=""
+
+case "${1:-}" in
+	--fix) FIX=1 ;;
+	"") ;;
+	*)
+		printf '%s\n' "Usage: $0 [--fix]" >&2
+		exit 2
+		;;
+esac
+
+have_cmd() {
+	which "$1" >/dev/null 2>&1
+}
+
+run_check() {
+	_name="$1"
+	shift
+	printf '%s\n' "==> ${_name}"
+	if "$@"; then
+		printf '%s\n' "OK: ${_name}"
+	else
+		printf '%s\n' "FAILED: ${_name}" >&2
+		FAILED=1
+	fi
+}
+
+run_script_list_check() {
+	_name="$1"
+	shift
+	_check_failed=0
+
+	printf '%s\n' "==> ${_name}"
+	while IFS= read -r _script; do
+		if [ -n "${_script}" ]; then
+			if ! "$@" "${_script}"; then
+				_check_failed=1
+			fi
+		fi
+	done <"${SCRIPT_LIST}"
+
+	if [ "${_check_failed}" -eq 0 ]; then
+		printf '%s\n' "OK: ${_name}"
+	else
+		printf '%s\n' "FAILED: ${_name}" >&2
+		FAILED=1
+	fi
+}
+
+require_cmd() {
+	_cmd="$1"
+	if have_cmd "${_cmd}"; then
+		return 0
+	fi
+
+	printf '%s\n' "Error: ${_cmd} is required. Install it and re-run this script." >&2
+	FAILED=1
+	return 1
+}
+
+cleanup() {
+	if [ -n "${SCRIPT_LIST}" ] && [ -f "${SCRIPT_LIST}" ]; then
+		rm -f "${SCRIPT_LIST}"
+	fi
+}
+
+trap cleanup 0
+trap 'cleanup; exit 1' HUP INT TERM
+
+SCRIPT_LIST="${TMPDIR:-/tmp}/code-quality-scripts.$$"
+if ! sh tools/list-shell-scripts.sh >"${SCRIPT_LIST}"; then
+	printf '%s\n' 'Error: could not list shell scripts.' >&2
+	exit 1
+fi
+
+run_check 'md5sum files match installer artifacts' sh tools/check-md5.sh
+
+if require_cmd shellcheck; then
+	run_script_list_check 'ShellCheck static analysis' shellcheck
+fi
+
+if require_cmd shfmt; then
+	if [ "${FIX}" -eq 1 ]; then
+		run_script_list_check 'shfmt formatting update' shfmt -w
+	else
+		run_script_list_check 'shfmt formatting check' shfmt -d
+	fi
+fi
+
+if [ "${FAILED}" -ne 0 ]; then
+	exit 1
+fi
