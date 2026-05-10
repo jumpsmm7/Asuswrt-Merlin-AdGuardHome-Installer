@@ -83,7 +83,7 @@ if [ "$#" -eq 0 ]; then
 	set -- installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
 fi
 
-for target do
+for target; do
 	validate_one "${target}" || true
 done
 
