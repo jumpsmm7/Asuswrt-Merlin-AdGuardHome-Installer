@@ -153,8 +153,6 @@ adguardhome_run_flock() {
 	status="$?"
 	flock -u 9 >/dev/null 2>&1
 	exec 9>&-
-	rm -rf "${lock_dir}"
-	rm -f "${lock_file}"
 	return "${status}"
 }
 
