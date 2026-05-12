@@ -311,12 +311,28 @@ nvram_int_gt() {
 	[ "${VALUE}" -gt "${MIN}" ]
 }
 
+system_time_ready() {
+	local now script_time year
+	nvram_int_gt ntp_ready 0 && return 0
+	year="$(/bin/date -u +"%Y" 2>/dev/null)"
+	case "${year}" in
+		"" | *[!0-9]*) ;;
+		*) [ "${year}" -gt "1970" ] && return 0 ;;
+	esac
+	now="$(/bin/date -u '+%s' 2>/dev/null)"
+	script_time="$(/bin/date -u -r "$0" '+%s' 2>/dev/null)"
+	case "${now}:${script_time}" in
+		*[!0-9:]* | "":* | *:) return 1 ;;
+	esac
+	[ "${now}" -ge "${script_time}" ]
+}
+
 netcheck() {
 	local livecheck="0" i timewait
 	timewait="0"
-	until { [ "$(/bin/date -u +"%Y")" -gt "1970" ] || [ "$(/bin/date -u '+%s')" -ge "$(/bin/date -u -r "$0" '+%s')" ]; } && nvram_int_gt ntp_ready 0; do
+	until system_time_ready; do
 		if [ "${timewait}" -ge "300" ]; then
-			logger -st "${NAME}" "Warning: timed out waiting for NTP readiness."
+			logger -st "${NAME}" "Warning: timed out waiting for system time readiness."
 			return 1
 		fi
 		sleep 1s
