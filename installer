@@ -393,17 +393,19 @@ agh_wait_started() {
 }
 
 agh_wait_ready() {
-	local TIMEOUT ELAPSED
+	local TIMEOUT START NOW
 	TIMEOUT="${ADGUARDHOME_READY_TIMEOUT}"
-	ELAPSED="0"
-	while [ "${ELAPSED}" -le "${TIMEOUT}" ]; do
+	START="$(date +%s)"
+	while :; do
+		NOW="$(date +%s)"
+		[ "$((NOW - START))" -gt "${TIMEOUT}" ] && return 1
 		if check_connection && [ "$(agh_process_count)" -eq "2" ]; then
 			return 0
 		fi
+		NOW="$(date +%s)"
+		[ "$((NOW - START))" -ge "${TIMEOUT}" ] && return 1
 		sleep 1s
-		ELAPSED="$((ELAPSED + 1))"
 	done
-	return 1
 }
 
 agh_stop() {
