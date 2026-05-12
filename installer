@@ -28,6 +28,14 @@ export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly API_HEADERS="/tmp/AGH_GIT_API_$$_headers.out"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
+readonly ADGUARDHOME_WAIT_TIMEOUT="60"
+readonly ADGUARDHOME_READY_TIMEOUT="180"
+
+cleanup_api_files() {
+	rm -f "${API_FILE}" "${API_HEADERS}"
+}
+
+trap cleanup_api_files EXIT
 
 ai_have_cmd() {
 	which "$1" >/dev/null 2>&1
@@ -119,6 +127,40 @@ wget_has_option() {
 	wget_help | grep -q -e "$1"
 }
 
+curl_help() {
+	if [ -z "${CURL_HELP_CACHE_SET:-}" ]; then
+		CURL_HELP_CACHE="$(curl --help all 2>&1 || curl --help 2>&1)"
+		CURL_HELP_CACHE_SET="1"
+	fi
+	printf '%s\n' "${CURL_HELP_CACHE}"
+}
+
+curl_has_option() {
+	curl_help | grep -q -e "$1"
+}
+
+curl_common_args() {
+	if [ -z "${CURL_COMMON_ARGS_SET:-}" ]; then
+		CURL_COMMON_ARGS=""
+		curl_has_option '--retry' && CURL_COMMON_ARGS="${CURL_COMMON_ARGS} --retry 5"
+		curl_has_option '--connect-timeout' && CURL_COMMON_ARGS="${CURL_COMMON_ARGS} --connect-timeout 25"
+		curl_has_option '--retry-delay' && CURL_COMMON_ARGS="${CURL_COMMON_ARGS} --retry-delay 5"
+		curl_has_option '--max-time' && CURL_COMMON_ARGS="${CURL_COMMON_ARGS} --max-time $((5 * 25))"
+		curl_has_option '--retry-connrefused' && CURL_COMMON_ARGS="${CURL_COMMON_ARGS} --retry-connrefused"
+		CURL_COMMON_ARGS_SET="1"
+	fi
+	printf '%s' "${CURL_COMMON_ARGS}"
+}
+
+curl_insecure_arg() {
+	if [ -z "${CURL_INSECURE_ARG_SET:-}" ]; then
+		CURL_INSECURE_ARG=""
+		curl_has_option '--insecure' && CURL_INSECURE_ARG=" -k"
+		CURL_INSECURE_ARG_SET="1"
+	fi
+	printf '%s' "${CURL_INSECURE_ARG}"
+}
+
 wget_common_args() {
 	if [ -z "${WGET_COMMON_ARGS_SET:-}" ]; then
 		WGET_COMMON_ARGS=""
@@ -143,22 +185,18 @@ wget_insecure_arg() {
 }
 
 http_get_file() {
-	local URL OUT HEADERS INSECURE WGET_ARGS
+	local URL OUT HEADERS INSECURE CURL_ARGS WGET_ARGS
 	URL="$1"
 	OUT="$2"
 	HEADERS="${3:-}"
 	INSECURE="${4:-}"
 	if ai_have_cmd curl; then
+		CURL_ARGS="$(curl_common_args)"
+		[ "${INSECURE}" = "insecure" ] && CURL_ARGS="${CURL_ARGS}$(curl_insecure_arg)"
 		if [ -n "${HEADERS}" ]; then
-			if [ "${INSECURE}" = "insecure" ]; then
-				curl -D "${HEADERS}" --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -f -k -sL "${URL}" -o "${OUT}"
-			else
-				curl -D "${HEADERS}" --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -f -sL "${URL}" -o "${OUT}"
-			fi
-		elif [ "${INSECURE}" = "insecure" ]; then
-			curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -f -k -sL "${URL}" -o "${OUT}"
+			curl ${CURL_ARGS} -D "${HEADERS}" -f -sL "${URL}" -o "${OUT}"
 		else
-			curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -f -sL "${URL}" -o "${OUT}"
+			curl ${CURL_ARGS} -f -sL "${URL}" -o "${OUT}"
 		fi
 	elif ai_have_cmd wget; then
 		WGET_ARGS="$(wget_common_args)"
@@ -175,15 +213,13 @@ http_get_file() {
 }
 
 http_get_stdout() {
-	local URL INSECURE WGET_ARGS
+	local URL INSECURE CURL_ARGS WGET_ARGS
 	URL="$1"
 	INSECURE="${2:-}"
 	if ai_have_cmd curl; then
-		if [ "${INSECURE}" = "insecure" ]; then
-			curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -f -k -sL "${URL}"
-		else
-			curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -f -sL "${URL}"
-		fi
+		CURL_ARGS="$(curl_common_args)"
+		[ "${INSECURE}" = "insecure" ] && CURL_ARGS="${CURL_ARGS}$(curl_insecure_arg)"
+		curl ${CURL_ARGS} -f -sL "${URL}"
 	elif ai_have_cmd wget; then
 		WGET_ARGS="$(wget_common_args)"
 		[ "${INSECURE}" = "insecure" ] && WGET_ARGS="${WGET_ARGS}$(wget_insecure_arg)"
@@ -194,10 +230,11 @@ http_get_stdout() {
 }
 
 http_probe() {
-	local URL WGET_ARGS
+	local URL CURL_ARGS WGET_ARGS
 	URL="$1"
 	if ai_have_cmd curl; then
-		curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -f -sL -I -o /dev/null "${URL}"
+		CURL_ARGS="$(curl_common_args)"
+		curl ${CURL_ARGS} -f -sL -I -o /dev/null "${URL}"
 	elif ai_have_cmd wget; then
 		WGET_ARGS="$(wget_common_args)"
 		if wget_has_option '--spider'; then
@@ -226,7 +263,7 @@ until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
 	fi
 	varcnt="$((varcnt + 1))"
 done
-rm -f "${API_FILE}" "${API_HEADERS}"
+cleanup_api_files
 wait
 unset varcnt
 readonly REMOTE_VER REMOTE_BETA
@@ -277,6 +314,42 @@ PTXT() {
 	esac
 }
 
+conf_value() {
+	[ -f "${CONF_FILE}" ] || return 1
+	awk -v KEY="$1" '
+		index($0, KEY "=") == 1 {
+			VALUE = substr($0, length(KEY) + 2)
+			gsub(/^"|"$/, "", VALUE)
+			print VALUE
+			exit
+		}
+	' "${CONF_FILE}"
+}
+
+md5_is_valid() {
+	[ "$(PTXT -n "$1" | wc -c)" -eq 32 ] && PTXT -n "$1" | grep -qiE '^[0-9a-f]{32}$'
+}
+
+branch_is_safe() {
+	case "$1" in
+		"" | /* | */ | *..* | *//* | *\\* | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-]*)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+sanitize_branch() {
+	local CANDIDATE
+	CANDIDATE="$1"
+	if branch_is_safe "${CANDIDATE}"; then
+		printf '%s\n' "${CANDIDATE}"
+	else
+		printf '%s\n' "${WARNING} Ignoring unsafe installer branch '${CANDIDATE}', using master instead." >&2
+		printf '%s\n' "master"
+	fi
+}
+
 agh_is_running() {
 	[ -n "$(pidof AdGuardHome)" ]
 }
@@ -289,16 +362,48 @@ agh_check() {
 	/opt/etc/init.d/S99AdGuardHome check
 }
 
+agh_wait_for_process_count() {
+	local MODE EXPECTED TIMEOUT ELAPSED COUNT
+	MODE="$1"
+	EXPECTED="$2"
+	TIMEOUT="$3"
+	ELAPSED="0"
+	while [ "${ELAPSED}" -le "${TIMEOUT}" ]; do
+		COUNT="$(agh_process_count)"
+		case "${MODE}" in
+			lt)
+				[ "${COUNT}" -lt "${EXPECTED}" ] && return 0
+				;;
+			eq)
+				[ "${COUNT}" -eq "${EXPECTED}" ] && return 0
+				;;
+		esac
+		sleep 1s
+		ELAPSED="$((ELAPSED + 1))"
+	done
+	return 1
+}
+
 agh_wait_stopped() {
-	until [ "$(agh_process_count)" -lt "1" ]; do sleep 1s; done
+	agh_wait_for_process_count lt 1 "${ADGUARDHOME_WAIT_TIMEOUT}"
 }
 
 agh_wait_started() {
-	until [ "$(agh_process_count)" -eq "2" ]; do sleep 1s; done
+	agh_wait_for_process_count eq 2 "${ADGUARDHOME_WAIT_TIMEOUT}"
 }
 
 agh_wait_ready() {
-	until { check_connection && [ "$(agh_process_count)" -eq "2" ]; }; do sleep 1s; done
+	local TIMEOUT ELAPSED
+	TIMEOUT="${ADGUARDHOME_READY_TIMEOUT}"
+	ELAPSED="0"
+	while [ "${ELAPSED}" -le "${TIMEOUT}" ]; do
+		if check_connection && [ "$(agh_process_count)" -eq "2" ]; then
+			return 0
+		fi
+		sleep 1s
+		ELAPSED="$((ELAPSED + 1))"
+	done
+	return 1
 }
 
 agh_stop() {
@@ -316,7 +421,10 @@ agh_stop() {
 		fi
 	fi
 	sleep 1s
-	agh_wait_stopped
+	if ! agh_wait_stopped; then
+		PTXT "${ERROR} Timed out waiting for AdGuardHome to stop."
+		return 1
+	fi
 	sleep 1s
 	agh_check
 }
@@ -332,7 +440,10 @@ agh_start() {
 		fi
 	fi
 	sleep 1s
-	agh_wait_started
+	if ! agh_wait_started; then
+		PTXT "${ERROR} Timed out waiting for AdGuardHome to start."
+		return 1
+	fi
 	sleep 1s
 	agh_check
 	agh_is_running
@@ -351,7 +462,10 @@ agh_restart() {
 		agh_start || return 1
 	fi
 	sleep 1s
-	agh_wait_ready
+	if ! agh_wait_ready; then
+		PTXT "${ERROR} Timed out waiting for AdGuardHome network checks."
+		return 1
+	fi
 	sleep 1s
 	agh_check
 	agh_is_running
@@ -510,6 +624,19 @@ check_connection() {
 		return 1
 	done
 }
+
+wait_for_connection() {
+	local MAX_WAIT ELAPSED INTERVAL
+	MAX_WAIT="${1:-300}"
+	ELAPSED="0"
+	INTERVAL="5"
+	while [ "${ELAPSED}" -le "${MAX_WAIT}" ]; do
+		check_connection && return 0
+		sleep "${INTERVAL}s"
+		ELAPSED="$((ELAPSED + INTERVAL))"
+	done
+	return 1
+}
 ########################################################################################################################
 
 check_dns_environment() {
@@ -544,9 +671,9 @@ check_dns_environment() {
 	if [ "${NVCHECK}" != "0" ]; then
 		{ nvram commit; }
 		{ service restart_dnsmasq >/dev/null 2>&1; }
-		(while { ! check_connection; }; do sleep 1s; done) &
-		local PID="$!"
-		wait "${PID}" 2>/dev/null
+		if ! wait_for_connection 300; then
+			PTXT "${WARNING} Timed out waiting for DNS connectivity after dnsmasq restart."
+		fi
 	fi
 	PTXT "${INFO} DNS Environment is Ready."
 }
@@ -634,9 +761,9 @@ check_dns_filter() {
 	if [ "${NVCHECK}" != "0" ]; then
 		{ nvram commit; }
 		{ service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1; }
-		(while { ! check_connection; }; do sleep 1s; done) &
-		local PID="$!"
-		wait "${PID}" 2>/dev/null
+		if ! wait_for_connection 300; then
+			PTXT "${WARNING} Timed out waiting for DNS connectivity after firewall and dnsmasq restart."
+		fi
 	fi
 }
 
@@ -677,31 +804,41 @@ check_jffs_enabled() {
 }
 
 check_version() {
-	local RMNSTALL LINSTALL MD5SUM_L MD5SUM_R REMOTE_INSTALLER ADGUARD_BRANCH ADGUARD_VER varcnt
+	local RMNSTALL LINSTALL MD5SUM_L MD5SUM_R MD5SUM_EXPECTED REMOTE_INSTALLER REMOTE_INSTALLER_MD5 ADGUARD_BRANCH ADGUARD_VER varcnt
 	if [ -f "${TARG_DIR}/installer" ] && [ -f "${AGH_FILE}" ] && [ -z "$2" ]; then
 		if [ -n "$1" ] || { check_connection; }; then
 			REMOTE_INSTALLER="${TARG_DIR}/.installer.remote.$$"
+			REMOTE_INSTALLER_MD5="${REMOTE_INSTALLER}.md5sum"
 			varcnt="0"
 			until [ -n "${LINSTALL}" ] && [ -n "${RMNSTALL}" ] && [ -n "${MD5SUM_L}" ] && [ -n "${MD5SUM_R}" ]; do
 				if [ -z "${LINSTALL}" ]; then LINSTALL="$(awk -F= '/^AI_VERSION=/ { gsub(/"/, "", $2); sub(/^v/, "", $2); if ($2 ~ /^[0-9]{1,2}(\.[0-9]{1,2}){2}$/) print $2; exit }' "${TARG_DIR}/installer")"; fi
 				if [ -z "${MD5SUM_L}" ]; then MD5SUM_L="$(md5sum "${TARG_DIR}/installer" | awk '{print $1; exit}')"; fi
 				if [ -z "${RMNSTALL}" ] || [ -z "${MD5SUM_R}" ]; then
-					rm -f "${REMOTE_INSTALLER}"
+					rm -f "${REMOTE_INSTALLER}" "${REMOTE_INSTALLER_MD5}"
 					if http_get_file "${RURL}/installer" "${REMOTE_INSTALLER}" && [ -s "${REMOTE_INSTALLER}" ]; then
 						RMNSTALL="$(awk -F= '/^AI_VERSION=/ { gsub(/"/, "", $2); sub(/^v/, "", $2); if ($2 ~ /^[0-9]{1,2}(\.[0-9]{1,2}){2}$/) print $2; exit }' "${REMOTE_INSTALLER}")"
 						MD5SUM_R="$(md5sum "${REMOTE_INSTALLER}" | awk '{print $1; exit}')"
+						MD5SUM_EXPECTED=""
+						if http_get_file "${RURL}/installer.md5sum" "${REMOTE_INSTALLER_MD5}" && [ -s "${REMOTE_INSTALLER_MD5}" ]; then
+							MD5SUM_EXPECTED="$(awk 'NR == 1 {print $1; exit}' "${REMOTE_INSTALLER_MD5}")"
+						fi
+						if md5_is_valid "${MD5SUM_EXPECTED}" && [ "${MD5SUM_R}" != "${MD5SUM_EXPECTED}" ]; then
+							PTXT "${WARNING} Remote installer checksum mismatch; retrying version check."
+							RMNSTALL=""
+							MD5SUM_R=""
+						fi
 					fi
 				fi
 				varcnt="$((varcnt + 1))"
 				if [ "${varcnt}" -ge 2 ]; then
-					rm -f "${REMOTE_INSTALLER}"
+					rm -f "${REMOTE_INSTALLER}" "${REMOTE_INSTALLER_MD5}"
 					printf "%s\n" "One or more critical variables could not be set in a timely manner." "Please check your internet connection, or try again later." "The installer script will now exit."
 					sleep 3s
 					exit 1
 				fi
 			done
-			rm -f "${REMOTE_INSTALLER}"
-			ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')"
+			rm -f "${REMOTE_INSTALLER}" "${REMOTE_INSTALLER_MD5}"
+			ADGUARD_BRANCH="$(conf_value ADGUARD_BRANCH)"
 			ADGUARD_VER="$("${AGH_FILE}" --version | cut -d" " -f4-)"
 			[ -z "${LINSTALL}" ] && exit 1
 			[ -z "${RMNSTALL}" ] && exit 1
@@ -750,7 +887,11 @@ check_version() {
 				"${INFO} Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
 				"${INFO} for any configuration needs. "
 		elif [ -z "${LINSTALL}" ] && [ -z "${RMNSTALL}" ] && [ -z "$1" ]; then
-			while { ! check_connection; }; do sleep 1s; done && check_version x
+			if wait_for_connection 300; then
+				check_version x
+			else
+				PTXT "${ERROR} Timed out waiting for an Internet connection."
+			fi
 		else
 			check_version x x
 		fi
@@ -762,7 +903,7 @@ choose_branch() {
 		del_conf ADGUARD_BRANCH
 	fi
 	local BUILD
-	if [ ! -f "${CONF_FILE}" ] || [ -z "$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" ]; then
+	if [ ! -f "${CONF_FILE}" ] || [ -z "$(conf_value ADGUARD_BRANCH)" ]; then
 		PTXT "${INFO} Choose which build of AdGuardHome to install:" \
 			"  1) Release" \
 			"  2) Beta" \
@@ -848,7 +989,7 @@ del_jffs_script() {
 }
 
 download_file() {
-	local TARG PERM URL RET FILENAME TMP_FILE MD5SUM_OLD MD5SUM_CURR COUNT
+	local TARG PERM URL RET FILENAME TMP_FILE TMP_MD5 MD5SUM_OLD MD5SUM_CURR MD5SUM_EXPECTED COUNT
 	TARG="$1"
 	shift
 	PERM="$1"
@@ -857,26 +998,40 @@ download_file() {
 	for URL in "$@"; do
 		FILENAME="$(basename "${URL}")"
 		TMP_FILE="${TARG}/.${FILENAME}.$$"
+		TMP_MD5="${TMP_FILE}.md5sum"
 		MD5SUM_OLD=""
 		MD5SUM_CURR=""
+		MD5SUM_EXPECTED=""
 		COUNT="0"
 		[ -f "${TARG}/${FILENAME}" ] && MD5SUM_OLD="$(md5sum "${TARG}/${FILENAME}" | awk '{print $1; exit}')"
 		while [ "${COUNT}" -lt 3 ]; do
 			PTXT "${INFO} Downloading ${FILENAME}"
-			rm -f "${TMP_FILE}"
+			rm -f "${TMP_FILE}" "${TMP_MD5}"
 			if http_get_file "${URL}" "${TMP_FILE}" "" insecure && [ -s "${TMP_FILE}" ]; then
 				MD5SUM_CURR="$(md5sum "${TMP_FILE}" | awk '{print $1; exit}')"
-				break
+				MD5SUM_EXPECTED=""
+				if http_get_file "${URL}.md5sum" "${TMP_MD5}" "" insecure && [ -s "${TMP_MD5}" ]; then
+					MD5SUM_EXPECTED="$(awk 'NR == 1 {print $1; exit}' "${TMP_MD5}")"
+				fi
+				if md5_is_valid "${MD5SUM_EXPECTED}"; then
+					if [ "${MD5SUM_CURR}" = "${MD5SUM_EXPECTED}" ]; then
+						break
+					fi
+					PTXT "${WARNING} Checksum mismatch for ${FILENAME}; retrying download."
+				else
+					break
+				fi
 			fi
 			COUNT="$((COUNT + 1))"
 		done
+		rm -f "${TMP_MD5}"
 		if [ "${COUNT}" -eq 3 ]; then
 			rm -f "${TMP_FILE}"
 			PTXT "${ERROR} Unable to download ${BOLD}${URL}${NORM}"
 			RET="$((RET + 1))"
 			continue
 		fi
-		if [ "$(PTXT -n "${MD5SUM_CURR}" | wc -c)" -eq 32 ] && [ "${MD5SUM_CURR}" = "${MD5SUM_OLD}" ]; then
+		if md5_is_valid "${MD5SUM_CURR}" && [ "${MD5SUM_CURR}" = "${MD5SUM_OLD}" ]; then
 			rm -f "${TMP_FILE}"
 			PTXT "${INFO} ${FILENAME} is up to date. Skipping..."
 			continue
@@ -969,7 +1124,7 @@ inst_AdGuardHome() {
 		if [ "${1:-RESTORE}" != "RESTORE" ]; then
 			if [ "${1:-install}" != "update" ]; then choose_branch; fi
 			local ADGUARD_BRANCH ADGUARD_VER
-			ADGUARD_BRANCH="$(awk -F'=' '/ADGUARD_BRANCH/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')"
+			ADGUARD_BRANCH="$(conf_value ADGUARD_BRANCH)"
 			if [ ! -f "${AGH_FILE}" ]; then
 				inst_AdGuardHome "${1:-install}" "$ADGUARD_BRANCH"
 			else
@@ -1332,8 +1487,9 @@ setup_AdGuardHome_impl() {
 }
 
 setup_amtmupdate() {
-	local AMTM_UPDATE
-	if [ ! -f "${CONF_FILE}" ] || [ -z "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" ] || { [ -f "${CONF_FILE}" ] && [ "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" = "DISABLED" ]; }; then
+	local AMTM_UPDATE CURRENT_AMTM_UPDATE
+	CURRENT_AMTM_UPDATE="$(conf_value AMTM_UPDATE)"
+	if [ -z "${CURRENT_AMTM_UPDATE}" ] || [ "${CURRENT_AMTM_UPDATE}" = "DISABLED" ]; then
 		AMTM_UPDATE="ENABLED"
 	else
 		AMTM_UPDATE="DISABLED"
@@ -1370,7 +1526,7 @@ uninst_all() {
 		if read_yesno "Do you want to remove backup?(this will prevent restoring from backups later)"; then rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"; else PTXT "${INFO} Keeping backup instead."; fi
 	fi
 	agh_stop
-	[ "$(awk -F'=' '/ADGUARD_DOMAIN/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" = "yes" ] && nvram set lan_domain="" && nvram commit
+	[ "$(conf_value ADGUARD_DOMAIN)" = "yes" ] && nvram set lan_domain="" && nvram commit
 	mv "${TARG_DIR}/installer" "${HOME}/installer"
 	rm -rf "${TARG_DIR}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"
 	yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
@@ -1388,9 +1544,12 @@ write_conf() {
 	VAR="$1"
 	VALUE="$2"
 	if [ ! -f "${CONF_FILE}" ]; then
-		touch "${CONF_FILE}" && chmod 644 "${CONF_FILE}"
+		if ! { touch "${CONF_FILE}" && chmod 644 "${CONF_FILE}"; }; then
+			PTXT "${ERROR} Unable to create ${CONF_FILE}"
+			return 1
+		fi
 	fi
-	if grep -q "${VAR}" "${CONF_FILE}"; then
+	if grep -q "^${VAR}=" "${CONF_FILE}"; then
 		VALUE=$(_quote "${VALUE}")
 		sed -i "/^${VAR}=/s/=.*/=${VALUE}/" "${CONF_FILE}"
 	else
@@ -1446,12 +1605,15 @@ write_manager_script() {
 case "${BRANCH}" in
 	"amtmupdate")
 		unset BRANCH
-		[ "$(awk -F'=' '/INSTALLER_BRANCH/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" ] && BRANCH="$(awk -F'=' '/INSTALLER_BRANCH/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" || BRANCH="master"
+		BRANCH="$(conf_value INSTALLER_BRANCH)"
+		[ -n "${BRANCH}" ] || BRANCH="master"
+		BRANCH="$(sanitize_branch "${BRANCH}")"
 		case "$2" in
 			"check")
-				if [ ! -f "${CONF_FILE}" ] || [ "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" = "DISABLED" ]; then
+				AMTM_UPDATE="$(conf_value AMTM_UPDATE)"
+				if [ ! -f "${CONF_FILE}" ] || [ "${AMTM_UPDATE}" = "DISABLED" ]; then
 					exit 1
-				elif [ "$(awk -F'=' '/AMTM_UPDATE/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//')" = "ENABLED" ]; then
+				elif [ "${AMTM_UPDATE}" = "ENABLED" ]; then
 					exit 0
 				fi
 				;;
@@ -1462,6 +1624,7 @@ case "${BRANCH}" in
 		esac
 		;;
 	*)
+		BRANCH="$(sanitize_branch "${BRANCH}")"
 		write_conf INSTALLER_BRANCH "\"${BRANCH}\""
 		;;
 esac
