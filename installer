@@ -362,38 +362,45 @@ agh_check() {
 	/opt/etc/init.d/S99AdGuardHome check
 }
 
-agh_wait_for_process_count() {
-	local MODE EXPECTED TIMEOUT ELAPSED COUNT
-	MODE="$1"
-	EXPECTED="$2"
-	TIMEOUT="$3"
-	ELAPSED="0"
-	while [ "${ELAPSED}" -le "${TIMEOUT}" ]; do
-		COUNT="$(agh_process_count)"
-		case "${MODE}" in
-			lt)
-				[ "${COUNT}" -lt "${EXPECTED}" ] && return 0
-				;;
-			eq)
-				[ "${COUNT}" -eq "${EXPECTED}" ] && return 0
-				;;
-		esac
-		sleep 1s
-		ELAPSED="$((ELAPSED + 1))"
-	done
-	return 1
-}
-
 agh_wait_stopped() {
-	agh_wait_for_process_count lt 1 "${ADGUARDHOME_WAIT_TIMEOUT}"
+	local elapsed maxwait
+	elapsed="0"
+	maxwait="${1:-${ADGUARDHOME_WAIT_TIMEOUT}}"
+	while [ "$(agh_process_count)" -ge "1" ]; do
+		if [ "${elapsed}" -ge "${maxwait}" ]; then return 1; fi
+		sleep 1s
+		elapsed="$((elapsed + 1))"
+	done
+	return 0
 }
 
 agh_wait_started() {
-	agh_wait_for_process_count eq 2 "${ADGUARDHOME_WAIT_TIMEOUT}"
+	local elapsed maxwait
+	elapsed="0"
+	maxwait="${1:-${ADGUARDHOME_WAIT_TIMEOUT}}"
+	while ! agh_is_running; do
+		if [ "${elapsed}" -ge "${maxwait}" ]; then return 1; fi
+		sleep 1s
+		elapsed="$((elapsed + 1))"
+	done
+	return 0
 }
 
 agh_wait_ready() {
-	check_connection "${ADGUARDHOME_READY_TIMEOUT}" && [ "$(agh_process_count)" -eq "2" ]
+	local elapsed maxwait now remaining start
+	maxwait="${1:-${ADGUARDHOME_READY_TIMEOUT}}"
+	start="$(date +%s)"
+	while :; do
+		now="$(date +%s)"
+		elapsed="$((now - start))"
+		if [ "${elapsed}" -ge "${maxwait}" ]; then return 1; fi
+		remaining="$((maxwait - elapsed))"
+		if check_connection "${remaining}" && agh_is_running; then return 0; fi
+		now="$(date +%s)"
+		elapsed="$((now - start))"
+		if [ "${elapsed}" -ge "${maxwait}" ]; then return 1; fi
+		sleep 1s
+	done
 }
 
 agh_stop() {
@@ -411,7 +418,7 @@ agh_stop() {
 		fi
 	fi
 	sleep 1s
-	if ! agh_wait_stopped; then
+	if ! agh_wait_stopped "${ADGUARDHOME_WAIT_TIMEOUT}"; then
 		PTXT "${ERROR} Timed out waiting for AdGuardHome to stop."
 		return 1
 	fi
@@ -430,7 +437,7 @@ agh_start() {
 		fi
 	fi
 	sleep 1s
-	if ! agh_wait_started; then
+	if ! agh_wait_started "${ADGUARDHOME_WAIT_TIMEOUT}"; then
 		PTXT "${ERROR} Timed out waiting for AdGuardHome to start."
 		return 1
 	fi
@@ -452,7 +459,7 @@ agh_restart() {
 		agh_start || return 1
 	fi
 	sleep 1s
-	if ! agh_wait_ready; then
+	if ! agh_wait_ready "${ADGUARDHOME_READY_TIMEOUT}"; then
 		PTXT "${ERROR} Timed out waiting for AdGuardHome network checks."
 		return 1
 	fi
