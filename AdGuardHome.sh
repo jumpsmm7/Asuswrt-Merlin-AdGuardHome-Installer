@@ -343,7 +343,7 @@ nvram_int_gt() {
 
 system_time_ready() {
 	local now script_time year
-	nvram_int_gt ntp_ready 0 && return 0
+	nvram_int_gt ntp_ready 0 || return 1
 	year="$(/bin/date -u +"%Y" 2>/dev/null)"
 	case "${year}" in
 		"" | *[!0-9]*) ;;
