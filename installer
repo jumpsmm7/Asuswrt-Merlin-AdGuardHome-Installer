@@ -829,6 +829,7 @@ check_version() {
 						fi
 					fi
 				fi
+				[ -n "${LINSTALL}" ] && [ -n "${RMNSTALL}" ] && [ -n "${MD5SUM_L}" ] && [ -n "${MD5SUM_R}" ] && break
 				varcnt="$((varcnt + 1))"
 				if [ "${varcnt}" -ge 2 ]; then
 					rm -f "${REMOTE_INSTALLER}" "${REMOTE_INSTALLER_MD5}"
