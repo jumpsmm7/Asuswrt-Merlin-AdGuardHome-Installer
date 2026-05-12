@@ -94,14 +94,16 @@ http_probe() {
 }
 
 flock_supports_fd() {
-	local TEST_LOCK
+	local TEST_LOCK status
 	TEST_LOCK="/tmp/adguardhome-flock-test.$$"
 	(
 		: >"${TEST_LOCK}" || exit 1
 		exec 8>"${TEST_LOCK}" || exit 1
 		flock -n 8 >/dev/null 2>&1
 	)
+	status="$?"
 	rm -f "${TEST_LOCK}"
+	return "${status}"
 }
 
 adguardhome_run_execute() {
