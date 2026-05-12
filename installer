@@ -374,12 +374,16 @@ agh_check() {
 }
 
 monotonic_seconds() {
-	local UPTIME_SECONDS
-	UPTIME_SECONDS="$(awk '{print int($1); exit}' /proc/uptime 2>/dev/null)"
-	case "${UPTIME_SECONDS}" in
-		"" | *[!0-9]*) date +%s ;;
-		*) printf '%s\n' "${UPTIME_SECONDS}" ;;
-	esac
+	local uptime
+	if read -r uptime _ </proc/uptime; then
+		uptime="${uptime%%.*}"
+		case "${uptime}" in
+			"" | *[!0-9]*) return 1 ;;
+		esac
+		printf '%s\n' "${uptime}"
+		return 0
+	fi
+	return 1
 }
 
 agh_wait_stopped() {
@@ -409,14 +413,14 @@ agh_wait_started() {
 agh_wait_ready() {
 	local elapsed maxwait now remaining start
 	maxwait="${1:-${ADGUARDHOME_READY_TIMEOUT}}"
-	start="$(monotonic_seconds)"
+	start="$(monotonic_seconds)" || return 1
 	while :; do
-		now="$(monotonic_seconds)"
+		now="$(monotonic_seconds)" || return 1
 		elapsed="$((now - start))"
 		if [ "${elapsed}" -ge "${maxwait}" ]; then return 1; fi
 		remaining="$((maxwait - elapsed))"
 		if check_connection "${remaining}" && agh_is_running; then return 0; fi
-		now="$(monotonic_seconds)"
+		now="$(monotonic_seconds)" || return 1
 		elapsed="$((now - start))"
 		if [ "${elapsed}" -ge "${maxwait}" ]; then return 1; fi
 		sleep 1s
