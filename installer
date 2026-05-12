@@ -373,6 +373,15 @@ agh_check() {
 	/opt/etc/init.d/S99AdGuardHome check
 }
 
+monotonic_seconds() {
+	local UPTIME_SECONDS
+	UPTIME_SECONDS="$(awk '{print int($1); exit}' /proc/uptime 2>/dev/null)"
+	case "${UPTIME_SECONDS}" in
+		"" | *[!0-9]*) date +%s ;;
+		*) printf '%s\n' "${UPTIME_SECONDS}" ;;
+	esac
+}
+
 agh_wait_stopped() {
 	local elapsed maxwait
 	elapsed="0"
@@ -400,14 +409,14 @@ agh_wait_started() {
 agh_wait_ready() {
 	local elapsed maxwait now remaining start
 	maxwait="${1:-${ADGUARDHOME_READY_TIMEOUT}}"
-	start="$(date +%s)"
+	start="$(monotonic_seconds)"
 	while :; do
-		now="$(date +%s)"
+		now="$(monotonic_seconds)"
 		elapsed="$((now - start))"
 		if [ "${elapsed}" -ge "${maxwait}" ]; then return 1; fi
 		remaining="$((maxwait - elapsed))"
 		if check_connection "${remaining}" && agh_is_running; then return 0; fi
-		now="$(date +%s)"
+		now="$(monotonic_seconds)"
 		elapsed="$((now - start))"
 		if [ "${elapsed}" -ge "${maxwait}" ]; then return 1; fi
 		sleep 1s
@@ -616,25 +625,25 @@ check_connection() {
 	local deadline i livecheck="0" maxwait now remaining sleep_for
 	maxwait="${1:-}"
 	if [ -n "${maxwait}" ]; then
-		now="$(date +%s)"
+		now="$(monotonic_seconds)"
 		deadline="$((now + maxwait))"
 	fi
 	while [ "${livecheck}" != "4" ]; do
 		for i in google.com github.com snbforums.com; do
 			if [ -n "${deadline}" ]; then
-				now="$(date +%s)"
+				now="$(monotonic_seconds)"
 				[ "${now}" -ge "${deadline}" ] && return 1
 			fi
 			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
 				remaining=""
 				if [ -n "${deadline}" ]; then
-					now="$(date +%s)"
+					now="$(monotonic_seconds)"
 					remaining="$((deadline - now))"
 					[ "${remaining}" -le 0 ] && return 1
 				fi
 				if ! http_probe "http://${i}" "${remaining}" >/dev/null 2>&1; then
 					if [ -n "${deadline}" ]; then
-						now="$(date +%s)"
+						now="$(monotonic_seconds)"
 						[ "${now}" -ge "${deadline}" ] && return 1
 					fi
 					sleep 1s
@@ -646,7 +655,7 @@ check_connection() {
 		livecheck="$((livecheck + 1))"
 		if [ "${livecheck}" != "4" ]; then
 			if [ -n "${deadline}" ]; then
-				now="$(date +%s)"
+				now="$(monotonic_seconds)"
 				sleep_for="$((deadline - now))"
 				[ "${sleep_for}" -le 0 ] && return 1
 				[ "${sleep_for}" -gt 10 ] && sleep_for="10"
