@@ -195,7 +195,7 @@ adguardhome_run_mkdir() {
 }
 
 adguardhome_run() {
-	local lock_dir pid_file
+	local lock_dir owner pid_file runtime
 	lock_dir="/tmp/AdGuardHome"
 	pid_file="${lock_dir}/pid"
 	case "$1" in
@@ -203,7 +203,18 @@ adguardhome_run() {
 			if have_cmd flock && flock_supports_fd; then
 				if adguardhome_run_flock_active; then return 1; else return 0; fi
 			fi
-			if [ -z "$(sed -n '2p' "${pid_file}" 2>/dev/null)" ]; then return 1; else return 0; fi
+			owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
+			runtime="$(sed -n '2p' "${pid_file}" 2>/dev/null)"
+			[ -z "${runtime}" ] && return 1
+			case "${owner}" in
+				"" | *[!0-9]*)
+					rm -f "${pid_file}"
+					return 1
+					;;
+			esac
+			if kill -0 "${owner}" 2>/dev/null; then return 0; fi
+			rm -f "${pid_file}"
+			return 1
 			;;
 		*)
 			if have_cmd flock && flock_supports_fd; then
@@ -332,7 +343,7 @@ nvram_int_gt() {
 
 system_time_ready() {
 	local now script_time year
-	nvram_int_gt ntp_ready 0 && return 0
+	nvram_int_gt ntp_ready 0 || return 1
 	year="$(/bin/date -u +"%Y" 2>/dev/null)"
 	case "${year}" in
 		"" | *[!0-9]*) ;;
