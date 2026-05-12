@@ -393,19 +393,7 @@ agh_wait_started() {
 }
 
 agh_wait_ready() {
-	local TIMEOUT START NOW
-	TIMEOUT="${ADGUARDHOME_READY_TIMEOUT}"
-	START="$(date +%s)"
-	while :; do
-		NOW="$(date +%s)"
-		[ "$((NOW - START))" -gt "${TIMEOUT}" ] && return 1
-		if check_connection && [ "$(agh_process_count)" -eq "2" ]; then
-			return 0
-		fi
-		NOW="$(date +%s)"
-		[ "$((NOW - START))" -ge "${TIMEOUT}" ] && return 1
-		sleep 1s
-	done
+	check_connection "${ADGUARDHOME_READY_TIMEOUT}" && [ "$(agh_process_count)" -eq "2" ]
 }
 
 agh_stop() {
@@ -607,11 +595,24 @@ check_AdGuardHome_yaml() {
 
 ########################Modified Version of @Adamm Check_Connection####################################################
 check_connection() {
-	local livecheck="0" i
+	local deadline i livecheck="0" maxwait now sleep_for
+	maxwait="${1:-}"
+	if [ -n "${maxwait}" ]; then
+		now="$(date +%s)"
+		deadline="$((now + maxwait))"
+	fi
 	while [ "${livecheck}" != "4" ]; do
 		for i in google.com github.com snbforums.com; do
+			if [ -n "${deadline}" ]; then
+				now="$(date +%s)"
+				[ "${now}" -ge "${deadline}" ] && return 1
+			fi
 			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
 				if ! http_probe "http://${i}" >/dev/null 2>&1; then
+					if [ -n "${deadline}" ]; then
+						now="$(date +%s)"
+						[ "${now}" -ge "${deadline}" ] && return 1
+					fi
 					sleep 1s
 					continue
 				fi
@@ -620,25 +621,21 @@ check_connection() {
 		done
 		livecheck="$((livecheck + 1))"
 		if [ "${livecheck}" != "4" ]; then
-			sleep 10s
+			if [ -n "${deadline}" ]; then
+				now="$(date +%s)"
+				sleep_for="$((deadline - now))"
+				[ "${sleep_for}" -le 0 ] && return 1
+				[ "${sleep_for}" -gt 10 ] && sleep_for="10"
+				sleep "${sleep_for}s"
+			else
+				sleep 10s
+			fi
 			continue
 		fi
 		return 1
 	done
 }
 
-wait_for_connection() {
-	local MAX_WAIT ELAPSED INTERVAL
-	MAX_WAIT="${1:-300}"
-	ELAPSED="0"
-	INTERVAL="5"
-	while [ "${ELAPSED}" -le "${MAX_WAIT}" ]; do
-		check_connection && return 0
-		sleep "${INTERVAL}s"
-		ELAPSED="$((ELAPSED + INTERVAL))"
-	done
-	return 1
-}
 ########################################################################################################################
 
 check_dns_environment() {
@@ -673,7 +670,7 @@ check_dns_environment() {
 	if [ "${NVCHECK}" != "0" ]; then
 		{ nvram commit; }
 		{ service restart_dnsmasq >/dev/null 2>&1; }
-		if ! wait_for_connection 300; then
+		if ! check_connection 300; then
 			PTXT "${WARNING} Timed out waiting for DNS connectivity after dnsmasq restart."
 		fi
 	fi
@@ -763,7 +760,7 @@ check_dns_filter() {
 	if [ "${NVCHECK}" != "0" ]; then
 		{ nvram commit; }
 		{ service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1; }
-		if ! wait_for_connection 300; then
+		if ! check_connection 300; then
 			PTXT "${WARNING} Timed out waiting for DNS connectivity after firewall and dnsmasq restart."
 		fi
 	fi
@@ -890,7 +887,7 @@ check_version() {
 				"${INFO} Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
 				"${INFO} for any configuration needs. "
 		elif [ -z "${LINSTALL}" ] && [ -z "${RMNSTALL}" ] && [ -z "$1" ]; then
-			if wait_for_connection 300; then
+			if check_connection 300; then
 				check_version x
 			else
 				PTXT "${ERROR} Timed out waiting for an Internet connection."
