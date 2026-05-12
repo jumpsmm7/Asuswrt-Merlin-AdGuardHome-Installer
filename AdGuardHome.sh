@@ -126,6 +126,22 @@ adguardhome_run_execute() {
 	return "${status}"
 }
 
+adguardhome_run_flock_active() {
+	local lock_dir lock_file status
+	lock_dir="/tmp/AdGuardHome"
+	lock_file="${lock_dir}.lock"
+	exec 9>"${lock_file}" || return 1
+	flock -n 9 >/dev/null 2>&1
+	status="$?"
+	if [ "${status}" -eq 0 ]; then
+		flock -u 9 >/dev/null 2>&1
+		exec 9>&-
+		return 1
+	fi
+	exec 9>&-
+	return 0
+}
+
 adguardhome_run_flock() {
 	local action lock_dir lock_file owner pid_file status
 	action="$1"
@@ -149,8 +165,10 @@ adguardhome_run_flock() {
 		exec 9>&-
 		return 1
 	fi
+	rm -f "${pid_file}"
 	adguardhome_run_execute "${action}" "${pid_file}" "$$"
 	status="$?"
+	rm -f "${pid_file}"
 	flock -u 9 >/dev/null 2>&1
 	exec 9>&-
 	return "${status}"
@@ -177,12 +195,26 @@ adguardhome_run_mkdir() {
 }
 
 adguardhome_run() {
-	local lock_dir pid_file
+	local lock_dir owner pid_file runtime
 	lock_dir="/tmp/AdGuardHome"
 	pid_file="${lock_dir}/pid"
 	case "$1" in
 		"")
-			if [ -z "$(sed -n '2p' "${pid_file}" 2>/dev/null)" ]; then return 1; else return 0; fi
+			if have_cmd flock && flock_supports_fd; then
+				if adguardhome_run_flock_active; then return 1; else return 0; fi
+			fi
+			owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
+			runtime="$(sed -n '2p' "${pid_file}" 2>/dev/null)"
+			[ -z "${runtime}" ] && return 1
+			case "${owner}" in
+				"" | *[!0-9]*)
+					rm -f "${pid_file}"
+					return 1
+					;;
+			esac
+			if kill -0 "${owner}" 2>/dev/null; then return 0; fi
+			rm -f "${pid_file}"
+			return 1
 			;;
 		*)
 			if have_cmd flock && flock_supports_fd; then
