@@ -127,12 +127,10 @@ adguardhome_run_execute() {
 }
 
 adguardhome_run_legacy_mkdir_active() {
-	local lock_dir lock_file owner pid_file runtime
+	local lock_dir owner pid_file runtime
 	lock_dir="/tmp/AdGuardHome"
-	lock_file="${lock_dir}/${lock_dir#/tmp/}.lock"
 	pid_file="${lock_dir}/pid"
 	[ -d "${lock_dir}" ] || return 1
-	[ ! -e "${lock_file}" ] || return 1
 	runtime="$(sed -n '2p' "${pid_file}" 2>/dev/null)"
 	[ -z "${runtime}" ] || return 1
 	owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
