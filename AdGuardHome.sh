@@ -12,6 +12,18 @@ have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
 
+conf_value() {
+	[ -f "${CONF_FILE}" ] || return 1
+	awk -v KEY="$1" '
+		index($0, KEY "=") == 1 {
+			VALUE = substr($0, length(KEY) + 2)
+			gsub(/^"|"$/, "", VALUE)
+			print VALUE
+			exit
+		}
+	' "${CONF_FILE}"
+}
+
 wget_help() {
 	if [ -z "${WGET_HELP_CACHE_SET:-}" ]; then
 		WGET_HELP_CACHE="$(wget --help 2>&1)"
@@ -22,6 +34,31 @@ wget_help() {
 
 wget_has_option() {
 	wget_help | grep -q -e "$1"
+}
+
+curl_help() {
+	if [ -z "${CURL_HELP_CACHE_SET:-}" ]; then
+		CURL_HELP_CACHE="$(curl --help all 2>&1 || curl --help 2>&1)"
+		CURL_HELP_CACHE_SET="1"
+	fi
+	printf '%s\n' "${CURL_HELP_CACHE}"
+}
+
+curl_has_option() {
+	curl_help | grep -q -e "$1"
+}
+
+curl_common_args() {
+	if [ -z "${CURL_COMMON_ARGS_SET:-}" ]; then
+		CURL_COMMON_ARGS=""
+		curl_has_option '--retry' && CURL_COMMON_ARGS="${CURL_COMMON_ARGS} --retry 5"
+		curl_has_option '--connect-timeout' && CURL_COMMON_ARGS="${CURL_COMMON_ARGS} --connect-timeout 25"
+		curl_has_option '--retry-delay' && CURL_COMMON_ARGS="${CURL_COMMON_ARGS} --retry-delay 5"
+		curl_has_option '--max-time' && CURL_COMMON_ARGS="${CURL_COMMON_ARGS} --max-time $((5 * 25))"
+		curl_has_option '--retry-connrefused' && CURL_COMMON_ARGS="${CURL_COMMON_ARGS} --retry-connrefused"
+		CURL_COMMON_ARGS_SET="1"
+	fi
+	printf '%s' "${CURL_COMMON_ARGS}"
 }
 
 wget_common_args() {
@@ -39,10 +76,11 @@ wget_common_args() {
 }
 
 http_probe() {
-	local URL WGET_ARGS
+	local URL CURL_ARGS WGET_ARGS
 	URL="$1"
 	if have_cmd curl; then
-		curl --retry 5 --connect-timeout 25 --retry-delay 5 --max-time $((5 * 25)) --retry-connrefused -f -sL -I -o /dev/null "${URL}"
+		CURL_ARGS="$(curl_common_args)"
+		curl ${CURL_ARGS} -f -sL -I -o /dev/null "${URL}"
 	elif have_cmd wget; then
 		WGET_ARGS="$(wget_common_args)"
 		if wget_has_option '--spider'; then
@@ -55,33 +93,134 @@ http_probe() {
 	fi
 }
 
+flock_supports_fd() {
+	local TEST_LOCK status
+	TEST_LOCK="/tmp/adguardhome-flock-test.$$"
+	(
+		: >"${TEST_LOCK}" || exit 1
+		exec 8>"${TEST_LOCK}" || exit 1
+		flock -n 8 >/dev/null 2>&1
+	)
+	status="$?"
+	rm -f "${TEST_LOCK}"
+	return "${status}"
+}
+
+adguardhome_run_execute() {
+	local action end owner pid_file runtime start status
+	action="$1"
+	pid_file="$2"
+	owner="${3:-$$}"
+	printf "%s\n" "${owner}" >"${pid_file}"
+	start="$(date +%s)"
+	service_wait "${action}" 30
+	status="$?"
+	end="$(date +%s)"
+	runtime="$((end - start))"
+	printf "%s\n" "${runtime}" >>"${pid_file}"
+	if [ "${status}" -eq 0 ]; then
+		logger -st "${NAME}" "${action} took ${runtime} second(s) to complete."
+	else
+		logger -st "${NAME}" "Warning: ${action} did not complete within ${runtime} second(s)."
+	fi
+	return "${status}"
+}
+
+adguardhome_run_flock_active() {
+	local lock_dir lock_file status
+	lock_dir="/tmp/AdGuardHome"
+	lock_file="${lock_dir}.lock"
+	exec 9>"${lock_file}" || return 1
+	flock -n 9 >/dev/null 2>&1
+	status="$?"
+	if [ "${status}" -eq 0 ]; then
+		flock -u 9 >/dev/null 2>&1
+		exec 9>&-
+		return 1
+	fi
+	exec 9>&-
+	return 0
+}
+
+adguardhome_run_flock() {
+	local action lock_dir lock_file owner pid_file status
+	action="$1"
+	lock_dir="/tmp/AdGuardHome"
+	lock_file="${lock_dir}.lock"
+	pid_file="${lock_dir}/pid"
+	if ! mkdir -p "${lock_dir}"; then
+		logger -st "${NAME}" "Unable to create ${lock_dir}; cannot run ${action}."
+		return 1
+	fi
+	exec 9>"${lock_file}" || return 1
+	if [ "${action}" = "stop_adguardhome" ]; then
+		if ! flock 9; then
+			logger -st "${NAME}" "Unable to acquire flock for ${action}."
+			exec 9>&-
+			return 1
+		fi
+	elif ! flock -n 9; then
+		owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
+		logger -st "${NAME}" "Lock owned by ${owner:-unknown} exists; preventing duplicate runs!"
+		exec 9>&-
+		return 1
+	fi
+	rm -f "${pid_file}"
+	adguardhome_run_execute "${action}" "${pid_file}" "$$"
+	status="$?"
+	rm -f "${pid_file}"
+	flock -u 9 >/dev/null 2>&1
+	exec 9>&-
+	return "${status}"
+}
+
+adguardhome_run_mkdir() {
+	local action lock_dir pid pid_file status
+	action="$1"
+	lock_dir="/tmp/AdGuardHome"
+	pid_file="${lock_dir}/pid"
+	if (mkdir "${lock_dir}") 2>/dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' "${pid_file}" 2>/dev/null)" ]; } || { [ "${action}" = "stop_adguardhome" ]; }; then
+		(
+			trap 'rm -rf "${lock_dir}"; exit $?' EXIT
+			{ service_wait adguardhome_run; }
+			rm -rf "${lock_dir}"
+		) &
+		pid="$!"
+		adguardhome_run_execute "${action}" "${pid_file}" "${pid}"
+		status="$?"
+		return "${status}"
+	fi
+	logger -st "${NAME}" "Lock owned by $(sed -n '1p' "${pid_file}" 2>/dev/null) exists; preventing duplicate runs!"
+	return 1
+}
+
 adguardhome_run() {
-	local lock_dir pid pid_file start end runtime
+	local lock_dir owner pid_file runtime
 	lock_dir="/tmp/AdGuardHome"
 	pid_file="${lock_dir}/pid"
 	case "$1" in
 		"")
-			if [ -z "$(sed -n '2p' "${pid_file}" 2>/dev/null)" ] || [ ! -f "${UPPER_SCRIPT}" ]; then return 1; else return 0; fi
+			if have_cmd flock && flock_supports_fd; then
+				if adguardhome_run_flock_active; then return 1; else return 0; fi
+			fi
+			owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
+			runtime="$(sed -n '2p' "${pid_file}" 2>/dev/null)"
+			[ -z "${runtime}" ] && return 1
+			case "${owner}" in
+				"" | *[!0-9]*)
+					rm -f "${pid_file}"
+					return 1
+					;;
+			esac
+			if kill -0 "${owner}" 2>/dev/null; then return 0; fi
+			rm -f "${pid_file}"
+			return 1
 			;;
 		*)
-			if (mkdir "${lock_dir}") 2>/dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' "${pid_file}" 2>/dev/null)" ]; } || { [ "$1" = "stop_adguardhome" ]; }; then
-				(
-					trap 'rm -rf "${lock_dir}"; exit $?' EXIT
-					{ service_wait adguardhome_run; }
-					rm -rf "${lock_dir}"
-				) &
-				pid="$!"
-				{
-					printf "%s\n" "${pid}" >"${pid_file}"
-					start="$(date +%s)"
-					{ service_wait "$1" 30; }
-					end="$(date +%s)"
-					runtime="$((end - start))"
-					printf "%s\n" "${runtime}" >>"${pid_file}"
-					logger -st "${NAME}" "$1 took ${runtime} second(s) to complete."
-				}
+			if have_cmd flock && flock_supports_fd; then
+				adguardhome_run_flock "$1"
 			else
-				logger -st "${NAME}" "Lock owned by $(sed -n '1p' "${pid_file}" 2>/dev/null) exists; preventing duplicate runs!"
+				adguardhome_run_mkdir "$1"
 			fi
 			;;
 	esac
@@ -151,7 +290,7 @@ dnsmasq_params() {
 					printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >>"${CONFIG}"
 				done
 			fi
-			if { ! readlink -f /etc/resolv.conf | grep -qE '^/rom/etc/resolv.conf' && awk -F'=' '/ADGUARD_LOCAL/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -qE '^YES'; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
+			if { ! readlink -f /etc/resolv.conf | grep -qE '^/rom/etc/resolv.conf' && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
 		elif [ -n "$1" ] && nvram get rc_support | grep -q 'mtlancfg'; then
 			CONFIG="/etc/dnsmasq-${1}.conf"
 			LAN_IF="$(nvram get lan_ifname)"
@@ -190,9 +329,45 @@ lower_script() {
 	esac
 }
 
+nvram_int_gt() {
+	local VALUE MIN
+	VALUE="$(nvram get "$1" 2>/dev/null)"
+	MIN="$2"
+	case "${VALUE}" in
+		"" | *[!0-9]*)
+			return 1
+			;;
+	esac
+	[ "${VALUE}" -gt "${MIN}" ]
+}
+
+system_time_ready() {
+	local now script_time year
+	nvram_int_gt ntp_ready 0 || return 1
+	year="$(/bin/date -u +"%Y" 2>/dev/null)"
+	case "${year}" in
+		"" | *[!0-9]*) ;;
+		*) [ "${year}" -gt "1970" ] && return 0 ;;
+	esac
+	now="$(/bin/date -u '+%s' 2>/dev/null)"
+	script_time="$(/bin/date -u -r "$0" '+%s' 2>/dev/null)"
+	case "${now}:${script_time}" in
+		*[!0-9:]* | "":* | *:) return 1 ;;
+	esac
+	[ "${now}" -ge "${script_time}" ]
+}
+
 netcheck() {
-	local livecheck="0" i
-	until { [ "$(/bin/date -u +"%Y")" -gt "1970" ] || [ "$(/bin/date -u '+%s')" -ge "$(/bin/date -u -r "${MID_SCRIPT}" '+%s')" ]; } && [ "$(nvram get ntp_ready)" -gt 0 ]; do sleep 1s; done
+	local livecheck="0" i timewait
+	timewait="0"
+	until system_time_ready; do
+		if [ "${timewait}" -ge "300" ]; then
+			logger -st "${NAME}" "Warning: timed out waiting for system time readiness."
+			return 1
+		fi
+		sleep 1s
+		timewait="$((timewait + 1))"
+	done
 	while [ "${livecheck}" != "4" ]; do
 		for i in google.com github.com snbforums.com; do
 			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
