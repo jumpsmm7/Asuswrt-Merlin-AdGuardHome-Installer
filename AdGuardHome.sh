@@ -168,6 +168,7 @@ adguardhome_run_flock() {
 	rm -f "${pid_file}"
 	adguardhome_run_execute "${action}" "${pid_file}" "$$"
 	status="$?"
+	rm -f "${pid_file}"
 	flock -u 9 >/dev/null 2>&1
 	exec 9>&-
 	return "${status}"
