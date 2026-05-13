@@ -126,28 +126,33 @@ adguardhome_run_execute() {
 	return "${status}"
 }
 
-adguardhome_run_flock_active() {
-	local lock_dir lock_file status
+adguardhome_run_legacy_mkdir_active() {
+	local lock_dir owner pid_file runtime
 	lock_dir="/tmp/AdGuardHome"
-	lock_file="${lock_dir}.lock"
-	exec 9>"${lock_file}" || return 1
-	flock -n 9 >/dev/null 2>&1
-	status="$?"
-	if [ "${status}" -eq 0 ]; then
-		flock -u 9 >/dev/null 2>&1
-		exec 9>&-
-		return 1
-	fi
-	exec 9>&-
-	return 0
+	pid_file="${lock_dir}/pid"
+	[ -d "${lock_dir}" ] || return 1
+	runtime="$(sed -n '2p' "${pid_file}" 2>/dev/null)"
+	[ -z "${runtime}" ] || return 1
+	owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
+	case "${owner}" in
+		"" | *[!0-9]*)
+			return 1
+			;;
+	esac
+	kill -0 "${owner}" 2>/dev/null
 }
 
 adguardhome_run_flock() {
 	local action lock_dir lock_file owner pid_file status
 	action="$1"
 	lock_dir="/tmp/AdGuardHome"
-	lock_file="${lock_dir}.lock"
+	lock_file="${lock_dir}/${lock_dir#/tmp/}.lock"
 	pid_file="${lock_dir}/pid"
+	if [ "${action}" != "stop_adguardhome" ] && adguardhome_run_legacy_mkdir_active; then
+		owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
+		logger -st "${NAME}" "Legacy mkdir lock owned by ${owner:-unknown} exists; preventing duplicate runs!"
+		return 1
+	fi
 	if ! mkdir -p "${lock_dir}"; then
 		logger -st "${NAME}" "Unable to create ${lock_dir}; cannot run ${action}."
 		return 1
@@ -172,6 +177,23 @@ adguardhome_run_flock() {
 	flock -u 9 >/dev/null 2>&1
 	exec 9>&-
 	return "${status}"
+}
+
+adguardhome_run_flock_active() {
+	local lock_dir lock_file status
+	lock_dir="/tmp/AdGuardHome"
+	lock_file="${lock_dir}/${lock_dir#/tmp/}.lock"
+	if adguardhome_run_legacy_mkdir_active; then return 0; fi
+	exec 9>"${lock_file}" || return 1
+	flock -n 9 >/dev/null 2>&1
+	status="$?"
+	if [ "${status}" -eq 0 ]; then
+		flock -u 9 >/dev/null 2>&1
+		exec 9>&-
+		return 1
+	fi
+	exec 9>&-
+	return 0
 }
 
 adguardhome_run_mkdir() {
