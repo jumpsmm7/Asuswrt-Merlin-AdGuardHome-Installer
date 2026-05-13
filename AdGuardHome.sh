@@ -148,7 +148,7 @@ adguardhome_run_flock() {
 	lock_dir="/tmp/AdGuardHome"
 	lock_file="${lock_dir}/${lock_dir#/tmp/}.lock"
 	pid_file="${lock_dir}/pid"
-	if adguardhome_run_legacy_mkdir_active; then
+	if [ "${action}" != "stop_adguardhome" ] && adguardhome_run_legacy_mkdir_active; then
 		owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
 		logger -st "${NAME}" "Legacy mkdir lock owned by ${owner:-unknown} exists; preventing duplicate runs!"
 		return 1
