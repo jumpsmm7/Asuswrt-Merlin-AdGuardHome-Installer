@@ -522,11 +522,28 @@ start_monitor() {
 	trap 'EXIT="1"' USR1
 	trap 'EXIT="2"' USR2
 	{ service_wait netcheck; }
-	local COUNT EXIT
+	local COUNT EXIT MISSING_BINARY
 	EXIT="0"
 	logger -st "${NAME}" "Starting Monitor!"
 	while true; do
-		if [ -f "/opt/sbin/AdGuardHome" ]; then
+		if [ "${EXIT}" = "1" ]; then # A place to exit early if needed, or if binary becomes unavailable before service-stop.
+			logger -st "${NAME}" "Stopping Monitor!"
+			trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
+			{ adguardhome_run stop_adguardhome; }
+			break
+		fi
+		if [ ! -x "/opt/sbin/AdGuardHome" ]; then
+			if [ -z "${MISSING_BINARY}" ]; then
+				logger -st "${NAME}" "Warning: AdGuardHome binary is unavailable; Monitor will wait."
+				MISSING_BINARY="1"
+			fi
+			sleep 10s
+			continue
+		fi
+		if [ -n "${MISSING_BINARY}" ]; then
+			logger -st "${NAME}" "AdGuardHome binary is available and executable; Monitor will resume."
+			unset MISSING_BINARY COUNT
+		fi
 			case ${EXIT} in
 				"0")
 					timezone
@@ -570,7 +587,6 @@ start_monitor() {
 					EXIT="0"
 					;;
 			esac
-		fi
 	done
 }
 
