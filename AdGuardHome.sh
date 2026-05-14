@@ -544,49 +544,49 @@ start_monitor() {
 			logger -st "${NAME}" "AdGuardHome binary is available and executable; Monitor will resume."
 			unset MISSING_BINARY COUNT
 		fi
-			case ${EXIT} in
-				"0")
-					timezone
-					case "${COUNT}" in
-						"")
-							COUNT="0"
-							{ adguardhome_run start_adguardhome; }
-							;;
-					esac
-					case "$(pidof "${PROCS}")" in
-						"")
-							logger -st "${NAME}" "Warning: ${PROCS} is dead; Monitor will start it!"
-							unset COUNT
-							;;
-						*)
-							case "${COUNT}" in
-								"30" | "60" | "90")
-									if [ "${COUNT}" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi
-									if { ! service_wait netcheck 150; }; then
-										logger -st "${NAME}" "Warning: ${PROCS} is not responding; Monitor will re-start it!"
-										unset COUNT
-									fi
-									;;
-								*)
-									COUNT="$((COUNT + 1))"
-									;;
-							esac
-							if [ -n "${COUNT}" ]; then sleep 10s; fi
-							;;
-					esac
-					;;
-				"1")
-					logger -st "${NAME}" "Stopping Monitor!"
-					trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
-					{ adguardhome_run stop_adguardhome; }
-					break
-					;;
-				"2")
-					logger -st "${NAME}" "Monitor is restarting AdGuardHome!"
-					unset COUNT
-					EXIT="0"
-					;;
-			esac
+		case ${EXIT} in
+			"0")
+				timezone
+				case "${COUNT}" in
+					"")
+						COUNT="0"
+						{ adguardhome_run start_adguardhome; }
+						;;
+				esac
+				case "$(pidof "${PROCS}")" in
+					"")
+						logger -st "${NAME}" "Warning: ${PROCS} is dead; Monitor will start it!"
+						unset COUNT
+						;;
+					*)
+						case "${COUNT}" in
+							"30" | "60" | "90")
+								if [ "${COUNT}" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi
+								if { ! service_wait netcheck 150; }; then
+									logger -st "${NAME}" "Warning: ${PROCS} is not responding; Monitor will re-start it!"
+									unset COUNT
+								fi
+								;;
+							*)
+								COUNT="$((COUNT + 1))"
+								;;
+						esac
+						if [ -n "${COUNT}" ]; then sleep 10s; fi
+						;;
+				esac
+				;;
+			"1")
+				logger -st "${NAME}" "Stopping Monitor!"
+				trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
+				{ adguardhome_run stop_adguardhome; }
+				break
+				;;
+			"2")
+				logger -st "${NAME}" "Monitor is restarting AdGuardHome!"
+				unset COUNT
+				EXIT="0"
+				;;
+		esac
 	done
 }
 
