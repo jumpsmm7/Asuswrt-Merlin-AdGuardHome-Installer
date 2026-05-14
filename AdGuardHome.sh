@@ -278,9 +278,47 @@ check_dns_environment() {
 	fi
 }
 
+resolv_conf_uses_rom() {
+	readlink -f /etc/resolv.conf | grep -qE '^/rom/etc/resolv.conf'
+}
+
+resolv_conf_is_tmp_mount() {
+	df -h | grep -qoE '/tmp/resolv.conf'
+}
+
+sdn_bridge_for_index() {
+	get_mtlan | awk -v idx="$1" '
+		/^[[:space:]]*\|-enable:/ {
+			enabled = ""
+			bridge = ""
+		}
+		/^[[:space:]]*\|-enable:/ {
+			start = index($0, "[")
+			endpos = index($0, "]")
+			if (start > 0 && endpos > start) { enabled = substr($0, start + 1, endpos - start - 1) }
+		}
+		/^[[:space:]]*\|-br_ifname:/ {
+			start = index($0, "[")
+			endpos = index($0, "]")
+			if (start > 0 && endpos > start) { bridge = substr($0, start + 1, endpos - start - 1) }
+		}
+		/^[[:space:]]*\|-sdn_idx:/ {
+			start = index($0, "[")
+			endpos = index($0, "]")
+			if (start > 0 && endpos > start) {
+				sdn = substr($0, start + 1, endpos - start - 1)
+				if (sdn == idx && enabled == "1") {
+					print bridge
+					exit
+				}
+			}
+		}
+	'
+}
+
 dnsmasq_params() {
 	local CONFIG COUNT iCOUNT dCOUNT iVARS IVARS dVARS DVARS NIVARS NDVARS NET_ADDR NET_ADDR6 LAN_IF i LAN_IF_SDN
-	if { ! readlink -f /etc/resolv.conf | grep -qE '^/rom/etc/resolv.conf' && df -h | grep -qoE '/tmp/resolv.conf'; }; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
+	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
 	if [ -n "$(pidof "${PROCS}")" ]; then
 		if [ -z "$1" ]; then
 			CONFIG="/etc/dnsmasq.conf"
@@ -312,14 +350,14 @@ dnsmasq_params() {
 					printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >>"${CONFIG}"
 				done
 			fi
-			if { ! readlink -f /etc/resolv.conf | grep -qE '^/rom/etc/resolv.conf' && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
+			if { ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
 		elif [ -n "$1" ] && nvram get rc_support | grep -q 'mtlancfg'; then
 			CONFIG="/etc/dnsmasq-${1}.conf"
 			LAN_IF="$(nvram get lan_ifname)"
 			if [ -n "$LAN_IF" ]; then
-				LAN_IF_SDN="$(get_mtlan | awk -v idx="$1" '/^[[:space:]]*\|-enable:/ {e=""; br=""; sdn=""} /^[[:space:]]*\|-enable:/ {s=index($0,"["); c=index($0,"]"); if(s>0&&c>s) e=substr($0,s+1,c-s-1)} /^[[:space:]]*\|-br_ifname:/ {s=index($0,"["); c=index($0,"]"); if(s>0&&c>s) br=substr($0,s+1,c-s-1)} /^[[:space:]]*\|-sdn_idx:/ {s=index($0,"["); c=index($0,"]"); if(s>0&&c>s) {sdn=substr($0,s+1,c-s-1); if(sdn==idx&&e=="1"){print br; exit}}}' | grep -v "$LAN_IF")"
+				LAN_IF_SDN="$(sdn_bridge_for_index "$1" | grep -v "$LAN_IF")"
 			else
-				LAN_IF_SDN="$(get_mtlan | awk -v idx="$1" '/^[[:space:]]*\|-enable:/ {e=""; br=""; sdn=""} /^[[:space:]]*\|-enable:/ {s=index($0,"["); c=index($0,"]"); if(s>0&&c>s) e=substr($0,s+1,c-s-1)} /^[[:space:]]*\|-br_ifname:/ {s=index($0,"["); c=index($0,"]"); if(s>0&&c>s) br=substr($0,s+1,c-s-1)} /^[[:space:]]*\|-sdn_idx:/ {s=index($0,"["); c=index($0,"]"); if(s>0&&c>s) {sdn=substr($0,s+1,c-s-1); if(sdn==idx&&e=="1"){print br; exit}}}')"
+				LAN_IF_SDN="$(sdn_bridge_for_index "$1")"
 			fi
 			if [ -n "${LAN_IF_SDN}" ]; then
 				NET_ADDR="$(ip -o -4 addr list "${LAN_IF_SDN}" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
@@ -372,7 +410,7 @@ system_time_ready() {
 		*) [ "${year}" -gt "1970" ] && return 0 ;;
 	esac
 	now="$(/bin/date -u '+%s' 2>/dev/null)"
-	script_time="$(/bin/date -u -r "$0" '+%s' 2>/dev/null)"
+	script_time="$(/bin/date -u -r "${MID_SCRIPT}" '+%s' 2>/dev/null)"
 	case "${now}:${script_time}" in
 		*[!0-9:]* | "":* | *:) return 1 ;;
 	esac
@@ -409,23 +447,32 @@ netcheck() {
 	done
 }
 
+proc_write() {
+	local TARGET VALUE
+	VALUE="$1"
+	TARGET="$2"
+	{ [ -e "${TARGET}" ] || return 0; }
+	{ [ -w "${TARGET}" ] || return 0; }
+	{ printf "%s" "${VALUE}" >"${TARGET}"; }
+}
+
 proc_optimizations() {
-	{ printf "4194304" >/proc/sys/kernel/pid_max; }                                 # Ensure max PID coverage
-	{ printf "2" >/proc/sys/vm/overcommit_memory; }                                 # Ensure ratio algorithm checks properly work including swap.
-	{ printf "60" >/proc/sys/vm/swappiness; }                                       # Ensure swappiness is set for more readily usability.
-	{ printf "50" >/proc/sys/vm/overcommit_ratio; }                                 # Ensure a proper overcommit policy is available.
-	{ printf "4194304" >/proc/sys/net/core/rmem_max; }                              # Ensure UDP receive buffer set to 4M.
-	{ printf "1048576" >/proc/sys/net/core/wmem_max; }                              # Ensure 1M for wmem_max.
-	{ printf "0" >/proc/sys/net/ipv4/icmp_ratelimit; }                              # Ensure Control over MTRS
-	{ printf "256" >/proc/sys/net/ipv4/neigh/default/gc_thresh1; }                  # Increase ARP cache sizes and GC thresholds
-	{ printf "1024" >/proc/sys/net/ipv4/neigh/default/gc_thresh2; }                 # Increase ARP cache sizes and GC thresholds
-	{ printf "2048" >/proc/sys/net/ipv4/neigh/default/gc_thresh3; }                 # Increase ARP cache sizes and GC thresholds
-	{ printf "240" >/proc/sys/net/netfilter/nf_conntrack_tcp_timeout_max_retrans; } # Lower conntrack tcp_timeout_max_retrans from 300 to 240
-	if [ -n "$(nvram get ipv6_service)" ]; then                                     #IPV6 proc variants
-		{ printf "0" >/proc/sys/net/ipv6/icmp/ratelimit; }
-		{ printf "256" >/proc/sys/net/ipv6/neigh/default/gc_thresh1; }
-		{ printf "1024" >/proc/sys/net/ipv6/neigh/default/gc_thresh2; }
-		{ printf "2048" >/proc/sys/net/ipv6/neigh/default/gc_thresh3; }
+	{ proc_write "4194304" "/proc/sys/kernel/pid_max"; }                                 # Ensure max PID coverage
+	{ proc_write "2" "/proc/sys/vm/overcommit_memory"; }                                 # Ensure ratio algorithm checks properly work including swap.
+	{ proc_write "60" "/proc/sys/vm/swappiness"; }                                       # Ensure swappiness is set for more readily usability.
+	{ proc_write "50" "/proc/sys/vm/overcommit_ratio"; }                                 # Ensure a proper overcommit policy is available.
+	{ proc_write "4194304" "/proc/sys/net/core/rmem_max"; }                              # Ensure UDP receive buffer set to 4M.
+	{ proc_write "1048576" "/proc/sys/net/core/wmem_max"; }                              # Ensure 1M for wmem_max.
+	{ proc_write "0" "/proc/sys/net/ipv4/icmp_ratelimit"; }                              # Ensure Control over MTRS
+	{ proc_write "240" "/proc/sys/net/netfilter/nf_conntrack_tcp_timeout_max_retrans"; } # Lower conntrack tcp_timeout_max_retrans from 300 to 240
+	{ proc_write "256" "/proc/sys/net/ipv4/neigh/default/gc_thresh1"; }                  # Increase ARP cache sizes and GC thresholds
+	{ proc_write "1024" "/proc/sys/net/ipv4/neigh/default/gc_thresh2"; }                 # Increase ARP cache sizes and GC thresholds
+	{ proc_write "2048" "/proc/sys/net/ipv4/neigh/default/gc_thresh3"; }                 # Increase ARP cache sizes and GC thresholds
+	if [ -n "$(nvram get ipv6_service)" ]; then                                          # IPV6 proc variants
+		{ proc_write "0" "/proc/sys/net/ipv6/icmp/ratelimit"; }
+		{ proc_write "256" "/proc/sys/net/ipv6/neigh/default/gc_thresh1"; }
+		{ proc_write "1024" "/proc/sys/net/ipv6/neigh/default/gc_thresh2"; }
+		{ proc_write "2048" "/proc/sys/net/ipv6/neigh/default/gc_thresh3"; }
 	fi
 }
 
@@ -548,11 +595,25 @@ stop_monitor() {
 }
 
 timezone() {
-	local TIMEZONE TARGET
+	local NOW SCRIPT_TIME SCRIPT_TIME_TEXT TARGET TIMEZONE
 	TIMEZONE="/jffs/addons/AdGuardHome.d/localtime"
 	TARGET="/etc/localtime"
 	if { [ ! -f "${TARGET}" ] && [ -f "${TIMEZONE}" ]; }; then { ln -sf "${TIMEZONE}" "${TARGET}"; }; fi
-	if [ -f "${TARGET}" ] || [ "$(readlink "${TARGET}")" ]; then { if [ "$(/bin/date -u '+%s')" -le "$(/bin/date -u -r "${MID_SCRIPT}" '+%s')" ]; then { /bin/date -u -s "$(/bin/date -u -r "${MID_SCRIPT}" '+%Y-%m-%d %H:%M:%S')"; }; else { touch "${MID_SCRIPT}"; }; fi; }; fi
+	if [ -f "${TARGET}" ] || [ -n "$(readlink "${TARGET}")" ]; then
+		NOW="$(/bin/date -u '+%s' 2>/dev/null)"
+		SCRIPT_TIME="$(/bin/date -u -r "${MID_SCRIPT}" '+%s' 2>/dev/null)"
+		case "${NOW}:${SCRIPT_TIME}" in
+			*[!0-9:]* | "":* | *:)
+				return 1
+				;;
+		esac
+		if [ "${NOW}" -le "${SCRIPT_TIME}" ]; then
+			SCRIPT_TIME_TEXT="$(/bin/date -u -r "${MID_SCRIPT}" '+%Y-%m-%d %H:%M:%S')"
+			{ /bin/date -u -s "${SCRIPT_TIME_TEXT}"; }
+		else
+			{ touch "${MID_SCRIPT}"; }
+		fi
+	fi
 }
 
 if [ -f "${UPPER_SCRIPT}" ]; then UPPER_SCRIPT_LOC=". ${UPPER_SCRIPT}"; fi
