@@ -150,12 +150,15 @@ adguardhome_run_flock_cleanup() {
 	exec 9>&-
 }
 
-adguardhome_run_flock_reset_traps() {
+adguardhome_run_flock_restore_traps() {
+	local saved_traps
+	saved_traps="$1"
 	trap - EXIT HUP INT QUIT ABRT TERM TSTP
+	[ -n "${saved_traps}" ] && eval "${saved_traps}"
 }
 
 adguardhome_run_flock() {
-	local action lock_dir lock_file owner pid_file status
+	local action lock_dir lock_file owner pid_file saved_traps status
 	action="$1"
 	lock_dir="/tmp/AdGuardHome"
 	lock_file="${lock_dir}.lock"
@@ -182,13 +185,14 @@ adguardhome_run_flock() {
 		exec 9>&-
 		return 1
 	fi
-	trap 'adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_reset_traps; exit 1' HUP INT QUIT ABRT TERM TSTP
-	trap 'status="$?"; adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_reset_traps; exit "${status}"' EXIT
+	saved_traps="$(trap)"
+	trap 'adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	trap 'status="$?"; adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit "${status}"' EXIT
 	rm -f "${pid_file}"
 	adguardhome_run_execute "${action}" "${pid_file}" "$$"
 	status="$?"
 	adguardhome_run_flock_cleanup "${pid_file}"
-	adguardhome_run_flock_reset_traps
+	adguardhome_run_flock_restore_traps "${saved_traps}"
 	return "${status}"
 }
 

@@ -74,8 +74,8 @@ start() {
 	{ ${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null & }
 	#echo ${PREARGS} ${PROC} ${ARGS}
 	process_wait_for_start "${PROC}" 10
-	PIDS="$(process_pids "${PROC}")"
 	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then { ${POSTCMD} >/dev/null 2>&1; }; fi
+	PIDS="$(process_pids "${PROC}")"
 	if [ -z "${PIDS}" ]; then
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 		logger -st "${CALLER}" "Failed to start ${DESC} from ${CALLER}."
