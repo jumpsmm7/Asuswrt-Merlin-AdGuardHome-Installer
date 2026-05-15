@@ -22,6 +22,32 @@ process_running() {
 	[ -n "$(process_pids "$1")" ]
 }
 
+process_wait_for_start() {
+	local _PROC _LIMIT _COUNTER
+	_PROC="$1"
+	_LIMIT="$2"
+	_COUNTER="0"
+	while [ "${_COUNTER}" -lt "${_LIMIT}" ]; do
+		[ -n "$(process_pids "${_PROC}")" ] && return 0
+		sleep 1s
+		_COUNTER="$((_COUNTER + 1))"
+	done
+	[ -n "$(process_pids "${_PROC}")" ]
+}
+
+process_wait_for_stop() {
+	local _PROC _LIMIT _COUNTER
+	_PROC="$1"
+	_LIMIT="$2"
+	_COUNTER="0"
+	while [ "${_COUNTER}" -lt "${_LIMIT}" ]; do
+		[ -z "$(process_pids "${_PROC}")" ] && return 0
+		sleep 1s
+		_COUNTER="$((_COUNTER + 1))"
+	done
+	[ -z "$(process_pids "${_PROC}")" ]
+}
+
 signal_process() {
 	_SIGNAL="$1"
 	_PROC="$2"
@@ -35,23 +61,22 @@ signal_process() {
 }
 
 start() {
+	local PIDS
 	{ [ "${CRITICAL}" != "yes" ] && [ "${CALLER}" = "cron" ]; } && return 7
 	[ "${ENABLED}" != "yes" ] && return 8
 	printf "%s" "${ansi_white} Starting ${DESC}... ${ansi_std}"
-	if process_running "${PROC}"; then
+	PIDS="$(process_pids "${PROC}")"
+	if [ -n "${PIDS}" ]; then
 		printf "%s\n" "            ${ansi_yellow} already running. ${ansi_std}"
 		return 0
 	fi
 	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then { ${PRECMD} >/dev/null 2>&1; }; fi
 	{ ${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null & }
 	#echo ${PREARGS} ${PROC} ${ARGS}
-	local COUNTER="0" LIMIT="10"
-	while { ! process_running "${PROC}" && [ "${COUNTER}" -le "${LIMIT}" ]; }; do
-		sleep 1s
-		COUNTER="$((COUNTER + 1))"
-	done
+	process_wait_for_start "${PROC}" 10
+	PIDS="$(process_pids "${PROC}")"
 	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then { ${POSTCMD} >/dev/null 2>&1; }; fi
-	if ! process_running "${PROC}"; then
+	if [ -z "${PIDS}" ]; then
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 		logger -st "${CALLER}" "Failed to start ${DESC} from ${CALLER}."
 		return 255
@@ -63,22 +88,27 @@ start() {
 }
 
 stop() {
+	local PIDS
 	case "${ACTION}" in
 		"stop" | "restart")
-			local COUNTER="0" LIMIT="10"
-			while { process_running "${PROC}" && [ "${COUNTER}" -le "${LIMIT}" ]; }; do
-				[ "${COUNTER}" = "0" ] && printf "%s" "${ansi_white} Shutting down ${PROC}... ${ansi_std}"
-				! process_running "${PROC}" && break || signal_process 2 "${PROC}"
-				sleep "${LIMIT}"s
-				COUNTER="$((COUNTER + 1))"
-			done
+			printf "%s" "${ansi_white} Shutting down ${PROC}... ${ansi_std}"
+			signal_process TERM "${PROC}"
+			process_wait_for_stop "${PROC}" 10 || {
+				signal_process INT "${PROC}"
+				process_wait_for_stop "${PROC}" 5 || {
+					signal_process KILL "${PROC}"
+					process_wait_for_stop "${PROC}" 3
+				}
+			}
 			;;
 		"kill")
 			printf "%s" "${ansi_white} Killing ${PROC}... ${ansi_std}"
-			signal_process 2 "${PROC}"
+			signal_process KILL "${PROC}"
+			process_wait_for_stop "${PROC}" 3
 			;;
 	esac
-	if process_running "${PROC}"; then
+	PIDS="$(process_pids "${PROC}")"
+	if [ -n "${PIDS}" ]; then
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 		return 255
 	else
