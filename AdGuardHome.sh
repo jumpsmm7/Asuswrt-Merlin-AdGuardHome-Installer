@@ -142,8 +142,23 @@ adguardhome_run_legacy_mkdir_active() {
 	kill -0 "${owner}" 2>/dev/null
 }
 
+adguardhome_run_flock_cleanup() {
+	local pid_file
+	pid_file="$1"
+	[ -n "${pid_file}" ] && rm -f "${pid_file}"
+	flock -u 9 >/dev/null 2>&1
+	exec 9>&-
+}
+
+adguardhome_run_flock_restore_traps() {
+	local saved_traps
+	saved_traps="$1"
+	trap - EXIT HUP INT QUIT ABRT TERM TSTP
+	[ -n "${saved_traps}" ] && eval "${saved_traps}"
+}
+
 adguardhome_run_flock() {
-	local action lock_dir lock_file owner pid_file status
+	local action lock_dir lock_file owner pid_file saved_traps status
 	action="$1"
 	lock_dir="/tmp/AdGuardHome"
 	lock_file="${lock_dir}.lock"
@@ -170,12 +185,14 @@ adguardhome_run_flock() {
 		exec 9>&-
 		return 1
 	fi
+	saved_traps="$(trap)"
+	trap 'adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	trap 'status="$?"; adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit "${status}"' EXIT
 	rm -f "${pid_file}"
 	adguardhome_run_execute "${action}" "${pid_file}" "$$"
 	status="$?"
-	rm -f "${pid_file}"
-	flock -u 9 >/dev/null 2>&1
-	exec 9>&-
+	adguardhome_run_flock_cleanup "${pid_file}"
+	adguardhome_run_flock_restore_traps "${saved_traps}"
 	return "${status}"
 }
 
@@ -278,64 +295,210 @@ check_dns_environment() {
 	fi
 }
 
+resolv_conf_uses_rom() {
+	readlink -f /etc/resolv.conf | grep -qE '^/rom/etc/resolv.conf'
+}
+
+resolv_conf_is_tmp_mount() {
+	df -h | grep -qoE '/tmp/resolv.conf'
+}
+
+sdn_bridge_for_index() {
+	get_mtlan | awk -v idx="$1" '
+		/^[[:space:]]*\|-enable:/ {
+			enabled = ""
+			bridge = ""
+		}
+		/^[[:space:]]*\|-enable:/ {
+			start = index($0, "[")
+			endpos = index($0, "]")
+			if (start > 0 && endpos > start) { enabled = substr($0, start + 1, endpos - start - 1) }
+		}
+		/^[[:space:]]*\|-br_ifname:/ {
+			start = index($0, "[")
+			endpos = index($0, "]")
+			if (start > 0 && endpos > start) { bridge = substr($0, start + 1, endpos - start - 1) }
+		}
+		/^[[:space:]]*\|-sdn_idx:/ {
+			start = index($0, "[")
+			endpos = index($0, "]")
+			if (start > 0 && endpos > start) {
+				sdn = substr($0, start + 1, endpos - start - 1)
+				if (sdn == idx && enabled == "1") {
+					print bridge
+					exit
+				}
+			}
+		}
+		'
+}
+
+interface_ipv4_addr() {
+	local IFACE
+	IFACE="$1"
+	[ -n "${IFACE}" ] || return 1
+	have_cmd ip || return 1
+	ip -o -4 addr list "${IFACE}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1]; exit }'
+}
+
+interface_ipv6_addr() {
+	local IFACE
+	IFACE="$1"
+	[ -n "${IFACE}" ] || return 1
+	have_cmd ip || return 1
+	ip -o -6 addr list "${IFACE}" scope global 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1]; exit }'
+}
+
+private_ipv4_bridge_dns_options() {
+	if have_cmd ip; then
+		ip -o -4 addr show scope global 2>/dev/null | awk '
+			function private_ip(ip) {
+				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+			}
+			$2 ~ /^br/ && $2 != "br0" {
+				for (i = 1; i <= NF; i++) {
+					if ($i == "inet") {
+						split($(i + 1), ip_addr, "/")
+						if (private_ip(ip_addr[1]) && !seen[$2]++) { print $2 " " ip_addr[1] }
+					}
+				}
+			}
+		'
+		return
+	fi
+	return 1
+}
+
+private_ipv4_route_dns_options() {
+	if have_cmd ip; then
+		ip route show 2>/dev/null | awk '
+			function private_ip(ip) {
+				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+			}
+			function router_ip(ip) {
+				split(ip, octets, ".")
+				if (octets[1] != "" && octets[2] != "" && octets[3] != "") { return octets[1] "." octets[2] "." octets[3] ".1" }
+				return ""
+			}
+			{
+				iface = ""
+				src = ""
+				split($1, dst_parts, "/")
+				dst = dst_parts[1]
+				for (i = 1; i <= NF; i++) {
+					if ($i == "dev") { iface = $(i + 1) }
+					if ($i == "src") { src = $(i + 1) }
+				}
+				if (iface ~ /^br/ && iface != "br0" && private_ip(dst) && !seen[iface]++) {
+					if (!private_ip(src)) { src = router_ip(dst) }
+					if (src != "") { print iface " " src }
+				}
+			}
+		'
+		return
+	fi
+	return 1
+}
+
+private_ipv4_legacy_route_dns_options() {
+	have_cmd route || return 1
+	route 2>/dev/null | awk '
+		function private_ip(ip) {
+			return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+		}
+		function router_ip(ip) {
+			split(ip, octets, ".")
+			if (octets[1] != "" && octets[2] != "" && octets[3] != "") { return octets[1] "." octets[2] "." octets[3] ".1" }
+			return ""
+		}
+		{
+			iface = $NF
+			if (iface ~ /^br/ && iface != "br0" && private_ip($1) && !seen[iface]++) {
+				dns_ip = router_ip($1)
+				if (dns_ip != "") { print iface " " dns_ip }
+			}
+		}
+	'
+}
+
+private_ipv4_bridge_dns_options_with_fallbacks() {
+	local OPTIONS
+	OPTIONS="$(private_ipv4_bridge_dns_options)"
+	if [ -z "${OPTIONS}" ]; then
+		OPTIONS="$(private_ipv4_route_dns_options)"
+	fi
+	if [ -z "${OPTIONS}" ]; then
+		OPTIONS="$(private_ipv4_legacy_route_dns_options)"
+	fi
+	printf "%s\n" "${OPTIONS}"
+}
+
+dnsmasq_delete_matching() {
+	local CONFIG PATTERN SED_SCRIPT
+	CONFIG="$1"
+	shift
+	SED_SCRIPT=""
+	for PATTERN in "$@"; do
+		SED_SCRIPT="${SED_SCRIPT}/^${PATTERN}.*$/d;"
+	done
+	[ -n "${SED_SCRIPT}" ] || return 0
+	sed -i "${SED_SCRIPT}" "${CONFIG}"
+}
+
+ipv4_reverse_zone() {
+	printf "%s\n" "$1" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}'
+}
+
+ipv6_reverse_zone() {
+	printf "%s\n" "$1" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/'
+}
+
 dnsmasq_params() {
-	local CONFIG COUNT iCOUNT dCOUNT iVARS IVARS dVARS DVARS NIVARS NDVARS NET_ADDR NET_ADDR6 LAN_IF i LAN_IF_SDN
-	if { ! readlink -f /etc/resolv.conf | grep -qE '^/rom/etc/resolv.conf' && df -h | grep -qoE '/tmp/resolv.conf'; }; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
+	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS
+	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
 	if [ -n "$(pidof "${PROCS}")" ]; then
 		if [ -z "$1" ]; then
 			CONFIG="/etc/dnsmasq.conf"
 			LAN_IF="$(nvram get lan_ifname)"
-			[ -n "${LAN_IF}" ] && NET_ADDR="$(ip -o -4 addr list "${LAN_IF}" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR="$(nvram get lan_ipaddr)"
-			[ -n "${LAN_IF}" ] && NET_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')" || NET_ADDR6="$(nvram get ipv6_rtr_addr)"
+			[ -n "${LAN_IF}" ] && NET_ADDR="$(interface_ipv4_addr "${LAN_IF}")" || NET_ADDR=""
+			[ -n "${LAN_IF}" ] && NET_ADDR6="$(interface_ipv6_addr "${LAN_IF}")" || NET_ADDR6=""
+			[ -n "${NET_ADDR}" ] || NET_ADDR="$(nvram get lan_ipaddr)"
+			[ -n "${NET_ADDR6}" ] || NET_ADDR6="$(nvram get ipv6_rtr_addr)"
 			{
-				sed -i "/^port=.*$/d" "${CONFIG}"
-				sed -i "/^dhcp-option=lan,6.*$/d" "${CONFIG}"
-				printf "%s\n" "port=553" "local=/$(printf "%s\n" "${NET_ADDR}" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/" "local=/10.in-addr.arpa/" "local=//" "dhcp-option=lan,6,${NET_ADDR}" "add-mac" >>"${CONFIG}"
+				dnsmasq_delete_matching "${CONFIG}" "port=" "dhcp-option=lan,6"
+				printf "%s\n" "port=553" "local=/$(ipv4_reverse_zone "${NET_ADDR}")/" "local=/10.in-addr.arpa/" "local=//" "dhcp-option=lan,6,${NET_ADDR}" "add-mac" >>"${CONFIG}"
 			}
-			if [ -n "${NET_ADDR6}" ]; then { printf "%s\n" "local=/$(printf "%s\n" "${NET_ADDR6}" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/" "add-subnet=32,128" >>"${CONFIG}"; }; else { printf "%s\n" "add-subnet=32" >>"${CONFIG}"; }; fi
-			if ! nvram get rc_support | grep -q 'mtlancfg' && [ -n "$(route | grep "br" | grep -v "br0" | grep -oE '\b^(((10|127)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3})|(((172\.(1[6-9]|2[0-9]|3[0-1]))|(192\.168))(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){2}))\b' | awk '{print $1}' | sed -e 's/[0-9]$/1/' | sed -e ':a; N; $!ba;s/\n/ /g')" ]; then
-				iCOUNT="1"
-				for iVARS in $(route | grep "br" | grep -v "br0" | grep -E '\b^(((10|127)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3})|(((172\.(1[6-9]|2[0-9]|3[0-1]))|(192\.168))(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){2}))\b' | awk '{print $8}' | sed -e ':a; N; $!ba;s/\n/ /g'); do
-					[ "${iCOUNT}" = "1" ] && COUNT="${iCOUNT}" && IVARS="${iVARS}"
-					[ "${iCOUNT}" != "1" ] && COUNT="${COUNT} ${iCOUNT}" && IVARS="${IVARS} ${iVARS}"
-					iCOUNT="$((iCOUNT + 1))"
-				done
-				dCOUNT="1"
-				for dVARS in $(route | grep "br" | grep -v "br0" | grep -oE '\b^(((10|127)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3})|(((172\.(1[6-9]|2[0-9]|3[0-1]))|(192\.168))(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){2}))\b' | awk '{print $1}' | sed -e 's/[0-9]$/1/' | sed -e ':a; N; $!ba;s/\n/ /g'); do
-					[ "${dCOUNT}" = "1" ] && DVARS="${dVARS}"
-					[ "${dCOUNT}" != "1" ] && DVARS="${DVARS} ${dVARS}"
-					dCOUNT="$((dCOUNT + 1))"
-				done
-				for i in ${COUNT}; do
-					NIVARS="$(printf "%s\n" "${IVARS}" | cut -d' ' -f"${i}")"
-					NDVARS="$(printf "%s\n" "${DVARS}" | cut -d' ' -f"${i}")"
+			if [ -n "${NET_ADDR6}" ]; then {
+				IPV6_REVERSE="$(ipv6_reverse_zone "${NET_ADDR6}")"
+				printf "%s\n" "local=/${IPV6_REVERSE}/" "add-subnet=32,128" >>"${CONFIG}"
+			}; else { printf "%s\n" "add-subnet=32" >>"${CONFIG}"; }; fi
+			if ! nvram get rc_support | grep -q 'mtlancfg'; then
+				private_ipv4_bridge_dns_options_with_fallbacks | while read -r NIVARS NDVARS; do
+					[ -n "${NIVARS}" ] && [ -n "${NDVARS}" ] || continue
 					printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >>"${CONFIG}"
 				done
 			fi
-			if { ! readlink -f /etc/resolv.conf | grep -qE '^/rom/etc/resolv.conf' && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
+			if { ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
 		elif [ -n "$1" ] && nvram get rc_support | grep -q 'mtlancfg'; then
 			CONFIG="/etc/dnsmasq-${1}.conf"
 			LAN_IF="$(nvram get lan_ifname)"
 			if [ -n "$LAN_IF" ]; then
-				LAN_IF_SDN="$(get_mtlan | awk -v idx="$1" '/^[[:space:]]*\|-enable:/ {e=""; br=""; sdn=""} /^[[:space:]]*\|-enable:/ {s=index($0,"["); c=index($0,"]"); if(s>0&&c>s) e=substr($0,s+1,c-s-1)} /^[[:space:]]*\|-br_ifname:/ {s=index($0,"["); c=index($0,"]"); if(s>0&&c>s) br=substr($0,s+1,c-s-1)} /^[[:space:]]*\|-sdn_idx:/ {s=index($0,"["); c=index($0,"]"); if(s>0&&c>s) {sdn=substr($0,s+1,c-s-1); if(sdn==idx&&e=="1"){print br; exit}}}' | grep -v "$LAN_IF")"
+				LAN_IF_SDN="$(sdn_bridge_for_index "$1" | grep -v "$LAN_IF")"
 			else
-				LAN_IF_SDN="$(get_mtlan | awk -v idx="$1" '/^[[:space:]]*\|-enable:/ {e=""; br=""; sdn=""} /^[[:space:]]*\|-enable:/ {s=index($0,"["); c=index($0,"]"); if(s>0&&c>s) e=substr($0,s+1,c-s-1)} /^[[:space:]]*\|-br_ifname:/ {s=index($0,"["); c=index($0,"]"); if(s>0&&c>s) br=substr($0,s+1,c-s-1)} /^[[:space:]]*\|-sdn_idx:/ {s=index($0,"["); c=index($0,"]"); if(s>0&&c>s) {sdn=substr($0,s+1,c-s-1); if(sdn==idx&&e=="1"){print br; exit}}}')"
+				LAN_IF_SDN="$(sdn_bridge_for_index "$1")"
 			fi
 			if [ -n "${LAN_IF_SDN}" ]; then
-				NET_ADDR="$(ip -o -4 addr list "${LAN_IF_SDN}" | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
-				NET_ADDR6="$(ip -o -6 addr list "${LAN_IF_SDN}" scope global | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
+				NET_ADDR="$(interface_ipv4_addr "${LAN_IF_SDN}")"
+				NET_ADDR6="$(interface_ipv6_addr "${LAN_IF_SDN}")"
 				if [ -z "${NET_ADDR}" ]; then exit; else {
-					sed -i "/^add-subnet=.*$/d" "${CONFIG}"
-					printf "%s\n" "add-subnet=32" "local=/$(printf "%s\n" "${NET_ADDR}" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/" "local=//" >>"${CONFIG}"
+					dnsmasq_delete_matching "${CONFIG}" "add-subnet=" "port=" "add-mac" "dhcp-option=${LAN_IF_SDN},6"
+					printf "%s\n" "local=/$(ipv4_reverse_zone "${NET_ADDR}")/" "local=//" >>"${CONFIG}"
 				}; fi
-				for PARAM in "port=" "add-mac" "dhcp-option=${LAN_IF_SDN},6"; do
-					sed -i "/^${PARAM}.*$/d" "${CONFIG}"
-				done
 				printf "%s\n" "port=553" "add-mac" "dhcp-option=${LAN_IF_SDN},6,${NET_ADDR}" >>"${CONFIG}"
 				if [ -n "${NET_ADDR6}" ]; then {
-					sed -i "/^add-subnet=.*$/d" "${CONFIG}"
-					printf "%s\n" "add-subnet=32,128" "local=/$(printf "%s\n" "${NET_ADDR6}" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/" >>"${CONFIG}"
-				}; fi
+					IPV6_REVERSE="$(ipv6_reverse_zone "${NET_ADDR6}")"
+					printf "%s\n" "add-subnet=32,128" "local=/${IPV6_REVERSE}/" >>"${CONFIG}"
+				}; else { printf "%s\n" "add-subnet=32" >>"${CONFIG}"; }; fi
 			else
 				exit
 			fi
@@ -372,7 +535,7 @@ system_time_ready() {
 		*) [ "${year}" -gt "1970" ] && return 0 ;;
 	esac
 	now="$(/bin/date -u '+%s' 2>/dev/null)"
-	script_time="$(/bin/date -u -r "$0" '+%s' 2>/dev/null)"
+	script_time="$(/bin/date -u -r "${MID_SCRIPT}" '+%s' 2>/dev/null)"
 	case "${now}:${script_time}" in
 		*[!0-9:]* | "":* | *:) return 1 ;;
 	esac
@@ -409,23 +572,32 @@ netcheck() {
 	done
 }
 
+proc_write() {
+	local TARGET VALUE
+	VALUE="$1"
+	TARGET="$2"
+	{ [ -e "${TARGET}" ] || return 0; }
+	{ [ -w "${TARGET}" ] || return 0; }
+	{ printf "%s" "${VALUE}" >"${TARGET}"; }
+}
+
 proc_optimizations() {
-	{ printf "4194304" >/proc/sys/kernel/pid_max; }                                 # Ensure max PID coverage
-	{ printf "2" >/proc/sys/vm/overcommit_memory; }                                 # Ensure ratio algorithm checks properly work including swap.
-	{ printf "60" >/proc/sys/vm/swappiness; }                                       # Ensure swappiness is set for more readily usability.
-	{ printf "50" >/proc/sys/vm/overcommit_ratio; }                                 # Ensure a proper overcommit policy is available.
-	{ printf "4194304" >/proc/sys/net/core/rmem_max; }                              # Ensure UDP receive buffer set to 4M.
-	{ printf "1048576" >/proc/sys/net/core/wmem_max; }                              # Ensure 1M for wmem_max.
-	{ printf "0" >/proc/sys/net/ipv4/icmp_ratelimit; }                              # Ensure Control over MTRS
-	{ printf "256" >/proc/sys/net/ipv4/neigh/default/gc_thresh1; }                  # Increase ARP cache sizes and GC thresholds
-	{ printf "1024" >/proc/sys/net/ipv4/neigh/default/gc_thresh2; }                 # Increase ARP cache sizes and GC thresholds
-	{ printf "2048" >/proc/sys/net/ipv4/neigh/default/gc_thresh3; }                 # Increase ARP cache sizes and GC thresholds
-	{ printf "240" >/proc/sys/net/netfilter/nf_conntrack_tcp_timeout_max_retrans; } # Lower conntrack tcp_timeout_max_retrans from 300 to 240
-	if [ -n "$(nvram get ipv6_service)" ]; then                                     #IPV6 proc variants
-		{ printf "0" >/proc/sys/net/ipv6/icmp/ratelimit; }
-		{ printf "256" >/proc/sys/net/ipv6/neigh/default/gc_thresh1; }
-		{ printf "1024" >/proc/sys/net/ipv6/neigh/default/gc_thresh2; }
-		{ printf "2048" >/proc/sys/net/ipv6/neigh/default/gc_thresh3; }
+	{ proc_write "4194304" "/proc/sys/kernel/pid_max"; }                                 # Ensure max PID coverage
+	{ proc_write "2" "/proc/sys/vm/overcommit_memory"; }                                 # Ensure ratio algorithm checks properly work including swap.
+	{ proc_write "60" "/proc/sys/vm/swappiness"; }                                       # Ensure swappiness is set for more readily usability.
+	{ proc_write "50" "/proc/sys/vm/overcommit_ratio"; }                                 # Ensure a proper overcommit policy is available.
+	{ proc_write "4194304" "/proc/sys/net/core/rmem_max"; }                              # Ensure UDP receive buffer set to 4M.
+	{ proc_write "1048576" "/proc/sys/net/core/wmem_max"; }                              # Ensure 1M for wmem_max.
+	{ proc_write "0" "/proc/sys/net/ipv4/icmp_ratelimit"; }                              # Ensure Control over MTRS
+	{ proc_write "240" "/proc/sys/net/netfilter/nf_conntrack_tcp_timeout_max_retrans"; } # Lower conntrack tcp_timeout_max_retrans from 300 to 240
+	{ proc_write "256" "/proc/sys/net/ipv4/neigh/default/gc_thresh1"; }                  # Increase ARP cache sizes and GC thresholds
+	{ proc_write "1024" "/proc/sys/net/ipv4/neigh/default/gc_thresh2"; }                 # Increase ARP cache sizes and GC thresholds
+	{ proc_write "2048" "/proc/sys/net/ipv4/neigh/default/gc_thresh3"; }                 # Increase ARP cache sizes and GC thresholds
+	if [ -n "$(nvram get ipv6_service)" ]; then                                          # IPV6 proc variants
+		{ proc_write "0" "/proc/sys/net/ipv6/icmp/ratelimit"; }
+		{ proc_write "256" "/proc/sys/net/ipv6/neigh/default/gc_thresh1"; }
+		{ proc_write "1024" "/proc/sys/net/ipv6/neigh/default/gc_thresh2"; }
+		{ proc_write "2048" "/proc/sys/net/ipv6/neigh/default/gc_thresh3"; }
 	fi
 }
 
@@ -471,59 +643,77 @@ start_adguardhome() {
 }
 
 start_monitor() {
+	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_SLEEP_INTERVAL MONITOR_STATE
+	MONITOR_BINARY_RETRY_INTERVAL="10"
+	MONITOR_HEALTHCHECK_INTERVAL="300"
+	MONITOR_HEALTHCHECK_TIMEOUT="150"
+	MONITOR_SLEEP_INTERVAL="10"
+	MONITOR_STATE="running"
 	trap '' HUP INT QUIT ABRT TERM TSTP
-	trap 'EXIT="1"' USR1
-	trap 'EXIT="2"' USR2
+	trap 'MONITOR_STATE="stop"' USR1
+	trap 'MONITOR_STATE="restart"' USR2
 	{ service_wait netcheck; }
-	local COUNT EXIT
-	EXIT="0"
 	logger -st "${NAME}" "Starting Monitor!"
+	logger -st "${NAME}" "Monitor health checks will run every ${MONITOR_HEALTHCHECK_INTERVAL} second(s)."
 	while true; do
-		if [ -f "/opt/sbin/AdGuardHome" ]; then
-			case ${EXIT} in
-				"0")
-					timezone
-					case "${COUNT}" in
-						"")
-							COUNT="0"
-							{ adguardhome_run start_adguardhome; }
-							;;
-					esac
-					case "$(pidof "${PROCS}")" in
-						"")
-							logger -st "${NAME}" "Warning: ${PROCS} is dead; Monitor will start it!"
-							unset COUNT
-							;;
-						*)
-							case "${COUNT}" in
-								"30" | "60" | "90")
-									if [ "${COUNT}" = "90" ]; then COUNT="0"; else COUNT="$((COUNT + 1))"; fi
-									if { ! service_wait netcheck 150; }; then
-										logger -st "${NAME}" "Warning: ${PROCS} is not responding; Monitor will re-start it!"
-										unset COUNT
-									fi
-									;;
-								*)
-									COUNT="$((COUNT + 1))"
-									;;
-							esac
-							if [ -n "${COUNT}" ]; then sleep 10s; fi
-							;;
-					esac
-					;;
-				"1")
-					logger -st "${NAME}" "Stopping Monitor!"
-					trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
-					{ adguardhome_run stop_adguardhome; }
-					break
-					;;
-				"2")
-					logger -st "${NAME}" "Monitor is restarting AdGuardHome!"
-					unset COUNT
-					EXIT="0"
-					;;
-			esac
+		if [ "${MONITOR_STATE}" = "stop" ]; then # A place to exit early if needed, or if binary becomes unavailable before service-stop.
+			logger -st "${NAME}" "Stopping Monitor!"
+			trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
+			{ adguardhome_run stop_adguardhome; }
+			break
 		fi
+		if [ ! -x "/opt/sbin/AdGuardHome" ]; then
+			if [ -z "${BINARY_UNAVAILABLE_LOGGED}" ]; then
+				logger -st "${NAME}" "Warning: AdGuardHome binary is unavailable; Monitor will wait."
+				BINARY_UNAVAILABLE_LOGGED="1"
+			fi
+			sleep "${MONITOR_BINARY_RETRY_INTERVAL}s"
+			continue
+		fi
+		if [ -n "${BINARY_UNAVAILABLE_LOGGED}" ]; then
+			logger -st "${NAME}" "AdGuardHome binary is available and executable; Monitor will resume."
+			unset BINARY_UNAVAILABLE_LOGGED MONITOR_ELAPSED
+		fi
+		case ${MONITOR_STATE} in
+			"running")
+				timezone
+				case "${MONITOR_ELAPSED}" in
+					"")
+						MONITOR_ELAPSED="0"
+						{ adguardhome_run start_adguardhome; }
+						;;
+				esac
+				case "$(pidof "${PROCS}")" in
+					"")
+						logger -st "${NAME}" "Warning: ${PROCS} is dead; Monitor will start it!"
+						unset MONITOR_ELAPSED
+						;;
+					*)
+						if [ "${MONITOR_ELAPSED}" -ge "${MONITOR_HEALTHCHECK_INTERVAL}" ]; then
+							MONITOR_ELAPSED="0"
+							if { ! service_wait netcheck "${MONITOR_HEALTHCHECK_TIMEOUT}"; }; then
+								logger -st "${NAME}" "Warning: ${PROCS} is not responding; Monitor will re-start it!"
+								unset MONITOR_ELAPSED
+							fi
+						else
+							MONITOR_ELAPSED="$((MONITOR_ELAPSED + MONITOR_SLEEP_INTERVAL))"
+						fi
+						if [ -n "${MONITOR_ELAPSED}" ]; then sleep "${MONITOR_SLEEP_INTERVAL}s"; fi
+						;;
+				esac
+				;;
+			"stop")
+				logger -st "${NAME}" "Stopping Monitor!"
+				trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
+				{ adguardhome_run stop_adguardhome; }
+				break
+				;;
+			"restart")
+				logger -st "${NAME}" "Monitor is restarting AdGuardHome!"
+				unset MONITOR_ELAPSED
+				MONITOR_STATE="running"
+				;;
+		esac
 	done
 }
 
@@ -548,11 +738,25 @@ stop_monitor() {
 }
 
 timezone() {
-	local TIMEZONE TARGET
+	local NOW SCRIPT_TIME SCRIPT_TIME_TEXT TARGET TIMEZONE
 	TIMEZONE="/jffs/addons/AdGuardHome.d/localtime"
 	TARGET="/etc/localtime"
 	if { [ ! -f "${TARGET}" ] && [ -f "${TIMEZONE}" ]; }; then { ln -sf "${TIMEZONE}" "${TARGET}"; }; fi
-	if [ -f "${TARGET}" ] || [ "$(readlink "${TARGET}")" ]; then { if [ "$(/bin/date -u '+%s')" -le "$(/bin/date -u -r "${MID_SCRIPT}" '+%s')" ]; then { /bin/date -u -s "$(/bin/date -u -r "${MID_SCRIPT}" '+%Y-%m-%d %H:%M:%S')"; }; else { touch "${MID_SCRIPT}"; }; fi; }; fi
+	if [ -f "${TARGET}" ] || [ -n "$(readlink "${TARGET}")" ]; then
+		NOW="$(/bin/date -u '+%s' 2>/dev/null)"
+		SCRIPT_TIME="$(/bin/date -u -r "${MID_SCRIPT}" '+%s' 2>/dev/null)"
+		case "${NOW}:${SCRIPT_TIME}" in
+			*[!0-9:]* | "":* | *:)
+				return 1
+				;;
+		esac
+		if [ "${NOW}" -le "${SCRIPT_TIME}" ]; then
+			SCRIPT_TIME_TEXT="$(/bin/date -u -r "${MID_SCRIPT}" '+%Y-%m-%d %H:%M:%S')"
+			{ /bin/date -u -s "${SCRIPT_TIME_TEXT}"; }
+		else
+			{ touch "${MID_SCRIPT}"; }
+		fi
+	fi
 }
 
 if [ -f "${UPPER_SCRIPT}" ]; then UPPER_SCRIPT_LOC=". ${UPPER_SCRIPT}"; fi
