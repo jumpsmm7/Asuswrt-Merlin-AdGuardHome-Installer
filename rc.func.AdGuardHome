@@ -14,6 +14,10 @@ ansi_std="$(printf "\033[m")"
 ansi_rev="$(printf "\033[7m")"
 ansi_ul="$(printf "\033[4m")"
 
+# Functions are grouped by purpose; names are sorted alpha-numerically within each group.
+
+# Process helpers
+
 process_pids() {
 	pidof "$1" 2>/dev/null
 }
@@ -58,6 +62,25 @@ signal_process() {
 	else
 		killall -q "-${_SIGNAL}" "${_PROC}" 2>/dev/null
 	fi
+}
+
+# Service action helpers
+
+check() {
+	printf "%s" "${ansi_white} Checking ${DESC}... "
+	if process_running "${PROC}"; then
+		printf "%s\n" "            ${ansi_green} alive. ${ansi_std}"
+		return 0
+	else
+		printf "%s\n" "            ${ansi_red} dead. ${ansi_std}"
+		return 1
+	fi
+}
+
+reload() {
+	SIGNAL="HUP"
+	printf "%s\n" "${ansi_white} Sending ${SIGNAL} to ${PROC}... ${ansi_std}"
+	signal_process "${SIGNAL}" "${PROC}"
 }
 
 start() {
@@ -115,23 +138,6 @@ stop() {
 		printf "%s\n" "            ${ansi_green} done. ${ansi_std}"
 		return 0
 	fi
-}
-
-check() {
-	printf "%s" "${ansi_white} Checking ${DESC}... "
-	if process_running "${PROC}"; then
-		printf "%s\n" "            ${ansi_green} alive. ${ansi_std}"
-		return 0
-	else
-		printf "%s\n" "            ${ansi_red} dead. ${ansi_std}"
-		return 1
-	fi
-}
-
-reload() {
-	SIGNAL="HUP"
-	printf "%s\n" "${ansi_white} Sending ${SIGNAL} to ${PROC}... ${ansi_std}"
-	signal_process "${SIGNAL}" "${PROC}"
 }
 
 for PROC in ${PROCS}; do

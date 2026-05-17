@@ -15,6 +15,10 @@ GOMEMLIMIT="$(free | awk -v VAR="${GOMAXPROCS}" '/Mem/{print int(($4*0.9537/1024
 ARGS="-s run -c ${WORK_DIR}/AdGuardHome.yaml -w ${WORK_DIR} --pidfile ${PID_FILE} --no-check-update -l ${LOG_FILE}"
 PREARGS="env TZ=/etc/localtime GOGC=${GOGC} GOMAXPROCS=${GOMAXPROCS} GOMEMLIMIT=${GOMEMLIMIT} QUIC_GO_DISABLE_ECN=true"
 
+# Functions are grouped by purpose; names are sorted alpha-numerically within each group.
+
+# DNS handoff helpers
+
 adguardhome_owns_dns() {
 	pidof "${PROCS}" >/dev/null 2>&1 || return 1
 	netstat -nlp 2>/dev/null | awk -v proc="${PROCS}" '
@@ -42,6 +46,12 @@ kill_dns_port_owners() {
 	[ -n "${_dns_pids}" ] && kill -s 9 ${_dns_pids} 2>/dev/null
 }
 
+# Service hook helpers
+
+post_start_adguardhome() {
+	service restart_dnsmasq
+}
+
 pre_start_adguardhome() {
 	(
 		ulimit -v 1750000
@@ -56,10 +66,6 @@ pre_start_adguardhome() {
 			sleep 1s
 		done
 	) &
-}
-
-post_start_adguardhome() {
-	service restart_dnsmasq
 }
 
 PRECMD="pre_start_adguardhome"
