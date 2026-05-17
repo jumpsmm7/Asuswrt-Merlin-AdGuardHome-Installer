@@ -7,9 +7,7 @@ set -u
 FAILED=0
 UPDATED=0
 
-have_cmd() {
-	which "$1" >/dev/null 2>&1
-}
+# Functions are sorted alpha-numerically for readability.
 
 calc_md5() {
 	_file="$1"
@@ -20,6 +18,10 @@ calc_md5() {
 	else
 		return 1
 	fi
+}
+
+have_cmd() {
+	which "$1" >/dev/null 2>&1
 }
 
 is_md5_hex() {

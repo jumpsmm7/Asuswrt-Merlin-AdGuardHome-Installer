@@ -16,75 +16,61 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.1.3                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.1.4                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v2.1.3"
+AI_VERSION="v2.1.4"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly API_HEADERS="/tmp/AGH_GIT_API_$$_headers.out"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
 readonly ADGUARDHOME_READY_TIMEOUT="180"
+readonly ADDON_DIR="/jffs/addons/AdGuardHome.d"
+readonly BASE_DIR="/opt/etc"
+readonly TARG_DIR="${BASE_DIR}/AdGuardHome"
+readonly AGH_FILE="${TARG_DIR}/AdGuardHome"
+readonly CONF_FILE="${TARG_DIR}/.config"
+readonly YAML_FILE="${AGH_FILE}.yaml"
+readonly YAML_BAK="${YAML_FILE}.bak"
+readonly YAML_ERR="${YAML_FILE}.err"
+readonly YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
+SCRIPT_LOC="$(readlink -f "$0")" || true
+readonly SCRIPT_LOC
 
-cleanup_api_files() {
-	rm -f "${API_FILE}" "${API_HEADERS}"
-}
+BOLD="$(printf "\033[1m")" || true
+readonly BOLD
+NORM="$(printf "\033[0m")" || true
+readonly NORM
+INFO="$(printf "%s" "${BOLD} Info: ${NORM}")" || true
+readonly INFO
+ERROR="$(printf "%s" "${BOLD} *** Error: ${NORM}")" || true
+readonly ERROR
+WARNING="$(printf "%s" "${BOLD} * Warning: ${NORM}")" || true
+readonly WARNING
+INPUT="$(printf "%s" "${BOLD} => ${NORM}")" || true
+readonly INPUT
 
-trap cleanup_api_files EXIT
+# Functions are grouped by purpose; names are sorted alpha-numerically within each group.
+
+# Bootstrap and package helpers
 
 ai_have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
 
-opkg_pkg_installed() {
-	_pkg="$1"
-	opkg list-installed 2>/dev/null | awk -v pkg="${_pkg}" '$1 == pkg { found = 1; exit } END { exit(found ? 0 : 1) }'
-}
-
-opkg_pkg_available() {
-	_pkg="$1"
-	opkg list "${_pkg}" 2>/dev/null | awk -v pkg="${_pkg}" '$1 == pkg { found = 1; exit } END { exit(found ? 0 : 1) }'
-}
-
-ensure_opkg_package() {
-	_pkg="$1"
-	if opkg_pkg_installed "${_pkg}"; then
-		return 0
-	fi
-
-	if ! opkg install "${_pkg}" >/dev/null 2>&1; then
-		return 1
-	fi
-
-	opkg_pkg_installed "${_pkg}"
-}
-
-remove_conflicting_apache() {
-	if opkg_pkg_installed apache || opkg_pkg_installed apache-utils; then
-		opkg flag user apache apache-utils >/dev/null 2>&1
-		opkg remove apache apache-utils --force-removal-of-dependent-packages >/dev/null 2>&1
-	fi
-}
-
-python_bcrypt_available() {
-	ai_have_cmd python3 && python3 -c 'import bcrypt' >/dev/null 2>&1
-}
-
-hash_password_python() {
-	_password="$1"
-	printf '%s' "${_password}" | python3 -c 'import sys, bcrypt; password = sys.stdin.buffer.read(); print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))'
+cleanup_api_files() {
+	rm -f "${API_FILE}" "${API_HEADERS}"
 }
 
 ensure_bcrypt_tool() {
 	if [ -f "/opt/bin/bcrypt-tool" ]; then
 		return 0
 	fi
-
 	case "$(/bin/uname -m)" in
 		"aarch64" | "arm64")
 			ensure_opkg_package go || return 1
@@ -97,12 +83,23 @@ ensure_bcrypt_tool() {
 			fi
 			;;
 	esac
-
 	export PATH="${PATH}:/opt/bin/go/bin"
 	export GOROOT="/opt/bin/go"
 	export GOBIN="/opt/bin/"
 	ai_have_cmd go || return 1
 	go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
+}
+
+ensure_opkg_package() {
+	_pkg="$1"
+	if opkg_pkg_installed "${_pkg}"; then
+		return 0
+	fi
+
+	if ! opkg install "${_pkg}" >/dev/null 2>&1; then
+		return 1
+	fi
+	opkg_pkg_installed "${_pkg}"
 }
 
 ensure_password_hash_tool() {
@@ -111,33 +108,36 @@ ensure_password_hash_tool() {
 	if python_bcrypt_available; then
 		return 0
 	fi
-
 	ensure_bcrypt_tool
 }
 
-wget_help() {
-	if [ -z "${WGET_HELP_CACHE_SET:-}" ]; then
-		WGET_HELP_CACHE="$(wget --help 2>&1)"
-		WGET_HELP_CACHE_SET="1"
+hash_password_python() {
+	_password="$1"
+	printf '%s' "${_password}" | python3 -c 'import sys, bcrypt; password = sys.stdin.buffer.read(); print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))'
+}
+
+opkg_pkg_available() {
+	_pkg="$1"
+	opkg list "${_pkg}" 2>/dev/null | awk -v pkg="${_pkg}" '$1 == pkg { found = 1; exit } END { exit(found ? 0 : 1) }'
+}
+
+opkg_pkg_installed() {
+	_pkg="$1"
+	opkg list-installed 2>/dev/null | awk -v pkg="${_pkg}" '$1 == pkg { found = 1; exit } END { exit(found ? 0 : 1) }'
+}
+
+python_bcrypt_available() {
+	ai_have_cmd python3 && python3 -c 'import bcrypt' >/dev/null 2>&1
+}
+
+remove_conflicting_apache() {
+	if opkg_pkg_installed apache || opkg_pkg_installed apache-utils; then
+		opkg flag user apache apache-utils >/dev/null 2>&1
+		opkg remove apache apache-utils --force-removal-of-dependent-packages >/dev/null 2>&1
 	fi
-	printf '%s\n' "${WGET_HELP_CACHE}"
 }
 
-wget_has_option() {
-	wget_help | grep -q -e "$1"
-}
-
-curl_help() {
-	if [ -z "${CURL_HELP_CACHE_SET:-}" ]; then
-		CURL_HELP_CACHE="$(curl --help all 2>&1 || curl --help 2>&1)"
-		CURL_HELP_CACHE_SET="1"
-	fi
-	printf '%s\n' "${CURL_HELP_CACHE}"
-}
-
-curl_has_option() {
-	curl_help | grep -q -e "$1"
-}
+# HTTP/download helpers
 
 curl_common_args() {
 	if [ -z "${CURL_COMMON_ARGS_SET:-}" ]; then
@@ -152,6 +152,18 @@ curl_common_args() {
 	printf '%s' "${CURL_COMMON_ARGS}"
 }
 
+curl_has_option() {
+	curl_help | grep -q -e "$1"
+}
+
+curl_help() {
+	if [ -z "${CURL_HELP_CACHE_SET:-}" ]; then
+		CURL_HELP_CACHE="$(curl --help all 2>&1 || curl --help 2>&1)"
+		CURL_HELP_CACHE_SET="1"
+	fi
+	printf '%s\n' "${CURL_HELP_CACHE}"
+}
+
 curl_insecure_arg() {
 	if [ -z "${CURL_INSECURE_ARG_SET:-}" ]; then
 		CURL_INSECURE_ARG=""
@@ -159,29 +171,6 @@ curl_insecure_arg() {
 		CURL_INSECURE_ARG_SET="1"
 	fi
 	printf '%s' "${CURL_INSECURE_ARG}"
-}
-
-wget_common_args() {
-	if [ -z "${WGET_COMMON_ARGS_SET:-}" ]; then
-		WGET_COMMON_ARGS=""
-		wget_has_option '--no-cache' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --no-cache"
-		wget_has_option '--no-cookies' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --no-cookies"
-		wget_has_option '--tries' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --tries=5"
-		wget_has_option '--timeout' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --timeout=25"
-		wget_has_option '--waitretry' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --waitretry=5"
-		wget_has_option '--retry-connrefused' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --retry-connrefused"
-		WGET_COMMON_ARGS_SET="1"
-	fi
-	printf '%s' "${WGET_COMMON_ARGS}"
-}
-
-wget_insecure_arg() {
-	if [ -z "${WGET_INSECURE_ARG_SET:-}" ]; then
-		WGET_INSECURE_ARG=""
-		wget_has_option '--no-check-certificate' && WGET_INSECURE_ARG=" --no-check-certificate"
-		WGET_INSECURE_ARG_SET="1"
-	fi
-	printf '%s' "${WGET_INSECURE_ARG}"
 }
 
 http_get_file() {
@@ -258,50 +247,42 @@ http_probe() {
 	fi
 }
 
-varcnt=0
-readonly MAX_RETRIES="1"
-until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
-	http_get_file "${LATEST_URL}?per_page=5" "${API_FILE}" "${API_HEADERS}"
-	if [ -s "${API_FILE}" ]; then
-		REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
-		REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
-		break
+wget_common_args() {
+	if [ -z "${WGET_COMMON_ARGS_SET:-}" ]; then
+		WGET_COMMON_ARGS=""
+		wget_has_option '--no-cache' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --no-cache"
+		wget_has_option '--no-cookies' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --no-cookies"
+		wget_has_option '--tries' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --tries=5"
+		wget_has_option '--timeout' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --timeout=25"
+		wget_has_option '--waitretry' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --waitretry=5"
+		wget_has_option '--retry-connrefused' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --retry-connrefused"
+		WGET_COMMON_ARGS_SET="1"
 	fi
-	if [ "${varcnt}" -gt "${MAX_RETRIES}" ]; then
-		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr) per requesters IP." "For more information, please read ${API_HEADERS}." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
-		sleep 3s
-		exit 1
-	fi
-	varcnt="$((varcnt + 1))"
-done
-cleanup_api_files
-wait
-unset varcnt
-readonly REMOTE_VER REMOTE_BETA
-readonly ADDON_DIR="/jffs/addons/AdGuardHome.d"
-readonly BASE_DIR="/opt/etc"
-readonly TARG_DIR="${BASE_DIR}/AdGuardHome"
-readonly AGH_FILE="${TARG_DIR}/AdGuardHome"
-readonly CONF_FILE="${TARG_DIR}/.config"
-readonly YAML_FILE="${AGH_FILE}.yaml"
-readonly YAML_BAK="${YAML_FILE}.bak"
-readonly YAML_ERR="${YAML_FILE}.err"
-readonly YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
-SCRIPT_LOC="$(readlink -f "$0")" || true
-readonly SCRIPT_LOC
+	printf '%s' "${WGET_COMMON_ARGS}"
+}
 
-BOLD="$(printf "\033[1m")" || true
-readonly BOLD
-NORM="$(printf "\033[0m")" || true
-readonly NORM
-INFO="$(printf "%s" "${BOLD} Info: ${NORM}")" || true
-readonly INFO
-ERROR="$(printf "%s" "${BOLD} *** Error: ${NORM}")" || true
-readonly ERROR
-WARNING="$(printf "%s" "${BOLD} * Warning: ${NORM}")" || true
-readonly WARNING
-INPUT="$(printf "%s" "${BOLD} => ${NORM}")" || true
-readonly INPUT
+wget_has_option() {
+	wget_help | grep -q -e "$1"
+}
+
+wget_help() {
+	if [ -z "${WGET_HELP_CACHE_SET:-}" ]; then
+		WGET_HELP_CACHE="$(wget --help 2>&1)"
+		WGET_HELP_CACHE_SET="1"
+	fi
+	printf '%s\n' "${WGET_HELP_CACHE}"
+}
+
+wget_insecure_arg() {
+	if [ -z "${WGET_INSECURE_ARG_SET:-}" ]; then
+		WGET_INSECURE_ARG=""
+		wget_has_option '--no-check-certificate' && WGET_INSECURE_ARG=" --no-check-certificate"
+		WGET_INSECURE_ARG_SET="1"
+	fi
+	printf '%s' "${WGET_INSECURE_ARG}"
+}
+
+# Console and config helpers
 
 _quote() {
 	printf "%s\n" "$1" | sed 's/[]\/()$*.^|[]/\\&/g'
@@ -325,6 +306,15 @@ PTXT() {
 	esac
 }
 
+branch_is_safe() {
+	case "$1" in
+		"" | /* | */ | *..* | *//* | *\\* | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-]*)
+			return 1
+			;;
+	esac
+	return 0
+}
+
 conf_value() {
 	[ -f "${CONF_FILE}" ] || return 1
 	awk -v KEY="$1" '
@@ -341,15 +331,6 @@ md5_is_valid() {
 	[ "$(PTXT -n "$1" | wc -c)" -eq 32 ] && PTXT -n "$1" | grep -qiE '^[0-9a-f]{32}$'
 }
 
-branch_is_safe() {
-	case "$1" in
-		"" | /* | */ | *..* | *//* | *\\* | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-]*)
-			return 1
-			;;
-	esac
-	return 0
-}
-
 sanitize_branch() {
 	local CANDIDATE
 	CANDIDATE="$1"
@@ -361,157 +342,7 @@ sanitize_branch() {
 	fi
 }
 
-agh_is_running() {
-	[ -n "$(pidof AdGuardHome)" ]
-}
-
-agh_process_count() {
-	pidof AdGuardHome S99AdGuardHome | wc -w
-}
-
-agh_check() {
-	/opt/etc/init.d/S99AdGuardHome check
-}
-
-monotonic_seconds() {
-	local uptime
-	if read -r uptime _ </proc/uptime; then
-		uptime="${uptime%%.*}"
-		case "${uptime}" in
-			"" | *[!0-9]*) return 1 ;;
-		esac
-		printf '%s\n' "${uptime}"
-		return 0
-	fi
-	return 1
-}
-
-agh_wait_stopped() {
-	local elapsed maxwait
-	elapsed="0"
-	maxwait="${1:-${ADGUARDHOME_WAIT_TIMEOUT}}"
-	while [ "$(agh_process_count)" -ge "1" ]; do
-		if [ "${elapsed}" -ge "${maxwait}" ]; then return 1; fi
-		sleep 1s
-		elapsed="$((elapsed + 1))"
-	done
-	return 0
-}
-
-agh_wait_started() {
-	local elapsed maxwait
-	elapsed="0"
-	maxwait="${1:-${ADGUARDHOME_WAIT_TIMEOUT}}"
-	while ! agh_is_running; do
-		if [ "${elapsed}" -ge "${maxwait}" ]; then return 1; fi
-		sleep 1s
-		elapsed="$((elapsed + 1))"
-	done
-	return 0
-}
-
-agh_wait_ready() {
-	local elapsed maxwait now remaining start
-	maxwait="${1:-${ADGUARDHOME_READY_TIMEOUT}}"
-	start="$(monotonic_seconds)" || return 1
-	while :; do
-		now="$(monotonic_seconds)" || return 1
-		elapsed="$((now - start))"
-		if [ "${elapsed}" -ge "${maxwait}" ]; then return 1; fi
-		remaining="$((maxwait - elapsed))"
-		if check_connection "${remaining}" && agh_is_running; then return 0; fi
-		now="$(monotonic_seconds)" || return 1
-		elapsed="$((now - start))"
-		if [ "${elapsed}" -ge "${maxwait}" ]; then return 1; fi
-		sleep 1s
-	done
-}
-
-agh_stop() {
-	if agh_is_running; then
-		if service stop_AdGuardHome >/dev/null 2>&1; then
-			sleep 1s
-		elif /opt/etc/init.d/S99AdGuardHome stop; then
-			sleep 1s
-		elif /opt/etc/init.d/S99AdGuardHome kill; then
-			sleep 1s
-		else
-			killall -q -9 AdGuardHome 2>/dev/null
-			rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null
-			sleep 1s
-		fi
-	fi
-	sleep 1s
-	if ! agh_wait_stopped "${ADGUARDHOME_WAIT_TIMEOUT}"; then
-		PTXT "${ERROR} Timed out waiting for AdGuardHome to stop."
-		return 1
-	fi
-	sleep 1s
-	agh_check
-}
-
-agh_start() {
-	if ! agh_is_running; then
-		if service start_AdGuardHome >/dev/null 2>&1; then
-			sleep 1s
-		elif /opt/etc/init.d/S99AdGuardHome start; then
-			sleep 1s
-		else
-			return 1
-		fi
-	fi
-	sleep 1s
-	if ! agh_wait_started "${ADGUARDHOME_WAIT_TIMEOUT}"; then
-		PTXT "${ERROR} Timed out waiting for AdGuardHome to start."
-		return 1
-	fi
-	sleep 1s
-	agh_check
-	agh_is_running
-}
-
-agh_restart() {
-	if agh_is_running; then
-		if service restart_AdGuardHome >/dev/null 2>&1; then
-			sleep 1s
-		elif /opt/etc/init.d/S99AdGuardHome restart; then
-			sleep 1s
-		else
-			return 1
-		fi
-	else
-		agh_start || return 1
-	fi
-	sleep 1s
-	if ! agh_wait_ready "${ADGUARDHOME_READY_TIMEOUT}"; then
-		PTXT "${ERROR} Timed out waiting for AdGuardHome network checks."
-		return 1
-	fi
-	sleep 1s
-	agh_check
-	agh_is_running
-}
-
-agh_start_error() {
-	PTXT "${ERROR} Couldn't start AdGuardHome!" \
-		"${ERROR} Please send WebUI System Log to dev."
-}
-
-agh_complete_startup() {
-	PTXT "${INFO} Starting AdGuardHome..."
-	agh_stop
-	if ! agh_start; then
-		agh_start_error
-		return 1
-	fi
-	PTXT "${INFO} Please wait while we perform one last check."
-	if ! agh_restart; then
-		agh_start_error
-		return 1
-	fi
-	PTXT "${INFO} AdGuardHome setup is complete."
-	return 0
-}
+# AdGuardHome process helpers
 
 AdGuardHome_authen() {
 	if [ -z "${PW1}" ] || [ -z "${PW2}" ]; then
@@ -572,45 +403,178 @@ AdGuardHome_authen() {
 	fi
 }
 
-backup_restore() {
-	if [ "$1" = "BACKUP" ] && [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; then
-		if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
-			PTXT "${INFO} There is an old backup detected."
-			local USE_OLD
-			if read_yesno "Do you want to continue?(this will remove the old backup)"; then USE_OLD="NO"; else USE_OLD="YES"; fi
-			if [ "${USE_OLD}" = "YES" ]; then
-				PTXT "${INFO} Leaving Old Backup."
-				end_op_message 1
-			elif [ "${USE_OLD}" = "NO" ]; then
-				PTXT "${INFO} Removing Old Backup."
-				rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"
-			fi
-		fi
-		PTXT "${INFO} This operation will backup AdGuardHome(<4MB)to ENTWARE /opt/etc." \
-			"${INFO} Please wait a moment."
-		tar -czvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${TARG_DIR}" ../AdGuardHome/ >/dev/null 2>&1
-		PTXT "${INFO} Backup complete"
-		[ -z "$2" ] && end_op_message 0 || return 0
-	elif [ "$1" = "BACKUP" ] && [ ! -d "${TARG_DIR}" ] && [ ! -f "${AGH_FILE}" ]; then
-		PTXT "${ERROR} No ${AGH_FILE} to Backup!"
-		end_op_message 1
-	fi
-	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
-		PTXT "${INFO} Please wait a moment."
-		tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${BASE_DIR}" >/dev/null 2>&1
-		chown "$(nvram get http_username)":root ${TARG_DIR}/*
-		chmod 755 "${AGH_FILE}"
-		chmod 644 "${YAML_FILE}"
-		[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
-		ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome
-		inst_AdGuardHome "${1:-RESTORE}"
-	elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
-		PTXT "${ERROR} No Backup found!" \
-			"${ERROR} Please make sure Backup Resides in ${BASE_DIR}"
-		end_op_message 1
-		return
-	fi
+agh_check() {
+	/opt/etc/init.d/S99AdGuardHome check
 }
+
+agh_complete_startup() {
+	PTXT "${INFO} Starting AdGuardHome..."
+	agh_stop
+	if ! agh_start; then
+		agh_start_error
+		return 1
+	fi
+	PTXT "${INFO} Please wait while we perform one last check."
+	if ! agh_restart; then
+		agh_start_error
+		return 1
+	fi
+	PTXT "${INFO} AdGuardHome setup is complete."
+	return 0
+}
+
+agh_is_running() {
+	[ -n "$(pidof AdGuardHome)" ]
+}
+
+agh_prepare_binary_replace() {
+	if { [ -f "${AGH_FILE}" ] || [ -e "/opt/sbin/AdGuardHome" ]; } && [ "$(agh_process_count)" -ge "1" ]; then
+		PTXT "${INFO} Stopping AdGuardHome before replacing the binary."
+		if ! agh_stop; then
+			PTXT "${ERROR} Unable to safely stop AdGuardHome before replacing the binary."
+			return 1
+		fi
+	fi
+	return 0
+}
+
+agh_monitor_count() {
+	pidof AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome 2>/dev/null | wc -w
+}
+
+agh_process_count() {
+	local daemon_count monitor_count
+	daemon_count="$(pidof AdGuardHome 2>/dev/null | wc -w)"
+	monitor_count="$(agh_monitor_count)"
+	printf '%s\n' "$((daemon_count + monitor_count))"
+}
+
+agh_restart() {
+	if agh_is_running; then
+		if service restart_AdGuardHome >/dev/null 2>&1; then
+			sleep 1s
+		elif /opt/etc/init.d/S99AdGuardHome restart; then
+			sleep 1s
+		else
+			return 1
+		fi
+	else
+		agh_start || return 1
+	fi
+	sleep 1s
+	if ! agh_wait_ready "${ADGUARDHOME_READY_TIMEOUT}"; then
+		PTXT "${ERROR} Timed out waiting for AdGuardHome network checks."
+		return 1
+	fi
+	sleep 1s
+	agh_check
+	agh_is_running
+}
+
+agh_start() {
+	if ! agh_is_running; then
+		if service start_AdGuardHome >/dev/null 2>&1; then
+			sleep 1s
+		elif /opt/etc/init.d/S99AdGuardHome start; then
+			sleep 1s
+		else
+			return 1
+		fi
+	fi
+	sleep 1s
+	if ! agh_wait_started "${ADGUARDHOME_WAIT_TIMEOUT}"; then
+		PTXT "${ERROR} Timed out waiting for AdGuardHome to start."
+		return 1
+	fi
+	sleep 1s
+	agh_check
+	agh_is_running
+}
+
+agh_start_error() {
+	PTXT "${ERROR} Couldn't start AdGuardHome!" \
+		"${ERROR} Please send WebUI System Log to dev."
+}
+
+agh_stop() {
+	if [ "$(agh_process_count)" -ge "1" ]; then
+		if service stop_AdGuardHome >/dev/null 2>&1; then
+			sleep 1s
+		elif /opt/etc/init.d/S99AdGuardHome stop; then
+			sleep 1s
+		elif /opt/etc/init.d/S99AdGuardHome kill; then
+			sleep 1s
+		else
+			killall -q -9 AdGuardHome 2>/dev/null
+			rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null
+			sleep 1s
+		fi
+	fi
+	sleep 1s
+	if ! agh_wait_stopped "${ADGUARDHOME_WAIT_TIMEOUT}"; then
+		PTXT "${ERROR} Timed out waiting for AdGuardHome to stop."
+		return 1
+	fi
+	sleep 1s
+	agh_check
+	return 0
+}
+
+agh_wait_ready() {
+	local elapsed maxwait now remaining start
+	maxwait="${1:-${ADGUARDHOME_READY_TIMEOUT}}"
+	start="$(monotonic_seconds)" || return 1
+	while :; do
+		now="$(monotonic_seconds)" || return 1
+		elapsed="$((now - start))"
+		if [ "${elapsed}" -ge "${maxwait}" ]; then return 1; fi
+		remaining="$((maxwait - elapsed))"
+		if check_connection "${remaining}" && agh_is_running; then return 0; fi
+		now="$(monotonic_seconds)" || return 1
+		elapsed="$((now - start))"
+		if [ "${elapsed}" -ge "${maxwait}" ]; then return 1; fi
+		sleep 1s
+	done
+}
+
+agh_wait_started() {
+	local elapsed maxwait
+	elapsed="0"
+	maxwait="${1:-${ADGUARDHOME_WAIT_TIMEOUT}}"
+	while ! agh_is_running; do
+		if [ "${elapsed}" -ge "${maxwait}" ]; then return 1; fi
+		sleep 1s
+		elapsed="$((elapsed + 1))"
+	done
+	return 0
+}
+
+agh_wait_stopped() {
+	local elapsed maxwait
+	elapsed="0"
+	maxwait="${1:-${ADGUARDHOME_WAIT_TIMEOUT}}"
+	while [ "$(agh_process_count)" -ge "1" ]; do
+		if [ "${elapsed}" -ge "${maxwait}" ]; then return 1; fi
+		sleep 1s
+		elapsed="$((elapsed + 1))"
+	done
+	return 0
+}
+
+monotonic_seconds() {
+	local uptime
+	if read -r uptime _ </proc/uptime; then
+		uptime="${uptime%%.*}"
+		case "${uptime}" in
+			"" | *[!0-9]*) return 1 ;;
+		esac
+		printf '%s\n' "${uptime}"
+		return 0
+	fi
+	return 1
+}
+
+# Validation and discovery helpers
 
 check_AdGuardHome_yaml() {
 	[ ! -f "${YAML_FILE}" ] && return
@@ -625,6 +589,7 @@ check_AdGuardHome_yaml() {
 }
 
 ########################Modified Version of @Adamm Check_Connection####################################################
+
 check_connection() {
 	local deadline i livecheck="0" maxwait now remaining sleep_for
 	maxwait="${1:-}"
@@ -965,6 +930,48 @@ choose_branch() {
 	fi
 }
 
+# Installer file and setup helpers
+
+backup_restore() {
+	if [ "$1" = "BACKUP" ] && [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; then
+		if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
+			PTXT "${INFO} There is an old backup detected."
+			local USE_OLD
+			if read_yesno "Do you want to continue?(this will remove the old backup)"; then USE_OLD="NO"; else USE_OLD="YES"; fi
+			if [ "${USE_OLD}" = "YES" ]; then
+				PTXT "${INFO} Leaving Old Backup."
+				end_op_message 1
+			elif [ "${USE_OLD}" = "NO" ]; then
+				PTXT "${INFO} Removing Old Backup."
+				rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"
+			fi
+		fi
+		PTXT "${INFO} This operation will backup AdGuardHome(<4MB)to ENTWARE /opt/etc." \
+			"${INFO} Please wait a moment."
+		tar -czvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${TARG_DIR}" ../AdGuardHome/ >/dev/null 2>&1
+		PTXT "${INFO} Backup complete"
+		[ -z "$2" ] && end_op_message 0 || return 0
+	elif [ "$1" = "BACKUP" ] && [ ! -d "${TARG_DIR}" ] && [ ! -f "${AGH_FILE}" ]; then
+		PTXT "${ERROR} No ${AGH_FILE} to Backup!"
+		end_op_message 1
+	fi
+	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
+		PTXT "${INFO} Please wait a moment."
+		tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${BASE_DIR}" >/dev/null 2>&1
+		chown "$(nvram get http_username)":root ${TARG_DIR}/*
+		chmod 755 "${AGH_FILE}"
+		chmod 644 "${YAML_FILE}"
+		[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
+		ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome
+		inst_AdGuardHome "${1:-RESTORE}"
+	elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
+		PTXT "${ERROR} No Backup found!" \
+			"${ERROR} Please make sure Backup Resides in ${BASE_DIR}"
+		end_op_message 1
+		return
+	fi
+}
+
 cleanup() {
 	mv "/opt/etc/init.d/S61AdGuardHome" "/opt/etc/init.d/S99AdGuardHome" >/dev/null 2>&1
 	[ "$(cru l | grep -c "S99AdGuardHome")" -gt 0 ] && cru -d "S99AdGuardHome"
@@ -1086,48 +1093,29 @@ download_file() {
 	return "${RET}"
 }
 
-end_op_message() {
-	case "${1:-0}" in
-		0)
-			[ "$2" = "update" ] && exit 0
-			PTXT "${INFO} Operation completed, returning to Main Menu. You can quit or continue."
-			;;
-		1)
-			[ "$2" = "update" ] && exit 1
-			PTXT "${INFO} Operation aborted, returning to Main Menu. You can quit or continue."
-			;;
-		2)
-			PTXT "${INFO} Abnormal operations, returning to Main Menu. You can quit or continue."
-			;;
-	esac
-	PTXT "====================================================="
-	PTXT " "
-	PTXT " "
-	sleep 3s && clear
-	if [ -f "${TARG_DIR}/installer" ]; then
-		chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1
-		exec "${TARG_DIR}/installer" "${BRANCH}"
-	elif [ ! -f "${TARG_DIR}/installer" ] && [ -f "${SCRIPT_LOC}" ]; then
-		chmod 755 "${SCRIPT_LOC}" >/dev/null 2>&1
-		exec "${SCRIPT_LOC}" "${BRANCH}"
-	elif [ -f "${HOME}/installer" ]; then
-		chmod 755 "${HOME}/installer"
-		exec "${HOME}/installer" "${BRANCH}"
-	else
-		clear && { end_op_header 2>/dev/null; }
-	fi
-	exit $?
-}
-
-end_op_header() {
-	sed -n -e "1,$(($(grep -wn 'esac' "$0" | cut -d':' -f1 | tail -n1) + 1))p" "$0" >"${0}.tmp"
-	chmod 755 "${0}.tmp"
-	exec "${0}.tmp" "${BRANCH}" && rm -rf "${0}.tmp"
+installer_update_reexec() {
+	local ACTION NEW_MD5 OLD_MD5
+	ACTION="$1"
+	OLD_MD5="$2"
+	[ "${ACTION}" = "update" ] || return 0
+	[ "${AI_REEXECED_INSTALLER:-0}" = "1" ] && return 0
+	[ -n "${OLD_MD5}" ] || return 0
+	[ -f "${TARG_DIR}/installer" ] || return 0
+	NEW_MD5="$(md5sum "${TARG_DIR}/installer" 2>/dev/null | awk '{print $1; exit}')"
+	[ -n "${NEW_MD5}" ] || return 0
+	[ "${OLD_MD5}" != "${NEW_MD5}" ] || return 0
+	PTXT "${INFO} Installer was updated; restarting the update with the new installer."
+	chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1
+	AI_REEXECED_INSTALLER="1"
+	export AI_REEXECED_INSTALLER
+	exec "${TARG_DIR}/installer" "${BRANCH}" "${ACTION}"
 }
 
 inst_AdGuardHome() {
-	local ADGUARD_TAR
+	local ADGUARD_TAR INSTALLER_MD5_OLD
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
+	INSTALLER_MD5_OLD=""
+	[ -f "${SCRIPT_LOC}" ] && INSTALLER_MD5_OLD="$(md5sum "${SCRIPT_LOC}" 2>/dev/null | awk '{print $1; exit}')"
 	if [ -z "$2" ]; then
 		if [ "${1:-RESTORE}" != "RESTORE" ]; then
 			if [ ! -d "${TARG_DIR}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
@@ -1158,6 +1146,7 @@ inst_AdGuardHome() {
 			end_op_message 1 "$1"
 			return
 		fi
+		installer_update_reexec "${1:-install}" "${INSTALLER_MD5_OLD}"
 		if [ "${1:-RESTORE}" != "RESTORE" ]; then
 			if [ "${1:-install}" != "update" ]; then choose_branch; fi
 			local ADGUARD_BRANCH ADGUARD_VER
@@ -1207,6 +1196,10 @@ inst_AdGuardHome() {
 			end_op_message 1 "$1"
 			return
 		fi
+		if ! agh_prepare_binary_replace; then
+			end_op_message 1 "$1"
+			return
+		fi
 		tar xzv -C "${BASE_DIR}" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
 		chown "$(nvram get http_username)":root ${TARG_DIR}/*
 		rm -r "${BASE_DIR:?}/${ADGUARD_TAR}"
@@ -1246,98 +1239,6 @@ inst_AdGuardHome() {
 		return
 	fi
 	end_op_message 0 "$1"
-}
-
-read_input_dns() {
-	PTXT -n "${INPUT} ${1} ${BOLD}${2}: ${NORM}"
-	local DNS_SERVER
-	read -r DNS_SERVER
-	[ -z "${DNS_SERVER}" ] && DNS_SERVER="$2"
-	if ! PTXT "${DNS_SERVER}" | grep -qoE "\b((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"; then
-		PTXT "${ERROR} Invalid DNS server address entered"
-		read_input_dns "$@"
-	fi
-	if [ "${DNS_SERVER1}" = "${DNS_SERVER}" ]; then
-		PTXT "${ERROR} ${DNS_SERVER} DNS server address already entered, please try again!"
-		read_input_dns "$@"
-	fi
-	case "$1" in
-		"Default is")
-			BOOTSTRAP1="${DNS_SERVER}"
-			DNS_SERVER1="${DNS_SERVER}"
-			;;
-		"2nd Default is")
-			BOOTSTRAP2="${DNS_SERVER}"
-			;;
-	esac
-}
-
-read_input_num() {
-	local RANGE
-	[ -z "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}]"
-	[ -n "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}]"
-	[ -n "$4" ] && [ -n "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}/${5}]"
-	[ -n "$4" ] && [ -n "$5" ] && [ -n "$6" ] && RANGE="[${2}-${3}/${4}/${5}/${6}]"
-	PTXT -n "${INPUT} ${1}, ${BOLD}${RANGE}${NORM}: "
-	read -r CHOSEN
-	case "$1" in
-		*)
-			if [ -z "${CHOSEN}" ]; then
-				PTXT "${ERROR} Invalid character(s) entered! Retrying..."
-				read_input_num "$@"
-				return
-			fi
-			;;
-	esac
-	case "${CHOSEN}" in
-		"$4" | "$5" | "$6")
-			return 1
-			;;
-		"$2" | "$3" | *)
-			if ! PTXT "${CHOSEN}" | grep -qE '^[0-9]+$'; then
-				PTXT "${ERROR} Invalid character(s) entered! Retrying..."
-				read_input_num "$@"
-				return
-			fi
-			if [ "${CHOSEN}" -lt "$2" ] || [ "${CHOSEN}" -gt "$3" ]; then
-				PTXT "${ERROR} Chosen number is not in range! Retrying..."
-				read_input_num "$@"
-				return
-			fi
-			;;
-	esac
-}
-
-read_input_port() {
-	PTXT -n "${INPUT} ${1} ${BOLD}${2}: ${NORM}"
-	read -r WEB_PORT
-	[ -z "${WEB_PORT}" ] && WEB_PORT="$2"
-	if ! PTXT "${WEB_PORT}" | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' || { [ "${WEB_PORT}" -lt 3000 ] || [ "${WEB_PORT}" -gt 65535 ]; }; then
-		PTXT "${ERROR} Invalid Web Port entered, only Web Ports residing within the port range 3000-65535 are selectable."
-		read_input_port "$@"
-	fi
-	if netstat -nlp 2>/dev/null | grep -qE "(:${WEB_PORT}[[:space:]])"; then
-		PTXT "${ERROR} ${WEB_PORT} already in use, please choose a different port!"
-		read_input_port "$@"
-	fi
-}
-
-read_yesno() {
-	PTXT -n "${INPUT} ${1} ${BOLD}[y/n]${NORM}: "
-	local YESNO
-	read -r YESNO
-	case "${YESNO}" in
-		y | Y)
-			return 0
-			;;
-		n | N)
-			return 1
-			;;
-		*)
-			PTXT "${ERROR} Invalid input!"
-			read_yesno "$@"
-			;;
-	esac
 }
 
 set_timezone() {
@@ -1536,27 +1437,6 @@ setup_amtmupdate() {
 	end_op_message 0
 }
 
-yaml_nvars_insert() {
-	PATTERN="$(_quote "$1")"
-	CONTENT="$(_quote "$2")"
-	sed -i "/${PATTERN}/a${CONTENT}" "$3"
-}
-
-yaml_nvars_replace() {
-	PATTERN="$(_quote "$1")"
-	CONTENT="$(_quote "$2")"
-	sed -i "s/${PATTERN}/${CONTENT}/" "$3"
-}
-
-yaml_nvars_append() {
-	echo "$1" >>"$2"
-}
-
-yaml_nvars_delete() {
-	PATTERN="$(_quote "$1")"
-	sed -i "/${PATTERN}/d" "$2"
-}
-
 uninst_all() {
 	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 		PTXT "${INFO} Old Backup Detected!"
@@ -1576,24 +1456,6 @@ uninst_all() {
 	end_op_message 0
 }
 
-write_conf() {
-	local VAR VALUE
-	VAR="$1"
-	VALUE="$2"
-	if [ ! -f "${CONF_FILE}" ]; then
-		if ! { touch "${CONF_FILE}" && chmod 644 "${CONF_FILE}"; }; then
-			PTXT "${ERROR} Unable to create ${CONF_FILE}"
-			return 1
-		fi
-	fi
-	if grep -q "^${VAR}=" "${CONF_FILE}"; then
-		VALUE=$(_quote "${VALUE}")
-		sed -i "/^${VAR}=/s/=.*/=${VALUE}/" "${CONF_FILE}"
-	else
-		PTXT "${VAR}=${VALUE}" >>"${CONF_FILE}"
-	fi
-}
-
 write_command_script() {
 	local TARG COMMAND FILENAME
 	TARG="$1"
@@ -1609,6 +1471,24 @@ write_command_script() {
 	else
 		PTXT "${INFO} Configure ${FILENAME} file"
 		PTXT "${COMMAND}" >>"${TARG}"
+	fi
+}
+
+write_conf() {
+	local VAR VALUE
+	VAR="$1"
+	VALUE="$2"
+	if [ ! -f "${CONF_FILE}" ]; then
+		if ! { touch "${CONF_FILE}" && chmod 644 "${CONF_FILE}"; }; then
+			PTXT "${ERROR} Unable to create ${CONF_FILE}"
+			return 1
+		fi
+	fi
+	if grep -q "^${VAR}=" "${CONF_FILE}"; then
+		VALUE=$(_quote "${VALUE}")
+		sed -i "/^${VAR}=/s/=.*/=${VALUE}/" "${CONF_FILE}"
+	else
+		PTXT "${VAR}=${VALUE}" >>"${CONF_FILE}"
 	fi
 }
 
@@ -1638,6 +1518,248 @@ write_manager_script() {
 	fi
 }
 
+yaml_nvars_append() {
+	echo "$1" >>"$2"
+}
+
+yaml_nvars_delete() {
+	PATTERN="$(_quote "$1")"
+	sed -i "/${PATTERN}/d" "$2"
+}
+
+yaml_nvars_insert() {
+	PATTERN="$(_quote "$1")"
+	CONTENT="$(_quote "$2")"
+	sed -i "/${PATTERN}/a${CONTENT}" "$3"
+}
+
+yaml_nvars_replace() {
+	PATTERN="$(_quote "$1")"
+	CONTENT="$(_quote "$2")"
+	sed -i "s/${PATTERN}/${CONTENT}/" "$3"
+}
+
+# Interactive menu helpers
+
+end_op_header() {
+	sed -n -e "1,$(($(grep -wn 'esac' "$0" | cut -d':' -f1 | tail -n1) + 1))p" "$0" >"${0}.tmp"
+	chmod 755 "${0}.tmp"
+	exec "${0}.tmp" "${BRANCH}" && rm -rf "${0}.tmp"
+}
+
+end_op_message() {
+	case "${1:-0}" in
+		0)
+			[ "$2" = "update" ] && exit 0
+			PTXT "${INFO} Operation completed, returning to Main Menu. You can quit or continue."
+			;;
+		1)
+			[ "$2" = "update" ] && exit 1
+			PTXT "${INFO} Operation aborted, returning to Main Menu. You can quit or continue."
+			;;
+		2)
+			PTXT "${INFO} Abnormal operations, returning to Main Menu. You can quit or continue."
+			;;
+	esac
+	PTXT "====================================================="
+	PTXT " "
+	PTXT " "
+	sleep 3s && clear
+	if [ -f "${TARG_DIR}/installer" ]; then
+		chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1
+		exec "${TARG_DIR}/installer" "${BRANCH}"
+	elif [ ! -f "${TARG_DIR}/installer" ] && [ -f "${SCRIPT_LOC}" ]; then
+		chmod 755 "${SCRIPT_LOC}" >/dev/null 2>&1
+		exec "${SCRIPT_LOC}" "${BRANCH}"
+	elif [ -f "${HOME}/installer" ]; then
+		chmod 755 "${HOME}/installer"
+		exec "${HOME}/installer" "${BRANCH}"
+	else
+		clear && { end_op_header 2>/dev/null; }
+	fi
+	exit $?
+}
+
+menu() {
+	trap - HUP INT QUIT ABRT TERM
+	case "$1" in
+		"")
+			PTXT "${INFO} Choose what you want to do:" \
+				"  1) Install/Update AdGuardHome" \
+				"  2) Uninstall"
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then { PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  b) Backup"; }; fi
+			if { [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { PTXT "  r) Restore"; }; fi
+			PTXT "  q) Quit"
+			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 q; }; fi
+			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 r q; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 5 b q; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 5 b r q; }; fi
+			;;
+		*)
+			CHOSEN="$1"
+			;;
+	esac
+	[ -n "${CHOSEN}" ] && trap 'clear; end_op_message 2' HUP INT QUIT ABRT TERM
+	case "${CHOSEN}" in
+		"1" | "install" | "update")
+			if [ "${CHOSEN}" = "update" ]; then
+				AUTO_UPDATE="update"
+				inst_AdGuardHome "${AUTO_UPDATE:-update}"
+			else
+				PTXT "${INFO} This operation will install AdGuardHome and related files (<6MB)" \
+					"${INFO} to ENTWARE, no other data will be changed." \
+					"${INFO} Also some start scripts will be installed/modified as required."
+				if read_yesno "Do you want to install AdGuardHome?"; then inst_AdGuardHome "${AUTO_UPDATE:-install}"; else end_op_message 1; fi
+			fi
+			;;
+		"2" | "uninstall")
+			PTXT "${INFO} This operation will cleanup everything installed by this script."
+			if read_yesno "Do you want to continue?"; then uninst_all; else end_op_message 1; fi
+			;;
+		"3" | "changepw")
+			PTXT "${INFO} This operation will allow you to change your username and password."
+			if read_yesno "Do you want to continue?"; then AdGuardHome_authen 0; else end_op_message 1; fi
+			;;
+		"4" | "reconfigure")
+			PTXT "${INFO} This operation allows you to configure AdGuardHome"
+			if read_yesno "Do you want to proceed?"; then setup_AdGuardHome reconfig; else end_op_message 1; fi
+			;;
+		"5" | "setamtmupdate")
+			PTXT "${INFO} This operation allows you to enable or disable AMTM's ability to manage updates for this script and by extension, AdGuardHome."
+			PTXT "${INFO} If the option is already disabled and you choose to proceed, then you will be enabling."
+			PTXT "${INFO} The same is true if the opposite is true and you choose to proceed."
+			if read_yesno "Do you want to proceed?"; then setup_amtmupdate; else end_op_message 1; fi
+			;;
+		"b" | "B" | "backup")
+			PTXT "${INFO} This operation will backup everything!"
+			if read_yesno "Do you want to continue?"; then backup_restore BACKUP; else end_op_message 1; fi
+			;;
+		"r" | "R" | "restore")
+			PTXT "${INFO} This operation will restore everything!"
+			if read_yesno "Do you want to continue?"; then backup_restore RESTORE; else end_op_message 1; fi
+			;;
+		"q" | "Q")
+			PTXT "${INFO} Operations have been applied if any has been made" \
+				"${INFO} In case of anomaly, please reboot your router!"
+			if [ -f "${HOME}/installer" ]; then rm -rf "${HOME}/installer"; fi
+			sleep 3s
+			clear
+			;;
+	esac
+}
+
+read_input_dns() {
+	PTXT -n "${INPUT} ${1} ${BOLD}${2}: ${NORM}"
+	local DNS_SERVER
+	read -r DNS_SERVER
+	[ -z "${DNS_SERVER}" ] && DNS_SERVER="$2"
+	if ! PTXT "${DNS_SERVER}" | grep -qoE "\b((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"; then
+		PTXT "${ERROR} Invalid DNS server address entered"
+		read_input_dns "$@"
+	fi
+	if [ "${DNS_SERVER1}" = "${DNS_SERVER}" ]; then
+		PTXT "${ERROR} ${DNS_SERVER} DNS server address already entered, please try again!"
+		read_input_dns "$@"
+	fi
+	case "$1" in
+		"Default is")
+			BOOTSTRAP1="${DNS_SERVER}"
+			DNS_SERVER1="${DNS_SERVER}"
+			;;
+		"2nd Default is")
+			BOOTSTRAP2="${DNS_SERVER}"
+			;;
+	esac
+}
+
+read_input_num() {
+	local RANGE
+	[ -z "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}]"
+	[ -n "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}]"
+	[ -n "$4" ] && [ -n "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}/${5}]"
+	[ -n "$4" ] && [ -n "$5" ] && [ -n "$6" ] && RANGE="[${2}-${3}/${4}/${5}/${6}]"
+	PTXT -n "${INPUT} ${1}, ${BOLD}${RANGE}${NORM}: "
+	read -r CHOSEN
+	case "$1" in
+		*)
+			if [ -z "${CHOSEN}" ]; then
+				PTXT "${ERROR} Invalid character(s) entered! Retrying..."
+				read_input_num "$@"
+				return
+			fi
+			;;
+	esac
+	case "${CHOSEN}" in
+		"$4" | "$5" | "$6")
+			return 1
+			;;
+		"$2" | "$3" | *)
+			if ! PTXT "${CHOSEN}" | grep -qE '^[0-9]+$'; then
+				PTXT "${ERROR} Invalid character(s) entered! Retrying..."
+				read_input_num "$@"
+				return
+			fi
+			if [ "${CHOSEN}" -lt "$2" ] || [ "${CHOSEN}" -gt "$3" ]; then
+				PTXT "${ERROR} Chosen number is not in range! Retrying..."
+				read_input_num "$@"
+				return
+			fi
+			;;
+	esac
+}
+
+read_input_port() {
+	PTXT -n "${INPUT} ${1} ${BOLD}${2}: ${NORM}"
+	read -r WEB_PORT
+	[ -z "${WEB_PORT}" ] && WEB_PORT="$2"
+	if ! PTXT "${WEB_PORT}" | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' || { [ "${WEB_PORT}" -lt 3000 ] || [ "${WEB_PORT}" -gt 65535 ]; }; then
+		PTXT "${ERROR} Invalid Web Port entered, only Web Ports residing within the port range 3000-65535 are selectable."
+		read_input_port "$@"
+	fi
+	if netstat -nlp 2>/dev/null | grep -qE "(:${WEB_PORT}[[:space:]])"; then
+		PTXT "${ERROR} ${WEB_PORT} already in use, please choose a different port!"
+		read_input_port "$@"
+	fi
+}
+
+read_yesno() {
+	PTXT -n "${INPUT} ${1} ${BOLD}[y/n]${NORM}: "
+	local YESNO
+	read -r YESNO
+	case "${YESNO}" in
+		y | Y)
+			return 0
+			;;
+		n | N)
+			return 1
+			;;
+		*)
+			PTXT "${ERROR} Invalid input!"
+			read_yesno "$@"
+			;;
+	esac
+}
+
+trap cleanup_api_files EXIT
+varcnt=0
+readonly MAX_RETRIES="1"
+until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
+	http_get_file "${LATEST_URL}?per_page=5" "${API_FILE}" "${API_HEADERS}"
+	if [ -s "${API_FILE}" ]; then
+		REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
+		REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
+		break
+	fi
+	if [ "${varcnt}" -gt "${MAX_RETRIES}" ]; then
+		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr) per requesters IP." "For more information, please read ${API_HEADERS}." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
+		sleep 3s
+		exit 1
+	fi
+	varcnt="$((varcnt + 1))"
+done
+readonly REMOTE_VER REMOTE_BETA
+cleanup_api_files
+unset varcnt
 [ "$1" ] && BRANCH="$1" || BRANCH="master"
 case "${BRANCH}" in
 	"amtmupdate")
@@ -1728,74 +1850,6 @@ case "${ROUTER_ARCH}" in
 		exit 1
 		;;
 esac
-
-menu() {
-	trap - HUP INT QUIT ABRT TERM
-	case "$1" in
-		"")
-			PTXT "${INFO} Choose what you want to do:" \
-				"  1) Install/Update AdGuardHome" \
-				"  2) Uninstall"
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then { PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  b) Backup"; }; fi
-			if { [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { PTXT "  r) Restore"; }; fi
-			PTXT "  q) Quit"
-			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 q; }; fi
-			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 r q; }; fi
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 5 b q; }; fi
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 5 b r q; }; fi
-			;;
-		*)
-			CHOSEN="$1"
-			;;
-	esac
-	[ -n "${CHOSEN}" ] && trap 'clear; end_op_message 2' HUP INT QUIT ABRT TERM
-	case "${CHOSEN}" in
-		"1" | "install" | "update")
-			if [ "${CHOSEN}" = "update" ]; then
-				AUTO_UPDATE="update"
-				inst_AdGuardHome "${AUTO_UPDATE:-update}"
-			else
-				PTXT "${INFO} This operation will install AdGuardHome and related files (<6MB)" \
-					"${INFO} to ENTWARE, no other data will be changed." \
-					"${INFO} Also some start scripts will be installed/modified as required."
-				if read_yesno "Do you want to install AdGuardHome?"; then inst_AdGuardHome "${AUTO_UPDATE:-install}"; else end_op_message 1; fi
-			fi
-			;;
-		"2" | "uninstall")
-			PTXT "${INFO} This operation will cleanup everything installed by this script."
-			if read_yesno "Do you want to continue?"; then uninst_all; else end_op_message 1; fi
-			;;
-		"3" | "changepw")
-			PTXT "${INFO} This operation will allow you to change your username and password."
-			if read_yesno "Do you want to continue?"; then AdGuardHome_authen 0; else end_op_message 1; fi
-			;;
-		"4" | "reconfigure")
-			PTXT "${INFO} This operation allows you to configure AdGuardHome"
-			if read_yesno "Do you want to proceed?"; then setup_AdGuardHome reconfig; else end_op_message 1; fi
-			;;
-		"5" | "setamtmupdate")
-			PTXT "${INFO} This operation allows you to enable or disable AMTM's ability to manage updates for this script and by extension, AdGuardHome."
-			PTXT "${INFO} If the option is already disabled and you choose to proceed, then you will be enabling."
-			PTXT "${INFO} The same is true if the opposite is true and you choose to proceed."
-			if read_yesno "Do you want to proceed?"; then setup_amtmupdate; else end_op_message 1; fi
-			;;
-		"b" | "B" | "backup")
-			PTXT "${INFO} This operation will backup everything!"
-			if read_yesno "Do you want to continue?"; then backup_restore BACKUP; else end_op_message 1; fi
-			;;
-		"r" | "R" | "restore")
-			PTXT "${INFO} This operation will restore everything!"
-			if read_yesno "Do you want to continue?"; then backup_restore RESTORE; else end_op_message 1; fi
-			;;
-		"q" | "Q")
-			PTXT "${INFO} Operations have been applied if any has been made" \
-				"${INFO} In case of anomaly, please reboot your router!"
-			if [ -f "${HOME}/installer" ]; then rm -rf "${HOME}/installer"; fi
-			sleep 3s
-			clear
-			;;
-	esac
-}
 
 case "$2" in
 	"")

@@ -18,8 +18,27 @@ case "${1:-}" in
 		;;
 esac
 
+# Functions are sorted alpha-numerically for readability.
+
+cleanup() {
+	if [ -n "${SCRIPT_LIST}" ] && [ -f "${SCRIPT_LIST}" ]; then
+		rm -f "${SCRIPT_LIST}"
+	fi
+}
+
 have_cmd() {
 	which "$1" >/dev/null 2>&1
+}
+
+require_cmd() {
+	_cmd="$1"
+	if have_cmd "${_cmd}"; then
+		return 0
+	fi
+
+	printf '%s\n' "Error: ${_cmd} is required. Install it and re-run this script." >&2
+	FAILED=1
+	return 1
 }
 
 run_check() {
@@ -56,23 +75,6 @@ run_script_list_check() {
 	fi
 
 	return "${_check_failed}"
-}
-
-require_cmd() {
-	_cmd="$1"
-	if have_cmd "${_cmd}"; then
-		return 0
-	fi
-
-	printf '%s\n' "Error: ${_cmd} is required. Install it and re-run this script." >&2
-	FAILED=1
-	return 1
-}
-
-cleanup() {
-	if [ -n "${SCRIPT_LIST}" ] && [ -f "${SCRIPT_LIST}" ]; then
-		rm -f "${SCRIPT_LIST}"
-	fi
 }
 
 trap cleanup 0
