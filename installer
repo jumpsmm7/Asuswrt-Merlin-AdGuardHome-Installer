@@ -428,7 +428,7 @@ agh_wait_ready() {
 }
 
 agh_stop() {
-	if agh_is_running; then
+	if [ "$(agh_process_count)" -ge "1" ]; then
 		if service stop_AdGuardHome >/dev/null 2>&1; then
 			sleep 1s
 		elif /opt/etc/init.d/S99AdGuardHome stop; then
@@ -448,6 +448,18 @@ agh_stop() {
 	fi
 	sleep 1s
 	agh_check
+	return 0
+}
+
+agh_prepare_binary_replace() {
+	if { [ -f "${AGH_FILE}" ] || [ -e "/opt/sbin/AdGuardHome" ]; } && [ "$(agh_process_count)" -ge "1" ]; then
+		PTXT "${INFO} Stopping AdGuardHome before replacing the binary."
+		if ! agh_stop; then
+			PTXT "${ERROR} Unable to safely stop AdGuardHome before replacing the binary."
+			return 1
+		fi
+	fi
+	return 0
 }
 
 agh_start() {
@@ -1025,6 +1037,24 @@ del_jffs_script() {
 	[ "$(awk '{ print }' "${TARG}")" = "#!/bin/sh" ] && rm -f "${TARG}"
 }
 
+installer_update_reexec() {
+	local ACTION NEW_MD5 OLD_MD5
+	ACTION="$1"
+	OLD_MD5="$2"
+	[ "${ACTION}" = "update" ] || return 0
+	[ "${AI_REEXECED_INSTALLER:-0}" = "1" ] && return 0
+	[ -n "${OLD_MD5}" ] || return 0
+	[ -f "${TARG_DIR}/installer" ] || return 0
+	NEW_MD5="$(md5sum "${TARG_DIR}/installer" 2>/dev/null | awk '{print $1; exit}')"
+	[ -n "${NEW_MD5}" ] || return 0
+	[ "${OLD_MD5}" != "${NEW_MD5}" ] || return 0
+	PTXT "${INFO} Installer was updated; restarting the update with the new installer."
+	chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1
+	AI_REEXECED_INSTALLER="1"
+	export AI_REEXECED_INSTALLER
+	exec "${TARG_DIR}/installer" "${BRANCH}" "${ACTION}"
+}
+
 download_file() {
 	local TARG PERM URL RET FILENAME TMP_FILE TMP_MD5 MD5SUM_OLD MD5SUM_CURR MD5SUM_EXPECTED COUNT
 	TARG="$1"
@@ -1126,8 +1156,10 @@ end_op_header() {
 }
 
 inst_AdGuardHome() {
-	local ADGUARD_TAR
+	local ADGUARD_TAR INSTALLER_MD5_OLD
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
+	INSTALLER_MD5_OLD=""
+	[ -f "${SCRIPT_LOC}" ] && INSTALLER_MD5_OLD="$(md5sum "${SCRIPT_LOC}" 2>/dev/null | awk '{print $1; exit}')"
 	if [ -z "$2" ]; then
 		if [ "${1:-RESTORE}" != "RESTORE" ]; then
 			if [ ! -d "${TARG_DIR}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
@@ -1158,6 +1190,7 @@ inst_AdGuardHome() {
 			end_op_message 1 "$1"
 			return
 		fi
+		installer_update_reexec "${1:-install}" "${INSTALLER_MD5_OLD}"
 		if [ "${1:-RESTORE}" != "RESTORE" ]; then
 			if [ "${1:-install}" != "update" ]; then choose_branch; fi
 			local ADGUARD_BRANCH ADGUARD_VER
@@ -1204,6 +1237,10 @@ inst_AdGuardHome() {
 	else
 		if ! download_file "${BASE_DIR}" 644 "https://static.adguard.com/adguardhome/${2}/${ADGUARD_TAR}"; then
 			PTXT "${ERROR} Unable to download AdGuardHome package for your router"
+			end_op_message 1 "$1"
+			return
+		fi
+		if ! agh_prepare_binary_replace; then
 			end_op_message 1 "$1"
 			return
 		fi
