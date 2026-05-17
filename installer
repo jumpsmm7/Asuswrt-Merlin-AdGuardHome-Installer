@@ -568,7 +568,7 @@ monotonic_seconds() {
 		case "${uptime}" in
 			"" | *[!0-9]*) return 1 ;;
 		esac
-		printf '%s\n' "${uptime}"
+		PTXT "${uptime}"
 		return 0
 	fi
 	return 1
@@ -1751,7 +1751,7 @@ until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
 		break
 	fi
 	if [ "${varcnt}" -gt "${MAX_RETRIES}" ]; then
-		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr) per requesters IP." "For more information, please read ${API_HEADERS}." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
+		PTXT "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr) per requesters IP." "For more information, please read ${API_HEADERS}." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
 		sleep 3s
 		exit 1
 	fi
