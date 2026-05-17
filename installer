@@ -438,8 +438,22 @@ agh_prepare_binary_replace() {
 	return 0
 }
 
+agh_monitor_count() {
+	local count pid
+	count="0"
+	for pid in $(pidof S99AdGuardHome 2>/dev/null); do
+		if awk '{ print }' "/proc/${pid}/cmdline" 2>/dev/null | grep -q 'monitor-start'; then
+			count="$((count + 1))"
+		fi
+	done
+	printf '%s\n' "${count}"
+}
+
 agh_process_count() {
-	pidof AdGuardHome S99AdGuardHome | wc -w
+	local daemon_count monitor_count
+	daemon_count="$(pidof AdGuardHome 2>/dev/null | wc -w)"
+	monitor_count="$(agh_monitor_count)"
+	printf '%s\n' "$((daemon_count + monitor_count))"
 }
 
 agh_restart() {
