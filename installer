@@ -16,26 +16,49 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.1.3                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.1.4                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v2.1.3"
+AI_VERSION="v2.1.4"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly API_HEADERS="/tmp/AGH_GIT_API_$$_headers.out"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
 readonly ADGUARDHOME_READY_TIMEOUT="180"
+readonly REMOTE_VER REMOTE_BETA
+readonly ADDON_DIR="/jffs/addons/AdGuardHome.d"
+readonly BASE_DIR="/opt/etc"
+readonly TARG_DIR="${BASE_DIR}/AdGuardHome"
+readonly AGH_FILE="${TARG_DIR}/AdGuardHome"
+readonly CONF_FILE="${TARG_DIR}/.config"
+readonly YAML_FILE="${AGH_FILE}.yaml"
+readonly YAML_BAK="${YAML_FILE}.bak"
+readonly YAML_ERR="${YAML_FILE}.err"
+readonly YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
+SCRIPT_LOC="$(readlink -f "$0")" || true
+readonly SCRIPT_LOC
+
+BOLD="$(printf "\033[1m")" || true
+readonly BOLD
+NORM="$(printf "\033[0m")" || true
+readonly NORM
+INFO="$(printf "%s" "${BOLD} Info: ${NORM}")" || true
+readonly INFO
+ERROR="$(printf "%s" "${BOLD} *** Error: ${NORM}")" || true
+readonly ERROR
+WARNING="$(printf "%s" "${BOLD} * Warning: ${NORM}")" || true
+readonly WARNING
+INPUT="$(printf "%s" "${BOLD} => ${NORM}")" || true
+readonly INPUT
 
 cleanup_api_files() {
 	rm -f "${API_FILE}" "${API_HEADERS}"
 }
-
-trap cleanup_api_files EXIT
 
 ai_have_cmd() {
 	which "$1" >/dev/null 2>&1
@@ -60,7 +83,6 @@ ensure_opkg_package() {
 	if ! opkg install "${_pkg}" >/dev/null 2>&1; then
 		return 1
 	fi
-
 	opkg_pkg_installed "${_pkg}"
 }
 
@@ -84,7 +106,6 @@ ensure_bcrypt_tool() {
 	if [ -f "/opt/bin/bcrypt-tool" ]; then
 		return 0
 	fi
-
 	case "$(/bin/uname -m)" in
 		"aarch64" | "arm64")
 			ensure_opkg_package go || return 1
@@ -97,7 +118,6 @@ ensure_bcrypt_tool() {
 			fi
 			;;
 	esac
-
 	export PATH="${PATH}:/opt/bin/go/bin"
 	export GOROOT="/opt/bin/go"
 	export GOBIN="/opt/bin/"
@@ -111,7 +131,6 @@ ensure_password_hash_tool() {
 	if python_bcrypt_available; then
 		return 0
 	fi
-
 	ensure_bcrypt_tool
 }
 
@@ -257,51 +276,6 @@ http_probe() {
 		return 127
 	fi
 }
-
-varcnt=0
-readonly MAX_RETRIES="1"
-until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
-	http_get_file "${LATEST_URL}?per_page=5" "${API_FILE}" "${API_HEADERS}"
-	if [ -s "${API_FILE}" ]; then
-		REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
-		REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
-		break
-	fi
-	if [ "${varcnt}" -gt "${MAX_RETRIES}" ]; then
-		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr) per requesters IP." "For more information, please read ${API_HEADERS}." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
-		sleep 3s
-		exit 1
-	fi
-	varcnt="$((varcnt + 1))"
-done
-cleanup_api_files
-wait
-unset varcnt
-readonly REMOTE_VER REMOTE_BETA
-readonly ADDON_DIR="/jffs/addons/AdGuardHome.d"
-readonly BASE_DIR="/opt/etc"
-readonly TARG_DIR="${BASE_DIR}/AdGuardHome"
-readonly AGH_FILE="${TARG_DIR}/AdGuardHome"
-readonly CONF_FILE="${TARG_DIR}/.config"
-readonly YAML_FILE="${AGH_FILE}.yaml"
-readonly YAML_BAK="${YAML_FILE}.bak"
-readonly YAML_ERR="${YAML_FILE}.err"
-readonly YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
-SCRIPT_LOC="$(readlink -f "$0")" || true
-readonly SCRIPT_LOC
-
-BOLD="$(printf "\033[1m")" || true
-readonly BOLD
-NORM="$(printf "\033[0m")" || true
-readonly NORM
-INFO="$(printf "%s" "${BOLD} Info: ${NORM}")" || true
-readonly INFO
-ERROR="$(printf "%s" "${BOLD} *** Error: ${NORM}")" || true
-readonly ERROR
-WARNING="$(printf "%s" "${BOLD} * Warning: ${NORM}")" || true
-readonly WARNING
-INPUT="$(printf "%s" "${BOLD} => ${NORM}")" || true
-readonly INPUT
 
 _quote() {
 	printf "%s\n" "$1" | sed 's/[]\/()$*.^|[]/\\&/g'
@@ -1674,6 +1648,27 @@ write_manager_script() {
 		fi
 	fi
 }
+
+trap cleanup_api_files EXIT
+varcnt=0
+readonly MAX_RETRIES="1"
+until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
+	http_get_file "${LATEST_URL}?per_page=5" "${API_FILE}" "${API_HEADERS}"
+	if [ -s "${API_FILE}" ]; then
+		REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
+		REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
+		break
+	fi
+	if [ "${varcnt}" -gt "${MAX_RETRIES}" ]; then
+		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr) per requesters IP." "For more information, please read ${API_HEADERS}." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
+		sleep 3s
+		exit 1
+	fi
+	varcnt="$((varcnt + 1))"
+done
+cleanup_api_files
+wait
+unset varcnt
 
 [ "$1" ] && BRANCH="$1" || BRANCH="master"
 case "${BRANCH}" in
