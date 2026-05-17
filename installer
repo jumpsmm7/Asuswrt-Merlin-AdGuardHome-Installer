@@ -1511,117 +1511,6 @@ write_manager_script() {
 	fi
 }
 
-trap cleanup_api_files EXIT
-varcnt=0
-readonly MAX_RETRIES="1"
-until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
-	http_get_file "${LATEST_URL}?per_page=5" "${API_FILE}" "${API_HEADERS}"
-	if [ -s "${API_FILE}" ]; then
-		REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
-		REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
-		break
-	fi
-	if [ "${varcnt}" -gt "${MAX_RETRIES}" ]; then
-		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr) per requesters IP." "For more information, please read ${API_HEADERS}." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
-		sleep 3s
-		exit 1
-	fi
-	varcnt="$((varcnt + 1))"
-done
-readonly REMOTE_VER REMOTE_BETA
-cleanup_api_files
-unset varcnt
-[ "$1" ] && BRANCH="$1" || BRANCH="master"
-case "${BRANCH}" in
-	"amtmupdate")
-		unset BRANCH
-		BRANCH="$(conf_value INSTALLER_BRANCH)"
-		[ -n "${BRANCH}" ] || BRANCH="master"
-		BRANCH="$(sanitize_branch "${BRANCH}")"
-		case "$2" in
-			"check")
-				AMTM_UPDATE="$(conf_value AMTM_UPDATE)"
-				if [ ! -f "${CONF_FILE}" ] || [ "${AMTM_UPDATE}" = "DISABLED" ]; then
-					exit 1
-				elif [ "${AMTM_UPDATE}" = "ENABLED" ]; then
-					exit 0
-				fi
-				;;
-			"")
-				CHOSEN="${1#amtm}"
-				set -- "$BRANCH" "$CHOSEN"
-				;;
-		esac
-		;;
-	*)
-		BRANCH="$(sanitize_branch "${BRANCH}")"
-		write_conf INSTALLER_BRANCH "\"${BRANCH}\""
-		;;
-esac
-[ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
-RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}"
-ROUTER_OS="$(/bin/uname)"
-! PTXT "${ROUTER_MODEL}" | grep -vE "RT-AC(86|2900)" | grep -q "AC" && ROUTER_ARCH="$(/bin/uname -m)" || ROUTER_ARCH="armv7" # Exception for version ARMv5
-NAT_ENV="$(nvram get wan_ipaddr | grep -oE '\b^(((10|127)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3})|(((172\.(1[6-9]|2[0-9]|3[0-1]))|(192\.168))(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){2}))$\b')"
-
-[ -z "${ROUTER_MODEL}" ] && PTXT "${ERROR} This is an unsupported router, sorry." && sleep 3s && exit 1
-[ "$(nvram get sw_mode)" != "1" ] && PTXT "${ERROR} You are not running in router mode, sorry." && sleep 3s && exit 1
-
-if [ -n "${NAT_ENV}" ] && [ -z "$2" ]; then
-	PTXT "${WARNING} This router is in a Double-Nat Environment. While for some users of AdGuardHome this may work fine," \
-		"${WARNING} Consider this a warning that there is no guarentee that it will." \
-		"${WARNING} The script developer cannot help in this scenario." \
-		"${WARNING} However you are still welcome to use the script."
-	sleep 3s
-fi
-
-if [ -z "$2" ]; then
-	printf '\e[8;50;125t'
-	printf '\033[?7l'
-	clear
-	sed -n '2,21p' "$0"
-	printf '\033[?7h'
-fi
-
-case "${ROUTER_MODEL}" in
-	*)
-		[ -z "$2" ] && PTXT "${INFO} Detected ${ROUTER_MODEL} router."
-		;;
-esac
-
-case "${ROUTER_OS}" in
-	"Linux")
-		[ -z "$2" ] && PTXT "${INFO} Detected ${ROUTER_OS} platform."
-		ROUTER_OS="linux"
-		;;
-	*)
-		PTXT "${ERROR} This is an unsupported platform, sorry."
-		exit 1
-		;;
-esac
-
-case "${ROUTER_ARCH}" in
-	"aarch64" | "arm64")
-		ROUTER_ARCH="arm64"
-		ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
-		[ -z "$2" ] && PTXT "${INFO} Detected ARMv8 architecture."
-		;;
-	"armv7l")
-		ROUTER_ARCH="armv7"
-		ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
-		[ -z "$2" ] && PTXT "${INFO} Detected ARMv7 architecture."
-		;;
-	"armv7")
-		ROUTER_ARCH="armv5"
-		ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
-		[ -z "$2" ] && PTXT "${INFO} Detected ARMv7 architecture."
-		;;
-	*)
-		PTXT "${ERROR} This is an unsupported architecture, sorry."
-		exit 1
-		;;
-esac
-
 yaml_nvars_append() {
 	echo "$1" >>"$2"
 }
@@ -1843,6 +1732,117 @@ read_yesno() {
 			;;
 	esac
 }
+
+trap cleanup_api_files EXIT
+varcnt=0
+readonly MAX_RETRIES="1"
+until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
+	http_get_file "${LATEST_URL}?per_page=5" "${API_FILE}" "${API_HEADERS}"
+	if [ -s "${API_FILE}" ]; then
+		REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
+		REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
+		break
+	fi
+	if [ "${varcnt}" -gt "${MAX_RETRIES}" ]; then
+		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr) per requesters IP." "For more information, please read ${API_HEADERS}." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
+		sleep 3s
+		exit 1
+	fi
+	varcnt="$((varcnt + 1))"
+done
+readonly REMOTE_VER REMOTE_BETA
+cleanup_api_files
+unset varcnt
+[ "$1" ] && BRANCH="$1" || BRANCH="master"
+case "${BRANCH}" in
+	"amtmupdate")
+		unset BRANCH
+		BRANCH="$(conf_value INSTALLER_BRANCH)"
+		[ -n "${BRANCH}" ] || BRANCH="master"
+		BRANCH="$(sanitize_branch "${BRANCH}")"
+		case "$2" in
+			"check")
+				AMTM_UPDATE="$(conf_value AMTM_UPDATE)"
+				if [ ! -f "${CONF_FILE}" ] || [ "${AMTM_UPDATE}" = "DISABLED" ]; then
+					exit 1
+				elif [ "${AMTM_UPDATE}" = "ENABLED" ]; then
+					exit 0
+				fi
+				;;
+			"")
+				CHOSEN="${1#amtm}"
+				set -- "$BRANCH" "$CHOSEN"
+				;;
+		esac
+		;;
+	*)
+		BRANCH="$(sanitize_branch "${BRANCH}")"
+		write_conf INSTALLER_BRANCH "\"${BRANCH}\""
+		;;
+esac
+[ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
+RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}"
+ROUTER_OS="$(/bin/uname)"
+! PTXT "${ROUTER_MODEL}" | grep -vE "RT-AC(86|2900)" | grep -q "AC" && ROUTER_ARCH="$(/bin/uname -m)" || ROUTER_ARCH="armv7" # Exception for version ARMv5
+NAT_ENV="$(nvram get wan_ipaddr | grep -oE '\b^(((10|127)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3})|(((172\.(1[6-9]|2[0-9]|3[0-1]))|(192\.168))(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){2}))$\b')"
+
+[ -z "${ROUTER_MODEL}" ] && PTXT "${ERROR} This is an unsupported router, sorry." && sleep 3s && exit 1
+[ "$(nvram get sw_mode)" != "1" ] && PTXT "${ERROR} You are not running in router mode, sorry." && sleep 3s && exit 1
+
+if [ -n "${NAT_ENV}" ] && [ -z "$2" ]; then
+	PTXT "${WARNING} This router is in a Double-Nat Environment. While for some users of AdGuardHome this may work fine," \
+		"${WARNING} Consider this a warning that there is no guarentee that it will." \
+		"${WARNING} The script developer cannot help in this scenario." \
+		"${WARNING} However you are still welcome to use the script."
+	sleep 3s
+fi
+
+if [ -z "$2" ]; then
+	printf '\e[8;50;125t'
+	printf '\033[?7l'
+	clear
+	sed -n '2,21p' "$0"
+	printf '\033[?7h'
+fi
+
+case "${ROUTER_MODEL}" in
+	*)
+		[ -z "$2" ] && PTXT "${INFO} Detected ${ROUTER_MODEL} router."
+		;;
+esac
+
+case "${ROUTER_OS}" in
+	"Linux")
+		[ -z "$2" ] && PTXT "${INFO} Detected ${ROUTER_OS} platform."
+		ROUTER_OS="linux"
+		;;
+	*)
+		PTXT "${ERROR} This is an unsupported platform, sorry."
+		exit 1
+		;;
+esac
+
+case "${ROUTER_ARCH}" in
+	"aarch64" | "arm64")
+		ROUTER_ARCH="arm64"
+		ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
+		[ -z "$2" ] && PTXT "${INFO} Detected ARMv8 architecture."
+		;;
+	"armv7l")
+		ROUTER_ARCH="armv7"
+		ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
+		[ -z "$2" ] && PTXT "${INFO} Detected ARMv7 architecture."
+		;;
+	"armv7")
+		ROUTER_ARCH="armv5"
+		ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
+		[ -z "$2" ] && PTXT "${INFO} Detected ARMv7 architecture."
+		;;
+	*)
+		PTXT "${ERROR} This is an unsupported architecture, sorry."
+		exit 1
+		;;
+esac
 
 case "$2" in
 	"")
