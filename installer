@@ -438,8 +438,15 @@ agh_prepare_binary_replace() {
 	return 0
 }
 
+agh_monitor_count() {
+	pidof AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome 2>/dev/null | wc -w
+}
+
 agh_process_count() {
-	pidof AdGuardHome S99AdGuardHome | wc -w
+	local daemon_count monitor_count
+	daemon_count="$(pidof AdGuardHome 2>/dev/null | wc -w)"
+	monitor_count="$(agh_monitor_count)"
+	printf '%s\n' "$((daemon_count + monitor_count))"
 }
 
 agh_restart() {
