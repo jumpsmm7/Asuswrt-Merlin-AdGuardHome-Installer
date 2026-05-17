@@ -8,9 +8,9 @@ LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 
 NAME="$(basename "$0")[$$]"
 
-have_cmd() {
-	which "$1" >/dev/null 2>&1
-}
+# Functions are grouped by purpose; names are sorted alpha-numerically within each group.
+
+# Core helpers
 
 conf_value() {
 	[ -f "${CONF_FILE}" ] || return 1
@@ -24,29 +24,23 @@ conf_value() {
 	' "${CONF_FILE}"
 }
 
-wget_help() {
-	if [ -z "${WGET_HELP_CACHE_SET:-}" ]; then
-		WGET_HELP_CACHE="$(wget --help 2>&1)"
-		WGET_HELP_CACHE_SET="1"
-	fi
-	printf '%s\n' "${WGET_HELP_CACHE}"
+have_cmd() {
+	which "$1" >/dev/null 2>&1
 }
 
-wget_has_option() {
-	wget_help | grep -q -e "$1"
+nvram_int_gt() {
+	local VALUE MIN
+	VALUE="$(nvram get "$1" 2>/dev/null)"
+	MIN="$2"
+	case "${VALUE}" in
+		"" | *[!0-9]*)
+			return 1
+			;;
+	esac
+	[ "${VALUE}" -gt "${MIN}" ]
 }
 
-curl_help() {
-	if [ -z "${CURL_HELP_CACHE_SET:-}" ]; then
-		CURL_HELP_CACHE="$(curl --help all 2>&1 || curl --help 2>&1)"
-		CURL_HELP_CACHE_SET="1"
-	fi
-	printf '%s\n' "${CURL_HELP_CACHE}"
-}
-
-curl_has_option() {
-	curl_help | grep -q -e "$1"
-}
+# HTTP/download helpers
 
 curl_common_args() {
 	if [ -z "${CURL_COMMON_ARGS_SET:-}" ]; then
@@ -61,18 +55,16 @@ curl_common_args() {
 	printf '%s' "${CURL_COMMON_ARGS}"
 }
 
-wget_common_args() {
-	if [ -z "${WGET_COMMON_ARGS_SET:-}" ]; then
-		WGET_COMMON_ARGS=""
-		wget_has_option '--no-cache' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --no-cache"
-		wget_has_option '--no-cookies' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --no-cookies"
-		wget_has_option '--tries' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --tries=5"
-		wget_has_option '--timeout' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --timeout=25"
-		wget_has_option '--waitretry' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --waitretry=5"
-		wget_has_option '--retry-connrefused' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --retry-connrefused"
-		WGET_COMMON_ARGS_SET="1"
+curl_has_option() {
+	curl_help | grep -q -e "$1"
+}
+
+curl_help() {
+	if [ -z "${CURL_HELP_CACHE_SET:-}" ]; then
+		CURL_HELP_CACHE="$(curl --help all 2>&1 || curl --help 2>&1)"
+		CURL_HELP_CACHE_SET="1"
 	fi
-	printf '%s' "${WGET_COMMON_ARGS}"
+	printf '%s\n' "${CURL_HELP_CACHE}"
 }
 
 http_probe() {
@@ -93,17 +85,64 @@ http_probe() {
 	fi
 }
 
-flock_supports_fd() {
-	local TEST_LOCK status
-	TEST_LOCK="/tmp/adguardhome-flock-test.$$"
-	(
-		: >"${TEST_LOCK}" || exit 1
-		exec 8>"${TEST_LOCK}" || exit 1
-		flock -n 8 >/dev/null 2>&1
-	)
-	status="$?"
-	rm -f "${TEST_LOCK}"
-	return "${status}"
+wget_common_args() {
+	if [ -z "${WGET_COMMON_ARGS_SET:-}" ]; then
+		WGET_COMMON_ARGS=""
+		wget_has_option '--no-cache' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --no-cache"
+		wget_has_option '--no-cookies' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --no-cookies"
+		wget_has_option '--tries' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --tries=5"
+		wget_has_option '--timeout' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --timeout=25"
+		wget_has_option '--waitretry' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --waitretry=5"
+		wget_has_option '--retry-connrefused' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --retry-connrefused"
+		WGET_COMMON_ARGS_SET="1"
+	fi
+	printf '%s' "${WGET_COMMON_ARGS}"
+}
+
+wget_has_option() {
+	wget_help | grep -q -e "$1"
+}
+
+wget_help() {
+	if [ -z "${WGET_HELP_CACHE_SET:-}" ]; then
+		WGET_HELP_CACHE="$(wget --help 2>&1)"
+		WGET_HELP_CACHE_SET="1"
+	fi
+	printf '%s\n' "${WGET_HELP_CACHE}"
+}
+
+# Run-lock helpers
+
+adguardhome_run() {
+	local lock_dir owner pid_file runtime
+	lock_dir="/tmp/AdGuardHome"
+	pid_file="${lock_dir}/pid"
+	case "$1" in
+		"")
+			if have_cmd flock && flock_supports_fd; then
+				if adguardhome_run_flock_active; then return 1; else return 0; fi
+			fi
+			owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
+			runtime="$(sed -n '2p' "${pid_file}" 2>/dev/null)"
+			[ -z "${runtime}" ] && return 1
+			case "${owner}" in
+				"" | *[!0-9]*)
+					rm -f "${pid_file}"
+					return 1
+					;;
+			esac
+			if kill -0 "${owner}" 2>/dev/null; then return 0; fi
+			rm -f "${pid_file}"
+			return 1
+			;;
+		*)
+			if have_cmd flock && flock_supports_fd; then
+				adguardhome_run_flock "$1"
+			else
+				adguardhome_run_mkdir "$1"
+			fi
+			;;
+	esac
 }
 
 adguardhome_run_execute() {
@@ -124,37 +163,6 @@ adguardhome_run_execute() {
 		logger -st "${NAME}" "Warning: ${action} did not complete within ${runtime} second(s)."
 	fi
 	return "${status}"
-}
-
-adguardhome_run_legacy_mkdir_active() {
-	local lock_dir owner pid_file runtime
-	lock_dir="/tmp/AdGuardHome"
-	pid_file="${lock_dir}/pid"
-	[ -d "${lock_dir}" ] || return 1
-	runtime="$(sed -n '2p' "${pid_file}" 2>/dev/null)"
-	[ -z "${runtime}" ] || return 1
-	owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
-	case "${owner}" in
-		"" | *[!0-9]*)
-			return 1
-			;;
-	esac
-	kill -0 "${owner}" 2>/dev/null
-}
-
-adguardhome_run_flock_cleanup() {
-	local pid_file
-	pid_file="$1"
-	[ -n "${pid_file}" ] && rm -f "${pid_file}"
-	flock -u 9 >/dev/null 2>&1
-	exec 9>&-
-}
-
-adguardhome_run_flock_restore_traps() {
-	local saved_traps
-	saved_traps="$1"
-	trap - EXIT HUP INT QUIT ABRT TERM TSTP
-	[ -n "${saved_traps}" ] && eval "${saved_traps}"
 }
 
 adguardhome_run_flock() {
@@ -213,6 +221,37 @@ adguardhome_run_flock_active() {
 	return 0
 }
 
+adguardhome_run_flock_cleanup() {
+	local pid_file
+	pid_file="$1"
+	[ -n "${pid_file}" ] && rm -f "${pid_file}"
+	flock -u 9 >/dev/null 2>&1
+	exec 9>&-
+}
+
+adguardhome_run_flock_restore_traps() {
+	local saved_traps
+	saved_traps="$1"
+	trap - EXIT HUP INT QUIT ABRT TERM TSTP
+	[ -n "${saved_traps}" ] && eval "${saved_traps}"
+}
+
+adguardhome_run_legacy_mkdir_active() {
+	local lock_dir owner pid_file runtime
+	lock_dir="/tmp/AdGuardHome"
+	pid_file="${lock_dir}/pid"
+	[ -d "${lock_dir}" ] || return 1
+	runtime="$(sed -n '2p' "${pid_file}" 2>/dev/null)"
+	[ -z "${runtime}" ] || return 1
+	owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
+	case "${owner}" in
+		"" | *[!0-9]*)
+			return 1
+			;;
+	esac
+	kill -0 "${owner}" 2>/dev/null
+}
+
 adguardhome_run_mkdir() {
 	local action lock_dir pid pid_file status
 	action="$1"
@@ -233,37 +272,20 @@ adguardhome_run_mkdir() {
 	return 1
 }
 
-adguardhome_run() {
-	local lock_dir owner pid_file runtime
-	lock_dir="/tmp/AdGuardHome"
-	pid_file="${lock_dir}/pid"
-	case "$1" in
-		"")
-			if have_cmd flock && flock_supports_fd; then
-				if adguardhome_run_flock_active; then return 1; else return 0; fi
-			fi
-			owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
-			runtime="$(sed -n '2p' "${pid_file}" 2>/dev/null)"
-			[ -z "${runtime}" ] && return 1
-			case "${owner}" in
-				"" | *[!0-9]*)
-					rm -f "${pid_file}"
-					return 1
-					;;
-			esac
-			if kill -0 "${owner}" 2>/dev/null; then return 0; fi
-			rm -f "${pid_file}"
-			return 1
-			;;
-		*)
-			if have_cmd flock && flock_supports_fd; then
-				adguardhome_run_flock "$1"
-			else
-				adguardhome_run_mkdir "$1"
-			fi
-			;;
-	esac
+flock_supports_fd() {
+	local TEST_LOCK status
+	TEST_LOCK="/tmp/adguardhome-flock-test.$$"
+	(
+		: >"${TEST_LOCK}" || exit 1
+		exec 8>"${TEST_LOCK}" || exit 1
+		flock -n 8 >/dev/null 2>&1
+	)
+	status="$?"
+	rm -f "${TEST_LOCK}"
+	return "${status}"
 }
+
+# DNS and network helpers
 
 check_dns_environment() {
 	local NVCHECK
@@ -295,144 +317,6 @@ check_dns_environment() {
 	fi
 }
 
-resolv_conf_uses_rom() {
-	readlink -f /etc/resolv.conf | grep -qE '^/rom/etc/resolv.conf'
-}
-
-resolv_conf_is_tmp_mount() {
-	df -h | grep -qoE '/tmp/resolv.conf'
-}
-
-sdn_bridge_for_index() {
-	get_mtlan | awk -v idx="$1" '
-		/^[[:space:]]*\|-enable:/ {
-			enabled = ""
-			bridge = ""
-		}
-		/^[[:space:]]*\|-enable:/ {
-			start = index($0, "[")
-			endpos = index($0, "]")
-			if (start > 0 && endpos > start) { enabled = substr($0, start + 1, endpos - start - 1) }
-		}
-		/^[[:space:]]*\|-br_ifname:/ {
-			start = index($0, "[")
-			endpos = index($0, "]")
-			if (start > 0 && endpos > start) { bridge = substr($0, start + 1, endpos - start - 1) }
-		}
-		/^[[:space:]]*\|-sdn_idx:/ {
-			start = index($0, "[")
-			endpos = index($0, "]")
-			if (start > 0 && endpos > start) {
-				sdn = substr($0, start + 1, endpos - start - 1)
-				if (sdn == idx && enabled == "1") {
-					print bridge
-					exit
-				}
-			}
-		}
-		'
-}
-
-interface_ipv4_addr() {
-	local IFACE
-	IFACE="$1"
-	[ -n "${IFACE}" ] || return 1
-	have_cmd ip || return 1
-	ip -o -4 addr list "${IFACE}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1]; exit }'
-}
-
-interface_ipv6_addr() {
-	local IFACE
-	IFACE="$1"
-	[ -n "${IFACE}" ] || return 1
-	have_cmd ip || return 1
-	ip -o -6 addr list "${IFACE}" scope global 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1]; exit }'
-}
-
-private_ipv4_bridge_dns_options() {
-	if have_cmd ip; then
-		ip -o -4 addr show scope global 2>/dev/null | awk '
-			function private_ip(ip) {
-				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
-			}
-			$2 ~ /^br/ && $2 != "br0" {
-				for (i = 1; i <= NF; i++) {
-					if ($i == "inet") {
-						split($(i + 1), ip_addr, "/")
-						if (private_ip(ip_addr[1]) && !seen[$2]++) { print $2 " " ip_addr[1] }
-					}
-				}
-			}
-		'
-		return
-	fi
-	return 1
-}
-
-private_ipv4_route_dns_options() {
-	if have_cmd ip; then
-		ip route show 2>/dev/null | awk '
-			function private_ip(ip) {
-				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
-			}
-			function router_ip(ip) {
-				split(ip, octets, ".")
-				if (octets[1] != "" && octets[2] != "" && octets[3] != "") { return octets[1] "." octets[2] "." octets[3] ".1" }
-				return ""
-			}
-			{
-				iface = ""
-				src = ""
-				split($1, dst_parts, "/")
-				dst = dst_parts[1]
-				for (i = 1; i <= NF; i++) {
-					if ($i == "dev") { iface = $(i + 1) }
-					if ($i == "src") { src = $(i + 1) }
-				}
-				if (iface ~ /^br/ && iface != "br0" && private_ip(dst) && !seen[iface]++) {
-					if (!private_ip(src)) { src = router_ip(dst) }
-					if (src != "") { print iface " " src }
-				}
-			}
-		'
-		return
-	fi
-	return 1
-}
-
-private_ipv4_legacy_route_dns_options() {
-	have_cmd route || return 1
-	route 2>/dev/null | awk '
-		function private_ip(ip) {
-			return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
-		}
-		function router_ip(ip) {
-			split(ip, octets, ".")
-			if (octets[1] != "" && octets[2] != "" && octets[3] != "") { return octets[1] "." octets[2] "." octets[3] ".1" }
-			return ""
-		}
-		{
-			iface = $NF
-			if (iface ~ /^br/ && iface != "br0" && private_ip($1) && !seen[iface]++) {
-				dns_ip = router_ip($1)
-				if (dns_ip != "") { print iface " " dns_ip }
-			}
-		}
-	'
-}
-
-private_ipv4_bridge_dns_options_with_fallbacks() {
-	local OPTIONS
-	OPTIONS="$(private_ipv4_bridge_dns_options)"
-	if [ -z "${OPTIONS}" ]; then
-		OPTIONS="$(private_ipv4_route_dns_options)"
-	fi
-	if [ -z "${OPTIONS}" ]; then
-		OPTIONS="$(private_ipv4_legacy_route_dns_options)"
-	fi
-	printf "%s\n" "${OPTIONS}"
-}
-
 dnsmasq_delete_matching() {
 	local CONFIG PATTERN SED_SCRIPT
 	CONFIG="$1"
@@ -443,14 +327,6 @@ dnsmasq_delete_matching() {
 	done
 	[ -n "${SED_SCRIPT}" ] || return 0
 	sed -i "${SED_SCRIPT}" "${CONFIG}"
-}
-
-ipv4_reverse_zone() {
-	printf "%s\n" "$1" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}'
-}
-
-ipv6_reverse_zone() {
-	printf "%s\n" "$1" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/'
 }
 
 dnsmasq_params() {
@@ -506,40 +382,28 @@ dnsmasq_params() {
 	fi
 }
 
-lower_script() {
-	case "$1" in
-		*)
-			${LOWER_SCRIPT_LOC} "$1" "${NAME}"
-			;;
-	esac
+interface_ipv4_addr() {
+	local IFACE
+	IFACE="$1"
+	[ -n "${IFACE}" ] || return 1
+	have_cmd ip || return 1
+	ip -o -4 addr list "${IFACE}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1]; exit }'
 }
 
-nvram_int_gt() {
-	local VALUE MIN
-	VALUE="$(nvram get "$1" 2>/dev/null)"
-	MIN="$2"
-	case "${VALUE}" in
-		"" | *[!0-9]*)
-			return 1
-			;;
-	esac
-	[ "${VALUE}" -gt "${MIN}" ]
+interface_ipv6_addr() {
+	local IFACE
+	IFACE="$1"
+	[ -n "${IFACE}" ] || return 1
+	have_cmd ip || return 1
+	ip -o -6 addr list "${IFACE}" scope global 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1]; exit }'
 }
 
-system_time_ready() {
-	local now script_time year
-	nvram_int_gt ntp_ready 0 || return 1
-	year="$(/bin/date -u +"%Y" 2>/dev/null)"
-	case "${year}" in
-		"" | *[!0-9]*) ;;
-		*) [ "${year}" -gt "1970" ] && return 0 ;;
-	esac
-	now="$(/bin/date -u '+%s' 2>/dev/null)"
-	script_time="$(/bin/date -u -r "${MID_SCRIPT}" '+%s' 2>/dev/null)"
-	case "${now}:${script_time}" in
-		*[!0-9:]* | "":* | *:) return 1 ;;
-	esac
-	[ "${now}" -ge "${script_time}" ]
+ipv4_reverse_zone() {
+	printf "%s\n" "$1" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}'
+}
+
+ipv6_reverse_zone() {
+	printf "%s\n" "$1" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/'
 }
 
 netcheck() {
@@ -572,14 +436,145 @@ netcheck() {
 	done
 }
 
-proc_write() {
-	local TARGET VALUE
-	VALUE="$1"
-	TARGET="$2"
-	{ [ -e "${TARGET}" ] || return 0; }
-	{ [ -w "${TARGET}" ] || return 0; }
-	{ printf "%s" "${VALUE}" >"${TARGET}"; }
+private_ipv4_bridge_dns_options() {
+	if have_cmd ip; then
+		ip -o -4 addr show scope global 2>/dev/null | awk '
+			function private_ip(ip) {
+				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+			}
+			$2 ~ /^br/ && $2 != "br0" {
+				for (i = 1; i <= NF; i++) {
+					if ($i == "inet") {
+						split($(i + 1), ip_addr, "/")
+						if (private_ip(ip_addr[1]) && !seen[$2]++) { print $2 " " ip_addr[1] }
+					}
+				}
+			}
+		'
+		return
+	fi
+	return 1
 }
+
+private_ipv4_bridge_dns_options_with_fallbacks() {
+	local OPTIONS
+	OPTIONS="$(private_ipv4_bridge_dns_options)"
+	if [ -z "${OPTIONS}" ]; then
+		OPTIONS="$(private_ipv4_route_dns_options)"
+	fi
+	if [ -z "${OPTIONS}" ]; then
+		OPTIONS="$(private_ipv4_legacy_route_dns_options)"
+	fi
+	printf "%s\n" "${OPTIONS}"
+}
+
+private_ipv4_legacy_route_dns_options() {
+	have_cmd route || return 1
+	route 2>/dev/null | awk '
+		function private_ip(ip) {
+			return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+		}
+		function router_ip(ip) {
+			split(ip, octets, ".")
+			if (octets[1] != "" && octets[2] != "" && octets[3] != "") { return octets[1] "." octets[2] "." octets[3] ".1" }
+			return ""
+		}
+		{
+			iface = $NF
+			if (iface ~ /^br/ && iface != "br0" && private_ip($1) && !seen[iface]++) {
+				dns_ip = router_ip($1)
+				if (dns_ip != "") { print iface " " dns_ip }
+			}
+		}
+	'
+}
+
+private_ipv4_route_dns_options() {
+	if have_cmd ip; then
+		ip route show 2>/dev/null | awk '
+			function private_ip(ip) {
+				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+			}
+			function router_ip(ip) {
+				split(ip, octets, ".")
+				if (octets[1] != "" && octets[2] != "" && octets[3] != "") { return octets[1] "." octets[2] "." octets[3] ".1" }
+				return ""
+			}
+			{
+				iface = ""
+				src = ""
+				split($1, dst_parts, "/")
+				dst = dst_parts[1]
+				for (i = 1; i <= NF; i++) {
+					if ($i == "dev") { iface = $(i + 1) }
+					if ($i == "src") { src = $(i + 1) }
+				}
+				if (iface ~ /^br/ && iface != "br0" && private_ip(dst) && !seen[iface]++) {
+					if (!private_ip(src)) { src = router_ip(dst) }
+					if (src != "") { print iface " " src }
+				}
+			}
+		'
+		return
+	fi
+	return 1
+}
+
+resolv_conf_is_tmp_mount() {
+	df -h | grep -qoE '/tmp/resolv.conf'
+}
+
+resolv_conf_uses_rom() {
+	readlink -f /etc/resolv.conf | grep -qE '^/rom/etc/resolv.conf'
+}
+
+sdn_bridge_for_index() {
+	get_mtlan | awk -v idx="$1" '
+		/^[[:space:]]*\|-enable:/ {
+			enabled = ""
+			bridge = ""
+		}
+		/^[[:space:]]*\|-enable:/ {
+			start = index($0, "[")
+			endpos = index($0, "]")
+			if (start > 0 && endpos > start) { enabled = substr($0, start + 1, endpos - start - 1) }
+		}
+		/^[[:space:]]*\|-br_ifname:/ {
+			start = index($0, "[")
+			endpos = index($0, "]")
+			if (start > 0 && endpos > start) { bridge = substr($0, start + 1, endpos - start - 1) }
+		}
+		/^[[:space:]]*\|-sdn_idx:/ {
+			start = index($0, "[")
+			endpos = index($0, "]")
+			if (start > 0 && endpos > start) {
+				sdn = substr($0, start + 1, endpos - start - 1)
+				if (sdn == idx && enabled == "1") {
+					print bridge
+					exit
+				}
+			}
+		}
+		'
+}
+
+system_time_ready() {
+	local now script_time year
+	nvram_int_gt ntp_ready 0 || return 1
+	year="$(/bin/date -u +"%Y" 2>/dev/null)"
+	case "${year}" in
+		"" | *[!0-9]*) ;;
+		*) [ "${year}" -gt "1970" ] && return 0 ;;
+	esac
+	now="$(/bin/date -u '+%s' 2>/dev/null)"
+	script_time="$(/bin/date -u -r "${MID_SCRIPT}" '+%s' 2>/dev/null)"
+	case "${now}:${script_time}" in
+		*[!0-9:]* | "":* | *:) return 1 ;;
+	esac
+	[ "${now}" -ge "${script_time}" ]
+}
+
+# Process tuning helpers
 
 proc_optimizations() {
 	{ proc_write "4194304" "/proc/sys/kernel/pid_max"; }                                 # Ensure max PID coverage
@@ -599,6 +594,25 @@ proc_optimizations() {
 		{ proc_write "1024" "/proc/sys/net/ipv6/neigh/default/gc_thresh2"; }
 		{ proc_write "2048" "/proc/sys/net/ipv6/neigh/default/gc_thresh3"; }
 	fi
+}
+
+proc_write() {
+	local TARGET VALUE
+	VALUE="$1"
+	TARGET="$2"
+	{ [ -e "${TARGET}" ] || return 0; }
+	{ [ -w "${TARGET}" ] || return 0; }
+	{ printf "%s" "${VALUE}" >"${TARGET}"; }
+}
+
+# Service lifecycle helpers
+
+lower_script() {
+	case "$1" in
+		*)
+			${LOWER_SCRIPT_LOC} "$1" "${NAME}"
+			;;
+	esac
 }
 
 service_wait() {

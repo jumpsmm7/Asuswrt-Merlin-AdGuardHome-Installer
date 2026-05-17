@@ -4,6 +4,8 @@
 
 set -u
 
+# Functions are sorted alpha-numerically for readability.
+
 is_shell_script() {
 	_path="$1"
 	_first_line="$(sed -n '1p' "${_path}" 2>/dev/null || true)"
