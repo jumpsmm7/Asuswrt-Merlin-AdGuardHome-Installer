@@ -30,7 +30,6 @@ readonly API_HEADERS="/tmp/AGH_GIT_API_$$_headers.out"
 readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
 readonly ADGUARDHOME_READY_TIMEOUT="180"
-readonly REMOTE_VER REMOTE_BETA
 readonly ADDON_DIR="/jffs/addons/AdGuardHome.d"
 readonly BASE_DIR="/opt/etc"
 readonly TARG_DIR="${BASE_DIR}/AdGuardHome"
@@ -1666,10 +1665,9 @@ until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
 	fi
 	varcnt="$((varcnt + 1))"
 done
+readonly REMOTE_VER REMOTE_BETA
 cleanup_api_files
-wait
 unset varcnt
-
 [ "$1" ] && BRANCH="$1" || BRANCH="master"
 case "${BRANCH}" in
 	"amtmupdate")
