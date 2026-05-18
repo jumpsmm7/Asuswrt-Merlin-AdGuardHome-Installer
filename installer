@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.1.4                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.1.5                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v2.1.4"
+AI_VERSION="v2.1.5"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly API_HEADERS="/tmp/AGH_GIT_API_$$_headers.out"
@@ -113,7 +113,7 @@ ensure_password_hash_tool() {
 
 hash_password_python() {
 	_password="$1"
-	printf '%s' "${_password}" | python3 -c 'import sys, bcrypt; password = sys.stdin.buffer.read(); print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))'
+	PTXT -n "${_password}" | python3 -c 'import sys, bcrypt; password = sys.stdin.buffer.read(); print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))'
 }
 
 opkg_pkg_available() {
@@ -149,7 +149,7 @@ curl_common_args() {
 		curl_has_option '--retry-connrefused' && CURL_COMMON_ARGS="${CURL_COMMON_ARGS} --retry-connrefused"
 		CURL_COMMON_ARGS_SET="1"
 	fi
-	printf '%s' "${CURL_COMMON_ARGS}"
+	PTXT -n "${CURL_COMMON_ARGS}"
 }
 
 curl_has_option() {
@@ -161,7 +161,7 @@ curl_help() {
 		CURL_HELP_CACHE="$(curl --help all 2>&1 || curl --help 2>&1)"
 		CURL_HELP_CACHE_SET="1"
 	fi
-	printf '%s\n' "${CURL_HELP_CACHE}"
+	PTXT "${CURL_HELP_CACHE}"
 }
 
 curl_insecure_arg() {
@@ -170,7 +170,7 @@ curl_insecure_arg() {
 		curl_has_option '--insecure' && CURL_INSECURE_ARG=" -k"
 		CURL_INSECURE_ARG_SET="1"
 	fi
-	printf '%s' "${CURL_INSECURE_ARG}"
+	PTXT -n "${CURL_INSECURE_ARG}"
 }
 
 http_get_file() {
@@ -258,7 +258,7 @@ wget_common_args() {
 		wget_has_option '--retry-connrefused' && WGET_COMMON_ARGS="${WGET_COMMON_ARGS} --retry-connrefused"
 		WGET_COMMON_ARGS_SET="1"
 	fi
-	printf '%s' "${WGET_COMMON_ARGS}"
+	PTXT -n "${WGET_COMMON_ARGS}"
 }
 
 wget_has_option() {
@@ -270,7 +270,7 @@ wget_help() {
 		WGET_HELP_CACHE="$(wget --help 2>&1)"
 		WGET_HELP_CACHE_SET="1"
 	fi
-	printf '%s\n' "${WGET_HELP_CACHE}"
+	PTXT "${WGET_HELP_CACHE}"
 }
 
 wget_insecure_arg() {
@@ -279,13 +279,13 @@ wget_insecure_arg() {
 		wget_has_option '--no-check-certificate' && WGET_INSECURE_ARG=" --no-check-certificate"
 		WGET_INSECURE_ARG_SET="1"
 	fi
-	printf '%s' "${WGET_INSECURE_ARG}"
+	PTXT -n "${WGET_INSECURE_ARG}"
 }
 
 # Console and config helpers
 
 _quote() {
-	printf "%s\n" "$1" | sed 's/[]\/()$*.^|[]/\\&/g'
+	PTXT "$1" | sed 's/[]\/()$*.^|[]/\\&/g'
 }
 
 PTXT() {
@@ -335,10 +335,10 @@ sanitize_branch() {
 	local CANDIDATE
 	CANDIDATE="$1"
 	if branch_is_safe "${CANDIDATE}"; then
-		printf '%s\n' "${CANDIDATE}"
+		PTXT "${CANDIDATE}"
 	else
-		printf '%s\n' "${WARNING} Ignoring unsafe installer branch '${CANDIDATE}', using master instead." >&2
-		printf '%s\n' "master"
+		PTXT "${WARNING} Ignoring unsafe installer branch ${CANDIDATE}, using master instead." >&2
+		PTXT "master"
 	fi
 }
 
@@ -439,14 +439,21 @@ agh_prepare_binary_replace() {
 }
 
 agh_monitor_count() {
-	pidof AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome 2>/dev/null | wc -w
+	local count pid
+	count="0"
+	for pid in $(pidof AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome 2>/dev/null); do
+		if awk '{ print }' "/proc/${pid}/cmdline" 2>/dev/null | grep -q 'monitor-start'; then
+			count="$((count + 1))"
+		fi
+	done
+	PTXT "${count}"
 }
 
 agh_process_count() {
 	local daemon_count monitor_count
 	daemon_count="$(pidof AdGuardHome 2>/dev/null | wc -w)"
 	monitor_count="$(agh_monitor_count)"
-	printf '%s\n' "$((daemon_count + monitor_count))"
+	PTXT "$((daemon_count + monitor_count))"
 }
 
 agh_restart() {
@@ -568,7 +575,7 @@ monotonic_seconds() {
 		case "${uptime}" in
 			"" | *[!0-9]*) return 1 ;;
 		esac
-		printf '%s\n' "${uptime}"
+		PTXT "${uptime}"
 		return 0
 	fi
 	return 1
@@ -1751,7 +1758,7 @@ until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
 		break
 	fi
 	if [ "${varcnt}" -gt "${MAX_RETRIES}" ]; then
-		printf "%s\n" "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr) per requesters IP." "For more information, please read ${API_HEADERS}." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
+		PTXT "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr) per requesters IP." "For more information, please read ${API_HEADERS}." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
 		sleep 3s
 		exit 1
 	fi
