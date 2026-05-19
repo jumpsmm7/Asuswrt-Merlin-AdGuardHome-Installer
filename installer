@@ -1767,13 +1767,12 @@ done
 readonly REMOTE_VER REMOTE_BETA
 cleanup_api_files
 unset varcnt
-[ "$1" ] && BRANCH="$1" || BRANCH="master"
-case "${BRANCH}" in
+case "${1}" in
 	"amtmupdate")
-		unset BRANCH
 		BRANCH="$(conf_value INSTALLER_BRANCH)"
 		[ -n "${BRANCH}" ] || BRANCH="master"
 		BRANCH="$(sanitize_branch "${BRANCH}")"
+        write_conf INSTALLER_BRANCH "\"${BRANCH}\""
 		case "$2" in
 			"check")
 				AMTM_UPDATE="$(conf_value AMTM_UPDATE)"
@@ -1789,7 +1788,13 @@ case "${BRANCH}" in
 				;;
 		esac
 		;;
+	"")
+        BRANCH="master"
+        BRANCH="$(sanitize_branch "${BRANCH}")"
+		write_conf INSTALLER_BRANCH "\"${BRANCH}\""
+		;;
 	*)
+        BRANCH="${1}"
 		BRANCH="$(sanitize_branch "${BRANCH}")"
 		write_conf INSTALLER_BRANCH "\"${BRANCH}\""
 		;;
