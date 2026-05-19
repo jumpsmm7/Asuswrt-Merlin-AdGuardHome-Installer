@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.1.6                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.1.7                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v2.1.6"
+AI_VERSION="v2.1.7"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly API_HEADERS="/tmp/AGH_GIT_API_$$_headers.out"
@@ -1770,9 +1770,7 @@ unset varcnt
 case "${1}" in
 	"amtmupdate")
 		BRANCH="$(conf_value INSTALLER_BRANCH)"
-		[ -n "${BRANCH}" ] || BRANCH="master"
-		BRANCH="$(sanitize_branch "${BRANCH}")"
-		write_conf INSTALLER_BRANCH "\"${BRANCH}\""
+		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
 		case "$2" in
 			"check")
 				AMTM_UPDATE="$(conf_value AMTM_UPDATE)"
@@ -1790,15 +1788,13 @@ case "${1}" in
 		;;
 	"")
 		BRANCH="master"
-		BRANCH="$(sanitize_branch "${BRANCH}")"
-		write_conf INSTALLER_BRANCH "\"${BRANCH}\""
 		;;
 	*)
 		BRANCH="${1}"
-		BRANCH="$(sanitize_branch "${BRANCH}")"
-		write_conf INSTALLER_BRANCH "\"${BRANCH}\""
 		;;
 esac
+BRANCH="$(sanitize_branch "${BRANCH}")"
+write_conf INSTALLER_BRANCH "\"${BRANCH}\""
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
 RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}"
 ROUTER_OS="$(/bin/uname)"
