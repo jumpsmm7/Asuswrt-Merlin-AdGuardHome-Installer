@@ -12,3 +12,4 @@ Expected generated metadata files:
 
 - `VERSION.txt` records the version associated with each archive.
 - `checksum.txt` records MD5 and SHA-256 checksums for each archive.
+- `*.tar.gz.md5sum` sidecar files contain only the MD5 checksum for the matching compressed archive.
