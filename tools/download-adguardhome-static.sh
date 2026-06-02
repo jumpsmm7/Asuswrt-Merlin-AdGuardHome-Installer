@@ -139,6 +139,7 @@ download_one() {
 		printf '%s\n' "Updated ${_dest_file}"
 	fi
 
+	write_md5sum_file "${_dest_file}" "${_md5}" || return 1
 	append_metadata "${_folder}" "${_channel_name}" "${_remote_channel}" "${_adguard_arch}" "${_dest_name}" "${_version}" "${_md5}" "${_sha256}"
 }
 
@@ -150,6 +151,19 @@ require_cmd() {
 
 	printf '%s\n' "Error: ${_cmd} is required." >&2
 	exit 1
+}
+
+write_md5sum_file() {
+	_archive_file="$1"
+	_md5="$2"
+	_md5_file="${_archive_file}.md5sum"
+
+	printf '%s\n' "${_md5}" >"${_md5_file}" || {
+		printf '%s\n' "Error: could not update ${_md5_file}" >&2
+		FAILED=1
+		return 1
+	}
+	chmod 644 "${_md5_file}"
 }
 
 require_cmd awk

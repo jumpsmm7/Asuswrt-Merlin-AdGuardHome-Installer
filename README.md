@@ -191,6 +191,7 @@ Each architecture folder also gets generated metadata:
 
 - `VERSION.txt` lists each archive, local channel name, upstream channel name, and AdGuardHome version from upstream `version.txt`.
 - `checksum.txt` lists each archive with its channel, version, MD5 checksum, and SHA-256 checksum.
+- `*.tar.gz.md5sum` sidecar files contain only the MD5 checksum for the matching compressed archive.
 
 The local stable filenames use `stable`, while the upstream static AdGuardHome channel path remains `release` to match the installer branch naming.
 
