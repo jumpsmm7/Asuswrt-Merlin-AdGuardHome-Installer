@@ -699,9 +699,9 @@ init_upstream_adguard_metadata() {
 		if http_get_file "https://static.adguard.com/adguardhome/release/version.txt" "${RELEASE_VERSION_FILE}" "" insecure && [ -s "${RELEASE_VERSION_FILE}" ] &&
 			http_get_file "https://static.adguard.com/adguardhome/beta/version.txt" "${BETA_VERSION_FILE}" "" insecure && [ -s "${BETA_VERSION_FILE}" ] &&
 			http_get_file "https://static.adguard.com/adguardhome/edge/version.txt" "${EDGE_VERSION_FILE}" "" insecure && [ -s "${EDGE_VERSION_FILE}" ]; then
-			REMOTE_VER="$(awk 'NF {print $1; exit}' "${RELEASE_VERSION_FILE}")"
-			REMOTE_BETA="$(awk 'NF {print $1; exit}' "${BETA_VERSION_FILE}")"
-			REMOTE_EDGE="$(awk 'NF {print $1; exit}' "${EDGE_VERSION_FILE}")"
+			REMOTE_VER="$(awk 'NF {VERSION = $1; sub(/^version=/, "", VERSION); print VERSION; exit}' "${RELEASE_VERSION_FILE}")"
+			REMOTE_BETA="$(awk 'NF {VERSION = $1; sub(/^version=/, "", VERSION); print VERSION; exit}' "${BETA_VERSION_FILE}")"
+			REMOTE_EDGE="$(awk 'NF {VERSION = $1; sub(/^version=/, "", VERSION); print VERSION; exit}' "${EDGE_VERSION_FILE}")"
 			if [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ] && [ -n "${REMOTE_EDGE}" ]; then
 				export REMOTE_VER REMOTE_BETA REMOTE_EDGE REMOTE_RELEASE_ARCHIVE REMOTE_BETA_ARCHIVE REMOTE_EDGE_ARCHIVE REMOTE_RELEASE_MD5 REMOTE_BETA_MD5 REMOTE_EDGE_MD5 REMOTE_RELEASE_URL REMOTE_BETA_URL REMOTE_EDGE_URL
 				rm -f "${RELEASE_VERSION_FILE}" "${BETA_VERSION_FILE}" "${EDGE_VERSION_FILE}"
