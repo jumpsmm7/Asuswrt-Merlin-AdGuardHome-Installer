@@ -1,0 +1,51 @@
+name: Cache AdGuardHome static archives
+
+on:
+  schedule:
+    # Run once per quarter of the day: midnight, 06:00, noon, and 18:00 UTC.
+    - cron: '0 0,6,12,18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cache-adguardhome-static-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  cache-static-archives:
+    name: Download static AdGuardHome archives
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'branch'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Download AdGuardHome archives
+        run: |
+          sh tools/download-adguardhome-static.sh .
+
+      - name: Commit archive updates
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- armv8 armv7 armv5; then
+            echo "No AdGuardHome archive updates needed."
+            exit 0
+          fi
+
+          git status --short
+          git add armv8 armv7 armv5
+          git commit -m "chore: update AdGuardHome static archives"
+          git push origin HEAD:${GITHUB_REF_NAME}
