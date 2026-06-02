@@ -25,9 +25,7 @@ export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
 AI_VERSION="v2.1.8"
 export AI_VERSION
-readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
-readonly API_HEADERS="/tmp/AGH_GIT_API_$$_headers.out"
-readonly LATEST_URL="https://api.github.com/repos/AdguardTeam/AdGuardHome/releases"
+readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
 readonly ADGUARDHOME_READY_TIMEOUT="180"
 readonly ADDON_DIR="/jffs/addons/AdGuardHome.d"
@@ -64,7 +62,7 @@ ai_have_cmd() {
 }
 
 cleanup_api_files() {
-	rm -f "${API_FILE}" "${API_HEADERS}"
+	rm -f "${ADGUARD_METADATA_FILE}"
 }
 
 ensure_bcrypt_tool() {
@@ -591,6 +589,80 @@ monotonic_seconds() {
 
 # Validation and discovery helpers
 
+adguard_remote_archive() {
+	case "$1" in
+		release) PTXT "${REMOTE_RELEASE_ARCHIVE}" ;;
+		beta) PTXT "${REMOTE_BETA_ARCHIVE}" ;;
+		edge) PTXT "${REMOTE_EDGE_ARCHIVE}" ;;
+		*) return 1 ;;
+	esac
+}
+
+adguard_remote_md5() {
+	case "$1" in
+		release) PTXT "${REMOTE_RELEASE_MD5}" ;;
+		beta) PTXT "${REMOTE_BETA_MD5}" ;;
+		edge) PTXT "${REMOTE_EDGE_MD5}" ;;
+		*) return 1 ;;
+	esac
+}
+
+adguard_remote_version() {
+	case "$1" in
+		release) PTXT "${REMOTE_VER}" ;;
+		beta) PTXT "${REMOTE_BETA}" ;;
+		edge) PTXT "${REMOTE_EDGE}" ;;
+		*) return 1 ;;
+	esac
+}
+
+adguard_validate_metadata() {
+	[ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ] && [ -n "${REMOTE_EDGE}" ] && \
+		[ -n "${REMOTE_RELEASE_ARCHIVE}" ] && [ -n "${REMOTE_BETA_ARCHIVE}" ] && [ -n "${REMOTE_EDGE_ARCHIVE}" ] && \
+		md5_is_valid "${REMOTE_RELEASE_MD5}" && md5_is_valid "${REMOTE_BETA_MD5}" && md5_is_valid "${REMOTE_EDGE_MD5}"
+}
+
+init_remote_adguard_metadata() {
+	local COUNT CHANNEL_FILE
+	REMOTE_VER=""
+	REMOTE_BETA=""
+	REMOTE_EDGE=""
+	REMOTE_RELEASE_ARCHIVE=""
+	REMOTE_BETA_ARCHIVE=""
+	REMOTE_EDGE_ARCHIVE=""
+	REMOTE_RELEASE_MD5=""
+	REMOTE_BETA_MD5=""
+	REMOTE_EDGE_MD5=""
+	COUNT="0"
+	CHANNEL_FILE="${URL_ARCH}/checksum.txt"
+	while [ "${COUNT}" -lt 3 ]; do
+		rm -f "${ADGUARD_METADATA_FILE}"
+		if http_get_file "${CHANNEL_FILE}" "${ADGUARD_METADATA_FILE}" "" insecure && [ -s "${ADGUARD_METADATA_FILE}" ]; then
+			REMOTE_VER="$(awk '$1 !~ /^#/ && $2 == "stable" {VERSION = $3; sub(/^version=/, "", VERSION); print VERSION; exit}' "${ADGUARD_METADATA_FILE}")"
+			REMOTE_BETA="$(awk '$1 !~ /^#/ && $2 == "beta" {VERSION = $3; sub(/^version=/, "", VERSION); print VERSION; exit}' "${ADGUARD_METADATA_FILE}")"
+			REMOTE_EDGE="$(awk '$1 !~ /^#/ && $2 == "edge" {VERSION = $3; sub(/^version=/, "", VERSION); print VERSION; exit}' "${ADGUARD_METADATA_FILE}")"
+			REMOTE_RELEASE_ARCHIVE="$(awk '$1 !~ /^#/ && $2 == "stable" {print $1; exit}' "${ADGUARD_METADATA_FILE}")"
+			REMOTE_BETA_ARCHIVE="$(awk '$1 !~ /^#/ && $2 == "beta" {print $1; exit}' "${ADGUARD_METADATA_FILE}")"
+			REMOTE_EDGE_ARCHIVE="$(awk '$1 !~ /^#/ && $2 == "edge" {print $1; exit}' "${ADGUARD_METADATA_FILE}")"
+			REMOTE_RELEASE_MD5="$(awk '$1 !~ /^#/ && $2 == "stable" {print $4; exit}' "${ADGUARD_METADATA_FILE}")"
+			REMOTE_BETA_MD5="$(awk '$1 !~ /^#/ && $2 == "beta" {print $4; exit}' "${ADGUARD_METADATA_FILE}")"
+			REMOTE_EDGE_MD5="$(awk '$1 !~ /^#/ && $2 == "edge" {print $4; exit}' "${ADGUARD_METADATA_FILE}")"
+			if adguard_validate_metadata; then
+				export REMOTE_VER REMOTE_BETA REMOTE_EDGE REMOTE_RELEASE_ARCHIVE REMOTE_BETA_ARCHIVE REMOTE_EDGE_ARCHIVE REMOTE_RELEASE_MD5 REMOTE_BETA_MD5 REMOTE_EDGE_MD5
+				cleanup_api_files
+				return 0
+			fi
+		fi
+		COUNT="$((COUNT + 1))"
+	done
+	PTXT "One or more critical variables could not be set in a timely manner." \
+		"Unable to read complete AdGuardHome package metadata from ${CHANNEL_FILE}." \
+		"Please be sure to check your internet connection, and please try again later." \
+		"The installer script will now exit."
+	sleep 3s
+	exit 1
+}
+
 check_AdGuardHome_yaml() {
 	[ ! -f "${YAML_FILE}" ] && return
 	chmod 644 "${YAML_FILE}"
@@ -827,7 +899,7 @@ check_jffs_enabled() {
 }
 
 check_version() {
-	local RMNSTALL LINSTALL MD5SUM_L MD5SUM_R MD5SUM_EXPECTED REMOTE_INSTALLER REMOTE_INSTALLER_MD5 ADGUARD_BRANCH ADGUARD_VER varcnt
+	local RMNSTALL LINSTALL MD5SUM_L MD5SUM_R MD5SUM_EXPECTED REMOTE_INSTALLER REMOTE_INSTALLER_MD5 ADGUARD_BRANCH ADGUARD_VER REMOTE_ADGUARD_VER varcnt
 	if [ -f "${TARG_DIR}/installer" ] && [ -f "${AGH_FILE}" ] && [ -z "$2" ]; then
 		if [ -n "$1" ] || { check_connection; }; then
 			REMOTE_INSTALLER="${TARG_DIR}/.installer.remote.$$"
@@ -867,8 +939,8 @@ check_version() {
 			[ -z "${LINSTALL}" ] && exit 1
 			[ -z "${RMNSTALL}" ] && exit 1
 			[ -z "${ADGUARD_VER}" ] && exit 1
-			[ -z "${REMOTE_VER}" ] && exit 1
-			[ -z "${REMOTE_BETA}" ] && exit 1
+			REMOTE_ADGUARD_VER="$(adguard_remote_version "${ADGUARD_BRANCH}")"
+			[ -z "${REMOTE_ADGUARD_VER}" ] && exit 1
 			if [ "${RMNSTALL}" != "${LINSTALL}" ]; then
 				PTXT "${INFO} New AI_VERSION=v${RMNSTALL} Available!" \
 					"${INFO} Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
@@ -880,13 +952,16 @@ check_version() {
 					"${INFO} Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
 				AUTO_UPDATE="update"
 			fi
-			if { [ "${REMOTE_VER}" != "${ADGUARD_VER}" ] && [ "${ADGUARD_BRANCH}" = "release" ]; } || { [ "${REMOTE_BETA}" != "${ADGUARD_VER}" ] && [ "${ADGUARD_BRANCH}" = "beta" ]; }; then
+			if [ "${REMOTE_ADGUARD_VER}" != "${ADGUARD_VER}" ]; then
 				case "${ADGUARD_BRANCH}" in
 					release)
-						PTXT "${INFO} New RELEASE ADGUARDHOME_VER=${REMOTE_VER} Available!"
+						PTXT "${INFO} New RELEASE ADGUARDHOME_VER=${REMOTE_ADGUARD_VER} Available!"
 						;;
 					beta)
-						PTXT "${INFO} New BETA ADGUARDHOME_VER=${REMOTE_BETA} Available!"
+						PTXT "${INFO} New BETA ADGUARDHOME_VER=${REMOTE_ADGUARD_VER} Available!"
+						;;
+					edge)
+						PTXT "${INFO} New EDGE ADGUARDHOME_VER=${REMOTE_ADGUARD_VER} Available!"
 						;;
 				esac
 				AUTO_UPDATE="update"
@@ -924,6 +999,8 @@ check_version() {
 
 choose_branch() {
 	if [ "$1" = "1" ]; then
+		ADGUARD_BRANCH_OLD="$(conf_value ADGUARD_BRANCH)"
+		export ADGUARD_BRANCH_OLD
 		del_conf ADGUARD_BRANCH
 	fi
 	local BUILD
@@ -947,6 +1024,10 @@ choose_branch() {
 				write_conf ADGUARD_BRANCH "\"${BUILD}\""
 				;;
 		esac
+		if [ -n "${ADGUARD_BRANCH_OLD:-}" ] && [ "${ADGUARD_BRANCH_OLD}" != "${BUILD}" ]; then
+			ADGUARD_BRANCH_CHANGED="1"
+			export ADGUARD_BRANCH_CHANGED
+		fi
 	else
 		if read_yesno "Do you want to switch AdGuardHome builds?"; then choose_branch 1; else PTXT "${INFO} continuing without changing builds."; fi
 	fi
@@ -1150,7 +1231,7 @@ installer_update_reexec() {
 }
 
 inst_AdGuardHome() {
-	local ADGUARD_TAR INSTALLER_MD5_OLD
+	local ADGUARD_TAR INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_VER
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	INSTALLER_MD5_OLD=""
 	[ -f "${SCRIPT_LOC}" ] && INSTALLER_MD5_OLD="$(md5sum "${SCRIPT_LOC}" 2>/dev/null | awk '{print $1; exit}')"
@@ -1170,7 +1251,7 @@ inst_AdGuardHome() {
 				if read_yesno "Do you want create a backup before updating?"; then backup_restore BACKUP 0; else PTXT "${INFO} continuing without making a backup."; fi
 			fi
 		fi
-		if [ -z "${REMOTE_VER}" ] || { ! check_connection; }; then
+		if [ -z "${REMOTE_VER}" ] || [ -z "${REMOTE_BETA}" ] || [ -z "${REMOTE_EDGE}" ] || { ! check_connection; }; then
 			PTXT "${ERROR} Unable to detect the Internet!"
 			end_op_message 1 "$1"
 			return
@@ -1194,23 +1275,40 @@ inst_AdGuardHome() {
 			else
 				ADGUARD_VER="$("${AGH_FILE}" --version | cut -d" " -f4-)"
 				[ -z "${ADGUARD_VER}" ] && exit 1
-				[ -z "${REMOTE_VER}" ] && exit 1
-				[ -z "${REMOTE_BETA}" ] && exit 1
-				if { [ "${REMOTE_VER}" != "${ADGUARD_VER}" ] && [ "${ADGUARD_BRANCH}" = "release" ]; } || { [ "${REMOTE_BETA}" != "${ADGUARD_VER}" ] && [ "${ADGUARD_BRANCH}" = "beta" ]; } || [ "${ADGUARD_BRANCH}" = "edge" ]; then
-					case "${ADGUARD_BRANCH}" in
-						release)
-							PTXT "${INFO} New RELEASE ADGUARDHOME_VER=${REMOTE_VER} Available!" \
-								"${INFO} Updating ADGUARDHOME_VER=${ADGUARD_VER} to ${REMOTE_VER}."
-							;;
-						beta)
-							PTXT "${INFO} New BETA ADGUARDHOME_VER=${REMOTE_BETA} Available!" \
-								"${INFO} Updating ADGUARDHOME_VER=${ADGUARD_VER} to ${REMOTE_BETA}."
-							;;
-						edge)
-							PTXT "${INFO} ADGUARDHOME_BUILD=Edge" \
-								"${INFO} Downloading the lastest Edge version to replace ADGUARDHOME_VER=${ADGUARD_VER}."
-							;;
-					esac
+				REMOTE_ADGUARD_VER="$(adguard_remote_version "${ADGUARD_BRANCH}")"
+				[ -z "${REMOTE_ADGUARD_VER}" ] && exit 1
+				if [ "${REMOTE_ADGUARD_VER}" != "${ADGUARD_VER}" ] || [ "${ADGUARD_BRANCH_CHANGED:-0}" = "1" ]; then
+					if [ "${ADGUARD_BRANCH_CHANGED:-0}" = "1" ]; then
+						case "${ADGUARD_BRANCH}" in
+							release)
+								PTXT "${INFO} Switching ADGUARDHOME_BUILD=Release" \
+									"${INFO} Installing RELEASE ADGUARDHOME_VER=${REMOTE_ADGUARD_VER}."
+								;;
+							beta)
+								PTXT "${INFO} Switching ADGUARDHOME_BUILD=Beta" \
+									"${INFO} Installing BETA ADGUARDHOME_VER=${REMOTE_ADGUARD_VER}."
+								;;
+							edge)
+								PTXT "${INFO} Switching ADGUARDHOME_BUILD=Edge" \
+									"${INFO} Installing EDGE ADGUARDHOME_VER=${REMOTE_ADGUARD_VER}."
+								;;
+						esac
+					else
+						case "${ADGUARD_BRANCH}" in
+							release)
+								PTXT "${INFO} New RELEASE ADGUARDHOME_VER=${REMOTE_ADGUARD_VER} Available!" \
+									"${INFO} Updating ADGUARDHOME_VER=${ADGUARD_VER} to ${REMOTE_ADGUARD_VER}."
+								;;
+							beta)
+								PTXT "${INFO} New BETA ADGUARDHOME_VER=${REMOTE_ADGUARD_VER} Available!" \
+									"${INFO} Updating ADGUARDHOME_VER=${ADGUARD_VER} to ${REMOTE_ADGUARD_VER}."
+								;;
+							edge)
+								PTXT "${INFO} New EDGE ADGUARDHOME_VER=${REMOTE_ADGUARD_VER} Available!" \
+									"${INFO} Updating ADGUARDHOME_VER=${ADGUARD_VER} to ${REMOTE_ADGUARD_VER}."
+								;;
+						esac
+					fi
 					inst_AdGuardHome "${1:-update}" "${ADGUARD_BRANCH}"
 				else
 					case "${ADGUARD_BRANCH}" in
@@ -1224,13 +1322,27 @@ inst_AdGuardHome() {
 								"${INFO} No new beta version available." \
 								"${INFO} ADGUARDHOME_VER=${ADGUARD_VER}"
 							;;
+						edge)
+							PTXT "${INFO} ADGUARDHOME_BUILD=Edge" \
+								"${INFO} No new edge version available." \
+								"${INFO} ADGUARDHOME_VER=${ADGUARD_VER}"
+							;;
 					esac
 				fi
 			fi
 		fi
 	else
-		if ! download_file "${BASE_DIR}" 644 "https://static.adguard.com/adguardhome/${2}/${ADGUARD_TAR}"; then
+		REMOTE_ADGUARD_ARCHIVE="$(adguard_remote_archive "$2")"
+		REMOTE_ADGUARD_MD5="$(adguard_remote_md5 "$2")"
+		[ -z "${REMOTE_ADGUARD_ARCHIVE}" ] && REMOTE_ADGUARD_ARCHIVE="${ADGUARD_TAR}"
+		if ! download_file "${BASE_DIR}" 644 "${URL_ARCH}/${REMOTE_ADGUARD_ARCHIVE}"; then
 			PTXT "${ERROR} Unable to download AdGuardHome package for your router"
+			end_op_message 1 "$1"
+			return
+		fi
+		if md5_is_valid "${REMOTE_ADGUARD_MD5}" && [ "$(md5sum "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" | awk '{print $1; exit}')" != "${REMOTE_ADGUARD_MD5}" ]; then
+			PTXT "${ERROR} Checksum mismatch for downloaded AdGuardHome package metadata."
+			rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 			end_op_message 1 "$1"
 			return
 		fi
@@ -1238,9 +1350,9 @@ inst_AdGuardHome() {
 			end_op_message 1 "$1"
 			return
 		fi
-		tar xzv -C "${BASE_DIR}" -f "${BASE_DIR}/${ADGUARD_TAR}" >/dev/null 2>&1
+		tar xzv -C "${BASE_DIR}" -f "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" >/dev/null 2>&1
 		chown "$(nvram get http_username)":root ${TARG_DIR}/*
-		rm -r "${BASE_DIR:?}/${ADGUARD_TAR}"
+		rm -r "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 		chmod 755 "${AGH_FILE}"
 		[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
 		if ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome || [ -z "$("${AGH_FILE}" --version | cut -d" " -f4-)" ]; then
@@ -1779,25 +1891,6 @@ read_yesno() {
 }
 
 trap 'on_installer_exit' EXIT
-varcnt=0
-readonly MAX_RETRIES="1"
-until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
-	http_get_file "${LATEST_URL}?per_page=5" "${API_FILE}" "${API_HEADERS}"
-	if [ -s "${API_FILE}" ]; then
-		REMOTE_VER="$(awk '/"tag_name":/ {t=$2} /"prerelease": false/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
-		REMOTE_BETA="$(awk '/"tag_name":/ {t=$2} /"prerelease": true/ {gsub(/[",]/,"",t); print t; exit}' "${API_FILE}")"
-		break
-	fi
-	if [ "${varcnt}" -gt "${MAX_RETRIES}" ]; then
-		PTXT "One or more critical variables could not be set in a timely manner." "It is possible we have hit the github api ratelimit (60req./hr) per requesters IP." "For more information, please read ${API_HEADERS}." "Please be sure to check your internet connection, and please try again later." "The installer script will now exit."
-		sleep 3s
-		exit 1
-	fi
-	varcnt="$((varcnt + 1))"
-done
-readonly REMOTE_VER REMOTE_BETA
-cleanup_api_files
-unset varcnt
 case "${1}" in
 	"amtmupdate")
 		BRANCH="$(conf_value INSTALLER_BRANCH)"
@@ -1871,16 +1964,19 @@ esac
 case "${ROUTER_ARCH}" in
 	"aarch64" | "arm64")
 		ROUTER_ARCH="arm64"
+		URL_ARCH="${RURL}/armv8"
 		ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
 		[ -z "$2" ] && PTXT "${INFO} Detected ARMv8 architecture."
 		;;
 	"armv7l")
 		ROUTER_ARCH="armv7"
+		URL_ARCH="${RURL}/${ROUTER_ARCH}"
 		ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
 		[ -z "$2" ] && PTXT "${INFO} Detected ARMv7 architecture."
 		;;
 	"armv7")
 		ROUTER_ARCH="armv5"
+		URL_ARCH="${RURL}/${ROUTER_ARCH}"
 		ADGUARD_ARCH="${ROUTER_OS}_${ROUTER_ARCH}"
 		[ -z "$2" ] && PTXT "${INFO} Detected ARMv7 architecture."
 		;;
@@ -1889,6 +1985,8 @@ case "${ROUTER_ARCH}" in
 		exit 1
 		;;
 esac
+
+init_remote_adguard_metadata
 
 case "$2" in
 	"")
