@@ -375,7 +375,7 @@ dnsmasq_delete_matching() {
 }
 
 dnsmasq_params() {
-	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS
+	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
 	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then { 
 		umount /tmp/resolv.conf 2>/dev/null; 
 	}; fi
@@ -387,58 +387,23 @@ dnsmasq_params() {
 			:
 			;;
 	esac
+	RC_SUPPORT="$(nvram get rc_support 2>/dev/null)"
+	LAN_IF="$(nvram get lan_ifname 2>/dev/null)"
 	case "${1:-}" in
 		"")
 			CONFIG="/etc/dnsmasq.conf"
-			LAN_IF="$(nvram get lan_ifname 2>/dev/null)"
+			DHCP_IF="lan"
 			if [ -n "${LAN_IF}" ]; then
 				NET_ADDR="$(interface_ipv4_addr "${LAN_IF}")"
 				NET_ADDR6="$(interface_ipv6_addr "${LAN_IF}")"
-			else
-				return 0
 			fi
 			[ -n "${NET_ADDR}" ] || NET_ADDR="$(nvram get lan_ipaddr 2>/dev/null)"
 			[ -n "${NET_ADDR6}" ] || NET_ADDR6="$(nvram get ipv6_rtr_addr 2>/dev/null)"
 			[ -n "${NET_ADDR}" ] || return 0
-			dnsmasq_delete_matching \
-				"${CONFIG}" \
-				"port=" \
-				"dhcp-option=lan,6"
-			printf "%s\n" \
-				"port=553" \
-				"local=/$(ipv4_reverse_zone "${NET_ADDR}")/" \
-				"local=/10.in-addr.arpa/" \
-				"local=//" \
-				"dhcp-option=lan,6,${NET_ADDR}" \
-				"add-mac" >>"${CONFIG}"
-			case "${NET_ADDR6}" in
-				"")
-					printf "%s\n" "add-subnet=32" >>"${CONFIG}"
-					;;
-				*)
-					IPV6_REVERSE="$(ipv6_reverse_zone "${NET_ADDR6}")"
-					printf "%s\n" \
-						"local=/${IPV6_REVERSE}/" \
-						"add-subnet=32,128" >>"${CONFIG}"
-					;;
-			esac
-			case "$(nvram get rc_support 2>/dev/null)" in
-				*mtlancfg*)
-					:
-					;;
-				*)
-					private_ipv4_bridge_dns_options_with_fallbacks | while read -r NIVARS NDVARS; do
-						[ -n "${NIVARS}" ] && [ -n "${NDVARS}" ] || continue
-						printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >>"${CONFIG}"
-					done
-					;;
-			esac
-			if ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; then
-				mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
-			fi
 			;;
+
 		*)
-			case "$(nvram get rc_support 2>/dev/null)" in
+			case "${RC_SUPPORT}" in
 				*mtlancfg*)
 					:
 					;;
@@ -447,44 +412,53 @@ dnsmasq_params() {
 					;;
 			esac
 			CONFIG="/etc/dnsmasq-${1}.conf"
-			LAN_IF="$(nvram get lan_ifname 2>/dev/null)"
-			case "${LAN_IF}" in
-				"")
-					LAN_IF_SDN="$(sdn_bridge_for_index "$1")"
-					;;
-				*)
-					LAN_IF_SDN="$(sdn_bridge_for_index "$1" | grep -v "${LAN_IF}")"
-					;;
-			esac
+			if [ -n "${LAN_IF}" ]; then
+				LAN_IF_SDN="$(sdn_bridge_for_index "$1" | grep -vxF "${LAN_IF}")"
+			else
+				LAN_IF_SDN="$(sdn_bridge_for_index "$1")"
+			fi
 			[ -n "${LAN_IF_SDN}" ] || return 0
+			DHCP_IF="${LAN_IF_SDN}"
 			NET_ADDR="$(interface_ipv4_addr "${LAN_IF_SDN}")"
 			NET_ADDR6="$(interface_ipv6_addr "${LAN_IF_SDN}")"
 			[ -n "${NET_ADDR}" ] || return 0
-			dnsmasq_delete_matching \
-				"${CONFIG}" \
-				"add-subnet=" \
-				"port=" \
-				"add-mac" \
-				"dhcp-option=${LAN_IF_SDN},6"
-			printf "%s\n" \
-				"local=/$(ipv4_reverse_zone "${NET_ADDR}")/" \
-				"local=//" \
-				"port=553" \
-				"add-mac" \
-				"dhcp-option=${LAN_IF_SDN},6,${NET_ADDR}" >>"${CONFIG}"
-			case "${NET_ADDR6}" in
-				"")
-					printf "%s\n" "add-subnet=32" >>"${CONFIG}"
-					;;
-				*)
-					IPV6_REVERSE="$(ipv6_reverse_zone "${NET_ADDR6}")"
-					printf "%s\n" \
-						"add-subnet=32,128" \
-						"local=/${IPV6_REVERSE}/" >>"${CONFIG}"
-					;;
-			esac
 			;;
 	esac
+	dnsmasq_delete_matching \
+		"${CONFIG}" \
+		"add-subnet=" \
+		"port=" \
+		"add-mac" \
+		"dhcp-option=${DHCP_IF},6"
+	printf "%s\n" \
+		"dhcp-option=${DHCP_IF},6,${NET_ADDR}" \
+		"local=/$(ipv4_reverse_zone "${NET_ADDR}")/" \
+		"local=/10.in-addr.arpa/" \
+		"local=//" \
+		"port=553" \
+		"add-mac" >>"${CONFIG}"
+	if [ -n "${NET_ADDR6}" ]; then
+		IPV6_REVERSE="$(ipv6_reverse_zone "${NET_ADDR6}")"
+		printf "%s\n" \
+			"add-subnet=32,128" \
+			"local=/${IPV6_REVERSE}/" >>"${CONFIG}"
+	else
+		printf "%s\n" "add-subnet=32" >>"${CONFIG}"
+	fi
+	case "${1:-}:${RC_SUPPORT}" in
+		:*mtlancfg*)
+				:
+			;;
+		:*)
+			private_ipv4_bridge_dns_options_with_fallbacks | while read -r NIVARS NDVARS; do
+				[ -n "${NIVARS}" ] && [ -n "${NDVARS}" ] || continue
+				printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >>"${CONFIG}"
+			done
+			;;
+	esac
+	if { ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then { 
+		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; 
+	}; fi
 }
 
 interface_ipv4_addr() {
