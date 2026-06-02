@@ -617,8 +617,8 @@ adguard_remote_version() {
 }
 
 adguard_validate_metadata() {
-	[ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ] && [ -n "${REMOTE_EDGE}" ] && \
-		[ -n "${REMOTE_RELEASE_ARCHIVE}" ] && [ -n "${REMOTE_BETA_ARCHIVE}" ] && [ -n "${REMOTE_EDGE_ARCHIVE}" ] && \
+	[ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ] && [ -n "${REMOTE_EDGE}" ] &&
+		[ -n "${REMOTE_RELEASE_ARCHIVE}" ] && [ -n "${REMOTE_BETA_ARCHIVE}" ] && [ -n "${REMOTE_EDGE_ARCHIVE}" ] &&
 		md5_is_valid "${REMOTE_RELEASE_MD5}" && md5_is_valid "${REMOTE_BETA_MD5}" && md5_is_valid "${REMOTE_EDGE_MD5}"
 }
 
