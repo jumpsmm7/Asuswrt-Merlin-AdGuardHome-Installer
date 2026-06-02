@@ -376,8 +376,8 @@ dnsmasq_delete_matching() {
 
 dnsmasq_params() {
 	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
-	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then { 
-		umount /tmp/resolv.conf 2>/dev/null; 
+	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then {
+		umount /tmp/resolv.conf 2>/dev/null
 	}; fi
 	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 		0)
@@ -447,7 +447,7 @@ dnsmasq_params() {
 	fi
 	case "${1:-}:${RC_SUPPORT}" in
 		:*mtlancfg*)
-				:
+			:
 			;;
 		:*)
 			private_ipv4_bridge_dns_options_with_fallbacks | while read -r NIVARS NDVARS; do
@@ -456,8 +456,8 @@ dnsmasq_params() {
 			done
 			;;
 	esac
-	if { ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then { 
-		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; 
+	if { ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then {
+		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
 	}; fi
 }
 
@@ -754,15 +754,15 @@ start_adguardhome() {
 			lower_script restart
 			;;
 	esac
-	for db in stats.db sessions.db; do { 
-		if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { 
-			ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1; 
-		}; fi; 
+	for db in stats.db sessions.db; do {
+		if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
+			ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1
+		}; fi
 	}; done
-	if { service_wait netcheck 300; }; then 
-		return "0"; 
-	else 
-		return "1"; 
+	if { service_wait netcheck 300; }; then
+		return "0"
+	else
+		return "1"
 	fi
 }
 
@@ -863,10 +863,10 @@ stop_adguardhome() {
 			;;
 	esac
 	service restart_dnsmasq >/dev/null 2>&1
-	for db in stats.db sessions.db; do { 
-		if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { 
-			rm "/tmp/${db}" >/dev/null 2>&1; 
-		}; fi; 
+	for db in stats.db sessions.db; do {
+		if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
+			rm "/tmp/${db}" >/dev/null 2>&1
+		}; fi
 	}; done
 	if { service_wait netcheck 300; }; then
 		return 0
