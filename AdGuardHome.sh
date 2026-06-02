@@ -288,33 +288,78 @@ flock_supports_fd() {
 # DNS and network helpers
 
 check_dns_environment() {
-	local NVCHECK
+	local MODE NVCHECK
+	dns_env_set_nvram() {
+		local key expected cur changed
+		key="$1"
+		expected="$2"
+		cur="$(nvram get "${key}" 2>/dev/null)"
+		if [ "${cur}" = "${expected}" ]; then
+			return 1
+		fi
+		nvram set "${key}=${expected}"
+		changed="1"
+		return 0
+	}
+	dns_env_apply_profile() {
+		local changed
+		changed="0"
+		if dns_env_set_nvram "dnspriv_enable" "0"; then changed="$((changed + 1))"; fi
+		if dns_env_set_nvram "dhcpd_dns_router" "1"; then changed="$((changed + 1))"; fi
+		if dns_env_set_nvram "dhcp_dns1_x" ""; then changed="$((changed + 1))"; fi
+		if dns_env_set_nvram "dhcp_dns2_x" ""; then changed="$((changed + 1))"; fi
+		if [ "${changed}" != "0" ]; then return 0; else return 1; fi
+	}
+	dns_env_restore_profile() {
+		local changed key cur old
+		changed="0"
+		for key in dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; do
+			cur="$(nvram get "${key}" 2>/dev/null)"
+			case "${key}" in
+				dnspriv_enable) old="${_OLD_dnspriv_enable}" ;;
+				dhcpd_dns_router) old="${_OLD_dhcpd_dns_router}" ;;
+				dhcp_dns1_x) old="${_OLD_dhcp_dns1_x}" ;;
+				dhcp_dns2_x) old="${_OLD_dhcp_dns2_x}" ;;
+			esac
+			if [ "${cur}" != "${old}" ]; then
+				nvram set "${key}=${old}"
+				changed="$((changed + 1))"
+			fi
+		done
+		if [ "${changed}" != "0" ]; then return 0; else return 1; fi
+	}
+	MODE="$1"
 	NVCHECK="0"
-	if [ "$(nvram get dnspriv_enable)" != "0" ]; then
-		{ nvram set dnspriv_enable="0"; }
-		NVCHECK="$((NVCHECK + 1))"
-	fi
-	if [ "$(pidof stubby)" ]; then
-		{ killall -q -9 stubby 2>/dev/null; }
-		NVCHECK="$((NVCHECK + 1))"
-	fi
-	if [ "$(nvram get dhcp_dns1_x)" ] && [ "${NVCHECK}" != "0" ]; then
-		{ nvram set dhcp_dns1_x=""; }
-		NVCHECK="$((NVCHECK + 1))"
-	fi
-	if [ "$(nvram get dhcp_dns2_x)" ] && [ "${NVCHECK}" != "0" ]; then
-		{ nvram set dhcp_dns2_x=""; }
-		NVCHECK="$((NVCHECK + 1))"
-	fi
-	if [ "$(nvram get dhcpd_dns_router)" != "1" ] && [ "${NVCHECK}" != "0" ]; then
-		{ nvram set dhcpd_dns_router="1"; }
-		NVCHECK="$((NVCHECK + 1))"
-	fi
-	if [ "${NVCHECK}" != "0" ]; then
+	case "${MODE}" in
+		running)
+			# Save original values only once.
+			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
+				save_dns_nvram_environment
+			fi
+			if [ "$(pidof stubby | wc -w)" -gt "0" ]; then
+				{ killall -q -9 stubby 2>/dev/null; }
+				NVCHECK="$((NVCHECK + 1))"
+			fi
+			if dns_env_apply_profile; then NVCHECK="$((NVCHECK + 1))"; fi
+			;;
+		stop)
+			# Do not restore if we never saved anything.
+			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
+				return 0
+			fi
+			if dns_env_restore_profile; then NVCHECK="$((NVCHECK + 1))"; fi
+			;;
+		*)
+			logger -st "${NAME:-dns-manager}" "Invalid DNS environment mode: ${MODE}"
+			return 0
+			;;
+	esac
+	if [ "$NVCHECK" != "0" ]; then
 		{ nvram commit; }
 		{ service restart_dnsmasq >/dev/null 2>&1; }
 		{ service_wait netcheck 150; }
 	fi
+	return 0
 }
 
 dnsmasq_delete_matching() {
@@ -330,56 +375,90 @@ dnsmasq_delete_matching() {
 }
 
 dnsmasq_params() {
-	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS
-	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then { umount /tmp/resolv.conf 2>/dev/null; }; fi
-	if [ -n "$(pidof "${PROCS}")" ]; then
-		if [ -z "$1" ]; then
+	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
+	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then {
+		umount /tmp/resolv.conf 2>/dev/null
+	}; fi
+	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
+		0)
+			return 0
+			;;
+		*)
+			:
+			;;
+	esac
+	RC_SUPPORT="$(nvram get rc_support 2>/dev/null)"
+	LAN_IF="$(nvram get lan_ifname 2>/dev/null)"
+	case "${1:-}" in
+		"")
 			CONFIG="/etc/dnsmasq.conf"
-			LAN_IF="$(nvram get lan_ifname)"
-			[ -n "${LAN_IF}" ] && NET_ADDR="$(interface_ipv4_addr "${LAN_IF}")" || NET_ADDR=""
-			[ -n "${LAN_IF}" ] && NET_ADDR6="$(interface_ipv6_addr "${LAN_IF}")" || NET_ADDR6=""
-			[ -n "${NET_ADDR}" ] || NET_ADDR="$(nvram get lan_ipaddr)"
-			[ -n "${NET_ADDR6}" ] || NET_ADDR6="$(nvram get ipv6_rtr_addr)"
-			{
-				dnsmasq_delete_matching "${CONFIG}" "port=" "dhcp-option=lan,6"
-				printf "%s\n" "port=553" "local=/$(ipv4_reverse_zone "${NET_ADDR}")/" "local=/10.in-addr.arpa/" "local=//" "dhcp-option=lan,6,${NET_ADDR}" "add-mac" >>"${CONFIG}"
-			}
-			if [ -n "${NET_ADDR6}" ]; then {
-				IPV6_REVERSE="$(ipv6_reverse_zone "${NET_ADDR6}")"
-				printf "%s\n" "local=/${IPV6_REVERSE}/" "add-subnet=32,128" >>"${CONFIG}"
-			}; else { printf "%s\n" "add-subnet=32" >>"${CONFIG}"; }; fi
-			if ! nvram get rc_support | grep -q 'mtlancfg'; then
-				private_ipv4_bridge_dns_options_with_fallbacks | while read -r NIVARS NDVARS; do
-					[ -n "${NIVARS}" ] && [ -n "${NDVARS}" ] || continue
-					printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >>"${CONFIG}"
-				done
+			DHCP_IF="lan"
+			if [ -n "${LAN_IF}" ]; then
+				NET_ADDR="$(interface_ipv4_addr "${LAN_IF}")"
+				NET_ADDR6="$(interface_ipv6_addr "${LAN_IF}")"
 			fi
-			if { ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then { mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; }; fi
-		elif [ -n "$1" ] && nvram get rc_support | grep -q 'mtlancfg'; then
+			[ -n "${NET_ADDR}" ] || NET_ADDR="$(nvram get lan_ipaddr 2>/dev/null)"
+			[ -n "${NET_ADDR6}" ] || NET_ADDR6="$(nvram get ipv6_rtr_addr 2>/dev/null)"
+			[ -n "${NET_ADDR}" ] || return 0
+			;;
+
+		*)
+			case "${RC_SUPPORT}" in
+				*mtlancfg*)
+					:
+					;;
+				*)
+					return 0
+					;;
+			esac
 			CONFIG="/etc/dnsmasq-${1}.conf"
-			LAN_IF="$(nvram get lan_ifname)"
-			if [ -n "$LAN_IF" ]; then
-				LAN_IF_SDN="$(sdn_bridge_for_index "$1" | grep -v "$LAN_IF")"
+			if [ -n "${LAN_IF}" ]; then
+				LAN_IF_SDN="$(sdn_bridge_for_index "$1" | grep -vxF "${LAN_IF}")"
 			else
 				LAN_IF_SDN="$(sdn_bridge_for_index "$1")"
 			fi
-			if [ -n "${LAN_IF_SDN}" ]; then
-				NET_ADDR="$(interface_ipv4_addr "${LAN_IF_SDN}")"
-				NET_ADDR6="$(interface_ipv6_addr "${LAN_IF_SDN}")"
-				if [ -z "${NET_ADDR}" ]; then exit; else {
-					dnsmasq_delete_matching "${CONFIG}" "add-subnet=" "port=" "add-mac" "dhcp-option=${LAN_IF_SDN},6"
-					printf "%s\n" "local=/$(ipv4_reverse_zone "${NET_ADDR}")/" "local=//" >>"${CONFIG}"
-				}; fi
-				printf "%s\n" "port=553" "add-mac" "dhcp-option=${LAN_IF_SDN},6,${NET_ADDR}" >>"${CONFIG}"
-				if [ -n "${NET_ADDR6}" ]; then {
-					IPV6_REVERSE="$(ipv6_reverse_zone "${NET_ADDR6}")"
-					printf "%s\n" "add-subnet=32,128" "local=/${IPV6_REVERSE}/" >>"${CONFIG}"
-				}; else { printf "%s\n" "add-subnet=32" >>"${CONFIG}"; }; fi
-			else
-				exit
-			fi
-		fi
+			[ -n "${LAN_IF_SDN}" ] || return 0
+			DHCP_IF="${LAN_IF_SDN}"
+			NET_ADDR="$(interface_ipv4_addr "${LAN_IF_SDN}")"
+			NET_ADDR6="$(interface_ipv6_addr "${LAN_IF_SDN}")"
+			[ -n "${NET_ADDR}" ] || return 0
+			;;
+	esac
+	dnsmasq_delete_matching \
+		"${CONFIG}" \
+		"add-subnet=" \
+		"port=" \
+		"add-mac" \
+		"dhcp-option=${DHCP_IF},6"
+	printf "%s\n" \
+		"dhcp-option=${DHCP_IF},6,${NET_ADDR}" \
+		"local=/$(ipv4_reverse_zone "${NET_ADDR}")/" \
+		"local=/10.in-addr.arpa/" \
+		"local=//" \
+		"port=553" \
+		"add-mac" >>"${CONFIG}"
+	if [ -n "${NET_ADDR6}" ]; then
+		IPV6_REVERSE="$(ipv6_reverse_zone "${NET_ADDR6}")"
+		printf "%s\n" \
+			"add-subnet=32,128" \
+			"local=/${IPV6_REVERSE}/" >>"${CONFIG}"
+	else
+		printf "%s\n" "add-subnet=32" >>"${CONFIG}"
 	fi
+	case "${1:-}:${RC_SUPPORT}" in
+		:*mtlancfg*)
+			:
+			;;
+		:*)
+			private_ipv4_bridge_dns_options_with_fallbacks | while read -r NIVARS NDVARS; do
+				[ -n "${NIVARS}" ] && [ -n "${NDVARS}" ] || continue
+				printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >>"${CONFIG}"
+			done
+			;;
+	esac
+	if { ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then {
+		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
+	}; fi
 }
 
 interface_ipv4_addr() {
@@ -528,6 +607,22 @@ resolv_conf_uses_rom() {
 	readlink -f /etc/resolv.conf | grep -qE '^/rom/etc/resolv.conf'
 }
 
+save_dns_nvram_environment() {
+	local VAR VALUE
+	for VAR in dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; do
+		VALUE="$(nvram get "${VAR}" 2>/dev/null)"
+		case "${VAR}" in
+			dnspriv_enable) _OLD_dnspriv_enable="${VALUE}" ;;
+			dhcpd_dns_router) _OLD_dhcpd_dns_router="${VALUE}" ;;
+			dhcp_dns1_x) _OLD_dhcp_dns1_x="${VALUE}" ;;
+			dhcp_dns2_x) _OLD_dhcp_dns2_x="${VALUE}" ;;
+		esac
+	done
+	export _OLD_dnspriv_enable _OLD_dhcpd_dns_router _OLD_dhcp_dns1_x _OLD_dhcp_dns2_x
+	_DNS_NVRAM_SAVED="1"
+	export _DNS_NVRAM_SAVED
+}
+
 sdn_bridge_for_index() {
 	get_mtlan | awk -v idx="$1" '
 		/^[[:space:]]*\|-enable:/ {
@@ -651,9 +746,24 @@ service_wait() {
 }
 
 start_adguardhome() {
-	if [ -z "$(pidof "${PROCS}")" ]; then { lower_script start; }; else { lower_script restart; }; fi
-	for db in stats.db sessions.db; do { if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done
-	if [ -n "$(pidof "${PROCS}")" ] && { service_wait netcheck 300; }; then return "0"; else return "1"; fi
+	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
+		0)
+			lower_script start
+			;;
+		*)
+			lower_script restart
+			;;
+	esac
+	for db in stats.db sessions.db; do {
+		if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
+			ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1
+		}; fi
+	}; done
+	if { service_wait netcheck 300; }; then
+		return "0"
+	else
+		return "1"
+	fi
 }
 
 start_monitor() {
@@ -670,6 +780,14 @@ start_monitor() {
 	logger -st "${NAME}" "Starting Monitor!"
 	logger -st "${NAME}" "Monitor health checks will run every ${MONITOR_HEALTHCHECK_INTERVAL} second(s)."
 	while true; do
+		case "${MONITOR_STATE}" in
+			"running" | "stop")
+				check_dns_environment "${MONITOR_STATE}"
+				;;
+			"restart")
+				check_dns_environment "running"
+				;;
+		esac
 		if [ "${MONITOR_STATE}" = "stop" ]; then # A place to exit early if needed, or if binary becomes unavailable before service-stop.
 			logger -st "${NAME}" "Stopping Monitor!"
 			trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
@@ -697,12 +815,12 @@ start_monitor() {
 						{ adguardhome_run start_adguardhome; }
 						;;
 				esac
-				case "$(pidof "${PROCS}")" in
-					"")
+				case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
+					0)
 						logger -st "${NAME}" "Warning: ${PROCS} is dead; Monitor will start it!"
 						unset MONITOR_ELAPSED
 						;;
-					*)
+					1)
 						if [ "${MONITOR_ELAPSED}" -ge "${MONITOR_HEALTHCHECK_INTERVAL}" ]; then
 							MONITOR_ELAPSED="0"
 							if { ! service_wait netcheck "${MONITOR_HEALTHCHECK_TIMEOUT}"; }; then
@@ -713,6 +831,10 @@ start_monitor() {
 							MONITOR_ELAPSED="$((MONITOR_ELAPSED + MONITOR_SLEEP_INTERVAL))"
 						fi
 						if [ -n "${MONITOR_ELAPSED}" ]; then sleep "${MONITOR_SLEEP_INTERVAL}s"; fi
+						;;
+					*)
+						logger -st "${NAME}" "Warning: multiple ${PROCS} instances detected; Monitor will re-start it!"
+						unset MONITOR_ELAPSED
 						;;
 				esac
 				;;
@@ -732,10 +854,25 @@ start_monitor() {
 }
 
 stop_adguardhome() {
-	if [ -n "$(pidof "${PROCS}")" ]; then { lower_script stop || lower_script kill; }; fi
-	{ service restart_dnsmasq >/dev/null 2>&1; }
-	for db in stats.db sessions.db; do { if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then { rm "/tmp/${db}" >/dev/null 2>&1; }; fi; }; done
-	if [ -z "$(pidof "${PROCS}")" ] && { service_wait netcheck 300; }; then return 0; else return 1; fi
+	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
+		0)
+			:
+			;;
+		*)
+			lower_script stop || lower_script kill
+			;;
+	esac
+	service restart_dnsmasq >/dev/null 2>&1
+	for db in stats.db sessions.db; do {
+		if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
+			rm "/tmp/${db}" >/dev/null 2>&1
+		}; fi
+	}; done
+	if { service_wait netcheck 300; }; then
+		return 0
+	else
+		return 1
+	fi
 }
 
 stop_monitor() {
@@ -816,4 +953,3 @@ case "$1" in
 		{ ${LOWER_SCRIPT_LOC} "$1"; } && exit
 		;;
 esac
-check_dns_environment

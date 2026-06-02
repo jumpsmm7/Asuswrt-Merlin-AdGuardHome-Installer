@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.1.7                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.1.8                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v2.1.7"
+AI_VERSION="v2.1.8"
 export AI_VERSION
 readonly API_FILE="/tmp/AGH_GIT_API_$$.json"
 readonly API_HEADERS="/tmp/AGH_GIT_API_$$_headers.out"
@@ -124,6 +124,14 @@ opkg_pkg_available() {
 opkg_pkg_installed() {
 	_pkg="$1"
 	opkg list-installed 2>/dev/null | awk -v pkg="${_pkg}" '$1 == pkg { found = 1; exit } END { exit(found ? 0 : 1) }'
+}
+
+on_installer_exit() {
+	cleanup_api_files
+	# Restore pre-check DNS settings only when exiting without a local adguardhome installation.
+	if [ ! -f "${AGH_FILE}" ]; then
+		check_dns_environment 1
+	fi
 }
 
 python_bcrypt_available() {
@@ -654,36 +662,80 @@ check_dns_environment() {
 			"${ERROR} Exiting..."
 		exit 1
 	fi
-	local NVCHECK
+	local MODE NVCHECK
+	dns_env_set_nvram() {
+		local key expected cur changed
+		key="$1"
+		expected="$2"
+		cur="$(nvram get "${key}" 2>/dev/null)"
+		if [ "${cur}" = "${expected}" ]; then
+			return 1
+		fi
+		nvram set "${key}=${expected}"
+		changed="1"
+		return 0
+	}
+	dns_env_apply_profile() {
+		local changed
+		changed="0"
+		if dns_env_set_nvram "dnspriv_enable" "0"; then changed="$((changed + 1))"; fi
+		if dns_env_set_nvram "dhcpd_dns_router" "1"; then changed="$((changed + 1))"; fi
+		if dns_env_set_nvram "dhcp_dns1_x" ""; then changed="$((changed + 1))"; fi
+		if dns_env_set_nvram "dhcp_dns2_x" ""; then changed="$((changed + 1))"; fi
+		if [ "${changed}" != "0" ]; then return 0; else return 1; fi
+	}
+	dns_env_restore_profile() {
+		local changed key cur old
+		changed="0"
+		for key in dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; do
+			cur="$(nvram get "${key}" 2>/dev/null)"
+			case "${key}" in
+				dnspriv_enable) old="${_OLD_dnspriv_enable}" ;;
+				dhcpd_dns_router) old="${_OLD_dhcpd_dns_router}" ;;
+				dhcp_dns1_x) old="${_OLD_dhcp_dns1_x}" ;;
+				dhcp_dns2_x) old="${_OLD_dhcp_dns2_x}" ;;
+			esac
+			if [ "${cur}" != "${old}" ]; then
+				nvram set "${key}=${old}"
+				changed="$((changed + 1))"
+			fi
+		done
+		if [ "${changed}" != "0" ]; then return 0; else return 1; fi
+	}
+	MODE="$1"
 	NVCHECK="0"
-	if [ "$(nvram get dnspriv_enable)" != "0" ]; then
-		{ nvram set dnspriv_enable="0"; }
-		NVCHECK="$((NVCHECK + 1))"
-	fi
-	if [ "$(pidof stubby)" ]; then
-		{ killall -q -9 stubby; }
-		NVCHECK="$((NVCHECK + 1))"
-	fi
-	if [ "$(nvram get dhcp_dns1_x)" ] && [ "${NVCHECK}" != "0" ]; then
-		{ nvram set dhcp_dns1_x=""; }
-		NVCHECK="$((NVCHECK + 1))"
-	fi
-	if [ "$(nvram get dhcp_dns2_x)" ] && [ "${NVCHECK}" != "0" ]; then
-		{ nvram set dhcp_dns2_x=""; }
-		NVCHECK="$((NVCHECK + 1))"
-	fi
-	if [ "$(nvram get dhcpd_dns_router)" != "1" ] && [ "${NVCHECK}" != "0" ]; then
-		{ nvram set dhcpd_dns_router="1"; }
-		NVCHECK="$((NVCHECK + 1))"
-	fi
+	case "${MODE}" in
+		0)
+			# Save original values only once.
+			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
+				save_dns_nvram_environment
+			fi
+			if [ "$(pidof stubby)" ]; then
+				{ kill_processes stubby; }
+				NVCHECK="$((NVCHECK + 1))"
+			fi
+			if dns_env_apply_profile; then NVCHECK="$((NVCHECK + 1))"; fi
+			;;
+		1)
+			# Do not restore if we never saved anything.
+			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
+				return 0
+			fi
+			if dns_env_restore_profile; then NVCHECK="$((NVCHECK + 1))"; fi
+			;;
+		*)
+			return 1
+			;;
+	esac
 	if [ "${NVCHECK}" != "0" ]; then
 		{ nvram commit; }
 		{ service restart_dnsmasq >/dev/null 2>&1; }
-		if ! check_connection 300; then
-			PTXT "${WARNING} Timed out waiting for DNS connectivity after dnsmasq restart."
-		fi
+		(while { ! check_connection; }; do sleep 1s; done) &
+		local PID="$!"
+		wait "${PID}" 2>/dev/null
 	fi
 	PTXT "${INFO} DNS Environment is Ready."
+	return 0
 }
 
 check_dns_filter() {
@@ -711,58 +763,21 @@ check_dns_filter() {
 			PTXT "${INFO} DNSFilter is set to control DNS through to AdGuardHome, while leaving any Custom Rules and Values."
 		fi
 		if [ "$USE_SOME" -eq 1 ]; then
-			if [ "$(nvram get dnsfilter_custom1)" ]; then
-				{ nvram set dnsfilter_custom1=""; }
+			for i in dnsfilter_mode dhcpd_dns_router dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x; do
+				VAR="$(nvram get "${i}" 2>/dev/null)"
+				if [ "${i}" = "dnsfilter_mode" ]; then
+					if [ "$VAR" != "11" ]; then {
+						nvram set "${i}"="11"
+					}; else continue; fi
+				elif [ "${i}" = "dhcpd_dns_router" ]; then
+					if [ "$VAR" != "1" ]; then {
+						nvram set "${i}"="1"
+					}; else continue; fi
+				elif [ "$VAR" ]; then {
+					nvram set "${i}"=""
+				}; else continue; fi
 				NVCHECK="$((NVCHECK + 1))"
-			fi
-			if [ "$(nvram get dnsfilter_custom2)" ]; then
-				{ nvram set dnsfilter_custom2=""; }
-				NVCHECK="$((NVCHECK + 1))"
-			fi
-			if [ "$(nvram get dnsfilter_custom3)" ]; then
-				{ nvram set dnsfilter_custom3=""; }
-				NVCHECK="$((NVCHECK + 1))"
-			fi
-			if [ "$(nvram get dnsfilter_mode)" != "11" ]; then
-				{ nvram set dnsfilter_mode="11"; }
-				NVCHECK="$((NVCHECK + 1))"
-			fi
-			if [ "$(nvram get dnsfilter_rulelist)" ]; then
-				{ nvram set dnsfilter_rulelist=""; }
-				NVCHECK="$((NVCHECK + 1))"
-			fi
-			if [ "$(nvram get dnsfilter_rulelist1)" ]; then
-				{ nvram set dnsfilter_rulelist1=""; }
-				NVCHECK="$((NVCHECK + 1))"
-			fi
-			if [ "$(nvram get dnsfilter_rulelist2)" ]; then
-				{ nvram set dnsfilter_rulelist2=""; }
-				NVCHECK="$((NVCHECK + 1))"
-			fi
-			if [ "$(nvram get dnsfilter_rulelist3)" ]; then
-				{ nvram set dnsfilter_rulelist3=""; }
-				NVCHECK="$((NVCHECK + 1))"
-			fi
-			if [ "$(nvram get dnsfilter_rulelist4)" ]; then
-				{ nvram set dnsfilter_rulelist4=""; }
-				NVCHECK="$((NVCHECK + 1))"
-			fi
-			if [ "$(nvram get dnsfilter_rulelist5)" ]; then
-				{ nvram set dnsfilter_rulelist5=""; }
-				NVCHECK="$((NVCHECK + 1))"
-			fi
-			if [ "$(nvram get dhcp_dns1_x)" ]; then
-				{ nvram set dhcp_dns1_x=""; }
-				NVCHECK="$((NVCHECK + 1))"
-			fi
-			if [ "$(nvram get dhcp_dns2_x)" ]; then
-				{ nvram set dhcp_dns2_x=""; }
-				NVCHECK="$((NVCHECK + 1))"
-			fi
-			if [ "$(nvram get dhcpd_dns_router)" != "1" ]; then
-				{ nvram set dhcpd_dns_router="1"; }
-				NVCHECK="$((NVCHECK + 1))"
-			fi
+			done
 			PTXT "${INFO} DNS is set to redirect All DNS resolutions through to AdGuardHome."
 		fi
 	fi
@@ -770,7 +785,7 @@ check_dns_filter() {
 		{ nvram commit; }
 		{ service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1; }
 		if ! check_connection 300; then
-			PTXT "${WARNING} Timed out waiting for DNS connectivity after firewall and dnsmasq restart."
+			PTXT "${WARNING} Timed out waiting for DNS connectivity."
 		fi
 	fi
 }
@@ -935,6 +950,22 @@ choose_branch() {
 	else
 		if read_yesno "Do you want to switch AdGuardHome builds?"; then choose_branch 1; else PTXT "${INFO} continuing without changing builds."; fi
 	fi
+}
+
+save_dns_nvram_environment() {
+	local VAR VALUE
+	for VAR in dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; do
+		VALUE="$(nvram get "${VAR}" 2>/dev/null)"
+		case "${VAR}" in
+			dnspriv_enable) _OLD_dnspriv_enable="${VALUE}" ;;
+			dhcpd_dns_router) _OLD_dhcpd_dns_router="${VALUE}" ;;
+			dhcp_dns1_x) _OLD_dhcp_dns1_x="${VALUE}" ;;
+			dhcp_dns2_x) _OLD_dhcp_dns2_x="${VALUE}" ;;
+		esac
+	done
+	export _OLD_dnspriv_enable _OLD_dhcpd_dns_router _OLD_dhcp_dns1_x _OLD_dhcp_dns2_x
+	_DNS_NVRAM_SAVED="1"
+	export _DNS_NVRAM_SAVED
 }
 
 # Installer file and setup helpers
@@ -1747,7 +1778,7 @@ read_yesno() {
 	esac
 }
 
-trap cleanup_api_files EXIT
+trap 'on_installer_exit' EXIT
 varcnt=0
 readonly MAX_RETRIES="1"
 until [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ]; do
@@ -1863,7 +1894,7 @@ case "$2" in
 	"")
 		cleanup
 		check_jffs_enabled
-		check_dns_environment
+		check_dns_environment 0
 		check_version
 		menu
 		;;
