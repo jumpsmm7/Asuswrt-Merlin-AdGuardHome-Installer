@@ -177,6 +177,24 @@ echo .config > exclude-files; tar -cvf AdGuardHome.tar -X exclude-files /opt/etc
 
 Attach `AdGuardHome.tar` to the issue report.
 
+## Static AdGuardHome archive cache
+
+This repository includes a scheduled GitHub Actions workflow that refreshes local static copies of upstream AdGuardHome archives four times per day: 00:00, 06:00, 12:00, and 18:00 UTC.
+
+The workflow downloads stable, beta, and edge archives from `https://static.adguard.com/adguardhome/<channel>/AdGuardHome_<platform>_<architecture>.tar.gz` and saves them by router architecture folder:
+
+- `armv8/` stores `linux_arm64` archives.
+- `armv7/` stores `linux_armv7` archives.
+- `armv5/` stores `linux_armv5` archives.
+
+Each architecture folder also gets generated metadata:
+
+- `VERSION.txt` lists each archive, local channel name, upstream channel name, and AdGuardHome version from upstream `version.txt`.
+- `checksum.txt` lists each archive with its channel, version, MD5 checksum, and SHA-256 checksum.
+- `*.tar.gz.md5sum` sidecar files contain only the MD5 checksum for the matching compressed archive.
+
+The local stable filenames use `stable`, while the upstream static AdGuardHome channel path remains `release` to match the installer branch naming.
+
 ## Development checks
 
 Repository shell scripts are written for POSIX/BusyBox `ash` compatibility. Avoid Bash-only syntax such as arrays, process substitution, `[[ ... ]]`, and non-portable `pipefail`.
