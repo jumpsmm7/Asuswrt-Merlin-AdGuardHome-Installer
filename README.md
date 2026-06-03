@@ -19,6 +19,7 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 - [AdGuardHome DNS examples](#adguardhome-dns-examples)
 - [Reverse DNS notes](#reverse-dns-notes)
 - [Troubleshooting and issue reports](#troubleshooting-and-issue-reports)
+- [Static AdGuardHome archive cache](#static-adguardhome-archive-cache)
 - [Development checks](#development-checks)
 - [Project notes](#project-notes)
 - [Donate](#donate)
