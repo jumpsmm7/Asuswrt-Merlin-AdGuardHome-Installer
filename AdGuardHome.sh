@@ -1071,13 +1071,14 @@ case "$1" in
 		if [ -n "${2}" ]; then { dnsmasq_params "${2}"; }; else { dnsmasq_params; }; fi
 		;;
 	"firewall")
-		if [ "${2:-}" = "unload" ]; then
-			Unload_IPTables
-		elif Firewall_Service_Active; then
-			Refresh_IPTables "${2:-}"
-		else
-			Unload_IPTables
-		fi
+		case "${2:-}" in
+			"unload")
+				Unload_IPTables
+				;;
+			*)
+				if { Firewall_Service_Active }; then { Refresh_IPTables "${2:-}"; }; else { Unload_IPTables; }; fi
+				;;
+		esac
 		;;
 	"init-start" | "services-stop")
 		timezone
