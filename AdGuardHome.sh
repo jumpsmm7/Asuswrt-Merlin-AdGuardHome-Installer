@@ -864,6 +864,7 @@ stop_adguardhome() {
 			lower_script stop || lower_script kill
 			;;
 	esac
+	Unload_IPTables
 	service restart_dnsmasq >/dev/null 2>&1
 	for db in stats.db sessions.db; do {
 		if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
@@ -1007,6 +1008,10 @@ Firewall_Lock_Mkdir() {
 	)
 }
 
+Firewall_Service_Active() {
+	[ -n "${MON_PID}" ] || [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]
+}
+
 Load_IPTables() {
 	local IFACE
 	[ -x "/jffs/scripts/firewall" ] || return 0
@@ -1066,7 +1071,13 @@ case "$1" in
 		if [ -n "${2}" ]; then { dnsmasq_params "${2}"; }; else { dnsmasq_params; }; fi
 		;;
 	"firewall")
-		if [ "${2:-}" = "unload" ]; then Unload_IPTables; else Refresh_IPTables "${2:-}"; fi
+		if [ "${2:-}" = "unload" ]; then
+			Unload_IPTables
+		elif Firewall_Service_Active; then
+			Refresh_IPTables "${2:-}"
+		else
+			Unload_IPTables
+		fi
 		;;
 	"init-start" | "services-stop")
 		timezone
