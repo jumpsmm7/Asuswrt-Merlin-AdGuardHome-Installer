@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.1.9                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.2.0                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v2.1.9"
+AI_VERSION="v2.2.0"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -1442,6 +1442,7 @@ inst_AdGuardHome() {
 	write_manager_script /jffs/scripts/init-start "init-start &"
 	write_manager_script /jffs/scripts/services-stop "services-stop &"
 	write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
+	write_manager_script /jffs/scripts/firewall-start firewall
 	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
 	if nvram get rc_support | grep -q 'mtlancfg'; then write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; fi
 	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
@@ -1671,6 +1672,7 @@ uninst_all() {
 	yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
 	del_jffs_script /jffs/scripts/init-start
 	del_jffs_script /jffs/scripts/dnsmasq.postconf
+	del_jffs_script /jffs/scripts/firewall-start
 	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
 	del_jffs_script /jffs/scripts/services-stop
 	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
