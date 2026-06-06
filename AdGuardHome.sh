@@ -341,8 +341,7 @@ check_dns_environment() {
 				NVCHECK="$((NVCHECK + 1))"
 			fi
 			if dns_env_apply_profile; then NVCHECK="$((NVCHECK + 1))"; fi
-			Unload_IPTables
-			Load_IPTables
+			Refresh_IPTables
 			;;
 		stop)
 			# Do not restore if we never saved anything.
@@ -914,25 +913,109 @@ timezone() {
 }
 
 # IP Table Directives
-Skynet_State() {
-	[ -x "/jffs/scripts/firewall" ] || return 1
-	_IFACE="$(nvram get wan0_ifname)"
-	[ "$(nvram get wan0_proto)" = "pppoe" ] && _IFACE="ppp0"
-	export _IFACE
+Firewall_Interface() {
+	local IFACE UNIT
+	IFACE="$1"
+	if [ -z "${IFACE}" ] && have_cmd ip; then
+		IFACE="$(ip route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')"
+	fi
+	if [ -z "${IFACE}" ]; then
+		UNIT="$(nvram get wan_primary 2>/dev/null)"
+		case "${UNIT}" in
+			0 | 1) ;;
+			*)
+				if [ "$(nvram get wan1_primary 2>/dev/null)" = "1" ]; then UNIT="1"; else UNIT="0"; fi
+				;;
+		esac
+		IFACE="$(nvram get "wan${UNIT}_gw_ifname" 2>/dev/null)"
+		[ -z "${IFACE}" ] && IFACE="$(nvram get "wan${UNIT}_pppoe_ifname" 2>/dev/null)"
+		[ -z "${IFACE}" ] && IFACE="$(nvram get "wan${UNIT}_ifname" 2>/dev/null)"
+	fi
+	[ -n "${IFACE}" ] || return 1
+	printf '%s\n' "${IFACE}"
+}
+
+Firewall_Legacy_Unload() {
+	local IFACE PROTO UNIT
+	for UNIT in 0 1; do
+		for IFACE in \
+			"$(nvram get "wan${UNIT}_gw_ifname" 2>/dev/null)" \
+			"$(nvram get "wan${UNIT}_pppoe_ifname" 2>/dev/null)" \
+			"$(nvram get "wan${UNIT}_ifname" 2>/dev/null)" \
+			"ppp${UNIT}"; do
+			[ -n "${IFACE}" ] || continue
+			for PROTO in udp tcp; do
+				while iptables -t raw -D OUTPUT -o "${IFACE}" -p "${PROTO}" -m multiport --dports 53,123 -j ACCEPT 2>/dev/null; do :; done
+			done
+		done
+	done
+}
+
+Firewall_Lock() {
+	local ACTION ATTEMPTS LOCK_DIR OWNER STATUS
+	ACTION="$1"
+	shift
+	LOCK_DIR="/tmp/AdGuardHome-firewall.lock"
+	ATTEMPTS="0"
+	while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
+		OWNER="$(cat "${LOCK_DIR}/pid" 2>/dev/null)"
+		case "${OWNER}" in
+			"" | *[!0-9]*)
+				if [ "${ATTEMPTS}" -gt 0 ]; then
+					rm -rf "${LOCK_DIR}"
+					continue
+				fi
+				;;
+			*)
+				if ! kill -0 "${OWNER}" 2>/dev/null; then
+					rm -rf "${LOCK_DIR}"
+					continue
+				fi
+				;;
+		esac
+		ATTEMPTS="$((ATTEMPTS + 1))"
+		if [ "${ATTEMPTS}" -ge 30 ]; then
+			logger -st "${NAME}" "Unable to acquire firewall lock for ${ACTION}."
+			return 1
+		fi
+		sleep 1
+	done
+	printf '%s\n' "$$" >"${LOCK_DIR}/pid"
+	"$@"
+	STATUS="$?"
+	rm -rf "${LOCK_DIR}"
+	return "${STATUS}"
 }
 
 Load_IPTables() {
-	if Skynet_State; then
-		iptables -t raw -I OUTPUT -o "${_IFACE}" -p udp -m multiport --dports 53,123 -j ACCEPT 2>/dev/null
-		iptables -t raw -I OUTPUT -o "${_IFACE}" -p tcp -m multiport --dports 53,123 -j ACCEPT 2>/dev/null
-	fi
+	local IFACE
+	[ -x "/jffs/scripts/firewall" ] || return 0
+	IFACE="$(Firewall_Interface "$1")" || return 1
+	iptables -t raw -N ADGUARDHOME 2>/dev/null || iptables -t raw -F ADGUARDHOME 2>/dev/null || return 1
+	while iptables -t raw -D OUTPUT -j ADGUARDHOME 2>/dev/null; do :; done
+	iptables -t raw -A ADGUARDHOME -o "${IFACE}" -p udp -m multiport --dports 53,123 -j ACCEPT 2>/dev/null || return 1
+	iptables -t raw -A ADGUARDHOME -o "${IFACE}" -p tcp -m multiport --dports 53,123 -j ACCEPT 2>/dev/null || return 1
+	iptables -t raw -I OUTPUT -j ADGUARDHOME 2>/dev/null
+}
+
+Refresh_IPTables() {
+	Firewall_Lock refresh Refresh_IPTables_Locked "$1"
+}
+
+Refresh_IPTables_Locked() {
+	Unload_IPTables_Locked
+	Load_IPTables "$1"
 }
 
 Unload_IPTables() {
-	if Skynet_State; then
-		iptables -t raw -D OUTPUT -o "${_IFACE}" -p udp -m multiport --dports 53,123 -j ACCEPT 2>/dev/null
-		iptables -t raw -D OUTPUT -o "${_IFACE}" -p tcp -m multiport --dports 53,123 -j ACCEPT 2>/dev/null
-	fi
+	Firewall_Lock unload Unload_IPTables_Locked
+}
+
+Unload_IPTables_Locked() {
+	Firewall_Legacy_Unload
+	while iptables -t raw -D OUTPUT -j ADGUARDHOME 2>/dev/null; do :; done
+	iptables -t raw -F ADGUARDHOME 2>/dev/null
+	iptables -t raw -X ADGUARDHOME 2>/dev/null
 }
 
 if [ -f "${UPPER_SCRIPT}" ]; then UPPER_SCRIPT_LOC=". ${UPPER_SCRIPT}"; fi
@@ -962,9 +1045,8 @@ case "$1" in
 	"dnsmasq" | "dnsmasq-sdn")
 		if [ -n "${2}" ]; then { dnsmasq_params "${2}"; }; else { dnsmasq_params; }; fi
 		;;
-	"firewall" )
-		Unload_IPTables
-		Load_IPTables
+	"firewall")
+		if [ "${2:-}" = "unload" ]; then Unload_IPTables; else Refresh_IPTables "${2:-}"; fi
 		;;
 	"init-start" | "services-stop")
 		timezone
