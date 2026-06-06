@@ -952,20 +952,40 @@ Firewall_Legacy_Unload() {
 }
 
 Firewall_Lock() {
-	local ACTION ATTEMPTS LOCK_DIR OWNER STATUS
+	if have_cmd flock && flock_supports_fd; then
+		Firewall_Lock_Flock "$@"
+	else
+		Firewall_Lock_Mkdir "$@"
+	fi
+}
+
+Firewall_Lock_Flock() {
+	local ACTION LOCK_FILE STATUS
 	ACTION="$1"
 	shift
-	LOCK_DIR="/tmp/AdGuardHome-firewall.lock"
+	LOCK_FILE="/tmp/AdGuardHome-firewall.lock"
+	(
+		exec 8>"${LOCK_FILE}" || exit 1
+		if ! flock 8; then
+			logger -st "${NAME}" "Unable to acquire flock to ${ACTION} firewall rules."
+			exit 1
+		fi
+		"$@"
+	)
+	STATUS="$?"
+	return "${STATUS}"
+}
+
+Firewall_Lock_Mkdir() {
+	local ACTION ATTEMPTS LOCK_DIR OWNER
+	ACTION="$1"
+	shift
+	LOCK_DIR="/tmp/AdGuardHome-firewall"
 	ATTEMPTS="0"
 	while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
-		OWNER="$(cat "${LOCK_DIR}/pid" 2>/dev/null)"
+		OWNER="$(sed -n '1p' "${LOCK_DIR}/pid" 2>/dev/null)"
 		case "${OWNER}" in
-			"" | *[!0-9]*)
-				if [ "${ATTEMPTS}" -gt 0 ]; then
-					rm -rf "${LOCK_DIR}"
-					continue
-				fi
-				;;
+			"" | *[!0-9]*) ;;
 			*)
 				if ! kill -0 "${OWNER}" 2>/dev/null; then
 					rm -rf "${LOCK_DIR}"
@@ -975,16 +995,16 @@ Firewall_Lock() {
 		esac
 		ATTEMPTS="$((ATTEMPTS + 1))"
 		if [ "${ATTEMPTS}" -ge 30 ]; then
-			logger -st "${NAME}" "Unable to acquire firewall lock for ${ACTION}."
+			logger -st "${NAME}" "Unable to acquire legacy mkdir lock to ${ACTION} firewall rules."
 			return 1
 		fi
 		sleep 1
 	done
-	printf '%s\n' "$$" >"${LOCK_DIR}/pid"
-	"$@"
-	STATUS="$?"
-	rm -rf "${LOCK_DIR}"
-	return "${STATUS}"
+	(
+		trap 'rm -rf "${LOCK_DIR}"; exit $?' EXIT HUP INT QUIT ABRT TERM TSTP
+		printf '%s\n' "$$" >"${LOCK_DIR}/pid"
+		"$@"
+	)
 }
 
 Load_IPTables() {
