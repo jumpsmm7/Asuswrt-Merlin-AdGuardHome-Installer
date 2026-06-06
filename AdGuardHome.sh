@@ -341,6 +341,8 @@ check_dns_environment() {
 				NVCHECK="$((NVCHECK + 1))"
 			fi
 			if dns_env_apply_profile; then NVCHECK="$((NVCHECK + 1))"; fi
+			Unload_IPTables
+			Load_IPTables
 			;;
 		stop)
 			# Do not restore if we never saved anything.
@@ -348,6 +350,7 @@ check_dns_environment() {
 				return 0
 			fi
 			if dns_env_restore_profile; then NVCHECK="$((NVCHECK + 1))"; fi
+			Unload_IPTables
 			;;
 		*)
 			logger -st "${NAME:-dns-manager}" "Invalid DNS environment mode: ${MODE}"
@@ -910,6 +913,28 @@ timezone() {
 	fi
 }
 
+# IP Table Directives
+Skynet_State() {
+	[ -x "/jffs/scripts/firewall" ] || return 1
+	_IFACE="$(nvram get wan0_ifname)"
+	[ "$(nvram get wan0_proto)" = "pppoe" ] && _IFACE="ppp0"
+	export _IFACE
+}
+
+Load_IPTables() {
+	if Skynet_State; then
+		iptables -t raw -I OUTPUT -o "${_IFACE}" -p udp -m multiport --dports 53,123 -j ACCEPT 2>/dev/null
+		iptables -t raw -I OUTPUT -o "${_IFACE}" -p tcp -m multiport --dports 53,123 -j ACCEPT 2>/dev/null
+	fi
+}
+
+Unload_IPTables() {
+	if Skynet_State; then
+		iptables -t raw -D OUTPUT -o "${_IFACE}" -p udp -m multiport --dports 53,123 -j ACCEPT 2>/dev/null
+		iptables -t raw -D OUTPUT -o "${_IFACE}" -p tcp -m multiport --dports 53,123 -j ACCEPT 2>/dev/null
+	fi
+}
+
 if [ -f "${UPPER_SCRIPT}" ]; then UPPER_SCRIPT_LOC=". ${UPPER_SCRIPT}"; fi
 if [ -f "${LOWER_SCRIPT}" ]; then LOWER_SCRIPT_LOC=". ${LOWER_SCRIPT}"; fi
 if { [ "$2" != "x" ] && printf "%s" "$1" | /bin/grep -qE "^((start|stop|restart|kill|reload)$)"; }; then {
@@ -936,6 +961,10 @@ case "$1" in
 		;;
 	"dnsmasq" | "dnsmasq-sdn")
 		if [ -n "${2}" ]; then { dnsmasq_params "${2}"; }; else { dnsmasq_params; }; fi
+		;;
+	"firewall" )
+		Unload_IPTables
+		Load_IPTables
 		;;
 	"init-start" | "services-stop")
 		timezone
