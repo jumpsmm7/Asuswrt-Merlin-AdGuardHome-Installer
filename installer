@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.2.0                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.2.1                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v2.2.0"
+AI_VERSION="v2.2.1"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -1163,6 +1163,11 @@ cleanup() {
 	remove_conflicting_apache
 }
 
+cleanup_legacy_firewall() {
+	[ -x "${ADDON_DIR}/AdGuardHome.sh" ] && "${ADDON_DIR}/AdGuardHome.sh" firewall unload 2>/dev/null
+	del_jffs_script /jffs/scripts/firewall-start
+}
+
 create_dir() {
 	if ! mkdir -p "${1}"; then
 		PTXT "${ERROR} Unable to create ${1}!"
@@ -1434,6 +1439,7 @@ inst_AdGuardHome() {
 		fi
 	fi
 	create_dir "${ADDON_DIR}"
+	cleanup_legacy_firewall
 	download_file "${ADDON_DIR}" 755 "${RURL}/AdGuardHome.sh"
 	download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome"
 	download_file "/opt/etc/init.d" 644 "${RURL}/rc.func.AdGuardHome"
@@ -1442,7 +1448,7 @@ inst_AdGuardHome() {
 	write_manager_script /jffs/scripts/init-start "init-start &"
 	write_manager_script /jffs/scripts/services-stop "services-stop &"
 	write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
-	write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'
+	# write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'
 	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
 	if nvram get rc_support | grep -q 'mtlancfg'; then write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; fi
 	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
@@ -1666,7 +1672,7 @@ uninst_all() {
 		if read_yesno "Do you want to remove backup?(this will prevent restoring from backups later)"; then rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"; else PTXT "${INFO} Keeping backup instead."; fi
 	fi
 	agh_stop
-	[ -x "${ADDON_DIR}/AdGuardHome.sh" ] && "${ADDON_DIR}/AdGuardHome.sh" firewall unload
+	cleanup_legacy_firewall
 	[ "$(conf_value ADGUARD_DOMAIN)" = "yes" ] && nvram set lan_domain="" && nvram commit
 	mv "${TARG_DIR}/installer" "${HOME}/installer"
 	rm -rf "${TARG_DIR}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"

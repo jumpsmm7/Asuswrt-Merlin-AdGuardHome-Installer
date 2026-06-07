@@ -341,7 +341,7 @@ check_dns_environment() {
 				NVCHECK="$((NVCHECK + 1))"
 			fi
 			if dns_env_apply_profile; then NVCHECK="$((NVCHECK + 1))"; fi
-			Refresh_IPTables
+			# Refresh_IPTables
 			;;
 		stop)
 			# Do not restore if we never saved anything.
@@ -349,7 +349,7 @@ check_dns_environment() {
 				return 0
 			fi
 			if dns_env_restore_profile; then NVCHECK="$((NVCHECK + 1))"; fi
-			Unload_IPTables
+			# Unload_IPTables
 			;;
 		*)
 			logger -st "${NAME:-dns-manager}" "Invalid DNS environment mode: ${MODE}"
@@ -864,7 +864,7 @@ stop_adguardhome() {
 			lower_script stop || lower_script kill
 			;;
 	esac
-	Unload_IPTables
+	# Unload_IPTables
 	service restart_dnsmasq >/dev/null 2>&1
 	for db in stats.db sessions.db; do {
 		if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
@@ -1070,16 +1070,16 @@ case "$1" in
 	"dnsmasq" | "dnsmasq-sdn")
 		if [ -n "${2}" ]; then { dnsmasq_params "${2}"; }; else { dnsmasq_params; }; fi
 		;;
-	"firewall")
-		case "${2:-}" in
-			"unload")
-				Unload_IPTables
-				;;
-			*)
-				if { Firewall_Service_Active; }; then { Refresh_IPTables "${2:-}"; }; else { Unload_IPTables; }; fi
-				;;
-		esac
-		;;
+		#	"firewall")
+		#		case "${2:-}" in
+		#			"unload")
+		#				Unload_IPTables
+		#				;;
+		#			*)
+		#				if { Firewall_Service_Active; }; then { Refresh_IPTables "${2:-}"; }; else { Unload_IPTables; }; fi
+		#				;;
+		#		esac
+		#		;;
 	"init-start" | "services-stop")
 		timezone
 		case "$1" in
