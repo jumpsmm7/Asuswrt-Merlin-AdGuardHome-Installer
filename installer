@@ -1157,7 +1157,6 @@ backup_restore() {
 }
 
 cleanup() {
-	cleanup_legacy_firewall
 	mv "/opt/etc/init.d/S61AdGuardHome" "/opt/etc/init.d/S99AdGuardHome" >/dev/null 2>&1
 	[ "$(cru l | grep -c "S99AdGuardHome")" -gt 0 ] && cru -d "S99AdGuardHome"
 	if [ -f "${TARG_DIR}/localtime" ]; then mv "${TARG_DIR}/localtime" "${ADDON_DIR}/localtime"; fi
@@ -1440,7 +1439,7 @@ inst_AdGuardHome() {
 		fi
 	fi
 	create_dir "${ADDON_DIR}"
-	[ "${1:-update}" = "update" ] && cleanup_legacy_firewall
+	cleanup_legacy_firewall
 	download_file "${ADDON_DIR}" 755 "${RURL}/AdGuardHome.sh"
 	download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome"
 	download_file "/opt/etc/init.d" 644 "${RURL}/rc.func.AdGuardHome"
