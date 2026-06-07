@@ -1076,7 +1076,7 @@ case "$1" in
 				Unload_IPTables
 				;;
 			*)
-				if { Firewall_Service_Active }; then { Refresh_IPTables "${2:-}"; }; else { Unload_IPTables; }; fi
+				if { Firewall_Service_Active; }; then { Refresh_IPTables "${2:-}"; }; else { Unload_IPTables; }; fi
 				;;
 		esac
 		;;
