@@ -1479,7 +1479,11 @@ inst_AdGuardHome() {
 			return
 		fi
 	fi
-	setup_adguardhome_ipset
+	if ! agh_stop || ! setup_adguardhome_ipset; then
+		agh_start
+		end_op_message 1 "$1"
+		return
+	fi
 	if ! agh_complete_startup; then
 		end_op_message 1 "$1"
 		return
@@ -1517,25 +1521,99 @@ set_timezone() {
 	rm -rf "${TMP:?}/${TZ_DATA}" "${TMP:?}/usr"
 }
 
-import_adguardhome_ipset() {
-	local CONFIG_FILE ENTRY_FILE OLD_FILE OLD_PATH PATH_FILE STATUS TARGET_FILE
+setup_adguardhome_ipset_entries() {
+	local CONFIG_FILE
 	CONFIG_FILE="$1"
-	TARGET_FILE="$2"
-	ENTRY_FILE="${CONFIG_FILE}.ipset.entries.$$"
-	PATH_FILE="${CONFIG_FILE}.ipset.paths.$$"
-	STATUS="0"
-
-	if ! awk -v entries_file="${ENTRY_FILE}" -v paths_file="${PATH_FILE}" '
-		function trim(value) {
-			sub(/^[[:space:]]+/, "", value)
-			sub(/[[:space:]]+$/, "", value)
-			return value
+	awk '
+		function indentation(line,    text) {
+			text = line
+			sub(/[^[:space:]].*$/, "", text)
+			return length(text)
 		}
-		function scalar(value) {
-			sub(/[[:space:]]+#.*/, "", value)
-			value = trim(value)
-			if (value ~ /^".*"$/ || value ~ /^\047.*\047$/) {
-				value = substr(value, 2, length(value) - 2)
+		BEGIN { in_dns = 0; in_ipset = 0; ipset_indent = -1 }
+		/^[^[:space:]]/ {
+			in_dns = ($0 == "dns:")
+			in_ipset = 0
+		}
+		in_dns && /^[[:space:]]+ipset:/ {
+			value = $0
+			sub(/^[[:space:]]+ipset:[[:space:]]*/, "", value)
+			sub(/[[:space:]]*#.*/, "", value)
+			if (value != "" && value != "[]") exit 2
+			in_ipset = (value == "")
+			ipset_indent = indentation($0)
+			next
+		}
+		in_ipset {
+			current_indent = indentation($0)
+			if ($0 !~ /^[[:space:]]*$/ && current_indent <= ipset_indent) {
+				in_ipset = 0
+				next
+			}
+			if ($0 ~ /^[[:space:]]*-[[:space:]]*/) {
+				value = $0
+				sub(/^[[:space:]]*-[[:space:]]*/, "", value)
+				sub(/[[:space:]]*#.*/, "", value)
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+				if (value ~ /^".*"$/ || value ~ /^\047.*\047$/) {
+					value = substr(value, 2, length(value) - 2)
+				}
+				if (value != "") print value
+			}
+		}
+	' "${CONFIG_FILE}"
+}
+
+setup_adguardhome_ipset() {
+	local CONFIG_FILE ENTRIES_FILE MERGED_FILE STATUS TMP_FILE
+	STATUS="0"
+	ENTRIES_FILE="${IPSET_FILE}.entries.$$"
+	MERGED_FILE="${IPSET_FILE}.merged.$$"
+	: >"${ENTRIES_FILE}" || return 1
+	for CONFIG_FILE in "${YAML_FILE}" "${YAML_ORI}"; do
+		[ -f "${CONFIG_FILE}" ] || continue
+		if ! setup_adguardhome_ipset_entries "${CONFIG_FILE}" >>"${ENTRIES_FILE}"; then
+			rm -f "${ENTRIES_FILE}" "${MERGED_FILE}"
+			PTXT "${WARNING} Unable to migrate inline IPSet entries from ${CONFIG_FILE}; ipset_file was not enabled."
+			return 1
+		fi
+	done
+	{
+		[ -f "${IPSET_FILE}" ] && cat "${IPSET_FILE}"
+		cat "${ENTRIES_FILE}"
+	} >"${MERGED_FILE}.input" || {
+		rm -f "${ENTRIES_FILE}" "${MERGED_FILE}" "${MERGED_FILE}.input"
+		return 1
+	}
+	if ! awk '
+		{
+			line = $0
+			sub(/[[:space:]]*#.*/, "", line)
+			gsub(/[[:space:]]/, "", line)
+			if (line != "") print line
+		}
+	' "${MERGED_FILE}.input" >"${MERGED_FILE}.normalized"; then
+		rm -f "${ENTRIES_FILE}" "${MERGED_FILE}" "${MERGED_FILE}.input" "${MERGED_FILE}.normalized"
+		return 1
+	fi
+	if ! sort -u "${MERGED_FILE}.normalized" >"${MERGED_FILE}"; then
+		rm -f "${ENTRIES_FILE}" "${MERGED_FILE}" "${MERGED_FILE}.input" "${MERGED_FILE}.normalized"
+		return 1
+	fi
+	rm -f "${ENTRIES_FILE}" "${MERGED_FILE}.input" "${MERGED_FILE}.normalized"
+	chmod 644 "${MERGED_FILE}"
+	if ! mv "${MERGED_FILE}" "${IPSET_FILE}"; then
+		rm -f "${MERGED_FILE}"
+		return 1
+	fi
+	for CONFIG_FILE in "${YAML_FILE}" "${YAML_ORI}"; do
+		[ -f "${CONFIG_FILE}" ] || continue
+		TMP_FILE="${CONFIG_FILE}.ipset.$$"
+		if ! awk -v ipset_file="${IPSET_FILE}" '
+			BEGIN { in_dns = 0; inserted = 0 }
+			/^[^[:space:]]/ {
+				if ($0 == "dns:") in_dns = 1
+				else if (in_dns) in_dns = 0
 			}
 			return value
 		}
@@ -1716,9 +1794,9 @@ setup_adguardhome_ipset() {
 			rm -f "${TMP_FILE}"
 		fi
 	done
-
-	rm -f "${MERGED_FILE}" "${NORMALIZED_FILE}" "${CHECK_FILE}" "${YAML_FILE}.ipset.$$" "${YAML_ORI}.ipset.$$"
-	[ -x "${ADDON_DIR}/AdGuardHome.sh" ] && "${ADDON_DIR}/AdGuardHome.sh" ipset sync
+	if [ "${STATUS}" = "0" ] && [ -x "${ADDON_DIR}/AdGuardHome.sh" ]; then
+		"${ADDON_DIR}/AdGuardHome.sh" ipset sync || STATUS="1"
+	fi
 	return "${STATUS}"
 }
 
@@ -2290,7 +2368,6 @@ case "${ROUTER_ARCH}" in
 		;;
 esac
 
-if [ -x "${AGH_FILE}" ] && [ -f "${YAML_FILE}" ]; then setup_adguardhome_ipset; fi
 init_remote_adguard_metadata
 
 case "$2" in
