@@ -904,7 +904,7 @@ timezone() {
 				return 1
 				;;
 		esac
-		if [ "${NOW}" -le "${SCRIPT_TIME}" ]; then
+		if [ "${NOW}" -lt "${SCRIPT_TIME}" ] && { ! system_time_ready; }; then
 			SCRIPT_TIME_TEXT="$(/bin/date -u -r "${MID_SCRIPT}" '+%Y-%m-%d %H:%M:%S')"
 			{ /bin/date -u -s "${SCRIPT_TIME_TEXT}"; }
 		else
