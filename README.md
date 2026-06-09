@@ -17,6 +17,7 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 - [Service commands](#service-commands)
 - [Verify AdGuardHome is running](#verify-adguardhome-is-running)
 - [AdGuardHome DNS examples](#adguardhome-dns-examples)
+- [IPSet integration](#ipset-integration)
 - [Reverse DNS notes](#reverse-dns-notes)
 - [Troubleshooting and issue reports](#troubleshooting-and-issue-reports)
 - [Static AdGuardHome archive cache](#static-adguardhome-archive-cache)
@@ -52,6 +53,7 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 - Supports updating AdGuardHome without reinstalling or reconfiguring from scratch.
 - Includes installer, update, backup, reconfiguration, and uninstall flows.
 - Provides service integration through Entware init scripts and Asuswrt-Merlin service events.
+- Mirrors dnsmasq `ipset=` domain associations into AdGuardHome, including Skynet shared-whitelist rules, while preserving valid mappings added directly to AdGuardHome’s `ipset.conf`.
 
 ## Install, update, reconfigure, or uninstall
 
@@ -126,6 +128,136 @@ More DNS provider references:
 - [SNBForums AdGuardHome installer thread](http://www.snbforums.com/threads/release-asuswrt-merlin-adguardhome-installer-amaghi.76506/post-735471)
 - [AdGuard DNS providers knowledge base](https://adguard-dns.io/kb/general/dns-providers/)
 - [AdGuardHome wiki](https://github.com/AdguardTeam/AdGuardHome/wiki)
+
+## IPSet integration
+
+AdGuardHome can add the IP addresses returned for selected domain names to Linux IPSet sets.  This is useful when firewall tools such as Skynet need domain-based allowlists or blocklists, because the firewall can match the resulting IP addresses without intercepting or bypassing DNS traffic.
+
+The installer configures the following setting inside the `dns:` section of `/opt/etc/AdGuardHome/AdGuardHome.yaml`:
+
+```yaml
+dns:
+  ipset_file: /jffs/addons/AdGuardHome.d/ipset.conf
+```
+
+The referenced kernel IPSet sets must already exist.  AdGuardHome fills existing sets; it does not create them.  For example, an IPv4 set can be created with:
+
+```sh
+ipset create ExampleSet hash:ip family inet -exist
+```
+
+Use a separate `family inet6` set for IPv6 addresses when required.  Confirm that a set exists and inspect its members with:
+
+```sh
+ipset list ExampleSet
+```
+
+### Method 1: Manage mappings through dnsmasq configuration
+
+Add dnsmasq-style mappings to `/jffs/configs/dnsmasq.conf.add`:
+
+```text
+ipset=/example.com/example.net/ExampleSet
+```
+
+Multiple destination sets can be specified after the final slash:
+
+```text
+ipset=/example.com/ExampleSet,AnotherSet
+```
+
+The manager converts these entries to AdGuardHome's `DOMAIN[,DOMAIN]/IPSET[,IPSET]` format.  The first example becomes:
+
+```text
+example.com,example.net/ExampleSet
+```
+
+Apply changes by restarting dnsmasq:
+
+```sh
+service restart_dnsmasq
+```
+
+The dnsmasq post-configuration hook regenerates `/jffs/addons/AdGuardHome.d/ipset.conf`.  If the effective mappings changed, the manager restarts AdGuardHome so it reloads the file.
+
+### Automatic imports from routing add-ons
+
+The manager also imports domain-to-set mappings maintained by these routing add-ons:
+
+- **x3mRouting:** reads active x3mRouting commands from `/jffs/scripts/nat-start`. Both `dnsmasq=domain1,domain2` and `dnsmasq_file=/path/to/domain-list` are supported, including current `ipset_name=SetName` commands and converted legacy commands whose set name is positional.
+- **Domain-based VPN Routing by Ranger802004:** reads each `/jffs/configs/domain_vpn_routing/policy_*_domainlist` file and associates its domains with the corresponding existing `DVR-<policy>-ipv4` and/or `DVR-<policy>-ipv6` sets.
+- **WireGuard Session Manager:** discovers enabled set names from `/opt/etc/wireguard.d/WireGuard.db`. Existing WGM `ipset=` rules in `/jffs/configs/dnsmasq.conf.add` are already imported by Method 1. Optional AdGuardHome-only domain lists can also be stored in `/opt/etc/wireguard.d/ipset.d/<IPSET>.domains`.
+
+These imports copy domain mappings into AdGuardHome; they do not copy the current IP addresses stored in a set. AdGuardHome then adds newly resolved IPv4 and IPv6 addresses to the same existing sets used by the routing add-on.
+
+WireGuard Session Manager stores routing set names and state, but not domain names. For a WGM set that should be populated only by AdGuardHome, first enable the set in WGM and then create a matching domain file. For example:
+
+```sh
+mkdir -p /opt/etc/wireguard.d/ipset.d
+cat > /opt/etc/wireguard.d/ipset.d/NETFLIX-DNS.domains <<'EOF'
+netflix.com
+netflix.net
+nflxvideo.net
+EOF
+```
+
+The filename before `.domains` must exactly match an enabled IPSet shown by `wgm ipset`. Domain files accept one domain or a comma-separated domain group per line; blank lines and `#` comments are ignored. Disabled or deleted WGM sets are not imported from these files.
+
+The synchronization runs during AdGuardHome service startup, dnsmasq post-configuration, and firewall-start. To request it manually, run:
+
+```sh
+/jffs/addons/AdGuardHome.d/AdGuardHome.sh ipset
+```
+
+Restart AdGuardHome after manually requesting a synchronization if the service monitor is not running.
+
+### Method 2: Add AdGuardHome-only mappings
+
+Mappings that should not be managed through dnsmasq can be added directly to `/jffs/addons/AdGuardHome.d/ipset.conf`, one rule per line:
+
+```text
+updates.example.com/UpdateServers
+video.example.com,cdn.example.com/StreamingServers
+```
+
+After editing the file directly, restart AdGuardHome so it reloads the mappings:
+
+```sh
+service restart_AdGuardHome
+```
+
+Direct entries are preserved when automatic mappings are synchronized. The manager tracks mappings imported from dnsmasq, x3mRouting, Domain-based VPN Routing, and WireGuard Session Manager in `/jffs/addons/AdGuardHome.d/ipset.sources.conf`. This allows obsolete imported rules to be removed without deleting valid AdGuardHome-only entries. Existing installations are migrated automatically from the former `ipset.dnsmasq.conf` state file.
+
+> [!IMPORTANT]
+> Do not edit `ipset.sources.conf`; it is managed automatically. The effective `ipset.conf` is normalized, sorted, and deduplicated during synchronization, so formatting and comments may be removed.
+
+### Verify that IPSet integration is working
+
+1. Confirm that the YAML points to the managed file:
+
+   ```sh
+   grep -A5 '^dns:' /opt/etc/AdGuardHome/AdGuardHome.yaml | grep ipset_file
+   ```
+
+2. Review the effective mappings:
+
+   ```sh
+   cat /jffs/addons/AdGuardHome.d/ipset.conf
+   ```
+
+3. Query a mapped domain through AdGuardHome:
+
+   ```sh
+   nslookup example.com "$(nvram get lan_ipaddr)"
+   ```
+
+4. Check whether its resolved address was added to the target set:
+
+   ```sh
+   ipset list ExampleSet
+   ```
+
+AdGuardHome's IPSet syntax and behavior are documented in the upstream [AdGuardHome configuration reference](https://github.com/AdguardTeam/AdGuardHome/wiki/Configuration#configuration-file).
 
 ## Reverse DNS notes
 
