@@ -1045,12 +1045,23 @@ timezone() {
 # IPSet integration helpers
 
 IPSet_Generate() {
-	{
-		IPSet_Generate_Dnsmasq
-		IPSet_Generate_DomainVPNRouting
-		IPSet_Generate_WireGuardSessionManager
-		IPSet_Generate_X3mRouting
-	} | sort -u
+	local GENERATOR GENERATOR_FILE STATUS
+	GENERATOR_FILE="${IPSET_FILE}.generate.$$"
+	: >"${GENERATOR_FILE}" || return 1
+	for GENERATOR in \
+		IPSet_Generate_Dnsmasq \
+		IPSet_Generate_DomainVPNRouting \
+		IPSet_Generate_WireGuardSessionManager \
+		IPSet_Generate_X3mRouting; do
+		if ! "${GENERATOR}" >>"${GENERATOR_FILE}"; then
+			rm -f "${GENERATOR_FILE}"
+			return 1
+		fi
+	done
+	sort -u "${GENERATOR_FILE}"
+	STATUS="$?"
+	rm -f "${GENERATOR_FILE}"
+	return "${STATUS}"
 }
 
 IPSet_Generate_Dnsmasq() {
@@ -1078,10 +1089,13 @@ IPSet_Generate_DomainVPNRouting() {
 	local CANDIDATE DOMAIN_FILE IPSET_NAMES POLICY SET_NAME
 	have_cmd ipset || return 0
 	[ -d "${IPSET_DVR_DIR}" ] || return 0
-	IPSET_NAMES="$(ipset list -name 2>/dev/null)"
+	if ! IPSET_NAMES="$(ipset list -name 2>/dev/null)"; then return 1; fi
 	[ -n "${IPSET_NAMES}" ] || return 0
 	for DOMAIN_FILE in "${IPSET_DVR_DIR}"/policy_*_domainlist; do
-		[ -f "${DOMAIN_FILE}" ] || continue
+		case "${DOMAIN_FILE}" in
+			*'/policy_*_domainlist') [ -e "${DOMAIN_FILE}" ] || continue ;;
+		esac
+		[ -f "${DOMAIN_FILE}" ] || return 1
 		POLICY="${DOMAIN_FILE##*/policy_}"
 		POLICY="${POLICY%_domainlist}"
 		[ -n "${POLICY}" ] || continue
@@ -1101,32 +1115,40 @@ IPSet_Generate_DomainVPNRouting() {
 				gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
 				if (line != "") print line "/" sets
 			}
-		' "${DOMAIN_FILE}"
+		' "${DOMAIN_FILE}" || return 1
 	done
 }
 
 IPSet_Generate_WireGuardSessionManager() {
-	local DOMAIN_FILE SET_NAME
+	local DOMAIN_FILE SET_NAME SET_NAMES_FILE
 	have_cmd sqlite3 || return 0
 	[ -f "${IPSET_WGM_DATABASE}" ] || return 0
 	[ -d "${IPSET_WGM_DOMAIN_DIR}" ] || return 0
-	sqlite3 "${IPSET_WGM_DATABASE}" \
-		"SELECT DISTINCT ipset FROM ipset WHERE UPPER(\"use\") = 'Y' AND ipset <> '' ORDER BY ipset;" 2>/dev/null |
-		while IFS= read -r SET_NAME; do
-			case "${SET_NAME}" in
-				"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-]*) continue ;;
-			esac
-			DOMAIN_FILE="${IPSET_WGM_DOMAIN_DIR}/${SET_NAME}.domains"
-			[ -f "${DOMAIN_FILE}" ] || continue
-			awk -v set_name="${SET_NAME}" '
-				{
-					line = $0
-					sub(/[[:space:]]*#.*/, "", line)
-					gsub(/[[:space:]]/, "", line)
-					if (line != "") print line "/" set_name
-				}
-			' "${DOMAIN_FILE}"
-		done
+	SET_NAMES_FILE="${IPSET_FILE}.wgm.$$"
+	if ! sqlite3 "${IPSET_WGM_DATABASE}" \
+		"SELECT DISTINCT ipset FROM ipset WHERE UPPER(\"use\") = 'Y' AND ipset <> '' ORDER BY ipset;" >"${SET_NAMES_FILE}" 2>/dev/null; then
+		rm -f "${SET_NAMES_FILE}"
+		return 1
+	fi
+	while IFS= read -r SET_NAME; do
+		case "${SET_NAME}" in
+			"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-]*) continue ;;
+		esac
+		DOMAIN_FILE="${IPSET_WGM_DOMAIN_DIR}/${SET_NAME}.domains"
+		[ -f "${DOMAIN_FILE}" ] || continue
+		if ! awk -v set_name="${SET_NAME}" '
+			{
+				line = $0
+				sub(/[[:space:]]*#.*/, "", line)
+				gsub(/[[:space:]]/, "", line)
+				if (line != "") print line "/" set_name
+			}
+		' "${DOMAIN_FILE}"; then
+			rm -f "${SET_NAMES_FILE}"
+			return 1
+		fi
+	done <"${SET_NAMES_FILE}"
+	rm -f "${SET_NAMES_FILE}"
 }
 
 IPSet_Generate_X3mRouting() {
@@ -1148,10 +1170,10 @@ IPSet_Generate_X3mRouting() {
 			}
 			if (domains != "" && set_name != "") print domains "/" set_name
 		}
-		function emit_file(value, set_name,    domains, line, path) {
+		function emit_file(value, set_name,    domains, line, path, result) {
 			path = option_value(value)
 			domains = ""
-			while ((getline line < path) > 0) {
+			while ((result = (getline line < path)) > 0) {
 				sub(/[[:space:]]*#.*/, "", line)
 				gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
 				if (line == "") continue
@@ -1159,6 +1181,7 @@ IPSet_Generate_X3mRouting() {
 				domains = domains line
 			}
 			close(path)
+			if (result < 0) read_error = 1
 			if (domains != "" && set_name != "") print domains "/" set_name
 		}
 		/^[[:space:]]*#/ || $0 !~ /x3mRouting/ { next }
@@ -1182,6 +1205,7 @@ IPSet_Generate_X3mRouting() {
 				else if ($i ~ /^dnsmasq_file=/) emit_file($i, set_name)
 			}
 		}
+		END { if (read_error) exit 1 }
 	' "${IPSET_X3M_SOURCE}"
 }
 
