@@ -1633,8 +1633,47 @@ adguardhome_ipset_migrate_config() {
 }
 
 setup_adguardhome_ipset() {
-	local CONFIG_FILE STATUS TMP_FILE
+	local CONFIG_FILE ENTRIES_FILE MERGED_FILE STATUS TMP_FILE
 	STATUS="0"
+	ENTRIES_FILE="${IPSET_FILE}.entries.$$"
+	MERGED_FILE="${IPSET_FILE}.merged.$$"
+	: >"${ENTRIES_FILE}" || return 1
+	for CONFIG_FILE in "${YAML_FILE}" "${YAML_ORI}"; do
+		[ -f "${CONFIG_FILE}" ] || continue
+		if ! setup_adguardhome_ipset_entries "${CONFIG_FILE}" >>"${ENTRIES_FILE}"; then
+			rm -f "${ENTRIES_FILE}" "${MERGED_FILE}"
+			PTXT "${WARNING} Unable to migrate inline IPSet entries from ${CONFIG_FILE}; ipset_file was not enabled."
+			return 1
+		fi
+	done
+	{
+		[ -f "${IPSET_FILE}" ] && cat "${IPSET_FILE}"
+		cat "${ENTRIES_FILE}"
+	} >"${MERGED_FILE}.input" || {
+		rm -f "${ENTRIES_FILE}" "${MERGED_FILE}" "${MERGED_FILE}.input"
+		return 1
+	}
+	if ! awk '
+		{
+			line = $0
+			sub(/[[:space:]]*#.*/, "", line)
+			gsub(/[[:space:]]/, "", line)
+			if (line != "") print line
+		}
+	' "${MERGED_FILE}.input" >"${MERGED_FILE}.normalized"; then
+		rm -f "${ENTRIES_FILE}" "${MERGED_FILE}" "${MERGED_FILE}.input" "${MERGED_FILE}.normalized"
+		return 1
+	fi
+	if ! sort -u "${MERGED_FILE}.normalized" >"${MERGED_FILE}"; then
+		rm -f "${ENTRIES_FILE}" "${MERGED_FILE}" "${MERGED_FILE}.input" "${MERGED_FILE}.normalized"
+		return 1
+	fi
+	rm -f "${ENTRIES_FILE}" "${MERGED_FILE}.input" "${MERGED_FILE}.normalized"
+	chmod 644 "${MERGED_FILE}"
+	if ! mv "${MERGED_FILE}" "${IPSET_FILE}"; then
+		rm -f "${MERGED_FILE}"
+		return 1
+	fi
 	for CONFIG_FILE in "${YAML_FILE}" "${YAML_ORI}"; do
 		[ -f "${CONFIG_FILE}" ] || continue
 		if ! adguardhome_ipset_migrate_config "${CONFIG_FILE}"; then

@@ -1033,7 +1033,7 @@ timezone() {
 				return 1
 				;;
 		esac
-		if [ "${NOW}" -le "${SCRIPT_TIME}" ]; then
+		if [ "${NOW}" -lt "${SCRIPT_TIME}" ]; then
 			SCRIPT_TIME_TEXT="$(/bin/date -u -r "${MID_SCRIPT}" '+%Y-%m-%d %H:%M:%S')"
 			{ /bin/date -u -s "${SCRIPT_TIME_TEXT}"; }
 		else
@@ -1099,7 +1099,10 @@ IPSet_Generate_DomainVPNRouting() {
 	fi
 	[ -n "${IPSET_NAMES}" ] || return 0
 	for DOMAIN_FILE in "${IPSET_DVR_DIR}"/policy_*_domainlist; do
-		[ -f "${DOMAIN_FILE}" ] || continue
+		case "${DOMAIN_FILE}" in
+			*'/policy_*_domainlist') [ -e "${DOMAIN_FILE}" ] || continue ;;
+		esac
+		[ -f "${DOMAIN_FILE}" ] || return 1
 		POLICY="${DOMAIN_FILE##*/policy_}"
 		POLICY="${POLICY%_domainlist}"
 		[ -n "${POLICY}" ] || continue
@@ -1205,6 +1208,7 @@ IPSet_Generate_X3mRouting() {
 				else if ($i ~ /^dnsmasq_file=/) emit_file($i, set_name)
 			}
 		}
+		END { if (read_error) exit 1 }
 	' "${IPSET_X3M_SOURCE}"
 }
 
@@ -1281,14 +1285,13 @@ IPSet_Normalize() {
 }
 
 IPSet_Sync_Locked() {
-	local CHANGED CURRENT_FILE CUSTOM_FILE FINAL_FILE MANAGED_FILE PREVIOUS_FILE
+	local CURRENT_FILE CUSTOM_FILE FINAL_FILE MANAGED_FILE PREVIOUS_FILE
 	MANAGED_FILE="${IPSET_MANAGED_FILE}.$$"
 	CURRENT_FILE="${IPSET_FILE}.current.$$"
 	CUSTOM_FILE="${IPSET_FILE}.custom.$$"
 	FINAL_FILE="${IPSET_FILE}.$$"
 	PREVIOUS_FILE="${IPSET_MANAGED_FILE}"
 	[ -f "${PREVIOUS_FILE}" ] || PREVIOUS_FILE="${IPSET_LEGACY_MANAGED_FILE}"
-	CHANGED="0"
 
 	if ! IPSet_Generate >"${MANAGED_FILE}"; then
 		rm -f "${MANAGED_FILE}" "${CURRENT_FILE}" "${CUSTOM_FILE}" "${FINAL_FILE}"
@@ -1308,7 +1311,6 @@ IPSet_Sync_Locked() {
 	if [ ! -f "${IPSET_FILE}" ] || ! cmp -s "${FINAL_FILE}" "${IPSET_FILE}"; then
 		mv "${FINAL_FILE}" "${IPSET_FILE}" || return 1
 		chmod 644 "${IPSET_FILE}"
-		CHANGED="1"
 	else
 		rm -f "${FINAL_FILE}"
 	fi
@@ -1319,7 +1321,7 @@ IPSet_Sync_Locked() {
 		rm -f "${MANAGED_FILE}"
 	fi
 	rm -f "${IPSET_LEGACY_MANAGED_FILE}" "${CURRENT_FILE}" "${CUSTOM_FILE}"
-	[ "${CHANGED}" = "1" ]
+	return 0
 }
 
 IPSet_Sync_Restart() {
