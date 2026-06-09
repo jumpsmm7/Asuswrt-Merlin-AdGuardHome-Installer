@@ -5,6 +5,14 @@ CONF_FILE="/opt/etc/AdGuardHome/.config"
 MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
+IPSET_FILE="/jffs/addons/AdGuardHome.d/ipset.conf"
+IPSET_LEGACY_MANAGED_FILE="/jffs/addons/AdGuardHome.d/ipset.dnsmasq.conf"
+IPSET_MANAGED_FILE="/jffs/addons/AdGuardHome.d/ipset.sources.conf"
+IPSET_SOURCE="/jffs/configs/dnsmasq.conf.add"
+IPSET_X3M_SOURCE="/jffs/scripts/nat-start"
+IPSET_DVR_DIR="/jffs/configs/domain_vpn_routing"
+IPSET_WGM_DATABASE="/opt/etc/wireguard.d/WireGuard.db"
+IPSET_WGM_DOMAIN_DIR="/opt/etc/wireguard.d/ipset.d"
 
 NAME="$(basename "$0")[$$]"
 
@@ -26,6 +34,113 @@ conf_value() {
 
 have_cmd() {
 	which "$1" >/dev/null 2>&1
+}
+
+trap_state_cleanup_stale() {
+	local current_start encoded_owner owner owner_start trap_dir trap_name
+	for trap_dir in /tmp/AdGuardHome-traps-*; do
+		[ -d "${trap_dir}" ] || continue
+		owner="$(sed -n '1p' "${trap_dir}/owner" 2>/dev/null)"
+		owner_start="$(sed -n '2p' "${trap_dir}/owner" 2>/dev/null)"
+		case "${owner}" in
+			"" | *[!0-9]*)
+				trap_name="${trap_dir##*/AdGuardHome-traps-}"
+				encoded_owner="${trap_name%-*}"
+				encoded_owner="${encoded_owner##*.}"
+				case "${encoded_owner}" in
+					"" | *[!0-9]*)
+						trap_state_remove "${trap_dir}/state"
+						continue
+						;;
+				esac
+				owner="${encoded_owner}"
+				;;
+		esac
+		if ! kill -0 "${owner}" 2>/dev/null; then
+			trap_state_remove "${trap_dir}/state"
+			continue
+		fi
+		if [ -n "${owner_start}" ]; then
+			current_start="$(trap_state_process_start "${owner}")"
+			if [ -z "${current_start}" ] || [ "${current_start}" != "${owner_start}" ]; then
+				trap_state_remove "${trap_dir}/state"
+			fi
+		fi
+	done
+}
+
+trap_state_create() {
+	local attempt owner_start scope trap_dir trap_file
+	scope="$1"
+	case "${scope}" in
+		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-]*) return 1 ;;
+	esac
+	trap_state_cleanup_stale
+	owner_start="$(trap_state_process_start "$$")"
+	attempt="0"
+	while [ "${attempt}" -lt 16 ]; do
+		trap_dir="/tmp/AdGuardHome-traps-${scope}.$$-${attempt}"
+		trap_file="${trap_dir}/state"
+		if mkdir "${trap_dir}" 2>/dev/null; then
+			if ! printf '%s\n%s\n' "$$" "${owner_start}" >"${trap_dir}/owner"; then
+				trap_state_remove "${trap_file}"
+				return 1
+			fi
+			printf '%s\n' "${trap_file}"
+			return 0
+		fi
+		attempt="$((attempt + 1))"
+	done
+	return 1
+}
+
+trap_state_process_start() {
+	local field pid proc_stat
+	pid="$1"
+	case "${pid}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	IFS= read -r proc_stat <"/proc/${pid}/stat" 2>/dev/null || return 1
+	proc_stat="${proc_stat##*) }"
+	field="1"
+	set -- ${proc_stat}
+	while [ "${field}" -lt 20 ]; do
+		[ "$#" -gt 0 ] || return 1
+		shift
+		field="$((field + 1))"
+	done
+	case "${1:-}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	printf '%s\n' "$1"
+}
+
+trap_state_remove() {
+	local trap_dir trap_file
+	trap_file="$1"
+	[ -n "${trap_file}" ] || return 0
+	trap_dir="${trap_file%/*}"
+	case "${trap_dir}" in
+		/tmp/AdGuardHome-traps-*) rm -rf "${trap_dir}" ;;
+	esac
+}
+
+trap_state_restore() {
+	local trap_file
+	trap_file="$1"
+	trap - EXIT HUP INT QUIT ABRT USR1 USR2 TERM TSTP
+	[ -s "${trap_file}" ] && . "${trap_file}"
+	trap_state_remove "${trap_file}"
+}
+
+trap_state_save() {
+	local trap_file
+	trap_file="$1"
+	[ -n "${trap_file}" ] || return 1
+	trap >"${trap_file}" || {
+		trap_state_remove "${trap_file}"
+		return 1
+	}
 }
 
 nvram_int_gt() {
@@ -166,7 +281,7 @@ adguardhome_run_execute() {
 }
 
 adguardhome_run_flock() {
-	local action lock_dir lock_file owner pid_file saved_traps status
+	local action lock_dir lock_file owner pid_file status trap_file
 	action="$1"
 	lock_dir="/tmp/AdGuardHome"
 	lock_file="${lock_dir}.lock"
@@ -193,14 +308,23 @@ adguardhome_run_flock() {
 		exec 9>&-
 		return 1
 	fi
-	saved_traps="$(trap)"
-	trap 'adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit 1' HUP INT QUIT ABRT TERM TSTP
-	trap 'status="$?"; adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit "${status}"' EXIT
+	trap_file="$(trap_state_create run-flock)" || {
+		adguardhome_run_flock_cleanup "${pid_file}"
+		return 1
+	}
+	# Capture traps in the current shell. Command substitution would run `trap`
+	# in a subshell and return no trap state in BusyBox ash and dash.
+	trap_state_save "${trap_file}" || {
+		adguardhome_run_flock_cleanup "${pid_file}"
+		return 1
+	}
+	trap 'adguardhome_run_flock_cleanup "${pid_file}"; trap_state_restore "${trap_file}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	trap 'status="$?"; adguardhome_run_flock_cleanup "${pid_file}"; trap_state_restore "${trap_file}"; exit "${status}"' EXIT
 	rm -f "${pid_file}"
 	adguardhome_run_execute "${action}" "${pid_file}" "$$"
 	status="$?"
 	adguardhome_run_flock_cleanup "${pid_file}"
-	adguardhome_run_flock_restore_traps "${saved_traps}"
+	trap_state_restore "${trap_file}"
 	return "${status}"
 }
 
@@ -229,13 +353,6 @@ adguardhome_run_flock_cleanup() {
 	exec 9>&-
 }
 
-adguardhome_run_flock_restore_traps() {
-	local saved_traps
-	saved_traps="$1"
-	trap - EXIT HUP INT QUIT ABRT TERM TSTP
-	[ -n "${saved_traps}" ] && eval "${saved_traps}"
-}
-
 adguardhome_run_legacy_mkdir_active() {
 	local lock_dir owner pid_file runtime
 	lock_dir="/tmp/AdGuardHome"
@@ -253,13 +370,21 @@ adguardhome_run_legacy_mkdir_active() {
 }
 
 adguardhome_run_mkdir() {
-	local action lock_dir pid pid_file status
+	local action lock_dir pid pid_file status trap_file
 	action="$1"
 	lock_dir="/tmp/AdGuardHome"
 	pid_file="${lock_dir}/pid"
 	if (mkdir "${lock_dir}") 2>/dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' "${pid_file}" 2>/dev/null)" ]; } || { [ "${action}" = "stop_adguardhome" ]; }; then
 		(
-			trap 'rm -rf "${lock_dir}"; exit $?' EXIT
+			trap_file="$(trap_state_create run-mkdir)" || {
+				rm -rf "${lock_dir}"
+				exit 1
+			}
+			trap_state_save "${trap_file}" || {
+				rm -rf "${lock_dir}"
+				exit 1
+			}
+			trap 'status="$?"; rm -rf "${lock_dir}"; trap_state_restore "${trap_file}"; exit "${status}"' EXIT
 			{ service_wait adguardhome_run; }
 			rm -rf "${lock_dir}"
 		) &
@@ -341,7 +466,6 @@ check_dns_environment() {
 				NVCHECK="$((NVCHECK + 1))"
 			fi
 			if dns_env_apply_profile; then NVCHECK="$((NVCHECK + 1))"; fi
-			# Refresh_IPTables
 			;;
 		stop)
 			# Do not restore if we never saved anything.
@@ -349,7 +473,6 @@ check_dns_environment() {
 				return 0
 			fi
 			if dns_env_restore_profile; then NVCHECK="$((NVCHECK + 1))"; fi
-			# Unload_IPTables
 			;;
 		*)
 			logger -st "${NAME:-dns-manager}" "Invalid DNS environment mode: ${MODE}"
@@ -378,9 +501,10 @@ dnsmasq_delete_matching() {
 
 dnsmasq_params() {
 	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
-	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then {
+	if ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; then
 		umount /tmp/resolv.conf 2>/dev/null
-	}; fi
+	fi
+	IPSet_Sync_Restart
 	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 		0)
 			return 0
@@ -458,9 +582,9 @@ dnsmasq_params() {
 			done
 			;;
 	esac
-	if { ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then {
+	if ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; then
 		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
-	}; fi
+	fi
 }
 
 interface_ipv4_addr() {
@@ -714,9 +838,12 @@ lower_script() {
 
 service_wait() {
 	umask 022
-	local maxwait
+	local maxwait trap_file
 	[ -z "$2" ] && maxwait="300" || maxwait="$2"
 	(
+		trap_file="$(trap_state_create service-wait)" || exit 1
+		trap_state_save "${trap_file}" || exit 1
+		trap 'status="$?"; trap_state_restore "${trap_file}"; exit "${status}"' EXIT
 		{
 			timezone
 			cd '/'
@@ -738,7 +865,7 @@ service_wait() {
 			done
 		}
 		{
-			trap - HUP INT QUIT ABRT TERM TSTP
+			trap_state_restore "${trap_file}"
 			if [ "${elapsed}" -gt "${maxwait}" ]; then return 1; else return 0; fi
 		}
 	) &
@@ -769,12 +896,15 @@ start_adguardhome() {
 }
 
 start_monitor() {
-	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_SLEEP_INTERVAL MONITOR_STATE
+	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_SLEEP_INTERVAL MONITOR_STATE TRAP_FILE
 	MONITOR_BINARY_RETRY_INTERVAL="10"
 	MONITOR_HEALTHCHECK_INTERVAL="300"
 	MONITOR_HEALTHCHECK_TIMEOUT="150"
 	MONITOR_SLEEP_INTERVAL="10"
 	MONITOR_STATE="running"
+	TRAP_FILE="$(trap_state_create monitor)" || return 1
+	trap_state_save "${TRAP_FILE}" || return 1
+	trap 'status="$?"; trap_state_restore "${TRAP_FILE}"; exit "${status}"' EXIT
 	trap '' HUP INT QUIT ABRT TERM TSTP
 	trap 'MONITOR_STATE="stop"' USR1
 	trap 'MONITOR_STATE="restart"' USR2
@@ -792,7 +922,7 @@ start_monitor() {
 		esac
 		if [ "${MONITOR_STATE}" = "stop" ]; then # A place to exit early if needed, or if binary becomes unavailable before service-stop.
 			logger -st "${NAME}" "Stopping Monitor!"
-			trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
+			trap_state_restore "${TRAP_FILE}"
 			{ adguardhome_run stop_adguardhome; }
 			break
 		fi
@@ -842,7 +972,7 @@ start_monitor() {
 				;;
 			"stop")
 				logger -st "${NAME}" "Stopping Monitor!"
-				trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
+				trap_state_restore "${TRAP_FILE}"
 				{ adguardhome_run stop_adguardhome; }
 				break
 				;;
@@ -864,7 +994,6 @@ stop_adguardhome() {
 			lower_script stop || lower_script kill
 			;;
 	esac
-	# Unload_IPTables
 	service restart_dnsmasq >/dev/null 2>&1
 	for db in stats.db sessions.db; do {
 		if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
@@ -904,7 +1033,7 @@ timezone() {
 				return 1
 				;;
 		esac
-		if [ "${NOW}" -le "${SCRIPT_TIME}" ]; then
+		if [ "${NOW}" -lt "${SCRIPT_TIME}" ]; then
 			SCRIPT_TIME_TEXT="$(/bin/date -u -r "${MID_SCRIPT}" '+%Y-%m-%d %H:%M:%S')"
 			{ /bin/date -u -s "${SCRIPT_TIME_TEXT}"; }
 		else
@@ -913,75 +1042,172 @@ timezone() {
 	fi
 }
 
-# IP Table Directives
-Firewall_Interface() {
-	local IFACE UNIT
-	IFACE="$1"
-	if [ -z "${IFACE}" ] && have_cmd ip; then
-		IFACE="$(ip route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')"
-	fi
-	if [ -z "${IFACE}" ]; then
-		UNIT="$(nvram get wan_primary 2>/dev/null)"
-		case "${UNIT}" in
-			0 | 1) ;;
-			*)
-				if [ "$(nvram get wan1_primary 2>/dev/null)" = "1" ]; then UNIT="1"; else UNIT="0"; fi
-				;;
-		esac
-		IFACE="$(nvram get "wan${UNIT}_gw_ifname" 2>/dev/null)"
-		[ -z "${IFACE}" ] && IFACE="$(nvram get "wan${UNIT}_pppoe_ifname" 2>/dev/null)"
-		[ -z "${IFACE}" ] && IFACE="$(nvram get "wan${UNIT}_ifname" 2>/dev/null)"
-	fi
-	[ -n "${IFACE}" ] || return 1
-	printf '%s\n' "${IFACE}"
+# IPSet integration helpers
+
+IPSet_Generate() {
+	{
+		IPSet_Generate_Dnsmasq
+		IPSet_Generate_DomainVPNRouting
+		IPSet_Generate_WireGuardSessionManager
+		IPSet_Generate_X3mRouting
+	} | sort -u
 }
 
-Firewall_Legacy_Unload() {
-	local IFACE PROTO UNIT
-	for UNIT in 0 1; do
-		for IFACE in \
-			"$(nvram get "wan${UNIT}_gw_ifname" 2>/dev/null)" \
-			"$(nvram get "wan${UNIT}_pppoe_ifname" 2>/dev/null)" \
-			"$(nvram get "wan${UNIT}_ifname" 2>/dev/null)" \
-			"ppp${UNIT}"; do
-			[ -n "${IFACE}" ] || continue
-			for PROTO in udp tcp; do
-				while iptables -t raw -D OUTPUT -o "${IFACE}" -p "${PROTO}" -m multiport --dports 53,123 -j ACCEPT 2>/dev/null; do :; done
-			done
+IPSet_Generate_Dnsmasq() {
+	[ -f "${IPSET_SOURCE}" ] || return 0
+	awk '
+		/^[[:space:]]*ipset=/ {
+			line = $0
+			sub(/^[[:space:]]*ipset=/, "", line)
+			sub(/[[:space:]]*#.*/, "", line)
+			gsub(/[[:space:]]/, "", line)
+			n = split(line, fields, "/")
+			if (n < 3 || fields[n] == "") next
+			domains = ""
+			for (i = 1; i < n; i++) {
+				if (fields[i] == "") continue
+				if (domains != "") domains = domains ","
+				domains = domains fields[i]
+			}
+			if (domains != "") print domains "/" fields[n]
+		}
+	' "${IPSET_SOURCE}"
+}
+
+IPSet_Generate_DomainVPNRouting() {
+	local CANDIDATE DOMAIN_FILE IPSET_NAMES POLICY SET_NAME
+	have_cmd ipset || return 0
+	[ -d "${IPSET_DVR_DIR}" ] || return 0
+	IPSET_NAMES="$(ipset list -name 2>/dev/null)"
+	[ -n "${IPSET_NAMES}" ] || return 0
+	for DOMAIN_FILE in "${IPSET_DVR_DIR}"/policy_*_domainlist; do
+		[ -f "${DOMAIN_FILE}" ] || continue
+		POLICY="${DOMAIN_FILE##*/policy_}"
+		POLICY="${POLICY%_domainlist}"
+		[ -n "${POLICY}" ] || continue
+		SET_NAME=""
+		for CANDIDATE in \
+			"DVR-${POLICY}-ipv4" \
+			"DVR-${POLICY}-ipv6"; do
+			if printf '%s\n' "${IPSET_NAMES}" | grep -qxF "${CANDIDATE}"; then
+				if [ -n "${SET_NAME}" ]; then SET_NAME="${SET_NAME},${CANDIDATE}"; else SET_NAME="${CANDIDATE}"; fi
+			fi
 		done
+		[ -n "${SET_NAME}" ] || continue
+		awk -v sets="${SET_NAME}" '
+			{
+				line = $0
+				sub(/[[:space:]]*#.*/, "", line)
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+				if (line != "") print line "/" sets
+			}
+		' "${DOMAIN_FILE}"
 	done
 }
 
-Firewall_Lock() {
+IPSet_Generate_WireGuardSessionManager() {
+	local DOMAIN_FILE SET_NAME
+	have_cmd sqlite3 || return 0
+	[ -f "${IPSET_WGM_DATABASE}" ] || return 0
+	[ -d "${IPSET_WGM_DOMAIN_DIR}" ] || return 0
+	sqlite3 "${IPSET_WGM_DATABASE}" \
+		"SELECT DISTINCT ipset FROM ipset WHERE UPPER(\"use\") = 'Y' AND ipset <> '' ORDER BY ipset;" 2>/dev/null |
+		while IFS= read -r SET_NAME; do
+			case "${SET_NAME}" in
+				"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-]*) continue ;;
+			esac
+			DOMAIN_FILE="${IPSET_WGM_DOMAIN_DIR}/${SET_NAME}.domains"
+			[ -f "${DOMAIN_FILE}" ] || continue
+			awk -v set_name="${SET_NAME}" '
+				{
+					line = $0
+					sub(/[[:space:]]*#.*/, "", line)
+					gsub(/[[:space:]]/, "", line)
+					if (line != "") print line "/" set_name
+				}
+			' "${DOMAIN_FILE}"
+		done
+}
+
+IPSet_Generate_X3mRouting() {
+	[ -f "${IPSET_X3M_SOURCE}" ] || return 0
+	awk '
+		function option_value(value) {
+			sub(/^[^=]*=/, "", value)
+			gsub(/^["\047]|["\047;]+$/, "", value)
+			return value
+		}
+		function emit_domains(value, set_name,    count, domains, i, item) {
+			value = option_value(value)
+			count = split(value, item, ",")
+			domains = ""
+			for (i = 1; i <= count; i++) {
+				if (item[i] == "") continue
+				if (domains != "") domains = domains ","
+				domains = domains item[i]
+			}
+			if (domains != "" && set_name != "") print domains "/" set_name
+		}
+		function emit_file(value, set_name,    domains, line, path) {
+			path = option_value(value)
+			domains = ""
+			while ((getline line < path) > 0) {
+				sub(/[[:space:]]*#.*/, "", line)
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+				if (line == "") continue
+				if (domains != "") domains = domains ","
+				domains = domains line
+			}
+			close(path)
+			if (domains != "" && set_name != "") print domains "/" set_name
+		}
+		/^[[:space:]]*#/ || $0 !~ /x3mRouting/ { next }
+		{
+			command_field = 0
+			set_name = ""
+			for (i = 1; i <= NF; i++) {
+				command = $i
+				gsub(/^["\047]|["\047;]+$/, "", command)
+				if (command ~ /(^|\/)x3mRouting(\.sh)?$/) command_field = i
+				if ($i ~ /^ipset_name=/) set_name = option_value($i)
+			}
+			# x3mRouting 1.x/converted entries use: interface client set-name.
+			if (set_name == "" && command_field > 0 && command_field + 3 <= NF) {
+				set_name = $(command_field + 3)
+				if (set_name ~ /=/) set_name = ""
+			}
+			gsub(/^["\047]|["\047;]+$/, "", set_name)
+			for (i = 1; i <= NF; i++) {
+				if ($i ~ /^dnsmasq=/) emit_domains($i, set_name)
+				else if ($i ~ /^dnsmasq_file=/) emit_file($i, set_name)
+			}
+		}
+	' "${IPSET_X3M_SOURCE}"
+}
+
+IPSet_Lock() {
 	if have_cmd flock && flock_supports_fd; then
-		Firewall_Lock_Flock "$@"
+		IPSet_Lock_Flock "$@"
 	else
-		Firewall_Lock_Mkdir "$@"
+		IPSet_Lock_Mkdir "$@"
 	fi
 }
 
-Firewall_Lock_Flock() {
-	local ACTION LOCK_FILE STATUS
-	ACTION="$1"
-	shift
-	LOCK_FILE="/tmp/AdGuardHome-firewall.lock"
+IPSet_Lock_Flock() {
+	local LOCK_FILE STATUS
+	LOCK_FILE="/tmp/AdGuardHome-ipset.lock"
 	(
 		exec 8>"${LOCK_FILE}" || exit 1
-		if ! flock 8; then
-			logger -st "${NAME}" "Unable to acquire flock to ${ACTION} firewall rules."
-			exit 1
-		fi
+		flock 8 || exit 1
 		"$@"
 	)
 	STATUS="$?"
 	return "${STATUS}"
 }
 
-Firewall_Lock_Mkdir() {
-	local ACTION ATTEMPTS LOCK_DIR OWNER
-	ACTION="$1"
-	shift
-	LOCK_DIR="/tmp/AdGuardHome-firewall"
+IPSet_Lock_Mkdir() {
+	local ATTEMPTS LOCK_DIR OWNER TRAP_FILE
+	LOCK_DIR="/tmp/AdGuardHome-ipset"
 	ATTEMPTS="0"
 	while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
 		OWNER="$(sed -n '1p' "${LOCK_DIR}/pid" 2>/dev/null)"
@@ -995,52 +1221,88 @@ Firewall_Lock_Mkdir() {
 				;;
 		esac
 		ATTEMPTS="$((ATTEMPTS + 1))"
-		if [ "${ATTEMPTS}" -ge 30 ]; then
-			logger -st "${NAME}" "Unable to acquire legacy mkdir lock to ${ACTION} firewall rules."
-			return 1
-		fi
+		[ "${ATTEMPTS}" -ge 30 ] && return 1
 		sleep 1
 	done
 	(
-		trap 'rm -rf "${LOCK_DIR}"; exit $?' EXIT HUP INT QUIT ABRT TERM TSTP
+		TRAP_FILE="$(trap_state_create ipset-mkdir)" || {
+			rm -rf "${LOCK_DIR}"
+			exit 1
+		}
+		trap_state_save "${TRAP_FILE}" || {
+			rm -rf "${LOCK_DIR}"
+			exit 1
+		}
+		trap 'STATUS="$?"; rm -rf "${LOCK_DIR}"; trap_state_restore "${TRAP_FILE}"; exit "${STATUS}"' EXIT HUP INT QUIT ABRT TERM TSTP
 		printf '%s\n' "$$" >"${LOCK_DIR}/pid"
 		"$@"
 	)
 }
 
-Firewall_Service_Active() {
-	[ -n "${MON_PID}" ] || [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]
+IPSet_Sync() {
+	IPSet_Lock IPSet_Sync_Locked
 }
 
-Load_IPTables() {
-	local IFACE
-	[ -x "/jffs/scripts/firewall" ] || return 0
-	IFACE="$(Firewall_Interface "$1")" || return 1
-	iptables -t raw -N ADGUARDHOME 2>/dev/null || iptables -t raw -F ADGUARDHOME 2>/dev/null || return 1
-	while iptables -t raw -D OUTPUT -j ADGUARDHOME 2>/dev/null; do :; done
-	iptables -t raw -A ADGUARDHOME -o "${IFACE}" -p udp -m multiport --dports 53,123 -j ACCEPT 2>/dev/null || return 1
-	iptables -t raw -A ADGUARDHOME -o "${IFACE}" -p tcp -m multiport --dports 53,123 -j ACCEPT 2>/dev/null || return 1
-	iptables -t raw -I OUTPUT -j ADGUARDHOME 2>/dev/null
+IPSet_Normalize() {
+	awk '
+		{
+			line = $0
+			sub(/[[:space:]]*#.*/, "", line)
+			gsub(/[[:space:]]/, "", line)
+			if (line == "") next
+			n = split(line, fields, "/")
+			if (n != 2 || fields[1] == "" || fields[2] == "") next
+			print fields[1] "/" fields[2]
+		}
+	' "$1" | sort -u
 }
 
-Refresh_IPTables() {
-	Firewall_Lock refresh Refresh_IPTables_Locked "$1"
+IPSet_Sync_Locked() {
+	local CHANGED CURRENT_FILE CUSTOM_FILE FINAL_FILE MANAGED_FILE PREVIOUS_FILE
+	MANAGED_FILE="${IPSET_MANAGED_FILE}.$$"
+	CURRENT_FILE="${IPSET_FILE}.current.$$"
+	CUSTOM_FILE="${IPSET_FILE}.custom.$$"
+	FINAL_FILE="${IPSET_FILE}.$$"
+	PREVIOUS_FILE="${IPSET_MANAGED_FILE}"
+	[ -f "${PREVIOUS_FILE}" ] || PREVIOUS_FILE="${IPSET_LEGACY_MANAGED_FILE}"
+	CHANGED="0"
+
+	if ! IPSet_Generate >"${MANAGED_FILE}"; then
+		rm -f "${MANAGED_FILE}" "${CURRENT_FILE}" "${CUSTOM_FILE}" "${FINAL_FILE}"
+		return 1
+	fi
+	if [ -f "${IPSET_FILE}" ]; then
+		IPSet_Normalize "${IPSET_FILE}" >"${CURRENT_FILE}"
+	else
+		: >"${CURRENT_FILE}"
+	fi
+	# On the first managed sync, mappings still supplied by an automatic source
+	# are managed. All other valid entries are AdGuardHome-side additions.
+	[ -f "${PREVIOUS_FILE}" ] || PREVIOUS_FILE="${MANAGED_FILE}"
+	awk 'FILENAME == ARGV[1] { managed[$0] = 1; next } !managed[$0]' "${PREVIOUS_FILE}" "${CURRENT_FILE}" >"${CUSTOM_FILE}"
+	cat "${CUSTOM_FILE}" "${MANAGED_FILE}" | sort -u >"${FINAL_FILE}"
+
+	if [ ! -f "${IPSET_FILE}" ] || ! cmp -s "${FINAL_FILE}" "${IPSET_FILE}"; then
+		mv "${FINAL_FILE}" "${IPSET_FILE}" || return 1
+		chmod 644 "${IPSET_FILE}"
+		CHANGED="1"
+	else
+		rm -f "${FINAL_FILE}"
+	fi
+	if [ ! -f "${IPSET_MANAGED_FILE}" ] || ! cmp -s "${MANAGED_FILE}" "${IPSET_MANAGED_FILE}"; then
+		mv "${MANAGED_FILE}" "${IPSET_MANAGED_FILE}" || return 1
+		chmod 644 "${IPSET_MANAGED_FILE}"
+	else
+		rm -f "${MANAGED_FILE}"
+	fi
+	rm -f "${IPSET_LEGACY_MANAGED_FILE}" "${CURRENT_FILE}" "${CUSTOM_FILE}"
+	[ "${CHANGED}" = "1" ]
 }
 
-Refresh_IPTables_Locked() {
-	Unload_IPTables_Locked
-	Load_IPTables "$1"
-}
-
-Unload_IPTables() {
-	Firewall_Lock unload Unload_IPTables_Locked
-}
-
-Unload_IPTables_Locked() {
-	Firewall_Legacy_Unload
-	while iptables -t raw -D OUTPUT -j ADGUARDHOME 2>/dev/null; do :; done
-	iptables -t raw -F ADGUARDHOME 2>/dev/null
-	iptables -t raw -X ADGUARDHOME 2>/dev/null
+IPSet_Sync_Restart() {
+	if IPSet_Sync && [ -n "${MON_PID}" ] && [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
+		kill -s USR2 "${MON_PID}" 2>/dev/null
+	fi
 }
 
 if [ -f "${UPPER_SCRIPT}" ]; then UPPER_SCRIPT_LOC=". ${UPPER_SCRIPT}"; fi
@@ -1062,7 +1324,7 @@ case "$1" in
 		if [ -n "${MON_PID}" ]; then { stop_monitor "${MON_PID}"; }; else { start_monitor & } fi
 		;;
 	"start" | "restart")
-		{ "${SCRIPT_LOC}" init-start >/dev/null 2>&1; }
+		{ "${SCRIPT_LOC}" service-start >/dev/null 2>&1; }
 		;;
 	"stop" | "kill")
 		{ "${SCRIPT_LOC}" services-stop >/dev/null 2>&1; }
@@ -1070,21 +1332,23 @@ case "$1" in
 	"dnsmasq" | "dnsmasq-sdn")
 		if [ -n "${2}" ]; then { dnsmasq_params "${2}"; }; else { dnsmasq_params; }; fi
 		;;
-		#	"firewall")
-		#		case "${2:-}" in
-		#			"unload")
-		#				Unload_IPTables
-		#				;;
-		#			*)
-		#				if { Firewall_Service_Active; }; then { Refresh_IPTables "${2:-}"; }; else { Unload_IPTables; }; fi
-		#				;;
-		#		esac
-		#		;;
-	"init-start" | "services-stop")
-		timezone
+	"ipset")
+		case "${2:-}" in
+			"sync") IPSet_Sync ;;
+			*) IPSet_Sync_Restart ;;
+		esac
+		;;
+	"init-start" | "service-start" | "services-stop")
 		case "$1" in
 			"init-start")
+				IPSet_Sync
 				proc_optimizations
+				timezone
+				{ "${SCRIPT_LOC}" monitor-start; }
+				;;
+			"service-start")
+				IPSet_Sync
+				timezone
 				{ "${SCRIPT_LOC}" monitor-start; }
 				;;
 			"services-stop")

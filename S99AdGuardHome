@@ -1,4 +1,16 @@
 #!/bin/sh
+
+# rc.unslung sources init scripts into its own shell for speed.  Re-execute this
+# service when sourced so this script and AdGuardHome.sh have a private variable,
+# file-descriptor, and trap environment and cannot alter the rc.unslung loop.
+if [ "${0##*/}" != "S99AdGuardHome" ]; then
+	(
+		trap - EXIT HUP INT QUIT ABRT USR1 USR2 TERM TSTP
+		exec "${ADGUARDHOME_INIT_SCRIPT:-/opt/etc/init.d/S99AdGuardHome}" "$@"
+	)
+	return "$?"
+fi
+
 renice -10 $$ >/dev/null 2>&1
 ENABLED="yes"
 WORK_DIR="/opt/etc/AdGuardHome"
@@ -74,4 +86,4 @@ DESC="${PROCS}"
 PATH="/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 TZ="$(sed -n '1p' /etc/TZ 2>/dev/null)"
 export TZ
-[ -z "${SCRIPT_LOC}" ] && . /jffs/addons/AdGuardHome.d/AdGuardHome.sh
+[ -z "${SCRIPT_LOC}" ] && . "${ADGUARDHOME_MANAGER_SCRIPT:-/jffs/addons/AdGuardHome.d/AdGuardHome.sh}"
