@@ -129,7 +129,7 @@ trap_state_restore() {
 	local trap_file
 	trap_file="$1"
 	trap - EXIT HUP INT QUIT ABRT USR1 USR2 TERM TSTP
-	[ -s "${trap_file}" ] && { . "${trap_file}"; }
+	[ -s "${trap_file}" ] && { . "${trap_file}"; } || true
 	trap_state_remove "${trap_file}"
 }
 
