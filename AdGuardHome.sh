@@ -1282,14 +1282,13 @@ IPSet_Normalize() {
 }
 
 IPSet_Sync_Locked() {
-	local CHANGED CURRENT_FILE CUSTOM_FILE FINAL_FILE MANAGED_FILE PREVIOUS_FILE
+	local CURRENT_FILE CUSTOM_FILE FINAL_FILE MANAGED_FILE PREVIOUS_FILE
 	MANAGED_FILE="${IPSET_MANAGED_FILE}.$$"
 	CURRENT_FILE="${IPSET_FILE}.current.$$"
 	CUSTOM_FILE="${IPSET_FILE}.custom.$$"
 	FINAL_FILE="${IPSET_FILE}.$$"
 	PREVIOUS_FILE="${IPSET_MANAGED_FILE}"
 	[ -f "${PREVIOUS_FILE}" ] || PREVIOUS_FILE="${IPSET_LEGACY_MANAGED_FILE}"
-	CHANGED="0"
 
 	if ! IPSet_Generate >"${MANAGED_FILE}"; then
 		rm -f "${MANAGED_FILE}" "${CURRENT_FILE}" "${CUSTOM_FILE}" "${FINAL_FILE}"
@@ -1309,7 +1308,6 @@ IPSet_Sync_Locked() {
 	if [ ! -f "${IPSET_FILE}" ] || ! cmp -s "${FINAL_FILE}" "${IPSET_FILE}"; then
 		mv "${FINAL_FILE}" "${IPSET_FILE}" || return 1
 		chmod 644 "${IPSET_FILE}"
-		CHANGED="1"
 	else
 		rm -f "${FINAL_FILE}"
 	fi
@@ -1320,7 +1318,7 @@ IPSet_Sync_Locked() {
 		rm -f "${MANAGED_FILE}"
 	fi
 	rm -f "${IPSET_LEGACY_MANAGED_FILE}" "${CURRENT_FILE}" "${CUSTOM_FILE}"
-	[ "${CHANGED}" = "1" ]
+	return 0
 }
 
 IPSet_Sync_Restart() {
