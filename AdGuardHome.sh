@@ -11,7 +11,7 @@ IPSET_MANAGED_FILE="/jffs/addons/AdGuardHome.d/ipset.sources.conf"
 IPSET_SOURCE="/jffs/configs/dnsmasq.conf.add"
 IPSET_X3M_SOURCE="/jffs/scripts/nat-start"
 IPSET_DVR_DIR="/jffs/configs/domain_vpn_routing"
-IPSET_WGM_DATABASE="/opt/etc/wireguard.d/WireGuard.db"
+IPSET_WGM_DATABASE="/opt/etc/wireguard.d/Wireguard.db"
 IPSET_WGM_DOMAIN_DIR="/opt/etc/wireguard.d/ipset.d"
 
 NAME="$(basename "$0")[$$]"
@@ -1045,12 +1045,28 @@ timezone() {
 # IPSet integration helpers
 
 IPSet_Generate() {
-	{
-		IPSet_Generate_Dnsmasq
-		IPSet_Generate_DomainVPNRouting
-		IPSet_Generate_WireGuardSessionManager
-		IPSet_Generate_X3mRouting
-	} | sort -u
+	local GENERATOR OUTPUT_FILE OUTPUT_FILES STATUS
+	OUTPUT_FILES=""
+	STATUS="0"
+	for GENERATOR in \
+		IPSet_Generate_Dnsmasq \
+		IPSet_Generate_DomainVPNRouting \
+		IPSet_Generate_WireGuardSessionManager \
+		IPSet_Generate_X3mRouting; do
+		OUTPUT_FILE="/tmp/AdGuardHome-ipset-${GENERATOR}.$$"
+		OUTPUT_FILES="${OUTPUT_FILES} ${OUTPUT_FILE}"
+		if ! "${GENERATOR}" >"${OUTPUT_FILE}"; then
+			STATUS="1"
+			break
+		fi
+	done
+	if [ "${STATUS}" = "0" ]; then
+		# shellcheck disable=SC2086
+		sort -u ${OUTPUT_FILES} || STATUS="1"
+	fi
+	# shellcheck disable=SC2086
+	rm -f ${OUTPUT_FILES}
+	return "${STATUS}"
 }
 
 IPSet_Generate_Dnsmasq() {
@@ -1078,7 +1094,9 @@ IPSet_Generate_DomainVPNRouting() {
 	local CANDIDATE DOMAIN_FILE IPSET_NAMES POLICY SET_NAME
 	have_cmd ipset || return 0
 	[ -d "${IPSET_DVR_DIR}" ] || return 0
-	IPSET_NAMES="$(ipset list -name 2>/dev/null)"
+	if ! IPSET_NAMES="$(ipset list -name 2>/dev/null)"; then
+		return 1
+	fi
 	[ -n "${IPSET_NAMES}" ] || return 0
 	for DOMAIN_FILE in "${IPSET_DVR_DIR}"/policy_*_domainlist; do
 		[ -f "${DOMAIN_FILE}" ] || continue
@@ -1087,8 +1105,8 @@ IPSet_Generate_DomainVPNRouting() {
 		[ -n "${POLICY}" ] || continue
 		SET_NAME=""
 		for CANDIDATE in \
-			"DVR-${POLICY}-ipv4" \
-			"DVR-${POLICY}-ipv6"; do
+			"DomainVPNRouting-${POLICY}-ipv4" \
+			"DomainVPNRouting-${POLICY}-ipv6"; do
 			if printf '%s\n' "${IPSET_NAMES}" | grep -qxF "${CANDIDATE}"; then
 				if [ -n "${SET_NAME}" ]; then SET_NAME="${SET_NAME},${CANDIDATE}"; else SET_NAME="${CANDIDATE}"; fi
 			fi
@@ -1101,32 +1119,36 @@ IPSet_Generate_DomainVPNRouting() {
 				gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
 				if (line != "") print line "/" sets
 			}
-		' "${DOMAIN_FILE}"
+		' "${DOMAIN_FILE}" || return 1
 	done
 }
 
 IPSet_Generate_WireGuardSessionManager() {
-	local DOMAIN_FILE SET_NAME
+	local DOMAIN_FILE SET_NAME SET_NAMES
 	have_cmd sqlite3 || return 0
 	[ -f "${IPSET_WGM_DATABASE}" ] || return 0
 	[ -d "${IPSET_WGM_DOMAIN_DIR}" ] || return 0
-	sqlite3 "${IPSET_WGM_DATABASE}" \
-		"SELECT DISTINCT ipset FROM ipset WHERE UPPER(\"use\") = 'Y' AND ipset <> '' ORDER BY ipset;" 2>/dev/null |
-		while IFS= read -r SET_NAME; do
-			case "${SET_NAME}" in
-				"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-]*) continue ;;
-			esac
-			DOMAIN_FILE="${IPSET_WGM_DOMAIN_DIR}/${SET_NAME}.domains"
-			[ -f "${DOMAIN_FILE}" ] || continue
-			awk -v set_name="${SET_NAME}" '
-				{
-					line = $0
-					sub(/[[:space:]]*#.*/, "", line)
-					gsub(/[[:space:]]/, "", line)
-					if (line != "") print line "/" set_name
-				}
-			' "${DOMAIN_FILE}"
-		done
+	if ! SET_NAMES="$(sqlite3 "${IPSET_WGM_DATABASE}" \
+		"SELECT DISTINCT ipset FROM ipset WHERE UPPER(\"use\") = 'Y' AND ipset <> '' ORDER BY ipset;" 2>/dev/null)"; then
+		return 1
+	fi
+	while IFS= read -r SET_NAME; do
+		case "${SET_NAME}" in
+			"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-]*) continue ;;
+		esac
+		DOMAIN_FILE="${IPSET_WGM_DOMAIN_DIR}/${SET_NAME}.domains"
+		[ -f "${DOMAIN_FILE}" ] || continue
+		awk -v set_name="${SET_NAME}" '
+			{
+				line = $0
+				sub(/[[:space:]]*#.*/, "", line)
+				gsub(/[[:space:]]/, "", line)
+				if (line != "") print line "/" set_name
+			}
+		' "${DOMAIN_FILE}" || return 1
+	done <<-EOF
+		${SET_NAMES}
+	EOF
 }
 
 IPSet_Generate_X3mRouting() {
@@ -1148,10 +1170,10 @@ IPSet_Generate_X3mRouting() {
 			}
 			if (domains != "" && set_name != "") print domains "/" set_name
 		}
-		function emit_file(value, set_name,    domains, line, path) {
+		function emit_file(value, set_name,    domains, line, path, result) {
 			path = option_value(value)
 			domains = ""
-			while ((getline line < path) > 0) {
+			while ((result = (getline line < path)) > 0) {
 				sub(/[[:space:]]*#.*/, "", line)
 				gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
 				if (line == "") continue
@@ -1159,6 +1181,7 @@ IPSet_Generate_X3mRouting() {
 				domains = domains line
 			}
 			close(path)
+			if (result < 0) exit 1
 			if (domains != "" && set_name != "") print domains "/" set_name
 		}
 		/^[[:space:]]*#/ || $0 !~ /x3mRouting/ { next }

@@ -185,8 +185,8 @@ The dnsmasq post-configuration hook regenerates `/jffs/addons/AdGuardHome.d/ipse
 The manager also imports domain-to-set mappings maintained by these routing add-ons:
 
 - **x3mRouting:** reads active x3mRouting commands from `/jffs/scripts/nat-start`. Both `dnsmasq=domain1,domain2` and `dnsmasq_file=/path/to/domain-list` are supported, including current `ipset_name=SetName` commands and converted legacy commands whose set name is positional.
-- **Domain-based VPN Routing by Ranger802004:** reads each `/jffs/configs/domain_vpn_routing/policy_*_domainlist` file and associates its domains with the corresponding existing `DVR-<policy>-ipv4` and/or `DVR-<policy>-ipv6` sets.
-- **WireGuard Session Manager:** discovers enabled set names from `/opt/etc/wireguard.d/WireGuard.db`. Existing WGM `ipset=` rules in `/jffs/configs/dnsmasq.conf.add` are already imported by Method 1. Optional AdGuardHome-only domain lists can also be stored in `/opt/etc/wireguard.d/ipset.d/<IPSET>.domains`.
+- **Domain-based VPN Routing by Ranger802004:** reads each `/jffs/configs/domain_vpn_routing/policy_*_domainlist` file and associates its domains with the corresponding existing `DomainVPNRouting-<policy>-ipv4` and/or `DomainVPNRouting-<policy>-ipv6` sets.
+- **WireGuard Session Manager:** discovers enabled set names from `/opt/etc/wireguard.d/Wireguard.db`. Existing WGM `ipset=` rules in `/jffs/configs/dnsmasq.conf.add` are already imported by Method 1. Optional AdGuardHome-only domain lists can also be stored in `/opt/etc/wireguard.d/ipset.d/<IPSET>.domains`.
 
 These imports copy domain mappings into AdGuardHome; they do not copy the current IP addresses stored in a set. AdGuardHome then adds newly resolved IPv4 and IPv6 addresses to the same existing sets used by the routing add-on.
 
