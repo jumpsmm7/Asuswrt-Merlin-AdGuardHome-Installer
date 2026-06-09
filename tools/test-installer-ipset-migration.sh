@@ -43,7 +43,7 @@ export ADDON_DIR TARG_DIR AGH_FILE YAML_FILE YAML_ORI IPSET_FILE WARNING
 
 cat >"${AGH_FILE}" <<'EOF_AGH'
 #!/bin/sh
-exit 0
+exit "${AGH_CHECK_STATUS:-0}"
 EOF_AGH
 chmod +x "${AGH_FILE}"
 
@@ -86,16 +86,35 @@ awk -v expected="${IPSET_FILE}" '$1 == "ipset_file:" && $2 == expected { found =
 	"${YAML_ORI}" || fail "original YAML does not reference the managed file"
 
 cp "${IPSET_FILE}" "${TEST_DIR}/ipset.before"
-cat >"${YAML_FILE}" <<'EOF_MISSING'
+cp "${YAML_FILE}" "${TEST_DIR}/yaml.before"
+cat >"${YAML_ORI}" <<'EOF_MISSING'
 dns:
   port: 53
   ipset_file: missing-ipset.conf
 EOF_MISSING
-cp "${YAML_FILE}" "${TEST_DIR}/yaml.before"
+cp "${YAML_ORI}" "${TEST_DIR}/original.before"
 if setup_adguardhome_ipset; then
 	fail "migration succeeded with an unreadable legacy file"
 fi
-cmp "${TEST_DIR}/yaml.before" "${YAML_FILE}" || fail "failed migration rewrote the YAML"
-cmp "${TEST_DIR}/ipset.before" "${IPSET_FILE}" || fail "failed migration rewrote the managed mappings"
+cmp "${TEST_DIR}/yaml.before" "${YAML_FILE}" || fail "later import failure rewrote the live YAML"
+cmp "${TEST_DIR}/original.before" "${YAML_ORI}" || fail "failed migration rewrote the original YAML"
+cmp "${TEST_DIR}/ipset.before" "${IPSET_FILE}" || fail "later import failure rewrote the managed mappings"
+
+cat >"${YAML_ORI}" <<'EOF_ORIGINAL'
+dns:
+  port: 53
+  ipset: ['original.example/OriginalSet']
+EOF_ORIGINAL
+cp "${YAML_FILE}" "${TEST_DIR}/yaml.before"
+cp "${YAML_ORI}" "${TEST_DIR}/original.before"
+AGH_CHECK_STATUS=1
+export AGH_CHECK_STATUS
+if setup_adguardhome_ipset; then
+	fail "migration succeeded when AdGuardHome rejected the staged configuration"
+fi
+unset AGH_CHECK_STATUS
+cmp "${TEST_DIR}/yaml.before" "${YAML_FILE}" || fail "validation failure rewrote the live YAML"
+cmp "${TEST_DIR}/original.before" "${YAML_ORI}" || fail "validation failure rewrote the original YAML"
+cmp "${TEST_DIR}/ipset.before" "${IPSET_FILE}" || fail "validation failure rewrote the managed mappings"
 
 printf '%s\n' "OK: installer IPSet migration"
