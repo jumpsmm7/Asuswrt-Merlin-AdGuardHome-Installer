@@ -1118,6 +1118,7 @@ IPSet_Collect_Yaml() {
 			if (!flow_consume(line)) in_flow = 1
 			next
 		}
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*/ { exit 1 }
 		in_ipset && indentation($0) > child_indent && substr($0, indentation($0) + 1) ~ /^-[[:space:]]*/ {
 			line = substr($0, indentation($0) + 1)
 			sub(/^-[[:space:]]*/, "", line)
