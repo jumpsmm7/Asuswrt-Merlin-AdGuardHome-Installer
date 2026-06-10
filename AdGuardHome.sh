@@ -1123,6 +1123,9 @@ IPSet_Collect_Yaml() {
 		in_ipset && indentation($0) >= child_indent && substr($0, indentation($0) + 1) ~ /^-([[:space:]]|$)/ {
 			line = substr($0, indentation($0) + 1)
 			sub(/^-[[:space:]]*/, "", line)
+			value = strip_comment(line)
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			if (value == "") exit 1
 			emit(line)
 			next
 		}
