@@ -1263,12 +1263,12 @@ IPSet_Restore_Traps() {
 }
 
 IPSet_Setup() {
-	IPSet_Lock IPSet_Setup_Locked "$@"
+	IPSet_Lock IPSet_Setup_Locked
 }
 
 IPSet_Setup_Locked() {
 	IPSet_Migrate || return 1
-	IPSet_Refresh_Locked "$@"
+	IPSet_Refresh_Locked
 }
 
 if [ -f "${UPPER_SCRIPT}" ]; then UPPER_SCRIPT_LOC=". ${UPPER_SCRIPT}"; fi
