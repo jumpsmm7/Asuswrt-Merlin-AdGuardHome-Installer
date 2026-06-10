@@ -754,7 +754,10 @@ start_adguardhome() {
 	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
 		lower_script stop || return 1
 	fi
-	IPSet_Setup || logger -st "${NAME}" "Warning: unable to refresh AdGuardHome IPSET integration."
+	if ! IPSet_Setup; then
+		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; startup aborted."
+		return 1
+	fi
 	lower_script start
 	for db in stats.db sessions.db; do {
 		if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
@@ -968,7 +971,7 @@ IPSet_Collect_Dnsmasq() {
 				if (catch_all) print "/" part[n]
 				else if (domains != "") print domains "/" part[n]
 			}
-		' "${CONFIG}"
+		' "${CONFIG}" || return 1
 	done
 }
 
@@ -1012,43 +1015,56 @@ IPSet_Collect_Yaml() {
 			gsub(/^[\047"]|[\047"]$/, "", line)
 			if (line != "") print line
 		}
-		function emit_flow(line,    ch, entry, i, next_ch, quote) {
-			entry = ""
-			quote = ""
+		function flow_reset() {
+			flow_entry = ""
+			flow_quote = ""
+		}
+		function flow_consume(line,    ch, i, next_ch, previous_ch) {
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
 			for (i = 1; i <= length(line); i++) {
 				ch = substr(line, i, 1)
 				next_ch = substr(line, i + 1, 1)
-				if (quote == "\"") {
-					entry = entry ch
+				previous_ch = substr(line, i - 1, 1)
+				if (flow_quote == "\"") {
+					flow_entry = flow_entry ch
 					if (ch == "\\" && next_ch != "") {
-						entry = entry next_ch
+						flow_entry = flow_entry next_ch
 						i++
-					} else if (ch == quote) {
-						quote = ""
+					} else if (ch == flow_quote) {
+						flow_quote = ""
 					}
-				} else if (quote == "\047") {
-					entry = entry ch
-					if (ch == quote && next_ch == quote) {
-						entry = entry next_ch
+				} else if (flow_quote == "\047") {
+					flow_entry = flow_entry ch
+					if (ch == flow_quote && next_ch == flow_quote) {
+						flow_entry = flow_entry next_ch
 						i++
-					} else if (ch == quote) {
-						quote = ""
+					} else if (ch == flow_quote) {
+						flow_quote = ""
 					}
 				} else if (ch == "\"" || ch == "\047") {
-					quote = ch
-					entry = entry ch
+					flow_quote = ch
+					flow_entry = flow_entry ch
+				} else if (ch == "#" && (i == 1 || previous_ch ~ /[[:space:]]/)) {
+					return 0
 				} else if (ch == ",") {
-					emit(entry)
-					entry = ""
+					emit(flow_entry)
+					flow_entry = ""
+				} else if (ch == "]") {
+					emit(flow_entry)
+					flow_entry = ""
+					return 1
 				} else {
-					entry = entry ch
+					flow_entry = flow_entry ch
 				}
 			}
-			if (quote != "") return 0
-			emit(entry)
-			return 1
+			if (flow_entry != "") flow_entry = flow_entry " "
+			return 0
 		}
 		/^(dns|\047dns\047|"dns"):[[:space:]]*(#.*)?$/ { in_dns = 1; child_indent = 0; next }
+		in_flow {
+			if (flow_consume($0)) in_flow = 0
+			next
+		}
 		in_dns && /^[^[:space:]]/ { in_dns = in_ipset = 0 }
 		in_dns && /^[[:space:]]*($|#)/ { next }
 		in_dns && !child_indent { child_indent = indentation($0) }
@@ -1056,11 +1072,11 @@ IPSet_Collect_Yaml() {
 			in_ipset = 1
 			next
 		}
-		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*\[[^]]*\][[:space:]]*(#.*)?$/ {
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*\[/ {
 			line = substr($0, child_indent + 1)
 			sub(/^(ipset|\047ipset\047|"ipset"):[[:space:]]*\[/, "", line)
-			sub(/\][[:space:]]*(#.*)?$/, "", line)
-			emit_flow(line)
+			flow_reset()
+			if (!flow_consume(line)) in_flow = 1
 			next
 		}
 		in_ipset && indentation($0) > child_indent && substr($0, indentation($0) + 1) ~ /^-[[:space:]]*/ {
@@ -1202,6 +1218,28 @@ IPSet_Migrate() {
 			sub(/[^[:space:]].*$/, "", text)
 			return length(text)
 		}
+		function flow_reset() { flow_quote = "" }
+		function flow_closed(line,    ch, i, next_ch, previous_ch) {
+			for (i = 1; i <= length(line); i++) {
+				ch = substr(line, i, 1)
+				next_ch = substr(line, i + 1, 1)
+				previous_ch = substr(line, i - 1, 1)
+				if (flow_quote == "\"") {
+					if (ch == "\\" && next_ch != "") i++
+					else if (ch == flow_quote) flow_quote = ""
+				} else if (flow_quote == "\047") {
+					if (ch == flow_quote && next_ch == flow_quote) i++
+					else if (ch == flow_quote) flow_quote = ""
+				} else if (ch == "\"" || ch == "\047") {
+					flow_quote = ch
+				} else if (ch == "#" && (i == 1 || previous_ch ~ /[[:space:]]/)) {
+					return 0
+				} else if (ch == "]") {
+					return 1
+				}
+			}
+			return 0
+		}
 		function add_ipset(    prefix) {
 			prefix = child_prefix
 			if (prefix == "") prefix = "  "
@@ -1215,6 +1253,10 @@ IPSet_Migrate() {
 			child_indent = 0
 			child_prefix = ""
 			print
+			next
+		}
+		skip_flow {
+			if (flow_closed($0)) skip_flow = 0
 			next
 		}
 		in_dns && /^[^[:space:]]/ {
@@ -1233,9 +1275,13 @@ IPSet_Migrate() {
 			skip_ipset = 1
 			next
 		}
-		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*\[[^]]*\][[:space:]]*(#.*)?$/ {
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*\[/ {
 			if (!wrote_ipset) print child_prefix "ipset: []"
 			wrote_ipset = 1
+			line = substr($0, child_indent + 1)
+			sub(/^(ipset|\047ipset\047|"ipset"):[[:space:]]*\[/, "", line)
+			flow_reset()
+			if (!flow_closed(line)) skip_flow = 1
 			next
 		}
 		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*/ {
@@ -1256,8 +1302,14 @@ IPSet_Migrate() {
 	}
 
 	if ! cmp -s "${YAML_FILE}" "${TEMP_FILE}"; then
-		mv "${TEMP_FILE}" "${YAML_FILE}"
-		chmod 644 "${YAML_FILE}"
+		chmod 644 "${TEMP_FILE}" || {
+			rm -f "${TEMP_FILE}"
+			return 1
+		}
+		mv "${TEMP_FILE}" "${YAML_FILE}" || {
+			rm -f "${TEMP_FILE}"
+			return 1
+		}
 	else
 		rm -f "${TEMP_FILE}"
 	fi
@@ -1281,24 +1333,47 @@ IPSet_Refresh() {
 }
 
 IPSet_Refresh_Locked() {
-	local TEMP_FILE
+	local RAW_TEMP_FILE TEMP_FILE
+	RAW_TEMP_FILE="${IPSET_FILE}.raw.$$"
 	TEMP_FILE="${IPSET_FILE}.tmp.$$"
-	{
-		printf '%s\n' '# Managed by Asuswrt-Merlin AdGuardHome Installer.'
-		printf '%s\n' '# Put persistent custom rules in ipset.user.'
-		[ -f "${IPSET_USER_FILE}" ] && cat "${IPSET_USER_FILE}"
-		if [ -n "${IPSET_REFRESH_CONFIG:-}" ]; then
-			IPSet_Collect_Dnsmasq "${IPSET_REFRESH_CONFIG}"
-		else
-			IPSet_Collect_Dnsmasq
-		fi
-	} | awk 'NF && !seen[$0]++' >"${TEMP_FILE}" || {
-		rm -f "${TEMP_FILE}"
+	: >"${RAW_TEMP_FILE}" || return 1
+	printf '%s\n' '# Managed by Asuswrt-Merlin AdGuardHome Installer.' >>"${RAW_TEMP_FILE}" || {
+		rm -f "${RAW_TEMP_FILE}"
 		return 1
 	}
+	printf '%s\n' '# Put persistent custom rules in ipset.user.' >>"${RAW_TEMP_FILE}" || {
+		rm -f "${RAW_TEMP_FILE}"
+		return 1
+	}
+	if [ -f "${IPSET_USER_FILE}" ] && ! cat "${IPSET_USER_FILE}" >>"${RAW_TEMP_FILE}"; then
+		rm -f "${RAW_TEMP_FILE}"
+		return 1
+	fi
+	if [ -n "${IPSET_REFRESH_CONFIG:-}" ]; then
+		IPSet_Collect_Dnsmasq "${IPSET_REFRESH_CONFIG}" >>"${RAW_TEMP_FILE}" || {
+			rm -f "${RAW_TEMP_FILE}"
+			return 1
+		}
+	else
+		IPSet_Collect_Dnsmasq >>"${RAW_TEMP_FILE}" || {
+			rm -f "${RAW_TEMP_FILE}"
+			return 1
+		}
+	fi
+	if ! awk 'NF && !seen[$0]++' "${RAW_TEMP_FILE}" >"${TEMP_FILE}"; then
+		rm -f "${RAW_TEMP_FILE}" "${TEMP_FILE}"
+		return 1
+	fi
+	rm -f "${RAW_TEMP_FILE}"
 	if ! cmp -s "${IPSET_FILE}" "${TEMP_FILE}"; then
-		mv "${TEMP_FILE}" "${IPSET_FILE}"
-		chmod 644 "${IPSET_FILE}"
+		chmod 644 "${TEMP_FILE}" || {
+			rm -f "${TEMP_FILE}"
+			return 1
+		}
+		mv "${TEMP_FILE}" "${IPSET_FILE}" || {
+			rm -f "${TEMP_FILE}"
+			return 1
+		}
 		IPSET_REFRESH_CHANGED="1"
 		logger -st "${NAME}" "Refreshed AdGuardHome IPSET compatibility rules."
 	else
