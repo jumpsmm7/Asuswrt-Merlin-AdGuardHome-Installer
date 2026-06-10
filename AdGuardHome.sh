@@ -1009,10 +1009,40 @@ IPSet_Collect_Yaml() {
 			}
 			return line
 		}
-		function emit(line) {
+		function decode_double(line,    ch, decoded, i, next_ch) {
+			decoded = ""
+			decode_ok = 1
+			for (i = 1; i <= length(line); i++) {
+				ch = substr(line, i, 1)
+				if (ch != "\\") {
+					decoded = decoded ch
+					continue
+				}
+				next_ch = substr(line, i + 1, 1)
+				if (next_ch == "\"" || next_ch == "\\" || next_ch == "/" || next_ch == " ") {
+					decoded = decoded next_ch
+					i++
+				} else {
+					decode_ok = 0
+					return ""
+				}
+			}
+			return decoded
+		}
+		function emit(line,    first, last) {
 			line = strip_comment(line)
 			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
-			gsub(/^[\047"]|[\047"]$/, "", line)
+			first = substr(line, 1, 1)
+			last = substr(line, length(line), 1)
+			if (first == "\"") {
+				if (last != first) exit 1
+				line = decode_double(substr(line, 2, length(line) - 2))
+				if (!decode_ok) exit 1
+			} else if (first == "\047") {
+				if (last != first) exit 1
+				line = substr(line, 2, length(line) - 2)
+				gsub(/\047\047/, "\047", line)
+			}
 			if (line != "") print line
 		}
 		function flow_reset() {
