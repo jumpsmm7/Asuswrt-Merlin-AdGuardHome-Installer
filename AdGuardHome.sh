@@ -1086,7 +1086,7 @@ IPSet_Migrate() {
 		IPSet_Collect_Yaml >"${TEMP_FILE}"
 		CURRENT_FILE="$(awk -F':[[:space:]]*' '/^  ipset_file:/ { value = $2; gsub(/^['\''"]|['\''"]$/, "", value); print value; exit }' "${YAML_FILE}")"
 		if [ -n "${CURRENT_FILE}" ] && [ -f "${CURRENT_FILE}" ]; then
-			if [ "$(readlink -f "${CURRENT_FILE}")" != "$(readlink -f "${IPSET_FILE}")" ] || \
+			if [ "$(readlink -f "${CURRENT_FILE}")" != "$(readlink -f "${IPSET_FILE}")" ] ||
 				! grep -qxF '# Managed by Asuswrt-Merlin AdGuardHome Installer.' "${CURRENT_FILE}"; then
 				cat "${CURRENT_FILE}" >>"${TEMP_FILE}"
 			fi
@@ -1112,7 +1112,10 @@ IPSet_Migrate() {
 		in_dns && /^  ipset_file:[[:space:]]*/ { if (!wrote_file) print "  ipset_file: " ipset_file; wrote_file = 1; next }
 		{ print }
 		END { if (in_dns) add_ipset() }
-	' "${YAML_FILE}" >"${TEMP_FILE}" || { rm -f "${TEMP_FILE}"; return 1; }
+	' "${YAML_FILE}" >"${TEMP_FILE}" || {
+		rm -f "${TEMP_FILE}"
+		return 1
+	}
 	if ! cmp -s "${YAML_FILE}" "${TEMP_FILE}"; then
 		mv "${TEMP_FILE}" "${YAML_FILE}"
 		chmod 644 "${YAML_FILE}"
@@ -1145,7 +1148,10 @@ IPSet_Refresh_Locked() {
 		printf '%s\n' '# Put persistent custom rules in ipset.user.'
 		[ -f "${IPSET_USER_FILE}" ] && cat "${IPSET_USER_FILE}"
 		IPSet_Collect_Dnsmasq "$@"
-	} | awk 'NF && !seen[$0]++' >"${TEMP_FILE}" || { rm -f "${TEMP_FILE}"; return 1; }
+	} | awk 'NF && !seen[$0]++' >"${TEMP_FILE}" || {
+		rm -f "${TEMP_FILE}"
+		return 1
+	}
 	if ! cmp -s "${IPSET_FILE}" "${TEMP_FILE}"; then
 		mv "${TEMP_FILE}" "${IPSET_FILE}"
 		chmod 644 "${IPSET_FILE}"
