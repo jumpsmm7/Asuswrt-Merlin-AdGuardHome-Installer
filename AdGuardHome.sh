@@ -1131,6 +1131,7 @@ IPSet_Collect_Yaml() {
 			next
 		}
 		in_ipset { in_ipset = 0 }
+		END { if (in_flow || flow_quote != "") exit 1 }
 	' "${YAML_FILE}"
 }
 
@@ -1386,7 +1387,10 @@ IPSet_Migrate() {
 			next
 		}
 		{ print }
-		END { if (in_dns) add_ipset() }
+		END {
+			if (skip_flow || flow_quote != "") exit 1
+			if (in_dns) add_ipset()
+		}
 	' "${YAML_FILE}" >"${TEMP_FILE}" || {
 		rm -f "${TEMP_FILE}"
 		return 1
