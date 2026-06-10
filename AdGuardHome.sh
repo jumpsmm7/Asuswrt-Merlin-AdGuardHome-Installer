@@ -1219,7 +1219,8 @@ IPSet_Migrate() {
 IPSet_Refresh() {
 	local RESTART_STATUS
 	IPSET_REFRESH_CHANGED=""
-	IPSet_Lock IPSet_Refresh_Locked "$@" || return 1
+	IPSET_REFRESH_CONFIG="${1:-}"
+	IPSet_Lock IPSet_Refresh_Locked || return 1
 	if [ "${IPSET_REFRESH_CHANGED}" = "1" ] && [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
 		logger -st "${NAME}" "Restarting AdGuardHome to apply refreshed IPSET compatibility rules."
 		if [ "${IPSET_REFRESH_FROM_DNSMASQ:-}" = "1" ]; then
@@ -1239,7 +1240,11 @@ IPSet_Refresh_Locked() {
 		printf '%s\n' '# Managed by Asuswrt-Merlin AdGuardHome Installer.'
 		printf '%s\n' '# Put persistent custom rules in ipset.user.'
 		[ -f "${IPSET_USER_FILE}" ] && cat "${IPSET_USER_FILE}"
-		IPSet_Collect_Dnsmasq "$@"
+		if [ -n "${IPSET_REFRESH_CONFIG:-}" ]; then
+			IPSet_Collect_Dnsmasq "${IPSET_REFRESH_CONFIG}"
+		else
+			IPSet_Collect_Dnsmasq
+		fi
 	} | awk 'NF && !seen[$0]++' >"${TEMP_FILE}" || {
 		rm -f "${TEMP_FILE}"
 		return 1
@@ -1263,6 +1268,7 @@ IPSet_Restore_Traps() {
 }
 
 IPSet_Setup() {
+	IPSET_REFRESH_CONFIG=""
 	IPSet_Lock IPSet_Setup_Locked
 }
 
