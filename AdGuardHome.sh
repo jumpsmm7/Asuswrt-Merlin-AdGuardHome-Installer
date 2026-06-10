@@ -1052,6 +1052,10 @@ IPSet_Collect_Yaml() {
 			if (value ~ /:([[:space:]]|$)/) return 1
 			return 0
 		}
+		function plain_is_block_scalar(value,    first) {
+			first = substr(value, 1, 1)
+			return first == "|" || first == ">"
+		}
 		function emit(line,    first, quoted) {
 			line = strip_comment(line)
 			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
@@ -1063,7 +1067,7 @@ IPSet_Collect_Yaml() {
 				if (!decode_ok) exit 1
 			}
 			if (quoted && line == "") exit 1
-			if (!quoted && (plain_is_typed(line) || plain_is_collection(line))) exit 1
+			if (!quoted && (plain_is_typed(line) || plain_is_collection(line) || plain_is_block_scalar(line))) exit 1
 			if (line != "") print line
 		}
 		function flow_reset() {
