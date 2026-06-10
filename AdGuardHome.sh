@@ -1034,6 +1034,7 @@ IPSet_Collect_Yaml() {
 			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
 			first = substr(line, 1, 1)
 			last = substr(line, length(line), 1)
+			if (first ~ /^[&*!]$/) exit 1
 			if (first == "\"") {
 				if (last != first) exit 1
 				line = decode_double(substr(line, 2, length(line) - 2))
@@ -1125,7 +1126,7 @@ IPSet_Collect_Yaml() {
 			sub(/^-[[:space:]]*/, "", line)
 			value = strip_comment(line)
 			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-			if (value == "" || substr(value, 1, 1) ~ /^[&*!]$/) exit 1
+			if (value == "") exit 1
 			emit(line)
 			next
 		}
