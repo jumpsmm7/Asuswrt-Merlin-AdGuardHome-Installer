@@ -17,6 +17,14 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 - [Service commands](#service-commands)
 - [Verify AdGuardHome is running](#verify-adguardhome-is-running)
 - [AdGuardHome DNS examples](#adguardhome-dns-examples)
+- [IPSET integration](#ipset-integration)
+  - [Requirements and ownership](#requirements-and-ownership)
+  - [Managed files and YAML](#managed-files-and-yaml)
+  - [Rule syntax and examples](#rule-syntax-and-examples)
+  - [Imported compatibility sources](#imported-compatibility-sources)
+  - [Migration and refresh behavior](#migration-and-refresh-behavior)
+  - [Locking and recovery](#locking-and-recovery)
+  - [Verify and troubleshoot IPSET integration](#verify-and-troubleshoot-ipset-integration)
 - [Reverse DNS notes](#reverse-dns-notes)
 - [Troubleshooting and issue reports](#troubleshooting-and-issue-reports)
 - [Static AdGuardHome archive cache](#static-adguardhome-archive-cache)
@@ -127,6 +135,175 @@ More DNS provider references:
 - [AdGuard DNS providers knowledge base](https://adguard-dns.io/kb/general/dns-providers/)
 - [AdGuardHome wiki](https://github.com/AdguardTeam/AdGuardHome/wiki)
 
+## IPSET integration
+
+The installer integrates AdGuardHome with IPSET-based routing and firewall add-ons by configuring AdGuardHome's `dns.ipset_file` setting. When AdGuardHome resolves a matching domain, it adds returned IPv4 or IPv6 addresses to the named IPSET so the add-on that owns that set can apply its routing or firewall policy.
+
+### Requirements and ownership
+
+- IPSET integration is available only on Linux. AdGuardHome added `dns.ipset_file` in v0.107.13; this integration requires v0.107.48 or later because the generated file contains supported comment lines.
+- The routing or firewall add-on remains responsible for creating, restoring, flushing, and deleting its IPSETs and for installing any rules that use them. The AdGuardHome installer only supplies domain-to-IPSET mappings and does not create IPSETs or policy-routing/firewall rules.
+- A target set must already exist when AdGuardHome tries to add an address. IPv4 answers require a set with the `ipv4` family, and IPv6 answers require a set with the `ipv6` family.
+- Domain VPN Routing, x3mRouting, WireGuard Manager, Skynet/IPSet_ASUS, or another add-on should be installed and configured according to that project's instructions before its set names are referenced here.
+
+See the upstream [AdGuardHome configuration documentation](https://github.com/AdguardTeam/AdGuardHome/wiki/Configuration#configuration-file) for the authoritative `dns.ipset` and `dns.ipset_file` behavior.
+
+### Managed files and YAML
+
+The integration uses the following files:
+
+| Path | Owner | Purpose |
+| --- | --- | --- |
+| `/opt/etc/AdGuardHome/AdGuardHome.yaml` | AdGuardHome and this installer | The installer sets `dns.ipset: []` and points `dns.ipset_file` to the generated file. |
+| `/opt/etc/AdGuardHome/ipset.conf` | This installer | Generated AdGuardHome rule file. It is rebuilt atomically and must not be edited manually. |
+| `/opt/etc/AdGuardHome/ipset.user` | User | Persistent custom and migrated rules. Add manual rules here. |
+| `/tmp/AdGuardHome-ipset.lock` | Locking code | Runtime lock file used when file-descriptor `flock` is supported. |
+| `/tmp/AdGuardHome-ipset/` | Locking code | Temporary legacy lock directory used when `flock` is unavailable. |
+
+The resulting YAML contains entries equivalent to:
+
+```yaml
+dns:
+  ipset: []
+  ipset_file: /opt/etc/AdGuardHome/ipset.conf
+```
+
+AdGuardHome ignores inline `dns.ipset` rules when `dns.ipset_file` is configured, so migrated custom rules are kept in `ipset.user` and merged into `ipset.conf`. The generated file may be replaced during startup, dnsmasq configuration, or firewall events; manual changes to `ipset.conf` will be lost.
+
+Both IPSET files are inside `/opt/etc/AdGuardHome`, so the installer's normal backup and restore flow includes them. Uninstalling the installer removes them with the rest of that directory.
+
+### Rule syntax and examples
+
+Write one AdGuardHome IPSET rule per line in `ipset.user` using this format:
+
+```text
+DOMAIN[,DOMAIN,...]/IPSET_NAME[,IPSET_NAME,...]
+```
+
+Examples:
+
+```text
+example.com/ROUTE_VPN
+example.net,example.org/ROUTE_WG
+streaming.example/ROUTE_VPN,TRACK_STREAMING
+```
+
+The first example adds answers for `example.com` to `ROUTE_VPN`. The second associates multiple domains with one set. The third associates one domain with multiple sets.
+
+Rules in `ipset.user` are already in AdGuardHome format: do not add the dnsmasq `ipset=` prefix or surround domains with leading and trailing slashes. Empty lines are discarded. Exact duplicate lines are written only once. Lines beginning with `#` may be used for comments. AdGuardHome supports comments in `ipset_file` starting with v0.107.48.
+
+A compatible dnsmasq directive such as:
+
+```text
+ipset=/example.com/example.net/ROUTE_VPN
+```
+
+is converted to:
+
+```text
+example.com,example.net/ROUTE_VPN
+```
+
+### Imported compatibility sources
+
+Each refresh scans active, non-commented dnsmasq `ipset=` directives from the configuration passed by the current dnsmasq hook and from these locations when they exist:
+
+```text
+/etc/dnsmasq.conf
+/etc/dnsmasq-<index>.conf
+/jffs/configs/dnsmasq.conf.add
+/jffs/configs/dnsmasq.d/*.conf
+/jffs/addons/x3mRouting/*.conf
+/jffs/configs/domain_vpn_routing/*.conf
+/jffs/addons/wireguard/*.conf
+```
+
+Guest Network Pro/SDN post-configuration also passes the matching `/etc/dnsmasq-<index>.conf` file to the refresh. Every refresh scans all existing numeric-index SDN dnsmasq configurations as well, so overlapping post-configuration callbacks retain mappings from the other active SDNs. These sources cover dnsmasq directives produced by the supported routing integrations; any compatible directive present in the scanned files is imported regardless of which add-on wrote it.
+
+The collector imports mappings only. It does not execute another add-on, copy its firewall rules, infer missing set names, or create the target IPSET. Files outside the listed locations are not scanned automatically; copy persistent custom mappings into `ipset.user` instead.
+
+### Migration and refresh behavior
+
+On each setup run, the installer checks whether it already owns the YAML IPSET configuration:
+
+- If `dns.ipset_file` is empty or points to `/opt/etc/AdGuardHome/ipset.conf`, supported inline `dns.ipset` entries are merged into `ipset.user`, exact duplicates and empty lines are removed, and the YAML is normalized to the managed settings shown above. Existing `ipset.user` rules are preserved.
+- If `dns.ipset_file` points anywhere else, the installer leaves the YAML and external file untouched, skips its managed IPSET migration and refresh for that run, and allows AdGuardHome to use the existing configuration. To opt in to managed integration, copy persistent mappings from the external file into `ipset.user`, clear `dns.ipset_file` while AdGuardHome is stopped, and restart AdGuardHome.
+
+The installer never reads or imports a YAML-selected external file with elevated privileges. Once managed integration is active, it generates `ipset.conf` from `ipset.user` plus all detected compatible dnsmasq directives.
+
+Refreshes occur at these points:
+
+- before AdGuardHome starts or restarts;
+- after the standard dnsmasq post-configuration hook runs;
+- after a Guest Network Pro/SDN dnsmasq post-configuration hook runs;
+- when Asuswrt-Merlin invokes `/jffs/scripts/firewall-start`.
+
+To apply changes after editing `ipset.user`, restart AdGuardHome so the generated file is refreshed before AdGuardHome reloads its configuration:
+
+```sh
+service restart_AdGuardHome
+```
+
+To regenerate `ipset.conf` manually, run:
+
+```sh
+/jffs/addons/AdGuardHome.d/AdGuardHome.sh firewall
+```
+
+A refresh writes a temporary file, removes empty and exact duplicate lines, and replaces `ipset.conf` only when its content changed. If AdGuardHome is running and the generated file changes, the command restarts AdGuardHome so the updated IPSET rules take effect; unchanged output does not trigger a restart.
+
+### Locking and recovery
+
+Concurrent setup and refresh events are serialized to prevent multiple writers from replacing the YAML or generated rule file at the same time:
+
+- Firmware with working file-descriptor locking waits on `flock` for `/tmp/AdGuardHome-ipset.lock`, so a concurrent invocation runs after the active writer finishes.
+- Older firmware falls back to `/tmp/AdGuardHome-ipset/`, records the owner PID, waits up to 30 seconds, and removes a stale lock when its owner no longer exists.
+- Both lock paths save the caller's current traps, install temporary cleanup traps for `EXIT`, `HUP`, `INT`, `QUIT`, `ABRT`, `TERM`, and `TSTP`, and restore the previous trap environment before returning. This prevents IPSET cleanup from replacing the manager's monitor or exit handlers.
+
+Do not remove an active lock. If a legacy lock remains after an abnormal termination and its recorded process is no longer running, the next refresh removes it automatically.
+
+### Verify and troubleshoot IPSET integration
+
+Confirm that the YAML points to the managed file:
+
+```sh
+grep -A 2 '^  ipset:' /opt/etc/AdGuardHome/AdGuardHome.yaml
+```
+
+Review persistent and generated rules:
+
+```sh
+cat /opt/etc/AdGuardHome/ipset.user
+cat /opt/etc/AdGuardHome/ipset.conf
+```
+
+Confirm that the target sets exist before testing DNS answers:
+
+```sh
+ipset list -n
+ipset list ROUTE_VPN
+```
+
+After querying a mapped domain through AdGuardHome, inspect the owning set again. If no address appears:
+
+1. Confirm that the domain mapping is present in `ipset.conf` and uses AdGuardHome syntax.
+2. Confirm that the target set exists and has the correct IPv4 or IPv6 family.
+3. Restart AdGuardHome after changing `ipset.user` or the YAML.
+4. Confirm that the query was answered by this AdGuardHome instance and was not served exclusively by another resolver.
+5. Check system logging for refresh or lock errors:
+
+   ```sh
+   logread | grep -iE 'AdGuardHome|IPSET'
+   ```
+
+6. Run AdGuardHome's configuration validation:
+
+   ```sh
+   /opt/sbin/AdGuardHome --check-config -c /opt/etc/AdGuardHome/AdGuardHome.yaml --no-check-update -l /dev/null
+   ```
+
+When reporting a problem, include `AdGuardHome.yaml`, `ipset.user`, `ipset.conf`, the relevant dnsmasq/add-on configuration, `ipset list` output for the referenced sets, and the installer diagnostic archive described below. Remove private domains or addresses before publishing logs or configuration files.
+
 ## Reverse DNS notes
 
 The installer configures reverse DNS integration automatically. The notes below are included for users who want to understand or review the router-side configuration.
@@ -166,6 +343,7 @@ Relevant paths:
 /jffs/addons/AdGuardHome.d
 /jffs/scripts/init-start
 /jffs/scripts/dnsmasq.postconf
+/jffs/scripts/firewall-start
 /jffs/scripts/services-stop
 /jffs/scripts/service-event-end
 ```
@@ -173,7 +351,7 @@ Relevant paths:
 Create the diagnostic archive from the router SSH shell:
 
 ```sh
-echo .config > exclude-files; tar -cvf AdGuardHome.tar -X exclude-files /opt/etc/AdGuardHome /opt/sbin/AdGuardHome /opt/etc/init.d/S99AdGuardHome /opt/etc/init.d/rc.func.AdGuardHome /jffs/addons/AdGuardHome.d /jffs/scripts/init-start /jffs/scripts/dnsmasq.postconf /jffs/scripts/services-stop /jffs/scripts/service-event-end; rm exclude-files
+echo .config > exclude-files; tar -cvf AdGuardHome.tar -X exclude-files /opt/etc/AdGuardHome /opt/sbin/AdGuardHome /opt/etc/init.d/S99AdGuardHome /opt/etc/init.d/rc.func.AdGuardHome /jffs/addons/AdGuardHome.d /jffs/scripts/init-start /jffs/scripts/dnsmasq.postconf /jffs/scripts/firewall-start /jffs/scripts/services-stop /jffs/scripts/service-event-end; rm exclude-files
 ```
 
 Attach `AdGuardHome.tar` to the issue report.

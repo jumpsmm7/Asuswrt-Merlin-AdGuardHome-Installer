@@ -5,6 +5,9 @@ CONF_FILE="/opt/etc/AdGuardHome/.config"
 MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
+IPSET_FILE="/opt/etc/AdGuardHome/ipset.conf"
+IPSET_USER_FILE="/opt/etc/AdGuardHome/ipset.user"
+YAML_FILE="/opt/etc/AdGuardHome/AdGuardHome.yaml"
 
 NAME="$(basename "$0")[$$]"
 
@@ -341,7 +344,6 @@ check_dns_environment() {
 				NVCHECK="$((NVCHECK + 1))"
 			fi
 			if dns_env_apply_profile; then NVCHECK="$((NVCHECK + 1))"; fi
-			# Refresh_IPTables
 			;;
 		stop)
 			# Do not restore if we never saved anything.
@@ -349,7 +351,6 @@ check_dns_environment() {
 				return 0
 			fi
 			if dns_env_restore_profile; then NVCHECK="$((NVCHECK + 1))"; fi
-			# Unload_IPTables
 			;;
 		*)
 			logger -st "${NAME:-dns-manager}" "Invalid DNS environment mode: ${MODE}"
@@ -461,6 +462,8 @@ dnsmasq_params() {
 	if { ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then {
 		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
 	}; fi
+	IPSET_REFRESH_FROM_DNSMASQ="1"
+	IPSet_Refresh "${CONFIG}"
 }
 
 interface_ipv4_addr() {
@@ -748,14 +751,14 @@ service_wait() {
 }
 
 start_adguardhome() {
-	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
-		0)
-			lower_script start
-			;;
-		*)
-			lower_script restart
-			;;
-	esac
+	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
+		lower_script stop || return 1
+	fi
+	if ! IPSet_Setup; then
+		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; startup aborted."
+		return 1
+	fi
+	lower_script start
 	for db in stats.db sessions.db; do {
 		if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
 			ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1
@@ -864,7 +867,6 @@ stop_adguardhome() {
 			lower_script stop || lower_script kill
 			;;
 	esac
-	# Unload_IPTables
 	service restart_dnsmasq >/dev/null 2>&1
 	for db in stats.db sessions.db; do {
 		if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
@@ -913,80 +915,361 @@ timezone() {
 	fi
 }
 
-# IP Table Directives
-Firewall_Interface() {
-	local IFACE UNIT
-	IFACE="$1"
-	if [ -z "${IFACE}" ] && have_cmd ip; then
-		IFACE="$(ip route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')"
-	fi
-	if [ -z "${IFACE}" ]; then
-		UNIT="$(nvram get wan_primary 2>/dev/null)"
-		case "${UNIT}" in
-			0 | 1) ;;
-			*)
-				if [ "$(nvram get wan1_primary 2>/dev/null)" = "1" ]; then UNIT="1"; else UNIT="0"; fi
-				;;
-		esac
-		IFACE="$(nvram get "wan${UNIT}_gw_ifname" 2>/dev/null)"
-		[ -z "${IFACE}" ] && IFACE="$(nvram get "wan${UNIT}_pppoe_ifname" 2>/dev/null)"
-		[ -z "${IFACE}" ] && IFACE="$(nvram get "wan${UNIT}_ifname" 2>/dev/null)"
-	fi
-	[ -n "${IFACE}" ] || return 1
-	printf '%s\n' "${IFACE}"
-}
+# IPSET integration helpers
 
-Firewall_Legacy_Unload() {
-	local IFACE PROTO UNIT
-	for UNIT in 0 1; do
-		for IFACE in \
-			"$(nvram get "wan${UNIT}_gw_ifname" 2>/dev/null)" \
-			"$(nvram get "wan${UNIT}_pppoe_ifname" 2>/dev/null)" \
-			"$(nvram get "wan${UNIT}_ifname" 2>/dev/null)" \
-			"ppp${UNIT}"; do
-			[ -n "${IFACE}" ] || continue
-			for PROTO in udp tcp; do
-				while iptables -t raw -D OUTPUT -o "${IFACE}" -p "${PROTO}" -m multiport --dports 53,123 -j ACCEPT 2>/dev/null; do :; done
-			done
-		done
+IPSet_Collect_Dnsmasq() {
+	local CONFIG
+	for CONFIG in "$@" \
+		/etc/dnsmasq.conf \
+		/etc/dnsmasq-[0-9]*.conf \
+		/jffs/configs/dnsmasq.conf.add \
+		/jffs/configs/dnsmasq.d/*.conf \
+		/jffs/addons/x3mRouting/*.conf \
+		/jffs/configs/domain_vpn_routing/*.conf \
+		/jffs/addons/wireguard/*.conf; do
+		[ -f "${CONFIG}" ] || continue
+		awk '
+			function strip_comment(line,    ch, i, next_ch, quote) {
+				quote = ""
+				for (i = 1; i <= length(line); i++) {
+					ch = substr(line, i, 1)
+					next_ch = substr(line, i + 1, 1)
+					if (quote != "") {
+						if (ch == "\\" && next_ch != "") {
+							i++
+						} else if (ch == quote) {
+							quote = ""
+						}
+					} else if (ch == "\"" || ch == "\047") {
+						quote = ch
+					} else if (ch == "#" && substr(line, i - 1, 1) == "/" && next_ch == "/") {
+						continue
+					} else if (ch == "#") {
+						return substr(line, 1, i - 1)
+					}
+				}
+				return line
+			}
+			/^[[:space:]]*#/ { next }
+			/^[[:space:]]*ipset=/ {
+				line = strip_comment($0)
+				sub(/^[[:space:]]*ipset=/, "", line)
+				sub(/[[:space:]]+$/, "", line)
+				n = split(line, part, "/")
+				if (n < 3 || part[n] == "") next
+				domains = ""
+				catch_all = 0
+				for (i = 2; i < n; i++) {
+					if (part[i] == "#") {
+						catch_all = 1
+						continue
+					}
+					if (part[i] == "") continue
+					if (domains != "") domains = domains ","
+					domains = domains part[i]
+				}
+				if (catch_all) print "/" part[n]
+				else if (domains != "") print domains "/" part[n]
+			}
+		' "${CONFIG}" || return 1
 	done
 }
 
-Firewall_Lock() {
+IPSet_Collect_Yaml() {
+	[ -f "${YAML_FILE}" ] || return 0
+	awk '
+		function indentation(line,    text) {
+			text = line
+			sub(/[^[:space:]].*$/, "", text)
+			return length(text)
+		}
+		function strip_comment(line,    ch, i, next_ch, previous_ch, quote) {
+			quote = ""
+			for (i = 1; i <= length(line); i++) {
+				ch = substr(line, i, 1)
+				next_ch = substr(line, i + 1, 1)
+				previous_ch = substr(line, i - 1, 1)
+				if (quote == "\"") {
+					if (ch == "\\" && next_ch != "") {
+						i++
+					} else if (ch == quote) {
+						quote = ""
+					}
+				} else if (quote == "\047") {
+					if (ch == quote && next_ch == quote) {
+						i++
+					} else if (ch == quote) {
+						quote = ""
+					}
+				} else if (ch == "\"" || ch == "\047") {
+					quote = ch
+				} else if (ch == "#" && (i == 1 || previous_ch ~ /[[:space:]]/)) {
+					return substr(line, 1, i - 1)
+				}
+			}
+			return line
+		}
+		function decode_quoted(value, quote,    ch, decoded, i, next_ch, rest) {
+			decoded = ""
+			decode_ok = 0
+			for (i = 2; i <= length(value); i++) {
+				ch = substr(value, i, 1)
+				next_ch = substr(value, i + 1, 1)
+				if (quote == "\"" && ch == "\\") {
+					if (next_ch == "\"" || next_ch == "\\" || next_ch == "/" || next_ch == " ") {
+						decoded = decoded next_ch
+						i++
+						continue
+					}
+					return ""
+				}
+				if (quote == "\047" && ch == quote && next_ch == quote) {
+					decoded = decoded quote
+					i++
+					continue
+				}
+				if (ch == quote) {
+					rest = substr(value, i + 1)
+					if (rest !~ /^[[:space:]]*(#.*)?$/) return ""
+					decode_ok = 1
+					return decoded
+				}
+				decoded = decoded ch
+			}
+			return ""
+		}
+		function plain_is_typed(value) {
+			if (value ~ /^(~|null|Null|NULL|true|True|TRUE|false|False|FALSE)$/) return 1
+			if (value ~ /^[-+]?([0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)$/) return 1
+			if (value ~ /^[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?$/) return 1
+			if (value ~ /^[-+]?(\.inf|\.Inf|\.INF)$/ || value ~ /^(\.nan|\.NaN|\.NAN)$/) return 1
+			return 0
+		}
+		function plain_is_collection(value,    first) {
+			first = substr(value, 1, 1)
+			if (first == "{" || first == "[" || first == "?") return 1
+			if (value ~ /^-([[:space:]]|$)/) return 1
+			if (value ~ /:([[:space:]]|$)/) return 1
+			return 0
+		}
+		function plain_is_block_scalar(value,    first) {
+			first = substr(value, 1, 1)
+			return first == "|" || first == ">"
+		}
+		function emit(line,    first, quoted) {
+			line = strip_comment(line)
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+			first = substr(line, 1, 1)
+			quoted = first == "\"" || first == "\047"
+			if (first ~ /^[&*!]$/) exit 1
+			if (quoted) {
+				line = decode_quoted(line, first)
+				if (!decode_ok) exit 1
+			}
+			if (quoted && line == "") exit 1
+			if (!quoted && (plain_is_typed(line) || plain_is_collection(line) || plain_is_block_scalar(line))) exit 1
+			if (line != "") print line
+		}
+		function flow_reset() {
+			flow_entry = ""
+			flow_quote = ""
+			flow_escaped_break = 0
+			flow_has_entry = 0
+			flow_entry_count = 0
+			flow_after_comma = 0
+		}
+		function flow_consume(line,    ch, i, next_ch, previous_ch, rest) {
+			sub(/^[[:space:]]+/, "", line)
+			flow_escaped_break = 0
+			for (i = 1; i <= length(line); i++) {
+				ch = substr(line, i, 1)
+				next_ch = substr(line, i + 1, 1)
+				previous_ch = substr(line, i - 1, 1)
+				if (flow_quote == "\"") {
+					if (ch == "\\" && next_ch != "") {
+						flow_entry = flow_entry ch next_ch
+						i++
+					} else if (ch == "\\") {
+						flow_escaped_break = 1
+					} else {
+						flow_entry = flow_entry ch
+					}
+					if (ch == flow_quote) {
+						flow_quote = ""
+					}
+				} else if (flow_quote == "\047") {
+					flow_entry = flow_entry ch
+					if (ch == flow_quote && next_ch == flow_quote) {
+						flow_entry = flow_entry next_ch
+						i++
+					} else if (ch == flow_quote) {
+						flow_quote = ""
+					}
+				} else if (ch == "\"" || ch == "\047") {
+					flow_quote = ch
+					flow_entry = flow_entry ch
+					flow_has_entry = 1
+				} else if (ch == "#" && (i == 1 || previous_ch ~ /[[:space:]]/)) {
+					return 0
+				} else if (ch == ",") {
+					if (!flow_has_entry) exit 1
+					emit(flow_entry)
+					flow_entry = ""
+					flow_has_entry = 0
+					flow_entry_count++
+					flow_after_comma = 1
+				} else if (ch == "]") {
+					rest = substr(line, i + 1)
+					if (rest !~ /^[[:space:]]*(#.*)?$/) exit 1
+					if (flow_has_entry) {
+						emit(flow_entry)
+						flow_entry_count++
+					} else if (flow_after_comma && flow_entry_count == 0) {
+						exit 1
+					}
+					flow_entry = ""
+					return 1
+				} else {
+					flow_entry = flow_entry ch
+					if (ch !~ /[[:space:]]/) flow_has_entry = 1
+				}
+			}
+			if (!flow_escaped_break) {
+				sub(/[[:space:]]+$/, "", flow_entry)
+				if (flow_entry != "") flow_entry = flow_entry " "
+			}
+			return 0
+		}
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(#.*)?$/ { in_dns = 1; child_indent = 0; next }
+		in_flow {
+			if (flow_consume($0)) in_flow = 0
+			next
+		}
+		in_dns && /^[^[:space:]]/ { in_dns = in_ipset = 0 }
+		in_dns && /^[[:space:]]*($|#)/ { next }
+		in_dns && !child_indent { child_indent = indentation($0) }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*(#.*)?$/ {
+			in_ipset = 1
+			next
+		}
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*\[/ {
+			line = substr($0, child_indent + 1)
+			sub(/^(ipset|\047ipset\047|"ipset"):[[:space:]]*\[/, "", line)
+			flow_reset()
+			if (!flow_consume(line)) in_flow = 1
+			next
+		}
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*(~|null|Null|NULL)[[:space:]]*(#.*)?$/ { next }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*/ { exit 1 }
+		in_ipset && indentation($0) >= child_indent && substr($0, indentation($0) + 1) ~ /^-([[:space:]]|$)/ {
+			line = substr($0, indentation($0) + 1)
+			sub(/^-[[:space:]]*/, "", line)
+			value = strip_comment(line)
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			if (value == "") exit 1
+			emit(line)
+			next
+		}
+		in_ipset { in_ipset = 0 }
+		END { if (in_flow || flow_quote != "") exit 1 }
+	' "${YAML_FILE}"
+}
+
+IPSet_Current_File() {
+	[ -f "${YAML_FILE}" ] || return 0
+	awk '
+		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
+		function scalar(value,    ch, decoded, i, next_ch, quote, rest) {
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			quote = substr(value, 1, 1)
+			if (quote != "\"" && quote != "\047") {
+				sub(/[[:space:]]+#.*$/, "", value)
+				gsub(/[[:space:]]+$/, "", value)
+				return value
+			}
+			decoded = ""
+			for (i = 2; i <= length(value); i++) {
+				ch = substr(value, i, 1)
+				next_ch = substr(value, i + 1, 1)
+				if (quote == "\"" && ch == "\\") {
+					if (next_ch == "\"" || next_ch == "\\" || next_ch == "/" || next_ch == " ") {
+						decoded = decoded next_ch
+						i++
+						continue
+					}
+					exit 1
+				}
+				if (quote == "\047" && ch == quote && next_ch == quote) {
+					decoded = decoded quote
+					i++
+					continue
+				}
+				if (ch == quote) {
+					rest = substr(value, i + 1)
+					if (rest !~ /^[[:space:]]*(#.*)?$/) exit 1
+					return decoded
+				}
+				decoded = decoded ch
+			}
+			exit 1
+		}
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(#.*)?$/ { in_dns = 1; next }
+		in_dns && /^[^[:space:]]/ { exit }
+		in_dns && /^[[:space:]]*($|#)/ { next }
+		in_dns && !child_indent { child_indent = indentation($0) }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
+			value = substr($0, child_indent + 1)
+			sub(/^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/, "", value)
+			print scalar(value)
+			exit
+		}
+	' "${YAML_FILE}"
+}
+
+IPSet_Lock() {
 	if have_cmd flock && flock_supports_fd; then
-		Firewall_Lock_Flock "$@"
+		IPSet_Lock_Flock "$@"
 	else
-		Firewall_Lock_Mkdir "$@"
+		IPSet_Lock_Mkdir "$@"
 	fi
 }
 
-Firewall_Lock_Flock() {
-	local ACTION LOCK_FILE STATUS
-	ACTION="$1"
-	shift
-	LOCK_FILE="/tmp/AdGuardHome-firewall.lock"
-	(
-		exec 8>"${LOCK_FILE}" || exit 1
-		if ! flock 8; then
-			logger -st "${NAME}" "Unable to acquire flock to ${ACTION} firewall rules."
-			exit 1
-		fi
-		"$@"
-	)
+IPSet_Lock_Flock() {
+	local SAVED_TRAPS STATUS
+	SAVED_TRAPS="$(trap)"
+	exec 8>"/tmp/AdGuardHome-ipset.lock" || return 1
+	if ! flock 8; then
+		logger -st "${NAME}" "Unable to acquire flock for IPSET setup."
+		exec 8>&-
+		return 1
+	fi
+	trap 'IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	trap 'STATUS="$?"; IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
+	"$@"
 	STATUS="$?"
+	IPSet_Lock_Flock_Cleanup
+	IPSet_Restore_Traps "${SAVED_TRAPS}"
 	return "${STATUS}"
 }
 
-Firewall_Lock_Mkdir() {
-	local ACTION ATTEMPTS LOCK_DIR OWNER
-	ACTION="$1"
-	shift
-	LOCK_DIR="/tmp/AdGuardHome-firewall"
+IPSet_Lock_Flock_Cleanup() {
+	flock -u 8 >/dev/null 2>&1
+	exec 8>&-
+}
+
+IPSet_Lock_Mkdir() {
+	local ATTEMPTS LOCK_DIR OWNER SAVED_TRAPS STATUS
+	LOCK_DIR="/tmp/AdGuardHome-ipset"
 	ATTEMPTS="0"
 	while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
 		OWNER="$(sed -n '1p' "${LOCK_DIR}/pid" 2>/dev/null)"
 		case "${OWNER}" in
-			"" | *[!0-9]*) ;;
+			"" | *[!0-9]*)
+				if [ "${ATTEMPTS}" -gt 0 ]; then
+					rm -rf "${LOCK_DIR}"
+					continue
+				fi
+				;;
 			*)
 				if ! kill -0 "${OWNER}" 2>/dev/null; then
 					rm -rf "${LOCK_DIR}"
@@ -996,51 +1279,285 @@ Firewall_Lock_Mkdir() {
 		esac
 		ATTEMPTS="$((ATTEMPTS + 1))"
 		if [ "${ATTEMPTS}" -ge 30 ]; then
-			logger -st "${NAME}" "Unable to acquire legacy mkdir lock to ${ACTION} firewall rules."
+			logger -st "${NAME}" "Unable to acquire legacy mkdir lock for IPSET setup."
 			return 1
 		fi
 		sleep 1
 	done
-	(
-		trap 'rm -rf "${LOCK_DIR}"; exit $?' EXIT HUP INT QUIT ABRT TERM TSTP
-		printf '%s\n' "$$" >"${LOCK_DIR}/pid"
-		"$@"
-	)
+	printf '%s\n' "$$" >"${LOCK_DIR}/pid"
+	SAVED_TRAPS="$(trap)"
+	trap 'IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	trap 'STATUS="$?"; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
+	"$@"
+	STATUS="$?"
+	IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"
+	IPSet_Restore_Traps "${SAVED_TRAPS}"
+	return "${STATUS}"
 }
 
-Firewall_Service_Active() {
-	[ -n "${MON_PID}" ] || [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]
+IPSet_Lock_Mkdir_Cleanup() {
+	[ -n "$1" ] && rm -rf "$1"
 }
 
-Load_IPTables() {
-	local IFACE
-	[ -x "/jffs/scripts/firewall" ] || return 0
-	IFACE="$(Firewall_Interface "$1")" || return 1
-	iptables -t raw -N ADGUARDHOME 2>/dev/null || iptables -t raw -F ADGUARDHOME 2>/dev/null || return 1
-	while iptables -t raw -D OUTPUT -j ADGUARDHOME 2>/dev/null; do :; done
-	iptables -t raw -A ADGUARDHOME -o "${IFACE}" -p udp -m multiport --dports 53,123 -j ACCEPT 2>/dev/null || return 1
-	iptables -t raw -A ADGUARDHOME -o "${IFACE}" -p tcp -m multiport --dports 53,123 -j ACCEPT 2>/dev/null || return 1
-	iptables -t raw -I OUTPUT -j ADGUARDHOME 2>/dev/null
+IPSet_Migrate() {
+	local CURRENT_FILE TEMP_FILE USER_TEMP_FILE
+	IPSET_MIGRATION_SKIPPED=""
+	[ -f "${YAML_FILE}" ] || return 0
+	if ! CURRENT_FILE="$(IPSet_Current_File)"; then
+		return 1
+	fi
+	if [ -n "${CURRENT_FILE}" ] && [ "${CURRENT_FILE}" != "${IPSET_FILE}" ]; then
+		logger -st "${NAME}" "Skipping managed IPSET integration for existing file: ${CURRENT_FILE}"
+		IPSET_MIGRATION_SKIPPED="1"
+		return 0
+	fi
+	TEMP_FILE="${IPSET_USER_FILE}.tmp.$$"
+	: >"${TEMP_FILE}" || return 1
+	if [ -f "${IPSET_USER_FILE}" ] && ! cat "${IPSET_USER_FILE}" >>"${TEMP_FILE}"; then
+		rm -f "${TEMP_FILE}"
+		return 1
+	fi
+	if ! IPSet_Collect_Yaml >>"${TEMP_FILE}"; then
+		rm -f "${TEMP_FILE}"
+		return 1
+	fi
+	USER_TEMP_FILE="${IPSET_USER_FILE}.new.$$"
+	if ! awk 'NF && !seen[$0]++' "${TEMP_FILE}" >"${USER_TEMP_FILE}"; then
+		rm -f "${TEMP_FILE}" "${USER_TEMP_FILE}"
+		return 1
+	fi
+	rm -f "${TEMP_FILE}"
+	chmod 644 "${USER_TEMP_FILE}" || {
+		rm -f "${USER_TEMP_FILE}"
+		return 1
+	}
+	if [ ! -f "${IPSET_USER_FILE}" ] || ! cmp -s "${IPSET_USER_FILE}" "${USER_TEMP_FILE}"; then
+		mv "${USER_TEMP_FILE}" "${IPSET_USER_FILE}" || {
+			rm -f "${USER_TEMP_FILE}"
+			return 1
+		}
+	else
+		rm -f "${USER_TEMP_FILE}"
+	fi
+	TEMP_FILE="${YAML_FILE}.ipset.$$"
+	awk -v ipset_file="${IPSET_FILE}" '
+		function indentation(line,    text) {
+			text = line
+			sub(/[^[:space:]].*$/, "", text)
+			return length(text)
+		}
+		function flow_reset() {
+			flow_quote = ""
+			flow_has_entry = 0
+			flow_entry_count = 0
+			flow_after_comma = 0
+		}
+		function flow_closed(line,    ch, i, next_ch, previous_ch, rest) {
+			for (i = 1; i <= length(line); i++) {
+				ch = substr(line, i, 1)
+				next_ch = substr(line, i + 1, 1)
+				previous_ch = substr(line, i - 1, 1)
+				if (flow_quote == "\"") {
+					if (ch == "\\" && next_ch != "") i++
+					else if (ch == flow_quote) flow_quote = ""
+				} else if (flow_quote == "\047") {
+					if (ch == flow_quote && next_ch == flow_quote) i++
+					else if (ch == flow_quote) flow_quote = ""
+				} else if (ch == "\"" || ch == "\047") {
+					flow_quote = ch
+					flow_has_entry = 1
+				} else if (ch == "#" && (i == 1 || previous_ch ~ /[[:space:]]/)) {
+					return 0
+				} else if (ch == ",") {
+					if (!flow_has_entry) exit 1
+					flow_has_entry = 0
+					flow_entry_count++
+					flow_after_comma = 1
+				} else if (ch == "]") {
+					rest = substr(line, i + 1)
+					if (rest !~ /^[[:space:]]*(#.*)?$/) exit 1
+					if (flow_has_entry) flow_entry_count++
+					else if (flow_after_comma && flow_entry_count == 0) exit 1
+					return 1
+				} else if (ch !~ /[[:space:]]/) {
+					flow_has_entry = 1
+				}
+			}
+			return 0
+		}
+		function add_ipset(    prefix) {
+			prefix = child_prefix
+			if (prefix == "") prefix = "  "
+			if (!wrote_ipset) print prefix "ipset: []"
+			if (!wrote_file) print prefix "ipset_file: " ipset_file
+			wrote_ipset = wrote_file = 1
+		}
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(#.*)?$/ {
+			in_dns = 1
+			found_dns = 1
+			child_indent = 0
+			child_prefix = ""
+			print
+			next
+		}
+		skip_flow {
+			if (flow_closed($0)) skip_flow = 0
+			next
+		}
+		in_dns && /^[^[:space:]]/ {
+			add_ipset()
+			in_dns = skip_ipset = 0
+		}
+		in_dns && !child_indent && $0 !~ /^[[:space:]]*($|#)/ {
+			child_indent = indentation($0)
+			child_prefix = substr($0, 1, child_indent)
+		}
+		skip_ipset && ($0 ~ /^[[:space:]]*($|#)/ || indentation($0) > child_indent || (indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^-([[:space:]]|$)/)) { next }
+		skip_ipset { skip_ipset = 0 }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*(#.*)?$/ {
+			if (!wrote_ipset) print child_prefix "ipset: []"
+			wrote_ipset = 1
+			skip_ipset = 1
+			next
+		}
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*\[/ {
+			if (!wrote_ipset) print child_prefix "ipset: []"
+			wrote_ipset = 1
+			line = substr($0, child_indent + 1)
+			sub(/^(ipset|\047ipset\047|"ipset"):[[:space:]]*\[/, "", line)
+			flow_reset()
+			if (!flow_closed(line)) skip_flow = 1
+			next
+		}
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*(~|null|Null|NULL)[[:space:]]*(#.*)?$/ {
+			if (!wrote_ipset) print child_prefix "ipset: []"
+			wrote_ipset = 1
+			next
+		}
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*/ {
+			wrote_ipset = 1
+			print
+			next
+		}
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
+			if (!wrote_file) print child_prefix "ipset_file: " ipset_file
+			wrote_file = 1
+			next
+		}
+		{ print }
+		END {
+			if (skip_flow || flow_quote != "") exit 1
+			if (in_dns) add_ipset()
+		}
+	' "${YAML_FILE}" >"${TEMP_FILE}" || {
+		rm -f "${TEMP_FILE}"
+		return 1
+	}
+
+	if ! cmp -s "${YAML_FILE}" "${TEMP_FILE}"; then
+		chmod 644 "${TEMP_FILE}" || {
+			rm -f "${TEMP_FILE}"
+			return 1
+		}
+		mv "${TEMP_FILE}" "${YAML_FILE}" || {
+			rm -f "${TEMP_FILE}"
+			return 1
+		}
+	else
+		rm -f "${TEMP_FILE}"
+	fi
 }
 
-Refresh_IPTables() {
-	Firewall_Lock refresh Refresh_IPTables_Locked "$1"
+IPSet_Refresh() {
+	local RESTART_STATUS
+	IPSET_REFRESH_CHANGED=""
+	IPSET_REFRESH_CONFIG="${1:-}"
+	IPSet_Lock IPSet_Refresh_Locked || return 1
+	if [ "${IPSET_REFRESH_CHANGED}" = "1" ] && [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
+		logger -st "${NAME}" "Restarting AdGuardHome to apply refreshed IPSET compatibility rules."
+		if [ "${IPSET_REFRESH_FROM_DNSMASQ:-}" = "1" ]; then
+			ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
+		fi
+		lower_script restart
+		RESTART_STATUS="$?"
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART=""
+		return "${RESTART_STATUS}"
+	fi
 }
 
-Refresh_IPTables_Locked() {
-	Unload_IPTables_Locked
-	Load_IPTables "$1"
+IPSet_Refresh_Locked() {
+	local CURRENT_FILE RAW_TEMP_FILE TEMP_FILE
+	if ! CURRENT_FILE="$(IPSet_Current_File)"; then
+		return 1
+	fi
+	if [ -n "${CURRENT_FILE}" ] && [ "${CURRENT_FILE}" != "${IPSET_FILE}" ]; then
+		logger -st "${NAME}" "Skipping managed IPSET refresh for existing file: ${CURRENT_FILE}"
+		return 0
+	fi
+	RAW_TEMP_FILE="${IPSET_FILE}.raw.$$"
+	TEMP_FILE="${IPSET_FILE}.tmp.$$"
+	: >"${RAW_TEMP_FILE}" || return 1
+	printf '%s\n' '# Managed by Asuswrt-Merlin AdGuardHome Installer.' >>"${RAW_TEMP_FILE}" || {
+		rm -f "${RAW_TEMP_FILE}"
+		return 1
+	}
+	printf '%s\n' '# Put persistent custom rules in ipset.user.' >>"${RAW_TEMP_FILE}" || {
+		rm -f "${RAW_TEMP_FILE}"
+		return 1
+	}
+	if [ -f "${IPSET_USER_FILE}" ] && ! cat "${IPSET_USER_FILE}" >>"${RAW_TEMP_FILE}"; then
+		rm -f "${RAW_TEMP_FILE}"
+		return 1
+	fi
+	if [ -n "${IPSET_REFRESH_CONFIG:-}" ]; then
+		IPSet_Collect_Dnsmasq "${IPSET_REFRESH_CONFIG}" >>"${RAW_TEMP_FILE}" || {
+			rm -f "${RAW_TEMP_FILE}"
+			return 1
+		}
+	else
+		IPSet_Collect_Dnsmasq >>"${RAW_TEMP_FILE}" || {
+			rm -f "${RAW_TEMP_FILE}"
+			return 1
+		}
+	fi
+	if ! awk 'NF && !seen[$0]++' "${RAW_TEMP_FILE}" >"${TEMP_FILE}"; then
+		rm -f "${RAW_TEMP_FILE}" "${TEMP_FILE}"
+		return 1
+	fi
+	rm -f "${RAW_TEMP_FILE}"
+	if ! cmp -s "${IPSET_FILE}" "${TEMP_FILE}"; then
+		chmod 644 "${TEMP_FILE}" || {
+			rm -f "${TEMP_FILE}"
+			return 1
+		}
+		mv "${TEMP_FILE}" "${IPSET_FILE}" || {
+			rm -f "${TEMP_FILE}"
+			return 1
+		}
+		IPSET_REFRESH_CHANGED="1"
+		logger -st "${NAME}" "Refreshed AdGuardHome IPSET compatibility rules."
+	else
+		rm -f "${TEMP_FILE}"
+	fi
 }
 
-Unload_IPTables() {
-	Firewall_Lock unload Unload_IPTables_Locked
+IPSet_Restore_Traps() {
+	local SAVED_TRAPS
+	SAVED_TRAPS="$1"
+	trap - EXIT HUP INT QUIT ABRT TERM TSTP
+	[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
+	return 0
 }
 
-Unload_IPTables_Locked() {
-	Firewall_Legacy_Unload
-	while iptables -t raw -D OUTPUT -j ADGUARDHOME 2>/dev/null; do :; done
-	iptables -t raw -F ADGUARDHOME 2>/dev/null
-	iptables -t raw -X ADGUARDHOME 2>/dev/null
+IPSet_Setup() {
+	IPSET_REFRESH_CONFIG=""
+	IPSet_Lock IPSet_Setup_Locked
+}
+
+IPSet_Setup_Locked() {
+	IPSet_Migrate || return 1
+	[ "${IPSET_MIGRATION_SKIPPED}" = "1" ] && return 0
+	IPSet_Refresh_Locked
 }
 
 if [ -f "${UPPER_SCRIPT}" ]; then UPPER_SCRIPT_LOC=". ${UPPER_SCRIPT}"; fi
@@ -1070,16 +1587,9 @@ case "$1" in
 	"dnsmasq" | "dnsmasq-sdn")
 		if [ -n "${2}" ]; then { dnsmasq_params "${2}"; }; else { dnsmasq_params; }; fi
 		;;
-		#	"firewall")
-		#		case "${2:-}" in
-		#			"unload")
-		#				Unload_IPTables
-		#				;;
-		#			*)
-		#				if { Firewall_Service_Active; }; then { Refresh_IPTables "${2:-}"; }; else { Unload_IPTables; }; fi
-		#				;;
-		#		esac
-		#		;;
+	"firewall")
+		IPSet_Refresh
+		;;
 	"init-start" | "services-stop")
 		timezone
 		case "$1" in
