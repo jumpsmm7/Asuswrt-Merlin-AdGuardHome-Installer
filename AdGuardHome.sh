@@ -1029,6 +1029,13 @@ IPSet_Collect_Yaml() {
 			}
 			return decoded
 		}
+		function plain_is_typed(value) {
+			if (value ~ /^(~|null|Null|NULL|true|True|TRUE|false|False|FALSE)$/) return 1
+			if (value ~ /^[-+]?[0-9]+$/ || value ~ /^0o[0-7]+$/ || value ~ /^0x[0-9a-fA-F]+$/) return 1
+			if (value ~ /^[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?$/) return 1
+			if (value ~ /^[-+]?(\.inf|\.Inf|\.INF)$/ || value ~ /^(\.nan|\.NaN|\.NAN)$/) return 1
+			return 0
+		}
 		function emit(line,    first, last, quoted) {
 			line = strip_comment(line)
 			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
@@ -1046,6 +1053,7 @@ IPSet_Collect_Yaml() {
 				gsub(/\047\047/, "\047", line)
 			}
 			if (quoted && line == "") exit 1
+			if (!quoted && plain_is_typed(line)) exit 1
 			if (line != "") print line
 		}
 		function flow_reset() {
