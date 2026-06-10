@@ -1204,51 +1204,61 @@ IPSet_Lock_Mkdir_Cleanup() {
 IPSet_Migrate() {
 	local CURRENT_FILE TEMP_FILE USER_TEMP_FILE
 	[ -f "${YAML_FILE}" ] || return 0
-	if [ ! -f "${IPSET_USER_FILE}" ]; then
-		TEMP_FILE="${IPSET_USER_FILE}.tmp.$$"
-		if ! IPSet_Collect_Yaml >"${TEMP_FILE}"; then
-			rm -f "${TEMP_FILE}"
-			return 1
-		fi
-		CURRENT_FILE="$(awk '
-			function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
-			/^(dns|\047dns\047|"dns"):[[:space:]]*(#.*)?$/ { in_dns = 1; next }
-			in_dns && /^[^[:space:]]/ { exit }
-			in_dns && /^[[:space:]]*($|#)/ { next }
-			in_dns && !child_indent { child_indent = indentation($0) }
-			in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
-				value = substr($0, child_indent + 1)
-				sub(/^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/, "", value)
-				sub(/[[:space:]]+#.*$/, "", value)
-				gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-				gsub(/^[\047"]|[\047"]$/, "", value)
-				print value
-				exit
-			}
-		' "${YAML_FILE}")"
-		if [ -n "${CURRENT_FILE}" ] && [ -f "${CURRENT_FILE}" ]; then
-			if [ "$(readlink -f "${CURRENT_FILE}")" != "$(readlink -f "${IPSET_FILE}")" ] ||
-				! grep -qxF '# Managed by Asuswrt-Merlin AdGuardHome Installer.' "${CURRENT_FILE}"; then
-				if ! cat "${CURRENT_FILE}" >>"${TEMP_FILE}"; then
-					rm -f "${TEMP_FILE}"
-					return 1
-				fi
+	TEMP_FILE="${IPSET_USER_FILE}.tmp.$$"
+	: >"${TEMP_FILE}" || return 1
+	if [ -f "${IPSET_USER_FILE}" ] && ! cat "${IPSET_USER_FILE}" >>"${TEMP_FILE}"; then
+		rm -f "${TEMP_FILE}"
+		return 1
+	fi
+	if ! IPSet_Collect_Yaml >>"${TEMP_FILE}"; then
+		rm -f "${TEMP_FILE}"
+		return 1
+	fi
+	if ! CURRENT_FILE="$(awk '
+		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(#.*)?$/ { in_dns = 1; next }
+		in_dns && /^[^[:space:]]/ { exit }
+		in_dns && /^[[:space:]]*($|#)/ { next }
+		in_dns && !child_indent { child_indent = indentation($0) }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
+			value = substr($0, child_indent + 1)
+			sub(/^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/, "", value)
+			sub(/[[:space:]]+#.*$/, "", value)
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			gsub(/^[\047"]|[\047"]$/, "", value)
+			print value
+			exit
+		}
+	' "${YAML_FILE}")"; then
+		rm -f "${TEMP_FILE}"
+		return 1
+	fi
+	if [ -n "${CURRENT_FILE}" ] && [ -f "${CURRENT_FILE}" ]; then
+		if [ "$(readlink -f "${CURRENT_FILE}")" != "$(readlink -f "${IPSET_FILE}")" ] ||
+			! grep -qxF '# Managed by Asuswrt-Merlin AdGuardHome Installer.' "${CURRENT_FILE}"; then
+			if ! cat "${CURRENT_FILE}" >>"${TEMP_FILE}"; then
+				rm -f "${TEMP_FILE}"
+				return 1
 			fi
 		fi
-		USER_TEMP_FILE="${IPSET_USER_FILE}.new.$$"
-		if ! awk 'NF && !seen[$0]++' "${TEMP_FILE}" >"${USER_TEMP_FILE}"; then
-			rm -f "${TEMP_FILE}" "${USER_TEMP_FILE}"
-			return 1
-		fi
-		rm -f "${TEMP_FILE}"
-		chmod 644 "${USER_TEMP_FILE}" || {
-			rm -f "${USER_TEMP_FILE}"
-			return 1
-		}
+	fi
+	USER_TEMP_FILE="${IPSET_USER_FILE}.new.$$"
+	if ! awk 'NF && !seen[$0]++' "${TEMP_FILE}" >"${USER_TEMP_FILE}"; then
+		rm -f "${TEMP_FILE}" "${USER_TEMP_FILE}"
+		return 1
+	fi
+	rm -f "${TEMP_FILE}"
+	chmod 644 "${USER_TEMP_FILE}" || {
+		rm -f "${USER_TEMP_FILE}"
+		return 1
+	}
+	if [ ! -f "${IPSET_USER_FILE}" ] || ! cmp -s "${IPSET_USER_FILE}" "${USER_TEMP_FILE}"; then
 		mv "${USER_TEMP_FILE}" "${IPSET_USER_FILE}" || {
 			rm -f "${USER_TEMP_FILE}"
 			return 1
 		}
+	else
+		rm -f "${USER_TEMP_FILE}"
 	fi
 	TEMP_FILE="${YAML_FILE}.ipset.$$"
 	awk -v ipset_file="${IPSET_FILE}" '
