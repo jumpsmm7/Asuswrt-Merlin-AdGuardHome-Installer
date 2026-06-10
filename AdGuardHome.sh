@@ -1216,6 +1216,40 @@ IPSet_Migrate() {
 	fi
 	if ! CURRENT_FILE="$(awk '
 		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
+		function scalar(value,    ch, decoded, i, next_ch, quote, rest) {
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			quote = substr(value, 1, 1)
+			if (quote != "\"" && quote != "\047") {
+				sub(/[[:space:]]+#.*$/, "", value)
+				gsub(/[[:space:]]+$/, "", value)
+				return value
+			}
+			decoded = ""
+			for (i = 2; i <= length(value); i++) {
+				ch = substr(value, i, 1)
+				next_ch = substr(value, i + 1, 1)
+				if (quote == "\"" && ch == "\\") {
+					if (next_ch == "\"" || next_ch == "\\" || next_ch == "/" || next_ch == " ") {
+						decoded = decoded next_ch
+						i++
+						continue
+					}
+					exit 1
+				}
+				if (quote == "\047" && ch == quote && next_ch == quote) {
+					decoded = decoded quote
+					i++
+					continue
+				}
+				if (ch == quote) {
+					rest = substr(value, i + 1)
+					if (rest !~ /^[[:space:]]*(#.*)?$/) exit 1
+					return decoded
+				}
+				decoded = decoded ch
+			}
+			exit 1
+		}
 		/^(dns|\047dns\047|"dns"):[[:space:]]*(#.*)?$/ { in_dns = 1; next }
 		in_dns && /^[^[:space:]]/ { exit }
 		in_dns && /^[[:space:]]*($|#)/ { next }
@@ -1223,10 +1257,7 @@ IPSet_Migrate() {
 		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
 			value = substr($0, child_indent + 1)
 			sub(/^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/, "", value)
-			sub(/[[:space:]]+#.*$/, "", value)
-			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-			gsub(/^[\047"]|[\047"]$/, "", value)
-			print value
+			print scalar(value)
 			exit
 		}
 	' "${YAML_FILE}")"; then
