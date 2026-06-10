@@ -1018,19 +1018,25 @@ IPSet_Collect_Yaml() {
 		function flow_reset() {
 			flow_entry = ""
 			flow_quote = ""
+			flow_escaped_break = 0
 		}
 		function flow_consume(line,    ch, i, next_ch, previous_ch) {
-			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+			sub(/^[[:space:]]+/, "", line)
+			flow_escaped_break = 0
 			for (i = 1; i <= length(line); i++) {
 				ch = substr(line, i, 1)
 				next_ch = substr(line, i + 1, 1)
 				previous_ch = substr(line, i - 1, 1)
 				if (flow_quote == "\"") {
-					flow_entry = flow_entry ch
 					if (ch == "\\" && next_ch != "") {
-						flow_entry = flow_entry next_ch
+						flow_entry = flow_entry ch next_ch
 						i++
-					} else if (ch == flow_quote) {
+					} else if (ch == "\\") {
+						flow_escaped_break = 1
+					} else {
+						flow_entry = flow_entry ch
+					}
+					if (ch == flow_quote) {
 						flow_quote = ""
 					}
 				} else if (flow_quote == "\047") {
@@ -1057,7 +1063,10 @@ IPSet_Collect_Yaml() {
 					flow_entry = flow_entry ch
 				}
 			}
-			if (flow_entry != "") flow_entry = flow_entry " "
+			if (!flow_escaped_break) {
+				sub(/[[:space:]]+$/, "", flow_entry)
+				if (flow_entry != "") flow_entry = flow_entry " "
+			}
 			return 0
 		}
 		/^(dns|\047dns\047|"dns"):[[:space:]]*(#.*)?$/ { in_dns = 1; child_indent = 0; next }
