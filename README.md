@@ -210,6 +210,7 @@ Each refresh scans active, non-commented dnsmasq `ipset=` directives from the co
 
 ```text
 /etc/dnsmasq.conf
+/etc/dnsmasq-<index>.conf
 /jffs/configs/dnsmasq.conf.add
 /jffs/configs/dnsmasq.d/*.conf
 /jffs/addons/x3mRouting/*.conf
@@ -217,7 +218,7 @@ Each refresh scans active, non-commented dnsmasq `ipset=` directives from the co
 /jffs/addons/wireguard/*.conf
 ```
 
-Guest Network Pro/SDN post-configuration also passes the matching `/etc/dnsmasq-<index>.conf` file to the refresh. These sources cover dnsmasq directives produced by the supported routing integrations; any compatible directive present in the scanned files is imported regardless of which add-on wrote it.
+Guest Network Pro/SDN post-configuration also passes the matching `/etc/dnsmasq-<index>.conf` file to the refresh. Every refresh scans all existing numeric-index SDN dnsmasq configurations as well, so overlapping post-configuration callbacks retain mappings from the other active SDNs. These sources cover dnsmasq directives produced by the supported routing integrations; any compatible directive present in the scanned files is imported regardless of which add-on wrote it.
 
 The collector imports mappings only. It does not execute another add-on, copy its firewall rules, infer missing set names, or create the target IPSET. Files outside the listed locations are not scanned automatically; copy persistent custom mappings into `ipset.user` instead.
 

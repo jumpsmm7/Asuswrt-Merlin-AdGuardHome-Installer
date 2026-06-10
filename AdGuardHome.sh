@@ -918,6 +918,7 @@ IPSet_Collect_Dnsmasq() {
 	local CONFIG
 	for CONFIG in "$@" \
 		/etc/dnsmasq.conf \
+		/etc/dnsmasq-[0-9]*.conf \
 		/jffs/configs/dnsmasq.conf.add \
 		/jffs/configs/dnsmasq.d/*.conf \
 		/jffs/addons/x3mRouting/*.conf \
