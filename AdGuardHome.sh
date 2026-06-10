@@ -1125,7 +1125,7 @@ IPSet_Collect_Yaml() {
 			sub(/^-[[:space:]]*/, "", line)
 			value = strip_comment(line)
 			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-			if (value == "") exit 1
+			if (value == "" || substr(value, 1, 1) ~ /^[&*!]$/) exit 1
 			emit(line)
 			next
 		}
