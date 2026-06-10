@@ -127,6 +127,19 @@ More DNS provider references:
 - [AdGuard DNS providers knowledge base](https://adguard-dns.io/kb/general/dns-providers/)
 - [AdGuardHome wiki](https://github.com/AdguardTeam/AdGuardHome/wiki)
 
+## IPSET integration
+
+The installer automatically enables AdGuardHome's `dns.ipset_file` support and maintains these files:
+
+- `/opt/etc/AdGuardHome/ipset.conf` - generated rules consumed by AdGuardHome.
+- `/opt/etc/AdGuardHome/ipset.user` - persistent user-managed rules that are merged into the generated file.
+
+Existing inline `dns.ipset` rules and an existing external `dns.ipset_file` are migrated into `ipset.user` the first time the integration runs. The manager also imports dnsmasq-style `ipset=/domain/set` directives used by Domain VPN Routing, x3mRouting, and WireGuard Manager. Refreshes run during AdGuardHome startup, dnsmasq post-configuration, and firewall-start events.
+
+Use AdGuardHome's `DOMAIN[,DOMAIN,...]/IPSET_NAME[,IPSET_NAME,...]` syntax for custom entries in `ipset.user`. The referenced IPSETs must already be created by the routing or firewall add-on that owns them.
+
+Concurrent refreshes are serialized with `flock` when file-descriptor locking is supported. Older firmware falls back to a stale-aware `mkdir` lock. Both paths restore the manager's existing trap handlers after cleanup.
+
 ## Reverse DNS notes
 
 The installer configures reverse DNS integration automatically. The notes below are included for users who want to understand or review the router-side configuration.
@@ -166,6 +179,7 @@ Relevant paths:
 /jffs/addons/AdGuardHome.d
 /jffs/scripts/init-start
 /jffs/scripts/dnsmasq.postconf
+/jffs/scripts/firewall-start
 /jffs/scripts/services-stop
 /jffs/scripts/service-event-end
 ```
@@ -173,7 +187,7 @@ Relevant paths:
 Create the diagnostic archive from the router SSH shell:
 
 ```sh
-echo .config > exclude-files; tar -cvf AdGuardHome.tar -X exclude-files /opt/etc/AdGuardHome /opt/sbin/AdGuardHome /opt/etc/init.d/S99AdGuardHome /opt/etc/init.d/rc.func.AdGuardHome /jffs/addons/AdGuardHome.d /jffs/scripts/init-start /jffs/scripts/dnsmasq.postconf /jffs/scripts/services-stop /jffs/scripts/service-event-end; rm exclude-files
+echo .config > exclude-files; tar -cvf AdGuardHome.tar -X exclude-files /opt/etc/AdGuardHome /opt/sbin/AdGuardHome /opt/etc/init.d/S99AdGuardHome /opt/etc/init.d/rc.func.AdGuardHome /jffs/addons/AdGuardHome.d /jffs/scripts/init-start /jffs/scripts/dnsmasq.postconf /jffs/scripts/firewall-start /jffs/scripts/services-stop /jffs/scripts/service-event-end; rm exclude-files
 ```
 
 Attach `AdGuardHome.tar` to the issue report.
