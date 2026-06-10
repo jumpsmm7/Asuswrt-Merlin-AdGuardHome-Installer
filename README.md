@@ -17,6 +17,7 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 - [Service commands](#service-commands)
 - [Verify AdGuardHome is running](#verify-adguardhome-is-running)
 - [AdGuardHome DNS examples](#adguardhome-dns-examples)
+- [IPSET integration](#ipset-integration)
 - [Reverse DNS notes](#reverse-dns-notes)
 - [Troubleshooting and issue reports](#troubleshooting-and-issue-reports)
 - [Static AdGuardHome archive cache](#static-adguardhome-archive-cache)
