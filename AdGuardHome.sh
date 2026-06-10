@@ -939,6 +939,8 @@ IPSet_Collect_Dnsmasq() {
 						}
 					} else if (ch == "\"" || ch == "\047") {
 						quote = ch
+					} else if (ch == "#" && substr(line, i - 1, 1) == "/" && next_ch == "/") {
+						continue
 					} else if (ch == "#") {
 						return substr(line, 1, i - 1)
 					}
@@ -953,12 +955,18 @@ IPSet_Collect_Dnsmasq() {
 				n = split(line, part, "/")
 				if (n < 3 || part[n] == "") next
 				domains = ""
+				catch_all = 0
 				for (i = 2; i < n; i++) {
+					if (part[i] == "#") {
+						catch_all = 1
+						continue
+					}
 					if (part[i] == "") continue
 					if (domains != "") domains = domains ","
 					domains = domains part[i]
 				}
-				if (domains != "") print domains "/" part[n]
+				if (catch_all) print "/" part[n]
+				else if (domains != "") print domains "/" part[n]
 			}
 		' "${CONFIG}"
 	done
@@ -1044,13 +1052,13 @@ IPSet_Collect_Yaml() {
 		in_dns && /^[^[:space:]]/ { in_dns = in_ipset = 0 }
 		in_dns && /^[[:space:]]*($|#)/ { next }
 		in_dns && !child_indent { child_indent = indentation($0) }
-		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^ipset:[[:space:]]*(#.*)?$/ {
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*(#.*)?$/ {
 			in_ipset = 1
 			next
 		}
-		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^ipset:[[:space:]]*\[[^]]*\][[:space:]]*(#.*)?$/ {
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*\[[^]]*\][[:space:]]*(#.*)?$/ {
 			line = substr($0, child_indent + 1)
-			sub(/^ipset:[[:space:]]*\[/, "", line)
+			sub(/^(ipset|\047ipset\047|"ipset"):[[:space:]]*\[/, "", line)
 			sub(/\][[:space:]]*(#.*)?$/, "", line)
 			emit_flow(line)
 			next
@@ -1153,10 +1161,11 @@ IPSet_Migrate() {
 			in_dns && /^[^[:space:]]/ { exit }
 			in_dns && /^[[:space:]]*($|#)/ { next }
 			in_dns && !child_indent { child_indent = indentation($0) }
-			in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^ipset_file:[[:space:]]*/ {
+			in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
 				value = substr($0, child_indent + 1)
-				sub(/^ipset_file:[[:space:]]*/, "", value)
+				sub(/^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/, "", value)
 				sub(/[[:space:]]+#.*$/, "", value)
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
 				gsub(/^[\047"]|[\047"]$/, "", value)
 				print value
 				exit
@@ -1218,23 +1227,23 @@ IPSet_Migrate() {
 		}
 		skip_ipset && ($0 ~ /^[[:space:]]*($|#)/ || indentation($0) > child_indent) { next }
 		skip_ipset { skip_ipset = 0 }
-		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^ipset:[[:space:]]*(#.*)?$/ {
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*(#.*)?$/ {
 			if (!wrote_ipset) print child_prefix "ipset: []"
 			wrote_ipset = 1
 			skip_ipset = 1
 			next
 		}
-		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^ipset:[[:space:]]*\[[^]]*\][[:space:]]*(#.*)?$/ {
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*\[[^]]*\][[:space:]]*(#.*)?$/ {
 			if (!wrote_ipset) print child_prefix "ipset: []"
 			wrote_ipset = 1
 			next
 		}
-		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^ipset:[[:space:]]*/ {
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*/ {
 			wrote_ipset = 1
 			print
 			next
 		}
-		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^ipset_file:[[:space:]]*/ {
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
 			if (!wrote_file) print child_prefix "ipset_file: " ipset_file
 			wrote_file = 1
 			next
