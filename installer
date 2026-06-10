@@ -1117,6 +1117,7 @@ save_dns_nvram_environment() {
 # Installer file and setup helpers
 
 backup_restore() {
+	local IPSET_MARKER_BACKUP
 	if [ "$1" = "BACKUP" ] && [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; then
 		if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 			PTXT "${INFO} There is an old backup detected."
@@ -1141,7 +1142,19 @@ backup_restore() {
 	fi
 	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
 		PTXT "${INFO} Please wait a moment."
-		tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${BASE_DIR}" >/dev/null 2>&1
+		# Remove the one-time migration marker before extraction. Newer backups restore
+		# their own ipset.user; older backups then migrate their restored YAML rules.
+		IPSET_MARKER_BACKUP="/tmp/AdGuardHome-ipset.user.restore.$$"
+		rm -f "${IPSET_MARKER_BACKUP}"
+		if [ -f "${TARG_DIR}/ipset.user" ]; then
+			mv "${TARG_DIR}/ipset.user" "${IPSET_MARKER_BACKUP}" || return 1
+		fi
+		if ! tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${BASE_DIR}" >/dev/null 2>&1; then
+			[ -f "${IPSET_MARKER_BACKUP}" ] && mv "${IPSET_MARKER_BACKUP}" "${TARG_DIR}/ipset.user"
+			PTXT "${ERROR} Unable to restore ${BASE_DIR}/backup_AdGuardHome.tar.gz"
+			return 1
+		fi
+		rm -f "${IPSET_MARKER_BACKUP}"
 		chown "$(nvram get http_username)":root ${TARG_DIR}/*
 		chmod 755 "${AGH_FILE}"
 		chmod 644 "${YAML_FILE}"

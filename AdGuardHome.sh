@@ -925,10 +925,30 @@ IPSet_Collect_Dnsmasq() {
 		/jffs/addons/wireguard/*.conf; do
 		[ -f "${CONFIG}" ] || continue
 		awk '
+			function strip_comment(line,    ch, i, next_ch, quote) {
+				quote = ""
+				for (i = 1; i <= length(line); i++) {
+					ch = substr(line, i, 1)
+					next_ch = substr(line, i + 1, 1)
+					if (quote != "") {
+						if (ch == "\\" && next_ch != "") {
+							i++
+						} else if (ch == quote) {
+							quote = ""
+						}
+					} else if (ch == "\"" || ch == "\047") {
+						quote = ch
+					} else if (ch == "#") {
+						return substr(line, 1, i - 1)
+					}
+				}
+				return line
+			}
 			/^[[:space:]]*#/ { next }
 			/^[[:space:]]*ipset=/ {
-				line = $0
+				line = strip_comment($0)
 				sub(/^[[:space:]]*ipset=/, "", line)
+				sub(/[[:space:]]+$/, "", line)
 				n = split(line, part, "/")
 				if (n < 3 || part[n] == "") next
 				domains = ""
@@ -1019,7 +1039,7 @@ IPSet_Collect_Yaml() {
 			emit(entry)
 			return 1
 		}
-		/^dns:[[:space:]]*(#.*)?$/ { in_dns = 1; child_indent = 0; next }
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(#.*)?$/ { in_dns = 1; child_indent = 0; next }
 		in_dns && /^[^[:space:]]/ { in_dns = in_ipset = 0 }
 		in_dns && /^[[:space:]]*($|#)/ { next }
 		in_dns && !child_indent { child_indent = indentation($0) }
@@ -1118,14 +1138,17 @@ IPSet_Lock_Mkdir_Cleanup() {
 }
 
 IPSet_Migrate() {
-	local CURRENT_FILE TEMP_FILE
+	local CURRENT_FILE TEMP_FILE USER_TEMP_FILE
 	[ -f "${YAML_FILE}" ] || return 0
 	if [ ! -f "${IPSET_USER_FILE}" ]; then
 		TEMP_FILE="${IPSET_USER_FILE}.tmp.$$"
-		IPSet_Collect_Yaml >"${TEMP_FILE}"
+		if ! IPSet_Collect_Yaml >"${TEMP_FILE}"; then
+			rm -f "${TEMP_FILE}"
+			return 1
+		fi
 		CURRENT_FILE="$(awk '
 			function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
-			/^dns:[[:space:]]*(#.*)?$/ { in_dns = 1; next }
+			/^(dns|\047dns\047|"dns"):[[:space:]]*(#.*)?$/ { in_dns = 1; next }
 			in_dns && /^[^[:space:]]/ { exit }
 			in_dns && /^[[:space:]]*($|#)/ { next }
 			in_dns && !child_indent { child_indent = indentation($0) }
@@ -1141,12 +1164,26 @@ IPSet_Migrate() {
 		if [ -n "${CURRENT_FILE}" ] && [ -f "${CURRENT_FILE}" ]; then
 			if [ "$(readlink -f "${CURRENT_FILE}")" != "$(readlink -f "${IPSET_FILE}")" ] ||
 				! grep -qxF '# Managed by Asuswrt-Merlin AdGuardHome Installer.' "${CURRENT_FILE}"; then
-				cat "${CURRENT_FILE}" >>"${TEMP_FILE}"
+				if ! cat "${CURRENT_FILE}" >>"${TEMP_FILE}"; then
+					rm -f "${TEMP_FILE}"
+					return 1
+				fi
 			fi
 		fi
-		awk 'NF && !seen[$0]++' "${TEMP_FILE}" >"${IPSET_USER_FILE}"
+		USER_TEMP_FILE="${IPSET_USER_FILE}.new.$$"
+		if ! awk 'NF && !seen[$0]++' "${TEMP_FILE}" >"${USER_TEMP_FILE}"; then
+			rm -f "${TEMP_FILE}" "${USER_TEMP_FILE}"
+			return 1
+		fi
 		rm -f "${TEMP_FILE}"
-		chmod 644 "${IPSET_USER_FILE}"
+		chmod 644 "${USER_TEMP_FILE}" || {
+			rm -f "${USER_TEMP_FILE}"
+			return 1
+		}
+		mv "${USER_TEMP_FILE}" "${IPSET_USER_FILE}" || {
+			rm -f "${USER_TEMP_FILE}"
+			return 1
+		}
 	fi
 	TEMP_FILE="${YAML_FILE}.ipset.$$"
 	awk -v ipset_file="${IPSET_FILE}" '
@@ -1162,7 +1199,7 @@ IPSet_Migrate() {
 			if (!wrote_file) print prefix "ipset_file: " ipset_file
 			wrote_ipset = wrote_file = 1
 		}
-		/^dns:[[:space:]]*(#.*)?$/ {
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(#.*)?$/ {
 			in_dns = 1
 			found_dns = 1
 			child_indent = 0
