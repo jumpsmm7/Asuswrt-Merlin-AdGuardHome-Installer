@@ -1164,6 +1164,12 @@ cleanup() {
 }
 
 cleanup_legacy_firewall() {
+	if [ -x "${ADDON_DIR}/AdGuardHome.sh" ] && grep -q 'Unload_IPTables' "${ADDON_DIR}/AdGuardHome.sh"; then
+		"${ADDON_DIR}/AdGuardHome.sh" firewall unload 2>/dev/null
+	fi
+	while iptables -t raw -D OUTPUT -j ADGUARDHOME 2>/dev/null; do :; done
+	iptables -t raw -F ADGUARDHOME 2>/dev/null
+	iptables -t raw -X ADGUARDHOME 2>/dev/null
 	del_jffs_script /jffs/scripts/firewall-start
 }
 

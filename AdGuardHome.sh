@@ -750,15 +750,11 @@ service_wait() {
 }
 
 start_adguardhome() {
+	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
+		lower_script stop || return 1
+	fi
 	IPSet_Setup || logger -st "${NAME}" "Warning: unable to refresh AdGuardHome IPSET integration."
-	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
-		0)
-			lower_script start
-			;;
-		*)
-			lower_script restart
-			;;
-	esac
+	lower_script start
 	for db in stats.db sessions.db; do {
 		if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
 			ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1
@@ -949,12 +945,24 @@ IPSet_Collect_Dnsmasq() {
 IPSet_Collect_Yaml() {
 	[ -f "${YAML_FILE}" ] || return 0
 	awk '
+		function emit(line) {
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+			gsub(/^['\''"]|['\''"]$/, "", line)
+			if (line != "") print line
+		}
 		/^  ipset:[[:space:]]*$/ { in_ipset = 1; next }
+		/^  ipset:[[:space:]]*\[[^]]*\][[:space:]]*(#.*)?$/ {
+			line = $0
+			sub(/^  ipset:[[:space:]]*\[/, "", line)
+			sub(/\][[:space:]]*(#.*)?$/, "", line)
+			count = split(line, entries, ",")
+			for (i = 1; i <= count; i++) emit(entries[i])
+			next
+		}
 		in_ipset && /^    -[[:space:]]*/ {
 			line = $0
 			sub(/^    -[[:space:]]*/, "", line)
-			gsub(/^['\''"]|['\''"]$/, "", line)
-			if (line != "") print line
+			emit(line)
 			next
 		}
 		in_ipset { in_ipset = 0 }
@@ -973,10 +981,10 @@ IPSet_Lock_Flock() {
 	local SAVED_TRAPS STATUS
 	SAVED_TRAPS="$(trap)"
 	exec 8>"/tmp/AdGuardHome-ipset.lock" || return 1
-	if ! flock -n 8; then
-		logger -st "${NAME}" "IPSET setup is already running; skipping duplicate run."
+	if ! flock 8; then
+		logger -st "${NAME}" "Unable to acquire flock for IPSET setup."
 		exec 8>&-
-		return 0
+		return 1
 	fi
 	trap 'IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
 	trap 'STATUS="$?"; IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
@@ -1041,7 +1049,7 @@ IPSet_Migrate() {
 		TEMP_FILE="${IPSET_USER_FILE}.tmp.$$"
 		IPSet_Collect_Yaml >"${TEMP_FILE}"
 		CURRENT_FILE="$(awk -F':[[:space:]]*' '/^  ipset_file:/ { value = $2; gsub(/^['\''"]|['\''"]$/, "", value); print value; exit }' "${YAML_FILE}")"
-		if [ -n "${CURRENT_FILE}" ] && [ "${CURRENT_FILE}" != "${IPSET_FILE}" ] && [ -f "${CURRENT_FILE}" ]; then
+		if [ -n "${CURRENT_FILE}" ] && [ -f "${CURRENT_FILE}" ]; then
 			cat "${CURRENT_FILE}" >>"${TEMP_FILE}"
 		fi
 		awk 'NF && !seen[$0]++' "${TEMP_FILE}" >"${IPSET_USER_FILE}"
@@ -1057,7 +1065,9 @@ IPSet_Migrate() {
 		}
 		/^dns:[[:space:]]*$/ { in_dns = 1; found_dns = 1; print; next }
 		in_dns && /^[^[:space:]]/ { add_ipset(); in_dns = 0 }
-		in_dns && /^  ipset:[[:space:]]*/ { if (!wrote_ipset) print "  ipset: []"; wrote_ipset = 1; skip_ipset = 1; next }
+		in_dns && /^  ipset:[[:space:]]*$/ { if (!wrote_ipset) print "  ipset: []"; wrote_ipset = 1; skip_ipset = 1; next }
+		in_dns && /^  ipset:[[:space:]]*\[[^]]*\][[:space:]]*(#.*)?$/ { if (!wrote_ipset) print "  ipset: []"; wrote_ipset = 1; next }
+		in_dns && /^  ipset:[[:space:]]*/ { wrote_ipset = 1; print; next }
 		skip_ipset && /^    -[[:space:]]*/ { next }
 		skip_ipset { skip_ipset = 0 }
 		in_dns && /^  ipset_file:[[:space:]]*/ { if (!wrote_file) print "  ipset_file: " ipset_file; wrote_file = 1; next }
@@ -1073,7 +1083,12 @@ IPSet_Migrate() {
 }
 
 IPSet_Refresh() {
-	IPSet_Lock IPSet_Refresh_Locked "$@"
+	IPSET_REFRESH_CHANGED=""
+	IPSet_Lock IPSet_Refresh_Locked "$@" || return 1
+	if [ "${IPSET_REFRESH_CHANGED}" = "1" ] && [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
+		logger -st "${NAME}" "Restarting AdGuardHome to apply refreshed IPSET compatibility rules."
+		lower_script restart
+	fi
 }
 
 IPSet_Refresh_Locked() {
@@ -1088,6 +1103,7 @@ IPSet_Refresh_Locked() {
 	if ! cmp -s "${IPSET_FILE}" "${TEMP_FILE}"; then
 		mv "${TEMP_FILE}" "${IPSET_FILE}"
 		chmod 644 "${IPSET_FILE}"
+		IPSET_REFRESH_CHANGED="1"
 		logger -st "${NAME}" "Refreshed AdGuardHome IPSET compatibility rules."
 	else
 		rm -f "${TEMP_FILE}"
