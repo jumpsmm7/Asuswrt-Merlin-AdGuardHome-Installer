@@ -6,6 +6,8 @@ MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 IPSET_FILE="/opt/etc/AdGuardHome/ipset.conf"
+IPSET_IMPORT_DIR="/opt/etc/AdGuardHome"
+IPSET_IMPORT_MAX_BYTES="1048576"
 IPSET_USER_FILE="/opt/etc/AdGuardHome/ipset.user"
 YAML_FILE="/opt/etc/AdGuardHome/AdGuardHome.yaml"
 
@@ -1248,6 +1250,44 @@ IPSet_Lock_Mkdir_Cleanup() {
 	[ -n "$1" ] && rm -rf "$1"
 }
 
+IPSet_Import_Allowed() {
+	local CANONICAL_FILE CANONICAL_ROOT FILE_INFO FILE_MODE FILE_OWNER FILE_SIZE GROUP_MODE OTHER_MODE
+	case "$1" in
+		"${IPSET_IMPORT_DIR}/"*) ;;
+		*) return 1 ;;
+	esac
+	[ -f "$1" ] && [ ! -L "$1" ] || return 1
+	CANONICAL_ROOT="$(readlink -f "${IPSET_IMPORT_DIR}")" || return 1
+	CANONICAL_FILE="$(readlink -f "$1")" || return 1
+	case "${CANONICAL_FILE}" in
+		"${CANONICAL_ROOT}/"*) ;;
+		*) return 1 ;;
+	esac
+	FILE_INFO="$(stat -c '%u %a %s' "$1" 2>/dev/null)" || return 1
+	FILE_OWNER="${FILE_INFO%% *}"
+	FILE_INFO="${FILE_INFO#* }"
+	FILE_MODE="${FILE_INFO%% *}"
+	FILE_SIZE="${FILE_INFO#* }"
+	[ "${FILE_OWNER}" = "0" ] || return 1
+	case "${FILE_MODE}" in
+		[0-7][0-7][0-7] | [0-7][0-7][0-7][0-7]) ;;
+		*) return 1 ;;
+	esac
+	case "${FILE_SIZE}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	[ "${FILE_SIZE}" -le "${IPSET_IMPORT_MAX_BYTES}" ] || return 1
+	GROUP_MODE="$(printf '%s\n' "${FILE_MODE}" | awk '{ print substr($0, length($0) - 1, 1) }')"
+	OTHER_MODE="$(printf '%s\n' "${FILE_MODE}" | awk '{ print substr($0, length($0), 1) }')"
+	case "${GROUP_MODE}" in
+		2 | 3 | 6 | 7) return 1 ;;
+	esac
+	case "${OTHER_MODE}" in
+		4 | 5) ;;
+		*) return 1 ;;
+	esac
+}
+
 IPSet_Migrate() {
 	local CURRENT_FILE TEMP_FILE USER_TEMP_FILE
 	[ -f "${YAML_FILE}" ] || return 0
@@ -1311,7 +1351,11 @@ IPSet_Migrate() {
 		rm -f "${TEMP_FILE}"
 		return 1
 	fi
-	if [ -n "${CURRENT_FILE}" ] && [ -f "${CURRENT_FILE}" ]; then
+	if [ -n "${CURRENT_FILE}" ]; then
+		if ! IPSet_Import_Allowed "${CURRENT_FILE}"; then
+			rm -f "${TEMP_FILE}"
+			return 1
+		fi
 		if [ "$(readlink -f "${CURRENT_FILE}")" != "$(readlink -f "${IPSET_FILE}")" ] ||
 			! grep -qxF '# Managed by Asuswrt-Merlin AdGuardHome Installer.' "${CURRENT_FILE}"; then
 			if ! cat "${CURRENT_FILE}" >>"${TEMP_FILE}"; then
