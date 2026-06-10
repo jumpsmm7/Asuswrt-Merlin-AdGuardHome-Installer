@@ -946,7 +946,39 @@ IPSet_Collect_Dnsmasq() {
 IPSet_Collect_Yaml() {
 	[ -f "${YAML_FILE}" ] || return 0
 	awk '
+		function indentation(line,    text) {
+			text = line
+			sub(/[^[:space:]].*$/, "", text)
+			return length(text)
+		}
+		function strip_comment(line,    ch, i, next_ch, previous_ch, quote) {
+			quote = ""
+			for (i = 1; i <= length(line); i++) {
+				ch = substr(line, i, 1)
+				next_ch = substr(line, i + 1, 1)
+				previous_ch = substr(line, i - 1, 1)
+				if (quote == "\"") {
+					if (ch == "\\" && next_ch != "") {
+						i++
+					} else if (ch == quote) {
+						quote = ""
+					}
+				} else if (quote == "\047") {
+					if (ch == quote && next_ch == quote) {
+						i++
+					} else if (ch == quote) {
+						quote = ""
+					}
+				} else if (ch == "\"" || ch == "\047") {
+					quote = ch
+				} else if (ch == "#" && (i == 1 || previous_ch ~ /[[:space:]]/)) {
+					return substr(line, 1, i - 1)
+				}
+			}
+			return line
+		}
 		function emit(line) {
+			line = strip_comment(line)
 			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
 			gsub(/^[\047"]|[\047"]$/, "", line)
 			if (line != "") print line
@@ -987,17 +1019,24 @@ IPSet_Collect_Yaml() {
 			emit(entry)
 			return 1
 		}
-		/^  ipset:[[:space:]]*$/ { in_ipset = 1; next }
-		/^  ipset:[[:space:]]*\[[^]]*\][[:space:]]*(#.*)?$/ {
-			line = $0
-			sub(/^  ipset:[[:space:]]*\[/, "", line)
+		/^dns:[[:space:]]*(#.*)?$/ { in_dns = 1; child_indent = 0; next }
+		in_dns && /^[^[:space:]]/ { in_dns = in_ipset = 0 }
+		in_dns && /^[[:space:]]*($|#)/ { next }
+		in_dns && !child_indent { child_indent = indentation($0) }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^ipset:[[:space:]]*(#.*)?$/ {
+			in_ipset = 1
+			next
+		}
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^ipset:[[:space:]]*\[[^]]*\][[:space:]]*(#.*)?$/ {
+			line = substr($0, child_indent + 1)
+			sub(/^ipset:[[:space:]]*\[/, "", line)
 			sub(/\][[:space:]]*(#.*)?$/, "", line)
 			emit_flow(line)
 			next
 		}
-		in_ipset && /^    -[[:space:]]*/ {
-			line = $0
-			sub(/^    -[[:space:]]*/, "", line)
+		in_ipset && indentation($0) > child_indent && substr($0, indentation($0) + 1) ~ /^-[[:space:]]*/ {
+			line = substr($0, indentation($0) + 1)
+			sub(/^-[[:space:]]*/, "", line)
 			emit(line)
 			next
 		}
@@ -1084,7 +1123,21 @@ IPSet_Migrate() {
 	if [ ! -f "${IPSET_USER_FILE}" ]; then
 		TEMP_FILE="${IPSET_USER_FILE}.tmp.$$"
 		IPSet_Collect_Yaml >"${TEMP_FILE}"
-		CURRENT_FILE="$(awk -F':[[:space:]]*' '/^  ipset_file:/ { value = $2; gsub(/^['\''"]|['\''"]$/, "", value); print value; exit }' "${YAML_FILE}")"
+		CURRENT_FILE="$(awk '
+			function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
+			/^dns:[[:space:]]*(#.*)?$/ { in_dns = 1; next }
+			in_dns && /^[^[:space:]]/ { exit }
+			in_dns && /^[[:space:]]*($|#)/ { next }
+			in_dns && !child_indent { child_indent = indentation($0) }
+			in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^ipset_file:[[:space:]]*/ {
+				value = substr($0, child_indent + 1)
+				sub(/^ipset_file:[[:space:]]*/, "", value)
+				sub(/[[:space:]]+#.*$/, "", value)
+				gsub(/^[\047"]|[\047"]$/, "", value)
+				print value
+				exit
+			}
+		' "${YAML_FILE}")"
 		if [ -n "${CURRENT_FILE}" ] && [ -f "${CURRENT_FILE}" ]; then
 			if [ "$(readlink -f "${CURRENT_FILE}")" != "$(readlink -f "${IPSET_FILE}")" ] ||
 				! grep -qxF '# Managed by Asuswrt-Merlin AdGuardHome Installer.' "${CURRENT_FILE}"; then
@@ -1097,25 +1150,64 @@ IPSet_Migrate() {
 	fi
 	TEMP_FILE="${YAML_FILE}.ipset.$$"
 	awk -v ipset_file="${IPSET_FILE}" '
-		function add_ipset() {
-			if (!wrote_ipset) print "  ipset: []"
-			if (!wrote_file) print "  ipset_file: " ipset_file
+		function indentation(line,    text) {
+			text = line
+			sub(/[^[:space:]].*$/, "", text)
+			return length(text)
+		}
+		function add_ipset(    prefix) {
+			prefix = child_prefix
+			if (prefix == "") prefix = "  "
+			if (!wrote_ipset) print prefix "ipset: []"
+			if (!wrote_file) print prefix "ipset_file: " ipset_file
 			wrote_ipset = wrote_file = 1
 		}
-		/^dns:[[:space:]]*$/ { in_dns = 1; found_dns = 1; print; next }
-		in_dns && /^[^[:space:]]/ { add_ipset(); in_dns = 0 }
-		in_dns && /^  ipset:[[:space:]]*$/ { if (!wrote_ipset) print "  ipset: []"; wrote_ipset = 1; skip_ipset = 1; next }
-		in_dns && /^  ipset:[[:space:]]*\[[^]]*\][[:space:]]*(#.*)?$/ { if (!wrote_ipset) print "  ipset: []"; wrote_ipset = 1; next }
-		in_dns && /^  ipset:[[:space:]]*/ { wrote_ipset = 1; print; next }
-		skip_ipset && /^    -[[:space:]]*/ { next }
+		/^dns:[[:space:]]*(#.*)?$/ {
+			in_dns = 1
+			found_dns = 1
+			child_indent = 0
+			child_prefix = ""
+			print
+			next
+		}
+		in_dns && /^[^[:space:]]/ {
+			add_ipset()
+			in_dns = skip_ipset = 0
+		}
+		in_dns && !child_indent && $0 !~ /^[[:space:]]*($|#)/ {
+			child_indent = indentation($0)
+			child_prefix = substr($0, 1, child_indent)
+		}
+		skip_ipset && ($0 ~ /^[[:space:]]*($|#)/ || indentation($0) > child_indent) { next }
 		skip_ipset { skip_ipset = 0 }
-		in_dns && /^  ipset_file:[[:space:]]*/ { if (!wrote_file) print "  ipset_file: " ipset_file; wrote_file = 1; next }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^ipset:[[:space:]]*(#.*)?$/ {
+			if (!wrote_ipset) print child_prefix "ipset: []"
+			wrote_ipset = 1
+			skip_ipset = 1
+			next
+		}
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^ipset:[[:space:]]*\[[^]]*\][[:space:]]*(#.*)?$/ {
+			if (!wrote_ipset) print child_prefix "ipset: []"
+			wrote_ipset = 1
+			next
+		}
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^ipset:[[:space:]]*/ {
+			wrote_ipset = 1
+			print
+			next
+		}
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^ipset_file:[[:space:]]*/ {
+			if (!wrote_file) print child_prefix "ipset_file: " ipset_file
+			wrote_file = 1
+			next
+		}
 		{ print }
 		END { if (in_dns) add_ipset() }
 	' "${YAML_FILE}" >"${TEMP_FILE}" || {
 		rm -f "${TEMP_FILE}"
 		return 1
 	}
+
 	if ! cmp -s "${YAML_FILE}" "${TEMP_FILE}"; then
 		mv "${TEMP_FILE}" "${YAML_FILE}"
 		chmod 644 "${YAML_FILE}"

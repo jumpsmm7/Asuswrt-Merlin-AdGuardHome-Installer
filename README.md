@@ -225,8 +225,8 @@ The collector imports mappings only. It does not execute another add-on, copy it
 
 On the first setup run, when `ipset.user` does not yet exist, the installer:
 
-1. Copies existing multiline `dns.ipset` list entries from `AdGuardHome.yaml`.
-2. Copies rules from the previously configured `dns.ipset_file` when that path exists and differs from the managed `ipset.conf` path.
+1. Copies existing block-style or flow-style `dns.ipset` list entries from `AdGuardHome.yaml`, removing YAML comments outside quoted values.
+2. Copies rules from the previously configured `dns.ipset_file` when that path exists, including an existing unmanaged file at the managed `ipset.conf` path.
 3. Removes empty and exact duplicate entries and writes the result to `ipset.user`.
 4. Replaces the YAML's inline `dns.ipset` list with `ipset: []` and sets `dns.ipset_file` to `/opt/etc/AdGuardHome/ipset.conf`.
 5. Generates `ipset.conf` from `ipset.user` plus all detected compatible dnsmasq directives.
@@ -246,19 +246,19 @@ To apply changes after editing `ipset.user`, restart AdGuardHome so the generate
 service restart_AdGuardHome
 ```
 
-To regenerate only `ipset.conf` without restarting AdGuardHome, run:
+To regenerate `ipset.conf` manually, run:
 
 ```sh
 /jffs/addons/AdGuardHome.d/AdGuardHome.sh firewall
 ```
 
-A refresh writes a temporary file, removes empty and exact duplicate lines, and replaces `ipset.conf` only when its content changed.
+A refresh writes a temporary file, removes empty and exact duplicate lines, and replaces `ipset.conf` only when its content changed. If AdGuardHome is running and the generated file changes, the command restarts AdGuardHome so the updated IPSET rules take effect; unchanged output does not trigger a restart.
 
 ### Locking and recovery
 
 Concurrent setup and refresh events are serialized to prevent multiple writers from replacing the YAML or generated rule file at the same time:
 
-- Firmware with working file-descriptor locking uses nonblocking `flock` on `/tmp/AdGuardHome-ipset.lock`. A duplicate invocation logs that setup is already running and exits without starting another writer.
+- Firmware with working file-descriptor locking waits on `flock` for `/tmp/AdGuardHome-ipset.lock`, so a concurrent invocation runs after the active writer finishes.
 - Older firmware falls back to `/tmp/AdGuardHome-ipset/`, records the owner PID, waits up to 30 seconds, and removes a stale lock when its owner no longer exists.
 - Both lock paths save the caller's current traps, install temporary cleanup traps for `EXIT`, `HUP`, `INT`, `QUIT`, `ABRT`, `TERM`, and `TSTP`, and restore the previous trap environment before returning. This prevents IPSET cleanup from replacing the manager's monitor or exit handlers.
 
