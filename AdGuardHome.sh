@@ -462,6 +462,7 @@ dnsmasq_params() {
 	if { ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then {
 		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
 	}; fi
+	IPSET_REFRESH_FROM_DNSMASQ="1"
 	IPSet_Refresh "${CONFIG}"
 }
 
@@ -947,16 +948,51 @@ IPSet_Collect_Yaml() {
 	awk '
 		function emit(line) {
 			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
-			gsub(/^['\''"]|['\''"]$/, "", line)
+			gsub(/^[\047"]|[\047"]$/, "", line)
 			if (line != "") print line
+		}
+		function emit_flow(line,    ch, entry, i, next_ch, quote) {
+			entry = ""
+			quote = ""
+			for (i = 1; i <= length(line); i++) {
+				ch = substr(line, i, 1)
+				next_ch = substr(line, i + 1, 1)
+				if (quote == "\"") {
+					entry = entry ch
+					if (ch == "\\" && next_ch != "") {
+						entry = entry next_ch
+						i++
+					} else if (ch == quote) {
+						quote = ""
+					}
+				} else if (quote == "\047") {
+					entry = entry ch
+					if (ch == quote && next_ch == quote) {
+						entry = entry next_ch
+						i++
+					} else if (ch == quote) {
+						quote = ""
+					}
+				} else if (ch == "\"" || ch == "\047") {
+					quote = ch
+					entry = entry ch
+				} else if (ch == ",") {
+					emit(entry)
+					entry = ""
+				} else {
+					entry = entry ch
+				}
+			}
+			if (quote != "") return 0
+			emit(entry)
+			return 1
 		}
 		/^  ipset:[[:space:]]*$/ { in_ipset = 1; next }
 		/^  ipset:[[:space:]]*\[[^]]*\][[:space:]]*(#.*)?$/ {
 			line = $0
 			sub(/^  ipset:[[:space:]]*\[/, "", line)
 			sub(/\][[:space:]]*(#.*)?$/, "", line)
-			count = split(line, entries, ",")
-			for (i = 1; i <= count; i++) emit(entries[i])
+			emit_flow(line)
 			next
 		}
 		in_ipset && /^    -[[:space:]]*/ {
@@ -1050,7 +1086,10 @@ IPSet_Migrate() {
 		IPSet_Collect_Yaml >"${TEMP_FILE}"
 		CURRENT_FILE="$(awk -F':[[:space:]]*' '/^  ipset_file:/ { value = $2; gsub(/^['\''"]|['\''"]$/, "", value); print value; exit }' "${YAML_FILE}")"
 		if [ -n "${CURRENT_FILE}" ] && [ -f "${CURRENT_FILE}" ]; then
-			cat "${CURRENT_FILE}" >>"${TEMP_FILE}"
+			if [ "$(readlink -f "${CURRENT_FILE}")" != "$(readlink -f "${IPSET_FILE}")" ] || \
+				! grep -qxF '# Managed by Asuswrt-Merlin AdGuardHome Installer.' "${CURRENT_FILE}"; then
+				cat "${CURRENT_FILE}" >>"${TEMP_FILE}"
+			fi
 		fi
 		awk 'NF && !seen[$0]++' "${TEMP_FILE}" >"${IPSET_USER_FILE}"
 		rm -f "${TEMP_FILE}"
@@ -1083,11 +1122,18 @@ IPSet_Migrate() {
 }
 
 IPSet_Refresh() {
+	local RESTART_STATUS
 	IPSET_REFRESH_CHANGED=""
 	IPSet_Lock IPSet_Refresh_Locked "$@" || return 1
 	if [ "${IPSET_REFRESH_CHANGED}" = "1" ] && [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
 		logger -st "${NAME}" "Restarting AdGuardHome to apply refreshed IPSET compatibility rules."
+		if [ "${IPSET_REFRESH_FROM_DNSMASQ:-}" = "1" ]; then
+			ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
+		fi
 		lower_script restart
+		RESTART_STATUS="$?"
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART=""
+		return "${RESTART_STATUS}"
 	fi
 }
 
