@@ -1250,17 +1250,8 @@ IPSet_Lock_Mkdir_Cleanup() {
 
 IPSet_Migrate() {
 	local CURRENT_FILE TEMP_FILE USER_TEMP_FILE
+	IPSET_MIGRATION_SKIPPED=""
 	[ -f "${YAML_FILE}" ] || return 0
-	TEMP_FILE="${IPSET_USER_FILE}.tmp.$$"
-	: >"${TEMP_FILE}" || return 1
-	if [ -f "${IPSET_USER_FILE}" ] && ! cat "${IPSET_USER_FILE}" >>"${TEMP_FILE}"; then
-		rm -f "${TEMP_FILE}"
-		return 1
-	fi
-	if ! IPSet_Collect_Yaml >>"${TEMP_FILE}"; then
-		rm -f "${TEMP_FILE}"
-		return 1
-	fi
 	if ! CURRENT_FILE="$(awk '
 		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
 		function scalar(value,    ch, decoded, i, next_ch, quote, rest) {
@@ -1308,11 +1299,20 @@ IPSet_Migrate() {
 			exit
 		}
 	' "${YAML_FILE}")"; then
-		rm -f "${TEMP_FILE}"
 		return 1
 	fi
 	if [ -n "${CURRENT_FILE}" ] && [ "${CURRENT_FILE}" != "${IPSET_FILE}" ]; then
-		logger -st "${NAME}" "Refusing to import unmanaged IPSET file: ${CURRENT_FILE}"
+		logger -st "${NAME}" "Skipping managed IPSET integration for existing file: ${CURRENT_FILE}"
+		IPSET_MIGRATION_SKIPPED="1"
+		return 0
+	fi
+	TEMP_FILE="${IPSET_USER_FILE}.tmp.$$"
+	: >"${TEMP_FILE}" || return 1
+	if [ -f "${IPSET_USER_FILE}" ] && ! cat "${IPSET_USER_FILE}" >>"${TEMP_FILE}"; then
+		rm -f "${TEMP_FILE}"
+		return 1
+	fi
+	if ! IPSet_Collect_Yaml >>"${TEMP_FILE}"; then
 		rm -f "${TEMP_FILE}"
 		return 1
 	fi
@@ -1544,6 +1544,7 @@ IPSet_Setup() {
 
 IPSet_Setup_Locked() {
 	IPSet_Migrate || return 1
+	[ "${IPSET_MIGRATION_SKIPPED}" = "1" ] && return 0
 	IPSet_Refresh_Locked
 }
 

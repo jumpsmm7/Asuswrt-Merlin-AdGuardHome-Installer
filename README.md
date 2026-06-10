@@ -224,15 +224,12 @@ The collector imports mappings only. It does not execute another add-on, copy it
 
 ### Migration and refresh behavior
 
-On the first setup run, when `ipset.user` does not yet exist, the installer:
+On each setup run, the installer checks whether it already owns the YAML IPSET configuration:
 
-1. Copies existing block-style or flow-style `dns.ipset` list entries from `AdGuardHome.yaml`, removing YAML comments outside quoted values.
-2. Copies rules from the previously configured `dns.ipset_file` when that path exists, including an existing unmanaged file at the managed `ipset.conf` path.
-3. Removes empty and exact duplicate entries and writes the result to `ipset.user`.
-4. Replaces the YAML's inline `dns.ipset` list with `ipset: []` and sets `dns.ipset_file` to `/opt/etc/AdGuardHome/ipset.conf`.
-5. Generates `ipset.conf` from `ipset.user` plus all detected compatible dnsmasq directives.
+- If `dns.ipset_file` is empty or points to `/opt/etc/AdGuardHome/ipset.conf`, supported inline `dns.ipset` entries are merged into `ipset.user`, exact duplicates and empty lines are removed, and the YAML is normalized to the managed settings shown above. Existing `ipset.user` rules are preserved.
+- If `dns.ipset_file` points anywhere else, the installer leaves the YAML and external file untouched, skips its managed IPSET migration and refresh for that run, and allows AdGuardHome to use the existing configuration. To opt in to managed integration, copy persistent mappings from the external file into `ipset.user`, clear `dns.ipset_file` while AdGuardHome is stopped, and restart AdGuardHome.
 
-Migration is intentionally one-time. After `ipset.user` exists, it is treated as user-owned and is not overwritten by later setup runs. Delete it only if you intentionally want the next setup run to repeat migration from the current YAML and external file.
+The installer never reads or imports a YAML-selected external file with elevated privileges. Once managed integration is active, it generates `ipset.conf` from `ipset.user` plus all detected compatible dnsmasq directives.
 
 Refreshes occur at these points:
 
