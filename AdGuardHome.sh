@@ -1009,25 +1009,34 @@ IPSet_Collect_Yaml() {
 			}
 			return line
 		}
-		function decode_double(line,    ch, decoded, i, next_ch) {
+		function decode_quoted(value, quote,    ch, decoded, i, next_ch, rest) {
 			decoded = ""
-			decode_ok = 1
-			for (i = 1; i <= length(line); i++) {
-				ch = substr(line, i, 1)
-				if (ch != "\\") {
-					decoded = decoded ch
-					continue
-				}
-				next_ch = substr(line, i + 1, 1)
-				if (next_ch == "\"" || next_ch == "\\" || next_ch == "/" || next_ch == " ") {
-					decoded = decoded next_ch
-					i++
-				} else {
-					decode_ok = 0
+			decode_ok = 0
+			for (i = 2; i <= length(value); i++) {
+				ch = substr(value, i, 1)
+				next_ch = substr(value, i + 1, 1)
+				if (quote == "\"" && ch == "\\") {
+					if (next_ch == "\"" || next_ch == "\\" || next_ch == "/" || next_ch == " ") {
+						decoded = decoded next_ch
+						i++
+						continue
+					}
 					return ""
 				}
+				if (quote == "\047" && ch == quote && next_ch == quote) {
+					decoded = decoded quote
+					i++
+					continue
+				}
+				if (ch == quote) {
+					rest = substr(value, i + 1)
+					if (rest !~ /^[[:space:]]*(#.*)?$/) return ""
+					decode_ok = 1
+					return decoded
+				}
+				decoded = decoded ch
 			}
-			return decoded
+			return ""
 		}
 		function plain_is_typed(value) {
 			if (value ~ /^(~|null|Null|NULL|true|True|TRUE|false|False|FALSE)$/) return 1
@@ -1036,21 +1045,15 @@ IPSet_Collect_Yaml() {
 			if (value ~ /^[-+]?(\.inf|\.Inf|\.INF)$/ || value ~ /^(\.nan|\.NaN|\.NAN)$/) return 1
 			return 0
 		}
-		function emit(line,    first, last, quoted) {
+		function emit(line,    first, quoted) {
 			line = strip_comment(line)
 			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
 			first = substr(line, 1, 1)
-			last = substr(line, length(line), 1)
 			quoted = first == "\"" || first == "\047"
 			if (first ~ /^[&*!]$/) exit 1
-			if (first == "\"") {
-				if (last != first) exit 1
-				line = decode_double(substr(line, 2, length(line) - 2))
+			if (quoted) {
+				line = decode_quoted(line, first)
 				if (!decode_ok) exit 1
-			} else if (first == "\047") {
-				if (last != first) exit 1
-				line = substr(line, 2, length(line) - 2)
-				gsub(/\047\047/, "\047", line)
 			}
 			if (quoted && line == "") exit 1
 			if (!quoted && plain_is_typed(line)) exit 1
