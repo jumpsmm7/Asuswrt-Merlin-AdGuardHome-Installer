@@ -1045,6 +1045,13 @@ IPSet_Collect_Yaml() {
 			if (value ~ /^[-+]?(\.inf|\.Inf|\.INF)$/ || value ~ /^(\.nan|\.NaN|\.NAN)$/) return 1
 			return 0
 		}
+		function plain_is_collection(value,    first) {
+			first = substr(value, 1, 1)
+			if (first == "{" || first == "[" || first == "?") return 1
+			if (value ~ /^-([[:space:]]|$)/) return 1
+			if (value ~ /:([[:space:]]|$)/) return 1
+			return 0
+		}
 		function emit(line,    first, quoted) {
 			line = strip_comment(line)
 			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
@@ -1056,7 +1063,7 @@ IPSet_Collect_Yaml() {
 				if (!decode_ok) exit 1
 			}
 			if (quoted && line == "") exit 1
-			if (!quoted && plain_is_typed(line)) exit 1
+			if (!quoted && (plain_is_typed(line) || plain_is_collection(line))) exit 1
 			if (line != "") print line
 		}
 		function flow_reset() {
