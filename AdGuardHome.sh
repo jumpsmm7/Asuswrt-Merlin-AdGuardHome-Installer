@@ -1050,6 +1050,9 @@ IPSet_Collect_Yaml() {
 			flow_entry = ""
 			flow_quote = ""
 			flow_escaped_break = 0
+			flow_has_entry = 0
+			flow_entry_count = 0
+			flow_after_comma = 0
 		}
 		function flow_consume(line,    ch, i, next_ch, previous_ch, rest) {
 			sub(/^[[:space:]]+/, "", line)
@@ -1081,19 +1084,30 @@ IPSet_Collect_Yaml() {
 				} else if (ch == "\"" || ch == "\047") {
 					flow_quote = ch
 					flow_entry = flow_entry ch
+					flow_has_entry = 1
 				} else if (ch == "#" && (i == 1 || previous_ch ~ /[[:space:]]/)) {
 					return 0
 				} else if (ch == ",") {
+					if (!flow_has_entry) exit 1
 					emit(flow_entry)
 					flow_entry = ""
+					flow_has_entry = 0
+					flow_entry_count++
+					flow_after_comma = 1
 				} else if (ch == "]") {
 					rest = substr(line, i + 1)
 					if (rest !~ /^[[:space:]]*(#.*)?$/) exit 1
-					emit(flow_entry)
+					if (flow_has_entry) {
+						emit(flow_entry)
+						flow_entry_count++
+					} else if (flow_after_comma && flow_entry_count == 0) {
+						exit 1
+					}
 					flow_entry = ""
 					return 1
 				} else {
 					flow_entry = flow_entry ch
+					if (ch !~ /[[:space:]]/) flow_has_entry = 1
 				}
 			}
 			if (!flow_escaped_break) {
@@ -1307,7 +1321,12 @@ IPSet_Migrate() {
 			sub(/[^[:space:]].*$/, "", text)
 			return length(text)
 		}
-		function flow_reset() { flow_quote = "" }
+		function flow_reset() {
+			flow_quote = ""
+			flow_has_entry = 0
+			flow_entry_count = 0
+			flow_after_comma = 0
+		}
 		function flow_closed(line,    ch, i, next_ch, previous_ch, rest) {
 			for (i = 1; i <= length(line); i++) {
 				ch = substr(line, i, 1)
@@ -1321,12 +1340,22 @@ IPSet_Migrate() {
 					else if (ch == flow_quote) flow_quote = ""
 				} else if (ch == "\"" || ch == "\047") {
 					flow_quote = ch
+					flow_has_entry = 1
 				} else if (ch == "#" && (i == 1 || previous_ch ~ /[[:space:]]/)) {
 					return 0
+				} else if (ch == ",") {
+					if (!flow_has_entry) exit 1
+					flow_has_entry = 0
+					flow_entry_count++
+					flow_after_comma = 1
 				} else if (ch == "]") {
 					rest = substr(line, i + 1)
 					if (rest !~ /^[[:space:]]*(#.*)?$/) exit 1
+					if (flow_has_entry) flow_entry_count++
+					else if (flow_after_comma && flow_entry_count == 0) exit 1
 					return 1
+				} else if (ch !~ /[[:space:]]/) {
+					flow_has_entry = 1
 				}
 			}
 			return 0
