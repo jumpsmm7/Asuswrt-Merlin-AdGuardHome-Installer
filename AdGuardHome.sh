@@ -1120,7 +1120,7 @@ IPSet_Collect_Yaml() {
 		}
 		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*(~|null|Null|NULL)[[:space:]]*(#.*)?$/ { next }
 		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*/ { exit 1 }
-		in_ipset && indentation($0) > child_indent && substr($0, indentation($0) + 1) ~ /^-[[:space:]]*/ {
+		in_ipset && indentation($0) >= child_indent && substr($0, indentation($0) + 1) ~ /^-([[:space:]]|$)/ {
 			line = substr($0, indentation($0) + 1)
 			sub(/^-[[:space:]]*/, "", line)
 			emit(line)
@@ -1349,7 +1349,7 @@ IPSet_Migrate() {
 			child_indent = indentation($0)
 			child_prefix = substr($0, 1, child_indent)
 		}
-		skip_ipset && ($0 ~ /^[[:space:]]*($|#)/ || indentation($0) > child_indent) { next }
+		skip_ipset && ($0 ~ /^[[:space:]]*($|#)/ || indentation($0) > child_indent || (indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^-([[:space:]]|$)/)) { next }
 		skip_ipset { skip_ipset = 0 }
 		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*(#.*)?$/ {
 			if (!wrote_ipset) print child_prefix "ipset: []"
