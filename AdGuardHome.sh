@@ -5,9 +5,6 @@ CONF_FILE="/opt/etc/AdGuardHome/.config"
 MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
-IPSET_FILE="/opt/etc/AdGuardHome/ipset.conf"
-IPSET_USER_FILE="/opt/etc/AdGuardHome/ipset.user"
-YAML_FILE="/opt/etc/AdGuardHome/AdGuardHome.yaml"
 
 NAME="$(basename "$0")[$$]"
 
@@ -344,6 +341,7 @@ check_dns_environment() {
 				NVCHECK="$((NVCHECK + 1))"
 			fi
 			if dns_env_apply_profile; then NVCHECK="$((NVCHECK + 1))"; fi
+			# Refresh_IPTables
 			;;
 		stop)
 			# Do not restore if we never saved anything.
@@ -351,6 +349,7 @@ check_dns_environment() {
 				return 0
 			fi
 			if dns_env_restore_profile; then NVCHECK="$((NVCHECK + 1))"; fi
+			# Unload_IPTables
 			;;
 		*)
 			logger -st "${NAME:-dns-manager}" "Invalid DNS environment mode: ${MODE}"
@@ -462,7 +461,6 @@ dnsmasq_params() {
 	if { ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then {
 		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
 	}; fi
-	IPSet_Refresh "${CONFIG}"
 }
 
 interface_ipv4_addr() {
@@ -750,7 +748,6 @@ service_wait() {
 }
 
 start_adguardhome() {
-	IPSet_Setup || logger -st "${NAME}" "Warning: unable to refresh AdGuardHome IPSET integration."
 	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 		0)
 			lower_script start
@@ -867,6 +864,7 @@ stop_adguardhome() {
 			lower_script stop || lower_script kill
 			;;
 	esac
+	# Unload_IPTables
 	service restart_dnsmasq >/dev/null 2>&1
 	for db in stats.db sessions.db; do {
 		if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
@@ -915,96 +913,80 @@ timezone() {
 	fi
 }
 
-# IPSET integration helpers
+# IP Table Directives
+Firewall_Interface() {
+	local IFACE UNIT
+	IFACE="$1"
+	if [ -z "${IFACE}" ] && have_cmd ip; then
+		IFACE="$(ip route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')"
+	fi
+	if [ -z "${IFACE}" ]; then
+		UNIT="$(nvram get wan_primary 2>/dev/null)"
+		case "${UNIT}" in
+			0 | 1) ;;
+			*)
+				if [ "$(nvram get wan1_primary 2>/dev/null)" = "1" ]; then UNIT="1"; else UNIT="0"; fi
+				;;
+		esac
+		IFACE="$(nvram get "wan${UNIT}_gw_ifname" 2>/dev/null)"
+		[ -z "${IFACE}" ] && IFACE="$(nvram get "wan${UNIT}_pppoe_ifname" 2>/dev/null)"
+		[ -z "${IFACE}" ] && IFACE="$(nvram get "wan${UNIT}_ifname" 2>/dev/null)"
+	fi
+	[ -n "${IFACE}" ] || return 1
+	printf '%s\n' "${IFACE}"
+}
 
-IPSet_Collect_Dnsmasq() {
-	local CONFIG
-	for CONFIG in "$@" \
-		/etc/dnsmasq.conf \
-		/jffs/configs/dnsmasq.conf.add \
-		/jffs/configs/dnsmasq.d/*.conf \
-		/jffs/addons/x3mRouting/*.conf \
-		/jffs/configs/domain_vpn_routing/*.conf \
-		/jffs/addons/wireguard/*.conf; do
-		[ -f "${CONFIG}" ] || continue
-		awk '
-			/^[[:space:]]*#/ { next }
-			/^[[:space:]]*ipset=/ {
-				line = $0
-				sub(/^[[:space:]]*ipset=/, "", line)
-				n = split(line, part, "/")
-				if (n < 3 || part[n] == "") next
-				domains = ""
-				for (i = 2; i < n; i++) {
-					if (part[i] == "") continue
-					if (domains != "") domains = domains ","
-					domains = domains part[i]
-				}
-				if (domains != "") print domains "/" part[n]
-			}
-		' "${CONFIG}"
+Firewall_Legacy_Unload() {
+	local IFACE PROTO UNIT
+	for UNIT in 0 1; do
+		for IFACE in \
+			"$(nvram get "wan${UNIT}_gw_ifname" 2>/dev/null)" \
+			"$(nvram get "wan${UNIT}_pppoe_ifname" 2>/dev/null)" \
+			"$(nvram get "wan${UNIT}_ifname" 2>/dev/null)" \
+			"ppp${UNIT}"; do
+			[ -n "${IFACE}" ] || continue
+			for PROTO in udp tcp; do
+				while iptables -t raw -D OUTPUT -o "${IFACE}" -p "${PROTO}" -m multiport --dports 53,123 -j ACCEPT 2>/dev/null; do :; done
+			done
+		done
 	done
 }
 
-IPSet_Collect_Yaml() {
-	[ -f "${YAML_FILE}" ] || return 0
-	awk '
-		/^  ipset:[[:space:]]*$/ { in_ipset = 1; next }
-		in_ipset && /^    -[[:space:]]*/ {
-			line = $0
-			sub(/^    -[[:space:]]*/, "", line)
-			gsub(/^['\''"]|['\''"]$/, "", line)
-			if (line != "") print line
-			next
-		}
-		in_ipset { in_ipset = 0 }
-	' "${YAML_FILE}"
-}
-
-IPSet_Lock() {
+Firewall_Lock() {
 	if have_cmd flock && flock_supports_fd; then
-		IPSet_Lock_Flock "$@"
+		Firewall_Lock_Flock "$@"
 	else
-		IPSet_Lock_Mkdir "$@"
+		Firewall_Lock_Mkdir "$@"
 	fi
 }
 
-IPSet_Lock_Flock() {
-	local SAVED_TRAPS STATUS
-	SAVED_TRAPS="$(trap)"
-	exec 8>"/tmp/AdGuardHome-ipset.lock" || return 1
-	if ! flock -n 8; then
-		logger -st "${NAME}" "IPSET setup is already running; skipping duplicate run."
-		exec 8>&-
-		return 0
-	fi
-	trap 'IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
-	trap 'STATUS="$?"; IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
-	"$@"
+Firewall_Lock_Flock() {
+	local ACTION LOCK_FILE STATUS
+	ACTION="$1"
+	shift
+	LOCK_FILE="/tmp/AdGuardHome-firewall.lock"
+	(
+		exec 8>"${LOCK_FILE}" || exit 1
+		if ! flock 8; then
+			logger -st "${NAME}" "Unable to acquire flock to ${ACTION} firewall rules."
+			exit 1
+		fi
+		"$@"
+	)
 	STATUS="$?"
-	IPSet_Lock_Flock_Cleanup
-	IPSet_Restore_Traps "${SAVED_TRAPS}"
 	return "${STATUS}"
 }
 
-IPSet_Lock_Flock_Cleanup() {
-	flock -u 8 >/dev/null 2>&1
-	exec 8>&-
-}
-
-IPSet_Lock_Mkdir() {
-	local ATTEMPTS LOCK_DIR OWNER SAVED_TRAPS STATUS
-	LOCK_DIR="/tmp/AdGuardHome-ipset"
+Firewall_Lock_Mkdir() {
+	local ACTION ATTEMPTS LOCK_DIR OWNER
+	ACTION="$1"
+	shift
+	LOCK_DIR="/tmp/AdGuardHome-firewall"
 	ATTEMPTS="0"
 	while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
 		OWNER="$(sed -n '1p' "${LOCK_DIR}/pid" 2>/dev/null)"
 		case "${OWNER}" in
-			"" | *[!0-9]*)
-				if [ "${ATTEMPTS}" -gt 0 ]; then
-					rm -rf "${LOCK_DIR}"
-					continue
-				fi
-				;;
+			"" | *[!0-9]*) ;;
 			*)
 				if ! kill -0 "${OWNER}" 2>/dev/null; then
 					rm -rf "${LOCK_DIR}"
@@ -1014,101 +996,51 @@ IPSet_Lock_Mkdir() {
 		esac
 		ATTEMPTS="$((ATTEMPTS + 1))"
 		if [ "${ATTEMPTS}" -ge 30 ]; then
-			logger -st "${NAME}" "Unable to acquire legacy mkdir lock for IPSET setup."
+			logger -st "${NAME}" "Unable to acquire legacy mkdir lock to ${ACTION} firewall rules."
 			return 1
 		fi
 		sleep 1
 	done
-	printf '%s\n' "$$" >"${LOCK_DIR}/pid"
-	SAVED_TRAPS="$(trap)"
-	trap 'IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
-	trap 'STATUS="$?"; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
-	"$@"
-	STATUS="$?"
-	IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"
-	IPSet_Restore_Traps "${SAVED_TRAPS}"
-	return "${STATUS}"
+	(
+		trap 'rm -rf "${LOCK_DIR}"; exit $?' EXIT HUP INT QUIT ABRT TERM TSTP
+		printf '%s\n' "$$" >"${LOCK_DIR}/pid"
+		"$@"
+	)
 }
 
-IPSet_Lock_Mkdir_Cleanup() {
-	[ -n "$1" ] && rm -rf "$1"
+Firewall_Service_Active() {
+	[ -n "${MON_PID}" ] || [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]
 }
 
-IPSet_Migrate() {
-	local CURRENT_FILE TEMP_FILE
-	[ -f "${YAML_FILE}" ] || return 0
-	if [ ! -f "${IPSET_USER_FILE}" ]; then
-		TEMP_FILE="${IPSET_USER_FILE}.tmp.$$"
-		IPSet_Collect_Yaml >"${TEMP_FILE}"
-		CURRENT_FILE="$(awk -F':[[:space:]]*' '/^  ipset_file:/ { value = $2; gsub(/^['\''"]|['\''"]$/, "", value); print value; exit }' "${YAML_FILE}")"
-		if [ -n "${CURRENT_FILE}" ] && [ "${CURRENT_FILE}" != "${IPSET_FILE}" ] && [ -f "${CURRENT_FILE}" ]; then
-			cat "${CURRENT_FILE}" >>"${TEMP_FILE}"
-		fi
-		awk 'NF && !seen[$0]++' "${TEMP_FILE}" >"${IPSET_USER_FILE}"
-		rm -f "${TEMP_FILE}"
-		chmod 644 "${IPSET_USER_FILE}"
-	fi
-	TEMP_FILE="${YAML_FILE}.ipset.$$"
-	awk -v ipset_file="${IPSET_FILE}" '
-		function add_ipset() {
-			if (!wrote_ipset) print "  ipset: []"
-			if (!wrote_file) print "  ipset_file: " ipset_file
-			wrote_ipset = wrote_file = 1
-		}
-		/^dns:[[:space:]]*$/ { in_dns = 1; found_dns = 1; print; next }
-		in_dns && /^[^[:space:]]/ { add_ipset(); in_dns = 0 }
-		in_dns && /^  ipset:[[:space:]]*/ { if (!wrote_ipset) print "  ipset: []"; wrote_ipset = 1; skip_ipset = 1; next }
-		skip_ipset && /^    -[[:space:]]*/ { next }
-		skip_ipset { skip_ipset = 0 }
-		in_dns && /^  ipset_file:[[:space:]]*/ { if (!wrote_file) print "  ipset_file: " ipset_file; wrote_file = 1; next }
-		{ print }
-		END { if (in_dns) add_ipset() }
-	' "${YAML_FILE}" >"${TEMP_FILE}" || { rm -f "${TEMP_FILE}"; return 1; }
-	if ! cmp -s "${YAML_FILE}" "${TEMP_FILE}"; then
-		mv "${TEMP_FILE}" "${YAML_FILE}"
-		chmod 644 "${YAML_FILE}"
-	else
-		rm -f "${TEMP_FILE}"
-	fi
+Load_IPTables() {
+	local IFACE
+	[ -x "/jffs/scripts/firewall" ] || return 0
+	IFACE="$(Firewall_Interface "$1")" || return 1
+	iptables -t raw -N ADGUARDHOME 2>/dev/null || iptables -t raw -F ADGUARDHOME 2>/dev/null || return 1
+	while iptables -t raw -D OUTPUT -j ADGUARDHOME 2>/dev/null; do :; done
+	iptables -t raw -A ADGUARDHOME -o "${IFACE}" -p udp -m multiport --dports 53,123 -j ACCEPT 2>/dev/null || return 1
+	iptables -t raw -A ADGUARDHOME -o "${IFACE}" -p tcp -m multiport --dports 53,123 -j ACCEPT 2>/dev/null || return 1
+	iptables -t raw -I OUTPUT -j ADGUARDHOME 2>/dev/null
 }
 
-IPSet_Refresh() {
-	IPSet_Lock IPSet_Refresh_Locked "$@"
+Refresh_IPTables() {
+	Firewall_Lock refresh Refresh_IPTables_Locked "$1"
 }
 
-IPSet_Refresh_Locked() {
-	local TEMP_FILE
-	TEMP_FILE="${IPSET_FILE}.tmp.$$"
-	{
-		printf '%s\n' '# Managed by Asuswrt-Merlin AdGuardHome Installer.'
-		printf '%s\n' '# Put persistent custom rules in ipset.user.'
-		[ -f "${IPSET_USER_FILE}" ] && cat "${IPSET_USER_FILE}"
-		IPSet_Collect_Dnsmasq "$@"
-	} | awk 'NF && !seen[$0]++' >"${TEMP_FILE}" || { rm -f "${TEMP_FILE}"; return 1; }
-	if ! cmp -s "${IPSET_FILE}" "${TEMP_FILE}"; then
-		mv "${TEMP_FILE}" "${IPSET_FILE}"
-		chmod 644 "${IPSET_FILE}"
-		logger -st "${NAME}" "Refreshed AdGuardHome IPSET compatibility rules."
-	else
-		rm -f "${TEMP_FILE}"
-	fi
+Refresh_IPTables_Locked() {
+	Unload_IPTables_Locked
+	Load_IPTables "$1"
 }
 
-IPSet_Restore_Traps() {
-	local SAVED_TRAPS
-	SAVED_TRAPS="$1"
-	trap - EXIT HUP INT QUIT ABRT TERM TSTP
-	[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
-	return 0
+Unload_IPTables() {
+	Firewall_Lock unload Unload_IPTables_Locked
 }
 
-IPSet_Setup() {
-	IPSet_Lock IPSet_Setup_Locked "$@"
-}
-
-IPSet_Setup_Locked() {
-	IPSet_Migrate || return 1
-	IPSet_Refresh_Locked "$@"
+Unload_IPTables_Locked() {
+	Firewall_Legacy_Unload
+	while iptables -t raw -D OUTPUT -j ADGUARDHOME 2>/dev/null; do :; done
+	iptables -t raw -F ADGUARDHOME 2>/dev/null
+	iptables -t raw -X ADGUARDHOME 2>/dev/null
 }
 
 if [ -f "${UPPER_SCRIPT}" ]; then UPPER_SCRIPT_LOC=". ${UPPER_SCRIPT}"; fi
@@ -1138,9 +1070,16 @@ case "$1" in
 	"dnsmasq" | "dnsmasq-sdn")
 		if [ -n "${2}" ]; then { dnsmasq_params "${2}"; }; else { dnsmasq_params; }; fi
 		;;
-	"firewall")
-		IPSet_Refresh
-		;;
+		#	"firewall")
+		#		case "${2:-}" in
+		#			"unload")
+		#				Unload_IPTables
+		#				;;
+		#			*)
+		#				if { Firewall_Service_Active; }; then { Refresh_IPTables "${2:-}"; }; else { Unload_IPTables; }; fi
+		#				;;
+		#		esac
+		#		;;
 	"init-start" | "services-stop")
 		timezone
 		case "$1" in
