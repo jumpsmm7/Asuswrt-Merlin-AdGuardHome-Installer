@@ -1029,11 +1029,12 @@ IPSet_Collect_Yaml() {
 			}
 			return decoded
 		}
-		function emit(line,    first, last) {
+		function emit(line,    first, last, quoted) {
 			line = strip_comment(line)
 			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
 			first = substr(line, 1, 1)
 			last = substr(line, length(line), 1)
+			quoted = first == "\"" || first == "\047"
 			if (first ~ /^[&*!]$/) exit 1
 			if (first == "\"") {
 				if (last != first) exit 1
@@ -1044,6 +1045,7 @@ IPSet_Collect_Yaml() {
 				line = substr(line, 2, length(line) - 2)
 				gsub(/\047\047/, "\047", line)
 			}
+			if (quoted && line == "") exit 1
 			if (line != "") print line
 		}
 		function flow_reset() {
