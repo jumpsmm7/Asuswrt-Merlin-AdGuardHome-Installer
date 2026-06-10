@@ -1051,7 +1051,7 @@ IPSet_Collect_Yaml() {
 			flow_quote = ""
 			flow_escaped_break = 0
 		}
-		function flow_consume(line,    ch, i, next_ch, previous_ch) {
+		function flow_consume(line,    ch, i, next_ch, previous_ch, rest) {
 			sub(/^[[:space:]]+/, "", line)
 			flow_escaped_break = 0
 			for (i = 1; i <= length(line); i++) {
@@ -1087,6 +1087,8 @@ IPSet_Collect_Yaml() {
 					emit(flow_entry)
 					flow_entry = ""
 				} else if (ch == "]") {
+					rest = substr(line, i + 1)
+					if (rest !~ /^[[:space:]]*(#.*)?$/) exit 1
 					emit(flow_entry)
 					flow_entry = ""
 					return 1
@@ -1306,7 +1308,7 @@ IPSet_Migrate() {
 			return length(text)
 		}
 		function flow_reset() { flow_quote = "" }
-		function flow_closed(line,    ch, i, next_ch, previous_ch) {
+		function flow_closed(line,    ch, i, next_ch, previous_ch, rest) {
 			for (i = 1; i <= length(line); i++) {
 				ch = substr(line, i, 1)
 				next_ch = substr(line, i + 1, 1)
@@ -1322,6 +1324,8 @@ IPSet_Migrate() {
 				} else if (ch == "#" && (i == 1 || previous_ch ~ /[[:space:]]/)) {
 					return 0
 				} else if (ch == "]") {
+					rest = substr(line, i + 1)
+					if (rest !~ /^[[:space:]]*(#.*)?$/) exit 1
 					return 1
 				}
 			}
