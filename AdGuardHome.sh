@@ -1031,7 +1031,7 @@ IPSet_Collect_Yaml() {
 		}
 		function plain_is_typed(value) {
 			if (value ~ /^(~|null|Null|NULL|true|True|TRUE|false|False|FALSE)$/) return 1
-			if (value ~ /^[-+]?[0-9]+$/ || value ~ /^0o[0-7]+$/ || value ~ /^0x[0-9a-fA-F]+$/) return 1
+			if (value ~ /^[-+]?([0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)$/) return 1
 			if (value ~ /^[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?$/) return 1
 			if (value ~ /^[-+]?(\.inf|\.Inf|\.INF)$/ || value ~ /^(\.nan|\.NaN|\.NAN)$/) return 1
 			return 0
