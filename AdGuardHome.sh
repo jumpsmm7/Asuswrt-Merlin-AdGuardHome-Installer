@@ -753,15 +753,15 @@ service_wait() {
 }
 
 start_adguardhome() {
-	local WAS_RUNNING
+	local IPSET_START_STOPPED WAS_RUNNING
 	WAS_RUNNING="0"
+	IPSET_START_STOPPED="0"
 	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
-		lower_script stop || return 1
 		WAS_RUNNING="1"
 	fi
-	if ! IPSet_Setup; then
+	if ! IPSet_Setup_For_Start "${WAS_RUNNING}"; then
 		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; startup aborted."
-		if [ "${WAS_RUNNING}" -eq 1 ]; then
+		if [ "${IPSET_START_STOPPED}" -eq 1 ]; then
 			if lower_script start; then
 				logger -st "${NAME}" "Restored AdGuardHome after IPSET setup rollback."
 				return 0
@@ -1621,6 +1621,30 @@ IPSet_Setup() {
 	IPSet_Supported || return 0
 	IPSET_REFRESH_CONFIG=""
 	IPSet_Lock IPSet_Setup_Locked
+}
+
+IPSet_Setup_For_Start() {
+	local WAS_RUNNING
+	WAS_RUNNING="$1"
+	if ! IPSet_Supported; then
+		if [ "${WAS_RUNNING}" -eq 1 ]; then
+			lower_script stop || return 1
+			IPSET_START_STOPPED="1"
+		fi
+		return 0
+	fi
+	IPSET_REFRESH_CONFIG=""
+	IPSet_Lock IPSet_Setup_For_Start_Locked "${WAS_RUNNING}"
+}
+
+IPSet_Setup_For_Start_Locked() {
+	local WAS_RUNNING
+	WAS_RUNNING="$1"
+	if [ "${WAS_RUNNING}" -eq 1 ]; then
+		lower_script stop || return 1
+		IPSET_START_STOPPED="1"
+	fi
+	IPSet_Setup_Locked
 }
 
 IPSet_Setup_Locked() {

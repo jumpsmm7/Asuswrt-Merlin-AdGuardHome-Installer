@@ -1,5 +1,5 @@
 #!/bin/sh
-# Verify IPSET preparation stops AdGuardHome before migration and restores it on failure.
+# Verify startup acquires the IPSET lock before stopping AdGuardHome and restores it on failure.
 
 set -u
 
@@ -19,14 +19,25 @@ fail() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-sed -n '/^start_adguardhome() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
-[ -s "${FUNCTION_FILE}" ] || fail 'start_adguardhome was not found'
+sed -n '/^start_adguardhome() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+[ -s "${FUNCTION_FILE}" ] || fail 'startup lifecycle functions were not found'
 
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
-IPSet_Setup() {
-	printf '%s\n' IPSet_Setup >>"${CALLS_FILE}"
+IPSet_Supported() {
+	printf '%s\n' IPSet_Supported >>"${CALLS_FILE}"
+	return "${SUPPORTED_STATUS}"
+}
+
+IPSet_Lock() {
+	printf '%s\n' IPSet_Lock >>"${CALLS_FILE}"
+	[ "${LOCK_STATUS}" -eq 0 ] || return "${LOCK_STATUS}"
+	"$@"
+}
+
+IPSet_Setup_Locked() {
+	printf '%s\n' IPSet_Setup_Locked >>"${CALLS_FILE}"
 	return "${IPSET_STATUS}"
 }
 
@@ -36,9 +47,10 @@ logger() {
 
 lower_script() {
 	printf '%s\n' "lower_script $1" >>"${CALLS_FILE}"
-	if [ "$1" = 'start' ]; then
-		return "${START_STATUS}"
-	fi
+	case "$1" in
+	stop) return "${STOP_STATUS}" ;;
+	start) return "${START_STATUS}" ;;
+	esac
 	return 0
 }
 
@@ -56,11 +68,21 @@ ln() {
 	fail "database-link setup escaped the test double: $*"
 }
 
-run_setup_failure_test() {
-	IPSET_STATUS=1
-	RUNNING="$1"
-	START_STATUS="$2"
-	EXPECTED_STATUS="$3"
+# Stop successful starts before the function enters its router-only health-check path.
+service_wait() {
+	return 1
+}
+
+run_test() {
+	DESCRIPTION="$1"
+	RUNNING="$2"
+	SUPPORTED_STATUS="$3"
+	LOCK_STATUS="$4"
+	STOP_STATUS="$5"
+	IPSET_STATUS="$6"
+	START_STATUS="$7"
+	EXPECTED_STATUS="$8"
+	EXPECTED="$9"
 	: >"${CALLS_FILE}"
 
 	if start_adguardhome; then
@@ -68,45 +90,42 @@ run_setup_failure_test() {
 	else
 		ACTUAL_STATUS=$?
 	fi
-	[ "${ACTUAL_STATUS}" -eq "${EXPECTED_STATUS}" ] || fail "unexpected IPSET failure status (running=${RUNNING}, restart=${START_STATUS}): ${ACTUAL_STATUS}"
+	[ "${ACTUAL_STATUS}" -eq "${EXPECTED_STATUS}" ] || fail "${DESCRIPTION}: returned ${ACTUAL_STATUS}, expected ${EXPECTED_STATUS}"
 
-	if [ "${RUNNING}" -eq 1 ]; then
-		EXPECTED='lower_script stop
-IPSet_Setup
-lower_script start'
-	else
-		EXPECTED='IPSet_Setup'
-	fi
 	ACTUAL="$(cat "${CALLS_FILE}")"
-	[ "${ACTUAL}" = "${EXPECTED}" ] || fail "unexpected IPSET failure lifecycle (running=${RUNNING}, restart=${START_STATUS}): ${ACTUAL}"
-}
-
-run_success_order_test() {
-	IPSET_STATUS=0
-	RUNNING=1
-	START_STATUS=0
-	: >"${CALLS_FILE}"
-
-	# Stop after the lifecycle calls so the function does not enter its router-only wait path.
-	service_wait() {
-		return 1
-	}
-
-	start_adguardhome || true
-
-	EXPECTED='lower_script stop
-IPSet_Setup
-lower_script start'
-	ACTUAL="$(cat "${CALLS_FILE}")"
-	[ "${ACTUAL}" = "${EXPECTED}" ] || fail "unexpected successful setup order: ${ACTUAL}"
+	[ "${ACTUAL}" = "${EXPECTED}" ] || fail "${DESCRIPTION}: unexpected lifecycle: ${ACTUAL}"
 }
 
 PROCS=AdGuardHome
 NAME=AdGuardHome
 WORK_DIR=/tmp/adguardhome-test
 
-run_setup_failure_test 0 0 1
-run_setup_failure_test 1 0 0
-run_setup_failure_test 1 1 1
-run_success_order_test
-printf '%s\n' 'PASS: AdGuardHome stops before IPSET setup and suppresses retries after successful rollback restoration'
+run_test 'setup failure while stopped' 0 0 0 0 1 0 1 'IPSet_Supported
+IPSet_Lock
+IPSet_Setup_Locked'
+run_test 'setup failure restores running service' 1 0 0 0 1 0 0 'IPSet_Supported
+IPSet_Lock
+lower_script stop
+IPSet_Setup_Locked
+lower_script start'
+run_test 'failed restoration remains an error' 1 0 0 0 1 1 1 'IPSet_Supported
+IPSet_Lock
+lower_script stop
+IPSet_Setup_Locked
+lower_script start'
+run_test 'lock contention leaves running service untouched' 1 0 7 0 0 0 1 'IPSet_Supported
+IPSet_Lock'
+run_test 'stop failure aborts setup' 1 0 0 1 0 0 1 'IPSet_Supported
+IPSet_Lock
+lower_script stop'
+run_test 'unsupported integration still restarts service' 1 1 0 0 0 0 1 'IPSet_Supported
+lower_script stop
+lower_script start'
+
+run_test 'successful setup order' 1 0 0 0 0 0 1 'IPSet_Supported
+IPSet_Lock
+lower_script stop
+IPSet_Setup_Locked
+lower_script start'
+
+printf '%s\n' 'PASS: startup acquires the IPSET lock before stopping AdGuardHome and preserves rollback behavior'
