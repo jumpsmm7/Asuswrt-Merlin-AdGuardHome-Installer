@@ -17,8 +17,17 @@ fail() {
 	exit 1
 }
 
+assert_single_function() {
+	FUNCTION_NAME="$1"
+	FUNCTION_COUNT="$(awk -v signature="${FUNCTION_NAME}() {" '$0 == signature { count++ } END { print count + 0 }' "${SCRIPT_PATH}")" || fail "could not inspect ${FUNCTION_NAME}"
+	[ "${FUNCTION_COUNT}" -eq 1 ] || fail "expected one ${FUNCTION_NAME} definition, found ${FUNCTION_COUNT}"
+}
+
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
+
+assert_single_function IPSet_Lock_Interrupt_Cleanup
+assert_single_function IPSet_Start_Restore
 
 sed -n '/^start_adguardhome() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Cleanup() {$/,/^}$/p; /^IPSet_Start_Restore() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'startup lifecycle functions were not found'
