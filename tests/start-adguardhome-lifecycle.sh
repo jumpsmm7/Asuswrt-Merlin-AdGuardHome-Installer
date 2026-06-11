@@ -31,9 +31,12 @@ IPSet_Supported() {
 }
 
 IPSet_Lock() {
-	printf '%s\n' IPSet_Lock >>"${CALLS_FILE}"
+	printf '%s\n' 'IPSet_Lock acquired' >>"${CALLS_FILE}"
 	[ "${LOCK_STATUS}" -eq 0 ] || return "${LOCK_STATUS}"
 	"$@"
+	STATUS="$?"
+	printf '%s\n' 'IPSet_Lock released' >>"${CALLS_FILE}"
+	return "${STATUS}"
 }
 
 IPSet_Setup_Locked() {
@@ -120,40 +123,51 @@ WORK_DIR=/tmp/adguardhome-test
 INTERRUPT_ON_STOP=0
 
 run_test 'setup failure while stopped' 0 0 0 0 1 0 1 'IPSet_Supported
-IPSet_Lock
-IPSet_Setup_Locked'
+IPSet_Lock acquired
+IPSet_Setup_Locked
+IPSet_Lock released'
 run_test 'setup failure restores running service' 1 0 0 0 1 0 0 'IPSet_Supported
-IPSet_Lock
+IPSet_Lock acquired
 lower_script stop
 IPSet_Setup_Locked
+IPSet_Lock released
 lower_script start'
 run_test 'failed restoration remains an error' 1 0 0 0 1 1 1 'IPSet_Supported
-IPSet_Lock
+IPSet_Lock acquired
 lower_script stop
 IPSet_Setup_Locked
+IPSet_Lock released
 lower_script start'
 run_test 'lock contention leaves running service untouched' 1 0 7 0 0 0 1 'IPSet_Supported
-IPSet_Lock'
+IPSet_Lock acquired'
 run_test 'stop failure aborts setup' 1 0 0 1 0 0 1 'IPSet_Supported
-IPSet_Lock
-lower_script stop'
+IPSet_Lock acquired
+lower_script stop
+IPSet_Lock released'
 INTERRUPT_ON_STOP=1
 run_test 'interrupt during stop restores running service' 1 0 0 0 0 0 1 'IPSet_Supported
-IPSet_Lock
+IPSet_Lock acquired
 lower_script stop
-lower_script start'
+lower_script start
+IPSet_Lock released'
 INTERRUPT_ON_STOP=0
-run_test 'unsupported integration still restarts service' 1 1 0 0 0 0 1 'IPSet_Supported
-lower_script stop
+run_test 'unsupported integration leaves running service available' 1 1 0 0 0 0 1 'IPSet_Supported
 lower_script start'
 
 run_interrupt_cleanup_test 'interrupt restores stopped service' 0
 run_interrupt_cleanup_test 'failed interrupt restoration is not retried' 1
 
-run_test 'successful setup order' 1 0 0 0 0 0 1 'IPSet_Supported
-IPSet_Lock
+run_test 'successful setup restarts before releasing lock' 1 0 0 0 0 0 1 'IPSet_Supported
+IPSet_Lock acquired
 lower_script stop
 IPSet_Setup_Locked
-lower_script start'
+lower_script start
+IPSet_Lock released'
+run_test 'failed locked restart is not retried' 1 0 0 0 0 1 1 'IPSet_Supported
+IPSet_Lock acquired
+lower_script stop
+IPSet_Setup_Locked
+lower_script start
+IPSet_Lock released'
 
 printf '%s\n' 'PASS: startup acquires the IPSET lock before stopping AdGuardHome and preserves rollback behavior'

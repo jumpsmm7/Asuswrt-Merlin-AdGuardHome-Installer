@@ -753,8 +753,9 @@ service_wait() {
 }
 
 start_adguardhome() {
-	local IPSET_START_STOPPED WAS_RUNNING
+	local IPSET_START_RESTARTED IPSET_START_STOPPED WAS_RUNNING
 	WAS_RUNNING="0"
+	IPSET_START_RESTARTED="0"
 	IPSET_START_STOPPED="0"
 	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
 		WAS_RUNNING="1"
@@ -766,7 +767,9 @@ start_adguardhome() {
 		fi
 		return 1
 	fi
-	lower_script start
+	if [ "${IPSET_START_RESTARTED}" -eq 0 ]; then
+		lower_script start
+	fi
 	for db in stats.db sessions.db; do {
 		if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
 			ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1
@@ -1362,22 +1365,6 @@ IPSet_Lock_Mkdir_Cleanup() {
 	[ -n "$1" ] && rm -rf "$1"
 }
 
-IPSet_Lock_Interrupt_Cleanup() {
-	if [ "${IPSET_START_STOPPED:-0}" -eq 1 ]; then
-		IPSet_Start_Restore || true
-	fi
-}
-
-IPSet_Start_Restore() {
-	IPSET_START_STOPPED="0"
-	if lower_script start; then
-		logger -st "${NAME}" "Restored AdGuardHome after IPSET setup rollback."
-		return 0
-	fi
-	logger -st "${NAME}" "Unable to restart AdGuardHome after IPSET setup rollback."
-	return 1
-}
-
 IPSet_Lock_Prepare_Root() {
 	local CREATED LOCK_OWNER
 	CREATED=""
@@ -1684,16 +1671,7 @@ IPSet_Setup() {
 IPSet_Setup_For_Start() {
 	local WAS_RUNNING
 	WAS_RUNNING="$1"
-	if ! IPSet_Supported; then
-		if [ "${WAS_RUNNING}" -eq 1 ]; then
-			IPSET_START_STOPPED="1"
-			if ! lower_script stop; then
-				IPSET_START_STOPPED="0"
-				return 1
-			fi
-		fi
-		return 0
-	fi
+	IPSet_Supported || return 0
 	IPSET_REFRESH_CONFIG=""
 	IPSet_Lock IPSet_Setup_For_Start_Locked "${WAS_RUNNING}"
 }
@@ -1708,7 +1686,16 @@ IPSet_Setup_For_Start_Locked() {
 			return 1
 		fi
 	fi
-	IPSet_Setup_Locked
+	IPSet_Setup_Locked || return 1
+	if [ "${IPSET_START_STOPPED}" -eq 1 ]; then
+		if ! lower_script start; then
+			IPSET_START_STOPPED="0"
+			return 1
+		fi
+		IPSET_START_STOPPED="0"
+		IPSET_START_RESTARTED="1"
+	fi
+	return 0
 }
 
 IPSet_Setup_Locked() {
