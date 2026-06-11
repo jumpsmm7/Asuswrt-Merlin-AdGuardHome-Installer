@@ -1237,6 +1237,22 @@ IPSet_Current_File() {
 	' "${YAML_FILE}"
 }
 
+IPSet_Lock_Interrupt_Cleanup() {
+	if [ "${IPSET_START_STOPPED:-0}" -eq 1 ]; then
+		IPSet_Start_Restore || true
+	fi
+}
+
+IPSet_Start_Restore() {
+	IPSET_START_STOPPED="0"
+	if lower_script start; then
+		logger -st "${NAME}" "Restored AdGuardHome after IPSET setup rollback."
+		return 0
+	fi
+	logger -st "${NAME}" "Unable to restart AdGuardHome after IPSET setup rollback."
+	return 1
+}
+
 IPSet_Lock() {
 	IPSet_Lock_Prepare_Root || return 1
 	if have_cmd flock && flock_supports_fd; then

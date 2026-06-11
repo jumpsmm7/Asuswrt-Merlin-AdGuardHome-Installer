@@ -48,14 +48,14 @@ logger() {
 lower_script() {
 	printf '%s\n' "lower_script $1" >>"${CALLS_FILE}"
 	case "$1" in
-		stop)
-			if [ "${INTERRUPT_ON_STOP}" -eq 1 ]; then
-				IPSet_Lock_Interrupt_Cleanup
-				return 1
-			fi
-			return "${STOP_STATUS}"
-			;;
-		start) return "${START_STATUS}" ;;
+	stop)
+		if [ "${INTERRUPT_ON_STOP}" -eq 1 ]; then
+			IPSet_Lock_Interrupt_Cleanup
+			return 1
+		fi
+		return "${STOP_STATUS}"
+		;;
+	start) return "${START_STATUS}" ;;
 	esac
 	return 0
 }
