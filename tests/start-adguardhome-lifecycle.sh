@@ -44,6 +44,15 @@ pidof() {
 	return 0
 }
 
+readlink() {
+	[ "$1" = '-f' ] || fail "unexpected readlink arguments: $*"
+	printf '/mock/%s\n' "${2##*/}"
+}
+
+ln() {
+	fail "database-link setup escaped the test double: $*"
+}
+
 run_setup_failure_test() {
 	IPSET_STATUS=1
 	RUNNING="$1"
