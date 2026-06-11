@@ -1186,6 +1186,7 @@ IPSet_Current_File() {
 			if (quote != "\"" && quote != "\047") {
 				sub(/[[:space:]]+#.*$/, "", value)
 				gsub(/[[:space:]]+$/, "", value)
+				if (value ~ /^(~|null|Null|NULL)$/) return ""
 				return value
 			}
 			decoded = ""
