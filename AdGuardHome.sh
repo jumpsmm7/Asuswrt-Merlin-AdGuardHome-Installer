@@ -1258,19 +1258,23 @@ IPSet_Lock_Flock_Cleanup() {
 }
 
 IPSet_Lock_Mkdir() {
-	local ATTEMPTS LOCK_DIR OWNER SAVED_TRAPS STATUS
+	local ATTEMPTS LOCK_DIR OWNER OWNERLESS_ATTEMPTS SAVED_TRAPS STATUS
 	LOCK_DIR="/tmp/AdGuardHome-ipset"
 	ATTEMPTS="0"
+	OWNERLESS_ATTEMPTS="0"
 	while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
 		OWNER="$(sed -n '1p' "${LOCK_DIR}/pid" 2>/dev/null)"
 		case "${OWNER}" in
 			"" | *[!0-9]*)
-				if [ "${ATTEMPTS}" -gt 0 ]; then
+				# Allow the lock owner time to publish its PID after mkdir succeeds.
+				OWNERLESS_ATTEMPTS="$((OWNERLESS_ATTEMPTS + 1))"
+				if [ "${OWNERLESS_ATTEMPTS}" -ge 5 ]; then
 					rm -rf "${LOCK_DIR}"
 					continue
 				fi
 				;;
 			*)
+				OWNERLESS_ATTEMPTS="0"
 				if ! kill -0 "${OWNER}" 2>/dev/null; then
 					rm -rf "${LOCK_DIR}"
 					continue
