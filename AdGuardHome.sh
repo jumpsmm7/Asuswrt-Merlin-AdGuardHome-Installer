@@ -1187,6 +1187,7 @@ IPSet_Current_File() {
 			if (quote != "\"" && quote != "\047") {
 				sub(/[[:space:]]+#.*$/, "", value)
 				gsub(/[[:space:]]+$/, "", value)
+				if (value ~ /^(~|null|Null|NULL)$/) return ""
 				return value
 			}
 			decoded = ""
@@ -1582,9 +1583,37 @@ IPSet_Setup() {
 }
 
 IPSet_Setup_Locked() {
-	IPSet_Migrate || return 1
-	[ "${IPSET_MIGRATION_SKIPPED}" = "1" ] && return 0
+	local MIGRATION_BACKUP_FILE REFRESH_STATUS
+	MIGRATION_BACKUP_FILE=""
+	if [ -f "${YAML_FILE}" ]; then
+		MIGRATION_BACKUP_FILE="${YAML_FILE}.ipset-setup.$$"
+		cp -p "${YAML_FILE}" "${MIGRATION_BACKUP_FILE}" || {
+			rm -f "${MIGRATION_BACKUP_FILE}"
+			return 1
+		}
+	fi
+	if ! IPSet_Migrate; then
+		[ -z "${MIGRATION_BACKUP_FILE}" ] || rm -f "${MIGRATION_BACKUP_FILE}"
+		return 1
+	fi
+	if [ "${IPSET_MIGRATION_SKIPPED}" = "1" ]; then
+		[ -z "${MIGRATION_BACKUP_FILE}" ] || rm -f "${MIGRATION_BACKUP_FILE}"
+		return 0
+	fi
 	IPSet_Refresh_Locked
+	REFRESH_STATUS="$?"
+	if [ "${REFRESH_STATUS}" -eq 0 ]; then
+		[ -z "${MIGRATION_BACKUP_FILE}" ] || rm -f "${MIGRATION_BACKUP_FILE}"
+		return 0
+	fi
+	if [ -n "${MIGRATION_BACKUP_FILE}" ]; then
+		if ! mv "${MIGRATION_BACKUP_FILE}" "${YAML_FILE}"; then
+			logger -st "${NAME}" "Unable to restore AdGuardHome configuration after IPSET refresh failure; backup retained at ${MIGRATION_BACKUP_FILE}."
+			return 1
+		fi
+		logger -st "${NAME}" "Restored AdGuardHome configuration after IPSET refresh failure."
+	fi
+	return "${REFRESH_STATUS}"
 }
 
 IPSet_Supported() {
