@@ -7,7 +7,7 @@ MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 IPSET_FILE="/opt/etc/AdGuardHome/ipset.conf"
-IPSET_LOCK_ROOT="/opt/etc/AdGuardHome/.ipset-locks"
+IPSET_RUNTIME_DIR="${IPSET_RUNTIME_DIR:-/opt/var/run/AdGuardHome-ipset}"
 IPSET_USER_FILE="/opt/etc/AdGuardHome/ipset.user"
 YAML_FILE="/opt/etc/AdGuardHome/AdGuardHome.yaml"
 
@@ -733,18 +733,30 @@ service_wait() {
 			exec 2>'/dev/null'
 		}
 		{
-			local elapsed interval
+			local elapsed interval status
 			elapsed="0"
 			interval="10"
+			status="1"
 			while [ "${elapsed}" -le "${maxwait}" ]; do
-				if [ "$(nvram get success_start_service)" = '1' ] && { "$1"; }; then break; fi
+				if [ "$(nvram get success_start_service)" = '1' ]; then
+					SERVICE_WAIT_TERMINAL_FAILURE="0"
+					"$1"
+					status="$?"
+					if [ "${status}" -eq 0 ] || [ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ]; then break; fi
+				fi
 				sleep "${interval}s"
 				elapsed="$((elapsed + interval))"
 			done
 		}
 		{
 			trap - HUP INT QUIT ABRT TERM TSTP
-			if [ "${elapsed}" -gt "${maxwait}" ]; then return 1; else return 0; fi
+			if [ "${SERVICE_WAIT_TERMINAL_FAILURE:-0}" -eq 1 ]; then
+				return "${status}"
+			elif [ "${elapsed}" -gt "${maxwait}" ]; then
+				return 1
+			else
+				return 0
+			fi
 		}
 	) &
 	local PID="$!"
@@ -753,20 +765,23 @@ service_wait() {
 }
 
 start_adguardhome() {
-	local WAS_RUNNING
-	WAS_RUNNING=""
-	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
-		WAS_RUNNING="1"
-		lower_script stop || return 1
-	fi
-	if ! IPSet_Setup; then
+	local IPSET_START_RESTARTED IPSET_START_STOPPED
+	IPSET_START_RESTARTED="0"
+	IPSET_START_STOPPED="0"
+	SERVICE_WAIT_TERMINAL_FAILURE="0"
+	if ! IPSet_Setup_For_Start; then
 		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; startup aborted."
-		if [ "${WAS_RUNNING}" = "1" ]; then
-			lower_script start || logger -st "${NAME}" "Unable to restore AdGuardHome after IPSET setup failure."
+		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
+			IPSET_START_RESTARTED="1"
+		fi
+		if [ "${IPSET_START_RESTARTED}" -eq 1 ]; then
+			SERVICE_WAIT_TERMINAL_FAILURE="1"
 		fi
 		return 1
 	fi
-	lower_script start
+	if [ "${IPSET_START_RESTARTED}" -eq 0 ]; then
+		lower_script start
+	fi
 	for db in stats.db sessions.db; do {
 		if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
 			ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1
@@ -1237,8 +1252,33 @@ IPSet_Current_File() {
 	' "${YAML_FILE}"
 }
 
+IPSet_Lock_Interrupt_Cleanup() {
+	if [ "${IPSET_START_STOPPED:-0}" -eq 1 ]; then
+		IPSet_Start_Restore || true
+	fi
+}
+
+IPSet_Start_Restore() {
+	IPSET_START_STOPPED="0"
+	if IPSet_Start_While_Locked; then
+		logger -st "${NAME}" "Restored AdGuardHome after IPSET setup rollback."
+		return 0
+	fi
+	logger -st "${NAME}" "Unable to restart AdGuardHome after IPSET setup rollback."
+	return 1
+}
+
+IPSet_Start_While_Locked() {
+	local STATUS
+	ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
+	lower_script start
+	STATUS="$?"
+	ADGUARDHOME_SKIP_DNSMASQ_RESTART=""
+	return "${STATUS}"
+}
+
 IPSet_Lock() {
-	IPSet_Lock_Prepare_Root || return 1
+	IPSet_Runtime_Prepare || return 1
 	if have_cmd flock && flock_supports_fd; then
 		IPSet_Lock_Flock "$@"
 	else
@@ -1247,9 +1287,8 @@ IPSet_Lock() {
 }
 
 IPSet_Lock_Flock() {
-	local LOCK_FILE SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
-	LOCK_FILE="${IPSET_LOCK_ROOT}/ipset.lock"
-	TRAP_STATE_FILE="${IPSET_LOCK_ROOT}/traps.$$"
+	local SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
+	TRAP_STATE_FILE="${IPSET_RUNTIME_DIR}/traps.$$"
 	trap >"${TRAP_STATE_FILE}" || return 1
 	SAVED_TRAPS=""
 	while IFS= read -r TRAP_LINE || [ -n "${TRAP_LINE}" ]; do
@@ -1257,13 +1296,14 @@ IPSet_Lock_Flock() {
 }${TRAP_LINE}"
 	done <"${TRAP_STATE_FILE}"
 	rm -f "${TRAP_STATE_FILE}"
-	exec 8>"${LOCK_FILE}" || return 1
+	exec 8>"${IPSET_RUNTIME_DIR}/flock" || return 1
 	if ! flock 8; then
 		logger -st "${NAME}" "Unable to acquire flock for IPSET setup."
 		exec 8>&-
 		return 1
 	fi
-	trap 'IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	# Restore a stopped service while this lock is still held; only then release it.
+	trap 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
 	trap 'STATUS="$?"; IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
 	"$@"
 	STATUS="$?"
@@ -1279,17 +1319,17 @@ IPSet_Lock_Flock_Cleanup() {
 
 IPSet_Lock_Mkdir() {
 	local ATTEMPTS LOCK_DIR LOCK_OWNER OWNER OWNERLESS_ATTEMPTS SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
-	LOCK_DIR="${IPSET_LOCK_ROOT}/mkdir"
+	LOCK_DIR="${IPSET_RUNTIME_DIR}/mkdir"
+	LOCK_OWNER="$(id -u)" || return 1
 	ATTEMPTS="0"
 	OWNERLESS_ATTEMPTS="0"
-	while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
+	while ! mkdir -m 700 "${LOCK_DIR}" 2>/dev/null; do
 		if [ -L "${LOCK_DIR}" ] || [ ! -d "${LOCK_DIR}" ]; then
 			logger -st "${NAME}" "Refusing unsafe legacy mkdir lock for IPSET setup."
 			return 1
 		fi
-		LOCK_OWNER="$(stat -c %u "${LOCK_DIR}" 2>/dev/null)" || return 1
-		if [ "${LOCK_OWNER}" != "0" ]; then
-			logger -st "${NAME}" "Refusing legacy mkdir lock not owned by root."
+		if [ "$(stat -c %u "${LOCK_DIR}" 2>/dev/null)" != "${LOCK_OWNER}" ]; then
+			logger -st "${NAME}" "Refusing legacy mkdir lock with an untrusted owner."
 			return 1
 		fi
 		OWNER="$(sed -n '1p' "${LOCK_DIR}/pid" 2>/dev/null)"
@@ -1317,10 +1357,6 @@ IPSet_Lock_Mkdir() {
 		fi
 		sleep 1
 	done
-	chmod 700 "${LOCK_DIR}" || {
-		IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"
-		return 1
-	}
 	printf '%s\n' "$$" >"${LOCK_DIR}/pid"
 	TRAP_STATE_FILE="${LOCK_DIR}/traps"
 	if ! trap >"${TRAP_STATE_FILE}"; then
@@ -1333,7 +1369,8 @@ IPSet_Lock_Mkdir() {
 }${TRAP_LINE}"
 	done <"${TRAP_STATE_FILE}"
 	rm -f "${TRAP_STATE_FILE}"
-	trap 'IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	# Keep the fallback lock through restoration for the same lifecycle guarantee.
+	trap 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
 	trap 'STATUS="$?"; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
 	"$@"
 	STATUS="$?"
@@ -1344,31 +1381,6 @@ IPSet_Lock_Mkdir() {
 
 IPSet_Lock_Mkdir_Cleanup() {
 	[ -n "$1" ] && rm -rf "$1"
-}
-
-IPSet_Lock_Prepare_Root() {
-	local CREATED LOCK_OWNER
-	CREATED=""
-	if [ -L "${IPSET_LOCK_ROOT}" ]; then
-		logger -st "${NAME}" "Refusing symbolic-link IPSET lock root."
-		return 1
-	fi
-	if mkdir "${IPSET_LOCK_ROOT}" 2>/dev/null; then
-		CREATED="1"
-	elif [ ! -d "${IPSET_LOCK_ROOT}" ]; then
-		logger -st "${NAME}" "Unable to create IPSET lock root."
-		return 1
-	fi
-	LOCK_OWNER="$(stat -c %u "${IPSET_LOCK_ROOT}" 2>/dev/null)" || {
-		[ -z "${CREATED}" ] || rmdir "${IPSET_LOCK_ROOT}" 2>/dev/null
-		return 1
-	}
-	if [ "${LOCK_OWNER}" != "0" ]; then
-		logger -st "${NAME}" "Refusing IPSET lock root not owned by root."
-		[ -z "${CREATED}" ] || rmdir "${IPSET_LOCK_ROOT}" 2>/dev/null
-		return 1
-	fi
-	chmod 700 "${IPSET_LOCK_ROOT}"
 }
 
 IPSet_Migrate() {
@@ -1623,10 +1635,66 @@ IPSet_Restore_Traps() {
 	return 0
 }
 
+IPSet_Runtime_Prepare() {
+	local MODE OWNER
+	OWNER="$(id -u)" || return 1
+	if ! mkdir -m 700 "${IPSET_RUNTIME_DIR}" 2>/dev/null; then
+		if [ -L "${IPSET_RUNTIME_DIR}" ] || [ ! -d "${IPSET_RUNTIME_DIR}" ]; then
+			logger -st "${NAME}" "Unsafe IPSET runtime path: ${IPSET_RUNTIME_DIR}"
+			return 1
+		fi
+		if [ "$(stat -c '%u' "${IPSET_RUNTIME_DIR}" 2>/dev/null)" != "${OWNER}" ]; then
+			logger -st "${NAME}" "IPSET runtime directory has an untrusted owner: ${IPSET_RUNTIME_DIR}"
+			return 1
+		fi
+		MODE="$(stat -c '%a' "${IPSET_RUNTIME_DIR}" 2>/dev/null)"
+		if [ "${MODE}" != "700" ]; then
+			logger -st "${NAME}" "IPSET runtime directory is not private: ${IPSET_RUNTIME_DIR}"
+			return 1
+		fi
+	fi
+}
+
 IPSet_Setup() {
 	IPSet_Supported || return 0
 	IPSET_REFRESH_CONFIG=""
 	IPSet_Lock IPSet_Setup_Locked
+}
+
+IPSet_Setup_For_Start() {
+	IPSet_Supported || return 0
+	IPSET_REFRESH_CONFIG=""
+	IPSet_Lock IPSet_Setup_For_Start_Locked
+}
+
+IPSet_Setup_For_Start_Locked() {
+	local WAS_RUNNING
+	WAS_RUNNING="0"
+	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
+		WAS_RUNNING="1"
+	fi
+	if [ "${WAS_RUNNING}" -eq 1 ]; then
+		IPSET_START_STOPPED="1"
+		if ! lower_script stop; then
+			IPSET_START_STOPPED="0"
+			return 1
+		fi
+	fi
+	if ! IPSet_Setup_Locked; then
+		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
+			IPSET_START_RESTARTED="1"
+		fi
+		return 1
+	fi
+	if [ "${IPSET_START_STOPPED}" -eq 1 ]; then
+		if ! IPSet_Start_While_Locked; then
+			IPSET_START_STOPPED="0"
+			return 1
+		fi
+		IPSET_START_STOPPED="0"
+		IPSET_START_RESTARTED="1"
+	fi
+	return 0
 }
 
 IPSet_Setup_Locked() {
