@@ -761,12 +761,8 @@ start_adguardhome() {
 	fi
 	if ! IPSet_Setup_For_Start "${WAS_RUNNING}"; then
 		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; startup aborted."
-		if [ "${IPSET_START_STOPPED}" -eq 1 ]; then
-			if lower_script start; then
-				logger -st "${NAME}" "Restored AdGuardHome after IPSET setup rollback."
-				return 0
-			fi
-			logger -st "${NAME}" "Unable to restart AdGuardHome after IPSET setup rollback."
+		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
+			return 0
 		fi
 		return 1
 	fi
@@ -1266,7 +1262,7 @@ IPSet_Lock_Flock() {
 		exec 8>&-
 		return 1
 	fi
-	trap 'IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	trap 'IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; IPSet_Lock_Interrupt_Cleanup; exit 1' HUP INT QUIT ABRT TERM TSTP
 	trap 'STATUS="$?"; IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
 	"$@"
 	STATUS="$?"
@@ -1332,7 +1328,7 @@ IPSet_Lock_Mkdir() {
 }${TRAP_LINE}"
 	done <"${TRAP_STATE_FILE}"
 	rm -f "${TRAP_STATE_FILE}"
-	trap 'IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	trap 'IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; IPSet_Lock_Interrupt_Cleanup; exit 1' HUP INT QUIT ABRT TERM TSTP
 	trap 'STATUS="$?"; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
 	"$@"
 	STATUS="$?"
@@ -1343,6 +1339,22 @@ IPSet_Lock_Mkdir() {
 
 IPSet_Lock_Mkdir_Cleanup() {
 	[ -n "$1" ] && rm -rf "$1"
+}
+
+IPSet_Lock_Interrupt_Cleanup() {
+	if [ "${IPSET_START_STOPPED:-0}" -eq 1 ]; then
+		IPSet_Start_Restore || true
+	fi
+}
+
+IPSet_Start_Restore() {
+	IPSET_START_STOPPED="0"
+	if lower_script start; then
+		logger -st "${NAME}" "Restored AdGuardHome after IPSET setup rollback."
+		return 0
+	fi
+	logger -st "${NAME}" "Unable to restart AdGuardHome after IPSET setup rollback."
+	return 1
 }
 
 IPSet_Migrate() {
@@ -1628,8 +1640,11 @@ IPSet_Setup_For_Start() {
 	WAS_RUNNING="$1"
 	if ! IPSet_Supported; then
 		if [ "${WAS_RUNNING}" -eq 1 ]; then
-			lower_script stop || return 1
 			IPSET_START_STOPPED="1"
+			if ! lower_script stop; then
+				IPSET_START_STOPPED="0"
+				return 1
+			fi
 		fi
 		return 0
 	fi
@@ -1641,8 +1656,11 @@ IPSet_Setup_For_Start_Locked() {
 	local WAS_RUNNING
 	WAS_RUNNING="$1"
 	if [ "${WAS_RUNNING}" -eq 1 ]; then
-		lower_script stop || return 1
 		IPSET_START_STOPPED="1"
+		if ! lower_script stop; then
+			IPSET_START_STOPPED="0"
+			return 1
+		fi
 	fi
 	IPSet_Setup_Locked
 }

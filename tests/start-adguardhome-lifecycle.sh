@@ -19,7 +19,7 @@ fail() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-sed -n '/^start_adguardhome() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^start_adguardhome() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Cleanup() {$/,/^}$/p; /^IPSet_Start_Restore() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'startup lifecycle functions were not found'
 
 # shellcheck disable=SC1090
@@ -48,7 +48,13 @@ logger() {
 lower_script() {
 	printf '%s\n' "lower_script $1" >>"${CALLS_FILE}"
 	case "$1" in
-	stop) return "${STOP_STATUS}" ;;
+	stop)
+		if [ "${INTERRUPT_ON_STOP}" -eq 1 ]; then
+			IPSet_Lock_Interrupt_Cleanup
+			return 1
+		fi
+		return "${STOP_STATUS}"
+		;;
 	start) return "${START_STATUS}" ;;
 	esac
 	return 0
@@ -96,9 +102,22 @@ run_test() {
 	[ "${ACTUAL}" = "${EXPECTED}" ] || fail "${DESCRIPTION}: unexpected lifecycle: ${ACTUAL}"
 }
 
+run_interrupt_cleanup_test() {
+	DESCRIPTION="$1"
+	START_STATUS="$2"
+	IPSET_START_STOPPED="1"
+	: >"${CALLS_FILE}"
+
+	IPSet_Lock_Interrupt_Cleanup
+	[ "${IPSET_START_STOPPED}" -eq 0 ] || fail "${DESCRIPTION}: left restoration armed"
+	ACTUAL="$(cat "${CALLS_FILE}")"
+	[ "${ACTUAL}" = 'lower_script start' ] || fail "${DESCRIPTION}: unexpected lifecycle: ${ACTUAL}"
+}
+
 PROCS=AdGuardHome
 NAME=AdGuardHome
 WORK_DIR=/tmp/adguardhome-test
+INTERRUPT_ON_STOP=0
 
 run_test 'setup failure while stopped' 0 0 0 0 1 0 1 'IPSet_Supported
 IPSet_Lock
@@ -118,9 +137,18 @@ IPSet_Lock'
 run_test 'stop failure aborts setup' 1 0 0 1 0 0 1 'IPSet_Supported
 IPSet_Lock
 lower_script stop'
+INTERRUPT_ON_STOP=1
+run_test 'interrupt during stop restores running service' 1 0 0 0 0 0 1 'IPSet_Supported
+IPSet_Lock
+lower_script stop
+lower_script start'
+INTERRUPT_ON_STOP=0
 run_test 'unsupported integration still restarts service' 1 1 0 0 0 0 1 'IPSet_Supported
 lower_script stop
 lower_script start'
+
+run_interrupt_cleanup_test 'interrupt restores stopped service' 0
+run_interrupt_cleanup_test 'failed interrupt restoration is not retried' 1
 
 run_test 'successful setup order' 1 0 0 0 0 0 1 'IPSet_Supported
 IPSet_Lock
