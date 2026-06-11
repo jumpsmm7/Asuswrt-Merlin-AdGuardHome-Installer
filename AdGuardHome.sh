@@ -1298,6 +1298,12 @@ IPSet_Current_File() {
 	' "${YAML_FILE}"
 }
 
+IPSet_Dnsmasq_Restart_After_Unlock() {
+	[ "${IPSET_DNSMASQ_RESTART_PENDING:-0}" -eq 1 ] || return 0
+	IPSET_DNSMASQ_RESTART_PENDING="0"
+	service restart_dnsmasq >/dev/null 2>&1
+}
+
 IPSet_Lock_Interrupt_Cleanup() {
 	if [ "${IPSET_START_STOPPED:-0}" -eq 1 ]; then
 		IPSet_Start_Restore || true
@@ -1316,6 +1322,7 @@ IPSet_Start_Restore() {
 
 IPSet_Start_While_Locked() {
 	local STATUS
+	IPSET_DNSMASQ_RESTART_PENDING="1"
 	ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
 	lower_script start
 	STATUS="$?"
@@ -1324,12 +1331,16 @@ IPSet_Start_While_Locked() {
 }
 
 IPSet_Lock() {
+	local STATUS
 	IPSet_Runtime_Prepare || return 1
 	if have_cmd flock && flock_supports_fd; then
 		IPSet_Lock_Flock "$@"
 	else
 		IPSet_Lock_Mkdir "$@"
 	fi
+	STATUS="$?"
+	IPSet_Dnsmasq_Restart_After_Unlock
+	return "${STATUS}"
 }
 
 IPSet_Lock_Flock() {
@@ -1349,7 +1360,7 @@ IPSet_Lock_Flock() {
 		return 1
 	fi
 	# Restore a stopped service while this lock is still held; only then release it.
-	trap 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	trap 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Flock_Cleanup; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
 	trap 'STATUS="$?"; IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
 	"$@"
 	STATUS="$?"
@@ -1416,7 +1427,7 @@ IPSet_Lock_Mkdir() {
 	done <"${TRAP_STATE_FILE}"
 	rm -f "${TRAP_STATE_FILE}"
 	# Keep the fallback lock through restoration for the same lifecycle guarantee.
-	trap 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	trap 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
 	trap 'STATUS="$?"; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
 	"$@"
 	STATUS="$?"

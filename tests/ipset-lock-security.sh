@@ -23,7 +23,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 mkdir -m 700 "${TEST_ROOT}" || fail 'could not create test directory'
-sed -n '/^IPSet_Lock() {$/,/^}$/p; /^IPSet_Lock_Flock() {$/,/^}$/p; /^IPSet_Lock_Flock_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Cleanup() {$/,/^}$/p; /^IPSet_Restore_Traps() {$/,/^}$/p; /^IPSet_Runtime_Prepare() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock() {$/,/^}$/p; /^IPSet_Lock_Flock() {$/,/^}$/p; /^IPSet_Lock_Flock_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Cleanup() {$/,/^}$/p; /^IPSet_Restore_Traps() {$/,/^}$/p; /^IPSet_Runtime_Prepare() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'IPSET lock functions were not found'
 if ! grep -Eq '^IPSET_RUNTIME_DIR=.*AdGuardHome-ipset' "${SCRIPT_PATH}"; then
 	fail 'the private IPSET runtime directory default is not defined'
@@ -31,10 +31,10 @@ fi
 if grep -Eq 'IPSET_LOCK_ROOT|/tmp/AdGuardHome-ipset' "${SCRIPT_PATH}"; then
 	fail 'legacy IPSET lock paths remain in the installer'
 fi
-if ! grep -Fq 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps' "${SCRIPT_PATH}"; then
+if ! grep -Fq 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Flock_Cleanup; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps' "${SCRIPT_PATH}"; then
 	fail 'flock interrupt cleanup does not restore AdGuardHome before releasing the lock'
 fi
-if ! grep -Fq 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps' "${SCRIPT_PATH}"; then
+if ! grep -Fq 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps' "${SCRIPT_PATH}"; then
 	fail 'fallback interrupt cleanup does not restore AdGuardHome before releasing the lock'
 fi
 
@@ -51,6 +51,21 @@ flock_supports_fd() {
 
 logger() {
 	:
+}
+
+service() {
+	[ "$1" = restart_dnsmasq ] || fail "unexpected service call: $*"
+	case "${USE_FLOCK:-0}" in
+		1)
+			if (exec 9>"${IPSET_RUNTIME_DIR}/flock" && flock -n 9); then :; else
+				fail 'dnsmasq restarted before the flock was released'
+			fi
+			;;
+		*)
+			[ ! -d "${IPSET_RUNTIME_DIR}/mkdir" ] || fail 'dnsmasq restarted before the mkdir lock was released'
+			;;
+	esac
+	printf '%s\n' restart_dnsmasq >"${TEST_ROOT}/dnsmasq-restarted"
 }
 
 cat >"${INTERRUPT_TEST_FILE}" <<'EOF'
@@ -77,6 +92,10 @@ flock_supports_fd() {
 }
 
 logger() {
+	:
+}
+
+service() {
 	:
 }
 
@@ -116,6 +135,10 @@ lock_action() {
 	printf '%s\n' called >"${TEST_ROOT}/called"
 }
 
+lock_dnsmasq_action() {
+	IPSET_DNSMASQ_RESTART_PENDING="1"
+}
+
 printf '%s\n' unchanged >"${TARGET_FILE}"
 ln -s "${TARGET_FILE}" "${TEST_ROOT}/runtime-link" || fail 'could not create runtime symlink'
 NAME=AdGuardHome-test
@@ -137,6 +160,9 @@ IPSET_RUNTIME_DIR="${TEST_ROOT}/flock-runtime"
 IPSet_Lock lock_action || fail 'could not acquire flock in private runtime directory'
 [ -f "${IPSET_RUNTIME_DIR}/flock" ] || fail 'flock file was not created in the private runtime directory'
 [ ! -e "${IPSET_RUNTIME_DIR}/traps.$$" ] || fail 'flock trap-state file was not cleaned up'
+rm -f "${TEST_ROOT}/dnsmasq-restarted"
+IPSet_Lock lock_dnsmasq_action || fail 'could not defer dnsmasq restart with flock'
+[ -f "${TEST_ROOT}/dnsmasq-restarted" ] || fail 'flock path did not restart dnsmasq after unlock'
 USE_FLOCK=0
 
 run_interrupt_test flock
@@ -147,6 +173,9 @@ IPSet_Lock lock_action || fail 'could not acquire fallback lock in private runti
 [ "$(cat "${TEST_ROOT}/called")" = called ] || fail 'locked action did not run'
 [ "$(stat -c '%a' "${IPSET_RUNTIME_DIR}")" = 700 ] || fail 'runtime directory is not mode 700'
 [ ! -e "${IPSET_RUNTIME_DIR}/mkdir" ] || fail 'fallback lock directory was not cleaned up'
+rm -f "${TEST_ROOT}/dnsmasq-restarted"
+IPSet_Lock lock_dnsmasq_action || fail 'could not defer dnsmasq restart with the fallback lock'
+[ -f "${TEST_ROOT}/dnsmasq-restarted" ] || fail 'fallback path did not restart dnsmasq after unlock'
 
 if [ "$(id -u)" -eq 0 ]; then
 	mkdir -m 700 "${IPSET_RUNTIME_DIR}/mkdir" || fail 'could not create foreign-owner fallback lock'
