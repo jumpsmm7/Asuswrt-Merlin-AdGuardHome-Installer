@@ -87,6 +87,7 @@ if ! sh tools/list-shell-scripts.sh >"${SCRIPT_LIST}"; then
 fi
 
 run_check 'md5sum files match installer artifacts' sh tools/check-md5.sh
+run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
 
 if require_cmd shellcheck; then
 	run_script_list_check 'ShellCheck POSIX sh static analysis' shellcheck -s sh --severity=warning

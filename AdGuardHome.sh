@@ -1237,8 +1237,15 @@ IPSet_Lock() {
 }
 
 IPSet_Lock_Flock() {
-	local SAVED_TRAPS STATUS
-	SAVED_TRAPS="$(trap)"
+	local SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
+	TRAP_STATE_FILE="/tmp/AdGuardHome-ipset.traps.$$"
+	trap >"${TRAP_STATE_FILE}" || return 1
+	SAVED_TRAPS=""
+	while IFS= read -r TRAP_LINE || [ -n "${TRAP_LINE}" ]; do
+		SAVED_TRAPS="${SAVED_TRAPS}${SAVED_TRAPS:+
+}${TRAP_LINE}"
+	done <"${TRAP_STATE_FILE}"
+	rm -f "${TRAP_STATE_FILE}"
 	exec 8>"/tmp/AdGuardHome-ipset.lock" || return 1
 	if ! flock 8; then
 		logger -st "${NAME}" "Unable to acquire flock for IPSET setup."
@@ -1260,19 +1267,23 @@ IPSet_Lock_Flock_Cleanup() {
 }
 
 IPSet_Lock_Mkdir() {
-	local ATTEMPTS LOCK_DIR OWNER SAVED_TRAPS STATUS
+	local ATTEMPTS LOCK_DIR OWNER SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
 	LOCK_DIR="/tmp/AdGuardHome-ipset"
 	ATTEMPTS="0"
+	OWNERLESS_ATTEMPTS="0"
 	while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
 		OWNER="$(sed -n '1p' "${LOCK_DIR}/pid" 2>/dev/null)"
 		case "${OWNER}" in
 			"" | *[!0-9]*)
-				if [ "${ATTEMPTS}" -gt 0 ]; then
+				# Allow the lock owner time to publish its PID after mkdir succeeds.
+				OWNERLESS_ATTEMPTS="$((OWNERLESS_ATTEMPTS + 1))"
+				if [ "${OWNERLESS_ATTEMPTS}" -ge 5 ]; then
 					rm -rf "${LOCK_DIR}"
 					continue
 				fi
 				;;
 			*)
+				OWNERLESS_ATTEMPTS="0"
 				if ! kill -0 "${OWNER}" 2>/dev/null; then
 					rm -rf "${LOCK_DIR}"
 					continue
@@ -1287,7 +1298,17 @@ IPSet_Lock_Mkdir() {
 		sleep 1
 	done
 	printf '%s\n' "$$" >"${LOCK_DIR}/pid"
-	SAVED_TRAPS="$(trap)"
+	TRAP_STATE_FILE="${LOCK_DIR}/traps"
+	if ! trap >"${TRAP_STATE_FILE}"; then
+		IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"
+		return 1
+	fi
+	SAVED_TRAPS=""
+	while IFS= read -r TRAP_LINE || [ -n "${TRAP_LINE}" ]; do
+		SAVED_TRAPS="${SAVED_TRAPS}${SAVED_TRAPS:+
+}${TRAP_LINE}"
+	done <"${TRAP_STATE_FILE}"
+	rm -f "${TRAP_STATE_FILE}"
 	trap 'IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
 	trap 'STATUS="$?"; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
 	"$@"
