@@ -30,6 +30,12 @@ fi
 if grep -Eq 'IPSET_LOCK_ROOT|/tmp/AdGuardHome-ipset' "${SCRIPT_PATH}"; then
 	fail 'legacy IPSET lock paths remain in the installer'
 fi
+if ! grep -Fq 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps' "${SCRIPT_PATH}"; then
+	fail 'flock interrupt cleanup releases the lock before restoring AdGuardHome'
+fi
+if ! grep -Fq 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps' "${SCRIPT_PATH}"; then
+	fail 'fallback interrupt cleanup releases the lock before restoring AdGuardHome'
+fi
 
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
