@@ -23,11 +23,25 @@ assert_single_function() {
 	[ "${FUNCTION_COUNT}" -eq 1 ] || fail "expected one ${FUNCTION_NAME} definition, found ${FUNCTION_COUNT}"
 }
 
+assert_startup_uses_lock_first_setup() {
+	STARTUP_SETUP_CALLS="$(awk '
+		/^start_adguardhome\(\) \{$/ { in_start = 1; next }
+		in_start && /^}$/ { exit }
+		in_start && /IPSet_Setup_For_Start "\$\{WAS_RUNNING\}"/ { lock_first++ }
+		in_start && /^[[:space:]]*if ! IPSet_Setup;/ { legacy++ }
+		END { print lock_first + 0, legacy + 0 }
+	' "${SCRIPT_PATH}")" || fail 'could not inspect the startup IPSET setup call'
+	[ "${STARTUP_SETUP_CALLS}" = '1 0' ] || fail "expected one lock-first setup call and no legacy setup call, found ${STARTUP_SETUP_CALLS}"
+}
+
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 assert_single_function IPSet_Lock_Interrupt_Cleanup
 assert_single_function IPSet_Start_Restore
+assert_single_function IPSet_Setup_For_Start
+assert_single_function IPSet_Setup_For_Start_Locked
+assert_startup_uses_lock_first_setup
 
 sed -n '/^start_adguardhome() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Cleanup() {$/,/^}$/p; /^IPSet_Start_Restore() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'startup lifecycle functions were not found'
