@@ -8,6 +8,7 @@ TEST_ROOT="${TMPDIR:-/tmp}/ipset-lock-security.$$"
 FUNCTION_FILE="${TEST_ROOT}/functions"
 TARGET_FILE="${TEST_ROOT}/target"
 INTERRUPT_TEST_FILE="${TEST_ROOT}/interrupt-test.sh"
+TRAP_TEST_FILE="${TEST_ROOT}/trap-test.sh"
 
 cleanup() {
 	chmod 700 "${TEST_ROOT}/foreign" 2>/dev/null || true
@@ -122,6 +123,55 @@ IPSet_Lock interrupt_action
 EOF
 chmod 700 "${INTERRUPT_TEST_FILE}" || fail 'could not make interrupt test executable'
 
+cat >"${TRAP_TEST_FILE}" <<'EOF'
+#!/bin/sh
+set -u
+
+FUNCTION_FILE="$1"
+TEST_ROOT="$2"
+LOCK_MODE="$3"
+IPSET_RUNTIME_DIR="${TEST_ROOT}/${LOCK_MODE}-trap-runtime"
+NAME=AdGuardHome-test
+USE_FLOCK=0
+[ "${LOCK_MODE}" = flock ] && USE_FLOCK=1
+
+# shellcheck disable=SC1090
+. "${FUNCTION_FILE}"
+
+have_cmd() {
+	[ "${USE_FLOCK}" -eq 1 ] && [ "$1" = flock ]
+}
+
+flock_supports_fd() {
+	return 0
+}
+
+logger() {
+	:
+}
+
+service() {
+	:
+}
+
+fail_action() {
+	return 23
+}
+
+trap 'printf "%s\n" exit >"${TEST_ROOT}/${LOCK_MODE}-caller-exit"' EXIT
+trap 'printf "%s\n" term >"${TEST_ROOT}/${LOCK_MODE}-caller-term"' TERM
+if IPSet_Lock fail_action; then
+	exit 2
+else
+	STATUS="$?"
+fi
+[ "${STATUS}" -eq 23 ] || exit 3
+kill -TERM "$$"
+[ -f "${TEST_ROOT}/${LOCK_MODE}-caller-term" ] || exit 4
+exit 0
+EOF
+chmod 700 "${TRAP_TEST_FILE}" || fail 'could not make caller trap test executable'
+
 run_interrupt_test() {
 	LOCK_MODE="$1"
 	if "${INTERRUPT_TEST_FILE}" "${FUNCTION_FILE}" "${TEST_ROOT}" "${LOCK_MODE}"; then
@@ -129,6 +179,13 @@ run_interrupt_test() {
 	fi
 	[ -f "${TEST_ROOT}/${LOCK_MODE}-interrupt-held" ] || fail "${LOCK_MODE} interrupt restored after releasing the lock"
 	[ ! -d "${TEST_ROOT}/${LOCK_MODE}-interrupt-runtime/mkdir" ] || fail "${LOCK_MODE} interrupt left the fallback lock behind"
+}
+
+run_trap_test() {
+	LOCK_MODE="$1"
+	"${TRAP_TEST_FILE}" "${FUNCTION_FILE}" "${TEST_ROOT}" "${LOCK_MODE}" || fail "${LOCK_MODE} did not preserve caller traps and callback status"
+	[ "$(cat "${TEST_ROOT}/${LOCK_MODE}-caller-term" 2>/dev/null)" = term ] || fail "${LOCK_MODE} did not restore the caller TERM trap"
+	[ "$(cat "${TEST_ROOT}/${LOCK_MODE}-caller-exit" 2>/dev/null)" = exit ] || fail "${LOCK_MODE} did not restore the caller EXIT trap"
 }
 
 lock_action() {
@@ -167,6 +224,8 @@ USE_FLOCK=0
 
 run_interrupt_test flock
 run_interrupt_test mkdir
+run_trap_test flock
+run_trap_test mkdir
 
 IPSET_RUNTIME_DIR="${TEST_ROOT}/runtime"
 IPSet_Lock lock_action || fail 'could not acquire fallback lock in private runtime directory'
