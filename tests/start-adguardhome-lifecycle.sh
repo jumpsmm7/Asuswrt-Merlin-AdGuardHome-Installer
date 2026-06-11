@@ -56,6 +56,11 @@ IPSet_Supported() {
 	return "${SUPPORTED_STATUS}"
 }
 
+IPSet_Setup() {
+	printf '%s\n' IPSet_Setup >>"${CALLS_FILE}"
+	return "${IPSET_STATUS}"
+}
+
 IPSet_Lock() {
 	printf '%s\n' 'IPSet_Lock acquired' >>"${CALLS_FILE}"
 	[ "${LOCK_STATUS}" -eq 0 ] || return "${LOCK_STATUS}"
