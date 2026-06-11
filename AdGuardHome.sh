@@ -1140,7 +1140,8 @@ IPSet_Collect_Yaml() {
 			}
 			return 0
 		}
-		/^(dns|\047dns\047|"dns"):[[:space:]]*(#.*)?$/ { in_dns = 1; child_indent = 0; next }
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(&[^][{},[:space:]]+[[:space:]]*)?(#.*)?$/ { in_dns = 1; child_indent = 0; next }
+		/^(dns|\047dns\047|"dns"):/ { exit 1 }
 		in_flow {
 			if (flow_consume($0)) in_flow = 0
 			next
@@ -1213,7 +1214,8 @@ IPSet_Current_File() {
 			}
 			exit 1
 		}
-		/^(dns|\047dns\047|"dns"):[[:space:]]*(#.*)?$/ { in_dns = 1; next }
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(&[^][{},[:space:]]+[[:space:]]*)?(#.*)?$/ { in_dns = 1; next }
+		/^(dns|\047dns\047|"dns"):/ { exit 1 }
 		in_dns && /^[^[:space:]]/ { exit }
 		in_dns && /^[[:space:]]*($|#)/ { next }
 		in_dns && !child_indent { child_indent = indentation($0) }
@@ -1392,7 +1394,7 @@ IPSet_Migrate() {
 			if (!wrote_file) print prefix "ipset_file: " ipset_file
 			wrote_ipset = wrote_file = 1
 		}
-		/^(dns|\047dns\047|"dns"):[[:space:]]*(#.*)?$/ {
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(&[^][{},[:space:]]+[[:space:]]*)?(#.*)?$/ {
 			in_dns = 1
 			found_dns = 1
 			child_indent = 0
@@ -1400,6 +1402,7 @@ IPSet_Migrate() {
 			print
 			next
 		}
+		/^(dns|\047dns\047|"dns"):/ { exit 1 }
 		skip_flow {
 			if (flow_closed($0)) skip_flow = 0
 			next
