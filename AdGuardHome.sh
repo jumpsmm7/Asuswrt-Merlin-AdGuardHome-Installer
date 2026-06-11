@@ -1245,17 +1245,56 @@ IPSet_Current_File() {
 			}
 			exit 1
 		}
+		function block_start(value,    indicators) {
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			sub(/[[:space:]]+#.*$/, "", value)
+			gsub(/[[:space:]]+$/, "", value)
+			if (value !~ /^[|>]([1-9][+-]?|[+-][1-9]?)?$/) return 0
+			indicators = substr(value, 2)
+			block_explicit_indent = 0
+			if (indicators ~ /[1-9]/) {
+				gsub(/[^1-9]/, "", indicators)
+				block_explicit_indent = indicators + 0
+			}
+			block_lines = block_leading_blank = 0
+			block_value = ""
+			in_block = 1
+			return 1
+		}
+		function block_fail() { in_block = 0; exit 1 }
+		function block_finish() {
+			in_block = 0
+			if (block_lines > 1 || (block_lines && block_leading_blank)) exit 1
+			print block_value
+			exit
+		}
 		/^(dns|\047dns\047|"dns"):[[:space:]]*(&[^][{},[:space:]]+[[:space:]]*)?(#.*)?$/ { in_dns = 1; next }
 		/^(dns|\047dns\047|"dns"):/ { exit 1 }
+		in_block {
+			if ($0 ~ /^[[:space:]]*$/) {
+				if (!block_lines) block_leading_blank = 1
+				next
+			}
+			line_indent = indentation($0)
+			if (line_indent <= child_indent) block_finish()
+			content_indent = block_explicit_indent ? child_indent + block_explicit_indent : line_indent
+			if (line_indent < content_indent) block_fail()
+			block_lines++
+			if (block_lines > 1) block_fail()
+			block_value = substr($0, content_indent + 1)
+			next
+		}
 		in_dns && /^[^[:space:]]/ { exit }
 		in_dns && /^[[:space:]]*($|#)/ { next }
 		in_dns && !child_indent { child_indent = indentation($0) }
 		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
 			value = substr($0, child_indent + 1)
 			sub(/^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/, "", value)
+			if (block_start(value)) next
 			print scalar(value)
 			exit
 		}
+		END { if (in_block) block_finish() }
 	' "${YAML_FILE}"
 }
 
@@ -1506,6 +1545,8 @@ IPSet_Migrate() {
 		}
 		skip_ipset && ($0 ~ /^[[:space:]]*($|#)/ || indentation($0) > child_indent || (indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^-([[:space:]]|$)/)) { next }
 		skip_ipset { skip_ipset = 0 }
+		skip_ipset_file && ($0 ~ /^[[:space:]]*$/ || indentation($0) > child_indent) { next }
+		skip_ipset_file { skip_ipset_file = 0 }
 		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*(#.*)?$/ {
 			if (!wrote_ipset) print child_prefix "ipset: []"
 			wrote_ipset = 1
@@ -1532,6 +1573,9 @@ IPSet_Migrate() {
 			next
 		}
 		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
+			line = substr($0, child_indent + 1)
+			sub(/^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/, "", line)
+			if (line ~ /^[|>]([1-9][+-]?|[+-][1-9]?)?[[:space:]]*(#.*)?$/) skip_ipset_file = 1
 			if (!wrote_file) print child_prefix "ipset_file: " ipset_file
 			wrote_file = 1
 			next
