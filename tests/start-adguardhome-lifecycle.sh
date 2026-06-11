@@ -5,10 +5,11 @@ set -u
 
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
 FUNCTION_FILE="${TMPDIR:-/tmp}/start-adguardhome-function.$$"
+SERVICE_WAIT_FILE="${TMPDIR:-/tmp}/service-wait-function.$$"
 CALLS_FILE="${TMPDIR:-/tmp}/start-adguardhome-calls.$$"
 
 cleanup() {
-	rm -f "${FUNCTION_FILE}" "${CALLS_FILE}"
+	rm -f "${FUNCTION_FILE}" "${SERVICE_WAIT_FILE}" "${CALLS_FILE}"
 }
 
 fail() {
@@ -21,6 +22,8 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 sed -n '/^start_adguardhome() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Cleanup() {$/,/^}$/p; /^IPSet_Start_Restore() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'startup lifecycle functions were not found'
+sed -n '/^service_wait() {$/,/^}$/p' "${SCRIPT_PATH}" >"${SERVICE_WAIT_FILE}" || fail "could not read ${SCRIPT_PATH}"
+[ -s "${SERVICE_WAIT_FILE}" ] || fail 'service-wait function was not found'
 
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
@@ -105,6 +108,25 @@ run_test() {
 	[ "${ACTUAL}" = "${EXPECTED}" ] || fail "${DESCRIPTION}: unexpected lifecycle: ${ACTUAL}"
 }
 
+run_service_wait_terminal_test() {
+	: >"${CALLS_FILE}"
+	(
+		# shellcheck disable=SC1090
+		. "${SERVICE_WAIT_FILE}"
+		timezone() { :; }
+		nvram() { printf '%s\n' 1; }
+		terminal_failure() {
+			printf '%s\n' called >>"${CALLS_FILE}"
+			SERVICE_WAIT_TERMINAL_FAILURE="1"
+			return 1
+		}
+		service_wait terminal_failure 30
+	)
+	STATUS="$?"
+	[ "${STATUS}" -eq 1 ] || fail "service_wait returned ${STATUS}, expected terminal failure"
+	[ "$(wc -l <"${CALLS_FILE}")" -eq 1 ] || fail 'service_wait retried a terminal failure'
+}
+
 run_interrupt_cleanup_test() {
 	DESCRIPTION="$1"
 	START_STATUS="$2"
@@ -122,16 +144,19 @@ NAME=AdGuardHome
 WORK_DIR=/tmp/adguardhome-test
 INTERRUPT_ON_STOP=0
 
+run_service_wait_terminal_test
+
 run_test 'setup failure while stopped' 0 0 0 0 1 0 1 'IPSet_Supported
 IPSet_Lock acquired
 IPSet_Setup_Locked
 IPSet_Lock released'
-run_test 'setup failure restores running service' 1 0 0 0 1 0 0 'IPSet_Supported
+run_test 'setup failure restores running service with terminal failure' 1 0 0 0 1 0 1 'IPSet_Supported
 IPSet_Lock acquired
 lower_script stop
 IPSet_Setup_Locked
 IPSet_Lock released
 lower_script start'
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'restored setup failure was not marked terminal'
 run_test 'failed restoration remains an error' 1 0 0 0 1 1 1 'IPSet_Supported
 IPSet_Lock acquired
 lower_script stop

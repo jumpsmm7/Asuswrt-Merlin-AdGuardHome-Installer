@@ -733,18 +733,30 @@ service_wait() {
 			exec 2>'/dev/null'
 		}
 		{
-			local elapsed interval
+			local elapsed interval status
 			elapsed="0"
 			interval="10"
+			status="1"
 			while [ "${elapsed}" -le "${maxwait}" ]; do
-				if [ "$(nvram get success_start_service)" = '1' ] && { "$1"; }; then break; fi
+				if [ "$(nvram get success_start_service)" = '1' ]; then
+					SERVICE_WAIT_TERMINAL_FAILURE="0"
+					"$1"
+					status="$?"
+					if [ "${status}" -eq 0 ] || [ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ]; then break; fi
+				fi
 				sleep "${interval}s"
 				elapsed="$((elapsed + interval))"
 			done
 		}
 		{
 			trap - HUP INT QUIT ABRT TERM TSTP
-			if [ "${elapsed}" -gt "${maxwait}" ]; then return 1; else return 0; fi
+			if [ "${SERVICE_WAIT_TERMINAL_FAILURE:-0}" -eq 1 ]; then
+				return "${status}"
+			elif [ "${elapsed}" -gt "${maxwait}" ]; then
+				return 1
+			else
+				return 0
+			fi
 		}
 	) &
 	local PID="$!"
@@ -757,13 +769,14 @@ start_adguardhome() {
 	WAS_RUNNING="0"
 	IPSET_START_RESTARTED="0"
 	IPSET_START_STOPPED="0"
+	SERVICE_WAIT_TERMINAL_FAILURE="0"
 	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
 		WAS_RUNNING="1"
 	fi
 	if ! IPSet_Setup_For_Start "${WAS_RUNNING}"; then
 		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; startup aborted."
 		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
-			return 0
+			SERVICE_WAIT_TERMINAL_FAILURE="1"
 		fi
 		return 1
 	fi
