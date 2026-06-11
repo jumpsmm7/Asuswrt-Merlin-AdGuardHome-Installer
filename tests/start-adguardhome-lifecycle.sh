@@ -27,11 +27,11 @@ assert_startup_uses_lock_first_setup() {
 	STARTUP_SETUP_CALLS="$(awk '
 		/^start_adguardhome\(\) \{$/ { in_start = 1; next }
 		in_start && /^}$/ { exit }
-		in_start && /IPSet_Setup_For_Start "\$\{WAS_RUNNING\}"/ { lock_first++ }
+		in_start && /^[[:space:]]*if ! IPSet_Setup_For_Start; then$/ { lock_first++ }
 		in_start && /^[[:space:]]*if ! IPSet_Setup;/ { legacy++ }
 		END { print lock_first + 0, legacy + 0 }
 	' "${SCRIPT_PATH}")" || fail 'could not inspect the startup IPSET setup call'
-	[ "${STARTUP_SETUP_CALLS}" = '1 0' ] || fail "expected one lock-first setup call and no legacy setup call, found ${STARTUP_SETUP_CALLS}"
+	[ "${STARTUP_SETUP_CALLS}" = '1 0' ] || fail "expected one argument-free lock-first setup call and no legacy setup call, found ${STARTUP_SETUP_CALLS}"
 }
 
 trap cleanup 0
@@ -64,6 +64,11 @@ IPSet_Setup() {
 IPSet_Lock() {
 	printf '%s\n' 'IPSet_Lock acquired' >>"${CALLS_FILE}"
 	[ "${LOCK_STATUS}" -eq 0 ] || return "${LOCK_STATUS}"
+	if [ "${RUNNING_AFTER_LOCK:-${RUNNING}}" -eq 1 ]; then
+		RUNNING="1"
+	else
+		RUNNING="0"
+	fi
 	"$@"
 	STATUS="$?"
 	printf '%s\n' 'IPSet_Lock released' >>"${CALLS_FILE}"
@@ -184,6 +189,14 @@ run_test 'setup failure while stopped' 0 0 0 0 1 0 1 'IPSet_Supported
 IPSet_Lock acquired
 IPSet_Setup_Locked
 IPSet_Lock released'
+RUNNING_AFTER_LOCK=1
+run_test 'service started while waiting for lock is stopped before setup' 0 0 0 0 0 0 1 'IPSet_Supported
+IPSet_Lock acquired
+lower_script stop
+IPSet_Setup_Locked
+lower_script start
+IPSet_Lock released'
+unset RUNNING_AFTER_LOCK
 run_test 'setup failure restores running service with terminal failure' 1 0 0 0 1 0 1 'IPSet_Supported
 IPSet_Lock acquired
 lower_script stop
