@@ -1294,6 +1294,7 @@ IPSet_Lock_Flock() {
 		exec 8>&-
 		return 1
 	fi
+	# Restore a stopped service while this lock is still held; only then release it.
 	trap 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
 	trap 'STATUS="$?"; IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
 	"$@"
@@ -1360,6 +1361,7 @@ IPSet_Lock_Mkdir() {
 }${TRAP_LINE}"
 	done <"${TRAP_STATE_FILE}"
 	rm -f "${TRAP_STATE_FILE}"
+	# Keep the fallback lock through restoration for the same lifecycle guarantee.
 	trap 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
 	trap 'STATUS="$?"; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
 	"$@"
