@@ -1260,12 +1260,21 @@ IPSet_Lock_Interrupt_Cleanup() {
 
 IPSet_Start_Restore() {
 	IPSET_START_STOPPED="0"
-	if lower_script start; then
+	if IPSet_Start_While_Locked; then
 		logger -st "${NAME}" "Restored AdGuardHome after IPSET setup rollback."
 		return 0
 	fi
 	logger -st "${NAME}" "Unable to restart AdGuardHome after IPSET setup rollback."
 	return 1
+}
+
+IPSet_Start_While_Locked() {
+	local STATUS
+	ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
+	lower_script start
+	STATUS="$?"
+	ADGUARDHOME_SKIP_DNSMASQ_RESTART=""
+	return "${STATUS}"
 }
 
 IPSet_Lock() {
@@ -1678,7 +1687,7 @@ IPSet_Setup_For_Start_Locked() {
 		return 1
 	fi
 	if [ "${IPSET_START_STOPPED}" -eq 1 ]; then
-		if ! lower_script start; then
+		if ! IPSet_Start_While_Locked; then
 			IPSET_START_STOPPED="0"
 			return 1
 		fi

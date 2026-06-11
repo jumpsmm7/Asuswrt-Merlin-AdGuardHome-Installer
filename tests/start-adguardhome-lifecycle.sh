@@ -39,11 +39,12 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 assert_single_function IPSet_Lock_Interrupt_Cleanup
 assert_single_function IPSet_Start_Restore
+assert_single_function IPSet_Start_While_Locked
 assert_single_function IPSet_Setup_For_Start
 assert_single_function IPSet_Setup_For_Start_Locked
 assert_startup_uses_lock_first_setup
 
-sed -n '/^start_adguardhome() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Cleanup() {$/,/^}$/p; /^IPSet_Start_Restore() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^start_adguardhome() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Cleanup() {$/,/^}$/p; /^IPSet_Start_Restore() {$/,/^}$/p; /^IPSet_Start_While_Locked() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'startup lifecycle functions were not found'
 sed -n '/^service_wait() {$/,/^}$/p' "${SCRIPT_PATH}" >"${SERVICE_WAIT_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${SERVICE_WAIT_FILE}" ] || fail 'service-wait function was not found'
@@ -69,8 +70,10 @@ IPSet_Lock() {
 	else
 		RUNNING="0"
 	fi
+	IPSET_TEST_LOCK_HELD="1"
 	"$@"
 	STATUS="$?"
+	IPSET_TEST_LOCK_HELD="0"
 	printf '%s\n' 'IPSet_Lock released' >>"${CALLS_FILE}"
 	if [ "${INTERRUPT_AFTER_UNLOCK}" -eq 1 ]; then
 		printf '%s\n' 'interrupt after lock release' >>"${CALLS_FILE}"
@@ -99,7 +102,12 @@ lower_script() {
 			fi
 			return "${STOP_STATUS}"
 			;;
-		start) return "${START_STATUS}" ;;
+		start)
+			if [ "${IPSET_TEST_LOCK_HELD:-0}" -eq 1 ] && [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
+				fail 'locked AdGuardHome start did not suppress the dnsmasq restart hook'
+			fi
+			return "${START_STATUS}"
+			;;
 	esac
 	return 0
 }
@@ -229,12 +237,13 @@ lower_script start'
 run_interrupt_cleanup_test 'interrupt restores stopped service' 0
 run_interrupt_cleanup_test 'failed interrupt restoration is not retried' 1
 
-run_test 'successful setup restarts before releasing lock' 1 0 0 0 0 0 1 'IPSet_Supported
+run_test 'successful setup suppresses dnsmasq restart while lock is held' 1 0 0 0 0 0 1 'IPSet_Supported
 IPSet_Lock acquired
 lower_script stop
 IPSet_Setup_Locked
 lower_script start
 IPSet_Lock released'
+[ -z "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" ] || fail 'locked start left the dnsmasq restart guard set'
 INTERRUPT_AFTER_UNLOCK=1
 run_test 'post-lock interrupt cannot strand the service' 1 0 0 0 0 0 1 'IPSet_Supported
 IPSet_Lock acquired
