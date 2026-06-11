@@ -39,6 +39,11 @@ IPSet_Lock() {
 	"$@"
 	STATUS="$?"
 	printf '%s\n' 'IPSet_Lock released' >>"${CALLS_FILE}"
+	if [ "${INTERRUPT_AFTER_UNLOCK}" -eq 1 ]; then
+		printf '%s\n' 'interrupt after lock release' >>"${CALLS_FILE}"
+		[ "${IPSET_START_STOPPED}" -eq 0 ] || fail 'post-lock interrupt found AdGuardHome stopped'
+		IPSet_Lock_Interrupt_Cleanup
+	fi
 	return "${STATUS}"
 }
 
@@ -143,6 +148,7 @@ PROCS=AdGuardHome
 NAME=AdGuardHome
 WORK_DIR=/tmp/adguardhome-test
 INTERRUPT_ON_STOP=0
+INTERRUPT_AFTER_UNLOCK=0
 
 run_service_wait_terminal_test
 
@@ -188,6 +194,15 @@ lower_script stop
 IPSet_Setup_Locked
 lower_script start
 IPSet_Lock released'
+INTERRUPT_AFTER_UNLOCK=1
+run_test 'post-lock interrupt cannot strand the service' 1 0 0 0 0 0 1 'IPSet_Supported
+IPSet_Lock acquired
+lower_script stop
+IPSet_Setup_Locked
+lower_script start
+IPSet_Lock released
+interrupt after lock release'
+INTERRUPT_AFTER_UNLOCK=0
 run_test 'failed locked restart is not retried' 1 0 0 0 0 1 1 'IPSet_Supported
 IPSet_Lock acquired
 lower_script stop
