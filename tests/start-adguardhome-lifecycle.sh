@@ -108,6 +108,9 @@ lower_script() {
 			fi
 			return "${START_STATUS}"
 			;;
+		restart)
+			return "${START_STATUS}"
+			;;
 	esac
 	return 0
 }
@@ -231,7 +234,9 @@ lower_script stop
 lower_script start
 IPSet_Lock released'
 INTERRUPT_ON_STOP=0
-run_test 'unsupported integration leaves running service available' 1 1 0 0 0 0 1 'IPSet_Supported
+run_test 'unsupported integration restarts a running service' 1 1 0 0 0 0 1 'IPSet_Supported
+lower_script restart'
+run_test 'unsupported integration starts a stopped service' 0 1 0 0 0 0 1 'IPSet_Supported
 lower_script start'
 
 run_interrupt_cleanup_test 'interrupt restores stopped service' 0

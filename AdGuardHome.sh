@@ -780,7 +780,14 @@ start_adguardhome() {
 		return 1
 	fi
 	if [ "${IPSET_START_RESTARTED}" -eq 0 ]; then
-		lower_script start
+		case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
+			0)
+				lower_script start
+				;;
+			*)
+				lower_script restart
+				;;
+		esac
 	fi
 	for db in stats.db sessions.db; do {
 		if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
