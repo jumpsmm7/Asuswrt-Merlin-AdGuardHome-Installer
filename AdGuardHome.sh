@@ -7,7 +7,7 @@ MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 IPSET_FILE="/opt/etc/AdGuardHome/ipset.conf"
-IPSET_RUNTIME_DIR="${IPSET_RUNTIME_DIR:-/opt/var/run/AdGuardHome-ipset}"
+IPSET_LOCK_ROOT="/opt/etc/AdGuardHome/.ipset-locks"
 IPSET_USER_FILE="/opt/etc/AdGuardHome/ipset.user"
 YAML_FILE="/opt/etc/AdGuardHome/AdGuardHome.yaml"
 
@@ -753,16 +753,16 @@ service_wait() {
 }
 
 start_adguardhome() {
-	local IPSET_START_STOPPED WAS_RUNNING
-	WAS_RUNNING="0"
-	IPSET_START_STOPPED="0"
+	local WAS_RUNNING
+	WAS_RUNNING=""
 	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
 		WAS_RUNNING="1"
+		lower_script stop || return 1
 	fi
-	if ! IPSet_Setup_For_Start "${WAS_RUNNING}"; then
+	if ! IPSet_Setup; then
 		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; startup aborted."
-		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
-			return 0
+		if [ "${WAS_RUNNING}" = "1" ]; then
+			lower_script start || logger -st "${NAME}" "Unable to restore AdGuardHome after IPSET setup failure."
 		fi
 		return 1
 	fi
@@ -1238,7 +1238,7 @@ IPSet_Current_File() {
 }
 
 IPSet_Lock() {
-	IPSet_Runtime_Prepare || return 1
+	IPSet_Lock_Prepare_Root || return 1
 	if have_cmd flock && flock_supports_fd; then
 		IPSet_Lock_Flock "$@"
 	else
@@ -1247,8 +1247,9 @@ IPSet_Lock() {
 }
 
 IPSet_Lock_Flock() {
-	local SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
-	TRAP_STATE_FILE="${IPSET_RUNTIME_DIR}/traps.$$"
+	local LOCK_FILE SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
+	LOCK_FILE="${IPSET_LOCK_ROOT}/ipset.lock"
+	TRAP_STATE_FILE="${IPSET_LOCK_ROOT}/traps.$$"
 	trap >"${TRAP_STATE_FILE}" || return 1
 	SAVED_TRAPS=""
 	while IFS= read -r TRAP_LINE || [ -n "${TRAP_LINE}" ]; do
@@ -1256,7 +1257,7 @@ IPSet_Lock_Flock() {
 }${TRAP_LINE}"
 	done <"${TRAP_STATE_FILE}"
 	rm -f "${TRAP_STATE_FILE}"
-	exec 8>"${IPSET_RUNTIME_DIR}/flock" || return 1
+	exec 8>"${LOCK_FILE}" || return 1
 	if ! flock 8; then
 		logger -st "${NAME}" "Unable to acquire flock for IPSET setup."
 		exec 8>&-
@@ -1278,17 +1279,17 @@ IPSet_Lock_Flock_Cleanup() {
 
 IPSet_Lock_Mkdir() {
 	local ATTEMPTS LOCK_DIR LOCK_OWNER OWNER OWNERLESS_ATTEMPTS SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
-	LOCK_DIR="${IPSET_RUNTIME_DIR}/mkdir"
-	LOCK_OWNER="$(id -u)" || return 1
+	LOCK_DIR="${IPSET_LOCK_ROOT}/mkdir"
 	ATTEMPTS="0"
 	OWNERLESS_ATTEMPTS="0"
-	while ! mkdir -m 700 "${LOCK_DIR}" 2>/dev/null; do
+	while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
 		if [ -L "${LOCK_DIR}" ] || [ ! -d "${LOCK_DIR}" ]; then
-			logger -st "${NAME}" "Unsafe legacy mkdir lock exists for IPSET setup."
+			logger -st "${NAME}" "Refusing unsafe legacy mkdir lock for IPSET setup."
 			return 1
 		fi
-		if [ "$(stat -c '%u' "${LOCK_DIR}" 2>/dev/null)" != "${LOCK_OWNER}" ]; then
-			logger -st "${NAME}" "Legacy mkdir lock for IPSET setup has an untrusted owner."
+		LOCK_OWNER="$(stat -c %u "${LOCK_DIR}" 2>/dev/null)" || return 1
+		if [ "${LOCK_OWNER}" != "0" ]; then
+			logger -st "${NAME}" "Refusing legacy mkdir lock not owned by root."
 			return 1
 		fi
 		OWNER="$(sed -n '1p' "${LOCK_DIR}/pid" 2>/dev/null)"
@@ -1316,6 +1317,10 @@ IPSet_Lock_Mkdir() {
 		fi
 		sleep 1
 	done
+	chmod 700 "${LOCK_DIR}" || {
+		IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"
+		return 1
+	}
 	printf '%s\n' "$$" >"${LOCK_DIR}/pid"
 	TRAP_STATE_FILE="${LOCK_DIR}/traps"
 	if ! trap >"${TRAP_STATE_FILE}"; then
@@ -1341,20 +1346,29 @@ IPSet_Lock_Mkdir_Cleanup() {
 	[ -n "$1" ] && rm -rf "$1"
 }
 
-IPSet_Lock_Interrupt_Cleanup() {
-	if [ "${IPSET_START_STOPPED:-0}" -eq 1 ]; then
-		IPSet_Start_Restore || true
+IPSet_Lock_Prepare_Root() {
+	local CREATED LOCK_OWNER
+	CREATED=""
+	if [ -L "${IPSET_LOCK_ROOT}" ]; then
+		logger -st "${NAME}" "Refusing symbolic-link IPSET lock root."
+		return 1
 	fi
-}
-
-IPSet_Start_Restore() {
-	IPSET_START_STOPPED="0"
-	if lower_script start; then
-		logger -st "${NAME}" "Restored AdGuardHome after IPSET setup rollback."
-		return 0
+	if mkdir "${IPSET_LOCK_ROOT}" 2>/dev/null; then
+		CREATED="1"
+	elif [ ! -d "${IPSET_LOCK_ROOT}" ]; then
+		logger -st "${NAME}" "Unable to create IPSET lock root."
+		return 1
 	fi
-	logger -st "${NAME}" "Unable to restart AdGuardHome after IPSET setup rollback."
-	return 1
+	LOCK_OWNER="$(stat -c %u "${IPSET_LOCK_ROOT}" 2>/dev/null)" || {
+		[ -z "${CREATED}" ] || rmdir "${IPSET_LOCK_ROOT}" 2>/dev/null
+		return 1
+	}
+	if [ "${LOCK_OWNER}" != "0" ]; then
+		logger -st "${NAME}" "Refusing IPSET lock root not owned by root."
+		[ -z "${CREATED}" ] || rmdir "${IPSET_LOCK_ROOT}" 2>/dev/null
+		return 1
+	fi
+	chmod 700 "${IPSET_LOCK_ROOT}"
 }
 
 IPSet_Migrate() {
