@@ -1394,15 +1394,13 @@ IPSet_Lock_Mkdir() {
 			"" | *[!0-9]*)
 				# Allow the lock owner time to publish its PID after mkdir succeeds.
 				OWNERLESS_ATTEMPTS="$((OWNERLESS_ATTEMPTS + 1))"
-				if [ "${OWNERLESS_ATTEMPTS}" -ge 5 ]; then
-					rm -rf "${LOCK_DIR}"
+				if [ "${OWNERLESS_ATTEMPTS}" -ge 5 ] && IPSet_Lock_Mkdir_Reap_Stale "${LOCK_DIR}" "${OWNER}"; then
 					continue
 				fi
 				;;
 			*)
 				OWNERLESS_ATTEMPTS="0"
-				if ! kill -0 "${OWNER}" 2>/dev/null; then
-					rm -rf "${LOCK_DIR}"
+				if ! kill -0 "${OWNER}" 2>/dev/null && IPSet_Lock_Mkdir_Reap_Stale "${LOCK_DIR}" "${OWNER}"; then
 					continue
 				fi
 				;;
@@ -1438,6 +1436,39 @@ IPSet_Lock_Mkdir() {
 
 IPSet_Lock_Mkdir_Cleanup() {
 	[ -n "$1" ] && rm -rf "$1"
+}
+
+IPSet_Lock_Mkdir_Reap_Stale() {
+	local CURRENT_OWNER LOCK_DIR LOCK_OWNER OBSERVED_OWNER REAP_DIR
+	LOCK_DIR="$1"
+	OBSERVED_OWNER="$2"
+	REAP_DIR="${LOCK_DIR}/reap"
+	LOCK_OWNER="$(id -u)" || return 1
+
+	# Only one waiter may revalidate and remove a stale lock.  A waiter that
+	# reaches a replacement lock creates its marker there and must revalidate
+	# the replacement's owner before it can remove anything.
+	mkdir -m 700 "${REAP_DIR}" 2>/dev/null || return 1
+	if [ -L "${LOCK_DIR}" ] || [ ! -d "${LOCK_DIR}" ] || [ "$(stat -c %u "${LOCK_DIR}" 2>/dev/null)" != "${LOCK_OWNER}" ]; then
+		rmdir "${REAP_DIR}" 2>/dev/null
+		return 1
+	fi
+
+	CURRENT_OWNER="$(sed -n '1p' "${LOCK_DIR}/pid" 2>/dev/null)"
+	if [ "${CURRENT_OWNER}" != "${OBSERVED_OWNER}" ]; then
+		rmdir "${REAP_DIR}" 2>/dev/null
+		return 1
+	fi
+	case "${CURRENT_OWNER}" in
+		"" | *[!0-9]*) ;;
+		*)
+			if kill -0 "${CURRENT_OWNER}" 2>/dev/null; then
+				rmdir "${REAP_DIR}" 2>/dev/null
+				return 1
+			fi
+			;;
+	esac
+	rm -rf "${LOCK_DIR}"
 }
 
 IPSet_Migrate() {

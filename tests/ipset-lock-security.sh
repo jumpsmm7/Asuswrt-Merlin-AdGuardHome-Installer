@@ -24,7 +24,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 mkdir -m 700 "${TEST_ROOT}" || fail 'could not create test directory'
-sed -n '/^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock() {$/,/^}$/p; /^IPSet_Lock_Flock() {$/,/^}$/p; /^IPSet_Lock_Flock_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Cleanup() {$/,/^}$/p; /^IPSet_Restore_Traps() {$/,/^}$/p; /^IPSet_Runtime_Prepare() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock() {$/,/^}$/p; /^IPSet_Lock_Flock() {$/,/^}$/p; /^IPSet_Lock_Flock_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Reap_Stale() {$/,/^}$/p; /^IPSet_Restore_Traps() {$/,/^}$/p; /^IPSet_Runtime_Prepare() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'IPSET lock functions were not found'
 if ! grep -Eq '^IPSET_RUNTIME_DIR=.*AdGuardHome-ipset' "${SCRIPT_PATH}"; then
 	fail 'the private IPSET runtime directory default is not defined'
@@ -235,6 +235,22 @@ IPSet_Lock lock_action || fail 'could not acquire fallback lock in private runti
 rm -f "${TEST_ROOT}/dnsmasq-restarted"
 IPSet_Lock lock_dnsmasq_action || fail 'could not defer dnsmasq restart with the fallback lock'
 [ -f "${TEST_ROOT}/dnsmasq-restarted" ] || fail 'fallback path did not restart dnsmasq after unlock'
+
+# A waiter that observed an old dead PID must not remove a replacement lock.
+mkdir -m 700 "${IPSET_RUNTIME_DIR}/mkdir" || fail 'could not create replacement fallback lock'
+printf '%s\n' "$$" >"${IPSET_RUNTIME_DIR}/mkdir/pid"
+if IPSet_Lock_Mkdir_Reap_Stale "${IPSET_RUNTIME_DIR}/mkdir" 999999; then
+	fail 'removed a replacement fallback lock'
+fi
+[ -d "${IPSET_RUNTIME_DIR}/mkdir" ] || fail 'replacement fallback lock was deleted'
+[ "$(cat "${IPSET_RUNTIME_DIR}/mkdir/pid")" = "$$" ] || fail 'replacement fallback lock owner changed'
+[ ! -e "${IPSET_RUNTIME_DIR}/mkdir/reap" ] || fail 'replacement fallback lock retained the reaper marker'
+rm -rf "${IPSET_RUNTIME_DIR}/mkdir"
+
+mkdir -m 700 "${IPSET_RUNTIME_DIR}/mkdir" || fail 'could not create stale fallback lock'
+printf '%s\n' 999999 >"${IPSET_RUNTIME_DIR}/mkdir/pid"
+IPSet_Lock_Mkdir_Reap_Stale "${IPSET_RUNTIME_DIR}/mkdir" 999999 || fail 'could not reap an unchanged stale fallback lock'
+[ ! -e "${IPSET_RUNTIME_DIR}/mkdir" ] || fail 'unchanged stale fallback lock was not removed'
 
 if [ "$(id -u)" -eq 0 ]; then
 	mkdir -m 700 "${IPSET_RUNTIME_DIR}/mkdir" || fail 'could not create foreign-owner fallback lock'
