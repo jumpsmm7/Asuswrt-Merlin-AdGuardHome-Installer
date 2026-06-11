@@ -1,6 +1,7 @@
 #!/bin/sh
 
 SCRIPT_LOC="$(readlink -f "$0")"
+ADGUARDHOME_BINARY="/opt/sbin/AdGuardHome"
 CONF_FILE="/opt/etc/AdGuardHome/.config"
 MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
@@ -799,7 +800,7 @@ start_monitor() {
 			{ adguardhome_run stop_adguardhome; }
 			break
 		fi
-		if [ ! -x "/opt/sbin/AdGuardHome" ]; then
+		if [ ! -x "${ADGUARDHOME_BINARY}" ]; then
 			if [ -z "${BINARY_UNAVAILABLE_LOGGED}" ]; then
 				logger -st "${NAME}" "Warning: AdGuardHome binary is unavailable; Monitor will wait."
 				BINARY_UNAVAILABLE_LOGGED="1"
@@ -1494,6 +1495,7 @@ IPSet_Migrate() {
 
 IPSet_Refresh() {
 	local RESTART_STATUS
+	IPSet_Supported || return 0
 	IPSET_REFRESH_CHANGED=""
 	IPSET_REFRESH_CONFIG="${1:-}"
 	IPSet_Lock IPSet_Refresh_Locked || return 1
@@ -1574,6 +1576,7 @@ IPSet_Restore_Traps() {
 }
 
 IPSet_Setup() {
+	IPSet_Supported || return 0
 	IPSET_REFRESH_CONFIG=""
 	IPSet_Lock IPSet_Setup_Locked
 }
@@ -1582,6 +1585,38 @@ IPSet_Setup_Locked() {
 	IPSet_Migrate || return 1
 	[ "${IPSET_MIGRATION_SKIPPED}" = "1" ] && return 0
 	IPSet_Refresh_Locked
+}
+
+IPSet_Supported() {
+	local VERSION_OUTPUT
+	if [ ! -x "${ADGUARDHOME_BINARY}" ]; then
+		logger -st "${NAME}" "Skipping managed IPSET integration; AdGuardHome version is unavailable."
+		return 1
+	fi
+	VERSION_OUTPUT="$("${ADGUARDHOME_BINARY}" --version 2>/dev/null)" || {
+		logger -st "${NAME}" "Skipping managed IPSET integration; unable to query the AdGuardHome version."
+		return 1
+	}
+	if printf '%s\n' "${VERSION_OUTPUT}" | awk '
+		{
+			for (i = 1; i <= NF; i++) {
+				version = $i
+				sub(/^v/, "", version)
+				if (version !~ /^[0-9]+\.[0-9]+\.[0-9]+/) continue
+				found = 1
+				split(version, parts, ".")
+				major = parts[1] + 0
+				minor = parts[2] + 0
+				patch = parts[3] + 0
+				exit !((major > 0) || (minor > 107) || (minor == 107 && patch >= 48))
+			}
+		}
+		END { if (!found) exit 1 }
+	'; then
+		return 0
+	fi
+	logger -st "${NAME}" "Skipping managed IPSET integration; AdGuardHome v0.107.48 or later is required."
+	return 1
 }
 
 if [ -f "${UPPER_SCRIPT}" ]; then UPPER_SCRIPT_LOC=". ${UPPER_SCRIPT}"; fi
