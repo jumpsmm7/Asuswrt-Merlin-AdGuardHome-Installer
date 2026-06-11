@@ -762,7 +762,11 @@ start_adguardhome() {
 	if ! IPSet_Setup; then
 		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; startup aborted."
 		if [ "${WAS_RUNNING}" -eq 1 ]; then
-			lower_script start || logger -st "${NAME}" "Unable to restart AdGuardHome after IPSET setup rollback."
+			if lower_script start; then
+				logger -st "${NAME}" "Restored AdGuardHome after IPSET setup rollback."
+				return 0
+			fi
+			logger -st "${NAME}" "Unable to restart AdGuardHome after IPSET setup rollback."
 		fi
 		return 1
 	fi

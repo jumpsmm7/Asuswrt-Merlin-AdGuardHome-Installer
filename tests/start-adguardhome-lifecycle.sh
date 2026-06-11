@@ -36,6 +36,9 @@ logger() {
 
 lower_script() {
 	printf '%s\n' "lower_script $1" >>"${CALLS_FILE}"
+	if [ "$1" = 'start' ]; then
+		return "${START_STATUS}"
+	fi
 	return 0
 }
 
@@ -56,11 +59,16 @@ ln() {
 run_setup_failure_test() {
 	IPSET_STATUS=1
 	RUNNING="$1"
+	START_STATUS="$2"
+	EXPECTED_STATUS="$3"
 	: >"${CALLS_FILE}"
 
 	if start_adguardhome; then
-		fail "startup succeeded when IPSET setup failed (running=${RUNNING})"
+		ACTUAL_STATUS=0
+	else
+		ACTUAL_STATUS=$?
 	fi
+	[ "${ACTUAL_STATUS}" -eq "${EXPECTED_STATUS}" ] || fail "unexpected IPSET failure status (running=${RUNNING}, restart=${START_STATUS}): ${ACTUAL_STATUS}"
 
 	if [ "${RUNNING}" -eq 1 ]; then
 		EXPECTED='lower_script stop
@@ -70,12 +78,13 @@ lower_script start'
 		EXPECTED='IPSet_Setup'
 	fi
 	ACTUAL="$(cat "${CALLS_FILE}")"
-	[ "${ACTUAL}" = "${EXPECTED}" ] || fail "unexpected IPSET failure lifecycle (running=${RUNNING}): ${ACTUAL}"
+	[ "${ACTUAL}" = "${EXPECTED}" ] || fail "unexpected IPSET failure lifecycle (running=${RUNNING}, restart=${START_STATUS}): ${ACTUAL}"
 }
 
 run_success_order_test() {
 	IPSET_STATUS=0
 	RUNNING=1
+	START_STATUS=0
 	: >"${CALLS_FILE}"
 
 	# Stop after the lifecycle calls so the function does not enter its router-only wait path.
@@ -96,7 +105,8 @@ PROCS=AdGuardHome
 NAME=AdGuardHome
 WORK_DIR=/tmp/adguardhome-test
 
-run_setup_failure_test 0
-run_setup_failure_test 1
+run_setup_failure_test 0 0 1
+run_setup_failure_test 1 0 0
+run_setup_failure_test 1 1 1
 run_success_order_test
-printf '%s\n' 'PASS: AdGuardHome stops before IPSET setup and is restored after rollback'
+printf '%s\n' 'PASS: AdGuardHome stops before IPSET setup and suppresses retries after successful rollback restoration'
