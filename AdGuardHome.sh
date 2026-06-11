@@ -751,12 +751,12 @@ service_wait() {
 }
 
 start_adguardhome() {
-	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
-		lower_script stop || return 1
-	fi
 	if ! IPSet_Setup; then
 		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; startup aborted."
 		return 1
+	fi
+	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
+		lower_script stop || return 1
 	fi
 	lower_script start
 	for db in stats.db sessions.db; do {
