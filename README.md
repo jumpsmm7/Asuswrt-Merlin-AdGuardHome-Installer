@@ -157,8 +157,8 @@ The integration uses the following files:
 | `/opt/etc/AdGuardHome/AdGuardHome.yaml` | AdGuardHome and this installer | The installer sets `dns.ipset: []` and points `dns.ipset_file` to the generated file. |
 | `/opt/etc/AdGuardHome/ipset.conf` | This installer | Generated AdGuardHome rule file. It is rebuilt atomically and must not be edited manually. |
 | `/opt/etc/AdGuardHome/ipset.user` | User | Persistent custom and migrated rules. Add manual rules here. |
-| `/tmp/AdGuardHome-ipset.lock` | Locking code | Runtime lock file used when file-descriptor `flock` is supported. |
-| `/tmp/AdGuardHome-ipset/` | Locking code | Temporary legacy lock directory used when `flock` is unavailable. |
+| `/opt/var/run/AdGuardHome-ipset/flock` | Locking code | Runtime lock file used when file-descriptor `flock` is supported. |
+| `/opt/var/run/AdGuardHome-ipset/mkdir/` | Locking code | Runtime legacy lock directory used when `flock` is unavailable. |
 
 The resulting YAML contains entries equivalent to:
 
@@ -256,8 +256,8 @@ A refresh writes a temporary file, removes empty and exact duplicate lines, and 
 
 Concurrent setup and refresh events are serialized to prevent multiple writers from replacing the YAML or generated rule file at the same time:
 
-- Firmware with working file-descriptor locking waits on `flock` for `/tmp/AdGuardHome-ipset.lock`, so a concurrent invocation runs after the active writer finishes.
-- Older firmware falls back to `/tmp/AdGuardHome-ipset/`, records the owner PID, waits up to 30 seconds, and removes a stale lock when its owner no longer exists.
+- Firmware with working file-descriptor locking waits on `flock` for `/opt/var/run/AdGuardHome-ipset/flock`, so a concurrent invocation runs after the active writer finishes.
+- Older firmware falls back to `/opt/var/run/AdGuardHome-ipset/mkdir/`, records the owner PID, waits up to 30 seconds, and removes a stale lock when its owner no longer exists.
 - Both lock paths save the caller's current traps, install temporary cleanup traps for `EXIT`, `HUP`, `INT`, `QUIT`, `ABRT`, `TERM`, and `TSTP`, and restore the previous trap environment before returning. This prevents IPSET cleanup from replacing the manager's monitor or exit handlers.
 
 Do not remove an active lock. If a legacy lock remains after an abnormal termination and its recorded process is no longer running, the next refresh removes it automatically.
