@@ -772,6 +772,9 @@ start_adguardhome() {
 	if ! IPSet_Setup_For_Start; then
 		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; startup aborted."
 		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
+			IPSET_START_RESTARTED="1"
+		fi
+		if [ "${IPSET_START_RESTARTED}" -eq 1 ]; then
 			SERVICE_WAIT_TERMINAL_FAILURE="1"
 		fi
 		return 1
@@ -1668,7 +1671,12 @@ IPSet_Setup_For_Start_Locked() {
 			return 1
 		fi
 	fi
-	IPSet_Setup_Locked || return 1
+	if ! IPSet_Setup_Locked; then
+		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
+			IPSET_START_RESTARTED="1"
+		fi
+		return 1
+	fi
 	if [ "${IPSET_START_STOPPED}" -eq 1 ]; then
 		if ! lower_script start; then
 			IPSET_START_STOPPED="0"

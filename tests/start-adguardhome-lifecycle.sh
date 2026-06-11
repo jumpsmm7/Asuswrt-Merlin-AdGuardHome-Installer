@@ -201,15 +201,15 @@ run_test 'setup failure restores running service with terminal failure' 1 0 0 0 
 IPSet_Lock acquired
 lower_script stop
 IPSet_Setup_Locked
-IPSet_Lock released
-lower_script start'
+lower_script start
+IPSet_Lock released'
 [ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'restored setup failure was not marked terminal'
 run_test 'failed restoration remains an error' 1 0 0 0 1 1 1 'IPSet_Supported
 IPSet_Lock acquired
 lower_script stop
 IPSet_Setup_Locked
-IPSet_Lock released
-lower_script start'
+lower_script start
+IPSet_Lock released'
 run_test 'lock contention leaves running service untouched' 1 0 7 0 0 0 1 'IPSet_Supported
 IPSet_Lock acquired'
 run_test 'stop failure aborts setup' 1 0 0 1 0 0 1 'IPSet_Supported
