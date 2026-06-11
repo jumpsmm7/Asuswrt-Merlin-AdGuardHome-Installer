@@ -90,6 +90,7 @@ run_check 'md5sum files match installer artifacts' sh tools/check-md5.sh
 run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
 run_check 'AdGuardHome IPSET version gate regression' sh tests/ipset-version-gate.sh
 run_check 'IPSET current-file YAML scalar regression' sh tests/ipset-current-file.sh
+run_check 'IPSET lock security regression' sh tests/ipset-lock-security.sh
 run_check 'IPSET setup rollback regression' sh tests/ipset-setup-rollback.sh
 
 if require_cmd shellcheck; then
