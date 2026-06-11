@@ -1604,6 +1604,85 @@ IPSet_Migrate() {
 	fi
 }
 
+IPSet_Disable_Managed() {
+	local CURRENT_FILE TEMP_FILE
+	[ -f "${YAML_FILE}" ] || return 0
+	if ! CURRENT_FILE="$(IPSet_Current_File)"; then
+		return 1
+	fi
+	if [ "${CURRENT_FILE}" != "${IPSET_FILE}" ]; then
+		return 0
+	fi
+	TEMP_FILE="${YAML_FILE}.ipset-legacy.$$"
+	cp -p "${YAML_FILE}" "${TEMP_FILE}" || {
+		rm -f "${TEMP_FILE}"
+		return 1
+	}
+	if ! awk '
+		function indentation(line,    text) {
+			text = line
+			sub(/[^[:space:]].*$/, "", text)
+			return length(text)
+		}
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(&[^][{},[:space:]]+[[:space:]]*)?(#.*)?$/ {
+			in_dns = 1
+			child_indent = 0
+			print
+			next
+		}
+		/^(dns|\047dns\047|"dns"):/ { exit 1 }
+		in_dns && /^[^[:space:]]/ { in_dns = skip_file = 0 }
+		in_dns && !child_indent && $0 !~ /^[[:space:]]*($|#)/ { child_indent = indentation($0) }
+		skip_file && ($0 ~ /^[[:space:]]*$/ || indentation($0) > child_indent) { next }
+		skip_file { skip_file = 0 }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
+			line = substr($0, child_indent + 1)
+			sub(/^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/, "", line)
+			if (line ~ /^[|>]([1-9][+-]?|[+-][1-9]?)?[[:space:]]*(#.*)?$/) skip_file = 1
+			next
+		}
+		{ print }
+	' "${YAML_FILE}" >"${TEMP_FILE}"; then
+		rm -f "${TEMP_FILE}"
+		return 1
+	fi
+	mv "${TEMP_FILE}" "${YAML_FILE}" || {
+		rm -f "${TEMP_FILE}"
+		return 1
+	}
+	logger -st "${NAME}" "Disabled managed IPSET configuration for this AdGuardHome version."
+}
+
+IPSet_Disable_Managed_For_Start_Locked() {
+	local WAS_RUNNING
+	WAS_RUNNING="0"
+	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
+		WAS_RUNNING="1"
+	fi
+	if [ "${WAS_RUNNING}" -eq 1 ]; then
+		IPSET_START_STOPPED="1"
+		if ! lower_script stop; then
+			IPSET_START_STOPPED="0"
+			return 1
+		fi
+	fi
+	if ! IPSet_Disable_Managed; then
+		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
+			IPSET_START_RESTARTED="1"
+		fi
+		return 1
+	fi
+	if [ "${IPSET_START_STOPPED}" -eq 1 ]; then
+		if ! IPSet_Start_While_Locked; then
+			IPSET_START_STOPPED="0"
+			return 1
+		fi
+		IPSET_START_STOPPED="0"
+		IPSET_START_RESTARTED="1"
+	fi
+	return 0
+}
+
 IPSet_Refresh() {
 	local RESTART_STATUS
 	IPSet_Supported || return 0
@@ -1713,7 +1792,11 @@ IPSet_Setup() {
 }
 
 IPSet_Setup_For_Start() {
-	IPSet_Supported || return 0
+	if ! IPSet_Supported; then
+		[ "${IPSET_LEGACY_VERSION:-}" = "1" ] || return 0
+		IPSet_Lock IPSet_Disable_Managed_For_Start_Locked
+		return $?
+	fi
 	IPSET_REFRESH_CONFIG=""
 	IPSet_Lock IPSet_Setup_For_Start_Locked
 }
@@ -1783,7 +1866,8 @@ IPSet_Setup_Locked() {
 }
 
 IPSet_Supported() {
-	local VERSION_OUTPUT
+	local VERSION_CLASS VERSION_OUTPUT
+	IPSET_LEGACY_VERSION=""
 	if [ ! -x "${ADGUARDHOME_BINARY}" ]; then
 		logger -st "${NAME}" "Skipping managed IPSET integration; AdGuardHome version is unavailable."
 		return 1
@@ -1792,25 +1876,33 @@ IPSet_Supported() {
 		logger -st "${NAME}" "Skipping managed IPSET integration; unable to query the AdGuardHome version."
 		return 1
 	}
-	if printf '%s\n' "${VERSION_OUTPUT}" | awk '
+	VERSION_CLASS="$(printf '%s\n' "${VERSION_OUTPUT}" | awk '
 		{
 			for (i = 1; i <= NF; i++) {
 				version = $i
 				sub(/^v/, "", version)
 				if (version !~ /^[0-9]+\.[0-9]+\.[0-9]+/) continue
-				found = 1
 				split(version, parts, ".")
 				major = parts[1] + 0
 				minor = parts[2] + 0
 				patch = parts[3] + 0
-				exit !((major > 0) || (minor > 107) || (minor == 107 && patch >= 48))
+				if ((major > 0) || (minor > 107) || (minor == 107 && patch >= 48)) print "supported"
+				else print "legacy"
+				exit
 			}
 		}
-		END { if (!found) exit 1 }
-	'; then
-		return 0
-	fi
-	logger -st "${NAME}" "Skipping managed IPSET integration; AdGuardHome v0.107.48 or later is required."
+	')"
+	case "${VERSION_CLASS}" in
+		supported)
+			return 0
+			;;
+		legacy)
+			IPSET_LEGACY_VERSION="1"
+			logger -st "${NAME}" "Skipping managed IPSET integration; AdGuardHome v0.107.48 or later is required."
+			return 1
+			;;
+	esac
+	logger -st "${NAME}" "Skipping managed IPSET integration; unable to parse the AdGuardHome version."
 	return 1
 }
 

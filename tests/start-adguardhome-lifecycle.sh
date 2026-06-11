@@ -37,6 +37,7 @@ assert_startup_uses_lock_first_setup() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
+assert_single_function IPSet_Disable_Managed_For_Start_Locked
 assert_single_function IPSet_Lock_Interrupt_Cleanup
 assert_single_function IPSet_Start_Restore
 assert_single_function IPSet_Start_While_Locked
@@ -44,7 +45,7 @@ assert_single_function IPSet_Setup_For_Start
 assert_single_function IPSet_Setup_For_Start_Locked
 assert_startup_uses_lock_first_setup
 
-sed -n '/^start_adguardhome() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Cleanup() {$/,/^}$/p; /^IPSet_Start_Restore() {$/,/^}$/p; /^IPSet_Start_While_Locked() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^start_adguardhome() {$/,/^}$/p; /^IPSet_Disable_Managed_For_Start_Locked() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Cleanup() {$/,/^}$/p; /^IPSet_Start_Restore() {$/,/^}$/p; /^IPSet_Start_While_Locked() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'startup lifecycle functions were not found'
 sed -n '/^service_wait() {$/,/^}$/p' "${SCRIPT_PATH}" >"${SERVICE_WAIT_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${SERVICE_WAIT_FILE}" ] || fail 'service-wait function was not found'
@@ -54,7 +55,13 @@ sed -n '/^service_wait() {$/,/^}$/p' "${SCRIPT_PATH}" >"${SERVICE_WAIT_FILE}" ||
 
 IPSet_Supported() {
 	printf '%s\n' IPSet_Supported >>"${CALLS_FILE}"
+	IPSET_LEGACY_VERSION="${LEGACY_VERSION:-}"
 	return "${SUPPORTED_STATUS}"
+}
+
+IPSet_Disable_Managed() {
+	printf '%s\n' IPSet_Disable_Managed >>"${CALLS_FILE}"
+	return "${IPSET_STATUS}"
 }
 
 IPSet_Setup() {
@@ -238,6 +245,19 @@ run_test 'unsupported integration restarts a running service' 1 1 0 0 0 0 1 'IPS
 lower_script restart'
 run_test 'unsupported integration starts a stopped service' 0 1 0 0 0 0 1 'IPSet_Supported
 lower_script start'
+LEGACY_VERSION=1
+run_test 'legacy integration is disabled before restarting a running service' 1 1 0 0 0 0 1 'IPSet_Supported
+IPSet_Lock acquired
+lower_script stop
+IPSet_Disable_Managed
+lower_script start
+IPSet_Lock released'
+run_test 'legacy integration is disabled before starting a stopped service' 0 1 0 0 0 0 1 'IPSet_Supported
+IPSet_Lock acquired
+IPSet_Disable_Managed
+IPSet_Lock released
+lower_script start'
+LEGACY_VERSION=""
 
 run_interrupt_cleanup_test 'interrupt restores stopped service' 0
 run_interrupt_cleanup_test 'failed interrupt restoration is not retried' 1

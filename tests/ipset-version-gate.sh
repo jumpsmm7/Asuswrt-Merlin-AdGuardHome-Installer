@@ -20,7 +20,7 @@ fail() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-sed -n '/^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup() {$/,/^}$/p; /^IPSet_Supported() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Supported() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'IPSET version-gate functions were not found'
 
 cat >"${BINARY_FILE}" <<'BINARY'
@@ -40,6 +40,19 @@ IPSet_Lock() {
 
 logger() {
 	:
+}
+
+run_start_case() {
+	VERSION_OUTPUT="$1"
+	VERSION_STATUS="${2:-0}"
+	export VERSION_OUTPUT VERSION_STATUS
+	EXPECTED="$3"
+	: >"${CALLS_FILE}"
+
+	IPSet_Setup_For_Start || fail "startup setup failed for version output: ${VERSION_OUTPUT}"
+
+	ACTUAL="$(cat "${CALLS_FILE}")"
+	[ "${ACTUAL}" = "${EXPECTED}" ] || fail "unexpected startup gate result for ${VERSION_OUTPUT}: ${ACTUAL}"
 }
 
 run_case() {
@@ -71,5 +84,11 @@ run_case 'AdGuard Home, version v0.108.0-b.5' 0 'lock IPSet_Setup_Locked
 lock IPSet_Refresh_Locked'
 run_case 'unknown version' 0 ''
 run_case 'AdGuard Home unavailable' 1 ''
+
+run_start_case 'AdGuard Home, version v0.107.12' 0 'lock IPSet_Disable_Managed_For_Start_Locked'
+run_start_case 'AdGuard Home, version v0.107.47' 0 'lock IPSet_Disable_Managed_For_Start_Locked'
+run_start_case 'AdGuard Home, version v0.107.48' 0 'lock IPSet_Setup_For_Start_Locked'
+run_start_case 'unknown version' 0 ''
+run_start_case 'AdGuard Home unavailable' 1 ''
 
 printf '%s\n' 'PASS: managed IPSET integration is gated on AdGuardHome v0.107.48 or later'
