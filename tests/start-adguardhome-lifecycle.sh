@@ -1,5 +1,5 @@
 #!/bin/sh
-# Verify IPSET preparation cannot stop a healthy AdGuardHome instance on failure.
+# Verify IPSET preparation stops AdGuardHome before migration and restores it on failure.
 
 set -u
 
@@ -62,9 +62,15 @@ run_setup_failure_test() {
 		fail "startup succeeded when IPSET setup failed (running=${RUNNING})"
 	fi
 
-	EXPECTED='IPSet_Setup'
+	if [ "${RUNNING}" -eq 1 ]; then
+		EXPECTED='lower_script stop
+IPSet_Setup
+lower_script start'
+	else
+		EXPECTED='IPSet_Setup'
+	fi
 	ACTUAL="$(cat "${CALLS_FILE}")"
-	[ "${ACTUAL}" = "${EXPECTED}" ] || fail "service lifecycle changed after IPSET failure (running=${RUNNING}): ${ACTUAL}"
+	[ "${ACTUAL}" = "${EXPECTED}" ] || fail "unexpected IPSET failure lifecycle (running=${RUNNING}): ${ACTUAL}"
 }
 
 run_success_order_test() {
@@ -79,8 +85,8 @@ run_success_order_test() {
 
 	start_adguardhome || true
 
-	EXPECTED='IPSet_Setup
-lower_script stop
+	EXPECTED='lower_script stop
+IPSet_Setup
 lower_script start'
 	ACTUAL="$(cat "${CALLS_FILE}")"
 	[ "${ACTUAL}" = "${EXPECTED}" ] || fail "unexpected successful setup order: ${ACTUAL}"
@@ -93,4 +99,4 @@ WORK_DIR=/tmp/adguardhome-test
 run_setup_failure_test 0
 run_setup_failure_test 1
 run_success_order_test
-printf '%s\n' 'PASS: AdGuardHome remains untouched when IPSET setup fails'
+printf '%s\n' 'PASS: AdGuardHome stops before IPSET setup and is restored after rollback'
