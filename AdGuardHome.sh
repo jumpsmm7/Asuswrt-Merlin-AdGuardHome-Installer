@@ -770,10 +770,12 @@ start_adguardhome() {
 	IPSET_START_STOPPED="0"
 	SERVICE_WAIT_TERMINAL_FAILURE="0"
 	if ! IPSet_Setup_For_Start; then
-		logger -st "${NAME}" "Warning: unable to prepare AdGuardHome IPSET integration; continuing startup without refreshing managed IPSET rules."
+		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; startup aborted to avoid using stale managed rules."
 		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
 			IPSET_START_RESTARTED="1"
 		fi
+		SERVICE_WAIT_TERMINAL_FAILURE="1"
+		return 1
 	fi
 	if [ "${IPSET_START_RESTARTED}" -eq 0 ]; then
 		case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
