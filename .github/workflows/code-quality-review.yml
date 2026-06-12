@@ -1,0 +1,91 @@
+name: Code Quality Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: sh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: code-quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  local-quality:
+    name: Local Code Quality Checks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    permissions:
+      contents: read
+    steps:
+      - name: Check out pull request merge
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v5
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          fetch-depth: 0
+
+      - name: Check out selected ref
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install shell tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck shfmt ripgrep
+
+      - name: Run ShellCheck (static analysis)
+        run: |
+          echo "Running ShellCheck on all shell scripts..."
+          find . -type f -name "*.sh" | while read -r script; do
+            echo "Checking: $script"
+            shellcheck "$script" || true
+          done
+
+      - name: Run ShellFormat Check
+        run: |
+          echo "Checking shell script formatting..."
+          shfmt -d $(find . -type f -name "*.sh") || true
+
+      - name: Run local code quality checks
+        run: |
+          set +e
+          tools/code-quality.sh > code-quality.log 2>&1
+          status=$?
+          cat code-quality.log
+          exit 0
+
+  sonarcloud:
+    name: SonarCloud Code Analysis
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    permissions:
+      contents: read
+    steps:
+      - name: Check out pull request merge
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v5
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          fetch-depth: 0
+
+      - name: Check out selected ref
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        continue-on-error: true
