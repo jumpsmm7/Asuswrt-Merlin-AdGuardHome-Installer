@@ -1844,6 +1844,7 @@ end_op_message() {
 }
 
 menu() {
+	local IPSET_SELECTION
 	trap - HUP INT QUIT ABRT TERM
 	case "$1" in
 		"")
@@ -1914,7 +1915,12 @@ menu() {
 		"8" | "setipset")
 			PTXT "${INFO} IPSET integration imports compatible domain-to-IPSET mappings for routing and firewall add-ons." \
 				"${INFO} Disable it if this router does not use IPSET-based domain routing or filtering."
-			if read_yesno "Do you want to enable AdGuardHome IPSET integration?"; then check_ipset 1; else check_ipset 0; fi
+			if read_yesno "Do you want to enable AdGuardHome IPSET integration?"; then IPSET_SELECTION=1; else IPSET_SELECTION=0; fi
+			if ! check_ipset "${IPSET_SELECTION}"; then
+				PTXT "${ERROR} Unable to save the AdGuardHome IPSET integration setting. AdGuardHome was not restarted."
+				end_op_message 1
+				return 1
+			fi
 			if ! service restart_AdGuardHome >/dev/null 2>&1; then
 				PTXT "${WARNING} The setting was saved, but AdGuardHome could not be restarted automatically."
 			fi
