@@ -25,7 +25,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
+	'/^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed -n '/^start() {$/,/^}$/p' "${RC_PATH}" >"${RC_FUNCTION}" || fail "could not read ${RC_PATH}"
 [ -s "${S99_FUNCTIONS}" ] || fail 'DNS handoff functions were not found'
@@ -141,6 +141,7 @@ PREARGS=''
 ARGS=''
 PRECMD='pre_hook'
 POSTCMD='post_hook'
+POSTFAILCMD='post_failure_hook'
 
 process_pids() {
 	[ -f "${STARTED_FILE}" ] && printf '%s\n' 456
@@ -177,6 +178,9 @@ pre_hook() {
 post_hook() {
 	return 0
 }
+post_failure_hook() {
+	post_start_failure_adguardhome
+}
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}"
 if start >/dev/null; then
@@ -196,5 +200,19 @@ if start >/dev/null; then
 	fail 'rc.func ignored a failed post-start hook'
 fi
 grep -q '^signal TERM AdGuardHome$' "${CALLS_FILE}" || fail 'rc.func did not stop AdGuardHome after post-start failure'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'rc.func did not restore dnsmasq after post-start failure'
+_signal_line="$(grep -n '^signal TERM AdGuardHome$' "${CALLS_FILE}" | cut -d: -f1)"
+_restart_line="$(grep -n '^service restart_dnsmasq$' "${CALLS_FILE}" | cut -d: -f1)"
+[ "${_signal_line}" -lt "${_restart_line}" ] || fail 'dnsmasq was restored before failed AdGuardHome stopped'
+
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}"
+ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+if start >/dev/null; then
+	fail 'rc.func ignored a failed post-start hook with restart suppression enabled'
+fi
+grep -q '^signal TERM AdGuardHome$' "${CALLS_FILE}" || fail 'rc.func did not stop failed AdGuardHome when restart was suppressed'
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'failure recovery ignored the dnsmasq restart suppression flag'
+unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 printf '%s\n' 'DNS startup handoff tests passed.'

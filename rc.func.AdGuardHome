@@ -106,7 +106,9 @@ start() {
 	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then
 		if ! ${POSTCMD} >/dev/null 2>&1; then
 			signal_process TERM "${PROC}"
-			process_wait_for_stop "${PROC}" 10
+			if process_wait_for_stop "${PROC}" 10 && [ -n "${POSTFAILCMD:-}" ]; then
+				${POSTFAILCMD} >/dev/null 2>&1 || logger -st "${CALLER}" "Post-start failure recovery failed for ${DESC} from ${CALLER}."
+			fi
 			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 			logger -st "${CALLER}" "Post-start hook failed for ${DESC} from ${CALLER}."
 			return 255

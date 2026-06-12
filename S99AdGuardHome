@@ -53,6 +53,14 @@ dns_port_available() {
 	'
 }
 
+stop_dns_port_guard() {
+	[ -n "${ADGUARDHOME_DNS_GUARD_PID:-}" ] || return 0
+	kill "${ADGUARDHOME_DNS_GUARD_PID}" >/dev/null 2>&1
+	wait "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null
+	unset ADGUARDHOME_DNS_GUARD_PID
+	return 0
+}
+
 wait_for_adguardhome_dns() {
 	_dns_wait_attempts="0"
 	_dns_wait_limit="${ADGUARDHOME_DNS_WAIT_RETRIES:-10}"
@@ -81,13 +89,20 @@ guard_dns_port_for_adguardhome() {
 
 post_start_adguardhome() {
 	if ! wait_for_adguardhome_dns; then
-		logger -st "${PROCS}" "AdGuardHome did not acquire TCP and UDP port 53; dnsmasq will remain stopped."
+		stop_dns_port_guard
+		logger -st "${PROCS}" "AdGuardHome did not acquire TCP and UDP port 53; startup will be rolled back."
 		return 1
 	fi
+	stop_dns_port_guard
 	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
 		service restart_dnsmasq >/dev/null 2>&1
 	fi
 	return 0
+}
+
+post_start_failure_adguardhome() {
+	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" = "1" ] && return 0
+	service restart_dnsmasq >/dev/null 2>&1
 }
 
 pre_start_adguardhome() {
@@ -106,6 +121,7 @@ pre_start_adguardhome() {
 		sleep 1s
 		if dns_port_available; then
 			guard_dns_port_for_adguardhome >/dev/null 2>&1 &
+			ADGUARDHOME_DNS_GUARD_PID="$!"
 			return 0
 		fi
 	done
@@ -115,6 +131,7 @@ pre_start_adguardhome() {
 
 PRECMD="pre_start_adguardhome"
 POSTCMD="post_start_adguardhome"
+POSTFAILCMD="post_start_failure_adguardhome"
 DESC="${PROCS}"
 PATH="/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 TZ="$(sed -n '1p' /etc/TZ 2>/dev/null)"
