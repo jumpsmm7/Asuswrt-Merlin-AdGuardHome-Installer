@@ -1862,7 +1862,7 @@ end_op_message() {
 }
 
 menu() {
-	local IPSET_SELECTION
+	local IPSET_SELECTION LOCAL_CACHE_SELECTION
 	trap - HUP INT QUIT ABRT TERM
 	case "$1" in
 		"")
@@ -1916,7 +1916,12 @@ menu() {
 			if [ "$(nvram get dns_local_cache)" != "1" ]; then
 				PTXT "${INFO} This operation allows you to switch to using AdGuardHome as a local caching dns service for the router's own requests." \
 					"${INFO} A simple Yes or No will allow you to decide whether AdGuardhome handles DNS request for both the router and clients, or only clients."
-				if read_yesno "Do you want to run AdGuardHome as a local caching DNS service?"; then check_dns_local 1; else check_dns_local 0; fi
+				if read_yesno "Do you want to run AdGuardHome as a local caching DNS service?"; then LOCAL_CACHE_SELECTION=1; else LOCAL_CACHE_SELECTION=0; fi
+				if ! check_dns_local "${LOCAL_CACHE_SELECTION}"; then
+					PTXT "${ERROR} Unable to save the AdGuardHome local cache setting."
+					end_op_message 1
+					return 1
+				fi
 				PTXT "${INFO} For best results, please reboot the router after making these changes."
 				end_op_message 0
 			else
