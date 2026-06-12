@@ -95,7 +95,7 @@ post_start_adguardhome() {
 	fi
 	stop_dns_port_guard
 	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
-		service restart_dnsmasq >/dev/null 2>&1
+		service restart_dnsmasq >/dev/null 2>&1 || return 1
 	fi
 	return 0
 }

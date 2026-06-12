@@ -65,6 +65,8 @@ netstat() {
 }
 service() {
 	printf '%s\n' "service $*" >>"${CALLS_FILE}"
+	[ "$*" = 'restart_dnsmasq' ] && [ "${SERVICE_RESTART_FAIL:-0}" -eq 1 ] && return 1
+	return 0
 }
 kill() {
 	printf '%s\n' "kill $*" >>"${CALLS_FILE}"
@@ -124,6 +126,14 @@ post_start_adguardhome || fail 'post-start rejected valid AdGuardHome DNS owners
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 post_start_adguardhome || fail 'post-start rejected valid AdGuardHome DNS ownership'
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'post-start did not restart dnsmasq after DNS ownership was established'
+
+: >"${CALLS_FILE}"
+SERVICE_RESTART_FAIL=1
+if post_start_adguardhome; then
+	fail 'post-start ignored a failed dnsmasq restart'
+fi
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'post-start did not attempt the failed dnsmasq restart'
+SERVICE_RESTART_FAIL=0
 
 # Verify rc.func treats either hook failure as a failed start instead of launching
 # through a bad handoff or reporting a short-lived process as healthy.
