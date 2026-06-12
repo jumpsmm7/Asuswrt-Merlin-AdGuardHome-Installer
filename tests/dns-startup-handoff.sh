@@ -97,6 +97,16 @@ if pre_start_adguardhome; then
 fi
 [ "$(grep -c '^service stop_dnsmasq$' "${CALLS_FILE}")" -eq 3 ] || fail 'pre-start retry limit was not enforced'
 grep -q 'Unable to release port 53 after 3 attempt(s)' "${CALLS_FILE}" || fail 'pre-start timeout was not logged'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'pre-start timeout did not restore dnsmasq'
+
+: >"${CALLS_FILE}"
+DNS_STATE=busy
+ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+if pre_start_adguardhome; then
+	fail 'pre-start succeeded while port 53 remained busy with restart suppression enabled'
+fi
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'pre-start timeout ignored the dnsmasq restart suppression flag'
+unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy

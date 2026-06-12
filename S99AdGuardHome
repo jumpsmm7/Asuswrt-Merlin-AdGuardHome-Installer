@@ -126,6 +126,7 @@ pre_start_adguardhome() {
 		fi
 	done
 	logger -st "${PROCS}" "Unable to release port 53 after ${_dns_stop_limit} attempt(s); startup aborted."
+	post_start_failure_adguardhome
 	return 1
 }
 
