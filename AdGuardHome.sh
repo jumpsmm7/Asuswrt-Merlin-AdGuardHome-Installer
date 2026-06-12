@@ -1895,8 +1895,24 @@ IPSet_Setup_For_Start_Locked() {
 	return 0
 }
 
+IPSet_Has_Legacy_Mappings() {
+	local LEGACY_TEMP_FILE LEGACY_STATUS
+	LEGACY_TEMP_FILE="${IPSET_USER_FILE}.legacy.$$"
+	if ! IPSet_Collect_Yaml >"${LEGACY_TEMP_FILE}"; then
+		rm -f "${LEGACY_TEMP_FILE}"
+		return 2
+	fi
+	if [ -s "${LEGACY_TEMP_FILE}" ]; then
+		LEGACY_STATUS=0
+	else
+		LEGACY_STATUS=1
+	fi
+	rm -f "${LEGACY_TEMP_FILE}"
+	return "${LEGACY_STATUS}"
+}
+
 IPSet_Setup_Locked() {
-	local MIGRATION_BACKUP_FILE REFRESH_STATUS
+	local CURRENT_FILE LEGACY_STATUS MIGRATION_BACKUP_FILE REFRESH_STATUS
 	MIGRATION_BACKUP_FILE=""
 	if [ -f "${YAML_FILE}" ]; then
 		MIGRATION_BACKUP_FILE="${YAML_FILE}.ipset-setup.$$"
@@ -1904,6 +1920,28 @@ IPSet_Setup_Locked() {
 			rm -f "${MIGRATION_BACKUP_FILE}"
 			return 1
 		}
+	fi
+	if ! CURRENT_FILE="$(IPSet_Current_File)"; then
+		[ -z "${MIGRATION_BACKUP_FILE}" ] || rm -f "${MIGRATION_BACKUP_FILE}"
+		return 1
+	fi
+	if [ -z "${CURRENT_FILE}" ] && [ ! -e "${IPSET_FILE}" ]; then
+		LEGACY_STATUS=0
+		IPSet_Has_Legacy_Mappings || LEGACY_STATUS="$?"
+		if [ "${LEGACY_STATUS}" -gt 1 ]; then
+			[ -z "${MIGRATION_BACKUP_FILE}" ] || rm -f "${MIGRATION_BACKUP_FILE}"
+			return 1
+		fi
+		if [ "${LEGACY_STATUS}" -eq 1 ]; then
+			if ! IPSet_Refresh_Locked; then
+				[ -z "${MIGRATION_BACKUP_FILE}" ] || rm -f "${MIGRATION_BACKUP_FILE}"
+				return 1
+			fi
+			if [ ! -e "${IPSET_FILE}" ]; then
+				[ -z "${MIGRATION_BACKUP_FILE}" ] || rm -f "${MIGRATION_BACKUP_FILE}"
+				return 0
+			fi
+		fi
 	fi
 	if ! IPSet_Migrate; then
 		[ -z "${MIGRATION_BACKUP_FILE}" ] || rm -f "${MIGRATION_BACKUP_FILE}"
