@@ -1621,10 +1621,7 @@ setup_AdGuardHome_impl() {
 					if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
 					if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
 					if read_yesno "Do you want to enable AdGuardHome IPSET integration?"; then IPSET_SELECTION=1; else IPSET_SELECTION=0; fi
-					if ! check_ipset "${IPSET_SELECTION}"; then
-						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-						fi
+					if [ "$2" != "reconfig" ] && ! check_ipset "${IPSET_SELECTION}"; then
 						PTXT "${ERROR} Unable to save the AdGuardHome IPSET integration setting. Setup was aborted."
 						return 1
 					fi
@@ -1686,9 +1683,19 @@ setup_AdGuardHome_impl() {
 					cp -f "${YAML_ORI}" "${YAML_FILE}"
 				fi
 				if ! check_AdGuardHome_yaml; then
+					if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+						PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+					fi
 					PTXT "${ERROR} Writing AdGuardHome configuration failed " \
 						"${ERROR} Please send ${YAML_ERR} file and screen log of " \
 						"${ERROR} all ssh terminal operations to the script developer."
+					return 1
+				fi
+				if [ "$2" = "reconfig" ] && [ -n "${IPSET_SELECTION}" ] && ! check_ipset "${IPSET_SELECTION}"; then
+					if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+						PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+					fi
+					PTXT "${ERROR} Unable to save the AdGuardHome IPSET integration setting. Setup was aborted."
 					return 1
 				fi
 				;;
