@@ -49,7 +49,7 @@ kill_dns_port_owners() {
 # Service hook helpers
 
 post_start_adguardhome() {
-	service restart_dnsmasq
+	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" = "1" ] || service restart_dnsmasq
 }
 
 pre_start_adguardhome() {

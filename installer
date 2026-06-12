@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.2.2                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.2.3                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v2.2.2"
+AI_VERSION="v2.2.3"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -1117,6 +1117,7 @@ save_dns_nvram_environment() {
 # Installer file and setup helpers
 
 backup_restore() {
+	local IPSET_MARKER_BACKUP
 	if [ "$1" = "BACKUP" ] && [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; then
 		if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 			PTXT "${INFO} There is an old backup detected."
@@ -1141,7 +1142,19 @@ backup_restore() {
 	fi
 	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
 		PTXT "${INFO} Please wait a moment."
-		tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${BASE_DIR}" >/dev/null 2>&1
+		# Remove the one-time migration marker before extraction. Newer backups restore
+		# their own ipset.user; older backups then migrate their restored YAML rules.
+		IPSET_MARKER_BACKUP="/tmp/AdGuardHome-ipset.user.restore.$$"
+		rm -f "${IPSET_MARKER_BACKUP}"
+		if [ -f "${TARG_DIR}/ipset.user" ]; then
+			mv "${TARG_DIR}/ipset.user" "${IPSET_MARKER_BACKUP}" || return 1
+		fi
+		if ! tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${BASE_DIR}" >/dev/null 2>&1; then
+			[ -f "${IPSET_MARKER_BACKUP}" ] && mv "${IPSET_MARKER_BACKUP}" "${TARG_DIR}/ipset.user"
+			PTXT "${ERROR} Unable to restore ${BASE_DIR}/backup_AdGuardHome.tar.gz"
+			return 1
+		fi
+		rm -f "${IPSET_MARKER_BACKUP}"
 		chown "$(nvram get http_username)":root ${TARG_DIR}/*
 		chmod 755 "${AGH_FILE}"
 		chmod 644 "${YAML_FILE}"
@@ -1164,7 +1177,12 @@ cleanup() {
 }
 
 cleanup_legacy_firewall() {
-	[ -x "${ADDON_DIR}/AdGuardHome.sh" ] && "${ADDON_DIR}/AdGuardHome.sh" firewall unload 2>/dev/null
+	if [ -x "${ADDON_DIR}/AdGuardHome.sh" ] && grep -q 'Unload_IPTables' "${ADDON_DIR}/AdGuardHome.sh"; then
+		"${ADDON_DIR}/AdGuardHome.sh" firewall unload 2>/dev/null
+	fi
+	while iptables -t raw -D OUTPUT -j ADGUARDHOME 2>/dev/null; do :; done
+	iptables -t raw -F ADGUARDHOME 2>/dev/null
+	iptables -t raw -X ADGUARDHOME 2>/dev/null
 	del_jffs_script /jffs/scripts/firewall-start
 }
 
@@ -1448,7 +1466,7 @@ inst_AdGuardHome() {
 	write_manager_script /jffs/scripts/init-start "init-start &"
 	write_manager_script /jffs/scripts/services-stop "services-stop &"
 	write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
-	# write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'
+	write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'
 	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
 	if nvram get rc_support | grep -q 'mtlancfg'; then write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; fi
 	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
