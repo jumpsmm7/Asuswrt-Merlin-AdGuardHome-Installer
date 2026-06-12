@@ -84,19 +84,25 @@ reload() {
 }
 
 start() {
-	local PIDS STOPPED
+	local DNS_HANDOFF PIDS STOPPED
 	{ [ "${CRITICAL}" != "yes" ] && [ "${CALLER}" = "cron" ]; } && return 7
 	[ "${ENABLED}" != "yes" ] && return 8
 	printf "%s" "${ansi_white} Starting ${DESC}... ${ansi_std}"
+	DNS_HANDOFF=0
 	PIDS="$(process_pids "${PROC}")"
 	if [ -n "${PIDS}" ]; then
 		printf "%s\n" "            ${ansi_yellow} already running. ${ansi_std}"
 		return 0
 	fi
 	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then
+		if [ "${PROC}" = "AdGuardHome" ]; then
+			DNS_HANDOFF=1
+			trap '[ -n "${POSTFAILCMD:-}" ] && ${POSTFAILCMD} >/dev/null 2>&1; exit 255' HUP INT TERM
+		fi
 		if ! ${PRECMD} >/dev/null 2>&1; then
 			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 			logger -st "${CALLER}" "Pre-start hook failed for ${DESC} from ${CALLER}."
+			[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
 			return 255
 		fi
 	fi
@@ -123,9 +129,11 @@ start() {
 			fi
 			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 			logger -st "${CALLER}" "Post-start hook failed for ${DESC} from ${CALLER}."
+			[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
 			return 255
 		fi
 	fi
+	[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
 	PIDS="$(process_pids "${PROC}")"
 	if [ -z "${PIDS}" ]; then
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
