@@ -87,6 +87,12 @@ if ! sh tools/list-shell-scripts.sh >"${SCRIPT_LIST}"; then
 fi
 
 run_check 'md5sum files match installer artifacts' sh tools/check-md5.sh
+run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
+run_check 'AdGuardHome IPSET version gate regression' sh tests/ipset-version-gate.sh
+run_check 'AdGuardHome IPSET lock security regression' sh tests/ipset-lock-security.sh
+run_check 'AdGuardHome legacy IPSET disable regression' sh tests/ipset-legacy-disable.sh
+run_check 'IPSET current-file YAML scalar regression' sh tests/ipset-current-file.sh
+run_check 'IPSET setup rollback regression' sh tests/ipset-setup-rollback.sh
 
 if require_cmd shellcheck; then
 	run_script_list_check 'ShellCheck POSIX sh static analysis' shellcheck -s sh --severity=warning
