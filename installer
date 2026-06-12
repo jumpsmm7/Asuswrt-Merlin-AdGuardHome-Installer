@@ -1910,7 +1910,11 @@ menu() {
 		"7" | "switchbranch")
 			PTXT "${INFO} This operation allows you to switch between AdGuardHome branches installed." \
 				"${INFO} Before you choose to proceed, it is recommended to perform a backup."
-			if read_yesno "Do you want to proceed?"; then { choose_branch x; AUTO_UPDATE="update"; inst_AdGuardHome "${AUTO_UPDATE:-update}"; } ; else end_op_message 1; fi
+			if read_yesno "Do you want to proceed?"; then {
+				choose_branch x
+				AUTO_UPDATE="update"
+				inst_AdGuardHome "${AUTO_UPDATE:-update}"
+			}; else end_op_message 1; fi
 			;;
 		"8" | "setipset")
 			PTXT "${INFO} IPSET integration imports compatible domain-to-IPSET mappings for routing and firewall add-ons." \
