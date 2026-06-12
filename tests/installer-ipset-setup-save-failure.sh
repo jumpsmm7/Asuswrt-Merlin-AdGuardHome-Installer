@@ -47,7 +47,7 @@ check_dns_filter() { :; }
 check_dns_local() { :; }
 check_ipset() { return 1; }
 check_AdGuardHome_yaml() {
-	fail 'setup continued to YAML validation after the IPSET preference save failed'
+	[ "${ALLOW_YAML_VALIDATION:-0}" -eq 1 ] || fail 'setup continued to YAML validation after the IPSET preference save failed'
 }
 read_input_port() {
 	fail 'setup continued to initial configuration after the IPSET preference save failed'
@@ -93,4 +93,33 @@ for MODE in install reconfig; do
 	done
 done
 
-printf '%s\n' 'PASS: setup stops when the IPSET preference cannot be saved'
+for SELECTION in 2 3; do
+	for ANSWER in yes no; do
+		LOG="${TMP_ROOT}/reconfig.${SELECTION}.${ANSWER}.restore.log"
+		RESTART_LOG="${LOG}.restart"
+		END_LOG="${LOG}.end"
+		: >"${LOG}"
+		: >"${RESTART_LOG}"
+		: >"${END_LOG}"
+		printf '%s\n' 'working configuration' >"${YAML_FILE}"
+		printf '%s\n' 'original configuration' >"${YAML_ORI}"
+		rm -f "${YAML_BAK}"
+		ALLOW_YAML_VALIDATION=1
+
+		read_input_num() {
+			CHOSEN="${SELECTION}"
+		}
+		read_yesno() {
+			[ "${ANSWER}" = yes ]
+		}
+
+		if setup_AdGuardHome reconfig reconfig; then
+			fail "reconfiguration selection ${SELECTION} succeeded after the ${ANSWER} IPSET preference failed to save"
+		fi
+		[ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail "reconfiguration selection ${SELECTION} did not restore the previous YAML after the ${ANSWER} preference failed to save"
+		[ ! -e "${YAML_BAK}" ] || fail "reconfiguration selection ${SELECTION} left the YAML backup behind after restoring it"
+		[ ! -s "${RESTART_LOG}" ] || fail "reconfiguration selection ${SELECTION} restarted AdGuardHome after the ${ANSWER} IPSET preference failed to save"
+	done
+done
+
+printf '%s\n' 'PASS: setup stops and restores the previous YAML when the IPSET preference cannot be saved'

@@ -1557,7 +1557,7 @@ setup_AdGuardHome() {
 }
 
 setup_AdGuardHome_impl() {
-	local IPSET_SELECTION SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
+	local IPSET_SELECTION YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ -z "$1" ] && [ -f "${YAML_FILE}" ]; then
 		############################################################ Drop-in code to be removed/modified as needed. #############################################################################################################################################################
@@ -1600,7 +1600,11 @@ setup_AdGuardHome_impl() {
 					;;
 				2 | 3)
 					PTXT "${INFO} Backing up previous settings file..."
-					mv "${YAML_FILE}" "${YAML_BAK}"
+					if ! mv "${YAML_FILE}" "${YAML_BAK}"; then
+						PTXT "${ERROR} Unable to back up the previous AdGuardHome configuration. Setup was aborted."
+						return 1
+					fi
+					YAML_BACKED_UP=1
 					if [ "${CHOSEN}" = "3" ]; then
 						rm -rf "${YAML_ORI}" 2>/dev/null
 					else
@@ -1618,6 +1622,9 @@ setup_AdGuardHome_impl() {
 					if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
 					if read_yesno "Do you want to enable AdGuardHome IPSET integration?"; then IPSET_SELECTION=1; else IPSET_SELECTION=0; fi
 					if ! check_ipset "${IPSET_SELECTION}"; then
+						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+						fi
 						PTXT "${ERROR} Unable to save the AdGuardHome IPSET integration setting. Setup was aborted."
 						return 1
 					fi
