@@ -93,11 +93,25 @@ start() {
 		printf "%s\n" "            ${ansi_yellow} already running. ${ansi_std}"
 		return 0
 	fi
-	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then { ${PRECMD} >/dev/null 2>&1; }; fi
+	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then
+		if ! ${PRECMD} >/dev/null 2>&1; then
+			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
+			logger -st "${CALLER}" "Pre-start hook failed for ${DESC} from ${CALLER}."
+			return 255
+		fi
+	fi
 	{ ${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null & }
 	#echo ${PREARGS} ${PROC} ${ARGS}
 	process_wait_for_start "${PROC}" 10
-	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then { ${POSTCMD} >/dev/null 2>&1; }; fi
+	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then
+		if ! ${POSTCMD} >/dev/null 2>&1; then
+			signal_process TERM "${PROC}"
+			process_wait_for_stop "${PROC}" 10
+			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
+			logger -st "${CALLER}" "Post-start hook failed for ${DESC} from ${CALLER}."
+			return 255
+		fi
+	fi
 	PIDS="$(process_pids "${PROC}")"
 	if [ -z "${PIDS}" ]; then
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"

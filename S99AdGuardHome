@@ -46,26 +46,71 @@ kill_dns_port_owners() {
 	[ -n "${_dns_pids}" ] && kill -s 9 ${_dns_pids} 2>/dev/null
 }
 
+dns_port_available() {
+	netstat -nlp 2>/dev/null | awk -v proc="${PROCS}" '
+		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && $0 !~ "/" proc "([[:space:]]|$)" { unavailable = 1 }
+		END { exit(unavailable ? 1 : 0) }
+	'
+}
+
+wait_for_adguardhome_dns() {
+	_dns_wait_attempts="0"
+	_dns_wait_limit="${ADGUARDHOME_DNS_WAIT_RETRIES:-10}"
+	while [ "${_dns_wait_attempts}" -lt "${_dns_wait_limit}" ]; do
+		adguardhome_owns_dns && return 0
+		_dns_wait_attempts="$((_dns_wait_attempts + 1))"
+		sleep 1s
+	done
+	adguardhome_owns_dns
+}
+
+guard_dns_port_for_adguardhome() {
+	_dns_guard_attempts="0"
+	_dns_guard_limit="${ADGUARDHOME_DNS_GUARD_RETRIES:-10}"
+	while [ "${_dns_guard_attempts}" -lt "${_dns_guard_limit}" ]; do
+		adguardhome_owns_dns && return 0
+		service stop_dnsmasq >/dev/null 2>&1
+		kill_dns_port_owners
+		_dns_guard_attempts="$((_dns_guard_attempts + 1))"
+		sleep 1s
+	done
+	adguardhome_owns_dns
+}
+
 # Service hook helpers
 
 post_start_adguardhome() {
-	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" = "1" ] || service restart_dnsmasq
+	if ! wait_for_adguardhome_dns; then
+		logger -st "${PROCS}" "AdGuardHome did not acquire TCP and UDP port 53; dnsmasq will remain stopped."
+		return 1
+	fi
+	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
+		service restart_dnsmasq >/dev/null 2>&1
+	fi
+	return 0
 }
 
 pre_start_adguardhome() {
-	(
-		ulimit -v 1750000
-		ulimit -m 450000
-		ulimit -s 8192
-		if [ "$(pidof syslog-ng logrotate | wc -w)" -gt 0 ] && which scribe >/dev/null 2>&1; then
-			scribe restart
+	_dns_stop_attempts="0"
+	_dns_stop_limit="${ADGUARDHOME_DNSMASQ_STOP_RETRIES:-10}"
+	ulimit -v 1750000
+	ulimit -m 450000
+	ulimit -s 8192
+	if [ "$(pidof syslog-ng logrotate | wc -w)" -gt 0 ] && which scribe >/dev/null 2>&1; then
+		scribe restart
+	fi
+	while [ "${_dns_stop_attempts}" -lt "${_dns_stop_limit}" ]; do
+		service stop_dnsmasq >/dev/null 2>&1
+		kill_dns_port_owners
+		_dns_stop_attempts="$((_dns_stop_attempts + 1))"
+		sleep 1s
+		if dns_port_available; then
+			guard_dns_port_for_adguardhome >/dev/null 2>&1 &
+			return 0
 		fi
-		while ! adguardhome_owns_dns; do
-			kill_dns_port_owners
-			service stop_dnsmasq
-			sleep 1s
-		done
-	) &
+	done
+	logger -st "${PROCS}" "Unable to release port 53 after ${_dns_stop_limit} attempt(s); startup aborted."
+	return 1
 }
 
 PRECMD="pre_start_adguardhome"
