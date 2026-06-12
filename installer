@@ -1106,8 +1106,14 @@ choose_branch() {
 			ADGUARD_BRANCH_CHANGED="1"
 			export ADGUARD_BRANCH_CHANGED
 		fi
+		return 0
 	else
-		if read_yesno "Do you want to switch AdGuardHome builds?"; then choose_branch 1; else PTXT "${INFO} continuing without changing builds."; fi
+		if read_yesno "Do you want to switch AdGuardHome builds?"; then
+			choose_branch 1
+		else
+			PTXT "${INFO} continuing without changing builds."
+			return 1
+		fi
 	fi
 }
 
@@ -1934,7 +1940,10 @@ menu() {
 			PTXT "${INFO} This operation allows you to switch between AdGuardHome branches installed." \
 				"${INFO} Before you choose to proceed, it is recommended to perform a backup."
 			if read_yesno "Do you want to proceed?"; then {
-				choose_branch x
+				if ! choose_branch x; then
+					end_op_message 1
+					return 1
+				fi
 				AUTO_UPDATE="update"
 				inst_AdGuardHome "${AUTO_UPDATE:-update}"
 			}; else end_op_message 1; fi
