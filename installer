@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.2.3                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.2.4                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v2.2.3"
+AI_VERSION="v2.2.4"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -1836,13 +1836,13 @@ menu() {
 			PTXT "${INFO} Choose what you want to do:" \
 				"  1) Install/Update AdGuardHome" \
 				"  2) Uninstall"
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then { PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  b) Backup"; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then { PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  6) Enable/Disable AdGuardHome Local Cache" "  7) Switch AdGuardHome Branch" "  b) Backup"; }; fi
 			if { [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { PTXT "  r) Restore"; }; fi
 			PTXT "  q) Quit"
 			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 q; }; fi
 			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 r q; }; fi
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 5 b q; }; fi
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 5 b r q; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 7 b q; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 7 b r q; }; fi
 			;;
 		*)
 			CHOSEN="$1"
@@ -1874,10 +1874,28 @@ menu() {
 			if read_yesno "Do you want to proceed?"; then setup_AdGuardHome reconfig; else end_op_message 1; fi
 			;;
 		"5" | "setamtmupdate")
-			PTXT "${INFO} This operation allows you to enable or disable AMTM's ability to manage updates for this script and by extension, AdGuardHome."
-			PTXT "${INFO} If the option is already disabled and you choose to proceed, then you will be enabling."
-			PTXT "${INFO} The same is true if the opposite is true and you choose to proceed."
+			PTXT "${INFO} This operation allows you to enable or disable AMTM's ability to manage updates for this script and by extension, AdGuardHome." \
+				"${INFO} If the option is already disabled and you choose to proceed, then you will be enabling." \
+				"${INFO} The same is true if the opposite is true and you choose to proceed."
 			if read_yesno "Do you want to proceed?"; then setup_amtmupdate; else end_op_message 1; fi
+			;;
+		"6" | "setlocalcache")
+			if [ "$(nvram get dns_local_cache)" != "1" ]; then
+				PTXT "${INFO} This operation allows you to switch to using AdGuardHome as a local caching dns service for the router's own requests." \
+					"${INFO} A simple Yes or No will allow you to decide whether AdGuardhome handles DNS request for both the router and clients, or only clients."
+				read_yesno "Do you want to run AdGuardHome as a local caching DNS service?"; then check_dns_local 1; else check_dns_local 0; fi
+				PTXT "${INFO} For best results, please reboot the router after making these changes.
+				end_op_message 0
+			else
+				PTXT "${INFO} The router's own nvram built-in dns local caching feature is enabled." \
+					"${INFO} Hence why you cannot configure the installers method at this time."
+				end_op_message 1
+			fi
+			;;
+		"7" | "switchbranch")
+			PTXT "${INFO} This operation allows you to switch between AdGuardHome branches installed." \
+				"${INFO} Before you choose to proceed, it is recommended to perform a backup."
+			if read_yesno "Do you want to proceed?"; then { choose_branch x; AUTO_UPDATE="update"; inst_AdGuardHome "${AUTO_UPDATE:-update}"; } ; else end_op_message 1; fi
 			;;
 		"b" | "B" | "backup")
 			PTXT "${INFO} This operation will backup everything!"
@@ -2095,7 +2113,7 @@ case "$2" in
 		check_version
 		menu
 		;;
-	[1-5] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | "amtmupdate" | [bB] | "backup" | [rR] | "restore")
+	[1-7] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | "amtmupdate" | [bB] | "backup" | [rR] | "restore")
 		menu "$2"
 		;;
 	*)
