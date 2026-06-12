@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.2.3                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.2.4                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
 
-AI_VERSION="v2.2.3"
+AI_VERSION="v2.2.4"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -922,6 +922,19 @@ check_dns_filter() {
 	fi
 }
 
+check_ipset() {
+	local IPSET_ENABLED
+	case "$1" in
+		0)
+			IPSET_ENABLED="NO"
+			;;
+		1)
+			IPSET_ENABLED="YES"
+			;;
+	esac
+	write_conf ADGUARD_IPSET "\"${IPSET_ENABLED}\""
+}
+
 check_dns_local() {
 	local LOCAL_CACHE
 	case "$1" in
@@ -1537,14 +1550,14 @@ setup_AdGuardHome() {
 			PTXT "${INFO} AdGuardHome setup is complete."
 			end_op_message 0
 		else
-			end_op_message 0
+			end_op_message 1
 		fi
 	fi
 	return "${RET}"
 }
 
 setup_AdGuardHome_impl() {
-	local SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
+	local IPSET_SELECTION YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ -z "$1" ] && [ -f "${YAML_FILE}" ]; then
 		############################################################ Drop-in code to be removed/modified as needed. #############################################################################################################################################################
@@ -1587,7 +1600,11 @@ setup_AdGuardHome_impl() {
 					;;
 				2 | 3)
 					PTXT "${INFO} Backing up previous settings file..."
-					mv "${YAML_FILE}" "${YAML_BAK}"
+					if ! mv "${YAML_FILE}" "${YAML_BAK}"; then
+						PTXT "${ERROR} Unable to back up the previous AdGuardHome configuration. Setup was aborted."
+						return 1
+					fi
+					YAML_BACKED_UP=1
 					if [ "${CHOSEN}" = "3" ]; then
 						rm -rf "${YAML_ORI}" 2>/dev/null
 					else
@@ -1603,6 +1620,11 @@ setup_AdGuardHome_impl() {
 				if [ ! -f "${YAML_FILE}" ] || [ "$2" = "reconfig" ]; then
 					if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
 					if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
+					if read_yesno "Do you want to enable AdGuardHome IPSET integration?"; then IPSET_SELECTION=1; else IPSET_SELECTION=0; fi
+					if [ "$2" != "reconfig" ] && ! check_ipset "${IPSET_SELECTION}"; then
+						PTXT "${ERROR} Unable to save the AdGuardHome IPSET integration setting. Setup was aborted."
+						return 1
+					fi
 				fi
 				if [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; then
 					PTXT "${INFO} Requesting entries for AdGuardHome initial configuration..." \
@@ -1661,9 +1683,19 @@ setup_AdGuardHome_impl() {
 					cp -f "${YAML_ORI}" "${YAML_FILE}"
 				fi
 				if ! check_AdGuardHome_yaml; then
+					if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+						PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+					fi
 					PTXT "${ERROR} Writing AdGuardHome configuration failed " \
 						"${ERROR} Please send ${YAML_ERR} file and screen log of " \
 						"${ERROR} all ssh terminal operations to the script developer."
+					return 1
+				fi
+				if [ "$2" = "reconfig" ] && [ -n "${IPSET_SELECTION}" ] && ! check_ipset "${IPSET_SELECTION}"; then
+					if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+						PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+					fi
+					PTXT "${ERROR} Unable to save the AdGuardHome IPSET integration setting. Setup was aborted."
 					return 1
 				fi
 				;;
@@ -1830,19 +1862,20 @@ end_op_message() {
 }
 
 menu() {
+	local IPSET_SELECTION
 	trap - HUP INT QUIT ABRT TERM
 	case "$1" in
 		"")
 			PTXT "${INFO} Choose what you want to do:" \
 				"  1) Install/Update AdGuardHome" \
 				"  2) Uninstall"
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then { PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  b) Backup"; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then { PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  6) Enable/Disable AdGuardHome Local Cache" "  7) Switch AdGuardHome Branch" "  8) Enable/Disable AdGuardHome IPSET Integration" "  b) Backup"; }; fi
 			if { [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { PTXT "  r) Restore"; }; fi
 			PTXT "  q) Quit"
 			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 q; }; fi
 			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 r q; }; fi
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 5 b q; }; fi
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 5 b r q; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 8 b q; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 8 b r q; }; fi
 			;;
 		*)
 			CHOSEN="$1"
@@ -1874,10 +1907,46 @@ menu() {
 			if read_yesno "Do you want to proceed?"; then setup_AdGuardHome reconfig; else end_op_message 1; fi
 			;;
 		"5" | "setamtmupdate")
-			PTXT "${INFO} This operation allows you to enable or disable AMTM's ability to manage updates for this script and by extension, AdGuardHome."
-			PTXT "${INFO} If the option is already disabled and you choose to proceed, then you will be enabling."
-			PTXT "${INFO} The same is true if the opposite is true and you choose to proceed."
+			PTXT "${INFO} This operation allows you to enable or disable AMTM's ability to manage updates for this script and by extension, AdGuardHome." \
+				"${INFO} If the option is already disabled and you choose to proceed, then you will be enabling." \
+				"${INFO} The same is true if the opposite is true and you choose to proceed."
 			if read_yesno "Do you want to proceed?"; then setup_amtmupdate; else end_op_message 1; fi
+			;;
+		"6" | "setlocalcache")
+			if [ "$(nvram get dns_local_cache)" != "1" ]; then
+				PTXT "${INFO} This operation allows you to switch to using AdGuardHome as a local caching dns service for the router's own requests." \
+					"${INFO} A simple Yes or No will allow you to decide whether AdGuardhome handles DNS request for both the router and clients, or only clients."
+				if read_yesno "Do you want to run AdGuardHome as a local caching DNS service?"; then check_dns_local 1; else check_dns_local 0; fi
+				PTXT "${INFO} For best results, please reboot the router after making these changes."
+				end_op_message 0
+			else
+				PTXT "${INFO} The router's own nvram built-in dns local caching feature is enabled." \
+					"${INFO} Hence why you cannot configure the installers method at this time."
+				end_op_message 1
+			fi
+			;;
+		"7" | "switchbranch")
+			PTXT "${INFO} This operation allows you to switch between AdGuardHome branches installed." \
+				"${INFO} Before you choose to proceed, it is recommended to perform a backup."
+			if read_yesno "Do you want to proceed?"; then {
+				choose_branch x
+				AUTO_UPDATE="update"
+				inst_AdGuardHome "${AUTO_UPDATE:-update}"
+			}; else end_op_message 1; fi
+			;;
+		"8" | "setipset")
+			PTXT "${INFO} IPSET integration imports compatible domain-to-IPSET mappings for routing and firewall add-ons." \
+				"${INFO} Disable it if this router does not use IPSET-based domain routing or filtering."
+			if read_yesno "Do you want to enable AdGuardHome IPSET integration?"; then IPSET_SELECTION=1; else IPSET_SELECTION=0; fi
+			if ! check_ipset "${IPSET_SELECTION}"; then
+				PTXT "${ERROR} Unable to save the AdGuardHome IPSET integration setting. AdGuardHome was not restarted."
+				end_op_message 1
+				return 1
+			fi
+			if ! service restart_AdGuardHome >/dev/null 2>&1; then
+				PTXT "${WARNING} The setting was saved, but AdGuardHome could not be restarted automatically."
+			fi
+			end_op_message 0
 			;;
 		"b" | "B" | "backup")
 			PTXT "${INFO} This operation will backup everything!"
@@ -2095,13 +2164,13 @@ case "$2" in
 		check_version
 		menu
 		;;
-	[1-5] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | "amtmupdate" | [bB] | "backup" | [rR] | "restore")
+	[1-8] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | "amtmupdate" | "setamtmupdate" | "setlocalcache" | "switchbranch" | "setipset" | [bB] | "backup" | [rR] | "restore")
 		menu "$2"
 		;;
 	*)
-		PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | {b/B} - backup | {r/R} - restore)" \
+		PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | {b/B} - backup | {r/R} - restore)" \
 			"${INFO} Branch or Tag must be represented by a value or empty quotes in place of string e.g. \"\" in the \$1 string position." \
-			"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | {b/B} - backup | {r/R} - restore) in the \$2 string position." \
+			"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | {b/B} - backup | {r/R} - restore) in the \$2 string position." \
 			"${INFO} An update example sh installer master update, or just use the regular menu by not specifying an Action."
 		;;
 esac

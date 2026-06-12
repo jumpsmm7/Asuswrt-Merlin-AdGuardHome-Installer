@@ -84,7 +84,7 @@ reload() {
 }
 
 start() {
-	local PIDS
+	local PIDS STOPPED
 	{ [ "${CRITICAL}" != "yes" ] && [ "${CALLER}" = "cron" ]; } && return 7
 	[ "${ENABLED}" != "yes" ] && return 8
 	printf "%s" "${ansi_white} Starting ${DESC}... ${ansi_std}"
@@ -93,11 +93,39 @@ start() {
 		printf "%s\n" "            ${ansi_yellow} already running. ${ansi_std}"
 		return 0
 	fi
-	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then { ${PRECMD} >/dev/null 2>&1; }; fi
+	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then
+		if ! ${PRECMD} >/dev/null 2>&1; then
+			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
+			logger -st "${CALLER}" "Pre-start hook failed for ${DESC} from ${CALLER}."
+			return 255
+		fi
+	fi
 	{ ${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null & }
 	#echo ${PREARGS} ${PROC} ${ARGS}
 	process_wait_for_start "${PROC}" 10
-	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then { ${POSTCMD} >/dev/null 2>&1; }; fi
+	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then
+		if ! ${POSTCMD} >/dev/null 2>&1; then
+			STOPPED=0
+			signal_process TERM "${PROC}"
+			if process_wait_for_stop "${PROC}" 10; then
+				STOPPED=1
+			else
+				signal_process INT "${PROC}"
+				if process_wait_for_stop "${PROC}" 5; then
+					STOPPED=1
+				else
+					signal_process KILL "${PROC}"
+					process_wait_for_stop "${PROC}" 3 && STOPPED=1
+				fi
+			fi
+			if [ "${STOPPED}" -eq 1 ] && [ -n "${POSTFAILCMD:-}" ]; then
+				${POSTFAILCMD} >/dev/null 2>&1 || logger -st "${CALLER}" "Post-start failure recovery failed for ${DESC} from ${CALLER}."
+			fi
+			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
+			logger -st "${CALLER}" "Post-start hook failed for ${DESC} from ${CALLER}."
+			return 255
+		fi
+	fi
 	PIDS="$(process_pids "${PROC}")"
 	if [ -z "${PIDS}" ]; then
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
