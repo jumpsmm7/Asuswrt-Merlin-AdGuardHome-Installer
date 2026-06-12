@@ -38,6 +38,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 assert_single_function IPSet_Disable_Managed_For_Start_Locked
+assert_single_function IPSet_Enabled
 assert_single_function IPSet_Dnsmasq_Restart_After_Unlock
 assert_single_function IPSet_Lock_Interrupt_Cleanup
 assert_single_function IPSet_Start_Restore
@@ -46,13 +47,17 @@ assert_single_function IPSet_Setup_For_Start
 assert_single_function IPSet_Setup_For_Start_Locked
 assert_startup_uses_lock_first_setup
 
-sed -n '/^start_adguardhome() {$/,/^}$/p; /^IPSet_Disable_Managed_For_Start_Locked() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Cleanup() {$/,/^}$/p; /^IPSet_Start_Restore() {$/,/^}$/p; /^IPSet_Start_While_Locked() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^start_adguardhome() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Disable_Managed_For_Start_Locked() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Cleanup() {$/,/^}$/p; /^IPSet_Start_Restore() {$/,/^}$/p; /^IPSet_Start_While_Locked() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'startup lifecycle functions were not found'
 sed -n '/^service_wait() {$/,/^}$/p' "${SCRIPT_PATH}" >"${SERVICE_WAIT_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${SERVICE_WAIT_FILE}" ] || fail 'service-wait function was not found'
 
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
+
+conf_value() {
+	[ "${IPSET_CONFIG:-YES}" = "NO" ] && printf '%s\n' NO || printf '%s\n' YES
+}
 
 IPSet_Supported() {
 	printf '%s\n' IPSet_Supported >>"${CALLS_FILE}"
@@ -209,10 +214,11 @@ INTERRUPT_AFTER_UNLOCK=0
 
 run_service_wait_terminal_test
 
-run_test 'setup failure while stopped' 0 0 0 0 1 0 1 'IPSet_Supported
+run_test 'setup failure while stopped does not block startup' 0 0 0 0 1 0 1 'IPSet_Supported
 IPSet_Lock acquired
 IPSet_Setup_Locked
-IPSet_Lock released'
+IPSet_Lock released
+lower_script start'
 RUNNING_AFTER_LOCK=1
 run_test 'service started while waiting for lock is stopped before setup' 0 0 0 0 0 0 1 'IPSet_Supported
 IPSet_Lock acquired
@@ -222,34 +228,38 @@ lower_script start
 IPSet_Lock released
 service restart_dnsmasq'
 unset RUNNING_AFTER_LOCK
-run_test 'setup failure restores running service with terminal failure' 1 0 0 0 1 0 1 'IPSet_Supported
+run_test 'setup failure restores running service and continues startup' 1 0 0 0 1 0 1 'IPSet_Supported
 IPSet_Lock acquired
 lower_script stop
 IPSet_Setup_Locked
 lower_script start
 IPSet_Lock released
 service restart_dnsmasq'
-[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'restored setup failure was not marked terminal'
-run_test 'failed restoration remains an error' 1 0 0 0 1 1 1 'IPSet_Supported
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 0 ] || fail 'recoverable IPSET failure was incorrectly marked terminal'
+run_test 'failed restoration falls back to the normal restart path' 1 0 0 0 1 1 1 'IPSet_Supported
 IPSet_Lock acquired
 lower_script stop
 IPSet_Setup_Locked
 lower_script start
 IPSet_Lock released
-service restart_dnsmasq'
-run_test 'lock contention leaves running service untouched' 1 0 7 0 0 0 1 'IPSet_Supported
-IPSet_Lock acquired'
-run_test 'stop failure aborts setup' 1 0 0 1 0 0 1 'IPSet_Supported
+service restart_dnsmasq
+lower_script restart'
+run_test 'lock contention does not block a normal restart' 1 0 7 0 0 0 1 'IPSet_Supported
+IPSet_Lock acquired
+lower_script restart'
+run_test 'stop failure does not block the normal restart path' 1 0 0 1 0 0 1 'IPSet_Supported
 IPSet_Lock acquired
 lower_script stop
-IPSet_Lock released'
+IPSet_Lock released
+lower_script restart'
 INTERRUPT_ON_STOP=1
 run_test 'interrupt during stop restores running service' 1 0 0 0 0 0 1 'IPSet_Supported
 IPSet_Lock acquired
 lower_script stop
 lower_script start
 IPSet_Lock released
-service restart_dnsmasq'
+service restart_dnsmasq
+lower_script restart'
 INTERRUPT_ON_STOP=0
 run_test 'unsupported integration restarts a running service' 1 1 0 0 0 0 1 'IPSet_Supported
 lower_script restart'
@@ -269,6 +279,12 @@ IPSet_Disable_Managed
 IPSet_Lock released
 lower_script start'
 LEGACY_VERSION=""
+IPSET_CONFIG=NO
+run_test 'disabled integration removes managed settings before startup' 0 0 0 0 0 0 1 'IPSet_Lock acquired
+IPSet_Disable_Managed
+IPSet_Lock released
+lower_script start'
+IPSET_CONFIG=YES
 
 run_interrupt_cleanup_test 'interrupt restores stopped service' 0
 run_interrupt_cleanup_test 'failed interrupt restoration is not retried' 1
@@ -292,12 +308,13 @@ IPSet_Lock released
 service restart_dnsmasq
 interrupt after lock release'
 INTERRUPT_AFTER_UNLOCK=0
-run_test 'failed locked restart is not retried' 1 0 0 0 0 1 1 'IPSet_Supported
+run_test 'failed locked restart falls back to the normal restart path' 1 0 0 0 0 1 1 'IPSet_Supported
 IPSet_Lock acquired
 lower_script stop
 IPSet_Setup_Locked
 lower_script start
 IPSet_Lock released
-service restart_dnsmasq'
+service restart_dnsmasq
+lower_script restart'
 
 printf '%s\n' 'PASS: startup acquires the IPSET lock before stopping AdGuardHome and preserves rollback behavior'

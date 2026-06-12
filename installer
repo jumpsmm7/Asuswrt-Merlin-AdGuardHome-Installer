@@ -922,6 +922,19 @@ check_dns_filter() {
 	fi
 }
 
+check_ipset() {
+	local IPSET_ENABLED
+	case "$1" in
+		0)
+			IPSET_ENABLED="NO"
+			;;
+		1)
+			IPSET_ENABLED="YES"
+			;;
+	esac
+	write_conf ADGUARD_IPSET "\"${IPSET_ENABLED}\""
+}
+
 check_dns_local() {
 	local LOCAL_CACHE
 	case "$1" in
@@ -1603,6 +1616,7 @@ setup_AdGuardHome_impl() {
 				if [ ! -f "${YAML_FILE}" ] || [ "$2" = "reconfig" ]; then
 					if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
 					if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
+					if read_yesno "Do you want to enable AdGuardHome IPSET integration?"; then check_ipset 1; else check_ipset 0; fi
 				fi
 				if [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; then
 					PTXT "${INFO} Requesting entries for AdGuardHome initial configuration..." \
@@ -1836,7 +1850,7 @@ menu() {
 			PTXT "${INFO} Choose what you want to do:" \
 				"  1) Install/Update AdGuardHome" \
 				"  2) Uninstall"
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then { PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  6) Enable/Disable AdGuardHome Local Cache" "  7) Switch AdGuardHome Branch" "  b) Backup"; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then { PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  6) Enable/Disable AdGuardHome Local Cache" "  7) Switch AdGuardHome Branch" "  8) Enable/Disable AdGuardHome IPSET Integration" "  b) Backup"; }; fi
 			if { [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { PTXT "  r) Restore"; }; fi
 			PTXT "  q) Quit"
 			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 q; }; fi
@@ -1883,8 +1897,8 @@ menu() {
 			if [ "$(nvram get dns_local_cache)" != "1" ]; then
 				PTXT "${INFO} This operation allows you to switch to using AdGuardHome as a local caching dns service for the router's own requests." \
 					"${INFO} A simple Yes or No will allow you to decide whether AdGuardhome handles DNS request for both the router and clients, or only clients."
-				read_yesno "Do you want to run AdGuardHome as a local caching DNS service?"; then check_dns_local 1; else check_dns_local 0; fi
-				PTXT "${INFO} For best results, please reboot the router after making these changes.
+				if read_yesno "Do you want to run AdGuardHome as a local caching DNS service?"; then check_dns_local 1; else check_dns_local 0; fi
+				PTXT "${INFO} For best results, please reboot the router after making these changes."
 				end_op_message 0
 			else
 				PTXT "${INFO} The router's own nvram built-in dns local caching feature is enabled." \
@@ -1896,6 +1910,15 @@ menu() {
 			PTXT "${INFO} This operation allows you to switch between AdGuardHome branches installed." \
 				"${INFO} Before you choose to proceed, it is recommended to perform a backup."
 			if read_yesno "Do you want to proceed?"; then { choose_branch x; AUTO_UPDATE="update"; inst_AdGuardHome "${AUTO_UPDATE:-update}"; } ; else end_op_message 1; fi
+			;;
+		"8" | "setipset")
+			PTXT "${INFO} IPSET integration imports compatible domain-to-IPSET mappings for routing and firewall add-ons." \
+				"${INFO} Disable it if this router does not use IPSET-based domain routing or filtering."
+			if read_yesno "Do you want to enable AdGuardHome IPSET integration?"; then check_ipset 1; else check_ipset 0; fi
+			if ! service restart_AdGuardHome >/dev/null 2>&1; then
+				PTXT "${WARNING} The setting was saved, but AdGuardHome could not be restarted automatically."
+			fi
+			end_op_message 0
 			;;
 		"b" | "B" | "backup")
 			PTXT "${INFO} This operation will backup everything!"
@@ -2113,13 +2136,13 @@ case "$2" in
 		check_version
 		menu
 		;;
-	[1-7] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | "amtmupdate" | [bB] | "backup" | [rR] | "restore")
+	[1-8] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | "amtmupdate" | "setamtmupdate" | "setlocalcache" | "switchbranch" | "setipset" | [bB] | "backup" | [rR] | "restore")
 		menu "$2"
 		;;
 	*)
-		PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | {b/B} - backup | {r/R} - restore)" \
+		PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | {b/B} - backup | {r/R} - restore)" \
 			"${INFO} Branch or Tag must be represented by a value or empty quotes in place of string e.g. \"\" in the \$1 string position." \
-			"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | {b/B} - backup | {r/R} - restore) in the \$2 string position." \
+			"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | {b/B} - backup | {r/R} - restore) in the \$2 string position." \
 			"${INFO} An update example sh installer master update, or just use the regular menu by not specifying an Action."
 		;;
 esac

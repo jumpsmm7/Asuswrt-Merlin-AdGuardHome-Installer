@@ -89,6 +89,7 @@ fi
 run_check 'md5sum files match installer artifacts' sh tools/check-md5.sh
 run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
 run_check 'AdGuardHome IPSET version gate regression' sh tests/ipset-version-gate.sh
+run_check 'AdGuardHome empty IPSET data regression' sh tests/ipset-empty-rules.sh
 run_check 'AdGuardHome IPSET lock security regression' sh tests/ipset-lock-security.sh
 run_check 'AdGuardHome legacy IPSET disable regression' sh tests/ipset-legacy-disable.sh
 run_check 'IPSET current-file YAML scalar regression' sh tests/ipset-current-file.sh

@@ -770,14 +770,10 @@ start_adguardhome() {
 	IPSET_START_STOPPED="0"
 	SERVICE_WAIT_TERMINAL_FAILURE="0"
 	if ! IPSet_Setup_For_Start; then
-		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; startup aborted."
+		logger -st "${NAME}" "Warning: unable to prepare AdGuardHome IPSET integration; continuing startup without refreshing managed IPSET rules."
 		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
 			IPSET_START_RESTARTED="1"
 		fi
-		if [ "${IPSET_START_RESTARTED}" -eq 1 ]; then
-			SERVICE_WAIT_TERMINAL_FAILURE="1"
-		fi
-		return 1
 	fi
 	if [ "${IPSET_START_RESTARTED}" -eq 0 ]; then
 		case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
@@ -1725,12 +1721,17 @@ IPSet_Disable_Managed_For_Start_Locked() {
 	return 0
 }
 
+IPSet_Enabled() {
+	[ "$(conf_value ADGUARD_IPSET)" != "NO" ]
+}
+
 IPSet_Refresh() {
 	local RESTART_STATUS
+	IPSet_Enabled || return 0
 	IPSet_Supported || return 0
 	IPSET_REFRESH_CHANGED=""
 	IPSET_REFRESH_CONFIG="${1:-}"
-	IPSet_Lock IPSet_Refresh_Locked || return 1
+	IPSet_Lock IPSet_Setup_Locked || return 1
 	if [ "${IPSET_REFRESH_CHANGED}" = "1" ] && [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
 		logger -st "${NAME}" "Restarting AdGuardHome to apply refreshed IPSET compatibility rules."
 		if [ "${IPSET_REFRESH_FROM_DNSMASQ:-}" = "1" ]; then
@@ -1783,6 +1784,15 @@ IPSet_Refresh_Locked() {
 		return 1
 	fi
 	rm -f "${RAW_TEMP_FILE}"
+	if ! awk '!/^[[:space:]]*(#|$)/ { found = 1; exit } END { exit !found }' "${TEMP_FILE}"; then
+		rm -f "${RAW_TEMP_FILE}" "${TEMP_FILE}" "${IPSET_FILE}"
+		if ! IPSet_Disable_Managed; then
+			return 1
+		fi
+		IPSET_REFRESH_CHANGED="1"
+		logger -st "${NAME}" "No IPSET mappings were found; managed IPSET configuration is disabled."
+		return 0
+	fi
 	if ! cmp -s "${IPSET_FILE}" "${TEMP_FILE}"; then
 		chmod 644 "${TEMP_FILE}" || {
 			rm -f "${TEMP_FILE}"
@@ -1828,12 +1838,17 @@ IPSet_Runtime_Prepare() {
 }
 
 IPSet_Setup() {
+	IPSet_Enabled || return 0
 	IPSet_Supported || return 0
 	IPSET_REFRESH_CONFIG=""
 	IPSet_Lock IPSet_Setup_Locked
 }
 
 IPSet_Setup_For_Start() {
+	if ! IPSet_Enabled; then
+		IPSet_Lock IPSet_Disable_Managed_For_Start_Locked
+		return $?
+	fi
 	if ! IPSet_Supported; then
 		[ "${IPSET_LEGACY_VERSION:-}" = "1" ] || return 0
 		IPSet_Lock IPSet_Disable_Managed_For_Start_Locked
