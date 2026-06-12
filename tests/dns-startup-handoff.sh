@@ -70,7 +70,11 @@ service() {
 }
 kill() {
 	printf '%s\n' "kill $*" >>"${CALLS_FILE}"
-	[ "${KILL_RELEASES_PORT:-0}" -eq 1 ] && DNS_STATE=free
+	if [ "${1:-}" = '-s' ]; then
+		[ "${KILL_RELEASES_PORT:-0}" -eq 1 ] && DNS_STATE=free
+		return 0
+	fi
+	command kill "$@"
 }
 sleep() {
 	[ "${SLEEP_SETS_OWNED:-0}" -eq 1 ] && DNS_STATE=owned
@@ -86,6 +90,7 @@ pre_start_adguardhome || fail 'pre-start did not release a killable port owner'
 [ "${DNS_STATE}" = free ] || fail 'pre-start did not synchronously release port 53'
 [ "$(grep -c '^service stop_dnsmasq$' "${CALLS_FILE}")" -eq 1 ] || fail 'pre-start did not stop dnsmasq exactly once'
 grep -q '^kill -s 9 123$' "${CALLS_FILE}" || fail 'pre-start did not kill the remaining port owner'
+stop_dns_port_guard
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy
@@ -113,8 +118,23 @@ DNS_STATE=busy
 KILL_RELEASES_PORT=0
 SLEEP_SETS_OWNED=1
 ADGUARDHOME_DNS_GUARD_RETRIES=3
-guard_dns_port_for_adguardhome || fail 'bounded guard did not survive dnsmasq reclaiming port 53'
+guard_dns_port_for_adguardhome &
+ADGUARDHOME_DNS_GUARD_PID="$!"
+_guard_check_attempts=0
+while ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" && [ "${_guard_check_attempts}" -lt 20 ]; do
+	_guard_check_attempts="$((_guard_check_attempts + 1))"
+	command sleep 0.01
+done
 grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'bounded guard did not stop a respawned dnsmasq'
+command sleep 0.01
+command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || fail 'DNS guard exited before explicit cleanup'
+_guard_pid="${ADGUARDHOME_DNS_GUARD_PID}"
+stop_dns_port_guard
+if command kill -0 "${_guard_pid}" 2>/dev/null; then
+	fail 'DNS guard remained alive after explicit cleanup'
+fi
+[ -z "${ADGUARDHOME_DNS_GUARD_PID:-}" ] || fail 'DNS guard PID was not cleared after cleanup'
+grep -q "^kill ${_guard_pid}$" "${CALLS_FILE}" || fail 'DNS guard was not explicitly terminated'
 SLEEP_SETS_OWNED=0
 
 : >"${CALLS_FILE}"

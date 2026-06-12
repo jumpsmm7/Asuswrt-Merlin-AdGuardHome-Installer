@@ -76,13 +76,18 @@ guard_dns_port_for_adguardhome() {
 	_dns_guard_attempts="0"
 	_dns_guard_limit="${ADGUARDHOME_DNS_GUARD_RETRIES:-10}"
 	while [ "${_dns_guard_attempts}" -lt "${_dns_guard_limit}" ]; do
-		adguardhome_owns_dns && return 0
+		adguardhome_owns_dns && break
 		service stop_dnsmasq >/dev/null 2>&1
 		kill_dns_port_owners
 		_dns_guard_attempts="$((_dns_guard_attempts + 1))"
 		sleep 1s
 	done
-	adguardhome_owns_dns
+	# Remain a live child until stop_dns_port_guard terminates and reaps us.  This
+	# prevents the saved PID from being reused while the parent verifies DNS.
+	trap 'exit 0' HUP INT TERM
+	while :; do
+		sleep 1s
+	done
 }
 
 # Service hook helpers
