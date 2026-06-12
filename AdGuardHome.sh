@@ -1785,10 +1785,11 @@ IPSet_Refresh_Locked() {
 	fi
 	rm -f "${RAW_TEMP_FILE}"
 	if ! awk '!/^[[:space:]]*(#|$)/ { found = 1; exit } END { exit !found }' "${TEMP_FILE}"; then
-		rm -f "${RAW_TEMP_FILE}" "${TEMP_FILE}" "${IPSET_FILE}"
+		rm -f "${RAW_TEMP_FILE}" "${TEMP_FILE}"
 		if ! IPSet_Disable_Managed; then
 			return 1
 		fi
+		rm -f "${IPSET_FILE}"
 		IPSET_REFRESH_CHANGED="1"
 		logger -st "${NAME}" "No IPSET mappings were found; managed IPSET configuration is disabled."
 		return 0

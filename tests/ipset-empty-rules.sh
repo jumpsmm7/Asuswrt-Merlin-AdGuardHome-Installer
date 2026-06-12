@@ -36,7 +36,7 @@ IPSet_Collect_Dnsmasq() {
 
 IPSet_Disable_Managed() {
 	DISABLE_CALLS="$((DISABLE_CALLS + 1))"
-	return 0
+	return "${DISABLE_STATUS:-0}"
 }
 
 logger() {
@@ -50,8 +50,19 @@ IPSET_REFRESH_CONFIG=""
 NAME=AdGuardHome
 CURRENT_FILE=""
 DISABLE_CALLS=0
+DISABLE_STATUS=1
 IPSET_REFRESH_CHANGED=""
+printf '%s\n' 'existing.example/EXISTING_SET' >"${IPSET_FILE}"
 
+if IPSet_Refresh_Locked; then
+	fail 'empty refresh succeeded when managed YAML could not be disabled'
+fi
+[ "${DISABLE_CALLS}" -eq 1 ] || fail 'failed empty refresh did not try to disable managed YAML'
+grep -q '^existing.example/EXISTING_SET$' "${IPSET_FILE}" || fail 'failed YAML disable removed the existing managed IPSET file'
+[ -z "${IPSET_REFRESH_CHANGED}" ] || fail 'failed empty refresh reported a changed file'
+
+DISABLE_CALLS=0
+DISABLE_STATUS=0
 IPSet_Refresh_Locked || fail 'empty refresh failed'
 [ "${DISABLE_CALLS}" -eq 1 ] || fail 'empty refresh did not disable managed YAML'
 [ "${IPSET_REFRESH_CHANGED}" = 1 ] || fail 'empty refresh did not request a service restart'
