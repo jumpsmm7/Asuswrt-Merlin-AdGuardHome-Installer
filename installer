@@ -1550,14 +1550,14 @@ setup_AdGuardHome() {
 			PTXT "${INFO} AdGuardHome setup is complete."
 			end_op_message 0
 		else
-			end_op_message 0
+			end_op_message 1
 		fi
 	fi
 	return "${RET}"
 }
 
 setup_AdGuardHome_impl() {
-	local SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
+	local IPSET_SELECTION SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ -z "$1" ] && [ -f "${YAML_FILE}" ]; then
 		############################################################ Drop-in code to be removed/modified as needed. #############################################################################################################################################################
@@ -1616,7 +1616,11 @@ setup_AdGuardHome_impl() {
 				if [ ! -f "${YAML_FILE}" ] || [ "$2" = "reconfig" ]; then
 					if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
 					if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
-					if read_yesno "Do you want to enable AdGuardHome IPSET integration?"; then check_ipset 1; else check_ipset 0; fi
+					if read_yesno "Do you want to enable AdGuardHome IPSET integration?"; then IPSET_SELECTION=1; else IPSET_SELECTION=0; fi
+					if ! check_ipset "${IPSET_SELECTION}"; then
+						PTXT "${ERROR} Unable to save the AdGuardHome IPSET integration setting. Setup was aborted."
+						return 1
+					fi
 				fi
 				if [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; then
 					PTXT "${INFO} Requesting entries for AdGuardHome initial configuration..." \

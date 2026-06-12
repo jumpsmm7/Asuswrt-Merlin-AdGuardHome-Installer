@@ -89,6 +89,7 @@ fi
 run_check 'md5sum files match installer artifacts' sh tools/check-md5.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
 run_check 'Installer IPSET preference save failure regression' sh tests/installer-ipset-save-failure.sh
+run_check 'Installer setup IPSET preference save failure regression' sh tests/installer-ipset-setup-save-failure.sh
 run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
 run_check 'AdGuardHome IPSET version gate regression' sh tests/ipset-version-gate.sh
 run_check 'AdGuardHome empty IPSET data regression' sh tests/ipset-empty-rules.sh
