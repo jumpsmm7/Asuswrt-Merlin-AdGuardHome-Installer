@@ -180,7 +180,7 @@ process_wait_for_stop() {
 }
 signal_process() {
 	printf '%s\n' "signal $*" >>"${CALLS_FILE}"
-	rm -f "${STARTED_FILE}"
+	[ "${STOP_ON_SIGNAL:-TERM}" = "$1" ] && rm -f "${STARTED_FILE}"
 }
 grep() {
 	case "$*" in
@@ -224,6 +224,21 @@ grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'rc.func did not res
 _signal_line="$(grep -n '^signal TERM AdGuardHome$' "${CALLS_FILE}" | cut -d: -f1)"
 _restart_line="$(grep -n '^service restart_dnsmasq$' "${CALLS_FILE}" | cut -d: -f1)"
 [ "${_signal_line}" -lt "${_restart_line}" ] || fail 'dnsmasq was restored before failed AdGuardHome stopped'
+
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}"
+STOP_ON_SIGNAL=KILL
+if start >/dev/null; then
+	fail 'rc.func ignored a failed post-start hook requiring forced termination'
+fi
+grep -q '^signal TERM AdGuardHome$' "${CALLS_FILE}" || fail 'rc.func did not first send TERM after post-start failure'
+grep -q '^signal INT AdGuardHome$' "${CALLS_FILE}" || fail 'rc.func did not escalate to INT after TERM timed out'
+grep -q '^signal KILL AdGuardHome$' "${CALLS_FILE}" || fail 'rc.func did not escalate to KILL after INT timed out'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'rc.func did not restore dnsmasq after forced termination'
+_kill_line="$(grep -n '^signal KILL AdGuardHome$' "${CALLS_FILE}" | cut -d: -f1)"
+_restart_line="$(grep -n '^service restart_dnsmasq$' "${CALLS_FILE}" | cut -d: -f1)"
+[ "${_kill_line}" -lt "${_restart_line}" ] || fail 'dnsmasq was restored before forced AdGuardHome termination'
+unset STOP_ON_SIGNAL
 
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}"
