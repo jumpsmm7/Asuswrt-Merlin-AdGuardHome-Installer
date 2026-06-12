@@ -361,7 +361,9 @@ check_dns_environment() {
 	esac
 	if [ "$NVCHECK" != "0" ]; then
 		{ nvram commit; }
-		{ service restart_dnsmasq >/dev/null 2>&1; }
+		if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
+			{ service restart_dnsmasq >/dev/null 2>&1; }
+		fi
 		{ service_wait netcheck 150; }
 	fi
 	return 0
@@ -895,7 +897,9 @@ stop_adguardhome() {
 			lower_script stop || lower_script kill
 			;;
 	esac
-	service restart_dnsmasq >/dev/null 2>&1
+	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
+		service restart_dnsmasq >/dev/null 2>&1
+	fi
 	for db in stats.db sessions.db; do {
 		if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
 			rm "/tmp/${db}" >/dev/null 2>&1
@@ -1299,7 +1303,7 @@ IPSet_Current_File() {
 IPSet_Dnsmasq_Restart_After_Unlock() {
 	[ "${IPSET_DNSMASQ_RESTART_PENDING:-0}" -eq 1 ] || return 0
 	IPSET_DNSMASQ_RESTART_PENDING="0"
-	service restart_dnsmasq >/dev/null 2>&1
+	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" = "1" ] || service restart_dnsmasq >/dev/null 2>&1
 }
 
 IPSet_Lock_Interrupt_Cleanup() {
@@ -1319,12 +1323,13 @@ IPSet_Start_Restore() {
 }
 
 IPSet_Start_While_Locked() {
-	local STATUS
+	local DNSMASQ_RESTART_SKIP STATUS
+	DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
 	IPSET_DNSMASQ_RESTART_PENDING="1"
 	ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
 	lower_script start
 	STATUS="$?"
-	ADGUARDHOME_SKIP_DNSMASQ_RESTART=""
+	ADGUARDHOME_SKIP_DNSMASQ_RESTART="${DNSMASQ_RESTART_SKIP}"
 	return "${STATUS}"
 }
 
@@ -1730,7 +1735,7 @@ IPSet_Enabled() {
 }
 
 IPSet_Refresh() {
-	local RESTART_STATUS
+	local DNSMASQ_RESTART_SKIP RESTART_STATUS
 	IPSet_Enabled || return 0
 	IPSet_Supported || return 0
 	IPSET_REFRESH_CHANGED=""
@@ -1738,12 +1743,13 @@ IPSet_Refresh() {
 	IPSet_Lock IPSet_Setup_Locked || return 1
 	if [ "${IPSET_REFRESH_CHANGED}" = "1" ] && [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
 		logger -st "${NAME}" "Restarting AdGuardHome to apply refreshed IPSET compatibility rules."
+		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
 		if [ "${IPSET_REFRESH_FROM_DNSMASQ:-}" = "1" ]; then
 			ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
 		fi
 		lower_script restart
 		RESTART_STATUS="$?"
-		ADGUARDHOME_SKIP_DNSMASQ_RESTART=""
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART="${DNSMASQ_RESTART_SKIP}"
 		return "${RESTART_STATUS}"
 	fi
 }
