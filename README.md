@@ -137,7 +137,7 @@ More DNS provider references:
 
 ## IPSET integration
 
-The installer integrates AdGuardHome with IPSET-based routing and firewall add-ons by configuring AdGuardHome's `dns.ipset_file` setting. When AdGuardHome resolves a matching domain, it adds returned IPv4 or IPv6 addresses to the named IPSET so the add-on that owns that set can apply its routing or firewall policy.
+The installer can integrate AdGuardHome with IPSET-based routing and firewall add-ons by configuring AdGuardHome's `dns.ipset_file` setting. When AdGuardHome resolves a matching domain, it adds returned IPv4 or IPv6 addresses to the named IPSET so the add-on that owns that set can apply its routing or firewall policy. The integration can be enabled or disabled from installer menu option **8**; existing installations without an `ADGUARD_IPSET` setting remain enabled for backward compatibility.
 
 ### Requirements and ownership
 
@@ -168,7 +168,7 @@ dns:
   ipset_file: /opt/etc/AdGuardHome/ipset.conf
 ```
 
-AdGuardHome ignores inline `dns.ipset` rules when `dns.ipset_file` is configured, so migrated custom rules are kept in `ipset.user` and merged into `ipset.conf`. The generated file may be replaced during startup, dnsmasq configuration, or firewall events; manual changes to `ipset.conf` will be lost.
+AdGuardHome ignores inline `dns.ipset` rules when `dns.ipset_file` is configured, so migrated custom rules are kept in `ipset.user` and merged into `ipset.conf`. The generated file may be replaced during startup, dnsmasq configuration, or firewall events; manual changes to `ipset.conf` will be lost. If a refresh finds no user or dnsmasq mappings, the installer removes the empty generated file and the managed `dns.ipset_file` setting instead of preventing AdGuardHome from starting. A genuine setup or refresh error still aborts a new startup attempt rather than allowing AdGuardHome to start with stale managed firewall or policy-routing mappings.
 
 Both IPSET files are inside `/opt/etc/AdGuardHome`, so the installer's normal backup and restore flow includes them. Uninstalling the installer removes them with the rest of that directory.
 
@@ -228,6 +228,8 @@ On each setup run, the installer checks whether it already owns the YAML IPSET c
 
 - If `dns.ipset_file` is empty or points to `/opt/etc/AdGuardHome/ipset.conf`, supported inline `dns.ipset` entries are merged into `ipset.user`, exact duplicates and empty lines are removed, and the YAML is normalized to the managed settings shown above. Existing `ipset.user` rules are preserved.
 - If `dns.ipset_file` points anywhere else, the installer leaves the YAML and external file untouched, skips its managed IPSET migration and refresh for that run, and allows AdGuardHome to use the existing configuration. To opt in to managed integration, copy persistent mappings from the external file into `ipset.user`, clear `dns.ipset_file` while AdGuardHome is stopped, and restart AdGuardHome.
+- If no mappings are available after migration and collection, the installer removes its managed `dns.ipset_file` setting and starts AdGuardHome normally. The setting is restored automatically when integration is enabled and a later refresh discovers mappings.
+- If IPSET integration is disabled from installer menu option **8**, startup removes only the installer-managed `dns.ipset_file` setting. `ipset.user` is retained so custom mappings are available if the feature is re-enabled.
 
 The installer never reads or imports a YAML-selected external file with elevated privileges. Once managed integration is active, it generates `ipset.conf` from `ipset.user` plus all detected compatible dnsmasq directives.
 
