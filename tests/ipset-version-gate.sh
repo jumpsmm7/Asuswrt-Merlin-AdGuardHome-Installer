@@ -20,7 +20,7 @@ fail() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-sed -n '/^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Supported() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Supported() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'IPSET version-gate functions were not found'
 
 cat >"${BINARY_FILE}" <<'BINARY'
@@ -33,6 +33,10 @@ chmod +x "${BINARY_FILE}" || fail 'could not create version test binary'
 
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
+
+conf_value() {
+	printf '%s\n' "${IPSET_CONFIG:-YES}"
+}
 
 IPSet_Lock() {
 	printf '%s\n' "lock $1" >>"${CALLS_FILE}"
@@ -77,11 +81,11 @@ run_case 'AdGuard Home, version v0.107.12' 0 ''
 run_case 'AdGuard Home, version v0.107.13' 0 ''
 run_case 'AdGuard Home, version v0.107.47' 0 ''
 run_case 'AdGuard Home, version v0.107.48' 0 'lock IPSet_Setup_Locked
-lock IPSet_Refresh_Locked'
+lock IPSet_Setup_Locked'
 run_case 'AdGuard Home, version v0.107.76' 0 'lock IPSet_Setup_Locked
-lock IPSet_Refresh_Locked'
+lock IPSet_Setup_Locked'
 run_case 'AdGuard Home, version v0.108.0-b.5' 0 'lock IPSet_Setup_Locked
-lock IPSet_Refresh_Locked'
+lock IPSet_Setup_Locked'
 run_case 'unknown version' 0 ''
 run_case 'AdGuard Home unavailable' 1 ''
 
@@ -90,5 +94,8 @@ run_start_case 'AdGuard Home, version v0.107.47' 0 'lock IPSet_Disable_Managed_F
 run_start_case 'AdGuard Home, version v0.107.48' 0 'lock IPSet_Setup_For_Start_Locked'
 run_start_case 'unknown version' 0 ''
 run_start_case 'AdGuard Home unavailable' 1 ''
+IPSET_CONFIG=NO
+run_start_case 'AdGuard Home, version v0.107.48' 0 'lock IPSet_Disable_Managed_For_Start_Locked'
+IPSET_CONFIG=YES
 
 printf '%s\n' 'PASS: managed IPSET integration is gated on AdGuardHome v0.107.48 or later'

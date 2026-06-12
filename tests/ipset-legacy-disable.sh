@@ -47,6 +47,7 @@ filters: []
 EOF_YAML
 chmod 600 "${YAML_FILE}" || fail 'could not set restrictive YAML mode'
 IPSet_Disable_Managed || fail 'could not disable a managed scalar path'
+[ "${IPSET_DISABLE_CHANGED:-}" = 1 ] || fail 'managed scalar removal was not reported as changed'
 [ "$(stat -c '%a' "${YAML_FILE}")" = 600 ] || fail 'YAML permissions were not preserved'
 ! rg -q '^[[:space:]]*ipset_file:' "${YAML_FILE}" || fail 'managed scalar path was retained'
 rg -q '^dns: &dns_defaults$' "${YAML_FILE}" || fail 'annotated DNS header was not preserved'
@@ -71,6 +72,7 @@ dns:
 EOF_YAML
 cp "${YAML_FILE}" "${YAML_FILE}.expected" || fail 'could not preserve custom-path fixture'
 IPSet_Disable_Managed || fail 'custom external path was rejected'
+[ -z "${IPSET_DISABLE_CHANGED:-}" ] || fail 'unchanged custom path was reported as changed'
 cmp -s "${YAML_FILE}" "${YAML_FILE}.expected" || fail 'custom external path was modified'
 
 printf '%s\n' 'PASS: legacy setup disables only the managed ipset_file and preserves YAML metadata'

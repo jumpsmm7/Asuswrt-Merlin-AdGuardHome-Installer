@@ -770,13 +770,11 @@ start_adguardhome() {
 	IPSET_START_STOPPED="0"
 	SERVICE_WAIT_TERMINAL_FAILURE="0"
 	if ! IPSet_Setup_For_Start; then
-		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; startup aborted."
+		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; startup aborted to avoid using stale managed rules."
 		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
 			IPSET_START_RESTARTED="1"
 		fi
-		if [ "${IPSET_START_RESTARTED}" -eq 1 ]; then
-			SERVICE_WAIT_TERMINAL_FAILURE="1"
-		fi
+		SERVICE_WAIT_TERMINAL_FAILURE="1"
 		return 1
 	fi
 	if [ "${IPSET_START_RESTARTED}" -eq 0 ]; then
@@ -1648,6 +1646,7 @@ IPSet_Migrate() {
 
 IPSet_Disable_Managed() {
 	local CURRENT_FILE TEMP_FILE
+	IPSET_DISABLE_CHANGED=""
 	[ -f "${YAML_FILE}" ] || return 0
 	if ! CURRENT_FILE="$(IPSet_Current_File)"; then
 		return 1
@@ -1692,6 +1691,7 @@ IPSet_Disable_Managed() {
 		rm -f "${TEMP_FILE}"
 		return 1
 	}
+	IPSET_DISABLE_CHANGED="1"
 	logger -st "${NAME}" "Disabled managed IPSET configuration for this AdGuardHome version."
 }
 
@@ -1725,12 +1725,17 @@ IPSet_Disable_Managed_For_Start_Locked() {
 	return 0
 }
 
+IPSet_Enabled() {
+	[ "$(conf_value ADGUARD_IPSET)" != "NO" ]
+}
+
 IPSet_Refresh() {
 	local RESTART_STATUS
+	IPSet_Enabled || return 0
 	IPSet_Supported || return 0
 	IPSET_REFRESH_CHANGED=""
 	IPSET_REFRESH_CONFIG="${1:-}"
-	IPSet_Lock IPSet_Refresh_Locked || return 1
+	IPSet_Lock IPSet_Setup_Locked || return 1
 	if [ "${IPSET_REFRESH_CHANGED}" = "1" ] && [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
 		logger -st "${NAME}" "Restarting AdGuardHome to apply refreshed IPSET compatibility rules."
 		if [ "${IPSET_REFRESH_FROM_DNSMASQ:-}" = "1" ]; then
@@ -1744,7 +1749,7 @@ IPSet_Refresh() {
 }
 
 IPSet_Refresh_Locked() {
-	local CURRENT_FILE RAW_TEMP_FILE TEMP_FILE
+	local CURRENT_FILE IPSET_FILE_EXISTED RAW_TEMP_FILE TEMP_FILE
 	if ! CURRENT_FILE="$(IPSet_Current_File)"; then
 		return 1
 	fi
@@ -1783,6 +1788,22 @@ IPSet_Refresh_Locked() {
 		return 1
 	fi
 	rm -f "${RAW_TEMP_FILE}"
+	if ! awk '!/^[[:space:]]*(#|$)/ { found = 1; exit } END { exit !found }' "${TEMP_FILE}"; then
+		rm -f "${RAW_TEMP_FILE}" "${TEMP_FILE}"
+		IPSET_FILE_EXISTED=""
+		[ -e "${IPSET_FILE}" ] && IPSET_FILE_EXISTED="1"
+		if ! IPSet_Disable_Managed; then
+			return 1
+		fi
+		if ! rm -f "${IPSET_FILE}"; then
+			return 1
+		fi
+		if [ "${IPSET_FILE_EXISTED}" = "1" ] || [ "${IPSET_DISABLE_CHANGED:-}" = "1" ]; then
+			IPSET_REFRESH_CHANGED="1"
+		fi
+		logger -st "${NAME}" "No IPSET mappings were found; managed IPSET configuration is disabled."
+		return 0
+	fi
 	if ! cmp -s "${IPSET_FILE}" "${TEMP_FILE}"; then
 		chmod 644 "${TEMP_FILE}" || {
 			rm -f "${TEMP_FILE}"
@@ -1828,12 +1849,17 @@ IPSet_Runtime_Prepare() {
 }
 
 IPSet_Setup() {
+	IPSet_Enabled || return 0
 	IPSet_Supported || return 0
 	IPSET_REFRESH_CONFIG=""
 	IPSet_Lock IPSet_Setup_Locked
 }
 
 IPSet_Setup_For_Start() {
+	if ! IPSet_Enabled; then
+		IPSet_Lock IPSet_Disable_Managed_For_Start_Locked
+		return $?
+	fi
 	if ! IPSet_Supported; then
 		[ "${IPSET_LEGACY_VERSION:-}" = "1" ] || return 0
 		IPSet_Lock IPSet_Disable_Managed_For_Start_Locked
@@ -1873,8 +1899,24 @@ IPSet_Setup_For_Start_Locked() {
 	return 0
 }
 
+IPSet_Has_Legacy_Mappings() {
+	local LEGACY_TEMP_FILE LEGACY_STATUS
+	LEGACY_TEMP_FILE="${IPSET_USER_FILE}.legacy.$$"
+	if ! IPSet_Collect_Yaml >"${LEGACY_TEMP_FILE}"; then
+		rm -f "${LEGACY_TEMP_FILE}"
+		return 2
+	fi
+	if [ -s "${LEGACY_TEMP_FILE}" ]; then
+		LEGACY_STATUS=0
+	else
+		LEGACY_STATUS=1
+	fi
+	rm -f "${LEGACY_TEMP_FILE}"
+	return "${LEGACY_STATUS}"
+}
+
 IPSet_Setup_Locked() {
-	local MIGRATION_BACKUP_FILE REFRESH_STATUS
+	local CURRENT_FILE LEGACY_STATUS MIGRATION_BACKUP_FILE REFRESH_STATUS
 	MIGRATION_BACKUP_FILE=""
 	if [ -f "${YAML_FILE}" ]; then
 		MIGRATION_BACKUP_FILE="${YAML_FILE}.ipset-setup.$$"
@@ -1882,6 +1924,28 @@ IPSet_Setup_Locked() {
 			rm -f "${MIGRATION_BACKUP_FILE}"
 			return 1
 		}
+	fi
+	if ! CURRENT_FILE="$(IPSet_Current_File)"; then
+		[ -z "${MIGRATION_BACKUP_FILE}" ] || rm -f "${MIGRATION_BACKUP_FILE}"
+		return 1
+	fi
+	if [ -z "${CURRENT_FILE}" ] && [ ! -e "${IPSET_FILE}" ]; then
+		LEGACY_STATUS=0
+		IPSet_Has_Legacy_Mappings || LEGACY_STATUS="$?"
+		if [ "${LEGACY_STATUS}" -gt 1 ]; then
+			[ -z "${MIGRATION_BACKUP_FILE}" ] || rm -f "${MIGRATION_BACKUP_FILE}"
+			return 1
+		fi
+		if [ "${LEGACY_STATUS}" -eq 1 ]; then
+			if ! IPSet_Refresh_Locked; then
+				[ -z "${MIGRATION_BACKUP_FILE}" ] || rm -f "${MIGRATION_BACKUP_FILE}"
+				return 1
+			fi
+			if [ ! -e "${IPSET_FILE}" ]; then
+				[ -z "${MIGRATION_BACKUP_FILE}" ] || rm -f "${MIGRATION_BACKUP_FILE}"
+				return 0
+			fi
+		fi
 	fi
 	if ! IPSet_Migrate; then
 		[ -z "${MIGRATION_BACKUP_FILE}" ] || rm -f "${MIGRATION_BACKUP_FILE}"
