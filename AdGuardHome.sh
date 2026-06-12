@@ -1644,6 +1644,7 @@ IPSet_Migrate() {
 
 IPSet_Disable_Managed() {
 	local CURRENT_FILE TEMP_FILE
+	IPSET_DISABLE_CHANGED=""
 	[ -f "${YAML_FILE}" ] || return 0
 	if ! CURRENT_FILE="$(IPSet_Current_File)"; then
 		return 1
@@ -1688,6 +1689,7 @@ IPSet_Disable_Managed() {
 		rm -f "${TEMP_FILE}"
 		return 1
 	}
+	IPSET_DISABLE_CHANGED="1"
 	logger -st "${NAME}" "Disabled managed IPSET configuration for this AdGuardHome version."
 }
 
@@ -1745,7 +1747,7 @@ IPSet_Refresh() {
 }
 
 IPSet_Refresh_Locked() {
-	local CURRENT_FILE RAW_TEMP_FILE TEMP_FILE
+	local CURRENT_FILE IPSET_FILE_EXISTED RAW_TEMP_FILE TEMP_FILE
 	if ! CURRENT_FILE="$(IPSet_Current_File)"; then
 		return 1
 	fi
@@ -1786,11 +1788,15 @@ IPSet_Refresh_Locked() {
 	rm -f "${RAW_TEMP_FILE}"
 	if ! awk '!/^[[:space:]]*(#|$)/ { found = 1; exit } END { exit !found }' "${TEMP_FILE}"; then
 		rm -f "${RAW_TEMP_FILE}" "${TEMP_FILE}"
+		IPSET_FILE_EXISTED=""
+		[ -e "${IPSET_FILE}" ] && IPSET_FILE_EXISTED="1"
 		if ! IPSet_Disable_Managed; then
 			return 1
 		fi
 		rm -f "${IPSET_FILE}"
-		IPSET_REFRESH_CHANGED="1"
+		if [ "${IPSET_FILE_EXISTED}" = "1" ] || [ "${IPSET_DISABLE_CHANGED:-}" = "1" ]; then
+			IPSET_REFRESH_CHANGED="1"
+		fi
 		logger -st "${NAME}" "No IPSET mappings were found; managed IPSET configuration is disabled."
 		return 0
 	fi

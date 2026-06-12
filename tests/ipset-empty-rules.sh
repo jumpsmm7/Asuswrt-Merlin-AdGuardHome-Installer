@@ -36,6 +36,7 @@ IPSet_Collect_Dnsmasq() {
 
 IPSet_Disable_Managed() {
 	DISABLE_CALLS="$((DISABLE_CALLS + 1))"
+	IPSET_DISABLE_CHANGED="${DISABLE_CHANGED:-}"
 	return "${DISABLE_STATUS:-0}"
 }
 
@@ -63,10 +64,24 @@ grep -q '^existing.example/EXISTING_SET$' "${IPSET_FILE}" || fail 'failed YAML d
 
 DISABLE_CALLS=0
 DISABLE_STATUS=0
+DISABLE_CHANGED=1
 IPSet_Refresh_Locked || fail 'empty refresh failed'
 [ "${DISABLE_CALLS}" -eq 1 ] || fail 'empty refresh did not disable managed YAML'
 [ "${IPSET_REFRESH_CHANGED}" = 1 ] || fail 'empty refresh did not request a service restart'
 [ ! -e "${IPSET_FILE}" ] || fail 'empty generated IPSET file was retained'
+
+DISABLE_CALLS=0
+DISABLE_CHANGED=""
+IPSET_REFRESH_CHANGED=""
+IPSet_Refresh_Locked || fail 'unchanged empty refresh failed'
+[ "${DISABLE_CALLS}" -eq 1 ] || fail 'unchanged empty refresh did not check managed YAML'
+[ -z "${IPSET_REFRESH_CHANGED}" ] || fail 'unchanged empty refresh requested a service restart'
+
+DISABLE_CALLS=0
+DISABLE_CHANGED=1
+IPSET_REFRESH_CHANGED=""
+IPSet_Refresh_Locked || fail 'YAML-only empty refresh failed'
+[ "${IPSET_REFRESH_CHANGED}" = 1 ] || fail 'YAML-only empty refresh did not request a service restart'
 
 printf '%s\n' 'example.com/ROUTE_VPN' >"${IPSET_USER_FILE}"
 DISABLE_CALLS=0
