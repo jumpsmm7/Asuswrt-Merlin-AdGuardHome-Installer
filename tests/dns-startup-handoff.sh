@@ -45,22 +45,22 @@ which() {
 }
 pidof() {
 	case "$1" in
-	AdGuardHome)
-		[ "${DNS_STATE:-free}" = owned ] && printf '%s\n' 321
-		;;
+		AdGuardHome)
+			[ "${DNS_STATE:-free}" = owned ] && printf '%s\n' 321
+			;;
 	esac
 	return 0
 }
 netstat() {
 	case "${DNS_STATE:-free}" in
-	busy)
-		printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 123/dnsmasq'
-		;;
-	owned)
-		printf '%s\n' \
-			'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 321/AdGuardHome' \
-			'udp 0 0 0.0.0.0:53 0.0.0.0:* 321/AdGuardHome'
-		;;
+		busy)
+			printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 123/dnsmasq'
+			;;
+		owned)
+			printf '%s\n' \
+				'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 321/AdGuardHome' \
+				'udp 0 0 0.0.0.0:53 0.0.0.0:* 321/AdGuardHome'
+			;;
 	esac
 }
 service() {
@@ -184,7 +184,7 @@ signal_process() {
 }
 grep() {
 	case "$*" in
-	*'/etc/dnsmasq.conf'*) return 1 ;;
+		*'/etc/dnsmasq.conf'*) return 1 ;;
 	esac
 	command grep "$@"
 }
