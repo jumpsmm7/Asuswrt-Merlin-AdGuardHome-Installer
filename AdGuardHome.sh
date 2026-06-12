@@ -1795,7 +1795,9 @@ IPSet_Refresh_Locked() {
 		if ! IPSet_Disable_Managed; then
 			return 1
 		fi
-		rm -f "${IPSET_FILE}"
+		if ! rm -f "${IPSET_FILE}"; then
+			return 1
+		fi
 		if [ "${IPSET_FILE_EXISTED}" = "1" ] || [ "${IPSET_DISABLE_CHANGED:-}" = "1" ]; then
 			IPSET_REFRESH_CHANGED="1"
 		fi

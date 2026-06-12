@@ -44,6 +44,15 @@ logger() {
 	:
 }
 
+rm() {
+	case " $* " in
+		*" ${IPSET_FILE:-unset} "*)
+			[ "${REMOVE_STATUS:-0}" -eq 0 ] || return "${REMOVE_STATUS}"
+			;;
+	esac
+	command rm "$@"
+}
+
 mkdir -p "${TEST_DIR}" || fail 'could not create test directory'
 IPSET_FILE="${TEST_DIR}/ipset.conf"
 IPSET_USER_FILE="${TEST_DIR}/ipset.user"
@@ -65,6 +74,16 @@ grep -q '^existing.example/EXISTING_SET$' "${IPSET_FILE}" || fail 'failed YAML d
 DISABLE_CALLS=0
 DISABLE_STATUS=0
 DISABLE_CHANGED=1
+REMOVE_STATUS=1
+if IPSet_Refresh_Locked; then
+	fail 'empty refresh succeeded when the stale managed IPSET file could not be removed'
+fi
+[ "${DISABLE_CALLS}" -eq 1 ] || fail 'failed file removal did not disable managed YAML first'
+grep -q '^existing.example/EXISTING_SET$' "${IPSET_FILE}" || fail 'failed file removal did not preserve the stale managed IPSET file'
+[ -z "${IPSET_REFRESH_CHANGED}" ] || fail 'failed file removal reported a changed file'
+
+DISABLE_CALLS=0
+REMOVE_STATUS=0
 IPSet_Refresh_Locked || fail 'empty refresh failed'
 [ "${DISABLE_CALLS}" -eq 1 ] || fail 'empty refresh did not disable managed YAML'
 [ "${IPSET_REFRESH_CHANGED}" = 1 ] || fail 'empty refresh did not request a service restart'
