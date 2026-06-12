@@ -221,6 +221,51 @@ post_hook() {
 post_failure_hook() {
 	post_start_failure_adguardhome
 }
+
+# Interrupting startup after the pre-start hook has spawned the DNS guard must
+# reap that child and run the same dnsmasq recovery used by other failed starts.
+INTERRUPT_READY_FILE="${TEST_ROOT}/interrupt-ready"
+INTERRUPT_GUARD_PID_FILE="${TEST_ROOT}/interrupt-guard-pid"
+: >"${CALLS_FILE}"
+rm -f "${INTERRUPT_READY_FILE}" "${INTERRUPT_GUARD_PID_FILE}"
+(
+	pre_hook() {
+		command sh -c 'trap "exit 0" HUP INT TERM; while :; do sleep 1; done' &
+		ADGUARDHOME_DNS_GUARD_PID="$!"
+		printf '%s\n' "${ADGUARDHOME_DNS_GUARD_PID}" >"${INTERRUPT_GUARD_PID_FILE}"
+	}
+	process_pids() {
+		return 0
+	}
+	process_wait_for_start() {
+		: >"${INTERRUPT_READY_FILE}"
+		while :; do
+			command sleep 1
+		done
+	}
+	AdGuardHome() {
+		return 0
+	}
+	start >/dev/null
+) &
+_interrupt_start_pid="$!"
+_interrupt_wait_attempts=0
+while [ ! -f "${INTERRUPT_READY_FILE}" ] && [ "${_interrupt_wait_attempts}" -lt 100 ]; do
+	_interrupt_wait_attempts="$((_interrupt_wait_attempts + 1))"
+	command sleep 0.01
+done
+[ -f "${INTERRUPT_READY_FILE}" ] || fail 'interrupted start did not reach the guarded startup window'
+command kill -TERM "${_interrupt_start_pid}" 2>/dev/null || fail 'could not interrupt guarded startup'
+if wait "${_interrupt_start_pid}"; then
+	fail 'interrupted guarded startup reported success'
+fi
+_interrupt_guard_pid="$(cat "${INTERRUPT_GUARD_PID_FILE}")"
+if command kill -0 "${_interrupt_guard_pid}" 2>/dev/null; then
+	fail 'DNS guard survived an interrupted startup'
+fi
+grep -q "^kill ${_interrupt_guard_pid}$" "${CALLS_FILE}" || fail 'interrupted startup did not terminate the DNS guard'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'interrupted startup did not restore dnsmasq'
+
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}"
 if start >/dev/null; then
