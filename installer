@@ -1639,7 +1639,11 @@ inst_AdGuardHome() {
 				read_yesno "Do you want create a backup before updating?"
 				CONFIRM_STATUS=$?
 				if [ "${CONFIRM_STATUS}" -eq 0 ]; then
-					backup_restore BACKUP 0
+					if ! backup_restore BACKUP 0; then
+						PTXT "${ERROR} Unable to create the requested pre-update backup."
+						end_op_message 1 "$1"
+						return 1
+					fi
 				elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
 					PTXT "${INFO} continuing without making a backup."
 				else
