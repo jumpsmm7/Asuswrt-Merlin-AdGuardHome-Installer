@@ -66,6 +66,22 @@ process_wait_for_stop() {
 	[ -z "$(process_pids "${_PROC}")" ]
 }
 
+stop_launched_process() {
+	local _PID _COUNTER
+	_PID="$1"
+	[ -n "${_PID}" ] || return 0
+	if kill -0 "${_PID}" 2>/dev/null; then
+		kill -TERM "${_PID}" 2>/dev/null
+		_COUNTER=0
+		while kill -0 "${_PID}" 2>/dev/null && [ "${_COUNTER}" -lt 5 ]; do
+			sleep 1s
+			_COUNTER="$((_COUNTER + 1))"
+		done
+		kill -0 "${_PID}" 2>/dev/null && kill -KILL "${_PID}" 2>/dev/null
+	fi
+	wait "${_PID}" 2>/dev/null
+}
+
 signal_process() {
 	_SIGNAL="$1"
 	_PROC="$2"
@@ -98,7 +114,7 @@ reload() {
 }
 
 start() {
-	local DNS_HANDOFF PIDS STOPPED
+	local DNS_HANDOFF LAUNCH_PID PIDS STOPPED
 	{ [ "${CRITICAL}" != "yes" ] && [ "${CALLER}" = "cron" ]; } && return 7
 	[ "${ENABLED}" != "yes" ] && return 8
 	printf "%s" "${ansi_white} Starting ${DESC}... ${ansi_std}"
@@ -120,9 +136,10 @@ start() {
 			return 255
 		fi
 	fi
-	{ ${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null & }
+	{ ${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null & LAUNCH_PID="$!"; }
 	#echo ${PREARGS} ${PROC} ${ARGS}
 	if ! process_wait_for_start "${PROC}" 10; then
+		stop_launched_process "${LAUNCH_PID}"
 		if [ -n "${POSTFAILCMD:-}" ]; then
 			${POSTFAILCMD} >/dev/null 2>&1 || logger -st "${CALLER}" "Failed-start recovery failed for ${DESC} from ${CALLER}."
 		fi

@@ -30,7 +30,8 @@ sed -n \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed -n '/^dns_handoff_is_active() {$/,/^}$/p' "${MANAGER_PATH}" >>"${S99_FUNCTIONS}" ||
 	fail "could not read ${MANAGER_PATH}"
-sed -n '/^start() {$/,/^}$/p' "${RC_PATH}" >"${RC_FUNCTION}" || fail "could not read ${RC_PATH}"
+sed -n '/^stop_launched_process() {$/,/^}$/p; /^start() {$/,/^}$/p' "${RC_PATH}" >"${RC_FUNCTION}" ||
+	fail "could not read ${RC_PATH}"
 [ -s "${S99_FUNCTIONS}" ] || fail 'DNS handoff functions were not found'
 [ -s "${RC_FUNCTION}" ] || fail 'service start function was not found'
 grep -q 'DNS_HANDOFF_FILE="/tmp/AdGuardHome.dns-handoff"' "${S99_PATH}" ||
@@ -457,5 +458,41 @@ if start >/dev/null; then
 fi
 ! grep -q '^post_hook$' "${CALLS_FILE}" || fail 'rc.func ran the post-start hook for a process that never started'
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'failed launch did not restore dnsmasq'
+
+# A launch that outlives the startup wait must be terminated and reaped before
+# dnsmasq is restored, otherwise it can claim port 53 after recovery.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}"
+LATE_LAUNCH_PID_FILE="${TEST_ROOT}/late-launch-pid"
+rm -f "${LATE_LAUNCH_PID_FILE}"
+AdGuardHome() {
+	exec sh -c '
+		trap "exit 0" TERM
+		printf "%s\n" "$$" >"$1"
+		while :; do sleep 1; done
+	' sh "${LATE_LAUNCH_PID_FILE}"
+}
+process_wait_for_start() {
+	while [ ! -f "${LATE_LAUNCH_PID_FILE}" ]; do
+		command sleep 0.01
+	done
+	return 1
+}
+post_failure_hook() {
+	_late_launch_pid="$(cat "${LATE_LAUNCH_PID_FILE}")"
+	if command kill -0 "${_late_launch_pid}" 2>/dev/null; then
+		printf '%s\n' launch_alive_during_recovery >>"${CALLS_FILE}"
+	fi
+	post_start_failure_adguardhome
+}
+if start >/dev/null; then
+	fail 'rc.func reported success when a launch exceeded the startup wait'
+fi
+_late_launch_pid="$(cat "${LATE_LAUNCH_PID_FILE}")"
+if command kill -0 "${_late_launch_pid}" 2>/dev/null; then
+	fail 'launch survived the startup timeout'
+fi
+! grep -q '^launch_alive_during_recovery$' "${CALLS_FILE}" || fail 'dnsmasq recovery ran before the timed-out launch stopped'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'timed-out launch did not restore dnsmasq'
 
 printf '%s\n' 'DNS startup handoff tests passed.'
