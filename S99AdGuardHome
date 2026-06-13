@@ -66,6 +66,20 @@ dns_handoff_process_start_time() {
 	}' "${_dns_handoff_stat}" 2>/dev/null
 }
 
+dns_handoff_marker_is_active() {
+	_dns_handoff_marker_pid=""
+	_dns_handoff_marker_start_time=""
+	[ -f "${DNS_HANDOFF_FILE}" ] || return 1
+	IFS=' ' read -r _dns_handoff_marker_pid _dns_handoff_marker_start_time <"${DNS_HANDOFF_FILE}" ||
+		return 1
+	case "${_dns_handoff_marker_pid}:${_dns_handoff_marker_start_time}" in
+		*[!0-9:]* | :* | *:) return 1 ;;
+	esac
+	_dns_handoff_current_start_time="$(dns_handoff_process_start_time "${_dns_handoff_marker_pid}")" ||
+		return 1
+	[ "${_dns_handoff_current_start_time}" = "${_dns_handoff_marker_start_time}" ]
+}
+
 disable_dns_handoff() {
 	_dns_handoff_pid=""
 	if [ -f "${DNS_HANDOFF_FILE}" ]; then
@@ -98,7 +112,15 @@ enable_dns_handoff() {
 		logger -st "${PROCS}" "Refusing to replace a symbolic-link dnsmasq handoff marker."
 		return 1
 	fi
-	if ! printf '%s %s\n' "$$" "${_dns_handoff_start_time}" >"${DNS_HANDOFF_FILE}"; then
+	if dns_handoff_marker_is_active; then
+		logger -st "${PROCS}" "Refusing to replace an active dnsmasq handoff marker."
+		return 1
+	fi
+	if [ -e "${DNS_HANDOFF_FILE}" ] && ! rm -f "${DNS_HANDOFF_FILE}"; then
+		logger -st "${PROCS}" "Unable to remove a stale dnsmasq handoff marker."
+		return 1
+	fi
+	if ! (set -C; printf '%s %s\n' "$$" "${_dns_handoff_start_time}" >"${DNS_HANDOFF_FILE}") 2>/dev/null; then
 		logger -st "${PROCS}" "Unable to enable the dnsmasq port 553 handoff."
 		return 1
 	fi

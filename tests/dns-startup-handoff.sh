@@ -26,7 +26,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
+	'/^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed -n '/^dns_handoff_is_active() {$/,/^}$/p' "${MANAGER_PATH}" >>"${S99_FUNCTIONS}" ||
 	fail "could not read ${MANAGER_PATH}"
@@ -159,6 +159,18 @@ fi
 HANDOFF_START_TIME="$(dns_handoff_process_start_time "$$")" ||
 	fail 'could not read the test process start time'
 printf '%s %s\n' "$$" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_FILE}" ||
+	fail 'could not create competing active handoff marker'
+: >"${CALLS_FILE}"
+if enable_dns_handoff; then
+	fail 'handoff setup replaced a marker owned by a live startup'
+fi
+[ "$(cat "${DNS_HANDOFF_FILE}")" = "$$ ${HANDOFF_START_TIME}" ] ||
+	fail 'competing startup changed the active handoff marker'
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" ||
+	fail 'competing startup regenerated dnsmasq after losing marker ownership'
+disable_dns_handoff || fail 'could not remove competing active handoff marker'
+
+printf '%s %s\n' "$$" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_FILE}" ||
 	fail 'could not create active handoff marker'
 dns_handoff_is_active || fail 'dnsmasq postconf rejected a live handoff owner'
 printf '%s %s\n' "$$" "$((HANDOFF_START_TIME + 1))" >"${DNS_HANDOFF_FILE}" ||
@@ -219,6 +231,7 @@ pre_start_adguardhome || fail 'pre-start did not release a killable port owner'
 [ "$(grep -c '^service stop_dnsmasq$' "${CALLS_FILE}")" -eq 1 ] || fail 'pre-start did not stop the remaining DNS owner exactly once'
 grep -q '^kill -s 9 123$' "${CALLS_FILE}" || fail 'pre-start did not kill the remaining port owner'
 stop_dns_port_guard
+disable_dns_handoff || fail 'could not clean up successful pre-start handoff'
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy
