@@ -92,6 +92,7 @@ run_check 'Command failure propagation regression' sh tests/command-failure-prop
 run_check 'Canonical path final-symlink regression' sh tests/canonical-path-symlink.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
 run_check 'Installer WebUI port failure regression' sh tests/installer-web-port-failure.sh
+run_check 'Installer timezone failure regression' sh tests/installer-timezone-failure.sh
 run_check 'Installer branch switch cancellation regression' sh tests/installer-branch-switch-cancel.sh
 run_check 'Installer local-cache preference save failure regression' sh tests/installer-local-cache-save-failure.sh
 run_check 'Installer IPSET preference save failure regression' sh tests/installer-ipset-save-failure.sh

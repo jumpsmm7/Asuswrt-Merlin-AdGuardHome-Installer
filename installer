@@ -1585,7 +1585,10 @@ inst_AdGuardHome() {
 	if [ "${1:-update}" != "update" ]; then
 		if [ ! -f "${ADDON_DIR}/localtime" ]; then
 			PTXT "${INFO} Before setting up AdGuardHome, please choose your right timezone!"
-			set_timezone
+			if ! set_timezone; then
+				end_op_message 1 "$1"
+				return 1
+			fi
 		fi
 		if ! setup_AdGuardHome "" "${1:-install}"; then
 			end_op_message 1
@@ -1636,8 +1639,7 @@ set_timezone() {
 	tar xjf "${TMP}/${TZ_DATA}" -C "${TMP}" ./usr/share/zoneinfo/posix || return 1
 	if ! mv "${TMP}/${TZ_FILE}" "${ADDON_DIR}/localtime"; then
 		PTXT "${ERROR} Unable to set your timezone file"
-		end_op_message 1
-		return
+		return 1
 	fi
 	rm -rf "${TMP:?}/${TZ_DATA}" "${TMP:?}/usr"
 }
