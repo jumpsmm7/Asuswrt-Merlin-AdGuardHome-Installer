@@ -57,10 +57,20 @@ dns_handoff_dependencies_available() {
 	return 0
 }
 
+dns_handoff_process_start_time() {
+	_dns_handoff_stat="/proc/$1/stat"
+	[ -r "${_dns_handoff_stat}" ] || return 1
+	awk '{
+		sub(/^.*\) /, "")
+		print $20
+	}' "${_dns_handoff_stat}" 2>/dev/null
+}
+
 disable_dns_handoff() {
 	_dns_handoff_pid=""
 	if [ -f "${DNS_HANDOFF_FILE}" ]; then
-		IFS= read -r _dns_handoff_pid <"${DNS_HANDOFF_FILE}" || _dns_handoff_pid=""
+		IFS=' ' read -r _dns_handoff_pid _dns_handoff_start_time <"${DNS_HANDOFF_FILE}" ||
+			_dns_handoff_pid=""
 	fi
 	if [ -n "${_dns_handoff_pid}" ] && [ "${_dns_handoff_pid}" != "$$" ]; then
 		logger -st "${PROCS}" "Refusing to remove a dnsmasq handoff owned by PID ${_dns_handoff_pid}."
@@ -74,11 +84,21 @@ disable_dns_handoff() {
 }
 
 enable_dns_handoff() {
+	_dns_handoff_start_time="$(dns_handoff_process_start_time "$$")" || {
+		logger -st "${PROCS}" "Unable to identify the dnsmasq handoff owner."
+		return 1
+	}
+	case "${_dns_handoff_start_time}" in
+		"" | *[!0-9]*)
+			logger -st "${PROCS}" "Unable to identify the dnsmasq handoff owner."
+			return 1
+			;;
+	esac
 	if [ -L "${DNS_HANDOFF_FILE}" ]; then
 		logger -st "${PROCS}" "Refusing to replace a symbolic-link dnsmasq handoff marker."
 		return 1
 	fi
-	if ! printf '%s\n' "$$" >"${DNS_HANDOFF_FILE}"; then
+	if ! printf '%s %s\n' "$$" "${_dns_handoff_start_time}" >"${DNS_HANDOFF_FILE}"; then
 		logger -st "${PROCS}" "Unable to enable the dnsmasq port 553 handoff."
 		return 1
 	fi

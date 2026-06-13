@@ -448,13 +448,22 @@ dnsmasq_delete_matching() {
 }
 
 dns_handoff_is_active() {
-	local HANDOFF_PID
+	local HANDOFF_PID HANDOFF_START_TIME PROCESS_START_TIME
 	[ -f "${DNS_HANDOFF_FILE}" ] || return 1
-	IFS= read -r HANDOFF_PID <"${DNS_HANDOFF_FILE}" || return 1
-	case "${HANDOFF_PID}" in
+	IFS=' ' read -r HANDOFF_PID HANDOFF_START_TIME <"${DNS_HANDOFF_FILE}" || return 1
+	case "${HANDOFF_PID}:${HANDOFF_START_TIME}" in
+		*[!0-9:]* | *: | :*) return 1 ;;
+	esac
+	[ "${HANDOFF_PID}" -gt 1 ] || return 1
+	kill -0 "${HANDOFF_PID}" 2>/dev/null || return 1
+	PROCESS_START_TIME="$(awk '{
+		sub(/^.*\) /, "")
+		print $20
+	}' "/proc/${HANDOFF_PID}/stat" 2>/dev/null)" || return 1
+	case "${PROCESS_START_TIME}" in
 		"" | *[!0-9]*) return 1 ;;
 	esac
-	[ "${HANDOFF_PID}" -gt 1 ] && kill -0 "${HANDOFF_PID}" 2>/dev/null
+	[ "${PROCESS_START_TIME}" = "${HANDOFF_START_TIME}" ]
 }
 
 dnsmasq_params() {
