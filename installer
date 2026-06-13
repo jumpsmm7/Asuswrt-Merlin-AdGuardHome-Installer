@@ -957,7 +957,7 @@ check_dns_environment() {
 }
 
 check_dns_filter() {
-	local NVCHECK USE_SOME
+	local NVCHECK USE_SOME YESNO_STATUS
 	NVCHECK="0"
 	if [ "$1" -eq 0 ]; then
 		if [ "$(nvram get dnsfilter_enable_x)" != "0" ]; then
@@ -967,12 +967,18 @@ check_dns_filter() {
 		PTXT "${INFO} DNS will not be forced through to AdGuardHome."
 	fi
 	if [ "$1" -eq 1 ]; then
+		PTXT "${INFO} You can choose to keep any custom dnsfilter values by only redirect non-custom traffic or send all traffic through to AdGuardHome."
+		read_yesno "Do you want to redirect only NON-CUSTOM DNS resolutions on your network through to AdGuardHome?"
+		YESNO_STATUS="$?"
+		case "${YESNO_STATUS}" in
+			0) USE_SOME="0" ;;
+			1) USE_SOME="1" ;;
+			*) return "${YESNO_STATUS}" ;;
+		esac
 		if [ "$(nvram get dnsfilter_enable_x)" != "1" ]; then
 			{ nvram set dnsfilter_enable_x="1"; }
 			NVCHECK="$((NVCHECK + 1))"
 		fi
-		PTXT "${INFO} You can choose to keep any custom dnsfilter values by only redirect non-custom traffic or send all traffic through to AdGuardHome."
-		if read_yesno "Do you want to redirect only NON-CUSTOM DNS resolutions on your network through to AdGuardHome?"; then USE_SOME="0"; else USE_SOME="1"; fi
 		if [ "$USE_SOME" -eq 0 ]; then
 			if [ "$(nvram get dnsfilter_mode)" != "11" ]; then
 				{ nvram set dnsfilter_mode="11"; }
@@ -1920,9 +1926,36 @@ setup_AdGuardHome_impl() {
 		case "${2:-reconfig}" in
 			"install" | "reconfig")
 				if [ ! -f "${YAML_FILE}" ] || [ "$2" = "reconfig" ]; then
-					if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
-					if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
-					if read_yesno "Do you want to enable AdGuardHome IPSET integration?"; then IPSET_SELECTION=1; else IPSET_SELECTION=0; fi
+					local DNS_FILTER_SELECTION LOCAL_CACHE_SELECTION YESNO_STATUS
+					read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"
+					YESNO_STATUS="$?"
+					case "${YESNO_STATUS}" in
+						0) DNS_FILTER_SELECTION=1 ;;
+						1) DNS_FILTER_SELECTION=0 ;;
+						*) return "${YESNO_STATUS}" ;;
+					esac
+					if [ "$(nvram get dns_local_cache)" != "1" ]; then
+						read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"
+						YESNO_STATUS="$?"
+						case "${YESNO_STATUS}" in
+							0) LOCAL_CACHE_SELECTION=1 ;;
+							1) LOCAL_CACHE_SELECTION=0 ;;
+							*) return "${YESNO_STATUS}" ;;
+						esac
+					fi
+					read_yesno "Do you want to enable AdGuardHome IPSET integration?"
+					YESNO_STATUS="$?"
+					case "${YESNO_STATUS}" in
+						0) IPSET_SELECTION=1 ;;
+						1) IPSET_SELECTION=0 ;;
+						*) return "${YESNO_STATUS}" ;;
+					esac
+					check_dns_filter "${DNS_FILTER_SELECTION}" || return $?
+					if [ "$(nvram get dns_local_cache)" != "1" ]; then
+						check_dns_local "${LOCAL_CACHE_SELECTION}"
+					else
+						check_dns_local 0
+					fi
 					if [ "$2" != "reconfig" ] && ! check_ipset "${IPSET_SELECTION}"; then
 						PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
 							"${WARNING} Continuing setup with the previous or default IPSET preference."
@@ -2416,7 +2449,7 @@ read_yesno() {
 		PTXT -n "${INPUT} ${1} ${BOLD}[y/n]${NORM}: "
 		if ! read -r YESNO; then
 			PTXT "" "${ERROR} Unable to read confirmation input."
-			return 1
+			return 2
 		fi
 		case "${YESNO}" in
 			y | Y)

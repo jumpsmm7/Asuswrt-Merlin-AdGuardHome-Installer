@@ -74,8 +74,11 @@ read_input_port "Default is" 3000 <"${TMP_DIR}/port.input" || fail "port input d
 printf '%s\n' maybe y >"${TMP_DIR}/yesno.input"
 read_yesno "Continue?" <"${TMP_DIR}/yesno.input" || fail "yes/no input did not recover from invalid input"
 
-if read_yesno "Continue?" </dev/null; then
-	fail "yes/no input accepted end-of-file"
-fi
+read_yesno "Continue?" </dev/null && fail "yes/no input accepted end-of-file"
+[ "$?" -eq 2 ] || fail "yes/no input did not distinguish end-of-file from No"
 
-printf '%s\n' "PASS: installer input helpers retry iteratively and handle end-of-file"
+printf '%s\n' n >"${TMP_DIR}/no.input"
+read_yesno "Continue?" <"${TMP_DIR}/no.input" && fail "yes/no input accepted No"
+[ "$?" -eq 1 ] || fail "yes/no input returned the wrong status for No"
+
+printf '%s\n' "PASS: installer input helpers retry iteratively and distinguish No from end-of-file"
