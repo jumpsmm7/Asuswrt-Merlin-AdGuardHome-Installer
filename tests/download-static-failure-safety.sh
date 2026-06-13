@@ -20,7 +20,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}/out/armv7" || fail "could not create test directory"
 
-sed -n '/^append_metadata() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^recover_metadata_publication() {$/,/^}$/p; /^archive_publication_owner_is_active() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p' \
+sed -n '/^append_metadata() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^recover_metadata_publication() {$/,/^}$/p; /^archive_publication_owner_is_active() {$/,/^}$/p; /^acquire_archive_publication_state() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail "static download helpers were not found"
 
@@ -101,6 +101,18 @@ PUBLISH_START_TIME="$(awk '{
 	sub(/^.*\) /, "")
 	print $20
 }' "/proc/$$/stat")" || fail "could not read test process start time"
+printf '%s %s\n' "$$" "${PUBLISH_START_TIME}" >"${TEST_ROOT}/archive.publish-in-progress"
+printf '%s\n' "untouched rollback archive" >"${TEST_ROOT}/archive.previous"
+printf '%s\n' "untouched rollback checksum" >"${TEST_ROOT}/archive.md5sum.previous"
+printf '%s\n' "contending archive" >"${TEST_ROOT}/archive.tmp"
+if publish_archive_with_md5 "${TEST_ROOT}/archive.tmp" "${TEST_ROOT}/archive" contendingchecksum >/dev/null 2>&1; then
+	fail "archive publication acquired state already owned by an active publisher"
+fi
+[ "$(sed -n '1p' "${TEST_ROOT}/archive.previous")" = "untouched rollback archive" ] ||
+	fail "contending archive publication modified the active publisher's archive backup"
+[ "$(sed -n '1p' "${TEST_ROOT}/archive.md5sum.previous")" = "untouched rollback checksum" ] ||
+	fail "contending archive publication modified the active publisher's checksum backup"
+
 printf '%s %s\n' "$$" "${PUBLISH_START_TIME}" >"${TEST_ROOT}/archive.publish-in-progress"
 printf '%s\n' "live archive" >"${TEST_ROOT}/archive"
 printf '%s\n' "live checksum" >"${TEST_ROOT}/archive.md5sum"

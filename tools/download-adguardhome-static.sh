@@ -213,6 +213,17 @@ archive_publication_owner_is_active() {
 	[ "${_current_start_time}" = "${_publish_start_time}" ]
 }
 
+acquire_archive_publication_state() {
+	_publish_state="$1"
+	_publish_pid="$2"
+	_publish_start_time="$3"
+
+	(
+		set -C
+		printf '%s %s\n' "${_publish_pid}" "${_publish_start_time}" >"${_publish_state}"
+	) 2>/dev/null
+}
+
 publish_archive_with_md5() {
 	_archive_tmp="$1"
 	_archive_file="$2"
@@ -231,7 +242,6 @@ publish_archive_with_md5() {
 		rm -f "${_archive_tmp}"
 		return 1
 	}
-	rm -f "${_archive_backup}" "${_md5_backup}" "${_md5_tmp}"
 	if ! printf '%s\n' "${_md5}" >"${_md5_tmp}" ||
 		! chmod 644 "${_archive_tmp}" "${_md5_tmp}"; then
 		rm -f "${_archive_tmp}" "${_md5_tmp}"
@@ -240,10 +250,30 @@ publish_archive_with_md5() {
 		return 1
 	fi
 
+	_publish_start_time="$(awk '{
+		sub(/^.*\) /, "")
+		print $20
+	}' "/proc/$$/stat" 2>/dev/null)" || _publish_start_time=""
+	case "${_publish_start_time}" in
+		"" | *[!0-9]*)
+			rm -f "${_archive_tmp}" "${_md5_tmp}"
+			printf '%s\n' "Error: could not identify publication owner for ${_archive_file}" >&2
+			FAILED=1
+			return 1
+			;;
+	esac
+	if ! acquire_archive_publication_state "${_publish_state}" "$$" "${_publish_start_time}"; then
+		rm -f "${_archive_tmp}" "${_md5_tmp}"
+		printf '%s\n' "Error: publication is already in progress for ${_archive_file}" >&2
+		FAILED=1
+		return 1
+	fi
+
+	rm -f "${_archive_backup}" "${_md5_backup}"
 	if [ -f "${_archive_file}" ]; then
 		_had_archive=1
 		if ! cp -p "${_archive_file}" "${_archive_backup}"; then
-			rm -f "${_archive_tmp}" "${_md5_tmp}"
+			rm -f "${_publish_state}" "${_archive_tmp}" "${_md5_tmp}"
 			printf '%s\n' "Error: could not preserve ${_archive_file}" >&2
 			FAILED=1
 			return 1
@@ -252,30 +282,11 @@ publish_archive_with_md5() {
 	if [ -f "${_md5_file}" ]; then
 		_had_md5=1
 		if ! cp -p "${_md5_file}" "${_md5_backup}"; then
-			rm -f "${_archive_backup}" "${_archive_tmp}" "${_md5_tmp}"
+			rm -f "${_publish_state}" "${_archive_backup}" "${_archive_tmp}" "${_md5_tmp}"
 			printf '%s\n' "Error: could not preserve ${_md5_file}" >&2
 			FAILED=1
 			return 1
 		fi
-	fi
-
-	_publish_start_time="$(awk '{
-		sub(/^.*\) /, "")
-		print $20
-	}' "/proc/$$/stat" 2>/dev/null)" || _publish_start_time=""
-	case "${_publish_start_time}" in
-		"" | *[!0-9]*)
-			rm -f "${_archive_backup}" "${_md5_backup}" "${_archive_tmp}" "${_md5_tmp}"
-			printf '%s\n' "Error: could not identify publication owner for ${_archive_file}" >&2
-			FAILED=1
-			return 1
-			;;
-	esac
-	if ! printf '%s %s\n' "$$" "${_publish_start_time}" >"${_publish_state}"; then
-		rm -f "${_archive_backup}" "${_md5_backup}" "${_archive_tmp}" "${_md5_tmp}"
-		printf '%s\n' "Error: could not record publication state for ${_archive_file}" >&2
-		FAILED=1
-		return 1
 	fi
 
 	if mv "${_archive_tmp}" "${_archive_file}" &&
