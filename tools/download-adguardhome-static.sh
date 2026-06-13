@@ -279,7 +279,12 @@ publish_archive_with_md5() {
 
 	if mv "${_archive_tmp}" "${_archive_file}" &&
 		mv "${_md5_tmp}" "${_md5_file}"; then
-		rm -f "${_archive_backup}" "${_md5_backup}" "${_publish_state}"
+		if ! rm -f "${_publish_state}"; then
+			printf '%s\n' "Error: could not clear publication state for ${_archive_file}" >&2
+			FAILED=1
+			return 1
+		fi
+		rm -f "${_archive_backup}" "${_md5_backup}"
 		return 0
 	fi
 
