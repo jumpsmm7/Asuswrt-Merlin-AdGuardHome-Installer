@@ -218,12 +218,27 @@ recover_archive_publication() {
 	_archive_backup="${_archive_file}.previous"
 	_md5_backup="${_md5_file}.previous"
 	_restore_failed=0
+	_publish_phase=""
+	_publish_had_archive=""
+	_publish_had_md5=""
 
 	[ -f "${_publish_state}" ] || return 0
 	if archive_publication_owner_is_active "${_publish_state}"; then
 		printf '%s\n' "Error: publication is already in progress for ${_archive_file}" >&2
 		FAILED=1
 		return 1
+	fi
+
+	IFS=' ' read -r _publish_pid _publish_start_time _publish_phase \
+		_publish_had_archive _publish_had_md5 <"${_publish_state}" ||
+		_publish_phase=""
+	if [ "${_publish_phase}" = "preparing" ] ||
+		{ [ "${_publish_phase}" = "ready" ] &&
+			{ { [ "${_publish_had_archive}" = "1" ] && [ ! -f "${_archive_backup}" ]; } ||
+				{ [ "${_publish_had_md5}" = "1" ] && [ ! -f "${_md5_backup}" ]; }; }; }; then
+		rm -f "${_archive_backup}" "${_md5_backup}" "${_publish_state}"
+		printf '%s\n' "Discarded incomplete publication preparation for ${_archive_file}" >&2
+		return 0
 	fi
 
 	rm -f "${_archive_file}" "${_md5_file}"
@@ -270,10 +285,11 @@ acquire_archive_publication_state() {
 	_publish_state="$1"
 	_publish_pid="$2"
 	_publish_start_time="$3"
+	_publish_phase="${4:-preparing}"
 
 	(
 		set -C
-		printf '%s %s\n' "${_publish_pid}" "${_publish_start_time}" >"${_publish_state}"
+		printf '%s %s %s\n' "${_publish_pid}" "${_publish_start_time}" "${_publish_phase}" >"${_publish_state}"
 	) 2>/dev/null
 }
 
@@ -284,6 +300,7 @@ publish_archive_with_md5() {
 	_md5_file="${_archive_file}.md5sum"
 	_md5_tmp="${_md5_file}.tmp.$$"
 	_publish_state="${_archive_file}.publish-in-progress"
+	_publish_state_tmp="${_publish_state}.tmp.$$"
 	_archive_backup="${_archive_file}.previous"
 	_md5_backup="${_md5_file}.previous"
 	_had_archive=0
@@ -340,6 +357,15 @@ publish_archive_with_md5() {
 			FAILED=1
 			return 1
 		fi
+	fi
+	if ! printf '%s %s ready %s %s\n' "$$" "${_publish_start_time}" \
+		"${_had_archive}" "${_had_md5}" >"${_publish_state_tmp}" ||
+		! mv "${_publish_state_tmp}" "${_publish_state}"; then
+		rm -f "${_publish_state}" "${_archive_backup}" "${_md5_backup}" \
+			"${_archive_tmp}" "${_md5_tmp}" "${_publish_state_tmp}"
+		printf '%s\n' "Error: could not mark rollback copies ready for ${_archive_file}" >&2
+		FAILED=1
+		return 1
 	fi
 
 	if mv "${_archive_tmp}" "${_archive_file}" &&

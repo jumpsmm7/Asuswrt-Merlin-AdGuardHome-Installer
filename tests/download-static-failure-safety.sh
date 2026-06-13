@@ -128,6 +128,22 @@ fi
 [ -e "${TEST_ROOT}/archive.publish-in-progress" ] ||
 	fail "active publication state was removed"
 
+printf '%s %s preparing\n' "999999" "1" >"${TEST_ROOT}/archive.publish-in-progress"
+printf '%s\n' "complete archive" >"${TEST_ROOT}/archive"
+printf '%s\n' "complete checksum" >"${TEST_ROOT}/archive.md5sum"
+printf '%s\n' "partial rollback archive" >"${TEST_ROOT}/archive.previous"
+"${REAL_RM}" -f "${TEST_ROOT}/archive.md5sum.previous"
+recover_archive_publication "${TEST_ROOT}/archive" >/dev/null 2>&1 ||
+	fail "incomplete archive backup preparation was not recovered"
+[ "$(sed -n '1p' "${TEST_ROOT}/archive")" = "complete archive" ] ||
+	fail "incomplete backup recovery removed the published archive"
+[ "$(sed -n '1p' "${TEST_ROOT}/archive.md5sum")" = "complete checksum" ] ||
+	fail "incomplete backup recovery removed the published checksum"
+[ ! -e "${TEST_ROOT}/archive.publish-in-progress" ] ||
+	fail "incomplete backup preparation state was not cleared"
+[ ! -e "${TEST_ROOT}/archive.previous" ] ||
+	fail "partial archive rollback copy was not discarded"
+
 printf '%s\n' "old archive" >"${TEST_ROOT}/archive.previous"
 printf '%s\n' "old checksum" >"${TEST_ROOT}/archive.md5sum.previous"
 printf '%s\n' "new archive" >"${TEST_ROOT}/archive"
