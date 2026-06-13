@@ -70,6 +70,33 @@ fi
 	fail "archive publication removed the previous archive before replacement"
 
 unset -f mv
+REAL_RM="$(which rm)" || fail "rm is unavailable"
+printf '%s\n' "old archive" >"${TEST_ROOT}/archive"
+printf '%s\n' "old checksum" >"${TEST_ROOT}/archive.md5sum"
+printf '%s\n' "new archive" >"${TEST_ROOT}/archive.tmp"
+rm() {
+	case "$*" in
+		*archive.publish-in-progress*) return 1 ;;
+	esac
+	"${REAL_RM}" "$@"
+}
+if publish_archive_with_md5 "${TEST_ROOT}/archive.tmp" "${TEST_ROOT}/archive" newchecksum >/dev/null 2>&1; then
+	fail "archive publication accepted a publication-state cleanup failure"
+fi
+[ "$(sed -n '1p' "${TEST_ROOT}/archive")" = "new archive" ] ||
+	fail "state cleanup failure replaced the newly published archive"
+[ "$(sed -n '1p' "${TEST_ROOT}/archive.md5sum")" = "newchecksum" ] ||
+	fail "state cleanup failure replaced the newly published checksum"
+[ -e "${TEST_ROOT}/archive.previous" ] ||
+	fail "state cleanup failure discarded the archive rollback copy"
+[ -e "${TEST_ROOT}/archive.md5sum.previous" ] ||
+	fail "state cleanup failure discarded the checksum rollback copy"
+[ -e "${TEST_ROOT}/archive.publish-in-progress" ] ||
+	fail "failed publication state cleanup unexpectedly removed the state marker"
+unset -f rm
+"${REAL_RM}" -f "${TEST_ROOT}/archive.publish-in-progress" \
+	"${TEST_ROOT}/archive.previous" "${TEST_ROOT}/archive.md5sum.previous"
+
 PUBLISH_START_TIME="$(awk '{
 	sub(/^.*\) /, "")
 	print $20
