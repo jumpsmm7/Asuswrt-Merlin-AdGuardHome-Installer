@@ -53,6 +53,21 @@ run_check() {
 	fi
 }
 
+run_dns_handoff_check() {
+	if [ "$(id -u)" -eq 0 ]; then
+		sh tests/dns-startup-handoff.sh
+		return
+	fi
+
+	if have_cmd sudo && sudo -n true >/dev/null 2>&1; then
+		sudo -n sh tests/dns-startup-handoff.sh
+		return
+	fi
+
+	printf '%s\n' 'Error: the DNS startup handoff regression requires root privileges or passwordless sudo.' >&2
+	return 1
+}
+
 run_script_list_check() {
 	_name="$1"
 	shift
@@ -110,7 +125,7 @@ run_check 'Installer setup IPSET preference save failure regression' sh tests/in
 run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
 run_check 'AdGuardHome stop failure regression' sh tests/stop-adguardhome-failure.sh
 run_check 'AdGuardHome monitor retry backoff regression' sh tests/monitor-retry-backoff.sh
-run_check 'AdGuardHome DNS startup handoff regression' sh tests/dns-startup-handoff.sh
+run_check 'AdGuardHome DNS startup handoff regression' run_dns_handoff_check
 run_check 'AdGuardHome IPSET version gate regression' sh tests/ipset-version-gate.sh
 run_check 'AdGuardHome empty IPSET data regression' sh tests/ipset-empty-rules.sh
 run_check 'AdGuardHome IPSET lock security regression' sh tests/ipset-lock-security.sh
