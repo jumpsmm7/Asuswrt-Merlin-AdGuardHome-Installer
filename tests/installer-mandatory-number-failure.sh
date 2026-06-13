@@ -68,7 +68,7 @@ ai_have_cmd() {
 }
 
 download_file() {
-	: >"$1/tzdata-2021e-1-test.pkg.tar.bz2"
+	: >"${TMP_DIR}/tzdata-2021e-1-test.pkg.tar.bz2"
 }
 
 uname() {
