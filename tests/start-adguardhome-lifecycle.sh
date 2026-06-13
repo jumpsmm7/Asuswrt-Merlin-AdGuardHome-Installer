@@ -34,6 +34,15 @@ assert_startup_uses_lock_first_setup() {
 	[ "${STARTUP_SETUP_CALLS}" = '1 0' ] || fail "expected one argument-free lock-first setup call and no legacy setup call, found ${STARTUP_SETUP_CALLS}"
 }
 
+assert_optional_ipset_tools_do_not_gate_startup() {
+	DEPENDENCY_LINE="$(sed -n '/^manager_dependencies_available() {$/,/^}$/p' "${SCRIPT_PATH}" | grep 'for REQUIRED_COMMAND in')"
+	case " ${DEPENDENCY_LINE} " in
+		*' chmod '* | *' cmp '* | *' cp '* | *' ls '* | *' mv '*)
+			fail 'manager startup dependency gate includes optional IPSET-only tools'
+			;;
+	esac
+}
+
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
@@ -46,6 +55,7 @@ assert_single_function IPSet_Start_While_Locked
 assert_single_function IPSet_Setup_For_Start
 assert_single_function IPSet_Setup_For_Start_Locked
 assert_startup_uses_lock_first_setup
+assert_optional_ipset_tools_do_not_gate_startup
 
 sed -n '/^start_adguardhome() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Disable_Managed_For_Start_Locked() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Cleanup() {$/,/^}$/p; /^IPSet_Start_Restore() {$/,/^}$/p; /^IPSet_Start_While_Locked() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'startup lifecycle functions were not found'
@@ -226,13 +236,14 @@ lower_script start'
 [ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 0 ] || fail 'stopped IPSET setup failure was incorrectly marked terminal'
 [ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'stopped IPSET setup failure did not continue to the health check'
 DISABLE_STATUS=1
-run_test 'setup failure aborts when stale mappings cannot be disabled' 0 0 0 0 1 0 1 'IPSet_Supported
+run_test 'setup failure continues when stale mappings cannot be disabled' 0 0 0 0 1 0 1 'IPSet_Supported
 IPSet_Lock acquired
 IPSet_Setup_Locked
 IPSet_Disable_Managed
-IPSet_Lock released'
-[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'unsafe disable failure was not marked terminal'
-[ "${SERVICE_WAIT_CALLED}" -eq 0 ] || fail 'unsafe disable failure reached the health check'
+IPSet_Lock released
+lower_script start'
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 0 ] || fail 'optional disable failure was incorrectly marked terminal'
+[ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'optional disable failure did not continue to the health check'
 DISABLE_STATUS=0
 RUNNING_AFTER_LOCK=1
 run_test 'service started while waiting for lock is stopped before setup' 0 0 0 0 0 0 1 'IPSet_Supported
@@ -262,25 +273,28 @@ lower_script start
 IPSet_Lock released
 service restart_dnsmasq
 lower_script restart'
-run_test 'lock contention aborts startup rather than retaining stale mappings' 1 0 7 0 0 0 1 'IPSet_Supported
-IPSet_Lock acquired'
-[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'unsafe lock failure was not marked terminal'
-[ "${SERVICE_WAIT_CALLED}" -eq 0 ] || fail 'unsafe lock failure reached the health check'
-run_test 'IPSET stop failure aborts startup rather than retaining stale mappings' 1 0 0 1 0 0 1 'IPSet_Supported
+run_test 'lock contention does not block normal startup' 1 0 7 0 0 0 1 'IPSet_Supported
+IPSet_Lock acquired
+lower_script restart'
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 0 ] || fail 'optional lock failure was incorrectly marked terminal'
+[ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'optional lock failure did not continue to the health check'
+run_test 'IPSET stop failure does not block normal startup' 1 0 0 1 0 0 1 'IPSet_Supported
 IPSet_Lock acquired
 lower_script stop
-IPSet_Lock released'
-[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'unsafe stop failure was not marked terminal'
-[ "${SERVICE_WAIT_CALLED}" -eq 0 ] || fail 'unsafe stop failure reached the health check'
+IPSet_Lock released
+lower_script restart'
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 0 ] || fail 'optional stop failure was incorrectly marked terminal'
+[ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'optional stop failure did not continue to the health check'
 INTERRUPT_ON_STOP=1
-run_test 'interrupt during stop restores running service and aborts startup' 1 0 0 0 0 0 1 'IPSet_Supported
+run_test 'interrupt during IPSET stop restores and continues startup' 1 0 0 0 0 0 1 'IPSet_Supported
 IPSet_Lock acquired
 lower_script stop
 lower_script start
 IPSet_Lock released
-service restart_dnsmasq'
-[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'interrupted setup was not marked terminal'
-[ "${SERVICE_WAIT_CALLED}" -eq 0 ] || fail 'interrupted setup reached the health check'
+service restart_dnsmasq
+lower_script restart'
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 0 ] || fail 'interrupted optional setup was incorrectly marked terminal'
+[ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'interrupted optional setup did not continue to the health check'
 INTERRUPT_ON_STOP=0
 run_test 'unsupported integration restarts a running service' 1 1 0 0 0 0 1 'IPSet_Supported
 lower_script restart'

@@ -28,8 +28,10 @@ append_metadata() {
 calc_sum() {
 	_sum_cmd="$1"
 	_file="$2"
+	_sum_output=""
 
-	"${_sum_cmd}" "${_file}" | awk '{print $1; exit}'
+	_sum_output="$("${_sum_cmd}" "${_file}")" || return 1
+	printf '%s\n' "${_sum_output}" | awk 'NF {print $1; found = 1; exit} END {if (!found) exit 1}'
 }
 
 download_arch() {
@@ -86,8 +88,13 @@ download_one() {
 	_sha256=""
 
 	printf '%s\n' "Downloading ${_version_url}"
-	_version="$(curl -fsL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 120 "${_version_url}" | awk 'NF {print $1; exit}')" || {
+	_version_response="$(curl -fsL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 120 "${_version_url}")" || {
 		printf '%s\n' "Error: failed to download ${_version_url}" >&2
+		FAILED=1
+		return 1
+	}
+	_version="$(printf '%s\n' "${_version_response}" | awk 'NF {print $1; found = 1; exit} END {if (!found) exit 1}')" || {
+		printf '%s\n' "Error: invalid version metadata from ${_version_url}" >&2
 		FAILED=1
 		return 1
 	}

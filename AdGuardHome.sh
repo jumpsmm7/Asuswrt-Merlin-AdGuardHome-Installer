@@ -1,6 +1,6 @@
 #!/bin/sh
 
-SCRIPT_LOC="$(readlink -f "$0")"
+SCRIPT_LOC=""
 ADGUARDHOME_BINARY="/opt/sbin/AdGuardHome"
 CONF_FILE="/opt/etc/AdGuardHome/.config"
 MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
@@ -11,7 +11,7 @@ IPSET_RUNTIME_DIR="${IPSET_RUNTIME_DIR:-/opt/var/run/AdGuardHome-ipset}"
 IPSET_USER_FILE="/opt/etc/AdGuardHome/ipset.user"
 YAML_FILE="/opt/etc/AdGuardHome/AdGuardHome.yaml"
 
-NAME="$(basename "$0")[$$]"
+NAME="${0##*/}[$$]"
 
 # Functions are grouped by purpose; names are sorted alpha-numerically within each group.
 
@@ -33,6 +33,32 @@ have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
 
+canonical_path() {
+	local BASE DIR PATH_VALUE RESOLVED
+	PATH_VALUE="$1"
+	if have_cmd readlink; then
+		RESOLVED="$(readlink -f "${PATH_VALUE}" 2>/dev/null)" || RESOLVED=""
+		if [ -n "${RESOLVED}" ]; then
+			printf '%s\n' "${RESOLVED}"
+			return 0
+		fi
+	fi
+	case "${PATH_VALUE}" in
+		/*) ;;
+		*) PATH_VALUE="${PWD}/${PATH_VALUE}" ;;
+	esac
+	BASE="${PATH_VALUE##*/}"
+	DIR="${PATH_VALUE%/*}"
+	[ -n "${BASE}" ] && [ -d "${DIR}" ] || return 1
+	DIR="$(cd "${DIR}" 2>/dev/null && pwd -P)" || return 1
+	printf '%s/%s\n' "${DIR}" "${BASE}"
+}
+
+SCRIPT_LOC="$(canonical_path "$0")" || {
+	printf '%s\n' "Unable to resolve script path: $0" >&2
+	return 1 2>/dev/null || exit 1
+}
+
 nvram_int_gt() {
 	local VALUE MIN
 	VALUE="$(nvram get "$1" 2>/dev/null)"
@@ -43,6 +69,19 @@ nvram_int_gt() {
 			;;
 	esac
 	[ "${VALUE}" -gt "${MIN}" ]
+}
+
+manager_dependencies_available() {
+	local REQUIRED_COMMAND
+	# Keep optional IPSET-only tools out of this startup gate.  If an IPSET
+	# helper is unavailable, IPSET setup is skipped and AdGuardHome still starts.
+	for REQUIRED_COMMAND in awk grep ln logger mkdir nvram pidof rm sed service sleep; do
+		if ! have_cmd "${REQUIRED_COMMAND}"; then
+			printf '%s\n' "${NAME}: required command is unavailable: ${REQUIRED_COMMAND}" >&2
+			return 1
+		fi
+	done
+	return 0
 }
 
 # HTTP/download helpers
@@ -124,6 +163,8 @@ adguardhome_run() {
 	pid_file="${lock_dir}/pid"
 	case "$1" in
 		"")
+			# Newer firmware may provide descriptor-capable flock; older releases
+			# continue to use the legacy mkdir lock below.
 			if have_cmd flock && flock_supports_fd; then
 				if adguardhome_run_flock_active; then return 1; else return 0; fi
 			fi
@@ -141,6 +182,8 @@ adguardhome_run() {
 			return 1
 			;;
 		*)
+			# Prefer flock when the installed implementation supports descriptor
+			# locking, with mkdir retained as the compatibility fallback.
 			if have_cmd flock && flock_supports_fd; then
 				adguardhome_run_flock "$1"
 			else
@@ -613,7 +656,7 @@ resolv_conf_is_tmp_mount() {
 }
 
 resolv_conf_uses_rom() {
-	readlink -f /etc/resolv.conf | grep -qE '^/rom/etc/resolv.conf'
+	[ "$(canonical_path /etc/resolv.conf 2>/dev/null)" = "/rom/etc/resolv.conf" ]
 }
 
 save_dns_nvram_environment() {
@@ -767,21 +810,12 @@ service_wait() {
 }
 
 start_adguardhome() {
-	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LOWER_SCRIPT_STATUS
-	IPSET_START_FAILURE_SAFE="0"
+	local IPSET_START_RESTARTED IPSET_START_STOPPED LOWER_SCRIPT_STATUS
 	IPSET_START_RESTARTED="0"
 	IPSET_START_STOPPED="0"
 	SERVICE_WAIT_TERMINAL_FAILURE="0"
 	if ! IPSet_Setup_For_Start; then
-		if [ "${IPSET_START_FAILURE_SAFE}" -ne 1 ]; then
-			logger -st "${NAME}" "Unable to prepare or safely disable AdGuardHome IPSET integration; aborting startup to avoid stale mappings."
-			if [ "${IPSET_START_STOPPED}" -eq 1 ]; then
-				IPSet_Start_Restore || true
-			fi
-			SERVICE_WAIT_TERMINAL_FAILURE="1"
-			return 1
-		fi
-		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; disabled managed mappings and continuing because IPSET integration is optional."
+		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; continuing startup because IPSET integration is optional."
 		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
 			IPSET_START_RESTARTED="1"
 		fi
@@ -803,7 +837,7 @@ start_adguardhome() {
 		fi
 	fi
 	for db in stats.db sessions.db; do {
-		if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
+		if [ "$(canonical_path "/tmp/${db}" 2>/dev/null)" != "$(canonical_path "${WORK_DIR}/data/${db}" 2>/dev/null)" ]; then {
 			ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1
 		}; fi
 	}; done
@@ -917,7 +951,7 @@ stop_adguardhome() {
 		service restart_dnsmasq >/dev/null 2>&1
 	fi
 	for db in stats.db sessions.db; do {
-		if [ "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
+		if [ "$(canonical_path "/tmp/${db}" 2>/dev/null)" = "$(canonical_path "${WORK_DIR}/data/${db}" 2>/dev/null)" ]; then {
 			rm "/tmp/${db}" >/dev/null 2>&1
 		}; fi
 	}; done
@@ -946,7 +980,7 @@ timezone() {
 	TIMEZONE="/jffs/addons/AdGuardHome.d/localtime"
 	TARGET="/etc/localtime"
 	if { [ ! -f "${TARGET}" ] && [ -f "${TIMEZONE}" ]; }; then { ln -sf "${TIMEZONE}" "${TARGET}"; }; fi
-	if [ -f "${TARGET}" ] || [ -n "$(readlink "${TARGET}")" ]; then
+	if [ -f "${TARGET}" ] || [ -L "${TARGET}" ]; then
 		NOW="$(/bin/date -u '+%s' 2>/dev/null)"
 		SCRIPT_TIME="$(/bin/date -u -r "${MID_SCRIPT}" '+%s' 2>/dev/null)"
 		case "${NOW}:${SCRIPT_TIME}" in
@@ -1322,6 +1356,29 @@ IPSet_Dnsmasq_Restart_After_Unlock() {
 	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" = "1" ] || service restart_dnsmasq >/dev/null 2>&1
 }
 
+IPSet_Current_UID() {
+	awk '
+		$1 == "Uid:" && $3 ~ /^[0-9][0-9]*$/ {
+			print $3
+			FOUND = 1
+			exit
+		}
+		END { if (!FOUND) exit 1 }
+	' /proc/self/status 2>/dev/null
+}
+
+IPSet_Directory_Metadata() {
+	[ ! -L "$1" ] && [ -d "$1" ] || return 1
+	LC_ALL=C ls -ldn "$1" 2>/dev/null | awk '
+		NR == 1 && substr($1, 1, 1) == "d" && $3 ~ /^[0-9][0-9]*$/ {
+			print $3, substr($1, 2, 9)
+			FOUND = 1
+			exit
+		}
+		END { if (!FOUND) exit 1 }
+	'
+}
+
 IPSet_Lock_Interrupt_Cleanup() {
 	if [ "${IPSET_START_STOPPED:-0}" -eq 1 ]; then
 		IPSet_Start_Restore || true
@@ -1352,6 +1409,8 @@ IPSet_Start_While_Locked() {
 IPSet_Lock() {
 	local STATUS
 	IPSet_Runtime_Prepare || return 1
+	# Prefer flock on firmware that supports descriptor locking.  The private,
+	# ownership-validated mkdir lock remains the fallback for older firmware.
 	if have_cmd flock && flock_supports_fd; then
 		IPSet_Lock_Flock "$@"
 	else
@@ -1394,9 +1453,9 @@ IPSet_Lock_Flock_Cleanup() {
 }
 
 IPSet_Lock_Mkdir() {
-	local ATTEMPTS LOCK_DIR LOCK_OWNER OWNER OWNERLESS_ATTEMPTS SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
+	local ATTEMPTS LOCK_DIR LOCK_METADATA LOCK_OWNER OWNER OWNERLESS_ATTEMPTS SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
 	LOCK_DIR="${IPSET_RUNTIME_DIR}/mkdir"
-	LOCK_OWNER="$(id -u)" || return 1
+	LOCK_OWNER="$(IPSet_Current_UID)" || return 1
 	ATTEMPTS="0"
 	OWNERLESS_ATTEMPTS="0"
 	while ! mkdir -m 700 "${LOCK_DIR}" 2>/dev/null; do
@@ -1404,7 +1463,8 @@ IPSet_Lock_Mkdir() {
 			logger -st "${NAME}" "Refusing unsafe legacy mkdir lock for IPSET setup."
 			return 1
 		fi
-		if [ "$(stat -c %u "${LOCK_DIR}" 2>/dev/null)" != "${LOCK_OWNER}" ]; then
+		LOCK_METADATA="$(IPSet_Directory_Metadata "${LOCK_DIR}")" || return 1
+		if [ "${LOCK_METADATA%% *}" != "${LOCK_OWNER}" ]; then
 			logger -st "${NAME}" "Refusing legacy mkdir lock with an untrusted owner."
 			return 1
 		fi
@@ -1458,17 +1518,21 @@ IPSet_Lock_Mkdir_Cleanup() {
 }
 
 IPSet_Lock_Mkdir_Reap_Stale() {
-	local CURRENT_OWNER LOCK_DIR LOCK_OWNER OBSERVED_OWNER REAP_DIR
+	local CURRENT_OWNER LOCK_DIR LOCK_METADATA LOCK_OWNER OBSERVED_OWNER REAP_DIR
 	LOCK_DIR="$1"
 	OBSERVED_OWNER="$2"
 	REAP_DIR="${LOCK_DIR}/reap"
-	LOCK_OWNER="$(id -u)" || return 1
+	LOCK_OWNER="$(IPSet_Current_UID)" || return 1
 
 	# Only one waiter may revalidate and remove a stale lock.  A waiter that
 	# reaches a replacement lock creates its marker there and must revalidate
 	# the replacement's owner before it can remove anything.
 	mkdir -m 700 "${REAP_DIR}" 2>/dev/null || return 1
-	if [ -L "${LOCK_DIR}" ] || [ ! -d "${LOCK_DIR}" ] || [ "$(stat -c %u "${LOCK_DIR}" 2>/dev/null)" != "${LOCK_OWNER}" ]; then
+	LOCK_METADATA="$(IPSet_Directory_Metadata "${LOCK_DIR}")" || {
+		rmdir "${REAP_DIR}" 2>/dev/null
+		return 1
+	}
+	if [ "${LOCK_METADATA%% *}" != "${LOCK_OWNER}" ]; then
 		rmdir "${REAP_DIR}" 2>/dev/null
 		return 1
 	fi
@@ -1851,19 +1915,21 @@ IPSet_Restore_Traps() {
 }
 
 IPSet_Runtime_Prepare() {
-	local MODE OWNER
-	OWNER="$(id -u)" || return 1
+	local METADATA MODE OWNER RUNTIME_OWNER
+	OWNER="$(IPSet_Current_UID)" || return 1
 	if ! mkdir -m 700 "${IPSET_RUNTIME_DIR}" 2>/dev/null; then
 		if [ -L "${IPSET_RUNTIME_DIR}" ] || [ ! -d "${IPSET_RUNTIME_DIR}" ]; then
 			logger -st "${NAME}" "Unsafe IPSET runtime path: ${IPSET_RUNTIME_DIR}"
 			return 1
 		fi
-		if [ "$(stat -c '%u' "${IPSET_RUNTIME_DIR}" 2>/dev/null)" != "${OWNER}" ]; then
+		METADATA="$(IPSet_Directory_Metadata "${IPSET_RUNTIME_DIR}")" || return 1
+		RUNTIME_OWNER="${METADATA%% *}"
+		MODE="${METADATA#* }"
+		if [ "${RUNTIME_OWNER}" != "${OWNER}" ]; then
 			logger -st "${NAME}" "IPSET runtime directory has an untrusted owner: ${IPSET_RUNTIME_DIR}"
 			return 1
 		fi
-		MODE="$(stat -c '%a' "${IPSET_RUNTIME_DIR}" 2>/dev/null)"
-		if [ "${MODE}" != "700" ]; then
+		if [ "${MODE}" != "rwx------" ]; then
 			logger -st "${NAME}" "IPSET runtime directory is not private: ${IPSET_RUNTIME_DIR}"
 			return 1
 		fi
@@ -1911,13 +1977,11 @@ IPSet_Setup_For_Start_Locked() {
 			fi
 			return 1
 		fi
-		IPSET_START_FAILURE_SAFE="1"
 		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
 			IPSET_START_RESTARTED="1"
 		fi
 		return 1
 	fi
-	IPSET_START_FAILURE_SAFE="1"
 	if [ "${IPSET_START_STOPPED}" -eq 1 ]; then
 		if ! IPSet_Start_While_Locked; then
 			IPSET_START_STOPPED="0"
@@ -2042,6 +2106,7 @@ IPSet_Supported() {
 	return 1
 }
 
+manager_dependencies_available || return 1 2>/dev/null || exit 1
 if [ -f "${UPPER_SCRIPT}" ]; then UPPER_SCRIPT_LOC=". ${UPPER_SCRIPT}"; fi
 if [ -f "${LOWER_SCRIPT}" ]; then LOWER_SCRIPT_LOC=". ${LOWER_SCRIPT}"; fi
 if { [ "$2" != "x" ] && printf "%s" "$1" | /bin/grep -qE "^((start|stop|restart|kill|reload)$)"; }; then {
@@ -2049,7 +2114,7 @@ if { [ "$2" != "x" ] && printf "%s" "$1" | /bin/grep -qE "^((start|stop|restart|
 	exit
 }; fi
 if [ "$1" = "init-start" ] && [ ! -f "${UPPER_SCRIPT}" ]; then { service_wait adguardhome_run; }; fi
-if [ -f "${UPPER_SCRIPT}" ]; then { if { [ "$(readlink -f "${UPPER_SCRIPT}")" != "${SCRIPT_LOC}" ] || [ "$0" != "${UPPER_SCRIPT}" ]; }; then {
+if [ -f "${UPPER_SCRIPT}" ]; then { if { [ "$(canonical_path "${UPPER_SCRIPT}" 2>/dev/null)" != "${SCRIPT_LOC}" ] || [ "$0" != "${UPPER_SCRIPT}" ]; }; then {
 	exec "${UPPER_SCRIPT}" "$@"
 	exit
 }; fi; }; else { if [ -z "${PROCS}" ]; then exit; fi; }; fi
