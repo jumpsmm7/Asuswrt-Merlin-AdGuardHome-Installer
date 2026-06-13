@@ -27,6 +27,7 @@ YAML_ORI="${TMP_ROOT}/AdGuardHome.yaml.original"
 YAML_BAK="${TMP_ROOT}/AdGuardHome.yaml.backup"
 YAML_ERR="${TMP_ROOT}/AdGuardHome.yaml.error"
 CONF_FILE="${TMP_ROOT}/.config"
+WRITE_LOG="${TMP_ROOT}/writes"
 mkdir -p "${TARG_DIR}" || fail 'could not create test directory'
 cat >"${AGH_FILE}" <<'SCRIPT'
 #!/bin/sh
@@ -47,7 +48,9 @@ PTXT() {
 }
 read_input_num() { CHOSEN=3; }
 read_input_port() { WEB_PORT=3000; }
-write_conf() { :; }
+write_conf() {
+	printf '%s\n' "$*" >>"${WRITE_LOG}"
+}
 AdGuardHome_authen() { :; }
 check_AdGuardHome_yaml() { return 0; }
 check_dns_filter() {
@@ -83,12 +86,14 @@ for FAIL_CONFIRM_PROMPT in 1 2 3; do
 	DNS_FILTER_CALLS=0
 	printf '%s\n' 'working configuration' >"${YAML_FILE}"
 	printf '%s\n' 'original template' >"${YAML_ORI}"
+	: >"${WRITE_LOG}"
 
 	if setup_AdGuardHome_impl reconfig reconfig; then
 		fail "setup accepted failed confirmation prompt ${FAIL_CONFIRM_PROMPT}"
 	fi
 	[ "${CONFIRM_PROMPTS}" -eq "${FAIL_CONFIRM_PROMPT}" ] || fail "setup did not stop at confirmation prompt ${FAIL_CONFIRM_PROMPT}"
 	[ "${DNS_FILTER_CALLS}" -eq 0 ] || fail "setup changed DNSFilter before confirmation prompt ${FAIL_CONFIRM_PROMPT} completed"
+	! grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail "setup saved the WebUI port before confirmation prompt ${FAIL_CONFIRM_PROMPT} completed"
 	[ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail "setup did not restore YAML after confirmation prompt ${FAIL_CONFIRM_PROMPT}"
 	[ ! -e "${YAML_BAK}" ] || fail "setup left the YAML backup after confirmation prompt ${FAIL_CONFIRM_PROMPT}"
 done
@@ -100,11 +105,13 @@ DNS_FILTER_CALLS=0
 FAIL_PROMPT=0
 printf '%s\n' 'working configuration' >"${YAML_FILE}"
 printf '%s\n' 'original template' >"${YAML_ORI}"
+: >"${WRITE_LOG}"
 
 if setup_AdGuardHome_impl reconfig reconfig; then
 	fail 'setup accepted failed nested DNS confirmation prompt'
 fi
 [ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'setup did not restore YAML after nested DNS confirmation failure'
+! grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail 'setup saved the WebUI port before nested DNS confirmation completed'
 [ ! -e "${YAML_BAK}" ] || fail 'setup left the YAML backup after nested DNS confirmation failure'
 unset FAIL_NESTED_DNS_PROMPT
 unset FAIL_PROMPT
@@ -115,12 +122,14 @@ for FAIL_PROMPT in 1 2; do
 	DNS_FILTER_CALLS=0
 	printf '%s\n' 'working configuration' >"${YAML_FILE}"
 	printf '%s\n' 'original template' >"${YAML_ORI}"
+	: >"${WRITE_LOG}"
 
 	if setup_AdGuardHome_impl reconfig reconfig; then
 		fail "setup accepted failed DNS prompt ${FAIL_PROMPT}"
 	fi
 	[ "${DNS_PROMPTS}" -eq "${FAIL_PROMPT}" ] || fail "setup did not stop at DNS prompt ${FAIL_PROMPT}"
 	[ "${DNS_FILTER_CALLS}" -eq 0 ] || fail "setup changed DNSFilter before DNS prompt ${FAIL_PROMPT} completed"
+	! grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail "setup saved the WebUI port before DNS prompt ${FAIL_PROMPT} completed"
 	[ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail "setup did not restore YAML after DNS prompt ${FAIL_PROMPT}"
 	[ ! -e "${YAML_BAK}" ] || fail "setup left the YAML backup after DNS prompt ${FAIL_PROMPT}"
 	[ ! -e "${YAML_ORI}" ] || fail "setup left partial YAML after DNS prompt ${FAIL_PROMPT}"
