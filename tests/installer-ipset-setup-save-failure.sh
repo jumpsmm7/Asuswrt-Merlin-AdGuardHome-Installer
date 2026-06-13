@@ -1,5 +1,5 @@
 #!/bin/sh
-# Verify installation and reconfiguration stop when the IPSET preference cannot be saved.
+# Verify optional IPSET preference failures do not abort installation or reconfiguration.
 
 set -u
 
@@ -18,6 +18,7 @@ eval "${SETUP_FUNCTIONS}"
 
 INFO='Info:'
 ERROR='Error:'
+WARNING='Warning:'
 TMP_ROOT="${TMPDIR:-/tmp}/installer-ipset-setup-save-failure.$$"
 TARG_DIR="${TMP_ROOT}/target"
 AGH_FILE="${TARG_DIR}/AdGuardHome"
@@ -48,10 +49,10 @@ check_dns_filter() { :; }
 check_dns_local() { :; }
 check_ipset() { return 1; }
 check_AdGuardHome_yaml() {
-	[ "${ALLOW_YAML_VALIDATION:-0}" -eq 1 ] || fail 'setup continued to YAML validation after the IPSET preference save failed'
+	[ "${ALLOW_YAML_VALIDATION:-0}" -eq 1 ] || fail 'unexpected YAML validation'
 }
 read_input_port() {
-	[ "${ALLOW_INITIAL_CONFIG:-0}" -eq 1 ] || fail 'setup continued to initial configuration after the IPSET preference save failed'
+	[ "${ALLOW_INITIAL_CONFIG:-0}" -eq 1 ] || fail 'unexpected initial configuration'
 	WEB_PORT=3000
 }
 read_input_dns() {
@@ -70,6 +71,8 @@ end_op_message() {
 	printf '%s\n' "$1" >>"${END_LOG}"
 }
 
+ALLOW_INITIAL_CONFIG=1
+ALLOW_YAML_VALIDATION=1
 for ANSWER in yes no; do
 	LOG="${TMP_ROOT}/install.${ANSWER}.log"
 	RESTART_LOG="${LOG}.restart"
@@ -77,22 +80,23 @@ for ANSWER in yes no; do
 	: >"${LOG}"
 	: >"${RESTART_LOG}"
 	: >"${END_LOG}"
+	rm -f "${YAML_FILE}" "${YAML_ORI}" "${YAML_BAK}"
+	BOOTSTRAP1=
+	BOOTSTRAP2=
 
 	read_yesno() {
 		[ "${ANSWER}" = yes ]
 	}
 
-	if setup_AdGuardHome '' install; then
-		fail "installation setup succeeded after the ${ANSWER} IPSET preference failed to save"
-	fi
-
-	grep -q 'Unable to save the AdGuardHome IPSET integration setting' "${LOG}" || fail "setup did not explain the ${ANSWER} preference save failure in install mode"
-	grep -q 'Setup was aborted' "${LOG}" || fail "setup did not report that install mode was aborted"
+	setup_AdGuardHome '' install || fail "installation setup failed after the optional ${ANSWER} IPSET preference could not be saved"
+	grep -q 'Unable to save the optional AdGuardHome IPSET integration setting' "${LOG}" || fail "setup did not warn about the ${ANSWER} preference save failure in install mode"
+	grep -q 'Continuing setup with the previous or default IPSET preference' "${LOG}" || fail "setup did not continue without the ${ANSWER} IPSET preference"
+	[ -f "${YAML_FILE}" ] || fail "installation did not create YAML after the ${ANSWER} IPSET preference save failure"
 done
 
 for SELECTION in 2 3; do
 	for ANSWER in yes no; do
-		LOG="${TMP_ROOT}/reconfig.${SELECTION}.${ANSWER}.restore.log"
+		LOG="${TMP_ROOT}/reconfig.${SELECTION}.${ANSWER}.continue.log"
 		RESTART_LOG="${LOG}.restart"
 		END_LOG="${LOG}.end"
 		: >"${LOG}"
@@ -113,12 +117,10 @@ for SELECTION in 2 3; do
 			[ "${ANSWER}" = yes ]
 		}
 
-		if setup_AdGuardHome reconfig reconfig; then
-			fail "reconfiguration selection ${SELECTION} succeeded after the ${ANSWER} IPSET preference failed to save"
-		fi
-		[ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail "reconfiguration selection ${SELECTION} did not restore the previous YAML after the ${ANSWER} preference failed to save"
-		[ ! -e "${YAML_BAK}" ] || fail "reconfiguration selection ${SELECTION} left the YAML backup behind after restoring it"
-		[ ! -s "${RESTART_LOG}" ] || fail "reconfiguration selection ${SELECTION} restarted AdGuardHome after the ${ANSWER} IPSET preference failed to save"
+		setup_AdGuardHome reconfig reconfig || fail "reconfiguration selection ${SELECTION} failed after the optional ${ANSWER} IPSET preference could not be saved"
+		grep -q 'Unable to save the optional AdGuardHome IPSET integration setting' "${LOG}" || fail "reconfiguration did not warn about the ${ANSWER} preference save failure"
+		grep -q 'Continuing reconfiguration with the previous IPSET preference' "${LOG}" || fail "reconfiguration did not preserve the previous IPSET preference"
+		[ "$(cat "${RESTART_LOG}")" = restart ] || fail "reconfiguration did not restart AdGuardHome after the optional ${ANSWER} IPSET preference save failure"
 	done
 done
 
@@ -166,4 +168,4 @@ for ANSWER in yes no; do
 	[ ! -s "${RESTART_LOG}" ] || fail "reconfiguration restarted AdGuardHome after replacement YAML validation failed"
 done
 
-printf '%s\n' 'PASS: setup defers the IPSET preference until reconfiguration validation succeeds'
+printf '%s\n' 'PASS: optional IPSET preference failures do not block setup or reconfiguration'

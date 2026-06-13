@@ -1,6 +1,6 @@
 #!/bin/sh
 # Validate .md5sum files for router-side installer/service artifacts.
-# BusyBox/ash-compatible. Avoids bashisms and command -v for Asuswrt-Merlin ash.
+# BusyBox/ash-compatible. Uses the firmware-provided which command for discovery.
 
 set -u
 
@@ -10,10 +10,13 @@ FAILED=0
 
 calc_md5() {
 	_file="$1"
+	_output=""
 	if have_cmd md5sum; then
-		md5sum "${_file}" | awk '{print $1; exit}'
+		_output="$(md5sum "${_file}")" || return 1
+		printf '%s\n' "${_output}" | awk 'NF {print $1; found = 1; exit} END {if (!found) exit 1}'
 	elif have_cmd openssl; then
-		openssl dgst -md5 "${_file}" | awk '{print $NF; exit}'
+		_output="$(openssl dgst -md5 "${_file}")" || return 1
+		printf '%s\n' "${_output}" | awk 'NF {print $NF; found = 1; exit} END {if (!found) exit 1}'
 	else
 		return 1
 	fi

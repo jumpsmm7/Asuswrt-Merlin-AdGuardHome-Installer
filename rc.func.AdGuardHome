@@ -18,6 +18,17 @@ ansi_ul="$(printf "\033[4m")"
 
 # Process helpers
 
+rc_dependencies_available() {
+	local _REQUIRED_COMMAND
+	for _REQUIRED_COMMAND in grep kill killall logger pidof; do
+		if ! which "${_REQUIRED_COMMAND}" >/dev/null 2>&1; then
+			printf '%s\n' "${CALLER}: required service command is unavailable: ${_REQUIRED_COMMAND}" >&2
+			return 1
+		fi
+	done
+	return 0
+}
+
 process_pids() {
 	pidof "$1" 2>/dev/null
 }
@@ -176,6 +187,7 @@ stop() {
 	fi
 }
 
+rc_dependencies_available || exit 1
 for PROC in ${PROCS}; do
 	DESC="${DESC:-$PROC}"
 	case "${ACTION}" in

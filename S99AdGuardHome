@@ -1,17 +1,37 @@
 #!/bin/sh
-renice -10 $$ >/dev/null 2>&1
+which renice >/dev/null 2>&1 && renice -10 $$ >/dev/null 2>&1
 ENABLED="yes"
 WORK_DIR="/opt/etc/AdGuardHome"
 LOG_FILE="syslog"
 PID_FILE="/opt/var/run/AdGuardHome.pid"
 PROCS="AdGuardHome"
 GOGC="40"
-CPU_COUNT="$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)"
+CPU_COUNT=""
+if which grep >/dev/null 2>&1; then
+	CPU_COUNT="$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)"
+fi
 case "${CPU_COUNT}" in
 	"4") GOMAXPROCS="2" ;;
 	*) GOMAXPROCS="1" ;;
 esac
-GOMEMLIMIT="$(free | awk -v VAR="${GOMAXPROCS}" '/Mem/{print int(($4*0.9537/1024)/VAR)}')MiB"
+MEMORY_LIMIT_MIB=""
+if which awk >/dev/null 2>&1; then
+	MEMORY_LIMIT_MIB="$(awk -v PROCS="${GOMAXPROCS}" '
+		$1 == "MemAvailable:" { available = $2 }
+		$1 == "MemFree:" { free = $2 }
+		$1 == "Buffers:" { buffers = $2 }
+		$1 == "Cached:" { cached = $2 }
+		END {
+			if (!available) available = free + buffers + cached
+			limit = int((available * 0.9537 / 1024) / PROCS)
+			if (limit >= 1) print limit
+		}
+	' /proc/meminfo 2>/dev/null)"
+fi
+case "${MEMORY_LIMIT_MIB}" in
+	"" | *[!0-9]*) MEMORY_LIMIT_MIB="128" ;;
+esac
+GOMEMLIMIT="${MEMORY_LIMIT_MIB}MiB"
 ARGS="-s run -c ${WORK_DIR}/AdGuardHome.yaml -w ${WORK_DIR} --pidfile ${PID_FILE} --no-check-update -l ${LOG_FILE}"
 PREARGS="env TZ=/etc/localtime GOGC=${GOGC} GOMAXPROCS=${GOMAXPROCS} GOMEMLIMIT=${GOMEMLIMIT} QUIC_GO_DISABLE_ECN=true"
 
@@ -19,9 +39,32 @@ PREARGS="env TZ=/etc/localtime GOGC=${GOGC} GOMAXPROCS=${GOMAXPROCS} GOMEMLIMIT=
 
 # DNS handoff helpers
 
+dns_handoff_dependencies_available() {
+	for _dns_command in awk kill netstat pidof service sleep; do
+		if ! which "${_dns_command}" >/dev/null 2>&1; then
+			if which logger >/dev/null 2>&1; then
+				logger -st "${PROCS}" "Required DNS handoff command is unavailable: ${_dns_command}"
+			else
+				printf '%s\n' "${PROCS}: required DNS handoff command is unavailable: ${_dns_command}" >&2
+			fi
+			return 1
+		fi
+	done
+	return 0
+}
+
+dns_retry_limit() {
+	case "$1" in
+		"" | *[!0-9]*) printf '%s\n' "$2" ;;
+		*) printf '%s\n' "$1" ;;
+	esac
+}
+
 adguardhome_owns_dns() {
+	_dns_socket_table=""
 	pidof "${PROCS}" >/dev/null 2>&1 || return 1
-	netstat -nlp 2>/dev/null | awk -v proc="${PROCS}" '
+	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
 		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
 			if ($0 ~ "/" proc "([[:space:]]|$)") tcp_found=1; else other_found=1
 		}
@@ -33,7 +76,8 @@ adguardhome_owns_dns() {
 }
 
 kill_dns_port_owners() {
-	_dns_pids="$(netstat -nlp 2>/dev/null | awk -v proc="${PROCS}" '
+	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	_dns_pids="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
 		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && $0 !~ "/" proc "([[:space:]]|$)" {
 			split($7, pid_parts, "/")
 			if (pid_parts[1] ~ /^[0-9]+$/ && !seen[pid_parts[1]]++) printf "%s ", pid_parts[1]
@@ -47,7 +91,8 @@ kill_dns_port_owners() {
 }
 
 dns_port_available() {
-	netstat -nlp 2>/dev/null | awk -v proc="${PROCS}" '
+	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
 		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && $0 !~ "/" proc "([[:space:]]|$)" { unavailable = 1 }
 		END { exit(unavailable ? 1 : 0) }
 	'
@@ -63,7 +108,7 @@ stop_dns_port_guard() {
 
 wait_for_adguardhome_dns() {
 	_dns_wait_attempts="0"
-	_dns_wait_limit="${ADGUARDHOME_DNS_WAIT_RETRIES:-10}"
+	_dns_wait_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" 10)"
 	while [ "${_dns_wait_attempts}" -lt "${_dns_wait_limit}" ]; do
 		adguardhome_owns_dns && return 0
 		_dns_wait_attempts="$((_dns_wait_attempts + 1))"
@@ -74,7 +119,7 @@ wait_for_adguardhome_dns() {
 
 guard_dns_port_for_adguardhome() {
 	_dns_guard_attempts="0"
-	_dns_guard_limit="${ADGUARDHOME_DNS_GUARD_RETRIES:-10}"
+	_dns_guard_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_GUARD_RETRIES:-}" 10)"
 	while [ "${_dns_guard_attempts}" -lt "${_dns_guard_limit}" ]; do
 		adguardhome_owns_dns && break
 		service stop_dnsmasq >/dev/null 2>&1
@@ -113,10 +158,11 @@ post_start_failure_adguardhome() {
 
 pre_start_adguardhome() {
 	_dns_stop_attempts="0"
-	_dns_stop_limit="${ADGUARDHOME_DNSMASQ_STOP_RETRIES:-10}"
-	ulimit -v 1750000
-	ulimit -m 450000
-	ulimit -s 8192
+	_dns_stop_limit="$(dns_retry_limit "${ADGUARDHOME_DNSMASQ_STOP_RETRIES:-}" 10)"
+	dns_handoff_dependencies_available || return 1
+	ulimit -v 1750000 2>/dev/null || true
+	ulimit -m 450000 2>/dev/null || true
+	ulimit -s 8192 2>/dev/null || true
 	if [ "$(pidof syslog-ng logrotate | wc -w)" -gt 0 ] && which scribe >/dev/null 2>&1; then
 		scribe restart
 	fi

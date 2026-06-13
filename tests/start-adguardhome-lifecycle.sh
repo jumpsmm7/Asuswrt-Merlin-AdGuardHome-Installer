@@ -34,6 +34,15 @@ assert_startup_uses_lock_first_setup() {
 	[ "${STARTUP_SETUP_CALLS}" = '1 0' ] || fail "expected one argument-free lock-first setup call and no legacy setup call, found ${STARTUP_SETUP_CALLS}"
 }
 
+assert_optional_ipset_tools_do_not_gate_startup() {
+	DEPENDENCY_LINE="$(sed -n '/^manager_dependencies_available() {$/,/^}$/p' "${SCRIPT_PATH}" | grep 'for REQUIRED_COMMAND in')"
+	case " ${DEPENDENCY_LINE} " in
+		*' chmod '* | *' cmp '* | *' cp '* | *' ls '* | *' mv '*)
+			fail 'manager startup dependency gate includes optional IPSET-only tools'
+			;;
+	esac
+}
+
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
@@ -46,6 +55,7 @@ assert_single_function IPSet_Start_While_Locked
 assert_single_function IPSet_Setup_For_Start
 assert_single_function IPSet_Setup_For_Start_Locked
 assert_startup_uses_lock_first_setup
+assert_optional_ipset_tools_do_not_gate_startup
 
 sed -n '/^start_adguardhome() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Disable_Managed_For_Start_Locked() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Cleanup() {$/,/^}$/p; /^IPSet_Start_Restore() {$/,/^}$/p; /^IPSet_Start_While_Locked() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'startup lifecycle functions were not found'
