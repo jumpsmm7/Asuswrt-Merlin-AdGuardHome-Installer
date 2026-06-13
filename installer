@@ -1257,6 +1257,19 @@ adguard_restart_after_failed_replace() {
 	return 1
 }
 
+adguard_restart_after_install_abort() {
+	[ "$1" = "1" ] || return 0
+	if agh_is_running; then
+		return 0
+	fi
+	if agh_start; then
+		PTXT "${INFO} Restarted AdGuardHome after the installer aborted."
+		return 0
+	fi
+	PTXT "${ERROR} AdGuardHome could not be restarted after the installer aborted."
+	return 1
+}
+
 adguard_restore_after_failed_replace() {
 	local OLD_BINARY WAS_RUNNING
 	OLD_BINARY="$1"
@@ -1563,9 +1576,10 @@ installer_update_reexec() {
 }
 
 inst_AdGuardHome() {
-	local ADGUARD_TAR ARCHIVE_MD5 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER
+	local ADGUARD_TAR ARCHIVE_MD5 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	INSTALLER_MD5_OLD=""
+	RESTART_AFTER_ABORT="0"
 	[ -f "${SCRIPT_LOC}" ] && INSTALLER_MD5_OLD="$(file_md5 "${SCRIPT_LOC}" 2>/dev/null)"
 	if [ -z "$2" ]; then
 		if [ "${1:-RESTORE}" != "RESTORE" ]; then
@@ -1693,6 +1707,7 @@ inst_AdGuardHome() {
 				return
 			fi
 		fi
+		if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
 		if ! install_adguard_archive "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}"; then
 			rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 			end_op_message 1 "$1"
@@ -1702,11 +1717,13 @@ inst_AdGuardHome() {
 		[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
 		if ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome || [ -z "$("${AGH_FILE}" --version | cut -d" " -f4-)" ]; then
 			PTXT "${ERROR} Failed to download AdGuardHome package for your router"
+			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 			end_op_message 1 "$1"
 			return
 		fi
 	fi
 	if ! create_dir "${ADDON_DIR}"; then
+		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 		end_op_message 1 "$1"
 		return 1
 	fi
@@ -1715,6 +1732,7 @@ inst_AdGuardHome() {
 		! download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome" ||
 		! download_file "/opt/etc/init.d" 644 "${RURL}/rc.func.AdGuardHome"; then
 		PTXT "${ERROR} Required AdGuardHome service files could not be installed."
+		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 		end_op_message 1 "$1"
 		return 1
 	fi
@@ -1725,18 +1743,21 @@ inst_AdGuardHome() {
 		! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq ||
 		! write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'; then
 		PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
+		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 		end_op_message 1 "$1"
 		return 1
 	fi
 	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
 	if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
 		PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
+		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 		end_op_message 1 "$1"
 		return 1
 	fi
 	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
 	if ! write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'; then
 		PTXT "${ERROR} Required service-event-end hook could not be configured."
+		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 		end_op_message 1 "$1"
 		return 1
 	fi
@@ -1744,11 +1765,13 @@ inst_AdGuardHome() {
 		if [ ! -f "${ADDON_DIR}/localtime" ]; then
 			PTXT "${INFO} Before setting up AdGuardHome, please choose your right timezone!"
 			if ! set_timezone; then
+				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 				end_op_message 1 "$1"
 				return 1
 			fi
 		fi
 		if ! setup_AdGuardHome "" "${1:-install}"; then
+			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 			end_op_message 1
 			return
 		fi
