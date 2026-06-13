@@ -100,6 +100,26 @@ fi
 [ "${WRITE_CONF_CALLED}" -eq 0 ] ||
 	fail 'choose_branch consumed stale CHOSEN after prompt failure'
 
+CONF_FILE="${TMP_DIR}/existing.conf"
+ADGUARD_BRANCH_VALUE=release
+RESTORED_BRANCH=
+conf_value() {
+	[ "$1" = 'ADGUARD_BRANCH' ] && printf '%s\n' "${ADGUARD_BRANCH_VALUE}"
+}
+del_conf() {
+	ADGUARD_BRANCH_VALUE=
+}
+write_conf() {
+	WRITE_CONF_CALLED=1
+	RESTORED_BRANCH=$2
+}
+
+if choose_branch 1; then
+	fail 'choose_branch accepted a failed replacement build selection'
+fi
+[ "${RESTORED_BRANCH}" = '"release"' ] ||
+	fail 'choose_branch did not restore the configured branch after selection failure'
+
 if set_timezone; then
 	fail 'set_timezone accepted a failed mandatory numeric prompt'
 fi
