@@ -63,6 +63,27 @@ fi
 [ "$(cat "${END_LOG}")" = '1' ] || fail 'option 7 did not report an aborted operation after branch selection was canceled'
 grep -q 'continuing without changing builds' "${LOG}" || fail 'option 7 did not explain that the build was unchanged'
 
+PROMPT_COUNT=0
+read_yesno() {
+	return 1
+}
+if choose_branch x; then
+	fail 'declining a branch switch did not return the unchanged-build status'
+else
+	CHOOSE_BRANCH_STATUS=$?
+fi
+[ "${CHOOSE_BRANCH_STATUS}" -eq 3 ] ||
+	fail 'declining a branch switch was not distinguished from an input failure'
+
+awk '
+	/^inst_AdGuardHome\(\) \{/ { in_function = 1 }
+	in_function && /CHOOSE_BRANCH_STATUS=\$\?/ { captured = 1 }
+	in_function && /"\$\{CHOOSE_BRANCH_STATUS\}" -ne 3/ { accepts_unchanged = 1 }
+	in_function && /^}/ { exit captured && accepts_unchanged ? 0 : 1 }
+	END { if (!in_function) exit 1 }
+' "${SCRIPT_PATH}" ||
+	fail 'option 1 does not continue when the existing build is retained'
+
 rm -f "${CONF_FILE}" "${LOG}" "${INSTALL_LOG}" "${END_LOG}"
 
-printf '%s\n' 'PASS: option 7 stops when branch selection is canceled'
+printf '%s\n' 'PASS: branch switch cancellation is handled by caller context'

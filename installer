@@ -1209,7 +1209,7 @@ choose_branch() {
 			choose_branch 1
 		elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
 			PTXT "${INFO} continuing without changing builds."
-			return 1
+			return 3
 		else
 			return "${CONFIRM_STATUS}"
 		fi
@@ -1657,10 +1657,14 @@ inst_AdGuardHome() {
 		fi
 		installer_update_reexec "${1:-install}" "${INSTALLER_MD5_OLD}"
 		if [ "${1:-RESTORE}" != "RESTORE" ]; then
-			if [ "${1:-install}" != "update" ] && ! choose_branch; then
-				PTXT "${ERROR} Unable to select an AdGuardHome build. Installation was aborted."
-				end_op_message 1 "$1"
-				return 1
+			if [ "${1:-install}" != "update" ]; then
+				choose_branch
+				CHOOSE_BRANCH_STATUS=$?
+				if [ "${CHOOSE_BRANCH_STATUS}" -ne 0 ] && [ "${CHOOSE_BRANCH_STATUS}" -ne 3 ]; then
+					PTXT "${ERROR} Unable to select an AdGuardHome build. Installation was aborted."
+					end_op_message 1 "$1"
+					return 1
+				fi
 			fi
 			local ADGUARD_BRANCH ADGUARD_VER
 			ADGUARD_BRANCH="$(conf_value ADGUARD_BRANCH)"

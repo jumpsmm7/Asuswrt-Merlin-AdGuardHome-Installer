@@ -108,8 +108,9 @@ fi
 
 awk '
 	/^inst_AdGuardHome\(\) \{/ { in_function = 1 }
-	in_function && /if \[ "\$\{1:-install\}" != "update" \] && ! choose_branch; then/ { guarded = 1 }
-	in_function && /^}/ { exit guarded ? 0 : 1 }
+	in_function && /CHOOSE_BRANCH_STATUS=\$\?/ { captured = 1 }
+	in_function && /"\$\{CHOOSE_BRANCH_STATUS\}" -ne 0/ { guarded = 1 }
+	in_function && /^}/ { exit captured && guarded ? 0 : 1 }
 	END { if (!in_function) exit 1 }
 ' "${REPO_DIR}/installer" ||
 	fail 'inst_AdGuardHome does not abort when branch selection fails'
