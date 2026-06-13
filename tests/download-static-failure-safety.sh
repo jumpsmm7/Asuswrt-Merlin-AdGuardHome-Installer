@@ -20,7 +20,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}/out/armv7" || fail "could not create test directory"
 
-sed -n '/^append_metadata() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p' \
+sed -n '/^append_metadata() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail "static download helpers were not found"
 
@@ -70,6 +70,20 @@ fi
 	fail "archive publication removed the previous archive before replacement"
 
 unset -f mv
+printf '%s\n' "old archive" >"${TEST_ROOT}/archive.previous"
+printf '%s\n' "old checksum" >"${TEST_ROOT}/archive.md5sum.previous"
+printf '%s\n' "new archive" >"${TEST_ROOT}/archive"
+printf '%s\n' "old checksum" >"${TEST_ROOT}/archive.md5sum"
+printf '%s\n' "interrupted" >"${TEST_ROOT}/archive.publish-in-progress"
+recover_archive_publication "${TEST_ROOT}/archive" >/dev/null 2>&1 ||
+	fail "interrupted archive publication was not recovered"
+[ "$(sed -n '1p' "${TEST_ROOT}/archive")" = "old archive" ] ||
+	fail "interrupted publication did not restore the previous archive"
+[ "$(sed -n '1p' "${TEST_ROOT}/archive.md5sum")" = "old checksum" ] ||
+	fail "interrupted publication did not restore the previous checksum"
+[ ! -e "${TEST_ROOT}/archive.publish-in-progress" ] ||
+	fail "interrupted publication state was not cleared"
+
 mkdir -p "${TEST_ROOT}/metadata" || fail "could not create metadata directory"
 printf '%s\n' "old version" >"${TEST_ROOT}/metadata/VERSION.txt"
 printf '%s\n' "old metadata checksum" >"${TEST_ROOT}/metadata/checksum.txt"

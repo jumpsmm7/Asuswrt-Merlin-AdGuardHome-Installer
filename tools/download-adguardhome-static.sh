@@ -137,6 +137,10 @@ download_one() {
 		return 1
 	}
 
+	recover_archive_publication "${_dest_file}" || {
+		rm -f "${_tmp_file}"
+		return 1
+	}
 	if [ -f "${_dest_file}" ] && cmp -s "${_tmp_file}" "${_dest_file}"; then
 		rm -f "${_tmp_file}"
 		printf '%s\n' "OK: ${_dest_file} already current"
@@ -153,18 +157,51 @@ download_one() {
 	fi
 }
 
+recover_archive_publication() {
+	_archive_file="$1"
+	_md5_file="${_archive_file}.md5sum"
+	_publish_state="${_archive_file}.publish-in-progress"
+	_archive_backup="${_archive_file}.previous"
+	_md5_backup="${_md5_file}.previous"
+	_restore_failed=0
+
+	[ -f "${_publish_state}" ] || return 0
+
+	rm -f "${_archive_file}" "${_md5_file}"
+	if [ -f "${_archive_backup}" ]; then
+		mv "${_archive_backup}" "${_archive_file}" || _restore_failed=1
+	fi
+	if [ -f "${_md5_backup}" ]; then
+		mv "${_md5_backup}" "${_md5_file}" || _restore_failed=1
+	fi
+	if [ "${_restore_failed}" -ne 0 ]; then
+		printf '%s\n' "Error: could not recover interrupted publication for ${_archive_file}" >&2
+		FAILED=1
+		return 1
+	fi
+
+	rm -f "${_publish_state}"
+	printf '%s\n' "Recovered interrupted publication for ${_archive_file}" >&2
+	return 0
+}
+
 publish_archive_with_md5() {
 	_archive_tmp="$1"
 	_archive_file="$2"
 	_md5="$3"
 	_md5_file="${_archive_file}.md5sum"
 	_md5_tmp="${_md5_file}.tmp.$$"
-	_archive_backup="${_archive_file}.previous.$$"
-	_md5_backup="${_md5_file}.previous.$$"
+	_publish_state="${_archive_file}.publish-in-progress"
+	_archive_backup="${_archive_file}.previous"
+	_md5_backup="${_md5_file}.previous"
 	_had_archive=0
 	_had_md5=0
 	_restore_failed=0
 
+	recover_archive_publication "${_archive_file}" || {
+		rm -f "${_archive_tmp}"
+		return 1
+	}
 	rm -f "${_archive_backup}" "${_md5_backup}" "${_md5_tmp}"
 	if ! printf '%s\n' "${_md5}" >"${_md5_tmp}" ||
 		! chmod 644 "${_archive_tmp}" "${_md5_tmp}"; then
@@ -193,9 +230,16 @@ publish_archive_with_md5() {
 		fi
 	fi
 
+	if ! printf '%s\n' "$$" >"${_publish_state}"; then
+		rm -f "${_archive_backup}" "${_md5_backup}" "${_archive_tmp}" "${_md5_tmp}"
+		printf '%s\n' "Error: could not record publication state for ${_archive_file}" >&2
+		FAILED=1
+		return 1
+	fi
+
 	if mv "${_archive_tmp}" "${_archive_file}" &&
 		mv "${_md5_tmp}" "${_md5_file}"; then
-		rm -f "${_archive_backup}" "${_md5_backup}"
+		rm -f "${_archive_backup}" "${_md5_backup}" "${_publish_state}"
 		return 0
 	fi
 
@@ -209,6 +253,8 @@ publish_archive_with_md5() {
 	printf '%s\n' "Error: could not publish ${_archive_file} and its checksum" >&2
 	if [ "${_restore_failed}" -ne 0 ]; then
 		printf '%s\n' "Error: recovery failed; inspect ${_archive_backup} and ${_md5_backup}" >&2
+	else
+		rm -f "${_publish_state}"
 	fi
 	FAILED=1
 	return 1
