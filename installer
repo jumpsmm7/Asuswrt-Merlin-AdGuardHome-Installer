@@ -1944,8 +1944,13 @@ setup_AdGuardHome_impl() {
 						"  port: 53" >>"${YAML_ORI}"
 					PTXT "${INFO} Set the DNS server(s) for initializing AdGuardHome" \
 						"${INFO} and router services (e.g. ntp) at boot"
-					read_input_dns "Default is" 9.9.9.9
-					read_input_dns "2nd Default is" 8.8.8.8
+					if ! read_input_dns "Default is" 9.9.9.9 || ! read_input_dns "2nd Default is" 8.8.8.8; then
+						rm -f "${YAML_ORI}"
+						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+						fi
+						return 1
+					fi
 					local DOMAIN NET_ADDR NET_ADDR6 LAN_IF
 					LAN_IF="$(nvram get lan_ifname)"
 					if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
