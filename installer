@@ -1291,7 +1291,6 @@ adguard_restore_after_failed_replace() {
 	OLD_BINARY="$1"
 	WAS_RUNNING="$2"
 	if [ -f "${OLD_BINARY}" ]; then
-		rm -f "${AGH_FILE}"
 		if ! mv "${OLD_BINARY}" "${AGH_FILE}"; then
 			PTXT "${ERROR} Unable to restore the previous AdGuardHome binary; it remains at ${OLD_BINARY}."
 			return 1

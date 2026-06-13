@@ -161,12 +161,18 @@ EOF
 	printf '%s\n' "new binary" >"${AGH_FILE}"
 	printf '%s\n' "old binary" >"${OLD_BINARY}"
 	RESTART_CALLS="0"
+	DESTINATION_PRESENT_DURING_ROLLBACK="0"
 	mv() {
+		if [ "$1" = "${OLD_BINARY}" ] && [ "$2" = "${AGH_FILE}" ] && [ -f "${AGH_FILE}" ]; then
+			DESTINATION_PRESENT_DURING_ROLLBACK="1"
+		fi
 		return 1
 	}
 	if adguard_restore_after_failed_replace "${OLD_BINARY}" 1 >/dev/null; then
 		fail "failed binary restore was reported as successful"
 	fi
+	[ "${DESTINATION_PRESENT_DURING_ROLLBACK}" -eq 1 ] ||
+		fail "failed binary was removed before rollback rename"
 	[ "${RESTART_CALLS}" -eq 0 ] || fail "service restart was attempted without a restored binary"
 ) || exit 1
 
