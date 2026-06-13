@@ -9,6 +9,7 @@ FUNCTION_FILE="${TEST_ROOT}/functions"
 TARGET_FILE="${TEST_ROOT}/target"
 INTERRUPT_TEST_FILE="${TEST_ROOT}/interrupt-test.sh"
 TRAP_TEST_FILE="${TEST_ROOT}/trap-test.sh"
+HAS_FLOCK=0
 
 cleanup() {
 	chmod 700 "${TEST_ROOT}/foreign" 2>/dev/null || true
@@ -24,7 +25,11 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 mkdir -m 700 "${TEST_ROOT}" || fail 'could not create test directory'
-sed -n '/^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock() {$/,/^}$/p; /^IPSet_Lock_Flock() {$/,/^}$/p; /^IPSet_Lock_Flock_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Reap_Stale() {$/,/^}$/p; /^IPSet_Restore_Traps() {$/,/^}$/p; /^IPSet_Runtime_Prepare() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+if which flock >/dev/null 2>&1 && (exec 9>"${TEST_ROOT}/flock-probe" && flock -n 9); then
+	HAS_FLOCK=1
+fi
+rm -f "${TEST_ROOT}/flock-probe"
+sed -n '/^IPSet_Current_UID() {$/,/^}$/p; /^IPSet_Directory_Metadata() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock() {$/,/^}$/p; /^IPSet_Lock_Flock() {$/,/^}$/p; /^IPSet_Lock_Flock_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Reap_Stale() {$/,/^}$/p; /^IPSet_Restore_Traps() {$/,/^}$/p; /^IPSet_Runtime_Prepare() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'IPSET lock functions were not found'
 if ! grep -Eq '^IPSET_RUNTIME_DIR=.*AdGuardHome-ipset' "${SCRIPT_PATH}"; then
 	fail 'the private IPSET runtime directory default is not defined'
@@ -38,16 +43,27 @@ fi
 if ! grep -Fq 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps' "${SCRIPT_PATH}"; then
 	fail 'fallback interrupt cleanup does not restore AdGuardHome before releasing the lock'
 fi
+if ! grep -Fq 'if have_cmd flock && flock_supports_fd; then' "${SCRIPT_PATH}"; then
+	fail 'IPSET locking does not prefer compatible flock with mkdir as fallback'
+fi
 
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
+
+id() {
+	fail 'IPSET lock code called unavailable id command'
+}
+
+stat() {
+	fail 'IPSET lock code called unavailable stat command'
+}
 
 have_cmd() {
 	[ "${USE_FLOCK:-0}" -eq 1 ] && [ "$1" = flock ]
 }
 
 flock_supports_fd() {
-	return 0
+	[ "${FLOCK_FD_SUPPORTED:-1}" -eq 1 ]
 }
 
 logger() {
@@ -212,25 +228,39 @@ if IPSet_Lock lock_action; then
 	fail 'accepted a runtime directory that was not mode 700'
 fi
 
-USE_FLOCK=1
-IPSET_RUNTIME_DIR="${TEST_ROOT}/flock-runtime"
-IPSet_Lock lock_action || fail 'could not acquire flock in private runtime directory'
-[ -f "${IPSET_RUNTIME_DIR}/flock" ] || fail 'flock file was not created in the private runtime directory'
-[ ! -e "${IPSET_RUNTIME_DIR}/traps.$$" ] || fail 'flock trap-state file was not cleaned up'
-rm -f "${TEST_ROOT}/dnsmasq-restarted"
-IPSet_Lock lock_dnsmasq_action || fail 'could not defer dnsmasq restart with flock'
-[ -f "${TEST_ROOT}/dnsmasq-restarted" ] || fail 'flock path did not restart dnsmasq after unlock'
+if [ "${HAS_FLOCK}" -eq 1 ]; then
+	USE_FLOCK=1
+	IPSET_RUNTIME_DIR="${TEST_ROOT}/flock-runtime"
+	IPSet_Lock lock_action || fail 'could not acquire flock in private runtime directory'
+	[ -f "${IPSET_RUNTIME_DIR}/flock" ] || fail 'flock file was not created in the private runtime directory'
+	[ ! -e "${IPSET_RUNTIME_DIR}/traps.$$" ] || fail 'flock trap-state file was not cleaned up'
+	rm -f "${TEST_ROOT}/dnsmasq-restarted"
+	IPSet_Lock lock_dnsmasq_action || fail 'could not defer dnsmasq restart with flock'
+	[ -f "${TEST_ROOT}/dnsmasq-restarted" ] || fail 'flock path did not restart dnsmasq after unlock'
+	run_interrupt_test flock
+	run_trap_test flock
+fi
 USE_FLOCK=0
 
-run_interrupt_test flock
 run_interrupt_test mkdir
-run_trap_test flock
 run_trap_test mkdir
+
+# An installed flock without descriptor-lock support must use mkdir instead.
+USE_FLOCK=1
+FLOCK_FD_SUPPORTED=0
+IPSET_RUNTIME_DIR="${TEST_ROOT}/incompatible-flock-runtime"
+rm -f "${TEST_ROOT}/called"
+IPSet_Lock lock_action || fail 'did not fall back when flock lacks descriptor locking'
+[ "$(cat "${TEST_ROOT}/called")" = called ] || fail 'fallback action did not run for incompatible flock'
+[ ! -e "${IPSET_RUNTIME_DIR}/flock" ] || fail 'incompatible flock backend was selected'
+[ ! -d "${IPSET_RUNTIME_DIR}/mkdir" ] || fail 'incompatible-flock fallback lock was not cleaned up'
+FLOCK_FD_SUPPORTED=1
+USE_FLOCK=0
 
 IPSET_RUNTIME_DIR="${TEST_ROOT}/runtime"
 IPSet_Lock lock_action || fail 'could not acquire fallback lock in private runtime directory'
 [ "$(cat "${TEST_ROOT}/called")" = called ] || fail 'locked action did not run'
-[ "$(stat -c '%a' "${IPSET_RUNTIME_DIR}")" = 700 ] || fail 'runtime directory is not mode 700'
+[ "$(IPSet_Directory_Metadata "${IPSET_RUNTIME_DIR}")" = "$(IPSet_Current_UID) rwx------" ] || fail 'runtime directory is not mode 700'
 [ ! -e "${IPSET_RUNTIME_DIR}/mkdir" ] || fail 'fallback lock directory was not cleaned up'
 rm -f "${TEST_ROOT}/dnsmasq-restarted"
 IPSet_Lock lock_dnsmasq_action || fail 'could not defer dnsmasq restart with the fallback lock'
@@ -252,7 +282,7 @@ printf '%s\n' 999999 >"${IPSET_RUNTIME_DIR}/mkdir/pid"
 IPSet_Lock_Mkdir_Reap_Stale "${IPSET_RUNTIME_DIR}/mkdir" 999999 || fail 'could not reap an unchanged stale fallback lock'
 [ ! -e "${IPSET_RUNTIME_DIR}/mkdir" ] || fail 'unchanged stale fallback lock was not removed'
 
-if [ "$(id -u)" -eq 0 ]; then
+if [ "$(IPSet_Current_UID)" -eq 0 ]; then
 	mkdir -m 700 "${IPSET_RUNTIME_DIR}/mkdir" || fail 'could not create foreign-owner fallback lock'
 	printf '%s\n' 1 >"${IPSET_RUNTIME_DIR}/mkdir/pid"
 	chown -R 65534 "${IPSET_RUNTIME_DIR}/mkdir" || fail 'could not assign fallback lock foreign owner'
@@ -265,7 +295,7 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 
 mkdir -m 700 "${TEST_ROOT}/foreign" || fail 'could not create foreign-owner test directory'
-if [ "$(id -u)" -eq 0 ]; then
+if [ "$(IPSet_Current_UID)" -eq 0 ]; then
 	chown 65534 "${TEST_ROOT}/foreign" || fail 'could not assign foreign owner'
 	IPSET_RUNTIME_DIR="${TEST_ROOT}/foreign"
 	if IPSet_Lock lock_action; then

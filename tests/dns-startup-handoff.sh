@@ -25,7 +25,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
+	'/^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed -n '/^start() {$/,/^}$/p' "${RC_PATH}" >"${RC_FUNCTION}" || fail "could not read ${RC_PATH}"
 [ -s "${S99_FUNCTIONS}" ] || fail 'DNS handoff functions were not found'
@@ -41,6 +41,11 @@ logger() {
 	printf '%s\n' "logger $*" >>"${CALLS_FILE}"
 }
 which() {
+	case "$1" in
+		awk | kill | logger | netstat | pidof | service | sleep)
+			return 0
+			;;
+	esac
 	return 1
 }
 pidof() {
@@ -52,6 +57,7 @@ pidof() {
 	return 0
 }
 netstat() {
+	[ "${NETSTAT_FAIL:-0}" -eq 0 ] || return 1
 	case "${DNS_STATE:-free}" in
 		busy)
 			printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 123/dnsmasq'
@@ -80,6 +86,17 @@ sleep() {
 	[ "${SLEEP_SETS_OWNED:-0}" -eq 1 ] && DNS_STATE=owned
 	:
 }
+
+[ "$(dns_retry_limit invalid 7)" = 7 ] || fail 'invalid DNS retry limit was not replaced with the default'
+[ "$(dns_retry_limit 0 7)" = 0 ] || fail 'zero DNS retry limit was not preserved'
+NETSTAT_FAIL=1
+if dns_port_available; then
+	fail 'failed netstat command was treated as an available DNS port'
+fi
+if kill_dns_port_owners; then
+	fail 'failed netstat command was hidden while collecting DNS owners'
+fi
+NETSTAT_FAIL=0
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy
