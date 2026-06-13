@@ -375,6 +375,30 @@ post_failure_hook() {
 	post_start_failure_adguardhome
 }
 
+# The pre-start hook changes dnsmasq to port 553.  Post-start cleanup must be
+# tied to this invocation having run that hook, not to the mutated config.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}"
+(
+	HANDOFF_ENABLED=0
+	grep() {
+		case "$*" in
+			*'/etc/dnsmasq.conf'*) [ "${HANDOFF_ENABLED}" -eq 1 ] ;;
+			*) command grep "$@" ;;
+		esac
+	}
+	pre_hook() {
+		HANDOFF_ENABLED=1
+		printf '%s\n' pre_hook >>"${CALLS_FILE}"
+	}
+	post_hook() {
+		printf '%s\n' post_hook >>"${CALLS_FILE}"
+	}
+	start >/dev/null
+) || fail 'rc.func failed a successful handoff start'
+grep -q '^pre_hook$' "${CALLS_FILE}" || fail 'rc.func did not run the pre-start handoff hook'
+grep -q '^post_hook$' "${CALLS_FILE}" || fail 'rc.func skipped post-start cleanup after dnsmasq changed to port 553'
+
 # Interrupting startup after the pre-start hook has spawned the DNS guard must
 # reap that child and run the same dnsmasq recovery used by other failed starts.
 INTERRUPT_READY_FILE="${TEST_ROOT}/interrupt-ready"

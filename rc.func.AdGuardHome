@@ -151,7 +151,7 @@ start() {
 		[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
 		return 255
 	fi
-	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then
+	if [ "${PROC}" != "AdGuardHome" ] || [ "${DNS_HANDOFF}" -eq 1 ]; then
 		if ! ${POSTCMD} >/dev/null 2>&1; then
 			STOPPED=0
 			signal_process TERM "${PROC}"
