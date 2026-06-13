@@ -1396,7 +1396,12 @@ IPSet_Lock_Flock_Cleanup() {
 IPSet_Lock_Mkdir() {
 	local ATTEMPTS LOCK_DIR LOCK_OWNER OWNER OWNERLESS_ATTEMPTS SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
 	LOCK_DIR="${IPSET_RUNTIME_DIR}/mkdir"
-	LOCK_OWNER="$(id -u)" || return 1
+	if have_cmd id; then
+		LOCK_OWNER="$(id -u)" || return 1
+	else
+		LOCK_OWNER="$(awk '/^Uid:[[:space:]]/{print $2; exit}' /proc/self/status 2>/dev/null)"
+		[ -n "${LOCK_OWNER}" ] || return 1
+	fi
 	ATTEMPTS="0"
 	OWNERLESS_ATTEMPTS="0"
 	while ! mkdir -m 700 "${LOCK_DIR}" 2>/dev/null; do
@@ -1462,7 +1467,12 @@ IPSet_Lock_Mkdir_Reap_Stale() {
 	LOCK_DIR="$1"
 	OBSERVED_OWNER="$2"
 	REAP_DIR="${LOCK_DIR}/reap"
-	LOCK_OWNER="$(id -u)" || return 1
+	if have_cmd id; then
+		LOCK_OWNER="$(id -u)" || return 1
+	else
+		LOCK_OWNER="$(awk '/^Uid:[[:space:]]/{print $2; exit}' /proc/self/status 2>/dev/null)"
+		[ -n "${LOCK_OWNER}" ] || return 1
+	fi
 
 	# Only one waiter may revalidate and remove a stale lock.  A waiter that
 	# reaches a replacement lock creates its marker there and must revalidate
@@ -1852,20 +1862,35 @@ IPSet_Restore_Traps() {
 
 IPSet_Runtime_Prepare() {
 	local MODE OWNER
-	OWNER="$(id -u)" || return 1
+	# id -u is from GNU coreutils; fall back to /proc/self/status on BusyBox
+	# environments where the id applet may not be compiled in.
+	if have_cmd id; then
+		OWNER="$(id -u)" || return 1
+	else
+		OWNER="$(awk '/^Uid:[[:space:]]/{print $2; exit}' /proc/self/status 2>/dev/null)"
+		[ -n "${OWNER}" ] || return 1
+	fi
 	if ! mkdir -m 700 "${IPSET_RUNTIME_DIR}" 2>/dev/null; then
 		if [ -L "${IPSET_RUNTIME_DIR}" ] || [ ! -d "${IPSET_RUNTIME_DIR}" ]; then
 			logger -st "${NAME}" "Unsafe IPSET runtime path: ${IPSET_RUNTIME_DIR}"
 			return 1
 		fi
-		if [ "$(stat -c '%u' "${IPSET_RUNTIME_DIR}" 2>/dev/null)" != "${OWNER}" ]; then
-			logger -st "${NAME}" "IPSET runtime directory has an untrusted owner: ${IPSET_RUNTIME_DIR}"
-			return 1
-		fi
-		MODE="$(stat -c '%a' "${IPSET_RUNTIME_DIR}" 2>/dev/null)"
-		if [ "${MODE}" != "700" ]; then
-			logger -st "${NAME}" "IPSET runtime directory is not private: ${IPSET_RUNTIME_DIR}"
-			return 1
+		# stat -c is GNU coreutils; fall back to POSIX find -uid/-perm when unavailable.
+		if have_cmd stat; then
+			if [ "$(stat -c '%u' "${IPSET_RUNTIME_DIR}" 2>/dev/null)" != "${OWNER}" ]; then
+				logger -st "${NAME}" "IPSET runtime directory has an untrusted owner: ${IPSET_RUNTIME_DIR}"
+				return 1
+			fi
+			MODE="$(stat -c '%a' "${IPSET_RUNTIME_DIR}" 2>/dev/null)"
+			if [ "${MODE}" != "700" ]; then
+				logger -st "${NAME}" "IPSET runtime directory is not private: ${IPSET_RUNTIME_DIR}"
+				return 1
+			fi
+		else
+			if ! find "${IPSET_RUNTIME_DIR}" -maxdepth 0 -uid "${OWNER}" -perm 700 2>/dev/null | grep -q .; then
+				logger -st "${NAME}" "IPSET runtime directory has incorrect ownership or permissions: ${IPSET_RUNTIME_DIR}"
+				return 1
+			fi
 		fi
 	fi
 }
