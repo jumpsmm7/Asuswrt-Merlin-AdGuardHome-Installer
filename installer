@@ -1203,11 +1203,15 @@ choose_branch() {
 		fi
 		return 0
 	else
-		if read_yesno "Do you want to switch AdGuardHome builds?"; then
+		read_yesno "Do you want to switch AdGuardHome builds?"
+		CONFIRM_STATUS=$?
+		if [ "${CONFIRM_STATUS}" -eq 0 ]; then
 			choose_branch 1
-		else
+		elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
 			PTXT "${INFO} continuing without changing builds."
 			return 1
+		else
+			return "${CONFIRM_STATUS}"
 		fi
 	fi
 }
@@ -1379,7 +1383,15 @@ backup_restore() {
 		if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 			PTXT "${INFO} There is an old backup detected."
 			local USE_OLD
-			if read_yesno "Do you want to continue?(this will remove the old backup)"; then USE_OLD="NO"; else USE_OLD="YES"; fi
+			read_yesno "Do you want to continue?(this will remove the old backup)"
+			CONFIRM_STATUS=$?
+			if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+				USE_OLD="NO"
+			elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
+				USE_OLD="YES"
+			else
+				return "${CONFIRM_STATUS}"
+			fi
 			if [ "${USE_OLD}" = "YES" ]; then
 				PTXT "${INFO} Leaving Old Backup."
 				end_op_message 1
@@ -1595,7 +1607,15 @@ inst_AdGuardHome() {
 			if [ ! -d "${TARG_DIR}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 				PTXT "${INFO} Backup is detected."
 				local USE_OLD
-				if read_yesno "Do you want Restore instead?"; then USE_OLD="YES"; else USE_OLD="NO"; fi
+				read_yesno "Do you want Restore instead?"
+				CONFIRM_STATUS=$?
+				if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+					USE_OLD="YES"
+				elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
+					USE_OLD="NO"
+				else
+					return "${CONFIRM_STATUS}"
+				fi
 				if [ "${USE_OLD}" = "YES" ]; then
 					PTXT "${INFO} Installing from an old backup!"
 					backup_restore RESTORE
@@ -1603,7 +1623,15 @@ inst_AdGuardHome() {
 					PTXT "${INFO} Continuing without restoring from backup!"
 				fi
 			elif [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
-				if read_yesno "Do you want create a backup before updating?"; then backup_restore BACKUP 0; else PTXT "${INFO} continuing without making a backup."; fi
+				read_yesno "Do you want create a backup before updating?"
+				CONFIRM_STATUS=$?
+				if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+					backup_restore BACKUP 0
+				elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
+					PTXT "${INFO} continuing without making a backup."
+				else
+					return "${CONFIRM_STATUS}"
+				fi
 			fi
 		fi
 		if [ -z "${REMOTE_VER}" ] || [ -z "${REMOTE_BETA}" ] || [ -z "${REMOTE_EDGE}" ] || { ! check_connection; }; then
@@ -1887,7 +1915,15 @@ setup_AdGuardHome_impl() {
 			return
 		fi
 		PTXT "${INFO} Found previous AdGuardHome config file"
-		if read_yesno "Do you want to use this file without reconfiguring?"; then PTXT "${INFO} Use previous settings file"; else setup_AdGuardHome_impl x; fi
+		read_yesno "Do you want to use this file without reconfiguring?"
+		CONFIRM_STATUS=$?
+		if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+			PTXT "${INFO} Use previous settings file"
+		elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
+			setup_AdGuardHome_impl x
+		else
+			return "${CONFIRM_STATUS}"
+		fi
 	else
 		if [ -f "${YAML_FILE}" ]; then
 			if [ "$1" = "reconfig" ]; then
@@ -2080,7 +2116,15 @@ setup_amtmupdate() {
 uninst_all() {
 	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 		PTXT "${INFO} Old Backup Detected!"
-		if read_yesno "Do you want to remove backup?(this will prevent restoring from backups later)"; then rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"; else PTXT "${INFO} Keeping backup instead."; fi
+		read_yesno "Do you want to remove backup?(this will prevent restoring from backups later)"
+		CONFIRM_STATUS=$?
+		if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+			rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"
+		elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
+			PTXT "${INFO} Keeping backup instead."
+		else
+			return "${CONFIRM_STATUS}"
+		fi
 	fi
 	agh_stop
 	cleanup_legacy_firewall
