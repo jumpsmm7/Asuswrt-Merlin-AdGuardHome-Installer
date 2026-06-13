@@ -67,7 +67,7 @@ printf '%s\n' x 9 2 >"${TMP_DIR}/number.input"
 read_input_num "Choose" 1 3 "" "" "" <"${TMP_DIR}/number.input" || fail "numeric input did not recover from invalid values"
 [ "${CHOSEN}" = "2" ] || fail "numeric input selected the wrong value"
 
-printf '%s\n' 2999 3000 3001 >"${TMP_DIR}/port.input"
+printf '%s\n' 2999 00003000 3001 >"${TMP_DIR}/port.input"
 read_input_port "Default is" 3000 <"${TMP_DIR}/port.input" || fail "port input did not recover from invalid or occupied ports"
 [ "${WEB_PORT}" = "3001" ] || fail "port input selected the wrong value"
 

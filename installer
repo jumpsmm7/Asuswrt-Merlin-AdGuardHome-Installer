@@ -2397,6 +2397,7 @@ read_input_port() {
 			PTXT "${ERROR} Invalid Web Port entered, only Web Ports residing within the port range 3000-65535 are selectable."
 			continue
 		fi
+		WEB_PORT="$(PTXT "${WEB_PORT}" | sed 's/^0*//')"
 		if ! ai_have_cmd netstat; then
 			PTXT "${ERROR} Unable to verify the Web Port because netstat is unavailable."
 			return 1
