@@ -400,9 +400,16 @@ ipv4_is_private() {
 	'
 }
 
+port_is_valid() {
+	case "$1" in
+		"" | *[!0123456789]*) return 1 ;;
+	esac
+	[ "$1" -ge 3000 ] 2>/dev/null && [ "$1" -le 65535 ] 2>/dev/null
+}
+
 installer_dependencies_available() {
 	local REQUIRED_COMMAND
-	for REQUIRED_COMMAND in awk chmod cp cut grep kill ln md5sum mkdir mv nvram opkg pidof rm sed service tar; do
+	for REQUIRED_COMMAND in awk chmod chown cp cut grep kill ln md5sum mkdir mv nvram opkg pidof rm sed service tar; do
 		if ! ai_have_cmd "${REQUIRED_COMMAND}"; then
 			PTXT "${ERROR} Required command is unavailable: ${REQUIRED_COMMAND}" >&2
 			return 1
@@ -1214,6 +1221,136 @@ save_dns_nvram_environment() {
 
 # Installer file and setup helpers
 
+adguard_archive_is_safe() {
+	local ARCHIVE_DETAILS ARCHIVE_LIST
+	ARCHIVE_LIST="$(tar tzf "$1" 2>/dev/null)" || return 1
+	[ -n "${ARCHIVE_LIST}" ] || return 1
+	ARCHIVE_DETAILS="$(tar tvzf "$1" 2>/dev/null)" || return 1
+	[ -n "${ARCHIVE_DETAILS}" ] || return 1
+	if ! PTXT "${ARCHIVE_DETAILS}" | awk '
+		substr($0, 1, 1) != "-" && substr($0, 1, 1) != "d" { exit 1 }
+	'; then
+		return 1
+	fi
+	PTXT "${ARCHIVE_LIST}" | awk '
+		BEGIN { binary = 0; unsafe = 0 }
+		{
+			path = $0
+			sub(/^\.\//, "", path)
+			if (path == "" || path ~ /^\// || path ~ /(^|\/)\.\.(\/|$)/ || path !~ /^AdGuardHome(\/|$)/) {
+				unsafe = 1
+				exit
+			}
+			if (path == "AdGuardHome/AdGuardHome") binary = 1
+		}
+		END { exit(!unsafe && binary ? 0 : 1) }
+	'
+}
+
+adguard_restart_after_failed_replace() {
+	[ "$1" = "1" ] || return 0
+	if agh_start; then
+		PTXT "${INFO} Restored the previously running AdGuardHome service."
+		return 0
+	fi
+	PTXT "${ERROR} The previous AdGuardHome binary was restored but could not be restarted."
+	return 1
+}
+
+adguard_restore_after_failed_replace() {
+	local OLD_BINARY WAS_RUNNING
+	OLD_BINARY="$1"
+	WAS_RUNNING="$2"
+	if [ -f "${OLD_BINARY}" ]; then
+		rm -f "${AGH_FILE}"
+		if ! mv "${OLD_BINARY}" "${AGH_FILE}"; then
+			PTXT "${ERROR} Unable to restore the previous AdGuardHome binary; it remains at ${OLD_BINARY}."
+			return 1
+		fi
+	elif [ "${WAS_RUNNING}" = "1" ]; then
+		PTXT "${ERROR} The previous AdGuardHome binary is unavailable for rollback."
+		return 1
+	fi
+	adguard_restart_after_failed_replace "${WAS_RUNNING}"
+}
+
+create_backup_archive() {
+	local BACKUP_FILE BACKUP_TMP
+	BACKUP_FILE="${BASE_DIR}/backup_AdGuardHome.tar.gz"
+	BACKUP_TMP="${BACKUP_FILE}.tmp.$$"
+	rm -f "${BACKUP_TMP}"
+	if ! tar -czf "${BACKUP_TMP}" -C "${BASE_DIR}" AdGuardHome >/dev/null 2>&1; then
+		rm -f "${BACKUP_TMP}"
+		PTXT "${ERROR} Unable to create the AdGuardHome backup archive."
+		return 1
+	fi
+	if ! tar -tzf "${BACKUP_TMP}" >/dev/null 2>&1; then
+		rm -f "${BACKUP_TMP}"
+		PTXT "${ERROR} The new AdGuardHome backup archive could not be verified."
+		return 1
+	fi
+	if ! chmod 600 "${BACKUP_TMP}" || ! mv -f "${BACKUP_TMP}" "${BACKUP_FILE}"; then
+		rm -f "${BACKUP_TMP}"
+		PTXT "${ERROR} Unable to install the new AdGuardHome backup archive."
+		return 1
+	fi
+	return 0
+}
+
+install_adguard_archive() {
+	local ARCHIVE_FILE HTTP_USERNAME OLD_BINARY STAGE_BINARY STAGE_DIR WAS_RUNNING
+	ARCHIVE_FILE="$1"
+	STAGE_DIR="${BASE_DIR}/.AdGuardHome.extract.$$"
+	STAGE_BINARY="${STAGE_DIR}/AdGuardHome/AdGuardHome"
+	OLD_BINARY="${TARG_DIR}/.AdGuardHome.previous.$$"
+	rm -rf "${STAGE_DIR}"
+	rm -f "${OLD_BINARY}"
+	if ! adguard_archive_is_safe "${ARCHIVE_FILE}"; then
+		PTXT "${ERROR} The AdGuardHome archive contains an unsafe or incomplete file layout."
+		return 1
+	fi
+	if ! mkdir -m 700 "${STAGE_DIR}" || ! tar xzf "${ARCHIVE_FILE}" -C "${STAGE_DIR}" >/dev/null 2>&1; then
+		rm -rf "${STAGE_DIR}"
+		PTXT "${ERROR} Unable to extract the AdGuardHome archive into staging."
+		return 1
+	fi
+	if [ ! -f "${STAGE_BINARY}" ] || [ -L "${STAGE_BINARY}" ] || ! chmod 755 "${STAGE_BINARY}" ||
+		[ -z "$("${STAGE_BINARY}" --version 2>/dev/null | cut -d" " -f4-)" ]; then
+		rm -rf "${STAGE_DIR}"
+		PTXT "${ERROR} The staged AdGuardHome binary failed validation."
+		return 1
+	fi
+	if [ "$(agh_process_count)" -gt 0 ]; then WAS_RUNNING="1"; else WAS_RUNNING="0"; fi
+	if ! agh_prepare_binary_replace; then
+		rm -rf "${STAGE_DIR}"
+		return 1
+	fi
+	if [ -f "${AGH_FILE}" ] && ! mv "${AGH_FILE}" "${OLD_BINARY}"; then
+		rm -rf "${STAGE_DIR}"
+		PTXT "${ERROR} Unable to preserve the installed AdGuardHome binary."
+		adguard_restart_after_failed_replace "${WAS_RUNNING}"
+		return 1
+	fi
+	if ! mv "${STAGE_BINARY}" "${AGH_FILE}"; then
+		rm -rf "${STAGE_DIR}"
+		PTXT "${ERROR} Unable to install the staged AdGuardHome binary."
+		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
+		return 1
+	fi
+	HTTP_USERNAME="$(nvram get http_username 2>/dev/null)"
+	[ -n "${HTTP_USERNAME}" ] || HTTP_USERNAME="root"
+	if ! chown "${HTTP_USERNAME}:root" "${AGH_FILE}" || ! chmod 755 "${AGH_FILE}" ||
+		[ -z "$("${AGH_FILE}" --version 2>/dev/null | cut -d" " -f4-)" ]; then
+		rm -rf "${STAGE_DIR}"
+		PTXT "${ERROR} Installed AdGuardHome binary validation failed."
+		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
+		return 1
+	fi
+	rm -f "${OLD_BINARY}"
+	rm -rf "${STAGE_DIR}"
+	return 0
+}
+
 backup_restore() {
 	local IPSET_MARKER_BACKUP
 	if [ "$1" = "BACKUP" ] && [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; then
@@ -1225,13 +1362,15 @@ backup_restore() {
 				PTXT "${INFO} Leaving Old Backup."
 				end_op_message 1
 			elif [ "${USE_OLD}" = "NO" ]; then
-				PTXT "${INFO} Removing Old Backup."
-				rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"
+				PTXT "${INFO} The old backup will be replaced only after the new backup is verified."
 			fi
 		fi
 		PTXT "${INFO} This operation will backup AdGuardHome(<4MB)to ENTWARE /opt/etc." \
 			"${INFO} Please wait a moment."
-		tar -czvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${TARG_DIR}" ../AdGuardHome/ >/dev/null 2>&1
+		if ! create_backup_archive; then
+			[ -z "$2" ] && end_op_message 1
+			return 1
+		fi
 		PTXT "${INFO} Backup complete"
 		[ -z "$2" ] && end_op_message 0 || return 0
 	elif [ "$1" = "BACKUP" ] && [ ! -d "${TARG_DIR}" ] && [ ! -f "${AGH_FILE}" ]; then
@@ -1390,7 +1529,9 @@ download_file() {
 			PTXT "${INFO} ${FILENAME} is up to date. Skipping..."
 			continue
 		fi
-		if mv "${TMP_FILE}" "${TARG}/${FILENAME}" && chmod "${PERM}" "${TARG}/${FILENAME}"; then
+		# Set permissions before replacing the working copy.  If chmod fails,
+		# preserve the existing file instead of leaving a partially installed one.
+		if chmod "${PERM}" "${TMP_FILE}" && mv "${TMP_FILE}" "${TARG}/${FILENAME}"; then
 			continue
 		fi
 		rm -f "${TMP_FILE}"
@@ -1552,14 +1693,12 @@ inst_AdGuardHome() {
 				return
 			fi
 		fi
-		if ! agh_prepare_binary_replace; then
+		if ! install_adguard_archive "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}"; then
+			rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 			end_op_message 1 "$1"
 			return
 		fi
-		tar xzv -C "${BASE_DIR}" -f "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" >/dev/null 2>&1
-		chown "$(nvram get http_username)":root ${TARG_DIR}/*
-		rm -r "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
-		chmod 755 "${AGH_FILE}"
+		rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 		[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
 		if ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome || [ -z "$("${AGH_FILE}" --version | cut -d" " -f4-)" ]; then
 			PTXT "${ERROR} Failed to download AdGuardHome package for your router"
@@ -1567,21 +1706,40 @@ inst_AdGuardHome() {
 			return
 		fi
 	fi
-	create_dir "${ADDON_DIR}"
+	if ! create_dir "${ADDON_DIR}"; then
+		end_op_message 1 "$1"
+		return 1
+	fi
 	cleanup_legacy_firewall
-	download_file "${ADDON_DIR}" 755 "${RURL}/AdGuardHome.sh"
-	download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome"
-	download_file "/opt/etc/init.d" 644 "${RURL}/rc.func.AdGuardHome"
+	if ! download_file "${ADDON_DIR}" 755 "${RURL}/AdGuardHome.sh" ||
+		! download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome" ||
+		! download_file "/opt/etc/init.d" 644 "${RURL}/rc.func.AdGuardHome"; then
+		PTXT "${ERROR} Required AdGuardHome service files could not be installed."
+		end_op_message 1 "$1"
+		return 1
+	fi
 	[ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
 	for i in init-start services-stop; do { if { ! grep -q "${ADDON_DIR}/AdGuardHome.sh $i &" "/jffs/scripts/${i}" && grep -q "${ADDON_DIR}/AdGuardHome.sh $i" "/jffs/scripts/${i}"; }; then del_jffs_script "/jffs/scripts/${i}"; fi; }; done
-	write_manager_script /jffs/scripts/init-start "init-start &"
-	write_manager_script /jffs/scripts/services-stop "services-stop &"
-	write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
-	write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'
+	if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
+		! write_manager_script /jffs/scripts/services-stop "services-stop &" ||
+		! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq ||
+		! write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'; then
+		PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
+		end_op_message 1 "$1"
+		return 1
+	fi
 	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
-	if nvram get rc_support | grep -q 'mtlancfg'; then write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; fi
+	if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
+		PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
+		end_op_message 1 "$1"
+		return 1
+	fi
 	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
-	write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
+	if ! write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'; then
+		PTXT "${ERROR} Required service-event-end hook could not be configured."
+		end_op_message 1 "$1"
+		return 1
+	fi
 	if [ "${1:-update}" != "update" ]; then
 		if [ ! -f "${ADDON_DIR}/localtime" ]; then
 			PTXT "${INFO} Before setting up AdGuardHome, please choose your right timezone!"
@@ -1865,15 +2023,25 @@ write_command_script() {
 	FILENAME="${TARG##*/}"
 	if [ ! -f "${TARG}" ]; then
 		PTXT "${INFO} Creating ${FILENAME} file"
-		PTXT "#!/bin/sh" >"${TARG}"
+		if ! PTXT "#!/bin/sh" >"${TARG}"; then
+			PTXT "${ERROR} Unable to create ${TARG}"
+			return 1
+		fi
 	fi
-	chmod 755 "${TARG}"
+	if ! chmod 755 "${TARG}"; then
+		PTXT "${ERROR} Unable to set executable permissions on ${TARG}"
+		return 1
+	fi
 	if [ "$(grep -c -F "${COMMAND}" "${TARG}")" -gt 0 ]; then
 		PTXT "${INFO} ${FILENAME} file already configured"
 	else
 		PTXT "${INFO} Configure ${FILENAME} file"
-		PTXT "${COMMAND}" >>"${TARG}"
+		if ! PTXT "${COMMAND}" >>"${TARG}"; then
+			PTXT "${ERROR} Unable to update ${TARG}"
+			return 1
+		fi
 	fi
+	return 0
 }
 
 write_conf() {
@@ -1888,10 +2056,17 @@ write_conf() {
 	fi
 	if grep -q "^${VAR}=" "${CONF_FILE}"; then
 		VALUE=$(_quote "${VALUE}")
-		sed -i "/^${VAR}=/s/=.*/=${VALUE}/" "${CONF_FILE}"
+		if ! sed -i "/^${VAR}=/s/=.*/=${VALUE}/" "${CONF_FILE}"; then
+			PTXT "${ERROR} Unable to update ${VAR} in ${CONF_FILE}"
+			return 1
+		fi
 	else
-		PTXT "${VAR}=${VALUE}" >>"${CONF_FILE}"
+		if ! PTXT "${VAR}=${VALUE}" >>"${CONF_FILE}"; then
+			PTXT "${ERROR} Unable to append ${VAR} to ${CONF_FILE}"
+			return 1
+		fi
 	fi
+	return 0
 }
 
 write_manager_script() {
@@ -1902,22 +2077,38 @@ write_manager_script() {
 	COMMAND="${ADDON_DIR}/AdGuardHome.sh"
 	if [ ! -f "${TARG}" ]; then
 		PTXT "${INFO} Creating ${FILENAME} file"
-		PTXT "#!/bin/sh" >"${TARG}"
+		if ! PTXT "#!/bin/sh" >"${TARG}"; then
+			PTXT "${ERROR} Unable to create ${TARG}"
+			return 1
+		fi
 	fi
-	chmod 755 "${TARG}" "${COMMAND}"
-	del_between_magic "${TARG}" Asuswrt-Merlin-AdGuardHome-Installer
+	if ! chmod 755 "${TARG}" "${COMMAND}"; then
+		PTXT "${ERROR} Unable to set executable permissions for ${FILENAME}"
+		return 1
+	fi
+	del_between_magic "${TARG}" Asuswrt-Merlin-AdGuardHome-Installer || return 1
 	if [ "$(grep -c -F "[ -x ${COMMAND} ] && ${COMMAND} ${OP}" "${TARG}")" -gt 0 ]; then
 		PTXT "${INFO} ${FILENAME} file already configured"
 	else
 		PTXT "${INFO} Configure ${FILENAME} file"
 		if grep -q "^${COMMAND}" "${TARG}"; then
-			sed -i "s~^${COMMAND}~[ -x ${COMMAND} ] \&\& ${COMMAND} ${OP}~" "${TARG}"
+			if ! sed -i "s~^${COMMAND}~[ -x ${COMMAND} ] \&\& ${COMMAND} ${OP}~" "${TARG}"; then
+				PTXT "${ERROR} Unable to update ${TARG}"
+				return 1
+			fi
 		else
-			del_jffs_script "${TARG}" !manager
-			[ "$(tail -1 "${TARG}" | grep -c '^$')" -eq 0 ] && PTXT "" >>"${TARG}"
-			PTXT "[ -x ${COMMAND} ] && ${COMMAND} ${OP}" >>"${TARG}"
+			del_jffs_script "${TARG}" !manager || return 1
+			if [ "$(tail -1 "${TARG}" | grep -c '^$')" -eq 0 ] && ! PTXT "" >>"${TARG}"; then
+				PTXT "${ERROR} Unable to update ${TARG}"
+				return 1
+			fi
+			if ! PTXT "[ -x ${COMMAND} ] && ${COMMAND} ${OP}" >>"${TARG}"; then
+				PTXT "${ERROR} Unable to update ${TARG}"
+				return 1
+			fi
 		fi
 	fi
+	return 0
 }
 
 yaml_nvars_append() {
@@ -2096,29 +2287,33 @@ menu() {
 }
 
 read_input_dns() {
-	PTXT -n "${INPUT} ${1} ${BOLD}${2}: ${NORM}"
 	local DNS_SERVER
-	read -r DNS_SERVER
-	[ -z "${DNS_SERVER}" ] && DNS_SERVER="$2"
-	if ! ipv4_is_valid "${DNS_SERVER}"; then
-		PTXT "${ERROR} Invalid DNS server address entered"
-		read_input_dns "$@"
-		return
-	fi
-	if [ "${DNS_SERVER1}" = "${DNS_SERVER}" ]; then
-		PTXT "${ERROR} ${DNS_SERVER} DNS server address already entered, please try again!"
-		read_input_dns "$@"
-		return
-	fi
-	case "$1" in
-		"Default is")
-			BOOTSTRAP1="${DNS_SERVER}"
-			DNS_SERVER1="${DNS_SERVER}"
-			;;
-		"2nd Default is")
-			BOOTSTRAP2="${DNS_SERVER}"
-			;;
-	esac
+	while :; do
+		PTXT -n "${INPUT} ${1} ${BOLD}${2}: ${NORM}"
+		if ! read -r DNS_SERVER; then
+			PTXT "" "${ERROR} Unable to read DNS server input."
+			return 1
+		fi
+		[ -z "${DNS_SERVER}" ] && DNS_SERVER="$2"
+		if ! ipv4_is_valid "${DNS_SERVER}"; then
+			PTXT "${ERROR} Invalid DNS server address entered"
+			continue
+		fi
+		if [ "${DNS_SERVER1:-}" = "${DNS_SERVER}" ]; then
+			PTXT "${ERROR} ${DNS_SERVER} DNS server address already entered, please try again!"
+			continue
+		fi
+		case "$1" in
+			"Default is")
+				BOOTSTRAP1="${DNS_SERVER}"
+				DNS_SERVER1="${DNS_SERVER}"
+				;;
+			"2nd Default is")
+				BOOTSTRAP2="${DNS_SERVER}"
+				;;
+		esac
+		return 0
+	done
 }
 
 read_input_num() {
@@ -2127,72 +2322,79 @@ read_input_num() {
 	[ -n "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}]"
 	[ -n "$4" ] && [ -n "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}/${5}]"
 	[ -n "$4" ] && [ -n "$5" ] && [ -n "$6" ] && RANGE="[${2}-${3}/${4}/${5}/${6}]"
-	PTXT -n "${INPUT} ${1}, ${BOLD}${RANGE}${NORM}: "
-	read -r CHOSEN
-	case "$1" in
-		*)
-			if [ -z "${CHOSEN}" ]; then
-				PTXT "${ERROR} Invalid character(s) entered! Retrying..."
-				read_input_num "$@"
-				return
-			fi
-			;;
-	esac
-	case "${CHOSEN}" in
-		"$4" | "$5" | "$6")
+	while :; do
+		PTXT -n "${INPUT} ${1}, ${BOLD}${RANGE}${NORM}: "
+		if ! read -r CHOSEN; then
+			PTXT "" "${ERROR} Unable to read menu selection."
 			return 1
-			;;
-		"$2" | "$3" | *)
-			if ! PTXT "${CHOSEN}" | grep -qE '^[0-9]+$'; then
-				PTXT "${ERROR} Invalid character(s) entered! Retrying..."
-				read_input_num "$@"
-				return
-			fi
-			if [ "${CHOSEN}" -lt "$2" ] || [ "${CHOSEN}" -gt "$3" ]; then
-				PTXT "${ERROR} Chosen number is not in range! Retrying..."
-				read_input_num "$@"
-				return
-			fi
-			;;
-	esac
+		fi
+		if [ -z "${CHOSEN}" ]; then
+			PTXT "${ERROR} Invalid character(s) entered! Retrying..."
+			continue
+		fi
+		case "${CHOSEN}" in
+			"$4" | "$5" | "$6")
+				return 1
+				;;
+			*)
+				if ! PTXT "${CHOSEN}" | grep -qE '^[0-9]+$'; then
+					PTXT "${ERROR} Invalid character(s) entered! Retrying..."
+					continue
+				fi
+				if [ "${CHOSEN}" -lt "$2" ] || [ "${CHOSEN}" -gt "$3" ]; then
+					PTXT "${ERROR} Chosen number is not in range! Retrying..."
+					continue
+				fi
+				return 0
+				;;
+		esac
+	done
 }
 
 read_input_port() {
-	PTXT -n "${INPUT} ${1} ${BOLD}${2}: ${NORM}"
-	read -r WEB_PORT
-	[ -z "${WEB_PORT}" ] && WEB_PORT="$2"
-	if ! PTXT "${WEB_PORT}" | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' || { [ "${WEB_PORT}" -lt 3000 ] || [ "${WEB_PORT}" -gt 65535 ]; }; then
-		PTXT "${ERROR} Invalid Web Port entered, only Web Ports residing within the port range 3000-65535 are selectable."
-		read_input_port "$@"
-		return
-	fi
-	if ! ai_have_cmd netstat; then
-		PTXT "${ERROR} Unable to verify the Web Port because netstat is unavailable."
-		return 1
-	fi
-	if netstat -nlp 2>/dev/null | grep -qE "(:${WEB_PORT}[[:space:]])"; then
-		PTXT "${ERROR} ${WEB_PORT} already in use, please choose a different port!"
-		read_input_port "$@"
-		return
-	fi
+	while :; do
+		PTXT -n "${INPUT} ${1} ${BOLD}${2}: ${NORM}"
+		if ! read -r WEB_PORT; then
+			PTXT "" "${ERROR} Unable to read Web Port input."
+			return 1
+		fi
+		[ -z "${WEB_PORT}" ] && WEB_PORT="$2"
+		if ! port_is_valid "${WEB_PORT}"; then
+			PTXT "${ERROR} Invalid Web Port entered, only Web Ports residing within the port range 3000-65535 are selectable."
+			continue
+		fi
+		if ! ai_have_cmd netstat; then
+			PTXT "${ERROR} Unable to verify the Web Port because netstat is unavailable."
+			return 1
+		fi
+		if netstat -nl 2>/dev/null | grep -qE "(:${WEB_PORT}[[:space:]])"; then
+			PTXT "${ERROR} ${WEB_PORT} already in use, please choose a different port!"
+			continue
+		fi
+		return 0
+	done
 }
 
 read_yesno() {
-	PTXT -n "${INPUT} ${1} ${BOLD}[y/n]${NORM}: "
 	local YESNO
-	read -r YESNO
-	case "${YESNO}" in
-		y | Y)
-			return 0
-			;;
-		n | N)
+	while :; do
+		PTXT -n "${INPUT} ${1} ${BOLD}[y/n]${NORM}: "
+		if ! read -r YESNO; then
+			PTXT "" "${ERROR} Unable to read confirmation input."
 			return 1
-			;;
-		*)
-			PTXT "${ERROR} Invalid input!"
-			read_yesno "$@"
-			;;
-	esac
+		fi
+		case "${YESNO}" in
+			y | Y)
+				return 0
+				;;
+			n | N)
+				return 1
+				;;
+			*)
+				PTXT "${ERROR} Invalid input!"
+				;;
+		esac
+	done
 }
 
 installer_dependencies_available || exit 1

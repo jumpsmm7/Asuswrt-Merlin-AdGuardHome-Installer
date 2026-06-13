@@ -1,8 +1,12 @@
 #!/bin/sh
 
+export LC_ALL=C
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH:-}"
+
 SCRIPT_LOC=""
 ADGUARDHOME_BINARY="/opt/sbin/AdGuardHome"
 CONF_FILE="/opt/etc/AdGuardHome/.config"
+DNS_HANDOFF_FILE="${DNS_HANDOFF_FILE:-/tmp/AdGuardHome.dns-handoff}"
 MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
@@ -94,7 +98,7 @@ manager_dependencies_available() {
 	local REQUIRED_COMMAND
 	# Keep optional IPSET-only tools out of this startup gate.  If an IPSET
 	# helper is unavailable, IPSET setup is skipped and AdGuardHome still starts.
-	for REQUIRED_COMMAND in awk grep ln logger mkdir nvram pidof rm sed service sleep; do
+	for REQUIRED_COMMAND in awk date grep kill ln logger mkdir nvram pidof rm sed service sleep wc; do
 		if ! have_cmd "${REQUIRED_COMMAND}"; then
 			printf '%s\n' "${NAME}: required command is unavailable: ${REQUIRED_COMMAND}" >&2
 			return 1
@@ -443,6 +447,16 @@ dnsmasq_delete_matching() {
 	sed -i "${SED_SCRIPT}" "${CONFIG}"
 }
 
+dns_handoff_is_active() {
+	local HANDOFF_PID
+	[ -f "${DNS_HANDOFF_FILE}" ] || return 1
+	IFS= read -r HANDOFF_PID <"${DNS_HANDOFF_FILE}" || return 1
+	case "${HANDOFF_PID}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	[ "${HANDOFF_PID}" -gt 1 ] && kill -0 "${HANDOFF_PID}" 2>/dev/null
+}
+
 dnsmasq_params() {
 	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
 	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then {
@@ -450,7 +464,7 @@ dnsmasq_params() {
 	}; fi
 	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 		0)
-			return 0
+			dns_handoff_is_active || return 0
 			;;
 		*)
 			:
@@ -967,27 +981,37 @@ start_monitor() {
 }
 
 stop_adguardhome() {
+	local STOP_STATUS
+	STOP_STATUS="0"
 	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 		0)
 			:
 			;;
 		*)
-			lower_script stop || lower_script kill
+			if ! lower_script stop && ! lower_script kill; then
+				STOP_STATUS="1"
+			fi
 			;;
 	esac
+	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -ne 0 ]; then
+		logger -st "${NAME}" "Unable to stop ${PROCS}; process remains active."
+		STOP_STATUS="1"
+	fi
 	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
-		service restart_dnsmasq >/dev/null 2>&1
+		if ! service restart_dnsmasq >/dev/null 2>&1; then
+			logger -st "${NAME}" "Unable to restart dnsmasq after stopping ${PROCS}."
+			STOP_STATUS="1"
+		fi
 	fi
 	for db in stats.db sessions.db; do {
 		if [ "$(canonical_path "/tmp/${db}" 2>/dev/null)" = "$(canonical_path "${WORK_DIR}/data/${db}" 2>/dev/null)" ]; then {
 			rm "/tmp/${db}" >/dev/null 2>&1
 		}; fi
 	}; done
-	if { service_wait netcheck 300; }; then
-		return 0
-	else
-		return 1
+	if ! service_wait netcheck 300; then
+		STOP_STATUS="1"
 	fi
+	return "${STOP_STATUS}"
 }
 
 stop_monitor() {

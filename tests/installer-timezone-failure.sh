@@ -52,7 +52,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	adguard_remote_url() { printf '%s\n' 'https://example.invalid/AdGuardHome_test.tar.gz'; }
 	download_file() { return 0; }
 	md5_is_valid() { return 1; }
-	agh_prepare_binary_replace() { return 0; }
+	install_adguard_archive() { return 0; }
 	create_dir() { mkdir -p "$1"; }
 	cleanup_legacy_firewall() { :; }
 	yaml_nvars_delete() { :; }

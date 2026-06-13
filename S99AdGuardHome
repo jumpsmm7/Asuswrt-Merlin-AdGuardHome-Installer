@@ -1,10 +1,14 @@
 #!/bin/sh
+export LC_ALL=C
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH:-}"
+
 which renice >/dev/null 2>&1 && renice -10 $$ >/dev/null 2>&1
 ENABLED="yes"
 WORK_DIR="/opt/etc/AdGuardHome"
 LOG_FILE="syslog"
 PID_FILE="/opt/var/run/AdGuardHome.pid"
 PROCS="AdGuardHome"
+DNS_HANDOFF_FILE="/tmp/AdGuardHome.dns-handoff"
 GOGC="40"
 CPU_COUNT=""
 if which grep >/dev/null 2>&1; then
@@ -40,7 +44,7 @@ PREARGS="env TZ=/etc/localtime GOGC=${GOGC} GOMAXPROCS=${GOMAXPROCS} GOMEMLIMIT=
 # DNS handoff helpers
 
 dns_handoff_dependencies_available() {
-	for _dns_command in awk kill netstat pidof service sleep; do
+	for _dns_command in awk kill netstat pidof rm service sleep; do
 		if ! which "${_dns_command}" >/dev/null 2>&1; then
 			if which logger >/dev/null 2>&1; then
 				logger -st "${PROCS}" "Required DNS handoff command is unavailable: ${_dns_command}"
@@ -50,6 +54,42 @@ dns_handoff_dependencies_available() {
 			return 1
 		fi
 	done
+	return 0
+}
+
+disable_dns_handoff() {
+	_dns_handoff_pid=""
+	if [ -f "${DNS_HANDOFF_FILE}" ]; then
+		IFS= read -r _dns_handoff_pid <"${DNS_HANDOFF_FILE}" || _dns_handoff_pid=""
+	fi
+	if [ -n "${_dns_handoff_pid}" ] && [ "${_dns_handoff_pid}" != "$$" ]; then
+		logger -st "${PROCS}" "Refusing to remove a dnsmasq handoff owned by PID ${_dns_handoff_pid}."
+		return 1
+	fi
+	if ! rm -f "${DNS_HANDOFF_FILE}"; then
+		logger -st "${PROCS}" "Unable to disable the dnsmasq port 553 handoff."
+		return 1
+	fi
+	return 0
+}
+
+enable_dns_handoff() {
+	if [ -L "${DNS_HANDOFF_FILE}" ]; then
+		logger -st "${PROCS}" "Refusing to replace a symbolic-link dnsmasq handoff marker."
+		return 1
+	fi
+	if ! printf '%s\n' "$$" >"${DNS_HANDOFF_FILE}"; then
+		logger -st "${PROCS}" "Unable to enable the dnsmasq port 553 handoff."
+		return 1
+	fi
+	if ! service restart_dnsmasq >/dev/null 2>&1; then
+		if disable_dns_handoff; then
+			service restart_dnsmasq >/dev/null 2>&1 ||
+				logger -st "${PROCS}" "Unable to restore dnsmasq after the port 553 handoff failed."
+		fi
+		logger -st "${PROCS}" "Unable to regenerate dnsmasq configuration for the port 553 handoff."
+		return 1
+	fi
 	return 0
 }
 
@@ -78,16 +118,19 @@ adguardhome_owns_dns() {
 kill_dns_port_owners() {
 	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
 	_dns_pids="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
-		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && $0 !~ "/" proc "([[:space:]]|$)" {
-			split($7, pid_parts, "/")
-			if (pid_parts[1] ~ /^[0-9]+$/ && !seen[pid_parts[1]]++) printf "%s ", pid_parts[1]
-		}
-		$0 ~ /^(udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && $0 !~ "/" proc "([[:space:]]|$)" {
-			split($6, pid_parts, "/")
-			if (pid_parts[1] ~ /^[0-9]+$/ && !seen[pid_parts[1]]++) printf "%s ", pid_parts[1]
+		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && $0 !~ "/" proc "([[:space:]]|$)" {
+			for (field = 1; field <= NF; field++) {
+				if ($field ~ /^[0-9]+\/[^[:space:]]+$/) {
+					split($field, pid_parts, "/")
+					if (pid_parts[1] > 1 && !seen[pid_parts[1]]++) printf "%s ", pid_parts[1]
+					break
+				}
+			}
 		}
 	')"
-	[ -n "${_dns_pids}" ] && kill -s 9 ${_dns_pids} 2>/dev/null
+	[ -n "${_dns_pids}" ] || return 0
+	# Intentional word splitting: awk returns a whitespace-delimited PID list.
+	kill -s 9 ${_dns_pids} 2>/dev/null
 }
 
 dns_port_available() {
@@ -140,10 +183,13 @@ guard_dns_port_for_adguardhome() {
 post_start_adguardhome() {
 	if ! wait_for_adguardhome_dns; then
 		stop_dns_port_guard
+		disable_dns_handoff ||
+			logger -st "${PROCS}" "The dnsmasq port 553 handoff marker requires manual cleanup."
 		logger -st "${PROCS}" "AdGuardHome did not acquire TCP and UDP port 53; startup will be rolled back."
 		return 1
 	fi
 	stop_dns_port_guard
+	disable_dns_handoff || return 1
 	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
 		service restart_dnsmasq >/dev/null 2>&1 || return 1
 	fi
@@ -152,6 +198,7 @@ post_start_adguardhome() {
 
 post_start_failure_adguardhome() {
 	stop_dns_port_guard
+	disable_dns_handoff || return 1
 	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" = "1" ] && return 0
 	service restart_dnsmasq >/dev/null 2>&1
 }
@@ -160,6 +207,7 @@ pre_start_adguardhome() {
 	_dns_stop_attempts="0"
 	_dns_stop_limit="$(dns_retry_limit "${ADGUARDHOME_DNSMASQ_STOP_RETRIES:-}" 10)"
 	dns_handoff_dependencies_available || return 1
+	enable_dns_handoff || return 1
 	ulimit -v 1750000 2>/dev/null || true
 	ulimit -m 450000 2>/dev/null || true
 	ulimit -s 8192 2>/dev/null || true
@@ -186,7 +234,6 @@ PRECMD="pre_start_adguardhome"
 POSTCMD="post_start_adguardhome"
 POSTFAILCMD="post_start_failure_adguardhome"
 DESC="${PROCS}"
-PATH="/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 TZ="$(sed -n '1p' /etc/TZ 2>/dev/null)"
 export TZ
 [ -z "${SCRIPT_LOC}" ] && . /jffs/addons/AdGuardHome.d/AdGuardHome.sh

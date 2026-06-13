@@ -90,7 +90,11 @@ run_check 'md5sum files match installer artifacts' sh tools/check-md5.sh
 run_check 'Repository shell portability regression' sh tools/check-shell-portability.sh
 run_check 'Command failure propagation regression' sh tests/command-failure-propagation.sh
 run_check 'Canonical path final-symlink regression' sh tests/canonical-path-symlink.sh
+run_check 'Router runtime PATH priority regression' sh tests/router-path-priority.sh
+run_check 'Static archive failure safety regression' sh tests/download-static-failure-safety.sh
+run_check 'Installer file failure safety regression' sh tests/installer-file-failure-safety.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
+run_check 'Installer iterative input regression' sh tests/installer-input-loops.sh
 run_check 'Installer WebUI port failure regression' sh tests/installer-web-port-failure.sh
 run_check 'Installer timezone failure regression' sh tests/installer-timezone-failure.sh
 run_check 'Installer branch switch cancellation regression' sh tests/installer-branch-switch-cancel.sh
@@ -98,6 +102,7 @@ run_check 'Installer local-cache preference save failure regression' sh tests/in
 run_check 'Installer IPSET preference save failure regression' sh tests/installer-ipset-save-failure.sh
 run_check 'Installer setup IPSET preference save failure regression' sh tests/installer-ipset-setup-save-failure.sh
 run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
+run_check 'AdGuardHome stop failure regression' sh tests/stop-adguardhome-failure.sh
 run_check 'AdGuardHome monitor retry backoff regression' sh tests/monitor-retry-backoff.sh
 run_check 'AdGuardHome DNS startup handoff regression' sh tests/dns-startup-handoff.sh
 run_check 'AdGuardHome IPSET version gate regression' sh tests/ipset-version-gate.sh

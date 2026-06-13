@@ -1,5 +1,8 @@
 #!/bin/sh
 
+export LC_ALL=C
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH:-}"
+
 ACTION="$1"
 CALLER="${2:-$0}"
 
@@ -20,7 +23,7 @@ ansi_ul="$(printf "\033[4m")"
 
 rc_dependencies_available() {
 	local _REQUIRED_COMMAND
-	for _REQUIRED_COMMAND in grep kill killall logger pidof; do
+	for _REQUIRED_COMMAND in grep kill killall logger pidof sleep; do
 		if ! which "${_REQUIRED_COMMAND}" >/dev/null 2>&1; then
 			printf '%s\n' "${CALLER}: required service command is unavailable: ${_REQUIRED_COMMAND}" >&2
 			return 1
@@ -119,7 +122,15 @@ start() {
 	fi
 	{ ${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null & }
 	#echo ${PREARGS} ${PROC} ${ARGS}
-	process_wait_for_start "${PROC}" 10
+	if ! process_wait_for_start "${PROC}" 10; then
+		if [ -n "${POSTFAILCMD:-}" ]; then
+			${POSTFAILCMD} >/dev/null 2>&1 || logger -st "${CALLER}" "Failed-start recovery failed for ${DESC} from ${CALLER}."
+		fi
+		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
+		logger -st "${CALLER}" "Failed to start ${DESC} from ${CALLER}."
+		[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
+		return 255
+	fi
 	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then
 		if ! ${POSTCMD} >/dev/null 2>&1; then
 			STOPPED=0
