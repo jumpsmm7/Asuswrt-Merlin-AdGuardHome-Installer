@@ -1360,7 +1360,7 @@ install_adguard_archive() {
 		rm -rf "${STAGE_DIR}"
 		return 1
 	fi
-	if [ -f "${AGH_FILE}" ] && ! mv "${AGH_FILE}" "${OLD_BINARY}"; then
+	if [ -f "${AGH_FILE}" ] && ! cp -p "${AGH_FILE}" "${OLD_BINARY}"; then
 		rm -rf "${STAGE_DIR}"
 		PTXT "${ERROR} Unable to preserve the installed AdGuardHome binary."
 		adguard_restart_after_failed_replace "${WAS_RUNNING}"

@@ -30,6 +30,7 @@ awk '
 	/^adguard_restart_after_failed_replace\(\)/,/^}/
 	/^adguard_restore_after_failed_replace\(\)/,/^}/
 	/^create_backup_archive\(\)/,/^}/
+	/^install_adguard_archive\(\)/,/^}/
 	/^download_file\(\)/,/^}/
 	/^write_command_script\(\)/,/^}/
 	/^write_conf\(\)/,/^}/
@@ -72,6 +73,57 @@ awk '
 	fi
 	[ "$(sed -n '1p' "${TMP_DIR}/target/component")" = "old working copy" ] ||
 		fail "download_file replaced the working copy before chmod succeeded"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	INFO="Info:"
+	ERROR="Error:"
+	BASE_DIR="${TMP_DIR}/atomic-install"
+	TARG_DIR="${BASE_DIR}/target"
+	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	ARCHIVE_FILE="${BASE_DIR}/AdGuardHome.tar.gz"
+	PUBLISHED_DURING_REPLACE="0"
+	mkdir -p "${BASE_DIR}/archive/AdGuardHome" "${TARG_DIR}" || exit 1
+	cat >"${BASE_DIR}/archive/AdGuardHome/AdGuardHome" <<'EOF'
+#!/bin/sh
+printf '%s\n' "AdGuard Home, version new"
+EOF
+	chmod 755 "${BASE_DIR}/archive/AdGuardHome/AdGuardHome" || exit 1
+	printf '%s\n' "old binary" >"${AGH_FILE}"
+	tar -czf "${ARCHIVE_FILE}" -C "${BASE_DIR}/archive" AdGuardHome || exit 1
+
+	agh_process_count() {
+		printf '%s\n' "0"
+	}
+
+	agh_prepare_binary_replace() {
+		return 0
+	}
+
+	nvram() {
+		printf '%s\n' "root"
+	}
+
+	chown() {
+		return 0
+	}
+
+	mv() {
+		if [ "$2" = "${AGH_FILE}" ] && [ -f "${AGH_FILE}" ]; then
+			PUBLISHED_DURING_REPLACE="1"
+		fi
+		command mv "$@"
+	}
+
+	install_adguard_archive "${ARCHIVE_FILE}" >/dev/null ||
+		fail "install_adguard_archive failed during atomic replacement test"
+	[ "${PUBLISHED_DURING_REPLACE}" -eq 1 ] ||
+		fail "installed binary was unpublished before staged replacement"
+	[ "$("${AGH_FILE}" --version)" = "AdGuard Home, version new" ] ||
+		fail "staged binary was not installed"
 ) || exit 1
 
 (
