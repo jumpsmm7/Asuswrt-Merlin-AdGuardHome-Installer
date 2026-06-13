@@ -20,7 +20,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}/out/armv7" || fail "could not create test directory"
 
-sed -n '/^append_metadata() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^recover_metadata_publication() {$/,/^}$/p; /^archive_publication_owner_is_active() {$/,/^}$/p; /^acquire_archive_publication_state() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p' \
+sed -n '/^append_metadata() {$/,/^}$/p; /^acquire_metadata_publication_lock() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^recover_metadata_publication() {$/,/^}$/p; /^release_metadata_publication_lock() {$/,/^}$/p; /^archive_publication_owner_is_active() {$/,/^}$/p; /^acquire_archive_publication_state() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail "static download helpers were not found"
 
@@ -143,6 +143,25 @@ recover_archive_publication "${TEST_ROOT}/archive" >/dev/null 2>&1 ||
 	fail "interrupted publication state was not cleared"
 
 mkdir -p "${TEST_ROOT}/metadata" || fail "could not create metadata directory"
+acquire_metadata_publication_lock "${TEST_ROOT}/metadata" ||
+	fail "could not acquire metadata publication lock"
+if acquire_metadata_publication_lock "${TEST_ROOT}/metadata" >/dev/null 2>&1; then
+	fail "concurrent metadata generation acquired the active lock"
+fi
+[ ! -e "${TEST_ROOT}/metadata/VERSION.txt.tmp" ] ||
+	fail "lock contention modified shared VERSION metadata"
+[ ! -e "${TEST_ROOT}/metadata/checksum.txt.tmp" ] ||
+	fail "lock contention modified shared checksum metadata"
+release_metadata_publication_lock "${TEST_ROOT}/metadata" ||
+	fail "could not release metadata publication lock"
+mkdir "${TEST_ROOT}/metadata/.metadata.lock" ||
+	fail "could not create abandoned metadata lock"
+printf '%s\n' "abandoned" >"${TEST_ROOT}/metadata/.metadata.lock/owner"
+acquire_metadata_publication_lock "${TEST_ROOT}/metadata" ||
+	fail "could not recover abandoned metadata publication lock"
+release_metadata_publication_lock "${TEST_ROOT}/metadata" ||
+	fail "could not release recovered metadata publication lock"
+
 printf '%s\n' "old version" >"${TEST_ROOT}/metadata/VERSION.txt"
 printf '%s\n' "old metadata checksum" >"${TEST_ROOT}/metadata/checksum.txt"
 printf '%s\n' "new version" >"${TEST_ROOT}/metadata/VERSION.txt.tmp"
