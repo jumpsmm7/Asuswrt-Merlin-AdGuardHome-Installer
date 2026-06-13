@@ -229,7 +229,7 @@ publish_metadata_files() {
 	rm -f "${_version_backup}" "${_checksum_backup}"
 	if [ -f "${_version_file}" ]; then
 		_had_version=1
-		if ! mv "${_version_file}" "${_version_backup}"; then
+		if ! cp -p "${_version_file}" "${_version_backup}"; then
 			rm -f "${_version_tmp}" "${_checksum_tmp}"
 			printf '%s\n' "Error: could not preserve ${_version_file}" >&2
 			FAILED=1
@@ -238,14 +238,10 @@ publish_metadata_files() {
 	fi
 	if [ -f "${_checksum_file}" ]; then
 		_had_checksum=1
-		if ! mv "${_checksum_file}" "${_checksum_backup}"; then
-			if [ "${_had_version}" -eq 1 ]; then
-				mv "${_version_backup}" "${_version_file}" || _restore_failed=1
-			fi
+		if ! cp -p "${_checksum_file}" "${_checksum_backup}"; then
+			rm -f "${_version_backup}"
 			rm -f "${_version_tmp}" "${_checksum_tmp}"
 			printf '%s\n' "Error: could not preserve ${_checksum_file}" >&2
-			[ "${_restore_failed}" -eq 0 ] ||
-				printf '%s\n' "Error: previous metadata remains at ${_version_backup}" >&2
 			FAILED=1
 			return 1
 		fi

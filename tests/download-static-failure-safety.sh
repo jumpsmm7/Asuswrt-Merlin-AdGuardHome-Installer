@@ -75,8 +75,17 @@ printf '%s\n' "old version" >"${TEST_ROOT}/metadata/VERSION.txt"
 printf '%s\n' "old metadata checksum" >"${TEST_ROOT}/metadata/checksum.txt"
 printf '%s\n' "new version" >"${TEST_ROOT}/metadata/VERSION.txt.tmp"
 printf '%s\n' "new metadata checksum" >"${TEST_ROOT}/metadata/checksum.txt.tmp"
+METADATA_WAS_PUBLISHED=0
 mv() {
 	case "$1" in
+		*/VERSION.txt.tmp)
+			if [ -f "${TEST_ROOT}/metadata/VERSION.txt" ] &&
+				[ -f "${TEST_ROOT}/metadata/checksum.txt" ] &&
+				[ "$(sed -n '1p' "${TEST_ROOT}/metadata/VERSION.txt")" = "old version" ] &&
+				[ "$(sed -n '1p' "${TEST_ROOT}/metadata/checksum.txt")" = "old metadata checksum" ]; then
+				METADATA_WAS_PUBLISHED=1
+			fi
+			;;
 		*/checksum.txt.tmp)
 			return 1
 			;;
@@ -90,5 +99,7 @@ fi
 	fail "failed metadata publication did not restore VERSION.txt"
 [ "$(sed -n '1p' "${TEST_ROOT}/metadata/checksum.txt")" = "old metadata checksum" ] ||
 	fail "failed metadata publication did not restore checksum.txt"
+[ "${METADATA_WAS_PUBLISHED}" -eq 1 ] ||
+	fail "metadata publication removed previous files before replacement"
 
 printf '%s\n' "PASS: static archive and metadata publication preserves complete working sets on failure"
