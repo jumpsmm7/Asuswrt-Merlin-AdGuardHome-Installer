@@ -48,6 +48,7 @@ read_input_port() {
 }
 write_conf() {
 	printf '%s\n' "$*" >>"${WRITE_LOG}"
+	[ "${FAIL_WRITE_CONF:-0}" -eq 0 ]
 }
 yaml_nvars_replace() {
 	printf '%s\n' "$*" >>"${WRITE_LOG}"
@@ -60,9 +61,19 @@ check_dns_filter() { :; }
 check_dns_local() { :; }
 check_ipset() { :; }
 read_yesno() { return 1; }
+AdGuardHome_authen() { :; }
+read_input_dns() {
+	if [ -z "${BOOTSTRAP1:-}" ]; then
+		BOOTSTRAP1=9.9.9.9
+	else
+		BOOTSTRAP2=8.8.8.8
+	fi
+}
+ai_have_cmd() { return 1; }
 nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '1' ;;
+		get:lan_ipaddr) printf '%s\n' '192.168.1.1' ;;
 	esac
 }
 
@@ -101,4 +112,21 @@ fi
 [ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'reconfiguration did not restore the previous YAML after port selection failed'
 [ ! -e "${YAML_BAK}" ] || fail 'reconfiguration left the YAML backup behind after port selection failed'
 
-printf '%s\n' 'PASS: failed WebUI port verification aborts setup before persistence'
+printf '%s\n' 'working configuration' >"${YAML_FILE}"
+printf '%s\n' 'original configuration' >"${YAML_ORI}"
+: >"${WRITE_LOG}"
+YAML_CHECKS=0
+FAIL_WRITE_CONF=1
+read_input_port() {
+	WEB_PORT=3000
+	return 0
+}
+if setup_AdGuardHome_impl reconfig reconfig; then
+	fail 'reconfiguration accepted a WebUI port that could not be persisted'
+fi
+grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail 'reconfiguration did not attempt to persist the selected WebUI port'
+[ "${YAML_CHECKS}" -eq 2 ] || fail 'reconfiguration did not validate the generated YAML before persisting the WebUI port'
+[ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'reconfiguration did not restore the previous YAML after WebUI port persistence failed'
+[ ! -e "${YAML_BAK}" ] || fail 'reconfiguration left the YAML backup behind after WebUI port persistence failed'
+
+printf '%s\n' 'PASS: failed WebUI port verification or persistence aborts setup safely'
