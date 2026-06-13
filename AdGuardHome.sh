@@ -34,7 +34,7 @@ have_cmd() {
 }
 
 canonical_path() {
-	local BASE DIR PATH_VALUE RESOLVED
+	local BASE DIR LINK_INFO LINK_TARGET LINK_COUNT PATH_VALUE RESOLVED
 	PATH_VALUE="$1"
 	if have_cmd readlink; then
 		RESOLVED="$(readlink -f "${PATH_VALUE}" 2>/dev/null)" || RESOLVED=""
@@ -47,6 +47,25 @@ canonical_path() {
 		/*) ;;
 		*) PATH_VALUE="${PWD}/${PATH_VALUE}" ;;
 	esac
+	LINK_COUNT=0
+	while [ -L "${PATH_VALUE}" ]; do
+		LINK_TARGET=""
+		if have_cmd readlink; then
+			LINK_TARGET="$(readlink "${PATH_VALUE}" 2>/dev/null)" || LINK_TARGET=""
+		elif have_cmd ls; then
+			LINK_INFO="$(ls -ld "${PATH_VALUE}" 2>/dev/null)" || LINK_INFO=""
+			case "${LINK_INFO}" in
+				*' -> '*) LINK_TARGET="${LINK_INFO#* -> }" ;;
+			esac
+		fi
+		[ -n "${LINK_TARGET}" ] || return 1
+		case "${LINK_TARGET}" in
+			/*) PATH_VALUE="${LINK_TARGET}" ;;
+			*) PATH_VALUE="${PATH_VALUE%/*}/${LINK_TARGET}" ;;
+		esac
+		LINK_COUNT=$((LINK_COUNT + 1))
+		[ "${LINK_COUNT}" -le 40 ] || return 1
+	done
 	BASE="${PATH_VALUE##*/}"
 	DIR="${PATH_VALUE%/*}"
 	[ -n "${BASE}" ] && [ -d "${DIR}" ] || return 1
