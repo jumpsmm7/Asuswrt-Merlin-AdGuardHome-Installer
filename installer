@@ -1293,9 +1293,15 @@ adguard_restore_after_failed_replace() {
 			PTXT "${ERROR} Unable to restore the previous AdGuardHome binary; it remains at ${OLD_BINARY}."
 			return 1
 		fi
-	elif [ "${WAS_RUNNING}" = "1" ]; then
-		PTXT "${ERROR} The previous AdGuardHome binary is unavailable for rollback."
-		return 1
+	else
+		if ! rm -f "${AGH_FILE}"; then
+			PTXT "${ERROR} Unable to remove the failed AdGuardHome binary."
+			return 1
+		fi
+		if [ "${WAS_RUNNING}" = "1" ]; then
+			PTXT "${ERROR} The previous AdGuardHome binary is unavailable for rollback."
+			return 1
+		fi
 	fi
 	adguard_restart_after_failed_replace "${WAS_RUNNING}"
 }

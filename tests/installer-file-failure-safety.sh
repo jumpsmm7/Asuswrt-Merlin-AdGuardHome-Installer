@@ -98,6 +98,14 @@ awk '
 		fail "previous binary was not restored"
 	[ "${RESTART_CALLS}" -eq 1 ] || fail "restored service was not restarted"
 
+	rm -f "${OLD_BINARY}"
+	printf '%s\n' "failed fresh binary" >"${AGH_FILE}"
+	RESTART_CALLS="0"
+	adguard_restore_after_failed_replace "${OLD_BINARY}" 0 >/dev/null ||
+		fail "fresh-install cleanup returned failure"
+	[ ! -e "${AGH_FILE}" ] || fail "failed fresh-install binary was not removed"
+	[ "${RESTART_CALLS}" -eq 0 ] || fail "fresh-install cleanup unexpectedly started the service"
+
 	printf '%s\n' "new binary" >"${AGH_FILE}"
 	printf '%s\n' "old binary" >"${OLD_BINARY}"
 	RESTART_CALLS="0"
