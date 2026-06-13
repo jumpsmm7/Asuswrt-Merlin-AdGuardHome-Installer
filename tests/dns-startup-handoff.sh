@@ -26,7 +26,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
+	'/^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_directory_is_private() {$/,/^}$/p; /^dns_handoff_marker_is_private() {$/,/^}$/p; /^dns_handoff_process_is_root() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed -n '/^dns_handoff_is_active() {$/,/^}$/p' "${MANAGER_PATH}" >>"${S99_FUNCTIONS}" ||
 	fail "could not read ${MANAGER_PATH}"
@@ -34,8 +34,8 @@ sed -n '/^stop_launched_process() {$/,/^}$/p; /^start() {$/,/^}$/p' "${RC_PATH}"
 	fail "could not read ${RC_PATH}"
 [ -s "${S99_FUNCTIONS}" ] || fail 'DNS handoff functions were not found'
 [ -s "${RC_FUNCTION}" ] || fail 'service start function was not found'
-grep -q 'DNS_HANDOFF_FILE="/tmp/AdGuardHome.dns-handoff"' "${S99_PATH}" ||
-	fail 'service script does not use the shared dnsmasq handoff marker'
+grep -q 'DNS_HANDOFF_DIR="/tmp/AdGuardHome.dns-handoff"' "${S99_PATH}" ||
+	fail 'service script does not use the private dnsmasq handoff directory'
 grep -q 'dns_handoff_is_active || return 0' "${MANAGER_PATH}" ||
 	fail 'dnsmasq postconf cannot run before AdGuardHome starts'
 
@@ -45,9 +45,11 @@ grep -q 'dns_handoff_is_active || return 0' "${MANAGER_PATH}" ||
 . "${RC_FUNCTION}"
 
 PROCS='AdGuardHome'
-DNS_HANDOFF_FILE="${TEST_ROOT}/dns-handoff"
-DNS_HANDOFF_LOCK="${DNS_HANDOFF_FILE}.lock"
+DNS_HANDOFF_DIR="${TEST_ROOT}/dns-handoff"
+DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
+DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
 DNS_HANDOFF_LOCK_OWNER="${DNS_HANDOFF_LOCK}/owner"
+umask 077
 logger() {
 	printf '%s\n' "logger $*" >>"${CALLS_FILE}"
 }
@@ -59,7 +61,7 @@ rm() {
 }
 which() {
 	case "$1" in
-		awk | kill | logger | mkdir | netstat | pidof | rm | rmdir | service | sleep)
+		awk | chmod | kill | logger | mkdir | netstat | pidof | rm | rmdir | service | sleep | stat)
 			return 0
 			;;
 	esac
@@ -124,11 +126,29 @@ DNS_STATE=busy
 DNSMASQ_RESTART_RELEASES_PORT=1
 enable_dns_handoff || fail 'could not enable the dnsmasq postconf handoff'
 [ -f "${DNS_HANDOFF_FILE}" ] || fail 'dnsmasq handoff marker was not created'
+[ "$(stat -c '%u:%a' "${DNS_HANDOFF_DIR}")" = '0:700' ] ||
+	fail 'dnsmasq handoff directory is not root-owned and private'
+[ "$(stat -c '%u:%a' "${DNS_HANDOFF_FILE}")" = '0:600' ] ||
+	fail 'dnsmasq handoff marker is not root-owned and private'
 [ "${DNS_STATE}" = free ] || fail 'dnsmasq was not regenerated onto its alternate port'
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'dnsmasq was not restarted to apply postconf'
 disable_dns_handoff
 [ ! -e "${DNS_HANDOFF_FILE}" ] || fail 'dnsmasq handoff marker was not removed'
 DNSMASQ_RESTART_RELEASES_PORT=0
+
+chmod 777 "${DNS_HANDOFF_DIR}" || fail 'could not make handoff directory insecure for validation test'
+printf '%s %s\n' "$$" "$(dns_handoff_process_start_time "$$")" >"${DNS_HANDOFF_FILE}" ||
+	fail 'could not create marker in insecure handoff directory'
+if dns_handoff_is_active; then
+	fail 'dnsmasq postconf accepted a marker from an insecure handoff directory'
+fi
+chmod 700 "${DNS_HANDOFF_DIR}" || fail 'could not restore private handoff directory permissions'
+chmod 666 "${DNS_HANDOFF_FILE}" || fail 'could not make handoff marker insecure for validation test'
+if dns_handoff_is_active; then
+	fail 'dnsmasq postconf accepted an insecure handoff marker'
+fi
+chmod 600 "${DNS_HANDOFF_FILE}" || fail 'could not restore private handoff marker permissions'
+disable_dns_handoff || fail 'could not clean up permissions validation marker'
 
 : >"${CALLS_FILE}"
 printf '%s\n' "$$" >"${DNS_HANDOFF_FILE}" || fail 'could not create handoff marker for removal failure test'

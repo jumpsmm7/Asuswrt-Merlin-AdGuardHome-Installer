@@ -6,7 +6,8 @@ export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt
 SCRIPT_LOC=""
 ADGUARDHOME_BINARY="/opt/sbin/AdGuardHome"
 CONF_FILE="/opt/etc/AdGuardHome/.config"
-DNS_HANDOFF_FILE="${DNS_HANDOFF_FILE:-/tmp/AdGuardHome.dns-handoff}"
+DNS_HANDOFF_DIR="${DNS_HANDOFF_DIR:-/tmp/AdGuardHome.dns-handoff}"
+DNS_HANDOFF_FILE="${DNS_HANDOFF_FILE:-${DNS_HANDOFF_DIR}/active}"
 MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
@@ -449,13 +450,24 @@ dnsmasq_delete_matching() {
 
 dns_handoff_is_active() {
 	local HANDOFF_PID HANDOFF_START_TIME PROCESS_START_TIME
-	[ -f "${DNS_HANDOFF_FILE}" ] || return 1
+	[ -d "${DNS_HANDOFF_DIR}" ] && [ ! -L "${DNS_HANDOFF_DIR}" ] || return 1
+	[ "$(stat -c '%u:%a' "${DNS_HANDOFF_DIR}" 2>/dev/null)" = "0:700" ] || return 1
+	[ -f "${DNS_HANDOFF_FILE}" ] && [ ! -L "${DNS_HANDOFF_FILE}" ] || return 1
+	[ "$(stat -c '%u:%a' "${DNS_HANDOFF_FILE}" 2>/dev/null)" = "0:600" ] || return 1
 	IFS=' ' read -r HANDOFF_PID HANDOFF_START_TIME <"${DNS_HANDOFF_FILE}" || return 1
 	case "${HANDOFF_PID}:${HANDOFF_START_TIME}" in
 		*[!0-9:]* | *: | :*) return 1 ;;
 	esac
 	[ "${HANDOFF_PID}" -gt 1 ] || return 1
 	kill -0 "${HANDOFF_PID}" 2>/dev/null || return 1
+	awk '
+		$1 == "Uid:" {
+			exit($2 == 0 && $3 == 0 && $4 == 0 && $5 == 0 ? 0 : 1)
+		}
+		END {
+			if (NR == 0) exit 1
+		}
+	' "/proc/${HANDOFF_PID}/status" 2>/dev/null || return 1
 	PROCESS_START_TIME="$(awk '{
 		sub(/^.*\) /, "")
 		print $20

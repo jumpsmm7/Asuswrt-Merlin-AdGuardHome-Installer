@@ -8,8 +8,9 @@ WORK_DIR="/opt/etc/AdGuardHome"
 LOG_FILE="syslog"
 PID_FILE="/opt/var/run/AdGuardHome.pid"
 PROCS="AdGuardHome"
-DNS_HANDOFF_FILE="/tmp/AdGuardHome.dns-handoff"
-DNS_HANDOFF_LOCK="${DNS_HANDOFF_FILE}.lock"
+DNS_HANDOFF_DIR="/tmp/AdGuardHome.dns-handoff"
+DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
+DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
 DNS_HANDOFF_LOCK_OWNER="${DNS_HANDOFF_LOCK}/owner"
 GOGC="40"
 CPU_COUNT=""
@@ -46,7 +47,7 @@ PREARGS="env TZ=/etc/localtime GOGC=${GOGC} GOMAXPROCS=${GOMAXPROCS} GOMEMLIMIT=
 # DNS handoff helpers
 
 dns_handoff_dependencies_available() {
-	for _dns_command in awk kill mkdir netstat pidof rm rmdir service sleep; do
+	for _dns_command in awk chmod kill mkdir netstat pidof rm rmdir service sleep stat; do
 		if ! which "${_dns_command}" >/dev/null 2>&1; then
 			if which logger >/dev/null 2>&1; then
 				logger -st "${PROCS}" "Required DNS handoff command is unavailable: ${_dns_command}"
@@ -57,6 +58,27 @@ dns_handoff_dependencies_available() {
 		fi
 	done
 	return 0
+}
+
+dns_handoff_directory_is_private() {
+	[ -d "${DNS_HANDOFF_DIR}" ] && [ ! -L "${DNS_HANDOFF_DIR}" ] || return 1
+	[ "$(stat -c '%u:%a' "${DNS_HANDOFF_DIR}" 2>/dev/null)" = "0:700" ]
+}
+
+dns_handoff_marker_is_private() {
+	[ -f "${DNS_HANDOFF_FILE}" ] && [ ! -L "${DNS_HANDOFF_FILE}" ] || return 1
+	[ "$(stat -c '%u:%a' "${DNS_HANDOFF_FILE}" 2>/dev/null)" = "0:600" ]
+}
+
+dns_handoff_process_is_root() {
+	awk '
+		$1 == "Uid:" {
+			exit($2 == 0 && $3 == 0 && $4 == 0 && $5 == 0 ? 0 : 1)
+		}
+		END {
+			if (NR == 0) exit 1
+		}
+	' "/proc/$1/status" 2>/dev/null
 }
 
 dns_handoff_process_start_time() {
@@ -71,7 +93,8 @@ dns_handoff_process_start_time() {
 dns_handoff_marker_is_active() {
 	_dns_handoff_marker_pid=""
 	_dns_handoff_marker_start_time=""
-	[ -f "${DNS_HANDOFF_FILE}" ] || return 1
+	dns_handoff_directory_is_private || return 1
+	dns_handoff_marker_is_private || return 1
 	IFS=' ' read -r _dns_handoff_marker_pid _dns_handoff_marker_start_time <"${DNS_HANDOFF_FILE}" ||
 		return 1
 	case "${_dns_handoff_marker_pid}:${_dns_handoff_marker_start_time}" in
@@ -79,6 +102,7 @@ dns_handoff_marker_is_active() {
 	esac
 	_dns_handoff_current_start_time="$(dns_handoff_process_start_time "${_dns_handoff_marker_pid}")" ||
 		return 1
+	dns_handoff_process_is_root "${_dns_handoff_marker_pid}" || return 1
 	[ "${_dns_handoff_current_start_time}" = "${_dns_handoff_marker_start_time}" ]
 }
 
@@ -119,6 +143,19 @@ disable_dns_handoff() {
 }
 
 enable_dns_handoff() {
+	if [ ! -e "${DNS_HANDOFF_DIR}" ]; then
+		(
+			umask 077
+			mkdir "${DNS_HANDOFF_DIR}"
+		) 2>/dev/null || {
+			logger -st "${PROCS}" "Unable to create the private dnsmasq handoff directory."
+			return 1
+		}
+	fi
+	if ! dns_handoff_directory_is_private; then
+		logger -st "${PROCS}" "Refusing to use an insecure dnsmasq handoff directory."
+		return 1
+	fi
 	_dns_handoff_start_time="$(dns_handoff_process_start_time "$$")" || {
 		logger -st "${PROCS}" "Unable to identify the dnsmasq handoff owner."
 		return 1
@@ -166,6 +203,7 @@ enable_dns_handoff() {
 		return 1
 	fi
 	if ! (
+		umask 077
 		set -C
 		printf '%s %s\n' "$$" "${_dns_handoff_start_time}" >"${DNS_HANDOFF_FILE}"
 	) 2>/dev/null; then
