@@ -136,7 +136,10 @@ start() {
 			return 255
 		fi
 	fi
-	{ ${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null & LAUNCH_PID="$!"; }
+	{
+		${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null &
+		LAUNCH_PID="$!"
+	}
 	#echo ${PREARGS} ${PROC} ${ARGS}
 	if ! process_wait_for_start "${PROC}" 10; then
 		stop_launched_process "${LAUNCH_PID}"
