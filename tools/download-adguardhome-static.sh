@@ -196,9 +196,9 @@ download_one() {
 		return 1
 	}
 	if [ -f "${_dest_file}" ] && cmp -s "${_tmp_file}" "${_dest_file}"; then
-		rm -f "${_tmp_file}"
 		printf '%s\n' "OK: ${_dest_file} already current"
-		write_md5sum_file "${_dest_file}" "${_md5}" || return 1
+		publish_archive_with_md5 "${_tmp_file}" "${_dest_file}" "${_md5}" \
+			require-unchanged || return 1
 	else
 		publish_archive_with_md5 "${_tmp_file}" "${_dest_file}" "${_md5}" || return 1
 		printf '%s\n' "Updated ${_dest_file}"
@@ -299,6 +299,7 @@ publish_archive_with_md5() {
 	_archive_tmp="$1"
 	_archive_file="$2"
 	_md5="$3"
+	_publish_condition="${4:-replace}"
 	_md5_file="${_archive_file}.md5sum"
 	_md5_tmp="${_md5_file}.tmp.$$"
 	_publish_state="${_archive_file}.publish-in-progress"
@@ -337,6 +338,13 @@ publish_archive_with_md5() {
 	if ! acquire_archive_publication_state "${_publish_state}" "$$" "${_publish_start_time}"; then
 		rm -f "${_archive_tmp}" "${_md5_tmp}"
 		printf '%s\n' "Error: publication is already in progress for ${_archive_file}" >&2
+		FAILED=1
+		return 1
+	fi
+	if [ "${_publish_condition}" = "require-unchanged" ] &&
+		{ [ ! -f "${_archive_file}" ] || ! cmp -s "${_archive_tmp}" "${_archive_file}"; }; then
+		rm -f "${_publish_state}" "${_archive_tmp}" "${_md5_tmp}"
+		printf '%s\n' "Error: ${_archive_file} changed while refreshing its checksum" >&2
 		FAILED=1
 		return 1
 	fi

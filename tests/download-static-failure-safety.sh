@@ -70,6 +70,20 @@ fi
 	fail "archive publication removed the previous archive before replacement"
 
 unset -f mv
+printf '%s\n' "downloaded archive" >"${TEST_ROOT}/archive.tmp"
+printf '%s\n' "newer concurrent archive" >"${TEST_ROOT}/archive"
+printf '%s\n' "newer concurrent checksum" >"${TEST_ROOT}/archive.md5sum"
+if publish_archive_with_md5 "${TEST_ROOT}/archive.tmp" "${TEST_ROOT}/archive" \
+	stalechecksum require-unchanged >/dev/null 2>&1; then
+	fail "checksum refresh replaced an archive changed by a concurrent publisher"
+fi
+[ "$(sed -n '1p' "${TEST_ROOT}/archive")" = "newer concurrent archive" ] ||
+	fail "checksum refresh replaced the concurrently published archive"
+[ "$(sed -n '1p' "${TEST_ROOT}/archive.md5sum")" = "newer concurrent checksum" ] ||
+	fail "checksum refresh replaced the concurrently published checksum"
+[ ! -e "${TEST_ROOT}/archive.publish-in-progress" ] ||
+	fail "failed checksum refresh left publication state behind"
+
 REAL_RM="$(which rm)" || fail "rm is unavailable"
 printf '%s\n' "old archive" >"${TEST_ROOT}/archive"
 printf '%s\n' "old checksum" >"${TEST_ROOT}/archive.md5sum"
