@@ -26,7 +26,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
+	'/^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed -n '/^dns_handoff_is_active() {$/,/^}$/p' "${MANAGER_PATH}" >>"${S99_FUNCTIONS}" ||
 	fail "could not read ${MANAGER_PATH}"
@@ -47,6 +47,7 @@ grep -q 'dns_handoff_is_active || return 0' "${MANAGER_PATH}" ||
 PROCS='AdGuardHome'
 DNS_HANDOFF_FILE="${TEST_ROOT}/dns-handoff"
 DNS_HANDOFF_LOCK="${DNS_HANDOFF_FILE}.lock"
+DNS_HANDOFF_LOCK_OWNER="${DNS_HANDOFF_LOCK}/owner"
 logger() {
 	printf '%s\n' "logger $*" >>"${CALLS_FILE}"
 }
@@ -185,13 +186,23 @@ disable_dns_handoff || fail 'could not remove competing active handoff marker'
 printf '%s %s\n' 999999 1 >"${DNS_HANDOFF_FILE}" ||
 	fail 'could not create stale handoff marker for lock-contention test'
 mkdir "${DNS_HANDOFF_LOCK}" || fail 'could not simulate a concurrent marker update'
+printf '%s %s\n' "$$" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_LOCK_OWNER}" ||
+	fail 'could not record simulated marker-update lock owner'
 if enable_dns_handoff; then
 	fail 'handoff setup ignored a concurrent marker update'
 fi
 [ "$(cat "${DNS_HANDOFF_FILE}")" = '999999 1' ] ||
 	fail 'handoff setup removed a stale marker without acquiring the marker lock'
-rmdir "${DNS_HANDOFF_LOCK}" || fail 'could not release simulated marker-update lock'
+release_dns_handoff_lock || fail 'could not release simulated marker-update lock'
 rm -f "${DNS_HANDOFF_FILE}" || fail 'could not remove stale marker after lock-contention test'
+
+mkdir "${DNS_HANDOFF_LOCK}" || fail 'could not create abandoned marker-update lock'
+DNS_STATE=busy
+DNSMASQ_RESTART_RELEASES_PORT=1
+enable_dns_handoff || fail 'could not recover an abandoned marker-update lock'
+[ ! -e "${DNS_HANDOFF_LOCK}" ] || fail 'abandoned marker-update lock was not removed'
+disable_dns_handoff || fail 'could not clean up handoff after abandoned-lock recovery'
+DNSMASQ_RESTART_RELEASES_PORT=0
 
 printf '%s %s\n' "$$" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_FILE}" ||
 	fail 'could not create active handoff marker'
