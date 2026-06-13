@@ -263,9 +263,11 @@ archive_publication_owner_is_active() {
 	_publish_state="$1"
 	_publish_pid=""
 	_publish_start_time=""
+	_publish_details=""
 	_current_start_time=""
 
-	IFS=' ' read -r _publish_pid _publish_start_time <"${_publish_state}" || return 1
+	IFS=' ' read -r _publish_pid _publish_start_time _publish_details \
+		<"${_publish_state}" || return 1
 	case "${_publish_pid}:${_publish_start_time}" in
 		*[!0-9:]* | *: | :*) return 1 ;;
 	esac
@@ -403,6 +405,7 @@ publish_metadata_files() {
 	_version_tmp="${_version_file}.tmp"
 	_checksum_tmp="${_checksum_file}.tmp"
 	_publish_state="${_dest_dir}/.metadata.publish-in-progress"
+	_publish_state_tmp="${_publish_state}.tmp.$$"
 	_version_backup="${_version_file}.previous"
 	_checksum_backup="${_checksum_file}.previous"
 	_had_version=0
@@ -411,27 +414,6 @@ publish_metadata_files() {
 	_publish_start_time=""
 
 	recover_metadata_publication "${_dest_dir}" || return 1
-	rm -f "${_version_backup}" "${_checksum_backup}"
-	if [ -f "${_version_file}" ]; then
-		_had_version=1
-		if ! cp -p "${_version_file}" "${_version_backup}"; then
-			rm -f "${_version_tmp}" "${_checksum_tmp}"
-			printf '%s\n' "Error: could not preserve ${_version_file}" >&2
-			FAILED=1
-			return 1
-		fi
-	fi
-	if [ -f "${_checksum_file}" ]; then
-		_had_checksum=1
-		if ! cp -p "${_checksum_file}" "${_checksum_backup}"; then
-			rm -f "${_version_backup}"
-			rm -f "${_version_tmp}" "${_checksum_tmp}"
-			printf '%s\n' "Error: could not preserve ${_checksum_file}" >&2
-			FAILED=1
-			return 1
-		fi
-	fi
-
 	_publish_start_time="$(awk '{
 		sub(/^.*\) /, "")
 		print $20
@@ -444,9 +426,39 @@ publish_metadata_files() {
 			return 1
 			;;
 	esac
-	if ! printf '%s %s\n' "$$" "${_publish_start_time}" >"${_publish_state}"; then
-		rm -f "${_version_backup}" "${_checksum_backup}"
-		printf '%s\n' "Error: could not record metadata publication state for ${_dest_dir}" >&2
+	if ! acquire_archive_publication_state "${_publish_state}" "$$" \
+		"${_publish_start_time}"; then
+		printf '%s\n' "Error: metadata publication is already in progress for ${_dest_dir}" >&2
+		FAILED=1
+		return 1
+	fi
+
+	rm -f "${_version_backup}" "${_checksum_backup}"
+	if [ -f "${_version_file}" ]; then
+		_had_version=1
+		if ! cp -p "${_version_file}" "${_version_backup}"; then
+			rm -f "${_publish_state}" "${_version_tmp}" "${_checksum_tmp}"
+			printf '%s\n' "Error: could not preserve ${_version_file}" >&2
+			FAILED=1
+			return 1
+		fi
+	fi
+	if [ -f "${_checksum_file}" ]; then
+		_had_checksum=1
+		if ! cp -p "${_checksum_file}" "${_checksum_backup}"; then
+			rm -f "${_publish_state}" "${_version_backup}"
+			rm -f "${_version_tmp}" "${_checksum_tmp}"
+			printf '%s\n' "Error: could not preserve ${_checksum_file}" >&2
+			FAILED=1
+			return 1
+		fi
+	fi
+	if ! printf '%s %s ready %s %s\n' "$$" "${_publish_start_time}" \
+		"${_had_version}" "${_had_checksum}" >"${_publish_state_tmp}" ||
+		! mv "${_publish_state_tmp}" "${_publish_state}"; then
+		rm -f "${_publish_state}" "${_version_backup}" "${_checksum_backup}" \
+			"${_version_tmp}" "${_checksum_tmp}" "${_publish_state_tmp}"
+		printf '%s\n' "Error: could not mark metadata rollback copies ready for ${_dest_dir}" >&2
 		FAILED=1
 		return 1
 	fi
@@ -487,12 +499,27 @@ recover_metadata_publication() {
 	_version_backup="${_version_file}.previous"
 	_checksum_backup="${_checksum_file}.previous"
 	_restore_failed=0
+	_publish_phase=""
+	_publish_had_version=""
+	_publish_had_checksum=""
 
 	[ -f "${_publish_state}" ] || return 0
 	if archive_publication_owner_is_active "${_publish_state}"; then
 		printf '%s\n' "Error: metadata publication is already in progress for ${_dest_dir}" >&2
 		FAILED=1
 		return 1
+	fi
+
+	IFS=' ' read -r _publish_pid _publish_start_time _publish_phase \
+		_publish_had_version _publish_had_checksum <"${_publish_state}" ||
+		_publish_phase=""
+	if [ "${_publish_phase}" = "preparing" ] ||
+		{ [ "${_publish_phase}" = "ready" ] &&
+			{ { [ "${_publish_had_version}" = "1" ] && [ ! -f "${_version_backup}" ]; } ||
+				{ [ "${_publish_had_checksum}" = "1" ] && [ ! -f "${_checksum_backup}" ]; }; }; }; then
+		rm -f "${_version_backup}" "${_checksum_backup}" "${_publish_state}"
+		printf '%s\n' "Discarded incomplete metadata publication preparation for ${_dest_dir}" >&2
+		return 0
 	fi
 
 	rm -f "${_version_file}" "${_checksum_file}"

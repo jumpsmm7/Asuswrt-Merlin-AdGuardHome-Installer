@@ -178,6 +178,27 @@ acquire_metadata_publication_lock "${TEST_ROOT}/metadata" ||
 release_metadata_publication_lock "${TEST_ROOT}/metadata" ||
 	fail "could not release recovered metadata publication lock"
 
+printf '%s %s ready 1 1\n' "$$" "${PUBLISH_START_TIME}" \
+	>"${TEST_ROOT}/metadata/.metadata.publish-in-progress"
+printf '%s\n' "untouched metadata version backup" \
+	>"${TEST_ROOT}/metadata/VERSION.txt.previous"
+printf '%s\n' "untouched metadata checksum backup" \
+	>"${TEST_ROOT}/metadata/checksum.txt.previous"
+printf '%s\n' "contending version" >"${TEST_ROOT}/metadata/VERSION.txt.tmp"
+printf '%s\n' "contending checksum" >"${TEST_ROOT}/metadata/checksum.txt.tmp"
+if publish_metadata_files "${TEST_ROOT}/metadata" >/dev/null 2>&1; then
+	fail "metadata publication acquired state already owned by an active publisher"
+fi
+[ "$(sed -n '1p' "${TEST_ROOT}/metadata/VERSION.txt.previous")" = \
+	"untouched metadata version backup" ] ||
+	fail "contending metadata publication modified the active version backup"
+[ "$(sed -n '1p' "${TEST_ROOT}/metadata/checksum.txt.previous")" = \
+	"untouched metadata checksum backup" ] ||
+	fail "contending metadata publication modified the active checksum backup"
+"${REAL_RM}" -f "${TEST_ROOT}/metadata/.metadata.publish-in-progress" \
+	"${TEST_ROOT}/metadata/VERSION.txt.previous" \
+	"${TEST_ROOT}/metadata/checksum.txt.previous"
+
 printf '%s\n' "old version" >"${TEST_ROOT}/metadata/VERSION.txt"
 printf '%s\n' "old metadata checksum" >"${TEST_ROOT}/metadata/checksum.txt"
 printf '%s\n' "new version" >"${TEST_ROOT}/metadata/VERSION.txt.tmp"
