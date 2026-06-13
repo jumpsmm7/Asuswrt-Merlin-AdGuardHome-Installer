@@ -1,6 +1,6 @@
 #!/bin/sh
 export LC_ALL=C
-export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:${PATH:-}"
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
 
 which renice >/dev/null 2>&1 && renice -10 $$ >/dev/null 2>&1
 ENABLED="yes"

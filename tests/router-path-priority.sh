@@ -1,5 +1,6 @@
 #!/bin/sh
-# Verify runtime scripts prefer stock commands without discarding caller paths.
+# Verify runtime scripts prefer stock commands and privileged startup is isolated
+# from caller-controlled paths.
 
 set -u
 
@@ -12,9 +13,16 @@ for script in AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome; do
 	[ -f "${script}" ] || fail "missing runtime script: ${script}"
 
 	path_statement="$(sed -n '/^export PATH=/p' "${script}" | sed -n '1p')"
-	expected_path='export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:${PATH:-}"'
+	case "${script}" in
+		S99AdGuardHome)
+			expected_path='export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"'
+			;;
+		*)
+			expected_path='export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:${PATH:-}"'
+			;;
+	esac
 	[ "${path_statement}" = "${expected_path}" ] ||
-		fail "${script} does not prepend stock paths while preserving the caller PATH"
+		fail "${script} does not export its expected runtime PATH"
 
 	environment_lines="$(awk '
 		NR == 1 { next }
@@ -30,7 +38,7 @@ done
 
 for script in AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome; do
 	case "$(sed -n '/^export PATH=/p' "${script}" | sed -n '1p')" in
-		*:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:*) ;;
+		*:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin*) ;;
 		*) fail "${script} does not include the Entware binary directories" ;;
 	esac
 done
@@ -42,4 +50,10 @@ case ":${PATH}:" in
 	*) fail "stock path initialization discarded the caller PATH" ;;
 esac
 
-printf '%s\n' "PASS: runtime scripts prioritize stock commands and preserve caller paths"
+PATH="/feedback-test-path"
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
+case ":${PATH}:" in
+	*:/feedback-test-path:*) fail "privileged service startup inherited the caller PATH" ;;
+esac
+
+printf '%s\n' "PASS: runtime scripts prioritize trusted command paths"
