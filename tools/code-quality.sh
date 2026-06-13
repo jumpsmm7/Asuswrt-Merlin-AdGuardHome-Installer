@@ -96,6 +96,7 @@ run_check 'Installer file failure safety regression' sh tests/installer-file-fai
 run_check 'Installer post-replacement restart regression' sh tests/installer-post-replace-restart.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
 run_check 'Installer iterative input regression' sh tests/installer-input-loops.sh
+run_check 'Installer mandatory numeric input failure regression' sh tests/installer-mandatory-number-failure.sh
 run_check 'Installer DNS input failure regression' sh tests/installer-dns-input-failure.sh
 run_check 'Installer WebUI port failure regression' sh tests/installer-web-port-failure.sh
 run_check 'Installer timezone failure regression' sh tests/installer-timezone-failure.sh
