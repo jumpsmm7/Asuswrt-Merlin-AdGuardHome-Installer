@@ -120,7 +120,10 @@ enable_dns_handoff() {
 		logger -st "${PROCS}" "Unable to remove a stale dnsmasq handoff marker."
 		return 1
 	fi
-	if ! (set -C; printf '%s %s\n' "$$" "${_dns_handoff_start_time}" >"${DNS_HANDOFF_FILE}") 2>/dev/null; then
+	if ! (
+		set -C
+		printf '%s %s\n' "$$" "${_dns_handoff_start_time}" >"${DNS_HANDOFF_FILE}"
+	) 2>/dev/null; then
 		logger -st "${PROCS}" "Unable to enable the dnsmasq port 553 handoff."
 		return 1
 	fi
