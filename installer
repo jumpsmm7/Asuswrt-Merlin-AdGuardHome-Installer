@@ -1677,7 +1677,9 @@ setup_AdGuardHome_impl() {
 				"${INFO} Please set the preferred Web Port for AdGuardHome WebUI." \
 				"${INFO} The chosen port must reside within the port range 3000-65535" \
 				"${INFO} and not already in use by any other service."
-			read_input_port "Default is" 3000
+			if ! read_input_port "Default is" 3000; then
+				return 1
+			fi
 			write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT}\""
 			yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "  address: 0.0.0.0:${WEB_PORT}" "${YAML_FILE}"
 		elif awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" != "$(awk -F':' '/.*address\:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" ]; then
@@ -1742,7 +1744,12 @@ setup_AdGuardHome_impl() {
 						"${INFO} Please set the preferred Web Port for AdGuardHome WebUI." \
 						"${INFO} The chosen port must reside within the port range 3000-65535" \
 						"${INFO} and not already in use by any other service."
-					read_input_port "Default is" 3000
+					if ! read_input_port "Default is" 3000; then
+						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+						fi
+						return 1
+					fi
 					write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT}\""
 					PTXT "http:" \
 						"  address: 0.0.0.0:${WEB_PORT}" >"${YAML_ORI}"
