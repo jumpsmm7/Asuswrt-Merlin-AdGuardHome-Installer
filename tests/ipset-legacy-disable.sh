@@ -48,10 +48,10 @@ EOF_YAML
 chmod 600 "${YAML_FILE}" || fail 'could not set restrictive YAML mode'
 IPSet_Disable_Managed || fail 'could not disable a managed scalar path'
 [ "${IPSET_DISABLE_CHANGED:-}" = 1 ] || fail 'managed scalar removal was not reported as changed'
-[ "$(stat -c '%a' "${YAML_FILE}")" = 600 ] || fail 'YAML permissions were not preserved'
-! rg -q '^[[:space:]]*ipset_file:' "${YAML_FILE}" || fail 'managed scalar path was retained'
-rg -q '^dns: &dns_defaults$' "${YAML_FILE}" || fail 'annotated DNS header was not preserved'
-rg -q '^[[:space:]]*ipset: \[\]$' "${YAML_FILE}" || fail 'inline IPSET setting was not preserved'
+[ "$(LC_ALL=C ls -ld "${YAML_FILE}" 2>/dev/null | awk 'NR == 1 {print substr($1, 2, 9)}')" = "rw-------" ] || fail 'YAML permissions were not preserved'
+! grep -Eq '^[[:space:]]*ipset_file:' "${YAML_FILE}" || fail 'managed scalar path was retained'
+grep -Eq '^dns: &dns_defaults$' "${YAML_FILE}" || fail 'annotated DNS header was not preserved'
+grep -Eq '^[[:space:]]*ipset: \[\]$' "${YAML_FILE}" || fail 'inline IPSET setting was not preserved'
 
 cat >"${YAML_FILE}" <<EOF_YAML
 dns:
@@ -61,8 +61,8 @@ dns:
   cache_size: 4096
 EOF_YAML
 IPSet_Disable_Managed || fail 'could not disable a managed block-scalar path'
-! rg -q 'ipset_file|^[[:space:]]+ipset\.conf$' "${YAML_FILE}" || fail 'managed block scalar was retained'
-rg -q '^[[:space:]]*cache_size: 4096$' "${YAML_FILE}" || fail 'field after block scalar was removed'
+! grep -Eq 'ipset_file|^[[:space:]]+ipset\.conf$' "${YAML_FILE}" || fail 'managed block scalar was retained'
+grep -Eq '^[[:space:]]*cache_size: 4096$' "${YAML_FILE}" || fail 'field after block scalar was removed'
 
 cat >"${YAML_FILE}" <<'EOF_YAML'
 dns:
