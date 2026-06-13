@@ -20,7 +20,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}/out/armv7" || fail "could not create test directory"
 
-sed -n '/^append_metadata() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^archive_publication_owner_is_active() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p' \
+sed -n '/^append_metadata() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^recover_metadata_publication() {$/,/^}$/p; /^archive_publication_owner_is_active() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail "static download helpers were not found"
 
@@ -161,5 +161,20 @@ fi
 	fail "failed metadata publication did not restore checksum.txt"
 [ "${METADATA_WAS_PUBLISHED}" -eq 1 ] ||
 	fail "metadata publication removed previous files before replacement"
+
+unset -f mv
+printf '%s\n' "old version" >"${TEST_ROOT}/metadata/VERSION.txt.previous"
+printf '%s\n' "old metadata checksum" >"${TEST_ROOT}/metadata/checksum.txt.previous"
+printf '%s\n' "new version" >"${TEST_ROOT}/metadata/VERSION.txt"
+printf '%s\n' "old metadata checksum" >"${TEST_ROOT}/metadata/checksum.txt"
+printf '%s\n' "interrupted" >"${TEST_ROOT}/metadata/.metadata.publish-in-progress"
+recover_metadata_publication "${TEST_ROOT}/metadata" >/dev/null 2>&1 ||
+	fail "interrupted metadata publication was not recovered"
+[ "$(sed -n '1p' "${TEST_ROOT}/metadata/VERSION.txt")" = "old version" ] ||
+	fail "interrupted metadata publication did not restore VERSION.txt"
+[ "$(sed -n '1p' "${TEST_ROOT}/metadata/checksum.txt")" = "old metadata checksum" ] ||
+	fail "interrupted metadata publication did not restore checksum.txt"
+[ ! -e "${TEST_ROOT}/metadata/.metadata.publish-in-progress" ] ||
+	fail "interrupted metadata publication state was not cleared"
 
 printf '%s\n' "PASS: static archive and metadata publication preserves complete working sets on failure"
