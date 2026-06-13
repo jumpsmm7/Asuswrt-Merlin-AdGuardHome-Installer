@@ -9,6 +9,7 @@ LOG_FILE="syslog"
 PID_FILE="/opt/var/run/AdGuardHome.pid"
 PROCS="AdGuardHome"
 DNS_HANDOFF_FILE="/tmp/AdGuardHome.dns-handoff"
+DNS_HANDOFF_LOCK="${DNS_HANDOFF_FILE}.lock"
 GOGC="40"
 CPU_COUNT=""
 if which grep >/dev/null 2>&1; then
@@ -44,7 +45,7 @@ PREARGS="env TZ=/etc/localtime GOGC=${GOGC} GOMAXPROCS=${GOMAXPROCS} GOMEMLIMIT=
 # DNS handoff helpers
 
 dns_handoff_dependencies_available() {
-	for _dns_command in awk kill netstat pidof rm service sleep; do
+	for _dns_command in awk kill mkdir netstat pidof rm rmdir service sleep; do
 		if ! which "${_dns_command}" >/dev/null 2>&1; then
 			if which logger >/dev/null 2>&1; then
 				logger -st "${PROCS}" "Required DNS handoff command is unavailable: ${_dns_command}"
@@ -108,16 +109,23 @@ enable_dns_handoff() {
 			return 1
 			;;
 	esac
+	if ! mkdir "${DNS_HANDOFF_LOCK}" 2>/dev/null; then
+		logger -st "${PROCS}" "Another dnsmasq handoff marker update is in progress."
+		return 1
+	fi
 	if [ -L "${DNS_HANDOFF_FILE}" ]; then
 		logger -st "${PROCS}" "Refusing to replace a symbolic-link dnsmasq handoff marker."
+		rmdir "${DNS_HANDOFF_LOCK}" 2>/dev/null
 		return 1
 	fi
 	if dns_handoff_marker_is_active; then
 		logger -st "${PROCS}" "Refusing to replace an active dnsmasq handoff marker."
+		rmdir "${DNS_HANDOFF_LOCK}" 2>/dev/null
 		return 1
 	fi
 	if [ -e "${DNS_HANDOFF_FILE}" ] && ! rm -f "${DNS_HANDOFF_FILE}"; then
 		logger -st "${PROCS}" "Unable to remove a stale dnsmasq handoff marker."
+		rmdir "${DNS_HANDOFF_LOCK}" 2>/dev/null
 		return 1
 	fi
 	if ! (
@@ -125,6 +133,12 @@ enable_dns_handoff() {
 		printf '%s %s\n' "$$" "${_dns_handoff_start_time}" >"${DNS_HANDOFF_FILE}"
 	) 2>/dev/null; then
 		logger -st "${PROCS}" "Unable to enable the dnsmasq port 553 handoff."
+		rmdir "${DNS_HANDOFF_LOCK}" 2>/dev/null
+		return 1
+	fi
+	if ! rmdir "${DNS_HANDOFF_LOCK}" 2>/dev/null; then
+		logger -st "${PROCS}" "Unable to release the dnsmasq handoff marker lock."
+		disable_dns_handoff
 		return 1
 	fi
 	if ! service restart_dnsmasq >/dev/null 2>&1; then

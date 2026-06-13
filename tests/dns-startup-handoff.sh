@@ -46,6 +46,7 @@ grep -q 'dns_handoff_is_active || return 0' "${MANAGER_PATH}" ||
 
 PROCS='AdGuardHome'
 DNS_HANDOFF_FILE="${TEST_ROOT}/dns-handoff"
+DNS_HANDOFF_LOCK="${DNS_HANDOFF_FILE}.lock"
 logger() {
 	printf '%s\n' "logger $*" >>"${CALLS_FILE}"
 }
@@ -57,7 +58,7 @@ rm() {
 }
 which() {
 	case "$1" in
-		awk | kill | logger | netstat | pidof | rm | service | sleep)
+		awk | kill | logger | mkdir | netstat | pidof | rm | rmdir | service | sleep)
 			return 0
 			;;
 	esac
@@ -180,6 +181,17 @@ fi
 ! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" ||
 	fail 'competing startup regenerated dnsmasq after losing marker ownership'
 disable_dns_handoff || fail 'could not remove competing active handoff marker'
+
+printf '%s %s\n' 999999 1 >"${DNS_HANDOFF_FILE}" ||
+	fail 'could not create stale handoff marker for lock-contention test'
+mkdir "${DNS_HANDOFF_LOCK}" || fail 'could not simulate a concurrent marker update'
+if enable_dns_handoff; then
+	fail 'handoff setup ignored a concurrent marker update'
+fi
+[ "$(cat "${DNS_HANDOFF_FILE}")" = '999999 1' ] ||
+	fail 'handoff setup removed a stale marker without acquiring the marker lock'
+rmdir "${DNS_HANDOFF_LOCK}" || fail 'could not release simulated marker-update lock'
+rm -f "${DNS_HANDOFF_FILE}" || fail 'could not remove stale marker after lock-contention test'
 
 printf '%s %s\n' "$$" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_FILE}" ||
 	fail 'could not create active handoff marker'
