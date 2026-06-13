@@ -50,7 +50,10 @@ read_input_port() { WEB_PORT=3000; }
 write_conf() { :; }
 AdGuardHome_authen() { :; }
 check_AdGuardHome_yaml() { return 0; }
-check_dns_filter() { :; }
+check_dns_filter() {
+	[ "${FAIL_NESTED_DNS_PROMPT:-0}" -eq 1 ] && return 2
+	return 0
+}
 check_dns_local() { :; }
 check_ipset() { :; }
 read_yesno() {
@@ -86,6 +89,18 @@ for FAIL_CONFIRM_PROMPT in 1 2 3; do
 	[ ! -e "${YAML_BAK}" ] || fail "setup left the YAML backup after confirmation prompt ${FAIL_CONFIRM_PROMPT}"
 done
 unset FAIL_CONFIRM_PROMPT
+
+FAIL_NESTED_DNS_PROMPT=1
+CONFIRM_PROMPTS=0
+printf '%s\n' 'working configuration' >"${YAML_FILE}"
+printf '%s\n' 'original template' >"${YAML_ORI}"
+
+if setup_AdGuardHome_impl reconfig reconfig; then
+	fail 'setup accepted failed nested DNS confirmation prompt'
+fi
+[ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'setup did not restore YAML after nested DNS confirmation failure'
+[ ! -e "${YAML_BAK}" ] || fail 'setup left the YAML backup after nested DNS confirmation failure'
+unset FAIL_NESTED_DNS_PROMPT
 
 for FAIL_PROMPT in 1 2; do
 	CONFIRM_PROMPTS=0

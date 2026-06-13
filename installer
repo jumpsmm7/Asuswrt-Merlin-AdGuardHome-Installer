@@ -2015,7 +2015,14 @@ setup_AdGuardHome_impl() {
 							return "${YESNO_STATUS}"
 							;;
 					esac
-					check_dns_filter "${DNS_FILTER_SELECTION}" || return $?
+					check_dns_filter "${DNS_FILTER_SELECTION}"
+					YESNO_STATUS="$?"
+					if [ "${YESNO_STATUS}" -ne 0 ]; then
+						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+						fi
+						return "${YESNO_STATUS}"
+					fi
 					if [ "$(nvram get dns_local_cache)" != "1" ]; then
 						check_dns_local "${LOCAL_CACHE_SELECTION}"
 					else
