@@ -149,6 +149,7 @@ ln() {
 
 # Stop successful starts before the function enters its router-only health-check path.
 service_wait() {
+	SERVICE_WAIT_CALLED="1"
 	return 1
 }
 
@@ -162,6 +163,7 @@ run_test() {
 	START_STATUS="$7"
 	EXPECTED_STATUS="$8"
 	EXPECTED="$9"
+	SERVICE_WAIT_CALLED="0"
 	: >"${CALLS_FILE}"
 
 	if start_adguardhome; then
@@ -261,6 +263,14 @@ run_test 'unsupported integration restarts a running service' 1 1 0 0 0 0 1 'IPS
 lower_script restart'
 run_test 'unsupported integration starts a stopped service' 0 1 0 0 0 0 1 'IPSet_Supported
 lower_script start'
+run_test 'lower-script restart failure aborts before health check' 1 1 0 0 0 7 7 'IPSet_Supported
+lower_script restart'
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'lower-script restart failure was not marked terminal'
+[ "${SERVICE_WAIT_CALLED}" -eq 0 ] || fail 'lower-script restart failure reached the health check'
+run_test 'lower-script start failure aborts before health check' 0 1 0 0 0 8 8 'IPSet_Supported
+lower_script start'
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'lower-script start failure was not marked terminal'
+[ "${SERVICE_WAIT_CALLED}" -eq 0 ] || fail 'lower-script start failure reached the health check'
 LEGACY_VERSION=1
 run_test 'legacy integration is disabled before restarting a running service' 1 1 0 0 0 0 1 'IPSet_Supported
 IPSet_Lock acquired

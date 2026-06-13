@@ -767,7 +767,7 @@ service_wait() {
 }
 
 start_adguardhome() {
-	local IPSET_START_RESTARTED IPSET_START_STOPPED
+	local IPSET_START_RESTARTED IPSET_START_STOPPED LOWER_SCRIPT_STATUS
 	IPSET_START_RESTARTED="0"
 	IPSET_START_STOPPED="0"
 	SERVICE_WAIT_TERMINAL_FAILURE="0"
@@ -783,11 +783,17 @@ start_adguardhome() {
 		case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 			0)
 				lower_script start
+				LOWER_SCRIPT_STATUS="$?"
 				;;
 			*)
 				lower_script restart
+				LOWER_SCRIPT_STATUS="$?"
 				;;
 		esac
+		if [ "${LOWER_SCRIPT_STATUS}" -ne 0 ]; then
+			SERVICE_WAIT_TERMINAL_FAILURE="1"
+			return "${LOWER_SCRIPT_STATUS}"
+		fi
 	fi
 	for db in stats.db sessions.db; do {
 		if [ ! "$(readlink -f "/tmp/${db}")" = "$(readlink -f "${WORK_DIR}/data/${db}")" ]; then {
