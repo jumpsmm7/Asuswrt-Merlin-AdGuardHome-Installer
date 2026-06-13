@@ -53,10 +53,14 @@ check_AdGuardHome_yaml() { return 0; }
 check_dns_filter() { :; }
 check_dns_local() { :; }
 check_ipset() { :; }
-read_yesno() { return 1; }
+read_yesno() {
+	CONFIRM_PROMPTS="$((CONFIRM_PROMPTS + 1))"
+	[ "${CONFIRM_PROMPTS}" -eq "${FAIL_CONFIRM_PROMPT:-0}" ] && return 2
+	return 1
+}
 nvram() {
 	case "$1:${2:-}" in
-		get:dns_local_cache) printf '%s\n' '1' ;;
+		get:dns_local_cache) printf '%s\n' '0' ;;
 	esac
 }
 
@@ -69,7 +73,22 @@ read_input_dns() {
 }
 
 : >"${CONF_FILE}"
+for FAIL_CONFIRM_PROMPT in 1 2 3; do
+	CONFIRM_PROMPTS=0
+	printf '%s\n' 'working configuration' >"${YAML_FILE}"
+	printf '%s\n' 'original template' >"${YAML_ORI}"
+
+	if setup_AdGuardHome_impl reconfig reconfig; then
+		fail "setup accepted failed confirmation prompt ${FAIL_CONFIRM_PROMPT}"
+	fi
+	[ "${CONFIRM_PROMPTS}" -eq "${FAIL_CONFIRM_PROMPT}" ] || fail "setup did not stop at confirmation prompt ${FAIL_CONFIRM_PROMPT}"
+	[ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail "setup did not restore YAML after confirmation prompt ${FAIL_CONFIRM_PROMPT}"
+	[ ! -e "${YAML_BAK}" ] || fail "setup left the YAML backup after confirmation prompt ${FAIL_CONFIRM_PROMPT}"
+done
+unset FAIL_CONFIRM_PROMPT
+
 for FAIL_PROMPT in 1 2; do
+	CONFIRM_PROMPTS=0
 	DNS_PROMPTS=0
 	printf '%s\n' 'working configuration' >"${YAML_FILE}"
 	printf '%s\n' 'original template' >"${YAML_ORI}"

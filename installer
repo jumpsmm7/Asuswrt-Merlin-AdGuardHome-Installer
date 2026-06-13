@@ -1932,7 +1932,12 @@ setup_AdGuardHome_impl() {
 					case "${YESNO_STATUS}" in
 						0) DNS_FILTER_SELECTION=1 ;;
 						1) DNS_FILTER_SELECTION=0 ;;
-						*) return "${YESNO_STATUS}" ;;
+						*)
+							if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+								PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+							fi
+							return "${YESNO_STATUS}"
+							;;
 					esac
 					if [ "$(nvram get dns_local_cache)" != "1" ]; then
 						read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"
@@ -1940,7 +1945,12 @@ setup_AdGuardHome_impl() {
 						case "${YESNO_STATUS}" in
 							0) LOCAL_CACHE_SELECTION=1 ;;
 							1) LOCAL_CACHE_SELECTION=0 ;;
-							*) return "${YESNO_STATUS}" ;;
+							*)
+								if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+									PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+								fi
+								return "${YESNO_STATUS}"
+								;;
 						esac
 					fi
 					read_yesno "Do you want to enable AdGuardHome IPSET integration?"
@@ -1948,7 +1958,12 @@ setup_AdGuardHome_impl() {
 					case "${YESNO_STATUS}" in
 						0) IPSET_SELECTION=1 ;;
 						1) IPSET_SELECTION=0 ;;
-						*) return "${YESNO_STATUS}" ;;
+						*)
+							if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+								PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+							fi
+							return "${YESNO_STATUS}"
+							;;
 					esac
 					check_dns_filter "${DNS_FILTER_SELECTION}" || return $?
 					if [ "$(nvram get dns_local_cache)" != "1" ]; then
