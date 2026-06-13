@@ -44,8 +44,15 @@ REAL_MV="$(which mv)" || fail "mv is unavailable"
 printf '%s\n' "old archive" >"${TEST_ROOT}/archive"
 printf '%s\n' "old checksum" >"${TEST_ROOT}/archive.md5sum"
 printf '%s\n' "new archive" >"${TEST_ROOT}/archive.tmp"
+ARCHIVE_WAS_PUBLISHED=0
 mv() {
 	case "$1" in
+		"${TEST_ROOT}/archive.tmp")
+			if [ -f "${TEST_ROOT}/archive" ] &&
+				[ "$(sed -n '1p' "${TEST_ROOT}/archive")" = "old archive" ]; then
+				ARCHIVE_WAS_PUBLISHED=1
+			fi
+			;;
 		*.md5sum.tmp.*)
 			return 1
 			;;
@@ -59,6 +66,8 @@ fi
 	fail "failed archive publication did not restore the previous archive"
 [ "$(sed -n '1p' "${TEST_ROOT}/archive.md5sum")" = "old checksum" ] ||
 	fail "failed archive publication did not restore the previous checksum"
+[ "${ARCHIVE_WAS_PUBLISHED}" -eq 1 ] ||
+	fail "archive publication removed the previous archive before replacement"
 
 unset -f mv
 mkdir -p "${TEST_ROOT}/metadata" || fail "could not create metadata directory"

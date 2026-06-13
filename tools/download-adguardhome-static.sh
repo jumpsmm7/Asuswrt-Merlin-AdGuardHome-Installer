@@ -176,7 +176,7 @@ publish_archive_with_md5() {
 
 	if [ -f "${_archive_file}" ]; then
 		_had_archive=1
-		if ! mv "${_archive_file}" "${_archive_backup}"; then
+		if ! cp -p "${_archive_file}" "${_archive_backup}"; then
 			rm -f "${_archive_tmp}" "${_md5_tmp}"
 			printf '%s\n' "Error: could not preserve ${_archive_file}" >&2
 			FAILED=1
@@ -185,14 +185,9 @@ publish_archive_with_md5() {
 	fi
 	if [ -f "${_md5_file}" ]; then
 		_had_md5=1
-		if ! mv "${_md5_file}" "${_md5_backup}"; then
-			if [ "${_had_archive}" -eq 1 ]; then
-				mv "${_archive_backup}" "${_archive_file}" || _restore_failed=1
-			fi
-			rm -f "${_archive_tmp}" "${_md5_tmp}"
+		if ! cp -p "${_md5_file}" "${_md5_backup}"; then
+			rm -f "${_archive_backup}" "${_archive_tmp}" "${_md5_tmp}"
 			printf '%s\n' "Error: could not preserve ${_md5_file}" >&2
-			[ "${_restore_failed}" -eq 0 ] ||
-				printf '%s\n' "Error: previous archive remains at ${_archive_backup}" >&2
 			FAILED=1
 			return 1
 		fi
