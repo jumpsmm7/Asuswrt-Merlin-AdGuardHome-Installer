@@ -93,6 +93,7 @@ run_check 'Canonical path final-symlink regression' sh tests/canonical-path-syml
 run_check 'Router runtime PATH priority regression' sh tests/router-path-priority.sh
 run_check 'Static archive failure safety regression' sh tests/download-static-failure-safety.sh
 run_check 'Installer file failure safety regression' sh tests/installer-file-failure-safety.sh
+run_check 'Installer legacy hook cleanup regression' sh tests/installer-legacy-hook-cleanup.sh
 run_check 'Installer post-replacement restart regression' sh tests/installer-post-replace-restart.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
 run_check 'Installer iterative input regression' sh tests/installer-input-loops.sh

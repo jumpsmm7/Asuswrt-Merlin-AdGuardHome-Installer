@@ -1498,16 +1498,23 @@ del_jffs_script() {
 		LINE_NUM="$(grep -n -F "[ -x ${ADDON_DIR}/" "${TARG}" | cut -d':' -f1)"
 	fi
 	[ -z "${LINE_NUM}" ] && return
-	printf "%s\n" "${LINE_NUM}" | sort -rn | while IFS= read -r LINE_NUM; do
+	LINE_NUM="$(printf "%s\n" "${LINE_NUM}" | sort -rn)" || return 1
+	for LINE_NUM in ${LINE_NUM}; do
 		[ -z "${LINE_NUM}" ] && continue
-		sed -i "${LINE_NUM}d" "${TARG}"
+		sed -i "${LINE_NUM}d" "${TARG}" || return 1
 		if [ "${LINE_NUM}" -gt 1 ]; then
 			LINE_NUM="$((LINE_NUM - 1))"
-			LINE_ABOVE="$(sed "${LINE_NUM}q;d" "${TARG}")"
-			[ -z "${LINE_ABOVE}" ] && sed -i "${LINE_NUM}d" "${TARG}"
+			LINE_ABOVE="$(sed "${LINE_NUM}q;d" "${TARG}")" || return 1
+			if [ -z "${LINE_ABOVE}" ]; then
+				sed -i "${LINE_NUM}d" "${TARG}" || return 1
+			fi
 		fi
 	done
-	[ "$(awk '{ print }' "${TARG}")" = "#!/bin/sh" ] && rm -f "${TARG}"
+	LINE_ABOVE="$(awk '{ print }' "${TARG}")" || return 1
+	if [ "${LINE_ABOVE}" = "#!/bin/sh" ]; then
+		rm -f "${TARG}" || return 1
+	fi
+	return 0
 }
 
 download_file() {
