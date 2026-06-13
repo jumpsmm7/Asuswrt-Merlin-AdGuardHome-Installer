@@ -93,6 +93,7 @@ run_check 'Installer local-cache preference save failure regression' sh tests/in
 run_check 'Installer IPSET preference save failure regression' sh tests/installer-ipset-save-failure.sh
 run_check 'Installer setup IPSET preference save failure regression' sh tests/installer-ipset-setup-save-failure.sh
 run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
+run_check 'AdGuardHome monitor retry backoff regression' sh tests/monitor-retry-backoff.sh
 run_check 'AdGuardHome DNS startup handoff regression' sh tests/dns-startup-handoff.sh
 run_check 'AdGuardHome IPSET version gate regression' sh tests/ipset-version-gate.sh
 run_check 'AdGuardHome empty IPSET data regression' sh tests/ipset-empty-rules.sh

@@ -141,6 +141,7 @@ The installer can integrate AdGuardHome with IPSET-based routing and firewall ad
 
 ### Requirements and ownership
 
+- IPSET integration is optional. A failure to prepare or refresh the installer-managed mappings is logged but does not prevent AdGuardHome from starting; only the IPSET routing or firewall integration may be unavailable until a later successful refresh.
 - IPSET integration is available only on Linux. AdGuardHome added `dns.ipset_file` in v0.107.13; this integration requires v0.107.48 or later because the generated file contains supported comment lines.
 - The routing or firewall add-on remains responsible for creating, restoring, flushing, and deleting its IPSETs and for installing any rules that use them. The AdGuardHome installer only supplies domain-to-IPSET mappings and does not create IPSETs or policy-routing/firewall rules.
 - A target set must already exist when AdGuardHome tries to add an address. IPv4 answers require a set with the `ipv4` family, and IPv6 answers require a set with the `ipv6` family.
