@@ -12,7 +12,11 @@ for script in AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome; do
 	[ -f "${script}" ] || fail "missing runtime script: ${script}"
 
 	path_statement="$(sed -n '/^export PATH=/p' "${script}" | sed -n '1p')"
-	[ "${path_statement}" = 'export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH:-}"' ] ||
+	expected_path='export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH:-}"'
+	if [ "${script}" = "S99AdGuardHome" ]; then
+		expected_path='export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:${PATH:-}"'
+	fi
+	[ "${path_statement}" = "${expected_path}" ] ||
 		fail "${script} does not prepend stock paths while preserving the caller PATH"
 
 	environment_lines="$(awk '
@@ -21,11 +25,16 @@ for script in AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome; do
 		{ print }
 		count++ == 1 { exit }
 	' "${script}")"
-	expected_lines='export LC_ALL=C
-export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH:-}"'
+	expected_lines="export LC_ALL=C
+${expected_path}"
 	[ "${environment_lines}" = "${expected_lines}" ] ||
 		fail "${script} executes code before setting its locale and PATH"
 done
+
+case "$(sed -n '/^export PATH=/p' S99AdGuardHome | sed -n '1p')" in
+	*:/opt/sbin:/opt/bin:*) ;;
+	*) fail "S99AdGuardHome does not include the Entware binary directories" ;;
+esac
 
 PATH="/feedback-test-path"
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH:-}"
