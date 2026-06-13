@@ -1,6 +1,7 @@
 #!/bin/sh
 # List repository shell scripts that should be checked by CI.
 # BusyBox/ash-compatible and intentionally conservative.
+# shellcheck disable=SC1007
 
 set -u
 
