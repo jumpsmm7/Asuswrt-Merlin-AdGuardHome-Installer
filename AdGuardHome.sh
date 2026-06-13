@@ -767,17 +767,24 @@ service_wait() {
 }
 
 start_adguardhome() {
-	local IPSET_START_RESTARTED IPSET_START_STOPPED LOWER_SCRIPT_STATUS
+	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LOWER_SCRIPT_STATUS
+	IPSET_START_FAILURE_SAFE="0"
 	IPSET_START_RESTARTED="0"
 	IPSET_START_STOPPED="0"
 	SERVICE_WAIT_TERMINAL_FAILURE="0"
 	if ! IPSet_Setup_For_Start; then
-		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; startup aborted to avoid using stale managed rules."
+		if [ "${IPSET_START_FAILURE_SAFE}" -ne 1 ]; then
+			logger -st "${NAME}" "Unable to prepare or safely disable AdGuardHome IPSET integration; aborting startup to avoid stale mappings."
+			if [ "${IPSET_START_STOPPED}" -eq 1 ]; then
+				IPSet_Start_Restore || true
+			fi
+			SERVICE_WAIT_TERMINAL_FAILURE="1"
+			return 1
+		fi
+		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; disabled managed mappings and continuing because IPSET integration is optional."
 		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
 			IPSET_START_RESTARTED="1"
 		fi
-		SERVICE_WAIT_TERMINAL_FAILURE="1"
-		return 1
 	fi
 	if [ "${IPSET_START_RESTARTED}" -eq 0 ]; then
 		case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
@@ -808,10 +815,11 @@ start_adguardhome() {
 }
 
 start_monitor() {
-	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_SLEEP_INTERVAL MONITOR_STATE
+	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_RECOVERY_RETRY_INTERVAL MONITOR_SLEEP_INTERVAL MONITOR_STATE
 	MONITOR_BINARY_RETRY_INTERVAL="10"
 	MONITOR_HEALTHCHECK_INTERVAL="300"
 	MONITOR_HEALTHCHECK_TIMEOUT="150"
+	MONITOR_RECOVERY_RETRY_INTERVAL="10"
 	MONITOR_SLEEP_INTERVAL="10"
 	MONITOR_STATE="running"
 	trap '' HUP INT QUIT ABRT TERM TSTP
@@ -858,8 +866,9 @@ start_monitor() {
 				esac
 				case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 					0)
-						logger -st "${NAME}" "Warning: ${PROCS} is dead; Monitor will start it!"
+						logger -st "${NAME}" "Warning: ${PROCS} is dead; Monitor will retry in ${MONITOR_RECOVERY_RETRY_INTERVAL} second(s)."
 						unset MONITOR_ELAPSED
+						sleep "${MONITOR_RECOVERY_RETRY_INTERVAL}s"
 						;;
 					1)
 						if [ "${MONITOR_ELAPSED}" -ge "${MONITOR_HEALTHCHECK_INTERVAL}" ]; then
@@ -874,8 +883,9 @@ start_monitor() {
 						if [ -n "${MONITOR_ELAPSED}" ]; then sleep "${MONITOR_SLEEP_INTERVAL}s"; fi
 						;;
 					*)
-						logger -st "${NAME}" "Warning: multiple ${PROCS} instances detected; Monitor will re-start it!"
+						logger -st "${NAME}" "Warning: multiple ${PROCS} instances detected; Monitor will retry in ${MONITOR_RECOVERY_RETRY_INTERVAL} second(s)."
 						unset MONITOR_ELAPSED
+						sleep "${MONITOR_RECOVERY_RETRY_INTERVAL}s"
 						;;
 				esac
 				;;
@@ -1895,11 +1905,19 @@ IPSet_Setup_For_Start_Locked() {
 		fi
 	fi
 	if ! IPSet_Setup_Locked; then
+		if ! IPSet_Disable_Managed; then
+			if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
+				IPSET_START_RESTARTED="1"
+			fi
+			return 1
+		fi
+		IPSET_START_FAILURE_SAFE="1"
 		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
 			IPSET_START_RESTARTED="1"
 		fi
 		return 1
 	fi
+	IPSET_START_FAILURE_SAFE="1"
 	if [ "${IPSET_START_STOPPED}" -eq 1 ]; then
 		if ! IPSet_Start_While_Locked; then
 			IPSET_START_STOPPED="0"
