@@ -2029,19 +2029,6 @@ setup_AdGuardHome_impl() {
 							return "${YESNO_STATUS}"
 							;;
 					esac
-					check_dns_filter "${DNS_FILTER_SELECTION}"
-					YESNO_STATUS="$?"
-					if [ "${YESNO_STATUS}" -ne 0 ]; then
-						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-						fi
-						return "${YESNO_STATUS}"
-					fi
-					if [ "$(nvram get dns_local_cache)" != "1" ]; then
-						check_dns_local "${LOCAL_CACHE_SELECTION}"
-					else
-						check_dns_local 0
-					fi
 					if [ "$2" != "reconfig" ] && ! check_ipset "${IPSET_SELECTION}"; then
 						PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
 							"${WARNING} Continuing setup with the previous or default IPSET preference."
@@ -2126,7 +2113,22 @@ setup_AdGuardHome_impl() {
 						"${ERROR} all ssh terminal operations to the script developer."
 					return 1
 				fi
-				if [ "$2" = "reconfig" ] && [ -n "${IPSET_SELECTION}" ] && ! check_ipset "${IPSET_SELECTION}"; then
+				if [ -n "${DNS_FILTER_SELECTION:-}" ]; then
+					check_dns_filter "${DNS_FILTER_SELECTION}"
+					YESNO_STATUS="$?"
+					if [ "${YESNO_STATUS}" -ne 0 ]; then
+						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+						fi
+						return "${YESNO_STATUS}"
+					fi
+					if [ "$(nvram get dns_local_cache)" != "1" ]; then
+						check_dns_local "${LOCAL_CACHE_SELECTION}"
+					else
+						check_dns_local 0
+					fi
+				fi
+				if [ "$2" = "reconfig" ] && [ -n "${IPSET_SELECTION:-}" ] && ! check_ipset "${IPSET_SELECTION}"; then
 					PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
 						"${WARNING} Continuing reconfiguration with the previous IPSET preference."
 				fi
