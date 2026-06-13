@@ -242,10 +242,17 @@ post_start_adguardhome() {
 }
 
 post_start_failure_adguardhome() {
+	_dns_recovery_status="0"
 	stop_dns_port_guard
-	disable_dns_handoff || return 1
-	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" = "1" ] && return 0
-	service restart_dnsmasq >/dev/null 2>&1
+	if ! disable_dns_handoff; then
+		_dns_recovery_status="1"
+	fi
+	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
+		if ! service restart_dnsmasq >/dev/null 2>&1; then
+			_dns_recovery_status="1"
+		fi
+	fi
+	return "${_dns_recovery_status}"
 }
 
 pre_start_adguardhome() {

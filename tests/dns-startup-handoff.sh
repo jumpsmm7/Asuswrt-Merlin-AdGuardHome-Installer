@@ -152,6 +152,17 @@ unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 disable_dns_handoff || fail 'could not clean up marker after post-start cleanup test'
 
 : >"${CALLS_FILE}"
+printf '%s\n' "$$" >"${DNS_HANDOFF_FILE}" || fail 'could not create handoff marker for failed-start recovery test'
+RM_HANDOFF_FAIL=1
+if post_start_failure_adguardhome; then
+	fail 'failed-start recovery hid a handoff marker cleanup failure'
+fi
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" ||
+	fail 'failed-start recovery did not restore dnsmasq after marker cleanup failed'
+RM_HANDOFF_FAIL=0
+disable_dns_handoff || fail 'could not clean up marker after failed-start recovery test'
+
+: >"${CALLS_FILE}"
 printf '%s %s\n' 999999 1 >"${DNS_HANDOFF_FILE}" || fail 'could not create stale handoff marker'
 if dns_handoff_is_active; then
 	fail 'dnsmasq postconf accepted a handoff marker owned by a dead process'
