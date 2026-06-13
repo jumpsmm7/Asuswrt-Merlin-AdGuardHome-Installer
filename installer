@@ -2310,7 +2310,16 @@ menu() {
 			if [ "$(nvram get dns_local_cache)" != "1" ]; then
 				PTXT "${INFO} This operation allows you to switch to using AdGuardHome as a local caching dns service for the router's own requests." \
 					"${INFO} A simple Yes or No will allow you to decide whether AdGuardhome handles DNS request for both the router and clients, or only clients."
-				if read_yesno "Do you want to run AdGuardHome as a local caching DNS service?"; then LOCAL_CACHE_SELECTION=1; else LOCAL_CACHE_SELECTION=0; fi
+				read_yesno "Do you want to run AdGuardHome as a local caching DNS service?"
+				CONFIRM_STATUS=$?
+				if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+					LOCAL_CACHE_SELECTION=1
+				elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
+					LOCAL_CACHE_SELECTION=0
+				else
+					end_op_message 1
+					return "${CONFIRM_STATUS}"
+				fi
 				if ! check_dns_local "${LOCAL_CACHE_SELECTION}"; then
 					PTXT "${ERROR} Unable to save the AdGuardHome local cache setting."
 					end_op_message 1
@@ -2339,7 +2348,16 @@ menu() {
 		"8" | "setipset")
 			PTXT "${INFO} IPSET integration imports compatible domain-to-IPSET mappings for routing and firewall add-ons." \
 				"${INFO} Disable it if this router does not use IPSET-based domain routing or filtering."
-			if read_yesno "Do you want to enable AdGuardHome IPSET integration?"; then IPSET_SELECTION=1; else IPSET_SELECTION=0; fi
+			read_yesno "Do you want to enable AdGuardHome IPSET integration?"
+			CONFIRM_STATUS=$?
+			if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+				IPSET_SELECTION=1
+			elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
+				IPSET_SELECTION=0
+			else
+				end_op_message 1
+				return "${CONFIRM_STATUS}"
+			fi
 			if ! check_ipset "${IPSET_SELECTION}"; then
 				PTXT "${ERROR} Unable to save the AdGuardHome IPSET integration setting. AdGuardHome was not restarted."
 				end_op_message 1
