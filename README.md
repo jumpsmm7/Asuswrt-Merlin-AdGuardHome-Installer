@@ -141,7 +141,7 @@ The installer can integrate AdGuardHome with IPSET-based routing and firewall ad
 
 ### Requirements and ownership
 
-- IPSET integration is optional. A failure to prepare or refresh the installer-managed mappings is logged but does not prevent AdGuardHome from starting; only the IPSET routing or firewall integration may be unavailable until a later successful refresh.
+- IPSET integration is optional. If installer-managed mappings cannot be prepared, the installer removes the managed `dns.ipset_file` reference before allowing AdGuardHome to start without IPSET integration. Startup is aborted only when that reference cannot be safely removed, preventing stale routing or firewall mappings from remaining active.
 - IPSET integration is available only on Linux. AdGuardHome added `dns.ipset_file` in v0.107.13; this integration requires v0.107.48 or later because the generated file contains supported comment lines.
 - The routing or firewall add-on remains responsible for creating, restoring, flushing, and deleting its IPSETs and for installing any rules that use them. The AdGuardHome installer only supplies domain-to-IPSET mappings and does not create IPSETs or policy-routing/firewall rules.
 - A target set must already exist when AdGuardHome tries to add an address. IPv4 answers require a set with the `ipv4` family, and IPv6 answers require a set with the `ipv6` family.
@@ -169,7 +169,7 @@ dns:
   ipset_file: /opt/etc/AdGuardHome/ipset.conf
 ```
 
-AdGuardHome ignores inline `dns.ipset` rules when `dns.ipset_file` is configured, so migrated custom rules are kept in `ipset.user` and merged into `ipset.conf`. The generated file may be replaced during startup, dnsmasq configuration, or firewall events; manual changes to `ipset.conf` will be lost. If a refresh finds no user or dnsmasq mappings, the installer removes the empty generated file and the managed `dns.ipset_file` setting instead of preventing AdGuardHome from starting. If setup or refresh fails, the installer logs the error but does not block AdGuardHome startup because IPSET integration is optional; the integration may remain unavailable until a later successful refresh.
+AdGuardHome ignores inline `dns.ipset` rules when `dns.ipset_file` is configured, so migrated custom rules are kept in `ipset.user` and merged into `ipset.conf`. The generated file may be replaced during startup, dnsmasq configuration, or firewall events; manual changes to `ipset.conf` will be lost. If a refresh finds no user or dnsmasq mappings, the installer removes the empty generated file and the managed `dns.ipset_file` setting instead of preventing AdGuardHome from starting. If setup fails, the installer removes the managed `dns.ipset_file` reference and allows AdGuardHome to start without IPSET integration. If the reference cannot be safely removed, startup is aborted rather than retaining stale mappings. Refresh failures are logged and leave the existing running configuration unchanged until a later successful refresh.
 
 Both IPSET files are inside `/opt/etc/AdGuardHome`, so the installer's normal backup and restore flow includes them. Uninstalling the installer removes them with the rest of that directory.
 
