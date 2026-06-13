@@ -166,6 +166,11 @@ recover_archive_publication() {
 	_restore_failed=0
 
 	[ -f "${_publish_state}" ] || return 0
+	if archive_publication_owner_is_active "${_publish_state}"; then
+		printf '%s\n' "Error: publication is already in progress for ${_archive_file}" >&2
+		FAILED=1
+		return 1
+	fi
 
 	rm -f "${_archive_file}" "${_md5_file}"
 	if [ -f "${_archive_backup}" ]; then
@@ -185,6 +190,28 @@ recover_archive_publication() {
 	return 0
 }
 
+archive_publication_owner_is_active() {
+	_publish_state="$1"
+	_publish_pid=""
+	_publish_start_time=""
+	_current_start_time=""
+
+	IFS=' ' read -r _publish_pid _publish_start_time <"${_publish_state}" || return 1
+	case "${_publish_pid}:${_publish_start_time}" in
+		*[!0-9:]* | *: | :*) return 1 ;;
+	esac
+	[ "${_publish_pid}" -gt 1 ] || return 1
+	kill -0 "${_publish_pid}" 2>/dev/null || return 1
+	_current_start_time="$(awk '{
+		sub(/^.*\) /, "")
+		print $20
+	}' "/proc/${_publish_pid}/stat" 2>/dev/null)" || return 1
+	case "${_current_start_time}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	[ "${_current_start_time}" = "${_publish_start_time}" ]
+}
+
 publish_archive_with_md5() {
 	_archive_tmp="$1"
 	_archive_file="$2"
@@ -197,6 +224,7 @@ publish_archive_with_md5() {
 	_had_archive=0
 	_had_md5=0
 	_restore_failed=0
+	_publish_start_time=""
 
 	recover_archive_publication "${_archive_file}" || {
 		rm -f "${_archive_tmp}"
@@ -230,7 +258,19 @@ publish_archive_with_md5() {
 		fi
 	fi
 
-	if ! printf '%s\n' "$$" >"${_publish_state}"; then
+	_publish_start_time="$(awk '{
+		sub(/^.*\) /, "")
+		print $20
+	}' "/proc/$$/stat" 2>/dev/null)" || _publish_start_time=""
+	case "${_publish_start_time}" in
+		"" | *[!0-9]*)
+			rm -f "${_archive_backup}" "${_md5_backup}" "${_archive_tmp}" "${_md5_tmp}"
+			printf '%s\n' "Error: could not identify publication owner for ${_archive_file}" >&2
+			FAILED=1
+			return 1
+			;;
+	esac
+	if ! printf '%s %s\n' "$$" "${_publish_start_time}" >"${_publish_state}"; then
 		rm -f "${_archive_backup}" "${_md5_backup}" "${_archive_tmp}" "${_md5_tmp}"
 		printf '%s\n' "Error: could not record publication state for ${_archive_file}" >&2
 		FAILED=1
