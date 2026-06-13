@@ -1,7 +1,6 @@
 # Shared ShellCheck configuration for CI.
 # The router syntax job still validates runtime compatibility with BusyBox ash.
 
-shell=ash
 shell=bash
 
 disable=SC1007
