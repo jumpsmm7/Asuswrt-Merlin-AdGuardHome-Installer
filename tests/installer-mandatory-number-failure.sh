@@ -106,4 +106,20 @@ fi
 [ "${MV_CALLED}" -eq 0 ] ||
 	fail 'set_timezone consumed stale CHOSEN after prompt failure'
 
+awk '
+	/^inst_AdGuardHome\(\) \{/ { in_function = 1 }
+	in_function && /if \[ "\$\{1:-install\}" != "update" \] && ! choose_branch; then/ { guarded = 1 }
+	in_function && /^}/ { exit guarded ? 0 : 1 }
+	END { if (!in_function) exit 1 }
+' "${REPO_DIR}/installer" ||
+	fail 'inst_AdGuardHome does not abort when branch selection fails'
+
+awk '
+	/^setup_AdGuardHome_impl\(\) \{/ { in_function = 1 }
+	in_function && /if ! read_input_num "Your selection" 1 3; then/ { guarded = 1 }
+	in_function && /^}/ { exit guarded ? 0 : 1 }
+	END { if (!in_function) exit 1 }
+' "${REPO_DIR}/installer" ||
+	fail 'setup_AdGuardHome_impl does not abort when reconfiguration selection fails'
+
 printf '%s\n' 'PASS: mandatory numeric prompt failures abort their callers'
