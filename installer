@@ -1311,16 +1311,27 @@ adguard_restart_after_install_abort() {
 
 adguard_install_abort_trap_disable() {
 	trap - HUP INT QUIT ABRT TERM
+	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
+	ADGUARD_INSTALL_OLD_BINARY=""
 }
 
 adguard_install_abort_on_signal() {
+	local OLD_BINARY REPLACE_ACTIVE
+	OLD_BINARY="${ADGUARD_INSTALL_OLD_BINARY:-}"
+	REPLACE_ACTIVE="${ADGUARD_INSTALL_REPLACE_ACTIVE:-0}"
 	adguard_install_abort_trap_disable
-	adguard_restart_after_install_abort 1
+	if [ "${REPLACE_ACTIVE}" = "1" ] && [ -n "${OLD_BINARY}" ]; then
+		adguard_restore_after_failed_replace "${OLD_BINARY}" 1
+	else
+		adguard_restart_after_install_abort 1
+	fi
 	clear_screen
 	end_op_message 2
 }
 
 adguard_install_abort_trap_enable() {
+	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
+	ADGUARD_INSTALL_OLD_BINARY=""
 	trap 'adguard_install_abort_on_signal' HUP INT QUIT ABRT TERM
 }
 
@@ -1408,6 +1419,8 @@ install_adguard_archive() {
 		adguard_restart_after_failed_replace "${WAS_RUNNING}"
 		return 1
 	fi
+	ADGUARD_INSTALL_OLD_BINARY="${OLD_BINARY}"
+	ADGUARD_INSTALL_REPLACE_ACTIVE="1"
 	if ! mv "${STAGE_BINARY}" "${AGH_FILE}"; then
 		adguard_install_abort_trap_disable
 		rm -rf "${STAGE_DIR}"
@@ -1426,6 +1439,8 @@ install_adguard_archive() {
 		return 1
 	fi
 	rm -f "${OLD_BINARY}"
+	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
+	ADGUARD_INSTALL_OLD_BINARY=""
 	rm -rf "${STAGE_DIR}"
 	return 0
 }
