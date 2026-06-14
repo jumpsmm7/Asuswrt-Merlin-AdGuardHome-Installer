@@ -252,11 +252,11 @@ download_one() {
 	}
 	if [ -f "${_dest_file}" ] && cmp -s "${_tmp_file}" "${_dest_file}"; then
 		printf '%s\n' "OK: ${_dest_file} already current"
-		publish_archive_with_md5 "${_tmp_file}" "${_dest_file}" "${_md5}" \
-			require-unchanged || {
-			ACTIVE_DOWNLOAD_TMP=""
+		refresh_unchanged_archive_md5 "${_tmp_file}" "${_dest_file}" "${_md5}" || {
+			cleanup_download_tmp
 			return 1
 		}
+		cleanup_download_tmp
 	else
 		publish_archive_with_md5 "${_tmp_file}" "${_dest_file}" "${_md5}" || {
 			ACTIVE_DOWNLOAD_TMP=""
@@ -364,6 +364,63 @@ archive_publication_owner_is_active() {
 		"" | *[!0-9]*) return 1 ;;
 	esac
 	[ "${_current_start_time}" = "${_publish_start_time}" ]
+}
+
+refresh_unchanged_archive_md5() {
+	_archive_tmp="$1"
+	_archive_file="$2"
+	_md5="$3"
+	_md5_file="${_archive_file}.md5sum"
+	_md5_tmp="${_md5_file}.tmp.$$"
+	_publish_state="${_archive_file}.publish-in-progress"
+	_publish_start_time=""
+
+	recover_archive_publication "${_archive_file}" || return 1
+	if ! printf '%s\n' "${_md5}" >"${_md5_tmp}" ||
+		! chmod 644 "${_md5_tmp}"; then
+		rm -f "${_md5_tmp}"
+		printf '%s\n' "Error: could not prepare ${_md5_file}" >&2
+		FAILED=1
+		return 1
+	fi
+
+	_publish_start_time="$(awk '{
+		sub(/^.*\) /, "")
+		print $20
+	}' "/proc/$$/stat" 2>/dev/null)" || _publish_start_time=""
+	case "${_publish_start_time}" in
+		"" | *[!0-9]*)
+			rm -f "${_md5_tmp}"
+			printf '%s\n' "Error: could not identify publication owner for ${_archive_file}" >&2
+			FAILED=1
+			return 1
+			;;
+	esac
+	if ! acquire_archive_publication_state "${_publish_state}" "$$" \
+		"${_publish_start_time}" checksum-only; then
+		rm -f "${_md5_tmp}"
+		printf '%s\n' "Error: publication is already in progress for ${_archive_file}" >&2
+		FAILED=1
+		return 1
+	fi
+	if [ ! -f "${_archive_file}" ] ||
+		! cmp -s "${_archive_tmp}" "${_archive_file}"; then
+		rm -f "${_publish_state}" "${_md5_tmp}"
+		printf '%s\n' "Error: ${_archive_file} changed while refreshing its checksum" >&2
+		FAILED=1
+		return 1
+	fi
+	if ! mv "${_md5_tmp}" "${_md5_file}"; then
+		rm -f "${_publish_state}" "${_md5_tmp}"
+		printf '%s\n' "Error: could not update ${_md5_file}" >&2
+		FAILED=1
+		return 1
+	fi
+	if ! rm -f "${_publish_state}"; then
+		printf '%s\n' "Error: could not clear publication state for ${_archive_file}" >&2
+		FAILED=1
+		return 1
+	fi
 }
 
 acquire_archive_publication_state() {

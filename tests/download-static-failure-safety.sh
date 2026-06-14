@@ -20,7 +20,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}/out/armv7" || fail "could not create test directory"
 
-sed -n '/^append_metadata() {$/,/^}$/p; /^acquire_metadata_publication_lock() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^recover_metadata_publication() {$/,/^}$/p; /^reclaim_stale_metadata_publication_lock() {$/,/^}$/p; /^release_metadata_publication_lock() {$/,/^}$/p; /^archive_publication_owner_is_active() {$/,/^}$/p; /^acquire_archive_publication_state() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p' \
+sed -n '/^append_metadata() {$/,/^}$/p; /^acquire_metadata_publication_lock() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^recover_metadata_publication() {$/,/^}$/p; /^reclaim_stale_metadata_publication_lock() {$/,/^}$/p; /^release_metadata_publication_lock() {$/,/^}$/p; /^archive_publication_owner_is_active() {$/,/^}$/p; /^refresh_unchanged_archive_md5() {$/,/^}$/p; /^acquire_archive_publication_state() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail "static download helpers were not found"
 
@@ -111,6 +111,28 @@ fi
 	fail "checksum refresh replaced the concurrently published checksum"
 [ ! -e "${TEST_ROOT}/archive.publish-in-progress" ] ||
 	fail "failed checksum refresh left publication state behind"
+
+printf '%s\n' "current archive" >"${TEST_ROOT}/archive"
+cp "${TEST_ROOT}/archive" "${TEST_ROOT}/archive.tmp"
+printf '%s\n' "stale checksum" >"${TEST_ROOT}/archive.md5sum"
+cp() {
+	case "$*" in
+		*"${TEST_ROOT}/archive"*"${TEST_ROOT}/archive.previous"*)
+			fail "unchanged archive refresh copied the full archive"
+			;;
+	esac
+	command cp "$@"
+}
+refresh_unchanged_archive_md5 "${TEST_ROOT}/archive.tmp" \
+	"${TEST_ROOT}/archive" currentchecksum >/dev/null 2>&1 ||
+	fail "unchanged archive checksum refresh failed"
+unset -f cp
+[ "$(sed -n '1p' "${TEST_ROOT}/archive")" = "current archive" ] ||
+	fail "unchanged archive refresh replaced the canonical archive"
+[ "$(sed -n '1p' "${TEST_ROOT}/archive.md5sum")" = "currentchecksum" ] ||
+	fail "unchanged archive refresh did not update the checksum"
+[ ! -e "${TEST_ROOT}/archive.previous" ] ||
+	fail "unchanged archive refresh created an archive rollback copy"
 
 REAL_RM="$(which rm)" || fail "rm is unavailable"
 printf '%s\n' "old archive" >"${TEST_ROOT}/archive"
