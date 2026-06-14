@@ -113,8 +113,6 @@ fi
 	fail "failed checksum refresh left publication state behind"
 
 printf '%s\n' "current archive" >"${TEST_ROOT}/archive"
-cp "${TEST_ROOT}/archive" "${TEST_ROOT}/archive.tmp"
-printf '%s\n' "stale checksum" >"${TEST_ROOT}/archive.md5sum"
 cp() {
 	case "$*" in
 		*"${TEST_ROOT}/archive"*"${TEST_ROOT}/archive.previous"*)
@@ -123,6 +121,8 @@ cp() {
 	esac
 	command cp "$@"
 }
+cp "${TEST_ROOT}/archive" "${TEST_ROOT}/archive.tmp"
+printf '%s\n' "stale checksum" >"${TEST_ROOT}/archive.md5sum"
 refresh_unchanged_archive_md5 "${TEST_ROOT}/archive.tmp" \
 	"${TEST_ROOT}/archive" currentchecksum >/dev/null 2>&1 ||
 	fail "unchanged archive checksum refresh failed"
