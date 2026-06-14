@@ -105,11 +105,12 @@ dns_handoff_marker_is_active() {
 	[ "${_dns_handoff_current_start_time}" = "${_dns_handoff_marker_start_time}" ]
 }
 
-dns_handoff_lock_is_active() {
+dns_handoff_lock_file_is_active() {
+	_dns_handoff_lock_file="$1"
 	_dns_handoff_lock_pid=""
 	_dns_handoff_lock_start_time=""
-	[ -f "${DNS_HANDOFF_LOCK}" ] && [ ! -L "${DNS_HANDOFF_LOCK}" ] || return 1
-	IFS=' ' read -r _dns_handoff_lock_pid _dns_handoff_lock_start_time <"${DNS_HANDOFF_LOCK}" ||
+	[ -f "${_dns_handoff_lock_file}" ] && [ ! -L "${_dns_handoff_lock_file}" ] || return 1
+	IFS=' ' read -r _dns_handoff_lock_pid _dns_handoff_lock_start_time <"${_dns_handoff_lock_file}" ||
 		return 1
 	case "${_dns_handoff_lock_pid}:${_dns_handoff_lock_start_time}" in
 		*[!0-9:]* | :* | *:) return 1 ;;
@@ -117,6 +118,37 @@ dns_handoff_lock_is_active() {
 	_dns_handoff_lock_current_start_time="$(dns_handoff_process_start_time "${_dns_handoff_lock_pid}")" ||
 		return 1
 	[ "${_dns_handoff_lock_current_start_time}" = "${_dns_handoff_lock_start_time}" ]
+}
+
+dns_handoff_lock_is_active() {
+	dns_handoff_lock_file_is_active "${DNS_HANDOFF_LOCK}"
+}
+
+reclaim_stale_dns_handoff_lock() {
+	_dns_handoff_stale_candidate="${DNS_HANDOFF_LOCK}.stale.$$"
+	rm -f "${_dns_handoff_stale_candidate}" 2>/dev/null
+	ln "${DNS_HANDOFF_LOCK}" "${_dns_handoff_stale_candidate}" 2>/dev/null || return 1
+	if dns_handoff_lock_file_is_active "${_dns_handoff_stale_candidate}"; then
+		rm -f "${_dns_handoff_stale_candidate}"
+		return 1
+	fi
+	_dns_handoff_lock_identity="$(stat -c '%d:%i' "${DNS_HANDOFF_LOCK}" 2>/dev/null)" || {
+		rm -f "${_dns_handoff_stale_candidate}"
+		return 1
+	}
+	_dns_handoff_stale_identity="$(stat -c '%d:%i' "${_dns_handoff_stale_candidate}" 2>/dev/null)" || {
+		rm -f "${_dns_handoff_stale_candidate}"
+		return 1
+	}
+	if [ "${_dns_handoff_lock_identity}" != "${_dns_handoff_stale_identity}" ]; then
+		rm -f "${_dns_handoff_stale_candidate}"
+		return 1
+	fi
+	rm -f "${DNS_HANDOFF_LOCK}" 2>/dev/null || {
+		rm -f "${_dns_handoff_stale_candidate}"
+		return 1
+	}
+	rm -f "${_dns_handoff_stale_candidate}"
 }
 
 release_dns_handoff_lock() {
@@ -185,7 +217,7 @@ enable_dns_handoff() {
 			sleep 1
 			continue
 		fi
-		if ! release_dns_handoff_lock; then
+		if ! reclaim_stale_dns_handoff_lock; then
 			logger -st "${PROCS}" "Unable to remove a stale dnsmasq handoff marker lock."
 			rm -f "${_dns_handoff_lock_candidate}"
 			return 1
