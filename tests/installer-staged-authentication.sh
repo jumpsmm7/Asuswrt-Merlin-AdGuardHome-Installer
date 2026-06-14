@@ -56,4 +56,8 @@ grep -q '^users:$' "${YAML_STAGED}" || fail 'staged YAML is missing the users se
 grep -q '^- name: admin$' "${YAML_STAGED}" || fail 'staged YAML is missing the selected username'
 grep -q '^  password: \$2a\$10\$' "${YAML_STAGED}" || fail 'staged YAML is missing the generated password hash'
 
+if AdGuardHome_authen 1 "${YAML_STAGED}" </dev/null; then
+	fail 'authentication accepted closed password input'
+fi
+
 printf '%s\n' 'PASS: generated credentials are written to the staged YAML snapshot'

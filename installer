@@ -440,10 +440,28 @@ AdGuardHome_authen() {
 	fi
 	local PW1 PW2
 	PTXT -n "${INPUT} Please enter AdGuardHome password${NORM}: "
-	read -rs PW1
+	local PASSWORD_ECHO_DISABLED=0
+	if stty -echo 2>/dev/null; then
+		PASSWORD_ECHO_DISABLED=1
+	fi
+	if ! read -r PW1; then
+		[ "${PASSWORD_ECHO_DISABLED}" -eq 0 ] || stty echo 2>/dev/null
+		PTXT " "
+		return 1
+	fi
+	[ "${PASSWORD_ECHO_DISABLED}" -eq 0 ] || stty echo 2>/dev/null
 	PTXT " "
 	PTXT -n "${INPUT} Please reenter AdGuardHome password${NORM}: "
-	read -rs PW2
+	PASSWORD_ECHO_DISABLED=0
+	if stty -echo 2>/dev/null; then
+		PASSWORD_ECHO_DISABLED=1
+	fi
+	if ! read -r PW2; then
+		[ "${PASSWORD_ECHO_DISABLED}" -eq 0 ] || stty echo 2>/dev/null
+		PTXT " "
+		return 1
+	fi
+	[ "${PASSWORD_ECHO_DISABLED}" -eq 0 ] || stty echo 2>/dev/null
 	PTXT " "
 	if [ -z "${PW1}" ] || [ -z "${PW2}" ] || [ "${PW1}" != "${PW2}" ]; then
 		PTXT "${ERROR} Password entered incorrectly!"
