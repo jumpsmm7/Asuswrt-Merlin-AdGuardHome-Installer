@@ -161,6 +161,27 @@ unset -f rm
 "${REAL_RM}" -f "${TEST_ROOT}/archive.publish-in-progress" \
 	"${TEST_ROOT}/archive.previous" "${TEST_ROOT}/archive.md5sum.previous"
 
+printf '%s\n' "old archive" >"${TEST_ROOT}/archive"
+printf '%s\n' "old checksum" >"${TEST_ROOT}/archive.md5sum"
+printf '%s\n' "new archive" >"${TEST_ROOT}/archive.tmp"
+rm() {
+	case "$*" in
+		*"archive.previous"*"archive.md5sum.previous"*) return 1 ;;
+	esac
+	"${REAL_RM}" "$@"
+}
+if publish_archive_with_md5 "${TEST_ROOT}/archive.tmp" "${TEST_ROOT}/archive" newchecksum >/dev/null 2>&1; then
+	fail "archive publication ignored rollback-copy cleanup failure"
+fi
+[ ! -e "${TEST_ROOT}/archive.publish-in-progress" ] ||
+	fail "rollback-copy cleanup failure retained cleared publication state"
+[ -e "${TEST_ROOT}/archive.previous" ] ||
+	fail "rollback-copy cleanup failure unexpectedly removed the archive backup"
+[ -e "${TEST_ROOT}/archive.md5sum.previous" ] ||
+	fail "rollback-copy cleanup failure unexpectedly removed the checksum backup"
+unset -f rm
+"${REAL_RM}" -f "${TEST_ROOT}/archive.previous" "${TEST_ROOT}/archive.md5sum.previous"
+
 PUBLISH_START_TIME="$(awk '{
 	sub(/^.*\) /, "")
 	print $20

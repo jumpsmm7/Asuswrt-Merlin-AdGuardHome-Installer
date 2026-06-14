@@ -524,7 +524,11 @@ publish_archive_with_md5() {
 			FAILED=1
 			return 1
 		fi
-		rm -f "${_archive_backup}" "${_md5_backup}"
+		if ! rm -f "${_archive_backup}" "${_md5_backup}"; then
+			printf '%s\n' "Error: could not remove rollback copies for ${_archive_file}" >&2
+			FAILED=1
+			return 1
+		fi
 		return 0
 	fi
 
