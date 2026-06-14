@@ -542,6 +542,8 @@ recover_metadata_publication() {
 	_publish_state="${_dest_dir}/.metadata.publish-in-progress"
 	_version_backup="${_version_file}.previous"
 	_checksum_backup="${_checksum_file}.previous"
+	_version_restore="${_version_backup}.restore.$$"
+	_checksum_restore="${_checksum_backup}.restore.$$"
 	_restore_failed=0
 	_publish_phase=""
 	_publish_had_version=""
@@ -566,20 +568,38 @@ recover_metadata_publication() {
 		return 0
 	fi
 
-	rm -f "${_version_file}" "${_checksum_file}"
-	if [ -f "${_version_backup}" ]; then
-		mv "${_version_backup}" "${_version_file}" || _restore_failed=1
+	rm -f "${_version_restore}" "${_checksum_restore}"
+	if [ "${_publish_had_version}" = "1" ]; then
+		cp -p "${_version_backup}" "${_version_restore}" || _restore_failed=1
 	fi
-	if [ -f "${_checksum_backup}" ]; then
-		mv "${_checksum_backup}" "${_checksum_file}" || _restore_failed=1
+	if [ "${_publish_had_checksum}" = "1" ]; then
+		cp -p "${_checksum_backup}" "${_checksum_restore}" || _restore_failed=1
 	fi
 	if [ "${_restore_failed}" -ne 0 ]; then
+		rm -f "${_version_restore}" "${_checksum_restore}"
 		printf '%s\n' "Error: could not recover interrupted metadata publication for ${_dest_dir}" >&2
 		FAILED=1
 		return 1
 	fi
 
-	rm -f "${_publish_state}"
+	if [ "${_publish_had_version}" = "1" ]; then
+		mv "${_version_restore}" "${_version_file}" || _restore_failed=1
+	else
+		rm -f "${_version_file}" || _restore_failed=1
+	fi
+	if [ "${_publish_had_checksum}" = "1" ]; then
+		mv "${_checksum_restore}" "${_checksum_file}" || _restore_failed=1
+	else
+		rm -f "${_checksum_file}" || _restore_failed=1
+	fi
+	if [ "${_restore_failed}" -ne 0 ]; then
+		rm -f "${_version_restore}" "${_checksum_restore}"
+		printf '%s\n' "Error: could not recover interrupted metadata publication for ${_dest_dir}" >&2
+		FAILED=1
+		return 1
+	fi
+
+	rm -f "${_version_backup}" "${_checksum_backup}" "${_publish_state}"
 	printf '%s\n' "Recovered interrupted metadata publication for ${_dest_dir}" >&2
 	return 0
 }

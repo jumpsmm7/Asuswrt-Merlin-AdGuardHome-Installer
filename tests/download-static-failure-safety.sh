@@ -317,4 +317,35 @@ recover_metadata_publication "${TEST_ROOT}/metadata" >/dev/null 2>&1 ||
 [ ! -e "${TEST_ROOT}/metadata/.metadata.publish-in-progress" ] ||
 	fail "interrupted metadata publication state was not cleared"
 
+printf '%s\n' "old version" >"${TEST_ROOT}/metadata/VERSION.txt.previous"
+printf '%s\n' "old metadata checksum" >"${TEST_ROOT}/metadata/checksum.txt.previous"
+printf '%s\n' "new version" >"${TEST_ROOT}/metadata/VERSION.txt"
+printf '%s\n' "new metadata checksum" >"${TEST_ROOT}/metadata/checksum.txt"
+printf '%s %s ready 1 1\n' "999999" "1" \
+	>"${TEST_ROOT}/metadata/.metadata.publish-in-progress"
+mv() {
+	case "$1" in
+		*/checksum.txt.previous.restore.*) return 1 ;;
+	esac
+	"${REAL_MV}" "$@"
+}
+if recover_metadata_publication "${TEST_ROOT}/metadata" >/dev/null 2>&1; then
+	fail "interrupted metadata recovery accepted a checksum restore failure"
+fi
+[ -f "${TEST_ROOT}/metadata/VERSION.txt.previous" ] ||
+	fail "failed metadata recovery consumed the version backup"
+[ -f "${TEST_ROOT}/metadata/checksum.txt.previous" ] ||
+	fail "failed metadata recovery consumed the checksum backup"
+[ -f "${TEST_ROOT}/metadata/.metadata.publish-in-progress" ] ||
+	fail "failed metadata recovery removed the publication state"
+unset -f mv
+recover_metadata_publication "${TEST_ROOT}/metadata" >/dev/null 2>&1 ||
+	fail "interrupted metadata recovery was not restartable"
+[ "$(sed -n '1p' "${TEST_ROOT}/metadata/VERSION.txt")" = "old version" ] ||
+	fail "restarted metadata recovery did not restore VERSION.txt"
+[ "$(sed -n '1p' "${TEST_ROOT}/metadata/checksum.txt")" = "old metadata checksum" ] ||
+	fail "restarted metadata recovery did not restore checksum.txt"
+[ ! -e "${TEST_ROOT}/metadata/.metadata.publish-in-progress" ] ||
+	fail "restarted metadata recovery did not clear publication state"
+
 printf '%s\n' "PASS: static archive and metadata publication preserves complete working sets on failure"
