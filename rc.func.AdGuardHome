@@ -1,5 +1,8 @@
 #!/bin/sh
 
+export LC_ALL=C
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
+
 ACTION="$1"
 CALLER="${2:-$0}"
 
@@ -20,7 +23,7 @@ ansi_ul="$(printf "\033[4m")"
 
 rc_dependencies_available() {
 	local _REQUIRED_COMMAND
-	for _REQUIRED_COMMAND in grep kill killall logger pidof; do
+	for _REQUIRED_COMMAND in grep kill killall logger pidof sleep; do
 		if ! which "${_REQUIRED_COMMAND}" >/dev/null 2>&1; then
 			printf '%s\n' "${CALLER}: required service command is unavailable: ${_REQUIRED_COMMAND}" >&2
 			return 1
@@ -44,7 +47,7 @@ process_wait_for_start() {
 	_COUNTER="0"
 	while [ "${_COUNTER}" -lt "${_LIMIT}" ]; do
 		[ -n "$(process_pids "${_PROC}")" ] && return 0
-		sleep 1s
+		sleep 1
 		_COUNTER="$((_COUNTER + 1))"
 	done
 	[ -n "$(process_pids "${_PROC}")" ]
@@ -57,10 +60,26 @@ process_wait_for_stop() {
 	_COUNTER="0"
 	while [ "${_COUNTER}" -lt "${_LIMIT}" ]; do
 		[ -z "$(process_pids "${_PROC}")" ] && return 0
-		sleep 1s
+		sleep 1
 		_COUNTER="$((_COUNTER + 1))"
 	done
 	[ -z "$(process_pids "${_PROC}")" ]
+}
+
+stop_launched_process() {
+	local _PID _COUNTER
+	_PID="$1"
+	[ -n "${_PID}" ] || return 0
+	if kill -0 "${_PID}" 2>/dev/null; then
+		kill -TERM "${_PID}" 2>/dev/null
+		_COUNTER=0
+		while kill -0 "${_PID}" 2>/dev/null && [ "${_COUNTER}" -lt 5 ]; do
+			sleep 1
+			_COUNTER="$((_COUNTER + 1))"
+		done
+		kill -0 "${_PID}" 2>/dev/null && kill -KILL "${_PID}" 2>/dev/null
+	fi
+	wait "${_PID}" 2>/dev/null
 }
 
 signal_process() {
@@ -95,7 +114,7 @@ reload() {
 }
 
 start() {
-	local DNS_HANDOFF PIDS STOPPED
+	local DNS_HANDOFF LAUNCH_PID PIDS STOPPED
 	{ [ "${CRITICAL}" != "yes" ] && [ "${CALLER}" = "cron" ]; } && return 7
 	[ "${ENABLED}" != "yes" ] && return 8
 	printf "%s" "${ansi_white} Starting ${DESC}... ${ansi_std}"
@@ -108,7 +127,7 @@ start() {
 	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then
 		if [ "${PROC}" = "AdGuardHome" ]; then
 			DNS_HANDOFF=1
-			trap '[ -n "${POSTFAILCMD:-}" ] && ${POSTFAILCMD} >/dev/null 2>&1; exit 255' HUP INT TERM
+			trap 'stop_launched_process "${LAUNCH_PID:-}"; [ -n "${POSTFAILCMD:-}" ] && ${POSTFAILCMD} >/dev/null 2>&1; exit 255' HUP INT TERM
 		fi
 		if ! ${PRECMD} >/dev/null 2>&1; then
 			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
@@ -117,10 +136,22 @@ start() {
 			return 255
 		fi
 	fi
-	{ ${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null & }
+	{
+		${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null &
+		LAUNCH_PID="$!"
+	}
 	#echo ${PREARGS} ${PROC} ${ARGS}
-	process_wait_for_start "${PROC}" 10
-	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then
+	if ! process_wait_for_start "${PROC}" 10; then
+		stop_launched_process "${LAUNCH_PID}"
+		if [ -n "${POSTFAILCMD:-}" ]; then
+			${POSTFAILCMD} >/dev/null 2>&1 || logger -st "${CALLER}" "Failed-start recovery failed for ${DESC} from ${CALLER}."
+		fi
+		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
+		logger -st "${CALLER}" "Failed to start ${DESC} from ${CALLER}."
+		[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
+		return 255
+	fi
+	if [ "${PROC}" != "AdGuardHome" ] || [ "${DNS_HANDOFF}" -eq 1 ]; then
 		if ! ${POSTCMD} >/dev/null 2>&1; then
 			STOPPED=0
 			signal_process TERM "${PROC}"

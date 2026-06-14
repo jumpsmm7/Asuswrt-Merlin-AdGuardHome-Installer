@@ -5,6 +5,7 @@ set -u
 
 S99_PATH="${1:-S99AdGuardHome}"
 RC_PATH="${2:-rc.func.AdGuardHome}"
+MANAGER_PATH="${3:-AdGuardHome.sh}"
 TEST_ROOT="${TMPDIR:-/tmp}/adguardhome-dns-handoff.$$"
 S99_FUNCTIONS="${TEST_ROOT}/s99-functions"
 RC_FUNCTION="${TEST_ROOT}/rc-start-function"
@@ -25,11 +26,18 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
+	'/^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_path_has_owner_mode() {$/,/^}$/p; /^dns_handoff_directory_is_private() {$/,/^}$/p; /^dns_handoff_marker_is_private() {$/,/^}$/p; /^dns_handoff_process_is_root() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^dns_handoff_lock_file_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^reclaim_stale_dns_handoff_lock() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
-sed -n '/^start() {$/,/^}$/p' "${RC_PATH}" >"${RC_FUNCTION}" || fail "could not read ${RC_PATH}"
+sed -n '/^dns_handoff_is_active() {$/,/^}$/p' "${MANAGER_PATH}" >>"${S99_FUNCTIONS}" ||
+	fail "could not read ${MANAGER_PATH}"
+sed -n '/^stop_launched_process() {$/,/^}$/p; /^start() {$/,/^}$/p' "${RC_PATH}" >"${RC_FUNCTION}" ||
+	fail "could not read ${RC_PATH}"
 [ -s "${S99_FUNCTIONS}" ] || fail 'DNS handoff functions were not found'
 [ -s "${RC_FUNCTION}" ] || fail 'service start function was not found'
+grep -q 'DNS_HANDOFF_DIR="/tmp/AdGuardHome.dns-handoff"' "${S99_PATH}" ||
+	fail 'service script does not use the private dnsmasq handoff directory'
+grep -q 'dns_handoff_is_active || return 0' "${MANAGER_PATH}" ||
+	fail 'dnsmasq postconf cannot run before AdGuardHome starts'
 
 # shellcheck disable=SC1090
 . "${S99_FUNCTIONS}"
@@ -37,12 +45,22 @@ sed -n '/^start() {$/,/^}$/p' "${RC_PATH}" >"${RC_FUNCTION}" || fail "could not 
 . "${RC_FUNCTION}"
 
 PROCS='AdGuardHome'
+DNS_HANDOFF_DIR="${TEST_ROOT}/dns-handoff"
+DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
+DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
+umask 077
 logger() {
 	printf '%s\n' "logger $*" >>"${CALLS_FILE}"
 }
+rm() {
+	if [ "${RM_HANDOFF_FAIL:-0}" -eq 1 ] && [ "${1:-}" = '-f' ] && [ "${2:-}" = "${DNS_HANDOFF_FILE}" ]; then
+		return 1
+	fi
+	command rm "$@"
+}
 which() {
 	case "$1" in
-		awk | kill | logger | netstat | pidof | service | sleep)
+		awk | chmod | kill | ln | logger | ls | mkdir | netstat | pidof | rm | service | sleep)
 			return 0
 			;;
 	esac
@@ -62,6 +80,9 @@ netstat() {
 		busy)
 			printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 123/dnsmasq'
 			;;
+		busy_alt)
+			printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 0 0 234/custom-dns'
+			;;
 		owned)
 			printf '%s\n' \
 				'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 321/AdGuardHome' \
@@ -72,6 +93,7 @@ netstat() {
 service() {
 	printf '%s\n' "service $*" >>"${CALLS_FILE}"
 	[ "$*" = 'restart_dnsmasq' ] && [ "${SERVICE_RESTART_FAIL:-0}" -eq 1 ] && return 1
+	[ "$*" = 'restart_dnsmasq' ] && [ "${DNSMASQ_RESTART_RELEASES_PORT:-0}" -eq 1 ] && DNS_STATE=free
 	return 0
 }
 kill() {
@@ -100,14 +122,168 @@ NETSTAT_FAIL=0
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy
+DNSMASQ_RESTART_RELEASES_PORT=1
+enable_dns_handoff || fail 'could not enable the dnsmasq postconf handoff'
+[ -f "${DNS_HANDOFF_FILE}" ] || fail 'dnsmasq handoff marker was not created'
+[ "$(ls -ldn "${DNS_HANDOFF_DIR}" | awk 'NR == 1 { print $3 ":" substr($1, 2, 9) }')" = '0:rwx------' ] ||
+	fail 'dnsmasq handoff directory is not root-owned and private'
+[ "$(ls -ldn "${DNS_HANDOFF_FILE}" | awk 'NR == 1 { print $3 ":" substr($1, 2, 9) }')" = '0:rw-------' ] ||
+	fail 'dnsmasq handoff marker is not root-owned and private'
+[ "${DNS_STATE}" = free ] || fail 'dnsmasq was not regenerated onto its alternate port'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'dnsmasq was not restarted to apply postconf'
+disable_dns_handoff
+[ ! -e "${DNS_HANDOFF_FILE}" ] || fail 'dnsmasq handoff marker was not removed'
+DNSMASQ_RESTART_RELEASES_PORT=0
+
+chmod 777 "${DNS_HANDOFF_DIR}" || fail 'could not make handoff directory insecure for validation test'
+printf '%s %s\n' "$$" "$(dns_handoff_process_start_time "$$")" >"${DNS_HANDOFF_FILE}" ||
+	fail 'could not create marker in insecure handoff directory'
+if dns_handoff_is_active; then
+	fail 'dnsmasq postconf accepted a marker from an insecure handoff directory'
+fi
+chmod 700 "${DNS_HANDOFF_DIR}" || fail 'could not restore private handoff directory permissions'
+chmod 666 "${DNS_HANDOFF_FILE}" || fail 'could not make handoff marker insecure for validation test'
+if dns_handoff_is_active; then
+	fail 'dnsmasq postconf accepted an insecure handoff marker'
+fi
+chmod 600 "${DNS_HANDOFF_FILE}" || fail 'could not restore private handoff marker permissions'
+disable_dns_handoff || fail 'could not clean up permissions validation marker'
+
+: >"${CALLS_FILE}"
+printf '%s\n' "$$" >"${DNS_HANDOFF_FILE}" || fail 'could not create handoff marker for removal failure test'
+RM_HANDOFF_FAIL=1
+if disable_dns_handoff; then
+	fail 'handoff cleanup hid a marker removal failure'
+fi
+grep -q 'Unable to disable the dnsmasq port 553 handoff' "${CALLS_FILE}" ||
+	fail 'handoff marker removal failure was not logged'
+RM_HANDOFF_FAIL=0
+disable_dns_handoff || fail 'could not clean up marker after removal failure test'
+
+: >"${CALLS_FILE}"
+DNS_STATE=owned
+printf '%s\n' "$$" >"${DNS_HANDOFF_FILE}" || fail 'could not create handoff marker for post-start cleanup test'
+RM_HANDOFF_FAIL=1
+ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+if post_start_adguardhome; then
+	fail 'post-start succeeded while the dnsmasq handoff marker remained active'
+fi
+RM_HANDOFF_FAIL=0
+unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+disable_dns_handoff || fail 'could not clean up marker after post-start cleanup test'
+
+: >"${CALLS_FILE}"
+printf '%s\n' "$$" >"${DNS_HANDOFF_FILE}" || fail 'could not create handoff marker for failed-start recovery test'
+RM_HANDOFF_FAIL=1
+if post_start_failure_adguardhome; then
+	fail 'failed-start recovery hid a handoff marker cleanup failure'
+fi
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" ||
+	fail 'failed-start recovery did not restore dnsmasq after marker cleanup failed'
+RM_HANDOFF_FAIL=0
+disable_dns_handoff || fail 'could not clean up marker after failed-start recovery test'
+
+: >"${CALLS_FILE}"
+printf '%s %s\n' 999999 1 >"${DNS_HANDOFF_FILE}" || fail 'could not create stale handoff marker'
+if dns_handoff_is_active; then
+	fail 'dnsmasq postconf accepted a handoff marker owned by a dead process'
+fi
+HANDOFF_START_TIME="$(dns_handoff_process_start_time "$$")" ||
+	fail 'could not read the test process start time'
+printf '%s %s\n' "$$" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_FILE}" ||
+	fail 'could not create competing active handoff marker'
+: >"${CALLS_FILE}"
+if enable_dns_handoff; then
+	fail 'handoff setup replaced a marker owned by a live startup'
+fi
+[ "$(cat "${DNS_HANDOFF_FILE}")" = "$$ ${HANDOFF_START_TIME}" ] ||
+	fail 'competing startup changed the active handoff marker'
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" ||
+	fail 'competing startup regenerated dnsmasq after losing marker ownership'
+disable_dns_handoff || fail 'could not remove competing active handoff marker'
+
+printf '%s %s\n' 999999 1 >"${DNS_HANDOFF_FILE}" ||
+	fail 'could not create stale handoff marker for lock-contention test'
+printf '%s %s\n' "$$" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_LOCK}" ||
+	fail 'could not record simulated marker-update lock owner'
+if enable_dns_handoff; then
+	fail 'handoff setup ignored a concurrent marker update'
+fi
+[ "$(cat "${DNS_HANDOFF_FILE}")" = '999999 1' ] ||
+	fail 'handoff setup removed a stale marker without acquiring the marker lock'
+release_dns_handoff_lock || fail 'could not release simulated marker-update lock'
+rm -f "${DNS_HANDOFF_FILE}" || fail 'could not remove stale marker after lock-contention test'
+
+: >"${DNS_HANDOFF_LOCK}" || fail 'could not create abandoned marker-update lock'
+DNS_STATE=busy
+DNSMASQ_RESTART_RELEASES_PORT=1
+enable_dns_handoff || fail 'could not recover an abandoned marker-update lock'
+[ ! -e "${DNS_HANDOFF_LOCK}" ] || fail 'abandoned marker-update lock was not removed'
+disable_dns_handoff || fail 'could not clean up handoff after abandoned-lock recovery'
+DNSMASQ_RESTART_RELEASES_PORT=0
+
+printf '%s %s\n' "$$" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_FILE}" ||
+	fail 'could not create active handoff marker'
+dns_handoff_is_active || fail 'dnsmasq postconf rejected a live handoff owner'
+printf '%s %s\n' "$$" "$((HANDOFF_START_TIME + 1))" >"${DNS_HANDOFF_FILE}" ||
+	fail 'could not create reused-PID handoff marker'
+if dns_handoff_is_active; then
+	fail 'dnsmasq postconf accepted a live PID with a different process lifetime'
+fi
+printf '%s %s\n' "$$" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_FILE}" ||
+	fail 'could not restore active handoff marker'
+disable_dns_handoff || fail 'could not remove active handoff marker'
+
+: >"${CALLS_FILE}"
+printf '%s\n' 4242 >"${DNS_HANDOFF_FILE}" || fail 'could not create foreign handoff marker'
+if disable_dns_handoff; then
+	fail 'handoff cleanup removed a marker owned by another process'
+fi
+[ -f "${DNS_HANDOFF_FILE}" ] || fail 'foreign handoff marker was removed'
+printf '%s\n' "$$" >"${DNS_HANDOFF_FILE}" || fail 'could not reclaim foreign handoff marker'
+disable_dns_handoff || fail 'could not remove reclaimed handoff marker'
+
+: >"${CALLS_FILE}"
+ln -s "${CALLS_FILE}" "${DNS_HANDOFF_FILE}" || fail 'could not create symbolic-link handoff marker'
+if enable_dns_handoff; then
+	fail 'handoff setup followed a symbolic-link marker'
+fi
+[ -L "${DNS_HANDOFF_FILE}" ] || fail 'symbolic-link handoff marker was replaced'
+rm -f "${DNS_HANDOFF_FILE}" || fail 'could not remove symbolic-link handoff marker'
+
+: >"${CALLS_FILE}"
+DNS_STATE=busy
+SERVICE_RESTART_FAIL=1
+if enable_dns_handoff; then
+	fail 'handoff setup hid a failed dnsmasq restart'
+fi
+[ ! -e "${DNS_HANDOFF_FILE}" ] || fail 'failed handoff setup left its marker active'
+[ "$(grep -c '^service restart_dnsmasq$' "${CALLS_FILE}")" -eq 2 ] ||
+	fail 'failed handoff setup did not attempt to restore dnsmasq'
+SERVICE_RESTART_FAIL=0
+
+: >"${CALLS_FILE}"
+DNS_STATE=busy_alt
+kill_dns_port_owners || fail 'DNS owner parser rejected an alternate BusyBox netstat layout'
+grep -q '^kill -s 9 234$' "${CALLS_FILE}" || fail 'DNS owner parser depended on a fixed netstat PID column'
+
+: >"${CALLS_FILE}"
+DNS_STATE=free
+kill_dns_port_owners || fail 'DNS owner cleanup failed when no process owned port 53'
+! grep -q '^kill ' "${CALLS_FILE}" || fail 'DNS owner cleanup signaled a process for an empty port'
+
+: >"${CALLS_FILE}"
+DNS_STATE=busy
 KILL_RELEASES_PORT=1
 ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
 ADGUARDHOME_DNS_GUARD_RETRIES=0
 pre_start_adguardhome || fail 'pre-start did not release a killable port owner'
 [ "${DNS_STATE}" = free ] || fail 'pre-start did not synchronously release port 53'
-[ "$(grep -c '^service stop_dnsmasq$' "${CALLS_FILE}")" -eq 1 ] || fail 'pre-start did not stop dnsmasq exactly once'
+[ "$(grep -c '^service restart_dnsmasq$' "${CALLS_FILE}")" -eq 1 ] || fail 'pre-start did not regenerate dnsmasq configuration'
+[ "$(grep -c '^service stop_dnsmasq$' "${CALLS_FILE}")" -eq 1 ] || fail 'pre-start did not stop the remaining DNS owner exactly once'
 grep -q '^kill -s 9 123$' "${CALLS_FILE}" || fail 'pre-start did not kill the remaining port owner'
 stop_dns_port_guard
+disable_dns_handoff || fail 'could not clean up successful pre-start handoff'
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy
@@ -119,7 +295,8 @@ if pre_start_adguardhome; then
 fi
 [ "$(grep -c '^service stop_dnsmasq$' "${CALLS_FILE}")" -eq 3 ] || fail 'pre-start retry limit was not enforced'
 grep -q 'Unable to release port 53 after 3 attempt(s)' "${CALLS_FILE}" || fail 'pre-start timeout was not logged'
-grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'pre-start timeout did not restore dnsmasq'
+[ "$(grep -c '^service restart_dnsmasq$' "${CALLS_FILE}")" -eq 2 ] || fail 'pre-start did not configure and then restore dnsmasq'
+[ ! -e "${DNS_HANDOFF_FILE}" ] || fail 'failed pre-start left the dnsmasq handoff enabled'
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy
@@ -127,7 +304,7 @@ ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
 if pre_start_adguardhome; then
 	fail 'pre-start succeeded while port 53 remained busy with restart suppression enabled'
 fi
-! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'pre-start timeout ignored the dnsmasq restart suppression flag'
+[ "$(grep -c '^service restart_dnsmasq$' "${CALLS_FILE}")" -eq 1 ] || fail 'pre-start timeout ignored restart suppression during recovery'
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 : >"${CALLS_FILE}"
@@ -239,6 +416,30 @@ post_failure_hook() {
 	post_start_failure_adguardhome
 }
 
+# The pre-start hook changes dnsmasq to port 553.  Post-start cleanup must be
+# tied to this invocation having run that hook, not to the mutated config.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}"
+(
+	HANDOFF_ENABLED=0
+	grep() {
+		case "$*" in
+			*'/etc/dnsmasq.conf'*) [ "${HANDOFF_ENABLED}" -eq 1 ] ;;
+			*) command grep "$@" ;;
+		esac
+	}
+	pre_hook() {
+		HANDOFF_ENABLED=1
+		printf '%s\n' pre_hook >>"${CALLS_FILE}"
+	}
+	post_hook() {
+		printf '%s\n' post_hook >>"${CALLS_FILE}"
+	}
+	start >/dev/null
+) || fail 'rc.func failed a successful handoff start'
+grep -q '^pre_hook$' "${CALLS_FILE}" || fail 'rc.func did not run the pre-start handoff hook'
+grep -q '^post_hook$' "${CALLS_FILE}" || fail 'rc.func skipped post-start cleanup after dnsmasq changed to port 553'
+
 # Interrupting startup after the pre-start hook has spawned the DNS guard must
 # reap that child and run the same dnsmasq recovery used by other failed starts.
 INTERRUPT_READY_FILE="${TEST_ROOT}/interrupt-ready"
@@ -331,5 +532,56 @@ fi
 grep -q '^signal TERM AdGuardHome$' "${CALLS_FILE}" || fail 'rc.func did not stop failed AdGuardHome when restart was suppressed'
 ! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'failure recovery ignored the dnsmasq restart suppression flag'
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}"
+AdGuardHome() {
+	return 1
+}
+post_hook() {
+	printf '%s\n' post_hook >>"${CALLS_FILE}"
+	return 0
+}
+if start >/dev/null; then
+	fail 'rc.func reported success when the service process never started'
+fi
+! grep -q '^post_hook$' "${CALLS_FILE}" || fail 'rc.func ran the post-start hook for a process that never started'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'failed launch did not restore dnsmasq'
+
+# A launch that outlives the startup wait must be terminated and reaped before
+# dnsmasq is restored, otherwise it can claim port 53 after recovery.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}"
+LATE_LAUNCH_PID_FILE="${TEST_ROOT}/late-launch-pid"
+rm -f "${LATE_LAUNCH_PID_FILE}"
+AdGuardHome() {
+	exec sh -c '
+		trap "exit 0" TERM
+		printf "%s\n" "$$" >"$1"
+		while :; do sleep 1; done
+	' sh "${LATE_LAUNCH_PID_FILE}"
+}
+process_wait_for_start() {
+	while [ ! -f "${LATE_LAUNCH_PID_FILE}" ]; do
+		command sleep 0.01
+	done
+	return 1
+}
+post_failure_hook() {
+	_late_launch_pid="$(cat "${LATE_LAUNCH_PID_FILE}")"
+	if command kill -0 "${_late_launch_pid}" 2>/dev/null; then
+		printf '%s\n' launch_alive_during_recovery >>"${CALLS_FILE}"
+	fi
+	post_start_failure_adguardhome
+}
+if start >/dev/null; then
+	fail 'rc.func reported success when a launch exceeded the startup wait'
+fi
+_late_launch_pid="$(cat "${LATE_LAUNCH_PID_FILE}")"
+if command kill -0 "${_late_launch_pid}" 2>/dev/null; then
+	fail 'launch survived the startup timeout'
+fi
+! grep -q '^launch_alive_during_recovery$' "${CALLS_FILE}" || fail 'dnsmasq recovery ran before the timed-out launch stopped'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'timed-out launch did not restore dnsmasq'
 
 printf '%s\n' 'DNS startup handoff tests passed.'

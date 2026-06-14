@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.2.6                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.2.7                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
-export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH}"
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
 
-AI_VERSION="v2.2.6"
+AI_VERSION="v2.2.7"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -400,9 +400,16 @@ ipv4_is_private() {
 	'
 }
 
+port_is_valid() {
+	case "$1" in
+		"" | *[!0123456789]*) return 1 ;;
+	esac
+	[ "$1" -ge 3000 ] 2>/dev/null && [ "$1" -le 65535 ] 2>/dev/null
+}
+
 installer_dependencies_available() {
 	local REQUIRED_COMMAND
-	for REQUIRED_COMMAND in awk chmod cp cut grep kill ln md5sum mkdir mv nvram opkg pidof rm sed service tar; do
+	for REQUIRED_COMMAND in awk chmod chown cp cut grep kill ln md5sum mkdir mv nvram opkg pidof rm sed service tar; do
 		if ! ai_have_cmd "${REQUIRED_COMMAND}"; then
 			PTXT "${ERROR} Required command is unavailable: ${REQUIRED_COMMAND}" >&2
 			return 1
@@ -425,6 +432,7 @@ sanitize_branch() {
 # AdGuardHome process helpers
 
 AdGuardHome_authen() {
+	local YAML_TARGET="${2:-${YAML_ORI}}"
 	if [ -z "${PW1}" ] || [ -z "${PW2}" ]; then
 		local USERNAME
 		PTXT -n "${INPUT} Please enter AdGuardHome username${NORM}: "
@@ -432,14 +440,32 @@ AdGuardHome_authen() {
 	fi
 	local PW1 PW2
 	PTXT -n "${INPUT} Please enter AdGuardHome password${NORM}: "
-	read -rs PW1
+	local PASSWORD_ECHO_DISABLED=0
+	if stty -echo 2>/dev/null; then
+		PASSWORD_ECHO_DISABLED=1
+	fi
+	if ! read -r PW1; then
+		[ "${PASSWORD_ECHO_DISABLED}" -eq 0 ] || stty echo 2>/dev/null
+		PTXT " "
+		return 1
+	fi
+	[ "${PASSWORD_ECHO_DISABLED}" -eq 0 ] || stty echo 2>/dev/null
 	PTXT " "
 	PTXT -n "${INPUT} Please reenter AdGuardHome password${NORM}: "
-	read -rs PW2
+	PASSWORD_ECHO_DISABLED=0
+	if stty -echo 2>/dev/null; then
+		PASSWORD_ECHO_DISABLED=1
+	fi
+	if ! read -r PW2; then
+		[ "${PASSWORD_ECHO_DISABLED}" -eq 0 ] || stty echo 2>/dev/null
+		PTXT " "
+		return 1
+	fi
+	[ "${PASSWORD_ECHO_DISABLED}" -eq 0 ] || stty echo 2>/dev/null
 	PTXT " "
 	if [ -z "${PW1}" ] || [ -z "${PW2}" ] || [ "${PW1}" != "${PW2}" ]; then
 		PTXT "${ERROR} Password entered incorrectly!"
-		AdGuardHome_authen "$1"
+		AdGuardHome_authen "$1" "${YAML_TARGET}"
 		return
 	fi
 	remove_conflicting_apache
@@ -479,7 +505,7 @@ AdGuardHome_authen() {
 	else
 		PTXT "users:" \
 			"- name: ${USERNAME}" \
-			"  password: ${PW1_ENCRYPTED}" >>"${YAML_ORI}"
+			"  password: ${PW1_ENCRYPTED}" >>"${YAML_TARGET}"
 	fi
 }
 
@@ -950,7 +976,7 @@ check_dns_environment() {
 }
 
 check_dns_filter() {
-	local NVCHECK USE_SOME
+	local NVCHECK USE_SOME YESNO_STATUS
 	NVCHECK="0"
 	if [ "$1" -eq 0 ]; then
 		if [ "$(nvram get dnsfilter_enable_x)" != "0" ]; then
@@ -960,12 +986,18 @@ check_dns_filter() {
 		PTXT "${INFO} DNS will not be forced through to AdGuardHome."
 	fi
 	if [ "$1" -eq 1 ]; then
+		PTXT "${INFO} You can choose to keep any custom dnsfilter values by only redirect non-custom traffic or send all traffic through to AdGuardHome."
+		read_yesno "Do you want to redirect only NON-CUSTOM DNS resolutions on your network through to AdGuardHome?"
+		YESNO_STATUS="$?"
+		case "${YESNO_STATUS}" in
+			0) USE_SOME="0" ;;
+			1) USE_SOME="1" ;;
+			*) return "${YESNO_STATUS}" ;;
+		esac
 		if [ "$(nvram get dnsfilter_enable_x)" != "1" ]; then
 			{ nvram set dnsfilter_enable_x="1"; }
 			NVCHECK="$((NVCHECK + 1))"
 		fi
-		PTXT "${INFO} You can choose to keep any custom dnsfilter values by only redirect non-custom traffic or send all traffic through to AdGuardHome."
-		if read_yesno "Do you want to redirect only NON-CUSTOM DNS resolutions on your network through to AdGuardHome?"; then USE_SOME="0"; else USE_SOME="1"; fi
 		if [ "$USE_SOME" -eq 0 ]; then
 			if [ "$(nvram get dnsfilter_mode)" != "11" ]; then
 				{ nvram set dnsfilter_mode="11"; }
@@ -999,6 +1031,27 @@ check_dns_filter() {
 			PTXT "${WARNING} Timed out waiting for DNS connectivity."
 		fi
 	fi
+}
+
+save_dns_filter_settings() {
+	local DNS_FILTER_BACKUP_DIR="$1" DNS_FILTER_KEY
+	mkdir -p "${DNS_FILTER_BACKUP_DIR}" || return 1
+	for DNS_FILTER_KEY in dnsfilter_enable_x dnsfilter_mode dhcpd_dns_router dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x; do
+		nvram get "${DNS_FILTER_KEY}" >"${DNS_FILTER_BACKUP_DIR}/${DNS_FILTER_KEY}" 2>/dev/null || return 1
+	done
+}
+
+restore_dns_filter_settings() {
+	local DNS_FILTER_BACKUP_DIR="$1" DNS_FILTER_KEY DNS_FILTER_VALUE
+	[ -d "${DNS_FILTER_BACKUP_DIR}" ] || return 0
+	for DNS_FILTER_KEY in dnsfilter_enable_x dnsfilter_mode dhcpd_dns_router dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x; do
+		[ -f "${DNS_FILTER_BACKUP_DIR}/${DNS_FILTER_KEY}" ] || return 1
+		DNS_FILTER_VALUE="$(cat "${DNS_FILTER_BACKUP_DIR}/${DNS_FILTER_KEY}")" || return 1
+		nvram set "${DNS_FILTER_KEY}=${DNS_FILTER_VALUE}" || return 1
+	done
+	nvram commit || return 1
+	service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1 || return 1
+	rm -rf "${DNS_FILTER_BACKUP_DIR}"
 }
 
 check_ipset() {
@@ -1166,7 +1219,13 @@ choose_branch() {
 			"  1) Release" \
 			"  2) Beta" \
 			"  3) Edge"
-		read_input_num "Select your mode" 1 3
+		if ! read_input_num "Select your mode" 1 3; then
+			PTXT "${ERROR} Unable to select an AdGuardHome build."
+			if [ -n "${ADGUARD_BRANCH_OLD:-}" ]; then
+				write_conf ADGUARD_BRANCH "\"${ADGUARD_BRANCH_OLD}\""
+			fi
+			return 1
+		fi
 		case "${CHOSEN}" in
 			1)
 				BUILD=release
@@ -1187,11 +1246,15 @@ choose_branch() {
 		fi
 		return 0
 	else
-		if read_yesno "Do you want to switch AdGuardHome builds?"; then
+		read_yesno "Do you want to switch AdGuardHome builds?"
+		CONFIRM_STATUS=$?
+		if [ "${CONFIRM_STATUS}" -eq 0 ]; then
 			choose_branch 1
-		else
+		elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
 			PTXT "${INFO} continuing without changing builds."
-			return 1
+			return 3
+		else
+			return "${CONFIRM_STATUS}"
 		fi
 	fi
 }
@@ -1214,24 +1277,227 @@ save_dns_nvram_environment() {
 
 # Installer file and setup helpers
 
+adguard_archive_is_safe() {
+	if ! tar tvzf "$1" 2>/dev/null | awk '
+		BEGIN { entries = 0 }
+		substr($0, 1, 1) != "-" && substr($0, 1, 1) != "d" { exit 1 }
+		{ entries = 1 }
+		END { if (!entries) exit 1 }
+	'; then
+		return 1
+	fi
+	tar tzf "$1" 2>/dev/null | awk '
+		BEGIN { binary = 0; unsafe = 0 }
+		{
+			path = $0
+			sub(/^\.\//, "", path)
+			if (path == "" || path ~ /^\// || path ~ /(^|\/)\.\.(\/|$)/ || path !~ /^AdGuardHome(\/|$)/) {
+				unsafe = 1
+				exit
+			}
+			if (path == "AdGuardHome/AdGuardHome") binary = 1
+		}
+		END { exit(!unsafe && binary ? 0 : 1) }
+	'
+}
+
+adguard_restart_after_failed_replace() {
+	[ "$1" = "1" ] || return 0
+	if agh_start; then
+		PTXT "${INFO} Restored the previously running AdGuardHome service."
+		return 0
+	fi
+	PTXT "${ERROR} The previous AdGuardHome binary was restored but could not be restarted."
+	return 1
+}
+
+adguard_restart_after_install_abort() {
+	trap - HUP INT QUIT ABRT TERM
+	[ "$1" = "1" ] || return 0
+	if agh_is_running; then
+		return 0
+	fi
+	if agh_start; then
+		PTXT "${INFO} Restarted AdGuardHome after the installer aborted."
+		return 0
+	fi
+	PTXT "${ERROR} AdGuardHome could not be restarted after the installer aborted."
+	return 1
+}
+
+adguard_install_abort_trap_disable() {
+	trap - HUP INT QUIT ABRT TERM
+	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
+	ADGUARD_INSTALL_OLD_BINARY=""
+	ADGUARD_INSTALL_STAGE_DIR=""
+	ADGUARD_INSTALL_WAS_RUNNING="0"
+}
+
+adguard_install_abort_on_signal() {
+	local OLD_BINARY REPLACE_ACTIVE STAGE_DIR WAS_RUNNING
+	OLD_BINARY="${ADGUARD_INSTALL_OLD_BINARY:-}"
+	REPLACE_ACTIVE="${ADGUARD_INSTALL_REPLACE_ACTIVE:-0}"
+	STAGE_DIR="${ADGUARD_INSTALL_STAGE_DIR:-}"
+	WAS_RUNNING="${ADGUARD_INSTALL_WAS_RUNNING:-0}"
+	adguard_install_abort_trap_disable
+	[ -z "${STAGE_DIR}" ] || rm -rf "${STAGE_DIR}"
+	if [ "${REPLACE_ACTIVE}" = "1" ] && [ -n "${OLD_BINARY}" ]; then
+		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
+	else
+		adguard_restart_after_install_abort "${WAS_RUNNING}"
+	fi
+	clear_screen
+	end_op_message 2
+}
+
+adguard_install_abort_trap_enable() {
+	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
+	ADGUARD_INSTALL_OLD_BINARY=""
+	ADGUARD_INSTALL_WAS_RUNNING="$1"
+	ADGUARD_INSTALL_STAGE_DIR="${2:-}"
+	trap 'adguard_install_abort_on_signal' HUP INT QUIT ABRT TERM
+}
+
+adguard_restore_after_failed_replace() {
+	local OLD_BINARY WAS_RUNNING
+	OLD_BINARY="$1"
+	WAS_RUNNING="$2"
+	if [ -f "${OLD_BINARY}" ]; then
+		if ! mv "${OLD_BINARY}" "${AGH_FILE}"; then
+			PTXT "${ERROR} Unable to restore the previous AdGuardHome binary; it remains at ${OLD_BINARY}."
+			return 1
+		fi
+	else
+		if ! rm -f "${AGH_FILE}"; then
+			PTXT "${ERROR} Unable to remove the failed AdGuardHome binary."
+			return 1
+		fi
+		if [ "${WAS_RUNNING}" = "1" ]; then
+			PTXT "${ERROR} The previous AdGuardHome binary is unavailable for rollback."
+			return 1
+		fi
+	fi
+	adguard_restart_after_failed_replace "${WAS_RUNNING}"
+}
+
+create_backup_archive() {
+	local BACKUP_FILE BACKUP_TMP
+	BACKUP_FILE="${BASE_DIR}/backup_AdGuardHome.tar.gz"
+	BACKUP_TMP="${BACKUP_FILE}.tmp.$$"
+	rm -f "${BACKUP_TMP}"
+	if ! tar -czf "${BACKUP_TMP}" -C "${BASE_DIR}" AdGuardHome >/dev/null 2>&1; then
+		rm -f "${BACKUP_TMP}"
+		PTXT "${ERROR} Unable to create the AdGuardHome backup archive."
+		return 1
+	fi
+	if ! tar -tzf "${BACKUP_TMP}" >/dev/null 2>&1; then
+		rm -f "${BACKUP_TMP}"
+		PTXT "${ERROR} The new AdGuardHome backup archive could not be verified."
+		return 1
+	fi
+	if ! chmod 600 "${BACKUP_TMP}" || ! mv -f "${BACKUP_TMP}" "${BACKUP_FILE}"; then
+		rm -f "${BACKUP_TMP}"
+		PTXT "${ERROR} Unable to install the new AdGuardHome backup archive."
+		return 1
+	fi
+	return 0
+}
+
+install_adguard_archive() {
+	local ARCHIVE_FILE HTTP_USERNAME OLD_BINARY STAGE_BINARY STAGE_DIR WAS_RUNNING
+	ARCHIVE_FILE="$1"
+	STAGE_DIR="${BASE_DIR}/.AdGuardHome.extract.$$"
+	STAGE_BINARY="${STAGE_DIR}/AdGuardHome/AdGuardHome"
+	OLD_BINARY="${TARG_DIR}/.AdGuardHome.previous.$$"
+	rm -rf "${STAGE_DIR}"
+	rm -f "${OLD_BINARY}"
+	adguard_install_abort_trap_enable 0 "${STAGE_DIR}"
+	if ! adguard_archive_is_safe "${ARCHIVE_FILE}"; then
+		adguard_install_abort_trap_disable
+		PTXT "${ERROR} The AdGuardHome archive contains an unsafe or incomplete file layout."
+		return 1
+	fi
+	if ! mkdir -m 700 "${STAGE_DIR}" || ! tar xzf "${ARCHIVE_FILE}" -C "${STAGE_DIR}" >/dev/null 2>&1; then
+		adguard_install_abort_trap_disable
+		rm -rf "${STAGE_DIR}"
+		PTXT "${ERROR} Unable to extract the AdGuardHome archive into staging."
+		return 1
+	fi
+	if [ ! -f "${STAGE_BINARY}" ] || [ -L "${STAGE_BINARY}" ] || ! chmod 755 "${STAGE_BINARY}" ||
+		[ -z "$("${STAGE_BINARY}" --version 2>/dev/null | cut -d" " -f4-)" ]; then
+		adguard_install_abort_trap_disable
+		rm -rf "${STAGE_DIR}"
+		PTXT "${ERROR} The staged AdGuardHome binary failed validation."
+		return 1
+	fi
+	if [ "$(agh_process_count)" -gt 0 ]; then WAS_RUNNING="1"; else WAS_RUNNING="0"; fi
+	ADGUARD_INSTALL_WAS_RUNNING="${WAS_RUNNING}"
+	if ! agh_prepare_binary_replace; then
+		adguard_install_abort_trap_disable
+		rm -rf "${STAGE_DIR}"
+		return 1
+	fi
+	if [ -f "${AGH_FILE}" ] && ! cp -p "${AGH_FILE}" "${OLD_BINARY}"; then
+		adguard_install_abort_trap_disable
+		rm -rf "${STAGE_DIR}"
+		PTXT "${ERROR} Unable to preserve the installed AdGuardHome binary."
+		adguard_restart_after_failed_replace "${WAS_RUNNING}"
+		return 1
+	fi
+	ADGUARD_INSTALL_OLD_BINARY="${OLD_BINARY}"
+	ADGUARD_INSTALL_REPLACE_ACTIVE="1"
+	if ! mv "${STAGE_BINARY}" "${AGH_FILE}"; then
+		adguard_install_abort_trap_disable
+		rm -rf "${STAGE_DIR}"
+		PTXT "${ERROR} Unable to install the staged AdGuardHome binary."
+		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
+		return 1
+	fi
+	HTTP_USERNAME="$(nvram get http_username 2>/dev/null)"
+	[ -n "${HTTP_USERNAME}" ] || HTTP_USERNAME="root"
+	if ! chown "${HTTP_USERNAME}:root" "${AGH_FILE}" || ! chmod 755 "${AGH_FILE}" ||
+		[ -z "$("${AGH_FILE}" --version 2>/dev/null | cut -d" " -f4-)" ]; then
+		adguard_install_abort_trap_disable
+		rm -rf "${STAGE_DIR}"
+		PTXT "${ERROR} Installed AdGuardHome binary validation failed."
+		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
+		return 1
+	fi
+	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
+	ADGUARD_INSTALL_OLD_BINARY=""
+	rm -f "${OLD_BINARY}"
+	rm -rf "${STAGE_DIR}"
+	return 0
+}
+
 backup_restore() {
 	local IPSET_MARKER_BACKUP
 	if [ "$1" = "BACKUP" ] && [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; then
 		if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 			PTXT "${INFO} There is an old backup detected."
 			local USE_OLD
-			if read_yesno "Do you want to continue?(this will remove the old backup)"; then USE_OLD="NO"; else USE_OLD="YES"; fi
+			read_yesno "Do you want to continue?(this will remove the old backup)"
+			CONFIRM_STATUS=$?
+			if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+				USE_OLD="NO"
+			elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
+				USE_OLD="YES"
+			else
+				return "${CONFIRM_STATUS}"
+			fi
 			if [ "${USE_OLD}" = "YES" ]; then
 				PTXT "${INFO} Leaving Old Backup."
 				end_op_message 1
 			elif [ "${USE_OLD}" = "NO" ]; then
-				PTXT "${INFO} Removing Old Backup."
-				rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"
+				PTXT "${INFO} The old backup will be replaced only after the new backup is verified."
 			fi
 		fi
 		PTXT "${INFO} This operation will backup AdGuardHome(<4MB)to ENTWARE /opt/etc." \
 			"${INFO} Please wait a moment."
-		tar -czvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${TARG_DIR}" ../AdGuardHome/ >/dev/null 2>&1
+		if ! create_backup_archive; then
+			[ -z "$2" ] && end_op_message 1
+			return 1
+		fi
 		PTXT "${INFO} Backup complete"
 		[ -z "$2" ] && end_op_message 0 || return 0
 	elif [ "$1" = "BACKUP" ] && [ ! -d "${TARG_DIR}" ] && [ ! -f "${AGH_FILE}" ]; then
@@ -1325,16 +1591,23 @@ del_jffs_script() {
 		LINE_NUM="$(grep -n -F "[ -x ${ADDON_DIR}/" "${TARG}" | cut -d':' -f1)"
 	fi
 	[ -z "${LINE_NUM}" ] && return
-	printf "%s\n" "${LINE_NUM}" | sort -rn | while IFS= read -r LINE_NUM; do
+	LINE_NUM="$(printf "%s\n" "${LINE_NUM}" | sort -rn)" || return 1
+	for LINE_NUM in ${LINE_NUM}; do
 		[ -z "${LINE_NUM}" ] && continue
-		sed -i "${LINE_NUM}d" "${TARG}"
+		sed -i "${LINE_NUM}d" "${TARG}" || return 1
 		if [ "${LINE_NUM}" -gt 1 ]; then
 			LINE_NUM="$((LINE_NUM - 1))"
-			LINE_ABOVE="$(sed "${LINE_NUM}q;d" "${TARG}")"
-			[ -z "${LINE_ABOVE}" ] && sed -i "${LINE_NUM}d" "${TARG}"
+			LINE_ABOVE="$(sed "${LINE_NUM}q;d" "${TARG}")" || return 1
+			if [ -z "${LINE_ABOVE}" ]; then
+				sed -i "${LINE_NUM}d" "${TARG}" || return 1
+			fi
 		fi
 	done
-	[ "$(awk '{ print }' "${TARG}")" = "#!/bin/sh" ] && rm -f "${TARG}"
+	LINE_ABOVE="$(awk '{ print }' "${TARG}")" || return 1
+	if [ "${LINE_ABOVE}" = "#!/bin/sh" ]; then
+		rm -f "${TARG}" || return 1
+	fi
+	return 0
 }
 
 download_file() {
@@ -1390,7 +1663,9 @@ download_file() {
 			PTXT "${INFO} ${FILENAME} is up to date. Skipping..."
 			continue
 		fi
-		if mv "${TMP_FILE}" "${TARG}/${FILENAME}" && chmod "${PERM}" "${TARG}/${FILENAME}"; then
+		# Set permissions before replacing the working copy.  If chmod fails,
+		# preserve the existing file instead of leaving a partially installed one.
+		if chmod "${PERM}" "${TMP_FILE}" && mv "${TMP_FILE}" "${TARG}/${FILENAME}"; then
 			continue
 		fi
 		rm -f "${TMP_FILE}"
@@ -1422,16 +1697,25 @@ installer_update_reexec() {
 }
 
 inst_AdGuardHome() {
-	local ADGUARD_TAR ARCHIVE_MD5 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER
+	local ADGUARD_TAR ARCHIVE_MD5 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	INSTALLER_MD5_OLD=""
+	RESTART_AFTER_ABORT="0"
 	[ -f "${SCRIPT_LOC}" ] && INSTALLER_MD5_OLD="$(file_md5 "${SCRIPT_LOC}" 2>/dev/null)"
 	if [ -z "$2" ]; then
 		if [ "${1:-RESTORE}" != "RESTORE" ]; then
 			if [ ! -d "${TARG_DIR}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 				PTXT "${INFO} Backup is detected."
 				local USE_OLD
-				if read_yesno "Do you want Restore instead?"; then USE_OLD="YES"; else USE_OLD="NO"; fi
+				read_yesno "Do you want Restore instead?"
+				CONFIRM_STATUS=$?
+				if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+					USE_OLD="YES"
+				elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
+					USE_OLD="NO"
+				else
+					return "${CONFIRM_STATUS}"
+				fi
 				if [ "${USE_OLD}" = "YES" ]; then
 					PTXT "${INFO} Installing from an old backup!"
 					backup_restore RESTORE
@@ -1439,7 +1723,19 @@ inst_AdGuardHome() {
 					PTXT "${INFO} Continuing without restoring from backup!"
 				fi
 			elif [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
-				if read_yesno "Do you want create a backup before updating?"; then backup_restore BACKUP 0; else PTXT "${INFO} continuing without making a backup."; fi
+				read_yesno "Do you want create a backup before updating?"
+				CONFIRM_STATUS=$?
+				if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+					if ! backup_restore BACKUP 0; then
+						PTXT "${ERROR} Unable to create the requested pre-update backup."
+						end_op_message 1 "$1"
+						return 1
+					fi
+				elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
+					PTXT "${INFO} continuing without making a backup."
+				else
+					return "${CONFIRM_STATUS}"
+				fi
 			fi
 		fi
 		if [ -z "${REMOTE_VER}" ] || [ -z "${REMOTE_BETA}" ] || [ -z "${REMOTE_EDGE}" ] || { ! check_connection; }; then
@@ -1458,7 +1754,15 @@ inst_AdGuardHome() {
 		fi
 		installer_update_reexec "${1:-install}" "${INSTALLER_MD5_OLD}"
 		if [ "${1:-RESTORE}" != "RESTORE" ]; then
-			if [ "${1:-install}" != "update" ]; then choose_branch; fi
+			if [ "${1:-install}" != "update" ]; then
+				choose_branch
+				CHOOSE_BRANCH_STATUS=$?
+				if [ "${CHOOSE_BRANCH_STATUS}" -ne 0 ] && [ "${CHOOSE_BRANCH_STATUS}" -ne 3 ]; then
+					PTXT "${ERROR} Unable to select an AdGuardHome build. Installation was aborted."
+					end_op_message 1 "$1"
+					return 1
+				fi
+			fi
 			local ADGUARD_BRANCH ADGUARD_VER
 			ADGUARD_BRANCH="$(conf_value ADGUARD_BRANCH)"
 			if [ ! -f "${AGH_FILE}" ]; then
@@ -1552,53 +1856,81 @@ inst_AdGuardHome() {
 				return
 			fi
 		fi
-		if ! agh_prepare_binary_replace; then
+		if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
+		if ! install_adguard_archive "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}"; then
+			rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 			end_op_message 1 "$1"
 			return
 		fi
-		tar xzv -C "${BASE_DIR}" -f "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" >/dev/null 2>&1
-		chown "$(nvram get http_username)":root ${TARG_DIR}/*
-		rm -r "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
-		chmod 755 "${AGH_FILE}"
+		rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 		[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
 		if ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome || [ -z "$("${AGH_FILE}" --version | cut -d" " -f4-)" ]; then
 			PTXT "${ERROR} Failed to download AdGuardHome package for your router"
+			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 			end_op_message 1 "$1"
 			return
 		fi
 	fi
-	create_dir "${ADDON_DIR}"
+	if ! create_dir "${ADDON_DIR}"; then
+		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+		end_op_message 1 "$1"
+		return 1
+	fi
 	cleanup_legacy_firewall
-	download_file "${ADDON_DIR}" 755 "${RURL}/AdGuardHome.sh"
-	download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome"
-	download_file "/opt/etc/init.d" 644 "${RURL}/rc.func.AdGuardHome"
+	if ! download_file "${ADDON_DIR}" 755 "${RURL}/AdGuardHome.sh" ||
+		! download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome" ||
+		! download_file "/opt/etc/init.d" 644 "${RURL}/rc.func.AdGuardHome"; then
+		PTXT "${ERROR} Required AdGuardHome service files could not be installed."
+		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+		end_op_message 1 "$1"
+		return 1
+	fi
 	[ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
 	for i in init-start services-stop; do { if { ! grep -q "${ADDON_DIR}/AdGuardHome.sh $i &" "/jffs/scripts/${i}" && grep -q "${ADDON_DIR}/AdGuardHome.sh $i" "/jffs/scripts/${i}"; }; then del_jffs_script "/jffs/scripts/${i}"; fi; }; done
-	write_manager_script /jffs/scripts/init-start "init-start &"
-	write_manager_script /jffs/scripts/services-stop "services-stop &"
-	write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq
-	write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'
+	if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
+		! write_manager_script /jffs/scripts/services-stop "services-stop &" ||
+		! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq ||
+		! write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'; then
+		PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
+		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+		end_op_message 1 "$1"
+		return 1
+	fi
 	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
-	if nvram get rc_support | grep -q 'mtlancfg'; then write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; fi
+	if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
+		PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
+		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+		end_op_message 1 "$1"
+		return 1
+	fi
 	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
-	write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
+	if ! write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'; then
+		PTXT "${ERROR} Required service-event-end hook could not be configured."
+		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+		end_op_message 1 "$1"
+		return 1
+	fi
 	if [ "${1:-update}" != "update" ]; then
 		if [ ! -f "${ADDON_DIR}/localtime" ]; then
 			PTXT "${INFO} Before setting up AdGuardHome, please choose your right timezone!"
 			if ! set_timezone; then
+				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 				end_op_message 1 "$1"
 				return 1
 			fi
 		fi
 		if ! setup_AdGuardHome "" "${1:-install}"; then
+			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 			end_op_message 1
 			return
 		fi
 	fi
 	if ! agh_complete_startup; then
+		adguard_install_abort_trap_disable
 		end_op_message 1 "$1"
 		return
 	fi
+	adguard_install_abort_trap_disable
 	end_op_message 0 "$1"
 }
 
@@ -1632,7 +1964,10 @@ set_timezone() {
 	}
 	PTXT "${INFO} Available timezones/locations:"
 	PTXT "${TZ_LIST}" | awk -F'/' '!/\/$/ && /\/posix\//' | sort | cut -d'/' -f2- | awk -v INDEX=0 -F'/' '!/\/$/ {++INDEX;printf "  " INDEX") ";for (i=5; i<NF; i++)  printf $i "/"; print $NF}' | column
-	read_input_num "Select your timezone/location" 1 "${INDEX}"
+	if ! read_input_num "Select your timezone/location" 1 "${INDEX}"; then
+		PTXT "${ERROR} Unable to select a timezone."
+		return 1
+	fi
 	TZ_FILE="$(PTXT "${TZ_LIST}" | awk -F'/' '!/\/$/ && /\/posix\//' | sort | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
 	[ -n "${TZ_FILE}" ] || return 1
 	PTXT "${INFO} ${TZ_FILE##*/} selected"
@@ -1669,8 +2004,32 @@ setup_AdGuardHome() {
 	return "${RET}"
 }
 
+save_installer_config() {
+	local CONFIG_BACKUP="$1"
+	rm -f "${CONFIG_BACKUP}" "${CONFIG_BACKUP}.absent"
+	if [ -f "${CONF_FILE}" ]; then
+		cp -p "${CONF_FILE}" "${CONFIG_BACKUP}" || return 1
+	else
+		: >"${CONFIG_BACKUP}.absent" || return 1
+	fi
+}
+
+restore_installer_config() {
+	local CONFIG_BACKUP="$1"
+	if [ -f "${CONFIG_BACKUP}" ]; then
+		mv -f "${CONFIG_BACKUP}" "${CONF_FILE}" || return 1
+	elif [ -f "${CONFIG_BACKUP}.absent" ]; then
+		rm -f "${CONF_FILE}" || return 1
+	fi
+	rm -f "${CONFIG_BACKUP}.absent"
+}
+
+discard_installer_config_backup() {
+	rm -f "$1" "$1.absent"
+}
+
 setup_AdGuardHome_impl() {
-	local IPSET_SELECTION YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
+	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ -z "$1" ] && [ -f "${YAML_FILE}" ]; then
 		############################################################ Drop-in code to be removed/modified as needed. #############################################################################################################################################################
@@ -1682,7 +2041,10 @@ setup_AdGuardHome_impl() {
 			if ! read_input_port "Default is" 3000; then
 				return 1
 			fi
-			write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT}\""
+			if ! write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT}\""; then
+				PTXT "${ERROR} Unable to save the AdGuardHome WebUI port."
+				return 1
+			fi
 			yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "  address: 0.0.0.0:${WEB_PORT}" "${YAML_FILE}"
 		elif awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" != "$(awk -F':' '/.*address\:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" ]; then
 			yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "  address: 0.0.0.0:$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "${YAML_FILE}"
@@ -1694,7 +2056,15 @@ setup_AdGuardHome_impl() {
 			return
 		fi
 		PTXT "${INFO} Found previous AdGuardHome config file"
-		if read_yesno "Do you want to use this file without reconfiguring?"; then PTXT "${INFO} Use previous settings file"; else setup_AdGuardHome_impl x; fi
+		read_yesno "Do you want to use this file without reconfiguring?"
+		CONFIRM_STATUS=$?
+		if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+			PTXT "${INFO} Use previous settings file"
+		elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
+			setup_AdGuardHome_impl x
+		else
+			return "${CONFIRM_STATUS}"
+		fi
 	else
 		if [ -f "${YAML_FILE}" ]; then
 			if [ "$1" = "reconfig" ]; then
@@ -1708,7 +2078,10 @@ setup_AdGuardHome_impl() {
 				"${INFO}   1) Use previous settings file" \
 				"${INFO}   2) Restore original configuration selections" \
 				"${INFO}   3) Choose new configuration selections"
-			read_input_num "Your selection" 1 3
+			if ! read_input_num "Your selection" 1 3; then
+				PTXT "${ERROR} Unable to select a reconfiguration mode. Setup was aborted."
+				return 1
+			fi
 			case "${CHOSEN}" in
 				1)
 					PTXT "${INFO} Using previous settings file"
@@ -1721,7 +2094,7 @@ setup_AdGuardHome_impl() {
 					fi
 					YAML_BACKED_UP=1
 					if [ "${CHOSEN}" = "3" ]; then
-						rm -rf "${YAML_ORI}" 2>/dev/null
+						CHOOSE_NEW=1
 					else
 						cp -f "${YAML_ORI}" "${YAML_FILE}"
 					fi
@@ -1733,15 +2106,51 @@ setup_AdGuardHome_impl() {
 		case "${2:-reconfig}" in
 			"install" | "reconfig")
 				if [ ! -f "${YAML_FILE}" ] || [ "$2" = "reconfig" ]; then
-					if read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"; then check_dns_filter 1; else check_dns_filter 0; fi
-					if [ "$(nvram get dns_local_cache)" != "1" ] && read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"; then check_dns_local 1; else check_dns_local 0; fi
-					if read_yesno "Do you want to enable AdGuardHome IPSET integration?"; then IPSET_SELECTION=1; else IPSET_SELECTION=0; fi
+					local DNS_FILTER_SELECTION LOCAL_CACHE_SELECTION YESNO_STATUS
+					read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"
+					YESNO_STATUS="$?"
+					case "${YESNO_STATUS}" in
+						0) DNS_FILTER_SELECTION=1 ;;
+						1) DNS_FILTER_SELECTION=0 ;;
+						*)
+							if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+								PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+							fi
+							return "${YESNO_STATUS}"
+							;;
+					esac
+					if [ "$(nvram get dns_local_cache)" != "1" ]; then
+						read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"
+						YESNO_STATUS="$?"
+						case "${YESNO_STATUS}" in
+							0) LOCAL_CACHE_SELECTION=1 ;;
+							1) LOCAL_CACHE_SELECTION=0 ;;
+							*)
+								if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+									PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+								fi
+								return "${YESNO_STATUS}"
+								;;
+						esac
+					fi
+					read_yesno "Do you want to enable AdGuardHome IPSET integration?"
+					YESNO_STATUS="$?"
+					case "${YESNO_STATUS}" in
+						0) IPSET_SELECTION=1 ;;
+						1) IPSET_SELECTION=0 ;;
+						*)
+							if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+								PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+							fi
+							return "${YESNO_STATUS}"
+							;;
+					esac
 					if [ "$2" != "reconfig" ] && ! check_ipset "${IPSET_SELECTION}"; then
 						PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
 							"${WARNING} Continuing setup with the previous or default IPSET preference."
 					fi
 				fi
-				if [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; then
+				if { [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; } || [ "${CHOOSE_NEW}" -eq 1 ]; then
 					PTXT "${INFO} Requesting entries for AdGuardHome initial configuration..." \
 						"${INFO} Please set the preferred Web Port for AdGuardHome WebUI." \
 						"${INFO} The chosen port must reside within the port range 3000-65535" \
@@ -1752,20 +2161,26 @@ setup_AdGuardHome_impl() {
 						fi
 						return 1
 					fi
-					write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT}\""
+					WEB_PORT_SELECTION="${WEB_PORT}"
+					YAML_ORI_NEW="${YAML_ORI}.new.$$"
 					PTXT "http:" \
-						"  address: 0.0.0.0:${WEB_PORT}" >"${YAML_ORI}"
+						"  address: 0.0.0.0:${WEB_PORT}" >"${YAML_ORI_NEW}"
 					PTXT "${INFO} Set the Username and Password which will be encrypted to the yaml file."
-					AdGuardHome_authen 1
+					AdGuardHome_authen 1 "${YAML_ORI_NEW}"
 					PTXT "dns:" \
 						"  bind_hosts:" \
 						"    - 0.0.0.0" \
-						"  port: 53" >>"${YAML_ORI}"
+						"  port: 53" >>"${YAML_ORI_NEW}"
 					PTXT "${INFO} Set the DNS server(s) for initializing AdGuardHome" \
 						"${INFO} and router services (e.g. ntp) at boot"
-					read_input_dns "Default is" 9.9.9.9
-					read_input_dns "2nd Default is" 8.8.8.8
-					local DOMAIN NET_ADDR NET_ADDR6 LAN_IF
+					if ! read_input_dns "Default is" 9.9.9.9 || ! read_input_dns "2nd Default is" 8.8.8.8; then
+						rm -f "${YAML_ORI_NEW}"
+						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+						fi
+						return 1
+					fi
+					local DOMAIN="" NET_ADDR NET_ADDR6 LAN_IF
 					LAN_IF="$(nvram get lan_ifname)"
 					if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
 						NET_ADDR="$(ip -o -4 addr list "${LAN_IF}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
@@ -1773,10 +2188,16 @@ setup_AdGuardHome_impl() {
 					fi
 					[ -n "${NET_ADDR:-}" ] || NET_ADDR="$(nvram get lan_ipaddr)"
 					[ -n "${NET_ADDR6:-}" ] || NET_ADDR6="$(nvram get ipv6_rtr_addr)"
-					[ -n "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)" && write_conf ADGUARD_DOMAIN "\"no\""
-					[ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="${DOMAIN}" && nvram commit && write_conf ADGUARD_DOMAIN "\"yes\""
-					PTXT "  upstream_dns:" >>"${YAML_ORI}"
-					[ -n "${NET_ADDR6}" ] && PTXT "  - '[/$(printf "%s\n" "${NET_ADDR6}" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" >>"${YAML_ORI}"
+					LAN_DOMAIN_ROLLBACK="$(nvram get lan_domain)"
+					if [ -n "${LAN_DOMAIN_ROLLBACK}" ]; then
+						DOMAIN="${LAN_DOMAIN_ROLLBACK}"
+						DOMAIN_CONFIG_SELECTION="no"
+					else
+						DOMAIN="lan"
+						DOMAIN_CONFIG_SELECTION="yes"
+					fi
+					PTXT "  upstream_dns:" >>"${YAML_ORI_NEW}"
+					[ -n "${NET_ADDR6}" ] && PTXT "  - '[/$(printf "%s\n" "${NET_ADDR6}" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" >>"${YAML_ORI_NEW}"
 					PTXT "  - '[/router.asus.com/][::]:553'" \
 						"  - '[/www.asusnetwork.net/][::]:553'" \
 						"  - '[/www.asusrouter.com/][::]:553'" \
@@ -1802,11 +2223,12 @@ setup_AdGuardHome_impl() {
 						"  - '[::]:553'" \
 						"  - '[/10.in-addr.arpa/][::]:553'" \
 						"  - '[/$(printf "%s\n" "${NET_ADDR}" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/][::]:553'" \
-						"schema_version: ${SCHEMA_VER}" >>"${YAML_ORI}"
+						"schema_version: ${SCHEMA_VER}" >>"${YAML_ORI_NEW}"
 					PTXT "${INFO} Writing AdGuardHome configuration..."
-					cp -f "${YAML_ORI}" "${YAML_FILE}"
+					cp -f "${YAML_ORI_NEW}" "${YAML_FILE}"
 				fi
 				if ! check_AdGuardHome_yaml; then
+					[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 					if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
 						PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
 					fi
@@ -1815,10 +2237,133 @@ setup_AdGuardHome_impl() {
 						"${ERROR} all ssh terminal operations to the script developer."
 					return 1
 				fi
-				if [ "$2" = "reconfig" ] && [ -n "${IPSET_SELECTION}" ] && ! check_ipset "${IPSET_SELECTION}"; then
+				if [ -n "${DNS_FILTER_SELECTION:-}" ]; then
+					CONFIG_ROLLBACK="${TMPDIR:-/tmp}/AdGuardHome.config.$$"
+					if ! save_installer_config "${CONFIG_ROLLBACK}"; then
+						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+						fi
+						PTXT "${ERROR} Unable to preserve the current installer preferences."
+						return 1
+					fi
+					if [ -n "${DOMAIN_CONFIG_SELECTION}" ] && ! write_conf ADGUARD_DOMAIN "\"${DOMAIN_CONFIG_SELECTION}\""; then
+						restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+						fi
+						PTXT "${ERROR} Unable to save the AdGuardHome domain setting."
+						return 1
+					fi
+					if [ "${DOMAIN_CONFIG_SELECTION}" = "yes" ] && [ -z "${LAN_DOMAIN_ROLLBACK}" ]; then
+						nvram set lan_domain="${DOMAIN}" && nvram commit
+						DOMAIN_LAN_CHANGED=1
+					fi
+					DNS_FILTER_ROLLBACK_DIR="${TMPDIR:-/tmp}/AdGuardHome.dnsfilter.$$"
+					rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
+					if ! save_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+						rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
+						restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+						if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+							nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
+							nvram commit
+						fi
+						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+						fi
+						PTXT "${ERROR} Unable to preserve the current DNSFilter settings."
+						return 1
+					fi
+					check_dns_filter "${DNS_FILTER_SELECTION}"
+					YESNO_STATUS="$?"
+					if [ "${YESNO_STATUS}" -ne 0 ]; then
+						rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
+						restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+						if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+							nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
+							nvram commit
+						fi
+						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+						fi
+						return "${YESNO_STATUS}"
+					fi
+					if [ "$(nvram get dns_local_cache)" != "1" ]; then
+						if ! check_dns_local "${LOCAL_CACHE_SELECTION}"; then
+							restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+							if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+								nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
+								nvram commit
+							fi
+							if ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+								PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+							fi
+							[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+							if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+								PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+							fi
+							PTXT "${ERROR} Unable to save the AdGuardHome local cache setting."
+							return 1
+						fi
+					else
+						if ! check_dns_local 0; then
+							restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+							if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+								nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
+								nvram commit
+							fi
+							if ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+								PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+							fi
+							[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+							if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+								PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+							fi
+							PTXT "${ERROR} Unable to save the AdGuardHome local cache setting."
+							return 1
+						fi
+					fi
+				fi
+				if [ "$2" = "reconfig" ] && [ -n "${IPSET_SELECTION:-}" ] && ! check_ipset "${IPSET_SELECTION}"; then
 					PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
 						"${WARNING} Continuing reconfiguration with the previous IPSET preference."
 				fi
+				if [ -n "${WEB_PORT_SELECTION:-}" ] && ! write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT_SELECTION}\""; then
+					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+						nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
+						nvram commit
+					fi
+					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+					fi
+					[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+					if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+						PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+					fi
+					PTXT "${ERROR} Unable to save the AdGuardHome WebUI port."
+					return 1
+				fi
+				if [ -n "${YAML_ORI_NEW:-}" ] && ! mv -f "${YAML_ORI_NEW}" "${YAML_ORI}"; then
+					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+						nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
+						nvram commit
+					fi
+					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+					fi
+					if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+						PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+					fi
+					PTXT "${ERROR} Unable to publish the original AdGuardHome configuration snapshot."
+					return 1
+				fi
+				[ -z "${CONFIG_ROLLBACK}" ] || discard_installer_config_backup "${CONFIG_ROLLBACK}"
+				[ -z "${DNS_FILTER_ROLLBACK_DIR}" ] || rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
 				;;
 		esac
 	fi
@@ -1840,7 +2385,15 @@ setup_amtmupdate() {
 uninst_all() {
 	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 		PTXT "${INFO} Old Backup Detected!"
-		if read_yesno "Do you want to remove backup?(this will prevent restoring from backups later)"; then rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"; else PTXT "${INFO} Keeping backup instead."; fi
+		read_yesno "Do you want to remove backup?(this will prevent restoring from backups later)"
+		CONFIRM_STATUS=$?
+		if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+			rm -rf "${BASE_DIR}/backup_AdGuardHome.tar.gz"
+		elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
+			PTXT "${INFO} Keeping backup instead."
+		else
+			return "${CONFIRM_STATUS}"
+		fi
 	fi
 	agh_stop
 	cleanup_legacy_firewall
@@ -1865,15 +2418,25 @@ write_command_script() {
 	FILENAME="${TARG##*/}"
 	if [ ! -f "${TARG}" ]; then
 		PTXT "${INFO} Creating ${FILENAME} file"
-		PTXT "#!/bin/sh" >"${TARG}"
+		if ! PTXT "#!/bin/sh" >"${TARG}"; then
+			PTXT "${ERROR} Unable to create ${TARG}"
+			return 1
+		fi
 	fi
-	chmod 755 "${TARG}"
+	if ! chmod 755 "${TARG}"; then
+		PTXT "${ERROR} Unable to set executable permissions on ${TARG}"
+		return 1
+	fi
 	if [ "$(grep -c -F "${COMMAND}" "${TARG}")" -gt 0 ]; then
 		PTXT "${INFO} ${FILENAME} file already configured"
 	else
 		PTXT "${INFO} Configure ${FILENAME} file"
-		PTXT "${COMMAND}" >>"${TARG}"
+		if ! PTXT "${COMMAND}" >>"${TARG}"; then
+			PTXT "${ERROR} Unable to update ${TARG}"
+			return 1
+		fi
 	fi
+	return 0
 }
 
 write_conf() {
@@ -1888,10 +2451,17 @@ write_conf() {
 	fi
 	if grep -q "^${VAR}=" "${CONF_FILE}"; then
 		VALUE=$(_quote "${VALUE}")
-		sed -i "/^${VAR}=/s/=.*/=${VALUE}/" "${CONF_FILE}"
+		if ! sed -i "/^${VAR}=/s/=.*/=${VALUE}/" "${CONF_FILE}"; then
+			PTXT "${ERROR} Unable to update ${VAR} in ${CONF_FILE}"
+			return 1
+		fi
 	else
-		PTXT "${VAR}=${VALUE}" >>"${CONF_FILE}"
+		if ! PTXT "${VAR}=${VALUE}" >>"${CONF_FILE}"; then
+			PTXT "${ERROR} Unable to append ${VAR} to ${CONF_FILE}"
+			return 1
+		fi
 	fi
+	return 0
 }
 
 write_manager_script() {
@@ -1902,22 +2472,38 @@ write_manager_script() {
 	COMMAND="${ADDON_DIR}/AdGuardHome.sh"
 	if [ ! -f "${TARG}" ]; then
 		PTXT "${INFO} Creating ${FILENAME} file"
-		PTXT "#!/bin/sh" >"${TARG}"
+		if ! PTXT "#!/bin/sh" >"${TARG}"; then
+			PTXT "${ERROR} Unable to create ${TARG}"
+			return 1
+		fi
 	fi
-	chmod 755 "${TARG}" "${COMMAND}"
-	del_between_magic "${TARG}" Asuswrt-Merlin-AdGuardHome-Installer
+	if ! chmod 755 "${TARG}" "${COMMAND}"; then
+		PTXT "${ERROR} Unable to set executable permissions for ${FILENAME}"
+		return 1
+	fi
+	del_between_magic "${TARG}" Asuswrt-Merlin-AdGuardHome-Installer || return 1
 	if [ "$(grep -c -F "[ -x ${COMMAND} ] && ${COMMAND} ${OP}" "${TARG}")" -gt 0 ]; then
 		PTXT "${INFO} ${FILENAME} file already configured"
 	else
 		PTXT "${INFO} Configure ${FILENAME} file"
 		if grep -q "^${COMMAND}" "${TARG}"; then
-			sed -i "s~^${COMMAND}~[ -x ${COMMAND} ] \&\& ${COMMAND} ${OP}~" "${TARG}"
+			if ! sed -i "s~^${COMMAND}~[ -x ${COMMAND} ] \&\& ${COMMAND} ${OP}~" "${TARG}"; then
+				PTXT "${ERROR} Unable to update ${TARG}"
+				return 1
+			fi
 		else
-			del_jffs_script "${TARG}" !manager
-			[ "$(tail -1 "${TARG}" | grep -c '^$')" -eq 0 ] && PTXT "" >>"${TARG}"
-			PTXT "[ -x ${COMMAND} ] && ${COMMAND} ${OP}" >>"${TARG}"
+			del_jffs_script "${TARG}" !manager || return 1
+			if [ "$(tail -1 "${TARG}" | grep -c '^$')" -eq 0 ] && ! PTXT "" >>"${TARG}"; then
+				PTXT "${ERROR} Unable to update ${TARG}"
+				return 1
+			fi
+			if ! PTXT "[ -x ${COMMAND} ] && ${COMMAND} ${OP}" >>"${TARG}"; then
+				PTXT "${ERROR} Unable to update ${TARG}"
+				return 1
+			fi
 		fi
 	fi
+	return 0
 }
 
 yaml_nvars_append() {
@@ -2037,7 +2623,16 @@ menu() {
 			if [ "$(nvram get dns_local_cache)" != "1" ]; then
 				PTXT "${INFO} This operation allows you to switch to using AdGuardHome as a local caching dns service for the router's own requests." \
 					"${INFO} A simple Yes or No will allow you to decide whether AdGuardhome handles DNS request for both the router and clients, or only clients."
-				if read_yesno "Do you want to run AdGuardHome as a local caching DNS service?"; then LOCAL_CACHE_SELECTION=1; else LOCAL_CACHE_SELECTION=0; fi
+				read_yesno "Do you want to run AdGuardHome as a local caching DNS service?"
+				CONFIRM_STATUS=$?
+				if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+					LOCAL_CACHE_SELECTION=1
+				elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
+					LOCAL_CACHE_SELECTION=0
+				else
+					end_op_message 1
+					return "${CONFIRM_STATUS}"
+				fi
 				if ! check_dns_local "${LOCAL_CACHE_SELECTION}"; then
 					PTXT "${ERROR} Unable to save the AdGuardHome local cache setting."
 					end_op_message 1
@@ -2066,7 +2661,16 @@ menu() {
 		"8" | "setipset")
 			PTXT "${INFO} IPSET integration imports compatible domain-to-IPSET mappings for routing and firewall add-ons." \
 				"${INFO} Disable it if this router does not use IPSET-based domain routing or filtering."
-			if read_yesno "Do you want to enable AdGuardHome IPSET integration?"; then IPSET_SELECTION=1; else IPSET_SELECTION=0; fi
+			read_yesno "Do you want to enable AdGuardHome IPSET integration?"
+			CONFIRM_STATUS=$?
+			if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+				IPSET_SELECTION=1
+			elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
+				IPSET_SELECTION=0
+			else
+				end_op_message 1
+				return "${CONFIRM_STATUS}"
+			fi
 			if ! check_ipset "${IPSET_SELECTION}"; then
 				PTXT "${ERROR} Unable to save the AdGuardHome IPSET integration setting. AdGuardHome was not restarted."
 				end_op_message 1
@@ -2096,29 +2700,33 @@ menu() {
 }
 
 read_input_dns() {
-	PTXT -n "${INPUT} ${1} ${BOLD}${2}: ${NORM}"
 	local DNS_SERVER
-	read -r DNS_SERVER
-	[ -z "${DNS_SERVER}" ] && DNS_SERVER="$2"
-	if ! ipv4_is_valid "${DNS_SERVER}"; then
-		PTXT "${ERROR} Invalid DNS server address entered"
-		read_input_dns "$@"
-		return
-	fi
-	if [ "${DNS_SERVER1}" = "${DNS_SERVER}" ]; then
-		PTXT "${ERROR} ${DNS_SERVER} DNS server address already entered, please try again!"
-		read_input_dns "$@"
-		return
-	fi
-	case "$1" in
-		"Default is")
-			BOOTSTRAP1="${DNS_SERVER}"
-			DNS_SERVER1="${DNS_SERVER}"
-			;;
-		"2nd Default is")
-			BOOTSTRAP2="${DNS_SERVER}"
-			;;
-	esac
+	while :; do
+		PTXT -n "${INPUT} ${1} ${BOLD}${2}: ${NORM}"
+		if ! read -r DNS_SERVER; then
+			PTXT "" "${ERROR} Unable to read DNS server input."
+			return 1
+		fi
+		[ -z "${DNS_SERVER}" ] && DNS_SERVER="$2"
+		if ! ipv4_is_valid "${DNS_SERVER}"; then
+			PTXT "${ERROR} Invalid DNS server address entered"
+			continue
+		fi
+		if [ "${DNS_SERVER1:-}" = "${DNS_SERVER}" ]; then
+			PTXT "${ERROR} ${DNS_SERVER} DNS server address already entered, please try again!"
+			continue
+		fi
+		case "$1" in
+			"Default is")
+				BOOTSTRAP1="${DNS_SERVER}"
+				DNS_SERVER1="${DNS_SERVER}"
+				;;
+			"2nd Default is")
+				BOOTSTRAP2="${DNS_SERVER}"
+				;;
+		esac
+		return 0
+	done
 }
 
 read_input_num() {
@@ -2127,72 +2735,80 @@ read_input_num() {
 	[ -n "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}]"
 	[ -n "$4" ] && [ -n "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}/${5}]"
 	[ -n "$4" ] && [ -n "$5" ] && [ -n "$6" ] && RANGE="[${2}-${3}/${4}/${5}/${6}]"
-	PTXT -n "${INPUT} ${1}, ${BOLD}${RANGE}${NORM}: "
-	read -r CHOSEN
-	case "$1" in
-		*)
-			if [ -z "${CHOSEN}" ]; then
-				PTXT "${ERROR} Invalid character(s) entered! Retrying..."
-				read_input_num "$@"
-				return
-			fi
-			;;
-	esac
-	case "${CHOSEN}" in
-		"$4" | "$5" | "$6")
+	while :; do
+		PTXT -n "${INPUT} ${1}, ${BOLD}${RANGE}${NORM}: "
+		if ! read -r CHOSEN; then
+			PTXT "" "${ERROR} Unable to read menu selection."
 			return 1
-			;;
-		"$2" | "$3" | *)
-			if ! PTXT "${CHOSEN}" | grep -qE '^[0-9]+$'; then
-				PTXT "${ERROR} Invalid character(s) entered! Retrying..."
-				read_input_num "$@"
-				return
-			fi
-			if [ "${CHOSEN}" -lt "$2" ] || [ "${CHOSEN}" -gt "$3" ]; then
-				PTXT "${ERROR} Chosen number is not in range! Retrying..."
-				read_input_num "$@"
-				return
-			fi
-			;;
-	esac
+		fi
+		if [ -z "${CHOSEN}" ]; then
+			PTXT "${ERROR} Invalid character(s) entered! Retrying..."
+			continue
+		fi
+		case "${CHOSEN}" in
+			"$4" | "$5" | "$6")
+				return 1
+				;;
+			*)
+				if ! PTXT "${CHOSEN}" | grep -qE '^[0-9]+$'; then
+					PTXT "${ERROR} Invalid character(s) entered! Retrying..."
+					continue
+				fi
+				if [ "${CHOSEN}" -lt "$2" ] || [ "${CHOSEN}" -gt "$3" ]; then
+					PTXT "${ERROR} Chosen number is not in range! Retrying..."
+					continue
+				fi
+				return 0
+				;;
+		esac
+	done
 }
 
 read_input_port() {
-	PTXT -n "${INPUT} ${1} ${BOLD}${2}: ${NORM}"
-	read -r WEB_PORT
-	[ -z "${WEB_PORT}" ] && WEB_PORT="$2"
-	if ! PTXT "${WEB_PORT}" | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' || { [ "${WEB_PORT}" -lt 3000 ] || [ "${WEB_PORT}" -gt 65535 ]; }; then
-		PTXT "${ERROR} Invalid Web Port entered, only Web Ports residing within the port range 3000-65535 are selectable."
-		read_input_port "$@"
-		return
-	fi
-	if ! ai_have_cmd netstat; then
-		PTXT "${ERROR} Unable to verify the Web Port because netstat is unavailable."
-		return 1
-	fi
-	if netstat -nlp 2>/dev/null | grep -qE "(:${WEB_PORT}[[:space:]])"; then
-		PTXT "${ERROR} ${WEB_PORT} already in use, please choose a different port!"
-		read_input_port "$@"
-		return
-	fi
+	while :; do
+		PTXT -n "${INPUT} ${1} ${BOLD}${2}: ${NORM}"
+		if ! read -r WEB_PORT; then
+			PTXT "" "${ERROR} Unable to read Web Port input."
+			return 1
+		fi
+		[ -z "${WEB_PORT}" ] && WEB_PORT="$2"
+		if ! port_is_valid "${WEB_PORT}"; then
+			PTXT "${ERROR} Invalid Web Port entered, only Web Ports residing within the port range 3000-65535 are selectable."
+			continue
+		fi
+		WEB_PORT="$(PTXT "${WEB_PORT}" | sed 's/^0*//')"
+		if ! ai_have_cmd netstat; then
+			PTXT "${ERROR} Unable to verify the Web Port because netstat is unavailable."
+			return 1
+		fi
+		if netstat -nl 2>/dev/null | grep -qE "(:${WEB_PORT}[[:space:]])"; then
+			PTXT "${ERROR} ${WEB_PORT} already in use, please choose a different port!"
+			continue
+		fi
+		return 0
+	done
 }
 
 read_yesno() {
-	PTXT -n "${INPUT} ${1} ${BOLD}[y/n]${NORM}: "
 	local YESNO
-	read -r YESNO
-	case "${YESNO}" in
-		y | Y)
-			return 0
-			;;
-		n | N)
-			return 1
-			;;
-		*)
-			PTXT "${ERROR} Invalid input!"
-			read_yesno "$@"
-			;;
-	esac
+	while :; do
+		PTXT -n "${INPUT} ${1} ${BOLD}[y/n]${NORM}: "
+		if ! read -r YESNO; then
+			PTXT "" "${ERROR} Unable to read confirmation input."
+			return 2
+		fi
+		case "${YESNO}" in
+			y | Y)
+				return 0
+				;;
+			n | N)
+				return 1
+				;;
+			*)
+				PTXT "${ERROR} Invalid input!"
+				;;
+		esac
+	done
 }
 
 installer_dependencies_available || exit 1
