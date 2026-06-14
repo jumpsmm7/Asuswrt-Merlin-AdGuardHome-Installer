@@ -49,7 +49,9 @@ read_input_port() { WEB_PORT=3000; }
 write_conf() {
 	printf '%s\n' "$*" >>"${WRITE_LOG}"
 }
-AdGuardHome_authen() { :; }
+AdGuardHome_authen() {
+	AUTH_TARGET="${2:-}"
+}
 check_AdGuardHome_yaml() { return 0; }
 check_dns_filter() {
 	DNS_FILTER_CALLS="$((DNS_FILTER_CALLS + 1))"
@@ -112,6 +114,7 @@ printf '%s\n' 'original template' >"${YAML_ORI}"
 if setup_AdGuardHome_impl reconfig reconfig; then
 	fail 'setup accepted failed nested DNS confirmation prompt'
 fi
+[ "${AUTH_TARGET}" = "${YAML_ORI}.new.$$" ] || fail 'setup did not write credentials to the staged YAML snapshot'
 [ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'setup did not restore YAML after nested DNS confirmation failure'
 ! grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail 'setup saved the WebUI port before nested DNS confirmation completed'
 [ ! -e "${YAML_BAK}" ] || fail 'setup left the YAML backup after nested DNS confirmation failure'
