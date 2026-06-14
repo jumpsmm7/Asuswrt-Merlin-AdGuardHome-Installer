@@ -90,6 +90,10 @@ nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '1' ;;
 		get:lan_ipaddr) printf '%s\n' '192.168.1.1' ;;
+		get:lan_domain) printf '%s\n' "${LAN_DOMAIN:-}" ;;
+		set)
+			LAN_DOMAIN="${2#lan_domain=}"
+			;;
 	esac
 }
 
@@ -130,7 +134,8 @@ fi
 
 printf '%s\n' 'working configuration' >"${YAML_FILE}"
 printf '%s\n' 'original configuration' >"${YAML_ORI}"
-printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' >"${CONF_FILE}"
+printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+LAN_DOMAIN=
 : >"${WRITE_LOG}"
 YAML_CHECKS=0
 FAIL_WRITE_CONF=1
@@ -149,6 +154,7 @@ grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail 'reconfiguration did not a
 [ ! -e "${YAML_BAK}" ] || fail 'reconfiguration left the YAML backup behind after WebUI port persistence failed'
 [ "${DNS_FILTER_CHANGED}" -eq 0 ] || fail 'reconfiguration left changed DNSFilter settings after WebUI port persistence failed'
 [ "${DNS_FILTER_RESTORES}" -eq 1 ] || fail 'reconfiguration did not restore DNSFilter settings after WebUI port persistence failed'
-[ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"')" ] || fail 'reconfiguration did not restore local-cache and IPSET preferences after WebUI port persistence failed'
+[ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'reconfiguration did not restore installer preferences after WebUI port persistence failed'
+[ -z "${LAN_DOMAIN}" ] || fail 'reconfiguration did not restore the router LAN domain after WebUI port persistence failed'
 
 printf '%s\n' 'PASS: failed WebUI port verification or persistence aborts setup safely'

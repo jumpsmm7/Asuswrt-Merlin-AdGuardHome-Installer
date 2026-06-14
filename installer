@@ -2007,7 +2007,7 @@ discard_installer_config_backup() {
 }
 
 setup_AdGuardHome_impl() {
-	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" IPSET_SELECTION WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
+	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ -z "$1" ] && [ -f "${YAML_FILE}" ]; then
 		############################################################ Drop-in code to be removed/modified as needed. #############################################################################################################################################################
@@ -2158,7 +2158,7 @@ setup_AdGuardHome_impl() {
 						fi
 						return 1
 					fi
-					local DOMAIN NET_ADDR NET_ADDR6 LAN_IF
+					local DOMAIN="" NET_ADDR NET_ADDR6 LAN_IF
 					LAN_IF="$(nvram get lan_ifname)"
 					if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
 						NET_ADDR="$(ip -o -4 addr list "${LAN_IF}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
@@ -2166,8 +2166,14 @@ setup_AdGuardHome_impl() {
 					fi
 					[ -n "${NET_ADDR:-}" ] || NET_ADDR="$(nvram get lan_ipaddr)"
 					[ -n "${NET_ADDR6:-}" ] || NET_ADDR6="$(nvram get ipv6_rtr_addr)"
-					[ -n "$(nvram get lan_domain)" ] && DOMAIN="$(nvram get lan_domain)" && write_conf ADGUARD_DOMAIN "\"no\""
-					[ -z "$(nvram get lan_domain)" ] && DOMAIN="lan" && nvram set lan_domain="${DOMAIN}" && nvram commit && write_conf ADGUARD_DOMAIN "\"yes\""
+					LAN_DOMAIN_ROLLBACK="$(nvram get lan_domain)"
+					if [ -n "${LAN_DOMAIN_ROLLBACK}" ]; then
+						DOMAIN="${LAN_DOMAIN_ROLLBACK}"
+						DOMAIN_CONFIG_SELECTION="no"
+					else
+						DOMAIN="lan"
+						DOMAIN_CONFIG_SELECTION="yes"
+					fi
 					PTXT "  upstream_dns:" >>"${YAML_ORI_NEW}"
 					[ -n "${NET_ADDR6}" ] && PTXT "  - '[/$(printf "%s\n" "${NET_ADDR6}" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" >>"${YAML_ORI_NEW}"
 					PTXT "  - '[/router.asus.com/][::]:553'" \
@@ -2219,11 +2225,28 @@ setup_AdGuardHome_impl() {
 						PTXT "${ERROR} Unable to preserve the current installer preferences."
 						return 1
 					fi
+					if [ -n "${DOMAIN_CONFIG_SELECTION}" ] && ! write_conf ADGUARD_DOMAIN "\"${DOMAIN_CONFIG_SELECTION}\""; then
+						restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+						fi
+						PTXT "${ERROR} Unable to save the AdGuardHome domain setting."
+						return 1
+					fi
+					if [ "${DOMAIN_CONFIG_SELECTION}" = "yes" ] && [ -z "${LAN_DOMAIN_ROLLBACK}" ]; then
+						nvram set lan_domain="${DOMAIN}" && nvram commit
+						DOMAIN_LAN_CHANGED=1
+					fi
 					DNS_FILTER_ROLLBACK_DIR="${TMPDIR:-/tmp}/AdGuardHome.dnsfilter.$$"
 					rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
 					if ! save_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
 						rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
 						discard_installer_config_backup "${CONFIG_ROLLBACK}"
+						if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+							nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
+							nvram commit
+						fi
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
 							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
@@ -2236,6 +2259,10 @@ setup_AdGuardHome_impl() {
 					if [ "${YESNO_STATUS}" -ne 0 ]; then
 						rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
 						discard_installer_config_backup "${CONFIG_ROLLBACK}"
+						if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+							nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
+							nvram commit
+						fi
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
 							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
@@ -2245,6 +2272,10 @@ setup_AdGuardHome_impl() {
 					if [ "$(nvram get dns_local_cache)" != "1" ]; then
 						if ! check_dns_local "${LOCAL_CACHE_SELECTION}"; then
 							restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+							if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+								nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
+								nvram commit
+							fi
 							if ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
 								PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 							fi
@@ -2258,6 +2289,10 @@ setup_AdGuardHome_impl() {
 					else
 						if ! check_dns_local 0; then
 							restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+							if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+								nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
+								nvram commit
+							fi
 							if ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
 								PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 							fi
@@ -2276,6 +2311,10 @@ setup_AdGuardHome_impl() {
 				fi
 				if [ -n "${WEB_PORT_SELECTION:-}" ] && ! write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT_SELECTION}\""; then
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+						nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
+						nvram commit
+					fi
 					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
 						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 					fi
@@ -2288,6 +2327,10 @@ setup_AdGuardHome_impl() {
 				fi
 				if [ -n "${YAML_ORI_NEW:-}" ] && ! mv -f "${YAML_ORI_NEW}" "${YAML_ORI}"; then
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+						nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
+						nvram commit
+					fi
 					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
 						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 					fi
