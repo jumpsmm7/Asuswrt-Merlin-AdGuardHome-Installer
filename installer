@@ -1015,6 +1015,27 @@ check_dns_filter() {
 	fi
 }
 
+save_dns_filter_settings() {
+	local DNS_FILTER_BACKUP_DIR="$1" DNS_FILTER_KEY
+	mkdir -p "${DNS_FILTER_BACKUP_DIR}" || return 1
+	for DNS_FILTER_KEY in dnsfilter_enable_x dnsfilter_mode dhcpd_dns_router dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x; do
+		nvram get "${DNS_FILTER_KEY}" >"${DNS_FILTER_BACKUP_DIR}/${DNS_FILTER_KEY}" 2>/dev/null || return 1
+	done
+}
+
+restore_dns_filter_settings() {
+	local DNS_FILTER_BACKUP_DIR="$1" DNS_FILTER_KEY DNS_FILTER_VALUE
+	[ -d "${DNS_FILTER_BACKUP_DIR}" ] || return 0
+	for DNS_FILTER_KEY in dnsfilter_enable_x dnsfilter_mode dhcpd_dns_router dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x; do
+		[ -f "${DNS_FILTER_BACKUP_DIR}/${DNS_FILTER_KEY}" ] || return 1
+		DNS_FILTER_VALUE="$(cat "${DNS_FILTER_BACKUP_DIR}/${DNS_FILTER_KEY}")" || return 1
+		nvram set "${DNS_FILTER_KEY}=${DNS_FILTER_VALUE}" || return 1
+	done
+	nvram commit || return 1
+	service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1 || return 1
+	rm -rf "${DNS_FILTER_BACKUP_DIR}"
+}
+
 check_ipset() {
 	local IPSET_ENABLED
 	case "$1" in
@@ -1944,7 +1965,7 @@ setup_AdGuardHome() {
 }
 
 setup_AdGuardHome_impl() {
-	local CHOOSE_NEW=0 IPSET_SELECTION WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
+	local CHOOSE_NEW=0 DNS_FILTER_ROLLBACK_DIR="" IPSET_SELECTION WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ -z "$1" ] && [ -f "${YAML_FILE}" ]; then
 		############################################################ Drop-in code to be removed/modified as needed. #############################################################################################################################################################
@@ -2147,9 +2168,21 @@ setup_AdGuardHome_impl() {
 					return 1
 				fi
 				if [ -n "${DNS_FILTER_SELECTION:-}" ]; then
+					DNS_FILTER_ROLLBACK_DIR="${TMPDIR:-/tmp}/AdGuardHome.dnsfilter.$$"
+					rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
+					if ! save_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+						rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
+						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+						fi
+						PTXT "${ERROR} Unable to preserve the current DNSFilter settings."
+						return 1
+					fi
 					check_dns_filter "${DNS_FILTER_SELECTION}"
 					YESNO_STATUS="$?"
 					if [ "${YESNO_STATUS}" -ne 0 ]; then
+						rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
 							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
@@ -2158,6 +2191,9 @@ setup_AdGuardHome_impl() {
 					fi
 					if [ "$(nvram get dns_local_cache)" != "1" ]; then
 						if ! check_dns_local "${LOCAL_CACHE_SELECTION}"; then
+							if ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+								PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+							fi
 							[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 							if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
 								PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
@@ -2167,6 +2203,9 @@ setup_AdGuardHome_impl() {
 						fi
 					else
 						if ! check_dns_local 0; then
+							if ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+								PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+							fi
 							[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 							if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
 								PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
@@ -2181,6 +2220,9 @@ setup_AdGuardHome_impl() {
 						"${WARNING} Continuing reconfiguration with the previous IPSET preference."
 				fi
 				if [ -n "${WEB_PORT_SELECTION:-}" ] && ! write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT_SELECTION}\""; then
+					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+					fi
 					[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 					if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
 						PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
@@ -2189,12 +2231,16 @@ setup_AdGuardHome_impl() {
 					return 1
 				fi
 				if [ -n "${YAML_ORI_NEW:-}" ] && ! mv -f "${YAML_ORI_NEW}" "${YAML_ORI}"; then
+					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+					fi
 					if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
 						PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
 					fi
 					PTXT "${ERROR} Unable to publish the original AdGuardHome configuration snapshot."
 					return 1
 				fi
+				[ -z "${DNS_FILTER_ROLLBACK_DIR}" ] || rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
 				;;
 		esac
 	fi

@@ -57,7 +57,19 @@ YAML_CHECKS=0
 check_AdGuardHome_yaml() {
 	YAML_CHECKS="$((YAML_CHECKS + 1))"
 }
-check_dns_filter() { :; }
+DNS_FILTER_CHANGED=0
+DNS_FILTER_RESTORES=0
+save_dns_filter_settings() {
+	mkdir -p "$1"
+}
+restore_dns_filter_settings() {
+	DNS_FILTER_RESTORES="$((DNS_FILTER_RESTORES + 1))"
+	DNS_FILTER_CHANGED=0
+	rm -rf "$1"
+}
+check_dns_filter() {
+	DNS_FILTER_CHANGED=1
+}
 check_dns_local() { :; }
 check_ipset() { :; }
 read_yesno() { return 1; }
@@ -117,6 +129,8 @@ printf '%s\n' 'original configuration' >"${YAML_ORI}"
 : >"${WRITE_LOG}"
 YAML_CHECKS=0
 FAIL_WRITE_CONF=1
+DNS_FILTER_CHANGED=0
+DNS_FILTER_RESTORES=0
 read_input_port() {
 	WEB_PORT=3000
 	return 0
@@ -128,5 +142,7 @@ grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail 'reconfiguration did not a
 [ "${YAML_CHECKS}" -eq 2 ] || fail 'reconfiguration did not validate the generated YAML before persisting the WebUI port'
 [ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'reconfiguration did not restore the previous YAML after WebUI port persistence failed'
 [ ! -e "${YAML_BAK}" ] || fail 'reconfiguration left the YAML backup behind after WebUI port persistence failed'
+[ "${DNS_FILTER_CHANGED}" -eq 0 ] || fail 'reconfiguration left changed DNSFilter settings after WebUI port persistence failed'
+[ "${DNS_FILTER_RESTORES}" -eq 1 ] || fail 'reconfiguration did not restore DNSFilter settings after WebUI port persistence failed'
 
 printf '%s\n' 'PASS: failed WebUI port verification or persistence aborts setup safely'

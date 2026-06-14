@@ -46,6 +46,8 @@ nvram() {
 	esac
 }
 check_dns_filter() { :; }
+save_dns_filter_settings() { mkdir -p "$1"; }
+restore_dns_filter_settings() { rm -rf "$1"; }
 check_dns_local() { :; }
 check_ipset() { return 1; }
 check_AdGuardHome_yaml() {

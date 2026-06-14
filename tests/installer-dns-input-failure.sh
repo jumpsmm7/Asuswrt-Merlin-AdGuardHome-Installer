@@ -58,6 +58,12 @@ check_dns_filter() {
 	[ "${FAIL_NESTED_DNS_PROMPT:-0}" -eq 1 ] && return 2
 	return 0
 }
+save_dns_filter_settings() {
+	mkdir -p "$1"
+}
+restore_dns_filter_settings() {
+	rm -rf "$1"
+}
 check_dns_local() {
 	LOCAL_CACHE_CALLS="$((LOCAL_CACHE_CALLS + 1))"
 	[ "${FAIL_LOCAL_CACHE_SAVE:-0}" -eq 0 ]
