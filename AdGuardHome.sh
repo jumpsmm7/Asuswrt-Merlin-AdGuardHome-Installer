@@ -449,11 +449,19 @@ dnsmasq_delete_matching() {
 }
 
 dns_handoff_is_active() {
-	local HANDOFF_PID HANDOFF_START_TIME PROCESS_START_TIME
+	local HANDOFF_PID HANDOFF_START_TIME PATH_DETAILS PROCESS_START_TIME
 	[ -d "${DNS_HANDOFF_DIR}" ] && [ ! -L "${DNS_HANDOFF_DIR}" ] || return 1
-	[ "$(stat -c '%u:%a' "${DNS_HANDOFF_DIR}" 2>/dev/null)" = "0:700" ] || return 1
+	PATH_DETAILS="$(ls -ldn "${DNS_HANDOFF_DIR}" 2>/dev/null)" || return 1
+	printf '%s\n' "${PATH_DETAILS}" |
+		awk 'NR == 1 {
+			exit(substr($1, 1, 10) == "drwx------" && $3 == 0 ? 0 : 1)
+		}' || return 1
 	[ -f "${DNS_HANDOFF_FILE}" ] && [ ! -L "${DNS_HANDOFF_FILE}" ] || return 1
-	[ "$(stat -c '%u:%a' "${DNS_HANDOFF_FILE}" 2>/dev/null)" = "0:600" ] || return 1
+	PATH_DETAILS="$(ls -ldn "${DNS_HANDOFF_FILE}" 2>/dev/null)" || return 1
+	printf '%s\n' "${PATH_DETAILS}" |
+		awk 'NR == 1 {
+			exit(substr($1, 1, 10) == "-rw-------" && $3 == 0 ? 0 : 1)
+		}' || return 1
 	IFS=' ' read -r HANDOFF_PID HANDOFF_START_TIME <"${DNS_HANDOFF_FILE}" || return 1
 	case "${HANDOFF_PID}:${HANDOFF_START_TIME}" in
 		*[!0-9:]* | *: | :*) return 1 ;;

@@ -46,7 +46,7 @@ PREARGS="env TZ=/etc/localtime GOGC=${GOGC} GOMAXPROCS=${GOMAXPROCS} GOMEMLIMIT=
 # DNS handoff helpers
 
 dns_handoff_dependencies_available() {
-	for _dns_command in awk chmod kill ln mkdir netstat pidof rm service sleep stat; do
+	for _dns_command in awk chmod kill ln ls mkdir netstat pidof rm service sleep; do
 		if ! which "${_dns_command}" >/dev/null 2>&1; then
 			if which logger >/dev/null 2>&1; then
 				logger -st "${PROCS}" "Required DNS handoff command is unavailable: ${_dns_command}"
@@ -59,14 +59,32 @@ dns_handoff_dependencies_available() {
 	return 0
 }
 
+dns_handoff_path_has_owner_mode() {
+	_dns_handoff_expected_type="$1"
+	_dns_handoff_expected_mode="$2"
+	_dns_handoff_path="$3"
+	ls -ldn "${_dns_handoff_path}" 2>/dev/null |
+		awk -v expected_type="${_dns_handoff_expected_type}" \
+			-v expected_mode="${_dns_handoff_expected_mode}" '
+			NR == 1 {
+				exit(substr($1, 1, 1) == expected_type &&
+					substr($1, 2, 9) == expected_mode &&
+					$3 == 0 ? 0 : 1)
+			}
+			END {
+				if (NR == 0) exit 1
+			}
+		'
+}
+
 dns_handoff_directory_is_private() {
 	[ -d "${DNS_HANDOFF_DIR}" ] && [ ! -L "${DNS_HANDOFF_DIR}" ] || return 1
-	[ "$(stat -c '%u:%a' "${DNS_HANDOFF_DIR}" 2>/dev/null)" = "0:700" ]
+	dns_handoff_path_has_owner_mode d 'rwx------' "${DNS_HANDOFF_DIR}"
 }
 
 dns_handoff_marker_is_private() {
 	[ -f "${DNS_HANDOFF_FILE}" ] && [ ! -L "${DNS_HANDOFF_FILE}" ] || return 1
-	[ "$(stat -c '%u:%a' "${DNS_HANDOFF_FILE}" 2>/dev/null)" = "0:600" ]
+	dns_handoff_path_has_owner_mode - 'rw-------' "${DNS_HANDOFF_FILE}"
 }
 
 dns_handoff_process_is_root() {
@@ -132,15 +150,18 @@ reclaim_stale_dns_handoff_lock() {
 		rm -f "${_dns_handoff_stale_candidate}"
 		return 1
 	fi
-	_dns_handoff_lock_identity="$(stat -c '%d:%i' "${DNS_HANDOFF_LOCK}" 2>/dev/null)" || {
+	_dns_handoff_lock_identity="$(ls -din "${DNS_HANDOFF_LOCK}" 2>/dev/null |
+		awk 'NR == 1 { print $1 }')" || {
 		rm -f "${_dns_handoff_stale_candidate}"
 		return 1
 	}
-	_dns_handoff_stale_identity="$(stat -c '%d:%i' "${_dns_handoff_stale_candidate}" 2>/dev/null)" || {
+	_dns_handoff_stale_identity="$(ls -din "${_dns_handoff_stale_candidate}" 2>/dev/null |
+		awk 'NR == 1 { print $1 }')" || {
 		rm -f "${_dns_handoff_stale_candidate}"
 		return 1
 	}
-	if [ "${_dns_handoff_lock_identity}" != "${_dns_handoff_stale_identity}" ]; then
+	if [ -z "${_dns_handoff_lock_identity}" ] ||
+		[ "${_dns_handoff_lock_identity}" != "${_dns_handoff_stale_identity}" ]; then
 		rm -f "${_dns_handoff_stale_candidate}"
 		return 1
 	fi

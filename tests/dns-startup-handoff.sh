@@ -26,7 +26,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_directory_is_private() {$/,/^}$/p; /^dns_handoff_marker_is_private() {$/,/^}$/p; /^dns_handoff_process_is_root() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^dns_handoff_lock_file_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^reclaim_stale_dns_handoff_lock() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
+	'/^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_path_has_owner_mode() {$/,/^}$/p; /^dns_handoff_directory_is_private() {$/,/^}$/p; /^dns_handoff_marker_is_private() {$/,/^}$/p; /^dns_handoff_process_is_root() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^dns_handoff_lock_file_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^reclaim_stale_dns_handoff_lock() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed -n '/^dns_handoff_is_active() {$/,/^}$/p' "${MANAGER_PATH}" >>"${S99_FUNCTIONS}" ||
 	fail "could not read ${MANAGER_PATH}"
@@ -60,7 +60,7 @@ rm() {
 }
 which() {
 	case "$1" in
-		awk | chmod | kill | ln | logger | mkdir | netstat | pidof | rm | service | sleep | stat)
+		awk | chmod | kill | ln | logger | ls | mkdir | netstat | pidof | rm | service | sleep)
 			return 0
 			;;
 	esac
@@ -125,9 +125,9 @@ DNS_STATE=busy
 DNSMASQ_RESTART_RELEASES_PORT=1
 enable_dns_handoff || fail 'could not enable the dnsmasq postconf handoff'
 [ -f "${DNS_HANDOFF_FILE}" ] || fail 'dnsmasq handoff marker was not created'
-[ "$(stat -c '%u:%a' "${DNS_HANDOFF_DIR}")" = '0:700' ] ||
+[ "$(ls -ldn "${DNS_HANDOFF_DIR}" | awk 'NR == 1 { print $3 ":" substr($1, 2, 9) }')" = '0:rwx------' ] ||
 	fail 'dnsmasq handoff directory is not root-owned and private'
-[ "$(stat -c '%u:%a' "${DNS_HANDOFF_FILE}")" = '0:600' ] ||
+[ "$(ls -ldn "${DNS_HANDOFF_FILE}" | awk 'NR == 1 { print $3 ":" substr($1, 2, 9) }')" = '0:rw-------' ] ||
 	fail 'dnsmasq handoff marker is not root-owned and private'
 [ "${DNS_STATE}" = free ] || fail 'dnsmasq was not regenerated onto its alternate port'
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'dnsmasq was not restarted to apply postconf'
