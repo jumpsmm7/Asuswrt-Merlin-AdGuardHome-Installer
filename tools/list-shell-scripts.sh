@@ -28,7 +28,7 @@ is_shell_script() {
 	return 1
 }
 
-find . -type f ! -path './.git/*' ! -path './.github/*' | sort | while IFS='' read -r file; do
+find . -type f ! -path './.git/*' ! -path './.github/*' -print0 | sort -z | while IFS='' read -r -d '' file; do
 	path="${file#./}"
 	if is_shell_script "${path}"; then
 		printf '%s\n' "${path}"
