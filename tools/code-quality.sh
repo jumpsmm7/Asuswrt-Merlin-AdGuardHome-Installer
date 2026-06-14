@@ -112,6 +112,7 @@ run_check 'Installer legacy hook cleanup regression' sh tests/installer-legacy-h
 run_check 'Installer post-replacement restart regression' sh tests/installer-post-replace-restart.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
 run_check 'Installer iterative input regression' sh tests/installer-input-loops.sh
+run_check 'Installer staged authentication regression' bash tests/installer-staged-authentication.sh
 run_check 'Installer mandatory numeric input failure regression' sh tests/installer-mandatory-number-failure.sh
 run_check 'Installer DNS input failure regression' sh tests/installer-dns-input-failure.sh
 run_check 'Installer WebUI port failure regression' sh tests/installer-web-port-failure.sh
