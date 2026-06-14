@@ -114,7 +114,9 @@ dns_handoff_set_current_identity() {
 	_dns_handoff_current_fields="${_dns_handoff_current_stat##*) }"
 	# Intentional word splitting: /proc/self/stat is a space-delimited record.
 	set -- ${_dns_handoff_current_fields}
-	DNS_HANDOFF_CURRENT_START_TIME="${20:-}"
+	[ "$#" -ge 20 ] || return 1
+	shift 19
+	DNS_HANDOFF_CURRENT_START_TIME="${1:-}"
 	case "${DNS_HANDOFF_CURRENT_PID}:${DNS_HANDOFF_CURRENT_START_TIME}" in
 		*[!0-9:]* | :* | *:) return 1 ;;
 	esac
