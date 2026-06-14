@@ -7,8 +7,16 @@ set -u
 BASE_URL="https://static.adguard.com/adguardhome"
 OUT_DIR="${1:-.}"
 FAILED=0
+ACTIVE_DOWNLOAD_TMP=""
 
 # Functions are sorted alpha-numerically for readability.
+
+cleanup_download_tmp() {
+	if [ -n "${ACTIVE_DOWNLOAD_TMP}" ]; then
+		rm -f "${ACTIVE_DOWNLOAD_TMP}"
+		ACTIVE_DOWNLOAD_TMP=""
+	fi
+}
 
 append_metadata() {
 	_folder="$1"
@@ -210,45 +218,53 @@ download_one() {
 	fi
 
 	printf '%s\n' "Downloading ${_url} -> ${_dest_file}"
+	ACTIVE_DOWNLOAD_TMP="${_tmp_file}"
 	if ! curl -fL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 -o "${_tmp_file}" "${_url}"; then
-		rm -f "${_tmp_file}"
+		cleanup_download_tmp
 		printf '%s\n' "Error: failed to download ${_url}" >&2
 		FAILED=1
 		return 1
 	fi
 
 	if ! gzip -t "${_tmp_file}"; then
-		rm -f "${_tmp_file}"
+		cleanup_download_tmp
 		printf '%s\n' "Error: downloaded archive is not a valid gzip file: ${_url}" >&2
 		FAILED=1
 		return 1
 	fi
 
 	_md5="$(calc_sum md5sum "${_tmp_file}")" || {
-		rm -f "${_tmp_file}"
+		cleanup_download_tmp
 		printf '%s\n' "Error: failed to calculate md5 for ${_url}" >&2
 		FAILED=1
 		return 1
 	}
 	_sha256="$(calc_sum sha256sum "${_tmp_file}")" || {
-		rm -f "${_tmp_file}"
+		cleanup_download_tmp
 		printf '%s\n' "Error: failed to calculate sha256 for ${_url}" >&2
 		FAILED=1
 		return 1
 	}
 
 	recover_archive_publication "${_dest_file}" || {
-		rm -f "${_tmp_file}"
+		cleanup_download_tmp
 		return 1
 	}
 	if [ -f "${_dest_file}" ] && cmp -s "${_tmp_file}" "${_dest_file}"; then
 		printf '%s\n' "OK: ${_dest_file} already current"
 		publish_archive_with_md5 "${_tmp_file}" "${_dest_file}" "${_md5}" \
-			require-unchanged || return 1
+			require-unchanged || {
+			ACTIVE_DOWNLOAD_TMP=""
+			return 1
+		}
 	else
-		publish_archive_with_md5 "${_tmp_file}" "${_dest_file}" "${_md5}" || return 1
+		publish_archive_with_md5 "${_tmp_file}" "${_dest_file}" "${_md5}" || {
+			ACTIVE_DOWNLOAD_TMP=""
+			return 1
+		}
 		printf '%s\n' "Updated ${_dest_file}"
 	fi
+	ACTIVE_DOWNLOAD_TMP=""
 
 	if ! append_metadata "${_folder}" "${_channel_name}" "${_remote_channel}" "${_adguard_arch}" "${_dest_name}" "${_version}" "${_md5}" "${_sha256}"; then
 		printf '%s\n' "Error: could not append metadata for ${_dest_name}" >&2
@@ -659,6 +675,9 @@ require_cmd gzip
 require_cmd ln
 require_cmd md5sum
 require_cmd sha256sum
+
+trap cleanup_download_tmp 0
+trap 'cleanup_download_tmp; exit 1' HUP INT QUIT ABRT TERM
 
 download_arch armv8 linux_arm64
 download_arch armv7 linux_armv7
