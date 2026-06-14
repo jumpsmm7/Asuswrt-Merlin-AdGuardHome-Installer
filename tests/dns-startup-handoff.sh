@@ -26,7 +26,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_path_has_owner_mode() {$/,/^}$/p; /^dns_handoff_directory_is_private() {$/,/^}$/p; /^dns_handoff_marker_is_private() {$/,/^}$/p; /^dns_handoff_process_is_root() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^dns_handoff_lock_file_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^reclaim_stale_dns_handoff_lock() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
+	'/^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_path_has_owner_mode() {$/,/^}$/p; /^dns_handoff_directory_is_private() {$/,/^}$/p; /^dns_handoff_marker_is_private() {$/,/^}$/p; /^dns_handoff_process_is_root() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_set_current_identity() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^dns_handoff_lock_file_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^reclaim_stale_dns_handoff_lock() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed -n '/^dns_handoff_is_active() {$/,/^}$/p' "${MANAGER_PATH}" >>"${S99_FUNCTIONS}" ||
 	fail "could not read ${MANAGER_PATH}"
@@ -49,6 +49,19 @@ DNS_HANDOFF_DIR="${TEST_ROOT}/dns-handoff"
 DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
 DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
 umask 077
+dns_handoff_set_current_identity ||
+	fail 'could not identify the current shell from /proc/self/stat'
+CURRENT_PID="${DNS_HANDOFF_CURRENT_PID}"
+CURRENT_START_TIME="${DNS_HANDOFF_CURRENT_START_TIME}"
+[ "${CURRENT_START_TIME}" = "$(dns_handoff_process_start_time "${CURRENT_PID}")" ] ||
+	fail 'current shell identity did not match its proc start time'
+(
+	dns_handoff_set_current_identity || exit 1
+	[ "${DNS_HANDOFF_CURRENT_START_TIME}" = "$(dns_handoff_process_start_time "${DNS_HANDOFF_CURRENT_PID}")" ]
+) &
+IDENTITY_TEST_PID="$!"
+wait "${IDENTITY_TEST_PID}" ||
+	fail 'background shell identity did not match its proc start time'
 logger() {
 	printf '%s\n' "logger $*" >>"${CALLS_FILE}"
 }
@@ -136,7 +149,7 @@ disable_dns_handoff
 DNSMASQ_RESTART_RELEASES_PORT=0
 
 chmod 777 "${DNS_HANDOFF_DIR}" || fail 'could not make handoff directory insecure for validation test'
-printf '%s %s\n' "$$" "$(dns_handoff_process_start_time "$$")" >"${DNS_HANDOFF_FILE}" ||
+printf '%s %s\n' "${CURRENT_PID}" "${CURRENT_START_TIME}" >"${DNS_HANDOFF_FILE}" ||
 	fail 'could not create marker in insecure handoff directory'
 if dns_handoff_is_active; then
 	fail 'dnsmasq postconf accepted a marker from an insecure handoff directory'
@@ -150,7 +163,7 @@ chmod 600 "${DNS_HANDOFF_FILE}" || fail 'could not restore private handoff marke
 disable_dns_handoff || fail 'could not clean up permissions validation marker'
 
 : >"${CALLS_FILE}"
-printf '%s\n' "$$" >"${DNS_HANDOFF_FILE}" || fail 'could not create handoff marker for removal failure test'
+printf '%s\n' "${CURRENT_PID}" >"${DNS_HANDOFF_FILE}" || fail 'could not create handoff marker for removal failure test'
 RM_HANDOFF_FAIL=1
 if disable_dns_handoff; then
 	fail 'handoff cleanup hid a marker removal failure'
@@ -162,7 +175,7 @@ disable_dns_handoff || fail 'could not clean up marker after removal failure tes
 
 : >"${CALLS_FILE}"
 DNS_STATE=owned
-printf '%s\n' "$$" >"${DNS_HANDOFF_FILE}" || fail 'could not create handoff marker for post-start cleanup test'
+printf '%s\n' "${CURRENT_PID}" >"${DNS_HANDOFF_FILE}" || fail 'could not create handoff marker for post-start cleanup test'
 RM_HANDOFF_FAIL=1
 ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
 if post_start_adguardhome; then
@@ -173,7 +186,7 @@ unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 disable_dns_handoff || fail 'could not clean up marker after post-start cleanup test'
 
 : >"${CALLS_FILE}"
-printf '%s\n' "$$" >"${DNS_HANDOFF_FILE}" || fail 'could not create handoff marker for failed-start recovery test'
+printf '%s\n' "${CURRENT_PID}" >"${DNS_HANDOFF_FILE}" || fail 'could not create handoff marker for failed-start recovery test'
 RM_HANDOFF_FAIL=1
 if post_start_failure_adguardhome; then
 	fail 'failed-start recovery hid a handoff marker cleanup failure'
@@ -188,15 +201,14 @@ printf '%s %s\n' 999999 1 >"${DNS_HANDOFF_FILE}" || fail 'could not create stale
 if dns_handoff_is_active; then
 	fail 'dnsmasq postconf accepted a handoff marker owned by a dead process'
 fi
-HANDOFF_START_TIME="$(dns_handoff_process_start_time "$$")" ||
-	fail 'could not read the test process start time'
-printf '%s %s\n' "$$" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_FILE}" ||
+HANDOFF_START_TIME="${CURRENT_START_TIME}"
+printf '%s %s\n' "${CURRENT_PID}" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_FILE}" ||
 	fail 'could not create competing active handoff marker'
 : >"${CALLS_FILE}"
 if enable_dns_handoff; then
 	fail 'handoff setup replaced a marker owned by a live startup'
 fi
-[ "$(cat "${DNS_HANDOFF_FILE}")" = "$$ ${HANDOFF_START_TIME}" ] ||
+[ "$(cat "${DNS_HANDOFF_FILE}")" = "${CURRENT_PID} ${HANDOFF_START_TIME}" ] ||
 	fail 'competing startup changed the active handoff marker'
 ! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" ||
 	fail 'competing startup regenerated dnsmasq after losing marker ownership'
@@ -204,7 +216,7 @@ disable_dns_handoff || fail 'could not remove competing active handoff marker'
 
 printf '%s %s\n' 999999 1 >"${DNS_HANDOFF_FILE}" ||
 	fail 'could not create stale handoff marker for lock-contention test'
-printf '%s %s\n' "$$" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_LOCK}" ||
+printf '%s %s\n' "${CURRENT_PID}" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_LOCK}" ||
 	fail 'could not record simulated marker-update lock owner'
 if enable_dns_handoff; then
 	fail 'handoff setup ignored a concurrent marker update'
@@ -222,15 +234,15 @@ enable_dns_handoff || fail 'could not recover an abandoned marker-update lock'
 disable_dns_handoff || fail 'could not clean up handoff after abandoned-lock recovery'
 DNSMASQ_RESTART_RELEASES_PORT=0
 
-printf '%s %s\n' "$$" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_FILE}" ||
+printf '%s %s\n' "${CURRENT_PID}" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_FILE}" ||
 	fail 'could not create active handoff marker'
 dns_handoff_is_active || fail 'dnsmasq postconf rejected a live handoff owner'
-printf '%s %s\n' "$$" "$((HANDOFF_START_TIME + 1))" >"${DNS_HANDOFF_FILE}" ||
+printf '%s %s\n' "${CURRENT_PID}" "$((HANDOFF_START_TIME + 1))" >"${DNS_HANDOFF_FILE}" ||
 	fail 'could not create reused-PID handoff marker'
 if dns_handoff_is_active; then
 	fail 'dnsmasq postconf accepted a live PID with a different process lifetime'
 fi
-printf '%s %s\n' "$$" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_FILE}" ||
+printf '%s %s\n' "${CURRENT_PID}" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_FILE}" ||
 	fail 'could not restore active handoff marker'
 disable_dns_handoff || fail 'could not remove active handoff marker'
 
@@ -240,7 +252,7 @@ if disable_dns_handoff; then
 	fail 'handoff cleanup removed a marker owned by another process'
 fi
 [ -f "${DNS_HANDOFF_FILE}" ] || fail 'foreign handoff marker was removed'
-printf '%s\n' "$$" >"${DNS_HANDOFF_FILE}" || fail 'could not reclaim foreign handoff marker'
+printf '%s\n' "${CURRENT_PID}" >"${DNS_HANDOFF_FILE}" || fail 'could not reclaim foreign handoff marker'
 disable_dns_handoff || fail 'could not remove reclaimed handoff marker'
 
 : >"${CALLS_FILE}"
