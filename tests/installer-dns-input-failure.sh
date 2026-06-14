@@ -48,6 +48,9 @@ read_input_num() { CHOSEN=3; }
 read_input_port() { WEB_PORT=3000; }
 write_conf() {
 	printf '%s\n' "$*" >>"${WRITE_LOG}"
+	if [ "$1" = ADGUARD_DOMAIN ]; then
+		printf '%s\n' 'ADGUARD_DOMAIN="CHANGED"' >>"${CONF_FILE}"
+	fi
 }
 AdGuardHome_authen() {
 	AUTH_TARGET="${2:-}"
@@ -113,6 +116,7 @@ FAIL_NESTED_DNS_PROMPT=1
 CONFIRM_PROMPTS=0
 DNS_FILTER_CALLS=0
 FAIL_PROMPT=0
+printf '%s\n' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
 printf '%s\n' 'working configuration' >"${YAML_FILE}"
 printf '%s\n' 'original template' >"${YAML_ORI}"
 : >"${WRITE_LOG}"
@@ -126,6 +130,7 @@ fi
 [ ! -e "${YAML_BAK}" ] || fail 'setup left the YAML backup after nested DNS confirmation failure'
 [ "$(cat "${YAML_ORI}")" = 'original template' ] || fail 'setup replaced the original snapshot after nested DNS confirmation failure'
 [ ! -e "${YAML_ORI}.new.$$" ] || fail 'setup left an aborted replacement snapshot after nested DNS confirmation failure'
+[ "$(cat "${CONF_FILE}")" = 'ADGUARD_DOMAIN="OLD"' ] || fail 'setup did not restore installer preferences after nested DNS confirmation failure'
 unset FAIL_NESTED_DNS_PROMPT
 unset FAIL_PROMPT
 
