@@ -1278,17 +1278,15 @@ save_dns_nvram_environment() {
 # Installer file and setup helpers
 
 adguard_archive_is_safe() {
-	local ARCHIVE_DETAILS ARCHIVE_LIST
-	ARCHIVE_LIST="$(tar tzf "$1" 2>/dev/null)" || return 1
-	[ -n "${ARCHIVE_LIST}" ] || return 1
-	ARCHIVE_DETAILS="$(tar tvzf "$1" 2>/dev/null)" || return 1
-	[ -n "${ARCHIVE_DETAILS}" ] || return 1
-	if ! PTXT "${ARCHIVE_DETAILS}" | awk '
+	if ! tar tvzf "$1" 2>/dev/null | awk '
+		BEGIN { entries = 0 }
 		substr($0, 1, 1) != "-" && substr($0, 1, 1) != "d" { exit 1 }
+		{ entries = 1 }
+		END { if (!entries) exit 1 }
 	'; then
 		return 1
 	fi
-	PTXT "${ARCHIVE_LIST}" | awk '
+	tar tzf "$1" 2>/dev/null | awk '
 		BEGIN { binary = 0; unsafe = 0 }
 		{
 			path = $0
