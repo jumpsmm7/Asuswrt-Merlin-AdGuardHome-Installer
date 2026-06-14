@@ -42,9 +42,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 PTXT() {
-	if [ "${1:-}" = "http:" ]; then
-		printf '%s\n' "$@" >"${YAML_ORI}"
-	fi
+	printf '%s\n' "$@"
 }
 read_input_num() { CHOSEN=3; }
 read_input_port() { WEB_PORT=3000; }
@@ -156,7 +154,8 @@ for FAIL_PROMPT in 1 2; do
 	! grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail "setup saved the WebUI port before DNS prompt ${FAIL_PROMPT} completed"
 	[ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail "setup did not restore YAML after DNS prompt ${FAIL_PROMPT}"
 	[ ! -e "${YAML_BAK}" ] || fail "setup left the YAML backup after DNS prompt ${FAIL_PROMPT}"
-	[ ! -e "${YAML_ORI}" ] || fail "setup left partial YAML after DNS prompt ${FAIL_PROMPT}"
+	[ "$(cat "${YAML_ORI}")" = 'original template' ] || fail "setup replaced the original snapshot after DNS prompt ${FAIL_PROMPT}"
+	[ ! -e "${YAML_ORI}.new.$$" ] || fail "setup left a partial replacement snapshot after DNS prompt ${FAIL_PROMPT}"
 done
 
 printf '%s\n' 'PASS: failed DNS input aborts setup and restores the previous configuration'
