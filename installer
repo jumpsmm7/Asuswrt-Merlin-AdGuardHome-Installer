@@ -432,6 +432,8 @@ sanitize_branch() {
 # AdGuardHome process helpers
 
 AdGuardHome_authen() {
+	local AUTH_YAML
+	AUTH_YAML="${2:-${YAML_ORI}}"
 	if [ -z "${PW1}" ] || [ -z "${PW2}" ]; then
 		local USERNAME
 		PTXT -n "${INPUT} Please enter AdGuardHome username${NORM}: "
@@ -446,7 +448,7 @@ AdGuardHome_authen() {
 	PTXT " "
 	if [ -z "${PW1}" ] || [ -z "${PW2}" ] || [ "${PW1}" != "${PW2}" ]; then
 		PTXT "${ERROR} Password entered incorrectly!"
-		AdGuardHome_authen "$1"
+		AdGuardHome_authen "$1" "${AUTH_YAML}"
 		return
 	fi
 	remove_conflicting_apache
@@ -486,7 +488,7 @@ AdGuardHome_authen() {
 	else
 		PTXT "users:" \
 			"- name: ${USERNAME}" \
-			"  password: ${PW1_ENCRYPTED}" >>"${YAML_ORI}"
+			"  password: ${PW1_ENCRYPTED}" >>"${AUTH_YAML}"
 	fi
 }
 
@@ -2055,7 +2057,7 @@ setup_AdGuardHome_impl() {
 					PTXT "http:" \
 						"  address: 0.0.0.0:${WEB_PORT}" >"${YAML_ORI_NEW}"
 					PTXT "${INFO} Set the Username and Password which will be encrypted to the yaml file."
-					AdGuardHome_authen 1
+					AdGuardHome_authen 1 "${YAML_ORI_NEW}"
 					PTXT "dns:" \
 						"  bind_hosts:" \
 						"    - 0.0.0.0" \
