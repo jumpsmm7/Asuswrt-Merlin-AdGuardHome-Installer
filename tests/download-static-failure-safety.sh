@@ -274,7 +274,7 @@ ln() {
 	case "$*" in
 		*.metadata.lock.stale.*)
 			"${REAL_MV}" "${TEST_ROOT}/metadata/replacement.lock" \
-			"${TEST_ROOT}/metadata/.metadata.lock"
+				"${TEST_ROOT}/metadata/.metadata.lock"
 			;;
 	esac
 }
