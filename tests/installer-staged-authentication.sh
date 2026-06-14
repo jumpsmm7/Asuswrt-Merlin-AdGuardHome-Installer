@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Verify generated credentials are written to the staged YAML snapshot.
 
 set -u
