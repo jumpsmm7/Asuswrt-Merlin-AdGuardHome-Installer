@@ -186,6 +186,37 @@ recover_archive_publication "${TEST_ROOT}/archive" >/dev/null 2>&1 ||
 [ ! -e "${TEST_ROOT}/archive.publish-in-progress" ] ||
 	fail "interrupted publication state was not cleared"
 
+printf '%s\n' "old archive" >"${TEST_ROOT}/archive.previous"
+printf '%s\n' "old checksum" >"${TEST_ROOT}/archive.md5sum.previous"
+printf '%s\n' "new archive" >"${TEST_ROOT}/archive"
+printf '%s\n' "new checksum" >"${TEST_ROOT}/archive.md5sum"
+printf '%s %s ready 1 1\n' "999999" "1" \
+	>"${TEST_ROOT}/archive.publish-in-progress"
+mv() {
+	case "$1" in
+		*.md5sum.previous.restore.*) return 1 ;;
+	esac
+	"${REAL_MV}" "$@"
+}
+if recover_archive_publication "${TEST_ROOT}/archive" >/dev/null 2>&1; then
+	fail "interrupted recovery accepted a checksum restore failure"
+fi
+unset -f mv
+[ -e "${TEST_ROOT}/archive.previous" ] ||
+	fail "interrupted recovery consumed the archive rollback copy"
+[ -e "${TEST_ROOT}/archive.md5sum.previous" ] ||
+	fail "interrupted recovery consumed the checksum rollback copy"
+[ -e "${TEST_ROOT}/archive.publish-in-progress" ] ||
+	fail "interrupted recovery removed the publication state"
+recover_archive_publication "${TEST_ROOT}/archive" >/dev/null 2>&1 ||
+	fail "interrupted archive recovery was not restartable"
+[ "$(sed -n '1p' "${TEST_ROOT}/archive")" = "old archive" ] ||
+	fail "restarted recovery did not restore the previous archive"
+[ "$(sed -n '1p' "${TEST_ROOT}/archive.md5sum")" = "old checksum" ] ||
+	fail "restarted recovery did not restore the previous checksum"
+[ ! -e "${TEST_ROOT}/archive.publish-in-progress" ] ||
+	fail "restarted recovery did not clear publication state"
+
 mkdir -p "${TEST_ROOT}/metadata" || fail "could not create metadata directory"
 acquire_metadata_publication_lock "${TEST_ROOT}/metadata" ||
 	fail "could not acquire metadata publication lock"

@@ -234,6 +234,8 @@ recover_archive_publication() {
 	_publish_state="${_archive_file}.publish-in-progress"
 	_archive_backup="${_archive_file}.previous"
 	_md5_backup="${_md5_file}.previous"
+	_archive_restore="${_archive_backup}.restore.$$"
+	_md5_restore="${_md5_backup}.restore.$$"
 	_restore_failed=0
 	_publish_phase=""
 	_publish_had_archive=""
@@ -257,20 +259,38 @@ recover_archive_publication() {
 		return 0
 	fi
 
-	rm -f "${_archive_file}" "${_md5_file}"
-	if [ -f "${_archive_backup}" ]; then
-		mv "${_archive_backup}" "${_archive_file}" || _restore_failed=1
+	rm -f "${_archive_restore}" "${_md5_restore}"
+	if [ "${_publish_had_archive}" = "1" ]; then
+		cp -p "${_archive_backup}" "${_archive_restore}" || _restore_failed=1
 	fi
-	if [ -f "${_md5_backup}" ]; then
-		mv "${_md5_backup}" "${_md5_file}" || _restore_failed=1
+	if [ "${_publish_had_md5}" = "1" ]; then
+		cp -p "${_md5_backup}" "${_md5_restore}" || _restore_failed=1
 	fi
 	if [ "${_restore_failed}" -ne 0 ]; then
+		rm -f "${_archive_restore}" "${_md5_restore}"
 		printf '%s\n' "Error: could not recover interrupted publication for ${_archive_file}" >&2
 		FAILED=1
 		return 1
 	fi
 
-	rm -f "${_publish_state}"
+	if [ "${_publish_had_archive}" = "1" ]; then
+		mv "${_archive_restore}" "${_archive_file}" || _restore_failed=1
+	else
+		rm -f "${_archive_file}" || _restore_failed=1
+	fi
+	if [ "${_publish_had_md5}" = "1" ]; then
+		mv "${_md5_restore}" "${_md5_file}" || _restore_failed=1
+	else
+		rm -f "${_md5_file}" || _restore_failed=1
+	fi
+	if [ "${_restore_failed}" -ne 0 ]; then
+		rm -f "${_archive_restore}" "${_md5_restore}"
+		printf '%s\n' "Error: could not recover interrupted publication for ${_archive_file}" >&2
+		FAILED=1
+		return 1
+	fi
+
+	rm -f "${_archive_backup}" "${_md5_backup}" "${_publish_state}"
 	printf '%s\n' "Recovered interrupted publication for ${_archive_file}" >&2
 	return 0
 }
