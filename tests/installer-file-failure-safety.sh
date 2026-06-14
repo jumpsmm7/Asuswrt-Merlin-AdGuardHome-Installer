@@ -28,6 +28,10 @@ awk '
 	/^file_md5\(\)/,/^}/
 	/^adguard_archive_is_safe\(\)/,/^}/
 	/^adguard_restart_after_failed_replace\(\)/,/^}/
+	/^adguard_restart_after_install_abort\(\)/,/^}/
+	/^adguard_install_abort_trap_disable\(\)/,/^}/
+	/^adguard_install_abort_on_signal\(\)/,/^}/
+	/^adguard_install_abort_trap_enable\(\)/,/^}/
 	/^adguard_restore_after_failed_replace\(\)/,/^}/
 	/^create_backup_archive\(\)/,/^}/
 	/^install_adguard_archive\(\)/,/^}/

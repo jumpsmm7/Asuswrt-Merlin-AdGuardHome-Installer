@@ -47,7 +47,7 @@ sed -n \
 		printf '%s\n' "end:$1" >>"${CALLS_FILE}"
 	}
 
-	adguard_install_abort_trap_enable
+	adguard_install_abort_trap_enable 1
 	adguard_install_abort_on_signal
 ) || fail 'interruption recovery handler failed'
 
@@ -73,7 +73,7 @@ ACTUAL="$(cat "${CALLS_FILE}")"
 		printf '%s\n' "end:$1" >>"${CALLS_FILE}"
 	}
 
-	adguard_install_abort_trap_enable
+	adguard_install_abort_trap_enable 1
 	ADGUARD_INSTALL_OLD_BINARY="${TMP_ROOT}/previous"
 	ADGUARD_INSTALL_REPLACE_ACTIVE="1"
 	adguard_install_abort_on_signal
@@ -84,6 +84,35 @@ ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] ||
 	fail "interruption recovery did not restore the previous binary: ${ACTUAL}"
 
+: >"${CALLS_FILE}"
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	adguard_restart_after_install_abort() {
+		printf '%s\n' "unexpected-restart:$1" >>"${CALLS_FILE}"
+	}
+	adguard_restore_after_failed_replace() {
+		printf '%s\n' "restore:$1:$2" >>"${CALLS_FILE}"
+	}
+	clear_screen() {
+		printf '%s\n' 'clear' >>"${CALLS_FILE}"
+	}
+	end_op_message() {
+		printf '%s\n' "end:$1" >>"${CALLS_FILE}"
+	}
+
+	adguard_install_abort_trap_enable 0
+	ADGUARD_INSTALL_OLD_BINARY="${TMP_ROOT}/stopped-previous"
+	ADGUARD_INSTALL_REPLACE_ACTIVE="1"
+	adguard_install_abort_on_signal
+) || fail 'interrupted stopped-installation replacement recovery failed'
+
+EXPECTED="$(printf '%s\n' "restore:${TMP_ROOT}/stopped-previous:0" 'clear' 'end:2')"
+ACTUAL="$(cat "${CALLS_FILE}")"
+[ "${ACTUAL}" = "${EXPECTED}" ] ||
+	fail "interruption recovery did not restore a stopped installation without restarting it: ${ACTUAL}"
+
 awk '
 	/^install_adguard_archive\(\) \{/ { in_function = 1 }
 	in_function && /adguard_install_abort_trap_enable/ { enable = NR }
@@ -92,6 +121,6 @@ awk '
 	in_function && /mv "\$\{STAGE_BINARY\}" "\$\{AGH_FILE\}"/ { publish = NR }
 	in_function && /^}/ { exit }
 	END { exit !(enable && prepare && enable < prepare && replace && publish && replace < publish) }
-' "${SCRIPT_PATH}" || fail 'interruption rollback state is not enabled before binary publication'
+' "${SCRIPT_PATH}" || fail 'interruption rollback is not armed for existing binaries before publication'
 
 printf '%s\n' 'PASS: installation interruption restarts the previously running service'

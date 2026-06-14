@@ -1313,17 +1313,19 @@ adguard_install_abort_trap_disable() {
 	trap - HUP INT QUIT ABRT TERM
 	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
 	ADGUARD_INSTALL_OLD_BINARY=""
+	ADGUARD_INSTALL_WAS_RUNNING="0"
 }
 
 adguard_install_abort_on_signal() {
-	local OLD_BINARY REPLACE_ACTIVE
+	local OLD_BINARY REPLACE_ACTIVE WAS_RUNNING
 	OLD_BINARY="${ADGUARD_INSTALL_OLD_BINARY:-}"
 	REPLACE_ACTIVE="${ADGUARD_INSTALL_REPLACE_ACTIVE:-0}"
+	WAS_RUNNING="${ADGUARD_INSTALL_WAS_RUNNING:-0}"
 	adguard_install_abort_trap_disable
 	if [ "${REPLACE_ACTIVE}" = "1" ] && [ -n "${OLD_BINARY}" ]; then
-		adguard_restore_after_failed_replace "${OLD_BINARY}" 1
+		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
 	else
-		adguard_restart_after_install_abort 1
+		adguard_restart_after_install_abort "${WAS_RUNNING}"
 	fi
 	clear_screen
 	end_op_message 2
@@ -1332,6 +1334,7 @@ adguard_install_abort_on_signal() {
 adguard_install_abort_trap_enable() {
 	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
 	ADGUARD_INSTALL_OLD_BINARY=""
+	ADGUARD_INSTALL_WAS_RUNNING="$1"
 	trap 'adguard_install_abort_on_signal' HUP INT QUIT ABRT TERM
 }
 
@@ -1404,8 +1407,8 @@ install_adguard_archive() {
 		return 1
 	fi
 	if [ "$(agh_process_count)" -gt 0 ]; then WAS_RUNNING="1"; else WAS_RUNNING="0"; fi
-	if [ "${WAS_RUNNING}" = "1" ]; then
-		adguard_install_abort_trap_enable
+	if [ -f "${AGH_FILE}" ]; then
+		adguard_install_abort_trap_enable "${WAS_RUNNING}"
 	fi
 	if ! agh_prepare_binary_replace; then
 		adguard_install_abort_trap_disable
@@ -1438,9 +1441,9 @@ install_adguard_archive() {
 		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
 		return 1
 	fi
-	rm -f "${OLD_BINARY}"
 	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
 	ADGUARD_INSTALL_OLD_BINARY=""
+	rm -f "${OLD_BINARY}"
 	rm -rf "${STAGE_DIR}"
 	return 0
 }
