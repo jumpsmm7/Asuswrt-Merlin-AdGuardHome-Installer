@@ -70,6 +70,34 @@ fi
 	fail "archive publication removed the previous archive before replacement"
 
 unset -f mv
+printf '%s\n' "old archive" >"${TEST_ROOT}/archive"
+printf '%s\n' "old checksum" >"${TEST_ROOT}/archive.md5sum"
+printf '%s\n' "new archive" >"${TEST_ROOT}/archive.tmp"
+mv() {
+	case "$1" in
+		*.md5sum.tmp.* | *.md5sum.previous.restore.*) return 1 ;;
+	esac
+	"${REAL_MV}" "$@"
+}
+if publish_archive_with_md5 "${TEST_ROOT}/archive.tmp" "${TEST_ROOT}/archive" newchecksum >/dev/null 2>&1; then
+	fail "archive publication accepted an interrupted rollback"
+fi
+unset -f mv
+[ -e "${TEST_ROOT}/archive.previous" ] ||
+	fail "failed publication recovery consumed the archive rollback copy"
+[ -e "${TEST_ROOT}/archive.md5sum.previous" ] ||
+	fail "failed publication recovery consumed the checksum rollback copy"
+[ -e "${TEST_ROOT}/archive.publish-in-progress" ] ||
+	fail "failed publication recovery removed the publication state"
+printf '%s %s ready 1 1\n' "999999" "1" \
+	>"${TEST_ROOT}/archive.publish-in-progress"
+recover_archive_publication "${TEST_ROOT}/archive" >/dev/null 2>&1 ||
+	fail "failed publication recovery was not restartable"
+[ "$(sed -n '1p' "${TEST_ROOT}/archive")" = "old archive" ] ||
+	fail "restarted publication recovery did not restore the previous archive"
+[ "$(sed -n '1p' "${TEST_ROOT}/archive.md5sum")" = "old checksum" ] ||
+	fail "restarted publication recovery did not restore the previous checksum"
+
 printf '%s\n' "downloaded archive" >"${TEST_ROOT}/archive.tmp"
 printf '%s\n' "newer concurrent archive" >"${TEST_ROOT}/archive"
 printf '%s\n' "newer concurrent checksum" >"${TEST_ROOT}/archive.md5sum"

@@ -230,6 +230,7 @@ download_one() {
 
 recover_archive_publication() {
 	_archive_file="$1"
+	_allowed_owner_pid="${2:-}"
 	_md5_file="${_archive_file}.md5sum"
 	_publish_state="${_archive_file}.publish-in-progress"
 	_archive_backup="${_archive_file}.previous"
@@ -242,15 +243,16 @@ recover_archive_publication() {
 	_publish_had_md5=""
 
 	[ -f "${_publish_state}" ] || return 0
-	if archive_publication_owner_is_active "${_publish_state}"; then
+	IFS=' ' read -r _publish_pid _publish_start_time _publish_phase \
+		_publish_had_archive _publish_had_md5 <"${_publish_state}" ||
+		_publish_phase=""
+	if [ "${_publish_pid}" != "${_allowed_owner_pid}" ] &&
+		archive_publication_owner_is_active "${_publish_state}"; then
 		printf '%s\n' "Error: publication is already in progress for ${_archive_file}" >&2
 		FAILED=1
 		return 1
 	fi
 
-	IFS=' ' read -r _publish_pid _publish_start_time _publish_phase \
-		_publish_had_archive _publish_had_md5 <"${_publish_state}" ||
-		_publish_phase=""
 	if [ "${_publish_phase}" != "ready" ] ||
 		{ [ "${_publish_had_archive}" = "1" ] && [ ! -f "${_archive_backup}" ]; } ||
 		{ [ "${_publish_had_md5}" = "1" ] && [ ! -f "${_md5_backup}" ]; }; then
@@ -344,7 +346,6 @@ publish_archive_with_md5() {
 	_md5_backup="${_md5_file}.previous"
 	_had_archive=0
 	_had_md5=0
-	_restore_failed=0
 	_publish_start_time=""
 
 	recover_archive_publication "${_archive_file}" || {
@@ -425,18 +426,10 @@ publish_archive_with_md5() {
 		return 0
 	fi
 
-	rm -f "${_archive_file}" "${_md5_file}" "${_archive_tmp}" "${_md5_tmp}"
-	if [ "${_had_archive}" -eq 1 ]; then
-		mv "${_archive_backup}" "${_archive_file}" || _restore_failed=1
-	fi
-	if [ "${_had_md5}" -eq 1 ]; then
-		mv "${_md5_backup}" "${_md5_file}" || _restore_failed=1
-	fi
+	rm -f "${_archive_tmp}" "${_md5_tmp}"
 	printf '%s\n' "Error: could not publish ${_archive_file} and its checksum" >&2
-	if [ "${_restore_failed}" -ne 0 ]; then
+	if ! recover_archive_publication "${_archive_file}" "$$"; then
 		printf '%s\n' "Error: recovery failed; inspect ${_archive_backup} and ${_md5_backup}" >&2
-	else
-		rm -f "${_publish_state}"
 	fi
 	FAILED=1
 	return 1
