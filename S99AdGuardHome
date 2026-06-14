@@ -107,6 +107,20 @@ dns_handoff_process_start_time() {
 	}' "${_dns_handoff_stat}" 2>/dev/null
 }
 
+dns_handoff_set_current_identity() {
+	_dns_handoff_current_stat=""
+	IFS= read -r _dns_handoff_current_stat </proc/self/stat || return 1
+	DNS_HANDOFF_CURRENT_PID="${_dns_handoff_current_stat%% *}"
+	_dns_handoff_current_fields="${_dns_handoff_current_stat##*) }"
+	# Intentional word splitting: /proc/self/stat is a space-delimited record.
+	set -- ${_dns_handoff_current_fields}
+	DNS_HANDOFF_CURRENT_START_TIME="${20:-}"
+	case "${DNS_HANDOFF_CURRENT_PID}:${DNS_HANDOFF_CURRENT_START_TIME}" in
+		*[!0-9:]* | :* | *:) return 1 ;;
+	esac
+	return 0
+}
+
 dns_handoff_marker_is_active() {
 	_dns_handoff_marker_pid=""
 	_dns_handoff_marker_start_time=""
@@ -178,11 +192,17 @@ release_dns_handoff_lock() {
 
 disable_dns_handoff() {
 	_dns_handoff_pid=""
+	_dns_handoff_current_pid=""
 	if [ -f "${DNS_HANDOFF_FILE}" ]; then
 		IFS=' ' read -r _dns_handoff_pid _dns_handoff_start_time <"${DNS_HANDOFF_FILE}" ||
 			_dns_handoff_pid=""
 	fi
-	if [ -n "${_dns_handoff_pid}" ] && [ "${_dns_handoff_pid}" != "$$" ]; then
+	if [ -n "${_dns_handoff_pid}" ]; then
+		if dns_handoff_set_current_identity; then
+			_dns_handoff_current_pid="${DNS_HANDOFF_CURRENT_PID}"
+		fi
+	fi
+	if [ -n "${_dns_handoff_pid}" ] && [ "${_dns_handoff_pid}" != "${_dns_handoff_current_pid}" ]; then
 		logger -st "${PROCS}" "Refusing to remove a dnsmasq handoff owned by PID ${_dns_handoff_pid}."
 		return 1
 	fi
@@ -207,21 +227,17 @@ enable_dns_handoff() {
 		logger -st "${PROCS}" "Refusing to use an insecure dnsmasq handoff directory."
 		return 1
 	fi
-	_dns_handoff_start_time="$(dns_handoff_process_start_time "$$")" || {
+	dns_handoff_set_current_identity || {
 		logger -st "${PROCS}" "Unable to identify the dnsmasq handoff owner."
 		return 1
 	}
-	case "${_dns_handoff_start_time}" in
-		"" | *[!0-9]*)
-			logger -st "${PROCS}" "Unable to identify the dnsmasq handoff owner."
-			return 1
-			;;
-	esac
+	_dns_handoff_owner_pid="${DNS_HANDOFF_CURRENT_PID}"
+	_dns_handoff_start_time="${DNS_HANDOFF_CURRENT_START_TIME}"
 	_dns_handoff_lock_attempts="0"
-	_dns_handoff_lock_candidate="${DNS_HANDOFF_LOCK}.$$"
+	_dns_handoff_lock_candidate="${DNS_HANDOFF_LOCK}.${_dns_handoff_owner_pid}"
 	if ! (
 		umask 077
-		printf '%s %s\n' "$$" "${_dns_handoff_start_time}" >"${_dns_handoff_lock_candidate}"
+		printf '%s %s\n' "${_dns_handoff_owner_pid}" "${_dns_handoff_start_time}" >"${_dns_handoff_lock_candidate}"
 	); then
 		logger -st "${PROCS}" "Unable to prepare the dnsmasq handoff marker lock owner."
 		rm -f "${_dns_handoff_lock_candidate}"
@@ -267,7 +283,7 @@ enable_dns_handoff() {
 	if ! (
 		umask 077
 		set -C
-		printf '%s %s\n' "$$" "${_dns_handoff_start_time}" >"${DNS_HANDOFF_FILE}"
+		printf '%s %s\n' "${_dns_handoff_owner_pid}" "${_dns_handoff_start_time}" >"${DNS_HANDOFF_FILE}"
 	) 2>/dev/null; then
 		logger -st "${PROCS}" "Unable to enable the dnsmasq port 553 handoff."
 		release_dns_handoff_lock
