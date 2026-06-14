@@ -1331,15 +1331,18 @@ adguard_install_abort_trap_disable() {
 	trap - HUP INT QUIT ABRT TERM
 	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
 	ADGUARD_INSTALL_OLD_BINARY=""
+	ADGUARD_INSTALL_STAGE_DIR=""
 	ADGUARD_INSTALL_WAS_RUNNING="0"
 }
 
 adguard_install_abort_on_signal() {
-	local OLD_BINARY REPLACE_ACTIVE WAS_RUNNING
+	local OLD_BINARY REPLACE_ACTIVE STAGE_DIR WAS_RUNNING
 	OLD_BINARY="${ADGUARD_INSTALL_OLD_BINARY:-}"
 	REPLACE_ACTIVE="${ADGUARD_INSTALL_REPLACE_ACTIVE:-0}"
+	STAGE_DIR="${ADGUARD_INSTALL_STAGE_DIR:-}"
 	WAS_RUNNING="${ADGUARD_INSTALL_WAS_RUNNING:-0}"
 	adguard_install_abort_trap_disable
+	[ -z "${STAGE_DIR}" ] || rm -rf "${STAGE_DIR}"
 	if [ "${REPLACE_ACTIVE}" = "1" ] && [ -n "${OLD_BINARY}" ]; then
 		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
 	else
@@ -1353,6 +1356,7 @@ adguard_install_abort_trap_enable() {
 	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
 	ADGUARD_INSTALL_OLD_BINARY=""
 	ADGUARD_INSTALL_WAS_RUNNING="$1"
+	ADGUARD_INSTALL_STAGE_DIR="${2:-}"
 	trap 'adguard_install_abort_on_signal' HUP INT QUIT ABRT TERM
 }
 
@@ -1409,25 +1413,27 @@ install_adguard_archive() {
 	OLD_BINARY="${TARG_DIR}/.AdGuardHome.previous.$$"
 	rm -rf "${STAGE_DIR}"
 	rm -f "${OLD_BINARY}"
+	adguard_install_abort_trap_enable 0 "${STAGE_DIR}"
 	if ! adguard_archive_is_safe "${ARCHIVE_FILE}"; then
+		adguard_install_abort_trap_disable
 		PTXT "${ERROR} The AdGuardHome archive contains an unsafe or incomplete file layout."
 		return 1
 	fi
 	if ! mkdir -m 700 "${STAGE_DIR}" || ! tar xzf "${ARCHIVE_FILE}" -C "${STAGE_DIR}" >/dev/null 2>&1; then
+		adguard_install_abort_trap_disable
 		rm -rf "${STAGE_DIR}"
 		PTXT "${ERROR} Unable to extract the AdGuardHome archive into staging."
 		return 1
 	fi
 	if [ ! -f "${STAGE_BINARY}" ] || [ -L "${STAGE_BINARY}" ] || ! chmod 755 "${STAGE_BINARY}" ||
 		[ -z "$("${STAGE_BINARY}" --version 2>/dev/null | cut -d" " -f4-)" ]; then
+		adguard_install_abort_trap_disable
 		rm -rf "${STAGE_DIR}"
 		PTXT "${ERROR} The staged AdGuardHome binary failed validation."
 		return 1
 	fi
 	if [ "$(agh_process_count)" -gt 0 ]; then WAS_RUNNING="1"; else WAS_RUNNING="0"; fi
-	if [ -f "${AGH_FILE}" ]; then
-		adguard_install_abort_trap_enable "${WAS_RUNNING}"
-	fi
+	ADGUARD_INSTALL_WAS_RUNNING="${WAS_RUNNING}"
 	if ! agh_prepare_binary_replace; then
 		adguard_install_abort_trap_disable
 		rm -rf "${STAGE_DIR}"
