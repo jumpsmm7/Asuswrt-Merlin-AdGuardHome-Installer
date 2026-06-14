@@ -118,6 +118,8 @@ fi
 [ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'setup did not restore YAML after nested DNS confirmation failure'
 ! grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail 'setup saved the WebUI port before nested DNS confirmation completed'
 [ ! -e "${YAML_BAK}" ] || fail 'setup left the YAML backup after nested DNS confirmation failure'
+[ "$(cat "${YAML_ORI}")" = 'original template' ] || fail 'setup replaced the original snapshot after nested DNS confirmation failure'
+[ ! -e "${YAML_ORI}.new.$$" ] || fail 'setup left an aborted replacement snapshot after nested DNS confirmation failure'
 unset FAIL_NESTED_DNS_PROMPT
 unset FAIL_PROMPT
 
@@ -138,6 +140,8 @@ fi
 [ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'setup did not restore YAML after local-cache persistence failed'
 ! grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail 'setup saved the WebUI port after local-cache persistence failed'
 [ ! -e "${YAML_BAK}" ] || fail 'setup left the YAML backup after local-cache persistence failed'
+[ "$(cat "${YAML_ORI}")" = 'original template' ] || fail 'setup replaced the original snapshot after local-cache persistence failed'
+[ ! -e "${YAML_ORI}.new.$$" ] || fail 'setup left an aborted replacement snapshot after local-cache persistence failed'
 unset FAIL_LOCAL_CACHE_SAVE
 unset FAIL_PROMPT
 
