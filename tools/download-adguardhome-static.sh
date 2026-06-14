@@ -454,7 +454,6 @@ publish_metadata_files() {
 	_checksum_backup="${_checksum_file}.previous"
 	_had_version=0
 	_had_checksum=0
-	_restore_failed=0
 	_publish_start_time=""
 
 	recover_metadata_publication "${_dest_dir}" || return 1
@@ -518,18 +517,10 @@ publish_metadata_files() {
 		return 0
 	fi
 
-	rm -f "${_version_file}" "${_checksum_file}" "${_version_tmp}" "${_checksum_tmp}"
-	if [ "${_had_version}" -eq 1 ]; then
-		mv "${_version_backup}" "${_version_file}" || _restore_failed=1
-	fi
-	if [ "${_had_checksum}" -eq 1 ]; then
-		mv "${_checksum_backup}" "${_checksum_file}" || _restore_failed=1
-	fi
+	rm -f "${_version_tmp}" "${_checksum_tmp}"
 	printf '%s\n' "Error: could not publish metadata for ${_dest_dir}" >&2
-	if [ "${_restore_failed}" -ne 0 ]; then
+	if ! recover_metadata_publication "${_dest_dir}" "$$"; then
 		printf '%s\n' "Error: metadata recovery failed; inspect ${_version_backup} and ${_checksum_backup}" >&2
-	else
-		rm -f "${_publish_state}"
 	fi
 	FAILED=1
 	return 1
@@ -537,6 +528,7 @@ publish_metadata_files() {
 
 recover_metadata_publication() {
 	_dest_dir="$1"
+	_allowed_owner_pid="${2:-}"
 	_version_file="${_dest_dir}/VERSION.txt"
 	_checksum_file="${_dest_dir}/checksum.txt"
 	_publish_state="${_dest_dir}/.metadata.publish-in-progress"
@@ -550,15 +542,15 @@ recover_metadata_publication() {
 	_publish_had_checksum=""
 
 	[ -f "${_publish_state}" ] || return 0
-	if archive_publication_owner_is_active "${_publish_state}"; then
+	IFS=' ' read -r _publish_pid _publish_start_time _publish_phase \
+		_publish_had_version _publish_had_checksum <"${_publish_state}" ||
+		_publish_phase=""
+	if [ "${_publish_pid}" != "${_allowed_owner_pid}" ] &&
+		archive_publication_owner_is_active "${_publish_state}"; then
 		printf '%s\n' "Error: metadata publication is already in progress for ${_dest_dir}" >&2
 		FAILED=1
 		return 1
 	fi
-
-	IFS=' ' read -r _publish_pid _publish_start_time _publish_phase \
-		_publish_had_version _publish_had_checksum <"${_publish_state}" ||
-		_publish_phase=""
 	if [ "${_publish_phase}" != "ready" ] ||
 		{ [ "${_publish_phase}" = "ready" ] &&
 			{ { [ "${_publish_had_version}" = "1" ] && [ ! -f "${_version_backup}" ]; } ||

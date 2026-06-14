@@ -300,6 +300,12 @@ fi
 	fail "failed metadata publication did not restore checksum.txt"
 [ "${METADATA_WAS_PUBLISHED}" -eq 1 ] ||
 	fail "metadata publication removed previous files before replacement"
+[ ! -e "${TEST_ROOT}/metadata/VERSION.txt.previous" ] ||
+	fail "failed metadata publication left the version rollback copy behind"
+[ ! -e "${TEST_ROOT}/metadata/checksum.txt.previous" ] ||
+	fail "failed metadata publication left the checksum rollback copy behind"
+[ ! -e "${TEST_ROOT}/metadata/.metadata.publish-in-progress" ] ||
+	fail "failed metadata publication left transaction state behind"
 
 unset -f mv
 printf '%s\n' "old version" >"${TEST_ROOT}/metadata/VERSION.txt.previous"
