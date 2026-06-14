@@ -236,6 +236,19 @@ acquire_metadata_publication_lock "${TEST_ROOT}/metadata" ||
 release_metadata_publication_lock "${TEST_ROOT}/metadata" ||
 	fail "could not release recovered metadata publication lock"
 
+:
+>"${TEST_ROOT}/metadata/.metadata.publish-in-progress"
+printf '%s\n' "complete version" >"${TEST_ROOT}/metadata/VERSION.txt"
+printf '%s\n' "complete checksum" >"${TEST_ROOT}/metadata/checksum.txt"
+recover_metadata_publication "${TEST_ROOT}/metadata" >/dev/null 2>&1 ||
+	fail "empty metadata publication state was not recovered"
+[ "$(sed -n '1p' "${TEST_ROOT}/metadata/VERSION.txt")" = "complete version" ] ||
+	fail "empty metadata publication state removed the published version"
+[ "$(sed -n '1p' "${TEST_ROOT}/metadata/checksum.txt")" = "complete checksum" ] ||
+	fail "empty metadata publication state removed the published checksum"
+[ ! -e "${TEST_ROOT}/metadata/.metadata.publish-in-progress" ] ||
+	fail "empty metadata publication state was not cleared"
+
 printf '%s %s ready 1 1\n' "$$" "${PUBLISH_START_TIME}" \
 	>"${TEST_ROOT}/metadata/.metadata.publish-in-progress"
 printf '%s\n' "untouched metadata version backup" \
@@ -293,7 +306,8 @@ printf '%s\n' "old version" >"${TEST_ROOT}/metadata/VERSION.txt.previous"
 printf '%s\n' "old metadata checksum" >"${TEST_ROOT}/metadata/checksum.txt.previous"
 printf '%s\n' "new version" >"${TEST_ROOT}/metadata/VERSION.txt"
 printf '%s\n' "old metadata checksum" >"${TEST_ROOT}/metadata/checksum.txt"
-printf '%s\n' "interrupted" >"${TEST_ROOT}/metadata/.metadata.publish-in-progress"
+printf '%s %s ready 1 1\n' "999999" "1" \
+	>"${TEST_ROOT}/metadata/.metadata.publish-in-progress"
 recover_metadata_publication "${TEST_ROOT}/metadata" >/dev/null 2>&1 ||
 	fail "interrupted metadata publication was not recovered"
 [ "$(sed -n '1p' "${TEST_ROOT}/metadata/VERSION.txt")" = "old version" ] ||

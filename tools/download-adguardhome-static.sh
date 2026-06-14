@@ -557,7 +557,7 @@ recover_metadata_publication() {
 	IFS=' ' read -r _publish_pid _publish_start_time _publish_phase \
 		_publish_had_version _publish_had_checksum <"${_publish_state}" ||
 		_publish_phase=""
-	if [ "${_publish_phase}" = "preparing" ] ||
+	if [ "${_publish_phase}" != "ready" ] ||
 		{ [ "${_publish_phase}" = "ready" ] &&
 			{ { [ "${_publish_had_version}" = "1" ] && [ ! -f "${_version_backup}" ]; } ||
 				{ [ "${_publish_had_checksum}" = "1" ] && [ ! -f "${_checksum_backup}" ]; }; }; }; then
