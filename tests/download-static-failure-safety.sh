@@ -158,11 +158,25 @@ recover_archive_publication "${TEST_ROOT}/archive" >/dev/null 2>&1 ||
 [ ! -e "${TEST_ROOT}/archive.previous" ] ||
 	fail "partial archive rollback copy was not discarded"
 
+:
+>"${TEST_ROOT}/archive.publish-in-progress"
+printf '%s\n' "complete archive" >"${TEST_ROOT}/archive"
+printf '%s\n' "complete checksum" >"${TEST_ROOT}/archive.md5sum"
+recover_archive_publication "${TEST_ROOT}/archive" >/dev/null 2>&1 ||
+	fail "empty archive publication state was not recovered"
+[ "$(sed -n '1p' "${TEST_ROOT}/archive")" = "complete archive" ] ||
+	fail "empty publication state removed the published archive"
+[ "$(sed -n '1p' "${TEST_ROOT}/archive.md5sum")" = "complete checksum" ] ||
+	fail "empty publication state removed the published checksum"
+[ ! -e "${TEST_ROOT}/archive.publish-in-progress" ] ||
+	fail "empty publication state was not cleared"
+
 printf '%s\n' "old archive" >"${TEST_ROOT}/archive.previous"
 printf '%s\n' "old checksum" >"${TEST_ROOT}/archive.md5sum.previous"
 printf '%s\n' "new archive" >"${TEST_ROOT}/archive"
 printf '%s\n' "old checksum" >"${TEST_ROOT}/archive.md5sum"
-printf '%s\n' "interrupted" >"${TEST_ROOT}/archive.publish-in-progress"
+printf '%s %s ready 1 1\n' "999999" "1" \
+	>"${TEST_ROOT}/archive.publish-in-progress"
 recover_archive_publication "${TEST_ROOT}/archive" >/dev/null 2>&1 ||
 	fail "interrupted archive publication was not recovered"
 [ "$(sed -n '1p' "${TEST_ROOT}/archive")" = "old archive" ] ||

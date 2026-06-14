@@ -232,10 +232,9 @@ recover_archive_publication() {
 	IFS=' ' read -r _publish_pid _publish_start_time _publish_phase \
 		_publish_had_archive _publish_had_md5 <"${_publish_state}" ||
 		_publish_phase=""
-	if [ "${_publish_phase}" = "preparing" ] ||
-		{ [ "${_publish_phase}" = "ready" ] &&
-			{ { [ "${_publish_had_archive}" = "1" ] && [ ! -f "${_archive_backup}" ]; } ||
-				{ [ "${_publish_had_md5}" = "1" ] && [ ! -f "${_md5_backup}" ]; }; }; }; then
+	if [ "${_publish_phase}" != "ready" ] ||
+		{ [ "${_publish_had_archive}" = "1" ] && [ ! -f "${_archive_backup}" ]; } ||
+		{ [ "${_publish_had_md5}" = "1" ] && [ ! -f "${_md5_backup}" ]; }; then
 		rm -f "${_archive_backup}" "${_md5_backup}" "${_publish_state}"
 		printf '%s\n' "Discarded incomplete publication preparation for ${_archive_file}" >&2
 		return 0
