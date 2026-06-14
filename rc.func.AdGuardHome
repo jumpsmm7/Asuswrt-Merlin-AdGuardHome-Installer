@@ -47,7 +47,7 @@ process_wait_for_start() {
 	_COUNTER="0"
 	while [ "${_COUNTER}" -lt "${_LIMIT}" ]; do
 		[ -n "$(process_pids "${_PROC}")" ] && return 0
-		sleep 1s
+		sleep 1
 		_COUNTER="$((_COUNTER + 1))"
 	done
 	[ -n "$(process_pids "${_PROC}")" ]
@@ -60,7 +60,7 @@ process_wait_for_stop() {
 	_COUNTER="0"
 	while [ "${_COUNTER}" -lt "${_LIMIT}" ]; do
 		[ -z "$(process_pids "${_PROC}")" ] && return 0
-		sleep 1s
+		sleep 1
 		_COUNTER="$((_COUNTER + 1))"
 	done
 	[ -z "$(process_pids "${_PROC}")" ]
@@ -74,7 +74,7 @@ stop_launched_process() {
 		kill -TERM "${_PID}" 2>/dev/null
 		_COUNTER=0
 		while kill -0 "${_PID}" 2>/dev/null && [ "${_COUNTER}" -lt 5 ]; do
-			sleep 1s
+			sleep 1
 			_COUNTER="$((_COUNTER + 1))"
 		done
 		kill -0 "${_PID}" 2>/dev/null && kill -KILL "${_PID}" 2>/dev/null
