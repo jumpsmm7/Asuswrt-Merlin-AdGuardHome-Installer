@@ -1275,6 +1275,7 @@ adguard_restart_after_failed_replace() {
 }
 
 adguard_restart_after_install_abort() {
+	trap - HUP INT QUIT ABRT TERM
 	[ "$1" = "1" ] || return 0
 	if agh_is_running; then
 		return 0
@@ -1285,6 +1286,21 @@ adguard_restart_after_install_abort() {
 	fi
 	PTXT "${ERROR} AdGuardHome could not be restarted after the installer aborted."
 	return 1
+}
+
+adguard_install_abort_trap_disable() {
+	trap - HUP INT QUIT ABRT TERM
+}
+
+adguard_install_abort_on_signal() {
+	adguard_install_abort_trap_disable
+	adguard_restart_after_install_abort 1
+	clear_screen
+	end_op_message 2
+}
+
+adguard_install_abort_trap_enable() {
+	trap 'adguard_install_abort_on_signal' HUP INT QUIT ABRT TERM
 }
 
 adguard_restore_after_failed_replace() {
@@ -1356,17 +1372,23 @@ install_adguard_archive() {
 		return 1
 	fi
 	if [ "$(agh_process_count)" -gt 0 ]; then WAS_RUNNING="1"; else WAS_RUNNING="0"; fi
+	if [ "${WAS_RUNNING}" = "1" ]; then
+		adguard_install_abort_trap_enable
+	fi
 	if ! agh_prepare_binary_replace; then
+		adguard_install_abort_trap_disable
 		rm -rf "${STAGE_DIR}"
 		return 1
 	fi
 	if [ -f "${AGH_FILE}" ] && ! cp -p "${AGH_FILE}" "${OLD_BINARY}"; then
+		adguard_install_abort_trap_disable
 		rm -rf "${STAGE_DIR}"
 		PTXT "${ERROR} Unable to preserve the installed AdGuardHome binary."
 		adguard_restart_after_failed_replace "${WAS_RUNNING}"
 		return 1
 	fi
 	if ! mv "${STAGE_BINARY}" "${AGH_FILE}"; then
+		adguard_install_abort_trap_disable
 		rm -rf "${STAGE_DIR}"
 		PTXT "${ERROR} Unable to install the staged AdGuardHome binary."
 		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
@@ -1376,6 +1398,7 @@ install_adguard_archive() {
 	[ -n "${HTTP_USERNAME}" ] || HTTP_USERNAME="root"
 	if ! chown "${HTTP_USERNAME}:root" "${AGH_FILE}" || ! chmod 755 "${AGH_FILE}" ||
 		[ -z "$("${AGH_FILE}" --version 2>/dev/null | cut -d" " -f4-)" ]; then
+		adguard_install_abort_trap_disable
 		rm -rf "${STAGE_DIR}"
 		PTXT "${ERROR} Installed AdGuardHome binary validation failed."
 		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
@@ -1842,9 +1865,11 @@ inst_AdGuardHome() {
 		fi
 	fi
 	if ! agh_complete_startup; then
+		adguard_install_abort_trap_disable
 		end_op_message 1 "$1"
 		return
 	fi
+	adguard_install_abort_trap_disable
 	end_op_message 0 "$1"
 }
 

@@ -1,0 +1,64 @@
+#!/bin/sh
+# Verify installation interruption recovery restarts a previously running service.
+
+set -u
+
+SCRIPT_PATH="${1:-installer}"
+TMP_ROOT="${TMPDIR:-/tmp}/installer-interruption-restart.$$"
+FUNCTIONS_FILE="${TMP_ROOT}/functions"
+CALLS_FILE="${TMP_ROOT}/calls"
+
+fail() {
+	printf '%s\n' "FAIL: $*" >&2
+	exit 1
+}
+
+cleanup() {
+	rm -rf "${TMP_ROOT}"
+}
+
+trap cleanup 0
+trap 'cleanup; exit 1' HUP INT TERM
+
+[ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
+mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
+sed -n \
+	-e '/^adguard_install_abort_trap_disable() {$/,/^}/p' \
+	-e '/^adguard_install_abort_on_signal() {$/,/^}/p' \
+	-e '/^adguard_install_abort_trap_enable() {$/,/^}/p' \
+	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail 'could not extract interruption trap helpers'
+[ -s "${FUNCTIONS_FILE}" ] || fail 'interruption trap helper extraction was empty'
+: >"${CALLS_FILE}"
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	adguard_restart_after_install_abort() {
+		printf '%s\n' "restart:$1" >>"${CALLS_FILE}"
+	}
+	clear_screen() {
+		printf '%s\n' 'clear' >>"${CALLS_FILE}"
+	}
+	end_op_message() {
+		printf '%s\n' "end:$1" >>"${CALLS_FILE}"
+	}
+
+	adguard_install_abort_trap_enable
+	adguard_install_abort_on_signal
+) || fail 'interruption recovery handler failed'
+
+EXPECTED="$(printf '%s\n' 'restart:1' 'clear' 'end:2')"
+ACTUAL="$(cat "${CALLS_FILE}")"
+[ "${ACTUAL}" = "${EXPECTED}" ] ||
+	fail "interruption recovery did not restart before the aborted-operation flow: ${ACTUAL}"
+
+awk '
+	/^install_adguard_archive\(\) \{/ { in_function = 1 }
+	in_function && /adguard_install_abort_trap_enable/ { enable = NR }
+	in_function && /agh_prepare_binary_replace/ { prepare = NR }
+	in_function && /^}/ { exit }
+	END { exit !(enable && prepare && enable < prepare) }
+' "${SCRIPT_PATH}" || fail 'interruption trap is not enabled before binary replacement'
+
+printf '%s\n' 'PASS: installation interruption restarts the previously running service'

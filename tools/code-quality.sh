@@ -110,6 +110,7 @@ run_check 'Static archive failure safety regression' sh tests/download-static-fa
 run_check 'Installer file failure safety regression' sh tests/installer-file-failure-safety.sh
 run_check 'Installer legacy hook cleanup regression' sh tests/installer-legacy-hook-cleanup.sh
 run_check 'Installer post-replacement restart regression' sh tests/installer-post-replace-restart.sh
+run_check 'Installer interruption restart regression' sh tests/installer-interruption-restart.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
 run_check 'Installer iterative input regression' sh tests/installer-input-loops.sh
 run_check 'Installer staged authentication regression' bash tests/installer-staged-authentication.sh
