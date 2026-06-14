@@ -13,14 +13,7 @@ for script in AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome; do
 	[ -f "${script}" ] || fail "missing runtime script: ${script}"
 
 	path_statement="$(sed -n '/^export PATH=/p' "${script}" | sed -n '1p')"
-	case "${script}" in
-		S99AdGuardHome)
-			expected_path='export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"'
-			;;
-		*)
-			expected_path='export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:${PATH:-}"'
-			;;
-	esac
+	expected_path='export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"'
 	[ "${path_statement}" = "${expected_path}" ] ||
 		fail "${script} does not export its expected runtime PATH"
 
