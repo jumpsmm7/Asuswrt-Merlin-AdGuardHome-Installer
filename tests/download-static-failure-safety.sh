@@ -198,9 +198,8 @@ fi
 	fail "lock contention modified shared checksum metadata"
 release_metadata_publication_lock "${TEST_ROOT}/metadata" ||
 	fail "could not release metadata publication lock"
-mkdir "${TEST_ROOT}/metadata/.metadata.lock" ||
+printf '%s\n' "abandoned" >"${TEST_ROOT}/metadata/.metadata.lock" ||
 	fail "could not create abandoned metadata lock"
-printf '%s\n' "abandoned" >"${TEST_ROOT}/metadata/.metadata.lock/owner"
 acquire_metadata_publication_lock "${TEST_ROOT}/metadata" ||
 	fail "could not recover abandoned metadata publication lock"
 release_metadata_publication_lock "${TEST_ROOT}/metadata" ||

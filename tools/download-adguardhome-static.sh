@@ -27,44 +27,61 @@ append_metadata() {
 
 acquire_metadata_publication_lock() {
 	_dest_dir="$1"
-	_lock_dir="${_dest_dir}/.metadata.lock"
-	_lock_owner="${_lock_dir}/owner"
+	_lock_file="${_dest_dir}/.metadata.lock"
+	_lock_tmp="${_lock_file}.$$"
 	_publish_start_time=""
 
-	if ! mkdir "${_lock_dir}" 2>/dev/null; then
-		if [ -f "${_lock_owner}" ] &&
-			archive_publication_owner_is_active "${_lock_owner}"; then
-			printf '%s\n' "Error: metadata generation is already in progress for ${_dest_dir}" >&2
-			FAILED=1
-			return 1
-		fi
-		rm -f "${_lock_owner}"
-		rmdir "${_lock_dir}" 2>/dev/null || true
-		if ! mkdir "${_lock_dir}" 2>/dev/null; then
-			printf '%s\n' "Error: metadata generation is already in progress for ${_dest_dir}" >&2
-			FAILED=1
-			return 1
-		fi
-	fi
 	_publish_start_time="$(awk '{
 		sub(/^.*\) /, "")
 		print $20
 	}' "/proc/$$/stat" 2>/dev/null)" || _publish_start_time=""
 	case "${_publish_start_time}" in
 		"" | *[!0-9]*)
-			rmdir "${_lock_dir}" 2>/dev/null
 			printf '%s\n' "Error: could not identify metadata lock owner for ${_dest_dir}" >&2
 			FAILED=1
 			return 1
 			;;
 	esac
-	if ! printf '%s %s\n' "$$" "${_publish_start_time}" >"${_lock_owner}"; then
-		rm -f "${_lock_owner}"
-		rmdir "${_lock_dir}" 2>/dev/null
-		printf '%s\n' "Error: could not record metadata lock owner for ${_dest_dir}" >&2
+	if ! printf '%s %s\n' "$$" "${_publish_start_time}" >"${_lock_tmp}"; then
+		printf '%s\n' "Error: could not prepare metadata lock owner for ${_dest_dir}" >&2
 		FAILED=1
 		return 1
 	fi
+
+	while ! ln "${_lock_tmp}" "${_lock_file}" 2>/dev/null; do
+		if [ -d "${_lock_file}" ]; then
+			_legacy_owner="${_lock_file}/owner"
+			if [ -f "${_legacy_owner}" ] &&
+				archive_publication_owner_is_active "${_legacy_owner}"; then
+				rm -f "${_lock_tmp}"
+				printf '%s\n' "Error: metadata generation is already in progress for ${_dest_dir}" >&2
+				FAILED=1
+				return 1
+			fi
+			rm -f "${_legacy_owner}"
+			rmdir "${_lock_file}" 2>/dev/null || {
+				rm -f "${_lock_tmp}"
+				printf '%s\n' "Error: metadata generation is already in progress for ${_dest_dir}" >&2
+				FAILED=1
+				return 1
+			}
+			continue
+		fi
+		if [ -f "${_lock_file}" ] &&
+			archive_publication_owner_is_active "${_lock_file}"; then
+			rm -f "${_lock_tmp}"
+			printf '%s\n' "Error: metadata generation is already in progress for ${_dest_dir}" >&2
+			FAILED=1
+			return 1
+		fi
+		if ! rm -f "${_lock_file}"; then
+			rm -f "${_lock_tmp}"
+			printf '%s\n' "Error: metadata generation is already in progress for ${_dest_dir}" >&2
+			FAILED=1
+			return 1
+		fi
+	done
+	rm -f "${_lock_tmp}"
 }
 
 calc_sum() {
@@ -549,10 +566,9 @@ recover_metadata_publication() {
 
 release_metadata_publication_lock() {
 	_dest_dir="$1"
-	_lock_dir="${_dest_dir}/.metadata.lock"
-	_lock_owner="${_lock_dir}/owner"
+	_lock_file="${_dest_dir}/.metadata.lock"
 
-	if ! rm -f "${_lock_owner}" || ! rmdir "${_lock_dir}"; then
+	if ! rm -f "${_lock_file}"; then
 		printf '%s\n' "Error: could not release metadata publication lock for ${_dest_dir}" >&2
 		FAILED=1
 		return 1
@@ -586,6 +602,7 @@ write_md5sum_file() {
 require_cmd awk
 require_cmd curl
 require_cmd gzip
+require_cmd ln
 require_cmd md5sum
 require_cmd sha256sum
 
