@@ -11,7 +11,6 @@ PROCS="AdGuardHome"
 DNS_HANDOFF_DIR="/tmp/AdGuardHome.dns-handoff"
 DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
 DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
-DNS_HANDOFF_LOCK_OWNER="${DNS_HANDOFF_LOCK}/owner"
 GOGC="40"
 CPU_COUNT=""
 if which grep >/dev/null 2>&1; then
@@ -47,7 +46,7 @@ PREARGS="env TZ=/etc/localtime GOGC=${GOGC} GOMAXPROCS=${GOMAXPROCS} GOMEMLIMIT=
 # DNS handoff helpers
 
 dns_handoff_dependencies_available() {
-	for _dns_command in awk chmod kill mkdir netstat pidof rm rmdir service sleep stat; do
+	for _dns_command in awk chmod kill ln mkdir netstat pidof rm service sleep stat; do
 		if ! which "${_dns_command}" >/dev/null 2>&1; then
 			if which logger >/dev/null 2>&1; then
 				logger -st "${PROCS}" "Required DNS handoff command is unavailable: ${_dns_command}"
@@ -109,8 +108,8 @@ dns_handoff_marker_is_active() {
 dns_handoff_lock_is_active() {
 	_dns_handoff_lock_pid=""
 	_dns_handoff_lock_start_time=""
-	[ -f "${DNS_HANDOFF_LOCK_OWNER}" ] || return 1
-	IFS=' ' read -r _dns_handoff_lock_pid _dns_handoff_lock_start_time <"${DNS_HANDOFF_LOCK_OWNER}" ||
+	[ -f "${DNS_HANDOFF_LOCK}" ] && [ ! -L "${DNS_HANDOFF_LOCK}" ] || return 1
+	IFS=' ' read -r _dns_handoff_lock_pid _dns_handoff_lock_start_time <"${DNS_HANDOFF_LOCK}" ||
 		return 1
 	case "${_dns_handoff_lock_pid}:${_dns_handoff_lock_start_time}" in
 		*[!0-9:]* | :* | *:) return 1 ;;
@@ -121,8 +120,7 @@ dns_handoff_lock_is_active() {
 }
 
 release_dns_handoff_lock() {
-	rm -f "${DNS_HANDOFF_LOCK_OWNER}" 2>/dev/null || return 1
-	rmdir "${DNS_HANDOFF_LOCK}" 2>/dev/null
+	rm -f "${DNS_HANDOFF_LOCK}" 2>/dev/null
 }
 
 disable_dns_handoff() {
@@ -167,9 +165,19 @@ enable_dns_handoff() {
 			;;
 	esac
 	_dns_handoff_lock_attempts="0"
-	while ! mkdir "${DNS_HANDOFF_LOCK}" 2>/dev/null; do
+	_dns_handoff_lock_candidate="${DNS_HANDOFF_LOCK}.$$"
+	if ! (
+		umask 077
+		printf '%s %s\n' "$$" "${_dns_handoff_start_time}" >"${_dns_handoff_lock_candidate}"
+	); then
+		logger -st "${PROCS}" "Unable to prepare the dnsmasq handoff marker lock owner."
+		rm -f "${_dns_handoff_lock_candidate}"
+		return 1
+	fi
+	while ! ln "${_dns_handoff_lock_candidate}" "${DNS_HANDOFF_LOCK}" 2>/dev/null; do
 		if dns_handoff_lock_is_active; then
 			logger -st "${PROCS}" "Another dnsmasq handoff marker update is in progress."
+			rm -f "${_dns_handoff_lock_candidate}"
 			return 1
 		fi
 		_dns_handoff_lock_attempts="$((_dns_handoff_lock_attempts + 1))"
@@ -179,11 +187,12 @@ enable_dns_handoff() {
 		fi
 		if ! release_dns_handoff_lock; then
 			logger -st "${PROCS}" "Unable to remove a stale dnsmasq handoff marker lock."
+			rm -f "${_dns_handoff_lock_candidate}"
 			return 1
 		fi
 	done
-	if ! printf '%s %s\n' "$$" "${_dns_handoff_start_time}" >"${DNS_HANDOFF_LOCK_OWNER}"; then
-		logger -st "${PROCS}" "Unable to record the dnsmasq handoff marker lock owner."
+	if ! rm -f "${_dns_handoff_lock_candidate}"; then
+		logger -st "${PROCS}" "Unable to remove the prepared dnsmasq handoff marker lock."
 		release_dns_handoff_lock
 		return 1
 	fi

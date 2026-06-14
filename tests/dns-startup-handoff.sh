@@ -48,7 +48,6 @@ PROCS='AdGuardHome'
 DNS_HANDOFF_DIR="${TEST_ROOT}/dns-handoff"
 DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
 DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
-DNS_HANDOFF_LOCK_OWNER="${DNS_HANDOFF_LOCK}/owner"
 umask 077
 logger() {
 	printf '%s\n' "logger $*" >>"${CALLS_FILE}"
@@ -61,7 +60,7 @@ rm() {
 }
 which() {
 	case "$1" in
-		awk | chmod | kill | logger | mkdir | netstat | pidof | rm | rmdir | service | sleep | stat)
+		awk | chmod | kill | ln | logger | mkdir | netstat | pidof | rm | service | sleep | stat)
 			return 0
 			;;
 	esac
@@ -205,8 +204,7 @@ disable_dns_handoff || fail 'could not remove competing active handoff marker'
 
 printf '%s %s\n' 999999 1 >"${DNS_HANDOFF_FILE}" ||
 	fail 'could not create stale handoff marker for lock-contention test'
-mkdir "${DNS_HANDOFF_LOCK}" || fail 'could not simulate a concurrent marker update'
-printf '%s %s\n' "$$" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_LOCK_OWNER}" ||
+printf '%s %s\n' "$$" "${HANDOFF_START_TIME}" >"${DNS_HANDOFF_LOCK}" ||
 	fail 'could not record simulated marker-update lock owner'
 if enable_dns_handoff; then
 	fail 'handoff setup ignored a concurrent marker update'
@@ -216,7 +214,7 @@ fi
 release_dns_handoff_lock || fail 'could not release simulated marker-update lock'
 rm -f "${DNS_HANDOFF_FILE}" || fail 'could not remove stale marker after lock-contention test'
 
-mkdir "${DNS_HANDOFF_LOCK}" || fail 'could not create abandoned marker-update lock'
+: >"${DNS_HANDOFF_LOCK}" || fail 'could not create abandoned marker-update lock'
 DNS_STATE=busy
 DNSMASQ_RESTART_RELEASES_PORT=1
 enable_dns_handoff || fail 'could not recover an abandoned marker-update lock'
