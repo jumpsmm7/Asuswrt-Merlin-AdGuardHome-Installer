@@ -58,7 +58,10 @@ check_dns_filter() {
 	[ "${FAIL_NESTED_DNS_PROMPT:-0}" -eq 1 ] && return 2
 	return 0
 }
-check_dns_local() { :; }
+check_dns_local() {
+	LOCAL_CACHE_CALLS="$((LOCAL_CACHE_CALLS + 1))"
+	[ "${FAIL_LOCAL_CACHE_SAVE:-0}" -eq 0 ]
+}
 check_ipset() { :; }
 read_yesno() {
 	CONFIRM_PROMPTS="$((CONFIRM_PROMPTS + 1))"
@@ -72,6 +75,7 @@ nvram() {
 }
 
 DNS_PROMPTS=0
+LOCAL_CACHE_CALLS=0
 read_input_dns() {
 	DNS_PROMPTS="$((DNS_PROMPTS + 1))"
 	[ "${DNS_PROMPTS}" -eq "${FAIL_PROMPT}" ] && return 1
@@ -114,6 +118,26 @@ fi
 ! grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail 'setup saved the WebUI port before nested DNS confirmation completed'
 [ ! -e "${YAML_BAK}" ] || fail 'setup left the YAML backup after nested DNS confirmation failure'
 unset FAIL_NESTED_DNS_PROMPT
+unset FAIL_PROMPT
+
+FAIL_LOCAL_CACHE_SAVE=1
+CONFIRM_PROMPTS=0
+DNS_FILTER_CALLS=0
+LOCAL_CACHE_CALLS=0
+DNS_PROMPTS=0
+FAIL_PROMPT=0
+printf '%s\n' 'working configuration' >"${YAML_FILE}"
+printf '%s\n' 'original template' >"${YAML_ORI}"
+: >"${WRITE_LOG}"
+
+if setup_AdGuardHome_impl reconfig reconfig; then
+	fail 'setup accepted a failed local-cache preference save'
+fi
+[ "${LOCAL_CACHE_CALLS}" -eq 1 ] || fail 'setup did not attempt to save the local-cache preference'
+[ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'setup did not restore YAML after local-cache persistence failed'
+! grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail 'setup saved the WebUI port after local-cache persistence failed'
+[ ! -e "${YAML_BAK}" ] || fail 'setup left the YAML backup after local-cache persistence failed'
+unset FAIL_LOCAL_CACHE_SAVE
 unset FAIL_PROMPT
 
 for FAIL_PROMPT in 1 2; do

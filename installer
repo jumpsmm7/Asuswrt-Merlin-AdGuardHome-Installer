@@ -2128,9 +2128,21 @@ setup_AdGuardHome_impl() {
 						return "${YESNO_STATUS}"
 					fi
 					if [ "$(nvram get dns_local_cache)" != "1" ]; then
-						check_dns_local "${LOCAL_CACHE_SELECTION}"
+						if ! check_dns_local "${LOCAL_CACHE_SELECTION}"; then
+							if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+								PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+							fi
+							PTXT "${ERROR} Unable to save the AdGuardHome local cache setting."
+							return 1
+						fi
 					else
-						check_dns_local 0
+						if ! check_dns_local 0; then
+							if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+								PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+							fi
+							PTXT "${ERROR} Unable to save the AdGuardHome local cache setting."
+							return 1
+						fi
 					fi
 				fi
 				if [ "$2" = "reconfig" ] && [ -n "${IPSET_SELECTION:-}" ] && ! check_ipset "${IPSET_SELECTION}"; then
