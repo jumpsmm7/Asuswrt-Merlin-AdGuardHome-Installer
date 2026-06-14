@@ -20,7 +20,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}/out/armv7" || fail "could not create test directory"
 
-sed -n '/^append_metadata() {$/,/^}$/p; /^acquire_metadata_publication_lock() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^recover_metadata_publication() {$/,/^}$/p; /^release_metadata_publication_lock() {$/,/^}$/p; /^archive_publication_owner_is_active() {$/,/^}$/p; /^acquire_archive_publication_state() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p' \
+sed -n '/^append_metadata() {$/,/^}$/p; /^acquire_metadata_publication_lock() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^recover_metadata_publication() {$/,/^}$/p; /^reclaim_stale_metadata_publication_lock() {$/,/^}$/p; /^release_metadata_publication_lock() {$/,/^}$/p; /^archive_publication_owner_is_active() {$/,/^}$/p; /^acquire_archive_publication_state() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail "static download helpers were not found"
 
@@ -263,6 +263,28 @@ acquire_metadata_publication_lock "${TEST_ROOT}/metadata" ||
 	fail "could not recover abandoned metadata publication lock"
 release_metadata_publication_lock "${TEST_ROOT}/metadata" ||
 	fail "could not release recovered metadata publication lock"
+
+printf '%s\n' "abandoned" >"${TEST_ROOT}/metadata/.metadata.lock" ||
+	fail "could not create stale metadata lock"
+printf '%s\n' "active replacement" >"${TEST_ROOT}/metadata/replacement.lock" ||
+	fail "could not create replacement metadata lock"
+REAL_LN="$(which ln)" || fail "ln is unavailable"
+ln() {
+	"${REAL_LN}" "$@" || return 1
+	case "$*" in
+		*.metadata.lock.stale.*)
+			"${REAL_MV}" "${TEST_ROOT}/metadata/replacement.lock" \
+			"${TEST_ROOT}/metadata/.metadata.lock"
+			;;
+	esac
+}
+if reclaim_stale_metadata_publication_lock \
+	"${TEST_ROOT}/metadata/.metadata.lock" >/dev/null 2>&1; then
+	fail "stale lock reclamation removed a replacement metadata lock"
+fi
+unset -f ln
+[ "$(sed -n '1p' "${TEST_ROOT}/metadata/.metadata.lock")" = "active replacement" ] ||
+	fail "stale lock reclamation modified the replacement metadata lock"
 
 :
 >"${TEST_ROOT}/metadata/.metadata.publish-in-progress"

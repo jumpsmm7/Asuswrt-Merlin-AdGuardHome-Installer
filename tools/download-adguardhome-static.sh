@@ -74,7 +74,7 @@ acquire_metadata_publication_lock() {
 			FAILED=1
 			return 1
 		fi
-		if ! rm -f "${_lock_file}"; then
+		if ! reclaim_stale_metadata_publication_lock "${_lock_file}"; then
 			rm -f "${_lock_tmp}"
 			printf '%s\n' "Error: metadata generation is already in progress for ${_dest_dir}" >&2
 			FAILED=1
@@ -82,6 +82,35 @@ acquire_metadata_publication_lock() {
 		fi
 	done
 	rm -f "${_lock_tmp}"
+}
+
+reclaim_stale_metadata_publication_lock() {
+	_lock_file="$1"
+	_stale_candidate="${_lock_file}.stale.$$"
+
+	rm -f "${_stale_candidate}" 2>/dev/null
+	ln "${_lock_file}" "${_stale_candidate}" 2>/dev/null || return 1
+	if archive_publication_owner_is_active "${_stale_candidate}"; then
+		rm -f "${_stale_candidate}"
+		return 1
+	fi
+	_lock_identity="$(stat -c '%d:%i' "${_lock_file}" 2>/dev/null)" || {
+		rm -f "${_stale_candidate}"
+		return 1
+	}
+	_stale_identity="$(stat -c '%d:%i' "${_stale_candidate}" 2>/dev/null)" || {
+		rm -f "${_stale_candidate}"
+		return 1
+	}
+	if [ "${_lock_identity}" != "${_stale_identity}" ]; then
+		rm -f "${_stale_candidate}"
+		return 1
+	fi
+	rm -f "${_lock_file}" 2>/dev/null || {
+		rm -f "${_stale_candidate}"
+		return 1
+	}
+	rm -f "${_stale_candidate}"
 }
 
 calc_sum() {
