@@ -11,6 +11,7 @@ PROCS="AdGuardHome"
 DNS_HANDOFF_DIR="/tmp/AdGuardHome.dns-handoff"
 DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
 DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
+WATCHD_NICE_SNAPSHOT=""
 GOGC="40"
 CPU_COUNT=""
 if which grep >/dev/null 2>&1; then
@@ -158,18 +159,61 @@ dns_handoff_lock_is_active() {
 	dns_handoff_lock_file_is_active "${DNS_HANDOFF_LOCK}"
 }
 
+watchdog_pids() {
+	ps | awk '/[w]atchdog/ { print $1 }'
+}
+
+pid_nice() {
+	[ -r "/proc/$1/stat" ] || return 1
+	awk '{
+		sub(/^[^)]*\)[[:space:]]*/, "")
+		print $17
+		exit
+	}' "/proc/$1/stat" 2>/dev/null
+}
+
+save_watchdog_nice() {
+	local pid nice snapshot
+	snapshot=""
+	for pid in $(watchdog_pids); do
+		nice="$(pid_nice "${pid}")" || continue
+		[ -n "${nice}" ] || continue
+		snapshot="${snapshot}${pid}:${nice} "
+	done
+	WATCHD_NICE_SNAPSHOT="${snapshot}"
+	[ -n "${WATCHD_NICE_SNAPSHOT}" ]
+}
+
+restore_watchdog_nice() {
+	local item pid nice
+	for item in ${WATCHD_NICE_SNAPSHOT}; do
+		pid="${item%%:*}"
+		nice="${item#*:}"
+		[ -d "/proc/${pid}" ] || continue
+		renice "${nice}" "${pid}" >/dev/null 2>&1
+	done
+	WATCHD_NICE_SNAPSHOT=""
+}
+
 reap_the_watch_dog() {
-	WATCHD_PID="$(ps | awk '/[w]atchdog/ { printf "%s ", $1 }')"
+	local WATCHD_PID
+
+	WATCHD_PID="$(watchdog_pids)"
 	[ -n "${WATCHD_PID}" ] || return 1
 	case "${1:-}" in
-		stop)
+		STOP)
+			# Only save once, so a second "stop" does not overwrite
+			# the real original nice values with 19.
+			[ -n "${WATCHD_NICE_SNAPSHOT}" ] || save_watchdog_nice
 			renice 19 ${WATCHD_PID} >/dev/null 2>&1
-			kill -s STOP ${WATCHD_PID} >/dev/null 2>&1
+			kill -STOP ${WATCHD_PID} >/dev/null 2>&1
 			;;
-		cont)
-			renice -19 ${WATCHD_PID} >/dev/null 2>&1
-			kill -s CONT ${WATCHD_PID} >/dev/null 2>&1
+
+		CONT)
+			restore_watchdog_nice
+			kill -CONT ${WATCHD_PID} >/dev/null 2>&1
 			;;
+
 		*)
 			return 1
 			;;
