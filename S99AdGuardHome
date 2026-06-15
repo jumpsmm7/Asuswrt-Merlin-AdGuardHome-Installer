@@ -173,30 +173,27 @@ pid_nice() {
 }
 
 save_watchdog_nice() {
-	local pid nice snapshot
-	snapshot=""
-	for pid in $(watchdog_pids); do
-		nice="$(pid_nice "${pid}")" || continue
-		[ -n "${nice}" ] || continue
-		snapshot="${snapshot}${pid}:${nice} "
+	_watchdog_nice_snapshot=""
+	for _watchdog_nice_pid in $(watchdog_pids); do
+		_watchdog_nice_value="$(pid_nice "${_watchdog_nice_pid}")" || continue
+		[ -n "${_watchdog_nice_value}" ] || continue
+		_watchdog_nice_snapshot="${_watchdog_nice_snapshot}${_watchdog_nice_pid}:${_watchdog_nice_value} "
 	done
-	WATCHD_NICE_SNAPSHOT="${snapshot}"
+	WATCHD_NICE_SNAPSHOT="${_watchdog_nice_snapshot}"
 	[ -n "${WATCHD_NICE_SNAPSHOT}" ]
 }
 
 restore_watchdog_nice() {
-	local item pid nice
-	for item in ${WATCHD_NICE_SNAPSHOT}; do
-		pid="${item%%:*}"
-		nice="${item#*:}"
-		[ -d "/proc/${pid}" ] || continue
-		renice "${nice}" "${pid}" >/dev/null 2>&1
+	for _watchdog_nice_item in ${WATCHD_NICE_SNAPSHOT}; do
+		_watchdog_nice_pid="${_watchdog_nice_item%%:*}"
+		_watchdog_nice_value="${_watchdog_nice_item#*:}"
+		[ -d "/proc/${_watchdog_nice_pid}" ] || continue
+		renice "${_watchdog_nice_value}" "${_watchdog_nice_pid}" >/dev/null 2>&1
 	done
 	WATCHD_NICE_SNAPSHOT=""
 }
 
 reap_the_watch_dog() {
-	local WATCHD_PID
 	WATCHD_PID="$(watchdog_pids)"
 	[ -n "${WATCHD_PID}" ] || return 1
 	case "${1:-}" in
