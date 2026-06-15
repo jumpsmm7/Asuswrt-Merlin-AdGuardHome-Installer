@@ -197,7 +197,6 @@ restore_watchdog_nice() {
 
 reap_the_watch_dog() {
 	local WATCHD_PID
-
 	WATCHD_PID="$(watchdog_pids)"
 	[ -n "${WATCHD_PID}" ] || return 1
 	case "${1:-}" in
@@ -206,18 +205,15 @@ reap_the_watch_dog() {
 			# the real original nice values with 19.
 			[ -n "${WATCHD_NICE_SNAPSHOT}" ] || save_watchdog_nice
 			renice 19 ${WATCHD_PID} >/dev/null 2>&1
-			kill -STOP ${WATCHD_PID} >/dev/null 2>&1
 			;;
-
 		CONT)
 			restore_watchdog_nice
-			kill -CONT ${WATCHD_PID} >/dev/null 2>&1
 			;;
-
 		*)
 			return 1
 			;;
 	esac
+	kill -s "${1}" ${WATCHD_PID} >/dev/null 2>&1
 	return 0
 }
 
@@ -444,13 +440,13 @@ guard_dns_port_for_adguardhome() {
 		adguardhome_owns_dns && break
 		service stop_dnsmasq >/dev/null 2>&1
 		kill_dns_port_owners
-		reap_the_watch_dog stop
+		reap_the_watch_dog STOP
 		_dns_guard_attempts="$((_dns_guard_attempts + 1))"
 		sleep 1s
 	done
 	# Remain a live child until stop_dns_port_guard terminates and reaps us.  This
 	# prevents the saved PID from being reused while the parent verifies DNS.
-	trap 'reap_the_watch_dog cont; exit 0' HUP INT TERM EXIT
+	trap 'reap_the_watch_dog CONT; exit 0' HUP INT TERM EXIT
 	while :; do
 		sleep 1s
 	done
