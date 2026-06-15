@@ -158,6 +158,21 @@ dns_handoff_lock_is_active() {
 	dns_handoff_lock_file_is_active "${DNS_HANDOFF_LOCK}"
 }
 
+reap_the_watch_dog() {
+	WATCHD_PID="$(ps | awk '/[w]atchdog/ { printf "%s ", $1 }')"
+	[ "${WATCHD_PID}" ] || return 1
+	case "${1}" in 
+		stop)
+			renice 19 "${WATCHD_PID}" 2>/dev/null
+			kill -s SIGSTOP "${WATCHD_PID}" 2>/dev/null
+			;;
+		cont)
+			kill -s CONT "${WATCHD_PID}" 2>/dev/null
+			;;
+	esac
+	return 0
+}
+
 reclaim_stale_dns_handoff_lock() {
 	_dns_handoff_stale_candidate="${DNS_HANDOFF_LOCK}.stale.$$"
 	rm -f "${_dns_handoff_stale_candidate}" 2>/dev/null
@@ -381,12 +396,13 @@ guard_dns_port_for_adguardhome() {
 		adguardhome_owns_dns && break
 		service stop_dnsmasq >/dev/null 2>&1
 		kill_dns_port_owners
+		reap_the_watch_dog stop
 		_dns_guard_attempts="$((_dns_guard_attempts + 1))"
 		sleep 1s
 	done
 	# Remain a live child until stop_dns_port_guard terminates and reaps us.  This
 	# prevents the saved PID from being reused while the parent verifies DNS.
-	trap 'exit 0' HUP INT TERM
+	trap 'reap_the_watch_dog cont; exit 0' HUP INT TERM
 	while :; do
 		sleep 1s
 	done
@@ -397,8 +413,7 @@ guard_dns_port_for_adguardhome() {
 post_start_adguardhome() {
 	if ! wait_for_adguardhome_dns; then
 		stop_dns_port_guard
-		disable_dns_handoff ||
-			logger -st "${PROCS}" "The dnsmasq port 553 handoff marker requires manual cleanup."
+		disable_dns_handoff || logger -st "${PROCS}" "The dnsmasq port 553 handoff marker requires manual cleanup."
 		logger -st "${PROCS}" "AdGuardHome did not acquire TCP and UDP port 53; startup will be rolled back."
 		return 1
 	fi
