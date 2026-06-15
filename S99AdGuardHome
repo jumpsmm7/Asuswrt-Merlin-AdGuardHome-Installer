@@ -402,7 +402,7 @@ guard_dns_port_for_adguardhome() {
 	done
 	# Remain a live child until stop_dns_port_guard terminates and reaps us.  This
 	# prevents the saved PID from being reused while the parent verifies DNS.
-	trap 'reap_the_watch_dog cont; exit 0' HUP INT TERM
+	trap 'reap_the_watch_dog cont; exit 0' HUP INT TERM EXIT
 	while :; do
 		sleep 1s
 	done
