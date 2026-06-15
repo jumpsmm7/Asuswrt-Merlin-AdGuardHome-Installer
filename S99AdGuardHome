@@ -160,14 +160,18 @@ dns_handoff_lock_is_active() {
 
 reap_the_watch_dog() {
 	WATCHD_PID="$(ps | awk '/[w]atchdog/ { printf "%s ", $1 }')"
-	[ "${WATCHD_PID}" ] || return 1
-	case "${1}" in 
+	[ -n "${WATCHD_PID}" ] || return 1
+	case "${1:-}" in
 		stop)
-			renice 19 "${WATCHD_PID}" 2>/dev/null
-			kill -s SIGSTOP "${WATCHD_PID}" 2>/dev/null
+			renice 19 ${WATCHD_PID} >/dev/null 2>&1
+			kill -s STOP ${WATCHD_PID} >/dev/null 2>&1
 			;;
 		cont)
-			kill -s CONT "${WATCHD_PID}" 2>/dev/null
+			renice -19 ${WATCHD_PID} >/dev/null 2>&1
+			kill -s CONT ${WATCHD_PID} >/dev/null 2>&1
+			;;
+		*)
+			return 1
 			;;
 	esac
 	return 0
