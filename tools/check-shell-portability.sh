@@ -43,6 +43,7 @@ while IFS= read -r script; do
 	fail_match 'command -v is unavailable on the target shell; use which' '(^|&&|\|\||;)[[:space:]]*command[[:space:]]+-v[[:space:]]+' "${script}"
 	fail_match 'Bash here-strings are not supported' '<<<' "${script}"
 	fail_match 'Bash process substitution is not supported' '(^|[^$])(<|>)\(' "${script}"
+	fail_match 'multi-digit positional parameters are unsupported by older BusyBox ash; shift first' '\$\{[1-9][0-9]+([^0-9]|$)' "${script}"
 done <"${SCRIPT_LIST}"
 
 if [ "${FAILED}" -ne 0 ]; then
