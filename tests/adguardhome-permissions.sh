@@ -98,6 +98,12 @@ dns:
   'ipset_file': "custom/from-yaml.conf"
 EOS
 	[ "$(adguardhome_yaml_ipset_file)" = 'custom/from-yaml.conf' ] || fail 'installer did not parse quoted ipset_file key from YAML'
+	cat >"${YAML_FILE}" <<'EOS'
+dns:
+  ipset_file: >-
+    custom/from-yaml.conf
+EOS
+	[ "$(adguardhome_yaml_ipset_file)" = 'custom/from-yaml.conf' ] || fail 'installer did not parse block scalar ipset_file from YAML'
 	ensure_adguardhome_directory_permissions >/dev/null || fail 'installer permission helper failed'
 	grep -Fx "${TARG_DIR}/custom/from-yaml.conf" "${CHOWN_LOG}" >/dev/null || fail 'installer did not chown nested YAML IPSET file'
 	assert_mode "${TARG_DIR}" 'drwxrwxrwx'
@@ -138,6 +144,12 @@ dns:
   "ipset_file": 'custom/from-yaml.conf'
 EOS
 	[ "$(adguardhome_yaml_ipset_file)" = 'custom/from-yaml.conf' ] || fail 'S99 did not parse quoted ipset_file key from YAML'
+	cat >"${WORK_DIR}/AdGuardHome.yaml" <<'EOS'
+dns:
+  ipset_file: |
+    custom/from-yaml.conf
+EOS
+	[ "$(adguardhome_yaml_ipset_file)" = 'custom/from-yaml.conf' ] || fail 'S99 did not parse block scalar ipset_file from YAML'
 	ensure_adguardhome_work_dir_permissions >/dev/null || fail 'S99 permission helper failed'
 	grep -Fx "${WORK_DIR}/custom/from-yaml.conf" "${CHOWN_LOG}" >/dev/null || fail 'S99 did not chown nested YAML IPSET file'
 	assert_mode "${WORK_DIR}" 'drwxrwxrwx'
