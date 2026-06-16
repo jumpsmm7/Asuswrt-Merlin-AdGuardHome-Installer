@@ -478,6 +478,7 @@ post_start_adguardhome() {
 post_start_failure_adguardhome() {
 	_dns_recovery_status="0"
 	stop_dns_port_guard
+	reap_the_watch_dog CONT >/dev/null 2>&1 || true
 	if ! disable_dns_handoff; then
 		_dns_recovery_status="1"
 	fi
