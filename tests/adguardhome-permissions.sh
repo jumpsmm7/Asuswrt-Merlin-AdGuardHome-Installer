@@ -79,7 +79,10 @@ extract_permission_functions "${REPO_DIR}/S99AdGuardHome" "${S99_FUNCTIONS}" \
 	PTXT() { printf '%s\n' "$*" >/dev/null; }
 	nvram() { [ "$1" = get ] && [ "$2" = http_username ] && printf '%s\n' root; }
 	CHOWN_LOG="${TMP_DIR}/installer-chown.log"
-	chown() { printf '%s\n' "$2" >>"${CHOWN_LOG}"; return 0; }
+	chown() {
+		printf '%s\n' "$2" >>"${CHOWN_LOG}"
+		return 0
+	}
 
 	BASE_DIR="${TMP_DIR}/installer"
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
