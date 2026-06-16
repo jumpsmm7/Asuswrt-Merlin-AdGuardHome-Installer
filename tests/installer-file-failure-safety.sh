@@ -37,6 +37,7 @@ awk '
 	/^ensure_adguardhome_directory_permissions\(\)/,/^}/
 	/^create_backup_archive\(\)/,/^}/
 	/^install_adguard_archive\(\)/,/^}/
+	/^create_dir\(\)/,/^}/
 	/^download_file\(\)/,/^}/
 	/^write_command_script\(\)/,/^}/
 	/^write_conf\(\)/,/^}/
