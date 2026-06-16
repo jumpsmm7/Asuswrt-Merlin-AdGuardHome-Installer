@@ -216,6 +216,14 @@ reap_the_watch_dog() {
 	return 0
 }
 
+resume_dns_watchdog() {
+	reap_the_watch_dog CONT >/dev/null 2>&1 || true
+}
+
+suspend_dns_watchdog() {
+	reap_the_watch_dog STOP >/dev/null 2>&1 || true
+}
+
 reclaim_stale_dns_handoff_lock() {
 	_dns_handoff_stale_candidate="${DNS_HANDOFF_LOCK}.stale.$$"
 	rm -f "${_dns_handoff_stale_candidate}" 2>/dev/null
@@ -437,12 +445,12 @@ guard_dns_port_for_adguardhome() {
 	_dns_guard_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_GUARD_RETRIES:-}" 10)"
 	# Install cleanup before the first watchdog STOP so a parent-side shutdown
 	# cannot terminate us during retry sleep without resuming the watchdog.
-	trap 'trap - HUP INT TERM EXIT; reap_the_watch_dog CONT; exit 0' HUP INT TERM EXIT
+	trap 'trap - HUP INT TERM EXIT; resume_dns_watchdog; exit 0' HUP INT TERM EXIT
 	while [ "${_dns_guard_attempts}" -lt "${_dns_guard_limit}" ]; do
 		adguardhome_owns_dns && break
 		service stop_dnsmasq >/dev/null 2>&1
 		kill_dns_port_owners
-		reap_the_watch_dog STOP
+		suspend_dns_watchdog
 		_dns_guard_attempts="$((_dns_guard_attempts + 1))"
 		sleep 1s
 	done
@@ -478,7 +486,7 @@ post_start_adguardhome() {
 post_start_failure_adguardhome() {
 	_dns_recovery_status="0"
 	stop_dns_port_guard
-	reap_the_watch_dog CONT >/dev/null 2>&1 || true
+	resume_dns_watchdog
 	if ! disable_dns_handoff; then
 		_dns_recovery_status="1"
 	fi
@@ -504,17 +512,22 @@ pre_start_adguardhome() {
 	while [ "${_dns_stop_attempts}" -lt "${_dns_stop_limit}" ]; do
 		service stop_dnsmasq >/dev/null 2>&1
 		kill_dns_port_owners
-		reap_the_watch_dog STOP
+		# The DNS guard is not running yet, so protect this parent-side
+		# watchdog suspension against aborts until the guard takes over.
+		trap 'trap - HUP INT TERM EXIT; resume_dns_watchdog; exit 1' HUP INT TERM EXIT
+		suspend_dns_watchdog
 		_dns_stop_attempts="$((_dns_stop_attempts + 1))"
 		sleep 1s
 		if dns_port_available; then
 			guard_dns_port_for_adguardhome >/dev/null 2>&1 &
 			ADGUARDHOME_DNS_GUARD_PID="$!"
+			trap - HUP INT TERM EXIT
 			return 0
 		fi
 	done
 	logger -st "${PROCS}" "Unable to release port 53 after ${_dns_stop_limit} attempt(s); startup aborted."
 	post_start_failure_adguardhome
+	trap - HUP INT TERM EXIT
 	return 1
 }
 
