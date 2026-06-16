@@ -26,7 +26,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_path_has_owner_mode() {$/,/^}$/p; /^dns_handoff_directory_is_private() {$/,/^}$/p; /^dns_handoff_marker_is_private() {$/,/^}$/p; /^dns_handoff_process_is_root() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_set_current_identity() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^dns_handoff_lock_file_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^watchdog_pids() {$/,/^}$/p; /^pid_nice() {$/,/^}$/p; /^save_watchdog_nice() {$/,/^}$/p; /^restore_watchdog_nice() {$/,/^}$/p; /^reap_the_watch_dog() {$/,/^}$/p; /^reclaim_stale_dns_handoff_lock() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
+	'/^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_path_has_owner_mode() {$/,/^}$/p; /^dns_handoff_directory_is_private() {$/,/^}$/p; /^dns_handoff_marker_is_private() {$/,/^}$/p; /^dns_handoff_process_is_root() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_set_current_identity() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^dns_handoff_lock_file_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^watchdog_pids() {$/,/^}$/p; /^pid_nice() {$/,/^}$/p; /^save_watchdog_nice() {$/,/^}$/p; /^restore_watchdog_nice() {$/,/^}$/p; /^reap_the_watch_dog() {$/,/^}$/p; /^resume_dns_watchdog() {$/,/^}$/p; /^restore_dns_watchdog_traps() {$/,/^}$/p; /^save_dns_watchdog_traps() {$/,/^}$/p; /^suspend_dns_watchdog() {$/,/^}$/p; /^reclaim_stale_dns_handoff_lock() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed -n '/^dns_handoff_is_active() {$/,/^}$/p' "${MANAGER_PATH}" >>"${S99_FUNCTIONS}" ||
 	fail "could not read ${MANAGER_PATH}"
@@ -41,6 +41,11 @@ grep -q 'dns_handoff_is_active || return 0' "${MANAGER_PATH}" ||
 if grep -q '${20' "${S99_PATH}"; then
 	fail 'service script uses a multi-digit positional parameter unsupported by older BusyBox ash'
 fi
+
+grep -q 'restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"' "${S99_PATH}" ||
+	fail 'pre-start watchdog trap cleanup does not restore caller traps'
+grep -q 'restore_dns_watchdog_traps "${_dns_guard_saved_traps}"' "${S99_PATH}" ||
+	fail 'DNS guard watchdog trap cleanup does not restore caller traps'
 
 WATCHD_NICE_SNAPSHOT=""
 
@@ -137,6 +142,26 @@ if kill_dns_port_owners; then
 	fail 'failed netstat command was hidden while collecting DNS owners'
 fi
 NETSTAT_FAIL=0
+
+: >"${CALLS_FILE}"
+_dns_saved_test_traps_file="${TEST_ROOT}/caller-traps"
+trap >"${_dns_saved_test_traps_file}" || fail 'could not save test traps'
+trap 'printf "%s\n" caller-exit >"${TEST_ROOT}/watchdog-caller-exit"' EXIT
+trap 'printf "%s\n" caller-term >"${TEST_ROOT}/watchdog-caller-term"' TERM
+mkdir -p "${DNS_HANDOFF_DIR}" || fail 'could not create handoff directory for trap test'
+DNS_WATCHDOG_TRAP_FILE=""
+save_dns_watchdog_traps test || fail 'watchdog helper did not save caller traps'
+_dns_saved_watchdog_traps="${DNS_WATCHDOG_TRAP_FILE}"
+trap - EXIT TERM
+restore_dns_watchdog_traps "${_dns_saved_watchdog_traps}"
+trap >"${TEST_ROOT}/watchdog-restored-traps" || fail 'could not inspect restored watchdog traps'
+grep -q 'watchdog-caller-exit' "${TEST_ROOT}/watchdog-restored-traps" ||
+	fail 'watchdog helper did not restore the caller EXIT trap'
+grep -q 'watchdog-caller-term' "${TEST_ROOT}/watchdog-restored-traps" ||
+	fail 'watchdog helper did not restore the caller TERM trap'
+trap - EXIT HUP INT TERM
+eval "$(cat "${_dns_saved_test_traps_file}")"
+rm -f "${_dns_saved_test_traps_file}" "${TEST_ROOT}/watchdog-caller-exit" "${TEST_ROOT}/watchdog-caller-term" "${TEST_ROOT}/watchdog-restored-traps"
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy
