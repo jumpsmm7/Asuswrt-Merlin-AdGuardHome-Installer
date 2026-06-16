@@ -57,7 +57,8 @@ EOS
 	printf '%s\n' 'yaml rules' >"${_base_dir}/custom/from-yaml.conf" || return 1
 	printf '%s\n' 'symlink target' >"${_base_dir}/../symlink-target" || return 1
 	ln -s "${_base_dir}/../symlink-target" "${_base_dir}/linked.conf" || return 1
-	chmod 755 "${_base_dir}" "${_base_dir}/AdGuardHome.yaml" \
+	chmod 755 "${_base_dir}" "${_base_dir}/custom" || return 1
+	chmod 755 "${_base_dir}/AdGuardHome.yaml" \
 		"${_base_dir}/ipset.conf" "${_base_dir}/ipset.user" \
 		"${_base_dir}/custom/from-yaml.conf" || return 1
 	chmod 600 "${_base_dir}/AdGuardHome" || return 1
@@ -191,18 +192,22 @@ awk '
 	/^check_AdGuardHome_yaml\(\) \{$/ { in_check = 1; next }
 	in_check && /^}$/ { in_check = 0 }
 	in_check && /chmod 644 "\$\{YAML_FILE\}"/ { yaml_chmod++ }
+
 	/^install_adguard_archive\(\) \{$/ { in_install = 1; next }
 	in_install && /^}$/ { in_install = 0 }
 	in_install && /ensure_adguardhome_directory_permissions \|\|/ { install_call++ }
+
 	/^backup_restore\(\) \{$/ { in_restore = 1; next }
 	in_restore && /^}$/ { in_restore = 0 }
 	in_restore && /ensure_adguardhome_directory_permissions/ { restore_call++ }
+
 	/^create_dir\(\) \{$/ { in_create_dir = 1; next }
 	in_create_dir && /^}$/ { in_create_dir = 0 }
 	in_create_dir && /mkdir -p "\$\{1\}"/ { create_mkdir++ }
-	in_create_dir && /chmod 777 "\$\{1\}"/ { create_chmod++ }
+	in_create_dir && /chmod 770 "\$\{1\}"/ { create_chmod_770++ }
+	in_create_dir && /chmod 777 "\$\{1\}"/ { create_chmod_777++ }
 	/if ! create_dir "\$\{TARG_DIR\}" \|\| ! ensure_adguardhome_directory_permissions; then/ { create_call++ }
-	END { exit(yaml_chmod == 1 && install_call == 1 && restore_call >= 1 && create_call == 1 && create_mkdir == 1 && create_chmod == 1 ? 0 : 1) }
+	END { exit(yaml_chmod == 1 && install_call == 1 &&  restore_call >= 1 && create_call == 1 && create_mkdir == 1 && create_chmod_770 == 1 && create_chmod_777 == 0 ? 0 : 1) }
 ' "${REPO_DIR}/installer" || fail 'installer permission helper is not wired into all expected install, restore, and config paths'
 
 awk '
