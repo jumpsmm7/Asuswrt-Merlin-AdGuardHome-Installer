@@ -97,11 +97,12 @@ EOS
 	[ "$(adguardhome_yaml_ipset_file)" = 'custom/from-yaml.conf' ] || fail 'installer did not parse quoted ipset_file key from YAML'
 	ensure_adguardhome_directory_permissions >/dev/null || fail 'installer permission helper failed'
 	grep -Fx "${TARG_DIR}/custom/from-yaml.conf" "${CHOWN_LOG}" >/dev/null || fail 'installer did not chown nested YAML IPSET file'
-	assert_mode "${TARG_DIR}" 'drwx------'
-	assert_mode "${YAML_FILE}" '-rw-------'
-	assert_mode "${TARG_DIR}/ipset.conf" '-rw-------'
-	assert_mode "${TARG_DIR}/ipset.user" '-rw-------'
-	assert_mode "${TARG_DIR}/custom/from-yaml.conf" '-rw-------'
+	assert_mode "${TARG_DIR}" 'drwxrwxrwx'
+	assert_mode "${TARG_DIR}/custom" 'drwxrwxrwx'
+	assert_mode "${YAML_FILE}" '-rw-r--r--'
+	assert_mode "${TARG_DIR}/ipset.conf" '-rw-r--r--'
+	assert_mode "${TARG_DIR}/ipset.user" '-rw-r--r--'
+	assert_mode "${TARG_DIR}/custom/from-yaml.conf" '-rw-r--r--'
 	assert_mode "${TARG_DIR}/linked.conf" 'lrwxrwxrwx'
 	assert_mode "${AGH_FILE}" '-rwxr-xr-x'
 ) || exit 1
@@ -136,11 +137,12 @@ EOS
 	[ "$(adguardhome_yaml_ipset_file)" = 'custom/from-yaml.conf' ] || fail 'S99 did not parse quoted ipset_file key from YAML'
 	ensure_adguardhome_work_dir_permissions >/dev/null || fail 'S99 permission helper failed'
 	grep -Fx "${WORK_DIR}/custom/from-yaml.conf" "${CHOWN_LOG}" >/dev/null || fail 'S99 did not chown nested YAML IPSET file'
-	assert_mode "${WORK_DIR}" 'drwx------'
-	assert_mode "${WORK_DIR}/AdGuardHome.yaml" '-rw-------'
-	assert_mode "${WORK_DIR}/ipset.conf" '-rw-------'
-	assert_mode "${WORK_DIR}/ipset.user" '-rw-------'
-	assert_mode "${WORK_DIR}/custom/from-yaml.conf" '-rw-------'
+	assert_mode "${WORK_DIR}" 'drwxrwxrwx'
+	assert_mode "${WORK_DIR}/custom" 'drwxrwxrwx'
+	assert_mode "${WORK_DIR}/AdGuardHome.yaml" '-rw-r--r--'
+	assert_mode "${WORK_DIR}/ipset.conf" '-rw-r--r--'
+	assert_mode "${WORK_DIR}/ipset.user" '-rw-r--r--'
+	assert_mode "${WORK_DIR}/custom/from-yaml.conf" '-rw-r--r--'
 	assert_mode "${WORK_DIR}/linked.conf" 'lrwxrwxrwx'
 	assert_mode "${WORK_DIR}/AdGuardHome" '-rwxr-xr-x'
 	assert_mode "${EXTERNAL_IPSET_FILE}" '-rw-r--r--'
@@ -173,15 +175,19 @@ EOS
 awk '
 	/^check_AdGuardHome_yaml\(\) \{$/ { in_check = 1; next }
 	in_check && /^}$/ { in_check = 0 }
-	in_check && /chmod 600 "\$\{YAML_FILE\}"/ { yaml_chmod++ }
+	in_check && /chmod 644 "\$\{YAML_FILE\}"/ { yaml_chmod++ }
 	/^install_adguard_archive\(\) \{$/ { in_install = 1; next }
 	in_install && /^}$/ { in_install = 0 }
 	in_install && /ensure_adguardhome_directory_permissions \|\|/ { install_call++ }
 	/^backup_restore\(\) \{$/ { in_restore = 1; next }
 	in_restore && /^}$/ { in_restore = 0 }
 	in_restore && /ensure_adguardhome_directory_permissions/ { restore_call++ }
+	/^create_dir\(\) \{$/ { in_create_dir = 1; next }
+	in_create_dir && /^}$/ { in_create_dir = 0 }
+	in_create_dir && /mkdir -p -m 777 "\$\{1\}"/ { create_mkdir_mode++ }
+	in_create_dir && /chmod 777 "\$\{1\}"/ { create_chmod++ }
 	/if ! create_dir "\$\{TARG_DIR\}" \|\| ! ensure_adguardhome_directory_permissions; then/ { create_call++ }
-	END { exit(yaml_chmod == 1 && install_call == 1 && restore_call >= 1 && create_call == 1 ? 0 : 1) }
+	END { exit(yaml_chmod == 1 && install_call == 1 && restore_call >= 1 && create_call == 1 && create_mkdir_mode == 1 && create_chmod == 1 ? 0 : 1) }
 ' "${REPO_DIR}/installer" || fail 'installer permission helper is not wired into all expected install, restore, and config paths'
 
 awk '

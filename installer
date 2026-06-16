@@ -830,7 +830,7 @@ init_upstream_adguard_metadata() {
 
 check_AdGuardHome_yaml() {
 	[ ! -f "${YAML_FILE}" ] && return
-	chmod 600 "${YAML_FILE}"
+	chmod 644 "${YAML_FILE}"
 	PTXT "${INFO} Checking AdGuardHome configuration..."
 	if ! "${AGH_FILE}" --check-config -c "${YAML_FILE}" --no-check-update -l "/dev/null"; then
 		PTXT "${INFO} Moving invalid configuration file to ${YAML_ERR}." \
@@ -1453,12 +1453,12 @@ ensure_adguardhome_directory_permissions() {
 			return 1
 		fi
 	done
-	if ! chmod 700 "${TARG_DIR}"; then
-		PTXT "${ERROR} Unable to set private permissions on ${TARG_DIR}."
+	if ! find "${TARG_DIR}" -type d -exec chmod 777 {} \;; then
+		PTXT "${ERROR} Unable to set directory permissions under ${TARG_DIR}."
 		return 1
 	fi
-	if [ -f "${YAML_FILE}" ] && ! chmod 600 "${YAML_FILE}"; then
-		PTXT "${ERROR} Unable to set private permissions on ${YAML_FILE}."
+	if [ -f "${YAML_FILE}" ] && ! chmod 644 "${YAML_FILE}"; then
+		PTXT "${ERROR} Unable to set configuration permissions on ${YAML_FILE}."
 		return 1
 	fi
 	for IPSET_PERMISSION_FILE in "${TARG_DIR}/ipset.conf" "${TARG_DIR}/ipset.user" "$(adguardhome_yaml_ipset_file)"; do
@@ -1481,8 +1481,8 @@ ensure_adguardhome_directory_permissions() {
 			PTXT "${ERROR} Unable to set ownership on ${IPSET_PERMISSION_FILE}."
 			return 1
 		fi
-		if ! chmod 600 "${IPSET_PERMISSION_FILE}"; then
-			PTXT "${ERROR} Unable to set private permissions on ${IPSET_PERMISSION_FILE}."
+		if ! chmod 644 "${IPSET_PERMISSION_FILE}"; then
+			PTXT "${ERROR} Unable to set IPSET permissions on ${IPSET_PERMISSION_FILE}."
 			return 1
 		fi
 	done
@@ -1663,8 +1663,12 @@ cleanup_legacy_firewall() {
 }
 
 create_dir() {
-	if ! mkdir -p "${1}"; then
+	if ! mkdir -p -m 777 "${1}"; then
 		PTXT "${ERROR} Unable to create ${1}!"
+		return 1
+	fi
+	if ! chmod 777 "${1}"; then
+		PTXT "${ERROR} Unable to set directory permissions on ${1}!"
 		return 1
 	fi
 }
