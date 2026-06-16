@@ -610,12 +610,12 @@ ensure_adguardhome_work_dir_permissions() {
 			return 1
 		fi
 	done
-	if ! chmod 700 "${WORK_DIR}"; then
-		logger -st "${PROCS}" "Unable to set private permissions on ${WORK_DIR}."
+	if ! find "${WORK_DIR}" -type d -exec chmod 777 {} \;; then
+		logger -st "${PROCS}" "Unable to set directory permissions under ${WORK_DIR}."
 		return 1
 	fi
-	if [ -f "${WORK_DIR}/AdGuardHome.yaml" ] && ! chmod 600 "${WORK_DIR}/AdGuardHome.yaml"; then
-		logger -st "${PROCS}" "Unable to set private permissions on ${WORK_DIR}/AdGuardHome.yaml."
+	if [ -f "${WORK_DIR}/AdGuardHome.yaml" ] && ! chmod 644 "${WORK_DIR}/AdGuardHome.yaml"; then
+		logger -st "${PROCS}" "Unable to set configuration permissions on ${WORK_DIR}/AdGuardHome.yaml."
 		return 1
 	fi
 	for _agh_perm_ipset_file in "${WORK_DIR}/ipset.conf" "${WORK_DIR}/ipset.user" "$(adguardhome_yaml_ipset_file)"; do
@@ -638,8 +638,8 @@ ensure_adguardhome_work_dir_permissions() {
 			logger -st "${PROCS}" "Unable to set ownership on ${_agh_perm_ipset_file}."
 			return 1
 		fi
-		if ! chmod 600 "${_agh_perm_ipset_file}"; then
-			logger -st "${PROCS}" "Unable to set private permissions on ${_agh_perm_ipset_file}."
+		if ! chmod 644 "${_agh_perm_ipset_file}"; then
+			logger -st "${PROCS}" "Unable to set IPSET permissions on ${_agh_perm_ipset_file}."
 			return 1
 		fi
 	done
