@@ -1429,6 +1429,9 @@ ensure_adguardhome_directory_permissions() {
 	for IPSET_PERMISSION_FILE in "${TARG_DIR}/ipset.conf" "${TARG_DIR}/ipset.user" "$(adguardhome_yaml_ipset_file)"; do
 		[ -n "${IPSET_PERMISSION_FILE}" ] || continue
 		case "${IPSET_PERMISSION_FILE}" in
+			../* | */../* | */.. | ..) continue ;;
+		esac
+		case "${IPSET_PERMISSION_FILE}" in
 			/*)
 				case "${IPSET_PERMISSION_FILE}" in
 					"${TARG_DIR}"/*) ;;

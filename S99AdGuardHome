@@ -586,6 +586,9 @@ ensure_adguardhome_work_dir_permissions() {
 	for _agh_perm_ipset_file in "${WORK_DIR}/ipset.conf" "${WORK_DIR}/ipset.user" "$(adguardhome_yaml_ipset_file)"; do
 		[ -n "${_agh_perm_ipset_file}" ] || continue
 		case "${_agh_perm_ipset_file}" in
+			../* | */../* | */.. | ..) continue ;;
+		esac
+		case "${_agh_perm_ipset_file}" in
 			/*)
 				case "${_agh_perm_ipset_file}" in
 					"${WORK_DIR}"/*) ;;
