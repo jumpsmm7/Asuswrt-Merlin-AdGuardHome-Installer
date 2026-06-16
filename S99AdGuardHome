@@ -337,7 +337,7 @@ enable_dns_handoff() {
 		fi
 		_dns_handoff_lock_attempts="$((_dns_handoff_lock_attempts + 1))"
 		if [ "${_dns_handoff_lock_attempts}" -lt 3 ]; then
-			sleep 1
+			sleep 1s
 			continue
 		fi
 		if ! reclaim_stale_dns_handoff_lock; then
@@ -476,7 +476,7 @@ guard_dns_port_for_adguardhome() {
 		kill_dns_port_owners
 		suspend_dns_watchdog
 		_dns_guard_attempts="$((_dns_guard_attempts + 1))"
-		sleep 1s
+		:
 	done
 	# Remain a live child long enough for stop_dns_port_guard to terminate and
 	# reap us during the parent DNS verification window.  If the parent is killed
@@ -484,8 +484,17 @@ guard_dns_port_for_adguardhome() {
 	_dns_guard_cleanup_wait=0
 	_dns_guard_cleanup_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" 10)"
 	_dns_guard_cleanup_limit="$((_dns_guard_cleanup_limit + 2))"
-	while [ "${_dns_guard_cleanup_wait}" -lt "${_dns_guard_cleanup_limit}" ]; do
+	# IMPORTANT: Ensure the guard stays alive during the entire cleanup window.
+	# This prevents premature exit when DNS acquisition succeeds but the parent
+	# hasn't yet called stop_dns_port_guard() to reap the child process.
+	while true; do
+		[ "${_dns_guard_cleanup_wait}" -lt "${_dns_guard_cleanup_limit}" ] || break
 		_dns_guard_cleanup_wait="$((_dns_guard_cleanup_wait + 1))"
+		sleep 1s
+	done
+	# Continue waiting indefinitely until explicitly terminated by the parent
+	# via stop_dns_port_guard(), which sends a signal trapped by HUP/INT/TERM/EXIT
+	while true; do
 		sleep 1s
 	done
 }
