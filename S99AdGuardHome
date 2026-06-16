@@ -544,7 +544,11 @@ pre_start_adguardhome() {
 		scribe restart
 	fi
 	DNS_WATCHDOG_TRAP_FILE=""
-	save_dns_watchdog_traps pre
+	if ! save_dns_watchdog_traps pre; then
+		logger -st "${PROCS}" "Unable to preserve startup traps; startup aborted."
+		post_start_failure_adguardhome
+		return 1
+	fi
 	_dns_watchdog_saved_traps="${DNS_WATCHDOG_TRAP_FILE}"
 	while [ "${_dns_stop_attempts}" -lt "${_dns_stop_limit}" ]; do
 		service stop_dnsmasq >/dev/null 2>&1
