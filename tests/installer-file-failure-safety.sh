@@ -33,6 +33,8 @@ awk '
 	/^adguard_install_abort_on_signal\(\)/,/^}/
 	/^adguard_install_abort_trap_enable\(\)/,/^}/
 	/^adguard_restore_after_failed_replace\(\)/,/^}/
+	/^adguardhome_yaml_ipset_file\(\)/,/^}/
+	/^ensure_adguardhome_directory_permissions\(\)/,/^}/
 	/^create_backup_archive\(\)/,/^}/
 	/^install_adguard_archive\(\)/,/^}/
 	/^download_file\(\)/,/^}/
@@ -88,6 +90,7 @@ awk '
 	BASE_DIR="${TMP_DIR}/atomic-install"
 	TARG_DIR="${BASE_DIR}/target"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	YAML_FILE="${AGH_FILE}.yaml"
 	ARCHIVE_FILE="${BASE_DIR}/AdGuardHome.tar.gz"
 	PUBLISHED_DURING_REPLACE="0"
 	mkdir -p "${BASE_DIR}/archive/AdGuardHome" "${TARG_DIR}" || exit 1
