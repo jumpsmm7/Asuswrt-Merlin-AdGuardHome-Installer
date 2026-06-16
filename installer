@@ -1663,7 +1663,7 @@ cleanup_legacy_firewall() {
 }
 
 create_dir() {
-	if ! mkdir -p -m 777 "${1}"; then
+	if ! mkdir -p "${1}"; then
 		PTXT "${ERROR} Unable to create ${1}!"
 		return 1
 	fi
