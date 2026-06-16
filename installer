@@ -1411,7 +1411,8 @@ ensure_adguardhome_directory_permissions() {
 		return 1
 	fi
 	for PERMISSION_PATH in "${TARG_DIR}"/*; do
-		[ -f "${PERMISSION_PATH}" ] || [ -d "${PERMISSION_PATH}" ] || [ -L "${PERMISSION_PATH}" ] || continue
+		[ ! -L "${PERMISSION_PATH}" ] || continue
+		[ -f "${PERMISSION_PATH}" ] || [ -d "${PERMISSION_PATH}" ] || continue
 		if ! chown "${HTTP_USERNAME}:root" "${PERMISSION_PATH}"; then
 			PTXT "${ERROR} Unable to set ownership on ${PERMISSION_PATH}."
 			return 1
@@ -1428,9 +1429,15 @@ ensure_adguardhome_directory_permissions() {
 	for IPSET_PERMISSION_FILE in "${TARG_DIR}/ipset.conf" "${TARG_DIR}/ipset.user" "$(adguardhome_yaml_ipset_file)"; do
 		[ -n "${IPSET_PERMISSION_FILE}" ] || continue
 		case "${IPSET_PERMISSION_FILE}" in
-			/*) ;;
+			/*)
+				case "${IPSET_PERMISSION_FILE}" in
+					"${TARG_DIR}"/*) ;;
+					*) continue ;;
+				esac
+				;;
 			*) IPSET_PERMISSION_FILE="${TARG_DIR}/${IPSET_PERMISSION_FILE}" ;;
 		esac
+		[ ! -L "${IPSET_PERMISSION_FILE}" ] || continue
 		[ -f "${IPSET_PERMISSION_FILE}" ] || continue
 		if ! chmod 600 "${IPSET_PERMISSION_FILE}"; then
 			PTXT "${ERROR} Unable to set private permissions on ${IPSET_PERMISSION_FILE}."
