@@ -138,7 +138,7 @@ EOS
 	mkdir -p "${WORK_DIR}" || exit 1
 	setup_tree "${WORK_DIR}" || exit 1
 	printf '%s\n' 'external rules' >"${EXTERNAL_IPSET_FILE}" || exit 1
-	chmod 644 "${EXTERNAL_IPSET_FILE}" || exit 1
+	chmod 600 "${EXTERNAL_IPSET_FILE}" || exit 1
 	ln -s "${EXTERNAL_IPSET_FILE}" "${WORK_DIR}/external-link" || exit 1
 
 	[ "$(adguardhome_yaml_ipset_file)" = 'custom/from-yaml.conf' ] || fail 'S99 did not parse relative ipset_file from YAML'
@@ -164,31 +164,31 @@ EOS
 	assert_mode "${WORK_DIR}/linked.conf" 'lrwxrwxrwx'
 	assert_mode "${WORK_DIR}/../symlink-target" '-rw-------'
 	assert_mode "${WORK_DIR}/AdGuardHome" '-rwxr-xr-x'
-	assert_mode "${EXTERNAL_IPSET_FILE}" '-rw-r--r--'
+	assert_mode "${EXTERNAL_IPSET_FILE}" '-rw-------'
 	cat >"${WORK_DIR}/AdGuardHome.yaml" <<EOS
 dns:
   ipset_file: "${EXTERNAL_IPSET_FILE}"
 EOS
-	chmod 644 "${WORK_DIR}/AdGuardHome.yaml" "${EXTERNAL_IPSET_FILE}" || exit 1
+	chmod 644 "${WORK_DIR}/AdGuardHome.yaml" || exit 1
 	[ "$(adguardhome_yaml_ipset_file)" = "${EXTERNAL_IPSET_FILE}" ] || fail 'S99 did not parse absolute ipset_file from YAML'
 	ensure_adguardhome_work_dir_permissions >/dev/null || fail 'S99 permission helper failed with external IPSET file'
-	assert_mode "${EXTERNAL_IPSET_FILE}" '-rw-r--r--'
+	assert_mode "${EXTERNAL_IPSET_FILE}" '-rw-------'
 
 	printf '%s\n' 'parent rules' >"${TMP_DIR}/s99/external-ipset.conf" || exit 1
-	chmod 644 "${TMP_DIR}/s99/external-ipset.conf" || exit 1
+	chmod 600 "${TMP_DIR}/s99/external-ipset.conf" || exit 1
 	cat >"${WORK_DIR}/AdGuardHome.yaml" <<'EOS'
 dns:
   ipset_file: ../external-ipset.conf
 EOS
 	ensure_adguardhome_work_dir_permissions >/dev/null || fail 'S99 permission helper failed with parent-relative IPSET file'
-	assert_mode "${TMP_DIR}/s99/external-ipset.conf" '-rw-r--r--'
+	assert_mode "${TMP_DIR}/s99/external-ipset.conf" '-rw-------'
 
 	cat >"${WORK_DIR}/AdGuardHome.yaml" <<EOS
 dns:
   ipset_file: "${WORK_DIR}/../external-ipset.conf"
 EOS
 	ensure_adguardhome_work_dir_permissions >/dev/null || fail 'S99 permission helper failed with parent-traversing absolute IPSET file'
-	assert_mode "${TMP_DIR}/s99/external-ipset.conf" '-rw-r--r--'
+	assert_mode "${TMP_DIR}/s99/external-ipset.conf" '-rw-------'
 ) || exit 1
 
 awk '
