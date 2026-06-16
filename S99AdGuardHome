@@ -167,7 +167,7 @@ pid_nice() {
 	[ -r "/proc/$1/stat" ] || return 1
 	awk '{
 		sub(/^[^)]*\)[[:space:]]*/, "")
-		print $17
+		print $18
 		exit
 	}' "/proc/$1/stat" 2>/dev/null
 }
@@ -435,7 +435,7 @@ guard_dns_port_for_adguardhome() {
 	_dns_guard_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_GUARD_RETRIES:-}" 10)"
 	# Install cleanup before the first watchdog STOP so a parent-side shutdown
 	# cannot terminate us during retry sleep without resuming the watchdog.
-	trap 'reap_the_watch_dog CONT; exit 0' HUP INT TERM EXIT
+	trap 'trap - HUP INT TERM EXIT; reap_the_watch_dog CONT; exit 0' HUP INT TERM EXIT
 	while [ "${_dns_guard_attempts}" -lt "${_dns_guard_limit}" ]; do
 		adguardhome_owns_dns && break
 		service stop_dnsmasq >/dev/null 2>&1
@@ -444,9 +444,14 @@ guard_dns_port_for_adguardhome() {
 		_dns_guard_attempts="$((_dns_guard_attempts + 1))"
 		sleep 1s
 	done
-	# Remain a live child until stop_dns_port_guard terminates and reaps us.  This
-	# prevents the saved PID from being reused while the parent verifies DNS.
-	while :; do
+	# Remain a live child long enough for stop_dns_port_guard to terminate and
+	# reap us during the parent DNS verification window.  If the parent is killed
+	# ungracefully, leave on our own so the EXIT trap resumes the watchdog.
+	_dns_guard_cleanup_wait=0
+	_dns_guard_cleanup_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" 10)"
+	_dns_guard_cleanup_limit="$((_dns_guard_cleanup_limit + 2))"
+	while [ "${_dns_guard_cleanup_wait}" -lt "${_dns_guard_cleanup_limit}" ]; do
+		_dns_guard_cleanup_wait="$((_dns_guard_cleanup_wait + 1))"
 		sleep 1s
 	done
 }
