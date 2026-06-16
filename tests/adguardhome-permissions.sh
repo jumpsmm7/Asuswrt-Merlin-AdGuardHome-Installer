@@ -55,6 +55,8 @@ EOS
 	printf '%s\n' 'managed rules' >"${_base_dir}/ipset.conf" || return 1
 	printf '%s\n' 'user rules' >"${_base_dir}/ipset.user" || return 1
 	printf '%s\n' 'yaml rules' >"${_base_dir}/custom/from-yaml.conf" || return 1
+	printf '%s\n' 'symlink target' >"${_base_dir}/../symlink-target" || return 1
+	ln -s "${_base_dir}/../symlink-target" "${_base_dir}/linked.conf" || return 1
 	chmod 755 "${_base_dir}" "${_base_dir}/AdGuardHome.yaml" \
 		"${_base_dir}/ipset.conf" "${_base_dir}/ipset.user" \
 		"${_base_dir}/custom/from-yaml.conf" || return 1
@@ -93,6 +95,7 @@ extract_permission_functions "${REPO_DIR}/S99AdGuardHome" "${S99_FUNCTIONS}" \
 	assert_mode "${TARG_DIR}/ipset.conf" '-rw-------'
 	assert_mode "${TARG_DIR}/ipset.user" '-rw-------'
 	assert_mode "${TARG_DIR}/custom/from-yaml.conf" '-rw-------'
+	assert_mode "${TARG_DIR}/linked.conf" 'lrwxrwxrwx'
 	assert_mode "${AGH_FILE}" '-rwxr-xr-x'
 ) || exit 1
 
@@ -116,9 +119,9 @@ extract_permission_functions "${REPO_DIR}/S99AdGuardHome" "${S99_FUNCTIONS}" \
 	assert_mode "${WORK_DIR}/ipset.conf" '-rw-------'
 	assert_mode "${WORK_DIR}/ipset.user" '-rw-------'
 	assert_mode "${WORK_DIR}/custom/from-yaml.conf" '-rw-------'
+	assert_mode "${WORK_DIR}/linked.conf" 'lrwxrwxrwx'
 	assert_mode "${WORK_DIR}/AdGuardHome" '-rwxr-xr-x'
 ) || exit 1
-
 
 awk '
 	/^check_AdGuardHome_yaml\(\) \{$/ { in_check = 1; next }

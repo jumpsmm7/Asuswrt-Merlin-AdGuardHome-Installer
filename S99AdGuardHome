@@ -568,7 +568,8 @@ ensure_adguardhome_work_dir_permissions() {
 		return 1
 	fi
 	for _agh_perm_path in "${WORK_DIR}"/*; do
-		[ -f "${_agh_perm_path}" ] || [ -d "${_agh_perm_path}" ] || [ -L "${_agh_perm_path}" ] || continue
+		[ ! -L "${_agh_perm_path}" ] || continue
+		[ -f "${_agh_perm_path}" ] || [ -d "${_agh_perm_path}" ] || continue
 		if ! chown "${_agh_perm_http_username}:root" "${_agh_perm_path}"; then
 			logger -st "${PROCS}" "Unable to set ownership on ${_agh_perm_path}."
 			return 1
@@ -585,9 +586,15 @@ ensure_adguardhome_work_dir_permissions() {
 	for _agh_perm_ipset_file in "${WORK_DIR}/ipset.conf" "${WORK_DIR}/ipset.user" "$(adguardhome_yaml_ipset_file)"; do
 		[ -n "${_agh_perm_ipset_file}" ] || continue
 		case "${_agh_perm_ipset_file}" in
-			/*) ;;
+			/*)
+				case "${_agh_perm_ipset_file}" in
+					"${WORK_DIR}"/*) ;;
+					*) continue ;;
+				esac
+				;;
 			*) _agh_perm_ipset_file="${WORK_DIR}/${_agh_perm_ipset_file}" ;;
 		esac
+		[ ! -L "${_agh_perm_ipset_file}" ] || continue
 		[ -f "${_agh_perm_ipset_file}" ] || continue
 		if ! chmod 600 "${_agh_perm_ipset_file}"; then
 			logger -st "${PROCS}" "Unable to set private permissions on ${_agh_perm_ipset_file}."
