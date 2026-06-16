@@ -539,6 +539,20 @@ adguardhome_yaml_ipset_file() {
 	[ -f "${WORK_DIR}/AdGuardHome.yaml" ] || return 0
 	awk '
 		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
+		function block_marker(value) {
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			return value ~ /^[>|][+-]?([[:space:]]+#.*)?$/
+		}
+		function block_scalar(parent_indent,    line, text) {
+			while ((getline line) > 0) {
+				if (line ~ /^[[:space:]]*($|#)/) continue
+				if (indentation(line) <= parent_indent) exit
+				text = line
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", text)
+				print text
+				exit
+			}
+		}
 		function scalar(value,    ch, decoded, i, next_ch, quote, rest) {
 			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
 			quote = substr(value, 1, 1)
@@ -582,6 +596,10 @@ adguardhome_yaml_ipset_file() {
 		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
 			value = substr($0, child_indent + 1)
 			sub(/^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/, "", value)
+			if (block_marker(value)) {
+				block_scalar(child_indent)
+				exit
+			}
 			print scalar(value)
 			exit
 		}
