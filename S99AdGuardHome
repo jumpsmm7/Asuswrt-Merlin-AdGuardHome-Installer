@@ -489,6 +489,14 @@ guard_dns_port_for_adguardhome() {
 
 # Service hook helpers
 
+abort_pre_start_adguardhome() {
+	_dns_watchdog_abort_saved_traps="${1:-}"
+	trap - HUP INT TERM EXIT
+	post_start_failure_adguardhome
+	restore_dns_watchdog_traps "${_dns_watchdog_abort_saved_traps}"
+	exit 1
+}
+
 post_start_adguardhome() {
 	if ! wait_for_adguardhome_dns; then
 		stop_dns_port_guard
@@ -538,7 +546,7 @@ pre_start_adguardhome() {
 		kill_dns_port_owners
 		# The DNS guard is not running yet, so protect this parent-side
 		# watchdog suspension against aborts until the guard takes over.
-		trap 'resume_dns_watchdog; restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"; exit 1' HUP INT TERM EXIT
+		trap 'abort_pre_start_adguardhome "${_dns_watchdog_saved_traps}"' HUP INT TERM EXIT
 		suspend_dns_watchdog
 		_dns_stop_attempts="$((_dns_stop_attempts + 1))"
 		sleep 1s
