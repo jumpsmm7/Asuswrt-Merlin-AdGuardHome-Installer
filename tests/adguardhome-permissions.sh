@@ -105,12 +105,19 @@ extract_permission_functions "${REPO_DIR}/S99AdGuardHome" "${S99_FUNCTIONS}" \
 
 	logger() { :; }
 	nvram() { [ "$1" = get ] && [ "$2" = http_username ] && printf '%s\n' root; }
-	chown() { return 0; }
+	chown() {
+		[ -L "$2" ] && return 1
+		return 0
+	}
 
 	PROCS="AdGuardHome"
 	WORK_DIR="${TMP_DIR}/s99/AdGuardHome"
+	EXTERNAL_IPSET_FILE="${TMP_DIR}/external-ipset.conf"
 	mkdir -p "${WORK_DIR}" || exit 1
 	setup_tree "${WORK_DIR}" || exit 1
+	printf '%s\n' 'external rules' >"${EXTERNAL_IPSET_FILE}" || exit 1
+	chmod 644 "${EXTERNAL_IPSET_FILE}" || exit 1
+	ln -s "${EXTERNAL_IPSET_FILE}" "${WORK_DIR}/external-link" || exit 1
 
 	[ "$(adguardhome_yaml_ipset_file)" = 'custom/from-yaml.conf' ] || fail 'S99 did not parse relative ipset_file from YAML'
 	ensure_adguardhome_work_dir_permissions >/dev/null || fail 'S99 permission helper failed'
@@ -121,6 +128,15 @@ extract_permission_functions "${REPO_DIR}/S99AdGuardHome" "${S99_FUNCTIONS}" \
 	assert_mode "${WORK_DIR}/custom/from-yaml.conf" '-rw-------'
 	assert_mode "${WORK_DIR}/linked.conf" 'lrwxrwxrwx'
 	assert_mode "${WORK_DIR}/AdGuardHome" '-rwxr-xr-x'
+	assert_mode "${EXTERNAL_IPSET_FILE}" '-rw-r--r--'
+	cat >"${WORK_DIR}/AdGuardHome.yaml" <<EOS
+dns:
+  ipset_file: "${EXTERNAL_IPSET_FILE}"
+EOS
+	chmod 644 "${WORK_DIR}/AdGuardHome.yaml" "${EXTERNAL_IPSET_FILE}" || exit 1
+	[ "$(adguardhome_yaml_ipset_file)" = "${EXTERNAL_IPSET_FILE}" ] || fail 'S99 did not parse absolute ipset_file from YAML'
+	ensure_adguardhome_work_dir_permissions >/dev/null || fail 'S99 permission helper failed with external IPSET file'
+	assert_mode "${EXTERNAL_IPSET_FILE}" '-rw-r--r--'
 ) || exit 1
 
 awk '
