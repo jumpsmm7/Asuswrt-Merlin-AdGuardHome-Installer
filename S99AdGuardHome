@@ -166,8 +166,10 @@ watchdog_pids() {
 pid_nice() {
 	[ -r "/proc/$1/stat" ] || return 1
 	awk '{
+		# After removing the pid and comm fields, /proc/<pid>/stat field 19
+		# (nice) is the seventeenth remaining whitespace-delimited field.
 		sub(/^[^)]*\)[[:space:]]*/, "")
-		print $18
+		print $17
 		exit
 	}' "/proc/$1/stat" 2>/dev/null
 }
