@@ -11,6 +11,7 @@ PROCS="AdGuardHome"
 DNS_HANDOFF_DIR="/tmp/AdGuardHome.dns-handoff"
 DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
 DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
+WATCHD_NICE_SNAPSHOT=""
 GOGC="40"
 CPU_COUNT=""
 if which grep >/dev/null 2>&1; then
@@ -156,6 +157,63 @@ dns_handoff_lock_file_is_active() {
 
 dns_handoff_lock_is_active() {
 	dns_handoff_lock_file_is_active "${DNS_HANDOFF_LOCK}"
+}
+
+watchdog_pids() {
+	ps | awk '/[w]atchdog/ { print $1 }'
+}
+
+pid_nice() {
+	[ -r "/proc/$1/stat" ] || return 1
+	awk '{
+		# After removing the pid and comm fields, /proc/<pid>/stat field 19
+		# (nice) is the seventeenth remaining whitespace-delimited field.
+		sub(/^[^)]*\)[[:space:]]*/, "")
+		print $17
+		exit
+	}' "/proc/$1/stat" 2>/dev/null
+}
+
+save_watchdog_nice() {
+	_watchdog_nice_snapshot=""
+	for _watchdog_nice_pid in $(watchdog_pids); do
+		_watchdog_nice_value="$(pid_nice "${_watchdog_nice_pid}")" || continue
+		[ -n "${_watchdog_nice_value}" ] || continue
+		_watchdog_nice_snapshot="${_watchdog_nice_snapshot}${_watchdog_nice_pid}:${_watchdog_nice_value} "
+	done
+	WATCHD_NICE_SNAPSHOT="${_watchdog_nice_snapshot}"
+	[ -n "${WATCHD_NICE_SNAPSHOT}" ]
+}
+
+restore_watchdog_nice() {
+	for _watchdog_nice_item in ${WATCHD_NICE_SNAPSHOT}; do
+		_watchdog_nice_pid="${_watchdog_nice_item%%:*}"
+		_watchdog_nice_value="${_watchdog_nice_item#*:}"
+		[ -d "/proc/${_watchdog_nice_pid}" ] || continue
+		renice "${_watchdog_nice_value}" "${_watchdog_nice_pid}" >/dev/null 2>&1
+	done
+	WATCHD_NICE_SNAPSHOT=""
+}
+
+reap_the_watch_dog() {
+	WATCHD_PID="$(watchdog_pids)"
+	[ -n "${WATCHD_PID}" ] || return 1
+	case "${1:-}" in
+		STOP)
+			# Only save once, so a second "stop" does not overwrite
+			# the real original nice values with 19.
+			[ -n "${WATCHD_NICE_SNAPSHOT}" ] || save_watchdog_nice
+			renice 19 ${WATCHD_PID} >/dev/null 2>&1
+			;;
+		CONT)
+			restore_watchdog_nice
+			;;
+		*)
+			return 1
+			;;
+	esac
+	kill -s "${1}" ${WATCHD_PID} >/dev/null 2>&1
+	return 0
 }
 
 reclaim_stale_dns_handoff_lock() {
@@ -377,17 +435,25 @@ wait_for_adguardhome_dns() {
 guard_dns_port_for_adguardhome() {
 	_dns_guard_attempts="0"
 	_dns_guard_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_GUARD_RETRIES:-}" 10)"
+	# Install cleanup before the first watchdog STOP so a parent-side shutdown
+	# cannot terminate us during retry sleep without resuming the watchdog.
+	trap 'trap - HUP INT TERM EXIT; reap_the_watch_dog CONT; exit 0' HUP INT TERM EXIT
 	while [ "${_dns_guard_attempts}" -lt "${_dns_guard_limit}" ]; do
 		adguardhome_owns_dns && break
 		service stop_dnsmasq >/dev/null 2>&1
 		kill_dns_port_owners
+		reap_the_watch_dog STOP
 		_dns_guard_attempts="$((_dns_guard_attempts + 1))"
 		sleep 1s
 	done
-	# Remain a live child until stop_dns_port_guard terminates and reaps us.  This
-	# prevents the saved PID from being reused while the parent verifies DNS.
-	trap 'exit 0' HUP INT TERM
-	while :; do
+	# Remain a live child long enough for stop_dns_port_guard to terminate and
+	# reap us during the parent DNS verification window.  If the parent is killed
+	# ungracefully, leave on our own so the EXIT trap resumes the watchdog.
+	_dns_guard_cleanup_wait=0
+	_dns_guard_cleanup_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" 10)"
+	_dns_guard_cleanup_limit="$((_dns_guard_cleanup_limit + 2))"
+	while [ "${_dns_guard_cleanup_wait}" -lt "${_dns_guard_cleanup_limit}" ]; do
+		_dns_guard_cleanup_wait="$((_dns_guard_cleanup_wait + 1))"
 		sleep 1s
 	done
 }
@@ -397,8 +463,7 @@ guard_dns_port_for_adguardhome() {
 post_start_adguardhome() {
 	if ! wait_for_adguardhome_dns; then
 		stop_dns_port_guard
-		disable_dns_handoff ||
-			logger -st "${PROCS}" "The dnsmasq port 553 handoff marker requires manual cleanup."
+		disable_dns_handoff || logger -st "${PROCS}" "The dnsmasq port 553 handoff marker requires manual cleanup."
 		logger -st "${PROCS}" "AdGuardHome did not acquire TCP and UDP port 53; startup will be rolled back."
 		return 1
 	fi
