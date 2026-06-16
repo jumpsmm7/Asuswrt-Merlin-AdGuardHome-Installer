@@ -222,11 +222,11 @@ resume_dns_watchdog() {
 
 restore_dns_watchdog_traps() {
 	_dns_watchdog_restore_traps="${1:-}"
+	[ -n "${_dns_watchdog_restore_traps}" ] || return 1
+	[ -f "${_dns_watchdog_restore_traps}" ] || return 1
 	trap - HUP INT TERM EXIT
-	if [ -n "${_dns_watchdog_restore_traps}" ] && [ -f "${_dns_watchdog_restore_traps}" ]; then
-		eval "$(cat "${_dns_watchdog_restore_traps}")"
-		rm -f "${_dns_watchdog_restore_traps}" 2>/dev/null
-	fi
+	eval "$(cat "${_dns_watchdog_restore_traps}")"
+	rm -f "${_dns_watchdog_restore_traps}" 2>/dev/null
 }
 
 save_dns_watchdog_traps() {
@@ -462,7 +462,10 @@ guard_dns_port_for_adguardhome() {
 	_dns_guard_attempts="0"
 	_dns_guard_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_GUARD_RETRIES:-}" 10)"
 	DNS_WATCHDOG_TRAP_FILE=""
-	save_dns_watchdog_traps guard
+	if ! save_dns_watchdog_traps guard; then
+		logger -st "${PROCS}" "Unable to preserve DNS guard traps; guard startup aborted."
+		return 1
+	fi
 	_dns_guard_saved_traps="${DNS_WATCHDOG_TRAP_FILE}"
 	# Install cleanup before the first watchdog STOP so a parent-side shutdown
 	# cannot terminate us during retry sleep without resuming the watchdog.
