@@ -57,12 +57,6 @@ WATCHD_NICE_SNAPSHOT=""
 PROCS='AdGuardHome'
 WORK_DIR="${TEST_ROOT}/AdGuardHome"
 mkdir -p "${WORK_DIR}" || fail 'could not create AdGuardHome work directory'
-nvram() {
-	[ "$1" = get ] && [ "$2" = http_username ] && printf '%s\n' root
-}
-chown() {
-	return 0
-}
 DNS_HANDOFF_DIR="${TEST_ROOT}/dns-handoff"
 DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
 DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
@@ -82,6 +76,9 @@ wait "${IDENTITY_TEST_PID}" ||
 	fail 'background shell identity did not match its proc start time'
 logger() {
 	printf '%s\n' "logger $*" >>"${CALLS_FILE}"
+}
+nvram() {
+	[ "${1:-}" = get ] && [ "${2:-}" = http_username ] && printf '%s\n' root
 }
 rm() {
 	if [ "${RM_HANDOFF_FAIL:-0}" -eq 1 ] && [ "${1:-}" = '-f' ] && [ "${2:-}" = "${DNS_HANDOFF_FILE}" ]; then
