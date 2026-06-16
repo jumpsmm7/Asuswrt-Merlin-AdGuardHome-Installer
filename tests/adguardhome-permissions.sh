@@ -78,7 +78,8 @@ extract_permission_functions "${REPO_DIR}/S99AdGuardHome" "${S99_FUNCTIONS}" \
 
 	PTXT() { printf '%s\n' "$*" >/dev/null; }
 	nvram() { [ "$1" = get ] && [ "$2" = http_username ] && printf '%s\n' root; }
-	chown() { return 0; }
+	CHOWN_LOG="${TMP_DIR}/installer-chown.log"
+	chown() { printf '%s\n' "$2" >>"${CHOWN_LOG}"; return 0; }
 
 	BASE_DIR="${TMP_DIR}/installer"
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
@@ -89,7 +90,13 @@ extract_permission_functions "${REPO_DIR}/S99AdGuardHome" "${S99_FUNCTIONS}" \
 	setup_tree "${TARG_DIR}" || exit 1
 
 	[ "$(adguardhome_yaml_ipset_file)" = 'custom/from-yaml.conf' ] || fail 'installer did not parse relative ipset_file from YAML'
+	cat >"${YAML_FILE}" <<'EOS'
+dns:
+  'ipset_file': "custom/from-yaml.conf"
+EOS
+	[ "$(adguardhome_yaml_ipset_file)" = 'custom/from-yaml.conf' ] || fail 'installer did not parse quoted ipset_file key from YAML'
 	ensure_adguardhome_directory_permissions >/dev/null || fail 'installer permission helper failed'
+	grep -Fx "${TARG_DIR}/custom/from-yaml.conf" "${CHOWN_LOG}" >/dev/null || fail 'installer did not chown nested YAML IPSET file'
 	assert_mode "${TARG_DIR}" 'drwx------'
 	assert_mode "${YAML_FILE}" '-rw-------'
 	assert_mode "${TARG_DIR}/ipset.conf" '-rw-------'
@@ -105,8 +112,10 @@ extract_permission_functions "${REPO_DIR}/S99AdGuardHome" "${S99_FUNCTIONS}" \
 
 	logger() { :; }
 	nvram() { [ "$1" = get ] && [ "$2" = http_username ] && printf '%s\n' root; }
+	CHOWN_LOG="${TMP_DIR}/s99-chown.log"
 	chown() {
 		[ -L "$2" ] && return 1
+		printf '%s\n' "$2" >>"${CHOWN_LOG}"
 		return 0
 	}
 
@@ -120,7 +129,13 @@ extract_permission_functions "${REPO_DIR}/S99AdGuardHome" "${S99_FUNCTIONS}" \
 	ln -s "${EXTERNAL_IPSET_FILE}" "${WORK_DIR}/external-link" || exit 1
 
 	[ "$(adguardhome_yaml_ipset_file)" = 'custom/from-yaml.conf' ] || fail 'S99 did not parse relative ipset_file from YAML'
+	cat >"${WORK_DIR}/AdGuardHome.yaml" <<'EOS'
+dns:
+  "ipset_file": 'custom/from-yaml.conf'
+EOS
+	[ "$(adguardhome_yaml_ipset_file)" = 'custom/from-yaml.conf' ] || fail 'S99 did not parse quoted ipset_file key from YAML'
 	ensure_adguardhome_work_dir_permissions >/dev/null || fail 'S99 permission helper failed'
+	grep -Fx "${WORK_DIR}/custom/from-yaml.conf" "${CHOWN_LOG}" >/dev/null || fail 'S99 did not chown nested YAML IPSET file'
 	assert_mode "${WORK_DIR}" 'drwx------'
 	assert_mode "${WORK_DIR}/AdGuardHome.yaml" '-rw-------'
 	assert_mode "${WORK_DIR}/ipset.conf" '-rw-------'

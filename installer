@@ -1383,16 +1383,51 @@ adguard_restore_after_failed_replace() {
 adguardhome_yaml_ipset_file() {
 	[ -f "${YAML_FILE}" ] || return 0
 	awk '
-		/^[[:space:]]*ipset_file:[[:space:]]*/ {
-			line = $0
-			sub(/^[[:space:]]*ipset_file:[[:space:]]*/, "", line)
-			sub(/[[:space:]]+#.*$/, "", line)
-			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
-			if ((substr(line, 1, 1) == "\"" && substr(line, length(line), 1) == "\"") ||
-			    (substr(line, 1, 1) == "'"'"'" && substr(line, length(line), 1) == "'"'"'")) {
-				line = substr(line, 2, length(line) - 2)
+		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
+		function scalar(value,    ch, decoded, i, next_ch, quote, rest) {
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			quote = substr(value, 1, 1)
+			if (quote != "\"" && quote != "\047") {
+				sub(/[[:space:]]+#.*$/, "", value)
+				gsub(/[[:space:]]+$/, "", value)
+				if (value ~ /^(~|null|Null|NULL)$/) return ""
+				return value
 			}
-			if (line != "") print line
+			decoded = ""
+			for (i = 2; i <= length(value); i++) {
+				ch = substr(value, i, 1)
+				next_ch = substr(value, i + 1, 1)
+				if (quote == "\"" && ch == "\\") {
+					if (next_ch == "\"" || next_ch == "\\" || next_ch == "/" || next_ch == " ") {
+						decoded = decoded next_ch
+						i++
+						continue
+					}
+					exit 1
+				}
+				if (quote == "\047" && ch == quote && next_ch == quote) {
+					decoded = decoded quote
+					i++
+					continue
+				}
+				if (ch == quote) {
+					rest = substr(value, i + 1)
+					if (rest !~ /^[[:space:]]*(#.*)?$/) exit 1
+					return decoded
+				}
+				decoded = decoded ch
+			}
+			exit 1
+		}
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(&[^][{},[:space:]]+[[:space:]]*)?(#.*)?$/ { in_dns = 1; next }
+		/^(dns|\047dns\047|"dns"):/ { exit 1 }
+		in_dns && /^[^[:space:]]/ { exit }
+		in_dns && /^[[:space:]]*($|#)/ { next }
+		in_dns && !child_indent { child_indent = indentation($0) }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
+			value = substr($0, child_indent + 1)
+			sub(/^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/, "", value)
+			print scalar(value)
 			exit
 		}
 	' "${YAML_FILE}"
@@ -1442,6 +1477,10 @@ ensure_adguardhome_directory_permissions() {
 		esac
 		[ ! -L "${IPSET_PERMISSION_FILE}" ] || continue
 		[ -f "${IPSET_PERMISSION_FILE}" ] || continue
+		if ! chown "${HTTP_USERNAME}:root" "${IPSET_PERMISSION_FILE}"; then
+			PTXT "${ERROR} Unable to set ownership on ${IPSET_PERMISSION_FILE}."
+			return 1
+		fi
 		if ! chmod 600 "${IPSET_PERMISSION_FILE}"; then
 			PTXT "${ERROR} Unable to set private permissions on ${IPSET_PERMISSION_FILE}."
 			return 1
