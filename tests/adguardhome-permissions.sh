@@ -137,6 +137,22 @@ EOS
 	[ "$(adguardhome_yaml_ipset_file)" = "${EXTERNAL_IPSET_FILE}" ] || fail 'S99 did not parse absolute ipset_file from YAML'
 	ensure_adguardhome_work_dir_permissions >/dev/null || fail 'S99 permission helper failed with external IPSET file'
 	assert_mode "${EXTERNAL_IPSET_FILE}" '-rw-r--r--'
+
+	printf '%s\n' 'parent rules' >"${TMP_DIR}/s99/external-ipset.conf" || exit 1
+	chmod 644 "${TMP_DIR}/s99/external-ipset.conf" || exit 1
+	cat >"${WORK_DIR}/AdGuardHome.yaml" <<'EOS'
+dns:
+  ipset_file: ../external-ipset.conf
+EOS
+	ensure_adguardhome_work_dir_permissions >/dev/null || fail 'S99 permission helper failed with parent-relative IPSET file'
+	assert_mode "${TMP_DIR}/s99/external-ipset.conf" '-rw-r--r--'
+
+	cat >"${WORK_DIR}/AdGuardHome.yaml" <<EOS
+dns:
+  ipset_file: "${WORK_DIR}/../external-ipset.conf"
+EOS
+	ensure_adguardhome_work_dir_permissions >/dev/null || fail 'S99 permission helper failed with parent-traversing absolute IPSET file'
+	assert_mode "${TMP_DIR}/s99/external-ipset.conf" '-rw-r--r--'
 ) || exit 1
 
 awk '
