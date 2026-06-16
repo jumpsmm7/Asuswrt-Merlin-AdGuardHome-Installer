@@ -220,6 +220,24 @@ resume_dns_watchdog() {
 	reap_the_watch_dog CONT >/dev/null 2>&1 || true
 }
 
+restore_dns_watchdog_traps() {
+	_dns_watchdog_restore_traps="${1:-}"
+	trap - HUP INT TERM EXIT
+	if [ -n "${_dns_watchdog_restore_traps}" ] && [ -f "${_dns_watchdog_restore_traps}" ]; then
+		eval "$(cat "${_dns_watchdog_restore_traps}")"
+		rm -f "${_dns_watchdog_restore_traps}" 2>/dev/null
+	fi
+}
+
+save_dns_watchdog_traps() {
+	_dns_watchdog_trap_suffix="${1:-}"
+	_dns_watchdog_trap_file="${DNS_HANDOFF_DIR}/watchdog-traps.$$"
+	[ -n "${_dns_watchdog_trap_suffix}" ] && _dns_watchdog_trap_file="${_dns_watchdog_trap_file}.${_dns_watchdog_trap_suffix}"
+	trap >"${_dns_watchdog_trap_file}" || return 1
+	DNS_WATCHDOG_TRAP_FILE="${_dns_watchdog_trap_file}"
+	return 0
+}
+
 suspend_dns_watchdog() {
 	reap_the_watch_dog STOP >/dev/null 2>&1 || true
 }
@@ -443,9 +461,12 @@ wait_for_adguardhome_dns() {
 guard_dns_port_for_adguardhome() {
 	_dns_guard_attempts="0"
 	_dns_guard_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_GUARD_RETRIES:-}" 10)"
+	DNS_WATCHDOG_TRAP_FILE=""
+	save_dns_watchdog_traps guard
+	_dns_guard_saved_traps="${DNS_WATCHDOG_TRAP_FILE}"
 	# Install cleanup before the first watchdog STOP so a parent-side shutdown
 	# cannot terminate us during retry sleep without resuming the watchdog.
-	trap 'trap - HUP INT TERM EXIT; resume_dns_watchdog; exit 0' HUP INT TERM EXIT
+	trap 'resume_dns_watchdog; restore_dns_watchdog_traps "${_dns_guard_saved_traps}"; exit 0' HUP INT TERM EXIT
 	while [ "${_dns_guard_attempts}" -lt "${_dns_guard_limit}" ]; do
 		adguardhome_owns_dns && break
 		service stop_dnsmasq >/dev/null 2>&1
@@ -509,25 +530,28 @@ pre_start_adguardhome() {
 	if [ "$(pidof syslog-ng logrotate | wc -w)" -gt 0 ] && which scribe >/dev/null 2>&1; then
 		scribe restart
 	fi
+	DNS_WATCHDOG_TRAP_FILE=""
+	save_dns_watchdog_traps pre
+	_dns_watchdog_saved_traps="${DNS_WATCHDOG_TRAP_FILE}"
 	while [ "${_dns_stop_attempts}" -lt "${_dns_stop_limit}" ]; do
 		service stop_dnsmasq >/dev/null 2>&1
 		kill_dns_port_owners
 		# The DNS guard is not running yet, so protect this parent-side
 		# watchdog suspension against aborts until the guard takes over.
-		trap 'trap - HUP INT TERM EXIT; resume_dns_watchdog; exit 1' HUP INT TERM EXIT
+		trap 'resume_dns_watchdog; restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"; exit 1' HUP INT TERM EXIT
 		suspend_dns_watchdog
 		_dns_stop_attempts="$((_dns_stop_attempts + 1))"
 		sleep 1s
 		if dns_port_available; then
 			guard_dns_port_for_adguardhome >/dev/null 2>&1 &
 			ADGUARDHOME_DNS_GUARD_PID="$!"
-			trap - HUP INT TERM EXIT
+			restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
 			return 0
 		fi
 	done
 	logger -st "${PROCS}" "Unable to release port 53 after ${_dns_stop_limit} attempt(s); startup aborted."
 	post_start_failure_adguardhome
-	trap - HUP INT TERM EXIT
+	restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
 	return 1
 }
 
