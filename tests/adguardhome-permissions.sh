@@ -182,8 +182,12 @@ awk '
 	/^backup_restore\(\) \{$/ { in_restore = 1; next }
 	in_restore && /^}$/ { in_restore = 0 }
 	in_restore && /ensure_adguardhome_directory_permissions/ { restore_call++ }
+	/^create_dir\(\) \{$/ { in_create_dir = 1; next }
+	in_create_dir && /^}$/ { in_create_dir = 0 }
+	in_create_dir && /mkdir -p -m 777 "\$\{1\}"/ { create_mkdir_mode++ }
+	in_create_dir && /chmod 777 "\$\{1\}"/ { create_chmod++ }
 	/if ! create_dir "\$\{TARG_DIR\}" \|\| ! ensure_adguardhome_directory_permissions; then/ { create_call++ }
-	END { exit(yaml_chmod == 1 && install_call == 1 && restore_call >= 1 && create_call == 1 ? 0 : 1) }
+	END { exit(yaml_chmod == 1 && install_call == 1 && restore_call >= 1 && create_call == 1 && create_mkdir_mode == 1 && create_chmod == 1 ? 0 : 1) }
 ' "${REPO_DIR}/installer" || fail 'installer permission helper is not wired into all expected install, restore, and config paths'
 
 awk '
