@@ -56,6 +56,7 @@ EOS
 	printf '%s\n' 'user rules' >"${_base_dir}/ipset.user" || return 1
 	printf '%s\n' 'yaml rules' >"${_base_dir}/custom/from-yaml.conf" || return 1
 	printf '%s\n' 'symlink target' >"${_base_dir}/../symlink-target" || return 1
+	chmod 600 "${_base_dir}/../symlink-target" || return 1
 	ln -s "${_base_dir}/../symlink-target" "${_base_dir}/linked.conf" || return 1
 	chmod 755 "${_base_dir}" "${_base_dir}/custom" || return 1
 	chmod 755 "${_base_dir}/AdGuardHome.yaml" \
@@ -114,6 +115,7 @@ EOS
 	assert_mode "${TARG_DIR}/ipset.user" '-rw-r--r--'
 	assert_mode "${TARG_DIR}/custom/from-yaml.conf" '-rw-r--r--'
 	assert_mode "${TARG_DIR}/linked.conf" 'lrwxrwxrwx'
+	assert_mode "${TARG_DIR}/../symlink-target" '-rw-------'
 	assert_mode "${AGH_FILE}" '-rwxr-xr-x'
 ) || exit 1
 
@@ -160,6 +162,7 @@ EOS
 	assert_mode "${WORK_DIR}/ipset.user" '-rw-r--r--'
 	assert_mode "${WORK_DIR}/custom/from-yaml.conf" '-rw-r--r--'
 	assert_mode "${WORK_DIR}/linked.conf" 'lrwxrwxrwx'
+	assert_mode "${WORK_DIR}/../symlink-target" '-rw-------'
 	assert_mode "${WORK_DIR}/AdGuardHome" '-rwxr-xr-x'
 	assert_mode "${EXTERNAL_IPSET_FILE}" '-rw-r--r--'
 	cat >"${WORK_DIR}/AdGuardHome.yaml" <<EOS
