@@ -42,6 +42,8 @@ if grep -q '${20' "${S99_PATH}"; then
 	fail 'service script uses a multi-digit positional parameter unsupported by older BusyBox ash'
 fi
 
+WATCHD_NICE_SNAPSHOT=""
+
 # shellcheck disable=SC1090
 . "${S99_FUNCTIONS}"
 # shellcheck disable=SC1090
