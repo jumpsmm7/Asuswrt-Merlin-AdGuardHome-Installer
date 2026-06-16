@@ -505,6 +505,11 @@ post_start_adguardhome() {
 		return 1
 	fi
 	stop_dns_port_guard
+	# The guard normally resumes the watchdog from its TERM/EXIT trap, but
+	# AdGuardHome can acquire port 53 before the guard finishes arming it.
+	# Resume parent-side after reaping the guard so a fast success cannot leave
+	# the router watchdog suspended.
+	resume_dns_watchdog
 	disable_dns_handoff || return 1
 	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
 		service restart_dnsmasq >/dev/null 2>&1 || return 1
