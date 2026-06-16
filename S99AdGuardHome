@@ -535,9 +535,76 @@ post_start_failure_adguardhome() {
 	return "${_dns_recovery_status}"
 }
 
+adguardhome_yaml_ipset_file() {
+	[ -f "${WORK_DIR}/AdGuardHome.yaml" ] || return 0
+	awk '
+		/^[[:space:]]*ipset_file:[[:space:]]*/ {
+			line = $0
+			sub(/^[[:space:]]*ipset_file:[[:space:]]*/, "", line)
+			sub(/[[:space:]]+#.*$/, "", line)
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+			if ((substr(line, 1, 1) == "\"" && substr(line, length(line), 1) == "\"") ||
+			    (substr(line, 1, 1) == "'"'"'" && substr(line, length(line), 1) == "'"'"'")) {
+				line = substr(line, 2, length(line) - 2)
+			}
+			if (line != "") print line
+			exit
+		}
+	' "${WORK_DIR}/AdGuardHome.yaml"
+}
+
+ensure_adguardhome_work_dir_permissions() {
+	_agh_perm_http_username=""
+	_agh_perm_ipset_file=""
+	_agh_perm_path=""
+	if [ ! -d "${WORK_DIR}" ]; then
+		logger -st "${PROCS}" "Missing AdGuardHome work directory ${WORK_DIR}."
+		return 1
+	fi
+	_agh_perm_http_username="$(nvram get http_username 2>/dev/null)"
+	[ -n "${_agh_perm_http_username}" ] || _agh_perm_http_username="root"
+	if ! chown "${_agh_perm_http_username}:root" "${WORK_DIR}"; then
+		logger -st "${PROCS}" "Unable to set ownership on ${WORK_DIR}."
+		return 1
+	fi
+	for _agh_perm_path in "${WORK_DIR}"/*; do
+		[ -f "${_agh_perm_path}" ] || [ -d "${_agh_perm_path}" ] || [ -L "${_agh_perm_path}" ] || continue
+		if ! chown "${_agh_perm_http_username}:root" "${_agh_perm_path}"; then
+			logger -st "${PROCS}" "Unable to set ownership on ${_agh_perm_path}."
+			return 1
+		fi
+	done
+	if ! chmod 700 "${WORK_DIR}"; then
+		logger -st "${PROCS}" "Unable to set private permissions on ${WORK_DIR}."
+		return 1
+	fi
+	if [ -f "${WORK_DIR}/AdGuardHome.yaml" ] && ! chmod 600 "${WORK_DIR}/AdGuardHome.yaml"; then
+		logger -st "${PROCS}" "Unable to set private permissions on ${WORK_DIR}/AdGuardHome.yaml."
+		return 1
+	fi
+	for _agh_perm_ipset_file in "${WORK_DIR}/ipset.conf" "${WORK_DIR}/ipset.user" "$(adguardhome_yaml_ipset_file)"; do
+		[ -n "${_agh_perm_ipset_file}" ] || continue
+		case "${_agh_perm_ipset_file}" in
+			/*) ;;
+			*) _agh_perm_ipset_file="${WORK_DIR}/${_agh_perm_ipset_file}" ;;
+		esac
+		[ -f "${_agh_perm_ipset_file}" ] || continue
+		if ! chmod 600 "${_agh_perm_ipset_file}"; then
+			logger -st "${PROCS}" "Unable to set private permissions on ${_agh_perm_ipset_file}."
+			return 1
+		fi
+	done
+	if [ -f "${WORK_DIR}/AdGuardHome" ] && ! chmod 755 "${WORK_DIR}/AdGuardHome"; then
+		logger -st "${PROCS}" "Unable to set executable permissions on ${WORK_DIR}/AdGuardHome."
+		return 1
+	fi
+	return 0
+}
+
 pre_start_adguardhome() {
 	_dns_stop_attempts="0"
 	_dns_stop_limit="$(dns_retry_limit "${ADGUARDHOME_DNSMASQ_STOP_RETRIES:-}" 10)"
+	ensure_adguardhome_work_dir_permissions || return 1
 	dns_handoff_dependencies_available || return 1
 	enable_dns_handoff || return 1
 	ulimit -v 1750000 2>/dev/null || true
@@ -581,4 +648,9 @@ POSTFAILCMD="post_start_failure_adguardhome"
 DESC="${PROCS}"
 TZ="$(sed -n '1p' /etc/TZ 2>/dev/null)"
 export TZ
+case "${1:-}" in
+	"start" | "restart" | "reload")
+		ensure_adguardhome_work_dir_permissions || exit 1
+		;;
+esac
 [ -z "${SCRIPT_LOC}" ] && . /jffs/addons/AdGuardHome.d/AdGuardHome.sh

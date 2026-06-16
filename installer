@@ -830,7 +830,7 @@ init_upstream_adguard_metadata() {
 
 check_AdGuardHome_yaml() {
 	[ ! -f "${YAML_FILE}" ] && return
-	chmod 644 "${YAML_FILE}"
+	chmod 600 "${YAML_FILE}"
 	PTXT "${INFO} Checking AdGuardHome configuration..."
 	if ! "${AGH_FILE}" --check-config -c "${YAML_FILE}" --no-check-update -l "/dev/null"; then
 		PTXT "${INFO} Moving invalid configuration file to ${YAML_ERR}." \
@@ -1380,6 +1380,70 @@ adguard_restore_after_failed_replace() {
 	adguard_restart_after_failed_replace "${WAS_RUNNING}"
 }
 
+adguardhome_yaml_ipset_file() {
+	[ -f "${YAML_FILE}" ] || return 0
+	awk '
+		/^[[:space:]]*ipset_file:[[:space:]]*/ {
+			line = $0
+			sub(/^[[:space:]]*ipset_file:[[:space:]]*/, "", line)
+			sub(/[[:space:]]+#.*$/, "", line)
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+			if ((substr(line, 1, 1) == "\"" && substr(line, length(line), 1) == "\"") ||
+			    (substr(line, 1, 1) == "'"'"'" && substr(line, length(line), 1) == "'"'"'")) {
+				line = substr(line, 2, length(line) - 2)
+			}
+			if (line != "") print line
+			exit
+		}
+	' "${YAML_FILE}"
+}
+
+ensure_adguardhome_directory_permissions() {
+	local HTTP_USERNAME IPSET_PERMISSION_FILE PERMISSION_PATH
+	if [ ! -d "${TARG_DIR}" ]; then
+		PTXT "${ERROR} ${TARG_DIR} does not exist."
+		return 1
+	fi
+	HTTP_USERNAME="$(nvram get http_username 2>/dev/null)"
+	[ -n "${HTTP_USERNAME}" ] || HTTP_USERNAME="root"
+	if ! chown "${HTTP_USERNAME}:root" "${TARG_DIR}"; then
+		PTXT "${ERROR} Unable to set ownership on ${TARG_DIR}."
+		return 1
+	fi
+	for PERMISSION_PATH in "${TARG_DIR}"/*; do
+		[ -f "${PERMISSION_PATH}" ] || [ -d "${PERMISSION_PATH}" ] || [ -L "${PERMISSION_PATH}" ] || continue
+		if ! chown "${HTTP_USERNAME}:root" "${PERMISSION_PATH}"; then
+			PTXT "${ERROR} Unable to set ownership on ${PERMISSION_PATH}."
+			return 1
+		fi
+	done
+	if ! chmod 700 "${TARG_DIR}"; then
+		PTXT "${ERROR} Unable to set private permissions on ${TARG_DIR}."
+		return 1
+	fi
+	if [ -f "${YAML_FILE}" ] && ! chmod 600 "${YAML_FILE}"; then
+		PTXT "${ERROR} Unable to set private permissions on ${YAML_FILE}."
+		return 1
+	fi
+	for IPSET_PERMISSION_FILE in "${TARG_DIR}/ipset.conf" "${TARG_DIR}/ipset.user" "$(adguardhome_yaml_ipset_file)"; do
+		[ -n "${IPSET_PERMISSION_FILE}" ] || continue
+		case "${IPSET_PERMISSION_FILE}" in
+			/*) ;;
+			*) IPSET_PERMISSION_FILE="${TARG_DIR}/${IPSET_PERMISSION_FILE}" ;;
+		esac
+		[ -f "${IPSET_PERMISSION_FILE}" ] || continue
+		if ! chmod 600 "${IPSET_PERMISSION_FILE}"; then
+			PTXT "${ERROR} Unable to set private permissions on ${IPSET_PERMISSION_FILE}."
+			return 1
+		fi
+	done
+	if [ -f "${AGH_FILE}" ] && ! chmod 755 "${AGH_FILE}"; then
+		PTXT "${ERROR} Unable to set executable permissions on ${AGH_FILE}."
+		return 1
+	fi
+	return 0
+}
+
 create_backup_archive() {
 	local BACKUP_FILE BACKUP_TMP
 	BACKUP_FILE="${BASE_DIR}/backup_AdGuardHome.tar.gz"
@@ -1404,7 +1468,7 @@ create_backup_archive() {
 }
 
 install_adguard_archive() {
-	local ARCHIVE_FILE HTTP_USERNAME OLD_BINARY STAGE_BINARY STAGE_DIR WAS_RUNNING
+	local ARCHIVE_FILE OLD_BINARY STAGE_BINARY STAGE_DIR WAS_RUNNING
 	ARCHIVE_FILE="$1"
 	STAGE_DIR="${BASE_DIR}/.AdGuardHome.extract.$$"
 	STAGE_BINARY="${STAGE_DIR}/AdGuardHome/AdGuardHome"
@@ -1453,9 +1517,7 @@ install_adguard_archive() {
 		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
 		return 1
 	fi
-	HTTP_USERNAME="$(nvram get http_username 2>/dev/null)"
-	[ -n "${HTTP_USERNAME}" ] || HTTP_USERNAME="root"
-	if ! chown "${HTTP_USERNAME}:root" "${AGH_FILE}" || ! chmod 755 "${AGH_FILE}" ||
+	if ! ensure_adguardhome_directory_permissions ||
 		[ -z "$("${AGH_FILE}" --version 2>/dev/null | cut -d" " -f4-)" ]; then
 		adguard_install_abort_trap_disable
 		rm -rf "${STAGE_DIR}"
@@ -1519,9 +1581,10 @@ backup_restore() {
 			return 1
 		fi
 		rm -f "${IPSET_MARKER_BACKUP}"
-		chown "$(nvram get http_username)":root ${TARG_DIR}/*
-		chmod 755 "${AGH_FILE}"
-		chmod 644 "${YAML_FILE}"
+		if ! ensure_adguardhome_directory_permissions; then
+			PTXT "${ERROR} Unable to restore AdGuardHome ownership or permissions."
+			return 1
+		fi
 		[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
 		ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome
 		inst_AdGuardHome "${1:-RESTORE}"
@@ -1743,7 +1806,7 @@ inst_AdGuardHome() {
 			end_op_message 1 "$1"
 			return
 		fi
-		if ! create_dir "${TARG_DIR}"; then
+		if ! create_dir "${TARG_DIR}" || ! ensure_adguardhome_directory_permissions; then
 			end_op_message 1 "$1"
 			return
 		fi
