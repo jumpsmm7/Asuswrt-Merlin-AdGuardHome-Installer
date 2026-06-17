@@ -638,7 +638,7 @@ ensure_adguardhome_work_dir_permissions() {
 			return 1
 		fi
 	done
-	if ! chmod 770 "${WORK_DIR}" || ! find "${WORK_DIR}" -type d -exec chmod 770 {} \;; then
+	if ! chmod 770 "${WORK_DIR}"; then
 		logger -st "${PROCS}" "Unable to set directory permissions for ${WORK_DIR}."
 		return 1
 	fi
