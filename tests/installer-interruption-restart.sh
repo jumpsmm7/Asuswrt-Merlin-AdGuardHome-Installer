@@ -147,7 +147,6 @@ ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] ||
 	fail "interruption recovery did not restore a stopped installation without restarting it: ${ACTUAL}"
 
-
 : >"${CALLS_FILE}"
 RESTORE_ROOT="${TMP_ROOT}/restore"
 RESTORE_TARGET="${RESTORE_ROOT}/AdGuardHome"
