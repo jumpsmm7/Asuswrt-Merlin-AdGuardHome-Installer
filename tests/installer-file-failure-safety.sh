@@ -197,10 +197,16 @@ EOF
 		esac
 		if [ "${_verbose}" -eq 1 ]; then
 			case "${ARCHIVE_LAYOUT}" in
-				symlink)
+				symlink-binary)
 					printf '%s\n' \
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
 						'lrwxrwxrwx root/root 0 date ./AdGuardHome/AdGuardHome -> /bin/sh'
+					;;
+				symlink-extra)
+					printf '%s\n' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
+						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
+						'lrwxrwxrwx root/root 0 date ./AdGuardHome/querylog.json -> /tmp/querylog.json'
 					;;
 				*)
 					printf '%s\n' \
@@ -223,8 +229,8 @@ EOF
 			missing)
 				printf '%s\n' './AdGuardHome/' './AdGuardHome/README.md'
 				;;
-			symlink)
-				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome'
+			symlink-binary | symlink-extra)
+				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/querylog.json'
 				;;
 		esac
 	}
@@ -243,7 +249,9 @@ EOF
 	if adguard_archive_is_safe ignored; then
 		fail "archive without the AdGuardHome binary was accepted"
 	fi
-	ARCHIVE_LAYOUT="symlink"
+	ARCHIVE_LAYOUT="symlink-extra"
+	adguard_archive_is_safe ignored || fail "archive with a non-binary symlink was rejected"
+	ARCHIVE_LAYOUT="symlink-binary"
 	if adguard_archive_is_safe ignored; then
 		fail "archive with a symlinked AdGuardHome binary was accepted"
 	fi
