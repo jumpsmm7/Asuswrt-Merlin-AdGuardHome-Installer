@@ -32,6 +32,8 @@ awk '
 	/^adguard_install_abort_trap_disable\(\)/,/^}/
 	/^adguard_install_abort_on_signal\(\)/,/^}/
 	/^adguard_install_abort_trap_enable\(\)/,/^}/
+	/^adguard_restore_abort_trap_enable\(\)/,/^}/
+	/^adguard_restore_after_failed_directory_restore\(\)/,/^}/
 	/^adguard_restore_after_failed_replace\(\)/,/^}/
 	/^adguardhome_yaml_ipset_file\(\)/,/^}/
 	/^chmod_adguardhome_data_files_600\(\)/,/^}/
@@ -445,6 +447,64 @@ EOF
 	fi
 	[ "$(sed -n '1p' "${AGH_FILE}")" = "current binary" ] ||
 		fail "failed staged install did not restore the current installation"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	INFO="Info:"
+	ERROR="Error:"
+	BASE_DIR="${TMP_DIR}/restore-final-fail-root"
+	TARG_DIR="${BASE_DIR}/AdGuardHome"
+	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	mkdir -p "${TARG_DIR}" || exit 1
+	printf '%s\n' "current binary" >"${AGH_FILE}"
+	printf '%s\n' "safe backup placeholder" >"${BASE_DIR}/backup_AdGuardHome.tar.gz"
+	REAL_MV="$(which mv)" || fail "mv is unavailable"
+
+	adguard_archive_is_safe() {
+		return 0
+	}
+
+	tar() {
+		case "$*" in
+			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
+				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome" || return 1
+				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				return 0
+				;;
+		esac
+		return 1
+	}
+
+	mv() {
+		"${REAL_MV}" "$@"
+	}
+
+	create_dir() {
+		mkdir -p "$1"
+	}
+
+	ensure_adguardhome_directory_permissions() {
+		return 0
+	}
+
+	ln() {
+		return 0
+	}
+
+	inst_AdGuardHome() {
+		return 1
+	}
+
+	if backup_restore RESTORE >/dev/null 2>&1; then
+		fail "backup_restore accepted a failed final restore setup"
+	fi
+	[ "$(sed -n '1p' "${AGH_FILE}")" = "current binary" ] ||
+		fail "failed final restore setup did not restore the current installation"
+	[ ! -d "${BASE_DIR}/.AdGuardHome.rollback.$$" ] ||
+		fail "failed final restore setup left rollback directory behind"
 ) || exit 1
 
 printf '%s\n' "PASS: installer file updates preserve working copies and propagate write failures"

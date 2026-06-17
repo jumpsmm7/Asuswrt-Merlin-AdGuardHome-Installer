@@ -26,6 +26,8 @@ sed -n \
 	-e '/^adguard_install_abort_trap_disable() {$/,/^}/p' \
 	-e '/^adguard_install_abort_on_signal() {$/,/^}/p' \
 	-e '/^adguard_install_abort_trap_enable() {$/,/^}/p' \
+	-e '/^adguard_restore_abort_trap_enable() {$/,/^}/p' \
+	-e '/^adguard_restore_after_failed_directory_restore() {$/,/^}/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail 'could not extract interruption trap helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'interruption trap helper extraction was empty'
 : >"${CALLS_FILE}"
@@ -144,6 +146,50 @@ EXPECTED="$(printf '%s\n' "restore:${TMP_ROOT}/stopped-previous:0" 'clear' 'end:
 ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] ||
 	fail "interruption recovery did not restore a stopped installation without restarting it: ${ACTUAL}"
+
+
+: >"${CALLS_FILE}"
+RESTORE_ROOT="${TMP_ROOT}/restore"
+RESTORE_TARGET="${RESTORE_ROOT}/AdGuardHome"
+RESTORE_ROLLBACK="${RESTORE_ROOT}/.AdGuardHome.rollback"
+RESTORE_STAGE="${RESTORE_ROOT}/.AdGuardHome.restore"
+mkdir -p "${RESTORE_TARGET}" "${RESTORE_ROLLBACK}" "${RESTORE_STAGE}" || fail 'could not create restore interruption directories'
+printf '%s\n' current >"${RESTORE_TARGET}/AdGuardHome"
+printf '%s\n' previous >"${RESTORE_ROLLBACK}/AdGuardHome"
+printf '%s\n' staged >"${RESTORE_STAGE}/AdGuardHome"
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	ERROR="Error:"
+	PTXT() {
+		printf '%s\n' "$*" >>"${CALLS_FILE}"
+	}
+	adguard_restart_after_install_abort() {
+		printf '%s\n' "unexpected-restart:$1" >>"${CALLS_FILE}"
+	}
+	adguard_restore_after_failed_replace() {
+		printf '%s\n' "unexpected-binary-restore:$1:$2" >>"${CALLS_FILE}"
+	}
+	clear_screen() {
+		printf '%s\n' 'clear' >>"${CALLS_FILE}"
+	}
+	end_op_message() {
+		printf '%s\n' "end:$1" >>"${CALLS_FILE}"
+	}
+
+	adguard_restore_abort_trap_enable "${RESTORE_ROLLBACK}" "${RESTORE_TARGET}" "${RESTORE_STAGE}"
+	adguard_install_abort_on_signal
+) || fail 'interrupted restore rollback handler failed'
+
+[ ! -e "${RESTORE_STAGE}" ] || fail 'interrupted restore left staging directory behind'
+[ ! -e "${RESTORE_ROLLBACK}" ] || fail 'interrupted restore left rollback directory behind'
+[ "$(sed -n '1p' "${RESTORE_TARGET}/AdGuardHome")" = "previous" ] ||
+	fail 'interrupted restore did not restore the previous installation'
+EXPECTED="$(printf '%s\n' 'clear' 'end:2')"
+ACTUAL="$(cat "${CALLS_FILE}")"
+[ "${ACTUAL}" = "${EXPECTED}" ] ||
+	fail "interrupted restore did not continue to the aborted-operation flow: ${ACTUAL}"
 
 awk '
 	/^install_adguard_archive\(\) \{/ { in_function = 1 }
