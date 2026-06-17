@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.3.1                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.3.2                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
 
-AI_VERSION="v2.3.1"
+AI_VERSION="v2.3.2"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -1380,6 +1380,137 @@ adguard_restore_after_failed_replace() {
 	adguard_restart_after_failed_replace "${WAS_RUNNING}"
 }
 
+adguardhome_yaml_ipset_file() {
+	[ -f "${YAML_FILE}" ] || return 0
+	awk '
+		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
+		function block_marker(value) {
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			return value ~ /^[>|][+-]?([[:space:]]+#.*)?$/
+		}
+		function block_scalar(parent_indent,    line, text) {
+			while ((getline line) > 0) {
+				if (line ~ /^[[:space:]]*($|#)/) continue
+				if (indentation(line) <= parent_indent) exit
+				text = line
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", text)
+				print text
+				exit
+			}
+		}
+		function scalar(value,    ch, decoded, i, next_ch, quote, rest) {
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			quote = substr(value, 1, 1)
+			if (quote != "\"" && quote != "\047") {
+				sub(/[[:space:]]+#.*$/, "", value)
+				gsub(/[[:space:]]+$/, "", value)
+				if (value ~ /^(~|null|Null|NULL)$/) return ""
+				return value
+			}
+			decoded = ""
+			for (i = 2; i <= length(value); i++) {
+				ch = substr(value, i, 1)
+				next_ch = substr(value, i + 1, 1)
+				if (quote == "\"" && ch == "\\") {
+					if (next_ch == "\"" || next_ch == "\\" || next_ch == "/" || next_ch == " ") {
+						decoded = decoded next_ch
+						i++
+						continue
+					}
+					exit 1
+				}
+				if (quote == "\047" && ch == quote && next_ch == quote) {
+					decoded = decoded quote
+					i++
+					continue
+				}
+				if (ch == quote) {
+					rest = substr(value, i + 1)
+					if (rest !~ /^[[:space:]]*(#.*)?$/) exit 1
+					return decoded
+				}
+				decoded = decoded ch
+			}
+			exit 1
+		}
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(&[^][{},[:space:]]+[[:space:]]*)?(#.*)?$/ { in_dns = 1; next }
+		/^(dns|\047dns\047|"dns"):/ { exit 1 }
+		in_dns && /^[^[:space:]]/ { exit }
+		in_dns && /^[[:space:]]*($|#)/ { next }
+		in_dns && !child_indent { child_indent = indentation($0) }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
+			value = substr($0, child_indent + 1)
+			sub(/^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/, "", value)
+			if (block_marker(value)) {
+				block_scalar(child_indent)
+				exit
+			}
+			print scalar(value)
+			exit
+		}
+	' "${YAML_FILE}"
+}
+
+ensure_adguardhome_directory_permissions() {
+	local HTTP_USERNAME IPSET_PERMISSION_FILE PERMISSION_PATH
+	if [ ! -d "${TARG_DIR}" ]; then
+		PTXT "${ERROR} ${TARG_DIR} does not exist."
+		return 1
+	fi
+	HTTP_USERNAME="$(nvram get http_username 2>/dev/null)"
+	[ -n "${HTTP_USERNAME}" ] || HTTP_USERNAME="root"
+	if ! chown "${HTTP_USERNAME}:root" "${TARG_DIR}"; then
+		PTXT "${ERROR} Unable to set ownership on ${TARG_DIR}."
+		return 1
+	fi
+	for PERMISSION_PATH in "${TARG_DIR}"/*; do
+		[ ! -L "${PERMISSION_PATH}" ] || continue
+		[ -f "${PERMISSION_PATH}" ] || [ -d "${PERMISSION_PATH}" ] || continue
+		if ! chown "${HTTP_USERNAME}:root" "${PERMISSION_PATH}"; then
+			PTXT "${ERROR} Unable to set ownership on ${PERMISSION_PATH}."
+			return 1
+		fi
+	done
+	if ! chmod 770 "${TARG_DIR}" || ! find "${TARG_DIR}" -type d -exec chmod 770 {} \;; then
+		PTXT "${ERROR} Unable to all set directory permissions for ${TARG_DIR}."
+		return 1
+	fi
+	if [ -f "${YAML_FILE}" ] && ! chmod 644 "${YAML_FILE}"; then
+		PTXT "${ERROR} Unable to set configuration permissions on ${YAML_FILE}."
+		return 1
+	fi
+	for IPSET_PERMISSION_FILE in "${TARG_DIR}/ipset.conf" "${TARG_DIR}/ipset.user" "$(adguardhome_yaml_ipset_file)"; do
+		[ -n "${IPSET_PERMISSION_FILE}" ] || continue
+		case "${IPSET_PERMISSION_FILE}" in
+			../* | */../* | */.. | ..) continue ;;
+		esac
+		case "${IPSET_PERMISSION_FILE}" in
+			/*)
+				case "${IPSET_PERMISSION_FILE}" in
+					"${TARG_DIR}"/*) ;;
+					*) continue ;;
+				esac
+				;;
+			*) IPSET_PERMISSION_FILE="${TARG_DIR}/${IPSET_PERMISSION_FILE}" ;;
+		esac
+		[ ! -L "${IPSET_PERMISSION_FILE}" ] || continue
+		[ -f "${IPSET_PERMISSION_FILE}" ] || continue
+		if ! chown "${HTTP_USERNAME}:root" "${IPSET_PERMISSION_FILE}"; then
+			PTXT "${ERROR} Unable to set ownership on ${IPSET_PERMISSION_FILE}."
+			return 1
+		fi
+		if ! chmod 644 "${IPSET_PERMISSION_FILE}"; then
+			PTXT "${ERROR} Unable to set IPSET permissions on ${IPSET_PERMISSION_FILE}."
+			return 1
+		fi
+	done
+	if [ -f "${AGH_FILE}" ] && ! chmod 755 "${AGH_FILE}"; then
+		PTXT "${ERROR} Unable to set executable permissions on ${AGH_FILE}."
+		return 1
+	fi
+	return 0
+}
+
 create_backup_archive() {
 	local BACKUP_FILE BACKUP_TMP
 	BACKUP_FILE="${BASE_DIR}/backup_AdGuardHome.tar.gz"
@@ -1404,7 +1535,7 @@ create_backup_archive() {
 }
 
 install_adguard_archive() {
-	local ARCHIVE_FILE HTTP_USERNAME OLD_BINARY STAGE_BINARY STAGE_DIR WAS_RUNNING
+	local ARCHIVE_FILE OLD_BINARY STAGE_BINARY STAGE_DIR WAS_RUNNING
 	ARCHIVE_FILE="$1"
 	STAGE_DIR="${BASE_DIR}/.AdGuardHome.extract.$$"
 	STAGE_BINARY="${STAGE_DIR}/AdGuardHome/AdGuardHome"
@@ -1417,7 +1548,7 @@ install_adguard_archive() {
 		PTXT "${ERROR} The AdGuardHome archive contains an unsafe or incomplete file layout."
 		return 1
 	fi
-	if ! mkdir -m 700 "${STAGE_DIR}" || ! tar xzf "${ARCHIVE_FILE}" -C "${STAGE_DIR}" >/dev/null 2>&1; then
+	if ! create_dir "${STAGE_DIR}" || ! tar xzf "${ARCHIVE_FILE}" -C "${STAGE_DIR}" >/dev/null 2>&1; then
 		adguard_install_abort_trap_disable
 		rm -rf "${STAGE_DIR}"
 		PTXT "${ERROR} Unable to extract the AdGuardHome archive into staging."
@@ -1453,9 +1584,7 @@ install_adguard_archive() {
 		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
 		return 1
 	fi
-	HTTP_USERNAME="$(nvram get http_username 2>/dev/null)"
-	[ -n "${HTTP_USERNAME}" ] || HTTP_USERNAME="root"
-	if ! chown "${HTTP_USERNAME}:root" "${AGH_FILE}" || ! chmod 755 "${AGH_FILE}" ||
+	if ! ensure_adguardhome_directory_permissions ||
 		[ -z "$("${AGH_FILE}" --version 2>/dev/null | cut -d" " -f4-)" ]; then
 		adguard_install_abort_trap_disable
 		rm -rf "${STAGE_DIR}"
@@ -1519,9 +1648,10 @@ backup_restore() {
 			return 1
 		fi
 		rm -f "${IPSET_MARKER_BACKUP}"
-		chown "$(nvram get http_username)":root ${TARG_DIR}/*
-		chmod 755 "${AGH_FILE}"
-		chmod 644 "${YAML_FILE}"
+		if ! ensure_adguardhome_directory_permissions; then
+			PTXT "${ERROR} Unable to restore AdGuardHome ownership or permissions."
+			return 1
+		fi
 		[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
 		ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome
 		inst_AdGuardHome "${1:-RESTORE}"
@@ -1743,7 +1873,7 @@ inst_AdGuardHome() {
 			end_op_message 1 "$1"
 			return
 		fi
-		if ! create_dir "${TARG_DIR}"; then
+		if ! create_dir "${TARG_DIR}" || ! ensure_adguardhome_directory_permissions; then
 			end_op_message 1 "$1"
 			return
 		fi

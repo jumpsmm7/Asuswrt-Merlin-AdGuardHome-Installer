@@ -337,7 +337,7 @@ enable_dns_handoff() {
 		fi
 		_dns_handoff_lock_attempts="$((_dns_handoff_lock_attempts + 1))"
 		if [ "${_dns_handoff_lock_attempts}" -lt 3 ]; then
-			sleep 1
+			sleep 1s
 			continue
 		fi
 		if ! reclaim_stale_dns_handoff_lock; then
@@ -439,6 +439,26 @@ dns_port_available() {
 	'
 }
 
+dns_guard_wait_for_stop() {
+	_dns_guard_wait_fifo="${DNS_HANDOFF_DIR}/guard-wait.$$"
+	rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
+	if mkfifo "${_dns_guard_wait_fifo}" 2>/dev/null; then
+		if exec 3<>"${_dns_guard_wait_fifo}"; then
+			rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
+			# Block until stop_dns_port_guard() sends a trapped signal.
+			# This avoids a repeated sleep loop while keeping the guard alive.
+			while :; do
+				IFS= read -r _dns_guard_wait_line <&3
+			done
+		fi
+	fi
+	rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
+	# Fallback only if FIFO setup fails. Avoid a hot CPU loop.
+	while :; do
+		sleep 1s
+	done
+}
+
 stop_dns_port_guard() {
 	[ -n "${ADGUARDHOME_DNS_GUARD_PID:-}" ] || return 0
 	kill "${ADGUARDHOME_DNS_GUARD_PID}" >/dev/null 2>&1
@@ -469,25 +489,15 @@ guard_dns_port_for_adguardhome() {
 	_dns_guard_saved_traps="${DNS_WATCHDOG_TRAP_FILE}"
 	# Install cleanup before the first watchdog STOP so a parent-side shutdown
 	# cannot terminate us during retry sleep without resuming the watchdog.
-	trap 'resume_dns_watchdog; restore_dns_watchdog_traps "${_dns_guard_saved_traps}"; exit 0' HUP INT TERM EXIT
+	trap 'trap - HUP INT TERM EXIT; exec 3<&- 3>&- 2>/dev/null; rm -f "${_dns_guard_wait_fifo:-}"; resume_dns_watchdog; restore_dns_watchdog_traps "${_dns_guard_saved_traps}"; exit 0' HUP INT TERM EXIT
 	while [ "${_dns_guard_attempts}" -lt "${_dns_guard_limit}" ]; do
 		adguardhome_owns_dns && break
 		service stop_dnsmasq >/dev/null 2>&1
 		kill_dns_port_owners
 		suspend_dns_watchdog
 		_dns_guard_attempts="$((_dns_guard_attempts + 1))"
-		sleep 1s
 	done
-	# Remain a live child long enough for stop_dns_port_guard to terminate and
-	# reap us during the parent DNS verification window.  If the parent is killed
-	# ungracefully, leave on our own so the EXIT trap resumes the watchdog.
-	_dns_guard_cleanup_wait=0
-	_dns_guard_cleanup_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" 10)"
-	_dns_guard_cleanup_limit="$((_dns_guard_cleanup_limit + 2))"
-	while [ "${_dns_guard_cleanup_wait}" -lt "${_dns_guard_cleanup_limit}" ]; do
-		_dns_guard_cleanup_wait="$((_dns_guard_cleanup_wait + 1))"
-		sleep 1s
-	done
+	dns_guard_wait_for_stop
 }
 
 # Service hook helpers
@@ -535,9 +545,143 @@ post_start_failure_adguardhome() {
 	return "${_dns_recovery_status}"
 }
 
+adguardhome_yaml_ipset_file() {
+	[ -f "${WORK_DIR}/AdGuardHome.yaml" ] || return 0
+	awk '
+		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
+		function block_marker(value) {
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			return value ~ /^[>|][+-]?([[:space:]]+#.*)?$/
+		}
+		function block_scalar(parent_indent,    line, text) {
+			while ((getline line) > 0) {
+				if (line ~ /^[[:space:]]*($|#)/) continue
+				if (indentation(line) <= parent_indent) exit
+				text = line
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", text)
+				print text
+				exit
+			}
+		}
+		function scalar(value,    ch, decoded, i, next_ch, quote, rest) {
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			quote = substr(value, 1, 1)
+			if (quote != "\"" && quote != "\047") {
+				sub(/[[:space:]]+#.*$/, "", value)
+				gsub(/[[:space:]]+$/, "", value)
+				if (value ~ /^(~|null|Null|NULL)$/) return ""
+				return value
+			}
+			decoded = ""
+			for (i = 2; i <= length(value); i++) {
+				ch = substr(value, i, 1)
+				next_ch = substr(value, i + 1, 1)
+				if (quote == "\"" && ch == "\\") {
+					if (next_ch == "\"" || next_ch == "\\" || next_ch == "/" || next_ch == " ") {
+						decoded = decoded next_ch
+						i++
+						continue
+					}
+					exit 1
+				}
+				if (quote == "\047" && ch == quote && next_ch == quote) {
+					decoded = decoded quote
+					i++
+					continue
+				}
+				if (ch == quote) {
+					rest = substr(value, i + 1)
+					if (rest !~ /^[[:space:]]*(#.*)?$/) exit 1
+					return decoded
+				}
+				decoded = decoded ch
+			}
+			exit 1
+		}
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(&[^][{},[:space:]]+[[:space:]]*)?(#.*)?$/ { in_dns = 1; next }
+		/^(dns|\047dns\047|"dns"):/ { exit 1 }
+		in_dns && /^[^[:space:]]/ { exit }
+		in_dns && /^[[:space:]]*($|#)/ { next }
+		in_dns && !child_indent { child_indent = indentation($0) }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
+			value = substr($0, child_indent + 1)
+			sub(/^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/, "", value)
+			if (block_marker(value)) {
+				block_scalar(child_indent)
+				exit
+			}
+			print scalar(value)
+			exit
+		}
+	' "${WORK_DIR}/AdGuardHome.yaml"
+}
+
+ensure_adguardhome_work_dir_permissions() {
+	_agh_perm_http_username=""
+	_agh_perm_ipset_file=""
+	_agh_perm_path=""
+	if [ ! -d "${WORK_DIR}" ]; then
+		logger -st "${PROCS}" "Missing AdGuardHome work directory ${WORK_DIR}."
+		return 1
+	fi
+	_agh_perm_http_username="$(nvram get http_username 2>/dev/null)"
+	[ -n "${_agh_perm_http_username}" ] || _agh_perm_http_username="root"
+	if ! chown "${_agh_perm_http_username}:root" "${WORK_DIR}"; then
+		logger -st "${PROCS}" "Unable to set ownership on ${WORK_DIR}."
+		return 1
+	fi
+	for _agh_perm_path in "${WORK_DIR}"/*; do
+		[ ! -L "${_agh_perm_path}" ] || continue
+		[ -f "${_agh_perm_path}" ] || [ -d "${_agh_perm_path}" ] || continue
+		if ! chown "${_agh_perm_http_username}:root" "${_agh_perm_path}"; then
+			logger -st "${PROCS}" "Unable to set ownership on ${_agh_perm_path}."
+			return 1
+		fi
+	done
+	if ! chmod 770 "${WORK_DIR}" || ! find "${WORK_DIR}" -type d -exec chmod 770 {} \;; then
+		logger -st "${PROCS}" "Unable to set directory permissions for ${WORK_DIR}."
+		return 1
+	fi
+	if [ -f "${WORK_DIR}/AdGuardHome.yaml" ] && ! chmod 644 "${WORK_DIR}/AdGuardHome.yaml"; then
+		logger -st "${PROCS}" "Unable to set configuration permissions on ${WORK_DIR}/AdGuardHome.yaml."
+		return 1
+	fi
+	for _agh_perm_ipset_file in "${WORK_DIR}/ipset.conf" "${WORK_DIR}/ipset.user" "$(adguardhome_yaml_ipset_file)"; do
+		[ -n "${_agh_perm_ipset_file}" ] || continue
+		case "${_agh_perm_ipset_file}" in
+			../* | */../* | */.. | ..) continue ;;
+		esac
+		case "${_agh_perm_ipset_file}" in
+			/*)
+				case "${_agh_perm_ipset_file}" in
+					"${WORK_DIR}"/*) ;;
+					*) continue ;;
+				esac
+				;;
+			*) _agh_perm_ipset_file="${WORK_DIR}/${_agh_perm_ipset_file}" ;;
+		esac
+		[ ! -L "${_agh_perm_ipset_file}" ] || continue
+		[ -f "${_agh_perm_ipset_file}" ] || continue
+		if ! chown "${_agh_perm_http_username}:root" "${_agh_perm_ipset_file}"; then
+			logger -st "${PROCS}" "Unable to set ownership on ${_agh_perm_ipset_file}."
+			return 1
+		fi
+		if ! chmod 644 "${_agh_perm_ipset_file}"; then
+			logger -st "${PROCS}" "Unable to set IPSET permissions on ${_agh_perm_ipset_file}."
+			return 1
+		fi
+	done
+	if [ -f "${WORK_DIR}/AdGuardHome" ] && ! chmod 755 "${WORK_DIR}/AdGuardHome"; then
+		logger -st "${PROCS}" "Unable to set executable permissions on ${WORK_DIR}/AdGuardHome."
+		return 1
+	fi
+	return 0
+}
+
 pre_start_adguardhome() {
 	_dns_stop_attempts="0"
 	_dns_stop_limit="$(dns_retry_limit "${ADGUARDHOME_DNSMASQ_STOP_RETRIES:-}" 10)"
+	ensure_adguardhome_work_dir_permissions || return 1
 	dns_handoff_dependencies_available || return 1
 	enable_dns_handoff || return 1
 	ulimit -v 1750000 2>/dev/null || true
@@ -581,4 +725,9 @@ POSTFAILCMD="post_start_failure_adguardhome"
 DESC="${PROCS}"
 TZ="$(sed -n '1p' /etc/TZ 2>/dev/null)"
 export TZ
+case "${1:-}" in
+	"start" | "restart" | "reload")
+		ensure_adguardhome_work_dir_permissions || exit 1
+		;;
+esac
 [ -z "${SCRIPT_LOC}" ] && . /jffs/addons/AdGuardHome.d/AdGuardHome.sh

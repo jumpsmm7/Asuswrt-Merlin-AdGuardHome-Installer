@@ -125,6 +125,7 @@ run_check 'Installer confirmation failure propagation regression' sh tests/insta
 run_check 'Installer local-cache preference save failure regression' sh tests/installer-local-cache-save-failure.sh
 run_check 'Installer IPSET preference save failure regression' sh tests/installer-ipset-save-failure.sh
 run_check 'Installer setup IPSET preference save failure regression' sh tests/installer-ipset-setup-save-failure.sh
+run_check 'AdGuardHome permission repair regression' sh tests/adguardhome-permissions.sh
 run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
 run_check 'AdGuardHome stop failure regression' sh tests/stop-adguardhome-failure.sh
 run_check 'AdGuardHome monitor retry backoff regression' sh tests/monitor-retry-backoff.sh
