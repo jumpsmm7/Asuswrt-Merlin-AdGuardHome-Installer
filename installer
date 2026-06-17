@@ -1471,7 +1471,7 @@ ensure_adguardhome_directory_permissions() {
 			return 1
 		fi
 	done
-	if ! chmod 770 "${TARG_DIR}" || ! find "${TARG_DIR}" -type d -exec chmod 770 {} \;; then
+	if ! chmod 770 "${TARG_DIR}"; then
 		PTXT "${ERROR} Unable to all set directory permissions for ${TARG_DIR}."
 		return 1
 	fi
