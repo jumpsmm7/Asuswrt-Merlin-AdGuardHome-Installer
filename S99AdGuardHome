@@ -461,7 +461,7 @@ dns_guard_wait_for_stop() {
 
 stop_dns_port_guard() {
 	[ -n "${ADGUARDHOME_DNS_GUARD_PID:-}" ] || return 0
-	kill -s TERM "${ADGUARDHOME_DNS_GUARD_PID}" >/dev/null 2>&1
+	kill "${ADGUARDHOME_DNS_GUARD_PID}" >/dev/null 2>&1
 	wait "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null
 	unset ADGUARDHOME_DNS_GUARD_PID
 	return 0
