@@ -38,6 +38,7 @@ awk '
 	/^ensure_adguardhome_directory_permissions\(\)/,/^}/
 	/^create_backup_archive\(\)/,/^}/
 	/^install_adguard_archive\(\)/,/^}/
+	/^backup_restore\(\)/,/^}/
 	/^create_dir\(\)/,/^}/
 	/^download_file\(\)/,/^}/
 	/^write_command_script\(\)/,/^}/
@@ -328,6 +329,114 @@ EOF
 	if write_command_script "${TMP_DIR}/event-script" "required command" >/dev/null 2>&1; then
 		fail "write_command_script hid a chmod failure"
 	fi
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	INFO="Info:"
+	ERROR="Error:"
+	BASE_DIR="${TMP_DIR}/restore-root"
+	TARG_DIR="${BASE_DIR}/AdGuardHome"
+	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	mkdir -p "${TARG_DIR}" || exit 1
+	printf '%s\n' "current binary" >"${AGH_FILE}"
+	printf '%s\n' "not a valid backup" >"${BASE_DIR}/backup_AdGuardHome.tar.gz"
+
+	adguard_archive_is_safe() {
+		return 1
+	}
+
+	tar() {
+		fail "unsafe restore archive was extracted"
+	}
+
+	if backup_restore RESTORE >/dev/null 2>&1; then
+		fail "backup_restore accepted an unsafe restore archive"
+	fi
+	[ "$(sed -n '1p' "${AGH_FILE}")" = "current binary" ] ||
+		fail "unsafe restore archive modified the current installation"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	INFO="Info:"
+	ERROR="Error:"
+	BASE_DIR="${TMP_DIR}/restore-fail-root"
+	TARG_DIR="${BASE_DIR}/AdGuardHome"
+	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	mkdir -p "${TARG_DIR}" || exit 1
+	printf '%s\n' "current binary" >"${AGH_FILE}"
+	printf '%s\n' "safe backup placeholder" >"${BASE_DIR}/backup_AdGuardHome.tar.gz"
+
+	adguard_archive_is_safe() {
+		return 0
+	}
+
+	tar() {
+		case "$*" in
+			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
+				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome" || return 1
+				printf '%s\n' "partial restore" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				return 1
+				;;
+		esac
+		return 1
+	}
+
+	if backup_restore RESTORE >/dev/null 2>&1; then
+		fail "backup_restore accepted a failed staged extraction"
+	fi
+	[ "$(sed -n '1p' "${AGH_FILE}")" = "current binary" ] ||
+		fail "failed staged restore modified the current installation"
+	[ ! -d "${BASE_DIR}/.AdGuardHome.restore.$$" ] ||
+		fail "failed staged restore left its staging directory behind"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	INFO="Info:"
+	ERROR="Error:"
+	BASE_DIR="${TMP_DIR}/restore-swap-fail-root"
+	TARG_DIR="${BASE_DIR}/AdGuardHome"
+	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	mkdir -p "${TARG_DIR}" || exit 1
+	printf '%s\n' "current binary" >"${AGH_FILE}"
+	printf '%s\n' "safe backup placeholder" >"${BASE_DIR}/backup_AdGuardHome.tar.gz"
+	REAL_MV="$(which mv)" || fail "mv is unavailable"
+
+	adguard_archive_is_safe() {
+		return 0
+	}
+
+	tar() {
+		case "$*" in
+			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
+				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome" || return 1
+				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				return 0
+				;;
+		esac
+		return 1
+	}
+
+	mv() {
+		if [ "$1" = "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome" ] && [ "$2" = "${TARG_DIR}" ]; then
+			return 1
+		fi
+		"${REAL_MV}" "$@"
+	}
+
+	if backup_restore RESTORE >/dev/null 2>&1; then
+		fail "backup_restore accepted a failed staged install"
+	fi
+	[ "$(sed -n '1p' "${AGH_FILE}")" = "current binary" ] ||
+		fail "failed staged install did not restore the current installation"
 ) || exit 1
 
 printf '%s\n' "PASS: installer file updates preserve working copies and propagate write failures"

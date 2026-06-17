@@ -1541,7 +1541,7 @@ create_backup_archive() {
 		PTXT "${ERROR} Unable to create the AdGuardHome backup archive."
 		return 1
 	fi
-	if ! tar -tzf "${BACKUP_TMP}" >/dev/null 2>&1; then
+	if ! tar -tzf "${BACKUP_TMP}" >/dev/null 2>&1 || ! adguard_archive_is_safe "${BACKUP_TMP}"; then
 		rm -f "${BACKUP_TMP}"
 		PTXT "${ERROR} The new AdGuardHome backup archive could not be verified."
 		return 1
@@ -1620,7 +1620,7 @@ install_adguard_archive() {
 }
 
 backup_restore() {
-	local IPSET_MARKER_BACKUP
+	local RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARG_DIR
 	if [ "$1" = "BACKUP" ] && [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; then
 		if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 			PTXT "${INFO} There is an old backup detected."
@@ -1655,25 +1655,49 @@ backup_restore() {
 	fi
 	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
 		PTXT "${INFO} Please wait a moment."
-		# Remove the one-time migration marker before extraction. Newer backups restore
-		# their own ipset.user; older backups then migrate their restored YAML rules.
-		IPSET_MARKER_BACKUP="/tmp/AdGuardHome-ipset.user.restore.$$"
-		rm -f "${IPSET_MARKER_BACKUP}"
-		if [ -f "${TARG_DIR}/ipset.user" ]; then
-			mv "${TARG_DIR}/ipset.user" "${IPSET_MARKER_BACKUP}" || return 1
-		fi
-		if ! tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${BASE_DIR}" >/dev/null 2>&1; then
-			[ -f "${IPSET_MARKER_BACKUP}" ] && mv "${IPSET_MARKER_BACKUP}" "${TARG_DIR}/ipset.user"
-			PTXT "${ERROR} Unable to restore ${BASE_DIR}/backup_AdGuardHome.tar.gz"
+		if ! adguard_archive_is_safe "${BASE_DIR}/backup_AdGuardHome.tar.gz"; then
+			PTXT "${ERROR} Refusing to restore an unsafe or incomplete AdGuardHome backup archive."
 			return 1
 		fi
-		rm -f "${IPSET_MARKER_BACKUP}"
+		RESTORE_STAGE_DIR="${BASE_DIR}/.AdGuardHome.restore.$$"
+		RESTORE_TARG_DIR="${RESTORE_STAGE_DIR}/AdGuardHome"
+		RESTORE_ROLLBACK_DIR="${BASE_DIR}/.AdGuardHome.rollback.$$"
+		rm -rf "${RESTORE_STAGE_DIR}" "${RESTORE_ROLLBACK_DIR}"
+		if ! create_dir "${RESTORE_STAGE_DIR}" || ! tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${RESTORE_STAGE_DIR}" >/dev/null 2>&1; then
+			rm -rf "${RESTORE_STAGE_DIR}"
+			PTXT "${ERROR} Unable to stage ${BASE_DIR}/backup_AdGuardHome.tar.gz for restore."
+			return 1
+		fi
+		if [ ! -d "${RESTORE_TARG_DIR}" ] || [ -L "${RESTORE_TARG_DIR}" ] || [ ! -f "${RESTORE_TARG_DIR}/AdGuardHome" ]; then
+			rm -rf "${RESTORE_STAGE_DIR}"
+			PTXT "${ERROR} The staged AdGuardHome backup is incomplete."
+			return 1
+		fi
+		if [ -e "${TARG_DIR}" ] && ! mv "${TARG_DIR}" "${RESTORE_ROLLBACK_DIR}"; then
+			rm -rf "${RESTORE_STAGE_DIR}"
+			PTXT "${ERROR} Unable to preserve the current AdGuardHome installation before restore."
+			return 1
+		fi
+		if ! mv "${RESTORE_TARG_DIR}" "${TARG_DIR}"; then
+			[ -d "${RESTORE_ROLLBACK_DIR}" ] && mv "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}"
+			rm -rf "${RESTORE_STAGE_DIR}"
+			PTXT "${ERROR} Unable to install the staged AdGuardHome backup."
+			return 1
+		fi
+		rm -rf "${RESTORE_STAGE_DIR}"
 		if ! ensure_adguardhome_directory_permissions; then
+			rm -rf "${TARG_DIR}"
+			[ -d "${RESTORE_ROLLBACK_DIR}" ] && mv "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}"
 			PTXT "${ERROR} Unable to restore AdGuardHome ownership or permissions."
 			return 1
 		fi
-		[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
-		ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome
+		if ! create_dir "/opt/sbin" || ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome; then
+			rm -rf "${TARG_DIR}"
+			[ -d "${RESTORE_ROLLBACK_DIR}" ] && mv "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}"
+			PTXT "${ERROR} Unable to restore the AdGuardHome command symlink."
+			return 1
+		fi
+		rm -rf "${RESTORE_ROLLBACK_DIR}"
 		inst_AdGuardHome "${1:-RESTORE}"
 	elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
 		PTXT "${ERROR} No Backup found!" \
