@@ -34,6 +34,7 @@ awk '
 	/^adguard_install_abort_trap_enable\(\)/,/^}/
 	/^adguard_restore_after_failed_replace\(\)/,/^}/
 	/^adguardhome_yaml_ipset_file\(\)/,/^}/
+	/^chmod_adguardhome_data_files_600\(\)/,/^}/
 	/^ensure_adguardhome_directory_permissions\(\)/,/^}/
 	/^create_backup_archive\(\)/,/^}/
 	/^install_adguard_archive\(\)/,/^}/
