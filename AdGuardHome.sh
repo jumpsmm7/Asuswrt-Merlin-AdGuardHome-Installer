@@ -1797,7 +1797,7 @@ IPSet_Migrate() {
 	}
 
 	if ! cmp -s "${YAML_FILE}" "${TEMP_FILE}"; then
-		chmod 644 "${TEMP_FILE}" || {
+		chmod 600 "${TEMP_FILE}" || {
 			rm -f "${TEMP_FILE}"
 			return 1
 		}
