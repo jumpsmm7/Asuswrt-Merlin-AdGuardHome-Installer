@@ -439,6 +439,26 @@ dns_port_available() {
 	'
 }
 
+dns_guard_wait_for_stop() {
+	_dns_guard_wait_fifo="${DNS_HANDOFF_DIR}/guard-wait.$$"
+	rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
+	if mkfifo "${_dns_guard_wait_fifo}" 2>/dev/null; then
+		if exec 3<>"${_dns_guard_wait_fifo}"; then
+			rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
+			# Block until stop_dns_port_guard() sends a trapped signal.
+			# This avoids a repeated sleep loop while keeping the guard alive.
+			while :; do
+				IFS= read -r _dns_guard_wait_line <&3
+			done
+		fi
+	fi
+	rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
+	# Fallback only if FIFO setup fails. Avoid a hot CPU loop.
+	while :; do
+		sleep 1s
+	done
+}
+
 stop_dns_port_guard() {
 	[ -n "${ADGUARDHOME_DNS_GUARD_PID:-}" ] || return 0
 	kill "${ADGUARDHOME_DNS_GUARD_PID}" >/dev/null 2>&1
@@ -469,34 +489,15 @@ guard_dns_port_for_adguardhome() {
 	_dns_guard_saved_traps="${DNS_WATCHDOG_TRAP_FILE}"
 	# Install cleanup before the first watchdog STOP so a parent-side shutdown
 	# cannot terminate us during retry sleep without resuming the watchdog.
-	trap 'resume_dns_watchdog; restore_dns_watchdog_traps "${_dns_guard_saved_traps}"; exit 0' HUP INT TERM EXIT
+	trap 'trap - HUP INT TERM EXIT; exec 3<&- 3>&- 2>/dev/null; rm -f "${_dns_guard_wait_fifo:-}"; resume_dns_watchdog; restore_dns_watchdog_traps "${_dns_guard_saved_traps}"; exit 0' HUP INT TERM EXIT
 	while [ "${_dns_guard_attempts}" -lt "${_dns_guard_limit}" ]; do
 		adguardhome_owns_dns && break
 		service stop_dnsmasq >/dev/null 2>&1
 		kill_dns_port_owners
 		suspend_dns_watchdog
 		_dns_guard_attempts="$((_dns_guard_attempts + 1))"
-		:
 	done
-	# Remain a live child long enough for stop_dns_port_guard to terminate and
-	# reap us during the parent DNS verification window.  If the parent is killed
-	# ungracefully, leave on our own so the EXIT trap resumes the watchdog.
-	_dns_guard_cleanup_wait=0
-	_dns_guard_cleanup_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" 10)"
-	_dns_guard_cleanup_limit="$((_dns_guard_cleanup_limit + 2))"
-	# IMPORTANT: Ensure the guard stays alive during the entire cleanup window.
-	# This prevents premature exit when DNS acquisition succeeds but the parent
-	# hasn't yet called stop_dns_port_guard() to reap the child process.
-	while true; do
-		[ "${_dns_guard_cleanup_wait}" -lt "${_dns_guard_cleanup_limit}" ] || break
-		_dns_guard_cleanup_wait="$((_dns_guard_cleanup_wait + 1))"
-		sleep 1s
-	done
-	# Continue waiting indefinitely until explicitly terminated by the parent
-	# via stop_dns_port_guard(), which sends a signal trapped by HUP/INT/TERM/EXIT
-	while true; do
-		sleep 1s
-	done
+	dns_guard_wait_for_stop
 }
 
 # Service hook helpers
