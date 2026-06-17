@@ -616,6 +616,19 @@ adguardhome_yaml_ipset_file() {
 	' "${WORK_DIR}/AdGuardHome.yaml"
 }
 
+chmod_regular_files_600() {
+	_chmod_file_dir="$1"
+
+	[ -d "${_chmod_file_dir}" ] || return 0
+	[ ! -L "${_chmod_file_dir}" ] || return 0
+
+	find "${_chmod_file_dir}" -exec sh -c '
+		[ ! -L "$1" ] || exit 0
+		[ -f "$1" ] || exit 0
+		chmod 600 "$1"
+	' sh {} \;
+}
+
 ensure_adguardhome_work_dir_permissions() {
 	_agh_perm_http_username=""
 	_agh_perm_ipset_file=""
@@ -638,12 +651,20 @@ ensure_adguardhome_work_dir_permissions() {
 			return 1
 		fi
 	done
-	if ! chmod 770 "${WORK_DIR}"; then
+	if ! chmod 700 "${WORK_DIR}" || ! find "${WORK_DIR}" -exec sh -c '[ ! -L "$1" ] || exit 0; [ -d "$1" ] || exit 0; chmod 700 "$1"' sh {} \;; then
 		logger -st "${PROCS}" "Unable to set directory permissions for ${WORK_DIR}."
 		return 1
 	fi
-	if [ -f "${WORK_DIR}/AdGuardHome.yaml" ] && ! chmod 644 "${WORK_DIR}/AdGuardHome.yaml"; then
+	if [ -f "${WORK_DIR}/AdGuardHome.yaml" ] && ! chmod 600 "${WORK_DIR}/AdGuardHome.yaml"; then
 		logger -st "${PROCS}" "Unable to set configuration permissions on ${WORK_DIR}/AdGuardHome.yaml."
+		return 1
+	fi
+	if ! chmod_regular_files_600 "${WORK_DIR}/data"; then
+		logger -st "${PROCS}" "Unable to set data file permissions for ${WORK_DIR}/data."
+		return 1
+	fi
+	if ! chmod_regular_files_600 "${WORK_DIR}/data/filters"; then
+		logger -st "${PROCS}" "Unable to set filter file permissions for ${WORK_DIR}/data/filters."
 		return 1
 	fi
 	for _agh_perm_ipset_file in "${WORK_DIR}/ipset.conf" "${WORK_DIR}/ipset.user" "$(adguardhome_yaml_ipset_file)"; do
