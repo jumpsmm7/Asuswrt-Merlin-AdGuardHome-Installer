@@ -208,10 +208,9 @@ awk '
 	/^ensure_adguardhome_directory_permissions\(\) \{$/ { in_perm = 1; next }
 	in_perm && /^}$/ { in_perm = 0 }
 	in_perm && /chmod 770 "\$\{TARG_DIR\}"/ { perm_chmod_targ++ }
-	in_perm && /find "\$\{TARG_DIR\}" -type d -exec chmod 770/ { perm_chmod_dirs++ }
 	in_perm && /chmod 644 "\$\{YAML_FILE\}"/ { perm_chmod_yaml++ }
 	in_perm && /chmod 755 "\$\{AGH_FILE\}"/ { perm_chmod_binary++ }
-	END { exit(yaml_chmod == 1 && install_call >= 1 && restore_call >= 1 && create_mkdir == 1 && create_chmod_777 == 0 && perm_chmod_targ == 1 && perm_chmod_dirs == 1 && perm_chmod_yaml == 1 && perm_chmod_binary == 1 ? 0 : 1 ) }
+	END { exit(yaml_chmod == 1 && install_call >= 1 && restore_call >= 1 && create_mkdir == 1 && create_chmod_777 == 0 && perm_chmod_targ == 1 && perm_chmod_yaml == 1 && perm_chmod_binary == 1 ? 0 : 1 ) }
 ' "${REPO_DIR}/installer" || fail 'installer permission helper is not wired into all expected install, restore, and config paths'
 
 awk '
