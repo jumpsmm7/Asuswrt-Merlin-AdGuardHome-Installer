@@ -43,7 +43,7 @@ extract_permission_functions() {
 
 setup_tree() {
 	_base_dir="$1"
-	mkdir -p "${_base_dir}/custom" || return 1
+	mkdir -p "${_base_dir}/custom" "${_base_dir}/data/filters" || return 1
 	cat >"${_base_dir}/AdGuardHome" <<'EOS'
 #!/bin/sh
 printf '%s\n' "AdGuard Home, version test"
@@ -55,13 +55,29 @@ EOS
 	printf '%s\n' 'managed rules' >"${_base_dir}/ipset.conf" || return 1
 	printf '%s\n' 'user rules' >"${_base_dir}/ipset.user" || return 1
 	printf '%s\n' 'yaml rules' >"${_base_dir}/custom/from-yaml.conf" || return 1
+	printf '%s\n' 'sessions' >"${_base_dir}/data/sessions.db" || return 1
+	printf '%s\n' 'querylog' >"${_base_dir}/data/querylog.json" || return 1
+	printf '%s\n' 'stats' >"${_base_dir}/data/stats.db" || return 1
+	printf '%s\n' 'filter data' >"${_base_dir}/data/filters/1.txt" || return 1
 	printf '%s\n' 'symlink target' >"${_base_dir}/../symlink-target" || return 1
 	chmod 600 "${_base_dir}/../symlink-target" || return 1
 	ln -s "${_base_dir}/../symlink-target" "${_base_dir}/linked.conf" || return 1
-	chmod 755 "${_base_dir}" "${_base_dir}/custom" || return 1
+	# Start directories too open so the permission helper must repair them to 700.
+	chmod 755 "${_base_dir}" \
+		"${_base_dir}/custom" \
+		"${_base_dir}/data" \
+		"${_base_dir}/data/filters" || return 1
+	# Start files too open so the permission helper must repair YAML/data files to 600
+	# and managed IPSET files to 644.
 	chmod 755 "${_base_dir}/AdGuardHome.yaml" \
-		"${_base_dir}/ipset.conf" "${_base_dir}/ipset.user" \
-		"${_base_dir}/custom/from-yaml.conf" || return 1
+		"${_base_dir}/ipset.conf" \
+		"${_base_dir}/ipset.user" \
+		"${_base_dir}/custom/from-yaml.conf" \
+		"${_base_dir}/data/sessions.db" \
+		"${_base_dir}/data/querylog.json" \
+		"${_base_dir}/data/stats.db" \
+		"${_base_dir}/data/filters/1.txt" || return 1
+	# Start the binary too restrictive so the helper must repair it to 755.
 	chmod 600 "${_base_dir}/AdGuardHome" || return 1
 }
 
@@ -108,9 +124,15 @@ EOS
 	[ "$(adguardhome_yaml_ipset_file)" = 'custom/from-yaml.conf' ] || fail 'installer did not parse block scalar ipset_file from YAML'
 	ensure_adguardhome_directory_permissions >/dev/null || fail 'installer permission helper failed'
 	grep -Fx "${TARG_DIR}/custom/from-yaml.conf" "${CHOWN_LOG}" >/dev/null || fail 'installer did not chown nested YAML IPSET file'
-	assert_mode "${TARG_DIR}" 'drwxrwx---'
-	assert_mode "${TARG_DIR}/custom" 'drwxrwx---'
-	assert_mode "${YAML_FILE}" '-rw-r--r--'
+	assert_mode "${TARG_DIR}" 'drwx------'
+	assert_mode "${TARG_DIR}/custom" 'drwx------'
+	assert_mode "${TARG_DIR}/data" 'drwx------'
+	assert_mode "${TARG_DIR}/data/filters" 'drwx------'
+	assert_mode "${YAML_FILE}" '-rw-------'
+	assert_mode "${TARG_DIR}/data/sessions.db" '-rw-------'
+	assert_mode "${TARG_DIR}/data/querylog.json" '-rw-------'
+	assert_mode "${TARG_DIR}/data/stats.db" '-rw-------'
+	assert_mode "${TARG_DIR}/data/filters/1.txt" '-rw-------'
 	assert_mode "${TARG_DIR}/ipset.conf" '-rw-r--r--'
 	assert_mode "${TARG_DIR}/ipset.user" '-rw-r--r--'
 	assert_mode "${TARG_DIR}/custom/from-yaml.conf" '-rw-r--r--'
@@ -155,21 +177,26 @@ EOS
 	[ "$(adguardhome_yaml_ipset_file)" = 'custom/from-yaml.conf' ] || fail 'S99 did not parse block scalar ipset_file from YAML'
 	ensure_adguardhome_work_dir_permissions >/dev/null || fail 'S99 permission helper failed'
 	grep -Fx "${WORK_DIR}/custom/from-yaml.conf" "${CHOWN_LOG}" >/dev/null || fail 'S99 did not chown nested YAML IPSET file'
-	assert_mode "${WORK_DIR}" 'drwxrwx---'
-	assert_mode "${WORK_DIR}/custom" 'drwxrwx---'
-	assert_mode "${WORK_DIR}/AdGuardHome.yaml" '-rw-r--r--'
+	assert_mode "${WORK_DIR}" 'drwx------'
+	assert_mode "${WORK_DIR}/custom" 'drwx------'
+	assert_mode "${WORK_DIR}/data" 'drwx------'
+	assert_mode "${WORK_DIR}/data/filters" 'drwx------'
+	assert_mode "${WORK_DIR}/AdGuardHome.yaml" '-rw-------'
+	assert_mode "${WORK_DIR}/data/sessions.db" '-rw-------'
+	assert_mode "${WORK_DIR}/data/querylog.json" '-rw-------'
+	assert_mode "${WORK_DIR}/data/stats.db" '-rw-------'
+	assert_mode "${WORK_DIR}/data/filters/1.txt" '-rw-------'
 	assert_mode "${WORK_DIR}/ipset.conf" '-rw-r--r--'
 	assert_mode "${WORK_DIR}/ipset.user" '-rw-r--r--'
 	assert_mode "${WORK_DIR}/custom/from-yaml.conf" '-rw-r--r--'
 	assert_mode "${WORK_DIR}/linked.conf" 'lrwxrwxrwx'
 	assert_mode "${WORK_DIR}/../symlink-target" '-rw-------'
 	assert_mode "${WORK_DIR}/AdGuardHome" '-rwxr-xr-x'
-	assert_mode "${EXTERNAL_IPSET_FILE}" '-rw-------'
 	cat >"${WORK_DIR}/AdGuardHome.yaml" <<EOS
 dns:
   ipset_file: "${EXTERNAL_IPSET_FILE}"
 EOS
-	chmod 644 "${WORK_DIR}/AdGuardHome.yaml" || exit 1
+	chmod 600 "${WORK_DIR}/AdGuardHome.yaml" || exit 1
 	[ "$(adguardhome_yaml_ipset_file)" = "${EXTERNAL_IPSET_FILE}" ] || fail 'S99 did not parse absolute ipset_file from YAML'
 	ensure_adguardhome_work_dir_permissions >/dev/null || fail 'S99 permission helper failed with external IPSET file'
 	assert_mode "${EXTERNAL_IPSET_FILE}" '-rw-------'
@@ -194,7 +221,7 @@ EOS
 awk '
 	/^check_AdGuardHome_yaml\(\) \{$/ { in_check = 1; next }
 	in_check && /^}$/ { in_check = 0 }
-	in_check && /chmod 644 "\$\{YAML_FILE\}"/ { yaml_chmod++ }
+	in_check && /chmod 600 "\$\{YAML_FILE\}"/ { yaml_chmod++ }
 	/^install_adguard_archive\(\) \{$/ { in_install = 1; next }
 	in_install && /^}$/ { in_install = 0 }
 	in_install && /ensure_adguardhome_directory_permissions/ { install_call++ }
@@ -207,11 +234,15 @@ awk '
 	in_create_dir && /chmod 777 "\$\{1\}"/ { create_chmod_777++ }
 	/^ensure_adguardhome_directory_permissions\(\) \{$/ { in_perm = 1; next }
 	in_perm && /^}$/ { in_perm = 0 }
-	in_perm && /chmod 770 "\$\{TARG_DIR\}"/ { perm_chmod_targ++ }
-	in_perm && /chmod 644 "\$\{YAML_FILE\}"/ { perm_chmod_yaml++ }
+	in_perm && /chmod 700 "\$\{TARG_DIR\}"/ { perm_chmod_targ++ }
+	in_perm && /find "\$\{TARG_DIR\}" -exec sh -c/ { perm_find_dirs++ }
+	in_perm && /chmod 700 "\$1"/ { perm_chmod_dirs++ }
+	in_perm && /chmod 600 "\$\{YAML_FILE\}"/ { perm_chmod_yaml++ }
+	in_perm && /(chmod_regular_files_600|chmod_adguardhome_data_files_600) "\$\{TARG_DIR\}\/data"/ { perm_data_files++ }
+	in_perm && /(chmod_regular_files_600|chmod_adguardhome_data_files_600) "\$\{TARG_DIR\}\/data\/filters"/ { perm_filter_files++ }
+	in_perm && /chmod 644 "\$\{IPSET_PERMISSION_FILE\}"/ { perm_chmod_ipset++ }
 	in_perm && /chmod 755 "\$\{AGH_FILE\}"/ { perm_chmod_binary++ }
-	END { exit(yaml_chmod == 1 && install_call >= 1 && restore_call >= 1 && create_mkdir == 1 && create_chmod_777 == 0 && perm_chmod_targ == 1 && perm_chmod_yaml == 1 && perm_chmod_binary == 1 ? 0 : 1 ) }
-' "${REPO_DIR}/installer" || fail 'installer permission helper is not wired into all expected install, restore, and config paths'
+	END { exit(yaml_chmod == 1 && install_call >= 1 && restore_call >= 1 && create_mkdir == 1 && create_chmod_777 == 0 && perm_chmod_targ == 1 && perm_find_dirs >= 1 && perm_chmod_dirs >= 1 && perm_chmod_yaml == 1 && perm_data_files == 1 && perm_filter_files == 1 && perm_chmod_ipset >= 1 && perm_chmod_binary == 1 ? 0 : 1) }' "${REPO_DIR}/installer" || fail 'installer permission helper is not wired into all expected install, restore, and config paths'
 
 awk '
 	/^pre_start_adguardhome\(\) \{$/ { in_pre = 1; next }
