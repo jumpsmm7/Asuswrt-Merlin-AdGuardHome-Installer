@@ -219,30 +219,25 @@ EOS
 ) || exit 1
 
 awk '
-	/^check_AdGuardHome_yaml\(\) \{$/ { in_check = 1; next }
-	in_check && /^}$/ { in_check = 0 }
-	in_check && /chmod 600 "\$\{YAML_FILE\}"/ { yaml_chmod++ }
-	/^install_adguard_archive\(\) \{$/ { in_install = 1; next }
-	in_install && /^}$/ { in_install = 0 }
-	in_install && /ensure_adguardhome_directory_permissions/ { install_call++ }
-	/^backup_restore\(\) \{$/ { in_restore = 1; next }
-	in_restore && /^}$/ { in_restore = 0 }
-	in_restore && /ensure_adguardhome_directory_permissions/ { restore_call++ }
-	/^create_dir\(\) \{$/ { in_create_dir = 1; next }
-	in_create_dir && /^}$/ { in_create_dir = 0 }
-	in_create_dir && /mkdir -p "\$\{1\}"/ { create_mkdir++ }
-	in_create_dir && /chmod 777 "\$\{1\}"/ { create_chmod_777++ }
-	/^ensure_adguardhome_directory_permissions\(\) \{$/ { in_perm = 1; next }
+	/^pre_start_adguardhome\(\) \{$/ { in_pre = 1; next }
+	in_pre && /^}$/ { in_pre = 0 }
+	in_pre && /ensure_adguardhome_work_dir_permissions \|\| return 1/ { pre_call++ }
+	/^case "\$\{1:-\}" in$/ { in_case = 1; next }
+	in_case && /"start" \| "restart" \| "reload"\)/ { action_case++ }
+	in_case && /ensure_adguardhome_work_dir_permissions \|\| exit 1/ { action_call++ }
+	in_case && /^esac$/ { in_case = 0 }
+	/^ensure_adguardhome_work_dir_permissions\(\) \{$/ { in_perm = 1; next }
 	in_perm && /^}$/ { in_perm = 0 }
-	in_perm && /chmod 700 "\$\{TARG_DIR\}"/ { perm_chmod_targ++ }
-	in_perm && /find "\$\{TARG_DIR\}" -exec sh -c/ { perm_find_dirs++ }
+	in_perm && /chmod 700 "\$\{WORK_DIR\}"/ { perm_chmod_work++ }
+	in_perm && /find "\$\{WORK_DIR\}" -exec sh -c/ { perm_find_dirs++ }
 	in_perm && /chmod 700 "\$1"/ { perm_chmod_dirs++ }
-	in_perm && /chmod 600 "\$\{YAML_FILE\}"/ { perm_chmod_yaml++ }
-	in_perm && /(chmod_regular_files_600|chmod_adguardhome_data_files_600) "\$\{TARG_DIR\}\/data"/ { perm_data_files++ }
-	in_perm && /(chmod_regular_files_600|chmod_adguardhome_data_files_600) "\$\{TARG_DIR\}\/data\/filters"/ { perm_filter_files++ }
-	in_perm && /chmod 644 "\$\{IPSET_PERMISSION_FILE\}"/ { perm_chmod_ipset++ }
-	in_perm && /chmod 755 "\$\{AGH_FILE\}"/ { perm_chmod_binary++ }
-	END { exit(yaml_chmod == 1 && install_call >= 1 && restore_call >= 1 && create_mkdir == 1 && create_chmod_777 == 0 && perm_chmod_targ == 1 && perm_find_dirs >= 1 && perm_chmod_dirs >= 1 && perm_chmod_yaml == 1 && perm_data_files == 1 && perm_filter_files == 1 && perm_chmod_ipset >= 1 && perm_chmod_binary == 1 ? 0 : 1) }' "${REPO_DIR}/installer" || fail 'installer permission helper is not wired into all expected install, restore, and config paths'
+	in_perm && /chmod 600 "\$\{WORK_DIR\}\/AdGuardHome.yaml"/ { perm_chmod_yaml++ }
+	in_perm && /chmod_regular_files_600 "\$\{WORK_DIR\}\/data"/ { perm_data_files++ }
+	in_perm && /chmod_regular_files_600 "\$\{WORK_DIR\}\/data\/filters"/ { perm_filter_files++ }
+	in_perm && /chmod 644 "\$\{_agh_perm_ipset_file\}"/ { perm_chmod_ipset++ }
+	in_perm && /chmod 755 "\$\{WORK_DIR\}\/AdGuardHome"/ { perm_chmod_binary++ }
+	END { exit(pre_call == 1 && action_case == 1 && action_call == 1 && perm_chmod_work == 1 && perm_find_dirs >= 1 && perm_chmod_dirs >= 1 && perm_chmod_yaml == 1 && perm_data_files == 1 && perm_filter_files == 1 && perm_chmod_ipset >= 1 && perm_chmod_binary == 1 ? 0 : 1) }
+' "${REPO_DIR}/S99AdGuardHome" || fail 'S99 permission helper is not wired into all expected service paths'
 
 awk '
 	/^pre_start_adguardhome\(\) \{$/ { in_pre = 1; next }
