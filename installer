@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.3.3                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.3.4                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
 
-AI_VERSION="v2.3.3"
+AI_VERSION="v2.3.4"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -1451,6 +1451,18 @@ adguardhome_yaml_ipset_file() {
 	' "${YAML_FILE}"
 }
 
+chmod_adguardhome_data_files_600() {
+	local DATA_DIR
+	DATA_DIR="$1"
+	[ -d "${DATA_DIR}" ] || return 0
+	[ ! -L "${DATA_DIR}" ] || return 0
+	find "${DATA_DIR}" -exec sh -c '
+		[ ! -L "$1" ] || exit 0
+		[ -f "$1" ] || exit 0
+		chmod 600 "$1"
+	' sh {} \;
+}
+
 ensure_adguardhome_directory_permissions() {
 	local HTTP_USERNAME IPSET_PERMISSION_FILE PERMISSION_PATH
 	if [ ! -d "${TARG_DIR}" ]; then
@@ -1471,12 +1483,20 @@ ensure_adguardhome_directory_permissions() {
 			return 1
 		fi
 	done
-	if ! chmod 770 "${TARG_DIR}"; then
+	if ! chmod 700 "${TARG_DIR}" || ! find "${TARG_DIR}" -exec sh -c '[ ! -L "$1" ] || exit 0; [ -d "$1" ] || exit 0; chmod 700 "$1"' sh {} \;; then
 		PTXT "${ERROR} Unable to all set directory permissions for ${TARG_DIR}."
 		return 1
 	fi
-	if [ -f "${YAML_FILE}" ] && ! chmod 644 "${YAML_FILE}"; then
+	if [ -f "${YAML_FILE}" ] && ! chmod 600 "${YAML_FILE}"; then
 		PTXT "${ERROR} Unable to set configuration permissions on ${YAML_FILE}."
+		return 1
+	fi
+	if ! chmod_adguardhome_data_files_600 "${TARG_DIR}/data"; then
+		PTXT "${ERROR} Unable to set data file permissions for ${TARG_DIR}/data."
+		return 1
+	fi
+	if ! chmod_adguardhome_data_files_600 "${TARG_DIR}/data/filters"; then
+		PTXT "${ERROR} Unable to set filter file permissions for ${TARG_DIR}/data/filters."
 		return 1
 	fi
 	for IPSET_PERMISSION_FILE in "${TARG_DIR}/ipset.conf" "${TARG_DIR}/ipset.user" "$(adguardhome_yaml_ipset_file)"; do
