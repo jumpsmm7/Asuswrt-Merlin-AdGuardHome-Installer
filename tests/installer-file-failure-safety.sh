@@ -228,6 +228,12 @@ EOF
 						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
 						'lrwxrwxrwx root/root 0 date ./AdGuardHome/data/querylog.json -> ../../jffs/scripts/services-start'
 					;;
+				symlink-arrow-target)
+					printf '%s\n' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
+						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
+						'lrwxrwxrwx root/root 0 date ./AdGuardHome/data/querylog.json -> /jffs/scripts/services-start -> AdGuardHome/data/querylog.json'
+					;;
 				*)
 					printf '%s\n' \
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
@@ -249,7 +255,7 @@ EOF
 			missing)
 				printf '%s\n' './AdGuardHome/' './AdGuardHome/README.md'
 				;;
-			symlink-binary | symlink-extra | symlink-relative-parent | symlink-outside | symlink-traversal)
+			symlink-binary | symlink-extra | symlink-relative-parent | symlink-outside | symlink-traversal | symlink-arrow-target)
 				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/data/querylog.json'
 				;;
 		esac
@@ -280,6 +286,10 @@ EOF
 	ARCHIVE_LAYOUT="symlink-traversal"
 	if adguard_archive_is_safe ignored; then
 		fail "archive with a traversing symlink target outside AdGuardHome was accepted"
+	fi
+	ARCHIVE_LAYOUT="symlink-arrow-target"
+	if adguard_archive_is_safe ignored; then
+		fail "archive with a symlink target containing an arrow was accepted"
 	fi
 	ARCHIVE_LAYOUT="symlink-binary"
 	if adguard_archive_is_safe ignored; then
@@ -414,6 +424,10 @@ EOF
 		return 0
 	}
 
+	agh_process_count() {
+		printf '%s\n' "0"
+	}
+
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
@@ -452,6 +466,10 @@ EOF
 		return 0
 	}
 
+	agh_process_count() {
+		printf '%s\n' "0"
+	}
+
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
@@ -486,12 +504,22 @@ EOF
 	BASE_DIR="${TMP_DIR}/restore-final-fail-root"
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	RESTART_CALLS="0"
 	mkdir -p "${TARG_DIR}" || exit 1
 	printf '%s\n' "current binary" >"${AGH_FILE}"
 	printf '%s\n' "safe backup placeholder" >"${BASE_DIR}/backup_AdGuardHome.tar.gz"
 	REAL_MV="$(which mv)" || fail "mv is unavailable"
 
 	adguard_archive_is_safe() {
+		return 0
+	}
+
+	agh_process_count() {
+		printf '%s\n' "1"
+	}
+
+	agh_start() {
+		RESTART_CALLS="$((RESTART_CALLS + 1))"
 		return 0
 	}
 
@@ -533,6 +561,8 @@ EOF
 		fail "failed final restore setup did not restore the current installation"
 	[ ! -d "${BASE_DIR}/.AdGuardHome.rollback.$$" ] ||
 		fail "failed final restore setup left rollback directory behind"
+	[ "${RESTART_CALLS}" -eq 1 ] ||
+		fail "failed final restore setup did not restart the restored service"
 ) || exit 1
 
 (
@@ -552,6 +582,10 @@ EOF
 
 	adguard_archive_is_safe() {
 		return 0
+	}
+
+	agh_process_count() {
+		printf '%s\n' "0"
 	}
 
 	tar() {

@@ -1301,12 +1301,18 @@ adguard_archive_is_safe() {
 			type = substr($0, 1, 1)
 			if (type != "-" && type != "d" && type != "l") exit 1
 			if (type == "l") {
-				link_path = $0
-				link_target = $0
-				sub(/ -> .*/, "", link_path)
+				line = $0
+				arrow_count = 0
+				while ((arrow_pos = index(line, " -> ")) > 0) {
+					arrow_count++
+					line = substr(line, arrow_pos + 4)
+				}
+				if (arrow_count != 1) exit 1
+				arrow_pos = index($0, " -> ")
+				link_path = substr($0, 1, arrow_pos - 1)
+				link_target = substr($0, arrow_pos + 4)
 				sub(/^.* /, "", link_path)
 				sub(/^\.\//, "", link_path)
-				sub(/^.* -> /, "", link_target)
 				if (link_path == "AdGuardHome/AdGuardHome") exit 1
 				if (link_target == "" || link_target ~ /^\// || !symlink_target_is_safe(link_path, link_target)) exit 1
 			}
@@ -1387,7 +1393,7 @@ adguard_install_abort_on_signal() {
 	adguard_install_abort_trap_disable
 	[ -z "${STAGE_DIR}" ] || rm -rf "${STAGE_DIR}"
 	if [ "${RESTORE_ACTIVE}" = "1" ]; then
-		adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${RESTORE_TARG_DIR}" "${RESTORE_STAGE_DIR}"
+		adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${RESTORE_TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}"
 	elif [ "${REPLACE_ACTIVE}" = "1" ] && [ -n "${OLD_BINARY}" ]; then
 		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
 	else
@@ -1410,7 +1416,7 @@ adguard_restore_abort_trap_enable() {
 	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
 	ADGUARD_INSTALL_OLD_BINARY=""
 	ADGUARD_INSTALL_STAGE_DIR=""
-	ADGUARD_INSTALL_WAS_RUNNING="0"
+	ADGUARD_INSTALL_WAS_RUNNING="${4:-0}"
 	ADGUARD_RESTORE_ACTIVE="1"
 	ADGUARD_RESTORE_ROLLBACK_DIR="$1"
 	ADGUARD_RESTORE_TARG_DIR="$2"
@@ -1441,10 +1447,11 @@ adguard_restore_after_failed_replace() {
 }
 
 adguard_restore_after_failed_directory_restore() {
-	local ROLLBACK_DIR STAGE_DIR TARGET_DIR
+	local ROLLBACK_DIR STAGE_DIR TARGET_DIR WAS_RUNNING
 	ROLLBACK_DIR="$1"
 	TARGET_DIR="$2"
 	STAGE_DIR="$3"
+	WAS_RUNNING="${4:-0}"
 	[ -z "${STAGE_DIR}" ] || rm -rf "${STAGE_DIR}"
 	if [ -d "${ROLLBACK_DIR}" ]; then
 		rm -rf "${TARGET_DIR}"
@@ -1453,6 +1460,9 @@ adguard_restore_after_failed_directory_restore() {
 			return 1
 		fi
 	fi
+	rm -rf "${STAGE_DIR}"
+	adguard_restart_after_failed_replace "${WAS_RUNNING}"
+	return 0
 }
 
 adguardhome_yaml_ipset_file() {
@@ -1695,7 +1705,7 @@ install_adguard_archive() {
 }
 
 backup_restore() {
-	local RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARG_DIR
+	local RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARG_DIR WAS_RUNNING
 	if [ "$1" = "BACKUP" ] && [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; then
 		if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 			PTXT "${INFO} There is an old backup detected."
@@ -1737,8 +1747,9 @@ backup_restore() {
 		RESTORE_STAGE_DIR="${BASE_DIR}/.AdGuardHome.restore.$$"
 		RESTORE_TARG_DIR="${RESTORE_STAGE_DIR}/AdGuardHome"
 		RESTORE_ROLLBACK_DIR="${BASE_DIR}/.AdGuardHome.rollback.$$"
+		if [ "$(agh_process_count)" -gt 0 ]; then WAS_RUNNING="1"; else WAS_RUNNING="0"; fi
 		rm -rf "${RESTORE_STAGE_DIR}" "${RESTORE_ROLLBACK_DIR}"
-		adguard_restore_abort_trap_enable "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}"
+		adguard_restore_abort_trap_enable "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}"
 		if ! create_dir "${RESTORE_STAGE_DIR}" || ! tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${RESTORE_STAGE_DIR}" >/dev/null 2>&1; then
 			adguard_install_abort_trap_disable
 			rm -rf "${RESTORE_STAGE_DIR}"
@@ -1758,20 +1769,20 @@ backup_restore() {
 			return 1
 		fi
 		if ! mv "${RESTORE_TARG_DIR}" "${TARG_DIR}"; then
-			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}"
+			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}"
 			adguard_install_abort_trap_disable
 			PTXT "${ERROR} Unable to install the staged AdGuardHome backup."
 			return 1
 		fi
 		rm -rf "${RESTORE_STAGE_DIR}"
 		if ! ensure_adguardhome_directory_permissions; then
-			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}"
+			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}"
 			adguard_install_abort_trap_disable
 			PTXT "${ERROR} Unable to restore AdGuardHome ownership or permissions."
 			return 1
 		fi
 		if ! create_dir "/opt/sbin" || ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome; then
-			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}"
+			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}"
 			adguard_install_abort_trap_disable
 			PTXT "${ERROR} Unable to restore the AdGuardHome command symlink."
 			return 1
@@ -1779,7 +1790,7 @@ backup_restore() {
 		ADGUARD_DEFER_END_OP="1"
 		if ! inst_AdGuardHome "${1:-RESTORE}"; then
 			ADGUARD_DEFER_END_OP="0"
-			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}"
+			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}"
 			adguard_install_abort_trap_disable
 			PTXT "${ERROR} Unable to complete AdGuardHome restore setup."
 			return 1
