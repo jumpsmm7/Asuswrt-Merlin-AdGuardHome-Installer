@@ -1368,6 +1368,13 @@ adguard_install_abort_trap_disable() {
 	ADGUARD_RESTORE_TARG_DIR=""
 }
 
+adguard_install_abort_trap_disable_preserve_defer() {
+	local DEFER_END_OP
+	DEFER_END_OP="${ADGUARD_DEFER_END_OP:-0}"
+	adguard_install_abort_trap_disable
+	ADGUARD_DEFER_END_OP="${DEFER_END_OP}"
+}
+
 adguard_install_abort_on_signal() {
 	local OLD_BINARY REPLACE_ACTIVE RESTORE_ACTIVE RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARG_DIR STAGE_DIR WAS_RUNNING
 	OLD_BINARY="${ADGUARD_INSTALL_OLD_BINARY:-}"
@@ -2183,11 +2190,11 @@ inst_AdGuardHome() {
 		fi
 	fi
 	if ! agh_complete_startup; then
-		adguard_install_abort_trap_disable
+		adguard_install_abort_trap_disable_preserve_defer
 		end_op_message 1 "$1"
 		return
 	fi
-	adguard_install_abort_trap_disable
+	adguard_install_abort_trap_disable_preserve_defer
 	end_op_message 0 "$1"
 }
 
