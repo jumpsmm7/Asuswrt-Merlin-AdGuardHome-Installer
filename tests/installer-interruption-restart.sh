@@ -160,6 +160,7 @@ printf '%s\n' staged >"${RESTORE_STAGE}/AdGuardHome"
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
 
+	INFO="Info:"
 	ERROR="Error:"
 	PTXT() {
 		printf '%s\n' "$*" >>"${CALLS_FILE}"
@@ -169,6 +170,13 @@ printf '%s\n' staged >"${RESTORE_STAGE}/AdGuardHome"
 	}
 	adguard_restore_after_failed_replace() {
 		printf '%s\n' "unexpected-binary-restore:$1:$2" >>"${CALLS_FILE}"
+	}
+	agh_is_running() {
+		return 0
+	}
+	agh_stop() {
+		printf '%s\n' "restore-stop" >>"${CALLS_FILE}"
+		return 0
 	}
 	adguard_restart_after_failed_replace() {
 		printf '%s\n' "restore-restart:$1" >>"${CALLS_FILE}"
@@ -190,7 +198,7 @@ printf '%s\n' staged >"${RESTORE_STAGE}/AdGuardHome"
 [ ! -e "${RESTORE_ROLLBACK}" ] || fail 'interrupted restore left rollback directory behind'
 [ "$(sed -n '1p' "${RESTORE_TARGET}/AdGuardHome")" = "previous" ] ||
 	fail 'interrupted restore did not restore the previous installation'
-EXPECTED="$(printf '%s\n' 'restore-restart:1' 'clear' 'end:2')"
+EXPECTED="$(printf '%s\n' 'Info: Stopping AdGuardHome before restoring the previous installation.' 'restore-stop' 'restore-restart:1' 'clear' 'end:2')"
 ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] ||
 	fail "interrupted restore did not continue to the aborted-operation flow: ${ACTUAL}"
@@ -213,6 +221,9 @@ printf '%s\n' staged >"${EARLY_RESTORE_STAGE}/AdGuardHome"
 	}
 	adguard_restart_after_install_abort() {
 		printf '%s\n' "unexpected-restart:$1" >>"${CALLS_FILE}"
+	}
+	agh_is_running() {
+		return 1
 	}
 	adguard_restart_after_failed_replace() {
 		printf '%s\n' "restore-restart:$1" >>"${CALLS_FILE}"

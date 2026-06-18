@@ -384,6 +384,44 @@ EOF
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
 
+	INFO="Info:"
+	ERROR="Error:"
+	ROLLBACK_DIR="${TMP_DIR}/directory-rollback/.AdGuardHome.rollback"
+	TARGET_DIR="${TMP_DIR}/directory-rollback/AdGuardHome"
+	STAGE_DIR="${TMP_DIR}/directory-rollback/.AdGuardHome.restore"
+	CALLS_FILE="${TMP_DIR}/directory-rollback-calls"
+	mkdir -p "${ROLLBACK_DIR}" "${TARGET_DIR}" "${STAGE_DIR}" || exit 1
+	printf '%s\n' "previous binary" >"${ROLLBACK_DIR}/AdGuardHome"
+	printf '%s\n' "restored binary" >"${TARGET_DIR}/AdGuardHome"
+
+	agh_is_running() {
+		return 0
+	}
+
+	agh_stop() {
+		printf '%s\n' stop >>"${CALLS_FILE}"
+		return 0
+	}
+
+	adguard_restart_after_failed_replace() {
+		printf '%s\n' "restart:$1" >>"${CALLS_FILE}"
+		return 0
+	}
+
+	adguard_restore_after_failed_directory_restore "${ROLLBACK_DIR}" "${TARGET_DIR}" "${STAGE_DIR}" 1 1 >/dev/null ||
+		fail "directory restore rollback failed"
+	[ "$(sed -n '1p' "${TARGET_DIR}/AdGuardHome")" = "previous binary" ] ||
+		fail "directory restore rollback did not restore the previous installation"
+	[ "$(sed -n '1p' "${CALLS_FILE}")" = "stop" ] ||
+		fail "directory restore rollback did not stop the restored daemon before swapping files"
+	[ "$(sed -n '2p' "${CALLS_FILE}")" = "restart:1" ] ||
+		fail "directory restore rollback did not restart after restoring files"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
 	ERROR="Error:"
 	BASE_DIR="${TMP_DIR}/backup-root"
 	mkdir -p "${BASE_DIR}/AdGuardHome" || exit 1
@@ -483,6 +521,10 @@ EOF
 		printf '%s\n' "0"
 	}
 
+	agh_is_running() {
+		[ "$(agh_process_count)" -ge 1 ]
+	}
+
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
@@ -525,6 +567,10 @@ EOF
 		printf '%s\n' "0"
 	}
 
+	agh_is_running() {
+		[ "$(agh_process_count)" -ge 1 ]
+	}
+
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
@@ -560,6 +606,7 @@ EOF
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
 	RESTART_CALLS="0"
+	CALLS_FILE="${TMP_DIR}/restore-final-fail-calls"
 	mkdir -p "${TARG_DIR}" || exit 1
 	printf '%s\n' "current binary" >"${AGH_FILE}"
 	printf '%s\n' "safe backup placeholder" >"${BASE_DIR}/backup_AdGuardHome.tar.gz"
@@ -573,8 +620,18 @@ EOF
 		printf '%s\n' "1"
 	}
 
+	agh_is_running() {
+		[ "$(agh_process_count)" -ge 1 ]
+	}
+
+	agh_stop() {
+		printf '%s\n' stop >>"${CALLS_FILE}"
+		return 0
+	}
+
 	agh_start() {
 		RESTART_CALLS="$((RESTART_CALLS + 1))"
+		printf '%s\n' start >>"${CALLS_FILE}"
 		return 0
 	}
 
@@ -617,6 +674,8 @@ EOF
 		fail "failed final restore setup did not restore the current installation"
 	[ ! -d "${BASE_DIR}/.AdGuardHome.rollback.$$" ] ||
 		fail "failed final restore setup left rollback directory behind"
+	[ "$(sed -n '1p' "${CALLS_FILE}")" = "stop" ] ||
+		fail "failed final restore setup did not stop restored daemon before rollback"
 	[ "${RESTART_CALLS}" -eq 1 ] ||
 		fail "failed final restore setup did not restart the restored service"
 ) || exit 1
@@ -640,6 +699,10 @@ EOF
 
 	agh_process_count() {
 		printf '%s\n' "0"
+	}
+
+	agh_is_running() {
+		[ "$(agh_process_count)" -ge 1 ]
 	}
 
 	tar() {
@@ -704,6 +767,10 @@ EOF
 
 	agh_process_count() {
 		printf '%s\n' "0"
+	}
+
+	agh_is_running() {
+		[ "$(agh_process_count)" -ge 1 ]
 	}
 
 	tar() {

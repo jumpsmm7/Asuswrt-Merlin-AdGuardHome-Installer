@@ -1483,6 +1483,13 @@ adguard_restore_after_failed_directory_restore() {
 	WAS_RUNNING="${4:-0}"
 	TARGET_INSTALLED="${5:-1}"
 	[ -z "${STAGE_DIR}" ] || rm -rf "${STAGE_DIR}"
+	if agh_is_running; then
+		PTXT "${INFO} Stopping AdGuardHome before restoring the previous installation."
+		if ! agh_stop; then
+			PTXT "${ERROR} Unable to safely stop AdGuardHome before restoring the previous installation."
+			return 1
+		fi
+	fi
 	if [ -d "${ROLLBACK_DIR}" ] || [ "${TARGET_INSTALLED}" = "1" ]; then
 		rm -rf "${TARGET_DIR}"
 	fi
