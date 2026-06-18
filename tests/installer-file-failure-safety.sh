@@ -645,4 +645,15 @@ EOF
 		fail "successful final restore setup did not keep the restored installation"
 ) || exit 1
 
+if sed -n '/^inst_AdGuardHome() {$/,/^set_timezone() {$/p' "${REPO_DIR}/installer" |
+	awk '
+		/end_op_message 1/ { saw_failure = 1; next }
+		saw_failure && /^[[:space:]]*return[[:space:]]*$/ { exit 1 }
+		{ saw_failure = 0 }
+	'; then
+	:
+else
+	fail "inst_AdGuardHome has a deferred failure path with a bare return"
+fi
+
 printf '%s\n' "PASS: installer file updates preserve working copies and propagate write failures"

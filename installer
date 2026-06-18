@@ -2016,16 +2016,16 @@ inst_AdGuardHome() {
 		if [ -z "${REMOTE_VER}" ] || [ -z "${REMOTE_BETA}" ] || [ -z "${REMOTE_EDGE}" ] || { ! check_connection; }; then
 			PTXT "${ERROR} Unable to detect the Internet!"
 			end_op_message 1 "$1"
-			return
+			return 1
 		fi
 		if ! create_dir "${TARG_DIR}" || ! ensure_adguardhome_directory_permissions; then
 			end_op_message 1 "$1"
-			return
+			return 1
 		fi
 		if ! download_file "${TARG_DIR}" 755 "${RURL}/installer" || ! awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -qoE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})'; then
 			PTXT "${ERROR} Failed to download installer."
 			end_op_message 1 "$1"
-			return
+			return 1
 		fi
 		installer_update_reexec "${1:-install}" "${INSTALLER_MD5_OLD}"
 		if [ "${1:-RESTORE}" != "RESTORE" ]; then
@@ -2115,27 +2115,27 @@ inst_AdGuardHome() {
 		if ! download_file "${BASE_DIR}" 644 "${REMOTE_ADGUARD_URL}"; then
 			PTXT "${ERROR} Unable to download AdGuardHome package for your router"
 			end_op_message 1 "$1"
-			return
+			return 1
 		fi
 		if md5_is_valid "${REMOTE_ADGUARD_MD5}"; then
 			ARCHIVE_MD5="$(file_md5 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || {
 				PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package checksum."
 				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 				end_op_message 1 "$1"
-				return
+				return 1
 			}
 			if [ "${ARCHIVE_MD5}" != "${REMOTE_ADGUARD_MD5}" ]; then
 				PTXT "${ERROR} Checksum mismatch for downloaded AdGuardHome package metadata."
 				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 				end_op_message 1 "$1"
-				return
+				return 1
 			fi
 		fi
 		if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
 		if ! install_adguard_archive "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}"; then
 			rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 			end_op_message 1 "$1"
-			return
+			return 1
 		fi
 		rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 		[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
@@ -2143,7 +2143,7 @@ inst_AdGuardHome() {
 			PTXT "${ERROR} Failed to download AdGuardHome package for your router"
 			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 			end_op_message 1 "$1"
-			return
+			return 1
 		fi
 	fi
 	if ! create_dir "${ADDON_DIR}"; then
@@ -2197,13 +2197,13 @@ inst_AdGuardHome() {
 		if ! setup_AdGuardHome "" "${1:-install}"; then
 			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 			end_op_message 1
-			return
+			return 1
 		fi
 	fi
 	if ! agh_complete_startup; then
 		adguard_install_abort_trap_disable_preserve_defer
 		end_op_message 1 "$1"
-		return
+		return 1
 	fi
 	adguard_install_abort_trap_disable_preserve_defer
 	end_op_message 0 "$1"
