@@ -1278,7 +1278,7 @@ save_dns_nvram_environment() {
 # Installer file and setup helpers
 
 adguard_archive_is_safe() {
-	if ! tar tvzf "$1" 2>/dev/null | awk '
+	if ! tar tvzf "$1" 2>/dev/null | awk -v require_state="${2:-0}" '
 		function symlink_target_is_safe(link_path, link_target,    base_path, depth, i, n, part, parts) {
 			base_path = link_path
 			sub(/\/[^\/]*$/, "", base_path)
@@ -1296,10 +1296,19 @@ adguard_archive_is_safe() {
 			}
 			return depth >= 1
 		}
-		BEGIN { entries = 0 }
+		BEGIN { entries = 0; data = 0 }
 		{
 			type = substr($0, 1, 1)
 			if (type != "-" && type != "d" && type != "l") exit 1
+			entry_path = $0
+			if (type == "l") {
+				arrow_pos = index(entry_path, " -> ")
+				if (arrow_pos > 0) entry_path = substr(entry_path, 1, arrow_pos - 1)
+			}
+			sub(/^.* /, "", entry_path)
+			sub(/^\.\//, "", entry_path)
+			if (type == "d") sub(/\/$/, "", entry_path)
+			if ((type == "d" && entry_path == "AdGuardHome/data") || entry_path ~ /^AdGuardHome\/data\//) data = 1
 			if (type == "l") {
 				line = $0
 				arrow_count = 0
@@ -1318,7 +1327,7 @@ adguard_archive_is_safe() {
 			}
 			entries = 1
 		}
-		END { if (!entries) exit 1 }
+		END { if (!entries || (require_state && !data)) exit 1 }
 	'; then
 		return 1
 	fi
@@ -1333,7 +1342,7 @@ adguard_archive_is_safe() {
 			}
 			if (path == "AdGuardHome/AdGuardHome") binary = 1
 			if (path == "AdGuardHome/AdGuardHome.yaml") yaml = 1
-			if (path == "AdGuardHome/data" || path ~ /^AdGuardHome\/data\//) data = 1
+			if (path ~ /^AdGuardHome\/data\//) data = 1
 		}
 		END { exit(!unsafe && binary && (!require_state || (yaml && data)) ? 0 : 1) }
 	'

@@ -199,6 +199,13 @@ EOF
 		esac
 		if [ "${_verbose}" -eq 1 ]; then
 			case "${ARCHIVE_LAYOUT}" in
+				safe)
+					printf '%s\n' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
+						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
+						'-rw-r--r-- root/root 1 date ./AdGuardHome/AdGuardHome.yaml' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/data/'
+					;;
 				symlink-binary)
 					printf '%s\n' \
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
@@ -234,6 +241,13 @@ EOF
 						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
 						'lrwxrwxrwx root/root 0 date ./AdGuardHome/data/querylog.json -> /jffs/scripts/services-start -> AdGuardHome/data/querylog.json'
 					;;
+				data-file)
+					printf '%s\n' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
+						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
+						'-rw-r--r-- root/root 1 date ./AdGuardHome/AdGuardHome.yaml' \
+						'-rw-r--r-- root/root 1 date ./AdGuardHome/data'
+					;;
 				*)
 					printf '%s\n' \
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
@@ -251,6 +265,9 @@ EOF
 				;;
 			missing-data)
 				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/AdGuardHome.yaml'
+				;;
+			data-file)
+				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/AdGuardHome.yaml' './AdGuardHome/data'
 				;;
 			traversal)
 				printf '%s\n' './AdGuardHome/AdGuardHome' './AdGuardHome/../../jffs/scripts/services-start'
@@ -279,6 +296,11 @@ EOF
 	adguard_archive_is_safe ignored || fail "install archive without data directory was rejected"
 	if adguard_archive_is_safe ignored 1; then
 		fail "backup archive without data directory was accepted"
+	fi
+	ARCHIVE_LAYOUT="data-file"
+	adguard_archive_is_safe ignored || fail "install archive with data as a file was rejected"
+	if adguard_archive_is_safe ignored 1; then
+		fail "backup archive with data as a file was accepted"
 	fi
 	ARCHIVE_LAYOUT="traversal"
 	if adguard_archive_is_safe ignored; then
