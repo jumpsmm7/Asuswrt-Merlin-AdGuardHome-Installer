@@ -10,7 +10,7 @@ Assume:
 
 ```sh
 export LC_ALL=C
-export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:${PATH:-}"
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin${PATH:+:$PATH}"
 ```
 
 Router stock paths must take priority over Entware paths.
@@ -99,12 +99,12 @@ Default to router stock paths and BusyBox applets outside installer-managed Entw
 ## BusyBox environment
 
 Target BusyBox version: `BusyBox v1.25.1`.
-
-Treat BusyBox applets as limited implementations, not GNU coreutils. Avoid GNU-only flags unless confirmed for BusyBox v1.25.1.
+Treat BusyBox applets as limited implementations, not GNU coreutils.
+Avoid GNU-only flags unless confirmed for BusyBox v1.25.1.
 
 Available BusyBox applets include: `ash`, `awk`, `basename`, `cat`, `chmod`, `chown`, `cp`, `crond`, `crontab`, `cut`, `date`, `dd`, `df`, `dirname`, `dmesg`, `du`, `echo`, `egrep`, `env`, `expr`, `find`, `grep`, `gunzip`, `gzip`, `head`, `hostname`, `ifconfig`, `kill`, `killall`, `ln`, `logger`, `logread`, `ls`, `md5sum`, `mkdir`, `mount`, `mv`, `nc`, `netstat`, `nohup`, `nslookup`, `pidof`, `ping`, `ping6`, `printf`, `ps`, `pwd`, `readlink`, `reboot`, `rm`, `rmdir`, `route`, `sed`, `sh`, `sha256sum`, `sleep`, `sort`, `stty`, `sync`, `tail`, `tar`, `tee`, `test`, `top`, `touch`, `tr`, `true`, `umount`, `uname`, `uniq`, `unzip`, `uptime`, `usleep`, `vi`, `watch`, `wc`, `which`, `xargs`, and `zcat`.
 
-`flock` may exist on newer firmware or via tooling, but it is not safe to require unconditionally. Preserve the existing probe/fallback pattern before using descriptor locking.
+`flock` is optional across supported firmware. Do not rely on it unconditionally; preserve the existing compatibility probe and fallback path for IPSET/service locking when `flock` is absent or lacks descriptor-lock support.
 
 ## Important router stock command paths
 
@@ -125,7 +125,7 @@ Prefer these known stock paths when absolute paths are needed:
 * `wget`: `/usr/sbin/wget`
 * `jq`: `/usr/bin/jq`
 * `openssl`: `/usr/sbin/openssl`
-* `bash`: `/bin/bash`
+* `flock` (optional): `/usr/bin/flock`
 * `nvram`: `/bin/nvram`
 * `cru`: `/usr/sbin/cru`
 * `service`: `/sbin/service`
