@@ -4,13 +4,13 @@ These instructions apply to the entire repository unless a deeper `AGENTS.md` ov
 
 ## Primary target
 
-This repository targets POSIX `/bin/sh` scripts running under BusyBox `ash` on Asuswrt-Merlin routers.
+This repository targets POSIX `/bin/sh` scripts running under BusyBox `ash` on Asuswrt-Merlin routers with Entware installed for the AdGuardHome installer runtime.
 
 Assume:
 
 ```sh
 export LC_ALL=C
-export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH:-}"
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:${PATH:-}"
 ```
 
 Router stock paths must take priority over Entware paths.
@@ -80,17 +80,21 @@ General shell rules:
 
 ## Entware assumptions
 
-Do not assume Entware exists.
+Entware is an expected dependency for this installer. Existing installer/service code may use `/opt`, `/opt/bin`, `/opt/sbin`, `/opt/usr/bin`, `/opt/usr/sbin`, and `opkg` where that matches current project behavior.
 
-Do not assume these paths exist unless the user explicitly allows Entware:
+Do not add unrelated Entware dependencies casually. If a new Entware package is needed, update the allowed package list in this section in the same change, clearly separate stock-router code from Entware-dependent code, and include or preserve the required `opkg install ...` step.
 
-* `/opt`
-* `/opt/bin`
-* `/opt/sbin`
+Allowed Entware packages currently referenced by the installer are:
 
-Do not use Entware tools unless explicitly allowed. If an Entware package is needed, clearly separate stock-router code from Entware-dependent code and include the required `opkg install ...` step.
+* `apache`
+* `apache-utils`
+* `column`
+* `go`
+* `go_nohf`
+* `python3`
+* `python3-bcrypt`
 
-Default to router stock paths and BusyBox applets.
+Default to router stock paths and BusyBox applets outside installer-managed Entware paths and package-install flows.
 
 ## BusyBox environment
 
@@ -98,9 +102,9 @@ Target BusyBox version: `BusyBox v1.25.1`.
 
 Treat BusyBox applets as limited implementations, not GNU coreutils. Avoid GNU-only flags unless confirmed for BusyBox v1.25.1.
 
-Available BusyBox applets include:
+Available BusyBox applets include: `ash`, `awk`, `basename`, `cat`, `chmod`, `chown`, `cp`, `crond`, `crontab`, `cut`, `date`, `dd`, `df`, `dirname`, `dmesg`, `du`, `echo`, `egrep`, `env`, `expr`, `find`, `grep`, `gunzip`, `gzip`, `head`, `hostname`, `ifconfig`, `kill`, `killall`, `ln`, `logger`, `logread`, `ls`, `md5sum`, `mkdir`, `mount`, `mv`, `nc`, `netstat`, `nohup`, `nslookup`, `pidof`, `ping`, `ping6`, `printf`, `ps`, `pwd`, `readlink`, `reboot`, `rm`, `rmdir`, `route`, `sed`, `sh`, `sha256sum`, `sleep`, `sort`, `stty`, `sync`, `tail`, `tar`, `tee`, `test`, `top`, `touch`, `tr`, `true`, `umount`, `uname`, `uniq`, `unzip`, `uptime`, `usleep`, `vi`, `watch`, `wc`, `which`, `xargs`, and `zcat`.
 
-`ash`, `awk`, `basename`, `cat`, `chmod`, `chown`, `cp`, `crond`, `crontab`, `cut`, `date`, `dd`, `df`, `dirname`, `dmesg`, `du`, `echo`, `egrep`, `env`, `expr`, `find`, `flock`, `grep`, `gunzip`, `gzip`, `head`, `hostname`, `ifconfig`, `kill`, `killall`, `ln`, `logger`, `logread`, `ls`, `md5sum`, `mkdir`, `mount`, `mv`, `nc`, `netstat`, `nohup`, `nslookup`, `pidof`, `ping`, `ping6`, `printf`, `ps`, `pwd`, `readlink`, `reboot`, `rm`, `rmdir`, `route`, `sed`, `sh`, `sha256sum`, `sleep`, `sort`, `stty`, `sync`, `tail`, `tar`, `tee`, `test`, `top`, `touch`, `tr`, `true`, `umount`, `uname`, `uniq`, `unzip`, `uptime`, `usleep`, `vi`, `watch`, `wc`, `which`, `xargs`, and `zcat`.
+`flock` may exist on newer firmware or via tooling, but it is not safe to require unconditionally. Preserve the existing probe/fallback pattern before using descriptor locking.
 
 ## Important router stock command paths
 
@@ -121,7 +125,6 @@ Prefer these known stock paths when absolute paths are needed:
 * `wget`: `/usr/sbin/wget`
 * `jq`: `/usr/bin/jq`
 * `openssl`: `/usr/sbin/openssl`
-* `flock`: `/usr/bin/flock`
 * `bash`: `/bin/bash`
 * `nvram`: `/bin/nvram`
 * `cru`: `/usr/sbin/cru`
@@ -132,6 +135,8 @@ Prefer these known stock paths when absolute paths are needed:
 * `ebtables`: `/usr/sbin/ebtables`
 * `brctl`: `/bin/brctl`
 * `logger`: `/usr/bin/logger`
+
+Optional or firmware-dependent tooling includes `flock`; use it only after checking availability and descriptor-lock support, and keep the mkdir/PID fallback path intact.
 
 Note when a proposed command relies on a router-stock binary rather than a BusyBox applet, such as `curl`, `wget`, `jq`, `openssl`, `nvram`, `cru`, `service`, `iptables`, `ip6tables`, `ip`, `ipset`, `tc`, `openvpn`, `wg`, `stubby`, `dnsmasq`, `sqlite3`, `socat`, `conntrack`, `iperf3`, or `ookla`.
 
@@ -156,12 +161,13 @@ Common writable/script locations:
 * `/tmp`
 * `/tmp/mnt`
 
-Do not assume `/opt`, `/opt/bin`, or `/opt/sbin` unless Entware is explicitly allowed.
+The installer also manages Entware-backed paths under `/opt`, including `/opt/etc`, `/opt/sbin`, `/opt/bin`, and `/opt/var/run`. Do not assume unrelated `/opt` paths exist outside installer-managed or explicitly Entware-dependent code.
 
 ## NVRAM rules
 
 * Use `nvram get` and `nvram set` carefully.
-* Do not use `nvram commit` unless the user explicitly requests persistent flash writes.
+* Preserve existing `nvram commit` calls for installer-managed persisted settings and rollback/restore paths that must survive reboot.
+* Do not add incidental or newly introduced `nvram commit` flash writes unless the user explicitly requests persistence or the installer-managed flow requires it.
 * Preserve old values before changing important NVRAM values when practical.
 * For DNS, firewall, WAN, VPN, or service-related NVRAM changes, include restore logic when practical.
 * Review changes for interrupted-install, signal-trap, rollback, and restart/restore failure paths.
