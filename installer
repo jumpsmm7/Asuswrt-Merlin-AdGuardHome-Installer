@@ -1357,7 +1357,6 @@ adguard_restart_after_install_abort() {
 
 adguard_install_abort_trap_disable() {
 	trap - HUP INT QUIT ABRT TERM
-	ADGUARD_DEFER_END_OP="0"
 	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
 	ADGUARD_INSTALL_OLD_BINARY=""
 	ADGUARD_INSTALL_STAGE_DIR=""

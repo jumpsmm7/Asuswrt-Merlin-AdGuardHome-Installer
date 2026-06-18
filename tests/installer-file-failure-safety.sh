@@ -585,6 +585,10 @@ EOF
 		if [ "${ADGUARD_DEFER_END_OP:-0}" != "1" ]; then
 			fail "final restore setup was not run with deferred end_op_message"
 		fi
+		adguard_install_abort_trap_disable
+		if [ "${ADGUARD_DEFER_END_OP:-0}" != "1" ]; then
+			fail "trap disable cleared deferred end_op_message before restore cleanup"
+		fi
 		end_op_message 0 "$1"
 	}
 
