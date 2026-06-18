@@ -1279,16 +1279,36 @@ save_dns_nvram_environment() {
 
 adguard_archive_is_safe() {
 	if ! tar tvzf "$1" 2>/dev/null | awk '
+		function symlink_target_is_safe(link_path, link_target,    base_path, depth, i, n, part, parts) {
+			base_path = link_path
+			sub(/\/[^\/]*$/, "", base_path)
+			n = split(base_path "/" link_target, parts, "/")
+			for (i = 1; i <= n; i++) {
+				part = parts[i]
+				if (part == "" || part == ".") continue
+				if (part == "..") {
+					depth--
+					if (depth < 1) return 0
+					continue
+				}
+				depth++
+				if (depth == 1 && part != "AdGuardHome") return 0
+			}
+			return depth >= 1
+		}
 		BEGIN { entries = 0 }
 		{
 			type = substr($0, 1, 1)
 			if (type != "-" && type != "d" && type != "l") exit 1
 			if (type == "l") {
 				link_path = $0
+				link_target = $0
 				sub(/ -> .*/, "", link_path)
 				sub(/^.* /, "", link_path)
 				sub(/^\.\//, "", link_path)
+				sub(/^.* -> /, "", link_target)
 				if (link_path == "AdGuardHome/AdGuardHome") exit 1
+				if (link_target == "" || link_target ~ /^\// || !symlink_target_is_safe(link_path, link_target)) exit 1
 			}
 			entries = 1
 		}

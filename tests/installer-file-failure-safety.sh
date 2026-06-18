@@ -208,7 +208,25 @@ EOF
 					printf '%s\n' \
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
 						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
-						'lrwxrwxrwx root/root 0 date ./AdGuardHome/querylog.json -> /tmp/querylog.json'
+						'lrwxrwxrwx root/root 0 date ./AdGuardHome/data/querylog.json -> filters/querylog.json'
+					;;
+				symlink-relative-parent)
+					printf '%s\n' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
+						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
+						'lrwxrwxrwx root/root 0 date ./AdGuardHome/data/querylog.json -> ../filters/querylog.json'
+					;;
+				symlink-outside)
+					printf '%s\n' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
+						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
+						'lrwxrwxrwx root/root 0 date ./AdGuardHome/data/querylog.json -> /jffs/scripts/services-start'
+					;;
+				symlink-traversal)
+					printf '%s\n' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
+						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
+						'lrwxrwxrwx root/root 0 date ./AdGuardHome/data/querylog.json -> ../../jffs/scripts/services-start'
 					;;
 				*)
 					printf '%s\n' \
@@ -231,8 +249,8 @@ EOF
 			missing)
 				printf '%s\n' './AdGuardHome/' './AdGuardHome/README.md'
 				;;
-			symlink-binary | symlink-extra)
-				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/querylog.json'
+			symlink-binary | symlink-extra | symlink-relative-parent | symlink-outside | symlink-traversal)
+				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/data/querylog.json'
 				;;
 		esac
 	}
@@ -253,6 +271,16 @@ EOF
 	fi
 	ARCHIVE_LAYOUT="symlink-extra"
 	adguard_archive_is_safe ignored || fail "archive with a non-binary symlink was rejected"
+	ARCHIVE_LAYOUT="symlink-relative-parent"
+	adguard_archive_is_safe ignored || fail "archive with an in-tree parent-relative symlink was rejected"
+	ARCHIVE_LAYOUT="symlink-outside"
+	if adguard_archive_is_safe ignored; then
+		fail "archive with an absolute symlink target outside AdGuardHome was accepted"
+	fi
+	ARCHIVE_LAYOUT="symlink-traversal"
+	if adguard_archive_is_safe ignored; then
+		fail "archive with a traversing symlink target outside AdGuardHome was accepted"
+	fi
 	ARCHIVE_LAYOUT="symlink-binary"
 	if adguard_archive_is_safe ignored; then
 		fail "archive with a symlinked AdGuardHome binary was accepted"
