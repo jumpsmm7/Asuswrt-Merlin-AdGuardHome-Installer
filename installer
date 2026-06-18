@@ -1400,6 +1400,7 @@ adguard_install_abort_on_signal() {
 		adguard_restart_after_install_abort "${WAS_RUNNING}"
 	fi
 	clear_screen
+	ADGUARD_DEFER_END_OP="0"
 	end_op_message 2
 }
 

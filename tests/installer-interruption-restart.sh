@@ -174,10 +174,12 @@ printf '%s\n' staged >"${RESTORE_STAGE}/AdGuardHome"
 		printf '%s\n' 'clear' >>"${CALLS_FILE}"
 	}
 	end_op_message() {
+		[ "${ADGUARD_DEFER_END_OP:-0}" = "0" ] || fail 'restore abort left deferred end_op_message enabled'
 		printf '%s\n' "end:$1" >>"${CALLS_FILE}"
 	}
 
 	adguard_restore_abort_trap_enable "${RESTORE_ROLLBACK}" "${RESTORE_TARGET}" "${RESTORE_STAGE}"
+	ADGUARD_DEFER_END_OP="1"
 	adguard_install_abort_on_signal
 ) || fail 'interrupted restore rollback handler failed'
 
