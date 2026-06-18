@@ -1322,8 +1322,8 @@ adguard_archive_is_safe() {
 	'; then
 		return 1
 	fi
-	tar tzf "$1" 2>/dev/null | awk '
-		BEGIN { binary = 0; unsafe = 0 }
+	tar tzf "$1" 2>/dev/null | awk -v require_state="${2:-0}" '
+		BEGIN { binary = 0; yaml = 0; data = 0; unsafe = 0 }
 		{
 			path = $0
 			sub(/^\.\//, "", path)
@@ -1332,8 +1332,10 @@ adguard_archive_is_safe() {
 				exit
 			}
 			if (path == "AdGuardHome/AdGuardHome") binary = 1
+			if (path == "AdGuardHome/AdGuardHome.yaml") yaml = 1
+			if (path == "AdGuardHome/data" || path ~ /^AdGuardHome\/data\//) data = 1
 		}
-		END { exit(!unsafe && binary ? 0 : 1) }
+		END { exit(!unsafe && binary && (!require_state || (yaml && data)) ? 0 : 1) }
 	'
 }
 
@@ -1627,7 +1629,7 @@ create_backup_archive() {
 		PTXT "${ERROR} Unable to create the AdGuardHome backup archive."
 		return 1
 	fi
-	if ! tar -tzf "${BACKUP_TMP}" >/dev/null 2>&1 || ! adguard_archive_is_safe "${BACKUP_TMP}"; then
+	if ! tar -tzf "${BACKUP_TMP}" >/dev/null 2>&1 || ! adguard_archive_is_safe "${BACKUP_TMP}" 1; then
 		rm -f "${BACKUP_TMP}"
 		PTXT "${ERROR} The new AdGuardHome backup archive could not be verified."
 		return 1
@@ -1741,7 +1743,7 @@ backup_restore() {
 	fi
 	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
 		PTXT "${INFO} Please wait a moment."
-		if ! adguard_archive_is_safe "${BASE_DIR}/backup_AdGuardHome.tar.gz"; then
+		if ! adguard_archive_is_safe "${BASE_DIR}/backup_AdGuardHome.tar.gz" 1; then
 			PTXT "${ERROR} Refusing to restore an unsafe or incomplete AdGuardHome backup archive."
 			return 1
 		fi

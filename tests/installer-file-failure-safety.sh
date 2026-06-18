@@ -244,7 +244,13 @@ EOF
 		fi
 		case "${ARCHIVE_LAYOUT}" in
 			safe)
-				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/README.md'
+				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/AdGuardHome.yaml' './AdGuardHome/data/' './AdGuardHome/README.md'
+				;;
+			missing-yaml)
+				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/data/querylog.json'
+				;;
+			missing-data)
+				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/AdGuardHome.yaml'
 				;;
 			traversal)
 				printf '%s\n' './AdGuardHome/AdGuardHome' './AdGuardHome/../../jffs/scripts/services-start'
@@ -263,6 +269,17 @@ EOF
 
 	ARCHIVE_LAYOUT="safe"
 	adguard_archive_is_safe ignored || fail "safe AdGuardHome archive layout was rejected"
+	adguard_archive_is_safe ignored 1 || fail "complete AdGuardHome backup layout was rejected"
+	ARCHIVE_LAYOUT="missing-yaml"
+	adguard_archive_is_safe ignored || fail "install archive without restored state was rejected"
+	if adguard_archive_is_safe ignored 1; then
+		fail "backup archive without AdGuardHome.yaml was accepted"
+	fi
+	ARCHIVE_LAYOUT="missing-data"
+	adguard_archive_is_safe ignored || fail "install archive without data directory was rejected"
+	if adguard_archive_is_safe ignored 1; then
+		fail "backup archive without data directory was accepted"
+	fi
 	ARCHIVE_LAYOUT="traversal"
 	if adguard_archive_is_safe ignored; then
 		fail "archive path traversal was accepted"
