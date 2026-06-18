@@ -10,7 +10,7 @@ Assume:
 
 ```sh
 export LC_ALL=C
-export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:${PATH:-}"
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin${PATH:+:$PATH}"
 ```
 
 Router stock paths must take priority over Entware paths.
@@ -126,7 +126,6 @@ Prefer these known stock paths when absolute paths are needed:
 * `jq`: `/usr/bin/jq`
 * `openssl`: `/usr/sbin/openssl`
 * `flock` (optional): `/usr/bin/flock`
-* `bash`: `/bin/bash`
 * `nvram`: `/bin/nvram`
 * `cru`: `/usr/sbin/cru`
 * `service`: `/sbin/service`
