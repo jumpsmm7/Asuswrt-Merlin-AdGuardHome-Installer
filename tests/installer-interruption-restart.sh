@@ -216,4 +216,13 @@ awk '
 	END { exit !(stage && enable && extract && rollback && stage < enable && enable < extract && extract < rollback) }
 ' "${SCRIPT_PATH}" || fail 'restore cleanup trap is not armed before staging extraction'
 
+awk '
+	/^backup_restore\(\) \{/ { in_function = 1 }
+	in_function && /if ! inst_AdGuardHome "\$\{1:-RESTORE\}"/ { final_setup = NR; in_final_failure = 1; next }
+	in_final_failure && /^[[:space:]]*fi$/ { in_final_failure = 0; next }
+	in_function && final_setup && !in_final_failure && /rm -rf "\$\{RESTORE_ROLLBACK_DIR\}"/ { cleanup = NR }
+	in_function && final_setup && !in_final_failure && /adguard_install_abort_trap_disable/ { disable = NR; exit }
+	END { exit !(final_setup && cleanup && disable && final_setup < cleanup && cleanup < disable) }
+' "${SCRIPT_PATH}" || fail 'restore cleanup trap is disabled before rollback cleanup finishes'
+
 printf '%s\n' 'PASS: installation interruption restarts the previously running service'

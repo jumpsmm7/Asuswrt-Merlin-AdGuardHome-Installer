@@ -1807,9 +1807,9 @@ backup_restore() {
 			PTXT "${ERROR} Unable to complete AdGuardHome restore setup."
 			return 1
 		fi
+		rm -rf "${RESTORE_ROLLBACK_DIR}"
 		ADGUARD_DEFER_END_OP="0"
 		adguard_install_abort_trap_disable
-		rm -rf "${RESTORE_ROLLBACK_DIR}"
 		end_op_message 0 "${1:-RESTORE}"
 	elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
 		PTXT "${ERROR} No Backup found!" \
