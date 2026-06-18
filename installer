@@ -1456,8 +1456,8 @@ adguard_restore_after_failed_directory_restore() {
 	STAGE_DIR="$3"
 	WAS_RUNNING="${4:-0}"
 	[ -z "${STAGE_DIR}" ] || rm -rf "${STAGE_DIR}"
+	rm -rf "${TARGET_DIR}"
 	if [ -d "${ROLLBACK_DIR}" ]; then
-		rm -rf "${TARGET_DIR}"
 		if ! mv "${ROLLBACK_DIR}" "${TARGET_DIR}"; then
 			PTXT "${ERROR} Unable to restore the previous AdGuardHome installation; it remains at ${ROLLBACK_DIR}."
 			return 1

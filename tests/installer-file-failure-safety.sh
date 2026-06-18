@@ -589,6 +589,68 @@ EOF
 
 	INFO="Info:"
 	ERROR="Error:"
+	BASE_DIR="${TMP_DIR}/restore-final-fail-no-current-root"
+	TARG_DIR="${BASE_DIR}/AdGuardHome"
+	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	mkdir -p "${BASE_DIR}" || exit 1
+	printf '%s\n' "safe backup placeholder" >"${BASE_DIR}/backup_AdGuardHome.tar.gz"
+	REAL_MV="$(which mv)" || fail "mv is unavailable"
+
+	adguard_archive_is_safe() {
+		return 0
+	}
+
+	agh_process_count() {
+		printf '%s\n' "0"
+	}
+
+	tar() {
+		case "$*" in
+			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
+				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome" || return 1
+				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				return 0
+				;;
+		esac
+		return 1
+	}
+
+	mv() {
+		"${REAL_MV}" "$@"
+	}
+
+	create_dir() {
+		mkdir -p "$1"
+	}
+
+	ensure_adguardhome_directory_permissions() {
+		return 0
+	}
+
+	ln() {
+		return 0
+	}
+
+	inst_AdGuardHome() {
+		end_op_message 1 "$1"
+		return
+	}
+
+	if backup_restore RESTORE >/dev/null 2>&1; then
+		fail "backup_restore accepted a failed final restore setup without a previous install"
+	fi
+	[ ! -e "${TARG_DIR}" ] ||
+		fail "failed final restore setup without rollback left the restored installation active"
+	[ ! -d "${BASE_DIR}/.AdGuardHome.rollback.$$" ] ||
+		fail "failed final restore setup without previous install left rollback directory behind"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	INFO="Info:"
+	ERROR="Error:"
 	BASE_DIR="${TMP_DIR}/restore-final-success-root"
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
