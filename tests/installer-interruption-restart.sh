@@ -170,6 +170,9 @@ printf '%s\n' staged >"${RESTORE_STAGE}/AdGuardHome"
 	adguard_restore_after_failed_replace() {
 		printf '%s\n' "unexpected-binary-restore:$1:$2" >>"${CALLS_FILE}"
 	}
+	adguard_restart_after_failed_replace() {
+		printf '%s\n' "restore-restart:$1" >>"${CALLS_FILE}"
+	}
 	clear_screen() {
 		printf '%s\n' 'clear' >>"${CALLS_FILE}"
 	}
@@ -178,7 +181,7 @@ printf '%s\n' staged >"${RESTORE_STAGE}/AdGuardHome"
 		printf '%s\n' "end:$1" >>"${CALLS_FILE}"
 	}
 
-	adguard_restore_abort_trap_enable "${RESTORE_ROLLBACK}" "${RESTORE_TARGET}" "${RESTORE_STAGE}"
+	adguard_restore_abort_trap_enable "${RESTORE_ROLLBACK}" "${RESTORE_TARGET}" "${RESTORE_STAGE}" 1
 	ADGUARD_DEFER_END_OP="1"
 	adguard_install_abort_on_signal
 ) || fail 'interrupted restore rollback handler failed'
@@ -187,7 +190,7 @@ printf '%s\n' staged >"${RESTORE_STAGE}/AdGuardHome"
 [ ! -e "${RESTORE_ROLLBACK}" ] || fail 'interrupted restore left rollback directory behind'
 [ "$(sed -n '1p' "${RESTORE_TARGET}/AdGuardHome")" = "previous" ] ||
 	fail 'interrupted restore did not restore the previous installation'
-EXPECTED="$(printf '%s\n' 'clear' 'end:2')"
+EXPECTED="$(printf '%s\n' 'restore-restart:1' 'clear' 'end:2')"
 ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] ||
 	fail "interrupted restore did not continue to the aborted-operation flow: ${ACTUAL}"
