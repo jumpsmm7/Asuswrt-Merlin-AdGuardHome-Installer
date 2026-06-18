@@ -1732,17 +1732,19 @@ backup_restore() {
 		RESTORE_TARG_DIR="${RESTORE_STAGE_DIR}/AdGuardHome"
 		RESTORE_ROLLBACK_DIR="${BASE_DIR}/.AdGuardHome.rollback.$$"
 		rm -rf "${RESTORE_STAGE_DIR}" "${RESTORE_ROLLBACK_DIR}"
+		adguard_restore_abort_trap_enable "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}"
 		if ! create_dir "${RESTORE_STAGE_DIR}" || ! tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${RESTORE_STAGE_DIR}" >/dev/null 2>&1; then
+			adguard_install_abort_trap_disable
 			rm -rf "${RESTORE_STAGE_DIR}"
 			PTXT "${ERROR} Unable to stage ${BASE_DIR}/backup_AdGuardHome.tar.gz for restore."
 			return 1
 		fi
 		if [ ! -d "${RESTORE_TARG_DIR}" ] || [ -L "${RESTORE_TARG_DIR}" ] || [ ! -f "${RESTORE_TARG_DIR}/AdGuardHome" ]; then
+			adguard_install_abort_trap_disable
 			rm -rf "${RESTORE_STAGE_DIR}"
 			PTXT "${ERROR} The staged AdGuardHome backup is incomplete."
 			return 1
 		fi
-		adguard_restore_abort_trap_enable "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}"
 		if [ -e "${TARG_DIR}" ] && ! mv "${TARG_DIR}" "${RESTORE_ROLLBACK_DIR}"; then
 			adguard_install_abort_trap_disable
 			rm -rf "${RESTORE_STAGE_DIR}"

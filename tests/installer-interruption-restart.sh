@@ -201,4 +201,14 @@ awk '
 	END { exit !(enable && validate && enable < validate && prepare && enable < prepare && replace && publish && replace < publish) }
 ' "${SCRIPT_PATH}" || fail 'interruption rollback is not armed for existing binaries before publication'
 
+awk '
+	/^backup_restore\(\) \{/ { in_function = 1 }
+	in_function && /RESTORE_STAGE_DIR="\$\{BASE_DIR\}\/\.AdGuardHome\.restore\.\$\$"/ { stage = NR }
+	in_function && /adguard_restore_abort_trap_enable/ { enable = NR }
+	in_function && /tar -xzvf "\$\{BASE_DIR\}\/backup_AdGuardHome\.tar\.gz"/ { extract = NR }
+	in_function && /mv "\$\{TARG_DIR\}" "\$\{RESTORE_ROLLBACK_DIR\}"/ { rollback = NR }
+	in_function && /^}/ { exit }
+	END { exit !(stage && enable && extract && rollback && stage < enable && enable < extract && extract < rollback) }
+' "${SCRIPT_PATH}" || fail 'restore cleanup trap is not armed before staging extraction'
+
 printf '%s\n' 'PASS: installation interruption restarts the previously running service'
