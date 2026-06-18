@@ -551,7 +551,8 @@ EOF
 	}
 
 	inst_AdGuardHome() {
-		return 1
+		end_op_message 1 "$1"
+		return
 	}
 
 	if backup_restore RESTORE >/dev/null 2>&1; then
