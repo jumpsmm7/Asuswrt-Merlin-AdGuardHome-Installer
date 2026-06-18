@@ -195,6 +195,47 @@ ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] ||
 	fail "interrupted restore did not continue to the aborted-operation flow: ${ACTUAL}"
 
+: >"${CALLS_FILE}"
+EARLY_RESTORE_ROOT="${TMP_ROOT}/restore-before-rollback"
+EARLY_RESTORE_TARGET="${EARLY_RESTORE_ROOT}/AdGuardHome"
+EARLY_RESTORE_ROLLBACK="${EARLY_RESTORE_ROOT}/.AdGuardHome.rollback"
+EARLY_RESTORE_STAGE="${EARLY_RESTORE_ROOT}/.AdGuardHome.restore"
+mkdir -p "${EARLY_RESTORE_TARGET}" "${EARLY_RESTORE_STAGE}" || fail 'could not create early restore interruption directories'
+printf '%s\n' current >"${EARLY_RESTORE_TARGET}/AdGuardHome"
+printf '%s\n' staged >"${EARLY_RESTORE_STAGE}/AdGuardHome"
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	ERROR="Error:"
+	PTXT() {
+		printf '%s\n' "$*" >>"${CALLS_FILE}"
+	}
+	adguard_restart_after_install_abort() {
+		printf '%s\n' "unexpected-restart:$1" >>"${CALLS_FILE}"
+	}
+	adguard_restart_after_failed_replace() {
+		printf '%s\n' "restore-restart:$1" >>"${CALLS_FILE}"
+	}
+	clear_screen() {
+		printf '%s\n' 'clear' >>"${CALLS_FILE}"
+	}
+	end_op_message() {
+		printf '%s\n' "end:$1" >>"${CALLS_FILE}"
+	}
+
+	adguard_restore_abort_trap_enable "${EARLY_RESTORE_ROLLBACK}" "${EARLY_RESTORE_TARGET}" "${EARLY_RESTORE_STAGE}" 0
+	adguard_install_abort_on_signal
+) || fail 'early interrupted restore cleanup handler failed'
+
+[ ! -e "${EARLY_RESTORE_STAGE}" ] || fail 'early interrupted restore left staging directory behind'
+[ "$(sed -n '1p' "${EARLY_RESTORE_TARGET}/AdGuardHome")" = "current" ] ||
+	fail 'early interrupted restore removed the current installation before rollback existed'
+EXPECTED="$(printf '%s\n' 'restore-restart:0' 'clear' 'end:2')"
+ACTUAL="$(cat "${CALLS_FILE}")"
+[ "${ACTUAL}" = "${EXPECTED}" ] ||
+	fail "early interrupted restore did not continue to the aborted-operation flow: ${ACTUAL}"
+
 awk '
 	/^install_adguard_archive\(\) \{/ { in_function = 1 }
 	in_function && /adguard_install_abort_trap_enable/ { enable = NR }
