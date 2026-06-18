@@ -1308,7 +1308,7 @@ adguard_archive_is_safe() {
 			sub(/^.* /, "", entry_path)
 			sub(/^\.\//, "", entry_path)
 			if (type == "d") sub(/\/$/, "", entry_path)
-			if ((type == "d" && entry_path == "AdGuardHome/data") || entry_path ~ /^AdGuardHome\/data\//) data = 1
+			if (type == "d" && entry_path == "AdGuardHome/data") data = 1
 			if (type == "l") {
 				line = $0
 				arrow_count = 0
@@ -1323,6 +1323,7 @@ adguard_archive_is_safe() {
 				sub(/^.* /, "", link_path)
 				sub(/^\.\//, "", link_path)
 				if (link_path == "AdGuardHome/AdGuardHome") exit 1
+				if (require_state && link_path == "AdGuardHome/data") exit 1
 				if (link_target == "" || link_target ~ /^\// || !symlink_target_is_safe(link_path, link_target)) exit 1
 			}
 			entries = 1
@@ -1342,7 +1343,7 @@ adguard_archive_is_safe() {
 			}
 			if (path == "AdGuardHome/AdGuardHome") binary = 1
 			if (path == "AdGuardHome/AdGuardHome.yaml") yaml = 1
-			if (path ~ /^AdGuardHome\/data\//) data = 1
+			if (path == "AdGuardHome/data/") data = 1
 		}
 		END { exit(!unsafe && binary && (!require_state || (yaml && data)) ? 0 : 1) }
 	'
