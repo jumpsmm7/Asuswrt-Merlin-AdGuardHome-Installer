@@ -1357,6 +1357,7 @@ adguard_restart_after_install_abort() {
 
 adguard_install_abort_trap_disable() {
 	trap - HUP INT QUIT ABRT TERM
+	ADGUARD_DEFER_END_OP="0"
 	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
 	ADGUARD_INSTALL_OLD_BINARY=""
 	ADGUARD_INSTALL_STAGE_DIR=""
@@ -1767,14 +1768,18 @@ backup_restore() {
 			PTXT "${ERROR} Unable to restore the AdGuardHome command symlink."
 			return 1
 		fi
+		ADGUARD_DEFER_END_OP="1"
 		if ! inst_AdGuardHome "${1:-RESTORE}"; then
+			ADGUARD_DEFER_END_OP="0"
 			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}"
 			adguard_install_abort_trap_disable
 			PTXT "${ERROR} Unable to complete AdGuardHome restore setup."
 			return 1
 		fi
+		ADGUARD_DEFER_END_OP="0"
 		adguard_install_abort_trap_disable
 		rm -rf "${RESTORE_ROLLBACK_DIR}"
+		end_op_message 0 "${1:-RESTORE}"
 	elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
 		PTXT "${ERROR} No Backup found!" \
 			"${ERROR} Please make sure Backup Resides in ${BASE_DIR}"
@@ -2786,6 +2791,13 @@ end_op_header() {
 }
 
 end_op_message() {
+	if [ "${ADGUARD_DEFER_END_OP:-0}" = "1" ]; then
+		case "${1:-0}" in
+			0) return 0 ;;
+			1) return 1 ;;
+			2) return 2 ;;
+		esac
+	fi
 	case "${1:-0}" in
 		0)
 			[ "$2" = "update" ] && exit 0
