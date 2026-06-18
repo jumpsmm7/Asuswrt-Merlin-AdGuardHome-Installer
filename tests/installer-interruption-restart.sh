@@ -26,6 +26,8 @@ sed -n \
 	-e '/^adguard_install_abort_trap_disable() {$/,/^}/p' \
 	-e '/^adguard_install_abort_on_signal() {$/,/^}/p' \
 	-e '/^adguard_install_abort_trap_enable() {$/,/^}/p' \
+	-e '/^adguard_restore_abort_trap_enable() {$/,/^}/p' \
+	-e '/^adguard_restore_after_failed_directory_restore() {$/,/^}/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail 'could not extract interruption trap helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'interruption trap helper extraction was empty'
 : >"${CALLS_FILE}"
@@ -145,6 +147,95 @@ ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] ||
 	fail "interruption recovery did not restore a stopped installation without restarting it: ${ACTUAL}"
 
+: >"${CALLS_FILE}"
+RESTORE_ROOT="${TMP_ROOT}/restore"
+RESTORE_TARGET="${RESTORE_ROOT}/AdGuardHome"
+RESTORE_ROLLBACK="${RESTORE_ROOT}/.AdGuardHome.rollback"
+RESTORE_STAGE="${RESTORE_ROOT}/.AdGuardHome.restore"
+mkdir -p "${RESTORE_TARGET}" "${RESTORE_ROLLBACK}" "${RESTORE_STAGE}" || fail 'could not create restore interruption directories'
+printf '%s\n' current >"${RESTORE_TARGET}/AdGuardHome"
+printf '%s\n' previous >"${RESTORE_ROLLBACK}/AdGuardHome"
+printf '%s\n' staged >"${RESTORE_STAGE}/AdGuardHome"
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	ERROR="Error:"
+	PTXT() {
+		printf '%s\n' "$*" >>"${CALLS_FILE}"
+	}
+	adguard_restart_after_install_abort() {
+		printf '%s\n' "unexpected-restart:$1" >>"${CALLS_FILE}"
+	}
+	adguard_restore_after_failed_replace() {
+		printf '%s\n' "unexpected-binary-restore:$1:$2" >>"${CALLS_FILE}"
+	}
+	adguard_restart_after_failed_replace() {
+		printf '%s\n' "restore-restart:$1" >>"${CALLS_FILE}"
+	}
+	clear_screen() {
+		printf '%s\n' 'clear' >>"${CALLS_FILE}"
+	}
+	end_op_message() {
+		[ "${ADGUARD_DEFER_END_OP:-0}" = "0" ] || fail 'restore abort left deferred end_op_message enabled'
+		printf '%s\n' "end:$1" >>"${CALLS_FILE}"
+	}
+
+	adguard_restore_abort_trap_enable "${RESTORE_ROLLBACK}" "${RESTORE_TARGET}" "${RESTORE_STAGE}" 1
+	ADGUARD_DEFER_END_OP="1"
+	adguard_install_abort_on_signal
+) || fail 'interrupted restore rollback handler failed'
+
+[ ! -e "${RESTORE_STAGE}" ] || fail 'interrupted restore left staging directory behind'
+[ ! -e "${RESTORE_ROLLBACK}" ] || fail 'interrupted restore left rollback directory behind'
+[ "$(sed -n '1p' "${RESTORE_TARGET}/AdGuardHome")" = "previous" ] ||
+	fail 'interrupted restore did not restore the previous installation'
+EXPECTED="$(printf '%s\n' 'restore-restart:1' 'clear' 'end:2')"
+ACTUAL="$(cat "${CALLS_FILE}")"
+[ "${ACTUAL}" = "${EXPECTED}" ] ||
+	fail "interrupted restore did not continue to the aborted-operation flow: ${ACTUAL}"
+
+: >"${CALLS_FILE}"
+EARLY_RESTORE_ROOT="${TMP_ROOT}/restore-before-rollback"
+EARLY_RESTORE_TARGET="${EARLY_RESTORE_ROOT}/AdGuardHome"
+EARLY_RESTORE_ROLLBACK="${EARLY_RESTORE_ROOT}/.AdGuardHome.rollback"
+EARLY_RESTORE_STAGE="${EARLY_RESTORE_ROOT}/.AdGuardHome.restore"
+mkdir -p "${EARLY_RESTORE_TARGET}" "${EARLY_RESTORE_STAGE}" || fail 'could not create early restore interruption directories'
+printf '%s\n' current >"${EARLY_RESTORE_TARGET}/AdGuardHome"
+printf '%s\n' staged >"${EARLY_RESTORE_STAGE}/AdGuardHome"
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	ERROR="Error:"
+	PTXT() {
+		printf '%s\n' "$*" >>"${CALLS_FILE}"
+	}
+	adguard_restart_after_install_abort() {
+		printf '%s\n' "unexpected-restart:$1" >>"${CALLS_FILE}"
+	}
+	adguard_restart_after_failed_replace() {
+		printf '%s\n' "restore-restart:$1" >>"${CALLS_FILE}"
+	}
+	clear_screen() {
+		printf '%s\n' 'clear' >>"${CALLS_FILE}"
+	}
+	end_op_message() {
+		printf '%s\n' "end:$1" >>"${CALLS_FILE}"
+	}
+
+	adguard_restore_abort_trap_enable "${EARLY_RESTORE_ROLLBACK}" "${EARLY_RESTORE_TARGET}" "${EARLY_RESTORE_STAGE}" 0
+	adguard_install_abort_on_signal
+) || fail 'early interrupted restore cleanup handler failed'
+
+[ ! -e "${EARLY_RESTORE_STAGE}" ] || fail 'early interrupted restore left staging directory behind'
+[ "$(sed -n '1p' "${EARLY_RESTORE_TARGET}/AdGuardHome")" = "current" ] ||
+	fail 'early interrupted restore removed the current installation before rollback existed'
+EXPECTED="$(printf '%s\n' 'restore-restart:0' 'clear' 'end:2')"
+ACTUAL="$(cat "${CALLS_FILE}")"
+[ "${ACTUAL}" = "${EXPECTED}" ] ||
+	fail "early interrupted restore did not continue to the aborted-operation flow: ${ACTUAL}"
+
 awk '
 	/^install_adguard_archive\(\) \{/ { in_function = 1 }
 	in_function && /adguard_install_abort_trap_enable/ { enable = NR }
@@ -155,5 +246,24 @@ awk '
 	in_function && /^}/ { exit }
 	END { exit !(enable && validate && enable < validate && prepare && enable < prepare && replace && publish && replace < publish) }
 ' "${SCRIPT_PATH}" || fail 'interruption rollback is not armed for existing binaries before publication'
+
+awk '
+	/^backup_restore\(\) \{/ { in_function = 1 }
+	in_function && /RESTORE_STAGE_DIR="\$\{BASE_DIR\}\/\.AdGuardHome\.restore\.\$\$"/ { stage = NR }
+	in_function && /adguard_restore_abort_trap_enable/ { enable = NR }
+	in_function && /tar -xzvf "\$\{BASE_DIR\}\/backup_AdGuardHome\.tar\.gz"/ { extract = NR }
+	in_function && /mv "\$\{TARG_DIR\}" "\$\{RESTORE_ROLLBACK_DIR\}"/ { rollback = NR }
+	in_function && /^}/ { exit }
+	END { exit !(stage && enable && extract && rollback && stage < enable && enable < extract && extract < rollback) }
+' "${SCRIPT_PATH}" || fail 'restore cleanup trap is not armed before staging extraction'
+
+awk '
+	/^backup_restore\(\) \{/ { in_function = 1 }
+	in_function && /if ! inst_AdGuardHome "\$\{1:-RESTORE\}"/ { final_setup = NR; in_final_failure = 1; next }
+	in_final_failure && /^[[:space:]]*fi$/ { in_final_failure = 0; next }
+	in_function && final_setup && !in_final_failure && /rm -rf "\$\{RESTORE_ROLLBACK_DIR\}"/ { cleanup = NR }
+	in_function && final_setup && !in_final_failure && /adguard_install_abort_trap_disable/ { disable = NR; exit }
+	END { exit !(final_setup && cleanup && disable && final_setup < cleanup && cleanup < disable) }
+' "${SCRIPT_PATH}" || fail 'restore cleanup trap is disabled before rollback cleanup finishes'
 
 printf '%s\n' 'PASS: installation interruption restarts the previously running service'
