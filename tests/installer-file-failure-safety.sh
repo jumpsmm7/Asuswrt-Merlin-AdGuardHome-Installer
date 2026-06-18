@@ -30,6 +30,7 @@ awk '
 	/^adguard_restart_after_failed_replace\(\)/,/^}/
 	/^adguard_restart_after_install_abort\(\)/,/^}/
 	/^adguard_install_abort_trap_disable\(\)/,/^}/
+	/^adguard_install_abort_trap_disable_preserve_defer\(\)/,/^}/
 	/^adguard_install_abort_on_signal\(\)/,/^}/
 	/^adguard_install_abort_trap_enable\(\)/,/^}/
 	/^adguard_restore_abort_trap_enable\(\)/,/^}/
@@ -721,9 +722,12 @@ EOF
 		if [ "${ADGUARD_DEFER_END_OP:-0}" != "1" ]; then
 			fail "final restore setup was not run with deferred end_op_message"
 		fi
-		adguard_install_abort_trap_disable
+		adguard_install_abort_trap_disable_preserve_defer
 		if [ "${ADGUARD_DEFER_END_OP:-0}" != "1" ]; then
 			fail "trap disable cleared deferred end_op_message before restore cleanup"
+		fi
+		if [ "${ADGUARD_RESTORE_ACTIVE:-0}" != "1" ] || [ "${ADGUARD_RESTORE_ROLLBACK_DIR:-}" != "${BASE_DIR}/.AdGuardHome.rollback.$$" ]; then
+			fail "trap disable cleared restore rollback state before cleanup"
 		fi
 		end_op_message 0 "$1"
 	}
