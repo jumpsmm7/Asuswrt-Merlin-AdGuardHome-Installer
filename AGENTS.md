@@ -4,12 +4,13 @@ These instructions apply to the entire repository unless a deeper `AGENTS.md` ov
 
 ## Primary target
 
-This repository targets POSIX `/bin/sh` scripts running under BusyBox `ash` on Asuswrt-Merlin routers.
+This repository targets POSIX `/bin/sh` scripts running under BusyBox `ash` on Asuswrt-Merlin routers with Entware installed for the AdGuardHome installer runtime.
+
 Assume:
 
 ```sh
 export LC_ALL=C
-export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH:-}"
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:${PATH:-}"
 ```
 
 Router stock paths must take priority over Entware paths.
@@ -40,6 +41,7 @@ Recommended review priority:
 ## Shell compatibility rules
 
 Do not use Bash-only features unless the user explicitly requests Bash.
+
 Avoid:
 
 * `[[ ... ]]`
@@ -78,23 +80,21 @@ General shell rules:
 
 ## Entware assumptions
 
-Entware is an expected runtime dependency for this installer. Existing installer-managed `/opt` paths and `opkg` usage are allowed when they match the project's documented Entware requirements.
+Entware is an expected dependency for this installer. Existing installer/service code may use `/opt`, `/opt/bin`, `/opt/sbin`, `/opt/usr/bin`, `/opt/usr/sbin`, and `opkg` where that matches current project behavior.
 
-Do not introduce new Entware package dependencies unless the package is added to the allowlist below and the install/update flow documents the required `opkg install ...` step.
-Clearly separate stock-router code from Entware-dependent code when adding or changing package-dependent behavior.
-Default to router stock paths and BusyBox applets outside installer-managed Entware paths.
+Do not add unrelated Entware dependencies casually. If a new Entware package is needed, update the allowed package list in this section in the same change, clearly separate stock-router code from Entware-dependent code, and include or preserve the required `opkg install ...` step.
 
-Allowed Entware packages currently referenced by this repository:
+Allowed Entware packages currently referenced by the installer are:
 
-* `ca-certificates`
-* `haveged`
-* `iptables`
-* `ipset`
-* `libopenssl`
-* `nano`
-* `openssl-util`
-* `pixelserv-tls`
-* `stubby`
+* `apache`
+* `apache-utils`
+* `column`
+* `go`
+* `go_nohf`
+* `python3`
+* `python3-bcrypt`
+
+Default to router stock paths and BusyBox applets outside installer-managed Entware paths and package-install flows.
 
 ## BusyBox environment
 
@@ -137,6 +137,8 @@ Prefer these known stock paths when absolute paths are needed:
 * `brctl`: `/bin/brctl`
 * `logger`: `/usr/bin/logger`
 
+Optional or firmware-dependent tooling includes `flock`; use it only after checking availability and descriptor-lock support, and keep the mkdir/PID fallback path intact.
+
 Note when a proposed command relies on a router-stock binary rather than a BusyBox applet, such as `curl`, `wget`, `jq`, `openssl`, `nvram`, `cru`, `service`, `iptables`, `ip6tables`, `ip`, `ipset`, `tc`, `openvpn`, `wg`, `stubby`, `dnsmasq`, `sqlite3`, `socat`, `conntrack`, `iperf3`, or `ookla`.
 
 ## Commands unavailable in stock router PATH
@@ -160,13 +162,13 @@ Common writable/script locations:
 * `/tmp`
 * `/tmp/mnt`
 
-Do not assume `/opt`, `/opt/bin`, or `/opt/sbin` outside installer-managed Entware paths.
+The installer also manages Entware-backed paths under `/opt`, including `/opt/etc`, `/opt/sbin`, `/opt/bin`, and `/opt/var/run`. Do not assume unrelated `/opt` paths exist outside installer-managed or explicitly Entware-dependent code.
 
 ## NVRAM rules
 
 * Use `nvram get` and `nvram set` carefully.
-* Preserve existing installer-managed `nvram commit` calls for settings and rollback flows that must survive reboot.
-* Do not introduce incidental or new persistent flash writes with `nvram commit` unless explicitly needed and documented.
+* Preserve existing `nvram commit` calls for installer-managed persisted settings and rollback/restore paths that must survive reboot.
+* Do not add incidental or newly introduced `nvram commit` flash writes unless the user explicitly requests persistence or the installer-managed flow requires it.
 * Preserve old values before changing important NVRAM values when practical.
 * For DNS, firewall, WAN, VPN, or service-related NVRAM changes, include restore logic when practical.
 * Review changes for interrupted-install, signal-trap, rollback, and restart/restore failure paths.
