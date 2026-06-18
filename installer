@@ -1476,12 +1476,13 @@ adguard_restore_after_failed_replace() {
 }
 
 adguard_restore_after_failed_directory_restore() {
-	local ROLLBACK_DIR STAGE_DIR TARGET_DIR TARGET_INSTALLED WAS_RUNNING
+	local COMMAND_LINK ROLLBACK_DIR STAGE_DIR TARGET_DIR TARGET_INSTALLED WAS_RUNNING
 	ROLLBACK_DIR="$1"
 	TARGET_DIR="$2"
 	STAGE_DIR="$3"
 	WAS_RUNNING="${4:-0}"
 	TARGET_INSTALLED="${5:-1}"
+	COMMAND_LINK="${ADGUARD_COMMAND_LINK_PATH:-/opt/sbin/AdGuardHome}"
 	[ -z "${STAGE_DIR}" ] || rm -rf "${STAGE_DIR}"
 	if agh_is_running; then
 		PTXT "${INFO} Stopping AdGuardHome before restoring the previous installation."
@@ -1496,6 +1497,11 @@ adguard_restore_after_failed_directory_restore() {
 	if [ -d "${ROLLBACK_DIR}" ]; then
 		if ! mv "${ROLLBACK_DIR}" "${TARGET_DIR}"; then
 			PTXT "${ERROR} Unable to restore the previous AdGuardHome installation; it remains at ${ROLLBACK_DIR}."
+			return 1
+		fi
+	elif [ -L "${COMMAND_LINK}" ] && [ "$(readlink "${COMMAND_LINK}")" = "${TARGET_DIR}/AdGuardHome" ]; then
+		if ! rm -f "${COMMAND_LINK}"; then
+			PTXT "${ERROR} Unable to remove the failed AdGuardHome command symlink."
 			return 1
 		fi
 	fi
@@ -1744,7 +1750,9 @@ install_adguard_archive() {
 }
 
 backup_restore() {
-	local RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARG_DIR WAS_RUNNING
+	local COMMAND_LINK COMMAND_LINK_DIR RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARG_DIR WAS_RUNNING
+	COMMAND_LINK="${ADGUARD_COMMAND_LINK_PATH:-/opt/sbin/AdGuardHome}"
+	COMMAND_LINK_DIR="${COMMAND_LINK%/*}"
 	if [ "$1" = "BACKUP" ] && [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; then
 		if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 			PTXT "${INFO} There is an old backup detected."
@@ -1821,7 +1829,7 @@ backup_restore() {
 			PTXT "${ERROR} Unable to restore AdGuardHome ownership or permissions."
 			return 1
 		fi
-		if ! create_dir "/opt/sbin" || ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome; then
+		if ! create_dir "${COMMAND_LINK_DIR}" || ! ln -sf "${AGH_FILE}" "${COMMAND_LINK}"; then
 			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
 			adguard_install_abort_trap_disable
 			PTXT "${ERROR} Unable to restore the AdGuardHome command symlink."

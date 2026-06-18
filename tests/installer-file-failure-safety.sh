@@ -689,6 +689,7 @@ EOF
 	BASE_DIR="${TMP_DIR}/restore-final-fail-no-current-root"
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	ADGUARD_COMMAND_LINK_PATH="${BASE_DIR}/opt-sbin/AdGuardHome"
 	mkdir -p "${BASE_DIR}" || exit 1
 	printf '%s\n' "safe backup placeholder" >"${BASE_DIR}/backup_AdGuardHome.tar.gz"
 	REAL_MV="$(which mv)" || fail "mv is unavailable"
@@ -729,7 +730,7 @@ EOF
 	}
 
 	ln() {
-		return 0
+		command ln "$@"
 	}
 
 	inst_AdGuardHome() {
@@ -742,6 +743,8 @@ EOF
 	fi
 	[ ! -e "${TARG_DIR}" ] ||
 		fail "failed final restore setup without rollback left the restored installation active"
+	[ ! -e "${ADGUARD_COMMAND_LINK_PATH}" ] ||
+		fail "failed final restore setup without rollback left the command symlink behind"
 	[ ! -d "${BASE_DIR}/.AdGuardHome.rollback.$$" ] ||
 		fail "failed final restore setup without previous install left rollback directory behind"
 ) || exit 1
