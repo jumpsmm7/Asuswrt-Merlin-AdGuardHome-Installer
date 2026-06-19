@@ -400,7 +400,7 @@ dns_retry_limit() {
 
 adguardhome_owns_dns() {
 	_dns_socket_table=""
-	pidof "${PROCS}" >/dev/null 2>&1 || return 1
+	pidof "${PROCS}" >/dev/null 2>&1 || return 2
 	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
 		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
@@ -497,7 +497,10 @@ wait_for_adguardhome_dns() {
 	_dns_wait_attempts="0"
 	_dns_wait_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" 30)"
 	while [ "${_dns_wait_attempts}" -lt "${_dns_wait_limit}" ]; do
-		adguardhome_owns_dns && return 0
+		adguardhome_owns_dns
+		_dns_wait_status="$?"
+		[ "${_dns_wait_status}" -eq 0 ] && return 0
+		[ "${_dns_wait_status}" -eq 2 ] && break
 		_dns_wait_attempts="$((_dns_wait_attempts + 1))"
 		sleep 1s
 	done

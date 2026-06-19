@@ -97,7 +97,14 @@ which() {
 pidof() {
 	case "$1" in
 		AdGuardHome)
-			[ "${DNS_STATE:-free}" = owned ] && printf '%s\n' 321
+			case "${DNS_STATE:-free}" in
+				missing)
+					return 1
+					;;
+				*)
+					printf '%s\n' 321
+					;;
+			esac
 			;;
 	esac
 	return 0
@@ -395,6 +402,16 @@ post_start_adguardhome || fail 'post-start did not wait long enough for delayed 
 ! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'post-start ignored restart suppression after delayed DNS ownership'
 SLEEP_OWNED_AFTER=0
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+
+: >"${CALLS_FILE}"
+DNS_STATE=missing
+SLEEP_CALLS=0
+ADGUARDHOME_DNS_WAIT_RETRIES=30
+if post_start_adguardhome; then
+	fail 'post-start succeeded after AdGuardHome exited before DNS ownership'
+fi
+[ "${SLEEP_CALLS}" -eq 0 ] || fail 'post-start kept waiting after AdGuardHome exited'
+grep -q 'AdGuardHome process is missing' "${CALLS_FILE}" || fail 'missing AdGuardHome process was not logged'
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy
