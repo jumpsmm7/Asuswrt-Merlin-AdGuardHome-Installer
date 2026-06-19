@@ -25,9 +25,19 @@ INPUT='Input:'
 NORM=''
 ERROR='Error:'
 INFO='Info:'
-AUTH_FUNCTION="$(sed -n '/^AdGuardHome_authen() {$/,/^agh_check() {$/p' "${SCRIPT_PATH}" | sed '$d')"
-[ -n "${AUTH_FUNCTION}" ] || fail 'could not extract authentication function'
+AUTH_FUNCTION="$(sed -n '/^valid_adguardhome_username() {$/,/^agh_check() {$/p' "${SCRIPT_PATH}" | sed '$d')"
+[ -n "${AUTH_FUNCTION}" ] || fail 'could not extract authentication helpers'
 eval "${AUTH_FUNCTION}"
+
+for username in admin admin.user admin_user admin-user Admin.User_123; do
+	valid_adguardhome_username "${username}" || fail "valid username was rejected: ${username}"
+done
+
+for username in '' 'admin user' 'admin:user' 'admin#user' 'admin"user' "admin'user" 'admin$user' 'admin[user]' 'admin{user}' 'admin,user' 'admin&user' 'admin*user' 'admin/user' 'admin\user' 'admin|user' 'admin?user' 'admin=user' 'admin!user' 'admin`user' 'admin>user' 'admin<user'; do
+	if valid_adguardhome_username "${username}"; then
+		fail "invalid username was accepted: ${username}"
+	fi
+done
 
 TMP_ROOT="${TMPDIR:-/tmp}/installer-staged-authentication.$$"
 YAML_ORI="${TMP_ROOT}/original.yaml"
@@ -40,6 +50,7 @@ YAML_ERR="${YAML_FILE}.err"
 AGH_FILE="${TMP_ROOT}/AdGuardHome"
 CHECKED_YAML=''
 CHECK_SHOULD_FAIL=0
+HASH_CALLED=0
 
 cleanup() {
 	rm -rf "${TMP_ROOT}"
@@ -58,6 +69,7 @@ remove_conflicting_apache() { :; }
 ensure_password_hash_tool() { return 0; }
 python_bcrypt_available() { return 0; }
 hash_password_python() {
+	HASH_CALLED=1
 	printf '%s\n' '$2a$10$012345678901234567890123456789012345678901234567890123'
 }
 check_AdGuardHome_yaml() {
@@ -90,6 +102,22 @@ fi
 [ "${CHECKED_YAML}" = "${YAML_STAGED_FAIL}" ] || fail 'failing staged YAML target was not validated'
 [ "$(cat "${YAML_ORI}")" = 'original snapshot' ] || fail 'failed staged validation modified the published original snapshot'
 CHECK_SHOULD_FAIL=0
+
+YAML_STAGED_INVALID_USER="${TMP_ROOT}/staged-invalid-user.yaml"
+printf '%s\n' 'http:' >"${YAML_STAGED_INVALID_USER}"
+USERNAME='admin:user'
+HASH_CALLED=0
+if AdGuardHome_authen 1 "${YAML_STAGED_INVALID_USER}" <<'EOF'; then
+secret
+secret
+EOF
+	fail 'authentication accepted invalid username'
+fi
+[ "${HASH_CALLED}" -eq 0 ] || fail 'authentication called password hash tooling for invalid username'
+if grep -q '^users:$' "${YAML_STAGED_INVALID_USER}"; then
+	fail 'authentication wrote users section for invalid username'
+fi
+USERNAME='admin'
 
 YAML_STAGED_SKIP="${TMP_ROOT}/staged-skip.yaml"
 printf '%s\n' 'http:' >"${YAML_STAGED_SKIP}"

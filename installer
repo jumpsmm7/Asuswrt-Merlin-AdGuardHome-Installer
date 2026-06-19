@@ -442,12 +442,29 @@ sanitize_branch() {
 
 # AdGuardHome process helpers
 
+valid_adguardhome_username() {
+	case "${1:-}" in
+		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-]*)
+			return 1
+			;;
+		*)
+			return 0
+			;;
+	esac
+}
+
 AdGuardHome_authen() {
 	local YAML_TARGET="${2:-${YAML_ORI}}"
 	if [ -z "${PW1}" ] || [ -z "${PW2}" ]; then
 		local USERNAME
 		PTXT -n "${INPUT} Please enter AdGuardHome username${NORM}: "
-		read -r USERNAME
+		if ! read -r USERNAME; then
+			return 1
+		fi
+	fi
+	if ! valid_adguardhome_username "${USERNAME:-}"; then
+		PTXT "${ERROR} Invalid AdGuardHome username. Use only letters, digits, dot, underscore, or hyphen."
+		return 1
 	fi
 	local PW1 PW2
 	PTXT -n "${INPUT} Please enter AdGuardHome password${NORM}: "
