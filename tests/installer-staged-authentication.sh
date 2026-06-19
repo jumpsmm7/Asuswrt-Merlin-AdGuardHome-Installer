@@ -39,6 +39,16 @@ for username in '' 'admin user' 'admin:user' 'admin#user' 'admin"user' "admin'us
 	fi
 done
 
+for password in 'secret' 'correct horse battery staple' 'punctuation!@#$%^&*()'; do
+	valid_adguardhome_password_input "${password}" "${password}" || fail 'valid password was rejected'
+done
+
+for password in ' secret' 'secret '; do
+	if valid_adguardhome_password_input "${password}" "${password}"; then
+		fail 'invalid leading/trailing-space password was accepted'
+	fi
+done
+
 TMP_ROOT="${TMPDIR:-/tmp}/installer-staged-authentication.$$"
 YAML_ORI="${TMP_ROOT}/original.yaml"
 YAML_STAGED="${TMP_ROOT}/staged.yaml"
@@ -51,6 +61,8 @@ AGH_FILE="${TMP_ROOT}/AdGuardHome"
 CHECKED_YAML=''
 CHECK_SHOULD_FAIL=0
 HASH_CALLED=0
+REMOVE_APACHE_CALLED=0
+ENSURE_HASH_TOOL_CALLED=0
 
 cleanup() {
 	rm -rf "${TMP_ROOT}"
@@ -65,8 +77,13 @@ printf '%s\n' 'http:' >"${YAML_STAGED}"
 PTXT() {
 	printf '%s\n' "$@"
 }
-remove_conflicting_apache() { :; }
-ensure_password_hash_tool() { return 0; }
+remove_conflicting_apache() {
+	REMOVE_APACHE_CALLED=1
+}
+ensure_password_hash_tool() {
+	ENSURE_HASH_TOOL_CALLED=1
+	return 0
+}
 python_bcrypt_available() { return 0; }
 hash_password_python() {
 	HASH_CALLED=1
@@ -118,6 +135,34 @@ if grep -q '^users:$' "${YAML_STAGED_INVALID_USER}"; then
 	fail 'authentication wrote users section for invalid username'
 fi
 USERNAME='admin'
+
+YAML_STAGED_LEADING_SPACE="${TMP_ROOT}/staged-leading-space.yaml"
+printf '%s\n' 'http:' >"${YAML_STAGED_LEADING_SPACE}"
+HASH_CALLED=0
+REMOVE_APACHE_CALLED=0
+ENSURE_HASH_TOOL_CALLED=0
+LEADING_SPACE_INPUT="${TMP_ROOT}/leading-space.input"
+printf '%s\n%s\n' ' secret' ' secret' >"${LEADING_SPACE_INPUT}"
+if AdGuardHome_authen 1 "${YAML_STAGED_LEADING_SPACE}" <"${LEADING_SPACE_INPUT}"; then
+	fail 'authentication accepted password with leading space'
+fi
+[ "${HASH_CALLED}" -eq 0 ] || fail 'authentication hashed password with leading space'
+[ "${REMOVE_APACHE_CALLED}" -eq 0 ] || fail 'authentication removed apache before rejecting leading-space password'
+[ "${ENSURE_HASH_TOOL_CALLED}" -eq 0 ] || fail 'authentication ensured hash tooling before rejecting leading-space password'
+
+YAML_STAGED_TRAILING_SPACE="${TMP_ROOT}/staged-trailing-space.yaml"
+printf '%s\n' 'http:' >"${YAML_STAGED_TRAILING_SPACE}"
+HASH_CALLED=0
+REMOVE_APACHE_CALLED=0
+ENSURE_HASH_TOOL_CALLED=0
+TRAILING_SPACE_INPUT="${TMP_ROOT}/trailing-space.input"
+printf '%s \n%s \n' 'secret' 'secret' >"${TRAILING_SPACE_INPUT}"
+if AdGuardHome_authen 1 "${YAML_STAGED_TRAILING_SPACE}" <"${TRAILING_SPACE_INPUT}"; then
+	fail 'authentication accepted password with trailing space'
+fi
+[ "${HASH_CALLED}" -eq 0 ] || fail 'authentication hashed password with trailing space'
+[ "${REMOVE_APACHE_CALLED}" -eq 0 ] || fail 'authentication removed apache before rejecting trailing-space password'
+[ "${ENSURE_HASH_TOOL_CALLED}" -eq 0 ] || fail 'authentication ensured hash tooling before rejecting trailing-space password'
 
 YAML_STAGED_SKIP="${TMP_ROOT}/staged-skip.yaml"
 printf '%s\n' 'http:' >"${YAML_STAGED_SKIP}"

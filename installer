@@ -453,6 +453,15 @@ valid_adguardhome_username() {
 	esac
 }
 
+valid_adguardhome_password_input() {
+	case "${1:-}" in
+		"" | " "* | *" " | *[![:print:]]*)
+			return 1
+			;;
+	esac
+	[ "${1}" = "${2:-}" ]
+}
+
 AdGuardHome_authen() {
 	local YAML_TARGET="${2:-${YAML_ORI}}"
 	if [ -z "${PW1}" ] || [ -z "${PW2}" ]; then
@@ -472,7 +481,7 @@ AdGuardHome_authen() {
 	if stty -echo 2>/dev/null; then
 		PASSWORD_ECHO_DISABLED=1
 	fi
-	if ! read -r PW1; then
+	if ! IFS= read -r PW1; then
 		[ "${PASSWORD_ECHO_DISABLED}" -eq 0 ] || stty echo 2>/dev/null
 		PTXT " "
 		return 1
@@ -484,14 +493,14 @@ AdGuardHome_authen() {
 	if stty -echo 2>/dev/null; then
 		PASSWORD_ECHO_DISABLED=1
 	fi
-	if ! read -r PW2; then
+	if ! IFS= read -r PW2; then
 		[ "${PASSWORD_ECHO_DISABLED}" -eq 0 ] || stty echo 2>/dev/null
 		PTXT " "
 		return 1
 	fi
 	[ "${PASSWORD_ECHO_DISABLED}" -eq 0 ] || stty echo 2>/dev/null
 	PTXT " "
-	if [ -z "${PW1}" ] || [ -z "${PW2}" ] || [ "${PW1}" != "${PW2}" ]; then
+	if ! valid_adguardhome_password_input "${PW1}" "${PW2}"; then
 		PTXT "${ERROR} Password entered incorrectly!"
 		AdGuardHome_authen "$1" "${YAML_TARGET}"
 		return
