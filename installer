@@ -1323,6 +1323,7 @@ adguard_archive_is_safe() {
 				sub(/^.* /, "", link_path)
 				sub(/^\.\//, "", link_path)
 				if (link_path == "AdGuardHome/AdGuardHome") exit 1
+				if (require_state && link_path == "AdGuardHome/AdGuardHome.yaml") exit 1
 				if (require_state && link_path == "AdGuardHome/data") exit 1
 				if (link_target == "" || link_target ~ /^\// || !symlink_target_is_safe(link_path, link_target)) exit 1
 			}

@@ -256,6 +256,13 @@ EOF
 						'-rw-r--r-- root/root 1 date ./AdGuardHome/AdGuardHome.yaml' \
 						'lrwxrwxrwx root/root 0 date ./AdGuardHome/data -> .'
 					;;
+				symlink-yaml)
+					printf '%s\n' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
+						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
+						'lrwxrwxrwx root/root 0 date ./AdGuardHome/AdGuardHome.yaml -> filters/config.yaml' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/data/'
+					;;
 				*)
 					printf '%s\n' \
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
@@ -279,6 +286,9 @@ EOF
 				;;
 			data-symlink)
 				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/AdGuardHome.yaml' './AdGuardHome/data' './AdGuardHome/data/querylog.json'
+				;;
+			symlink-yaml)
+				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/AdGuardHome.yaml' './AdGuardHome/data/'
 				;;
 			traversal)
 				printf '%s\n' './AdGuardHome/AdGuardHome' './AdGuardHome/../../jffs/scripts/services-start'
@@ -317,6 +327,11 @@ EOF
 	adguard_archive_is_safe ignored || fail "install archive with data as a symlink was rejected"
 	if adguard_archive_is_safe ignored 1; then
 		fail "backup archive with data as a symlink was accepted"
+	fi
+	ARCHIVE_LAYOUT="symlink-yaml"
+	adguard_archive_is_safe ignored || fail "install archive with AdGuardHome.yaml as a symlink was rejected"
+	if adguard_archive_is_safe ignored 1; then
+		fail "backup archive with AdGuardHome.yaml as a symlink was accepted"
 	fi
 	ARCHIVE_LAYOUT="traversal"
 	if adguard_archive_is_safe ignored; then
