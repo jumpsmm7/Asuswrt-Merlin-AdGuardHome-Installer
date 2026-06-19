@@ -400,7 +400,7 @@ dns_retry_limit() {
 
 adguardhome_owns_dns() {
 	_dns_socket_table=""
-	pidof "${PROCS}" >/dev/null 2>&1 || return 1
+	pidof "${PROCS}" >/dev/null 2>&1 || return 2
 	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
 		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
@@ -467,15 +467,48 @@ stop_dns_port_guard() {
 	return 0
 }
 
+log_adguardhome_dns_wait_failure() {
+	if ! pidof "${PROCS}" >/dev/null 2>&1; then
+		logger -st "${PROCS}" "AdGuardHome did not acquire DNS: AdGuardHome process is missing."
+		return 0
+	fi
+	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || {
+		logger -st "${PROCS}" "AdGuardHome did not acquire DNS: unable to inspect port 53 ownership."
+		return 0
+	}
+	_dns_wait_failure="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
+		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
+			if ($0 ~ "/" proc "([[:space:]]|$)") tcp_found=1; else other_found=1
+		}
+		$0 ~ /^(udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
+			if ($0 ~ "/" proc "([[:space:]]|$)") udp_found=1; else other_found=1
+		}
+		END {
+			if (other_found) print "another process still owns port 53"
+			else if (!tcp_found) print "TCP port 53 is not owned by AdGuardHome"
+			else if (!udp_found) print "UDP port 53 is not owned by AdGuardHome"
+			else print "unknown DNS ownership state"
+		}
+	')"
+	logger -st "${PROCS}" "AdGuardHome did not acquire DNS: ${_dns_wait_failure}."
+}
+
 wait_for_adguardhome_dns() {
 	_dns_wait_attempts="0"
-	_dns_wait_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" 10)"
+	_dns_wait_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" 30)"
 	while [ "${_dns_wait_attempts}" -lt "${_dns_wait_limit}" ]; do
-		adguardhome_owns_dns && return 0
+		adguardhome_owns_dns
+		_dns_wait_status="$?"
+		[ "${_dns_wait_status}" -eq 0 ] && return 0
+		[ "${_dns_wait_status}" -eq 2 ] && break
 		_dns_wait_attempts="$((_dns_wait_attempts + 1))"
 		sleep 1s
 	done
-	adguardhome_owns_dns
+	if adguardhome_owns_dns; then
+		return 0
+	fi
+	log_adguardhome_dns_wait_failure
+	return 1
 }
 
 guard_dns_port_for_adguardhome() {
