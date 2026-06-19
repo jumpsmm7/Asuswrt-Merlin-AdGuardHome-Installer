@@ -127,7 +127,14 @@ netstat() {
 			printf '%s\n' \
 				'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 321/AdGuardHome' \
 				'udp 0 0 0.0.0.0:53 0.0.0.0:* 321/AdGuardHome'
-			[ "${WEB_STATE:-bound}" != bound ] || printf '%s\n' 'tcp 0 0 0.0.0.0:3000 0.0.0.0:* LISTEN'
+			case "${WEB_STATE:-bound}" in
+				bound)
+					printf '%s\n' 'tcp 0 0 0.0.0.0:3000 0.0.0.0:* LISTEN 321/AdGuardHome'
+					;;
+				foreign)
+					printf '%s\n' 'tcp 0 0 0.0.0.0:3000 0.0.0.0:* LISTEN 123/httpd'
+					;;
+			esac
 			;;
 	esac
 }
@@ -398,6 +405,16 @@ ADGUARDHOME_DNS_GUARD_PID="$!"
 command sleep 0.01
 stop_dns_port_guard
 ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'DNS guard stopped dnsmasq after AdGuardHome owned port 53'
+
+: >"${CALLS_FILE}"
+DNS_STATE=owned
+WEB_STATE=foreign
+if adguardhome_web_port_available; then
+	fail 'WebUI check accepted a foreign listener on the configured port'
+fi
+grep -q 'WebUI port is unavailable' "${CALLS_FILE}" &&
+	fail 'WebUI helper logged while checking a foreign listener directly'
+WEB_STATE=bound
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy

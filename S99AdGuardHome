@@ -418,9 +418,9 @@ adguardhome_web_port() {
 
 adguardhome_web_port_available() {
 	_web_port="$(adguardhome_web_port)" || return 1
-	_socket_table="$(netstat -nl 2>/dev/null)" || return 1
-	printf '%s\n' "${_socket_table}" | awk -v port=":${_web_port}" '
-		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ port "[[:space:]]" { found = 1 }
+	_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	printf '%s\n' "${_socket_table}" | awk -v proc="${PROCS}" -v port=":${_web_port}" '
+		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ port "[[:space:]]" && $0 ~ "/" proc "([[:space:]]|$)" { found = 1 }
 		END { exit(found ? 0 : 1) }
 	'
 }
