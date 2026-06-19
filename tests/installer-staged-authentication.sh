@@ -29,11 +29,11 @@ AUTH_FUNCTION="$(sed -n '/^valid_adguardhome_username() {$/,/^agh_check() {$/p' 
 [ -n "${AUTH_FUNCTION}" ] || fail 'could not extract authentication helpers'
 eval "${AUTH_FUNCTION}"
 
-for username in admin admin.user admin_user admin-user Admin.User_123; do
+for username in admin admin.user admin_user admin-user Admin.User_123 user123 123user .admin admin. _admin admin_ -admin admin-; do
 	valid_adguardhome_username "${username}" || fail "valid username was rejected: ${username}"
 done
 
-for username in '' 'admin user' 'admin:user' 'admin#user' 'admin"user' "admin'user" 'admin$user' 'admin[user]' 'admin{user}' 'admin,user' 'admin&user' 'admin*user' 'admin/user' 'admin\user' 'admin|user' 'admin?user' 'admin=user' 'admin!user' 'admin`user' 'admin>user' 'admin<user'; do
+for username in '' 'admin user' 'admin	user' 'admin:user' 'admin#user' 'admin"user' "admin'user" 'admin$user' 'admin[user]' 'admin{user}' 'admin,user' 'admin&user' 'admin*user' 'admin/user' 'admin\user' 'admin|user' 'admin?user' 'admin=user' 'admin!user' 'admin`user' 'admin>user' 'admin<user' 'admin;user' 'admin(user)' 'admin%user' 'admin+user' 'admin@user' 'admin~user'; do
 	if valid_adguardhome_username "${username}"; then
 		fail "invalid username was accepted: ${username}"
 	fi
@@ -117,6 +117,25 @@ fi
 if grep -q '^users:$' "${YAML_STAGED_INVALID_USER}"; then
 	fail 'authentication wrote users section for invalid username'
 fi
+USERNAME='admin'
+
+YAML_STAGED_PROMPT_INVALID_USER="${TMP_ROOT}/staged-prompt-invalid-user.yaml"
+printf '%s\n' 'http:' >"${YAML_STAGED_PROMPT_INVALID_USER}"
+PW1=''
+PW2=''
+USERNAME=''
+HASH_CALLED=0
+if AdGuardHome_authen 1 "${YAML_STAGED_PROMPT_INVALID_USER}" <<'EOF'; then
+admin:user
+EOF
+	fail 'authentication accepted invalid prompted username'
+fi
+[ "${HASH_CALLED}" -eq 0 ] || fail 'authentication called password hash tooling for invalid prompted username'
+if grep -q '^users:$' "${YAML_STAGED_PROMPT_INVALID_USER}"; then
+	fail 'authentication wrote users section for invalid prompted username'
+fi
+PW1='secret'
+PW2='secret'
 USERNAME='admin'
 
 YAML_STAGED_SKIP="${TMP_ROOT}/staged-skip.yaml"
