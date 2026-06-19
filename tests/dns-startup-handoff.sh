@@ -27,7 +27,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^adguardhome_yaml_ipset_file() {$/,/^}$/p; /^chmod_regular_files_600() {$/,/^}$/p; /^ensure_adguardhome_work_dir_permissions() {$/,/^}$/p; /^dns_guard_wait_for_stop() {$/,/^}$/p; /^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_path_has_owner_mode() {$/,/^}$/p; /^dns_handoff_directory_is_private() {$/,/^}$/p; /^dns_handoff_marker_is_private() {$/,/^}$/p; /^dns_handoff_process_is_root() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_set_current_identity() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^dns_handoff_lock_file_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^watchdog_pids() {$/,/^}$/p; /^pid_nice() {$/,/^}$/p; /^save_watchdog_nice() {$/,/^}$/p; /^restore_watchdog_nice() {$/,/^}$/p; /^reap_the_watch_dog() {$/,/^}$/p; /^resume_dns_watchdog() {$/,/^}$/p; /^restore_dns_watchdog_traps() {$/,/^}$/p; /^save_dns_watchdog_traps() {$/,/^}$/p; /^suspend_dns_watchdog() {$/,/^}$/p; /^reclaim_stale_dns_handoff_lock() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
+	'/^adguardhome_yaml_ipset_file() {$/,/^}$/p; /^chmod_regular_files_600() {$/,/^}$/p; /^ensure_adguardhome_work_dir_permissions() {$/,/^}$/p; /^dns_guard_wait_for_stop() {$/,/^}$/p; /^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_path_has_owner_mode() {$/,/^}$/p; /^dns_handoff_directory_is_private() {$/,/^}$/p; /^dns_handoff_marker_is_private() {$/,/^}$/p; /^dns_handoff_process_is_root() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_set_current_identity() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^dns_handoff_lock_file_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^watchdog_pids() {$/,/^}$/p; /^pid_nice() {$/,/^}$/p; /^save_watchdog_nice() {$/,/^}$/p; /^restore_watchdog_nice() {$/,/^}$/p; /^reap_the_watch_dog() {$/,/^}$/p; /^resume_dns_watchdog() {$/,/^}$/p; /^restore_dns_watchdog_traps() {$/,/^}$/p; /^save_dns_watchdog_traps() {$/,/^}$/p; /^suspend_dns_watchdog() {$/,/^}$/p; /^reclaim_stale_dns_handoff_lock() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^dns_port_has_foreign_owner() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^guard_dns_port_for_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed -n '/^dns_handoff_is_active() {$/,/^}$/p' "${MANAGER_PATH}" >>"${S99_FUNCTIONS}" ||
 	fail "could not read ${MANAGER_PATH}"
@@ -160,6 +160,9 @@ if dns_port_available; then
 fi
 if kill_dns_port_owners; then
 	fail 'failed netstat command was hidden while collecting DNS owners'
+fi
+if dns_port_has_foreign_owner; then
+	fail 'failed netstat command was treated as a foreign DNS owner'
 fi
 NETSTAT_FAIL=0
 SLEEP_CALLS=0
@@ -406,6 +409,16 @@ disable_dns_handoff || fail 'could not clean up successful pre-start handoff'
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy
+KILL_RELEASES_PORT=1
+ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
+ADGUARDHOME_DNS_GUARD_RETRIES=3
+pre_start_adguardhome || fail 'pre-start rejected a port that became free after one stop'
+[ "$(grep -c '^service stop_dnsmasq$' "${CALLS_FILE}")" -eq 1 ] || fail 'pre-start stopped dnsmasq again after port 53 became free'
+stop_dns_port_guard
+disable_dns_handoff || fail 'could not clean up one-stop pre-start handoff'
+
+: >"${CALLS_FILE}"
+DNS_STATE=busy
 KILL_RELEASES_PORT=0
 ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
 ADGUARDHOME_DNS_GUARD_RETRIES=0
@@ -425,6 +438,17 @@ if pre_start_adguardhome; then
 fi
 [ "$(grep -c '^service restart_dnsmasq$' "${CALLS_FILE}")" -eq 1 ] || fail 'pre-start timeout ignored restart suppression during recovery'
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+
+: >"${CALLS_FILE}"
+DNS_STATE=busy
+NETSTAT_FAIL=1
+ADGUARDHOME_DNSMASQ_STOP_RETRIES=2
+ADGUARDHOME_DNS_GUARD_RETRIES=0
+if pre_start_adguardhome; then
+	fail 'pre-start succeeded while port ownership could not be inspected'
+fi
+! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'pre-start stopped dnsmasq without confirming a foreign port 53 owner'
+NETSTAT_FAIL=0
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy
