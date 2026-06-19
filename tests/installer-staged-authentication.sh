@@ -82,7 +82,10 @@ PTXT() {
 	printf '%s\n' "$@"
 }
 remove_conflicting_apache() { REMOVE_CALLED=1; }
-ensure_password_hash_tool() { TOOL_CALLED=1; return 0; }
+ensure_password_hash_tool() {
+	TOOL_CALLED=1
+	return 0
+}
 python_bcrypt_available() { return 0; }
 hash_password_python() {
 	HASH_CALLED=1
