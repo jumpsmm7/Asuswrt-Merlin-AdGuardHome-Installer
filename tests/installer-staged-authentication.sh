@@ -29,15 +29,29 @@ AUTH_FUNCTION="$(sed -n '/^valid_adguardhome_username() {$/,/^agh_check() {$/p' 
 [ -n "${AUTH_FUNCTION}" ] || fail 'could not extract authentication helpers'
 eval "${AUTH_FUNCTION}"
 
-for username in admin admin.user admin_user admin-user Admin.User_123; do
+for username in admin admin.user admin_user admin-user Admin.User_123 user123 123user .admin admin. _admin admin_ -admin admin-; do
 	valid_adguardhome_username "${username}" || fail "valid username was rejected: ${username}"
 done
 
-for username in '' 'admin user' 'admin:user' 'admin#user' 'admin"user' "admin'user" 'admin$user' 'admin[user]' 'admin{user}' 'admin,user' 'admin&user' 'admin*user' 'admin/user' 'admin\user' 'admin|user' 'admin?user' 'admin=user' 'admin!user' 'admin`user' 'admin>user' 'admin<user'; do
+for username in '' 'admin user' 'admin	user' 'admin:user' 'admin#user' 'admin"user' "admin'user" 'admin$user' 'admin[user]' 'admin{user}' 'admin,user' 'admin&user' 'admin*user' 'admin/user' 'admin\user' 'admin|user' 'admin?user' 'admin=user' 'admin!user' 'admin`user' 'admin>user' 'admin<user' 'admin;user' 'admin(user)' 'admin%user' 'admin+user' 'admin@user' 'admin~user'; do
 	if valid_adguardhome_username "${username}"; then
 		fail "invalid username was accepted: ${username}"
 	fi
 done
+
+for password in 'secret' 'correct horse battery staple' 'abc123!@#' 'middle  space'; do
+	valid_adguardhome_password_input "${password}" "${password}" || fail "valid password was rejected"
+done
+
+for password in '' ' secret' 'secret '; do
+	if valid_adguardhome_password_input "${password}" "${password}"; then
+		fail "invalid password was accepted"
+	fi
+done
+
+if valid_adguardhome_password_input 'secret' 'different'; then
+	fail 'mismatched password confirmation was accepted'
+fi
 
 TMP_ROOT="${TMPDIR:-/tmp}/installer-staged-authentication.$$"
 YAML_ORI="${TMP_ROOT}/original.yaml"
@@ -51,6 +65,8 @@ AGH_FILE="${TMP_ROOT}/AdGuardHome"
 CHECKED_YAML=''
 CHECK_SHOULD_FAIL=0
 HASH_CALLED=0
+REMOVE_CALLED=0
+TOOL_CALLED=0
 
 cleanup() {
 	rm -rf "${TMP_ROOT}"
@@ -65,8 +81,11 @@ printf '%s\n' 'http:' >"${YAML_STAGED}"
 PTXT() {
 	printf '%s\n' "$@"
 }
-remove_conflicting_apache() { :; }
-ensure_password_hash_tool() { return 0; }
+remove_conflicting_apache() { REMOVE_CALLED=1; }
+ensure_password_hash_tool() {
+	TOOL_CALLED=1
+	return 0
+}
 python_bcrypt_available() { return 0; }
 hash_password_python() {
 	HASH_CALLED=1
@@ -119,6 +138,39 @@ if grep -q '^users:$' "${YAML_STAGED_INVALID_USER}"; then
 fi
 USERNAME='admin'
 
+YAML_STAGED_LEADING_SPACE="${TMP_ROOT}/staged-leading-space.yaml"
+printf '%s\n' 'http:' >"${YAML_STAGED_LEADING_SPACE}"
+HASH_CALLED=0
+REMOVE_CALLED=0
+TOOL_CALLED=0
+if AdGuardHome_authen 1 "${YAML_STAGED_LEADING_SPACE}" <<'EOF'; then
+ secret
+ secret
+EOF
+	fail 'authentication accepted password with leading space'
+fi
+[ "${HASH_CALLED}" -eq 0 ] || fail 'authentication called password hash tooling for leading-space password'
+[ "${REMOVE_CALLED}" -eq 0 ] || fail 'authentication removed conflicting apache for leading-space password'
+[ "${TOOL_CALLED}" -eq 0 ] || fail 'authentication ensured hash tooling for leading-space password'
+if grep -q '^users:$' "${YAML_STAGED_LEADING_SPACE}"; then
+	fail 'authentication wrote users section for leading-space password'
+fi
+
+YAML_STAGED_TRAILING_SPACE="${TMP_ROOT}/staged-trailing-space.yaml"
+printf '%s\n' 'http:' >"${YAML_STAGED_TRAILING_SPACE}"
+HASH_CALLED=0
+REMOVE_CALLED=0
+TOOL_CALLED=0
+if printf 'secret \nsecret \n' | AdGuardHome_authen 1 "${YAML_STAGED_TRAILING_SPACE}"; then
+	fail 'authentication accepted password with trailing space'
+fi
+[ "${HASH_CALLED}" -eq 0 ] || fail 'authentication called password hash tooling for trailing-space password'
+[ "${REMOVE_CALLED}" -eq 0 ] || fail 'authentication removed conflicting apache for trailing-space password'
+[ "${TOOL_CALLED}" -eq 0 ] || fail 'authentication ensured hash tooling for trailing-space password'
+if grep -q '^users:$' "${YAML_STAGED_TRAILING_SPACE}"; then
+	fail 'authentication wrote users section for trailing-space password'
+fi
+
 YAML_STAGED_SKIP="${TMP_ROOT}/staged-skip.yaml"
 printf '%s\n' 'http:' >"${YAML_STAGED_SKIP}"
 CHECKED_YAML=''
@@ -131,6 +183,17 @@ EOF
 fi
 [ -z "${CHECKED_YAML}" ] || fail 'deferred staged authentication validated before the caller completed YAML'
 grep -q '^users:$' "${YAML_STAGED_SKIP}" || fail 'deferred staged YAML is missing the users section'
+CHECK_SHOULD_FAIL=0
+
+YAML_STAGED_RETRY_SKIP="${TMP_ROOT}/staged-retry-skip.yaml"
+printf '%s\n' 'http:' >"${YAML_STAGED_RETRY_SKIP}"
+CHECKED_YAML=''
+CHECK_SHOULD_FAIL=1
+if ! printf ' secret\n secret\nsecret\nsecret\n' | AdGuardHome_authen 1 "${YAML_STAGED_RETRY_SKIP}" 0; then
+	fail 'authentication retry did not preserve caller-deferred staged YAML validation'
+fi
+[ -z "${CHECKED_YAML}" ] || fail 'retried deferred staged authentication validated before the caller completed YAML'
+grep -q '^users:$' "${YAML_STAGED_RETRY_SKIP}" || fail 'retried deferred staged YAML is missing the users section'
 CHECK_SHOULD_FAIL=0
 
 if AdGuardHome_authen 1 "${YAML_STAGED}" </dev/null; then
