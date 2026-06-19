@@ -566,6 +566,64 @@ EOF
 
 	INFO="Info:"
 	ERROR="Error:"
+	BASE_DIR="${TMP_DIR}/restore-data-file-root"
+	TARG_DIR="${BASE_DIR}/AdGuardHome"
+	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	mkdir -p "${TARG_DIR}" || exit 1
+	printf '%s\n' "current binary" >"${AGH_FILE}"
+	printf '%s\n' "safe backup placeholder" >"${BASE_DIR}/backup_AdGuardHome.tar.gz"
+
+	adguard_archive_is_safe() {
+		return 0
+	}
+
+	agh_process_count() {
+		printf '%s\n' "0"
+	}
+
+	tar() {
+		case "$*" in
+			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
+				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome" || return 1
+				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				printf '%s\n' "not a directory" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data"
+				return 0
+				;;
+		esac
+		return 1
+	}
+
+	create_dir() {
+		mkdir -p "$1"
+	}
+
+	ensure_adguardhome_directory_permissions() {
+		return 0
+	}
+
+	ln() {
+		return 0
+	}
+
+	inst_AdGuardHome() {
+		return 0
+	}
+
+	if backup_restore RESTORE >/dev/null 2>&1; then
+		fail "backup_restore accepted staged restore data as a file"
+	fi
+	[ "$(sed -n '1p' "${AGH_FILE}")" = "current binary" ] ||
+		fail "staged restore with data file modified the current installation"
+	[ ! -d "${BASE_DIR}/.AdGuardHome.restore.$$" ] ||
+		fail "staged restore with data file left its staging directory behind"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	INFO="Info:"
+	ERROR="Error:"
 	BASE_DIR="${TMP_DIR}/restore-swap-fail-root"
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
@@ -589,7 +647,7 @@ EOF
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
-				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome" || return 1
+				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
 				return 0
 				;;
@@ -653,7 +711,7 @@ EOF
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
-				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome" || return 1
+				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
 				return 0
 				;;
@@ -724,7 +782,7 @@ EOF
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
-				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome" || return 1
+				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
 				return 0
 				;;
@@ -794,7 +852,7 @@ EOF
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
-				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome" || return 1
+				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
 				return 0
 				;;

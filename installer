@@ -1806,7 +1806,9 @@ backup_restore() {
 			PTXT "${ERROR} Unable to stage ${BASE_DIR}/backup_AdGuardHome.tar.gz for restore."
 			return 1
 		fi
-		if [ ! -d "${RESTORE_TARG_DIR}" ] || [ -L "${RESTORE_TARG_DIR}" ] || [ ! -f "${RESTORE_TARG_DIR}/AdGuardHome" ]; then
+		if [ ! -d "${RESTORE_TARG_DIR}" ] || [ -L "${RESTORE_TARG_DIR}" ] ||
+			[ ! -f "${RESTORE_TARG_DIR}/AdGuardHome" ] ||
+			[ ! -d "${RESTORE_TARG_DIR}/data" ] || [ -L "${RESTORE_TARG_DIR}/data" ]; then
 			adguard_install_abort_trap_disable
 			rm -rf "${RESTORE_STAGE_DIR}"
 			PTXT "${ERROR} The staged AdGuardHome backup is incomplete."
