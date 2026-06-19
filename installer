@@ -506,7 +506,7 @@ AdGuardHome_authen() {
 		PTXT "users:" \
 			"- name: ${USERNAME}" \
 			"  password: ${PW1_ENCRYPTED}" >>"${YAML_TARGET}"
-		if ! check_AdGuardHome_yaml "${YAML_TARGET}"; then
+		if [ "${3:-1}" -ne 0 ] && ! check_AdGuardHome_yaml "${YAML_TARGET}"; then
 			return 1
 		fi
 	fi
@@ -2514,7 +2514,7 @@ setup_AdGuardHome_impl() {
 					PTXT "http:" \
 						"  address: 0.0.0.0:${WEB_PORT}" >"${YAML_ORI_NEW}"
 					PTXT "${INFO} Set the Username and Password which will be encrypted to the yaml file."
-					if ! AdGuardHome_authen 1 "${YAML_ORI_NEW}"; then
+					if ! AdGuardHome_authen 1 "${YAML_ORI_NEW}" 0; then
 						rm -f "${YAML_ORI_NEW}"
 						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
 							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
@@ -2578,6 +2578,13 @@ setup_AdGuardHome_impl() {
 						"  - '[/10.in-addr.arpa/][::]:553'" \
 						"  - '[/$(printf "%s\n" "${NET_ADDR}" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/][::]:553'" \
 						"schema_version: ${SCHEMA_VER}" >>"${YAML_ORI_NEW}"
+					if ! check_AdGuardHome_yaml "${YAML_ORI_NEW}"; then
+						rm -f "${YAML_ORI_NEW}"
+						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+						fi
+						return 1
+					fi
 					PTXT "${INFO} Writing AdGuardHome configuration..."
 					cp -f "${YAML_ORI_NEW}" "${YAML_FILE}"
 				fi

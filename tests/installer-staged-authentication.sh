@@ -12,8 +12,14 @@ fail() {
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 
-sed -n '/if ! AdGuardHome_authen 1 "${YAML_ORI_NEW}"; then/,/PTXT "dns:"/p' "${SCRIPT_PATH}" |
-	grep -q 'return 1' || fail 'initial setup caller does not abort when staged authentication validation fails'
+sed -n '/if ! AdGuardHome_authen 1 "${YAML_ORI_NEW}" 0; then/,/PTXT "dns:"/p' "${SCRIPT_PATH}" |
+	grep -q 'return 1' || fail 'initial setup caller does not abort when staged authentication input fails'
+
+sed -n '/if ! AdGuardHome_authen 1 "${YAML_ORI_NEW}" 0; then/,/PTXT "dns:"/p' "${SCRIPT_PATH}" |
+	grep -q 'check_AdGuardHome_yaml' && fail 'initial setup validates staged YAML before dns/schema content is appended'
+
+sed -n '/schema_version: ${SCHEMA_VER}/,/Writing AdGuardHome configuration/p' "${SCRIPT_PATH}" |
+	grep -q 'check_AdGuardHome_yaml "${YAML_ORI_NEW}"' || fail 'initial setup does not validate completed staged YAML before publishing'
 
 INPUT='Input:'
 NORM=''
@@ -84,6 +90,21 @@ then
 fi
 [ "${CHECKED_YAML}" = "${YAML_STAGED_FAIL}" ] || fail 'failing staged YAML target was not validated'
 [ "$(cat "${YAML_ORI}")" = 'original snapshot' ] || fail 'failed staged validation modified the published original snapshot'
+CHECK_SHOULD_FAIL=0
+
+YAML_STAGED_SKIP="${TMP_ROOT}/staged-skip.yaml"
+printf '%s\n' 'http:' >"${YAML_STAGED_SKIP}"
+CHECKED_YAML=''
+CHECK_SHOULD_FAIL=1
+if ! AdGuardHome_authen 1 "${YAML_STAGED_SKIP}" 0 <<'EOF'
+secret
+secret
+EOF
+then
+	fail 'authentication did not allow caller-deferred staged YAML validation'
+fi
+[ -z "${CHECKED_YAML}" ] || fail 'deferred staged authentication validated before the caller completed YAML'
+grep -q '^users:$' "${YAML_STAGED_SKIP}" || fail 'deferred staged YAML is missing the users section'
 CHECK_SHOULD_FAIL=0
 
 if AdGuardHome_authen 1 "${YAML_STAGED}" </dev/null; then
