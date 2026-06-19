@@ -407,6 +407,17 @@ port_is_valid() {
 	[ "$1" -ge 3000 ] 2>/dev/null && [ "$1" -le 65535 ] 2>/dev/null
 }
 
+web_port_in_use() {
+	netstat -nl 2>/dev/null | awk -v port=":$1" '
+		$4 ~ port "$" {
+			found = 1
+		}
+		END {
+			exit(found ? 0 : 1)
+		}
+	'
+}
+
 installer_dependencies_available() {
 	local REQUIRED_COMMAND
 	for REQUIRED_COMMAND in awk chmod chown cp cut grep kill ln md5sum mkdir mv nvram opkg pidof rm sed service tar; do
@@ -2586,9 +2597,16 @@ setup_AdGuardHome_impl() {
 						return 1
 					fi
 					PTXT "${INFO} Writing AdGuardHome configuration..."
-					cp -f "${YAML_ORI_NEW}" "${YAML_FILE}"
+					if ! cp -f "${YAML_ORI_NEW}" "${YAML_FILE}"; then
+						rm -f "${YAML_ORI_NEW}"
+						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+						fi
+						PTXT "${ERROR} Writing AdGuardHome configuration failed "
+						return 1
+					fi
 				fi
-				if ! check_AdGuardHome_yaml; then
+				if [ -z "${YAML_ORI_NEW:-}" ] && ! check_AdGuardHome_yaml; then
 					[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 					if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
 						PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
@@ -3149,7 +3167,7 @@ read_input_port() {
 			PTXT "${ERROR} Unable to verify the Web Port because netstat is unavailable."
 			return 1
 		fi
-		if netstat -nl 2>/dev/null | grep -qE "(:${WEB_PORT}[[:space:]])"; then
+		if web_port_in_use "${WEB_PORT}"; then
 			PTXT "${ERROR} ${WEB_PORT} already in use, please choose a different port!"
 			continue
 		fi
