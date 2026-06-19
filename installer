@@ -2606,7 +2606,7 @@ setup_AdGuardHome_impl() {
 						return 1
 					fi
 				fi
-				if [ -z "${YAML_ORI_NEW:-}" ] && ! check_AdGuardHome_yaml; then
+				if ! check_AdGuardHome_yaml; then
 					[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 					if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
 						PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
