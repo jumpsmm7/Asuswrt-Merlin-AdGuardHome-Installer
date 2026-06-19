@@ -423,6 +423,9 @@ EOF
 		return 0
 	}
 
+	ADGUARD_RESTORE_ACTIVE="1"
+	ADGUARD_RESTORE_ROLLBACK_DIR="${ROLLBACK_DIR}"
+	ADGUARD_RESTORE_TARGET_INSTALLED="1"
 	adguard_restore_after_failed_directory_restore "${ROLLBACK_DIR}" "${TARGET_DIR}" "${STAGE_DIR}" 1 1 >/dev/null ||
 		fail "directory restore rollback failed"
 	[ "$(sed -n '1p' "${TARGET_DIR}/AdGuardHome")" = "previous binary" ] ||
@@ -431,6 +434,12 @@ EOF
 		fail "directory restore rollback did not stop the restored daemon before swapping files"
 	[ "$(sed -n '2p' "${CALLS_FILE}")" = "restart:1" ] ||
 		fail "directory restore rollback did not restart after restoring files"
+	[ "${ADGUARD_RESTORE_ACTIVE}" = "0" ] ||
+		fail "directory restore rollback left restore trap state active"
+	[ -z "${ADGUARD_RESTORE_ROLLBACK_DIR}" ] ||
+		fail "directory restore rollback left rollback state armed"
+	[ "${ADGUARD_RESTORE_TARGET_INSTALLED}" = "0" ] ||
+		fail "directory restore rollback left target cleanup armed"
 ) || exit 1
 
 (

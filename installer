@@ -1496,17 +1496,28 @@ adguard_restore_after_failed_directory_restore() {
 	fi
 	if [ -d "${ROLLBACK_DIR}" ] || [ "${TARGET_INSTALLED}" = "1" ]; then
 		rm -rf "${TARGET_DIR}"
+		if [ ! -d "${ROLLBACK_DIR}" ]; then
+			ADGUARD_RESTORE_TARGET_INSTALLED="0"
+		fi
 	fi
 	if [ -d "${ROLLBACK_DIR}" ]; then
 		if ! mv "${ROLLBACK_DIR}" "${TARGET_DIR}"; then
 			PTXT "${ERROR} Unable to restore the previous AdGuardHome installation; it remains at ${ROLLBACK_DIR}."
 			return 1
 		fi
+		ADGUARD_RESTORE_ROLLBACK_DIR=""
+		ADGUARD_RESTORE_TARGET_INSTALLED="0"
+		ADGUARD_RESTORE_ACTIVE="0"
 	elif [ -L "${COMMAND_LINK}" ] && [ "$(readlink "${COMMAND_LINK}")" = "${TARGET_DIR}/AdGuardHome" ]; then
 		if ! rm -f "${COMMAND_LINK}"; then
 			PTXT "${ERROR} Unable to remove the failed AdGuardHome command symlink."
 			return 1
 		fi
+		ADGUARD_RESTORE_TARGET_INSTALLED="0"
+		ADGUARD_RESTORE_ACTIVE="0"
+	fi
+	if [ ! -d "${ROLLBACK_DIR}" ] && [ "${ADGUARD_RESTORE_TARGET_INSTALLED:-0}" = "0" ]; then
+		ADGUARD_RESTORE_ACTIVE="0"
 	fi
 	rm -rf "${STAGE_DIR}"
 	adguard_restart_after_failed_replace "${WAS_RUNNING}"
