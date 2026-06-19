@@ -11,6 +11,7 @@ S99_FUNCTIONS="${TEST_ROOT}/s99-functions"
 RC_FUNCTION="${TEST_ROOT}/rc-start-function"
 CALLS_FILE="${TEST_ROOT}/calls"
 STARTED_FILE="${TEST_ROOT}/started"
+DNSMASQ_CONF_FILE="${TEST_ROOT}/dnsmasq.conf"
 
 cleanup() {
 	rm -rf "${TEST_ROOT}"
@@ -584,11 +585,15 @@ grep -q '^post_hook$' "${CALLS_FILE}" || fail 'rc.func skipped post-start cleanu
 # running the pre-start hook again.  The old skip was keyed only to the config
 # content and would bypass the hook in this state.
 : >"${CALLS_FILE}"
+printf '%s\n' 'port=553' >"${DNSMASQ_CONF_FILE}" || fail 'could not seed stale dnsmasq config'
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 (
 	grep() {
 		case "$*" in
-			*'/etc/dnsmasq.conf'*) return 0 ;;
+			*'/etc/dnsmasq.conf'*)
+				shift "$#"
+				command grep '^port=553' "${DNSMASQ_CONF_FILE}"
+				;;
 			*) command grep "$@" ;;
 		esac
 	}

@@ -114,9 +114,11 @@ reload() {
 }
 
 adguardhome_start_handoff_is_prepared() {
+	local _dns_handoff_pid _dns_handoff_start_time
 	_dns_handoff_pid=""
 	_dns_handoff_start_time=""
 	[ "${PROC}" = "AdGuardHome" ] || return 1
+	[ -n "${DNS_HANDOFF_FILE:-}" ] || return 1
 	type dns_handoff_marker_is_active >/dev/null 2>&1 || return 1
 	type dns_handoff_set_current_identity >/dev/null 2>&1 || return 1
 	dns_handoff_set_current_identity || return 1
