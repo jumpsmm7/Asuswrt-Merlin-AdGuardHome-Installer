@@ -15,6 +15,7 @@ fail() {
 INPUT='Input:'
 NORM=''
 ERROR='Error:'
+INFO='Info:'
 AUTH_FUNCTION="$(sed -n '/^AdGuardHome_authen() {$/,/^agh_check() {$/p' "${SCRIPT_PATH}" | sed '$d')"
 [ -n "${AUTH_FUNCTION}" ] || fail 'could not extract authentication function'
 eval "${AUTH_FUNCTION}"
@@ -25,6 +26,10 @@ YAML_STAGED="${TMP_ROOT}/staged.yaml"
 PW1='secret'
 PW2='secret'
 USERNAME='admin'
+YAML_FILE="${YAML_ORI}"
+YAML_ERR="${YAML_FILE}.err"
+AGH_FILE="${TMP_ROOT}/AdGuardHome"
+CHECKED_YAML=''
 
 cleanup() {
 	rm -rf "${TMP_ROOT}"
@@ -45,6 +50,10 @@ python_bcrypt_available() { return 0; }
 hash_password_python() {
 	printf '%s\n' '$2a$10$012345678901234567890123456789012345678901234567890123'
 }
+check_AdGuardHome_yaml() {
+	CHECKED_YAML="${1:-${YAML_FILE}}"
+	[ -f "${CHECKED_YAML}" ] || return 1
+}
 
 AdGuardHome_authen 1 "${YAML_STAGED}" <<'EOF'
 secret
@@ -55,6 +64,7 @@ EOF
 grep -q '^users:$' "${YAML_STAGED}" || fail 'staged YAML is missing the users section'
 grep -q '^- name: admin$' "${YAML_STAGED}" || fail 'staged YAML is missing the selected username'
 grep -q '^  password: \$2a\$10\$' "${YAML_STAGED}" || fail 'staged YAML is missing the generated password hash'
+[ "${CHECKED_YAML}" = "${YAML_STAGED}" ] || fail 'staged YAML target was not validated'
 
 if AdGuardHome_authen 1 "${YAML_STAGED}" </dev/null; then
 	fail 'authentication accepted closed password input'
