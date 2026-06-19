@@ -606,10 +606,26 @@ agh_log_start_failure() {
 	return 1
 }
 
+agh_startup_check() {
+	agh_is_running || return 1
+	agh_dns_bound || return 1
+	agh_web_bound || return 1
+	agh_config_valid || return 1
+	return 0
+}
+
 agh_startup_ready() {
-	if agh_log_start_failure; then
-		return 1
-	fi
+	local elapsed maxwait
+	elapsed="0"
+	maxwait="${1:-${ADGUARDHOME_READY_TIMEOUT}}"
+	while ! agh_startup_check; do
+		if [ "${elapsed}" -ge "${maxwait}" ]; then
+			agh_log_start_failure
+			return 1
+		fi
+		sleep 1s
+		elapsed="$((elapsed + 1))"
+	done
 	return 0
 }
 
