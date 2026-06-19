@@ -144,6 +144,9 @@ sleep() {
 	if [ "${SLEEP_OWNED_AFTER:-0}" -gt 0 ] && [ "${SLEEP_CALLS}" -ge "${SLEEP_OWNED_AFTER}" ]; then
 		DNS_STATE=owned
 	fi
+	if [ "${SLEEP_BUSY_AFTER:-0}" -gt 0 ] && [ "${SLEEP_CALLS}" -ge "${SLEEP_BUSY_AFTER}" ]; then
+		DNS_STATE=busy
+	fi
 	[ "${SLEEP_SETS_OWNED:-0}" -eq 1 ] && DNS_STATE=owned
 	:
 }
@@ -160,6 +163,7 @@ fi
 NETSTAT_FAIL=0
 SLEEP_CALLS=0
 SLEEP_OWNED_AFTER=0
+SLEEP_BUSY_AFTER=0
 
 : >"${CALLS_FILE}"
 _dns_saved_test_traps_file="${TEST_ROOT}/caller-traps"
@@ -356,8 +360,26 @@ ADGUARDHOME_DNS_GUARD_RETRIES=3
 guard_dns_port_for_adguardhome &
 ADGUARDHOME_DNS_GUARD_PID="$!"
 command sleep 0.01
+command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || fail 'DNS guard exited before AdGuardHome owned DNS'
 stop_dns_port_guard
 ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'DNS guard stopped dnsmasq after port 53 was free'
+
+: >"${CALLS_FILE}"
+DNS_STATE=free
+SLEEP_CALLS=0
+SLEEP_BUSY_AFTER=1
+KILL_RELEASES_PORT=0
+ADGUARDHOME_DNS_GUARD_RETRIES=3
+guard_dns_port_for_adguardhome &
+ADGUARDHOME_DNS_GUARD_PID="$!"
+_guard_check_attempts=0
+while ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" && [ "${_guard_check_attempts}" -lt 20 ]; do
+	_guard_check_attempts="$((_guard_check_attempts + 1))"
+	command sleep 0.01
+done
+grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'DNS guard did not stop dnsmasq after it reclaimed a free port'
+stop_dns_port_guard
+SLEEP_BUSY_AFTER=0
 
 : >"${CALLS_FILE}"
 DNS_STATE=owned
