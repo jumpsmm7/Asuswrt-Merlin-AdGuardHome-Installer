@@ -416,6 +416,14 @@ grep -q 'WebUI port is unavailable' "${CALLS_FILE}" &&
 	fail 'WebUI helper logged while checking a foreign listener directly'
 WEB_STATE=bound
 
+printf '%s\n' 'ADGUARD_WEBUI_PORT="3000"' >"${WORK_DIR}/.config" || fail 'could not reset stale AdGuardHome config'
+printf '%s\n' 'http:' '  address: 0.0.0.0:3001' >"${WORK_DIR}/AdGuardHome.yaml" || fail 'could not set alternate AdGuardHome yaml port'
+if [ "$(adguardhome_web_port)" != 3001 ]; then
+	fail 'WebUI port check did not prefer the YAML port over stale .config'
+fi
+printf '%s\n' 'ADGUARD_WEBUI_PORT="3000"' >"${WORK_DIR}/.config" || fail 'could not restore AdGuardHome config'
+printf '%s\n' 'bind_host: 0.0.0.0' 'bind_port: 3000' >"${WORK_DIR}/AdGuardHome.yaml" || fail 'could not restore AdGuardHome yaml'
+
 : >"${CALLS_FILE}"
 DNS_STATE=busy
 KILL_RELEASES_PORT=1

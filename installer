@@ -567,14 +567,14 @@ agh_dns_bound() {
 
 agh_web_port() {
 	local conf_port yaml_port
-	conf_port="$(awk -F= '/^ADGUARD_WEBUI_PORT=/ { print $2; exit }' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')"
-	if port_is_valid "${conf_port}"; then
-		PTXT "${conf_port}"
-		return 0
-	fi
 	yaml_port="$(awk -F: '/^[[:space:]]*address:[[:space:]]*/ { print $NF; exit }' "${YAML_FILE}" 2>/dev/null | sed 's/[^0-9].*$//')"
 	if port_is_valid "${yaml_port}"; then
 		PTXT "${yaml_port}"
+		return 0
+	fi
+	conf_port="$(awk -F= '/^ADGUARD_WEBUI_PORT=/ { print $2; exit }' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')"
+	if port_is_valid "${conf_port}"; then
+		PTXT "${conf_port}"
 		return 0
 	fi
 	return 1

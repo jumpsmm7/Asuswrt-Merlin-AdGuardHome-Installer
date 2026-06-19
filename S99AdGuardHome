@@ -398,7 +398,7 @@ adguardhome_config_valid() {
 }
 
 adguardhome_web_port() {
-	_web_port="$(awk -F= '/^ADGUARD_WEBUI_PORT=/ { print $2; exit }' "${WORK_DIR}/.config" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')"
+	_web_port="$(awk -F: '/^[[:space:]]*address:[[:space:]]*/ { print $NF; exit }' "${WORK_DIR}/AdGuardHome.yaml" 2>/dev/null | sed 's/[^0-9].*$//')"
 	case "${_web_port}" in
 		"" | *[!0-9]*) ;;
 		*)
@@ -408,7 +408,7 @@ adguardhome_web_port() {
 			}
 			;;
 	esac
-	_web_port="$(awk -F: '/^[[:space:]]*address:[[:space:]]*/ { print $NF; exit }' "${WORK_DIR}/AdGuardHome.yaml" 2>/dev/null | sed 's/[^0-9].*$//')"
+	_web_port="$(awk -F= '/^ADGUARD_WEBUI_PORT=/ { print $2; exit }' "${WORK_DIR}/.config" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')"
 	case "${_web_port}" in
 		"" | *[!0-9]*) return 1 ;;
 	esac
