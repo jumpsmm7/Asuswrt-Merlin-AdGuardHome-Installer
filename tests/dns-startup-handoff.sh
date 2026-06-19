@@ -333,6 +333,42 @@ kill_dns_port_owners || fail 'DNS owner cleanup failed when no process owned por
 ! grep -q '^kill ' "${CALLS_FILE}" || fail 'DNS owner cleanup signaled a process for an empty port'
 
 : >"${CALLS_FILE}"
+DNS_STATE=free
+ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
+ADGUARDHOME_DNS_GUARD_RETRIES=0
+pre_start_adguardhome || fail 'pre-start rejected an already-free DNS port'
+! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'pre-start stopped dnsmasq after port 53 was already free'
+stop_dns_port_guard
+disable_dns_handoff || fail 'could not clean up free-port pre-start handoff'
+
+: >"${CALLS_FILE}"
+DNS_STATE=owned
+ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
+ADGUARDHOME_DNS_GUARD_RETRIES=0
+pre_start_adguardhome || fail 'pre-start rejected AdGuardHome-owned DNS port'
+! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'pre-start stopped dnsmasq after AdGuardHome owned port 53'
+stop_dns_port_guard
+disable_dns_handoff || fail 'could not clean up owned-port pre-start handoff'
+
+: >"${CALLS_FILE}"
+DNS_STATE=free
+ADGUARDHOME_DNS_GUARD_RETRIES=3
+guard_dns_port_for_adguardhome &
+ADGUARDHOME_DNS_GUARD_PID="$!"
+command sleep 0.01
+stop_dns_port_guard
+! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'DNS guard stopped dnsmasq after port 53 was free'
+
+: >"${CALLS_FILE}"
+DNS_STATE=owned
+ADGUARDHOME_DNS_GUARD_RETRIES=3
+guard_dns_port_for_adguardhome &
+ADGUARDHOME_DNS_GUARD_PID="$!"
+command sleep 0.01
+stop_dns_port_guard
+! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'DNS guard stopped dnsmasq after AdGuardHome owned port 53'
+
+: >"${CALLS_FILE}"
 DNS_STATE=busy
 KILL_RELEASES_PORT=1
 ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
