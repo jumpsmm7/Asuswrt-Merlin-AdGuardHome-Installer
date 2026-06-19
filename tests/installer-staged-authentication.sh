@@ -29,11 +29,11 @@ AUTH_FUNCTION="$(sed -n '/^valid_adguardhome_username() {$/,/^agh_check() {$/p' 
 [ -n "${AUTH_FUNCTION}" ] || fail 'could not extract authentication helpers'
 eval "${AUTH_FUNCTION}"
 
-for username in admin admin.user admin_user admin-user Admin.User_123; do
+for username in admin admin.user admin_user admin-user Admin.User_123 user123 123user .admin admin. _admin admin_ -admin admin-; do
 	valid_adguardhome_username "${username}" || fail "valid username was rejected: ${username}"
 done
 
-for username in '' 'admin user' 'admin:user' 'admin#user' 'admin"user' "admin'user" 'admin$user' 'admin[user]' 'admin{user}' 'admin,user' 'admin&user' 'admin*user' 'admin/user' 'admin\user' 'admin|user' 'admin?user' 'admin=user' 'admin!user' 'admin`user' 'admin>user' 'admin<user'; do
+for username in '' 'admin user' 'admin	user' 'admin:user' 'admin#user' 'admin"user' "admin'user" 'admin$user' 'admin[user]' 'admin{user}' 'admin,user' 'admin&user' 'admin*user' 'admin/user' 'admin\user' 'admin|user' 'admin?user' 'admin=user' 'admin!user' 'admin`user' 'admin>user' 'admin<user' 'admin;user' 'admin(user)' 'admin%user' 'admin+user' 'admin@user' 'admin~user'; do
 	if valid_adguardhome_username "${username}"; then
 		fail "invalid username was accepted: ${username}"
 	fi

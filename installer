@@ -475,7 +475,7 @@ AdGuardHome_authen() {
 		fi
 	fi
 	if ! valid_adguardhome_username "${USERNAME:-}"; then
-		PTXT "${ERROR} Invalid AdGuardHome username. Use only letters, digits, dot, underscore, or hyphen."
+		PTXT "${ERROR} Invalid AdGuardHome username. Accepted characters: letters, digits, dot (.), underscore (_), and hyphen (-)."
 		return 1
 	fi
 	local PW1 PW2
