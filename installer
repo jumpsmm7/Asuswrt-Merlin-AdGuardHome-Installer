@@ -454,12 +454,14 @@ valid_adguardhome_username() {
 }
 
 valid_adguardhome_password_input() {
-	case "${1:-}" in
-		"" | " "* | *" " | *[![:print:]]*)
+	[ -n "${1:-}" ] || return 1
+	[ "${1}" = "${2:-}" ] || return 1
+	case "${1}" in
+		" "* | *" " | *[[:cntrl:]]*)
 			return 1
 			;;
 	esac
-	[ "${1}" = "${2:-}" ]
+	return 0
 }
 
 AdGuardHome_authen() {
@@ -467,7 +469,7 @@ AdGuardHome_authen() {
 	if [ -z "${PW1}" ] || [ -z "${PW2}" ]; then
 		local USERNAME
 		PTXT -n "${INPUT} Please enter AdGuardHome username${NORM}: "
-		if ! read -r USERNAME; then
+		if ! IFS= read -r USERNAME; then
 			return 1
 		fi
 	fi
