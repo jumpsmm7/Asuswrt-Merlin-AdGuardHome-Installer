@@ -82,7 +82,10 @@ PTXT() {
 	printf '%s\n' "$@"
 }
 remove_conflicting_apache() { REMOVE_CALLED=1; }
-ensure_password_hash_tool() { TOOL_CALLED=1; return 0; }
+ensure_password_hash_tool() {
+	TOOL_CALLED=1
+	return 0
+}
 python_bcrypt_available() { return 0; }
 hash_password_python() {
 	HASH_CALLED=1
@@ -180,6 +183,17 @@ EOF
 fi
 [ -z "${CHECKED_YAML}" ] || fail 'deferred staged authentication validated before the caller completed YAML'
 grep -q '^users:$' "${YAML_STAGED_SKIP}" || fail 'deferred staged YAML is missing the users section'
+CHECK_SHOULD_FAIL=0
+
+YAML_STAGED_RETRY_SKIP="${TMP_ROOT}/staged-retry-skip.yaml"
+printf '%s\n' 'http:' >"${YAML_STAGED_RETRY_SKIP}"
+CHECKED_YAML=''
+CHECK_SHOULD_FAIL=1
+if ! printf ' secret\n secret\nsecret\nsecret\n' | AdGuardHome_authen 1 "${YAML_STAGED_RETRY_SKIP}" 0; then
+	fail 'authentication retry did not preserve caller-deferred staged YAML validation'
+fi
+[ -z "${CHECKED_YAML}" ] || fail 'retried deferred staged authentication validated before the caller completed YAML'
+grep -q '^users:$' "${YAML_STAGED_RETRY_SKIP}" || fail 'retried deferred staged YAML is missing the users section'
 CHECK_SHOULD_FAIL=0
 
 if AdGuardHome_authen 1 "${YAML_STAGED}" </dev/null; then
