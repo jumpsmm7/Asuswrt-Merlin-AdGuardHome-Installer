@@ -391,6 +391,60 @@ enable_dns_handoff() {
 	return 0
 }
 
+adguardhome_config_valid() {
+	[ -x "${WORK_DIR}/AdGuardHome" ] || return 1
+	[ -f "${WORK_DIR}/AdGuardHome.yaml" ] || return 1
+	"${WORK_DIR}/AdGuardHome" --check-config -c "${WORK_DIR}/AdGuardHome.yaml" --no-check-update -l /dev/null >/dev/null 2>&1
+}
+
+adguardhome_web_port() {
+	_web_port="$(awk -F: '/^[[:space:]]*address:[[:space:]]*/ { print $NF; exit }' "${WORK_DIR}/AdGuardHome.yaml" 2>/dev/null | sed 's/[^0-9].*$//')"
+	case "${_web_port}" in
+		"" | *[!0-9]*) ;;
+		*)
+			[ "${_web_port}" -ge 3000 ] 2>/dev/null && [ "${_web_port}" -le 65535 ] 2>/dev/null && {
+				printf '%s\n' "${_web_port}"
+				return 0
+			}
+			;;
+	esac
+	_web_port="$(awk -F= '/^ADGUARD_WEBUI_PORT=/ { print $2; exit }' "${WORK_DIR}/.config" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')"
+	case "${_web_port}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	[ "${_web_port}" -ge 3000 ] 2>/dev/null && [ "${_web_port}" -le 65535 ] 2>/dev/null || return 1
+	printf '%s\n' "${_web_port}"
+}
+
+adguardhome_web_port_available() {
+	_web_port="$(adguardhome_web_port)" || return 1
+	_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	printf '%s\n' "${_socket_table}" | awk -v proc="${PROCS}" -v port=":${_web_port}" '
+		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ port "[[:space:]]" && $0 ~ "/" proc "([[:space:]]|$)" { found = 1 }
+		END { exit(found ? 0 : 1) }
+	'
+}
+
+log_adguardhome_start_failure() {
+	if ! pidof "${PROCS}" >/dev/null 2>&1; then
+		logger -st "${PROCS}" "AdGuardHome startup failed: process is not running."
+		return 0
+	fi
+	if ! adguardhome_owns_dns; then
+		logger -st "${PROCS}" "AdGuardHome startup failed: process is running but DNS is not bound."
+		return 0
+	fi
+	if ! adguardhome_web_port_available; then
+		logger -st "${PROCS}" "AdGuardHome startup failed: WebUI port is unavailable."
+		return 0
+	fi
+	if ! adguardhome_config_valid; then
+		logger -st "${PROCS}" "AdGuardHome startup failed: configuration check failed."
+		return 0
+	fi
+	return 1
+}
+
 dns_retry_limit() {
 	case "$1" in
 		"" | *[!0-9]*) printf '%s\n' "$2" ;;
@@ -560,7 +614,7 @@ post_start_adguardhome() {
 	if ! wait_for_adguardhome_dns; then
 		stop_dns_port_guard
 		disable_dns_handoff || logger -st "${PROCS}" "The dnsmasq port 553 handoff marker requires manual cleanup."
-		logger -st "${PROCS}" "AdGuardHome did not acquire TCP and UDP port 53; startup will be rolled back."
+		log_adguardhome_start_failure
 		return 1
 	fi
 	stop_dns_port_guard
@@ -569,6 +623,14 @@ post_start_adguardhome() {
 	# Resume parent-side after reaping the guard so a fast success cannot leave
 	# the router watchdog suspended.
 	resume_dns_watchdog
+	if ! adguardhome_web_port_available; then
+		log_adguardhome_start_failure
+		return 1
+	fi
+	if ! adguardhome_config_valid; then
+		log_adguardhome_start_failure
+		return 1
+	fi
 	disable_dns_handoff || return 1
 	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
 		service restart_dnsmasq >/dev/null 2>&1 || return 1

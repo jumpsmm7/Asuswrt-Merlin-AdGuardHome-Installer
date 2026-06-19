@@ -420,7 +420,7 @@ web_port_in_use() {
 
 installer_dependencies_available() {
 	local REQUIRED_COMMAND
-	for REQUIRED_COMMAND in awk chmod chown cp cut grep kill ln md5sum mkdir mv nvram opkg pidof rm sed service tar; do
+	for REQUIRED_COMMAND in awk chmod chown cp cut grep kill ln md5sum mkdir mv netstat nvram opkg pidof rm sed service tar; do
 		if ! ai_have_cmd "${REQUIRED_COMMAND}"; then
 			PTXT "${ERROR} Required command is unavailable: ${REQUIRED_COMMAND}" >&2
 			return 1
@@ -544,6 +544,91 @@ agh_check() {
 	/opt/etc/init.d/S99AdGuardHome check
 }
 
+agh_config_valid() {
+	[ -x "${AGH_FILE}" ] || return 1
+	[ -f "${YAML_FILE}" ] || return 1
+	"${AGH_FILE}" --check-config -c "${YAML_FILE}" --no-check-update -l /dev/null >/dev/null 2>&1
+}
+
+agh_dns_bound() {
+	local socket_table
+	pidof AdGuardHome >/dev/null 2>&1 || return 2
+	socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	PTXT "${socket_table}" | awk '
+		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
+			if ($0 ~ "/AdGuardHome([[:space:]]|$)") tcp_found = 1
+		}
+		$0 ~ /^(udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
+			if ($0 ~ "/AdGuardHome([[:space:]]|$)") udp_found = 1
+		}
+		END { exit(tcp_found && udp_found ? 0 : 1) }
+	'
+}
+
+agh_web_port() {
+	local conf_port yaml_port
+	yaml_port="$(awk -F: '/^[[:space:]]*address:[[:space:]]*/ { print $NF; exit }' "${YAML_FILE}" 2>/dev/null | sed 's/[^0-9].*$//')"
+	if port_is_valid "${yaml_port}"; then
+		PTXT "${yaml_port}"
+		return 0
+	fi
+	conf_port="$(awk -F= '/^ADGUARD_WEBUI_PORT=/ { print $2; exit }' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')"
+	if port_is_valid "${conf_port}"; then
+		PTXT "${conf_port}"
+		return 0
+	fi
+	return 1
+}
+
+agh_web_bound() {
+	local web_port
+	web_port="$(agh_web_port)" || return 1
+	web_port_in_use "${web_port}"
+}
+
+agh_log_start_failure() {
+	if ! agh_is_running; then
+		PTXT "${ERROR} AdGuardHome startup failed: process is not running."
+		return 0
+	fi
+	if ! agh_dns_bound; then
+		PTXT "${ERROR} AdGuardHome startup failed: process is running but DNS is not bound."
+		return 0
+	fi
+	if ! agh_web_bound; then
+		PTXT "${ERROR} AdGuardHome startup failed: WebUI port is unavailable."
+		return 0
+	fi
+	if ! agh_config_valid; then
+		PTXT "${ERROR} AdGuardHome startup failed: configuration check failed."
+		return 0
+	fi
+	return 1
+}
+
+agh_startup_check() {
+	agh_is_running || return 1
+	agh_dns_bound || return 1
+	agh_web_bound || return 1
+	agh_config_valid || return 1
+	return 0
+}
+
+agh_startup_ready() {
+	local elapsed maxwait
+	elapsed="0"
+	maxwait="${ADGUARDHOME_READY_TIMEOUT}"
+	while ! agh_startup_check; do
+		if [ "${elapsed}" -ge "${maxwait}" ]; then
+			agh_log_start_failure
+			return 1
+		fi
+		sleep 1s
+		elapsed="$((elapsed + 1))"
+	done
+	return 0
+}
+
 agh_complete_startup() {
 	PTXT "${INFO} Starting AdGuardHome..."
 	agh_stop
@@ -606,13 +691,7 @@ agh_restart() {
 		agh_start || return 1
 	fi
 	sleep 1s
-	if ! agh_wait_ready "${ADGUARDHOME_READY_TIMEOUT}"; then
-		PTXT "${ERROR} Timed out waiting for AdGuardHome network checks."
-		return 1
-	fi
-	sleep 1s
-	agh_check
-	agh_is_running
+	agh_startup_ready
 }
 
 agh_start() {
@@ -631,8 +710,7 @@ agh_start() {
 		return 1
 	fi
 	sleep 1s
-	agh_check
-	agh_is_running
+	agh_startup_ready
 }
 
 agh_start_error() {
