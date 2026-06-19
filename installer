@@ -599,6 +599,7 @@ agh_web_bound() {
 }
 
 agh_log_start_failure() {
+	ADGUARDHOME_START_FAILURE_LOGGED=1
 	if ! agh_is_running; then
 		PTXT "${ERROR} AdGuardHome startup failed: process is not running."
 		return 0
@@ -615,6 +616,7 @@ agh_log_start_failure() {
 		PTXT "${ERROR} AdGuardHome startup failed: configuration check failed."
 		return 0
 	fi
+	ADGUARDHOME_START_FAILURE_LOGGED=
 	return 1
 }
 
@@ -644,13 +646,15 @@ agh_startup_ready() {
 agh_complete_startup() {
 	PTXT "${INFO} Starting AdGuardHome..."
 	agh_stop
+	ADGUARDHOME_START_FAILURE_LOGGED=
 	if ! agh_start; then
-		agh_start_error
+		[ "${ADGUARDHOME_START_FAILURE_LOGGED:-}" = "1" ] || agh_start_error
 		return 1
 	fi
 	PTXT "${INFO} Please wait while we perform one last check."
+	ADGUARDHOME_START_FAILURE_LOGGED=
 	if ! agh_restart; then
-		agh_start_error
+		[ "${ADGUARDHOME_START_FAILURE_LOGGED:-}" = "1" ] || agh_start_error
 		return 1
 	fi
 	PTXT "${INFO} AdGuardHome setup is complete."
@@ -718,7 +722,7 @@ agh_start() {
 	fi
 	sleep 1s
 	if ! agh_wait_started "${ADGUARDHOME_WAIT_TIMEOUT}"; then
-		PTXT "${ERROR} Timed out waiting for AdGuardHome to start."
+		agh_log_start_failure || PTXT "${ERROR} AdGuardHome startup failed: process is not running."
 		return 1
 	fi
 	sleep 1s
