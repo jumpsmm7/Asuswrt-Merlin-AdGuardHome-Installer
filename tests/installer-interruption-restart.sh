@@ -248,7 +248,6 @@ ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] ||
 	fail "early interrupted restore did not continue to the aborted-operation flow: ${ACTUAL}"
 
-
 : >"${CALLS_FILE}"
 DEFER_RESTORE_ROOT="${TMP_ROOT}/defer-restore"
 DEFER_RESTORE_TARGET="${DEFER_RESTORE_ROOT}/AdGuardHome"
