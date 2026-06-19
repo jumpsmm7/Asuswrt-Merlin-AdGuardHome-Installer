@@ -24,6 +24,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 sed -n \
 	-e '/^adguard_install_abort_trap_disable() {$/,/^}/p' \
+	-e '/^adguard_install_abort_trap_disable_preserve_defer() {$/,/^}/p' \
 	-e '/^adguard_install_abort_on_signal() {$/,/^}/p' \
 	-e '/^adguard_install_abort_trap_enable() {$/,/^}/p' \
 	-e '/^adguard_restore_abort_trap_enable() {$/,/^}/p' \
@@ -246,6 +247,58 @@ EXPECTED="$(printf '%s\n' 'restore-restart:0' 'clear' 'end:2')"
 ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] ||
 	fail "early interrupted restore did not continue to the aborted-operation flow: ${ACTUAL}"
+
+
+: >"${CALLS_FILE}"
+DEFER_RESTORE_ROOT="${TMP_ROOT}/defer-restore"
+DEFER_RESTORE_TARGET="${DEFER_RESTORE_ROOT}/AdGuardHome"
+DEFER_RESTORE_ROLLBACK="${DEFER_RESTORE_ROOT}/.AdGuardHome.rollback"
+DEFER_RESTORE_STAGE="${DEFER_RESTORE_ROOT}/.AdGuardHome.restore"
+mkdir -p "${DEFER_RESTORE_TARGET}" "${DEFER_RESTORE_ROLLBACK}" "${DEFER_RESTORE_STAGE}" || fail 'could not create deferred restore interruption directories'
+printf '%s\n' current >"${DEFER_RESTORE_TARGET}/AdGuardHome"
+printf '%s\n' previous >"${DEFER_RESTORE_ROLLBACK}/AdGuardHome"
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	INFO="Info:"
+	ERROR="Error:"
+	PTXT() {
+		printf '%s\n' "$*" >>"${CALLS_FILE}"
+	}
+	adguard_restart_after_install_abort() {
+		printf '%s\n' "unexpected-restart:$1" >>"${CALLS_FILE}"
+	}
+	adguard_restore_after_failed_replace() {
+		printf '%s\n' "unexpected-binary-restore:$1:$2" >>"${CALLS_FILE}"
+	}
+	agh_is_running() {
+		return 1
+	}
+	adguard_restart_after_failed_replace() {
+		printf '%s\n' "restore-restart:$1" >>"${CALLS_FILE}"
+	}
+	clear_screen() {
+		printf '%s\n' 'clear' >>"${CALLS_FILE}"
+	}
+	end_op_message() {
+		printf '%s\n' "end:$1" >>"${CALLS_FILE}"
+	}
+
+	adguard_restore_abort_trap_enable "${DEFER_RESTORE_ROLLBACK}" "${DEFER_RESTORE_TARGET}" "${DEFER_RESTORE_STAGE}" 1
+	ADGUARD_DEFER_END_OP="1"
+	adguard_install_abort_trap_disable_preserve_defer
+	adguard_install_abort_on_signal
+) || fail 'deferred restore interruption rollback handler failed'
+
+[ ! -e "${DEFER_RESTORE_STAGE}" ] || fail 'deferred restore interruption left staging directory behind'
+[ ! -e "${DEFER_RESTORE_ROLLBACK}" ] || fail 'deferred restore interruption left rollback directory behind'
+[ "$(sed -n '1p' "${DEFER_RESTORE_TARGET}/AdGuardHome")" = "previous" ] ||
+	fail 'deferred restore interruption did not restore the previous installation'
+EXPECTED="$(printf '%s\n' 'restore-restart:1' 'clear' 'end:2')"
+ACTUAL="$(cat "${CALLS_FILE}")"
+[ "${ACTUAL}" = "${EXPECTED}" ] ||
+	fail "deferred restore interruption did not preserve restart state: ${ACTUAL}"
 
 awk '
 	/^install_adguard_archive\(\) \{/ { in_function = 1 }
