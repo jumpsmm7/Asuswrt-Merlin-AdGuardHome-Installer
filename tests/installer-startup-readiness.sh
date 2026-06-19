@@ -38,6 +38,7 @@ PTXT() {
 . "${FUNCTIONS_FILE}"
 
 ERROR='Error:'
+ADGUARDHOME_READY_TIMEOUT=5
 AGH_FILE="${TEST_ROOT}/AdGuardHome"
 YAML_FILE="${TEST_ROOT}/AdGuardHome.yaml"
 CONF_FILE="${TEST_ROOT}/.config"
@@ -79,15 +80,16 @@ PROCESS_STATE=running
 READINESS_STATE=dns_wait
 READY_AFTER_SLEEP=3
 SLEEP_CALLS=0
-agh_startup_ready 5 || fail 'startup readiness did not retry until local sockets were ready'
+agh_startup_ready || fail 'startup readiness did not retry until local sockets were ready'
 [ "${SLEEP_CALLS}" -eq 3 ] || fail 'startup readiness used an unexpected retry count'
 ! grep -q 'startup failed' "${CALLS_FILE}" || fail 'startup readiness logged a failure before retrying to success'
 
 : >"${CALLS_FILE}"
 READINESS_STATE=dns_wait
 READY_AFTER_SLEEP=0
+ADGUARDHOME_READY_TIMEOUT=2
 SLEEP_CALLS=0
-if agh_startup_ready 2; then
+if agh_startup_ready; then
 	fail 'startup readiness succeeded while DNS remained unbound'
 fi
 [ "${SLEEP_CALLS}" -eq 2 ] || fail 'startup readiness did not honor the bounded retry timeout'
