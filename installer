@@ -506,6 +506,9 @@ AdGuardHome_authen() {
 		PTXT "users:" \
 			"- name: ${USERNAME}" \
 			"  password: ${PW1_ENCRYPTED}" >>"${YAML_TARGET}"
+		if ! check_AdGuardHome_yaml "${YAML_TARGET}"; then
+			return 1
+		fi
 	fi
 }
 
@@ -829,13 +832,20 @@ init_upstream_adguard_metadata() {
 }
 
 check_AdGuardHome_yaml() {
-	[ ! -f "${YAML_FILE}" ] && return
-	chmod 600 "${YAML_FILE}"
+	local yaml_target
+	yaml_target="${1:-${YAML_FILE}}"
+	[ ! -f "${yaml_target}" ] && return
+	chmod 600 "${yaml_target}"
 	PTXT "${INFO} Checking AdGuardHome configuration..."
-	if ! "${AGH_FILE}" --check-config -c "${YAML_FILE}" --no-check-update -l "/dev/null"; then
-		PTXT "${INFO} Moving invalid configuration file to ${YAML_ERR}." \
-			"${INFO} Operation will continue with clean config file."
-		mv "${YAML_FILE}" "${YAML_ERR}"
+	if ! "${AGH_FILE}" --check-config -c "${yaml_target}" --no-check-update -l "/dev/null"; then
+		if [ "${yaml_target}" = "${YAML_FILE}" ]; then
+			PTXT "${INFO} Moving invalid configuration file to ${YAML_ERR}." \
+				"${INFO} Operation will continue with clean config file."
+			mv "${yaml_target}" "${YAML_ERR}"
+		else
+			PTXT "${INFO} Moving invalid staged configuration file to ${yaml_target}.err."
+			mv "${yaml_target}" "${yaml_target}.err"
+		fi
 		return 1
 	fi
 }
