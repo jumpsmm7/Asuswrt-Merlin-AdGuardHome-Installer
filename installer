@@ -444,7 +444,7 @@ sanitize_branch() {
 
 valid_adguardhome_username() {
 	case "${1:-}" in
-		""|*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-]*)
+		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-]*)
 			return 1
 			;;
 		*)
