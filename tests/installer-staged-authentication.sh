@@ -81,11 +81,10 @@ YAML_STAGED_FAIL="${TMP_ROOT}/staged-fail.yaml"
 printf '%s\n' 'http:' >"${YAML_STAGED_FAIL}"
 CHECKED_YAML=''
 CHECK_SHOULD_FAIL=1
-if AdGuardHome_authen 1 "${YAML_STAGED_FAIL}" <<'EOF'
+if AdGuardHome_authen 1 "${YAML_STAGED_FAIL}" <<'EOF'; then
 secret
 secret
 EOF
-then
 	fail 'authentication accepted staged YAML validation failure'
 fi
 [ "${CHECKED_YAML}" = "${YAML_STAGED_FAIL}" ] || fail 'failing staged YAML target was not validated'
@@ -96,11 +95,10 @@ YAML_STAGED_SKIP="${TMP_ROOT}/staged-skip.yaml"
 printf '%s\n' 'http:' >"${YAML_STAGED_SKIP}"
 CHECKED_YAML=''
 CHECK_SHOULD_FAIL=1
-if ! AdGuardHome_authen 1 "${YAML_STAGED_SKIP}" 0 <<'EOF'
+if ! AdGuardHome_authen 1 "${YAML_STAGED_SKIP}" 0 <<'EOF'; then
 secret
 secret
 EOF
-then
 	fail 'authentication did not allow caller-deferred staged YAML validation'
 fi
 [ -z "${CHECKED_YAML}" ] || fail 'deferred staged authentication validated before the caller completed YAML'
