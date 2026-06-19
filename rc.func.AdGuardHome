@@ -113,6 +113,20 @@ reload() {
 	signal_process "${SIGNAL}" "${PROC}"
 }
 
+adguardhome_start_handoff_is_prepared() {
+	_dns_handoff_pid=""
+	_dns_handoff_start_time=""
+	[ "${PROC}" = "AdGuardHome" ] || return 1
+	type dns_handoff_marker_is_active >/dev/null 2>&1 || return 1
+	type dns_handoff_set_current_identity >/dev/null 2>&1 || return 1
+	dns_handoff_set_current_identity || return 1
+	dns_handoff_marker_is_active || return 1
+	IFS=' ' read -r _dns_handoff_pid _dns_handoff_start_time <"${DNS_HANDOFF_FILE}" ||
+		return 1
+	[ "${_dns_handoff_pid}" = "${DNS_HANDOFF_CURRENT_PID}" ] &&
+		[ "${_dns_handoff_start_time}" = "${DNS_HANDOFF_CURRENT_START_TIME}" ]
+}
+
 start() {
 	local DNS_HANDOFF LAUNCH_PID PIDS STOPPED
 	{ [ "${CRITICAL}" != "yes" ] && [ "${CALLER}" = "cron" ]; } && return 7
@@ -124,11 +138,11 @@ start() {
 		printf "%s\n" "            ${ansi_yellow} already running. ${ansi_std}"
 		return 0
 	fi
-	if [ "${PROC}" != "AdGuardHome" ] || ! grep -q '^port=553' /etc/dnsmasq.conf; then
-		if [ "${PROC}" = "AdGuardHome" ]; then
-			DNS_HANDOFF=1
-			trap 'stop_launched_process "${LAUNCH_PID:-}"; [ -n "${POSTFAILCMD:-}" ] && ${POSTFAILCMD} >/dev/null 2>&1; exit 255' HUP INT TERM
-		fi
+	if [ "${PROC}" = "AdGuardHome" ]; then
+		DNS_HANDOFF=1
+		trap 'stop_launched_process "${LAUNCH_PID:-}"; [ -n "${POSTFAILCMD:-}" ] && ${POSTFAILCMD} >/dev/null 2>&1; exit 255' HUP INT TERM
+	fi
+	if ! adguardhome_start_handoff_is_prepared; then
 		if ! ${PRECMD} >/dev/null 2>&1; then
 			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 			logger -st "${CALLER}" "Pre-start hook failed for ${DESC} from ${CALLER}."

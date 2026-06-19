@@ -30,7 +30,7 @@ sed -n \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed -n '/^dns_handoff_is_active() {$/,/^}$/p' "${MANAGER_PATH}" >>"${S99_FUNCTIONS}" ||
 	fail "could not read ${MANAGER_PATH}"
-sed -n '/^stop_launched_process() {$/,/^}$/p; /^start() {$/,/^}$/p' "${RC_PATH}" >"${RC_FUNCTION}" ||
+sed -n '/^stop_launched_process() {$/,/^}$/p; /^adguardhome_start_handoff_is_prepared() {$/,/^}$/p; /^start() {$/,/^}$/p' "${RC_PATH}" >"${RC_FUNCTION}" ||
 	fail "could not read ${RC_PATH}"
 [ -s "${S99_FUNCTIONS}" ] || fail 'DNS handoff functions were not found'
 [ -s "${RC_FUNCTION}" ] || fail 'service start function was not found'
@@ -521,6 +521,29 @@ rm -f "${STARTED_FILE}"
 ) || fail 'rc.func failed a successful handoff start'
 grep -q '^pre_hook$' "${CALLS_FILE}" || fail 'rc.func did not run the pre-start handoff hook'
 grep -q '^post_hook$' "${CALLS_FILE}" || fail 'rc.func skipped post-start cleanup after dnsmasq changed to port 553'
+
+# A stale dnsmasq port 553 config without an active marker must be recovered by
+# running the pre-start hook again.  The old skip was keyed only to the config
+# content and would bypass the hook in this state.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
+(
+	grep() {
+		case "$*" in
+			*'/etc/dnsmasq.conf'*) return 0 ;;
+			*) command grep "$@" ;;
+		esac
+	}
+	pre_hook() {
+		printf '%s\n' stale_pre_hook >>"${CALLS_FILE}"
+	}
+	post_hook() {
+		printf '%s\n' stale_post_hook >>"${CALLS_FILE}"
+	}
+	start >/dev/null
+) || fail 'rc.func failed to recover a stale dnsmasq port 553 startup'
+grep -q '^stale_pre_hook$' "${CALLS_FILE}" || fail 'rc.func skipped pre-start with stale dnsmasq port 553 and no active handoff marker'
+grep -q '^stale_post_hook$' "${CALLS_FILE}" || fail 'rc.func skipped post-start cleanup after stale dnsmasq port 553 recovery'
 
 # Interrupting startup after the pre-start hook has spawned the DNS guard must
 # reap that child and run the same dnsmasq recovery used by other failed starts.
