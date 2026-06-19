@@ -2514,7 +2514,13 @@ setup_AdGuardHome_impl() {
 					PTXT "http:" \
 						"  address: 0.0.0.0:${WEB_PORT}" >"${YAML_ORI_NEW}"
 					PTXT "${INFO} Set the Username and Password which will be encrypted to the yaml file."
-					AdGuardHome_authen 1 "${YAML_ORI_NEW}"
+					if ! AdGuardHome_authen 1 "${YAML_ORI_NEW}"; then
+						rm -f "${YAML_ORI_NEW}"
+						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+						fi
+						return 1
+					fi
 					PTXT "dns:" \
 						"  bind_hosts:" \
 						"    - 0.0.0.0" \

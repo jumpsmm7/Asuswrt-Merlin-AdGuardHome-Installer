@@ -12,6 +12,9 @@ fail() {
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 
+sed -n '/if ! AdGuardHome_authen 1 "${YAML_ORI_NEW}"; then/,/PTXT "dns:"/p' "${SCRIPT_PATH}" |
+	grep -q 'return 1' || fail 'initial setup caller does not abort when staged authentication validation fails'
+
 INPUT='Input:'
 NORM=''
 ERROR='Error:'
