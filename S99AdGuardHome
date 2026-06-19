@@ -524,11 +524,16 @@ guard_dns_port_for_adguardhome() {
 	# cannot terminate us during retry sleep without resuming the watchdog.
 	trap 'trap - HUP INT TERM EXIT; exec 3<&- 3>&- 2>/dev/null; rm -f "${_dns_guard_wait_fifo:-}"; resume_dns_watchdog; restore_dns_watchdog_traps "${_dns_guard_saved_traps}"; exit 0' HUP INT TERM EXIT
 	while [ "${_dns_guard_attempts}" -lt "${_dns_guard_limit}" ]; do
-		adguardhome_owns_dns && break
-		service stop_dnsmasq >/dev/null 2>&1
-		kill_dns_port_owners
+		if adguardhome_owns_dns; then
+			break
+		fi
+		if ! dns_port_available; then
+			service stop_dnsmasq >/dev/null 2>&1
+			kill_dns_port_owners
+		fi
 		suspend_dns_watchdog
 		_dns_guard_attempts="$((_dns_guard_attempts + 1))"
+		sleep 1s
 	done
 	dns_guard_wait_for_stop
 }
@@ -752,6 +757,12 @@ pre_start_adguardhome() {
 	fi
 	_dns_watchdog_saved_traps="${DNS_WATCHDOG_TRAP_FILE}"
 	while [ "${_dns_stop_attempts}" -lt "${_dns_stop_limit}" ]; do
+		if dns_port_available; then
+			guard_dns_port_for_adguardhome >/dev/null 2>&1 &
+			ADGUARDHOME_DNS_GUARD_PID="$!"
+			restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
+			return 0
+		fi
 		service stop_dnsmasq >/dev/null 2>&1
 		kill_dns_port_owners
 		# The DNS guard is not running yet, so protect this parent-side
@@ -760,12 +771,6 @@ pre_start_adguardhome() {
 		suspend_dns_watchdog
 		_dns_stop_attempts="$((_dns_stop_attempts + 1))"
 		sleep 1s
-		if dns_port_available; then
-			guard_dns_port_for_adguardhome >/dev/null 2>&1 &
-			ADGUARDHOME_DNS_GUARD_PID="$!"
-			restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
-			return 0
-		fi
 	done
 	logger -st "${PROCS}" "Unable to release port 53 after ${_dns_stop_limit} attempt(s); startup aborted."
 	post_start_failure_adguardhome
