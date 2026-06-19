@@ -149,7 +149,7 @@ if setup_AdGuardHome_impl reconfig reconfig; then
 	fail 'reconfiguration accepted a WebUI port that could not be persisted'
 fi
 grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail 'reconfiguration did not attempt to persist the selected WebUI port'
-[ "${YAML_CHECKS}" -eq 2 ] || fail 'reconfiguration did not validate the generated YAML before persisting the WebUI port'
+[ "${YAML_CHECKS}" -eq 3 ] || fail 'reconfiguration did not validate the generated YAML before persisting the WebUI port'
 [ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'reconfiguration did not restore the previous YAML after WebUI port persistence failed'
 [ ! -e "${YAML_BAK}" ] || fail 'reconfiguration left the YAML backup behind after WebUI port persistence failed'
 [ "${DNS_FILTER_CHANGED}" -eq 0 ] || fail 'reconfiguration left changed DNSFilter settings after WebUI port persistence failed'
