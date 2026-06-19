@@ -45,6 +45,9 @@ python_bcrypt_available() { return 0; }
 hash_password_python() {
 	printf '%s\n' '$2a$10$012345678901234567890123456789012345678901234567890123'
 }
+check_AdGuardHome_yaml() {
+	fail 'authentication validated the incomplete staged YAML directly'
+}
 
 AdGuardHome_authen 1 "${YAML_STAGED}" <<'EOF'
 secret
