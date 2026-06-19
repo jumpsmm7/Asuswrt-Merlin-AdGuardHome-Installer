@@ -466,6 +466,7 @@ valid_adguardhome_password_input() {
 
 AdGuardHome_authen() {
 	local YAML_TARGET="${2:-${YAML_ORI}}"
+	local YAML_VALIDATE="${3:-1}"
 	if [ -z "${PW1}" ] || [ -z "${PW2}" ]; then
 		local USERNAME
 		PTXT -n "${INPUT} Please enter AdGuardHome username${NORM}: "
@@ -504,7 +505,7 @@ AdGuardHome_authen() {
 	PTXT " "
 	if ! valid_adguardhome_password_input "${PW1}" "${PW2}"; then
 		PTXT "${ERROR} Password entered incorrectly!"
-		AdGuardHome_authen "$1" "${YAML_TARGET}" "${3:-1}"
+		AdGuardHome_authen "$1" "${YAML_TARGET}" "${YAML_VALIDATE}"
 		return
 	fi
 	remove_conflicting_apache
@@ -545,7 +546,7 @@ AdGuardHome_authen() {
 		PTXT "users:" \
 			"- name: ${USERNAME}" \
 			"  password: ${PW1_ENCRYPTED}" >>"${YAML_TARGET}"
-		if [ "${3:-1}" -ne 0 ] && ! check_AdGuardHome_yaml "${YAML_TARGET}"; then
+		if [ "${YAML_VALIDATE}" -ne 0 ] && ! check_AdGuardHome_yaml "${YAML_TARGET}"; then
 			return 1
 		fi
 	fi
