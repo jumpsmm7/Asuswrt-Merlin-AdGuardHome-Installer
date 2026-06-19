@@ -30,6 +30,7 @@ YAML_FILE="${YAML_ORI}"
 YAML_ERR="${YAML_FILE}.err"
 AGH_FILE="${TMP_ROOT}/AdGuardHome"
 CHECKED_YAML=''
+CHECK_SHOULD_FAIL=0
 
 cleanup() {
 	rm -rf "${TMP_ROOT}"
@@ -53,6 +54,7 @@ hash_password_python() {
 check_AdGuardHome_yaml() {
 	CHECKED_YAML="${1:-${YAML_FILE}}"
 	[ -f "${CHECKED_YAML}" ] || return 1
+	[ "${CHECK_SHOULD_FAIL}" -eq 0 ] || return 1
 }
 
 AdGuardHome_authen 1 "${YAML_STAGED}" <<'EOF'
@@ -65,6 +67,21 @@ grep -q '^users:$' "${YAML_STAGED}" || fail 'staged YAML is missing the users se
 grep -q '^- name: admin$' "${YAML_STAGED}" || fail 'staged YAML is missing the selected username'
 grep -q '^  password: \$2a\$10\$' "${YAML_STAGED}" || fail 'staged YAML is missing the generated password hash'
 [ "${CHECKED_YAML}" = "${YAML_STAGED}" ] || fail 'staged YAML target was not validated'
+
+YAML_STAGED_FAIL="${TMP_ROOT}/staged-fail.yaml"
+printf '%s\n' 'http:' >"${YAML_STAGED_FAIL}"
+CHECKED_YAML=''
+CHECK_SHOULD_FAIL=1
+if AdGuardHome_authen 1 "${YAML_STAGED_FAIL}" <<'EOF'
+secret
+secret
+EOF
+then
+	fail 'authentication accepted staged YAML validation failure'
+fi
+[ "${CHECKED_YAML}" = "${YAML_STAGED_FAIL}" ] || fail 'failing staged YAML target was not validated'
+[ "$(cat "${YAML_ORI}")" = 'original snapshot' ] || fail 'failed staged validation modified the published original snapshot'
+CHECK_SHOULD_FAIL=0
 
 if AdGuardHome_authen 1 "${YAML_STAGED}" </dev/null; then
 	fail 'authentication accepted closed password input'
