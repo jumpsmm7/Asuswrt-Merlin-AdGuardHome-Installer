@@ -453,12 +453,24 @@ valid_adguardhome_username() {
 	esac
 }
 
+valid_adguardhome_password_input() {
+	[ -n "${1:-}" ] || return 1
+	[ "${1}" = "${2:-}" ] || return 1
+	case "${1}" in
+		" "* | *" " | *[[:cntrl:]]*)
+			return 1
+			;;
+	esac
+	return 0
+}
+
 AdGuardHome_authen() {
 	local YAML_TARGET="${2:-${YAML_ORI}}"
+	local YAML_VALIDATE="${3:-1}"
 	if [ -z "${PW1}" ] || [ -z "${PW2}" ]; then
 		local USERNAME
 		PTXT -n "${INPUT} Please enter AdGuardHome username${NORM}: "
-		if ! read -r USERNAME; then
+		if ! IFS= read -r USERNAME; then
 			return 1
 		fi
 	fi
@@ -472,7 +484,7 @@ AdGuardHome_authen() {
 	if stty -echo 2>/dev/null; then
 		PASSWORD_ECHO_DISABLED=1
 	fi
-	if ! read -r PW1; then
+	if ! IFS= read -r PW1; then
 		[ "${PASSWORD_ECHO_DISABLED}" -eq 0 ] || stty echo 2>/dev/null
 		PTXT " "
 		return 1
@@ -484,16 +496,16 @@ AdGuardHome_authen() {
 	if stty -echo 2>/dev/null; then
 		PASSWORD_ECHO_DISABLED=1
 	fi
-	if ! read -r PW2; then
+	if ! IFS= read -r PW2; then
 		[ "${PASSWORD_ECHO_DISABLED}" -eq 0 ] || stty echo 2>/dev/null
 		PTXT " "
 		return 1
 	fi
 	[ "${PASSWORD_ECHO_DISABLED}" -eq 0 ] || stty echo 2>/dev/null
 	PTXT " "
-	if [ -z "${PW1}" ] || [ -z "${PW2}" ] || [ "${PW1}" != "${PW2}" ]; then
+	if ! valid_adguardhome_password_input "${PW1}" "${PW2}"; then
 		PTXT "${ERROR} Password entered incorrectly!"
-		AdGuardHome_authen "$1" "${YAML_TARGET}"
+		AdGuardHome_authen "$1" "${YAML_TARGET}" "${YAML_VALIDATE}"
 		return
 	fi
 	remove_conflicting_apache
@@ -534,7 +546,7 @@ AdGuardHome_authen() {
 		PTXT "users:" \
 			"- name: ${USERNAME}" \
 			"  password: ${PW1_ENCRYPTED}" >>"${YAML_TARGET}"
-		if [ "${3:-1}" -ne 0 ] && ! check_AdGuardHome_yaml "${YAML_TARGET}"; then
+		if [ "${YAML_VALIDATE}" -ne 0 ] && ! check_AdGuardHome_yaml "${YAML_TARGET}"; then
 			return 1
 		fi
 	fi
@@ -587,6 +599,7 @@ agh_web_bound() {
 }
 
 agh_log_start_failure() {
+	ADGUARDHOME_START_FAILURE_LOGGED=1
 	if ! agh_is_running; then
 		PTXT "${ERROR} AdGuardHome startup failed: process is not running."
 		return 0
@@ -603,6 +616,7 @@ agh_log_start_failure() {
 		PTXT "${ERROR} AdGuardHome startup failed: configuration check failed."
 		return 0
 	fi
+	ADGUARDHOME_START_FAILURE_LOGGED=
 	return 1
 }
 
@@ -632,13 +646,15 @@ agh_startup_ready() {
 agh_complete_startup() {
 	PTXT "${INFO} Starting AdGuardHome..."
 	agh_stop
+	ADGUARDHOME_START_FAILURE_LOGGED=
 	if ! agh_start; then
-		agh_start_error
+		[ "${ADGUARDHOME_START_FAILURE_LOGGED:-}" = "1" ] || agh_start_error
 		return 1
 	fi
 	PTXT "${INFO} Please wait while we perform one last check."
+	ADGUARDHOME_START_FAILURE_LOGGED=
 	if ! agh_restart; then
-		agh_start_error
+		[ "${ADGUARDHOME_START_FAILURE_LOGGED:-}" = "1" ] || agh_start_error
 		return 1
 	fi
 	PTXT "${INFO} AdGuardHome setup is complete."
@@ -706,7 +722,7 @@ agh_start() {
 	fi
 	sleep 1s
 	if ! agh_wait_started "${ADGUARDHOME_WAIT_TIMEOUT}"; then
-		PTXT "${ERROR} Timed out waiting for AdGuardHome to start."
+		agh_log_start_failure || PTXT "${ERROR} AdGuardHome startup failed: process is not running."
 		return 1
 	fi
 	sleep 1s
