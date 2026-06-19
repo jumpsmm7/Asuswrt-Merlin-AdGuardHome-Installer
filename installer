@@ -504,7 +504,7 @@ AdGuardHome_authen() {
 	PTXT " "
 	if ! valid_adguardhome_password_input "${PW1}" "${PW2}"; then
 		PTXT "${ERROR} Password entered incorrectly!"
-		AdGuardHome_authen "$1" "${YAML_TARGET}"
+		AdGuardHome_authen "$1" "${YAML_TARGET}" "${3:-1}"
 		return
 	fi
 	remove_conflicting_apache

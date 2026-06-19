@@ -182,6 +182,17 @@ fi
 grep -q '^users:$' "${YAML_STAGED_SKIP}" || fail 'deferred staged YAML is missing the users section'
 CHECK_SHOULD_FAIL=0
 
+YAML_STAGED_RETRY_SKIP="${TMP_ROOT}/staged-retry-skip.yaml"
+printf '%s\n' 'http:' >"${YAML_STAGED_RETRY_SKIP}"
+CHECKED_YAML=''
+CHECK_SHOULD_FAIL=1
+if ! printf ' secret\n secret\nsecret\nsecret\n' | AdGuardHome_authen 1 "${YAML_STAGED_RETRY_SKIP}" 0; then
+	fail 'authentication retry did not preserve caller-deferred staged YAML validation'
+fi
+[ -z "${CHECKED_YAML}" ] || fail 'retried deferred staged authentication validated before the caller completed YAML'
+grep -q '^users:$' "${YAML_STAGED_RETRY_SKIP}" || fail 'retried deferred staged YAML is missing the users section'
+CHECK_SHOULD_FAIL=0
+
 if AdGuardHome_authen 1 "${YAML_STAGED}" </dev/null; then
 	fail 'authentication accepted closed password input'
 fi
