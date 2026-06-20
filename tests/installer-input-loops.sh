@@ -23,6 +23,7 @@ mkdir -p "${TMP_DIR}" || exit 1
 awk '
 	/^ipv4_is_valid\(\)/,/^}/
 	/^port_is_valid\(\)/,/^}/
+	/^web_port_in_use\(\)/,/^}/
 	/^read_input_dns\(\)/,/^}/
 	/^read_input_num\(\)/,/^}/
 	/^read_input_port\(\)/,/^}/
@@ -56,7 +57,9 @@ ai_have_cmd() {
 }
 
 netstat() {
-	printf '%s\n' 'tcp 0 0 0.0.0.0:3000 0.0.0.0:* LISTEN'
+	printf '%s\n' \
+		'tcp 0 0 0.0.0.0:3000 0.0.0.0:* LISTEN' \
+		'tcp 0 0 :::3001 :::* LISTEN'
 }
 
 printf '%s\n' bad 1.1.1.1 >"${TMP_DIR}/dns.input"
@@ -67,9 +70,9 @@ printf '%s\n' x 9 2 >"${TMP_DIR}/number.input"
 read_input_num "Choose" 1 3 "" "" "" <"${TMP_DIR}/number.input" || fail "numeric input did not recover from invalid values"
 [ "${CHOSEN}" = "2" ] || fail "numeric input selected the wrong value"
 
-printf '%s\n' 2999 00003000 3001 >"${TMP_DIR}/port.input"
+printf '%s\n' 2999 00003000 3001 3002 >"${TMP_DIR}/port.input"
 read_input_port "Default is" 3000 <"${TMP_DIR}/port.input" || fail "port input did not recover from invalid or occupied ports"
-[ "${WEB_PORT}" = "3001" ] || fail "port input selected the wrong value"
+[ "${WEB_PORT}" = "3002" ] || fail "port input selected the wrong value"
 
 printf '%s\n' maybe y >"${TMP_DIR}/yesno.input"
 read_yesno "Continue?" <"${TMP_DIR}/yesno.input" || fail "yes/no input did not recover from invalid input"

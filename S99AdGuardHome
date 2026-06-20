@@ -391,6 +391,81 @@ enable_dns_handoff() {
 	return 0
 }
 
+adguardhome_config_valid() {
+	[ -x "${WORK_DIR}/AdGuardHome" ] || return 1
+	[ -f "${WORK_DIR}/AdGuardHome.yaml" ] || return 1
+	"${WORK_DIR}/AdGuardHome" --check-config -c "${WORK_DIR}/AdGuardHome.yaml" --no-check-update -l /dev/null >/dev/null 2>&1
+}
+
+adguardhome_web_port() {
+	_web_port="$(awk -F: '/^[[:space:]]*address:[[:space:]]*/ { print $NF; exit }' "${WORK_DIR}/AdGuardHome.yaml" 2>/dev/null | sed 's/[^0-9].*$//')"
+	case "${_web_port}" in
+		"" | *[!0-9]*) ;;
+		*)
+			[ "${_web_port}" -ge 1 ] 2>/dev/null && [ "${_web_port}" -le 65535 ] 2>/dev/null && {
+				printf '%s\n' "${_web_port}"
+				return 0
+			}
+			;;
+	esac
+	_web_port="$(awk -F= '/^ADGUARD_WEBUI_PORT=/ { print $2; exit }' "${WORK_DIR}/.config" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')"
+	case "${_web_port}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	[ "${_web_port}" -ge 3000 ] 2>/dev/null && [ "${_web_port}" -le 65535 ] 2>/dev/null || return 1
+	printf '%s\n' "${_web_port}"
+}
+
+adguardhome_web_port_available() {
+	_web_port="$(adguardhome_web_port)" || return 1
+	_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	printf '%s\n' "${_socket_table}" | awk -v proc="${PROCS}" -v port=":${_web_port}" '
+		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ port "[[:space:]]" && $0 ~ "/" proc "([[:space:]]|$)" { found = 1 }
+		END { exit(found ? 0 : 1) }
+	'
+}
+
+adguardhome_startup_checks_ready() {
+	pidof "${PROCS}" >/dev/null 2>&1 || return 2
+	adguardhome_web_port_available || return 1
+	adguardhome_config_valid || return 1
+	return 0
+}
+
+wait_for_adguardhome_startup_checks() {
+	_startup_check_attempts="0"
+	_startup_check_limit="$(dns_retry_limit "${ADGUARDHOME_STARTUP_CHECK_RETRIES:-}" 30)"
+	while [ "${_startup_check_attempts}" -lt "${_startup_check_limit}" ]; do
+		adguardhome_startup_checks_ready
+		_startup_check_status="$?"
+		[ "${_startup_check_status}" -eq 0 ] && return 0
+		[ "${_startup_check_status}" -eq 2 ] && break
+		_startup_check_attempts="$((_startup_check_attempts + 1))"
+		sleep 1s
+	done
+	adguardhome_startup_checks_ready
+}
+
+log_adguardhome_start_failure() {
+	if ! pidof "${PROCS}" >/dev/null 2>&1; then
+		logger -st "${PROCS}" "AdGuardHome startup failed: process is not running."
+		return 0
+	fi
+	if ! adguardhome_owns_dns; then
+		logger -st "${PROCS}" "AdGuardHome startup failed: process is running but DNS is not bound."
+		return 0
+	fi
+	if ! adguardhome_web_port_available; then
+		logger -st "${PROCS}" "AdGuardHome startup failed: WebUI port is unavailable."
+		return 0
+	fi
+	if ! adguardhome_config_valid; then
+		logger -st "${PROCS}" "AdGuardHome startup failed: configuration check failed."
+		return 0
+	fi
+	return 1
+}
+
 dns_retry_limit() {
 	case "$1" in
 		"" | *[!0-9]*) printf '%s\n' "$2" ;;
@@ -400,7 +475,7 @@ dns_retry_limit() {
 
 adguardhome_owns_dns() {
 	_dns_socket_table=""
-	pidof "${PROCS}" >/dev/null 2>&1 || return 1
+	pidof "${PROCS}" >/dev/null 2>&1 || return 2
 	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
 		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
@@ -439,6 +514,14 @@ dns_port_available() {
 	'
 }
 
+dns_port_has_foreign_owner() {
+	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
+		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && $0 !~ "/" proc "([[:space:]]|$)" { foreign_owner = 1 }
+		END { exit(foreign_owner ? 0 : 1) }
+	'
+}
+
 dns_guard_wait_for_stop() {
 	_dns_guard_wait_fifo="${DNS_HANDOFF_DIR}/guard-wait.$$"
 	rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
@@ -467,15 +550,48 @@ stop_dns_port_guard() {
 	return 0
 }
 
+log_adguardhome_dns_wait_failure() {
+	if ! pidof "${PROCS}" >/dev/null 2>&1; then
+		logger -st "${PROCS}" "AdGuardHome did not acquire DNS: AdGuardHome process is missing."
+		return 0
+	fi
+	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || {
+		logger -st "${PROCS}" "AdGuardHome did not acquire DNS: unable to inspect port 53 ownership."
+		return 0
+	}
+	_dns_wait_failure="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
+		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
+			if ($0 ~ "/" proc "([[:space:]]|$)") tcp_found=1; else other_found=1
+		}
+		$0 ~ /^(udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
+			if ($0 ~ "/" proc "([[:space:]]|$)") udp_found=1; else other_found=1
+		}
+		END {
+			if (other_found) print "another process still owns port 53"
+			else if (!tcp_found) print "TCP port 53 is not owned by AdGuardHome"
+			else if (!udp_found) print "UDP port 53 is not owned by AdGuardHome"
+			else print "unknown DNS ownership state"
+		}
+	')"
+	logger -st "${PROCS}" "AdGuardHome did not acquire DNS: ${_dns_wait_failure}."
+}
+
 wait_for_adguardhome_dns() {
 	_dns_wait_attempts="0"
-	_dns_wait_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" 10)"
+	_dns_wait_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" 30)"
 	while [ "${_dns_wait_attempts}" -lt "${_dns_wait_limit}" ]; do
-		adguardhome_owns_dns && return 0
+		adguardhome_owns_dns
+		_dns_wait_status="$?"
+		[ "${_dns_wait_status}" -eq 0 ] && return 0
+		[ "${_dns_wait_status}" -eq 2 ] && break
 		_dns_wait_attempts="$((_dns_wait_attempts + 1))"
 		sleep 1s
 	done
-	adguardhome_owns_dns
+	if adguardhome_owns_dns; then
+		return 0
+	fi
+	log_adguardhome_dns_wait_failure
+	return 1
 }
 
 guard_dns_port_for_adguardhome() {
@@ -491,11 +607,16 @@ guard_dns_port_for_adguardhome() {
 	# cannot terminate us during retry sleep without resuming the watchdog.
 	trap 'trap - HUP INT TERM EXIT; exec 3<&- 3>&- 2>/dev/null; rm -f "${_dns_guard_wait_fifo:-}"; resume_dns_watchdog; restore_dns_watchdog_traps "${_dns_guard_saved_traps}"; exit 0' HUP INT TERM EXIT
 	while [ "${_dns_guard_attempts}" -lt "${_dns_guard_limit}" ]; do
-		adguardhome_owns_dns && break
-		service stop_dnsmasq >/dev/null 2>&1
-		kill_dns_port_owners
+		if adguardhome_owns_dns; then
+			break
+		fi
+		if dns_port_has_foreign_owner; then
+			service stop_dnsmasq >/dev/null 2>&1
+			kill_dns_port_owners
+		fi
 		suspend_dns_watchdog
 		_dns_guard_attempts="$((_dns_guard_attempts + 1))"
+		sleep 1s
 	done
 	dns_guard_wait_for_stop
 }
@@ -514,7 +635,7 @@ post_start_adguardhome() {
 	if ! wait_for_adguardhome_dns; then
 		stop_dns_port_guard
 		disable_dns_handoff || logger -st "${PROCS}" "The dnsmasq port 553 handoff marker requires manual cleanup."
-		logger -st "${PROCS}" "AdGuardHome did not acquire TCP and UDP port 53; startup will be rolled back."
+		log_adguardhome_start_failure
 		return 1
 	fi
 	stop_dns_port_guard
@@ -523,6 +644,11 @@ post_start_adguardhome() {
 	# Resume parent-side after reaping the guard so a fast success cannot leave
 	# the router watchdog suspended.
 	resume_dns_watchdog
+	if ! wait_for_adguardhome_startup_checks; then
+		post_start_failure_adguardhome
+		log_adguardhome_start_failure
+		return 1
+	fi
 	disable_dns_handoff || return 1
 	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
 		service restart_dnsmasq >/dev/null 2>&1 || return 1
@@ -719,20 +845,22 @@ pre_start_adguardhome() {
 	fi
 	_dns_watchdog_saved_traps="${DNS_WATCHDOG_TRAP_FILE}"
 	while [ "${_dns_stop_attempts}" -lt "${_dns_stop_limit}" ]; do
-		service stop_dnsmasq >/dev/null 2>&1
-		kill_dns_port_owners
-		# The DNS guard is not running yet, so protect this parent-side
-		# watchdog suspension against aborts until the guard takes over.
-		trap 'abort_pre_start_adguardhome "${_dns_watchdog_saved_traps}"' HUP INT TERM EXIT
-		suspend_dns_watchdog
-		_dns_stop_attempts="$((_dns_stop_attempts + 1))"
-		sleep 1s
 		if dns_port_available; then
 			guard_dns_port_for_adguardhome >/dev/null 2>&1 &
 			ADGUARDHOME_DNS_GUARD_PID="$!"
 			restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
 			return 0
 		fi
+		if dns_port_has_foreign_owner; then
+			service stop_dnsmasq >/dev/null 2>&1
+			kill_dns_port_owners
+		fi
+		# The DNS guard is not running yet, so protect this parent-side
+		# watchdog suspension against aborts until the guard takes over.
+		trap 'abort_pre_start_adguardhome "${_dns_watchdog_saved_traps}"' HUP INT TERM EXIT
+		suspend_dns_watchdog
+		_dns_stop_attempts="$((_dns_stop_attempts + 1))"
+		sleep 1s
 	done
 	logger -st "${PROCS}" "Unable to release port 53 after ${_dns_stop_limit} attempt(s); startup aborted."
 	post_start_failure_adguardhome
