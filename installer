@@ -418,6 +418,17 @@ web_port_in_use() {
 	'
 }
 
+web_port_owned_by_agh() {
+	netstat -nlp 2>/dev/null | awk -v port=":$1" '
+		$0 ~ /^(tcp)6?[[:space:]]+/ && $4 ~ port "$" && $0 ~ "/AdGuardHome([[:space:]]|$)" {
+			found = 1
+		}
+		END {
+			exit(found ? 0 : 1)
+		}
+	'
+}
+
 installer_dependencies_available() {
 	local REQUIRED_COMMAND
 	for REQUIRED_COMMAND in awk chmod chown cp cut grep kill ln md5sum mkdir mv netstat nvram opkg pidof rm sed service tar; do
@@ -595,7 +606,7 @@ agh_web_port() {
 agh_web_bound() {
 	local web_port
 	web_port="$(agh_web_port)" || return 1
-	web_port_in_use "${web_port}"
+	web_port_owned_by_agh "${web_port}"
 }
 
 agh_log_start_failure() {
