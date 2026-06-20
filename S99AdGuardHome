@@ -624,10 +624,12 @@ post_start_adguardhome() {
 	# the router watchdog suspended.
 	resume_dns_watchdog
 	if ! adguardhome_web_port_available; then
+		post_start_failure_adguardhome
 		log_adguardhome_start_failure
 		return 1
 	fi
 	if ! adguardhome_config_valid; then
+		post_start_failure_adguardhome
 		log_adguardhome_start_failure
 		return 1
 	fi

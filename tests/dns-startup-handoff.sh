@@ -558,6 +558,16 @@ fi
 grep -q 'AdGuardHome startup failed: WebUI port is unavailable' "${CALLS_FILE}" || fail 'WebUI startup failure did not log the concise WebUI message'
 WEB_STATE=bound
 
+: >"${CALLS_FILE}"
+DNS_STATE=owned
+WEB_STATE=missing
+unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+if post_start_adguardhome; then
+	fail 'post-start succeeded with an unavailable WebUI port before restoring dnsmasq'
+fi
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'WebUI startup failure did not restore dnsmasq'
+WEB_STATE=bound
+
 printf '%s\n' '#!/bin/sh' 'exit 1' >"${WORK_DIR}/AdGuardHome" || fail 'could not replace AdGuardHome binary'
 chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod failing AdGuardHome binary'
 : >"${CALLS_FILE}"
@@ -565,6 +575,7 @@ if post_start_adguardhome; then
 	fail 'post-start succeeded with a failing configuration check'
 fi
 grep -q 'AdGuardHome startup failed: configuration check failed' "${CALLS_FILE}" || fail 'config startup failure did not log the concise config message'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'config startup failure did not restore dnsmasq'
 printf '%s\n' '#!/bin/sh' 'exit 0' >"${WORK_DIR}/AdGuardHome" || fail 'could not restore AdGuardHome binary'
 chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod restored AdGuardHome binary'
 
