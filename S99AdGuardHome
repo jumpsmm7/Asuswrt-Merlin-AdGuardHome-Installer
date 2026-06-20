@@ -402,7 +402,7 @@ adguardhome_web_port() {
 	case "${_web_port}" in
 		"" | *[!0-9]*) ;;
 		*)
-			[ "${_web_port}" -ge 3000 ] 2>/dev/null && [ "${_web_port}" -le 65535 ] 2>/dev/null && {
+			[ "${_web_port}" -ge 1 ] 2>/dev/null && [ "${_web_port}" -le 65535 ] 2>/dev/null && {
 				printf '%s\n' "${_web_port}"
 				return 0
 			}

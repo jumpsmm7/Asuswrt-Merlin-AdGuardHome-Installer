@@ -134,6 +134,9 @@ netstat() {
 				foreign)
 					printf '%s\n' 'tcp 0 0 0.0.0.0:3000 0.0.0.0:* LISTEN 123/httpd'
 					;;
+				bound80)
+					printf '%s\n' 'tcp 0 0 0.0.0.0:80 0.0.0.0:* LISTEN 321/AdGuardHome'
+					;;
 			esac
 			;;
 	esac
@@ -421,6 +424,15 @@ printf '%s\n' 'http:' '  address: 0.0.0.0:3001' >"${WORK_DIR}/AdGuardHome.yaml" 
 if [ "$(adguardhome_web_port)" != 3001 ]; then
 	fail 'WebUI port check did not prefer the YAML port over stale .config'
 fi
+printf '%s\n' 'http:' '  address: 0.0.0.0:80' >"${WORK_DIR}/AdGuardHome.yaml" || fail 'could not set low AdGuardHome yaml port'
+if [ "$(adguardhome_web_port)" != 80 ]; then
+	fail 'WebUI port check rejected a valid low YAML port'
+fi
+WEB_STATE=bound80
+if ! adguardhome_web_port_available; then
+	fail 'WebUI availability check rejected AdGuardHome on a valid low YAML port'
+fi
+WEB_STATE=bound
 printf '%s\n' 'ADGUARD_WEBUI_PORT="3000"' >"${WORK_DIR}/.config" || fail 'could not restore AdGuardHome config'
 printf '%s\n' 'bind_host: 0.0.0.0' 'bind_port: 3000' >"${WORK_DIR}/AdGuardHome.yaml" || fail 'could not restore AdGuardHome yaml'
 
