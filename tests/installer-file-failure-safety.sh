@@ -93,6 +93,51 @@ awk '
 
 	INFO="Info:"
 	ERROR="Error:"
+	ADGUARD_DEFER_END_OP="1"
+	ADGUARD_INSTALL_WAS_RUNNING="1"
+	ADGUARD_RESTORE_ACTIVE="1"
+	ADGUARD_RESTORE_ROLLBACK_DIR="${TMP_DIR}/rollback"
+	ADGUARD_RESTORE_STAGE_DIR="${TMP_DIR}/stage"
+	ADGUARD_RESTORE_TARG_DIR="${TMP_DIR}/target"
+	ADGUARD_RESTORE_TARGET_INSTALLED="1"
+	START_CALLED="0"
+
+	agh_is_running() {
+		return 1
+	}
+
+	agh_start() {
+		START_CALLED="1"
+		return 0
+	}
+
+	PTXT() {
+		return 0
+	}
+
+	if ! adguard_restart_after_install_abort 1; then
+		fail "restart-after-abort failed while deferred restore cleanup was active"
+	fi
+	[ "${START_CALLED}" = "1" ] ||
+		fail "restart-after-abort did not try to restart AdGuardHome"
+	[ "${ADGUARD_DEFER_END_OP:-0}" = "1" ] ||
+		fail "restart-after-abort cleared deferred end_op_message state"
+	[ "${ADGUARD_INSTALL_WAS_RUNNING:-0}" = "1" ] ||
+		fail "restart-after-abort cleared restore restart state"
+	[ "${ADGUARD_RESTORE_ACTIVE:-0}" = "1" ] ||
+		fail "restart-after-abort cleared active restore cleanup state"
+	[ "${ADGUARD_RESTORE_ROLLBACK_DIR:-}" = "${TMP_DIR}/rollback" ] ||
+		fail "restart-after-abort cleared restore rollback directory"
+	[ "${ADGUARD_RESTORE_TARGET_INSTALLED:-0}" = "1" ] ||
+		fail "restart-after-abort cleared restored target state"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	INFO="Info:"
+	ERROR="Error:"
 	BASE_DIR="${TMP_DIR}/atomic-install"
 	TARG_DIR="${BASE_DIR}/target"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"

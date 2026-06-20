@@ -1515,7 +1515,7 @@ adguard_restart_after_failed_replace() {
 }
 
 adguard_restart_after_install_abort() {
-	trap - HUP INT QUIT ABRT TERM
+	adguard_install_abort_trap_disable_preserve_defer
 	[ "$1" = "1" ] || return 0
 	if agh_is_running; then
 		return 0
