@@ -407,6 +407,13 @@ port_is_valid() {
 	[ "$1" -ge 3000 ] 2>/dev/null && [ "$1" -le 65535 ] 2>/dev/null
 }
 
+runtime_port_is_valid() {
+	case "$1" in
+		"" | *[!0123456789]*) return 1 ;;
+	esac
+	[ "$1" -ge 1 ] 2>/dev/null && [ "$1" -le 65535 ] 2>/dev/null
+}
+
 web_port_in_use() {
 	netstat -nl 2>/dev/null | awk -v port=":$1" '
 		$4 ~ port "$" {
@@ -591,7 +598,7 @@ agh_dns_bound() {
 agh_web_port() {
 	local conf_port yaml_port
 	yaml_port="$(awk -F: '/^[[:space:]]*address:[[:space:]]*/ { print $NF; exit }' "${YAML_FILE}" 2>/dev/null | sed 's/[^0-9].*$//')"
-	if port_is_valid "${yaml_port}"; then
+	if runtime_port_is_valid "${yaml_port}"; then
 		PTXT "${yaml_port}"
 		return 0
 	fi

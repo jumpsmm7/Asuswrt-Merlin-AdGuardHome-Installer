@@ -22,7 +22,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^port_is_valid() {$/,/^}$/p; /^web_port_in_use() {$/,/^}$/p; /^web_port_owned_by_agh() {$/,/^}$/p; /^agh_config_valid() {$/,/^}$/p; /^agh_dns_bound() {$/,/^}$/p; /^agh_web_port() {$/,/^}$/p; /^agh_web_bound() {$/,/^}$/p; /^agh_log_start_failure() {$/,/^}$/p; /^agh_startup_check() {$/,/^}$/p; /^agh_startup_ready() {$/,/^}$/p; /^agh_is_running() {$/,/^}$/p' \
+	'/^port_is_valid() {$/,/^}$/p; /^runtime_port_is_valid() {$/,/^}$/p; /^web_port_in_use() {$/,/^}$/p; /^web_port_owned_by_agh() {$/,/^}$/p; /^agh_config_valid() {$/,/^}$/p; /^agh_dns_bound() {$/,/^}$/p; /^agh_web_port() {$/,/^}$/p; /^agh_web_bound() {$/,/^}$/p; /^agh_log_start_failure() {$/,/^}$/p; /^agh_startup_check() {$/,/^}$/p; /^agh_startup_ready() {$/,/^}$/p; /^agh_is_running() {$/,/^}$/p' \
 	"${INSTALLER_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${INSTALLER_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'installer startup functions were not found'
 
@@ -63,6 +63,12 @@ netstat() {
 				'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 321/AdGuardHome' \
 				'udp 0 0 0.0.0.0:53 0.0.0.0:* 321/AdGuardHome' \
 				'tcp 0 0 0.0.0.0:3000 0.0.0.0:* LISTEN 123/httpd'
+			;;
+		ready_low)
+			printf '%s\n' \
+				'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 321/AdGuardHome' \
+				'udp 0 0 0.0.0.0:53 0.0.0.0:* 321/AdGuardHome' \
+				'tcp 0 0 0.0.0.0:80 0.0.0.0:* LISTEN 321/AdGuardHome'
 			;;
 		ready)
 			printf '%s\n' \
@@ -111,3 +117,13 @@ if agh_startup_ready; then
 fi
 [ "${SLEEP_CALLS}" -eq 1 ] || fail 'startup readiness did not retry the WebUI ownership check'
 [ "$(grep -c 'WebUI port is unavailable' "${CALLS_FILE}")" -eq 1 ] || fail 'startup readiness did not log one final WebUI ownership failure'
+
+
+printf '%s\n' 'http:' '  address: 0.0.0.0:80' >"${YAML_FILE}" || fail 'could not update YAML stub'
+: >"${CALLS_FILE}"
+READINESS_STATE=ready_low
+READY_AFTER_SLEEP=0
+ADGUARDHOME_READY_TIMEOUT=1
+SLEEP_CALLS=0
+agh_startup_ready || fail 'startup readiness rejected a valid low YAML WebUI port'
+[ "${SLEEP_CALLS}" -eq 0 ] || fail 'startup readiness retried despite low YAML WebUI port being ready'
