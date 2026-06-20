@@ -651,6 +651,10 @@ agh_startup_ready() {
 	elapsed="0"
 	maxwait="${ADGUARDHOME_READY_TIMEOUT}"
 	while ! agh_startup_check; do
+		if ! agh_is_running; then
+			agh_log_start_failure
+			return 1
+		fi
 		if [ "${elapsed}" -ge "${maxwait}" ]; then
 			agh_log_start_failure
 			return 1

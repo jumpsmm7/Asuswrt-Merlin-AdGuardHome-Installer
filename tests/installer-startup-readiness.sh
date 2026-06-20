@@ -118,6 +118,18 @@ fi
 [ "${SLEEP_CALLS}" -eq 1 ] || fail 'startup readiness did not retry the WebUI ownership check'
 [ "$(grep -c 'WebUI port is unavailable' "${CALLS_FILE}")" -eq 1 ] || fail 'startup readiness did not log one final WebUI ownership failure'
 
+: >"${CALLS_FILE}"
+PROCESS_STATE=stopped
+READINESS_STATE=dns_wait
+READY_AFTER_SLEEP=0
+ADGUARDHOME_READY_TIMEOUT=5
+SLEEP_CALLS=0
+if agh_startup_ready; then
+	fail 'startup readiness succeeded after AdGuardHome exited'
+fi
+[ "${SLEEP_CALLS}" -eq 0 ] || fail 'startup readiness kept retrying after AdGuardHome exited'
+[ "$(grep -c 'process is not running' "${CALLS_FILE}")" -eq 1 ] || fail 'startup readiness did not log one final stopped-process failure'
+PROCESS_STATE=running
 
 printf '%s\n' 'http:' '  address: 0.0.0.0:80' >"${YAML_FILE}" || fail 'could not update YAML stub'
 : >"${CALLS_FILE}"
