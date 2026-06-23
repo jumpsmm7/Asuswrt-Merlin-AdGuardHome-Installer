@@ -12,7 +12,8 @@ DNS_HANDOFF_DIR="/tmp/AdGuardHome.dns-handoff"
 DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
 DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
 WATCHD_NICE_SNAPSHOT=""
-GOGC="40"
+# Lower GOGC values reduce memory growth, but increase garbage-collection CPU cost.
+GOGC="${ADGUARDHOME_GOGC:-50}"
 CPU_COUNT=""
 if which grep >/dev/null 2>&1; then
 	CPU_COUNT="$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)"
