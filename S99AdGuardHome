@@ -835,8 +835,6 @@ pre_start_adguardhome() {
 	ensure_adguardhome_work_dir_permissions || return 1
 	dns_handoff_dependencies_available || return 1
 	enable_dns_handoff || return 1
-	ulimit -v 1750000 2>/dev/null || true
-	ulimit -m 450000 2>/dev/null || true
 	ulimit -s 8192 2>/dev/null || true
 	if [ "$(pidof syslog-ng logrotate | wc -w)" -gt 0 ] && which scribe >/dev/null 2>&1; then
 		scribe restart
