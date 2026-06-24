@@ -12,26 +12,35 @@ DNS_HANDOFF_DIR="/tmp/AdGuardHome.dns-handoff"
 DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
 DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
 WATCHD_NICE_SNAPSHOT=""
-GOGC="40"
+# Lower GOGC values reduce AdGuardHome memory growth, but increase garbage-collection CPU cost.
+GOGC="${ADGUARDHOME_GOGC:-50}"
 CPU_COUNT=""
 if which grep >/dev/null 2>&1; then
 	CPU_COUNT="$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)"
 fi
 case "${CPU_COUNT}" in
-	"4") GOMAXPROCS="2" ;;
-	*) GOMAXPROCS="1" ;;
+	"" | *[!0-9]* | "0" | "1" | "2" | "3") DEFAULT_GOMAXPROCS="1" ;;
+	*) DEFAULT_GOMAXPROCS="2" ;;
+esac
+GOMAXPROCS="${ADGUARDHOME_GOMAXPROCS:-${DEFAULT_GOMAXPROCS}}"
+case "${GOMAXPROCS}" in
+	"" | *[!0-9]* | "0") GOMAXPROCS="1" ;;
 esac
 MEMORY_LIMIT_MIB=""
 if which awk >/dev/null 2>&1; then
-	MEMORY_LIMIT_MIB="$(awk -v PROCS="${GOMAXPROCS}" '
-		$1 == "MemAvailable:" { available = $2 }
-		$1 == "MemFree:" { free = $2 }
+	MEMORY_LIMIT_MIB="$(awk '
+		$1 == "MemAvailable:" { mem_available = $2 }
+		$1 == "MemFree:" { mem_free = $2 }
 		$1 == "Buffers:" { buffers = $2 }
 		$1 == "Cached:" { cached = $2 }
 		END {
-			if (!available) available = free + buffers + cached
-			limit = int((available * 0.9537 / 1024) / PROCS)
-			if (limit >= 1) print limit
+			total_available_memory = mem_available
+			if (!total_available_memory) total_available_memory = mem_free + buffers + cached
+			if (total_available_memory > 0) {
+				limit = int(total_available_memory * 70 / 100 / 1024)
+				if (limit > 384) limit = 384
+				print limit
+			}
 		}
 	' /proc/meminfo 2>/dev/null)"
 fi
@@ -39,8 +48,20 @@ case "${MEMORY_LIMIT_MIB}" in
 	"" | *[!0-9]*) MEMORY_LIMIT_MIB="128" ;;
 esac
 GOMEMLIMIT="${MEMORY_LIMIT_MIB}MiB"
+GODEBUG="${GODEBUG:-}"
+THP_ENABLED=""
+if [ -r "/sys/kernel/mm/transparent_hugepage/enabled" ]; then
+	IFS= read -r THP_ENABLED </sys/kernel/mm/transparent_hugepage/enabled || THP_ENABLED=""
+fi
+case "${THP_ENABLED}" in
+	*"[always]"* | *"[madvise]"*)
+		[ -z "${GODEBUG}" ] && GODEBUG="disablethp=1"
+		GODEBUG="${GODEBUG:+${GODEBUG}}"
+		;;
+esac
 ARGS="-s run -c ${WORK_DIR}/AdGuardHome.yaml -w ${WORK_DIR} --pidfile ${PID_FILE} --no-check-update -l ${LOG_FILE}"
 PREARGS="env TZ=/etc/localtime GOGC=${GOGC} GOMAXPROCS=${GOMAXPROCS} GOMEMLIMIT=${GOMEMLIMIT} QUIC_GO_DISABLE_ECN=true"
+[ -n "${GODEBUG}" ] && PREARGS="${PREARGS} GODEBUG=${GODEBUG}"
 
 # Functions are grouped by purpose; names are sorted alpha-numerically within each group.
 
@@ -831,8 +852,7 @@ pre_start_adguardhome() {
 	ensure_adguardhome_work_dir_permissions || return 1
 	dns_handoff_dependencies_available || return 1
 	enable_dns_handoff || return 1
-	ulimit -v 1750000 2>/dev/null || true
-	ulimit -m 450000 2>/dev/null || true
+	# Keep Go memory behavior controlled by PREARGS runtime settings, not hard shell memory caps.
 	ulimit -s 8192 2>/dev/null || true
 	if [ "$(pidof syslog-ng logrotate | wc -w)" -gt 0 ] && which scribe >/dev/null 2>&1; then
 		scribe restart
