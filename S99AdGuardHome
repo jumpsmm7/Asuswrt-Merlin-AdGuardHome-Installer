@@ -55,7 +55,7 @@ if [ -r "/sys/kernel/mm/transparent_hugepage/enabled" ]; then
 	IFS= read -r THP_ENABLED </sys/kernel/mm/transparent_hugepage/enabled || THP_ENABLED=""
 fi
 case "${THP_ENABLED}" in
-	*"[always]"* | *"[madvise]"*) 
+	*"[always]"* | *"[madvise]"*)
 		[ -z "${GODEBUG}" ] && GODEBUG="disablethp=1"
 		GODEBUG="${GODEBUG:+${GODEBUG}}"
 		;;
