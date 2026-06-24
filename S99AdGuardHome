@@ -52,19 +52,17 @@ case "${MEMORY_LIMIT_MIB}" in
 esac
 GOMEMLIMIT="${MEMORY_LIMIT_MIB}MiB"
 GODEBUG="${GODEBUG:-}"
-THP_ENABLED="${THP_ENABLED:-}"
-if [ -r "/sys/kernel/mm/transparent_hugepage/enabled" ] && [ -z "${THP_ENABLED}" ]; then
+THP_ENABLED=""
+if [ -r "/sys/kernel/mm/transparent_hugepage/enabled" ]; then
 	IFS= read -r THP_ENABLED </sys/kernel/mm/transparent_hugepage/enabled || THP_ENABLED=""
-elif [ -n "${THP_ENABLED}" ]; then
-	THP_ENABLED="${THP_ENABLED:+${THP_ENABLED}}"
 fi
 case "${THP_ENABLED}" in
 	*"[always]"* | *"[madvise]"*)
-		if [ -n "${GODEBUG}" ]; then
-			GODEBUG="${GODEBUG:+${GODEBUG}}"
-		else
-			GODEBUG="disablethp=1"
-		fi
+		case ",${GODEBUG}," in
+			*",disablethp=1,"*) ;;
+			",") GODEBUG="disablethp=1" ;;
+			*) GODEBUG="${GODEBUG},disablethp=1" ;;
+		esac
 		;;
 esac
 ARGS="-s run -c ${WORK_DIR}/AdGuardHome.yaml -w ${WORK_DIR} --pidfile ${PID_FILE} --no-check-update -l ${LOG_FILE}"
