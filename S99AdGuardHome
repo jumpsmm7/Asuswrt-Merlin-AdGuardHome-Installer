@@ -19,10 +19,10 @@ if which grep >/dev/null 2>&1; then
 	CPU_COUNT="$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)"
 fi
 case "${CPU_COUNT}" in
-	"" | *[!0-9]* | "0" | "1" | "2" | "3") GOMAXPROCS="1" ;;
-	*) GOMAXPROCS="2" ;;
+	"" | *[!0-9]* | "0" | "1" | "2" | "3") DEFAULT_GOMAXPROCS="1" ;;
+	*) DEFAULT_GOMAXPROCS="2" ;;
 esac
-GOMAXPROCS="${ADGUARDHOME_GOMAXPROCS:-${GOMAXPROCS}}"
+GOMAXPROCS="${ADGUARDHOME_GOMAXPROCS:-${DEFAULT_GOMAXPROCS}}"
 case "${GOMAXPROCS}" in
 	"" | *[!0-9]* | "0") GOMAXPROCS="1" ;;
 esac
