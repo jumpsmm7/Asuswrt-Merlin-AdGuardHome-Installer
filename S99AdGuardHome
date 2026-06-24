@@ -14,9 +14,11 @@ DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
 WATCHD_NICE_SNAPSHOT=""
 # Lower GOGC values reduce AdGuardHome memory growth, but increase garbage-collection CPU cost.
 GOGC="${ADGUARDHOME_GOGC:-50}"
-CPU_COUNT=""
-if which grep >/dev/null 2>&1; then
+CPU_COUNT="${CPU_COUNT:-}" 
+if [ -z "${CPU_COUNT}" ] && which grep >/dev/null 2>&1; then
 	CPU_COUNT="$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)"
+elif [ -n "${CPU_COUNT}" ]; then
+	CPU_COUNT="${CPU_COUNT:+${CPU_COUNT}}"
 fi
 case "${CPU_COUNT}" in
 	"" | *[!0-9]* | "0" | "1" | "2" | "3") DEFAULT_GOMAXPROCS="1" ;;
@@ -50,12 +52,20 @@ case "${MEMORY_LIMIT_MIB}" in
 esac
 GOMEMLIMIT="${MEMORY_LIMIT_MIB}MiB"
 GODEBUG="${GODEBUG:-}"
-THP_ENABLED=""
-if [ -r "/sys/kernel/mm/transparent_hugepage/enabled" ]; then
+THP_ENABLED="${THP_ENABLED:-}"
+if [ -r "/sys/kernel/mm/transparent_hugepage/enabled" ] && [ -z "${THP_ENABLED}" ]; then
 	IFS= read -r THP_ENABLED </sys/kernel/mm/transparent_hugepage/enabled || THP_ENABLED=""
+elif [ -n "${THP_ENABLED}" ]; then
+	THP_ENABLED="${THP_ENABLED:+${THP_ENABLED}}"
 fi
 case "${THP_ENABLED}" in
-	*"[always]"* | *"[madvise]"*) GODEBUG="${GODEBUG:+${GODEBUG},}disablethp=1" ;;
+	*"[always]"* | *"[madvise]"*) 
+		if [ -n "${GODEBUG}" ]; then 
+			GODEBUG="${GODEBUG:+${GODEBUG}}"
+		else
+			GODEBUG="disablethp=1"
+		fi
+	;;
 esac
 ARGS="-s run -c ${WORK_DIR}/AdGuardHome.yaml -w ${WORK_DIR} --pidfile ${PID_FILE} --no-check-update -l ${LOG_FILE}"
 PREARGS="env TZ=/etc/localtime GOGC=${GOGC} GOMAXPROCS=${GOMAXPROCS} GOMEMLIMIT=${GOMEMLIMIT} QUIC_GO_DISABLE_ECN=true"
