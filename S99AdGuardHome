@@ -12,24 +12,36 @@ DNS_HANDOFF_DIR="/tmp/AdGuardHome.dns-handoff"
 DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
 DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
 WATCHD_NICE_SNAPSHOT=""
-GOGC="40"
+# Lower GOGC values reduce memory growth, but increase garbage-collection CPU cost.
+GOGC="${ADGUARDHOME_GOGC:-50}"
 CPU_COUNT=""
 if which grep >/dev/null 2>&1; then
 	CPU_COUNT="$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)"
 fi
 case "${CPU_COUNT}" in
-	"4") GOMAXPROCS="2" ;;
-	*) GOMAXPROCS="1" ;;
+	"" | *[!0-9]* | "0" | "1" | "2" | "3") GOMAXPROCS="1" ;;
+	*) GOMAXPROCS="2" ;;
+esac
+GOMAXPROCS="${ADGUARDHOME_GOMAXPROCS:-${GOMAXPROCS}}"
+case "${GOMAXPROCS}" in
+	"" | *[!0-9]* | "0") GOMAXPROCS="1" ;;
 esac
 MEMORY_LIMIT_MIB=""
 if which awk >/dev/null 2>&1; then
 	MEMORY_LIMIT_MIB="$(awk '
-		$1 == "MemAvailable:" {
-			limit = int($2 * 70 / 100 / 1024)
-			if (limit < 96) limit = 96
-			if (limit > 384) limit = 384
-			print limit
-			exit
+		$1 == "MemAvailable:" { mem_available = $2 }
+		$1 == "MemFree:" { mem_free = $2 }
+		$1 == "Buffers:" { buffers = $2 }
+		$1 == "Cached:" { cached = $2 }
+		END {
+			sizing_memory = mem_available
+			if (!sizing_memory) sizing_memory = mem_free + buffers + cached
+			if (sizing_memory > 0) {
+				limit = int(sizing_memory * 70 / 100 / 1024)
+				if (limit < 96) limit = 96
+				if (limit > 384) limit = 384
+				print limit
+			}
 		}
 	' /proc/meminfo 2>/dev/null)"
 fi
