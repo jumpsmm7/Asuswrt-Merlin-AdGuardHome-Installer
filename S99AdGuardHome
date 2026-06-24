@@ -49,8 +49,20 @@ case "${MEMORY_LIMIT_MIB}" in
 	"" | *[!0-9]*) MEMORY_LIMIT_MIB="128" ;;
 esac
 GOMEMLIMIT="${MEMORY_LIMIT_MIB}MiB"
+GODEBUG="${GODEBUG:-}"
+THP_ENABLED=""
+if [ -r "/sys/kernel/mm/transparent_hugepage/enabled" ]; then
+	IFS= read -r THP_ENABLED </sys/kernel/mm/transparent_hugepage/enabled || THP_ENABLED=""
+fi
+case "${THP_ENABLED}" in
+	*"[always]"* | *"[madvise]"*)
+		[ -z "${GODEBUG}" ] && GODEBUG="disablethp=1"
+		GODEBUG="${GODEBUG:+${GODEBUG}}"
+		;;
+esac
 ARGS="-s run -c ${WORK_DIR}/AdGuardHome.yaml -w ${WORK_DIR} --pidfile ${PID_FILE} --no-check-update -l ${LOG_FILE}"
 PREARGS="env TZ=/etc/localtime GOGC=${GOGC} GOMAXPROCS=${GOMAXPROCS} GOMEMLIMIT=${GOMEMLIMIT} QUIC_GO_DISABLE_ECN=true"
+[ -n "${GODEBUG}" ] && PREARGS="${PREARGS} GODEBUG=${GODEBUG}"
 
 # Functions are grouped by purpose; names are sorted alpha-numerically within each group.
 
