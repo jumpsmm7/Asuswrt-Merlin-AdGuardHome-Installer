@@ -14,11 +14,9 @@ DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
 WATCHD_NICE_SNAPSHOT=""
 # Lower GOGC values reduce AdGuardHome memory growth, but increase garbage-collection CPU cost.
 GOGC="${ADGUARDHOME_GOGC:-50}"
-CPU_COUNT="${CPU_COUNT:-}"
-if [ -z "${CPU_COUNT}" ] && which grep >/dev/null 2>&1; then
+CPU_COUNT=""
+if which grep >/dev/null 2>&1; then
 	CPU_COUNT="$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)"
-elif [ -n "${CPU_COUNT}" ]; then
-	CPU_COUNT="${CPU_COUNT:+${CPU_COUNT}}"
 fi
 case "${CPU_COUNT}" in
 	"" | *[!0-9]* | "0" | "1" | "2" | "3") DEFAULT_GOMAXPROCS="1" ;;
