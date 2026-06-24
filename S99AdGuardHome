@@ -841,6 +841,7 @@ pre_start_adguardhome() {
 	ensure_adguardhome_work_dir_permissions || return 1
 	dns_handoff_dependencies_available || return 1
 	enable_dns_handoff || return 1
+	# Keep Go memory behavior controlled by PREARGS runtime settings, not hard shell memory caps.
 	ulimit -s 8192 2>/dev/null || true
 	if [ "$(pidof syslog-ng logrotate | wc -w)" -gt 0 ] && which scribe >/dev/null 2>&1; then
 		scribe restart
