@@ -55,12 +55,9 @@ if [ -r "/sys/kernel/mm/transparent_hugepage/enabled" ]; then
 	IFS= read -r THP_ENABLED </sys/kernel/mm/transparent_hugepage/enabled || THP_ENABLED=""
 fi
 case "${THP_ENABLED}" in
-	*"[always]"* | *"[madvise]"*)
-		case ",${GODEBUG}," in
-			*",disablethp=1,"*) ;;
-			",") GODEBUG="disablethp=1" ;;
-			*) GODEBUG="${GODEBUG},disablethp=1" ;;
-		esac
+	*"[always]"* | *"[madvise]"*) 
+		[ -z "${GODEBUG}" ] && GODEBUG="disablethp=1"
+		GODEBUG="${GODEBUG:+${GODEBUG}}"
 		;;
 esac
 ARGS="-s run -c ${WORK_DIR}/AdGuardHome.yaml -w ${WORK_DIR} --pidfile ${PID_FILE} --no-check-update -l ${LOG_FILE}"
