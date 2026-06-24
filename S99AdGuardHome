@@ -34,10 +34,10 @@ if which awk >/dev/null 2>&1; then
 		$1 == "Buffers:" { buffers = $2 }
 		$1 == "Cached:" { cached = $2 }
 		END {
-			sizing_memory = mem_available
-			if (!sizing_memory) sizing_memory = mem_free + buffers + cached
-			if (sizing_memory > 0) {
-				limit = int(sizing_memory * 70 / 100 / 1024)
+			total_available_memory = mem_available
+			if (!total_available_memory) total_available_memory = mem_free + buffers + cached
+			if (total_available_memory > 0) {
+				limit = int(total_available_memory * 70 / 100 / 1024)
 				if (limit < 96) limit = 96
 				if (limit > 384) limit = 384
 				print limit
@@ -841,6 +841,7 @@ pre_start_adguardhome() {
 	ensure_adguardhome_work_dir_permissions || return 1
 	dns_handoff_dependencies_available || return 1
 	enable_dns_handoff || return 1
+	# Keep Go memory behavior controlled by PREARGS runtime settings, not hard shell memory caps.
 	ulimit -s 8192 2>/dev/null || true
 	if [ "$(pidof syslog-ng logrotate | wc -w)" -gt 0 ] && which scribe >/dev/null 2>&1; then
 		scribe restart
