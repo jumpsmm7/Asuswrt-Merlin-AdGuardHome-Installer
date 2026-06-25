@@ -3601,13 +3601,31 @@ menu() {
 			PTXT "${INFO} Choose what you want to do:" \
 				"  1) Install/Update AdGuardHome" \
 				"  2) Uninstall"
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then { PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  6) Enable/Disable AdGuardHome Local Cache" "  7) Switch AdGuardHome Branch" "  8) Enable/Disable AdGuardHome IPSET Integration" "  9) Analyze and remove unused blocklists" "  b) Backup"; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then
+				PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  6) Enable/Disable AdGuardHome Local Cache" "  7) Switch AdGuardHome Branch" "  8) Enable/Disable AdGuardHome IPSET Integration"
+				if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
+					PTXT "  9) Analyze and remove unused blocklists"
+				fi
+				PTXT "  b) Backup"
+			fi
 			if { [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { PTXT "  r) Restore"; }; fi
 			PTXT "  q) Quit"
 			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 q; }; fi
 			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 r q; }; fi
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 9 b q; }; fi
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 9 b r q; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then
+				if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
+					read_input_num "Please enter the number that designates your selection:" 1 9 b q
+				else
+					read_input_num "Please enter the number that designates your selection:" 1 8 b q
+				fi
+			fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then
+				if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
+					read_input_num "Please enter the number that designates your selection:" 1 9 b r q
+				else
+					read_input_num "Please enter the number that designates your selection:" 1 8 b r q
+				fi
+			fi
 			;;
 		*)
 			CHOSEN="$1"
@@ -3718,7 +3736,12 @@ menu() {
 			end_op_message 0
 			;;
 		"9" | "blocklists" | "unusedblocklists")
-			cleanup_unused_blocklists
+			if [ -z "${BLOCKLIST_ANALYZER_SHA256}" ]; then
+				ptxt_fail "Blocklist cleanup is unavailable until the analyzer SHA-256 is pinned."
+				end_op_message 1
+			else
+				cleanup_unused_blocklists
+			fi
 			;;
 		"b" | "B" | "backup")
 			ptxt_phase "Selecting backup operation."
@@ -3976,9 +3999,9 @@ case "$2" in
 		menu "$2"
 		;;
 	*)
-		PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | 9 - unusedblocklists | {b/B} - backup | {r/R} - restore)" \
+		PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore)" \
 			"${INFO} Branch or Tag must be represented by a value or empty quotes in place of string e.g. \"\" in the \$1 string position." \
-			"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | 9 - unusedblocklists | {b/B} - backup | {r/R} - restore) in the \$2 string position." \
+			"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore) in the \$2 string position." \
 			"${INFO} An update example sh installer master update, or just use the regular menu by not specifying an Action."
 		;;
 esac
