@@ -1164,6 +1164,11 @@ install_blocklist_analyzer() {
 	fi
 	ptxt_ok "python3 is available."
 
+	if [ -z "${BLOCKLIST_ANALYZER_SHA256}" ]; then
+		ptxt_fail "Blocklist analyzer SHA-256 is not pinned; refusing to download or run mutable remote code."
+		return 1
+	fi
+
 	ptxt_step "Downloading blocklist analyzer to ${BLOCKLIST_ANALYZER_FILE}."
 	rm -f "${BLOCKLIST_ANALYZER_FILE}.tmp"
 	if ! http_get_file "${BLOCKLIST_ANALYZER_URL}" "${BLOCKLIST_ANALYZER_FILE}.tmp"; then
@@ -1173,17 +1178,13 @@ install_blocklist_analyzer() {
 	fi
 	ptxt_ok "Downloaded blocklist analyzer."
 
-	if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
-		ptxt_step "Verifying blocklist analyzer SHA-256 checksum."
-		if [ "$(sha256sum "${BLOCKLIST_ANALYZER_FILE}.tmp" | awk '{ print $1 }')" != "${BLOCKLIST_ANALYZER_SHA256}" ]; then
-			rm -f "${BLOCKLIST_ANALYZER_FILE}.tmp"
-			ptxt_fail "Blocklist analyzer checksum verification failed."
-			return 1
-		fi
-		ptxt_ok "Blocklist analyzer checksum verified."
-	else
-		ptxt_warn "No blocklist analyzer SHA-256 is pinned; download was not content-verified."
+	ptxt_step "Verifying blocklist analyzer SHA-256 checksum."
+	if [ "$(sha256sum "${BLOCKLIST_ANALYZER_FILE}.tmp" | awk '{ print $1 }')" != "${BLOCKLIST_ANALYZER_SHA256}" ]; then
+		rm -f "${BLOCKLIST_ANALYZER_FILE}.tmp"
+		ptxt_fail "Blocklist analyzer checksum verification failed."
+		return 1
 	fi
+	ptxt_ok "Blocklist analyzer checksum verified."
 
 	ptxt_step "Installing blocklist analyzer with restrictive permissions."
 	if ! mv "${BLOCKLIST_ANALYZER_FILE}.tmp" "${BLOCKLIST_ANALYZER_FILE}"; then
