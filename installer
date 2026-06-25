@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.3.7                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.3.8                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
 
-AI_VERSION="v2.3.7"
+AI_VERSION="v2.3.8"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -337,6 +337,28 @@ PTXT() {
 	esac
 }
 
+ptxt_phase() {
+	PTXT "${INFO} ===================================================="
+	PTXT "${INFO} PHASE: $1"
+	PTXT "${INFO} ===================================================="
+}
+
+ptxt_step() {
+	PTXT "${INFO} -> $1"
+}
+
+ptxt_ok() {
+	PTXT "${INFO} OK: $1"
+}
+
+ptxt_warn() {
+	PTXT "${WARNING} WARN: $1"
+}
+
+ptxt_fail() {
+	PTXT "${ERROR} FAIL: $1"
+}
+
 SCRIPT_LOC="$(installer_script_path "$0")" || {
 	PTXT "Unable to resolve installer path: $0" >&2
 	exit 1
@@ -460,6 +482,79 @@ sanitize_branch() {
 
 # AdGuardHome process helpers
 
+adguard_pid_list_has_new_pid() {
+	local new_pid old_pids
+	old_pids=" ${1:-} "
+	shift
+	for new_pid in "$@"; do
+		case "${old_pids}" in
+			*" ${new_pid} "*) ;;
+			*)
+				return 0
+				;;
+		esac
+	done
+	return 1
+}
+
+adguard_service_status_after_action() {
+	local action elapsed maxwait old_pids status_message transition_message
+	action="${1:-restart}"
+	old_pids="${2:-}"
+	elapsed="0"
+	maxwait="${ADGUARDHOME_WAIT_TIMEOUT}"
+	[ "${maxwait}" -le "5" ] || maxwait="5"
+	case "${action}" in
+		stop | kill)
+			status_message="Waiting for AdGuardHome to stop cleanly..."
+			transition_message="Stopping..."
+			;;
+		start)
+			status_message="Waiting for AdGuardHome to report running state after start..."
+			transition_message="Restarting..."
+			;;
+		restart | *)
+			status_message="Waiting for AdGuardHome to report running state after restart..."
+			transition_message="Restarting..."
+			;;
+	esac
+	PTXT "${INFO} ${status_message}"
+	case "${action}" in
+		stop | kill)
+			while [ "$(agh_process_count)" -ge "1" ]; do
+				if [ "${elapsed}" -ge "${maxwait}" ]; then
+					PTXT "${INFO} ${transition_message}"
+					return 1
+				fi
+				sleep 1s
+				elapsed="$((elapsed + 1))"
+			done
+			;;
+		restart)
+			while ! { agh_is_running && { [ -z "${old_pids}" ] || adguard_pid_list_has_new_pid "${old_pids}" "$(pidof AdGuardHome 2>/dev/null)"; }; }; do
+				if [ "${elapsed}" -ge "${maxwait}" ]; then
+					PTXT "${INFO} ${transition_message}"
+					return 1
+				fi
+				sleep 1s
+				elapsed="$((elapsed + 1))"
+			done
+			;;
+		*)
+			while ! agh_is_running; do
+				if [ "${elapsed}" -ge "${maxwait}" ]; then
+					PTXT "${INFO} ${transition_message}"
+					return 1
+				fi
+				sleep 1s
+				elapsed="$((elapsed + 1))"
+			done
+			;;
+	esac
+	agh_check
+	return 0
+}
+
 valid_adguardhome_username() {
 	case "${1:-}" in
 		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-]*)
@@ -555,6 +650,7 @@ AdGuardHome_authen() {
 		yaml_nvars_insert "users:" "\  password: ${PW1_ENCRYPTED}" "${YAML_FILE}"
 		yaml_nvars_insert "users:" "- name: ${USERNAME}" "${YAML_FILE}"
 		check_AdGuardHome_yaml "${YAML_FILE}"
+		ptxt_step "Waiting for AdGuardHome post-install readiness checks."
 		if ! agh_complete_startup; then
 			end_op_message 1
 			return
@@ -666,20 +762,20 @@ agh_startup_ready() {
 }
 
 agh_complete_startup() {
-	PTXT "${INFO} Starting AdGuardHome..."
+	ptxt_phase "Starting AdGuardHome service."
 	agh_stop
 	ADGUARDHOME_START_FAILURE_LOGGED=
 	if ! agh_start; then
 		[ "${ADGUARDHOME_START_FAILURE_LOGGED:-}" = "1" ] || agh_start_error
 		return 1
 	fi
-	PTXT "${INFO} Please wait while we perform one last check."
+	ptxt_step "Waiting for AdGuardHome readiness check to complete."
 	ADGUARDHOME_START_FAILURE_LOGGED=
 	if ! agh_restart; then
 		[ "${ADGUARDHOME_START_FAILURE_LOGGED:-}" = "1" ] || agh_start_error
 		return 1
 	fi
-	PTXT "${INFO} AdGuardHome setup is complete."
+	ptxt_ok "AdGuardHome setup is complete."
 	return 0
 }
 
@@ -689,9 +785,9 @@ agh_is_running() {
 
 agh_prepare_binary_replace() {
 	if { [ -f "${AGH_FILE}" ] || [ -e "/opt/sbin/AdGuardHome" ]; } && [ "$(agh_process_count)" -ge "1" ]; then
-		PTXT "${INFO} Stopping AdGuardHome before replacing the binary."
+		ptxt_step "Stopping AdGuardHome service before replacing ${AGH_FILE}."
 		if ! agh_stop; then
-			PTXT "${ERROR} Unable to safely stop AdGuardHome before replacing the binary."
+			ptxt_fail "Unable to safely stop AdGuardHome service before replacing ${AGH_FILE}."
 			return 1
 		fi
 	fi
@@ -717,28 +813,39 @@ agh_process_count() {
 }
 
 agh_restart() {
+	local old_pids
 	if agh_is_running; then
+		ptxt_step "Restarting AdGuardHome service."
+		old_pids="$(pidof AdGuardHome 2>/dev/null)"
 		if service restart_AdGuardHome >/dev/null 2>&1; then
-			sleep 1s
+			adguard_service_status_after_action restart "${old_pids}" || true
 		elif /opt/etc/init.d/S99AdGuardHome restart; then
-			sleep 1s
+			adguard_service_status_after_action restart "${old_pids}" || true
 		else
+			ptxt_fail "AdGuardHome service restart command failed."
 			return 1
 		fi
 	else
 		agh_start || return 1
 	fi
 	sleep 1s
-	agh_startup_ready
+	if agh_startup_ready; then
+		ptxt_ok "AdGuardHome service restarted."
+		return 0
+	fi
+	ptxt_fail "AdGuardHome service did not become ready after restart."
+	return 1
 }
 
 agh_start() {
 	if ! agh_is_running; then
+		ptxt_step "Starting AdGuardHome service."
 		if service start_AdGuardHome >/dev/null 2>&1; then
-			sleep 1s
+			adguard_service_status_after_action start || true
 		elif /opt/etc/init.d/S99AdGuardHome start; then
-			sleep 1s
+			adguard_service_status_after_action start || true
 		else
+			ptxt_fail "AdGuardHome service start command failed."
 			return 1
 		fi
 	fi
@@ -748,7 +855,12 @@ agh_start() {
 		return 1
 	fi
 	sleep 1s
-	agh_startup_ready
+	if agh_startup_ready; then
+		ptxt_ok "AdGuardHome service is running."
+		return 0
+	fi
+	ptxt_fail "AdGuardHome service did not become ready after start."
+	return 1
 }
 
 agh_start_error() {
@@ -758,12 +870,13 @@ agh_start_error() {
 
 agh_stop() {
 	if [ "$(agh_process_count)" -ge "1" ]; then
+		ptxt_step "Stopping AdGuardHome service."
 		if service stop_AdGuardHome >/dev/null 2>&1; then
-			sleep 1s
+			adguard_service_status_after_action stop || true
 		elif /opt/etc/init.d/S99AdGuardHome stop; then
-			sleep 1s
+			adguard_service_status_after_action stop || true
 		elif /opt/etc/init.d/S99AdGuardHome kill; then
-			sleep 1s
+			adguard_service_status_after_action kill || true
 		else
 			if ai_have_cmd killall; then
 				killall -q -9 AdGuardHome 2>/dev/null
@@ -772,16 +885,17 @@ agh_stop() {
 				return 1
 			fi
 			rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null
-			sleep 1s
+			adguard_service_status_after_action kill || true
 		fi
 	fi
 	sleep 1s
 	if ! agh_wait_stopped "${ADGUARDHOME_WAIT_TIMEOUT}"; then
-		PTXT "${ERROR} Timed out waiting for AdGuardHome to stop."
+		ptxt_fail "Timed out waiting for AdGuardHome service to stop."
 		return 1
 	fi
 	sleep 1s
 	agh_check
+	ptxt_ok "AdGuardHome service is stopped."
 	return 0
 }
 
@@ -916,6 +1030,7 @@ init_remote_adguard_metadata() {
 	REMOTE_EDGE_URL=""
 	COUNT="0"
 	CHANNEL_FILE="${URL_ARCH}/checksum.txt"
+	ptxt_phase "Fetching AdGuardHome metadata from ${CHANNEL_FILE}."
 	while [ "${COUNT}" -lt 3 ]; do
 		rm -f "${ADGUARD_METADATA_FILE}"
 		if http_get_file "${CHANNEL_FILE}" "${ADGUARD_METADATA_FILE}" "" insecure && [ -s "${ADGUARD_METADATA_FILE}" ]; then
@@ -932,13 +1047,16 @@ init_remote_adguard_metadata() {
 			REMOTE_BETA_URL="${URL_ARCH}/${REMOTE_BETA_ARCHIVE}"
 			REMOTE_EDGE_URL="${URL_ARCH}/${REMOTE_EDGE_ARCHIVE}"
 			if adguard_validate_metadata; then
+				ptxt_ok "Detected AdGuardHome versions: release ${REMOTE_VER}, beta ${REMOTE_BETA}, edge ${REMOTE_EDGE}."
 				export REMOTE_VER REMOTE_BETA REMOTE_EDGE REMOTE_RELEASE_ARCHIVE REMOTE_BETA_ARCHIVE REMOTE_EDGE_ARCHIVE REMOTE_RELEASE_MD5 REMOTE_BETA_MD5 REMOTE_EDGE_MD5 REMOTE_RELEASE_URL REMOTE_BETA_URL REMOTE_EDGE_URL
 				cleanup_api_files
 				return 0
 			fi
 		fi
 		COUNT="$((COUNT + 1))"
+		[ "${COUNT}" -lt 3 ] && ptxt_warn "Metadata fetch from ${CHANNEL_FILE} failed; retrying."
 	done
+	ptxt_warn "Metadata fetch from ${CHANNEL_FILE} failed; continuing with upstream static metadata."
 	init_upstream_adguard_metadata "${CHANNEL_FILE}"
 }
 
@@ -950,6 +1068,7 @@ init_upstream_adguard_metadata() {
 	BETA_VERSION_FILE="${ADGUARD_METADATA_FILE}.beta"
 	EDGE_VERSION_FILE="${ADGUARD_METADATA_FILE}.edge"
 	COUNT="0"
+	ptxt_phase "Fetching upstream AdGuardHome version metadata."
 	while [ "${COUNT}" -lt 3 ]; do
 		rm -f "${RELEASE_VERSION_FILE}" "${BETA_VERSION_FILE}" "${EDGE_VERSION_FILE}"
 		if http_get_file "https://static.adguard.com/adguardhome/release/version.txt" "${RELEASE_VERSION_FILE}" "" insecure && [ -s "${RELEASE_VERSION_FILE}" ] &&
@@ -959,12 +1078,14 @@ init_upstream_adguard_metadata() {
 			REMOTE_BETA="$(awk 'NF {VERSION = $1; sub(/^version=/, "", VERSION); print VERSION; exit}' "${BETA_VERSION_FILE}")"
 			REMOTE_EDGE="$(awk 'NF {VERSION = $1; sub(/^version=/, "", VERSION); print VERSION; exit}' "${EDGE_VERSION_FILE}")"
 			if [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ] && [ -n "${REMOTE_EDGE}" ]; then
+				ptxt_ok "Detected upstream AdGuardHome versions: release ${REMOTE_VER}, beta ${REMOTE_BETA}, edge ${REMOTE_EDGE}."
 				export REMOTE_VER REMOTE_BETA REMOTE_EDGE REMOTE_RELEASE_ARCHIVE REMOTE_BETA_ARCHIVE REMOTE_EDGE_ARCHIVE REMOTE_RELEASE_MD5 REMOTE_BETA_MD5 REMOTE_EDGE_MD5 REMOTE_RELEASE_URL REMOTE_BETA_URL REMOTE_EDGE_URL
 				rm -f "${RELEASE_VERSION_FILE}" "${BETA_VERSION_FILE}" "${EDGE_VERSION_FILE}"
 				return 0
 			fi
 		fi
 		COUNT="$((COUNT + 1))"
+		[ "${COUNT}" -lt 3 ] && ptxt_warn "Upstream metadata fetch failed; retrying."
 	done
 	rm -f "${RELEASE_VERSION_FILE}" "${BETA_VERSION_FILE}" "${EDGE_VERSION_FILE}"
 	PTXT "One or more critical variables could not be set in a timely manner." \
@@ -980,18 +1101,19 @@ check_AdGuardHome_yaml() {
 	yaml_target="${1:-${YAML_FILE}}"
 	[ ! -f "${yaml_target}" ] && return
 	chmod 600 "${yaml_target}"
-	PTXT "${INFO} Checking AdGuardHome configuration..."
+	ptxt_step "Checking AdGuardHome configuration ${yaml_target}."
 	if ! "${AGH_FILE}" --check-config -c "${yaml_target}" --no-check-update -l "/dev/null"; then
 		if [ "${yaml_target}" = "${YAML_FILE}" ]; then
 			PTXT "${INFO} Moving invalid configuration file to ${YAML_ERR}." \
 				"${INFO} Operation will continue with clean config file."
 			mv "${yaml_target}" "${YAML_ERR}"
 		else
-			PTXT "${INFO} Moving invalid staged configuration file to ${yaml_target}.err."
+			ptxt_warn "Moving invalid staged configuration file to ${yaml_target}.err; continuing."
 			mv "${yaml_target}" "${yaml_target}.err"
 		fi
 		return 1
 	fi
+	ptxt_ok "AdGuardHome configuration ${yaml_target} is valid."
 }
 
 ########################Modified Version of @Adamm Check_Connection####################################################
@@ -1047,6 +1169,7 @@ check_connection() {
 ########################################################################################################################
 
 check_dns_environment() {
+	ptxt_phase "Preparing DNS environment."
 	if [ -f "/opt/etc/init.d/S61stubby" ] || [ -f "/opt/sbin/stubby" ] || [ -f "/opt/bin/install_stubby" ] || [ -f "/jffs/scripts/install_stubby.sh" ] || [ -d "/jffs/dnscrypt" ] || [ -f "/opt/etc/init.d/S09dnscrypt-proxy" ]; then
 		PTXT "${ERROR} Potential stubby or dnscrypt-proxy installation detected." \
 			"${ERROR} Please remove before attempting to continue." \
@@ -1099,33 +1222,52 @@ check_dns_environment() {
 		0)
 			# Save original values only once.
 			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
+				ptxt_step "Saving current DNS NVRAM settings."
 				save_dns_nvram_environment
+				ptxt_ok "Current DNS NVRAM settings saved."
 			fi
 			if [ "$(pidof stubby)" ]; then
+				ptxt_step "Stopping conflicting stubby process."
 				{ kill_processes stubby; }
+				ptxt_ok "Conflicting stubby process stopped."
 				NVCHECK="$((NVCHECK + 1))"
 			fi
-			if dns_env_apply_profile; then NVCHECK="$((NVCHECK + 1))"; fi
+			ptxt_step "Applying installer DNS preparation profile."
+			if dns_env_apply_profile; then
+				ptxt_ok "Installer DNS preparation profile applied."
+				NVCHECK="$((NVCHECK + 1))"
+			else
+				ptxt_ok "Installer DNS preparation profile was already active."
+			fi
 			;;
 		1)
 			# Do not restore if we never saved anything.
 			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
+				ptxt_ok "No saved DNS NVRAM settings to restore."
 				return 0
 			fi
-			if dns_env_restore_profile; then NVCHECK="$((NVCHECK + 1))"; fi
+			ptxt_step "Restoring saved DNS NVRAM settings."
+			if dns_env_restore_profile; then
+				ptxt_ok "Saved DNS NVRAM settings restored."
+				NVCHECK="$((NVCHECK + 1))"
+			else
+				ptxt_ok "Saved DNS NVRAM settings were already restored."
+			fi
 			;;
 		*)
 			return 1
 			;;
 	esac
 	if [ "${NVCHECK}" != "0" ]; then
+		ptxt_step "Committing DNS NVRAM changes and restarting dnsmasq."
 		{ nvram commit; }
 		{ service restart_dnsmasq >/dev/null 2>&1; }
 		(while { ! check_connection; }; do sleep 1s; done) &
 		local PID="$!"
 		wait "${PID}" 2>/dev/null
+		ptxt_ok "DNS services refreshed after DNS environment changes."
 	fi
-	PTXT "${INFO} DNS Environment is Ready."
+	ptxt_ok "DNS Environment is Ready."
 	return 0
 }
 
@@ -1834,21 +1976,27 @@ create_backup_archive() {
 	BACKUP_FILE="${BASE_DIR}/backup_AdGuardHome.tar.gz"
 	BACKUP_TMP="${BACKUP_FILE}.tmp.$$"
 	rm -f "${BACKUP_TMP}"
+	ptxt_step "Creating AdGuardHome backup archive."
 	if ! tar -czf "${BACKUP_TMP}" -C "${BASE_DIR}" AdGuardHome >/dev/null 2>&1; then
 		rm -f "${BACKUP_TMP}"
 		PTXT "${ERROR} Unable to create the AdGuardHome backup archive."
 		return 1
 	fi
+	ptxt_ok "Created AdGuardHome backup archive."
+	ptxt_step "Verifying AdGuardHome backup archive."
 	if ! tar -tzf "${BACKUP_TMP}" >/dev/null 2>&1 || ! adguard_archive_is_safe "${BACKUP_TMP}" 1; then
 		rm -f "${BACKUP_TMP}"
 		PTXT "${ERROR} The new AdGuardHome backup archive could not be verified."
 		return 1
 	fi
+	ptxt_ok "Verified AdGuardHome backup archive."
+	ptxt_step "Installing AdGuardHome backup archive."
 	if ! chmod 600 "${BACKUP_TMP}" || ! mv -f "${BACKUP_TMP}" "${BACKUP_FILE}"; then
 		rm -f "${BACKUP_TMP}"
 		PTXT "${ERROR} Unable to install the new AdGuardHome backup archive."
 		return 1
 	fi
+	ptxt_ok "Installed AdGuardHome backup archive."
 	return 0
 }
 
@@ -1861,17 +2009,22 @@ install_adguard_archive() {
 	rm -rf "${STAGE_DIR}"
 	rm -f "${OLD_BINARY}"
 	adguard_install_abort_trap_enable 0 "${STAGE_DIR}"
+	ptxt_step "Validating AdGuardHome archive layout."
 	if ! adguard_archive_is_safe "${ARCHIVE_FILE}"; then
 		adguard_install_abort_trap_disable
 		PTXT "${ERROR} The AdGuardHome archive contains an unsafe or incomplete file layout."
 		return 1
 	fi
+	ptxt_ok "AdGuardHome archive layout is valid."
+	ptxt_step "Extracting AdGuardHome archive into staging."
 	if ! create_dir "${STAGE_DIR}" || ! tar xzf "${ARCHIVE_FILE}" -C "${STAGE_DIR}" >/dev/null 2>&1; then
 		adguard_install_abort_trap_disable
 		rm -rf "${STAGE_DIR}"
 		PTXT "${ERROR} Unable to extract the AdGuardHome archive into staging."
 		return 1
 	fi
+	ptxt_ok "Extracted AdGuardHome archive into staging."
+	ptxt_step "Validating staged AdGuardHome binary."
 	if [ ! -f "${STAGE_BINARY}" ] || [ -L "${STAGE_BINARY}" ] || ! chmod 755 "${STAGE_BINARY}" ||
 		[ -z "$("${STAGE_BINARY}" --version 2>/dev/null | cut -d" " -f4-)" ]; then
 		adguard_install_abort_trap_disable
@@ -1879,6 +2032,7 @@ install_adguard_archive() {
 		PTXT "${ERROR} The staged AdGuardHome binary failed validation."
 		return 1
 	fi
+	ptxt_ok "Staged AdGuardHome binary is valid."
 	if [ "$(agh_process_count)" -gt 0 ]; then WAS_RUNNING="1"; else WAS_RUNNING="0"; fi
 	ADGUARD_INSTALL_WAS_RUNNING="${WAS_RUNNING}"
 	if ! agh_prepare_binary_replace; then
@@ -1886,6 +2040,7 @@ install_adguard_archive() {
 		rm -rf "${STAGE_DIR}"
 		return 1
 	fi
+	ptxt_step "Preserving installed AdGuardHome binary for rollback."
 	if [ -f "${AGH_FILE}" ] && ! cp -p "${AGH_FILE}" "${OLD_BINARY}"; then
 		adguard_install_abort_trap_disable
 		rm -rf "${STAGE_DIR}"
@@ -1893,8 +2048,10 @@ install_adguard_archive() {
 		adguard_restart_after_failed_replace "${WAS_RUNNING}"
 		return 1
 	fi
+	ptxt_ok "Installed AdGuardHome binary preserved for rollback."
 	ADGUARD_INSTALL_OLD_BINARY="${OLD_BINARY}"
 	ADGUARD_INSTALL_REPLACE_ACTIVE="1"
+	ptxt_step "Installing staged AdGuardHome binary."
 	if ! mv "${STAGE_BINARY}" "${AGH_FILE}"; then
 		adguard_install_abort_trap_disable
 		rm -rf "${STAGE_DIR}"
@@ -1902,6 +2059,8 @@ install_adguard_archive() {
 		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
 		return 1
 	fi
+	ptxt_ok "Staged AdGuardHome binary installed."
+	ptxt_step "Validating installed AdGuardHome binary."
 	if ! ensure_adguardhome_directory_permissions ||
 		[ -z "$("${AGH_FILE}" --version 2>/dev/null | cut -d" " -f4-)" ]; then
 		adguard_install_abort_trap_disable
@@ -1910,6 +2069,7 @@ install_adguard_archive() {
 		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
 		return 1
 	fi
+	ptxt_ok "Installed AdGuardHome binary is valid."
 	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
 	ADGUARD_INSTALL_OLD_BINARY=""
 	rm -f "${OLD_BINARY}"
@@ -1922,6 +2082,7 @@ backup_restore() {
 	COMMAND_LINK="${ADGUARD_COMMAND_LINK_PATH:-/opt/sbin/AdGuardHome}"
 	COMMAND_LINK_DIR="${COMMAND_LINK%/*}"
 	if [ "$1" = "BACKUP" ] && [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; then
+		ptxt_phase "Backing up AdGuardHome."
 		if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 			PTXT "${INFO} There is an old backup detected."
 			local USE_OLD
@@ -1947,30 +2108,35 @@ backup_restore() {
 			[ -z "$2" ] && end_op_message 1
 			return 1
 		fi
-		PTXT "${INFO} Backup complete"
+		ptxt_ok "Backup complete at ${BASE_DIR}/backup_AdGuardHome.tar.gz."
 		[ -z "$2" ] && end_op_message 0 || return 0
 	elif [ "$1" = "BACKUP" ] && [ ! -d "${TARG_DIR}" ] && [ ! -f "${AGH_FILE}" ]; then
 		PTXT "${ERROR} No ${AGH_FILE} to Backup!"
 		end_op_message 1
 	fi
 	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
-		PTXT "${INFO} Please wait a moment."
+		ptxt_phase "Restoring AdGuardHome backup."
+		ptxt_step "Restoring AdGuardHome from ${BASE_DIR}/backup_AdGuardHome.tar.gz; please wait."
 		if ! adguard_archive_is_safe "${BASE_DIR}/backup_AdGuardHome.tar.gz" 1; then
-			PTXT "${ERROR} Refusing to restore an unsafe or incomplete AdGuardHome backup archive."
+			ptxt_fail "Refusing to restore unsafe or incomplete backup ${BASE_DIR}/backup_AdGuardHome.tar.gz."
 			return 1
 		fi
+		ptxt_ok "Backup archive safety check passed."
 		RESTORE_STAGE_DIR="${BASE_DIR}/.AdGuardHome.restore.$$"
 		RESTORE_TARG_DIR="${RESTORE_STAGE_DIR}/AdGuardHome"
 		RESTORE_ROLLBACK_DIR="${BASE_DIR}/.AdGuardHome.rollback.$$"
 		if [ "$(agh_process_count)" -gt 0 ]; then WAS_RUNNING="1"; else WAS_RUNNING="0"; fi
 		rm -rf "${RESTORE_STAGE_DIR}" "${RESTORE_ROLLBACK_DIR}"
 		adguard_restore_abort_trap_enable "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}"
+		ptxt_step "Staging AdGuardHome backup archive."
 		if ! create_dir "${RESTORE_STAGE_DIR}" || ! tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${RESTORE_STAGE_DIR}" >/dev/null 2>&1; then
 			adguard_install_abort_trap_disable
 			rm -rf "${RESTORE_STAGE_DIR}"
 			PTXT "${ERROR} Unable to stage ${BASE_DIR}/backup_AdGuardHome.tar.gz for restore."
 			return 1
 		fi
+		ptxt_ok "Staged AdGuardHome backup archive."
+		ptxt_step "Validating staged AdGuardHome backup."
 		if [ ! -d "${RESTORE_TARG_DIR}" ] || [ -L "${RESTORE_TARG_DIR}" ] ||
 			[ ! -f "${RESTORE_TARG_DIR}/AdGuardHome" ] ||
 			[ ! -d "${RESTORE_TARG_DIR}/data" ] || [ -L "${RESTORE_TARG_DIR}/data" ]; then
@@ -1979,40 +2145,51 @@ backup_restore() {
 			PTXT "${ERROR} The staged AdGuardHome backup is incomplete."
 			return 1
 		fi
+		ptxt_ok "Validated staged AdGuardHome backup."
+		ptxt_step "Preserving current AdGuardHome installation for rollback."
 		if [ -e "${TARG_DIR}" ] && ! mv "${TARG_DIR}" "${RESTORE_ROLLBACK_DIR}"; then
 			adguard_install_abort_trap_disable
 			rm -rf "${RESTORE_STAGE_DIR}"
 			PTXT "${ERROR} Unable to preserve the current AdGuardHome installation before restore."
 			return 1
 		fi
+		ptxt_ok "Current AdGuardHome installation preserved for rollback."
+		ptxt_step "Installing staged AdGuardHome backup."
 		if ! mv "${RESTORE_TARG_DIR}" "${TARG_DIR}"; then
 			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
 			adguard_install_abort_trap_disable
 			PTXT "${ERROR} Unable to install the staged AdGuardHome backup."
 			return 1
 		fi
+		ptxt_ok "Installed staged AdGuardHome backup."
 		ADGUARD_RESTORE_TARGET_INSTALLED="1"
 		rm -rf "${RESTORE_STAGE_DIR}"
+		ptxt_step "Restoring AdGuardHome ownership and permissions."
 		if ! ensure_adguardhome_directory_permissions; then
 			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
 			adguard_install_abort_trap_disable
 			PTXT "${ERROR} Unable to restore AdGuardHome ownership or permissions."
 			return 1
 		fi
+		ptxt_ok "Restored AdGuardHome ownership and permissions."
+		ptxt_step "Restoring AdGuardHome command symlink."
 		if ! create_dir "${COMMAND_LINK_DIR}" || ! ln -sf "${AGH_FILE}" "${COMMAND_LINK}"; then
 			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
 			adguard_install_abort_trap_disable
 			PTXT "${ERROR} Unable to restore the AdGuardHome command symlink."
 			return 1
 		fi
+		ptxt_ok "Restored AdGuardHome command symlink."
 		ADGUARD_DEFER_END_OP="1"
+		ptxt_step "Reinstalling AdGuardHome service scripts after restore."
 		if ! inst_AdGuardHome "${1:-RESTORE}"; then
 			ADGUARD_DEFER_END_OP="0"
 			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
 			adguard_install_abort_trap_disable
-			PTXT "${ERROR} Unable to complete AdGuardHome restore setup."
+			ptxt_fail "Unable to complete AdGuardHome restore setup; restoring previous installation."
 			return 1
 		fi
+		ptxt_ok "Reinstalled AdGuardHome service scripts after restore."
 		ADGUARD_DEFER_END_OP="0"
 		adguard_install_abort_trap_disable
 		rm -rf "${RESTORE_ROLLBACK_DIR}"
@@ -2109,6 +2286,7 @@ download_file() {
 	PERM="$1"
 	shift
 	RET="0"
+	ptxt_phase "Downloading and verifying files."
 	for URL in "$@"; do
 		FILENAME="${URL##*/}"
 		TMP_FILE="${TARG}/.${FILENAME}.$$"
@@ -2119,53 +2297,63 @@ download_file() {
 		COUNT="0"
 		[ -f "${TARG}/${FILENAME}" ] && MD5SUM_OLD="$(file_md5 "${TARG}/${FILENAME}" 2>/dev/null)"
 		while [ "${COUNT}" -lt 3 ]; do
-			PTXT "${INFO} Downloading ${FILENAME}"
+			ptxt_step "Downloading ${FILENAME} to ${TARG}/${FILENAME}."
 			rm -f "${TMP_FILE}" "${TMP_MD5}"
 			if http_get_file "${URL}" "${TMP_FILE}" "" insecure && [ -s "${TMP_FILE}" ]; then
+				ptxt_ok "Downloaded ${FILENAME}."
+				ptxt_step "Calculating checksum for ${FILENAME}."
 				MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"
 				if ! md5_is_valid "${MD5SUM_CURR}"; then
-					PTXT "${WARNING} Unable to calculate checksum for ${FILENAME}; retrying download."
+					ptxt_warn "Unable to calculate checksum for ${FILENAME}; retrying download."
 					COUNT="$((COUNT + 1))"
 					continue
 				fi
+				ptxt_ok "Calculated checksum for ${FILENAME}."
 				MD5SUM_EXPECTED=""
+				ptxt_step "Checking remote checksum metadata for ${FILENAME}."
 				if http_get_file "${URL}.md5sum" "${TMP_MD5}" "" insecure && [ -s "${TMP_MD5}" ]; then
 					MD5SUM_EXPECTED="$(awk 'NR == 1 {print $1; exit}' "${TMP_MD5}")"
 				fi
 				if md5_is_valid "${MD5SUM_EXPECTED}"; then
 					if [ "${MD5SUM_CURR}" = "${MD5SUM_EXPECTED}" ]; then
+						ptxt_ok "Checksum verified for ${FILENAME}."
 						break
 					fi
-					PTXT "${WARNING} Checksum mismatch for ${FILENAME}; retrying download."
+					ptxt_warn "Checksum mismatch for ${FILENAME}; retrying download."
 				else
+					ptxt_warn "No valid remote checksum metadata for ${FILENAME}; using download result."
 					break
 				fi
+			else
+				ptxt_warn "Download attempt failed for ${FILENAME}; retrying if attempts remain."
 			fi
 			COUNT="$((COUNT + 1))"
 		done
 		rm -f "${TMP_MD5}"
 		if [ "${COUNT}" -eq 3 ]; then
 			rm -f "${TMP_FILE}"
-			PTXT "${ERROR} Unable to download ${BOLD}${URL}${NORM}"
+			ptxt_fail "Unable to download ${BOLD}${URL}${NORM}."
 			RET="$((RET + 1))"
 			continue
 		fi
 		if md5_is_valid "${MD5SUM_CURR}" && [ "${MD5SUM_CURR}" = "${MD5SUM_OLD}" ]; then
 			rm -f "${TMP_FILE}"
-			PTXT "${INFO} ${FILENAME} is up to date. Skipping..."
+			ptxt_ok "${FILENAME} at ${TARG}/${FILENAME} is up to date; continuing."
 			continue
 		fi
 		# Set permissions before replacing the working copy.  If chmod fails,
 		# preserve the existing file instead of leaving a partially installed one.
+		ptxt_step "Installing ${FILENAME} to ${TARG}/${FILENAME}."
 		if chmod "${PERM}" "${TMP_FILE}" && mv "${TMP_FILE}" "${TARG}/${FILENAME}"; then
+			ptxt_ok "Installed ${FILENAME} to ${TARG}/${FILENAME}."
 			continue
 		fi
 		rm -f "${TMP_FILE}"
-		PTXT "${ERROR} Unable to install ${BOLD}${FILENAME}${NORM}"
+		ptxt_fail "Unable to install ${BOLD}${FILENAME}${NORM} to ${TARG}/${FILENAME}."
 		RET="$((RET + 1))"
 	done
 	if [ "${RET}" -ne 0 ]; then
-		PTXT "${ERROR} One or more download failures has occurred." "${ERROR} It is recommended to rerun the installer, or restore from a backup!"
+		ptxt_fail "One or more download failures occurred; rerun the installer or restore from backup."
 	fi
 	return "${RET}"
 }
@@ -2181,7 +2369,7 @@ installer_update_reexec() {
 	NEW_MD5="$(file_md5 "${TARG_DIR}/installer" 2>/dev/null)"
 	[ -n "${NEW_MD5}" ] || return 0
 	[ "${OLD_MD5}" != "${NEW_MD5}" ] || return 0
-	PTXT "${INFO} Installer was updated; restarting the update with the new installer."
+	ptxt_ok "Installer was updated at ${TARG_DIR}/installer; restarting the update with the new installer."
 	chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1
 	AI_REEXECED_INSTALLER="1"
 	export AI_REEXECED_INSTALLER
@@ -2191,6 +2379,7 @@ installer_update_reexec() {
 inst_AdGuardHome() {
 	local ADGUARD_TAR ARCHIVE_MD5 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
+	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
 	INSTALLER_MD5_OLD=""
 	RESTART_AFTER_ABORT="0"
 	[ -f "${SCRIPT_LOC}" ] && INSTALLER_MD5_OLD="$(file_md5 "${SCRIPT_LOC}" 2>/dev/null)"
@@ -2235,15 +2424,20 @@ inst_AdGuardHome() {
 			end_op_message 1 "$1"
 			return 1
 		fi
+		ptxt_ok "Internet and remote version metadata are available."
+		ptxt_step "Preparing AdGuardHome target directory."
 		if ! create_dir "${TARG_DIR}" || ! ensure_adguardhome_directory_permissions; then
 			end_op_message 1 "$1"
 			return 1
 		fi
+		ptxt_ok "AdGuardHome target directory is ready."
+		ptxt_step "Downloading installer update."
 		if ! download_file "${TARG_DIR}" 755 "${RURL}/installer" || ! awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -qoE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})'; then
 			PTXT "${ERROR} Failed to download installer."
 			end_op_message 1 "$1"
 			return 1
 		fi
+		ptxt_ok "Installer update downloaded and validated."
 		installer_update_reexec "${1:-install}" "${INSTALLER_MD5_OLD}"
 		if [ "${1:-RESTORE}" != "RESTORE" ]; then
 			if [ "${1:-install}" != "update" ]; then
@@ -2324,6 +2518,7 @@ inst_AdGuardHome() {
 			fi
 		fi
 	else
+		ptxt_phase "Installing AdGuardHome package."
 		REMOTE_ADGUARD_ARCHIVE="$(adguard_remote_archive "$2")"
 		REMOTE_ADGUARD_MD5="$(adguard_remote_md5 "$2")"
 		REMOTE_ADGUARD_URL="$(adguard_remote_url "$2")"
@@ -2335,6 +2530,7 @@ inst_AdGuardHome() {
 			return 1
 		fi
 		if md5_is_valid "${REMOTE_ADGUARD_MD5}"; then
+			ptxt_step "Verifying checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
 			ARCHIVE_MD5="$(file_md5 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || {
 				PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package checksum."
 				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
@@ -2347,27 +2543,35 @@ inst_AdGuardHome() {
 				end_op_message 1 "$1"
 				return 1
 			fi
+			ptxt_ok "Checksum verified for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
 		fi
 		if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
+		ptxt_step "Replacing AdGuardHome package with downloaded archive."
 		if ! install_adguard_archive "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}"; then
 			rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 			end_op_message 1 "$1"
 			return 1
 		fi
+		ptxt_ok "AdGuardHome package was replaced."
 		rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 		[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
+		ptxt_step "Creating AdGuardHome command symlink."
 		if ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome || [ -z "$("${AGH_FILE}" --version | cut -d" " -f4-)" ]; then
 			PTXT "${ERROR} Failed to download AdGuardHome package for your router"
 			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 			end_op_message 1 "$1"
 			return 1
 		fi
+		ptxt_ok "AdGuardHome command symlink is ready."
 	fi
+	ptxt_phase "Installing service integration."
+	ptxt_step "Installing AdGuardHome service scripts and addon hooks."
 	if ! create_dir "${ADDON_DIR}"; then
 		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 		end_op_message 1 "$1"
 		return 1
 	fi
+	ptxt_ok "AdGuardHome addon directory is ready."
 	cleanup_legacy_firewall
 	if ! download_file "${ADDON_DIR}" 755 "${RURL}/AdGuardHome.sh" ||
 		! download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome" ||
@@ -2377,6 +2581,7 @@ inst_AdGuardHome() {
 		end_op_message 1 "$1"
 		return 1
 	fi
+	ptxt_ok "AdGuardHome service files installed."
 	[ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
 	for i in init-start services-stop; do { if { ! grep -q "${ADDON_DIR}/AdGuardHome.sh $i &" "/jffs/scripts/${i}" && grep -q "${ADDON_DIR}/AdGuardHome.sh $i" "/jffs/scripts/${i}"; }; then del_jffs_script "/jffs/scripts/${i}"; fi; }; done
 	if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
@@ -2388,6 +2593,7 @@ inst_AdGuardHome() {
 		end_op_message 1 "$1"
 		return 1
 	fi
+	ptxt_ok "Asuswrt-Merlin event scripts configured."
 	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
 	if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
 		PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
@@ -2403,6 +2609,7 @@ inst_AdGuardHome() {
 		return 1
 	fi
 	if [ "${1:-update}" != "update" ]; then
+		ptxt_phase "Configuring AdGuardHome first-run settings."
 		if [ ! -f "${ADDON_DIR}/localtime" ]; then
 			PTXT "${INFO} Before setting up AdGuardHome, please choose your right timezone!"
 			if ! set_timezone; then
@@ -2416,13 +2623,18 @@ inst_AdGuardHome() {
 			end_op_message 1
 			return 1
 		fi
+		ptxt_ok "AdGuardHome first-run configuration completed."
 	fi
+	ptxt_phase "Final readiness summary."
+	ptxt_step "Waiting for AdGuardHome post-install readiness checks."
 	if ! agh_complete_startup; then
 		adguard_install_abort_trap_disable_preserve_defer
 		end_op_message 1 "$1"
 		return 1
 	fi
 	adguard_install_abort_trap_disable_preserve_defer
+	ptxt_ok "AdGuardHome ${1:-install} orchestration complete."
+	ptxt_ok "Final readiness summary: service is installed, started, and ready."
 	end_op_message 0 "$1"
 }
 
@@ -2476,18 +2688,18 @@ setup_AdGuardHome() {
 		PTXT "${ERROR} AdGuardHome is not installed. Aborting...."
 		return 1
 	fi
-	PTXT "${INFO} Configuring AdGuardHome..."
+	ptxt_phase "Configuring AdGuardHome using ${YAML_FILE}."
 	setup_AdGuardHome_impl "$@"
 	local RET="$?"
 	if [ "$1" = "reconfig" ]; then
 		if [ "$RET" -eq 0 ]; then
-			PTXT "${INFO} Restarting AdGuardHome with new config..."
+			ptxt_step "Restarting AdGuardHome service with ${YAML_FILE}."
 			if ! agh_restart; then
 				agh_start_error
 				end_op_message 1
 				return
 			fi
-			PTXT "${INFO} AdGuardHome setup is complete."
+			ptxt_ok "AdGuardHome setup is complete."
 			end_op_message 0
 		else
 			end_op_message 1
@@ -3110,14 +3322,22 @@ menu() {
 	[ -n "${CHOSEN}" ] && trap 'clear_screen; end_op_message 2' HUP INT QUIT ABRT TERM
 	case "${CHOSEN}" in
 		"1" | "install" | "update")
+			ptxt_phase "Selecting install or update operation."
 			if [ "${CHOSEN}" = "update" ]; then
+				ptxt_step "Starting requested AdGuardHome update."
 				AUTO_UPDATE="update"
 				inst_AdGuardHome "${AUTO_UPDATE:-update}"
 			else
 				PTXT "${INFO} This operation will install AdGuardHome and related files (<6MB)" \
 					"${INFO} to ENTWARE, no other data will be changed." \
 					"${INFO} Also some start scripts will be installed/modified as required."
-				if read_yesno "Do you want to install AdGuardHome?"; then inst_AdGuardHome "${AUTO_UPDATE:-install}"; else end_op_message 1; fi
+				if read_yesno "Do you want to install AdGuardHome?"; then
+					ptxt_ok "Install operation confirmed."
+					inst_AdGuardHome "${AUTO_UPDATE:-install}"
+				else
+					ptxt_warn "Install operation declined."
+					end_op_message 1
+				fi
 			fi
 			;;
 		"2" | "uninstall")
@@ -3195,18 +3415,35 @@ menu() {
 				end_op_message 1
 				return 1
 			fi
+			OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
 			if ! service restart_AdGuardHome >/dev/null 2>&1; then
 				PTXT "${WARNING} The setting was saved, but AdGuardHome could not be restarted automatically."
+			else
+				adguard_service_status_after_action restart "${OLD_PIDS}" || true
 			fi
 			end_op_message 0
 			;;
 		"b" | "B" | "backup")
+			ptxt_phase "Selecting backup operation."
 			PTXT "${INFO} This operation will backup everything!"
-			if read_yesno "Do you want to continue?"; then backup_restore BACKUP; else end_op_message 1; fi
+			if read_yesno "Do you want to continue?"; then
+				ptxt_ok "Backup operation confirmed."
+				backup_restore BACKUP
+			else
+				ptxt_warn "Backup operation declined."
+				end_op_message 1
+			fi
 			;;
 		"r" | "R" | "restore")
+			ptxt_phase "Selecting restore operation."
 			PTXT "${INFO} This operation will restore everything!"
-			if read_yesno "Do you want to continue?"; then backup_restore RESTORE; else end_op_message 1; fi
+			if read_yesno "Do you want to continue?"; then
+				ptxt_ok "Restore operation confirmed."
+				backup_restore RESTORE
+			else
+				ptxt_warn "Restore operation declined."
+				end_op_message 1
+			fi
 			;;
 		"q" | "Q")
 			PTXT "${INFO} Operations have been applied if any has been made" \

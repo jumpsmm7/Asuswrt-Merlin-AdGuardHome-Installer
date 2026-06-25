@@ -14,7 +14,9 @@ fail() {
 }
 
 [ -f "${SCRIPT_PATH}" ] || fail "manager script not found: ${SCRIPT_PATH}"
-sed -n '/^start_monitor() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n \
+	'/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^start_monitor() {$/,/^}$/p' \
+	"${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'could not extract start_monitor function'
 
 # shellcheck disable=SC1090
@@ -62,7 +64,7 @@ set -u
 
 [ "$(grep -c '^adguardhome_run start_adguardhome$' "${CALLS_FILE}")" -eq 1 ] || fail 'monitor retried startup before the recovery delay'
 grep -q '^sleep 10s$' "${CALLS_FILE}" || fail 'monitor did not wait 10 seconds after failed recovery'
-grep -q 'Monitor will retry in 10 second(s)' "${CALLS_FILE}" || fail 'monitor did not report the retry delay'
+grep -q 'start_monitor: state=running action=check_process reason=process_missing result=dead retry=10' "${CALLS_FILE}" || fail 'monitor did not report the retry delay'
 grep -q '^adguardhome_run stop_adguardhome$' "${CALLS_FILE}" || fail 'test monitor did not stop cleanly after the retry delay'
 
 rm -f "${FUNCTION_FILE}" "${CALLS_FILE}"

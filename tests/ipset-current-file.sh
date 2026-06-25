@@ -22,7 +22,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 mkdir -p "${TEST_DIR}" || fail 'could not create test directory'
-sed -n '/^IPSet_Current_File() {$/,/^}$/p; /^IPSet_Migrate() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^IPSet_Current_File() {$/,/^}$/p; /^IPSet_Migrate() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'IPSET scalar functions were not found'
 
 # shellcheck disable=SC1090

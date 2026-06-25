@@ -41,6 +41,11 @@ file_md5() {
 PTXT() {
 	:
 }
+ptxt_phase() { PTXT "$1"; }
+ptxt_step() { PTXT "$1"; }
+ptxt_ok() { PTXT "$1"; }
+ptxt_warn() { PTXT "$1"; }
+ptxt_fail() { PTXT "$1"; }
 end_op_message() {
 	:
 }

@@ -22,6 +22,18 @@ NAME="${0##*/}[$$]"
 
 # Core helpers
 
+agh_timestamp() {
+	date '+%Y/%m/%d %H:%M:%S'
+}
+
+agh_log() {
+	local _level _func
+	_level="$1"
+	_func="$2"
+	shift 2
+	logger -st "${NAME}" "$(agh_timestamp) [${_level}] ${_func}: $*"
+}
+
 conf_value() {
 	[ -f "${CONF_FILE}" ] || return 1
 	awk -v KEY="$1" '
@@ -230,9 +242,9 @@ adguardhome_run_execute() {
 	runtime="$((end - start))"
 	printf "%s\n" "${runtime}" >>"${pid_file}"
 	if [ "${status}" -eq 0 ]; then
-		logger -st "${NAME}" "${action} took ${runtime} second(s) to complete."
+		agh_log info adguardhome_run_execute "state=service action=${action} reason=service_wait result=completed runtime=${runtime}"
 	else
-		logger -st "${NAME}" "Warning: ${action} did not complete within ${runtime} second(s)."
+		agh_log warning adguardhome_run_execute "state=service action=${action} reason=service_wait result=timeout runtime=${runtime}"
 	fi
 	return "${status}"
 }
@@ -245,23 +257,23 @@ adguardhome_run_flock() {
 	pid_file="${lock_dir}/pid"
 	if adguardhome_run_legacy_mkdir_active; then
 		owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
-		logger -st "${NAME}" "Legacy mkdir lock owned by ${owner:-unknown} exists; preventing duplicate runs!"
+		agh_log warning adguardhome_run_flock "state=locked action=${action} reason=active_lock result=duplicate_lock owner=${owner:-unknown}"
 		return 1
 	fi
 	if ! mkdir -p "${lock_dir}"; then
-		logger -st "${NAME}" "Unable to create ${lock_dir}; cannot run ${action}."
+		agh_log error adguardhome_run_flock "state=lock action=${action} reason=mkdir_failed result=create_lock_failed path=${lock_dir}"
 		return 1
 	fi
 	exec 9>"${lock_file}" || return 1
 	if [ "${action}" = "stop_adguardhome" ]; then
 		if ! flock 9; then
-			logger -st "${NAME}" "Unable to acquire flock for ${action}."
+			agh_log error adguardhome_run_flock "state=lock action=${action} reason=flock_failed result=lock_failed lock=flock"
 			exec 9>&-
 			return 1
 		fi
 	elif ! flock -n 9; then
 		owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
-		logger -st "${NAME}" "Lock owned by ${owner:-unknown} exists; preventing duplicate runs!"
+		agh_log warning adguardhome_run_flock "state=locked action=${action} reason=active_lock result=duplicate_lock owner=${owner:-unknown}"
 		exec 9>&-
 		return 1
 	fi
@@ -340,7 +352,7 @@ adguardhome_run_mkdir() {
 		status="$?"
 		return "${status}"
 	fi
-	logger -st "${NAME}" "Lock owned by $(sed -n '1p' "${pid_file}" 2>/dev/null) exists; preventing duplicate runs!"
+	agh_log warning adguardhome_run_mkdir "state=locked action=${action} reason=active_lock result=duplicate_lock owner=$(sed -n '1p' "${pid_file}" 2>/dev/null)"
 	return 1
 }
 
@@ -422,7 +434,7 @@ check_dns_environment() {
 			if dns_env_restore_profile; then NVCHECK="$((NVCHECK + 1))"; fi
 			;;
 		*)
-			logger -st "${NAME:-dns-manager}" "Invalid DNS environment mode: ${MODE}"
+			agh_log warning check_dns_environment "state=dns action=validate_mode reason=invalid_input result=invalid mode=${MODE}"
 			return 0
 			;;
 	esac
@@ -604,7 +616,7 @@ netcheck() {
 	timewait="0"
 	until system_time_ready; do
 		if [ "${timewait}" -ge "300" ]; then
-			logger -st "${NAME}" "Warning: timed out waiting for system time readiness."
+			agh_log warning netcheck "state=netcheck action=wait_system_time reason=ntp_not_ready result=timeout timeout=300"
 			return 1
 		fi
 		sleep 1s
@@ -879,14 +891,14 @@ start_adguardhome() {
 	SERVICE_WAIT_TERMINAL_FAILURE="0"
 	if ! IPSet_Setup_For_Start; then
 		if [ "${IPSET_START_FAILURE_SAFE}" -ne 1 ]; then
-			logger -st "${NAME}" "Unable to prepare or safely disable AdGuardHome IPSET integration; aborting startup to avoid stale mappings."
+			agh_log error start_adguardhome "state=starting action=prepare_ipset reason=stale_mapping_risk result=failed failure_safe=0"
 			if [ "${IPSET_START_STOPPED}" -eq 1 ]; then
 				IPSet_Start_Restore || true
 			fi
 			SERVICE_WAIT_TERMINAL_FAILURE="1"
 			return 1
 		fi
-		logger -st "${NAME}" "Unable to prepare AdGuardHome IPSET integration; disabled managed mappings and continuing because IPSET integration is optional."
+		agh_log warning start_adguardhome "state=starting action=prepare_ipset reason=optional_setup_failed result=disabled optional=1"
 		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
 			IPSET_START_RESTARTED="1"
 		fi
@@ -931,8 +943,8 @@ start_monitor() {
 	trap 'MONITOR_STATE="stop"' USR1
 	trap 'MONITOR_STATE="restart"' USR2
 	{ service_wait netcheck; }
-	logger -st "${NAME}" "Starting Monitor!"
-	logger -st "${NAME}" "Monitor health checks will run every ${MONITOR_HEALTHCHECK_INTERVAL} second(s)."
+	agh_log info start_monitor "state=${MONITOR_STATE} action=start_monitor reason=init result=started"
+	agh_log info start_monitor "state=${MONITOR_STATE} action=configure_healthcheck reason=init result=enabled interval=${MONITOR_HEALTHCHECK_INTERVAL}"
 	while true; do
 		case "${MONITOR_STATE}" in
 			"running" | "stop")
@@ -943,21 +955,21 @@ start_monitor() {
 				;;
 		esac
 		if [ "${MONITOR_STATE}" = "stop" ]; then # A place to exit early if needed, or if binary becomes unavailable before service-stop.
-			logger -st "${NAME}" "Stopping Monitor!"
+			agh_log info start_monitor "state=stop action=stop_monitor reason=signal_USR1 result=stopping"
 			trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
 			{ adguardhome_run stop_adguardhome; }
 			break
 		fi
 		if [ ! -x "${ADGUARDHOME_BINARY}" ]; then
 			if [ -z "${BINARY_UNAVAILABLE_LOGGED}" ]; then
-				logger -st "${NAME}" "Warning: AdGuardHome binary is unavailable; Monitor will wait."
+				agh_log warning start_monitor "state=${MONITOR_STATE} action=check_binary reason=missing_executable result=unavailable retry=${MONITOR_BINARY_RETRY_INTERVAL}"
 				BINARY_UNAVAILABLE_LOGGED="1"
 			fi
 			sleep "${MONITOR_BINARY_RETRY_INTERVAL}s"
 			continue
 		fi
 		if [ -n "${BINARY_UNAVAILABLE_LOGGED}" ]; then
-			logger -st "${NAME}" "AdGuardHome binary is available and executable; Monitor will resume."
+			agh_log info start_monitor "state=${MONITOR_STATE} action=check_binary reason=executable_restored result=available"
 			unset BINARY_UNAVAILABLE_LOGGED MONITOR_ELAPSED
 		fi
 		case ${MONITOR_STATE} in
@@ -971,7 +983,7 @@ start_monitor() {
 				esac
 				case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 					0)
-						logger -st "${NAME}" "Warning: ${PROCS} is dead; Monitor will retry in ${MONITOR_RECOVERY_RETRY_INTERVAL} second(s)."
+						agh_log warning start_monitor "state=running action=check_process reason=process_missing result=dead retry=${MONITOR_RECOVERY_RETRY_INTERVAL}"
 						unset MONITOR_ELAPSED
 						sleep "${MONITOR_RECOVERY_RETRY_INTERVAL}s"
 						;;
@@ -979,7 +991,7 @@ start_monitor() {
 						if [ "${MONITOR_ELAPSED}" -ge "${MONITOR_HEALTHCHECK_INTERVAL}" ]; then
 							MONITOR_ELAPSED="0"
 							if { ! service_wait netcheck "${MONITOR_HEALTHCHECK_TIMEOUT}"; }; then
-								logger -st "${NAME}" "Warning: ${PROCS} is not responding; Monitor will re-start it!"
+								agh_log warning start_monitor "state=running action=healthcheck reason=netcheck_timeout result=not_responding timeout=${MONITOR_HEALTHCHECK_TIMEOUT}"
 								unset MONITOR_ELAPSED
 							fi
 						else
@@ -988,20 +1000,20 @@ start_monitor() {
 						if [ -n "${MONITOR_ELAPSED}" ]; then sleep "${MONITOR_SLEEP_INTERVAL}s"; fi
 						;;
 					*)
-						logger -st "${NAME}" "Warning: multiple ${PROCS} instances detected; Monitor will retry in ${MONITOR_RECOVERY_RETRY_INTERVAL} second(s)."
+						agh_log warning start_monitor "state=running action=check_process reason=duplicate_process result=multiple_instances retry=${MONITOR_RECOVERY_RETRY_INTERVAL}"
 						unset MONITOR_ELAPSED
 						sleep "${MONITOR_RECOVERY_RETRY_INTERVAL}s"
 						;;
 				esac
 				;;
 			"stop")
-				logger -st "${NAME}" "Stopping Monitor!"
+				agh_log info start_monitor "state=stop action=stop_monitor reason=signal_USR1 result=stopping"
 				trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
 				{ adguardhome_run stop_adguardhome; }
 				break
 				;;
 			"restart")
-				logger -st "${NAME}" "Monitor is restarting AdGuardHome!"
+				agh_log info start_monitor "state=restart action=restart_adguardhome reason=signal_USR2 result=restarting"
 				unset MONITOR_ELAPSED
 				MONITOR_STATE="running"
 				;;
@@ -1023,12 +1035,12 @@ stop_adguardhome() {
 			;;
 	esac
 	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -ne 0 ]; then
-		logger -st "${NAME}" "Unable to stop ${PROCS}; process remains active."
+		agh_log error stop_adguardhome "state=stopping action=stop_process reason=process_still_active result=active process=${PROCS}"
 		STOP_STATUS="1"
 	fi
 	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
 		if ! service restart_dnsmasq >/dev/null 2>&1; then
-			logger -st "${NAME}" "Unable to restart dnsmasq after stopping ${PROCS}."
+			agh_log error stop_adguardhome "state=stopping action=restart_dnsmasq reason=service_restart_failed result=failed process=${PROCS}"
 			STOP_STATUS="1"
 		fi
 	fi
@@ -1469,10 +1481,10 @@ IPSet_Lock_Interrupt_Cleanup() {
 IPSet_Start_Restore() {
 	IPSET_START_STOPPED="0"
 	if IPSet_Start_While_Locked; then
-		logger -st "${NAME}" "Restored AdGuardHome after IPSET setup rollback."
+		agh_log info IPSet_Start_Restore "state=rollback action=restore_adguardhome reason=ipset_setup_rollback result=restored"
 		return 0
 	fi
-	logger -st "${NAME}" "Unable to restart AdGuardHome after IPSET setup rollback."
+	agh_log error IPSet_Start_Restore "state=rollback action=restore_adguardhome reason=ipset_setup_rollback result=failed"
 	return 1
 }
 
@@ -1514,7 +1526,7 @@ IPSet_Lock_Flock() {
 	rm -f "${TRAP_STATE_FILE}"
 	exec 8>"${IPSET_RUNTIME_DIR}/flock" || return 1
 	if ! flock 8; then
-		logger -st "${NAME}" "Unable to acquire flock for IPSET setup."
+		agh_log error IPSet_Lock_Flock "state=lock action=acquire_lock reason=flock_failed result=failed lock=flock"
 		exec 8>&-
 		return 1
 	fi
@@ -1541,12 +1553,12 @@ IPSet_Lock_Mkdir() {
 	OWNERLESS_ATTEMPTS="0"
 	while ! mkdir -m 700 "${LOCK_DIR}" 2>/dev/null; do
 		if [ -L "${LOCK_DIR}" ] || [ ! -d "${LOCK_DIR}" ]; then
-			logger -st "${NAME}" "Refusing unsafe legacy mkdir lock for IPSET setup."
+			agh_log error IPSet_Lock_Mkdir "state=lock action=validate_lock reason=unsafe_path result=failed lock=mkdir"
 			return 1
 		fi
 		LOCK_METADATA="$(IPSet_Directory_Metadata "${LOCK_DIR}")" || return 1
 		if [ "${LOCK_METADATA%% *}" != "${LOCK_OWNER}" ]; then
-			logger -st "${NAME}" "Refusing legacy mkdir lock with an untrusted owner."
+			agh_log error IPSet_Lock_Mkdir "state=lock action=validate_lock reason=untrusted_owner result=failed lock=mkdir"
 			return 1
 		fi
 		OWNER="$(sed -n '1p' "${LOCK_DIR}/pid" 2>/dev/null)"
@@ -1567,7 +1579,7 @@ IPSet_Lock_Mkdir() {
 		esac
 		ATTEMPTS="$((ATTEMPTS + 1))"
 		if [ "${ATTEMPTS}" -ge 30 ]; then
-			logger -st "${NAME}" "Unable to acquire legacy mkdir lock for IPSET setup."
+			agh_log error IPSet_Lock_Mkdir "state=lock action=acquire_lock reason=timeout result=failed lock=mkdir attempts=${ATTEMPTS}"
 			return 1
 		fi
 		sleep 1
@@ -1643,7 +1655,7 @@ IPSet_Migrate() {
 		return 1
 	fi
 	if [ -n "${CURRENT_FILE}" ] && [ "${CURRENT_FILE}" != "${IPSET_FILE}" ]; then
-		logger -st "${NAME}" "Skipping managed IPSET integration for existing file: ${CURRENT_FILE}"
+		agh_log info IPSet_Migrate "state=migration action=migrate_ipset result=skipped reason=existing_file file=${CURRENT_FILE}"
 		IPSET_MIGRATION_SKIPPED="1"
 		return 0
 	fi
@@ -1858,7 +1870,7 @@ IPSet_Disable_Managed() {
 		return 1
 	}
 	IPSET_DISABLE_CHANGED="1"
-	logger -st "${NAME}" "Disabled managed IPSET configuration for this AdGuardHome version."
+	agh_log info IPSet_Disable_Managed "state=configuration action=disable_managed_ipset result=disabled reason=unsupported_version"
 }
 
 IPSet_Disable_Managed_For_Start_Locked() {
@@ -1903,7 +1915,7 @@ IPSet_Refresh() {
 	IPSET_REFRESH_CONFIG="${1:-}"
 	IPSet_Lock IPSet_Setup_Locked || return 1
 	if [ "${IPSET_REFRESH_CHANGED}" = "1" ] && [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
-		logger -st "${NAME}" "Restarting AdGuardHome to apply refreshed IPSET compatibility rules."
+		agh_log info IPSet_Refresh "state=refresh action=restart_adguardhome reason=ipset_refresh result=restarting"
 		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
 		if [ "${IPSET_REFRESH_FROM_DNSMASQ:-}" = "1" ]; then
 			ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
@@ -1921,7 +1933,7 @@ IPSet_Refresh_Locked() {
 		return 1
 	fi
 	if [ -n "${CURRENT_FILE}" ] && [ "${CURRENT_FILE}" != "${IPSET_FILE}" ]; then
-		logger -st "${NAME}" "Skipping managed IPSET refresh for existing file: ${CURRENT_FILE}"
+		agh_log info IPSet_Refresh_Locked "state=refresh action=refresh_ipset result=skipped reason=existing_file file=${CURRENT_FILE}"
 		return 0
 	fi
 	RAW_TEMP_FILE="${IPSET_FILE}.raw.$$"
@@ -1968,7 +1980,7 @@ IPSet_Refresh_Locked() {
 		if [ "${IPSET_FILE_EXISTED}" = "1" ] || [ "${IPSET_DISABLE_CHANGED:-}" = "1" ]; then
 			IPSET_REFRESH_CHANGED="1"
 		fi
-		logger -st "${NAME}" "No IPSET mappings were found; managed IPSET configuration is disabled."
+		agh_log info IPSet_Refresh_Locked "state=refresh action=refresh_ipset result=disabled reason=no_mappings"
 		return 0
 	fi
 	if ! cmp -s "${IPSET_FILE}" "${TEMP_FILE}"; then
@@ -1981,7 +1993,7 @@ IPSet_Refresh_Locked() {
 			return 1
 		}
 		IPSET_REFRESH_CHANGED="1"
-		logger -st "${NAME}" "Refreshed AdGuardHome IPSET compatibility rules."
+		agh_log info IPSet_Refresh_Locked "state=refresh action=refresh_ipset reason=config_changed result=refreshed"
 	else
 		rm -f "${TEMP_FILE}"
 	fi
@@ -2000,18 +2012,18 @@ IPSet_Runtime_Prepare() {
 	OWNER="$(IPSet_Current_UID)" || return 1
 	if ! mkdir -m 700 "${IPSET_RUNTIME_DIR}" 2>/dev/null; then
 		if [ -L "${IPSET_RUNTIME_DIR}" ] || [ ! -d "${IPSET_RUNTIME_DIR}" ]; then
-			logger -st "${NAME}" "Unsafe IPSET runtime path: ${IPSET_RUNTIME_DIR}"
+			agh_log error IPSet_Runtime_Prepare "state=runtime action=prepare_runtime reason=unsafe_path result=failed path=${IPSET_RUNTIME_DIR}"
 			return 1
 		fi
 		METADATA="$(IPSet_Directory_Metadata "${IPSET_RUNTIME_DIR}")" || return 1
 		RUNTIME_OWNER="${METADATA%% *}"
 		MODE="${METADATA#* }"
 		if [ "${RUNTIME_OWNER}" != "${OWNER}" ]; then
-			logger -st "${NAME}" "IPSET runtime directory has an untrusted owner: ${IPSET_RUNTIME_DIR}"
+			agh_log error IPSet_Runtime_Prepare "state=runtime action=prepare_runtime reason=untrusted_owner result=failed path=${IPSET_RUNTIME_DIR}"
 			return 1
 		fi
 		if [ "${MODE}" != "rwx------" ]; then
-			logger -st "${NAME}" "IPSET runtime directory is not private: ${IPSET_RUNTIME_DIR}"
+			agh_log error IPSet_Runtime_Prepare "state=runtime action=prepare_runtime reason=not_private result=failed path=${IPSET_RUNTIME_DIR}"
 			return 1
 		fi
 	fi
@@ -2140,10 +2152,10 @@ IPSet_Setup_Locked() {
 	fi
 	if [ -n "${MIGRATION_BACKUP_FILE}" ]; then
 		if ! mv "${MIGRATION_BACKUP_FILE}" "${YAML_FILE}"; then
-			logger -st "${NAME}" "Unable to restore AdGuardHome configuration after IPSET refresh failure; backup retained at ${MIGRATION_BACKUP_FILE}."
+			agh_log error IPSet_Setup_Locked "state=rollback action=restore_config reason=ipset_refresh_failure result=failed backup=${MIGRATION_BACKUP_FILE}"
 			return 1
 		fi
-		logger -st "${NAME}" "Restored AdGuardHome configuration after IPSET refresh failure."
+		agh_log info IPSet_Setup_Locked "state=rollback action=restore_config reason=ipset_refresh_failure result=restored"
 	fi
 	return "${REFRESH_STATUS}"
 }
@@ -2152,11 +2164,11 @@ IPSet_Supported() {
 	local VERSION_CLASS VERSION_OUTPUT
 	IPSET_LEGACY_VERSION=""
 	if [ ! -x "${ADGUARDHOME_BINARY}" ]; then
-		logger -st "${NAME}" "Skipping managed IPSET integration; AdGuardHome version is unavailable."
+		agh_log warning IPSet_Supported "state=compatibility action=check_version result=skipped reason=binary_unavailable"
 		return 1
 	fi
 	VERSION_OUTPUT="$("${ADGUARDHOME_BINARY}" --version 2>/dev/null)" || {
-		logger -st "${NAME}" "Skipping managed IPSET integration; unable to query the AdGuardHome version."
+		agh_log warning IPSet_Supported "state=compatibility action=check_version result=skipped reason=query_failed"
 		return 1
 	}
 	VERSION_CLASS="$(printf '%s\n' "${VERSION_OUTPUT}" | awk '
@@ -2181,11 +2193,11 @@ IPSet_Supported() {
 			;;
 		legacy)
 			IPSET_LEGACY_VERSION="1"
-			logger -st "${NAME}" "Skipping managed IPSET integration; AdGuardHome v0.107.48 or later is required."
+			agh_log info IPSet_Supported "state=compatibility action=check_version result=skipped reason=unsupported_version minimum=v0.107.48"
 			return 1
 			;;
 	esac
-	logger -st "${NAME}" "Skipping managed IPSET integration; unable to parse the AdGuardHome version."
+	agh_log warning IPSet_Supported "state=compatibility action=check_version result=skipped reason=parse_failed"
 	return 1
 }
 

@@ -109,12 +109,15 @@ run_check 'Router runtime PATH priority regression' sh tests/router-path-priorit
 run_check 'Static archive failure safety regression' sh tests/download-static-failure-safety.sh
 run_check 'Static archive interruption cleanup regression' sh tests/download-static-interruption-cleanup.sh
 run_check 'Installer file failure safety regression' sh tests/installer-file-failure-safety.sh
+run_check 'Installer progress output regression' sh tests/installer-progress-output.sh
 run_check 'Installer legacy hook cleanup regression' sh tests/installer-legacy-hook-cleanup.sh
 run_check 'Installer post-replacement restart regression' sh tests/installer-post-replace-restart.sh
 run_check 'Installer interruption restart regression' sh tests/installer-interruption-restart.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
 run_check 'Installer iterative input regression' sh tests/installer-input-loops.sh
 run_check 'Installer staged authentication regression' sh tests/installer-staged-authentication.sh
+run_check 'Installer startup readiness regression' sh tests/installer-startup-readiness.sh
+run_check 'Installer service status wait regression' sh tests/installer-service-status-after-action.sh
 run_check 'Installer mandatory numeric input failure regression' sh tests/installer-mandatory-number-failure.sh
 run_check 'Installer DNS input failure regression' sh tests/installer-dns-input-failure.sh
 run_check 'Installer WebUI port failure regression' sh tests/installer-web-port-failure.sh
