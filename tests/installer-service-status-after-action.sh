@@ -21,7 +21,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
-sed -n '/^adguard_service_status_after_action() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
+sed -n '/^adguard_pid_list_has_new_pid() {$/,/^valid_adguardhome_username() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
 	fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'service status helper was not found'
 
@@ -32,6 +32,7 @@ INFO='Info:'
 ADGUARDHOME_WAIT_TIMEOUT=60
 PROCESS_STATE='stopped'
 PROCESS_COUNT='0'
+CURRENT_PIDS=''
 SLEEP_CALLS=0
 
 PTXT() {
@@ -47,6 +48,18 @@ sleep() {
 	if [ "${STOP_AFTER_SLEEP:-0}" -gt 0 ] && [ "${SLEEP_CALLS}" -ge "${STOP_AFTER_SLEEP}" ]; then
 		PROCESS_STATE='stopped'
 		PROCESS_COUNT='0'
+		CURRENT_PIDS=''
+	fi
+	if [ "${NEW_PID_AFTER_SLEEP:-0}" -gt 0 ] && [ "${SLEEP_CALLS}" -ge "${NEW_PID_AFTER_SLEEP}" ]; then
+		PROCESS_STATE='running'
+		PROCESS_COUNT='1'
+		CURRENT_PIDS='222'
+	fi
+}
+
+pidof() {
+	if [ "${1:-}" = 'AdGuardHome' ]; then
+		printf '%s\n' "${CURRENT_PIDS}"
 	fi
 }
 
@@ -67,6 +80,8 @@ PROCESS_STATE='stopped'
 PROCESS_COUNT='0'
 START_AFTER_SLEEP=2
 STOP_AFTER_SLEEP=0
+NEW_PID_AFTER_SLEEP=0
+CURRENT_PIDS=''
 SLEEP_CALLS=0
 adguard_service_status_after_action restart || fail 'restart helper did not wait for a delayed running process'
 grep -q 'Waiting for AdGuardHome to report running state after restart' "${CALLS_FILE}" ||
@@ -75,11 +90,26 @@ grep -q 'Waiting for AdGuardHome to report running state after restart' "${CALLS
 grep -q '^check$' "${CALLS_FILE}" || fail 'restart helper did not print service status after settling'
 ! grep -q 'Restarting\.\.\.' "${CALLS_FILE}" || fail 'restart helper reported transitional state after the process settled'
 
+
+: >"${CALLS_FILE}"
+PROCESS_STATE='running'
+PROCESS_COUNT='1'
+CURRENT_PIDS='111'
+START_AFTER_SLEEP=0
+STOP_AFTER_SLEEP=0
+NEW_PID_AFTER_SLEEP=3
+SLEEP_CALLS=0
+adguard_service_status_after_action restart '111' || fail 'restart helper did not wait for a new daemon PID'
+[ "${SLEEP_CALLS}" -eq 3 ] || fail 'restart helper accepted the pre-restart daemon PID'
+grep -q '^check$' "${CALLS_FILE}" || fail 'restart helper did not print service status after daemon PID changed'
+
 : >"${CALLS_FILE}"
 PROCESS_STATE='stopped'
 PROCESS_COUNT='0'
+CURRENT_PIDS=''
 START_AFTER_SLEEP=0
 STOP_AFTER_SLEEP=0
+NEW_PID_AFTER_SLEEP=0
 SLEEP_CALLS=0
 if adguard_service_status_after_action start; then
 	fail 'start helper succeeded while the process never appeared'
@@ -95,6 +125,7 @@ PROCESS_STATE='running'
 PROCESS_COUNT='1'
 START_AFTER_SLEEP=0
 STOP_AFTER_SLEEP=3
+NEW_PID_AFTER_SLEEP=0
 SLEEP_CALLS=0
 adguard_service_status_after_action stop || fail 'stop helper did not wait for a delayed stopped process'
 grep -q 'Waiting for AdGuardHome to stop cleanly' "${CALLS_FILE}" ||
@@ -107,6 +138,7 @@ PROCESS_STATE='running'
 PROCESS_COUNT='1'
 START_AFTER_SLEEP=0
 STOP_AFTER_SLEEP=0
+NEW_PID_AFTER_SLEEP=0
 SLEEP_CALLS=0
 if adguard_service_status_after_action stop; then
 	fail 'stop helper succeeded while the process remained active'
