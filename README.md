@@ -61,7 +61,7 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 - Supports updating AdGuardHome without reinstalling or reconfiguring from scratch.
 - Includes installer, update, backup, reconfiguration, and uninstall flows.
 - Provides service integration through Entware init scripts and Asuswrt-Merlin service events.
-- Can run an unused blocklist analyzer to identify filter lists that did not uniquely contribute blocks in the current AdGuardHome query log window.
+- Can run an unused blocklist analyzer from menu option **9** (or the `blocklists`/`unusedblocklists` actions) to identify filter lists with zero query-log rule hits in the analyzed window.
 
 ## Install, update, reconfigure, or uninstall
 
@@ -139,9 +139,9 @@ More DNS provider references:
 
 ## Unused blocklist analyzer
 
-The installer can download and run [`blocklilst_analyzer.py`](https://gist.github.com/graysky2/8035291d1bf87b8fe3693668965337e1), an AdGuard Home Blocklist Usage Analyzer script by [@graysky2](https://github.com/graysky2). The analyzer inspects AdGuardHome data under `${TARG_DIR}/data`, the filter cache under `${TARG_DIR}/data/filters`, and the AdGuardHome query log to report which filter lists contributed blocking rules during the analyzed log window.
+The analyzer is available from installer menu option **9**, or by running the installer with the `blocklists` or `unusedblocklists` action. The installer can download and run [`blocklilst_analyzer.py`](https://gist.github.com/graysky2/8035291d1bf87b8fe3693668965337e1), an AdGuard Home Blocklist Usage Analyzer script by [@graysky2](https://github.com/graysky2). The analyzer inspects AdGuardHome data under `${TARG_DIR}/data`, the filter cache under `${TARG_DIR}/data/filters`, and the AdGuardHome query log to report which filter lists had matching blocking-rule hits during the analyzed log window.
 
-In this report, **unused** means the blocklist did not uniquely contribute blocks in the query log entries that were analyzed. It does **not** mean the list is globally useless, redundant for every network, or safe to remove in all future traffic patterns. Review the printed list carefully before confirming any removal because removing filter lists can change blocking behavior.
+In this report, **unused** means the blocklist had zero `Result.Rules[].FilterListID` hits in the query log entries that were analyzed. It does **not** mean the list is globally useless, redundant for every network, or safe to remove in all future traffic patterns. Review the printed list carefully before confirming any removal because removing filter lists can change blocking behavior.
 
 When removal is confirmed, the installer backs up `${TARG_DIR}/AdGuardHome.yaml`, removes matching unused filter entries by `id:`, validates the resulting YAML with AdGuardHome's configuration checker, and restores the backup if validation fails. This restore path is intended to keep AdGuardHome from being left with an invalid configuration after an interrupted or failed cleanup.
 
