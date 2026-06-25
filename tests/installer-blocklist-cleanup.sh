@@ -1,0 +1,115 @@
+#!/bin/sh
+# Verify blocklist cleanup helpers parse only analyzer unused IDs and YAML filters entries.
+
+set -u
+
+SCRIPT_PATH="${1:-installer}"
+TMP_ROOT="${TMPDIR:-/tmp}/installer-blocklist-cleanup.$$"
+FUNCTIONS_FILE="${TMP_ROOT}/functions"
+
+cleanup() {
+	rm -rf "${TMP_ROOT}"
+}
+
+fail() {
+	printf '%s\n' "FAIL: $*" >&2
+	exit 1
+}
+
+trap cleanup 0
+trap 'cleanup; exit 1' HUP INT TERM
+
+[ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
+grep -q 'Do you want Entware to install python3 now?' "${SCRIPT_PATH}" ||
+	fail 'installer does not offer to install Entware python3 when missing'
+grep -q 'Do you want to remove all matching unused blocklists?' "${SCRIPT_PATH}" ||
+	fail 'installer does not offer all-at-once blocklist cleanup'
+grep -q 'Remove blocklist ${list_label} from AdGuardHome.yaml?' "${SCRIPT_PATH}" ||
+	fail 'installer does not offer one-by-one blocklist cleanup'
+mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
+
+sed -n \
+	-e '/^PTXT() {$/,/^}/p' \
+	-e '/^ptxt_ok() {$/,/^}/p' \
+	-e '/^ptxt_warn() {$/,/^}/p' \
+	-e '/^blocklist_analyzer_ids() {$/,/^}/p' \
+	-e '/^blocklist_yaml_candidates() {$/,/^}/p' \
+	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
+	fail 'could not extract blocklist helper functions'
+sed -n '/^select_unused_blocklists_for_removal() {$/,/^remove_unused_blocklists_from_yaml() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract blocklist selection function'
+[ -s "${FUNCTIONS_FILE}" ] || fail 'blocklist helper extraction was empty'
+
+cat >"${TMP_ROOT}/analyzer.out" <<'EOF_ANALYZER'
+USED BLOCKLISTS (1)
+-------------------
+123.txt  some used list
+
+ UNUSED BLOCKLISTS (2)
+---------------------
+1769441874.txt  https://example.invalid/a.txt
+200.txt         https://example.invalid/b.txt
+
+OTHER SECTION
+-------------
+999.txt should not be parsed
+EOF_ANALYZER
+
+cat >"${TMP_ROOT}/ids.expected" <<'EOF_IDS'
+1769441874
+200
+EOF_IDS
+
+cat >"${TMP_ROOT}/AdGuardHome.yaml" <<'EOF_YAML'
+users:
+  - name: admin
+    id: 1769441874
+filters:
+  - enabled: true
+    url: https://example.invalid/a.txt
+    name: List A
+    id: 1769441874
+  - enabled: true
+    url: https://example.invalid/keep.txt
+    name: Keep List
+    id: 300
+  - enabled: false
+    url: https://example.invalid/b.txt
+    name: List B
+    id: 200
+querylog:
+  ignored:
+    - id: 200
+EOF_YAML
+
+cat >"${TMP_ROOT}/candidates.expected" <<'EOF_CANDIDATES'
+1769441874|List A|https://example.invalid/a.txt
+200|List B|https://example.invalid/b.txt
+EOF_CANDIDATES
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	INFO='Info:'
+	WARNING='Warning:'
+	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
+	TARG_DIR="${TMP_ROOT}"
+	read_yesno() {
+		printf '%s\n' "$1" >>"${TMP_ROOT}/prompts.actual"
+		return 1
+	}
+	blocklist_analyzer_ids "${TMP_ROOT}/analyzer.out" >"${TMP_ROOT}/ids.actual"
+	blocklist_yaml_candidates "${TMP_ROOT}/ids.actual" "${TMP_ROOT}/AdGuardHome.yaml" >"${TMP_ROOT}/candidates.actual"
+	select_unused_blocklists_for_removal "${TMP_ROOT}/ids.actual" >/dev/null 2>&1 || true
+) || fail 'blocklist helper subprocess failed'
+
+cmp -s "${TMP_ROOT}/ids.expected" "${TMP_ROOT}/ids.actual" ||
+	fail "unused ID parsing changed: $(cat "${TMP_ROOT}/ids.actual")"
+cmp -s "${TMP_ROOT}/candidates.expected" "${TMP_ROOT}/candidates.actual" ||
+	fail "YAML filter candidate parsing changed: $(cat "${TMP_ROOT}/candidates.actual")"
+grep -q 'Remove blocklist List A from AdGuardHome.yaml?' "${TMP_ROOT}/prompts.actual" ||
+	fail 'one-by-one prompt does not include the first blocklist name'
+grep -q 'Remove blocklist List B from AdGuardHome.yaml?' "${TMP_ROOT}/prompts.actual" ||
+	fail 'one-by-one prompt does not include the second blocklist name'
+
+printf '%s\n' 'PASS: blocklist cleanup helpers parse unused IDs and filter candidates safely'
