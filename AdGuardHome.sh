@@ -22,6 +22,18 @@ NAME="${0##*/}[$$]"
 
 # Core helpers
 
+agh_timestamp() {
+	date '+%Y/%m/%d %H:%M:%S'
+}
+
+agh_log() {
+	local _level _func
+	_level="$1"
+	_func="$2"
+	shift 2
+	logger -st "${NAME}" "$(agh_timestamp) [${_level}] ${_func}: $*"
+}
+
 conf_value() {
 	[ -f "${CONF_FILE}" ] || return 1
 	awk -v KEY="$1" '
@@ -931,8 +943,8 @@ start_monitor() {
 	trap 'MONITOR_STATE="stop"' USR1
 	trap 'MONITOR_STATE="restart"' USR2
 	{ service_wait netcheck; }
-	logger -st "${NAME}" "Starting Monitor!"
-	logger -st "${NAME}" "Monitor health checks will run every ${MONITOR_HEALTHCHECK_INTERVAL} second(s)."
+	agh_log info start_monitor "state=${MONITOR_STATE} action=start_monitor result=started"
+	agh_log info start_monitor "state=${MONITOR_STATE} action=configure_healthcheck interval=${MONITOR_HEALTHCHECK_INTERVAL} result=enabled"
 	while true; do
 		case "${MONITOR_STATE}" in
 			"running" | "stop")
@@ -943,21 +955,21 @@ start_monitor() {
 				;;
 		esac
 		if [ "${MONITOR_STATE}" = "stop" ]; then # A place to exit early if needed, or if binary becomes unavailable before service-stop.
-			logger -st "${NAME}" "Stopping Monitor!"
+			agh_log info start_monitor "state=stop action=stop_monitor reason=signal_USR1 result=stopping"
 			trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
 			{ adguardhome_run stop_adguardhome; }
 			break
 		fi
 		if [ ! -x "${ADGUARDHOME_BINARY}" ]; then
 			if [ -z "${BINARY_UNAVAILABLE_LOGGED}" ]; then
-				logger -st "${NAME}" "Warning: AdGuardHome binary is unavailable; Monitor will wait."
+				agh_log warning start_monitor "state=${MONITOR_STATE} action=check_binary result=unavailable retry=${MONITOR_BINARY_RETRY_INTERVAL}"
 				BINARY_UNAVAILABLE_LOGGED="1"
 			fi
 			sleep "${MONITOR_BINARY_RETRY_INTERVAL}s"
 			continue
 		fi
 		if [ -n "${BINARY_UNAVAILABLE_LOGGED}" ]; then
-			logger -st "${NAME}" "AdGuardHome binary is available and executable; Monitor will resume."
+			agh_log info start_monitor "state=${MONITOR_STATE} action=check_binary result=available"
 			unset BINARY_UNAVAILABLE_LOGGED MONITOR_ELAPSED
 		fi
 		case ${MONITOR_STATE} in
@@ -971,7 +983,7 @@ start_monitor() {
 				esac
 				case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 					0)
-						logger -st "${NAME}" "Warning: ${PROCS} is dead; Monitor will retry in ${MONITOR_RECOVERY_RETRY_INTERVAL} second(s)."
+						agh_log warning start_monitor "state=running action=check_process result=dead retry=${MONITOR_RECOVERY_RETRY_INTERVAL}"
 						unset MONITOR_ELAPSED
 						sleep "${MONITOR_RECOVERY_RETRY_INTERVAL}s"
 						;;
@@ -979,7 +991,7 @@ start_monitor() {
 						if [ "${MONITOR_ELAPSED}" -ge "${MONITOR_HEALTHCHECK_INTERVAL}" ]; then
 							MONITOR_ELAPSED="0"
 							if { ! service_wait netcheck "${MONITOR_HEALTHCHECK_TIMEOUT}"; }; then
-								logger -st "${NAME}" "Warning: ${PROCS} is not responding; Monitor will re-start it!"
+								agh_log warning start_monitor "state=running action=healthcheck result=not_responding timeout=${MONITOR_HEALTHCHECK_TIMEOUT}"
 								unset MONITOR_ELAPSED
 							fi
 						else
@@ -988,20 +1000,20 @@ start_monitor() {
 						if [ -n "${MONITOR_ELAPSED}" ]; then sleep "${MONITOR_SLEEP_INTERVAL}s"; fi
 						;;
 					*)
-						logger -st "${NAME}" "Warning: multiple ${PROCS} instances detected; Monitor will retry in ${MONITOR_RECOVERY_RETRY_INTERVAL} second(s)."
+						agh_log warning start_monitor "state=running action=check_process result=multiple_instances retry=${MONITOR_RECOVERY_RETRY_INTERVAL}"
 						unset MONITOR_ELAPSED
 						sleep "${MONITOR_RECOVERY_RETRY_INTERVAL}s"
 						;;
 				esac
 				;;
 			"stop")
-				logger -st "${NAME}" "Stopping Monitor!"
+				agh_log info start_monitor "state=stop action=stop_monitor reason=signal_USR1 result=stopping"
 				trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
 				{ adguardhome_run stop_adguardhome; }
 				break
 				;;
 			"restart")
-				logger -st "${NAME}" "Monitor is restarting AdGuardHome!"
+				agh_log info start_monitor "state=restart action=restart_adguardhome reason=signal_USR2 result=restarting"
 				unset MONITOR_ELAPSED
 				MONITOR_STATE="running"
 				;;
