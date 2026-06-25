@@ -529,7 +529,7 @@ adguard_service_status_after_action() {
 			done
 			;;
 		restart)
-			while ! { agh_is_running && { [ -z "${old_pids}" ] || adguard_pid_list_has_new_pid "${old_pids}" $(pidof AdGuardHome 2>/dev/null); }; }; do
+			while ! { agh_is_running && { [ -z "${old_pids}" ] || adguard_pid_list_has_new_pid "${old_pids}" "$(pidof AdGuardHome 2>/dev/null)"; }; }; do
 				if [ "${elapsed}" -ge "${maxwait}" ]; then
 					PTXT "${INFO} ${transition_message}"
 					return 1
