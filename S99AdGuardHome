@@ -12,6 +12,17 @@ DNS_HANDOFF_DIR="/tmp/AdGuardHome.dns-handoff"
 DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
 DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
 WATCHD_NICE_SNAPSHOT=""
+
+agh_timestamp() {
+	date '+%Y/%m/%d %H:%M:%S'
+}
+
+agh_log() {
+	_level="$1"
+	_func="$2"
+	shift 2
+	logger -st "${PROCS}" "$(agh_timestamp) [${_level}] ${_func}: $*"
+}
 # Lower GOGC values reduce AdGuardHome memory growth, but increase garbage-collection CPU cost.
 GOGC="${ADGUARDHOME_GOGC:-50}"
 CPU_COUNT=""
@@ -71,7 +82,7 @@ dns_handoff_dependencies_available() {
 	for _dns_command in awk chmod kill ln ls mkdir netstat pidof rm service sleep; do
 		if ! which "${_dns_command}" >/dev/null 2>&1; then
 			if which logger >/dev/null 2>&1; then
-				logger -st "${PROCS}" "Required DNS handoff command is unavailable: ${_dns_command}"
+				agh_log ERROR dns_handoff_dependencies_available "Required DNS handoff command is unavailable: ${_dns_command}"
 			else
 				printf '%s\n' "${PROCS}: required DNS handoff command is unavailable: ${_dns_command}" >&2
 			fi
@@ -310,11 +321,11 @@ disable_dns_handoff() {
 		fi
 	fi
 	if [ -n "${_dns_handoff_pid}" ] && [ "${_dns_handoff_pid}" != "${_dns_handoff_current_pid}" ]; then
-		logger -st "${PROCS}" "Refusing to remove a dnsmasq handoff owned by PID ${_dns_handoff_pid}."
+		agh_log ERROR disable_dns_handoff "Refusing to remove a dnsmasq handoff owned by PID ${_dns_handoff_pid}."
 		return 1
 	fi
 	if ! rm -f "${DNS_HANDOFF_FILE}"; then
-		logger -st "${PROCS}" "Unable to disable the dnsmasq port 553 handoff."
+		agh_log ERROR disable_dns_handoff "Unable to disable the dnsmasq port 553 handoff."
 		return 1
 	fi
 	return 0
@@ -404,7 +415,7 @@ enable_dns_handoff() {
 	if ! service restart_dnsmasq >/dev/null 2>&1; then
 		if disable_dns_handoff; then
 			service restart_dnsmasq >/dev/null 2>&1 ||
-				logger -st "${PROCS}" "Unable to restore dnsmasq after the port 553 handoff failed."
+				agh_log ERROR enable_dns_handoff "Unable to restore dnsmasq after the port 553 handoff failed."
 		fi
 		logger -st "${PROCS}" "Unable to regenerate dnsmasq configuration for the port 553 handoff."
 		return 1
@@ -456,32 +467,44 @@ adguardhome_startup_checks_ready() {
 wait_for_adguardhome_startup_checks() {
 	_startup_check_attempts="0"
 	_startup_check_limit="$(dns_retry_limit "${ADGUARDHOME_STARTUP_CHECK_RETRIES:-}" 30)"
+	agh_log INFO wait_for_adguardhome_startup_checks "Waiting for DNS/WebUI readiness checks."
 	while [ "${_startup_check_attempts}" -lt "${_startup_check_limit}" ]; do
 		adguardhome_startup_checks_ready
 		_startup_check_status="$?"
-		[ "${_startup_check_status}" -eq 0 ] && return 0
+		if [ "${_startup_check_status}" -eq 0 ]; then
+			agh_log INFO wait_for_adguardhome_startup_checks "DNS/WebUI readiness checks passed after ${_startup_check_attempts} attempt(s)."
+			return 0
+		fi
 		[ "${_startup_check_status}" -eq 2 ] && break
 		_startup_check_attempts="$((_startup_check_attempts + 1))"
+		if [ "${_startup_check_attempts}" = "5" ] || [ "${_startup_check_attempts}" = "15" ]; then
+			agh_log INFO wait_for_adguardhome_startup_checks "Still waiting for DNS/WebUI readiness after ${_startup_check_attempts} attempt(s)."
+		fi
 		sleep 1s
 	done
-	adguardhome_startup_checks_ready
+	if adguardhome_startup_checks_ready; then
+		agh_log INFO wait_for_adguardhome_startup_checks "DNS/WebUI readiness checks passed on final check."
+		return 0
+	fi
+	agh_log ERROR wait_for_adguardhome_startup_checks "DNS/WebUI readiness checks failed after ${_startup_check_attempts} attempt(s)."
+	return 1
 }
 
 log_adguardhome_start_failure() {
 	if ! pidof "${PROCS}" >/dev/null 2>&1; then
-		logger -st "${PROCS}" "AdGuardHome startup failed: process is not running."
+		agh_log ERROR log_adguardhome_start_failure "AdGuardHome startup failed: process is not running."
 		return 0
 	fi
 	if ! adguardhome_owns_dns; then
-		logger -st "${PROCS}" "AdGuardHome startup failed: process is running but DNS is not bound."
+		agh_log ERROR log_adguardhome_start_failure "AdGuardHome startup failed: process is running but DNS is not bound."
 		return 0
 	fi
 	if ! adguardhome_web_port_available; then
-		logger -st "${PROCS}" "AdGuardHome startup failed: WebUI port is unavailable."
+		agh_log ERROR log_adguardhome_start_failure "AdGuardHome startup failed: WebUI port is unavailable."
 		return 0
 	fi
 	if ! adguardhome_config_valid; then
-		logger -st "${PROCS}" "AdGuardHome startup failed: configuration check failed."
+		agh_log ERROR log_adguardhome_start_failure "AdGuardHome startup failed: configuration check failed."
 		return 0
 	fi
 	return 1
@@ -565,19 +588,21 @@ dns_guard_wait_for_stop() {
 
 stop_dns_port_guard() {
 	[ -n "${ADGUARDHOME_DNS_GUARD_PID:-}" ] || return 0
+	agh_log INFO stop_dns_port_guard "Stopping DNS port guard PID ${ADGUARDHOME_DNS_GUARD_PID}."
 	kill "${ADGUARDHOME_DNS_GUARD_PID}" >/dev/null 2>&1
 	wait "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null
 	unset ADGUARDHOME_DNS_GUARD_PID
+	agh_log INFO stop_dns_port_guard "DNS port guard stopped."
 	return 0
 }
 
 log_adguardhome_dns_wait_failure() {
 	if ! pidof "${PROCS}" >/dev/null 2>&1; then
-		logger -st "${PROCS}" "AdGuardHome did not acquire DNS: AdGuardHome process is missing."
+		agh_log ERROR log_adguardhome_dns_wait_failure "AdGuardHome did not acquire DNS: AdGuardHome process is missing."
 		return 0
 	fi
 	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || {
-		logger -st "${PROCS}" "AdGuardHome did not acquire DNS: unable to inspect port 53 ownership."
+		agh_log ERROR log_adguardhome_dns_wait_failure "AdGuardHome did not acquire DNS: unable to inspect port 53 ownership."
 		return 0
 	}
 	_dns_wait_failure="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
@@ -594,33 +619,42 @@ log_adguardhome_dns_wait_failure() {
 			else print "unknown DNS ownership state"
 		}
 	')"
-	logger -st "${PROCS}" "AdGuardHome did not acquire DNS: ${_dns_wait_failure}."
+	agh_log ERROR log_adguardhome_dns_wait_failure "AdGuardHome did not acquire DNS: ${_dns_wait_failure}."
 }
 
 wait_for_adguardhome_dns() {
 	_dns_wait_attempts="0"
 	_dns_wait_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" 30)"
+	agh_log INFO wait_for_adguardhome_dns "Waiting for AdGuardHome to bind DNS port 53."
 	while [ "${_dns_wait_attempts}" -lt "${_dns_wait_limit}" ]; do
 		adguardhome_owns_dns
 		_dns_wait_status="$?"
-		[ "${_dns_wait_status}" -eq 0 ] && return 0
+		if [ "${_dns_wait_status}" -eq 0 ]; then
+			agh_log INFO wait_for_adguardhome_dns "AdGuardHome owns DNS port 53 after ${_dns_wait_attempts} attempt(s)."
+			return 0
+		fi
 		[ "${_dns_wait_status}" -eq 2 ] && break
 		_dns_wait_attempts="$((_dns_wait_attempts + 1))"
+		if [ "${_dns_wait_attempts}" = "5" ] || [ "${_dns_wait_attempts}" = "15" ]; then
+			agh_log INFO wait_for_adguardhome_dns "Still waiting for DNS port 53 after ${_dns_wait_attempts} attempt(s)."
+		fi
 		sleep 1s
 	done
 	if adguardhome_owns_dns; then
+		agh_log INFO wait_for_adguardhome_dns "AdGuardHome owns DNS port 53 on final check."
 		return 0
 	fi
 	log_adguardhome_dns_wait_failure
 	return 1
 }
 
-guard_dns_port_for_adguardhome() {
+start_dns_port_guard() {
 	_dns_guard_attempts="0"
 	_dns_guard_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_GUARD_RETRIES:-}" 10)"
 	DNS_WATCHDOG_TRAP_FILE=""
+	agh_log INFO start_dns_port_guard "Starting DNS port guard."
 	if ! save_dns_watchdog_traps guard; then
-		logger -st "${PROCS}" "Unable to preserve DNS guard traps; guard startup aborted."
+		agh_log ERROR start_dns_port_guard "Unable to preserve DNS guard traps; guard startup aborted."
 		return 1
 	fi
 	_dns_guard_saved_traps="${DNS_WATCHDOG_TRAP_FILE}"
@@ -632,6 +666,9 @@ guard_dns_port_for_adguardhome() {
 			break
 		fi
 		if dns_port_has_foreign_owner; then
+			if [ "${_dns_guard_attempts}" = "0" ]; then
+				agh_log INFO start_dns_port_guard "Stopping dnsmasq/releasing port 53 while guard is active."
+			fi
 			service stop_dnsmasq >/dev/null 2>&1
 			kill_dns_port_owners
 		fi
@@ -639,6 +676,7 @@ guard_dns_port_for_adguardhome() {
 		_dns_guard_attempts="$((_dns_guard_attempts + 1))"
 		sleep 1s
 	done
+	agh_log INFO start_dns_port_guard "DNS port guard is armed after ${_dns_guard_attempts} attempt(s)."
 	dns_guard_wait_for_stop
 }
 
@@ -653,9 +691,10 @@ abort_pre_start_adguardhome() {
 }
 
 post_start_adguardhome() {
+	agh_log INFO post_start_adguardhome "AdGuardHome process started; waiting for DNS readiness."
 	if ! wait_for_adguardhome_dns; then
 		stop_dns_port_guard
-		disable_dns_handoff || logger -st "${PROCS}" "The dnsmasq port 553 handoff marker requires manual cleanup."
+		disable_dns_handoff || agh_log ERROR post_start_adguardhome "The dnsmasq port 553 handoff marker requires manual cleanup."
 		log_adguardhome_start_failure
 		return 1
 	fi
@@ -672,21 +711,33 @@ post_start_adguardhome() {
 	fi
 	disable_dns_handoff || return 1
 	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
-		service restart_dnsmasq >/dev/null 2>&1 || return 1
+		agh_log INFO post_start_adguardhome "Restarting dnsmasq after successful AdGuardHome startup."
+		service restart_dnsmasq >/dev/null 2>&1 || {
+			agh_log ERROR post_start_adguardhome "Unable to restart dnsmasq after successful AdGuardHome startup."
+			return 1
+		}
+		agh_log INFO post_start_adguardhome "dnsmasq restarted after successful AdGuardHome startup."
 	fi
+	agh_log INFO post_start_adguardhome "AdGuardHome startup completed."
 	return 0
 }
 
 post_start_failure_adguardhome() {
 	_dns_recovery_status="0"
+	agh_log INFO post_start_failure_adguardhome "Running AdGuardHome startup failure recovery."
 	stop_dns_port_guard
 	resume_dns_watchdog
 	if ! disable_dns_handoff; then
+		agh_log ERROR post_start_failure_adguardhome "Unable to disable dnsmasq handoff during failure recovery."
 		_dns_recovery_status="1"
 	fi
 	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
+		agh_log INFO post_start_failure_adguardhome "Restarting dnsmasq after AdGuardHome startup failure."
 		if ! service restart_dnsmasq >/dev/null 2>&1; then
+			agh_log ERROR post_start_failure_adguardhome "Unable to restart dnsmasq after AdGuardHome startup failure."
 			_dns_recovery_status="1"
+		else
+			agh_log INFO post_start_failure_adguardhome "dnsmasq restarted after AdGuardHome startup failure."
 		fi
 	fi
 	return "${_dns_recovery_status}"
@@ -849,9 +900,23 @@ ensure_adguardhome_work_dir_permissions() {
 pre_start_adguardhome() {
 	_dns_stop_attempts="0"
 	_dns_stop_limit="$(dns_retry_limit "${ADGUARDHOME_DNSMASQ_STOP_RETRIES:-}" 10)"
-	ensure_adguardhome_work_dir_permissions || return 1
+	agh_log INFO pre_start_adguardhome "Validating AdGuardHome configuration and permissions."
+	ensure_adguardhome_work_dir_permissions || {
+		agh_log ERROR pre_start_adguardhome "AdGuardHome configuration and permissions validation failed."
+		return 1
+	}
+	adguardhome_config_valid || {
+		agh_log ERROR pre_start_adguardhome "AdGuardHome configuration validation failed."
+		return 1
+	}
+	agh_log INFO pre_start_adguardhome "AdGuardHome configuration and permissions validation completed."
 	dns_handoff_dependencies_available || return 1
-	enable_dns_handoff || return 1
+	agh_log INFO pre_start_adguardhome "Preparing DNS handoff."
+	enable_dns_handoff || {
+		agh_log ERROR pre_start_adguardhome "DNS handoff preparation failed."
+		return 1
+	}
+	agh_log INFO pre_start_adguardhome "DNS handoff prepared."
 	# Keep Go memory behavior controlled by PREARGS runtime settings, not hard shell memory caps.
 	ulimit -s 8192 2>/dev/null || true
 	if [ "$(pidof syslog-ng logrotate | wc -w)" -gt 0 ] && which scribe >/dev/null 2>&1; then
@@ -859,15 +924,17 @@ pre_start_adguardhome() {
 	fi
 	DNS_WATCHDOG_TRAP_FILE=""
 	if ! save_dns_watchdog_traps pre; then
-		logger -st "${PROCS}" "Unable to preserve startup traps; startup aborted."
+		agh_log ERROR pre_start_adguardhome "Unable to preserve startup traps; startup aborted."
 		post_start_failure_adguardhome
 		return 1
 	fi
 	_dns_watchdog_saved_traps="${DNS_WATCHDOG_TRAP_FILE}"
+	agh_log INFO pre_start_adguardhome "Stopping dnsmasq/releasing port 53 before starting AdGuardHome."
 	while [ "${_dns_stop_attempts}" -lt "${_dns_stop_limit}" ]; do
 		if dns_port_available; then
-			guard_dns_port_for_adguardhome >/dev/null 2>&1 &
+			start_dns_port_guard >/dev/null 2>&1 &
 			ADGUARDHOME_DNS_GUARD_PID="$!"
+			agh_log INFO pre_start_adguardhome "Port 53 released; starting AdGuardHome."
 			restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
 			return 0
 		fi
@@ -880,9 +947,12 @@ pre_start_adguardhome() {
 		trap 'abort_pre_start_adguardhome "${_dns_watchdog_saved_traps}"' HUP INT TERM EXIT
 		suspend_dns_watchdog
 		_dns_stop_attempts="$((_dns_stop_attempts + 1))"
+		if [ "${_dns_stop_attempts}" = "5" ]; then
+			agh_log INFO pre_start_adguardhome "Still waiting for port 53 release after ${_dns_stop_attempts} attempt(s)."
+		fi
 		sleep 1s
 	done
-	logger -st "${PROCS}" "Unable to release port 53 after ${_dns_stop_limit} attempt(s); startup aborted."
+	agh_log ERROR pre_start_adguardhome "Unable to release port 53 after ${_dns_stop_limit} attempt(s); startup aborted."
 	post_start_failure_adguardhome
 	restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
 	return 1
