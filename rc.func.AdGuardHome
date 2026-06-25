@@ -138,6 +138,11 @@ service_transition_state() {
 }
 
 service_clear_transition() {
+	local _EXPECT_STATE
+	_EXPECT_STATE="${1:-}"
+	if [ -n "${_EXPECT_STATE}" ]; then
+		[ "$(service_transition_state 2>/dev/null)" = "${_EXPECT_STATE}" ] || return 0
+	fi
 	rm -f "$(service_state_file)" 2>/dev/null || true
 }
 
@@ -309,7 +314,7 @@ stop() {
 		return 255
 	else
 		if [ "${ACTION}" = "stop" ]; then
-			service_clear_transition
+			service_clear_transition "stopping"
 		fi
 		printf "%s\n" "            ${ansi_green} done. ${ansi_std}"
 		return 0
