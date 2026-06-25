@@ -23,7 +23,7 @@ ansi_ul="$(printf "\033[4m")"
 
 rc_dependencies_available() {
 	local _REQUIRED_COMMAND
-	for _REQUIRED_COMMAND in date grep kill killall logger pidof rm sleep; do
+	for _REQUIRED_COMMAND in chmod date dirname grep kill killall logger mkdir pidof rm sleep; do
 		if ! which "${_REQUIRED_COMMAND}" >/dev/null 2>&1; then
 			printf '%s\n' "${CALLER}: required service command is unavailable: ${_REQUIRED_COMMAND}" >&2
 			return 1
@@ -97,7 +97,17 @@ signal_process() {
 # Service action helpers
 
 service_state_file() {
-	printf '%s\n' "/tmp/${PROC}.service-state"
+	printf '%s\n' "/opt/var/run/${PROC}/service-state"
+}
+
+service_state_dir_ready() {
+	local _STATE_DIR
+	_STATE_DIR="$(dirname "$(service_state_file)")"
+	[ ! -L "${_STATE_DIR}" ] || return 1
+	mkdir -p "${_STATE_DIR}" 2>/dev/null || return 1
+	[ ! -L "${_STATE_DIR}" ] || return 1
+	chmod 700 "${_STATE_DIR}" 2>/dev/null || return 1
+	[ -d "${_STATE_DIR}" ] || return 1
 }
 
 service_timestamp() {
@@ -105,9 +115,12 @@ service_timestamp() {
 }
 
 service_mark_transition() {
-	local _STATE
+	local _STATE _STATE_FILE
 	_STATE="$1"
-	printf '%s\n' "${_STATE}" >"$(service_state_file)" 2>/dev/null || true
+	service_state_dir_ready || return 0
+	_STATE_FILE="$(service_state_file)"
+	[ ! -L "${_STATE_FILE}" ] || return 0
+	printf '%s\n' "${_STATE}" >"${_STATE_FILE}" 2>/dev/null || true
 }
 
 service_transition_state() {
