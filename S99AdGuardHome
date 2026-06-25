@@ -903,7 +903,8 @@ pre_start_adguardhome() {
 	agh_log INFO pre_start_adguardhome "Validating AdGuardHome configuration and permissions."
 	ensure_adguardhome_work_dir_permissions || return 1
 	adguardhome_config_valid || {
-		agh_log ERROR pre_start_adguardhome "AdGuardHome configuration validation failed."
+		agh_log ERROR pre_start_adguardhome "AdGuardHome configuration validation failed; restoring dnsmasq."
+		post_start_failure_adguardhome
 		return 1
 	}
 	agh_log INFO pre_start_adguardhome "AdGuardHome configuration and permissions validation completed."

@@ -457,6 +457,19 @@ stop_dns_port_guard
 disable_dns_handoff || fail 'could not clean up successful pre-start handoff'
 
 : >"${CALLS_FILE}"
+printf '%s\n' '#!/bin/sh' 'exit 1' >"${WORK_DIR}/AdGuardHome" || fail 'could not set failing AdGuardHome config check'
+chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod failing AdGuardHome binary'
+DNS_STATE=busy
+if pre_start_adguardhome; then
+	fail 'pre-start accepted an invalid AdGuardHome configuration'
+fi
+grep -q 'AdGuardHome configuration validation failed; restoring dnsmasq' "${CALLS_FILE}" ||
+	fail 'pre-start did not log config validation recovery'
+[ "$(grep -c '^service restart_dnsmasq$' "${CALLS_FILE}")" -eq 1 ] || fail 'failed config validation did not restore dnsmasq exactly once'
+printf '%s\n' '#!/bin/sh' 'exit 0' >"${WORK_DIR}/AdGuardHome" || fail 'could not restore AdGuardHome config check'
+chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod restored AdGuardHome binary'
+
+: >"${CALLS_FILE}"
 DNS_STATE=busy
 KILL_RELEASES_PORT=1
 ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
