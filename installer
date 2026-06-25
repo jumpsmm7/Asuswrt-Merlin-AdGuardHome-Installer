@@ -480,6 +480,79 @@ sanitize_branch() {
 
 # AdGuardHome process helpers
 
+adguard_pid_list_has_new_pid() {
+	local new_pid old_pids
+	old_pids=" ${1:-} "
+	shift
+	for new_pid in "$@"; do
+		case "${old_pids}" in
+			*" ${new_pid} "*) ;;
+			*)
+				return 0
+				;;
+		esac
+	done
+	return 1
+}
+
+adguard_service_status_after_action() {
+	local action elapsed maxwait old_pids status_message transition_message
+	action="${1:-restart}"
+	old_pids="${2:-}"
+	elapsed="0"
+	maxwait="${ADGUARDHOME_WAIT_TIMEOUT}"
+	[ "${maxwait}" -le "5" ] || maxwait="5"
+	case "${action}" in
+		stop | kill)
+			status_message="Waiting for AdGuardHome to stop cleanly..."
+			transition_message="Stopping..."
+			;;
+		start)
+			status_message="Waiting for AdGuardHome to report running state after start..."
+			transition_message="Restarting..."
+			;;
+		restart | *)
+			status_message="Waiting for AdGuardHome to report running state after restart..."
+			transition_message="Restarting..."
+			;;
+	esac
+	PTXT "${INFO} ${status_message}"
+	case "${action}" in
+		stop | kill)
+			while [ "$(agh_process_count)" -ge "1" ]; do
+				if [ "${elapsed}" -ge "${maxwait}" ]; then
+					PTXT "${INFO} ${transition_message}"
+					return 1
+				fi
+				sleep 1s
+				elapsed="$((elapsed + 1))"
+			done
+			;;
+		restart)
+			while ! { agh_is_running && { [ -z "${old_pids}" ] || adguard_pid_list_has_new_pid "${old_pids}" "$(pidof AdGuardHome 2>/dev/null)"; }; }; do
+				if [ "${elapsed}" -ge "${maxwait}" ]; then
+					PTXT "${INFO} ${transition_message}"
+					return 1
+				fi
+				sleep 1s
+				elapsed="$((elapsed + 1))"
+			done
+			;;
+		*)
+			while ! agh_is_running; do
+				if [ "${elapsed}" -ge "${maxwait}" ]; then
+					PTXT "${INFO} ${transition_message}"
+					return 1
+				fi
+				sleep 1s
+				elapsed="$((elapsed + 1))"
+			done
+			;;
+	esac
+	agh_check
+	return 0
+}
+
 valid_adguardhome_username() {
 	case "${1:-}" in
 		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-]*)
@@ -738,11 +811,13 @@ agh_process_count() {
 }
 
 agh_restart() {
+	local old_pids
 	if agh_is_running; then
+		old_pids="$(pidof AdGuardHome 2>/dev/null)"
 		if service restart_AdGuardHome >/dev/null 2>&1; then
-			sleep 1s
+			adguard_service_status_after_action restart "${old_pids}" || true
 		elif /opt/etc/init.d/S99AdGuardHome restart; then
-			sleep 1s
+			adguard_service_status_after_action restart "${old_pids}" || true
 		else
 			return 1
 		fi
@@ -756,9 +831,9 @@ agh_restart() {
 agh_start() {
 	if ! agh_is_running; then
 		if service start_AdGuardHome >/dev/null 2>&1; then
-			sleep 1s
+			adguard_service_status_after_action start || true
 		elif /opt/etc/init.d/S99AdGuardHome start; then
-			sleep 1s
+			adguard_service_status_after_action start || true
 		else
 			return 1
 		fi
@@ -780,11 +855,11 @@ agh_start_error() {
 agh_stop() {
 	if [ "$(agh_process_count)" -ge "1" ]; then
 		if service stop_AdGuardHome >/dev/null 2>&1; then
-			sleep 1s
+			adguard_service_status_after_action stop || true
 		elif /opt/etc/init.d/S99AdGuardHome stop; then
-			sleep 1s
+			adguard_service_status_after_action stop || true
 		elif /opt/etc/init.d/S99AdGuardHome kill; then
-			sleep 1s
+			adguard_service_status_after_action kill || true
 		else
 			if ai_have_cmd killall; then
 				killall -q -9 AdGuardHome 2>/dev/null
@@ -793,7 +868,7 @@ agh_stop() {
 				return 1
 			fi
 			rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null
-			sleep 1s
+			adguard_service_status_after_action kill || true
 		fi
 	fi
 	sleep 1s
@@ -3232,8 +3307,11 @@ menu() {
 				end_op_message 1
 				return 1
 			fi
+			OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
 			if ! service restart_AdGuardHome >/dev/null 2>&1; then
 				PTXT "${WARNING} The setting was saved, but AdGuardHome could not be restarted automatically."
+			else
+				adguard_service_status_after_action restart "${OLD_PIDS}" || true
 			fi
 			end_op_message 0
 			;;

@@ -115,6 +115,8 @@ run_check 'Installer interruption restart regression' sh tests/installer-interru
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
 run_check 'Installer iterative input regression' sh tests/installer-input-loops.sh
 run_check 'Installer staged authentication regression' sh tests/installer-staged-authentication.sh
+run_check 'Installer startup readiness regression' sh tests/installer-startup-readiness.sh
+run_check 'Installer service status wait regression' sh tests/installer-service-status-after-action.sh
 run_check 'Installer mandatory numeric input failure regression' sh tests/installer-mandatory-number-failure.sh
 run_check 'Installer DNS input failure regression' sh tests/installer-dns-input-failure.sh
 run_check 'Installer WebUI port failure regression' sh tests/installer-web-port-failure.sh
