@@ -109,6 +109,7 @@ run_check 'Router runtime PATH priority regression' sh tests/router-path-priorit
 run_check 'Static archive failure safety regression' sh tests/download-static-failure-safety.sh
 run_check 'Static archive interruption cleanup regression' sh tests/download-static-interruption-cleanup.sh
 run_check 'Installer file failure safety regression' sh tests/installer-file-failure-safety.sh
+run_check 'Installer progress output regression' sh tests/installer-progress-output.sh
 run_check 'Installer legacy hook cleanup regression' sh tests/installer-legacy-hook-cleanup.sh
 run_check 'Installer post-replacement restart regression' sh tests/installer-post-replace-restart.sh
 run_check 'Installer interruption restart regression' sh tests/installer-interruption-restart.sh

@@ -24,6 +24,11 @@ mkdir -p "${TMP_DIR}/target" || exit 1
 awk '
 	/^_quote\(\)/,/^}/
 	/^PTXT\(\)/,/^}/
+	/^ptxt_phase\(\)/,/^}/
+	/^ptxt_step\(\)/,/^}/
+	/^ptxt_ok\(\)/,/^}/
+	/^ptxt_warn\(\)/,/^}/
+	/^ptxt_fail\(\)/,/^}/
 	/^md5_is_valid\(\)/,/^}/
 	/^file_md5\(\)/,/^}/
 	/^adguard_archive_is_safe\(\)/,/^}/
@@ -93,6 +98,7 @@ awk '
 
 	INFO="Info:"
 	ERROR="Error:"
+	WARNING="Warning:"
 	ADGUARD_DEFER_END_OP="1"
 	ADGUARD_INSTALL_WAS_RUNNING="1"
 	ADGUARD_RESTORE_ACTIVE="1"
@@ -138,6 +144,7 @@ awk '
 
 	INFO="Info:"
 	ERROR="Error:"
+	WARNING="Warning:"
 	BASE_DIR="${TMP_DIR}/atomic-install"
 	TARG_DIR="${BASE_DIR}/target"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
@@ -190,6 +197,7 @@ EOF
 
 	INFO="Info:"
 	ERROR="Error:"
+	WARNING="Warning:"
 	AGH_FILE="${TMP_DIR}/rollback/AdGuardHome"
 	OLD_BINARY="${TMP_DIR}/rollback/AdGuardHome.previous"
 	RESTART_CALLS="0"
@@ -418,6 +426,7 @@ EOF
 
 	INFO="Info:"
 	ERROR="Error:"
+	WARNING="Warning:"
 	RESTART_CALLS="0"
 	agh_start() {
 		RESTART_CALLS="$((RESTART_CALLS + 1))"
@@ -446,6 +455,7 @@ EOF
 
 	INFO="Info:"
 	ERROR="Error:"
+	WARNING="Warning:"
 	ROLLBACK_DIR="${TMP_DIR}/directory-rollback/.AdGuardHome.rollback"
 	TARGET_DIR="${TMP_DIR}/directory-rollback/AdGuardHome"
 	STAGE_DIR="${TMP_DIR}/directory-rollback/.AdGuardHome.restore"
@@ -491,7 +501,9 @@ EOF
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
 
+	INFO="Info:"
 	ERROR="Error:"
+	WARNING="Warning:"
 	BASE_DIR="${TMP_DIR}/backup-root"
 	mkdir -p "${BASE_DIR}/AdGuardHome" || exit 1
 	printf '%s\n' "installed data" >"${BASE_DIR}/AdGuardHome/AdGuardHome.yaml"
@@ -512,7 +524,9 @@ EOF
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
 
+	INFO="Info:"
 	ERROR="Error:"
+	WARNING="Warning:"
 	CONF_FILE="${TMP_DIR}/config"
 	printf '%s\n' 'SETTING="old"' >"${CONF_FILE}"
 
@@ -529,7 +543,9 @@ EOF
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
 
+	INFO="Info:"
 	ERROR="Error:"
+	WARNING="Warning:"
 	printf '%s\n' '#!/bin/sh' >"${TMP_DIR}/event-script"
 
 	chmod() {
@@ -547,6 +563,7 @@ EOF
 
 	INFO="Info:"
 	ERROR="Error:"
+	WARNING="Warning:"
 	BASE_DIR="${TMP_DIR}/restore-root"
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
@@ -575,6 +592,7 @@ EOF
 
 	INFO="Info:"
 	ERROR="Error:"
+	WARNING="Warning:"
 	BASE_DIR="${TMP_DIR}/restore-fail-root"
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
@@ -620,6 +638,7 @@ EOF
 
 	INFO="Info:"
 	ERROR="Error:"
+	WARNING="Warning:"
 	BASE_DIR="${TMP_DIR}/restore-data-file-root"
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
@@ -678,6 +697,7 @@ EOF
 
 	INFO="Info:"
 	ERROR="Error:"
+	WARNING="Warning:"
 	BASE_DIR="${TMP_DIR}/restore-swap-fail-root"
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
@@ -729,6 +749,7 @@ EOF
 
 	INFO="Info:"
 	ERROR="Error:"
+	WARNING="Warning:"
 	BASE_DIR="${TMP_DIR}/restore-final-fail-root"
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
@@ -813,6 +834,7 @@ EOF
 
 	INFO="Info:"
 	ERROR="Error:"
+	WARNING="Warning:"
 	BASE_DIR="${TMP_DIR}/restore-final-fail-no-current-root"
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
@@ -882,6 +904,7 @@ EOF
 
 	INFO="Info:"
 	ERROR="Error:"
+	WARNING="Warning:"
 	BASE_DIR="${TMP_DIR}/restore-final-success-root"
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
