@@ -901,10 +901,7 @@ pre_start_adguardhome() {
 	_dns_stop_attempts="0"
 	_dns_stop_limit="$(dns_retry_limit "${ADGUARDHOME_DNSMASQ_STOP_RETRIES:-}" 10)"
 	agh_log INFO pre_start_adguardhome "Validating AdGuardHome configuration and permissions."
-	ensure_adguardhome_work_dir_permissions || {
-		agh_log ERROR pre_start_adguardhome "AdGuardHome configuration and permissions validation failed."
-		return 1
-	}
+	ensure_adguardhome_work_dir_permissions || return 1
 	adguardhome_config_valid || {
 		agh_log ERROR pre_start_adguardhome "AdGuardHome configuration validation failed."
 		return 1
