@@ -174,10 +174,12 @@ adguardhome_start_handoff_is_prepared() {
 
 start() {
 	local DNS_HANDOFF LAUNCH_PID PIDS STOPPED
-	case "${ACTION}" in
-		"restart") service_mark_transition "restarting" ;;
-		*) service_mark_transition "starting" ;;
-	esac
+	if type service_mark_transition >/dev/null 2>&1; then
+		case "${ACTION:-}" in
+			"restart") service_mark_transition "restarting" ;;
+			*) service_mark_transition "starting" ;;
+		esac
+	fi
 	{ [ "${CRITICAL}" != "yes" ] && [ "${CALLER}" = "cron" ]; } && return 7
 	[ "${ENABLED}" != "yes" ] && return 8
 	printf "%s" "${ansi_white} Starting ${DESC}... ${ansi_std}"
@@ -255,7 +257,9 @@ stop() {
 	local PIDS
 	case "${ACTION}" in
 		"stop")
-			service_mark_transition "stopping"
+			if type service_mark_transition >/dev/null 2>&1; then
+				service_mark_transition "stopping"
+			fi
 			printf "%s" "${ansi_white} Shutting down ${PROC}... ${ansi_std}"
 			signal_process TERM "${PROC}"
 			process_wait_for_stop "${PROC}" 10 || {
@@ -267,7 +271,9 @@ stop() {
 			}
 			;;
 		"restart")
-			service_mark_transition "restarting"
+			if type service_mark_transition >/dev/null 2>&1; then
+				service_mark_transition "restarting"
+			fi
 			printf "%s" "${ansi_white} Shutting down ${PROC}... ${ansi_std}"
 			signal_process TERM "${PROC}"
 			process_wait_for_stop "${PROC}" 10 || {
