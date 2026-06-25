@@ -486,8 +486,7 @@ adguard_pid_list_has_new_pid() {
 	shift
 	for new_pid in "$@"; do
 		case "${old_pids}" in
-			*" ${new_pid} "*)
-				;;
+			*" ${new_pid} "*) ;;
 			*)
 				return 0
 				;;

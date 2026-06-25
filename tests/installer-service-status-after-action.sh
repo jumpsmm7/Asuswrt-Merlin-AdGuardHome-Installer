@@ -90,7 +90,6 @@ grep -q 'Waiting for AdGuardHome to report running state after restart' "${CALLS
 grep -q '^check$' "${CALLS_FILE}" || fail 'restart helper did not print service status after settling'
 ! grep -q 'Restarting\.\.\.' "${CALLS_FILE}" || fail 'restart helper reported transitional state after the process settled'
 
-
 : >"${CALLS_FILE}"
 PROCESS_STATE='running'
 PROCESS_COUNT='1'
