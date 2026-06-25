@@ -3614,14 +3614,14 @@ menu() {
 			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 r q; }; fi
 			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then
 				if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
-					read_input_num "Please enter the number that designates your selection:" 1 9 b q
+					read_input_num "Please enter the number that designates your selection:" 1 9 b q;
 				else
 					read_input_num "Please enter the number that designates your selection:" 1 8 b q
 				fi
 			fi
 			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then
 				if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
-					read_input_num "Please enter the number that designates your selection:" 1 9 b r q
+					read_input_num "Please enter the number that designates your selection:" 1 9 b r q;
 				else
 					read_input_num "Please enter the number that designates your selection:" 1 8 b r q
 				fi
