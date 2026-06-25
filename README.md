@@ -145,6 +145,8 @@ In this report, **unused** means the blocklist did not uniquely contribute block
 
 When removal is confirmed, the installer backs up `${TARG_DIR}/AdGuardHome.yaml`, removes matching unused filter entries by `id:`, validates the resulting YAML with AdGuardHome's configuration checker, and restores the backup if validation fails. This restore path is intended to keep AdGuardHome from being left with an invalid configuration after an interrupted or failed cleanup.
 
+Removal can be handled in two ways after the unused list report is printed. The **ALL** option removes every listed unused filter in one pass after a single confirmation, which is faster but should be used only after reviewing the full printed list. The **one by one** option prompts for each unused filter individually so you can keep specific lists even if they were unused during the analyzed window. Both paths remove filters by their AdGuardHome `id:` entries and use the same backup, validation, and restore safety checks before the changed configuration is kept.
+
 Python 3 is required to run the analyzer. On Entware-based installs, install it before using the analyzer if the installer has not already installed it for you:
 
 ```sh
