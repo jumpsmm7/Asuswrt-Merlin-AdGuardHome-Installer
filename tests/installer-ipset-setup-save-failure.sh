@@ -69,6 +69,11 @@ agh_start_error() { :; }
 PTXT() {
 	printf '%s\n' "$*" >>"${LOG}"
 }
+ptxt_phase() { PTXT "$1"; }
+ptxt_step() { PTXT "$1"; }
+ptxt_ok() { PTXT "$1"; }
+ptxt_warn() { PTXT "$1"; }
+ptxt_fail() { PTXT "$1"; }
 end_op_message() {
 	printf '%s\n' "$1" >>"${END_LOG}"
 }
