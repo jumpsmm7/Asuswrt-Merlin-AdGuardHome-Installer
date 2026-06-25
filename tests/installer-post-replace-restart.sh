@@ -52,6 +52,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	DOWNLOAD_COUNT=0
 	RUNNING=1
 
+	adguard_install_abort_trap_disable_preserve_defer() { :; }
 	adguard_remote_archive() { printf '%s\n' 'AdGuardHome_test.tar.gz'; }
 	adguard_remote_md5() { :; }
 	adguard_remote_url() { printf '%s\n' 'https://example.invalid/AdGuardHome_test.tar.gz'; }
@@ -79,6 +80,11 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 		printf '%s\n' "end:$*" >>"${CALLS_FILE}"
 	}
 	PTXT() { :; }
+	ptxt_phase() { PTXT "$1"; }
+	ptxt_step() { PTXT "$1"; }
+	ptxt_ok() { PTXT "$1"; }
+	ptxt_warn() { PTXT "$1"; }
+	ptxt_fail() { PTXT "$1"; }
 
 	if inst_AdGuardHome update release; then
 		fail 'installer reported success after a service-file download failed'
