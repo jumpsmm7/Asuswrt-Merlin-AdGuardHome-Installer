@@ -1123,7 +1123,7 @@ check_AdGuardHome_yaml() {
 
 blocklist_analyzer_ids() {
 	awk '
-		/^UNUSED BLOCKLISTS[[:space:]]*\(/ { in_unused = 1; next }
+		/^[[:space:]]*UNUSED BLOCKLISTS[[:space:]]*\(/ { in_unused = 1; next }
 		in_unused && /^[-=][-=]*$/ { next }
 		in_unused && /^$/ { exit }
 		in_unused {

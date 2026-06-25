@@ -45,7 +45,7 @@ USED BLOCKLISTS (1)
 -------------------
 123.txt  some used list
 
-UNUSED BLOCKLISTS (2)
+ UNUSED BLOCKLISTS (2)
 ---------------------
 1769441874.txt  https://example.invalid/a.txt
 200.txt         https://example.invalid/b.txt
