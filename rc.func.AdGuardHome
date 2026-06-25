@@ -23,7 +23,7 @@ ansi_ul="$(printf "\033[4m")"
 
 rc_dependencies_available() {
 	local _REQUIRED_COMMAND
-	for _REQUIRED_COMMAND in grep kill killall logger pidof sleep; do
+	for _REQUIRED_COMMAND in date grep kill killall logger pidof rm sleep; do
 		if ! which "${_REQUIRED_COMMAND}" >/dev/null 2>&1; then
 			printf '%s\n' "${CALLER}: required service command is unavailable: ${_REQUIRED_COMMAND}" >&2
 			return 1
@@ -96,15 +96,58 @@ signal_process() {
 
 # Service action helpers
 
+service_state_file() {
+	printf '%s\n' "/tmp/${PROC}.service-state"
+}
+
+service_timestamp() {
+	date '+%Y/%m/%d %H:%M:%S'
+}
+
+service_mark_transition() {
+	local _STATE
+	_STATE="$1"
+	printf '%s\n' "${_STATE}" >"$(service_state_file)" 2>/dev/null || true
+}
+
+service_transition_state() {
+	local _STATE
+	_STATE=""
+	[ -r "$(service_state_file)" ] || return 1
+	IFS= read -r _STATE <"$(service_state_file)" || return 1
+	case "${_STATE}" in
+		"starting" | "stopping" | "restarting")
+			printf '%s\n' "${_STATE}"
+			return 0
+			;;
+	esac
+	return 1
+}
+
+service_clear_transition() {
+	rm -f "$(service_state_file)" 2>/dev/null || true
+}
+
+service_status_line() {
+	local _STATUS _PIDS
+	_STATUS="$1"
+	_PIDS="$2"
+	printf '%s[%s]: %s [info] check: status=%s pid="%s"\n' \
+		"${PROC}" "$$" "$(service_timestamp)" "${_STATUS}" "${_PIDS}"
+}
+
 check() {
-	printf "%s" "${ansi_white} Checking ${DESC}... "
-	if process_running "${PROC}"; then
-		printf "%s\n" "            ${ansi_green} alive. ${ansi_std}"
+	local PIDS STATUS
+	PIDS="$(process_pids "${PROC}")"
+	if [ -n "${PIDS}" ]; then
+		service_clear_transition
+		service_status_line "running" "${PIDS}"
 		return 0
-	else
-		printf "%s\n" "            ${ansi_red} dead. ${ansi_std}"
-		return 1
 	fi
+	STATUS="$(service_transition_state || printf '%s\n' "stopped")"
+	service_status_line "${STATUS}" ""
+	service_clear_transition
+	return 1
 }
 
 reload() {
@@ -131,6 +174,12 @@ adguardhome_start_handoff_is_prepared() {
 
 start() {
 	local DNS_HANDOFF LAUNCH_PID PIDS STOPPED
+	if type service_mark_transition >/dev/null 2>&1; then
+		case "${ACTION:-}" in
+			"restart") service_mark_transition "restarting" ;;
+			*) service_mark_transition "starting" ;;
+		esac
+	fi
 	{ [ "${CRITICAL}" != "yes" ] && [ "${CALLER}" = "cron" ]; } && return 7
 	[ "${ENABLED}" != "yes" ] && return 8
 	printf "%s" "${ansi_white} Starting ${DESC}... ${ansi_std}"
@@ -207,7 +256,24 @@ start() {
 stop() {
 	local PIDS
 	case "${ACTION}" in
-		"stop" | "restart")
+		"stop")
+			if type service_mark_transition >/dev/null 2>&1; then
+				service_mark_transition "stopping"
+			fi
+			printf "%s" "${ansi_white} Shutting down ${PROC}... ${ansi_std}"
+			signal_process TERM "${PROC}"
+			process_wait_for_stop "${PROC}" 10 || {
+				signal_process INT "${PROC}"
+				process_wait_for_stop "${PROC}" 5 || {
+					signal_process KILL "${PROC}"
+					process_wait_for_stop "${PROC}" 3
+				}
+			}
+			;;
+		"restart")
+			if type service_mark_transition >/dev/null 2>&1; then
+				service_mark_transition "restarting"
+			fi
 			printf "%s" "${ansi_white} Shutting down ${PROC}... ${ansi_std}"
 			signal_process TERM "${PROC}"
 			process_wait_for_stop "${PROC}" 10 || {
