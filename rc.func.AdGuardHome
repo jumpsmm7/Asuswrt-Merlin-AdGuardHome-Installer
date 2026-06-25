@@ -308,6 +308,9 @@ stop() {
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 		return 255
 	else
+		if [ "${ACTION}" = "stop" ]; then
+			service_clear_transition
+		fi
 		printf "%s\n" "            ${ansi_green} done. ${ansi_std}"
 		return 0
 	fi
