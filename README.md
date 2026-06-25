@@ -17,6 +17,7 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 - [Service commands](#service-commands)
 - [Verify AdGuardHome is running](#verify-adguardhome-is-running)
 - [AdGuardHome DNS examples](#adguardhome-dns-examples)
+- [Unused blocklist analyzer](#unused-blocklist-analyzer)
 - [IPSET integration](#ipset-integration)
   - [Requirements and ownership](#requirements-and-ownership)
   - [Managed files and YAML](#managed-files-and-yaml)
@@ -60,6 +61,7 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 - Supports updating AdGuardHome without reinstalling or reconfiguring from scratch.
 - Includes installer, update, backup, reconfiguration, and uninstall flows.
 - Provides service integration through Entware init scripts and Asuswrt-Merlin service events.
+- Can run an unused blocklist analyzer to identify filter lists that did not uniquely contribute blocks in the current AdGuardHome query log window.
 
 ## Install, update, reconfigure, or uninstall
 
@@ -134,6 +136,22 @@ More DNS provider references:
 - [SNBForums AdGuardHome installer thread](http://www.snbforums.com/threads/release-asuswrt-merlin-adguardhome-installer-amaghi.76506/post-735471)
 - [AdGuard DNS providers knowledge base](https://adguard-dns.io/kb/general/dns-providers/)
 - [AdGuardHome wiki](https://github.com/AdguardTeam/AdGuardHome/wiki)
+
+## Unused blocklist analyzer
+
+The installer can download and run [`blocklilst_analyzer.py`](https://gist.github.com/graysky2/8035291d1bf87b8fe3693668965337e1), an AdGuard Home Blocklist Usage Analyzer script by [@graysky2](https://github.com/graysky2). The analyzer inspects AdGuardHome data under `${TARG_DIR}/data`, the filter cache under `${TARG_DIR}/data/filters`, and the AdGuardHome query log to report which filter lists contributed blocking rules during the analyzed log window.
+
+In this report, **unused** means the blocklist did not uniquely contribute blocks in the query log entries that were analyzed. It does **not** mean the list is globally useless, redundant for every network, or safe to remove in all future traffic patterns. Review the printed list carefully before confirming any removal because removing filter lists can change blocking behavior.
+
+When removal is confirmed, the installer backs up `${TARG_DIR}/AdGuardHome.yaml`, removes matching unused filter entries by `id:`, validates the resulting YAML with AdGuardHome's configuration checker, and restores the backup if validation fails. This restore path is intended to keep AdGuardHome from being left with an invalid configuration after an interrupted or failed cleanup.
+
+Python 3 is required to run the analyzer. On Entware-based installs, install it before using the analyzer if the installer has not already installed it for you:
+
+```sh
+opkg install python3
+```
+
+`python3` is an Entware dependency, not a stock Asuswrt-Merlin router command. The analyzer itself is optional; users who do not want Entware Python 3 installed can skip this feature and manage filter lists manually from the AdGuardHome web interface.
 
 ## IPSET integration
 
