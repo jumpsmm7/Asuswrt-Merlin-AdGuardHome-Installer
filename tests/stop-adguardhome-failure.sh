@@ -21,7 +21,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail "could not create test directory"
 
-sed -n '/^stop_adguardhome() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" ||
+sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^stop_adguardhome() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" ||
 	fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail "stop_adguardhome function was not found"
 
@@ -73,7 +73,7 @@ if stop_adguardhome; then
 fi
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" ||
 	fail "stop failure did not attempt to restore dnsmasq"
-grep -q 'process remains active' "${CALLS_FILE}" ||
+grep -q 'reason=process_still_active' "${CALLS_FILE}" ||
 	fail "persistent process failure was not logged"
 
 : >"${CALLS_FILE}"
@@ -82,7 +82,7 @@ SERVICE_STATUS="1"
 if stop_adguardhome; then
 	fail "stop_adguardhome hid a failed dnsmasq restart"
 fi
-grep -q 'Unable to restart dnsmasq' "${CALLS_FILE}" ||
+grep -q 'reason=service_restart_failed' "${CALLS_FILE}" ||
 	fail "dnsmasq restart failure was not logged"
 
 : >"${CALLS_FILE}"
