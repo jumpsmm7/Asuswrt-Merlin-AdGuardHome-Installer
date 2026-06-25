@@ -1202,7 +1202,7 @@ run_blocklist_analyzer() {
 	ids_file="${TARG_DIR}/blocklist_analyzer.$$.ids"
 	ptxt_phase "Running AdGuardHome blocklist analyzer."
 	ptxt_step "Running analyzer from ${TARG_DIR} so ./data resolves correctly."
-	if ! ( cd "${TARG_DIR}" && python3 "${BLOCKLIST_ANALYZER_FILE}" ) >"${output_file}" 2>&1; then
+	if ! (cd "${TARG_DIR}" && python3 "${BLOCKLIST_ANALYZER_FILE}") >"${output_file}" 2>&1; then
 		cat "${output_file}"
 		rm -f "${output_file}" "${ids_file}"
 		ptxt_fail "Blocklist analyzer failed."
@@ -1279,7 +1279,10 @@ select_unused_blocklists_for_removal() {
 		rm -f "${candidates_file}" "${selected_file}"
 		return "${choice_status}"
 	fi
-	: >"${selected_file}" || { rm -f "${candidates_file}"; return 1; }
+	: >"${selected_file}" || {
+		rm -f "${candidates_file}"
+		return 1
+	}
 	while IFS='|' read -r id name url; do
 		[ -n "${name}" ] && list_label="${name}" || list_label="id ${id}"
 		PTXT "" "${INFO} Unused blocklist candidate:" "  id=${id}" "  name=${name}" "  url=${url}"
@@ -1288,7 +1291,10 @@ select_unused_blocklists_for_removal() {
 		case "${choice_status}" in
 			0) PTXT "${id}" >>"${selected_file}" ;;
 			1) ptxt_ok "Keeping blocklist id ${id}." ;;
-			*) rm -f "${candidates_file}" "${selected_file}"; return "${choice_status}" ;;
+			*)
+				rm -f "${candidates_file}" "${selected_file}"
+				return "${choice_status}"
+				;;
 		esac
 	done <"${candidates_file}"
 	rm -f "${candidates_file}"
@@ -1339,7 +1345,10 @@ remove_unused_blocklists_from_yaml() {
 		}
 		{ flush_entry(); print }
 		END { flush_entry() }
-	' "${YAML_FILE}" >"${tmp_file}" || { rm -f "${tmp_file}" "${removed_file}"; return 1; }
+	' "${YAML_FILE}" >"${tmp_file}" || {
+		rm -f "${tmp_file}" "${removed_file}"
+		return 1
+	}
 	if [ ! -s "${removed_file}" ]; then
 		rm -f "${tmp_file}" "${removed_file}"
 		ptxt_warn "No matching numeric filter IDs were found under filters:."
@@ -1369,12 +1378,21 @@ remove_unused_blocklists_from_yaml() {
 }
 
 cleanup_unused_blocklists() {
-	install_blocklist_analyzer || { end_op_message 1; return 1; }
+	install_blocklist_analyzer || {
+		end_op_message 1
+		return 1
+	}
 	run_blocklist_analyzer
 	case "$?" in
 		0) ;;
-		2) end_op_message 0; return 0 ;;
-		*) end_op_message 1; return 1 ;;
+		2)
+			end_op_message 0
+			return 0
+			;;
+		*)
+			end_op_message 1
+			return 1
+			;;
 	esac
 	if ! select_unused_blocklists_for_removal "${BLOCKLIST_ANALYZER_IDS_FILE}"; then
 		rm -f "${BLOCKLIST_ANALYZER_IDS_FILE:-}" "${BLOCKLIST_ANALYZER_OUTPUT_FILE:-}" "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}"
