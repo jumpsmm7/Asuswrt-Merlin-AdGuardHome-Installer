@@ -35,6 +35,7 @@ sed -n \
 	-e '/^ptxt_warn() {$/,/^}/p' \
 	-e '/^ptxt_fail() {$/,/^}/p' \
 	-e '/^ai_have_cmd() {$/,/^}/p' \
+	-e '/^sha256sum_available() {$/,/^}/p' \
 	-e '/^ensure_sha256sum_tool() {$/,/^}/p' \
 	-e '/^ensure_blocklist_analyzer_dependencies() {$/,/^}/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
@@ -77,6 +78,44 @@ EOF_SHA
 	ensure_sha256sum_tool >"${TMP_ROOT}/available.out" 2>&1
 ) || fail 'SHA-256 helper failed when sha256sum was already available'
 [ ! -s "${TMP_ROOT}/available.out" ] || fail 'SHA-256 helper prompted or installed when sha256sum was already available'
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	INFO='Info:'
+	ERROR='Error:'
+	WARNING='Warning:'
+	INPUT='Input:'
+	BOLD=''
+	NORM=''
+	ptxt_fail() {
+		printf '%s\n' "$*"
+		return 1
+	}
+	read_yesno() {
+		printf '%s\n' 'prompt should not run when BusyBox sha256sum exists'
+		return 1
+	}
+	ensure_opkg_package() {
+		printf '%s\n' 'install should not run when BusyBox sha256sum exists'
+		return 1
+	}
+	mkdir -p "${TMP_ROOT}/busybox-bin" || exit 1
+	cat >"${TMP_ROOT}/busybox-bin/which" <<EOF_WHICH || exit 1
+#!/bin/sh
+[ "\$1" = "busybox" ] || exit 1
+printf '%s\n' "${TMP_ROOT}/busybox-bin/busybox"
+EOF_WHICH
+	cat >"${TMP_ROOT}/busybox-bin/busybox" <<'EOF_BUSYBOX' || exit 1
+#!/bin/sh
+[ "$1" = "sha256sum" ] || exit 1
+printf '%s  %s\n' 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' "$2"
+EOF_BUSYBOX
+	chmod 755 "${TMP_ROOT}/busybox-bin/which" "${TMP_ROOT}/busybox-bin/busybox" || exit 1
+	PATH="${TMP_ROOT}/busybox-bin"
+	ensure_sha256sum_tool >"${TMP_ROOT}/busybox.out" 2>&1
+) || fail 'SHA-256 helper failed when only BusyBox sha256sum applet was available'
+[ ! -s "${TMP_ROOT}/busybox.out" ] || fail 'SHA-256 helper prompted or installed when BusyBox sha256sum was available'
 
 (
 	# shellcheck disable=SC1090
@@ -224,4 +263,4 @@ EOF_SHA
 	ensure_blocklist_analyzer_dependencies >"${TMP_ROOT}/blocklist-ready.out" 2>&1
 ) || fail 'blocklist dependency helper failed when python3 and sha256sum were available'
 
-printf '%s\n' 'PASS: installer SHA-256 helper handles available, install, post-install failure, and option 9 dependency paths'
+printf '%s\n' 'PASS: installer SHA-256 helper handles available, BusyBox applet, install, post-install failure, and option 9 dependency paths'

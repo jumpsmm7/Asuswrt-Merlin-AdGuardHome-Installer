@@ -129,8 +129,21 @@ ensure_opkg_package() {
 	opkg_pkg_installed "${_pkg}"
 }
 
+sha256sum_available() {
+	if ai_have_cmd sha256sum && sha256sum /dev/null >/dev/null 2>&1; then
+		return 0
+	fi
+	if [ -x /bin/busybox ] && /bin/busybox sha256sum /dev/null >/dev/null 2>&1; then
+		return 0
+	fi
+	if ai_have_cmd busybox && busybox sha256sum /dev/null >/dev/null 2>&1; then
+		return 0
+	fi
+	return 1
+}
+
 ensure_sha256sum_tool() {
-	if ai_have_cmd sha256sum; then
+	if sha256sum_available; then
 		return 0
 	fi
 	ptxt_warn "sha256sum was not found in PATH, and this feature requires SHA-256 checksum verification."
@@ -146,7 +159,7 @@ ensure_sha256sum_tool() {
 		ptxt_fail "Unable to install Entware coreutils-sha256sum."
 		return 1
 	fi
-	if ai_have_cmd sha256sum; then
+	if sha256sum_available; then
 		ptxt_ok "SHA-256 checksum support is available."
 		return 0
 	fi
