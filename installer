@@ -139,6 +139,9 @@ sha256sum_available() {
 	if ai_have_cmd busybox && busybox sha256sum /dev/null >/dev/null 2>&1; then
 		return 0
 	fi
+	if ai_have_cmd openssl && openssl dgst -sha256 /dev/null >/dev/null 2>&1; then
+		return 0
+	fi
 	return 1
 }
 
@@ -146,9 +149,9 @@ ensure_sha256sum_tool() {
 	if sha256sum_available; then
 		return 0
 	fi
-	ptxt_warn "sha256sum was not found in PATH, and this feature requires SHA-256 checksum verification."
+	ptxt_warn "Neither sha256sum nor OpenSSL SHA-256 support was found in PATH; checksum verification is required."
 	PTXT "${INFO} Some Asuswrt-Merlin firmware builds do not include sha256sum."
-	PTXT "${INFO} Entware can provide it with: opkg install coreutils-sha256sum"
+	PTXT "${INFO} Entware can provide sha256sum with: opkg install coreutils-sha256sum"
 	if ! read_yesno "Do you want Entware to install coreutils-sha256sum now?"; then
 		ptxt_fail "SHA-256 support is required; refusing to continue without checksum validation."
 		return 1
@@ -469,6 +472,9 @@ file_sha256() {
 	fi
 	if [ -z "${SHA256_OUTPUT}" ] && ai_have_cmd busybox; then
 		SHA256_OUTPUT="$(busybox sha256sum "${FILE}")" || SHA256_OUTPUT=""
+	fi
+	if [ -z "${SHA256_OUTPUT}" ] && ai_have_cmd openssl; then
+		SHA256_OUTPUT="$(openssl dgst -sha256 "${FILE}")" || SHA256_OUTPUT=""
 	fi
 	[ -n "${SHA256_OUTPUT}" ] || return 1
 	SHA256_VALUE="$(PTXT "${SHA256_OUTPUT}" | awk '
