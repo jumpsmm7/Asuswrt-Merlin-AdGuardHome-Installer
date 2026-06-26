@@ -30,9 +30,13 @@ mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n \
 	-e '/^PTXT() {$/,/^}/p' \
+	-e '/^ptxt_phase() {$/,/^}/p' \
+	-e '/^ptxt_step() {$/,/^}/p' \
 	-e '/^ptxt_ok() {$/,/^}/p' \
 	-e '/^ptxt_warn() {$/,/^}/p' \
+	-e '/^ptxt_fail() {$/,/^}/p' \
 	-e '/^blocklist_analyzer_ids() {$/,/^}/p' \
+	-e '/^run_blocklist_analyzer() {$/,/^}/p' \
 	-e '/^blocklist_yaml_candidates() {$/,/^}/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract blocklist helper functions'
@@ -41,6 +45,69 @@ sed -n '/^select_unused_blocklists_for_removal() {$/,/^remove_unused_blocklists_
 sed -n '/^remove_unused_blocklists_from_yaml() {$/,/^cleanup_unused_blocklists() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
 	fail 'could not extract blocklist removal function'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'blocklist helper extraction was empty'
+
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	INFO='Info:'
+	ERROR='Error:'
+	TARG_DIR="${TMP_ROOT}/missing-inputs"
+	BLOCKLIST_ANALYZER_FILE="${TARG_DIR}/blocklist_analyzer.py"
+	mkdir -p "${TARG_DIR}/data" || exit 1
+	python3() {
+		printf '%s\n' 'python should not run without filters' >"${TMP_ROOT}/python-called"
+		return 0
+	}
+	if run_blocklist_analyzer >"${TMP_ROOT}/missing-filters.out" 2>&1; then
+		exit 1
+	fi
+	[ ! -e "${TMP_ROOT}/python-called" ] || exit 1
+) || fail 'blocklist analyzer accepted missing filter directory'
+grep -q 'filter files are missing' "${TMP_ROOT}/missing-filters.out" ||
+	fail 'missing filter directory did not produce a clear failure'
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	INFO='Info:'
+	ERROR='Error:'
+	TARG_DIR="${TMP_ROOT}/missing-querylog"
+	BLOCKLIST_ANALYZER_FILE="${TARG_DIR}/blocklist_analyzer.py"
+	mkdir -p "${TARG_DIR}/data/filters" || exit 1
+	printf '%s\n' 'filter data' >"${TARG_DIR}/data/filters/1.txt" || exit 1
+	python3() {
+		printf '%s\n' 'python should not run without querylog' >"${TMP_ROOT}/python-called-querylog"
+		return 0
+	}
+	if run_blocklist_analyzer >"${TMP_ROOT}/missing-querylog.out" 2>&1; then
+		exit 1
+	fi
+	[ ! -e "${TMP_ROOT}/python-called-querylog" ] || exit 1
+) || fail 'blocklist analyzer accepted missing query log'
+grep -q 'query log is missing or empty' "${TMP_ROOT}/missing-querylog.out" ||
+	fail 'missing query log did not produce a clear failure'
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	INFO='Info:'
+	ERROR='Error:'
+	TARG_DIR="${TMP_ROOT}/ready-inputs"
+	BLOCKLIST_ANALYZER_FILE="${TARG_DIR}/blocklist_analyzer.py"
+	mkdir -p "${TARG_DIR}/data/filters" || exit 1
+	printf '%s\n' 'filter data' >"${TARG_DIR}/data/filters/1.txt" || exit 1
+	printf '%s\n' '{"version":1}' >"${TARG_DIR}/data/querylog.json" || exit 1
+	python3() {
+		printf '%s\n' 'python ran with required inputs' >"${TMP_ROOT}/python-called-ready"
+		printf '%s\n' 'UNUSED BLOCKLISTS (0)'
+		return 0
+	}
+	run_blocklist_analyzer >"${TMP_ROOT}/ready-inputs.out" 2>&1
+	status="$?"
+	[ "${status}" -eq 2 ] || exit 1
+	[ -e "${TMP_ROOT}/python-called-ready" ] || exit 1
+) || fail 'blocklist analyzer did not run with required inputs present'
 
 cat >"${TMP_ROOT}/analyzer.out" <<'EOF_ANALYZER'
 USED BLOCKLISTS (1)
