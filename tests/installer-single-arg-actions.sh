@@ -34,10 +34,15 @@ grep -q 'set -- "${BRANCH}" "${CHOSEN}"' "${SCRIPT_PATH}" ||
 	fail 'single-argument action path does not rewrite branch/action parameters'
 default_line="$(grep -n 'write_conf BLOCKLIST_ANALYZER_SHA256' "${SCRIPT_PATH}" | cut -d: -f1)" ||
 	fail 'could not find blocklist analyzer checksum default write'
+amtm_check_skip_line="$(grep -n '\[ "${1:-}" = "amtmupdate" \] && \[ "${2:-}" = "check" \]' "${SCRIPT_PATH}" | cut -d: -f1)" ||
+	fail 'could not find amtmupdate check default-write bypass'
 dispatch_line="$(grep -n '\[ -z "${2:-}" \] && single_arg_menu_action "${1}"' "${SCRIPT_PATH}" | cut -d: -f1)" ||
 	fail 'could not find one-argument dispatch guard'
-if [ -z "${default_line}" ] || [ -z "${dispatch_line}" ]; then
-	fail 'could not compare checksum defaulting and one-argument dispatch ordering'
+if [ -z "${default_line}" ] || [ -z "${amtm_check_skip_line}" ] || [ -z "${dispatch_line}" ]; then
+	fail 'could not compare checksum defaulting, amtmupdate check bypass, and one-argument dispatch ordering'
+fi
+if [ "${amtm_check_skip_line}" -ge "${default_line}" ]; then
+	fail 'amtmupdate check bypass must happen before blocklist analyzer checksum default write'
 fi
 if [ "${default_line}" -ge "${dispatch_line}" ]; then
 	fail 'blocklist analyzer checksum defaulting must happen before one-argument dispatch'
