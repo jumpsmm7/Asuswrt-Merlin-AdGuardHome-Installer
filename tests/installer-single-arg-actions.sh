@@ -26,7 +26,7 @@ sed -n '/^single_arg_menu_action() {$/,/^}/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FIL
 	fail 'could not extract single-argument action helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'single-argument action helper extraction was empty'
 
-grep -q '\[ -z "${2:-}" \] && single_arg_menu_action "$1"' "${SCRIPT_PATH}" ||
+grep -q '\[ -z "${2:-}" \] && single_arg_menu_action "${1}"' "${SCRIPT_PATH}" ||
 	fail 'main argument parser does not guard unset action parameters before one-argument dispatch'
 grep -q 'set -- "${BRANCH}" "${CHOSEN}"' "${SCRIPT_PATH}" ||
 	fail 'single-argument action path does not rewrite branch/action parameters'
