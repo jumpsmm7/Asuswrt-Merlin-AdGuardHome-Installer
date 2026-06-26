@@ -71,7 +71,7 @@ mkdir -p "${ROOT}/bin" || fail 'could not create fake command directory'
 cat >"${ROOT}/bin/which" <<'EOF' || fail 'could not write fake which'
 #!/bin/sh
 case "$1" in
-	awk | busybox) printf '%s\n' "${0%/*}/$1"; exit 0 ;;
+	awk | busybox | wc) printf '%s\n' "${0%/*}/$1"; exit 0 ;;
 	*) exit 1 ;;
 esac
 EOF
@@ -81,6 +81,7 @@ cat >"${ROOT}/bin/busybox" <<'EOF' || fail 'could not write fake busybox'
 printf '%s  %s\n' "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" "$2"
 EOF
 ln -s /usr/bin/awk "${ROOT}/bin/awk" || fail 'could not link awk'
+ln -s /usr/bin/wc "${ROOT}/bin/wc" || fail 'could not link wc'
 chmod 755 "${ROOT}/bin/which" "${ROOT}/bin/busybox" || fail 'could not make fake commands executable'
 OLD_PATH="${PATH}"
 PATH="${ROOT}/bin"

@@ -59,6 +59,12 @@ sed -n \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract SHA-256 helper functions'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'SHA-256 helper extraction was empty'
+# Let the test mock the router absolute BusyBox probe separately from PATH.
+# Hosts (and routers) may have /bin/busybox with a sha256sum applet, which
+# would otherwise make the missing-tool cases observe the host environment.
+sed 's#/bin/busybox#${BUSYBOX_BIN:-/bin/busybox}#g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" ||
+	fail 'could not make BusyBox probe mockable'
+mv "${FUNCTIONS_FILE}.tmp" "${FUNCTIONS_FILE}" || fail 'could not update extracted SHA-256 helpers'
 
 (
 	# shellcheck disable=SC1090
@@ -92,6 +98,7 @@ EOF_WHICH
 exit 0
 EOF_SHA
 	chmod 755 "${TMP_ROOT}/available-bin/which" "${TMP_ROOT}/available-bin/sha256sum" || exit 1
+	BUSYBOX_BIN="${TMP_ROOT}/not-busybox"
 	PATH="${TMP_ROOT}/available-bin"
 	ensure_sha256sum_tool >"${TMP_ROOT}/available.out" 2>&1
 ) || fail 'SHA-256 helper failed when sha256sum was already available'
@@ -130,6 +137,7 @@ EOF_WHICH
 printf '%s  %s\n' 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' "$2"
 EOF_BUSYBOX
 	chmod 755 "${TMP_ROOT}/busybox-bin/which" "${TMP_ROOT}/busybox-bin/busybox" || exit 1
+	BUSYBOX_BIN="${TMP_ROOT}/busybox-bin/busybox"
 	PATH="${TMP_ROOT}/busybox-bin"
 	ensure_sha256sum_tool >"${TMP_ROOT}/busybox.out" 2>&1
 ) || fail 'SHA-256 helper failed when only BusyBox sha256sum applet was available'
@@ -159,6 +167,7 @@ EOF_WHICH
 exit 0
 EOF_SHA
 	chmod 755 "${TMP_ROOT}/install-bin/which" "${TMP_ROOT}/install-bin/sha256sum" || exit 1
+	BUSYBOX_BIN="${TMP_ROOT}/not-busybox"
 	PATH="${TMP_ROOT}/install-bin"
 	ensure_opkg_package() {
 		[ "$1" = "coreutils-sha256sum" ] || return 1
@@ -184,6 +193,7 @@ grep -q 'Installing Entware coreutils-sha256sum package' "${TMP_ROOT}/install.ou
 exit 1
 EOF_WHICH
 	chmod 755 "${TMP_ROOT}/missing-bin/which" || exit 1
+	BUSYBOX_BIN="${TMP_ROOT}/not-busybox"
 	PATH="${TMP_ROOT}/missing-bin"
 	ensure_opkg_package() { [ "$1" = "coreutils-sha256sum" ]; }
 	if ensure_sha256sum_tool >"${TMP_ROOT}/missing.out" 2>&1; then
@@ -222,6 +232,7 @@ EOF_WHICH
 exit 0
 EOF_PYTHON
 	chmod 755 "${TMP_ROOT}/blocklist-bin/which" "${TMP_ROOT}/blocklist-bin/python3" || exit 1
+	BUSYBOX_BIN="${TMP_ROOT}/not-busybox"
 	PATH="${TMP_ROOT}/blocklist-bin"
 	answer_count=0
 	read_yesno() {
@@ -275,6 +286,7 @@ EOF_SHA
 	chmod 755 "${TMP_ROOT}/blocklist-ready-bin/which" \
 		"${TMP_ROOT}/blocklist-ready-bin/python3" \
 		"${TMP_ROOT}/blocklist-ready-bin/sha256sum" || exit 1
+	BUSYBOX_BIN="${TMP_ROOT}/not-busybox"
 	PATH="${TMP_ROOT}/blocklist-ready-bin"
 	read_yesno() { exit 1; }
 	ensure_opkg_package() { exit 1; }
