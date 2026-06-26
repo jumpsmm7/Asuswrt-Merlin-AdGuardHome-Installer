@@ -429,7 +429,21 @@ file_sha256() {
 	else
 		return 1
 	fi
-	SHA256_VALUE="$(PTXT "${SHA256_OUTPUT}" | awk 'NF {print $NF; found = 1; exit} END {if (!found) exit 1}')" || return 1
+	SHA256_VALUE="$(PTXT "${SHA256_OUTPUT}" | awk '
+		NF {
+			if (length($1) == 64 && $1 !~ /[^0123456789abcdefABCDEF]/) {
+				print $1
+				found = 1
+				exit
+			}
+			if (length($NF) == 64 && $NF !~ /[^0123456789abcdefABCDEF]/) {
+				print $NF
+				found = 1
+				exit
+			}
+		}
+		END {if (!found) exit 1}
+	')" || return 1
 	sha256_is_valid "${SHA256_VALUE}" || return 1
 	PTXT "${SHA256_VALUE}"
 }
