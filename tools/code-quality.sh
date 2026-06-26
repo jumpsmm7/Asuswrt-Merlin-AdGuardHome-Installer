@@ -114,6 +114,8 @@ run_check 'Installer legacy hook cleanup regression' sh tests/installer-legacy-h
 run_check 'Installer post-replacement restart regression' sh tests/installer-post-replace-restart.sh
 run_check 'Installer interruption restart regression' sh tests/installer-interruption-restart.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
+run_check 'Installer single-argument action regression' sh tests/installer-single-arg-actions.sh
+run_check 'Installer blocklist cleanup regression' sh tests/installer-blocklist-cleanup.sh
 run_check 'Installer iterative input regression' sh tests/installer-input-loops.sh
 run_check 'Installer staged authentication regression' sh tests/installer-staged-authentication.sh
 run_check 'Installer startup readiness regression' sh tests/installer-startup-readiness.sh

@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.3.8                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.3.9                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
 
-AI_VERSION="v2.3.8"
+AI_VERSION="v2.3.9"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -37,6 +37,9 @@ readonly YAML_FILE="${AGH_FILE}.yaml"
 readonly YAML_BAK="${YAML_FILE}.bak"
 readonly YAML_ERR="${YAML_FILE}.err"
 readonly YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
+readonly BLOCKLIST_ANALYZER_FILE="${TARG_DIR}/blocklist_analyzer.py"
+readonly BLOCKLIST_ANALYZER_URL="https://gist.githubusercontent.com/graysky2/8035291d1bf87b8fe3693668965337e1/raw/blocklilst_analyzer.py"
+readonly BLOCKLIST_ANALYZER_SHA256=""
 SCRIPT_LOC=""
 
 BOLD="$(printf "\033[1m")" || true
@@ -1116,6 +1119,362 @@ check_AdGuardHome_yaml() {
 	ptxt_ok "AdGuardHome configuration ${yaml_target} is valid."
 }
 
+# Blocklist analyzer helpers
+
+blocklist_analyzer_ids() {
+	awk '
+		/^[[:space:]]*UNUSED BLOCKLISTS[[:space:]]*\(/ { in_unused = 1; next }
+		in_unused && /^[-=][-=]*$/ { next }
+		in_unused && /^$/ { exit }
+		in_unused {
+			line = $0
+			sub(/^[[:space:]]*/, "", line)
+			if (line ~ /^[0-9]+\.txt([[:space:]]|$)/) {
+				sub(/\.txt.*/, "", line)
+				print line
+			}
+		}
+	' "$1"
+}
+
+install_blocklist_analyzer() {
+	ptxt_phase "Preparing AdGuardHome blocklist analyzer."
+	ptxt_step "Checking AdGuardHome target directory ${TARG_DIR}."
+	if [ ! -d "${TARG_DIR}" ] || [ ! -d "${TARG_DIR}/data" ]; then
+		ptxt_fail "${TARG_DIR} and ${TARG_DIR}/data are required before blocklists can be analyzed."
+		return 1
+	fi
+	ptxt_ok "AdGuardHome data directory exists."
+
+	ptxt_step "Checking for Entware python3."
+	if ! which python3 >/dev/null 2>&1; then
+		ptxt_warn "python3 is required to run the analyzer, but it was not found."
+		PTXT "${INFO} Entware python3 can be installed with: opkg install python3"
+		if read_yesno "Do you want Entware to install python3 now?"; then
+			ptxt_step "Installing Entware python3 package."
+			if ! ensure_opkg_package python3 || ! which python3 >/dev/null 2>&1; then
+				ptxt_fail "Unable to install or find Entware python3."
+				return 1
+			fi
+			ptxt_ok "Entware python3 is installed."
+		else
+			ptxt_fail "python3 is required to run the blocklist analyzer."
+			return 1
+		fi
+	fi
+	ptxt_ok "python3 is available."
+
+	if [ -z "${BLOCKLIST_ANALYZER_SHA256}" ]; then
+		ptxt_fail "Blocklist analyzer SHA-256 is not pinned; refusing to download or run mutable remote code."
+		return 1
+	fi
+
+	ptxt_step "Downloading blocklist analyzer to ${BLOCKLIST_ANALYZER_FILE}."
+	rm -f "${BLOCKLIST_ANALYZER_FILE}.tmp"
+	if ! http_get_file "${BLOCKLIST_ANALYZER_URL}" "${BLOCKLIST_ANALYZER_FILE}.tmp"; then
+		rm -f "${BLOCKLIST_ANALYZER_FILE}.tmp"
+		ptxt_fail "Unable to download blocklist analyzer."
+		return 1
+	fi
+	ptxt_ok "Downloaded blocklist analyzer."
+
+	ptxt_step "Verifying blocklist analyzer SHA-256 checksum."
+	if [ "$(sha256sum "${BLOCKLIST_ANALYZER_FILE}.tmp" | awk '{ print $1 }')" != "${BLOCKLIST_ANALYZER_SHA256}" ]; then
+		rm -f "${BLOCKLIST_ANALYZER_FILE}.tmp"
+		ptxt_fail "Blocklist analyzer checksum verification failed."
+		return 1
+	fi
+	ptxt_ok "Blocklist analyzer checksum verified."
+
+	ptxt_step "Installing blocklist analyzer with restrictive permissions."
+	if ! mv "${BLOCKLIST_ANALYZER_FILE}.tmp" "${BLOCKLIST_ANALYZER_FILE}"; then
+		rm -f "${BLOCKLIST_ANALYZER_FILE}.tmp"
+		ptxt_fail "Unable to install blocklist analyzer."
+		return 1
+	fi
+	chmod 700 "${BLOCKLIST_ANALYZER_FILE}"
+	ptxt_ok "Blocklist analyzer is ready."
+}
+
+run_blocklist_analyzer() {
+	local filter_file found_filter output_file ids_file
+	output_file="${TARG_DIR}/blocklist_analyzer.$$.out"
+	ids_file="${TARG_DIR}/blocklist_analyzer.$$.ids"
+	ptxt_phase "Running AdGuardHome blocklist analyzer."
+	ptxt_step "Checking analyzer input files."
+	if [ ! -d "${TARG_DIR}/data/filters" ]; then
+		ptxt_fail "AdGuardHome filter files are missing; expected ${TARG_DIR}/data/filters."
+		return 1
+	fi
+	found_filter=""
+	for filter_file in "${TARG_DIR}/data/filters"/*.txt; do
+		if [ -f "${filter_file}" ]; then
+			found_filter="1"
+			break
+		fi
+	done
+	if [ -z "${found_filter}" ]; then
+		ptxt_fail "AdGuardHome filter files are missing; ${TARG_DIR}/data/filters contains no filter files."
+		return 1
+	fi
+	if [ ! -s "${TARG_DIR}/data/querylog.json" ]; then
+		ptxt_fail "AdGuardHome query log is missing or empty; enable query logging and let AdGuardHome collect queries before analyzing blocklists."
+		return 1
+	fi
+	ptxt_ok "Analyzer input files are available."
+
+	ptxt_step "Running analyzer from ${TARG_DIR} so ./data resolves correctly."
+	if ! (cd "${TARG_DIR}" && python3 "${BLOCKLIST_ANALYZER_FILE}") >"${output_file}" 2>&1; then
+		cat "${output_file}"
+		rm -f "${output_file}" "${ids_file}"
+		ptxt_fail "Blocklist analyzer failed."
+		return 1
+	fi
+	ptxt_ok "Blocklist analyzer completed."
+	PTXT "" "${INFO} Analyzer output:" "----------------------------------------------------"
+	cat "${output_file}"
+	PTXT "----------------------------------------------------"
+	blocklist_analyzer_ids "${output_file}" >"${ids_file}"
+	if [ ! -s "${ids_file}" ]; then
+		rm -f "${output_file}" "${ids_file}"
+		ptxt_ok "No unused blocklists were detected."
+		return 2
+	fi
+	PTXT "${INFO} Unused blocklist IDs detected:"
+	cat "${ids_file}"
+	BLOCKLIST_ANALYZER_IDS_FILE="${ids_file}"
+	BLOCKLIST_ANALYZER_OUTPUT_FILE="${output_file}"
+	return 0
+}
+
+blocklist_yaml_candidates() {
+	local ids_file yaml_target
+	ids_file="$1"
+	yaml_target="${2:-${YAML_FILE}}"
+	awk -v idsfile="${ids_file}" '
+		BEGIN { while ((getline wanted < idsfile) > 0) ids[wanted] = 1; close(idsfile); in_filters = 0; in_entry = 0 }
+		function emit_entry() {
+			if (in_entry && id != "" && ids[id]) print id "|" name "|" url
+			id = ""; name = ""; url = ""; in_entry = 0
+		}
+		/^[^[:space:]][^:]*:/ {
+			if (in_filters && $0 !~ /^filters:/) { emit_entry(); in_filters = 0 }
+		}
+		/^filters:[[:space:]]*$/ { emit_entry(); in_filters = 1; next }
+		in_filters && /^[[:space:]]*-[[:space:]]*enabled:/ { emit_entry(); in_entry = 1; next }
+		in_filters && in_entry {
+			if ($0 ~ /^[[:space:]]*id:[[:space:]]*[0-9]+[[:space:]]*$/) { id = $0; sub(/.*id:[[:space:]]*/, "", id); sub(/[[:space:]]*$/, "", id) }
+			if ($0 ~ /^[[:space:]]*name:[[:space:]]*/) { name = $0; sub(/^[[:space:]]*name:[[:space:]]*/, "", name) }
+			if ($0 ~ /^[[:space:]]*url:[[:space:]]*/) { url = $0; sub(/^[[:space:]]*url:[[:space:]]*/, "", url) }
+		}
+		END { emit_entry() }
+	' "${yaml_target}"
+}
+
+select_unused_blocklists_for_removal() {
+	local ids_file candidates_file selected_file id name url list_label choice_status
+	ids_file="$1"
+	candidates_file="${TARG_DIR}/blocklist_analyzer.$$.candidates"
+	selected_file="${TARG_DIR}/blocklist_analyzer.$$.selected"
+	blocklist_yaml_candidates "${ids_file}" >"${candidates_file}"
+	if [ ! -s "${candidates_file}" ]; then
+		rm -f "${candidates_file}" "${selected_file}"
+		ptxt_warn "No matching unused IDs were found under the AdGuardHome filters section."
+		return 1
+	fi
+	PTXT "${INFO} Matching unused blocklists found in AdGuardHome.yaml:"
+	while IFS='|' read -r id name url; do
+		PTXT "  id=${id} name=${name} url=${url}"
+	done <"${candidates_file}"
+	PTXT "" \
+		"${WARNING} Review these lists before removal." \
+		"${WARNING} Unused means the list did not uniquely block anything in the analyzed query log period."
+	if read_yesno "Do you want to remove all matching unused blocklists?"; then
+		awk -F'|' '{ print $1 }' "${candidates_file}" >"${selected_file}"
+		rm -f "${candidates_file}"
+		BLOCKLIST_ANALYZER_SELECTED_IDS_FILE="${selected_file}"
+		return 0
+	else
+		choice_status="$?"
+	fi
+	if [ "${choice_status}" -ne 1 ]; then
+		rm -f "${candidates_file}" "${selected_file}"
+		return "${choice_status}"
+	fi
+	: >"${selected_file}" || {
+		rm -f "${candidates_file}"
+		return 1
+	}
+	while IFS='|' read -r id name url; do
+		[ -n "${name}" ] && list_label="${name}" || list_label="id ${id}"
+		PTXT "" "${INFO} Unused blocklist candidate:" "  id=${id}" "  name=${name}" "  url=${url}"
+		read_yesno "Remove blocklist ${list_label} from AdGuardHome.yaml?"
+		choice_status="$?"
+		case "${choice_status}" in
+			0) PTXT "${id}" >>"${selected_file}" ;;
+			1) ptxt_ok "Keeping blocklist id ${id}." ;;
+			*)
+				rm -f "${candidates_file}" "${selected_file}"
+				return "${choice_status}"
+				;;
+		esac
+	done <"${candidates_file}"
+	rm -f "${candidates_file}"
+	if [ ! -s "${selected_file}" ]; then
+		rm -f "${selected_file}"
+		ptxt_warn "No unused blocklists were selected for removal."
+		return 1
+	fi
+	BLOCKLIST_ANALYZER_SELECTED_IDS_FILE="${selected_file}"
+	return 0
+}
+
+blocklist_yaml_replace_abort_on_signal() {
+	local backup_file removed_file
+	backup_file="${BLOCKLIST_YAML_BACKUP_FILE:-}"
+	removed_file="${BLOCKLIST_YAML_REMOVED_FILE:-}"
+	trap - HUP INT QUIT ABRT TERM
+	if [ -n "${backup_file}" ] && [ -f "${backup_file}" ]; then
+		if cp "${backup_file}" "${YAML_FILE}" || { rm -f "${YAML_FILE}" && mv "${backup_file}" "${YAML_FILE}"; }; then
+			chmod 600 "${YAML_FILE}"
+			ptxt_fail "Blocklist cleanup interrupted; restored ${YAML_FILE} from ${backup_file}."
+		else
+			ptxt_fail "Blocklist cleanup interrupted, and ${YAML_FILE} could not be restored from ${backup_file}."
+		fi
+	fi
+	[ -z "${removed_file}" ] || rm -f "${removed_file}"
+	BLOCKLIST_YAML_BACKUP_FILE=""
+	BLOCKLIST_YAML_REMOVED_FILE=""
+	clear_screen
+	exit 2
+}
+
+blocklist_yaml_replace_trap_disable() {
+	trap 'clear_screen; end_op_message 2' HUP INT QUIT ABRT TERM
+	BLOCKLIST_YAML_BACKUP_FILE=""
+	BLOCKLIST_YAML_REMOVED_FILE=""
+}
+
+blocklist_yaml_replace_trap_enable() {
+	BLOCKLIST_YAML_BACKUP_FILE="$1"
+	BLOCKLIST_YAML_REMOVED_FILE="$2"
+	trap 'blocklist_yaml_replace_abort_on_signal' HUP INT QUIT ABRT TERM
+}
+
+remove_unused_blocklists_from_yaml() {
+	local ids_file backup_file tmp_file removed_file
+	ids_file="$1"
+	backup_file="${YAML_FILE}.blocklists.$(date +%Y%m%d%H%M%S).$$.bak"
+	tmp_file="${YAML_FILE}.blocklists.$$.tmp"
+	removed_file="${YAML_FILE}.blocklists.$$.removed"
+	ptxt_phase "Removing unused blocklists from AdGuardHome.yaml."
+	if [ ! -f "${YAML_FILE}" ]; then
+		ptxt_fail "${YAML_FILE} does not exist."
+		return 1
+	fi
+	ptxt_step "Lists selected for removal from the filters section:"
+	blocklist_yaml_candidates "${ids_file}" "${YAML_FILE}" | while IFS='|' read -r id name url; do
+		PTXT "  id=${id} name=${name} url=${url}"
+	done
+	ptxt_step "Creating backup ${backup_file}."
+	cp "${YAML_FILE}" "${backup_file}" || return 1
+	ptxt_ok "Backup created."
+	awk -v idsfile="${ids_file}" -v removedfile="${removed_file}" '
+		BEGIN { while ((getline id < idsfile) > 0) ids[id] = 1; close(idsfile); in_filters = 0; in_entry = 0 }
+		function flush_entry(   n) {
+			if (!in_entry) return
+			if (remove_entry) { print removed_id >> removedfile }
+			else { printf "%s", entry }
+			entry = ""; in_entry = 0; remove_entry = 0; removed_id = ""
+		}
+		/^[^[:space:]][^:]*:/ {
+			if (in_filters && $0 !~ /^filters:/) { flush_entry(); in_filters = 0 }
+		}
+		/^filters:[[:space:]]*$/ { flush_entry(); in_filters = 1; print; next }
+		in_filters && /^[[:space:]]*-[[:space:]]*enabled:/ { flush_entry(); entry = $0 ORS; in_entry = 1; next }
+		in_filters && in_entry {
+			entry = entry $0 ORS
+			if ($0 ~ /^[[:space:]]*id:[[:space:]]*[0-9]+[[:space:]]*$/) { id = $0; sub(/.*id:[[:space:]]*/, "", id); sub(/[[:space:]]*$/, "", id); if (ids[id]) { remove_entry = 1; removed_id = id } }
+			next
+		}
+		{ flush_entry(); print }
+		END { flush_entry() }
+	' "${YAML_FILE}" >"${tmp_file}" || {
+		rm -f "${tmp_file}" "${removed_file}"
+		return 1
+	}
+	if [ ! -s "${removed_file}" ]; then
+		rm -f "${tmp_file}" "${removed_file}"
+		ptxt_warn "No matching numeric filter IDs were found under filters:."
+		return 1
+	fi
+	blocklist_yaml_replace_trap_enable "${backup_file}" "${removed_file}"
+	if ! mv "${tmp_file}" "${YAML_FILE}"; then
+		blocklist_yaml_replace_trap_disable
+		return 1
+	fi
+	chmod 600 "${YAML_FILE}"
+	ptxt_step "Validating edited AdGuardHome configuration."
+	if ! check_AdGuardHome_yaml "${YAML_FILE}"; then
+		if cp "${backup_file}" "${YAML_FILE}" || { rm -f "${YAML_FILE}" && mv "${backup_file}" "${YAML_FILE}"; }; then
+			chmod 600 "${YAML_FILE}"
+			rm -f "${removed_file}"
+			blocklist_yaml_replace_trap_disable
+			ptxt_fail "Validation failed; restored ${YAML_FILE} from ${backup_file}."
+		else
+			rm -f "${removed_file}"
+			blocklist_yaml_replace_trap_disable
+			ptxt_fail "Validation failed, and ${YAML_FILE} could not be restored from ${backup_file}."
+		fi
+		return 1
+	fi
+	blocklist_yaml_replace_trap_disable
+	ptxt_ok "Removed unused blocklist IDs:"
+	cat "${removed_file}"
+	rm -f "${removed_file}"
+	ptxt_warn "Restarting AdGuardHome temporarily interrupts AdGuardHome DNS filtering."
+	OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
+	if service restart_AdGuardHome >/dev/null 2>&1; then
+		adguard_service_status_after_action restart "${OLD_PIDS}" || true
+		ptxt_ok "AdGuardHome restarted after blocklist cleanup."
+	else
+		ptxt_warn "Configuration was saved, but AdGuardHome could not be restarted automatically."
+	fi
+}
+
+cleanup_unused_blocklists() {
+	install_blocklist_analyzer || {
+		end_op_message 1
+		return 1
+	}
+	run_blocklist_analyzer
+	case "$?" in
+		0) ;;
+		2)
+			end_op_message 0
+			return 0
+			;;
+		*)
+			end_op_message 1
+			return 1
+			;;
+	esac
+	if ! select_unused_blocklists_for_removal "${BLOCKLIST_ANALYZER_IDS_FILE}"; then
+		rm -f "${BLOCKLIST_ANALYZER_IDS_FILE:-}" "${BLOCKLIST_ANALYZER_OUTPUT_FILE:-}" "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}"
+		ptxt_warn "Blocklist cleanup cancelled or nothing was selected."
+		end_op_message 1
+		return 1
+	fi
+	if remove_unused_blocklists_from_yaml "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE}"; then
+		rm -f "${BLOCKLIST_ANALYZER_IDS_FILE:-}" "${BLOCKLIST_ANALYZER_OUTPUT_FILE:-}" "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}"
+		end_op_message 0
+	else
+		rm -f "${BLOCKLIST_ANALYZER_IDS_FILE:-}" "${BLOCKLIST_ANALYZER_OUTPUT_FILE:-}" "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}"
+		end_op_message 1
+		return 1
+	fi
+}
+
 ########################Modified Version of @Adamm Check_Connection####################################################
 
 check_connection() {
@@ -1429,7 +1788,7 @@ check_version() {
 				varcnt="$((varcnt + 1))"
 				if [ "${varcnt}" -ge 2 ]; then
 					rm -f "${REMOTE_INSTALLER}" "${REMOTE_INSTALLER_MD5}"
-					printf "%s\n" "One or more critical variables could not be set in a timely manner." "Please check your internet connection, or try again later." "The installer script will now exit."
+					PTXT "One or more critical variables could not be set in a timely manner." "Please check your internet connection, or try again later." "The installer script will now exit."
 					sleep 3s
 					exit 1
 				fi
@@ -3307,13 +3666,19 @@ menu() {
 			PTXT "${INFO} Choose what you want to do:" \
 				"  1) Install/Update AdGuardHome" \
 				"  2) Uninstall"
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then { PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  6) Enable/Disable AdGuardHome Local Cache" "  7) Switch AdGuardHome Branch" "  8) Enable/Disable AdGuardHome IPSET Integration" "  b) Backup"; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then
+				PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  6) Enable/Disable AdGuardHome Local Cache" "  7) Switch AdGuardHome Branch" "  8) Enable/Disable AdGuardHome IPSET Integration"
+				if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
+					PTXT "  9) Analyze and remove unused blocklists"
+				fi
+				PTXT "  b) Backup"
+			fi
 			if { [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { PTXT "  r) Restore"; }; fi
 			PTXT "  q) Quit"
 			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 q; }; fi
 			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 r q; }; fi
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 8 b q; }; fi
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { read_input_num "Please enter the number that designates your selection:" 1 8 b r q; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then { read_input_num "Please enter the number that designates your selection:" 1 9 b q; }; else { read_input_num "Please enter the number that designates your selection:" 1 8 b q; }; fi; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then { read_input_num "Please enter the number that designates your selection:" 1 9 b r q; }; else { read_input_num "Please enter the number that designates your selection:" 1 8 b r q; }; fi; }; fi
 			;;
 		*)
 			CHOSEN="$1"
@@ -3422,6 +3787,14 @@ menu() {
 				adguard_service_status_after_action restart "${OLD_PIDS}" || true
 			fi
 			end_op_message 0
+			;;
+		"9" | "blocklists" | "unusedblocklists")
+			if [ -z "${BLOCKLIST_ANALYZER_SHA256}" ]; then
+				ptxt_fail "Blocklist cleanup is unavailable until the analyzer SHA-256 is pinned."
+				end_op_message 1
+			else
+				cleanup_unused_blocklists
+			fi
 			;;
 		"b" | "B" | "backup")
 			ptxt_phase "Selecting backup operation."
@@ -3567,9 +3940,26 @@ read_yesno() {
 	done
 }
 
+single_arg_menu_action() {
+	case "$1" in
+		[1-9] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | "setamtmupdate" | "setlocalcache" | "switchbranch" | "setipset" | "blocklists" | "unusedblocklists" | [bB] | "backup" | [rR] | "restore")
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
 installer_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
 case "${1}" in
+	"9" | "blocklists" | "unusedblocklists")
+		CHOSEN="${1}"
+		BRANCH="$(conf_value INSTALLER_BRANCH)"
+		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
+		set -- "${BRANCH}" "${CHOSEN}"
+		;;
 	"amtmupdate")
 		BRANCH="$(conf_value INSTALLER_BRANCH)"
 		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
@@ -3592,7 +3982,18 @@ case "${1}" in
 		BRANCH="master"
 		;;
 	*)
-		BRANCH="${1}"
+		if [ -z "${2:-}" ] && single_arg_menu_action "${1}"; then
+			CHOSEN="${1}"
+			BRANCH="$(conf_value INSTALLER_BRANCH)"
+			if [ -n "${BRANCH}" ]; then
+				BRANCH="$(sanitize_branch "${BRANCH}")"
+			else
+				BRANCH="master"
+			fi
+			set -- "${BRANCH}" "${CHOSEN}"
+		else
+			BRANCH="${1}"
+		fi
 		;;
 esac
 BRANCH="$(sanitize_branch "${BRANCH}")"
@@ -3675,13 +4076,13 @@ case "$2" in
 		check_version
 		menu
 		;;
-	[1-8] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | "amtmupdate" | "setamtmupdate" | "setlocalcache" | "switchbranch" | "setipset" | [bB] | "backup" | [rR] | "restore")
+	[1-9] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | "amtmupdate" | "setamtmupdate" | "setlocalcache" | "switchbranch" | "setipset" | "blocklists" | "unusedblocklists" | [bB] | "backup" | [rR] | "restore")
 		menu "$2"
 		;;
 	*)
-		PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | {b/B} - backup | {r/R} - restore)" \
+		PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore)" \
 			"${INFO} Branch or Tag must be represented by a value or empty quotes in place of string e.g. \"\" in the \$1 string position." \
-			"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | {b/B} - backup | {r/R} - restore) in the \$2 string position." \
+			"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore) in the \$2 string position." \
 			"${INFO} An update example sh installer master update, or just use the regular menu by not specifying an Action."
 		;;
 esac
