@@ -468,13 +468,13 @@ file_sha256() {
 		SHA256_OUTPUT="$(sha256sum "${FILE}")" || SHA256_OUTPUT=""
 	fi
 	if [ -z "${SHA256_OUTPUT}" ] && [ -x /bin/busybox ]; then
-		SHA256_OUTPUT="$(/bin/busybox sha256sum "${FILE}")" || SHA256_OUTPUT=""
+		SHA256_OUTPUT="$(/bin/busybox sha256sum "${FILE}" | awk '{ print $1 }')" || SHA256_OUTPUT=""
 	fi
 	if [ -z "${SHA256_OUTPUT}" ] && ai_have_cmd busybox; then
-		SHA256_OUTPUT="$(busybox sha256sum "${FILE}")" || SHA256_OUTPUT=""
+		SHA256_OUTPUT="$(busybox sha256sum "${FILE}" | awk '{ print $1 }')" || SHA256_OUTPUT=""
 	fi
 	if [ -z "${SHA256_OUTPUT}" ] && ai_have_cmd openssl; then
-		SHA256_OUTPUT="$(openssl dgst -sha256 "${FILE}")" || SHA256_OUTPUT=""
+		SHA256_OUTPUT="$(openssl dgst -sha256 "${FILE}" | awk '{ print $2 }')" || SHA256_OUTPUT=""
 	fi
 	[ -n "${SHA256_OUTPUT}" ] || return 1
 	SHA256_VALUE="$(PTXT "${SHA256_OUTPUT}" | awk '
