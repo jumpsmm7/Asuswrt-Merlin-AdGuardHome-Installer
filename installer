@@ -477,8 +477,7 @@ file_sha256() {
 		SHA256_OUTPUT="$(openssl dgst -sha256 "${FILE}" | awk '{printf "%s", $2}')" || SHA256_OUTPUT=""
 	fi
 	[ -n "${SHA256_OUTPUT}" ] || return 1
-	SHA256_VALUE="
-	if [ "$(PTXT -n "${SHA256_OUTPUT}" | wc -c)" -eq "64" ]; then SHA256_VALUE="${SHA256_OUTPUT}"; else return 1; fi
+	SHA256_VALUE="${SHA256_OUTPUT}"
 	sha256_is_valid "${SHA256_VALUE}" || return 1
 	PTXT "${SHA256_VALUE}"
 }
@@ -1264,6 +1263,10 @@ install_blocklist_analyzer() {
 	ptxt_ok "Downloaded blocklist analyzer."
 
 	ptxt_step "Verifying blocklist analyzer SHA-256 checksum."
+	if ! ensure_sha256sum_tool; then
+		rm -f "${BLOCKLIST_ANALYZER_FILE}.tmp"
+		return 1
+	fi
 	if [ "$(file_sha256 "${BLOCKLIST_ANALYZER_FILE}.tmp" 2>/dev/null)" != "${BLOCKLIST_ANALYZER_SHA256}" ]; then
 		rm -f "${BLOCKLIST_ANALYZER_FILE}.tmp"
 		ptxt_fail "Blocklist analyzer checksum verification failed."
@@ -2120,6 +2123,15 @@ adguard_archive_is_safe() {
 			}
 			entry_path = clean_path(path_from_verbose($0))
 			if (entry_path == "") {
+				exit 1
+			}
+			if (entry_path == "AdGuardHome/AdGuardHome" && type != "-") {
+				exit 1
+			}
+			if (require_state && entry_path == "AdGuardHome/AdGuardHome.yaml" && type != "-") {
+				exit 1
+			}
+			if (require_state && entry_path == "AdGuardHome/data" && type != "d") {
 				exit 1
 			}
 			if (type == "d" && entry_path == "AdGuardHome/data") {

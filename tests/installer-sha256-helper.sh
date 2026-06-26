@@ -26,6 +26,16 @@ grep -q 'Do you want Entware to install coreutils-sha256sum now?' "${SCRIPT_PATH
 grep -q 'ensure_blocklist_analyzer_dependencies || return 1' "${SCRIPT_PATH}" || fail 'option 9 does not require dependency checks before verification'
 grep -q 'ensure_sha256sum_tool || return 1' "${SCRIPT_PATH}" || fail 'blocklist dependency helper does not require SHA-256 support'
 grep -q 'if ! ensure_opkg_package python3 || ! which python3' "${SCRIPT_PATH}" || fail 'option 9 no longer requires python3'
+verify_line="$(grep -n 'Verifying blocklist analyzer SHA-256 checksum' "${SCRIPT_PATH}" | cut -d: -f1)" ||
+	fail 'could not find blocklist checksum verification step'
+guard_line="$(grep -n 'if ! ensure_sha256sum_tool; then' "${SCRIPT_PATH}" | cut -d: -f1)" ||
+	fail 'blocklist checksum verification does not offer coreutils-sha256sum before hashing'
+hash_line="$(grep -n 'file_sha256 "${BLOCKLIST_ANALYZER_FILE}.tmp"' "${SCRIPT_PATH}" | cut -d: -f1)" ||
+	fail 'could not find blocklist file_sha256 call'
+[ "${verify_line}" -lt "${guard_line}" ] ||
+	fail 'coreutils-sha256sum offer does not run during checksum verification'
+[ "${guard_line}" -lt "${hash_line}" ] ||
+	fail 'file_sha256 can run before coreutils-sha256sum is offered'
 
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 sed -n \
