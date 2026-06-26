@@ -50,9 +50,18 @@ sed -n \
 	INPUT='Input:'
 	BOLD=''
 	NORM=''
-	ptxt_fail() { printf '%s\n' "$*"; return 1; }
-	read_yesno() { printf '%s\n' 'prompt should not run when sha256sum exists'; return 1; }
-	ensure_opkg_package() { printf '%s\n' 'install should not run when sha256sum exists'; return 1; }
+	ptxt_fail() {
+		printf '%s\n' "$*"
+		return 1
+	}
+	read_yesno() {
+		printf '%s\n' 'prompt should not run when sha256sum exists'
+		return 1
+	}
+	ensure_opkg_package() {
+		printf '%s\n' 'install should not run when sha256sum exists'
+		return 1
+	}
 	mkdir -p "${TMP_ROOT}/available-bin" || exit 1
 	cat >"${TMP_ROOT}/available-bin/which" <<EOF_WHICH || exit 1
 #!/bin/sh
@@ -94,7 +103,10 @@ exit 0
 EOF_SHA
 	chmod 755 "${TMP_ROOT}/install-bin/which" "${TMP_ROOT}/install-bin/sha256sum" || exit 1
 	PATH="${TMP_ROOT}/install-bin"
-	ensure_opkg_package() { [ "$1" = "coreutils-sha256sum" ] || return 1; : >"${TMP_ROOT}/install-bin/installed"; }
+	ensure_opkg_package() {
+		[ "$1" = "coreutils-sha256sum" ] || return 1
+		: >"${TMP_ROOT}/install-bin/installed"
+	}
 	ensure_sha256sum_tool >"${TMP_ROOT}/install.out" 2>&1
 ) || fail 'SHA-256 helper failed after accepted coreutils-sha256sum install'
 grep -q 'Installing Entware coreutils-sha256sum package' "${TMP_ROOT}/install.out" || fail 'SHA-256 helper did not install accepted package'
