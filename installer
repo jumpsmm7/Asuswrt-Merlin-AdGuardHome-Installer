@@ -477,7 +477,6 @@ file_sha256() {
 		SHA256_OUTPUT="$(openssl dgst -sha256 "${FILE}" | awk '{printf "%s", $2}')" || SHA256_OUTPUT=""
 	fi
 	[ -n "${SHA256_OUTPUT}" ] || return 1
-	SHA256_VALUE="
 	if [ "$(PTXT -n "${SHA256_OUTPUT}" | wc -c)" -eq "64" ]; then SHA256_VALUE="${SHA256_OUTPUT}"; else return 1; fi
 	sha256_is_valid "${SHA256_VALUE}" || return 1
 	PTXT "${SHA256_VALUE}"
