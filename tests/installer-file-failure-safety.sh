@@ -247,9 +247,13 @@ EOF
 	. "${FUNCTIONS_FILE}"
 
 	tar() {
+		case "$1" in
+			-*) ;;
+			*) return 1 ;;
+		esac
 		_verbose="0"
 		case "$1" in
-			*tv*) _verbose="1" ;;
+			*v*) _verbose="1" ;;
 		esac
 		if [ "${_verbose}" -eq 1 ]; then
 			case "${ARCHIVE_LAYOUT}" in
@@ -259,6 +263,13 @@ EOF
 						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
 						'-rw-r--r-- root/root 1 date ./AdGuardHome/AdGuardHome.yaml' \
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/data/'
+					;;
+				busybox-data-no-slash)
+					printf '%s\n' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
+						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
+						'-rw-r--r-- root/root 1 date ./AdGuardHome/AdGuardHome.yaml' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/data'
 					;;
 				symlink-binary)
 					printf '%s\n' \
@@ -328,6 +339,9 @@ EOF
 			safe)
 				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/AdGuardHome.yaml' './AdGuardHome/data/' './AdGuardHome/README.md'
 				;;
+			busybox-data-no-slash)
+				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/AdGuardHome.yaml' './AdGuardHome/data'
+				;;
 			missing-yaml)
 				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/data/querylog.json'
 				;;
@@ -361,6 +375,8 @@ EOF
 	ARCHIVE_LAYOUT="safe"
 	adguard_archive_is_safe ignored || fail "safe AdGuardHome archive layout was rejected"
 	adguard_archive_is_safe ignored 1 || fail "complete AdGuardHome backup layout was rejected"
+	ARCHIVE_LAYOUT="busybox-data-no-slash"
+	adguard_archive_is_safe ignored 1 || fail "complete BusyBox backup layout without data trailing slash was rejected"
 	ARCHIVE_LAYOUT="missing-yaml"
 	adguard_archive_is_safe ignored || fail "install archive without restored state was rejected"
 	if adguard_archive_is_safe ignored 1; then

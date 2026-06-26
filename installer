@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.4.0                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.4.1                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
 
-AI_VERSION="v2.4.0"
+AI_VERSION="v2.4.1"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -127,6 +127,47 @@ ensure_opkg_package() {
 		return 1
 	fi
 	opkg_pkg_installed "${_pkg}"
+}
+
+sha256sum_available() {
+	if ai_have_cmd sha256sum && sha256sum /dev/null >/dev/null 2>&1; then
+		return 0
+	fi
+	if [ -x /bin/busybox ] && /bin/busybox sha256sum /dev/null >/dev/null 2>&1; then
+		return 0
+	fi
+	if ai_have_cmd busybox && busybox sha256sum /dev/null >/dev/null 2>&1; then
+		return 0
+	fi
+	if ai_have_cmd openssl && openssl dgst -sha256 /dev/null >/dev/null 2>&1; then
+		return 0
+	fi
+	return 1
+}
+
+ensure_sha256sum_tool() {
+	if sha256sum_available; then
+		return 0
+	fi
+	ptxt_warn "Neither sha256sum nor OpenSSL SHA-256 support was found in PATH; checksum verification is required."
+	PTXT "${INFO} Some Asuswrt-Merlin firmware builds do not include sha256sum."
+	PTXT "${INFO} Entware can provide sha256sum with: opkg install coreutils-sha256sum"
+	if ! read_yesno "Do you want Entware to install coreutils-sha256sum now?"; then
+		ptxt_fail "SHA-256 support is required; refusing to continue without checksum validation."
+		return 1
+	fi
+
+	ptxt_step "Installing Entware coreutils-sha256sum package."
+	if ! ensure_opkg_package coreutils-sha256sum; then
+		ptxt_fail "Unable to install Entware coreutils-sha256sum."
+		return 1
+	fi
+	if sha256sum_available; then
+		ptxt_ok "SHA-256 checksum support is available."
+		return 0
+	fi
+	ptxt_fail "coreutils-sha256sum was installed, but sha256sum is still unavailable."
+	return 1
 }
 
 ensure_password_hash_tool() {
@@ -1186,15 +1227,7 @@ blocklist_analyzer_ids() {
 	' "$1"
 }
 
-install_blocklist_analyzer() {
-	ptxt_phase "Preparing AdGuardHome blocklist analyzer."
-	ptxt_step "Checking AdGuardHome target directory ${TARG_DIR}."
-	if [ ! -d "${TARG_DIR}" ] || [ ! -d "${TARG_DIR}/data" ]; then
-		ptxt_fail "${TARG_DIR} and ${TARG_DIR}/data are required before blocklists can be analyzed."
-		return 1
-	fi
-	ptxt_ok "AdGuardHome data directory exists."
-
+ensure_blocklist_analyzer_dependencies() {
 	ptxt_step "Checking for Entware python3."
 	if ! which python3 >/dev/null 2>&1; then
 		ptxt_warn "python3 is required to run the analyzer, but it was not found."
@@ -1212,6 +1245,22 @@ install_blocklist_analyzer() {
 		fi
 	fi
 	ptxt_ok "python3 is available."
+
+	ptxt_step "Checking for SHA-256 checksum support."
+	ensure_sha256sum_tool || return 1
+	ptxt_ok "SHA-256 checksum support is available."
+}
+
+install_blocklist_analyzer() {
+	ptxt_phase "Preparing AdGuardHome blocklist analyzer."
+	ptxt_step "Checking AdGuardHome target directory ${TARG_DIR}."
+	if [ ! -d "${TARG_DIR}" ] || [ ! -d "${TARG_DIR}/data" ]; then
+		ptxt_fail "${TARG_DIR} and ${TARG_DIR}/data are required before blocklists can be analyzed."
+		return 1
+	fi
+	ptxt_ok "AdGuardHome data directory exists."
+
+	ensure_blocklist_analyzer_dependencies || return 1
 
 	if [ -z "${BLOCKLIST_ANALYZER_SHA256}" ]; then
 		ptxt_fail "Blocklist analyzer SHA-256 is not pinned; refusing to download or run mutable remote code."
@@ -1982,7 +2031,7 @@ save_dns_nvram_environment() {
 # Installer file and setup helpers
 
 adguard_archive_is_safe() {
-	if ! tar tvzf "$1" 2>/dev/null | awk -v require_state="${2:-0}" '
+	if ! tar -tzvf "$1" 2>/dev/null | awk -v require_state="${2:-0}" '
 		function symlink_target_is_safe(link_path, link_target,    base_path, depth, i, n, part, parts) {
 			base_path = link_path
 			sub(/\/[^\/]*$/, "", base_path)
@@ -2037,7 +2086,7 @@ adguard_archive_is_safe() {
 	'; then
 		return 1
 	fi
-	tar tzf "$1" 2>/dev/null | awk -v require_state="${2:-0}" '
+	tar -tzf "$1" 2>/dev/null | awk -v require_state="${2:-0}" '
 		BEGIN { binary = 0; yaml = 0; data = 0; unsafe = 0 }
 		{
 			path = $0
@@ -2048,7 +2097,7 @@ adguard_archive_is_safe() {
 			}
 			if (path == "AdGuardHome/AdGuardHome") binary = 1
 			if (path == "AdGuardHome/AdGuardHome.yaml") yaml = 1
-			if (path == "AdGuardHome/data/") data = 1
+			if (path == "AdGuardHome/data" || path == "AdGuardHome/data/") data = 1
 		}
 		END { exit(!unsafe && binary && (!require_state || (yaml && data)) ? 0 : 1) }
 	'

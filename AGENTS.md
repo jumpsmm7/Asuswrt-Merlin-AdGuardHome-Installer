@@ -89,6 +89,7 @@ Allowed Entware packages currently referenced by the installer are:
 * `apache`
 * `apache-utils`
 * `column`
+* `coreutils-sha256sum`
 * `go`
 * `go_nohf`
 * `python3`
