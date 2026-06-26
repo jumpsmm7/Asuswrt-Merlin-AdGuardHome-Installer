@@ -3875,6 +3875,17 @@ read_yesno() {
 	done
 }
 
+single_arg_menu_action() {
+	case "$1" in
+		[1-9] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | "setamtmupdate" | "setlocalcache" | "switchbranch" | "setipset" | "blocklists" | "unusedblocklists" | [bB] | "backup" | [rR] | "restore")
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
 installer_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
 case "${1}" in
@@ -3900,7 +3911,14 @@ case "${1}" in
 		BRANCH="master"
 		;;
 	*)
-		BRANCH="${1}"
+		if [ -z "$2" ] && single_arg_menu_action "$1"; then
+			CHOSEN="${1}"
+			BRANCH="$(conf_value INSTALLER_BRANCH)"
+			[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
+			set -- "${BRANCH}" "${CHOSEN}"
+		else
+			BRANCH="${1}"
+		fi
 		;;
 esac
 BRANCH="$(sanitize_branch "${BRANCH}")"
