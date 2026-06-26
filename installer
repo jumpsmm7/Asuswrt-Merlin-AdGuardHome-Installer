@@ -3911,10 +3911,14 @@ case "${1}" in
 		BRANCH="master"
 		;;
 	*)
-		if [ -z "$2" ] && single_arg_menu_action "$1"; then
+		if [ -z "${2:-}" ] && single_arg_menu_action "$1"; then
 			CHOSEN="${1}"
 			BRANCH="$(conf_value INSTALLER_BRANCH)"
-			[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
+			if [ -n "${BRANCH}" ]; then
+				BRANCH="$(sanitize_branch "${BRANCH}")"
+			else
+				BRANCH="master"
+			fi
 			set -- "${BRANCH}" "${CHOSEN}"
 		else
 			BRANCH="${1}"
