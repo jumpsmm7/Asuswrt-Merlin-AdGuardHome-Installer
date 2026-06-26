@@ -38,6 +38,8 @@ sed -n \
 	fail 'could not extract blocklist helper functions'
 sed -n '/^select_unused_blocklists_for_removal() {$/,/^remove_unused_blocklists_from_yaml() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
 	fail 'could not extract blocklist selection function'
+sed -n '/^remove_unused_blocklists_from_yaml() {$/,/^cleanup_unused_blocklists() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract blocklist removal function'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'blocklist helper extraction was empty'
 
 cat >"${TMP_ROOT}/analyzer.out" <<'EOF_ANALYZER'
@@ -111,5 +113,56 @@ grep -q 'Remove blocklist List A from AdGuardHome.yaml?' "${TMP_ROOT}/prompts.ac
 	fail 'one-by-one prompt does not include the first blocklist name'
 grep -q 'Remove blocklist List B from AdGuardHome.yaml?' "${TMP_ROOT}/prompts.actual" ||
 	fail 'one-by-one prompt does not include the second blocklist name'
+
+cat >"${TMP_ROOT}/ids.selected" <<'EOF_SELECTED'
+1769441874
+EOF_SELECTED
+
+cat >"${TMP_ROOT}/AdGuardHome.yaml.restore" <<'EOF_RESTORE'
+filters:
+  - enabled: true
+    url: https://example.invalid/a.txt
+    name: List A
+    id: 1769441874
+  - enabled: true
+    url: https://example.invalid/keep.txt
+    name: Keep List
+    id: 300
+EOF_RESTORE
+
+cp "${TMP_ROOT}/AdGuardHome.yaml.restore" "${TMP_ROOT}/AdGuardHome.yaml" ||
+	fail 'could not reset YAML for restore regression'
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	INFO='Info:'
+	WARNING='Warning:'
+	ERROR='Error:'
+	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
+	YAML_ERR="${YAML_FILE}.err"
+	ptxt_phase() { PTXT "$@"; }
+	ptxt_step() { PTXT "$@"; }
+	ptxt_fail() { PTXT "$@"; }
+	check_AdGuardHome_yaml() {
+		mv "${YAML_FILE}" "${YAML_ERR}"
+		return 1
+	}
+	cp() {
+		case "$2" in
+			"${YAML_FILE}") return 1 ;;
+			*) command cp "$@" ;;
+		esac
+	}
+	if remove_unused_blocklists_from_yaml "${TMP_ROOT}/ids.selected" >"${TMP_ROOT}/restore-fallback.out" 2>&1; then
+		exit 1
+	fi
+	exit 0
+) || fail 'blocklist restore fallback subprocess failed'
+
+cmp -s "${TMP_ROOT}/AdGuardHome.yaml.restore" "${TMP_ROOT}/AdGuardHome.yaml" ||
+	fail 'backup was not moved back when restore copy failed'
+grep -q 'Validation failed; restored' "${TMP_ROOT}/restore-fallback.out" ||
+	fail 'restore fallback success was not reported'
 
 printf '%s\n' 'PASS: blocklist cleanup helpers parse unused IDs and filter candidates safely'
