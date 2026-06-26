@@ -3968,6 +3968,10 @@ single_arg_menu_action() {
 installer_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
 BLOCKLIST_ANALYZER_SHA256="$(conf_value BLOCKLIST_ANALYZER_SHA256)"
+if ! conf_has_key BLOCKLIST_ANALYZER_SHA256; then
+	write_conf BLOCKLIST_ANALYZER_SHA256 "\"${BLOCKLIST_ANALYZER_SHA256_DEFAULT}\""
+	BLOCKLIST_ANALYZER_SHA256="${BLOCKLIST_ANALYZER_SHA256_DEFAULT}"
+fi
 case "${1}" in
 	"amtmupdate")
 		BRANCH="$(conf_value INSTALLER_BRANCH)"
@@ -4007,10 +4011,6 @@ case "${1}" in
 esac
 BRANCH="$(sanitize_branch "${BRANCH}")"
 write_conf INSTALLER_BRANCH "\"${BRANCH}\""
-if ! conf_has_key BLOCKLIST_ANALYZER_SHA256; then
-	write_conf BLOCKLIST_ANALYZER_SHA256 "\"${BLOCKLIST_ANALYZER_SHA256_DEFAULT}\""
-fi
-BLOCKLIST_ANALYZER_SHA256="$(conf_value BLOCKLIST_ANALYZER_SHA256)"
 readonly BLOCKLIST_ANALYZER_SHA256
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
 RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}"
