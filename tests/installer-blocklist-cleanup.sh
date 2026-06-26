@@ -71,6 +71,28 @@ grep -q 'filter files are missing' "${TMP_ROOT}/missing-filters.out" ||
 	. "${FUNCTIONS_FILE}"
 	INFO='Info:'
 	ERROR='Error:'
+	TARG_DIR="${TMP_ROOT}/non-txt-filters"
+	BLOCKLIST_ANALYZER_FILE="${TARG_DIR}/blocklist_analyzer.py"
+	mkdir -p "${TARG_DIR}/data/filters" || exit 1
+	printf '%s\n' 'not a filter' >"${TARG_DIR}/data/filters/README" || exit 1
+	printf '%s\n' '{"version":1}' >"${TARG_DIR}/data/querylog.json" || exit 1
+	python3() {
+		printf '%s\n' 'python should not run without txt filters' >"${TMP_ROOT}/python-called-non-txt"
+		return 0
+	}
+	if run_blocklist_analyzer >"${TMP_ROOT}/non-txt-filters.out" 2>&1; then
+		exit 1
+	fi
+	[ ! -e "${TMP_ROOT}/python-called-non-txt" ] || exit 1
+) || fail 'blocklist analyzer accepted non-txt filter files'
+grep -q 'contains no filter files' "${TMP_ROOT}/non-txt-filters.out" ||
+	fail 'non-txt filter directory did not produce a clear failure'
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	INFO='Info:'
+	ERROR='Error:'
 	TARG_DIR="${TMP_ROOT}/missing-querylog"
 	BLOCKLIST_ANALYZER_FILE="${TARG_DIR}/blocklist_analyzer.py"
 	mkdir -p "${TARG_DIR}/data/filters" || exit 1
