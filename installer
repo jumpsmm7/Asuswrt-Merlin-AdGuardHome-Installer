@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.4.2                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.4.3                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
 
-AI_VERSION="v2.4.2"
+AI_VERSION="v2.4.3"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -465,33 +465,20 @@ file_sha256() {
 	FILE="$1"
 	SHA256_OUTPUT=""
 	if ai_have_cmd sha256sum; then
-		SHA256_OUTPUT="$(sha256sum "${FILE}")" || SHA256_OUTPUT=""
+		SHA256_OUTPUT="$(sha256sum "${FILE}" | awk '{printf "%s", $1}')" || SHA256_OUTPUT=""
 	fi
 	if [ -z "${SHA256_OUTPUT}" ] && [ -x /bin/busybox ]; then
-		SHA256_OUTPUT="$(/bin/busybox sha256sum "${FILE}" | awk '{ print $1 }')" || SHA256_OUTPUT=""
+		SHA256_OUTPUT="$(/bin/busybox sha256sum "${FILE}" | awk '{printf "%s", $1}')" || SHA256_OUTPUT=""
 	fi
 	if [ -z "${SHA256_OUTPUT}" ] && ai_have_cmd busybox; then
-		SHA256_OUTPUT="$(busybox sha256sum "${FILE}" | awk '{ print $1 }')" || SHA256_OUTPUT=""
+		SHA256_OUTPUT="$(busybox sha256sum "${FILE}" | awk '{printf "%s", $1}')" || SHA256_OUTPUT=""
 	fi
 	if [ -z "${SHA256_OUTPUT}" ] && ai_have_cmd openssl; then
-		SHA256_OUTPUT="$(openssl dgst -sha256 "${FILE}" | awk '{ print $2 }')" || SHA256_OUTPUT=""
+		SHA256_OUTPUT="$(openssl dgst -sha256 "${FILE}" | awk '{printf "%s", $2}')" || SHA256_OUTPUT=""
 	fi
 	[ -n "${SHA256_OUTPUT}" ] || return 1
-	SHA256_VALUE="$(PTXT "${SHA256_OUTPUT}" | awk '
-		NF {
-			if (length($1) == 64 && $1 !~ /[^0123456789abcdefABCDEF]/) {
-				print $1
-				found = 1
-				exit
-			}
-			if (length($NF) == 64 && $NF !~ /[^0123456789abcdefABCDEF]/) {
-				print $NF
-				found = 1
-				exit
-			}
-		}
-		END {if (!found) exit 1}
-	')" || return 1
+	SHA256_VALUE="
+	if [ "$(PTXT -n "${SHA256_OUTPUT}" | wc -c)" -eq "64" ]; then SHA256_VALUE="${SHA256_OUTPUT}"; else return 1; fi
 	sha256_is_valid "${SHA256_VALUE}" || return 1
 	PTXT "${SHA256_VALUE}"
 }
