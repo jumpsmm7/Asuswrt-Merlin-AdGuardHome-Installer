@@ -22,7 +22,9 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
-sed -n '/^single_arg_menu_action() {$/,/^}/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
+sed -n '/^menu_action_allowed() {$/,/^single_arg_menu_action() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
+	fail 'could not extract menu action helpers'
+sed -n '/^single_arg_menu_action() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
 	fail 'could not extract single-argument action helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'single-argument action helper extraction was empty'
 
@@ -34,9 +36,23 @@ grep -q 'set -- "${BRANCH}" "${CHOSEN}"' "${SCRIPT_PATH}" ||
 (
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
-	for action in 1 2 3 4 5 6 7 8 9 install update uninstall changepw reconfigure setamtmupdate setlocalcache switchbranch setipset blocklists unusedblocklists b B backup r R restore; do
+	BLOCKLIST_ANALYZER_SHA256=""
+	for action in 1 2 3 4 5 6 7 8 install update uninstall changepw reconfigure setamtmupdate setlocalcache switchbranch setipset b B backup r R restore; do
 		if ! single_arg_menu_action "${action}"; then
 			printf '%s\n' "missing action: ${action}" >&2
+			exit 1
+		fi
+	done
+	for action in 9 blocklists unusedblocklists; do
+		if single_arg_menu_action "${action}"; then
+			printf '%s\n' "unexpected blocklist action without checksum: ${action}" >&2
+			exit 1
+		fi
+	done
+	BLOCKLIST_ANALYZER_SHA256="configured-sha256"
+	for action in 9 blocklists unusedblocklists; do
+		if ! single_arg_menu_action "${action}"; then
+			printf '%s\n' "missing blocklist action with checksum: ${action}" >&2
 			exit 1
 		fi
 	done
@@ -48,4 +64,4 @@ grep -q 'set -- "${BRANCH}" "${CHOSEN}"' "${SCRIPT_PATH}" ||
 	done
 ) || fail 'single-argument action helper returned an unexpected result'
 
-printf '%s\n' 'PASS: regular menu actions support one-argument dispatch without matching branch names'
+printf '%s\n' 'PASS: regular menu actions support one-argument dispatch with checksum-gated blocklist aliases'

@@ -39,7 +39,8 @@ readonly YAML_ERR="${YAML_FILE}.err"
 readonly YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
 readonly BLOCKLIST_ANALYZER_FILE="${TARG_DIR}/blocklist_analyzer.py"
 readonly BLOCKLIST_ANALYZER_URL="https://gist.githubusercontent.com/graysky2/8035291d1bf87b8fe3693668965337e1/raw/blocklilst_analyzer.py"
-readonly BLOCKLIST_ANALYZER_SHA256=""
+readonly BLOCKLIST_ANALYZER_SHA256_DEFAULT="aec4aa47e18970eb2c118d9690659553a25a56368cc0a04a521c4f53d075c404"
+BLOCKLIST_ANALYZER_SHA256=""
 SCRIPT_LOC=""
 
 BOLD="$(printf "\033[1m")" || true
@@ -387,6 +388,11 @@ conf_value() {
 			exit
 		}
 	' "${CONF_FILE}"
+}
+
+conf_has_key() {
+	[ -f "${CONF_FILE}" ] || return 1
+	grep -q "^$1=" "${CONF_FILE}"
 }
 
 md5_is_valid() {
@@ -3940,10 +3946,14 @@ read_yesno() {
 	done
 }
 
-single_arg_menu_action() {
+menu_action_allowed() {
 	case "$1" in
-		[1-9] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | "setamtmupdate" | "setlocalcache" | "switchbranch" | "setipset" | "blocklists" | "unusedblocklists" | [bB] | "backup" | [rR] | "restore")
+		[1-8] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | "setamtmupdate" | "setlocalcache" | "switchbranch" | "setipset" | [bB] | "backup" | [rR] | "restore")
 			return 0
+			;;
+		"9" | "blocklists" | "unusedblocklists")
+			[ -n "${BLOCKLIST_ANALYZER_SHA256}" ] && return 0
+			return 1
 			;;
 		*)
 			return 1
@@ -3951,15 +3961,14 @@ single_arg_menu_action() {
 	esac
 }
 
+single_arg_menu_action() {
+	menu_action_allowed "$1"
+}
+
 installer_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
+BLOCKLIST_ANALYZER_SHA256="$(conf_value BLOCKLIST_ANALYZER_SHA256)"
 case "${1}" in
-	"9" | "blocklists" | "unusedblocklists")
-		CHOSEN="${1}"
-		BRANCH="$(conf_value INSTALLER_BRANCH)"
-		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
-		set -- "${BRANCH}" "${CHOSEN}"
-		;;
 	"amtmupdate")
 		BRANCH="$(conf_value INSTALLER_BRANCH)"
 		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
@@ -3998,6 +4007,11 @@ case "${1}" in
 esac
 BRANCH="$(sanitize_branch "${BRANCH}")"
 write_conf INSTALLER_BRANCH "\"${BRANCH}\""
+if ! conf_has_key BLOCKLIST_ANALYZER_SHA256; then
+	write_conf BLOCKLIST_ANALYZER_SHA256 "\"${BLOCKLIST_ANALYZER_SHA256_DEFAULT}\""
+fi
+BLOCKLIST_ANALYZER_SHA256="$(conf_value BLOCKLIST_ANALYZER_SHA256)"
+readonly BLOCKLIST_ANALYZER_SHA256
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
 RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}"
 ROUTER_OS="$(/bin/uname)"
@@ -4076,13 +4090,14 @@ case "$2" in
 		check_version
 		menu
 		;;
-	[1-9] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | "amtmupdate" | "setamtmupdate" | "setlocalcache" | "switchbranch" | "setipset" | "blocklists" | "unusedblocklists" | [bB] | "backup" | [rR] | "restore")
-		menu "$2"
-		;;
 	*)
-		PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore)" \
-			"${INFO} Branch or Tag must be represented by a value or empty quotes in place of string e.g. \"\" in the \$1 string position." \
-			"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore) in the \$2 string position." \
-			"${INFO} An update example sh installer master update, or just use the regular menu by not specifying an Action."
+		if menu_action_allowed "$2"; then
+			menu "$2"
+		else
+			PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore)" \
+				"${INFO} Branch or Tag must be represented by a value or empty quotes in place of string e.g. \"\" in the \$1 string position." \
+				"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore) in the \$2 string position." \
+				"${INFO} An update example sh installer master update, or just use the regular menu by not specifying an Action."
+		fi
 		;;
 esac
