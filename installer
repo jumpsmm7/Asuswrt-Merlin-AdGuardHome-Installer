@@ -1329,6 +1329,38 @@ select_unused_blocklists_for_removal() {
 	return 0
 }
 
+blocklist_yaml_replace_abort_on_signal() {
+	local backup_file removed_file
+	backup_file="${BLOCKLIST_YAML_BACKUP_FILE:-}"
+	removed_file="${BLOCKLIST_YAML_REMOVED_FILE:-}"
+	trap - HUP INT QUIT ABRT TERM
+	if [ -n "${backup_file}" ] && [ -f "${backup_file}" ]; then
+		if cp "${backup_file}" "${YAML_FILE}" || { rm -f "${YAML_FILE}" && mv "${backup_file}" "${YAML_FILE}"; }; then
+			chmod 600 "${YAML_FILE}"
+			ptxt_fail "Blocklist cleanup interrupted; restored ${YAML_FILE} from ${backup_file}."
+		else
+			ptxt_fail "Blocklist cleanup interrupted, and ${YAML_FILE} could not be restored from ${backup_file}."
+		fi
+	fi
+	rm -f "${removed_file}"
+	BLOCKLIST_YAML_BACKUP_FILE=""
+	BLOCKLIST_YAML_REMOVED_FILE=""
+	clear_screen
+	end_op_message 2
+}
+
+blocklist_yaml_replace_trap_disable() {
+	trap 'clear_screen; end_op_message 2' HUP INT QUIT ABRT TERM
+	BLOCKLIST_YAML_BACKUP_FILE=""
+	BLOCKLIST_YAML_REMOVED_FILE=""
+}
+
+blocklist_yaml_replace_trap_enable() {
+	BLOCKLIST_YAML_BACKUP_FILE="$1"
+	BLOCKLIST_YAML_REMOVED_FILE="$2"
+	trap 'blocklist_yaml_replace_abort_on_signal' HUP INT QUIT ABRT TERM
+}
+
 remove_unused_blocklists_from_yaml() {
 	local ids_file backup_file tmp_file removed_file
 	ids_file="$1"
@@ -1377,19 +1409,23 @@ remove_unused_blocklists_from_yaml() {
 		return 1
 	fi
 	mv "${tmp_file}" "${YAML_FILE}" || return 1
+	blocklist_yaml_replace_trap_enable "${backup_file}" "${removed_file}"
 	chmod 600 "${YAML_FILE}"
 	ptxt_step "Validating edited AdGuardHome configuration."
 	if ! check_AdGuardHome_yaml "${YAML_FILE}"; then
 		if cp "${backup_file}" "${YAML_FILE}" || { rm -f "${YAML_FILE}" && mv "${backup_file}" "${YAML_FILE}"; }; then
 			chmod 600 "${YAML_FILE}"
 			rm -f "${removed_file}"
+			blocklist_yaml_replace_trap_disable
 			ptxt_fail "Validation failed; restored ${YAML_FILE} from ${backup_file}."
 		else
 			rm -f "${removed_file}"
+			blocklist_yaml_replace_trap_disable
 			ptxt_fail "Validation failed, and ${YAML_FILE} could not be restored from ${backup_file}."
 		fi
 		return 1
 	fi
+	blocklist_yaml_replace_trap_disable
 	ptxt_ok "Removed unused blocklist IDs:"
 	cat "${removed_file}"
 	rm -f "${removed_file}"
