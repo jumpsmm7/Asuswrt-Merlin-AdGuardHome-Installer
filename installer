@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.4.1                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.4.2                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
 
-AI_VERSION="v2.4.1"
+AI_VERSION="v2.4.2"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -2031,37 +2031,72 @@ save_dns_nvram_environment() {
 # Installer file and setup helpers
 
 adguard_archive_is_safe() {
-	if ! tar -tzvf "$1" 2>/dev/null | awk -v require_state="${2:-0}" '
+	local ARCHIVE REQUIRE_STATE
+
+	ARCHIVE="$1"
+	REQUIRE_STATE="${2:-0}"
+
+	case "${REQUIRE_STATE}" in
+		1) REQUIRE_STATE="1" ;;
+		*) REQUIRE_STATE="0" ;;
+	esac
+	[ -n "${ARCHIVE}" ] || return 1
+	# First pass:
+	# Validate tar can list verbosely, reject unsafe file types,
+	# and reject unsafe symlink targets.
+	if ! tar -tzvf "${ARCHIVE}" 2>/dev/null | awk -v require_state="${REQUIRE_STATE}" '
+		function clean_path(path) {
+			while (path ~ /^\.\//) {
+				sub(/^\.\//, "", path)
+			}
+			sub(/\/$/, "", path)
+			return path
+		}
+		function path_from_verbose(text,    p) {
+			p = index(text, " ./AdGuardHome")
+			if (p > 0) {
+				return substr(text, p + 1)
+			}
+			p = index(text, " AdGuardHome")
+			if (p > 0) {
+				return substr(text, p + 1)
+			}
+			return ""
+		}
 		function symlink_target_is_safe(link_path, link_target,    base_path, depth, i, n, part, parts) {
 			base_path = link_path
 			sub(/\/[^\/]*$/, "", base_path)
 			n = split(base_path "/" link_target, parts, "/")
+			depth = 0
 			for (i = 1; i <= n; i++) {
 				part = parts[i]
-				if (part == "" || part == ".") continue
+				if (part == "" || part == ".") {
+					continue
+				}
 				if (part == "..") {
 					depth--
-					if (depth < 1) return 0
+					if (depth < 1) {
+						return 0
+					}
 					continue
 				}
 				depth++
-				if (depth == 1 && part != "AdGuardHome") return 0
+				if (depth == 1 && part != "AdGuardHome") {
+					return 0
+				}
 			}
 			return depth >= 1
 		}
-		BEGIN { entries = 0; data = 0 }
+		BEGIN {
+			entries = 0
+			data_dir = 0
+		}
 		{
 			type = substr($0, 1, 1)
-			if (type != "-" && type != "d" && type != "l") exit 1
-			entry_path = $0
-			if (type == "l") {
-				arrow_pos = index(entry_path, " -> ")
-				if (arrow_pos > 0) entry_path = substr(entry_path, 1, arrow_pos - 1)
+			if (type != "-" && type != "d" && type != "l") {
+				exit 1
 			}
-			sub(/^.* /, "", entry_path)
-			sub(/^\.\//, "", entry_path)
-			if (type == "d") sub(/\/$/, "", entry_path)
-			if (type == "d" && entry_path == "AdGuardHome/data") data = 1
+			entries = 1
 			if (type == "l") {
 				line = $0
 				arrow_count = 0
@@ -2069,37 +2104,108 @@ adguard_archive_is_safe() {
 					arrow_count++
 					line = substr(line, arrow_pos + 4)
 				}
-				if (arrow_count != 1) exit 1
+				if (arrow_count != 1) {
+					exit 1
+				}
 				arrow_pos = index($0, " -> ")
 				link_path = substr($0, 1, arrow_pos - 1)
 				link_target = substr($0, arrow_pos + 4)
-				sub(/^.* /, "", link_path)
-				sub(/^\.\//, "", link_path)
-				if (link_path == "AdGuardHome/AdGuardHome") exit 1
-				if (require_state && link_path == "AdGuardHome/AdGuardHome.yaml") exit 1
-				if (require_state && link_path == "AdGuardHome/data") exit 1
-				if (link_target == "" || link_target ~ /^\// || !symlink_target_is_safe(link_path, link_target)) exit 1
+				link_path = clean_path(path_from_verbose(link_path))
+				if (link_path == "") {
+					exit 1
+				}
+				if (link_path == "AdGuardHome/AdGuardHome") {
+					exit 1
+				}
+				if (require_state && link_path == "AdGuardHome/AdGuardHome.yaml") {
+					exit 1
+				}
+				if (require_state && link_path == "AdGuardHome/data") {
+					exit 1
+				}
+				if (link_target == "" || link_target ~ /^\//) {
+					exit 1
+				}
+				if (!symlink_target_is_safe(link_path, link_target)) {
+					exit 1
+				}
+				next
 			}
-			entries = 1
+			entry_path = clean_path(path_from_verbose($0))
+			if (entry_path == "") {
+				exit 1
+			}
+			if (type == "d" && entry_path == "AdGuardHome/data") {
+				data_dir = 1
+			}
 		}
-		END { if (!entries || (require_state && !data)) exit 1 }
+		END {
+			if (!entries) {
+				exit 1
+			}
+			if (require_state && !data_dir) {
+				exit 1
+			}
+		}
 	'; then
 		return 1
 	fi
-	tar -tzf "$1" 2>/dev/null | awk -v require_state="${2:-0}" '
-		BEGIN { binary = 0; yaml = 0; data = 0; unsafe = 0 }
+	# Second pass:
+	# Validate archive paths and required AdGuardHome files.
+	tar -tzf "${ARCHIVE}" 2>/dev/null | awk -v require_state="${REQUIRE_STATE}" '
+		function clean_path(path) {
+			while (path ~ /^\.\//) {
+				sub(/^\.\//, "", path)
+			}
+			sub(/\/$/, "", path)
+			return path
+		}
+		BEGIN {
+			binary = 0
+			yaml = 0
+			data = 0
+			unsafe = 0
+		}
 		{
-			path = $0
-			sub(/^\.\//, "", path)
-			if (path == "" || path ~ /^\// || path ~ /(^|\/)\.\.(\/|$)/ || path !~ /^AdGuardHome(\/|$)/) {
+			path = clean_path($0)
+			if (path == "") {
 				unsafe = 1
 				exit
 			}
-			if (path == "AdGuardHome/AdGuardHome") binary = 1
-			if (path == "AdGuardHome/AdGuardHome.yaml") yaml = 1
-			if (path == "AdGuardHome/data" || path == "AdGuardHome/data/") data = 1
+			if (path ~ /^\//) {
+				unsafe = 1
+				exit
+			}
+			if (path ~ /(^|\/)\.\.(\/|$)/) {
+				unsafe = 1
+				exit
+			}
+			if (path !~ /^AdGuardHome(\/|$)/) {
+				unsafe = 1
+				exit
+			}
+			if (path == "AdGuardHome/AdGuardHome") {
+				binary = 1
+			}
+			if (path == "AdGuardHome/AdGuardHome.yaml") {
+				yaml = 1
+			}
+			if (path == "AdGuardHome/data") {
+				data = 1
+			}
 		}
-		END { exit(!unsafe && binary && (!require_state || (yaml && data)) ? 0 : 1) }
+		END {
+			if (unsafe) {
+				exit 1
+			}
+			if (!binary) {
+				exit 1
+			}
+			if (require_state && (!yaml || !data)) {
+				exit 1
+			}
+			exit 0
+		}
 	'
 }
 
@@ -2441,9 +2547,12 @@ create_backup_archive() {
 	fi
 	ptxt_ok "Created AdGuardHome backup archive."
 	ptxt_step "Verifying AdGuardHome backup archive."
-	if ! tar -tzf "${BACKUP_TMP}" >/dev/null 2>&1 || ! adguard_archive_is_safe "${BACKUP_TMP}" 1; then
+	if ! adguard_archive_is_safe "${BACKUP_TMP}" 1; then
+		PTXT "${ERROR} The new AdGuardHome backup archive failed safety validation."
+		PTXT "${INFO} Backup archives must contain AdGuardHome/AdGuardHome, AdGuardHome/AdGuardHome.yaml, and AdGuardHome/data."
+		PTXT "${INFO} Archive contents:"
+		tar -tzvf "${BACKUP_TMP}" 2>/dev/null | sed -n '1,40p'
 		rm -f "${BACKUP_TMP}"
-		PTXT "${ERROR} The new AdGuardHome backup archive could not be verified."
 		return 1
 	fi
 	ptxt_ok "Verified AdGuardHome backup archive."
