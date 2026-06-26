@@ -1207,7 +1207,7 @@ run_blocklist_analyzer() {
 		return 1
 	fi
 	found_filter=""
-	for filter_file in "${TARG_DIR}/data/filters"/*; do
+	for filter_file in "${TARG_DIR}/data/filters"/*.txt; do
 		if [ -f "${filter_file}" ]; then
 			found_filter="1"
 			break
