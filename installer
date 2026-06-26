@@ -3878,6 +3878,12 @@ read_yesno() {
 installer_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
 case "${1}" in
+	"9" | "blocklists" | "unusedblocklists")
+		CHOSEN="${1}"
+		BRANCH="$(conf_value INSTALLER_BRANCH)"
+		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
+		set -- "${BRANCH}" "${CHOSEN}"
+		;;
 	"amtmupdate")
 		BRANCH="$(conf_value INSTALLER_BRANCH)"
 		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
