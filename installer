@@ -402,6 +402,13 @@ md5_is_valid() {
 	[ "${#1}" -eq 32 ]
 }
 
+sha256_is_valid() {
+	case "$1" in
+		"" | *[!0123456789abcdefABCDEF]*) return 1 ;;
+	esac
+	[ "${#1}" -eq 64 ]
+}
+
 file_md5() {
 	local FILE MD5_OUTPUT MD5_VALUE
 	FILE="$1"
@@ -410,6 +417,21 @@ file_md5() {
 	MD5_VALUE="$(PTXT "${MD5_OUTPUT}" | awk 'NF {print $1; found = 1; exit} END {if (!found) exit 1}')" || return 1
 	md5_is_valid "${MD5_VALUE}" || return 1
 	PTXT "${MD5_VALUE}"
+}
+
+file_sha256() {
+	local FILE SHA256_OUTPUT SHA256_VALUE
+	FILE="$1"
+	if ai_have_cmd sha256sum; then
+		SHA256_OUTPUT="$(sha256sum "${FILE}")" || return 1
+	elif ai_have_cmd openssl; then
+		SHA256_OUTPUT="$(openssl dgst -sha256 "${FILE}")" || return 1
+	else
+		return 1
+	fi
+	SHA256_VALUE="$(PTXT "${SHA256_OUTPUT}" | awk 'NF {print $NF; found = 1; exit} END {if (!found) exit 1}')" || return 1
+	sha256_is_valid "${SHA256_VALUE}" || return 1
+	PTXT "${SHA256_VALUE}"
 }
 
 ipv4_is_valid() {
@@ -1185,7 +1207,7 @@ install_blocklist_analyzer() {
 	ptxt_ok "Downloaded blocklist analyzer."
 
 	ptxt_step "Verifying blocklist analyzer SHA-256 checksum."
-	if [ "$(sha256sum "${BLOCKLIST_ANALYZER_FILE}.tmp" | awk '{ print $1 }')" != "${BLOCKLIST_ANALYZER_SHA256}" ]; then
+	if [ "$(file_sha256 "${BLOCKLIST_ANALYZER_FILE}.tmp" 2>/dev/null)" != "${BLOCKLIST_ANALYZER_SHA256}" ]; then
 		rm -f "${BLOCKLIST_ANALYZER_FILE}.tmp"
 		ptxt_fail "Blocklist analyzer checksum verification failed."
 		return 1
