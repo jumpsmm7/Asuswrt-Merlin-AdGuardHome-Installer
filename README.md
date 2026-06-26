@@ -150,10 +150,16 @@ Removal can be handled in two ways after the unused list report is printed. The 
 Python 3 is required to run the analyzer. On Entware-based installs, install it before using the analyzer if the installer has not already installed it for you:
 
 ```sh
-opkg install python3
+opkg install python3 coreutils-sha256sum
 ```
 
-`python3` is an Entware dependency, not a stock Asuswrt-Merlin router command. The analyzer itself is optional; users who do not want Entware Python 3 installed can skip this feature and manage filter lists manually from the AdGuardHome web interface.
+For SHA-256 verification support on firmware builds that do not include `sha256sum`, install:
+
+```sh
+opkg install coreutils-sha256sum
+```
+
+`python3` and `coreutils-sha256sum` are Entware dependencies, not a stock Asuswrt-Merlin router command. The analyzer itself is optional; users who do not want Entware Python 3 installed can skip this feature and manage filter lists manually from the AdGuardHome web interface.
 
 ## IPSET integration
 
