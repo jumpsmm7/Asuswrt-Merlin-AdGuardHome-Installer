@@ -467,6 +467,9 @@ file_sha256() {
 	if ai_have_cmd sha256sum; then
 		SHA256_OUTPUT="$(sha256sum "${FILE}" | awk '{printf "%s", $1}')" || SHA256_OUTPUT=""
 	fi
+	if [ -z "${SHA256_OUTPUT}" ] && [ -x /opt/bin/sha256sum ]; then
+		SHA256_OUTPUT="$(/opt/bin/sha256sum "${FILE}" | awk '{printf "%s", $1}')" || SHA256_OUTPUT=""
+	fi
 	if [ -z "${SHA256_OUTPUT}" ] && [ -x /bin/busybox ]; then
 		SHA256_OUTPUT="$(/bin/busybox sha256sum "${FILE}" | awk '{printf "%s", $1}')" || SHA256_OUTPUT=""
 	fi
@@ -476,10 +479,13 @@ file_sha256() {
 	if [ -z "${SHA256_OUTPUT}" ] && ai_have_cmd openssl; then
 		SHA256_OUTPUT="$(openssl dgst -sha256 "${FILE}" | awk '{printf "%s", $2}')" || SHA256_OUTPUT=""
 	fi
-	[ -n "${SHA256_OUTPUT}" ] || return 1
-	if [ "$(PTXT -n "${SHA256_OUTPUT}" | wc -c)" -eq "64" ]; then SHA256_VALUE="${SHA256_OUTPUT}"; else return 1; fi
-	sha256_is_valid "${SHA256_VALUE}" || return 1
-	PTXT "${SHA256_VALUE}"
+	if ! sha256_is_valid "${SHA256_OUTPUT}"; then
+		PTXT "${ERROR} Invalid SHA-256 checksum."
+		return 1
+	else
+		SHA256_VALUE="${SHA256_OUTPUT}"
+		PTXT -n "${SHA256_VALUE}"
+	fi
 }
 
 ipv4_is_valid() {
