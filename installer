@@ -3948,11 +3948,19 @@ read_yesno() {
 
 menu_action_allowed() {
 	case "$1" in
-		[1-8] | "install" | "update" | "uninstall" | "changepw" | "reconfigure" | "setamtmupdate" | "setlocalcache" | "switchbranch" | "setipset" | [bB] | "backup" | [rR] | "restore")
+		"1" | "install" | "update" | "2" | "uninstall")
 			return 0
 			;;
+		"3" | "changepw" | "4" | "reconfigure" | "5" | "setamtmupdate" | "6" | "setlocalcache" | "7" | "switchbranch" | "8" | "setipset" | [bB] | "backup")
+			[ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && return 0
+			return 1
+			;;
 		"9" | "blocklists" | "unusedblocklists")
-			[ -n "${BLOCKLIST_ANALYZER_SHA256}" ] && return 0
+			[ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -n "${BLOCKLIST_ANALYZER_SHA256}" ] && return 0
+			return 1
+			;;
+		[rR] | "restore")
+			[ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && return 0
 			return 1
 			;;
 		*)
@@ -3969,8 +3977,14 @@ installer_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
 BLOCKLIST_ANALYZER_SHA256="$(conf_value BLOCKLIST_ANALYZER_SHA256)"
 if [ "${1:-}" = "amtmupdate" ] && [ "${2:-}" = "check" ]; then
-	:
-elif ! conf_has_key BLOCKLIST_ANALYZER_SHA256; then
+	AMTM_UPDATE="$(conf_value AMTM_UPDATE)"
+	if [ ! -f "${CONF_FILE}" ] || [ "${AMTM_UPDATE}" = "DISABLED" ]; then
+		exit 1
+	elif [ "${AMTM_UPDATE}" = "ENABLED" ]; then
+		exit 0
+	fi
+fi
+if ! conf_has_key BLOCKLIST_ANALYZER_SHA256; then
 	write_conf BLOCKLIST_ANALYZER_SHA256 "\"${BLOCKLIST_ANALYZER_SHA256_DEFAULT}\""
 	BLOCKLIST_ANALYZER_SHA256="${BLOCKLIST_ANALYZER_SHA256_DEFAULT}"
 fi
@@ -3979,14 +3993,6 @@ case "${1}" in
 		BRANCH="$(conf_value INSTALLER_BRANCH)"
 		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
 		case "$2" in
-			"check")
-				AMTM_UPDATE="$(conf_value AMTM_UPDATE)"
-				if [ ! -f "${CONF_FILE}" ] || [ "${AMTM_UPDATE}" = "DISABLED" ]; then
-					exit 1
-				elif [ "${AMTM_UPDATE}" = "ENABLED" ]; then
-					exit 0
-				fi
-				;;
 			"")
 				CHOSEN="${1#amtm}"
 				set -- "$BRANCH" "$CHOSEN"
