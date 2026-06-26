@@ -1408,8 +1408,11 @@ remove_unused_blocklists_from_yaml() {
 		ptxt_warn "No matching numeric filter IDs were found under filters:."
 		return 1
 	fi
-	mv "${tmp_file}" "${YAML_FILE}" || return 1
 	blocklist_yaml_replace_trap_enable "${backup_file}" "${removed_file}"
+	if ! mv "${tmp_file}" "${YAML_FILE}"; then
+		blocklist_yaml_replace_trap_disable
+		return 1
+	fi
 	chmod 600 "${YAML_FILE}"
 	ptxt_step "Validating edited AdGuardHome configuration."
 	if ! check_AdGuardHome_yaml "${YAML_FILE}"; then
