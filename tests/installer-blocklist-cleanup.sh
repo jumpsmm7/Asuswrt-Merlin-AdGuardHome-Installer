@@ -46,7 +46,6 @@ sed -n '/^remove_unused_blocklists_from_yaml() {$/,/^cleanup_unused_blocklists()
 	fail 'could not extract blocklist removal function'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'blocklist helper extraction was empty'
 
-
 (
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
