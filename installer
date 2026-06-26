@@ -422,13 +422,20 @@ file_md5() {
 file_sha256() {
 	local FILE SHA256_OUTPUT SHA256_VALUE
 	FILE="$1"
+	SHA256_OUTPUT=""
 	if ai_have_cmd sha256sum; then
-		SHA256_OUTPUT="$(sha256sum "${FILE}")" || return 1
-	elif ai_have_cmd openssl; then
-		SHA256_OUTPUT="$(openssl dgst -sha256 "${FILE}")" || return 1
-	else
-		return 1
+		SHA256_OUTPUT="$(sha256sum "${FILE}")" || SHA256_OUTPUT=""
 	fi
+	if [ -z "${SHA256_OUTPUT}" ] && [ -x /bin/busybox ]; then
+		SHA256_OUTPUT="$(/bin/busybox sha256sum "${FILE}")" || SHA256_OUTPUT=""
+	fi
+	if [ -z "${SHA256_OUTPUT}" ] && ai_have_cmd busybox; then
+		SHA256_OUTPUT="$(busybox sha256sum "${FILE}")" || SHA256_OUTPUT=""
+	fi
+	if [ -z "${SHA256_OUTPUT}" ] && ai_have_cmd openssl; then
+		SHA256_OUTPUT="$(openssl dgst -sha256 "${FILE}")" || SHA256_OUTPUT=""
+	fi
+	[ -n "${SHA256_OUTPUT}" ] || return 1
 	SHA256_VALUE="$(PTXT "${SHA256_OUTPUT}" | awk '
 		NF {
 			if (length($1) == 64 && $1 !~ /[^0123456789abcdefABCDEF]/) {
