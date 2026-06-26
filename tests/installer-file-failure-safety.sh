@@ -276,6 +276,11 @@ EOF
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
 						'lrwxrwxrwx root/root 0 date ./AdGuardHome/AdGuardHome -> /bin/sh'
 					;;
+				binary-dir)
+					printf '%s\n' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/AdGuardHome/'
+					;;
 				symlink-extra)
 					printf '%s\n' \
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
@@ -313,6 +318,14 @@ EOF
 						'-rw-r--r-- root/root 1 date ./AdGuardHome/AdGuardHome.yaml' \
 						'-rw-r--r-- root/root 1 date ./AdGuardHome/data'
 					;;
+				data-dir-then-file)
+					printf '%s\n' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
+						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
+						'-rw-r--r-- root/root 1 date ./AdGuardHome/AdGuardHome.yaml' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/data/' \
+						'-rw-r--r-- root/root 1 date ./AdGuardHome/data'
+					;;
 				data-symlink)
 					printf '%s\n' \
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
@@ -325,6 +338,13 @@ EOF
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
 						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
 						'lrwxrwxrwx root/root 0 date ./AdGuardHome/AdGuardHome.yaml -> filters/config.yaml' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/data/'
+					;;
+				yaml-dir)
+					printf '%s\n' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
+						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/AdGuardHome.yaml/' \
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/data/'
 					;;
 				*)
@@ -392,6 +412,10 @@ EOF
 	if adguard_archive_is_safe ignored 1; then
 		fail "backup archive with data as a file was accepted"
 	fi
+	ARCHIVE_LAYOUT="data-dir-then-file"
+	if adguard_archive_is_safe ignored 1; then
+		fail "backup archive with data directory overwritten by a file was accepted"
+	fi
 	ARCHIVE_LAYOUT="data-symlink"
 	adguard_archive_is_safe ignored || fail "install archive with data as a symlink was rejected"
 	if adguard_archive_is_safe ignored 1; then
@@ -401,6 +425,10 @@ EOF
 	adguard_archive_is_safe ignored || fail "install archive with AdGuardHome.yaml as a symlink was rejected"
 	if adguard_archive_is_safe ignored 1; then
 		fail "backup archive with AdGuardHome.yaml as a symlink was accepted"
+	fi
+	ARCHIVE_LAYOUT="yaml-dir"
+	if adguard_archive_is_safe ignored 1; then
+		fail "backup archive with AdGuardHome.yaml as a directory was accepted"
 	fi
 	ARCHIVE_LAYOUT="traversal"
 	if adguard_archive_is_safe ignored; then
@@ -433,6 +461,10 @@ EOF
 	ARCHIVE_LAYOUT="symlink-binary"
 	if adguard_archive_is_safe ignored; then
 		fail "archive with a symlinked AdGuardHome binary was accepted"
+	fi
+	ARCHIVE_LAYOUT="binary-dir"
+	if adguard_archive_is_safe ignored; then
+		fail "archive with AdGuardHome binary as a directory was accepted"
 	fi
 ) || exit 1
 

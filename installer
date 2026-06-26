@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.4.3                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.4.4                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
 
-AI_VERSION="v2.4.3"
+AI_VERSION="v2.4.4"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -38,7 +38,7 @@ readonly YAML_BAK="${YAML_FILE}.bak"
 readonly YAML_ERR="${YAML_FILE}.err"
 readonly YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
 readonly BLOCKLIST_ANALYZER_FILE="${TARG_DIR}/blocklist_analyzer.py"
-readonly BLOCKLIST_ANALYZER_URL="https://gist.githubusercontent.com/graysky2/8035291d1bf87b8fe3693668965337e1/raw/blocklilst_analyzer.py"
+readonly BLOCKLIST_ANALYZER_URL="https://gist.githubusercontent.com/graysky2/8035291d1bf87b8fe3693668965337e1/raw/a4be7655095d6ff880c2f3748964b825d7c45bd2/blocklilst_analyzer.py"
 readonly BLOCKLIST_ANALYZER_SHA256_DEFAULT="77c21b6faeb7fea86b0729996dec5cc20d2d309fe8c6946c7371dd64134a6e5f"
 BLOCKLIST_ANALYZER_SHA256=""
 SCRIPT_LOC=""
@@ -467,6 +467,9 @@ file_sha256() {
 	if ai_have_cmd sha256sum; then
 		SHA256_OUTPUT="$(sha256sum "${FILE}" | awk '{printf "%s", $1}')" || SHA256_OUTPUT=""
 	fi
+	if [ -z "${SHA256_OUTPUT}" ] && [ -x /opt/bin/sha256sum ]; then
+		SHA256_OUTPUT="$(/opt/bin/sha256sum "${FILE}" | awk '{printf "%s", $1}')" || SHA256_OUTPUT=""
+	fi
 	if [ -z "${SHA256_OUTPUT}" ] && [ -x /bin/busybox ]; then
 		SHA256_OUTPUT="$(/bin/busybox sha256sum "${FILE}" | awk '{printf "%s", $1}')" || SHA256_OUTPUT=""
 	fi
@@ -476,10 +479,13 @@ file_sha256() {
 	if [ -z "${SHA256_OUTPUT}" ] && ai_have_cmd openssl; then
 		SHA256_OUTPUT="$(openssl dgst -sha256 "${FILE}" | awk '{printf "%s", $2}')" || SHA256_OUTPUT=""
 	fi
-	[ -n "${SHA256_OUTPUT}" ] || return 1
-	if [ "$(PTXT -n "${SHA256_OUTPUT}" | wc -c)" -eq "64" ]; then SHA256_VALUE="${SHA256_OUTPUT}"; else return 1; fi
-	sha256_is_valid "${SHA256_VALUE}" || return 1
-	PTXT "${SHA256_VALUE}"
+	if ! sha256_is_valid "${SHA256_OUTPUT}"; then
+		PTXT "${ERROR} Invalid SHA-256 checksum."
+		return 1
+	else
+		SHA256_VALUE="${SHA256_OUTPUT}"
+		PTXT -n "${SHA256_VALUE}"
+	fi
 }
 
 ipv4_is_valid() {
@@ -1263,6 +1269,10 @@ install_blocklist_analyzer() {
 	ptxt_ok "Downloaded blocklist analyzer."
 
 	ptxt_step "Verifying blocklist analyzer SHA-256 checksum."
+	if ! ensure_sha256sum_tool; then
+		rm -f "${BLOCKLIST_ANALYZER_FILE}.tmp"
+		return 1
+	fi
 	if [ "$(file_sha256 "${BLOCKLIST_ANALYZER_FILE}.tmp" 2>/dev/null)" != "${BLOCKLIST_ANALYZER_SHA256}" ]; then
 		rm -f "${BLOCKLIST_ANALYZER_FILE}.tmp"
 		ptxt_fail "Blocklist analyzer checksum verification failed."
@@ -2119,6 +2129,15 @@ adguard_archive_is_safe() {
 			}
 			entry_path = clean_path(path_from_verbose($0))
 			if (entry_path == "") {
+				exit 1
+			}
+			if (entry_path == "AdGuardHome/AdGuardHome" && type != "-") {
+				exit 1
+			}
+			if (require_state && entry_path == "AdGuardHome/AdGuardHome.yaml" && type != "-") {
+				exit 1
+			}
+			if (require_state && entry_path == "AdGuardHome/data" && type != "d") {
 				exit 1
 			}
 			if (type == "d" && entry_path == "AdGuardHome/data") {
