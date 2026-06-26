@@ -32,36 +32,67 @@ grep -q '\[ -z "${2:-}" \] && single_arg_menu_action "${1}"' "${SCRIPT_PATH}" ||
 	fail 'main argument parser does not guard unset action parameters before one-argument dispatch'
 grep -q 'set -- "${BRANCH}" "${CHOSEN}"' "${SCRIPT_PATH}" ||
 	fail 'single-argument action path does not rewrite branch/action parameters'
+default_line="$(grep -n 'write_conf BLOCKLIST_ANALYZER_SHA256' "${SCRIPT_PATH}" | cut -d: -f1)" ||
+	fail 'could not find blocklist analyzer checksum default write'
+amtm_check_line="$(grep -n '\[ "${1:-}" = "amtmupdate" \] && \[ "${2:-}" = "check" \]' "${SCRIPT_PATH}" | cut -d: -f1)" ||
+	fail 'could not find amtmupdate check before default write'
+dispatch_line="$(grep -n '\[ -z "${2:-}" \] && single_arg_menu_action "${1}"' "${SCRIPT_PATH}" | cut -d: -f1)" ||
+	fail 'could not find one-argument dispatch guard'
+if [ -z "${default_line}" ] || [ -z "${amtm_check_line}" ] || [ -z "${dispatch_line}" ]; then
+	fail 'could not compare amtmupdate check, checksum defaulting, and one-argument dispatch ordering'
+fi
+if [ "${amtm_check_line}" -ge "${default_line}" ]; then
+	fail 'amtmupdate check handling must happen before blocklist analyzer checksum default write'
+fi
+if [ "${default_line}" -ge "${dispatch_line}" ]; then
+	fail 'blocklist analyzer checksum defaulting must happen before one-argument dispatch'
+fi
 
 (
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
+	TARG_DIR="${TMP_ROOT}/target"
+	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	BASE_DIR="${TMP_ROOT}/base"
+	BACKUP_FILE="${BASE_DIR}/backup_AdGuardHome.tar.gz"
+	mkdir -p "${BASE_DIR}" || exit 1
+
+	assert_allowed() {
+		local action
+		for action in "$@"; do
+			if ! single_arg_menu_action "${action}"; then
+				printf '%s\n' "missing action: ${action}" >&2
+				exit 1
+			fi
+		done
+	}
+
+	assert_disallowed() {
+		local action
+		for action in "$@"; do
+			if single_arg_menu_action "${action}"; then
+				printf '%s\n' "unexpected action: ${action}" >&2
+				exit 1
+			fi
+		done
+	}
+
 	BLOCKLIST_ANALYZER_SHA256=""
-	for action in 1 2 3 4 5 6 7 8 install update uninstall changepw reconfigure setamtmupdate setlocalcache switchbranch setipset b B backup r R restore; do
-		if ! single_arg_menu_action "${action}"; then
-			printf '%s\n' "missing action: ${action}" >&2
-			exit 1
-		fi
-	done
-	for action in 9 blocklists unusedblocklists; do
-		if single_arg_menu_action "${action}"; then
-			printf '%s\n' "unexpected blocklist action without checksum: ${action}" >&2
-			exit 1
-		fi
-	done
+	assert_allowed 1 2 install update uninstall
+	assert_disallowed 3 4 5 6 7 8 changepw reconfigure setamtmupdate setlocalcache switchbranch setipset b B backup r R restore 9 blocklists unusedblocklists
+
+	touch "${BACKUP_FILE}" || exit 1
+	assert_allowed r R restore
+	assert_disallowed 3 4 5 6 7 8 changepw reconfigure setamtmupdate setlocalcache switchbranch setipset b B backup 9 blocklists unusedblocklists
+
+	mkdir -p "${TARG_DIR}" || exit 1
+	touch "${AGH_FILE}" || exit 1
+	assert_allowed 1 2 3 4 5 6 7 8 install update uninstall changepw reconfigure setamtmupdate setlocalcache switchbranch setipset b B backup r R restore
+	assert_disallowed 9 blocklists unusedblocklists
+
 	BLOCKLIST_ANALYZER_SHA256="configured-sha256"
-	for action in 9 blocklists unusedblocklists; do
-		if ! single_arg_menu_action "${action}"; then
-			printf '%s\n' "missing blocklist action with checksum: ${action}" >&2
-			exit 1
-		fi
-	done
-	for branch in master dev release beta edge amtmupdate; do
-		if single_arg_menu_action "${branch}"; then
-			printf '%s\n' "branch/action ambiguity: ${branch}" >&2
-			exit 1
-		fi
-	done
+	assert_allowed 9 blocklists unusedblocklists
+	assert_disallowed master dev release beta edge amtmupdate
 ) || fail 'single-argument action helper returned an unexpected result'
 
 printf '%s\n' 'PASS: regular menu actions support one-argument dispatch with checksum-gated blocklist aliases'
