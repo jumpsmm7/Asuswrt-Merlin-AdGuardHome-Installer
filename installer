@@ -1358,10 +1358,14 @@ remove_unused_blocklists_from_yaml() {
 	chmod 600 "${YAML_FILE}"
 	ptxt_step "Validating edited AdGuardHome configuration."
 	if ! check_AdGuardHome_yaml "${YAML_FILE}"; then
-		cp "${backup_file}" "${YAML_FILE}"
-		chmod 600 "${YAML_FILE}"
-		rm -f "${removed_file}"
-		ptxt_fail "Validation failed; restored ${YAML_FILE} from ${backup_file}."
+		if cp "${backup_file}" "${YAML_FILE}" || { rm -f "${YAML_FILE}" && mv "${backup_file}" "${YAML_FILE}"; }; then
+			chmod 600 "${YAML_FILE}"
+			rm -f "${removed_file}"
+			ptxt_fail "Validation failed; restored ${YAML_FILE} from ${backup_file}."
+		else
+			rm -f "${removed_file}"
+			ptxt_fail "Validation failed, and ${YAML_FILE} could not be restored from ${backup_file}."
+		fi
 		return 1
 	fi
 	ptxt_ok "Removed unused blocklist IDs:"
