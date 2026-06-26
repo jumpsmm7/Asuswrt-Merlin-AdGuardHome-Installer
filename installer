@@ -1197,10 +1197,32 @@ install_blocklist_analyzer() {
 }
 
 run_blocklist_analyzer() {
-	local output_file ids_file
+	local filter_file found_filter output_file ids_file
 	output_file="${TARG_DIR}/blocklist_analyzer.$$.out"
 	ids_file="${TARG_DIR}/blocklist_analyzer.$$.ids"
 	ptxt_phase "Running AdGuardHome blocklist analyzer."
+	ptxt_step "Checking analyzer input files."
+	if [ ! -d "${TARG_DIR}/data/filters" ]; then
+		ptxt_fail "AdGuardHome filter files are missing; expected ${TARG_DIR}/data/filters."
+		return 1
+	fi
+	found_filter=""
+	for filter_file in "${TARG_DIR}/data/filters"/*; do
+		if [ -f "${filter_file}" ]; then
+			found_filter="1"
+			break
+		fi
+	done
+	if [ -z "${found_filter}" ]; then
+		ptxt_fail "AdGuardHome filter files are missing; ${TARG_DIR}/data/filters contains no filter files."
+		return 1
+	fi
+	if [ ! -s "${TARG_DIR}/data/querylog.json" ]; then
+		ptxt_fail "AdGuardHome query log is missing or empty; enable query logging and let AdGuardHome collect queries before analyzing blocklists."
+		return 1
+	fi
+	ptxt_ok "Analyzer input files are available."
+
 	ptxt_step "Running analyzer from ${TARG_DIR} so ./data resolves correctly."
 	if ! (cd "${TARG_DIR}" && python3 "${BLOCKLIST_ANALYZER_FILE}") >"${output_file}" 2>&1; then
 		cat "${output_file}"
