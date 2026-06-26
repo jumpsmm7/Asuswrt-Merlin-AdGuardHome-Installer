@@ -4181,9 +4181,9 @@ single_arg_menu_action() {
 
 installer_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
-if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then 
+if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
 	BLOCKLIST_ANALYZER_SHA256="$(conf_value BLOCKLIST_ANALYZER_SHA256)"
-else 
+else
 	del_conf BLOCKLIST_ANALYZER_SHA256
 fi
 if [ "${1:-}" = "amtmupdate" ] && [ "${2:-}" = "check" ]; then
