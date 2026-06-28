@@ -1068,6 +1068,109 @@ doctor() {
 	[ "${DOCTOR_FAILED}" = "0" ]
 }
 
+status_line() {
+	PTXT "$1: ${2:-unknown}"
+}
+
+status_dnsmasq_handoff_state() {
+	local marker markers state
+	state="inactive"
+	markers=""
+	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock; do
+		if [ -e "${marker}" ]; then
+			state="active/stale marker present"
+			markers="${markers}${markers:+, }${marker}"
+		fi
+	done
+	PTXT "${state}${markers:+ (${markers})}"
+}
+
+status_last_startup_result() {
+	local result
+	result=""
+	if ai_have_cmd logread; then
+		result="$(logread 2>/dev/null |
+			awk '
+				/AdGuardHome/ && /AdGuardHome startup completed/ { last = $0 }
+				/AdGuardHome/ && /AdGuardHome startup failed/ { last = $0 }
+				/AdGuardHome/ && /DNS\/WebUI readiness checks (passed|failed)/ { last = $0 }
+				END { if (last != "") print last }
+			')"
+	fi
+	[ -n "${result}" ] && PTXT "${result}" || PTXT "unknown (no startup marker/log entry found)"
+}
+
+status_port53_ownership() {
+	local dns53
+	dns53="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ { print }')"
+	if [ -z "${dns53}" ]; then
+		PTXT "not listening"
+		return 0
+	fi
+	PTXT "${dns53}" | awk '
+		$0 ~ /^(tcp)6?[[:space:]]+/ { tcp = tcp ? tcp "; " $0 : $0 }
+		$0 ~ /^(udp)6?[[:space:]]+/ { udp = udp ? udp "; " $0 : $0 }
+		END {
+			if (tcp != "") print "TCP: " tcp
+			if (udp != "") print "UDP: " udp
+		}
+	'
+}
+
+status_webui_address() {
+	local address host port
+	address="$(awk '
+		/^[[:space:]]*address:[[:space:]]*/ {
+			sub(/^[[:space:]]*address:[[:space:]]*/, "")
+			gsub(/^"|"$/, "")
+			print
+			exit
+		}
+	' "${YAML_FILE}" 2>/dev/null)"
+	port="$(agh_web_port 2>/dev/null)"
+	if [ -n "${address}" ]; then
+		PTXT "${address}${port:+ (port ${port})}"
+		return 0
+	fi
+	host="$(nvram get lan_ipaddr 2>/dev/null)"
+	[ -n "${port}" ] && PTXT "${host:-router}:${port}" || PTXT "unknown"
+}
+
+status() {
+	local branch count monitor_count monitor_state service_state version
+	count="$(pidof AdGuardHome 2>/dev/null | wc -w)"
+	monitor_count="$(agh_monitor_count)"
+	if [ "${count}" -gt 0 ]; then
+		if agh_startup_check; then
+			service_state="running (ready)"
+		else
+			service_state="running (readiness check incomplete)"
+		fi
+	else
+		service_state="stopped"
+	fi
+	case "${monitor_count}" in
+		0) monitor_state="stopped" ;;
+		1) monitor_state="running (1 process)" ;;
+		*) monitor_state="running (${monitor_count} processes)" ;;
+	esac
+	branch="${1:-}"
+	[ -n "${branch}" ] || branch="$(conf_value INSTALLER_BRANCH 2>/dev/null)"
+	version="$([ -x "${AGH_FILE}" ] && "${AGH_FILE}" -v --version 2>/dev/null | head -1)"
+
+	PTXT "AdGuardHome Installer Status"
+	status_line "AdGuardHome service state" "${service_state}"
+	status_line "Monitor process state" "${monitor_state}"
+	status_line "AdGuardHome PID count" "${count}"
+	status_line "Port 53 ownership" "$(status_port53_ownership)"
+	status_line "AdGuardHome version" "${version:-unknown}"
+	status_line "Installer version" "${AI_VERSION}"
+	status_line "Selected branch" "${branch:-unknown}"
+	status_line "WebUI address/port" "$(status_webui_address)"
+	status_line "dnsmasq handoff state" "$(status_dnsmasq_handoff_state)"
+	status_line "Last startup result" "$(status_last_startup_result)"
+}
+
 agh_restart() {
 	local old_pids
 	if agh_is_running; then
@@ -4204,6 +4307,9 @@ menu() {
 		"d" | "D" | "doctor")
 			doctor
 			;;
+		"status")
+			status "${BRANCH}"
+			;;
 		"q" | "Q")
 			PTXT "${INFO} Operations have been applied if any has been made" \
 				"${INFO} In case of anomaly, please reboot your router!"
@@ -4331,7 +4437,7 @@ menu_action_allowed() {
 		"1" | "install" | "update" | "2" | "uninstall")
 			return 0
 			;;
-		[dD] | "doctor")
+		[dD] | "doctor" | "status")
 			return 0
 			;;
 		"3" | "changepw" | "4" | "reconfigure" | "5" | "setamtmupdate" | "6" | "setlocalcache" | "7" | "switchbranch" | "8" | "setipset" | [bB] | "backup")
@@ -4358,6 +4464,14 @@ single_arg_menu_action() {
 
 if [ "${1:-}" = "doctor" ]; then
 	doctor "${2:-}"
+	exit "$?"
+fi
+if [ "${1:-}" = "status" ]; then
+	status
+	exit "$?"
+fi
+if [ "${2:-}" = "status" ]; then
+	status "${1:-}"
 	exit "$?"
 fi
 
@@ -4494,10 +4608,10 @@ case "$2" in
 		if menu_action_allowed "$2"; then
 			menu "$2"
 		else
-			PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore | doctor)" \
-				"${INFO} Doctor can also be run as: sh installer doctor [--fix]." \
+			PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore | doctor | status)" \
+				"${INFO} Doctor can also be run as: sh installer doctor [--fix]. Status can also be run as: sh installer status." \
 				"${INFO} Branch or Tag must be represented by a value or empty quotes in place of string e.g. \"\" in the \$1 string position." \
-				"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore | doctor) in the \$2 string position." \
+				"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore | doctor | status) in the \$2 string position." \
 				"${INFO} An update example sh installer master update, or just use the regular menu by not specifying an Action."
 		fi
 		;;
