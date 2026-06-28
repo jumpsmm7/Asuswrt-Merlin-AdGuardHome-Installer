@@ -898,6 +898,7 @@ agh_process_count() {
 }
 
 doctor_status() {
+	[ "$1" = "FAIL" ] && DOCTOR_FAILED="1"
 	PTXT "[$1] $2"
 }
 
@@ -931,27 +932,60 @@ doctor_fix_permissions() {
 	[ -f "${CONF_FILE}" ] && chmod 600 "${CONF_FILE}" 2>/dev/null && doctor_fix_msg "${CONF_FILE} permissions"
 }
 
+doctor_pid_file_is_active() {
+	local marker_pid
+	marker_pid="$(sed -n '1s/[[:space:]].*$//p' "$1" 2>/dev/null)"
+	case "${marker_pid}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	[ -d "/proc/${marker_pid}" ]
+}
+
+doctor_run_lock_is_active() {
+	local lock_file pid_file status
+	lock_file="/tmp/AdGuardHome.lock"
+	pid_file="/tmp/AdGuardHome/pid"
+	if [ -f "${pid_file}" ] && doctor_pid_file_is_active "${pid_file}"; then
+		return 0
+	fi
+	if ai_have_cmd flock && [ -e "${lock_file}" ]; then
+		(
+			exec 9<>"${lock_file}" || exit 1
+			flock -n 9 >/dev/null 2>&1
+			status="$?"
+			[ "${status}" -eq 0 ] && flock -u 9 >/dev/null 2>&1
+			exit "${status}"
+		)
+		status="$?"
+		[ "${status}" -ne 0 ] && return 0
+	fi
+	return 1
+}
+
 doctor_fix_safe() {
-	local marker_pid link_target stale
+	local link_target stale
 	doctor_fix_permissions
 	link_target="$(readlink "/opt/sbin/AdGuardHome" 2>/dev/null)"
 	if [ -f "${AGH_FILE}" ] && { [ ! -L "/opt/sbin/AdGuardHome" ] || [ "${link_target}" != "${AGH_FILE}" ]; }; then
 		mkdir -p "/opt/sbin" 2>/dev/null && ln -sf "${AGH_FILE}" "/opt/sbin/AdGuardHome" 2>/dev/null && doctor_fix_msg "/opt/sbin/AdGuardHome symlink"
 	fi
-	for stale in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.lock /tmp/AdGuardHome.pid /opt/var/run/AdGuardHome.pid "${TARG_DIR}"/.*.$$.* "${TARG_DIR}"/*.tmp.$$; do
+	for stale in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome/pid /tmp/AdGuardHome.pid /opt/var/run/AdGuardHome.pid "${TARG_DIR}"/.*.$$.* "${TARG_DIR}"/*.tmp.$$; do
 		[ -e "${stale}" ] || continue
 		case "${stale}" in
-			/tmp/AdGuardHome.dnsmasq.handoff | /tmp/AdGuardHome.dnsmasq.lock | /tmp/AdGuardHome.lock)
-				marker_pid="$(sed -n '1s/[^0-9].*$//p' "${stale}" 2>/dev/null)"
-				if [ -n "${marker_pid}" ] && [ -d "/proc/${marker_pid}" ]; then
-					continue
-				fi
+			/tmp/AdGuardHome.dnsmasq.handoff | /tmp/AdGuardHome.dnsmasq.lock | /tmp/AdGuardHome.dns-handoff/active | /tmp/AdGuardHome.dns-handoff/lock)
+				doctor_pid_file_is_active "${stale}" && continue
 				[ "$(agh_monitor_count)" -eq 0 ] || continue
+				;;
+			/tmp/AdGuardHome.lock)
+				doctor_run_lock_is_active && continue
 				;;
 			/opt/var/run/AdGuardHome.pid | /tmp/AdGuardHome.pid)
 				if [ "$(agh_process_count)" -gt 0 ]; then
 					continue
 				fi
+				;;
+			/tmp/AdGuardHome/pid)
+				doctor_run_lock_is_active && continue
 				;;
 		esac
 		rm -rf "${stale}" 2>/dev/null && doctor_fix_msg "removed stale ${stale}"
@@ -971,7 +1005,8 @@ doctor_show_nvram_dns() {
 }
 
 doctor() {
-	local count fix ipset_file link_target port version branch backup_file dns53
+	local count fix ipset_file link_target marker port version branch backup_file dns53
+	DOCTOR_FAILED="0"
 	fix="0"
 	case "${1:-}" in
 		--fix) fix="1" ;;
@@ -991,12 +1026,14 @@ doctor() {
 	doctor_file_state "${CONF_FILE}" "-rw-------" || true
 
 	dns53="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ { print; found = 1 } END { exit(found ? 0 : 1) }')"
-	if [ -n "${dns53}" ]; then
-		PTXT "${dns53}" | grep -q '/AdGuardHome' && doctor_status OK "DNS port 53 is owned by AdGuardHome" || doctor_status WARN "DNS port 53 is not owned by AdGuardHome"
+	if agh_dns_bound; then
+		doctor_status OK "DNS port 53 TCP and UDP are owned by AdGuardHome"
+	elif [ -n "${dns53}" ]; then
+		doctor_status WARN "DNS port 53 TCP and UDP are not both owned by AdGuardHome"
 	else
 		doctor_status FAIL "DNS port 53 is not listening"
 	fi
-	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.lock; do
+	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome/pid; do
 		[ -e "${marker}" ] && doctor_status WARN "dnsmasq handoff marker/lock exists: ${marker}" || doctor_status OK "dnsmasq handoff marker/lock absent: ${marker}"
 	done
 	count="$(agh_monitor_count)"
@@ -1025,6 +1062,7 @@ doctor() {
 		[ -f "${ipset_file}" ] && doctor_status OK "IPSET file present: ${ipset_file}" || doctor_status WARN "IPSET file missing: ${ipset_file}"
 	done
 	doctor_show_nvram_dns
+	[ "${DOCTOR_FAILED}" = "0" ]
 }
 
 agh_restart() {
