@@ -1011,7 +1011,10 @@ doctor() {
 	case "${1:-}" in
 		--fix) fix="1" ;;
 		"") ;;
-		*) doctor_status FAIL "usage: sh installer doctor [--fix]"; return 1 ;;
+		*)
+			doctor_status FAIL "usage: sh installer doctor [--fix]"
+			return 1
+			;;
 	esac
 	[ "${fix}" = "1" ] && doctor_fix_safe
 
