@@ -589,7 +589,13 @@ kill_dns_port_owners() {
 	fi
 	[ -n "${_dns_pids}" ] || return 0
 	# Intentional word splitting: awk returns a whitespace-delimited PID list.
-	kill -s 9 ${_dns_pids} 2>/dev/null
+	if kill -s 9 ${_dns_pids} 2>/dev/null; then
+		return 0
+	fi
+	# The normal dnsmasq stop can race with escalation: netstat may report a
+	# dnsmasq PID that exits before kill(1) signals it. Treat that stale-PID
+	# failure as success if the DNS port is now free.
+	dns_port_available
 }
 
 dns_port_available() {
