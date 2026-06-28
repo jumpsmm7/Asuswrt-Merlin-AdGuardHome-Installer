@@ -532,19 +532,61 @@ adguardhome_owns_dns() {
 	'
 }
 
+dns_port_owner_command() {
+	_dns_owner_pid="${1:-}"
+	_dns_owner_command=""
+	case "${_dns_owner_pid}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	if [ -r "/proc/${_dns_owner_pid}/cmdline" ]; then
+		_dns_owner_command="$(tr '\000' ' ' <"/proc/${_dns_owner_pid}/cmdline" 2>/dev/null)"
+	fi
+	if [ -z "${_dns_owner_command}" ]; then
+		_dns_owner_command="$(ps 2>/dev/null | awk -v pid="${_dns_owner_pid}" '$1 == pid { $1=""; sub(/^[[:space:]]+/, ""); print; exit }')"
+	fi
+	[ -n "${_dns_owner_command}" ] || return 1
+	printf '%s\n' "${_dns_owner_command}"
+}
+
 kill_dns_port_owners() {
 	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
-	_dns_pids="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
+	_dns_owner_actions="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
 		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && $0 !~ "/" proc "([[:space:]]|$)" {
 			for (field = 1; field <= NF; field++) {
 				if ($field ~ /^[0-9]+\/[^[:space:]]+$/) {
-					split($field, pid_parts, "/")
-					if (pid_parts[1] > 1 && !seen[pid_parts[1]]++) printf "%s ", pid_parts[1]
+					split($field, owner_parts, "/")
+					if (owner_parts[1] > 1 && !seen[owner_parts[1]]++) {
+						if (owner_parts[2] == "dnsmasq") print owner_parts[1] " dnsmasq " owner_parts[2]
+						else print owner_parts[1] " unknown " owner_parts[2]
+					}
 					break
 				}
 			}
 		}
 	')"
+	[ -n "${_dns_owner_actions}" ] || return 0
+	printf '%s\n' "${_dns_owner_actions}" | while read -r _dns_owner_pid _dns_owner_type _dns_owner_name; do
+		[ -n "${_dns_owner_pid}" ] || continue
+		_dns_owner_command="$(dns_port_owner_command "${_dns_owner_pid}" 2>/dev/null)"
+		[ -n "${_dns_owner_command}" ] || _dns_owner_command="unavailable"
+		case "${_dns_owner_type}" in
+			dnsmasq)
+				agh_log WARN kill_dns_port_owners "Escalating dnsmasq port 53 release for PID ${_dns_owner_pid} (${_dns_owner_name}); command: ${_dns_owner_command}."
+				;;
+			*)
+				agh_log ERROR kill_dns_port_owners "Port 53 is owned by unknown PID ${_dns_owner_pid} (${_dns_owner_name:-unknown}); command: ${_dns_owner_command}."
+				;;
+		esac
+	done
+	_dns_unknown_owner="$(printf '%s\n' "${_dns_owner_actions}" | awk '$2 == "unknown" { found=1 } END { print found ? 1 : 0 }')"
+	if [ "${_dns_unknown_owner}" = "1" ] && [ "${ADGUARDHOME_FORCE_DNS_PORT_KILL:-}" != "1" ]; then
+		agh_log ERROR kill_dns_port_owners "Unknown port 53 owner detected; startup aborted. Set ADGUARDHOME_FORCE_DNS_PORT_KILL=1 to force termination."
+		return 2
+	fi
+	_dns_pids="$(printf '%s\n' "${_dns_owner_actions}" | awk -v force="${ADGUARDHOME_FORCE_DNS_PORT_KILL:-0}" '$2 == "dnsmasq" || force == "1" { printf "%s%s", sep, $1; sep=" " }')"
+	if [ "${_dns_unknown_owner}" = "1" ]; then
+		agh_log WARN kill_dns_port_owners "ADGUARDHOME_FORCE_DNS_PORT_KILL=1 set; terminating unknown port 53 owner(s)."
+	fi
 	[ -n "${_dns_pids}" ] || return 0
 	# Intentional word splitting: awk returns a whitespace-delimited PID list.
 	kill -s 9 ${_dns_pids} 2>/dev/null
@@ -564,6 +606,17 @@ dns_port_has_foreign_owner() {
 		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && $0 !~ "/" proc "([[:space:]]|$)" { foreign_owner = 1 }
 		END { exit(foreign_owner ? 0 : 1) }
 	'
+}
+
+release_dns_port_from_dnsmasq() {
+	_dns_release_context="${1:-release_dns_port_from_dnsmasq}"
+	agh_log INFO "${_dns_release_context}" "Stopping dnsmasq normally before checking port 53 ownership."
+	service stop_dnsmasq >/dev/null 2>&1
+	if dns_port_available; then
+		agh_log INFO "${_dns_release_context}" "Port 53 released after stopping dnsmasq."
+		return 0
+	fi
+	kill_dns_port_owners
 }
 
 dns_guard_wait_for_stop() {
@@ -669,8 +722,7 @@ start_dns_port_guard() {
 			if [ "${_dns_guard_attempts}" = "0" ]; then
 				agh_log INFO start_dns_port_guard "Stopping dnsmasq/releasing port 53 while guard is active."
 			fi
-			service stop_dnsmasq >/dev/null 2>&1
-			kill_dns_port_owners
+			release_dns_port_from_dnsmasq start_dns_port_guard || return 1
 		fi
 		suspend_dns_watchdog
 		_dns_guard_attempts="$((_dns_guard_attempts + 1))"
@@ -937,8 +989,12 @@ pre_start_adguardhome() {
 			return 0
 		fi
 		if dns_port_has_foreign_owner; then
-			service stop_dnsmasq >/dev/null 2>&1
-			kill_dns_port_owners
+			if ! release_dns_port_from_dnsmasq pre_start_adguardhome; then
+				agh_log ERROR pre_start_adguardhome "Unable to safely release port 53; startup aborted."
+				post_start_failure_adguardhome
+				restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
+				return 1
+			fi
 		fi
 		# The DNS guard is not running yet, so protect this parent-side
 		# watchdog suspension against aborts until the guard takes over.
