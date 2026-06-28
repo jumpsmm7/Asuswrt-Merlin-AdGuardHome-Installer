@@ -897,6 +897,177 @@ agh_process_count() {
 	PTXT "$((daemon_count + monitor_count))"
 }
 
+doctor_status() {
+	[ "$1" = "FAIL" ] && DOCTOR_FAILED="1"
+	PTXT "[$1] $2"
+}
+
+doctor_fix_msg() {
+	PTXT "[OK] fixed: $1"
+}
+
+doctor_file_state() {
+	local path mode expected
+	path="$1"
+	expected="$2"
+	if [ ! -e "${path}" ]; then
+		doctor_status WARN "${path} missing"
+		return 1
+	fi
+	mode="$(ls -ld "${path}" 2>/dev/null | awk '{ print $1 }')"
+	if [ -n "${expected}" ] && [ "${mode}" != "${expected}" ]; then
+		doctor_status WARN "${path} mode ${mode}, expected ${expected}"
+		return 1
+	fi
+	doctor_status OK "${path} present${mode:+ (${mode})}"
+	return 0
+}
+
+doctor_fix_permissions() {
+	[ -d "${TARG_DIR}" ] && ensure_adguardhome_directory_permissions >/dev/null 2>&1 && doctor_fix_msg "AdGuardHome directory permissions"
+	[ -f "/opt/etc/init.d/S99AdGuardHome" ] && chmod 755 "/opt/etc/init.d/S99AdGuardHome" 2>/dev/null && doctor_fix_msg "/opt/etc/init.d/S99AdGuardHome executable bit"
+	[ -f "/opt/etc/init.d/rc.func.AdGuardHome" ] && chmod 644 "/opt/etc/init.d/rc.func.AdGuardHome" 2>/dev/null && doctor_fix_msg "/opt/etc/init.d/rc.func.AdGuardHome permissions"
+	[ -f "${ADDON_DIR}/AdGuardHome.sh" ] && chmod 755 "${ADDON_DIR}/AdGuardHome.sh" 2>/dev/null && doctor_fix_msg "${ADDON_DIR}/AdGuardHome.sh executable bit"
+	[ -f "${YAML_FILE}" ] && chmod 600 "${YAML_FILE}" 2>/dev/null && doctor_fix_msg "${YAML_FILE} permissions"
+	[ -f "${CONF_FILE}" ] && chmod 600 "${CONF_FILE}" 2>/dev/null && doctor_fix_msg "${CONF_FILE} permissions"
+}
+
+doctor_pid_file_is_active() {
+	local marker_pid
+	marker_pid="$(sed -n '1s/[[:space:]].*$//p' "$1" 2>/dev/null)"
+	case "${marker_pid}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	[ -d "/proc/${marker_pid}" ]
+}
+
+doctor_run_lock_is_active() {
+	local lock_file pid_file status
+	lock_file="/tmp/AdGuardHome.lock"
+	pid_file="/tmp/AdGuardHome/pid"
+	if [ -f "${pid_file}" ] && doctor_pid_file_is_active "${pid_file}"; then
+		return 0
+	fi
+	if ai_have_cmd flock && [ -e "${lock_file}" ]; then
+		(
+			exec 9<>"${lock_file}" || exit 1
+			flock -n 9 >/dev/null 2>&1
+			status="$?"
+			[ "${status}" -eq 0 ] && flock -u 9 >/dev/null 2>&1
+			exit "${status}"
+		)
+		status="$?"
+		[ "${status}" -ne 0 ] && return 0
+	fi
+	return 1
+}
+
+doctor_fix_safe() {
+	local link_target stale
+	doctor_fix_permissions
+	link_target="$(readlink "/opt/sbin/AdGuardHome" 2>/dev/null)"
+	if [ -f "${AGH_FILE}" ] && { [ ! -L "/opt/sbin/AdGuardHome" ] || [ "${link_target}" != "${AGH_FILE}" ]; }; then
+		mkdir -p "/opt/sbin" 2>/dev/null && ln -sf "${AGH_FILE}" "/opt/sbin/AdGuardHome" 2>/dev/null && doctor_fix_msg "/opt/sbin/AdGuardHome symlink"
+	fi
+	for stale in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome/pid /tmp/AdGuardHome.pid /opt/var/run/AdGuardHome.pid "${TARG_DIR}"/.*.$$.* "${TARG_DIR}"/*.tmp.$$; do
+		[ -e "${stale}" ] || continue
+		case "${stale}" in
+			/tmp/AdGuardHome.dnsmasq.handoff | /tmp/AdGuardHome.dnsmasq.lock | /tmp/AdGuardHome.dns-handoff/active | /tmp/AdGuardHome.dns-handoff/lock)
+				doctor_pid_file_is_active "${stale}" && continue
+				[ "$(agh_monitor_count)" -eq 0 ] || continue
+				;;
+			/tmp/AdGuardHome.lock)
+				doctor_run_lock_is_active && continue
+				;;
+			/opt/var/run/AdGuardHome.pid | /tmp/AdGuardHome.pid)
+				if [ "$(agh_process_count)" -gt 0 ]; then
+					continue
+				fi
+				;;
+			/tmp/AdGuardHome/pid)
+				doctor_run_lock_is_active && continue
+				;;
+		esac
+		rm -rf "${stale}" 2>/dev/null && doctor_fix_msg "removed stale ${stale}"
+	done
+}
+
+doctor_show_nvram_dns() {
+	local key value
+	if ! ai_have_cmd nvram; then
+		doctor_status WARN "nvram command unavailable; DNS NVRAM values not checked"
+		return 0
+	fi
+	for key in dnspriv_enable dns_local_cache dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x dnsfilter_enable_x dnsfilter_mode dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 lan_dnsenable_x lan_dns1_x lan_dns2_x wan_dnsenable_x wan_dns1_x wan_dns2_x; do
+		value="$(nvram get "${key}" 2>/dev/null)"
+		doctor_status OK "nvram ${key}=${value}"
+	done
+}
+
+doctor() {
+	local count fix ipset_file link_target marker port version branch backup_file dns53
+	DOCTOR_FAILED="0"
+	fix="0"
+	case "${1:-}" in
+		--fix) fix="1" ;;
+		"") ;;
+		*)
+			doctor_status FAIL "usage: sh installer doctor [--fix]"
+			return 1
+			;;
+	esac
+	[ "${fix}" = "1" ] && doctor_fix_safe
+
+	mount | grep -q ' on /opt ' && doctor_status OK "Entware /opt is mounted" || doctor_status FAIL "Entware /opt is not mounted"
+	doctor_file_state "${TARG_DIR}" "drwx------" || true
+	link_target="$(readlink "/opt/sbin/AdGuardHome" 2>/dev/null)"
+	[ -L "/opt/sbin/AdGuardHome" ] && [ "${link_target}" = "${AGH_FILE}" ] && doctor_status OK "/opt/sbin/AdGuardHome -> ${link_target}" || doctor_status FAIL "/opt/sbin/AdGuardHome target is ${link_target:-missing}"
+	doctor_file_state "${ADDON_DIR}/AdGuardHome.sh" "-rwxr-xr-x" || true
+	doctor_file_state "/opt/etc/init.d/S99AdGuardHome" "-rwxr-xr-x" || true
+	doctor_file_state "/opt/etc/init.d/rc.func.AdGuardHome" "-rw-r--r--" || true
+	doctor_file_state "${YAML_FILE}" "-rw-------" || true
+	doctor_file_state "${CONF_FILE}" "-rw-------" || true
+
+	dns53="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ { print; found = 1 } END { exit(found ? 0 : 1) }')"
+	if agh_dns_bound; then
+		doctor_status OK "DNS port 53 TCP and UDP are owned by AdGuardHome"
+	elif [ -n "${dns53}" ]; then
+		doctor_status WARN "DNS port 53 TCP and UDP are not both owned by AdGuardHome"
+	else
+		doctor_status FAIL "DNS port 53 is not listening"
+	fi
+	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome/pid; do
+		[ -e "${marker}" ] && doctor_status WARN "dnsmasq handoff marker/lock exists: ${marker}" || doctor_status OK "dnsmasq handoff marker/lock absent: ${marker}"
+	done
+	count="$(agh_monitor_count)"
+	[ "${count}" -eq 1 ] && doctor_status OK "monitor process count: ${count}" || doctor_status WARN "monitor process count: ${count}"
+	count="$(pidof AdGuardHome 2>/dev/null | wc -w)"
+	[ "${count}" -eq 1 ] && doctor_status OK "AdGuardHome daemon process count: ${count}" || doctor_status WARN "AdGuardHome daemon process count: ${count}"
+	port="$(agh_web_port 2>/dev/null)"
+	if [ -n "${port}" ]; then
+		web_port_owned_by_agh "${port}" && doctor_status OK "WebUI port ${port} owned by AdGuardHome" || doctor_status WARN "WebUI port ${port} not owned by AdGuardHome"
+	else
+		doctor_status WARN "WebUI port not configured"
+	fi
+	branch="$(conf_value INSTALLER_BRANCH 2>/dev/null)"
+	version="$([ -x "${AGH_FILE}" ] && "${AGH_FILE}" -v --version 2>/dev/null | head -1)"
+	doctor_status OK "installer version ${AI_VERSION}, branch ${branch:-unknown}"
+	doctor_status OK "AdGuardHome version ${version:-unknown}"
+	backup_file="${BASE_DIR}/backup_AdGuardHome.tar.gz"
+	if [ -f "${backup_file}" ]; then
+		adguard_archive_is_safe "${backup_file}" 1 && doctor_status OK "backup archive safety passed" || doctor_status FAIL "backup archive safety failed"
+	else
+		doctor_status WARN "backup archive missing"
+	fi
+	for ipset_file in "${TARG_DIR}/ipset.conf" "${TARG_DIR}/ipset.user" "$(adguardhome_yaml_ipset_file 2>/dev/null)"; do
+		[ -n "${ipset_file}" ] || continue
+		case "${ipset_file}" in /*) ;; *) ipset_file="${TARG_DIR}/${ipset_file}" ;; esac
+		[ -f "${ipset_file}" ] && doctor_status OK "IPSET file present: ${ipset_file}" || doctor_status WARN "IPSET file missing: ${ipset_file}"
+	done
+	doctor_show_nvram_dns
+	[ "${DOCTOR_FAILED}" = "0" ]
+}
+
 agh_restart() {
 	local old_pids
 	if agh_is_running; then
@@ -4030,6 +4201,9 @@ menu() {
 				end_op_message 1
 			fi
 			;;
+		"d" | "D" | "doctor")
+			doctor
+			;;
 		"q" | "Q")
 			PTXT "${INFO} Operations have been applied if any has been made" \
 				"${INFO} In case of anomaly, please reboot your router!"
@@ -4157,6 +4331,9 @@ menu_action_allowed() {
 		"1" | "install" | "update" | "2" | "uninstall")
 			return 0
 			;;
+		[dD] | "doctor")
+			return 0
+			;;
 		"3" | "changepw" | "4" | "reconfigure" | "5" | "setamtmupdate" | "6" | "setlocalcache" | "7" | "switchbranch" | "8" | "setipset" | [bB] | "backup")
 			[ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && return 0
 			return 1
@@ -4178,6 +4355,11 @@ menu_action_allowed() {
 single_arg_menu_action() {
 	menu_action_allowed "$1"
 }
+
+if [ "${1:-}" = "doctor" ]; then
+	doctor "${2:-}"
+	exit "$?"
+fi
 
 installer_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
@@ -4312,9 +4494,10 @@ case "$2" in
 		if menu_action_allowed "$2"; then
 			menu "$2"
 		else
-			PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore)" \
+			PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore | doctor)" \
+				"${INFO} Doctor can also be run as: sh installer doctor [--fix]." \
 				"${INFO} Branch or Tag must be represented by a value or empty quotes in place of string e.g. \"\" in the \$1 string position." \
-				"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore) in the \$2 string position." \
+				"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore | doctor) in the \$2 string position." \
 				"${INFO} An update example sh installer master update, or just use the regular menu by not specifying an Action."
 		fi
 		;;
