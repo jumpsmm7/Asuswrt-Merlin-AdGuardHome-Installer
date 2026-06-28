@@ -595,7 +595,11 @@ kill_dns_port_owners() {
 	# The normal dnsmasq stop can race with escalation: netstat may report a
 	# dnsmasq PID that exits before kill(1) signals it. Treat that stale-PID
 	# failure as success if the DNS port is now free.
-	dns_port_available
+	if dns_port_available; then
+		agh_log INFO kill_dns_port_owners "Port 53 is free after a failed owner kill; continuing after stale PID race."
+		return 0
+	fi
+	return 1
 }
 
 dns_port_available() {
