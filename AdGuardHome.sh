@@ -15,6 +15,11 @@ IPSET_FILE="/opt/etc/AdGuardHome/ipset.conf"
 IPSET_RUNTIME_DIR="${IPSET_RUNTIME_DIR:-/opt/var/run/AdGuardHome-ipset}"
 IPSET_USER_FILE="/opt/etc/AdGuardHome/ipset.user"
 YAML_FILE="/opt/etc/AdGuardHome/AdGuardHome.yaml"
+ADGUARD_NETCHECK_HOSTS="${ADGUARD_NETCHECK_HOSTS:-google.com github.com snbforums.com}"
+ADGUARD_NETCHECK_DNS="${ADGUARD_NETCHECK_DNS:-127.0.0.1}"
+ADGUARD_NETCHECK_REQUIRE_HTTP="${ADGUARD_NETCHECK_REQUIRE_HTTP:-NO}"
+ADGUARD_NETCHECK_TIMEOUT="${ADGUARD_NETCHECK_TIMEOUT:-300}"
+ADGUARD_NETCHECK_MODE="${ADGUARD_NETCHECK_MODE:-wan}"
 
 NAME="${0##*/}[$$]"
 
@@ -611,34 +616,102 @@ ipv6_reverse_zone() {
 	printf "%s\n" "$1" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/'
 }
 
+netcheck_config() {
+	local value
+	eval "value=\${$1:-}"
+	if [ -n "${value}" ]; then
+		printf '%s\n' "${value}"
+		return 0
+	fi
+	value="$(conf_value "$1")"
+	if [ -n "${value}" ]; then
+		printf '%s\n' "${value}"
+		return 0
+	fi
+	printf '%s\n' "$2"
+}
+
+netcheck_dns_ok() {
+	local dns_server host
+	dns_server="$1"
+	shift
+	for host in "$@"; do
+		[ -n "${host}" ] || continue
+		if nslookup "${host}" "${dns_server}" >/dev/null 2>&1; then
+			return 0
+		fi
+	done
+	return 1
+}
+
+netcheck_http_ok() {
+	local host
+	for host in "$@"; do
+		[ -n "${host}" ] || continue
+		if http_probe "http://${host}" >/dev/null 2>&1; then
+			return 0
+		fi
+	done
+	return 1
+}
+
+netcheck_ping_ok() {
+	local host
+	for host in "$@"; do
+		[ -n "${host}" ] || continue
+		if ping -q -w3 -c1 "${host}" >/dev/null 2>&1; then
+			return 0
+		fi
+	done
+	return 1
+}
+
 netcheck() {
-	local livecheck="0" i timewait
-	timewait="0"
+	local dns_server hosts http_required mode timeout waited
+	dns_server="$(netcheck_config ADGUARD_NETCHECK_DNS "${ADGUARD_NETCHECK_DNS}")"
+	hosts="$(netcheck_config ADGUARD_NETCHECK_HOSTS "${ADGUARD_NETCHECK_HOSTS}")"
+	http_required="$(netcheck_config ADGUARD_NETCHECK_REQUIRE_HTTP "${ADGUARD_NETCHECK_REQUIRE_HTTP}")"
+	mode="$(netcheck_config ADGUARD_NETCHECK_MODE "${ADGUARD_NETCHECK_MODE}")"
+	timeout="$(netcheck_config ADGUARD_NETCHECK_TIMEOUT "${ADGUARD_NETCHECK_TIMEOUT}")"
+	case "${timeout}" in
+		"" | *[!0-9]*) timeout="300" ;;
+	esac
+	[ "${timeout}" -gt 0 ] || timeout="300"
+	waited="0"
 	until system_time_ready; do
-		if [ "${timewait}" -ge "300" ]; then
-			agh_log warning netcheck "state=netcheck action=wait_system_time reason=ntp_not_ready result=timeout timeout=300"
+		if [ "${waited}" -ge "${timeout}" ]; then
+			agh_log warning netcheck "state=netcheck action=wait_system_time stage=time reason=ntp_not_ready result=timeout timeout=${timeout}"
 			return 1
 		fi
-		sleep 1s
-		timewait="$((timewait + 1))"
+		sleep 1
+		waited="$((waited + 1))"
 	done
-	while [ "${livecheck}" != "4" ]; do
-		for i in google.com github.com snbforums.com; do
-			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
-				if ! http_probe "http://${i}" >/dev/null 2>&1; then
-					sleep 1s
-					continue
-				fi
-			fi
-			return 0
-		done
-		livecheck="$((livecheck + 1))"
-		if [ "${livecheck}" != "4" ]; then
-			sleep 10s
-			continue
-		fi
+	case "${mode}" in
+		lan | LAN) return 0 ;;
+	esac
+	# Intentionally split hosts on shell IFS so ADGUARD_NETCHECK_HOSTS stays a simple
+	# space-delimited POSIX/ash setting.
+	set -- ${hosts}
+	if [ "$#" -eq 0 ]; then
+		agh_log warning netcheck "state=netcheck action=validate_hosts stage=dns reason=no_hosts_configured result=failed"
 		return 1
-	done
+	fi
+	if ! netcheck_dns_ok "${dns_server}" "$@"; then
+		agh_log warning netcheck "state=netcheck action=resolve_hosts stage=dns reason=lookup_failed result=failed dns=${dns_server} hosts=${hosts}"
+		if ! netcheck_ping_ok "$@"; then
+			agh_log warning netcheck "state=netcheck action=ping_hosts stage=ping reason=ping_failed result=failed hosts=${hosts}"
+			return 1
+		fi
+	fi
+	case "${http_required}" in
+		YES | yes | Yes)
+			if ! netcheck_http_ok "$@"; then
+				agh_log warning netcheck "state=netcheck action=http_probe stage=http reason=http_failed result=failed hosts=${hosts}"
+				return 1
+			fi
+			;;
+	esac
+	return 0
 }
 
 private_ipv4_bridge_dns_options() {
@@ -839,7 +912,16 @@ lower_script() {
 service_wait() {
 	umask 022
 	local maxwait
-	[ -z "$2" ] && maxwait="300" || maxwait="$2"
+	if [ -n "$2" ]; then
+		maxwait="$2"
+	elif [ "$1" = "netcheck" ]; then
+		maxwait="$(netcheck_config ADGUARD_NETCHECK_TIMEOUT "${ADGUARD_NETCHECK_TIMEOUT}")"
+	else
+		maxwait="300"
+	fi
+	case "${maxwait}" in
+		"" | *[!0-9]*) maxwait="300" ;;
+	esac
 	(
 		{
 			timezone
@@ -872,6 +954,11 @@ service_wait() {
 			if [ "${SERVICE_WAIT_TERMINAL_FAILURE:-0}" -eq 1 ]; then
 				return "${status}"
 			elif [ "${elapsed}" -gt "${maxwait}" ]; then
+				if [ "$(nvram get success_start_service 2>/dev/null)" != '1' ]; then
+					agh_log warning service_wait "state=service_wait action=wait_service_ready stage=service_readiness reason=success_start_service_not_ready result=timeout timeout=${maxwait}"
+				elif [ "$1" = "netcheck" ]; then
+					agh_log warning service_wait "state=service_wait action=run_check stage=service_readiness reason=netcheck_failed result=timeout timeout=${maxwait}"
+				fi
 				return 1
 			else
 				return 0
