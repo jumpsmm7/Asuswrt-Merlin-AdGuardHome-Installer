@@ -15,11 +15,21 @@ IPSET_FILE="/opt/etc/AdGuardHome/ipset.conf"
 IPSET_RUNTIME_DIR="${IPSET_RUNTIME_DIR:-/opt/var/run/AdGuardHome-ipset}"
 IPSET_USER_FILE="/opt/etc/AdGuardHome/ipset.user"
 YAML_FILE="/opt/etc/AdGuardHome/AdGuardHome.yaml"
-ADGUARD_NETCHECK_HOSTS="${ADGUARD_NETCHECK_HOSTS:-google.com github.com snbforums.com}"
-ADGUARD_NETCHECK_DNS="${ADGUARD_NETCHECK_DNS:-127.0.0.1}"
-ADGUARD_NETCHECK_REQUIRE_HTTP="${ADGUARD_NETCHECK_REQUIRE_HTTP:-NO}"
-ADGUARD_NETCHECK_TIMEOUT="${ADGUARD_NETCHECK_TIMEOUT:-300}"
-ADGUARD_NETCHECK_MODE="${ADGUARD_NETCHECK_MODE:-wan}"
+DEFAULT_ADGUARD_NETCHECK_HOSTS="google.com github.com snbforums.com"
+DEFAULT_ADGUARD_NETCHECK_DNS="127.0.0.1"
+DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP="YES"
+DEFAULT_ADGUARD_NETCHECK_TIMEOUT="300"
+DEFAULT_ADGUARD_NETCHECK_MODE="wan"
+ADGUARD_NETCHECK_HOSTS_SET="${ADGUARD_NETCHECK_HOSTS:+x}"
+ADGUARD_NETCHECK_DNS_SET="${ADGUARD_NETCHECK_DNS:+x}"
+ADGUARD_NETCHECK_REQUIRE_HTTP_SET="${ADGUARD_NETCHECK_REQUIRE_HTTP:+x}"
+ADGUARD_NETCHECK_TIMEOUT_SET="${ADGUARD_NETCHECK_TIMEOUT:+x}"
+ADGUARD_NETCHECK_MODE_SET="${ADGUARD_NETCHECK_MODE:+x}"
+ADGUARD_NETCHECK_HOSTS="${ADGUARD_NETCHECK_HOSTS:-${DEFAULT_ADGUARD_NETCHECK_HOSTS}}"
+ADGUARD_NETCHECK_DNS="${ADGUARD_NETCHECK_DNS:-${DEFAULT_ADGUARD_NETCHECK_DNS}}"
+ADGUARD_NETCHECK_REQUIRE_HTTP="${ADGUARD_NETCHECK_REQUIRE_HTTP:-${DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP}}"
+ADGUARD_NETCHECK_TIMEOUT="${ADGUARD_NETCHECK_TIMEOUT:-${DEFAULT_ADGUARD_NETCHECK_TIMEOUT}}"
+ADGUARD_NETCHECK_MODE="${ADGUARD_NETCHECK_MODE:-${DEFAULT_ADGUARD_NETCHECK_MODE}}"
 
 NAME="${0##*/}[$$]"
 
@@ -617,9 +627,10 @@ ipv6_reverse_zone() {
 }
 
 netcheck_config() {
-	local value
+	local is_set value
+	eval "is_set=\${$1_SET:-}"
 	eval "value=\${$1:-}"
-	if [ -n "${value}" ]; then
+	if [ -n "${is_set}" ] && [ -n "${value}" ]; then
 		printf '%s\n' "${value}"
 		return 0
 	fi
@@ -668,11 +679,11 @@ netcheck_ping_ok() {
 
 netcheck() {
 	local dns_server hosts http_required mode timeout waited
-	dns_server="$(netcheck_config ADGUARD_NETCHECK_DNS "${ADGUARD_NETCHECK_DNS}")"
-	hosts="$(netcheck_config ADGUARD_NETCHECK_HOSTS "${ADGUARD_NETCHECK_HOSTS}")"
-	http_required="$(netcheck_config ADGUARD_NETCHECK_REQUIRE_HTTP "${ADGUARD_NETCHECK_REQUIRE_HTTP}")"
-	mode="$(netcheck_config ADGUARD_NETCHECK_MODE "${ADGUARD_NETCHECK_MODE}")"
-	timeout="$(netcheck_config ADGUARD_NETCHECK_TIMEOUT "${ADGUARD_NETCHECK_TIMEOUT}")"
+	dns_server="$(netcheck_config ADGUARD_NETCHECK_DNS "${DEFAULT_ADGUARD_NETCHECK_DNS}")"
+	hosts="$(netcheck_config ADGUARD_NETCHECK_HOSTS "${DEFAULT_ADGUARD_NETCHECK_HOSTS}")"
+	http_required="$(netcheck_config ADGUARD_NETCHECK_REQUIRE_HTTP "${DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP}")"
+	mode="$(netcheck_config ADGUARD_NETCHECK_MODE "${DEFAULT_ADGUARD_NETCHECK_MODE}")"
+	timeout="$(netcheck_config ADGUARD_NETCHECK_TIMEOUT "${DEFAULT_ADGUARD_NETCHECK_TIMEOUT}")"
 	case "${timeout}" in
 		"" | *[!0-9]*) timeout="300" ;;
 	esac
@@ -915,7 +926,7 @@ service_wait() {
 	if [ -n "$2" ]; then
 		maxwait="$2"
 	elif [ "$1" = "netcheck" ]; then
-		maxwait="$(netcheck_config ADGUARD_NETCHECK_TIMEOUT "${ADGUARD_NETCHECK_TIMEOUT}")"
+		maxwait="$(netcheck_config ADGUARD_NETCHECK_TIMEOUT "${DEFAULT_ADGUARD_NETCHECK_TIMEOUT}")"
 	else
 		maxwait="300"
 	fi
