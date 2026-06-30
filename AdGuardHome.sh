@@ -699,12 +699,8 @@ netcheck() {
 	done
 	case "${mode}" in
 		lan | LAN)
-			# LAN mode skips public WAN probes, but still verifies that the local
-			# DNS service is responsive so monitor health checks can recover it.
-			if ! netcheck_dns_ok "${dns_server}" localhost; then
-				agh_log warning netcheck "state=netcheck action=resolve_hosts stage=dns reason=lookup_failed result=failed mode=lan dns=${dns_server} hosts=localhost"
-				return 1
-			fi
+			# LAN mode skips public WAN probes. Local DNS responsiveness is checked
+			# separately after AdGuardHome is expected to be serving DNS.
 			return 0
 			;;
 	esac
@@ -917,6 +913,15 @@ proc_write() {
 	{ [ -w "${TARGET}" ] || return 0; }
 	{ printf "%s" "${VALUE}" >"${TARGET}"; }
 }
+netcheck_lan_dns() {
+	# Ignore public DNS overrides in LAN mode; this probe is only for the
+	# local AdGuardHome listener after the process has started.
+	if ! netcheck_dns_ok "127.0.0.1" localhost; then
+		agh_log warning netcheck_lan_dns "state=netcheck action=resolve_hosts stage=dns reason=lookup_failed result=failed mode=lan dns=127.0.0.1 hosts=localhost"
+		return 1
+	fi
+	return 0
+}
 
 # Service lifecycle helpers
 
@@ -1096,10 +1101,20 @@ start_monitor() {
 					1)
 						if [ "${MONITOR_ELAPSED}" -ge "${MONITOR_HEALTHCHECK_INTERVAL}" ]; then
 							MONITOR_ELAPSED="0"
-							if { ! service_wait netcheck "${MONITOR_HEALTHCHECK_TIMEOUT}"; }; then
-								agh_log warning start_monitor "state=running action=healthcheck reason=netcheck_timeout result=not_responding timeout=${MONITOR_HEALTHCHECK_TIMEOUT}"
-								unset MONITOR_ELAPSED
-							fi
+							case "$(netcheck_config ADGUARD_NETCHECK_MODE "${DEFAULT_ADGUARD_NETCHECK_MODE}")" in
+								lan | LAN)
+									if { ! service_wait netcheck_lan_dns "${MONITOR_HEALTHCHECK_TIMEOUT}"; }; then
+										agh_log warning start_monitor "state=running action=healthcheck reason=local_dns_timeout result=not_responding timeout=${MONITOR_HEALTHCHECK_TIMEOUT}"
+										unset MONITOR_ELAPSED
+									fi
+									;;
+								*)
+									if { ! service_wait netcheck "${MONITOR_HEALTHCHECK_TIMEOUT}"; }; then
+										agh_log warning start_monitor "state=running action=healthcheck reason=netcheck_timeout result=not_responding timeout=${MONITOR_HEALTHCHECK_TIMEOUT}"
+										unset MONITOR_ELAPSED
+									fi
+									;;
+							esac
 						else
 							MONITOR_ELAPSED="$((MONITOR_ELAPSED + MONITOR_SLEEP_INTERVAL))"
 						fi
