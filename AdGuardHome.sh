@@ -687,7 +687,15 @@ netcheck() {
 		waited="$((waited + 1))"
 	done
 	case "${mode}" in
-		lan | LAN) return 0 ;;
+		lan | LAN)
+			# LAN mode skips public WAN probes, but still verifies that the local
+			# DNS service is responsive so monitor health checks can recover it.
+			if ! netcheck_dns_ok "${dns_server}" localhost; then
+				agh_log warning netcheck "state=netcheck action=resolve_hosts stage=dns reason=lookup_failed result=failed mode=lan dns=${dns_server} hosts=localhost"
+				return 1
+			fi
+			return 0
+			;;
 	esac
 	# Intentionally split hosts on shell IFS so ADGUARD_NETCHECK_HOSTS stays a simple
 	# space-delimited POSIX/ash setting.
