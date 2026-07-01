@@ -8,10 +8,17 @@ BASE_URL="https://static.adguard.com/adguardhome"
 OUT_DIR="${1:-.}"
 FAILED=0
 ACTIVE_DOWNLOAD_TMP=""
+ACTIVE_PUBLICATION_ARCHIVE=""
 
 # Functions are sorted alpha-numerically for readability.
 
 cleanup_download_tmp() {
+	if [ -n "${ACTIVE_PUBLICATION_ARCHIVE}" ]; then
+		if ! recover_archive_publication "${ACTIVE_PUBLICATION_ARCHIVE}" "$$"; then
+			printf '%s\n' "Error: recovery failed for ${ACTIVE_PUBLICATION_ARCHIVE}" >&2
+		fi
+		ACTIVE_PUBLICATION_ARCHIVE=""
+	fi
 	if [ -n "${ACTIVE_DOWNLOAD_TMP}" ]; then
 		rm -f "${ACTIVE_DOWNLOAD_TMP}"
 		ACTIVE_DOWNLOAD_TMP=""
@@ -509,23 +516,40 @@ publish_archive_with_checksums() {
 		FAILED=1
 		return 1
 	fi
+	ACTIVE_PUBLICATION_ARCHIVE="${_archive_file}"
 
-	# Publish sidecars before the archive so readers never see the new archive
-	# before its SHA-256 metadata exists. Each rename is still per-file atomic;
-	# installer retries handle readers that race an in-flight sidecar refresh.
+	# Publish checksums before making a replacement archive visible.  When an
+	# existing archive changes, remove it first so readers may see a transient
+	# miss, but never the new archive paired with old or missing SHA-256 data.
+	if [ "${_publish_condition}" != "require-unchanged" ] &&
+		[ "${_had_archive}" = "1" ]; then
+		if ! rm -f "${_archive_file}"; then
+			rm -f "${_archive_tmp}" "${_md5_tmp}" "${_sha256_tmp}"
+			printf '%s\n' "Error: could not hide ${_archive_file} before publishing checksums" >&2
+			if ! recover_archive_publication "${_archive_file}" "$$"; then
+				printf '%s\n' "Error: recovery failed; inspect ${_archive_backup}, ${_md5_backup}, and ${_sha256_backup}" >&2
+			fi
+			ACTIVE_PUBLICATION_ARCHIVE=""
+			FAILED=1
+			return 1
+		fi
+	fi
 	if mv "${_md5_tmp}" "${_md5_file}" &&
 		mv "${_sha256_tmp}" "${_sha256_file}" &&
 		mv "${_archive_tmp}" "${_archive_file}"; then
 		if ! rm -f "${_publish_state}"; then
+			ACTIVE_PUBLICATION_ARCHIVE=""
 			printf '%s\n' "Error: could not clear publication state for ${_archive_file}" >&2
 			FAILED=1
 			return 1
 		fi
 		if ! rm -f "${_archive_backup}" "${_md5_backup}" "${_sha256_backup}"; then
+			ACTIVE_PUBLICATION_ARCHIVE=""
 			printf '%s\n' "Error: could not remove rollback copies for ${_archive_file}" >&2
 			FAILED=1
 			return 1
 		fi
+		ACTIVE_PUBLICATION_ARCHIVE=""
 		return 0
 	fi
 
@@ -534,6 +558,7 @@ publish_archive_with_checksums() {
 	if ! recover_archive_publication "${_archive_file}" "$$"; then
 		printf '%s\n' "Error: recovery failed; inspect ${_archive_backup}, ${_md5_backup}, and ${_sha256_backup}" >&2
 	fi
+	ACTIVE_PUBLICATION_ARCHIVE=""
 	FAILED=1
 	return 1
 }
