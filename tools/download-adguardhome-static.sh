@@ -188,6 +188,10 @@ download_arch() {
 		release_metadata_publication_lock "${_dest_dir}"
 		return 1
 	fi
+	if ! prune_stale_versioned_archives "${_dest_dir}" "${_adguard_arch}"; then
+		release_metadata_publication_lock "${_dest_dir}"
+		return 1
+	fi
 	release_metadata_publication_lock "${_dest_dir}" || return 1
 }
 
@@ -578,6 +582,32 @@ publish_archive_with_md5() {
 
 	publish_archive_with_checksums "${_archive_tmp}" "${_archive_file}" \
 		"${_md5}" "" "${_publish_condition}"
+}
+
+prune_stale_versioned_archives() {
+	_dest_dir="$1"
+	_adguard_arch="$2"
+	_checksum_file="${_dest_dir}/checksum.txt"
+	_channel_name=""
+	_archive_file=""
+	_archive_name=""
+
+	[ -f "${_checksum_file}" ] || return 0
+	for _channel_name in stable beta edge; do
+		for _archive_file in "${_dest_dir}/AdGuardHome_${_channel_name}_"*"_${_adguard_arch}.tar.gz"; do
+			[ -e "${_archive_file}" ] || continue
+			_archive_name="${_archive_file##*/}"
+			if awk -v file="${_archive_name}" '$1 == file { found = 1; exit } END { exit !found }' \
+				"${_checksum_file}"; then
+				continue
+			fi
+			if ! rm -f "${_archive_file}" "${_archive_file}.md5sum" "${_archive_file}.sha256sum"; then
+				printf '%s\n' "Error: could not prune stale archive ${_archive_file}" >&2
+				FAILED=1
+				return 1
+			fi
+		done
+	done
 }
 
 publish_metadata_files() {

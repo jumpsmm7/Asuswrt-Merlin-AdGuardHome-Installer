@@ -20,7 +20,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}/out/armv7" || fail "could not create test directory"
 
-sed -n '/^append_metadata() {$/,/^}$/p; /^acquire_metadata_publication_lock() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^recover_metadata_publication() {$/,/^}$/p; /^reclaim_stale_metadata_publication_lock() {$/,/^}$/p; /^release_metadata_publication_lock() {$/,/^}$/p; /^archive_publication_owner_is_active() {$/,/^}$/p; /^refresh_unchanged_archive_checksums() {$/,/^}$/p; /^refresh_unchanged_archive_md5() {$/,/^}$/p; /^acquire_archive_publication_state() {$/,/^}$/p; /^publish_archive_with_checksums() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p; /^write_sha256sum_file() {$/,/^}$/p' \
+sed -n '/^append_metadata() {$/,/^}$/p; /^acquire_metadata_publication_lock() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^recover_metadata_publication() {$/,/^}$/p; /^reclaim_stale_metadata_publication_lock() {$/,/^}$/p; /^release_metadata_publication_lock() {$/,/^}$/p; /^archive_publication_owner_is_active() {$/,/^}$/p; /^refresh_unchanged_archive_checksums() {$/,/^}$/p; /^refresh_unchanged_archive_md5() {$/,/^}$/p; /^acquire_archive_publication_state() {$/,/^}$/p; /^publish_archive_with_checksums() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^prune_stale_versioned_archives() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p; /^write_sha256sum_file() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail "static download helpers were not found"
 
@@ -131,6 +131,37 @@ unset -f cp
 	fail "unchanged archive refresh did not update the checksum"
 [ ! -e "${TEST_ROOT}/archive.previous" ] ||
 	fail "unchanged archive refresh created an archive rollback copy"
+
+mkdir -p "${TEST_ROOT}/out/armv7" || fail "could not create prune test directory"
+printf '%s\n' "current archive" >"${TEST_ROOT}/out/armv7/AdGuardHome_edge_version=v1.0.0+hash_linux_armv7.tar.gz"
+printf '%s\n' "current md5" >"${TEST_ROOT}/out/armv7/AdGuardHome_edge_version=v1.0.0+hash_linux_armv7.tar.gz.md5sum"
+printf '%s\n' "current sha256" >"${TEST_ROOT}/out/armv7/AdGuardHome_edge_version=v1.0.0+hash_linux_armv7.tar.gz.sha256sum"
+printf '%s\n' "stale archive" >"${TEST_ROOT}/out/armv7/AdGuardHome_edge_version=v0.9.0+hash_linux_armv7.tar.gz"
+printf '%s\n' "stale md5" >"${TEST_ROOT}/out/armv7/AdGuardHome_edge_version=v0.9.0+hash_linux_armv7.tar.gz.md5sum"
+printf '%s\n' "stale sha256" >"${TEST_ROOT}/out/armv7/AdGuardHome_edge_version=v0.9.0+hash_linux_armv7.tar.gz.sha256sum"
+printf '%s\n' "legacy archive" >"${TEST_ROOT}/out/armv7/AdGuardHome_edge_linux_armv7.tar.gz"
+{
+	printf '%s\n' '# file	channel	version	md5	sha256'
+	printf '%s\t%s\t%s\t%s\t%s\n' \
+		"AdGuardHome_edge_version=v1.0.0+hash_linux_armv7.tar.gz" \
+		edge "version=v1.0.0+hash" currentmd5 currentsha256
+} >"${TEST_ROOT}/out/armv7/checksum.txt"
+prune_stale_versioned_archives "${TEST_ROOT}/out/armv7" linux_armv7 ||
+	fail "stale versioned archive pruning failed"
+[ -e "${TEST_ROOT}/out/armv7/AdGuardHome_edge_version=v1.0.0+hash_linux_armv7.tar.gz" ] ||
+	fail "stale pruning removed the current archive"
+[ -e "${TEST_ROOT}/out/armv7/AdGuardHome_edge_version=v1.0.0+hash_linux_armv7.tar.gz.md5sum" ] ||
+	fail "stale pruning removed the current md5 sidecar"
+[ -e "${TEST_ROOT}/out/armv7/AdGuardHome_edge_version=v1.0.0+hash_linux_armv7.tar.gz.sha256sum" ] ||
+	fail "stale pruning removed the current sha256 sidecar"
+[ ! -e "${TEST_ROOT}/out/armv7/AdGuardHome_edge_version=v0.9.0+hash_linux_armv7.tar.gz" ] ||
+	fail "stale pruning kept an unreferenced versioned archive"
+[ ! -e "${TEST_ROOT}/out/armv7/AdGuardHome_edge_version=v0.9.0+hash_linux_armv7.tar.gz.md5sum" ] ||
+	fail "stale pruning kept an unreferenced md5 sidecar"
+[ ! -e "${TEST_ROOT}/out/armv7/AdGuardHome_edge_version=v0.9.0+hash_linux_armv7.tar.gz.sha256sum" ] ||
+	fail "stale pruning kept an unreferenced sha256 sidecar"
+[ -e "${TEST_ROOT}/out/armv7/AdGuardHome_edge_linux_armv7.tar.gz" ] ||
+	fail "stale pruning removed a legacy archive name"
 
 REAL_RM="$(which rm)" || fail "rm is unavailable"
 printf '%s\n' "old archive" >"${TEST_ROOT}/archive"
