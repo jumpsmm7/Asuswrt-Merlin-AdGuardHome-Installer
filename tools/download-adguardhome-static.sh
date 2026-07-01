@@ -216,6 +216,16 @@ download_one() {
 		FAILED=1
 		return 1
 	fi
+	case "${_version}" in
+		*[!A-Za-z0-9._-]*)
+			printf '%s\n' "Error: unsafe version metadata from ${_version_url}" >&2
+			FAILED=1
+			return 1
+			;;
+	esac
+	_dest_file="${_dest_dir}/AdGuardHome_${_channel_name}_${_version}_${_adguard_arch}.tar.gz"
+	_dest_name="${_dest_file##*/}"
+	_tmp_file="${_dest_file}.tmp.$$"
 
 	printf '%s\n' "Downloading ${_url} -> ${_dest_file}"
 	ACTIVE_DOWNLOAD_TMP="${_tmp_file}"
