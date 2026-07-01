@@ -500,9 +500,12 @@ publish_archive_with_checksums() {
 		return 1
 	fi
 
-	if mv "${_archive_tmp}" "${_archive_file}" &&
-		mv "${_md5_tmp}" "${_md5_file}" &&
-		mv "${_sha256_tmp}" "${_sha256_file}"; then
+	# Publish sidecars before the archive so readers never see the new archive
+	# before its SHA-256 metadata exists. Each rename is still per-file atomic;
+	# installer retries handle readers that race an in-flight sidecar refresh.
+	if mv "${_md5_tmp}" "${_md5_file}" &&
+		mv "${_sha256_tmp}" "${_sha256_file}" &&
+		mv "${_archive_tmp}" "${_archive_file}"; then
 		if ! rm -f "${_publish_state}"; then
 			printf '%s\n' "Error: could not clear publication state for ${_archive_file}" >&2
 			FAILED=1

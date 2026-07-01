@@ -17,7 +17,7 @@ IPSET_USER_FILE="/opt/etc/AdGuardHome/ipset.user"
 YAML_FILE="/opt/etc/AdGuardHome/AdGuardHome.yaml"
 DEFAULT_ADGUARD_NETCHECK_HOSTS="google.com github.com snbforums.com"
 DEFAULT_ADGUARD_NETCHECK_DNS="127.0.0.1"
-DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP="YES"
+DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP="NO"
 DEFAULT_ADGUARD_NETCHECK_TIMEOUT="300"
 DEFAULT_ADGUARD_NETCHECK_MODE="wan"
 ADGUARD_NETCHECK_HOSTS_SET="${ADGUARD_NETCHECK_HOSTS:+x}"
@@ -711,22 +711,23 @@ netcheck() {
 		agh_log warning netcheck "state=netcheck action=validate_hosts stage=dns reason=no_hosts_configured result=failed"
 		return 1
 	fi
-	if ! netcheck_dns_ok "${dns_server}" "$@"; then
-		agh_log warning netcheck "state=netcheck action=resolve_hosts stage=dns reason=lookup_failed result=failed dns=${dns_server} hosts=${hosts}"
-		if ! netcheck_ping_ok "$@"; then
-			agh_log warning netcheck "state=netcheck action=ping_hosts stage=ping reason=ping_failed result=failed hosts=${hosts}"
-			return 1
-		fi
+	if netcheck_dns_ok "${dns_server}" "$@"; then
+		return 0
 	fi
+	agh_log warning netcheck "state=netcheck action=resolve_hosts stage=dns reason=lookup_failed result=failed dns=${dns_server} hosts=${hosts}"
+	if netcheck_ping_ok "$@"; then
+		return 0
+	fi
+	agh_log warning netcheck "state=netcheck action=ping_hosts stage=ping reason=ping_failed result=failed hosts=${hosts}"
 	case "${http_required}" in
 		YES | yes | Yes)
-			if ! netcheck_http_ok "$@"; then
-				agh_log warning netcheck "state=netcheck action=http_probe stage=http reason=http_failed result=failed hosts=${hosts}"
-				return 1
+			if netcheck_http_ok "$@"; then
+				return 0
 			fi
+			agh_log warning netcheck "state=netcheck action=http_probe stage=http reason=http_failed result=failed hosts=${hosts}"
 			;;
 	esac
-	return 0
+	return 1
 }
 
 private_ipv4_bridge_dns_options() {
