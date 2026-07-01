@@ -3189,10 +3189,10 @@ download_file() {
 					if [ -n "${SHA256SUM_CURR}" ]; then
 						ptxt_warn "SHA-256 checksum mismatch for ${FILENAME}; retrying download."
 					else
-						ptxt_warn "SHA-256 checksum could not be calculated for ${FILENAME}; falling back to MD5 if available."
+						ptxt_warn "SHA-256 checksum could not be calculated for ${FILENAME}; retrying download."
 					fi
 				fi
-				if ! sha256_is_valid "${SHA256SUM_EXPECTED}" || [ -z "${SHA256SUM_CURR}" ]; then
+				if ! sha256_is_valid "${SHA256SUM_EXPECTED}"; then
 					if md5_is_valid "${MD5SUM_EXPECTED}"; then
 						ptxt_step "Verifying MD5 checksum for ${FILENAME}."
 						MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"
