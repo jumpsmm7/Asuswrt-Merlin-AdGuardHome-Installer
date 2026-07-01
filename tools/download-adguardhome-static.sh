@@ -256,12 +256,17 @@ download_one() {
 			cleanup_download_tmp
 			return 1
 		}
+		write_sha256sum_file "${_dest_file}" "${_sha256}" || {
+			cleanup_download_tmp
+			return 1
+		}
 		cleanup_download_tmp
 	else
 		publish_archive_with_md5 "${_tmp_file}" "${_dest_file}" "${_md5}" || {
 			ACTIVE_DOWNLOAD_TMP=""
 			return 1
 		}
+		write_sha256sum_file "${_dest_file}" "${_sha256}" || return 1
 		printf '%s\n' "Updated ${_dest_file}"
 	fi
 	ACTIVE_DOWNLOAD_TMP=""
@@ -725,6 +730,20 @@ write_md5sum_file() {
 	if ! printf '%s\n' "${_md5}" >"${_md5_tmp}" || ! chmod 644 "${_md5_tmp}" || ! mv "${_md5_tmp}" "${_md5_file}"; then
 		rm -f "${_md5_tmp}"
 		printf '%s\n' "Error: could not update ${_md5_file}" >&2
+		FAILED=1
+		return 1
+	fi
+}
+
+write_sha256sum_file() {
+	_archive_file="$1"
+	_sha256="$2"
+	_sha256_file="${_archive_file}.sha256sum"
+	_sha256_tmp="${_sha256_file}.tmp.$$"
+
+	if ! printf '%s\n' "${_sha256}" >"${_sha256_tmp}" || ! chmod 644 "${_sha256_tmp}" || ! mv "${_sha256_tmp}" "${_sha256_file}"; then
+		rm -f "${_sha256_tmp}"
+		printf '%s\n' "Error: could not update ${_sha256_file}" >&2
 		FAILED=1
 		return 1
 	fi

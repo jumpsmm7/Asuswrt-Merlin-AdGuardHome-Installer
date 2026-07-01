@@ -102,6 +102,7 @@ if ! sh tools/list-shell-scripts.sh >"${SCRIPT_LIST}"; then
 fi
 
 run_check 'md5sum files match installer artifacts' sh tools/check-md5.sh
+run_check 'sha256sum files match installer artifacts' sh tools/check-sha256.sh
 run_check 'Repository shell portability regression' sh tools/check-shell-portability.sh
 run_check 'Command failure propagation regression' sh tests/command-failure-propagation.sh
 run_check 'Canonical path final-symlink regression' sh tests/canonical-path-symlink.sh
