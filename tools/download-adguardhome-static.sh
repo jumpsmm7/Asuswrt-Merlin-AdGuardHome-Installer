@@ -510,9 +510,21 @@ publish_archive_with_checksums() {
 		return 1
 	fi
 
-	# Publish sidecars before the archive so readers never see the new archive
-	# before its SHA-256 metadata exists. Each rename is still per-file atomic;
-	# installer retries handle readers that race an in-flight sidecar refresh.
+	# Publish checksums before making a replacement archive visible.  When an
+	# existing archive changes, remove it first so readers may see a transient
+	# miss, but never the new archive paired with old or missing SHA-256 data.
+	if [ "${_publish_condition}" != "require-unchanged" ] &&
+		[ "${_had_archive}" = "1" ]; then
+		if ! rm -f "${_archive_file}"; then
+			rm -f "${_archive_tmp}" "${_md5_tmp}" "${_sha256_tmp}"
+			printf '%s\n' "Error: could not hide ${_archive_file} before publishing checksums" >&2
+			if ! recover_archive_publication "${_archive_file}" "$$"; then
+				printf '%s\n' "Error: recovery failed; inspect ${_archive_backup}, ${_md5_backup}, and ${_sha256_backup}" >&2
+			fi
+			FAILED=1
+			return 1
+		fi
+	fi
 	if mv "${_md5_tmp}" "${_md5_file}" &&
 		mv "${_sha256_tmp}" "${_sha256_file}" &&
 		mv "${_archive_tmp}" "${_archive_file}"; then
