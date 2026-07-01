@@ -712,13 +712,21 @@ netcheck() {
 		return 1
 	fi
 	if netcheck_dns_ok "${dns_server}" "$@"; then
-		return 0
+		case "${http_required}" in
+			YES | yes | Yes) ;;
+			*) return 0 ;;
+		esac
+	else
+		agh_log warning netcheck "state=netcheck action=resolve_hosts stage=dns reason=lookup_failed result=failed dns=${dns_server} hosts=${hosts}"
+		if netcheck_ping_ok "$@"; then
+			case "${http_required}" in
+				YES | yes | Yes) ;;
+				*) return 0 ;;
+			esac
+		else
+			agh_log warning netcheck "state=netcheck action=ping_hosts stage=ping reason=ping_failed result=failed hosts=${hosts}"
+		fi
 	fi
-	agh_log warning netcheck "state=netcheck action=resolve_hosts stage=dns reason=lookup_failed result=failed dns=${dns_server} hosts=${hosts}"
-	if netcheck_ping_ok "$@"; then
-		return 0
-	fi
-	agh_log warning netcheck "state=netcheck action=ping_hosts stage=ping reason=ping_failed result=failed hosts=${hosts}"
 	case "${http_required}" in
 		YES | yes | Yes)
 			if netcheck_http_ok "$@"; then
