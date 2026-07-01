@@ -13,13 +13,13 @@ ACTIVE_PUBLICATION_ARCHIVE=""
 # Functions are sorted alpha-numerically for readability.
 
 cleanup_download_tmp() {
-	if [ -n "${ACTIVE_PUBLICATION_ARCHIVE}" ]; then
+	if [ -n "${ACTIVE_PUBLICATION_ARCHIVE:-}" ]; then
 		if ! recover_archive_publication "${ACTIVE_PUBLICATION_ARCHIVE}" "$$"; then
 			printf '%s\n' "Error: recovery failed for ${ACTIVE_PUBLICATION_ARCHIVE}" >&2
 		fi
 		ACTIVE_PUBLICATION_ARCHIVE=""
 	fi
-	if [ -n "${ACTIVE_DOWNLOAD_TMP}" ]; then
+	if [ -n "${ACTIVE_DOWNLOAD_TMP:-}" ]; then
 		rm -f "${ACTIVE_DOWNLOAD_TMP}"
 		ACTIVE_DOWNLOAD_TMP=""
 	fi
@@ -403,8 +403,28 @@ refresh_unchanged_archive_checksums() {
 	_md5="$3"
 	_sha256="$4"
 
-	publish_archive_with_checksums "${_archive_tmp}" "${_archive_file}" \
-		"${_md5}" "${_sha256}" require-unchanged
+	if [ ! -f "${_archive_file}" ] || ! cmp -s "${_archive_tmp}" "${_archive_file}"; then
+		printf '%s\n' "Error: ${_archive_file} changed while refreshing its checksums" >&2
+		FAILED=1
+		return 1
+	fi
+	if ! write_md5sum_file "${_archive_file}" "${_md5}" ||
+		! write_sha256sum_file "${_archive_file}" "${_sha256}"; then
+		return 1
+	fi
+}
+
+refresh_unchanged_archive_md5() {
+	_archive_tmp="$1"
+	_archive_file="$2"
+	_md5="$3"
+
+	if [ ! -f "${_archive_file}" ] || ! cmp -s "${_archive_tmp}" "${_archive_file}"; then
+		printf '%s\n' "Error: ${_archive_file} changed while refreshing its checksum" >&2
+		FAILED=1
+		return 1
+	fi
+	write_md5sum_file "${_archive_file}" "${_md5}"
 }
 
 acquire_archive_publication_state() {
@@ -518,22 +538,9 @@ publish_archive_with_checksums() {
 	fi
 	ACTIVE_PUBLICATION_ARCHIVE="${_archive_file}"
 
-	# Publish checksums before making a replacement archive visible.  When an
-	# existing archive changes, remove it first so readers may see a transient
-	# miss, but never the new archive paired with old or missing SHA-256 data.
-	if [ "${_publish_condition}" != "require-unchanged" ] &&
-		[ "${_had_archive}" = "1" ]; then
-		if ! rm -f "${_archive_file}"; then
-			rm -f "${_archive_tmp}" "${_md5_tmp}" "${_sha256_tmp}"
-			printf '%s\n' "Error: could not hide ${_archive_file} before publishing checksums" >&2
-			if ! recover_archive_publication "${_archive_file}" "$$"; then
-				printf '%s\n' "Error: recovery failed; inspect ${_archive_backup}, ${_md5_backup}, and ${_sha256_backup}" >&2
-			fi
-			ACTIVE_PUBLICATION_ARCHIVE=""
-			FAILED=1
-			return 1
-		fi
-	fi
+	# Publish checksums before making a replacement archive visible.  Keep any
+	# existing archive in place until the final rename so concurrent readers do
+	# not observe a missing public archive during replacement preparation.
 	if mv "${_md5_tmp}" "${_md5_file}" &&
 		mv "${_sha256_tmp}" "${_sha256_file}" &&
 		mv "${_archive_tmp}" "${_archive_file}"; then
@@ -561,6 +568,16 @@ publish_archive_with_checksums() {
 	ACTIVE_PUBLICATION_ARCHIVE=""
 	FAILED=1
 	return 1
+}
+
+publish_archive_with_md5() {
+	_archive_tmp="$1"
+	_archive_file="$2"
+	_md5="$3"
+	_publish_condition="${4:-replace}"
+
+	publish_archive_with_checksums "${_archive_tmp}" "${_archive_file}" \
+		"${_md5}" "" "${_publish_condition}"
 }
 
 publish_metadata_files() {

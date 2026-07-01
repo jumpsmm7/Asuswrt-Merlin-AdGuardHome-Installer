@@ -20,7 +20,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}/out/armv7" || fail "could not create test directory"
 
-sed -n '/^append_metadata() {$/,/^}$/p; /^acquire_metadata_publication_lock() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^recover_metadata_publication() {$/,/^}$/p; /^reclaim_stale_metadata_publication_lock() {$/,/^}$/p; /^release_metadata_publication_lock() {$/,/^}$/p; /^archive_publication_owner_is_active() {$/,/^}$/p; /^refresh_unchanged_archive_md5() {$/,/^}$/p; /^acquire_archive_publication_state() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p' \
+sed -n '/^append_metadata() {$/,/^}$/p; /^acquire_metadata_publication_lock() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^recover_metadata_publication() {$/,/^}$/p; /^reclaim_stale_metadata_publication_lock() {$/,/^}$/p; /^release_metadata_publication_lock() {$/,/^}$/p; /^archive_publication_owner_is_active() {$/,/^}$/p; /^refresh_unchanged_archive_checksums() {$/,/^}$/p; /^refresh_unchanged_archive_md5() {$/,/^}$/p; /^acquire_archive_publication_state() {$/,/^}$/p; /^publish_archive_with_checksums() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p; /^write_sha256sum_file() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail "static download helpers were not found"
 
@@ -44,16 +44,14 @@ REAL_MV="$(which mv)" || fail "mv is unavailable"
 printf '%s\n' "old archive" >"${TEST_ROOT}/archive"
 printf '%s\n' "old checksum" >"${TEST_ROOT}/archive.md5sum"
 printf '%s\n' "new archive" >"${TEST_ROOT}/archive.tmp"
-ARCHIVE_WAS_PUBLISHED=0
+PREVIOUS_ARCHIVE_AVAILABLE=0
 mv() {
 	case "$1" in
-		"${TEST_ROOT}/archive.tmp")
+		*.md5sum.tmp.*)
 			if [ -f "${TEST_ROOT}/archive" ] &&
 				[ "$(sed -n '1p' "${TEST_ROOT}/archive")" = "old archive" ]; then
-				ARCHIVE_WAS_PUBLISHED=1
+				PREVIOUS_ARCHIVE_AVAILABLE=1
 			fi
-			;;
-		*.md5sum.tmp.*)
 			return 1
 			;;
 	esac
@@ -66,7 +64,7 @@ fi
 	fail "failed archive publication did not restore the previous archive"
 [ "$(sed -n '1p' "${TEST_ROOT}/archive.md5sum")" = "old checksum" ] ||
 	fail "failed archive publication did not restore the previous checksum"
-[ "${ARCHIVE_WAS_PUBLISHED}" -eq 1 ] ||
+[ "${PREVIOUS_ARCHIVE_AVAILABLE}" -eq 1 ] ||
 	fail "archive publication removed the previous archive before replacement"
 
 unset -f mv
