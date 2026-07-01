@@ -1332,6 +1332,15 @@ adguard_remote_md5() {
 	esac
 }
 
+adguard_remote_sha256() {
+	case "$1" in
+		release) PTXT "${REMOTE_RELEASE_SHA256}" ;;
+		beta) PTXT "${REMOTE_BETA_SHA256}" ;;
+		edge) PTXT "${REMOTE_EDGE_SHA256}" ;;
+		*) return 1 ;;
+	esac
+}
+
 adguard_remote_version() {
 	case "$1" in
 		release) PTXT "${REMOTE_VER}" ;;
@@ -1368,6 +1377,9 @@ init_adguard_metadata_defaults() {
 	REMOTE_RELEASE_MD5=""
 	REMOTE_BETA_MD5=""
 	REMOTE_EDGE_MD5=""
+	REMOTE_RELEASE_SHA256=""
+	REMOTE_BETA_SHA256=""
+	REMOTE_EDGE_SHA256=""
 	REMOTE_RELEASE_URL="https://static.adguard.com/adguardhome/release/${REMOTE_RELEASE_ARCHIVE}"
 	REMOTE_BETA_URL="https://static.adguard.com/adguardhome/beta/${REMOTE_BETA_ARCHIVE}"
 	REMOTE_EDGE_URL="https://static.adguard.com/adguardhome/edge/${REMOTE_EDGE_ARCHIVE}"
@@ -1384,6 +1396,9 @@ init_remote_adguard_metadata() {
 	REMOTE_RELEASE_MD5=""
 	REMOTE_BETA_MD5=""
 	REMOTE_EDGE_MD5=""
+	REMOTE_RELEASE_SHA256=""
+	REMOTE_BETA_SHA256=""
+	REMOTE_EDGE_SHA256=""
 	REMOTE_RELEASE_URL=""
 	REMOTE_BETA_URL=""
 	REMOTE_EDGE_URL=""
@@ -1402,12 +1417,15 @@ init_remote_adguard_metadata() {
 			REMOTE_RELEASE_MD5="$(awk '$1 !~ /^#/ && $2 == "stable" {print $4; exit}' "${ADGUARD_METADATA_FILE}")"
 			REMOTE_BETA_MD5="$(awk '$1 !~ /^#/ && $2 == "beta" {print $4; exit}' "${ADGUARD_METADATA_FILE}")"
 			REMOTE_EDGE_MD5="$(awk '$1 !~ /^#/ && $2 == "edge" {print $4; exit}' "${ADGUARD_METADATA_FILE}")"
+			REMOTE_RELEASE_SHA256="$(awk '$1 !~ /^#/ && $2 == "stable" {print $5; exit}' "${ADGUARD_METADATA_FILE}")"
+			REMOTE_BETA_SHA256="$(awk '$1 !~ /^#/ && $2 == "beta" {print $5; exit}' "${ADGUARD_METADATA_FILE}")"
+			REMOTE_EDGE_SHA256="$(awk '$1 !~ /^#/ && $2 == "edge" {print $5; exit}' "${ADGUARD_METADATA_FILE}")"
 			REMOTE_RELEASE_URL="${URL_ARCH}/${REMOTE_RELEASE_ARCHIVE}"
 			REMOTE_BETA_URL="${URL_ARCH}/${REMOTE_BETA_ARCHIVE}"
 			REMOTE_EDGE_URL="${URL_ARCH}/${REMOTE_EDGE_ARCHIVE}"
 			if adguard_validate_metadata; then
 				ptxt_ok "Detected AdGuardHome versions: release ${REMOTE_VER}, beta ${REMOTE_BETA}, edge ${REMOTE_EDGE}."
-				export REMOTE_VER REMOTE_BETA REMOTE_EDGE REMOTE_RELEASE_ARCHIVE REMOTE_BETA_ARCHIVE REMOTE_EDGE_ARCHIVE REMOTE_RELEASE_MD5 REMOTE_BETA_MD5 REMOTE_EDGE_MD5 REMOTE_RELEASE_URL REMOTE_BETA_URL REMOTE_EDGE_URL
+				export REMOTE_VER REMOTE_BETA REMOTE_EDGE REMOTE_RELEASE_ARCHIVE REMOTE_BETA_ARCHIVE REMOTE_EDGE_ARCHIVE REMOTE_RELEASE_MD5 REMOTE_BETA_MD5 REMOTE_EDGE_MD5 REMOTE_RELEASE_SHA256 REMOTE_BETA_SHA256 REMOTE_EDGE_SHA256 REMOTE_RELEASE_URL REMOTE_BETA_URL REMOTE_EDGE_URL
 				cleanup_api_files
 				return 0
 			fi
@@ -1438,7 +1456,7 @@ init_upstream_adguard_metadata() {
 			REMOTE_EDGE="$(awk 'NF {VERSION = $1; sub(/^version=/, "", VERSION); print VERSION; exit}' "${EDGE_VERSION_FILE}")"
 			if [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ] && [ -n "${REMOTE_EDGE}" ]; then
 				ptxt_ok "Detected upstream AdGuardHome versions: release ${REMOTE_VER}, beta ${REMOTE_BETA}, edge ${REMOTE_EDGE}."
-				export REMOTE_VER REMOTE_BETA REMOTE_EDGE REMOTE_RELEASE_ARCHIVE REMOTE_BETA_ARCHIVE REMOTE_EDGE_ARCHIVE REMOTE_RELEASE_MD5 REMOTE_BETA_MD5 REMOTE_EDGE_MD5 REMOTE_RELEASE_URL REMOTE_BETA_URL REMOTE_EDGE_URL
+				export REMOTE_VER REMOTE_BETA REMOTE_EDGE REMOTE_RELEASE_ARCHIVE REMOTE_BETA_ARCHIVE REMOTE_EDGE_ARCHIVE REMOTE_RELEASE_MD5 REMOTE_BETA_MD5 REMOTE_EDGE_MD5 REMOTE_RELEASE_SHA256 REMOTE_BETA_SHA256 REMOTE_EDGE_SHA256 REMOTE_RELEASE_URL REMOTE_BETA_URL REMOTE_EDGE_URL
 				rm -f "${RELEASE_VERSION_FILE}" "${BETA_VERSION_FILE}" "${EDGE_VERSION_FILE}"
 				return 0
 			fi
@@ -3125,7 +3143,7 @@ del_jffs_script() {
 }
 
 download_file() {
-	local TARG PERM URL RET FILENAME TMP_FILE TMP_MD5 MD5SUM_OLD MD5SUM_CURR MD5SUM_EXPECTED COUNT
+	local TARG PERM URL RET FILENAME TMP_FILE TMP_MD5 TMP_SHA256 MD5SUM_OLD MD5SUM_CURR MD5SUM_EXPECTED SHA256SUM_CURR SHA256SUM_EXPECTED COUNT
 	TARG="$1"
 	shift
 	PERM="$1"
@@ -3136,45 +3154,56 @@ download_file() {
 		FILENAME="${URL##*/}"
 		TMP_FILE="${TARG}/.${FILENAME}.$$"
 		TMP_MD5="${TMP_FILE}.md5sum"
+		TMP_SHA256="${TMP_FILE}.sha256sum"
 		MD5SUM_OLD=""
 		MD5SUM_CURR=""
 		MD5SUM_EXPECTED=""
+		SHA256SUM_CURR=""
+		SHA256SUM_EXPECTED=""
 		COUNT="0"
 		[ -f "${TARG}/${FILENAME}" ] && MD5SUM_OLD="$(file_md5 "${TARG}/${FILENAME}" 2>/dev/null)"
 		while [ "${COUNT}" -lt 3 ]; do
 			ptxt_step "Downloading ${FILENAME} to ${TARG}/${FILENAME}."
-			rm -f "${TMP_FILE}" "${TMP_MD5}"
+			rm -f "${TMP_FILE}" "${TMP_MD5}" "${TMP_SHA256}"
 			if http_get_file "${URL}" "${TMP_FILE}" "" insecure && [ -s "${TMP_FILE}" ]; then
 				ptxt_ok "Downloaded ${FILENAME}."
-				ptxt_step "Calculating checksum for ${FILENAME}."
-				MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"
-				if ! md5_is_valid "${MD5SUM_CURR}"; then
-					ptxt_warn "Unable to calculate checksum for ${FILENAME}; retrying download."
-					COUNT="$((COUNT + 1))"
-					continue
-				fi
-				ptxt_ok "Calculated checksum for ${FILENAME}."
-				MD5SUM_EXPECTED=""
 				ptxt_step "Checking remote checksum metadata for ${FILENAME}."
-				if http_get_file "${URL}.md5sum" "${TMP_MD5}" "" insecure && [ -s "${TMP_MD5}" ]; then
-					MD5SUM_EXPECTED="$(awk 'NR == 1 {print $1; exit}' "${TMP_MD5}")"
+				if http_get_file "${URL}.sha256sum" "${TMP_SHA256}" "" insecure && [ -s "${TMP_SHA256}" ]; then
+					SHA256SUM_EXPECTED="$(awk 'NR == 1 {print $1; exit}' "${TMP_SHA256}")"
 				fi
-				if md5_is_valid "${MD5SUM_EXPECTED}"; then
-					if [ "${MD5SUM_CURR}" = "${MD5SUM_EXPECTED}" ]; then
-						ptxt_ok "Checksum verified for ${FILENAME}."
+				if sha256_is_valid "${SHA256SUM_EXPECTED}"; then
+					ptxt_step "Verifying SHA-256 checksum for ${FILENAME}."
+					SHA256SUM_CURR="$(file_sha256 "${TMP_FILE}" 2>/dev/null)"
+					if [ "${SHA256SUM_CURR}" = "${SHA256SUM_EXPECTED}" ]; then
+						MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"
+						ptxt_ok "SHA-256 checksum verified for ${FILENAME}."
 						break
 					fi
-					ptxt_warn "Checksum mismatch for ${FILENAME}; retrying download."
+					ptxt_warn "SHA-256 checksum mismatch for ${FILENAME}; retrying download."
 				else
-					ptxt_warn "No valid remote checksum metadata for ${FILENAME}; using download result."
-					break
+					if http_get_file "${URL}.md5sum" "${TMP_MD5}" "" insecure && [ -s "${TMP_MD5}" ]; then
+						MD5SUM_EXPECTED="$(awk 'NR == 1 {print $1; exit}' "${TMP_MD5}")"
+					fi
+					if md5_is_valid "${MD5SUM_EXPECTED}"; then
+						ptxt_step "Verifying MD5 checksum for ${FILENAME}."
+						MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"
+						if [ "${MD5SUM_CURR}" = "${MD5SUM_EXPECTED}" ]; then
+							ptxt_warn "Only MD5 checksum metadata was available for ${FILENAME}; SHA-256 is preferred."
+							break
+						fi
+						ptxt_warn "MD5 checksum mismatch for ${FILENAME}; retrying download."
+					else
+						ptxt_warn "No valid remote checksum metadata for ${FILENAME}; using download result."
+						MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"
+						break
+					fi
 				fi
 			else
 				ptxt_warn "Download attempt failed for ${FILENAME}; retrying if attempts remain."
 			fi
 			COUNT="$((COUNT + 1))"
 		done
-		rm -f "${TMP_MD5}"
+		rm -f "${TMP_MD5}" "${TMP_SHA256}"
 		if [ "${COUNT}" -eq 3 ]; then
 			rm -f "${TMP_FILE}"
 			ptxt_fail "Unable to download ${BOLD}${URL}${NORM}."
@@ -3222,7 +3251,7 @@ installer_update_reexec() {
 }
 
 inst_AdGuardHome() {
-	local ADGUARD_TAR ARCHIVE_MD5 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT
+	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
 	INSTALLER_MD5_OLD=""
@@ -3366,6 +3395,7 @@ inst_AdGuardHome() {
 		ptxt_phase "Installing AdGuardHome package."
 		REMOTE_ADGUARD_ARCHIVE="$(adguard_remote_archive "$2")"
 		REMOTE_ADGUARD_MD5="$(adguard_remote_md5 "$2")"
+		REMOTE_ADGUARD_SHA256="$(adguard_remote_sha256 "$2")"
 		REMOTE_ADGUARD_URL="$(adguard_remote_url "$2")"
 		[ -z "${REMOTE_ADGUARD_ARCHIVE}" ] && REMOTE_ADGUARD_ARCHIVE="${ADGUARD_TAR}"
 		[ -z "${REMOTE_ADGUARD_URL}" ] && REMOTE_ADGUARD_URL="${URL_ARCH}/${REMOTE_ADGUARD_ARCHIVE}"
@@ -3374,21 +3404,36 @@ inst_AdGuardHome() {
 			end_op_message 1 "$1"
 			return 1
 		fi
-		if md5_is_valid "${REMOTE_ADGUARD_MD5}"; then
-			ptxt_step "Verifying checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
+		if sha256_is_valid "${REMOTE_ADGUARD_SHA256}"; then
+			ptxt_step "Verifying SHA-256 checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
+			ARCHIVE_SHA256="$(file_sha256 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || {
+				PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package SHA-256 checksum."
+				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+				end_op_message 1 "$1"
+				return 1
+			}
+			if [ "${ARCHIVE_SHA256}" != "${REMOTE_ADGUARD_SHA256}" ]; then
+				PTXT "${ERROR} SHA-256 checksum mismatch for downloaded AdGuardHome package metadata."
+				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+				end_op_message 1 "$1"
+				return 1
+			fi
+			ptxt_ok "SHA-256 checksum verified for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
+		elif md5_is_valid "${REMOTE_ADGUARD_MD5}"; then
+			ptxt_step "Verifying MD5 checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
 			ARCHIVE_MD5="$(file_md5 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || {
-				PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package checksum."
+				PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package MD5 checksum."
 				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 				end_op_message 1 "$1"
 				return 1
 			}
 			if [ "${ARCHIVE_MD5}" != "${REMOTE_ADGUARD_MD5}" ]; then
-				PTXT "${ERROR} Checksum mismatch for downloaded AdGuardHome package metadata."
+				PTXT "${ERROR} MD5 checksum mismatch for downloaded AdGuardHome package metadata."
 				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 				end_op_message 1 "$1"
 				return 1
 			fi
-			ptxt_ok "Checksum verified for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
+			ptxt_warn "Only MD5 package metadata was available; SHA-256 is preferred."
 		fi
 		if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
 		ptxt_step "Replacing AdGuardHome package with downloaded archive."
