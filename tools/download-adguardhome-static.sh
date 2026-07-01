@@ -252,21 +252,16 @@ download_one() {
 	}
 	if [ -f "${_dest_file}" ] && cmp -s "${_tmp_file}" "${_dest_file}"; then
 		printf '%s\n' "OK: ${_dest_file} already current"
-		refresh_unchanged_archive_md5 "${_tmp_file}" "${_dest_file}" "${_md5}" || {
-			cleanup_download_tmp
-			return 1
-		}
-		write_sha256sum_file "${_dest_file}" "${_sha256}" || {
+		refresh_unchanged_archive_checksums "${_tmp_file}" "${_dest_file}" "${_md5}" "${_sha256}" || {
 			cleanup_download_tmp
 			return 1
 		}
 		cleanup_download_tmp
 	else
-		publish_archive_with_md5 "${_tmp_file}" "${_dest_file}" "${_md5}" || {
+		publish_archive_with_checksums "${_tmp_file}" "${_dest_file}" "${_md5}" "${_sha256}" || {
 			ACTIVE_DOWNLOAD_TMP=""
 			return 1
 		}
-		write_sha256sum_file "${_dest_file}" "${_sha256}" || return 1
 		printf '%s\n' "Updated ${_dest_file}"
 	fi
 	ACTIVE_DOWNLOAD_TMP=""
@@ -282,20 +277,25 @@ recover_archive_publication() {
 	_archive_file="$1"
 	_allowed_owner_pid="${2:-}"
 	_md5_file="${_archive_file}.md5sum"
+	_sha256_file="${_archive_file}.sha256sum"
 	_publish_state="${_archive_file}.publish-in-progress"
 	_archive_backup="${_archive_file}.previous"
 	_md5_backup="${_md5_file}.previous"
+	_sha256_backup="${_sha256_file}.previous"
 	_archive_restore="${_archive_backup}.restore.$$"
 	_md5_restore="${_md5_backup}.restore.$$"
+	_sha256_restore="${_sha256_backup}.restore.$$"
 	_restore_failed=0
 	_publish_phase=""
 	_publish_had_archive=""
 	_publish_had_md5=""
+	_publish_had_sha256=""
 
 	[ -f "${_publish_state}" ] || return 0
 	IFS=' ' read -r _publish_pid _publish_start_time _publish_phase \
-		_publish_had_archive _publish_had_md5 <"${_publish_state}" ||
+		_publish_had_archive _publish_had_md5 _publish_had_sha256 <"${_publish_state}" ||
 		_publish_phase=""
+	_publish_had_sha256="${_publish_had_sha256:-0}"
 	if [ "${_publish_pid}" != "${_allowed_owner_pid}" ] &&
 		archive_publication_owner_is_active "${_publish_state}"; then
 		printf '%s\n' "Error: publication is already in progress for ${_archive_file}" >&2
@@ -305,21 +305,25 @@ recover_archive_publication() {
 
 	if [ "${_publish_phase}" != "ready" ] ||
 		{ [ "${_publish_had_archive}" = "1" ] && [ ! -f "${_archive_backup}" ]; } ||
-		{ [ "${_publish_had_md5}" = "1" ] && [ ! -f "${_md5_backup}" ]; }; then
-		rm -f "${_archive_backup}" "${_md5_backup}" "${_publish_state}"
+		{ [ "${_publish_had_md5}" = "1" ] && [ ! -f "${_md5_backup}" ]; } ||
+		{ [ "${_publish_had_sha256}" = "1" ] && [ ! -f "${_sha256_backup}" ]; }; then
+		rm -f "${_archive_backup}" "${_md5_backup}" "${_sha256_backup}" "${_publish_state}"
 		printf '%s\n' "Discarded incomplete publication preparation for ${_archive_file}" >&2
 		return 0
 	fi
 
-	rm -f "${_archive_restore}" "${_md5_restore}"
+	rm -f "${_archive_restore}" "${_md5_restore}" "${_sha256_restore}"
 	if [ "${_publish_had_archive}" = "1" ]; then
 		cp -p "${_archive_backup}" "${_archive_restore}" || _restore_failed=1
 	fi
 	if [ "${_publish_had_md5}" = "1" ]; then
 		cp -p "${_md5_backup}" "${_md5_restore}" || _restore_failed=1
 	fi
+	if [ "${_publish_had_sha256}" = "1" ]; then
+		cp -p "${_sha256_backup}" "${_sha256_restore}" || _restore_failed=1
+	fi
 	if [ "${_restore_failed}" -ne 0 ]; then
-		rm -f "${_archive_restore}" "${_md5_restore}"
+		rm -f "${_archive_restore}" "${_md5_restore}" "${_sha256_restore}"
 		printf '%s\n' "Error: could not recover interrupted publication for ${_archive_file}" >&2
 		FAILED=1
 		return 1
@@ -335,14 +339,19 @@ recover_archive_publication() {
 	else
 		rm -f "${_md5_file}" || _restore_failed=1
 	fi
+	if [ "${_publish_had_sha256}" = "1" ]; then
+		mv "${_sha256_restore}" "${_sha256_file}" || _restore_failed=1
+	else
+		rm -f "${_sha256_file}" || _restore_failed=1
+	fi
 	if [ "${_restore_failed}" -ne 0 ]; then
-		rm -f "${_archive_restore}" "${_md5_restore}"
+		rm -f "${_archive_restore}" "${_md5_restore}" "${_sha256_restore}"
 		printf '%s\n' "Error: could not recover interrupted publication for ${_archive_file}" >&2
 		FAILED=1
 		return 1
 	fi
 
-	rm -f "${_archive_backup}" "${_md5_backup}" "${_publish_state}"
+	rm -f "${_archive_backup}" "${_md5_backup}" "${_sha256_backup}" "${_publish_state}"
 	printf '%s\n' "Recovered interrupted publication for ${_archive_file}" >&2
 	return 0
 }
@@ -371,61 +380,14 @@ archive_publication_owner_is_active() {
 	[ "${_current_start_time}" = "${_publish_start_time}" ]
 }
 
-refresh_unchanged_archive_md5() {
+refresh_unchanged_archive_checksums() {
 	_archive_tmp="$1"
 	_archive_file="$2"
 	_md5="$3"
-	_md5_file="${_archive_file}.md5sum"
-	_md5_tmp="${_md5_file}.tmp.$$"
-	_publish_state="${_archive_file}.publish-in-progress"
-	_publish_start_time=""
+	_sha256="$4"
 
-	recover_archive_publication "${_archive_file}" || return 1
-	if ! printf '%s\n' "${_md5}" >"${_md5_tmp}" ||
-		! chmod 644 "${_md5_tmp}"; then
-		rm -f "${_md5_tmp}"
-		printf '%s\n' "Error: could not prepare ${_md5_file}" >&2
-		FAILED=1
-		return 1
-	fi
-
-	_publish_start_time="$(awk '{
-		sub(/^.*\) /, "")
-		print $20
-	}' "/proc/$$/stat" 2>/dev/null)" || _publish_start_time=""
-	case "${_publish_start_time}" in
-		"" | *[!0-9]*)
-			rm -f "${_md5_tmp}"
-			printf '%s\n' "Error: could not identify publication owner for ${_archive_file}" >&2
-			FAILED=1
-			return 1
-			;;
-	esac
-	if ! acquire_archive_publication_state "${_publish_state}" "$$" \
-		"${_publish_start_time}" checksum-only; then
-		rm -f "${_md5_tmp}"
-		printf '%s\n' "Error: publication is already in progress for ${_archive_file}" >&2
-		FAILED=1
-		return 1
-	fi
-	if [ ! -f "${_archive_file}" ] ||
-		! cmp -s "${_archive_tmp}" "${_archive_file}"; then
-		rm -f "${_publish_state}" "${_md5_tmp}"
-		printf '%s\n' "Error: ${_archive_file} changed while refreshing its checksum" >&2
-		FAILED=1
-		return 1
-	fi
-	if ! mv "${_md5_tmp}" "${_md5_file}"; then
-		rm -f "${_publish_state}" "${_md5_tmp}"
-		printf '%s\n' "Error: could not update ${_md5_file}" >&2
-		FAILED=1
-		return 1
-	fi
-	if ! rm -f "${_publish_state}"; then
-		printf '%s\n' "Error: could not clear publication state for ${_archive_file}" >&2
-		FAILED=1
-		return 1
-	fi
+	publish_archive_with_checksums "${_archive_tmp}" "${_archive_file}" \
+		"${_md5}" "${_sha256}" require-unchanged
 }
 
 acquire_archive_publication_state() {
@@ -440,19 +402,24 @@ acquire_archive_publication_state() {
 	) 2>/dev/null
 }
 
-publish_archive_with_md5() {
+publish_archive_with_checksums() {
 	_archive_tmp="$1"
 	_archive_file="$2"
 	_md5="$3"
-	_publish_condition="${4:-replace}"
+	_sha256="$4"
+	_publish_condition="${5:-replace}"
 	_md5_file="${_archive_file}.md5sum"
+	_sha256_file="${_archive_file}.sha256sum"
 	_md5_tmp="${_md5_file}.tmp.$$"
+	_sha256_tmp="${_sha256_file}.tmp.$$"
 	_publish_state="${_archive_file}.publish-in-progress"
 	_publish_state_tmp="${_publish_state}.tmp.$$"
 	_archive_backup="${_archive_file}.previous"
 	_md5_backup="${_md5_file}.previous"
+	_sha256_backup="${_sha256_file}.previous"
 	_had_archive=0
 	_had_md5=0
+	_had_sha256=0
 	_publish_start_time=""
 
 	recover_archive_publication "${_archive_file}" || {
@@ -460,8 +427,9 @@ publish_archive_with_md5() {
 		return 1
 	}
 	if ! printf '%s\n' "${_md5}" >"${_md5_tmp}" ||
-		! chmod 644 "${_archive_tmp}" "${_md5_tmp}"; then
-		rm -f "${_archive_tmp}" "${_md5_tmp}"
+		! printf '%s\n' "${_sha256}" >"${_sha256_tmp}" ||
+		! chmod 644 "${_archive_tmp}" "${_md5_tmp}" "${_sha256_tmp}"; then
+		rm -f "${_archive_tmp}" "${_md5_tmp}" "${_sha256_tmp}"
 		printf '%s\n' "Error: could not prepare ${_archive_file}" >&2
 		FAILED=1
 		return 1
@@ -473,31 +441,31 @@ publish_archive_with_md5() {
 	}' "/proc/$$/stat" 2>/dev/null)" || _publish_start_time=""
 	case "${_publish_start_time}" in
 		"" | *[!0-9]*)
-			rm -f "${_archive_tmp}" "${_md5_tmp}"
+			rm -f "${_archive_tmp}" "${_md5_tmp}" "${_sha256_tmp}"
 			printf '%s\n' "Error: could not identify publication owner for ${_archive_file}" >&2
 			FAILED=1
 			return 1
 			;;
 	esac
 	if ! acquire_archive_publication_state "${_publish_state}" "$$" "${_publish_start_time}"; then
-		rm -f "${_archive_tmp}" "${_md5_tmp}"
+		rm -f "${_archive_tmp}" "${_md5_tmp}" "${_sha256_tmp}"
 		printf '%s\n' "Error: publication is already in progress for ${_archive_file}" >&2
 		FAILED=1
 		return 1
 	fi
 	if [ "${_publish_condition}" = "require-unchanged" ] &&
 		{ [ ! -f "${_archive_file}" ] || ! cmp -s "${_archive_tmp}" "${_archive_file}"; }; then
-		rm -f "${_publish_state}" "${_archive_tmp}" "${_md5_tmp}"
+		rm -f "${_publish_state}" "${_archive_tmp}" "${_md5_tmp}" "${_sha256_tmp}"
 		printf '%s\n' "Error: ${_archive_file} changed while refreshing its checksum" >&2
 		FAILED=1
 		return 1
 	fi
 
-	rm -f "${_archive_backup}" "${_md5_backup}"
+	rm -f "${_archive_backup}" "${_md5_backup}" "${_sha256_backup}"
 	if [ -f "${_archive_file}" ]; then
 		_had_archive=1
 		if ! cp -p "${_archive_file}" "${_archive_backup}"; then
-			rm -f "${_publish_state}" "${_archive_tmp}" "${_md5_tmp}"
+			rm -f "${_publish_state}" "${_archive_tmp}" "${_md5_tmp}" "${_sha256_tmp}"
 			printf '%s\n' "Error: could not preserve ${_archive_file}" >&2
 			FAILED=1
 			return 1
@@ -506,30 +474,41 @@ publish_archive_with_md5() {
 	if [ -f "${_md5_file}" ]; then
 		_had_md5=1
 		if ! cp -p "${_md5_file}" "${_md5_backup}"; then
-			rm -f "${_publish_state}" "${_archive_backup}" "${_archive_tmp}" "${_md5_tmp}"
+			rm -f "${_publish_state}" "${_archive_backup}" "${_archive_tmp}" "${_md5_tmp}" "${_sha256_tmp}"
 			printf '%s\n' "Error: could not preserve ${_md5_file}" >&2
 			FAILED=1
 			return 1
 		fi
 	fi
-	if ! printf '%s %s ready %s %s\n' "$$" "${_publish_start_time}" \
-		"${_had_archive}" "${_had_md5}" >"${_publish_state_tmp}" ||
+	if [ -f "${_sha256_file}" ]; then
+		_had_sha256=1
+		if ! cp -p "${_sha256_file}" "${_sha256_backup}"; then
+			rm -f "${_publish_state}" "${_archive_backup}" "${_md5_backup}" \
+				"${_archive_tmp}" "${_md5_tmp}" "${_sha256_tmp}"
+			printf '%s\n' "Error: could not preserve ${_sha256_file}" >&2
+			FAILED=1
+			return 1
+		fi
+	fi
+	if ! printf '%s %s ready %s %s %s\n' "$$" "${_publish_start_time}" \
+		"${_had_archive}" "${_had_md5}" "${_had_sha256}" >"${_publish_state_tmp}" ||
 		! mv "${_publish_state_tmp}" "${_publish_state}"; then
-		rm -f "${_publish_state}" "${_archive_backup}" "${_md5_backup}" \
-			"${_archive_tmp}" "${_md5_tmp}" "${_publish_state_tmp}"
+		rm -f "${_publish_state}" "${_archive_backup}" "${_md5_backup}" "${_sha256_backup}" \
+			"${_archive_tmp}" "${_md5_tmp}" "${_sha256_tmp}" "${_publish_state_tmp}"
 		printf '%s\n' "Error: could not mark rollback copies ready for ${_archive_file}" >&2
 		FAILED=1
 		return 1
 	fi
 
 	if mv "${_archive_tmp}" "${_archive_file}" &&
-		mv "${_md5_tmp}" "${_md5_file}"; then
+		mv "${_md5_tmp}" "${_md5_file}" &&
+		mv "${_sha256_tmp}" "${_sha256_file}"; then
 		if ! rm -f "${_publish_state}"; then
 			printf '%s\n' "Error: could not clear publication state for ${_archive_file}" >&2
 			FAILED=1
 			return 1
 		fi
-		if ! rm -f "${_archive_backup}" "${_md5_backup}"; then
+		if ! rm -f "${_archive_backup}" "${_md5_backup}" "${_sha256_backup}"; then
 			printf '%s\n' "Error: could not remove rollback copies for ${_archive_file}" >&2
 			FAILED=1
 			return 1
@@ -537,10 +516,10 @@ publish_archive_with_md5() {
 		return 0
 	fi
 
-	rm -f "${_archive_tmp}" "${_md5_tmp}"
-	printf '%s\n' "Error: could not publish ${_archive_file} and its checksum" >&2
+	rm -f "${_archive_tmp}" "${_md5_tmp}" "${_sha256_tmp}"
+	printf '%s\n' "Error: could not publish ${_archive_file} and its checksums" >&2
 	if ! recover_archive_publication "${_archive_file}" "$$"; then
-		printf '%s\n' "Error: recovery failed; inspect ${_archive_backup} and ${_md5_backup}" >&2
+		printf '%s\n' "Error: recovery failed; inspect ${_archive_backup}, ${_md5_backup}, and ${_sha256_backup}" >&2
 	fi
 	FAILED=1
 	return 1
