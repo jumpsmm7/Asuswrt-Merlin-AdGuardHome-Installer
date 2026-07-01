@@ -3163,6 +3163,10 @@ download_file() {
 		COUNT="0"
 		[ -f "${TARG}/${FILENAME}" ] && MD5SUM_OLD="$(file_md5 "${TARG}/${FILENAME}" 2>/dev/null)"
 		while [ "${COUNT}" -lt 3 ]; do
+			MD5SUM_CURR=""
+			MD5SUM_EXPECTED=""
+			SHA256SUM_CURR=""
+			SHA256SUM_EXPECTED=""
 			ptxt_step "Downloading ${FILENAME} to ${TARG}/${FILENAME}."
 			rm -f "${TMP_FILE}" "${TMP_MD5}" "${TMP_SHA256}"
 			if http_get_file "${URL}" "${TMP_FILE}" "" insecure && [ -s "${TMP_FILE}" ]; then
@@ -3170,6 +3174,9 @@ download_file() {
 				ptxt_step "Checking remote checksum metadata for ${FILENAME}."
 				if http_get_file "${URL}.sha256sum" "${TMP_SHA256}" "" insecure && [ -s "${TMP_SHA256}" ]; then
 					SHA256SUM_EXPECTED="$(awk 'NR == 1 {print $1; exit}' "${TMP_SHA256}")"
+				fi
+				if http_get_file "${URL}.md5sum" "${TMP_MD5}" "" insecure && [ -s "${TMP_MD5}" ]; then
+					MD5SUM_EXPECTED="$(awk 'NR == 1 {print $1; exit}' "${TMP_MD5}")"
 				fi
 				if sha256_is_valid "${SHA256SUM_EXPECTED}"; then
 					ptxt_step "Verifying SHA-256 checksum for ${FILENAME}."
@@ -3179,16 +3186,18 @@ download_file() {
 						ptxt_ok "SHA-256 checksum verified for ${FILENAME}."
 						break
 					fi
-					ptxt_warn "SHA-256 checksum mismatch for ${FILENAME}; retrying download."
-				else
-					if http_get_file "${URL}.md5sum" "${TMP_MD5}" "" insecure && [ -s "${TMP_MD5}" ]; then
-						MD5SUM_EXPECTED="$(awk 'NR == 1 {print $1; exit}' "${TMP_MD5}")"
+					if [ -n "${SHA256SUM_CURR}" ]; then
+						ptxt_warn "SHA-256 checksum mismatch for ${FILENAME}; retrying download."
+					else
+						ptxt_warn "SHA-256 checksum could not be calculated for ${FILENAME}; retrying download."
 					fi
+				fi
+				if ! sha256_is_valid "${SHA256SUM_EXPECTED}"; then
 					if md5_is_valid "${MD5SUM_EXPECTED}"; then
 						ptxt_step "Verifying MD5 checksum for ${FILENAME}."
 						MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"
 						if [ "${MD5SUM_CURR}" = "${MD5SUM_EXPECTED}" ]; then
-							ptxt_warn "Only MD5 checksum metadata was available for ${FILENAME}; SHA-256 is preferred."
+							ptxt_warn "Only MD5 checksum metadata was usable for ${FILENAME}; SHA-256 is preferred."
 							break
 						fi
 						ptxt_warn "MD5 checksum mismatch for ${FILENAME}; retrying download."
