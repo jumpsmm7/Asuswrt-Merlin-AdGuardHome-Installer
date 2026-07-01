@@ -224,7 +224,7 @@ download_one() {
 		return 1
 	fi
 	case "${_version}" in
-		*[!A-Za-z0-9._-]*)
+		*[!A-Za-z0-9._+=-]*)
 			printf '%s\n' "Error: unsafe version metadata from ${_version_url}" >&2
 			FAILED=1
 			return 1
