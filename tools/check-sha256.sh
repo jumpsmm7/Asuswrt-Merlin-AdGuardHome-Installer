@@ -80,7 +80,8 @@ validate_one() {
 }
 
 if [ "$#" -eq 0 ]; then
-	set -- installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
+	set -- installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome \
+		armv5/*.tar.gz armv7/*.tar.gz armv8/*.tar.gz
 fi
 
 for target; do
