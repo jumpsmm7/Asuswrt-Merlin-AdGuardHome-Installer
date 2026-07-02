@@ -78,7 +78,7 @@ fi
 	}
 
 	BLOCKLIST_ANALYZER_SHA256=""
-	assert_allowed 1 2 install update uninstall
+	assert_allowed 1 2 install update uninstall d D doctor status
 	assert_disallowed 3 4 5 6 7 8 changepw reconfigure setamtmupdate setlocalcache switchbranch setipset b B backup r R restore 9 blocklists unusedblocklists
 
 	touch "${BACKUP_FILE}" || exit 1
