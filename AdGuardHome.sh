@@ -20,16 +20,22 @@ DEFAULT_ADGUARD_NETCHECK_DNS="127.0.0.1"
 DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP="NO"
 DEFAULT_ADGUARD_NETCHECK_TIMEOUT="300"
 DEFAULT_ADGUARD_NETCHECK_MODE="wan"
+DEFAULT_ADGUARD_PROC_OPTIMIZE="NO"
+DEFAULT_ADGUARD_PROC_PROFILE="balanced"
 ADGUARD_NETCHECK_HOSTS_SET="${ADGUARD_NETCHECK_HOSTS:+x}"
 ADGUARD_NETCHECK_DNS_SET="${ADGUARD_NETCHECK_DNS:+x}"
 ADGUARD_NETCHECK_REQUIRE_HTTP_SET="${ADGUARD_NETCHECK_REQUIRE_HTTP:+x}"
 ADGUARD_NETCHECK_TIMEOUT_SET="${ADGUARD_NETCHECK_TIMEOUT:+x}"
 ADGUARD_NETCHECK_MODE_SET="${ADGUARD_NETCHECK_MODE:+x}"
+ADGUARD_PROC_OPTIMIZE_SET="${ADGUARD_PROC_OPTIMIZE:+x}"
+ADGUARD_PROC_PROFILE_SET="${ADGUARD_PROC_PROFILE:+x}"
 ADGUARD_NETCHECK_HOSTS="${ADGUARD_NETCHECK_HOSTS:-${DEFAULT_ADGUARD_NETCHECK_HOSTS}}"
 ADGUARD_NETCHECK_DNS="${ADGUARD_NETCHECK_DNS:-${DEFAULT_ADGUARD_NETCHECK_DNS}}"
 ADGUARD_NETCHECK_REQUIRE_HTTP="${ADGUARD_NETCHECK_REQUIRE_HTTP:-${DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP}}"
 ADGUARD_NETCHECK_TIMEOUT="${ADGUARD_NETCHECK_TIMEOUT:-${DEFAULT_ADGUARD_NETCHECK_TIMEOUT}}"
 ADGUARD_NETCHECK_MODE="${ADGUARD_NETCHECK_MODE:-${DEFAULT_ADGUARD_NETCHECK_MODE}}"
+ADGUARD_PROC_OPTIMIZE="${ADGUARD_PROC_OPTIMIZE:-${DEFAULT_ADGUARD_PROC_OPTIMIZE}}"
+ADGUARD_PROC_PROFILE="${ADGUARD_PROC_PROFILE:-${DEFAULT_ADGUARD_PROC_PROFILE}}"
 
 NAME="${0##*/}[$$]"
 
@@ -892,33 +898,102 @@ system_time_ready() {
 
 # Process tuning helpers
 
-proc_optimizations() {
-	{ proc_write "4194304" "/proc/sys/kernel/pid_max"; }                                 # Ensure max PID coverage
-	{ proc_write "2" "/proc/sys/vm/overcommit_memory"; }                                 # Ensure ratio algorithm checks properly work including swap.
-	{ proc_write "60" "/proc/sys/vm/swappiness"; }                                       # Ensure swappiness is set for more readily usability.
-	{ proc_write "50" "/proc/sys/vm/overcommit_ratio"; }                                 # Ensure a proper overcommit policy is available.
-	{ proc_write "4194304" "/proc/sys/net/core/rmem_max"; }                              # Ensure UDP receive buffer set to 4M.
-	{ proc_write "1048576" "/proc/sys/net/core/wmem_max"; }                              # Ensure 1M for wmem_max.
-	{ proc_write "0" "/proc/sys/net/ipv4/icmp_ratelimit"; }                              # Ensure Control over MTRS
-	{ proc_write "240" "/proc/sys/net/netfilter/nf_conntrack_tcp_timeout_max_retrans"; } # Lower conntrack tcp_timeout_max_retrans from 300 to 240
-	{ proc_write "256" "/proc/sys/net/ipv4/neigh/default/gc_thresh1"; }                  # Increase ARP cache sizes and GC thresholds
-	{ proc_write "1024" "/proc/sys/net/ipv4/neigh/default/gc_thresh2"; }                 # Increase ARP cache sizes and GC thresholds
-	{ proc_write "2048" "/proc/sys/net/ipv4/neigh/default/gc_thresh3"; }                 # Increase ARP cache sizes and GC thresholds
-	if [ -n "$(nvram get ipv6_service)" ]; then                                          # IPV6 proc variants
-		{ proc_write "0" "/proc/sys/net/ipv6/icmp/ratelimit"; }
-		{ proc_write "256" "/proc/sys/net/ipv6/neigh/default/gc_thresh1"; }
-		{ proc_write "1024" "/proc/sys/net/ipv6/neigh/default/gc_thresh2"; }
-		{ proc_write "2048" "/proc/sys/net/ipv6/neigh/default/gc_thresh3"; }
+proc_config() {
+	local is_set value
+	eval "is_set=\${$1_SET:-}"
+	eval "value=\${$1:-}"
+	if [ -n "${is_set}" ] && [ -n "${value}" ]; then
+		printf '%s\n' "${value}"
+		return 0
 	fi
+	value="$(conf_value "$1")"
+	if [ -n "${value}" ]; then
+		printf '%s\n' "${value}"
+		return 0
+	fi
+	printf '%s\n' "$2"
+}
+
+proc_optimizations() {
+	local enabled profile
+	enabled="$(proc_config ADGUARD_PROC_OPTIMIZE "${DEFAULT_ADGUARD_PROC_OPTIMIZE}")"
+	profile="$(proc_config ADGUARD_PROC_PROFILE "${DEFAULT_ADGUARD_PROC_PROFILE}")"
+	case "${enabled}" in
+		YES | yes | Yes | ON | on | On | TRUE | true | True | 1) ;;
+		*)
+			agh_log info proc_optimizations "state=proc_optimize action=skip reason=disabled result=skipped enabled=${enabled} profile=${profile}"
+			return 0
+			;;
+	esac
+
+	# Profile documentation:
+	# off: no proc/sysctl values are changed.
+	# safe: /proc/sys/net/core/rmem_max=4194304, /proc/sys/net/core/wmem_max=1048576.
+	# balanced: safe values plus /proc/sys/net/netfilter/nf_conntrack_tcp_timeout_max_retrans=240.
+	# aggressive: balanced values plus /proc/sys/kernel/pid_max=4194304,
+	#   /proc/sys/vm/overcommit_memory=2, /proc/sys/vm/swappiness=60,
+	#   /proc/sys/vm/overcommit_ratio=50, /proc/sys/net/ipv4/icmp_ratelimit=0,
+	#   /proc/sys/net/ipv4/neigh/default/gc_thresh1=256,
+	#   /proc/sys/net/ipv4/neigh/default/gc_thresh2=1024,
+	#   /proc/sys/net/ipv4/neigh/default/gc_thresh3=2048, and when IPv6 is
+	#   configured, /proc/sys/net/ipv6/icmp/ratelimit=0,
+	#   /proc/sys/net/ipv6/neigh/default/gc_thresh1=256,
+	#   /proc/sys/net/ipv6/neigh/default/gc_thresh2=1024,
+	#   /proc/sys/net/ipv6/neigh/default/gc_thresh3=2048.
+	case "${profile}" in
+		off)
+			agh_log info proc_optimizations "state=proc_optimize action=skip reason=profile_off result=skipped profile=${profile}"
+			return 0
+			;;
+		safe | balanced | aggressive) ;;
+		*)
+			agh_log warning proc_optimizations "state=proc_optimize action=validate_profile reason=invalid_profile result=skipped profile=${profile}"
+			return 0
+			;;
+	esac
+
+	proc_write "4194304" "/proc/sys/net/core/rmem_max"
+	proc_write "1048576" "/proc/sys/net/core/wmem_max"
+	case "${profile}" in
+		balanced | aggressive)
+			proc_write "240" "/proc/sys/net/netfilter/nf_conntrack_tcp_timeout_max_retrans"
+			;;
+	esac
+	case "${profile}" in
+		aggressive)
+			proc_write "4194304" "/proc/sys/kernel/pid_max"
+			proc_write "2" "/proc/sys/vm/overcommit_memory"
+			proc_write "60" "/proc/sys/vm/swappiness"
+			proc_write "50" "/proc/sys/vm/overcommit_ratio"
+			proc_write "0" "/proc/sys/net/ipv4/icmp_ratelimit"
+			proc_write "256" "/proc/sys/net/ipv4/neigh/default/gc_thresh1"
+			proc_write "1024" "/proc/sys/net/ipv4/neigh/default/gc_thresh2"
+			proc_write "2048" "/proc/sys/net/ipv4/neigh/default/gc_thresh3"
+			if [ -n "$(nvram get ipv6_service 2>/dev/null)" ]; then
+				proc_write "0" "/proc/sys/net/ipv6/icmp/ratelimit"
+				proc_write "256" "/proc/sys/net/ipv6/neigh/default/gc_thresh1"
+				proc_write "1024" "/proc/sys/net/ipv6/neigh/default/gc_thresh2"
+				proc_write "2048" "/proc/sys/net/ipv6/neigh/default/gc_thresh3"
+			fi
+			;;
+	esac
+	return 0
 }
 
 proc_write() {
-	local TARGET VALUE
-	VALUE="$1"
-	TARGET="$2"
-	{ [ -e "${TARGET}" ] || return 0; }
-	{ [ -w "${TARGET}" ] || return 0; }
-	{ printf "%s" "${VALUE}" >"${TARGET}"; }
+	local old_value target value
+	value="$1"
+	target="$2"
+	[ -e "${target}" ] || return 0
+	[ -w "${target}" ] || return 0
+	if ! IFS= read -r old_value <"${target}"; then
+		old_value=""
+	fi
+	agh_log info proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value}"
+	if ! printf '%s' "${value}" >"${target}" 2>/dev/null; then
+		agh_log warning proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value} result=failed"
+	fi
+	return 0
 }
 netcheck_lan_dns() {
 	# Ignore public DNS overrides in LAN mode; this probe is only for the
