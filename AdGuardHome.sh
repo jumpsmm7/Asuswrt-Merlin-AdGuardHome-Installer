@@ -22,6 +22,7 @@ DEFAULT_ADGUARD_NETCHECK_TIMEOUT="300"
 DEFAULT_ADGUARD_NETCHECK_MODE="wan"
 DEFAULT_ADGUARD_PROC_OPTIMIZE="NO"
 DEFAULT_ADGUARD_PROC_PROFILE="balanced"
+INSTALLER_SCRIPT="/opt/etc/AdGuardHome/installer"
 ADGUARD_NETCHECK_HOSTS_SET="${ADGUARD_NETCHECK_HOSTS:+x}"
 ADGUARD_NETCHECK_DNS_SET="${ADGUARD_NETCHECK_DNS:+x}"
 ADGUARD_NETCHECK_REQUIRE_HTTP_SET="${ADGUARD_NETCHECK_REQUIRE_HTTP:+x}"
@@ -139,6 +140,168 @@ manager_dependencies_available() {
 		fi
 	done
 	return 0
+}
+
+# Status helpers
+
+agh_web_port() {
+	local CONF_PORT YAML_PORT
+	YAML_PORT="$(awk -F: '/^[[:space:]]*address:[[:space:]]*/ { print $NF; exit }' "${YAML_FILE}" 2>/dev/null | sed 's/[^0-9].*$//')"
+	case "${YAML_PORT}" in
+		"" | *[!0-9]*) ;;
+		*) [ "${YAML_PORT}" -gt 0 ] && [ "${YAML_PORT}" -le 65535 ] && printf '%s\n' "${YAML_PORT}" && return 0 ;;
+	esac
+	CONF_PORT="$(conf_value ADGUARD_WEBUI_PORT 2>/dev/null)"
+	case "${CONF_PORT}" in
+		"" | *[!0-9]*) ;;
+		*) [ "${CONF_PORT}" -gt 0 ] && [ "${CONF_PORT}" -le 65535 ] && printf '%s\n' "${CONF_PORT}" && return 0 ;;
+	esac
+	return 1
+}
+
+status_adguardhome_version() {
+	if [ -x "${ADGUARDHOME_BINARY}" ]; then
+		"${ADGUARDHOME_BINARY}" --version 2>/dev/null | head -1
+	else
+		printf '%s\n' "unknown"
+	fi
+}
+
+status_dnsmasq_handoff_state() {
+	local marker markers state
+	state="inactive"
+	markers=""
+	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock "${DNS_HANDOFF_FILE}" "${DNS_HANDOFF_DIR}/lock"; do
+		if [ -e "${marker}" ]; then
+			state="active/stale marker present"
+			markers="${markers}${markers:+, }${marker}"
+		fi
+	done
+	printf '%s\n' "${state}${markers:+ (${markers})}"
+}
+
+status_installer_version() {
+	local version
+	version="$(awk -F= '/^AI_VERSION=/ { gsub(/"/, "", $2); print $2; exit }' "${INSTALLER_SCRIPT}" 2>/dev/null)"
+	printf '%s\n' "${version:-unknown}"
+}
+
+status_last_startup_result() {
+	local result
+	result=""
+	if have_cmd logread; then
+		result="$(logread 2>/dev/null |
+			awk '
+				/AdGuardHome/ && /state=startup/ { last = $0 }
+				/AdGuardHome/ && /AdGuardHome startup completed/ { last = $0 }
+				/AdGuardHome/ && /AdGuardHome startup failed/ { last = $0 }
+				/AdGuardHome/ && /DNS\/WebUI readiness checks (passed|failed)/ { last = $0 }
+				END { if (last != "") print last }
+			')"
+	fi
+	printf '%s\n' "${result:-unknown (no startup marker/log entry found)}"
+}
+
+status_line() {
+	printf '%s: %s\n' "$1" "${2:-unknown}"
+}
+
+status_monitor_count() {
+	local count pid
+	count="0"
+	for pid in $(pidof AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome 2>/dev/null); do
+		if awk '{ print }' "/proc/${pid}/cmdline" 2>/dev/null | grep -q 'monitor-start'; then
+			count="$((count + 1))"
+		fi
+	done
+	printf '%s\n' "${count}"
+}
+
+status_port53_ownership() {
+	local dns53
+	if ! have_cmd netstat; then
+		printf '%s\n' "unknown (netstat unavailable)"
+		return 0
+	fi
+	dns53="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ { print }')"
+	if [ -z "${dns53}" ]; then
+		printf '%s\n' "not listening"
+		return 0
+	fi
+	printf '%s\n' "${dns53}" | awk '
+		function owner(i, field) {
+			for (i = NF; i >= 1; i--) {
+				field = $i
+				if (field ~ /^[0-9]+\/[^[:space:]]+$/) return field
+			}
+			return "unknown"
+		}
+		$0 ~ /^(tcp)6?[[:space:]]+/ { tcp = tcp ? tcp ", " owner() : owner() }
+		$0 ~ /^(udp)6?[[:space:]]+/ { udp = udp ? udp ", " owner() : owner() }
+		END {
+			if (tcp != "" && udp != "") print "TCP " tcp "; UDP " udp
+			else if (tcp != "") print "TCP " tcp
+			else if (udp != "") print "UDP " udp
+			else print "unknown"
+		}
+	'
+}
+
+status_selected_branch() {
+	local branch
+	branch="$(conf_value INSTALLER_BRANCH 2>/dev/null)"
+	printf '%s\n' "${branch:-unknown}"
+}
+
+status_webui_address() {
+	local address host port
+	address="$(awk '
+		/^[[:space:]]*address:[[:space:]]*/ {
+			sub(/^[[:space:]]*address:[[:space:]]*/, "")
+			gsub(/^"|"$/, "")
+			print
+			exit
+		}
+	' "${YAML_FILE}" 2>/dev/null)"
+	port="$(agh_web_port 2>/dev/null)"
+	if [ -n "${address}" ]; then
+		printf '%s\n' "${address}${port:+ (port ${port})}"
+		return 0
+	fi
+	if have_cmd nvram; then
+		host="$(nvram get lan_ipaddr 2>/dev/null)"
+	else
+		host=""
+	fi
+	[ -n "${port}" ] && printf '%s\n' "${host:-router}:${port}" || printf '%s\n' "unknown"
+}
+
+status() {
+	local count monitor_count monitor_state service_state
+	count="$(pidof AdGuardHome 2>/dev/null | wc -w)"
+	monitor_count="$(status_monitor_count)"
+	if [ "${count}" -gt 0 ]; then
+		service_state="running"
+	else
+		service_state="stopped"
+	fi
+	case "${monitor_count}" in
+		0) monitor_state="stopped" ;;
+		1) monitor_state="running (1 process)" ;;
+		*) monitor_state="running (${monitor_count} processes)" ;;
+	esac
+
+	printf '%s\n' "AdGuardHome Installer Status"
+	status_line "AdGuardHome service state" "${service_state}"
+	status_line "Monitor process state" "${monitor_state}"
+	status_line "AdGuardHome PID count" "${count}"
+	status_line "Port 53 ownership" "$(status_port53_ownership)"
+	status_line "AdGuardHome version" "$(status_adguardhome_version)"
+	status_line "Installer version" "$(status_installer_version)"
+	status_line "Selected branch" "$(status_selected_branch)"
+	status_line "WebUI address/port" "$(status_webui_address)"
+	status_line "dnsmasq handoff state" "$(status_dnsmasq_handoff_state)"
+	status_line "Last startup result" "$(status_last_startup_result)"
 }
 
 # HTTP/download helpers
@@ -2406,6 +2569,11 @@ IPSet_Supported() {
 	agh_log warning IPSet_Supported "state=compatibility action=check_version result=skipped reason=parse_failed"
 	return 1
 }
+
+if [ "${1:-}" = "status" ]; then
+	status
+	exit "$?"
+fi
 
 manager_dependencies_available || return 1 2>/dev/null || exit 1
 if [ -f "${UPPER_SCRIPT}" ]; then UPPER_SCRIPT_LOC=". ${UPPER_SCRIPT}"; fi
