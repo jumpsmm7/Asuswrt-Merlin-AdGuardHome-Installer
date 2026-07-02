@@ -678,7 +678,7 @@ netcheck_ping_ok() {
 }
 
 netcheck() {
-	local dns_server hosts http_required mode timeout waited
+	local dns_ok dns_server hosts http_required mode ping_ok timeout waited
 	dns_server="$(netcheck_config ADGUARD_NETCHECK_DNS "${DEFAULT_ADGUARD_NETCHECK_DNS}")"
 	hosts="$(netcheck_config ADGUARD_NETCHECK_HOSTS "${DEFAULT_ADGUARD_NETCHECK_HOSTS}")"
 	http_required="$(netcheck_config ADGUARD_NETCHECK_REQUIRE_HTTP "${DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP}")"
@@ -711,18 +711,18 @@ netcheck() {
 		agh_log warning netcheck "state=netcheck action=validate_hosts stage=dns reason=no_hosts_configured result=failed"
 		return 1
 	fi
+	dns_ok="0"
+	ping_ok="0"
 	if netcheck_dns_ok "${dns_server}" "$@"; then
-		return 0
-	else
+		dns_ok="1"
+	fi
+	if [ "${dns_ok}" -ne 1 ] && netcheck_ping_ok "$@"; then
+		ping_ok="1"
+	fi
+	if [ "${dns_ok}" -ne 1 ] && [ "${ping_ok}" -ne 1 ]; then
 		agh_log warning netcheck "state=netcheck action=resolve_hosts stage=dns reason=lookup_failed result=failed dns=${dns_server} hosts=${hosts}"
-		if netcheck_ping_ok "$@"; then
-			case "${http_required}" in
-				YES | yes | Yes) ;;
-				*) return 0 ;;
-			esac
-		else
-			agh_log warning netcheck "state=netcheck action=ping_hosts stage=ping reason=ping_failed result=failed hosts=${hosts}"
-		fi
+		agh_log warning netcheck "state=netcheck action=ping_hosts stage=ping reason=ping_failed result=failed hosts=${hosts}"
+		return 1
 	fi
 	case "${http_required}" in
 		YES | yes | Yes)
@@ -731,6 +731,7 @@ netcheck() {
 			fi
 			agh_log warning netcheck "state=netcheck action=http_probe stage=http reason=http_failed result=failed hosts=${hosts}"
 			;;
+		*) return 0 ;;
 	esac
 	return 1
 }
