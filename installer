@@ -4846,6 +4846,14 @@ if [ "${2:-}" = "status" ]; then
 	exit "$?"
 fi
 
+case "${1:-}" in
+	install | update | restore | uninstall)
+		if cli_pre_remote_dry_run "$@"; then
+			exit 0
+		fi
+		;;
+esac
+
 installer_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
 if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
@@ -4966,14 +4974,6 @@ case "${ROUTER_ARCH}" in
 	*)
 		PTXT "${ERROR} This is an unsupported architecture, sorry."
 		exit 1
-		;;
-esac
-
-case "${1:-}" in
-	install | update | restore | uninstall)
-		if cli_pre_remote_dry_run "$@"; then
-			exit 0
-		fi
 		;;
 esac
 
