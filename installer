@@ -4219,6 +4219,13 @@ end_op_header() {
 }
 
 end_op_message() {
+	if [ "${CLI_MODE:-0}" = "1" ]; then
+		case "${1:-0}" in
+			0) return 0 ;;
+			1) return 1 ;;
+			2) return 2 ;;
+		esac
+	fi
 	if [ "${ADGUARD_DEFER_END_OP:-0}" = "1" ]; then
 		case "${1:-0}" in
 			0) return 0 ;;
@@ -4641,8 +4648,9 @@ cli_pre_remote_dry_run() {
 }
 
 cli_backup_restore_file() {
-	local restore_file restore_save
+	local restore_default restore_file restore_save
 	restore_file="$1"
+	restore_default="${BASE_DIR}/backup_AdGuardHome.tar.gz"
 	if [ -z "${restore_file}" ]; then
 		PTXT "${ERROR} restore requires --file /path/to/backup_AdGuardHome.tar.gz."
 		return 1
@@ -4655,10 +4663,14 @@ cli_backup_restore_file() {
 		PTXT "${ERROR} Restore file failed backup safety validation: ${restore_file}"
 		return 1
 	fi
-	restore_save="${BASE_DIR}/backup_AdGuardHome.tar.gz.cli.$$"
-	[ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && mv "${BASE_DIR}/backup_AdGuardHome.tar.gz" "${restore_save}"
-	if ! cp "${restore_file}" "${BASE_DIR}/backup_AdGuardHome.tar.gz"; then
-		[ -f "${restore_save}" ] && mv "${restore_save}" "${BASE_DIR}/backup_AdGuardHome.tar.gz"
+	if [ "${restore_file}" = "${restore_default}" ]; then
+		backup_restore RESTORE
+		return "$?"
+	fi
+	restore_save="${restore_default}.cli.$$"
+	[ -f "${restore_default}" ] && mv "${restore_default}" "${restore_save}"
+	if ! cp "${restore_file}" "${restore_default}"; then
+		[ -f "${restore_save}" ] && mv "${restore_save}" "${restore_default}"
 		return 1
 	fi
 	backup_restore RESTORE
