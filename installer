@@ -4687,7 +4687,7 @@ cli_backup_restore_file() {
 }
 
 cli_run() {
-	local cmd sub opt restore_file profile adguard_branch
+	local cmd sub opt restore_file profile proc_profile adguard_branch
 	CLI_MODE="1"
 	export CLI_MODE
 	cmd="${1:-}"
@@ -4805,13 +4805,17 @@ cli_run() {
 			;;
 		performance)
 			case "${profile}" in
-				balanced | low-memory | fast) ;;
+				balanced) proc_profile="balanced" ;;
+				low-memory) proc_profile="safe" ;;
+				fast) proc_profile="aggressive" ;;
 				*)
 					PTXT "${ERROR} performance requires --profile {balanced|low-memory|fast}."
 					return 1
 					;;
 			esac
-			write_conf ADGUARD_PERFORMANCE_PROFILE "\"${profile}\""
+			if ! write_conf ADGUARD_PROC_PROFILE "\"${proc_profile}\""; then
+				return 1
+			fi
 			ptxt_ok "Performance profile set to ${profile}."
 			;;
 		install)
