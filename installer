@@ -4990,7 +4990,16 @@ case "${ROUTER_ARCH}" in
 		;;
 esac
 
-init_remote_adguard_metadata
+case "${1:-}" in
+	install | update)
+		init_remote_adguard_metadata
+		;;
+	backup | restore | doctor | ipset | performance | uninstall)
+		;;
+	*)
+		init_remote_adguard_metadata
+		;;
+esac
 
 case "${1:-}" in
 	install | update | backup | restore | doctor | ipset | performance | uninstall)
