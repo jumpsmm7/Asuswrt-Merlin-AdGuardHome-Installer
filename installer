@@ -2312,6 +2312,9 @@ choose_branch() {
 		del_conf ADGUARD_BRANCH
 	fi
 	local BUILD
+	if [ "${CLI_MODE:-0}" = "1" ] && [ -n "$(conf_value ADGUARD_BRANCH)" ]; then
+		return 0
+	fi
 	if [ ! -f "${CONF_FILE}" ] || [ -z "$(conf_value ADGUARD_BRANCH)" ]; then
 		PTXT "${INFO} Choose which build of AdGuardHome to install:" \
 			"  1) Release" \
@@ -4601,6 +4604,42 @@ cli_dry_run() {
 	PTXT "${INFO} Dry-run: would run $1."
 }
 
+cli_pre_remote_dry_run() {
+	local cmd opt restore_file
+	cmd="${1:-}"
+	shift || true
+	restore_file=""
+	case "${cmd}" in
+		install | update | restore | uninstall) ;;
+		*) return 1 ;;
+	esac
+	while [ "$#" -gt 0 ]; do
+		opt="$1"
+		case "${opt}" in
+			--dry-run)
+				case "${cmd}" in
+					restore) cli_dry_run "restore ${restore_file:-${BASE_DIR}/backup_AdGuardHome.tar.gz}" ;;
+					*) cli_dry_run "${cmd}" ;;
+				esac
+				return 0
+				;;
+			--file)
+				[ "$#" -gt 1 ] || return 1
+				restore_file="$2"
+				shift 2
+				;;
+			--branch | --profile)
+				[ "$#" -gt 1 ] || return 1
+				shift 2
+				;;
+			*)
+				shift
+				;;
+		esac
+	done
+	return 1
+}
+
 cli_backup_restore_file() {
 	local restore_file restore_save
 	restore_file="$1"
@@ -4632,6 +4671,8 @@ cli_backup_restore_file() {
 
 cli_run() {
 	local cmd sub opt restore_file profile adguard_branch
+	CLI_MODE="1"
+	export CLI_MODE
 	cmd="${1:-}"
 	shift || true
 	CLI_YES="0"
@@ -4754,7 +4795,15 @@ cli_run() {
 			ptxt_ok "Performance profile set to ${profile}."
 			;;
 		install)
+			[ "${CLI_DRY_RUN}" = "1" ] && {
+				cli_dry_run "install"
+				return 0
+			}
 			cli_require_yes || return 1
+			if [ "${CLI_ALLOW_DNS_NVRAM}" != "1" ]; then
+				PTXT "${ERROR} Refusing install DNS/NVRAM rewrite without --allow-dns-nvram."
+				return 1
+			fi
 			[ -n "${adguard_branch}" ] || adguard_branch="$(conf_value ADGUARD_BRANCH)"
 			[ -n "${adguard_branch}" ] || adguard_branch="release"
 			case "${adguard_branch}" in release | beta | edge) ;; *)
@@ -4763,7 +4812,7 @@ cli_run() {
 				;;
 			esac
 			write_conf ADGUARD_BRANCH "\"${adguard_branch}\""
-			inst_AdGuardHome install "${adguard_branch}"
+			inst_AdGuardHome install
 			;;
 	esac
 }
@@ -4905,6 +4954,14 @@ case "${ROUTER_ARCH}" in
 	*)
 		PTXT "${ERROR} This is an unsupported architecture, sorry."
 		exit 1
+		;;
+esac
+
+case "${1:-}" in
+	install | update | restore | uninstall)
+		if cli_pre_remote_dry_run "$@"; then
+			exit 0
+		fi
 		;;
 esac
 
