@@ -119,11 +119,16 @@ ensure_bcrypt_tool() {
 
 ensure_opkg_package() {
 	_pkg="$1"
+	case "${_pkg}" in
+		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.+-]*)
+			return 1
+			;;
+	esac
 	if opkg_pkg_installed "${_pkg}"; then
 		return 0
 	fi
 
-	if ! opkg install "${_pkg}" >/dev/null 2>&1; then
+	if ! opkg_clean_env install "${_pkg}" >/dev/null 2>&1; then
 		return 1
 	fi
 	opkg_pkg_installed "${_pkg}"
@@ -186,12 +191,16 @@ hash_password_python() {
 
 opkg_pkg_available() {
 	_pkg="$1"
-	opkg list "${_pkg}" 2>/dev/null | awk -v pkg="${_pkg}" '$1 == pkg { found = 1; exit } END { exit(found ? 0 : 1) }'
+	opkg_clean_env list "${_pkg}" 2>/dev/null | awk -v pkg="${_pkg}" '$1 == pkg { found = 1; exit } END { exit(found ? 0 : 1) }'
 }
 
 opkg_pkg_installed() {
 	_pkg="$1"
-	opkg list-installed 2>/dev/null | awk -v pkg="${_pkg}" '$1 == pkg { found = 1; exit } END { exit(found ? 0 : 1) }'
+	opkg_clean_env list-installed 2>/dev/null | awk -v pkg="${_pkg}" '$1 == pkg { found = 1; exit } END { exit(found ? 0 : 1) }'
+}
+
+opkg_clean_env() {
+	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin" opkg "$@"
 }
 
 on_installer_exit() {
@@ -208,8 +217,8 @@ python_bcrypt_available() {
 
 remove_conflicting_apache() {
 	if opkg_pkg_installed apache || opkg_pkg_installed apache-utils; then
-		opkg flag user apache apache-utils >/dev/null 2>&1
-		opkg remove apache apache-utils --force-removal-of-dependent-packages >/dev/null 2>&1
+		opkg_clean_env flag user apache apache-utils >/dev/null 2>&1
+		opkg_clean_env remove apache apache-utils --force-removal-of-dependent-packages >/dev/null 2>&1
 	fi
 }
 
@@ -2303,6 +2312,9 @@ choose_branch() {
 		del_conf ADGUARD_BRANCH
 	fi
 	local BUILD
+	if [ "${CLI_MODE:-0}" = "1" ] && [ -n "$(conf_value ADGUARD_BRANCH)" ]; then
+		return 0
+	fi
 	if [ ! -f "${CONF_FILE}" ] || [ -z "$(conf_value ADGUARD_BRANCH)" ]; then
 		PTXT "${INFO} Choose which build of AdGuardHome to install:" \
 			"  1) Release" \
@@ -4207,6 +4219,13 @@ end_op_header() {
 }
 
 end_op_message() {
+	if [ "${CLI_MODE:-0}" = "1" ]; then
+		case "${1:-0}" in
+			0) return 0 ;;
+			1) return 1 ;;
+			2) return 2 ;;
+		esac
+	fi
 	if [ "${ADGUARD_DEFER_END_OP:-0}" = "1" ]; then
 		case "${1:-0}" in
 			0) return 0 ;;
@@ -4514,6 +4533,10 @@ read_input_port() {
 
 read_yesno() {
 	local YESNO
+	if [ "${AI_ASSUME_YES:-0}" = "1" ]; then
+		PTXT "${INPUT} ${1} ${BOLD}[y/n]${NORM}: y"
+		return 0
+	fi
 	while :; do
 		PTXT -n "${INPUT} ${1} ${BOLD}[y/n]${NORM}: "
 		if ! read -r YESNO; then
@@ -4564,9 +4587,277 @@ single_arg_menu_action() {
 	menu_action_allowed "$1"
 }
 
+cli_usage() {
+	PTXT "${INFO} Usage:" \
+		"${INFO}   sh installer install --branch {release|beta|edge} --yes [--allow-dns-nvram]" \
+		"${INFO}   sh installer update --yes [--dry-run]" \
+		"${INFO}   sh installer backup --yes" \
+		"${INFO}   sh installer restore --file /path/to/backup_AdGuardHome.tar.gz --yes [--dry-run]" \
+		"${INFO}   sh installer doctor [--fix]" \
+		"${INFO}   sh installer ipset refresh [--yes] [--dry-run]" \
+		"${INFO}   sh installer performance --profile {balanced|low-memory|fast}" \
+		"${INFO}   sh installer uninstall --yes [--dry-run] [--allow-dns-nvram]"
+}
+
+cli_require_yes() {
+	if [ "${CLI_YES:-0}" != "1" ]; then
+		PTXT "${ERROR} Refusing destructive non-interactive action without --yes."
+		return 1
+	fi
+	return 0
+}
+
+cli_enable_assume_yes() {
+	AI_ASSUME_YES="1"
+	export AI_ASSUME_YES
+}
+
+cli_dry_run() {
+	PTXT "${INFO} Dry-run: would run $1."
+}
+
+cli_pre_remote_dry_run() {
+	local cmd opt restore_file
+	cmd="${1:-}"
+	shift || true
+	restore_file=""
+	case "${cmd}" in
+		install | update | restore | uninstall) ;;
+		*) return 1 ;;
+	esac
+	while [ "$#" -gt 0 ]; do
+		opt="$1"
+		case "${opt}" in
+			--dry-run)
+				case "${cmd}" in
+					restore) cli_dry_run "restore ${restore_file:-${BASE_DIR}/backup_AdGuardHome.tar.gz}" ;;
+					*) cli_dry_run "${cmd}" ;;
+				esac
+				return 0
+				;;
+			--file)
+				[ "$#" -gt 1 ] || return 1
+				restore_file="$2"
+				shift 2
+				;;
+			--branch | --profile)
+				[ "$#" -gt 1 ] || return 1
+				shift 2
+				;;
+			*)
+				shift
+				;;
+		esac
+	done
+	return 1
+}
+
+cli_backup_restore_file() {
+	local restore_default restore_file restore_save restore_defer_saved cli_ret
+	restore_file="$1"
+	restore_default="${BASE_DIR}/backup_AdGuardHome.tar.gz"
+	restore_defer_saved="${ADGUARD_DEFER_END_OP:-0}"
+	if [ -z "${restore_file}" ]; then
+		PTXT "${ERROR} restore requires --file /path/to/backup_AdGuardHome.tar.gz."
+		return 1
+	fi
+	if [ ! -f "${restore_file}" ]; then
+		PTXT "${ERROR} Restore file not found: ${restore_file}"
+		return 1
+	fi
+	if ! adguard_archive_is_safe "${restore_file}" 1; then
+		PTXT "${ERROR} Restore file failed backup safety validation: ${restore_file}"
+		return 1
+	fi
+	if [ "${restore_file}" = "${restore_default}" ]; then
+		ADGUARD_DEFER_END_OP="1"
+		backup_restore RESTORE
+		cli_ret="$?"
+		ADGUARD_DEFER_END_OP="${restore_defer_saved}"
+		return "${cli_ret}"
+	fi
+	restore_save="${restore_default}.cli.$$"
+	[ -f "${restore_default}" ] && mv "${restore_default}" "${restore_save}"
+	if ! cp "${restore_file}" "${restore_default}"; then
+		[ -f "${restore_save}" ] && mv "${restore_save}" "${restore_default}"
+		return 1
+	fi
+	ADGUARD_DEFER_END_OP="1"
+	backup_restore RESTORE
+	cli_ret="$?"
+	ADGUARD_DEFER_END_OP="${restore_defer_saved}"
+	if [ -f "${restore_save}" ]; then
+		mv "${restore_save}" "${BASE_DIR}/backup_AdGuardHome.tar.gz"
+	fi
+	return "${cli_ret}"
+}
+
+cli_run() {
+	local cmd sub opt restore_file profile proc_profile adguard_branch
+	CLI_MODE="1"
+	export CLI_MODE
+	cmd="${1:-}"
+	shift || true
+	CLI_YES="0"
+	CLI_DRY_RUN="0"
+	CLI_ALLOW_DNS_NVRAM="0"
+	restore_file=""
+	profile=""
+	adguard_branch=""
+	case "${cmd}" in
+		install | update | backup | restore | doctor | ipset | performance | uninstall) ;;
+		*) return 2 ;;
+	esac
+	if [ "${cmd}" = "ipset" ]; then
+		sub="${1:-}"
+		[ -n "${sub}" ] && shift
+	else
+		sub=""
+	fi
+	while [ "$#" -gt 0 ]; do
+		opt="$1"
+		case "${opt}" in
+			--yes)
+				CLI_YES="1"
+				shift
+				;;
+			--dry-run)
+				CLI_DRY_RUN="1"
+				shift
+				;;
+			--allow-dns-nvram)
+				CLI_ALLOW_DNS_NVRAM="1"
+				shift
+				;;
+			--fix)
+				[ "${cmd}" = "doctor" ] || return 2
+				sub="--fix"
+				shift
+				;;
+			--branch)
+				[ "$#" -gt 1 ] || return 2
+				adguard_branch="$2"
+				shift 2
+				;;
+			--file)
+				[ "$#" -gt 1 ] || return 2
+				restore_file="$2"
+				shift 2
+				;;
+			--profile)
+				[ "$#" -gt 1 ] || return 2
+				profile="$2"
+				shift 2
+				;;
+			*) return 2 ;;
+		esac
+	done
+	case "${cmd}" in
+		doctor)
+			doctor "${sub}"
+			return "$?"
+			;;
+		update)
+			[ "${CLI_DRY_RUN}" = "1" ] && {
+				cli_dry_run "update"
+				return 0
+			}
+			cli_require_yes || return 1
+			cli_enable_assume_yes
+			AUTO_UPDATE="update"
+			menu update
+			;;
+		backup)
+			cli_require_yes || return 1
+			cli_enable_assume_yes
+			backup_restore BACKUP CLI
+			return "$?"
+			;;
+		restore)
+			[ "${CLI_DRY_RUN}" = "1" ] && {
+				cli_dry_run "restore ${restore_file:-${BASE_DIR}/backup_AdGuardHome.tar.gz}"
+				return 0
+			}
+			cli_require_yes || return 1
+			cli_enable_assume_yes
+			cli_backup_restore_file "${restore_file}"
+			;;
+		uninstall)
+			[ "${CLI_DRY_RUN}" = "1" ] && {
+				cli_dry_run "uninstall"
+				return 0
+			}
+			cli_require_yes || return 1
+			if [ "$(conf_value ADGUARD_DOMAIN)" = "yes" ] && [ "${CLI_ALLOW_DNS_NVRAM}" != "1" ]; then
+				PTXT "${ERROR} Refusing uninstall DNS/NVRAM rewrite without --allow-dns-nvram."
+				return 1
+			fi
+			cli_enable_assume_yes
+			uninst_all
+			;;
+		ipset)
+			[ "${sub}" = "refresh" ] || return 2
+			[ "${CLI_DRY_RUN}" = "1" ] && {
+				cli_dry_run "IPSET refresh"
+				return 0
+			}
+			if [ "$(conf_value ADGUARD_IPSET)" = "NO" ]; then
+				ptxt_ok "IPSET integration is disabled; no refresh needed."
+				return 0
+			fi
+			if [ "${CLI_YES}" = "1" ]; then
+				OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
+				service restart_AdGuardHome >/dev/null 2>&1 && adguard_service_status_after_action restart "${OLD_PIDS}" || PTXT "${WARNING} IPSET refresh requested, but AdGuardHome could not be restarted."
+			else
+				ptxt_ok "IPSET preference unchanged. Use --yes to restart AdGuardHome now."
+			fi
+			;;
+		performance)
+			case "${profile}" in
+				balanced) proc_profile="balanced" ;;
+				low-memory) proc_profile="safe" ;;
+				fast) proc_profile="aggressive" ;;
+				*)
+					PTXT "${ERROR} performance requires --profile {balanced|low-memory|fast}."
+					return 1
+					;;
+			esac
+			if ! write_conf ADGUARD_PROC_PROFILE "\"${proc_profile}\""; then
+				return 1
+			fi
+			ptxt_ok "Performance profile set to ${profile}."
+			;;
+		install)
+			[ "${CLI_DRY_RUN}" = "1" ] && {
+				cli_dry_run "install"
+				return 0
+			}
+			cli_require_yes || return 1
+			if [ "${CLI_ALLOW_DNS_NVRAM}" != "1" ]; then
+				PTXT "${ERROR} Refusing install DNS/NVRAM rewrite without --allow-dns-nvram."
+				return 1
+			fi
+			cli_enable_assume_yes
+			[ -n "${adguard_branch}" ] || adguard_branch="$(conf_value ADGUARD_BRANCH)"
+			[ -n "${adguard_branch}" ] || adguard_branch="release"
+			case "${adguard_branch}" in release | beta | edge) ;; *)
+				PTXT "${ERROR} Unsupported AdGuardHome branch: ${adguard_branch}"
+				return 1
+				;;
+			esac
+			write_conf ADGUARD_BRANCH "\"${adguard_branch}\""
+			inst_AdGuardHome install
+			;;
+	esac
+}
+
 if [ "${1:-}" = "doctor" ]; then
-	doctor "${2:-}"
-	exit "$?"
+	case "${2:-}" in
+		"" | "--fix")
+			doctor "${2:-}"
+			exit "$?"
+			;;
+	esac
 fi
 if [ "${1:-}" = "status" ]; then
 	status
@@ -4576,6 +4867,14 @@ if [ "${2:-}" = "status" ]; then
 	status "${1:-}"
 	exit "$?"
 fi
+
+case "${1:-}" in
+	install | update | restore | uninstall)
+		if cli_pre_remote_dry_run "$@"; then
+			exit 0
+		fi
+		;;
+esac
 
 installer_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
@@ -4597,6 +4896,10 @@ if ! conf_has_key BLOCKLIST_ANALYZER_SHA256; then
 	BLOCKLIST_ANALYZER_SHA256="${BLOCKLIST_ANALYZER_SHA256_DEFAULT}"
 fi
 case "${1}" in
+	install | update | backup | restore | doctor | ipset | performance | uninstall)
+		BRANCH="$(conf_value INSTALLER_BRANCH)"
+		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
+		;;
 	"amtmupdate")
 		BRANCH="$(conf_value INSTALLER_BRANCH)"
 		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
@@ -4696,7 +4999,31 @@ case "${ROUTER_ARCH}" in
 		;;
 esac
 
-init_remote_adguard_metadata
+case "${1:-}" in
+	install | update)
+		init_remote_adguard_metadata
+		;;
+	backup | restore | doctor | ipset | performance | uninstall) ;;
+	*)
+		init_remote_adguard_metadata
+		;;
+esac
+
+case "${1:-}" in
+	install | update | backup | restore | doctor | ipset | performance | uninstall)
+		cli_run "$@"
+		CLI_STATUS="$?"
+		if [ "${CLI_STATUS}" -ne 0 ]; then
+			[ "${CLI_STATUS}" -eq 2 ] && cli_usage
+			exit "${CLI_STATUS}"
+		fi
+		exit 0
+		;;
+	status)
+		status "${BRANCH}"
+		exit "$?"
+		;;
+esac
 
 case "$2" in
 	"")
