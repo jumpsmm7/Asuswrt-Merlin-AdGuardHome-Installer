@@ -4607,6 +4607,11 @@ cli_require_yes() {
 	return 0
 }
 
+cli_enable_assume_yes() {
+	AI_ASSUME_YES="1"
+	export AI_ASSUME_YES
+}
+
 cli_dry_run() {
 	PTXT "${INFO} Dry-run: would run $1."
 }
@@ -4708,8 +4713,6 @@ cli_run() {
 		case "${opt}" in
 			--yes)
 				CLI_YES="1"
-				AI_ASSUME_YES="1"
-				export AI_ASSUME_YES
 				shift
 				;;
 			--dry-run)
@@ -4754,11 +4757,13 @@ cli_run() {
 				return 0
 			}
 			cli_require_yes || return 1
+			cli_enable_assume_yes
 			AUTO_UPDATE="update"
 			menu update
 			;;
 		backup)
 			cli_require_yes || return 1
+			cli_enable_assume_yes
 			backup_restore BACKUP
 			;;
 		restore)
@@ -4767,6 +4772,7 @@ cli_run() {
 				return 0
 			}
 			cli_require_yes || return 1
+			cli_enable_assume_yes
 			cli_backup_restore_file "${restore_file}"
 			;;
 		uninstall)
@@ -4779,6 +4785,7 @@ cli_run() {
 				PTXT "${ERROR} Refusing uninstall DNS/NVRAM rewrite without --allow-dns-nvram."
 				return 1
 			fi
+			cli_enable_assume_yes
 			uninst_all
 			;;
 		ipset)
@@ -4816,6 +4823,7 @@ cli_run() {
 				PTXT "${ERROR} Refusing install DNS/NVRAM rewrite without --allow-dns-nvram."
 				return 1
 			fi
+			cli_enable_assume_yes
 			[ -n "${adguard_branch}" ] || adguard_branch="$(conf_value ADGUARD_BRANCH)"
 			[ -n "${adguard_branch}" ] || adguard_branch="release"
 			case "${adguard_branch}" in release | beta | edge) ;; *)
