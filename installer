@@ -4764,7 +4764,8 @@ cli_run() {
 		backup)
 			cli_require_yes || return 1
 			cli_enable_assume_yes
-			backup_restore BACKUP
+			backup_restore BACKUP CLI
+			return "$?"
 			;;
 		restore)
 			[ "${CLI_DRY_RUN}" = "1" ] && {
