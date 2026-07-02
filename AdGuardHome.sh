@@ -984,10 +984,13 @@ proc_write() {
 	local old_value target value
 	value="$1"
 	target="$2"
-	[ -e "${target}" ] || return 0
-	[ -w "${target}" ] || return 0
+	if [ ! -e "${target}" ]; then
+		agh_log warning proc_write "state=proc_optimize action=write target=${target} new_value=${value} reason=missing result=failed"
+		return 0
+	fi
 	if ! IFS= read -r old_value <"${target}"; then
 		old_value=""
+		agh_log warning proc_write "state=proc_optimize action=read target=${target} new_value=${value} reason=read_failed result=failed"
 	fi
 	agh_log info proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value}"
 	if ! printf '%s' "${value}" >"${target}" 2>/dev/null; then
