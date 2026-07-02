@@ -5003,8 +5003,7 @@ case "${1:-}" in
 	install | update)
 		init_remote_adguard_metadata
 		;;
-	backup | restore | doctor | ipset | performance | uninstall)
-		;;
+	backup | restore | doctor | ipset | performance | uninstall) ;;
 	*)
 		init_remote_adguard_metadata
 		;;
