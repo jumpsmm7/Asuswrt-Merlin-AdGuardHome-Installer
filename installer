@@ -933,7 +933,11 @@ doctor_managed_script_state() {
 		return 1
 	fi
 	if grep -q -F "${expected_line}" "${script_path}" 2>/dev/null; then
-		doctor_status OK "${script_path} managed hook present"
+		if [ ! -x "${script_path}" ]; then
+			doctor_status WARN "${script_path} managed hook present but not executable"
+			return 1
+		fi
+		doctor_status OK "${script_path} managed hook present and executable"
 		return 0
 	fi
 	doctor_status WARN "${script_path} managed hook missing expected AdGuardHome call"
@@ -961,6 +965,10 @@ doctor_fix_permissions() {
 	[ -f "/opt/etc/init.d/S99AdGuardHome" ] && chmod 755 "/opt/etc/init.d/S99AdGuardHome" 2>/dev/null && doctor_fix_msg "/opt/etc/init.d/S99AdGuardHome executable bit"
 	[ -f "/opt/etc/init.d/rc.func.AdGuardHome" ] && chmod 644 "/opt/etc/init.d/rc.func.AdGuardHome" 2>/dev/null && doctor_fix_msg "/opt/etc/init.d/rc.func.AdGuardHome permissions"
 	[ -f "${ADDON_DIR}/AdGuardHome.sh" ] && chmod 755 "${ADDON_DIR}/AdGuardHome.sh" 2>/dev/null && doctor_fix_msg "${ADDON_DIR}/AdGuardHome.sh executable bit"
+	[ -f "/jffs/scripts/init-start" ] && chmod 755 "/jffs/scripts/init-start" 2>/dev/null && doctor_fix_msg "/jffs/scripts/init-start executable bit"
+	[ -f "/jffs/scripts/services-stop" ] && chmod 755 "/jffs/scripts/services-stop" 2>/dev/null && doctor_fix_msg "/jffs/scripts/services-stop executable bit"
+	[ -f "/jffs/scripts/dnsmasq.postconf" ] && chmod 755 "/jffs/scripts/dnsmasq.postconf" 2>/dev/null && doctor_fix_msg "/jffs/scripts/dnsmasq.postconf executable bit"
+	[ -f "/jffs/scripts/firewall-start" ] && chmod 755 "/jffs/scripts/firewall-start" 2>/dev/null && doctor_fix_msg "/jffs/scripts/firewall-start executable bit"
 	[ -f "${YAML_FILE}" ] && chmod 600 "${YAML_FILE}" 2>/dev/null && doctor_fix_msg "${YAML_FILE} permissions"
 	[ -f "${CONF_FILE}" ] && chmod 600 "${CONF_FILE}" 2>/dev/null && doctor_fix_msg "${CONF_FILE} permissions"
 }
