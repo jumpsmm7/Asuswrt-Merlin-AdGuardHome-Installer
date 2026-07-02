@@ -395,6 +395,8 @@ The workflow downloads stable, beta, and edge archives from `https://static.adgu
 - `armv7/` stores `linux_armv7` archives.
 - `armv5/` stores `linux_armv5` archives.
 
+Archives are written with versioned local filenames, such as `AdGuardHome_stable_v0.107.62_linux_arm64.tar.gz`, and `checksum.txt` is published after the archives and checksum sidecars are ready. Installers use `checksum.txt` to select the current archive, which avoids exposing a newly referenced archive before its SHA-256 sidecar is available.
+
 Each architecture folder also gets generated metadata:
 
 - `VERSION.txt` lists each archive, local channel name, upstream channel name, and AdGuardHome version from upstream `version.txt`.

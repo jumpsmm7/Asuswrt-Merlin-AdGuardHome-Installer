@@ -2,6 +2,7 @@ name: Shell validation
 
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches:
       - master
@@ -47,7 +48,9 @@ jobs:
           set -eu
           dash -n tools/list-shell-scripts.sh
           dash -n tools/check-md5.sh
+          dash -n tools/check-sha256.sh
           dash -n tools/update-md5.sh
+          dash -n tools/update-checksums.sh
 
   shellcheck:
     name: ShellCheck POSIX ash profile
@@ -80,14 +83,14 @@ jobs:
             shellcheck -s sh --severity=warning "${script}"
           done < "${scripts_file}"
 
-  md5sum:
-    name: MD5SUM validation
+  checksums:
+    name: Checksum validation
     runs-on: ubuntu-latest
     # Pull request runs can start before the separate checksum updater workflow
     # has pushed its chore commit. This job waits for that branch update and
     # validates the latest PR head. Non-bot push runs are skipped so they do not
     # race the updater workflow.
-    if: github.event_name == 'pull_request' || github.actor == 'github-actions[bot]'
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.actor == 'github-actions[bot]'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -108,26 +111,25 @@ jobs:
 
           target_branch="${{ github.event.pull_request.head.ref }}"
           original_sha="${{ github.event.pull_request.head.sha }}"
-          checksum_chore_subject="chore: update checksum files"
-          md5_files=(installer.md5sum AdGuardHome.sh.md5sum S99AdGuardHome.md5sum rc.func.AdGuardHome.md5sum)
-          md5_targets=(installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome)
+          checksum_files=(installer.md5sum installer.sha256sum AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum S99AdGuardHome.md5sum S99AdGuardHome.sha256sum rc.func.AdGuardHome.md5sum rc.func.AdGuardHome.sha256sum)
+          checksum_targets=(installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome)
           while IFS= read -r archive; do
-            md5_files+=("${archive}.md5sum")
-            md5_targets+=("${archive}")
+            checksum_files+=("${archive}.md5sum" "${archive}.sha256sum")
+            checksum_targets+=("${archive}")
           done < <(find armv5 armv7 armv8 -maxdepth 1 -type f -name '*.tar.gz' | sort)
 
-          busybox ash tools/update-md5.sh "${md5_targets[@]}"
+          busybox ash tools/update-checksums.sh "${checksum_targets[@]}"
 
-          if [ -z "$(git status --porcelain -- "${md5_files[@]}")" ]; then
-            echo "MD5 files are already current on the checked-out PR head."
+          if [ -z "$(git status --porcelain -- "${checksum_files[@]}")" ]; then
+            echo "Checksum files are already current on the checked-out PR head."
             git reset --hard
-            git clean -f -- "${md5_files[@]}"
+            git clean -f -- "${checksum_files[@]}"
             exit 0
           fi
 
-          echo "MD5 files are stale on ${original_sha}. Waiting for checksum chore commit on ${target_branch}."
+          echo "Checksum files are stale on ${original_sha}. Waiting for checksum chore commit on ${target_branch}."
           git reset --hard
-          git clean -f -- "${md5_files[@]}"
+          git clean -f -- "${checksum_files[@]}"
 
           for attempt in $(seq 1 30); do
             git fetch --quiet origin "${target_branch}"
@@ -136,7 +138,9 @@ jobs:
 
             echo "Attempt ${attempt}: ${remote_sha} ${remote_subject}"
 
-            if [ "${remote_sha}" != "${original_sha}" ] && [ "${remote_subject}" = "${checksum_chore_subject}" ]; then
+            if [ "${remote_sha}" != "${original_sha}" ] &&
+              { [ "${remote_subject}" = "chore: update checksum files" ] ||
+                [ "${remote_subject}" = "chore: update md5sum files" ]; }; then
               git reset --hard "${remote_sha}"
               echo "Using checksum chore commit ${remote_sha}."
               exit 0
@@ -145,21 +149,22 @@ jobs:
             sleep 10
           done
 
-          echo "Timed out waiting for ${checksum_chore_subject} on ${target_branch}." >&2
-          echo "Run the Update checksum files workflow or push the generated checksum updates." >&2
+          echo "Timed out waiting for chore: update checksum files on ${target_branch}." >&2
+          echo "Run the Update checksum files workflow or push the generated .md5sum and .sha256sum updates." >&2
           exit 1
 
-      - name: Validate md5sum files with BusyBox ash
+      - name: Validate checksum files with BusyBox ash
         shell: bash
         run: |
           set -euo pipefail
 
-          md5_targets=(installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome)
+          checksum_targets=(installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome)
           while IFS= read -r archive; do
-            md5_targets+=("${archive}")
+            checksum_targets+=("${archive}")
           done < <(find armv5 armv7 armv8 -maxdepth 1 -type f -name '*.tar.gz' | sort)
 
-          busybox ash tools/check-md5.sh "${md5_targets[@]}"
+          busybox ash tools/check-md5.sh "${checksum_targets[@]}"
+          busybox ash tools/check-sha256.sh "${checksum_targets[@]}"
 
   shfmt:
     name: shfmt mksh recommendations
