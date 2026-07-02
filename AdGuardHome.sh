@@ -712,10 +712,7 @@ netcheck() {
 		return 1
 	fi
 	if netcheck_dns_ok "${dns_server}" "$@"; then
-		case "${http_required}" in
-			YES | yes | Yes) ;;
-			*) return 0 ;;
-		esac
+		return 0
 	else
 		agh_log warning netcheck "state=netcheck action=resolve_hosts stage=dns reason=lookup_failed result=failed dns=${dns_server} hosts=${hosts}"
 		if netcheck_ping_ok "$@"; then
