@@ -1050,7 +1050,7 @@ doctor() {
 		doctor_status WARN "WebUI port not configured"
 	fi
 	branch="$(conf_value INSTALLER_BRANCH 2>/dev/null)"
-	version="$([ -x "${AGH_FILE}" ] && "${AGH_FILE}" -v --version 2>/dev/null | head -1)"
+	version="$([ -x "${AGH_FILE}" ] && "${AGH_FILE}" --version 2>/dev/null | head -1)"
 	doctor_status OK "installer version ${AI_VERSION}, branch ${branch:-unknown}"
 	doctor_status OK "AdGuardHome version ${version:-unknown}"
 	backup_file="${BASE_DIR}/backup_AdGuardHome.tar.gz"
@@ -1156,7 +1156,7 @@ status() {
 	esac
 	branch="${1:-}"
 	[ -n "${branch}" ] || branch="$(conf_value INSTALLER_BRANCH 2>/dev/null)"
-	version="$([ -x "${AGH_FILE}" ] && "${AGH_FILE}" -v --version 2>/dev/null | head -1)"
+	version="$([ -x "${AGH_FILE}" ] && "${AGH_FILE}" --version 2>/dev/null | head -1)"
 
 	PTXT "AdGuardHome Installer Status"
 	status_line "AdGuardHome service state" "${service_state}"
