@@ -1108,11 +1108,20 @@ status_port53_ownership() {
 		return 0
 	fi
 	PTXT "${dns53}" | awk '
-		$0 ~ /^(tcp)6?[[:space:]]+/ { tcp = tcp ? tcp "; " $0 : $0 }
-		$0 ~ /^(udp)6?[[:space:]]+/ { udp = udp ? udp "; " $0 : $0 }
+		function owner(line, i, field) {
+			for (i = NF; i >= 1; i--) {
+				field = $i
+				if (field ~ /^[0-9]+\/[^[:space:]]+$/) return field
+			}
+			return "unknown"
+		}
+		$0 ~ /^(tcp)6?[[:space:]]+/ { tcp = tcp ? tcp ", " owner($0) : owner($0) }
+		$0 ~ /^(udp)6?[[:space:]]+/ { udp = udp ? udp ", " owner($0) : owner($0) }
 		END {
-			if (tcp != "") print "TCP: " tcp
-			if (udp != "") print "UDP: " udp
+			if (tcp != "" && udp != "") print "TCP " tcp "; UDP " udp
+			else if (tcp != "") print "TCP " tcp
+			else if (udp != "") print "UDP " udp
+			else print "unknown"
 		}
 	'
 }
