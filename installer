@@ -923,6 +923,39 @@ doctor_file_state() {
 	return 0
 }
 
+doctor_managed_script_state() {
+	local operation script_path expected_line
+	script_path="$1"
+	operation="$2"
+	expected_line="[ -x ${ADDON_DIR}/AdGuardHome.sh ] && ${ADDON_DIR}/AdGuardHome.sh ${operation}"
+	if [ ! -f "${script_path}" ]; then
+		doctor_status WARN "${script_path} managed hook missing"
+		return 1
+	fi
+	if grep -q -F "${expected_line}" "${script_path}" 2>/dev/null; then
+		doctor_status OK "${script_path} managed hook present"
+		return 0
+	fi
+	doctor_status WARN "${script_path} managed hook missing expected AdGuardHome call"
+	return 1
+}
+
+doctor_dns53_state() {
+	local dns53 owners
+	dns53="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ { print; found = 1 } END { exit(found ? 0 : 1) }')"
+	if agh_dns_bound; then
+		doctor_status OK "DNS port 53 TCP and UDP are owned by AdGuardHome"
+		return 0
+	fi
+	if [ -n "${dns53}" ]; then
+		owners="$(PTXT "${dns53}" | awk '{ print $NF }' | sort | uniq | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+		doctor_status WARN "DNS port 53 TCP and UDP are not both owned by AdGuardHome${owners:+ (owners: ${owners})}"
+		return 1
+	fi
+	doctor_status FAIL "DNS port 53 is not listening"
+	return 1
+}
+
 doctor_fix_permissions() {
 	[ -d "${TARG_DIR}" ] && ensure_adguardhome_directory_permissions >/dev/null 2>&1 && doctor_fix_msg "AdGuardHome directory permissions"
 	[ -f "/opt/etc/init.d/S99AdGuardHome" ] && chmod 755 "/opt/etc/init.d/S99AdGuardHome" 2>/dev/null && doctor_fix_msg "/opt/etc/init.d/S99AdGuardHome executable bit"
@@ -969,7 +1002,7 @@ doctor_fix_safe() {
 	if [ -f "${AGH_FILE}" ] && { [ ! -L "/opt/sbin/AdGuardHome" ] || [ "${link_target}" != "${AGH_FILE}" ]; }; then
 		mkdir -p "/opt/sbin" 2>/dev/null && ln -sf "${AGH_FILE}" "/opt/sbin/AdGuardHome" 2>/dev/null && doctor_fix_msg "/opt/sbin/AdGuardHome symlink"
 	fi
-	for stale in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome/pid /tmp/AdGuardHome.pid /opt/var/run/AdGuardHome.pid "${TARG_DIR}"/.*.$$.* "${TARG_DIR}"/*.tmp.$$; do
+	for stale in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome/pid /tmp/AdGuardHome.pid /opt/var/run/AdGuardHome.pid /tmp/AdGuardHome.*.tmp "${TARG_DIR}"/.*.$$.* "${TARG_DIR}"/*.tmp.$$; do
 		[ -e "${stale}" ] || continue
 		case "${stale}" in
 			/tmp/AdGuardHome.dnsmasq.handoff | /tmp/AdGuardHome.dnsmasq.lock | /tmp/AdGuardHome.dns-handoff/active | /tmp/AdGuardHome.dns-handoff/lock)
@@ -980,12 +1013,13 @@ doctor_fix_safe() {
 				doctor_run_lock_is_active && continue
 				;;
 			/opt/var/run/AdGuardHome.pid | /tmp/AdGuardHome.pid)
-				if [ "$(agh_process_count)" -gt 0 ]; then
-					continue
-				fi
+				doctor_pid_file_is_active "${stale}" && continue
 				;;
 			/tmp/AdGuardHome/pid)
 				doctor_run_lock_is_active && continue
+				;;
+			/tmp/AdGuardHome.*.tmp)
+				[ -f "${stale}" ] || continue
 				;;
 		esac
 		rm -rf "${stale}" 2>/dev/null && doctor_fix_msg "removed stale ${stale}"
@@ -1005,7 +1039,7 @@ doctor_show_nvram_dns() {
 }
 
 doctor() {
-	local count fix ipset_file link_target marker port version branch backup_file dns53
+	local count fix ipset_file link_target marker port version branch backup_file
 	DOCTOR_FAILED="0"
 	fix="0"
 	case "${1:-}" in
@@ -1023,19 +1057,16 @@ doctor() {
 	link_target="$(readlink "/opt/sbin/AdGuardHome" 2>/dev/null)"
 	[ -L "/opt/sbin/AdGuardHome" ] && [ "${link_target}" = "${AGH_FILE}" ] && doctor_status OK "/opt/sbin/AdGuardHome -> ${link_target}" || doctor_status FAIL "/opt/sbin/AdGuardHome target is ${link_target:-missing}"
 	doctor_file_state "${ADDON_DIR}/AdGuardHome.sh" "-rwxr-xr-x" || true
+	doctor_managed_script_state "/jffs/scripts/init-start" "init-start &" || true
+	doctor_managed_script_state "/jffs/scripts/services-stop" "services-stop &" || true
+	doctor_managed_script_state "/jffs/scripts/dnsmasq.postconf" "dnsmasq" || true
+	doctor_managed_script_state "/jffs/scripts/firewall-start" 'firewall "$1"' || true
 	doctor_file_state "/opt/etc/init.d/S99AdGuardHome" "-rwxr-xr-x" || true
 	doctor_file_state "/opt/etc/init.d/rc.func.AdGuardHome" "-rw-r--r--" || true
 	doctor_file_state "${YAML_FILE}" "-rw-------" || true
 	doctor_file_state "${CONF_FILE}" "-rw-------" || true
 
-	dns53="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ { print; found = 1 } END { exit(found ? 0 : 1) }')"
-	if agh_dns_bound; then
-		doctor_status OK "DNS port 53 TCP and UDP are owned by AdGuardHome"
-	elif [ -n "${dns53}" ]; then
-		doctor_status WARN "DNS port 53 TCP and UDP are not both owned by AdGuardHome"
-	else
-		doctor_status FAIL "DNS port 53 is not listening"
-	fi
+	doctor_dns53_state || true
 	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome/pid; do
 		[ -e "${marker}" ] && doctor_status WARN "dnsmasq handoff marker/lock exists: ${marker}" || doctor_status OK "dnsmasq handoff marker/lock absent: ${marker}"
 	done
