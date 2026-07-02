@@ -4653,9 +4653,10 @@ cli_pre_remote_dry_run() {
 }
 
 cli_backup_restore_file() {
-	local restore_default restore_file restore_save
+	local restore_default restore_file restore_save restore_defer_saved cli_ret
 	restore_file="$1"
 	restore_default="${BASE_DIR}/backup_AdGuardHome.tar.gz"
+	restore_defer_saved="${ADGUARD_DEFER_END_OP:-0}"
 	if [ -z "${restore_file}" ]; then
 		PTXT "${ERROR} restore requires --file /path/to/backup_AdGuardHome.tar.gz."
 		return 1
@@ -4669,8 +4670,11 @@ cli_backup_restore_file() {
 		return 1
 	fi
 	if [ "${restore_file}" = "${restore_default}" ]; then
+		ADGUARD_DEFER_END_OP="1"
 		backup_restore RESTORE
-		return "$?"
+		cli_ret="$?"
+		ADGUARD_DEFER_END_OP="${restore_defer_saved}"
+		return "${cli_ret}"
 	fi
 	restore_save="${restore_default}.cli.$$"
 	[ -f "${restore_default}" ] && mv "${restore_default}" "${restore_save}"
@@ -4678,12 +4682,14 @@ cli_backup_restore_file() {
 		[ -f "${restore_save}" ] && mv "${restore_save}" "${restore_default}"
 		return 1
 	fi
+	ADGUARD_DEFER_END_OP="1"
 	backup_restore RESTORE
-	CLI_RET="$?"
+	cli_ret="$?"
+	ADGUARD_DEFER_END_OP="${restore_defer_saved}"
 	if [ -f "${restore_save}" ]; then
 		mv "${restore_save}" "${BASE_DIR}/backup_AdGuardHome.tar.gz"
 	fi
-	return "${CLI_RET}"
+	return "${cli_ret}"
 }
 
 cli_run() {
