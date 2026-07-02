@@ -19,9 +19,9 @@ DEFAULT_ADGUARD_NETCHECK_HOSTS="google.com github.com snbforums.com"
 DEFAULT_ADGUARD_NETCHECK_DNS="127.0.0.1"
 DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP="NO"
 DEFAULT_ADGUARD_NETCHECK_TIMEOUT="300"
-DEFAULT_ADGUARD_NETCHECK_MODE="wan"
-DEFAULT_ADGUARD_PROC_OPTIMIZE="NO"
-DEFAULT_ADGUARD_PROC_PROFILE="balanced"
+DEFAULT_ADGUARD_NETCHECK_MODE="legacy"
+DEFAULT_ADGUARD_PROC_OPTIMIZE="YES"
+DEFAULT_ADGUARD_PROC_PROFILE="aggressive"
 INSTALLER_SCRIPT="/opt/etc/AdGuardHome/installer"
 ADGUARD_NETCHECK_HOSTS_SET="${ADGUARD_NETCHECK_HOSTS:+x}"
 ADGUARD_NETCHECK_DNS_SET="${ADGUARD_NETCHECK_DNS:+x}"
@@ -846,12 +846,49 @@ netcheck_ping_ok() {
 	return 1
 }
 
+netcheck_legacy() {
+	local host livecheck timewait
+	livecheck="0"
+	timewait="0"
+	until system_time_ready; do
+		if [ "${timewait}" -ge "300" ]; then
+			agh_log warning netcheck "state=netcheck action=wait_system_time reason=ntp_not_ready result=timeout timeout=300"
+			return 1
+		fi
+		sleep 1s
+		timewait="$((timewait + 1))"
+	done
+	while [ "${livecheck}" != "4" ]; do
+		for host in google.com github.com snbforums.com; do
+			if { ! nslookup "${host}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${host}" >/dev/null 2>&1; }; then
+				if ! http_probe "http://${host}" >/dev/null 2>&1; then
+					sleep 1s
+					continue
+				fi
+			fi
+			return 0
+		done
+		livecheck="$((livecheck + 1))"
+		if [ "${livecheck}" != "4" ]; then
+			sleep 10s
+			continue
+		fi
+		return 1
+	done
+}
+
 netcheck() {
 	local dns_ok dns_server hosts http_required mode ping_ok timeout waited
+	mode="$(netcheck_config ADGUARD_NETCHECK_MODE "${DEFAULT_ADGUARD_NETCHECK_MODE}")"
+	case "${mode}" in
+		legacy | LEGACY | "")
+			netcheck_legacy
+			return "$?"
+			;;
+	esac
 	dns_server="$(netcheck_config ADGUARD_NETCHECK_DNS "${DEFAULT_ADGUARD_NETCHECK_DNS}")"
 	hosts="$(netcheck_config ADGUARD_NETCHECK_HOSTS "${DEFAULT_ADGUARD_NETCHECK_HOSTS}")"
 	http_required="$(netcheck_config ADGUARD_NETCHECK_REQUIRE_HTTP "${DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP}")"
-	mode="$(netcheck_config ADGUARD_NETCHECK_MODE "${DEFAULT_ADGUARD_NETCHECK_MODE}")"
 	timeout="$(netcheck_config ADGUARD_NETCHECK_TIMEOUT "${DEFAULT_ADGUARD_NETCHECK_TIMEOUT}")"
 	case "${timeout}" in
 		"" | *[!0-9]*) timeout="300" ;;
