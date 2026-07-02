@@ -4801,12 +4801,15 @@ cli_run() {
 				cli_dry_run "IPSET refresh"
 				return 0
 			}
-			if ! check_ipset 1; then return 1; fi
+			if [ "$(conf_value ADGUARD_IPSET)" = "NO" ]; then
+				ptxt_ok "IPSET integration is disabled; no refresh needed."
+				return 0
+			fi
 			if [ "${CLI_YES}" = "1" ]; then
 				OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
-				service restart_AdGuardHome >/dev/null 2>&1 && adguard_service_status_after_action restart "${OLD_PIDS}" || PTXT "${WARNING} IPSET preference saved, but AdGuardHome could not be restarted."
+				service restart_AdGuardHome >/dev/null 2>&1 && adguard_service_status_after_action restart "${OLD_PIDS}" || PTXT "${WARNING} IPSET refresh requested, but AdGuardHome could not be restarted."
 			else
-				ptxt_ok "IPSET preference refreshed. Use --yes to restart AdGuardHome now."
+				ptxt_ok "IPSET preference unchanged. Use --yes to restart AdGuardHome now."
 			fi
 			;;
 		performance)
