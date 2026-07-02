@@ -4653,10 +4653,25 @@ cli_run() {
 	while [ "$#" -gt 0 ]; do
 		opt="$1"
 		case "${opt}" in
-			--yes) CLI_YES="1"; AI_ASSUME_YES="1"; export AI_ASSUME_YES; shift ;;
-			--dry-run) CLI_DRY_RUN="1"; shift ;;
-			--allow-dns-nvram) CLI_ALLOW_DNS_NVRAM="1"; shift ;;
-			--fix) [ "${cmd}" = "doctor" ] || return 2; sub="--fix"; shift ;;
+			--yes)
+				CLI_YES="1"
+				AI_ASSUME_YES="1"
+				export AI_ASSUME_YES
+				shift
+				;;
+			--dry-run)
+				CLI_DRY_RUN="1"
+				shift
+				;;
+			--allow-dns-nvram)
+				CLI_ALLOW_DNS_NVRAM="1"
+				shift
+				;;
+			--fix)
+				[ "${cmd}" = "doctor" ] || return 2
+				sub="--fix"
+				shift
+				;;
 			--branch)
 				[ "$#" -gt 1 ] || return 2
 				adguard_branch="$2"
@@ -4681,7 +4696,10 @@ cli_run() {
 			return "$?"
 			;;
 		update)
-			[ "${CLI_DRY_RUN}" = "1" ] && { cli_dry_run "update"; return 0; }
+			[ "${CLI_DRY_RUN}" = "1" ] && {
+				cli_dry_run "update"
+				return 0
+			}
 			cli_require_yes || return 1
 			AUTO_UPDATE="update"
 			menu update
@@ -4691,12 +4709,18 @@ cli_run() {
 			backup_restore BACKUP
 			;;
 		restore)
-			[ "${CLI_DRY_RUN}" = "1" ] && { cli_dry_run "restore ${restore_file:-${BASE_DIR}/backup_AdGuardHome.tar.gz}"; return 0; }
+			[ "${CLI_DRY_RUN}" = "1" ] && {
+				cli_dry_run "restore ${restore_file:-${BASE_DIR}/backup_AdGuardHome.tar.gz}"
+				return 0
+			}
 			cli_require_yes || return 1
 			cli_backup_restore_file "${restore_file}"
 			;;
 		uninstall)
-			[ "${CLI_DRY_RUN}" = "1" ] && { cli_dry_run "uninstall"; return 0; }
+			[ "${CLI_DRY_RUN}" = "1" ] && {
+				cli_dry_run "uninstall"
+				return 0
+			}
 			cli_require_yes || return 1
 			if [ "$(conf_value ADGUARD_DOMAIN)" = "yes" ] && [ "${CLI_ALLOW_DNS_NVRAM}" != "1" ]; then
 				PTXT "${ERROR} Refusing uninstall DNS/NVRAM rewrite without --allow-dns-nvram."
@@ -4706,7 +4730,10 @@ cli_run() {
 			;;
 		ipset)
 			[ "${sub}" = "refresh" ] || return 2
-			[ "${CLI_DRY_RUN}" = "1" ] && { cli_dry_run "IPSET refresh"; return 0; }
+			[ "${CLI_DRY_RUN}" = "1" ] && {
+				cli_dry_run "IPSET refresh"
+				return 0
+			}
 			if ! check_ipset 1; then return 1; fi
 			if [ "${CLI_YES}" = "1" ]; then
 				OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
@@ -4718,7 +4745,10 @@ cli_run() {
 		performance)
 			case "${profile}" in
 				balanced | low-memory | fast) ;;
-				*) PTXT "${ERROR} performance requires --profile {balanced|low-memory|fast}."; return 1 ;;
+				*)
+					PTXT "${ERROR} performance requires --profile {balanced|low-memory|fast}."
+					return 1
+					;;
 			esac
 			write_conf ADGUARD_PERFORMANCE_PROFILE "\"${profile}\""
 			ptxt_ok "Performance profile set to ${profile}."
@@ -4727,7 +4757,11 @@ cli_run() {
 			cli_require_yes || return 1
 			[ -n "${adguard_branch}" ] || adguard_branch="$(conf_value ADGUARD_BRANCH)"
 			[ -n "${adguard_branch}" ] || adguard_branch="release"
-			case "${adguard_branch}" in release | beta | edge) ;; *) PTXT "${ERROR} Unsupported AdGuardHome branch: ${adguard_branch}"; return 1 ;; esac
+			case "${adguard_branch}" in release | beta | edge) ;; *)
+				PTXT "${ERROR} Unsupported AdGuardHome branch: ${adguard_branch}"
+				return 1
+				;;
+			esac
 			write_conf ADGUARD_BRANCH "\"${adguard_branch}\""
 			inst_AdGuardHome install "${adguard_branch}"
 			;;
