@@ -4737,14 +4737,29 @@ cli_netcheck_config_values() {
 	timeout="$5"
 	case "${mode}" in
 		legacy | wan | lan) ;;
-		*) PTXT "${ERROR} netcheck requires --mode {legacy|wan|lan}."; return 1 ;;
+		*)
+			PTXT "${ERROR} netcheck requires --mode {legacy|wan|lan}."
+			return 1
+			;;
 	esac
-	[ -z "${host_list}" ] || cli_host_list_is_safe "${host_list}" || { PTXT "${ERROR} netcheck hosts contain unsupported characters."; return 1; }
-	[ -z "${dns}" ] || cli_simple_value_is_safe "${dns}" || { PTXT "${ERROR} netcheck DNS server contains unsupported characters."; return 1; }
+	[ -z "${host_list}" ] || cli_host_list_is_safe "${host_list}" || {
+		PTXT "${ERROR} netcheck hosts contain unsupported characters."
+		return 1
+	}
+	[ -z "${dns}" ] || cli_simple_value_is_safe "${dns}" || {
+		PTXT "${ERROR} netcheck DNS server contains unsupported characters."
+		return 1
+	}
 	case "${timeout}" in
 		"") ;;
-		*[!0123456789]*) PTXT "${ERROR} netcheck timeout must be a positive number of seconds."; return 1 ;;
-		*) [ "${timeout}" -gt 0 ] 2>/dev/null || { PTXT "${ERROR} netcheck timeout must be greater than zero."; return 1; } ;;
+		*[!0123456789]*)
+			PTXT "${ERROR} netcheck timeout must be a positive number of seconds."
+			return 1
+			;;
+		*) [ "${timeout}" -gt 0 ] 2>/dev/null || {
+			PTXT "${ERROR} netcheck timeout must be greater than zero."
+			return 1
+		} ;;
 	esac
 	cli_write_quoted_conf ADGUARD_NETCHECK_MODE "${mode}" || return 1
 	[ -z "${host_list}" ] || cli_write_quoted_conf ADGUARD_NETCHECK_HOSTS "${host_list}" || return 1
@@ -4913,11 +4928,17 @@ cli_run() {
 		esac
 	done
 	if [ -n "${installer_branch}" ]; then
-		branch_is_safe "${installer_branch}" || { PTXT "${ERROR} Unsupported installer branch: ${installer_branch}"; return 1; }
+		branch_is_safe "${installer_branch}" || {
+			PTXT "${ERROR} Unsupported installer branch: ${installer_branch}"
+			return 1
+		}
 		write_conf INSTALLER_BRANCH "\"${installer_branch}\"" || return 1
 	fi
 	if [ -n "${adguard_branch}" ]; then
-		cli_adguard_branch_is_valid "${adguard_branch}" || { PTXT "${ERROR} Unsupported AdGuardHome branch: ${adguard_branch}"; return 1; }
+		cli_adguard_branch_is_valid "${adguard_branch}" || {
+			PTXT "${ERROR} Unsupported AdGuardHome branch: ${adguard_branch}"
+			return 1
+		}
 	fi
 	case "${cmd}" in
 		doctor)
@@ -5016,7 +5037,10 @@ cli_run() {
 			cli_enable_assume_yes
 			[ -n "${adguard_branch}" ] || adguard_branch="$(conf_value ADGUARD_BRANCH)"
 			[ -n "${adguard_branch}" ] || adguard_branch="release"
-			cli_adguard_branch_is_valid "${adguard_branch}" || { PTXT "${ERROR} Unsupported AdGuardHome branch: ${adguard_branch}"; return 1; }
+			cli_adguard_branch_is_valid "${adguard_branch}" || {
+				PTXT "${ERROR} Unsupported AdGuardHome branch: ${adguard_branch}"
+				return 1
+			}
 			write_conf ADGUARD_BRANCH "\"${adguard_branch}\""
 			inst_AdGuardHome install
 			;;
