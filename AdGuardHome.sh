@@ -1324,7 +1324,7 @@ start_adguardhome() {
 			ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1
 		}; fi
 	}; done
-	if { service_wait netcheck 300; }; then
+	if { service_wait netcheck; }; then
 		return "0"
 	else
 		return "1"
@@ -1459,7 +1459,7 @@ stop_adguardhome() {
 			rm "/tmp/${db}" >/dev/null 2>&1
 		}; fi
 	}; done
-	if ! service_wait netcheck 300; then
+	if ! service_wait netcheck; then
 		STOP_STATUS="1"
 	fi
 	return "${STOP_STATUS}"
