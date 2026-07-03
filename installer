@@ -4704,6 +4704,11 @@ cli_backup_restore_file() {
 		[ -f "${restore_save}" ] && mv "${restore_save}" "${restore_default}"
 		return 1
 	fi
+	if ! chmod 600 "${restore_default}"; then
+		rm -f "${restore_default}"
+		[ -f "${restore_save}" ] && mv "${restore_save}" "${restore_default}"
+		return 1
+	fi
 	ADGUARD_DEFER_END_OP="1"
 	backup_restore RESTORE
 	cli_ret="$?"
