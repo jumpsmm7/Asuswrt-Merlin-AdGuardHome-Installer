@@ -1019,14 +1019,14 @@ doctor_fix_safe() {
 	if [ -f "${AGH_FILE}" ] && { [ ! -L "/opt/sbin/AdGuardHome" ] || [ "${link_target}" != "${AGH_FILE}" ]; }; then
 		mkdir -p "/opt/sbin" 2>/dev/null && ln -sf "${AGH_FILE}" "/opt/sbin/AdGuardHome" 2>/dev/null && doctor_fix_msg "/opt/sbin/AdGuardHome symlink"
 	fi
-	for stale in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome/pid /tmp/AdGuardHome.pid /opt/var/run/AdGuardHome.pid /tmp/AdGuardHome.*.tmp "${TARG_DIR}"/.*.$$.* "${TARG_DIR}"/*.tmp.$$; do
+	for stale in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome /tmp/AdGuardHome.pid /opt/var/run/AdGuardHome.pid /tmp/AdGuardHome.*.tmp "${TARG_DIR}"/.*.$$.* "${TARG_DIR}"/*.tmp.$$; do
 		[ -e "${stale}" ] || continue
 		case "${stale}" in
 			/tmp/AdGuardHome.dnsmasq.handoff | /tmp/AdGuardHome.dnsmasq.lock | /tmp/AdGuardHome.dns-handoff/active | /tmp/AdGuardHome.dns-handoff/lock)
 				doctor_pid_file_is_active "${stale}" && continue
 				[ "$(agh_monitor_count)" -eq 0 ] || continue
 				;;
-			/tmp/AdGuardHome.lock)
+			/tmp/AdGuardHome.lock | /tmp/AdGuardHome)
 				doctor_run_lock_is_active && continue
 				;;
 			/opt/var/run/AdGuardHome.pid | /tmp/AdGuardHome.pid)
