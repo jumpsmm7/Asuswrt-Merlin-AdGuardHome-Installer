@@ -4819,6 +4819,20 @@ cli_installer_branch_from_args() {
 	return 1
 }
 
+cli_write_adguard_branch() {
+	local old_branch new_branch
+	new_branch="$1"
+	old_branch="$(conf_value ADGUARD_BRANCH)"
+	if ! write_conf ADGUARD_BRANCH "\"${new_branch}\""; then
+		return 1
+	fi
+	if [ -n "${old_branch}" ] && [ "${old_branch}" != "${new_branch}" ]; then
+		ADGUARD_BRANCH_CHANGED="1"
+		export ADGUARD_BRANCH_CHANGED
+	fi
+	return 0
+}
+
 cli_run() {
 	local cmd sub opt restore_file profile proc_profile adguard_branch installer_branch netcheck_mode netcheck_hosts netcheck_dns netcheck_http netcheck_timeout dns_policy
 	CLI_MODE="1"
@@ -4951,7 +4965,7 @@ cli_run() {
 				return 0
 			}
 			cli_require_yes || return 1
-			[ -z "${adguard_branch}" ] || write_conf ADGUARD_BRANCH "\"${adguard_branch}\"" || return 1
+			[ -z "${adguard_branch}" ] || cli_write_adguard_branch "${adguard_branch}" || return 1
 			cli_enable_assume_yes
 			AUTO_UPDATE="update"
 			menu update
@@ -5041,7 +5055,7 @@ cli_run() {
 				PTXT "${ERROR} Unsupported AdGuardHome branch: ${adguard_branch}"
 				return 1
 			}
-			write_conf ADGUARD_BRANCH "\"${adguard_branch}\""
+			cli_write_adguard_branch "${adguard_branch}" || return 1
 			inst_AdGuardHome install
 			;;
 	esac

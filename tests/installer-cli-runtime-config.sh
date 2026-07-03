@@ -21,7 +21,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^branch_is_safe() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^cli_bool_value() {$/,/^}$/p; /^cli_adguard_branch_is_valid() {$/,/^}$/p; /^cli_simple_value_is_safe() {$/,/^}$/p; /^cli_host_list_is_safe() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^cli_netcheck_config_values() {$/,/^}$/p; /^cli_dns_port_policy() {$/,/^}$/p; /^cli_installer_branch_from_args() {$/,/^}$/p; /^cli_run() {$/,/^}$/p' \
+	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^branch_is_safe() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^cli_bool_value() {$/,/^}$/p; /^cli_adguard_branch_is_valid() {$/,/^}$/p; /^cli_simple_value_is_safe() {$/,/^}$/p; /^cli_host_list_is_safe() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^cli_netcheck_config_values() {$/,/^}$/p; /^cli_dns_port_policy() {$/,/^}$/p; /^cli_installer_branch_from_args() {$/,/^}$/p; /^cli_write_adguard_branch() {$/,/^}$/p; /^cli_run() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'CLI helper extraction was empty'
 grep -q '^cli_netcheck_config_values() {$' "${FUNCTIONS_FILE}" || fail 'netcheck config helper missing'
@@ -33,6 +33,18 @@ grep -q '^cli_dns_port_policy() {$' "${FUNCTIONS_FILE}" || fail 'DNS port policy
 INFO='[i]'
 ERROR='[!]'
 CONF_FILE="${TMP_ROOT}/.config"
+
+cli_require_yes() {
+	return 0
+}
+
+cli_enable_assume_yes() {
+	return 0
+}
+
+menu() {
+	printf '%s\n' "$1" >"${TMP_ROOT}/menu-action"
+}
 
 cli_run netcheck --installer-branch dev --mode wan --hosts 'google.com github.com' --dns 127.0.0.1 --require-http yes --timeout 120 >/dev/null ||
 	fail 'netcheck CLI helper failed'
@@ -61,5 +73,16 @@ if cli_adguard_branch_is_valid master; then
 fi
 [ "$(cli_installer_branch_from_args install --installer-branch feature/test --adguardhome-branch beta)" = 'feature/test' ] ||
 	fail 'installer branch parser did not distinguish installer and AdGuardHome branches'
+
+write_conf ADGUARD_BRANCH '"release"' || fail 'could not seed release branch'
+unset ADGUARD_BRANCH_CHANGED
+cli_run update --adguardhome-branch beta --yes >/dev/null || fail 'update with AdGuardHome branch failed'
+grep -q '^ADGUARD_BRANCH="beta"$' "${CONF_FILE}" || fail 'CLI update branch was not persisted'
+[ "${ADGUARD_BRANCH_CHANGED:-0}" = "1" ] || fail 'CLI update branch switch was not marked as changed'
+[ "$(cat "${TMP_ROOT}/menu-action")" = 'update' ] || fail 'CLI update did not dispatch the update menu action'
+
+unset ADGUARD_BRANCH_CHANGED
+cli_run update --adguardhome-branch beta --yes >/dev/null || fail 'same-branch update failed'
+[ "${ADGUARD_BRANCH_CHANGED:-0}" = "0" ] || fail 'same-branch CLI update should not be marked as changed'
 
 printf '%s\n' 'PASS: installer CLI runtime configuration helpers persist expected values'
