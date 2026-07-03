@@ -4621,12 +4621,17 @@ cli_dry_run() {
 }
 
 cli_pre_remote_dry_run() {
-	local cmd opt restore_file
+	local cmd opt restore_file sub
 	cmd="${1:-}"
 	shift || true
 	restore_file=""
 	case "${cmd}" in
 		install | update | restore | uninstall) ;;
+		ipset)
+			sub="${1:-}"
+			[ "${sub}" = "refresh" ] || return 1
+			shift || true
+			;;
 		*) return 1 ;;
 	esac
 	while [ "$#" -gt 0 ]; do
@@ -4635,6 +4640,7 @@ cli_pre_remote_dry_run() {
 			--dry-run)
 				case "${cmd}" in
 					restore) cli_dry_run "restore ${restore_file:-${BASE_DIR}/backup_AdGuardHome.tar.gz}" ;;
+					ipset) cli_dry_run "IPSET refresh" ;;
 					*) cli_dry_run "${cmd}" ;;
 				esac
 				return 0
@@ -5081,7 +5087,7 @@ if [ "${2:-}" = "status" ]; then
 fi
 
 case "${1:-}" in
-	install | update | restore | uninstall)
+	install | update | restore | uninstall | ipset)
 		if cli_pre_remote_dry_run "$@"; then
 			exit 0
 		fi
