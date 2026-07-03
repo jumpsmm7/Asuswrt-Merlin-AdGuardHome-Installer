@@ -21,7 +21,7 @@
 #################################################################################################################
 
 export LC_ALL=C
-export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH:-}"
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
 
 AI_VERSION="v2.5.0"
 export AI_VERSION
