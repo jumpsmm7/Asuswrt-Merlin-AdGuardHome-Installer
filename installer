@@ -5063,6 +5063,7 @@ cli_run() {
 				PTXT "${ERROR} Unsupported AdGuardHome branch: ${adguard_branch}"
 				return 1
 			}
+			create_dir "${TARG_DIR}" || return 1
 			cli_write_adguard_branch "${adguard_branch}" || return 1
 			inst_AdGuardHome install
 			;;
