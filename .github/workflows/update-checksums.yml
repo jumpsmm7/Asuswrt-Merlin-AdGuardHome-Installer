@@ -1,4 +1,4 @@
-name: Update md5sum files
+name: Update checksum files
 
 on:
   push:
@@ -12,12 +12,15 @@ on:
       - rc.func.AdGuardHome
       - 'armv5/*.tar.gz'
       - 'armv5/*.tar.gz.md5sum'
+      - 'armv5/*.tar.gz.sha256sum'
       - 'armv7/*.tar.gz'
       - 'armv7/*.tar.gz.md5sum'
+      - 'armv7/*.tar.gz.sha256sum'
       - 'armv8/*.tar.gz'
       - 'armv8/*.tar.gz.md5sum'
-      - tools/update-md5.sh
-      - .github/workflows/update-md5sum.yml
+      - 'armv8/*.tar.gz.sha256sum'
+      - tools/update-checksums.sh
+      - .github/workflows/update-checksums.yml
   workflow_dispatch:
     inputs:
       target_branch:
@@ -29,12 +32,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: update-md5sum-${{ github.ref }}
+  group: update-checksums-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  update-md5sum:
-    name: Update md5sum files
+  update-checksums:
+    name: Update checksum files
     runs-on: ubuntu-latest
     if: github.ref_type == 'branch'
 
@@ -42,21 +45,29 @@ jobs:
       - name: Resolve target branch
         id: branch
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TARGET_BRANCH: ${{ inputs.target_branch }}
         run: |
           set -euo pipefail
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.target_branch }}" ]; then
-            target_branch="${{ inputs.target_branch }}"
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ -n "${INPUT_TARGET_BRANCH}" ]; then
+            target_branch="${INPUT_TARGET_BRANCH}"
           else
             target_branch="${GITHUB_REF_NAME}"
           fi
 
           case "${target_branch}" in
-            ""|*..*|/*|*' '*|*'~'*|*'^'*|*':'*|*'?'*|*'['*|*'\\'*)
+            ""|*..*|/*|*[^A-Za-z0-9._/-]*|*'~'*|*'^'*|*':'*|*'?'*|*'['*|*'\\'*)
               echo "Invalid target branch: ${target_branch}" >&2
               exit 1
               ;;
           esac
+
+          if ! git check-ref-format --branch "${target_branch}" >/dev/null 2>&1; then
+            echo "Invalid target branch: ${target_branch}" >&2
+            exit 1
+          fi
 
           echo "target=${target_branch}" >> "${GITHUB_OUTPUT}"
 
@@ -72,34 +83,36 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Update md5sum files
+      - name: Update checksum files
         shell: bash
         run: |
           set -euo pipefail
 
-          md5_targets=(installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome)
+          checksum_targets=(installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome)
           while IFS= read -r archive; do
-            md5_targets+=("${archive}")
+            checksum_targets+=("${archive}")
           done < <(find armv5 armv7 armv8 -maxdepth 1 -type f -name '*.tar.gz' | sort)
 
-          sh tools/update-md5.sh "${md5_targets[@]}"
+          sh tools/update-checksums.sh "${checksum_targets[@]}"
 
-      - name: Commit md5sum updates
+      - name: Commit checksum updates
         shell: bash
+        env:
+          PUSH_TARGET: ${{ steps.branch.outputs.target }}
         run: |
           set -euo pipefail
 
-          md5_files=(installer.md5sum AdGuardHome.sh.md5sum S99AdGuardHome.md5sum rc.func.AdGuardHome.md5sum)
+          checksum_files=(installer.md5sum installer.sha256sum AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum S99AdGuardHome.md5sum S99AdGuardHome.sha256sum rc.func.AdGuardHome.md5sum rc.func.AdGuardHome.sha256sum)
           while IFS= read -r archive; do
-            md5_files+=("${archive}.md5sum")
+            checksum_files+=("${archive}.md5sum" "${archive}.sha256sum")
           done < <(find armv5 armv7 armv8 -maxdepth 1 -type f -name '*.tar.gz' | sort)
 
-          if [ -z "$(git status --porcelain -- "${md5_files[@]}")" ]; then
-            echo "No md5sum updates needed."
+          if [ -z "$(git status --porcelain -- "${checksum_files[@]}")" ]; then
+            echo "No checksum updates needed."
             exit 0
           fi
 
-          git status --short -- "${md5_files[@]}"
-          git add "${md5_files[@]}"
-          git commit -m "chore: update md5sum files"
-          git push origin HEAD:${{ steps.branch.outputs.target }}
+          git status --short -- "${checksum_files[@]}"
+          git add "${checksum_files[@]}"
+          git commit -m "chore: update checksum files"
+          git push origin "HEAD:${PUSH_TARGET}"

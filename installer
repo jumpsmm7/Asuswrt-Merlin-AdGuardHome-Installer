@@ -23,7 +23,7 @@
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
 
-AI_VERSION="v2.4.4"
+AI_VERSION="v2.5.0"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -119,11 +119,16 @@ ensure_bcrypt_tool() {
 
 ensure_opkg_package() {
 	_pkg="$1"
+	case "${_pkg}" in
+		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.+-]*)
+			return 1
+			;;
+	esac
 	if opkg_pkg_installed "${_pkg}"; then
 		return 0
 	fi
 
-	if ! opkg install "${_pkg}" >/dev/null 2>&1; then
+	if ! opkg_clean_env install "${_pkg}" >/dev/null 2>&1; then
 		return 1
 	fi
 	opkg_pkg_installed "${_pkg}"
@@ -186,12 +191,16 @@ hash_password_python() {
 
 opkg_pkg_available() {
 	_pkg="$1"
-	opkg list "${_pkg}" 2>/dev/null | awk -v pkg="${_pkg}" '$1 == pkg { found = 1; exit } END { exit(found ? 0 : 1) }'
+	opkg_clean_env list "${_pkg}" 2>/dev/null | awk -v pkg="${_pkg}" '$1 == pkg { found = 1; exit } END { exit(found ? 0 : 1) }'
 }
 
 opkg_pkg_installed() {
 	_pkg="$1"
-	opkg list-installed 2>/dev/null | awk -v pkg="${_pkg}" '$1 == pkg { found = 1; exit } END { exit(found ? 0 : 1) }'
+	opkg_clean_env list-installed 2>/dev/null | awk -v pkg="${_pkg}" '$1 == pkg { found = 1; exit } END { exit(found ? 0 : 1) }'
+}
+
+opkg_clean_env() {
+	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin" opkg "$@"
 }
 
 on_installer_exit() {
@@ -208,8 +217,8 @@ python_bcrypt_available() {
 
 remove_conflicting_apache() {
 	if opkg_pkg_installed apache || opkg_pkg_installed apache-utils; then
-		opkg flag user apache apache-utils >/dev/null 2>&1
-		opkg remove apache apache-utils --force-removal-of-dependent-packages >/dev/null 2>&1
+		opkg_clean_env flag user apache apache-utils >/dev/null 2>&1
+		opkg_clean_env remove apache apache-utils --force-removal-of-dependent-packages >/dev/null 2>&1
 	fi
 }
 
@@ -897,6 +906,339 @@ agh_process_count() {
 	PTXT "$((daemon_count + monitor_count))"
 }
 
+doctor_status() {
+	[ "$1" = "FAIL" ] && DOCTOR_FAILED="1"
+	PTXT "[$1] $2"
+}
+
+doctor_fix_msg() {
+	PTXT "[OK] fixed: $1"
+}
+
+doctor_file_state() {
+	local path mode expected
+	path="$1"
+	expected="$2"
+	if [ ! -e "${path}" ]; then
+		doctor_status WARN "${path} missing"
+		return 1
+	fi
+	mode="$(ls -ld "${path}" 2>/dev/null | awk '{ print $1 }')"
+	if [ -n "${expected}" ] && [ "${mode}" != "${expected}" ]; then
+		doctor_status WARN "${path} mode ${mode}, expected ${expected}"
+		return 1
+	fi
+	doctor_status OK "${path} present${mode:+ (${mode})}"
+	return 0
+}
+
+doctor_managed_script_state() {
+	local operation script_path expected_line
+	script_path="$1"
+	operation="$2"
+	expected_line="[ -x ${ADDON_DIR}/AdGuardHome.sh ] && ${ADDON_DIR}/AdGuardHome.sh ${operation}"
+	if [ ! -f "${script_path}" ]; then
+		doctor_status WARN "${script_path} managed hook missing"
+		return 1
+	fi
+	if grep -q -F "${expected_line}" "${script_path}" 2>/dev/null; then
+		if [ ! -x "${script_path}" ]; then
+			doctor_status WARN "${script_path} managed hook present but not executable"
+			return 1
+		fi
+		doctor_status OK "${script_path} managed hook present and executable"
+		return 0
+	fi
+	doctor_status WARN "${script_path} managed hook missing expected AdGuardHome call"
+	return 1
+}
+
+doctor_dns53_state() {
+	local dns53 owners
+	dns53="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ { print; found = 1 } END { exit(found ? 0 : 1) }')"
+	if agh_dns_bound; then
+		doctor_status OK "DNS port 53 TCP and UDP are owned by AdGuardHome"
+		return 0
+	fi
+	if [ -n "${dns53}" ]; then
+		owners="$(PTXT "${dns53}" | awk '{ print $NF }' | sort | uniq | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+		doctor_status WARN "DNS port 53 TCP and UDP are not both owned by AdGuardHome${owners:+ (owners: ${owners})}"
+		return 1
+	fi
+	doctor_status FAIL "DNS port 53 is not listening"
+	return 1
+}
+
+doctor_fix_permissions() {
+	[ -d "${TARG_DIR}" ] && ensure_adguardhome_directory_permissions >/dev/null 2>&1 && doctor_fix_msg "AdGuardHome directory permissions"
+	[ -f "/opt/etc/init.d/S99AdGuardHome" ] && chmod 755 "/opt/etc/init.d/S99AdGuardHome" 2>/dev/null && doctor_fix_msg "/opt/etc/init.d/S99AdGuardHome executable bit"
+	[ -f "/opt/etc/init.d/rc.func.AdGuardHome" ] && chmod 644 "/opt/etc/init.d/rc.func.AdGuardHome" 2>/dev/null && doctor_fix_msg "/opt/etc/init.d/rc.func.AdGuardHome permissions"
+	[ -f "${ADDON_DIR}/AdGuardHome.sh" ] && chmod 755 "${ADDON_DIR}/AdGuardHome.sh" 2>/dev/null && doctor_fix_msg "${ADDON_DIR}/AdGuardHome.sh executable bit"
+	[ -f "/jffs/scripts/init-start" ] && chmod 755 "/jffs/scripts/init-start" 2>/dev/null && doctor_fix_msg "/jffs/scripts/init-start executable bit"
+	[ -f "/jffs/scripts/services-stop" ] && chmod 755 "/jffs/scripts/services-stop" 2>/dev/null && doctor_fix_msg "/jffs/scripts/services-stop executable bit"
+	[ -f "/jffs/scripts/dnsmasq.postconf" ] && chmod 755 "/jffs/scripts/dnsmasq.postconf" 2>/dev/null && doctor_fix_msg "/jffs/scripts/dnsmasq.postconf executable bit"
+	[ -f "/jffs/scripts/firewall-start" ] && chmod 755 "/jffs/scripts/firewall-start" 2>/dev/null && doctor_fix_msg "/jffs/scripts/firewall-start executable bit"
+	[ -f "${YAML_FILE}" ] && chmod 600 "${YAML_FILE}" 2>/dev/null && doctor_fix_msg "${YAML_FILE} permissions"
+	[ -f "${CONF_FILE}" ] && chmod 600 "${CONF_FILE}" 2>/dev/null && doctor_fix_msg "${CONF_FILE} permissions"
+}
+
+doctor_pid_file_is_active() {
+	local marker_pid
+	marker_pid="$(sed -n '1s/[[:space:]].*$//p' "$1" 2>/dev/null)"
+	case "${marker_pid}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	[ -d "/proc/${marker_pid}" ]
+}
+
+doctor_run_lock_is_active() {
+	local lock_file pid_file status
+	lock_file="/tmp/AdGuardHome.lock"
+	pid_file="/tmp/AdGuardHome/pid"
+	if [ -f "${pid_file}" ] && doctor_pid_file_is_active "${pid_file}"; then
+		return 0
+	fi
+	if ai_have_cmd flock && [ -e "${lock_file}" ]; then
+		(
+			exec 9<>"${lock_file}" || exit 1
+			flock -n 9 >/dev/null 2>&1
+			status="$?"
+			[ "${status}" -eq 0 ] && flock -u 9 >/dev/null 2>&1
+			exit "${status}"
+		)
+		status="$?"
+		[ "${status}" -ne 0 ] && return 0
+	fi
+	return 1
+}
+
+doctor_fix_safe() {
+	local link_target stale
+	doctor_fix_permissions
+	link_target="$(readlink "/opt/sbin/AdGuardHome" 2>/dev/null)"
+	if [ -f "${AGH_FILE}" ] && { [ ! -L "/opt/sbin/AdGuardHome" ] || [ "${link_target}" != "${AGH_FILE}" ]; }; then
+		mkdir -p "/opt/sbin" 2>/dev/null && ln -sf "${AGH_FILE}" "/opt/sbin/AdGuardHome" 2>/dev/null && doctor_fix_msg "/opt/sbin/AdGuardHome symlink"
+	fi
+	for stale in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome /tmp/AdGuardHome.pid /opt/var/run/AdGuardHome.pid /tmp/AdGuardHome.*.tmp "${TARG_DIR}"/.*.$$.* "${TARG_DIR}"/*.tmp.$$; do
+		[ -e "${stale}" ] || continue
+		case "${stale}" in
+			/tmp/AdGuardHome.dnsmasq.handoff | /tmp/AdGuardHome.dnsmasq.lock | /tmp/AdGuardHome.dns-handoff/active | /tmp/AdGuardHome.dns-handoff/lock)
+				doctor_pid_file_is_active "${stale}" && continue
+				[ "$(agh_monitor_count)" -eq 0 ] || continue
+				;;
+			/tmp/AdGuardHome.lock | /tmp/AdGuardHome)
+				doctor_run_lock_is_active && continue
+				;;
+			/opt/var/run/AdGuardHome.pid | /tmp/AdGuardHome.pid)
+				doctor_pid_file_is_active "${stale}" && continue
+				;;
+			/tmp/AdGuardHome/pid)
+				doctor_run_lock_is_active && continue
+				;;
+			/tmp/AdGuardHome.*.tmp)
+				[ -f "${stale}" ] || continue
+				;;
+		esac
+		rm -rf "${stale}" 2>/dev/null && doctor_fix_msg "removed stale ${stale}"
+	done
+}
+
+doctor_show_nvram_dns() {
+	local key value
+	if ! ai_have_cmd nvram; then
+		doctor_status WARN "nvram command unavailable; DNS NVRAM values not checked"
+		return 0
+	fi
+	for key in dnspriv_enable dns_local_cache dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x dnsfilter_enable_x dnsfilter_mode dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 lan_dnsenable_x lan_dns1_x lan_dns2_x wan_dnsenable_x wan_dns1_x wan_dns2_x; do
+		value="$(nvram get "${key}" 2>/dev/null)"
+		doctor_status OK "nvram ${key}=${value}"
+	done
+}
+
+doctor() {
+	local count fix ipset_file link_target marker port version branch backup_file opt_mounted
+	DOCTOR_FAILED="0"
+	fix="0"
+	case "${1:-}" in
+		--fix) fix="1" ;;
+		"") ;;
+		*)
+			doctor_status FAIL "usage: sh installer doctor [--fix]"
+			return 1
+			;;
+	esac
+	opt_mounted="0"
+	if mount | grep -q ' on /opt '; then
+		opt_mounted="1"
+		doctor_status OK "Entware /opt is mounted"
+	else
+		doctor_status FAIL "Entware /opt is not mounted"
+	fi
+	if [ "${fix}" = "1" ]; then
+		if [ "${opt_mounted}" = "1" ]; then
+			doctor_fix_safe
+		else
+			doctor_status WARN "skipping --fix repairs because Entware /opt is not mounted"
+		fi
+	fi
+	doctor_file_state "${TARG_DIR}" "drwx------" || true
+	link_target="$(readlink "/opt/sbin/AdGuardHome" 2>/dev/null)"
+	[ -L "/opt/sbin/AdGuardHome" ] && [ "${link_target}" = "${AGH_FILE}" ] && doctor_status OK "/opt/sbin/AdGuardHome -> ${link_target}" || doctor_status FAIL "/opt/sbin/AdGuardHome target is ${link_target:-missing}"
+	doctor_file_state "${ADDON_DIR}/AdGuardHome.sh" "-rwxr-xr-x" || true
+	doctor_managed_script_state "/jffs/scripts/init-start" "init-start &" || true
+	doctor_managed_script_state "/jffs/scripts/services-stop" "services-stop &" || true
+	doctor_managed_script_state "/jffs/scripts/dnsmasq.postconf" "dnsmasq" || true
+	doctor_managed_script_state "/jffs/scripts/firewall-start" 'firewall "$1"' || true
+	doctor_file_state "/opt/etc/init.d/S99AdGuardHome" "-rwxr-xr-x" || true
+	doctor_file_state "/opt/etc/init.d/rc.func.AdGuardHome" "-rw-r--r--" || true
+	doctor_file_state "${YAML_FILE}" "-rw-------" || true
+	doctor_file_state "${CONF_FILE}" "-rw-------" || true
+
+	doctor_dns53_state || true
+	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome/pid; do
+		[ -e "${marker}" ] && doctor_status WARN "dnsmasq handoff marker/lock exists: ${marker}" || doctor_status OK "dnsmasq handoff marker/lock absent: ${marker}"
+	done
+	count="$(agh_monitor_count)"
+	[ "${count}" -eq 1 ] && doctor_status OK "monitor process count: ${count}" || doctor_status WARN "monitor process count: ${count}"
+	count="$(pidof AdGuardHome 2>/dev/null | wc -w)"
+	[ "${count}" -eq 1 ] && doctor_status OK "AdGuardHome daemon process count: ${count}" || doctor_status WARN "AdGuardHome daemon process count: ${count}"
+	port="$(agh_web_port 2>/dev/null)"
+	if [ -n "${port}" ]; then
+		web_port_owned_by_agh "${port}" && doctor_status OK "WebUI port ${port} owned by AdGuardHome" || doctor_status WARN "WebUI port ${port} not owned by AdGuardHome"
+	else
+		doctor_status WARN "WebUI port not configured"
+	fi
+	branch="$(conf_value INSTALLER_BRANCH 2>/dev/null)"
+	version="$([ -x "${AGH_FILE}" ] && "${AGH_FILE}" --version 2>/dev/null | head -1)"
+	doctor_status OK "installer version ${AI_VERSION}, branch ${branch:-unknown}"
+	doctor_status OK "AdGuardHome version ${version:-unknown}"
+	backup_file="${BASE_DIR}/backup_AdGuardHome.tar.gz"
+	if [ -f "${backup_file}" ]; then
+		adguard_archive_is_safe "${backup_file}" 1 && doctor_status OK "backup archive safety passed" || doctor_status FAIL "backup archive safety failed"
+	else
+		doctor_status WARN "backup archive missing"
+	fi
+	for ipset_file in "${TARG_DIR}/ipset.conf" "${TARG_DIR}/ipset.user" "$(adguardhome_yaml_ipset_file 2>/dev/null)"; do
+		[ -n "${ipset_file}" ] || continue
+		case "${ipset_file}" in /*) ;; *) ipset_file="${TARG_DIR}/${ipset_file}" ;; esac
+		[ -f "${ipset_file}" ] && doctor_status OK "IPSET file present: ${ipset_file}" || doctor_status WARN "IPSET file missing: ${ipset_file}"
+	done
+	doctor_show_nvram_dns
+	[ "${DOCTOR_FAILED}" = "0" ]
+}
+
+status_line() {
+	PTXT "$1: ${2:-unknown}"
+}
+
+status_dnsmasq_handoff_state() {
+	local marker markers state
+	state="inactive"
+	markers=""
+	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock; do
+		if [ -e "${marker}" ]; then
+			state="active/stale marker present"
+			markers="${markers}${markers:+, }${marker}"
+		fi
+	done
+	PTXT "${state}${markers:+ (${markers})}"
+}
+
+status_last_startup_result() {
+	local result
+	result=""
+	if ai_have_cmd logread; then
+		result="$(logread 2>/dev/null |
+			awk '
+				/AdGuardHome/ && /AdGuardHome startup completed/ { last = $0 }
+				/AdGuardHome/ && /AdGuardHome startup failed/ { last = $0 }
+				/AdGuardHome/ && /DNS\/WebUI readiness checks (passed|failed)/ { last = $0 }
+				END { if (last != "") print last }
+			')"
+	fi
+	[ -n "${result}" ] && PTXT "${result}" || PTXT "unknown (no startup marker/log entry found)"
+}
+
+status_port53_ownership() {
+	local dns53
+	dns53="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ { print }')"
+	if [ -z "${dns53}" ]; then
+		PTXT "not listening"
+		return 0
+	fi
+	PTXT "${dns53}" | awk '
+		function owner(line, i, field) {
+			for (i = NF; i >= 1; i--) {
+				field = $i
+				if (field ~ /^[0-9]+\/[^[:space:]]+$/) return field
+			}
+			return "unknown"
+		}
+		$0 ~ /^(tcp)6?[[:space:]]+/ { tcp = tcp ? tcp ", " owner($0) : owner($0) }
+		$0 ~ /^(udp)6?[[:space:]]+/ { udp = udp ? udp ", " owner($0) : owner($0) }
+		END {
+			if (tcp != "" && udp != "") print "TCP " tcp "; UDP " udp
+			else if (tcp != "") print "TCP " tcp
+			else if (udp != "") print "UDP " udp
+			else print "unknown"
+		}
+	'
+}
+
+status_webui_address() {
+	local address host port
+	address="$(awk '
+		/^[[:space:]]*address:[[:space:]]*/ {
+			sub(/^[[:space:]]*address:[[:space:]]*/, "")
+			gsub(/^"|"$/, "")
+			print
+			exit
+		}
+	' "${YAML_FILE}" 2>/dev/null)"
+	port="$(agh_web_port 2>/dev/null)"
+	if [ -n "${address}" ]; then
+		PTXT "${address}${port:+ (port ${port})}"
+		return 0
+	fi
+	host="$(nvram get lan_ipaddr 2>/dev/null)"
+	[ -n "${port}" ] && PTXT "${host:-router}:${port}" || PTXT "unknown"
+}
+
+status() {
+	local branch count monitor_count monitor_state service_state version
+	count="$(pidof AdGuardHome 2>/dev/null | wc -w)"
+	monitor_count="$(agh_monitor_count)"
+	if [ "${count}" -gt 0 ]; then
+		if agh_startup_check; then
+			service_state="running (ready)"
+		else
+			service_state="running (readiness check incomplete)"
+		fi
+	else
+		service_state="stopped"
+	fi
+	case "${monitor_count}" in
+		0) monitor_state="stopped" ;;
+		1) monitor_state="running (1 process)" ;;
+		*) monitor_state="running (${monitor_count} processes)" ;;
+	esac
+	branch="${1:-}"
+	[ -n "${branch}" ] || branch="$(conf_value INSTALLER_BRANCH 2>/dev/null)"
+	version="$([ -x "${AGH_FILE}" ] && "${AGH_FILE}" --version 2>/dev/null | head -1)"
+
+	PTXT "AdGuardHome Installer Status"
+	status_line "AdGuardHome service state" "${service_state}"
+	status_line "Monitor process state" "${monitor_state}"
+	status_line "AdGuardHome PID count" "${count}"
+	status_line "Port 53 ownership" "$(status_port53_ownership)"
+	status_line "AdGuardHome version" "${version:-unknown}"
+	status_line "Installer version" "${AI_VERSION}"
+	status_line "Selected branch" "${branch:-unknown}"
+	status_line "WebUI address/port" "$(status_webui_address)"
+	status_line "dnsmasq handoff state" "$(status_dnsmasq_handoff_state)"
+	status_line "Last startup result" "$(status_last_startup_result)"
+}
+
 agh_restart() {
 	local old_pids
 	if agh_is_running; then
@@ -1058,6 +1400,15 @@ adguard_remote_md5() {
 	esac
 }
 
+adguard_remote_sha256() {
+	case "$1" in
+		release) PTXT "${REMOTE_RELEASE_SHA256}" ;;
+		beta) PTXT "${REMOTE_BETA_SHA256}" ;;
+		edge) PTXT "${REMOTE_EDGE_SHA256}" ;;
+		*) return 1 ;;
+	esac
+}
+
 adguard_remote_version() {
 	case "$1" in
 		release) PTXT "${REMOTE_VER}" ;;
@@ -1094,6 +1445,9 @@ init_adguard_metadata_defaults() {
 	REMOTE_RELEASE_MD5=""
 	REMOTE_BETA_MD5=""
 	REMOTE_EDGE_MD5=""
+	REMOTE_RELEASE_SHA256=""
+	REMOTE_BETA_SHA256=""
+	REMOTE_EDGE_SHA256=""
 	REMOTE_RELEASE_URL="https://static.adguard.com/adguardhome/release/${REMOTE_RELEASE_ARCHIVE}"
 	REMOTE_BETA_URL="https://static.adguard.com/adguardhome/beta/${REMOTE_BETA_ARCHIVE}"
 	REMOTE_EDGE_URL="https://static.adguard.com/adguardhome/edge/${REMOTE_EDGE_ARCHIVE}"
@@ -1110,6 +1464,9 @@ init_remote_adguard_metadata() {
 	REMOTE_RELEASE_MD5=""
 	REMOTE_BETA_MD5=""
 	REMOTE_EDGE_MD5=""
+	REMOTE_RELEASE_SHA256=""
+	REMOTE_BETA_SHA256=""
+	REMOTE_EDGE_SHA256=""
 	REMOTE_RELEASE_URL=""
 	REMOTE_BETA_URL=""
 	REMOTE_EDGE_URL=""
@@ -1128,12 +1485,15 @@ init_remote_adguard_metadata() {
 			REMOTE_RELEASE_MD5="$(awk '$1 !~ /^#/ && $2 == "stable" {print $4; exit}' "${ADGUARD_METADATA_FILE}")"
 			REMOTE_BETA_MD5="$(awk '$1 !~ /^#/ && $2 == "beta" {print $4; exit}' "${ADGUARD_METADATA_FILE}")"
 			REMOTE_EDGE_MD5="$(awk '$1 !~ /^#/ && $2 == "edge" {print $4; exit}' "${ADGUARD_METADATA_FILE}")"
+			REMOTE_RELEASE_SHA256="$(awk '$1 !~ /^#/ && $2 == "stable" {print $5; exit}' "${ADGUARD_METADATA_FILE}")"
+			REMOTE_BETA_SHA256="$(awk '$1 !~ /^#/ && $2 == "beta" {print $5; exit}' "${ADGUARD_METADATA_FILE}")"
+			REMOTE_EDGE_SHA256="$(awk '$1 !~ /^#/ && $2 == "edge" {print $5; exit}' "${ADGUARD_METADATA_FILE}")"
 			REMOTE_RELEASE_URL="${URL_ARCH}/${REMOTE_RELEASE_ARCHIVE}"
 			REMOTE_BETA_URL="${URL_ARCH}/${REMOTE_BETA_ARCHIVE}"
 			REMOTE_EDGE_URL="${URL_ARCH}/${REMOTE_EDGE_ARCHIVE}"
 			if adguard_validate_metadata; then
 				ptxt_ok "Detected AdGuardHome versions: release ${REMOTE_VER}, beta ${REMOTE_BETA}, edge ${REMOTE_EDGE}."
-				export REMOTE_VER REMOTE_BETA REMOTE_EDGE REMOTE_RELEASE_ARCHIVE REMOTE_BETA_ARCHIVE REMOTE_EDGE_ARCHIVE REMOTE_RELEASE_MD5 REMOTE_BETA_MD5 REMOTE_EDGE_MD5 REMOTE_RELEASE_URL REMOTE_BETA_URL REMOTE_EDGE_URL
+				export REMOTE_VER REMOTE_BETA REMOTE_EDGE REMOTE_RELEASE_ARCHIVE REMOTE_BETA_ARCHIVE REMOTE_EDGE_ARCHIVE REMOTE_RELEASE_MD5 REMOTE_BETA_MD5 REMOTE_EDGE_MD5 REMOTE_RELEASE_SHA256 REMOTE_BETA_SHA256 REMOTE_EDGE_SHA256 REMOTE_RELEASE_URL REMOTE_BETA_URL REMOTE_EDGE_URL
 				cleanup_api_files
 				return 0
 			fi
@@ -1164,7 +1524,7 @@ init_upstream_adguard_metadata() {
 			REMOTE_EDGE="$(awk 'NF {VERSION = $1; sub(/^version=/, "", VERSION); print VERSION; exit}' "${EDGE_VERSION_FILE}")"
 			if [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ] && [ -n "${REMOTE_EDGE}" ]; then
 				ptxt_ok "Detected upstream AdGuardHome versions: release ${REMOTE_VER}, beta ${REMOTE_BETA}, edge ${REMOTE_EDGE}."
-				export REMOTE_VER REMOTE_BETA REMOTE_EDGE REMOTE_RELEASE_ARCHIVE REMOTE_BETA_ARCHIVE REMOTE_EDGE_ARCHIVE REMOTE_RELEASE_MD5 REMOTE_BETA_MD5 REMOTE_EDGE_MD5 REMOTE_RELEASE_URL REMOTE_BETA_URL REMOTE_EDGE_URL
+				export REMOTE_VER REMOTE_BETA REMOTE_EDGE REMOTE_RELEASE_ARCHIVE REMOTE_BETA_ARCHIVE REMOTE_EDGE_ARCHIVE REMOTE_RELEASE_MD5 REMOTE_BETA_MD5 REMOTE_EDGE_MD5 REMOTE_RELEASE_SHA256 REMOTE_BETA_SHA256 REMOTE_EDGE_SHA256 REMOTE_RELEASE_URL REMOTE_BETA_URL REMOTE_EDGE_URL
 				rm -f "${RELEASE_VERSION_FILE}" "${BETA_VERSION_FILE}" "${EDGE_VERSION_FILE}"
 				return 0
 			fi
@@ -1963,6 +2323,9 @@ choose_branch() {
 		del_conf ADGUARD_BRANCH
 	fi
 	local BUILD
+	if [ "${CLI_MODE:-0}" = "1" ] && [ -n "$(conf_value ADGUARD_BRANCH)" ]; then
+		return 0
+	fi
 	if [ ! -f "${CONF_FILE}" ] || [ -z "$(conf_value ADGUARD_BRANCH)" ]; then
 		PTXT "${INFO} Choose which build of AdGuardHome to install:" \
 			"  1) Release" \
@@ -2681,9 +3044,10 @@ backup_restore() {
 		fi
 		ptxt_ok "Backup complete at ${BASE_DIR}/backup_AdGuardHome.tar.gz."
 		[ -z "$2" ] && end_op_message 0 || return 0
-	elif [ "$1" = "BACKUP" ] && [ ! -d "${TARG_DIR}" ] && [ ! -f "${AGH_FILE}" ]; then
+	elif [ "$1" = "BACKUP" ]; then
 		PTXT "${ERROR} No ${AGH_FILE} to Backup!"
 		end_op_message 1
+		return 1
 	fi
 	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
 		ptxt_phase "Restoring AdGuardHome backup."
@@ -2851,7 +3215,7 @@ del_jffs_script() {
 }
 
 download_file() {
-	local TARG PERM URL RET FILENAME TMP_FILE TMP_MD5 MD5SUM_OLD MD5SUM_CURR MD5SUM_EXPECTED COUNT
+	local TARG PERM URL RET FILENAME TMP_FILE TMP_MD5 TMP_SHA256 MD5SUM_OLD MD5SUM_CURR MD5SUM_EXPECTED SHA256SUM_CURR SHA256SUM_EXPECTED COUNT
 	TARG="$1"
 	shift
 	PERM="$1"
@@ -2862,45 +3226,67 @@ download_file() {
 		FILENAME="${URL##*/}"
 		TMP_FILE="${TARG}/.${FILENAME}.$$"
 		TMP_MD5="${TMP_FILE}.md5sum"
+		TMP_SHA256="${TMP_FILE}.sha256sum"
 		MD5SUM_OLD=""
 		MD5SUM_CURR=""
 		MD5SUM_EXPECTED=""
+		SHA256SUM_CURR=""
+		SHA256SUM_EXPECTED=""
 		COUNT="0"
 		[ -f "${TARG}/${FILENAME}" ] && MD5SUM_OLD="$(file_md5 "${TARG}/${FILENAME}" 2>/dev/null)"
 		while [ "${COUNT}" -lt 3 ]; do
+			MD5SUM_CURR=""
+			MD5SUM_EXPECTED=""
+			SHA256SUM_CURR=""
+			SHA256SUM_EXPECTED=""
 			ptxt_step "Downloading ${FILENAME} to ${TARG}/${FILENAME}."
-			rm -f "${TMP_FILE}" "${TMP_MD5}"
+			rm -f "${TMP_FILE}" "${TMP_MD5}" "${TMP_SHA256}"
 			if http_get_file "${URL}" "${TMP_FILE}" "" insecure && [ -s "${TMP_FILE}" ]; then
 				ptxt_ok "Downloaded ${FILENAME}."
-				ptxt_step "Calculating checksum for ${FILENAME}."
-				MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"
-				if ! md5_is_valid "${MD5SUM_CURR}"; then
-					ptxt_warn "Unable to calculate checksum for ${FILENAME}; retrying download."
-					COUNT="$((COUNT + 1))"
-					continue
-				fi
-				ptxt_ok "Calculated checksum for ${FILENAME}."
-				MD5SUM_EXPECTED=""
 				ptxt_step "Checking remote checksum metadata for ${FILENAME}."
+				if http_get_file "${URL}.sha256sum" "${TMP_SHA256}" "" insecure && [ -s "${TMP_SHA256}" ]; then
+					SHA256SUM_EXPECTED="$(awk 'NR == 1 {print $1; exit}' "${TMP_SHA256}")"
+				fi
 				if http_get_file "${URL}.md5sum" "${TMP_MD5}" "" insecure && [ -s "${TMP_MD5}" ]; then
 					MD5SUM_EXPECTED="$(awk 'NR == 1 {print $1; exit}' "${TMP_MD5}")"
 				fi
-				if md5_is_valid "${MD5SUM_EXPECTED}"; then
-					if [ "${MD5SUM_CURR}" = "${MD5SUM_EXPECTED}" ]; then
-						ptxt_ok "Checksum verified for ${FILENAME}."
+				if sha256_is_valid "${SHA256SUM_EXPECTED}"; then
+					ptxt_step "Verifying SHA-256 checksum for ${FILENAME}."
+					if ! SHA256SUM_CURR="$(file_sha256 "${TMP_FILE}" 2>/dev/null)"; then
+						SHA256SUM_CURR=""
+					fi
+					if [ "${SHA256SUM_CURR}" = "${SHA256SUM_EXPECTED}" ]; then
+						MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"
+						ptxt_ok "SHA-256 checksum verified for ${FILENAME}."
 						break
 					fi
-					ptxt_warn "Checksum mismatch for ${FILENAME}; retrying download."
-				else
-					ptxt_warn "No valid remote checksum metadata for ${FILENAME}; using download result."
-					break
+					if [ -n "${SHA256SUM_CURR}" ]; then
+						ptxt_warn "SHA-256 checksum mismatch for ${FILENAME}; retrying download."
+					else
+						ptxt_warn "SHA-256 checksum could not be calculated for ${FILENAME}; falling back to MD5 if available."
+					fi
+				fi
+				if ! sha256_is_valid "${SHA256SUM_EXPECTED}" || [ -z "${SHA256SUM_CURR}" ]; then
+					if md5_is_valid "${MD5SUM_EXPECTED}"; then
+						ptxt_step "Verifying MD5 checksum for ${FILENAME}."
+						MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"
+						if [ "${MD5SUM_CURR}" = "${MD5SUM_EXPECTED}" ]; then
+							ptxt_warn "Only MD5 checksum metadata was usable for ${FILENAME}; SHA-256 is preferred."
+							break
+						fi
+						ptxt_warn "MD5 checksum mismatch for ${FILENAME}; retrying download."
+					else
+						ptxt_warn "No valid remote checksum metadata for ${FILENAME}; using download result."
+						MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"
+						break
+					fi
 				fi
 			else
 				ptxt_warn "Download attempt failed for ${FILENAME}; retrying if attempts remain."
 			fi
 			COUNT="$((COUNT + 1))"
 		done
-		rm -f "${TMP_MD5}"
+		rm -f "${TMP_MD5}" "${TMP_SHA256}"
 		if [ "${COUNT}" -eq 3 ]; then
 			rm -f "${TMP_FILE}"
 			ptxt_fail "Unable to download ${BOLD}${URL}${NORM}."
@@ -2948,7 +3334,7 @@ installer_update_reexec() {
 }
 
 inst_AdGuardHome() {
-	local ADGUARD_TAR ARCHIVE_MD5 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT
+	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
 	INSTALLER_MD5_OLD=""
@@ -3092,6 +3478,7 @@ inst_AdGuardHome() {
 		ptxt_phase "Installing AdGuardHome package."
 		REMOTE_ADGUARD_ARCHIVE="$(adguard_remote_archive "$2")"
 		REMOTE_ADGUARD_MD5="$(adguard_remote_md5 "$2")"
+		REMOTE_ADGUARD_SHA256="$(adguard_remote_sha256 "$2")"
 		REMOTE_ADGUARD_URL="$(adguard_remote_url "$2")"
 		[ -z "${REMOTE_ADGUARD_ARCHIVE}" ] && REMOTE_ADGUARD_ARCHIVE="${ADGUARD_TAR}"
 		[ -z "${REMOTE_ADGUARD_URL}" ] && REMOTE_ADGUARD_URL="${URL_ARCH}/${REMOTE_ADGUARD_ARCHIVE}"
@@ -3100,21 +3487,36 @@ inst_AdGuardHome() {
 			end_op_message 1 "$1"
 			return 1
 		fi
-		if md5_is_valid "${REMOTE_ADGUARD_MD5}"; then
-			ptxt_step "Verifying checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
+		if sha256_is_valid "${REMOTE_ADGUARD_SHA256}"; then
+			ptxt_step "Verifying SHA-256 checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
+			ARCHIVE_SHA256="$(file_sha256 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || {
+				PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package SHA-256 checksum."
+				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+				end_op_message 1 "$1"
+				return 1
+			}
+			if [ "${ARCHIVE_SHA256}" != "${REMOTE_ADGUARD_SHA256}" ]; then
+				PTXT "${ERROR} SHA-256 checksum mismatch for downloaded AdGuardHome package metadata."
+				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+				end_op_message 1 "$1"
+				return 1
+			fi
+			ptxt_ok "SHA-256 checksum verified for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
+		elif md5_is_valid "${REMOTE_ADGUARD_MD5}"; then
+			ptxt_step "Verifying MD5 checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
 			ARCHIVE_MD5="$(file_md5 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || {
-				PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package checksum."
+				PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package MD5 checksum."
 				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 				end_op_message 1 "$1"
 				return 1
 			}
 			if [ "${ARCHIVE_MD5}" != "${REMOTE_ADGUARD_MD5}" ]; then
-				PTXT "${ERROR} Checksum mismatch for downloaded AdGuardHome package metadata."
+				PTXT "${ERROR} MD5 checksum mismatch for downloaded AdGuardHome package metadata."
 				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 				end_op_message 1 "$1"
 				return 1
 			fi
-			ptxt_ok "Checksum verified for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
+			ptxt_warn "Only MD5 package metadata was available; SHA-256 is preferred."
 		fi
 		if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
 		ptxt_step "Replacing AdGuardHome package with downloaded archive."
@@ -3831,6 +4233,13 @@ end_op_header() {
 }
 
 end_op_message() {
+	if [ "${CLI_MODE:-0}" = "1" ]; then
+		case "${1:-0}" in
+			0) return 0 ;;
+			1) return 1 ;;
+			2) return 2 ;;
+		esac
+	fi
 	if [ "${ADGUARD_DEFER_END_OP:-0}" = "1" ]; then
 		case "${1:-0}" in
 			0) return 0 ;;
@@ -4030,6 +4439,12 @@ menu() {
 				end_op_message 1
 			fi
 			;;
+		"d" | "D" | "doctor")
+			doctor
+			;;
+		"status")
+			status "${BRANCH}"
+			;;
 		"q" | "Q")
 			PTXT "${INFO} Operations have been applied if any has been made" \
 				"${INFO} In case of anomaly, please reboot your router!"
@@ -4132,6 +4547,10 @@ read_input_port() {
 
 read_yesno() {
 	local YESNO
+	if [ "${AI_ASSUME_YES:-0}" = "1" ]; then
+		PTXT "${INPUT} ${1} ${BOLD}[y/n]${NORM}: y"
+		return 0
+	fi
 	while :; do
 		PTXT -n "${INPUT} ${1} ${BOLD}[y/n]${NORM}: "
 		if ! read -r YESNO; then
@@ -4157,6 +4576,9 @@ menu_action_allowed() {
 		"1" | "install" | "update" | "2" | "uninstall")
 			return 0
 			;;
+		[dD] | "doctor" | "status")
+			return 0
+			;;
 		"3" | "changepw" | "4" | "reconfigure" | "5" | "setamtmupdate" | "6" | "setlocalcache" | "7" | "switchbranch" | "8" | "setipset" | [bB] | "backup")
 			[ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && return 0
 			return 1
@@ -4179,6 +4601,529 @@ single_arg_menu_action() {
 	menu_action_allowed "$1"
 }
 
+cli_usage() {
+	PTXT "${INFO} Usage:" \
+		"${INFO}   sh installer install [--installer-branch master] [--adguardhome-branch {release|beta|edge}] --yes [--allow-dns-nvram]" \
+		"${INFO}   sh installer update [--installer-branch master] [--adguardhome-branch {release|beta|edge}] --yes [--dry-run]" \
+		"${INFO}   sh installer backup --yes" \
+		"${INFO}   sh installer restore --file /path/to/backup_AdGuardHome.tar.gz --yes [--dry-run]" \
+		"${INFO}   sh installer doctor [--fix]" \
+		"${INFO}   sh installer ipset refresh [--yes] [--dry-run]" \
+		"${INFO}   sh installer netcheck --mode {legacy|wan|lan} [--hosts host-list] [--dns server] [--require-http {YES|NO}] [--timeout seconds]" \
+		"${INFO}   sh installer dns-port-policy --policy {legacy|refuse-unknown}" \
+		"${INFO}   sh installer performance --profile {balanced|low-memory|fast}" \
+		"${INFO}   sh installer uninstall --yes [--dry-run] [--allow-dns-nvram]"
+}
+
+cli_require_yes() {
+	if [ "${CLI_YES:-0}" != "1" ]; then
+		PTXT "${ERROR} Refusing destructive non-interactive action without --yes."
+		return 1
+	fi
+	return 0
+}
+
+cli_enable_assume_yes() {
+	AI_ASSUME_YES="1"
+	export AI_ASSUME_YES
+}
+
+cli_dry_run() {
+	PTXT "${INFO} Dry-run: would run $1."
+}
+
+cli_pre_remote_dry_run() {
+	local cmd opt restore_file sub
+	cmd="${1:-}"
+	shift || true
+	restore_file=""
+	case "${cmd}" in
+		install | update | restore | uninstall) ;;
+		ipset)
+			sub="${1:-}"
+			[ "${sub}" = "refresh" ] || return 1
+			shift || true
+			;;
+		*) return 1 ;;
+	esac
+	while [ "$#" -gt 0 ]; do
+		opt="$1"
+		case "${opt}" in
+			--dry-run)
+				case "${cmd}" in
+					restore) cli_dry_run "restore ${restore_file:-${BASE_DIR}/backup_AdGuardHome.tar.gz}" ;;
+					ipset) cli_dry_run "IPSET refresh" ;;
+					*) cli_dry_run "${cmd}" ;;
+				esac
+				return 0
+				;;
+			--file)
+				[ "$#" -gt 1 ] || return 1
+				restore_file="$2"
+				shift 2
+				;;
+			--branch | --adguardhome-branch | --installer-branch | --profile)
+				[ "$#" -gt 1 ] || return 1
+				shift 2
+				;;
+			*)
+				shift
+				;;
+		esac
+	done
+	return 1
+}
+
+cli_backup_restore_file() {
+	local restore_default restore_file restore_save restore_defer_saved cli_ret
+	restore_file="$1"
+	restore_default="${BASE_DIR}/backup_AdGuardHome.tar.gz"
+	restore_defer_saved="${ADGUARD_DEFER_END_OP:-0}"
+	if [ -z "${restore_file}" ]; then
+		PTXT "${ERROR} restore requires --file /path/to/backup_AdGuardHome.tar.gz."
+		return 1
+	fi
+	if [ ! -f "${restore_file}" ]; then
+		PTXT "${ERROR} Restore file not found: ${restore_file}"
+		return 1
+	fi
+	if ! adguard_archive_is_safe "${restore_file}" 1; then
+		PTXT "${ERROR} Restore file failed backup safety validation: ${restore_file}"
+		return 1
+	fi
+	if [ "${restore_file}" = "${restore_default}" ]; then
+		ADGUARD_DEFER_END_OP="1"
+		backup_restore RESTORE
+		cli_ret="$?"
+		ADGUARD_DEFER_END_OP="${restore_defer_saved}"
+		return "${cli_ret}"
+	fi
+	restore_save="${restore_default}.cli.$$"
+	[ -f "${restore_default}" ] && mv "${restore_default}" "${restore_save}"
+	if ! cp "${restore_file}" "${restore_default}"; then
+		[ -f "${restore_save}" ] && mv "${restore_save}" "${restore_default}"
+		return 1
+	fi
+	if ! chmod 600 "${restore_default}"; then
+		rm -f "${restore_default}"
+		[ -f "${restore_save}" ] && mv "${restore_save}" "${restore_default}"
+		return 1
+	fi
+	ADGUARD_DEFER_END_OP="1"
+	backup_restore RESTORE
+	cli_ret="$?"
+	ADGUARD_DEFER_END_OP="${restore_defer_saved}"
+	if [ -f "${restore_save}" ]; then
+		mv "${restore_save}" "${BASE_DIR}/backup_AdGuardHome.tar.gz"
+	fi
+	return "${cli_ret}"
+}
+
+cli_bool_value() {
+	case "$1" in
+		YES | yes | Yes | ON | on | On | TRUE | true | True | 1) PTXT "YES" ;;
+		NO | no | No | OFF | off | Off | FALSE | false | False | 0) PTXT "NO" ;;
+		*) return 1 ;;
+	esac
+}
+
+cli_adguard_branch_is_valid() {
+	case "$1" in
+		release | beta | edge) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+cli_simple_value_is_safe() {
+	case "$1" in
+		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-]*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+cli_host_list_is_safe() {
+	[ -n "$1" ] || return 1
+	[ -z "$(printf '%s' "$1" | tr -d 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._: -')" ]
+}
+
+cli_write_quoted_conf() {
+	if ! write_conf "$1" "\"$2\""; then
+		return 1
+	fi
+	return 0
+}
+
+cli_netcheck_config_values() {
+	local dns host_list http_required mode timeout
+	mode="$1"
+	host_list="$2"
+	dns="$3"
+	http_required="$4"
+	timeout="$5"
+	case "${mode}" in
+		legacy | wan | lan) ;;
+		*)
+			PTXT "${ERROR} netcheck requires --mode {legacy|wan|lan}."
+			return 1
+			;;
+	esac
+	[ -z "${host_list}" ] || cli_host_list_is_safe "${host_list}" || {
+		PTXT "${ERROR} netcheck hosts contain unsupported characters."
+		return 1
+	}
+	[ -z "${dns}" ] || cli_simple_value_is_safe "${dns}" || {
+		PTXT "${ERROR} netcheck DNS server contains unsupported characters."
+		return 1
+	}
+	case "${timeout}" in
+		"") ;;
+		*[!0123456789]*)
+			PTXT "${ERROR} netcheck timeout must be a positive number of seconds."
+			return 1
+			;;
+		*) [ "${timeout}" -gt 0 ] 2>/dev/null || {
+			PTXT "${ERROR} netcheck timeout must be greater than zero."
+			return 1
+		} ;;
+	esac
+	cli_write_quoted_conf ADGUARD_NETCHECK_MODE "${mode}" || return 1
+	[ -z "${host_list}" ] || cli_write_quoted_conf ADGUARD_NETCHECK_HOSTS "${host_list}" || return 1
+	[ -z "${dns}" ] || cli_write_quoted_conf ADGUARD_NETCHECK_DNS "${dns}" || return 1
+	[ -z "${http_required}" ] || cli_write_quoted_conf ADGUARD_NETCHECK_REQUIRE_HTTP "${http_required}" || return 1
+	[ -z "${timeout}" ] || cli_write_quoted_conf ADGUARD_NETCHECK_TIMEOUT "${timeout}" || return 1
+	ptxt_ok "Netcheck mode set to ${mode}."
+}
+
+cli_dns_port_policy() {
+	local policy
+	policy=""
+	while [ "$#" -gt 0 ]; do
+		case "$1" in
+			--policy)
+				[ "$#" -gt 1 ] || return 2
+				policy="$2"
+				shift 2
+				;;
+			*) return 2 ;;
+		esac
+	done
+	case "${policy}" in
+		legacy)
+			cli_write_quoted_conf ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "0" || return 1
+			ptxt_ok "DNS port-owner cleanup policy set to legacy."
+			;;
+		refuse-unknown)
+			cli_write_quoted_conf ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "1" || return 1
+			ptxt_ok "DNS port-owner cleanup policy set to refuse unknown owners."
+			;;
+		*)
+			PTXT "${ERROR} dns-port-policy requires --policy {legacy|refuse-unknown}."
+			return 1
+			;;
+	esac
+}
+
+cli_installer_branch_from_args() {
+	while [ "$#" -gt 0 ]; do
+		case "$1" in
+			--installer-branch)
+				[ "$#" -gt 1 ] || return 1
+				branch_is_safe "$2" || return 1
+				PTXT "$2"
+				return 0
+				;;
+			--branch | --adguardhome-branch | --file | --profile | --mode | --hosts | --dns | --require-http | --timeout | --policy)
+				[ "$#" -gt 1 ] || return 1
+				shift 2
+				;;
+			*)
+				shift
+				;;
+		esac
+	done
+	return 1
+}
+
+cli_write_adguard_branch() {
+	local old_branch new_branch
+	new_branch="$1"
+	old_branch="$(conf_value ADGUARD_BRANCH)"
+	if ! write_conf ADGUARD_BRANCH "\"${new_branch}\""; then
+		return 1
+	fi
+	if [ -n "${old_branch}" ] && [ "${old_branch}" != "${new_branch}" ]; then
+		ADGUARD_BRANCH_CHANGED="1"
+		export ADGUARD_BRANCH_CHANGED
+	fi
+	return 0
+}
+
+cli_run() {
+	local cmd sub opt restore_file profile proc_profile adguard_branch installer_branch netcheck_mode netcheck_hosts netcheck_dns netcheck_http netcheck_timeout dns_policy
+	CLI_MODE="1"
+	export CLI_MODE
+	cmd="${1:-}"
+	shift || true
+	CLI_YES="0"
+	CLI_DRY_RUN="0"
+	CLI_ALLOW_DNS_NVRAM="0"
+	restore_file=""
+	profile=""
+	adguard_branch=""
+	installer_branch=""
+	netcheck_mode=""
+	netcheck_hosts=""
+	netcheck_dns=""
+	netcheck_http=""
+	netcheck_timeout=""
+	dns_policy=""
+	case "${cmd}" in
+		install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | uninstall) ;;
+		*) return 2 ;;
+	esac
+	if [ "${cmd}" = "ipset" ]; then
+		sub="${1:-}"
+		[ -n "${sub}" ] && shift
+	else
+		sub=""
+	fi
+	while [ "$#" -gt 0 ]; do
+		opt="$1"
+		case "${opt}" in
+			--yes)
+				CLI_YES="1"
+				shift
+				;;
+			--dry-run)
+				CLI_DRY_RUN="1"
+				shift
+				;;
+			--allow-dns-nvram)
+				CLI_ALLOW_DNS_NVRAM="1"
+				shift
+				;;
+			--fix)
+				[ "${cmd}" = "doctor" ] || return 2
+				sub="--fix"
+				shift
+				;;
+			--branch | --adguardhome-branch)
+				[ "$#" -gt 1 ] || return 2
+				adguard_branch="$2"
+				shift 2
+				;;
+			--installer-branch)
+				[ "$#" -gt 1 ] || return 2
+				installer_branch="$2"
+				shift 2
+				;;
+			--file)
+				[ "$#" -gt 1 ] || return 2
+				restore_file="$2"
+				shift 2
+				;;
+			--profile)
+				[ "$#" -gt 1 ] || return 2
+				profile="$2"
+				shift 2
+				;;
+			--mode)
+				[ "$#" -gt 1 ] || return 2
+				[ "${cmd}" = "netcheck" ] || return 2
+				netcheck_mode="$2"
+				shift 2
+				;;
+			--hosts)
+				[ "$#" -gt 1 ] || return 2
+				[ "${cmd}" = "netcheck" ] || return 2
+				netcheck_hosts="$2"
+				shift 2
+				;;
+			--dns)
+				[ "$#" -gt 1 ] || return 2
+				[ "${cmd}" = "netcheck" ] || return 2
+				netcheck_dns="$2"
+				shift 2
+				;;
+			--require-http)
+				[ "$#" -gt 1 ] || return 2
+				[ "${cmd}" = "netcheck" ] || return 2
+				netcheck_http="$(cli_bool_value "$2")" || return 2
+				shift 2
+				;;
+			--timeout)
+				[ "$#" -gt 1 ] || return 2
+				[ "${cmd}" = "netcheck" ] || return 2
+				netcheck_timeout="$2"
+				shift 2
+				;;
+			--policy)
+				[ "$#" -gt 1 ] || return 2
+				[ "${cmd}" = "dns-port-policy" ] || return 2
+				dns_policy="$2"
+				shift 2
+				;;
+			*) return 2 ;;
+		esac
+	done
+	if [ -n "${installer_branch}" ]; then
+		branch_is_safe "${installer_branch}" || {
+			PTXT "${ERROR} Unsupported installer branch: ${installer_branch}"
+			return 1
+		}
+	fi
+	if [ -n "${adguard_branch}" ]; then
+		cli_adguard_branch_is_valid "${adguard_branch}" || {
+			PTXT "${ERROR} Unsupported AdGuardHome branch: ${adguard_branch}"
+			return 1
+		}
+	fi
+	case "${cmd}" in
+		doctor)
+			doctor "${sub}"
+			return "$?"
+			;;
+		update)
+			[ "${CLI_DRY_RUN}" = "1" ] && {
+				cli_dry_run "update"
+				return 0
+			}
+			cli_require_yes || return 1
+			[ -z "${adguard_branch}" ] || cli_write_adguard_branch "${adguard_branch}" || return 1
+			cli_enable_assume_yes
+			AUTO_UPDATE="update"
+			menu update
+			;;
+		backup)
+			cli_require_yes || return 1
+			cli_enable_assume_yes
+			backup_restore BACKUP CLI
+			return "$?"
+			;;
+		restore)
+			[ "${CLI_DRY_RUN}" = "1" ] && {
+				cli_dry_run "restore ${restore_file:-${BASE_DIR}/backup_AdGuardHome.tar.gz}"
+				return 0
+			}
+			cli_require_yes || return 1
+			cli_enable_assume_yes
+			cli_backup_restore_file "${restore_file}"
+			;;
+		uninstall)
+			[ "${CLI_DRY_RUN}" = "1" ] && {
+				cli_dry_run "uninstall"
+				return 0
+			}
+			cli_require_yes || return 1
+			if [ "$(conf_value ADGUARD_DOMAIN)" = "yes" ] && [ "${CLI_ALLOW_DNS_NVRAM}" != "1" ]; then
+				PTXT "${ERROR} Refusing uninstall DNS/NVRAM rewrite without --allow-dns-nvram."
+				return 1
+			fi
+			cli_enable_assume_yes
+			uninst_all
+			;;
+		ipset)
+			[ "${sub}" = "refresh" ] || return 2
+			[ "${CLI_DRY_RUN}" = "1" ] && {
+				cli_dry_run "IPSET refresh"
+				return 0
+			}
+			if [ "$(conf_value ADGUARD_IPSET)" = "NO" ]; then
+				ptxt_ok "IPSET integration is disabled; no refresh needed."
+				return 0
+			fi
+			if [ "${CLI_YES}" = "1" ]; then
+				OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
+				if service restart_AdGuardHome >/dev/null 2>&1 && adguard_service_status_after_action restart "${OLD_PIDS}"; then
+					return 0
+				fi
+				PTXT "${WARNING} IPSET refresh requested, but AdGuardHome could not be restarted."
+				return 1
+			else
+				ptxt_ok "IPSET preference unchanged. Use --yes to restart AdGuardHome now."
+			fi
+			;;
+		netcheck)
+			cli_netcheck_config_values "${netcheck_mode}" "${netcheck_hosts}" "${netcheck_dns}" "${netcheck_http}" "${netcheck_timeout}"
+			return "$?"
+			;;
+		dns-port-policy)
+			cli_dns_port_policy --policy "${dns_policy}"
+			return "$?"
+			;;
+		performance)
+			case "${profile}" in
+				balanced) proc_profile="balanced" ;;
+				low-memory) proc_profile="safe" ;;
+				fast) proc_profile="aggressive" ;;
+				*)
+					PTXT "${ERROR} performance requires --profile {balanced|low-memory|fast}."
+					return 1
+					;;
+			esac
+			if ! write_conf ADGUARD_PROC_PROFILE "\"${proc_profile}\""; then
+				return 1
+			fi
+			ptxt_ok "Performance profile set to ${profile}."
+			;;
+		install)
+			[ "${CLI_DRY_RUN}" = "1" ] && {
+				cli_dry_run "install"
+				return 0
+			}
+			cli_require_yes || return 1
+			if [ "${CLI_ALLOW_DNS_NVRAM}" != "1" ]; then
+				PTXT "${ERROR} Refusing install DNS/NVRAM rewrite without --allow-dns-nvram."
+				return 1
+			fi
+			if [ ! -f "${AGH_FILE}" ]; then
+				PTXT "${ERROR} Non-interactive install cannot complete fresh first-run setup."
+				PTXT "${ERROR} Run the interactive installer for fresh installs, or use restore --file with an existing backup."
+				return 1
+			fi
+			cli_enable_assume_yes
+			cleanup
+			check_jffs_enabled
+			check_dns_environment 0
+			[ -n "${adguard_branch}" ] || adguard_branch="$(conf_value ADGUARD_BRANCH)"
+			[ -n "${adguard_branch}" ] || adguard_branch="release"
+			cli_adguard_branch_is_valid "${adguard_branch}" || {
+				PTXT "${ERROR} Unsupported AdGuardHome branch: ${adguard_branch}"
+				return 1
+			}
+			create_dir "${TARG_DIR}" || return 1
+			[ -z "${installer_branch}" ] || write_conf INSTALLER_BRANCH "\"${installer_branch}\"" || return 1
+			cli_write_adguard_branch "${adguard_branch}" || return 1
+			inst_AdGuardHome install
+			;;
+	esac
+}
+
+if [ "${1:-}" = "doctor" ]; then
+	case "${2:-}" in
+		"" | "--fix")
+			doctor "${2:-}"
+			exit "$?"
+			;;
+	esac
+fi
+if [ "${1:-}" = "status" ]; then
+	status
+	exit "$?"
+fi
+if [ "${2:-}" = "status" ]; then
+	status "${1:-}"
+	exit "$?"
+fi
+
+case "${1:-}" in
+	install | update | restore | uninstall | ipset)
+		if cli_pre_remote_dry_run "$@"; then
+			exit 0
+		fi
+		;;
+esac
+
 installer_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
 if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
@@ -4198,7 +5143,22 @@ if ! conf_has_key BLOCKLIST_ANALYZER_SHA256; then
 	write_conf BLOCKLIST_ANALYZER_SHA256 "\"${BLOCKLIST_ANALYZER_SHA256_DEFAULT}\""
 	BLOCKLIST_ANALYZER_SHA256="${BLOCKLIST_ANALYZER_SHA256_DEFAULT}"
 fi
+if [ -z "${2:-}" ] && single_arg_menu_action "${1:-}"; then
+	CHOSEN="${1}"
+	BRANCH="$(conf_value INSTALLER_BRANCH)"
+	if [ -n "${BRANCH}" ]; then
+		BRANCH="$(sanitize_branch "${BRANCH}")"
+	else
+		BRANCH="master"
+	fi
+	set -- "${BRANCH}" "${CHOSEN}"
+fi
 case "${1}" in
+	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | uninstall)
+		BRANCH="$(cli_installer_branch_from_args "$@" 2>/dev/null)"
+		[ -n "${BRANCH}" ] || BRANCH="$(conf_value INSTALLER_BRANCH)"
+		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
+		;;
 	"amtmupdate")
 		BRANCH="$(conf_value INSTALLER_BRANCH)"
 		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
@@ -4213,18 +5173,7 @@ case "${1}" in
 		BRANCH="master"
 		;;
 	*)
-		if [ -z "${2:-}" ] && single_arg_menu_action "${1}"; then
-			CHOSEN="${1}"
-			BRANCH="$(conf_value INSTALLER_BRANCH)"
-			if [ -n "${BRANCH}" ]; then
-				BRANCH="$(sanitize_branch "${BRANCH}")"
-			else
-				BRANCH="master"
-			fi
-			set -- "${BRANCH}" "${CHOSEN}"
-		else
-			BRANCH="${1}"
-		fi
+		BRANCH="${1}"
 		;;
 esac
 BRANCH="$(sanitize_branch "${BRANCH}")"
@@ -4298,7 +5247,31 @@ case "${ROUTER_ARCH}" in
 		;;
 esac
 
-init_remote_adguard_metadata
+case "${1:-}" in
+	install | update)
+		init_remote_adguard_metadata
+		;;
+	backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | uninstall) ;;
+	*)
+		init_remote_adguard_metadata
+		;;
+esac
+
+case "${1:-}" in
+	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | uninstall)
+		cli_run "$@"
+		CLI_STATUS="$?"
+		if [ "${CLI_STATUS}" -ne 0 ]; then
+			[ "${CLI_STATUS}" -eq 2 ] && cli_usage
+			exit "${CLI_STATUS}"
+		fi
+		exit 0
+		;;
+	status)
+		status "${BRANCH}"
+		exit "$?"
+		;;
+esac
 
 case "$2" in
 	"")
@@ -4312,9 +5285,10 @@ case "$2" in
 		if menu_action_allowed "$2"; then
 			menu "$2"
 		else
-			PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore)" \
+			PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore | doctor | status)" \
+				"${INFO} Doctor can also be run as: sh installer doctor [--fix]. Status can also be run as: sh installer status." \
 				"${INFO} Branch or Tag must be represented by a value or empty quotes in place of string e.g. \"\" in the \$1 string position." \
-				"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore) in the \$2 string position." \
+				"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore | doctor | status) in the \$2 string position." \
 				"${INFO} An update example sh installer master update, or just use the regular menu by not specifying an Action."
 		fi
 		;;

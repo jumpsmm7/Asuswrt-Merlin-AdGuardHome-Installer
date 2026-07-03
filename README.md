@@ -14,7 +14,13 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 - [Known limitations](#known-limitations)
 - [Features](#features)
 - [Install, update, reconfigure, or uninstall](#install-update-reconfigure-or-uninstall)
+- [Non-interactive commands](#non-interactive-commands)
 - [Service commands](#service-commands)
+- [Status and doctor diagnostics](#status-and-doctor-diagnostics)
+- [Runtime behavior settings](#runtime-behavior-settings)
+  - [Netcheck modes](#netcheck-modes)
+  - [DNS port-owner cleanup policy](#dns-port-owner-cleanup-policy)
+  - [Runtime optimization profile](#runtime-optimization-profile)
 - [Verify AdGuardHome is running](#verify-adguardhome-is-running)
 - [AdGuardHome DNS examples](#adguardhome-dns-examples)
 - [Unused blocklist analyzer](#unused-blocklist-analyzer)
@@ -52,6 +58,10 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 
 - Some double-NAT or dual-WAN environments may not be compatible because AdGuardHome takes over DNS service placement on port `53`.
 - The installer moves DNSMASQ to port `553` when AdGuardHome owns port `53`.
+- v2.5.0 keeps legacy runtime defaults for compatibility. New safer or more flexible behaviours are opt-in through documented settings.
+- Unknown non-AdGuardHome owners of port `53` are still terminated by default to preserve legacy startup behaviour. Set `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=1` only if you want startup to abort instead.
+- LAN-only or outage-tolerant installs can opt into `ADGUARD_NETCHECK_MODE=lan`; the default `legacy` mode keeps the previous public-host checks.
+- Runtime proc/sysctl tuning remains enabled by default with the legacy aggressive profile. Set `ADGUARD_PROC_OPTIMIZE=NO` or select a lower profile if you do not want these writes.
 
 ## Features
 
@@ -61,6 +71,9 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 - Supports updating AdGuardHome without reinstalling or reconfiguring from scratch.
 - Includes installer, update, backup, reconfiguration, and uninstall flows.
 - Provides service integration through Entware init scripts and Asuswrt-Merlin service events.
+- Provides v2.5.0 diagnostics with `sh installer status` and `sh installer doctor`.
+- Provides v2.5.0 non-interactive commands for repeatable install, update, backup, restore, doctor, IPSET refresh, performance profile, and uninstall tasks.
+- Keeps legacy netcheck, DNS port-owner cleanup, and runtime optimization defaults while allowing users to opt into alternate behaviours.
 - Can run an unused blocklist analyzer using menu option **9**, `sh installer blocklists`, or `sh installer unusedblocklists` to identify filter lists with zero query-log rule hits in the analyzed window.
 
 ## Install, update, reconfigure, or uninstall
@@ -72,6 +85,42 @@ curl -L -s -O https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardH
 ```
 
 The same installer entry point is used for initial installation, updates, reconfiguration, and uninstall actions.
+
+## Non-interactive commands
+
+v2.5.0 adds command-line entry points for users who want repeatable actions without the interactive menu. Existing one-argument menu actions such as `sh installer update`, `sh installer install`, and `sh installer backup` still use the interactive compatibility path. Destructive non-interactive actions require `--yes`; install and uninstall actions that may rewrite DNS/NVRAM also require `--allow-dns-nvram`.
+
+Examples:
+
+```sh
+sh installer install --installer-branch master --adguardhome-branch release --yes --allow-dns-nvram
+sh installer update --installer-branch master --adguardhome-branch release --yes
+sh installer update --dry-run
+sh installer backup --yes
+sh installer restore --file /opt/etc/backup_AdGuardHome.tar.gz --yes
+sh installer restore --file /opt/etc/backup_AdGuardHome.tar.gz --dry-run
+sh installer doctor
+sh installer doctor --fix
+sh installer status
+sh installer ipset refresh
+sh installer ipset refresh --yes
+sh installer ipset refresh --dry-run
+sh installer netcheck --mode wan --hosts "google.com github.com snbforums.com" --dns 127.0.0.1 --require-http NO --timeout 300
+sh installer dns-port-policy --policy refuse-unknown
+sh installer performance --profile balanced
+sh installer uninstall --yes --allow-dns-nvram
+sh installer uninstall --dry-run
+```
+
+`--installer-branch` selects the installer repository branch or tag used to fetch installer-managed artifacts. If it is omitted, the installer uses the saved `INSTALLER_BRANCH` value or falls back to `master`.
+
+`--adguardhome-branch` selects the AdGuardHome binary channel. Supported AdGuardHome branches are `release`, `beta`, and `edge`. The older `--branch` option is retained as an alias for `--adguardhome-branch`; use `--installer-branch` when you need to change the installer branch.
+
+The dry-run paths print what would be done and avoid changing the live install.
+
+The `ipset refresh` command checks whether IPSET integration is enabled. Without `--yes`, it does not restart AdGuardHome; with `--yes`, it restarts AdGuardHome so refreshed mappings can take effect.
+
+The `netcheck`, `dns-port-policy`, and `performance` helpers only update installer configuration values. Restart AdGuardHome when you want the changed runtime behaviour to be loaded by the service scripts.
 
 ## Service commands
 
@@ -86,6 +135,161 @@ Recommended Asuswrt-Merlin service commands:
 ```sh
 service {start|stop|restart|kill|reload}_AdGuardHome
 ```
+
+## Status and doctor diagnostics
+
+Use `status` for a short service summary:
+
+```sh
+sh installer status
+```
+
+The status output includes the AdGuardHome service state, monitor state, PID count, port `53` ownership, AdGuardHome version, installer version, selected branch, WebUI address and port, dnsmasq handoff state, and the last startup result found in logs.
+
+Use `doctor` for a broader health check:
+
+```sh
+sh installer doctor
+```
+
+The doctor command prints simple status lines such as:
+
+```text
+[OK] Entware /opt is mounted
+[WARN] backup archive missing
+[FAIL] DNS port 53 is not listening
+```
+
+Doctor checks include Entware mount state, AdGuardHome directories and symlinks, managed Asuswrt-Merlin hook scripts, Entware init scripts, `AdGuardHome.yaml`, `.config`, DNS port `53`, dnsmasq handoff markers and locks, monitor and daemon process counts, WebUI port ownership, installer and AdGuardHome versions, backup archive safety, IPSET files, and DNS-related NVRAM values.
+
+Safe repairs can be requested with:
+
+```sh
+sh installer doctor --fix
+```
+
+The `--fix` mode is intentionally limited. It can repair permissions, recreate the expected `/opt/sbin/AdGuardHome` symlink, and remove stale handoff markers, stale pid files, and stale temporary files when they are not owned by an active process. It does not rewrite DNS, firewall, or NVRAM settings.
+
+## Runtime behavior settings
+
+v2.5.0 exposes several runtime behaviours through environment or `.config` settings while preserving the previous defaults until users opt into a change. Environment variables take precedence for the current invocation. Persistent settings can be placed in `/opt/etc/AdGuardHome/.config` using the same `NAME="value"` style already used by the installer.
+
+### Netcheck modes
+
+Default behaviour remains the legacy netcheck path:
+
+```sh
+ADGUARD_NETCHECK_MODE="legacy"
+```
+
+Legacy mode keeps the previous public-host checks against `google.com`, `github.com`, and `snbforums.com`, uses `127.0.0.1` for DNS lookups, waits up to `300` seconds for system time, and preserves the old DNS, ping, and HTTP probing flow.
+
+Users who want the configurable v2.5.0 checks can set the values directly in `.config` or use the non-interactive helper:
+
+```sh
+sh installer netcheck --mode wan --hosts "google.com github.com snbforums.com" --dns 127.0.0.1 --require-http NO --timeout 300
+```
+
+This writes values equivalent to:
+
+```sh
+ADGUARD_NETCHECK_MODE="wan"
+ADGUARD_NETCHECK_HOSTS="google.com github.com snbforums.com"
+ADGUARD_NETCHECK_DNS="127.0.0.1"
+ADGUARD_NETCHECK_REQUIRE_HTTP="NO"
+ADGUARD_NETCHECK_TIMEOUT="300"
+```
+
+In `wan` mode, netcheck succeeds when system time is ready and at least one configured host resolves or pings. HTTP probing is required only when `ADGUARD_NETCHECK_REQUIRE_HTTP="YES"`.
+
+For isolated LAN deployments or sites where public Internet reachability should not block local service management, run:
+
+```sh
+sh installer netcheck --mode lan
+```
+
+This writes:
+
+```sh
+ADGUARD_NETCHECK_MODE="lan"
+```
+
+LAN mode skips public WAN probes. The monitor still checks local AdGuardHome DNS responsiveness after the process is expected to be serving DNS.
+
+### DNS port-owner cleanup policy
+
+During startup, dnsmasq is stopped normally so AdGuardHome can own port `53`. By default, v2.5.0 keeps the legacy cleanup behaviour: if another non-AdGuardHome process still owns port `53`, the service script logs the owner and terminates that PID so startup can continue.
+
+To opt into conservative handling, run:
+
+```sh
+sh installer dns-port-policy --policy refuse-unknown
+```
+
+This writes:
+
+```sh
+ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
+```
+
+With refusal enabled, unknown non-dnsmasq owners of port `53` cause startup to abort instead of being terminated. The log message includes the PID, netstat owner, process name, and command when available.
+
+If refusal is enabled and you still need to force termination for a specific startup, set:
+
+```sh
+ADGUARDHOME_FORCE_DNS_PORT_KILL="1"
+```
+
+`ADGUARDHOME_FORCE_DNS_PORT_KILL=1` overrides the refusal setting for that invocation.
+
+To restore the default legacy cleanup policy, run:
+
+```sh
+sh installer dns-port-policy --policy legacy
+```
+
+This writes `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"`.
+
+### Runtime optimization profile
+
+Runtime proc/sysctl tuning remains enabled by default to preserve the previous behaviour:
+
+```sh
+ADGUARD_PROC_OPTIMIZE="YES"
+ADGUARD_PROC_PROFILE="aggressive"
+```
+
+The supported profiles are:
+
+| Profile | Behaviour |
+| --- | --- |
+| `off` | Do not write proc/sysctl values. |
+| `safe` | Set UDP receive and write buffer limits. |
+| `balanced` | Apply `safe` plus lower the conntrack TCP max retrans timeout. |
+| `aggressive` | Apply `balanced` plus the legacy PID, memory overcommit, swappiness, ICMP rate-limit, and neighbour-cache tuning. |
+
+To disable runtime optimization completely, set:
+
+```sh
+ADGUARD_PROC_OPTIMIZE="NO"
+```
+
+To keep optimization enabled but select a lower profile, set for example:
+
+```sh
+ADGUARD_PROC_OPTIMIZE="YES"
+ADGUARD_PROC_PROFILE="balanced"
+```
+
+The non-interactive performance helper maps user-facing profiles to runtime profiles:
+
+```sh
+sh installer performance --profile balanced
+sh installer performance --profile low-memory
+sh installer performance --profile fast
+```
+
+`balanced` writes `ADGUARD_PROC_PROFILE="balanced"`, `low-memory` writes `ADGUARD_PROC_PROFILE="safe"`, and `fast` writes `ADGUARD_PROC_PROFILE="aggressive"`. Runtime proc writes are logged with old and new values when they are attempted, and startup does not fail only because a proc/sysctl write fails.
 
 ## Verify AdGuardHome is running
 
@@ -395,11 +599,14 @@ The workflow downloads stable, beta, and edge archives from `https://static.adgu
 - `armv7/` stores `linux_armv7` archives.
 - `armv5/` stores `linux_armv5` archives.
 
+Archives are written with versioned local filenames, such as `AdGuardHome_stable_v0.107.62_linux_arm64.tar.gz`, and `checksum.txt` is published after the archives and checksum sidecars are ready. Installers use `checksum.txt` to select the current archive, which avoids exposing a newly referenced archive before its SHA-256 sidecar is available.
+
 Each architecture folder also gets generated metadata:
 
 - `VERSION.txt` lists each archive, local channel name, upstream channel name, and AdGuardHome version from upstream `version.txt`.
 - `checksum.txt` lists each archive with its channel, version, MD5 checksum, and SHA-256 checksum.
-- `*.tar.gz.md5sum` sidecar files contain only the MD5 checksum for the matching compressed archive.
+- `*.tar.gz.sha256sum` sidecar files contain the preferred SHA-256 integrity checksum for the matching compressed archive.
+- `*.tar.gz.md5sum` sidecar files are retained as compatibility metadata for older installer flows and mirrors that do not have SHA-256 sidecars yet.
 
 The local stable filenames use `stable`, while the upstream static AdGuardHome channel path remains `release` to match the installer branch naming.
 
@@ -413,7 +620,7 @@ Run the repository quality helper before opening a pull request:
 tools/code-quality.sh
 ```
 
-The helper validates installer artifact `.md5sum` files, runs ShellCheck on detected shell scripts, and checks formatting with `shfmt`.
+The helper validates installer artifact checksum files, runs ShellCheck on detected shell scripts, and checks formatting with `shfmt`. SHA-256 metadata is preferred for release integrity checks; `.md5sum` files remain compatibility metadata and are used only when SHA-256 metadata is unavailable.
 
 To apply `shfmt` formatting locally, run:
 
