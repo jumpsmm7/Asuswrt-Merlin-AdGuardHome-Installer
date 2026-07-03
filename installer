@@ -64,6 +64,13 @@ ai_have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
 
+entware_available() {
+	[ -d /opt ] || return 1
+	[ -x /opt/bin/opkg ] || return 1
+	[ -f /opt/etc/opkg.conf ] || [ -f /opt/etc/init.d/rc.unslung ] || return 1
+	/opt/bin/opkg --version >/dev/null 2>&1
+}
+
 installer_script_path() {
 	local BASE DIR PATH_VALUE RESOLVED
 	PATH_VALUE="$1"
@@ -1056,7 +1063,7 @@ doctor_show_nvram_dns() {
 }
 
 doctor() {
-	local count fix ipset_file link_target marker port version branch backup_file opt_mounted
+	local count fix ipset_file link_target marker port version branch backup_file entware_ready
 	DOCTOR_FAILED="0"
 	fix="0"
 	case "${1:-}" in
@@ -1067,18 +1074,18 @@ doctor() {
 			return 1
 			;;
 	esac
-	opt_mounted="0"
-	if mount | grep -q ' on /opt '; then
-		opt_mounted="1"
-		doctor_status OK "Entware /opt is mounted"
+	entware_ready="0"
+	if entware_available; then
+		entware_ready="1"
+		doctor_status OK "Entware is available"
 	else
-		doctor_status FAIL "Entware /opt is not mounted"
+		doctor_status FAIL "Entware is not available"
 	fi
 	if [ "${fix}" = "1" ]; then
-		if [ "${opt_mounted}" = "1" ]; then
+		if [ "${entware_ready}" = "1" ]; then
 			doctor_fix_safe
 		else
-			doctor_status WARN "skipping --fix repairs because Entware /opt is not mounted"
+			doctor_status WARN "skipping --fix repairs because Entware is not available"
 		fi
 	fi
 	doctor_file_state "${TARG_DIR}" "drwx------" || true
