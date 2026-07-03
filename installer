@@ -5067,6 +5067,11 @@ cli_run() {
 				PTXT "${ERROR} Refusing install DNS/NVRAM rewrite without --allow-dns-nvram."
 				return 1
 			fi
+			if [ ! -f "${AGH_FILE}" ]; then
+				PTXT "${ERROR} Non-interactive install cannot complete fresh first-run setup."
+				PTXT "${ERROR} Run the interactive installer for fresh installs, or use restore --file with an existing backup."
+				return 1
+			fi
 			cli_enable_assume_yes
 			cleanup
 			check_jffs_enabled
