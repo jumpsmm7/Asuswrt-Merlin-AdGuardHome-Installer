@@ -141,6 +141,10 @@ ensure_opkg_package() {
 	opkg_pkg_installed "${_pkg}"
 }
 
+entware_available() {
+	[ -x /opt/bin/opkg ]
+}
+
 sha256sum_available() {
 	if ai_have_cmd sha256sum && sha256sum /dev/null >/dev/null 2>&1; then
 		return 0
@@ -207,7 +211,7 @@ opkg_pkg_installed() {
 }
 
 opkg_clean_env() {
-	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin" opkg "$@"
+	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin" /opt/bin/opkg "$@"
 }
 
 on_installer_exit() {
@@ -561,12 +565,16 @@ web_port_owned_by_agh() {
 
 installer_dependencies_available() {
 	local REQUIRED_COMMAND
-	for REQUIRED_COMMAND in awk chmod chown cp cut grep kill ln md5sum mkdir mv netstat nvram opkg pidof rm sed service tar; do
+	for REQUIRED_COMMAND in awk chmod chown cp cut grep kill ln md5sum mkdir mv netstat nvram pidof rm sed service tar; do
 		if ! ai_have_cmd "${REQUIRED_COMMAND}"; then
 			PTXT "${ERROR} Required command is unavailable: ${REQUIRED_COMMAND}" >&2
 			return 1
 		fi
 	done
+	if ! entware_available; then
+		PTXT "${ERROR} Entware is not available. Install or mount Entware before running this installer." >&2
+		return 1
+	fi
 	return 0
 }
 
