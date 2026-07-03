@@ -9,7 +9,6 @@ fail() {
 	exit 1
 }
 
-
 [ -f installer ] || fail "missing installer script"
 installer_path_statement="$(sed -n '/^export PATH=/p' installer | sed -n '1p')"
 expected_installer_path='export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"'
