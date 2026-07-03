@@ -22,7 +22,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 grep -q 'ensure_sha256sum_tool' "${SCRIPT_PATH}" || fail 'installer is missing shared SHA-256 helper'
 grep -q 'opkg install coreutils-sha256sum' "${SCRIPT_PATH}" || fail 'installer does not explain the coreutils-sha256sum dependency'
-grep -q 'Do you want Entware to install coreutils-sha256sum now?' "${SCRIPT_PATH}" || fail 'installer does not prompt before installing coreutils-sha256sum'
+grep -q 'ensure_sha256sum_tool || return 1' "${SCRIPT_PATH}" || fail 'installer dependency checks do not require SHA-256 support'
 grep -q 'ensure_blocklist_analyzer_dependencies || return 1' "${SCRIPT_PATH}" || fail 'option 9 does not require dependency checks before verification'
 grep -q 'ensure_sha256sum_tool || return 1' "${SCRIPT_PATH}" || fail 'blocklist dependency helper does not require SHA-256 support'
 grep -q 'if ! ensure_opkg_package python3 || \[ ! -x /opt/bin/python3 \]' "${SCRIPT_PATH}" || fail 'option 9 no longer requires Entware python3'
@@ -81,10 +81,6 @@ mv "${FUNCTIONS_FILE}.tmp" "${FUNCTIONS_FILE}" || fail 'could not update extract
 		printf '%s\n' "$*"
 		return 1
 	}
-	read_yesno() {
-		printf '%s\n' 'prompt should not run when sha256sum exists'
-		return 1
-	}
 	ensure_opkg_package() {
 		printf '%s\n' 'install should not run when sha256sum exists'
 		return 1
@@ -119,10 +115,6 @@ EOF_SHA
 		printf '%s\n' "$*"
 		return 1
 	}
-	read_yesno() {
-		printf '%s\n' 'prompt should not run when BusyBox sha256sum exists'
-		return 1
-	}
 	ensure_opkg_package() {
 		printf '%s\n' 'install should not run when BusyBox sha256sum exists'
 		return 1
@@ -154,7 +146,6 @@ EOF_BUSYBOX
 	INPUT='Input:'
 	BOLD=''
 	NORM=''
-	read_yesno() { return 0; }
 	mkdir -p "${TMP_ROOT}/install-bin" || exit 1
 	cat >"${TMP_ROOT}/install-bin/which" <<EOF_WHICH || exit 1
 #!/bin/sh
@@ -188,7 +179,6 @@ grep -q 'Installing Entware coreutils-sha256sum package' "${TMP_ROOT}/install.ou
 	INPUT='Input:'
 	BOLD=''
 	NORM=''
-	read_yesno() { return 0; }
 	mkdir -p "${TMP_ROOT}/missing-bin" || exit 1
 	cat >"${TMP_ROOT}/missing-bin/which" <<'EOF_WHICH' || exit 1
 #!/bin/sh
@@ -237,14 +227,7 @@ EOF_PYTHON
 	BUSYBOX_BIN="${TMP_ROOT}/not-busybox"
 	PATH="${TMP_ROOT}/blocklist-bin"
 	PYTHON3_BIN="${TMP_ROOT}/blocklist-bin/python3"
-	answer_count=0
-	read_yesno() {
-		answer_count=$((answer_count + 1))
-		case "${answer_count}" in
-			1) return 0 ;;
-			*) return 1 ;;
-		esac
-	}
+	read_yesno() { return 0; }
 	ensure_opkg_package() {
 		case "$1" in
 			python3) /bin/cp "${TMP_ROOT}/blocklist-bin/python3.src" "${TMP_ROOT}/blocklist-bin/python3" && /bin/chmod 755 "${TMP_ROOT}/blocklist-bin/python3" && : >"${TMP_ROOT}/blocklist-bin/python-installed" ;;
@@ -256,9 +239,10 @@ EOF_PYTHON
 		exit 1
 	fi
 	[ -f "${TMP_ROOT}/blocklist-bin/python-installed" ] || exit 1
+	[ -f "${TMP_ROOT}/blocklist-bin/sha-requested" ] || exit 1
 ) || fail 'blocklist dependency helper did not require python3 before SHA-256 support'
 grep -q 'python3 is available' "${TMP_ROOT}/blocklist-deps.out" || fail 'blocklist dependency helper did not proceed through python3 check'
-grep -q 'SHA-256 support is required' "${TMP_ROOT}/blocklist-deps.out" || fail 'blocklist dependency helper did not stop clearly when SHA-256 was refused'
+grep -q 'sha256sum is still unavailable' "${TMP_ROOT}/blocklist-deps.out" || fail 'blocklist dependency helper did not stop clearly when SHA-256 remained unavailable'
 
 (
 	# shellcheck disable=SC1090
@@ -292,9 +276,8 @@ EOF_SHA
 	BUSYBOX_BIN="${TMP_ROOT}/not-busybox"
 	PATH="${TMP_ROOT}/blocklist-ready-bin"
 	PYTHON3_BIN="${TMP_ROOT}/blocklist-ready-bin/python3"
-	read_yesno() { exit 1; }
 	ensure_opkg_package() { exit 1; }
 	ensure_blocklist_analyzer_dependencies >"${TMP_ROOT}/blocklist-ready.out" 2>&1
 ) || fail 'blocklist dependency helper failed when python3 and sha256sum were available'
 
-printf '%s\n' 'PASS: installer SHA-256 helper handles available, BusyBox applet, install, post-install failure, and option 9 dependency paths'
+printf '%s\n' 'PASS: installer SHA-256 helper handles available, BusyBox applet, automatic install, post-install failure, and option 9 dependency paths'
