@@ -123,6 +123,9 @@ netstat() {
 		busy_alt)
 			printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 0 0 234/custom-dns'
 			;;
+		busy_no_pid)
+			printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:*'
+			;;
 		busy_alt_dnsmasq)
 			printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 0 0 234/dnsmasq'
 			;;
@@ -371,7 +374,16 @@ unset KILL_FAILS_AFTER_RELEASE
 DNS_STATE=busy_alt
 kill_dns_port_owners || fail 'DNS owner cleanup rejected legacy cleanup of an unknown port 53 owner'
 grep -q '^kill -s 9 234$' "${CALLS_FILE}" || fail 'DNS owner cleanup did not preserve legacy unknown-owner cleanup by default'
+
 : >"${CALLS_FILE}"
+DNS_STATE=busy_no_pid
+if kill_dns_port_owners; then
+	fail 'DNS owner cleanup accepted a port 53 owner without a PID'
+fi
+! grep -q '^kill ' "${CALLS_FILE}" || fail 'DNS owner cleanup tried to signal an unavailable port 53 owner PID'
+
+: >"${CALLS_FILE}"
+DNS_STATE=busy_alt
 ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=1
 if kill_dns_port_owners; then
 	fail 'DNS owner cleanup accepted an unknown port 53 owner when refusal was requested'

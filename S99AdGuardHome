@@ -634,7 +634,7 @@ kill_dns_port_owners() {
 		return 2
 	fi
 	_dns_unavailable_unknown_owner="$(printf '%s\n' "${_dns_owner_actions}" | awk '$1 == "-" && $2 == "unknown" { found=1 } END { print found ? 1 : 0 }')"
-	if [ "${_dns_unavailable_unknown_owner}" = "1" ] && [ "${_dns_refuse_unknown}" = "1" ]; then
+	if [ "${_dns_unavailable_unknown_owner}" = "1" ]; then
 		agh_log ERROR kill_dns_port_owners "Unknown port 53 owner has no available PID; unable to terminate it safely."
 		return 2
 	fi
