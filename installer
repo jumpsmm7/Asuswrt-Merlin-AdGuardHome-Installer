@@ -3033,9 +3033,10 @@ backup_restore() {
 		fi
 		ptxt_ok "Backup complete at ${BASE_DIR}/backup_AdGuardHome.tar.gz."
 		[ -z "$2" ] && end_op_message 0 || return 0
-	elif [ "$1" = "BACKUP" ] && [ ! -d "${TARG_DIR}" ] && [ ! -f "${AGH_FILE}" ]; then
+	elif [ "$1" = "BACKUP" ]; then
 		PTXT "${ERROR} No ${AGH_FILE} to Backup!"
 		end_op_message 1
+		return 1
 	fi
 	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
 		ptxt_phase "Restoring AdGuardHome backup."
