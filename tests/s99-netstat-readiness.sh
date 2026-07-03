@@ -135,7 +135,7 @@ if adguardhome_owns_dns; then
 fi
 : >"${CALLS_FILE}"
 log_adguardhome_dns_wait_failure
- grep -q 'UDP port 53 is not bound' "${CALLS_FILE}" || fail 'DNS wait failure did not explain missing UDP bind'
+grep -q 'UDP port 53 is not bound' "${CALLS_FILE}" || fail 'DNS wait failure did not explain missing UDP bind'
 
 NETSTAT_STATE=missing_tcp
 if adguardhome_owns_dns; then
