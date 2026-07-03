@@ -1056,7 +1056,7 @@ doctor_show_nvram_dns() {
 }
 
 doctor() {
-	local count fix ipset_file link_target marker port version branch backup_file
+	local count fix ipset_file link_target marker port version branch backup_file opt_mounted
 	DOCTOR_FAILED="0"
 	fix="0"
 	case "${1:-}" in
@@ -1067,9 +1067,20 @@ doctor() {
 			return 1
 			;;
 	esac
-	[ "${fix}" = "1" ] && doctor_fix_safe
-
-	mount | grep -q ' on /opt ' && doctor_status OK "Entware /opt is mounted" || doctor_status FAIL "Entware /opt is not mounted"
+	opt_mounted="0"
+	if mount | grep -q ' on /opt '; then
+		opt_mounted="1"
+		doctor_status OK "Entware /opt is mounted"
+	else
+		doctor_status FAIL "Entware /opt is not mounted"
+	fi
+	if [ "${fix}" = "1" ]; then
+		if [ "${opt_mounted}" = "1" ]; then
+			doctor_fix_safe
+		else
+			doctor_status WARN "skipping --fix repairs because Entware /opt is not mounted"
+		fi
+	fi
 	doctor_file_state "${TARG_DIR}" "drwx------" || true
 	link_target="$(readlink "/opt/sbin/AdGuardHome" 2>/dev/null)"
 	[ -L "/opt/sbin/AdGuardHome" ] && [ "${link_target}" = "${AGH_FILE}" ] && doctor_status OK "/opt/sbin/AdGuardHome -> ${link_target}" || doctor_status FAIL "/opt/sbin/AdGuardHome target is ${link_target:-missing}"
