@@ -42,6 +42,11 @@ for script in AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome; do
 	esac
 done
 
+ensure_bcrypt_env="$(sed -n '/go install gophers.dev\/cmds\/bcrypt-tool@latest/p' installer)"
+case "${ensure_bcrypt_env}" in *' HOME="${GO_PATH_DIR}"'*) ;; *) fail "bcrypt-tool Go install does not set HOME" ;; esac
+case "${ensure_bcrypt_env}" in *' GOCACHE="${GO_CACHE_DIR}"'*) ;; *) fail "bcrypt-tool Go install does not set GOCACHE" ;; esac
+case "${ensure_bcrypt_env}" in *' GOPATH="${GO_PATH_DIR}"'*) ;; *) fail "bcrypt-tool Go install does not set GOPATH" ;; esac
+
 PATH="/feedback-test-path"
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
 case ":${PATH}:" in

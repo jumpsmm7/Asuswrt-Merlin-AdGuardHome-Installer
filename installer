@@ -119,8 +119,11 @@ ensure_bcrypt_tool() {
 	esac
 	export GOROOT="/opt/bin/go"
 	export GOBIN="/opt/bin/"
+	GO_CACHE_DIR="/tmp/AdGuardHome-go-build-cache"
+	GO_PATH_DIR="/tmp/AdGuardHome-go-path"
 	[ -x /opt/bin/go/bin/go ] || return 1
-	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/opt/bin/go/bin" GOROOT="${GOROOT}" GOBIN="${GOBIN}" /opt/bin/go/bin/go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
+	mkdir -p "${GO_CACHE_DIR}" "${GO_PATH_DIR}" || return 1
+	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/opt/bin/go/bin" HOME="${GO_PATH_DIR}" GOCACHE="${GO_CACHE_DIR}" GOPATH="${GO_PATH_DIR}" GOROOT="${GOROOT}" GOBIN="${GOBIN}" /opt/bin/go/bin/go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
 }
 
 ensure_opkg_package() {
