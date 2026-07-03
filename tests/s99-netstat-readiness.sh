@@ -21,7 +21,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^dns_port_has_foreign_owner() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p' \
+	'/^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^dns_port_has_foreign_owner() {$/,/^}$/p; /^dns_port_needs_release() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p' \
 	"${S99_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${S99_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'S99 netstat readiness functions were not found'
 grep -q '^adguardhome_single_process_running() {$' "${FUNCTIONS_FILE}" || fail 'single-process fallback helper was not found'
@@ -97,6 +97,9 @@ dns_port_available || fail 'DNS port availability rejected AdGuardHome-owned por
 if dns_port_has_foreign_owner; then
 	fail 'foreign-owner check reported AdGuardHome as foreign'
 fi
+if dns_port_needs_release; then
+	fail 'release check reported AdGuardHome as needing release'
+fi
 
 NETSTAT_STATE=no_owner
 adguardhome_owns_dns || fail 'DNS fallback rejected bound TCP/UDP port 53 without PID/program ownership'
@@ -105,6 +108,9 @@ dns_port_available || fail 'DNS port availability rejected bound ownerless port 
 if dns_port_has_foreign_owner; then
 	fail 'ownerless DNS port was treated as an explicit foreign owner'
 fi
+if dns_port_needs_release; then
+	fail 'release check rejected ownerless DNS port with one AdGuardHome process'
+fi
 
 PIDOF_STATE=two
 if adguardhome_owns_dns; then
@@ -112,6 +118,9 @@ if adguardhome_owns_dns; then
 fi
 if adguardhome_web_port_available; then
 	fail 'WebUI fallback accepted ownerless sockets with multiple AdGuardHome processes'
+fi
+if ! dns_port_needs_release; then
+	fail 'release check missed ownerless DNS port with multiple AdGuardHome processes'
 fi
 PIDOF_STATE=one
 
@@ -123,6 +132,7 @@ if dns_port_available; then
 	fail 'DNS port availability accepted explicit dnsmasq ownership'
 fi
 dns_port_has_foreign_owner || fail 'foreign-owner check missed explicit dnsmasq ownership'
+dns_port_needs_release || fail 'release check missed explicit dnsmasq ownership'
 
 NETSTAT_STATE=foreign_web
 if adguardhome_web_port_available; then
