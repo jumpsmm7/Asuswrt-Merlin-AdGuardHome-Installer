@@ -21,7 +21,7 @@
 #################################################################################################################
 
 export LC_ALL=C
-export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH:-}"
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
 
 AI_VERSION="v2.5.0"
 export AI_VERSION
@@ -1599,12 +1599,12 @@ blocklist_analyzer_ids() {
 
 ensure_blocklist_analyzer_dependencies() {
 	ptxt_step "Checking for Entware python3."
-	if ! [ -x /opt/bin/python3 ]; then
+	if ! which python3 >/dev/null 2>&1; then
 		ptxt_warn "python3 is required to run the analyzer, but it was not found."
 		PTXT "${INFO} Entware python3 can be installed with: opkg install python3"
 		if read_yesno "Do you want Entware to install python3 now?"; then
 			ptxt_step "Installing Entware python3 package."
-			if ! ensure_opkg_package python3 || ! [ -x /opt/bin/python3 ]; then
+			if ! ensure_opkg_package python3 || ! which python3 >/dev/null 2>&1; then
 				ptxt_fail "Unable to install or find Entware python3."
 				return 1
 			fi
@@ -1669,7 +1669,7 @@ install_blocklist_analyzer() {
 }
 
 run_blocklist_analyzer() {
-	local filter_file found_filter output_file ids_file
+	local filter_file found_filter output_file ids_file python_cmd
 	output_file="${TARG_DIR}/blocklist_analyzer.$$.out"
 	ids_file="${TARG_DIR}/blocklist_analyzer.$$.ids"
 	ptxt_phase "Running AdGuardHome blocklist analyzer."
@@ -1695,8 +1695,14 @@ run_blocklist_analyzer() {
 	fi
 	ptxt_ok "Analyzer input files are available."
 
+	python_cmd="$(command -v python3 2>/dev/null)"
+	if [ -z "${python_cmd}" ]; then
+		ptxt_fail "python3 is required to run the blocklist analyzer."
+		return 1
+	fi
+
 	ptxt_step "Running analyzer from ${TARG_DIR} so ./data resolves correctly."
-	if ! (cd "${TARG_DIR}" && /opt/bin/python3 "${BLOCKLIST_ANALYZER_FILE}") >"${output_file}" 2>&1; then
+	if ! (cd "${TARG_DIR}" && "${python_cmd}" "${BLOCKLIST_ANALYZER_FILE}") >"${output_file}" 2>&1; then
 		cat "${output_file}"
 		rm -f "${output_file}" "${ids_file}"
 		ptxt_fail "Blocklist analyzer failed."
