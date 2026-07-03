@@ -3240,7 +3240,9 @@ download_file() {
 				fi
 				if sha256_is_valid "${SHA256SUM_EXPECTED}"; then
 					ptxt_step "Verifying SHA-256 checksum for ${FILENAME}."
-					SHA256SUM_CURR="$(file_sha256 "${TMP_FILE}" 2>/dev/null)"
+					if ! SHA256SUM_CURR="$(file_sha256 "${TMP_FILE}" 2>/dev/null)"; then
+						SHA256SUM_CURR=""
+					fi
 					if [ "${SHA256SUM_CURR}" = "${SHA256SUM_EXPECTED}" ]; then
 						MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"
 						ptxt_ok "SHA-256 checksum verified for ${FILENAME}."
