@@ -58,11 +58,16 @@ jobs:
           fi
 
           case "${target_branch}" in
-            ""|*..*|/*|*' '*|*'~'*|*'^'*|*':'*|*'?'*|*'['*|*'\\'*)
+            ""|*..*|/*|*[^A-Za-z0-9._/-]*|*'~'*|*'^'*|*':'*|*'?'*|*'['*|*'\\'*)
               echo "Invalid target branch: ${target_branch}" >&2
               exit 1
               ;;
           esac
+
+          if ! git check-ref-format --branch "${target_branch}" >/dev/null 2>&1; then
+            echo "Invalid target branch: ${target_branch}" >&2
+            exit 1
+          fi
 
           echo "target=${target_branch}" >> "${GITHUB_OUTPUT}"
 
@@ -92,6 +97,8 @@ jobs:
 
       - name: Commit checksum updates
         shell: bash
+        env:
+          PUSH_TARGET: ${{ steps.branch.outputs.target }}
         run: |
           set -euo pipefail
 
@@ -108,4 +115,4 @@ jobs:
           git status --short -- "${checksum_files[@]}"
           git add "${checksum_files[@]}"
           git commit -m "chore: update checksum files"
-          git push origin HEAD:${{ steps.branch.outputs.target }}
+          git push origin "HEAD:${PUSH_TARGET}"
