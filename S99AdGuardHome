@@ -444,7 +444,7 @@ adguardhome_web_port() {
 	case "${_web_port}" in
 		"" | *[!0-9]*) return 1 ;;
 	esac
-	[ "${_web_port}" -ge 3000 ] 2>/dev/null && [ "${_web_port}" -le 65535 ] 2>/dev/null || return 1
+	[ "${_web_port}" -ge 1 ] 2>/dev/null && [ "${_web_port}" -le 65535 ] 2>/dev/null || return 1
 	printf '%s\n' "${_web_port}"
 }
 
@@ -459,9 +459,18 @@ adguardhome_web_port_available() {
 
 adguardhome_startup_checks_ready() {
 	pidof "${PROCS}" >/dev/null 2>&1 || return 2
-	adguardhome_web_port_available || return 1
-	adguardhome_config_valid || return 1
+	adguardhome_web_port_available || return 3
+	adguardhome_config_valid || return 4
 	return 0
+}
+
+wait_for_adguardhome_startup_checks_failure_reason() {
+	case "${1:-}" in
+		2) printf '%s\n' "process exited before readiness completed" ;;
+		3) printf '%s\n' "WebUI port is not owned by AdGuardHome" ;;
+		4) printf '%s\n' "configuration validation failed" ;;
+		*) printf '%s\n' "readiness checks failed" ;;
+	esac
 }
 
 wait_for_adguardhome_startup_checks() {
@@ -482,11 +491,14 @@ wait_for_adguardhome_startup_checks() {
 		fi
 		sleep 1s
 	done
-	if adguardhome_startup_checks_ready; then
+	adguardhome_startup_checks_ready
+	_startup_check_status="$?"
+	if [ "${_startup_check_status}" -eq 0 ]; then
 		agh_log INFO wait_for_adguardhome_startup_checks "DNS/WebUI readiness checks passed on final check."
 		return 0
 	fi
-	agh_log ERROR wait_for_adguardhome_startup_checks "DNS/WebUI readiness checks failed after ${_startup_check_attempts} attempt(s)."
+	_startup_check_failure_reason="$(wait_for_adguardhome_startup_checks_failure_reason "${_startup_check_status}")"
+	agh_log ERROR wait_for_adguardhome_startup_checks "DNS/WebUI readiness checks failed after ${_startup_check_attempts} attempt(s): ${_startup_check_failure_reason}."
 	return 1
 }
 
