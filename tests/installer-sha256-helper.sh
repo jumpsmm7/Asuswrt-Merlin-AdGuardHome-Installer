@@ -22,7 +22,8 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 grep -q 'ensure_sha256sum_tool' "${SCRIPT_PATH}" || fail 'installer is missing shared SHA-256 helper'
 grep -q 'opkg install coreutils-sha256sum' "${SCRIPT_PATH}" || fail 'installer does not explain the coreutils-sha256sum dependency'
-grep -q 'ensure_sha256sum_tool || return 1' "${SCRIPT_PATH}" || fail 'installer dependency checks do not require SHA-256 support'
+grep -q 'ptxt_phase "Running AdGuardHome ${1:-install} orchestration."' "${SCRIPT_PATH}" || fail 'installer install/update orchestration phase is missing'
+grep -q 'ensure_sha256sum_tool || return 1' "${SCRIPT_PATH}" || fail 'installer install/update path does not require SHA-256 support'
 grep -q 'ensure_blocklist_analyzer_dependencies || return 1' "${SCRIPT_PATH}" || fail 'option 9 does not require dependency checks before verification'
 grep -q 'ensure_sha256sum_tool || return 1' "${SCRIPT_PATH}" || fail 'blocklist dependency helper does not require SHA-256 support'
 grep -q 'if ! ensure_opkg_package python3 || \[ ! -x /opt/bin/python3 \]' "${SCRIPT_PATH}" || fail 'option 9 no longer requires Entware python3'

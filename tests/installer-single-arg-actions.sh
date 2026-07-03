@@ -47,7 +47,7 @@ if [ "${amtm_check_line}" -ge "${dependency_line}" ]; then
 	fail 'amtmupdate check handling must happen before dependency validation'
 fi
 if [ "${dependency_line}" -ge "${default_line}" ]; then
-	fail 'dependency validation must happen before blocklist analyzer checksum default write'
+	fail 'base dependency validation must happen before blocklist analyzer checksum default write'
 fi
 if [ "${default_line}" -ge "${dispatch_line}" ]; then
 	fail 'blocklist analyzer checksum defaulting must happen before one-argument dispatch'
