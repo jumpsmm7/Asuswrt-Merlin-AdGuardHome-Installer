@@ -28,15 +28,15 @@ sed -n '/^single_arg_menu_action() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FI
 	fail 'could not extract single-argument action helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'single-argument action helper extraction was empty'
 
-grep -q '\[ -z "${2:-}" \] && single_arg_menu_action "${1}"' "${SCRIPT_PATH}" ||
+grep -q '\[ -z "${2:-}" \] && single_arg_menu_action "${1:-}"' "${SCRIPT_PATH}" ||
 	fail 'main argument parser does not guard unset action parameters before one-argument dispatch'
 grep -q 'set -- "${BRANCH}" "${CHOSEN}"' "${SCRIPT_PATH}" ||
-	fail 'single-argument action path does not rewrite branch/action parameters'
+	fail 'single-argument compatibility path does not rewrite branch/action parameters'
 default_line="$(grep -n 'write_conf BLOCKLIST_ANALYZER_SHA256' "${SCRIPT_PATH}" | cut -d: -f1)" ||
 	fail 'could not find blocklist analyzer checksum default write'
 amtm_check_line="$(grep -n '\[ "${1:-}" = "amtmupdate" \] && \[ "${2:-}" = "check" \]' "${SCRIPT_PATH}" | cut -d: -f1)" ||
 	fail 'could not find amtmupdate check before default write'
-dispatch_line="$(grep -n '\[ -z "${2:-}" \] && single_arg_menu_action "${1}"' "${SCRIPT_PATH}" | cut -d: -f1)" ||
+dispatch_line="$(grep -n '\[ -z "${2:-}" \] && single_arg_menu_action "${1:-}"' "${SCRIPT_PATH}" | cut -d: -f1)" ||
 	fail 'could not find one-argument dispatch guard'
 if [ -z "${default_line}" ] || [ -z "${amtm_check_line}" ] || [ -z "${dispatch_line}" ]; then
 	fail 'could not compare amtmupdate check, checksum defaulting, and one-argument dispatch ordering'
@@ -78,7 +78,7 @@ fi
 	}
 
 	BLOCKLIST_ANALYZER_SHA256=""
-	assert_allowed 1 2 install update uninstall
+	assert_allowed 1 2 install update uninstall d D doctor status
 	assert_disallowed 3 4 5 6 7 8 changepw reconfigure setamtmupdate setlocalcache switchbranch setipset b B backup r R restore 9 blocklists unusedblocklists
 
 	touch "${BACKUP_FILE}" || exit 1

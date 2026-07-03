@@ -15,6 +15,28 @@ IPSET_FILE="/opt/etc/AdGuardHome/ipset.conf"
 IPSET_RUNTIME_DIR="${IPSET_RUNTIME_DIR:-/opt/var/run/AdGuardHome-ipset}"
 IPSET_USER_FILE="/opt/etc/AdGuardHome/ipset.user"
 YAML_FILE="/opt/etc/AdGuardHome/AdGuardHome.yaml"
+DEFAULT_ADGUARD_NETCHECK_HOSTS="google.com github.com snbforums.com"
+DEFAULT_ADGUARD_NETCHECK_DNS="127.0.0.1"
+DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP="NO"
+DEFAULT_ADGUARD_NETCHECK_TIMEOUT="300"
+DEFAULT_ADGUARD_NETCHECK_MODE="legacy"
+DEFAULT_ADGUARD_PROC_OPTIMIZE="YES"
+DEFAULT_ADGUARD_PROC_PROFILE="aggressive"
+INSTALLER_SCRIPT="/opt/etc/AdGuardHome/installer"
+ADGUARD_NETCHECK_HOSTS_SET="${ADGUARD_NETCHECK_HOSTS:+x}"
+ADGUARD_NETCHECK_DNS_SET="${ADGUARD_NETCHECK_DNS:+x}"
+ADGUARD_NETCHECK_REQUIRE_HTTP_SET="${ADGUARD_NETCHECK_REQUIRE_HTTP:+x}"
+ADGUARD_NETCHECK_TIMEOUT_SET="${ADGUARD_NETCHECK_TIMEOUT:+x}"
+ADGUARD_NETCHECK_MODE_SET="${ADGUARD_NETCHECK_MODE:+x}"
+ADGUARD_PROC_OPTIMIZE_SET="${ADGUARD_PROC_OPTIMIZE:+x}"
+ADGUARD_PROC_PROFILE_SET="${ADGUARD_PROC_PROFILE:+x}"
+ADGUARD_NETCHECK_HOSTS="${ADGUARD_NETCHECK_HOSTS:-${DEFAULT_ADGUARD_NETCHECK_HOSTS}}"
+ADGUARD_NETCHECK_DNS="${ADGUARD_NETCHECK_DNS:-${DEFAULT_ADGUARD_NETCHECK_DNS}}"
+ADGUARD_NETCHECK_REQUIRE_HTTP="${ADGUARD_NETCHECK_REQUIRE_HTTP:-${DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP}}"
+ADGUARD_NETCHECK_TIMEOUT="${ADGUARD_NETCHECK_TIMEOUT:-${DEFAULT_ADGUARD_NETCHECK_TIMEOUT}}"
+ADGUARD_NETCHECK_MODE="${ADGUARD_NETCHECK_MODE:-${DEFAULT_ADGUARD_NETCHECK_MODE}}"
+ADGUARD_PROC_OPTIMIZE="${ADGUARD_PROC_OPTIMIZE:-${DEFAULT_ADGUARD_PROC_OPTIMIZE}}"
+ADGUARD_PROC_PROFILE="${ADGUARD_PROC_PROFILE:-${DEFAULT_ADGUARD_PROC_PROFILE}}"
 
 NAME="${0##*/}[$$]"
 
@@ -118,6 +140,168 @@ manager_dependencies_available() {
 		fi
 	done
 	return 0
+}
+
+# Status helpers
+
+agh_web_port() {
+	local CONF_PORT YAML_PORT
+	YAML_PORT="$(awk -F: '/^[[:space:]]*address:[[:space:]]*/ { print $NF; exit }' "${YAML_FILE}" 2>/dev/null | sed 's/[^0-9].*$//')"
+	case "${YAML_PORT}" in
+		"" | *[!0-9]*) ;;
+		*) [ "${YAML_PORT}" -gt 0 ] && [ "${YAML_PORT}" -le 65535 ] && printf '%s\n' "${YAML_PORT}" && return 0 ;;
+	esac
+	CONF_PORT="$(conf_value ADGUARD_WEBUI_PORT 2>/dev/null)"
+	case "${CONF_PORT}" in
+		"" | *[!0-9]*) ;;
+		*) [ "${CONF_PORT}" -gt 0 ] && [ "${CONF_PORT}" -le 65535 ] && printf '%s\n' "${CONF_PORT}" && return 0 ;;
+	esac
+	return 1
+}
+
+status_adguardhome_version() {
+	if [ -x "${ADGUARDHOME_BINARY}" ]; then
+		"${ADGUARDHOME_BINARY}" --version 2>/dev/null | head -1
+	else
+		printf '%s\n' "unknown"
+	fi
+}
+
+status_dnsmasq_handoff_state() {
+	local marker markers state
+	state="inactive"
+	markers=""
+	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock "${DNS_HANDOFF_FILE}" "${DNS_HANDOFF_DIR}/lock"; do
+		if [ -e "${marker}" ]; then
+			state="active/stale marker present"
+			markers="${markers}${markers:+, }${marker}"
+		fi
+	done
+	printf '%s\n' "${state}${markers:+ (${markers})}"
+}
+
+status_installer_version() {
+	local version
+	version="$(awk -F= '/^AI_VERSION=/ { gsub(/"/, "", $2); print $2; exit }' "${INSTALLER_SCRIPT}" 2>/dev/null)"
+	printf '%s\n' "${version:-unknown}"
+}
+
+status_last_startup_result() {
+	local result
+	result=""
+	if have_cmd logread; then
+		result="$(logread 2>/dev/null |
+			awk '
+				/AdGuardHome/ && /state=startup/ { last = $0 }
+				/AdGuardHome/ && /AdGuardHome startup completed/ { last = $0 }
+				/AdGuardHome/ && /AdGuardHome startup failed/ { last = $0 }
+				/AdGuardHome/ && /DNS\/WebUI readiness checks (passed|failed)/ { last = $0 }
+				END { if (last != "") print last }
+			')"
+	fi
+	printf '%s\n' "${result:-unknown (no startup marker/log entry found)}"
+}
+
+status_line() {
+	printf '%s: %s\n' "$1" "${2:-unknown}"
+}
+
+status_monitor_count() {
+	local count pid
+	count="0"
+	for pid in $(pidof AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome 2>/dev/null); do
+		if awk '{ print }' "/proc/${pid}/cmdline" 2>/dev/null | grep -q 'monitor-start'; then
+			count="$((count + 1))"
+		fi
+	done
+	printf '%s\n' "${count}"
+}
+
+status_port53_ownership() {
+	local dns53
+	if ! have_cmd netstat; then
+		printf '%s\n' "unknown (netstat unavailable)"
+		return 0
+	fi
+	dns53="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ { print }')"
+	if [ -z "${dns53}" ]; then
+		printf '%s\n' "not listening"
+		return 0
+	fi
+	printf '%s\n' "${dns53}" | awk '
+		function owner(i, field) {
+			for (i = NF; i >= 1; i--) {
+				field = $i
+				if (field ~ /^[0-9]+\/[^[:space:]]+$/) return field
+			}
+			return "unknown"
+		}
+		$0 ~ /^(tcp)6?[[:space:]]+/ { tcp = tcp ? tcp ", " owner() : owner() }
+		$0 ~ /^(udp)6?[[:space:]]+/ { udp = udp ? udp ", " owner() : owner() }
+		END {
+			if (tcp != "" && udp != "") print "TCP " tcp "; UDP " udp
+			else if (tcp != "") print "TCP " tcp
+			else if (udp != "") print "UDP " udp
+			else print "unknown"
+		}
+	'
+}
+
+status_selected_branch() {
+	local branch
+	branch="$(conf_value INSTALLER_BRANCH 2>/dev/null)"
+	printf '%s\n' "${branch:-unknown}"
+}
+
+status_webui_address() {
+	local address host port
+	address="$(awk '
+		/^[[:space:]]*address:[[:space:]]*/ {
+			sub(/^[[:space:]]*address:[[:space:]]*/, "")
+			gsub(/^"|"$/, "")
+			print
+			exit
+		}
+	' "${YAML_FILE}" 2>/dev/null)"
+	port="$(agh_web_port 2>/dev/null)"
+	if [ -n "${address}" ]; then
+		printf '%s\n' "${address}${port:+ (port ${port})}"
+		return 0
+	fi
+	if have_cmd nvram; then
+		host="$(nvram get lan_ipaddr 2>/dev/null)"
+	else
+		host=""
+	fi
+	[ -n "${port}" ] && printf '%s\n' "${host:-router}:${port}" || printf '%s\n' "unknown"
+}
+
+status() {
+	local count monitor_count monitor_state service_state
+	count="$(pidof AdGuardHome 2>/dev/null | wc -w)"
+	monitor_count="$(status_monitor_count)"
+	if [ "${count}" -gt 0 ]; then
+		service_state="running"
+	else
+		service_state="stopped"
+	fi
+	case "${monitor_count}" in
+		0) monitor_state="stopped" ;;
+		1) monitor_state="running (1 process)" ;;
+		*) monitor_state="running (${monitor_count} processes)" ;;
+	esac
+
+	printf '%s\n' "AdGuardHome Installer Status"
+	status_line "AdGuardHome service state" "${service_state}"
+	status_line "Monitor process state" "${monitor_state}"
+	status_line "AdGuardHome PID count" "${count}"
+	status_line "Port 53 ownership" "$(status_port53_ownership)"
+	status_line "AdGuardHome version" "$(status_adguardhome_version)"
+	status_line "Installer version" "$(status_installer_version)"
+	status_line "Selected branch" "$(status_selected_branch)"
+	status_line "WebUI address/port" "$(status_webui_address)"
+	status_line "dnsmasq handoff state" "$(status_dnsmasq_handoff_state)"
+	status_line "Last startup result" "$(status_last_startup_result)"
 }
 
 # HTTP/download helpers
@@ -611,8 +795,60 @@ ipv6_reverse_zone() {
 	printf "%s\n" "$1" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/'
 }
 
-netcheck() {
-	local livecheck="0" i timewait
+netcheck_config() {
+	local is_set value
+	eval "is_set=\${$1_SET:-}"
+	eval "value=\${$1:-}"
+	if [ -n "${is_set}" ] && [ -n "${value}" ]; then
+		printf '%s\n' "${value}"
+		return 0
+	fi
+	value="$(conf_value "$1")"
+	if [ -n "${value}" ]; then
+		printf '%s\n' "${value}"
+		return 0
+	fi
+	printf '%s\n' "$2"
+}
+
+netcheck_dns_ok() {
+	local dns_server host
+	dns_server="$1"
+	shift
+	for host in "$@"; do
+		[ -n "${host}" ] || continue
+		if nslookup "${host}" "${dns_server}" >/dev/null 2>&1; then
+			return 0
+		fi
+	done
+	return 1
+}
+
+netcheck_http_ok() {
+	local host
+	for host in "$@"; do
+		[ -n "${host}" ] || continue
+		if http_probe "http://${host}" >/dev/null 2>&1; then
+			return 0
+		fi
+	done
+	return 1
+}
+
+netcheck_ping_ok() {
+	local host
+	for host in "$@"; do
+		[ -n "${host}" ] || continue
+		if ping -q -w3 -c1 "${host}" >/dev/null 2>&1; then
+			return 0
+		fi
+	done
+	return 1
+}
+
+netcheck_legacy() {
+	local host livecheck timewait
+	livecheck="0"
 	timewait="0"
 	until system_time_ready; do
 		if [ "${timewait}" -ge "300" ]; then
@@ -623,12 +859,16 @@ netcheck() {
 		timewait="$((timewait + 1))"
 	done
 	while [ "${livecheck}" != "4" ]; do
-		for i in google.com github.com snbforums.com; do
-			if { ! nslookup "${i}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${i}" >/dev/null 2>&1; }; then
-				if ! http_probe "http://${i}" >/dev/null 2>&1; then
-					sleep 1s
-					continue
-				fi
+		for host in google.com github.com snbforums.com; do
+			if nslookup "${host}" 127.0.0.1 >/dev/null 2>&1; then
+				return 0
+			fi
+			if ! ping -q -w3 -c1 "${host}" >/dev/null 2>&1; then
+				continue
+			fi
+			if ! http_probe "http://${host}" >/dev/null 2>&1; then
+				sleep 1s
+				continue
 			fi
 			return 0
 		done
@@ -639,6 +879,71 @@ netcheck() {
 		fi
 		return 1
 	done
+}
+
+netcheck() {
+	local dns_ok dns_server hosts http_required mode ping_ok timeout waited
+	mode="$(netcheck_config ADGUARD_NETCHECK_MODE "${DEFAULT_ADGUARD_NETCHECK_MODE}")"
+	case "${mode}" in
+		legacy | LEGACY | "")
+			netcheck_legacy
+			return "$?"
+			;;
+	esac
+	dns_server="$(netcheck_config ADGUARD_NETCHECK_DNS "${DEFAULT_ADGUARD_NETCHECK_DNS}")"
+	hosts="$(netcheck_config ADGUARD_NETCHECK_HOSTS "${DEFAULT_ADGUARD_NETCHECK_HOSTS}")"
+	http_required="$(netcheck_config ADGUARD_NETCHECK_REQUIRE_HTTP "${DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP}")"
+	timeout="$(netcheck_config ADGUARD_NETCHECK_TIMEOUT "${DEFAULT_ADGUARD_NETCHECK_TIMEOUT}")"
+	case "${timeout}" in
+		"" | *[!0-9]*) timeout="300" ;;
+	esac
+	[ "${timeout}" -gt 0 ] || timeout="300"
+	waited="0"
+	until system_time_ready; do
+		if [ "${waited}" -ge "${timeout}" ]; then
+			agh_log warning netcheck "state=netcheck action=wait_system_time stage=time reason=ntp_not_ready result=timeout timeout=${timeout}"
+			return 1
+		fi
+		sleep 1
+		waited="$((waited + 1))"
+	done
+	case "${mode}" in
+		lan | LAN)
+			# LAN mode skips public WAN probes. Local DNS responsiveness is checked
+			# separately after AdGuardHome is expected to be serving DNS.
+			return 0
+			;;
+	esac
+	# Intentionally split hosts on shell IFS so ADGUARD_NETCHECK_HOSTS stays a simple
+	# space-delimited POSIX/ash setting.
+	set -- ${hosts}
+	if [ "$#" -eq 0 ]; then
+		agh_log warning netcheck "state=netcheck action=validate_hosts stage=dns reason=no_hosts_configured result=failed"
+		return 1
+	fi
+	dns_ok="0"
+	ping_ok="0"
+	if netcheck_dns_ok "${dns_server}" "$@"; then
+		dns_ok="1"
+	fi
+	if [ "${dns_ok}" -ne 1 ] && netcheck_ping_ok "$@"; then
+		ping_ok="1"
+	fi
+	if [ "${dns_ok}" -ne 1 ] && [ "${ping_ok}" -ne 1 ]; then
+		agh_log warning netcheck "state=netcheck action=resolve_hosts stage=dns reason=lookup_failed result=failed dns=${dns_server} hosts=${hosts}"
+		agh_log warning netcheck "state=netcheck action=ping_hosts stage=ping reason=ping_failed result=failed hosts=${hosts}"
+		return 1
+	fi
+	case "${http_required}" in
+		YES | yes | Yes)
+			if netcheck_http_ok "$@"; then
+				return 0
+			fi
+			agh_log warning netcheck "state=netcheck action=http_probe stage=http reason=http_failed result=failed hosts=${hosts}"
+			;;
+		*) return 0 ;;
+	esac
+	return 1
 }
 
 private_ipv4_bridge_dns_options() {
@@ -797,33 +1102,114 @@ system_time_ready() {
 
 # Process tuning helpers
 
-proc_optimizations() {
-	{ proc_write "4194304" "/proc/sys/kernel/pid_max"; }                                 # Ensure max PID coverage
-	{ proc_write "2" "/proc/sys/vm/overcommit_memory"; }                                 # Ensure ratio algorithm checks properly work including swap.
-	{ proc_write "60" "/proc/sys/vm/swappiness"; }                                       # Ensure swappiness is set for more readily usability.
-	{ proc_write "50" "/proc/sys/vm/overcommit_ratio"; }                                 # Ensure a proper overcommit policy is available.
-	{ proc_write "4194304" "/proc/sys/net/core/rmem_max"; }                              # Ensure UDP receive buffer set to 4M.
-	{ proc_write "1048576" "/proc/sys/net/core/wmem_max"; }                              # Ensure 1M for wmem_max.
-	{ proc_write "0" "/proc/sys/net/ipv4/icmp_ratelimit"; }                              # Ensure Control over MTRS
-	{ proc_write "240" "/proc/sys/net/netfilter/nf_conntrack_tcp_timeout_max_retrans"; } # Lower conntrack tcp_timeout_max_retrans from 300 to 240
-	{ proc_write "256" "/proc/sys/net/ipv4/neigh/default/gc_thresh1"; }                  # Increase ARP cache sizes and GC thresholds
-	{ proc_write "1024" "/proc/sys/net/ipv4/neigh/default/gc_thresh2"; }                 # Increase ARP cache sizes and GC thresholds
-	{ proc_write "2048" "/proc/sys/net/ipv4/neigh/default/gc_thresh3"; }                 # Increase ARP cache sizes and GC thresholds
-	if [ -n "$(nvram get ipv6_service)" ]; then                                          # IPV6 proc variants
-		{ proc_write "0" "/proc/sys/net/ipv6/icmp/ratelimit"; }
-		{ proc_write "256" "/proc/sys/net/ipv6/neigh/default/gc_thresh1"; }
-		{ proc_write "1024" "/proc/sys/net/ipv6/neigh/default/gc_thresh2"; }
-		{ proc_write "2048" "/proc/sys/net/ipv6/neigh/default/gc_thresh3"; }
+proc_config() {
+	local is_set value
+	eval "is_set=\${$1_SET:-}"
+	eval "value=\${$1:-}"
+	if [ -n "${is_set}" ] && [ -n "${value}" ]; then
+		printf '%s\n' "${value}"
+		return 0
 	fi
+	value="$(conf_value "$1")"
+	if [ -n "${value}" ]; then
+		printf '%s\n' "${value}"
+		return 0
+	fi
+	printf '%s\n' "$2"
+}
+
+proc_optimizations() {
+	local enabled profile
+	enabled="$(proc_config ADGUARD_PROC_OPTIMIZE "${DEFAULT_ADGUARD_PROC_OPTIMIZE}")"
+	profile="$(proc_config ADGUARD_PROC_PROFILE "${DEFAULT_ADGUARD_PROC_PROFILE}")"
+	case "${enabled}" in
+		YES | yes | Yes | ON | on | On | TRUE | true | True | 1) ;;
+		*)
+			agh_log info proc_optimizations "state=proc_optimize action=skip reason=disabled result=skipped enabled=${enabled} profile=${profile}"
+			return 0
+			;;
+	esac
+
+	# Profile documentation:
+	# off: no proc/sysctl values are changed.
+	# safe: /proc/sys/net/core/rmem_max=4194304, /proc/sys/net/core/wmem_max=1048576.
+	# balanced: safe values plus /proc/sys/net/netfilter/nf_conntrack_tcp_timeout_max_retrans=240.
+	# aggressive: balanced values plus /proc/sys/kernel/pid_max=4194304,
+	#   /proc/sys/vm/overcommit_memory=2, /proc/sys/vm/swappiness=60,
+	#   /proc/sys/vm/overcommit_ratio=50, /proc/sys/net/ipv4/icmp_ratelimit=0,
+	#   /proc/sys/net/ipv4/neigh/default/gc_thresh1=256,
+	#   /proc/sys/net/ipv4/neigh/default/gc_thresh2=1024,
+	#   /proc/sys/net/ipv4/neigh/default/gc_thresh3=2048, and when IPv6 is
+	#   configured, /proc/sys/net/ipv6/icmp/ratelimit=0,
+	#   /proc/sys/net/ipv6/neigh/default/gc_thresh1=256,
+	#   /proc/sys/net/ipv6/neigh/default/gc_thresh2=1024,
+	#   /proc/sys/net/ipv6/neigh/default/gc_thresh3=2048.
+	case "${profile}" in
+		off)
+			agh_log info proc_optimizations "state=proc_optimize action=skip reason=profile_off result=skipped profile=${profile}"
+			return 0
+			;;
+		safe | balanced | aggressive) ;;
+		*)
+			agh_log warning proc_optimizations "state=proc_optimize action=validate_profile reason=invalid_profile result=skipped profile=${profile}"
+			return 0
+			;;
+	esac
+
+	proc_write "4194304" "/proc/sys/net/core/rmem_max"
+	proc_write "1048576" "/proc/sys/net/core/wmem_max"
+	case "${profile}" in
+		balanced | aggressive)
+			proc_write "240" "/proc/sys/net/netfilter/nf_conntrack_tcp_timeout_max_retrans"
+			;;
+	esac
+	case "${profile}" in
+		aggressive)
+			proc_write "4194304" "/proc/sys/kernel/pid_max"
+			proc_write "2" "/proc/sys/vm/overcommit_memory"
+			proc_write "60" "/proc/sys/vm/swappiness"
+			proc_write "50" "/proc/sys/vm/overcommit_ratio"
+			proc_write "0" "/proc/sys/net/ipv4/icmp_ratelimit"
+			proc_write "256" "/proc/sys/net/ipv4/neigh/default/gc_thresh1"
+			proc_write "1024" "/proc/sys/net/ipv4/neigh/default/gc_thresh2"
+			proc_write "2048" "/proc/sys/net/ipv4/neigh/default/gc_thresh3"
+			if [ -n "$(nvram get ipv6_service 2>/dev/null)" ]; then
+				proc_write "0" "/proc/sys/net/ipv6/icmp/ratelimit"
+				proc_write "256" "/proc/sys/net/ipv6/neigh/default/gc_thresh1"
+				proc_write "1024" "/proc/sys/net/ipv6/neigh/default/gc_thresh2"
+				proc_write "2048" "/proc/sys/net/ipv6/neigh/default/gc_thresh3"
+			fi
+			;;
+	esac
+	return 0
 }
 
 proc_write() {
-	local TARGET VALUE
-	VALUE="$1"
-	TARGET="$2"
-	{ [ -e "${TARGET}" ] || return 0; }
-	{ [ -w "${TARGET}" ] || return 0; }
-	{ printf "%s" "${VALUE}" >"${TARGET}"; }
+	local old_value target value
+	value="$1"
+	target="$2"
+	if [ ! -e "${target}" ]; then
+		agh_log warning proc_write "state=proc_optimize action=write target=${target} new_value=${value} reason=missing result=failed"
+		return 0
+	fi
+	if ! IFS= read -r old_value <"${target}"; then
+		old_value=""
+		agh_log warning proc_write "state=proc_optimize action=read target=${target} new_value=${value} reason=read_failed result=failed"
+	fi
+	agh_log info proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value}"
+	if ! printf '%s' "${value}" >"${target}" 2>/dev/null; then
+		agh_log warning proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value} result=failed"
+	fi
+	return 0
+}
+netcheck_lan_dns() {
+	# Ignore public DNS overrides in LAN mode; this probe is only for the
+	# local AdGuardHome listener after the process has started.
+	if ! netcheck_dns_ok "127.0.0.1" localhost; then
+		agh_log warning netcheck_lan_dns "state=netcheck action=resolve_hosts stage=dns reason=lookup_failed result=failed mode=lan dns=127.0.0.1 hosts=localhost"
+		return 1
+	fi
+	return 0
 }
 
 # Service lifecycle helpers
@@ -839,7 +1225,16 @@ lower_script() {
 service_wait() {
 	umask 022
 	local maxwait
-	[ -z "$2" ] && maxwait="300" || maxwait="$2"
+	if [ -n "$2" ]; then
+		maxwait="$2"
+	elif [ "$1" = "netcheck" ]; then
+		maxwait="$(netcheck_config ADGUARD_NETCHECK_TIMEOUT "${DEFAULT_ADGUARD_NETCHECK_TIMEOUT}")"
+	else
+		maxwait="300"
+	fi
+	case "${maxwait}" in
+		"" | *[!0-9]*) maxwait="300" ;;
+	esac
 	(
 		{
 			timezone
@@ -872,6 +1267,11 @@ service_wait() {
 			if [ "${SERVICE_WAIT_TERMINAL_FAILURE:-0}" -eq 1 ]; then
 				return "${status}"
 			elif [ "${elapsed}" -gt "${maxwait}" ]; then
+				if [ "$(nvram get success_start_service 2>/dev/null)" != '1' ]; then
+					agh_log warning service_wait "state=service_wait action=wait_service_ready stage=service_readiness reason=success_start_service_not_ready result=timeout timeout=${maxwait}"
+				elif [ "$1" = "netcheck" ]; then
+					agh_log warning service_wait "state=service_wait action=run_check stage=service_readiness reason=netcheck_failed result=timeout timeout=${maxwait}"
+				fi
 				return 1
 			else
 				return 0
@@ -990,10 +1390,20 @@ start_monitor() {
 					1)
 						if [ "${MONITOR_ELAPSED}" -ge "${MONITOR_HEALTHCHECK_INTERVAL}" ]; then
 							MONITOR_ELAPSED="0"
-							if { ! service_wait netcheck "${MONITOR_HEALTHCHECK_TIMEOUT}"; }; then
-								agh_log warning start_monitor "state=running action=healthcheck reason=netcheck_timeout result=not_responding timeout=${MONITOR_HEALTHCHECK_TIMEOUT}"
-								unset MONITOR_ELAPSED
-							fi
+							case "$(netcheck_config ADGUARD_NETCHECK_MODE "${DEFAULT_ADGUARD_NETCHECK_MODE}")" in
+								lan | LAN)
+									if { ! service_wait netcheck_lan_dns "${MONITOR_HEALTHCHECK_TIMEOUT}"; }; then
+										agh_log warning start_monitor "state=running action=healthcheck reason=local_dns_timeout result=not_responding timeout=${MONITOR_HEALTHCHECK_TIMEOUT}"
+										unset MONITOR_ELAPSED
+									fi
+									;;
+								*)
+									if { ! service_wait netcheck "${MONITOR_HEALTHCHECK_TIMEOUT}"; }; then
+										agh_log warning start_monitor "state=running action=healthcheck reason=netcheck_timeout result=not_responding timeout=${MONITOR_HEALTHCHECK_TIMEOUT}"
+										unset MONITOR_ELAPSED
+									fi
+									;;
+							esac
 						else
 							MONITOR_ELAPSED="$((MONITOR_ELAPSED + MONITOR_SLEEP_INTERVAL))"
 						fi
@@ -2200,6 +2610,11 @@ IPSet_Supported() {
 	agh_log warning IPSet_Supported "state=compatibility action=check_version result=skipped reason=parse_failed"
 	return 1
 }
+
+if [ "${1:-}" = "status" ]; then
+	status
+	exit "$?"
+fi
 
 manager_dependencies_available || return 1 2>/dev/null || exit 1
 if [ -f "${UPPER_SCRIPT}" ]; then UPPER_SCRIPT_LOC=". ${UPPER_SCRIPT}"; fi
