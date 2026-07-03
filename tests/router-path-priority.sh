@@ -1,6 +1,6 @@
 #!/bin/sh
-# Verify runtime scripts prefer stock commands and privileged startup is isolated
-# from caller-controlled paths.
+# Verify installer/runtime scripts prefer stock commands and privileged startup
+# is isolated from caller-controlled paths.
 
 set -u
 
@@ -8,6 +8,12 @@ fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
+
+[ -f installer ] || fail "missing installer script"
+installer_path_statement="$(sed -n '/^export PATH=/p' installer | sed -n '1p')"
+expected_installer_path='export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"'
+[ "${installer_path_statement}" = "${expected_installer_path}" ] ||
+	fail "installer does not export its expected bootstrap PATH"
 
 for script in AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome; do
 	[ -f "${script}" ] || fail "missing runtime script: ${script}"
@@ -36,11 +42,22 @@ for script in AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome; do
 	esac
 done
 
+ensure_bcrypt_env="$(sed -n '/go install gophers.dev\/cmds\/bcrypt-tool@latest/p' installer)"
+case "${ensure_bcrypt_env}" in *' HOME="${GO_PATH_DIR}"'*) ;; *) fail "bcrypt-tool Go install does not set HOME" ;; esac
+case "${ensure_bcrypt_env}" in *' GOCACHE="${GO_CACHE_DIR}"'*) ;; *) fail "bcrypt-tool Go install does not set GOCACHE" ;; esac
+case "${ensure_bcrypt_env}" in *' GOPATH="${GO_PATH_DIR}"'*) ;; *) fail "bcrypt-tool Go install does not set GOPATH" ;; esac
+
 PATH="/feedback-test-path"
-export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH:-}"
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
 case ":${PATH}:" in
 	*:/feedback-test-path:*) ;;
 	*) fail "stock path initialization discarded the caller PATH" ;;
+esac
+
+PATH=""
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
+case "${PATH}" in
+	*: | *::* | :*) fail "stock path initialization added an empty PATH component" ;;
 esac
 
 PATH="/feedback-test-path"

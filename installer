@@ -21,7 +21,7 @@
 #################################################################################################################
 
 export LC_ALL=C
-export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
 
 AI_VERSION="v2.5.0"
 export AI_VERSION
@@ -117,11 +117,13 @@ ensure_bcrypt_tool() {
 			fi
 			;;
 	esac
-	export PATH="${PATH}:/opt/bin/go/bin"
 	export GOROOT="/opt/bin/go"
 	export GOBIN="/opt/bin/"
-	ai_have_cmd go || return 1
-	go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
+	GO_CACHE_DIR="/tmp/AdGuardHome-go-build-cache"
+	GO_PATH_DIR="/tmp/AdGuardHome-go-path"
+	[ -x /opt/bin/go/bin/go ] || return 1
+	mkdir -p "${GO_CACHE_DIR}" "${GO_PATH_DIR}" || return 1
+	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/opt/bin/go/bin" HOME="${GO_PATH_DIR}" GOCACHE="${GO_CACHE_DIR}" GOPATH="${GO_PATH_DIR}" GOROOT="${GOROOT}" GOBIN="${GOBIN}" /opt/bin/go/bin/go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
 }
 
 ensure_opkg_package() {
@@ -147,6 +149,9 @@ entware_available() {
 
 sha256sum_available() {
 	if ai_have_cmd sha256sum && sha256sum /dev/null >/dev/null 2>&1; then
+		return 0
+	fi
+	if [ -x /opt/bin/sha256sum ] && /opt/bin/sha256sum /dev/null >/dev/null 2>&1; then
 		return 0
 	fi
 	if [ -x /bin/busybox ] && /bin/busybox sha256sum /dev/null >/dev/null 2>&1; then
@@ -197,7 +202,7 @@ ensure_password_hash_tool() {
 
 hash_password_python() {
 	_password="$1"
-	PTXT -n "${_password}" | python3 -c 'import sys, bcrypt; password = sys.stdin.buffer.read(); print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))'
+	PTXT -n "${_password}" | /opt/bin/python3 -c 'import sys, bcrypt; password = sys.stdin.buffer.read(); print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))'
 }
 
 opkg_pkg_available() {
@@ -224,7 +229,7 @@ on_installer_exit() {
 }
 
 python_bcrypt_available() {
-	ai_have_cmd python3 && python3 -c 'import bcrypt' >/dev/null 2>&1
+	[ -x /opt/bin/python3 ] && /opt/bin/python3 -c 'import bcrypt' >/dev/null 2>&1
 }
 
 remove_conflicting_apache() {
@@ -1667,7 +1672,7 @@ install_blocklist_analyzer() {
 }
 
 run_blocklist_analyzer() {
-	local filter_file found_filter output_file ids_file
+	local filter_file found_filter output_file ids_file python_cmd
 	output_file="${TARG_DIR}/blocklist_analyzer.$$.out"
 	ids_file="${TARG_DIR}/blocklist_analyzer.$$.ids"
 	ptxt_phase "Running AdGuardHome blocklist analyzer."
@@ -1693,8 +1698,14 @@ run_blocklist_analyzer() {
 	fi
 	ptxt_ok "Analyzer input files are available."
 
+	python_cmd="$(command -v python3 2>/dev/null)"
+	if [ -z "${python_cmd}" ]; then
+		ptxt_fail "python3 is required to run the blocklist analyzer."
+		return 1
+	fi
+
 	ptxt_step "Running analyzer from ${TARG_DIR} so ./data resolves correctly."
-	if ! (cd "${TARG_DIR}" && python3 "${BLOCKLIST_ANALYZER_FILE}") >"${output_file}" 2>&1; then
+	if ! (cd "${TARG_DIR}" && "${python_cmd}" "${BLOCKLIST_ANALYZER_FILE}") >"${output_file}" 2>&1; then
 		cat "${output_file}"
 		rm -f "${output_file}" "${ids_file}"
 		ptxt_fail "Blocklist analyzer failed."
@@ -3645,6 +3656,10 @@ set_timezone() {
 		PTXT "${ERROR} Required timezone selection command is unavailable: sort"
 		return 1
 	}
+	[ -x /opt/bin/column ] || {
+		PTXT "${ERROR} Required Entware timezone selection command is unavailable: /opt/bin/column"
+		return 1
+	}
 	download_file "${TMP}" 644 "${RURL}/${TZ_DATA}" || return 1
 	TZ_LIST="$(tar tjf "${TMP}/${TZ_DATA}" 2>/dev/null)" || {
 		PTXT "${ERROR} Unable to read timezone archive ${TZ_DATA}."
@@ -3656,7 +3671,7 @@ set_timezone() {
 		return 1
 	}
 	PTXT "${INFO} Available timezones/locations:"
-	PTXT "${TZ_LIST}" | awk -F'/' '!/\/$/ && /\/posix\//' | sort | cut -d'/' -f2- | awk -v INDEX=0 -F'/' '!/\/$/ {++INDEX;printf "  " INDEX") ";for (i=5; i<NF; i++)  printf $i "/"; print $NF}' | column
+	PTXT "${TZ_LIST}" | awk -F'/' '!/\/$/ && /\/posix\//' | sort | cut -d'/' -f2- | awk -v INDEX=0 -F'/' '!/\/$/ {++INDEX;printf "  " INDEX") ";for (i=5; i<NF; i++)  printf $i "/"; print $NF}' | /opt/bin/column
 	if ! read_input_num "Select your timezone/location" 1 "${INDEX}"; then
 		PTXT "${ERROR} Unable to select a timezone."
 		return 1
