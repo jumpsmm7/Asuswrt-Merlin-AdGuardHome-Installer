@@ -5029,7 +5029,11 @@ cli_run() {
 			fi
 			if [ "${CLI_YES}" = "1" ]; then
 				OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
-				service restart_AdGuardHome >/dev/null 2>&1 && adguard_service_status_after_action restart "${OLD_PIDS}" || PTXT "${WARNING} IPSET refresh requested, but AdGuardHome could not be restarted."
+				if service restart_AdGuardHome >/dev/null 2>&1 && adguard_service_status_after_action restart "${OLD_PIDS}"; then
+					return 0
+				fi
+				PTXT "${WARNING} IPSET refresh requested, but AdGuardHome could not be restarted."
+				return 1
 			else
 				ptxt_ok "IPSET preference unchanged. Use --yes to restart AdGuardHome now."
 			fi
