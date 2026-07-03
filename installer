@@ -23,7 +23,7 @@
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
 
-AI_VERSION="v2.4.4"
+AI_VERSION="v2.5.0"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -4589,12 +4589,14 @@ single_arg_menu_action() {
 
 cli_usage() {
 	PTXT "${INFO} Usage:" \
-		"${INFO}   sh installer install --branch {release|beta|edge} --yes [--allow-dns-nvram]" \
-		"${INFO}   sh installer update --yes [--dry-run]" \
+		"${INFO}   sh installer install [--installer-branch master] [--adguardhome-branch {release|beta|edge}] --yes [--allow-dns-nvram]" \
+		"${INFO}   sh installer update [--installer-branch master] [--adguardhome-branch {release|beta|edge}] --yes [--dry-run]" \
 		"${INFO}   sh installer backup --yes" \
 		"${INFO}   sh installer restore --file /path/to/backup_AdGuardHome.tar.gz --yes [--dry-run]" \
 		"${INFO}   sh installer doctor [--fix]" \
 		"${INFO}   sh installer ipset refresh [--yes] [--dry-run]" \
+		"${INFO}   sh installer netcheck --mode {legacy|wan|lan} [--hosts host-list] [--dns server] [--require-http {YES|NO}] [--timeout seconds]" \
+		"${INFO}   sh installer dns-port-policy --policy {legacy|refuse-unknown}" \
 		"${INFO}   sh installer performance --profile {balanced|low-memory|fast}" \
 		"${INFO}   sh installer uninstall --yes [--dry-run] [--allow-dns-nvram]"
 }
@@ -4640,7 +4642,7 @@ cli_pre_remote_dry_run() {
 				restore_file="$2"
 				shift 2
 				;;
-			--branch | --profile)
+			--branch | --adguardhome-branch | --installer-branch | --profile)
 				[ "$#" -gt 1 ] || return 1
 				shift 2
 				;;
@@ -4692,8 +4694,147 @@ cli_backup_restore_file() {
 	return "${cli_ret}"
 }
 
+cli_bool_value() {
+	case "$1" in
+		YES | yes | Yes | ON | on | On | TRUE | true | True | 1) PTXT "YES" ;;
+		NO | no | No | OFF | off | Off | FALSE | false | False | 0) PTXT "NO" ;;
+		*) return 1 ;;
+	esac
+}
+
+cli_adguard_branch_is_valid() {
+	case "$1" in
+		release | beta | edge) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+cli_simple_value_is_safe() {
+	case "$1" in
+		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-]*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+cli_host_list_is_safe() {
+	[ -n "$1" ] || return 1
+	[ -z "$(printf '%s' "$1" | tr -d 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._: -')" ]
+}
+
+cli_write_quoted_conf() {
+	if ! write_conf "$1" "\"$2\""; then
+		return 1
+	fi
+	return 0
+}
+
+cli_netcheck_config_values() {
+	local dns host_list http_required mode timeout
+	mode="$1"
+	host_list="$2"
+	dns="$3"
+	http_required="$4"
+	timeout="$5"
+	case "${mode}" in
+		legacy | wan | lan) ;;
+		*)
+			PTXT "${ERROR} netcheck requires --mode {legacy|wan|lan}."
+			return 1
+			;;
+	esac
+	[ -z "${host_list}" ] || cli_host_list_is_safe "${host_list}" || {
+		PTXT "${ERROR} netcheck hosts contain unsupported characters."
+		return 1
+	}
+	[ -z "${dns}" ] || cli_simple_value_is_safe "${dns}" || {
+		PTXT "${ERROR} netcheck DNS server contains unsupported characters."
+		return 1
+	}
+	case "${timeout}" in
+		"") ;;
+		*[!0123456789]*)
+			PTXT "${ERROR} netcheck timeout must be a positive number of seconds."
+			return 1
+			;;
+		*) [ "${timeout}" -gt 0 ] 2>/dev/null || {
+			PTXT "${ERROR} netcheck timeout must be greater than zero."
+			return 1
+		} ;;
+	esac
+	cli_write_quoted_conf ADGUARD_NETCHECK_MODE "${mode}" || return 1
+	[ -z "${host_list}" ] || cli_write_quoted_conf ADGUARD_NETCHECK_HOSTS "${host_list}" || return 1
+	[ -z "${dns}" ] || cli_write_quoted_conf ADGUARD_NETCHECK_DNS "${dns}" || return 1
+	[ -z "${http_required}" ] || cli_write_quoted_conf ADGUARD_NETCHECK_REQUIRE_HTTP "${http_required}" || return 1
+	[ -z "${timeout}" ] || cli_write_quoted_conf ADGUARD_NETCHECK_TIMEOUT "${timeout}" || return 1
+	ptxt_ok "Netcheck mode set to ${mode}."
+}
+
+cli_dns_port_policy() {
+	local policy
+	policy=""
+	while [ "$#" -gt 0 ]; do
+		case "$1" in
+			--policy)
+				[ "$#" -gt 1 ] || return 2
+				policy="$2"
+				shift 2
+				;;
+			*) return 2 ;;
+		esac
+	done
+	case "${policy}" in
+		legacy)
+			cli_write_quoted_conf ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "0" || return 1
+			ptxt_ok "DNS port-owner cleanup policy set to legacy."
+			;;
+		refuse-unknown)
+			cli_write_quoted_conf ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "1" || return 1
+			ptxt_ok "DNS port-owner cleanup policy set to refuse unknown owners."
+			;;
+		*)
+			PTXT "${ERROR} dns-port-policy requires --policy {legacy|refuse-unknown}."
+			return 1
+			;;
+	esac
+}
+
+cli_installer_branch_from_args() {
+	while [ "$#" -gt 0 ]; do
+		case "$1" in
+			--installer-branch)
+				[ "$#" -gt 1 ] || return 1
+				branch_is_safe "$2" || return 1
+				PTXT "$2"
+				return 0
+				;;
+			--branch | --adguardhome-branch | --file | --profile | --mode | --hosts | --dns | --require-http | --timeout | --policy)
+				[ "$#" -gt 1 ] || return 1
+				shift 2
+				;;
+			*)
+				shift
+				;;
+		esac
+	done
+	return 1
+}
+
+cli_write_adguard_branch() {
+	local old_branch new_branch
+	new_branch="$1"
+	old_branch="$(conf_value ADGUARD_BRANCH)"
+	if ! write_conf ADGUARD_BRANCH "\"${new_branch}\""; then
+		return 1
+	fi
+	if [ -n "${old_branch}" ] && [ "${old_branch}" != "${new_branch}" ]; then
+		ADGUARD_BRANCH_CHANGED="1"
+		export ADGUARD_BRANCH_CHANGED
+	fi
+	return 0
+}
+
 cli_run() {
-	local cmd sub opt restore_file profile proc_profile adguard_branch
+	local cmd sub opt restore_file profile proc_profile adguard_branch installer_branch netcheck_mode netcheck_hosts netcheck_dns netcheck_http netcheck_timeout dns_policy
 	CLI_MODE="1"
 	export CLI_MODE
 	cmd="${1:-}"
@@ -4704,8 +4845,15 @@ cli_run() {
 	restore_file=""
 	profile=""
 	adguard_branch=""
+	installer_branch=""
+	netcheck_mode=""
+	netcheck_hosts=""
+	netcheck_dns=""
+	netcheck_http=""
+	netcheck_timeout=""
+	dns_policy=""
 	case "${cmd}" in
-		install | update | backup | restore | doctor | ipset | performance | uninstall) ;;
+		install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | uninstall) ;;
 		*) return 2 ;;
 	esac
 	if [ "${cmd}" = "ipset" ]; then
@@ -4734,9 +4882,14 @@ cli_run() {
 				sub="--fix"
 				shift
 				;;
-			--branch)
+			--branch | --adguardhome-branch)
 				[ "$#" -gt 1 ] || return 2
 				adguard_branch="$2"
+				shift 2
+				;;
+			--installer-branch)
+				[ "$#" -gt 1 ] || return 2
+				installer_branch="$2"
 				shift 2
 				;;
 			--file)
@@ -4749,9 +4902,58 @@ cli_run() {
 				profile="$2"
 				shift 2
 				;;
+			--mode)
+				[ "$#" -gt 1 ] || return 2
+				[ "${cmd}" = "netcheck" ] || return 2
+				netcheck_mode="$2"
+				shift 2
+				;;
+			--hosts)
+				[ "$#" -gt 1 ] || return 2
+				[ "${cmd}" = "netcheck" ] || return 2
+				netcheck_hosts="$2"
+				shift 2
+				;;
+			--dns)
+				[ "$#" -gt 1 ] || return 2
+				[ "${cmd}" = "netcheck" ] || return 2
+				netcheck_dns="$2"
+				shift 2
+				;;
+			--require-http)
+				[ "$#" -gt 1 ] || return 2
+				[ "${cmd}" = "netcheck" ] || return 2
+				netcheck_http="$(cli_bool_value "$2")" || return 2
+				shift 2
+				;;
+			--timeout)
+				[ "$#" -gt 1 ] || return 2
+				[ "${cmd}" = "netcheck" ] || return 2
+				netcheck_timeout="$2"
+				shift 2
+				;;
+			--policy)
+				[ "$#" -gt 1 ] || return 2
+				[ "${cmd}" = "dns-port-policy" ] || return 2
+				dns_policy="$2"
+				shift 2
+				;;
 			*) return 2 ;;
 		esac
 	done
+	if [ -n "${installer_branch}" ]; then
+		branch_is_safe "${installer_branch}" || {
+			PTXT "${ERROR} Unsupported installer branch: ${installer_branch}"
+			return 1
+		}
+		write_conf INSTALLER_BRANCH "\"${installer_branch}\"" || return 1
+	fi
+	if [ -n "${adguard_branch}" ]; then
+		cli_adguard_branch_is_valid "${adguard_branch}" || {
+			PTXT "${ERROR} Unsupported AdGuardHome branch: ${adguard_branch}"
+			return 1
+		}
+	fi
 	case "${cmd}" in
 		doctor)
 			doctor "${sub}"
@@ -4763,6 +4965,7 @@ cli_run() {
 				return 0
 			}
 			cli_require_yes || return 1
+			[ -z "${adguard_branch}" ] || cli_write_adguard_branch "${adguard_branch}" || return 1
 			cli_enable_assume_yes
 			AUTO_UPDATE="update"
 			menu update
@@ -4812,6 +5015,14 @@ cli_run() {
 				ptxt_ok "IPSET preference unchanged. Use --yes to restart AdGuardHome now."
 			fi
 			;;
+		netcheck)
+			cli_netcheck_config_values "${netcheck_mode}" "${netcheck_hosts}" "${netcheck_dns}" "${netcheck_http}" "${netcheck_timeout}"
+			return "$?"
+			;;
+		dns-port-policy)
+			cli_dns_port_policy --policy "${dns_policy}"
+			return "$?"
+			;;
 		performance)
 			case "${profile}" in
 				balanced) proc_profile="balanced" ;;
@@ -4840,12 +5051,11 @@ cli_run() {
 			cli_enable_assume_yes
 			[ -n "${adguard_branch}" ] || adguard_branch="$(conf_value ADGUARD_BRANCH)"
 			[ -n "${adguard_branch}" ] || adguard_branch="release"
-			case "${adguard_branch}" in release | beta | edge) ;; *)
+			cli_adguard_branch_is_valid "${adguard_branch}" || {
 				PTXT "${ERROR} Unsupported AdGuardHome branch: ${adguard_branch}"
 				return 1
-				;;
-			esac
-			write_conf ADGUARD_BRANCH "\"${adguard_branch}\""
+			}
+			cli_write_adguard_branch "${adguard_branch}" || return 1
 			inst_AdGuardHome install
 			;;
 	esac
@@ -4895,9 +5105,20 @@ if ! conf_has_key BLOCKLIST_ANALYZER_SHA256; then
 	write_conf BLOCKLIST_ANALYZER_SHA256 "\"${BLOCKLIST_ANALYZER_SHA256_DEFAULT}\""
 	BLOCKLIST_ANALYZER_SHA256="${BLOCKLIST_ANALYZER_SHA256_DEFAULT}"
 fi
+if [ -z "${2:-}" ] && single_arg_menu_action "${1:-}"; then
+	CHOSEN="${1}"
+	BRANCH="$(conf_value INSTALLER_BRANCH)"
+	if [ -n "${BRANCH}" ]; then
+		BRANCH="$(sanitize_branch "${BRANCH}")"
+	else
+		BRANCH="master"
+	fi
+	set -- "${BRANCH}" "${CHOSEN}"
+fi
 case "${1}" in
-	install | update | backup | restore | doctor | ipset | performance | uninstall)
-		BRANCH="$(conf_value INSTALLER_BRANCH)"
+	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | uninstall)
+		BRANCH="$(cli_installer_branch_from_args "$@" 2>/dev/null)"
+		[ -n "${BRANCH}" ] || BRANCH="$(conf_value INSTALLER_BRANCH)"
 		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
 		;;
 	"amtmupdate")
@@ -4914,18 +5135,7 @@ case "${1}" in
 		BRANCH="master"
 		;;
 	*)
-		if [ -z "${2:-}" ] && single_arg_menu_action "${1}"; then
-			CHOSEN="${1}"
-			BRANCH="$(conf_value INSTALLER_BRANCH)"
-			if [ -n "${BRANCH}" ]; then
-				BRANCH="$(sanitize_branch "${BRANCH}")"
-			else
-				BRANCH="master"
-			fi
-			set -- "${BRANCH}" "${CHOSEN}"
-		else
-			BRANCH="${1}"
-		fi
+		BRANCH="${1}"
 		;;
 esac
 BRANCH="$(sanitize_branch "${BRANCH}")"
@@ -5003,14 +5213,14 @@ case "${1:-}" in
 	install | update)
 		init_remote_adguard_metadata
 		;;
-	backup | restore | doctor | ipset | performance | uninstall) ;;
+	backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | uninstall) ;;
 	*)
 		init_remote_adguard_metadata
 		;;
 esac
 
 case "${1:-}" in
-	install | update | backup | restore | doctor | ipset | performance | uninstall)
+	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | uninstall)
 		cli_run "$@"
 		CLI_STATUS="$?"
 		if [ "${CLI_STATUS}" -ne 0 ]; then

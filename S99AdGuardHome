@@ -564,6 +564,17 @@ dns_port_owner_process_name() {
 	printf '%s\n' "${_dns_owner_process_name}"
 }
 
+dns_port_unknown_refusal_enabled() {
+	_dns_refuse_unknown="${ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL:-}"
+	if [ -z "${_dns_refuse_unknown}" ] && [ -f "${WORK_DIR}/.config" ]; then
+		_dns_refuse_unknown="$(awk -F= '/^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=/ { print $2; exit }' "${WORK_DIR}/.config" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')"
+	fi
+	case "${_dns_refuse_unknown}" in
+		YES | yes | Yes | ON | on | On | TRUE | true | True | 1) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
 kill_dns_port_owners() {
 	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
 	_dns_owner_actions="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
@@ -613,8 +624,13 @@ kill_dns_port_owners() {
 		esac
 	done
 	_dns_unknown_owner="$(printf '%s\n' "${_dns_owner_actions}" | awk '$2 == "unknown" { found=1 } END { print found ? 1 : 0 }')"
-	if [ "${_dns_unknown_owner}" = "1" ] && [ "${ADGUARDHOME_FORCE_DNS_PORT_KILL:-}" != "1" ]; then
-		agh_log ERROR kill_dns_port_owners "Unknown port 53 owner detected after stopping dnsmasq; startup aborted. Set ADGUARDHOME_FORCE_DNS_PORT_KILL=1 to force termination."
+	if dns_port_unknown_refusal_enabled; then
+		_dns_refuse_unknown="1"
+	else
+		_dns_refuse_unknown="0"
+	fi
+	if [ "${_dns_unknown_owner}" = "1" ] && [ "${_dns_refuse_unknown}" = "1" ] && [ "${ADGUARDHOME_FORCE_DNS_PORT_KILL:-}" != "1" ]; then
+		agh_log ERROR kill_dns_port_owners "Unknown port 53 owner detected after stopping dnsmasq; startup aborted because ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=1. Set ADGUARDHOME_FORCE_DNS_PORT_KILL=1 to force termination."
 		return 2
 	fi
 	_dns_unavailable_unknown_owner="$(printf '%s\n' "${_dns_owner_actions}" | awk '$1 == "-" && $2 == "unknown" { found=1 } END { print found ? 1 : 0 }')"
@@ -622,9 +638,11 @@ kill_dns_port_owners() {
 		agh_log ERROR kill_dns_port_owners "Unknown port 53 owner has no available PID; unable to terminate it safely."
 		return 2
 	fi
-	_dns_pids="$(printf '%s\n' "${_dns_owner_actions}" | awk -v force="${ADGUARDHOME_FORCE_DNS_PORT_KILL:-0}" '$1 ~ /^[0-9]+$/ && ($2 == "dnsmasq" || force == "1") { printf "%s%s", sep, $1; sep=" " }')"
-	if [ "${_dns_unknown_owner}" = "1" ]; then
+	_dns_pids="$(printf '%s\n' "${_dns_owner_actions}" | awk -v refuse="${_dns_refuse_unknown}" -v force="${ADGUARDHOME_FORCE_DNS_PORT_KILL:-0}" '$1 ~ /^[0-9]+$/ && ($2 == "dnsmasq" || force == "1" || refuse != "1") { printf "%s%s", sep, $1; sep=" " }')"
+	if [ "${_dns_unknown_owner}" = "1" ] && [ "${ADGUARDHOME_FORCE_DNS_PORT_KILL:-}" = "1" ]; then
 		agh_log WARN kill_dns_port_owners "ADGUARDHOME_FORCE_DNS_PORT_KILL=1 set; terminating unknown port 53 owner(s)."
+	elif [ "${_dns_unknown_owner}" = "1" ] && [ "${_dns_refuse_unknown}" != "1" ]; then
+		agh_log WARN kill_dns_port_owners "Legacy DNS port behavior active; terminating unknown port 53 owner(s). Set ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=1 to abort instead."
 	fi
 	[ -n "${_dns_pids}" ] || return 0
 	# Intentional word splitting: awk returns a whitespace-delimited PID list.
