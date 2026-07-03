@@ -234,10 +234,6 @@ download_one() {
 			return 1
 			;;
 	esac
-	_dest_file="${_dest_dir}/AdGuardHome_${_channel_name}_${_version}_${_adguard_arch}.tar.gz"
-	_dest_name="${_dest_file##*/}"
-	_tmp_file="${_dest_file}.tmp.$$"
-
 	printf '%s\n' "Downloading ${_url} -> ${_dest_file}"
 	ACTIVE_DOWNLOAD_TMP="${_tmp_file}"
 	if ! curl -fL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 -o "${_tmp_file}" "${_url}"; then
