@@ -1602,12 +1602,12 @@ blocklist_analyzer_ids() {
 
 ensure_blocklist_analyzer_dependencies() {
 	ptxt_step "Checking for Entware python3."
-	if ! which python3 >/dev/null 2>&1; then
+	if [ ! -x /opt/bin/python3 ]; then
 		ptxt_warn "python3 is required to run the analyzer, but it was not found."
 		PTXT "${INFO} Entware python3 can be installed with: opkg install python3"
 		if read_yesno "Do you want Entware to install python3 now?"; then
 			ptxt_step "Installing Entware python3 package."
-			if ! ensure_opkg_package python3 || ! which python3 >/dev/null 2>&1; then
+			if ! ensure_opkg_package python3 || [ ! -x /opt/bin/python3 ]; then
 				ptxt_fail "Unable to install or find Entware python3."
 				return 1
 			fi
@@ -1698,9 +1698,9 @@ run_blocklist_analyzer() {
 	fi
 	ptxt_ok "Analyzer input files are available."
 
-	python_cmd="$(command -v python3 2>/dev/null)"
-	if [ -z "${python_cmd}" ]; then
-		ptxt_fail "python3 is required to run the blocklist analyzer."
+	python_cmd="/opt/bin/python3"
+	if [ ! -x "${python_cmd}" ]; then
+		ptxt_fail "Entware python3 is required to run the blocklist analyzer."
 		return 1
 	fi
 

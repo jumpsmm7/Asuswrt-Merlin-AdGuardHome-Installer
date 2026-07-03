@@ -5,6 +5,7 @@ set -u
 
 SCRIPT_PATH="${1:-installer}"
 TMP_ROOT="${TMPDIR:-/tmp}/installer-blocklist-cleanup.$$"
+export TMP_ROOT
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 
 cleanup() {
@@ -45,6 +46,9 @@ sed -n '/^select_unused_blocklists_for_removal() {$/,/^remove_unused_blocklists_
 sed -n '/^remove_unused_blocklists_from_yaml() {$/,/^cleanup_unused_blocklists() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
 	fail 'could not extract blocklist removal function'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'blocklist helper extraction was empty'
+sed 's#/opt/bin/python3#${PYTHON3_BIN:-/opt/bin/python3}#g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" ||
+	fail 'could not make Entware python3 path mockable'
+mv "${FUNCTIONS_FILE}.tmp" "${FUNCTIONS_FILE}" || fail 'could not update extracted blocklist helpers'
 
 (
 	# shellcheck disable=SC1090
@@ -54,10 +58,13 @@ sed -n '/^remove_unused_blocklists_from_yaml() {$/,/^cleanup_unused_blocklists()
 	TARG_DIR="${TMP_ROOT}/missing-inputs"
 	BLOCKLIST_ANALYZER_FILE="${TARG_DIR}/blocklist_analyzer.py"
 	mkdir -p "${TARG_DIR}/data" || exit 1
-	python3() {
-		printf '%s\n' 'python should not run without filters' >"${TMP_ROOT}/python-called"
-		return 0
-	}
+	PYTHON3_BIN="${TMP_ROOT}/python-missing-filters"
+	cat >"${PYTHON3_BIN}" <<'EOF_PY' || exit 1
+#!/bin/sh
+printf '%s\n' 'python should not run without filters' >"${TMP_ROOT}/python-called"
+exit 0
+EOF_PY
+	chmod 755 "${PYTHON3_BIN}" || exit 1
 	if run_blocklist_analyzer >"${TMP_ROOT}/missing-filters.out" 2>&1; then
 		exit 1
 	fi
@@ -76,10 +83,13 @@ grep -q 'filter files are missing' "${TMP_ROOT}/missing-filters.out" ||
 	mkdir -p "${TARG_DIR}/data/filters" || exit 1
 	printf '%s\n' 'not a filter' >"${TARG_DIR}/data/filters/README" || exit 1
 	printf '%s\n' '{"version":1}' >"${TARG_DIR}/data/querylog.json" || exit 1
-	python3() {
-		printf '%s\n' 'python should not run without txt filters' >"${TMP_ROOT}/python-called-non-txt"
-		return 0
-	}
+	PYTHON3_BIN="${TMP_ROOT}/python-non-txt"
+	cat >"${PYTHON3_BIN}" <<'EOF_PY' || exit 1
+#!/bin/sh
+printf '%s\n' 'python should not run without txt filters' >"${TMP_ROOT}/python-called-non-txt"
+exit 0
+EOF_PY
+	chmod 755 "${PYTHON3_BIN}" || exit 1
 	if run_blocklist_analyzer >"${TMP_ROOT}/non-txt-filters.out" 2>&1; then
 		exit 1
 	fi
@@ -97,10 +107,13 @@ grep -q 'contains no filter files' "${TMP_ROOT}/non-txt-filters.out" ||
 	BLOCKLIST_ANALYZER_FILE="${TARG_DIR}/blocklist_analyzer.py"
 	mkdir -p "${TARG_DIR}/data/filters" || exit 1
 	printf '%s\n' 'filter data' >"${TARG_DIR}/data/filters/1.txt" || exit 1
-	python3() {
-		printf '%s\n' 'python should not run without querylog' >"${TMP_ROOT}/python-called-querylog"
-		return 0
-	}
+	PYTHON3_BIN="${TMP_ROOT}/python-querylog"
+	cat >"${PYTHON3_BIN}" <<'EOF_PY' || exit 1
+#!/bin/sh
+printf '%s\n' 'python should not run without querylog' >"${TMP_ROOT}/python-called-querylog"
+exit 0
+EOF_PY
+	chmod 755 "${PYTHON3_BIN}" || exit 1
 	if run_blocklist_analyzer >"${TMP_ROOT}/missing-querylog.out" 2>&1; then
 		exit 1
 	fi
@@ -119,11 +132,14 @@ grep -q 'query log is missing or empty' "${TMP_ROOT}/missing-querylog.out" ||
 	mkdir -p "${TARG_DIR}/data/filters" || exit 1
 	printf '%s\n' 'filter data' >"${TARG_DIR}/data/filters/1.txt" || exit 1
 	printf '%s\n' '{"version":1}' >"${TARG_DIR}/data/querylog.json" || exit 1
-	python3() {
-		printf '%s\n' 'python ran with required inputs' >"${TMP_ROOT}/python-called-ready"
-		printf '%s\n' 'UNUSED BLOCKLISTS (0)'
-		return 0
-	}
+	PYTHON3_BIN="${TMP_ROOT}/python-ready"
+	cat >"${PYTHON3_BIN}" <<'EOF_PY' || exit 1
+#!/bin/sh
+printf '%s\n' 'python ran with required inputs' >"${TMP_ROOT}/python-called-ready"
+printf '%s\n' 'UNUSED BLOCKLISTS (0)'
+exit 0
+EOF_PY
+	chmod 755 "${PYTHON3_BIN}" || exit 1
 	run_blocklist_analyzer >"${TMP_ROOT}/ready-inputs.out" 2>&1
 	status="$?"
 	[ "${status}" -eq 2 ] || exit 1
