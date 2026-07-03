@@ -211,6 +211,7 @@ opkg_pkg_installed() {
 }
 
 opkg_clean_env() {
+	[ -x /opt/bin/opkg ] || return 127
 	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin" /opt/bin/opkg "$@"
 }
 
