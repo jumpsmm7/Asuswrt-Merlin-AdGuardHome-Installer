@@ -444,7 +444,7 @@ adguardhome_web_port() {
 	case "${_web_port}" in
 		"" | *[!0-9]*) return 1 ;;
 	esac
-	[ "${_web_port}" -ge 3000 ] 2>/dev/null && [ "${_web_port}" -le 65535 ] 2>/dev/null || return 1
+	[ "${_web_port}" -ge 1 ] 2>/dev/null && [ "${_web_port}" -le 65535 ] 2>/dev/null || return 1
 	printf '%s\n' "${_web_port}"
 }
 
