@@ -860,11 +860,15 @@ netcheck_legacy() {
 	done
 	while [ "${livecheck}" != "4" ]; do
 		for host in google.com github.com snbforums.com; do
-			if { ! nslookup "${host}" 127.0.0.1 >/dev/null 2>&1; } && { ping -q -w3 -c1 "${host}" >/dev/null 2>&1; }; then
-				if ! http_probe "http://${host}" >/dev/null 2>&1; then
-					sleep 1s
-					continue
-				fi
+			if nslookup "${host}" 127.0.0.1 >/dev/null 2>&1; then
+				return 0
+			fi
+			if ! ping -q -w3 -c1 "${host}" >/dev/null 2>&1; then
+				continue
+			fi
+			if ! http_probe "http://${host}" >/dev/null 2>&1; then
+				sleep 1s
+				continue
 			fi
 			return 0
 		done
