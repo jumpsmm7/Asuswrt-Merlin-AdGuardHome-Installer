@@ -444,24 +444,65 @@ adguardhome_web_port() {
 	case "${_web_port}" in
 		"" | *[!0-9]*) return 1 ;;
 	esac
-	[ "${_web_port}" -ge 3000 ] 2>/dev/null && [ "${_web_port}" -le 65535 ] 2>/dev/null || return 1
+	[ "${_web_port}" -ge 1 ] 2>/dev/null && [ "${_web_port}" -le 65535 ] 2>/dev/null || return 1
 	printf '%s\n' "${_web_port}"
 }
 
-adguardhome_web_port_available() {
+adguardhome_web_port_owned_status() {
 	_web_port="$(adguardhome_web_port)" || return 1
 	_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
 	printf '%s\n' "${_socket_table}" | awk -v proc="${PROCS}" -v port=":${_web_port}" '
-		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ port "[[:space:]]" && $0 ~ "/" proc "([[:space:]]|$)" { found = 1 }
-		END { exit(found ? 0 : 1) }
+		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ port "[[:space:]]" {
+			bound = 1
+			owner = ""
+			for (field = 1; field <= NF; field++) {
+				if ($field ~ /^[0-9]+\/[^[:space:]]+$/) {
+					owner = $field
+					break
+				}
+			}
+			if (owner ~ "/" proc "$") owner_found = 1
+			else if (owner != "") foreign_owner = 1
+		}
+		END {
+			if (owner_found) exit 0
+			if (bound && !foreign_owner) exit 2
+			if (foreign_owner) exit 3
+			exit 1
+		}
 	'
+	return "$?"
+}
+
+adguardhome_web_port_available() {
+	adguardhome_web_port_owned_status
+	_web_status="$?"
+	[ "${_web_status}" -eq 0 ] && return 0
+	[ "${_web_status}" -eq 2 ] || return 1
+	adguardhome_single_process_running
 }
 
 adguardhome_startup_checks_ready() {
 	pidof "${PROCS}" >/dev/null 2>&1 || return 2
-	adguardhome_web_port_available || return 1
-	adguardhome_config_valid || return 1
+	adguardhome_web_port_owned_status
+	_web_status="$?"
+	if [ "${_web_status}" -eq 2 ]; then
+		adguardhome_single_process_running || return 1
+	elif [ "${_web_status}" -ne 0 ]; then
+		[ "${_web_status}" -eq 3 ] && return 3
+		return 1
+	fi
+	adguardhome_config_valid || return 4
 	return 0
+}
+
+wait_for_adguardhome_startup_checks_failure_reason() {
+	case "${1:-}" in
+		2) printf '%s\n' "process exited before readiness completed" ;;
+		3) printf '%s\n' "WebUI port is not owned by AdGuardHome" ;;
+		4) printf '%s\n' "configuration validation failed" ;;
+		*) printf '%s\n' "readiness checks failed" ;;
+	esac
 }
 
 wait_for_adguardhome_startup_checks() {
@@ -482,11 +523,14 @@ wait_for_adguardhome_startup_checks() {
 		fi
 		sleep 1s
 	done
-	if adguardhome_startup_checks_ready; then
+	adguardhome_startup_checks_ready
+	_startup_check_status="$?"
+	if [ "${_startup_check_status}" -eq 0 ]; then
 		agh_log INFO wait_for_adguardhome_startup_checks "DNS/WebUI readiness checks passed on final check."
 		return 0
 	fi
-	agh_log ERROR wait_for_adguardhome_startup_checks "DNS/WebUI readiness checks failed after ${_startup_check_attempts} attempt(s)."
+	_startup_check_failure_reason="$(wait_for_adguardhome_startup_checks_failure_reason "${_startup_check_status}")"
+	agh_log ERROR wait_for_adguardhome_startup_checks "DNS/WebUI readiness checks failed after ${_startup_check_attempts} attempt(s): ${_startup_check_failure_reason}."
 	return 1
 }
 
@@ -517,19 +561,47 @@ dns_retry_limit() {
 	esac
 }
 
+adguardhome_single_process_running() {
+	_agh_pids="$(pidof "${PROCS}" 2>/dev/null)" || return 1
+	set -- ${_agh_pids}
+	[ "$#" -eq 1 ] || return 1
+	case "${1:-}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	return 0
+}
+
 adguardhome_owns_dns() {
 	_dns_socket_table=""
 	pidof "${PROCS}" >/dev/null 2>&1 || return 2
 	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
 		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
-			if ($0 ~ "/" proc "([[:space:]]|$)") tcp_found=1; else other_found=1
+			tcp_bound=1
+			owner=""
+			for (field = 1; field <= NF; field++) {
+				if ($field ~ /^[0-9]+\/[^[:space:]]+$/) { owner=$field; break }
+			}
+			if (owner ~ "/" proc "$") tcp_owner=1; else if (owner != "") other_found=1
 		}
 		$0 ~ /^(udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
-			if ($0 ~ "/" proc "([[:space:]]|$)") udp_found=1; else other_found=1
+			udp_bound=1
+			owner=""
+			for (field = 1; field <= NF; field++) {
+				if ($field ~ /^[0-9]+\/[^[:space:]]+$/) { owner=$field; break }
+			}
+			if (owner ~ "/" proc "$") udp_owner=1; else if (owner != "") other_found=1
 		}
-		END { exit(tcp_found && udp_found && !other_found ? 0 : 1) }
+		END {
+			if (tcp_owner && udp_owner && !other_found) exit 0
+			if (tcp_bound && udp_bound && !other_found) exit 2
+			exit 1
+		}
 	'
+	_dns_status="$?"
+	[ "${_dns_status}" -eq 0 ] && return 0
+	[ "${_dns_status}" -eq 2 ] || return 1
+	adguardhome_single_process_running
 }
 
 dns_port_owner_command() {
@@ -662,17 +734,72 @@ kill_dns_port_owners() {
 dns_port_available() {
 	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
-		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && $0 !~ "/" proc "([[:space:]]|$)" { unavailable = 1 }
-		END { exit(unavailable ? 1 : 0) }
+		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
+			bound = 1
+			owner = ""
+			for (field = 1; field <= NF; field++) {
+				if ($field ~ /^[0-9]+\/[^[:space:]]+$/) {
+					owner = $field
+					break
+				}
+			}
+			if (owner ~ "/" proc "$") owner_found = 1
+			else if (owner != "") foreign_owner = 1
+		}
+		END {
+			if (foreign_owner) exit 1
+			if (owner_found) exit 0
+			if (bound) exit 2
+			exit 0
+		}
 	'
+	_dns_status="$?"
+	[ "${_dns_status}" -eq 0 ] && return 0
+	[ "${_dns_status}" -eq 2 ] || return 1
+	adguardhome_single_process_running
 }
 
 dns_port_has_foreign_owner() {
 	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
-		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && $0 !~ "/" proc "([[:space:]]|$)" { foreign_owner = 1 }
+		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
+			for (field = 1; field <= NF; field++) {
+				if ($field ~ /^[0-9]+\/[^[:space:]]+$/) {
+					if ($field !~ "/" proc "$") foreign_owner = 1
+					break
+				}
+			}
+		}
 		END { exit(foreign_owner ? 0 : 1) }
 	'
+}
+
+dns_port_needs_release() {
+	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
+		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
+			bound = 1
+			owner = ""
+			for (field = 1; field <= NF; field++) {
+				if ($field ~ /^[0-9]+\/[^[:space:]]+$/) {
+					owner = $field
+					break
+				}
+			}
+			if (owner ~ "/" proc "$") agh_owner = 1
+			else if (owner != "") foreign_owner = 1
+		}
+		END {
+			if (foreign_owner) exit 0
+			if (bound && !agh_owner) exit 2
+			exit 1
+		}
+	'
+	_dns_status="$?"
+	[ "${_dns_status}" -eq 0 ] && return 0
+	[ "${_dns_status}" -eq 2 ] || return 1
+	adguardhome_single_process_running && return 1
+	return 0
 }
 
 release_dns_port_from_dnsmasq() {
@@ -727,15 +854,26 @@ log_adguardhome_dns_wait_failure() {
 	}
 	_dns_wait_failure="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
 		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
-			if ($0 ~ "/" proc "([[:space:]]|$)") tcp_found=1; else other_found=1
+			tcp_bound=1
+			owner=""
+			for (field = 1; field <= NF; field++) {
+				if ($field ~ /^[0-9]+\/[^[:space:]]+$/) { owner=$field; break }
+			}
+			if (owner ~ "/" proc "$") tcp_found=1; else if (owner != "") other_found=1
 		}
 		$0 ~ /^(udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
-			if ($0 ~ "/" proc "([[:space:]]|$)") udp_found=1; else other_found=1
+			udp_bound=1
+			owner=""
+			for (field = 1; field <= NF; field++) {
+				if ($field ~ /^[0-9]+\/[^[:space:]]+$/) { owner=$field; break }
+			}
+			if (owner ~ "/" proc "$") udp_found=1; else if (owner != "") other_found=1
 		}
 		END {
 			if (other_found) print "another process still owns port 53"
-			else if (!tcp_found) print "TCP port 53 is not owned by AdGuardHome"
-			else if (!udp_found) print "UDP port 53 is not owned by AdGuardHome"
+			else if (!tcp_bound) print "TCP port 53 is not bound"
+			else if (!udp_bound) print "UDP port 53 is not bound"
+			else if (!tcp_found || !udp_found) print "port 53 is bound without process ownership and fallback readiness was not accepted"
 			else print "unknown DNS ownership state"
 		}
 	')"
@@ -1055,7 +1193,7 @@ pre_start_adguardhome() {
 			restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
 			return 0
 		fi
-		if dns_port_has_foreign_owner; then
+		if dns_port_needs_release; then
 			if ! release_dns_port_from_dnsmasq pre_start_adguardhome; then
 				agh_log ERROR pre_start_adguardhome "Unable to safely release port 53; startup aborted."
 				post_start_failure_adguardhome

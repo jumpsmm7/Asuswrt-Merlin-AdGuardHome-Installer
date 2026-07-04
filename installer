@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.4.4                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.5.5                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
-export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
 
-AI_VERSION="v2.5.0"
+AI_VERSION="v2.5.5"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -62,6 +62,13 @@ readonly INPUT
 
 ai_have_cmd() {
 	which "$1" >/dev/null 2>&1
+}
+
+entware_available() {
+	[ -d /opt ] || return 1
+	[ -x /opt/bin/opkg ] || return 1
+	[ -f /opt/etc/opkg.conf ] || [ -f /opt/etc/init.d/rc.unslung ] || return 1
+	/opt/bin/opkg --version >/dev/null 2>&1
 }
 
 installer_script_path() {
@@ -110,11 +117,13 @@ ensure_bcrypt_tool() {
 			fi
 			;;
 	esac
-	export PATH="${PATH}:/opt/bin/go/bin"
 	export GOROOT="/opt/bin/go"
 	export GOBIN="/opt/bin/"
-	ai_have_cmd go || return 1
-	go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
+	GO_CACHE_DIR="/tmp/AdGuardHome-go-build-cache"
+	GO_PATH_DIR="/tmp/AdGuardHome-go-path"
+	[ -x /opt/bin/go/bin/go ] || return 1
+	mkdir -p "${GO_CACHE_DIR}" "${GO_PATH_DIR}" || return 1
+	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/opt/bin/go/bin" HOME="${GO_PATH_DIR}" GOCACHE="${GO_CACHE_DIR}" GOPATH="${GO_PATH_DIR}" GOROOT="${GOROOT}" GOBIN="${GOBIN}" /opt/bin/go/bin/go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
 }
 
 ensure_opkg_package() {
@@ -138,6 +147,9 @@ sha256sum_available() {
 	if ai_have_cmd sha256sum && sha256sum /dev/null >/dev/null 2>&1; then
 		return 0
 	fi
+	if [ -x /opt/bin/sha256sum ] && /opt/bin/sha256sum /dev/null >/dev/null 2>&1; then
+		return 0
+	fi
 	if [ -x /bin/busybox ] && /bin/busybox sha256sum /dev/null >/dev/null 2>&1; then
 		return 0
 	fi
@@ -156,12 +168,7 @@ ensure_sha256sum_tool() {
 	fi
 	ptxt_warn "Neither sha256sum nor OpenSSL SHA-256 support was found in PATH; checksum verification is required."
 	PTXT "${INFO} Some Asuswrt-Merlin firmware builds do not include sha256sum."
-	PTXT "${INFO} Entware can provide sha256sum with: opkg install coreutils-sha256sum"
-	if ! read_yesno "Do you want Entware to install coreutils-sha256sum now?"; then
-		ptxt_fail "SHA-256 support is required; refusing to continue without checksum validation."
-		return 1
-	fi
-
+	PTXT "${INFO} Installing Entware package: opkg install coreutils-sha256sum"
 	ptxt_step "Installing Entware coreutils-sha256sum package."
 	if ! ensure_opkg_package coreutils-sha256sum; then
 		ptxt_fail "Unable to install Entware coreutils-sha256sum."
@@ -186,7 +193,7 @@ ensure_password_hash_tool() {
 
 hash_password_python() {
 	_password="$1"
-	PTXT -n "${_password}" | python3 -c 'import sys, bcrypt; password = sys.stdin.buffer.read(); print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))'
+	PTXT -n "${_password}" | /opt/bin/python3 -c 'import sys, bcrypt; password = sys.stdin.buffer.read(); print(bcrypt.hashpw(password, bcrypt.gensalt(prefix=b"2a", rounds=10)).decode("ascii"))'
 }
 
 opkg_pkg_available() {
@@ -200,7 +207,8 @@ opkg_pkg_installed() {
 }
 
 opkg_clean_env() {
-	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin" opkg "$@"
+	[ -x /opt/bin/opkg ] || return 127
+	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin" /opt/bin/opkg "$@"
 }
 
 on_installer_exit() {
@@ -212,7 +220,7 @@ on_installer_exit() {
 }
 
 python_bcrypt_available() {
-	ai_have_cmd python3 && python3 -c 'import bcrypt' >/dev/null 2>&1
+	[ -x /opt/bin/python3 ] && /opt/bin/python3 -c 'import bcrypt' >/dev/null 2>&1
 }
 
 remove_conflicting_apache() {
@@ -554,12 +562,16 @@ web_port_owned_by_agh() {
 
 installer_dependencies_available() {
 	local REQUIRED_COMMAND
-	for REQUIRED_COMMAND in awk chmod chown cp cut grep kill ln md5sum mkdir mv netstat nvram opkg pidof rm sed service tar; do
+	for REQUIRED_COMMAND in awk chmod chown cp cut grep kill ln md5sum mkdir mv netstat nvram pidof rm sed service tar; do
 		if ! ai_have_cmd "${REQUIRED_COMMAND}"; then
 			PTXT "${ERROR} Required command is unavailable: ${REQUIRED_COMMAND}" >&2
 			return 1
 		fi
 	done
+	if ! entware_available; then
+		PTXT "${ERROR} Entware is not available. Install or mount Entware before running this installer." >&2
+		return 1
+	fi
 	return 0
 }
 
@@ -1056,7 +1068,7 @@ doctor_show_nvram_dns() {
 }
 
 doctor() {
-	local count fix ipset_file link_target marker port version branch backup_file opt_mounted
+	local count fix ipset_file link_target marker port version branch backup_file entware_ready
 	DOCTOR_FAILED="0"
 	fix="0"
 	case "${1:-}" in
@@ -1067,18 +1079,18 @@ doctor() {
 			return 1
 			;;
 	esac
-	opt_mounted="0"
-	if mount | grep -q ' on /opt '; then
-		opt_mounted="1"
-		doctor_status OK "Entware /opt is mounted"
+	entware_ready="0"
+	if entware_available; then
+		entware_ready="1"
+		doctor_status OK "Entware is available"
 	else
-		doctor_status FAIL "Entware /opt is not mounted"
+		doctor_status FAIL "Entware is not available"
 	fi
 	if [ "${fix}" = "1" ]; then
-		if [ "${opt_mounted}" = "1" ]; then
+		if [ "${entware_ready}" = "1" ]; then
 			doctor_fix_safe
 		else
-			doctor_status WARN "skipping --fix repairs because Entware /opt is not mounted"
+			doctor_status WARN "skipping --fix repairs because Entware is not available"
 		fi
 	fi
 	doctor_file_state "${TARG_DIR}" "drwx------" || true
@@ -1581,12 +1593,12 @@ blocklist_analyzer_ids() {
 
 ensure_blocklist_analyzer_dependencies() {
 	ptxt_step "Checking for Entware python3."
-	if ! which python3 >/dev/null 2>&1; then
+	if [ ! -x /opt/bin/python3 ]; then
 		ptxt_warn "python3 is required to run the analyzer, but it was not found."
 		PTXT "${INFO} Entware python3 can be installed with: opkg install python3"
 		if read_yesno "Do you want Entware to install python3 now?"; then
 			ptxt_step "Installing Entware python3 package."
-			if ! ensure_opkg_package python3 || ! which python3 >/dev/null 2>&1; then
+			if ! ensure_opkg_package python3 || [ ! -x /opt/bin/python3 ]; then
 				ptxt_fail "Unable to install or find Entware python3."
 				return 1
 			fi
@@ -1596,7 +1608,7 @@ ensure_blocklist_analyzer_dependencies() {
 			return 1
 		fi
 	fi
-	ptxt_ok "python3 is available."
+	ptxt_ok "Entware python3 is available."
 
 	ptxt_step "Checking for SHA-256 checksum support."
 	ensure_sha256sum_tool || return 1
@@ -1651,7 +1663,7 @@ install_blocklist_analyzer() {
 }
 
 run_blocklist_analyzer() {
-	local filter_file found_filter output_file ids_file
+	local filter_file found_filter output_file ids_file python_cmd
 	output_file="${TARG_DIR}/blocklist_analyzer.$$.out"
 	ids_file="${TARG_DIR}/blocklist_analyzer.$$.ids"
 	ptxt_phase "Running AdGuardHome blocklist analyzer."
@@ -1677,8 +1689,14 @@ run_blocklist_analyzer() {
 	fi
 	ptxt_ok "Analyzer input files are available."
 
+	python_cmd="/opt/bin/python3"
+	if [ ! -x "${python_cmd}" ]; then
+		ptxt_fail "Entware python3 is required to run the blocklist analyzer."
+		return 1
+	fi
+
 	ptxt_step "Running analyzer from ${TARG_DIR} so ./data resolves correctly."
-	if ! (cd "${TARG_DIR}" && python3 "${BLOCKLIST_ANALYZER_FILE}") >"${output_file}" 2>&1; then
+	if ! (cd "${TARG_DIR}" && "${python_cmd}" "${BLOCKLIST_ANALYZER_FILE}") >"${output_file}" 2>&1; then
 		cat "${output_file}"
 		rm -f "${output_file}" "${ids_file}"
 		ptxt_fail "Blocklist analyzer failed."
@@ -3337,6 +3355,7 @@ inst_AdGuardHome() {
 	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
+	ensure_sha256sum_tool || return 1
 	INSTALLER_MD5_OLD=""
 	RESTART_AFTER_ABORT="0"
 	[ -f "${SCRIPT_LOC}" ] && INSTALLER_MD5_OLD="$(file_md5 "${SCRIPT_LOC}" 2>/dev/null)"
@@ -3629,6 +3648,10 @@ set_timezone() {
 		PTXT "${ERROR} Required timezone selection command is unavailable: sort"
 		return 1
 	}
+	[ -x /opt/bin/column ] || {
+		PTXT "${ERROR} Required Entware timezone selection command is unavailable: /opt/bin/column"
+		return 1
+	}
 	download_file "${TMP}" 644 "${RURL}/${TZ_DATA}" || return 1
 	TZ_LIST="$(tar tjf "${TMP}/${TZ_DATA}" 2>/dev/null)" || {
 		PTXT "${ERROR} Unable to read timezone archive ${TZ_DATA}."
@@ -3640,7 +3663,7 @@ set_timezone() {
 		return 1
 	}
 	PTXT "${INFO} Available timezones/locations:"
-	PTXT "${TZ_LIST}" | awk -F'/' '!/\/$/ && /\/posix\//' | sort | cut -d'/' -f2- | awk -v INDEX=0 -F'/' '!/\/$/ {++INDEX;printf "  " INDEX") ";for (i=5; i<NF; i++)  printf $i "/"; print $NF}' | column
+	PTXT "${TZ_LIST}" | awk -F'/' '!/\/$/ && /\/posix\//' | sort | cut -d'/' -f2- | awk -v INDEX=0 -F'/' '!/\/$/ {++INDEX;printf "  " INDEX") ";for (i=5; i<NF; i++)  printf $i "/"; print $NF}' | /opt/bin/column
 	if ! read_input_num "Select your timezone/location" 1 "${INDEX}"; then
 		PTXT "${ERROR} Unable to select a timezone."
 		return 1
@@ -4077,6 +4100,19 @@ setup_amtmupdate() {
 	PTXT "${INFO} The installer will now set AMTM Update to ${AMTM_UPDATE}."
 	write_conf AMTM_UPDATE "\"${AMTM_UPDATE}\""
 	end_op_message 0
+}
+
+amtm_update_check() {
+	local AMTM_UPDATE
+	[ "${1:-}" = "amtmupdate" ] && [ "${2:-}" = "check" ] || return 1
+	AMTM_UPDATE="$(conf_value AMTM_UPDATE)"
+	if [ ! -f "${CONF_FILE}" ] || [ "${AMTM_UPDATE}" = "DISABLED" ]; then
+		exit 1
+	fi
+	if [ "${AMTM_UPDATE}" = "ENABLED" ]; then
+		exit 0
+	fi
+	exit 1
 }
 
 uninst_all() {
@@ -5124,20 +5160,14 @@ case "${1:-}" in
 		;;
 esac
 
+amtm_update_check "$@"
+
 installer_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
 if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
 	BLOCKLIST_ANALYZER_SHA256="$(conf_value BLOCKLIST_ANALYZER_SHA256)"
 else
 	del_conf BLOCKLIST_ANALYZER_SHA256
-fi
-if [ "${1:-}" = "amtmupdate" ] && [ "${2:-}" = "check" ]; then
-	AMTM_UPDATE="$(conf_value AMTM_UPDATE)"
-	if [ ! -f "${CONF_FILE}" ] || [ "${AMTM_UPDATE}" = "DISABLED" ]; then
-		exit 1
-	elif [ "${AMTM_UPDATE}" = "ENABLED" ]; then
-		exit 0
-	fi
 fi
 if ! conf_has_key BLOCKLIST_ANALYZER_SHA256; then
 	write_conf BLOCKLIST_ANALYZER_SHA256 "\"${BLOCKLIST_ANALYZER_SHA256_DEFAULT}\""
