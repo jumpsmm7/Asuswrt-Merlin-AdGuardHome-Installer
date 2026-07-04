@@ -1608,7 +1608,7 @@ ensure_blocklist_analyzer_dependencies() {
 			return 1
 		fi
 	fi
-	ptxt_ok "python3 is available."
+	ptxt_ok "Entware python3 is available."
 
 	ptxt_step "Checking for SHA-256 checksum support."
 	ensure_sha256sum_tool || return 1
