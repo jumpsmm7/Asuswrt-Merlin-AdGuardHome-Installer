@@ -143,10 +143,6 @@ ensure_opkg_package() {
 	opkg_pkg_installed "${_pkg}"
 }
 
-entware_available() {
-	[ -x /opt/bin/opkg ]
-}
-
 sha256sum_available() {
 	if ai_have_cmd sha256sum && sha256sum /dev/null >/dev/null 2>&1; then
 		return 0
