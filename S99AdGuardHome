@@ -448,7 +448,7 @@ adguardhome_web_port() {
 	printf '%s\n' "${_web_port}"
 }
 
-adguardhome_web_port_available() {
+adguardhome_web_port_owned_status() {
 	_web_port="$(adguardhome_web_port)" || return 1
 	_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
 	printf '%s\n' "${_socket_table}" | awk -v proc="${PROCS}" -v port=":${_web_port}" '
@@ -467,9 +467,15 @@ adguardhome_web_port_available() {
 		END {
 			if (owner_found) exit 0
 			if (bound && !foreign_owner) exit 2
+			if (foreign_owner) exit 3
 			exit 1
 		}
 	'
+	return "$?"
+}
+
+adguardhome_web_port_available() {
+	adguardhome_web_port_owned_status
 	_web_status="$?"
 	[ "${_web_status}" -eq 0 ] && return 0
 	[ "${_web_status}" -eq 2 ] || return 1
@@ -478,7 +484,14 @@ adguardhome_web_port_available() {
 
 adguardhome_startup_checks_ready() {
 	pidof "${PROCS}" >/dev/null 2>&1 || return 2
-	adguardhome_web_port_available || return 3
+	adguardhome_web_port_owned_status
+	_web_status="$?"
+	if [ "${_web_status}" -eq 2 ]; then
+		adguardhome_single_process_running || return 1
+	elif [ "${_web_status}" -ne 0 ]; then
+		[ "${_web_status}" -eq 3 ] && return 3
+		return 1
+	fi
 	adguardhome_config_valid || return 4
 	return 0
 }
