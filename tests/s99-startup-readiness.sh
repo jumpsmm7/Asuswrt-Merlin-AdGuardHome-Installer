@@ -33,6 +33,8 @@ grep -q '^adguardhome_startup_checks_ready() {$' "${FUNCTIONS_FILE}" || fail 'S9
 PROCS='AdGuardHome'
 WORK_DIR="${TEST_ROOT}/AdGuardHome"
 mkdir -p "${WORK_DIR}" || fail 'could not create AdGuardHome work directory'
+# Leave the YAML WebUI address unusable so adguardhome_web_port() must
+# exercise the .config fallback branch under test.
 printf '%s\n' 'http:' '  address:' >"${WORK_DIR}/AdGuardHome.yaml" || fail 'could not create YAML stub'
 printf '%s\n' 'ADGUARD_WEBUI_PORT="808"' >"${WORK_DIR}/.config" || fail 'could not create config stub'
 printf '%s\n' '#!/bin/sh' 'exit 0' >"${WORK_DIR}/AdGuardHome" || fail 'could not create AdGuardHome stub'
