@@ -21,7 +21,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^adguardhome_config_valid() {$/,/^}$/p; /^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^adguardhome_startup_checks_ready() {$/,/^}$/p' \
+	'/^adguardhome_config_valid() {$/,/^}$/p; /^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_owned_status() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^adguardhome_startup_checks_ready() {$/,/^}$/p; /^wait_for_adguardhome_startup_checks_failure_reason() {$/,/^}$/p' \
 	"${S99_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${S99_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'S99 startup readiness functions were not found'
 grep -q '^adguardhome_web_port() {$' "${FUNCTIONS_FILE}" || fail 'S99 WebUI port helper was not found'
@@ -42,12 +42,41 @@ chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod AdGuardHome stub'
 
 pidof() {
 	[ "${1:-}" = AdGuardHome ] || return 1
+	[ "${PIDOF_STATE:-one}" = missing ] && return 1
 	printf '%s\n' 321
 }
 
 netstat() {
-	printf '%s\n' 'tcp 0 0 0.0.0.0:808 0.0.0.0:* LISTEN 321/AdGuardHome'
+	case "${NETSTAT_STATE:-owned}" in
+		owned) printf '%s\n' 'tcp 0 0 0.0.0.0:808 0.0.0.0:* LISTEN 321/AdGuardHome' ;;
+		foreign) printf '%s\n' 'tcp 0 0 0.0.0.0:808 0.0.0.0:* LISTEN 654/httpd' ;;
+		no_owner) printf '%s\n' 'tcp 0 0 0.0.0.0:808 0.0.0.0:* LISTEN' ;;
+		*) return 1 ;;
+	esac
 }
 
 [ "$(adguardhome_web_port)" = 808 ] || fail 'S99 rejected a valid low .config WebUI port'
 adguardhome_startup_checks_ready || fail 'S99 startup readiness rejected a valid low .config WebUI port'
+
+NETSTAT_STATE=foreign
+adguardhome_startup_checks_ready
+[ "$?" -eq 3 ] || fail 'S99 startup readiness did not return 3 for foreign WebUI ownership'
+[ "$(wait_for_adguardhome_startup_checks_failure_reason 3)" = 'WebUI port is not owned by AdGuardHome' ] ||
+	fail 'S99 startup readiness did not explain foreign WebUI ownership'
+
+NETSTAT_STATE=no_owner
+adguardhome_startup_checks_ready || fail 'S99 startup readiness rejected ownerless WebUI bind with one AdGuardHome process'
+
+PIDOF_STATE=missing
+adguardhome_startup_checks_ready
+[ "$?" -eq 2 ] || fail 'S99 startup readiness did not return 2 when AdGuardHome exited'
+[ "$(wait_for_adguardhome_startup_checks_failure_reason 2)" = 'process exited before readiness completed' ] ||
+	fail 'S99 startup readiness did not explain exited AdGuardHome process'
+
+PIDOF_STATE=one
+NETSTAT_STATE=owned
+chmod 644 "${WORK_DIR}/AdGuardHome" || fail 'could not remove AdGuardHome executable bit'
+adguardhome_startup_checks_ready
+[ "$?" -eq 4 ] || fail 'S99 startup readiness did not return 4 for config validation failure'
+[ "$(wait_for_adguardhome_startup_checks_failure_reason 4)" = 'configuration validation failed' ] ||
+	fail 'S99 startup readiness did not explain configuration validation failure'
