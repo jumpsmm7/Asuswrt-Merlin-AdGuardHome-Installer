@@ -38,6 +38,9 @@ read_yesno() {
 file_md5() {
 	:
 }
+ensure_sha256sum_tool() {
+	:
+}
 PTXT() {
 	:
 }
