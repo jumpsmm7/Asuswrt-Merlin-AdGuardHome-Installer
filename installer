@@ -172,12 +172,7 @@ ensure_sha256sum_tool() {
 	fi
 	ptxt_warn "Neither sha256sum nor OpenSSL SHA-256 support was found in PATH; checksum verification is required."
 	PTXT "${INFO} Some Asuswrt-Merlin firmware builds do not include sha256sum."
-	PTXT "${INFO} Entware can provide sha256sum with: opkg install coreutils-sha256sum"
-	if ! read_yesno "Do you want Entware to install coreutils-sha256sum now?"; then
-		ptxt_fail "SHA-256 support is required; refusing to continue without checksum validation."
-		return 1
-	fi
-
+	PTXT "${INFO} Installing Entware package: opkg install coreutils-sha256sum"
 	ptxt_step "Installing Entware coreutils-sha256sum package."
 	if ! ensure_opkg_package coreutils-sha256sum; then
 		ptxt_fail "Unable to install Entware coreutils-sha256sum."
@@ -3364,6 +3359,7 @@ inst_AdGuardHome() {
 	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
+	ensure_sha256sum_tool || return 1
 	INSTALLER_MD5_OLD=""
 	RESTART_AFTER_ABORT="0"
 	[ -f "${SCRIPT_LOC}" ] && INSTALLER_MD5_OLD="$(file_md5 "${SCRIPT_LOC}" 2>/dev/null)"
@@ -4108,6 +4104,19 @@ setup_amtmupdate() {
 	PTXT "${INFO} The installer will now set AMTM Update to ${AMTM_UPDATE}."
 	write_conf AMTM_UPDATE "\"${AMTM_UPDATE}\""
 	end_op_message 0
+}
+
+amtm_update_check() {
+	local AMTM_UPDATE
+	[ "${1:-}" = "amtmupdate" ] && [ "${2:-}" = "check" ] || return 1
+	AMTM_UPDATE="$(conf_value AMTM_UPDATE)"
+	if [ ! -f "${CONF_FILE}" ] || [ "${AMTM_UPDATE}" = "DISABLED" ]; then
+		exit 1
+	fi
+	if [ "${AMTM_UPDATE}" = "ENABLED" ]; then
+		exit 0
+	fi
+	exit 1
 }
 
 uninst_all() {
@@ -5155,20 +5164,14 @@ case "${1:-}" in
 		;;
 esac
 
+amtm_update_check "$@"
+
 installer_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
 if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
 	BLOCKLIST_ANALYZER_SHA256="$(conf_value BLOCKLIST_ANALYZER_SHA256)"
 else
 	del_conf BLOCKLIST_ANALYZER_SHA256
-fi
-if [ "${1:-}" = "amtmupdate" ] && [ "${2:-}" = "check" ]; then
-	AMTM_UPDATE="$(conf_value AMTM_UPDATE)"
-	if [ ! -f "${CONF_FILE}" ] || [ "${AMTM_UPDATE}" = "DISABLED" ]; then
-		exit 1
-	elif [ "${AMTM_UPDATE}" = "ENABLED" ]; then
-		exit 0
-	fi
 fi
 if ! conf_has_key BLOCKLIST_ANALYZER_SHA256; then
 	write_conf BLOCKLIST_ANALYZER_SHA256 "\"${BLOCKLIST_ANALYZER_SHA256_DEFAULT}\""
