@@ -116,6 +116,8 @@ run_check 'Installer post-replacement restart regression' sh tests/installer-pos
 run_check 'Installer interruption restart regression' sh tests/installer-interruption-restart.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
 run_check 'Installer single-argument action regression' sh tests/installer-single-arg-actions.sh
+run_check 'Installer end operation rollback regression' sh tests/installer-end-op-rollback.sh
+run_check 'Installer doctor rollback result regression' sh tests/installer-doctor-rollback-result.sh
 run_check 'Installer SHA-256 helper regression' sh tests/installer-sha256-helper.sh
 run_check 'Installer blocklist cleanup regression' sh tests/installer-blocklist-cleanup.sh
 run_check 'Installer iterative input regression' sh tests/installer-input-loops.sh
