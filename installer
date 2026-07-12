@@ -4398,6 +4398,14 @@ end_op_header() {
 }
 
 end_op_message() {
+	case "${1:-0}" in
+		1)
+			[ "${ROLLBACK_RESULT_UPDATED:-0}" = "1" ] || rollback_result_write "operation" "no rollback attempted" "operation aborted before rollback was needed"
+			;;
+		2)
+			[ "${ROLLBACK_RESULT_UPDATED:-0}" = "1" ] || rollback_result_write "operation" "interrupted: no rollback attempted" "operation interrupted before rollback was needed"
+			;;
+	esac
 	if [ "${CLI_MODE:-0}" = "1" ]; then
 		case "${1:-0}" in
 			0) return 0 ;;
@@ -4418,7 +4426,6 @@ end_op_message() {
 			PTXT "${INFO} Operation completed, returning to Main Menu. You can quit or continue."
 			;;
 		1)
-			[ "${ROLLBACK_RESULT_UPDATED:-0}" = "1" ] || rollback_result_write "operation" "no rollback attempted" "operation aborted before rollback was needed"
 			if [ "$2" = "update" ]; then
 				[ -f "${ROLLBACK_RESULT_FILE}" ] && PTXT "${INFO} Last rollback result: $(rollback_result_summary)"
 				exit 1
@@ -4427,7 +4434,6 @@ end_op_message() {
 			[ -f "${ROLLBACK_RESULT_FILE}" ] && PTXT "${INFO} Last rollback result: $(rollback_result_summary)"
 			;;
 		2)
-			[ "${ROLLBACK_RESULT_UPDATED:-0}" = "1" ] || rollback_result_write "operation" "interrupted: no rollback attempted" "operation interrupted before rollback was needed"
 			PTXT "${INFO} Abnormal operations, returning to Main Menu. You can quit or continue."
 			[ -f "${ROLLBACK_RESULT_FILE}" ] && PTXT "${INFO} Last rollback result: $(rollback_result_summary)"
 			;;
