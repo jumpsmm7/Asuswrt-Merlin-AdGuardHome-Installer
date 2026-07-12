@@ -69,7 +69,10 @@ printf '%s\n' "$$" >"${ACTIVE_MARKER}" || fail 'could not create active marker'
 PATH="${BIN_DIR}:/bin:/usr/bin" LOG_FILE="${LOG_FILE}" . "${FUNCTIONS_FILE}"
 
 entware_available() { return 0; }
-ensure_adguardhome_directory_permissions() { printf '%s\n' 'permissions checked' >>"${LOG_FILE}"; return 0; }
+ensure_adguardhome_directory_permissions() {
+	printf '%s\n' 'permissions checked' >>"${LOG_FILE}"
+	return 0
+}
 agh_monitor_count() { printf '%s\n' '1'; }
 web_port_owned_by_agh() { return 1; }
 conf_value() { [ "$1" = INSTALLER_BRANCH ] && printf '%s\n' 'dev'; }
@@ -87,11 +90,26 @@ AGH_FILE="${TEST_ROOT}/missing-AdGuardHome"
 printf '%s\n' 'ADGUARD_WEBUI_PORT="3000"' >"${CONF_FILE}" || fail 'could not write config'
 printf '%s\n' 'bind_host: 192.168.50.1' >"${YAML_FILE}" || fail 'could not write yaml'
 
-chmod() { printf '%s %s\n' 'chmod' "$*" >>"${LOG_FILE}"; return 0; }
-chown() { printf '%s %s\n' 'chown' "$*" >>"${LOG_FILE}"; return 0; }
-mkdir() { printf '%s %s\n' 'mkdir' "$*" >>"${LOG_FILE}"; return 0; }
-ln() { printf '%s %s\n' 'ln' "$*" >>"${LOG_FILE}"; return 0; }
-rm() { printf '%s %s\n' 'rm' "$*" >>"${LOG_FILE}"; return 0; }
+chmod() {
+	printf '%s %s\n' 'chmod' "$*" >>"${LOG_FILE}"
+	return 0
+}
+chown() {
+	printf '%s %s\n' 'chown' "$*" >>"${LOG_FILE}"
+	return 0
+}
+mkdir() {
+	printf '%s %s\n' 'mkdir' "$*" >>"${LOG_FILE}"
+	return 0
+}
+ln() {
+	printf '%s %s\n' 'ln' "$*" >>"${LOG_FILE}"
+	return 0
+}
+rm() {
+	printf '%s %s\n' 'rm' "$*" >>"${LOG_FILE}"
+	return 0
+}
 
 DOCTOR_OUTPUT="$(PATH="${BIN_DIR}:/bin:/usr/bin" LOG_FILE="${LOG_FILE}" doctor --fix 2>&1)" || true
 
