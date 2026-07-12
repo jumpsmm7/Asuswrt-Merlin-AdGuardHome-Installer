@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.5.5                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.6.0                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -37,7 +37,7 @@ readonly YAML_FILE="${AGH_FILE}.yaml"
 readonly YAML_BAK="${YAML_FILE}.bak"
 readonly YAML_ERR="${YAML_FILE}.err"
 readonly YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
-readonly ROLLBACK_RESULT_FILE="${TARG_DIR}/.rollback_result"
+readonly ROLLBACK_RESULT_FILE="${BASE_DIR}/.AdGuardHome.rollback_result"
 readonly BLOCKLIST_ANALYZER_FILE="${TARG_DIR}/blocklist_analyzer.py"
 readonly BLOCKLIST_ANALYZER_URL="https://gist.githubusercontent.com/graysky2/8035291d1bf87b8fe3693668965337e1/raw/a4be7655095d6ff880c2f3748964b825d7c45bd2/blocklilst_analyzer.py"
 readonly BLOCKLIST_ANALYZER_SHA256_DEFAULT="77c21b6faeb7fea86b0729996dec5cc20d2d309fe8c6946c7371dd64134a6e5f"
