@@ -5013,8 +5013,14 @@ cli_migrate_runtime_defaults() {
 	netcheck_change="0"
 	proc_optimize_change="0"
 	proc_profile_change="0"
-	cli_migrate_runtime_default ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL 0 1 || { changes="1"; dns_port_change="1"; }
-	cli_migrate_runtime_default ADGUARD_NETCHECK_MODE legacy wan || { changes="1"; netcheck_change="1"; }
+	cli_migrate_runtime_default ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL 0 1 || {
+		changes="1"
+		dns_port_change="1"
+	}
+	cli_migrate_runtime_default ADGUARD_NETCHECK_MODE legacy wan || {
+		changes="1"
+		netcheck_change="1"
+	}
 	proc_optimize_current="$(conf_value ADGUARD_PROC_OPTIMIZE)"
 	if [ -z "${proc_optimize_current}" ]; then
 		PTXT "${INFO} Missing runtime default: ADGUARD_PROC_OPTIMIZE; v2.6.0 safer value is \"YES\"."
@@ -5023,7 +5029,10 @@ cli_migrate_runtime_defaults() {
 	else
 		PTXT "${INFO} Runtime default already set: ADGUARD_PROC_OPTIMIZE=\"${proc_optimize_current}\"."
 	fi
-	cli_migrate_runtime_default ADGUARD_PROC_PROFILE aggressive balanced || { changes="1"; proc_profile_change="1"; }
+	cli_migrate_runtime_default ADGUARD_PROC_PROFILE aggressive balanced || {
+		changes="1"
+		proc_profile_change="1"
+	}
 	if [ "${changes}" = "0" ]; then
 		ptxt_ok "Runtime defaults already use v2.6.0 safer values or custom overrides."
 		return 0
