@@ -58,10 +58,10 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 
 - Some double-NAT or dual-WAN environments may not be compatible because AdGuardHome takes over DNS service placement on port `53`.
 - The installer moves DNSMASQ to port `553` when AdGuardHome owns port `53`.
-- v2.5.0 keeps legacy runtime defaults for compatibility. New safer or more flexible behaviours are opt-in through documented settings.
-- Unknown non-AdGuardHome owners of port `53` are still terminated by default to preserve legacy startup behaviour. Set `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=1` only if you want startup to abort instead.
-- LAN-only or outage-tolerant installs can opt into `ADGUARD_NETCHECK_MODE=lan`; the default `legacy` mode keeps the previous public-host checks.
-- Runtime proc/sysctl tuning remains enabled by default with the legacy aggressive profile. Set `ADGUARD_PROC_OPTIMIZE=NO` or select a lower profile if you do not want these writes.
+- v2.6.0 uses safer runtime defaults for new installs while preserving existing `.config` values during upgrades.
+- New installs refuse to terminate unknown non-AdGuardHome owners of port `53` by default. Existing installs that keep `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=0` retain legacy cleanup until migrated.
+- New installs save `ADGUARD_NETCHECK_MODE=wan` when router/local-cache DNS is selected, or `ADGUARD_NETCHECK_MODE=lan` for LAN-only service management. Existing installs keep their saved mode.
+- New installs use the lower-risk `balanced` runtime proc/sysctl profile. Existing installs keep their saved optimization setting and profile unless changed manually.
 
 ## Features
 
@@ -71,9 +71,9 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 - Supports updating AdGuardHome without reinstalling or reconfiguring from scratch.
 - Includes installer, update, backup, reconfiguration, and uninstall flows.
 - Provides service integration through Entware init scripts and Asuswrt-Merlin service events.
-- Provides v2.5.0 diagnostics with `sh installer status` and `sh installer doctor`.
-- Provides v2.5.0 non-interactive commands for repeatable install, update, backup, restore, doctor, IPSET refresh, performance profile, and uninstall tasks.
-- Keeps legacy netcheck, DNS port-owner cleanup, and runtime optimization defaults while allowing users to opt into alternate behaviours.
+- Provides v2.6.0 diagnostics with `sh installer status` and `sh installer doctor`.
+- Provides v2.6.0 non-interactive commands for repeatable install, update, backup, restore, doctor, IPSET refresh, performance profile, and uninstall tasks.
+- Uses safer netcheck, DNS port-owner cleanup, and runtime optimization defaults for new installs while retaining saved legacy values on upgrades.
 - Can run an unused blocklist analyzer using menu option **9**, `sh installer blocklists`, or `sh installer unusedblocklists` to identify filter lists with zero query-log rule hits in the analyzed window.
 
 ## Install, update, reconfigure, or uninstall
@@ -88,7 +88,7 @@ The same installer entry point is used for initial installation, updates, reconf
 
 ## Non-interactive commands
 
-v2.5.0 adds command-line entry points for users who want repeatable actions without the interactive menu. Existing one-argument menu actions such as `sh installer update`, `sh installer install`, and `sh installer backup` still use the interactive compatibility path. Destructive non-interactive actions require `--yes`; install and uninstall actions that may rewrite DNS/NVRAM also require `--allow-dns-nvram`.
+v2.6.0 adds command-line entry points for users who want repeatable actions without the interactive menu. Existing one-argument menu actions such as `sh installer update`, `sh installer install`, and `sh installer backup` still use the interactive compatibility path. Destructive non-interactive actions require `--yes`; install and uninstall actions that may rewrite DNS/NVRAM also require `--allow-dns-nvram`.
 
 Examples:
 
@@ -172,11 +172,11 @@ The `--fix` mode is intentionally limited. It can repair permissions, recreate t
 
 ## Runtime behavior settings
 
-v2.5.0 exposes several runtime behaviours through environment or `.config` settings while preserving the previous defaults until users opt into a change. Environment variables take precedence for the current invocation. Persistent settings can be placed in `/opt/etc/AdGuardHome/.config` using the same `NAME="value"` style already used by the installer.
+v2.6.0 exposes several runtime behaviours through environment or `.config` settings. New installs save safer defaults; upgrades preserve existing `.config` values and pin legacy defaults when needed until users choose to migrate. Environment variables take precedence for the current invocation. Persistent settings can be placed in `/opt/etc/AdGuardHome/.config` using the same `NAME="value"` style already used by the installer.
 
 ### Netcheck modes
 
-Default behaviour remains the legacy netcheck path:
+New installs save `wan` or `lan` mode based on the install-time local-cache/router-DNS choice. Upgrades keep the saved value; when no value exists, the installer pins legacy mode for compatibility:
 
 ```sh
 ADGUARD_NETCHECK_MODE="legacy"
@@ -184,7 +184,7 @@ ADGUARD_NETCHECK_MODE="legacy"
 
 Legacy mode keeps the previous public-host checks against `google.com`, `github.com`, and `snbforums.com`, uses `127.0.0.1` for DNS lookups, waits up to `300` seconds for system time, and preserves the old DNS, ping, and HTTP probing flow.
 
-Users who want the configurable v2.5.0 checks can set the values directly in `.config` or use the non-interactive helper:
+Users can set the values directly in `.config` or use the non-interactive helper:
 
 ```sh
 sh installer netcheck --mode wan --hosts "google.com github.com snbforums.com" --dns 127.0.0.1 --require-http NO --timeout 300
@@ -218,9 +218,15 @@ LAN mode skips public WAN probes. The monitor still checks local AdGuardHome DNS
 
 ### DNS port-owner cleanup policy
 
-During startup, dnsmasq is stopped normally so AdGuardHome can own port `53`. By default, v2.5.0 keeps the legacy cleanup behaviour: if another non-AdGuardHome process still owns port `53`, the service script logs the owner and terminates that PID so startup can continue.
+During startup, dnsmasq is stopped normally so AdGuardHome can own port `53`. New installs default to conservative handling:
 
-To opt into conservative handling, run:
+```sh
+ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
+```
+
+With refusal enabled, unknown non-dnsmasq owners of port `53` cause startup to abort instead of being terminated. The log message includes the PID, netstat owner, process name, and command when available.
+
+Upgrades keep the saved value; when no value exists, the installer writes the legacy value `0` and prints migration guidance. To migrate an existing install, run:
 
 ```sh
 sh installer dns-port-policy --policy refuse-unknown
@@ -232,8 +238,6 @@ This writes:
 ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
 ```
 
-With refusal enabled, unknown non-dnsmasq owners of port `53` cause startup to abort instead of being terminated. The log message includes the PID, netstat owner, process name, and command when available.
-
 If refusal is enabled and you still need to force termination for a specific startup, set:
 
 ```sh
@@ -242,7 +246,7 @@ ADGUARDHOME_FORCE_DNS_PORT_KILL="1"
 
 `ADGUARDHOME_FORCE_DNS_PORT_KILL=1` overrides the refusal setting for that invocation.
 
-To restore the default legacy cleanup policy, run:
+To restore the legacy cleanup policy, run:
 
 ```sh
 sh installer dns-port-policy --policy legacy
@@ -252,12 +256,14 @@ This writes `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"`.
 
 ### Runtime optimization profile
 
-Runtime proc/sysctl tuning remains enabled by default to preserve the previous behaviour:
+New installs use the lower-risk balanced proc/sysctl profile by default:
 
 ```sh
 ADGUARD_PROC_OPTIMIZE="YES"
-ADGUARD_PROC_PROFILE="aggressive"
+ADGUARD_PROC_PROFILE="balanced"
 ```
+
+Upgrades keep the saved value; when no value exists, the installer pins the legacy aggressive profile for compatibility.
 
 The supported profiles are:
 
