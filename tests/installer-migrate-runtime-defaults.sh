@@ -57,4 +57,17 @@ grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'netcheck mode wa
 grep -q '^ADGUARD_PROC_OPTIMIZE="YES"$' "${CONF_FILE}" || fail 'process optimization was not preserved'
 grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'process profile was not migrated'
 
+cat >"${CONF_FILE}" <<'CONFIG'
+ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"
+ADGUARD_NETCHECK_MODE="lan"
+ADGUARD_PROC_OPTIMIZE="NO"
+ADGUARD_PROC_PROFILE="balanced"
+CONFIG
+
+cli_migrate_runtime_defaults --yes >"${TMP_ROOT}/mixed-apply" || fail 'mixed custom apply migration failed'
+grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'mixed DNS port policy was not migrated'
+grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'custom netcheck mode was overwritten'
+grep -q '^ADGUARD_PROC_OPTIMIZE="NO"$' "${CONF_FILE}" || fail 'custom process optimization was overwritten'
+grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'custom process profile was overwritten'
+
 printf '%s\n' 'PASS: runtime defaults migration reports and applies expected values'

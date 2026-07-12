@@ -4961,7 +4961,7 @@ cli_migrate_runtime_default() {
 }
 
 cli_migrate_runtime_defaults() {
-	local apply dry_run changes
+	local apply dry_run changes dns_port_change netcheck_change proc_optimize_change proc_profile_change proc_optimize_current
 	apply="0"
 	dry_run="0"
 	changes="0"
@@ -4978,9 +4978,21 @@ cli_migrate_runtime_defaults() {
 		return 1
 	fi
 	PTXT "${INFO} Inspecting runtime defaults in ${CONF_FILE}."
-	cli_migrate_runtime_default ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL 0 1 || changes="1"
-	cli_migrate_runtime_default ADGUARD_NETCHECK_MODE legacy wan || changes="1"
-	cli_migrate_runtime_default ADGUARD_PROC_PROFILE aggressive balanced || changes="1"
+	dns_port_change="0"
+	netcheck_change="0"
+	proc_optimize_change="0"
+	proc_profile_change="0"
+	cli_migrate_runtime_default ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL 0 1 || { changes="1"; dns_port_change="1"; }
+	cli_migrate_runtime_default ADGUARD_NETCHECK_MODE legacy wan || { changes="1"; netcheck_change="1"; }
+	proc_optimize_current="$(conf_value ADGUARD_PROC_OPTIMIZE)"
+	if [ -z "${proc_optimize_current}" ]; then
+		PTXT "${INFO} Missing runtime default: ADGUARD_PROC_OPTIMIZE; v2.6.0 safer value is \"YES\"."
+		changes="1"
+		proc_optimize_change="1"
+	else
+		PTXT "${INFO} Runtime default already set: ADGUARD_PROC_OPTIMIZE=\"${proc_optimize_current}\"."
+	fi
+	cli_migrate_runtime_default ADGUARD_PROC_PROFILE aggressive balanced || { changes="1"; proc_profile_change="1"; }
 	if [ "${changes}" = "0" ]; then
 		ptxt_ok "Runtime defaults already use v2.6.0 safer values or custom overrides."
 		return 0
@@ -4993,10 +5005,18 @@ cli_migrate_runtime_defaults() {
 		PTXT "${INFO} No changes made. Re-run with --yes to migrate runtime defaults."
 		return 0
 	fi
-	cli_write_quoted_conf ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL 1 || return 1
-	cli_write_quoted_conf ADGUARD_NETCHECK_MODE wan || return 1
-	cli_write_quoted_conf ADGUARD_PROC_OPTIMIZE YES || return 1
-	cli_write_quoted_conf ADGUARD_PROC_PROFILE balanced || return 1
+	if [ "${dns_port_change}" = "1" ]; then
+		cli_write_quoted_conf ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL 1 || return 1
+	fi
+	if [ "${netcheck_change}" = "1" ]; then
+		cli_write_quoted_conf ADGUARD_NETCHECK_MODE wan || return 1
+	fi
+	if [ "${proc_optimize_change}" = "1" ]; then
+		cli_write_quoted_conf ADGUARD_PROC_OPTIMIZE YES || return 1
+	fi
+	if [ "${proc_profile_change}" = "1" ]; then
+		cli_write_quoted_conf ADGUARD_PROC_PROFILE balanced || return 1
+	fi
 	ptxt_ok "Runtime defaults migrated to v2.6.0 safer values."
 }
 
