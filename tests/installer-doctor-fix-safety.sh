@@ -37,9 +37,9 @@ chmod 755 "${BIN_DIR}/pidof" || fail 'could not chmod pidof stub'
 cat >"${BIN_DIR}/netstat" <<'STUB'
 #!/bin/sh
 printf '%s\n' \
-	'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 55/dnsmasq' \
-	'udp 0 0 0.0.0.0:53 0.0.0.0:* 55/dnsmasq' \
-	'tcp 0 0 192.168.50.1:3000 0.0.0.0:* LISTEN 66/httpd'
+	'tcp        0      0 0.0.0.0:53              0.0.0.0:*               LISTEN      55/dnsmasq' \
+	'udp        0      0 0.0.0.0:53              0.0.0.0:*                           55/dnsmasq' \
+	'tcp        0      0 192.168.50.1:3000       0.0.0.0:*               LISTEN      66/httpd'
 STUB
 chmod 755 "${BIN_DIR}/netstat" || fail 'could not chmod netstat stub'
 
