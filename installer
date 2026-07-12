@@ -479,9 +479,7 @@ configure_runtime_defaults() {
 			write_conf_if_absent ADGUARD_PROC_PROFILE "\"aggressive\"" || return 1
 			PTXT "${INFO} Existing runtime defaults were retained for compatibility." \
 				"${INFO} Legacy values remain active unless you migrate with:" \
-				"${INFO}   sh installer dns-port-policy --policy refuse-unknown" \
-				"${INFO}   sh installer netcheck --mode wan" \
-				"${INFO}   sh installer performance --profile balanced"
+				"${INFO}   sh installer migrate-runtime-defaults --yes"
 			;;
 	esac
 }
@@ -4391,7 +4389,7 @@ menu() {
 				"  1) Install/Update AdGuardHome" \
 				"  2) Uninstall"
 			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then
-				PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  6) Enable/Disable AdGuardHome Local Cache" "  7) Switch AdGuardHome Branch" "  8) Enable/Disable AdGuardHome IPSET Integration"
+				PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  6) Enable/Disable AdGuardHome Local Cache" "  7) Switch AdGuardHome Branch" "  8) Enable/Disable AdGuardHome IPSET Integration" "  m) Migrate Runtime Defaults"
 				if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
 					PTXT "  9) Analyze and remove unused blocklists"
 				fi
@@ -4401,8 +4399,8 @@ menu() {
 			PTXT "  q) Quit"
 			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 q; }; fi
 			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 r q; }; fi
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then { read_input_num "Please enter the number that designates your selection:" 1 9 b q; }; else { read_input_num "Please enter the number that designates your selection:" 1 8 b q; }; fi; }; fi
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then { read_input_num "Please enter the number that designates your selection:" 1 9 b r q; }; else { read_input_num "Please enter the number that designates your selection:" 1 8 b r q; }; fi; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then { read_input_num "Please enter the number that designates your selection:" 1 9 b m q; }; else { read_input_num "Please enter the number that designates your selection:" 1 8 b m q; }; fi; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then { read_input_num "Please enter the number that designates your selection:" 1 9 b r m q; }; else { read_input_num "Please enter the number that designates your selection:" 1 8 b r m q; }; fi; }; fi
 			;;
 		*)
 			CHOSEN="$1"
@@ -4512,6 +4510,20 @@ menu() {
 			fi
 			end_op_message 0
 			;;
+		"m" | "M" | "migrate-runtime-defaults")
+			PTXT "${INFO} This operation inspects legacy runtime defaults and can migrate them to safer v2.6.0 values."
+			read_yesno "Do you want to migrate runtime defaults now?"
+			CONFIRM_STATUS=$?
+			if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+				cli_migrate_runtime_defaults --yes
+				end_op_message "$?"
+			elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
+				end_op_message 1
+			else
+				end_op_message 1
+				return "${CONFIRM_STATUS}"
+			fi
+			;;
 		"9" | "blocklists" | "unusedblocklists")
 			if [ -z "${BLOCKLIST_ANALYZER_SHA256}" ]; then
 				ptxt_fail "Blocklist cleanup is unavailable until the analyzer SHA-256 is pinned."
@@ -4590,10 +4602,12 @@ read_input_dns() {
 
 read_input_num() {
 	local RANGE
-	[ -z "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}]"
-	[ -n "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}]"
-	[ -n "$4" ] && [ -n "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}/${5}]"
-	[ -n "$4" ] && [ -n "$5" ] && [ -n "$6" ] && RANGE="[${2}-${3}/${4}/${5}/${6}]"
+	RANGE="[${2}-${3}"
+	[ -n "${4:-}" ] && RANGE="${RANGE}/${4}"
+	[ -n "${5:-}" ] && RANGE="${RANGE}/${5}"
+	[ -n "${6:-}" ] && RANGE="${RANGE}/${6}"
+	[ -n "${7:-}" ] && RANGE="${RANGE}/${7}"
+	RANGE="${RANGE}]"
 	while :; do
 		PTXT -n "${INPUT} ${1}, ${BOLD}${RANGE}${NORM}: "
 		if ! read -r CHOSEN; then
@@ -4605,7 +4619,7 @@ read_input_num() {
 			continue
 		fi
 		case "${CHOSEN}" in
-			"$4" | "$5" | "$6")
+			"${4:-}" | "${5:-}" | "${6:-}" | "${7:-}")
 				return 1
 				;;
 			*)
@@ -4682,7 +4696,7 @@ menu_action_allowed() {
 		[dD] | "doctor" | "status")
 			return 0
 			;;
-		"3" | "changepw" | "4" | "reconfigure" | "5" | "setamtmupdate" | "6" | "setlocalcache" | "7" | "switchbranch" | "8" | "setipset" | [bB] | "backup")
+		"3" | "changepw" | "4" | "reconfigure" | "5" | "setamtmupdate" | "6" | "setlocalcache" | "7" | "switchbranch" | "8" | "setipset" | [mM] | "migrate-runtime-defaults" | [bB] | "backup")
 			[ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && return 0
 			return 1
 			;;
@@ -4701,6 +4715,11 @@ menu_action_allowed() {
 }
 
 single_arg_menu_action() {
+	case "$1" in
+		"migrate-runtime-defaults")
+			return 1
+			;;
+	esac
 	menu_action_allowed "$1"
 }
 
@@ -4715,6 +4734,7 @@ cli_usage() {
 		"${INFO}   sh installer netcheck --mode {legacy|wan|lan} [--hosts host-list] [--dns server] [--require-http {YES|NO}] [--timeout seconds]" \
 		"${INFO}   sh installer dns-port-policy --policy {legacy|refuse-unknown}" \
 		"${INFO}   sh installer performance --profile {balanced|low-memory|fast}" \
+		"${INFO}   sh installer migrate-runtime-defaults [--yes] [--dry-run]" \
 		"${INFO}   sh installer uninstall --yes [--dry-run] [--allow-dns-nvram]"
 }
 
@@ -4775,6 +4795,32 @@ cli_pre_remote_dry_run() {
 		esac
 	done
 	return 1
+}
+
+cli_pre_runtime_defaults_preview() {
+	local apply preview_args
+	[ "${1:-}" = "migrate-runtime-defaults" ] || return 3
+	shift || true
+	apply="0"
+	preview_args=""
+	while [ "$#" -gt 0 ]; do
+		case "$1" in
+			--yes)
+				apply="1"
+				;;
+			--dry-run)
+				preview_args="${preview_args} --dry-run"
+				;;
+			*)
+				return 2
+				;;
+		esac
+		shift
+	done
+	[ "${apply}" = "0" ] || return 3
+	# Intentional unquoted expansion: preview_args is built from fixed option tokens only.
+	cli_migrate_runtime_defaults ${preview_args}
+	return "$?"
 }
 
 cli_backup_restore_file() {
@@ -4926,6 +4972,94 @@ cli_dns_port_policy() {
 	esac
 }
 
+cli_migrate_runtime_default() {
+	local current key legacy safe status
+	key="$1"
+	legacy="$2"
+	safe="$3"
+	current="$(conf_value "${key}")"
+	if [ "${current}" = "${legacy}" ]; then
+		PTXT "${WARNING} Legacy runtime default: ${key}=\"${current}\"; v2.6.0 safer value is \"${safe}\"."
+		status=1
+	elif [ -z "${current}" ]; then
+		PTXT "${INFO} Missing runtime default: ${key}; v2.6.0 safer value is \"${safe}\"."
+		status=1
+	else
+		PTXT "${INFO} Runtime default already set: ${key}=\"${current}\"."
+		status=0
+	fi
+	return "${status}"
+}
+
+cli_migrate_runtime_defaults() {
+	local apply dry_run changes dns_port_change netcheck_change proc_optimize_change proc_profile_change proc_optimize_current
+	apply="0"
+	dry_run="0"
+	changes="0"
+	while [ "$#" -gt 0 ]; do
+		case "$1" in
+			--yes) apply="1" ;;
+			--dry-run) dry_run="1" ;;
+			*) return 2 ;;
+		esac
+		shift
+	done
+	if [ ! -f "${CONF_FILE}" ]; then
+		PTXT "${ERROR} Runtime config not found: ${CONF_FILE}"
+		return 1
+	fi
+	PTXT "${INFO} Inspecting runtime defaults in ${CONF_FILE}."
+	dns_port_change="0"
+	netcheck_change="0"
+	proc_optimize_change="0"
+	proc_profile_change="0"
+	cli_migrate_runtime_default ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL 0 1 || {
+		changes="1"
+		dns_port_change="1"
+	}
+	cli_migrate_runtime_default ADGUARD_NETCHECK_MODE legacy wan || {
+		changes="1"
+		netcheck_change="1"
+	}
+	proc_optimize_current="$(conf_value ADGUARD_PROC_OPTIMIZE)"
+	if [ -z "${proc_optimize_current}" ]; then
+		PTXT "${INFO} Missing runtime default: ADGUARD_PROC_OPTIMIZE; v2.6.0 safer value is \"YES\"."
+		changes="1"
+		proc_optimize_change="1"
+	else
+		PTXT "${INFO} Runtime default already set: ADGUARD_PROC_OPTIMIZE=\"${proc_optimize_current}\"."
+	fi
+	cli_migrate_runtime_default ADGUARD_PROC_PROFILE aggressive balanced || {
+		changes="1"
+		proc_profile_change="1"
+	}
+	if [ "${changes}" = "0" ]; then
+		ptxt_ok "Runtime defaults already use v2.6.0 safer values or custom overrides."
+		return 0
+	fi
+	if [ "${dry_run}" = "1" ]; then
+		PTXT "${INFO} Dry-run: would write v2.6.0 safer runtime defaults."
+		return 0
+	fi
+	if [ "${apply}" != "1" ]; then
+		PTXT "${INFO} No changes made. Re-run with --yes to migrate runtime defaults."
+		return 0
+	fi
+	if [ "${dns_port_change}" = "1" ]; then
+		cli_write_quoted_conf ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL 1 || return 1
+	fi
+	if [ "${netcheck_change}" = "1" ]; then
+		cli_write_quoted_conf ADGUARD_NETCHECK_MODE wan || return 1
+	fi
+	if [ "${proc_optimize_change}" = "1" ]; then
+		cli_write_quoted_conf ADGUARD_PROC_OPTIMIZE YES || return 1
+	fi
+	if [ "${proc_profile_change}" = "1" ]; then
+		cli_write_quoted_conf ADGUARD_PROC_PROFILE balanced || return 1
+	fi
+	ptxt_ok "Runtime defaults migrated to v2.6.0 safer values."
+}
+
 cli_installer_branch_from_args() {
 	while [ "$#" -gt 0 ]; do
 		case "$1" in
@@ -4962,7 +5096,7 @@ cli_write_adguard_branch() {
 }
 
 cli_run() {
-	local cmd sub opt restore_file profile proc_profile adguard_branch installer_branch netcheck_mode netcheck_hosts netcheck_dns netcheck_http netcheck_timeout dns_policy
+	local cmd sub opt restore_file profile proc_profile adguard_branch installer_branch netcheck_mode netcheck_hosts netcheck_dns netcheck_http netcheck_timeout dns_policy migrate_args
 	CLI_MODE="1"
 	export CLI_MODE
 	cmd="${1:-}"
@@ -4980,8 +5114,9 @@ cli_run() {
 	netcheck_http=""
 	netcheck_timeout=""
 	dns_policy=""
+	migrate_args=""
 	case "${cmd}" in
-		install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | uninstall) ;;
+		install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | migrate-runtime-defaults | uninstall) ;;
 		*) return 2 ;;
 	esac
 	if [ "${cmd}" = "ipset" ]; then
@@ -4994,10 +5129,12 @@ cli_run() {
 		opt="$1"
 		case "${opt}" in
 			--yes)
+				[ "${cmd}" != "migrate-runtime-defaults" ] || migrate_args="${migrate_args} --yes"
 				CLI_YES="1"
 				shift
 				;;
 			--dry-run)
+				[ "${cmd}" != "migrate-runtime-defaults" ] || migrate_args="${migrate_args} --dry-run"
 				CLI_DRY_RUN="1"
 				shift
 				;;
@@ -5074,6 +5211,7 @@ cli_run() {
 			PTXT "${ERROR} Unsupported installer branch: ${installer_branch}"
 			return 1
 		}
+		write_conf INSTALLER_BRANCH "\"${installer_branch}\"" || return 1
 	fi
 	if [ -n "${adguard_branch}" ]; then
 		cli_adguard_branch_is_valid "${adguard_branch}" || {
@@ -5154,6 +5292,11 @@ cli_run() {
 			cli_dns_port_policy --policy "${dns_policy}"
 			return "$?"
 			;;
+		migrate-runtime-defaults)
+			# Intentional unquoted expansion: migrate_args is built from fixed option tokens only.
+			cli_migrate_runtime_defaults ${migrate_args}
+			return "$?"
+			;;
 		performance)
 			case "${profile}" in
 				balanced) proc_profile="balanced" ;;
@@ -5226,6 +5369,15 @@ case "${1:-}" in
 		fi
 		;;
 esac
+cli_pre_runtime_defaults_preview "$@"
+CLI_STATUS="$?"
+case "${CLI_STATUS}" in
+	0) exit 0 ;;
+	2)
+		cli_usage
+		exit 2
+		;;
+esac
 
 amtm_update_check "$@"
 
@@ -5251,7 +5403,7 @@ if [ -z "${2:-}" ] && single_arg_menu_action "${1:-}"; then
 	set -- "${BRANCH}" "${CHOSEN}"
 fi
 case "${1}" in
-	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | uninstall)
+	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | migrate-runtime-defaults | uninstall)
 		BRANCH="$(cli_installer_branch_from_args "$@" 2>/dev/null)"
 		[ -n "${BRANCH}" ] || BRANCH="$(conf_value INSTALLER_BRANCH)"
 		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
@@ -5348,14 +5500,14 @@ case "${1:-}" in
 	install | update)
 		init_remote_adguard_metadata
 		;;
-	backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | uninstall) ;;
+	backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | migrate-runtime-defaults | uninstall) ;;
 	*)
 		init_remote_adguard_metadata
 		;;
 esac
 
 case "${1:-}" in
-	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | uninstall)
+	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | migrate-runtime-defaults | uninstall)
 		cli_run "$@"
 		CLI_STATUS="$?"
 		if [ "${CLI_STATUS}" -ne 0 ]; then
@@ -5382,10 +5534,10 @@ case "$2" in
 		if menu_action_allowed "$2"; then
 			menu "$2"
 		else
-			PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore | doctor | status)" \
+			PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore | migrate-runtime-defaults | doctor | status)" \
 				"${INFO} Doctor can also be run as: sh installer doctor [--fix]. Status can also be run as: sh installer status." \
 				"${INFO} Branch or Tag must be represented by a value or empty quotes in place of string e.g. \"\" in the \$1 string position." \
-				"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore | doctor | status) in the \$2 string position." \
+				"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore | migrate-runtime-defaults | doctor | status) in the \$2 string position." \
 				"${INFO} An update example sh installer master update, or just use the regular menu by not specifying an Action."
 		fi
 		;;
