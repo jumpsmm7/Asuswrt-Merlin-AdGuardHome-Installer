@@ -69,6 +69,7 @@ printf '%s %s\n' "$(basename "$0")" "$*" >>"${LOG_FILE}"
 exit 0
 STUB
 	chmod 755 "${BIN_DIR}/${unsafe_cmd}" || fail "could not chmod ${unsafe_cmd} stub"
+	[ -x "${BIN_DIR}/${unsafe_cmd}" ] || fail "${unsafe_cmd} stub is not executable"
 done
 
 : >"${LOG_FILE}" || fail 'could not create command log'
