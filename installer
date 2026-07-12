@@ -950,8 +950,18 @@ agh_process_count() {
 }
 
 doctor_status() {
+	local next
+	next="${3:-}"
 	[ "$1" = "FAIL" ] && DOCTOR_FAILED="1"
-	PTXT "[$1] $2"
+	case "$1" in
+		WARN | FAIL)
+			[ -n "${next}" ] || next="Review the installer output and repair manually."
+			PTXT "[$1] $2 | Next: ${next}"
+			;;
+		*)
+			PTXT "[$1] $2"
+			;;
+	esac
 }
 
 doctor_fix_msg() {
@@ -963,12 +973,12 @@ doctor_file_state() {
 	path="$1"
 	expected="$2"
 	if [ ! -e "${path}" ]; then
-		doctor_status WARN "${path} missing"
+		doctor_status WARN "${path} missing" "Re-run install or restore ${path}."
 		return 1
 	fi
 	mode="$(ls -ld "${path}" 2>/dev/null | awk '{ print $1 }')"
 	if [ -n "${expected}" ] && [ "${mode}" != "${expected}" ]; then
-		doctor_status WARN "${path} mode ${mode}, expected ${expected}"
+		doctor_status WARN "${path} mode ${mode}, expected ${expected}" "Run: sh installer doctor --fix"
 		return 1
 	fi
 	doctor_status OK "${path} present${mode:+ (${mode})}"
@@ -981,18 +991,18 @@ doctor_managed_script_state() {
 	operation="$2"
 	expected_line="[ -x ${ADDON_DIR}/AdGuardHome.sh ] && ${ADDON_DIR}/AdGuardHome.sh ${operation}"
 	if [ ! -f "${script_path}" ]; then
-		doctor_status WARN "${script_path} managed hook missing"
+		doctor_status WARN "${script_path} managed hook missing" "Re-run install to recreate the managed hook."
 		return 1
 	fi
 	if grep -q -F "${expected_line}" "${script_path}" 2>/dev/null; then
 		if [ ! -x "${script_path}" ]; then
-			doctor_status WARN "${script_path} managed hook present but not executable"
+			doctor_status WARN "${script_path} managed hook present but not executable" "Run: sh installer doctor --fix"
 			return 1
 		fi
 		doctor_status OK "${script_path} managed hook present and executable"
 		return 0
 	fi
-	doctor_status WARN "${script_path} managed hook missing expected AdGuardHome call"
+	doctor_status WARN "${script_path} managed hook missing expected AdGuardHome call" "Re-run install or add the managed AdGuardHome hook line."
 	return 1
 }
 
@@ -1005,10 +1015,10 @@ doctor_dns53_state() {
 	fi
 	if [ -n "${dns53}" ]; then
 		owners="$(PTXT "${dns53}" | awk '{ print $NF }' | sort | uniq | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
-		doctor_status WARN "DNS port 53 TCP and UDP are not both owned by AdGuardHome${owners:+ (owners: ${owners})}"
+		doctor_status WARN "DNS port 53 TCP and UDP are not both owned by AdGuardHome${owners:+ (owners: ${owners})}" "Inspect DNS settings; do not use --fix for DNS changes."
 		return 1
 	fi
-	doctor_status FAIL "DNS port 53 is not listening"
+	doctor_status FAIL "DNS port 53 is not listening" "Start AdGuardHome or restore dnsmasq DNS service manually."
 	return 1
 }
 
@@ -1089,7 +1099,7 @@ doctor_fix_safe() {
 doctor_show_nvram_dns() {
 	local key value
 	if ! ai_have_cmd nvram; then
-		doctor_status WARN "nvram command unavailable; DNS NVRAM values not checked"
+		doctor_status WARN "nvram command unavailable; DNS NVRAM values not checked" "Run doctor on the router where nvram is available."
 		return 0
 	fi
 	for key in dnspriv_enable dns_local_cache dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x dnsfilter_enable_x dnsfilter_mode dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 lan_dnsenable_x lan_dns1_x lan_dns2_x wan_dnsenable_x wan_dns1_x wan_dns2_x; do
@@ -1106,7 +1116,7 @@ doctor() {
 		--fix) fix="1" ;;
 		"") ;;
 		*)
-			doctor_status FAIL "usage: sh installer doctor [--fix]"
+			doctor_status FAIL "usage: sh installer doctor [--fix]" "Run: sh installer doctor [--fix]"
 			return 1
 			;;
 	esac
@@ -1115,18 +1125,18 @@ doctor() {
 		entware_ready="1"
 		doctor_status OK "Entware is available"
 	else
-		doctor_status FAIL "Entware is not available"
+		doctor_status FAIL "Entware is not available" "Mount or install Entware, then rerun doctor."
 	fi
 	if [ "${fix}" = "1" ]; then
 		if [ "${entware_ready}" = "1" ]; then
 			doctor_fix_safe
 		else
-			doctor_status WARN "skipping --fix repairs because Entware is not available"
+			doctor_status WARN "skipping --fix repairs because Entware is not available" "Mount or install Entware before using --fix."
 		fi
 	fi
 	doctor_file_state "${TARG_DIR}" "drwx------" || true
 	link_target="$(readlink "/opt/sbin/AdGuardHome" 2>/dev/null)"
-	[ -L "/opt/sbin/AdGuardHome" ] && [ "${link_target}" = "${AGH_FILE}" ] && doctor_status OK "/opt/sbin/AdGuardHome -> ${link_target}" || doctor_status FAIL "/opt/sbin/AdGuardHome target is ${link_target:-missing}"
+	[ -L "/opt/sbin/AdGuardHome" ] && [ "${link_target}" = "${AGH_FILE}" ] && doctor_status OK "/opt/sbin/AdGuardHome -> ${link_target}" || doctor_status FAIL "/opt/sbin/AdGuardHome target is ${link_target:-missing}" "Run: sh installer doctor --fix"
 	doctor_file_state "${ADDON_DIR}/AdGuardHome.sh" "-rwxr-xr-x" || true
 	doctor_managed_script_state "/jffs/scripts/init-start" "init-start &" || true
 	doctor_managed_script_state "/jffs/scripts/services-stop" "services-stop &" || true
@@ -1139,17 +1149,17 @@ doctor() {
 
 	doctor_dns53_state || true
 	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome/pid; do
-		[ -e "${marker}" ] && doctor_status WARN "dnsmasq handoff marker/lock exists: ${marker}" || doctor_status OK "dnsmasq handoff marker/lock absent: ${marker}"
+		[ -e "${marker}" ] && doctor_status WARN "dnsmasq handoff marker/lock exists: ${marker}" "Run: sh installer doctor --fix; if still present, check active installer/service processes." || doctor_status OK "dnsmasq handoff marker/lock absent: ${marker}"
 	done
 	count="$(agh_monitor_count)"
-	[ "${count}" -eq 1 ] && doctor_status OK "monitor process count: ${count}" || doctor_status WARN "monitor process count: ${count}"
+	[ "${count}" -eq 1 ] && doctor_status OK "monitor process count: ${count}" || doctor_status WARN "monitor process count: ${count}" "Restart the AdGuardHome service if the monitor count is unexpected."
 	count="$(pidof AdGuardHome 2>/dev/null | wc -w)"
-	[ "${count}" -eq 1 ] && doctor_status OK "AdGuardHome daemon process count: ${count}" || doctor_status WARN "AdGuardHome daemon process count: ${count}"
+	[ "${count}" -eq 1 ] && doctor_status OK "AdGuardHome daemon process count: ${count}" || doctor_status WARN "AdGuardHome daemon process count: ${count}" "Start or restart AdGuardHome manually; --fix will not restart services."
 	port="$(agh_web_port 2>/dev/null)"
 	if [ -n "${port}" ]; then
-		web_port_owned_by_agh "${port}" && doctor_status OK "WebUI port ${port} owned by AdGuardHome" || doctor_status WARN "WebUI port ${port} not owned by AdGuardHome"
+		web_port_owned_by_agh "${port}" && doctor_status OK "WebUI port ${port} owned by AdGuardHome" || doctor_status WARN "WebUI port ${port} not owned by AdGuardHome" "Inspect the WebUI port owner and AdGuardHome config manually."
 	else
-		doctor_status WARN "WebUI port not configured"
+		doctor_status WARN "WebUI port not configured" "Set ADGUARD_WEBUI_PORT or repair AdGuardHome.yaml manually."
 	fi
 	branch="$(conf_value INSTALLER_BRANCH 2>/dev/null)"
 	version="$([ -x "${AGH_FILE}" ] && "${AGH_FILE}" --version 2>/dev/null | head -1)"
@@ -1157,14 +1167,14 @@ doctor() {
 	doctor_status OK "AdGuardHome version ${version:-unknown}"
 	backup_file="${BASE_DIR}/backup_AdGuardHome.tar.gz"
 	if [ -f "${backup_file}" ]; then
-		adguard_archive_is_safe "${backup_file}" 1 && doctor_status OK "backup archive safety passed" || doctor_status FAIL "backup archive safety failed"
+		adguard_archive_is_safe "${backup_file}" 1 && doctor_status OK "backup archive safety passed" || doctor_status FAIL "backup archive safety failed" "Remove or replace the unsafe backup archive manually."
 	else
-		doctor_status WARN "backup archive missing"
+		doctor_status WARN "backup archive missing" "Create a fresh backup after confirming the installation is healthy."
 	fi
 	for ipset_file in "${TARG_DIR}/ipset.conf" "${TARG_DIR}/ipset.user" "$(adguardhome_yaml_ipset_file 2>/dev/null)"; do
 		[ -n "${ipset_file}" ] || continue
 		case "${ipset_file}" in /*) ;; *) ipset_file="${TARG_DIR}/${ipset_file}" ;; esac
-		[ -f "${ipset_file}" ] && doctor_status OK "IPSET file present: ${ipset_file}" || doctor_status WARN "IPSET file missing: ${ipset_file}"
+		[ -f "${ipset_file}" ] && doctor_status OK "IPSET file present: ${ipset_file}" || doctor_status WARN "IPSET file missing: ${ipset_file}" "Recreate the IPSET file or update AdGuardHome.yaml manually."
 	done
 	doctor_show_nvram_dns
 	[ "${DOCTOR_FAILED}" = "0" ]
