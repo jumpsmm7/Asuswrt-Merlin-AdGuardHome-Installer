@@ -460,6 +460,18 @@ rollback_result_summary() {
 	' "${ROLLBACK_RESULT_FILE}" 2>/dev/null
 }
 
+rollback_result_needs_attention() {
+	local result
+	[ -f "${ROLLBACK_RESULT_FILE}" ] || return 1
+	result="$(awk -F= '$1 == "result" { print substr($0, 8); exit }' "${ROLLBACK_RESULT_FILE}" 2>/dev/null)"
+	case "${result}" in
+		rollback\ failed | rollback\ partial | rollback\ unavailable | failed:\ rollback\ unavailable)
+			return 0
+			;;
+	esac
+	return 1
+}
+
 SCRIPT_LOC="$(installer_script_path "$0")" || {
 	PTXT "Unable to resolve installer path: $0" >&2
 	exit 1
@@ -1175,7 +1187,11 @@ doctor() {
 	fi
 	doctor_file_state "${TARG_DIR}" "drwx------" || true
 	if [ -f "${ROLLBACK_RESULT_FILE}" ]; then
-		doctor_status WARN "last rollback result: $(rollback_result_summary)"
+		if rollback_result_needs_attention; then
+			doctor_status FAIL "last rollback result: $(rollback_result_summary)" "Review the rollback detail, restore manually if needed, then rerun doctor."
+		else
+			doctor_status WARN "last rollback result: $(rollback_result_summary)"
+		fi
 	else
 		doctor_status OK "last rollback result: none"
 	fi
