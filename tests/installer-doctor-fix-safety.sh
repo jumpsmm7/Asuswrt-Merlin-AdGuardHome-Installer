@@ -13,20 +13,9 @@ TEST_ROOT="${TMPDIR:-/tmp}/installer-doctor-fix-safety.$$"
 FUNCTIONS_FILE="${TEST_ROOT}/installer-doctor-functions"
 BIN_DIR="${TEST_ROOT}/bin"
 LOG_FILE="${TEST_ROOT}/commands.log"
-ACTIVE_MARKER="/tmp/AdGuardHome.dnsmasq.handoff"
-ACTIVE_MARKER_BACKUP="${TEST_ROOT}/active-marker.backup"
-ACTIVE_MARKER_WAS_PRESENT=0
+ACTIVE_MARKER="${TEST_ROOT}/AdGuardHome.dnsmasq.handoff"
 mkdir -p "${TEST_ROOT}" "${BIN_DIR}" || fail 'could not create test directory'
-if [ -f "${ACTIVE_MARKER}" ]; then
-	ACTIVE_MARKER_WAS_PRESENT=1
-	/bin/cp "${ACTIVE_MARKER}" "${ACTIVE_MARKER_BACKUP}" || fail 'could not preserve active marker'
-fi
 cleanup() {
-	if [ "${ACTIVE_MARKER_WAS_PRESENT}" = 1 ] && [ -f "${ACTIVE_MARKER_BACKUP}" ]; then
-		/bin/cp "${ACTIVE_MARKER_BACKUP}" "${ACTIVE_MARKER}"
-	else
-		[ -f "${ACTIVE_MARKER}" ] && /bin/rm -f "${ACTIVE_MARKER}"
-	fi
 	/bin/rm -rf "${TEST_ROOT}"
 }
 trap cleanup EXIT HUP INT TERM
@@ -34,6 +23,8 @@ trap cleanup EXIT HUP INT TERM
 sed -n \
 	'/^PTXT() {$/,/^}$/p; /^ai_have_cmd() {$/,/^}$/p; /^agh_dns_bound() {$/,/^}$/p; /^doctor_status() {$/,/^}$/p; /^doctor_fix_msg() {$/,/^}$/p; /^doctor_file_state() {$/,/^}$/p; /^doctor_managed_script_state() {$/,/^}$/p; /^doctor_dns53_state() {$/,/^}$/p; /^doctor_fix_permissions() {$/,/^}$/p; /^doctor_pid_file_is_active() {$/,/^}$/p; /^doctor_run_lock_is_active() {$/,/^}$/p; /^doctor_fix_safe() {$/,/^}$/p; /^doctor_show_nvram_dns() {$/,/^}$/p; /^doctor() {$/,/^}$/p' \
 	"${INSTALLER_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${INSTALLER_PATH}"
+sed "s#/tmp/AdGuardHome\.dnsmasq\.handoff#${ACTIVE_MARKER}#g" "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" || fail 'could not isolate active marker path'
+/bin/mv "${FUNCTIONS_FILE}.tmp" "${FUNCTIONS_FILE}" || fail 'could not update isolated fixture'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'doctor functions were not found'
 grep -q '^doctor() {$' "${FUNCTIONS_FILE}" || fail 'installer has no doctor command helper'
 
