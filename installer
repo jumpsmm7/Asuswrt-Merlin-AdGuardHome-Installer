@@ -85,11 +85,15 @@ rollback_result_write() {
 
 rollback_result_summary() {
 	[ -s "${ROLLBACK_RESULT_FILE}" ] || return 1
-	awk -F= '
-		$1 == "time" { time = $2 }
-		$1 == "context" { context = $2 }
-		$1 == "result" { result = $2 }
-		$1 == "detail" { detail = $2 }
+	awk '
+		index($0, "=") {
+			key = substr($0, 1, index($0, "=") - 1)
+			value = substr($0, index($0, "=") + 1)
+		}
+		key == "time" { time = value }
+		key == "context" { context = value }
+		key == "result" { result = value }
+		key == "detail" { detail = value }
 		END {
 			if (result == "") exit 1
 			printf "%s%s%s%s%s", result, context ? " during " context : "", detail ? ": " detail : "", time ? " (" time ")" : "", ""
