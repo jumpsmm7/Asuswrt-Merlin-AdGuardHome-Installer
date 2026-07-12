@@ -4797,6 +4797,32 @@ cli_pre_remote_dry_run() {
 	return 1
 }
 
+cli_pre_runtime_defaults_preview() {
+	local apply preview_args
+	[ "${1:-}" = "migrate-runtime-defaults" ] || return 3
+	shift || true
+	apply="0"
+	preview_args=""
+	while [ "$#" -gt 0 ]; do
+		case "$1" in
+			--yes)
+				apply="1"
+				;;
+			--dry-run)
+				preview_args="${preview_args} --dry-run"
+				;;
+			*)
+				return 2
+				;;
+		esac
+		shift
+	done
+	[ "${apply}" = "0" ] || return 3
+	# Intentional unquoted expansion: preview_args is built from fixed option tokens only.
+	cli_migrate_runtime_defaults ${preview_args}
+	return "$?"
+}
+
 cli_backup_restore_file() {
 	local restore_default restore_file restore_save restore_defer_saved cli_ret
 	restore_file="$1"
@@ -5332,6 +5358,15 @@ case "${1:-}" in
 		if cli_pre_remote_dry_run "$@"; then
 			exit 0
 		fi
+		;;
+esac
+cli_pre_runtime_defaults_preview "$@"
+CLI_STATUS="$?"
+case "${CLI_STATUS}" in
+	0) exit 0 ;;
+	2)
+		cli_usage
+		exit 2
 		;;
 esac
 

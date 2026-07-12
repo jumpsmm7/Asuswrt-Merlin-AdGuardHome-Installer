@@ -21,10 +21,11 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^cli_migrate_runtime_default() {$/,/^}$/p; /^cli_migrate_runtime_defaults() {$/,/^}$/p' \
+	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^cli_migrate_runtime_default() {$/,/^}$/p; /^cli_migrate_runtime_defaults() {$/,/^}$/p; /^cli_pre_runtime_defaults_preview() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'runtime migration helper extraction was empty'
 grep -q '^cli_migrate_runtime_defaults() {$' "${FUNCTIONS_FILE}" || fail 'migration helper missing'
+grep -q '^cli_pre_runtime_defaults_preview() {$' "${FUNCTIONS_FILE}" || fail 'migration preview short-circuit missing'
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
@@ -50,6 +51,18 @@ grep -q 'No changes made. Re-run with --yes' "${TMP_ROOT}/report" || fail 'repor
 cli_migrate_runtime_defaults --dry-run >"${TMP_ROOT}/dry-run" || fail 'dry-run migration failed'
 [ "$(cat "${CONF_FILE}")" = "${before}" ] || fail 'dry-run migration changed .config'
 grep -q 'Dry-run: would write v2.6.0 safer runtime defaults' "${TMP_ROOT}/dry-run" || fail 'dry-run did not report planned writes'
+
+cli_pre_runtime_defaults_preview migrate-runtime-defaults >"${TMP_ROOT}/preview-report" ||
+	fail 'preview short-circuit did not run report-only migration'
+[ "$(cat "${CONF_FILE}")" = "${before}" ] || fail 'preview report changed .config before startup'
+cli_pre_runtime_defaults_preview migrate-runtime-defaults --dry-run >"${TMP_ROOT}/preview-dry-run" ||
+	fail 'preview short-circuit did not run dry-run migration'
+[ "$(cat "${CONF_FILE}")" = "${before}" ] || fail 'preview dry-run changed .config before startup'
+grep -q 'Dry-run: would write v2.6.0 safer runtime defaults' "${TMP_ROOT}/preview-dry-run" ||
+	fail 'preview dry-run did not report planned writes'
+if cli_pre_runtime_defaults_preview migrate-runtime-defaults --yes >/dev/null; then
+	fail 'preview short-circuit should not apply migrations before startup'
+fi
 
 cli_migrate_runtime_defaults --yes >"${TMP_ROOT}/apply" || fail 'apply migration failed'
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'DNS port policy was not migrated'
