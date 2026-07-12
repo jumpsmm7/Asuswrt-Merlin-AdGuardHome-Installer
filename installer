@@ -113,7 +113,7 @@ rollback_result_needs_attention() {
 	[ -f "${ROLLBACK_RESULT_FILE}" ] || return 1
 	result="$(awk -F= '$1 == "result" { print substr($0, 8); exit }' "${ROLLBACK_RESULT_FILE}" 2>/dev/null)"
 	case "${result}" in
-		rollback\ failed | rollback\ partial | rollback\ unavailable | failed:* | *-failed)
+		rollback\ failed | rollback\ partial | rollback\ unavailable | restore-failed | replace-failed | yaml-quarantine-failed | staged-yaml-quarantine-failed | failed:* | *-failed)
 			return 0
 			;;
 	esac
