@@ -37,6 +37,7 @@ readonly YAML_FILE="${AGH_FILE}.yaml"
 readonly YAML_BAK="${YAML_FILE}.bak"
 readonly YAML_ERR="${YAML_FILE}.err"
 readonly YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
+readonly ROLLBACK_RESULT_FILE="${TARG_DIR}/.rollback_result"
 readonly BLOCKLIST_ANALYZER_FILE="${TARG_DIR}/blocklist_analyzer.py"
 readonly BLOCKLIST_ANALYZER_URL="https://gist.githubusercontent.com/graysky2/8035291d1bf87b8fe3693668965337e1/raw/a4be7655095d6ff880c2f3748964b825d7c45bd2/blocklilst_analyzer.py"
 readonly BLOCKLIST_ANALYZER_SHA256_DEFAULT="77c21b6faeb7fea86b0729996dec5cc20d2d309fe8c6946c7371dd64134a6e5f"
@@ -62,6 +63,44 @@ readonly INPUT
 
 ai_have_cmd() {
 	which "$1" >/dev/null 2>&1
+}
+
+rollback_result_write() {
+	local context result detail marker_dir tmp_file
+	context="$1"
+	result="$2"
+	detail="${3:-}"
+	marker_dir="${ROLLBACK_RESULT_FILE%/*}"
+	[ -d "${marker_dir}" ] || mkdir -p "${marker_dir}" 2>/dev/null || return 0
+	tmp_file="${ROLLBACK_RESULT_FILE}.$$"
+	{
+		printf 'time=%s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"
+		printf 'context=%s\n' "${context}"
+		printf 'result=%s\n' "${result}"
+		[ -z "${detail}" ] || printf 'detail=%s\n' "${detail}"
+	} >"${tmp_file}" 2>/dev/null && mv -f "${tmp_file}" "${ROLLBACK_RESULT_FILE}" 2>/dev/null
+	rm -f "${tmp_file}" 2>/dev/null
+	chmod 600 "${ROLLBACK_RESULT_FILE}" 2>/dev/null
+}
+
+rollback_result_summary() {
+	[ -s "${ROLLBACK_RESULT_FILE}" ] || return 1
+	awk -F= '
+		$1 == "time" { time = $2 }
+		$1 == "context" { context = $2 }
+		$1 == "result" { result = $2 }
+		$1 == "detail" { detail = $2 }
+		END {
+			if (result == "") exit 1
+			printf "%s%s%s%s%s", result, context ? " during " context : "", detail ? ": " detail : "", time ? " (" time ")" : "", ""
+		}
+	' "${ROLLBACK_RESULT_FILE}"
+}
+
+rollback_result_notice() {
+	local summary
+	summary="$(rollback_result_summary 2>/dev/null)" || return 0
+	PTXT "${WARNING} Last rollback result: ${summary}"
 }
 
 entware_available() {
@@ -1146,6 +1185,11 @@ doctor() {
 	doctor_file_state "/opt/etc/init.d/rc.func.AdGuardHome" "-rw-r--r--" || true
 	doctor_file_state "${YAML_FILE}" "-rw-------" || true
 	doctor_file_state "${CONF_FILE}" "-rw-------" || true
+	if [ -s "${ROLLBACK_RESULT_FILE}" ]; then
+		doctor_status WARN "last rollback result: $(rollback_result_summary 2>/dev/null)" "Review the failure above, then rerun the failed install/update/restore or repair manually."
+	else
+		doctor_status OK "last rollback result marker absent"
+	fi
 
 	doctor_dns53_state || true
 	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome/pid; do
@@ -1290,6 +1334,7 @@ status() {
 	status_line "WebUI address/port" "$(status_webui_address)"
 	status_line "dnsmasq handoff state" "$(status_dnsmasq_handoff_state)"
 	status_line "Last startup result" "$(status_last_startup_result)"
+	status_line "Last rollback result" "$(rollback_result_summary 2>/dev/null || PTXT "none")"
 }
 
 agh_restart() {
@@ -1605,9 +1650,13 @@ check_AdGuardHome_yaml() {
 			PTXT "${INFO} Moving invalid configuration file to ${YAML_ERR}." \
 				"${INFO} Operation will continue with clean config file."
 			mv "${yaml_target}" "${YAML_ERR}"
+			rollback_result_write "yaml validation" "yaml-invalid-moved" "${YAML_ERR}"
+			rollback_result_notice
 		else
 			ptxt_warn "Moving invalid staged configuration file to ${yaml_target}.err; continuing."
 			mv "${yaml_target}" "${yaml_target}.err"
+			rollback_result_write "yaml validation" "staged-yaml-invalid-moved" "${yaml_target}.err"
+			rollback_result_notice
 		fi
 		return 1
 	fi
@@ -1850,8 +1899,12 @@ blocklist_yaml_replace_abort_on_signal() {
 	if [ -n "${backup_file}" ] && [ -f "${backup_file}" ]; then
 		if cp "${backup_file}" "${YAML_FILE}" || { rm -f "${YAML_FILE}" && mv "${backup_file}" "${YAML_FILE}"; }; then
 			chmod 600 "${YAML_FILE}"
+			rollback_result_write "blocklist yaml replacement" "restored" "interrupted; restored ${YAML_FILE}"
+			rollback_result_notice
 			ptxt_fail "Blocklist cleanup interrupted; restored ${YAML_FILE} from ${backup_file}."
 		else
+			rollback_result_write "blocklist yaml replacement" "restore-failed" "interrupted; backup ${backup_file}"
+			rollback_result_notice
 			ptxt_fail "Blocklist cleanup interrupted, and ${YAML_FILE} could not be restored from ${backup_file}."
 		fi
 	fi
@@ -1923,6 +1976,9 @@ remove_unused_blocklists_from_yaml() {
 	fi
 	blocklist_yaml_replace_trap_enable "${backup_file}" "${removed_file}"
 	if ! mv "${tmp_file}" "${YAML_FILE}"; then
+		rm -f "${tmp_file}" "${removed_file}"
+		rollback_result_write "blocklist yaml replacement" "replace-failed" "${YAML_FILE}"
+		rollback_result_notice
 		blocklist_yaml_replace_trap_disable
 		return 1
 	fi
@@ -1933,10 +1989,14 @@ remove_unused_blocklists_from_yaml() {
 			chmod 600 "${YAML_FILE}"
 			rm -f "${removed_file}"
 			blocklist_yaml_replace_trap_disable
+			rollback_result_write "blocklist yaml replacement" "restored" "validation failed; restored ${YAML_FILE}"
+			rollback_result_notice
 			ptxt_fail "Validation failed; restored ${YAML_FILE} from ${backup_file}."
 		else
 			rm -f "${removed_file}"
 			blocklist_yaml_replace_trap_disable
+			rollback_result_write "blocklist yaml replacement" "restore-failed" "validation failed; backup ${backup_file}"
+			rollback_result_notice
 			ptxt_fail "Validation failed, and ${YAML_FILE} could not be restored from ${backup_file}."
 		fi
 		return 1
@@ -2642,6 +2702,8 @@ adguard_restart_after_failed_replace() {
 		PTXT "${INFO} Restored the previously running AdGuardHome service."
 		return 0
 	fi
+	rollback_result_write "AdGuardHome service restart" "restart-failed" "previous binary restored"
+	rollback_result_notice
 	PTXT "${ERROR} The previous AdGuardHome binary was restored but could not be restarted."
 	return 1
 }
@@ -2656,6 +2718,8 @@ adguard_restart_after_install_abort() {
 		PTXT "${INFO} Restarted AdGuardHome after the installer aborted."
 		return 0
 	fi
+	rollback_result_write "installer abort" "restart-failed" "AdGuardHome could not be restarted"
+	rollback_result_notice
 	PTXT "${ERROR} AdGuardHome could not be restarted after the installer aborted."
 	return 1
 }
@@ -2748,18 +2812,26 @@ adguard_restore_after_failed_replace() {
 	WAS_RUNNING="$2"
 	if [ -f "${OLD_BINARY}" ]; then
 		if ! mv "${OLD_BINARY}" "${AGH_FILE}"; then
+			rollback_result_write "AdGuardHome binary rollback" "restore-failed" "${OLD_BINARY}"
+			rollback_result_notice
 			PTXT "${ERROR} Unable to restore the previous AdGuardHome binary; it remains at ${OLD_BINARY}."
 			return 1
 		fi
+		rollback_result_write "AdGuardHome binary rollback" "restored" "${AGH_FILE}"
 	else
 		if ! rm -f "${AGH_FILE}"; then
+			rollback_result_write "AdGuardHome binary rollback" "cleanup-failed" "${AGH_FILE}"
+			rollback_result_notice
 			PTXT "${ERROR} Unable to remove the failed AdGuardHome binary."
 			return 1
 		fi
 		if [ "${WAS_RUNNING}" = "1" ]; then
+			rollback_result_write "AdGuardHome binary rollback" "restore-failed" "previous binary unavailable"
+			rollback_result_notice
 			PTXT "${ERROR} The previous AdGuardHome binary is unavailable for rollback."
 			return 1
 		fi
+		rollback_result_write "AdGuardHome binary rollback" "removed-failed-install" "${AGH_FILE}"
 	fi
 	adguard_restart_after_failed_replace "${WAS_RUNNING}"
 }
@@ -2776,6 +2848,8 @@ adguard_restore_after_failed_directory_restore() {
 	if agh_is_running; then
 		PTXT "${INFO} Stopping AdGuardHome before restoring the previous installation."
 		if ! agh_stop; then
+			rollback_result_write "AdGuardHome directory rollback" "restore-failed" "could not stop AdGuardHome"
+			rollback_result_notice
 			PTXT "${ERROR} Unable to safely stop AdGuardHome before restoring the previous installation."
 			return 1
 		fi
@@ -2788,17 +2862,23 @@ adguard_restore_after_failed_directory_restore() {
 	fi
 	if [ -d "${ROLLBACK_DIR}" ]; then
 		if ! mv "${ROLLBACK_DIR}" "${TARGET_DIR}"; then
+			rollback_result_write "AdGuardHome directory rollback" "restore-failed" "${ROLLBACK_DIR}"
+			rollback_result_notice
 			PTXT "${ERROR} Unable to restore the previous AdGuardHome installation; it remains at ${ROLLBACK_DIR}."
 			return 1
 		fi
+		rollback_result_write "AdGuardHome directory rollback" "restored" "${TARGET_DIR}"
 		ADGUARD_RESTORE_ROLLBACK_DIR=""
 		ADGUARD_RESTORE_TARGET_INSTALLED="0"
 		ADGUARD_RESTORE_ACTIVE="0"
 	elif [ -L "${COMMAND_LINK}" ] && [ "$(readlink "${COMMAND_LINK}")" = "${TARGET_DIR}/AdGuardHome" ]; then
 		if ! rm -f "${COMMAND_LINK}"; then
+			rollback_result_write "AdGuardHome directory rollback" "cleanup-failed" "${COMMAND_LINK}"
+			rollback_result_notice
 			PTXT "${ERROR} Unable to remove the failed AdGuardHome command symlink."
 			return 1
 		fi
+		rollback_result_write "AdGuardHome directory rollback" "removed-failed-install" "${COMMAND_LINK}"
 		ADGUARD_RESTORE_TARGET_INSTALLED="0"
 		ADGUARD_RESTORE_ACTIVE="0"
 	fi
@@ -3180,6 +3260,7 @@ backup_restore() {
 			ADGUARD_DEFER_END_OP="0"
 			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
 			adguard_install_abort_trap_disable
+			rollback_result_notice
 			ptxt_fail "Unable to complete AdGuardHome restore setup; restoring previous installation."
 			return 1
 		fi
@@ -3592,6 +3673,7 @@ inst_AdGuardHome() {
 			ptxt_step "Replacing AdGuardHome package with downloaded archive."
 			if ! install_adguard_archive "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}"; then
 				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+				rollback_result_notice
 				end_op_message 1 "$1"
 				return 1
 			fi

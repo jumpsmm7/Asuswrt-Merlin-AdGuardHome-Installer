@@ -21,7 +21,7 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 sed -n \
-	'/^PTXT() {$/,/^}$/p; /^ai_have_cmd() {$/,/^}$/p; /^agh_dns_bound() {$/,/^}$/p; /^doctor_status() {$/,/^}$/p; /^doctor_fix_msg() {$/,/^}$/p; /^doctor_file_state() {$/,/^}$/p; /^doctor_managed_script_state() {$/,/^}$/p; /^doctor_dns53_state() {$/,/^}$/p; /^doctor_fix_permissions() {$/,/^}$/p; /^doctor_pid_file_is_active() {$/,/^}$/p; /^doctor_run_lock_is_active() {$/,/^}$/p; /^doctor_fix_safe() {$/,/^}$/p; /^doctor_show_nvram_dns() {$/,/^}$/p; /^doctor() {$/,/^}$/p' \
+	'/^PTXT() {$/,/^}$/p; /^ai_have_cmd() {$/,/^}$/p; /^rollback_result_summary() {$/,/^}$/p; /^agh_dns_bound() {$/,/^}$/p; /^doctor_status() {$/,/^}$/p; /^doctor_fix_msg() {$/,/^}$/p; /^doctor_file_state() {$/,/^}$/p; /^doctor_managed_script_state() {$/,/^}$/p; /^doctor_dns53_state() {$/,/^}$/p; /^doctor_fix_permissions() {$/,/^}$/p; /^doctor_pid_file_is_active() {$/,/^}$/p; /^doctor_run_lock_is_active() {$/,/^}$/p; /^doctor_fix_safe() {$/,/^}$/p; /^doctor_show_nvram_dns() {$/,/^}$/p; /^doctor() {$/,/^}$/p' \
 	"${INSTALLER_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${INSTALLER_PATH}"
 sed "s#/tmp/AdGuardHome\.dnsmasq\.handoff#${ACTIVE_MARKER}#g" "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" || fail 'could not isolate active marker path'
 /bin/mv "${FUNCTIONS_FILE}.tmp" "${FUNCTIONS_FILE}" || fail 'could not update isolated fixture'
@@ -86,6 +86,7 @@ ADDON_DIR="${TEST_ROOT}/addons"
 CONF_FILE="${TEST_ROOT}/AdGuardHome.conf"
 YAML_FILE="${TEST_ROOT}/AdGuardHome.yaml"
 AGH_FILE="${TEST_ROOT}/missing-AdGuardHome"
+ROLLBACK_RESULT_FILE="${TEST_ROOT}/.rollback_result"
 /bin/mkdir -p "${TARG_DIR}" "${ADDON_DIR}" || fail 'could not create fixture directories'
 printf '%s\n' 'ADGUARD_WEBUI_PORT="3000"' >"${CONF_FILE}" || fail 'could not write config'
 printf '%s\n' 'bind_host: 192.168.50.1' >"${YAML_FILE}" || fail 'could not write yaml'
