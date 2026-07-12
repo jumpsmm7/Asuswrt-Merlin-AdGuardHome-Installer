@@ -86,6 +86,7 @@ ADDON_DIR="${TEST_ROOT}/addons"
 CONF_FILE="${TEST_ROOT}/AdGuardHome.conf"
 YAML_FILE="${TEST_ROOT}/AdGuardHome.yaml"
 AGH_FILE="${TEST_ROOT}/missing-AdGuardHome"
+ROLLBACK_RESULT_FILE="${TARG_DIR}/.rollback_result"
 /bin/mkdir -p "${TARG_DIR}" "${ADDON_DIR}" || fail 'could not create fixture directories'
 printf '%s\n' 'ADGUARD_WEBUI_PORT="3000"' >"${CONF_FILE}" || fail 'could not write config'
 printf '%s\n' 'bind_host: 192.168.50.1' >"${YAML_FILE}" || fail 'could not write yaml'
