@@ -4715,6 +4715,11 @@ menu_action_allowed() {
 }
 
 single_arg_menu_action() {
+	case "$1" in
+		"migrate-runtime-defaults")
+			return 1
+			;;
+	esac
 	menu_action_allowed "$1"
 }
 

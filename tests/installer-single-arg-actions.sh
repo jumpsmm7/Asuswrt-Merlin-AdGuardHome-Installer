@@ -84,16 +84,16 @@ fi
 
 	BLOCKLIST_ANALYZER_SHA256=""
 	assert_allowed 1 2 install update uninstall d D doctor status
-	assert_disallowed 3 4 5 6 7 8 changepw reconfigure setamtmupdate setlocalcache switchbranch setipset b B backup r R restore 9 blocklists unusedblocklists
+	assert_disallowed 3 4 5 6 7 8 changepw reconfigure setamtmupdate setlocalcache switchbranch setipset m M migrate-runtime-defaults b B backup r R restore 9 blocklists unusedblocklists
 
 	touch "${BACKUP_FILE}" || exit 1
 	assert_allowed r R restore
-	assert_disallowed 3 4 5 6 7 8 changepw reconfigure setamtmupdate setlocalcache switchbranch setipset b B backup 9 blocklists unusedblocklists
+	assert_disallowed 3 4 5 6 7 8 changepw reconfigure setamtmupdate setlocalcache switchbranch setipset m M migrate-runtime-defaults b B backup 9 blocklists unusedblocklists
 
 	mkdir -p "${TARG_DIR}" || exit 1
 	touch "${AGH_FILE}" || exit 1
-	assert_allowed 1 2 3 4 5 6 7 8 install update uninstall changepw reconfigure setamtmupdate setlocalcache switchbranch setipset b B backup r R restore
-	assert_disallowed 9 blocklists unusedblocklists
+	assert_allowed 1 2 3 4 5 6 7 8 install update uninstall changepw reconfigure setamtmupdate setlocalcache switchbranch setipset m M b B backup r R restore
+	assert_disallowed migrate-runtime-defaults 9 blocklists unusedblocklists
 
 	BLOCKLIST_ANALYZER_SHA256="configured-sha256"
 	assert_allowed 9 blocklists unusedblocklists
