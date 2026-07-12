@@ -23,7 +23,7 @@
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
 
-AI_VERSION="v2.5.5"
+AI_VERSION="v2.6.0"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -451,6 +451,39 @@ conf_value() {
 conf_has_key() {
 	[ -f "${CONF_FILE}" ] || return 1
 	grep -q "^$1=" "${CONF_FILE}"
+}
+
+write_conf_if_absent() {
+	conf_has_key "$1" && return 0
+	write_conf "$1" "$2"
+}
+
+configure_runtime_defaults() {
+	local NETCHECK_MODE
+	case "${1:-}" in
+		new-install)
+			case "${2:-}" in
+				1 | YES | yes | Yes) NETCHECK_MODE="wan" ;;
+				*) NETCHECK_MODE="lan" ;;
+			esac
+			write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"1\"" || return 1
+			write_conf_if_absent ADGUARD_NETCHECK_MODE "\"${NETCHECK_MODE}\"" || return 1
+			write_conf_if_absent ADGUARD_PROC_OPTIMIZE "\"YES\"" || return 1
+			write_conf_if_absent ADGUARD_PROC_PROFILE "\"balanced\"" || return 1
+			ptxt_ok "Runtime defaults saved: DNS port refusal enabled, netcheck mode ${NETCHECK_MODE}, performance profile balanced."
+			;;
+		upgrade)
+			write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"0\"" || return 1
+			write_conf_if_absent ADGUARD_NETCHECK_MODE "\"legacy\"" || return 1
+			write_conf_if_absent ADGUARD_PROC_OPTIMIZE "\"YES\"" || return 1
+			write_conf_if_absent ADGUARD_PROC_PROFILE "\"aggressive\"" || return 1
+			PTXT "${INFO} Existing runtime defaults were retained for compatibility." \
+				"${INFO} Legacy values remain active unless you migrate with:" \
+				"${INFO}   sh installer dns-port-policy --policy refuse-unknown" \
+				"${INFO}   sh installer netcheck --mode wan" \
+				"${INFO}   sh installer performance --profile balanced"
+			;;
+	esac
 }
 
 md5_is_valid() {
@@ -3352,12 +3385,13 @@ installer_update_reexec() {
 }
 
 inst_AdGuardHome() {
-	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT
+	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
 	ensure_sha256sum_tool || return 1
 	INSTALLER_MD5_OLD=""
 	RESTART_AFTER_ABORT="0"
+	SERVICE_REFRESH_ONLY="${SERVICE_REFRESH_ONLY:-0}"
 	[ -f "${SCRIPT_LOC}" ] && INSTALLER_MD5_OLD="$(file_md5 "${SCRIPT_LOC}" 2>/dev/null)"
 	if [ -z "$2" ]; then
 		if [ "${1:-RESTORE}" != "RESTORE" ]; then
@@ -3473,6 +3507,12 @@ inst_AdGuardHome() {
 					fi
 					inst_AdGuardHome "${1:-update}" "${ADGUARD_BRANCH}"
 				else
+					if [ "${1:-update}" = "update" ]; then
+						PTXT "${INFO} Refreshing installer-managed service integration."
+						SERVICE_REFRESH_ONLY=1
+						inst_AdGuardHome update "${ADGUARD_BRANCH}"
+						return $?
+					fi
 					case "${ADGUARD_BRANCH}" in
 						release)
 							PTXT "${INFO} ADGUARDHOME_BUILD=Release" \
@@ -3494,67 +3534,71 @@ inst_AdGuardHome() {
 			fi
 		fi
 	else
-		ptxt_phase "Installing AdGuardHome package."
-		REMOTE_ADGUARD_ARCHIVE="$(adguard_remote_archive "$2")"
-		REMOTE_ADGUARD_MD5="$(adguard_remote_md5 "$2")"
-		REMOTE_ADGUARD_SHA256="$(adguard_remote_sha256 "$2")"
-		REMOTE_ADGUARD_URL="$(adguard_remote_url "$2")"
-		[ -z "${REMOTE_ADGUARD_ARCHIVE}" ] && REMOTE_ADGUARD_ARCHIVE="${ADGUARD_TAR}"
-		[ -z "${REMOTE_ADGUARD_URL}" ] && REMOTE_ADGUARD_URL="${URL_ARCH}/${REMOTE_ADGUARD_ARCHIVE}"
-		if ! download_file "${BASE_DIR}" 644 "${REMOTE_ADGUARD_URL}"; then
-			PTXT "${ERROR} Unable to download AdGuardHome package for your router"
-			end_op_message 1 "$1"
-			return 1
-		fi
-		if sha256_is_valid "${REMOTE_ADGUARD_SHA256}"; then
-			ptxt_step "Verifying SHA-256 checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
-			ARCHIVE_SHA256="$(file_sha256 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || {
-				PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package SHA-256 checksum."
-				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+		if [ "${SERVICE_REFRESH_ONLY}" = "1" ]; then
+			ptxt_phase "Refreshing AdGuardHome service integration."
+		else
+			ptxt_phase "Installing AdGuardHome package."
+			REMOTE_ADGUARD_ARCHIVE="$(adguard_remote_archive "$2")"
+			REMOTE_ADGUARD_MD5="$(adguard_remote_md5 "$2")"
+			REMOTE_ADGUARD_SHA256="$(adguard_remote_sha256 "$2")"
+			REMOTE_ADGUARD_URL="$(adguard_remote_url "$2")"
+			[ -z "${REMOTE_ADGUARD_ARCHIVE}" ] && REMOTE_ADGUARD_ARCHIVE="${ADGUARD_TAR}"
+			[ -z "${REMOTE_ADGUARD_URL}" ] && REMOTE_ADGUARD_URL="${URL_ARCH}/${REMOTE_ADGUARD_ARCHIVE}"
+			if ! download_file "${BASE_DIR}" 644 "${REMOTE_ADGUARD_URL}"; then
+				PTXT "${ERROR} Unable to download AdGuardHome package for your router"
 				end_op_message 1 "$1"
 				return 1
-			}
-			if [ "${ARCHIVE_SHA256}" != "${REMOTE_ADGUARD_SHA256}" ]; then
-				PTXT "${ERROR} SHA-256 checksum mismatch for downloaded AdGuardHome package metadata."
+			fi
+			if sha256_is_valid "${REMOTE_ADGUARD_SHA256}"; then
+				ptxt_step "Verifying SHA-256 checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
+				ARCHIVE_SHA256="$(file_sha256 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || {
+					PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package SHA-256 checksum."
+					rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+					end_op_message 1 "$1"
+					return 1
+				}
+				if [ "${ARCHIVE_SHA256}" != "${REMOTE_ADGUARD_SHA256}" ]; then
+					PTXT "${ERROR} SHA-256 checksum mismatch for downloaded AdGuardHome package metadata."
+					rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+					end_op_message 1 "$1"
+					return 1
+				fi
+				ptxt_ok "SHA-256 checksum verified for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
+			elif md5_is_valid "${REMOTE_ADGUARD_MD5}"; then
+				ptxt_step "Verifying MD5 checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
+				ARCHIVE_MD5="$(file_md5 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || {
+					PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package MD5 checksum."
+					rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+					end_op_message 1 "$1"
+					return 1
+				}
+				if [ "${ARCHIVE_MD5}" != "${REMOTE_ADGUARD_MD5}" ]; then
+					PTXT "${ERROR} MD5 checksum mismatch for downloaded AdGuardHome package metadata."
+					rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+					end_op_message 1 "$1"
+					return 1
+				fi
+				ptxt_warn "Only MD5 package metadata was available; SHA-256 is preferred."
+			fi
+			if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
+			ptxt_step "Replacing AdGuardHome package with downloaded archive."
+			if ! install_adguard_archive "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}"; then
 				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 				end_op_message 1 "$1"
 				return 1
 			fi
-			ptxt_ok "SHA-256 checksum verified for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
-		elif md5_is_valid "${REMOTE_ADGUARD_MD5}"; then
-			ptxt_step "Verifying MD5 checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
-			ARCHIVE_MD5="$(file_md5 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || {
-				PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package MD5 checksum."
-				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
-				end_op_message 1 "$1"
-				return 1
-			}
-			if [ "${ARCHIVE_MD5}" != "${REMOTE_ADGUARD_MD5}" ]; then
-				PTXT "${ERROR} MD5 checksum mismatch for downloaded AdGuardHome package metadata."
-				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
-				end_op_message 1 "$1"
-				return 1
-			fi
-			ptxt_warn "Only MD5 package metadata was available; SHA-256 is preferred."
-		fi
-		if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
-		ptxt_step "Replacing AdGuardHome package with downloaded archive."
-		if ! install_adguard_archive "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}"; then
+			ptxt_ok "AdGuardHome package was replaced."
 			rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
-			end_op_message 1 "$1"
-			return 1
+			[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
+			ptxt_step "Creating AdGuardHome command symlink."
+			if ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome || [ -z "$("${AGH_FILE}" --version | cut -d" " -f4-)" ]; then
+				PTXT "${ERROR} Failed to download AdGuardHome package for your router"
+				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				end_op_message 1 "$1"
+				return 1
+			fi
+			ptxt_ok "AdGuardHome command symlink is ready."
 		fi
-		ptxt_ok "AdGuardHome package was replaced."
-		rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
-		[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
-		ptxt_step "Creating AdGuardHome command symlink."
-		if ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome || [ -z "$("${AGH_FILE}" --version | cut -d" " -f4-)" ]; then
-			PTXT "${ERROR} Failed to download AdGuardHome package for your router"
-			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-			end_op_message 1 "$1"
-			return 1
-		fi
-		ptxt_ok "AdGuardHome command symlink is ready."
 	fi
 	ptxt_phase "Installing service integration."
 	ptxt_step "Installing AdGuardHome service scripts and addon hooks."
@@ -3586,6 +3630,13 @@ inst_AdGuardHome() {
 		return 1
 	fi
 	ptxt_ok "Asuswrt-Merlin event scripts configured."
+	if [ "${1:-update}" = "update" ]; then
+		configure_runtime_defaults upgrade || {
+			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			end_op_message 1 "$1"
+			return 1
+		}
+	fi
 	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
 	if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
 		PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
@@ -4050,6 +4101,22 @@ setup_AdGuardHome_impl() {
 				if [ "$2" = "reconfig" ] && [ -n "${IPSET_SELECTION:-}" ] && ! check_ipset "${IPSET_SELECTION}"; then
 					PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
 						"${WARNING} Continuing reconfiguration with the previous IPSET preference."
+				fi
+				if [ -n "${DNS_FILTER_SELECTION:-}" ] && ! configure_runtime_defaults new-install "${LOCAL_CACHE_SELECTION:-0}"; then
+					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+						nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
+						nvram commit
+					fi
+					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+					fi
+					[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+					if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+						PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+					fi
+					PTXT "${ERROR} Unable to save the AdGuardHome runtime defaults."
+					return 1
 				fi
 				if [ -n "${WEB_PORT_SELECTION:-}" ] && ! write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT_SELECTION}\""; then
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
