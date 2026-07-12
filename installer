@@ -113,7 +113,7 @@ rollback_result_needs_attention() {
 	[ -f "${ROLLBACK_RESULT_FILE}" ] || return 1
 	result="$(awk -F= '$1 == "result" { print substr($0, 8); exit }' "${ROLLBACK_RESULT_FILE}" 2>/dev/null)"
 	case "${result}" in
-		rollback\ failed | rollback\ partial | rollback\ unavailable | failed:\ rollback\ unavailable)
+		rollback\ failed | rollback\ partial | rollback\ unavailable | failed:* | *-failed)
 			return 0
 			;;
 	esac
@@ -1675,13 +1675,19 @@ check_AdGuardHome_yaml() {
 		if [ "${yaml_target}" = "${YAML_FILE}" ]; then
 			PTXT "${INFO} Moving invalid configuration file to ${YAML_ERR}." \
 				"${INFO} Operation will continue with clean config file."
-			mv "${yaml_target}" "${YAML_ERR}"
-			rollback_result_write "yaml validation" "yaml-invalid-moved" "${YAML_ERR}"
+			if mv "${yaml_target}" "${YAML_ERR}"; then
+				rollback_result_write "yaml validation" "yaml-invalid-moved" "${YAML_ERR}"
+			else
+				rollback_result_write "yaml validation" "yaml-quarantine-failed" "${yaml_target}"
+			fi
 			rollback_result_notice
 		else
 			ptxt_warn "Moving invalid staged configuration file to ${yaml_target}.err; continuing."
-			mv "${yaml_target}" "${yaml_target}.err"
-			rollback_result_write "yaml validation" "staged-yaml-invalid-moved" "${yaml_target}.err"
+			if mv "${yaml_target}" "${yaml_target}.err"; then
+				rollback_result_write "yaml validation" "staged-yaml-invalid-moved" "${yaml_target}.err"
+			else
+				rollback_result_write "yaml validation" "staged-yaml-quarantine-failed" "${yaml_target}"
+			fi
 			rollback_result_notice
 		fi
 		return 1
