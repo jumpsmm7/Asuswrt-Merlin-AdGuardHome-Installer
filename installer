@@ -1211,12 +1211,6 @@ doctor() {
 	doctor_file_state "/opt/etc/init.d/rc.func.AdGuardHome" "-rw-r--r--" || true
 	doctor_file_state "${YAML_FILE}" "-rw-------" || true
 	doctor_file_state "${CONF_FILE}" "-rw-------" || true
-	if [ -s "${ROLLBACK_RESULT_FILE}" ]; then
-		doctor_status WARN "last rollback result: $(rollback_result_summary 2>/dev/null)" "Review the failure above, then rerun the failed install/update/restore or repair manually."
-	else
-		doctor_status OK "last rollback result marker absent"
-	fi
-
 	doctor_dns53_state || true
 	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome/pid; do
 		[ -e "${marker}" ] && doctor_status WARN "dnsmasq handoff marker/lock exists: ${marker}" "Run: sh installer doctor --fix; if still present, check active installer/service processes." || doctor_status OK "dnsmasq handoff marker/lock absent: ${marker}"
