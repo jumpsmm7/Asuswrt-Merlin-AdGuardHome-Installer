@@ -4104,6 +4104,18 @@ setup_AdGuardHome_impl() {
 				fi
 				if [ -n "${DNS_FILTER_SELECTION:-}" ] && ! configure_runtime_defaults new-install "${LOCAL_CACHE_SELECTION:-0}"; then
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+						nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
+						nvram commit
+					fi
+					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+					fi
+					[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+					if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+						PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+					fi
+					PTXT "${ERROR} Unable to save the AdGuardHome runtime defaults."
 					return 1
 				fi
 				if [ -n "${WEB_PORT_SELECTION:-}" ] && ! write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT_SELECTION}\""; then
