@@ -70,6 +70,7 @@ rollback_result_write() {
 	context="$1"
 	result="$2"
 	detail="${3:-}"
+	ROLLBACK_RESULT_UPDATED="1"
 	marker_dir="${ROLLBACK_RESULT_FILE%/*}"
 	[ -d "${marker_dir}" ] || mkdir -p "${marker_dir}" 2>/dev/null || return 0
 	tmp_file="${ROLLBACK_RESULT_FILE}.$$"
@@ -105,6 +106,18 @@ rollback_result_notice() {
 	local summary
 	summary="$(rollback_result_summary 2>/dev/null)" || return 0
 	PTXT "${WARNING} Last rollback result: ${summary}"
+}
+
+rollback_result_needs_attention() {
+	local result
+	[ -f "${ROLLBACK_RESULT_FILE}" ] || return 1
+	result="$(awk -F= '$1 == "result" { print substr($0, 8); exit }' "${ROLLBACK_RESULT_FILE}" 2>/dev/null)"
+	case "${result}" in
+		rollback\ failed | rollback\ partial | rollback\ unavailable | failed:\ rollback\ unavailable)
+			return 0
+			;;
+	esac
+	return 1
 }
 
 entware_available() {
@@ -462,56 +475,6 @@ ptxt_warn() {
 
 ptxt_fail() {
 	PTXT "${ERROR} FAIL: $1"
-}
-
-rollback_result_write() {
-	local context result detail tmp_file
-	context="$1"
-	result="$2"
-	detail="$3"
-	ROLLBACK_RESULT_UPDATED="1"
-	[ -d "${TARG_DIR}" ] || return 0
-	tmp_file="${ROLLBACK_RESULT_FILE}.$$"
-	{
-		PTXT "time=$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"
-		PTXT "context=${context}"
-		PTXT "result=${result}"
-		PTXT "detail=${detail}"
-	} >"${tmp_file}" || {
-		rm -f "${tmp_file}"
-		return 0
-	}
-	chmod 600 "${tmp_file}" 2>/dev/null
-	mv -f "${tmp_file}" "${ROLLBACK_RESULT_FILE}" 2>/dev/null || rm -f "${tmp_file}"
-}
-
-rollback_result_summary() {
-	[ -f "${ROLLBACK_RESULT_FILE}" ] || {
-		PTXT "none"
-		return 0
-	}
-	awk -F= '
-		$1 == "time" { time = substr($0, 6) }
-		$1 == "context" { context = substr($0, 9) }
-		$1 == "result" { result = substr($0, 8) }
-		$1 == "detail" { detail = substr($0, 8) }
-		END {
-			if (result == "") result = "unknown"
-			printf "%s%s%s%s\n", result, context ? " (" context ")" : "", time ? " at " time : "", detail ? ": " detail : ""
-		}
-	' "${ROLLBACK_RESULT_FILE}" 2>/dev/null
-}
-
-rollback_result_needs_attention() {
-	local result
-	[ -f "${ROLLBACK_RESULT_FILE}" ] || return 1
-	result="$(awk -F= '$1 == "result" { print substr($0, 8); exit }' "${ROLLBACK_RESULT_FILE}" 2>/dev/null)"
-	case "${result}" in
-		rollback\ failed | rollback\ partial | rollback\ unavailable | failed:\ rollback\ unavailable)
-			return 0
-			;;
-	esac
-	return 1
 }
 
 SCRIPT_LOC="$(installer_script_path "$0")" || {
