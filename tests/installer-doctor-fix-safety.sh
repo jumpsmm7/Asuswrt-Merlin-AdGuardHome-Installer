@@ -76,12 +76,6 @@ conf_value() { [ "$1" = INSTALLER_BRANCH ] && printf '%s\n' 'dev'; }
 agh_web_port() { printf '%s\n' '3000'; }
 adguard_archive_is_safe() { return 1; }
 adguardhome_yaml_ipset_file() { printf '%s\n' 'configured-ipset.conf'; }
-chmod() { printf '%s %s\n' 'chmod' "$*" >>"${LOG_FILE}"; return 0; }
-chown() { printf '%s %s\n' 'chown' "$*" >>"${LOG_FILE}"; return 0; }
-mkdir() { printf '%s %s\n' 'mkdir' "$*" >>"${LOG_FILE}"; return 0; }
-ln() { printf '%s %s\n' 'ln' "$*" >>"${LOG_FILE}"; return 0; }
-rm() { printf '%s %s\n' 'rm' "$*" >>"${LOG_FILE}"; return 0; }
-
 AI_VERSION='vTEST'
 BASE_DIR="${TEST_ROOT}"
 TARG_DIR="${TEST_ROOT}/AdGuardHome"
@@ -92,6 +86,12 @@ AGH_FILE="${TEST_ROOT}/missing-AdGuardHome"
 /bin/mkdir -p "${TARG_DIR}" "${ADDON_DIR}" || fail 'could not create fixture directories'
 printf '%s\n' 'ADGUARD_WEBUI_PORT="3000"' >"${CONF_FILE}" || fail 'could not write config'
 printf '%s\n' 'bind_host: 192.168.50.1' >"${YAML_FILE}" || fail 'could not write yaml'
+
+chmod() { printf '%s %s\n' 'chmod' "$*" >>"${LOG_FILE}"; return 0; }
+chown() { printf '%s %s\n' 'chown' "$*" >>"${LOG_FILE}"; return 0; }
+mkdir() { printf '%s %s\n' 'mkdir' "$*" >>"${LOG_FILE}"; return 0; }
+ln() { printf '%s %s\n' 'ln' "$*" >>"${LOG_FILE}"; return 0; }
+rm() { printf '%s %s\n' 'rm' "$*" >>"${LOG_FILE}"; return 0; }
 
 DOCTOR_OUTPUT="$(PATH="${BIN_DIR}:/bin:/usr/bin" LOG_FILE="${LOG_FILE}" doctor --fix 2>&1)" || true
 
