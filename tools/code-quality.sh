@@ -146,6 +146,7 @@ run_check 'AdGuardHome IPSET lock security regression' sh tests/ipset-lock-secur
 run_check 'AdGuardHome legacy IPSET disable regression' sh tests/ipset-legacy-disable.sh
 run_check 'IPSET current-file YAML scalar regression' sh tests/ipset-current-file.sh
 run_check 'IPSET setup rollback regression' sh tests/ipset-setup-rollback.sh
+run_check 'IPSET status reporting regression' sh tests/ipset-status.sh
 
 if require_cmd shellcheck; then
 	run_script_list_check 'ShellCheck POSIX sh static analysis' shellcheck -s sh --severity=warning
