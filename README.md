@@ -139,6 +139,9 @@ sh installer ipset refresh --dry-run
 sh installer netcheck --mode wan --hosts "google.com github.com snbforums.com" --dns 127.0.0.1 --require-http NO --timeout 300
 sh installer dns-port-policy --policy refuse-unknown
 sh installer performance --profile balanced
+sh installer migrate-runtime-defaults
+sh installer migrate-runtime-defaults --dry-run
+sh installer migrate-runtime-defaults --yes
 sh installer uninstall --yes --allow-dns-nvram
 sh installer uninstall --dry-run
 ```
@@ -151,7 +154,9 @@ The dry-run paths print what would be done and avoid changing the live install.
 
 The `ipset refresh` command checks whether IPSET integration is enabled. Without `--yes`, it does not restart AdGuardHome; with `--yes`, it restarts AdGuardHome so refreshed mappings can take effect.
 
-The `netcheck`, `dns-port-policy`, and `performance` helpers only update installer configuration values. Restart AdGuardHome when you want the changed runtime behaviour to be loaded by the service scripts.
+The `migrate-runtime-defaults` helper inspects `/opt/etc/AdGuardHome/.config` (requires Entware and an installed AdGuardHome environment), reports legacy v2.6.0 runtime values, and only writes safer defaults when `--yes` is provided. Use `--dry-run` to report the same planned changes without writing them.
+
+The `netcheck`, `dns-port-policy`, `performance`, and `migrate-runtime-defaults` helpers only update installer configuration values. Restart AdGuardHome when you want the changed runtime behaviour to be loaded by the service scripts.
 
 ## Service commands
 
@@ -204,6 +209,21 @@ The `--fix` mode is intentionally limited. It can repair permissions, recreate t
 ## Runtime behavior settings
 
 v2.6.0 exposes several runtime behaviours through environment or `.config` settings. New installs save safer defaults; upgrades preserve existing `.config` values and pin legacy defaults when needed until users choose to migrate. Environment variables take precedence for the current invocation. Persistent settings can be placed in `/opt/etc/AdGuardHome/.config` (requires Entware and an installed AdGuardHome environment) using the same `NAME="value"` style already used by the installer.
+
+To inspect an upgraded install for legacy runtime defaults without changing `.config`, run:
+
+```sh
+sh installer migrate-runtime-defaults
+sh installer migrate-runtime-defaults --dry-run
+```
+
+To write the safer v2.6.0 defaults for legacy or missing runtime settings, run:
+
+```sh
+sh installer migrate-runtime-defaults --yes
+```
+
+The migration helper updates only legacy or missing runtime defaults. It preserves custom runtime choices such as `ADGUARD_NETCHECK_MODE="lan"`, `ADGUARD_PROC_OPTIMIZE="NO"`, or an already balanced/safe process profile.
 
 ### Netcheck modes
 

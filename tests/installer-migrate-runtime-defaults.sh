@@ -21,7 +21,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^cli_migrate_runtime_default() {$/,/^}$/p; /^cli_migrate_runtime_defaults() {$/,/^}$/p; /^cli_pre_runtime_defaults_preview() {$/,/^}$/p' \
+	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^branch_is_safe() {$/,/^}$/p; /^cli_bool_value() {$/,/^}$/p; /^cli_adguard_branch_is_valid() {$/,/^}$/p; /^cli_simple_value_is_safe() {$/,/^}$/p; /^cli_host_list_is_safe() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^cli_netcheck_config_values() {$/,/^}$/p; /^cli_dns_port_policy() {$/,/^}$/p; /^cli_migrate_runtime_default() {$/,/^}$/p; /^cli_migrate_runtime_defaults() {$/,/^}$/p; /^cli_installer_branch_from_args() {$/,/^}$/p; /^cli_write_adguard_branch() {$/,/^}$/p; /^cli_run() {$/,/^}$/p; /^cli_pre_runtime_defaults_preview() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'runtime migration helper extraction was empty'
 grep -q '^cli_migrate_runtime_defaults() {$' "${FUNCTIONS_FILE}" || fail 'migration helper missing'
@@ -34,6 +34,18 @@ INFO='[i]'
 WARNING='[w]'
 ERROR='[!]'
 CONF_FILE="${TMP_ROOT}/.config"
+
+cli_require_yes() {
+	return 0
+}
+
+cli_enable_assume_yes() {
+	return 0
+}
+
+menu() {
+	fail "menu should not be called by migrate-runtime-defaults CLI"
+}
 
 cat >"${CONF_FILE}" <<'CONFIG'
 ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"
@@ -64,7 +76,12 @@ if cli_pre_runtime_defaults_preview migrate-runtime-defaults --yes >/dev/null; t
 	fail 'preview short-circuit should not apply migrations before startup'
 fi
 
-cli_migrate_runtime_defaults --yes >"${TMP_ROOT}/apply" || fail 'apply migration failed'
+cli_run migrate-runtime-defaults --dry-run >"${TMP_ROOT}/cli-dry-run" || fail 'CLI dry-run migration failed'
+[ "$(cat "${CONF_FILE}")" = "${before}" ] || fail 'CLI dry-run migration changed .config'
+grep -q 'Dry-run: would write v2.6.0 safer runtime defaults' "${TMP_ROOT}/cli-dry-run" ||
+	fail 'CLI dry-run did not report planned writes'
+
+cli_run migrate-runtime-defaults --yes >"${TMP_ROOT}/apply" || fail 'CLI apply migration failed'
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'DNS port policy was not migrated'
 grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'netcheck mode was not migrated'
 grep -q '^ADGUARD_PROC_OPTIMIZE="YES"$' "${CONF_FILE}" || fail 'process optimization was not preserved'
