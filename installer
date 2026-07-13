@@ -3075,7 +3075,7 @@ ipset_status_report_set() {
 }
 
 ipset_status() {
-	local current_file enabled found generated_file ipset_file set_entry yaml_file
+	local current_file enabled found generated_file ipset_file seen_sets set_entry yaml_file
 	enabled="$(conf_value ADGUARD_IPSET)"
 	case "${enabled}" in
 		NO) PTXT "${INFO} IPSET integration enabled: NO" ;;
@@ -3102,16 +3102,23 @@ ipset_status() {
 		return 0
 	fi
 	found="0"
+	seen_sets="|"
 	for ipset_file in "${TARG_DIR}/ipset.user" "${TARG_DIR}/ipset.conf"; do
 		[ -f "${ipset_file}" ] || continue
 		generated_file="$(ipset_status_sets "${ipset_file}")"
 		[ -n "${generated_file}" ] || continue
 		found="1"
 		PTXT "${INFO} Referenced sets from ${ipset_file}:"
-		printf '%s\n' "${generated_file}" | while read -r set_entry; do
+		while read -r set_entry; do
 			[ -n "${set_entry}" ] || continue
+			case "${seen_sets}" in
+				*"|${set_entry}|"*) continue ;;
+			esac
+			seen_sets="${seen_sets}${set_entry}|"
 			ipset_status_report_set "${set_entry}"
-		done
+		done <<EOF_IPSET_STATUS_SETS
+${generated_file}
+EOF_IPSET_STATUS_SETS
 	done
 	[ "${found}" = "1" ] || PTXT "${WARNING} No IPSET set references found in installer-managed IPSET files."
 }

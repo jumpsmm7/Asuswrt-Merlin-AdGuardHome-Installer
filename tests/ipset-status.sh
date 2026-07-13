@@ -45,8 +45,11 @@ ai_have_cmd() {
 	[ "$1" = ipset ]
 }
 
+IPSET_LIST_LOG="${TEST_DIR}/ipset-list.log"
+
 ipset() {
 	[ "$1" = list ] || fail "unexpected ipset action: $*"
+	printf '%s\n' "$2" >>"${IPSET_LIST_LOG}"
 	case "$2" in
 		VPN4) printf '%s\n' 'Name: VPN4' 'Header: family inet hashsize 1024 maxelem 65536' ;;
 		VPN6) printf '%s\n' 'Name: VPN6' 'Header: family inet6 hashsize 1024 maxelem 65536' ;;
@@ -84,5 +87,7 @@ grep -q 'IPSET set exists: BAD6 (family inet)' "${OUTPUT_FILE}" || fail 'second 
 ! grep -q 'family mismatch likely' "${OUTPUT_FILE}" || fail 'extra IPSET names were incorrectly labeled as family mismatches'
 grep -q 'IPSET set missing: MISSING4' "${OUTPUT_FILE}" || fail 'missing set was not reported'
 grep -q 'IPSET set missing: MISSING6' "${OUTPUT_FILE}" || fail 'second missing set was not reported'
+[ "$(grep -c '^VPN4$' "${IPSET_LIST_LOG}")" -eq 1 ] || fail 'duplicate VPN4 references were probed more than once'
+[ "$(grep -c '^VPN6$' "${IPSET_LIST_LOG}")" -eq 1 ] || fail 'duplicate VPN6 references were probed more than once'
 
 printf '%s\n' 'PASS: installer ipset status reports managed files, set existence, and set families'
