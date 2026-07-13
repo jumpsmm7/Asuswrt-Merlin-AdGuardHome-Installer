@@ -29,6 +29,9 @@ awk '
 	/^ptxt_ok\(\)/,/^}/
 	/^ptxt_warn\(\)/,/^}/
 	/^ptxt_fail\(\)/,/^}/
+	/^rollback_result_write\(\)/,/^}/
+	/^rollback_result_summary\(\)/,/^}/
+	/^rollback_result_notice\(\)/,/^}/
 	/^md5_is_valid\(\)/,/^}/
 	/^file_md5\(\)/,/^}/
 	/^adguard_archive_is_safe\(\)/,/^}/
@@ -52,6 +55,7 @@ awk '
 	/^write_command_script\(\)/,/^}/
 	/^write_conf\(\)/,/^}/
 ' "${REPO_DIR}/installer" >"${FUNCTIONS_FILE}"
+printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS_FILE}"
 
 (
 	# shellcheck disable=SC1090

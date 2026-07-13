@@ -41,6 +41,9 @@ check_dns_local() {
 check_ipset() {
 	printf '%s\n' "$*" >>"${CHECK_LOG}"
 }
+cli_migrate_runtime_defaults() {
+	printf '%s\n' "$*" >>"${CHECK_LOG}"
+}
 service() {
 	printf '%s\n' "$*" >>"${SERVICE_LOG}"
 }
@@ -51,7 +54,7 @@ end_op_message() {
 	printf '%s\n' "$1" >>"${END_LOG}"
 }
 
-for OPTION in setlocalcache setipset; do
+for OPTION in setlocalcache setipset migrate-runtime-defaults; do
 	: >"${CHECK_LOG}"
 	: >"${SERVICE_LOG}"
 	: >"${END_LOG}"
