@@ -1589,7 +1589,17 @@ doctor_show_nvram_dns() {
 	fi
 	for key in dnspriv_enable dns_local_cache dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x dnsfilter_enable_x dnsfilter_mode dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 lan_dnsenable_x lan_dns1_x lan_dns2_x wan_dnsenable_x wan_dns1_x wan_dns2_x; do
 		value="$(nvram get "${key}" 2>/dev/null)"
-		doctor_status OK "nvram ${key}=${value}"
+		case "${key}:${value}" in
+			dnsfilter_enable_x:0 | dnsfilter_enable_x:)
+				doctor_status OK "nvram ${key}=${value}"
+				;;
+			dnsfilter_enable_x:*)
+				doctor_status WARN "nvram ${key}=${value}; DNSFilter may redirect client DNS" "Review DNSFilter settings manually; --fix will not change NVRAM."
+				;;
+			*)
+				doctor_status OK "nvram ${key}=${value}"
+				;;
+		esac
 	done
 }
 
@@ -1624,7 +1634,7 @@ doctor() {
 		if rollback_result_needs_attention; then
 			doctor_status FAIL "last rollback result: $(rollback_result_summary)" "Review the rollback detail, restore manually if needed, then rerun doctor."
 		else
-			doctor_status WARN "last rollback result: $(rollback_result_summary)"
+			doctor_status WARN "last rollback result: $(rollback_result_summary)" "Confirm the restored state, then remove ${ROLLBACK_RESULT_FILE} if no action is needed."
 		fi
 	else
 		doctor_status OK "last rollback result: none"

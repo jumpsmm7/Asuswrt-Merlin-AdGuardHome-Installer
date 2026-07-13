@@ -116,7 +116,9 @@ DOCTOR_OUTPUT="$(PATH="${BIN_DIR}:/bin:/usr/bin" LOG_FILE="${LOG_FILE}" doctor -
 
 printf '%s\n' "${DOCTOR_OUTPUT}" | grep -q '^\[WARN\].*DNS port 53 TCP and UDP are not both owned by AdGuardHome.*Next:' || fail 'DNS warning did not include next step'
 printf '%s\n' "${DOCTOR_OUTPUT}" | grep -q '^\[WARN\].*WebUI port 3000 not owned by AdGuardHome.*Next:' || fail 'WebUI warning did not include next step'
+printf '%s\n' "${DOCTOR_OUTPUT}" | grep -q '^\[WARN\].*nvram dnsfilter_enable_x=unsafe-test-value; DNSFilter may redirect client DNS.*Next:' || fail 'NVRAM warning did not include next step'
 printf '%s\n' "${DOCTOR_OUTPUT}" | grep -q '^\[FAIL\].*/opt/sbin/AdGuardHome target is .*Next:' || fail 'symlink failure did not include next step'
+printf '%s\n' "${DOCTOR_OUTPUT}" | awk '/^\[(WARN|FAIL)\]/ && $0 !~ /\| Next:/ { missing = 1 } END { exit missing ? 0 : 1 }' && fail 'a WARN or FAIL line did not include a next step'
 
 grep -q '^nvram get ' "${LOG_FILE}" || fail 'NVRAM values were not inspected'
 if grep -q '^nvram \(set\|commit\)' "${LOG_FILE}"; then
