@@ -1,5 +1,5 @@
 #!/bin/sh
-# Verify read-only installer IPSET status reports managed files and set-family mismatches.
+# Verify read-only installer IPSET status reports managed files and set families.
 
 set -u
 
@@ -67,6 +67,7 @@ cat >"${TEST_DIR}/ipset.user" <<EOF_USER
 example.com/VPN4,VPN6
 bad.example/BAD4,BAD6
 missing.example/MISSING4,MISSING6
+streaming.example/VPN4,BAD6
 EOF_USER
 printf '%s\n' 'generated.example/VPN4,VPN6' >"${TEST_DIR}/ipset.conf"
 
@@ -76,11 +77,12 @@ grep -q 'IPSET integration enabled: YES' "${OUTPUT_FILE}" || fail 'enabled state
 grep -q 'AdGuardHome.yaml managed dns.ipset_file: YES' "${OUTPUT_FILE}" || fail 'managed YAML ipset_file was not reported'
 grep -q "IPSET file exists: ${TEST_DIR}/ipset.user" "${OUTPUT_FILE}" || fail 'ipset.user existence was not reported'
 grep -q "IPSET file exists: ${TEST_DIR}/ipset.conf" "${OUTPUT_FILE}" || fail 'ipset.conf existence was not reported'
-grep -q 'IPv4 set exists: VPN4 (family inet)' "${OUTPUT_FILE}" || fail 'IPv4 set existence was not reported'
-grep -q 'IPv6 set exists: VPN6 (family inet6)' "${OUTPUT_FILE}" || fail 'IPv6 set existence was not reported'
-grep -q 'IPv4 set family mismatch likely: BAD4 (family inet6)' "${OUTPUT_FILE}" || fail 'IPv4 family mismatch was not reported'
-grep -q 'IPv6 set family mismatch likely: BAD6 (family inet)' "${OUTPUT_FILE}" || fail 'IPv6 family mismatch was not reported'
-grep -q 'IPv4 set missing: MISSING4' "${OUTPUT_FILE}" || fail 'missing IPv4 set was not reported'
-grep -q 'IPv6 set missing: MISSING6' "${OUTPUT_FILE}" || fail 'missing IPv6 set was not reported'
+grep -q 'IPSET set exists: VPN4 (family inet)' "${OUTPUT_FILE}" || fail 'IPv4 set existence was not reported'
+grep -q 'IPSET set exists: VPN6 (family inet6)' "${OUTPUT_FILE}" || fail 'IPv6 set existence was not reported'
+grep -q 'IPSET set exists: BAD4 (family inet6)' "${OUTPUT_FILE}" || fail 'inet6 set existence was not reported'
+grep -q 'IPSET set exists: BAD6 (family inet)' "${OUTPUT_FILE}" || fail 'second IPv4 set existence was not reported'
+! grep -q 'family mismatch likely' "${OUTPUT_FILE}" || fail 'extra IPSET names were incorrectly labeled as family mismatches'
+grep -q 'IPSET set missing: MISSING4' "${OUTPUT_FILE}" || fail 'missing set was not reported'
+grep -q 'IPSET set missing: MISSING6' "${OUTPUT_FILE}" || fail 'second missing set was not reported'
 
-printf '%s\n' 'PASS: installer ipset status reports managed files, set existence, and family mismatches'
+printf '%s\n' 'PASS: installer ipset status reports managed files, set existence, and set families'

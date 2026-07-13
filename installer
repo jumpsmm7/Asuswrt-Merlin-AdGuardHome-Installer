@@ -3037,8 +3037,7 @@ ipset_status_sets() {
 			for (i = 1; i <= n; i++) {
 				gsub(/^[[:space:]]+|[[:space:]]+$/, "", set[i])
 				if (set[i] == "") continue
-				family = (i == 1 ? "IPv4" : "IPv6")
-				print family " " set[i]
+				print set[i]
 			}
 		}
 	' "${file}"
@@ -3058,26 +3057,19 @@ ipset_status_set_family() {
 }
 
 ipset_status_report_set() {
-	local expected family set
-	expected="$1"
-	set="$2"
+	local family set
+	set="$1"
 	family="$(ipset_status_set_family "${set}")"
 	if [ -z "${family}" ]; then
-		PTXT "${WARNING} ${expected} set missing: ${set}"
+		PTXT "${WARNING} IPSET set missing: ${set}"
 		return 0
 	fi
-	case "${expected}:${family}" in
-		IPv4:inet)
-			PTXT "${INFO} IPv4 set exists: ${set} (family ${family})"
-			;;
-		IPv6:inet6)
-			PTXT "${INFO} IPv6 set exists: ${set} (family ${family})"
-			;;
-		IPv4:inet6 | IPv6:inet)
-			PTXT "${WARNING} ${expected} set family mismatch likely: ${set} (family ${family})"
+	case "${family}" in
+		inet | inet6)
+			PTXT "${INFO} IPSET set exists: ${set} (family ${family})"
 			;;
 		*)
-			PTXT "${WARNING} ${expected} set exists with unknown family: ${set} (family ${family})"
+			PTXT "${WARNING} IPSET set exists with unknown family: ${set} (family ${family})"
 			;;
 	esac
 }
@@ -3118,7 +3110,7 @@ ipset_status() {
 		PTXT "${INFO} Referenced sets from ${ipset_file}:"
 		printf '%s\n' "${generated_file}" | while read -r set_entry; do
 			[ -n "${set_entry}" ] || continue
-			ipset_status_report_set "${set_entry%% *}" "${set_entry#* }"
+			ipset_status_report_set "${set_entry}"
 		done
 	done
 	[ "${found}" = "1" ] || PTXT "${WARNING} No IPSET set references found in installer-managed IPSET files."
