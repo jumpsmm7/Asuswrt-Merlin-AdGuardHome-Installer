@@ -16,7 +16,7 @@ mkdir -p "${TEST_ROOT}" "${BIN_DIR}" || fail 'could not create test directory'
 trap 'rm -rf "${TEST_ROOT}"' EXIT HUP INT TERM
 
 sed -n \
-	'/^PTXT() {$/,/^}$/p; /^ai_have_cmd() {$/,/^}$/p; /^runtime_port_is_valid() {$/,/^}$/p; /^port_is_valid() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^agh_web_port() {$/,/^}$/p; /^agh_is_running() {$/,/^}$/p; /^agh_dns_bound() {$/,/^}$/p; /^web_port_owned_by_agh() {$/,/^}$/p; /^agh_web_bound() {$/,/^}$/p; /^agh_config_valid() {$/,/^}$/p; /^agh_startup_check() {$/,/^}$/p; /^agh_monitor_count() {$/,/^}$/p; /^status_line() {$/,/^}$/p; /^status_dnsmasq_handoff_state() {$/,/^}$/p; /^status_last_startup_result() {$/,/^}$/p; /^status_port53_ownership() {$/,/^}$/p; /^status_webui_address() {$/,/^}$/p; /^status() {$/,/^}$/p' \
+	'/^PTXT() {$/,/^}$/p; /^ai_have_cmd() {$/,/^}$/p; /^rollback_result_summary() {$/,/^}$/p; /^runtime_port_is_valid() {$/,/^}$/p; /^port_is_valid() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^agh_web_port() {$/,/^}$/p; /^agh_is_running() {$/,/^}$/p; /^agh_dns_bound() {$/,/^}$/p; /^web_port_owned_by_agh() {$/,/^}$/p; /^agh_web_bound() {$/,/^}$/p; /^agh_config_valid() {$/,/^}$/p; /^agh_startup_check() {$/,/^}$/p; /^agh_monitor_count() {$/,/^}$/p; /^status_line() {$/,/^}$/p; /^status_dnsmasq_handoff_state() {$/,/^}$/p; /^status_last_startup_result() {$/,/^}$/p; /^status_port53_ownership() {$/,/^}$/p; /^status_webui_address() {$/,/^}$/p; /^status() {$/,/^}$/p' \
 	"${INSTALLER_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${INSTALLER_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'status functions were not found'
 grep -q '^status() {$' "${FUNCTIONS_FILE}" || fail 'installer has no status command helper'
@@ -59,6 +59,7 @@ AI_VERSION='vTEST'
 CONF_FILE="${TEST_ROOT}/.config"
 YAML_FILE="${TEST_ROOT}/AdGuardHome.yaml"
 AGH_FILE="${TEST_ROOT}/AdGuardHome"
+ROLLBACK_RESULT_FILE="${TEST_ROOT}/.rollback_result"
 cat >"${CONF_FILE}" <<'CONF'
 INSTALLER_BRANCH="dev"
 ADGUARD_WEBUI_PORT="3000"
@@ -91,5 +92,6 @@ printf '%s\n' "${STATUS_OUTPUT}" | grep -q '^Selected branch: dev$' || fail 'bra
 printf '%s\n' "${STATUS_OUTPUT}" | grep -q '^WebUI address/port: 192.168.50.1:3000 (port 3000)$' || fail 'WebUI address missing'
 printf '%s\n' "${STATUS_OUTPUT}" | grep -q '^dnsmasq handoff state: inactive$' || fail 'dnsmasq handoff state missing'
 printf '%s\n' "${STATUS_OUTPUT}" | grep -q '^Last startup result: .*AdGuardHome startup completed\.$' || fail 'last startup result missing'
+printf '%s\n' "${STATUS_OUTPUT}" | grep -q '^Last rollback result: none$' || fail 'last rollback result missing'
 
 printf '%s\n' 'PASS: installer status summarizes runtime state'
