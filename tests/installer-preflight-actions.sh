@@ -47,12 +47,12 @@ grep -q 'preflight_check_stock_commands || failed="1"' "${SCRIPT_PATH}" ||
 	fail 'preflight must check the broader stock command set'
 grep -q 'preflight_check_router_eligibility || failed="1"' "${SCRIPT_PATH}" ||
 	fail 'preflight must check router eligibility for actionable flows'
-grep -q 'preflight_check_entware_package coreutils-sha256sum' "${SCRIPT_PATH}" ||
-	fail 'preflight must report coreutils-sha256sum install guidance when SHA-256 support is missing'
+grep -q 'preflight_check_entware_package coreutils-sha256sum || true' "${SCRIPT_PATH}" ||
+	fail 'preflight must keep coreutils-sha256sum package guidance from satisfying SHA-256 support'
 grep -q 'preflight.entware.password_hash.install_hint=opkg install python3 python3-bcrypt' "${SCRIPT_PATH}" ||
 	fail 'preflight must report password hashing package guidance'
-grep -q 'preflight_check_entware_package column' "${SCRIPT_PATH}" ||
-	fail 'preflight must check the Entware column package when timezone selection needs it'
+grep -q 'preflight_check_entware_package column || true' "${SCRIPT_PATH}" ||
+	fail 'preflight must keep column package guidance from satisfying timezone column support'
 
 (
 	# shellcheck disable=SC1090

@@ -914,7 +914,8 @@ preflight_check_sha256_support() {
 	fi
 	PTXT "preflight.sha256.required=yes"
 	PTXT "preflight.sha256.result=MISSING"
-	preflight_check_entware_package coreutils-sha256sum
+	preflight_check_entware_package coreutils-sha256sum || true
+	return 1
 }
 
 preflight_check_timezone_column() {
@@ -925,7 +926,8 @@ preflight_check_timezone_column() {
 	fi
 	PTXT "preflight.entware.column.required=yes"
 	PTXT "preflight.entware.column.result=MISSING"
-	preflight_check_entware_package column
+	preflight_check_entware_package column || true
+	return 1
 }
 
 preflight() {
