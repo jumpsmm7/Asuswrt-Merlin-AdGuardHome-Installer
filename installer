@@ -4289,6 +4289,13 @@ inst_AdGuardHome() {
 		return 1
 	fi
 	ptxt_ok "AdGuardHome addon directory is ready."
+	if [ "${1:-update}" = "update" ]; then
+		configure_runtime_defaults upgrade || {
+			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			end_op_message 1 "$1"
+			return 1
+		}
+	fi
 	cleanup_legacy_firewall
 	if ! download_file "${ADDON_DIR}" 755 "${RURL}/AdGuardHome.sh" ||
 		! download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome" ||
@@ -4311,13 +4318,6 @@ inst_AdGuardHome() {
 		return 1
 	fi
 	ptxt_ok "Asuswrt-Merlin event scripts configured."
-	if [ "${1:-update}" = "update" ]; then
-		configure_runtime_defaults upgrade || {
-			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-			end_op_message 1 "$1"
-			return 1
-		}
-	fi
 	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
 	if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
 		PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
