@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.5.5                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.6.0                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
 
-AI_VERSION="v2.5.5"
+AI_VERSION="v2.6.0"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -37,6 +37,7 @@ readonly YAML_FILE="${AGH_FILE}.yaml"
 readonly YAML_BAK="${YAML_FILE}.bak"
 readonly YAML_ERR="${YAML_FILE}.err"
 readonly YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
+readonly ROLLBACK_RESULT_FILE="${BASE_DIR}/.AdGuardHome.rollback_result"
 readonly BLOCKLIST_ANALYZER_FILE="${TARG_DIR}/blocklist_analyzer.py"
 readonly BLOCKLIST_ANALYZER_URL="https://gist.githubusercontent.com/graysky2/8035291d1bf87b8fe3693668965337e1/raw/a4be7655095d6ff880c2f3748964b825d7c45bd2/blocklilst_analyzer.py"
 readonly BLOCKLIST_ANALYZER_SHA256_DEFAULT="77c21b6faeb7fea86b0729996dec5cc20d2d309fe8c6946c7371dd64134a6e5f"
@@ -62,6 +63,61 @@ readonly INPUT
 
 ai_have_cmd() {
 	which "$1" >/dev/null 2>&1
+}
+
+rollback_result_write() {
+	local context result detail marker_dir tmp_file
+	context="$1"
+	result="$2"
+	detail="${3:-}"
+	ROLLBACK_RESULT_UPDATED="1"
+	marker_dir="${ROLLBACK_RESULT_FILE%/*}"
+	[ -d "${marker_dir}" ] || mkdir -p "${marker_dir}" 2>/dev/null || return 0
+	tmp_file="${ROLLBACK_RESULT_FILE}.$$"
+	{
+		printf 'time=%s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"
+		printf 'context=%s\n' "${context}"
+		printf 'result=%s\n' "${result}"
+		[ -z "${detail}" ] || printf 'detail=%s\n' "${detail}"
+	} >"${tmp_file}" 2>/dev/null && mv -f "${tmp_file}" "${ROLLBACK_RESULT_FILE}" 2>/dev/null
+	rm -f "${tmp_file}" 2>/dev/null
+	chmod 600 "${ROLLBACK_RESULT_FILE}" 2>/dev/null
+}
+
+rollback_result_summary() {
+	[ -s "${ROLLBACK_RESULT_FILE}" ] || return 1
+	awk '
+		index($0, "=") {
+			key = substr($0, 1, index($0, "=") - 1)
+			value = substr($0, index($0, "=") + 1)
+		}
+		key == "time" { time = value }
+		key == "context" { context = value }
+		key == "result" { result = value }
+		key == "detail" { detail = value }
+		END {
+			if (result == "") exit 1
+			printf "%s%s%s%s%s", result, context ? " during " context : "", detail ? ": " detail : "", time ? " (" time ")" : "", ""
+		}
+	' "${ROLLBACK_RESULT_FILE}"
+}
+
+rollback_result_notice() {
+	local summary
+	summary="$(rollback_result_summary 2>/dev/null)" || return 0
+	PTXT "${WARNING} Last rollback result: ${summary}"
+}
+
+rollback_result_needs_attention() {
+	local result
+	[ -f "${ROLLBACK_RESULT_FILE}" ] || return 1
+	result="$(awk -F= '$1 == "result" { print substr($0, 8); exit }' "${ROLLBACK_RESULT_FILE}" 2>/dev/null)"
+	case "${result}" in
+		rollback\ failed | rollback\ partial | rollback\ unavailable | restore-failed | replace-failed | yaml-quarantine-failed | staged-yaml-quarantine-failed | failed:* | *-failed)
+			return 0
+			;;
+	esac
+	return 1
 }
 
 entware_available() {
@@ -102,7 +158,7 @@ clear_screen() {
 }
 
 ensure_bcrypt_tool() {
-	if [ -f "/opt/bin/bcrypt-tool" ]; then
+	if bcrypt_tool_available; then
 		return 0
 	fi
 	case "$(/bin/uname -m)" in
@@ -123,7 +179,18 @@ ensure_bcrypt_tool() {
 	GO_PATH_DIR="/tmp/AdGuardHome-go-path"
 	[ -x /opt/bin/go/bin/go ] || return 1
 	mkdir -p "${GO_CACHE_DIR}" "${GO_PATH_DIR}" || return 1
-	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/opt/bin/go/bin" HOME="${GO_PATH_DIR}" GOCACHE="${GO_CACHE_DIR}" GOPATH="${GO_PATH_DIR}" GOROOT="${GOROOT}" GOBIN="${GOBIN}" /opt/bin/go/bin/go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
+	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/opt/bin/go/bin" HOME="${GO_PATH_DIR}" GOCACHE="${GO_CACHE_DIR}" GOPATH="${GO_PATH_DIR}" GOROOT="${GOROOT}" GOBIN="${GOBIN}" /opt/bin/go/bin/go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1 || return 1
+	bcrypt_tool_available
+}
+
+bcrypt_tool_available() {
+	local hash
+	[ -x /opt/bin/bcrypt-tool ] || return 1
+	hash="$(/opt/bin/bcrypt-tool hash preflight 10 2>/dev/null)" || return 1
+	case "${hash}" in
+		\$2a\$10\$*) return 0 ;;
+	esac
+	return 1
 }
 
 ensure_opkg_package() {
@@ -453,6 +520,37 @@ conf_has_key() {
 	grep -q "^$1=" "${CONF_FILE}"
 }
 
+write_conf_if_absent() {
+	conf_has_key "$1" && return 0
+	write_conf "$1" "$2"
+}
+
+configure_runtime_defaults() {
+	local NETCHECK_MODE
+	case "${1:-}" in
+		new-install)
+			case "${2:-}" in
+				1 | YES | yes | Yes) NETCHECK_MODE="wan" ;;
+				*) NETCHECK_MODE="lan" ;;
+			esac
+			write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"1\"" || return 1
+			write_conf_if_absent ADGUARD_NETCHECK_MODE "\"${NETCHECK_MODE}\"" || return 1
+			write_conf_if_absent ADGUARD_PROC_OPTIMIZE "\"YES\"" || return 1
+			write_conf_if_absent ADGUARD_PROC_PROFILE "\"balanced\"" || return 1
+			ptxt_ok "Runtime defaults saved: DNS port refusal enabled, netcheck mode ${NETCHECK_MODE}, performance profile balanced."
+			;;
+		upgrade)
+			write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"0\"" || return 1
+			write_conf_if_absent ADGUARD_NETCHECK_MODE "\"legacy\"" || return 1
+			write_conf_if_absent ADGUARD_PROC_OPTIMIZE "\"YES\"" || return 1
+			write_conf_if_absent ADGUARD_PROC_PROFILE "\"aggressive\"" || return 1
+			PTXT "${INFO} Existing runtime defaults were retained for compatibility." \
+				"${INFO} Legacy values remain active unless you migrate with:" \
+				"${INFO}   sh installer migrate-runtime-defaults --yes"
+			;;
+	esac
+}
+
 md5_is_valid() {
 	case "$1" in
 		"" | *[!0123456789abcdefABCDEF]*) return 1 ;;
@@ -573,6 +671,424 @@ installer_dependencies_available() {
 		return 1
 	fi
 	return 0
+}
+
+preflight_action_requires_entware() {
+	case "${1:-install}" in
+		status | preflight)
+			return 1
+			;;
+		*)
+			return 0
+			;;
+	esac
+}
+
+preflight_action_requires_jq() {
+	case "${1:-install}" in
+		*)
+			return 1
+			;;
+	esac
+}
+
+preflight_action_requires_password_hash() {
+	case "${1:-install}" in
+		"" | install | reconfigure | changepw | 3 | 4)
+			return 0
+			;;
+	esac
+	return 1
+}
+
+preflight_action_requires_sha256() {
+	case "${1:-install}" in
+		"" | install | update | restore | blocklists | unusedblocklists | 9)
+			return 0
+			;;
+	esac
+	return 1
+}
+
+preflight_action_requires_timezone_column() {
+	case "${1:-install}" in
+		"" | install | reconfigure | restore | 4)
+			return 0
+			;;
+	esac
+	return 1
+}
+
+preflight_action_requires_jffs_ready() {
+	case "${1:-install}" in
+		"" | install | reconfigure | 4)
+			return 0
+			;;
+	esac
+	return 1
+}
+
+preflight_action_requires_router_eligibility() {
+	case "${1:-install}" in
+		status | preflight)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+preflight_action_requires_downloader() {
+	case "${1:-install}" in
+		status | preflight)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+preflight_action_requires_service_tools() {
+	case "${1:-install}" in
+		status | preflight)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+preflight_action_requires_cru() {
+	case "${1:-install}" in
+		status | preflight)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+preflight_action_requires_firewall_tools() {
+	case "${1:-install}" in
+		status | preflight)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+preflight_check_jffs_ready() {
+	local jffs2_format result
+	jffs2_format="$(nvram get jffs2_format 2>/dev/null)" || jffs2_format=""
+	result="OK"
+	PTXT "preflight.jffs.required=yes"
+	PTXT "preflight.jffs.format_pending=${jffs2_format:-missing}"
+	if [ "${jffs2_format}" = "1" ]; then
+		result="FAIL"
+	fi
+	PTXT "preflight.jffs.result=${result}"
+	[ "${result}" = "OK" ]
+}
+
+preflight_check_router_eligibility() {
+	local arch model odmpid os result sw_mode
+	result="OK"
+	PTXT "preflight.router.required=yes"
+	if [ -z "${ROUTER_MODEL:-}" ]; then
+		odmpid="$(nvram get odmpid 2>/dev/null)" || odmpid=""
+		[ -z "${odmpid}" ] && model="$(nvram get productid 2>/dev/null)" || model="${odmpid}"
+	else
+		model="${ROUTER_MODEL}"
+	fi
+	os="$(/bin/uname 2>/dev/null)" || os=""
+	case "${model}" in
+		*AC*)
+			case "${model}" in
+				*RT-AC86* | *RT-AC2900*) arch="$(/bin/uname -m 2>/dev/null)" || arch="" ;;
+				*) arch="armv7" ;;
+			esac
+			;;
+		*)
+			arch="$(/bin/uname -m 2>/dev/null)" || arch=""
+			;;
+	esac
+	sw_mode="$(nvram get sw_mode 2>/dev/null)" || sw_mode=""
+	PTXT "preflight.router.model=${model:-missing}"
+	PTXT "preflight.router.sw_mode=${sw_mode:-missing}"
+	if [ -z "${model}" ]; then
+		PTXT "preflight.router.model.result=FAIL"
+		result="FAIL"
+	else
+		PTXT "preflight.router.model.result=OK"
+	fi
+	if [ "${sw_mode}" = "1" ]; then
+		PTXT "preflight.router.mode.result=OK"
+	else
+		PTXT "preflight.router.mode.result=FAIL"
+		result="FAIL"
+	fi
+	case "${os}" in
+		Linux)
+			PTXT "preflight.router.os=linux"
+			PTXT "preflight.router.os.result=OK"
+			;;
+		*)
+			PTXT "preflight.router.os=${os:-missing}"
+			PTXT "preflight.router.os.result=FAIL"
+			result="FAIL"
+			;;
+	esac
+	case "${arch}" in
+		aarch64 | arm64 | armv7l | armv7)
+			PTXT "preflight.router.arch=${arch}"
+			PTXT "preflight.router.arch.result=OK"
+			;;
+		*)
+			PTXT "preflight.router.arch=${arch:-missing}"
+			PTXT "preflight.router.arch.result=FAIL"
+			result="FAIL"
+			;;
+	esac
+	if [ "${result}" = "OK" ]; then
+		PTXT "preflight.router.result=OK"
+		return 0
+	fi
+	PTXT "preflight.router.result=FAIL"
+	return 1
+}
+
+preflight_check_path() {
+	local description path result which_path
+	description="$1"
+	path="$2"
+	result="FAIL"
+	which_path="$(which "${path##*/}" 2>/dev/null)" || which_path=""
+	if [ -x "${path}" ]; then
+		result="OK"
+	fi
+	PTXT "preflight.${description}.required=${path}"
+	PTXT "preflight.${description}.which=${which_path:-missing}"
+	PTXT "preflight.${description}.result=${result}"
+	[ "${result}" = "OK" ]
+}
+
+preflight_check_command() {
+	local command_name result which_path
+	command_name="$1"
+	result="FAIL"
+	which_path="$(which "${command_name}" 2>/dev/null)" || which_path=""
+	if [ -n "${which_path}" ] && [ -x "${which_path}" ]; then
+		result="OK"
+	fi
+	PTXT "preflight.stock.${command_name}.required=yes"
+	PTXT "preflight.stock.${command_name}.which=${which_path:-missing}"
+	PTXT "preflight.stock.${command_name}.result=${result}"
+	[ "${result}" = "OK" ]
+}
+
+preflight_check_stock_commands() {
+	local failed required_command
+	failed="0"
+	for required_command in awk chmod chown cp cut grep kill ln md5sum mkdir mv netstat pidof rm sed tar; do
+		preflight_check_command "${required_command}" || failed="1"
+	done
+	[ "${failed}" = "0" ]
+}
+
+preflight_check_downloader() {
+	local curl_path wget_path result
+	curl_path="$(which curl 2>/dev/null)" || curl_path=""
+	wget_path="$(which wget 2>/dev/null)" || wget_path=""
+	result="FAIL"
+	if [ -x /usr/sbin/curl ] || [ -x /usr/sbin/wget ]; then
+		result="OK"
+	fi
+	PTXT "preflight.downloader.required=/usr/sbin/curl or /usr/sbin/wget"
+	PTXT "preflight.downloader.curl.which=${curl_path:-missing}"
+	PTXT "preflight.downloader.curl.stock=$([ -x /usr/sbin/curl ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.downloader.wget.which=${wget_path:-missing}"
+	PTXT "preflight.downloader.wget.stock=$([ -x /usr/sbin/wget ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.downloader.result=${result}"
+	[ "${result}" = "OK" ]
+}
+
+preflight_check_entware() {
+	local result
+	result="FAIL"
+	if entware_available; then
+		result="OK"
+	fi
+	PTXT "preflight.entware.required=yes"
+	PTXT "preflight.entware.opt_dir=$([ -d /opt ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.entware.opkg=$([ -x /opt/bin/opkg ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.entware.config=$({ [ -f /opt/etc/opkg.conf ] || [ -f /opt/etc/init.d/rc.unslung ]; } && PTXT OK || PTXT missing)"
+	PTXT "preflight.entware.result=${result}"
+	[ "${result}" = "OK" ]
+}
+
+preflight_check_entware_package() {
+	local pkg result
+	pkg="$1"
+	result="MISSING"
+	if opkg_pkg_installed "${pkg}"; then
+		result="OK"
+	fi
+	PTXT "preflight.entware.package.${pkg}.required=yes"
+	PTXT "preflight.entware.package.${pkg}.result=${result}"
+	[ "${result}" = "OK" ] || PTXT "preflight.entware.package.${pkg}.install_hint=opkg install ${pkg}"
+	[ "${result}" = "OK" ]
+}
+
+preflight_check_jq() {
+	local allow_entware jq_path result
+	allow_entware="$1"
+	jq_path="$(which jq 2>/dev/null)" || jq_path=""
+	result="FAIL"
+	if [ -x /usr/bin/jq ]; then
+		result="OK"
+	fi
+	PTXT "preflight.jq.required=yes"
+	PTXT "preflight.jq.which=${jq_path:-missing}"
+	PTXT "preflight.jq.stock=$([ -x /usr/bin/jq ] && PTXT OK || PTXT missing)"
+	if [ "${allow_entware}" = "1" ]; then
+		[ "${result}" = "OK" ] || [ ! -x /opt/bin/jq ] || result="OK"
+		PTXT "preflight.jq.entware=$([ -x /opt/bin/jq ] && PTXT OK || PTXT missing)"
+		PTXT "preflight.jq.install_hint=opkg install jq"
+	else
+		PTXT "preflight.jq.entware=not_checked"
+	fi
+	PTXT "preflight.jq.result=${result}"
+	[ "${result}" = "OK" ]
+}
+
+preflight_check_password_hash_support() {
+	local failed result
+	failed="0"
+	result="MISSING"
+	if python_bcrypt_available || bcrypt_tool_available; then
+		result="OK"
+	fi
+	PTXT "preflight.entware.password_hash.required=yes"
+	PTXT "preflight.entware.password_hash.result=${result}"
+	if [ "${result}" != "OK" ]; then
+		PTXT "preflight.entware.password_hash.install_hint=opkg install python3 python3-bcrypt"
+		preflight_check_entware_package python3 || failed="1"
+		preflight_check_entware_package python3-bcrypt || failed="1"
+	fi
+	[ "${failed}" = "0" ] && [ "${result}" = "OK" ]
+}
+
+preflight_check_sha256_support() {
+	if sha256sum_available; then
+		PTXT "preflight.sha256.required=yes"
+		PTXT "preflight.sha256.result=OK"
+		PTXT "preflight.entware.package.coreutils-sha256sum.required=no"
+		return 0
+	fi
+	PTXT "preflight.sha256.required=yes"
+	PTXT "preflight.sha256.result=MISSING"
+	preflight_check_entware_package coreutils-sha256sum || true
+	return 1
+}
+
+preflight_check_timezone_column() {
+	if [ -x /opt/bin/column ]; then
+		PTXT "preflight.entware.column.required=yes"
+		PTXT "preflight.entware.column.result=OK"
+		return 0
+	fi
+	PTXT "preflight.entware.column.required=yes"
+	PTXT "preflight.entware.column.result=MISSING"
+	preflight_check_entware_package column || true
+	return 1
+}
+
+preflight() {
+	local action entware_required failed
+	action="${1:-install}"
+	entware_required="0"
+	failed="0"
+	PTXT "preflight.version=${AI_VERSION}"
+	PTXT "preflight.action=${action}"
+	PTXT "preflight.safe_to_paste=yes"
+	PTXT "preflight.path=${PATH}"
+	preflight_check_path "sh" "/bin/sh" || failed="1"
+	preflight_check_path "nvram" "/bin/nvram" || failed="1"
+	if preflight_action_requires_downloader "${action}"; then
+		preflight_check_downloader || failed="1"
+	else
+		PTXT "preflight.downloader.required=no"
+		PTXT "preflight.downloader.result=SKIP"
+	fi
+	if preflight_action_requires_service_tools "${action}"; then
+		preflight_check_path "service" "/sbin/service" || failed="1"
+	else
+		PTXT "preflight.service.required=no"
+		PTXT "preflight.service.result=SKIP"
+	fi
+	if preflight_action_requires_cru "${action}"; then
+		preflight_check_path "cru" "/usr/sbin/cru" || failed="1"
+	else
+		PTXT "preflight.cru.required=no"
+		PTXT "preflight.cru.result=SKIP"
+	fi
+	if preflight_action_requires_firewall_tools "${action}"; then
+		preflight_check_path "iptables" "/usr/sbin/iptables" || failed="1"
+		preflight_check_path "ip6tables" "/usr/sbin/ip6tables" || failed="1"
+	else
+		PTXT "preflight.iptables.required=no"
+		PTXT "preflight.iptables.result=SKIP"
+		PTXT "preflight.ip6tables.required=no"
+		PTXT "preflight.ip6tables.result=SKIP"
+	fi
+	preflight_check_stock_commands || failed="1"
+	if preflight_action_requires_jffs_ready "${action}"; then
+		preflight_check_jffs_ready || failed="1"
+	else
+		PTXT "preflight.jffs.required=no"
+		PTXT "preflight.jffs.result=SKIP"
+	fi
+	if preflight_action_requires_router_eligibility "${action}"; then
+		preflight_check_router_eligibility || failed="1"
+	else
+		PTXT "preflight.router.required=no"
+		PTXT "preflight.router.result=SKIP"
+	fi
+	if preflight_action_requires_entware "${action}"; then
+		entware_required="1"
+		preflight_check_entware || failed="1"
+	else
+		PTXT "preflight.entware.required=no"
+		PTXT "preflight.entware.result=SKIP"
+	fi
+	if preflight_action_requires_jq "${action}"; then
+		preflight_check_jq "${entware_required}" || failed="1"
+	else
+		PTXT "preflight.jq.required=no"
+		PTXT "preflight.jq.result=SKIP"
+	fi
+	if [ "${entware_required}" = "1" ]; then
+		if preflight_action_requires_sha256 "${action}"; then
+			preflight_check_sha256_support || failed="1"
+		else
+			PTXT "preflight.sha256.required=no"
+			PTXT "preflight.sha256.result=SKIP"
+		fi
+		if preflight_action_requires_password_hash "${action}"; then
+			preflight_check_password_hash_support || failed="1"
+		else
+			PTXT "preflight.entware.password_hash.required=no"
+			PTXT "preflight.entware.password_hash.result=SKIP"
+		fi
+		if preflight_action_requires_timezone_column "${action}"; then
+			preflight_check_timezone_column || failed="1"
+		else
+			PTXT "preflight.entware.column.required=no"
+			PTXT "preflight.entware.column.result=SKIP"
+		fi
+	fi
+	if [ "${failed}" = "0" ]; then
+		PTXT "preflight.result=PASS"
+		return 0
+	fi
+	PTXT "preflight.result=FAIL"
+	return 1
 }
 
 sanitize_branch() {
@@ -919,8 +1435,18 @@ agh_process_count() {
 }
 
 doctor_status() {
+	local next
+	next="${3:-}"
 	[ "$1" = "FAIL" ] && DOCTOR_FAILED="1"
-	PTXT "[$1] $2"
+	case "$1" in
+		WARN | FAIL)
+			[ -n "${next}" ] || next="Review the installer output and repair manually."
+			PTXT "[$1] $2 | Next: ${next}"
+			;;
+		*)
+			PTXT "[$1] $2"
+			;;
+	esac
 }
 
 doctor_fix_msg() {
@@ -932,12 +1458,12 @@ doctor_file_state() {
 	path="$1"
 	expected="$2"
 	if [ ! -e "${path}" ]; then
-		doctor_status WARN "${path} missing"
+		doctor_status WARN "${path} missing" "Re-run install or restore ${path}."
 		return 1
 	fi
 	mode="$(ls -ld "${path}" 2>/dev/null | awk '{ print $1 }')"
 	if [ -n "${expected}" ] && [ "${mode}" != "${expected}" ]; then
-		doctor_status WARN "${path} mode ${mode}, expected ${expected}"
+		doctor_status WARN "${path} mode ${mode}, expected ${expected}" "Run: sh installer doctor --fix"
 		return 1
 	fi
 	doctor_status OK "${path} present${mode:+ (${mode})}"
@@ -950,18 +1476,18 @@ doctor_managed_script_state() {
 	operation="$2"
 	expected_line="[ -x ${ADDON_DIR}/AdGuardHome.sh ] && ${ADDON_DIR}/AdGuardHome.sh ${operation}"
 	if [ ! -f "${script_path}" ]; then
-		doctor_status WARN "${script_path} managed hook missing"
+		doctor_status WARN "${script_path} managed hook missing" "Re-run install to recreate the managed hook."
 		return 1
 	fi
 	if grep -q -F "${expected_line}" "${script_path}" 2>/dev/null; then
 		if [ ! -x "${script_path}" ]; then
-			doctor_status WARN "${script_path} managed hook present but not executable"
+			doctor_status WARN "${script_path} managed hook present but not executable" "Run: sh installer doctor --fix"
 			return 1
 		fi
 		doctor_status OK "${script_path} managed hook present and executable"
 		return 0
 	fi
-	doctor_status WARN "${script_path} managed hook missing expected AdGuardHome call"
+	doctor_status WARN "${script_path} managed hook missing expected AdGuardHome call" "Re-run install or add the managed AdGuardHome hook line."
 	return 1
 }
 
@@ -974,10 +1500,10 @@ doctor_dns53_state() {
 	fi
 	if [ -n "${dns53}" ]; then
 		owners="$(PTXT "${dns53}" | awk '{ print $NF }' | sort | uniq | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
-		doctor_status WARN "DNS port 53 TCP and UDP are not both owned by AdGuardHome${owners:+ (owners: ${owners})}"
+		doctor_status WARN "DNS port 53 TCP and UDP are not both owned by AdGuardHome${owners:+ (owners: ${owners})}" "Inspect DNS settings; do not use --fix for DNS changes."
 		return 1
 	fi
-	doctor_status FAIL "DNS port 53 is not listening"
+	doctor_status FAIL "DNS port 53 is not listening" "Start AdGuardHome or restore dnsmasq DNS service manually."
 	return 1
 }
 
@@ -1058,7 +1584,7 @@ doctor_fix_safe() {
 doctor_show_nvram_dns() {
 	local key value
 	if ! ai_have_cmd nvram; then
-		doctor_status WARN "nvram command unavailable; DNS NVRAM values not checked"
+		doctor_status WARN "nvram command unavailable; DNS NVRAM values not checked" "Run doctor on the router where nvram is available."
 		return 0
 	fi
 	for key in dnspriv_enable dns_local_cache dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x dnsfilter_enable_x dnsfilter_mode dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 lan_dnsenable_x lan_dns1_x lan_dns2_x wan_dnsenable_x wan_dns1_x wan_dns2_x; do
@@ -1075,7 +1601,7 @@ doctor() {
 		--fix) fix="1" ;;
 		"") ;;
 		*)
-			doctor_status FAIL "usage: sh installer doctor [--fix]"
+			doctor_status FAIL "usage: sh installer doctor [--fix]" "Run: sh installer doctor [--fix]"
 			return 1
 			;;
 	esac
@@ -1084,18 +1610,27 @@ doctor() {
 		entware_ready="1"
 		doctor_status OK "Entware is available"
 	else
-		doctor_status FAIL "Entware is not available"
+		doctor_status FAIL "Entware is not available" "Mount or install Entware, then rerun doctor."
 	fi
 	if [ "${fix}" = "1" ]; then
 		if [ "${entware_ready}" = "1" ]; then
 			doctor_fix_safe
 		else
-			doctor_status WARN "skipping --fix repairs because Entware is not available"
+			doctor_status WARN "skipping --fix repairs because Entware is not available" "Mount or install Entware before using --fix."
 		fi
 	fi
 	doctor_file_state "${TARG_DIR}" "drwx------" || true
+	if [ -f "${ROLLBACK_RESULT_FILE}" ]; then
+		if rollback_result_needs_attention; then
+			doctor_status FAIL "last rollback result: $(rollback_result_summary)" "Review the rollback detail, restore manually if needed, then rerun doctor."
+		else
+			doctor_status WARN "last rollback result: $(rollback_result_summary)"
+		fi
+	else
+		doctor_status OK "last rollback result: none"
+	fi
 	link_target="$(readlink "/opt/sbin/AdGuardHome" 2>/dev/null)"
-	[ -L "/opt/sbin/AdGuardHome" ] && [ "${link_target}" = "${AGH_FILE}" ] && doctor_status OK "/opt/sbin/AdGuardHome -> ${link_target}" || doctor_status FAIL "/opt/sbin/AdGuardHome target is ${link_target:-missing}"
+	[ -L "/opt/sbin/AdGuardHome" ] && [ "${link_target}" = "${AGH_FILE}" ] && doctor_status OK "/opt/sbin/AdGuardHome -> ${link_target}" || doctor_status FAIL "/opt/sbin/AdGuardHome target is ${link_target:-missing}" "Run: sh installer doctor --fix"
 	doctor_file_state "${ADDON_DIR}/AdGuardHome.sh" "-rwxr-xr-x" || true
 	doctor_managed_script_state "/jffs/scripts/init-start" "init-start &" || true
 	doctor_managed_script_state "/jffs/scripts/services-stop" "services-stop &" || true
@@ -1105,20 +1640,19 @@ doctor() {
 	doctor_file_state "/opt/etc/init.d/rc.func.AdGuardHome" "-rw-r--r--" || true
 	doctor_file_state "${YAML_FILE}" "-rw-------" || true
 	doctor_file_state "${CONF_FILE}" "-rw-------" || true
-
 	doctor_dns53_state || true
 	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome/pid; do
-		[ -e "${marker}" ] && doctor_status WARN "dnsmasq handoff marker/lock exists: ${marker}" || doctor_status OK "dnsmasq handoff marker/lock absent: ${marker}"
+		[ -e "${marker}" ] && doctor_status WARN "dnsmasq handoff marker/lock exists: ${marker}" "Run: sh installer doctor --fix; if still present, check active installer/service processes." || doctor_status OK "dnsmasq handoff marker/lock absent: ${marker}"
 	done
 	count="$(agh_monitor_count)"
-	[ "${count}" -eq 1 ] && doctor_status OK "monitor process count: ${count}" || doctor_status WARN "monitor process count: ${count}"
+	[ "${count}" -eq 1 ] && doctor_status OK "monitor process count: ${count}" || doctor_status WARN "monitor process count: ${count}" "Restart the AdGuardHome service if the monitor count is unexpected."
 	count="$(pidof AdGuardHome 2>/dev/null | wc -w)"
-	[ "${count}" -eq 1 ] && doctor_status OK "AdGuardHome daemon process count: ${count}" || doctor_status WARN "AdGuardHome daemon process count: ${count}"
+	[ "${count}" -eq 1 ] && doctor_status OK "AdGuardHome daemon process count: ${count}" || doctor_status WARN "AdGuardHome daemon process count: ${count}" "Start or restart AdGuardHome manually; --fix will not restart services."
 	port="$(agh_web_port 2>/dev/null)"
 	if [ -n "${port}" ]; then
-		web_port_owned_by_agh "${port}" && doctor_status OK "WebUI port ${port} owned by AdGuardHome" || doctor_status WARN "WebUI port ${port} not owned by AdGuardHome"
+		web_port_owned_by_agh "${port}" && doctor_status OK "WebUI port ${port} owned by AdGuardHome" || doctor_status WARN "WebUI port ${port} not owned by AdGuardHome" "Inspect the WebUI port owner and AdGuardHome config manually."
 	else
-		doctor_status WARN "WebUI port not configured"
+		doctor_status WARN "WebUI port not configured" "Set ADGUARD_WEBUI_PORT or repair AdGuardHome.yaml manually."
 	fi
 	branch="$(conf_value INSTALLER_BRANCH 2>/dev/null)"
 	version="$([ -x "${AGH_FILE}" ] && "${AGH_FILE}" --version 2>/dev/null | head -1)"
@@ -1126,14 +1660,14 @@ doctor() {
 	doctor_status OK "AdGuardHome version ${version:-unknown}"
 	backup_file="${BASE_DIR}/backup_AdGuardHome.tar.gz"
 	if [ -f "${backup_file}" ]; then
-		adguard_archive_is_safe "${backup_file}" 1 && doctor_status OK "backup archive safety passed" || doctor_status FAIL "backup archive safety failed"
+		adguard_archive_is_safe "${backup_file}" 1 && doctor_status OK "backup archive safety passed" || doctor_status FAIL "backup archive safety failed" "Remove or replace the unsafe backup archive manually."
 	else
-		doctor_status WARN "backup archive missing"
+		doctor_status WARN "backup archive missing" "Create a fresh backup after confirming the installation is healthy."
 	fi
 	for ipset_file in "${TARG_DIR}/ipset.conf" "${TARG_DIR}/ipset.user" "$(adguardhome_yaml_ipset_file 2>/dev/null)"; do
 		[ -n "${ipset_file}" ] || continue
 		case "${ipset_file}" in /*) ;; *) ipset_file="${TARG_DIR}/${ipset_file}" ;; esac
-		[ -f "${ipset_file}" ] && doctor_status OK "IPSET file present: ${ipset_file}" || doctor_status WARN "IPSET file missing: ${ipset_file}"
+		[ -f "${ipset_file}" ] && doctor_status OK "IPSET file present: ${ipset_file}" || doctor_status WARN "IPSET file missing: ${ipset_file}" "Recreate the IPSET file or update AdGuardHome.yaml manually."
 	done
 	doctor_show_nvram_dns
 	[ "${DOCTOR_FAILED}" = "0" ]
@@ -1249,6 +1783,7 @@ status() {
 	status_line "WebUI address/port" "$(status_webui_address)"
 	status_line "dnsmasq handoff state" "$(status_dnsmasq_handoff_state)"
 	status_line "Last startup result" "$(status_last_startup_result)"
+	status_line "Last rollback result" "$(rollback_result_summary 2>/dev/null || PTXT "none")"
 }
 
 agh_restart() {
@@ -1563,10 +2098,20 @@ check_AdGuardHome_yaml() {
 		if [ "${yaml_target}" = "${YAML_FILE}" ]; then
 			PTXT "${INFO} Moving invalid configuration file to ${YAML_ERR}." \
 				"${INFO} Operation will continue with clean config file."
-			mv "${yaml_target}" "${YAML_ERR}"
+			if mv "${yaml_target}" "${YAML_ERR}"; then
+				rollback_result_write "yaml validation" "yaml-invalid-moved" "${YAML_ERR}"
+			else
+				rollback_result_write "yaml validation" "yaml-quarantine-failed" "${yaml_target}"
+			fi
+			rollback_result_notice
 		else
 			ptxt_warn "Moving invalid staged configuration file to ${yaml_target}.err; continuing."
-			mv "${yaml_target}" "${yaml_target}.err"
+			if mv "${yaml_target}" "${yaml_target}.err"; then
+				rollback_result_write "yaml validation" "staged-yaml-invalid-moved" "${yaml_target}.err"
+			else
+				rollback_result_write "yaml validation" "staged-yaml-quarantine-failed" "${yaml_target}"
+			fi
+			rollback_result_notice
 		fi
 		return 1
 	fi
@@ -1802,21 +2347,28 @@ select_unused_blocklists_for_removal() {
 }
 
 blocklist_yaml_replace_abort_on_signal() {
-	local backup_file removed_file
+	local backup_file removed_file tmp_file
 	backup_file="${BLOCKLIST_YAML_BACKUP_FILE:-}"
 	removed_file="${BLOCKLIST_YAML_REMOVED_FILE:-}"
+	tmp_file="${BLOCKLIST_YAML_TMP_FILE:-}"
 	trap - HUP INT QUIT ABRT TERM
 	if [ -n "${backup_file}" ] && [ -f "${backup_file}" ]; then
 		if cp "${backup_file}" "${YAML_FILE}" || { rm -f "${YAML_FILE}" && mv "${backup_file}" "${YAML_FILE}"; }; then
 			chmod 600 "${YAML_FILE}"
+			rollback_result_write "blocklist yaml replacement" "restored" "interrupted; restored ${YAML_FILE}"
+			rollback_result_notice
 			ptxt_fail "Blocklist cleanup interrupted; restored ${YAML_FILE} from ${backup_file}."
 		else
+			rollback_result_write "blocklist yaml replacement" "restore-failed" "interrupted; backup ${backup_file}"
+			rollback_result_notice
 			ptxt_fail "Blocklist cleanup interrupted, and ${YAML_FILE} could not be restored from ${backup_file}."
 		fi
 	fi
+	[ -z "${tmp_file}" ] || rm -f "${tmp_file}"
 	[ -z "${removed_file}" ] || rm -f "${removed_file}"
 	BLOCKLIST_YAML_BACKUP_FILE=""
 	BLOCKLIST_YAML_REMOVED_FILE=""
+	BLOCKLIST_YAML_TMP_FILE=""
 	clear_screen
 	exit 2
 }
@@ -1825,11 +2377,13 @@ blocklist_yaml_replace_trap_disable() {
 	trap 'clear_screen; end_op_message 2' HUP INT QUIT ABRT TERM
 	BLOCKLIST_YAML_BACKUP_FILE=""
 	BLOCKLIST_YAML_REMOVED_FILE=""
+	BLOCKLIST_YAML_TMP_FILE=""
 }
 
 blocklist_yaml_replace_trap_enable() {
 	BLOCKLIST_YAML_BACKUP_FILE="$1"
 	BLOCKLIST_YAML_REMOVED_FILE="$2"
+	BLOCKLIST_YAML_TMP_FILE="${3:-}"
 	trap 'blocklist_yaml_replace_abort_on_signal' HUP INT QUIT ABRT TERM
 }
 
@@ -1873,6 +2427,7 @@ remove_unused_blocklists_from_yaml() {
 		END { flush_entry() }
 	' "${YAML_FILE}" >"${tmp_file}" || {
 		rm -f "${tmp_file}" "${removed_file}"
+		rollback_result_write "blocklist-yaml" "failed: no change" "could not build edited YAML"
 		return 1
 	}
 	if [ ! -s "${removed_file}" ]; then
@@ -1880,9 +2435,13 @@ remove_unused_blocklists_from_yaml() {
 		ptxt_warn "No matching numeric filter IDs were found under filters:."
 		return 1
 	fi
-	blocklist_yaml_replace_trap_enable "${backup_file}" "${removed_file}"
+	blocklist_yaml_replace_trap_enable "${backup_file}" "${removed_file}" "${tmp_file}"
 	if ! mv "${tmp_file}" "${YAML_FILE}"; then
+		rm -f "${tmp_file}" "${removed_file}"
+		rollback_result_write "blocklist yaml replacement" "replace-failed" "${YAML_FILE}"
+		rollback_result_notice
 		blocklist_yaml_replace_trap_disable
+		rollback_result_write "blocklist-yaml" "failed: original preserved" "could not replace ${YAML_FILE}"
 		return 1
 	fi
 	chmod 600 "${YAML_FILE}"
@@ -1892,10 +2451,14 @@ remove_unused_blocklists_from_yaml() {
 			chmod 600 "${YAML_FILE}"
 			rm -f "${removed_file}"
 			blocklist_yaml_replace_trap_disable
+			rollback_result_write "blocklist yaml replacement" "restored" "validation failed; restored ${YAML_FILE}"
+			rollback_result_notice
 			ptxt_fail "Validation failed; restored ${YAML_FILE} from ${backup_file}."
 		else
 			rm -f "${removed_file}"
 			blocklist_yaml_replace_trap_disable
+			rollback_result_write "blocklist yaml replacement" "restore-failed" "validation failed; backup ${backup_file}"
+			rollback_result_notice
 			ptxt_fail "Validation failed, and ${YAML_FILE} could not be restored from ${backup_file}."
 		fi
 		return 1
@@ -2599,9 +3162,13 @@ adguard_restart_after_failed_replace() {
 	[ "$1" = "1" ] || return 0
 	if agh_start; then
 		PTXT "${INFO} Restored the previously running AdGuardHome service."
+		rollback_result_write "service-restart" "rollback complete" "previous AdGuardHome service restarted"
 		return 0
 	fi
+	rollback_result_write "AdGuardHome service restart" "restart-failed" "previous binary restored"
+	rollback_result_notice
 	PTXT "${ERROR} The previous AdGuardHome binary was restored but could not be restarted."
+	rollback_result_write "service-restart" "rollback partial" "previous AdGuardHome binary restored but service restart failed"
 	return 1
 }
 
@@ -2613,9 +3180,13 @@ adguard_restart_after_install_abort() {
 	fi
 	if agh_start; then
 		PTXT "${INFO} Restarted AdGuardHome after the installer aborted."
+		rollback_result_write "install-abort" "rollback complete" "AdGuardHome restarted after abort"
 		return 0
 	fi
+	rollback_result_write "installer abort" "restart-failed" "AdGuardHome could not be restarted"
+	rollback_result_notice
 	PTXT "${ERROR} AdGuardHome could not be restarted after the installer aborted."
+	rollback_result_write "install-abort" "rollback partial" "AdGuardHome could not be restarted after abort"
 	return 1
 }
 
@@ -2707,19 +3278,31 @@ adguard_restore_after_failed_replace() {
 	WAS_RUNNING="$2"
 	if [ -f "${OLD_BINARY}" ]; then
 		if ! mv "${OLD_BINARY}" "${AGH_FILE}"; then
+			rollback_result_write "AdGuardHome binary rollback" "restore-failed" "${OLD_BINARY}"
+			rollback_result_notice
 			PTXT "${ERROR} Unable to restore the previous AdGuardHome binary; it remains at ${OLD_BINARY}."
+			rollback_result_write "binary-replace" "rollback failed" "previous binary remains at ${OLD_BINARY}"
 			return 1
 		fi
+		rollback_result_write "AdGuardHome binary rollback" "restored" "${AGH_FILE}"
 	else
 		if ! rm -f "${AGH_FILE}"; then
+			rollback_result_write "AdGuardHome binary rollback" "cleanup-failed" "${AGH_FILE}"
+			rollback_result_notice
 			PTXT "${ERROR} Unable to remove the failed AdGuardHome binary."
+			rollback_result_write "binary-replace" "rollback failed" "failed binary could not be removed"
 			return 1
 		fi
 		if [ "${WAS_RUNNING}" = "1" ]; then
+			rollback_result_write "AdGuardHome binary rollback" "restore-failed" "previous binary unavailable"
+			rollback_result_notice
 			PTXT "${ERROR} The previous AdGuardHome binary is unavailable for rollback."
+			rollback_result_write "binary-replace" "rollback unavailable" "previous binary backup is missing"
 			return 1
 		fi
+		rollback_result_write "AdGuardHome binary rollback" "removed-failed-install" "${AGH_FILE}"
 	fi
+	rollback_result_write "binary-replace" "rollback complete" "previous AdGuardHome binary restored"
 	adguard_restart_after_failed_replace "${WAS_RUNNING}"
 }
 
@@ -2735,7 +3318,10 @@ adguard_restore_after_failed_directory_restore() {
 	if agh_is_running; then
 		PTXT "${INFO} Stopping AdGuardHome before restoring the previous installation."
 		if ! agh_stop; then
+			rollback_result_write "AdGuardHome directory rollback" "restore-failed" "could not stop AdGuardHome"
+			rollback_result_notice
 			PTXT "${ERROR} Unable to safely stop AdGuardHome before restoring the previous installation."
+			rollback_result_write "directory-restore" "rollback failed" "could not stop AdGuardHome before restore"
 			return 1
 		fi
 	fi
@@ -2747,17 +3333,25 @@ adguard_restore_after_failed_directory_restore() {
 	fi
 	if [ -d "${ROLLBACK_DIR}" ]; then
 		if ! mv "${ROLLBACK_DIR}" "${TARGET_DIR}"; then
+			rollback_result_write "AdGuardHome directory rollback" "restore-failed" "${ROLLBACK_DIR}"
+			rollback_result_notice
 			PTXT "${ERROR} Unable to restore the previous AdGuardHome installation; it remains at ${ROLLBACK_DIR}."
+			rollback_result_write "directory-restore" "rollback failed" "previous installation remains at ${ROLLBACK_DIR}"
 			return 1
 		fi
+		rollback_result_write "AdGuardHome directory rollback" "restored" "${TARGET_DIR}"
 		ADGUARD_RESTORE_ROLLBACK_DIR=""
 		ADGUARD_RESTORE_TARGET_INSTALLED="0"
 		ADGUARD_RESTORE_ACTIVE="0"
 	elif [ -L "${COMMAND_LINK}" ] && [ "$(readlink "${COMMAND_LINK}")" = "${TARGET_DIR}/AdGuardHome" ]; then
 		if ! rm -f "${COMMAND_LINK}"; then
+			rollback_result_write "AdGuardHome directory rollback" "cleanup-failed" "${COMMAND_LINK}"
+			rollback_result_notice
 			PTXT "${ERROR} Unable to remove the failed AdGuardHome command symlink."
+			rollback_result_write "directory-restore" "rollback failed" "could not remove failed symlink ${COMMAND_LINK}"
 			return 1
 		fi
+		rollback_result_write "AdGuardHome directory rollback" "removed-failed-install" "${COMMAND_LINK}"
 		ADGUARD_RESTORE_TARGET_INSTALLED="0"
 		ADGUARD_RESTORE_ACTIVE="0"
 	fi
@@ -2838,6 +3432,124 @@ adguardhome_yaml_ipset_file() {
 			exit
 		}
 	' "${YAML_FILE}"
+}
+
+ipset_status_path() {
+	case "$1" in
+		"") return 1 ;;
+		/*) printf '%s\n' "$1" ;;
+		*) printf '%s\n' "${TARG_DIR}/$1" ;;
+	esac
+}
+
+ipset_status_sets() {
+	local file
+	file="$1"
+	[ -f "${file}" ] || return 0
+	awk '
+		/^[[:space:]]*(#|$)/ { next }
+		{
+			line = $0
+			sub(/[[:space:]]+#.*$/, "", line)
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+			if (line == "") next
+			slash = 0
+			for (i = length(line); i > 0; i--) {
+				if (substr(line, i, 1) == "/") {
+					slash = i
+					break
+				}
+			}
+			if (!slash) next
+			sets = substr(line, slash + 1)
+			n = split(sets, set, ",")
+			for (i = 1; i <= n; i++) {
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", set[i])
+				if (set[i] == "") continue
+				print set[i]
+			}
+		}
+	' "${file}"
+}
+
+ipset_status_set_family() {
+	ipset list "$1" 2>/dev/null | awk '
+		/^Header:/ {
+			for (i = 1; i <= NF; i++) {
+				if ($i == "family" && (i + 1) <= NF) {
+					print $(i + 1)
+					exit
+				}
+			}
+		}
+	'
+}
+
+ipset_status_report_set() {
+	local family set
+	set="$1"
+	family="$(ipset_status_set_family "${set}")"
+	if [ -z "${family}" ]; then
+		PTXT "${WARNING} IPSET set missing: ${set}"
+		return 0
+	fi
+	case "${family}" in
+		inet | inet6)
+			PTXT "${INFO} IPSET set exists: ${set} (family ${family})"
+			;;
+		*)
+			PTXT "${WARNING} IPSET set exists with unknown family: ${set} (family ${family})"
+			;;
+	esac
+}
+
+ipset_status() {
+	local current_file enabled found generated_file ipset_file seen_sets set_entry yaml_file
+	enabled="$(conf_value ADGUARD_IPSET)"
+	case "${enabled}" in
+		NO) PTXT "${INFO} IPSET integration enabled: NO" ;;
+		YES) PTXT "${INFO} IPSET integration enabled: YES" ;;
+		*) PTXT "${INFO} IPSET integration enabled: YES (default)" ;;
+	esac
+	yaml_file="$(adguardhome_yaml_ipset_file 2>/dev/null)"
+	if [ -n "${yaml_file}" ]; then
+		current_file="$(ipset_status_path "${yaml_file}")"
+		if [ "${current_file}" = "${TARG_DIR}/ipset.conf" ]; then
+			PTXT "${INFO} AdGuardHome.yaml managed dns.ipset_file: YES (${current_file})"
+		else
+			PTXT "${WARNING} AdGuardHome.yaml dns.ipset_file is not installer-managed: ${current_file}"
+		fi
+	else
+		current_file=""
+		PTXT "${WARNING} AdGuardHome.yaml managed dns.ipset_file: NO"
+	fi
+	for ipset_file in "${TARG_DIR}/ipset.user" "${TARG_DIR}/ipset.conf"; do
+		[ -f "${ipset_file}" ] && PTXT "${INFO} IPSET file exists: ${ipset_file}" || PTXT "${WARNING} IPSET file missing: ${ipset_file}"
+	done
+	if ! ai_have_cmd ipset; then
+		PTXT "${WARNING} router-stock ipset command unavailable; set existence and family checks skipped."
+		return 0
+	fi
+	found="0"
+	seen_sets="|"
+	for ipset_file in "${TARG_DIR}/ipset.user" "${TARG_DIR}/ipset.conf"; do
+		[ -f "${ipset_file}" ] || continue
+		generated_file="$(ipset_status_sets "${ipset_file}")"
+		[ -n "${generated_file}" ] || continue
+		found="1"
+		PTXT "${INFO} Referenced sets from ${ipset_file}:"
+		while read -r set_entry; do
+			[ -n "${set_entry}" ] || continue
+			case "${seen_sets}" in
+				*"|${set_entry}|"*) continue ;;
+			esac
+			seen_sets="${seen_sets}${set_entry}|"
+			ipset_status_report_set "${set_entry}"
+		done <<EOF_IPSET_STATUS_SETS
+${generated_file}
+EOF_IPSET_STATUS_SETS
+	done
+	[ "${found}" = "1" ] || PTXT "${WARNING} No IPSET set references found in installer-managed IPSET files."
 }
 
 chmod_adguardhome_data_files_600() {
@@ -3139,6 +3851,7 @@ backup_restore() {
 			ADGUARD_DEFER_END_OP="0"
 			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
 			adguard_install_abort_trap_disable
+			rollback_result_notice
 			ptxt_fail "Unable to complete AdGuardHome restore setup; restoring previous installation."
 			return 1
 		fi
@@ -3352,12 +4065,13 @@ installer_update_reexec() {
 }
 
 inst_AdGuardHome() {
-	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT
+	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
 	ensure_sha256sum_tool || return 1
 	INSTALLER_MD5_OLD=""
 	RESTART_AFTER_ABORT="0"
+	SERVICE_REFRESH_ONLY="${SERVICE_REFRESH_ONLY:-0}"
 	[ -f "${SCRIPT_LOC}" ] && INSTALLER_MD5_OLD="$(file_md5 "${SCRIPT_LOC}" 2>/dev/null)"
 	if [ -z "$2" ]; then
 		if [ "${1:-RESTORE}" != "RESTORE" ]; then
@@ -3473,6 +4187,12 @@ inst_AdGuardHome() {
 					fi
 					inst_AdGuardHome "${1:-update}" "${ADGUARD_BRANCH}"
 				else
+					if [ "${1:-update}" = "update" ]; then
+						PTXT "${INFO} Refreshing installer-managed service integration."
+						SERVICE_REFRESH_ONLY=1
+						inst_AdGuardHome update "${ADGUARD_BRANCH}"
+						return $?
+					fi
 					case "${ADGUARD_BRANCH}" in
 						release)
 							PTXT "${INFO} ADGUARDHOME_BUILD=Release" \
@@ -3494,67 +4214,72 @@ inst_AdGuardHome() {
 			fi
 		fi
 	else
-		ptxt_phase "Installing AdGuardHome package."
-		REMOTE_ADGUARD_ARCHIVE="$(adguard_remote_archive "$2")"
-		REMOTE_ADGUARD_MD5="$(adguard_remote_md5 "$2")"
-		REMOTE_ADGUARD_SHA256="$(adguard_remote_sha256 "$2")"
-		REMOTE_ADGUARD_URL="$(adguard_remote_url "$2")"
-		[ -z "${REMOTE_ADGUARD_ARCHIVE}" ] && REMOTE_ADGUARD_ARCHIVE="${ADGUARD_TAR}"
-		[ -z "${REMOTE_ADGUARD_URL}" ] && REMOTE_ADGUARD_URL="${URL_ARCH}/${REMOTE_ADGUARD_ARCHIVE}"
-		if ! download_file "${BASE_DIR}" 644 "${REMOTE_ADGUARD_URL}"; then
-			PTXT "${ERROR} Unable to download AdGuardHome package for your router"
-			end_op_message 1 "$1"
-			return 1
-		fi
-		if sha256_is_valid "${REMOTE_ADGUARD_SHA256}"; then
-			ptxt_step "Verifying SHA-256 checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
-			ARCHIVE_SHA256="$(file_sha256 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || {
-				PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package SHA-256 checksum."
-				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
-				end_op_message 1 "$1"
-				return 1
-			}
-			if [ "${ARCHIVE_SHA256}" != "${REMOTE_ADGUARD_SHA256}" ]; then
-				PTXT "${ERROR} SHA-256 checksum mismatch for downloaded AdGuardHome package metadata."
-				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+		if [ "${SERVICE_REFRESH_ONLY}" = "1" ]; then
+			ptxt_phase "Refreshing AdGuardHome service integration."
+		else
+			ptxt_phase "Installing AdGuardHome package."
+			REMOTE_ADGUARD_ARCHIVE="$(adguard_remote_archive "$2")"
+			REMOTE_ADGUARD_MD5="$(adguard_remote_md5 "$2")"
+			REMOTE_ADGUARD_SHA256="$(adguard_remote_sha256 "$2")"
+			REMOTE_ADGUARD_URL="$(adguard_remote_url "$2")"
+			[ -z "${REMOTE_ADGUARD_ARCHIVE}" ] && REMOTE_ADGUARD_ARCHIVE="${ADGUARD_TAR}"
+			[ -z "${REMOTE_ADGUARD_URL}" ] && REMOTE_ADGUARD_URL="${URL_ARCH}/${REMOTE_ADGUARD_ARCHIVE}"
+			if ! download_file "${BASE_DIR}" 644 "${REMOTE_ADGUARD_URL}"; then
+				PTXT "${ERROR} Unable to download AdGuardHome package for your router"
 				end_op_message 1 "$1"
 				return 1
 			fi
-			ptxt_ok "SHA-256 checksum verified for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
-		elif md5_is_valid "${REMOTE_ADGUARD_MD5}"; then
-			ptxt_step "Verifying MD5 checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
-			ARCHIVE_MD5="$(file_md5 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || {
-				PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package MD5 checksum."
+			if sha256_is_valid "${REMOTE_ADGUARD_SHA256}"; then
+				ptxt_step "Verifying SHA-256 checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
+				ARCHIVE_SHA256="$(file_sha256 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || {
+					PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package SHA-256 checksum."
+					rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+					end_op_message 1 "$1"
+					return 1
+				}
+				if [ "${ARCHIVE_SHA256}" != "${REMOTE_ADGUARD_SHA256}" ]; then
+					PTXT "${ERROR} SHA-256 checksum mismatch for downloaded AdGuardHome package metadata."
+					rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+					end_op_message 1 "$1"
+					return 1
+				fi
+				ptxt_ok "SHA-256 checksum verified for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
+			elif md5_is_valid "${REMOTE_ADGUARD_MD5}"; then
+				ptxt_step "Verifying MD5 checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
+				ARCHIVE_MD5="$(file_md5 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || {
+					PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package MD5 checksum."
+					rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+					end_op_message 1 "$1"
+					return 1
+				}
+				if [ "${ARCHIVE_MD5}" != "${REMOTE_ADGUARD_MD5}" ]; then
+					PTXT "${ERROR} MD5 checksum mismatch for downloaded AdGuardHome package metadata."
+					rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+					end_op_message 1 "$1"
+					return 1
+				fi
+				ptxt_warn "Only MD5 package metadata was available; SHA-256 is preferred."
+			fi
+			if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
+			ptxt_step "Replacing AdGuardHome package with downloaded archive."
+			if ! install_adguard_archive "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}"; then
 				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
-				end_op_message 1 "$1"
-				return 1
-			}
-			if [ "${ARCHIVE_MD5}" != "${REMOTE_ADGUARD_MD5}" ]; then
-				PTXT "${ERROR} MD5 checksum mismatch for downloaded AdGuardHome package metadata."
-				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+				rollback_result_notice
 				end_op_message 1 "$1"
 				return 1
 			fi
-			ptxt_warn "Only MD5 package metadata was available; SHA-256 is preferred."
-		fi
-		if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
-		ptxt_step "Replacing AdGuardHome package with downloaded archive."
-		if ! install_adguard_archive "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}"; then
+			ptxt_ok "AdGuardHome package was replaced."
 			rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
-			end_op_message 1 "$1"
-			return 1
+			[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
+			ptxt_step "Creating AdGuardHome command symlink."
+			if ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome || [ -z "$("${AGH_FILE}" --version | cut -d" " -f4-)" ]; then
+				PTXT "${ERROR} Failed to download AdGuardHome package for your router"
+				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				end_op_message 1 "$1"
+				return 1
+			fi
+			ptxt_ok "AdGuardHome command symlink is ready."
 		fi
-		ptxt_ok "AdGuardHome package was replaced."
-		rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
-		[ -f "/opt/sbin/AdGuardHome" ] && rm -rf /opt/sbin/AdGuardHome
-		ptxt_step "Creating AdGuardHome command symlink."
-		if ! ln -sf "${AGH_FILE}" /opt/sbin/AdGuardHome || [ -z "$("${AGH_FILE}" --version | cut -d" " -f4-)" ]; then
-			PTXT "${ERROR} Failed to download AdGuardHome package for your router"
-			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-			end_op_message 1 "$1"
-			return 1
-		fi
-		ptxt_ok "AdGuardHome command symlink is ready."
 	fi
 	ptxt_phase "Installing service integration."
 	ptxt_step "Installing AdGuardHome service scripts and addon hooks."
@@ -3564,6 +4289,13 @@ inst_AdGuardHome() {
 		return 1
 	fi
 	ptxt_ok "AdGuardHome addon directory is ready."
+	if [ "${1:-update}" = "update" ]; then
+		configure_runtime_defaults upgrade || {
+			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			end_op_message 1 "$1"
+			return 1
+		}
+	fi
 	cleanup_legacy_firewall
 	if ! download_file "${ADDON_DIR}" 755 "${RURL}/AdGuardHome.sh" ||
 		! download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome" ||
@@ -3728,6 +4460,19 @@ discard_installer_config_backup() {
 	rm -f "$1" "$1.absent"
 }
 
+setup_restore_previous_yaml() {
+	if [ "${YAML_BACKED_UP:-0}" -eq 1 ]; then
+		if mv -f "${YAML_BAK}" "${YAML_FILE}"; then
+			rollback_result_write "setup-yaml" "rollback complete" "previous ${YAML_FILE} restored"
+			return 0
+		fi
+		rollback_result_write "setup-yaml" "rollback failed" "could not restore previous ${YAML_FILE}"
+		PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
+		return 1
+	fi
+	return 0
+}
+
 setup_AdGuardHome_impl() {
 	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
@@ -3813,9 +4558,7 @@ setup_AdGuardHome_impl() {
 						0) DNS_FILTER_SELECTION=1 ;;
 						1) DNS_FILTER_SELECTION=0 ;;
 						*)
-							if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-								PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-							fi
+							setup_restore_previous_yaml || true
 							return "${YESNO_STATUS}"
 							;;
 					esac
@@ -3826,9 +4569,7 @@ setup_AdGuardHome_impl() {
 							0) LOCAL_CACHE_SELECTION=1 ;;
 							1) LOCAL_CACHE_SELECTION=0 ;;
 							*)
-								if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-									PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-								fi
+								setup_restore_previous_yaml || true
 								return "${YESNO_STATUS}"
 								;;
 						esac
@@ -3839,9 +4580,7 @@ setup_AdGuardHome_impl() {
 						0) IPSET_SELECTION=1 ;;
 						1) IPSET_SELECTION=0 ;;
 						*)
-							if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-								PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-							fi
+							setup_restore_previous_yaml || true
 							return "${YESNO_STATUS}"
 							;;
 					esac
@@ -3856,9 +4595,7 @@ setup_AdGuardHome_impl() {
 						"${INFO} The chosen port must reside within the port range 3000-65535" \
 						"${INFO} and not already in use by any other service."
 					if ! read_input_port "Default is" 3000; then
-						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-						fi
+						setup_restore_previous_yaml || true
 						return 1
 					fi
 					WEB_PORT_SELECTION="${WEB_PORT}"
@@ -3868,9 +4605,7 @@ setup_AdGuardHome_impl() {
 					PTXT "${INFO} Set the Username and Password which will be encrypted to the yaml file."
 					if ! AdGuardHome_authen 1 "${YAML_ORI_NEW}" 0; then
 						rm -f "${YAML_ORI_NEW}"
-						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-						fi
+						setup_restore_previous_yaml || true
 						return 1
 					fi
 					PTXT "dns:" \
@@ -3881,9 +4616,7 @@ setup_AdGuardHome_impl() {
 						"${INFO} and router services (e.g. ntp) at boot"
 					if ! read_input_dns "Default is" 9.9.9.9 || ! read_input_dns "2nd Default is" 8.8.8.8; then
 						rm -f "${YAML_ORI_NEW}"
-						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-						fi
+						setup_restore_previous_yaml || true
 						return 1
 					fi
 					local DOMAIN="" NET_ADDR NET_ADDR6 LAN_IF
@@ -3932,26 +4665,20 @@ setup_AdGuardHome_impl() {
 						"schema_version: ${SCHEMA_VER}" >>"${YAML_ORI_NEW}"
 					if ! check_AdGuardHome_yaml "${YAML_ORI_NEW}"; then
 						rm -f "${YAML_ORI_NEW}"
-						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-						fi
+						setup_restore_previous_yaml || true
 						return 1
 					fi
 					PTXT "${INFO} Writing AdGuardHome configuration..."
 					if ! cp -f "${YAML_ORI_NEW}" "${YAML_FILE}"; then
 						rm -f "${YAML_ORI_NEW}"
-						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-						fi
+						setup_restore_previous_yaml || true
 						PTXT "${ERROR} Writing AdGuardHome configuration failed "
 						return 1
 					fi
 				fi
 				if ! check_AdGuardHome_yaml; then
 					[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
-					if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-						PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-					fi
+					setup_restore_previous_yaml || true
 					PTXT "${ERROR} Writing AdGuardHome configuration failed " \
 						"${ERROR} Please send ${YAML_ERR} file and screen log of " \
 						"${ERROR} all ssh terminal operations to the script developer."
@@ -3961,18 +4688,14 @@ setup_AdGuardHome_impl() {
 					CONFIG_ROLLBACK="${TMPDIR:-/tmp}/AdGuardHome.config.$$"
 					if ! save_installer_config "${CONFIG_ROLLBACK}"; then
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
-						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-						fi
+						setup_restore_previous_yaml || true
 						PTXT "${ERROR} Unable to preserve the current installer preferences."
 						return 1
 					fi
 					if [ -n "${DOMAIN_CONFIG_SELECTION}" ] && ! write_conf ADGUARD_DOMAIN "\"${DOMAIN_CONFIG_SELECTION}\""; then
 						restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
-						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-						fi
+						setup_restore_previous_yaml || true
 						PTXT "${ERROR} Unable to save the AdGuardHome domain setting."
 						return 1
 					fi
@@ -3990,9 +4713,7 @@ setup_AdGuardHome_impl() {
 							nvram commit
 						fi
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
-						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-						fi
+						setup_restore_previous_yaml || true
 						PTXT "${ERROR} Unable to preserve the current DNSFilter settings."
 						return 1
 					fi
@@ -4006,9 +4727,7 @@ setup_AdGuardHome_impl() {
 							nvram commit
 						fi
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
-						if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-							PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-						fi
+						setup_restore_previous_yaml || true
 						return "${YESNO_STATUS}"
 					fi
 					if [ "$(nvram get dns_local_cache)" != "1" ]; then
@@ -4022,9 +4741,7 @@ setup_AdGuardHome_impl() {
 								PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 							fi
 							[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
-							if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-								PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-							fi
+							setup_restore_previous_yaml || true
 							PTXT "${ERROR} Unable to save the AdGuardHome local cache setting."
 							return 1
 						fi
@@ -4039,9 +4756,7 @@ setup_AdGuardHome_impl() {
 								PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 							fi
 							[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
-							if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-								PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-							fi
+							setup_restore_previous_yaml || true
 							PTXT "${ERROR} Unable to save the AdGuardHome local cache setting."
 							return 1
 						fi
@@ -4050,6 +4765,20 @@ setup_AdGuardHome_impl() {
 				if [ "$2" = "reconfig" ] && [ -n "${IPSET_SELECTION:-}" ] && ! check_ipset "${IPSET_SELECTION}"; then
 					PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
 						"${WARNING} Continuing reconfiguration with the previous IPSET preference."
+				fi
+				if [ -n "${DNS_FILTER_SELECTION:-}" ] && ! configure_runtime_defaults new-install "${LOCAL_CACHE_SELECTION:-0}"; then
+					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+						nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
+						nvram commit
+					fi
+					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+					fi
+					[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+					setup_restore_previous_yaml || true
+					PTXT "${ERROR} Unable to save the AdGuardHome runtime defaults."
+					return 1
 				fi
 				if [ -n "${WEB_PORT_SELECTION:-}" ] && ! write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT_SELECTION}\""; then
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
@@ -4061,9 +4790,7 @@ setup_AdGuardHome_impl() {
 						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 					fi
 					[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
-					if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-						PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-					fi
+					setup_restore_previous_yaml || true
 					PTXT "${ERROR} Unable to save the AdGuardHome WebUI port."
 					return 1
 				fi
@@ -4076,9 +4803,7 @@ setup_AdGuardHome_impl() {
 					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
 						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 					fi
-					if [ "${YAML_BACKED_UP}" -eq 1 ] && ! mv -f "${YAML_BAK}" "${YAML_FILE}"; then
-						PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
-					fi
+					setup_restore_previous_yaml || true
 					PTXT "${ERROR} Unable to publish the original AdGuardHome configuration snapshot."
 					return 1
 				fi
@@ -4132,7 +4857,7 @@ uninst_all() {
 	cleanup_legacy_firewall
 	[ "$(conf_value ADGUARD_DOMAIN)" = "yes" ] && nvram set lan_domain="" && nvram commit
 	mv "${TARG_DIR}/installer" "${HOME}/installer"
-	rm -rf "${TARG_DIR}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"
+	rm -rf "${TARG_DIR}" "${ROLLBACK_RESULT_FILE}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"
 	yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
 	del_jffs_script /jffs/scripts/init-start
 	del_jffs_script /jffs/scripts/dnsmasq.postconf
@@ -4269,6 +4994,18 @@ end_op_header() {
 }
 
 end_op_message() {
+	case "${1:-0}" in
+		1)
+			if [ "${ROLLBACK_RESULT_UPDATED:-0}" != "1" ] && ! rollback_result_needs_attention; then
+				rollback_result_write "operation" "no rollback attempted" "operation aborted before rollback was needed"
+			fi
+			;;
+		2)
+			if [ "${ROLLBACK_RESULT_UPDATED:-0}" != "1" ] && ! rollback_result_needs_attention; then
+				rollback_result_write "operation" "interrupted: no rollback attempted" "operation interrupted before rollback was needed"
+			fi
+			;;
+	esac
 	if [ "${CLI_MODE:-0}" = "1" ]; then
 		case "${1:-0}" in
 			0) return 0 ;;
@@ -4289,11 +5026,16 @@ end_op_message() {
 			PTXT "${INFO} Operation completed, returning to Main Menu. You can quit or continue."
 			;;
 		1)
-			[ "$2" = "update" ] && exit 1
+			if [ "$2" = "update" ]; then
+				[ -f "${ROLLBACK_RESULT_FILE}" ] && PTXT "${INFO} Last rollback result: $(rollback_result_summary)"
+				exit 1
+			fi
 			PTXT "${INFO} Operation aborted, returning to Main Menu. You can quit or continue."
+			[ -f "${ROLLBACK_RESULT_FILE}" ] && PTXT "${INFO} Last rollback result: $(rollback_result_summary)"
 			;;
 		2)
 			PTXT "${INFO} Abnormal operations, returning to Main Menu. You can quit or continue."
+			[ -f "${ROLLBACK_RESULT_FILE}" ] && PTXT "${INFO} Last rollback result: $(rollback_result_summary)"
 			;;
 	esac
 	PTXT "====================================================="
@@ -4324,7 +5066,7 @@ menu() {
 				"  1) Install/Update AdGuardHome" \
 				"  2) Uninstall"
 			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then
-				PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  6) Enable/Disable AdGuardHome Local Cache" "  7) Switch AdGuardHome Branch" "  8) Enable/Disable AdGuardHome IPSET Integration"
+				PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  6) Enable/Disable AdGuardHome Local Cache" "  7) Switch AdGuardHome Branch" "  8) Enable/Disable AdGuardHome IPSET Integration" "  m) Migrate Runtime Defaults"
 				if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
 					PTXT "  9) Analyze and remove unused blocklists"
 				fi
@@ -4334,8 +5076,8 @@ menu() {
 			PTXT "  q) Quit"
 			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 q; }; fi
 			if { [ ! -d "${TARG_DIR}" ] || [ ! -f "${AGH_FILE}" ]; } && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then { read_input_num "Please enter the number that designates your selection:" 1 2 r q; }; fi
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then { read_input_num "Please enter the number that designates your selection:" 1 9 b q; }; else { read_input_num "Please enter the number that designates your selection:" 1 8 b q; }; fi; }; fi
-			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then { read_input_num "Please enter the number that designates your selection:" 1 9 b r q; }; else { read_input_num "Please enter the number that designates your selection:" 1 8 b r q; }; fi; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then { read_input_num "Please enter the number that designates your selection:" 1 9 b m q; }; else { read_input_num "Please enter the number that designates your selection:" 1 8 b m q; }; fi; }; fi
+			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then { read_input_num "Please enter the number that designates your selection:" 1 9 b r m q; }; else { read_input_num "Please enter the number that designates your selection:" 1 8 b r m q; }; fi; }; fi
 			;;
 		*)
 			CHOSEN="$1"
@@ -4445,6 +5187,20 @@ menu() {
 			fi
 			end_op_message 0
 			;;
+		"m" | "M" | "migrate-runtime-defaults")
+			PTXT "${INFO} This operation inspects legacy runtime defaults and can migrate them to safer v2.6.0 values."
+			read_yesno "Do you want to migrate runtime defaults now?"
+			CONFIRM_STATUS=$?
+			if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+				cli_migrate_runtime_defaults --yes
+				end_op_message "$?"
+			elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
+				end_op_message 1
+			else
+				end_op_message 1
+				return "${CONFIRM_STATUS}"
+			fi
+			;;
 		"9" | "blocklists" | "unusedblocklists")
 			if [ -z "${BLOCKLIST_ANALYZER_SHA256}" ]; then
 				ptxt_fail "Blocklist cleanup is unavailable until the analyzer SHA-256 is pinned."
@@ -4523,10 +5279,12 @@ read_input_dns() {
 
 read_input_num() {
 	local RANGE
-	[ -z "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}]"
-	[ -n "$4" ] && [ -z "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}]"
-	[ -n "$4" ] && [ -n "$5" ] && [ -z "$6" ] && RANGE="[${2}-${3}/${4}/${5}]"
-	[ -n "$4" ] && [ -n "$5" ] && [ -n "$6" ] && RANGE="[${2}-${3}/${4}/${5}/${6}]"
+	RANGE="[${2}-${3}"
+	[ -n "${4:-}" ] && RANGE="${RANGE}/${4}"
+	[ -n "${5:-}" ] && RANGE="${RANGE}/${5}"
+	[ -n "${6:-}" ] && RANGE="${RANGE}/${6}"
+	[ -n "${7:-}" ] && RANGE="${RANGE}/${7}"
+	RANGE="${RANGE}]"
 	while :; do
 		PTXT -n "${INPUT} ${1}, ${BOLD}${RANGE}${NORM}: "
 		if ! read -r CHOSEN; then
@@ -4538,7 +5296,7 @@ read_input_num() {
 			continue
 		fi
 		case "${CHOSEN}" in
-			"$4" | "$5" | "$6")
+			"${4:-}" | "${5:-}" | "${6:-}" | "${7:-}")
 				return 1
 				;;
 			*)
@@ -4615,7 +5373,7 @@ menu_action_allowed() {
 		[dD] | "doctor" | "status")
 			return 0
 			;;
-		"3" | "changepw" | "4" | "reconfigure" | "5" | "setamtmupdate" | "6" | "setlocalcache" | "7" | "switchbranch" | "8" | "setipset" | [bB] | "backup")
+		"3" | "changepw" | "4" | "reconfigure" | "5" | "setamtmupdate" | "6" | "setlocalcache" | "7" | "switchbranch" | "8" | "setipset" | [mM] | "migrate-runtime-defaults" | [bB] | "backup")
 			[ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ] && return 0
 			return 1
 			;;
@@ -4634,6 +5392,11 @@ menu_action_allowed() {
 }
 
 single_arg_menu_action() {
+	case "$1" in
+		"migrate-runtime-defaults")
+			return 1
+			;;
+	esac
 	menu_action_allowed "$1"
 }
 
@@ -4643,11 +5406,14 @@ cli_usage() {
 		"${INFO}   sh installer update [--installer-branch master] [--adguardhome-branch {release|beta|edge}] --yes [--dry-run]" \
 		"${INFO}   sh installer backup --yes" \
 		"${INFO}   sh installer restore --file /path/to/backup_AdGuardHome.tar.gz --yes [--dry-run]" \
+		"${INFO}   sh installer preflight [install|reconfigure|update|restore|uninstall|status]" \
 		"${INFO}   sh installer doctor [--fix]" \
 		"${INFO}   sh installer ipset refresh [--yes] [--dry-run]" \
+		"${INFO}   sh installer ipset status" \
 		"${INFO}   sh installer netcheck --mode {legacy|wan|lan} [--hosts host-list] [--dns server] [--require-http {YES|NO}] [--timeout seconds]" \
 		"${INFO}   sh installer dns-port-policy --policy {legacy|refuse-unknown}" \
 		"${INFO}   sh installer performance --profile {balanced|low-memory|fast}" \
+		"${INFO}   sh installer migrate-runtime-defaults [--yes] [--dry-run]" \
 		"${INFO}   sh installer uninstall --yes [--dry-run] [--allow-dns-nvram]"
 }
 
@@ -4708,6 +5474,32 @@ cli_pre_remote_dry_run() {
 		esac
 	done
 	return 1
+}
+
+cli_pre_runtime_defaults_preview() {
+	local apply preview_args
+	[ "${1:-}" = "migrate-runtime-defaults" ] || return 3
+	shift || true
+	apply="0"
+	preview_args=""
+	while [ "$#" -gt 0 ]; do
+		case "$1" in
+			--yes)
+				apply="1"
+				;;
+			--dry-run)
+				preview_args="${preview_args} --dry-run"
+				;;
+			*)
+				return 2
+				;;
+		esac
+		shift
+	done
+	[ "${apply}" = "0" ] || return 3
+	# Intentional unquoted expansion: preview_args is built from fixed option tokens only.
+	cli_migrate_runtime_defaults ${preview_args}
+	return "$?"
 }
 
 cli_backup_restore_file() {
@@ -4859,6 +5651,94 @@ cli_dns_port_policy() {
 	esac
 }
 
+cli_migrate_runtime_default() {
+	local current key legacy safe status
+	key="$1"
+	legacy="$2"
+	safe="$3"
+	current="$(conf_value "${key}")"
+	if [ "${current}" = "${legacy}" ]; then
+		PTXT "${WARNING} Legacy runtime default: ${key}=\"${current}\"; v2.6.0 safer value is \"${safe}\"."
+		status=1
+	elif [ -z "${current}" ]; then
+		PTXT "${INFO} Missing runtime default: ${key}; v2.6.0 safer value is \"${safe}\"."
+		status=1
+	else
+		PTXT "${INFO} Runtime default already set: ${key}=\"${current}\"."
+		status=0
+	fi
+	return "${status}"
+}
+
+cli_migrate_runtime_defaults() {
+	local apply dry_run changes dns_port_change netcheck_change proc_optimize_change proc_profile_change proc_optimize_current
+	apply="0"
+	dry_run="0"
+	changes="0"
+	while [ "$#" -gt 0 ]; do
+		case "$1" in
+			--yes) apply="1" ;;
+			--dry-run) dry_run="1" ;;
+			*) return 2 ;;
+		esac
+		shift
+	done
+	if [ ! -f "${CONF_FILE}" ]; then
+		PTXT "${ERROR} Runtime config not found: ${CONF_FILE}"
+		return 1
+	fi
+	PTXT "${INFO} Inspecting runtime defaults in ${CONF_FILE}."
+	dns_port_change="0"
+	netcheck_change="0"
+	proc_optimize_change="0"
+	proc_profile_change="0"
+	cli_migrate_runtime_default ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL 0 1 || {
+		changes="1"
+		dns_port_change="1"
+	}
+	cli_migrate_runtime_default ADGUARD_NETCHECK_MODE legacy wan || {
+		changes="1"
+		netcheck_change="1"
+	}
+	proc_optimize_current="$(conf_value ADGUARD_PROC_OPTIMIZE)"
+	if [ -z "${proc_optimize_current}" ]; then
+		PTXT "${INFO} Missing runtime default: ADGUARD_PROC_OPTIMIZE; v2.6.0 safer value is \"YES\"."
+		changes="1"
+		proc_optimize_change="1"
+	else
+		PTXT "${INFO} Runtime default already set: ADGUARD_PROC_OPTIMIZE=\"${proc_optimize_current}\"."
+	fi
+	cli_migrate_runtime_default ADGUARD_PROC_PROFILE aggressive balanced || {
+		changes="1"
+		proc_profile_change="1"
+	}
+	if [ "${changes}" = "0" ]; then
+		ptxt_ok "Runtime defaults already use v2.6.0 safer values or custom overrides."
+		return 0
+	fi
+	if [ "${dry_run}" = "1" ]; then
+		PTXT "${INFO} Dry-run: would write v2.6.0 safer runtime defaults."
+		return 0
+	fi
+	if [ "${apply}" != "1" ]; then
+		PTXT "${INFO} No changes made. Re-run with --yes to migrate runtime defaults."
+		return 0
+	fi
+	if [ "${dns_port_change}" = "1" ]; then
+		cli_write_quoted_conf ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL 1 || return 1
+	fi
+	if [ "${netcheck_change}" = "1" ]; then
+		cli_write_quoted_conf ADGUARD_NETCHECK_MODE wan || return 1
+	fi
+	if [ "${proc_optimize_change}" = "1" ]; then
+		cli_write_quoted_conf ADGUARD_PROC_OPTIMIZE YES || return 1
+	fi
+	if [ "${proc_profile_change}" = "1" ]; then
+		cli_write_quoted_conf ADGUARD_PROC_PROFILE balanced || return 1
+	fi
+	ptxt_ok "Runtime defaults migrated to v2.6.0 safer values."
+}
+
 cli_installer_branch_from_args() {
 	while [ "$#" -gt 0 ]; do
 		case "$1" in
@@ -4895,7 +5775,7 @@ cli_write_adguard_branch() {
 }
 
 cli_run() {
-	local cmd sub opt restore_file profile proc_profile adguard_branch installer_branch netcheck_mode netcheck_hosts netcheck_dns netcheck_http netcheck_timeout dns_policy
+	local cmd sub opt restore_file profile proc_profile adguard_branch installer_branch netcheck_mode netcheck_hosts netcheck_dns netcheck_http netcheck_timeout dns_policy migrate_args
 	CLI_MODE="1"
 	export CLI_MODE
 	cmd="${1:-}"
@@ -4913,8 +5793,9 @@ cli_run() {
 	netcheck_http=""
 	netcheck_timeout=""
 	dns_policy=""
+	migrate_args=""
 	case "${cmd}" in
-		install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | uninstall) ;;
+		install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | migrate-runtime-defaults | uninstall) ;;
 		*) return 2 ;;
 	esac
 	if [ "${cmd}" = "ipset" ]; then
@@ -4927,10 +5808,12 @@ cli_run() {
 		opt="$1"
 		case "${opt}" in
 			--yes)
+				[ "${cmd}" != "migrate-runtime-defaults" ] || migrate_args="${migrate_args} --yes"
 				CLI_YES="1"
 				shift
 				;;
 			--dry-run)
+				[ "${cmd}" != "migrate-runtime-defaults" ] || migrate_args="${migrate_args} --dry-run"
 				CLI_DRY_RUN="1"
 				shift
 				;;
@@ -5007,6 +5890,7 @@ cli_run() {
 			PTXT "${ERROR} Unsupported installer branch: ${installer_branch}"
 			return 1
 		}
+		write_conf INSTALLER_BRANCH "\"${installer_branch}\"" || return 1
 	fi
 	if [ -n "${adguard_branch}" ]; then
 		cli_adguard_branch_is_valid "${adguard_branch}" || {
@@ -5059,7 +5943,14 @@ cli_run() {
 			uninst_all
 			;;
 		ipset)
-			[ "${sub}" = "refresh" ] || return 2
+			case "${sub}" in
+				status | doctor)
+					ipset_status
+					return "$?"
+					;;
+				refresh) ;;
+				*) return 2 ;;
+			esac
 			[ "${CLI_DRY_RUN}" = "1" ] && {
 				cli_dry_run "IPSET refresh"
 				return 0
@@ -5085,6 +5976,11 @@ cli_run() {
 			;;
 		dns-port-policy)
 			cli_dns_port_policy --policy "${dns_policy}"
+			return "$?"
+			;;
+		migrate-runtime-defaults)
+			# Intentional unquoted expansion: migrate_args is built from fixed option tokens only.
+			cli_migrate_runtime_defaults ${migrate_args}
 			return "$?"
 			;;
 		performance)
@@ -5135,6 +6031,10 @@ cli_run() {
 	esac
 }
 
+if [ "${1:-}" = "preflight" ]; then
+	preflight "${2:-install}"
+	exit "$?"
+fi
 if [ "${1:-}" = "doctor" ]; then
 	case "${2:-}" in
 		"" | "--fix")
@@ -5157,6 +6057,15 @@ case "${1:-}" in
 		if cli_pre_remote_dry_run "$@"; then
 			exit 0
 		fi
+		;;
+esac
+cli_pre_runtime_defaults_preview "$@"
+CLI_STATUS="$?"
+case "${CLI_STATUS}" in
+	0) exit 0 ;;
+	2)
+		cli_usage
+		exit 2
 		;;
 esac
 
@@ -5184,7 +6093,7 @@ if [ -z "${2:-}" ] && single_arg_menu_action "${1:-}"; then
 	set -- "${BRANCH}" "${CHOSEN}"
 fi
 case "${1}" in
-	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | uninstall)
+	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | migrate-runtime-defaults | uninstall)
 		BRANCH="$(cli_installer_branch_from_args "$@" 2>/dev/null)"
 		[ -n "${BRANCH}" ] || BRANCH="$(conf_value INSTALLER_BRANCH)"
 		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
@@ -5281,14 +6190,14 @@ case "${1:-}" in
 	install | update)
 		init_remote_adguard_metadata
 		;;
-	backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | uninstall) ;;
+	backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | migrate-runtime-defaults | uninstall) ;;
 	*)
 		init_remote_adguard_metadata
 		;;
 esac
 
 case "${1:-}" in
-	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | uninstall)
+	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | migrate-runtime-defaults | uninstall)
 		cli_run "$@"
 		CLI_STATUS="$?"
 		if [ "${CLI_STATUS}" -ne 0 ]; then
@@ -5315,10 +6224,10 @@ case "$2" in
 		if menu_action_allowed "$2"; then
 			menu "$2"
 		else
-			PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore | doctor | status)" \
+			PTXT "${INFO} Usage: sh installer {master|dev?|""} (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore | migrate-runtime-defaults | doctor | status)" \
 				"${INFO} Doctor can also be run as: sh installer doctor [--fix]. Status can also be run as: sh installer status." \
 				"${INFO} Branch or Tag must be represented by a value or empty quotes in place of string e.g. \"\" in the \$1 string position." \
-				"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore | doctor | status) in the \$2 string position." \
+				"${INFO} Action must be represented by a value (1 - {install/update} | 2 - uninstall | 3 - changepw | 4 - reconfigure | 5 - setamtmupdate | 6 - setlocalcache | 7 - switchbranch | 8 - setipset | ${BLOCKLIST_ANALYZER_SHA256:+9 - unusedblocklists | }{b/B} - backup | {r/R} - restore | migrate-runtime-defaults | doctor | status) in the \$2 string position." \
 				"${INFO} An update example sh installer master update, or just use the regular menu by not specifying an Action."
 		fi
 		;;

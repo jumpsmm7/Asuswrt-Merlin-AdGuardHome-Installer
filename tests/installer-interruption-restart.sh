@@ -28,8 +28,12 @@ sed -n \
 	-e '/^adguard_install_abort_on_signal() {$/,/^}/p' \
 	-e '/^adguard_install_abort_trap_enable() {$/,/^}/p' \
 	-e '/^adguard_restore_abort_trap_enable() {$/,/^}/p' \
+	-e '/^rollback_result_write() {$/,/^}/p' \
+	-e '/^rollback_result_summary() {$/,/^}/p' \
+	-e '/^rollback_result_notice() {$/,/^}/p' \
 	-e '/^adguard_restore_after_failed_directory_restore() {$/,/^}/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail 'could not extract interruption trap helpers'
+printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_ROOT}" >>"${FUNCTIONS_FILE}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'interruption trap helper extraction was empty'
 : >"${CALLS_FILE}"
 
