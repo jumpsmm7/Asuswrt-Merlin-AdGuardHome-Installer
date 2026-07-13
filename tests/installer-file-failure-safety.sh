@@ -45,6 +45,7 @@ awk '
 	/^ptxt_ok\(\)/,/^}/
 	/^ptxt_warn\(\)/,/^}/
 	/^ptxt_fail\(\)/,/^}/
+	/^installer_cleanup_tmp_file\(\)/,/^}/
 	/^on_installer_exit\(\)/,/^}/
 	/^rollback_result_write\(\)/,/^}/
 	/^rollback_result_summary\(\)/,/^}/
@@ -79,8 +80,10 @@ printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS
 	. "${FUNCTIONS_FILE}"
 
 	AGH_FILE="${TMP_DIR}/exit-cleanup/AdGuardHome"
-	SETUP_YAML_TMP_FILE="${TMP_DIR}/exit-cleanup/setup.yaml.tmp"
-	BLOCKLIST_YAML_TMP_FILE="${TMP_DIR}/exit-cleanup/blocklist.yaml.tmp"
+	YAML_FILE="${AGH_FILE}.yaml"
+	YAML_ORI="${TMP_DIR}/exit-cleanup/.AdGuardHome.yaml.ori"
+	SETUP_YAML_TMP_FILE="${YAML_ORI}.new.$$"
+	BLOCKLIST_YAML_TMP_FILE="${YAML_FILE}.blocklists.$$.tmp"
 	ROLLBACK_RESULT_FILE="${TMP_DIR}/exit-cleanup/rollback-result"
 	mkdir -p "${TMP_DIR}/exit-cleanup" || exit 1
 	printf '%s\n' setup >"${SETUP_YAML_TMP_FILE}" || exit 1
@@ -103,6 +106,31 @@ printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS
 		fail "installer exit cleanup left blocklist YAML temp file"
 	grep -q '^result=rollback unavailable$' "${ROLLBACK_RESULT_FILE}" ||
 		fail "installer exit cleanup changed the rollback marker"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	AGH_FILE="${TMP_DIR}/unsafe-env/AdGuardHome"
+	YAML_FILE="${AGH_FILE}.yaml"
+	YAML_ORI="${TMP_DIR}/unsafe-env/.AdGuardHome.yaml.ori"
+	SETUP_YAML_TMP_FILE="${TMP_DIR}/unsafe-env/wrapper-setup.yaml"
+	BLOCKLIST_YAML_TMP_FILE="${TMP_DIR}/unsafe-env/wrapper-blocklist.yaml"
+	mkdir -p "${TMP_DIR}/unsafe-env" || exit 1
+	printf '%s\n' setup >"${SETUP_YAML_TMP_FILE}" || exit 1
+	printf '%s\n' blocklist >"${BLOCKLIST_YAML_TMP_FILE}" || exit 1
+	cleanup_api_files() {
+		return 0
+	}
+	check_dns_environment() {
+		return 0
+	}
+	on_installer_exit
+	[ -e "${SETUP_YAML_TMP_FILE}" ] ||
+		fail "installer exit cleanup removed an unowned setup YAML path"
+	[ -e "${BLOCKLIST_YAML_TMP_FILE}" ] ||
+		fail "installer exit cleanup removed an unowned blocklist YAML path"
 ) || exit 1
 
 (
