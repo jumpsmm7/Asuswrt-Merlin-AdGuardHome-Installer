@@ -37,6 +37,22 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 mkdir -p "${TMP_DIR}/target" || exit 1
 
+for installer_command in status doctor; do
+	unsafe_dir="${TMP_DIR}/inherited-${installer_command}"
+	unsafe_setup_file="${unsafe_dir}/wrapper-setup.yaml"
+	unsafe_blocklist_file="${unsafe_dir}/wrapper-blocklist.yaml"
+	mkdir -p "${unsafe_dir}" || exit 1
+	printf '%s\n' setup >"${unsafe_setup_file}" || exit 1
+	printf '%s\n' blocklist >"${unsafe_blocklist_file}" || exit 1
+	SETUP_YAML_TMP_FILE="${unsafe_setup_file}" \
+		BLOCKLIST_YAML_TMP_FILE="${unsafe_blocklist_file}" \
+		sh "${REPO_DIR}/installer" "${installer_command}" >/dev/null 2>&1 || true
+	[ -e "${unsafe_setup_file}" ] ||
+		fail "${installer_command} removed an inherited setup YAML path"
+	[ -e "${unsafe_blocklist_file}" ] ||
+		fail "${installer_command} removed an inherited blocklist YAML path"
+done
+
 awk '
 	/^_quote\(\)/,/^}/
 	/^PTXT\(\)/,/^}/
