@@ -78,7 +78,7 @@ export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH:-}"
 - v2.6.0 uses safer runtime defaults for new installs while preserving existing `.config` values during upgrades.
 - New installs refuse to terminate unknown non-AdGuardHome owners of port `53` by default. Existing installs that keep `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=0` retain legacy cleanup until migrated.
 - New installs save `ADGUARD_NETCHECK_MODE=wan` when router/local-cache DNS is selected, or `ADGUARD_NETCHECK_MODE=lan` for LAN-only service management. Existing installs keep their saved mode.
-- New installs use the lower-risk `balanced` runtime proc/sysctl profile. Existing installs keep their saved optimization setting and profile unless changed manually.
+- New installs use the lower-risk `balanced` runtime proc/sysctl profile. Existing installs keep their saved optimization setting and profile unless changed manually. If the runtime script is launched without an installer-managed `.config`, proc/sysctl optimization stays disabled by default.
 
 ## Features
 
@@ -295,6 +295,7 @@ ADGUARD_PROC_PROFILE="balanced"
 ```
 
 Upgrades keep the saved value; when no value exists, the installer pins the legacy aggressive profile for compatibility.
+When no installer-managed `.config` is available at all, the runtime script defaults to optimization disabled rather than applying proc/sysctl writes implicitly.
 
 The supported profiles are:
 
