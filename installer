@@ -708,6 +708,82 @@ preflight_action_requires_timezone_column() {
 	return 1
 }
 
+preflight_action_requires_router_eligibility() {
+	case "${1:-install}" in
+		status | preflight)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+preflight_check_router_eligibility() {
+	local arch model odmpid os result sw_mode
+	result="OK"
+	PTXT "preflight.router.required=yes"
+	if [ -z "${ROUTER_MODEL:-}" ]; then
+		odmpid="$(nvram get odmpid 2>/dev/null)" || odmpid=""
+		[ -z "${odmpid}" ] && model="$(nvram get productid 2>/dev/null)" || model="${odmpid}"
+	else
+		model="${ROUTER_MODEL}"
+	fi
+	os="$(/bin/uname 2>/dev/null)" || os=""
+	case "${model}" in
+		*AC*)
+			case "${model}" in
+				*RT-AC86* | *RT-AC2900*) arch="$(/bin/uname -m 2>/dev/null)" || arch="" ;;
+				*) arch="armv7" ;;
+			esac
+			;;
+		*)
+			arch="$(/bin/uname -m 2>/dev/null)" || arch=""
+			;;
+	esac
+	sw_mode="$(nvram get sw_mode 2>/dev/null)" || sw_mode=""
+	PTXT "preflight.router.model=${model:-missing}"
+	PTXT "preflight.router.sw_mode=${sw_mode:-missing}"
+	if [ -z "${model}" ]; then
+		PTXT "preflight.router.model.result=FAIL"
+		result="FAIL"
+	else
+		PTXT "preflight.router.model.result=OK"
+	fi
+	if [ "${sw_mode}" = "1" ]; then
+		PTXT "preflight.router.mode.result=OK"
+	else
+		PTXT "preflight.router.mode.result=FAIL"
+		result="FAIL"
+	fi
+	case "${os}" in
+		Linux)
+			PTXT "preflight.router.os=linux"
+			PTXT "preflight.router.os.result=OK"
+			;;
+		*)
+			PTXT "preflight.router.os=${os:-missing}"
+			PTXT "preflight.router.os.result=FAIL"
+			result="FAIL"
+			;;
+	esac
+	case "${arch}" in
+		aarch64 | arm64 | armv7l | armv7)
+			PTXT "preflight.router.arch=${arch}"
+			PTXT "preflight.router.arch.result=OK"
+			;;
+		*)
+			PTXT "preflight.router.arch=${arch:-missing}"
+			PTXT "preflight.router.arch.result=FAIL"
+			result="FAIL"
+			;;
+	esac
+	if [ "${result}" = "OK" ]; then
+		PTXT "preflight.router.result=OK"
+		return 0
+	fi
+	PTXT "preflight.router.result=FAIL"
+	return 1
+}
+
 preflight_check_path() {
 	local description path result which_path
 	description="$1"
@@ -869,6 +945,12 @@ preflight() {
 	preflight_check_path "iptables" "/usr/sbin/iptables" || failed="1"
 	preflight_check_path "ip6tables" "/usr/sbin/ip6tables" || failed="1"
 	preflight_check_stock_commands || failed="1"
+	if preflight_action_requires_router_eligibility "${action}"; then
+		preflight_check_router_eligibility || failed="1"
+	else
+		PTXT "preflight.router.required=no"
+		PTXT "preflight.router.result=SKIP"
+	fi
 	if preflight_action_requires_entware "${action}"; then
 		entware_required="1"
 		preflight_check_entware || failed="1"

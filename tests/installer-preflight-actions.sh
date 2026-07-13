@@ -45,6 +45,8 @@ grep -q 'preflight.jq.install_hint=opkg install jq' "${SCRIPT_PATH}" ||
 	fail 'preflight jq check must report the Entware install hint'
 grep -q 'preflight_check_stock_commands || failed="1"' "${SCRIPT_PATH}" ||
 	fail 'preflight must check the broader stock command set'
+grep -q 'preflight_check_router_eligibility || failed="1"' "${SCRIPT_PATH}" ||
+	fail 'preflight must check router eligibility for actionable flows'
 grep -q 'preflight_check_entware_package coreutils-sha256sum' "${SCRIPT_PATH}" ||
 	fail 'preflight must report coreutils-sha256sum install guidance when SHA-256 support is missing'
 grep -q 'preflight.entware.password_hash.install_hint=opkg install python3 python3-bcrypt' "${SCRIPT_PATH}" ||
@@ -106,6 +108,26 @@ grep -q 'preflight_check_entware_package column' "${SCRIPT_PATH}" ||
 		done
 	}
 
+	assert_router_eligibility_required() {
+		local action
+		for action in "$@"; do
+			if ! preflight_action_requires_router_eligibility "${action}"; then
+				printf '%s\n' "expected router eligibility requirement for action: ${action}" >&2
+				exit 1
+			fi
+		done
+	}
+
+	assert_router_eligibility_skipped() {
+		local action
+		for action in "$@"; do
+			if preflight_action_requires_router_eligibility "${action}"; then
+				printf '%s\n' "unexpected router eligibility requirement for action: ${action}" >&2
+				exit 1
+			fi
+		done
+	}
+
 	assert_timezone_column_required() {
 		local action
 		for action in "$@"; do
@@ -117,6 +139,8 @@ grep -q 'preflight_check_entware_package column' "${SCRIPT_PATH}" ||
 	}
 
 	assert_entware_required '' install update reconfigure restore uninstall ipset backup doctor netcheck dns-port-policy performance migrate-runtime-defaults
+	assert_router_eligibility_required '' install update reconfigure restore uninstall ipset backup doctor netcheck dns-port-policy performance migrate-runtime-defaults
+	assert_router_eligibility_skipped status preflight
 	assert_entware_skipped status preflight
 	assert_jq_skipped '' install update reconfigure restore uninstall ipset backup doctor status preflight netcheck dns-port-policy performance migrate-runtime-defaults
 	assert_sha256_required '' install update restore blocklists unusedblocklists 9
