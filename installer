@@ -728,6 +728,42 @@ preflight_action_requires_router_eligibility() {
 	return 0
 }
 
+preflight_action_requires_downloader() {
+	case "${1:-install}" in
+		status | preflight)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+preflight_action_requires_service_tools() {
+	case "${1:-install}" in
+		status | preflight)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+preflight_action_requires_cru() {
+	case "${1:-install}" in
+		status | preflight)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+preflight_action_requires_firewall_tools() {
+	case "${1:-install}" in
+		status | preflight)
+			return 1
+			;;
+	esac
+	return 0
+}
+
 preflight_check_router_eligibility() {
 	local arch model odmpid os result sw_mode
 	result="OK"
@@ -952,11 +988,33 @@ preflight() {
 	PTXT "preflight.path=${PATH}"
 	preflight_check_path "sh" "/bin/sh" || failed="1"
 	preflight_check_path "nvram" "/bin/nvram" || failed="1"
-	preflight_check_downloader || failed="1"
-	preflight_check_path "service" "/sbin/service" || failed="1"
-	preflight_check_path "cru" "/usr/sbin/cru" || failed="1"
-	preflight_check_path "iptables" "/usr/sbin/iptables" || failed="1"
-	preflight_check_path "ip6tables" "/usr/sbin/ip6tables" || failed="1"
+	if preflight_action_requires_downloader "${action}"; then
+		preflight_check_downloader || failed="1"
+	else
+		PTXT "preflight.downloader.required=no"
+		PTXT "preflight.downloader.result=SKIP"
+	fi
+	if preflight_action_requires_service_tools "${action}"; then
+		preflight_check_path "service" "/sbin/service" || failed="1"
+	else
+		PTXT "preflight.service.required=no"
+		PTXT "preflight.service.result=SKIP"
+	fi
+	if preflight_action_requires_cru "${action}"; then
+		preflight_check_path "cru" "/usr/sbin/cru" || failed="1"
+	else
+		PTXT "preflight.cru.required=no"
+		PTXT "preflight.cru.result=SKIP"
+	fi
+	if preflight_action_requires_firewall_tools "${action}"; then
+		preflight_check_path "iptables" "/usr/sbin/iptables" || failed="1"
+		preflight_check_path "ip6tables" "/usr/sbin/ip6tables" || failed="1"
+	else
+		PTXT "preflight.iptables.required=no"
+		PTXT "preflight.iptables.result=SKIP"
+		PTXT "preflight.ip6tables.required=no"
+		PTXT "preflight.ip6tables.result=SKIP"
+	fi
 	preflight_check_stock_commands || failed="1"
 	if preflight_action_requires_router_eligibility "${action}"; then
 		preflight_check_router_eligibility || failed="1"
