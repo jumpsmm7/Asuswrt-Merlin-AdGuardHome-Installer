@@ -58,7 +58,7 @@ ROLLBACK_RESULT_FILE="${TARG_DIR}/.rollback_result"
 mkdir -p "${TARG_DIR}" "${ADDON_DIR}" || fail 'could not create fixture directories'
 printf '%s\n' 'ADGUARD_WEBUI_PORT="3000"' >"${CONF_FILE}" || fail 'could not write config'
 printf '%s\n' 'bind_host: 192.168.50.1' >"${YAML_FILE}" || fail 'could not write yaml'
-for result in 'rollback failed' 'rollback partial' 'rollback unavailable' 'failed: rollback unavailable'; do
+for result in 'rollback failed' 'rollback partial' 'rollback unavailable' 'restore-failed' 'failed: rollback unavailable'; do
 	cat >"${ROLLBACK_RESULT_FILE}" <<RESULT
 time=2026-07-12 00:00:00
 context=binary-replace
@@ -69,4 +69,14 @@ RESULT
 	printf '%s\n' "${DOCTOR_OUTPUT}" | grep -q "^\[FAIL\] last rollback result: ${result} .*Next:" || fail "${result} record was not reported as FAIL with next step"
 done
 
-printf '%s\n' 'PASS: doctor fails on incomplete rollback result records'
+cat >"${ROLLBACK_RESULT_FILE}" <<'RESULT'
+time=2026-07-12 00:00:00
+context=restore
+result=rollback restored
+detail=previous binary restored
+RESULT
+DOCTOR_OUTPUT="$(PATH="${BIN_DIR}:/bin:/usr/bin" doctor 2>&1)" || true
+[ "$(printf '%s\n' "${DOCTOR_OUTPUT}" | grep -c '^\[WARN\] last rollback result:')" -eq 1 ] || fail 'completed rollback record was reported more than once'
+printf '%s\n' "${DOCTOR_OUTPUT}" | grep -q 'Review the failure above' && fail 'completed rollback record reported failure follow-up text'
+
+printf '%s\n' 'PASS: doctor reports rollback result records once with correct severity'
