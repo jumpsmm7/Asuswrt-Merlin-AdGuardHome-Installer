@@ -282,7 +282,7 @@ opkg_clean_env() {
 
 installer_cleanup_tmp_file() {
 	case "$1:$2" in
-		setup:"${YAML_ORI}.new.$$"|blocklist:"${YAML_FILE}.blocklists.$$.tmp")
+		setup:"${YAML_ORI}.new.$$" | blocklist:"${YAML_FILE}.blocklists.$$.tmp")
 			rm -f "$2" 2>/dev/null
 			;;
 	esac
