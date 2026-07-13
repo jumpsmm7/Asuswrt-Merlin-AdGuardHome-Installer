@@ -3005,6 +3005,125 @@ adguardhome_yaml_ipset_file() {
 	' "${YAML_FILE}"
 }
 
+ipset_status_path() {
+	case "$1" in
+		"") return 1 ;;
+		/*) printf '%s\n' "$1" ;;
+		*) printf '%s\n' "${TARG_DIR}/$1" ;;
+	esac
+}
+
+ipset_status_sets() {
+	local file
+	file="$1"
+	[ -f "${file}" ] || return 0
+	awk '
+		/^[[:space:]]*(#|$)/ { next }
+		{
+			line = $0
+			sub(/[[:space:]]+#.*$/, "", line)
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+			if (line == "") next
+			slash = 0
+			for (i = length(line); i > 0; i--) {
+				if (substr(line, i, 1) == "/") {
+					slash = i
+					break
+				}
+			}
+			if (!slash) next
+			sets = substr(line, slash + 1)
+			n = split(sets, set, ",")
+			for (i = 1; i <= n; i++) {
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", set[i])
+				if (set[i] == "") continue
+				family = (i == 1 ? "IPv4" : "IPv6")
+				print family " " set[i]
+			}
+		}
+	' "${file}"
+}
+
+ipset_status_set_family() {
+	ipset list "$1" 2>/dev/null | awk '
+		/^Header:/ {
+			for (i = 1; i <= NF; i++) {
+				if ($i == "family" && (i + 1) <= NF) {
+					print $(i + 1)
+					exit
+				}
+			}
+		}
+	'
+}
+
+ipset_status_report_set() {
+	local expected family set
+	expected="$1"
+	set="$2"
+	family="$(ipset_status_set_family "${set}")"
+	if [ -z "${family}" ]; then
+		PTXT "${WARNING} ${expected} set missing: ${set}"
+		return 0
+	fi
+	case "${expected}:${family}" in
+		IPv4:inet)
+			PTXT "${INFO} IPv4 set exists: ${set} (family ${family})"
+			;;
+		IPv6:inet6)
+			PTXT "${INFO} IPv6 set exists: ${set} (family ${family})"
+			;;
+		IPv4:inet6 | IPv6:inet)
+			PTXT "${WARNING} ${expected} set family mismatch likely: ${set} (family ${family})"
+			;;
+		*)
+			PTXT "${WARNING} ${expected} set exists with unknown family: ${set} (family ${family})"
+			;;
+	esac
+}
+
+ipset_status() {
+	local current_file enabled found generated_file ipset_file set_entry yaml_file
+	enabled="$(conf_value ADGUARD_IPSET)"
+	case "${enabled}" in
+		NO) PTXT "${INFO} IPSET integration enabled: NO" ;;
+		YES) PTXT "${INFO} IPSET integration enabled: YES" ;;
+		*) PTXT "${INFO} IPSET integration enabled: YES (default)" ;;
+	esac
+	yaml_file="$(adguardhome_yaml_ipset_file 2>/dev/null)"
+	if [ -n "${yaml_file}" ]; then
+		current_file="$(ipset_status_path "${yaml_file}")"
+		if [ "${current_file}" = "${TARG_DIR}/ipset.conf" ]; then
+			PTXT "${INFO} AdGuardHome.yaml managed dns.ipset_file: YES (${current_file})"
+		else
+			PTXT "${WARNING} AdGuardHome.yaml dns.ipset_file is not installer-managed: ${current_file}"
+		fi
+	else
+		current_file=""
+		PTXT "${WARNING} AdGuardHome.yaml managed dns.ipset_file: NO"
+	fi
+	for ipset_file in "${TARG_DIR}/ipset.user" "${TARG_DIR}/ipset.conf"; do
+		[ -f "${ipset_file}" ] && PTXT "${INFO} IPSET file exists: ${ipset_file}" || PTXT "${WARNING} IPSET file missing: ${ipset_file}"
+	done
+	if ! ai_have_cmd ipset; then
+		PTXT "${WARNING} router-stock ipset command unavailable; set existence and family checks skipped."
+		return 0
+	fi
+	found="0"
+	for ipset_file in "${TARG_DIR}/ipset.user" "${TARG_DIR}/ipset.conf"; do
+		[ -f "${ipset_file}" ] || continue
+		generated_file="$(ipset_status_sets "${ipset_file}")"
+		[ -n "${generated_file}" ] || continue
+		found="1"
+		PTXT "${INFO} Referenced sets from ${ipset_file}:"
+		printf '%s\n' "${generated_file}" | while read -r set_entry; do
+			[ -n "${set_entry}" ] || continue
+			ipset_status_report_set "${set_entry%% *}" "${set_entry#* }"
+		done
+	done
+	[ "${found}" = "1" ] || PTXT "${WARNING} No IPSET set references found in installer-managed IPSET files."
+}
+
 chmod_adguardhome_data_files_600() {
 	local DATA_DIR
 	DATA_DIR="$1"
@@ -4857,6 +4976,7 @@ cli_usage() {
 		"${INFO}   sh installer restore --file /path/to/backup_AdGuardHome.tar.gz --yes [--dry-run]" \
 		"${INFO}   sh installer doctor [--fix]" \
 		"${INFO}   sh installer ipset refresh [--yes] [--dry-run]" \
+		"${INFO}   sh installer ipset status" \
 		"${INFO}   sh installer netcheck --mode {legacy|wan|lan} [--hosts host-list] [--dns server] [--require-http {YES|NO}] [--timeout seconds]" \
 		"${INFO}   sh installer dns-port-policy --policy {legacy|refuse-unknown}" \
 		"${INFO}   sh installer performance --profile {balanced|low-memory|fast}" \
@@ -5390,7 +5510,14 @@ cli_run() {
 			uninst_all
 			;;
 		ipset)
-			[ "${sub}" = "refresh" ] || return 2
+			case "${sub}" in
+				status | doctor)
+					ipset_status
+					return "$?"
+					;;
+				refresh) ;;
+				*) return 2 ;;
+			esac
 			[ "${CLI_DRY_RUN}" = "1" ] && {
 				cli_dry_run "IPSET refresh"
 				return 0
