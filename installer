@@ -662,6 +662,257 @@ installer_dependencies_available() {
 	return 0
 }
 
+preflight_action_requires_entware() {
+	case "${1:-install}" in
+		status | preflight)
+			return 1
+			;;
+		netcheck)
+			return 1
+			;;
+		*)
+			return 0
+			;;
+	esac
+}
+
+preflight_action_requires_jq() {
+	case "${1:-install}" in
+		*)
+			return 1
+			;;
+	esac
+}
+
+preflight_action_requires_password_hash() {
+	case "${1:-install}" in
+		"" | install | reconfigure | changepw | 3 | 4)
+			return 0
+			;;
+	esac
+	return 1
+}
+
+preflight_action_requires_sha256() {
+	case "${1:-install}" in
+		"" | install | update | blocklists | unusedblocklists | 9)
+			return 0
+			;;
+	esac
+	return 1
+}
+
+preflight_action_requires_timezone_column() {
+	case "${1:-install}" in
+		"" | install | reconfigure | 4)
+			return 0
+			;;
+	esac
+	return 1
+}
+
+preflight_check_path() {
+	local description path result which_path
+	description="$1"
+	path="$2"
+	result="FAIL"
+	which_path="$(which "${path##*/}" 2>/dev/null)" || which_path=""
+	if [ -x "${path}" ]; then
+		result="OK"
+	fi
+	PTXT "preflight.${description}.required=${path}"
+	PTXT "preflight.${description}.which=${which_path:-missing}"
+	PTXT "preflight.${description}.result=${result}"
+	[ "${result}" = "OK" ]
+}
+
+preflight_check_command() {
+	local command_name result which_path
+	command_name="$1"
+	result="FAIL"
+	which_path="$(which "${command_name}" 2>/dev/null)" || which_path=""
+	if [ -n "${which_path}" ] && [ -x "${which_path}" ]; then
+		result="OK"
+	fi
+	PTXT "preflight.stock.${command_name}.required=yes"
+	PTXT "preflight.stock.${command_name}.which=${which_path:-missing}"
+	PTXT "preflight.stock.${command_name}.result=${result}"
+	[ "${result}" = "OK" ]
+}
+
+preflight_check_stock_commands() {
+	local failed required_command
+	failed="0"
+	for required_command in awk chmod chown cp cut grep kill ln md5sum mkdir mv netstat pidof rm sed tar; do
+		preflight_check_command "${required_command}" || failed="1"
+	done
+	[ "${failed}" = "0" ]
+}
+
+preflight_check_downloader() {
+	local curl_path wget_path result
+	curl_path="$(which curl 2>/dev/null)" || curl_path=""
+	wget_path="$(which wget 2>/dev/null)" || wget_path=""
+	result="FAIL"
+	if [ -x /usr/sbin/curl ] || [ -x /usr/sbin/wget ]; then
+		result="OK"
+	fi
+	PTXT "preflight.downloader.required=/usr/sbin/curl or /usr/sbin/wget"
+	PTXT "preflight.downloader.curl.which=${curl_path:-missing}"
+	PTXT "preflight.downloader.curl.stock=$([ -x /usr/sbin/curl ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.downloader.wget.which=${wget_path:-missing}"
+	PTXT "preflight.downloader.wget.stock=$([ -x /usr/sbin/wget ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.downloader.result=${result}"
+	[ "${result}" = "OK" ]
+}
+
+preflight_check_entware() {
+	local result
+	result="FAIL"
+	if entware_available; then
+		result="OK"
+	fi
+	PTXT "preflight.entware.required=yes"
+	PTXT "preflight.entware.opt_dir=$([ -d /opt ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.entware.opkg=$([ -x /opt/bin/opkg ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.entware.config=$({ [ -f /opt/etc/opkg.conf ] || [ -f /opt/etc/init.d/rc.unslung ]; } && PTXT OK || PTXT missing)"
+	PTXT "preflight.entware.result=${result}"
+	[ "${result}" = "OK" ]
+}
+
+preflight_check_entware_package() {
+	local pkg result
+	pkg="$1"
+	result="MISSING"
+	if opkg_pkg_installed "${pkg}"; then
+		result="OK"
+	fi
+	PTXT "preflight.entware.package.${pkg}.required=yes"
+	PTXT "preflight.entware.package.${pkg}.result=${result}"
+	[ "${result}" = "OK" ] || PTXT "preflight.entware.package.${pkg}.install_hint=opkg install ${pkg}"
+	[ "${result}" = "OK" ]
+}
+
+preflight_check_jq() {
+	local allow_entware jq_path result
+	allow_entware="$1"
+	jq_path="$(which jq 2>/dev/null)" || jq_path=""
+	result="FAIL"
+	if [ -x /usr/bin/jq ]; then
+		result="OK"
+	fi
+	PTXT "preflight.jq.required=yes"
+	PTXT "preflight.jq.which=${jq_path:-missing}"
+	PTXT "preflight.jq.stock=$([ -x /usr/bin/jq ] && PTXT OK || PTXT missing)"
+	if [ "${allow_entware}" = "1" ]; then
+		[ "${result}" = "OK" ] || [ ! -x /opt/bin/jq ] || result="OK"
+		PTXT "preflight.jq.entware=$([ -x /opt/bin/jq ] && PTXT OK || PTXT missing)"
+		PTXT "preflight.jq.install_hint=opkg install jq"
+	else
+		PTXT "preflight.jq.entware=not_checked"
+	fi
+	PTXT "preflight.jq.result=${result}"
+	[ "${result}" = "OK" ]
+}
+
+preflight_check_password_hash_support() {
+	local failed result
+	failed="0"
+	result="MISSING"
+	if python_bcrypt_available || [ -x /opt/bin/bcrypt-tool ]; then
+		result="OK"
+	fi
+	PTXT "preflight.entware.password_hash.required=yes"
+	PTXT "preflight.entware.password_hash.result=${result}"
+	if [ "${result}" != "OK" ]; then
+		PTXT "preflight.entware.password_hash.install_hint=opkg install python3 python3-bcrypt"
+		preflight_check_entware_package python3 || failed="1"
+		preflight_check_entware_package python3-bcrypt || failed="1"
+	fi
+	[ "${failed}" = "0" ] && [ "${result}" = "OK" ]
+}
+
+preflight_check_sha256_support() {
+	if sha256sum_available; then
+		PTXT "preflight.sha256.required=yes"
+		PTXT "preflight.sha256.result=OK"
+		PTXT "preflight.entware.package.coreutils-sha256sum.required=no"
+		return 0
+	fi
+	PTXT "preflight.sha256.required=yes"
+	PTXT "preflight.sha256.result=MISSING"
+	preflight_check_entware_package coreutils-sha256sum
+}
+
+preflight_check_timezone_column() {
+	if [ -x /opt/bin/column ]; then
+		PTXT "preflight.entware.column.required=yes"
+		PTXT "preflight.entware.column.result=OK"
+		return 0
+	fi
+	PTXT "preflight.entware.column.required=yes"
+	PTXT "preflight.entware.column.result=MISSING"
+	preflight_check_entware_package column
+}
+
+preflight() {
+	local action entware_required failed
+	action="${1:-install}"
+	entware_required="0"
+	failed="0"
+	PTXT "preflight.version=${AI_VERSION}"
+	PTXT "preflight.action=${action}"
+	PTXT "preflight.safe_to_paste=yes"
+	PTXT "preflight.path=${PATH}"
+	preflight_check_path "sh" "/bin/sh" || failed="1"
+	preflight_check_path "nvram" "/bin/nvram" || failed="1"
+	preflight_check_downloader || failed="1"
+	preflight_check_path "service" "/sbin/service" || failed="1"
+	preflight_check_path "cru" "/usr/sbin/cru" || failed="1"
+	preflight_check_path "iptables" "/usr/sbin/iptables" || failed="1"
+	preflight_check_path "ip6tables" "/usr/sbin/ip6tables" || failed="1"
+	preflight_check_stock_commands || failed="1"
+	if preflight_action_requires_entware "${action}"; then
+		entware_required="1"
+		preflight_check_entware || failed="1"
+	else
+		PTXT "preflight.entware.required=no"
+		PTXT "preflight.entware.result=SKIP"
+	fi
+	if preflight_action_requires_jq "${action}"; then
+		preflight_check_jq "${entware_required}" || failed="1"
+	else
+		PTXT "preflight.jq.required=no"
+		PTXT "preflight.jq.result=SKIP"
+	fi
+	if [ "${entware_required}" = "1" ]; then
+		if preflight_action_requires_sha256 "${action}"; then
+			preflight_check_sha256_support || failed="1"
+		else
+			PTXT "preflight.sha256.required=no"
+			PTXT "preflight.sha256.result=SKIP"
+		fi
+		if preflight_action_requires_password_hash "${action}"; then
+			preflight_check_password_hash_support || failed="1"
+		else
+			PTXT "preflight.entware.password_hash.required=no"
+			PTXT "preflight.entware.password_hash.result=SKIP"
+		fi
+		if preflight_action_requires_timezone_column "${action}"; then
+			preflight_check_timezone_column || failed="1"
+		else
+			PTXT "preflight.entware.column.required=no"
+			PTXT "preflight.entware.column.result=SKIP"
+		fi
+	fi
+	if [ "${failed}" = "0" ]; then
+		PTXT "preflight.result=PASS"
+		return 0
+	fi
+	PTXT "preflight.result=FAIL"
+	return 1
+}
+
 sanitize_branch() {
 	local CANDIDATE
 	CANDIDATE="$1"
@@ -4973,6 +5224,7 @@ cli_usage() {
 		"${INFO}   sh installer update [--installer-branch master] [--adguardhome-branch {release|beta|edge}] --yes [--dry-run]" \
 		"${INFO}   sh installer backup --yes" \
 		"${INFO}   sh installer restore --file /path/to/backup_AdGuardHome.tar.gz --yes [--dry-run]" \
+		"${INFO}   sh installer preflight [install|reconfigure|update|restore|uninstall|status]" \
 		"${INFO}   sh installer doctor [--fix]" \
 		"${INFO}   sh installer ipset refresh [--yes] [--dry-run]" \
 		"${INFO}   sh installer ipset status" \
@@ -5597,6 +5849,10 @@ cli_run() {
 	esac
 }
 
+if [ "${1:-}" = "preflight" ]; then
+	preflight "${2:-install}"
+	exit "$?"
+fi
 if [ "${1:-}" = "doctor" ]; then
 	case "${2:-}" in
 		"" | "--fix")
