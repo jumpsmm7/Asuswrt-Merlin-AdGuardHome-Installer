@@ -4996,10 +4996,14 @@ end_op_header() {
 end_op_message() {
 	case "${1:-0}" in
 		1)
-			[ "${ROLLBACK_RESULT_UPDATED:-0}" = "1" ] || rollback_result_write "operation" "no rollback attempted" "operation aborted before rollback was needed"
+			if [ "${ROLLBACK_RESULT_UPDATED:-0}" != "1" ] && ! rollback_result_needs_attention; then
+				rollback_result_write "operation" "no rollback attempted" "operation aborted before rollback was needed"
+			fi
 			;;
 		2)
-			[ "${ROLLBACK_RESULT_UPDATED:-0}" = "1" ] || rollback_result_write "operation" "interrupted: no rollback attempted" "operation interrupted before rollback was needed"
+			if [ "${ROLLBACK_RESULT_UPDATED:-0}" != "1" ] && ! rollback_result_needs_attention; then
+				rollback_result_write "operation" "interrupted: no rollback attempted" "operation interrupted before rollback was needed"
+			fi
 			;;
 	esac
 	if [ "${CLI_MODE:-0}" = "1" ]; then
