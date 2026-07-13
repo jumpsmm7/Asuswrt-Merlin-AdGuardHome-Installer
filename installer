@@ -5702,7 +5702,7 @@ cli_migrate_runtime_defaults() {
 	}
 	proc_optimize_current="$(conf_value ADGUARD_PROC_OPTIMIZE)"
 	if [ -z "${proc_optimize_current}" ]; then
-		PTXT "${INFO} Missing runtime default: ADGUARD_PROC_OPTIMIZE; v2.6.0 safer value is \"YES\"."
+		PTXT "${INFO} Missing runtime default: ADGUARD_PROC_OPTIMIZE; v2.6.0 keeps optimization enabled only with the safer balanced profile."
 		changes="1"
 		proc_optimize_change="1"
 	else
