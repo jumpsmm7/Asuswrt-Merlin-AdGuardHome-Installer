@@ -51,6 +51,10 @@ grep -q 'preflight_check_entware_package coreutils-sha256sum || true' "${SCRIPT_
 	fail 'preflight must keep coreutils-sha256sum package guidance from satisfying SHA-256 support'
 grep -q 'preflight.entware.password_hash.install_hint=opkg install python3 python3-bcrypt' "${SCRIPT_PATH}" ||
 	fail 'preflight must report password hashing package guidance'
+grep -q 'python_bcrypt_available || bcrypt_tool_available' "${SCRIPT_PATH}" ||
+	fail 'preflight must verify bcrypt-tool before reporting password hashing support'
+grep -q 'bcrypt-tool hash preflight 10' "${SCRIPT_PATH}" ||
+	fail 'bcrypt-tool availability must probe hash generation'
 grep -q 'preflight_check_entware_package column || true' "${SCRIPT_PATH}" ||
 	fail 'preflight must keep column package guidance from satisfying timezone column support'
 

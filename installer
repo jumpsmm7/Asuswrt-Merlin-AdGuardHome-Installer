@@ -158,7 +158,7 @@ clear_screen() {
 }
 
 ensure_bcrypt_tool() {
-	if [ -f "/opt/bin/bcrypt-tool" ]; then
+	if bcrypt_tool_available; then
 		return 0
 	fi
 	case "$(/bin/uname -m)" in
@@ -179,7 +179,18 @@ ensure_bcrypt_tool() {
 	GO_PATH_DIR="/tmp/AdGuardHome-go-path"
 	[ -x /opt/bin/go/bin/go ] || return 1
 	mkdir -p "${GO_CACHE_DIR}" "${GO_PATH_DIR}" || return 1
-	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/opt/bin/go/bin" HOME="${GO_PATH_DIR}" GOCACHE="${GO_CACHE_DIR}" GOPATH="${GO_PATH_DIR}" GOROOT="${GOROOT}" GOBIN="${GOBIN}" /opt/bin/go/bin/go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1
+	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/opt/bin/go/bin" HOME="${GO_PATH_DIR}" GOCACHE="${GO_CACHE_DIR}" GOPATH="${GO_PATH_DIR}" GOROOT="${GOROOT}" GOBIN="${GOBIN}" /opt/bin/go/bin/go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1 || return 1
+	bcrypt_tool_available
+}
+
+bcrypt_tool_available() {
+	local hash
+	[ -x /opt/bin/bcrypt-tool ] || return 1
+	hash="$(/opt/bin/bcrypt-tool hash preflight 10 2>/dev/null)" || return 1
+	case "${hash}" in
+		\$2a\$10\$*) return 0 ;;
+	esac
+	return 1
 }
 
 ensure_opkg_package() {
@@ -892,7 +903,7 @@ preflight_check_password_hash_support() {
 	local failed result
 	failed="0"
 	result="MISSING"
-	if python_bcrypt_available || [ -x /opt/bin/bcrypt-tool ]; then
+	if python_bcrypt_available || bcrypt_tool_available; then
 		result="OK"
 	fi
 	PTXT "preflight.entware.password_hash.required=yes"
