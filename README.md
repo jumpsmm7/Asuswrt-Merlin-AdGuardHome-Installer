@@ -37,6 +37,7 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 - [Troubleshooting and issue reports](#troubleshooting-and-issue-reports)
 - [Static AdGuardHome archive cache](#static-adguardhome-archive-cache)
 - [Development checks](#development-checks)
+  - [Release validation](#release-validation)
 - [Project notes](#project-notes)
 - [Donate](#donate)
 
@@ -667,6 +668,20 @@ tools/code-quality.sh --fix
 If CI reports `shfmt` formatting differences, you can also run the `Create shfmt formatting PR` workflow against the affected branch to open an automated formatting pull request.
 
 Pull requests that change shell scripts, checksum files, tools, prompts, or workflows are also reviewed by the Codex Code Improvement workflow when the repository has an `OPENAI_API_KEY` Actions secret configured. The Codex prompt includes the local code-quality output so formatting failures can be reported with the same remediation steps shown in CI.
+
+### Release validation
+
+Release validation is a focused pre-tag pass from the repository root. It uses POSIX `sh`, BusyBox-compatible syntax checks, and repository test scripts; it does not require Python, Perl, GNU coreutils, systemd, `apt`, or Entware.
+
+The release validation pass performs these actions:
+
+- Syntax-checks the primary installer and service scripts with POSIX `sh`.
+- Checks repository shell scripts for POSIX/BusyBox portability.
+- Verifies SHA-256 metadata for installer-managed artifacts.
+- Runs selected router-sensitive regressions for DNS handoff, IPSET setup/status/locking, rollback and doctor rollback behavior, CLI runtime configuration, and interruption restart handling.
+- Optionally runs ShellCheck static analysis against the primary scripts when ShellCheck is installed on a development workstation outside the router.
+
+ShellCheck is not a router dependency; it is an optional workstation check only. Router-sensitive tests that cannot run directly in a local environment belong in the same POSIX `sh` test environment used for CI instead of requiring non-router dependencies.
 
 ## Project notes
 
