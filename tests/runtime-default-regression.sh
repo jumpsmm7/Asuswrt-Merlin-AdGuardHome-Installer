@@ -1,0 +1,100 @@
+#!/bin/sh
+# Verify v2.6.0 runtime defaults and upgrade preservation paths.
+
+set -u
+
+fail() {
+	printf '%s\n' "FAIL: $*" >&2
+	exit 1
+}
+
+INSTALLER_PATH="${1:-installer}"
+S99_PATH="${2:-S99AdGuardHome}"
+MANAGER_PATH="${3:-AdGuardHome.sh}"
+TMP_ROOT="${TMPDIR:-/tmp}/runtime-default-regression.$$"
+INSTALLER_FUNCTIONS="${TMP_ROOT}/installer-functions"
+S99_FUNCTIONS="${TMP_ROOT}/s99-functions"
+
+cleanup() {
+	rm -rf "${TMP_ROOT}"
+}
+
+trap cleanup 0
+trap 'cleanup; exit 1' HUP INT TERM
+
+[ -f "${INSTALLER_PATH}" ] || fail "installer script not found: ${INSTALLER_PATH}"
+[ -f "${S99_PATH}" ] || fail "S99 script not found: ${S99_PATH}"
+[ -f "${MANAGER_PATH}" ] || fail "manager script not found: ${MANAGER_PATH}"
+mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
+
+sed -n \
+	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^conf_has_key() {$/,/^}$/p; /^write_conf_if_absent() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^configure_runtime_defaults() {$/,/^}$/p' \
+	"${INSTALLER_PATH}" >"${INSTALLER_FUNCTIONS}" || fail 'could not extract installer runtime helpers'
+grep -q '^configure_runtime_defaults() {$' "${INSTALLER_FUNCTIONS}" || fail 'configure_runtime_defaults helper missing'
+
+sed -n '/^dns_port_unknown_refusal_enabled() {$/,/^}$/p' "${S99_PATH}" >"${S99_FUNCTIONS}" ||
+	fail 'could not extract S99 DNS refusal helper'
+grep -q '^dns_port_unknown_refusal_enabled() {$' "${S99_FUNCTIONS}" || fail 'DNS refusal helper missing'
+
+# shellcheck disable=SC1090
+. "${INSTALLER_FUNCTIONS}"
+INFO='[i]'
+WARNING='[w]'
+ERROR='[!]'
+
+CONF_FILE="${TMP_ROOT}/new-wan.config"
+configure_runtime_defaults new-install 1 >"${TMP_ROOT}/new-wan.out" || fail 'new WAN defaults failed'
+grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'new WAN install did not refuse unknown DNS owners'
+grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'new WAN install did not save wan netcheck mode'
+grep -q '^ADGUARD_PROC_OPTIMIZE="YES"$' "${CONF_FILE}" || fail 'new WAN install did not enable balanced optimization'
+grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'new WAN install did not save balanced profile'
+
+CONF_FILE="${TMP_ROOT}/new-lan.config"
+configure_runtime_defaults new-install 0 >"${TMP_ROOT}/new-lan.out" || fail 'new LAN defaults failed'
+grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'new LAN install did not save lan netcheck mode'
+grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'new LAN install did not save balanced profile'
+
+CONF_FILE="${TMP_ROOT}/upgrade-existing.config"
+cat >"${CONF_FILE}" <<'CONFIG'
+ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
+ADGUARD_NETCHECK_MODE="lan"
+ADGUARD_PROC_OPTIMIZE="NO"
+ADGUARD_PROC_PROFILE="safe"
+CONFIG
+before="$(cat "${CONF_FILE}")"
+configure_runtime_defaults upgrade >"${TMP_ROOT}/upgrade-existing.out" || fail 'upgrade preservation failed'
+[ "$(cat "${CONF_FILE}")" = "${before}" ] || fail 'upgrade overwrote existing runtime defaults'
+grep -q 'Existing runtime defaults were retained for compatibility' "${TMP_ROOT}/upgrade-existing.out" ||
+	fail 'upgrade did not print retention guidance'
+grep -q 'migrate-runtime-defaults --yes' "${TMP_ROOT}/upgrade-existing.out" ||
+	fail 'upgrade did not print migration command'
+
+CONF_FILE="${TMP_ROOT}/upgrade-missing.config"
+: >"${CONF_FILE}"
+configure_runtime_defaults upgrade >"${TMP_ROOT}/upgrade-missing.out" || fail 'upgrade missing-default pin failed'
+grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"$' "${CONF_FILE}" || fail 'upgrade missing policy did not pin legacy DNS cleanup'
+grep -q '^ADGUARD_NETCHECK_MODE="legacy"$' "${CONF_FILE}" || fail 'upgrade missing netcheck did not pin legacy mode'
+grep -q '^ADGUARD_PROC_OPTIMIZE="YES"$' "${CONF_FILE}" || fail 'upgrade missing optimize did not pin legacy enablement'
+grep -q '^ADGUARD_PROC_PROFILE="aggressive"$' "${CONF_FILE}" || fail 'upgrade missing profile did not pin aggressive compatibility'
+
+# shellcheck disable=SC1090
+. "${S99_FUNCTIONS}"
+WORK_DIR="${TMP_ROOT}/s99-empty"
+mkdir -p "${WORK_DIR}" || fail 'could not create S99 work dir'
+unset ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL
+if ! dns_port_unknown_refusal_enabled; then
+	fail 'S99 no-config fallback did not refuse unknown DNS owners'
+fi
+printf '%s\n' 'ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"' >"${WORK_DIR}/.config" || fail 'could not create S99 config'
+if dns_port_unknown_refusal_enabled; then
+	fail 'S99 saved legacy DNS policy was not preserved'
+fi
+ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL='1'
+if ! dns_port_unknown_refusal_enabled; then
+	fail 'S99 environment DNS refusal override did not take precedence'
+fi
+
+manager_default="$(sed -n 's/^DEFAULT_ADGUARD_PROC_OPTIMIZE="\([^"]*\)"$/\1/p' "${MANAGER_PATH}" | sed -n '1p')"
+[ "${manager_default}" = 'NO' ] || fail 'manager no-config proc optimization fallback is not disabled'
+
+printf '%s\n' 'PASS: runtime defaults preserve upgrades and apply safer new-install fallbacks'
