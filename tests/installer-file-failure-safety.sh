@@ -45,7 +45,7 @@ for installer_command in status doctor; do
 	printf '%s\n' setup >"${unsafe_setup_file}" || exit 1
 	printf '%s\n' blocklist >"${unsafe_blocklist_file}" || exit 1
 	SETUP_YAML_TMP_FILE="${unsafe_setup_file}" \
-	BLOCKLIST_YAML_TMP_FILE="${unsafe_blocklist_file}" \
+		BLOCKLIST_YAML_TMP_FILE="${unsafe_blocklist_file}" \
 		sh "${REPO_DIR}/installer" "${installer_command}" >/dev/null 2>&1 || true
 	[ -e "${unsafe_setup_file}" ] ||
 		fail "${installer_command} removed an inherited setup YAML path"
