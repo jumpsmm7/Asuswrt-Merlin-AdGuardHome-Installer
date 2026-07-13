@@ -112,6 +112,7 @@ run_check 'Static archive interruption cleanup regression' sh tests/download-sta
 run_check 'Installer file failure safety regression' sh tests/installer-file-failure-safety.sh
 run_check 'Installer progress output regression' sh tests/installer-progress-output.sh
 run_check 'Installer legacy hook cleanup regression' sh tests/installer-legacy-hook-cleanup.sh
+run_check 'Installer upgrade runtime-default ordering regression' sh tests/installer-upgrade-runtime-defaults.sh
 run_check 'Installer post-replacement restart regression' sh tests/installer-post-replace-restart.sh
 run_check 'Installer interruption restart regression' sh tests/installer-interruption-restart.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
