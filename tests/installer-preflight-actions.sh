@@ -51,6 +51,10 @@ grep -q 'preflight_action_requires_cru "${action}"' "${SCRIPT_PATH}" ||
 	fail 'preflight must gate cru checks by action'
 grep -q 'preflight_action_requires_firewall_tools "${action}"' "${SCRIPT_PATH}" ||
 	fail 'preflight must gate firewall checks by action'
+grep -q 'preflight_check_jffs_ready || failed="1"' "${SCRIPT_PATH}" ||
+	fail 'preflight must check pending JFFS format for install/reconfigure flows'
+grep -q 'nvram get jffs2_format' "${SCRIPT_PATH}" ||
+	fail 'preflight JFFS readiness must read jffs2_format without changing nvram'
 grep -q 'preflight_check_router_eligibility || failed="1"' "${SCRIPT_PATH}" ||
 	fail 'preflight must check router eligibility for actionable flows'
 grep -q 'preflight_check_entware_package coreutils-sha256sum || true' "${SCRIPT_PATH}" ||
@@ -118,6 +122,26 @@ grep -q 'preflight_check_entware_package column || true' "${SCRIPT_PATH}" ||
 		done
 	}
 
+	assert_jffs_ready_required() {
+		local action
+		for action in "$@"; do
+			if ! preflight_action_requires_jffs_ready "${action}"; then
+				printf '%s\n' "expected JFFS readiness requirement for action: ${action}" >&2
+				exit 1
+			fi
+		done
+	}
+
+	assert_jffs_ready_skipped() {
+		local action
+		for action in "$@"; do
+			if preflight_action_requires_jffs_ready "${action}"; then
+				printf '%s\n' "unexpected JFFS readiness requirement for action: ${action}" >&2
+				exit 1
+			fi
+		done
+	}
+
 	assert_router_eligibility_required() {
 		local action
 		for action in "$@"; do
@@ -177,6 +201,8 @@ grep -q 'preflight_check_entware_package column || true' "${SCRIPT_PATH}" ||
 	assert_base_tools_required '' install update reconfigure restore uninstall ipset backup doctor netcheck dns-port-policy performance migrate-runtime-defaults
 	assert_base_tools_skipped status preflight
 	assert_entware_required '' install update reconfigure restore uninstall ipset backup doctor netcheck dns-port-policy performance migrate-runtime-defaults
+	assert_jffs_ready_required '' install reconfigure 4
+	assert_jffs_ready_skipped update restore uninstall ipset backup doctor netcheck dns-port-policy performance migrate-runtime-defaults status preflight
 	assert_router_eligibility_required '' install update reconfigure restore uninstall ipset backup doctor netcheck dns-port-policy performance migrate-runtime-defaults
 	assert_router_eligibility_skipped status preflight
 	assert_entware_skipped status preflight

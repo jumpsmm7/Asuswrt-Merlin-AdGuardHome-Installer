@@ -719,6 +719,15 @@ preflight_action_requires_timezone_column() {
 	return 1
 }
 
+preflight_action_requires_jffs_ready() {
+	case "${1:-install}" in
+		"" | install | reconfigure | 4)
+			return 0
+			;;
+	esac
+	return 1
+}
+
 preflight_action_requires_router_eligibility() {
 	case "${1:-install}" in
 		status | preflight)
@@ -762,6 +771,19 @@ preflight_action_requires_firewall_tools() {
 			;;
 	esac
 	return 0
+}
+
+preflight_check_jffs_ready() {
+	local jffs2_format result
+	jffs2_format="$(nvram get jffs2_format 2>/dev/null)" || jffs2_format=""
+	result="OK"
+	PTXT "preflight.jffs.required=yes"
+	PTXT "preflight.jffs.format_pending=${jffs2_format:-missing}"
+	if [ "${jffs2_format}" = "1" ]; then
+		result="FAIL"
+	fi
+	PTXT "preflight.jffs.result=${result}"
+	[ "${result}" = "OK" ]
 }
 
 preflight_check_router_eligibility() {
@@ -1016,6 +1038,12 @@ preflight() {
 		PTXT "preflight.ip6tables.result=SKIP"
 	fi
 	preflight_check_stock_commands || failed="1"
+	if preflight_action_requires_jffs_ready "${action}"; then
+		preflight_check_jffs_ready || failed="1"
+	else
+		PTXT "preflight.jffs.required=no"
+		PTXT "preflight.jffs.result=SKIP"
+	fi
 	if preflight_action_requires_router_eligibility "${action}"; then
 		preflight_check_router_eligibility || failed="1"
 	else
