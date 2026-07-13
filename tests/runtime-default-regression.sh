@@ -1,5 +1,5 @@
 #!/bin/sh
-# Verify v2.6.0 runtime defaults and upgrade preservation paths.
+# Verify v2.6.0 runtime defaults, upgrade preservation, and migration paths.
 
 set -u
 
@@ -28,9 +28,10 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^conf_has_key() {$/,/^}$/p; /^write_conf_if_absent() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^configure_runtime_defaults() {$/,/^}$/p' \
+	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^conf_has_key() {$/,/^}$/p; /^write_conf_if_absent() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^configure_runtime_defaults() {$/,/^}$/p; /^cli_migrate_runtime_default() {$/,/^}$/p; /^cli_migrate_runtime_defaults() {$/,/^}$/p' \
 	"${INSTALLER_PATH}" >"${INSTALLER_FUNCTIONS}" || fail 'could not extract installer runtime helpers'
 grep -q '^configure_runtime_defaults() {$' "${INSTALLER_FUNCTIONS}" || fail 'configure_runtime_defaults helper missing'
+grep -q '^cli_migrate_runtime_defaults() {$' "${INSTALLER_FUNCTIONS}" || fail 'runtime migration helper missing'
 
 sed -n '/^dns_port_unknown_refusal_enabled() {$/,/^}$/p' "${S99_PATH}" >"${S99_FUNCTIONS}" ||
 	fail 'could not extract S99 DNS refusal helper'
@@ -76,6 +77,18 @@ grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"$' "${CONF_FILE}" || fail 
 grep -q '^ADGUARD_NETCHECK_MODE="legacy"$' "${CONF_FILE}" || fail 'upgrade missing netcheck did not pin legacy mode'
 grep -q '^ADGUARD_PROC_OPTIMIZE="YES"$' "${CONF_FILE}" || fail 'upgrade missing optimize did not pin legacy enablement'
 grep -q '^ADGUARD_PROC_PROFILE="aggressive"$' "${CONF_FILE}" || fail 'upgrade missing profile did not pin aggressive compatibility'
+cli_migrate_runtime_defaults --dry-run >"${TMP_ROOT}/upgrade-missing-migrate-dry-run.out" ||
+	fail 'upgrade migration dry-run failed'
+grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"$' "${CONF_FILE}" || fail 'upgrade migration dry-run rewrote legacy DNS cleanup'
+grep -q '^ADGUARD_NETCHECK_MODE="legacy"$' "${CONF_FILE}" || fail 'upgrade migration dry-run rewrote legacy netcheck mode'
+grep -q 'Dry-run: would write v2.6.0 safer runtime defaults' "${TMP_ROOT}/upgrade-missing-migrate-dry-run.out" ||
+	fail 'upgrade migration dry-run did not report planned safer defaults'
+cli_migrate_runtime_defaults --yes >"${TMP_ROOT}/upgrade-missing-migrate.out" ||
+	fail 'upgrade migration apply failed'
+grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'upgrade migration did not enable DNS owner refusal'
+grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'upgrade migration did not save wan netcheck mode'
+grep -q '^ADGUARD_PROC_OPTIMIZE="YES"$' "${CONF_FILE}" || fail 'upgrade migration did not preserve optimization enablement'
+grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'upgrade migration did not save balanced profile'
 
 # shellcheck disable=SC1090
 . "${S99_FUNCTIONS}"
@@ -97,4 +110,4 @@ fi
 manager_default="$(sed -n 's/^DEFAULT_ADGUARD_PROC_OPTIMIZE="\([^"]*\)"$/\1/p' "${MANAGER_PATH}" | sed -n '1p')"
 [ "${manager_default}" = 'NO' ] || fail 'manager no-config proc optimization fallback is not disabled'
 
-printf '%s\n' 'PASS: runtime defaults preserve upgrades and apply safer new-install fallbacks'
+printf '%s\n' 'PASS: runtime defaults preserve upgrades, migrate legacy pins, and apply safer new-install fallbacks'
