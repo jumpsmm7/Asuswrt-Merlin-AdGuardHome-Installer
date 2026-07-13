@@ -116,12 +116,12 @@ grep -q 'preflight_check_entware_package column' "${SCRIPT_PATH}" ||
 		done
 	}
 
-	assert_entware_required '' install update reconfigure restore uninstall ipset backup doctor dns-port-policy performance migrate-runtime-defaults
-	assert_entware_skipped status preflight netcheck
+	assert_entware_required '' install update reconfigure restore uninstall ipset backup doctor netcheck dns-port-policy performance migrate-runtime-defaults
+	assert_entware_skipped status preflight
 	assert_jq_skipped '' install update reconfigure restore uninstall ipset backup doctor status preflight netcheck dns-port-policy performance migrate-runtime-defaults
-	assert_sha256_required '' install update blocklists unusedblocklists 9
+	assert_sha256_required '' install update restore blocklists unusedblocklists 9
 	assert_password_hash_required '' install reconfigure changepw 3 4
-	assert_timezone_column_required '' install reconfigure 4
+	assert_timezone_column_required '' install reconfigure restore 4
 ) || fail 'preflight action helper returned an unexpected result'
 
 printf '%s\n' 'PASS: preflight action routing keeps Entware and jq checks flow-aware'

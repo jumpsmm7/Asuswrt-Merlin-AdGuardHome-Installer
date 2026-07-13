@@ -667,9 +667,6 @@ preflight_action_requires_entware() {
 		status | preflight)
 			return 1
 			;;
-		netcheck)
-			return 1
-			;;
 		*)
 			return 0
 			;;
@@ -695,7 +692,7 @@ preflight_action_requires_password_hash() {
 
 preflight_action_requires_sha256() {
 	case "${1:-install}" in
-		"" | install | update | blocklists | unusedblocklists | 9)
+		"" | install | update | restore | blocklists | unusedblocklists | 9)
 			return 0
 			;;
 	esac
@@ -704,7 +701,7 @@ preflight_action_requires_sha256() {
 
 preflight_action_requires_timezone_column() {
 	case "${1:-install}" in
-		"" | install | reconfigure | 4)
+		"" | install | reconfigure | restore | 4)
 			return 0
 			;;
 	esac
