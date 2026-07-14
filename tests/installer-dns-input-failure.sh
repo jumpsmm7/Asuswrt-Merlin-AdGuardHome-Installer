@@ -22,6 +22,8 @@ eval "${RUNTIME_DEFAULT_FUNCTIONS}"
 eval "${ROLLBACK_FUNCTIONS}"
 eval "${SETUP_FUNCTIONS}"
 
+rollback_result_notice() { :; }
+
 INFO='Info:'
 ERROR='Error:'
 WARNING='Warning:'
