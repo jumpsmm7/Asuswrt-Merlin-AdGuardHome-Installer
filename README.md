@@ -180,7 +180,7 @@ Use `status` for a short service summary:
 sh installer status
 ```
 
-The status output includes the AdGuardHome service state, monitor state, PID count, port `53` ownership, AdGuardHome version, installer version, selected branch, WebUI address and port, dnsmasq handoff state, and the last startup result found in logs.
+The status output includes the AdGuardHome service state, monitor state, PID count, port `53` ownership, AdGuardHome version, installer version, selected branch, WebUI address and port, dnsmasq handoff state, the last startup result found in logs, and the last rollback result marker written by installer-managed install, update, restore, setup, or blocklist YAML replacement recovery paths.
 
 Use `doctor` for a broader health check:
 
@@ -196,7 +196,9 @@ The doctor command prints simple status lines such as:
 [FAIL] DNS port 53 is not listening
 ```
 
-Doctor checks include Entware mount state, AdGuardHome directories and symlinks, managed Asuswrt-Merlin hook scripts, Entware init scripts, `AdGuardHome.yaml`, `.config`, DNS port `53`, dnsmasq handoff markers and locks, monitor and daemon process counts, WebUI port ownership, installer and AdGuardHome versions, backup archive safety, IPSET files, and DNS-related NVRAM values.
+Doctor checks include Entware mount state, AdGuardHome directories and symlinks, managed Asuswrt-Merlin hook scripts, Entware init scripts, `AdGuardHome.yaml`, `.config`, DNS port `53`, dnsmasq handoff markers and locks, monitor and daemon process counts, WebUI port ownership, installer and AdGuardHome versions, backup archive safety, IPSET files, the last rollback result marker, and DNS-related NVRAM values.
+
+Rollback result markers are stored under the installer-managed runtime/state path and are intentionally concise. A marker such as `rollback complete`, `rollback partial`, `rollback failed`, or `rollback unavailable` helps `status`, `doctor`, and failure messages explain whether the installer restored the previous state, could only partially restore it, or failed before a rollback target existed. After you have reviewed and corrected the reported condition, rerun `sh installer status` or `sh installer doctor`; if no further action is needed, the marker file can be removed from the installed router state path.
 
 Safe repairs can be requested with:
 
