@@ -6,6 +6,7 @@ set -u
 SCRIPT_PATH="${1:-installer}"
 TMP_ROOT="${TMPDIR:-/tmp}/installer-preflight-actions.$$"
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
+PREFLIGHT_FILE="${TMP_ROOT}/preflight"
 
 cleanup() {
 	rm -rf "${TMP_ROOT}"
@@ -25,6 +26,10 @@ mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 sed -n '/^preflight_action_requires_entware() {$/,/^preflight_check_path() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract preflight action helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'preflight action helper extraction was empty'
+
+sed -n '/^preflight() {$/,/^sanitize_branch() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${PREFLIGHT_FILE}" ||
+	fail 'could not extract preflight function'
+[ -s "${PREFLIGHT_FILE}" ] || fail 'preflight function extraction was empty'
 
 usage_line="$(grep -n 'sh installer preflight \[install|reconfigure|update|restore|uninstall|status\]' "${SCRIPT_PATH}" | cut -d: -f1)" ||
 	fail 'preflight usage line is missing'
@@ -67,6 +72,61 @@ grep -q 'bcrypt-tool hash preflight 10' "${SCRIPT_PATH}" ||
 	fail 'bcrypt-tool availability must probe hash generation'
 grep -q 'preflight_check_entware_package column || true' "${SCRIPT_PATH}" ||
 	fail 'preflight must keep column package guidance from satisfying timezone column support'
+grep -q 'preflight.entware.dependent_checks=SKIP_ENTWARE_MISSING' "${SCRIPT_PATH}" ||
+	fail 'preflight must skip Entware-dependent checks when Entware is unavailable'
+
+run_preflight_gate_case() {
+	case_name="$1"
+	entware_status="$2"
+	expected_skip="$3"
+	out_file="${TMP_ROOT}/${case_name}.out"
+	stub_file="${TMP_ROOT}/${case_name}.stub"
+	cat >"${stub_file}" <<EOF
+PTXT() { printf '%s\n' "\$*"; }
+AI_VERSION=TEST
+PATH=/bin:/sbin:/usr/bin:/usr/sbin
+preflight_action_requires_downloader() { return 1; }
+preflight_action_requires_service_tools() { return 1; }
+preflight_action_requires_cru() { return 1; }
+preflight_action_requires_firewall_tools() { return 1; }
+preflight_action_requires_jffs_ready() { return 1; }
+preflight_action_requires_router_eligibility() { return 1; }
+preflight_action_requires_entware() { return 0; }
+preflight_action_requires_jq() { return 1; }
+preflight_action_requires_sha256() { return 0; }
+preflight_action_requires_password_hash() { return 0; }
+preflight_action_requires_timezone_column() { return 0; }
+preflight_check_path() { return 0; }
+preflight_check_stock_commands() { return 0; }
+preflight_check_entware() { return ${entware_status}; }
+preflight_check_sha256_support() { PTXT 'called.sha256=yes'; return 0; }
+preflight_check_password_hash_support() { PTXT 'called.password_hash=yes'; return 0; }
+preflight_check_timezone_column() { PTXT 'called.column=yes'; return 0; }
+. "${PREFLIGHT_FILE}"
+preflight install
+EOF
+	sh "${stub_file}" >"${out_file}" 2>&1 || true
+	case "${expected_skip}" in
+		yes)
+			grep -q 'preflight.entware.dependent_checks=SKIP_ENTWARE_MISSING' "${out_file}" ||
+				fail 'preflight must report skipped Entware-dependent checks when Entware is missing'
+			if grep -q '^called\.' "${out_file}"; then
+				fail 'preflight must not run Entware-dependent checks when Entware is missing'
+			fi
+			;;
+		no)
+			grep -q 'called.sha256=yes' "${out_file}" || fail 'preflight must run SHA-256 check when Entware is available'
+			grep -q 'called.password_hash=yes' "${out_file}" || fail 'preflight must run password hash check when Entware is available'
+			grep -q 'called.column=yes' "${out_file}" || fail 'preflight must run column check when Entware is available'
+			if grep -q 'SKIP_ENTWARE_MISSING' "${out_file}"; then
+				fail 'preflight must not report Entware skip when Entware is available'
+			fi
+			;;
+	esac
+}
+
+run_preflight_gate_case missing 1 yes
+run_preflight_gate_case available 0 no
 
 (
 	# shellcheck disable=SC1090
