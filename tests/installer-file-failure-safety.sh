@@ -16,10 +16,42 @@ fail() {
 	exit 1
 }
 
+assert_rollback_result_marker() {
+	_marker_file="$1"
+	_context="$2"
+	_result="$3"
+	_detail="$4"
+	_label="$5"
+	[ -f "${_marker_file}" ] ||
+		fail "${_label} did not write a rollback result"
+	grep -q "^context=${_context}\$" "${_marker_file}" ||
+		fail "${_label} wrote the wrong rollback context"
+	grep -q "^result=${_result}\$" "${_marker_file}" ||
+		fail "${_label} wrote the wrong rollback result"
+	grep -q "^detail=${_detail}\$" "${_marker_file}" ||
+		fail "${_label} wrote the wrong rollback detail"
+}
+
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 mkdir -p "${TMP_DIR}/target" || exit 1
+
+for installer_command in status doctor; do
+	unsafe_dir="${TMP_DIR}/inherited-${installer_command}"
+	unsafe_setup_file="${unsafe_dir}/wrapper-setup.yaml"
+	unsafe_blocklist_file="${unsafe_dir}/wrapper-blocklist.yaml"
+	mkdir -p "${unsafe_dir}" || exit 1
+	printf '%s\n' setup >"${unsafe_setup_file}" || exit 1
+	printf '%s\n' blocklist >"${unsafe_blocklist_file}" || exit 1
+	SETUP_YAML_TMP_FILE="${unsafe_setup_file}" \
+		BLOCKLIST_YAML_TMP_FILE="${unsafe_blocklist_file}" \
+		sh "${REPO_DIR}/installer" "${installer_command}" >/dev/null 2>&1 || true
+	[ -e "${unsafe_setup_file}" ] ||
+		fail "${installer_command} removed an inherited setup YAML path"
+	[ -e "${unsafe_blocklist_file}" ] ||
+		fail "${installer_command} removed an inherited blocklist YAML path"
+done
 
 awk '
 	/^_quote\(\)/,/^}/
@@ -29,6 +61,8 @@ awk '
 	/^ptxt_ok\(\)/,/^}/
 	/^ptxt_warn\(\)/,/^}/
 	/^ptxt_fail\(\)/,/^}/
+	/^installer_cleanup_tmp_file\(\)/,/^}/
+	/^on_installer_exit\(\)/,/^}/
 	/^rollback_result_write\(\)/,/^}/
 	/^rollback_result_summary\(\)/,/^}/
 	/^rollback_result_notice\(\)/,/^}/
@@ -56,6 +90,64 @@ awk '
 	/^write_conf\(\)/,/^}/
 ' "${REPO_DIR}/installer" >"${FUNCTIONS_FILE}"
 printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS_FILE}"
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	AGH_FILE="${TMP_DIR}/exit-cleanup/AdGuardHome"
+	YAML_FILE="${AGH_FILE}.yaml"
+	YAML_ORI="${TMP_DIR}/exit-cleanup/.AdGuardHome.yaml.ori"
+	SETUP_YAML_TMP_FILE="${YAML_ORI}.new.$$"
+	BLOCKLIST_YAML_TMP_FILE="${YAML_FILE}.blocklists.$$.tmp"
+	ROLLBACK_RESULT_FILE="${TMP_DIR}/exit-cleanup/rollback-result"
+	mkdir -p "${TMP_DIR}/exit-cleanup" || exit 1
+	printf '%s\n' setup >"${SETUP_YAML_TMP_FILE}" || exit 1
+	printf '%s\n' blocklist >"${BLOCKLIST_YAML_TMP_FILE}" || exit 1
+	printf '%s\n' \
+		'time=2026-07-12 00:00:00' \
+		'context=package install' \
+		'result=rollback unavailable' \
+		'detail=archive validation failed before changes' >"${ROLLBACK_RESULT_FILE}" || exit 1
+	cleanup_api_files() {
+		return 0
+	}
+	check_dns_environment() {
+		return 0
+	}
+	on_installer_exit
+	[ ! -e "${SETUP_YAML_TMP_FILE}" ] ||
+		fail "installer exit cleanup left setup YAML temp file"
+	[ ! -e "${BLOCKLIST_YAML_TMP_FILE}" ] ||
+		fail "installer exit cleanup left blocklist YAML temp file"
+	grep -q '^result=rollback unavailable$' "${ROLLBACK_RESULT_FILE}" ||
+		fail "installer exit cleanup changed the rollback marker"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	AGH_FILE="${TMP_DIR}/unsafe-env/AdGuardHome"
+	YAML_FILE="${AGH_FILE}.yaml"
+	YAML_ORI="${TMP_DIR}/unsafe-env/.AdGuardHome.yaml.ori"
+	SETUP_YAML_TMP_FILE="${TMP_DIR}/unsafe-env/wrapper-setup.yaml"
+	BLOCKLIST_YAML_TMP_FILE="${TMP_DIR}/unsafe-env/wrapper-blocklist.yaml"
+	mkdir -p "${TMP_DIR}/unsafe-env" || exit 1
+	printf '%s\n' setup >"${SETUP_YAML_TMP_FILE}" || exit 1
+	printf '%s\n' blocklist >"${BLOCKLIST_YAML_TMP_FILE}" || exit 1
+	cleanup_api_files() {
+		return 0
+	}
+	check_dns_environment() {
+		return 0
+	}
+	on_installer_exit
+	[ -e "${SETUP_YAML_TMP_FILE}" ] ||
+		fail "installer exit cleanup removed an unowned setup YAML path"
+	[ -e "${BLOCKLIST_YAML_TMP_FILE}" ] ||
+		fail "installer exit cleanup removed an unowned blocklist YAML path"
+) || exit 1
 
 (
 	# shellcheck disable=SC1090
@@ -479,6 +571,136 @@ EOF
 	INFO="Info:"
 	ERROR="Error:"
 	WARNING="Warning:"
+	BASE_DIR="${TMP_DIR}/install-marker-base"
+	TARG_DIR="${BASE_DIR}/AdGuardHome"
+	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	ROLLBACK_RESULT_FILE="${BASE_DIR}/.AdGuardHome.rollback_result"
+	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
+	ADGUARD_INSTALL_OLD_BINARY=""
+	ADGUARD_INSTALL_WAS_RUNNING="0"
+	ADGUARD_INSTALL_STAGE_DIR=""
+	ADGUARD_RESTORE_ACTIVE="0"
+	mkdir -p "${BASE_DIR}" || fail "could not prepare install marker base"
+
+	tar() {
+		case "$1" in
+			-t*) printf '%s\n' './AdGuardHome/README.md' ;;
+			*) return 1 ;;
+		esac
+	}
+
+	chmod() {
+		return 0
+	}
+
+	if install_adguard_archive "${TMP_DIR}/bad-install.tar.gz" >/dev/null 2>&1; then
+		fail "install_adguard_archive accepted an unsafe archive"
+	fi
+	assert_rollback_result_marker "${ROLLBACK_RESULT_FILE}" "package install" "rollback unavailable" "archive validation failed before changes" "unsafe install archive"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	INFO="Info:"
+	ERROR="Error:"
+	WARNING="Warning:"
+	BASE_DIR="${TMP_DIR}/install-extract-marker-base"
+	TARG_DIR="${BASE_DIR}/AdGuardHome"
+	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	ROLLBACK_RESULT_FILE="${BASE_DIR}/.AdGuardHome.rollback_result"
+	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
+	ADGUARD_INSTALL_OLD_BINARY=""
+	ADGUARD_INSTALL_WAS_RUNNING="0"
+	ADGUARD_INSTALL_STAGE_DIR=""
+	ADGUARD_RESTORE_ACTIVE="0"
+	mkdir -p "${BASE_DIR}" || fail "could not prepare install extraction marker base"
+
+	tar() {
+		case "$1" in
+			-tzvf) printf '%s\n' \
+				'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
+				'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' ;;
+			-tzf) printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' ;;
+			*) return 1 ;;
+		esac
+	}
+
+	if install_adguard_archive "${TMP_DIR}/extract-fail.tar.gz" >/dev/null 2>&1; then
+		fail "install_adguard_archive accepted a failed extraction"
+	fi
+	assert_rollback_result_marker "${ROLLBACK_RESULT_FILE}" "package install" "rollback unavailable" "archive extraction failed before changes" "failed install extraction"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	INFO="Info:"
+	ERROR="Error:"
+	WARNING="Warning:"
+	BASE_DIR="${TMP_DIR}/install-binary-marker-base"
+	TARG_DIR="${BASE_DIR}/AdGuardHome"
+	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	ROLLBACK_RESULT_FILE="${BASE_DIR}/.AdGuardHome.rollback_result"
+	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
+	ADGUARD_INSTALL_OLD_BINARY=""
+	ADGUARD_INSTALL_WAS_RUNNING="0"
+	ADGUARD_INSTALL_STAGE_DIR=""
+	ADGUARD_RESTORE_ACTIVE="0"
+	mkdir -p "${BASE_DIR}" || fail "could not prepare install binary marker base"
+
+	tar() {
+		case "$1" in
+			-tzvf) printf '%s\n' \
+				'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
+				'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' ;;
+			-tzf) printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' ;;
+			*)
+				mkdir -p "${BASE_DIR}/.AdGuardHome.extract.$$/AdGuardHome" || return 1
+				printf '%s\n' '#!/bin/sh' 'exit 1' >"${BASE_DIR}/.AdGuardHome.extract.$$/AdGuardHome/AdGuardHome"
+				return 0
+				;;
+		esac
+	}
+
+	if install_adguard_archive "${TMP_DIR}/bad-binary.tar.gz" >/dev/null 2>&1; then
+		fail "install_adguard_archive accepted an invalid staged binary"
+	fi
+	assert_rollback_result_marker "${ROLLBACK_RESULT_FILE}" "package install" "rollback unavailable" "staged binary validation failed before changes" "invalid staged install binary"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	INFO="Info:"
+	ERROR="Error:"
+	WARNING="Warning:"
+	BASE_DIR="${TMP_DIR}/restore-marker-base"
+	TARG_DIR="${BASE_DIR}/AdGuardHome"
+	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	ROLLBACK_RESULT_FILE="${BASE_DIR}/.AdGuardHome.rollback_result"
+	mkdir -p "${BASE_DIR}" || fail "could not prepare restore marker base"
+
+	end_op_message() {
+		return 1
+	}
+
+	if backup_restore RESTORE >/dev/null 2>&1; then
+		fail "backup_restore accepted a missing backup"
+	fi
+	assert_rollback_result_marker "${ROLLBACK_RESULT_FILE}" "backup restore" "rollback unavailable" "backup archive missing" "missing restore backup"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	INFO="Info:"
+	ERROR="Error:"
+	WARNING="Warning:"
 	RESTART_CALLS="0"
 	agh_start() {
 		RESTART_CALLS="$((RESTART_CALLS + 1))"
@@ -619,6 +841,7 @@ EOF
 	BASE_DIR="${TMP_DIR}/restore-root"
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	ROLLBACK_RESULT_FILE="${BASE_DIR}/.AdGuardHome.rollback_result"
 	mkdir -p "${TARG_DIR}" || exit 1
 	printf '%s\n' "current binary" >"${AGH_FILE}"
 	printf '%s\n' "not a valid backup" >"${BASE_DIR}/backup_AdGuardHome.tar.gz"
@@ -634,6 +857,7 @@ EOF
 	if backup_restore RESTORE >/dev/null 2>&1; then
 		fail "backup_restore accepted an unsafe restore archive"
 	fi
+	assert_rollback_result_marker "${ROLLBACK_RESULT_FILE}" "backup restore" "rollback unavailable" "unsafe backup archive refused before changes" "unsafe restore archive"
 	[ "$(sed -n '1p' "${AGH_FILE}")" = "current binary" ] ||
 		fail "unsafe restore archive modified the current installation"
 ) || exit 1
@@ -648,6 +872,7 @@ EOF
 	BASE_DIR="${TMP_DIR}/restore-fail-root"
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	ROLLBACK_RESULT_FILE="${BASE_DIR}/.AdGuardHome.rollback_result"
 	mkdir -p "${TARG_DIR}" || exit 1
 	printf '%s\n' "current binary" >"${AGH_FILE}"
 	printf '%s\n' "safe backup placeholder" >"${BASE_DIR}/backup_AdGuardHome.tar.gz"
@@ -678,6 +903,7 @@ EOF
 	if backup_restore RESTORE >/dev/null 2>&1; then
 		fail "backup_restore accepted a failed staged extraction"
 	fi
+	assert_rollback_result_marker "${ROLLBACK_RESULT_FILE}" "backup restore" "rollback unavailable" "backup staging failed before changes" "failed staged extraction"
 	[ "$(sed -n '1p' "${AGH_FILE}")" = "current binary" ] ||
 		fail "failed staged restore modified the current installation"
 	[ ! -d "${BASE_DIR}/.AdGuardHome.restore.$$" ] ||
@@ -694,6 +920,7 @@ EOF
 	BASE_DIR="${TMP_DIR}/restore-data-file-root"
 	TARG_DIR="${BASE_DIR}/AdGuardHome"
 	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	ROLLBACK_RESULT_FILE="${BASE_DIR}/.AdGuardHome.rollback_result"
 	mkdir -p "${TARG_DIR}" || exit 1
 	printf '%s\n' "current binary" >"${AGH_FILE}"
 	printf '%s\n' "safe backup placeholder" >"${BASE_DIR}/backup_AdGuardHome.tar.gz"
@@ -737,10 +964,67 @@ EOF
 	if backup_restore RESTORE >/dev/null 2>&1; then
 		fail "backup_restore accepted staged restore data as a file"
 	fi
+	assert_rollback_result_marker "${ROLLBACK_RESULT_FILE}" "backup restore" "rollback unavailable" "staged backup validation failed before changes" "staged restore data file"
 	[ "$(sed -n '1p' "${AGH_FILE}")" = "current binary" ] ||
 		fail "staged restore with data file modified the current installation"
 	[ ! -d "${BASE_DIR}/.AdGuardHome.restore.$$" ] ||
 		fail "staged restore with data file left its staging directory behind"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	INFO="Info:"
+	ERROR="Error:"
+	WARNING="Warning:"
+	BASE_DIR="${TMP_DIR}/restore-preserve-fail-root"
+	TARG_DIR="${BASE_DIR}/AdGuardHome"
+	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	ROLLBACK_RESULT_FILE="${BASE_DIR}/.AdGuardHome.rollback_result"
+	mkdir -p "${TARG_DIR}" || exit 1
+	printf '%s\n' "current binary" >"${AGH_FILE}"
+	printf '%s\n' "safe backup placeholder" >"${BASE_DIR}/backup_AdGuardHome.tar.gz"
+	REAL_MV="$(which mv)" || fail "mv is unavailable"
+
+	adguard_archive_is_safe() {
+		return 0
+	}
+
+	agh_process_count() {
+		printf '%s\n' "0"
+	}
+
+	tar() {
+		case "$*" in
+			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
+				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
+				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				return 0
+				;;
+		esac
+		return 1
+	}
+
+	create_dir() {
+		mkdir -p "$1"
+	}
+
+	mv() {
+		if [ "$1" = "${TARG_DIR}" ] && [ "$2" = "${BASE_DIR}/.AdGuardHome.rollback.$$" ]; then
+			return 1
+		fi
+		"${REAL_MV}" "$@"
+	}
+
+	if backup_restore RESTORE >/dev/null 2>&1; then
+		fail "backup_restore accepted a failed current-install preservation"
+	fi
+	assert_rollback_result_marker "${ROLLBACK_RESULT_FILE}" "backup restore" "rollback unavailable" "could not preserve current installation" "failed current-install preservation"
+	[ "$(sed -n '1p' "${AGH_FILE}")" = "current binary" ] ||
+		fail "failed current-install preservation modified the current installation"
+	[ ! -d "${BASE_DIR}/.AdGuardHome.restore.$$" ] ||
+		fail "failed current-install preservation left its staging directory behind"
 ) || exit 1
 
 (

@@ -43,6 +43,8 @@ readonly BLOCKLIST_ANALYZER_URL="https://gist.githubusercontent.com/graysky2/803
 readonly BLOCKLIST_ANALYZER_SHA256_DEFAULT="77c21b6faeb7fea86b0729996dec5cc20d2d309fe8c6946c7371dd64134a6e5f"
 BLOCKLIST_ANALYZER_SHA256=""
 SCRIPT_LOC=""
+SETUP_YAML_TMP_FILE=""
+BLOCKLIST_YAML_TMP_FILE=""
 
 BOLD="$(printf "\033[1m")" || true
 readonly BOLD
@@ -278,8 +280,18 @@ opkg_clean_env() {
 	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin" /opt/bin/opkg "$@"
 }
 
+installer_cleanup_tmp_file() {
+	case "$1:$2" in
+		setup:"${YAML_ORI}.new.$$" | blocklist:"${YAML_FILE}.blocklists.$$.tmp")
+			rm -f "$2" 2>/dev/null
+			;;
+	esac
+}
+
 on_installer_exit() {
 	cleanup_api_files
+	installer_cleanup_tmp_file setup "${SETUP_YAML_TMP_FILE:-}"
+	installer_cleanup_tmp_file blocklist "${BLOCKLIST_YAML_TMP_FILE:-}"
 	# Restore pre-check DNS settings only when exiting without a local adguardhome installation.
 	if [ ! -f "${AGH_FILE}" ]; then
 		check_dns_environment 1
@@ -2438,6 +2450,7 @@ remove_unused_blocklists_from_yaml() {
 	' "${YAML_FILE}" >"${tmp_file}" || {
 		rm -f "${tmp_file}" "${removed_file}"
 		rollback_result_write "blocklist-yaml" "failed: no change" "could not build edited YAML"
+		rollback_result_notice
 		return 1
 	}
 	if [ ! -s "${removed_file}" ]; then
@@ -2451,7 +2464,6 @@ remove_unused_blocklists_from_yaml() {
 		rollback_result_write "blocklist yaml replacement" "replace-failed" "${YAML_FILE}"
 		rollback_result_notice
 		blocklist_yaml_replace_trap_disable
-		rollback_result_write "blocklist-yaml" "failed: original preserved" "could not replace ${YAML_FILE}"
 		return 1
 	fi
 	chmod 600 "${YAML_FILE}"
@@ -3686,6 +3698,8 @@ install_adguard_archive() {
 	ptxt_step "Validating AdGuardHome archive layout."
 	if ! adguard_archive_is_safe "${ARCHIVE_FILE}"; then
 		adguard_install_abort_trap_disable
+		rollback_result_write "package install" "rollback unavailable" "archive validation failed before changes"
+		rollback_result_notice
 		PTXT "${ERROR} The AdGuardHome archive contains an unsafe or incomplete file layout."
 		return 1
 	fi
@@ -3694,6 +3708,8 @@ install_adguard_archive() {
 	if ! create_dir "${STAGE_DIR}" || ! tar xzf "${ARCHIVE_FILE}" -C "${STAGE_DIR}" >/dev/null 2>&1; then
 		adguard_install_abort_trap_disable
 		rm -rf "${STAGE_DIR}"
+		rollback_result_write "package install" "rollback unavailable" "archive extraction failed before changes"
+		rollback_result_notice
 		PTXT "${ERROR} Unable to extract the AdGuardHome archive into staging."
 		return 1
 	fi
@@ -3703,6 +3719,8 @@ install_adguard_archive() {
 		[ -z "$("${STAGE_BINARY}" --version 2>/dev/null | cut -d" " -f4-)" ]; then
 		adguard_install_abort_trap_disable
 		rm -rf "${STAGE_DIR}"
+		rollback_result_write "package install" "rollback unavailable" "staged binary validation failed before changes"
+		rollback_result_notice
 		PTXT "${ERROR} The staged AdGuardHome binary failed validation."
 		return 1
 	fi
@@ -3793,6 +3811,8 @@ backup_restore() {
 		ptxt_phase "Restoring AdGuardHome backup."
 		ptxt_step "Restoring AdGuardHome from ${BASE_DIR}/backup_AdGuardHome.tar.gz; please wait."
 		if ! adguard_archive_is_safe "${BASE_DIR}/backup_AdGuardHome.tar.gz" 1; then
+			rollback_result_write "backup restore" "rollback unavailable" "unsafe backup archive refused before changes"
+			rollback_result_notice
 			ptxt_fail "Refusing to restore unsafe or incomplete backup ${BASE_DIR}/backup_AdGuardHome.tar.gz."
 			return 1
 		fi
@@ -3807,6 +3827,8 @@ backup_restore() {
 		if ! create_dir "${RESTORE_STAGE_DIR}" || ! tar -xzvf "${BASE_DIR}/backup_AdGuardHome.tar.gz" -C "${RESTORE_STAGE_DIR}" >/dev/null 2>&1; then
 			adguard_install_abort_trap_disable
 			rm -rf "${RESTORE_STAGE_DIR}"
+			rollback_result_write "backup restore" "rollback unavailable" "backup staging failed before changes"
+			rollback_result_notice
 			PTXT "${ERROR} Unable to stage ${BASE_DIR}/backup_AdGuardHome.tar.gz for restore."
 			return 1
 		fi
@@ -3817,6 +3839,8 @@ backup_restore() {
 			[ ! -d "${RESTORE_TARG_DIR}/data" ] || [ -L "${RESTORE_TARG_DIR}/data" ]; then
 			adguard_install_abort_trap_disable
 			rm -rf "${RESTORE_STAGE_DIR}"
+			rollback_result_write "backup restore" "rollback unavailable" "staged backup validation failed before changes"
+			rollback_result_notice
 			PTXT "${ERROR} The staged AdGuardHome backup is incomplete."
 			return 1
 		fi
@@ -3825,6 +3849,8 @@ backup_restore() {
 		if [ -e "${TARG_DIR}" ] && ! mv "${TARG_DIR}" "${RESTORE_ROLLBACK_DIR}"; then
 			adguard_install_abort_trap_disable
 			rm -rf "${RESTORE_STAGE_DIR}"
+			rollback_result_write "backup restore" "rollback unavailable" "could not preserve current installation"
+			rollback_result_notice
 			PTXT "${ERROR} Unable to preserve the current AdGuardHome installation before restore."
 			return 1
 		fi
@@ -3871,6 +3897,8 @@ backup_restore() {
 		rm -rf "${RESTORE_ROLLBACK_DIR}"
 		end_op_message 0 "${1:-RESTORE}"
 	elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
+		rollback_result_write "backup restore" "rollback unavailable" "backup archive missing"
+		rollback_result_notice
 		PTXT "${ERROR} No Backup found!" \
 			"${ERROR} Please make sure Backup Resides in ${BASE_DIR}"
 		end_op_message 1
@@ -4474,9 +4502,11 @@ setup_restore_previous_yaml() {
 	if [ "${YAML_BACKED_UP:-0}" -eq 1 ]; then
 		if mv -f "${YAML_BAK}" "${YAML_FILE}"; then
 			rollback_result_write "setup-yaml" "rollback complete" "previous ${YAML_FILE} restored"
+			rollback_result_notice
 			return 0
 		fi
 		rollback_result_write "setup-yaml" "rollback failed" "could not restore previous ${YAML_FILE}"
+		rollback_result_notice
 		PTXT "${ERROR} Unable to restore the previous AdGuardHome configuration."
 		return 1
 	fi
@@ -4610,6 +4640,7 @@ setup_AdGuardHome_impl() {
 					fi
 					WEB_PORT_SELECTION="${WEB_PORT}"
 					YAML_ORI_NEW="${YAML_ORI}.new.$$"
+					SETUP_YAML_TMP_FILE="${YAML_ORI_NEW}"
 					PTXT "http:" \
 						"  address: 0.0.0.0:${WEB_PORT}" >"${YAML_ORI_NEW}"
 					PTXT "${INFO} Set the Username and Password which will be encrypted to the yaml file."
@@ -4817,6 +4848,7 @@ setup_AdGuardHome_impl() {
 					PTXT "${ERROR} Unable to publish the original AdGuardHome configuration snapshot."
 					return 1
 				fi
+				SETUP_YAML_TMP_FILE=""
 				[ -z "${CONFIG_ROLLBACK}" ] || discard_installer_config_backup "${CONFIG_ROLLBACK}"
 				[ -z "${DNS_FILTER_ROLLBACK_DIR}" ] || rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
 				;;

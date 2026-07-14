@@ -36,6 +36,9 @@ sed -n \
 	-e '/^ptxt_ok() {$/,/^}/p' \
 	-e '/^ptxt_warn() {$/,/^}/p' \
 	-e '/^ptxt_fail() {$/,/^}/p' \
+	-e '/^rollback_result_write() {$/,/^}/p' \
+	-e '/^rollback_result_summary() {$/,/^}/p' \
+	-e '/^rollback_result_notice() {$/,/^}/p' \
 	-e '/^blocklist_analyzer_ids() {$/,/^}/p' \
 	-e '/^run_blocklist_analyzer() {$/,/^}/p' \
 	-e '/^blocklist_yaml_candidates() {$/,/^}/p' \
@@ -244,7 +247,45 @@ cp "${TMP_ROOT}/AdGuardHome.yaml.restore" "${TMP_ROOT}/AdGuardHome.yaml" ||
 	WARNING='Warning:'
 	ERROR='Error:'
 	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
+	TARG_DIR="${TMP_ROOT}"
+	ROLLBACK_RESULT_FILE="${TMP_ROOT}/blocklist-rollback-result"
+	REAL_MV="$(which mv)" || exit 1
+	rm -f "${ROLLBACK_RESULT_FILE}" || exit 1
+	mv() {
+		case "$*" in
+			*"${YAML_FILE}.blocklists."*".tmp ${YAML_FILE}") return 1 ;;
+		esac
+		"${REAL_MV}" "$@"
+	}
+	check_AdGuardHome_yaml() {
+		return 0
+	}
+	agh_restart() {
+		return 0
+	}
+	adguard_service_status_after_action() {
+		return 0
+	}
+	if remove_unused_blocklists_from_yaml "${TMP_ROOT}/ids.selected" >/dev/null 2>&1; then
+		exit 1
+	fi
+	grep -q '^context=blocklist yaml replacement$' "${ROLLBACK_RESULT_FILE}" || exit 1
+	grep -q '^result=replace-failed$' "${ROLLBACK_RESULT_FILE}" || exit 1
+	grep -q "^detail=${YAML_FILE}\$" "${ROLLBACK_RESULT_FILE}" || exit 1
+) || fail 'blocklist YAML replacement failure did not preserve the specific rollback marker'
+
+cp "${TMP_ROOT}/AdGuardHome.yaml.restore" "${TMP_ROOT}/AdGuardHome.yaml" ||
+	fail 'could not reset YAML after replacement marker regression'
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	INFO='Info:'
+	WARNING='Warning:'
+	ERROR='Error:'
+	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 	YAML_ERR="${YAML_FILE}.err"
+	ROLLBACK_RESULT_FILE="${TMP_ROOT}/blocklist-restore-rollback-result"
 	ptxt_phase() { PTXT "$@"; }
 	ptxt_step() { PTXT "$@"; }
 	ptxt_fail() { PTXT "$@"; }
