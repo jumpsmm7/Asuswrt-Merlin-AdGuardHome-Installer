@@ -101,7 +101,6 @@ grep -q 'IPv6 set-family check unknown: UNKNOWN uses family custom' "${OUTPUT_FI
 [ "$(grep -c '^VPN4$' "${IPSET_LIST_LOG}")" -eq 1 ] || fail 'duplicate VPN4 references were probed more than once'
 [ "$(grep -c '^VPN6$' "${IPSET_LIST_LOG}")" -eq 1 ] || fail 'duplicate VPN6 references were probed more than once'
 
-
 # Disabled integration, unmanaged YAML, missing generated file, no set references,
 # and unavailable router-stock ipset should all remain read-only and diagnostic-only.
 CONF_IPSET_VALUE="NO"
