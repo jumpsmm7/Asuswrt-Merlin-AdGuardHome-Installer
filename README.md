@@ -8,7 +8,7 @@ The official installer for running [AdGuardHome](https://github.com/AdguardTeam/
 
 This project installs, updates, reconfigures, backs up, and removes AdGuardHome on supported Asuswrt-Merlin routers while keeping the router-side service scripts in place.
 
-For a task-oriented operator guide, see the [Github wiki](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/wiki).
+For a task-oriented operator guide, see the [`Github Wiki Pages`](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/wiki).
 
 ## Table of contents
 
