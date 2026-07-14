@@ -738,7 +738,37 @@ The release validation pass performs these actions:
 - Runs selected router-sensitive regressions for DNS handoff, IPSET setup/status/locking, rollback and doctor rollback behavior, CLI runtime configuration, and interruption restart handling.
 - Optionally runs ShellCheck static analysis against the primary scripts when ShellCheck is installed on a development workstation outside the router.
 
-ShellCheck is not a router dependency; it is an optional workstation check only. Router-sensitive tests that cannot run directly in a local environment belong in the same POSIX `sh` test environment used for CI instead of requiring non-router dependencies.
+Run the required release validation commands from the repository root:
+
+```sh
+sh -n installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
+sh tools/check-shell-portability.sh
+sh tools/check-sha256.sh
+```
+
+Run the selected regression tests that cover the router-sensitive release paths:
+
+```sh
+sh tests/dns-startup-handoff.sh
+sh tests/ipset-version-gate.sh
+sh tests/ipset-lock-security.sh
+sh tests/ipset-setup-rollback.sh
+sh tests/ipset-status.sh
+sh tests/installer-end-op-rollback.sh
+sh tests/installer-doctor-rollback-result.sh
+sh tests/installer-cli-runtime-config.sh
+sh tests/installer-interruption-restart.sh
+```
+
+Optionally run ShellCheck on a development workstation when ShellCheck is installed outside the router:
+
+```sh
+if which shellcheck >/dev/null 2>&1; then
+	shellcheck -s sh installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
+fi
+```
+
+ShellCheck is not a router dependency; it is an optional workstation check only. The required release validation commands above use POSIX `sh` and repository scripts, and they do not require Python, Perl, GNU coreutils, systemd, `apt`, or Entware. Router-sensitive tests that cannot run directly in a local environment belong in the same POSIX `sh` test environment used for CI instead of requiring non-router dependencies.
 
 ## Project notes
 
