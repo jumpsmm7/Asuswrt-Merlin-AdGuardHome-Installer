@@ -133,6 +133,8 @@ sh installer restore --file /opt/etc/backup_AdGuardHome.tar.gz --dry-run
 sh installer doctor
 sh installer doctor --fix
 sh installer status
+sh installer ipset status
+sh installer ipset doctor
 sh installer ipset refresh
 sh installer ipset refresh --yes
 sh installer ipset refresh --dry-run
@@ -556,6 +558,15 @@ Concurrent setup and refresh events are serialized to prevent multiple writers f
 Do not remove an active lock. If a legacy lock remains after an abnormal termination and its recorded process is no longer running, the next refresh removes it automatically.
 
 ### Verify and troubleshoot IPSET integration
+
+For a read-only summary, run either of these equivalent diagnostics from the downloaded installer entry point:
+
+```sh
+sh installer ipset status
+sh installer ipset doctor
+```
+
+The IPSET status/doctor report does not create, flush, or delete IPSETs. It reports whether installer-managed IPSET integration is enabled, whether `AdGuardHome.yaml` points `dns.ipset_file` at the managed `ipset.conf`, whether `ipset.user` and generated `ipset.conf` exist, and whether each referenced set name currently exists according to the router-stock `ipset` command. For existing sets, it reports IPv4 and IPv6 family checks separately: `inet` sets are suitable for IPv4 answers but are likely to reject IPv6 answers, and `inet6` sets are suitable for IPv6 answers but are likely to reject IPv4 answers. Unknown families are reported without guessing. The set probe uses the router-stock `ipset` tool; if that command is unavailable, the diagnostic skips set existence and family checks without modifying router state.
 
 Confirm that the YAML points to the managed file. This `/opt/...` command requires Entware and an installed AdGuardHome environment:
 
