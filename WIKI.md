@@ -2,7 +2,7 @@
 
 This wiki is a practical operator guide for installing, maintaining, and troubleshooting AdGuardHome with this installer on Asuswrt-Merlin routers.
 
-This repository also includes GitHub-wiki-ready split pages under [`wiki/`](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/wiki) for publishing to `Asuswrt-Merlin-AdGuardHome-Installer.wiki.git`.
+This repository also includes GitHub-wiki-ready split pages under [`Github Wiki Pages`](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/wiki) for publishing to `Asuswrt-Merlin-AdGuardHome-Installer.wiki.git`.
 
 ## Contents
 
