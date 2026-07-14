@@ -81,6 +81,8 @@ Every documented command or path using `/opt/...` requires both of the following
 - Entware is installed, mounted, and available.
 - AdGuardHome has already been installed or at least partially staged by this installer.
 
+When Entware is mounted, `/opt` is the Entware root on the attached storage. Installer/runtime examples may then use Entware command directories such as `/opt/sbin`, `/opt/bin`, `/opt/usr/sbin`, and `/opt/usr/bin`, plus installer-managed configuration, service, state, and cache paths such as `/opt/etc`, `/opt/etc/init.d`, `/opt/etc/AdGuardHome`, `/opt/var`, `/opt/var/run`, and `/opt/tmp`. Keep router-stock paths first in `PATH` even after Entware is mounted so firmware tools from `/bin`, `/sbin`, `/usr/bin`, and `/usr/sbin` continue to win unless an Entware command is intentionally required.
+
 These examples are for installed or partially installed systems only. They are not valid pre-Entware bootstrap commands.
 
 ### Optional Entware dependencies
