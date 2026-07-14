@@ -1,0 +1,18 @@
+# Navigation
+
+- [Home](Home)
+- [Supported Environment](Supported-Environment)
+- [Before You Install](Before-You-Install)
+- [Installation](Installation)
+- [Installer Commands](Installer-Commands)
+- [Runtime Paths](Runtime-Paths)
+- [Service Management](Service-Management)
+- [DNS Port 53 Ownership](DNS-Port-53-Ownership)
+- [IPSET Integration](IPSET-Integration)
+- [Blocklist Analysis](Blocklist-Analysis)
+- [Backups and Restore](Backups-and-Restore)
+- [Updates](Updates)
+- [Uninstall](Uninstall)
+- [Troubleshooting](Troubleshooting)
+- [Issue Reports](Issue-Reports)
+- [Developer Validation](Developer-Validation)
