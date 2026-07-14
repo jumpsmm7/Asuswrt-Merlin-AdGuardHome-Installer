@@ -21,17 +21,19 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^branch_is_safe() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^cli_bool_value() {$/,/^}$/p; /^cli_adguard_branch_is_valid() {$/,/^}$/p; /^cli_simple_value_is_safe() {$/,/^}$/p; /^cli_host_list_is_safe() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^cli_netcheck_config_values() {$/,/^}$/p; /^cli_dns_port_policy() {$/,/^}$/p; /^cli_installer_branch_from_args() {$/,/^}$/p; /^cli_write_adguard_branch() {$/,/^}$/p; /^cli_run() {$/,/^}$/p' \
+	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^branch_is_safe() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^cli_bool_value() {$/,/^}$/p; /^cli_adguard_branch_is_valid() {$/,/^}$/p; /^cli_simple_value_is_safe() {$/,/^}$/p; /^cli_host_list_is_safe() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^cli_netcheck_config_values() {$/,/^}$/p; /^cli_dns_port_policy() {$/,/^}$/p; /^cli_migrate_runtime_default() {$/,/^}$/p; /^cli_migrate_runtime_defaults() {$/,/^}$/p; /^cli_installer_branch_from_args() {$/,/^}$/p; /^cli_write_adguard_branch() {$/,/^}$/p; /^cli_run() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'CLI helper extraction was empty'
 grep -q '^cli_netcheck_config_values() {$' "${FUNCTIONS_FILE}" || fail 'netcheck config helper missing'
 grep -q '^cli_dns_port_policy() {$' "${FUNCTIONS_FILE}" || fail 'DNS port policy helper missing'
+grep -q '^cli_migrate_runtime_defaults() {$' "${FUNCTIONS_FILE}" || fail 'runtime migration helper missing'
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 
 INFO='[i]'
 ERROR='[!]'
+WARNING='[w]'
 CONF_FILE="${TMP_ROOT}/.config"
 
 cli_require_yes() {
@@ -66,6 +68,13 @@ cli_run dns-port-policy --policy refuse-unknown >/dev/null || fail 'DNS port ref
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'refuse-unknown policy was not persisted'
 cli_run dns-port-policy --policy legacy >/dev/null || fail 'DNS port legacy policy failed'
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"$' "${CONF_FILE}" || fail 'legacy DNS port policy was not persisted'
+write_conf ADGUARD_PROC_PROFILE '"aggressive"' || fail 'could not seed legacy performance profile'
+cli_run migrate-runtime-defaults --dry-run >/dev/null || fail 'migration dry-run failed'
+grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'migration dry-run changed netcheck mode'
+cli_run migrate-runtime-defaults --yes >/dev/null || fail 'migration CLI failed'
+grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'migration did not persist refuse-unknown policy'
+grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'migration did not persist netcheck mode'
+grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'migration did not persist balanced performance profile'
 
 cli_adguard_branch_is_valid edge || fail 'edge AdGuardHome branch should be valid'
 if cli_adguard_branch_is_valid master; then

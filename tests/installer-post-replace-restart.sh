@@ -75,6 +75,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 		RUNNING=1
 	}
 	create_dir() { mkdir -p "$1"; }
+	configure_runtime_defaults() { :; }
 	cleanup_legacy_firewall() { :; }
 	nvram() { :; }
 	rm() { :; }
@@ -83,6 +84,8 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 		printf '%s\n' "end:$*" >>"${CALLS_FILE}"
 	}
 	PTXT() { :; }
+	rollback_result_write() { :; }
+	rollback_result_notice() { :; }
 	ptxt_phase() { PTXT "$1"; }
 	ptxt_step() { PTXT "$1"; }
 	ptxt_ok() { PTXT "$1"; }

@@ -8,9 +8,16 @@ The official installer for running [AdGuardHome](https://github.com/AdguardTeam/
 
 This project installs, updates, reconfigures, backs up, and removes AdGuardHome on supported Asuswrt-Merlin routers while keeping the router-side service scripts in place.
 
+For a task-oriented operator guide, see the [repository wiki](WIKI.md).
+
 ## Table of contents
 
+- [Wiki](WIKI.md)
 - [Requirements](#requirements)
+- [Command and path environment](#command-and-path-environment)
+  - [Stock-router bootstrap commands before Entware is available](#stock-router-bootstrap-commands-before-entware-is-available)
+  - [Entware-required installer/runtime paths under `/opt`](#entware-required-installerruntime-paths-under-opt)
+  - [Optional Entware dependencies](#optional-entware-dependencies)
 - [Known limitations](#known-limitations)
 - [Features](#features)
 - [Install, update, reconfigure, or uninstall](#install-update-reconfigure-or-uninstall)
@@ -36,6 +43,7 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 - [Troubleshooting and issue reports](#troubleshooting-and-issue-reports)
 - [Static AdGuardHome archive cache](#static-adguardhome-archive-cache)
 - [Development checks](#development-checks)
+  - [Release validation](#release-validation)
 - [Project notes](#project-notes)
 - [Donate](#donate)
 
@@ -44,7 +52,7 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 - ARM-based ASUS router running Asuswrt-Merlin firmware.
 - Minimum supported firmware version: `384.11`.
 - Entware installed on a separate USB drive. The same drive should be used for AdGuardHome storage.
-- Entware fully updated before installing:
+- Entware fully updated before installing. `opkg` is an Entware command, so run this only after Entware is mounted and available:
 
   ```sh
   opkg update && opkg upgrade
@@ -54,14 +62,44 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 - A swap file is strongly recommended. A minimum of `2 GB` is recommended; AMTM can create up to `10 GB`.
 - A router stronger than the RT-AC68U is recommended. AdGuardHome can run on an RT-AC68U, but capacity may be limited.
 
+## Command and path environment
+
+The documentation separates commands and paths by when they are safe to use on an Asuswrt-Merlin router. Do not treat `/opt` as available during bootstrap; it belongs to Entware and only exists after Entware is mounted.
+
+### Stock-router bootstrap commands before Entware is available
+
+Use BusyBox applets and router-stock binaries from `/bin`, `/sbin`, `/usr/bin`, and `/usr/sbin`. Install bootstrap examples in this README therefore use router-stock `/usr/sbin/curl`, router-stock `/usr/sbin/wget`, or PATH-safe `curl`/`wget` forms with the router stock PATH first. They intentionally avoid `/opt/...` paths.
+
+For installation bootstrap commands, prefer this router-stock PATH ordering so stock firmware commands take priority over Entware commands:
+
+```sh
+export LC_ALL=C
+export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH:-}"
+```
+
+### Entware-required installer/runtime paths under `/opt`
+
+Every documented command or path using `/opt/...` requires both of the following:
+
+- Entware is installed, mounted, and available.
+- AdGuardHome has already been installed or at least partially staged by this installer.
+
+When Entware is mounted, `/opt` is the Entware root on the attached storage. Installer/runtime examples may then use Entware command directories such as `/opt/sbin`, `/opt/bin`, `/opt/usr/sbin`, and `/opt/usr/bin`, plus installer-managed configuration, service, state, and cache paths such as `/opt/etc`, `/opt/etc/init.d`, `/opt/etc/AdGuardHome`, `/opt/var`, `/opt/var/run`, and `/opt/tmp`. Keep router-stock paths first in `PATH` even after Entware is mounted so firmware tools from `/bin`, `/sbin`, `/usr/bin`, and `/usr/sbin` continue to win unless an Entware command is intentionally required.
+
+These examples are for installed or partially installed systems only. They are not valid pre-Entware bootstrap commands.
+
+### Optional Entware dependencies
+
+Optional features may require additional Entware packages. For example, the unused blocklist analyzer uses Entware `python3`, and SHA-256 verification fallback can use Entware `coreutils-sha256sum` when stock firmware does not provide a usable `sha256sum`. Install optional packages with `opkg install ...` only after Entware is available.
+
 ## Known limitations
 
 - Some double-NAT or dual-WAN environments may not be compatible because AdGuardHome takes over DNS service placement on port `53`.
 - The installer moves DNSMASQ to port `553` when AdGuardHome owns port `53`.
-- v2.5.0 keeps legacy runtime defaults for compatibility. New safer or more flexible behaviours are opt-in through documented settings.
-- Unknown non-AdGuardHome owners of port `53` are still terminated by default to preserve legacy startup behaviour. Set `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=1` only if you want startup to abort instead.
-- LAN-only or outage-tolerant installs can opt into `ADGUARD_NETCHECK_MODE=lan`; the default `legacy` mode keeps the previous public-host checks.
-- Runtime proc/sysctl tuning remains enabled by default with the legacy aggressive profile. Set `ADGUARD_PROC_OPTIMIZE=NO` or select a lower profile if you do not want these writes.
+- v2.6.0 uses safer runtime defaults for new installs while preserving existing `.config` values during upgrades.
+- New installs refuse to terminate unknown non-AdGuardHome owners of port `53` by default. Existing installs that keep `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=0` retain legacy cleanup until migrated.
+- New installs save `ADGUARD_NETCHECK_MODE=wan` when router/local-cache DNS is selected, or `ADGUARD_NETCHECK_MODE=lan` for LAN-only service management. Existing installs keep their saved mode.
+- New installs use the lower-risk `balanced` runtime proc/sysctl profile. Existing installs keep their saved optimization setting and profile unless changed manually. If the runtime script is launched without an installer-managed `.config`, proc/sysctl optimization stays disabled by default.
 
 ## Features
 
@@ -71,14 +109,28 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 - Supports updating AdGuardHome without reinstalling or reconfiguring from scratch.
 - Includes installer, update, backup, reconfiguration, and uninstall flows.
 - Provides service integration through Entware init scripts and Asuswrt-Merlin service events.
-- Provides v2.5.0 diagnostics with `sh installer status` and `sh installer doctor`.
-- Provides v2.5.0 non-interactive commands for repeatable install, update, backup, restore, doctor, IPSET refresh, performance profile, and uninstall tasks.
-- Keeps legacy netcheck, DNS port-owner cleanup, and runtime optimization defaults while allowing users to opt into alternate behaviours.
+- Provides v2.6.0 diagnostics with `sh installer status` and `sh installer doctor`.
+- Provides v2.6.0 non-interactive commands for repeatable install, update, backup, restore, doctor, IPSET refresh, performance profile, and uninstall tasks.
+- Uses safer netcheck, DNS port-owner cleanup, and runtime optimization defaults for new installs while retaining saved legacy values on upgrades.
 - Can run an unused blocklist analyzer using menu option **9**, `sh installer blocklists`, or `sh installer unusedblocklists` to identify filter lists with zero query-log rule hits in the analyzed window.
 
 ## Install, update, reconfigure, or uninstall
 
-Run the installer from an SSH shell on the router and follow the prompts:
+Run the installer from an SSH shell on the router and follow the prompts. These bootstrap examples use router-stock download tools and do not use `/opt/...` paths.
+
+Using router-stock `curl`:
+
+```sh
+/usr/sbin/curl -L -s -O https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/master/installer && sh installer; rm installer
+```
+
+Using router-stock `wget`:
+
+```sh
+/usr/sbin/wget -O installer https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/master/installer && sh installer; rm installer
+```
+
+PATH-safe form, if the router stock PATH is already first:
 
 ```sh
 curl -L -s -O https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/master/installer && sh installer; rm installer
@@ -88,9 +140,9 @@ The same installer entry point is used for initial installation, updates, reconf
 
 ## Non-interactive commands
 
-v2.5.0 adds command-line entry points for users who want repeatable actions without the interactive menu. Existing one-argument menu actions such as `sh installer update`, `sh installer install`, and `sh installer backup` still use the interactive compatibility path. Destructive non-interactive actions require `--yes`; install and uninstall actions that may rewrite DNS/NVRAM also require `--allow-dns-nvram`.
+v2.6.0 adds command-line entry points for users who want repeatable actions without the interactive menu. Existing one-argument menu actions such as `sh installer update`, `sh installer install`, and `sh installer backup` still use the interactive compatibility path. Destructive non-interactive actions require `--yes`; install and uninstall actions that may rewrite DNS/NVRAM also require `--allow-dns-nvram`.
 
-Examples:
+Examples. Commands that reference `/opt/...` require Entware and an installed AdGuardHome environment; the other `sh installer ...` commands can be run from the downloaded installer entry point on the router.
 
 ```sh
 sh installer install --installer-branch master --adguardhome-branch release --yes --allow-dns-nvram
@@ -99,15 +151,23 @@ sh installer update --dry-run
 sh installer backup --yes
 sh installer restore --file /opt/etc/backup_AdGuardHome.tar.gz --yes
 sh installer restore --file /opt/etc/backup_AdGuardHome.tar.gz --dry-run
+sh installer preflight
+sh installer preflight reconfigure
+sh installer preflight status
 sh installer doctor
 sh installer doctor --fix
 sh installer status
+sh installer ipset status
+sh installer ipset doctor
 sh installer ipset refresh
 sh installer ipset refresh --yes
 sh installer ipset refresh --dry-run
 sh installer netcheck --mode wan --hosts "google.com github.com snbforums.com" --dns 127.0.0.1 --require-http NO --timeout 300
 sh installer dns-port-policy --policy refuse-unknown
 sh installer performance --profile balanced
+sh installer migrate-runtime-defaults
+sh installer migrate-runtime-defaults --dry-run
+sh installer migrate-runtime-defaults --yes
 sh installer uninstall --yes --allow-dns-nvram
 sh installer uninstall --dry-run
 ```
@@ -118,13 +178,17 @@ sh installer uninstall --dry-run
 
 The dry-run paths print what would be done and avoid changing the live install.
 
+The `preflight` command checks router-stock command availability and action-specific prerequisites without changing router state. Run `sh installer preflight` before a new install, or pass the flow you plan to run: `install`, `reconfigure`, `update`, `restore`, `uninstall`, or `status`. Its output uses `preflight.name=value` lines, includes `preflight.safe_to_paste=yes`, and is intended for issue reports. The install/reconfigure/update/restore/uninstall flows check stock `/bin/sh`, `/bin/nvram`, a stock downloader (`/usr/sbin/curl` or `/usr/sbin/wget`), `/sbin/service`, `/usr/sbin/cru`, `/usr/sbin/iptables`, and `/usr/sbin/ip6tables`; `jq` is reported only when a flow requires it. Entware mount and Entware package/tool probes are reported only for flows that need Entware, while `preflight status` skips Entware-dependent checks.
+
 The `ipset refresh` command checks whether IPSET integration is enabled. Without `--yes`, it does not restart AdGuardHome; with `--yes`, it restarts AdGuardHome so refreshed mappings can take effect.
 
-The `netcheck`, `dns-port-policy`, and `performance` helpers only update installer configuration values. Restart AdGuardHome when you want the changed runtime behaviour to be loaded by the service scripts.
+The `migrate-runtime-defaults` helper inspects `/opt/etc/AdGuardHome/.config` (requires Entware and an installed AdGuardHome environment), reports legacy v2.6.0 runtime values, and only writes safer defaults when `--yes` is provided. Use `--dry-run` to report the same planned changes without writing them.
+
+The `netcheck`, `dns-port-policy`, `performance`, and `migrate-runtime-defaults` helpers only update installer configuration values. Restart AdGuardHome when you want the changed runtime behaviour to be loaded by the service scripts.
 
 ## Service commands
 
-Use the Entware init script directly:
+Use the Entware init script directly. This `/opt/...` command requires Entware and an installed AdGuardHome environment:
 
 ```sh
 /opt/etc/init.d/S99AdGuardHome {start|stop|restart|check|kill|reload}
@@ -144,7 +208,7 @@ Use `status` for a short service summary:
 sh installer status
 ```
 
-The status output includes the AdGuardHome service state, monitor state, PID count, port `53` ownership, AdGuardHome version, installer version, selected branch, WebUI address and port, dnsmasq handoff state, and the last startup result found in logs.
+The status output includes the AdGuardHome service state, monitor state, PID count, port `53` ownership, AdGuardHome version, installer version, selected branch, WebUI address and port, dnsmasq handoff state, the last startup result found in logs, and the last rollback result marker written by installer-managed install, update, restore, setup, or blocklist YAML replacement recovery paths.
 
 Use `doctor` for a broader health check:
 
@@ -160,7 +224,9 @@ The doctor command prints simple status lines such as:
 [FAIL] DNS port 53 is not listening
 ```
 
-Doctor checks include Entware mount state, AdGuardHome directories and symlinks, managed Asuswrt-Merlin hook scripts, Entware init scripts, `AdGuardHome.yaml`, `.config`, DNS port `53`, dnsmasq handoff markers and locks, monitor and daemon process counts, WebUI port ownership, installer and AdGuardHome versions, backup archive safety, IPSET files, and DNS-related NVRAM values.
+Doctor checks include Entware mount state, AdGuardHome directories and symlinks, managed Asuswrt-Merlin hook scripts, Entware init scripts, `AdGuardHome.yaml`, `.config`, DNS port `53`, dnsmasq handoff markers and locks, monitor and daemon process counts, WebUI port ownership, installer and AdGuardHome versions, backup archive safety, IPSET files, the last rollback result marker, and DNS-related NVRAM values.
+
+Rollback result markers are stored under the installer-managed runtime/state path and are intentionally concise. A marker such as `rollback complete`, `rollback partial`, `rollback failed`, or `rollback unavailable` helps `status`, `doctor`, and failure messages explain whether the installer restored the previous state, could only partially restore it, or failed before a rollback target existed. After you have reviewed and corrected the reported condition, rerun `sh installer status` or `sh installer doctor`; if no further action is needed, the marker file can be removed from the installed router state path.
 
 Safe repairs can be requested with:
 
@@ -168,15 +234,30 @@ Safe repairs can be requested with:
 sh installer doctor --fix
 ```
 
-The `--fix` mode is intentionally limited. It can repair permissions, recreate the expected `/opt/sbin/AdGuardHome` symlink, and remove stale handoff markers, stale pid files, and stale temporary files when they are not owned by an active process. It does not rewrite DNS, firewall, or NVRAM settings.
+The `--fix` mode is intentionally limited. It can repair permissions, recreate the expected `/opt/sbin/AdGuardHome` symlink (requires Entware and an installed AdGuardHome environment), and remove stale handoff markers, stale pid files, and stale temporary files when they are not owned by an active process. It does not rewrite DNS, firewall, or NVRAM settings.
 
 ## Runtime behavior settings
 
-v2.5.0 exposes several runtime behaviours through environment or `.config` settings while preserving the previous defaults until users opt into a change. Environment variables take precedence for the current invocation. Persistent settings can be placed in `/opt/etc/AdGuardHome/.config` using the same `NAME="value"` style already used by the installer.
+v2.6.0 exposes several runtime behaviours through environment or `.config` settings. New installs save safer defaults; upgrades preserve existing `.config` values and pin legacy defaults when needed until users choose to migrate. Environment variables take precedence for the current invocation. Persistent settings can be placed in `/opt/etc/AdGuardHome/.config` (requires Entware and an installed AdGuardHome environment) using the same `NAME="value"` style already used by the installer.
+
+To inspect an upgraded install for legacy runtime defaults without changing `.config`, run:
+
+```sh
+sh installer migrate-runtime-defaults
+sh installer migrate-runtime-defaults --dry-run
+```
+
+To write the safer v2.6.0 defaults for legacy or missing runtime settings, run:
+
+```sh
+sh installer migrate-runtime-defaults --yes
+```
+
+The migration helper updates only legacy or missing runtime defaults. It preserves custom runtime choices such as `ADGUARD_NETCHECK_MODE="lan"`, `ADGUARD_PROC_OPTIMIZE="NO"`, or an already balanced/safe process profile.
 
 ### Netcheck modes
 
-Default behaviour remains the legacy netcheck path:
+New installs save `wan` or `lan` mode based on the install-time local-cache/router-DNS choice. Upgrades keep the saved value; when no value exists, the installer pins legacy mode for compatibility:
 
 ```sh
 ADGUARD_NETCHECK_MODE="legacy"
@@ -184,7 +265,7 @@ ADGUARD_NETCHECK_MODE="legacy"
 
 Legacy mode keeps the previous public-host checks against `google.com`, `github.com`, and `snbforums.com`, uses `127.0.0.1` for DNS lookups, waits up to `300` seconds for system time, and preserves the old DNS, ping, and HTTP probing flow.
 
-Users who want the configurable v2.5.0 checks can set the values directly in `.config` or use the non-interactive helper:
+Users can set the values directly in `.config` or use the non-interactive helper:
 
 ```sh
 sh installer netcheck --mode wan --hosts "google.com github.com snbforums.com" --dns 127.0.0.1 --require-http NO --timeout 300
@@ -218,9 +299,15 @@ LAN mode skips public WAN probes. The monitor still checks local AdGuardHome DNS
 
 ### DNS port-owner cleanup policy
 
-During startup, dnsmasq is stopped normally so AdGuardHome can own port `53`. By default, v2.5.0 keeps the legacy cleanup behaviour: if another non-AdGuardHome process still owns port `53`, the service script logs the owner and terminates that PID so startup can continue.
+During startup, dnsmasq is stopped normally so AdGuardHome can own port `53`. New installs default to conservative handling:
 
-To opt into conservative handling, run:
+```sh
+ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
+```
+
+With refusal enabled, unknown non-dnsmasq owners of port `53` cause startup to abort instead of being terminated. The log message includes the PID, netstat owner, process name, and command when available.
+
+Upgrades keep the saved value; when no value exists, the installer writes the legacy value `0` and prints migration guidance. To migrate an existing install, run:
 
 ```sh
 sh installer dns-port-policy --policy refuse-unknown
@@ -232,8 +319,6 @@ This writes:
 ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
 ```
 
-With refusal enabled, unknown non-dnsmasq owners of port `53` cause startup to abort instead of being terminated. The log message includes the PID, netstat owner, process name, and command when available.
-
 If refusal is enabled and you still need to force termination for a specific startup, set:
 
 ```sh
@@ -242,7 +327,7 @@ ADGUARDHOME_FORCE_DNS_PORT_KILL="1"
 
 `ADGUARDHOME_FORCE_DNS_PORT_KILL=1` overrides the refusal setting for that invocation.
 
-To restore the default legacy cleanup policy, run:
+To restore the legacy cleanup policy, run:
 
 ```sh
 sh installer dns-port-policy --policy legacy
@@ -252,12 +337,15 @@ This writes `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"`.
 
 ### Runtime optimization profile
 
-Runtime proc/sysctl tuning remains enabled by default to preserve the previous behaviour:
+New installs use the lower-risk balanced proc/sysctl profile by default:
 
 ```sh
 ADGUARD_PROC_OPTIMIZE="YES"
-ADGUARD_PROC_PROFILE="aggressive"
+ADGUARD_PROC_PROFILE="balanced"
 ```
+
+Upgrades keep the saved value; when no value exists, the installer pins the legacy aggressive profile for compatibility.
+When no installer-managed `.config` is available at all, the runtime script defaults to optimization disabled rather than applying proc/sysctl writes implicitly.
 
 The supported profiles are:
 
@@ -301,7 +389,7 @@ pidof AdGuardHome
 
 If AdGuardHome is running, the command returns one or more process IDs.
 
-You can also use the service check command:
+You can also use the service check command. This `/opt/...` command requires Entware and an installed AdGuardHome environment:
 
 ```sh
 /opt/etc/init.d/S99AdGuardHome check
@@ -357,13 +445,13 @@ Python 3 is required to run the analyzer. On Entware-based installs, install it 
 opkg install python3 coreutils-sha256sum
 ```
 
-For SHA-256 verification support on firmware builds that do not include `sha256sum`, install:
+For SHA-256 verification support on firmware builds that do not include stock `sha256sum`, install the optional Entware package:
 
 ```sh
 opkg install coreutils-sha256sum
 ```
 
-`python3` and `coreutils-sha256sum` are Entware dependencies, not a stock Asuswrt-Merlin router command. The analyzer itself is optional; users who do not want Entware Python 3 installed can skip this feature and manage filter lists manually from the AdGuardHome web interface.
+`python3` and `coreutils-sha256sum` are optional Entware dependencies, not stock Asuswrt-Merlin router commands. The analyzer itself is optional; users who do not want Entware Python 3 installed can skip this feature and manage filter lists manually from the AdGuardHome web interface.
 
 ## IPSET integration
 
@@ -381,7 +469,7 @@ See the upstream [AdGuardHome configuration documentation](https://github.com/Ad
 
 ### Managed files and YAML
 
-The integration uses the following files:
+The integration uses the following files. Every `/opt/...` path in this table requires Entware and an installed AdGuardHome environment:
 
 | Path | Owner | Purpose |
 | --- | --- | --- |
@@ -391,7 +479,7 @@ The integration uses the following files:
 | `/opt/var/run/AdGuardHome-ipset/flock` | Locking code | Runtime lock file used when file-descriptor `flock` is supported. |
 | `/opt/var/run/AdGuardHome-ipset/mkdir/` | Locking code | Runtime legacy lock directory used when `flock` is unavailable. |
 
-The resulting YAML contains entries equivalent to:
+The resulting YAML contains entries equivalent to the following. The `/opt/...` value requires Entware and an installed AdGuardHome environment:
 
 ```yaml
 dns:
@@ -401,11 +489,11 @@ dns:
 
 AdGuardHome ignores inline `dns.ipset` rules when `dns.ipset_file` is configured, so migrated custom rules are kept in `ipset.user` and merged into `ipset.conf`. The generated file may be replaced during startup, dnsmasq configuration, or firewall events; manual changes to `ipset.conf` will be lost. If a refresh finds no user or dnsmasq mappings, the installer removes the empty generated file and the managed `dns.ipset_file` setting instead of preventing AdGuardHome from starting. If setup fails, the installer removes the managed `dns.ipset_file` reference and allows AdGuardHome to start without IPSET integration. If the reference cannot be safely removed, startup is aborted rather than retaining stale mappings. Refresh failures are logged and leave the existing running configuration unchanged until a later successful refresh.
 
-Both IPSET files are inside `/opt/etc/AdGuardHome`, so the installer's normal backup and restore flow includes them. Uninstalling the installer removes them with the rest of that directory.
+Both IPSET files are inside `/opt/etc/AdGuardHome`, which requires Entware and an installed AdGuardHome environment, so the installer's normal backup and restore flow includes them. Uninstalling the installer removes them with the rest of that directory.
 
 ### Rule syntax and examples
 
-Write one AdGuardHome IPSET rule per line in `ipset.user` using this format:
+Write one AdGuardHome IPSET rule per line in `ipset.user` using this format. The `ipset.user` file lives under `/opt/etc/AdGuardHome` and requires Entware and an installed AdGuardHome environment:
 
 ```text
 DOMAIN[,DOMAIN,...]/IPSET_NAME[,IPSET_NAME,...]
@@ -457,7 +545,7 @@ The collector imports mappings only. It does not execute another add-on, copy it
 
 On each setup run, the installer checks whether it already owns the YAML IPSET configuration:
 
-- If `dns.ipset_file` is empty or points to `/opt/etc/AdGuardHome/ipset.conf`, supported inline `dns.ipset` entries are merged into `ipset.user`, exact duplicates and empty lines are removed, and the YAML is normalized to the managed settings shown above. Existing `ipset.user` rules are preserved.
+- If `dns.ipset_file` is empty or points to `/opt/etc/AdGuardHome/ipset.conf` (requires Entware and an installed AdGuardHome environment), supported inline `dns.ipset` entries are merged into `ipset.user`, exact duplicates and empty lines are removed, and the YAML is normalized to the managed settings shown above. Existing `ipset.user` rules are preserved.
 - If `dns.ipset_file` points anywhere else, the installer leaves the YAML and external file untouched, skips its managed IPSET migration and refresh for that run, and allows AdGuardHome to use the existing configuration. To opt in to managed integration, copy persistent mappings from the external file into `ipset.user`, clear `dns.ipset_file` while AdGuardHome is stopped, and restart AdGuardHome.
 - If no mappings are available after migration and collection, the installer removes its managed `dns.ipset_file` setting and starts AdGuardHome normally. The setting is restored automatically when integration is enabled and a later refresh discovers mappings.
 - If IPSET integration is disabled from installer menu option **8**, startup removes only the installer-managed `dns.ipset_file` setting. `ipset.user` is retained so custom mappings are available if the feature is re-enabled.
@@ -489,21 +577,30 @@ A refresh writes a temporary file, removes empty and exact duplicate lines, and 
 
 Concurrent setup and refresh events are serialized to prevent multiple writers from replacing the YAML or generated rule file at the same time:
 
-- Firmware with working file-descriptor locking waits on `flock` for `/opt/var/run/AdGuardHome-ipset/flock`, so a concurrent invocation runs after the active writer finishes.
-- Older firmware falls back to `/opt/var/run/AdGuardHome-ipset/mkdir/`, records the owner PID, waits up to 30 seconds, and removes a stale lock when its owner no longer exists.
+- Firmware with working file-descriptor locking waits on `flock` for `/opt/var/run/AdGuardHome-ipset/flock` (requires Entware and an installed AdGuardHome environment), so a concurrent invocation runs after the active writer finishes.
+- Older firmware falls back to `/opt/var/run/AdGuardHome-ipset/mkdir/` (requires Entware and an installed AdGuardHome environment), records the owner PID, waits up to 30 seconds, and removes a stale lock when its owner no longer exists.
 - Both lock paths save the caller's current traps, install temporary cleanup traps for `EXIT`, `HUP`, `INT`, `QUIT`, `ABRT`, `TERM`, and `TSTP`, and restore the previous trap environment before returning. This prevents IPSET cleanup from replacing the manager's monitor or exit handlers.
 
 Do not remove an active lock. If a legacy lock remains after an abnormal termination and its recorded process is no longer running, the next refresh removes it automatically.
 
 ### Verify and troubleshoot IPSET integration
 
-Confirm that the YAML points to the managed file:
+For a read-only summary, run either of these equivalent diagnostics from the downloaded installer entry point:
+
+```sh
+sh installer ipset status
+sh installer ipset doctor
+```
+
+The IPSET status/doctor report does not create, flush, or delete IPSETs. It reports whether installer-managed IPSET integration is enabled, whether `AdGuardHome.yaml` points `dns.ipset_file` at the managed `ipset.conf`, whether `ipset.user` and generated `ipset.conf` exist, and whether each referenced set name currently exists according to the router-stock `ipset` command. For existing sets, it reports IPv4 and IPv6 family checks separately: `inet` sets are suitable for IPv4 answers but are likely to reject IPv6 answers, and `inet6` sets are suitable for IPv6 answers but are likely to reject IPv4 answers. Unknown families are reported without guessing. The set probe uses the router-stock `ipset` tool; if that command is unavailable, the diagnostic skips set existence and family checks without modifying router state.
+
+Confirm that the YAML points to the managed file. This `/opt/...` command requires Entware and an installed AdGuardHome environment:
 
 ```sh
 grep -A 2 '^  ipset:' /opt/etc/AdGuardHome/AdGuardHome.yaml
 ```
 
-Review persistent and generated rules:
+Review persistent and generated rules. These `/opt/...` commands require Entware and an installed AdGuardHome environment:
 
 ```sh
 cat /opt/etc/AdGuardHome/ipset.user
@@ -529,7 +626,7 @@ After querying a mapped domain through AdGuardHome, inspect the owning set again
    logread | grep -iE 'AdGuardHome|IPSET'
    ```
 
-6. Run AdGuardHome's configuration validation:
+6. Run AdGuardHome's configuration validation. This `/opt/...` command requires Entware and an installed AdGuardHome environment:
 
    ```sh
    /opt/sbin/AdGuardHome --check-config -c /opt/etc/AdGuardHome/AdGuardHome.yaml --no-check-update -l /dev/null
@@ -566,7 +663,7 @@ For installer issues, include the following information:
 - Asuswrt-Merlin firmware version.
 - A tar archive containing the relevant installer, service, and configuration paths listed below.
 
-Relevant paths:
+Relevant paths. The `/opt/...` entries require Entware and an installed AdGuardHome environment; the `/jffs/...` entries are router JFFS paths:
 
 ```text
 /opt/etc/AdGuardHome
@@ -581,7 +678,7 @@ Relevant paths:
 /jffs/scripts/service-event-end
 ```
 
-Create the diagnostic archive from the router SSH shell:
+Create the diagnostic archive from the router SSH shell. This command includes `/opt/...` paths and therefore requires Entware and an installed AdGuardHome environment:
 
 ```sh
 echo .config > exclude-files; tar -cvf AdGuardHome.tar -X exclude-files /opt/etc/AdGuardHome /opt/sbin/AdGuardHome /opt/etc/init.d/S99AdGuardHome /opt/etc/init.d/rc.func.AdGuardHome /jffs/addons/AdGuardHome.d /jffs/scripts/init-start /jffs/scripts/dnsmasq.postconf /jffs/scripts/firewall-start /jffs/scripts/services-stop /jffs/scripts/service-event-end; rm exclude-files
@@ -631,6 +728,50 @@ tools/code-quality.sh --fix
 If CI reports `shfmt` formatting differences, you can also run the `Create shfmt formatting PR` workflow against the affected branch to open an automated formatting pull request.
 
 Pull requests that change shell scripts, checksum files, tools, prompts, or workflows are also reviewed by the Codex Code Improvement workflow when the repository has an `OPENAI_API_KEY` Actions secret configured. The Codex prompt includes the local code-quality output so formatting failures can be reported with the same remediation steps shown in CI.
+
+### Release validation
+
+Release validation is a focused pre-tag pass from the repository root. It uses POSIX `sh`, BusyBox-compatible syntax checks, and repository test scripts; it does not require Python, Perl, GNU coreutils, systemd, `apt`, or Entware.
+
+The release validation pass performs these actions:
+
+- Syntax-checks the primary installer and service scripts with POSIX `sh`.
+- Checks repository shell scripts for POSIX/BusyBox portability.
+- Verifies SHA-256 metadata for installer-managed artifacts.
+- Runs selected router-sensitive regressions for DNS handoff, IPSET setup/status/locking, rollback and doctor rollback behavior, CLI runtime configuration, and interruption restart handling.
+- Optionally runs ShellCheck static analysis against the primary scripts when ShellCheck is installed on a development workstation outside the router.
+
+Run the required release validation commands from the repository root:
+
+```sh
+sh -n installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
+sh tools/check-shell-portability.sh
+sh tools/check-sha256.sh
+```
+
+Run the selected regression tests that cover the router-sensitive release paths:
+
+```sh
+sh tests/dns-startup-handoff.sh
+sh tests/ipset-version-gate.sh
+sh tests/ipset-lock-security.sh
+sh tests/ipset-setup-rollback.sh
+sh tests/ipset-status.sh
+sh tests/installer-end-op-rollback.sh
+sh tests/installer-doctor-rollback-result.sh
+sh tests/installer-cli-runtime-config.sh
+sh tests/installer-interruption-restart.sh
+```
+
+Optionally run ShellCheck on a development workstation when ShellCheck is installed outside the router:
+
+```sh
+if which shellcheck >/dev/null 2>&1; then
+	shellcheck -s sh installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
+fi
+```
+
+ShellCheck is not a router dependency; it is an optional workstation check only. The required release validation commands above use POSIX `sh` and repository scripts, and they do not require Python, Perl, GNU coreutils, systemd, `apt`, or Entware. Router-sensitive tests that cannot run directly in a local environment belong in the same POSIX `sh` test environment used for CI instead of requiring non-router dependencies.
 
 ## Project notes
 

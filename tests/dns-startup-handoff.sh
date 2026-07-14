@@ -372,8 +372,9 @@ unset KILL_FAILS_AFTER_RELEASE
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy_alt
-kill_dns_port_owners || fail 'DNS owner cleanup rejected legacy cleanup of an unknown port 53 owner'
-grep -q '^kill -s 9 234$' "${CALLS_FILE}" || fail 'DNS owner cleanup did not preserve legacy unknown-owner cleanup by default'
+printf '%s\n' 'ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"' >"${WORK_DIR}/.config" || fail 'could not write legacy DNS port policy config'
+kill_dns_port_owners || fail 'DNS owner cleanup rejected saved legacy cleanup of an unknown port 53 owner'
+grep -q '^kill -s 9 234$' "${CALLS_FILE}" || fail 'DNS owner cleanup did not preserve saved legacy unknown-owner cleanup'
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy_no_pid

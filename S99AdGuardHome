@@ -641,6 +641,7 @@ dns_port_unknown_refusal_enabled() {
 	if [ -z "${_dns_refuse_unknown}" ] && [ -f "${WORK_DIR}/.config" ]; then
 		_dns_refuse_unknown="$(awk -F= '/^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=/ { print $2; exit }' "${WORK_DIR}/.config" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')"
 	fi
+	[ -n "${_dns_refuse_unknown}" ] || _dns_refuse_unknown="1"
 	case "${_dns_refuse_unknown}" in
 		YES | yes | Yes | ON | on | On | TRUE | true | True | 1) return 0 ;;
 		*) return 1 ;;

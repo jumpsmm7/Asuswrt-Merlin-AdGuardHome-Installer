@@ -12,14 +12,23 @@ fail() {
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 
+RUNTIME_DEFAULT_FUNCTIONS="$(sed -n '/^conf_value() {$/,/^md5_is_valid() {$/p' "${SCRIPT_PATH}" | sed '$d')"
+ROLLBACK_FUNCTIONS="$(sed -n '/^rollback_result_write() {$/,/^rollback_result_summary() {$/p' "${SCRIPT_PATH}" | sed '$d')"
 SETUP_FUNCTIONS="$(sed -n '/^setup_AdGuardHome() {$/,/^setup_amtmupdate() {$/p' "${SCRIPT_PATH}" | sed '$d')"
+[ -n "${RUNTIME_DEFAULT_FUNCTIONS}" ] || fail 'could not extract runtime default functions'
+[ -n "${ROLLBACK_FUNCTIONS}" ] || fail 'could not extract rollback result functions'
 [ -n "${SETUP_FUNCTIONS}" ] || fail 'could not extract setup functions'
+eval "${RUNTIME_DEFAULT_FUNCTIONS}"
+eval "${ROLLBACK_FUNCTIONS}"
 eval "${SETUP_FUNCTIONS}"
+
+rollback_result_notice() { :; }
 
 INFO='Info:'
 ERROR='Error:'
 WARNING='Warning:'
 TMP_ROOT="${TMPDIR:-/tmp}/installer-dns-input-failure.$$"
+ROLLBACK_RESULT_FILE="${TMP_ROOT}/.rollback_result"
 TARG_DIR="${TMP_ROOT}/target"
 AGH_FILE="${TARG_DIR}/AdGuardHome"
 YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
@@ -41,6 +50,7 @@ cleanup() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
+ptxt_ok() { :; }
 PTXT() {
 	printf '%s\n' "$@"
 }
