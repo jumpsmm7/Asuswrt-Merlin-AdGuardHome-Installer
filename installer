@@ -43,6 +43,8 @@ readonly BLOCKLIST_ANALYZER_URL="https://gist.githubusercontent.com/graysky2/803
 readonly BLOCKLIST_ANALYZER_SHA256_DEFAULT="77c21b6faeb7fea86b0729996dec5cc20d2d309fe8c6946c7371dd64134a6e5f"
 BLOCKLIST_ANALYZER_SHA256=""
 SCRIPT_LOC=""
+SETUP_YAML_TMP_FILE=""
+BLOCKLIST_YAML_TMP_FILE=""
 
 BOLD="$(printf "\033[1m")" || true
 readonly BOLD
@@ -278,10 +280,18 @@ opkg_clean_env() {
 	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin" /opt/bin/opkg "$@"
 }
 
+installer_cleanup_tmp_file() {
+	case "$1:$2" in
+		setup:"${YAML_ORI}.new.$$" | blocklist:"${YAML_FILE}.blocklists.$$.tmp")
+			rm -f "$2" 2>/dev/null
+			;;
+	esac
+}
+
 on_installer_exit() {
 	cleanup_api_files
-	[ -z "${SETUP_YAML_TMP_FILE:-}" ] || rm -f "${SETUP_YAML_TMP_FILE}" 2>/dev/null
-	[ -z "${BLOCKLIST_YAML_TMP_FILE:-}" ] || rm -f "${BLOCKLIST_YAML_TMP_FILE}" 2>/dev/null
+	installer_cleanup_tmp_file setup "${SETUP_YAML_TMP_FILE:-}"
+	installer_cleanup_tmp_file blocklist "${BLOCKLIST_YAML_TMP_FILE:-}"
 	# Restore pre-check DNS settings only when exiting without a local adguardhome installation.
 	if [ ! -f "${AGH_FILE}" ]; then
 		check_dns_environment 1
