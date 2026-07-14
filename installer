@@ -1012,8 +1012,9 @@ preflight_check_timezone_column() {
 }
 
 preflight() {
-	local action entware_required failed
+	local action entware_available_now entware_required failed
 	action="${1:-install}"
+	entware_available_now="0"
 	entware_required="0"
 	failed="0"
 	PTXT "preflight.version=${AI_VERSION}"
@@ -1064,7 +1065,11 @@ preflight() {
 	fi
 	if preflight_action_requires_entware "${action}"; then
 		entware_required="1"
-		preflight_check_entware || failed="1"
+		if preflight_check_entware; then
+			entware_available_now="1"
+		else
+			failed="1"
+		fi
 	else
 		PTXT "preflight.entware.required=no"
 		PTXT "preflight.entware.result=SKIP"
@@ -1075,7 +1080,7 @@ preflight() {
 		PTXT "preflight.jq.required=no"
 		PTXT "preflight.jq.result=SKIP"
 	fi
-	if [ "${entware_required}" = "1" ]; then
+	if [ "${entware_required}" = "1" ] && [ "${entware_available_now}" = "1" ]; then
 		if preflight_action_requires_sha256 "${action}"; then
 			preflight_check_sha256_support || failed="1"
 		else
@@ -1094,6 +1099,8 @@ preflight() {
 			PTXT "preflight.entware.column.required=no"
 			PTXT "preflight.entware.column.result=SKIP"
 		fi
+	elif [ "${entware_required}" = "1" ]; then
+		PTXT "preflight.entware.dependent_checks=SKIP_ENTWARE_MISSING"
 	fi
 	if [ "${failed}" = "0" ]; then
 		PTXT "preflight.result=PASS"

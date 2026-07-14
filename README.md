@@ -130,6 +130,9 @@ sh installer update --dry-run
 sh installer backup --yes
 sh installer restore --file /opt/etc/backup_AdGuardHome.tar.gz --yes
 sh installer restore --file /opt/etc/backup_AdGuardHome.tar.gz --dry-run
+sh installer preflight
+sh installer preflight reconfigure
+sh installer preflight status
 sh installer doctor
 sh installer doctor --fix
 sh installer status
@@ -153,6 +156,8 @@ sh installer uninstall --dry-run
 `--adguardhome-branch` selects the AdGuardHome binary channel. Supported AdGuardHome branches are `release`, `beta`, and `edge`. The older `--branch` option is retained as an alias for `--adguardhome-branch`; use `--installer-branch` when you need to change the installer branch.
 
 The dry-run paths print what would be done and avoid changing the live install.
+
+The `preflight` command checks router-stock command availability and action-specific prerequisites without changing router state. Run `sh installer preflight` before a new install, or pass the flow you plan to run: `install`, `reconfigure`, `update`, `restore`, `uninstall`, or `status`. Its output uses `preflight.name=value` lines, includes `preflight.safe_to_paste=yes`, and is intended for issue reports. The install/reconfigure/update/restore/uninstall flows check stock `/bin/sh`, `/bin/nvram`, a stock downloader (`/usr/sbin/curl` or `/usr/sbin/wget`), `/sbin/service`, `/usr/sbin/cru`, `/usr/sbin/iptables`, and `/usr/sbin/ip6tables`; `jq` is reported only when a flow requires it. Entware mount and Entware package/tool probes are reported only for flows that need Entware, while `preflight status` skips Entware-dependent checks.
 
 The `ipset refresh` command checks whether IPSET integration is enabled. Without `--yes`, it does not restart AdGuardHome; with `--yes`, it restarts AdGuardHome so refreshed mappings can take effect.
 
