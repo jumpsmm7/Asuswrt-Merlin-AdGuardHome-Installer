@@ -19,6 +19,9 @@ SETUP_FUNCTIONS="$(sed -n '/^setup_AdGuardHome() {$/,/^setup_amtmupdate() {$/p' 
 eval "${RUNTIME_DEFAULT_FUNCTIONS}"
 eval "${SETUP_FUNCTIONS}"
 
+rollback_result_write() { :; }
+rollback_result_notice() { :; }
+
 INFO='Info:'
 ERROR='Error:'
 WARNING='Warning:'
