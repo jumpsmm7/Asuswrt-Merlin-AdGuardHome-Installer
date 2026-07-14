@@ -3516,11 +3516,20 @@ ipset_status_report_set() {
 		return 0
 	fi
 	case "${family}" in
-		inet | inet6)
+		inet)
 			PTXT "${INFO} IPSET set exists: ${set} (family ${family})"
+			PTXT "${INFO} IPv4 set-family check: ${set} OK (family ${family})"
+			PTXT "${WARNING} IPv6 set-family mismatch likely: ${set} uses family ${family}"
+			;;
+		inet6)
+			PTXT "${INFO} IPSET set exists: ${set} (family ${family})"
+			PTXT "${WARNING} IPv4 set-family mismatch likely: ${set} uses family ${family}"
+			PTXT "${INFO} IPv6 set-family check: ${set} OK (family ${family})"
 			;;
 		*)
 			PTXT "${WARNING} IPSET set exists with unknown family: ${set} (family ${family})"
+			PTXT "${WARNING} IPv4 set-family check unknown: ${set} uses family ${family}"
+			PTXT "${WARNING} IPv6 set-family check unknown: ${set} uses family ${family}"
 			;;
 	esac
 }
@@ -5452,6 +5461,7 @@ cli_usage() {
 		"${INFO}   sh installer doctor [--fix]" \
 		"${INFO}   sh installer ipset refresh [--yes] [--dry-run]" \
 		"${INFO}   sh installer ipset status" \
+		"${INFO}   sh installer ipset doctor" \
 		"${INFO}   sh installer netcheck --mode {legacy|wan|lan} [--hosts host-list] [--dns server] [--require-http {YES|NO}] [--timeout seconds]" \
 		"${INFO}   sh installer dns-port-policy --policy {legacy|refuse-unknown}" \
 		"${INFO}   sh installer performance --profile {balanced|low-memory|fast}" \
