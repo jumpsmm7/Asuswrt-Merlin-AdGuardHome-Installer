@@ -12,6 +12,9 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 
 - [Requirements](#requirements)
 - [Command and path environment](#command-and-path-environment)
+  - [Stock-router bootstrap commands before Entware is available](#stock-router-bootstrap-commands-before-entware-is-available)
+  - [Entware-required installer/runtime paths under `/opt`](#entware-required-installerruntime-paths-under-opt)
+  - [Optional Entware dependencies](#optional-entware-dependencies)
 - [Known limitations](#known-limitations)
 - [Features](#features)
 - [Install, update, reconfigure, or uninstall](#install-update-reconfigure-or-uninstall)
@@ -58,11 +61,11 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 
 ## Command and path environment
 
-The documentation separates commands and paths by when they are safe to use on an Asuswrt-Merlin router:
+The documentation separates commands and paths by when they are safe to use on an Asuswrt-Merlin router. Do not treat `/opt` as available during bootstrap; it belongs to Entware and only exists after Entware is mounted.
 
-- **Stock-router bootstrap commands before Entware is available:** use BusyBox applets and router-stock binaries from `/bin`, `/sbin`, `/usr/bin`, and `/usr/sbin`. Bootstrap examples use router-stock `/usr/sbin/curl`, router-stock `/usr/sbin/wget`, or PATH-safe `curl`/`wget` forms with the router stock PATH first.
-- **Entware-required installer/runtime paths under `/opt`:** any documented command or path that uses `/opt/...` requires Entware to be mounted and an installed AdGuardHome environment to exist. These examples are for installed or partially installed systems, not for pre-Entware bootstrap.
-- **Optional Entware dependencies:** features such as the unused blocklist analyzer may require Entware packages including `python3` and `coreutils-sha256sum`. Install optional packages with `opkg install ...` only after Entware is available.
+### Stock-router bootstrap commands before Entware is available
+
+Use BusyBox applets and router-stock binaries from `/bin`, `/sbin`, `/usr/bin`, and `/usr/sbin`. Install bootstrap examples in this README therefore use router-stock `/usr/sbin/curl`, router-stock `/usr/sbin/wget`, or PATH-safe `curl`/`wget` forms with the router stock PATH first. They intentionally avoid `/opt/...` paths.
 
 For installation bootstrap commands, prefer this router-stock PATH ordering so stock firmware commands take priority over Entware commands:
 
@@ -70,6 +73,21 @@ For installation bootstrap commands, prefer this router-stock PATH ordering so s
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:${PATH:-}"
 ```
+
+### Entware-required installer/runtime paths under `/opt`
+
+Every documented command or path using `/opt/...` requires both of the following:
+
+- Entware is installed, mounted, and available.
+- AdGuardHome has already been installed or at least partially staged by this installer.
+
+When Entware is mounted, `/opt` is the Entware root on the attached storage. Installer/runtime examples may then use Entware command directories such as `/opt/sbin`, `/opt/bin`, `/opt/usr/sbin`, and `/opt/usr/bin`, plus installer-managed configuration, service, state, and cache paths such as `/opt/etc`, `/opt/etc/init.d`, `/opt/etc/AdGuardHome`, `/opt/var`, `/opt/var/run`, and `/opt/tmp`. Keep router-stock paths first in `PATH` even after Entware is mounted so firmware tools from `/bin`, `/sbin`, `/usr/bin`, and `/usr/sbin` continue to win unless an Entware command is intentionally required.
+
+These examples are for installed or partially installed systems only. They are not valid pre-Entware bootstrap commands.
+
+### Optional Entware dependencies
+
+Optional features may require additional Entware packages. For example, the unused blocklist analyzer uses Entware `python3`, and SHA-256 verification fallback can use Entware `coreutils-sha256sum` when stock firmware does not provide a usable `sha256sum`. Install optional packages with `opkg install ...` only after Entware is available.
 
 ## Known limitations
 
