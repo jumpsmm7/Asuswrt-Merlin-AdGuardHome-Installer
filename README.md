@@ -12,7 +12,8 @@ For a task-oriented operator guide, see the [`Github Wiki Pages`](https://github
 
 ## Table of contents
 
-- [Wiki](WIKI.md)
+- [Github Wiki Pages](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/wiki)
+- [Repository Wiki File](WIKI.md)
 - [Requirements](#requirements)
 - [Command and path environment](#command-and-path-environment)
   - [Stock-router bootstrap commands before Entware is available](#stock-router-bootstrap-commands-before-entware-is-available)
