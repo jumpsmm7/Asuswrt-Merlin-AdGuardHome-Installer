@@ -8,8 +8,11 @@ The official installer for running [AdGuardHome](https://github.com/AdguardTeam/
 
 This project installs, updates, reconfigures, backs up, and removes AdGuardHome on supported Asuswrt-Merlin routers while keeping the router-side service scripts in place.
 
+For a task-oriented operator guide, see the [repository wiki](WIKI.md).
+
 ## Table of contents
 
+- [Wiki](WIKI.md)
 - [Requirements](#requirements)
 - [Command and path environment](#command-and-path-environment)
   - [Stock-router bootstrap commands before Entware is available](#stock-router-bootstrap-commands-before-entware-is-available)
