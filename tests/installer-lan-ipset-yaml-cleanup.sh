@@ -5,6 +5,8 @@ set -u
 
 SCRIPT_PATH="${1:-installer}"
 TMP_ROOT="${TMPDIR:-/tmp}/installer-lan-ipset-yaml-cleanup.$$"
+STUB_DIR="${TMP_ROOT}/bin"
+CHOWN_LOG="${TMP_ROOT}/chown.log"
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 CONF_FILE="${TMP_ROOT}/.config"
 TARG_DIR="${TMP_ROOT}/AdGuardHome"
@@ -63,16 +65,23 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
-mkdir -p "${TMP_ROOT}" "${TARG_DIR}" || fail 'could not create test directory'
+mkdir -p "${TMP_ROOT}" "${TARG_DIR}" "${STUB_DIR}" || fail 'could not create test directory'
 : >"${FUNCTIONS_FILE}"
 extract_function conf_value || fail 'could not extract conf_value'
 extract_function adguardhome_yaml_ipset_file || fail 'could not extract YAML parser'
+extract_function adguardhome_yaml_secure_file || fail 'could not extract YAML security helper'
 extract_function adguardhome_yaml_remove_ipset_file || fail 'could not extract YAML cleanup helper'
 extract_function adguard_enforce_lan_ipset_disabled || fail 'could not extract LAN enforcement helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'helper extraction was empty'
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+
+cat >"${STUB_DIR}/chown" <<'EOF_CHOWN' || fail 'could not write chown stub'
+#!/bin/sh
+printf '%s %s\n' "$1" "$2" >>"${CHOWN_LOG}"
+EOF_CHOWN
+chmod 755 "${STUB_DIR}/chown" || fail 'could not chmod chown stub'
 
 INFO='Info:'
 PTXT() { :; }
@@ -176,5 +185,36 @@ adguard_enforce_lan_ipset_disabled || fail 'LAN enforcement failed for restored 
 [ "$(conf_value ADGUARD_INSTALL_MODE)" = 'lan' ] || fail 'LAN enforcement did not keep restored LAN mode'
 [ "$(conf_value ADGUARD_IPSET)" = 'NO' ] || fail 'LAN enforcement did not disable restored ADGUARD_IPSET'
 assert_no_ipset_file restored-lan
+
+
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write YAML for nvram username ownership test'
+dns:
+  ipset_file: owner-ipset.conf
+EOF_YAML
+cat >"${STUB_DIR}/nvram" <<'EOF_NVRAM' || fail 'could not write nvram username stub'
+#!/bin/sh
+[ "$1" = "get" ] && [ "$2" = "http_username" ] && printf '%s\n' admin
+EOF_NVRAM
+chmod 755 "${STUB_DIR}/nvram" || fail 'could not chmod nvram username stub'
+: >"${CHOWN_LOG}"
+PATH="${STUB_DIR}:${PATH}" CHOWN_LOG="${CHOWN_LOG}" adguardhome_yaml_remove_ipset_file || fail 'nvram username YAML ownership cleanup failed'
+grep -q "admin:root ${YAML_FILE}" "${CHOWN_LOG}" || fail 'YAML ownership did not use nvram http_username'
+[ "$(mode_string "${YAML_FILE}")" = '-rw-------' ] || fail 'YAML mode was not secured with nvram username present'
+assert_no_ipset_file nvram-owner
+
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write YAML for empty nvram ownership test'
+dns:
+  ipset_file: root-ipset.conf
+EOF_YAML
+cat >"${STUB_DIR}/nvram" <<'EOF_NVRAM' || fail 'could not write empty nvram stub'
+#!/bin/sh
+exit 0
+EOF_NVRAM
+chmod 755 "${STUB_DIR}/nvram" || fail 'could not chmod empty nvram stub'
+: >"${CHOWN_LOG}"
+PATH="${STUB_DIR}:${PATH}" CHOWN_LOG="${CHOWN_LOG}" adguardhome_yaml_remove_ipset_file || fail 'empty nvram YAML ownership cleanup failed'
+grep -q "root:root ${YAML_FILE}" "${CHOWN_LOG}" || fail 'YAML ownership did not fall back to root for empty nvram username'
+[ "$(mode_string "${YAML_FILE}")" = '-rw-------' ] || fail 'YAML mode was not secured with empty nvram username'
+assert_no_ipset_file nvram-empty-owner
 
 printf '%s\n' 'PASS: LAN IPSET YAML cleanup covers simple, quoted, block, no-op, and restore paths'
