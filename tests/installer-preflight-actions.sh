@@ -156,7 +156,7 @@ EOF
 		actual_status=1
 	fi
 	[ "${actual_status}" -eq "${expected_status}" ] || fail "unexpected router mode status for ${case_name}"
-	for expected_line do
+	for expected_line; do
 		grep -q "^${expected_line}\$" "${out_file}" || fail "missing router mode line for ${case_name}: ${expected_line}"
 	done
 }
