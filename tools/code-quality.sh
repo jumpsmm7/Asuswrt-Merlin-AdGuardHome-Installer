@@ -120,6 +120,7 @@ run_check 'Installer single-argument action regression' sh tests/installer-singl
 run_check 'Installer preflight action regression' sh tests/installer-preflight-actions.sh
 run_check 'Installer install-mode detection regression' sh tests/installer-install-mode-detection.sh
 run_check 'Installer CLI LAN-mode regression' sh tests/installer-cli-lan-mode.sh
+run_check 'Installer LAN IPSET YAML cleanup regression' sh tests/installer-lan-ipset-yaml-cleanup.sh
 run_check 'Installer bind address regression' sh tests/installer-bind-addresses.sh
 run_check 'Installer WebUI port synchronization regression' sh tests/installer-web-port-sync.sh
 run_check 'Installer end operation rollback regression' sh tests/installer-end-op-rollback.sh
