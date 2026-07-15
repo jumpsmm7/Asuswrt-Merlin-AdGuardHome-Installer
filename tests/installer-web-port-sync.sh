@@ -162,12 +162,36 @@ ADGUARD_INSTALL_MODE=lan
 LAN_IFNAME=br0
 IPV4_FROM_NVRAM=192.168.1.1
 write_yaml \
+	'filters:' \
+	'  - url: http://example.invalid/filter.txt' \
 	'http:' \
 	'dns:' \
 	'  bind_hosts:' \
 	'    - 0.0.0.0'
 setup_sync_webui_port 6001 || fail 'missing address insertion failed'
 assert_address lan-missing-address-insert '192.168.1.1:6001'
+if awk '
+	/^filters:[[:space:]]*$/ { in_filters = 1; next }
+	in_filters && /^[^[:space:]]/ { exit }
+	in_filters && /^[[:space:]]*address:[[:space:]]*/ { found = 1 }
+	END { exit(found ? 0 : 1) }
+' "${YAML_FILE}"; then
+	fail 'missing address insertion wrote into filters section'
+fi
+
+reset_router_state
+write_yaml \
+	'filters:' \
+	'  - url: http://example.invalid/filter.txt' \
+	'dns:' \
+	'  bind_hosts:' \
+	'    - 0.0.0.0'
+if setup_sync_webui_port 6002 >/dev/null 2>&1; then
+	fail 'missing top-level http section was accepted'
+fi
+if grep -q '^[[:space:]]*address:[[:space:]]*' "${YAML_FILE}"; then
+	fail 'missing top-level http section wrote an address line'
+fi
 
 reset_router_state
 write_yaml \
