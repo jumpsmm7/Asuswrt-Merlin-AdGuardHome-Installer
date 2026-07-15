@@ -134,6 +134,13 @@ assert_address preserve-quoted-ipv4-host '192.168.50.2:4545'
 reset_router_state
 write_yaml \
 	'http:' \
+	'  address: "[::1]:3000"'
+setup_sync_webui_port 4555 || fail 'quoted IPv6 WebUI address synchronization failed'
+assert_address preserve-quoted-ipv6-host '"[::1]:4555"'
+
+reset_router_state
+write_yaml \
+	'http:' \
 	'  address: 192.168.50.2:80'
 setup_sync_webui_port 4646 || fail 'runtime WebUI port synchronization failed'
 assert_address preserve-runtime-port-host '192.168.50.2:4646'

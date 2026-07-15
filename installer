@@ -4685,6 +4685,11 @@ setup_sync_webui_port() {
 	fi
 	[ -n "${CURRENT_WEB_HOST:-}" ] || CURRENT_WEB_HOST="$(setup_default_web_host)" || return 1
 	NEW_WEB_ADDRESS="${CURRENT_WEB_HOST}:${NEW_PORT}"
+	case "${CURRENT_WEB_HOST}" in
+		\[*\])
+			NEW_WEB_ADDRESS="\"${NEW_WEB_ADDRESS}\""
+			;;
+	esac
 	if [ -n "${CURRENT_WEB_LINE}" ]; then
 		yaml_nvars_replace "${CURRENT_WEB_LINE}" "  address: ${NEW_WEB_ADDRESS}" "${YAML_FILE}"
 	else
