@@ -24,7 +24,7 @@ mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 {
 	sed -n '/^_quote() {$/,/^PTXT() {$/p' "${SCRIPT_PATH}" | sed '$d'
-	sed -n '/^ipv4_is_valid() {$/,/^runtime_port_is_valid() {$/p' "${SCRIPT_PATH}" | sed '$d'
+	sed -n '/^ipv4_is_valid() {$/,/^web_port_in_use() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^setup_default_web_host() {$/,/^setup_AdGuardHome_impl() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^yaml_nvars_insert() {$/,/^# Interactive menu helpers$/p' "${SCRIPT_PATH}" | sed '$d'
 } >"${FUNCTIONS_FILE}" || fail 'could not extract WebUI port synchronization helpers'
@@ -123,6 +123,20 @@ write_yaml \
 	'  address: custom-router.lan:3000'
 setup_sync_webui_port 4444 || fail 'valid hostname-bound address synchronization failed'
 assert_address preserve-hostname 'custom-router.lan:4444'
+
+reset_router_state
+write_yaml \
+	'http:' \
+	'  address: "192.168.50.2:3000"'
+setup_sync_webui_port 4545 || fail 'quoted LAN-bound address synchronization failed'
+assert_address preserve-quoted-ipv4-host '192.168.50.2:4545'
+
+reset_router_state
+write_yaml \
+	'http:' \
+	'  address: 192.168.50.2:80'
+setup_sync_webui_port 4646 || fail 'runtime WebUI port synchronization failed'
+assert_address preserve-runtime-port-host '192.168.50.2:4646'
 
 reset_router_state
 write_yaml \

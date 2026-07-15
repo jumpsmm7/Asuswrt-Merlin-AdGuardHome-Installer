@@ -4660,8 +4660,18 @@ setup_sync_webui_port() {
 		in_http && /^[[:space:]]*address:[[:space:]]*/ { print; exit }
 	' "${YAML_FILE}")"
 	CURRENT_WEB_ADDRESS="$(printf '%s\n' "${CURRENT_WEB_LINE}" | sed 's/^[[:space:]]*address:[[:space:]]*//; s/[[:space:]]*$//')"
+	case "${CURRENT_WEB_ADDRESS}" in
+		\"*\")
+			CURRENT_WEB_ADDRESS="${CURRENT_WEB_ADDRESS#\"}"
+			CURRENT_WEB_ADDRESS="${CURRENT_WEB_ADDRESS%\"}"
+			;;
+		\'*\')
+			CURRENT_WEB_ADDRESS="${CURRENT_WEB_ADDRESS#\'}"
+			CURRENT_WEB_ADDRESS="${CURRENT_WEB_ADDRESS%\'}"
+			;;
+	esac
 	CURRENT_WEB_PORT="$(printf '%s\n' "${CURRENT_WEB_ADDRESS}" | awk -F':' 'NF > 1 { print $NF }')"
-	if [ -n "${CURRENT_WEB_ADDRESS}" ] && port_is_valid "${CURRENT_WEB_PORT}"; then
+	if [ -n "${CURRENT_WEB_ADDRESS}" ] && runtime_port_is_valid "${CURRENT_WEB_PORT}"; then
 		CURRENT_WEB_HOST="${CURRENT_WEB_ADDRESS%:${CURRENT_WEB_PORT}}"
 	fi
 	[ -n "${CURRENT_WEB_HOST:-}" ] || CURRENT_WEB_HOST="$(setup_default_web_host)" || return 1
