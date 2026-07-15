@@ -45,6 +45,18 @@ grep -q 'cli_write_quoted_conf ADGUARD_NETCHECK_MODE "${netcheck_target}"' "${SC
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 
+adguardhome_yaml_ipset_file() {
+	return 0
+}
+
+adguardhome_yaml_remove_ipset_file() {
+	return 0
+}
+
+write_conf() {
+	printf '%s="%s"\n' "$1" "$2" >>"${WRITES_FILE}"
+}
+
 INFO='Info:'
 WARNING='Warning:'
 ERROR='Error:'
@@ -77,6 +89,7 @@ run_migrate_case() {
 	cat >"${CONF_FILE}" <<EOF_CONF || fail "${case_name}: could not write config"
 ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
 ADGUARD_NETCHECK_MODE="legacy"
+ADGUARD_IPSET="NO"
 ADGUARD_PROC_OPTIMIZE="YES"
 ADGUARD_PROC_PROFILE="balanced"
 EOF_CONF
@@ -100,6 +113,7 @@ cat >"${CONF_FILE}" <<EOF_CONF || fail 'dry-run persisted LAN: could not write c
 ADGUARD_INSTALL_MODE="lan"
 ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
 ADGUARD_NETCHECK_MODE="legacy"
+ADGUARD_IPSET="NO"
 ADGUARD_PROC_OPTIMIZE="YES"
 ADGUARD_PROC_PROFILE="balanced"
 EOF_CONF
