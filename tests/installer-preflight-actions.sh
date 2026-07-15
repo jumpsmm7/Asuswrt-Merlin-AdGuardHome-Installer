@@ -56,6 +56,12 @@ grep -q 'preflight_action_requires_cru "${action}"' "${SCRIPT_PATH}" ||
 	fail 'preflight must gate cru checks by action'
 grep -q 'preflight_action_requires_firewall_tools "${action}"' "${SCRIPT_PATH}" ||
 	fail 'preflight must gate firewall checks by action'
+grep -q 'case "$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)" in' "${SCRIPT_PATH}" ||
+	fail 'preflight firewall checks must read persisted install mode'
+grep -q 'lan) return 1 ;;' "${SCRIPT_PATH}" ||
+	fail 'preflight firewall checks must skip LAN install mode'
+grep -q 'adguard_install_mode_detect >/dev/null 2>&1' "${SCRIPT_PATH}" ||
+	fail 'preflight firewall checks must fall back to detected install mode'
 grep -q 'preflight_check_jffs_ready || failed="1"' "${SCRIPT_PATH}" ||
 	fail 'preflight must check pending JFFS format for install/reconfigure flows'
 grep -q 'nvram get jffs2_format' "${SCRIPT_PATH}" ||
@@ -128,6 +134,76 @@ EOF
 run_preflight_gate_case missing 1 yes
 run_preflight_gate_case available 0 no
 
+run_preflight_firewall_mode_case() {
+	case_name="$1"
+	action="$2"
+	conf_mode="$3"
+	detected_mode="$4"
+	expected_firewall="$5"
+	out_file="${TMP_ROOT}/firewall-${case_name}.out"
+	stub_file="${TMP_ROOT}/firewall-${case_name}.stub"
+	cat >"${stub_file}" <<EOF
+PTXT() { printf '%s\n' "\$*"; }
+AI_VERSION=TEST
+PATH=/bin:/sbin:/usr/bin:/usr/sbin
+conf_value() {
+	case '${conf_mode}' in
+		missing) return 1 ;;
+		*) printf '%s\n' '${conf_mode}' ;;
+	esac
+}
+adguard_install_mode_detect() {
+	case '${detected_mode}' in
+		missing) return 1 ;;
+		*) ADGUARD_INSTALL_MODE='${detected_mode}' ;;
+	esac
+}
+. "${FUNCTIONS_FILE}"
+preflight_action_requires_downloader() { return 1; }
+preflight_action_requires_service_tools() { return 1; }
+preflight_action_requires_cru() { return 1; }
+preflight_action_requires_jffs_ready() { return 1; }
+preflight_action_requires_router_eligibility() { return 1; }
+preflight_action_requires_entware() { return 1; }
+preflight_action_requires_jq() { return 1; }
+preflight_action_requires_sha256() { return 1; }
+preflight_action_requires_password_hash() { return 1; }
+preflight_action_requires_timezone_column() { return 1; }
+preflight_check_path() {
+	case "\$1" in
+		iptables | ip6tables) PTXT "called.\$1=yes" ;;
+	esac
+	return 0
+}
+preflight_check_stock_commands() { return 0; }
+. "${PREFLIGHT_FILE}"
+preflight '${action}'
+EOF
+	sh "${stub_file}" >"${out_file}" 2>&1 || true
+	case "${expected_firewall}" in
+		required)
+			grep -q '^called.iptables=yes$' "${out_file}" || fail "${case_name}: expected iptables check"
+			grep -q '^called.ip6tables=yes$' "${out_file}" || fail "${case_name}: expected ip6tables check"
+			;;
+		skipped)
+			grep -q '^preflight.iptables.required=no$' "${out_file}" || fail "${case_name}: missing iptables skip required line"
+			grep -q '^preflight.iptables.result=SKIP$' "${out_file}" || fail "${case_name}: missing iptables skip result line"
+			grep -q '^preflight.ip6tables.required=no$' "${out_file}" || fail "${case_name}: missing ip6tables skip required line"
+			grep -q '^preflight.ip6tables.result=SKIP$' "${out_file}" || fail "${case_name}: missing ip6tables skip result line"
+			if grep -q '^called\.ip6\{0,1\}tables=yes$' "${out_file}"; then
+				fail "${case_name}: firewall tool check ran for LAN mode"
+			fi
+			;;
+	esac
+}
+
+for action in install update restore; do
+	run_preflight_firewall_mode_case "persisted-wan-${action}" "${action}" wan lan required
+	run_preflight_firewall_mode_case "persisted-lan-${action}" "${action}" lan wan skipped
+	run_preflight_firewall_mode_case "detected-wan-${action}" "${action}" missing wan required
+	run_preflight_firewall_mode_case "detected-lan-${action}" "${action}" missing lan skipped
+done
+
 run_router_mode_case() {
 	case_name="$1"
 	sw_mode="$2"
@@ -188,6 +264,8 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 (
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
+	conf_value() { return 1; }
+	adguard_install_mode_detect() { return 1; }
 
 	assert_entware_required() {
 		local action
@@ -278,6 +356,43 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 			fi
 		done
 	}
+
+	assert_firewall_required() {
+		local action
+		for action in "$@"; do
+			if ! preflight_action_requires_firewall_tools "${action}"; then
+				printf '%s\n' "expected firewall tools requirement for action: ${action}" >&2
+				exit 1
+			fi
+		done
+	}
+
+	assert_firewall_skipped() {
+		local action
+		for action in "$@"; do
+			if preflight_action_requires_firewall_tools "${action}"; then
+				printf '%s\n' "unexpected firewall tools requirement for action: ${action}" >&2
+				exit 1
+			fi
+		done
+	}
+
+	conf_value() {
+		case "${CONF_MODE:-missing}" in
+			missing) return 1 ;;
+			*) printf '%s\n' "${CONF_MODE}" ;;
+		esac
+	}
+	adguard_install_mode_detect() {
+		case "${DETECTED_MODE:-missing}" in
+			missing) return 1 ;;
+			*) ADGUARD_INSTALL_MODE="${DETECTED_MODE}" ;;
+		esac
+	}
+	CONF_MODE=wan DETECTED_MODE=lan assert_firewall_required install update restore
+	CONF_MODE=lan DETECTED_MODE=wan assert_firewall_skipped install update restore
+	CONF_MODE=missing DETECTED_MODE=lan assert_firewall_skipped install update restore
+	CONF_MODE=missing DETECTED_MODE=wan assert_firewall_required install update restore
 
 	assert_base_tools_required() {
 		local action

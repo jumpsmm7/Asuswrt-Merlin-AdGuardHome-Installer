@@ -839,6 +839,16 @@ preflight_action_requires_firewall_tools() {
 			return 1
 			;;
 	esac
+	case "$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)" in
+		lan) return 1 ;;
+		"")
+			if adguard_install_mode_detect >/dev/null 2>&1; then
+				case "${ADGUARD_INSTALL_MODE:-}" in
+					lan) return 1 ;;
+				esac
+			fi
+			;;
+	esac
 	return 0
 }
 
