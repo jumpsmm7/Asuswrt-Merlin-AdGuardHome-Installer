@@ -116,7 +116,6 @@ fi
 [ "${YAML_CHECKS}" -eq 0 ] || fail 'existing-config setup continued after WebUI port selection failed'
 grep -q 'address: 0.0.0.0:3000' "${YAML_FILE}" || fail 'existing YAML was changed after port selection failed'
 
-
 rm -f "${YAML_ORI}" "${YAML_BAK}"
 printf '%s\n' 'http:' '  address: 192.168.50.1:3000' 'schema_version: 27' >"${YAML_FILE}"
 : >"${CONF_FILE}"
