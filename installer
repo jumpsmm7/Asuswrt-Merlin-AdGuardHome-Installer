@@ -4615,6 +4615,14 @@ setup_resolve_bind_addresses() {
 	esac
 }
 
+setup_write_dns_bind_hosts() {
+	local target_file="$1"
+
+	PTXT "dns:" \
+		"  bind_hosts:" \
+		"    - ${SETUP_DNS_BIND_HOST}" >>"${target_file}"
+}
+
 setup_AdGuardHome_impl() {
 	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" CURRENT_WEB_ADDRESS="" CURRENT_WEB_PORT="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
@@ -4759,9 +4767,7 @@ setup_AdGuardHome_impl() {
 						setup_restore_previous_yaml || true
 						return 1
 					fi
-					PTXT "dns:" \
-						"  bind_hosts:" \
-						"    - ${SETUP_DNS_BIND_HOST}" >>"${YAML_ORI_NEW}"
+					setup_write_dns_bind_hosts "${YAML_ORI_NEW}"
 					PTXT "  port: 53" >>"${YAML_ORI_NEW}"
 					PTXT "${INFO} Set the DNS server(s) for initializing AdGuardHome" \
 						"${INFO} and router services (e.g. ntp) at boot"
