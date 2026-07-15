@@ -157,7 +157,6 @@ read_yesno() { return 1; }
 READ_INPUT_PORT_STATUS=1
 SELECTED_WEB_PORT=3000
 
-
 rm -f "${YAML_ORI}" "${YAML_BAK}"
 printf '%s\n' 'filters:' '  - url: http://example.invalid/filter.txt' 'schema_version: 27' >"${YAML_FILE}"
 printf '%s\n' 'ADGUARD_DOMAIN="router.local"' >"${CONF_FILE}"
