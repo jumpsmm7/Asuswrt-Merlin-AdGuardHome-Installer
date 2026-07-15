@@ -86,6 +86,15 @@ CONF_FILE="${TMP_ROOT}/new-invalid-missing-sw-mode.config"
 configure_runtime_defaults new-install invalid 0 >"${TMP_ROOT}/new-invalid-missing-sw-mode.out" || fail 'invalid-mode missing sw_mode fallback defaults failed'
 grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" || fail 'invalid-mode missing sw_mode fallback did not save lan install mode'
 grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'invalid-mode missing sw_mode fallback did not save lan netcheck mode'
+
+CONF_FILE="${TMP_ROOT}/new-existing-netcheck.config"
+cat >"${CONF_FILE}" <<'CONFIG'
+ADGUARD_NETCHECK_MODE="legacy"
+CONFIG
+configure_runtime_defaults new-install wan 0 >"${TMP_ROOT}/new-existing-netcheck.out" || fail 'new install existing netcheck preservation failed'
+grep -q '^ADGUARD_INSTALL_MODE="wan"$' "${CONF_FILE}" || fail 'new install existing netcheck did not save wan install mode'
+grep -q '^ADGUARD_NETCHECK_MODE="legacy"$' "${CONF_FILE}" || fail 'new install overwrote existing netcheck mode'
+
 CONF_FILE="${TMP_ROOT}/upgrade-existing.config"
 cat >"${CONF_FILE}" <<'CONFIG'
 ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"

@@ -554,7 +554,7 @@ configure_runtime_defaults() {
 			esac
 			write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"1\"" || return 1
 			write_conf ADGUARD_INSTALL_MODE "\"${NETCHECK_MODE}\"" || return 1
-			write_conf ADGUARD_NETCHECK_MODE "\"${NETCHECK_MODE}\"" || return 1
+			write_conf_if_absent ADGUARD_NETCHECK_MODE "\"${NETCHECK_MODE}\"" || return 1
 			write_conf_if_absent ADGUARD_PROC_OPTIMIZE "\"YES\"" || return 1
 			write_conf_if_absent ADGUARD_PROC_PROFILE "\"balanced\"" || return 1
 			ptxt_ok "Runtime defaults saved: DNS port refusal enabled, netcheck mode ${NETCHECK_MODE}, performance profile balanced."
