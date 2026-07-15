@@ -5926,7 +5926,7 @@ cli_migrate_runtime_default() {
 }
 
 cli_migrate_runtime_defaults() {
-	local apply dry_run changes dns_port_change netcheck_change proc_optimize_change proc_profile_change proc_optimize_current netcheck_target
+	local apply dry_run changes dns_port_change netcheck_change proc_optimize_change proc_profile_change proc_optimize_current install_mode netcheck_target
 	apply="0"
 	dry_run="0"
 	changes="0"
@@ -5947,7 +5947,9 @@ cli_migrate_runtime_defaults() {
 	netcheck_change="0"
 	proc_optimize_change="0"
 	proc_profile_change="0"
-	case "${ADGUARD_INSTALL_MODE:-wan}" in
+	install_mode="$(conf_value ADGUARD_INSTALL_MODE)"
+	[ -n "${install_mode}" ] || install_mode="${ADGUARD_INSTALL_MODE:-wan}"
+	case "${install_mode}" in
 		lan) netcheck_target="lan" ;;
 		*) netcheck_target="wan" ;;
 	esac
@@ -6263,10 +6265,6 @@ cli_run() {
 				return 0
 			}
 			cli_require_yes || return 1
-			if [ "${CLI_ALLOW_DNS_NVRAM}" != "1" ]; then
-				PTXT "${ERROR} Refusing install DNS/NVRAM rewrite without --allow-dns-nvram."
-				return 1
-			fi
 			if [ ! -f "${AGH_FILE}" ]; then
 				PTXT "${ERROR} Non-interactive install cannot complete fresh first-run setup."
 				PTXT "${ERROR} Run the interactive installer for fresh installs, or use restore --file with an existing backup."
@@ -6276,6 +6274,10 @@ cli_run() {
 			cleanup
 			check_jffs_enabled
 			if [ "${ADGUARD_INSTALL_MODE}" = "wan" ]; then
+				if [ "${CLI_ALLOW_DNS_NVRAM}" != "1" ]; then
+					PTXT "${ERROR} Refusing install DNS/NVRAM rewrite without --allow-dns-nvram."
+					return 1
+				fi
 				check_dns_environment 0
 			fi
 			[ -n "${adguard_branch}" ] || adguard_branch="$(conf_value ADGUARD_BRANCH)"
