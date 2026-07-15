@@ -80,6 +80,8 @@ run_case repeater-lan 2 192.168.50.1 0 lan
 run_case ap-lan 3 192.168.50.1 0 lan
 run_case media-bridge-lan 4 192.168.50.1 0 lan
 run_case unknown-non-router-lan 9 192.168.50.1 0 lan
+run_case repeater-without-lan-ip 2 "" 1 ""
+run_case ap-with-invalid-lan-ip 3 999.168.50.1 1 ""
 run_case missing-sw-mode-with-lan-ip "" 192.168.50.1 0 lan
 run_case missing-sw-mode-without-lan-ip "" "" 1 ""
 run_case missing-sw-mode-with-invalid-lan-ip "" 999.168.50.1 1 ""

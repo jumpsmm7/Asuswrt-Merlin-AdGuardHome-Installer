@@ -641,15 +641,12 @@ adguard_install_mode_detect() {
 		1)
 			ADGUARD_INSTALL_MODE="wan"
 			;;
-		"")
+		*)
 			lan_ipaddr="$(nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
 			if ! ipv4_is_valid "${lan_ipaddr}"; then
 				PTXT "${ERROR} Unable to determine router LAN IP address."
 				return 1
 			fi
-			ADGUARD_INSTALL_MODE="lan"
-			;;
-		*)
 			ADGUARD_INSTALL_MODE="lan"
 			;;
 	esac
