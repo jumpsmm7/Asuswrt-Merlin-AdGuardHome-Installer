@@ -634,6 +634,28 @@ ipv4_is_private() {
 	'
 }
 
+adguard_install_mode_detect() {
+	local lan_ipaddr sw_mode
+	sw_mode="$(nvram get sw_mode 2>/dev/null)" || sw_mode=""
+	case "${sw_mode}" in
+		1)
+			ADGUARD_INSTALL_MODE="wan"
+			;;
+		"")
+			lan_ipaddr="$(nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
+			if ! ipv4_is_valid "${lan_ipaddr}"; then
+				PTXT "${ERROR} Unable to determine router LAN IP address."
+				return 1
+			fi
+			ADGUARD_INSTALL_MODE="lan"
+			;;
+		*)
+			ADGUARD_INSTALL_MODE="lan"
+			;;
+	esac
+	return 0
+}
+
 port_is_valid() {
 	case "$1" in
 		"" | *[!0123456789]*) return 1 ;;
@@ -799,7 +821,7 @@ preflight_check_jffs_ready() {
 }
 
 preflight_check_router_eligibility() {
-	local arch model odmpid os result sw_mode
+	local arch install_mode model odmpid os result sw_mode
 	result="OK"
 	PTXT "preflight.router.required=yes"
 	if [ -z "${ROUTER_MODEL:-}" ]; then
@@ -829,9 +851,11 @@ preflight_check_router_eligibility() {
 	else
 		PTXT "preflight.router.model.result=OK"
 	fi
-	if [ "${sw_mode}" = "1" ]; then
+	if install_mode="$(ADGUARD_INSTALL_MODE="" adguard_install_mode_detect 2>/dev/null && PTXT "${ADGUARD_INSTALL_MODE}")"; then
+		PTXT "preflight.router.mode=${install_mode}"
 		PTXT "preflight.router.mode.result=OK"
 	else
+		PTXT "preflight.router.mode=missing"
 		PTXT "preflight.router.mode.result=FAIL"
 		result="FAIL"
 	fi
@@ -6185,9 +6209,10 @@ WAN_IPADDR="$(nvram get wan_ipaddr 2>/dev/null)"
 if ipv4_is_private "${WAN_IPADDR}"; then NAT_ENV="${WAN_IPADDR}"; else NAT_ENV=""; fi
 
 [ -z "${ROUTER_MODEL}" ] && PTXT "${ERROR} This is an unsupported router, sorry." && sleep 3s && exit 1
-[ "$(nvram get sw_mode)" != "1" ] && PTXT "${ERROR} You are not running in router mode, sorry." && sleep 3s && exit 1
+adguard_install_mode_detect || { sleep 3s; exit 1; }
+write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\"" || exit 1
 
-if [ -n "${NAT_ENV}" ] && [ -z "$2" ]; then
+if [ "${ADGUARD_INSTALL_MODE}" = "wan" ] && [ -n "${NAT_ENV}" ] && [ -z "$2" ]; then
 	PTXT "${WARNING} This router is in a Double-Nat Environment. While for some users of AdGuardHome this may work fine," \
 		"${WARNING} Consider this a warning that there is no guarentee that it will." \
 		"${WARNING} The script developer cannot help in this scenario." \
