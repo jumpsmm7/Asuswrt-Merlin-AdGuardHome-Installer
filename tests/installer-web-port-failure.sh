@@ -26,6 +26,10 @@ port_is_valid() {
 	[ "$1" -ge 3000 ] 2>/dev/null && [ "$1" -le 65535 ] 2>/dev/null
 }
 
+runtime_port_is_valid() {
+	port_is_valid "$@"
+}
+
 rollback_result_write() { :; }
 rollback_result_notice() { :; }
 
