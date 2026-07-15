@@ -582,6 +582,8 @@ configure_runtime_defaults() {
 			esac
 			write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"1\"" || return 1
 			write_conf ADGUARD_INSTALL_MODE "\"${NETCHECK_MODE}\"" || return 1
+			ADGUARD_INSTALL_MODE="${NETCHECK_MODE}"
+			adguard_install_feature_defaults || return 1
 			write_conf_if_absent ADGUARD_NETCHECK_MODE "\"${NETCHECK_MODE}\"" || return 1
 			write_conf_if_absent ADGUARD_PROC_OPTIMIZE "\"YES\"" || return 1
 			write_conf_if_absent ADGUARD_PROC_PROFILE "\"balanced\"" || return 1
@@ -6427,7 +6429,6 @@ adguard_install_mode_detect || {
 	exit 1
 }
 write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\"" || exit 1
-adguard_install_feature_defaults || exit 1
 
 if [ "${ADGUARD_INSTALL_MODE}" = "wan" ] && [ -n "${NAT_ENV}" ] && [ -z "$2" ]; then
 	PTXT "${WARNING} This router is in a Double-Nat Environment. While for some users of AdGuardHome this may work fine," \
