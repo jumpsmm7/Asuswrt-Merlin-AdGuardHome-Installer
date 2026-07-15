@@ -2916,7 +2916,7 @@ adguardhome_yaml_remove_ipset_file() {
 			next
 		}
 		{ print }
-	' "${YAML_FILE}" >"${tmp_file}" && mv -f "${tmp_file}" "${YAML_FILE}" || {
+	' "${YAML_FILE}" >"${tmp_file}" && chmod 600 "${tmp_file}" && mv -f "${tmp_file}" "${YAML_FILE}" || {
 		rm -f "${tmp_file}"
 		return 1
 	}
