@@ -4603,6 +4603,9 @@ setup_resolve_bind_addresses() {
 				return 1
 			fi
 			SETUP_WEB_ADDRESS="${LAN_ADDR}:${WEB_PORT}"
+			# AdGuardHome treats one unspecified bind host as all
+			# interfaces/IP versions; keep DNS wildcard-bound without
+			# persisting dynamic IPv6 addresses.
 			SETUP_DNS_BIND_HOST="0.0.0.0"
 			;;
 		*)
@@ -4610,6 +4613,14 @@ setup_resolve_bind_addresses() {
 			return 1
 			;;
 	esac
+}
+
+setup_write_dns_bind_hosts() {
+	local target_file="$1"
+
+	PTXT "dns:" \
+		"  bind_hosts:" \
+		"    - ${SETUP_DNS_BIND_HOST}" >>"${target_file}"
 }
 
 setup_AdGuardHome_impl() {
@@ -4756,9 +4767,7 @@ setup_AdGuardHome_impl() {
 						setup_restore_previous_yaml || true
 						return 1
 					fi
-					PTXT "dns:" \
-						"  bind_hosts:" \
-						"    - ${SETUP_DNS_BIND_HOST}" >>"${YAML_ORI_NEW}"
+					setup_write_dns_bind_hosts "${YAML_ORI_NEW}"
 					PTXT "  port: 53" >>"${YAML_ORI_NEW}"
 					PTXT "${INFO} Set the DNS server(s) for initializing AdGuardHome" \
 						"${INFO} and router services (e.g. ntp) at boot"
