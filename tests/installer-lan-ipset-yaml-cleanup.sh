@@ -186,7 +186,6 @@ adguard_enforce_lan_ipset_disabled || fail 'LAN enforcement failed for restored 
 [ "$(conf_value ADGUARD_IPSET)" = 'NO' ] || fail 'LAN enforcement did not disable restored ADGUARD_IPSET'
 assert_no_ipset_file restored-lan
 
-
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write YAML for nvram username ownership test'
 dns:
   ipset_file: owner-ipset.conf
