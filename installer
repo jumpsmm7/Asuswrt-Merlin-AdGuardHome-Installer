@@ -2963,7 +2963,7 @@ check_version() {
 			PTXT "${INFO} ADGUARDHOME_VER=${ADGUARD_VER}" \
 				"${INFO} Run Option 1 to if you want to change builds or upgrade when updates are available." \
 				"${INFO} To visit AdGuardHome," \
-				"${INFO} please go to http://$(nvram get lan_ipaddr):$(awk -F: '/.*address\:.*/{ print $3 }' "${YAML_FILE}")." \
+				"${INFO} please go to http://$(nvram get lan_ipaddr):$(awk -F: '/.*address:.*/{ print $3 }' "${YAML_FILE}")." \
 				"${INFO} You can use the WebUI to change things to your liking!" \
 				"${INFO} Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
 				"${INFO} for any configuration needs. "
@@ -4623,8 +4623,81 @@ setup_write_dns_bind_hosts() {
 		"    - ${SETUP_DNS_BIND_HOST}" >>"${target_file}"
 }
 
+setup_default_web_host() {
+	local LAN_ADDR LAN_IF
+
+	case "${ADGUARD_INSTALL_MODE:-wan}" in
+		wan)
+			PTXT "0.0.0.0"
+			;;
+		lan)
+			LAN_IF="$(nvram get lan_ifname)"
+			if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
+				LAN_ADDR="$(ip -o -4 addr list "${LAN_IF}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
+			fi
+			[ -n "${LAN_ADDR:-}" ] || LAN_ADDR="$(nvram get lan_ipaddr)"
+			if ! ipv4_is_valid "${LAN_ADDR}"; then
+				PTXT "${ERROR} Unable to resolve the LAN IPv4 address for AdGuardHome LAN mode. Setup was aborted."
+				return 1
+			fi
+			PTXT "${LAN_ADDR}"
+			;;
+		*)
+			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE}. Setup was aborted."
+			return 1
+			;;
+	esac
+}
+
+setup_sync_webui_port() {
+	local NEW_PORT CURRENT_WEB_LINE CURRENT_WEB_ADDRESS CURRENT_WEB_HOST CURRENT_WEB_PORT NEW_WEB_ADDRESS YAML_SYNC_TMP_FILE
+
+	NEW_PORT="$1"
+	port_is_valid "${NEW_PORT}" || return 1
+	CURRENT_WEB_LINE="$(awk '
+		/^http:[[:space:]]*$/ { in_http = 1; next }
+		in_http && /^[^[:space:]]/ { exit }
+		in_http && /^[[:space:]]*address:[[:space:]]*/ { print; exit }
+	' "${YAML_FILE}")"
+	CURRENT_WEB_ADDRESS="$(printf '%s\n' "${CURRENT_WEB_LINE}" | sed 's/^[[:space:]]*address:[[:space:]]*//; s/[[:space:]]*$//')"
+	case "${CURRENT_WEB_ADDRESS}" in
+		\"*\")
+			CURRENT_WEB_ADDRESS="${CURRENT_WEB_ADDRESS#\"}"
+			CURRENT_WEB_ADDRESS="${CURRENT_WEB_ADDRESS%\"}"
+			;;
+		\'*\')
+			CURRENT_WEB_ADDRESS="${CURRENT_WEB_ADDRESS#\'}"
+			CURRENT_WEB_ADDRESS="${CURRENT_WEB_ADDRESS%\'}"
+			;;
+	esac
+	CURRENT_WEB_PORT="$(printf '%s\n' "${CURRENT_WEB_ADDRESS}" | awk -F':' 'NF > 1 { print $NF }')"
+	if [ -n "${CURRENT_WEB_ADDRESS}" ] && runtime_port_is_valid "${CURRENT_WEB_PORT}"; then
+		CURRENT_WEB_HOST="${CURRENT_WEB_ADDRESS%:${CURRENT_WEB_PORT}}"
+	fi
+	[ -n "${CURRENT_WEB_HOST:-}" ] || CURRENT_WEB_HOST="$(setup_default_web_host)" || return 1
+	NEW_WEB_ADDRESS="${CURRENT_WEB_HOST}:${NEW_PORT}"
+	if [ -n "${CURRENT_WEB_LINE}" ]; then
+		yaml_nvars_replace "${CURRENT_WEB_LINE}" "  address: ${NEW_WEB_ADDRESS}" "${YAML_FILE}"
+	else
+		YAML_SYNC_TMP_FILE="${YAML_FILE}.webui-port.$$"
+		awk -v address="  address: ${NEW_WEB_ADDRESS}" '
+			{ print }
+			!inserted && /^http:[[:space:]]*$/ {
+				print address
+				inserted = 1
+			}
+			END { exit(inserted ? 0 : 1) }
+		' "${YAML_FILE}" >"${YAML_SYNC_TMP_FILE}" &&
+			mv -f "${YAML_SYNC_TMP_FILE}" "${YAML_FILE}" ||
+			{
+				rm -f "${YAML_SYNC_TMP_FILE}"
+				return 1
+			}
+	fi
+}
+
 setup_AdGuardHome_impl() {
-	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" CURRENT_WEB_ADDRESS="" CURRENT_WEB_PORT="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
+	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ -z "$1" ] && [ -f "${YAML_FILE}" ]; then
 		############################################################ Drop-in code to be removed/modified as needed. #############################################################################################################################################################
@@ -4636,20 +4709,31 @@ setup_AdGuardHome_impl() {
 			if ! read_input_port "Default is" 3000; then
 				return 1
 			fi
+			CONFIG_ROLLBACK="${TMPDIR:-/tmp}/AdGuardHome.config.webui-port.$$"
+			if ! save_installer_config "${CONFIG_ROLLBACK}"; then
+				PTXT "${ERROR} Unable to preserve the previous installer preferences."
+				return 1
+			fi
 			if ! write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT}\""; then
+				restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 				PTXT "${ERROR} Unable to save the AdGuardHome WebUI port."
 				return 1
 			fi
-			CURRENT_WEB_ADDRESS="$(awk '/^[[:space:]]*address:[[:space:]]*/{ sub(/^[[:space:]]*address:[[:space:]]*/, ""); print; exit }' "${YAML_FILE}")"
-			CURRENT_WEB_PORT="$(printf '%s\n' "${CURRENT_WEB_ADDRESS}" | awk -F':' '{ print $NF }' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')"
-			[ -n "${CURRENT_WEB_PORT}" ] && yaml_nvars_replace "  address: ${CURRENT_WEB_ADDRESS}" "  address: ${CURRENT_WEB_ADDRESS%:${CURRENT_WEB_PORT}}:${WEB_PORT}" "${YAML_FILE}"
-		elif awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" != "$(awk -F':' '/.*address\:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" ]; then
-			CURRENT_WEB_ADDRESS="$(awk '/^[[:space:]]*address:[[:space:]]*/{ sub(/^[[:space:]]*address:[[:space:]]*/, ""); print; exit }' "${YAML_FILE}")"
-			CURRENT_WEB_PORT="$(printf '%s\n' "${CURRENT_WEB_ADDRESS}" | awk -F':' '{ print $NF }' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')"
-			[ -n "${CURRENT_WEB_PORT}" ] && yaml_nvars_replace "  address: ${CURRENT_WEB_ADDRESS}" "  address: ${CURRENT_WEB_ADDRESS%:${CURRENT_WEB_PORT}}:$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "${YAML_FILE}"
+			if ! setup_sync_webui_port "${WEB_PORT}"; then
+				restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+				PTXT "${ERROR} Unable to update the AdGuardHome WebUI address."
+				return 1
+			fi
+			discard_installer_config_backup "${CONFIG_ROLLBACK}"
+			CONFIG_ROLLBACK=""
+		elif awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" != "$(awk -F':' '/.*address:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" ]; then
+			if ! setup_sync_webui_port "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')"; then
+				PTXT "${ERROR} Unable to update the AdGuardHome WebUI address."
+				return 1
+			fi
 		fi
 		##########################################################################################################################################################################################################################################################################
-		if [ -n "$(awk -F': ' '/.*schema\:.*/{ print $2 }' "${YAML_FILE}")" ] && [ "$(awk -F': ' '/.*schema\:.*/{ print $2 }' "${YAML_FILE}")" != "${SCHEMA_VER}" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema\:.*/{ print $2 }' "${YAML_FILE}")" "schema_version: ${SCHEMA_VER}" "${YAML_FILE}"; fi
+		if [ -n "$(awk -F': ' '/.*schema:.*/{ print $2 }' "${YAML_FILE}")" ] && [ "$(awk -F': ' '/.*schema:.*/{ print $2 }' "${YAML_FILE}")" != "${SCHEMA_VER}" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema:.*/{ print $2 }' "${YAML_FILE}")" "schema_version: ${SCHEMA_VER}" "${YAML_FILE}"; fi
 		if ! check_AdGuardHome_yaml; then
 			setup_AdGuardHome_impl x
 			return

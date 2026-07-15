@@ -19,6 +19,17 @@ SETUP_FUNCTIONS="$(sed -n '/^setup_AdGuardHome() {$/,/^setup_amtmupdate() {$/p' 
 eval "${RUNTIME_DEFAULT_FUNCTIONS}"
 eval "${SETUP_FUNCTIONS}"
 
+port_is_valid() {
+	case "$1" in
+		"" | *[!0123456789]*) return 1 ;;
+	esac
+	[ "$1" -ge 3000 ] 2>/dev/null && [ "$1" -le 65535 ] 2>/dev/null
+}
+
+runtime_port_is_valid() {
+	port_is_valid "$@"
+}
+
 rollback_result_write() { :; }
 rollback_result_notice() { :; }
 
@@ -56,6 +67,16 @@ read_input_port() {
 write_conf() {
 	printf '%s\n' "$*" >>"${WRITE_LOG}"
 	[ "${FAIL_WRITE_CONF:-0}" -eq 0 ] || [ "$1" != ADGUARD_WEBUI_PORT ]
+}
+save_installer_config() {
+	cp -p "${CONF_FILE}" "$1"
+}
+restore_installer_config() {
+	mv -f "$1" "${CONF_FILE}"
+	rm -f "$1.absent"
+}
+discard_installer_config_backup() {
+	rm -f "$1" "$1.absent"
 }
 yaml_nvars_replace() {
 	printf '%s\n' "$*" >>"${WRITE_LOG}"
@@ -133,6 +154,23 @@ grep -q 'address: 192.168.50.1:4000' "${WRITE_LOG}" || fail 'existing-config set
 ! grep -q '0\.0\.0\.0:3000' "${WRITE_LOG}" || fail 'existing-config setup used the old wildcard WebUI replacement pattern for a LAN bind'
 [ "${YAML_CHECKS}" -eq 1 ] || fail 'existing-config setup did not validate the rewritten LAN-bound YAML once'
 read_yesno() { return 1; }
+READ_INPUT_PORT_STATUS=1
+SELECTED_WEB_PORT=3000
+
+rm -f "${YAML_ORI}" "${YAML_BAK}"
+printf '%s\n' 'filters:' '  - url: http://example.invalid/filter.txt' 'schema_version: 27' >"${YAML_FILE}"
+printf '%s\n' 'ADGUARD_DOMAIN="router.local"' >"${CONF_FILE}"
+: >"${WRITE_LOG}"
+YAML_CHECKS=0
+READ_INPUT_PORT_STATUS=0
+SELECTED_WEB_PORT=4000
+if setup_AdGuardHome_impl ''; then
+	fail 'existing-config setup accepted a WebUI port that could not be synced to YAML'
+fi
+grep -q '^ADGUARD_WEBUI_PORT "4000"$' "${WRITE_LOG}" || fail 'existing-config setup did not attempt to persist the selected WebUI port before sync failure'
+[ "$(cat "${CONF_FILE}")" = 'ADGUARD_DOMAIN="router.local"' ] || fail 'existing-config setup did not restore installer preferences after WebUI sync failure'
+[ "${YAML_CHECKS}" -eq 0 ] || fail 'existing-config setup continued after WebUI sync failure'
+! grep -q 'address:' "${YAML_FILE}" || fail 'existing-config setup wrote a WebUI address outside a top-level http section'
 READ_INPUT_PORT_STATUS=1
 SELECTED_WEB_PORT=3000
 
