@@ -22,7 +22,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
-sed -n '/^setup_resolve_bind_addresses() {$/,/^setup_AdGuardHome_impl() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
+sed -n '/^setup_resolve_lan_addresses() {$/,/^setup_AdGuardHome_impl() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract bind address helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'bind address helper extraction was empty'
 
@@ -45,6 +45,9 @@ ip() {
 		'-o -4 addr list br0')
 			[ -n "${IPV4_FROM_IP:-}" ] && printf '1: br0    inet %s/24 brd 192.168.50.255 scope global br0\n' "${IPV4_FROM_IP}"
 			;;
+		'-o -6 addr list br0 scope global')
+			[ -n "${IPV6_FROM_IP:-}" ] && printf '1: br0    inet6 %s/64 scope global\n' "${IPV6_FROM_IP}"
+			;;
 		*) return 1 ;;
 	esac
 }
@@ -53,6 +56,7 @@ nvram() {
 	case "${1:-}:${2:-}" in
 		get:lan_ifname) printf '%s\n' "${LAN_IFNAME:-}" ;;
 		get:lan_ipaddr) printf '%s\n' "${IPV4_FROM_NVRAM:-}" ;;
+		get:ipv6_rtr_addr) printf '%s\n' "${IPV6_FROM_NVRAM:-}" ;;
 		*) return 1 ;;
 	esac
 }
@@ -63,6 +67,10 @@ reset_inputs() {
 	LAN_IFNAME=""
 	IPV4_FROM_IP=""
 	IPV4_FROM_NVRAM=""
+	IPV6_FROM_IP=""
+	IPV6_FROM_NVRAM=""
+	NET_ADDR=""
+	NET_ADDR6=""
 	SETUP_WEB_ADDRESS="preset"
 	SETUP_DNS_BIND_HOST="preset"
 	SETUP_DNS_BIND_HOST6=""
@@ -100,8 +108,13 @@ ADGUARD_INSTALL_MODE=lan
 IP_AVAILABLE=1
 LAN_IFNAME=br0
 IPV4_FROM_IP=192.168.50.1
+IPV6_FROM_IP=2001:db8::1
 IPV4_FROM_NVRAM=192.168.1.1
+IPV6_FROM_NVRAM=2001:db8::2
 SETUP_DNS_BIND_HOST6='::'
+setup_resolve_lan_addresses
+[ "${NET_ADDR:-}" = "${IPV4_FROM_IP}" ] || fail 'initial YAML LAN IPv4 resolution did not prefer ip output'
+[ "${NET_ADDR6:-}" = "${IPV6_FROM_IP}" ] || fail 'initial YAML LAN IPv6 resolution did not prefer ip output'
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution from ip failed'
 assert_bind_values lan-ip '192.168.50.1:3000' '0.0.0.0'
 [ "${SETUP_DNS_BIND_HOST:-}" != "${IPV4_FROM_IP}" ] || fail 'LAN DNS bind was pinned to the primary LAN IPv4 address instead of remaining wildcard-bound'
@@ -112,7 +125,11 @@ ADGUARD_INSTALL_MODE=lan
 IP_AVAILABLE=1
 LAN_IFNAME=br0
 IPV4_FROM_NVRAM=192.168.1.1
+IPV6_FROM_NVRAM=2001:db8::2
 SETUP_DNS_BIND_HOST6='::'
+setup_resolve_lan_addresses
+[ "${NET_ADDR:-}" = "${IPV4_FROM_NVRAM}" ] || fail 'initial YAML LAN IPv4 resolution did not fall back to nvram'
+[ "${NET_ADDR6:-}" = "${IPV6_FROM_NVRAM}" ] || fail 'initial YAML LAN IPv6 resolution did not fall back to nvram'
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution from nvram fallback failed'
 assert_bind_values lan-nvram '192.168.1.1:3000' '0.0.0.0'
 [ "${SETUP_DNS_BIND_HOST:-}" != "${IPV4_FROM_NVRAM}" ] || fail 'LAN DNS bind was pinned to the nvram LAN IPv4 address instead of remaining wildcard-bound'
@@ -122,6 +139,8 @@ reset_inputs
 ADGUARD_INSTALL_MODE=lan
 IP_AVAILABLE=1
 LAN_IFNAME=br0
+setup_resolve_lan_addresses
+[ -z "${NET_ADDR:-}" ] || fail 'initial YAML LAN IPv4 resolution unexpectedly found an address'
 if setup_resolve_bind_addresses >/dev/null 2>&1; then
 	fail 'LAN bind resolution succeeded without IPv4 address'
 fi

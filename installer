@@ -4582,8 +4582,21 @@ setup_restore_previous_yaml() {
 	return 0
 }
 
+setup_resolve_lan_addresses() {
+	local LAN_IF
+
+	NET_ADDR=""
+	NET_ADDR6=""
+	LAN_IF="$(nvram get lan_ifname)"
+	if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
+		NET_ADDR="$(ip -o -4 addr list "${LAN_IF}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
+		NET_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
+	fi
+	[ -n "${NET_ADDR}" ] || NET_ADDR="$(nvram get lan_ipaddr)"
+	[ -n "${NET_ADDR6}" ] || NET_ADDR6="$(nvram get ipv6_rtr_addr)"
+}
+
 setup_resolve_bind_addresses() {
-	local LAN_ADDR LAN_IF
 
 	SETUP_WEB_ADDRESS=""
 	SETUP_DNS_BIND_HOST=""
@@ -4593,16 +4606,12 @@ setup_resolve_bind_addresses() {
 			SETUP_DNS_BIND_HOST="0.0.0.0"
 			;;
 		lan)
-			LAN_IF="$(nvram get lan_ifname)"
-			if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
-				LAN_ADDR="$(ip -o -4 addr list "${LAN_IF}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
-			fi
-			[ -n "${LAN_ADDR:-}" ] || LAN_ADDR="$(nvram get lan_ipaddr)"
-			if [ -z "${LAN_ADDR}" ]; then
+			setup_resolve_lan_addresses
+			if [ -z "${NET_ADDR}" ]; then
 				PTXT "${ERROR} Unable to resolve the LAN IPv4 address for AdGuardHome LAN mode. Setup was aborted."
 				return 1
 			fi
-			SETUP_WEB_ADDRESS="${LAN_ADDR}:${WEB_PORT}"
+			SETUP_WEB_ADDRESS="${NET_ADDR}:${WEB_PORT}"
 			# AdGuardHome treats one unspecified bind host as all
 			# interfaces/IP versions; keep DNS wildcard-bound without
 			# persisting dynamic IPv6 addresses.
@@ -4837,6 +4846,13 @@ setup_AdGuardHome_impl() {
 						return 1
 					fi
 					WEB_PORT_SELECTION="${WEB_PORT}"
+					local DOMAIN="" NET_ADDR NET_ADDR6
+					setup_resolve_lan_addresses
+					if [ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" ] && [ -z "${NET_ADDR}" ]; then
+						PTXT "${ERROR} Unable to resolve the LAN IPv4 address for AdGuardHome LAN mode. Setup was aborted."
+						setup_restore_previous_yaml || true
+						return 1
+					fi
 					if ! setup_resolve_bind_addresses; then
 						setup_restore_previous_yaml || true
 						return 1
@@ -4860,14 +4876,6 @@ setup_AdGuardHome_impl() {
 						setup_restore_previous_yaml || true
 						return 1
 					fi
-					local DOMAIN="" NET_ADDR NET_ADDR6 LAN_IF
-					LAN_IF="$(nvram get lan_ifname)"
-					if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
-						NET_ADDR="$(ip -o -4 addr list "${LAN_IF}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
-						NET_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
-					fi
-					[ -n "${NET_ADDR:-}" ] || NET_ADDR="$(nvram get lan_ipaddr)"
-					[ -n "${NET_ADDR6:-}" ] || NET_ADDR6="$(nvram get ipv6_rtr_addr)"
 					LAN_DOMAIN_ROLLBACK="$(nvram get lan_domain)"
 					if [ -n "${LAN_DOMAIN_ROLLBACK}" ]; then
 						DOMAIN="${LAN_DOMAIN_ROLLBACK}"
