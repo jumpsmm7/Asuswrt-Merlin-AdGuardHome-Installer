@@ -119,6 +119,7 @@ run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
 run_check 'Installer single-argument action regression' sh tests/installer-single-arg-actions.sh
 run_check 'Installer preflight action regression' sh tests/installer-preflight-actions.sh
 run_check 'Installer install-mode detection regression' sh tests/installer-install-mode-detection.sh
+run_check 'Installer bind address regression' sh tests/installer-bind-addresses.sh
 run_check 'Installer end operation rollback regression' sh tests/installer-end-op-rollback.sh
 run_check 'Installer doctor fix safety regression' sh tests/installer-doctor-fix-safety.sh
 run_check 'Installer doctor rollback result regression' sh tests/installer-doctor-rollback-result.sh
