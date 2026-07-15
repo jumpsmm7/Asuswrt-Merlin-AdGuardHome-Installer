@@ -201,6 +201,28 @@ grep -q "admin:root ${YAML_FILE}" "${CHOWN_LOG}" || fail 'YAML ownership did not
 [ "$(mode_string "${YAML_FILE}")" = '-rw-------' ] || fail 'YAML mode was not secured with nvram username present'
 assert_no_ipset_file nvram-owner
 
+
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write YAML for failing ownership test'
+dns:
+  ipset_file: chown-fails.conf
+EOF_YAML
+chmod 644 "${YAML_FILE}" || fail 'could not set failing ownership YAML mode'
+cat >"${STUB_DIR}/chown" <<'EOF_CHOWN_FAIL' || fail 'could not write failing chown stub'
+#!/bin/sh
+exit 1
+EOF_CHOWN_FAIL
+chmod 755 "${STUB_DIR}/chown" || fail 'could not chmod failing chown stub'
+if PATH="${STUB_DIR}:${PATH}" adguardhome_yaml_remove_ipset_file; then
+	fail 'cleanup succeeded despite failing YAML chown'
+fi
+[ "$(mode_string "${YAML_FILE}")" = '-rw-------' ] || fail 'YAML mode was not tightened before failing chown'
+assert_no_ipset_file chown-fails
+cat >"${STUB_DIR}/chown" <<'EOF_CHOWN' || fail 'could not restore chown stub'
+#!/bin/sh
+printf '%s %s\n' "$1" "$2" >>"${CHOWN_LOG}"
+EOF_CHOWN
+chmod 755 "${STUB_DIR}/chown" || fail 'could not chmod restored chown stub'
+
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write YAML for empty nvram ownership test'
 dns:
   ipset_file: root-ipset.conf

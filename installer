@@ -2890,12 +2890,12 @@ adguardhome_yaml_secure_file() {
 	local http_username yaml_target
 	yaml_target="${1:-${YAML_FILE}}"
 	[ -f "${yaml_target}" ] || return 0
+	chmod 600 "${yaml_target}" || return 1
 	if which nvram >/dev/null 2>&1; then
 		http_username="$(nvram get http_username 2>/dev/null)"
 		[ -n "${http_username}" ] || http_username="root"
 		chown "${http_username}:root" "${yaml_target}" || return 1
 	fi
-	chmod 600 "${yaml_target}"
 }
 
 adguardhome_yaml_remove_ipset_file() {
@@ -2928,7 +2928,7 @@ adguardhome_yaml_remove_ipset_file() {
 			next
 		}
 		{ print }
-	' "${YAML_FILE}" >"${tmp_file}" && adguardhome_yaml_secure_file "${tmp_file}" && mv -f "${tmp_file}" "${YAML_FILE}" && adguardhome_yaml_secure_file || {
+	' "${YAML_FILE}" >"${tmp_file}" && chmod 600 "${tmp_file}" && mv -f "${tmp_file}" "${YAML_FILE}" && adguardhome_yaml_secure_file || {
 		rm -f "${tmp_file}"
 		return 1
 	}
