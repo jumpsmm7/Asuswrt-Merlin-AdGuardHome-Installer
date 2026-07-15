@@ -67,6 +67,7 @@ mkdir -p "${TMP_ROOT}" "${TARG_DIR}" || fail 'could not create test directory'
 : >"${FUNCTIONS_FILE}"
 extract_function conf_value || fail 'could not extract conf_value'
 extract_function adguardhome_yaml_ipset_file || fail 'could not extract YAML parser'
+extract_function adguardhome_yaml_secure_file || fail 'could not extract YAML security helper'
 extract_function adguardhome_yaml_remove_ipset_file || fail 'could not extract YAML cleanup helper'
 extract_function adguard_enforce_lan_ipset_disabled || fail 'could not extract LAN enforcement helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'helper extraction was empty'
