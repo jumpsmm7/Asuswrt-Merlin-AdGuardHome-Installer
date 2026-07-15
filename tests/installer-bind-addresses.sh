@@ -1,5 +1,5 @@
 #!/bin/sh
-# Verify initial setup bind address selection covers WAN, LAN IPv4, and LAN IPv6 paths.
+# Verify initial setup bind address selection keeps LAN DNS wildcard-bound while resolving the WebUI address.
 
 set -u
 
@@ -98,7 +98,7 @@ IPV6_FROM_IP=2001:db8:50::1
 IPV4_FROM_NVRAM=192.168.1.1
 IPV6_FROM_NVRAM=2001:db8:1::1
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution from ip failed'
-assert_bind_values lan-ip '192.168.50.1:3000' '192.168.50.1' '2001:db8:50::1'
+assert_bind_values lan-ip '192.168.50.1:3000' '0.0.0.0' ''
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan
@@ -107,7 +107,7 @@ LAN_IFNAME=br0
 IPV4_FROM_NVRAM=192.168.1.1
 IPV6_FROM_NVRAM=2001:db8:1::1
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution from nvram fallback failed'
-assert_bind_values lan-nvram '192.168.1.1:3000' '192.168.1.1' '2001:db8:1::1'
+assert_bind_values lan-nvram '192.168.1.1:3000' '0.0.0.0' ''
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan
@@ -118,4 +118,4 @@ if setup_resolve_bind_addresses >/dev/null 2>&1; then
 	fail 'LAN bind resolution succeeded without IPv4 address'
 fi
 
-printf '%s\n' 'PASS: installer bind address resolution covers WAN, LAN IPv4, and LAN IPv6 pathways'
+printf '%s\n' 'PASS: installer bind address resolution keeps LAN DNS wildcard-bound while resolving the WebUI address'

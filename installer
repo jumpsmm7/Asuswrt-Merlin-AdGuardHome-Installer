@@ -4606,8 +4606,8 @@ setup_resolve_bind_addresses() {
 				return 1
 			fi
 			SETUP_WEB_ADDRESS="${LAN_ADDR}:${WEB_PORT}"
-			SETUP_DNS_BIND_HOST="${LAN_ADDR}"
-			SETUP_DNS_BIND_HOST6="${LAN_ADDR6}"
+			SETUP_DNS_BIND_HOST="0.0.0.0"
+			SETUP_DNS_BIND_HOST6=""
 			;;
 		*)
 			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE}. Setup was aborted."
@@ -4617,7 +4617,7 @@ setup_resolve_bind_addresses() {
 }
 
 setup_AdGuardHome_impl() {
-	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
+	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" CURRENT_WEB_ADDRESS="" CURRENT_WEB_PORT="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ -z "$1" ] && [ -f "${YAML_FILE}" ]; then
 		############################################################ Drop-in code to be removed/modified as needed. #############################################################################################################################################################
@@ -4633,9 +4633,13 @@ setup_AdGuardHome_impl() {
 				PTXT "${ERROR} Unable to save the AdGuardHome WebUI port."
 				return 1
 			fi
-			yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "  address: 0.0.0.0:${WEB_PORT}" "${YAML_FILE}"
+			CURRENT_WEB_ADDRESS="$(awk '/^[[:space:]]*address:[[:space:]]*/{ sub(/^[[:space:]]*address:[[:space:]]*/, ""); print; exit }' "${YAML_FILE}")"
+			CURRENT_WEB_PORT="$(printf '%s\n' "${CURRENT_WEB_ADDRESS}" | awk -F':' '{ print $NF }' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')"
+			[ -n "${CURRENT_WEB_PORT}" ] && yaml_nvars_replace "  address: ${CURRENT_WEB_ADDRESS}" "  address: ${CURRENT_WEB_ADDRESS%:${CURRENT_WEB_PORT}}:${WEB_PORT}" "${YAML_FILE}"
 		elif awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" != "$(awk -F':' '/.*address\:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" ]; then
-			yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "  address: 0.0.0.0:$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "${YAML_FILE}"
+			CURRENT_WEB_ADDRESS="$(awk '/^[[:space:]]*address:[[:space:]]*/{ sub(/^[[:space:]]*address:[[:space:]]*/, ""); print; exit }' "${YAML_FILE}")"
+			CURRENT_WEB_PORT="$(printf '%s\n' "${CURRENT_WEB_ADDRESS}" | awk -F':' '{ print $NF }' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')"
+			[ -n "${CURRENT_WEB_PORT}" ] && yaml_nvars_replace "  address: ${CURRENT_WEB_ADDRESS}" "  address: ${CURRENT_WEB_ADDRESS%:${CURRENT_WEB_PORT}}:$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "${YAML_FILE}"
 		fi
 		##########################################################################################################################################################################################################################################################################
 		if [ -n "$(awk -F': ' '/.*schema\:.*/{ print $2 }' "${YAML_FILE}")" ] && [ "$(awk -F': ' '/.*schema\:.*/{ print $2 }' "${YAML_FILE}")" != "${SCHEMA_VER}" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema\:.*/{ print $2 }' "${YAML_FILE}")" "schema_version: ${SCHEMA_VER}" "${YAML_FILE}"; fi
