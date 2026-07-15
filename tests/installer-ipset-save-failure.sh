@@ -69,7 +69,6 @@ for ANSWER in yes no; do
 	rm -f "${LOG}" "${SERVICE_LOG}" "${END_LOG}"
 done
 
-
 LOG="${TMPDIR:-/tmp}/installer-ipset-lan-mode.$$"
 SERVICE_LOG="${LOG}.service"
 END_LOG="${LOG}.end"
