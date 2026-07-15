@@ -4709,13 +4709,28 @@ setup_AdGuardHome_impl() {
 			if ! read_input_port "Default is" 3000; then
 				return 1
 			fi
+			CONFIG_ROLLBACK="${TMPDIR:-/tmp}/AdGuardHome.config.webui-port.$$"
+			if ! save_installer_config "${CONFIG_ROLLBACK}"; then
+				PTXT "${ERROR} Unable to preserve the previous installer preferences."
+				return 1
+			fi
 			if ! write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT}\""; then
+				restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 				PTXT "${ERROR} Unable to save the AdGuardHome WebUI port."
 				return 1
 			fi
-			setup_sync_webui_port "${WEB_PORT}"
+			if ! setup_sync_webui_port "${WEB_PORT}"; then
+				restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+				PTXT "${ERROR} Unable to update the AdGuardHome WebUI address."
+				return 1
+			fi
+			discard_installer_config_backup "${CONFIG_ROLLBACK}"
+			CONFIG_ROLLBACK=""
 		elif awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" != "$(awk -F':' '/.*address:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" ]; then
-			setup_sync_webui_port "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')"
+			if ! setup_sync_webui_port "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')"; then
+				PTXT "${ERROR} Unable to update the AdGuardHome WebUI address."
+				return 1
+			fi
 		fi
 		##########################################################################################################################################################################################################################################################################
 		if [ -n "$(awk -F': ' '/.*schema:.*/{ print $2 }' "${YAML_FILE}")" ] && [ "$(awk -F': ' '/.*schema:.*/{ print $2 }' "${YAML_FILE}")" != "${SCHEMA_VER}" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema:.*/{ print $2 }' "${YAML_FILE}")" "schema_version: ${SCHEMA_VER}" "${YAML_FILE}"; fi
