@@ -88,6 +88,21 @@ grep -q '^ADGUARD_PROC_OPTIMIZE="YES"$' "${CONF_FILE}" || fail 'process optimiza
 grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'process profile was not migrated'
 
 cat >"${CONF_FILE}" <<'CONFIG'
+ADGUARD_INSTALL_MODE="lan"
+ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
+ADGUARD_NETCHECK_MODE="legacy"
+ADGUARD_PROC_OPTIMIZE="YES"
+ADGUARD_PROC_PROFILE="balanced"
+CONFIG
+
+cli_run migrate-runtime-defaults --yes >"${TMP_ROOT}/lan-apply" || fail 'LAN-mode apply migration failed'
+grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" || fail 'LAN install mode was not preserved'
+grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'LAN-mode netcheck was not migrated to lan'
+if grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}"; then
+	fail 'LAN-mode migration regressed to WAN netcheck mode'
+fi
+
+cat >"${CONF_FILE}" <<'CONFIG'
 ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"
 ADGUARD_NETCHECK_MODE="lan"
 ADGUARD_PROC_OPTIMIZE="NO"
