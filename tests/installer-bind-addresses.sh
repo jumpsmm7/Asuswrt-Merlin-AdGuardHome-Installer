@@ -88,6 +88,7 @@ IPV4_FROM_IP=192.168.50.1
 IPV4_FROM_NVRAM=192.168.1.1
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution from ip failed'
 assert_bind_values lan-ip '192.168.50.1:3000' '0.0.0.0'
+[ "${SETUP_DNS_BIND_HOST:-}" != "${IPV4_FROM_IP}" ] || fail 'LAN DNS bind was pinned to the primary LAN IPv4 address instead of remaining wildcard-bound'
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan
@@ -96,6 +97,7 @@ LAN_IFNAME=br0
 IPV4_FROM_NVRAM=192.168.1.1
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution from nvram fallback failed'
 assert_bind_values lan-nvram '192.168.1.1:3000' '0.0.0.0'
+[ "${SETUP_DNS_BIND_HOST:-}" != "${IPV4_FROM_NVRAM}" ] || fail 'LAN DNS bind was pinned to the nvram LAN IPv4 address instead of remaining wildcard-bound'
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan
