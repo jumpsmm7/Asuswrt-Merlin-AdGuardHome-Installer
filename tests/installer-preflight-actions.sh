@@ -134,7 +134,6 @@ EOF
 run_preflight_gate_case missing 1 yes
 run_preflight_gate_case available 0 no
 
-
 run_preflight_firewall_mode_case() {
 	case_name="$1"
 	action="$2"
