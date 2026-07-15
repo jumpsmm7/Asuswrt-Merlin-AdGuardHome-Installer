@@ -4980,9 +4980,13 @@ write_command_script() {
 }
 
 write_conf() {
-	local VAR VALUE
+	local VAR VALUE CONF_DIR
 	VAR="$1"
 	VALUE="$2"
+	CONF_DIR="${CONF_FILE%/*}"
+	if [ "${CONF_DIR}" != "${CONF_FILE}" ] && [ ! -d "${CONF_DIR}" ]; then
+		create_dir "${CONF_DIR}" || return 1
+	fi
 	if [ ! -f "${CONF_FILE}" ]; then
 		if ! { touch "${CONF_FILE}" && chmod 644 "${CONF_FILE}"; }; then
 			PTXT "${ERROR} Unable to create ${CONF_FILE}"
