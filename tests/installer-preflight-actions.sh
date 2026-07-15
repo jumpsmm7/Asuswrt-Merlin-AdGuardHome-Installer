@@ -164,10 +164,14 @@ EOF
 run_router_mode_case wan 1 '' 0 \
 	'preflight.router.mode=wan' \
 	'preflight.router.mode.result=OK'
-run_router_mode_case lan 2 '' 0 \
+run_router_mode_case lan 2 192.168.50.1 0 \
 	'preflight.router.mode=lan' \
 	'preflight.router.mode.result=OK' \
 	'preflight.router.mode.note=non-router-mode-lan-install'
+run_router_mode_case lan-invalid-ip 2 999.168.50.1 1 \
+	'preflight.router.mode=lan' \
+	'preflight.router.mode.result=FAIL' \
+	'preflight.router.mode.reason=non-router-mode-and-no-usable-lan-ip'
 run_router_mode_case missing-lan-ip '' 192.168.50.1 0 \
 	'preflight.router.mode=lan' \
 	'preflight.router.mode.result=OK' \
