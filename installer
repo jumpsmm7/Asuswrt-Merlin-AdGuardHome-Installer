@@ -293,7 +293,7 @@ on_installer_exit() {
 	installer_cleanup_tmp_file setup "${SETUP_YAML_TMP_FILE:-}"
 	installer_cleanup_tmp_file blocklist "${BLOCKLIST_YAML_TMP_FILE:-}"
 	# Restore pre-check DNS settings only when exiting without a local adguardhome installation.
-	if [ ! -f "${AGH_FILE}" ]; then
+	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && [ ! -f "${AGH_FILE}" ]; then
 		check_dns_environment 1
 	fi
 }
@@ -6304,7 +6304,9 @@ case "$2" in
 	"")
 		cleanup
 		check_jffs_enabled
-		check_dns_environment 0
+		if [ "${ADGUARD_INSTALL_MODE}" = "wan" ]; then
+			check_dns_environment 0
+		fi
 		check_version
 		menu
 		;;
