@@ -5926,7 +5926,7 @@ cli_migrate_runtime_default() {
 }
 
 cli_migrate_runtime_defaults() {
-	local apply dry_run changes dns_port_change netcheck_change proc_optimize_change proc_profile_change proc_optimize_current
+	local apply dry_run changes dns_port_change netcheck_change proc_optimize_change proc_profile_change proc_optimize_current netcheck_target
 	apply="0"
 	dry_run="0"
 	changes="0"
@@ -5947,11 +5947,15 @@ cli_migrate_runtime_defaults() {
 	netcheck_change="0"
 	proc_optimize_change="0"
 	proc_profile_change="0"
+	case "${ADGUARD_INSTALL_MODE:-wan}" in
+		lan) netcheck_target="lan" ;;
+		*) netcheck_target="wan" ;;
+	esac
 	cli_migrate_runtime_default ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL 0 1 || {
 		changes="1"
 		dns_port_change="1"
 	}
-	cli_migrate_runtime_default ADGUARD_NETCHECK_MODE legacy wan || {
+	cli_migrate_runtime_default ADGUARD_NETCHECK_MODE legacy "${netcheck_target}" || {
 		changes="1"
 		netcheck_change="1"
 	}
@@ -5983,7 +5987,7 @@ cli_migrate_runtime_defaults() {
 		cli_write_quoted_conf ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL 1 || return 1
 	fi
 	if [ "${netcheck_change}" = "1" ]; then
-		cli_write_quoted_conf ADGUARD_NETCHECK_MODE wan || return 1
+		cli_write_quoted_conf ADGUARD_NETCHECK_MODE "${netcheck_target}" || return 1
 	fi
 	if [ "${proc_optimize_change}" = "1" ]; then
 		cli_write_quoted_conf ADGUARD_PROC_OPTIMIZE YES || return 1
@@ -6271,7 +6275,9 @@ cli_run() {
 			cli_enable_assume_yes
 			cleanup
 			check_jffs_enabled
-			check_dns_environment 0
+			if [ "${ADGUARD_INSTALL_MODE}" = "wan" ]; then
+				check_dns_environment 0
+			fi
 			[ -n "${adguard_branch}" ] || adguard_branch="$(conf_value ADGUARD_BRANCH)"
 			[ -n "${adguard_branch}" ] || adguard_branch="release"
 			cli_adguard_branch_is_valid "${adguard_branch}" || {
