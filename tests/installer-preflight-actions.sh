@@ -180,6 +180,10 @@ run_router_mode_case missing-no-lan-ip '' '' 1 \
 	'preflight.router.mode=missing' \
 	'preflight.router.mode.result=FAIL' \
 	'preflight.router.mode.reason=missing-sw-mode-and-no-usable-lan-ip'
+run_router_mode_case lan-no-lan-ip 2 '' 1 \
+	'preflight.router.mode=lan' \
+	'preflight.router.mode.result=FAIL' \
+	'preflight.router.mode.reason=non-router-mode-and-no-usable-lan-ip'
 
 (
 	# shellcheck disable=SC1090
