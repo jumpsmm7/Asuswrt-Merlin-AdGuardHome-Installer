@@ -66,6 +66,7 @@ awk '
 	/^rollback_result_write\(\)/,/^}/
 	/^rollback_result_summary\(\)/,/^}/
 	/^rollback_result_notice\(\)/,/^}/
+	/^conf_value\(\)/,/^}/
 	/^md5_is_valid\(\)/,/^}/
 	/^file_md5\(\)/,/^}/
 	/^adguard_archive_is_safe\(\)/,/^}/
@@ -79,6 +80,8 @@ awk '
 	/^adguard_restore_after_failed_directory_restore\(\)/,/^}/
 	/^adguard_restore_after_failed_replace\(\)/,/^}/
 	/^adguardhome_yaml_ipset_file\(\)/,/^}/
+	/^adguardhome_yaml_remove_ipset_file\(\)/,/^}/
+	/^adguard_enforce_lan_ipset_disabled\(\)/,/^}/
 	/^chmod_adguardhome_data_files_600\(\)/,/^}/
 	/^ensure_adguardhome_directory_permissions\(\)/,/^}/
 	/^create_backup_archive\(\)/,/^}/
