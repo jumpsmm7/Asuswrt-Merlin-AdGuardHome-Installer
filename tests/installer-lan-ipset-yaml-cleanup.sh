@@ -216,7 +216,7 @@ if PATH="${STUB_DIR}:${PATH}" adguardhome_yaml_remove_ipset_file; then
 	fail 'cleanup succeeded despite failing YAML chown'
 fi
 [ "$(mode_string "${YAML_FILE}")" = '-rw-------' ] || fail 'YAML mode was not tightened before failing chown'
-assert_no_ipset_file chown-fails
+grep -q 'ipset_file: chown-fails.conf' "${YAML_FILE}" || fail 'failing chown path replaced YAML before securing metadata'
 cat >"${STUB_DIR}/chown" <<'EOF_CHOWN' || fail 'could not restore chown stub'
 #!/bin/sh
 printf '%s %s\n' "$1" "$2" >>"${CHOWN_LOG}"

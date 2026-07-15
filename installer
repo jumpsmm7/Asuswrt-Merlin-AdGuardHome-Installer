@@ -2903,6 +2903,7 @@ adguardhome_yaml_remove_ipset_file() {
 	[ -f "${YAML_FILE}" ] || return 0
 	current_file="$(adguardhome_yaml_ipset_file 2>/dev/null)" || return 1
 	[ -n "${current_file}" ] || return 0
+	chmod 600 "${YAML_FILE}" || return 1
 	tmp_file="${YAML_FILE}.ipset.$$"
 	cp -p "${YAML_FILE}" "${tmp_file}" || return 1
 	awk '
@@ -2928,7 +2929,7 @@ adguardhome_yaml_remove_ipset_file() {
 			next
 		}
 		{ print }
-	' "${YAML_FILE}" >"${tmp_file}" && chmod 600 "${tmp_file}" && mv -f "${tmp_file}" "${YAML_FILE}" && adguardhome_yaml_secure_file || {
+	' "${YAML_FILE}" >"${tmp_file}" && adguardhome_yaml_secure_file "${tmp_file}" && mv -f "${tmp_file}" "${YAML_FILE}" && adguardhome_yaml_secure_file || {
 		rm -f "${tmp_file}"
 		return 1
 	}
