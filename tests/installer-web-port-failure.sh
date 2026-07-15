@@ -19,6 +19,13 @@ SETUP_FUNCTIONS="$(sed -n '/^setup_AdGuardHome() {$/,/^setup_amtmupdate() {$/p' 
 eval "${RUNTIME_DEFAULT_FUNCTIONS}"
 eval "${SETUP_FUNCTIONS}"
 
+port_is_valid() {
+	case "$1" in
+		"" | *[!0123456789]*) return 1 ;;
+	esac
+	[ "$1" -ge 3000 ] 2>/dev/null && [ "$1" -le 65535 ] 2>/dev/null
+}
+
 rollback_result_write() { :; }
 rollback_result_notice() { :; }
 

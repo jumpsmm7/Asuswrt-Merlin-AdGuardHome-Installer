@@ -4650,7 +4650,7 @@ setup_default_web_host() {
 }
 
 setup_sync_webui_port() {
-	local NEW_PORT CURRENT_WEB_LINE CURRENT_WEB_ADDRESS CURRENT_WEB_HOST CURRENT_WEB_PORT NEW_WEB_ADDRESS
+	local NEW_PORT CURRENT_WEB_LINE CURRENT_WEB_ADDRESS CURRENT_WEB_HOST CURRENT_WEB_PORT NEW_WEB_ADDRESS YAML_SYNC_TMP_FILE
 
 	NEW_PORT="$1"
 	port_is_valid "${NEW_PORT}" || return 1
@@ -4659,8 +4659,8 @@ setup_sync_webui_port() {
 		in_http && /^[^[:space:]]/ { exit }
 		in_http && /^[[:space:]]*address:[[:space:]]*/ { print; exit }
 	' "${YAML_FILE}")"
-	CURRENT_WEB_ADDRESS="$(PTXT "${CURRENT_WEB_LINE}" | sed 's/^[[:space:]]*address:[[:space:]]*//; s/[[:space:]]*$//')"
-	CURRENT_WEB_PORT="$(PTXT "${CURRENT_WEB_ADDRESS}" | awk -F':' 'NF > 1 { print $NF }')"
+	CURRENT_WEB_ADDRESS="$(printf '%s\n' "${CURRENT_WEB_LINE}" | sed 's/^[[:space:]]*address:[[:space:]]*//; s/[[:space:]]*$//')"
+	CURRENT_WEB_PORT="$(printf '%s\n' "${CURRENT_WEB_ADDRESS}" | awk -F':' 'NF > 1 { print $NF }')"
 	if [ -n "${CURRENT_WEB_ADDRESS}" ] && port_is_valid "${CURRENT_WEB_PORT}"; then
 		CURRENT_WEB_HOST="${CURRENT_WEB_ADDRESS%:${CURRENT_WEB_PORT}}"
 	fi
@@ -4669,7 +4669,17 @@ setup_sync_webui_port() {
 	if [ -n "${CURRENT_WEB_LINE}" ]; then
 		yaml_nvars_replace "${CURRENT_WEB_LINE}" "  address: ${NEW_WEB_ADDRESS}" "${YAML_FILE}"
 	else
-		yaml_nvars_insert "http:" "  address: ${NEW_WEB_ADDRESS}" "${YAML_FILE}"
+		YAML_SYNC_TMP_FILE="${YAML_FILE}.webui-port.$$"
+		awk -v address="  address: ${NEW_WEB_ADDRESS}" '
+			{ print }
+			!inserted && /^http:[[:space:]]*$/ {
+				print address
+				inserted = 1
+			}
+			END { exit(inserted ? 0 : 1) }
+		' "${YAML_FILE}" >"${YAML_SYNC_TMP_FILE}" &&
+			mv -f "${YAML_SYNC_TMP_FILE}" "${YAML_FILE}" ||
+			{ rm -f "${YAML_SYNC_TMP_FILE}"; return 1; }
 	fi
 }
 
