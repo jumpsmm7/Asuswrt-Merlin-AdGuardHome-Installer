@@ -6209,7 +6209,10 @@ WAN_IPADDR="$(nvram get wan_ipaddr 2>/dev/null)"
 if ipv4_is_private "${WAN_IPADDR}"; then NAT_ENV="${WAN_IPADDR}"; else NAT_ENV=""; fi
 
 [ -z "${ROUTER_MODEL}" ] && PTXT "${ERROR} This is an unsupported router, sorry." && sleep 3s && exit 1
-adguard_install_mode_detect || { sleep 3s; exit 1; }
+adguard_install_mode_detect || {
+	sleep 3s
+	exit 1
+}
 write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\"" || exit 1
 
 if [ "${ADGUARD_INSTALL_MODE}" = "wan" ] && [ -n "${NAT_ENV}" ] && [ -z "$2" ]; then
