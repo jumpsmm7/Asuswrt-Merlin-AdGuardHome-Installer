@@ -2887,23 +2887,34 @@ check_ipset() {
 }
 
 adguardhome_yaml_remove_ipset_file() {
-	local current_file current_path tmp_file
+	local current_file tmp_file
 	[ -f "${YAML_FILE}" ] || return 0
 	current_file="$(adguardhome_yaml_ipset_file 2>/dev/null)" || return 1
 	[ -n "${current_file}" ] || return 0
-	case "${current_file}" in
-		/*) current_path="${current_file}" ;;
-		*) current_path="${TARG_DIR}/${current_file}" ;;
-	esac
-	[ "${current_path}" = "${TARG_DIR}/ipset.conf" ] || return 0
 	tmp_file="${YAML_FILE}.ipset.$$"
+	cp -p "${YAML_FILE}" "${tmp_file}" || return 1
 	awk '
 		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
+		function block_marker(value) {
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			return value ~ /^[>|][+-]?([[:space:]]+#.*)?$/
+		}
 		/^(dns|\047dns\047|"dns"):[[:space:]]*(&[^][{},[:space:]]+[[:space:]]*)?(#.*)?$/ { in_dns = 1; print; next }
 		in_dns && /^[^[:space:]]/ { in_dns = 0 }
+		in_dns && skip_block && /^[[:space:]]*($|#)/ { next }
+		in_dns && skip_block && indentation($0) > skip_indent { next }
+		in_dns && skip_block { skip_block = 0 }
 		in_dns && /^[[:space:]]*($|#)/ { print; next }
 		in_dns && !child_indent { child_indent = indentation($0) }
-		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ { next }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
+			value = substr($0, child_indent + 1)
+			sub(/^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/, "", value)
+			if (block_marker(value)) {
+				skip_block = 1
+				skip_indent = child_indent
+			}
+			next
+		}
 		{ print }
 	' "${YAML_FILE}" >"${tmp_file}" && mv -f "${tmp_file}" "${YAML_FILE}" || {
 		rm -f "${tmp_file}"
@@ -2912,9 +2923,10 @@ adguardhome_yaml_remove_ipset_file() {
 }
 
 adguard_enforce_lan_ipset_disabled() {
-	case "$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)" in
-		lan)
+	case "${ADGUARD_INSTALL_MODE:-}:$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)" in
+		lan:* | *:lan)
 			ADGUARD_INSTALL_MODE="lan"
+			write_conf ADGUARD_INSTALL_MODE "\"lan\"" || return 1
 			write_conf ADGUARD_IPSET "\"NO\"" || return 1
 			adguardhome_yaml_remove_ipset_file || return 1
 			PTXT "${INFO} IPSET is disabled in LAN/AP/Bridge mode because IPTABLES/IPSET rules are not manageable there."
