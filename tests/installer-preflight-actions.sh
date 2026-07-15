@@ -23,7 +23,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
-sed -n '/^preflight_action_requires_entware() {$/,/^preflight_check_path() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
+sed -n '/^ipv4_is_valid() {$/,/^}$/p; /^preflight_action_requires_entware() {$/,/^preflight_check_path() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract preflight action helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'preflight action helper extraction was empty'
 
@@ -127,6 +127,63 @@ EOF
 
 run_preflight_gate_case missing 1 yes
 run_preflight_gate_case available 0 no
+
+run_router_mode_case() {
+	case_name="$1"
+	sw_mode="$2"
+	lan_ipaddr="$3"
+	expected_status="$4"
+	shift 4
+	out_file="${TMP_ROOT}/router-${case_name}.out"
+	stub_file="${TMP_ROOT}/router-${case_name}.stub"
+	cat >"${stub_file}" <<EOF
+PTXT() { printf '%s\n' "\$*"; }
+ROUTER_MODEL=RT-AC68U
+nvram() {
+	[ "\$1" = "get" ] || return 1
+	case "\$2" in
+		sw_mode) printf '%s\n' '${sw_mode}' ;;
+		lan_ipaddr) printf '%s\n' '${lan_ipaddr}' ;;
+		*) return 1 ;;
+	esac
+}
+. "${FUNCTIONS_FILE}"
+preflight_check_router_eligibility
+EOF
+	if sh "${stub_file}" >"${out_file}" 2>&1; then
+		actual_status=0
+	else
+		actual_status=1
+	fi
+	[ "${actual_status}" -eq "${expected_status}" ] || fail "unexpected router mode status for ${case_name}"
+	for expected_line; do
+		grep -q "^${expected_line}\$" "${out_file}" || fail "missing router mode line for ${case_name}: ${expected_line}"
+	done
+}
+
+run_router_mode_case wan 1 '' 0 \
+	'preflight.router.mode=wan' \
+	'preflight.router.mode.result=OK'
+run_router_mode_case lan 2 192.168.50.1 0 \
+	'preflight.router.mode=lan' \
+	'preflight.router.mode.result=OK' \
+	'preflight.router.mode.note=non-router-mode-lan-install'
+run_router_mode_case lan-invalid-ip 2 999.168.50.1 1 \
+	'preflight.router.mode=lan' \
+	'preflight.router.mode.result=FAIL' \
+	'preflight.router.mode.reason=non-router-mode-and-no-usable-lan-ip'
+run_router_mode_case missing-lan-ip '' 192.168.50.1 0 \
+	'preflight.router.mode=lan' \
+	'preflight.router.mode.result=OK' \
+	'preflight.router.mode.note=missing-sw-mode-lan-ip-fallback'
+run_router_mode_case missing-no-lan-ip '' '' 1 \
+	'preflight.router.mode=missing' \
+	'preflight.router.mode.result=FAIL' \
+	'preflight.router.mode.reason=missing-sw-mode-and-no-usable-lan-ip'
+run_router_mode_case lan-no-lan-ip 2 '' 1 \
+	'preflight.router.mode=lan' \
+	'preflight.router.mode.result=FAIL' \
+	'preflight.router.mode.reason=non-router-mode-and-no-usable-lan-ip'
 
 (
 	# shellcheck disable=SC1090

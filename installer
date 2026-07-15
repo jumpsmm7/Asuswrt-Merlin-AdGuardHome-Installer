@@ -818,7 +818,7 @@ preflight_check_jffs_ready() {
 }
 
 preflight_check_router_eligibility() {
-	local arch install_mode model odmpid os result sw_mode
+	local arch lan_ipaddr model odmpid os result sw_mode
 	result="OK"
 	PTXT "preflight.router.required=yes"
 	if [ -z "${ROUTER_MODEL:-}" ]; then
@@ -848,14 +848,38 @@ preflight_check_router_eligibility() {
 	else
 		PTXT "preflight.router.model.result=OK"
 	fi
-	if install_mode="$(ADGUARD_INSTALL_MODE="" adguard_install_mode_detect 2>/dev/null && PTXT "${ADGUARD_INSTALL_MODE}")"; then
-		PTXT "preflight.router.mode=${install_mode}"
-		PTXT "preflight.router.mode.result=OK"
-	else
-		PTXT "preflight.router.mode=missing"
-		PTXT "preflight.router.mode.result=FAIL"
-		result="FAIL"
-	fi
+	case "${sw_mode}" in
+		1)
+			PTXT "preflight.router.mode=wan"
+			PTXT "preflight.router.mode.result=OK"
+			;;
+		"")
+			lan_ipaddr="$(nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
+			if ipv4_is_valid "${lan_ipaddr}"; then
+				PTXT "preflight.router.mode=lan"
+				PTXT "preflight.router.mode.result=OK"
+				PTXT "preflight.router.mode.note=missing-sw-mode-lan-ip-fallback"
+			else
+				PTXT "preflight.router.mode=missing"
+				PTXT "preflight.router.mode.result=FAIL"
+				PTXT "preflight.router.mode.reason=missing-sw-mode-and-no-usable-lan-ip"
+				result="FAIL"
+			fi
+			;;
+		*)
+			lan_ipaddr="$(nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
+			if ipv4_is_valid "${lan_ipaddr}"; then
+				PTXT "preflight.router.mode=lan"
+				PTXT "preflight.router.mode.result=OK"
+				PTXT "preflight.router.mode.note=non-router-mode-lan-install"
+			else
+				PTXT "preflight.router.mode=lan"
+				PTXT "preflight.router.mode.result=FAIL"
+				PTXT "preflight.router.mode.reason=non-router-mode-and-no-usable-lan-ip"
+				result="FAIL"
+			fi
+			;;
+	esac
 	case "${os}" in
 		Linux)
 			PTXT "preflight.router.os=linux"
