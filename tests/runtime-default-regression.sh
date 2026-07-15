@@ -44,16 +44,56 @@ WARNING='[w]'
 ERROR='[!]'
 
 CONF_FILE="${TMP_ROOT}/new-wan.config"
-configure_runtime_defaults new-install 1 >"${TMP_ROOT}/new-wan.out" || fail 'new WAN defaults failed'
+configure_runtime_defaults new-install wan 0 >"${TMP_ROOT}/new-wan.out" || fail 'new WAN defaults failed'
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'new WAN install did not refuse unknown DNS owners'
+grep -q '^ADGUARD_INSTALL_MODE="wan"$' "${CONF_FILE}" || fail 'new WAN install did not save wan install mode'
 grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'new WAN install did not save wan netcheck mode'
 grep -q '^ADGUARD_PROC_OPTIMIZE="YES"$' "${CONF_FILE}" || fail 'new WAN install did not enable balanced optimization'
 grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'new WAN install did not save balanced profile'
 
 CONF_FILE="${TMP_ROOT}/new-lan.config"
-configure_runtime_defaults new-install 0 >"${TMP_ROOT}/new-lan.out" || fail 'new LAN defaults failed'
+configure_runtime_defaults new-install lan 1 >"${TMP_ROOT}/new-lan.out" || fail 'new LAN defaults failed'
+grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" || fail 'new LAN install did not save lan install mode'
 grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'new LAN install did not save lan netcheck mode'
 grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'new LAN install did not save balanced profile'
+
+nvram() {
+	case "${1:-}:${2:-}" in
+		get:sw_mode) printf '%s\n' 1 ;;
+		*) return 1 ;;
+	esac
+}
+CONF_FILE="${TMP_ROOT}/new-invalid-router.config"
+configure_runtime_defaults new-install invalid 0 >"${TMP_ROOT}/new-invalid-router.out" || fail 'invalid-mode router fallback defaults failed'
+grep -q '^ADGUARD_INSTALL_MODE="wan"$' "${CONF_FILE}" || fail 'invalid-mode router fallback did not save wan install mode'
+grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'invalid-mode router fallback did not save wan netcheck mode'
+
+nvram() {
+	case "${1:-}:${2:-}" in
+		get:sw_mode) printf '%s\n' 2 ;;
+		*) return 1 ;;
+	esac
+}
+CONF_FILE="${TMP_ROOT}/new-invalid-lan.config"
+configure_runtime_defaults new-install invalid 1 >"${TMP_ROOT}/new-invalid-lan.out" || fail 'invalid-mode LAN fallback defaults failed'
+grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" || fail 'invalid-mode LAN fallback did not save lan install mode'
+grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'invalid-mode LAN fallback did not save lan netcheck mode'
+
+nvram() {
+	return 1
+}
+CONF_FILE="${TMP_ROOT}/new-invalid-missing-sw-mode.config"
+configure_runtime_defaults new-install invalid 0 >"${TMP_ROOT}/new-invalid-missing-sw-mode.out" || fail 'invalid-mode missing sw_mode fallback defaults failed'
+grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" || fail 'invalid-mode missing sw_mode fallback did not save lan install mode'
+grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'invalid-mode missing sw_mode fallback did not save lan netcheck mode'
+
+CONF_FILE="${TMP_ROOT}/new-existing-netcheck.config"
+cat >"${CONF_FILE}" <<'CONFIG'
+ADGUARD_NETCHECK_MODE="legacy"
+CONFIG
+configure_runtime_defaults new-install wan 0 >"${TMP_ROOT}/new-existing-netcheck.out" || fail 'new install existing netcheck preservation failed'
+grep -q '^ADGUARD_INSTALL_MODE="wan"$' "${CONF_FILE}" || fail 'new install existing netcheck did not save wan install mode'
+grep -q '^ADGUARD_NETCHECK_MODE="legacy"$' "${CONF_FILE}" || fail 'new install overwrote existing netcheck mode'
 
 CONF_FILE="${TMP_ROOT}/upgrade-existing.config"
 cat >"${CONF_FILE}" <<'CONFIG'
