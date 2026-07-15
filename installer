@@ -4583,11 +4583,10 @@ setup_restore_previous_yaml() {
 }
 
 setup_resolve_bind_addresses() {
-	local LAN_ADDR LAN_ADDR6 LAN_IF
+	local LAN_ADDR LAN_IF
 
 	SETUP_WEB_ADDRESS=""
 	SETUP_DNS_BIND_HOST=""
-	SETUP_DNS_BIND_HOST6=""
 	case "${ADGUARD_INSTALL_MODE:-wan}" in
 		wan)
 			SETUP_WEB_ADDRESS="0.0.0.0:${WEB_PORT}"
@@ -4597,17 +4596,14 @@ setup_resolve_bind_addresses() {
 			LAN_IF="$(nvram get lan_ifname)"
 			if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
 				LAN_ADDR="$(ip -o -4 addr list "${LAN_IF}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
-				LAN_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
 			fi
 			[ -n "${LAN_ADDR:-}" ] || LAN_ADDR="$(nvram get lan_ipaddr)"
-			[ -n "${LAN_ADDR6:-}" ] || LAN_ADDR6="$(nvram get ipv6_rtr_addr)"
 			if [ -z "${LAN_ADDR}" ]; then
 				PTXT "${ERROR} Unable to resolve the LAN IPv4 address for AdGuardHome LAN mode. Setup was aborted."
 				return 1
 			fi
 			SETUP_WEB_ADDRESS="${LAN_ADDR}:${WEB_PORT}"
 			SETUP_DNS_BIND_HOST="0.0.0.0"
-			SETUP_DNS_BIND_HOST6=""
 			;;
 		*)
 			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE}. Setup was aborted."
@@ -4763,7 +4759,6 @@ setup_AdGuardHome_impl() {
 					PTXT "dns:" \
 						"  bind_hosts:" \
 						"    - ${SETUP_DNS_BIND_HOST}" >>"${YAML_ORI_NEW}"
-					[ -n "${SETUP_DNS_BIND_HOST6:-}" ] && PTXT "    - '${SETUP_DNS_BIND_HOST6}'" >>"${YAML_ORI_NEW}"
 					PTXT "  port: 53" >>"${YAML_ORI_NEW}"
 					PTXT "${INFO} Set the DNS server(s) for initializing AdGuardHome" \
 						"${INFO} and router services (e.g. ntp) at boot"
