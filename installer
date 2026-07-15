@@ -537,6 +537,34 @@ write_conf_if_absent() {
 	write_conf "$1" "$2"
 }
 
+adguard_install_feature_defaults() {
+	local ipset_value lan_ipaddr
+	case "${ADGUARD_INSTALL_MODE:-}" in
+		wan)
+			ipset_value="$(conf_value ADGUARD_IPSET)"
+			case "${ipset_value}" in
+				NO) ;;
+				*) ipset_value="YES" ;;
+			esac
+			write_conf ADGUARD_IPSET "\"${ipset_value}\"" || return 1
+			write_conf ADGUARD_DNSMASQ_MODE "\"enabled\"" || return 1
+			;;
+		lan)
+			write_conf ADGUARD_IPSET "\"NO\"" || return 1
+			write_conf ADGUARD_DNSMASQ_MODE "\"auto\"" || return 1
+			lan_ipaddr="$(nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
+			if ipv4_is_valid "${lan_ipaddr}"; then
+				write_conf ADGUARD_LAN_REVERSE_UPSTREAM "\"${lan_ipaddr}\"" || return 1
+			fi
+			;;
+		*)
+			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE:-}. Setup was aborted."
+			return 1
+			;;
+	esac
+	return 0
+}
+
 configure_runtime_defaults() {
 	local NETCHECK_MODE sw_mode
 	case "${1:-}" in
@@ -554,6 +582,8 @@ configure_runtime_defaults() {
 			esac
 			write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"1\"" || return 1
 			write_conf ADGUARD_INSTALL_MODE "\"${NETCHECK_MODE}\"" || return 1
+			ADGUARD_INSTALL_MODE="${NETCHECK_MODE}"
+			adguard_install_feature_defaults || return 1
 			write_conf_if_absent ADGUARD_NETCHECK_MODE "\"${NETCHECK_MODE}\"" || return 1
 			write_conf_if_absent ADGUARD_PROC_OPTIMIZE "\"YES\"" || return 1
 			write_conf_if_absent ADGUARD_PROC_PROFILE "\"balanced\"" || return 1

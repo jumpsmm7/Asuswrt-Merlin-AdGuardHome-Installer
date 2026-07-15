@@ -28,8 +28,9 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^conf_has_key() {$/,/^}$/p; /^write_conf_if_absent() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^configure_runtime_defaults() {$/,/^}$/p; /^cli_migrate_runtime_default() {$/,/^}$/p; /^cli_migrate_runtime_defaults() {$/,/^}$/p' \
+	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^conf_has_key() {$/,/^}$/p; /^write_conf_if_absent() {$/,/^}$/p; /^ipv4_is_valid() {$/,/^}$/p; /^adguard_install_feature_defaults() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^configure_runtime_defaults() {$/,/^}$/p; /^cli_migrate_runtime_default() {$/,/^}$/p; /^cli_migrate_runtime_defaults() {$/,/^}$/p' \
 	"${INSTALLER_PATH}" >"${INSTALLER_FUNCTIONS}" || fail 'could not extract installer runtime helpers'
+grep -q '^adguard_install_feature_defaults() {$' "${INSTALLER_FUNCTIONS}" || fail 'install feature defaults helper missing'
 grep -q '^configure_runtime_defaults() {$' "${INSTALLER_FUNCTIONS}" || fail 'configure_runtime_defaults helper missing'
 grep -q '^cli_migrate_runtime_defaults() {$' "${INSTALLER_FUNCTIONS}" || fail 'runtime migration helper missing'
 
@@ -44,6 +45,10 @@ WARNING='[w]'
 ERROR='[!]'
 
 CONF_FILE="${TMP_ROOT}/new-wan.config"
+ADGUARD_INSTALL_MODE="wan"
+adguard_install_feature_defaults >"${TMP_ROOT}/feature-wan.out" || fail 'WAN install feature defaults failed'
+grep -q '^ADGUARD_IPSET="YES"$' "${CONF_FILE}" || fail 'WAN feature defaults did not preserve default IPSET enablement'
+grep -q '^ADGUARD_DNSMASQ_MODE="enabled"$' "${CONF_FILE}" || fail 'WAN feature defaults did not save enabled DNSMasq mode'
 configure_runtime_defaults new-install wan 0 >"${TMP_ROOT}/new-wan.out" || fail 'new WAN defaults failed'
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'new WAN install did not refuse unknown DNS owners'
 grep -q '^ADGUARD_INSTALL_MODE="wan"$' "${CONF_FILE}" || fail 'new WAN install did not save wan install mode'
@@ -51,7 +56,26 @@ grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'new WAN install 
 grep -q '^ADGUARD_PROC_OPTIMIZE="YES"$' "${CONF_FILE}" || fail 'new WAN install did not enable balanced optimization'
 grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'new WAN install did not save balanced profile'
 
+CONF_FILE="${TMP_ROOT}/feature-wan-existing-no.config"
+printf '%s\n' 'ADGUARD_IPSET="NO"' >"${CONF_FILE}" || fail 'could not seed WAN feature config'
+ADGUARD_INSTALL_MODE="wan"
+adguard_install_feature_defaults >"${TMP_ROOT}/feature-wan-existing-no.out" || fail 'WAN existing IPSET feature defaults failed'
+grep -q '^ADGUARD_IPSET="NO"$' "${CONF_FILE}" || fail 'WAN feature defaults overwrote explicit IPSET disablement'
+grep -q '^ADGUARD_DNSMASQ_MODE="enabled"$' "${CONF_FILE}" || fail 'WAN existing feature defaults did not save enabled DNSMasq mode'
+
 CONF_FILE="${TMP_ROOT}/new-lan.config"
+nvram() {
+	case "${1:-}:${2:-}" in
+		get:lan_ipaddr) printf '%s\n' 192.168.50.1 ;;
+		*) return 1 ;;
+	esac
+}
+printf '%s\n' 'ADGUARD_IPSET="YES"' 'ADGUARD_DNSMASQ_MODE="enabled"' >"${CONF_FILE}" || fail 'could not seed LAN feature config'
+ADGUARD_INSTALL_MODE="lan"
+adguard_install_feature_defaults >"${TMP_ROOT}/feature-lan.out" || fail 'LAN install feature defaults failed'
+grep -q '^ADGUARD_IPSET="NO"$' "${CONF_FILE}" || fail 'LAN feature defaults did not force IPSET disablement'
+grep -q '^ADGUARD_DNSMASQ_MODE="auto"$' "${CONF_FILE}" || fail 'LAN feature defaults did not force auto DNSMasq mode'
+grep -q '^ADGUARD_LAN_REVERSE_UPSTREAM="192.168.50.1"$' "${CONF_FILE}" || fail 'LAN feature defaults did not save detected reverse upstream'
 configure_runtime_defaults new-install lan 1 >"${TMP_ROOT}/new-lan.out" || fail 'new LAN defaults failed'
 grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" || fail 'new LAN install did not save lan install mode'
 grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'new LAN install did not save lan netcheck mode'
@@ -112,6 +136,7 @@ grep -q 'migrate-runtime-defaults --yes' "${TMP_ROOT}/upgrade-existing.out" ||
 
 CONF_FILE="${TMP_ROOT}/upgrade-missing.config"
 : >"${CONF_FILE}"
+ADGUARD_INSTALL_MODE="wan"
 configure_runtime_defaults upgrade >"${TMP_ROOT}/upgrade-missing.out" || fail 'upgrade missing-default pin failed'
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"$' "${CONF_FILE}" || fail 'upgrade missing policy did not pin legacy DNS cleanup'
 grep -q '^ADGUARD_NETCHECK_MODE="legacy"$' "${CONF_FILE}" || fail 'upgrade missing netcheck did not pin legacy mode'
