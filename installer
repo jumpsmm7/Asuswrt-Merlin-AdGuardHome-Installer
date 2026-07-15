@@ -4582,6 +4582,40 @@ setup_restore_previous_yaml() {
 	return 0
 }
 
+setup_resolve_bind_addresses() {
+	local LAN_ADDR LAN_ADDR6 LAN_IF
+
+	SETUP_WEB_ADDRESS=""
+	SETUP_DNS_BIND_HOST=""
+	SETUP_DNS_BIND_HOST6=""
+	case "${ADGUARD_INSTALL_MODE:-wan}" in
+		wan)
+			SETUP_WEB_ADDRESS="0.0.0.0:${WEB_PORT}"
+			SETUP_DNS_BIND_HOST="0.0.0.0"
+			;;
+		lan)
+			LAN_IF="$(nvram get lan_ifname)"
+			if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
+				LAN_ADDR="$(ip -o -4 addr list "${LAN_IF}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
+				LAN_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
+			fi
+			[ -n "${LAN_ADDR:-}" ] || LAN_ADDR="$(nvram get lan_ipaddr)"
+			[ -n "${LAN_ADDR6:-}" ] || LAN_ADDR6="$(nvram get ipv6_rtr_addr)"
+			if [ -z "${LAN_ADDR}" ]; then
+				PTXT "${ERROR} Unable to resolve the LAN IPv4 address for AdGuardHome LAN mode. Setup was aborted."
+				return 1
+			fi
+			SETUP_WEB_ADDRESS="${LAN_ADDR}:${WEB_PORT}"
+			SETUP_DNS_BIND_HOST="${LAN_ADDR}"
+			SETUP_DNS_BIND_HOST6="${LAN_ADDR6}"
+			;;
+		*)
+			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE}. Setup was aborted."
+			return 1
+			;;
+	esac
+}
+
 setup_AdGuardHome_impl() {
 	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
@@ -4708,10 +4742,14 @@ setup_AdGuardHome_impl() {
 						return 1
 					fi
 					WEB_PORT_SELECTION="${WEB_PORT}"
+					if ! setup_resolve_bind_addresses; then
+						setup_restore_previous_yaml || true
+						return 1
+					fi
 					YAML_ORI_NEW="${YAML_ORI}.new.$$"
 					SETUP_YAML_TMP_FILE="${YAML_ORI_NEW}"
 					PTXT "http:" \
-						"  address: 0.0.0.0:${WEB_PORT}" >"${YAML_ORI_NEW}"
+						"  address: ${SETUP_WEB_ADDRESS}" >"${YAML_ORI_NEW}"
 					PTXT "${INFO} Set the Username and Password which will be encrypted to the yaml file."
 					if ! AdGuardHome_authen 1 "${YAML_ORI_NEW}" 0; then
 						rm -f "${YAML_ORI_NEW}"
@@ -4720,8 +4758,9 @@ setup_AdGuardHome_impl() {
 					fi
 					PTXT "dns:" \
 						"  bind_hosts:" \
-						"    - 0.0.0.0" \
-						"  port: 53" >>"${YAML_ORI_NEW}"
+						"    - ${SETUP_DNS_BIND_HOST}" >>"${YAML_ORI_NEW}"
+					[ -n "${SETUP_DNS_BIND_HOST6:-}" ] && PTXT "    - '${SETUP_DNS_BIND_HOST6}'" >>"${YAML_ORI_NEW}"
+					PTXT "  port: 53" >>"${YAML_ORI_NEW}"
 					PTXT "${INFO} Set the DNS server(s) for initializing AdGuardHome" \
 						"${INFO} and router services (e.g. ntp) at boot"
 					if ! read_input_dns "Default is" 9.9.9.9 || ! read_input_dns "2nd Default is" 8.8.8.8; then
