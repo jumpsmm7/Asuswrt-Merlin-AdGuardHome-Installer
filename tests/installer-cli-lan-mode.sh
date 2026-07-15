@@ -8,6 +8,7 @@ TMP_ROOT="${TMPDIR:-/tmp}/installer-cli-lan-mode.$$"
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 CONF_FILE="${TMP_ROOT}/.config"
 WRITES_FILE="${TMP_ROOT}/writes"
+LOG_FILE="${TMP_ROOT}/log"
 
 cleanup() {
 	rm -rf "${TMP_ROOT}"
@@ -30,6 +31,10 @@ sed -n '/^cli_migrate_runtime_default() {$/,/^cli_installer_branch_from_args() {
 
 grep -q 'if \[ "${ADGUARD_INSTALL_MODE}" = "wan" \]; then' "${SCRIPT_PATH}" ||
 	fail 'CLI install DNS preparation must be gated by WAN install mode'
+grep -q 'Refusing install DNS/NVRAM rewrite without --allow-dns-nvram' "${SCRIPT_PATH}" ||
+	fail 'CLI install must still require DNS/NVRAM permission for WAN rewrites'
+grep -q 'install_mode="$(conf_value ADGUARD_INSTALL_MODE)"' "${SCRIPT_PATH}" ||
+	fail 'runtime migration preview must read persisted install mode'
 grep -q '^[[:space:]]*check_dns_environment 0$' "${SCRIPT_PATH}" ||
 	fail 'installer must still call DNS environment preparation for WAN paths'
 grep -q 'cli_migrate_runtime_default ADGUARD_NETCHECK_MODE legacy "${netcheck_target}"' "${SCRIPT_PATH}" ||
@@ -45,7 +50,7 @@ WARNING='Warning:'
 ERROR='Error:'
 
 PTXT() {
-	:
+	printf '%s\n' "$*" >>"${LOG_FILE}"
 }
 ptxt_ok() {
 	:
@@ -76,6 +81,7 @@ ADGUARD_PROC_OPTIMIZE="YES"
 ADGUARD_PROC_PROFILE="balanced"
 EOF_CONF
 	: >"${WRITES_FILE}"
+	: >"${LOG_FILE}"
 	ADGUARD_INSTALL_MODE="${install_mode}"
 
 	cli_migrate_runtime_defaults --yes || fail "${case_name}: migration failed"
@@ -89,5 +95,23 @@ EOF_CONF
 run_migrate_case lan-mode lan lan
 run_migrate_case wan-mode wan wan
 run_migrate_case unknown-mode unknown wan
+
+cat >"${CONF_FILE}" <<EOF_CONF || fail 'dry-run persisted LAN: could not write config'
+ADGUARD_INSTALL_MODE="lan"
+ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
+ADGUARD_NETCHECK_MODE="legacy"
+ADGUARD_PROC_OPTIMIZE="YES"
+ADGUARD_PROC_PROFILE="balanced"
+EOF_CONF
+: >"${WRITES_FILE}"
+: >"${LOG_FILE}"
+unset ADGUARD_INSTALL_MODE
+cli_migrate_runtime_defaults --dry-run || fail 'dry-run persisted LAN: migration preview failed'
+grep -q 'ADGUARD_NETCHECK_MODE="legacy"; v2.6.0 safer value is "lan"' "${LOG_FILE}" ||
+	fail 'dry-run persisted LAN: expected LAN netcheck preview'
+if grep -q 'ADGUARD_NETCHECK_MODE="legacy"; v2.6.0 safer value is "wan"' "${LOG_FILE}"; then
+	fail 'dry-run persisted LAN: preview regressed to WAN netcheck mode'
+fi
+[ ! -s "${WRITES_FILE}" ] || fail 'dry-run persisted LAN: dry-run wrote config'
 
 printf '%s\n' 'PASS: CLI LAN mode guards DNS prep and migrates netcheck by install mode'
