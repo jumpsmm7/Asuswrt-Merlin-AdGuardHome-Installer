@@ -68,6 +68,34 @@ conf_value() {
 	' "${CONF_FILE}"
 }
 
+adguard_install_mode() {
+	mode="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
+	case "${mode}" in
+		wan | lan) printf '%s\n' "${mode}" ;;
+		*) printf '%s\n' "wan" ;;
+	esac
+}
+
+adguard_lan_mode() {
+	[ "$(adguard_install_mode)" = "lan" ]
+}
+
+adguard_dnsmasq_running() {
+	pidof dnsmasq >/dev/null 2>&1
+}
+
+adguard_dnsmasq_managed() {
+	case "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" in
+		disabled) return 1 ;;
+		enabled) return 0 ;;
+	esac
+	adguard_dnsmasq_running
+}
+
+adguard_ipset_allowed() {
+	! adguard_lan_mode
+}
+
 have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
