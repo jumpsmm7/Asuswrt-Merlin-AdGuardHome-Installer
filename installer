@@ -4585,7 +4585,7 @@ inst_AdGuardHome() {
 					return 1
 				fi
 			else
-				case "${ADGUARD_DNSMASQ_MODE:-auto}" in
+				case "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" in
 					disabled)
 						del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || ptxt_warn "Unable to remove the AdGuardHome dnsmasq.postconf hook; continuing LAN-mode setup."
 						if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi

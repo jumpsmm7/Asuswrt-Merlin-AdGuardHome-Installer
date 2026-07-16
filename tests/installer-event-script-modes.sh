@@ -61,8 +61,8 @@ grep -q 'del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FILE}.la
 	fail 'LAN branch does not remove only the installer-managed dnsmasq.postconf hook when dnsmasq is stopped'
 grep -q 'del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not remove the installer-managed SDN dnsmasq hook when dnsmasq is stopped'
-grep -q 'case "${ADGUARD_DNSMASQ_MODE:-auto}" in' "${TMP_FILE}.lan" ||
-	fail 'LAN branch does not preserve dnsmasq hooks during transient dnsmasq stops'
+grep -q 'case "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" in' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not read persisted dnsmasq mode before handling stopped dnsmasq'
 grep -q 'write_conf ADGUARD_DNSMASQ_MODE "\\"enabled\\""' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not persist enabled dnsmasq mode'
 grep -q 'write_conf ADGUARD_DNSMASQ_MODE "\\"disabled\\""' "${TMP_FILE}.lan" ||
