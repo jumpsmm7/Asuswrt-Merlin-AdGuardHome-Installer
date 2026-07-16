@@ -20,18 +20,44 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 
-sed -n '/case "${ADGUARD_INSTALL_MODE:-wan}" in/,/^[[:space:]]*esac$/p' "${SCRIPT_PATH}" >"${TMP_FILE}" ||
+awk '
+	/^[[:space:]]*case "\$\{ADGUARD_INSTALL_MODE:-wan\}" in[[:space:]]*$/ {
+		in_case = 1
+		depth = 1
+	}
+	in_case {
+		print
+		if ($0 !~ /^[[:space:]]*case "\$\{ADGUARD_INSTALL_MODE:-wan\}" in[[:space:]]*$/ &&
+			$0 ~ /^[[:space:]]*case[[:space:]]/) {
+			depth++
+		}
+		if ($0 ~ /^[[:space:]]*esac[[:space:]]*$/) {
+			depth--
+			if (depth == 0) exit
+		}
+	}
+' "${SCRIPT_PATH}" >"${TMP_FILE}" ||
 	fail 'could not extract event-script mode branch'
 [ -s "${TMP_FILE}" ] || fail 'event-script mode branch was not found'
 
-awk '
-	/^[[:space:]]*wan\)/ { in_branch = 1; indent = $0; sub(/wan\).*/, "", indent) }
-	in_branch { print; if ($0 ~ "^" indent ";;[[:space:]]*$") exit }
+awk -v branch='wan)' '
+	$0 ~ "^[[:space:]]*" branch "[[:space:]]*$" { in_branch = 1 }
+	in_branch {
+		print
+		if ($0 ~ /^[[:space:]]*case[[:space:]]/) depth++
+		if ($0 ~ /^[[:space:]]*esac[[:space:]]*$/) depth--
+		if (depth == 0 && $0 ~ /^[[:space:]]*;;[[:space:]]*$/) exit
+	}
 ' "${TMP_FILE}" >"${TMP_FILE}.wan" ||
 	fail 'could not extract WAN event-script branch'
-awk '
-	/^[[:space:]]*lan\)/ { in_branch = 1; indent = $0; sub(/lan\).*/, "", indent) }
-	in_branch { print; if ($0 ~ "^" indent ";;[[:space:]]*$") exit }
+awk -v branch='lan)' '
+	$0 ~ "^[[:space:]]*" branch "[[:space:]]*$" { in_branch = 1 }
+	in_branch {
+		print
+		if ($0 ~ /^[[:space:]]*case[[:space:]]/) depth++
+		if ($0 ~ /^[[:space:]]*esac[[:space:]]*$/) depth--
+		if (depth == 0 && $0 ~ /^[[:space:]]*;;[[:space:]]*$/) exit
+	}
 ' "${TMP_FILE}" >"${TMP_FILE}.lan" ||
 	fail 'could not extract LAN event-script branch'
 [ -s "${TMP_FILE}.wan" ] || fail 'WAN event-script branch was not found'
