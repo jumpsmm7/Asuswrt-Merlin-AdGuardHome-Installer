@@ -38,7 +38,10 @@ grep -q '^adguard_ipset_allowed() {$' "${FUNCTIONS_FILE}" || fail 'runtime mode 
 
 pidof() {
 	case "${DNSMASQ_RUNNING:-0}" in
-		1) printf '%s\n' '1234'; return 0 ;;
+		1)
+			printf '%s\n' '1234'
+			return 0
+			;;
 		*) return 1 ;;
 	esac
 }
