@@ -564,7 +564,7 @@ adguard_install_feature_defaults() {
 				"" | 0.0.0.0) ;;
 				*)
 					if ipv4_is_valid "${lan_gateway}"; then
-						write_conf ADGUARD_LAN_REVERSE_UPSTREAM "\"${lan_gateway}\"" || return 1
+						write_conf_if_absent ADGUARD_LAN_REVERSE_UPSTREAM "\"${lan_gateway}\"" || return 1
 					fi
 					;;
 			esac
