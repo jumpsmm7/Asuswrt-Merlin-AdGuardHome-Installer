@@ -4586,6 +4586,7 @@ inst_AdGuardHome() {
 				fi
 			else
 				del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || ptxt_warn "Unable to remove the AdGuardHome dnsmasq.postconf hook; continuing LAN-mode setup."
+				if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
 				if ! write_conf ADGUARD_DNSMASQ_MODE "\"disabled\""; then
 					PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
 					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
