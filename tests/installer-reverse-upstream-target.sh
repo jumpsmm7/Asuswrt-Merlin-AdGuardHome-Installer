@@ -79,6 +79,10 @@ TEST_LAN_GATEWAY=''
 TEST_LAN_IPADDR='192.168.2.1'
 assert_target 'LAN ipaddr fallback' '192.168.2.1:53'
 
+TEST_LAN_GATEWAY='0.0.0.0'
+TEST_LAN_IPADDR='192.168.2.1'
+assert_target 'LAN wildcard gateway fallback' '192.168.2.1:53'
+
 TEST_LAN_GATEWAY='not-an-ip'
 TEST_LAN_IPADDR='192.168.2.1'
 SETUP_REVERSE_UPSTREAM='stale-value'
