@@ -4518,7 +4518,15 @@ inst_AdGuardHome() {
 			return 1
 		}
 	fi
-	cleanup_legacy_firewall
+	case "${ADGUARD_INSTALL_MODE:-wan}" in
+		wan)
+			cleanup_legacy_firewall
+			;;
+		lan)
+			del_jffs_script /jffs/scripts/firewall-start || ptxt_warn "Unable to remove the AdGuardHome firewall-start hook; continuing LAN-mode setup."
+			PTXT "${INFO} LAN mode selected; skipping firewall/IPTABLES management."
+			;;
+	esac
 	if ! download_file "${ADDON_DIR}" 755 "${RURL}/AdGuardHome.sh" ||
 		! download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome" ||
 		! download_file "/opt/etc/init.d" 644 "${RURL}/rc.func.AdGuardHome"; then

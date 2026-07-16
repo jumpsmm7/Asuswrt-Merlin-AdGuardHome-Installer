@@ -37,6 +37,12 @@ grep -q 'install_mode="$(conf_value ADGUARD_INSTALL_MODE)"' "${SCRIPT_PATH}" ||
 	fail 'runtime migration preview must read persisted install mode'
 grep -q '^[[:space:]]*check_dns_environment 0$' "${SCRIPT_PATH}" ||
 	fail 'installer must still call DNS environment preparation for WAN paths'
+grep -q 'LAN mode selected; skipping firewall/IPTABLES management' "${SCRIPT_PATH}" ||
+	fail 'LAN-mode install must report skipped firewall/IPTABLES management'
+grep -q 'del_jffs_script /jffs/scripts/firewall-start || ptxt_warn "Unable to remove the AdGuardHome firewall-start hook; continuing LAN-mode setup."' "${SCRIPT_PATH}" ||
+	fail 'LAN-mode install must only remove the managed firewall-start hook'
+grep -q 'cleanup_legacy_firewall$' "${SCRIPT_PATH}" ||
+	fail 'uninstall/WAN cleanup must still remove legacy firewall integration'
 grep -q 'cli_migrate_runtime_default ADGUARD_NETCHECK_MODE legacy "${netcheck_target}"' "${SCRIPT_PATH}" ||
 	fail 'runtime migration must use the install-mode netcheck target'
 grep -q 'cli_write_quoted_conf ADGUARD_NETCHECK_MODE "${netcheck_target}"' "${SCRIPT_PATH}" ||

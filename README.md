@@ -761,6 +761,8 @@ sh tests/ipset-status.sh
 sh tests/installer-end-op-rollback.sh
 sh tests/installer-doctor-rollback-result.sh
 sh tests/installer-cli-runtime-config.sh
+sh tests/installer-cli-lan-mode.sh
+sh tests/installer-event-script-modes.sh
 sh tests/installer-interruption-restart.sh
 ```
 
