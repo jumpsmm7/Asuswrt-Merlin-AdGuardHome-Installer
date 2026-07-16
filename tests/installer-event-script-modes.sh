@@ -21,6 +21,11 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 
 awk '
+	/^[[:space:]]*ptxt_ok "AdGuardHome service files installed\."[[:space:]]*$/ {
+		armed = 1
+		next
+	}
+	!armed { next }
 	/^[[:space:]]*case "\$\{ADGUARD_INSTALL_MODE:-wan\}" in[[:space:]]*$/ {
 		in_case = 1
 		depth = 1
