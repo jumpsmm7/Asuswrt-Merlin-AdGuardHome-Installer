@@ -87,6 +87,7 @@ nvram() {
 		get:dns_local_cache) printf '%s\n' '1' ;;
 		get:ipv6_rtr_addr) printf '%s\n' '' ;;
 		get:lan_domain) printf '%s\n' 'lan' ;;
+		get:lan_gateway) printf '%s\n' '192.168.1.1' ;;
 		set:*) : ;;
 		commit:) : ;;
 		*) return 1 ;;
@@ -115,8 +116,15 @@ run_startup_case() {
 	grep -q "^ADGUARD_NETCHECK_MODE=\"${expected_mode}\"$" "${CONF_FILE}" || fail "${case_name}: netcheck mode was not persisted"
 	grep -q "^  address: ${expected_web}\$" "${YAML_FILE}" || fail "${case_name}: WebUI bind address was not generated"
 	grep -q '^  bind_hosts:$' "${YAML_FILE}" || fail "${case_name}: DNS bind_hosts section was not generated"
-	grep -q '^    - 0.0.0.0$' "${YAML_FILE}" || fail "${case_name}: wildcard DNS bind host was not generated"
-	! grep -q '^    - 192\.168\.' "${YAML_FILE}" || fail "${case_name}: DNS bind host was pinned to a LAN IPv4 address"
+	case "${expected_mode}" in
+		wan)
+			grep -q '^    - 0\.0\.0\.0$' "${YAML_FILE}" || fail "${case_name}: wildcard DNS bind host was not generated"
+			;;
+		lan)
+			awk -v expected="    - ${TEST_LAN_IPADDR}" '$0 == expected { found = 1 } END { exit(found ? 0 : 1) }' "${YAML_FILE}" ||
+				fail "${case_name}: LAN DNS bind host was not generated"
+			;;
+	esac
 }
 
 run_startup_failure_case() {
