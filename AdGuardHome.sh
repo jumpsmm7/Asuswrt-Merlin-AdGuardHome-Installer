@@ -92,6 +92,11 @@ adguard_dnsmasq_managed() {
 	adguard_dnsmasq_running
 }
 
+adguard_restart_dnsmasq_if_managed() {
+	adguard_dnsmasq_managed || return 0
+	service restart_dnsmasq >/dev/null 2>&1
+}
+
 adguard_ipset_allowed() {
 	! adguard_lan_mode
 }
@@ -653,7 +658,7 @@ check_dns_environment() {
 	if [ "$NVCHECK" != "0" ]; then
 		{ nvram commit; }
 		if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
-			{ service restart_dnsmasq >/dev/null 2>&1; }
+			{ adguard_restart_dnsmasq_if_managed; }
 		fi
 		{ service_wait netcheck 150; }
 	fi
@@ -1477,7 +1482,7 @@ stop_adguardhome() {
 		STOP_STATUS="1"
 	fi
 	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
-		if ! service restart_dnsmasq >/dev/null 2>&1; then
+		if ! adguard_restart_dnsmasq_if_managed; then
 			agh_log error stop_adguardhome "state=stopping action=restart_dnsmasq reason=service_restart_failed result=failed process=${PROCS}"
 			STOP_STATUS="1"
 		fi
@@ -1884,7 +1889,7 @@ IPSet_Current_File() {
 IPSet_Dnsmasq_Restart_After_Unlock() {
 	[ "${IPSET_DNSMASQ_RESTART_PENDING:-0}" -eq 1 ] || return 0
 	IPSET_DNSMASQ_RESTART_PENDING="0"
-	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" = "1" ] || service restart_dnsmasq >/dev/null 2>&1
+	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" = "1" ] || adguard_restart_dnsmasq_if_managed
 }
 
 IPSet_Current_UID() {
