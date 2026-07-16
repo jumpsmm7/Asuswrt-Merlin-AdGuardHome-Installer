@@ -66,7 +66,7 @@ grep -q '^ADGUARD_DNSMASQ_MODE="enabled"$' "${CONF_FILE}" || fail 'WAN existing 
 CONF_FILE="${TMP_ROOT}/new-lan.config"
 nvram() {
 	case "${1:-}:${2:-}" in
-		get:lan_ipaddr) printf '%s\n' 192.168.50.1 ;;
+		get:lan_gateway) printf '%s\n' 192.168.50.1 ;;
 		*) return 1 ;;
 	esac
 }
@@ -75,7 +75,7 @@ ADGUARD_INSTALL_MODE="lan"
 adguard_install_feature_defaults >"${TMP_ROOT}/feature-lan.out" || fail 'LAN install feature defaults failed'
 grep -q '^ADGUARD_IPSET="NO"$' "${CONF_FILE}" || fail 'LAN feature defaults did not force IPSET disablement'
 grep -q '^ADGUARD_DNSMASQ_MODE="auto"$' "${CONF_FILE}" || fail 'LAN feature defaults did not force auto DNSMasq mode'
-grep -q '^ADGUARD_LAN_REVERSE_UPSTREAM="192.168.50.1"$' "${CONF_FILE}" || fail 'LAN feature defaults did not save detected reverse upstream'
+grep -q '^ADGUARD_LAN_REVERSE_UPSTREAM="192.168.50.1"$' "${CONF_FILE}" || fail 'LAN feature defaults did not save detected gateway reverse upstream'
 configure_runtime_defaults new-install lan 1 >"${TMP_ROOT}/new-lan.out" || fail 'new LAN defaults failed'
 grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" || fail 'new LAN install did not save lan install mode'
 grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'new LAN install did not save lan netcheck mode'
