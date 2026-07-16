@@ -4906,6 +4906,25 @@ setup_private_ipv4_bridge_dns_binds() {
 			')"
 		fi
 	fi
+	if [ -z "${bridge_binds}" ] && ai_have_cmd route; then
+		bridge_binds="$(route 2>/dev/null | awk -v lan_addr="${NET_ADDR}" '
+			function private_ip(ip) {
+				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+			}
+			function router_ip(ip) {
+				split(ip, octets, ".")
+				if (octets[1] != "" && octets[2] != "" && octets[3] != "") { return octets[1] "." octets[2] "." octets[3] ".1" }
+				return ""
+			}
+			{
+				iface = $NF
+				if (iface ~ /^br/ && iface != "br0" && private_ip($1) && !seen[iface]++) {
+					dns_ip = router_ip($1)
+					if (dns_ip != "" && dns_ip != lan_addr) { print dns_ip }
+				}
+			}
+		')"
+	fi
 	printf "%s\n" "${bridge_binds}"
 }
 

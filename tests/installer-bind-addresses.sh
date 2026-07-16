@@ -37,7 +37,11 @@ PTXT() {
 }
 
 ai_have_cmd() {
-	[ "${IP_AVAILABLE:-0}" -eq 1 ] && [ "$1" = "ip" ]
+	case "$1" in
+		ip) [ "${IP_AVAILABLE:-0}" -eq 1 ] ;;
+		route) [ "${ROUTE_AVAILABLE:-0}" -eq 1 ] ;;
+		*) return 1 ;;
+	esac
 }
 
 ip() {
@@ -52,8 +56,15 @@ ip() {
 			[ -n "${IPV4_FROM_IP:-}" ] && printf '1: br0    inet %s/24 brd 192.168.50.255 scope global br0\n' "${IPV4_FROM_IP}"
 			[ -n "${BRIDGE_ADDRS:-}" ] && printf '%s\n' "${BRIDGE_ADDRS}"
 			;;
+		'route show')
+			[ -n "${IP_ROUTE_OUTPUT:-}" ] && printf '%s\n' "${IP_ROUTE_OUTPUT}"
+			;;
 		*) return 1 ;;
 	esac
+}
+
+route() {
+	[ -n "${ROUTE_OUTPUT:-}" ] && printf '%s\n' "${ROUTE_OUTPUT}"
 }
 
 nvram() {
@@ -68,12 +79,15 @@ nvram() {
 reset_inputs() {
 	ADGUARD_INSTALL_MODE=""
 	IP_AVAILABLE=0
+	ROUTE_AVAILABLE=0
 	LAN_IFNAME=""
 	IPV4_FROM_IP=""
 	IPV4_FROM_NVRAM=""
 	IPV6_FROM_IP=""
 	IPV6_FROM_NVRAM=""
 	BRIDGE_ADDRS=""
+	IP_ROUTE_OUTPUT=""
+	ROUTE_OUTPUT=""
 	NET_ADDR=""
 	NET_ADDR6=""
 	SETUP_WEB_ADDRESS="preset"
@@ -149,6 +163,33 @@ assert_yaml_bind_hosts lan-nvram 3
 grep -q '^    - 127\.0\.0\.1$' "${TMP_ROOT}/lan-nvram.yaml" || fail 'LAN DNS loopback bind host from nvram fallback was not written'
 grep -q '^    - 192\.168\.1\.1$' "${TMP_ROOT}/lan-nvram.yaml" || fail 'LAN DNS bind host from nvram was not written'
 grep -q '^    - 2001:db8::2$' "${TMP_ROOT}/lan-nvram.yaml" || fail 'LAN DNS IPv6 bind host from nvram was not written'
+
+reset_inputs
+ADGUARD_INSTALL_MODE=lan
+IP_AVAILABLE=1
+ROUTE_AVAILABLE=1
+LAN_IFNAME=br0
+IPV4_FROM_IP=192.168.50.1
+IP_ROUTE_OUTPUT='192.168.102.0/24 dev br102 proto kernel scope link'
+setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution for route fallback failed'
+assert_bind_values lan-route '192.168.50.1:3000' "${IPV4_FROM_IP}"
+assert_yaml_bind_hosts lan-route 3
+grep -q '^    - 127\.0\.0\.1$' "${TMP_ROOT}/lan-route.yaml" || fail 'LAN DNS loopback bind host from route fallback was not written'
+grep -q '^    - 192\.168\.50\.1$' "${TMP_ROOT}/lan-route.yaml" || fail 'LAN DNS bind host from route fallback was not written'
+grep -q '^    - 192\.168\.102\.1$' "${TMP_ROOT}/lan-route.yaml" || fail 'LAN DNS route fallback bridge bind host was not written'
+
+reset_inputs
+ADGUARD_INSTALL_MODE=lan
+ROUTE_AVAILABLE=1
+LAN_IFNAME=br0
+IPV4_FROM_NVRAM=192.168.1.1
+ROUTE_OUTPUT='192.168.103.0     *               255.255.255.0   U     0      0        0 br103'
+setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution for legacy route fallback failed'
+assert_bind_values lan-legacy-route '192.168.1.1:3000' "${IPV4_FROM_NVRAM}"
+assert_yaml_bind_hosts lan-legacy-route 3
+grep -q '^    - 127\.0\.0\.1$' "${TMP_ROOT}/lan-legacy-route.yaml" || fail 'LAN DNS loopback bind host from legacy route fallback was not written'
+grep -q '^    - 192\.168\.1\.1$' "${TMP_ROOT}/lan-legacy-route.yaml" || fail 'LAN DNS bind host from legacy route fallback was not written'
+grep -q '^    - 192\.168\.103\.1$' "${TMP_ROOT}/lan-legacy-route.yaml" || fail 'LAN DNS legacy route fallback bridge bind host was not written'
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan
