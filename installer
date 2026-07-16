@@ -4530,23 +4530,105 @@ inst_AdGuardHome() {
 	ptxt_ok "AdGuardHome service files installed."
 	[ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
 	for i in init-start services-stop; do { if { ! grep -q "${ADDON_DIR}/AdGuardHome.sh $i &" "/jffs/scripts/${i}" && grep -q "${ADDON_DIR}/AdGuardHome.sh $i" "/jffs/scripts/${i}"; }; then del_jffs_script "/jffs/scripts/${i}"; fi; }; done
-	if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
-		! write_manager_script /jffs/scripts/services-stop "services-stop &" ||
-		! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq ||
-		! write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'; then
-		PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
-		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-		end_op_message 1 "$1"
-		return 1
-	fi
-	ptxt_ok "Asuswrt-Merlin event scripts configured."
-	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
-	if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
-		PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
-		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-		end_op_message 1 "$1"
-		return 1
-	fi
+	case "${ADGUARD_INSTALL_MODE:-wan}" in
+		wan)
+			if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
+				! write_manager_script /jffs/scripts/services-stop "services-stop &" ||
+				! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq ||
+				! write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'; then
+				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
+				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				end_op_message 1 "$1"
+				return 1
+			fi
+			if ! write_conf ADGUARD_DNSMASQ_MODE "\"enabled\""; then
+				PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
+				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				end_op_message 1 "$1"
+				return 1
+			fi
+			ptxt_ok "Asuswrt-Merlin event scripts configured."
+			if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
+			if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
+				PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
+				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				end_op_message 1 "$1"
+				return 1
+			fi
+			;;
+		lan)
+			if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
+				! write_manager_script /jffs/scripts/services-stop "services-stop &"; then
+				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
+				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				end_op_message 1 "$1"
+				return 1
+			fi
+			if pidof dnsmasq >/dev/null 2>&1; then
+				if ! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq; then
+					PTXT "${ERROR} Required dnsmasq event script could not be configured."
+					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					end_op_message 1 "$1"
+					return 1
+				fi
+				if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
+				if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
+					PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
+					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					end_op_message 1 "$1"
+					return 1
+				fi
+				if ! write_conf ADGUARD_DNSMASQ_MODE "\"enabled\""; then
+					PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
+					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					end_op_message 1 "$1"
+					return 1
+				fi
+			else
+				case "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" in
+					disabled)
+						del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || ptxt_warn "Unable to remove the AdGuardHome dnsmasq.postconf hook; continuing LAN-mode setup."
+						if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
+						if ! write_conf ADGUARD_DNSMASQ_MODE "\"disabled\""; then
+							PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
+							adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							end_op_message 1 "$1"
+							return 1
+						fi
+						;;
+					*)
+						ptxt_warn "dnsmasq is not running; preserving dnsmasq event hooks for LAN-mode startup."
+						if ! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq; then
+							PTXT "${ERROR} Required dnsmasq event script could not be configured."
+							adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							end_op_message 1 "$1"
+							return 1
+						fi
+						if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
+						if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
+							PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
+							adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							end_op_message 1 "$1"
+							return 1
+						fi
+						if ! write_conf ADGUARD_DNSMASQ_MODE "\"enabled\""; then
+							PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
+							adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							end_op_message 1 "$1"
+							return 1
+						fi
+						;;
+				esac
+			fi
+			ptxt_ok "Asuswrt-Merlin event scripts configured."
+			;;
+		*)
+			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE:-}. Setup was aborted."
+			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			end_op_message 1 "$1"
+			return 1
+			;;
+	esac
 	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
 	if ! write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'; then
 		PTXT "${ERROR} Required service-event-end hook could not be configured."
