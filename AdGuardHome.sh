@@ -1889,7 +1889,7 @@ IPSet_Current_File() {
 IPSet_Dnsmasq_Restart_After_Unlock() {
 	[ "${IPSET_DNSMASQ_RESTART_PENDING:-0}" -eq 1 ] || return 0
 	IPSET_DNSMASQ_RESTART_PENDING="0"
-	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" = "1" ] || adguard_restart_dnsmasq_if_managed
+	service restart_dnsmasq >/dev/null 2>&1
 }
 
 IPSet_Current_UID() {
@@ -1934,7 +1934,11 @@ IPSet_Start_Restore() {
 IPSet_Start_While_Locked() {
 	local DNSMASQ_RESTART_SKIP STATUS
 	DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
-	IPSET_DNSMASQ_RESTART_PENDING="1"
+	if adguard_dnsmasq_managed; then
+		IPSET_DNSMASQ_RESTART_PENDING="1"
+	else
+		IPSET_DNSMASQ_RESTART_PENDING="0"
+	fi
 	ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
 	lower_script start
 	STATUS="$?"

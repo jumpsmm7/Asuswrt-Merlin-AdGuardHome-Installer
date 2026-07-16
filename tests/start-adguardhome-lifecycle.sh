@@ -66,7 +66,7 @@ sed -n '/^service_wait() {$/,/^}$/p' "${SCRIPT_PATH}" >"${SERVICE_WAIT_FILE}" ||
 . "${FUNCTION_FILE}"
 
 adguard_dnsmasq_managed() {
-	return 0
+	return "${DNSMASQ_MANAGED_STATUS:-0}"
 }
 
 conf_value() {
@@ -145,6 +145,9 @@ lower_script() {
 		start)
 			if [ "${IPSET_TEST_LOCK_HELD:-0}" -eq 1 ] && [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
 				fail 'locked AdGuardHome start did not suppress the dnsmasq restart hook'
+			fi
+			if [ "${DNSMASQ_UNMANAGED_AFTER_START:-0}" -eq 1 ]; then
+				DNSMASQ_MANAGED_STATUS=1
 			fi
 			return "${START_STATUS}"
 			;;
@@ -236,6 +239,8 @@ WORK_DIR=/tmp/adguardhome-test
 INTERRUPT_ON_STOP=0
 INTERRUPT_AFTER_UNLOCK=0
 DISABLE_STATUS=0
+DNSMASQ_MANAGED_STATUS=0
+DNSMASQ_UNMANAGED_AFTER_START=0
 
 run_service_wait_terminal_test
 
@@ -357,6 +362,16 @@ IPSet_Setup_Locked
 lower_script start
 IPSet_Lock released
 service restart_dnsmasq'
+DNSMASQ_UNMANAGED_AFTER_START=1
+run_test 'deferred restart ignores post-start dnsmasq pid fallback' 1 0 0 0 0 0 1 'IPSet_Supported
+IPSet_Lock acquired
+lower_script stop
+IPSet_Setup_Locked
+lower_script start
+IPSet_Lock released
+service restart_dnsmasq'
+DNSMASQ_UNMANAGED_AFTER_START=0
+DNSMASQ_MANAGED_STATUS=0
 [ -z "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" ] || fail 'locked start left the dnsmasq restart guard set'
 [ "${IPSET_DNSMASQ_RESTART_PENDING:-0}" -eq 0 ] || fail 'locked start left the dnsmasq restart pending'
 INTERRUPT_AFTER_UNLOCK=1
