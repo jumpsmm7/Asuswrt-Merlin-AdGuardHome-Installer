@@ -78,8 +78,14 @@ TEST_LAN_IPADDR='192.168.2.1'
 TEST_CONF_LAN_REVERSE_UPSTREAM='192.168.60.1'
 assert_target 'LAN explicit config' '192.168.50.1:53'
 
+ADGUARD_LAN_REVERSE_UPSTREAM='0.0.0.0'
+assert_failure 'LAN wildcard explicit config' '0.0.0.0'
+
 ADGUARD_LAN_REVERSE_UPSTREAM=''
 assert_target 'LAN persisted config' '192.168.60.1:53'
+
+TEST_CONF_LAN_REVERSE_UPSTREAM='0.0.0.0'
+assert_failure 'LAN wildcard persisted config' '0.0.0.0'
 
 TEST_CONF_LAN_REVERSE_UPSTREAM=''
 TEST_LAN_GATEWAY='192.168.1.1'

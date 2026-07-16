@@ -4843,6 +4843,9 @@ setup_reverse_upstream_target() {
 			# Use explicit config first, otherwise detected main-router IP.
 			SETUP_REVERSE_UPSTREAM="${ADGUARD_LAN_REVERSE_UPSTREAM:-}"
 			[ -n "${SETUP_REVERSE_UPSTREAM}" ] || SETUP_REVERSE_UPSTREAM="$(conf_value ADGUARD_LAN_REVERSE_UPSTREAM 2>/dev/null)"
+			case "${SETUP_REVERSE_UPSTREAM}" in
+				0.0.0.0) return 1 ;;
+			esac
 			if [ -z "${SETUP_REVERSE_UPSTREAM}" ]; then
 				SETUP_REVERSE_UPSTREAM="$(nvram get lan_gateway 2>/dev/null)"
 				case "${SETUP_REVERSE_UPSTREAM}" in
