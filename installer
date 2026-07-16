@@ -4523,8 +4523,8 @@ inst_AdGuardHome() {
 			cleanup_legacy_firewall
 			;;
 		lan)
-			del_jffs_script /jffs/scripts/firewall-start || ptxt_warn "Unable to remove the AdGuardHome firewall-start hook; continuing LAN-mode setup."
-			PTXT "${INFO} LAN mode selected; skipping firewall/IPTABLES management."
+			cleanup_legacy_firewall
+			PTXT "${INFO} LAN mode selected; cleared legacy firewall/IPTABLES state and skipping firewall/IPTABLES management."
 			;;
 	esac
 	if ! download_file "${ADDON_DIR}" 755 "${RURL}/AdGuardHome.sh" ||
