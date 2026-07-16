@@ -4859,12 +4859,70 @@ setup_reverse_upstream_target() {
 	esac
 }
 
+setup_private_ipv4_bridge_dns_binds() {
+	local bridge_binds
+
+	bridge_binds=""
+	if ai_have_cmd ip; then
+		bridge_binds="$(ip -o -4 addr show scope global 2>/dev/null | awk -v lan_addr="${NET_ADDR}" '
+			function private_ip(ip) {
+				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+			}
+			$2 ~ /^br/ && $2 != "br0" {
+				for (i = 1; i <= NF; i++) {
+					if ($i == "inet") {
+						split($(i + 1), ip_addr, "/")
+						if (ip_addr[1] != lan_addr && private_ip(ip_addr[1]) && !seen[ip_addr[1]]++) { print ip_addr[1] }
+					}
+				}
+			}
+		')"
+		if [ -z "${bridge_binds}" ]; then
+			bridge_binds="$(ip route show 2>/dev/null | awk -v lan_addr="${NET_ADDR}" '
+				function private_ip(ip) {
+					return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+				}
+				function router_ip(ip) {
+					split(ip, octets, ".")
+					if (octets[1] != "" && octets[2] != "" && octets[3] != "") { return octets[1] "." octets[2] "." octets[3] ".1" }
+					return ""
+				}
+				{
+					iface = ""
+					src = ""
+					split($1, dst_parts, "/")
+					dst = dst_parts[1]
+					for (i = 1; i <= NF; i++) {
+						if ($i == "dev") { iface = $(i + 1) }
+						if ($i == "src") { src = $(i + 1) }
+					}
+					if (iface ~ /^br/ && iface != "br0" && private_ip(dst) && !seen[iface]++) {
+						if (!private_ip(src)) { src = router_ip(dst) }
+						if (src != "" && src != lan_addr) { print src }
+					}
+				}
+			')"
+		fi
+	fi
+	printf "%s\n" "${bridge_binds}"
+}
+
 setup_write_dns_bind_hosts() {
 	local target_file="$1"
 
-	PTXT "dns:" \
-		"  bind_hosts:" \
-		"    - ${SETUP_DNS_BIND_HOST}" >>"${target_file}"
+	PTXT "dns:" "  bind_hosts:" >>"${target_file}"
+	case "${ADGUARD_INSTALL_MODE:-wan}" in
+		lan)
+			{
+				PTXT "127.0.0.1"
+				PTXT "${SETUP_DNS_BIND_HOST}"
+				setup_private_ipv4_bridge_dns_binds
+			} | awk 'NF && !seen[$0]++ { print "    - " $0 }' >>"${target_file}"
+			;;
+		*)
+			PTXT "    - ${SETUP_DNS_BIND_HOST}" >>"${target_file}"
+			;;
+	esac
 }
 
 setup_default_web_host() {
