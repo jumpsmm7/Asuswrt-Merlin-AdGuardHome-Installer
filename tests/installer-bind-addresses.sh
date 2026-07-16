@@ -99,8 +99,10 @@ assert_bind_values() {
 	case_name="$1"
 	expected_web="$2"
 	expected_dns4="$3"
+	expected_dns6="${4-}"
 	[ "${SETUP_WEB_ADDRESS:-}" = "${expected_web}" ] || fail "${case_name}: expected web ${expected_web}, got ${SETUP_WEB_ADDRESS:-empty}"
 	[ "${SETUP_DNS_BIND_HOST:-}" = "${expected_dns4}" ] || fail "${case_name}: expected DNS IPv4 ${expected_dns4}, got ${SETUP_DNS_BIND_HOST:-empty}"
+	[ "${SETUP_DNS_BIND_HOST6:-}" = "${expected_dns6}" ] || fail "${case_name}: expected DNS IPv6 ${expected_dns6:-empty}, got ${SETUP_DNS_BIND_HOST6:-empty}"
 }
 
 assert_yaml_bind_hosts() {
@@ -139,7 +141,7 @@ setup_resolve_lan_addresses
 [ "${NET_ADDR:-}" = "${IPV4_FROM_IP}" ] || fail 'initial YAML LAN IPv4 resolution did not prefer ip output'
 [ "${NET_ADDR6:-}" = "${IPV6_FROM_IP}" ] || fail 'initial YAML LAN IPv6 resolution did not prefer ip output'
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution from ip failed'
-assert_bind_values lan-ip '192.168.50.1:3000' "${IPV4_FROM_IP}"
+assert_bind_values lan-ip '192.168.50.1:3000' "${IPV4_FROM_IP}" "${IPV6_FROM_IP}"
 assert_yaml_bind_hosts lan-ip 5
 grep -q '^    - 127\.0\.0\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS loopback bind host was not written'
 grep -q '^    - 192\.168\.50\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS bind host from ip was not written'
@@ -158,7 +160,7 @@ setup_resolve_lan_addresses
 [ "${NET_ADDR:-}" = "${IPV4_FROM_NVRAM}" ] || fail 'initial YAML LAN IPv4 resolution did not fall back to nvram'
 [ "${NET_ADDR6:-}" = "${IPV6_FROM_NVRAM}" ] || fail 'initial YAML LAN IPv6 resolution did not fall back to nvram'
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution from nvram fallback failed'
-assert_bind_values lan-nvram '192.168.1.1:3000' "${IPV4_FROM_NVRAM}"
+assert_bind_values lan-nvram '192.168.1.1:3000' "${IPV4_FROM_NVRAM}" "${IPV6_FROM_NVRAM}"
 assert_yaml_bind_hosts lan-nvram 3
 grep -q '^    - 127\.0\.0\.1$' "${TMP_ROOT}/lan-nvram.yaml" || fail 'LAN DNS loopback bind host from nvram fallback was not written'
 grep -q '^    - 192\.168\.1\.1$' "${TMP_ROOT}/lan-nvram.yaml" || fail 'LAN DNS bind host from nvram was not written'
