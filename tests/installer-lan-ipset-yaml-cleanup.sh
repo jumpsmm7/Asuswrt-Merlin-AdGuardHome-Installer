@@ -201,7 +201,6 @@ grep -q "admin:root ${YAML_FILE}" "${CHOWN_LOG}" || fail 'YAML ownership did not
 [ "$(mode_string "${YAML_FILE}")" = '-rw-------' ] || fail 'YAML mode was not secured with nvram username present'
 assert_no_ipset_file nvram-owner
 
-
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write YAML for failing ownership test'
 dns:
   ipset_file: chown-fails.conf
