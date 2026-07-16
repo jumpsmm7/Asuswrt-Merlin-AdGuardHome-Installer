@@ -31,7 +31,7 @@ assert_startup_uses_lock_first_setup() {
 		in_start && /^[[:space:]]*if ! IPSet_Setup;/ { legacy++ }
 		END { print lock_first + 0, legacy + 0 }
 	' "${SCRIPT_PATH}")" || fail 'could not inspect the startup IPSET setup call'
-	[ "${STARTUP_SETUP_CALLS}" = '1 0' ] || fail "expected one argument-free lock-first setup call and no legacy setup call, found ${STARTUP_SETUP_CALLS}"
+	[ "${STARTUP_SETUP_CALLS}" = '1 0' ] || fail "expected one LAN-gated, argument-free lock-first setup call and no legacy setup call, found ${STARTUP_SETUP_CALLS}"
 }
 
 assert_optional_ipset_tools_do_not_gate_startup() {
@@ -67,6 +67,14 @@ sed -n '/^service_wait() {$/,/^}$/p' "${SCRIPT_PATH}" >"${SERVICE_WAIT_FILE}" ||
 
 conf_value() {
 	[ "${IPSET_CONFIG:-YES}" = "NO" ] && printf '%s\n' NO || printf '%s\n' YES
+}
+
+adguard_lan_mode() {
+	[ "${INSTALL_MODE:-wan}" = "lan" ]
+}
+
+adguard_ipset_allowed() {
+	! adguard_lan_mode
 }
 
 IPSet_Supported() {
@@ -226,6 +234,16 @@ INTERRUPT_AFTER_UNLOCK=0
 DISABLE_STATUS=0
 
 run_service_wait_terminal_test
+
+INSTALL_MODE=lan
+run_test 'LAN mode disables managed IPSET before startup' 0 0 0 0 0 0 1 'IPSet_Disable_Managed
+lower_script start'
+DISABLE_STATUS=1
+run_test 'LAN mode aborts when managed IPSET cannot be disabled' 0 0 0 0 0 0 1 'IPSet_Disable_Managed'
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'LAN disable failure was not marked terminal'
+[ "${SERVICE_WAIT_CALLED}" -eq 0 ] || fail 'LAN disable failure reached the health check'
+DISABLE_STATUS=0
+INSTALL_MODE=wan
 
 run_test 'setup failure while stopped continues startup' 0 0 0 0 1 0 1 'IPSet_Supported
 IPSet_Lock acquired
