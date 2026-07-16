@@ -532,6 +532,13 @@ conf_has_key() {
 	grep -q "^$1=" "${CONF_FILE}"
 }
 
+adguard_ipset_allowed() {
+	case "${ADGUARD_INSTALL_MODE:-$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)}" in
+		lan) return 1 ;;
+	esac
+	return 0
+}
+
 write_conf_if_absent() {
 	conf_has_key "$1" && return 0
 	write_conf "$1" "$2"
@@ -2879,6 +2886,68 @@ check_ipset() {
 	write_conf ADGUARD_IPSET "\"${IPSET_ENABLED}\""
 }
 
+adguardhome_yaml_secure_file() {
+	local http_username yaml_target
+	yaml_target="${1:-${YAML_FILE}}"
+	[ -f "${yaml_target}" ] || return 0
+	chmod 600 "${yaml_target}" || return 1
+	if which nvram >/dev/null 2>&1; then
+		http_username="$(nvram get http_username 2>/dev/null)"
+		[ -n "${http_username}" ] || http_username="root"
+		chown "${http_username}:root" "${yaml_target}" || return 1
+	fi
+}
+
+adguardhome_yaml_remove_ipset_file() {
+	local current_file tmp_file
+	[ -f "${YAML_FILE}" ] || return 0
+	current_file="$(adguardhome_yaml_ipset_file 2>/dev/null)" || return 1
+	[ -n "${current_file}" ] || return 0
+	chmod 600 "${YAML_FILE}" || return 1
+	tmp_file="${YAML_FILE}.ipset.$$"
+	cp -p "${YAML_FILE}" "${tmp_file}" || return 1
+	awk '
+		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
+		function block_marker(value) {
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			return value ~ /^[>|][+-]?([[:space:]]+#.*)?$/
+		}
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(&[^][{},[:space:]]+[[:space:]]*)?(#.*)?$/ { in_dns = 1; print; next }
+		in_dns && /^[^[:space:]]/ { in_dns = 0 }
+		in_dns && skip_block && /^[[:space:]]*($|#)/ { next }
+		in_dns && skip_block && indentation($0) > skip_indent { next }
+		in_dns && skip_block { skip_block = 0 }
+		in_dns && /^[[:space:]]*($|#)/ { print; next }
+		in_dns && !child_indent { child_indent = indentation($0) }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
+			value = substr($0, child_indent + 1)
+			sub(/^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/, "", value)
+			if (block_marker(value)) {
+				skip_block = 1
+				skip_indent = child_indent
+			}
+			next
+		}
+		{ print }
+	' "${YAML_FILE}" >"${tmp_file}" && adguardhome_yaml_secure_file "${tmp_file}" && mv -f "${tmp_file}" "${YAML_FILE}" && adguardhome_yaml_secure_file || {
+		rm -f "${tmp_file}"
+		return 1
+	}
+}
+
+adguard_enforce_lan_ipset_disabled() {
+	case "${ADGUARD_INSTALL_MODE:-}:$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)" in
+		lan:* | *:lan)
+			ADGUARD_INSTALL_MODE="lan"
+			write_conf ADGUARD_INSTALL_MODE "\"lan\"" || return 1
+			write_conf ADGUARD_IPSET "\"NO\"" || return 1
+			adguardhome_yaml_remove_ipset_file || return 1
+			PTXT "${INFO} IPSET is disabled in LAN/AP/Bridge mode because IPTABLES/IPSET rules are not manageable there."
+			;;
+	esac
+	return 0
+}
+
 check_dns_local() {
 	local LOCAL_CACHE
 	case "$1" in
@@ -3990,6 +4059,12 @@ backup_restore() {
 			return 1
 		fi
 		ptxt_ok "Restored AdGuardHome command symlink."
+		if ! adguard_enforce_lan_ipset_disabled; then
+			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
+			adguard_install_abort_trap_disable
+			PTXT "${ERROR} Unable to disable IPSET settings for restored LAN/AP/Bridge mode configuration."
+			return 1
+		fi
 		ADGUARD_DEFER_END_OP="1"
 		ptxt_step "Reinstalling AdGuardHome service scripts after restore."
 		if ! inst_AdGuardHome "${1:-RESTORE}"; then
@@ -4866,16 +4941,21 @@ setup_AdGuardHome_impl() {
 								;;
 						esac
 					fi
-					read_yesno "Do you want to enable AdGuardHome IPSET integration?"
-					YESNO_STATUS="$?"
-					case "${YESNO_STATUS}" in
-						0) IPSET_SELECTION=1 ;;
-						1) IPSET_SELECTION=0 ;;
-						*)
-							setup_restore_previous_yaml || true
-							return "${YESNO_STATUS}"
-							;;
-					esac
+					if adguard_ipset_allowed; then
+						read_yesno "Do you want to enable AdGuardHome IPSET integration?"
+						YESNO_STATUS="$?"
+						case "${YESNO_STATUS}" in
+							0) IPSET_SELECTION=1 ;;
+							1) IPSET_SELECTION=0 ;;
+							*)
+								setup_restore_previous_yaml || true
+								return "${YESNO_STATUS}"
+								;;
+						esac
+					else
+						IPSET_SELECTION=0
+						PTXT "${INFO} IPSET is disabled in LAN/AP/Bridge mode because IPTABLES/IPSET rules are not manageable there."
+					fi
 					if [ "$2" != "reconfig" ] && ! check_ipset "${IPSET_SELECTION}"; then
 						PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
 							"${WARNING} Continuing setup with the previous or default IPSET preference."
@@ -5461,6 +5541,12 @@ menu() {
 			}; else end_op_message 1; fi
 			;;
 		"8" | "setipset")
+			if ! adguard_ipset_allowed; then
+				check_ipset 0 || PTXT "${ERROR} Unable to persist ADGUARD_IPSET=NO."
+				PTXT "${ERROR} IPSET integration is disabled in LAN/AP/Bridge mode because IPTABLES/IPSET rules are not manageable there."
+				end_op_message 1
+				return 1
+			fi
 			PTXT "${INFO} IPSET integration imports compatible domain-to-IPSET mappings for routing and firewall add-ons." \
 				"${INFO} Disable it if this router does not use IPSET-based domain routing or filtering."
 			read_yesno "Do you want to enable AdGuardHome IPSET integration?"
@@ -5971,7 +6057,7 @@ cli_migrate_runtime_default() {
 }
 
 cli_migrate_runtime_defaults() {
-	local apply dry_run changes dns_port_change netcheck_change proc_optimize_change proc_profile_change proc_optimize_current install_mode netcheck_target
+	local apply dry_run changes dns_port_change ipset_change netcheck_change proc_optimize_change proc_profile_change proc_optimize_current install_mode netcheck_target
 	apply="0"
 	dry_run="0"
 	changes="0"
@@ -5989,13 +6075,21 @@ cli_migrate_runtime_defaults() {
 	fi
 	PTXT "${INFO} Inspecting runtime defaults in ${CONF_FILE}."
 	dns_port_change="0"
+	ipset_change="0"
 	netcheck_change="0"
 	proc_optimize_change="0"
 	proc_profile_change="0"
 	install_mode="$(conf_value ADGUARD_INSTALL_MODE)"
 	[ -n "${install_mode}" ] || install_mode="${ADGUARD_INSTALL_MODE:-wan}"
 	case "${install_mode}" in
-		lan) netcheck_target="lan" ;;
+		lan)
+			netcheck_target="lan"
+			if [ "$(conf_value ADGUARD_IPSET)" != "NO" ] || [ -n "$(adguardhome_yaml_ipset_file 2>/dev/null)" ]; then
+				PTXT "${WARNING} LAN/AP/Bridge mode config has IPSET enabled; migration will disable it because IPTABLES/IPSET rules are not manageable there."
+				changes="1"
+				ipset_change="1"
+			fi
+			;;
 		*) netcheck_target="wan" ;;
 	esac
 	cli_migrate_runtime_default ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL 0 1 || {
@@ -6035,6 +6129,11 @@ cli_migrate_runtime_defaults() {
 	fi
 	if [ "${netcheck_change}" = "1" ]; then
 		cli_write_quoted_conf ADGUARD_NETCHECK_MODE "${netcheck_target}" || return 1
+	fi
+	if [ "${ipset_change}" = "1" ]; then
+		ADGUARD_INSTALL_MODE="lan"
+		write_conf ADGUARD_IPSET "\"NO\"" || return 1
+		adguardhome_yaml_remove_ipset_file || return 1
 	fi
 	if [ "${proc_optimize_change}" = "1" ]; then
 		cli_write_quoted_conf ADGUARD_PROC_OPTIMIZE YES || return 1
@@ -6251,10 +6350,20 @@ cli_run() {
 		ipset)
 			case "${sub}" in
 				status | doctor)
+					if ! adguard_ipset_allowed; then
+						PTXT "${INFO} IPSET status skipped: LAN/AP/Bridge mode does not manage IPTABLES/IPSET rules."
+						return 0
+					fi
 					ipset_status
 					return "$?"
 					;;
-				refresh) ;;
+				refresh)
+					if ! adguard_ipset_allowed; then
+						check_ipset 0 || true
+						PTXT "${ERROR} IPSET refresh refused: LAN/AP/Bridge mode does not manage IPTABLES/IPSET rules."
+						return 1
+					fi
+					;;
 				*) return 2 ;;
 			esac
 			[ "${CLI_DRY_RUN}" = "1" ] && {
