@@ -57,6 +57,12 @@ restore_dns_filter_settings() { rm -rf "$1"; }
 check_dns_filter() { :; }
 check_dns_local() { :; }
 check_ipset() { :; }
+ipv4_is_valid() {
+	case "$1" in
+		192.168.1.1 | 192.168.50.1) return 0 ;;
+		*) return 1 ;;
+	esac
+}
 ai_have_cmd() { return 1; }
 nvram() {
 	case "$1:${2:-}" in
@@ -104,11 +110,31 @@ second_check="$(sed -n '2p' "${CHECK_LOG}")"
 [ "${second_check}" = "${YAML_FILE}" ] || fail 'published YAML was not validated after copy'
 grep -q '^dns:$' "${YAML_FILE}" || fail 'published YAML is missing dns section'
 grep -q '^schema_version: 27$' "${YAML_FILE}" || fail 'published YAML is missing schema_version'
+grep -q "^  - '\[/router.asus.com/\]\[::\]:553'" "${YAML_FILE}" || fail 'WAN router upstream did not use wildcard reverse target'
+grep -q "^  - '\[::\]:553'" "${YAML_FILE}" || fail 'WAN local PTR upstream did not use wildcard reverse target'
+grep -q "^  - '\[/10.in-addr.arpa/\]\[::\]:553'" "${YAML_FILE}" || fail 'WAN private PTR upstream did not use wildcard reverse target'
 [ "$(cat "${YAML_ORI}")" = "$(cat "${YAML_FILE}")" ] || fail 'original snapshot does not match published YAML'
 
 rm -f "${YAML_FILE}" "${YAML_ORI}" "${CHECK_LOG}"
 BOOTSTRAP1=
 BOOTSTRAP2=
+ADGUARD_INSTALL_MODE=lan
+ADGUARD_LAN_REVERSE_UPSTREAM=192.168.50.1
+: >"${CHECK_LOG}"
+if ! setup_AdGuardHome_impl '' install; then
+	fail 'LAN initial setup failed'
+fi
+grep -q "^http:$" "${YAML_FILE}" || fail 'LAN published YAML is missing http section'
+grep -q "^  address: 192.168.1.1:3000$" "${YAML_FILE}" || fail 'LAN web bind address did not use LAN IPv4'
+grep -q "^  - '\[/router.asus.com/\]192.168.50.1:53'" "${YAML_FILE}" || fail 'LAN router upstream did not use LAN reverse target'
+grep -q "^  - '192.168.50.1:53'" "${YAML_FILE}" || fail 'LAN local PTR upstream did not use LAN reverse target'
+grep -q "^  - '\[/10.in-addr.arpa/\]192.168.50.1:53'" "${YAML_FILE}" || fail 'LAN private PTR upstream did not use LAN reverse target'
+
+rm -f "${YAML_FILE}" "${YAML_ORI}" "${CHECK_LOG}"
+BOOTSTRAP1=
+BOOTSTRAP2=
+ADGUARD_INSTALL_MODE=wan
+ADGUARD_LAN_REVERSE_UPSTREAM=
 FAIL_STAGED_CHECK=1
 : >"${CHECK_LOG}"
 if setup_AdGuardHome_impl '' install; then
