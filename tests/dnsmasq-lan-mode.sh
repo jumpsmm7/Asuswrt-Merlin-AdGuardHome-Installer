@@ -188,10 +188,8 @@ reset_case
 ADGUARD_INSTALL_MODE='lan'
 DNSMASQ_RUNNING='0'
 DNS_HANDOFF_ACTIVE='1'
-dnsmasq_params 1 || fail 'LAN stopped dnsmasq SDN path failed'
-grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
-	fail 'LAN stopped dnsmasq SDN path did not use the same skip gate'
-! grep -q '^port=553$' "${DNSMASQ_SDN_CONF_FILE}" || fail 'LAN stopped dnsmasq SDN path still rewrote SDN dnsmasq config'
-assert_no_ipset_refresh 'LAN stopped dnsmasq SDN path'
+dnsmasq_params || fail 'LAN stopped dnsmasq handoff path failed'
+assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN stopped dnsmasq handoff path'
+assert_no_ipset_refresh 'LAN stopped dnsmasq handoff path'
 
 printf '%s\n' 'dnsmasq LAN-mode tests passed.'

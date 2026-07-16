@@ -717,7 +717,7 @@ dns_handoff_is_active() {
 
 dnsmasq_params() {
 	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
-	if adguard_lan_mode && ! adguard_dnsmasq_running; then
+	if adguard_lan_mode && ! adguard_dnsmasq_running && ! dns_handoff_is_active; then
 		agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_not_running"
 		return 0
 	fi
