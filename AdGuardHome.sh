@@ -1317,7 +1317,9 @@ start_adguardhome() {
 	IPSET_START_RESTARTED="0"
 	IPSET_START_STOPPED="0"
 	SERVICE_WAIT_TERMINAL_FAILURE="0"
-	if ! IPSet_Setup_For_Start; then
+	if adguard_lan_mode; then
+		agh_log info start_adguardhome "IPSET setup skipped in LAN mode"
+	elif ! IPSet_Setup_For_Start; then
 		if [ "${IPSET_START_FAILURE_SAFE}" -ne 1 ]; then
 			agh_log error start_adguardhome "state=starting action=prepare_ipset reason=stale_mapping_risk result=failed failure_safe=0"
 			if [ "${IPSET_START_STOPPED}" -eq 1 ]; then
@@ -2088,6 +2090,12 @@ IPSet_Lock_Mkdir_Reap_Stale() {
 IPSet_Migrate() {
 	local CURRENT_FILE TEMP_FILE USER_TEMP_FILE
 	IPSET_MIGRATION_SKIPPED=""
+	if adguard_lan_mode; then
+		if ! IPSet_Disable_Managed; then
+			agh_log warning IPSet_Migrate "state=migration action=disable_managed_ipset result=skipped reason=lan_mode_remove_failed"
+		fi
+		return 0
+	fi
 	[ -f "${YAML_FILE}" ] || return 0
 	if ! CURRENT_FILE="$(IPSet_Current_File)"; then
 		return 1
@@ -2342,11 +2350,16 @@ IPSet_Disable_Managed_For_Start_Locked() {
 }
 
 IPSet_Enabled() {
+	adguard_ipset_allowed || return 1
 	[ "$(conf_value ADGUARD_IPSET)" != "NO" ]
 }
 
 IPSet_Refresh() {
 	local DNSMASQ_RESTART_SKIP RESTART_STATUS
+	if adguard_lan_mode; then
+		agh_log info IPSet_Refresh "state=refresh action=refresh_ipset result=skipped reason=lan_mode"
+		return 0
+	fi
 	IPSet_Enabled || return 0
 	IPSet_Supported || return 0
 	IPSET_REFRESH_CHANGED=""
@@ -2475,6 +2488,12 @@ IPSet_Setup() {
 }
 
 IPSet_Setup_For_Start() {
+	if adguard_lan_mode; then
+		if ! IPSet_Disable_Managed; then
+			agh_log warning IPSet_Setup_For_Start "state=starting action=disable_managed_ipset result=skipped reason=lan_mode_remove_failed"
+		fi
+		return 0
+	fi
 	if ! IPSet_Enabled; then
 		IPSet_Lock IPSet_Disable_Managed_For_Start_Locked
 		return $?

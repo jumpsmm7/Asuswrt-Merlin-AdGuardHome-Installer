@@ -38,6 +38,19 @@ conf_value() {
 	printf '%s\n' "${IPSET_CONFIG:-YES}"
 }
 
+adguard_lan_mode() {
+	[ "${INSTALL_MODE:-wan}" = "lan" ]
+}
+
+adguard_ipset_allowed() {
+	! adguard_lan_mode
+}
+
+IPSet_Disable_Managed() {
+	printf '%s\n' IPSet_Disable_Managed >>"${CALLS_FILE}"
+	return 0
+}
+
 IPSet_Lock() {
 	printf '%s\n' "lock $1" >>"${CALLS_FILE}"
 }
@@ -97,5 +110,9 @@ run_start_case 'AdGuard Home unavailable' 1 ''
 IPSET_CONFIG=NO
 run_start_case 'AdGuard Home, version v0.107.48' 0 'lock IPSet_Disable_Managed_For_Start_Locked'
 IPSET_CONFIG=YES
+INSTALL_MODE=lan
+run_case 'AdGuard Home, version v0.107.48' 0 ''
+run_start_case 'AdGuard Home, version v0.107.48' 0 'IPSet_Disable_Managed'
+INSTALL_MODE=wan
 
 printf '%s\n' 'PASS: managed IPSET integration is gated on AdGuardHome v0.107.48 or later'
