@@ -4810,6 +4810,7 @@ setup_resolve_bind_addresses() {
 
 	SETUP_WEB_ADDRESS=""
 	SETUP_DNS_BIND_HOST=""
+	SETUP_DNS_BIND_HOST6=""
 	case "${ADGUARD_INSTALL_MODE:-wan}" in
 		wan)
 			SETUP_WEB_ADDRESS="0.0.0.0:${WEB_PORT}"
@@ -4823,6 +4824,7 @@ setup_resolve_bind_addresses() {
 			fi
 			SETUP_WEB_ADDRESS="${NET_ADDR}:${WEB_PORT}"
 			SETUP_DNS_BIND_HOST="${NET_ADDR}"
+			SETUP_DNS_BIND_HOST6="${NET_ADDR6}"
 			;;
 		*)
 			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE}. Setup was aborted."
@@ -4916,6 +4918,7 @@ setup_write_dns_bind_hosts() {
 			{
 				PTXT "127.0.0.1"
 				PTXT "${SETUP_DNS_BIND_HOST}"
+				PTXT "${SETUP_DNS_BIND_HOST6}"
 				setup_private_ipv4_bridge_dns_binds
 			} | awk 'NF && !seen[$0]++ { print "    - " $0 }' >>"${target_file}"
 			;;

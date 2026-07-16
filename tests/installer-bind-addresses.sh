@@ -1,5 +1,5 @@
 #!/bin/sh
-# Verify initial setup bind address selection keeps WAN DNS wildcard-bound while LAN DNS includes loopback, LAN IPv4, and bridge IPv4 binds.
+# Verify initial setup bind address selection keeps WAN DNS wildcard-bound while LAN DNS includes loopback, LAN IPv4, LAN IPv6, and bridge IPv4 binds.
 
 set -u
 
@@ -126,9 +126,10 @@ setup_resolve_lan_addresses
 [ "${NET_ADDR6:-}" = "${IPV6_FROM_IP}" ] || fail 'initial YAML LAN IPv6 resolution did not prefer ip output'
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution from ip failed'
 assert_bind_values lan-ip '192.168.50.1:3000' "${IPV4_FROM_IP}"
-assert_yaml_bind_hosts lan-ip 4
+assert_yaml_bind_hosts lan-ip 5
 grep -q '^    - 127\.0\.0\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS loopback bind host was not written'
 grep -q '^    - 192\.168\.50\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS bind host from ip was not written'
+grep -q '^    - 2001:db8::1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS IPv6 bind host from ip was not written'
 grep -q '^    - 192\.168\.101\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS bind host for guest bridge was not written'
 grep -q '^    - 10\.52\.0\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS bind host for SDN bridge was not written'
 
@@ -144,9 +145,10 @@ setup_resolve_lan_addresses
 [ "${NET_ADDR6:-}" = "${IPV6_FROM_NVRAM}" ] || fail 'initial YAML LAN IPv6 resolution did not fall back to nvram'
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution from nvram fallback failed'
 assert_bind_values lan-nvram '192.168.1.1:3000' "${IPV4_FROM_NVRAM}"
-assert_yaml_bind_hosts lan-nvram 2
+assert_yaml_bind_hosts lan-nvram 3
 grep -q '^    - 127\.0\.0\.1$' "${TMP_ROOT}/lan-nvram.yaml" || fail 'LAN DNS loopback bind host from nvram fallback was not written'
 grep -q '^    - 192\.168\.1\.1$' "${TMP_ROOT}/lan-nvram.yaml" || fail 'LAN DNS bind host from nvram was not written'
+grep -q '^    - 2001:db8::2$' "${TMP_ROOT}/lan-nvram.yaml" || fail 'LAN DNS IPv6 bind host from nvram was not written'
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan
@@ -158,4 +160,4 @@ if setup_resolve_bind_addresses >/dev/null 2>&1; then
 	fail 'LAN bind resolution succeeded without IPv4 address'
 fi
 
-printf '%s\n' 'PASS: installer bind address resolution keeps WAN DNS wildcard-bound while LAN DNS includes loopback, LAN IPv4, and bridge IPv4 binds'
+printf '%s\n' 'PASS: installer bind address resolution keeps WAN DNS wildcard-bound while LAN DNS includes loopback, LAN IPv4, LAN IPv6, and bridge IPv4 binds'
