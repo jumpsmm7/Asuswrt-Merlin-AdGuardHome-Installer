@@ -150,6 +150,7 @@ run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-
 run_check 'AdGuardHome stop failure regression' sh tests/stop-adguardhome-failure.sh
 run_check 'AdGuardHome monitor retry backoff regression' sh tests/monitor-retry-backoff.sh
 run_check 'AdGuardHome DNS startup handoff regression' run_dns_handoff_check
+run_check 'AdGuardHome runtime mode helper regression' sh tests/adguardhome-runtime-mode-helpers.sh
 run_check 'AdGuardHome IPSET version gate regression' sh tests/ipset-version-gate.sh
 run_check 'AdGuardHome empty IPSET data regression' sh tests/ipset-empty-rules.sh
 run_check 'AdGuardHome IPSET lock security regression' sh tests/ipset-lock-security.sh
