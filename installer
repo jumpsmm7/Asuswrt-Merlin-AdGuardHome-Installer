@@ -4822,10 +4822,7 @@ setup_resolve_bind_addresses() {
 				return 1
 			fi
 			SETUP_WEB_ADDRESS="${NET_ADDR}:${WEB_PORT}"
-			# AdGuardHome treats one unspecified bind host as all
-			# interfaces/IP versions; keep DNS wildcard-bound without
-			# persisting dynamic IPv6 addresses.
-			SETUP_DNS_BIND_HOST="0.0.0.0"
+			SETUP_DNS_BIND_HOST="${NET_ADDR}"
 			;;
 		*)
 			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE}. Setup was aborted."

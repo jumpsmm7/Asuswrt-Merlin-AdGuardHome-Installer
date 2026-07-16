@@ -123,6 +123,7 @@ run_check 'Installer install-mode detection regression' sh tests/installer-insta
 run_check 'Installer CLI LAN-mode regression' sh tests/installer-cli-lan-mode.sh
 run_check 'Installer LAN IPSET YAML cleanup regression' sh tests/installer-lan-ipset-yaml-cleanup.sh
 run_check 'Installer bind address regression' sh tests/installer-bind-addresses.sh
+run_check 'Installer LAN startup generation regression' sh tests/installer-lan-startup-generation.sh
 run_check 'Installer WebUI port synchronization regression' sh tests/installer-web-port-sync.sh
 run_check 'Installer end operation rollback regression' sh tests/installer-end-op-rollback.sh
 run_check 'Installer doctor fix safety regression' sh tests/installer-doctor-fix-safety.sh

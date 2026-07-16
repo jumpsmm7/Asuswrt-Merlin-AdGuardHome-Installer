@@ -1,5 +1,5 @@
 #!/bin/sh
-# Verify initial setup bind address selection keeps LAN DNS wildcard-bound while resolving the WebUI address.
+# Verify initial setup bind address selection keeps WAN DNS wildcard-bound while LAN DNS uses the LAN IPv4 address.
 
 set -u
 
@@ -91,10 +91,10 @@ assert_yaml_bind_hosts() {
 	setup_write_dns_bind_hosts "${yaml_file}" || fail "${case_name}: failed to write DNS bind hosts"
 	grep -q '^dns:$' "${yaml_file}" || fail "${case_name}: DNS section was not written"
 	grep -q '^  bind_hosts:$' "${yaml_file}" || fail "${case_name}: bind_hosts section was not written"
-	grep -q "^    - ${SETUP_DNS_BIND_HOST}\$" "${yaml_file}" || fail "${case_name}: wildcard DNS bind host was not written"
+	awk -v expected="    - ${SETUP_DNS_BIND_HOST}" '$0 == expected { found = 1 } END { exit(found ? 0 : 1) }' "${yaml_file}" ||
+		fail "${case_name}: DNS bind host was not written"
 	[ "$(grep -c '^    - ' "${yaml_file}")" -eq 1 ] || fail "${case_name}: expected one DNS bind host item"
 	! grep -q '^    - ::$' "${yaml_file}" || fail "${case_name}: generated YAML appended an IPv6 wildcard bind host"
-	! grep -q '^    - 192\.168\.' "${yaml_file}" || fail "${case_name}: generated YAML pinned DNS to a LAN IPv4 address"
 }
 
 reset_inputs
@@ -102,6 +102,7 @@ ADGUARD_INSTALL_MODE=wan
 setup_resolve_bind_addresses >/dev/null || fail 'WAN bind resolution failed'
 assert_bind_values wan '0.0.0.0:3000' '0.0.0.0'
 assert_yaml_bind_hosts wan
+grep -q '^    - 0\.0\.0\.0$' "${TMP_ROOT}/wan.yaml" || fail 'WAN DNS bind host was not wildcard-bound'
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan
@@ -116,9 +117,9 @@ setup_resolve_lan_addresses
 [ "${NET_ADDR:-}" = "${IPV4_FROM_IP}" ] || fail 'initial YAML LAN IPv4 resolution did not prefer ip output'
 [ "${NET_ADDR6:-}" = "${IPV6_FROM_IP}" ] || fail 'initial YAML LAN IPv6 resolution did not prefer ip output'
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution from ip failed'
-assert_bind_values lan-ip '192.168.50.1:3000' '0.0.0.0'
-[ "${SETUP_DNS_BIND_HOST:-}" != "${IPV4_FROM_IP}" ] || fail 'LAN DNS bind was pinned to the primary LAN IPv4 address instead of remaining wildcard-bound'
+assert_bind_values lan-ip '192.168.50.1:3000' "${IPV4_FROM_IP}"
 assert_yaml_bind_hosts lan-ip
+grep -q '^    - 192\.168\.50\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS bind host from ip was not written'
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan
@@ -131,9 +132,9 @@ setup_resolve_lan_addresses
 [ "${NET_ADDR:-}" = "${IPV4_FROM_NVRAM}" ] || fail 'initial YAML LAN IPv4 resolution did not fall back to nvram'
 [ "${NET_ADDR6:-}" = "${IPV6_FROM_NVRAM}" ] || fail 'initial YAML LAN IPv6 resolution did not fall back to nvram'
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution from nvram fallback failed'
-assert_bind_values lan-nvram '192.168.1.1:3000' '0.0.0.0'
-[ "${SETUP_DNS_BIND_HOST:-}" != "${IPV4_FROM_NVRAM}" ] || fail 'LAN DNS bind was pinned to the nvram LAN IPv4 address instead of remaining wildcard-bound'
+assert_bind_values lan-nvram '192.168.1.1:3000' "${IPV4_FROM_NVRAM}"
 assert_yaml_bind_hosts lan-nvram
+grep -q '^    - 192\.168\.1\.1$' "${TMP_ROOT}/lan-nvram.yaml" || fail 'LAN DNS bind host from nvram was not written'
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan
@@ -145,4 +146,4 @@ if setup_resolve_bind_addresses >/dev/null 2>&1; then
 	fail 'LAN bind resolution succeeded without IPv4 address'
 fi
 
-printf '%s\n' 'PASS: installer bind address resolution keeps LAN DNS wildcard-bound while resolving the WebUI address'
+printf '%s\n' 'PASS: installer bind address resolution keeps WAN DNS wildcard-bound while LAN DNS uses the LAN IPv4 address'
