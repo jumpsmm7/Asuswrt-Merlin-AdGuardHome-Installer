@@ -4829,6 +4829,26 @@ setup_resolve_bind_addresses() {
 	esac
 }
 
+setup_reverse_upstream_target() {
+	case "${ADGUARD_INSTALL_MODE:-wan}" in
+		wan)
+			SETUP_REVERSE_UPSTREAM="[::]:553"
+			;;
+		lan)
+			# Use explicit config first, otherwise detected main-router IP.
+			SETUP_REVERSE_UPSTREAM="${ADGUARD_LAN_REVERSE_UPSTREAM:-}"
+			[ -n "${SETUP_REVERSE_UPSTREAM}" ] || SETUP_REVERSE_UPSTREAM="$(nvram get lan_gateway 2>/dev/null)"
+			[ -n "${SETUP_REVERSE_UPSTREAM}" ] || SETUP_REVERSE_UPSTREAM="$(nvram get lan_ipaddr 2>/dev/null)"
+			ipv4_is_valid "${SETUP_REVERSE_UPSTREAM}" || return 1
+			SETUP_REVERSE_UPSTREAM="${SETUP_REVERSE_UPSTREAM}:53"
+			;;
+		*)
+			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE}. Setup was aborted."
+			return 1
+			;;
+	esac
+}
+
 setup_write_dns_bind_hosts() {
 	local target_file="$1"
 
@@ -5072,6 +5092,11 @@ setup_AdGuardHome_impl() {
 						setup_restore_previous_yaml || true
 						return 1
 					fi
+					if ! setup_reverse_upstream_target; then
+						PTXT "${ERROR} Unable to resolve the reverse upstream target. Setup was aborted."
+						setup_restore_previous_yaml || true
+						return 1
+					fi
 					YAML_ORI_NEW="${YAML_ORI}.new.$$"
 					SETUP_YAML_TMP_FILE="${YAML_ORI_NEW}"
 					PTXT "http:" \
@@ -5100,14 +5125,14 @@ setup_AdGuardHome_impl() {
 						DOMAIN_CONFIG_SELECTION="yes"
 					fi
 					PTXT "  upstream_dns:" >>"${YAML_ORI_NEW}"
-					[ -n "${NET_ADDR6}" ] && PTXT "  - '[/$(printf "%s\n" "${NET_ADDR6}" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" >>"${YAML_ORI_NEW}"
-					PTXT "  - '[/router.asus.com/][::]:553'" \
-						"  - '[/www.asusnetwork.net/][::]:553'" \
-						"  - '[/www.asusrouter.com/][::]:553'" \
-						"  - '[/use-application-dns.net/][::]:553'" \
-						"  - '[/dns.resolver.arpa/][::]:553'" \
-						"  - '[/${DOMAIN}/][::]:553'" \
-						"  - '[//][::]:553'" \
+					[ -n "${NET_ADDR6}" ] && PTXT "  - '[/$(printf "%s\n" "${NET_ADDR6}" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/]${SETUP_REVERSE_UPSTREAM}'" >>"${YAML_ORI_NEW}"
+					PTXT "  - '[/router.asus.com/]${SETUP_REVERSE_UPSTREAM}'" \
+						"  - '[/www.asusnetwork.net/]${SETUP_REVERSE_UPSTREAM}'" \
+						"  - '[/www.asusrouter.com/]${SETUP_REVERSE_UPSTREAM}'" \
+						"  - '[/use-application-dns.net/]${SETUP_REVERSE_UPSTREAM}'" \
+						"  - '[/dns.resolver.arpa/]${SETUP_REVERSE_UPSTREAM}'" \
+						"  - '[/${DOMAIN}/]${SETUP_REVERSE_UPSTREAM}'" \
+						"  - '[//]${SETUP_REVERSE_UPSTREAM}'" \
 						"  - ${BOOTSTRAP1}" \
 						"  - ${BOOTSTRAP2}" \
 						"  - tcp://${BOOTSTRAP1}" \
@@ -5123,9 +5148,9 @@ setup_AdGuardHome_impl() {
 						"  resolve_clients: true" \
 						"  use_private_ptr_resolvers: true" \
 						"  local_ptr_upstreams:" \
-						"  - '[::]:553'" \
-						"  - '[/10.in-addr.arpa/][::]:553'" \
-						"  - '[/$(printf "%s\n" "${NET_ADDR}" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/][::]:553'" \
+						"  - '${SETUP_REVERSE_UPSTREAM}'" \
+						"  - '[/10.in-addr.arpa/]${SETUP_REVERSE_UPSTREAM}'" \
+						"  - '[/$(printf "%s\n" "${NET_ADDR}" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/]${SETUP_REVERSE_UPSTREAM}'" \
 						"schema_version: ${SCHEMA_VER}" >>"${YAML_ORI_NEW}"
 					if ! check_AdGuardHome_yaml "${YAML_ORI_NEW}"; then
 						rm -f "${YAML_ORI_NEW}"
