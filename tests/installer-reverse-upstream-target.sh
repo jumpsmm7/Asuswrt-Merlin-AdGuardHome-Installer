@@ -20,7 +20,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
-sed -n '/^ipv4_is_valid() {$/,/^}$/p; /^setup_reverse_upstream_target() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || \
+sed -n '/^ipv4_is_valid() {$/,/^}$/p; /^setup_reverse_upstream_target() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract reverse upstream helpers'
 grep -q '^setup_reverse_upstream_target() {$' "${FUNCTIONS_FILE}" || fail 'reverse upstream helper is missing'
 . "${FUNCTIONS_FILE}"
@@ -43,7 +43,7 @@ assert_target() {
 	if ! setup_reverse_upstream_target; then
 		fail "${case_name}: helper failed"
 	fi
-	[ "${SETUP_REVERSE_UPSTREAM}" = "${expected}" ] || \
+	[ "${SETUP_REVERSE_UPSTREAM}" = "${expected}" ] ||
 		fail "${case_name}: expected ${expected}, got ${SETUP_REVERSE_UPSTREAM}"
 }
 
