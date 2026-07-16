@@ -27,7 +27,7 @@ assert_startup_uses_lock_first_setup() {
 	STARTUP_SETUP_CALLS="$(awk '
 		/^start_adguardhome\(\) \{$/ { in_start = 1; next }
 		in_start && /^}$/ { exit }
-		in_start && /^[[:space:]]*elif ! IPSet_Setup_For_Start; then$/ { lock_first++ }
+		in_start && /^[[:space:]]*if ! IPSet_Setup_For_Start; then$/ { lock_first++ }
 		in_start && /^[[:space:]]*if ! IPSet_Setup;/ { legacy++ }
 		END { print lock_first + 0, legacy + 0 }
 	' "${SCRIPT_PATH}")" || fail 'could not inspect the startup IPSET setup call'
@@ -236,7 +236,8 @@ DISABLE_STATUS=0
 run_service_wait_terminal_test
 
 INSTALL_MODE=lan
-run_test 'LAN mode skips IPSET startup setup' 0 0 0 0 0 0 1 'lower_script start'
+run_test 'LAN mode disables managed IPSET before startup' 0 0 0 0 0 0 1 'IPSet_Disable_Managed
+lower_script start'
 INSTALL_MODE=wan
 
 run_test 'setup failure while stopped continues startup' 0 0 0 0 1 0 1 'IPSet_Supported
