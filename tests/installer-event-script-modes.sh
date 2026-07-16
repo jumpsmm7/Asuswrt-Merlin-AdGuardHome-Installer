@@ -20,13 +20,45 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 
-sed -n '/case "${ADGUARD_INSTALL_MODE:-wan}" in/,/^[[:space:]]*esac$/p' "${SCRIPT_PATH}" >"${TMP_FILE}" ||
+awk '
+	/^[[:space:]]*case "\$\{ADGUARD_INSTALL_MODE:-wan\}" in[[:space:]]*$/ {
+		in_case = 1
+		depth = 1
+	}
+	in_case {
+		print
+		if ($0 !~ /^[[:space:]]*case "\$\{ADGUARD_INSTALL_MODE:-wan\}" in[[:space:]]*$/ &&
+			$0 ~ /^[[:space:]]*case[[:space:]]/) {
+			depth++
+		}
+		if ($0 ~ /^[[:space:]]*esac[[:space:]]*$/) {
+			depth--
+			if (depth == 0) exit
+		}
+	}
+' "${SCRIPT_PATH}" >"${TMP_FILE}" ||
 	fail 'could not extract event-script mode branch'
 [ -s "${TMP_FILE}" ] || fail 'event-script mode branch was not found'
 
-awk '/^[[:space:]]*wan\)/,/^[[:space:]]*;;/' "${TMP_FILE}" >"${TMP_FILE}.wan" ||
+awk -v branch='wan)' '
+	$0 ~ "^[[:space:]]*" branch "[[:space:]]*$" { in_branch = 1 }
+	in_branch {
+		print
+		if ($0 ~ /^[[:space:]]*case[[:space:]]/) depth++
+		if ($0 ~ /^[[:space:]]*esac[[:space:]]*$/) depth--
+		if (depth == 0 && $0 ~ /^[[:space:]]*;;[[:space:]]*$/) exit
+	}
+' "${TMP_FILE}" >"${TMP_FILE}.wan" ||
 	fail 'could not extract WAN event-script branch'
-awk '/^[[:space:]]*lan\)/,/^[[:space:]]*;;/' "${TMP_FILE}" >"${TMP_FILE}.lan" ||
+awk -v branch='lan)' '
+	$0 ~ "^[[:space:]]*" branch "[[:space:]]*$" { in_branch = 1 }
+	in_branch {
+		print
+		if ($0 ~ /^[[:space:]]*case[[:space:]]/) depth++
+		if ($0 ~ /^[[:space:]]*esac[[:space:]]*$/) depth--
+		if (depth == 0 && $0 ~ /^[[:space:]]*;;[[:space:]]*$/) exit
+	}
+' "${TMP_FILE}" >"${TMP_FILE}.lan" ||
 	fail 'could not extract LAN event-script branch'
 [ -s "${TMP_FILE}.wan" ] || fail 'WAN event-script branch was not found'
 [ -s "${TMP_FILE}.lan" ] || fail 'LAN event-script branch was not found'
@@ -63,6 +95,8 @@ grep -q 'del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf' "${TMP_FILE}.lan" |
 	fail 'LAN branch does not remove the installer-managed SDN dnsmasq hook when dnsmasq is stopped'
 grep -q 'case "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" in' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not read persisted dnsmasq mode before handling stopped dnsmasq'
+grep -q 'ptxt_warn "dnsmasq is not running; preserving dnsmasq event hooks for LAN-mode startup."' "${TMP_FILE}.lan" ||
+	fail 'LAN branch extraction does not include transient stopped-dnsmasq path'
 grep -q 'write_conf ADGUARD_DNSMASQ_MODE "\\"enabled\\""' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not persist enabled dnsmasq mode'
 grep -q 'write_conf ADGUARD_DNSMASQ_MODE "\\"disabled\\""' "${TMP_FILE}.lan" ||
