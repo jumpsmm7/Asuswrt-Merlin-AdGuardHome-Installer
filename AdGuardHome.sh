@@ -2488,7 +2488,8 @@ IPSet_Setup() {
 IPSet_Setup_For_Start() {
 	if adguard_lan_mode; then
 		if ! IPSet_Disable_Managed; then
-			agh_log warning IPSet_Setup_For_Start "state=starting action=disable_managed_ipset result=skipped reason=lan_mode_remove_failed"
+			agh_log error IPSet_Setup_For_Start "state=starting action=disable_managed_ipset result=failed reason=lan_mode_remove_failed"
+			return 1
 		fi
 		return 0
 	fi

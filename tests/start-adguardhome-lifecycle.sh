@@ -238,6 +238,11 @@ run_service_wait_terminal_test
 INSTALL_MODE=lan
 run_test 'LAN mode disables managed IPSET before startup' 0 0 0 0 0 0 1 'IPSet_Disable_Managed
 lower_script start'
+DISABLE_STATUS=1
+run_test 'LAN mode aborts when managed IPSET cannot be disabled' 0 0 0 0 0 0 1 'IPSet_Disable_Managed'
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'LAN disable failure was not marked terminal'
+[ "${SERVICE_WAIT_CALLED}" -eq 0 ] || fail 'LAN disable failure reached the health check'
+DISABLE_STATUS=0
 INSTALL_MODE=wan
 
 run_test 'setup failure while stopped continues startup' 0 0 0 0 1 0 1 'IPSet_Supported
