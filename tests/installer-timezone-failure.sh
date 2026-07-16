@@ -67,6 +67,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	del_jffs_script() { :; }
 	write_manager_script() { :; }
 	write_command_script() { :; }
+	write_conf() { :; }
 	nvram() { :; }
 	grep() { return 1; }
 	tar() { :; }

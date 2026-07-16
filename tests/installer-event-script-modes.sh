@@ -1,0 +1,67 @@
+#!/bin/sh
+# Verify installer event-script setup remains mode-aware for WAN and LAN paths.
+
+set -u
+
+SCRIPT_PATH="${1:-installer}"
+TMP_FILE="${TMPDIR:-/tmp}/installer-event-script-modes.$$"
+
+cleanup() {
+	rm -f "${TMP_FILE}" "${TMP_FILE}.wan" "${TMP_FILE}.lan"
+}
+
+fail() {
+	printf '%s\n' "FAIL: $*" >&2
+	exit 1
+}
+
+trap cleanup 0
+trap 'cleanup; exit 1' HUP INT TERM
+
+[ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
+
+sed -n '/case "${ADGUARD_INSTALL_MODE:-wan}" in/,/^[[:space:]]*esac$/p' "${SCRIPT_PATH}" >"${TMP_FILE}" ||
+	fail 'could not extract event-script mode branch'
+[ -s "${TMP_FILE}" ] || fail 'event-script mode branch was not found'
+
+awk '/^[[:space:]]*wan\)/,/^[[:space:]]*;;/' "${TMP_FILE}" >"${TMP_FILE}.wan" ||
+	fail 'could not extract WAN event-script branch'
+awk '/^[[:space:]]*lan\)/,/^[[:space:]]*;;/' "${TMP_FILE}" >"${TMP_FILE}.lan" ||
+	fail 'could not extract LAN event-script branch'
+[ -s "${TMP_FILE}.wan" ] || fail 'WAN event-script branch was not found'
+[ -s "${TMP_FILE}.lan" ] || fail 'LAN event-script branch was not found'
+
+grep -q 'write_manager_script /jffs/scripts/init-start "init-start &"' "${TMP_FILE}.wan" ||
+	fail 'WAN branch does not install init-start'
+grep -q 'write_manager_script /jffs/scripts/services-stop "services-stop &"' "${TMP_FILE}.wan" ||
+	fail 'WAN branch does not install services-stop'
+grep -q 'write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FILE}.wan" ||
+	fail 'WAN branch does not install dnsmasq.postconf'
+grep -q "write_manager_script /jffs/scripts/firewall-start 'firewall \"\$1\"'" "${TMP_FILE}.wan" ||
+	fail 'WAN branch does not install firewall-start'
+grep -q "write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2'" "${TMP_FILE}.wan" ||
+	fail 'WAN branch does not install dnsmasq-sdn.postconf when supported'
+grep -q 'write_conf ADGUARD_DNSMASQ_MODE "\\"enabled\\""' "${TMP_FILE}.wan" ||
+	fail 'WAN branch does not persist enabled dnsmasq mode'
+
+grep -q 'write_manager_script /jffs/scripts/init-start "init-start &"' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not install init-start'
+grep -q 'write_manager_script /jffs/scripts/services-stop "services-stop &"' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not install services-stop'
+if grep -q 'write_manager_script /jffs/scripts/firewall-start' "${TMP_FILE}.lan"; then
+	fail 'LAN branch installs firewall-start'
+fi
+grep -q 'pidof dnsmasq >/dev/null 2>&1' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not check whether dnsmasq is running'
+grep -q 'write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not install dnsmasq.postconf when dnsmasq is running'
+grep -q "write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2'" "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not install dnsmasq-sdn.postconf when needed and supported'
+grep -q 'del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not remove only the installer-managed dnsmasq.postconf hook when dnsmasq is stopped'
+grep -q 'write_conf ADGUARD_DNSMASQ_MODE "\\"enabled\\""' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not persist enabled dnsmasq mode'
+grep -q 'write_conf ADGUARD_DNSMASQ_MODE "\\"disabled\\""' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not persist disabled dnsmasq mode'
+
+printf '%s\n' 'PASS: installer event-script mode regression'
