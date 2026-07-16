@@ -53,6 +53,17 @@ assert_target() {
 		fail "${case_name}: expected ${expected}, got ${SETUP_REVERSE_UPSTREAM}"
 }
 
+assert_failure() {
+	case_name="$1"
+	expected_stale="$2"
+	SETUP_REVERSE_UPSTREAM='stale-value'
+	if setup_reverse_upstream_target; then
+		fail "${case_name}: helper unexpectedly succeeded with ${SETUP_REVERSE_UPSTREAM}"
+	fi
+	[ "${SETUP_REVERSE_UPSTREAM}" = "${expected_stale}" ] ||
+		fail "${case_name}: expected ${expected_stale}, got ${SETUP_REVERSE_UPSTREAM}"
+}
+
 ADGUARD_INSTALL_MODE='wan'
 ADGUARD_LAN_REVERSE_UPSTREAM=''
 TEST_LAN_GATEWAY=''
@@ -77,11 +88,11 @@ assert_target 'LAN gateway fallback' '192.168.1.1:53'
 
 TEST_LAN_GATEWAY=''
 TEST_LAN_IPADDR='192.168.2.1'
-assert_target 'LAN ipaddr fallback' '192.168.2.1:53'
+assert_failure 'LAN missing gateway does not fall back to self' ''
 
 TEST_LAN_GATEWAY='0.0.0.0'
 TEST_LAN_IPADDR='192.168.2.1'
-assert_target 'LAN wildcard gateway fallback' '192.168.2.1:53'
+assert_failure 'LAN wildcard gateway does not fall back to self' '0.0.0.0'
 
 TEST_LAN_GATEWAY='not-an-ip'
 TEST_LAN_IPADDR='192.168.2.1'

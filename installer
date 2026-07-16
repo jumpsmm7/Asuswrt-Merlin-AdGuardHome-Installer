@@ -545,7 +545,7 @@ write_conf_if_absent() {
 }
 
 adguard_install_feature_defaults() {
-	local ipset_value lan_ipaddr
+	local ipset_value lan_gateway
 	case "${ADGUARD_INSTALL_MODE:-}" in
 		wan)
 			ipset_value="$(conf_value ADGUARD_IPSET)"
@@ -559,10 +559,15 @@ adguard_install_feature_defaults() {
 		lan)
 			write_conf ADGUARD_IPSET "\"NO\"" || return 1
 			write_conf ADGUARD_DNSMASQ_MODE "\"auto\"" || return 1
-			lan_ipaddr="$(nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
-			if ipv4_is_valid "${lan_ipaddr}"; then
-				write_conf ADGUARD_LAN_REVERSE_UPSTREAM "\"${lan_ipaddr}\"" || return 1
-			fi
+			lan_gateway="$(nvram get lan_gateway 2>/dev/null)" || lan_gateway=""
+			case "${lan_gateway}" in
+				"" | 0.0.0.0) ;;
+				*)
+					if ipv4_is_valid "${lan_gateway}"; then
+						write_conf ADGUARD_LAN_REVERSE_UPSTREAM "\"${lan_gateway}\"" || return 1
+					fi
+					;;
+			esac
 			;;
 		*)
 			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE:-}. Setup was aborted."
@@ -4840,9 +4845,10 @@ setup_reverse_upstream_target() {
 			[ -n "${SETUP_REVERSE_UPSTREAM}" ] || SETUP_REVERSE_UPSTREAM="$(conf_value ADGUARD_LAN_REVERSE_UPSTREAM 2>/dev/null)"
 			if [ -z "${SETUP_REVERSE_UPSTREAM}" ]; then
 				SETUP_REVERSE_UPSTREAM="$(nvram get lan_gateway 2>/dev/null)"
-				[ "${SETUP_REVERSE_UPSTREAM}" != "0.0.0.0" ] || SETUP_REVERSE_UPSTREAM=""
+				case "${SETUP_REVERSE_UPSTREAM}" in
+					"" | 0.0.0.0) return 1 ;;
+				esac
 			fi
-			[ -n "${SETUP_REVERSE_UPSTREAM}" ] || SETUP_REVERSE_UPSTREAM="$(nvram get lan_ipaddr 2>/dev/null)"
 			ipv4_is_valid "${SETUP_REVERSE_UPSTREAM}" || return 1
 			SETUP_REVERSE_UPSTREAM="${SETUP_REVERSE_UPSTREAM}:53"
 			;;
