@@ -76,6 +76,43 @@ PREARGS="env TZ=/etc/localtime GOGC=${GOGC} GOMAXPROCS=${GOMAXPROCS} GOMEMLIMIT=
 
 # Functions are grouped by purpose; names are sorted alpha-numerically within each group.
 
+# Core helpers
+
+agh_conf_value() {
+	[ -f "${WORK_DIR}/.config" ] || return 1
+	awk -v KEY="$1" '
+		index($0, KEY "=") == 1 {
+			VALUE = substr($0, length(KEY) + 2)
+			gsub(/^"|"$/, "", VALUE)
+			print VALUE
+			exit
+		}
+	' "${WORK_DIR}/.config"
+}
+
+agh_install_mode() {
+	_agh_mode="$(agh_conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
+	case "${_agh_mode}" in
+		wan | lan) printf '%s\n' "${_agh_mode}" ;;
+		*) printf '%s\n' "wan" ;;
+	esac
+}
+
+agh_lan_mode() {
+	[ "$(agh_install_mode)" = "lan" ]
+}
+
+agh_dnsmasq_running() {
+	pidof dnsmasq >/dev/null 2>&1
+}
+
+agh_dns_handoff_required() {
+	case "$(agh_install_mode)" in
+		lan) agh_dnsmasq_running ;;
+		*) return 0 ;;
+	esac
+}
+
 # DNS handoff helpers
 
 dns_handoff_dependencies_available() {
@@ -1166,17 +1203,31 @@ pre_start_adguardhome() {
 		return 1
 	}
 	agh_log INFO pre_start_adguardhome "AdGuardHome configuration and permissions validation completed."
-	dns_handoff_dependencies_available || return 1
-	agh_log INFO pre_start_adguardhome "Preparing DNS handoff."
-	enable_dns_handoff || {
-		agh_log ERROR pre_start_adguardhome "DNS handoff preparation failed."
-		return 1
-	}
-	agh_log INFO pre_start_adguardhome "DNS handoff prepared."
+	_agh_dns_handoff_required="0"
+	if agh_dns_handoff_required; then
+		_agh_dns_handoff_required="1"
+		dns_handoff_dependencies_available || return 1
+		agh_log INFO pre_start_adguardhome "Preparing DNS handoff."
+		enable_dns_handoff || {
+			agh_log ERROR pre_start_adguardhome "DNS handoff preparation failed."
+			return 1
+		}
+		agh_log INFO pre_start_adguardhome "DNS handoff prepared."
+	else
+		agh_log INFO pre_start_adguardhome "DNS handoff skipped because LAN mode dnsmasq is not running."
+	fi
 	# Keep Go memory behavior controlled by PREARGS runtime settings, not hard shell memory caps.
 	ulimit -s 8192 2>/dev/null || true
 	if [ "$(pidof syslog-ng logrotate | wc -w)" -gt 0 ] && which scribe >/dev/null 2>&1; then
 		scribe restart
+	fi
+	if [ "${_agh_dns_handoff_required}" != "1" ]; then
+		if dns_port_available; then
+			agh_log INFO pre_start_adguardhome "Port 53 is available for AdGuardHome; starting without DNS handoff."
+			return 0
+		fi
+		agh_log ERROR pre_start_adguardhome "Port 53 is not available for AdGuardHome; startup aborted without DNS handoff."
+		return 1
 	fi
 	DNS_WATCHDOG_TRAP_FILE=""
 	if ! save_dns_watchdog_traps pre; then
