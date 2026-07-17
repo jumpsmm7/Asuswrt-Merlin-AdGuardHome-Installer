@@ -431,7 +431,7 @@ kill_dns_port_owners || fail 'DNS owner cleanup failed when no process owned por
 ! grep -q '^kill ' "${CALLS_FILE}" || fail 'DNS owner cleanup signaled a process for an empty port'
 
 : >"${CALLS_FILE}"
-printf '%s\n' 'ADGUARD_INSTALL_MODE="lan"' >"${WORK_DIR}/.config" || fail 'could not set LAN install mode'
+printf '%s\n' 'ADGUARD_WEBUI_PORT="3000"' 'ADGUARD_INSTALL_MODE="lan"' >"${WORK_DIR}/.config" || fail 'could not set LAN install mode'
 DNSMASQ_RUNNING=0
 DNS_STATE=free
 ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
@@ -444,9 +444,12 @@ grep -q 'DNS handoff skipped because LAN mode dnsmasq is not running' "${CALLS_F
 [ -f "${DNS_HANDOFF_FILE}" ] || fail 'LAN pre-start without dnsmasq did not arm a temporary handoff marker'
 [ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" = "1" ] || fail 'LAN pre-start without dnsmasq did not mark the temporary handoff active'
 [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-0}" = "1" ] || fail 'LAN pre-start without dnsmasq did not suppress dnsmasq restart cleanup'
-stop_dns_port_guard
-disable_dns_handoff || fail 'could not clean up LAN no-dnsmasq temporary handoff'
-clear_dns_handoff_active
+DNS_STATE=owned
+WEB_STATE=bound
+post_start_adguardhome || fail 'LAN post-start without dnsmasq did not clean up the temporary handoff'
+[ ! -f "${DNS_HANDOFF_FILE}" ] || fail 'LAN post-start without dnsmasq left the temporary handoff marker behind'
+[ -z "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-}" ] || fail 'LAN post-start without dnsmasq did not clear the active handoff flag'
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'LAN post-start without dnsmasq restarted absent dnsmasq'
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 : >"${CALLS_FILE}"
@@ -470,9 +473,9 @@ DNS_STATE=free
 pre_start_adguardhome || fail 'LAN pre-start without dnsmasq rejected an available DNS port with a stale marker'
 [ -f "${DNS_HANDOFF_FILE}" ] || fail 'LAN no-handoff pre-start did not replace stale marker with temporary handoff'
 [ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" = "1" ] || fail 'LAN stale-marker pre-start did not mark the temporary handoff active'
-stop_dns_port_guard
-disable_dns_handoff || fail 'could not clean up LAN stale-marker temporary handoff'
-clear_dns_handoff_active
+post_start_failure_adguardhome || fail 'LAN failed-start without dnsmasq did not clean up the temporary handoff'
+[ ! -f "${DNS_HANDOFF_FILE}" ] || fail 'LAN failed-start without dnsmasq left the temporary handoff marker behind'
+[ -z "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-}" ] || fail 'LAN failed-start without dnsmasq did not clear the active handoff flag'
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 ! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'LAN stale-marker pre-start prepared DNS handoff'
 ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'LAN stale-marker pre-start stopped dnsmasq'
