@@ -151,6 +151,11 @@ reset_case() {
 	: >"${IPSET_CALLS_FILE}"
 	printf '%s\n' '# base config' >"${DNSMASQ_CONF_FILE}" || fail 'could not reset base dnsmasq config'
 	printf '%s\n' '# sdn config' >"${DNSMASQ_SDN_CONF_FILE}" || fail 'could not reset sdn dnsmasq config'
+	DNS_HANDOFF_ACTIVE='0'
+	ADGUARD_INSTALL_MODE='wan'
+	DNSMASQ_RUNNING='0'
+	ADGUARD_RUNNING='1'
+	ADGUARD_DNSMASQ_MODE='auto'
 }
 
 assert_no_ipset_refresh() {
@@ -164,15 +169,49 @@ assert_dnsmasq_postconf_written() {
 	grep -q '^add-mac$' "${config_file}" || fail "${case_name}: dnsmasq add-mac was not written"
 }
 
+assert_dnsmasq_postconf_not_written() {
+	config_file="$1"
+	case_name="$2"
+	! grep -q '^port=553$' "${config_file}" || fail "${case_name}: dnsmasq handoff port was written"
+	! grep -q '^add-mac$' "${config_file}" || fail "${case_name}: dnsmasq add-mac was written"
+}
+
 reset_case
 ADGUARD_INSTALL_MODE='lan'
 DNSMASQ_RUNNING='0'
 ADGUARD_DNSMASQ_MODE='auto'
 dnsmasq_params || fail 'LAN stopped dnsmasq path failed'
-grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
-	fail 'LAN stopped dnsmasq path did not log skip reason'
-! grep -q '^port=553$' "${DNSMASQ_CONF_FILE}" || fail 'LAN stopped dnsmasq path still rewrote base dnsmasq config'
+assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN stopped dnsmasq path'
 assert_no_ipset_refresh 'LAN stopped dnsmasq path'
+
+reset_case
+ADGUARD_INSTALL_MODE='lan'
+DNSMASQ_RUNNING='0'
+ADGUARD_RUNNING='0'
+ADGUARD_DNSMASQ_MODE='auto'
+dnsmasq_params || fail 'LAN stopped AdGuardHome path failed'
+assert_dnsmasq_postconf_not_written "${DNSMASQ_CONF_FILE}" 'LAN stopped AdGuardHome path'
+assert_no_ipset_refresh 'LAN stopped AdGuardHome path'
+
+reset_case
+ADGUARD_INSTALL_MODE='lan'
+DNSMASQ_RUNNING='0'
+ADGUARD_DNSMASQ_MODE='disabled'
+dnsmasq_params || fail 'LAN disabled dnsmasq path failed'
+grep -q 'state=skip reason=lan_mode_dnsmasq_disabled' "${LOG_FILE}" ||
+	fail 'LAN disabled dnsmasq path did not log skip reason'
+assert_dnsmasq_postconf_not_written "${DNSMASQ_CONF_FILE}" 'LAN disabled dnsmasq path'
+assert_no_ipset_refresh 'LAN disabled dnsmasq path'
+
+reset_case
+ADGUARD_INSTALL_MODE='lan'
+DNSMASQ_RUNNING='0'
+ADGUARD_RUNNING='0'
+ADGUARD_DNSMASQ_MODE='disabled'
+DNS_HANDOFF_ACTIVE='1'
+dnsmasq_params || fail 'LAN disabled handoff path failed'
+assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN disabled handoff path'
+assert_no_ipset_refresh 'LAN disabled handoff path'
 
 reset_case
 ADGUARD_INSTALL_MODE='lan'
@@ -197,6 +236,15 @@ ADGUARD_DNSMASQ_MODE='auto'
 dnsmasq_params || fail 'WAN stopped dnsmasq path failed'
 assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'WAN stopped dnsmasq path'
 grep -q "${DNSMASQ_CONF_FILE}" "${IPSET_CALLS_FILE}" || fail 'WAN stopped dnsmasq path did not refresh IPSET'
+
+reset_case
+ADGUARD_INSTALL_MODE='wan'
+DNSMASQ_RUNNING='0'
+ADGUARD_RUNNING='0'
+ADGUARD_DNSMASQ_MODE='auto'
+dnsmasq_params || fail 'WAN stopped AdGuardHome path failed'
+assert_dnsmasq_postconf_not_written "${DNSMASQ_CONF_FILE}" 'WAN stopped AdGuardHome path'
+assert_no_ipset_refresh 'WAN stopped AdGuardHome path'
 
 reset_case
 ADGUARD_INSTALL_MODE='lan'
