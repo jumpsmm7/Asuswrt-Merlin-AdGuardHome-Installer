@@ -191,7 +191,7 @@ adguardhome_start_handoff_is_prepared() {
 }
 
 start() {
-	local DNS_HANDOFF LAUNCH_PID PIDS STOPPED
+	local DNS_HANDOFF LAUNCH_PID PIDS POSTCMD_STATUS STOPPED
 	if type service_mark_transition >/dev/null 2>&1; then
 		case "${ACTION:-}" in
 			"restart") service_mark_transition "restarting" ;;
@@ -235,29 +235,39 @@ start() {
 		[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
 		return 255
 	fi
-	if [ "${PROC}" != "AdGuardHome" ] || [ "${DNS_HANDOFF}" -eq 1 ]; then
-		if ! ${POSTCMD} >/dev/null 2>&1; then
-			STOPPED=0
-			signal_process TERM "${PROC}"
-			if process_wait_for_stop "${PROC}" 10; then
+	POSTCMD_STATUS=0
+	if [ "${PROC}" = "AdGuardHome" ] && [ "${DNS_HANDOFF}" -ne 1 ]; then
+		(
+			ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+			export ADGUARDHOME_SKIP_DNSMASQ_RESTART
+			${POSTCMD} >/dev/null 2>&1
+		)
+		POSTCMD_STATUS="$?"
+	else
+		${POSTCMD} >/dev/null 2>&1
+		POSTCMD_STATUS="$?"
+	fi
+	if [ "${POSTCMD_STATUS}" -ne 0 ]; then
+		STOPPED=0
+		signal_process TERM "${PROC}"
+		if process_wait_for_stop "${PROC}" 10; then
+			STOPPED=1
+		else
+			signal_process INT "${PROC}"
+			if process_wait_for_stop "${PROC}" 5; then
 				STOPPED=1
 			else
-				signal_process INT "${PROC}"
-				if process_wait_for_stop "${PROC}" 5; then
-					STOPPED=1
-				else
-					signal_process KILL "${PROC}"
-					process_wait_for_stop "${PROC}" 3 && STOPPED=1
-				fi
+				signal_process KILL "${PROC}"
+				process_wait_for_stop "${PROC}" 3 && STOPPED=1
 			fi
-			if [ "${STOPPED}" -eq 1 ] && [ -n "${POSTFAILCMD:-}" ]; then
-				${POSTFAILCMD} >/dev/null 2>&1 || logger -st "${CALLER}" "Post-start failure recovery failed for ${DESC} from ${CALLER}."
-			fi
-			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
-			logger -st "${CALLER}" "Post-start hook failed for ${DESC} from ${CALLER}."
-			[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
-			return 255
 		fi
+		if [ "${STOPPED}" -eq 1 ] && [ -n "${POSTFAILCMD:-}" ]; then
+			${POSTFAILCMD} >/dev/null 2>&1 || logger -st "${CALLER}" "Post-start failure recovery failed for ${DESC} from ${CALLER}."
+		fi
+		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
+		logger -st "${CALLER}" "Post-start hook failed for ${DESC} from ${CALLER}."
+		[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
+		return 255
 	fi
 	[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
 	PIDS="$(process_pids "${PROC}")"

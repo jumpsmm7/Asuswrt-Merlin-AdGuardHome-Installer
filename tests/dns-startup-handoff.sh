@@ -831,8 +831,7 @@ grep -q '^stale_pre_hook$' "${CALLS_FILE}" || fail 'rc.func skipped pre-start wi
 grep -q '^stale_post_hook$' "${CALLS_FILE}" || fail 'rc.func skipped post-start cleanup after stale dnsmasq port 553 recovery'
 
 # A LAN-mode start where pre-start intentionally skips the dnsmasq handoff must
-# not run post-start cleanup, because that would restart dnsmasq onto port 53
-# after AdGuardHome has already bound it.
+# still run post-start readiness checks, but suppress dnsmasq restart cleanup.
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 (
@@ -840,13 +839,30 @@ rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 		printf '%s\n' no_handoff_pre_hook >>"${CALLS_FILE}"
 	}
 	post_hook() {
-		printf '%s\n' no_handoff_post_hook >>"${CALLS_FILE}"
-		return 1
+		printf '%s\n' "no_handoff_post_hook ${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-0}" >>"${CALLS_FILE}"
+		[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-0}" = "1" ]
 	}
 	start >/dev/null
 ) || fail 'rc.func failed a successful no-handoff start'
 grep -q '^no_handoff_pre_hook$' "${CALLS_FILE}" || fail 'rc.func did not run the no-handoff pre-start hook'
-! grep -q '^no_handoff_post_hook$' "${CALLS_FILE}" || fail 'rc.func ran post-start cleanup after no-handoff pre-start'
+grep -q '^no_handoff_post_hook 1$' "${CALLS_FILE}" || fail 'rc.func did not run no-handoff post-start checks with restart suppression'
+
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
+(
+	pre_hook() {
+		printf '%s\n' no_handoff_fail_pre_hook >>"${CALLS_FILE}"
+	}
+	post_hook() {
+		printf '%s\n' no_handoff_fail_post_hook >>"${CALLS_FILE}"
+		return 1
+	}
+	if start >/dev/null; then
+		exit 1
+	fi
+) || fail 'rc.func ignored a failed no-handoff post-start readiness check'
+grep -q '^no_handoff_fail_post_hook$' "${CALLS_FILE}" || fail 'rc.func skipped failing no-handoff post-start checks'
+grep -q '^signal TERM AdGuardHome$' "${CALLS_FILE}" || fail 'rc.func did not stop AdGuardHome after no-handoff post-start failure'
 
 # Interrupting startup after the pre-start hook has spawned the DNS guard must
 # reap that child and run the same dnsmasq recovery used by other failed starts.
