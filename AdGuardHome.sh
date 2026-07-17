@@ -813,6 +813,18 @@ dnsmasq_params() {
 	fi
 }
 
+dnsmasq_action_handler() {
+	if adguard_lan_mode && ! adguard_dnsmasq_running; then
+		agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_not_running"
+		return 0
+	fi
+	if [ -n "${1:-}" ]; then
+		dnsmasq_params "${1}"
+	else
+		dnsmasq_params
+	fi
+}
+
 interface_ipv4_addr() {
 	local IFACE
 	IFACE="$1"
@@ -2707,7 +2719,7 @@ case "$1" in
 		{ "${SCRIPT_LOC}" services-stop >/dev/null 2>&1; }
 		;;
 	"dnsmasq" | "dnsmasq-sdn")
-		if [ -n "${2}" ]; then { dnsmasq_params "${2}"; }; else { dnsmasq_params; }; fi
+		dnsmasq_action_handler "${2:-}"
 		;;
 	"firewall")
 		IPSet_Refresh
