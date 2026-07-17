@@ -786,7 +786,12 @@ if post_start_adguardhome; then
 	fail 'post-start ignored a failed dnsmasq restart'
 fi
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'post-start did not attempt the failed dnsmasq restart'
+[ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-}" = "1" ] || fail 'post-start cleared active handoff after failed dnsmasq restart'
 SERVICE_RESTART_FAIL=0
+: >"${CALLS_FILE}"
+post_start_failure_adguardhome || fail 'failure recovery did not retry dnsmasq after post-start restart failure'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'failure recovery did not retry the failed dnsmasq restart'
+[ -z "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-}" ] || fail 'failure recovery did not clear active handoff after retry'
 clear_dns_handoff_active
 
 # Verify rc.func treats either hook failure as a failed start instead of launching
