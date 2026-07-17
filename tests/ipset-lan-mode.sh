@@ -104,14 +104,16 @@ case "${ACTUAL}" in
 esac
 
 : >"${CALLS_FILE}"
-IPSet_Setup_For_Start || fail 'LAN startup setup treated failed cleanup as fatal'
+if IPSet_Setup_For_Start; then
+	fail 'LAN startup setup treated failed cleanup as non-fatal'
+fi
 ACTUAL="$(cat "${CALLS_FILE}")"
 case "${ACTUAL}" in
 	*IPSet_Disable_Managed*'reason=lan_mode_remove_failed'*) : ;;
-	*) fail "LAN startup setup did not log non-fatal cleanup failure: ${ACTUAL}" ;;
+	*) fail "LAN startup setup did not log fatal cleanup failure: ${ACTUAL}" ;;
 esac
 case "${ACTUAL}" in
 	*IPSet_Lock* | *IPSet_Supported*) fail "LAN startup setup touched lock/support path: ${ACTUAL}" ;;
 esac
 
-printf '%s\n' 'PASS: LAN mode skips IPSET locks, rewrites, and restarts while cleanup remains non-fatal'
+printf '%s\n' 'PASS: LAN mode skips IPSET locks, rewrites, and restarts while startup cleanup remains fatal'

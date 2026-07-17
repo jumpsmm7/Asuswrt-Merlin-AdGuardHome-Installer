@@ -120,7 +120,7 @@ INSTALL_MODE=lan
 run_case 'AdGuard Home, version v0.107.48' 0 ''
 run_start_case 'AdGuard Home, version v0.107.48' 0 'IPSet_Disable_Managed'
 DISABLE_STATUS=1
-run_start_case 'AdGuard Home, version v0.107.48' 0 'IPSet_Disable_Managed'
+run_start_case 'AdGuard Home, version v0.107.48' 0 'IPSet_Disable_Managed' 1
 DISABLE_STATUS=0
 INSTALL_MODE=wan
 

@@ -252,8 +252,13 @@ lower_script start'
 [ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'LAN startup cleanup did not continue to the health check'
 DISABLE_STATUS=1
 : >"${CALLS_FILE}"
-IPSet_Setup_For_Start || fail 'LAN setup helper treated failed cleanup as fatal'
+if IPSet_Setup_For_Start; then
+	fail 'LAN setup helper treated failed cleanup as non-fatal'
+fi
 [ "$(cat "${CALLS_FILE}")" = 'IPSet_Disable_Managed' ] || fail 'LAN setup helper did not attempt managed cleanup'
+run_test 'LAN mode aborts when managed IPSET cleanup fails' 0 0 0 0 0 0 1 'IPSet_Disable_Managed'
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'LAN failed startup cleanup was not marked terminal'
+[ "${SERVICE_WAIT_CALLED}" -eq 0 ] || fail 'LAN failed startup cleanup continued to the health check'
 DISABLE_STATUS=0
 INSTALL_MODE=wan
 
