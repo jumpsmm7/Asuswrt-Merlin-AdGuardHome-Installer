@@ -717,8 +717,8 @@ dns_handoff_is_active() {
 
 dnsmasq_params() {
 	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
-	if adguard_lan_mode && ! adguard_dnsmasq_managed && ! dns_handoff_is_active; then
-		agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_not_running"
+	if adguard_lan_mode && [ "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" = "disabled" ] && ! dns_handoff_is_active; then
+		agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_disabled"
 		return 0
 	fi
 	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then {

@@ -169,10 +169,19 @@ ADGUARD_INSTALL_MODE='lan'
 DNSMASQ_RUNNING='0'
 ADGUARD_DNSMASQ_MODE='auto'
 dnsmasq_params || fail 'LAN stopped dnsmasq path failed'
-grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
-	fail 'LAN stopped dnsmasq path did not log skip reason'
-! grep -q '^port=553$' "${DNSMASQ_CONF_FILE}" || fail 'LAN stopped dnsmasq path still rewrote base dnsmasq config'
+assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN stopped dnsmasq path'
 assert_no_ipset_refresh 'LAN stopped dnsmasq path'
+
+
+reset_case
+ADGUARD_INSTALL_MODE='lan'
+DNSMASQ_RUNNING='0'
+ADGUARD_DNSMASQ_MODE='disabled'
+dnsmasq_params || fail 'LAN disabled dnsmasq path failed'
+grep -q 'state=skip reason=lan_mode_dnsmasq_disabled' "${LOG_FILE}" ||
+	fail 'LAN disabled dnsmasq path did not log skip reason'
+! grep -q '^port=553$' "${DNSMASQ_CONF_FILE}" || fail 'LAN disabled dnsmasq path still rewrote base dnsmasq config'
+assert_no_ipset_refresh 'LAN disabled dnsmasq path'
 
 reset_case
 ADGUARD_INSTALL_MODE='lan'
