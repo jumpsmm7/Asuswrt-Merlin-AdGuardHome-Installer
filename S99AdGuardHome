@@ -1009,7 +1009,9 @@ post_start_adguardhome() {
 	agh_log INFO post_start_adguardhome "AdGuardHome process started; waiting for DNS readiness."
 	if ! wait_for_adguardhome_dns; then
 		stop_dns_port_guard
-		disable_dns_handoff || agh_log ERROR post_start_adguardhome "The dnsmasq port 553 handoff marker requires manual cleanup."
+		if [ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-}" = "1" ]; then
+			disable_dns_handoff || agh_log ERROR post_start_adguardhome "The dnsmasq port 553 handoff marker requires manual cleanup."
+		fi
 		log_adguardhome_start_failure
 		return 1
 	fi
@@ -1024,29 +1026,45 @@ post_start_adguardhome() {
 		log_adguardhome_start_failure
 		return 1
 	fi
-	disable_dns_handoff || return 1
-	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
-		agh_log INFO post_start_adguardhome "Restarting dnsmasq after successful AdGuardHome startup."
-		service restart_dnsmasq >/dev/null 2>&1 || {
-			agh_log ERROR post_start_adguardhome "Unable to restart dnsmasq after successful AdGuardHome startup."
-			return 1
-		}
-		agh_log INFO post_start_adguardhome "dnsmasq restarted after successful AdGuardHome startup."
+	if [ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-}" = "1" ]; then
+		disable_dns_handoff || return 1
+		if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
+			agh_log INFO post_start_adguardhome "Restarting dnsmasq after successful AdGuardHome startup."
+			service restart_dnsmasq >/dev/null 2>&1 || {
+				agh_log ERROR post_start_adguardhome "Unable to restart dnsmasq after successful AdGuardHome startup."
+				return 1
+			}
+			agh_log INFO post_start_adguardhome "dnsmasq restarted after successful AdGuardHome startup."
+		fi
+		unset ADGUARDHOME_DNS_HANDOFF_ACTIVE
 	fi
 	agh_log INFO post_start_adguardhome "AdGuardHome startup completed."
 	return 0
 }
 
 post_start_failure_adguardhome() {
+	_dns_handoff_disabled="0"
 	_dns_recovery_status="0"
+	_dns_restore_needed="0"
 	agh_log INFO post_start_failure_adguardhome "Running AdGuardHome startup failure recovery."
 	stop_dns_port_guard
 	resume_dns_watchdog
-	if ! disable_dns_handoff; then
-		agh_log ERROR post_start_failure_adguardhome "Unable to disable dnsmasq handoff during failure recovery."
-		_dns_recovery_status="1"
+	if [ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-}" = "1" ]; then
+		_dns_restore_needed="1"
+		if ! disable_dns_handoff; then
+			agh_log ERROR post_start_failure_adguardhome "Unable to disable dnsmasq handoff during failure recovery."
+			_dns_recovery_status="1"
+		else
+			_dns_handoff_disabled="1"
+		fi
+	elif [ -e "${DNS_HANDOFF_FILE}" ]; then
+		_dns_restore_needed="1"
+		if ! remove_inactive_dns_handoff_marker; then
+			agh_log ERROR post_start_failure_adguardhome "Unable to clear stale dnsmasq handoff marker during failure recovery."
+			_dns_recovery_status="1"
+		fi
 	fi
-	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
+	if [ "${_dns_restore_needed}" = "1" ] && [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
 		agh_log INFO post_start_failure_adguardhome "Restarting dnsmasq after AdGuardHome startup failure."
 		if ! service restart_dnsmasq >/dev/null 2>&1; then
 			agh_log ERROR post_start_failure_adguardhome "Unable to restart dnsmasq after AdGuardHome startup failure."
@@ -1054,6 +1072,9 @@ post_start_failure_adguardhome() {
 		else
 			agh_log INFO post_start_failure_adguardhome "dnsmasq restarted after AdGuardHome startup failure."
 		fi
+	fi
+	if [ "${_dns_handoff_disabled}" = "1" ] && [ "${_dns_recovery_status}" = "0" ]; then
+		unset ADGUARDHOME_DNS_HANDOFF_ACTIVE
 	fi
 	return "${_dns_recovery_status}"
 }
@@ -1234,8 +1255,11 @@ pre_start_adguardhome() {
 	if [ "${_agh_dns_handoff_required}" = "1" ]; then
 		dns_handoff_dependencies_available || return 1
 		agh_log INFO pre_start_adguardhome "Preparing DNS handoff."
+		ADGUARDHOME_DNS_HANDOFF_ACTIVE=1
+		export ADGUARDHOME_DNS_HANDOFF_ACTIVE
 		enable_dns_handoff || {
 			agh_log ERROR pre_start_adguardhome "DNS handoff preparation failed."
+			unset ADGUARDHOME_DNS_HANDOFF_ACTIVE
 			return 1
 		}
 		agh_log INFO pre_start_adguardhome "DNS handoff prepared."
@@ -1257,7 +1281,9 @@ pre_start_adguardhome() {
 			prepare_dns_handoff_marker || return 1
 			start_dns_port_guard >/dev/null 2>&1 &
 			ADGUARDHOME_DNS_GUARD_PID="$!"
+			ADGUARDHOME_DNS_HANDOFF_ACTIVE=1
 			ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+			export ADGUARDHOME_DNS_HANDOFF_ACTIVE
 			export ADGUARDHOME_SKIP_DNSMASQ_RESTART
 			agh_log INFO pre_start_adguardhome "Port 53 is available for AdGuardHome; starting with a temporary DNS handoff guard."
 			return 0
