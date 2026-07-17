@@ -27,11 +27,12 @@ assert_startup_uses_lock_first_setup() {
 	STARTUP_SETUP_CALLS="$(awk '
 		/^start_adguardhome\(\) \{$/ { in_start = 1; next }
 		in_start && /^}$/ { exit }
+		in_start && /^[[:space:]]*if adguard_lan_mode; then$/ { lan_gate++ }
 		in_start && /^[[:space:]]*if ! IPSet_Setup_For_Start; then$/ { lock_first++ }
 		in_start && /^[[:space:]]*if ! IPSet_Setup;/ { legacy++ }
-		END { print lock_first + 0, legacy + 0 }
+		END { print lan_gate + 0, lock_first + 0, legacy + 0 }
 	' "${SCRIPT_PATH}")" || fail 'could not inspect the startup IPSET setup call'
-	[ "${STARTUP_SETUP_CALLS}" = '1 0' ] || fail "expected one LAN-gated, argument-free lock-first setup call and no legacy setup call, found ${STARTUP_SETUP_CALLS}"
+	[ "${STARTUP_SETUP_CALLS}" = '0 1 0' ] || fail "expected no outer LAN gate, one argument-free lock-first setup call, and no legacy setup call, found ${STARTUP_SETUP_CALLS}"
 }
 
 assert_optional_ipset_tools_do_not_gate_startup() {
@@ -245,12 +246,19 @@ DNSMASQ_UNMANAGED_AFTER_START=0
 run_service_wait_terminal_test
 
 INSTALL_MODE=lan
-run_test 'LAN mode disables managed IPSET before startup' 0 0 0 0 0 0 1 'IPSet_Disable_Managed
+run_test 'LAN mode cleans managed IPSET before startup' 0 0 0 0 0 0 1 'IPSet_Disable_Managed
 lower_script start'
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 0 ] || fail 'LAN startup cleanup was incorrectly marked terminal'
+[ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'LAN startup cleanup did not continue to the health check'
 DISABLE_STATUS=1
-run_test 'LAN mode aborts when managed IPSET cannot be disabled' 0 0 0 0 0 0 1 'IPSet_Disable_Managed'
-[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'LAN disable failure was not marked terminal'
-[ "${SERVICE_WAIT_CALLED}" -eq 0 ] || fail 'LAN disable failure reached the health check'
+: >"${CALLS_FILE}"
+if IPSet_Setup_For_Start; then
+	fail 'LAN setup helper treated failed cleanup as non-fatal'
+fi
+[ "$(cat "${CALLS_FILE}")" = 'IPSet_Disable_Managed' ] || fail 'LAN setup helper did not attempt managed cleanup'
+run_test 'LAN mode aborts when managed IPSET cleanup fails' 0 0 0 0 0 0 1 'IPSet_Disable_Managed'
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'LAN failed startup cleanup was not marked terminal'
+[ "${SERVICE_WAIT_CALLED}" -eq 0 ] || fail 'LAN failed startup cleanup continued to the health check'
 DISABLE_STATUS=0
 INSTALL_MODE=wan
 

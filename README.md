@@ -756,6 +756,7 @@ Run the selected regression tests that cover the router-sensitive release paths:
 sh tests/dns-startup-handoff.sh
 sh tests/dnsmasq-lan-mode.sh
 sh tests/ipset-version-gate.sh
+sh tests/ipset-lan-mode.sh
 sh tests/ipset-lock-security.sh
 sh tests/ipset-setup-rollback.sh
 sh tests/ipset-status.sh
@@ -765,6 +766,7 @@ sh tests/installer-cli-runtime-config.sh
 sh tests/installer-cli-lan-mode.sh
 sh tests/installer-event-script-modes.sh
 sh tests/installer-interruption-restart.sh
+sh tests/start-adguardhome-lifecycle.sh
 ```
 
 Optionally run ShellCheck on a development workstation when ShellCheck is installed outside the router:
