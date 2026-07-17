@@ -425,6 +425,20 @@ grep -q 'DNS handoff skipped because LAN mode dnsmasq is not running' "${CALLS_F
 	fail 'LAN pre-start without dnsmasq did not log handoff skip'
 
 : >"${CALLS_FILE}"
+printf '%s\n' '#!/bin/sh' 'exit 1' >"${WORK_DIR}/AdGuardHome" || fail 'could not create failing AdGuardHome binary'
+chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod failing AdGuardHome binary'
+DNSMASQ_RUNNING=0
+DNS_STATE=free
+if pre_start_adguardhome; then
+	fail 'LAN pre-start without dnsmasq accepted an invalid AdGuardHome config'
+fi
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'LAN invalid-config pre-start restarted absent dnsmasq'
+grep -q 'AdGuardHome configuration validation failed; restoring dnsmasq' "${CALLS_FILE}" ||
+	fail 'LAN invalid-config pre-start did not log validation failure'
+printf '%s\n' '#!/bin/sh' 'exit 0' >"${WORK_DIR}/AdGuardHome" || fail 'could not restore AdGuardHome binary'
+chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod restored AdGuardHome binary'
+
+: >"${CALLS_FILE}"
 printf '%s %s\n' 999999 1 >"${DNS_HANDOFF_FILE}" || fail 'could not create stale no-handoff marker'
 DNSMASQ_RUNNING=0
 DNS_STATE=free

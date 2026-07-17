@@ -1212,15 +1212,21 @@ pre_start_adguardhome() {
 	_dns_stop_limit="$(dns_retry_limit "${ADGUARDHOME_DNSMASQ_STOP_RETRIES:-}" 10)"
 	agh_log INFO pre_start_adguardhome "Validating AdGuardHome configuration and permissions."
 	ensure_adguardhome_work_dir_permissions || return 1
-	adguardhome_config_valid || {
-		agh_log ERROR pre_start_adguardhome "AdGuardHome configuration validation failed; restoring dnsmasq."
-		post_start_failure_adguardhome
-		return 1
-	}
-	agh_log INFO pre_start_adguardhome "AdGuardHome configuration and permissions validation completed."
 	_agh_dns_handoff_required="0"
 	if agh_dns_handoff_required; then
 		_agh_dns_handoff_required="1"
+	fi
+	adguardhome_config_valid || {
+		agh_log ERROR pre_start_adguardhome "AdGuardHome configuration validation failed; restoring dnsmasq."
+		if [ "${_agh_dns_handoff_required}" = "1" ]; then
+			post_start_failure_adguardhome
+		else
+			ADGUARDHOME_SKIP_DNSMASQ_RESTART=1 post_start_failure_adguardhome
+		fi
+		return 1
+	}
+	agh_log INFO pre_start_adguardhome "AdGuardHome configuration and permissions validation completed."
+	if [ "${_agh_dns_handoff_required}" = "1" ]; then
 		dns_handoff_dependencies_available || return 1
 		agh_log INFO pre_start_adguardhome "Preparing DNS handoff."
 		enable_dns_handoff || {
