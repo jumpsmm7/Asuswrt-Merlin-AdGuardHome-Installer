@@ -383,7 +383,7 @@ disable_dns_handoff() {
 	return 0
 }
 
-enable_dns_handoff() {
+prepare_dns_handoff_marker() {
 	if [ ! -e "${DNS_HANDOFF_DIR}" ]; then
 		(
 			umask 077
@@ -464,6 +464,11 @@ enable_dns_handoff() {
 		disable_dns_handoff
 		return 1
 	fi
+	return 0
+}
+
+enable_dns_handoff() {
+	prepare_dns_handoff_marker || return 1
 	if ! service restart_dnsmasq >/dev/null 2>&1; then
 		if disable_dns_handoff; then
 			service restart_dnsmasq >/dev/null 2>&1 ||
@@ -1249,7 +1254,12 @@ pre_start_adguardhome() {
 			return 1
 		fi
 		if dns_port_available; then
-			agh_log INFO pre_start_adguardhome "Port 53 is available for AdGuardHome; starting without DNS handoff."
+			prepare_dns_handoff_marker || return 1
+			start_dns_port_guard >/dev/null 2>&1 &
+			ADGUARDHOME_DNS_GUARD_PID="$!"
+			ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+			export ADGUARDHOME_SKIP_DNSMASQ_RESTART
+			agh_log INFO pre_start_adguardhome "Port 53 is available for AdGuardHome; starting with a temporary DNS handoff guard."
 			return 0
 		fi
 		agh_log ERROR pre_start_adguardhome "Port 53 is not available for AdGuardHome; startup aborted without DNS handoff."
