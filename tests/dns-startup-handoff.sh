@@ -511,6 +511,20 @@ printf '%s\n' 'ADGUARD_INSTALL_MODE="wan"' 'ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_
 DNSMASQ_RUNNING=1
 
 : >"${CALLS_FILE}"
+printf '%s %s\n' 999999 1 >"${DNS_HANDOFF_FILE}" || fail 'could not create stale handoff marker before invalid config'
+printf '%s\n' '#!/bin/sh' 'exit 1' >"${WORK_DIR}/AdGuardHome" || fail 'could not create failing AdGuardHome binary'
+chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod failing AdGuardHome binary'
+clear_dns_handoff_active
+if pre_start_adguardhome; then
+	fail 'WAN pre-start accepted invalid config with stale handoff state'
+fi
+[ ! -f "${DNS_HANDOFF_FILE}" ] || fail 'invalid-config stale handoff recovery left marker behind'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'invalid-config stale handoff recovery did not restart dnsmasq'
+[ -z "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-}" ] || fail 'invalid-config stale handoff recovery set the active flag'
+printf '%s\n' '#!/bin/sh' 'exit 0' >"${WORK_DIR}/AdGuardHome" || fail 'could not restore AdGuardHome binary'
+chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod restored AdGuardHome binary'
+
+: >"${CALLS_FILE}"
 DNS_STATE=free
 ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
 ADGUARDHOME_DNS_GUARD_RETRIES=0
