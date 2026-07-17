@@ -31,7 +31,7 @@ sed -n \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed -n '/^dns_handoff_is_active() {$/,/^}$/p' "${MANAGER_PATH}" >>"${S99_FUNCTIONS}" ||
 	fail "could not read ${MANAGER_PATH}"
-sed -n '/^stop_launched_process() {$/,/^}$/p; /^adguardhome_start_handoff_is_prepared() {$/,/^}$/p; /^start() {$/,/^}$/p' "${RC_PATH}" >"${RC_FUNCTION}" ||
+sed -n '/^stop_launched_process() {$/,/^}$/p; /^adguardhome_start_handoff_is_prepared() {$/,/^}$/p; /^adguardhome_run_postfailcmd() {$/,/^}$/p; /^start() {$/,/^}$/p' "${RC_PATH}" >"${RC_FUNCTION}" ||
 	fail "could not read ${RC_PATH}"
 [ -s "${S99_FUNCTIONS}" ] || fail 'DNS handoff functions were not found'
 [ -s "${RC_FUNCTION}" ] || fail 'service start function was not found'
@@ -873,10 +873,15 @@ INTERRUPT_GUARD_PID_FILE="${TEST_ROOT}/interrupt-guard-pid"
 : >"${CALLS_FILE}"
 rm -f "${INTERRUPT_READY_FILE}" "${INTERRUPT_GUARD_PID_FILE}"
 (
+	HANDOFF_ENABLED=0
+	adguardhome_start_handoff_is_prepared() {
+		[ "${HANDOFF_ENABLED}" -eq 1 ]
+	}
 	pre_hook() {
 		command sh -c 'trap "exit 0" HUP INT TERM; while :; do sleep 1; done' &
 		ADGUARDHOME_DNS_GUARD_PID="$!"
 		printf '%s\n' "${ADGUARDHOME_DNS_GUARD_PID}" >"${INTERRUPT_GUARD_PID_FILE}"
+		HANDOFF_ENABLED=1
 	}
 	process_pids() {
 		return 0
@@ -909,6 +914,44 @@ if command kill -0 "${_interrupt_guard_pid}" 2>/dev/null; then
 fi
 grep -q "^kill ${_interrupt_guard_pid}$" "${CALLS_FILE}" || fail 'interrupted startup did not terminate the DNS guard'
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'interrupted startup did not restore dnsmasq'
+
+# Interrupting a LAN/no-handoff startup must not restart dnsmasq through the
+# signal trap's failed-start recovery path.
+NO_HANDOFF_INTERRUPT_READY_FILE="${TEST_ROOT}/no-handoff-interrupt-ready"
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}" "${NO_HANDOFF_INTERRUPT_READY_FILE}"
+(
+	pre_hook() {
+		printf '%s\n' no_handoff_interrupt_pre_hook >>"${CALLS_FILE}"
+	}
+	process_pids() {
+		return 0
+	}
+	process_wait_for_start() {
+		: >"${NO_HANDOFF_INTERRUPT_READY_FILE}"
+		while :; do
+			command sleep 1
+		done
+	}
+	AdGuardHome() {
+		return 0
+	}
+	start >/dev/null
+) &
+_no_handoff_interrupt_pid="$!"
+_no_handoff_interrupt_waits=0
+while [ ! -f "${NO_HANDOFF_INTERRUPT_READY_FILE}" ] && [ "${_no_handoff_interrupt_waits}" -lt 100 ]; do
+	_no_handoff_interrupt_waits="$((_no_handoff_interrupt_waits + 1))"
+	command sleep 0.01
+done
+[ -f "${NO_HANDOFF_INTERRUPT_READY_FILE}" ] || fail 'interrupted no-handoff start did not reach the startup window'
+command kill -TERM "${_no_handoff_interrupt_pid}" 2>/dev/null || fail 'could not interrupt no-handoff startup'
+if wait "${_no_handoff_interrupt_pid}"; then
+	fail 'interrupted no-handoff startup reported success'
+fi
+grep -q '^no_handoff_interrupt_pre_hook$' "${CALLS_FILE}" || fail 'interrupted no-handoff start skipped pre-start hook'
+grep -q '^post_failure_hook 1$' "${CALLS_FILE}" || fail 'interrupted no-handoff startup did not suppress dnsmasq restart during recovery'
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'interrupted no-handoff startup restarted dnsmasq'
 
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}"

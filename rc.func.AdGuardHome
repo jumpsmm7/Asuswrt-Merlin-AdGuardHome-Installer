@@ -190,6 +190,19 @@ adguardhome_start_handoff_is_prepared() {
 		[ "${_dns_handoff_start_time}" = "${DNS_HANDOFF_CURRENT_START_TIME}" ]
 }
 
+adguardhome_run_postfailcmd() {
+	[ -n "${POSTFAILCMD:-}" ] || return 0
+	if [ "${PROC}" = "AdGuardHome" ] && [ "${DNS_HANDOFF:-0}" -ne 1 ]; then
+		(
+			ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+			export ADGUARDHOME_SKIP_DNSMASQ_RESTART
+			${POSTFAILCMD} >/dev/null 2>&1
+		)
+	else
+		${POSTFAILCMD} >/dev/null 2>&1
+	fi
+}
+
 start() {
 	local DNS_HANDOFF LAUNCH_PID PIDS POSTCMD_STATUS POSTFAIL_STATUS STOPPED
 	if type service_mark_transition >/dev/null 2>&1; then
@@ -209,7 +222,7 @@ start() {
 	fi
 	if [ "${PROC}" = "AdGuardHome" ]; then
 		DNS_HANDOFF=1
-		trap 'stop_launched_process "${LAUNCH_PID:-}"; [ -n "${POSTFAILCMD:-}" ] && ${POSTFAILCMD} >/dev/null 2>&1; exit 255' HUP INT TERM
+		trap 'stop_launched_process "${LAUNCH_PID:-}"; adguardhome_run_postfailcmd; exit 255' HUP INT TERM
 	fi
 	if ! adguardhome_start_handoff_is_prepared; then
 		if ! ${PRECMD} >/dev/null 2>&1; then
@@ -229,17 +242,8 @@ start() {
 		stop_launched_process "${LAUNCH_PID}"
 		if [ -n "${POSTFAILCMD:-}" ]; then
 			POSTFAIL_STATUS=0
-			if [ "${PROC}" = "AdGuardHome" ] && [ "${DNS_HANDOFF}" -ne 1 ]; then
-				(
-					ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
-					export ADGUARDHOME_SKIP_DNSMASQ_RESTART
-					${POSTFAILCMD} >/dev/null 2>&1
-				)
-				POSTFAIL_STATUS="$?"
-			else
-				${POSTFAILCMD} >/dev/null 2>&1
-				POSTFAIL_STATUS="$?"
-			fi
+			adguardhome_run_postfailcmd
+			POSTFAIL_STATUS="$?"
 			[ "${POSTFAIL_STATUS}" -eq 0 ] || logger -st "${CALLER}" "Failed-start recovery failed for ${DESC} from ${CALLER}."
 		fi
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
@@ -275,17 +279,8 @@ start() {
 		fi
 		if [ "${STOPPED}" -eq 1 ] && [ -n "${POSTFAILCMD:-}" ]; then
 			POSTFAIL_STATUS=0
-			if [ "${PROC}" = "AdGuardHome" ] && [ "${DNS_HANDOFF}" -ne 1 ]; then
-				(
-					ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
-					export ADGUARDHOME_SKIP_DNSMASQ_RESTART
-					${POSTFAILCMD} >/dev/null 2>&1
-				)
-				POSTFAIL_STATUS="$?"
-			else
-				${POSTFAILCMD} >/dev/null 2>&1
-				POSTFAIL_STATUS="$?"
-			fi
+			adguardhome_run_postfailcmd
+			POSTFAIL_STATUS="$?"
 			[ "${POSTFAIL_STATUS}" -eq 0 ] || logger -st "${CALLER}" "Post-start failure recovery failed for ${DESC} from ${CALLER}."
 		fi
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
