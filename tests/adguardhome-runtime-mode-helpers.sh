@@ -126,9 +126,20 @@ DNSMASQ_RUNNING=0
 SERVICE_RESTART_COUNT=0
 IPSET_DNSMASQ_RESTART_PENDING=1
 write_conf 'ADGUARD_INSTALL_MODE=lan' 'ADGUARD_DNSMASQ_MODE=enabled'
-IPSet_Dnsmasq_Restart_After_Unlock || fail 'IPSET LAN unlock without dnsmasq should be skipped successfully'
-assert_restart_count 0 'IPSET LAN unlock without dnsmasq should not call service'
-[ "${IPSET_DNSMASQ_RESTART_PENDING}" -eq 0 ] || fail 'IPSET LAN unlock did not clear restart pending flag'
+IPSet_Dnsmasq_Restart_After_Unlock || fail 'IPSET pending unlock restart should succeed'
+assert_restart_count 1 'IPSET pending unlock restart should call service even if dnsmasq is stopped'
+[ "${IPSET_DNSMASQ_RESTART_PENDING}" -eq 0 ] || fail 'IPSET pending unlock did not clear restart pending flag'
+
+
+DNSMASQ_RUNNING=0
+SERVICE_RESTART_COUNT=0
+IPSET_DNSMASQ_RESTART_PENDING=1
+ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+write_conf
+IPSet_Dnsmasq_Restart_After_Unlock || fail 'IPSET pending unlock with skip should be skipped successfully'
+assert_restart_count 0 'IPSET pending unlock with skip should not call service'
+[ "${IPSET_DNSMASQ_RESTART_PENDING}" -eq 0 ] || fail 'IPSET pending unlock with skip did not clear restart pending flag'
+unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 DNSMASQ_RUNNING=1
 SERVICE_RESTART_COUNT=0
