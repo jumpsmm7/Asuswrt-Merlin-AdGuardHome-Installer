@@ -1243,12 +1243,13 @@ pre_start_adguardhome() {
 	if [ "${_agh_dns_handoff_required}" = "1" ]; then
 		dns_handoff_dependencies_available || return 1
 		agh_log INFO pre_start_adguardhome "Preparing DNS handoff."
-		enable_dns_handoff || {
-			agh_log ERROR pre_start_adguardhome "DNS handoff preparation failed."
-			return 1
-		}
 		ADGUARDHOME_DNS_HANDOFF_ACTIVE=1
 		export ADGUARDHOME_DNS_HANDOFF_ACTIVE
+		enable_dns_handoff || {
+			agh_log ERROR pre_start_adguardhome "DNS handoff preparation failed."
+			unset ADGUARDHOME_DNS_HANDOFF_ACTIVE
+			return 1
+		}
 		agh_log INFO pre_start_adguardhome "DNS handoff prepared."
 	else
 		agh_log INFO pre_start_adguardhome "DNS handoff skipped because LAN mode dnsmasq is not running."
@@ -1268,7 +1269,9 @@ pre_start_adguardhome() {
 			prepare_dns_handoff_marker || return 1
 			start_dns_port_guard >/dev/null 2>&1 &
 			ADGUARDHOME_DNS_GUARD_PID="$!"
+			ADGUARDHOME_DNS_HANDOFF_ACTIVE=1
 			ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+			export ADGUARDHOME_DNS_HANDOFF_ACTIVE
 			export ADGUARDHOME_SKIP_DNSMASQ_RESTART
 			agh_log INFO pre_start_adguardhome "Port 53 is available for AdGuardHome; starting with a temporary DNS handoff guard."
 			return 0
