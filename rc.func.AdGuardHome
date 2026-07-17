@@ -241,7 +241,11 @@ start() {
 			[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
 			return 255
 		fi
-		adguardhome_start_handoff_is_prepared || DNS_HANDOFF=0
+		if adguardhome_start_handoff_is_prepared; then
+			DNS_HANDOFF=1
+		else
+			DNS_HANDOFF=0
+		fi
 	fi
 	{
 		${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null &

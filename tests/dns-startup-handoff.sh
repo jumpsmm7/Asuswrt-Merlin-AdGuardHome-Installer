@@ -869,6 +869,29 @@ rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 grep -q '^stale_pre_hook$' "${CALLS_FILE}" || fail 'rc.func skipped pre-start with stale dnsmasq port 553 and no active handoff marker'
 grep -q '^stale_post_hook$' "${CALLS_FILE}" || fail 'rc.func skipped post-start cleanup after stale dnsmasq port 553 recovery'
 
+# If the initial start check does not require handoff but PRECMD prepares one
+# after dnsmasq appears, post-start cleanup must run without dnsmasq restart
+# suppression so the real handoff is restored.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
+(
+	agh_dns_handoff_required() {
+		return 1
+	}
+	pre_hook() {
+		dns_handoff_set_current_identity || return 1
+		printf '%s %s\n' "${DNS_HANDOFF_CURRENT_PID}" "${DNS_HANDOFF_CURRENT_START_TIME}" >"${DNS_HANDOFF_FILE}" || return 1
+		printf '%s\n' late_handoff_pre_hook >>"${CALLS_FILE}"
+	}
+	post_hook() {
+		printf '%s\n' "late_handoff_post_hook ${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-0}" >>"${CALLS_FILE}"
+		[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-0}" = "0" ]
+	}
+	start >/dev/null
+) || fail 'rc.func failed a late handoff prepared by pre-start'
+grep -q '^late_handoff_pre_hook$' "${CALLS_FILE}" || fail 'rc.func skipped late handoff pre-start hook'
+grep -q '^late_handoff_post_hook 0$' "${CALLS_FILE}" || fail 'rc.func suppressed dnsmasq restart after late handoff marker was prepared'
+
 # A LAN-mode start where pre-start intentionally skips the dnsmasq handoff must
 # still run post-start readiness checks, but suppress dnsmasq restart cleanup.
 : >"${CALLS_FILE}"
