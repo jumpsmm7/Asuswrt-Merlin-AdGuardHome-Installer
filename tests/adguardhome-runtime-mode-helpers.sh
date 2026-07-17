@@ -29,9 +29,10 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^conf_value() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_dnsmasq_running() {$/,/^}$/p; /^adguard_dnsmasq_managed() {$/,/^}$/p; /^adguard_restart_dnsmasq_if_managed() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p' \
+	'/^conf_value() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_dnsmasq_running() {$/,/^}$/p; /^adguard_dnsmasq_managed() {$/,/^}$/p; /^adguard_restart_dnsmasq_if_managed() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${SCRIPT_PATH}"
 grep -q '^adguard_ipset_allowed() {$' "${FUNCTIONS_FILE}" || fail 'runtime mode helpers missing'
+grep -q '^IPSet_Dnsmasq_Restart_After_Unlock() {$' "${FUNCTIONS_FILE}" || fail 'IPSET dnsmasq restart helper missing'
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
@@ -106,14 +107,36 @@ assert_restart_count 1 'running LAN dnsmasq should be restarted'
 DNSMASQ_RUNNING=0
 SERVICE_RESTART_COUNT=0
 write_conf 'ADGUARD_DNSMASQ_MODE=enabled'
-adguard_restart_dnsmasq_if_managed || fail 'enabled dnsmasq restart should succeed even without pidof match'
-assert_restart_count 1 'enabled dnsmasq mode should restart dnsmasq'
+adguard_restart_dnsmasq_if_managed || fail 'enabled WAN dnsmasq restart should succeed even without pidof match'
+assert_restart_count 1 'enabled WAN dnsmasq mode should restart dnsmasq'
+
+DNSMASQ_RUNNING=0
+SERVICE_RESTART_COUNT=0
+write_conf 'ADGUARD_INSTALL_MODE=lan' 'ADGUARD_DNSMASQ_MODE=enabled'
+adguard_restart_dnsmasq_if_managed || fail 'enabled LAN restart without dnsmasq should be skipped successfully'
+assert_restart_count 0 'enabled LAN restart without dnsmasq should not call service'
 
 DNSMASQ_RUNNING=1
 SERVICE_RESTART_COUNT=0
 write_conf 'ADGUARD_DNSMASQ_MODE=disabled'
 adguard_restart_dnsmasq_if_managed || fail 'disabled dnsmasq restart should be skipped successfully'
 assert_restart_count 0 'disabled dnsmasq mode should not restart dnsmasq'
+
+DNSMASQ_RUNNING=0
+SERVICE_RESTART_COUNT=0
+IPSET_DNSMASQ_RESTART_PENDING=1
+write_conf 'ADGUARD_INSTALL_MODE=lan' 'ADGUARD_DNSMASQ_MODE=enabled'
+IPSet_Dnsmasq_Restart_After_Unlock || fail 'IPSET LAN unlock without dnsmasq should be skipped successfully'
+assert_restart_count 0 'IPSET LAN unlock without dnsmasq should not call service'
+[ "${IPSET_DNSMASQ_RESTART_PENDING}" -eq 0 ] || fail 'IPSET LAN unlock did not clear restart pending flag'
+
+DNSMASQ_RUNNING=1
+SERVICE_RESTART_COUNT=0
+IPSET_DNSMASQ_RESTART_PENDING=1
+write_conf 'ADGUARD_INSTALL_MODE=lan'
+IPSet_Dnsmasq_Restart_After_Unlock || fail 'IPSET LAN unlock with dnsmasq should restart successfully'
+assert_restart_count 1 'IPSET LAN unlock with dnsmasq should call service'
+[ "${IPSET_DNSMASQ_RESTART_PENDING}" -eq 0 ] || fail 'IPSET LAN restart did not clear restart pending flag'
 
 DNSMASQ_RUNNING=1
 SERVICE_RESTART_COUNT=0

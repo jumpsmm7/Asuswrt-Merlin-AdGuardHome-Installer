@@ -85,6 +85,9 @@ adguard_dnsmasq_running() {
 }
 
 adguard_dnsmasq_managed() {
+	if adguard_lan_mode && ! adguard_dnsmasq_running; then
+		return 1
+	fi
 	case "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" in
 		disabled) return 1 ;;
 		enabled) return 0 ;;
@@ -1896,7 +1899,7 @@ IPSet_Dnsmasq_Restart_After_Unlock() {
 	[ "${IPSET_DNSMASQ_RESTART_PENDING:-0}" -eq 1 ] || return 0
 	IPSET_DNSMASQ_RESTART_PENDING="0"
 	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ] || return 0
-	service restart_dnsmasq >/dev/null 2>&1
+	adguard_restart_dnsmasq_if_managed
 }
 
 IPSet_Current_UID() {
