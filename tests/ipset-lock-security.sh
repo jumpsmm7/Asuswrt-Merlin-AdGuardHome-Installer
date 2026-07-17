@@ -224,6 +224,11 @@ lock_dnsmasq_action() {
 	IPSET_DNSMASQ_RESTART_PENDING="1"
 }
 
+lock_dnsmasq_skip_action() {
+	ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
+	IPSET_DNSMASQ_RESTART_PENDING="1"
+}
+
 printf '%s\n' unchanged >"${TARGET_FILE}"
 ln -s "${TARGET_FILE}" "${TEST_ROOT}/runtime-link" || fail 'could not create runtime symlink'
 NAME=AdGuardHome-test
@@ -249,6 +254,11 @@ if [ "${HAS_FLOCK}" -eq 1 ]; then
 	rm -f "${TEST_ROOT}/dnsmasq-restarted"
 	IPSet_Lock lock_dnsmasq_action || fail 'could not defer dnsmasq restart with flock'
 	[ -f "${TEST_ROOT}/dnsmasq-restarted" ] || fail 'flock path did not restart dnsmasq after unlock'
+	rm -f "${TEST_ROOT}/dnsmasq-restarted"
+	unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+	IPSet_Lock lock_dnsmasq_skip_action || fail 'could not suppress deferred dnsmasq restart with flock'
+	[ ! -f "${TEST_ROOT}/dnsmasq-restarted" ] || fail 'flock path ignored dnsmasq restart suppression after unlock'
+	unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 	run_interrupt_test flock
 	run_trap_test flock
 fi
@@ -277,6 +287,11 @@ IPSet_Lock lock_action || fail 'could not acquire fallback lock in private runti
 rm -f "${TEST_ROOT}/dnsmasq-restarted"
 IPSet_Lock lock_dnsmasq_action || fail 'could not defer dnsmasq restart with the fallback lock'
 [ -f "${TEST_ROOT}/dnsmasq-restarted" ] || fail 'fallback path did not restart dnsmasq after unlock'
+rm -f "${TEST_ROOT}/dnsmasq-restarted"
+unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+IPSet_Lock lock_dnsmasq_skip_action || fail 'could not suppress deferred dnsmasq restart with the fallback lock'
+[ ! -f "${TEST_ROOT}/dnsmasq-restarted" ] || fail 'fallback path ignored dnsmasq restart suppression after unlock'
+unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 # A waiter that observed an old dead PID must not remove a replacement lock.
 mkdir -m 700 "${IPSET_RUNTIME_DIR}/mkdir" || fail 'could not create replacement fallback lock'

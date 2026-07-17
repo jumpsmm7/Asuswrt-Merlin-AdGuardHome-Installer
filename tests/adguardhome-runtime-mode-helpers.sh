@@ -130,7 +130,6 @@ IPSet_Dnsmasq_Restart_After_Unlock || fail 'IPSET pending unlock restart should 
 assert_restart_count 1 'IPSET pending unlock restart should call service even if dnsmasq is stopped'
 [ "${IPSET_DNSMASQ_RESTART_PENDING}" -eq 0 ] || fail 'IPSET pending unlock did not clear restart pending flag'
 
-
 DNSMASQ_RUNNING=0
 SERVICE_RESTART_COUNT=0
 IPSET_DNSMASQ_RESTART_PENDING=1
