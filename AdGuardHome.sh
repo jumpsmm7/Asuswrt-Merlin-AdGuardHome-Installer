@@ -717,6 +717,10 @@ dns_handoff_is_active() {
 
 dnsmasq_params() {
 	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
+	if adguard_lan_mode && [ "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" = "disabled" ] && ! dns_handoff_is_active; then
+		agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_disabled"
+		return 0
+	fi
 	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then {
 		umount /tmp/resolv.conf 2>/dev/null
 	}; fi
@@ -800,8 +804,10 @@ dnsmasq_params() {
 	if { ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then {
 		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
 	}; fi
-	IPSET_REFRESH_FROM_DNSMASQ="1"
-	IPSet_Refresh "${CONFIG}"
+	if ! adguard_lan_mode; then
+		IPSET_REFRESH_FROM_DNSMASQ="1"
+		IPSet_Refresh "${CONFIG}"
+	fi
 }
 
 interface_ipv4_addr() {
