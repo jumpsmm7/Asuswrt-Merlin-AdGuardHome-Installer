@@ -718,15 +718,19 @@ dns_handoff_is_active() {
 	[ "${PROCESS_START_TIME}" = "${HANDOFF_START_TIME}" ]
 }
 
+dnsmasq_resolv_conf_cleanup() {
+	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then {
+		umount /tmp/resolv.conf 2>/dev/null
+	}; fi
+}
+
 dnsmasq_params() {
 	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
 	if adguard_lan_mode && [ "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" = "disabled" ] && ! dns_handoff_is_active; then
 		agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_disabled"
 		return 0
 	fi
-	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then {
-		umount /tmp/resolv.conf 2>/dev/null
-	}; fi
+	dnsmasq_resolv_conf_cleanup
 	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 		0)
 			dns_handoff_is_active || return 0
@@ -810,6 +814,24 @@ dnsmasq_params() {
 	if ! adguard_lan_mode; then
 		IPSET_REFRESH_FROM_DNSMASQ="1"
 		IPSet_Refresh "${CONFIG}"
+	fi
+}
+
+dnsmasq_action_handler() {
+	if adguard_lan_mode && ! adguard_dnsmasq_running && ! dns_handoff_is_active; then
+		case "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" in
+			enabled) ;;
+			*)
+				dnsmasq_resolv_conf_cleanup
+				agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_not_running"
+				return 0
+				;;
+		esac
+	fi
+	if [ -n "${1:-}" ]; then
+		dnsmasq_params "${1}"
+	else
+		dnsmasq_params
 	fi
 }
 
@@ -2707,7 +2729,7 @@ case "$1" in
 		{ "${SCRIPT_LOC}" services-stop >/dev/null 2>&1; }
 		;;
 	"dnsmasq" | "dnsmasq-sdn")
-		if [ -n "${2}" ]; then { dnsmasq_params "${2}"; }; else { dnsmasq_params; }; fi
+		dnsmasq_action_handler "${2:-}"
 		;;
 	"firewall")
 		IPSet_Refresh
