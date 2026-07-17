@@ -72,6 +72,21 @@ CURRENT_PID="${DNS_HANDOFF_CURRENT_PID}"
 CURRENT_START_TIME="${DNS_HANDOFF_CURRENT_START_TIME}"
 [ "${CURRENT_START_TIME}" = "$(dns_handoff_process_start_time "${CURRENT_PID}")" ] ||
 	fail 'current shell identity did not match its proc start time'
+
+mark_dns_handoff_active() {
+	ADGUARDHOME_DNS_HANDOFF_ACTIVE=1
+	export ADGUARDHOME_DNS_HANDOFF_ACTIVE
+}
+
+clear_dns_handoff_active() {
+	unset ADGUARDHOME_DNS_HANDOFF_ACTIVE
+}
+
+prepare_active_dns_handoff_test_marker() {
+	dns_handoff_set_current_identity || return 1
+	printf '%s %s\n' "${DNS_HANDOFF_CURRENT_PID}" "${DNS_HANDOFF_CURRENT_START_TIME}" >"${DNS_HANDOFF_FILE}" || return 1
+	mark_dns_handoff_active
+}
 (
 	dns_handoff_set_current_identity || exit 1
 	[ "${DNS_HANDOFF_CURRENT_START_TIME}" = "$(dns_handoff_process_start_time "${DNS_HANDOFF_CURRENT_PID}")" ]
@@ -265,6 +280,7 @@ disable_dns_handoff || fail 'could not clean up marker after removal failure tes
 : >"${CALLS_FILE}"
 DNS_STATE=owned
 printf '%s\n' "${CURRENT_PID}" >"${DNS_HANDOFF_FILE}" || fail 'could not create handoff marker for post-start cleanup test'
+mark_dns_handoff_active
 RM_HANDOFF_FAIL=1
 ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
 if post_start_adguardhome; then
@@ -272,10 +288,12 @@ if post_start_adguardhome; then
 fi
 RM_HANDOFF_FAIL=0
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+clear_dns_handoff_active
 disable_dns_handoff || fail 'could not clean up marker after post-start cleanup test'
 
 : >"${CALLS_FILE}"
 printf '%s\n' "${CURRENT_PID}" >"${DNS_HANDOFF_FILE}" || fail 'could not create handoff marker for failed-start recovery test'
+mark_dns_handoff_active
 RM_HANDOFF_FAIL=1
 if post_start_failure_adguardhome; then
 	fail 'failed-start recovery hid a handoff marker cleanup failure'
@@ -724,20 +742,24 @@ WEB_STATE=bound
 DNS_STATE=owned
 WEB_STATE=missing
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+mark_dns_handoff_active
 if post_start_adguardhome; then
 	fail 'post-start succeeded with an unavailable WebUI port before restoring dnsmasq'
 fi
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'WebUI startup failure did not restore dnsmasq'
 WEB_STATE=bound
+clear_dns_handoff_active
 
 printf '%s\n' '#!/bin/sh' 'exit 1' >"${WORK_DIR}/AdGuardHome" || fail 'could not replace AdGuardHome binary'
 chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod failing AdGuardHome binary'
 : >"${CALLS_FILE}"
+mark_dns_handoff_active
 if post_start_adguardhome; then
 	fail 'post-start succeeded with a failing configuration check'
 fi
 grep -q 'AdGuardHome startup failed: configuration check failed' "${CALLS_FILE}" || fail 'config startup failure did not log the concise config message'
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'config startup failure did not restore dnsmasq'
+clear_dns_handoff_active
 printf '%s\n' '#!/bin/sh' 'exit 0' >"${WORK_DIR}/AdGuardHome" || fail 'could not restore AdGuardHome binary'
 chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod restored AdGuardHome binary'
 
@@ -749,6 +771,7 @@ post_start_adguardhome || fail 'post-start rejected valid AdGuardHome DNS owners
 
 : >"${CALLS_FILE}"
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+mark_dns_handoff_active
 post_start_adguardhome || fail 'post-start rejected valid AdGuardHome DNS ownership'
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'post-start did not restart dnsmasq after DNS ownership was established'
 grep -q 'post_start_adguardhome: Restarting dnsmasq after successful AdGuardHome startup' "${CALLS_FILE}" ||
@@ -757,12 +780,14 @@ grep -q 'post_start_adguardhome: AdGuardHome startup completed' "${CALLS_FILE}" 
 	fail 'post-start did not log startup completion'
 
 : >"${CALLS_FILE}"
+mark_dns_handoff_active
 SERVICE_RESTART_FAIL=1
 if post_start_adguardhome; then
 	fail 'post-start ignored a failed dnsmasq restart'
 fi
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'post-start did not attempt the failed dnsmasq restart'
 SERVICE_RESTART_FAIL=0
+clear_dns_handoff_active
 
 # Verify rc.func treats either hook failure as a failed start instead of launching
 # through a bad handoff or reporting a short-lived process as healthy.
@@ -836,8 +861,7 @@ rm -f "${STARTED_FILE}"
 	}
 	pre_hook() {
 		HANDOFF_ENABLED=1
-		dns_handoff_set_current_identity || return 1
-		printf '%s %s\n' "${DNS_HANDOFF_CURRENT_PID}" "${DNS_HANDOFF_CURRENT_START_TIME}" >"${DNS_HANDOFF_FILE}" || return 1
+		prepare_active_dns_handoff_test_marker || return 1
 		printf '%s\n' pre_hook >>"${CALLS_FILE}"
 	}
 	post_hook() {
@@ -865,8 +889,7 @@ rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 		esac
 	}
 	pre_hook() {
-		dns_handoff_set_current_identity || return 1
-		printf '%s %s\n' "${DNS_HANDOFF_CURRENT_PID}" "${DNS_HANDOFF_CURRENT_START_TIME}" >"${DNS_HANDOFF_FILE}" || return 1
+		prepare_active_dns_handoff_test_marker || return 1
 		printf '%s\n' stale_pre_hook >>"${CALLS_FILE}"
 	}
 	post_hook() {
@@ -887,8 +910,7 @@ rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 		return 1
 	}
 	pre_hook() {
-		dns_handoff_set_current_identity || return 1
-		printf '%s %s\n' "${DNS_HANDOFF_CURRENT_PID}" "${DNS_HANDOFF_CURRENT_START_TIME}" >"${DNS_HANDOFF_FILE}" || return 1
+		prepare_active_dns_handoff_test_marker || return 1
 		printf '%s\n' late_handoff_pre_hook >>"${CALLS_FILE}"
 	}
 	post_hook() {
@@ -951,6 +973,7 @@ rm -f "${INTERRUPT_READY_FILE}" "${INTERRUPT_GUARD_PID_FILE}"
 		ADGUARDHOME_DNS_GUARD_PID="$!"
 		printf '%s\n' "${ADGUARDHOME_DNS_GUARD_PID}" >"${INTERRUPT_GUARD_PID_FILE}"
 		HANDOFF_ENABLED=1
+		mark_dns_handoff_active
 	}
 	process_pids() {
 		return 0
@@ -1063,8 +1086,7 @@ fi
 [ ! -f "${STARTED_FILE}" ] || fail 'rc.func launched AdGuardHome after pre-start failure'
 
 pre_hook() {
-	dns_handoff_set_current_identity || return 1
-	printf '%s %s\n' "${DNS_HANDOFF_CURRENT_PID}" "${DNS_HANDOFF_CURRENT_START_TIME}" >"${DNS_HANDOFF_FILE}" || return 1
+	prepare_active_dns_handoff_test_marker || return 1
 	return 0
 }
 post_hook() {
