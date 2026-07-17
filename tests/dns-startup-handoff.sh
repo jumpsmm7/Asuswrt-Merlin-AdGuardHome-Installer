@@ -147,6 +147,9 @@ netstat() {
 		busy_alt_lan)
 			printf '%s\n' 'udp 0 0 192.168.50.1:53 0.0.0.0:* 0 0 234/custom-dns'
 			;;
+		busy_loopback)
+			printf '%s\n' 'udp 0 0 127.0.0.1:53 0.0.0.0:* 0 0 234/custom-dns'
+			;;
 		busy_wildcard)
 			printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 0 0 234/custom-dns'
 			;;
@@ -556,6 +559,19 @@ fi
 ! grep -q '^kill -s 9 234$' "${CALLS_FILE}" || fail 'LAN scoped pre-start killed conflicting owner without force'
 grep -q 'mode=lan dnsmasq=absent handoff=skipped' "${CALLS_FILE}" ||
 	fail 'LAN scoped pre-start did not log mode/dnsmasq/handoff context'
+
+: >"${CALLS_FILE}"
+printf '%s\n' 'dns:' '  bind_hosts:' '    - 192.168.50.1' '    - 127.0.0.1' '  port: 53' >"${WORK_DIR}/AdGuardHome.yaml" ||
+	fail 'could not set multi-host LAN DNS bind hosts'
+[ "$(adguardhome_dns_bind_scope)" = global ] || fail 'multi-host DNS bind scope did not fall back to global'
+DNSMASQ_RUNNING=0
+DNS_STATE=busy_loopback
+if pre_start_adguardhome; then
+	fail 'LAN multi-host pre-start accepted off-LAN configured bind host owner'
+fi
+grep -q 'Port 53 is not available for AdGuardHome; startup aborted without DNS handoff' "${CALLS_FILE}" ||
+	fail 'LAN multi-host pre-start did not use global port check'
+unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 : >"${CALLS_FILE}"
 printf '%s\n' 'dns:' '  bind_hosts:' '    - 0.0.0.0' '  port: 53' >"${WORK_DIR}/AdGuardHome.yaml" ||

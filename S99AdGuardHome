@@ -732,6 +732,7 @@ adguardhome_dns_bind_scope() {
 				value = value_text(value)
 				if (value == "0.0.0.0" || value == "::") wildcard = 1
 				else if (value == lan_ip) lan = 1
+				else if (value != "") other_specific = 1
 			}
 			next
 		}
@@ -741,7 +742,7 @@ adguardhome_dns_bind_scope() {
 			next
 		}
 		END {
-			if (wildcard) print "global"
+			if (wildcard || other_specific) print "global"
 			else if (lan) print lan_ip
 			else print "global"
 		}
