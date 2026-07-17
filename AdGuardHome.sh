@@ -92,13 +92,13 @@ adguard_dnsmasq_managed() {
 	adguard_dnsmasq_running
 }
 
+adguard_ipset_allowed() {
+	! adguard_lan_mode
+}
+
 adguard_restart_dnsmasq_if_managed() {
 	adguard_dnsmasq_managed || return 0
 	service restart_dnsmasq >/dev/null 2>&1
-}
-
-adguard_ipset_allowed() {
-	! adguard_lan_mode
 }
 
 have_cmd() {
