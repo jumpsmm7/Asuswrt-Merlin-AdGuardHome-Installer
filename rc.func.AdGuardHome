@@ -191,7 +191,7 @@ adguardhome_start_handoff_is_prepared() {
 }
 
 start() {
-	local DNS_HANDOFF LAUNCH_PID PIDS POSTCMD_STATUS STOPPED
+	local DNS_HANDOFF LAUNCH_PID PIDS POSTCMD_STATUS POSTFAIL_STATUS STOPPED
 	if type service_mark_transition >/dev/null 2>&1; then
 		case "${ACTION:-}" in
 			"restart") service_mark_transition "restarting" ;;
@@ -228,7 +228,19 @@ start() {
 	if ! process_wait_for_start "${PROC}" 10; then
 		stop_launched_process "${LAUNCH_PID}"
 		if [ -n "${POSTFAILCMD:-}" ]; then
-			${POSTFAILCMD} >/dev/null 2>&1 || logger -st "${CALLER}" "Failed-start recovery failed for ${DESC} from ${CALLER}."
+			POSTFAIL_STATUS=0
+			if [ "${PROC}" = "AdGuardHome" ] && [ "${DNS_HANDOFF}" -ne 1 ]; then
+				(
+					ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+					export ADGUARDHOME_SKIP_DNSMASQ_RESTART
+					${POSTFAILCMD} >/dev/null 2>&1
+				)
+				POSTFAIL_STATUS="$?"
+			else
+				${POSTFAILCMD} >/dev/null 2>&1
+				POSTFAIL_STATUS="$?"
+			fi
+			[ "${POSTFAIL_STATUS}" -eq 0 ] || logger -st "${CALLER}" "Failed-start recovery failed for ${DESC} from ${CALLER}."
 		fi
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 		logger -st "${CALLER}" "Failed to start ${DESC} from ${CALLER}."
@@ -262,7 +274,19 @@ start() {
 			fi
 		fi
 		if [ "${STOPPED}" -eq 1 ] && [ -n "${POSTFAILCMD:-}" ]; then
-			${POSTFAILCMD} >/dev/null 2>&1 || logger -st "${CALLER}" "Post-start failure recovery failed for ${DESC} from ${CALLER}."
+			POSTFAIL_STATUS=0
+			if [ "${PROC}" = "AdGuardHome" ] && [ "${DNS_HANDOFF}" -ne 1 ]; then
+				(
+					ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+					export ADGUARDHOME_SKIP_DNSMASQ_RESTART
+					${POSTFAILCMD} >/dev/null 2>&1
+				)
+				POSTFAIL_STATUS="$?"
+			else
+				${POSTFAILCMD} >/dev/null 2>&1
+				POSTFAIL_STATUS="$?"
+			fi
+			[ "${POSTFAIL_STATUS}" -eq 0 ] || logger -st "${CALLER}" "Post-start failure recovery failed for ${DESC} from ${CALLER}."
 		fi
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 		logger -st "${CALLER}" "Post-start hook failed for ${DESC} from ${CALLER}."

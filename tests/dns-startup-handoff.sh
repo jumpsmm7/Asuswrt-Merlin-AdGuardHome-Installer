@@ -772,6 +772,7 @@ post_hook() {
 	return 0
 }
 post_failure_hook() {
+	printf '%s\n' "post_failure_hook ${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-0}" >>"${CALLS_FILE}"
 	post_start_failure_adguardhome
 }
 
@@ -863,6 +864,7 @@ rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 ) || fail 'rc.func ignored a failed no-handoff post-start readiness check'
 grep -q '^no_handoff_fail_post_hook$' "${CALLS_FILE}" || fail 'rc.func skipped failing no-handoff post-start checks'
 grep -q '^signal TERM AdGuardHome$' "${CALLS_FILE}" || fail 'rc.func did not stop AdGuardHome after no-handoff post-start failure'
+grep -q '^post_failure_hook 1$' "${CALLS_FILE}" || fail 'rc.func did not suppress dnsmasq restart during no-handoff post-start failure recovery'
 
 # Interrupting startup after the pre-start hook has spawned the DNS guard must
 # reap that child and run the same dnsmasq recovery used by other failed starts.
