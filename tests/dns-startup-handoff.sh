@@ -150,6 +150,9 @@ netstat() {
 		busy_loopback)
 			printf '%s\n' 'udp 0 0 127.0.0.1:53 0.0.0.0:* 0 0 234/custom-dns'
 			;;
+		busy_other_lan)
+			printf '%s\n' 'udp 0 0 192.168.51.1:53 0.0.0.0:* 0 0 234/custom-dns'
+			;;
 		busy_wildcard)
 			printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 0 0 234/custom-dns'
 			;;
@@ -563,15 +566,20 @@ grep -q 'mode=lan dnsmasq=absent handoff=skipped' "${CALLS_FILE}" ||
 : >"${CALLS_FILE}"
 printf '%s\n' 'dns:' '  bind_hosts:' '    - 192.168.50.1' '    - 127.0.0.1' '  port: 53' >"${WORK_DIR}/AdGuardHome.yaml" ||
 	fail 'could not set multi-host LAN DNS bind hosts'
-[ "$(adguardhome_dns_bind_scope)" = global ] || fail 'multi-host DNS bind scope did not fall back to global'
+[ "$(adguardhome_dns_bind_scope)" = '192.168.50.1 127.0.0.1' ] || fail 'multi-host DNS bind scope did not include LAN and loopback hosts'
 DNSMASQ_RUNNING=0
 DNS_STATE=busy_loopback
 if pre_start_adguardhome; then
-	fail 'LAN multi-host pre-start accepted off-LAN configured bind host owner'
+	fail 'LAN multi-host pre-start accepted configured loopback bind host owner'
 fi
 grep -q 'Port 53 is not available for AdGuardHome; startup aborted without DNS handoff' "${CALLS_FILE}" ||
-	fail 'LAN multi-host pre-start did not use global port check'
+	fail 'LAN multi-host pre-start did not check loopback scope'
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+
+DNS_STATE=busy_other_lan
+if ! dns_port_available "$(adguardhome_dns_bind_scope)"; then
+	fail 'LAN multi-host scope rejected off-scope DNS owner'
+fi
 
 : >"${CALLS_FILE}"
 printf '%s\n' 'dns:' '  bind_hosts:' '    - 0.0.0.0' '  port: 53' >"${WORK_DIR}/AdGuardHome.yaml" ||
