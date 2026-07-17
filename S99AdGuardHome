@@ -209,6 +209,21 @@ dns_handoff_marker_is_active() {
 	[ "${_dns_handoff_current_start_time}" = "${_dns_handoff_marker_start_time}" ]
 }
 
+remove_inactive_dns_handoff_marker() {
+	[ -e "${DNS_HANDOFF_FILE}" ] || return 0
+	dns_handoff_directory_is_private || return 1
+	if [ -L "${DNS_HANDOFF_FILE}" ]; then
+		agh_log ERROR remove_inactive_dns_handoff_marker "Refusing to remove a symbolic-link dnsmasq handoff marker."
+		return 1
+	fi
+	dns_handoff_marker_is_active && return 0
+	if ! rm -f "${DNS_HANDOFF_FILE}"; then
+		agh_log ERROR remove_inactive_dns_handoff_marker "Unable to remove a stale dnsmasq handoff marker."
+		return 1
+	fi
+	return 0
+}
+
 dns_handoff_lock_file_is_active() {
 	_dns_handoff_lock_file="$1"
 	_dns_handoff_lock_pid=""
@@ -1222,6 +1237,7 @@ pre_start_adguardhome() {
 		scribe restart
 	fi
 	if [ "${_agh_dns_handoff_required}" != "1" ]; then
+		remove_inactive_dns_handoff_marker || return 1
 		if dns_port_available; then
 			agh_log INFO pre_start_adguardhome "Port 53 is available for AdGuardHome; starting without DNS handoff."
 			return 0
