@@ -789,6 +789,8 @@ rm -f "${STARTED_FILE}"
 	}
 	pre_hook() {
 		HANDOFF_ENABLED=1
+		dns_handoff_set_current_identity || return 1
+		printf '%s %s\n' "${DNS_HANDOFF_CURRENT_PID}" "${DNS_HANDOFF_CURRENT_START_TIME}" >"${DNS_HANDOFF_FILE}" || return 1
 		printf '%s\n' pre_hook >>"${CALLS_FILE}"
 	}
 	post_hook() {
@@ -816,6 +818,8 @@ rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 		esac
 	}
 	pre_hook() {
+		dns_handoff_set_current_identity || return 1
+		printf '%s %s\n' "${DNS_HANDOFF_CURRENT_PID}" "${DNS_HANDOFF_CURRENT_START_TIME}" >"${DNS_HANDOFF_FILE}" || return 1
 		printf '%s\n' stale_pre_hook >>"${CALLS_FILE}"
 	}
 	post_hook() {
@@ -825,6 +829,24 @@ rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 ) || fail 'rc.func failed to recover a stale dnsmasq port 553 startup'
 grep -q '^stale_pre_hook$' "${CALLS_FILE}" || fail 'rc.func skipped pre-start with stale dnsmasq port 553 and no active handoff marker'
 grep -q '^stale_post_hook$' "${CALLS_FILE}" || fail 'rc.func skipped post-start cleanup after stale dnsmasq port 553 recovery'
+
+# A LAN-mode start where pre-start intentionally skips the dnsmasq handoff must
+# not run post-start cleanup, because that would restart dnsmasq onto port 53
+# after AdGuardHome has already bound it.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
+(
+	pre_hook() {
+		printf '%s\n' no_handoff_pre_hook >>"${CALLS_FILE}"
+	}
+	post_hook() {
+		printf '%s\n' no_handoff_post_hook >>"${CALLS_FILE}"
+		return 1
+	}
+	start >/dev/null
+) || fail 'rc.func failed a successful no-handoff start'
+grep -q '^no_handoff_pre_hook$' "${CALLS_FILE}" || fail 'rc.func did not run the no-handoff pre-start hook'
+! grep -q '^no_handoff_post_hook$' "${CALLS_FILE}" || fail 'rc.func ran post-start cleanup after no-handoff pre-start'
 
 # Interrupting startup after the pre-start hook has spawned the DNS guard must
 # reap that child and run the same dnsmasq recovery used by other failed starts.
@@ -878,6 +900,8 @@ fi
 [ ! -f "${STARTED_FILE}" ] || fail 'rc.func launched AdGuardHome after pre-start failure'
 
 pre_hook() {
+	dns_handoff_set_current_identity || return 1
+	printf '%s %s\n' "${DNS_HANDOFF_CURRENT_PID}" "${DNS_HANDOFF_CURRENT_START_TIME}" >"${DNS_HANDOFF_FILE}" || return 1
 	return 0
 }
 post_hook() {

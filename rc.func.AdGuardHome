@@ -215,9 +215,10 @@ start() {
 		if ! ${PRECMD} >/dev/null 2>&1; then
 			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 			logger -st "${CALLER}" "Pre-start hook failed for ${DESC} from ${CALLER}."
-			[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
+			[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
 			return 255
 		fi
+		adguardhome_start_handoff_is_prepared || DNS_HANDOFF=0
 	fi
 	{
 		${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null &
@@ -231,7 +232,7 @@ start() {
 		fi
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 		logger -st "${CALLER}" "Failed to start ${DESC} from ${CALLER}."
-		[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
+		[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
 		return 255
 	fi
 	if [ "${PROC}" != "AdGuardHome" ] || [ "${DNS_HANDOFF}" -eq 1 ]; then
@@ -254,11 +255,11 @@ start() {
 			fi
 			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 			logger -st "${CALLER}" "Post-start hook failed for ${DESC} from ${CALLER}."
-			[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
+			[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
 			return 255
 		fi
 	fi
-	[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
+	[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
 	PIDS="$(process_pids "${PROC}")"
 	if [ -z "${PIDS}" ]; then
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
