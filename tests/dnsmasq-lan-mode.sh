@@ -214,9 +214,9 @@ ADGUARD_RUNNING='0'
 ADGUARD_DNSMASQ_MODE='disabled'
 DNS_HANDOFF_ACTIVE='1'
 dnsmasq_action_handler || fail 'LAN disabled handoff path failed'
-grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
-	fail 'LAN disabled handoff path did not log stopped dnsmasq skip reason'
-assert_dnsmasq_postconf_not_written "${DNSMASQ_CONF_FILE}" 'LAN disabled handoff path'
+! grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
+	fail 'LAN disabled handoff path logged stopped dnsmasq skip reason'
+assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN disabled handoff path'
 assert_no_ipset_refresh 'LAN disabled handoff path'
 
 reset_case
@@ -279,9 +279,9 @@ ADGUARD_DNSMASQ_MODE='auto'
 DNS_HANDOFF_ACTIVE='1'
 ADGUARD_RUNNING='0'
 dnsmasq_action_handler || fail 'LAN stopped dnsmasq handoff path failed'
-grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
-	fail 'LAN stopped dnsmasq handoff path did not log stopped dnsmasq skip reason'
-assert_dnsmasq_postconf_not_written "${DNSMASQ_CONF_FILE}" 'LAN stopped dnsmasq handoff path'
+! grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
+	fail 'LAN stopped dnsmasq handoff path logged stopped dnsmasq skip reason'
+assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN stopped dnsmasq handoff path'
 assert_no_ipset_refresh 'LAN stopped dnsmasq handoff path'
 
 printf '%s\n' 'dnsmasq LAN-mode tests passed.'
