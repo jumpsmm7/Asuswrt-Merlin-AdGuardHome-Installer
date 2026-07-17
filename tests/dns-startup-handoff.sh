@@ -448,6 +448,21 @@ pre_start_adguardhome || fail 'LAN pre-start without dnsmasq rejected an availab
 ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'LAN stale-marker pre-start stopped dnsmasq'
 
 : >"${CALLS_FILE}"
+printf '%s %s\n' "${CURRENT_PID}" "${CURRENT_START_TIME}" >"${DNS_HANDOFF_FILE}" ||
+	fail 'could not create active no-handoff marker'
+DNSMASQ_RUNNING=0
+DNS_STATE=free
+if pre_start_adguardhome; then
+	fail 'LAN pre-start without dnsmasq accepted an active handoff marker'
+fi
+[ -f "${DNS_HANDOFF_FILE}" ] || fail 'LAN no-handoff pre-start removed an active handoff marker'
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'LAN active-marker pre-start prepared DNS handoff'
+! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'LAN active-marker pre-start stopped dnsmasq'
+grep -q 'DNS handoff is already active; startup aborted without DNS handoff' "${CALLS_FILE}" ||
+	fail 'LAN active-marker pre-start did not log handoff-in-progress failure'
+disable_dns_handoff || fail 'could not clean up active no-handoff marker'
+
+: >"${CALLS_FILE}"
 DNSMASQ_RUNNING=0
 DNS_STATE=busy
 if pre_start_adguardhome; then

@@ -1244,6 +1244,10 @@ pre_start_adguardhome() {
 	fi
 	if [ "${_agh_dns_handoff_required}" != "1" ]; then
 		remove_inactive_dns_handoff_marker || return 1
+		if dns_handoff_marker_is_active; then
+			agh_log ERROR pre_start_adguardhome "DNS handoff is already active; startup aborted without DNS handoff."
+			return 1
+		fi
 		if dns_port_available; then
 			agh_log INFO pre_start_adguardhome "Port 53 is available for AdGuardHome; starting without DNS handoff."
 			return 0
