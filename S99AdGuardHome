@@ -596,7 +596,7 @@ log_adguardhome_start_failure() {
 		agh_log ERROR log_adguardhome_start_failure "AdGuardHome startup failed: process is not running."
 		return 0
 	fi
-	if ! adguardhome_owns_dns; then
+	if ! adguardhome_owns_dns "${ADGUARDHOME_DNS_BIND_SCOPE:-global}"; then
 		agh_log ERROR log_adguardhome_start_failure "AdGuardHome startup failed: process is running but DNS is not bound."
 		return 0
 	fi
@@ -629,11 +629,13 @@ adguardhome_single_process_running() {
 }
 
 adguardhome_owns_dns() {
+	_dns_port_scope="${1:-global}"
 	_dns_socket_table=""
 	pidof "${PROCS}" >/dev/null 2>&1 || return 2
 	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
-	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
-		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
+	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
+		function scoped(local_address) { return scope == "global" || local_address == scope ":53" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53" }
+		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && scoped($4) {
 			tcp_bound=1
 			owner=""
 			for (field = 1; field <= NF; field++) {
@@ -641,7 +643,7 @@ adguardhome_owns_dns() {
 			}
 			if (owner ~ "/" proc "$") tcp_owner=1; else if (owner != "") other_found=1
 		}
-		$0 ~ /^(udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
+		$0 ~ /^(udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && scoped($4) {
 			udp_bound=1
 			owner=""
 			for (field = 1; field <= NF; field++) {
@@ -762,7 +764,7 @@ kill_dns_port_owners() {
 	_dns_port_scope="${1:-global}"
 	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
 	_dns_owner_actions="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
-		function scoped(local_address) { return scope == "global" || local_address == scope ":53" }
+		function scoped(local_address) { return scope == "global" || local_address == scope ":53" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53" }
 		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && scoped($4) && $0 !~ "/" proc "([[:space:]]|$)" {
 			owner_pid = ""
 			owner_name = "unknown"
@@ -848,7 +850,7 @@ dns_port_available() {
 	_dns_port_scope="${1:-global}"
 	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
-		function scoped(local_address) { return scope == "global" || local_address == scope ":53" }
+		function scoped(local_address) { return scope == "global" || local_address == scope ":53" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53" }
 		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && scoped($4) {
 			bound = 1
 			owner = ""
@@ -878,7 +880,7 @@ dns_port_has_foreign_owner() {
 	_dns_port_scope="${1:-global}"
 	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
-		function scoped(local_address) { return scope == "global" || local_address == scope ":53" }
+		function scoped(local_address) { return scope == "global" || local_address == scope ":53" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53" }
 		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && scoped($4) {
 			for (field = 1; field <= NF; field++) {
 				if ($field ~ /^[0-9]+\/[^[:space:]]+$/) {
@@ -895,7 +897,7 @@ dns_port_needs_release() {
 	_dns_port_scope="${1:-global}"
 	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
-		function scoped(local_address) { return scope == "global" || local_address == scope ":53" }
+		function scoped(local_address) { return scope == "global" || local_address == scope ":53" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53" }
 		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && scoped($4) {
 			bound = 1
 			owner = ""
@@ -964,6 +966,7 @@ stop_dns_port_guard() {
 }
 
 log_adguardhome_dns_wait_failure() {
+	_dns_port_scope="${ADGUARDHOME_DNS_BIND_SCOPE:-global}"
 	if ! pidof "${PROCS}" >/dev/null 2>&1; then
 		agh_log ERROR log_adguardhome_dns_wait_failure "AdGuardHome did not acquire DNS: AdGuardHome process is missing."
 		return 0
@@ -972,8 +975,9 @@ log_adguardhome_dns_wait_failure() {
 		agh_log ERROR log_adguardhome_dns_wait_failure "AdGuardHome did not acquire DNS: unable to inspect port 53 ownership."
 		return 0
 	}
-	_dns_wait_failure="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" '
-		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
+	_dns_wait_failure="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
+		function scoped(local_address) { return scope == "global" || local_address == scope ":53" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53" }
+		$0 ~ /^(tcp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && scoped($4) {
 			tcp_bound=1
 			owner=""
 			for (field = 1; field <= NF; field++) {
@@ -981,7 +985,7 @@ log_adguardhome_dns_wait_failure() {
 			}
 			if (owner ~ "/" proc "$") tcp_found=1; else if (owner != "") other_found=1
 		}
-		$0 ~ /^(udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ {
+		$0 ~ /^(udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && scoped($4) {
 			udp_bound=1
 			owner=""
 			for (field = 1; field <= NF; field++) {
@@ -1005,7 +1009,7 @@ wait_for_adguardhome_dns() {
 	_dns_wait_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" 30)"
 	agh_log INFO wait_for_adguardhome_dns "Waiting for AdGuardHome to bind DNS port 53."
 	while [ "${_dns_wait_attempts}" -lt "${_dns_wait_limit}" ]; do
-		adguardhome_owns_dns
+		adguardhome_owns_dns "${ADGUARDHOME_DNS_BIND_SCOPE:-global}"
 		_dns_wait_status="$?"
 		if [ "${_dns_wait_status}" -eq 0 ]; then
 			agh_log INFO wait_for_adguardhome_dns "AdGuardHome owns DNS port 53 after ${_dns_wait_attempts} attempt(s)."
@@ -1018,7 +1022,7 @@ wait_for_adguardhome_dns() {
 		fi
 		sleep 1s
 	done
-	if adguardhome_owns_dns; then
+	if adguardhome_owns_dns "${ADGUARDHOME_DNS_BIND_SCOPE:-global}"; then
 		agh_log INFO wait_for_adguardhome_dns "AdGuardHome owns DNS port 53 on final check."
 		return 0
 	fi
@@ -1041,7 +1045,7 @@ start_dns_port_guard() {
 	# cannot terminate us during retry sleep without resuming the watchdog.
 	trap 'trap - HUP INT TERM EXIT; exec 3<&- 3>&- 2>/dev/null; rm -f "${_dns_guard_wait_fifo:-}"; resume_dns_watchdog; restore_dns_watchdog_traps "${_dns_guard_saved_traps}"; exit 0' HUP INT TERM EXIT
 	while [ "${_dns_guard_attempts}" -lt "${_dns_guard_limit}" ]; do
-		if adguardhome_owns_dns; then
+		if adguardhome_owns_dns "${_dns_bind_scope}"; then
 			break
 		fi
 		if dns_port_has_foreign_owner "${_dns_bind_scope}"; then

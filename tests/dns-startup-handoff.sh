@@ -147,11 +147,22 @@ netstat() {
 		busy_alt_lan)
 			printf '%s\n' 'udp 0 0 192.168.50.1:53 0.0.0.0:* 0 0 234/custom-dns'
 			;;
+		busy_wildcard)
+			printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 0 0 234/custom-dns'
+			;;
 		busy_no_pid)
 			printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:*'
 			;;
 		busy_alt_dnsmasq)
 			printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 0 0 234/dnsmasq'
+			;;
+		owned_lan_alt)
+			printf '%s\n' \
+				'tcp 0 0 192.168.50.1:53 0.0.0.0:* LISTEN 321/AdGuardHome' \
+				'udp 0 0 192.168.50.1:53 0.0.0.0:* 321/AdGuardHome' \
+				'tcp 0 0 192.168.51.1:53 0.0.0.0:* LISTEN 123/dnsmasq' \
+				'udp 0 0 192.168.51.1:53 0.0.0.0:* 123/dnsmasq' \
+				'tcp 0 0 0.0.0.0:3000 0.0.0.0:* LISTEN 321/AdGuardHome'
 			;;
 		owned)
 			printf '%s\n' \
@@ -220,6 +231,19 @@ NETSTAT_FAIL=0
 SLEEP_CALLS=0
 SLEEP_OWNED_AFTER=0
 SLEEP_BUSY_AFTER=0
+
+ADGUARDHOME_DNS_BIND_SCOPE=192.168.50.1
+DNS_STATE=busy_wildcard
+if dns_port_available "${ADGUARDHOME_DNS_BIND_SCOPE}"; then
+	fail 'scoped DNS availability ignored a wildcard port 53 owner'
+fi
+if ! dns_port_has_foreign_owner "${ADGUARDHOME_DNS_BIND_SCOPE}"; then
+	fail 'scoped DNS foreign-owner check ignored a wildcard port 53 owner'
+fi
+DNS_STATE=owned_lan_alt
+post_start_adguardhome || fail 'scoped post-start rejected AdGuardHome DNS ownership with off-scope listener'
+unset ADGUARDHOME_DNS_BIND_SCOPE
+DNS_STATE=free
 
 : >"${CALLS_FILE}"
 _dns_saved_test_traps_file="${TEST_ROOT}/caller-traps"
@@ -515,9 +539,11 @@ printf '%s\n' 'dns:' '  bind_hosts:' '    - 192.168.50.1' '  port: 53' >"${WORK_
 	fail 'could not set LAN DNS bind host'
 DNSMASQ_RUNNING=0
 DNS_STATE=busy_alt
-pre_start_adguardhome || fail 'LAN scoped pre-start rejected unrelated wildcard owner'
-! grep -q '^kill -s 9 234$' "${CALLS_FILE}" || fail 'LAN scoped pre-start killed unrelated wildcard owner'
-post_start_failure_adguardhome || fail 'LAN scoped failure cleanup failed'
+if pre_start_adguardhome; then
+	fail 'LAN scoped pre-start accepted wildcard DNS owner'
+fi
+grep -q 'Port 53 is not available for AdGuardHome; startup aborted without DNS handoff' "${CALLS_FILE}" ||
+	fail 'LAN scoped pre-start did not treat wildcard DNS owner as a conflict'
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 : >"${CALLS_FILE}"
