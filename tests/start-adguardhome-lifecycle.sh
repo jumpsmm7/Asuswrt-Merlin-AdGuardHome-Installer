@@ -28,11 +28,11 @@ assert_startup_uses_lock_first_setup() {
 		/^start_adguardhome\(\) \{$/ { in_start = 1; next }
 		in_start && /^}$/ { exit }
 		in_start && /^[[:space:]]*if adguard_lan_mode; then$/ { lan_gate++ }
-		in_start && /^[[:space:]]*elif ! IPSet_Setup_For_Start; then$/ { lock_first++ }
+		in_start && /^[[:space:]]*if ! IPSet_Setup_For_Start; then$/ { lock_first++ }
 		in_start && /^[[:space:]]*if ! IPSet_Setup;/ { legacy++ }
 		END { print lan_gate + 0, lock_first + 0, legacy + 0 }
 	' "${SCRIPT_PATH}")" || fail 'could not inspect the startup IPSET setup call'
-	[ "${STARTUP_SETUP_CALLS}" = '1 1 0' ] || fail "expected one LAN gate, one argument-free lock-first setup call, and no legacy setup call, found ${STARTUP_SETUP_CALLS}"
+	[ "${STARTUP_SETUP_CALLS}" = '0 1 0' ] || fail "expected no outer LAN gate, one argument-free lock-first setup call, and no legacy setup call, found ${STARTUP_SETUP_CALLS}"
 }
 
 assert_optional_ipset_tools_do_not_gate_startup() {
@@ -246,9 +246,10 @@ DNSMASQ_UNMANAGED_AFTER_START=0
 run_service_wait_terminal_test
 
 INSTALL_MODE=lan
-run_test 'LAN mode skips startup IPSET setup' 0 0 0 0 0 0 1 'lower_script start'
-[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 0 ] || fail 'LAN startup skip was incorrectly marked terminal'
-[ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'LAN startup skip did not continue to the health check'
+run_test 'LAN mode cleans managed IPSET before startup' 0 0 0 0 0 0 1 'IPSet_Disable_Managed
+lower_script start'
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 0 ] || fail 'LAN startup cleanup was incorrectly marked terminal'
+[ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'LAN startup cleanup did not continue to the health check'
 DISABLE_STATUS=1
 : >"${CALLS_FILE}"
 IPSet_Setup_For_Start || fail 'LAN setup helper treated failed cleanup as fatal'
