@@ -172,7 +172,6 @@ dnsmasq_params || fail 'LAN stopped dnsmasq path failed'
 assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN stopped dnsmasq path'
 assert_no_ipset_refresh 'LAN stopped dnsmasq path'
 
-
 reset_case
 ADGUARD_INSTALL_MODE='lan'
 DNSMASQ_RUNNING='0'
