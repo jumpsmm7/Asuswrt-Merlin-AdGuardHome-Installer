@@ -31,7 +31,7 @@ sed -n \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed -n '/^dns_handoff_is_active() {$/,/^}$/p' "${MANAGER_PATH}" >>"${S99_FUNCTIONS}" ||
 	fail "could not read ${MANAGER_PATH}"
-sed -n '/^stop_launched_process() {$/,/^}$/p; /^adguardhome_start_handoff_is_prepared() {$/,/^}$/p; /^adguardhome_run_postfailcmd() {$/,/^}$/p; /^start() {$/,/^}$/p' "${RC_PATH}" >"${RC_FUNCTION}" ||
+sed -n '/^stop_launched_process() {$/,/^}$/p; /^adguardhome_start_handoff_is_prepared() {$/,/^}$/p; /^adguardhome_start_handoff_required() {$/,/^}$/p; /^adguardhome_run_postfailcmd() {$/,/^}$/p; /^start() {$/,/^}$/p' "${RC_PATH}" >"${RC_FUNCTION}" ||
 	fail "could not read ${RC_PATH}"
 [ -s "${S99_FUNCTIONS}" ] || fail 'DNS handoff functions were not found'
 [ -s "${RC_FUNCTION}" ] || fail 'service start function was not found'
@@ -961,6 +961,39 @@ fi
 grep -q '^no_handoff_interrupt_pre_hook$' "${CALLS_FILE}" || fail 'interrupted no-handoff start skipped pre-start hook'
 grep -q '^post_failure_hook 1$' "${CALLS_FILE}" || fail 'interrupted no-handoff startup did not suppress dnsmasq restart during recovery'
 ! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'interrupted no-handoff startup restarted dnsmasq'
+
+# The no-handoff decision must be visible to the signal trap before PRECMD
+# runs, so an interrupt during pre-start validation does not restart dnsmasq.
+NO_HANDOFF_PRE_INTERRUPT_READY_FILE="${TEST_ROOT}/no-handoff-pre-interrupt-ready"
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}" "${NO_HANDOFF_PRE_INTERRUPT_READY_FILE}"
+(
+	agh_dns_handoff_required() {
+		return 1
+	}
+	pre_hook() {
+		printf '%s\n' no_handoff_pre_interrupt_hook >>"${CALLS_FILE}"
+		: >"${NO_HANDOFF_PRE_INTERRUPT_READY_FILE}"
+		while :; do
+			command sleep 1
+		done
+	}
+	start >/dev/null
+) &
+_no_handoff_pre_interrupt_pid="$!"
+_no_handoff_pre_interrupt_waits=0
+while [ ! -f "${NO_HANDOFF_PRE_INTERRUPT_READY_FILE}" ] && [ "${_no_handoff_pre_interrupt_waits}" -lt 100 ]; do
+	_no_handoff_pre_interrupt_waits="$((_no_handoff_pre_interrupt_waits + 1))"
+	command sleep 0.01
+done
+[ -f "${NO_HANDOFF_PRE_INTERRUPT_READY_FILE}" ] || fail 'interrupted no-handoff pre-start did not reach the guarded pre-start window'
+command kill -TERM "${_no_handoff_pre_interrupt_pid}" 2>/dev/null || fail 'could not interrupt no-handoff pre-start'
+if wait "${_no_handoff_pre_interrupt_pid}"; then
+	fail 'interrupted no-handoff pre-start reported success'
+fi
+grep -q '^no_handoff_pre_interrupt_hook$' "${CALLS_FILE}" || fail 'interrupted no-handoff pre-start skipped pre-start hook'
+grep -q '^post_failure_hook 1$' "${CALLS_FILE}" || fail 'interrupted no-handoff pre-start did not suppress dnsmasq restart during recovery'
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'interrupted no-handoff pre-start restarted dnsmasq'
 
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}"
