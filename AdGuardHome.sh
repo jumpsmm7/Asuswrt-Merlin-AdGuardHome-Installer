@@ -815,8 +815,13 @@ dnsmasq_params() {
 
 dnsmasq_action_handler() {
 	if adguard_lan_mode && ! adguard_dnsmasq_running && ! dns_handoff_is_active; then
-		agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_not_running"
-		return 0
+		case "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" in
+			enabled) ;;
+			*)
+				agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_not_running"
+				return 0
+				;;
+		esac
 	fi
 	if [ -n "${1:-}" ]; then
 		dnsmasq_params "${1}"

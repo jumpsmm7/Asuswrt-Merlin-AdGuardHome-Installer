@@ -266,11 +266,11 @@ reset_case
 ADGUARD_INSTALL_MODE='lan'
 DNSMASQ_RUNNING='0'
 ADGUARD_DNSMASQ_MODE='enabled'
-dnsmasq_action_handler || fail 'LAN managed stopped dnsmasq path failed'
-grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
-	fail 'LAN managed stopped dnsmasq path did not log stopped dnsmasq skip reason'
-assert_dnsmasq_postconf_not_written "${DNSMASQ_CONF_FILE}" 'LAN managed stopped dnsmasq path'
-assert_no_ipset_refresh 'LAN managed stopped dnsmasq path'
+dnsmasq_action_handler || fail 'LAN managed stopped dnsmasq startup path failed'
+! grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
+	fail 'LAN managed stopped dnsmasq startup path logged stopped dnsmasq skip reason'
+assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN managed stopped dnsmasq startup path'
+assert_no_ipset_refresh 'LAN managed stopped dnsmasq startup path'
 
 reset_case
 ADGUARD_INSTALL_MODE='lan'
