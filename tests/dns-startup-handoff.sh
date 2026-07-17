@@ -815,6 +815,21 @@ grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'failure recovery di
 [ -z "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-}" ] || fail 'failure recovery did not clear active handoff after retry'
 clear_dns_handoff_active
 
+: >"${CALLS_FILE}"
+prepare_active_dns_handoff_test_marker || fail 'could not prepare active marker for failed recovery restart test'
+SERVICE_RESTART_FAIL=1
+if post_start_failure_adguardhome; then
+	fail 'failure recovery ignored a failed dnsmasq restart'
+fi
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'failure recovery did not attempt the failed dnsmasq restart'
+[ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-}" = "1" ] || fail 'failure recovery cleared active handoff after failed dnsmasq restart'
+SERVICE_RESTART_FAIL=0
+: >"${CALLS_FILE}"
+post_start_failure_adguardhome || fail 'failure recovery did not retry dnsmasq after failed recovery restart'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'failure recovery did not retry failed recovery restart'
+[ -z "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-}" ] || fail 'failure recovery did not clear active handoff after restart retry'
+clear_dns_handoff_active
+
 # Verify rc.func treats either hook failure as a failed start instead of launching
 # through a bad handoff or reporting a short-lived process as healthy.
 ansi_white=''

@@ -1043,6 +1043,7 @@ post_start_adguardhome() {
 }
 
 post_start_failure_adguardhome() {
+	_dns_handoff_disabled="0"
 	_dns_recovery_status="0"
 	_dns_restore_needed="0"
 	agh_log INFO post_start_failure_adguardhome "Running AdGuardHome startup failure recovery."
@@ -1054,7 +1055,7 @@ post_start_failure_adguardhome() {
 			agh_log ERROR post_start_failure_adguardhome "Unable to disable dnsmasq handoff during failure recovery."
 			_dns_recovery_status="1"
 		else
-			unset ADGUARDHOME_DNS_HANDOFF_ACTIVE
+			_dns_handoff_disabled="1"
 		fi
 	elif [ -e "${DNS_HANDOFF_FILE}" ]; then
 		_dns_restore_needed="1"
@@ -1071,6 +1072,9 @@ post_start_failure_adguardhome() {
 		else
 			agh_log INFO post_start_failure_adguardhome "dnsmasq restarted after AdGuardHome startup failure."
 		fi
+	fi
+	if [ "${_dns_handoff_disabled}" = "1" ] && [ "${_dns_recovery_status}" = "0" ]; then
+		unset ADGUARDHOME_DNS_HANDOFF_ACTIVE
 	fi
 	return "${_dns_recovery_status}"
 }
