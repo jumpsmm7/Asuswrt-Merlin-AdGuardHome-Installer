@@ -371,7 +371,7 @@ lower_script start
 IPSet_Lock released
 service restart_dnsmasq'
 DNSMASQ_UNMANAGED_AFTER_START=1
-run_test 'deferred restart ignores post-start dnsmasq pid fallback' 1 0 0 0 0 0 1 'IPSet_Supported
+run_test 'deferred restart preserves pre-stop dnsmasq management decision' 1 0 0 0 0 0 1 'IPSet_Supported
 IPSet_Lock acquired
 lower_script stop
 IPSet_Setup_Locked

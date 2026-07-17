@@ -85,6 +85,9 @@ adguard_dnsmasq_running() {
 }
 
 adguard_dnsmasq_managed() {
+	if adguard_lan_mode && ! adguard_dnsmasq_running; then
+		return 1
+	fi
 	case "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" in
 		disabled) return 1 ;;
 		enabled) return 0 ;;
