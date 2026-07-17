@@ -699,9 +699,15 @@ adguardhome_dns_bind_scope() {
 		_dns_bind_lan_ip="$(nvram get lan_ipaddr 2>/dev/null)"
 	fi
 	case "${_dns_bind_lan_ip}" in
-		"" | *[!0-9.]* | .* | *.) printf '%s\n' global; return 0 ;;
+		"" | *[!0-9.]* | .* | *.)
+			printf '%s\n' global
+			return 0
+			;;
 	esac
-	[ -f "${WORK_DIR}/AdGuardHome.yaml" ] || { printf '%s\n' global; return 0; }
+	[ -f "${WORK_DIR}/AdGuardHome.yaml" ] || {
+		printf '%s\n' global
+		return 0
+	}
 	awk -v lan_ip="${_dns_bind_lan_ip}" '
 		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
 		function value_text(value) {
