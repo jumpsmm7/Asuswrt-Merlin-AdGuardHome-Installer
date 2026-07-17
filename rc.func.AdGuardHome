@@ -237,7 +237,11 @@ start() {
 	fi
 	POSTCMD_STATUS=0
 	if [ "${PROC}" = "AdGuardHome" ] && [ "${DNS_HANDOFF}" -ne 1 ]; then
-		( ADGUARDHOME_SKIP_DNSMASQ_RESTART=1; export ADGUARDHOME_SKIP_DNSMASQ_RESTART; ${POSTCMD} >/dev/null 2>&1 )
+		(
+			ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+			export ADGUARDHOME_SKIP_DNSMASQ_RESTART
+			${POSTCMD} >/dev/null 2>&1
+		)
 		POSTCMD_STATUS="$?"
 	else
 		${POSTCMD} >/dev/null 2>&1
