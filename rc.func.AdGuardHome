@@ -190,8 +190,27 @@ adguardhome_start_handoff_is_prepared() {
 		[ "${_dns_handoff_start_time}" = "${DNS_HANDOFF_CURRENT_START_TIME}" ]
 }
 
+adguardhome_start_handoff_required() {
+	[ "${PROC}" = "AdGuardHome" ] || return 1
+	type agh_dns_handoff_required >/dev/null 2>&1 || return 0
+	agh_dns_handoff_required
+}
+
+adguardhome_run_postfailcmd() {
+	[ -n "${POSTFAILCMD:-}" ] || return 0
+	if [ "${PROC}" = "AdGuardHome" ] && [ "${DNS_HANDOFF:-0}" -ne 1 ]; then
+		(
+			ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+			export ADGUARDHOME_SKIP_DNSMASQ_RESTART
+			${POSTFAILCMD} >/dev/null 2>&1
+		)
+	else
+		${POSTFAILCMD} >/dev/null 2>&1
+	fi
+}
+
 start() {
-	local DNS_HANDOFF LAUNCH_PID PIDS STOPPED
+	local DNS_HANDOFF LAUNCH_PID PIDS POSTCMD_STATUS POSTFAIL_STATUS STOPPED
 	if type service_mark_transition >/dev/null 2>&1; then
 		case "${ACTION:-}" in
 			"restart") service_mark_transition "restarting" ;;
@@ -208,15 +227,24 @@ start() {
 		return 0
 	fi
 	if [ "${PROC}" = "AdGuardHome" ]; then
-		DNS_HANDOFF=1
-		trap 'stop_launched_process "${LAUNCH_PID:-}"; [ -n "${POSTFAILCMD:-}" ] && ${POSTFAILCMD} >/dev/null 2>&1; exit 255' HUP INT TERM
+		if adguardhome_start_handoff_required; then
+			DNS_HANDOFF=1
+		else
+			DNS_HANDOFF=0
+		fi
+		trap 'stop_launched_process "${LAUNCH_PID:-}"; adguardhome_run_postfailcmd; exit 255' HUP INT TERM
 	fi
 	if ! adguardhome_start_handoff_is_prepared; then
 		if ! ${PRECMD} >/dev/null 2>&1; then
 			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 			logger -st "${CALLER}" "Pre-start hook failed for ${DESC} from ${CALLER}."
-			[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
+			[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
 			return 255
+		fi
+		if adguardhome_start_handoff_is_prepared; then
+			DNS_HANDOFF=1
+		else
+			DNS_HANDOFF=0
 		fi
 	fi
 	{
@@ -227,38 +255,54 @@ start() {
 	if ! process_wait_for_start "${PROC}" 10; then
 		stop_launched_process "${LAUNCH_PID}"
 		if [ -n "${POSTFAILCMD:-}" ]; then
-			${POSTFAILCMD} >/dev/null 2>&1 || logger -st "${CALLER}" "Failed-start recovery failed for ${DESC} from ${CALLER}."
+			POSTFAIL_STATUS=0
+			adguardhome_run_postfailcmd
+			POSTFAIL_STATUS="$?"
+			[ "${POSTFAIL_STATUS}" -eq 0 ] || logger -st "${CALLER}" "Failed-start recovery failed for ${DESC} from ${CALLER}."
 		fi
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 		logger -st "${CALLER}" "Failed to start ${DESC} from ${CALLER}."
-		[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
+		[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
 		return 255
 	fi
-	if [ "${PROC}" != "AdGuardHome" ] || [ "${DNS_HANDOFF}" -eq 1 ]; then
-		if ! ${POSTCMD} >/dev/null 2>&1; then
-			STOPPED=0
-			signal_process TERM "${PROC}"
-			if process_wait_for_stop "${PROC}" 10; then
+	POSTCMD_STATUS=0
+	if [ "${PROC}" = "AdGuardHome" ] && [ "${DNS_HANDOFF}" -ne 1 ]; then
+		(
+			ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+			export ADGUARDHOME_SKIP_DNSMASQ_RESTART
+			${POSTCMD} >/dev/null 2>&1
+		)
+		POSTCMD_STATUS="$?"
+	else
+		${POSTCMD} >/dev/null 2>&1
+		POSTCMD_STATUS="$?"
+	fi
+	if [ "${POSTCMD_STATUS}" -ne 0 ]; then
+		STOPPED=0
+		signal_process TERM "${PROC}"
+		if process_wait_for_stop "${PROC}" 10; then
+			STOPPED=1
+		else
+			signal_process INT "${PROC}"
+			if process_wait_for_stop "${PROC}" 5; then
 				STOPPED=1
 			else
-				signal_process INT "${PROC}"
-				if process_wait_for_stop "${PROC}" 5; then
-					STOPPED=1
-				else
-					signal_process KILL "${PROC}"
-					process_wait_for_stop "${PROC}" 3 && STOPPED=1
-				fi
+				signal_process KILL "${PROC}"
+				process_wait_for_stop "${PROC}" 3 && STOPPED=1
 			fi
-			if [ "${STOPPED}" -eq 1 ] && [ -n "${POSTFAILCMD:-}" ]; then
-				${POSTFAILCMD} >/dev/null 2>&1 || logger -st "${CALLER}" "Post-start failure recovery failed for ${DESC} from ${CALLER}."
-			fi
-			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
-			logger -st "${CALLER}" "Post-start hook failed for ${DESC} from ${CALLER}."
-			[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
-			return 255
 		fi
+		if [ "${STOPPED}" -eq 1 ] && [ -n "${POSTFAILCMD:-}" ]; then
+			POSTFAIL_STATUS=0
+			adguardhome_run_postfailcmd
+			POSTFAIL_STATUS="$?"
+			[ "${POSTFAIL_STATUS}" -eq 0 ] || logger -st "${CALLER}" "Post-start failure recovery failed for ${DESC} from ${CALLER}."
+		fi
+		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
+		logger -st "${CALLER}" "Post-start hook failed for ${DESC} from ${CALLER}."
+		[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
+		return 255
 	fi
-	[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
+	[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
 	PIDS="$(process_pids "${PROC}")"
 	if [ -z "${PIDS}" ]; then
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
