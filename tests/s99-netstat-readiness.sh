@@ -86,6 +86,18 @@ netstat() {
 				'tcp 0 0 192.168.50.1:53 0.0.0.0:* LISTEN 77/customdns' \
 				'udp 0 0 192.168.50.1:53 0.0.0.0:* 77/customdns'
 			;;
+		loopback_only_dns)
+			printf '%s\n' \
+				'tcp 0 0 127.0.0.1:53 0.0.0.0:* LISTEN 123/AdGuardHome' \
+				'udp 0 0 127.0.0.1:53 0.0.0.0:* 123/AdGuardHome'
+			;;
+		scoped_loopback_lan_dns)
+			printf '%s\n' \
+				'tcp 0 0 127.0.0.1:53 0.0.0.0:* LISTEN 123/AdGuardHome' \
+				'udp 0 0 127.0.0.1:53 0.0.0.0:* 123/AdGuardHome' \
+				'tcp 0 0 192.168.50.1:53 0.0.0.0:* LISTEN 123/AdGuardHome' \
+				'udp 0 0 192.168.50.1:53 0.0.0.0:* 123/AdGuardHome'
+			;;
 		missing_udp)
 			printf '%s\n' \
 				'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN' \
@@ -138,6 +150,15 @@ if ! dns_port_needs_release; then
 	fail 'release check missed ownerless DNS port with multiple AdGuardHome processes'
 fi
 PIDOF_STATE=one
+
+
+NETSTAT_STATE=loopback_only_dns
+if adguardhome_owns_dns '127.0.0.1 192.168.50.1'; then
+	fail 'scoped LAN DNS readiness accepted loopback-only ownership'
+fi
+
+NETSTAT_STATE=scoped_loopback_lan_dns
+adguardhome_owns_dns '127.0.0.1 192.168.50.1' || fail 'scoped LAN DNS readiness rejected ownership on every bind address'
 
 NETSTAT_STATE=foreign_dnsmasq
 if adguardhome_owns_dns; then
