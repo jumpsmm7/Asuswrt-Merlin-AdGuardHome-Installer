@@ -2941,15 +2941,25 @@ adguardhome_yaml_remove_ipset_file() {
 }
 
 adguard_enforce_lan_ipset_disabled() {
-	case "${ADGUARD_INSTALL_MODE:-}:$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)" in
-		lan:* | *:lan)
-			ADGUARD_INSTALL_MODE="lan"
-			write_conf ADGUARD_INSTALL_MODE "\"lan\"" || return 1
-			write_conf ADGUARD_IPSET "\"NO\"" || return 1
-			adguardhome_yaml_remove_ipset_file || return 1
-			PTXT "${INFO} IPSET is disabled in LAN/AP/Bridge mode because IPTABLES/IPSET rules are not manageable there."
+	case "${ADGUARD_INSTALL_MODE:-}" in
+		wan)
+			write_conf ADGUARD_INSTALL_MODE '"wan"' || return 1
+			return 0
+			;;
+		lan)
+			;;
+		*)
+			case "$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)" in
+				lan) ADGUARD_INSTALL_MODE="lan" ;;
+				*) return 0 ;;
+			esac
 			;;
 	esac
+	ADGUARD_INSTALL_MODE="lan"
+	write_conf ADGUARD_INSTALL_MODE "\"lan\"" || return 1
+	write_conf ADGUARD_IPSET "\"NO\"" || return 1
+	adguardhome_yaml_remove_ipset_file || return 1
+	PTXT "${INFO} IPSET is disabled in LAN/AP/Bridge mode because IPTABLES/IPSET rules are not manageable there."
 	return 0
 }
 
