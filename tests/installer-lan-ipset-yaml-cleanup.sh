@@ -231,12 +231,12 @@ adguard_enforce_lan_ipset_disabled || fail 'WAN detection did not correct stale 
 ADGUARD_FORCE_SETUP_YAML=0
 
 cat >>"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write WAN YAML sync preferences'
-ADGUARD_WEBUI_PORT="3443"
+ADGUARD_WEBUI_PORT="invalid"
 ADGUARD_LAN_REVERSE_UPSTREAM="192.168.50.1"
 EOF_CONF
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored LAN YAML'
 "http": &http_settings # restored web settings
-    "address": 192.168.50.1:3443
+    "address": "192.168.50.1:3443" # restored WebUI
     session_ttl: 720h
 users:
   - name: restored-user
