@@ -5138,6 +5138,7 @@ setup_sync_restored_yaml_for_wan() {
 			position = index(line, old)
 			return substr(line, 1, position - 1) replacement substr(line, position + length(old))
 		}
+		indentation($0) == 0 && (yaml_key_is($0, "http") || yaml_key_is($0, "dns")) && !yaml_mapping_header_is($0, "http") && !yaml_mapping_header_is($0, "dns") { exit 1 }
 		indentation($0) == 0 && yaml_mapping_header_is($0, "http") { in_http = 1; http_indent = indentation($0); print; next }
 		in_http && indentation($0) <= http_indent && $0 !~ /^[[:space:]]*($|#)/ { in_http = 0 }
 		in_http && yaml_key_is($0, "address") {
@@ -5167,6 +5168,7 @@ setup_sync_restored_yaml_for_wan() {
 		in_binds && indentation($0) >= bind_indent && $0 ~ /^[[:space:]]*-[[:space:]]/ { next }
 		in_binds && indentation($0) > bind_indent { next }
 		in_binds { in_binds = 0 }
+		in_dns && (yaml_key_is($0, "upstream_dns") || yaml_key_is($0, "local_ptr_upstreams")) && !yaml_mapping_header_is($0, "upstream_dns") && !yaml_mapping_header_is($0, "local_ptr_upstreams") { exit 1 }
 		in_dns && (yaml_mapping_header_is($0, "upstream_dns") || yaml_mapping_header_is($0, "local_ptr_upstreams")) {
 			reverse_indent = indentation($0); in_reverse_upstreams = 1; print; next
 		}

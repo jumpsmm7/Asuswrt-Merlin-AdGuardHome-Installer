@@ -333,6 +333,19 @@ setup_sync_restored_yaml_for_wan || fail 'could not synchronize indentationless 
 ! grep -Eq '^  - (127\.0\.0\.1|192\.168\.50\.1|fd00::1)$' "${YAML_FILE}" || fail 'WAN YAML sync retained an indentationless bind host'
 grep -Fq '  - https://dns.example/dns-query' "${YAML_FILE}" || fail 'WAN YAML sync removed a sibling indentationless upstream'
 
+for flow_yaml in \
+	'http: {address: 192.168.50.1:3443}' \
+	'dns: {bind_hosts: [192.168.50.1]}' \
+	'dns:\n  upstream_dns: [192.168.50.1:53]' \
+	'dns:\n  local_ptr_upstreams: [192.168.50.1:53]'
+do
+	printf '%b\n' "${flow_yaml}" >"${YAML_FILE}" || fail 'could not write restored flow-style YAML'
+	cp -f "${YAML_FILE}" "${YAML_FILE}.before" || fail 'could not preserve restored flow-style YAML'
+	! setup_sync_restored_yaml_for_wan || fail 'WAN YAML sync silently accepted an unsupported flow-style mapping or collection'
+	cmp -s "${YAML_FILE}" "${YAML_FILE}.before" || fail 'WAN YAML sync changed YAML after rejecting unsupported flow style'
+done
+rm -f "${YAML_FILE}.before"
+
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored LAN config'
 ADGUARD_INSTALL_MODE="lan"
 ADGUARD_IPSET="YES"
