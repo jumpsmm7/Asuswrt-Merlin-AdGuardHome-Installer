@@ -639,6 +639,10 @@ check_dns_environment() {
 	NVCHECK="0"
 	case "${MODE}" in
 		running)
+			if [ "$(pidof stubby | wc -w)" -gt "0" ]; then
+				{ killall -q -9 stubby 2>/dev/null; }
+				NVCHECK="$((NVCHECK + 1))"
+			fi
 			if adguard_lan_mode; then
 				return 0
 			fi
@@ -646,16 +650,9 @@ check_dns_environment() {
 			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
 				save_dns_nvram_environment
 			fi
-			if [ "$(pidof stubby | wc -w)" -gt "0" ]; then
-				{ killall -q -9 stubby 2>/dev/null; }
-				NVCHECK="$((NVCHECK + 1))"
-			fi
 			if dns_env_apply_profile; then NVCHECK="$((NVCHECK + 1))"; fi
 			;;
 		stop)
-			if adguard_lan_mode; then
-				return 0
-			fi
 			# Do not restore if we never saved anything.
 			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
 				return 0

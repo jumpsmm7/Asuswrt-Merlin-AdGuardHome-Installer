@@ -99,8 +99,18 @@ save_dns_nvram_environment() {
 	_DNS_NVRAM_SAVED=1
 }
 
-pidof() { return 1; }
-killall() { fail "unexpected killall: $*"; }
+pidof() {
+	if [ "${STUBBY_RUNNING:-0}" = "1" ] && [ "$1" = "stubby" ]; then
+		printf '%s\n' '1234'
+		return 0
+	fi
+	return 1
+}
+killall() {
+	[ "$*" = '-q -9 stubby' ] || fail "unexpected killall: $*"
+	KILLALL_COUNT="$((KILLALL_COUNT + 1))"
+	STUBBY_RUNNING=0
+}
 adguard_restart_dnsmasq_if_managed() {
 	DNSMASQ_RESTART_COUNT="$((DNSMASQ_RESTART_COUNT + 1))"
 }
@@ -111,10 +121,13 @@ agh_log() { :; }
 
 DNSMASQ_RESTART_COUNT=0
 SERVICE_WAIT_COUNT=0
+KILLALL_COUNT=0
+STUBBY_RUNNING=1
 reset_nvram
 write_conf 'ADGUARD_INSTALL_MODE=lan'
 check_dns_environment running || fail 'LAN runtime DNS environment check failed'
 [ ! -s "${NVRAM_SETS_FILE}" ] || fail 'LAN mode should not set or commit DNS NVRAM values'
+[ "${KILLALL_COUNT}" = '1' ] || fail 'LAN mode should clear a stale stubby process before startup'
 [ "${DNSMASQ_RESTART_COUNT}" = '0' ] || fail 'LAN mode should not restart dnsmasq'
 [ "${SERVICE_WAIT_COUNT}" = '0' ] || fail 'LAN mode should not wait on netcheck'
 assert_nvram_value dnspriv_enable '1'
@@ -123,18 +136,23 @@ assert_nvram_value dhcp_dns1_x '9.9.9.9'
 assert_nvram_value dhcp_dns2_x '149.112.112.112'
 [ "${_DNS_NVRAM_SAVED}" = '0' ] || fail 'LAN mode should not mark DNS NVRAM as saved'
 
-nvram set 'dhcp_dns1_x=1.1.1.1' || fail 'could not simulate LAN-mode admin DNS change'
-: >"${NVRAM_SETS_FILE}" || fail 'could not reset nvram sets after admin change'
+DNSMASQ_RESTART_COUNT=0
+SERVICE_WAIT_COUNT=0
+KILLALL_COUNT=0
+STUBBY_RUNNING=0
+nvram set 'dhcp_dns1_x=1.1.1.1' || fail 'could not simulate WAN-mode DNS rewrite before LAN-mode stop'
+: >"${NVRAM_SETS_FILE}" || fail 'could not reset nvram sets after simulated rewrite'
 _DNS_NVRAM_SAVED=1
 _OLD_dnspriv_enable='1'
 _OLD_dhcpd_dns_router='0'
 _OLD_dhcp_dns1_x='9.9.9.9'
 _OLD_dhcp_dns2_x='149.112.112.112'
 check_dns_environment stop || fail 'LAN stop DNS environment check failed'
-assert_nvram_value dhcp_dns1_x '1.1.1.1'
-[ ! -s "${NVRAM_SETS_FILE}" ] || fail 'LAN mode stop should not restore or commit saved DNS NVRAM values'
-[ "${DNSMASQ_RESTART_COUNT}" = '0' ] || fail 'LAN mode stop should not restart dnsmasq'
-[ "${SERVICE_WAIT_COUNT}" = '0' ] || fail 'LAN mode stop should not wait on netcheck'
+assert_nvram_value dhcp_dns1_x '9.9.9.9'
+grep -q '^dhcp_dns1_x=9.9.9.9$' "${NVRAM_SETS_FILE}" || fail 'LAN mode stop should restore saved DNS NVRAM values'
+grep -q '^commit$' "${NVRAM_SETS_FILE}" || fail 'LAN mode stop should commit restored DNS NVRAM values'
+[ "${DNSMASQ_RESTART_COUNT}" = '1' ] || fail 'LAN mode stop should restart managed dnsmasq after restoring DNS NVRAM'
+[ "${SERVICE_WAIT_COUNT}" = '1' ] || fail 'LAN mode stop should wait on netcheck after restoring DNS NVRAM'
 
 DNSMASQ_RESTART_COUNT=0
 SERVICE_WAIT_COUNT=0
