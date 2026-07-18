@@ -2915,7 +2915,7 @@ adguardhome_yaml_remove_ipset_file() {
 		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
 		function block_marker(value) {
 			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-			return value ~ /^[>|][+-]?([[:space:]]+#.*)?$/
+			return value ~ /^[>|]([+-]|[+-]?[1-9]|[1-9][+-]?)?([[:space:]]+#.*)?$/
 		}
 		/^(dns|\047dns\047|"dns"):[[:space:]]*(&[^][{},[:space:]]+[[:space:]]*)?(#.*)?$/ { in_dns = 1; print; next }
 		in_dns && /^[^[:space:]]/ { in_dns = 0 }
@@ -3565,7 +3565,7 @@ adguardhome_yaml_ipset_file() {
 		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
 		function block_marker(value) {
 			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-			return value ~ /^[>|][+-]?([[:space:]]+#.*)?$/
+			return value ~ /^[>|]([+-]|[+-]?[1-9]|[1-9][+-]?)?([[:space:]]+#.*)?$/
 		}
 		function block_scalar(parent_indent,    line, text) {
 			while ((getline line) > 0) {
