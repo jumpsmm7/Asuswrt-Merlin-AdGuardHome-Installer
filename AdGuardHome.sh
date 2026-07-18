@@ -639,6 +639,9 @@ check_dns_environment() {
 	NVCHECK="0"
 	case "${MODE}" in
 		running)
+			if adguard_lan_mode; then
+				return 0
+			fi
 			# Save original values only once.
 			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
 				save_dns_nvram_environment
@@ -650,6 +653,9 @@ check_dns_environment() {
 			if dns_env_apply_profile; then NVCHECK="$((NVCHECK + 1))"; fi
 			;;
 		stop)
+			if adguard_lan_mode; then
+				return 0
+			fi
 			# Do not restore if we never saved anything.
 			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
 				return 0

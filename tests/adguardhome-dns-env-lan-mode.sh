@@ -121,6 +121,20 @@ assert_nvram_value dnspriv_enable '1'
 assert_nvram_value dhcpd_dns_router '0'
 assert_nvram_value dhcp_dns1_x '9.9.9.9'
 assert_nvram_value dhcp_dns2_x '149.112.112.112'
+[ "${_DNS_NVRAM_SAVED}" = '0' ] || fail 'LAN mode should not mark DNS NVRAM as saved'
+
+nvram set 'dhcp_dns1_x=1.1.1.1' || fail 'could not simulate LAN-mode admin DNS change'
+: >"${NVRAM_SETS_FILE}" || fail 'could not reset nvram sets after admin change'
+_DNS_NVRAM_SAVED=1
+_OLD_dnspriv_enable='1'
+_OLD_dhcpd_dns_router='0'
+_OLD_dhcp_dns1_x='9.9.9.9'
+_OLD_dhcp_dns2_x='149.112.112.112'
+check_dns_environment stop || fail 'LAN stop DNS environment check failed'
+assert_nvram_value dhcp_dns1_x '1.1.1.1'
+[ ! -s "${NVRAM_SETS_FILE}" ] || fail 'LAN mode stop should not restore or commit saved DNS NVRAM values'
+[ "${DNSMASQ_RESTART_COUNT}" = '0' ] || fail 'LAN mode stop should not restart dnsmasq'
+[ "${SERVICE_WAIT_COUNT}" = '0' ] || fail 'LAN mode stop should not wait on netcheck'
 
 DNSMASQ_RESTART_COUNT=0
 SERVICE_WAIT_COUNT=0
