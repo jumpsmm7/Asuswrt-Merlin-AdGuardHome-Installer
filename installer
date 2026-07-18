@@ -3274,7 +3274,7 @@ adguard_archive_is_safe() {
 				if (link_path == "AdGuardHome/AdGuardHome") {
 					exit 1
 				}
-				if (require_state && link_path == "AdGuardHome/AdGuardHome.yaml") {
+				if (require_state && (link_path == "AdGuardHome/AdGuardHome.yaml" || link_path == "AdGuardHome/.AdGuardHome.yaml.ori")) {
 					exit 1
 				}
 				if (require_state && link_path == "AdGuardHome/data") {
@@ -3296,6 +3296,9 @@ adguard_archive_is_safe() {
 				exit 1
 			}
 			if (require_state && entry_path == "AdGuardHome/AdGuardHome.yaml" && type != "-") {
+				exit 1
+			}
+			if (require_state && entry_path == "AdGuardHome/.AdGuardHome.yaml.ori" && type != "-") {
 				exit 1
 			}
 			if (require_state && entry_path == "AdGuardHome/data" && type != "d") {
@@ -3329,6 +3332,7 @@ adguard_archive_is_safe() {
 		BEGIN {
 			binary = 0
 			yaml = 0
+			yaml_ori = 0
 			data = 0
 			unsafe = 0
 		}
@@ -3356,6 +3360,9 @@ adguard_archive_is_safe() {
 			if (path == "AdGuardHome/AdGuardHome.yaml") {
 				yaml = 1
 			}
+			if (path == "AdGuardHome/.AdGuardHome.yaml.ori") {
+				yaml_ori = 1
+			}
 			if (path == "AdGuardHome/data") {
 				data = 1
 			}
@@ -3367,7 +3374,7 @@ adguard_archive_is_safe() {
 			if (!binary) {
 				exit 1
 			}
-			if (require_state && (!yaml || !data)) {
+			if (require_state && ((!yaml && !yaml_ori) || !data)) {
 				exit 1
 			}
 			exit 0
