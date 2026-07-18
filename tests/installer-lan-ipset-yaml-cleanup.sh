@@ -239,6 +239,9 @@ http:
 users:
   - name: restored-user
     password: restored-password-hash
+tls:
+  enabled: true
+  server_name: dns.example.test
 dns:
   bind_hosts:
     - 127.0.0.1
@@ -255,6 +258,13 @@ dns:
 filters:
   - enabled: true
     url: https://example.test/filter.txt
+filtering:
+  rewrites:
+    - domain: printer.example.test
+      answer: 192.168.50.20
+access:
+  allowed_clients:
+    - 192.168.50.0/24
 EOF_YAML
 setup_sync_restored_yaml_for_wan || fail 'could not synchronize restored LAN YAML for WAN mode'
 grep -q '^  address: 0.0.0.0:3443$' "${YAML_FILE}" || fail 'WAN YAML sync did not update WebUI bind address'
@@ -264,6 +274,9 @@ grep -Fq -- "- '[::]:553'" "${YAML_FILE}" || fail 'WAN YAML sync did not update 
 grep -q 'name: restored-user' "${YAML_FILE}" || fail 'WAN YAML sync removed restored credentials'
 grep -q 'https://dns.example/dns-query' "${YAML_FILE}" || fail 'WAN YAML sync removed restored upstreams'
 grep -q 'https://example.test/filter.txt' "${YAML_FILE}" || fail 'WAN YAML sync removed restored filters'
+grep -q 'server_name: dns.example.test' "${YAML_FILE}" || fail 'WAN YAML sync removed restored TLS settings'
+grep -q 'domain: printer.example.test' "${YAML_FILE}" || fail 'WAN YAML sync removed restored rewrites'
+grep -q '192.168.50.0/24' "${YAML_FILE}" || fail 'WAN YAML sync removed restored access settings'
 
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored LAN config'
 ADGUARD_INSTALL_MODE="lan"
