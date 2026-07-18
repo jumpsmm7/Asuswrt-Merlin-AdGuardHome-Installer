@@ -235,7 +235,7 @@ ADGUARD_WEBUI_PORT="3443"
 ADGUARD_LAN_REVERSE_UPSTREAM="192.168.50.1"
 EOF_CONF
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored LAN YAML'
-http:
+"http": # restored web settings
     address: 192.168.50.1:3443
     session_ttl: 720h
 users:
