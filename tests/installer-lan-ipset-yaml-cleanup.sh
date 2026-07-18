@@ -72,6 +72,8 @@ extract_function adguardhome_yaml_ipset_file || fail 'could not extract YAML par
 extract_function adguardhome_yaml_secure_file || fail 'could not extract YAML security helper'
 extract_function adguardhome_yaml_remove_ipset_file || fail 'could not extract YAML cleanup helper'
 extract_function adguard_enforce_lan_ipset_disabled || fail 'could not extract LAN enforcement helper'
+extract_function ipv4_is_valid || fail 'could not extract IPv4 validation helper'
+extract_function setup_restore_bootstrap_defaults || fail 'could not extract restore bootstrap helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'helper extraction was empty'
 
 # shellcheck disable=SC1090
@@ -84,7 +86,12 @@ EOF_CHOWN
 chmod 755 "${STUB_DIR}/chown" || fail 'could not chmod chown stub'
 
 INFO='Info:'
-PTXT() { :; }
+PTXT() {
+	if [ "${1:-}" = "-n" ]; then
+		shift
+	fi
+	printf '%s\n' "$@"
+}
 
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write custom YAML ipset_file'
 dns:
@@ -220,6 +227,28 @@ adguard_enforce_lan_ipset_disabled || fail 'WAN detection did not correct stale 
 [ "$(conf_value ADGUARD_NETCHECK_MODE)" = 'lan' ] || fail 'WAN detection did not preserve explicit ADGUARD_NETCHECK_MODE setting'
 [ "${ADGUARD_FORCE_SETUP_YAML:-0}" = '0' ] || fail 'WAN detection requested YAML rebuild without restored LAN install mode'
 ADGUARD_FORCE_SETUP_YAML=0
+
+BOOTSTRAP1=''
+BOOTSTRAP2=''
+DNS_SERVER1=''
+setup_restore_bootstrap_defaults "${YAML_FILE}.missing"
+[ "${BOOTSTRAP1}" = '9.9.9.9' ] || fail 'RESTORE defaults did not set primary bootstrap DNS without prompting'
+[ "${BOOTSTRAP2}" = '8.8.8.8' ] || fail 'RESTORE defaults did not set secondary bootstrap DNS without prompting'
+[ "${DNS_SERVER1}" = '9.9.9.9' ] || fail 'RESTORE defaults did not set DNS_SERVER1 without prompting'
+
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored bootstrap YAML'
+dns:
+  bootstrap_dns:
+    - 1.1.1.1
+    - 1.0.0.1
+EOF_YAML
+BOOTSTRAP1=''
+BOOTSTRAP2=''
+DNS_SERVER1=''
+setup_restore_bootstrap_defaults "${YAML_FILE}"
+[ "${BOOTSTRAP1}" = '1.1.1.1' ] || fail 'RESTORE defaults did not reuse restored primary bootstrap DNS'
+[ "${BOOTSTRAP2}" = '1.0.0.1' ] || fail 'RESTORE defaults did not reuse restored secondary bootstrap DNS'
+[ "${DNS_SERVER1}" = '1.1.1.1' ] || fail 'RESTORE defaults did not match DNS_SERVER1 to restored primary bootstrap DNS'
 
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored LAN config'
 ADGUARD_INSTALL_MODE="lan"
