@@ -1406,10 +1406,19 @@ pre_start_adguardhome() {
 			agh_log ERROR pre_start_adguardhome "DNS handoff is already active; startup aborted without DNS handoff."
 			return 1
 		fi
-		ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
-		export ADGUARDHOME_SKIP_DNSMASQ_RESTART
-		agh_log INFO pre_start_adguardhome "Starting without DNS handoff because it is not required."
-		return 0
+		if dns_port_available "${_dns_bind_scope}"; then
+			prepare_dns_handoff_marker || return 1
+			start_dns_port_guard >/dev/null 2>&1 &
+			ADGUARDHOME_DNS_GUARD_PID="$!"
+			ADGUARDHOME_DNS_HANDOFF_ACTIVE=1
+			ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+			export ADGUARDHOME_DNS_HANDOFF_ACTIVE
+			export ADGUARDHOME_SKIP_DNSMASQ_RESTART
+			agh_log INFO pre_start_adguardhome "Port 53 is available for AdGuardHome; starting with a temporary DNS handoff guard."
+			return 0
+		fi
+		agh_log ERROR pre_start_adguardhome "Port 53 is not available for AdGuardHome; startup aborted without DNS handoff."
+		return 1
 	fi
 	DNS_WATCHDOG_TRAP_FILE=""
 	if ! save_dns_watchdog_traps pre; then
