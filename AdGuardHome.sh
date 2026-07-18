@@ -1353,7 +1353,13 @@ start_adguardhome() {
 	IPSET_START_RESTARTED="0"
 	IPSET_START_STOPPED="0"
 	SERVICE_WAIT_TERMINAL_FAILURE="0"
-	if ! IPSet_Setup_For_Start; then
+	if adguard_lan_mode; then
+		if ! IPSet_Disable_Managed; then
+			agh_log error start_adguardhome "state=starting action=disable_managed_ipset result=failed reason=lan_mode_remove_failed"
+			SERVICE_WAIT_TERMINAL_FAILURE="1"
+			return 1
+		fi
+	elif ! IPSet_Setup_For_Start; then
 		if [ "${IPSET_START_FAILURE_SAFE}" -ne 1 ]; then
 			agh_log error start_adguardhome "state=starting action=prepare_ipset reason=stale_mapping_risk result=failed failure_safe=0"
 			if [ "${IPSET_START_STOPPED}" -eq 1 ]; then

@@ -6,9 +6,10 @@ set -u
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
 FUNCTION_FILE="${TMPDIR:-/tmp}/ipset-lan-functions.$$"
 CALLS_FILE="${TMPDIR:-/tmp}/ipset-lan-calls.$$"
+CONF_FILE="${TMPDIR:-/tmp}/ipset-lan-config.$$"
 
 cleanup() {
-	rm -f "${FUNCTION_FILE}" "${CALLS_FILE}"
+	rm -f "${FUNCTION_FILE}" "${CALLS_FILE}" "${CONF_FILE}"
 }
 
 fail() {
@@ -19,26 +20,14 @@ fail() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^IPSet_Migrate() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^IPSet_Migrate() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'LAN IPSET functions were not found'
 
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
-adguard_lan_mode() {
-	[ "${INSTALL_MODE:-wan}" = "lan" ]
-}
-
-adguard_ipset_allowed() {
-	! adguard_lan_mode
-}
-
 agh_log() {
 	printf '%s\n' "log $1 $2 $3" >>"${CALLS_FILE}"
-}
-
-conf_value() {
-	printf '%s\n' "${IPSET_CONFIG:-YES}"
 }
 
 IPSet_Disable_Managed() {
@@ -48,7 +37,12 @@ IPSet_Disable_Managed() {
 
 IPSet_Lock() {
 	printf '%s\n' IPSet_Lock >>"${CALLS_FILE}"
-	return 1
+	"$@"
+}
+
+IPSet_Setup_Locked() {
+	printf '%s\n' IPSet_Setup_Locked >>"${CALLS_FILE}"
+	return 0
 }
 
 IPSet_Supported() {
@@ -72,11 +66,14 @@ YAML_FILE=/tmp/AdGuardHome.yaml
 PROCS=AdGuardHome
 NAME=AdGuardHome
 
-INSTALL_MODE=lan
+cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write LAN config'
+ADGUARD_INSTALL_MODE="lan"
+ADGUARD_IPSET="YES"
+EOF_CONF
 DISABLE_STATUS=0
 : >"${CALLS_FILE}"
 if IPSet_Enabled; then
-	fail 'IPSet_Enabled returned true in LAN mode'
+	fail 'IPSet_Enabled returned true when .config has LAN mode and IPSET enabled'
 fi
 [ ! -s "${CALLS_FILE}" ] || fail 'IPSet_Enabled caused side effects in LAN mode'
 
@@ -116,4 +113,17 @@ case "${ACTUAL}" in
 	*IPSet_Lock* | *IPSet_Supported*) fail "LAN startup setup touched lock/support path: ${ACTUAL}" ;;
 esac
 
-printf '%s\n' 'PASS: LAN mode skips IPSET locks, rewrites, and restarts while startup cleanup remains fatal'
+cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write WAN config'
+ADGUARD_INSTALL_MODE="wan"
+ADGUARD_IPSET="YES"
+EOF_CONF
+: >"${CALLS_FILE}"
+IPSet_Enabled || fail 'IPSet_Enabled returned false in WAN mode with IPSET enabled'
+IPSet_Refresh || fail 'WAN refresh returned failure with supported IPSET'
+ACTUAL="$(cat "${CALLS_FILE}")"
+case "${ACTUAL}" in
+	*IPSet_Supported*IPSet_Lock*) : ;;
+	*) fail "WAN refresh did not preserve supported lock path: ${ACTUAL}" ;;
+esac
+
+printf '%s\n' 'PASS: LAN mode skips IPSET locks, rewrites, and restarts while WAN mode remains unchanged'
