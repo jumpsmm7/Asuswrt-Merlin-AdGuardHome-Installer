@@ -209,6 +209,18 @@ adguard_enforce_lan_ipset_disabled || fail 'WAN detection did not override resto
 grep -q 'ipset_file: restored-lan-on-wan.conf' "${YAML_FILE}" || fail 'WAN detection unexpectedly removed restored ipset_file before setup rebuild'
 ADGUARD_FORCE_SETUP_YAML=0
 
+cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write stale LAN netcheck config for detected WAN'
+ADGUARD_INSTALL_MODE="wan"
+ADGUARD_IPSET="NO"
+ADGUARD_NETCHECK_MODE="lan"
+EOF_CONF
+ADGUARD_INSTALL_MODE='wan'
+adguard_enforce_lan_ipset_disabled || fail 'WAN detection did not correct stale LAN netcheck config'
+[ "$(conf_value ADGUARD_IPSET)" = 'YES' ] || fail 'WAN detection did not restore ADGUARD_IPSET with stale LAN netcheck mode'
+[ "$(conf_value ADGUARD_NETCHECK_MODE)" = 'wan' ] || fail 'WAN detection did not restore stale ADGUARD_NETCHECK_MODE for WAN mode'
+[ "${ADGUARD_FORCE_SETUP_YAML:-0}" = '1' ] || fail 'WAN detection did not request YAML rebuild for stale LAN netcheck mode'
+ADGUARD_FORCE_SETUP_YAML=0
+
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored LAN config'
 ADGUARD_INSTALL_MODE="lan"
 ADGUARD_IPSET="YES"
