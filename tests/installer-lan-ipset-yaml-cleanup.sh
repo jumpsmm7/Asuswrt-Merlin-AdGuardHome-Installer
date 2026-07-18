@@ -132,6 +132,25 @@ grep -q 'bootstrap_dns:' "${YAML_FILE}" || fail 'block cleanup removed following
 grep -q 'filtering:' "${YAML_FILE}" || fail 'block cleanup removed following top-level key'
 [ "$(mode_string "${YAML_FILE}")" = '-rw-------' ] || fail 'YAML mode was not preserved after block cleanup'
 
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write explicit-indent block YAML ipset_file'
+dns:
+  ipset_file: |2
+    explicit-indent-ipset.conf
+    explicit-indent-continuation.conf
+  bootstrap_dns:
+    - 1.0.0.1
+filtering:
+  protection_enabled: true
+EOF_YAML
+chmod 600 "${YAML_FILE}" || fail 'could not reset explicit-indent YAML mode'
+adguardhome_yaml_remove_ipset_file || fail 'explicit-indent block YAML ipset_file cleanup failed'
+assert_no_ipset_file explicit-indent-block
+if grep -q 'explicit-indent-ipset.conf\|explicit-indent-continuation.conf' "${YAML_FILE}"; then
+	fail 'explicit-indent block continuation was not removed'
+fi
+grep -q 'bootstrap_dns:' "${YAML_FILE}" || fail 'explicit-indent cleanup removed following dns key'
+grep -q 'filtering:' "${YAML_FILE}" || fail 'explicit-indent cleanup removed following top-level key'
+
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write folded block YAML ipset_file'
 'dns':
   "ipset_file": >-
