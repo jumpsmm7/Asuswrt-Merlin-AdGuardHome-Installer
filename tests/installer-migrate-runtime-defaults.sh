@@ -105,6 +105,9 @@ dns:
   ipset_file: ipset.conf
   port: 53
 YAML
+# Startup detection may leave the shell variable at its newly detected value,
+# but migration must follow the install mode already persisted for this install.
+ADGUARD_INSTALL_MODE="wan"
 cli_run migrate-runtime-defaults --yes >"${TMP_ROOT}/lan-apply" || fail 'LAN-mode apply migration failed'
 grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" || fail 'LAN install mode was not preserved'
 grep -q '^ADGUARD_IPSET="NO"$' "${CONF_FILE}" || fail 'LAN-mode IPSET was not disabled during migration'
