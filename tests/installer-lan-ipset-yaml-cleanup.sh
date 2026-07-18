@@ -244,7 +244,7 @@ users:
 tls:
   enabled: true
   server_name: dns.example.test
-dns: # resolver settings
+"dns": # resolver settings
   'bind_hosts':
     - 127.0.0.1
   # Keep scanning bind hosts across comments at the key indentation.

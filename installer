@@ -5126,7 +5126,7 @@ setup_sync_restored_yaml_for_wan() {
 			print substr($0, 1, indentation($0)) "address: " web_address
 			next
 		}
-		/^dns:[[:space:]]*(#.*)?$/ { in_dns = 1; dns_indent = indentation($0); print; next }
+		indentation($0) == 0 && yaml_mapping_header_is($0, "dns") { in_dns = 1; dns_indent = indentation($0); print; next }
 		in_dns && indentation($0) <= dns_indent && $0 !~ /^[[:space:]]*($|#)/ { in_dns = 0; in_binds = 0 }
 		in_dns && yaml_key_is($0, "bind_hosts") {
 			bind_indent = indentation($0); in_binds = 1
