@@ -5136,12 +5136,27 @@ setup_sync_restored_yaml_for_wan() {
 	}
 }
 
+setup_sync_restored_yaml_and_snapshot_for_wan() {
+	local snapshot_file
+
+	setup_sync_restored_yaml_for_wan || return 1
+	[ -f "${YAML_ORI}" ] || return 0
+	snapshot_file="${YAML_ORI}.wan-sync.$$"
+	cp -f "${YAML_FILE}" "${snapshot_file}" &&
+		adguardhome_yaml_secure_file "${snapshot_file}" &&
+		mv -f "${snapshot_file}" "${YAML_ORI}" &&
+		adguardhome_yaml_secure_file "${YAML_ORI}" || {
+		rm -f "${snapshot_file}"
+		return 1
+	}
+}
+
 setup_AdGuardHome_impl() {
 	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ "${ADGUARD_FORCE_SETUP_YAML:-0}" = "1" ] && [ -f "${YAML_FILE}" ]; then
 		PTXT "${INFO} Restored mode differs from detected WAN mode; updating mode-dependent AdGuardHome settings."
-		if ! setup_sync_restored_yaml_for_wan; then
+		if ! setup_sync_restored_yaml_and_snapshot_for_wan; then
 			PTXT "${ERROR} Unable to update the restored AdGuardHome configuration. Setup was aborted."
 			return 1
 		fi

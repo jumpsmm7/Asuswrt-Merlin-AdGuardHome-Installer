@@ -11,6 +11,7 @@ FUNCTIONS_FILE="${TMP_ROOT}/functions"
 CONF_FILE="${TMP_ROOT}/.config"
 TARG_DIR="${TMP_ROOT}/AdGuardHome"
 YAML_FILE="${TARG_DIR}/AdGuardHome.yaml"
+YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
 
 cleanup() {
 	rm -rf "${TMP_ROOT}"
@@ -74,6 +75,7 @@ extract_function adguardhome_yaml_remove_ipset_file || fail 'could not extract Y
 extract_function adguard_enforce_lan_ipset_disabled || fail 'could not extract LAN enforcement helper'
 extract_function port_is_valid || fail 'could not extract port validation helper'
 extract_function setup_sync_restored_yaml_for_wan || fail 'could not extract WAN restore YAML sync helper'
+extract_function setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could not extract WAN restore YAML snapshot sync helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'helper extraction was empty'
 
 # shellcheck disable=SC1090
@@ -270,7 +272,8 @@ access:
   allowed_clients:
     - 192.168.50.0/24
 EOF_YAML
-setup_sync_restored_yaml_for_wan || fail 'could not synchronize restored LAN YAML for WAN mode'
+cp -f "${YAML_FILE}" "${YAML_ORI}" || fail 'could not write restored original YAML snapshot'
+setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could not synchronize restored LAN YAML for WAN mode'
 grep -q '^    address: 0.0.0.0:3443$' "${YAML_FILE}" || fail 'WAN YAML sync did not preserve WebUI address indentation'
 grep -q '^    session_ttl: 720h$' "${YAML_FILE}" || fail 'WAN YAML sync changed an HTTP sibling indentation'
 [ "$(grep -c '^    - 0.0.0.0$' "${YAML_FILE}")" -eq 1 ] || fail 'WAN YAML sync did not replace DNS bind hosts'
@@ -286,6 +289,7 @@ grep -q 'https://example.test/filter.txt' "${YAML_FILE}" || fail 'WAN YAML sync 
 grep -q 'server_name: dns.example.test' "${YAML_FILE}" || fail 'WAN YAML sync removed restored TLS settings'
 grep -q 'domain: printer.example.test' "${YAML_FILE}" || fail 'WAN YAML sync removed restored rewrites'
 grep -q '192.168.50.0/24' "${YAML_FILE}" || fail 'WAN YAML sync removed restored access settings'
+cmp -s "${YAML_FILE}" "${YAML_ORI}" || fail 'WAN YAML sync left the original snapshot in LAN mode'
 
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored inline bind hosts'
 dns:
