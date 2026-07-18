@@ -2941,15 +2941,36 @@ adguardhome_yaml_remove_ipset_file() {
 }
 
 adguard_enforce_lan_ipset_disabled() {
-	case "${ADGUARD_INSTALL_MODE:-}:$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)" in
-		lan:* | *:lan)
-			ADGUARD_INSTALL_MODE="lan"
-			write_conf ADGUARD_INSTALL_MODE "\"lan\"" || return 1
-			write_conf ADGUARD_IPSET "\"NO\"" || return 1
-			adguardhome_yaml_remove_ipset_file || return 1
-			PTXT "${INFO} IPSET is disabled in LAN/AP/Bridge mode because IPTABLES/IPSET rules are not manageable there."
+	local restored_mode
+	case "${ADGUARD_INSTALL_MODE:-}" in
+		wan)
+			restored_mode="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
+			write_conf ADGUARD_INSTALL_MODE '"wan"' || return 1
+			case "${restored_mode}" in
+				lan)
+					case "$(conf_value ADGUARD_IPSET 2>/dev/null)" in
+						NO) ;;
+						*) write_conf ADGUARD_IPSET '"YES"' || return 1 ;;
+					esac
+					write_conf ADGUARD_NETCHECK_MODE '"wan"' || return 1
+					ADGUARD_FORCE_SETUP_YAML="1"
+					;;
+			esac
+			return 0
+			;;
+		lan) ;;
+		*)
+			case "$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)" in
+				lan) ADGUARD_INSTALL_MODE="lan" ;;
+				*) return 0 ;;
+			esac
 			;;
 	esac
+	ADGUARD_INSTALL_MODE="lan"
+	write_conf ADGUARD_INSTALL_MODE "\"lan\"" || return 1
+	write_conf ADGUARD_IPSET "\"NO\"" || return 1
+	adguardhome_yaml_remove_ipset_file || return 1
+	PTXT "${INFO} IPSET is disabled in LAN/AP/Bridge mode because IPTABLES/IPSET rules are not manageable there."
 	return 0
 }
 
@@ -3253,7 +3274,7 @@ adguard_archive_is_safe() {
 				if (link_path == "AdGuardHome/AdGuardHome") {
 					exit 1
 				}
-				if (require_state && link_path == "AdGuardHome/AdGuardHome.yaml") {
+				if (require_state && (link_path == "AdGuardHome/AdGuardHome.yaml" || link_path == "AdGuardHome/.AdGuardHome.yaml.ori")) {
 					exit 1
 				}
 				if (require_state && link_path == "AdGuardHome/data") {
@@ -3275,6 +3296,9 @@ adguard_archive_is_safe() {
 				exit 1
 			}
 			if (require_state && entry_path == "AdGuardHome/AdGuardHome.yaml" && type != "-") {
+				exit 1
+			}
+			if (require_state && entry_path == "AdGuardHome/.AdGuardHome.yaml.ori" && type != "-") {
 				exit 1
 			}
 			if (require_state && entry_path == "AdGuardHome/data" && type != "d") {
@@ -3308,6 +3332,7 @@ adguard_archive_is_safe() {
 		BEGIN {
 			binary = 0
 			yaml = 0
+			yaml_ori = 0
 			data = 0
 			unsafe = 0
 		}
@@ -3335,6 +3360,9 @@ adguard_archive_is_safe() {
 			if (path == "AdGuardHome/AdGuardHome.yaml") {
 				yaml = 1
 			}
+			if (path == "AdGuardHome/.AdGuardHome.yaml.ori") {
+				yaml_ori = 1
+			}
 			if (path == "AdGuardHome/data") {
 				data = 1
 			}
@@ -3346,7 +3374,7 @@ adguard_archive_is_safe() {
 			if (!binary) {
 				exit 1
 			}
-			if (require_state && (!yaml || !data)) {
+			if (require_state && ((!yaml && !yaml_ori) || !data)) {
 				exit 1
 			}
 			exit 0
@@ -4019,7 +4047,8 @@ backup_restore() {
 		ptxt_step "Validating staged AdGuardHome backup."
 		if [ ! -d "${RESTORE_TARG_DIR}" ] || [ -L "${RESTORE_TARG_DIR}" ] ||
 			[ ! -f "${RESTORE_TARG_DIR}/AdGuardHome" ] ||
-			[ ! -d "${RESTORE_TARG_DIR}/data" ] || [ -L "${RESTORE_TARG_DIR}/data" ]; then
+			[ ! -d "${RESTORE_TARG_DIR}/data" ] || [ -L "${RESTORE_TARG_DIR}/data" ] ||
+			{ [ ! -f "${RESTORE_TARG_DIR}/AdGuardHome.yaml" ] && [ ! -f "${RESTORE_TARG_DIR}/.AdGuardHome.yaml.ori" ]; }; then
 			adguard_install_abort_trap_disable
 			rm -rf "${RESTORE_STAGE_DIR}"
 			rollback_result_write "backup restore" "rollback unavailable" "staged backup validation failed before changes"
@@ -5025,9 +5054,149 @@ setup_sync_webui_port() {
 	fi
 }
 
+setup_sync_restored_yaml_for_wan() {
+	local old_reverse sync_file target_file web_port
+
+	target_file="${1:-${YAML_FILE}}"
+
+	old_reverse="$(conf_value ADGUARD_LAN_REVERSE_UPSTREAM 2>/dev/null)"
+	case "${old_reverse}" in
+		"") old_reverse="$(nvram get lan_gateway 2>/dev/null)" ;;
+	esac
+	case "${old_reverse}" in
+		*:*) ;;
+		?*) old_reverse="${old_reverse}:53" ;;
+	esac
+	web_port="$(conf_value ADGUARD_WEBUI_PORT 2>/dev/null)"
+	if ! port_is_valid "${web_port}"; then
+		web_port="$(awk '
+			function yaml_key_is(line, expected, text, separator, key) {
+				text = line
+				sub(/^[[:space:]]*/, "", text)
+				separator = index(text, ":")
+				if (!separator)
+					return 0
+				key = substr(text, 1, separator - 1)
+				sub(/[[:space:]]*$/, "", key)
+				return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
+			}
+			function http_header(line, text, separator, key, value) {
+				text = line
+				sub(/^[[:space:]]*/, "", text)
+				separator = index(text, ":")
+				if (!separator)
+					return 0
+				key = substr(text, 1, separator - 1)
+				sub(/[[:space:]]*$/, "", key)
+				value = substr(text, separator + 1)
+				sub(/^[[:space:]]*/, "", value)
+				return (key == "http" || key == "\"http\"" || key == sprintf("%chttp%c", 39, 39)) && (value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/)
+			}
+			/^[^[:space:]]/ && http_header($0) { in_http = 1; next }
+			in_http && /^[^[:space:]]/ { exit }
+			in_http && yaml_key_is($0, "address") { value = $0; sub(/[[:space:]]+#.*$/, "", value); sub(/^.*:/, "", value); gsub(/[[:space:]"'\''"]/, "", value); print value; exit }
+		' "${target_file}" 2>/dev/null)"
+	fi
+	port_is_valid "${web_port}" || web_port="3000"
+	sync_file="${target_file}.wan-sync.$$"
+	awk -v old_reverse="${old_reverse}" -v web_address="0.0.0.0:${web_port}" '
+		function indentation(line) { match(line, /^[[:space:]]*/); return RLENGTH }
+		function yaml_key_is(line, expected, text, separator, key) {
+			text = line
+			sub(/^[[:space:]]*/, "", text)
+			separator = index(text, ":")
+			if (!separator)
+				return 0
+			key = substr(text, 1, separator - 1)
+			sub(/[[:space:]]*$/, "", key)
+			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
+		}
+		function yaml_mapping_header_is(line, expected, text, separator, value) {
+			if (!yaml_key_is(line, expected))
+				return 0
+			text = line
+			separator = index(text, ":")
+			value = substr(text, separator + 1)
+			sub(/^[[:space:]]*/, "", value)
+			return value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/
+		}
+		function replace_reverse_endpoint(line, old, replacement, value, prefix, position) {
+			value = line
+			sub(/[[:space:]]+#.*$/, "", value)
+			sub(/[[:space:]]*$/, "", value)
+			sub(/^[[:space:]]*-[[:space:]]*/, "", value)
+			if (substr(value, 1, 1) == "\"" || substr(value, 1, 1) == sprintf("%c", 39))
+				value = substr(value, 2)
+			if (substr(value, length(value), 1) == "\"" || substr(value, length(value), 1) == sprintf("%c", 39))
+				value = substr(value, 1, length(value) - 1)
+			position = index(value, old)
+			if (!position || substr(value, position + length(old)) != "")
+				return line
+			prefix = substr(value, 1, position - 1)
+			if (prefix != "" && (substr(prefix, 1, 1) != "[" || substr(prefix, length(prefix), 1) != "]"))
+				return line
+			position = index(line, old)
+			return substr(line, 1, position - 1) replacement substr(line, position + length(old))
+		}
+		indentation($0) == 0 && (yaml_key_is($0, "http") || yaml_key_is($0, "dns")) && !yaml_mapping_header_is($0, "http") && !yaml_mapping_header_is($0, "dns") { exit 1 }
+		indentation($0) == 0 && yaml_mapping_header_is($0, "http") { in_http = 1; http_indent = indentation($0); print; next }
+		in_http && indentation($0) <= http_indent && $0 !~ /^[[:space:]]*($|#)/ { in_http = 0 }
+		in_http && yaml_key_is($0, "address") {
+			separator = index($0, ":")
+			print substr($0, 1, separator) " " web_address
+			next
+		}
+		indentation($0) == 0 && yaml_mapping_header_is($0, "dns") { in_dns = 1; dns_indent = indentation($0); print; next }
+		in_dns && indentation($0) <= dns_indent && $0 !~ /^[[:space:]]*($|#)/ { in_dns = 0; in_binds = 0 }
+		in_dns && yaml_key_is($0, "bind_hosts") {
+			bind_indent = indentation($0); in_binds = 1
+			separator = index($0, ":")
+			bind_value = substr($0, separator + 1)
+			sub(/^[[:space:]]*/, "", bind_value)
+			if (bind_value == "" || bind_value ~ /^#/) {
+				print; print substr($0, 1, bind_indent) "  - 0.0.0.0"
+			} else {
+				comment = ""
+				comment_at = index(bind_value, "#")
+				if (comment_at) comment = " " substr(bind_value, comment_at)
+				print substr($0, 1, separator) " [0.0.0.0]" comment
+				in_binds = 0
+			}
+			next
+		}
+		in_binds && $0 ~ /^[[:space:]]*($|#)/ { next }
+		in_binds && indentation($0) >= bind_indent && $0 ~ /^[[:space:]]*-[[:space:]]/ { next }
+		in_binds && indentation($0) > bind_indent { next }
+		in_binds { in_binds = 0 }
+		in_dns && (yaml_key_is($0, "upstream_dns") || yaml_key_is($0, "local_ptr_upstreams")) && !yaml_mapping_header_is($0, "upstream_dns") && !yaml_mapping_header_is($0, "local_ptr_upstreams") { exit 1 }
+		in_dns && (yaml_mapping_header_is($0, "upstream_dns") || yaml_mapping_header_is($0, "local_ptr_upstreams")) {
+			reverse_indent = indentation($0); in_reverse_upstreams = 1; print; next
+		}
+		in_reverse_upstreams && indentation($0) <= reverse_indent && $0 !~ /^[[:space:]]*($|#)/ { in_reverse_upstreams = 0 }
+		in_reverse_upstreams && old_reverse != "" { $0 = replace_reverse_endpoint($0, old_reverse, "[::]:553") }
+		{ print }
+	' "${target_file}" >"${sync_file}" && adguardhome_yaml_secure_file "${sync_file}" && mv -f "${sync_file}" "${target_file}" && adguardhome_yaml_secure_file "${target_file}" || {
+		rm -f "${sync_file}"
+		return 1
+	}
+}
+
+setup_sync_restored_yaml_and_snapshot_for_wan() {
+	[ ! -f "${YAML_FILE}" ] || setup_sync_restored_yaml_for_wan || return 1
+	[ ! -f "${YAML_ORI}" ] || setup_sync_restored_yaml_for_wan "${YAML_ORI}" || return 1
+}
+
 setup_AdGuardHome_impl() {
 	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
+	if [ "${ADGUARD_FORCE_SETUP_YAML:-0}" = "1" ] && { [ -f "${YAML_FILE}" ] || [ -f "${YAML_ORI}" ]; }; then
+		PTXT "${INFO} Restored mode differs from detected WAN mode; updating mode-dependent AdGuardHome settings."
+		if ! setup_sync_restored_yaml_and_snapshot_for_wan; then
+			PTXT "${ERROR} Unable to update the restored AdGuardHome configuration. Setup was aborted."
+			return 1
+		fi
+		ADGUARD_FORCE_SETUP_YAML=0
+	fi
 	if [ -z "$1" ] && [ -f "${YAML_FILE}" ]; then
 		############################################################ Drop-in code to be removed/modified as needed. #############################################################################################################################################################
 		if ! awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$'; then
@@ -5116,8 +5285,8 @@ setup_AdGuardHome_impl() {
 			cp -f "${YAML_ORI}" "${YAML_FILE}"
 		fi
 		case "${2:-reconfig}" in
-			"install" | "reconfig")
-				if [ ! -f "${YAML_FILE}" ] || [ "$2" = "reconfig" ]; then
+			"install" | "reconfig" | "RESTORE")
+				if [ "${2:-reconfig}" != "RESTORE" ] && { [ ! -f "${YAML_FILE}" ] || [ "$2" = "reconfig" ]; }; then
 					local DNS_FILTER_SELECTION LOCAL_CACHE_SELECTION YESNO_STATUS
 					read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"
 					YESNO_STATUS="$?"

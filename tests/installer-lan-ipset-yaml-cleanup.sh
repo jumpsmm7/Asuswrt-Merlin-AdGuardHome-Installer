@@ -11,6 +11,7 @@ FUNCTIONS_FILE="${TMP_ROOT}/functions"
 CONF_FILE="${TMP_ROOT}/.config"
 TARG_DIR="${TMP_ROOT}/AdGuardHome"
 YAML_FILE="${TARG_DIR}/AdGuardHome.yaml"
+YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
 
 cleanup() {
 	rm -rf "${TMP_ROOT}"
@@ -72,6 +73,9 @@ extract_function adguardhome_yaml_ipset_file || fail 'could not extract YAML par
 extract_function adguardhome_yaml_secure_file || fail 'could not extract YAML security helper'
 extract_function adguardhome_yaml_remove_ipset_file || fail 'could not extract YAML cleanup helper'
 extract_function adguard_enforce_lan_ipset_disabled || fail 'could not extract LAN enforcement helper'
+extract_function port_is_valid || fail 'could not extract port validation helper'
+extract_function setup_sync_restored_yaml_for_wan || fail 'could not extract WAN restore YAML sync helper'
+extract_function setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could not extract WAN restore YAML snapshot sync helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'helper extraction was empty'
 
 # shellcheck disable=SC1090
@@ -84,7 +88,12 @@ EOF_CHOWN
 chmod 755 "${STUB_DIR}/chown" || fail 'could not chmod chown stub'
 
 INFO='Info:'
-PTXT() { :; }
+PTXT() {
+	if [ "${1:-}" = "-n" ]; then
+		shift
+	fi
+	printf '%s\n' "$@"
+}
 
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write custom YAML ipset_file'
 dns:
@@ -190,6 +199,151 @@ adguard_enforce_lan_ipset_disabled || fail 'LAN enforcement failed for detected 
 [ "$(conf_value ADGUARD_INSTALL_MODE)" = 'lan' ] || fail 'LAN enforcement did not persist detected LAN mode'
 [ "$(conf_value ADGUARD_IPSET)" = 'NO' ] || fail 'LAN enforcement did not disable ADGUARD_IPSET'
 assert_no_ipset_file detected-lan
+
+cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored LAN config for detected WAN'
+ADGUARD_INSTALL_MODE="lan"
+ADGUARD_IPSET="NO"
+ADGUARD_NETCHECK_MODE="lan"
+EOF_CONF
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored LAN YAML ipset_file for detected WAN'
+dns:
+  ipset_file: restored-lan-on-wan.conf
+EOF_YAML
+ADGUARD_INSTALL_MODE='wan'
+adguard_enforce_lan_ipset_disabled || fail 'WAN detection did not override restored LAN config'
+[ "$(conf_value ADGUARD_INSTALL_MODE)" = 'wan' ] || fail 'WAN detection was not persisted over restored LAN mode'
+[ "$(conf_value ADGUARD_IPSET)" = 'NO' ] || fail 'WAN detection did not preserve restored ADGUARD_IPSET opt-out for WAN mode'
+[ "$(conf_value ADGUARD_NETCHECK_MODE)" = 'wan' ] || fail 'WAN detection did not restore ADGUARD_NETCHECK_MODE for WAN mode'
+[ "${ADGUARD_FORCE_SETUP_YAML:-0}" = '1' ] || fail 'WAN detection did not request YAML rebuild over restored LAN mode'
+grep -q 'ipset_file: restored-lan-on-wan.conf' "${YAML_FILE}" || fail 'WAN detection unexpectedly removed restored ipset_file before setup rebuild'
+ADGUARD_FORCE_SETUP_YAML=0
+
+cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write stale LAN netcheck config for detected WAN'
+ADGUARD_INSTALL_MODE="wan"
+ADGUARD_IPSET="NO"
+ADGUARD_NETCHECK_MODE="lan"
+EOF_CONF
+ADGUARD_INSTALL_MODE='wan'
+adguard_enforce_lan_ipset_disabled || fail 'WAN detection did not correct stale LAN netcheck config'
+[ "$(conf_value ADGUARD_IPSET)" = 'NO' ] || fail 'WAN detection did not preserve explicit ADGUARD_IPSET setting'
+[ "$(conf_value ADGUARD_NETCHECK_MODE)" = 'lan' ] || fail 'WAN detection did not preserve explicit ADGUARD_NETCHECK_MODE setting'
+[ "${ADGUARD_FORCE_SETUP_YAML:-0}" = '0' ] || fail 'WAN detection requested YAML rebuild without restored LAN install mode'
+ADGUARD_FORCE_SETUP_YAML=0
+
+cat >>"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write WAN YAML sync preferences'
+ADGUARD_WEBUI_PORT="invalid"
+ADGUARD_LAN_REVERSE_UPSTREAM="192.168.50.1"
+EOF_CONF
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored LAN YAML'
+"http": &http_settings # restored web settings
+    "address": "192.168.50.1:3443" # restored WebUI: HTTPS
+    session_ttl: 720h
+users:
+  - name: restored-user
+    password: restored-password-hash
+tls:
+  enabled: true
+  server_name: dns.example.test
+"dns": &dns_settings # resolver settings
+  'bind_hosts':
+    - 127.0.0.1
+  # Keep scanning bind hosts across comments at the key indentation.
+
+    - 192.168.50.1
+    - fd00::1
+  'upstream_dns': # restored resolvers
+    - '[/router.asus.com/]192.168.50.1:53'
+    - tls://192.168.50.1:5353
+    - https://dns.example/dns-query
+  bootstrap_dns:
+    - 192.168.50.1:53
+    - 1.1.1.1
+    - 1.0.0.1
+  "local_ptr_upstreams": # restored PTR resolvers
+    - '192.168.50.1:53'
+filters:
+  - enabled: true
+    url: https://example.test/filter.txt
+filtering:
+  rewrites:
+    - domain: printer.example.test
+      answer: 192.168.50.20
+access:
+  allowed_clients:
+    - 192.168.50.0/24
+EOF_YAML
+sed -e 's/restored-user/original-user/' \
+	-e 's#https://dns.example/dns-query#https://original.example/dns-query#' \
+	"${YAML_FILE}" >"${YAML_ORI}" || fail 'could not write distinct restored original YAML snapshot'
+setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could not synchronize restored LAN YAML for WAN mode'
+grep -Fq '"http": &http_settings # restored web settings' "${YAML_FILE}" || fail 'WAN YAML sync changed an anchored HTTP header'
+grep -q '^    "address": 0.0.0.0:3443$' "${YAML_FILE}" || fail 'WAN YAML sync did not rewrite a quoted WebUI address key'
+grep -q '^    session_ttl: 720h$' "${YAML_FILE}" || fail 'WAN YAML sync changed an HTTP sibling indentation'
+[ "$(grep -c '^    - 0.0.0.0$' "${YAML_FILE}")" -eq 1 ] || fail 'WAN YAML sync did not replace DNS bind hosts'
+grep -Fq '"dns": &dns_settings # resolver settings' "${YAML_FILE}" || fail 'WAN YAML sync changed an anchored DNS header'
+! grep -q '^    - 192\.168\.50\.1$' "${YAML_FILE}" || fail 'WAN YAML sync retained a bind host after a comment and blank line'
+! grep -q '^    - fd00::1$' "${YAML_FILE}" || fail 'WAN YAML sync retained a trailing bind host after a comment and blank line'
+grep -Fq "[/router.asus.com/][::]:553" "${YAML_FILE}" || fail 'WAN YAML sync did not update reverse upstream'
+grep -Fq -- "- '[::]:553'" "${YAML_FILE}" || fail 'WAN YAML sync did not update local PTR upstream'
+grep -Fq "  'upstream_dns': # restored resolvers" "${YAML_FILE}" || fail 'WAN YAML sync changed a quoted, commented upstream header'
+grep -Fq '  "local_ptr_upstreams": # restored PTR resolvers' "${YAML_FILE}" || fail 'WAN YAML sync changed a quoted, commented PTR header'
+grep -Fq -- '- tls://192.168.50.1:5353' "${YAML_FILE}" || fail 'WAN YAML sync changed a partial reverse endpoint match'
+grep -Fq -- '- 192.168.50.1:53' "${YAML_FILE}" || fail 'WAN YAML sync changed an endpoint outside reverse-upstream fields'
+grep -q 'name: restored-user' "${YAML_FILE}" || fail 'WAN YAML sync removed restored credentials'
+grep -q 'https://dns.example/dns-query' "${YAML_FILE}" || fail 'WAN YAML sync removed restored upstreams'
+grep -q 'https://example.test/filter.txt' "${YAML_FILE}" || fail 'WAN YAML sync removed restored filters'
+grep -q 'server_name: dns.example.test' "${YAML_FILE}" || fail 'WAN YAML sync removed restored TLS settings'
+grep -q 'domain: printer.example.test' "${YAML_FILE}" || fail 'WAN YAML sync removed restored rewrites'
+grep -q '192.168.50.0/24' "${YAML_FILE}" || fail 'WAN YAML sync removed restored access settings'
+grep -q '^    "address": 0.0.0.0:3443$' "${YAML_ORI}" || fail 'WAN YAML sync left the quoted original WebUI snapshot in LAN mode'
+grep -Fq -- "- '[/router.asus.com/][::]:553'" "${YAML_ORI}" || fail 'WAN YAML sync left the original reverse upstream snapshot in LAN mode'
+grep -q 'name: original-user' "${YAML_ORI}" || fail 'WAN YAML sync replaced original snapshot credentials with working settings'
+grep -q 'https://original.example/dns-query' "${YAML_ORI}" || fail 'WAN YAML sync replaced original snapshot upstreams with working settings'
+! cmp -s "${YAML_FILE}" "${YAML_ORI}" || fail 'WAN YAML sync replaced the distinct original snapshot with the working YAML'
+
+rm -f "${YAML_FILE}"
+setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could not synchronize restored original YAML without a working YAML'
+cp -f "${YAML_ORI}" "${YAML_FILE}" || fail 'could not restore synchronized original YAML snapshot'
+grep -q '^    "address": 0.0.0.0:3443$' "${YAML_FILE}" || fail 'original-only restore copied a quoted LAN WebUI address'
+grep -Fq -- "- '[/router.asus.com/][::]:553'" "${YAML_FILE}" || fail 'original-only restore copied a LAN reverse upstream'
+
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored inline bind hosts'
+dns:
+  "bind_hosts": [192.168.50.1, fd00::1] # restored LAN binds
+  upstream_dns:
+    - https://dns.example/dns-query
+EOF_YAML
+setup_sync_restored_yaml_for_wan || fail 'could not synchronize inline bind hosts for WAN mode'
+grep -Fq '  "bind_hosts": [0.0.0.0] # restored LAN binds' "${YAML_FILE}" || fail 'WAN YAML sync did not normalize quoted inline bind hosts'
+! grep -Fq '192.168.50.1, fd00::1' "${YAML_FILE}" || fail 'WAN YAML sync retained restored inline bind hosts'
+
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored indentationless bind hosts'
+dns:
+  bind_hosts:
+  - 127.0.0.1
+  # Keep scanning indentationless bind hosts across comments.
+
+  - 192.168.50.1
+  - fd00::1
+  upstream_dns:
+  - https://dns.example/dns-query
+EOF_YAML
+setup_sync_restored_yaml_for_wan || fail 'could not synchronize indentationless bind hosts for WAN mode'
+[ "$(grep -c '^    - 0.0.0.0$' "${YAML_FILE}")" -eq 1 ] || fail 'WAN YAML sync did not add a wildcard for indentationless bind hosts'
+! grep -Eq '^  - (127\.0\.0\.1|192\.168\.50\.1|fd00::1)$' "${YAML_FILE}" || fail 'WAN YAML sync retained an indentationless bind host'
+grep -Fq '  - https://dns.example/dns-query' "${YAML_FILE}" || fail 'WAN YAML sync removed a sibling indentationless upstream'
+
+for flow_yaml in \
+	'http: {address: 192.168.50.1:3443}' \
+	'dns: {bind_hosts: [192.168.50.1]}' \
+	'dns:\n  upstream_dns: [192.168.50.1:53]' \
+	'dns:\n  local_ptr_upstreams: [192.168.50.1:53]'; do
+	printf '%b\n' "${flow_yaml}" >"${YAML_FILE}" || fail 'could not write restored flow-style YAML'
+	cp -f "${YAML_FILE}" "${YAML_FILE}.before" || fail 'could not preserve restored flow-style YAML'
+	! setup_sync_restored_yaml_for_wan || fail 'WAN YAML sync silently accepted an unsupported flow-style mapping or collection'
+	cmp -s "${YAML_FILE}" "${YAML_FILE}.before" || fail 'WAN YAML sync changed YAML after rejecting unsupported flow style'
+done
+rm -f "${YAML_FILE}.before"
 
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored LAN config'
 ADGUARD_INSTALL_MODE="lan"

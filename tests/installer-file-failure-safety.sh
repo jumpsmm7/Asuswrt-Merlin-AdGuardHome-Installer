@@ -446,6 +446,13 @@ EOF
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/AdGuardHome.yaml/' \
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/data/'
 					;;
+				original-only)
+					printf '%s\n' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
+						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
+						'-rw-r--r-- root/root 1 date ./AdGuardHome/.AdGuardHome.yaml.ori' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/data/'
+					;;
 				*)
 					printf '%s\n' \
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
@@ -460,6 +467,9 @@ EOF
 				;;
 			busybox-data-no-slash)
 				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/AdGuardHome.yaml' './AdGuardHome/data'
+				;;
+			original-only)
+				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/.AdGuardHome.yaml.ori' './AdGuardHome/data/'
 				;;
 			missing-yaml)
 				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/data/querylog.json'
@@ -496,6 +506,8 @@ EOF
 	adguard_archive_is_safe ignored 1 || fail "complete AdGuardHome backup layout was rejected"
 	ARCHIVE_LAYOUT="busybox-data-no-slash"
 	adguard_archive_is_safe ignored 1 || fail "complete BusyBox backup layout without data trailing slash was rejected"
+	ARCHIVE_LAYOUT="original-only"
+	adguard_archive_is_safe ignored 1 || fail "backup containing only the original YAML snapshot was rejected"
 	ARCHIVE_LAYOUT="missing-yaml"
 	adguard_archive_is_safe ignored || fail "install archive without restored state was rejected"
 	if adguard_archive_is_safe ignored 1; then
@@ -1003,6 +1015,7 @@ EOF
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
 				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				printf '%s\n' "schema_version: 27" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome.yaml"
 				return 0
 				;;
 		esac
@@ -1062,6 +1075,7 @@ EOF
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
 				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				printf '%s\n' "schema_version: 27" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome.yaml"
 				return 0
 				;;
 		esac
@@ -1127,6 +1141,7 @@ EOF
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
 				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				printf '%s\n' "schema_version: 27" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome.yaml"
 				return 0
 				;;
 		esac
@@ -1199,6 +1214,7 @@ EOF
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
 				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				printf '%s\n' "schema_version: 27" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome.yaml"
 				return 0
 				;;
 		esac
@@ -1270,6 +1286,7 @@ EOF
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
 				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				printf '%s\n' "schema_version: 27" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome.yaml"
 				return 0
 				;;
 		esac
