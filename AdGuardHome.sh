@@ -639,12 +639,12 @@ check_dns_environment() {
 	NVCHECK="0"
 	case "${MODE}" in
 		running)
+			if adguard_lan_mode; then
+				return 0
+			fi
 			if [ "$(pidof stubby | wc -w)" -gt "0" ]; then
 				{ killall -q -9 stubby 2>/dev/null; }
 				NVCHECK="$((NVCHECK + 1))"
-			fi
-			if adguard_lan_mode; then
-				return 0
 			fi
 			# Save original values only once.
 			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
