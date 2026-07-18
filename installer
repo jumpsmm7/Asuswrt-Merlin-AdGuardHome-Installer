@@ -5466,6 +5466,9 @@ setup_AdGuardHome_impl() {
 				[ -z "${CONFIG_ROLLBACK}" ] || discard_installer_config_backup "${CONFIG_ROLLBACK}"
 				[ -z "${DNS_FILTER_ROLLBACK_DIR}" ] || rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
 				;;
+			"RESTORE")
+				# Restored feature choices are authoritative; --yes must not reselect them.
+				;;
 		esac
 	fi
 }
