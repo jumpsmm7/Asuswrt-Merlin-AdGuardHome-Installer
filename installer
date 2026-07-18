@@ -5099,6 +5099,7 @@ setup_sync_restored_yaml_for_wan() {
 			bind_indent = indentation($0); in_binds = 1
 			print; print "    - 0.0.0.0"; next
 		}
+		in_binds && $0 ~ /^[[:space:]]*($|#)/ { next }
 		in_binds && indentation($0) > bind_indent { next }
 		in_binds { in_binds = 0 }
 		in_dns && /^[[:space:]]*(upstream_dns|local_ptr_upstreams):[[:space:]]*$/ {

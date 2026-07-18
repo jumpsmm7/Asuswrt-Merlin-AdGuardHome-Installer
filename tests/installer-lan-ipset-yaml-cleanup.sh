@@ -245,6 +245,8 @@ tls:
 dns:
   bind_hosts:
     - 127.0.0.1
+  # Keep scanning bind hosts across comments at the key indentation.
+
     - 192.168.50.1
     - fd00::1
   upstream_dns:
@@ -272,6 +274,8 @@ setup_sync_restored_yaml_for_wan || fail 'could not synchronize restored LAN YAM
 grep -q '^    address: 0.0.0.0:3443$' "${YAML_FILE}" || fail 'WAN YAML sync did not preserve WebUI address indentation'
 grep -q '^    session_ttl: 720h$' "${YAML_FILE}" || fail 'WAN YAML sync changed an HTTP sibling indentation'
 [ "$(grep -c '^    - 0.0.0.0$' "${YAML_FILE}")" -eq 1 ] || fail 'WAN YAML sync did not replace DNS bind hosts'
+! grep -q '^    - 192\.168\.50\.1$' "${YAML_FILE}" || fail 'WAN YAML sync retained a bind host after a comment and blank line'
+! grep -q '^    - fd00::1$' "${YAML_FILE}" || fail 'WAN YAML sync retained a trailing bind host after a comment and blank line'
 grep -Fq "[/router.asus.com/][::]:553" "${YAML_FILE}" || fail 'WAN YAML sync did not update reverse upstream'
 grep -Fq -- "- '[::]:553'" "${YAML_FILE}" || fail 'WAN YAML sync did not update local PTR upstream'
 grep -Fq -- '- tls://192.168.50.1:5353' "${YAML_FILE}" || fail 'WAN YAML sync changed a partial reverse endpoint match'
