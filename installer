@@ -5189,15 +5189,27 @@ setup_AdGuardHome_impl() {
 					fi
 				fi
 				if { [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; } || [ "${CHOOSE_NEW}" -eq 1 ]; then
-					PTXT "${INFO} Requesting entries for AdGuardHome initial configuration..." \
-						"${INFO} Please set the preferred Web Port for AdGuardHome WebUI." \
-						"${INFO} The chosen port must reside within the port range 3000-65535" \
-						"${INFO} and not already in use by any other service."
-					if ! read_input_port "Default is" 3000; then
-						setup_restore_previous_yaml || true
-						return 1
+					if [ "$2" = "RESTORE" ] && [ "${AI_ASSUME_YES:-0}" = "1" ] && [ "${CHOOSE_NEW}" -eq 1 ]; then
+						WEB_PORT="$(conf_value ADGUARD_WEBUI_PORT 2>/dev/null)"
+						if ! port_is_valid "${WEB_PORT}"; then
+							WEB_PORT="3000"
+						fi
+						WEB_PORT_SELECTION="${WEB_PORT}"
+						BOOTSTRAP1="9.9.9.9"
+						BOOTSTRAP2="8.8.8.8"
+						DNS_SERVER1="${BOOTSTRAP1}"
+						PTXT "${INFO} Rebuilding AdGuardHome initial configuration with restored/default WAN values."
+					else
+						PTXT "${INFO} Requesting entries for AdGuardHome initial configuration..." \
+							"${INFO} Please set the preferred Web Port for AdGuardHome WebUI." \
+							"${INFO} The chosen port must reside within the port range 3000-65535" \
+							"${INFO} and not already in use by any other service."
+						if ! read_input_port "Default is" 3000; then
+							setup_restore_previous_yaml || true
+							return 1
+						fi
+						WEB_PORT_SELECTION="${WEB_PORT}"
 					fi
-					WEB_PORT_SELECTION="${WEB_PORT}"
 					local DOMAIN="" NET_ADDR NET_ADDR6
 					setup_resolve_lan_addresses
 					if [ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" ] && [ -z "${NET_ADDR}" ]; then
@@ -5226,12 +5238,14 @@ setup_AdGuardHome_impl() {
 					fi
 					setup_write_dns_bind_hosts "${YAML_ORI_NEW}"
 					PTXT "  port: 53" >>"${YAML_ORI_NEW}"
-					PTXT "${INFO} Set the DNS server(s) for initializing AdGuardHome" \
-						"${INFO} and router services (e.g. ntp) at boot"
-					if ! read_input_dns "Default is" 9.9.9.9 || ! read_input_dns "2nd Default is" 8.8.8.8; then
-						rm -f "${YAML_ORI_NEW}"
-						setup_restore_previous_yaml || true
-						return 1
+					if [ -z "${BOOTSTRAP1:-}" ] || [ -z "${BOOTSTRAP2:-}" ]; then
+						PTXT "${INFO} Set the DNS server(s) for initializing AdGuardHome" \
+							"${INFO} and router services (e.g. ntp) at boot"
+						if ! read_input_dns "Default is" 9.9.9.9 || ! read_input_dns "2nd Default is" 8.8.8.8; then
+							rm -f "${YAML_ORI_NEW}"
+							setup_restore_previous_yaml || true
+							return 1
+						fi
 					fi
 					LAN_DOMAIN_ROLLBACK="$(nvram get lan_domain)"
 					if [ -n "${LAN_DOMAIN_ROLLBACK}" ]; then
