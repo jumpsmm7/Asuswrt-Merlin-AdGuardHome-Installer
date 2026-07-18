@@ -5054,19 +5054,11 @@ setup_sync_webui_port() {
 	fi
 }
 
-setup_sync_restored_yaml_for_wan() {
-	local old_reverse sync_file target_file web_port
+setup_sync_mode_dependent_yaml() {
+	local bind_hosts old_reverse reverse_upstream sync_file target_file web_address web_port
 
 	target_file="${1:-${YAML_FILE}}"
 
-	old_reverse="$(conf_value ADGUARD_LAN_REVERSE_UPSTREAM 2>/dev/null)"
-	case "${old_reverse}" in
-		"") old_reverse="$(nvram get lan_gateway 2>/dev/null)" ;;
-	esac
-	case "${old_reverse}" in
-		*:*) ;;
-		?*) old_reverse="${old_reverse}:53" ;;
-	esac
 	web_port="$(conf_value ADGUARD_WEBUI_PORT 2>/dev/null)"
 	if ! port_is_valid "${web_port}"; then
 		web_port="$(awk '
@@ -5098,8 +5090,40 @@ setup_sync_restored_yaml_for_wan() {
 		' "${target_file}" 2>/dev/null)"
 	fi
 	port_is_valid "${web_port}" || web_port="3000"
+	case "${ADGUARD_INSTALL_MODE:-wan}" in
+		lan)
+			WEB_PORT="${web_port}"
+			setup_resolve_bind_addresses || return 1
+			setup_reverse_upstream_target || return 1
+			web_address="${SETUP_WEB_ADDRESS}"
+			reverse_upstream="${SETUP_REVERSE_UPSTREAM}"
+			old_reverse="[::]:553"
+			bind_hosts="$(
+				{
+					PTXT "127.0.0.1"
+					PTXT "${SETUP_DNS_BIND_HOST}"
+					PTXT "${SETUP_DNS_BIND_HOST6}"
+					setup_private_ipv4_bridge_dns_binds
+				} | awk 'NF && !seen[$0]++ { print }'
+			)"
+			;;
+		wan)
+			old_reverse="$(conf_value ADGUARD_LAN_REVERSE_UPSTREAM 2>/dev/null)"
+			case "${old_reverse}" in
+				"") old_reverse="$(nvram get lan_gateway 2>/dev/null)" ;;
+			esac
+			case "${old_reverse}" in
+				*:*) ;;
+				?*) old_reverse="${old_reverse}:53" ;;
+			esac
+			web_address="0.0.0.0:${web_port}"
+			reverse_upstream="[::]:553"
+			bind_hosts="0.0.0.0"
+			;;
+		*) return 1 ;;
+	esac
 	sync_file="${target_file}.wan-sync.$$"
-	awk -v old_reverse="${old_reverse}" -v web_address="0.0.0.0:${web_port}" '
+	awk -v bind_hosts="${bind_hosts}" -v install_mode="${ADGUARD_INSTALL_MODE:-wan}" -v old_reverse="${old_reverse}" -v new_reverse="${reverse_upstream}" -v web_address="${web_address}" '
 		function indentation(line) { match(line, /^[[:space:]]*/); return RLENGTH }
 		function yaml_key_is(line, expected, text, separator, key) {
 			text = line
@@ -5153,14 +5177,17 @@ setup_sync_restored_yaml_for_wan() {
 			separator = index($0, ":")
 			bind_value = substr($0, separator + 1)
 			sub(/^[[:space:]]*/, "", bind_value)
-			if (bind_value == "" || bind_value ~ /^#/) {
-				print; print substr($0, 1, bind_indent) "  - 0.0.0.0"
-			} else {
+			if (install_mode == "wan" && bind_value != "" && bind_value !~ /^#/) {
 				comment = ""
 				comment_at = index(bind_value, "#")
 				if (comment_at) comment = " " substr(bind_value, comment_at)
 				print substr($0, 1, separator) " [0.0.0.0]" comment
 				in_binds = 0
+			} else {
+				print substr($0, 1, separator)
+				count = split(bind_hosts, hosts, "\n")
+				for (host = 1; host <= count; host++)
+					if (hosts[host] != "") print substr($0, 1, bind_indent) "  - " hosts[host]
 			}
 			next
 		}
@@ -5173,7 +5200,7 @@ setup_sync_restored_yaml_for_wan() {
 			reverse_indent = indentation($0); in_reverse_upstreams = 1; print; next
 		}
 		in_reverse_upstreams && indentation($0) <= reverse_indent && $0 !~ /^[[:space:]]*($|#)/ { in_reverse_upstreams = 0 }
-		in_reverse_upstreams && old_reverse != "" { $0 = replace_reverse_endpoint($0, old_reverse, "[::]:553") }
+		in_reverse_upstreams && old_reverse != "" { $0 = replace_reverse_endpoint($0, old_reverse, new_reverse) }
 		{ print }
 	' "${target_file}" >"${sync_file}" && adguardhome_yaml_secure_file "${sync_file}" && mv -f "${sync_file}" "${target_file}" && adguardhome_yaml_secure_file "${target_file}" || {
 		rm -f "${sync_file}"
@@ -5181,9 +5208,39 @@ setup_sync_restored_yaml_for_wan() {
 	}
 }
 
+setup_sync_restored_yaml_for_wan() {
+	setup_sync_mode_dependent_yaml "$@"
+}
+
+setup_sync_mode_dependent_yaml_and_snapshot() {
+	[ ! -f "${YAML_FILE}" ] || setup_sync_mode_dependent_yaml || return 1
+	[ ! -f "${YAML_ORI}" ] || setup_sync_mode_dependent_yaml "${YAML_ORI}" || return 1
+}
+
 setup_sync_restored_yaml_and_snapshot_for_wan() {
-	[ ! -f "${YAML_FILE}" ] || setup_sync_restored_yaml_for_wan || return 1
-	[ ! -f "${YAML_ORI}" ] || setup_sync_restored_yaml_for_wan "${YAML_ORI}" || return 1
+	setup_sync_mode_dependent_yaml_and_snapshot
+}
+
+adguard_migrate_detected_install_mode() {
+	local previous_mode
+	previous_mode="$1"
+	case "${previous_mode}:${ADGUARD_INSTALL_MODE:-}" in
+		wan:lan | lan:wan)
+			PTXT "${INFO} Router mode changed from ${previous_mode} to ${ADGUARD_INSTALL_MODE}; updating mode-dependent AdGuardHome settings."
+			if ! setup_sync_mode_dependent_yaml_and_snapshot; then
+				PTXT "${ERROR} Unable to update the AdGuardHome configuration for ${ADGUARD_INSTALL_MODE} mode."
+				return 1
+			fi
+			write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\"" || return 1
+			adguard_install_feature_defaults || return 1
+			write_conf ADGUARD_NETCHECK_MODE "\"${ADGUARD_INSTALL_MODE}\"" || return 1
+			case "${ADGUARD_INSTALL_MODE}" in
+				lan) adguardhome_yaml_remove_ipset_file || return 1 ;;
+			esac
+			return 0
+			;;
+	esac
+	write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\""
 }
 
 setup_AdGuardHome_impl() {
@@ -6917,11 +6974,12 @@ WAN_IPADDR="$(nvram get wan_ipaddr 2>/dev/null)"
 if ipv4_is_private "${WAN_IPADDR}"; then NAT_ENV="${WAN_IPADDR}"; else NAT_ENV=""; fi
 
 [ -z "${ROUTER_MODEL}" ] && PTXT "${ERROR} This is an unsupported router, sorry." && sleep 3s && exit 1
+PREVIOUS_ADGUARD_INSTALL_MODE="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
 adguard_install_mode_detect || {
 	sleep 3s
 	exit 1
 }
-write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\"" || exit 1
+adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE}" || exit 1
 
 if [ "${ADGUARD_INSTALL_MODE}" = "wan" ] && [ -n "${NAT_ENV}" ] && [ -z "$2" ]; then
 	PTXT "${WARNING} This router is in a Double-Nat Environment. While for some users of AdGuardHome this may work fine," \
