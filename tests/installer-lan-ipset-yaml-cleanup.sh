@@ -234,8 +234,8 @@ ADGUARD_LAN_REVERSE_UPSTREAM="192.168.50.1"
 EOF_CONF
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored LAN YAML'
 http:
-  address: 192.168.50.1:3443
-  session_ttl: 720h
+    address: 192.168.50.1:3443
+    session_ttl: 720h
 users:
   - name: restored-user
     password: restored-password-hash
@@ -269,7 +269,8 @@ access:
     - 192.168.50.0/24
 EOF_YAML
 setup_sync_restored_yaml_for_wan || fail 'could not synchronize restored LAN YAML for WAN mode'
-grep -q '^  address: 0.0.0.0:3443$' "${YAML_FILE}" || fail 'WAN YAML sync did not update WebUI bind address'
+grep -q '^    address: 0.0.0.0:3443$' "${YAML_FILE}" || fail 'WAN YAML sync did not preserve WebUI address indentation'
+grep -q '^    session_ttl: 720h$' "${YAML_FILE}" || fail 'WAN YAML sync changed an HTTP sibling indentation'
 [ "$(grep -c '^    - 0.0.0.0$' "${YAML_FILE}")" -eq 1 ] || fail 'WAN YAML sync did not replace DNS bind hosts'
 grep -Fq "[/router.asus.com/][::]:553" "${YAML_FILE}" || fail 'WAN YAML sync did not update reverse upstream'
 grep -Fq -- "- '[::]:553'" "${YAML_FILE}" || fail 'WAN YAML sync did not update local PTR upstream'

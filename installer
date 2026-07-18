@@ -5089,7 +5089,10 @@ setup_sync_restored_yaml_for_wan() {
 		}
 		/^http:[[:space:]]*$/ { in_http = 1; http_indent = indentation($0); print; next }
 		in_http && indentation($0) <= http_indent && $0 !~ /^[[:space:]]*($|#)/ { in_http = 0 }
-		in_http && /^[[:space:]]*address:[[:space:]]*/ { print "  address: " web_address; next }
+		in_http && /^[[:space:]]*address:[[:space:]]*/ {
+			print substr($0, 1, indentation($0)) "address: " web_address
+			next
+		}
 		/^dns:[[:space:]]*$/ { in_dns = 1; dns_indent = indentation($0); print; next }
 		in_dns && indentation($0) <= dns_indent && $0 !~ /^[[:space:]]*($|#)/ { in_dns = 0; in_binds = 0 }
 		in_dns && /^[[:space:]]*bind_hosts:[[:space:]]*$/ {
