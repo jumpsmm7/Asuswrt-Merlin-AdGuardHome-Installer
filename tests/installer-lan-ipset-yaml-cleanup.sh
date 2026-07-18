@@ -337,8 +337,7 @@ for flow_yaml in \
 	'http: {address: 192.168.50.1:3443}' \
 	'dns: {bind_hosts: [192.168.50.1]}' \
 	'dns:\n  upstream_dns: [192.168.50.1:53]' \
-	'dns:\n  local_ptr_upstreams: [192.168.50.1:53]'
-do
+	'dns:\n  local_ptr_upstreams: [192.168.50.1:53]'; do
 	printf '%b\n' "${flow_yaml}" >"${YAML_FILE}" || fail 'could not write restored flow-style YAML'
 	cp -f "${YAML_FILE}" "${YAML_FILE}.before" || fail 'could not preserve restored flow-style YAML'
 	! setup_sync_restored_yaml_for_wan || fail 'WAN YAML sync silently accepted an unsupported flow-style mapping or collection'
