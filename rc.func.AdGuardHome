@@ -241,6 +241,12 @@ start() {
 		if adguardhome_start_handoff_is_prepared; then
 			DNS_HANDOFF=1
 		elif [ "${PROC}" = "AdGuardHome" ] && [ "${ADGUARDHOME_DNS_HANDOFF_REQUIRED:-0}" = "1" ]; then
+			if [ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" = "1" ] && [ -n "${POSTFAILCMD:-}" ]; then
+				POSTFAIL_STATUS=0
+				adguardhome_run_postfailcmd
+				POSTFAIL_STATUS="$?"
+				[ "${POSTFAIL_STATUS}" -eq 0 ] || logger -st "${CALLER}" "Required DNS handoff recovery failed for ${DESC} from ${CALLER}."
+			fi
 			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 			logger -st "${CALLER}" "Pre-start hook did not prepare required DNS handoff for ${DESC} from ${CALLER}."
 			trap - HUP INT TERM

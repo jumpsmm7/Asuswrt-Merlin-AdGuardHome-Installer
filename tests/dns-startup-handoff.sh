@@ -1075,6 +1075,32 @@ grep -q '^required_handoff_missing_pre_hook$' "${CALLS_FILE}" || fail 'rc.func s
 ! grep -q '^required_handoff_missing_post_hook$' "${CALLS_FILE}" || fail 'rc.func ran post-start after missing required handoff'
 [ ! -f "${STARTED_FILE}" ] || fail 'rc.func launched AdGuardHome after missing required handoff'
 
+# If PRECMD activated the required handoff but the marker is missing before
+# rc.func verifies ownership, failed-start recovery must run without dnsmasq
+# restart suppression so dnsmasq is restored from the prepared handoff state.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
+(
+	pre_hook() {
+		ADGUARDHOME_DNS_HANDOFF_REQUIRED=1
+		export ADGUARDHOME_DNS_HANDOFF_REQUIRED
+		prepare_active_dns_handoff_test_marker || return 1
+		rm -f "${DNS_HANDOFF_FILE}" || return 1
+		printf '%s\n' required_handoff_lost_marker_pre_hook >>"${CALLS_FILE}"
+	}
+	post_hook() {
+		printf '%s\n' required_handoff_lost_marker_post_hook >>"${CALLS_FILE}"
+	}
+	if start >/dev/null; then
+		exit 1
+	fi
+) || fail 'rc.func accepted a required handoff whose active marker was lost'
+grep -q '^required_handoff_lost_marker_pre_hook$' "${CALLS_FILE}" || fail 'rc.func skipped required-handoff lost-marker pre-start hook'
+grep -q '^post_failure_hook 0$' "${CALLS_FILE}" || fail 'rc.func suppressed dnsmasq restart after required handoff marker was lost'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'rc.func did not restore dnsmasq after required handoff marker was lost'
+! grep -q '^required_handoff_lost_marker_post_hook$' "${CALLS_FILE}" || fail 'rc.func ran post-start after required handoff marker was lost'
+[ ! -f "${STARTED_FILE}" ] || fail 'rc.func launched AdGuardHome after required handoff marker was lost'
+
 # If required handoff preparation is interrupted after PRECMD has activated the
 # dnsmasq handoff, failed-start recovery must restore dnsmasq instead of
 # treating the start as a no-handoff flow.
