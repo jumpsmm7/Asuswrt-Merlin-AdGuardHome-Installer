@@ -5069,6 +5069,16 @@ setup_sync_restored_yaml_for_wan() {
 	sync_file="${YAML_FILE}.wan-sync.$$"
 	awk -v old_reverse="${old_reverse}" -v web_address="0.0.0.0:${web_port}" '
 		function indentation(line) { match(line, /^[[:space:]]*/); return RLENGTH }
+		function yaml_key_is(line, expected, text, separator, key) {
+			text = line
+			sub(/^[[:space:]]*/, "", text)
+			separator = index(text, ":")
+			if (!separator)
+				return 0
+			key = substr(text, 1, separator - 1)
+			sub(/[[:space:]]*$/, "", key)
+			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
+		}
 		function replace_reverse_endpoint(line, old, replacement, value, prefix, position) {
 			value = line
 			sub(/[[:space:]]+#.*$/, "", value)
@@ -5095,9 +5105,21 @@ setup_sync_restored_yaml_for_wan() {
 		}
 		/^dns:[[:space:]]*(#.*)?$/ { in_dns = 1; dns_indent = indentation($0); print; next }
 		in_dns && indentation($0) <= dns_indent && $0 !~ /^[[:space:]]*($|#)/ { in_dns = 0; in_binds = 0 }
-		in_dns && /^[[:space:]]*bind_hosts:[[:space:]]*$/ {
+		in_dns && yaml_key_is($0, "bind_hosts") {
 			bind_indent = indentation($0); in_binds = 1
-			print; print "    - 0.0.0.0"; next
+			separator = index($0, ":")
+			bind_value = substr($0, separator + 1)
+			sub(/^[[:space:]]*/, "", bind_value)
+			if (bind_value == "" || bind_value ~ /^#/) {
+				print; print substr($0, 1, bind_indent) "  - 0.0.0.0"
+			} else {
+				comment = ""
+				comment_at = index(bind_value, "#")
+				if (comment_at) comment = " " substr(bind_value, comment_at)
+				print substr($0, 1, separator) " [0.0.0.0]" comment
+				in_binds = 0
+			}
+			next
 		}
 		in_binds && $0 ~ /^[[:space:]]*($|#)/ { next }
 		in_binds && indentation($0) > bind_indent { next }

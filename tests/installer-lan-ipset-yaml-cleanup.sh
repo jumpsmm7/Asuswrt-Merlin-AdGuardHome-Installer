@@ -243,7 +243,7 @@ tls:
   enabled: true
   server_name: dns.example.test
 dns: # resolver settings
-  bind_hosts:
+  'bind_hosts':
     - 127.0.0.1
   # Keep scanning bind hosts across comments at the key indentation.
 
@@ -286,6 +286,16 @@ grep -q 'https://example.test/filter.txt' "${YAML_FILE}" || fail 'WAN YAML sync 
 grep -q 'server_name: dns.example.test' "${YAML_FILE}" || fail 'WAN YAML sync removed restored TLS settings'
 grep -q 'domain: printer.example.test' "${YAML_FILE}" || fail 'WAN YAML sync removed restored rewrites'
 grep -q '192.168.50.0/24' "${YAML_FILE}" || fail 'WAN YAML sync removed restored access settings'
+
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored inline bind hosts'
+dns:
+  "bind_hosts": [192.168.50.1, fd00::1] # restored LAN binds
+  upstream_dns:
+    - https://dns.example/dns-query
+EOF_YAML
+setup_sync_restored_yaml_for_wan || fail 'could not synchronize inline bind hosts for WAN mode'
+grep -Fq '  "bind_hosts": [0.0.0.0] # restored LAN binds' "${YAML_FILE}" || fail 'WAN YAML sync did not normalize quoted inline bind hosts'
+! grep -Fq '192.168.50.1, fd00::1' "${YAML_FILE}" || fail 'WAN YAML sync retained restored inline bind hosts'
 
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored LAN config'
 ADGUARD_INSTALL_MODE="lan"
