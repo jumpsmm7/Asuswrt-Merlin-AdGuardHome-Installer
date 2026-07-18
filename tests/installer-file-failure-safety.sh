@@ -1003,6 +1003,7 @@ EOF
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
 				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				printf '%s\n' "schema_version: 27" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome.yaml"
 				return 0
 				;;
 		esac
@@ -1062,6 +1063,7 @@ EOF
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
 				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				printf '%s\n' "schema_version: 27" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome.yaml"
 				return 0
 				;;
 		esac
@@ -1127,6 +1129,7 @@ EOF
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
 				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				printf '%s\n' "schema_version: 27" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome.yaml"
 				return 0
 				;;
 		esac
@@ -1199,6 +1202,7 @@ EOF
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
 				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				printf '%s\n' "schema_version: 27" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome.yaml"
 				return 0
 				;;
 		esac
@@ -1270,6 +1274,7 @@ EOF
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
 				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				printf '%s\n' "schema_version: 27" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome.yaml"
 				return 0
 				;;
 		esac
