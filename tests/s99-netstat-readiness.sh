@@ -151,7 +151,6 @@ if ! dns_port_needs_release; then
 fi
 PIDOF_STATE=one
 
-
 NETSTAT_STATE=loopback_only_dns
 if adguardhome_owns_dns '127.0.0.1 192.168.50.1'; then
 	fail 'scoped LAN DNS readiness accepted loopback-only ownership'
