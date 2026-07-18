@@ -607,6 +607,9 @@ check_dns_environment() {
 	}
 	dns_env_apply_profile() {
 		local changed
+		if adguard_lan_mode; then
+			return 1
+		fi
 		changed="0"
 		if dns_env_set_nvram "dnspriv_enable" "0"; then changed="$((changed + 1))"; fi
 		if dns_env_set_nvram "dhcpd_dns_router" "1"; then changed="$((changed + 1))"; fi
@@ -636,13 +639,16 @@ check_dns_environment() {
 	NVCHECK="0"
 	case "${MODE}" in
 		running)
-			# Save original values only once.
-			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
-				save_dns_nvram_environment
+			if adguard_lan_mode; then
+				return 0
 			fi
 			if [ "$(pidof stubby | wc -w)" -gt "0" ]; then
 				{ killall -q -9 stubby 2>/dev/null; }
 				NVCHECK="$((NVCHECK + 1))"
+			fi
+			# Save original values only once.
+			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
+				save_dns_nvram_environment
 			fi
 			if dns_env_apply_profile; then NVCHECK="$((NVCHECK + 1))"; fi
 			;;
