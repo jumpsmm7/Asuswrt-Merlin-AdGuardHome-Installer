@@ -216,9 +216,9 @@ ADGUARD_NETCHECK_MODE="lan"
 EOF_CONF
 ADGUARD_INSTALL_MODE='wan'
 adguard_enforce_lan_ipset_disabled || fail 'WAN detection did not correct stale LAN netcheck config'
-[ "$(conf_value ADGUARD_IPSET)" = 'YES' ] || fail 'WAN detection did not restore ADGUARD_IPSET with stale LAN netcheck mode'
-[ "$(conf_value ADGUARD_NETCHECK_MODE)" = 'wan' ] || fail 'WAN detection did not restore stale ADGUARD_NETCHECK_MODE for WAN mode'
-[ "${ADGUARD_FORCE_SETUP_YAML:-0}" = '1' ] || fail 'WAN detection did not request YAML rebuild for stale LAN netcheck mode'
+[ "$(conf_value ADGUARD_IPSET)" = 'NO' ] || fail 'WAN detection did not preserve explicit ADGUARD_IPSET setting'
+[ "$(conf_value ADGUARD_NETCHECK_MODE)" = 'lan' ] || fail 'WAN detection did not preserve explicit ADGUARD_NETCHECK_MODE setting'
+[ "${ADGUARD_FORCE_SETUP_YAML:-0}" = '0' ] || fail 'WAN detection requested YAML rebuild without restored LAN install mode'
 ADGUARD_FORCE_SETUP_YAML=0
 
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored LAN config'

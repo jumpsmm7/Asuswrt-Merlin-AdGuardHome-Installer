@@ -2941,19 +2941,17 @@ adguardhome_yaml_remove_ipset_file() {
 }
 
 adguard_enforce_lan_ipset_disabled() {
-	local restored_mode restored_netcheck_mode
+	local restored_mode
 	case "${ADGUARD_INSTALL_MODE:-}" in
 		wan)
 			restored_mode="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
-			restored_netcheck_mode="$(conf_value ADGUARD_NETCHECK_MODE 2>/dev/null)"
 			write_conf ADGUARD_INSTALL_MODE '"wan"' || return 1
-			write_conf ADGUARD_IPSET '"YES"' || return 1
-			write_conf ADGUARD_NETCHECK_MODE '"wan"' || return 1
 			case "${restored_mode}" in
-				lan) ADGUARD_FORCE_SETUP_YAML="1" ;;
-			esac
-			case "${restored_netcheck_mode}" in
-				lan) ADGUARD_FORCE_SETUP_YAML="1" ;;
+				lan)
+					write_conf ADGUARD_IPSET '"YES"' || return 1
+					write_conf ADGUARD_NETCHECK_MODE '"wan"' || return 1
+					ADGUARD_FORCE_SETUP_YAML="1"
+					;;
 			esac
 			return 0
 			;;
@@ -5145,7 +5143,7 @@ setup_AdGuardHome_impl() {
 			cp -f "${YAML_ORI}" "${YAML_FILE}"
 		fi
 		case "${2:-reconfig}" in
-			"install" | "reconfig")
+			"install" | "reconfig" | "RESTORE")
 				if [ ! -f "${YAML_FILE}" ] || [ "$2" = "reconfig" ]; then
 					local DNS_FILTER_SELECTION LOCAL_CACHE_SELECTION YESNO_STATUS
 					read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"
