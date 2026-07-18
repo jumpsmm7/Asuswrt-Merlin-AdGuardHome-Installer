@@ -315,6 +315,22 @@ setup_sync_restored_yaml_for_wan || fail 'could not synchronize inline bind host
 grep -Fq '  "bind_hosts": [0.0.0.0] # restored LAN binds' "${YAML_FILE}" || fail 'WAN YAML sync did not normalize quoted inline bind hosts'
 ! grep -Fq '192.168.50.1, fd00::1' "${YAML_FILE}" || fail 'WAN YAML sync retained restored inline bind hosts'
 
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored indentationless bind hosts'
+dns:
+  bind_hosts:
+  - 127.0.0.1
+  # Keep scanning indentationless bind hosts across comments.
+
+  - 192.168.50.1
+  - fd00::1
+  upstream_dns:
+  - https://dns.example/dns-query
+EOF_YAML
+setup_sync_restored_yaml_for_wan || fail 'could not synchronize indentationless bind hosts for WAN mode'
+[ "$(grep -c '^    - 0.0.0.0$' "${YAML_FILE}")" -eq 1 ] || fail 'WAN YAML sync did not add a wildcard for indentationless bind hosts'
+! grep -Eq '^  - (127\.0\.0\.1|192\.168\.50\.1|fd00::1)$' "${YAML_FILE}" || fail 'WAN YAML sync retained an indentationless bind host'
+grep -Fq '  - https://dns.example/dns-query' "${YAML_FILE}" || fail 'WAN YAML sync removed a sibling indentationless upstream'
+
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored LAN config'
 ADGUARD_INSTALL_MODE="lan"
 ADGUARD_IPSET="YES"
