@@ -5043,8 +5043,45 @@ setup_sync_webui_port() {
 	fi
 }
 
+setup_restore_bootstrap_defaults() {
+	local bootstrap_file
+	bootstrap_file="$1"
+	BOOTSTRAP1=""
+	BOOTSTRAP2=""
+	if [ -f "${bootstrap_file}" ]; then
+		set -- $(awk '
+			function indentation(line) {
+				match(line, /^[[:space:]]*/)
+				return RLENGTH
+			}
+			/^[[:space:]]*dns:[[:space:]]*$/ { in_dns = 1; dns_indent = indentation($0); next }
+			in_dns && indentation($0) <= dns_indent && $0 !~ /^[[:space:]]*($|#)/ { in_dns = 0; in_bootstrap = 0 }
+			in_dns && /^[[:space:]]*bootstrap_dns:[[:space:]]*$/ { in_bootstrap = 1; bootstrap_indent = indentation($0); next }
+			in_bootstrap && indentation($0) <= bootstrap_indent && $0 !~ /^[[:space:]]*($|#)/ { in_bootstrap = 0 }
+			in_bootstrap && /^[[:space:]]*-[[:space:]]*/ {
+				value = $0
+				sub(/^[[:space:]]*-[[:space:]]*/, "", value)
+				sub(/[[:space:]]*#.*$/, "", value)
+				gsub(/^[[:space:]"'\''"]+|[[:space:]"'\''"]+$/, "", value)
+				if (value ~ /^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$/) print value
+			}
+		' "${bootstrap_file}" 2>/dev/null)
+	fi
+	if ipv4_is_valid "${1:-}"; then
+		BOOTSTRAP1="$1"
+	else
+		BOOTSTRAP1="9.9.9.9"
+	fi
+	if ipv4_is_valid "${2:-}" && [ "${2:-}" != "${BOOTSTRAP1}" ]; then
+		BOOTSTRAP2="$2"
+	else
+		BOOTSTRAP2="8.8.8.8"
+	fi
+	DNS_SERVER1="${BOOTSTRAP1}"
+}
+
 setup_AdGuardHome_impl() {
-	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
+	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" RESTORE_DEFAULT_INPUTS=0 WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ "${ADGUARD_FORCE_SETUP_YAML:-0}" = "1" ] && [ -f "${YAML_FILE}" ]; then
 		PTXT "${INFO} Restored mode differs from detected WAN mode; rebuilding AdGuardHome configuration."
@@ -5195,9 +5232,8 @@ setup_AdGuardHome_impl() {
 							WEB_PORT="3000"
 						fi
 						WEB_PORT_SELECTION="${WEB_PORT}"
-						BOOTSTRAP1="9.9.9.9"
-						BOOTSTRAP2="8.8.8.8"
-						DNS_SERVER1="${BOOTSTRAP1}"
+						setup_restore_bootstrap_defaults "${YAML_BAK}"
+						RESTORE_DEFAULT_INPUTS=1
 						PTXT "${INFO} Rebuilding AdGuardHome initial configuration with restored/default WAN values."
 					else
 						PTXT "${INFO} Requesting entries for AdGuardHome initial configuration..." \
@@ -5238,7 +5274,7 @@ setup_AdGuardHome_impl() {
 					fi
 					setup_write_dns_bind_hosts "${YAML_ORI_NEW}"
 					PTXT "  port: 53" >>"${YAML_ORI_NEW}"
-					if [ -z "${BOOTSTRAP1:-}" ] || [ -z "${BOOTSTRAP2:-}" ]; then
+					if [ "${RESTORE_DEFAULT_INPUTS}" -ne 1 ]; then
 						PTXT "${INFO} Set the DNS server(s) for initializing AdGuardHome" \
 							"${INFO} and router services (e.g. ntp) at boot"
 						if ! read_input_dns "Default is" 9.9.9.9 || ! read_input_dns "2nd Default is" 8.8.8.8; then
