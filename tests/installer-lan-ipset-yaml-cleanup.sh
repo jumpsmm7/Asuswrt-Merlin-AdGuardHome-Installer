@@ -272,7 +272,9 @@ access:
   allowed_clients:
     - 192.168.50.0/24
 EOF_YAML
-cp -f "${YAML_FILE}" "${YAML_ORI}" || fail 'could not write restored original YAML snapshot'
+sed -e 's/restored-user/original-user/' \
+	-e 's#https://dns.example/dns-query#https://original.example/dns-query#' \
+	"${YAML_FILE}" >"${YAML_ORI}" || fail 'could not write distinct restored original YAML snapshot'
 setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could not synchronize restored LAN YAML for WAN mode'
 grep -q '^    address: 0.0.0.0:3443$' "${YAML_FILE}" || fail 'WAN YAML sync did not preserve WebUI address indentation'
 grep -q '^    session_ttl: 720h$' "${YAML_FILE}" || fail 'WAN YAML sync changed an HTTP sibling indentation'
@@ -289,7 +291,11 @@ grep -q 'https://example.test/filter.txt' "${YAML_FILE}" || fail 'WAN YAML sync 
 grep -q 'server_name: dns.example.test' "${YAML_FILE}" || fail 'WAN YAML sync removed restored TLS settings'
 grep -q 'domain: printer.example.test' "${YAML_FILE}" || fail 'WAN YAML sync removed restored rewrites'
 grep -q '192.168.50.0/24' "${YAML_FILE}" || fail 'WAN YAML sync removed restored access settings'
-cmp -s "${YAML_FILE}" "${YAML_ORI}" || fail 'WAN YAML sync left the original snapshot in LAN mode'
+grep -q '^    address: 0.0.0.0:3443$' "${YAML_ORI}" || fail 'WAN YAML sync left the original WebUI snapshot in LAN mode'
+grep -Fq -- "- '[/router.asus.com/][::]:553'" "${YAML_ORI}" || fail 'WAN YAML sync left the original reverse upstream snapshot in LAN mode'
+grep -q 'name: original-user' "${YAML_ORI}" || fail 'WAN YAML sync replaced original snapshot credentials with working settings'
+grep -q 'https://original.example/dns-query' "${YAML_ORI}" || fail 'WAN YAML sync replaced original snapshot upstreams with working settings'
+! cmp -s "${YAML_FILE}" "${YAML_ORI}" || fail 'WAN YAML sync replaced the distinct original snapshot with the working YAML'
 
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored inline bind hosts'
 dns:

@@ -5047,7 +5047,9 @@ setup_sync_webui_port() {
 }
 
 setup_sync_restored_yaml_for_wan() {
-	local old_reverse sync_file web_port
+	local old_reverse sync_file target_file web_port
+
+	target_file="${1:-${YAML_FILE}}"
 
 	old_reverse="$(conf_value ADGUARD_LAN_REVERSE_UPSTREAM 2>/dev/null)"
 	case "${old_reverse}" in
@@ -5063,10 +5065,10 @@ setup_sync_restored_yaml_for_wan() {
 			/^http:[[:space:]]*$/ { in_http = 1; next }
 			in_http && /^[^[:space:]]/ { exit }
 			in_http && /^[[:space:]]*address:[[:space:]]*/ { value = $0; sub(/^.*:/, "", value); gsub(/[[:space:]"'\''"]/, "", value); print value; exit }
-		' "${YAML_FILE}" 2>/dev/null)"
+		' "${target_file}" 2>/dev/null)"
 	fi
 	port_is_valid "${web_port}" || web_port="3000"
-	sync_file="${YAML_FILE}.wan-sync.$$"
+	sync_file="${target_file}.wan-sync.$$"
 	awk -v old_reverse="${old_reverse}" -v web_address="0.0.0.0:${web_port}" '
 		function indentation(line) { match(line, /^[[:space:]]*/); return RLENGTH }
 		function yaml_key_is(line, expected, text, separator, key) {
@@ -5130,25 +5132,16 @@ setup_sync_restored_yaml_for_wan() {
 		in_reverse_upstreams && indentation($0) <= reverse_indent && $0 !~ /^[[:space:]]*($|#)/ { in_reverse_upstreams = 0 }
 		in_reverse_upstreams && old_reverse != "" { $0 = replace_reverse_endpoint($0, old_reverse, "[::]:553") }
 		{ print }
-	' "${YAML_FILE}" >"${sync_file}" && adguardhome_yaml_secure_file "${sync_file}" && mv -f "${sync_file}" "${YAML_FILE}" && adguardhome_yaml_secure_file || {
+	' "${target_file}" >"${sync_file}" && adguardhome_yaml_secure_file "${sync_file}" && mv -f "${sync_file}" "${target_file}" && adguardhome_yaml_secure_file "${target_file}" || {
 		rm -f "${sync_file}"
 		return 1
 	}
 }
 
 setup_sync_restored_yaml_and_snapshot_for_wan() {
-	local snapshot_file
-
 	setup_sync_restored_yaml_for_wan || return 1
 	[ -f "${YAML_ORI}" ] || return 0
-	snapshot_file="${YAML_ORI}.wan-sync.$$"
-	cp -f "${YAML_FILE}" "${snapshot_file}" &&
-		adguardhome_yaml_secure_file "${snapshot_file}" &&
-		mv -f "${snapshot_file}" "${YAML_ORI}" &&
-		adguardhome_yaml_secure_file "${YAML_ORI}" || {
-		rm -f "${snapshot_file}"
-		return 1
-	}
+	setup_sync_restored_yaml_for_wan "${YAML_ORI}"
 }
 
 setup_AdGuardHome_impl() {
