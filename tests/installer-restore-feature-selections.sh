@@ -1,5 +1,5 @@
 #!/bin/sh
-# Verify RESTORE rebuilds a missing YAML without reselecting restored features.
+# Verify RESTORE preserves feature choices and rejects backups without YAML.
 
 set -u
 
@@ -18,7 +18,7 @@ grep -q '"install" | "reconfig" | "RESTORE")' "${SCRIPT_PATH}" ||
 	fail 'RESTORE does not share the YAML generation branch'
 grep -q 'if \[ "${2:-reconfig}" != "RESTORE" \].*\[ ! -f "${YAML_FILE}" \]' "${SCRIPT_PATH}" ||
 	fail 'RESTORE does not skip interactive feature selection'
-grep -q 'if { \[ ! -f "${YAML_ORI}" \] && \[ ! -f "${YAML_FILE}" \]; }' "${SCRIPT_PATH}" ||
-	fail 'missing restored YAML does not enter YAML generation'
+grep -q '\[ ! -f "${RESTORE_TARG_DIR}/AdGuardHome.yaml" \].*\[ ! -f "${RESTORE_TARG_DIR}/.AdGuardHome.yaml.ori" \]' "${SCRIPT_PATH}" ||
+	fail 'restore validation accepts a backup without either YAML file'
 
-printf '%s\n' 'PASS: RESTORE rebuilds missing YAML and preserves feature selections'
+printf '%s\n' 'PASS: RESTORE rejects missing YAML and preserves feature selections'

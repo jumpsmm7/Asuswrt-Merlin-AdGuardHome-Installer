@@ -4040,7 +4040,8 @@ backup_restore() {
 		ptxt_step "Validating staged AdGuardHome backup."
 		if [ ! -d "${RESTORE_TARG_DIR}" ] || [ -L "${RESTORE_TARG_DIR}" ] ||
 			[ ! -f "${RESTORE_TARG_DIR}/AdGuardHome" ] ||
-			[ ! -d "${RESTORE_TARG_DIR}/data" ] || [ -L "${RESTORE_TARG_DIR}/data" ]; then
+			[ ! -d "${RESTORE_TARG_DIR}/data" ] || [ -L "${RESTORE_TARG_DIR}/data" ] ||
+			{ [ ! -f "${RESTORE_TARG_DIR}/AdGuardHome.yaml" ] && [ ! -f "${RESTORE_TARG_DIR}/.AdGuardHome.yaml.ori" ]; }; then
 			adguard_install_abort_trap_disable
 			rm -rf "${RESTORE_STAGE_DIR}"
 			rollback_result_write "backup restore" "rollback unavailable" "staged backup validation failed before changes"
