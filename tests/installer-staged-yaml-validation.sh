@@ -92,6 +92,7 @@ ai_have_cmd() { return 1; }
 nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '1' ;;
+		get:lan_gateway) printf '%s\n' "${TEST_LAN_GATEWAY:-}" ;;
 		get:lan_ipaddr) printf '%s\n' '192.168.1.1' ;;
 		get:ipv6_rtr_addr) printf '%s\n' '' ;;
 		get:lan_domain) printf '%s\n' '' ;;
@@ -122,6 +123,36 @@ check_AdGuardHome_yaml() {
 	return 0
 }
 
+reset_setup_logs() {
+	rm -f "${YAML_FILE}" "${YAML_ORI}" "${CHECK_LOG}" "${YESNO_LOG}" "${IPSET_LOG}"
+	BOOTSTRAP1=
+	BOOTSTRAP2=
+	: >"${CHECK_LOG}"
+	: >"${YESNO_LOG}"
+	: >"${IPSET_LOG}"
+	IPSET_YESNO_STATUS=0
+}
+
+assert_lan_yaml_reverse_upstreams() {
+	expected_target="$1"
+	case_label="$2"
+
+	grep -q "^http:$" "${YAML_FILE}" || fail "${case_label}: LAN published YAML is missing http section"
+	grep -q "^  address: 192.168.1.1:3000$" "${YAML_FILE}" || fail "${case_label}: LAN web bind address did not use LAN IPv4"
+	grep -q "^  - '\[/router.asus.com/\]${expected_target}'" "${YAML_FILE}" || fail "${case_label}: LAN router upstream did not use LAN reverse target"
+	grep -q "^  - '\[//\]${expected_target}'" "${YAML_FILE}" || fail "${case_label}: LAN local domain upstream did not use LAN reverse target"
+	grep -q "^  - '${expected_target}'" "${YAML_FILE}" || fail "${case_label}: LAN local PTR upstream did not use LAN reverse target"
+	grep -q "^  - '\[/10.in-addr.arpa/\]${expected_target}'" "${YAML_FILE}" || fail "${case_label}: LAN private PTR upstream did not use LAN reverse target"
+	if grep -q '\[::\]:553' "${YAML_FILE}"; then
+		fail "${case_label}: LAN setup emitted WAN wildcard reverse target"
+	fi
+	if grep -q 'IPSET integration' "${YESNO_LOG}"; then
+		fail "${case_label}: LAN setup showed the IPSET prompt"
+	fi
+	grep -q '^0$' "${IPSET_LOG}" || fail "${case_label}: LAN setup did not force IPSET disabled selection"
+	grep -q '^ADGUARD_IPSET="NO"$' "${CONF_FILE}" || fail "${case_label}: LAN setup did not persist ADGUARD_IPSET=NO"
+}
+
 : >"${CONF_FILE}"
 : >"${CHECK_LOG}"
 : >"${YESNO_LOG}"
@@ -139,6 +170,7 @@ second_check="$(sed -n '2p' "${CHECK_LOG}")"
 grep -q '^dns:$' "${YAML_FILE}" || fail 'published YAML is missing dns section'
 grep -q '^schema_version: 27$' "${YAML_FILE}" || fail 'published YAML is missing schema_version'
 grep -q "^  - '\[/router.asus.com/\]\[::\]:553'" "${YAML_FILE}" || fail 'WAN router upstream did not use wildcard reverse target'
+grep -q "^  - '\[//\]\[::\]:553'" "${YAML_FILE}" || fail 'WAN local domain upstream did not use wildcard reverse target'
 grep -q "^  - '\[::\]:553'" "${YAML_FILE}" || fail 'WAN local PTR upstream did not use wildcard reverse target'
 grep -q "^  - '\[/10.in-addr.arpa/\]\[::\]:553'" "${YAML_FILE}" || fail 'WAN private PTR upstream did not use wildcard reverse target'
 grep -q 'IPSET integration' "${YESNO_LOG}" || fail 'WAN setup did not show the IPSET prompt'
@@ -146,37 +178,40 @@ grep -q '^1$' "${IPSET_LOG}" || fail 'WAN setup did not accept IPSET enablement'
 grep -q '^ADGUARD_IPSET="YES"$' "${CONF_FILE}" || fail 'WAN setup did not persist ADGUARD_IPSET=YES'
 [ "$(cat "${YAML_ORI}")" = "$(cat "${YAML_FILE}")" ] || fail 'original snapshot does not match published YAML'
 
-rm -f "${YAML_FILE}" "${YAML_ORI}" "${CHECK_LOG}" "${YESNO_LOG}" "${IPSET_LOG}"
-BOOTSTRAP1=
-BOOTSTRAP2=
+reset_setup_logs
 ADGUARD_INSTALL_MODE=lan
-ADGUARD_LAN_REVERSE_UPSTREAM=192.168.50.1
-: >"${CHECK_LOG}"
-: >"${YESNO_LOG}"
-: >"${IPSET_LOG}"
-IPSET_YESNO_STATUS=0
+ADGUARD_LAN_REVERSE_UPSTREAM=192.168.1.1
+TEST_LAN_GATEWAY=
 if ! setup_AdGuardHome_impl '' install; then
-	fail 'LAN initial setup failed'
+	fail 'LAN explicit reverse upstream setup failed'
 fi
-grep -q "^http:$" "${YAML_FILE}" || fail 'LAN published YAML is missing http section'
-grep -q "^  address: 192.168.1.1:3000$" "${YAML_FILE}" || fail 'LAN web bind address did not use LAN IPv4'
-grep -q "^  - '\[/router.asus.com/\]192.168.50.1:53'" "${YAML_FILE}" || fail 'LAN router upstream did not use LAN reverse target'
-grep -q "^  - '192.168.50.1:53'" "${YAML_FILE}" || fail 'LAN local PTR upstream did not use LAN reverse target'
-grep -q "^  - '\[/10.in-addr.arpa/\]192.168.50.1:53'" "${YAML_FILE}" || fail 'LAN private PTR upstream did not use LAN reverse target'
-if grep -q 'IPSET integration' "${YESNO_LOG}"; then
-	fail 'LAN setup showed the IPSET prompt'
-fi
-grep -q '^0$' "${IPSET_LOG}" || fail 'LAN setup did not force IPSET disabled selection'
-grep -q '^ADGUARD_IPSET="NO"$' "${CONF_FILE}" || fail 'LAN setup did not persist ADGUARD_IPSET=NO'
+assert_lan_yaml_reverse_upstreams '192.168.1.1:53' 'LAN explicit reverse upstream'
 
-rm -f "${YAML_FILE}" "${YAML_ORI}" "${CHECK_LOG}" "${YESNO_LOG}" "${IPSET_LOG}"
-BOOTSTRAP1=
-BOOTSTRAP2=
+reset_setup_logs
 ADGUARD_INSTALL_MODE=lan
 ADGUARD_LAN_REVERSE_UPSTREAM=
-: >"${CHECK_LOG}"
-: >"${YESNO_LOG}"
-: >"${IPSET_LOG}"
+TEST_LAN_GATEWAY=
+write_conf ADGUARD_LAN_REVERSE_UPSTREAM '"192.168.50.1"'
+if ! setup_AdGuardHome_impl '' install; then
+	fail 'LAN persisted reverse upstream setup failed'
+fi
+assert_lan_yaml_reverse_upstreams '192.168.50.1:53' 'LAN persisted reverse upstream'
+
+reset_setup_logs
+ADGUARD_INSTALL_MODE=lan
+ADGUARD_LAN_REVERSE_UPSTREAM=
+TEST_LAN_GATEWAY=192.168.1.1
+write_conf ADGUARD_LAN_REVERSE_UPSTREAM '""'
+if ! setup_AdGuardHome_impl '' install; then
+	fail 'LAN gateway reverse upstream setup failed'
+fi
+assert_lan_yaml_reverse_upstreams '192.168.1.1:53' 'LAN gateway reverse upstream'
+
+reset_setup_logs
+ADGUARD_INSTALL_MODE=lan
+ADGUARD_LAN_REVERSE_UPSTREAM=
+TEST_LAN_GATEWAY=
+write_conf ADGUARD_LAN_REVERSE_UPSTREAM '""'
 if setup_AdGuardHome_impl '' install; then
 	fail 'LAN setup continued with a missing main router reverse upstream'
 fi
