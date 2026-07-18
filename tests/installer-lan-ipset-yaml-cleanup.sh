@@ -251,7 +251,7 @@ tls:
 
     - 192.168.50.1
     - fd00::1
-  upstream_dns:
+  'upstream_dns': # restored resolvers
     - '[/router.asus.com/]192.168.50.1:53'
     - tls://192.168.50.1:5353
     - https://dns.example/dns-query
@@ -259,7 +259,7 @@ tls:
     - 192.168.50.1:53
     - 1.1.1.1
     - 1.0.0.1
-  local_ptr_upstreams:
+  "local_ptr_upstreams": # restored PTR resolvers
     - '192.168.50.1:53'
 filters:
   - enabled: true
@@ -283,6 +283,8 @@ grep -q '^    session_ttl: 720h$' "${YAML_FILE}" || fail 'WAN YAML sync changed 
 ! grep -q '^    - fd00::1$' "${YAML_FILE}" || fail 'WAN YAML sync retained a trailing bind host after a comment and blank line'
 grep -Fq "[/router.asus.com/][::]:553" "${YAML_FILE}" || fail 'WAN YAML sync did not update reverse upstream'
 grep -Fq -- "- '[::]:553'" "${YAML_FILE}" || fail 'WAN YAML sync did not update local PTR upstream'
+grep -Fq "  'upstream_dns': # restored resolvers" "${YAML_FILE}" || fail 'WAN YAML sync changed a quoted, commented upstream header'
+grep -Fq '  "local_ptr_upstreams": # restored PTR resolvers' "${YAML_FILE}" || fail 'WAN YAML sync changed a quoted, commented PTR header'
 grep -Fq -- '- tls://192.168.50.1:5353' "${YAML_FILE}" || fail 'WAN YAML sync changed a partial reverse endpoint match'
 grep -Fq -- '- 192.168.50.1:53' "${YAML_FILE}" || fail 'WAN YAML sync changed an endpoint outside reverse-upstream fields'
 grep -q 'name: restored-user' "${YAML_FILE}" || fail 'WAN YAML sync removed restored credentials'

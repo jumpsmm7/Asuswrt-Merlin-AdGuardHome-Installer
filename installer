@@ -5158,7 +5158,7 @@ setup_sync_restored_yaml_for_wan() {
 		in_binds && $0 ~ /^[[:space:]]*($|#)/ { next }
 		in_binds && indentation($0) > bind_indent { next }
 		in_binds { in_binds = 0 }
-		in_dns && /^[[:space:]]*(upstream_dns|local_ptr_upstreams):[[:space:]]*$/ {
+		in_dns && (yaml_mapping_header_is($0, "upstream_dns") || yaml_mapping_header_is($0, "local_ptr_upstreams")) {
 			reverse_indent = indentation($0); in_reverse_upstreams = 1; print; next
 		}
 		in_reverse_upstreams && indentation($0) <= reverse_indent && $0 !~ /^[[:space:]]*($|#)/ { in_reverse_upstreams = 0 }
