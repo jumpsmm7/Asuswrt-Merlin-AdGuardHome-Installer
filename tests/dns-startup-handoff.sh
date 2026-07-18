@@ -468,6 +468,7 @@ kill_dns_port_owners || fail 'DNS owner cleanup failed when no process owned por
 printf '%s\n' 'ADGUARD_WEBUI_PORT="3000"' 'ADGUARD_INSTALL_MODE="lan"' >"${WORK_DIR}/.config" || fail 'could not set LAN install mode'
 DNSMASQ_RUNNING=0
 DNS_STATE=free
+unset ADGUARDHOME_DNS_HANDOFF_ACTIVE ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_SKIP_DNSMASQ_RESTART
 ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
 ADGUARDHOME_DNS_GUARD_RETRIES=0
 pre_start_adguardhome || fail 'LAN pre-start without dnsmasq rejected an available DNS port'
@@ -477,6 +478,7 @@ grep -q 'DNS handoff skipped because LAN mode dnsmasq is not running' "${CALLS_F
 	fail 'LAN pre-start without dnsmasq did not log handoff skip'
 [ -f "${DNS_HANDOFF_FILE}" ] || fail 'LAN pre-start without dnsmasq did not arm a temporary handoff marker'
 [ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" = "1" ] || fail 'LAN pre-start without dnsmasq did not mark the temporary handoff active'
+[ "${ADGUARDHOME_DNS_HANDOFF_REQUIRED:-1}" = "0" ] || fail 'LAN pre-start without dnsmasq marked handoff required'
 [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-0}" = "1" ] || fail 'LAN pre-start without dnsmasq did not suppress dnsmasq restart cleanup'
 DNS_STATE=owned
 WEB_STATE=bound
@@ -1052,12 +1054,97 @@ rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 grep -q '^late_handoff_pre_hook$' "${CALLS_FILE}" || fail 'rc.func skipped late handoff pre-start hook'
 grep -q '^late_handoff_post_hook 0$' "${CALLS_FILE}" || fail 'rc.func suppressed dnsmasq restart after late handoff marker was prepared'
 
+# When PRECMD decides DNS handoff is required, rc.func must fail if the
+# required marker was not prepared successfully.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
+(
+	pre_hook() {
+		ADGUARDHOME_DNS_HANDOFF_REQUIRED=1
+		export ADGUARDHOME_DNS_HANDOFF_REQUIRED
+		printf '%s\n' required_handoff_missing_pre_hook >>"${CALLS_FILE}"
+	}
+	post_hook() {
+		printf '%s\n' required_handoff_missing_post_hook >>"${CALLS_FILE}"
+	}
+	if start >/dev/null; then
+		exit 1
+	fi
+) || fail 'rc.func accepted a required handoff that PRECMD did not prepare'
+grep -q '^required_handoff_missing_pre_hook$' "${CALLS_FILE}" || fail 'rc.func skipped required-handoff pre-start hook'
+! grep -q '^required_handoff_missing_post_hook$' "${CALLS_FILE}" || fail 'rc.func ran post-start after missing required handoff'
+[ ! -f "${STARTED_FILE}" ] || fail 'rc.func launched AdGuardHome after missing required handoff'
+
+# If PRECMD activated the required handoff but the marker is missing before
+# rc.func verifies ownership, failed-start recovery must run without dnsmasq
+# restart suppression so dnsmasq is restored from the prepared handoff state.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
+(
+	pre_hook() {
+		ADGUARDHOME_DNS_HANDOFF_REQUIRED=1
+		export ADGUARDHOME_DNS_HANDOFF_REQUIRED
+		prepare_active_dns_handoff_test_marker || return 1
+		rm -f "${DNS_HANDOFF_FILE}" || return 1
+		printf '%s\n' required_handoff_lost_marker_pre_hook >>"${CALLS_FILE}"
+	}
+	post_hook() {
+		printf '%s\n' required_handoff_lost_marker_post_hook >>"${CALLS_FILE}"
+	}
+	if start >/dev/null; then
+		exit 1
+	fi
+) || fail 'rc.func accepted a required handoff whose active marker was lost'
+grep -q '^required_handoff_lost_marker_pre_hook$' "${CALLS_FILE}" || fail 'rc.func skipped required-handoff lost-marker pre-start hook'
+grep -q '^post_failure_hook 0$' "${CALLS_FILE}" || fail 'rc.func suppressed dnsmasq restart after required handoff marker was lost'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'rc.func did not restore dnsmasq after required handoff marker was lost'
+! grep -q '^required_handoff_lost_marker_post_hook$' "${CALLS_FILE}" || fail 'rc.func ran post-start after required handoff marker was lost'
+[ ! -f "${STARTED_FILE}" ] || fail 'rc.func launched AdGuardHome after required handoff marker was lost'
+
+# If required handoff preparation is interrupted after PRECMD has activated the
+# dnsmasq handoff, failed-start recovery must restore dnsmasq instead of
+# treating the start as a no-handoff flow.
+REQUIRED_PRE_INTERRUPT_READY_FILE="${TEST_ROOT}/required-pre-interrupt-ready"
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}" "${REQUIRED_PRE_INTERRUPT_READY_FILE}"
+(
+	pre_hook() {
+		ADGUARDHOME_DNS_HANDOFF_REQUIRED=1
+		export ADGUARDHOME_DNS_HANDOFF_REQUIRED
+		prepare_active_dns_handoff_test_marker || return 1
+		printf '%s\n' required_pre_interrupt_hook >>"${CALLS_FILE}"
+		: >"${REQUIRED_PRE_INTERRUPT_READY_FILE}"
+		while :; do
+			command sleep 1
+		done
+	}
+	start >/dev/null
+) &
+_required_pre_interrupt_pid="$!"
+_required_pre_interrupt_waits=0
+while [ ! -f "${REQUIRED_PRE_INTERRUPT_READY_FILE}" ] && [ "${_required_pre_interrupt_waits}" -lt 100 ]; do
+	_required_pre_interrupt_waits="$((_required_pre_interrupt_waits + 1))"
+	command sleep 0.01
+done
+[ -f "${REQUIRED_PRE_INTERRUPT_READY_FILE}" ] || fail 'interrupted required pre-start did not reach the guarded pre-start window'
+command kill -TERM "${_required_pre_interrupt_pid}" 2>/dev/null || fail 'could not interrupt required pre-start'
+if wait "${_required_pre_interrupt_pid}"; then
+	fail 'interrupted required pre-start reported success'
+fi
+grep -q '^required_pre_interrupt_hook$' "${CALLS_FILE}" || fail 'interrupted required pre-start skipped pre-start hook'
+grep -q '^post_failure_hook 0$' "${CALLS_FILE}" || fail 'interrupted required pre-start suppressed dnsmasq restart during recovery'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'interrupted required pre-start did not restore dnsmasq'
+disable_dns_handoff || fail 'could not clean up interrupted required pre-start handoff'
+
 # A LAN-mode start where pre-start intentionally skips the dnsmasq handoff must
 # still run post-start readiness checks, but suppress dnsmasq restart cleanup.
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 (
 	pre_hook() {
+		ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+		export ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_SKIP_DNSMASQ_RESTART
 		printf '%s\n' no_handoff_pre_hook >>"${CALLS_FILE}"
 	}
 	post_hook() {
@@ -1073,6 +1160,9 @@ grep -q '^no_handoff_post_hook 1$' "${CALLS_FILE}" || fail 'rc.func did not run 
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 (
 	pre_hook() {
+		ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+		export ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_SKIP_DNSMASQ_RESTART
 		printf '%s\n' no_handoff_fail_pre_hook >>"${CALLS_FILE}"
 	}
 	post_hook() {
@@ -1144,6 +1234,9 @@ NO_HANDOFF_INTERRUPT_READY_FILE="${TEST_ROOT}/no-handoff-interrupt-ready"
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}" "${NO_HANDOFF_INTERRUPT_READY_FILE}"
 (
 	pre_hook() {
+		ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+		export ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_SKIP_DNSMASQ_RESTART
 		printf '%s\n' no_handoff_interrupt_pre_hook >>"${CALLS_FILE}"
 	}
 	process_pids() {
@@ -1185,6 +1278,9 @@ rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}" "${NO_HANDOFF_PRE_INTERRUPT_READY_
 		return 1
 	}
 	pre_hook() {
+		ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+		export ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_SKIP_DNSMASQ_RESTART
 		printf '%s\n' no_handoff_pre_interrupt_hook >>"${CALLS_FILE}"
 		: >"${NO_HANDOFF_PRE_INTERRUPT_READY_FILE}"
 		while :; do

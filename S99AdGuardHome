@@ -1357,10 +1357,13 @@ pre_start_adguardhome() {
 	agh_log INFO pre_start_adguardhome "Validating AdGuardHome configuration and permissions."
 	ensure_adguardhome_work_dir_permissions || return 1
 	_agh_dns_handoff_required="0"
+	ADGUARDHOME_DNS_HANDOFF_REQUIRED="0"
 	if agh_dns_handoff_required; then
 		_agh_dns_handoff_required="1"
+		ADGUARDHOME_DNS_HANDOFF_REQUIRED="1"
 		_agh_dnsmasq_state="running"
 	fi
+	export ADGUARDHOME_DNS_HANDOFF_REQUIRED
 	if [ "${_agh_install_mode}" != "lan" ]; then
 		_agh_dnsmasq_state="running"
 	fi
