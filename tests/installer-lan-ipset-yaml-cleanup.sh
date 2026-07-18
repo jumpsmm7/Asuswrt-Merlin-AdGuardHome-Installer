@@ -72,8 +72,8 @@ extract_function adguardhome_yaml_ipset_file || fail 'could not extract YAML par
 extract_function adguardhome_yaml_secure_file || fail 'could not extract YAML security helper'
 extract_function adguardhome_yaml_remove_ipset_file || fail 'could not extract YAML cleanup helper'
 extract_function adguard_enforce_lan_ipset_disabled || fail 'could not extract LAN enforcement helper'
-extract_function ipv4_is_valid || fail 'could not extract IPv4 validation helper'
-extract_function setup_restore_bootstrap_defaults || fail 'could not extract restore bootstrap helper'
+extract_function port_is_valid || fail 'could not extract port validation helper'
+extract_function setup_sync_restored_yaml_for_wan || fail 'could not extract WAN restore YAML sync helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'helper extraction was empty'
 
 # shellcheck disable=SC1090
@@ -228,27 +228,42 @@ adguard_enforce_lan_ipset_disabled || fail 'WAN detection did not correct stale 
 [ "${ADGUARD_FORCE_SETUP_YAML:-0}" = '0' ] || fail 'WAN detection requested YAML rebuild without restored LAN install mode'
 ADGUARD_FORCE_SETUP_YAML=0
 
-BOOTSTRAP1=''
-BOOTSTRAP2=''
-DNS_SERVER1=''
-setup_restore_bootstrap_defaults "${YAML_FILE}.missing"
-[ "${BOOTSTRAP1}" = '9.9.9.9' ] || fail 'RESTORE defaults did not set primary bootstrap DNS without prompting'
-[ "${BOOTSTRAP2}" = '8.8.8.8' ] || fail 'RESTORE defaults did not set secondary bootstrap DNS without prompting'
-[ "${DNS_SERVER1}" = '9.9.9.9' ] || fail 'RESTORE defaults did not set DNS_SERVER1 without prompting'
-
-cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored bootstrap YAML'
+cat >>"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write WAN YAML sync preferences'
+ADGUARD_WEBUI_PORT="3443"
+ADGUARD_LAN_REVERSE_UPSTREAM="192.168.50.1"
+EOF_CONF
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored LAN YAML'
+http:
+  address: 192.168.50.1:3443
+  session_ttl: 720h
+users:
+  - name: restored-user
+    password: restored-password-hash
 dns:
+  bind_hosts:
+    - 127.0.0.1
+    - 192.168.50.1
+    - fd00::1
+  upstream_dns:
+    - '[/router.asus.com/]192.168.50.1:53'
+    - https://dns.example/dns-query
   bootstrap_dns:
     - 1.1.1.1
     - 1.0.0.1
+  local_ptr_upstreams:
+    - '192.168.50.1:53'
+filters:
+  - enabled: true
+    url: https://example.test/filter.txt
 EOF_YAML
-BOOTSTRAP1=''
-BOOTSTRAP2=''
-DNS_SERVER1=''
-setup_restore_bootstrap_defaults "${YAML_FILE}"
-[ "${BOOTSTRAP1}" = '1.1.1.1' ] || fail 'RESTORE defaults did not reuse restored primary bootstrap DNS'
-[ "${BOOTSTRAP2}" = '1.0.0.1' ] || fail 'RESTORE defaults did not reuse restored secondary bootstrap DNS'
-[ "${DNS_SERVER1}" = '1.1.1.1' ] || fail 'RESTORE defaults did not match DNS_SERVER1 to restored primary bootstrap DNS'
+setup_sync_restored_yaml_for_wan || fail 'could not synchronize restored LAN YAML for WAN mode'
+grep -q '^  address: 0.0.0.0:3443$' "${YAML_FILE}" || fail 'WAN YAML sync did not update WebUI bind address'
+[ "$(grep -c '^    - 0.0.0.0$' "${YAML_FILE}")" -eq 1 ] || fail 'WAN YAML sync did not replace DNS bind hosts'
+grep -Fq "[/router.asus.com/][::]:553" "${YAML_FILE}" || fail 'WAN YAML sync did not update reverse upstream'
+grep -Fq -- "- '[::]:553'" "${YAML_FILE}" || fail 'WAN YAML sync did not update local PTR upstream'
+grep -q 'name: restored-user' "${YAML_FILE}" || fail 'WAN YAML sync removed restored credentials'
+grep -q 'https://dns.example/dns-query' "${YAML_FILE}" || fail 'WAN YAML sync removed restored upstreams'
+grep -q 'https://example.test/filter.txt' "${YAML_FILE}" || fail 'WAN YAML sync removed restored filters'
 
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored LAN config'
 ADGUARD_INSTALL_MODE="lan"
