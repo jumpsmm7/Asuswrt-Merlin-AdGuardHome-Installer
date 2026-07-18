@@ -297,6 +297,12 @@ grep -q 'name: original-user' "${YAML_ORI}" || fail 'WAN YAML sync replaced orig
 grep -q 'https://original.example/dns-query' "${YAML_ORI}" || fail 'WAN YAML sync replaced original snapshot upstreams with working settings'
 ! cmp -s "${YAML_FILE}" "${YAML_ORI}" || fail 'WAN YAML sync replaced the distinct original snapshot with the working YAML'
 
+rm -f "${YAML_FILE}"
+setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could not synchronize restored original YAML without a working YAML'
+cp -f "${YAML_ORI}" "${YAML_FILE}" || fail 'could not restore synchronized original YAML snapshot'
+grep -q '^    address: 0.0.0.0:3443$' "${YAML_FILE}" || fail 'original-only restore copied a LAN WebUI address'
+grep -Fq -- "- '[/router.asus.com/][::]:553'" "${YAML_FILE}" || fail 'original-only restore copied a LAN reverse upstream'
+
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored inline bind hosts'
 dns:
   "bind_hosts": [192.168.50.1, fd00::1] # restored LAN binds
