@@ -5062,6 +5062,16 @@ setup_sync_restored_yaml_for_wan() {
 	web_port="$(conf_value ADGUARD_WEBUI_PORT 2>/dev/null)"
 	if ! port_is_valid "${web_port}"; then
 		web_port="$(awk '
+			function yaml_key_is(line, expected, text, separator, key) {
+				text = line
+				sub(/^[[:space:]]*/, "", text)
+				separator = index(text, ":")
+				if (!separator)
+					return 0
+				key = substr(text, 1, separator - 1)
+				sub(/[[:space:]]*$/, "", key)
+				return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
+			}
 			function http_header(line, text, separator, key, value) {
 				text = line
 				sub(/^[[:space:]]*/, "", text)
@@ -5076,7 +5086,7 @@ setup_sync_restored_yaml_for_wan() {
 			}
 			/^[^[:space:]]/ && http_header($0) { in_http = 1; next }
 			in_http && /^[^[:space:]]/ { exit }
-			in_http && /^[[:space:]]*address:[[:space:]]*/ { value = $0; sub(/^.*:/, "", value); gsub(/[[:space:]"'\''"]/, "", value); print value; exit }
+			in_http && yaml_key_is($0, "address") { value = $0; sub(/^.*:/, "", value); gsub(/[[:space:]"'\''"]/, "", value); print value; exit }
 		' "${target_file}" 2>/dev/null)"
 	fi
 	port_is_valid "${web_port}" || web_port="3000"
@@ -5122,8 +5132,9 @@ setup_sync_restored_yaml_for_wan() {
 		}
 		indentation($0) == 0 && yaml_mapping_header_is($0, "http") { in_http = 1; http_indent = indentation($0); print; next }
 		in_http && indentation($0) <= http_indent && $0 !~ /^[[:space:]]*($|#)/ { in_http = 0 }
-		in_http && /^[[:space:]]*address:[[:space:]]*/ {
-			print substr($0, 1, indentation($0)) "address: " web_address
+		in_http && yaml_key_is($0, "address") {
+			separator = index($0, ":")
+			print substr($0, 1, separator) " " web_address
 			next
 		}
 		indentation($0) == 0 && yaml_mapping_header_is($0, "dns") { in_dns = 1; dns_indent = indentation($0); print; next }
