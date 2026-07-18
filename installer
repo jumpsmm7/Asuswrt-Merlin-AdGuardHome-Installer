@@ -2941,9 +2941,16 @@ adguardhome_yaml_remove_ipset_file() {
 }
 
 adguard_enforce_lan_ipset_disabled() {
+	local restored_mode
 	case "${ADGUARD_INSTALL_MODE:-}" in
 		wan)
+			restored_mode="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
 			write_conf ADGUARD_INSTALL_MODE '"wan"' || return 1
+			write_conf ADGUARD_IPSET '"YES"' || return 1
+			write_conf ADGUARD_NETCHECK_MODE '"wan"' || return 1
+			case "${restored_mode}" in
+				lan) ADGUARD_FORCE_SETUP_YAML="1" ;;
+			esac
 			return 0
 			;;
 		lan) ;;
@@ -5037,6 +5044,15 @@ setup_sync_webui_port() {
 setup_AdGuardHome_impl() {
 	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
+	if [ "${ADGUARD_FORCE_SETUP_YAML:-0}" = "1" ] && [ -f "${YAML_FILE}" ]; then
+		PTXT "${INFO} Restored mode differs from detected WAN mode; rebuilding AdGuardHome configuration."
+		if ! mv "${YAML_FILE}" "${YAML_BAK}"; then
+			PTXT "${ERROR} Unable to back up the previous AdGuardHome configuration. Setup was aborted."
+			return 1
+		fi
+		YAML_BACKED_UP=1
+		CHOOSE_NEW=1
+	fi
 	if [ -z "$1" ] && [ -f "${YAML_FILE}" ]; then
 		############################################################ Drop-in code to be removed/modified as needed. #############################################################################################################################################################
 		if ! awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$'; then
