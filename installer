@@ -5213,8 +5213,8 @@ setup_AdGuardHome_impl() {
 			cp -f "${YAML_ORI}" "${YAML_FILE}"
 		fi
 		case "${2:-reconfig}" in
-			"install" | "reconfig")
-				if [ ! -f "${YAML_FILE}" ] || [ "$2" = "reconfig" ]; then
+			"install" | "reconfig" | "RESTORE")
+				if [ "${2:-reconfig}" != "RESTORE" ] && { [ ! -f "${YAML_FILE}" ] || [ "$2" = "reconfig" ]; }; then
 					local DNS_FILTER_SELECTION LOCAL_CACHE_SELECTION YESNO_STATUS
 					read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"
 					YESNO_STATUS="$?"
@@ -5486,9 +5486,6 @@ setup_AdGuardHome_impl() {
 				SETUP_YAML_TMP_FILE=""
 				[ -z "${CONFIG_ROLLBACK}" ] || discard_installer_config_backup "${CONFIG_ROLLBACK}"
 				[ -z "${DNS_FILTER_ROLLBACK_DIR}" ] || rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
-				;;
-			"RESTORE")
-				# Restored feature choices are authoritative; --yes must not reselect them.
 				;;
 		esac
 	fi

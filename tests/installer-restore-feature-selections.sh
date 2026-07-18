@@ -1,5 +1,5 @@
 #!/bin/sh
-# Verify RESTORE does not run the interactive feature-selection path.
+# Verify RESTORE rebuilds a missing YAML without reselecting restored features.
 
 set -u
 
@@ -12,20 +12,13 @@ fail() {
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 
-selection_case="$(awk '
-	/case "\$\{2:-reconfig\}" in/ { copying = 1 }
-	copying { print }
-	copying && /^[[:space:]]*"RESTORE"\)/ { found_restore = 1 }
-	copying && found_restore && /^[[:space:]]*;;[[:space:]]*$/ { exit }
-' "${SCRIPT_PATH}")"
+grep -q 'case "${2:-reconfig}" in' "${SCRIPT_PATH}" ||
+	fail 'could not find setup feature-selection case'
+grep -q '"install" | "reconfig" | "RESTORE")' "${SCRIPT_PATH}" ||
+	fail 'RESTORE does not share the YAML generation branch'
+grep -q 'if \[ "${2:-reconfig}" != "RESTORE" \].*\[ ! -f "${YAML_FILE}" \]' "${SCRIPT_PATH}" ||
+	fail 'RESTORE does not skip interactive feature selection'
+grep -q 'if { \[ ! -f "${YAML_ORI}" \] && \[ ! -f "${YAML_FILE}" \]; }' "${SCRIPT_PATH}" ||
+	fail 'missing restored YAML does not enter YAML generation'
 
-[ -n "${selection_case}" ] || fail 'could not find setup feature-selection case'
-printf '%s\n' "${selection_case}" | grep -q '"install" | "reconfig")' ||
-	fail 'install/reconfig feature-selection branch is missing'
-if printf '%s\n' "${selection_case}" | grep -q '"install" | "reconfig" | "RESTORE")'; then
-	fail 'RESTORE still shares the interactive feature-selection branch'
-fi
-printf '%s\n' "${selection_case}" | grep -q '^[[:space:]]*"RESTORE")' ||
-	fail 'RESTORE does not have an explicit feature-preservation branch'
-
-printf '%s\n' 'PASS: RESTORE preserves restored feature selections'
+printf '%s\n' 'PASS: RESTORE rebuilds missing YAML and preserves feature selections'
