@@ -755,6 +755,7 @@ Run the selected regression tests that cover the router-sensitive release paths:
 ```sh
 sh tests/dns-startup-handoff.sh
 sh tests/dnsmasq-lan-mode.sh
+sh tests/adguardhome-dns-env-lan-mode.sh
 sh tests/ipset-version-gate.sh
 sh tests/ipset-lan-mode.sh
 sh tests/ipset-lock-security.sh

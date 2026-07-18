@@ -607,6 +607,9 @@ check_dns_environment() {
 	}
 	dns_env_apply_profile() {
 		local changed
+		if adguard_lan_mode; then
+			return 1
+		fi
 		changed="0"
 		if dns_env_set_nvram "dnspriv_enable" "0"; then changed="$((changed + 1))"; fi
 		if dns_env_set_nvram "dhcpd_dns_router" "1"; then changed="$((changed + 1))"; fi
