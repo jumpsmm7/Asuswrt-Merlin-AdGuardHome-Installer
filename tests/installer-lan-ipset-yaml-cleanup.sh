@@ -249,8 +249,10 @@ dns:
     - fd00::1
   upstream_dns:
     - '[/router.asus.com/]192.168.50.1:53'
+    - tls://192.168.50.1:5353
     - https://dns.example/dns-query
   bootstrap_dns:
+    - 192.168.50.1:53
     - 1.1.1.1
     - 1.0.0.1
   local_ptr_upstreams:
@@ -271,6 +273,8 @@ grep -q '^  address: 0.0.0.0:3443$' "${YAML_FILE}" || fail 'WAN YAML sync did no
 [ "$(grep -c '^    - 0.0.0.0$' "${YAML_FILE}")" -eq 1 ] || fail 'WAN YAML sync did not replace DNS bind hosts'
 grep -Fq "[/router.asus.com/][::]:553" "${YAML_FILE}" || fail 'WAN YAML sync did not update reverse upstream'
 grep -Fq -- "- '[::]:553'" "${YAML_FILE}" || fail 'WAN YAML sync did not update local PTR upstream'
+grep -Fq -- '- tls://192.168.50.1:5353' "${YAML_FILE}" || fail 'WAN YAML sync changed a partial reverse endpoint match'
+grep -Fq -- '- 192.168.50.1:53' "${YAML_FILE}" || fail 'WAN YAML sync changed an endpoint outside reverse-upstream fields'
 grep -q 'name: restored-user' "${YAML_FILE}" || fail 'WAN YAML sync removed restored credentials'
 grep -q 'https://dns.example/dns-query' "${YAML_FILE}" || fail 'WAN YAML sync removed restored upstreams'
 grep -q 'https://example.test/filter.txt' "${YAML_FILE}" || fail 'WAN YAML sync removed restored filters'

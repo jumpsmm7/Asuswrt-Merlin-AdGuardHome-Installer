@@ -5069,10 +5069,23 @@ setup_sync_restored_yaml_for_wan() {
 	sync_file="${YAML_FILE}.wan-sync.$$"
 	awk -v old_reverse="${old_reverse}" -v web_address="0.0.0.0:${web_port}" '
 		function indentation(line) { match(line, /^[[:space:]]*/); return RLENGTH }
-		function replace_literal(line, old, replacement, position) {
-			while (old != "" && (position = index(line, old)))
-				line = substr(line, 1, position - 1) replacement substr(line, position + length(old))
-			return line
+		function replace_reverse_endpoint(line, old, replacement, value, prefix, position) {
+			value = line
+			sub(/[[:space:]]+#.*$/, "", value)
+			sub(/[[:space:]]*$/, "", value)
+			sub(/^[[:space:]]*-[[:space:]]*/, "", value)
+			if (substr(value, 1, 1) == "\"" || substr(value, 1, 1) == sprintf("%c", 39))
+				value = substr(value, 2)
+			if (substr(value, length(value), 1) == "\"" || substr(value, length(value), 1) == sprintf("%c", 39))
+				value = substr(value, 1, length(value) - 1)
+			position = index(value, old)
+			if (!position || substr(value, position + length(old)) != "")
+				return line
+			prefix = substr(value, 1, position - 1)
+			if (prefix != "" && (substr(prefix, 1, 1) != "[" || substr(prefix, length(prefix), 1) != "]"))
+				return line
+			position = index(line, old)
+			return substr(line, 1, position - 1) replacement substr(line, position + length(old))
 		}
 		/^http:[[:space:]]*$/ { in_http = 1; http_indent = indentation($0); print; next }
 		in_http && indentation($0) <= http_indent && $0 !~ /^[[:space:]]*($|#)/ { in_http = 0 }
@@ -5085,7 +5098,11 @@ setup_sync_restored_yaml_for_wan() {
 		}
 		in_binds && indentation($0) > bind_indent { next }
 		in_binds { in_binds = 0 }
-		in_dns && old_reverse != "" { $0 = replace_literal($0, old_reverse, "[::]:553") }
+		in_dns && /^[[:space:]]*(upstream_dns|local_ptr_upstreams):[[:space:]]*$/ {
+			reverse_indent = indentation($0); in_reverse_upstreams = 1; print; next
+		}
+		in_reverse_upstreams && indentation($0) <= reverse_indent && $0 !~ /^[[:space:]]*($|#)/ { in_reverse_upstreams = 0 }
+		in_reverse_upstreams && old_reverse != "" { $0 = replace_reverse_endpoint($0, old_reverse, "[::]:553") }
 		{ print }
 	' "${YAML_FILE}" >"${sync_file}" && adguardhome_yaml_secure_file "${sync_file}" && mv -f "${sync_file}" "${YAML_FILE}" && adguardhome_yaml_secure_file || {
 		rm -f "${sync_file}"
