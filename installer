@@ -5082,7 +5082,7 @@ setup_sync_restored_yaml_for_wan() {
 				sub(/[[:space:]]*$/, "", key)
 				value = substr(text, separator + 1)
 				sub(/^[[:space:]]*/, "", value)
-				return (key == "http" || key == "\"http\"" || key == sprintf("%chttp%c", 39, 39)) && (value == "" || value ~ /^#/)
+				return (key == "http" || key == "\"http\"" || key == sprintf("%chttp%c", 39, 39)) && (value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/)
 			}
 			/^[^[:space:]]/ && http_header($0) { in_http = 1; next }
 			in_http && /^[^[:space:]]/ { exit }
@@ -5110,7 +5110,7 @@ setup_sync_restored_yaml_for_wan() {
 			separator = index(text, ":")
 			value = substr(text, separator + 1)
 			sub(/^[[:space:]]*/, "", value)
-			return value == "" || value ~ /^#/
+			return value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/
 		}
 		function replace_reverse_endpoint(line, old, replacement, value, prefix, position) {
 			value = line

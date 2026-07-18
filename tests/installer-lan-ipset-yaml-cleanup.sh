@@ -235,7 +235,7 @@ ADGUARD_WEBUI_PORT="3443"
 ADGUARD_LAN_REVERSE_UPSTREAM="192.168.50.1"
 EOF_CONF
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored LAN YAML'
-"http": # restored web settings
+"http": &http_settings # restored web settings
     "address": 192.168.50.1:3443
     session_ttl: 720h
 users:
@@ -244,7 +244,7 @@ users:
 tls:
   enabled: true
   server_name: dns.example.test
-"dns": # resolver settings
+"dns": &dns_settings # resolver settings
   'bind_hosts':
     - 127.0.0.1
   # Keep scanning bind hosts across comments at the key indentation.
@@ -276,9 +276,11 @@ sed -e 's/restored-user/original-user/' \
 	-e 's#https://dns.example/dns-query#https://original.example/dns-query#' \
 	"${YAML_FILE}" >"${YAML_ORI}" || fail 'could not write distinct restored original YAML snapshot'
 setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could not synchronize restored LAN YAML for WAN mode'
+grep -Fq '"http": &http_settings # restored web settings' "${YAML_FILE}" || fail 'WAN YAML sync changed an anchored HTTP header'
 grep -q '^    "address": 0.0.0.0:3443$' "${YAML_FILE}" || fail 'WAN YAML sync did not rewrite a quoted WebUI address key'
 grep -q '^    session_ttl: 720h$' "${YAML_FILE}" || fail 'WAN YAML sync changed an HTTP sibling indentation'
 [ "$(grep -c '^    - 0.0.0.0$' "${YAML_FILE}")" -eq 1 ] || fail 'WAN YAML sync did not replace DNS bind hosts'
+grep -Fq '"dns": &dns_settings # resolver settings' "${YAML_FILE}" || fail 'WAN YAML sync changed an anchored DNS header'
 ! grep -q '^    - 192\.168\.50\.1$' "${YAML_FILE}" || fail 'WAN YAML sync retained a bind host after a comment and blank line'
 ! grep -q '^    - fd00::1$' "${YAML_FILE}" || fail 'WAN YAML sync retained a trailing bind host after a comment and blank line'
 grep -Fq "[/router.asus.com/][::]:553" "${YAML_FILE}" || fail 'WAN YAML sync did not update reverse upstream'
