@@ -468,6 +468,7 @@ kill_dns_port_owners || fail 'DNS owner cleanup failed when no process owned por
 printf '%s\n' 'ADGUARD_WEBUI_PORT="3000"' 'ADGUARD_INSTALL_MODE="lan"' >"${WORK_DIR}/.config" || fail 'could not set LAN install mode'
 DNSMASQ_RUNNING=0
 DNS_STATE=free
+unset ADGUARDHOME_DNS_HANDOFF_ACTIVE ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_SKIP_DNSMASQ_RESTART
 ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
 ADGUARDHOME_DNS_GUARD_RETRIES=0
 pre_start_adguardhome || fail 'LAN pre-start without dnsmasq rejected an available DNS port'
@@ -475,14 +476,14 @@ pre_start_adguardhome || fail 'LAN pre-start without dnsmasq rejected an availab
 ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'LAN pre-start without dnsmasq stopped dnsmasq'
 grep -q 'DNS handoff skipped because LAN mode dnsmasq is not running' "${CALLS_FILE}" ||
 	fail 'LAN pre-start without dnsmasq did not log handoff skip'
-[ -f "${DNS_HANDOFF_FILE}" ] || fail 'LAN pre-start without dnsmasq did not arm a temporary handoff marker'
-[ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" = "1" ] || fail 'LAN pre-start without dnsmasq did not mark the temporary handoff active'
+[ ! -f "${DNS_HANDOFF_FILE}" ] || fail 'LAN pre-start without dnsmasq armed a handoff marker'
+[ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" = "0" ] || fail 'LAN pre-start without dnsmasq marked handoff active'
+[ "${ADGUARDHOME_DNS_HANDOFF_REQUIRED:-1}" = "0" ] || fail 'LAN pre-start without dnsmasq marked handoff required'
 [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-0}" = "1" ] || fail 'LAN pre-start without dnsmasq did not suppress dnsmasq restart cleanup'
 DNS_STATE=owned
 WEB_STATE=bound
-post_start_adguardhome || fail 'LAN post-start without dnsmasq did not clean up the temporary handoff'
-[ ! -f "${DNS_HANDOFF_FILE}" ] || fail 'LAN post-start without dnsmasq left the temporary handoff marker behind'
-[ -z "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-}" ] || fail 'LAN post-start without dnsmasq did not clear the active handoff flag'
+post_start_adguardhome || fail 'LAN post-start without dnsmasq failed readiness checks'
+[ ! -f "${DNS_HANDOFF_FILE}" ] || fail 'LAN post-start without dnsmasq created a handoff marker'
 ! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'LAN post-start without dnsmasq restarted absent dnsmasq'
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
@@ -505,11 +506,8 @@ printf '%s %s\n' 999999 1 >"${DNS_HANDOFF_FILE}" || fail 'could not create stale
 DNSMASQ_RUNNING=0
 DNS_STATE=free
 pre_start_adguardhome || fail 'LAN pre-start without dnsmasq rejected an available DNS port with a stale marker'
-[ -f "${DNS_HANDOFF_FILE}" ] || fail 'LAN no-handoff pre-start did not replace stale marker with temporary handoff'
-[ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" = "1" ] || fail 'LAN stale-marker pre-start did not mark the temporary handoff active'
-post_start_failure_adguardhome || fail 'LAN failed-start without dnsmasq did not clean up the temporary handoff'
-[ ! -f "${DNS_HANDOFF_FILE}" ] || fail 'LAN failed-start without dnsmasq left the temporary handoff marker behind'
-[ -z "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-}" ] || fail 'LAN failed-start without dnsmasq did not clear the active handoff flag'
+[ ! -f "${DNS_HANDOFF_FILE}" ] || fail 'LAN no-handoff pre-start did not remove stale marker'
+[ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" = "0" ] || fail 'LAN stale-marker pre-start marked handoff active'
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 ! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'LAN stale-marker pre-start prepared DNS handoff'
 ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'LAN stale-marker pre-start stopped dnsmasq'
@@ -532,32 +530,26 @@ disable_dns_handoff || fail 'could not clean up active no-handoff marker'
 : >"${CALLS_FILE}"
 DNSMASQ_RUNNING=0
 DNS_STATE=busy
-if pre_start_adguardhome; then
-	fail 'LAN pre-start without dnsmasq accepted an unavailable DNS port'
-fi
+pre_start_adguardhome || fail 'LAN pre-start without dnsmasq rejected a busy DNS port even though handoff is not required'
 ! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'LAN busy-port pre-start without dnsmasq prepared DNS handoff'
 ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'LAN busy-port pre-start without dnsmasq stopped dnsmasq'
-grep -q 'Port 53 is not available for AdGuardHome; startup aborted without DNS handoff' "${CALLS_FILE}" ||
-	fail 'LAN busy-port pre-start without dnsmasq did not log DNS availability failure'
+grep -q 'Starting without DNS handoff because it is not required' "${CALLS_FILE}" ||
+	fail 'LAN busy-port pre-start without dnsmasq did not log no-handoff startup'
 
 : >"${CALLS_FILE}"
 printf '%s\n' 'dns:' '  bind_hosts:' '    - 192.168.50.1' '  port: 53' >"${WORK_DIR}/AdGuardHome.yaml" ||
 	fail 'could not set LAN DNS bind host'
 DNSMASQ_RUNNING=0
 DNS_STATE=busy_alt
-if pre_start_adguardhome; then
-	fail 'LAN scoped pre-start accepted wildcard DNS owner'
-fi
-grep -q 'Port 53 is not available for AdGuardHome; startup aborted without DNS handoff' "${CALLS_FILE}" ||
-	fail 'LAN scoped pre-start did not treat wildcard DNS owner as a conflict'
+pre_start_adguardhome || fail 'LAN scoped pre-start rejected wildcard DNS owner even though handoff is not required'
+grep -q 'Starting without DNS handoff because it is not required' "${CALLS_FILE}" ||
+	fail 'LAN scoped pre-start did not log no-handoff startup'
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 : >"${CALLS_FILE}"
 DNSMASQ_RUNNING=0
 DNS_STATE=busy_alt_lan
-if pre_start_adguardhome; then
-	fail 'LAN scoped pre-start accepted selected LAN IP owner'
-fi
+pre_start_adguardhome || fail 'LAN scoped pre-start rejected selected LAN IP owner even though handoff is not required'
 ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'LAN scoped pre-start stopped absent dnsmasq'
 ! grep -q '^kill -s 9 234$' "${CALLS_FILE}" || fail 'LAN scoped pre-start killed conflicting owner without force'
 grep -q 'mode=lan dnsmasq=absent handoff=skipped' "${CALLS_FILE}" ||
@@ -569,11 +561,9 @@ printf '%s\n' 'dns:' '  bind_hosts:' '    - 192.168.50.1' '    - 127.0.0.1' '  p
 [ "$(adguardhome_dns_bind_scope)" = '192.168.50.1 127.0.0.1' ] || fail 'multi-host DNS bind scope did not include LAN and loopback hosts'
 DNSMASQ_RUNNING=0
 DNS_STATE=busy_loopback
-if pre_start_adguardhome; then
-	fail 'LAN multi-host pre-start accepted configured loopback bind host owner'
-fi
-grep -q 'Port 53 is not available for AdGuardHome; startup aborted without DNS handoff' "${CALLS_FILE}" ||
-	fail 'LAN multi-host pre-start did not check loopback scope'
+pre_start_adguardhome || fail 'LAN multi-host pre-start rejected configured loopback bind host owner even though handoff is not required'
+grep -q 'Starting without DNS handoff because it is not required' "${CALLS_FILE}" ||
+	fail 'LAN multi-host pre-start did not log no-handoff startup'
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 DNS_STATE=busy_other_lan
@@ -586,11 +576,9 @@ printf '%s\n' 'dns:' '  bind_hosts:' '    - 0.0.0.0' '  port: 53' >"${WORK_DIR}/
 	fail 'could not set wildcard DNS bind host'
 DNSMASQ_RUNNING=0
 DNS_STATE=busy_alt
-if pre_start_adguardhome; then
-	fail 'LAN wildcard pre-start accepted global port owner'
-fi
-grep -q 'Port 53 is not available for AdGuardHome; startup aborted without DNS handoff' "${CALLS_FILE}" ||
-	fail 'LAN wildcard pre-start did not use global port check'
+pre_start_adguardhome || fail 'LAN wildcard pre-start rejected global port owner even though handoff is not required'
+grep -q 'Starting without DNS handoff because it is not required' "${CALLS_FILE}" ||
+	fail 'LAN wildcard pre-start did not log no-handoff startup'
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 printf '%s\n' 'bind_host: 0.0.0.0' 'bind_port: 3000' >"${WORK_DIR}/AdGuardHome.yaml" || fail 'could not restore AdGuardHome yaml'
@@ -1052,12 +1040,36 @@ rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 grep -q '^late_handoff_pre_hook$' "${CALLS_FILE}" || fail 'rc.func skipped late handoff pre-start hook'
 grep -q '^late_handoff_post_hook 0$' "${CALLS_FILE}" || fail 'rc.func suppressed dnsmasq restart after late handoff marker was prepared'
 
+# When PRECMD decides DNS handoff is required, rc.func must fail if the
+# required marker was not prepared successfully.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
+(
+	pre_hook() {
+		ADGUARDHOME_DNS_HANDOFF_REQUIRED=1
+		export ADGUARDHOME_DNS_HANDOFF_REQUIRED
+		printf '%s\n' required_handoff_missing_pre_hook >>"${CALLS_FILE}"
+	}
+	post_hook() {
+		printf '%s\n' required_handoff_missing_post_hook >>"${CALLS_FILE}"
+	}
+	if start >/dev/null; then
+		exit 1
+	fi
+) || fail 'rc.func accepted a required handoff that PRECMD did not prepare'
+grep -q '^required_handoff_missing_pre_hook$' "${CALLS_FILE}" || fail 'rc.func skipped required-handoff pre-start hook'
+! grep -q '^required_handoff_missing_post_hook$' "${CALLS_FILE}" || fail 'rc.func ran post-start after missing required handoff'
+[ ! -f "${STARTED_FILE}" ] || fail 'rc.func launched AdGuardHome after missing required handoff'
+
 # A LAN-mode start where pre-start intentionally skips the dnsmasq handoff must
 # still run post-start readiness checks, but suppress dnsmasq restart cleanup.
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 (
 	pre_hook() {
+		ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+		export ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_SKIP_DNSMASQ_RESTART
 		printf '%s\n' no_handoff_pre_hook >>"${CALLS_FILE}"
 	}
 	post_hook() {
@@ -1073,6 +1085,9 @@ grep -q '^no_handoff_post_hook 1$' "${CALLS_FILE}" || fail 'rc.func did not run 
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 (
 	pre_hook() {
+		ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+		export ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_SKIP_DNSMASQ_RESTART
 		printf '%s\n' no_handoff_fail_pre_hook >>"${CALLS_FILE}"
 	}
 	post_hook() {
@@ -1144,6 +1159,9 @@ NO_HANDOFF_INTERRUPT_READY_FILE="${TEST_ROOT}/no-handoff-interrupt-ready"
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}" "${NO_HANDOFF_INTERRUPT_READY_FILE}"
 (
 	pre_hook() {
+		ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+		export ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_SKIP_DNSMASQ_RESTART
 		printf '%s\n' no_handoff_interrupt_pre_hook >>"${CALLS_FILE}"
 	}
 	process_pids() {
@@ -1185,6 +1203,9 @@ rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}" "${NO_HANDOFF_PRE_INTERRUPT_READY_
 		return 1
 	}
 	pre_hook() {
+		ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+		export ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_SKIP_DNSMASQ_RESTART
 		printf '%s\n' no_handoff_pre_interrupt_hook >>"${CALLS_FILE}"
 		: >"${NO_HANDOFF_PRE_INTERRUPT_READY_FILE}"
 		while :; do

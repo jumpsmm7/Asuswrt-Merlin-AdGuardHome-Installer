@@ -227,14 +227,11 @@ start() {
 		return 0
 	fi
 	if [ "${PROC}" = "AdGuardHome" ]; then
-		if adguardhome_start_handoff_required; then
-			DNS_HANDOFF=1
-		else
-			DNS_HANDOFF=0
-		fi
 		trap 'stop_launched_process "${LAUNCH_PID:-}"; adguardhome_run_postfailcmd; exit 255' HUP INT TERM
 	fi
-	if ! adguardhome_start_handoff_is_prepared; then
+	if adguardhome_start_handoff_is_prepared; then
+		DNS_HANDOFF=1
+	else
 		if ! ${PRECMD} >/dev/null 2>&1; then
 			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 			logger -st "${CALLER}" "Pre-start hook failed for ${DESC} from ${CALLER}."
@@ -243,6 +240,11 @@ start() {
 		fi
 		if adguardhome_start_handoff_is_prepared; then
 			DNS_HANDOFF=1
+		elif [ "${PROC}" = "AdGuardHome" ] && [ "${ADGUARDHOME_DNS_HANDOFF_REQUIRED:-0}" = "1" ]; then
+			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
+			logger -st "${CALLER}" "Pre-start hook did not prepare required DNS handoff for ${DESC} from ${CALLER}."
+			trap - HUP INT TERM
+			return 255
 		else
 			DNS_HANDOFF=0
 		fi
