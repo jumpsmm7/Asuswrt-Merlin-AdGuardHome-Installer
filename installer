@@ -2946,8 +2946,7 @@ adguard_enforce_lan_ipset_disabled() {
 			write_conf ADGUARD_INSTALL_MODE '"wan"' || return 1
 			return 0
 			;;
-		lan)
-			;;
+		lan) ;;
 		*)
 			case "$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)" in
 				lan) ADGUARD_INSTALL_MODE="lan" ;;
