@@ -198,7 +198,7 @@ adguardhome_start_handoff_required() {
 
 adguardhome_run_postfailcmd() {
 	[ -n "${POSTFAILCMD:-}" ] || return 0
-	if [ "${PROC}" = "AdGuardHome" ] && [ "${DNS_HANDOFF:-0}" -ne 1 ]; then
+	if [ "${PROC}" = "AdGuardHome" ] && [ "${DNS_HANDOFF:-0}" -ne 1 ] && [ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" != "1" ]; then
 		(
 			ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
 			export ADGUARDHOME_SKIP_DNSMASQ_RESTART

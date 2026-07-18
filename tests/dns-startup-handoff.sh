@@ -1061,6 +1061,41 @@ grep -q '^required_handoff_missing_pre_hook$' "${CALLS_FILE}" || fail 'rc.func s
 ! grep -q '^required_handoff_missing_post_hook$' "${CALLS_FILE}" || fail 'rc.func ran post-start after missing required handoff'
 [ ! -f "${STARTED_FILE}" ] || fail 'rc.func launched AdGuardHome after missing required handoff'
 
+# If required handoff preparation is interrupted after PRECMD has activated the
+# dnsmasq handoff, failed-start recovery must restore dnsmasq instead of
+# treating the start as a no-handoff flow.
+REQUIRED_PRE_INTERRUPT_READY_FILE="${TEST_ROOT}/required-pre-interrupt-ready"
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}" "${REQUIRED_PRE_INTERRUPT_READY_FILE}"
+(
+	pre_hook() {
+		ADGUARDHOME_DNS_HANDOFF_REQUIRED=1
+		export ADGUARDHOME_DNS_HANDOFF_REQUIRED
+		prepare_active_dns_handoff_test_marker || return 1
+		printf '%s\n' required_pre_interrupt_hook >>"${CALLS_FILE}"
+		: >"${REQUIRED_PRE_INTERRUPT_READY_FILE}"
+		while :; do
+			command sleep 1
+		done
+	}
+	start >/dev/null
+) &
+_required_pre_interrupt_pid="$!"
+_required_pre_interrupt_waits=0
+while [ ! -f "${REQUIRED_PRE_INTERRUPT_READY_FILE}" ] && [ "${_required_pre_interrupt_waits}" -lt 100 ]; do
+	_required_pre_interrupt_waits="$((_required_pre_interrupt_waits + 1))"
+	command sleep 0.01
+done
+[ -f "${REQUIRED_PRE_INTERRUPT_READY_FILE}" ] || fail 'interrupted required pre-start did not reach the guarded pre-start window'
+command kill -TERM "${_required_pre_interrupt_pid}" 2>/dev/null || fail 'could not interrupt required pre-start'
+if wait "${_required_pre_interrupt_pid}"; then
+	fail 'interrupted required pre-start reported success'
+fi
+grep -q '^required_pre_interrupt_hook$' "${CALLS_FILE}" || fail 'interrupted required pre-start skipped pre-start hook'
+grep -q '^post_failure_hook 0$' "${CALLS_FILE}" || fail 'interrupted required pre-start suppressed dnsmasq restart during recovery'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'interrupted required pre-start did not restore dnsmasq'
+disable_dns_handoff || fail 'could not clean up interrupted required pre-start handoff'
+
 # A LAN-mode start where pre-start intentionally skips the dnsmasq handoff must
 # still run post-start readiness checks, but suppress dnsmasq restart cleanup.
 : >"${CALLS_FILE}"
