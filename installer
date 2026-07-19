@@ -3615,7 +3615,9 @@ adguard_restore_after_failed_directory_restore() {
 }
 
 adguardhome_yaml_ipset_file() {
-	[ -f "${YAML_FILE}" ] || return 0
+	local yaml_target
+	yaml_target="${1:-${YAML_FILE}}"
+	[ -f "${yaml_target}" ] || return 0
 	awk '
 		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
 		function block_marker(value) {
@@ -3682,7 +3684,7 @@ adguardhome_yaml_ipset_file() {
 			print scalar(value)
 			exit
 		}
-	' "${YAML_FILE}"
+	' "${yaml_target}"
 }
 
 ipset_status_path() {
