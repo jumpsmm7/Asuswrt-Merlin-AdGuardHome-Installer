@@ -38,6 +38,7 @@ extract_function() {
 write_conf() {
 	_key="$1"
 	_value="$2"
+	[ "${WRITE_CONF_FAIL_KEY:-}" != "${_key}" ] || return 1
 	_tmp_file="${CONF_FILE}.tmp.$$"
 	awk -v KEY="${_key}" -v VALUE="${_value}" '
 		BEGIN { replaced = 0 }
@@ -416,10 +417,14 @@ adguard_install_feature_defaults() {
 }
 ! adguard_migrate_detected_install_mode '' || fail 'legacy migration unexpectedly succeeded with incomplete feature defaults'
 [ -z "$(conf_value ADGUARD_INSTALL_MODE)" ] || fail 'incomplete legacy migration persisted the detected mode'
+WRITE_CONF_FAIL_KEY='ADGUARD_NETCHECK_MODE'
+! adguard_migrate_detected_install_mode '' || fail 'legacy migration unexpectedly succeeded with incomplete netcheck configuration'
+[ -z "$(conf_value ADGUARD_INSTALL_MODE)" ] || fail 'legacy migration with incomplete netcheck configuration persisted the detected mode'
+WRITE_CONF_FAIL_KEY=''
 adguard_migrate_detected_install_mode '' || fail 'legacy install without a saved mode was not migrated to LAN mode'
 [ "$(conf_value ADGUARD_INSTALL_MODE)" = 'lan' ] || fail 'legacy LAN migration did not persist detected mode'
 [ "$(conf_value ADGUARD_NETCHECK_MODE)" = 'lan' ] || fail 'legacy LAN migration did not select LAN netcheck mode'
-[ "${FEATURE_DEFAULTS_CALLED}" -eq 2 ] || fail 'legacy LAN migration did not retry mode feature defaults'
+[ "${FEATURE_DEFAULTS_CALLED}" -eq 3 ] || fail 'legacy LAN migration did not retry mode feature defaults'
 assert_no_ipset_file legacy-mode-transition
 if grep -q 'ipset_file' "${YAML_ORI}"; then
 	fail 'legacy LAN migration did not remove ipset_file from the original YAML snapshot'
