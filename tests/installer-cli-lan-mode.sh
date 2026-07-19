@@ -33,6 +33,14 @@ grep -q 'if \[ "${ADGUARD_INSTALL_MODE}" = "wan" \]; then' "${SCRIPT_PATH}" ||
 	fail 'CLI install DNS preparation must be gated by WAN install mode'
 grep -q 'Refusing install DNS/NVRAM rewrite without --allow-dns-nvram' "${SCRIPT_PATH}" ||
 	fail 'CLI install must still require DNS/NVRAM permission for WAN rewrites'
+consent_line="$(grep -n 'Refusing install DNS/NVRAM rewrite without --allow-dns-nvram' "${SCRIPT_PATH}" | tail -n 1 | cut -d: -f1)"
+cleanup_line="$(sed -n '/^[[:space:]]*install)$/,/^[[:space:]]*;;$/p' "${SCRIPT_PATH}" | grep -n '^[[:space:]]*cleanup$' | head -n 1 | cut -d: -f1)"
+[ -n "${consent_line}" ] && [ -n "${cleanup_line}" ] ||
+	fail 'could not locate CLI install consent and cleanup ordering'
+install_line="$(grep -n '^[[:space:]]*install)$' "${SCRIPT_PATH}" | tail -n 1 | cut -d: -f1)"
+cleanup_line="$((install_line + cleanup_line - 1))"
+[ "${consent_line}" -lt "${cleanup_line}" ] ||
+	fail 'CLI install must require WAN DNS/NVRAM consent before cleanup changes router state'
 grep -q 'install_mode="$(conf_value ADGUARD_INSTALL_MODE)"' "${SCRIPT_PATH}" ||
 	fail 'runtime migration preview must read persisted install mode'
 grep -q '^[[:space:]]*check_dns_environment 0$' "${SCRIPT_PATH}" ||

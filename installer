@@ -6857,14 +6857,14 @@ cli_run() {
 				PTXT "${ERROR} Run the interactive installer for fresh installs, or use restore --file with an existing backup."
 				return 1
 			fi
+			if [ "${ADGUARD_INSTALL_MODE}" = "wan" ] && [ "${CLI_ALLOW_DNS_NVRAM}" != "1" ]; then
+				PTXT "${ERROR} Refusing install DNS/NVRAM rewrite without --allow-dns-nvram."
+				return 1
+			fi
 			cli_enable_assume_yes
 			cleanup
 			check_jffs_enabled
 			if [ "${ADGUARD_INSTALL_MODE}" = "wan" ]; then
-				if [ "${CLI_ALLOW_DNS_NVRAM}" != "1" ]; then
-					PTXT "${ERROR} Refusing install DNS/NVRAM rewrite without --allow-dns-nvram."
-					return 1
-				fi
 				check_dns_environment 0
 			fi
 			[ -n "${adguard_branch}" ] || adguard_branch="$(conf_value ADGUARD_BRANCH)"
