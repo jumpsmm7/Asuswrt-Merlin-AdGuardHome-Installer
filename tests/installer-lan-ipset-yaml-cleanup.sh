@@ -411,12 +411,15 @@ EOF_YAML
 cp -f "${YAML_FILE}" "${YAML_ORI}" || fail 'could not write legacy WAN YAML snapshot for LAN-mode migration'
 FEATURE_DEFAULTS_CALLED=0
 adguard_install_feature_defaults() {
-	FEATURE_DEFAULTS_CALLED=1
+	FEATURE_DEFAULTS_CALLED=$((FEATURE_DEFAULTS_CALLED + 1))
+	[ "${FEATURE_DEFAULTS_CALLED}" -gt 1 ]
 }
+! adguard_migrate_detected_install_mode '' || fail 'legacy migration unexpectedly succeeded with incomplete feature defaults'
+[ -z "$(conf_value ADGUARD_INSTALL_MODE)" ] || fail 'incomplete legacy migration persisted the detected mode'
 adguard_migrate_detected_install_mode '' || fail 'legacy install without a saved mode was not migrated to LAN mode'
 [ "$(conf_value ADGUARD_INSTALL_MODE)" = 'lan' ] || fail 'legacy LAN migration did not persist detected mode'
 [ "$(conf_value ADGUARD_NETCHECK_MODE)" = 'lan' ] || fail 'legacy LAN migration did not select LAN netcheck mode'
-[ "${FEATURE_DEFAULTS_CALLED}" -eq 1 ] || fail 'legacy LAN migration did not apply mode feature defaults'
+[ "${FEATURE_DEFAULTS_CALLED}" -eq 2 ] || fail 'legacy LAN migration did not retry mode feature defaults'
 assert_no_ipset_file legacy-mode-transition
 if grep -q 'ipset_file' "${YAML_ORI}"; then
 	fail 'legacy LAN migration did not remove ipset_file from the original YAML snapshot'

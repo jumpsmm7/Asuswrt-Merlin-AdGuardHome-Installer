@@ -5261,7 +5261,6 @@ adguard_migrate_detected_install_mode() {
 				PTXT "${ERROR} Unable to update the AdGuardHome configuration for ${ADGUARD_INSTALL_MODE} mode."
 				return 1
 			fi
-			write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\"" || return 1
 			adguard_install_feature_defaults || return 1
 			write_conf ADGUARD_NETCHECK_MODE "\"${ADGUARD_INSTALL_MODE}\"" || return 1
 			case "${ADGUARD_INSTALL_MODE}" in
@@ -5270,7 +5269,7 @@ adguard_migrate_detected_install_mode() {
 					adguardhome_yaml_remove_ipset_file "${YAML_ORI}" || return 1
 					;;
 			esac
-			return 0
+			write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\""
 			;;
 	esac
 	write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\""
