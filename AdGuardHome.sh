@@ -68,6 +68,42 @@ conf_value() {
 	' "${CONF_FILE}"
 }
 
+adguard_install_mode() {
+	mode="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
+	case "${mode}" in
+		wan | lan) printf '%s\n' "${mode}" ;;
+		*) printf '%s\n' "wan" ;;
+	esac
+}
+
+adguard_lan_mode() {
+	[ "$(adguard_install_mode)" = "lan" ]
+}
+
+adguard_dnsmasq_running() {
+	pidof dnsmasq >/dev/null 2>&1
+}
+
+adguard_dnsmasq_managed() {
+	if adguard_lan_mode && ! adguard_dnsmasq_running; then
+		return 1
+	fi
+	case "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" in
+		disabled) return 1 ;;
+		enabled) return 0 ;;
+	esac
+	adguard_dnsmasq_running
+}
+
+adguard_ipset_allowed() {
+	! adguard_lan_mode
+}
+
+adguard_restart_dnsmasq_if_managed() {
+	adguard_dnsmasq_managed || return 0
+	service restart_dnsmasq >/dev/null 2>&1
+}
+
 have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
@@ -571,6 +607,9 @@ check_dns_environment() {
 	}
 	dns_env_apply_profile() {
 		local changed
+		if adguard_lan_mode; then
+			return 1
+		fi
 		changed="0"
 		if dns_env_set_nvram "dnspriv_enable" "0"; then changed="$((changed + 1))"; fi
 		if dns_env_set_nvram "dhcpd_dns_router" "1"; then changed="$((changed + 1))"; fi
@@ -600,13 +639,16 @@ check_dns_environment() {
 	NVCHECK="0"
 	case "${MODE}" in
 		running)
-			# Save original values only once.
-			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
-				save_dns_nvram_environment
+			if adguard_lan_mode; then
+				return 0
 			fi
 			if [ "$(pidof stubby | wc -w)" -gt "0" ]; then
 				{ killall -q -9 stubby 2>/dev/null; }
 				NVCHECK="$((NVCHECK + 1))"
+			fi
+			# Save original values only once.
+			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
+				save_dns_nvram_environment
 			fi
 			if dns_env_apply_profile; then NVCHECK="$((NVCHECK + 1))"; fi
 			;;
@@ -625,7 +667,7 @@ check_dns_environment() {
 	if [ "$NVCHECK" != "0" ]; then
 		{ nvram commit; }
 		if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
-			{ service restart_dnsmasq >/dev/null 2>&1; }
+			{ adguard_restart_dnsmasq_if_managed; }
 		fi
 		{ service_wait netcheck 150; }
 	fi
@@ -682,11 +724,19 @@ dns_handoff_is_active() {
 	[ "${PROCESS_START_TIME}" = "${HANDOFF_START_TIME}" ]
 }
 
-dnsmasq_params() {
-	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
+dnsmasq_resolv_conf_cleanup() {
 	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then {
 		umount /tmp/resolv.conf 2>/dev/null
 	}; fi
+}
+
+dnsmasq_params() {
+	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
+	if adguard_lan_mode && [ "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" = "disabled" ] && ! dns_handoff_is_active; then
+		agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_disabled"
+		return 0
+	fi
+	dnsmasq_resolv_conf_cleanup
 	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 		0)
 			dns_handoff_is_active || return 0
@@ -767,8 +817,28 @@ dnsmasq_params() {
 	if { ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then {
 		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
 	}; fi
-	IPSET_REFRESH_FROM_DNSMASQ="1"
-	IPSet_Refresh "${CONFIG}"
+	if ! adguard_lan_mode; then
+		IPSET_REFRESH_FROM_DNSMASQ="1"
+		IPSet_Refresh "${CONFIG}"
+	fi
+}
+
+dnsmasq_action_handler() {
+	if adguard_lan_mode && ! adguard_dnsmasq_running && ! dns_handoff_is_active; then
+		case "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" in
+			enabled) ;;
+			*)
+				dnsmasq_resolv_conf_cleanup
+				agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_not_running"
+				return 0
+				;;
+		esac
+	fi
+	if [ -n "${1:-}" ]; then
+		dnsmasq_params "${1}"
+	else
+		dnsmasq_params
+	fi
 }
 
 interface_ipv4_addr() {
@@ -1289,7 +1359,13 @@ start_adguardhome() {
 	IPSET_START_RESTARTED="0"
 	IPSET_START_STOPPED="0"
 	SERVICE_WAIT_TERMINAL_FAILURE="0"
-	if ! IPSet_Setup_For_Start; then
+	if adguard_lan_mode; then
+		if ! IPSet_Disable_Managed; then
+			agh_log error start_adguardhome "state=starting action=disable_managed_ipset result=failed reason=lan_mode_remove_failed"
+			SERVICE_WAIT_TERMINAL_FAILURE="1"
+			return 1
+		fi
+	elif ! IPSet_Setup_For_Start; then
 		if [ "${IPSET_START_FAILURE_SAFE}" -ne 1 ]; then
 			agh_log error start_adguardhome "state=starting action=prepare_ipset reason=stale_mapping_risk result=failed failure_safe=0"
 			if [ "${IPSET_START_STOPPED}" -eq 1 ]; then
@@ -1449,7 +1525,7 @@ stop_adguardhome() {
 		STOP_STATUS="1"
 	fi
 	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
-		if ! service restart_dnsmasq >/dev/null 2>&1; then
+		if ! adguard_restart_dnsmasq_if_managed; then
 			agh_log error stop_adguardhome "state=stopping action=restart_dnsmasq reason=service_restart_failed result=failed process=${PROCS}"
 			STOP_STATUS="1"
 		fi
@@ -1856,7 +1932,8 @@ IPSet_Current_File() {
 IPSet_Dnsmasq_Restart_After_Unlock() {
 	[ "${IPSET_DNSMASQ_RESTART_PENDING:-0}" -eq 1 ] || return 0
 	IPSET_DNSMASQ_RESTART_PENDING="0"
-	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" = "1" ] || service restart_dnsmasq >/dev/null 2>&1
+	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ] || return 0
+	service restart_dnsmasq >/dev/null 2>&1
 }
 
 IPSet_Current_UID() {
@@ -1901,7 +1978,11 @@ IPSet_Start_Restore() {
 IPSet_Start_While_Locked() {
 	local DNSMASQ_RESTART_SKIP STATUS
 	DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
-	IPSET_DNSMASQ_RESTART_PENDING="1"
+	if adguard_dnsmasq_managed; then
+		IPSET_DNSMASQ_RESTART_PENDING="1"
+	else
+		IPSET_DNSMASQ_RESTART_PENDING="0"
+	fi
 	ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
 	lower_script start
 	STATUS="$?"
@@ -2060,6 +2141,12 @@ IPSet_Lock_Mkdir_Reap_Stale() {
 IPSet_Migrate() {
 	local CURRENT_FILE TEMP_FILE USER_TEMP_FILE
 	IPSET_MIGRATION_SKIPPED=""
+	if adguard_lan_mode; then
+		if ! IPSet_Disable_Managed; then
+			agh_log warning IPSet_Migrate "state=migration action=disable_managed_ipset result=skipped reason=lan_mode_remove_failed"
+		fi
+		return 0
+	fi
 	[ -f "${YAML_FILE}" ] || return 0
 	if ! CURRENT_FILE="$(IPSet_Current_File)"; then
 		return 1
@@ -2314,11 +2401,16 @@ IPSet_Disable_Managed_For_Start_Locked() {
 }
 
 IPSet_Enabled() {
+	adguard_ipset_allowed || return 1
 	[ "$(conf_value ADGUARD_IPSET)" != "NO" ]
 }
 
 IPSet_Refresh() {
 	local DNSMASQ_RESTART_SKIP RESTART_STATUS
+	if adguard_lan_mode; then
+		agh_log info IPSet_Refresh "state=refresh action=refresh_ipset result=skipped reason=lan_mode"
+		return 0
+	fi
 	IPSet_Enabled || return 0
 	IPSet_Supported || return 0
 	IPSET_REFRESH_CHANGED=""
@@ -2447,6 +2539,13 @@ IPSet_Setup() {
 }
 
 IPSet_Setup_For_Start() {
+	if adguard_lan_mode; then
+		if ! IPSet_Disable_Managed; then
+			agh_log error IPSet_Setup_For_Start "state=starting action=disable_managed_ipset result=failed reason=lan_mode_remove_failed"
+			return 1
+		fi
+		return 0
+	fi
 	if ! IPSet_Enabled; then
 		IPSet_Lock IPSet_Disable_Managed_For_Start_Locked
 		return $?
@@ -2642,7 +2741,7 @@ case "$1" in
 		{ "${SCRIPT_LOC}" services-stop >/dev/null 2>&1; }
 		;;
 	"dnsmasq" | "dnsmasq-sdn")
-		if [ -n "${2}" ]; then { dnsmasq_params "${2}"; }; else { dnsmasq_params; }; fi
+		dnsmasq_action_handler "${2:-}"
 		;;
 	"firewall")
 		IPSet_Refresh

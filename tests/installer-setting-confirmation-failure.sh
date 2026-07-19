@@ -41,6 +41,9 @@ check_dns_local() {
 check_ipset() {
 	printf '%s\n' "$*" >>"${CHECK_LOG}"
 }
+adguard_ipset_allowed() {
+	return 0
+}
 cli_migrate_runtime_defaults() {
 	printf '%s\n' "$*" >>"${CHECK_LOG}"
 }
