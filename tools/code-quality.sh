@@ -146,6 +146,7 @@ run_check 'Installer local-cache preference save failure regression' sh tests/in
 run_check 'Installer IPSET preference save failure regression' sh tests/installer-ipset-save-failure.sh
 run_check 'Installer setup IPSET preference save failure regression' sh tests/installer-ipset-setup-save-failure.sh
 run_check 'AdGuardHome permission repair regression' sh tests/adguardhome-permissions.sh
+run_check 'AdGuardHome LAN bind refresh regression' sh tests/adguardhome-lan-bind-refresh.sh
 run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
 run_check 'AdGuardHome S99 DNS mode lifecycle regression' sh tests/s99-dns-mode-lifecycle.sh
 run_check 'AdGuardHome S99 netstat readiness regression' sh tests/s99-netstat-readiness.sh
