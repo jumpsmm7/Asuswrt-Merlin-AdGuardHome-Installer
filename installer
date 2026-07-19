@@ -2904,13 +2904,14 @@ adguardhome_yaml_secure_file() {
 }
 
 adguardhome_yaml_remove_ipset_file() {
-	local current_file tmp_file
-	[ -f "${YAML_FILE}" ] || return 0
-	current_file="$(adguardhome_yaml_ipset_file 2>/dev/null)" || return 1
+	local current_file tmp_file yaml_target
+	yaml_target="${1:-${YAML_FILE}}"
+	[ -f "${yaml_target}" ] || return 0
+	current_file="$(adguardhome_yaml_ipset_file "${yaml_target}" 2>/dev/null)" || return 1
 	[ -n "${current_file}" ] || return 0
-	chmod 600 "${YAML_FILE}" || return 1
-	tmp_file="${YAML_FILE}.ipset.$$"
-	cp -p "${YAML_FILE}" "${tmp_file}" || return 1
+	chmod 600 "${yaml_target}" || return 1
+	tmp_file="${yaml_target}.ipset.$$"
+	cp -p "${yaml_target}" "${tmp_file}" || return 1
 	awk '
 		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
 		function block_marker(value) {
@@ -2934,7 +2935,7 @@ adguardhome_yaml_remove_ipset_file() {
 			next
 		}
 		{ print }
-	' "${YAML_FILE}" >"${tmp_file}" && adguardhome_yaml_secure_file "${tmp_file}" && mv -f "${tmp_file}" "${YAML_FILE}" && adguardhome_yaml_secure_file || {
+	' "${yaml_target}" >"${tmp_file}" && adguardhome_yaml_secure_file "${tmp_file}" && mv -f "${tmp_file}" "${yaml_target}" && adguardhome_yaml_secure_file "${yaml_target}" || {
 		rm -f "${tmp_file}"
 		return 1
 	}
@@ -3588,7 +3589,9 @@ adguard_restore_after_failed_directory_restore() {
 }
 
 adguardhome_yaml_ipset_file() {
-	[ -f "${YAML_FILE}" ] || return 0
+	local yaml_target
+	yaml_target="${1:-${YAML_FILE}}"
+	[ -f "${yaml_target}" ] || return 0
 	awk '
 		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
 		function block_marker(value) {
@@ -3655,7 +3658,7 @@ adguardhome_yaml_ipset_file() {
 			print scalar(value)
 			exit
 		}
-	' "${YAML_FILE}"
+	' "${yaml_target}"
 }
 
 ipset_status_path() {
@@ -5262,7 +5265,10 @@ adguard_migrate_detected_install_mode() {
 			adguard_install_feature_defaults || return 1
 			write_conf ADGUARD_NETCHECK_MODE "\"${ADGUARD_INSTALL_MODE}\"" || return 1
 			case "${ADGUARD_INSTALL_MODE}" in
-				lan) adguardhome_yaml_remove_ipset_file || return 1 ;;
+				lan)
+					adguardhome_yaml_remove_ipset_file || return 1
+					adguardhome_yaml_remove_ipset_file "${YAML_ORI}" || return 1
+					;;
 			esac
 			return 0
 			;;

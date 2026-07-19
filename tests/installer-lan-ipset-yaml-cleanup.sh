@@ -408,6 +408,7 @@ dns:
   local_ptr_upstreams:
     - '[::]:553'
 EOF_YAML
+cp -f "${YAML_FILE}" "${YAML_ORI}" || fail 'could not write legacy WAN YAML snapshot for LAN-mode migration'
 FEATURE_DEFAULTS_CALLED=0
 adguard_install_feature_defaults() {
 	FEATURE_DEFAULTS_CALLED=1
@@ -417,6 +418,9 @@ adguard_migrate_detected_install_mode '' || fail 'legacy install without a saved
 [ "$(conf_value ADGUARD_NETCHECK_MODE)" = 'lan' ] || fail 'legacy LAN migration did not select LAN netcheck mode'
 [ "${FEATURE_DEFAULTS_CALLED}" -eq 1 ] || fail 'legacy LAN migration did not apply mode feature defaults'
 assert_no_ipset_file legacy-mode-transition
+if grep -q 'ipset_file' "${YAML_ORI}"; then
+	fail 'legacy LAN migration did not remove ipset_file from the original YAML snapshot'
+fi
 grep -q '^  address: 192\.168\.50\.2:3000$' "${YAML_FILE}" || fail 'legacy LAN migration did not update the WebUI bind'
 ! grep -Fq -- '- 0.0.0.0' "${YAML_FILE}" || fail 'legacy LAN migration retained the WAN wildcard DNS bind'
 grep -Fq -- "- '192.168.50.254:53'" "${YAML_FILE}" || fail 'legacy LAN migration did not update the reverse upstream'
