@@ -857,6 +857,18 @@ interface_ipv6_addr() {
 	ip -o -6 addr list "${IFACE}" scope global 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1]; exit }'
 }
 
+ipv4_is_usable_unicast() {
+	printf '%s\n' "$1" | awk -F. '
+		NF != 4 { exit 1 }
+		{
+			for (i = 1; i <= 4; i++) {
+				if ($i !~ /^[0-9][0-9]*$/ || $i < 0 || $i > 255) exit 1
+			}
+			if ($1 == 0 || $1 == 127 || $1 >= 224) exit 1
+		}
+	'
+}
+
 adguard_refresh_lan_bind_addresses() {
 	local BIND_HOSTS LAN_ADDR LAN_ADDR6 LAN_IF NVRAM_ADDR6 TEMP_FILE WEB_PORT
 	adguard_lan_mode || return 0
@@ -866,8 +878,10 @@ adguard_refresh_lan_bind_addresses() {
 		LAN_ADDR="$(interface_ipv4_addr "${LAN_IF}")"
 		LAN_ADDR6="$(interface_ipv6_addr "${LAN_IF}")"
 	fi
-	[ -n "${LAN_ADDR:-}" ] || LAN_ADDR="$(nvram get lan_ipaddr 2>/dev/null)"
-	[ -n "${LAN_ADDR}" ] || return 1
+	if ! ipv4_is_usable_unicast "${LAN_ADDR:-}"; then
+		LAN_ADDR="$(nvram get lan_ipaddr 2>/dev/null)"
+	fi
+	ipv4_is_usable_unicast "${LAN_ADDR}" || return 1
 	if [ -z "${LAN_ADDR6:-}" ] && [ -n "${LAN_IF}" ] && have_cmd ip; then
 		NVRAM_ADDR6="$(nvram get ipv6_rtr_addr 2>/dev/null)"
 		case "${NVRAM_ADDR6}" in

@@ -20,7 +20,7 @@ fail() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
-sed -n '/^adguard_refresh_lan_bind_addresses() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail 'could not extract refresh helper'
+sed -n '/^ipv4_is_usable_unicast() {$/,/^}$/p; /^adguard_refresh_lan_bind_addresses() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail 'could not extract refresh helper'
 [ -s "${FUNCTION_FILE}" ] || fail 'refresh helper was not found'
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
@@ -80,5 +80,28 @@ if adguard_refresh_lan_bind_addresses; then
 	fail 'refresh accepted YAML without a WebUI address'
 fi
 cmp -s "${YAML_FILE}" "${YAML_FILE}.malformed" || fail 'failed refresh modified YAML'
+
+interface_ipv4_addr() { printf '%s\n' 0.0.0.0; }
+nvram() {
+	case "$2" in
+		lan_ifname) printf '%s\n' br0 ;;
+		lan_ipaddr) printf '%s\n' 0.0.0.0 ;;
+		ipv6_rtr_addr) printf '%s\n' 2001:db8::1 ;;
+	esac
+}
+cat >"${YAML_FILE}" <<'EOF' || fail 'could not write wildcard fallback fixture'
+http:
+  address: 192.168.50.27:3443
+dns:
+  bind_hosts:
+    - 127.0.0.1
+    - 192.168.50.27
+  port: 53
+EOF
+cp "${YAML_FILE}" "${YAML_FILE}.wildcard" || fail 'could not preserve wildcard fallback fixture'
+if adguard_refresh_lan_bind_addresses; then
+	fail 'refresh accepted a wildcard LAN IPv4 address'
+fi
+cmp -s "${YAML_FILE}" "${YAML_FILE}.wildcard" || fail 'wildcard LAN IPv4 failure modified YAML'
 
 printf '%s\n' 'PASS: LAN startup refreshes dynamic WebUI and DNS bind addresses without partial YAML writes'
