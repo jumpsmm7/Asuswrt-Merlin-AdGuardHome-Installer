@@ -20,5 +20,9 @@ grep -q 'if \[ "${2:-reconfig}" != "RESTORE" \].*\[ ! -f "${YAML_FILE}" \]' "${S
 	fail 'RESTORE does not skip interactive feature selection'
 grep -q '\[ ! -f "${RESTORE_TARG_DIR}/AdGuardHome.yaml" \].*\[ ! -f "${RESTORE_TARG_DIR}/.AdGuardHome.yaml.ori" \]' "${SCRIPT_PATH}" ||
 	fail 'restore validation accepts a backup without either YAML file'
+grep -q 'if \[ "${ADGUARD_FORCE_SETUP_YAML:-0}" = "1" \].*\[ -f "${YAML_FILE}" \].*\[ -f "${YAML_ORI}" \]' "${SCRIPT_PATH}" ||
+	fail 'RESTORE does not enter mode-dependent YAML synchronization when requested'
+grep -q 'setup_sync_mode_dependent_yaml_and_snapshot' "${SCRIPT_PATH}" ||
+	fail 'RESTORE does not synchronize both restored YAML pathways'
 
-printf '%s\n' 'PASS: RESTORE rejects missing YAML and preserves feature selections'
+printf '%s\n' 'PASS: RESTORE rejects missing YAML, preserves feature selections, and synchronizes mode-dependent YAML'
