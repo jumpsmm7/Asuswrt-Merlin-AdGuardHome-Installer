@@ -78,6 +78,7 @@ extract_function setup_sync_mode_dependent_yaml || fail 'could not extract mode-
 extract_function setup_sync_restored_yaml_for_wan || fail 'could not extract WAN restore YAML sync helper'
 extract_function setup_sync_mode_dependent_yaml_and_snapshot || fail 'could not extract mode-dependent YAML snapshot sync helper'
 extract_function setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could not extract WAN restore YAML snapshot sync helper'
+extract_function adguard_migrate_detected_install_mode || fail 'could not extract detected-mode migration helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'helper extraction was empty'
 
 # shellcheck disable=SC1090
@@ -383,6 +384,32 @@ done
 ! grep -Fq -- '- 0.0.0.0' "${YAML_FILE}" || fail 'LAN mode migration retained the WAN wildcard DNS bind'
 grep -Fq '[/router.asus.com/]192.168.50.254:53' "${YAML_FILE}" || fail 'LAN mode migration did not update the reverse upstream'
 grep -Fq -- "- '192.168.50.254:53'" "${YAML_FILE}" || fail 'LAN mode migration did not update the local PTR upstream'
+
+cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write legacy install preferences'
+ADGUARD_IPSET="YES"
+EOF_CONF
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write legacy WAN YAML for LAN-mode migration'
+http:
+  address: 0.0.0.0:3000
+dns:
+  bind_hosts:
+    - 0.0.0.0
+  ipset_file: legacy-ipset.conf
+  local_ptr_upstreams:
+    - '[::]:553'
+EOF_YAML
+FEATURE_DEFAULTS_CALLED=0
+adguard_install_feature_defaults() {
+	FEATURE_DEFAULTS_CALLED=1
+}
+adguard_migrate_detected_install_mode '' || fail 'legacy install without a saved mode was not migrated to LAN mode'
+[ "$(conf_value ADGUARD_INSTALL_MODE)" = 'lan' ] || fail 'legacy LAN migration did not persist detected mode'
+[ "$(conf_value ADGUARD_NETCHECK_MODE)" = 'lan' ] || fail 'legacy LAN migration did not select LAN netcheck mode'
+[ "${FEATURE_DEFAULTS_CALLED}" -eq 1 ] || fail 'legacy LAN migration did not apply mode feature defaults'
+assert_no_ipset_file legacy-mode-transition
+grep -q '^  address: 192\.168\.50\.2:3000$' "${YAML_FILE}" || fail 'legacy LAN migration did not update the WebUI bind'
+! grep -Fq -- '- 0.0.0.0' "${YAML_FILE}" || fail 'legacy LAN migration retained the WAN wildcard DNS bind'
+grep -Fq -- "- '192.168.50.254:53'" "${YAML_FILE}" || fail 'legacy LAN migration did not update the reverse upstream'
 
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored LAN config'
 ADGUARD_INSTALL_MODE="lan"
