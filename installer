@@ -5284,8 +5284,12 @@ adguard_migrate_detected_install_mode() {
 	local previous_mode
 	previous_mode="$1"
 	case "${previous_mode}:${ADGUARD_INSTALL_MODE:-}" in
-		wan:lan | lan:wan)
-			PTXT "${INFO} Router mode changed from ${previous_mode} to ${ADGUARD_INSTALL_MODE}; updating mode-dependent AdGuardHome settings."
+		wan:lan | lan:wan | :lan)
+			if [ -n "${previous_mode}" ]; then
+				PTXT "${INFO} Router mode changed from ${previous_mode} to ${ADGUARD_INSTALL_MODE}; updating mode-dependent AdGuardHome settings."
+			else
+				PTXT "${INFO} Existing installation detected in ${ADGUARD_INSTALL_MODE} mode; updating mode-dependent AdGuardHome settings."
+			fi
 			if ! setup_sync_mode_dependent_yaml_and_snapshot; then
 				PTXT "${ERROR} Unable to update the AdGuardHome configuration for ${ADGUARD_INSTALL_MODE} mode."
 				return 1

@@ -34,6 +34,8 @@ grep -q 'PREVIOUS_ADGUARD_INSTALL_MODE="$(conf_value ADGUARD_INSTALL_MODE 2>/dev
 	fail 'installer must preserve the saved install mode before detection'
 grep -q 'adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE}"' "${SCRIPT_PATH}" ||
 	fail 'installer must migrate mode-dependent settings before persisting the detected mode'
+grep -q 'wan:lan | lan:wan | :lan)' "${SCRIPT_PATH}" ||
+	fail 'installer must migrate legacy installs without a saved mode when LAN mode is detected'
 grep -q 'if \[ "${ADGUARD_INSTALL_MODE}" = "wan" \] && \[ -n "${NAT_ENV}" \]' "${SCRIPT_PATH}" ||
 	fail 'double-NAT warning must be gated by WAN install mode'
 grep -q 'if \[ "${ADGUARD_INSTALL_MODE}" = "wan" \]; then' "${SCRIPT_PATH}" ||
