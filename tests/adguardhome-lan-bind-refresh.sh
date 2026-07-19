@@ -56,8 +56,25 @@ grep -q '^    - 2001:db8::27$' "${YAML_FILE}" || fail 'LAN IPv6 DNS bind was not
 grep -q '^    - 192\.168\.101\.1$' "${YAML_FILE}" || fail 'bridge DNS bind was not refreshed'
 ! grep -q '192\.168\.50\.1' "${YAML_FILE}" || fail 'stale LAN bind address remained in YAML'
 
+cat >"${YAML_FILE}" <<'EOF' || fail 'could not write quoted-key fixture'
+"http": &http_settings # restored web settings
+  "address": "192.168.50.1:7443"
+  session_ttl: 720h
+'dns': &dns_settings # restored resolver settings
+  'bind_hosts':
+    - 192.168.50.1
+  port: 53
+EOF
+
+adguard_refresh_lan_bind_addresses || fail 'dynamic LAN bind refresh rejected quoted keys or anchored headers'
+grep -Fq '"http": &http_settings # restored web settings' "${YAML_FILE}" || fail 'HTTP mapping header was not preserved'
+grep -q '^  "address": 192\.168\.50\.27:7443$' "${YAML_FILE}" || fail 'quoted WebUI key or port was not refreshed'
+grep -Fq "'dns': &dns_settings # restored resolver settings" "${YAML_FILE}" || fail 'DNS mapping header was not preserved'
+grep -q "^  'bind_hosts':$" "${YAML_FILE}" || fail 'quoted bind-host key was not preserved'
+grep -q '^    - 2001:db8::27$' "${YAML_FILE}" || fail 'quoted-key fixture did not receive refreshed binds'
+
 cp "${YAML_FILE}" "${YAML_FILE}.before" || fail 'could not preserve refreshed fixture'
-sed -i '/^  address:/d' "${YAML_FILE}" || fail 'could not make malformed fixture'
+sed -i '/address/d' "${YAML_FILE}" || fail 'could not make malformed fixture'
 cp "${YAML_FILE}" "${YAML_FILE}.malformed" || fail 'could not preserve malformed fixture'
 if adguard_refresh_lan_bind_addresses; then
 	fail 'refresh accepted YAML without a WebUI address'

@@ -882,11 +882,30 @@ adguard_refresh_lan_bind_addresses() {
 		private_ipv4_bridge_dns_options_with_fallbacks | awk 'NF > 1 { print $2 }'
 	} | awk 'NF && !seen[$0]++ { print }')"
 	WEB_PORT="$(awk '
-		/^http:[[:space:]]*$/ { in_http = 1; next }
+		function yaml_key_is(line, expected, text, separator, key) {
+			text = line
+			sub(/^[[:space:]]*/, "", text)
+			separator = index(text, ":")
+			if (!separator)
+				return 0
+			key = substr(text, 1, separator - 1)
+			sub(/[[:space:]]*$/, "", key)
+			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
+		}
+		function yaml_mapping_header_is(line, expected, text, separator, value) {
+			if (!yaml_key_is(line, expected))
+				return 0
+			text = line
+			separator = index(text, ":")
+			value = substr(text, separator + 1)
+			sub(/^[[:space:]]*/, "", value)
+			return value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/
+		}
+		/^[^[:space:]]/ && yaml_mapping_header_is($0, "http") { in_http = 1; next }
 		in_http && /^[^[:space:]]/ { exit }
-		in_http && /^[[:space:]]*address:[[:space:]]*/ {
+		in_http && yaml_key_is($0, "address") {
 			value = $0
-			sub(/^[[:space:]]*address:[[:space:]]*/, "", value)
+			value = substr(value, index(value, ":") + 1)
 			sub(/[[:space:]]+#.*$/, "", value)
 			gsub(/[[:space:]"'"'"']/, "", value)
 			count = split(value, components, ":")
@@ -902,18 +921,39 @@ adguard_refresh_lan_bind_addresses() {
 	cp -p "${YAML_FILE}" "${TEMP_FILE}" || return 1
 	awk -v bind_hosts="${BIND_HOSTS}" -v web_address="${LAN_ADDR}:${WEB_PORT}" '
 		function indentation(line) { match(line, /^[[:space:]]*/); return RLENGTH }
-		/^http:[[:space:]]*$/ { in_http = 1; print; next }
+		function yaml_key_is(line, expected, text, separator, key) {
+			text = line
+			sub(/^[[:space:]]*/, "", text)
+			separator = index(text, ":")
+			if (!separator)
+				return 0
+			key = substr(text, 1, separator - 1)
+			sub(/[[:space:]]*$/, "", key)
+			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
+		}
+		function yaml_mapping_header_is(line, expected, text, separator, value) {
+			if (!yaml_key_is(line, expected))
+				return 0
+			text = line
+			separator = index(text, ":")
+			value = substr(text, separator + 1)
+			sub(/^[[:space:]]*/, "", value)
+			return value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/
+		}
+		/^[^[:space:]]/ && yaml_mapping_header_is($0, "http") { in_http = 1; print; next }
 		in_http && /^[^[:space:]]/ { in_http = 0 }
-		in_http && /^[[:space:]]*address:[[:space:]]*/ {
-			print substr($0, 1, index($0, "address:") - 1) "address: " web_address
+		in_http && yaml_key_is($0, "address") {
+			separator = index($0, ":")
+			print substr($0, 1, separator) " " web_address
 			web_updated = 1
 			next
 		}
-		/^dns:[[:space:]]*$/ { in_dns = 1; print; next }
+		/^[^[:space:]]/ && yaml_mapping_header_is($0, "dns") { in_dns = 1; print; next }
 		in_dns && /^[^[:space:]]/ { in_dns = 0; in_binds = 0 }
-		in_dns && /^[[:space:]]*bind_hosts:[[:space:]]*/ {
+		in_dns && yaml_key_is($0, "bind_hosts") {
 			bind_indent = indentation($0)
-			print substr($0, 1, index($0, "bind_hosts:") - 1) "bind_hosts:"
+			separator = index($0, ":")
+			print substr($0, 1, separator)
 			count = split(bind_hosts, hosts, "\n")
 			for (host = 1; host <= count; host++)
 				if (hosts[host] != "") print substr($0, 1, bind_indent) "  - " hosts[host]
