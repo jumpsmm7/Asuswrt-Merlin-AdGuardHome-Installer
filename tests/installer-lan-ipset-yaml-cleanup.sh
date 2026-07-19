@@ -1,5 +1,5 @@
 #!/bin/sh
-# Verify LAN-mode IPSET enforcement removes YAML ipset_file safely.
+# Verify LAN-mode IPSET enforcement clears inline mappings and ipset_file safely.
 
 set -u
 
@@ -62,6 +62,14 @@ assert_no_ipset_file() {
 	fi
 }
 
+assert_ipset_disabled() {
+	assert_no_ipset_file "$1"
+	grep -q '^[[:space:]]*ipset: \[\]$' "${YAML_FILE}" || fail "$1: inline ipset mappings were not cleared"
+	if grep -q 'example\.com/router\|example\.net/vpn' "${YAML_FILE}"; then
+		fail "$1: inline ipset mapping entries were retained"
+	fi
+}
+
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
@@ -78,6 +86,7 @@ extract_function setup_sync_mode_dependent_yaml || fail 'could not extract mode-
 extract_function setup_sync_restored_yaml_for_wan || fail 'could not extract WAN restore YAML sync helper'
 extract_function setup_sync_mode_dependent_yaml_and_snapshot || fail 'could not extract mode-dependent YAML snapshot sync helper'
 extract_function setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could not extract WAN restore YAML snapshot sync helper'
+extract_function adguard_migrate_detected_install_mode || fail 'could not extract detected-mode migration helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'helper extraction was empty'
 
 # shellcheck disable=SC1090
@@ -191,16 +200,138 @@ grep -q 'bootstrap_dns:' "${YAML_FILE}" || fail 'no-op cleanup changed YAML cont
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored WAN config'
 ADGUARD_INSTALL_MODE="wan"
 ADGUARD_IPSET="YES"
+ADGUARD_WEBUI_PORT="invalid"
+ADGUARD_NETCHECK_MODE="wan"
 EOF_CONF
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored YAML ipset_file'
+http:
+  address: 0.0.0.0:8080
 dns:
+  bind_hosts:
+    - 0.0.0.0
+  ipset:
+    - example.com/router
+    - example.net/vpn
   ipset_file: restored-custom.conf
+  local_ptr_upstreams:
+    - '[::]:553'
 EOF_YAML
+cp -f "${YAML_FILE}" "${YAML_ORI}" || fail 'could not write restored original WAN YAML snapshot'
+setup_resolve_bind_addresses() {
+	SETUP_WEB_ADDRESS="192.168.50.2:${WEB_PORT}"
+	SETUP_DNS_BIND_HOST='192.168.50.2'
+	SETUP_DNS_BIND_HOST6='fd00::2'
+}
+setup_reverse_upstream_target() {
+	SETUP_REVERSE_UPSTREAM='192.168.50.1:53'
+}
+setup_private_ipv4_bridge_dns_binds() {
+	return 0
+}
 ADGUARD_INSTALL_MODE='lan'
 adguard_enforce_lan_ipset_disabled || fail 'LAN enforcement failed for detected LAN/restored WAN config'
 [ "$(conf_value ADGUARD_INSTALL_MODE)" = 'lan' ] || fail 'LAN enforcement did not persist detected LAN mode'
 [ "$(conf_value ADGUARD_IPSET)" = 'NO' ] || fail 'LAN enforcement did not disable ADGUARD_IPSET'
-assert_no_ipset_file detected-lan
+[ "$(conf_value ADGUARD_NETCHECK_MODE)" = 'lan' ] || fail 'LAN enforcement did not reset restored WAN netcheck mode'
+assert_ipset_disabled detected-lan
+[ "${ADGUARD_FORCE_SETUP_YAML:-0}" = '1' ] || fail 'LAN detection did not request YAML rebuild over restored WAN mode'
+setup_sync_mode_dependent_yaml_and_snapshot || fail 'could not synchronize restored WAN YAML for LAN mode'
+for restored_yaml in "${YAML_FILE}" "${YAML_ORI}"; do
+	grep -q '^  address: 192\.168\.50\.2:8080$' "${restored_yaml}" || fail 'LAN restore sync did not preserve the YAML WebUI port'
+	grep -Fq '    - 192.168.50.2' "${restored_yaml}" || fail 'LAN restore sync did not add the LAN DNS bind'
+	! grep -Fq -- '- 0.0.0.0' "${restored_yaml}" || fail 'LAN restore sync retained the WAN wildcard DNS bind'
+	grep -Fq -- "- '192.168.50.1:53'" "${restored_yaml}" || fail 'LAN restore sync did not replace the WAN reverse target'
+	grep -q '^[[:space:]]*ipset: \[\]$' "${restored_yaml}" || fail 'LAN restore sync did not retain disabled inline IPSET state'
+	! grep -q 'example\.com/router\|example\.net/vpn' "${restored_yaml}" || fail 'LAN restore sync retained inline IPSET mappings'
+done
+ADGUARD_FORCE_SETUP_YAML=0
+
+cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write legacy restored config without install mode'
+ADGUARD_IPSET="YES"
+ADGUARD_WEBUI_PORT="8080"
+ADGUARD_NETCHECK_MODE="wan"
+EOF_CONF
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write legacy restored WAN YAML'
+http:
+  address: 0.0.0.0:8080
+dns:
+  bind_hosts:
+    - 0.0.0.0
+  local_ptr_upstreams:
+    - '[::]:553'
+EOF_YAML
+cp -f "${YAML_FILE}" "${YAML_ORI}" || fail 'could not write legacy restored WAN YAML snapshot'
+ADGUARD_INSTALL_MODE='lan'
+adguard_enforce_lan_ipset_disabled || fail 'LAN enforcement failed for legacy restored WAN config'
+[ "$(conf_value ADGUARD_INSTALL_MODE)" = 'lan' ] || fail 'legacy restore did not persist detected LAN mode'
+[ "$(conf_value ADGUARD_NETCHECK_MODE)" = 'lan' ] || fail 'legacy restore did not select LAN netcheck mode'
+[ "${ADGUARD_FORCE_SETUP_YAML:-0}" = '1' ] || fail 'legacy restore did not request WAN YAML synchronization'
+setup_sync_mode_dependent_yaml_and_snapshot || fail 'could not synchronize legacy restored WAN YAML'
+for restored_yaml in "${YAML_FILE}" "${YAML_ORI}"; do
+	grep -q '^  address: 192\.168\.50\.2:8080$' "${restored_yaml}" || fail 'legacy restore did not scope the WebUI address'
+	grep -Fq '    - 192.168.50.2' "${restored_yaml}" || fail 'legacy restore did not add the LAN DNS bind'
+	! grep -Fq -- '- 0.0.0.0' "${restored_yaml}" || fail 'legacy restore retained the WAN wildcard DNS bind'
+	grep -Fq -- "- '192.168.50.1:53'" "${restored_yaml}" || fail 'legacy restore did not replace the WAN reverse target'
+done
+ADGUARD_FORCE_SETUP_YAML=0
+
+cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write legacy config without install mode'
+ADGUARD_IPSET="YES"
+ADGUARD_WEBUI_PORT="3000"
+ADGUARD_NETCHECK_MODE="legacy"
+EOF_CONF
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write legacy LAN working YAML'
+http:
+  address: 0.0.0.0:3000
+dns:
+  bind_hosts:
+    - 0.0.0.0
+  ipset:
+    - example.com/router
+  ipset_file: legacy-ipset.conf
+  local_ptr_upstreams:
+    - '[::]:553'
+EOF_YAML
+cp -f "${YAML_FILE}" "${YAML_ORI}" || fail 'could not write legacy LAN original YAML snapshot'
+adguard_install_feature_defaults() {
+	write_conf ADGUARD_IPSET '"NO"' || return 1
+	write_conf ADGUARD_DNSMASQ_MODE '"auto"'
+}
+ADGUARD_INSTALL_MODE='lan'
+adguard_migrate_detected_install_mode '' || fail 'legacy install without a saved mode was not migrated to LAN mode'
+[ "$(conf_value ADGUARD_INSTALL_MODE)" = 'lan' ] || fail 'legacy LAN migration did not persist detected mode'
+[ "$(conf_value ADGUARD_IPSET)" = 'NO' ] || fail 'legacy LAN migration did not disable IPSET'
+[ "$(conf_value ADGUARD_DNSMASQ_MODE)" = 'auto' ] || fail 'legacy LAN migration did not apply LAN feature defaults'
+[ "$(conf_value ADGUARD_NETCHECK_MODE)" = 'lan' ] || fail 'legacy LAN migration did not update netcheck mode'
+for legacy_yaml in "${YAML_FILE}" "${YAML_ORI}"; do
+	grep -q '^  address: 192\.168\.50\.2:3000$' "${legacy_yaml}" || fail 'legacy LAN migration did not scope the WebUI address'
+	grep -Fq '    - 192.168.50.2' "${legacy_yaml}" || fail 'legacy LAN migration did not add the LAN DNS bind'
+	! grep -Fq -- '- 0.0.0.0' "${legacy_yaml}" || fail 'legacy LAN migration retained the WAN wildcard DNS bind'
+	grep -Fq -- "- '192.168.50.1:53'" "${legacy_yaml}" || fail 'legacy LAN migration did not replace the WAN reverse target'
+	grep -q '^[[:space:]]*ipset: \[\]$' "${legacy_yaml}" || fail 'legacy LAN migration did not disable inline IPSET mappings'
+	! grep -q 'ipset_file\|example\.com/router' "${legacy_yaml}" || fail 'legacy LAN migration retained an IPSET pathway'
+done
+
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write rollback working YAML'
+http:
+  address: 0.0.0.0:3000
+dns:
+  bind_hosts:
+    - 0.0.0.0
+EOF_YAML
+cp -f "${YAML_FILE}" "${TMP_ROOT}/working-yaml.before-sync" || fail 'could not preserve rollback working YAML'
+cat >"${YAML_ORI}" <<'EOF_YAML' || fail 'could not write malformed original YAML snapshot'
+dns: []
+EOF_YAML
+cp -f "${YAML_ORI}" "${TMP_ROOT}/original-yaml.before-sync" || fail 'could not preserve malformed original YAML snapshot'
+if setup_sync_mode_dependent_yaml_and_snapshot; then
+	fail 'mode-dependent synchronization accepted a malformed original YAML snapshot'
+fi
+cmp -s "${TMP_ROOT}/working-yaml.before-sync" "${YAML_FILE}" || fail 'failed snapshot synchronization changed the working YAML'
+cmp -s "${TMP_ROOT}/original-yaml.before-sync" "${YAML_ORI}" || fail 'failed snapshot synchronization changed the original YAML snapshot'
+[ ! -e "${YAML_FILE}.mode-sync.$$" ] || fail 'failed snapshot synchronization left a working YAML stage'
+[ ! -e "${YAML_ORI}.mode-sync.$$" ] || fail 'failed snapshot synchronization left an original YAML stage'
+[ ! -e "${YAML_FILE}.mode-sync.rollback.$$" ] || fail 'failed snapshot synchronization left a working YAML rollback file'
 
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored LAN config for detected WAN'
 ADGUARD_INSTALL_MODE="lan"

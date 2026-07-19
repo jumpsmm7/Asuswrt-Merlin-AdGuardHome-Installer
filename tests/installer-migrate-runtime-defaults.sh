@@ -102,6 +102,8 @@ cat >"${YAML_FILE}" <<'YAML'
 dns:
   bind_hosts:
   - 0.0.0.0
+  ipset:
+  - example.com/router
   ipset_file: ipset.conf
   port: 53
 YAML
@@ -114,6 +116,10 @@ grep -q '^ADGUARD_IPSET="NO"$' "${CONF_FILE}" || fail 'LAN-mode IPSET was not di
 grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'LAN-mode netcheck was not migrated to lan'
 if grep -q 'ipset_file' "${YAML_FILE}"; then
 	fail 'LAN-mode migration did not remove dns.ipset_file from YAML'
+fi
+grep -q '^[[:space:]]*ipset: \[\]$' "${YAML_FILE}" || fail 'LAN-mode migration did not clear inline dns.ipset mappings'
+if grep -q 'example\.com/router' "${YAML_FILE}"; then
+	fail 'LAN-mode migration retained an inline dns.ipset mapping'
 fi
 if grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}"; then
 	fail 'LAN-mode migration regressed to WAN netcheck mode'

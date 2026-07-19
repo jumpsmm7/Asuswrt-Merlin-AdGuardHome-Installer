@@ -9,6 +9,7 @@ FUNCTIONS_FILE="${TMP_ROOT}/functions"
 CONF_FILE="${TMP_ROOT}/.config"
 WRITES_FILE="${TMP_ROOT}/writes"
 LOG_FILE="${TMP_ROOT}/log"
+YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 
 cleanup() {
 	rm -rf "${TMP_ROOT}"

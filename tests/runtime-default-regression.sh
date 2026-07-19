@@ -77,6 +77,12 @@ grep -q '^ADGUARD_IPSET="NO"$' "${CONF_FILE}" || fail 'LAN feature defaults did 
 grep -q '^ADGUARD_DNSMASQ_MODE="auto"$' "${CONF_FILE}" || fail 'LAN feature defaults did not force auto DNSMasq mode'
 grep -q '^ADGUARD_LAN_REVERSE_UPSTREAM="192.168.50.1"$' "${CONF_FILE}" || fail 'LAN feature defaults did not save detected gateway reverse upstream'
 
+CONF_FILE="${TMP_ROOT}/new-lan-disabled.config"
+printf '%s\n' 'ADGUARD_DNSMASQ_MODE="disabled"' >"${CONF_FILE}" || fail 'could not seed disabled LAN dnsmasq mode'
+ADGUARD_INSTALL_MODE="lan"
+adguard_install_feature_defaults >"${TMP_ROOT}/feature-lan-disabled.out" || fail 'disabled LAN dnsmasq defaults failed'
+grep -q '^ADGUARD_DNSMASQ_MODE="disabled"$' "${CONF_FILE}" || fail 'LAN feature defaults overwrote explicit disabled dnsmasq mode'
+
 CONF_FILE="${TMP_ROOT}/new-lan-existing-reverse.config"
 printf '%s\n' 'ADGUARD_LAN_REVERSE_UPSTREAM="192.168.60.1"' >"${CONF_FILE}" || fail 'could not seed LAN reverse upstream config'
 ADGUARD_INSTALL_MODE="lan"

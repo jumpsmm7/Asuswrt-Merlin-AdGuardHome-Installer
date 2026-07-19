@@ -106,9 +106,20 @@ agh_dnsmasq_running() {
 	pidof dnsmasq >/dev/null 2>&1
 }
 
+agh_dnsmasq_managed() {
+	if agh_lan_mode && ! agh_dnsmasq_running; then
+		return 1
+	fi
+	case "$(agh_conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" in
+		disabled) return 1 ;;
+		enabled) return 0 ;;
+	esac
+	agh_dnsmasq_running
+}
+
 agh_dns_handoff_required() {
 	case "$(agh_install_mode)" in
-		lan) agh_dnsmasq_running ;;
+		lan) agh_dnsmasq_managed ;;
 		*) return 0 ;;
 	esac
 }
