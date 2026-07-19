@@ -27,12 +27,11 @@ assert_startup_uses_lock_first_setup() {
 	STARTUP_SETUP_CALLS="$(awk '
 		/^start_adguardhome\(\) \{$/ { in_start = 1; next }
 		in_start && /^}$/ { exit }
-		in_start && /^[[:space:]]*if adguard_lan_mode; then$/ { lan_gate++ }
-		in_start && /^[[:space:]]*elif ! IPSet_Setup_For_Start; then$/ { lock_first++ }
+		in_start && /^[[:space:]]*if ! IPSet_Setup_For_Start; then$/ { lock_first++ }
 		in_start && /^[[:space:]]*if ! IPSet_Setup;/ { legacy++ }
-		END { print lan_gate + 0, lock_first + 0, legacy + 0 }
+		END { print lock_first + 0, legacy + 0 }
 	' "${SCRIPT_PATH}")" || fail 'could not inspect the startup IPSET setup call'
-	[ "${STARTUP_SETUP_CALLS}" = '1 1 0' ] || fail "expected one outer LAN cleanup gate, one WAN-only lock-first setup call, and no legacy setup call, found ${STARTUP_SETUP_CALLS}"
+	[ "${STARTUP_SETUP_CALLS}" = '1 0' ] || fail "expected one argument-free lock-first setup call and no legacy setup call, found ${STARTUP_SETUP_CALLS}"
 }
 
 assert_optional_ipset_tools_do_not_gate_startup() {
@@ -58,7 +57,7 @@ assert_single_function IPSet_Setup_For_Start_Locked
 assert_startup_uses_lock_first_setup
 assert_optional_ipset_tools_do_not_gate_startup
 
-sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^adguard_restart_dnsmasq_if_managed() {$/,/^}$/p; /^start_adguardhome() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Disable_Managed_For_Start_Locked() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Cleanup() {$/,/^}$/p; /^IPSet_Start_Restore() {$/,/^}$/p; /^IPSet_Start_While_Locked() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^start_adguardhome() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Disable_Managed_For_Start_Locked() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Cleanup() {$/,/^}$/p; /^IPSet_Start_Restore() {$/,/^}$/p; /^IPSet_Start_While_Locked() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'startup lifecycle functions were not found'
 sed -n '/^service_wait() {$/,/^}$/p' "${SCRIPT_PATH}" >"${SERVICE_WAIT_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${SERVICE_WAIT_FILE}" ] || fail 'service-wait function was not found'
@@ -66,20 +65,8 @@ sed -n '/^service_wait() {$/,/^}$/p' "${SCRIPT_PATH}" >"${SERVICE_WAIT_FILE}" ||
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
-adguard_dnsmasq_managed() {
-	return "${DNSMASQ_MANAGED_STATUS:-0}"
-}
-
 conf_value() {
 	[ "${IPSET_CONFIG:-YES}" = "NO" ] && printf '%s\n' NO || printf '%s\n' YES
-}
-
-adguard_lan_mode() {
-	[ "${INSTALL_MODE:-wan}" = "lan" ]
-}
-
-adguard_ipset_allowed() {
-	! adguard_lan_mode
 }
 
 IPSet_Supported() {
@@ -146,9 +133,6 @@ lower_script() {
 		start)
 			if [ "${IPSET_TEST_LOCK_HELD:-0}" -eq 1 ] && [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
 				fail 'locked AdGuardHome start did not suppress the dnsmasq restart hook'
-			fi
-			if [ "${DNSMASQ_UNMANAGED_AFTER_START:-0}" -eq 1 ]; then
-				DNSMASQ_MANAGED_STATUS=1
 			fi
 			return "${START_STATUS}"
 			;;
@@ -240,27 +224,8 @@ WORK_DIR=/tmp/adguardhome-test
 INTERRUPT_ON_STOP=0
 INTERRUPT_AFTER_UNLOCK=0
 DISABLE_STATUS=0
-DNSMASQ_MANAGED_STATUS=0
-DNSMASQ_UNMANAGED_AFTER_START=0
 
 run_service_wait_terminal_test
-
-INSTALL_MODE=lan
-run_test 'LAN mode cleans managed IPSET before startup without setup helper' 0 0 0 0 0 0 1 'IPSet_Disable_Managed
-lower_script start'
-[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 0 ] || fail 'LAN startup cleanup was incorrectly marked terminal'
-[ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'LAN startup cleanup did not continue to the health check'
-DISABLE_STATUS=1
-: >"${CALLS_FILE}"
-if IPSet_Setup_For_Start; then
-	fail 'LAN setup helper treated failed cleanup as non-fatal'
-fi
-[ "$(cat "${CALLS_FILE}")" = 'IPSet_Disable_Managed' ] || fail 'LAN setup helper did not attempt managed cleanup'
-run_test 'LAN mode aborts when managed IPSET cleanup fails without setup helper' 0 0 0 0 0 0 1 'IPSet_Disable_Managed'
-[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'LAN failed startup cleanup was not marked terminal'
-[ "${SERVICE_WAIT_CALLED}" -eq 0 ] || fail 'LAN failed startup cleanup continued to the health check'
-DISABLE_STATUS=0
-INSTALL_MODE=wan
 
 run_test 'setup failure while stopped continues startup' 0 0 0 0 1 0 1 'IPSet_Supported
 IPSet_Lock acquired
@@ -370,24 +335,6 @@ IPSet_Setup_Locked
 lower_script start
 IPSet_Lock released
 service restart_dnsmasq'
-DNSMASQ_UNMANAGED_AFTER_START=1
-run_test 'deferred restart preserves pre-stop dnsmasq management decision' 1 0 0 0 0 0 1 'IPSet_Supported
-IPSet_Lock acquired
-lower_script stop
-IPSet_Setup_Locked
-lower_script start
-IPSet_Lock released
-service restart_dnsmasq'
-DNSMASQ_UNMANAGED_AFTER_START=0
-ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
-run_test 'deferred restart honors caller dnsmasq restart suppression' 1 0 0 0 0 0 1 'IPSet_Supported
-IPSet_Lock acquired
-lower_script stop
-IPSet_Setup_Locked
-lower_script start
-IPSet_Lock released'
-unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
-DNSMASQ_MANAGED_STATUS=0
 [ -z "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" ] || fail 'locked start left the dnsmasq restart guard set'
 [ "${IPSET_DNSMASQ_RESTART_PENDING:-0}" -eq 0 ] || fail 'locked start left the dnsmasq restart pending'
 INTERRUPT_AFTER_UNLOCK=1
