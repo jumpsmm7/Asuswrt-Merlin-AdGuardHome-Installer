@@ -201,6 +201,7 @@ cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored WAN config'
 ADGUARD_INSTALL_MODE="wan"
 ADGUARD_IPSET="YES"
 ADGUARD_WEBUI_PORT="invalid"
+ADGUARD_NETCHECK_MODE="wan"
 EOF_CONF
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored YAML ipset_file'
 http:
@@ -231,6 +232,7 @@ ADGUARD_INSTALL_MODE='lan'
 adguard_enforce_lan_ipset_disabled || fail 'LAN enforcement failed for detected LAN/restored WAN config'
 [ "$(conf_value ADGUARD_INSTALL_MODE)" = 'lan' ] || fail 'LAN enforcement did not persist detected LAN mode'
 [ "$(conf_value ADGUARD_IPSET)" = 'NO' ] || fail 'LAN enforcement did not disable ADGUARD_IPSET'
+[ "$(conf_value ADGUARD_NETCHECK_MODE)" = 'lan' ] || fail 'LAN enforcement did not reset restored WAN netcheck mode'
 assert_ipset_disabled detected-lan
 [ "${ADGUARD_FORCE_SETUP_YAML:-0}" = '1' ] || fail 'LAN detection did not request YAML rebuild over restored WAN mode'
 setup_sync_mode_dependent_yaml_and_snapshot || fail 'could not synchronize restored WAN YAML for LAN mode'
