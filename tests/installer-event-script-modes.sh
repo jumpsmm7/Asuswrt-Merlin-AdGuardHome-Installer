@@ -21,7 +21,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 
 awk '
-	/^[[:space:]]*ptxt_ok "AdGuardHome service files installed\."[[:space:]]*$/ {
+	/yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" \/jffs\/scripts\/dnsmasq\.postconf/ {
 		armed = 1
 		next
 	}

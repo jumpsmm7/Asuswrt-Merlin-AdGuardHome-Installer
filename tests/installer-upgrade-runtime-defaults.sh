@@ -124,7 +124,6 @@ run_update_path refresh pass
 EXPECTED_REFRESH_PASS="$(printf '%s\n' \
 	'create_dir' \
 	'configure:upgrade' \
-	'cleanup_legacy_firewall' \
 	'download:755:https://example.invalid/AdGuardHome.sh' \
 	'end:1 update')"
 ACTUAL_REFRESH_PASS="$(cat "${CALLS_FILE}")"
@@ -147,7 +146,6 @@ EXPECTED_PACKAGE_PASS="$(printf '%s\n' \
 	'ln' \
 	'create_dir' \
 	'configure:upgrade' \
-	'cleanup_legacy_firewall' \
 	'download:755:https://example.invalid/AdGuardHome.sh' \
 	'start' \
 	'end:1 update')"
