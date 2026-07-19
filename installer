@@ -2904,13 +2904,14 @@ adguardhome_yaml_secure_file() {
 }
 
 adguardhome_yaml_remove_ipset_file() {
-	local current_file tmp_file
-	[ -f "${YAML_FILE}" ] || return 0
-	current_file="$(adguardhome_yaml_ipset_file 2>/dev/null)" || return 1
+	local current_file tmp_file yaml_target
+	yaml_target="${1:-${YAML_FILE}}"
+	[ -f "${yaml_target}" ] || return 0
+	current_file="$(adguardhome_yaml_ipset_file "${yaml_target}" 2>/dev/null)" || return 1
 	[ -n "${current_file}" ] || return 0
-	chmod 600 "${YAML_FILE}" || return 1
-	tmp_file="${YAML_FILE}.ipset.$$"
-	cp -p "${YAML_FILE}" "${tmp_file}" || return 1
+	chmod 600 "${yaml_target}" || return 1
+	tmp_file="${yaml_target}.ipset.$$"
+	cp -p "${yaml_target}" "${tmp_file}" || return 1
 	awk '
 		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
 		function block_marker(value) {
@@ -2934,7 +2935,7 @@ adguardhome_yaml_remove_ipset_file() {
 			next
 		}
 		{ print }
-	' "${YAML_FILE}" >"${tmp_file}" && adguardhome_yaml_secure_file "${tmp_file}" && mv -f "${tmp_file}" "${YAML_FILE}" && adguardhome_yaml_secure_file || {
+	' "${yaml_target}" >"${tmp_file}" && adguardhome_yaml_secure_file "${tmp_file}" && mv -f "${tmp_file}" "${yaml_target}" && adguardhome_yaml_secure_file "${yaml_target}" || {
 		rm -f "${tmp_file}"
 		return 1
 	}
@@ -3588,7 +3589,9 @@ adguard_restore_after_failed_directory_restore() {
 }
 
 adguardhome_yaml_ipset_file() {
-	[ -f "${YAML_FILE}" ] || return 0
+	local yaml_target
+	yaml_target="${1:-${YAML_FILE}}"
+	[ -f "${yaml_target}" ] || return 0
 	awk '
 		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
 		function block_marker(value) {
@@ -3655,7 +3658,7 @@ adguardhome_yaml_ipset_file() {
 			print scalar(value)
 			exit
 		}
-	' "${YAML_FILE}"
+	' "${yaml_target}"
 }
 
 ipset_status_path() {
@@ -5221,23 +5224,52 @@ setup_sync_restored_yaml_and_snapshot_for_wan() {
 	setup_sync_mode_dependent_yaml_and_snapshot
 }
 
+adguard_install_mode_migration_required() {
+	local argument
+	for argument in "$@"; do
+		[ "${argument}" != "--dry-run" ] || return 1
+	done
+	case "${1:-}" in
+		backup | doctor | netcheck | status) return 1 ;;
+		ipset)
+			case "${2:-}" in
+				doctor | status) return 1 ;;
+			esac
+			;;
+	esac
+	case "${2:-}" in
+		backup | doctor | netcheck | status) return 1 ;;
+	esac
+	return 0
+}
+
 adguard_migrate_detected_install_mode() {
 	local previous_mode
 	previous_mode="$1"
 	case "${previous_mode}:${ADGUARD_INSTALL_MODE:-}" in
-		wan:lan | lan:wan)
-			PTXT "${INFO} Router mode changed from ${previous_mode} to ${ADGUARD_INSTALL_MODE}; updating mode-dependent AdGuardHome settings."
+		wan:lan | lan:wan | :lan)
+			if [ -z "${previous_mode}" ]; then
+				if [ ! -f "${YAML_FILE}" ] && [ ! -f "${YAML_ORI}" ]; then
+					write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\""
+					return $?
+				fi
+				PTXT "${INFO} Legacy installation detected in LAN mode; updating mode-dependent AdGuardHome settings."
+			else
+				PTXT "${INFO} Router mode changed from ${previous_mode} to ${ADGUARD_INSTALL_MODE}; updating mode-dependent AdGuardHome settings."
+			fi
 			if ! setup_sync_mode_dependent_yaml_and_snapshot; then
 				PTXT "${ERROR} Unable to update the AdGuardHome configuration for ${ADGUARD_INSTALL_MODE} mode."
 				return 1
 			fi
-			write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\"" || return 1
 			adguard_install_feature_defaults || return 1
 			write_conf ADGUARD_NETCHECK_MODE "\"${ADGUARD_INSTALL_MODE}\"" || return 1
 			case "${ADGUARD_INSTALL_MODE}" in
-				lan) adguardhome_yaml_remove_ipset_file || return 1 ;;
+				lan)
+					adguardhome_yaml_remove_ipset_file || return 1
+					adguardhome_yaml_remove_ipset_file "${YAML_ORI}" || return 1
+					;;
 			esac
-			return 0
+			write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\""
 			;;
 	esac
 	write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\""
@@ -6982,7 +7014,9 @@ adguard_install_mode_detect || {
 	sleep 3s
 	exit 1
 }
-adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE}" || exit 1
+if adguard_install_mode_migration_required "$@"; then
+	adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE}" || exit 1
+fi
 
 if [ "${ADGUARD_INSTALL_MODE}" = "wan" ] && [ -n "${NAT_ENV}" ] && [ -z "$2" ]; then
 	PTXT "${WARNING} This router is in a Double-Nat Environment. While for some users of AdGuardHome this may work fine," \
