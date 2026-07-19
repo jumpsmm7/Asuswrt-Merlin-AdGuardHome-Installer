@@ -5573,7 +5573,8 @@ setup_AdGuardHome_impl() {
 					PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
 						"${WARNING} Continuing reconfiguration with the previous IPSET preference."
 				fi
-				if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && [ -n "${DNS_FILTER_SELECTION:-}" ] && ! configure_runtime_defaults new-install "${ADGUARD_INSTALL_MODE:-wan}" "${LOCAL_CACHE_SELECTION:-0}"; then
+				if { [ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" ] || [ -n "${DNS_FILTER_SELECTION:-}" ]; } &&
+					! configure_runtime_defaults new-install "${ADGUARD_INSTALL_MODE:-wan}" "${LOCAL_CACHE_SELECTION:-0}"; then
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
 						nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
