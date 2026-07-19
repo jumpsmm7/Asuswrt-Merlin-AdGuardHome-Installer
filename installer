@@ -16,14 +16,14 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.6.0                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.6.1                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
 
-AI_VERSION="v2.6.0"
+AI_VERSION="v2.6.1"
 export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
@@ -293,7 +293,7 @@ on_installer_exit() {
 	installer_cleanup_tmp_file setup "${SETUP_YAML_TMP_FILE:-}"
 	installer_cleanup_tmp_file blocklist "${BLOCKLIST_YAML_TMP_FILE:-}"
 	# Restore pre-check DNS settings only when exiting without a local adguardhome installation.
-	if [ ! -f "${AGH_FILE}" ]; then
+	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && [ ! -f "${AGH_FILE}" ]; then
 		check_dns_environment 1
 	fi
 }
@@ -532,20 +532,74 @@ conf_has_key() {
 	grep -q "^$1=" "${CONF_FILE}"
 }
 
+adguard_ipset_allowed() {
+	case "${ADGUARD_INSTALL_MODE:-$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)}" in
+		lan) return 1 ;;
+	esac
+	return 0
+}
+
 write_conf_if_absent() {
 	conf_has_key "$1" && return 0
 	write_conf "$1" "$2"
 }
 
+adguard_install_feature_defaults() {
+	local dnsmasq_mode ipset_value lan_gateway
+	case "${ADGUARD_INSTALL_MODE:-}" in
+		wan)
+			ipset_value="$(conf_value ADGUARD_IPSET)"
+			case "${ipset_value}" in
+				NO) ;;
+				*) ipset_value="YES" ;;
+			esac
+			write_conf ADGUARD_IPSET "\"${ipset_value}\"" || return 1
+			write_conf ADGUARD_DNSMASQ_MODE "\"enabled\"" || return 1
+			;;
+		lan)
+			write_conf ADGUARD_IPSET "\"NO\"" || return 1
+			dnsmasq_mode="$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)"
+			case "${dnsmasq_mode}" in
+				disabled) ;;
+				*) write_conf ADGUARD_DNSMASQ_MODE "\"auto\"" || return 1 ;;
+			esac
+			lan_gateway="$(nvram get lan_gateway 2>/dev/null)" || lan_gateway=""
+			case "${lan_gateway}" in
+				"" | 0.0.0.0) ;;
+				*)
+					if ipv4_is_valid "${lan_gateway}"; then
+						write_conf_if_absent ADGUARD_LAN_REVERSE_UPSTREAM "\"${lan_gateway}\"" || return 1
+					fi
+					;;
+			esac
+			;;
+		*)
+			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE:-}. Setup was aborted."
+			return 1
+			;;
+	esac
+	return 0
+}
+
 configure_runtime_defaults() {
-	local NETCHECK_MODE
+	local NETCHECK_MODE sw_mode
 	case "${1:-}" in
 		new-install)
 			case "${2:-}" in
-				1 | YES | yes | Yes) NETCHECK_MODE="wan" ;;
-				*) NETCHECK_MODE="lan" ;;
+				wan) NETCHECK_MODE="wan" ;;
+				lan) NETCHECK_MODE="lan" ;;
+				*)
+					sw_mode="$(nvram get sw_mode 2>/dev/null)" || sw_mode=""
+					case "${sw_mode}" in
+						1) NETCHECK_MODE="wan" ;;
+						*) NETCHECK_MODE="lan" ;;
+					esac
+					;;
 			esac
 			write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"1\"" || return 1
+			write_conf ADGUARD_INSTALL_MODE "\"${NETCHECK_MODE}\"" || return 1
+			ADGUARD_INSTALL_MODE="${NETCHECK_MODE}"
+			adguard_install_feature_defaults || return 1
 			write_conf_if_absent ADGUARD_NETCHECK_MODE "\"${NETCHECK_MODE}\"" || return 1
 			write_conf_if_absent ADGUARD_PROC_OPTIMIZE "\"YES\"" || return 1
 			write_conf_if_absent ADGUARD_PROC_PROFILE "\"balanced\"" || return 1
@@ -632,6 +686,25 @@ ipv4_is_private() {
 		$1 == 10 || $1 == 127 || ($1 == 172 && $2 >= 16 && $2 <= 31) || ($1 == 192 && $2 == 168) { found = 1 }
 		END { exit(found ? 0 : 1) }
 	'
+}
+
+adguard_install_mode_detect() {
+	local lan_ipaddr sw_mode
+	sw_mode="$(nvram get sw_mode 2>/dev/null)" || sw_mode=""
+	case "${sw_mode}" in
+		1)
+			ADGUARD_INSTALL_MODE="wan"
+			;;
+		*)
+			lan_ipaddr="$(nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
+			if ! ipv4_is_valid "${lan_ipaddr}"; then
+				PTXT "${ERROR} Unable to determine router LAN IP address."
+				return 1
+			fi
+			ADGUARD_INSTALL_MODE="lan"
+			;;
+	esac
+	return 0
 }
 
 port_is_valid() {
@@ -782,6 +855,16 @@ preflight_action_requires_firewall_tools() {
 			return 1
 			;;
 	esac
+	case "$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)" in
+		lan) return 1 ;;
+		"")
+			if adguard_install_mode_detect >/dev/null 2>&1; then
+				case "${ADGUARD_INSTALL_MODE:-}" in
+					lan) return 1 ;;
+				esac
+			fi
+			;;
+	esac
 	return 0
 }
 
@@ -799,7 +882,7 @@ preflight_check_jffs_ready() {
 }
 
 preflight_check_router_eligibility() {
-	local arch model odmpid os result sw_mode
+	local arch lan_ipaddr model odmpid os result sw_mode
 	result="OK"
 	PTXT "preflight.router.required=yes"
 	if [ -z "${ROUTER_MODEL:-}" ]; then
@@ -829,12 +912,38 @@ preflight_check_router_eligibility() {
 	else
 		PTXT "preflight.router.model.result=OK"
 	fi
-	if [ "${sw_mode}" = "1" ]; then
-		PTXT "preflight.router.mode.result=OK"
-	else
-		PTXT "preflight.router.mode.result=FAIL"
-		result="FAIL"
-	fi
+	case "${sw_mode}" in
+		1)
+			PTXT "preflight.router.mode=wan"
+			PTXT "preflight.router.mode.result=OK"
+			;;
+		"")
+			lan_ipaddr="$(nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
+			if ipv4_is_valid "${lan_ipaddr}"; then
+				PTXT "preflight.router.mode=lan"
+				PTXT "preflight.router.mode.result=OK"
+				PTXT "preflight.router.mode.note=missing-sw-mode-lan-ip-fallback"
+			else
+				PTXT "preflight.router.mode=missing"
+				PTXT "preflight.router.mode.result=FAIL"
+				PTXT "preflight.router.mode.reason=missing-sw-mode-and-no-usable-lan-ip"
+				result="FAIL"
+			fi
+			;;
+		*)
+			lan_ipaddr="$(nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
+			if ipv4_is_valid "${lan_ipaddr}"; then
+				PTXT "preflight.router.mode=lan"
+				PTXT "preflight.router.mode.result=OK"
+				PTXT "preflight.router.mode.note=non-router-mode-lan-install"
+			else
+				PTXT "preflight.router.mode=lan"
+				PTXT "preflight.router.mode.result=FAIL"
+				PTXT "preflight.router.mode.reason=non-router-mode-and-no-usable-lan-ip"
+				result="FAIL"
+			fi
+			;;
+	esac
 	case "${os}" in
 		Linux)
 			PTXT "preflight.router.os=linux"
@@ -2786,6 +2895,112 @@ check_ipset() {
 	write_conf ADGUARD_IPSET "\"${IPSET_ENABLED}\""
 }
 
+adguardhome_yaml_secure_file() {
+	local http_username yaml_target
+	yaml_target="${1:-${YAML_FILE}}"
+	[ -f "${yaml_target}" ] || return 0
+	chmod 600 "${yaml_target}" || return 1
+	if which nvram >/dev/null 2>&1; then
+		http_username="$(nvram get http_username 2>/dev/null)"
+		[ -n "${http_username}" ] || http_username="root"
+		chown "${http_username}:root" "${yaml_target}" || return 1
+	fi
+}
+
+adguardhome_yaml_remove_ipset_file() {
+	local has_ipset tmp_file yaml_target
+	yaml_target="${1:-${YAML_FILE}}"
+	[ -f "${yaml_target}" ] || return 0
+	has_ipset="$(awk '
+		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(&[^][{},[:space:]]+[[:space:]]*)?(#.*)?$/ { in_dns = 1; next }
+		in_dns && /^[^[:space:]]/ { exit }
+		in_dns && /^[[:space:]]*($|#)/ { next }
+		in_dns && !child_indent { child_indent = indentation($0) }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|ipset_file|\047ipset\047|\047ipset_file\047|"ipset"|"ipset_file"):[[:space:]]*/ { print "1"; exit }
+	' "${yaml_target}")" || return 1
+	[ "${has_ipset}" = "1" ] || return 0
+	chmod 600 "${yaml_target}" || return 1
+	tmp_file="${yaml_target}.ipset.$$"
+	cp -p "${yaml_target}" "${tmp_file}" || return 1
+	awk '
+		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
+		function block_marker(value) {
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			return value ~ /^[>|]([+-]|[+-]?[1-9]|[1-9][+-]?)?([[:space:]]+#.*)?$/
+		}
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(&[^][{},[:space:]]+[[:space:]]*)?(#.*)?$/ { in_dns = 1; print; next }
+		in_dns && /^[^[:space:]]/ { in_dns = 0 }
+		in_dns && skip_block && /^[[:space:]]*($|#)/ { next }
+		in_dns && skip_block && indentation($0) > skip_indent { next }
+		in_dns && skip_block && indentation($0) == skip_indent && substr($0, skip_indent + 1) ~ /^-[[:space:]]/ { next }
+		in_dns && skip_block { skip_block = 0 }
+		in_dns && /^[[:space:]]*($|#)/ { print; next }
+		in_dns && !child_indent { child_indent = indentation($0) }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*/ {
+			print substr($0, 1, child_indent) "ipset: []"
+			skip_block = 1
+			skip_indent = child_indent
+			next
+		}
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
+			value = substr($0, child_indent + 1)
+			sub(/^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/, "", value)
+			if (block_marker(value)) {
+				skip_block = 1
+				skip_indent = child_indent
+			}
+			next
+		}
+		{ print }
+	' "${yaml_target}" >"${tmp_file}" && adguardhome_yaml_secure_file "${tmp_file}" && mv -f "${tmp_file}" "${yaml_target}" && adguardhome_yaml_secure_file "${yaml_target}" || {
+		rm -f "${tmp_file}"
+		return 1
+	}
+}
+
+adguard_enforce_lan_ipset_disabled() {
+	local restored_mode
+	case "${ADGUARD_INSTALL_MODE:-}" in
+		wan)
+			restored_mode="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
+			write_conf ADGUARD_INSTALL_MODE '"wan"' || return 1
+			case "${restored_mode}" in
+				lan)
+					case "$(conf_value ADGUARD_IPSET 2>/dev/null)" in
+						NO) ;;
+						*) write_conf ADGUARD_IPSET '"YES"' || return 1 ;;
+					esac
+					write_conf ADGUARD_NETCHECK_MODE '"wan"' || return 1
+					ADGUARD_FORCE_SETUP_YAML="1"
+					;;
+			esac
+			return 0
+			;;
+		lan)
+			restored_mode="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
+			case "${restored_mode}" in
+				wan | "")
+					write_conf ADGUARD_NETCHECK_MODE '"lan"' || return 1
+					ADGUARD_FORCE_SETUP_YAML="1"
+					;;
+			esac
+			;;
+		*)
+			case "$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)" in
+				lan) ADGUARD_INSTALL_MODE="lan" ;;
+				*) return 0 ;;
+			esac
+			;;
+	esac
+	ADGUARD_INSTALL_MODE="lan"
+	write_conf ADGUARD_INSTALL_MODE "\"lan\"" || return 1
+	write_conf ADGUARD_IPSET "\"NO\"" || return 1
+	adguardhome_yaml_remove_ipset_file || return 1
+	PTXT "${INFO} IPSET is disabled in LAN/AP/Bridge mode because IPTABLES/IPSET rules are not manageable there."
+	return 0
+}
+
 check_dns_local() {
 	local LOCAL_CACHE
 	case "$1" in
@@ -2910,7 +3125,7 @@ check_version() {
 			PTXT "${INFO} ADGUARDHOME_VER=${ADGUARD_VER}" \
 				"${INFO} Run Option 1 to if you want to change builds or upgrade when updates are available." \
 				"${INFO} To visit AdGuardHome," \
-				"${INFO} please go to http://$(nvram get lan_ipaddr):$(awk -F: '/.*address\:.*/{ print $3 }' "${YAML_FILE}")." \
+				"${INFO} please go to http://$(nvram get lan_ipaddr):$(awk -F: '/.*address:.*/{ print $3 }' "${YAML_FILE}")." \
 				"${INFO} You can use the WebUI to change things to your liking!" \
 				"${INFO} Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
 				"${INFO} for any configuration needs. "
@@ -3086,7 +3301,7 @@ adguard_archive_is_safe() {
 				if (link_path == "AdGuardHome/AdGuardHome") {
 					exit 1
 				}
-				if (require_state && link_path == "AdGuardHome/AdGuardHome.yaml") {
+				if (require_state && (link_path == "AdGuardHome/AdGuardHome.yaml" || link_path == "AdGuardHome/.AdGuardHome.yaml.ori")) {
 					exit 1
 				}
 				if (require_state && link_path == "AdGuardHome/data") {
@@ -3108,6 +3323,9 @@ adguard_archive_is_safe() {
 				exit 1
 			}
 			if (require_state && entry_path == "AdGuardHome/AdGuardHome.yaml" && type != "-") {
+				exit 1
+			}
+			if (require_state && entry_path == "AdGuardHome/.AdGuardHome.yaml.ori" && type != "-") {
 				exit 1
 			}
 			if (require_state && entry_path == "AdGuardHome/data" && type != "d") {
@@ -3141,6 +3359,7 @@ adguard_archive_is_safe() {
 		BEGIN {
 			binary = 0
 			yaml = 0
+			yaml_ori = 0
 			data = 0
 			unsafe = 0
 		}
@@ -3168,6 +3387,9 @@ adguard_archive_is_safe() {
 			if (path == "AdGuardHome/AdGuardHome.yaml") {
 				yaml = 1
 			}
+			if (path == "AdGuardHome/.AdGuardHome.yaml.ori") {
+				yaml_ori = 1
+			}
 			if (path == "AdGuardHome/data") {
 				data = 1
 			}
@@ -3179,7 +3401,7 @@ adguard_archive_is_safe() {
 			if (!binary) {
 				exit 1
 			}
-			if (require_state && (!yaml || !data)) {
+			if (require_state && ((!yaml && !yaml_ori) || !data)) {
 				exit 1
 			}
 			exit 0
@@ -3398,7 +3620,7 @@ adguardhome_yaml_ipset_file() {
 		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
 		function block_marker(value) {
 			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-			return value ~ /^[>|][+-]?([[:space:]]+#.*)?$/
+			return value ~ /^[>|]([+-]|[+-]?[1-9]|[1-9][+-]?)?([[:space:]]+#.*)?$/
 		}
 		function block_scalar(parent_indent,    line, text) {
 			while ((getline line) > 0) {
@@ -3852,7 +4074,8 @@ backup_restore() {
 		ptxt_step "Validating staged AdGuardHome backup."
 		if [ ! -d "${RESTORE_TARG_DIR}" ] || [ -L "${RESTORE_TARG_DIR}" ] ||
 			[ ! -f "${RESTORE_TARG_DIR}/AdGuardHome" ] ||
-			[ ! -d "${RESTORE_TARG_DIR}/data" ] || [ -L "${RESTORE_TARG_DIR}/data" ]; then
+			[ ! -d "${RESTORE_TARG_DIR}/data" ] || [ -L "${RESTORE_TARG_DIR}/data" ] ||
+			{ [ ! -f "${RESTORE_TARG_DIR}/AdGuardHome.yaml" ] && [ ! -f "${RESTORE_TARG_DIR}/.AdGuardHome.yaml.ori" ]; }; then
 			adguard_install_abort_trap_disable
 			rm -rf "${RESTORE_STAGE_DIR}"
 			rollback_result_write "backup restore" "rollback unavailable" "staged backup validation failed before changes"
@@ -3897,6 +4120,12 @@ backup_restore() {
 			return 1
 		fi
 		ptxt_ok "Restored AdGuardHome command symlink."
+		if ! adguard_enforce_lan_ipset_disabled; then
+			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
+			adguard_install_abort_trap_disable
+			PTXT "${ERROR} Unable to disable IPSET settings for restored LAN/AP/Bridge mode configuration."
+			return 1
+		fi
 		ADGUARD_DEFER_END_OP="1"
 		ptxt_step "Reinstalling AdGuardHome service scripts after restore."
 		if ! inst_AdGuardHome "${1:-RESTORE}"; then
@@ -4350,7 +4579,15 @@ inst_AdGuardHome() {
 			return 1
 		}
 	fi
-	cleanup_legacy_firewall
+	case "${ADGUARD_INSTALL_MODE:-wan}" in
+		wan)
+			cleanup_legacy_firewall
+			;;
+		lan)
+			cleanup_legacy_firewall
+			PTXT "${INFO} LAN mode selected; cleared legacy firewall/IPTABLES state and skipping firewall/IPTABLES management."
+			;;
+	esac
 	if ! download_file "${ADDON_DIR}" 755 "${RURL}/AdGuardHome.sh" ||
 		! download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome" ||
 		! download_file "/opt/etc/init.d" 644 "${RURL}/rc.func.AdGuardHome"; then
@@ -4362,26 +4599,113 @@ inst_AdGuardHome() {
 	ptxt_ok "AdGuardHome service files installed."
 	[ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
 	for i in init-start services-stop; do { if { ! grep -q "${ADDON_DIR}/AdGuardHome.sh $i &" "/jffs/scripts/${i}" && grep -q "${ADDON_DIR}/AdGuardHome.sh $i" "/jffs/scripts/${i}"; }; then del_jffs_script "/jffs/scripts/${i}"; fi; }; done
-	if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
-		! write_manager_script /jffs/scripts/services-stop "services-stop &" ||
-		! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq ||
-		! write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'; then
-		PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
-		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-		end_op_message 1 "$1"
-		return 1
-	fi
-	ptxt_ok "Asuswrt-Merlin event scripts configured."
-	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
-	if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
-		PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
-		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-		end_op_message 1 "$1"
-		return 1
-	fi
+	case "${ADGUARD_INSTALL_MODE:-wan}" in
+		wan)
+			if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
+				! write_manager_script /jffs/scripts/services-stop "services-stop &" ||
+				! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq ||
+				! write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'; then
+				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
+				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				end_op_message 1 "$1"
+				return 1
+			fi
+			if ! write_conf ADGUARD_DNSMASQ_MODE "\"enabled\""; then
+				PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
+				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				end_op_message 1 "$1"
+				return 1
+			fi
+			ptxt_ok "Asuswrt-Merlin event scripts configured."
+			if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
+			if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
+				PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
+				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				end_op_message 1 "$1"
+				return 1
+			fi
+			;;
+		lan)
+			if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
+				! write_manager_script /jffs/scripts/services-stop "services-stop &"; then
+				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
+				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				end_op_message 1 "$1"
+				return 1
+			fi
+			if pidof dnsmasq >/dev/null 2>&1; then
+				if ! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq; then
+					PTXT "${ERROR} Required dnsmasq event script could not be configured."
+					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					end_op_message 1 "$1"
+					return 1
+				fi
+				if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
+				if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
+					PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
+					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					end_op_message 1 "$1"
+					return 1
+				fi
+				if ! write_conf ADGUARD_DNSMASQ_MODE "\"enabled\""; then
+					PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
+					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					end_op_message 1 "$1"
+					return 1
+				fi
+			else
+				case "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" in
+					disabled)
+						del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || ptxt_warn "Unable to remove the AdGuardHome dnsmasq.postconf hook; continuing LAN-mode setup."
+						if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
+						if ! write_conf ADGUARD_DNSMASQ_MODE "\"disabled\""; then
+							PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
+							adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							end_op_message 1 "$1"
+							return 1
+						fi
+						;;
+					*)
+						ptxt_warn "dnsmasq is not running; preserving dnsmasq event hooks for LAN-mode startup."
+						if ! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq; then
+							PTXT "${ERROR} Required dnsmasq event script could not be configured."
+							adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							end_op_message 1 "$1"
+							return 1
+						fi
+						if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
+						if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
+							PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
+							adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							end_op_message 1 "$1"
+							return 1
+						fi
+						if ! write_conf ADGUARD_DNSMASQ_MODE "\"enabled\""; then
+							PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
+							adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							end_op_message 1 "$1"
+							return 1
+						fi
+						;;
+				esac
+			fi
+			ptxt_ok "Asuswrt-Merlin event scripts configured."
+			;;
+		*)
+			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE:-}. Setup was aborted."
+			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			end_op_message 1 "$1"
+			return 1
+			;;
+	esac
 	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
 	if ! write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'; then
 		PTXT "${ERROR} Required service-event-end hook could not be configured."
+		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+		end_op_message 1 "$1"
+		return 1
+	fi
+	if ! adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE:-}"; then
 		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 		end_op_message 1 "$1"
 		return 1
@@ -4529,9 +4853,498 @@ setup_restore_previous_yaml() {
 	return 0
 }
 
+setup_resolve_lan_addresses() {
+	local LAN_IF NVRAM_ADDR6
+
+	NET_ADDR=""
+	NET_ADDR6=""
+	LAN_IF="$(nvram get lan_ifname)"
+	if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
+		NET_ADDR="$(ip -o -4 addr list "${LAN_IF}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
+		NET_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
+	fi
+	[ -n "${NET_ADDR}" ] || NET_ADDR="$(nvram get lan_ipaddr)"
+	if [ -z "${NET_ADDR6}" ] && [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
+		NVRAM_ADDR6="$(nvram get ipv6_rtr_addr)"
+		case "${NVRAM_ADDR6}" in
+			"" | ::) ;;
+			*:*)
+				NET_ADDR6="$(ip -o -6 addr list "${LAN_IF}" 2>/dev/null | awk -v candidate="${NVRAM_ADDR6}" '{ split($4, ip_addr, "/"); if (ip_addr[1] == candidate) { print candidate; exit } }')"
+				;;
+		esac
+	fi
+}
+
+setup_resolve_bind_addresses() {
+
+	SETUP_WEB_ADDRESS=""
+	SETUP_DNS_BIND_HOST=""
+	SETUP_DNS_BIND_HOST6=""
+	case "${ADGUARD_INSTALL_MODE:-wan}" in
+		wan)
+			SETUP_WEB_ADDRESS="0.0.0.0:${WEB_PORT}"
+			SETUP_DNS_BIND_HOST="0.0.0.0"
+			;;
+		lan)
+			setup_resolve_lan_addresses
+			if [ -z "${NET_ADDR}" ]; then
+				PTXT "${ERROR} Unable to resolve the LAN IPv4 address for AdGuardHome LAN mode. Setup was aborted."
+				return 1
+			fi
+			SETUP_WEB_ADDRESS="${NET_ADDR}:${WEB_PORT}"
+			SETUP_DNS_BIND_HOST="${NET_ADDR}"
+			SETUP_DNS_BIND_HOST6="${NET_ADDR6}"
+			;;
+		*)
+			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE}. Setup was aborted."
+			return 1
+			;;
+	esac
+}
+
+setup_reverse_upstream_target() {
+	case "${ADGUARD_INSTALL_MODE:-wan}" in
+		wan)
+			SETUP_REVERSE_UPSTREAM="[::]:553"
+			;;
+		lan)
+			# Use explicit config first, otherwise detected main-router IP.
+			SETUP_REVERSE_UPSTREAM="${ADGUARD_LAN_REVERSE_UPSTREAM:-}"
+			[ -n "${SETUP_REVERSE_UPSTREAM}" ] || SETUP_REVERSE_UPSTREAM="$(conf_value ADGUARD_LAN_REVERSE_UPSTREAM 2>/dev/null)"
+			case "${SETUP_REVERSE_UPSTREAM}" in
+				0.0.0.0) return 1 ;;
+			esac
+			if [ -z "${SETUP_REVERSE_UPSTREAM}" ]; then
+				SETUP_REVERSE_UPSTREAM="$(nvram get lan_gateway 2>/dev/null)"
+				case "${SETUP_REVERSE_UPSTREAM}" in
+					"" | 0.0.0.0) return 1 ;;
+				esac
+			fi
+			ipv4_is_valid "${SETUP_REVERSE_UPSTREAM}" || return 1
+			SETUP_REVERSE_UPSTREAM="${SETUP_REVERSE_UPSTREAM}:53"
+			;;
+		*)
+			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE}. Setup was aborted."
+			return 1
+			;;
+	esac
+}
+
+setup_private_ipv4_bridge_dns_binds() {
+	local bridge_binds
+
+	bridge_binds=""
+	if ai_have_cmd ip; then
+		bridge_binds="$(ip -o -4 addr show scope global 2>/dev/null | awk -v lan_addr="${NET_ADDR}" '
+			function private_ip(ip) {
+				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+			}
+			$2 ~ /^br/ && $2 != "br0" {
+				for (i = 1; i <= NF; i++) {
+					if ($i == "inet") {
+						split($(i + 1), ip_addr, "/")
+						if (ip_addr[1] != lan_addr && private_ip(ip_addr[1]) && !seen[ip_addr[1]]++) { print ip_addr[1] }
+					}
+				}
+			}
+		')"
+		if [ -z "${bridge_binds}" ]; then
+			bridge_binds="$(ip route show 2>/dev/null | awk -v lan_addr="${NET_ADDR}" '
+				function private_ip(ip) {
+					return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+				}
+				function router_ip(ip) {
+					split(ip, octets, ".")
+					if (octets[1] != "" && octets[2] != "" && octets[3] != "") { return octets[1] "." octets[2] "." octets[3] ".1" }
+					return ""
+				}
+				{
+					iface = ""
+					src = ""
+					split($1, dst_parts, "/")
+					dst = dst_parts[1]
+					for (i = 1; i <= NF; i++) {
+						if ($i == "dev") { iface = $(i + 1) }
+						if ($i == "src") { src = $(i + 1) }
+					}
+					if (iface ~ /^br/ && iface != "br0" && private_ip(dst) && !seen[iface]++) {
+						if (!private_ip(src)) { src = router_ip(dst) }
+						if (src != "" && src != lan_addr) { print src }
+					}
+				}
+			')"
+		fi
+	fi
+	if [ -z "${bridge_binds}" ] && ai_have_cmd route; then
+		bridge_binds="$(route 2>/dev/null | awk -v lan_addr="${NET_ADDR}" '
+			function private_ip(ip) {
+				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+			}
+			function router_ip(ip) {
+				split(ip, octets, ".")
+				if (octets[1] != "" && octets[2] != "" && octets[3] != "") { return octets[1] "." octets[2] "." octets[3] ".1" }
+				return ""
+			}
+			{
+				iface = $NF
+				if (iface ~ /^br/ && iface != "br0" && private_ip($1) && !seen[iface]++) {
+					dns_ip = router_ip($1)
+					if (dns_ip != "" && dns_ip != lan_addr) { print dns_ip }
+				}
+			}
+		')"
+	fi
+	printf "%s\n" "${bridge_binds}"
+}
+
+setup_write_dns_bind_hosts() {
+	local target_file="$1"
+
+	PTXT "dns:" "  bind_hosts:" >>"${target_file}"
+	case "${ADGUARD_INSTALL_MODE:-wan}" in
+		lan)
+			{
+				PTXT "127.0.0.1"
+				PTXT "${SETUP_DNS_BIND_HOST}"
+				PTXT "${SETUP_DNS_BIND_HOST6}"
+				setup_private_ipv4_bridge_dns_binds
+			} | awk 'NF && !seen[$0]++ { print "    - " $0 }' >>"${target_file}"
+			;;
+		*)
+			PTXT "    - ${SETUP_DNS_BIND_HOST}" >>"${target_file}"
+			;;
+	esac
+}
+
+setup_default_web_host() {
+	local LAN_ADDR LAN_IF
+
+	case "${ADGUARD_INSTALL_MODE:-wan}" in
+		wan)
+			PTXT "0.0.0.0"
+			;;
+		lan)
+			LAN_IF="$(nvram get lan_ifname)"
+			if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
+				LAN_ADDR="$(ip -o -4 addr list "${LAN_IF}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
+			fi
+			[ -n "${LAN_ADDR:-}" ] || LAN_ADDR="$(nvram get lan_ipaddr)"
+			if ! ipv4_is_valid "${LAN_ADDR}"; then
+				PTXT "${ERROR} Unable to resolve the LAN IPv4 address for AdGuardHome LAN mode. Setup was aborted."
+				return 1
+			fi
+			PTXT "${LAN_ADDR}"
+			;;
+		*)
+			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE}. Setup was aborted."
+			return 1
+			;;
+	esac
+}
+
+setup_sync_webui_port() {
+	local NEW_PORT CURRENT_WEB_LINE CURRENT_WEB_ADDRESS CURRENT_WEB_HOST CURRENT_WEB_PORT NEW_WEB_ADDRESS YAML_SYNC_TMP_FILE
+
+	NEW_PORT="$1"
+	port_is_valid "${NEW_PORT}" || return 1
+	CURRENT_WEB_LINE="$(awk '
+		/^http:[[:space:]]*$/ { in_http = 1; next }
+		in_http && /^[^[:space:]]/ { exit }
+		in_http && /^[[:space:]]*address:[[:space:]]*/ { print; exit }
+	' "${YAML_FILE}")"
+	CURRENT_WEB_ADDRESS="$(printf '%s\n' "${CURRENT_WEB_LINE}" | sed 's/^[[:space:]]*address:[[:space:]]*//; s/[[:space:]]*$//')"
+	case "${CURRENT_WEB_ADDRESS}" in
+		\"*\")
+			CURRENT_WEB_ADDRESS="${CURRENT_WEB_ADDRESS#\"}"
+			CURRENT_WEB_ADDRESS="${CURRENT_WEB_ADDRESS%\"}"
+			;;
+		\'*\')
+			CURRENT_WEB_ADDRESS="${CURRENT_WEB_ADDRESS#\'}"
+			CURRENT_WEB_ADDRESS="${CURRENT_WEB_ADDRESS%\'}"
+			;;
+	esac
+	CURRENT_WEB_PORT="$(printf '%s\n' "${CURRENT_WEB_ADDRESS}" | awk -F':' 'NF > 1 { print $NF }')"
+	if [ -n "${CURRENT_WEB_ADDRESS}" ] && runtime_port_is_valid "${CURRENT_WEB_PORT}"; then
+		CURRENT_WEB_HOST="${CURRENT_WEB_ADDRESS%:${CURRENT_WEB_PORT}}"
+	fi
+	[ -n "${CURRENT_WEB_HOST:-}" ] || CURRENT_WEB_HOST="$(setup_default_web_host)" || return 1
+	NEW_WEB_ADDRESS="${CURRENT_WEB_HOST}:${NEW_PORT}"
+	case "${CURRENT_WEB_HOST}" in
+		\[*\])
+			NEW_WEB_ADDRESS="\"${NEW_WEB_ADDRESS}\""
+			;;
+	esac
+	if [ -n "${CURRENT_WEB_LINE}" ]; then
+		yaml_nvars_replace "${CURRENT_WEB_LINE}" "  address: ${NEW_WEB_ADDRESS}" "${YAML_FILE}"
+	else
+		YAML_SYNC_TMP_FILE="${YAML_FILE}.webui-port.$$"
+		awk -v address="  address: ${NEW_WEB_ADDRESS}" '
+			{ print }
+			!inserted && /^http:[[:space:]]*$/ {
+				print address
+				inserted = 1
+			}
+			END { exit(inserted ? 0 : 1) }
+		' "${YAML_FILE}" >"${YAML_SYNC_TMP_FILE}" &&
+			adguardhome_yaml_secure_file "${YAML_SYNC_TMP_FILE}" &&
+			mv -f "${YAML_SYNC_TMP_FILE}" "${YAML_FILE}" ||
+			{
+				rm -f "${YAML_SYNC_TMP_FILE}"
+				return 1
+			}
+	fi
+}
+
+setup_sync_mode_dependent_yaml() {
+	local bind_hosts old_reverse reverse_upstream sync_file target_file web_address web_port
+
+	target_file="${1:-${YAML_FILE}}"
+
+	web_port="$(conf_value ADGUARD_WEBUI_PORT 2>/dev/null)"
+	if ! port_is_valid "${web_port}"; then
+		web_port="$(awk '
+			function yaml_key_is(line, expected, text, separator, key) {
+				text = line
+				sub(/^[[:space:]]*/, "", text)
+				separator = index(text, ":")
+				if (!separator)
+					return 0
+				key = substr(text, 1, separator - 1)
+				sub(/[[:space:]]*$/, "", key)
+				return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
+			}
+			function http_header(line, text, separator, key, value) {
+				text = line
+				sub(/^[[:space:]]*/, "", text)
+				separator = index(text, ":")
+				if (!separator)
+					return 0
+				key = substr(text, 1, separator - 1)
+				sub(/[[:space:]]*$/, "", key)
+				value = substr(text, separator + 1)
+				sub(/^[[:space:]]*/, "", value)
+				return (key == "http" || key == "\"http\"" || key == sprintf("%chttp%c", 39, 39)) && (value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/)
+			}
+			/^[^[:space:]]/ && http_header($0) { in_http = 1; next }
+			in_http && /^[^[:space:]]/ { exit }
+			in_http && yaml_key_is($0, "address") {
+				value = $0
+				sub(/[[:space:]]+#.*$/, "", value)
+				gsub(/[[:space:]"'\''"]/, "", value)
+				component_count = split(value, address_components, ":")
+				print address_components[component_count]
+				exit
+			}
+		' "${target_file}" 2>/dev/null)"
+	fi
+	port_is_valid "${web_port}" || web_port="3000"
+	case "${ADGUARD_INSTALL_MODE:-wan}" in
+		lan)
+			WEB_PORT="${web_port}"
+			setup_resolve_bind_addresses || return 1
+			setup_reverse_upstream_target || return 1
+			web_address="${SETUP_WEB_ADDRESS}"
+			reverse_upstream="${SETUP_REVERSE_UPSTREAM}"
+			old_reverse="[::]:553"
+			bind_hosts="$(
+				{
+					PTXT "127.0.0.1"
+					PTXT "${SETUP_DNS_BIND_HOST}"
+					PTXT "${SETUP_DNS_BIND_HOST6}"
+					setup_private_ipv4_bridge_dns_binds
+				} | awk 'NF && !seen[$0]++ { print }'
+			)"
+			;;
+		wan)
+			old_reverse="$(conf_value ADGUARD_LAN_REVERSE_UPSTREAM 2>/dev/null)"
+			case "${old_reverse}" in
+				"") old_reverse="$(nvram get lan_gateway 2>/dev/null)" ;;
+			esac
+			case "${old_reverse}" in
+				*:*) ;;
+				?*) old_reverse="${old_reverse}:53" ;;
+			esac
+			web_address="0.0.0.0:${web_port}"
+			reverse_upstream="[::]:553"
+			bind_hosts="0.0.0.0"
+			;;
+		*) return 1 ;;
+	esac
+	sync_file="${target_file}.wan-sync.$$"
+	awk -v bind_hosts="${bind_hosts}" -v install_mode="${ADGUARD_INSTALL_MODE:-wan}" -v old_reverse="${old_reverse}" -v new_reverse="${reverse_upstream}" -v web_address="${web_address}" '
+		function indentation(line) { match(line, /^[[:space:]]*/); return RLENGTH }
+		function yaml_key_is(line, expected, text, separator, key) {
+			text = line
+			sub(/^[[:space:]]*/, "", text)
+			separator = index(text, ":")
+			if (!separator)
+				return 0
+			key = substr(text, 1, separator - 1)
+			sub(/[[:space:]]*$/, "", key)
+			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
+		}
+		function yaml_mapping_header_is(line, expected, text, separator, value) {
+			if (!yaml_key_is(line, expected))
+				return 0
+			text = line
+			separator = index(text, ":")
+			value = substr(text, separator + 1)
+			sub(/^[[:space:]]*/, "", value)
+			return value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/
+		}
+		function replace_reverse_endpoint(line, old, replacement, value, prefix, position) {
+			value = line
+			sub(/[[:space:]]+#.*$/, "", value)
+			sub(/[[:space:]]*$/, "", value)
+			sub(/^[[:space:]]*-[[:space:]]*/, "", value)
+			if (substr(value, 1, 1) == "\"" || substr(value, 1, 1) == sprintf("%c", 39))
+				value = substr(value, 2)
+			if (substr(value, length(value), 1) == "\"" || substr(value, length(value), 1) == sprintf("%c", 39))
+				value = substr(value, 1, length(value) - 1)
+			position = index(value, old)
+			if (!position || substr(value, position + length(old)) != "")
+				return line
+			prefix = substr(value, 1, position - 1)
+			if (prefix != "" && (substr(prefix, 1, 1) != "[" || substr(prefix, length(prefix), 1) != "]"))
+				return line
+			position = index(line, old)
+			return substr(line, 1, position - 1) replacement substr(line, position + length(old))
+		}
+		indentation($0) == 0 && (yaml_key_is($0, "http") || yaml_key_is($0, "dns")) && !yaml_mapping_header_is($0, "http") && !yaml_mapping_header_is($0, "dns") { exit 1 }
+		indentation($0) == 0 && yaml_mapping_header_is($0, "http") { in_http = 1; http_indent = indentation($0); print; next }
+		in_http && indentation($0) <= http_indent && $0 !~ /^[[:space:]]*($|#)/ { in_http = 0 }
+		in_http && yaml_key_is($0, "address") {
+			separator = index($0, ":")
+			print substr($0, 1, separator) " " web_address
+			next
+		}
+		indentation($0) == 0 && yaml_mapping_header_is($0, "dns") { in_dns = 1; dns_indent = indentation($0); print; next }
+		in_dns && indentation($0) <= dns_indent && $0 !~ /^[[:space:]]*($|#)/ { in_dns = 0; in_binds = 0 }
+		in_dns && yaml_key_is($0, "bind_hosts") {
+			bind_indent = indentation($0); in_binds = 1
+			separator = index($0, ":")
+			bind_value = substr($0, separator + 1)
+			sub(/^[[:space:]]*/, "", bind_value)
+			if (install_mode == "wan" && bind_value != "" && bind_value !~ /^#/) {
+				comment = ""
+				comment_at = index(bind_value, "#")
+				if (comment_at) comment = " " substr(bind_value, comment_at)
+				print substr($0, 1, separator) " [0.0.0.0]" comment
+				in_binds = 0
+			} else {
+				print substr($0, 1, separator)
+				count = split(bind_hosts, hosts, "\n")
+				for (host = 1; host <= count; host++)
+					if (hosts[host] != "") print substr($0, 1, bind_indent) "  - " hosts[host]
+			}
+			next
+		}
+		in_binds && $0 ~ /^[[:space:]]*($|#)/ { next }
+		in_binds && indentation($0) >= bind_indent && $0 ~ /^[[:space:]]*-[[:space:]]/ { next }
+		in_binds && indentation($0) > bind_indent { next }
+		in_binds { in_binds = 0 }
+		in_dns && (yaml_key_is($0, "upstream_dns") || yaml_key_is($0, "local_ptr_upstreams")) && !yaml_mapping_header_is($0, "upstream_dns") && !yaml_mapping_header_is($0, "local_ptr_upstreams") { exit 1 }
+		in_dns && (yaml_mapping_header_is($0, "upstream_dns") || yaml_mapping_header_is($0, "local_ptr_upstreams")) {
+			reverse_indent = indentation($0); in_reverse_upstreams = 1; print; next
+		}
+		in_reverse_upstreams && indentation($0) <= reverse_indent && $0 !~ /^[[:space:]]*($|#)/ { in_reverse_upstreams = 0 }
+		in_reverse_upstreams && old_reverse != "" { $0 = replace_reverse_endpoint($0, old_reverse, new_reverse) }
+		{ print }
+	' "${target_file}" >"${sync_file}" && adguardhome_yaml_secure_file "${sync_file}" && mv -f "${sync_file}" "${target_file}" && adguardhome_yaml_secure_file "${target_file}" || {
+		rm -f "${sync_file}"
+		return 1
+	}
+}
+
+setup_sync_restored_yaml_for_wan() {
+	setup_sync_mode_dependent_yaml "$@"
+}
+
+setup_sync_mode_dependent_yaml_and_snapshot() {
+	local yaml_file_stage="${YAML_FILE}.mode-sync.$$" yaml_ori_stage="${YAML_ORI}.mode-sync.$$" yaml_file_rollback="${YAML_FILE}.mode-sync.rollback.$$"
+	if [ -f "${YAML_FILE}" ]; then
+		cp -p "${YAML_FILE}" "${yaml_file_stage}" && cp -p "${YAML_FILE}" "${yaml_file_rollback}" || {
+			rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
+			return 1
+		}
+		setup_sync_mode_dependent_yaml "${yaml_file_stage}" || {
+			rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
+			return 1
+		}
+		case "${ADGUARD_INSTALL_MODE:-}" in
+			lan) adguardhome_yaml_remove_ipset_file "${yaml_file_stage}" || {
+				rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
+				return 1
+			} ;;
+		esac
+	fi
+	if [ -f "${YAML_ORI}" ]; then
+		cp -p "${YAML_ORI}" "${yaml_ori_stage}" && setup_sync_mode_dependent_yaml "${yaml_ori_stage}" || {
+			rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
+			return 1
+		}
+		case "${ADGUARD_INSTALL_MODE:-}" in
+			lan) adguardhome_yaml_remove_ipset_file "${yaml_ori_stage}" || {
+				rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
+				return 1
+			} ;;
+		esac
+	fi
+	if [ -f "${yaml_file_stage}" ]; then
+		mv -f "${yaml_file_stage}" "${YAML_FILE}" || {
+			rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
+			return 1
+		}
+	fi
+	if [ -f "${yaml_ori_stage}" ] && ! mv -f "${yaml_ori_stage}" "${YAML_ORI}"; then
+		[ ! -f "${yaml_file_rollback}" ] || mv -f "${yaml_file_rollback}" "${YAML_FILE}"
+		rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
+		return 1
+	fi
+	rm -f "${yaml_file_rollback}"
+}
+
+setup_sync_restored_yaml_and_snapshot_for_wan() {
+	setup_sync_mode_dependent_yaml_and_snapshot
+}
+
+adguard_migrate_detected_install_mode() {
+	local previous_mode
+	previous_mode="$1"
+	case "${previous_mode}:${ADGUARD_INSTALL_MODE:-}" in
+		wan:lan | lan:wan | :lan)
+			if [ -n "${previous_mode}" ]; then
+				PTXT "${INFO} Router mode changed from ${previous_mode} to ${ADGUARD_INSTALL_MODE}; updating mode-dependent AdGuardHome settings."
+			else
+				PTXT "${INFO} Existing installation detected in ${ADGUARD_INSTALL_MODE} mode; updating mode-dependent AdGuardHome settings."
+			fi
+			if ! setup_sync_mode_dependent_yaml_and_snapshot; then
+				PTXT "${ERROR} Unable to update the AdGuardHome configuration for ${ADGUARD_INSTALL_MODE} mode."
+				return 1
+			fi
+			write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\"" || return 1
+			adguard_install_feature_defaults || return 1
+			write_conf ADGUARD_NETCHECK_MODE "\"${ADGUARD_INSTALL_MODE}\"" || return 1
+			case "${ADGUARD_INSTALL_MODE}" in
+				lan) adguardhome_yaml_remove_ipset_file || return 1 ;;
+			esac
+			return 0
+			;;
+	esac
+	write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\""
+}
+
 setup_AdGuardHome_impl() {
 	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
+	if [ "${ADGUARD_FORCE_SETUP_YAML:-0}" = "1" ] && { [ -f "${YAML_FILE}" ] || [ -f "${YAML_ORI}" ]; }; then
+		PTXT "${INFO} Restored mode differs from detected router mode; updating mode-dependent AdGuardHome settings."
+		if ! setup_sync_mode_dependent_yaml_and_snapshot; then
+			PTXT "${ERROR} Unable to update the restored AdGuardHome configuration. Setup was aborted."
+			return 1
+		fi
+		ADGUARD_FORCE_SETUP_YAML=0
+	fi
 	if [ -z "$1" ] && [ -f "${YAML_FILE}" ]; then
 		############################################################ Drop-in code to be removed/modified as needed. #############################################################################################################################################################
 		if ! awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$'; then
@@ -4542,16 +5355,31 @@ setup_AdGuardHome_impl() {
 			if ! read_input_port "Default is" 3000; then
 				return 1
 			fi
+			CONFIG_ROLLBACK="${TMPDIR:-/tmp}/AdGuardHome.config.webui-port.$$"
+			if ! save_installer_config "${CONFIG_ROLLBACK}"; then
+				PTXT "${ERROR} Unable to preserve the previous installer preferences."
+				return 1
+			fi
 			if ! write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT}\""; then
+				restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 				PTXT "${ERROR} Unable to save the AdGuardHome WebUI port."
 				return 1
 			fi
-			yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "  address: 0.0.0.0:${WEB_PORT}" "${YAML_FILE}"
-		elif awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" != "$(awk -F':' '/.*address\:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" ]; then
-			yaml_nvars_replace "  address: 0.0.0.0:$(awk -F':' '/.*address\:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "  address: 0.0.0.0:$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" "${YAML_FILE}"
+			if ! setup_sync_webui_port "${WEB_PORT}"; then
+				restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+				PTXT "${ERROR} Unable to update the AdGuardHome WebUI address."
+				return 1
+			fi
+			discard_installer_config_backup "${CONFIG_ROLLBACK}"
+			CONFIG_ROLLBACK=""
+		elif awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" != "$(awk -F':' '/.*address:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" ]; then
+			if ! setup_sync_webui_port "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')"; then
+				PTXT "${ERROR} Unable to update the AdGuardHome WebUI address."
+				return 1
+			fi
 		fi
 		##########################################################################################################################################################################################################################################################################
-		if [ -n "$(awk -F': ' '/.*schema\:.*/{ print $2 }' "${YAML_FILE}")" ] && [ "$(awk -F': ' '/.*schema\:.*/{ print $2 }' "${YAML_FILE}")" != "${SCHEMA_VER}" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema\:.*/{ print $2 }' "${YAML_FILE}")" "schema_version: ${SCHEMA_VER}" "${YAML_FILE}"; fi
+		if [ -n "$(awk -F': ' '/.*schema:.*/{ print $2 }' "${YAML_FILE}")" ] && [ "$(awk -F': ' '/.*schema:.*/{ print $2 }' "${YAML_FILE}")" != "${SCHEMA_VER}" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema:.*/{ print $2 }' "${YAML_FILE}")" "schema_version: ${SCHEMA_VER}" "${YAML_FILE}"; fi
 		if ! check_AdGuardHome_yaml; then
 			setup_AdGuardHome_impl x
 			return
@@ -4605,41 +5433,48 @@ setup_AdGuardHome_impl() {
 			cp -f "${YAML_ORI}" "${YAML_FILE}"
 		fi
 		case "${2:-reconfig}" in
-			"install" | "reconfig")
-				if [ ! -f "${YAML_FILE}" ] || [ "$2" = "reconfig" ]; then
+			"install" | "reconfig" | "RESTORE")
+				if [ "${2:-reconfig}" != "RESTORE" ] && { [ ! -f "${YAML_FILE}" ] || [ "$2" = "reconfig" ]; }; then
 					local DNS_FILTER_SELECTION LOCAL_CACHE_SELECTION YESNO_STATUS
-					read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"
-					YESNO_STATUS="$?"
-					case "${YESNO_STATUS}" in
-						0) DNS_FILTER_SELECTION=1 ;;
-						1) DNS_FILTER_SELECTION=0 ;;
-						*)
-							setup_restore_previous_yaml || true
-							return "${YESNO_STATUS}"
-							;;
-					esac
-					if [ "$(nvram get dns_local_cache)" != "1" ]; then
-						read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"
+					if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ]; then
+						read_yesno "Do you want to redirect all DNS resolutions on your network through to AdGuardHome?"
 						YESNO_STATUS="$?"
 						case "${YESNO_STATUS}" in
-							0) LOCAL_CACHE_SELECTION=1 ;;
-							1) LOCAL_CACHE_SELECTION=0 ;;
+							0) DNS_FILTER_SELECTION=1 ;;
+							1) DNS_FILTER_SELECTION=0 ;;
 							*)
 								setup_restore_previous_yaml || true
 								return "${YESNO_STATUS}"
 								;;
 						esac
+						if [ "$(nvram get dns_local_cache)" != "1" ]; then
+							read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"
+							YESNO_STATUS="$?"
+							case "${YESNO_STATUS}" in
+								0) LOCAL_CACHE_SELECTION=1 ;;
+								1) LOCAL_CACHE_SELECTION=0 ;;
+								*)
+									setup_restore_previous_yaml || true
+									return "${YESNO_STATUS}"
+									;;
+							esac
+						fi
 					fi
-					read_yesno "Do you want to enable AdGuardHome IPSET integration?"
-					YESNO_STATUS="$?"
-					case "${YESNO_STATUS}" in
-						0) IPSET_SELECTION=1 ;;
-						1) IPSET_SELECTION=0 ;;
-						*)
-							setup_restore_previous_yaml || true
-							return "${YESNO_STATUS}"
-							;;
-					esac
+					if adguard_ipset_allowed; then
+						read_yesno "Do you want to enable AdGuardHome IPSET integration?"
+						YESNO_STATUS="$?"
+						case "${YESNO_STATUS}" in
+							0) IPSET_SELECTION=1 ;;
+							1) IPSET_SELECTION=0 ;;
+							*)
+								setup_restore_previous_yaml || true
+								return "${YESNO_STATUS}"
+								;;
+						esac
+					else
+						IPSET_SELECTION=0
+						PTXT "${INFO} IPSET is disabled in LAN/AP/Bridge mode because IPTABLES/IPSET rules are not manageable there."
+					fi
 					if [ "$2" != "reconfig" ] && ! check_ipset "${IPSET_SELECTION}"; then
 						PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
 							"${WARNING} Continuing setup with the previous or default IPSET preference."
@@ -4655,20 +5490,34 @@ setup_AdGuardHome_impl() {
 						return 1
 					fi
 					WEB_PORT_SELECTION="${WEB_PORT}"
+					local DOMAIN="" NET_ADDR NET_ADDR6
+					setup_resolve_lan_addresses
+					if [ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" ] && [ -z "${NET_ADDR}" ]; then
+						PTXT "${ERROR} Unable to resolve the LAN IPv4 address for AdGuardHome LAN mode. Setup was aborted."
+						setup_restore_previous_yaml || true
+						return 1
+					fi
+					if ! setup_resolve_bind_addresses; then
+						setup_restore_previous_yaml || true
+						return 1
+					fi
+					if ! setup_reverse_upstream_target; then
+						PTXT "${ERROR} Unable to resolve the reverse upstream target. Setup was aborted."
+						setup_restore_previous_yaml || true
+						return 1
+					fi
 					YAML_ORI_NEW="${YAML_ORI}.new.$$"
 					SETUP_YAML_TMP_FILE="${YAML_ORI_NEW}"
 					PTXT "http:" \
-						"  address: 0.0.0.0:${WEB_PORT}" >"${YAML_ORI_NEW}"
+						"  address: ${SETUP_WEB_ADDRESS}" >"${YAML_ORI_NEW}"
 					PTXT "${INFO} Set the Username and Password which will be encrypted to the yaml file."
 					if ! AdGuardHome_authen 1 "${YAML_ORI_NEW}" 0; then
 						rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
 						return 1
 					fi
-					PTXT "dns:" \
-						"  bind_hosts:" \
-						"    - 0.0.0.0" \
-						"  port: 53" >>"${YAML_ORI_NEW}"
+					setup_write_dns_bind_hosts "${YAML_ORI_NEW}"
+					PTXT "  port: 53" >>"${YAML_ORI_NEW}"
 					PTXT "${INFO} Set the DNS server(s) for initializing AdGuardHome" \
 						"${INFO} and router services (e.g. ntp) at boot"
 					if ! read_input_dns "Default is" 9.9.9.9 || ! read_input_dns "2nd Default is" 8.8.8.8; then
@@ -4676,14 +5525,6 @@ setup_AdGuardHome_impl() {
 						setup_restore_previous_yaml || true
 						return 1
 					fi
-					local DOMAIN="" NET_ADDR NET_ADDR6 LAN_IF
-					LAN_IF="$(nvram get lan_ifname)"
-					if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
-						NET_ADDR="$(ip -o -4 addr list "${LAN_IF}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
-						NET_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
-					fi
-					[ -n "${NET_ADDR:-}" ] || NET_ADDR="$(nvram get lan_ipaddr)"
-					[ -n "${NET_ADDR6:-}" ] || NET_ADDR6="$(nvram get ipv6_rtr_addr)"
 					LAN_DOMAIN_ROLLBACK="$(nvram get lan_domain)"
 					if [ -n "${LAN_DOMAIN_ROLLBACK}" ]; then
 						DOMAIN="${LAN_DOMAIN_ROLLBACK}"
@@ -4693,14 +5534,14 @@ setup_AdGuardHome_impl() {
 						DOMAIN_CONFIG_SELECTION="yes"
 					fi
 					PTXT "  upstream_dns:" >>"${YAML_ORI_NEW}"
-					[ -n "${NET_ADDR6}" ] && PTXT "  - '[/$(printf "%s\n" "${NET_ADDR6}" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/][::]:553'" >>"${YAML_ORI_NEW}"
-					PTXT "  - '[/router.asus.com/][::]:553'" \
-						"  - '[/www.asusnetwork.net/][::]:553'" \
-						"  - '[/www.asusrouter.com/][::]:553'" \
-						"  - '[/use-application-dns.net/][::]:553'" \
-						"  - '[/dns.resolver.arpa/][::]:553'" \
-						"  - '[/${DOMAIN}/][::]:553'" \
-						"  - '[//][::]:553'" \
+					[ -n "${NET_ADDR6}" ] && PTXT "  - '[/$(printf "%s\n" "${NET_ADDR6}" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x); printf x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/')/]${SETUP_REVERSE_UPSTREAM}'" >>"${YAML_ORI_NEW}"
+					PTXT "  - '[/router.asus.com/]${SETUP_REVERSE_UPSTREAM}'" \
+						"  - '[/www.asusnetwork.net/]${SETUP_REVERSE_UPSTREAM}'" \
+						"  - '[/www.asusrouter.com/]${SETUP_REVERSE_UPSTREAM}'" \
+						"  - '[/use-application-dns.net/]${SETUP_REVERSE_UPSTREAM}'" \
+						"  - '[/dns.resolver.arpa/]${SETUP_REVERSE_UPSTREAM}'" \
+						"  - '[/${DOMAIN}/]${SETUP_REVERSE_UPSTREAM}'" \
+						"  - '[//]${SETUP_REVERSE_UPSTREAM}'" \
 						"  - ${BOOTSTRAP1}" \
 						"  - ${BOOTSTRAP2}" \
 						"  - tcp://${BOOTSTRAP1}" \
@@ -4716,9 +5557,9 @@ setup_AdGuardHome_impl() {
 						"  resolve_clients: true" \
 						"  use_private_ptr_resolvers: true" \
 						"  local_ptr_upstreams:" \
-						"  - '[::]:553'" \
-						"  - '[/10.in-addr.arpa/][::]:553'" \
-						"  - '[/$(printf "%s\n" "${NET_ADDR}" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/][::]:553'" \
+						"  - '${SETUP_REVERSE_UPSTREAM}'" \
+						"  - '[/10.in-addr.arpa/]${SETUP_REVERSE_UPSTREAM}'" \
+						"  - '[/$(printf "%s\n" "${NET_ADDR}" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}')/]${SETUP_REVERSE_UPSTREAM}'" \
 						"schema_version: ${SCHEMA_VER}" >>"${YAML_ORI_NEW}"
 					if ! check_AdGuardHome_yaml "${YAML_ORI_NEW}"; then
 						rm -f "${YAML_ORI_NEW}"
@@ -4741,7 +5582,7 @@ setup_AdGuardHome_impl() {
 						"${ERROR} all ssh terminal operations to the script developer."
 					return 1
 				fi
-				if [ -n "${DNS_FILTER_SELECTION:-}" ]; then
+				if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && [ -n "${DNS_FILTER_SELECTION:-}" ]; then
 					CONFIG_ROLLBACK="${TMPDIR:-/tmp}/AdGuardHome.config.$$"
 					if ! save_installer_config "${CONFIG_ROLLBACK}"; then
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
@@ -4823,7 +5664,8 @@ setup_AdGuardHome_impl() {
 					PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
 						"${WARNING} Continuing reconfiguration with the previous IPSET preference."
 				fi
-				if [ -n "${DNS_FILTER_SELECTION:-}" ] && ! configure_runtime_defaults new-install "${LOCAL_CACHE_SELECTION:-0}"; then
+				if { [ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" ] || [ -n "${DNS_FILTER_SELECTION:-}" ]; } &&
+					! configure_runtime_defaults new-install "${ADGUARD_INSTALL_MODE:-wan}" "${LOCAL_CACHE_SELECTION:-0}"; then
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
 						nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
@@ -4956,9 +5798,13 @@ write_command_script() {
 }
 
 write_conf() {
-	local VAR VALUE
+	local VAR VALUE CONF_DIR
 	VAR="$1"
 	VALUE="$2"
+	CONF_DIR="${CONF_FILE%/*}"
+	if [ "${CONF_DIR}" != "${CONF_FILE}" ] && [ ! -d "${CONF_DIR}" ]; then
+		create_dir "${CONF_DIR}" || return 1
+	fi
 	if [ ! -f "${CONF_FILE}" ]; then
 		if ! { touch "${CONF_FILE}" && chmod 644 "${CONF_FILE}"; }; then
 			PTXT "${ERROR} Unable to create ${CONF_FILE}"
@@ -5220,6 +6066,12 @@ menu() {
 			}; else end_op_message 1; fi
 			;;
 		"8" | "setipset")
+			if ! adguard_ipset_allowed; then
+				check_ipset 0 || PTXT "${ERROR} Unable to persist ADGUARD_IPSET=NO."
+				PTXT "${ERROR} IPSET integration is disabled in LAN/AP/Bridge mode because IPTABLES/IPSET rules are not manageable there."
+				end_op_message 1
+				return 1
+			fi
 			PTXT "${INFO} IPSET integration imports compatible domain-to-IPSET mappings for routing and firewall add-ons." \
 				"${INFO} Disable it if this router does not use IPSET-based domain routing or filtering."
 			read_yesno "Do you want to enable AdGuardHome IPSET integration?"
@@ -5730,7 +6582,7 @@ cli_migrate_runtime_default() {
 }
 
 cli_migrate_runtime_defaults() {
-	local apply dry_run changes dns_port_change netcheck_change proc_optimize_change proc_profile_change proc_optimize_current
+	local apply dry_run changes dns_port_change ipset_change netcheck_change proc_optimize_change proc_profile_change proc_optimize_current install_mode netcheck_target
 	apply="0"
 	dry_run="0"
 	changes="0"
@@ -5748,14 +6600,31 @@ cli_migrate_runtime_defaults() {
 	fi
 	PTXT "${INFO} Inspecting runtime defaults in ${CONF_FILE}."
 	dns_port_change="0"
+	ipset_change="0"
 	netcheck_change="0"
 	proc_optimize_change="0"
 	proc_profile_change="0"
+	install_mode="$(conf_value ADGUARD_INSTALL_MODE)"
+	[ -n "${install_mode}" ] || install_mode="${ADGUARD_INSTALL_MODE:-wan}"
+	case "${install_mode}" in
+		lan)
+			netcheck_target="lan"
+			if [ "$(conf_value ADGUARD_IPSET)" != "NO" ] || awk '
+				/^[[:space:]]*(ipset|ipset_file|\047ipset\047|\047ipset_file\047|"ipset"|"ipset_file"):[[:space:]]*/ { found = 1 }
+				END { exit !found }
+			' "${YAML_FILE}" 2>/dev/null; then
+				PTXT "${WARNING} LAN/AP/Bridge mode config has IPSET enabled; migration will disable it because IPTABLES/IPSET rules are not manageable there."
+				changes="1"
+				ipset_change="1"
+			fi
+			;;
+		*) netcheck_target="wan" ;;
+	esac
 	cli_migrate_runtime_default ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL 0 1 || {
 		changes="1"
 		dns_port_change="1"
 	}
-	cli_migrate_runtime_default ADGUARD_NETCHECK_MODE legacy wan || {
+	cli_migrate_runtime_default ADGUARD_NETCHECK_MODE legacy "${netcheck_target}" || {
 		changes="1"
 		netcheck_change="1"
 	}
@@ -5787,7 +6656,12 @@ cli_migrate_runtime_defaults() {
 		cli_write_quoted_conf ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL 1 || return 1
 	fi
 	if [ "${netcheck_change}" = "1" ]; then
-		cli_write_quoted_conf ADGUARD_NETCHECK_MODE wan || return 1
+		cli_write_quoted_conf ADGUARD_NETCHECK_MODE "${netcheck_target}" || return 1
+	fi
+	if [ "${ipset_change}" = "1" ]; then
+		ADGUARD_INSTALL_MODE="lan"
+		write_conf ADGUARD_IPSET "\"NO\"" || return 1
+		adguardhome_yaml_remove_ipset_file || return 1
 	fi
 	if [ "${proc_optimize_change}" = "1" ]; then
 		cli_write_quoted_conf ADGUARD_PROC_OPTIMIZE YES || return 1
@@ -6004,10 +6878,20 @@ cli_run() {
 		ipset)
 			case "${sub}" in
 				status | doctor)
+					if ! adguard_ipset_allowed; then
+						PTXT "${INFO} IPSET status skipped: LAN/AP/Bridge mode does not manage IPTABLES/IPSET rules."
+						return 0
+					fi
 					ipset_status
 					return "$?"
 					;;
-				refresh) ;;
+				refresh)
+					if ! adguard_ipset_allowed; then
+						check_ipset 0 || true
+						PTXT "${ERROR} IPSET refresh refused: LAN/AP/Bridge mode does not manage IPTABLES/IPSET rules."
+						return 1
+					fi
+					;;
 				*) return 2 ;;
 			esac
 			[ "${CLI_DRY_RUN}" = "1" ] && {
@@ -6063,19 +6947,21 @@ cli_run() {
 				return 0
 			}
 			cli_require_yes || return 1
-			if [ "${CLI_ALLOW_DNS_NVRAM}" != "1" ]; then
-				PTXT "${ERROR} Refusing install DNS/NVRAM rewrite without --allow-dns-nvram."
-				return 1
-			fi
 			if [ ! -f "${AGH_FILE}" ]; then
 				PTXT "${ERROR} Non-interactive install cannot complete fresh first-run setup."
 				PTXT "${ERROR} Run the interactive installer for fresh installs, or use restore --file with an existing backup."
 				return 1
 			fi
+			if [ "${ADGUARD_INSTALL_MODE}" = "wan" ] && [ "${CLI_ALLOW_DNS_NVRAM}" != "1" ]; then
+				PTXT "${ERROR} Refusing install DNS/NVRAM rewrite without --allow-dns-nvram."
+				return 1
+			fi
 			cli_enable_assume_yes
 			cleanup
 			check_jffs_enabled
-			check_dns_environment 0
+			if [ "${ADGUARD_INSTALL_MODE}" = "wan" ]; then
+				check_dns_environment 0
+			fi
 			[ -n "${adguard_branch}" ] || adguard_branch="$(conf_value ADGUARD_BRANCH)"
 			[ -n "${adguard_branch}" ] || adguard_branch="release"
 			cli_adguard_branch_is_valid "${adguard_branch}" || {
@@ -6185,9 +7071,13 @@ WAN_IPADDR="$(nvram get wan_ipaddr 2>/dev/null)"
 if ipv4_is_private "${WAN_IPADDR}"; then NAT_ENV="${WAN_IPADDR}"; else NAT_ENV=""; fi
 
 [ -z "${ROUTER_MODEL}" ] && PTXT "${ERROR} This is an unsupported router, sorry." && sleep 3s && exit 1
-[ "$(nvram get sw_mode)" != "1" ] && PTXT "${ERROR} You are not running in router mode, sorry." && sleep 3s && exit 1
+PREVIOUS_ADGUARD_INSTALL_MODE="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
+adguard_install_mode_detect || {
+	sleep 3s
+	exit 1
+}
 
-if [ -n "${NAT_ENV}" ] && [ -z "$2" ]; then
+if [ "${ADGUARD_INSTALL_MODE}" = "wan" ] && [ -n "${NAT_ENV}" ] && [ -z "$2" ]; then
 	PTXT "${WARNING} This router is in a Double-Nat Environment. While for some users of AdGuardHome this may work fine," \
 		"${WARNING} Consider this a warning that there is no guarentee that it will." \
 		"${WARNING} The script developer cannot help in this scenario." \
@@ -6275,7 +7165,9 @@ case "$2" in
 	"")
 		cleanup
 		check_jffs_enabled
-		check_dns_environment 0
+		if [ "${ADGUARD_INSTALL_MODE}" = "wan" ]; then
+			check_dns_environment 0
+		fi
 		check_version
 		menu
 		;;

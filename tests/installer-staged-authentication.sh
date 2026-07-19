@@ -12,13 +12,16 @@ fail() {
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 
-sed -n '/if ! AdGuardHome_authen 1 "${YAML_ORI_NEW}" 0; then/,/PTXT "dns:"/p' "${SCRIPT_PATH}" |
+INITIAL_SETUP_AUTH_BLOCK="$(sed -n '/if ! AdGuardHome_authen 1 "${YAML_ORI_NEW}" 0; then/,/setup_write_dns_bind_hosts "${YAML_ORI_NEW}"/p' "${SCRIPT_PATH}")"
+COMPLETED_STAGED_VALIDATE_BLOCK="$(sed -n '/schema_version: ${SCHEMA_VER}/,/Writing AdGuardHome configuration/p' "${SCRIPT_PATH}")"
+
+printf '%s\n' "${INITIAL_SETUP_AUTH_BLOCK}" |
 	grep -q 'return 1' || fail 'initial setup caller does not abort when staged authentication input fails'
 
-sed -n '/if ! AdGuardHome_authen 1 "${YAML_ORI_NEW}" 0; then/,/PTXT "dns:"/p' "${SCRIPT_PATH}" |
+printf '%s\n' "${INITIAL_SETUP_AUTH_BLOCK}" |
 	grep -q 'check_AdGuardHome_yaml' && fail 'initial setup validates staged YAML before dns/schema content is appended'
 
-sed -n '/schema_version: ${SCHEMA_VER}/,/Writing AdGuardHome configuration/p' "${SCRIPT_PATH}" |
+printf '%s\n' "${COMPLETED_STAGED_VALIDATE_BLOCK}" |
 	grep -q 'check_AdGuardHome_yaml "${YAML_ORI_NEW}"' || fail 'initial setup does not validate completed staged YAML before publishing'
 
 INPUT='Input:'
