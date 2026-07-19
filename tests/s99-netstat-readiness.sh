@@ -21,7 +21,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_owned_status() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^dns_port_owner_command() {$/,/^}$/p; /^dns_port_owner_process_name() {$/,/^}$/p; /^dns_port_unknown_refusal_enabled() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^dns_port_has_foreign_owner() {$/,/^}$/p; /^dns_port_needs_release() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p' \
+	'/^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_owned_status() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^adguardhome_dns_bind_scope() {$/,/^}$/p; /^dns_port_owner_command() {$/,/^}$/p; /^dns_port_owner_process_name() {$/,/^}$/p; /^dns_port_unknown_refusal_enabled() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^dns_port_has_foreign_owner() {$/,/^}$/p; /^dns_port_needs_release() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p' \
 	"${S99_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${S99_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'S99 netstat readiness functions were not found'
 grep -q '^adguardhome_single_process_running() {$' "${FUNCTIONS_FILE}" || fail 'single-process fallback helper was not found'
@@ -35,6 +35,37 @@ CALLS_FILE="${TEST_ROOT}/calls"
 mkdir -p "${WORK_DIR}" || fail 'could not create AdGuardHome work directory'
 printf '%s\n' 'http:' '  address: 0.0.0.0:3000' >"${WORK_DIR}/AdGuardHome.yaml" || fail 'could not create YAML stub'
 : >"${CALLS_FILE}" || fail 'could not create calls file'
+
+agh_lan_mode() {
+	return 0
+}
+
+which() {
+	command -v "$1"
+}
+
+nvram() {
+	[ "${1:-}" = get ] && [ "${2:-}" = lan_ipaddr ] || return 1
+	printf '%s\n' '192.168.50.1'
+}
+
+cat >"${WORK_DIR}/AdGuardHome.yaml" <<'EOF' || fail 'could not write inline bind-host YAML'
+dns:
+  bind_hosts: [127.0.0.1, 192.168.50.1]
+http:
+  address: 0.0.0.0:3000
+EOF
+[ "$(adguardhome_dns_bind_scope)" = '127.0.0.1 192.168.50.1' ] || fail 'inline DNS bind hosts fell back to global scope'
+
+cat >"${WORK_DIR}/AdGuardHome.yaml" <<'EOF' || fail 'could not write block bind-host YAML'
+dns:
+  bind_hosts:
+    - 127.0.0.1
+    - 192.168.50.1
+http:
+  address: 0.0.0.0:3000
+EOF
+[ "$(adguardhome_dns_bind_scope)" = '127.0.0.1 192.168.50.1' ] || fail 'block DNS bind-host parsing regressed'
 
 agh_log() {
 	printf '%s\n' "$*" >>"${CALLS_FILE}"
