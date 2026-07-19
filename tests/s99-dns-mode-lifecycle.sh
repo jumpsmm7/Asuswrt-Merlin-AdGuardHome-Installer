@@ -198,6 +198,7 @@ run_case() {
 	unset ADGUARDHOME_DNS_HANDOFF_ACTIVE ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_SKIP_DNSMASQ_RESTART ADGUARDHOME_DNS_GUARD_PID ADGUARDHOME_DNS_BIND_SCOPE
 	pre_start_adguardhome || fail "${case_name}: pre-start failed"
 	post_start_adguardhome || fail "${case_name}: post-start failed"
+	assert_count '^handoff_dependencies$' "${expect_handoff}" "${case_name}: handoff dependency check count mismatch"
 	assert_count '^enable_dns_handoff$' "${expect_handoff}" "${case_name}: dnsmasq handoff call count mismatch"
 	assert_count '^service restart_dnsmasq$' "${expect_restart}" "${case_name}: dnsmasq restart count mismatch"
 	grep -q "^dns_port_available ${bind_scope}$" "${CALLS_FILE}" || fail "${case_name}: did not check configured DNS bind scope"

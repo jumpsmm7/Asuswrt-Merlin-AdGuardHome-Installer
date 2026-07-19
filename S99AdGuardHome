@@ -107,11 +107,14 @@ agh_dnsmasq_running() {
 }
 
 agh_dnsmasq_managed() {
+	_agh_dnsmasq_mode="$(agh_conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)"
+	case "${_agh_dnsmasq_mode}" in
+		disabled) return 1 ;;
+	esac
 	if agh_lan_mode && ! agh_dnsmasq_running; then
 		return 1
 	fi
-	case "$(agh_conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" in
-		disabled) return 1 ;;
+	case "${_agh_dnsmasq_mode}" in
 		enabled) return 0 ;;
 	esac
 	agh_dnsmasq_running
