@@ -434,6 +434,7 @@ tls:
     - fd00::1
   'upstream_dns': # restored resolvers
     - '[/router.asus.com/]192.168.50.1:53'
+    - '192.168.50.1:53'
     - tls://192.168.50.1:5353
     - https://dns.example/dns-query
   bootstrap_dns:
@@ -466,6 +467,7 @@ grep -Fq '"dns": &dns_settings # resolver settings' "${YAML_FILE}" || fail 'WAN 
 ! grep -q '^    - fd00::1$' "${YAML_FILE}" || fail 'WAN YAML sync retained a trailing bind host after a comment and blank line'
 grep -Fq "[/router.asus.com/][::]:553" "${YAML_FILE}" || fail 'WAN YAML sync did not update reverse upstream'
 grep -Fq -- "- '[::]:553'" "${YAML_FILE}" || fail 'WAN YAML sync did not update local PTR upstream'
+grep -Fq -- "- '192.168.50.1:53'" "${YAML_FILE}" || fail 'WAN YAML sync changed a plain general upstream matching the reverse target'
 grep -Fq "  'upstream_dns': # restored resolvers" "${YAML_FILE}" || fail 'WAN YAML sync changed a quoted, commented upstream header'
 grep -Fq '  "local_ptr_upstreams": # restored PTR resolvers' "${YAML_FILE}" || fail 'WAN YAML sync changed a quoted, commented PTR header'
 grep -Fq -- '- tls://192.168.50.1:5353' "${YAML_FILE}" || fail 'WAN YAML sync changed a partial reverse endpoint match'
@@ -538,6 +540,7 @@ dns:
     - 0.0.0.0
   upstream_dns:
     - '[/router.asus.com/][::]:553'
+    - '[::]:553'
   local_ptr_upstreams:
     - '[::]:553'
 EOF_YAML
@@ -561,6 +564,7 @@ for bind_host in 127.0.0.1 192.168.50.2 fd00::2 192.168.60.1; do
 done
 ! grep -Fq -- '- 0.0.0.0' "${YAML_FILE}" || fail 'LAN mode migration retained the WAN wildcard DNS bind'
 grep -Fq '[/router.asus.com/]192.168.50.254:53' "${YAML_FILE}" || fail 'LAN mode migration did not update the reverse upstream'
+grep -Fq -- "- '[::]:553'" "${YAML_FILE}" || fail 'LAN mode migration changed a plain general upstream matching the reverse target'
 grep -Fq -- "- '192.168.50.254:53'" "${YAML_FILE}" || fail 'LAN mode migration did not update the local PTR upstream'
 
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored LAN config'

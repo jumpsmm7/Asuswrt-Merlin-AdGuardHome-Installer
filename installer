@@ -5162,7 +5162,7 @@ setup_sync_mode_dependent_yaml() {
 			sub(/^[[:space:]]*/, "", value)
 			return value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/
 		}
-		function replace_reverse_endpoint(line, old, replacement, value, prefix, position) {
+		function replace_reverse_endpoint(line, old, replacement, allow_plain, value, prefix, position) {
 			value = line
 			sub(/[[:space:]]+#.*$/, "", value)
 			sub(/[[:space:]]*$/, "", value)
@@ -5175,6 +5175,8 @@ setup_sync_mode_dependent_yaml() {
 			if (!position || substr(value, position + length(old)) != "")
 				return line
 			prefix = substr(value, 1, position - 1)
+			if (prefix == "" && !allow_plain)
+				return line
 			if (prefix != "" && (substr(prefix, 1, 1) != "[" || substr(prefix, length(prefix), 1) != "]"))
 				return line
 			position = index(line, old)
@@ -5215,10 +5217,12 @@ setup_sync_mode_dependent_yaml() {
 		in_binds { in_binds = 0 }
 		in_dns && (yaml_key_is($0, "upstream_dns") || yaml_key_is($0, "local_ptr_upstreams")) && !yaml_mapping_header_is($0, "upstream_dns") && !yaml_mapping_header_is($0, "local_ptr_upstreams") { exit 1 }
 		in_dns && (yaml_mapping_header_is($0, "upstream_dns") || yaml_mapping_header_is($0, "local_ptr_upstreams")) {
-			reverse_indent = indentation($0); in_reverse_upstreams = 1; print; next
+			reverse_indent = indentation($0); in_reverse_upstreams = 1
+			reverse_plain_allowed = yaml_key_is($0, "local_ptr_upstreams")
+			print; next
 		}
 		in_reverse_upstreams && indentation($0) <= reverse_indent && $0 !~ /^[[:space:]]*($|#)/ { in_reverse_upstreams = 0 }
-		in_reverse_upstreams && old_reverse != "" { $0 = replace_reverse_endpoint($0, old_reverse, new_reverse) }
+		in_reverse_upstreams && old_reverse != "" { $0 = replace_reverse_endpoint($0, old_reverse, new_reverse, reverse_plain_allowed) }
 		{ print }
 	' "${target_file}" >"${sync_file}" && adguardhome_yaml_secure_file "${sync_file}" && mv -f "${sync_file}" "${target_file}" && adguardhome_yaml_secure_file "${target_file}" || {
 		rm -f "${sync_file}"
