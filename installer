@@ -6924,6 +6924,10 @@ cli_run() {
 					return "$?"
 					;;
 				refresh)
+					[ "${CLI_DRY_RUN}" = "1" ] && {
+						cli_dry_run "IPSET refresh"
+						return 0
+					}
 					if ! adguard_ipset_allowed; then
 						check_ipset 0 || true
 						PTXT "${ERROR} IPSET refresh refused: LAN/AP/Bridge mode does not manage IPTABLES/IPSET rules."
@@ -6932,10 +6936,6 @@ cli_run() {
 					;;
 				*) return 2 ;;
 			esac
-			[ "${CLI_DRY_RUN}" = "1" ] && {
-				cli_dry_run "IPSET refresh"
-				return 0
-			}
 			if [ "$(conf_value ADGUARD_IPSET)" = "NO" ]; then
 				ptxt_ok "IPSET integration is disabled; no refresh needed."
 				return 0
