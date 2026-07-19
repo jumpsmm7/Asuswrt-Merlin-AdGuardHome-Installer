@@ -2904,13 +2904,21 @@ adguardhome_yaml_secure_file() {
 }
 
 adguardhome_yaml_remove_ipset_file() {
-	local current_file tmp_file
-	[ -f "${YAML_FILE}" ] || return 0
-	current_file="$(adguardhome_yaml_ipset_file 2>/dev/null)" || return 1
-	[ -n "${current_file}" ] || return 0
-	chmod 600 "${YAML_FILE}" || return 1
-	tmp_file="${YAML_FILE}.ipset.$$"
-	cp -p "${YAML_FILE}" "${tmp_file}" || return 1
+	local has_ipset tmp_file yaml_target
+	yaml_target="${1:-${YAML_FILE}}"
+	[ -f "${yaml_target}" ] || return 0
+	has_ipset="$(awk '
+		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
+		/^(dns|\047dns\047|"dns"):[[:space:]]*(&[^][{},[:space:]]+[[:space:]]*)?(#.*)?$/ { in_dns = 1; next }
+		in_dns && /^[^[:space:]]/ { exit }
+		in_dns && /^[[:space:]]*($|#)/ { next }
+		in_dns && !child_indent { child_indent = indentation($0) }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|ipset_file|\047ipset\047|\047ipset_file\047|"ipset"|"ipset_file"):[[:space:]]*/ { print "1"; exit }
+	' "${yaml_target}")" || return 1
+	[ "${has_ipset}" = "1" ] || return 0
+	chmod 600 "${yaml_target}" || return 1
+	tmp_file="${yaml_target}.ipset.$$"
+	cp -p "${yaml_target}" "${tmp_file}" || return 1
 	awk '
 		function indentation(line,    text) { text = line; sub(/[^[:space:]].*$/, "", text); return length(text) }
 		function block_marker(value) {
@@ -2921,9 +2929,16 @@ adguardhome_yaml_remove_ipset_file() {
 		in_dns && /^[^[:space:]]/ { in_dns = 0 }
 		in_dns && skip_block && /^[[:space:]]*($|#)/ { next }
 		in_dns && skip_block && indentation($0) > skip_indent { next }
+		in_dns && skip_block && indentation($0) == skip_indent && substr($0, skip_indent + 1) ~ /^-[[:space:]]/ { next }
 		in_dns && skip_block { skip_block = 0 }
 		in_dns && /^[[:space:]]*($|#)/ { print; next }
 		in_dns && !child_indent { child_indent = indentation($0) }
+		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset|\047ipset\047|"ipset"):[[:space:]]*/ {
+			print substr($0, 1, child_indent) "ipset: []"
+			skip_block = 1
+			skip_indent = child_indent
+			next
+		}
 		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/ {
 			value = substr($0, child_indent + 1)
 			sub(/^(ipset_file|\047ipset_file\047|"ipset_file"):[[:space:]]*/, "", value)
@@ -2934,7 +2949,7 @@ adguardhome_yaml_remove_ipset_file() {
 			next
 		}
 		{ print }
-	' "${YAML_FILE}" >"${tmp_file}" && adguardhome_yaml_secure_file "${tmp_file}" && mv -f "${tmp_file}" "${YAML_FILE}" && adguardhome_yaml_secure_file || {
+	' "${yaml_target}" >"${tmp_file}" && adguardhome_yaml_secure_file "${tmp_file}" && mv -f "${tmp_file}" "${yaml_target}" && adguardhome_yaml_secure_file "${yaml_target}" || {
 		rm -f "${tmp_file}"
 		return 1
 	}
@@ -5228,12 +5243,24 @@ setup_sync_mode_dependent_yaml_and_snapshot() {
 			rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
 			return 1
 		}
+		case "${ADGUARD_INSTALL_MODE:-}" in
+			lan) adguardhome_yaml_remove_ipset_file "${yaml_file_stage}" || {
+				rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
+				return 1
+			} ;;
+		esac
 	fi
 	if [ -f "${YAML_ORI}" ]; then
 		cp -p "${YAML_ORI}" "${yaml_ori_stage}" && setup_sync_mode_dependent_yaml "${yaml_ori_stage}" || {
 			rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
 			return 1
 		}
+		case "${ADGUARD_INSTALL_MODE:-}" in
+			lan) adguardhome_yaml_remove_ipset_file "${yaml_ori_stage}" || {
+				rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
+				return 1
+			} ;;
+		esac
 	fi
 	if [ -f "${yaml_file_stage}" ]; then
 		mv -f "${yaml_file_stage}" "${YAML_FILE}" || {
@@ -6550,7 +6577,10 @@ cli_migrate_runtime_defaults() {
 	case "${install_mode}" in
 		lan)
 			netcheck_target="lan"
-			if [ "$(conf_value ADGUARD_IPSET)" != "NO" ] || [ -n "$(adguardhome_yaml_ipset_file 2>/dev/null)" ]; then
+			if [ "$(conf_value ADGUARD_IPSET)" != "NO" ] || awk '
+				/^[[:space:]]*(ipset|ipset_file|\047ipset\047|\047ipset_file\047|"ipset"|"ipset_file"):[[:space:]]*/ { found = 1 }
+				END { exit !found }
+			' "${YAML_FILE}" 2>/dev/null; then
 				PTXT "${WARNING} LAN/AP/Bridge mode config has IPSET enabled; migration will disable it because IPTABLES/IPSET rules are not manageable there."
 				changes="1"
 				ipset_change="1"

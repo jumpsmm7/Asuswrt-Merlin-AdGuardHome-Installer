@@ -1,5 +1,5 @@
 #!/bin/sh
-# Verify LAN-mode IPSET enforcement removes YAML ipset_file safely.
+# Verify LAN-mode IPSET enforcement clears inline mappings and ipset_file safely.
 
 set -u
 
@@ -59,6 +59,14 @@ write_conf() {
 assert_no_ipset_file() {
 	if grep -q 'ipset_file' "${YAML_FILE}"; then
 		fail "$1: ipset_file was not removed"
+	fi
+}
+
+assert_ipset_disabled() {
+	assert_no_ipset_file "$1"
+	grep -q '^[[:space:]]*ipset: \[\]$' "${YAML_FILE}" || fail "$1: inline ipset mappings were not cleared"
+	if grep -q 'example\.com/router\|example\.net/vpn' "${YAML_FILE}"; then
+		fail "$1: inline ipset mapping entries were retained"
 	fi
 }
 
@@ -199,6 +207,9 @@ http:
 dns:
   bind_hosts:
     - 0.0.0.0
+  ipset:
+    - example.com/router
+    - example.net/vpn
   ipset_file: restored-custom.conf
   local_ptr_upstreams:
     - '[::]:553'
@@ -219,7 +230,7 @@ ADGUARD_INSTALL_MODE='lan'
 adguard_enforce_lan_ipset_disabled || fail 'LAN enforcement failed for detected LAN/restored WAN config'
 [ "$(conf_value ADGUARD_INSTALL_MODE)" = 'lan' ] || fail 'LAN enforcement did not persist detected LAN mode'
 [ "$(conf_value ADGUARD_IPSET)" = 'NO' ] || fail 'LAN enforcement did not disable ADGUARD_IPSET'
-assert_no_ipset_file detected-lan
+assert_ipset_disabled detected-lan
 [ "${ADGUARD_FORCE_SETUP_YAML:-0}" = '1' ] || fail 'LAN detection did not request YAML rebuild over restored WAN mode'
 setup_sync_mode_dependent_yaml_and_snapshot || fail 'could not synchronize restored WAN YAML for LAN mode'
 for restored_yaml in "${YAML_FILE}" "${YAML_ORI}"; do
@@ -227,6 +238,8 @@ for restored_yaml in "${YAML_FILE}" "${YAML_ORI}"; do
 	grep -Fq '    - 192.168.50.2' "${restored_yaml}" || fail 'LAN restore sync did not add the LAN DNS bind'
 	! grep -Fq -- '- 0.0.0.0' "${restored_yaml}" || fail 'LAN restore sync retained the WAN wildcard DNS bind'
 	grep -Fq -- "- '192.168.50.1:53'" "${restored_yaml}" || fail 'LAN restore sync did not replace the WAN reverse target'
+	grep -q '^[[:space:]]*ipset: \[\]$' "${restored_yaml}" || fail 'LAN restore sync did not retain disabled inline IPSET state'
+	! grep -q 'example\.com/router\|example\.net/vpn' "${restored_yaml}" || fail 'LAN restore sync retained inline IPSET mappings'
 done
 ADGUARD_FORCE_SETUP_YAML=0
 

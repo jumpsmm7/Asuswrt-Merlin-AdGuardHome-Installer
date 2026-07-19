@@ -27,6 +27,9 @@ grep -q 'setup_sync_mode_dependent_yaml_and_snapshot' "${SCRIPT_PATH}" ||
 grep -q 'setup_sync_mode_dependent_yaml "${yaml_file_stage}"' "${SCRIPT_PATH}" &&
 	grep -q 'setup_sync_mode_dependent_yaml "${yaml_ori_stage}"' "${SCRIPT_PATH}" ||
 	fail 'RESTORE does not stage both restored YAML pathways before publication'
+grep -q 'adguardhome_yaml_remove_ipset_file "${yaml_file_stage}"' "${SCRIPT_PATH}" &&
+	grep -q 'adguardhome_yaml_remove_ipset_file "${yaml_ori_stage}"' "${SCRIPT_PATH}" ||
+	fail 'RESTORE does not clear inline and file-based IPSET settings from both LAN YAML pathways'
 grep -q 'mv -f "${yaml_file_rollback}" "${YAML_FILE}"' "${SCRIPT_PATH}" ||
 	fail 'RESTORE does not roll back the working YAML when snapshot publication fails'
 
