@@ -2976,7 +2976,7 @@ adguard_enforce_lan_ipset_disabled() {
 		lan)
 			restored_mode="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
 			case "${restored_mode}" in
-				wan)
+				wan | "")
 					write_conf ADGUARD_NETCHECK_MODE '"lan"' || return 1
 					ADGUARD_FORCE_SETUP_YAML="1"
 					;;

@@ -246,6 +246,35 @@ for restored_yaml in "${YAML_FILE}" "${YAML_ORI}"; do
 done
 ADGUARD_FORCE_SETUP_YAML=0
 
+cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write legacy restored config without install mode'
+ADGUARD_IPSET="YES"
+ADGUARD_WEBUI_PORT="8080"
+ADGUARD_NETCHECK_MODE="wan"
+EOF_CONF
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write legacy restored WAN YAML'
+http:
+  address: 0.0.0.0:8080
+dns:
+  bind_hosts:
+    - 0.0.0.0
+  local_ptr_upstreams:
+    - '[::]:553'
+EOF_YAML
+cp -f "${YAML_FILE}" "${YAML_ORI}" || fail 'could not write legacy restored WAN YAML snapshot'
+ADGUARD_INSTALL_MODE='lan'
+adguard_enforce_lan_ipset_disabled || fail 'LAN enforcement failed for legacy restored WAN config'
+[ "$(conf_value ADGUARD_INSTALL_MODE)" = 'lan' ] || fail 'legacy restore did not persist detected LAN mode'
+[ "$(conf_value ADGUARD_NETCHECK_MODE)" = 'lan' ] || fail 'legacy restore did not select LAN netcheck mode'
+[ "${ADGUARD_FORCE_SETUP_YAML:-0}" = '1' ] || fail 'legacy restore did not request WAN YAML synchronization'
+setup_sync_mode_dependent_yaml_and_snapshot || fail 'could not synchronize legacy restored WAN YAML'
+for restored_yaml in "${YAML_FILE}" "${YAML_ORI}"; do
+	grep -q '^  address: 192\.168\.50\.2:8080$' "${restored_yaml}" || fail 'legacy restore did not scope the WebUI address'
+	grep -Fq '    - 192.168.50.2' "${restored_yaml}" || fail 'legacy restore did not add the LAN DNS bind'
+	! grep -Fq -- '- 0.0.0.0' "${restored_yaml}" || fail 'legacy restore retained the WAN wildcard DNS bind'
+	grep -Fq -- "- '192.168.50.1:53'" "${restored_yaml}" || fail 'legacy restore did not replace the WAN reverse target'
+done
+ADGUARD_FORCE_SETUP_YAML=0
+
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write legacy config without install mode'
 ADGUARD_IPSET="YES"
 ADGUARD_WEBUI_PORT="3000"

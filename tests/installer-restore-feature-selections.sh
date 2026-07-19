@@ -26,6 +26,8 @@ grep -q 'setup_sync_mode_dependent_yaml_and_snapshot' "${SCRIPT_PATH}" ||
 	fail 'RESTORE does not synchronize both restored YAML pathways'
 grep -A6 'case "${restored_mode}" in' "${SCRIPT_PATH}" | grep -q 'write_conf ADGUARD_NETCHECK_MODE.*lan' ||
 	fail 'WAN-to-LAN restore does not reset the restored WAN netcheck mode'
+grep -A6 'case "${restored_mode}" in' "${SCRIPT_PATH}" | grep -q 'wan | "")' ||
+	fail 'LAN restore does not treat a missing legacy install mode as WAN mode'
 grep -q 'setup_sync_mode_dependent_yaml "${yaml_file_stage}"' "${SCRIPT_PATH}" &&
 	grep -q 'setup_sync_mode_dependent_yaml "${yaml_ori_stage}"' "${SCRIPT_PATH}" ||
 	fail 'RESTORE does not stage both restored YAML pathways before publication'
