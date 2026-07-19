@@ -545,7 +545,7 @@ write_conf_if_absent() {
 }
 
 adguard_install_feature_defaults() {
-	local ipset_value lan_gateway
+	local dnsmasq_mode ipset_value lan_gateway
 	case "${ADGUARD_INSTALL_MODE:-}" in
 		wan)
 			ipset_value="$(conf_value ADGUARD_IPSET)"
@@ -558,7 +558,11 @@ adguard_install_feature_defaults() {
 			;;
 		lan)
 			write_conf ADGUARD_IPSET "\"NO\"" || return 1
-			write_conf ADGUARD_DNSMASQ_MODE "\"auto\"" || return 1
+			dnsmasq_mode="$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)"
+			case "${dnsmasq_mode}" in
+				disabled) ;;
+				*) write_conf ADGUARD_DNSMASQ_MODE "\"auto\"" || return 1 ;;
+			esac
 			lan_gateway="$(nvram get lan_gateway 2>/dev/null)" || lan_gateway=""
 			case "${lan_gateway}" in
 				"" | 0.0.0.0) ;;
