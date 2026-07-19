@@ -7,7 +7,7 @@ SCRIPT_PATH="${1:-installer}"
 TMP_FILE="${TMPDIR:-/tmp}/installer-event-script-modes.$$"
 
 cleanup() {
-	rm -f "${TMP_FILE}" "${TMP_FILE}.wan" "${TMP_FILE}.lan"
+	rm -f "${TMP_FILE}" "${TMP_FILE}.wan" "${TMP_FILE}.lan" "${TMP_FILE}.wan-helper"
 }
 
 fail() {
@@ -68,17 +68,22 @@ awk -v branch='lan)' '
 [ -s "${TMP_FILE}.wan" ] || fail 'WAN event-script branch was not found'
 [ -s "${TMP_FILE}.lan" ] || fail 'LAN event-script branch was not found'
 
-grep -q 'write_manager_script /jffs/scripts/init-start "init-start &"' "${TMP_FILE}.wan" ||
+sed -n '/^install_wan_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.wan-helper" ||
+	fail 'could not extract WAN event-script helper'
+[ -s "${TMP_FILE}.wan-helper" ] || fail 'WAN event-script helper was not found'
+grep -q 'install_wan_event_scripts' "${TMP_FILE}.wan" ||
+	fail 'WAN branch does not invoke the shared event-script helper'
+grep -q 'write_manager_script /jffs/scripts/init-start "init-start &"' "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not install init-start'
-grep -q 'write_manager_script /jffs/scripts/services-stop "services-stop &"' "${TMP_FILE}.wan" ||
+grep -q 'write_manager_script /jffs/scripts/services-stop "services-stop &"' "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not install services-stop'
-grep -q 'write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FILE}.wan" ||
+grep -q 'write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not install dnsmasq.postconf'
-grep -q "write_manager_script /jffs/scripts/firewall-start 'firewall \"\$1\"'" "${TMP_FILE}.wan" ||
+grep -q "write_manager_script /jffs/scripts/firewall-start 'firewall \"\$1\"'" "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not install firewall-start'
-grep -q "write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2'" "${TMP_FILE}.wan" ||
+grep -q "write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2'" "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not install dnsmasq-sdn.postconf when supported'
-grep -q 'write_conf ADGUARD_DNSMASQ_MODE "\\"enabled\\""' "${TMP_FILE}.wan" ||
+grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"enabled\"'" "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not persist enabled dnsmasq mode'
 
 grep -q 'write_manager_script /jffs/scripts/init-start "init-start &"' "${TMP_FILE}.lan" ||

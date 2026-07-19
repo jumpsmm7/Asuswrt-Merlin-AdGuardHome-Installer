@@ -4349,6 +4349,20 @@ installer_update_reexec() {
 	exec "${TARG_DIR}/installer" "${BRANCH}" "${ACTION}"
 }
 
+install_wan_event_scripts() {
+	if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
+		! write_manager_script /jffs/scripts/services-stop "services-stop &" ||
+		! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq ||
+		! write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'; then
+		return 1
+	fi
+	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
+	if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
+		return 1
+	fi
+	write_conf ADGUARD_DNSMASQ_MODE '"enabled"'
+}
+
 inst_AdGuardHome() {
 	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
@@ -4603,29 +4617,13 @@ inst_AdGuardHome() {
 	for i in init-start services-stop; do { if { ! grep -q "${ADDON_DIR}/AdGuardHome.sh $i &" "/jffs/scripts/${i}" && grep -q "${ADDON_DIR}/AdGuardHome.sh $i" "/jffs/scripts/${i}"; }; then del_jffs_script "/jffs/scripts/${i}"; fi; }; done
 	case "${ADGUARD_INSTALL_MODE:-wan}" in
 		wan)
-			if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
-				! write_manager_script /jffs/scripts/services-stop "services-stop &" ||
-				! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq ||
-				! write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'; then
+			if ! install_wan_event_scripts; then
 				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
 				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 				end_op_message 1 "$1"
 				return 1
 			fi
-			if ! write_conf ADGUARD_DNSMASQ_MODE "\"enabled\""; then
-				PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
-				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-				end_op_message 1 "$1"
-				return 1
-			fi
 			ptxt_ok "Asuswrt-Merlin event scripts configured."
-			if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
-			if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
-				PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
-				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-				end_op_message 1 "$1"
-				return 1
-			fi
 			;;
 		lan)
 			if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
@@ -5354,6 +5352,12 @@ adguard_migrate_detected_install_mode() {
 				rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
 				discard_installer_config_backup "${config_backup}"
 				PTXT "${ERROR} Unable to update the AdGuardHome configuration for ${ADGUARD_INSTALL_MODE} mode."
+				return 1
+			fi
+			if [ "${previous_mode}" = "lan" ] && ! install_wan_event_scripts; then
+				restore_mode_migration_yaml "${yaml_file_backup}" "${yaml_ori_backup}" || PTXT "${ERROR} Unable to restore the previous AdGuardHome YAML configuration."
+				restore_installer_config "${config_backup}" || PTXT "${ERROR} Unable to restore the previous installer mode configuration."
+				PTXT "${ERROR} Unable to install the required WAN-mode event scripts."
 				return 1
 			fi
 			if ! write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\"" ||
