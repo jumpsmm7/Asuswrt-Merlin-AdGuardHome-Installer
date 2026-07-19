@@ -200,11 +200,11 @@ grep -q 'bootstrap_dns:' "${YAML_FILE}" || fail 'no-op cleanup changed YAML cont
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored WAN config'
 ADGUARD_INSTALL_MODE="wan"
 ADGUARD_IPSET="YES"
-ADGUARD_WEBUI_PORT="3000"
+ADGUARD_WEBUI_PORT="invalid"
 EOF_CONF
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write restored YAML ipset_file'
 http:
-  address: 0.0.0.0:3000
+  address: 0.0.0.0:8080
 dns:
   bind_hosts:
     - 0.0.0.0
@@ -217,7 +217,7 @@ dns:
 EOF_YAML
 cp -f "${YAML_FILE}" "${YAML_ORI}" || fail 'could not write restored original WAN YAML snapshot'
 setup_resolve_bind_addresses() {
-	SETUP_WEB_ADDRESS='192.168.50.2:3000'
+	SETUP_WEB_ADDRESS="192.168.50.2:${WEB_PORT}"
 	SETUP_DNS_BIND_HOST='192.168.50.2'
 	SETUP_DNS_BIND_HOST6='fd00::2'
 }
@@ -235,7 +235,7 @@ assert_ipset_disabled detected-lan
 [ "${ADGUARD_FORCE_SETUP_YAML:-0}" = '1' ] || fail 'LAN detection did not request YAML rebuild over restored WAN mode'
 setup_sync_mode_dependent_yaml_and_snapshot || fail 'could not synchronize restored WAN YAML for LAN mode'
 for restored_yaml in "${YAML_FILE}" "${YAML_ORI}"; do
-	grep -q '^  address: 192\.168\.50\.2:3000$' "${restored_yaml}" || fail 'LAN restore sync did not scope the WebUI address'
+	grep -q '^  address: 192\.168\.50\.2:8080$' "${restored_yaml}" || fail 'LAN restore sync did not preserve the YAML WebUI port'
 	grep -Fq '    - 192.168.50.2' "${restored_yaml}" || fail 'LAN restore sync did not add the LAN DNS bind'
 	! grep -Fq -- '- 0.0.0.0' "${restored_yaml}" || fail 'LAN restore sync retained the WAN wildcard DNS bind'
 	grep -Fq -- "- '192.168.50.1:53'" "${restored_yaml}" || fail 'LAN restore sync did not replace the WAN reverse target'

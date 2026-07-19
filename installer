@@ -5107,7 +5107,14 @@ setup_sync_mode_dependent_yaml() {
 			}
 			/^[^[:space:]]/ && http_header($0) { in_http = 1; next }
 			in_http && /^[^[:space:]]/ { exit }
-			in_http && yaml_key_is($0, "address") { value = $0; sub(/[[:space:]]+#.*$/, "", value); sub(/^.*:/, "", value); gsub(/[[:space:]"'\''"]/, "", value); print value; exit }
+			in_http && yaml_key_is($0, "address") {
+				value = $0
+				sub(/[[:space:]]+#.*$/, "", value)
+				gsub(/[[:space:]"'\''"]/, "", value)
+				component_count = split(value, address_components, ":")
+				print address_components[component_count]
+				exit
+			}
 		' "${target_file}" 2>/dev/null)"
 	fi
 	port_is_valid "${web_port}" || web_port="3000"
