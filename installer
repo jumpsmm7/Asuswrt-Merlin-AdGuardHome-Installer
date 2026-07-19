@@ -4867,7 +4867,7 @@ setup_resolve_lan_addresses() {
 	if [ -z "${NET_ADDR6}" ] && [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
 		NVRAM_ADDR6="$(nvram get ipv6_rtr_addr)"
 		case "${NVRAM_ADDR6}" in
-			""|::) ;;
+			"" | ::) ;;
 			*:*)
 				NET_ADDR6="$(ip -o -6 addr list "${LAN_IF}" 2>/dev/null | awk -v candidate="${NVRAM_ADDR6}" '{ split($4, ip_addr, "/"); if (ip_addr[1] == candidate) { print candidate; exit } }')"
 				;;
