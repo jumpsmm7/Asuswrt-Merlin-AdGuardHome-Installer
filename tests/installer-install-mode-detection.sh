@@ -32,8 +32,16 @@ grep -q 'write_conf ADGUARD_INSTALL_MODE "\\"${ADGUARD_INSTALL_MODE}\\""' "${SCR
 	fail 'installer must persist ADGUARD_INSTALL_MODE'
 grep -q 'PREVIOUS_ADGUARD_INSTALL_MODE="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"' "${SCRIPT_PATH}" ||
 	fail 'installer must preserve the saved install mode before detection'
-grep -q 'adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE}"' "${SCRIPT_PATH}" ||
-	fail 'installer must migrate mode-dependent settings before persisting the detected mode'
+grep -q 'adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE:-}"' "${SCRIPT_PATH}" ||
+	fail 'install/update orchestration must migrate mode-dependent settings'
+if sed -n '/^PREVIOUS_ADGUARD_INSTALL_MODE=/,/^if \[ "${ADGUARD_INSTALL_MODE}" = "wan" \]/p' "${SCRIPT_PATH}" |
+	grep -q 'adguard_migrate_detected_install_mode'; then
+	fail 'installer startup must not migrate mode-dependent settings before action dispatch'
+fi
+service_install_line="$(grep -n 'ptxt_ok "AdGuardHome service files installed\."' "${SCRIPT_PATH}" | cut -d: -f1)"
+migration_line="$(grep -n 'adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE:-}"' "${SCRIPT_PATH}" | cut -d: -f1)"
+[ -n "${service_install_line}" ] && [ -n "${migration_line}" ] && [ "${migration_line}" -gt "${service_install_line}" ] ||
+	fail 'mode migration must run only after mode-aware service scripts are installed'
 grep -q 'wan:lan | lan:wan | :lan)' "${SCRIPT_PATH}" ||
 	fail 'installer must migrate legacy installs without a saved mode when LAN mode is detected'
 grep -q 'if \[ "${ADGUARD_INSTALL_MODE}" = "wan" \] && \[ -n "${NAT_ENV}" \]' "${SCRIPT_PATH}" ||

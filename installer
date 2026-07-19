@@ -4705,6 +4705,11 @@ inst_AdGuardHome() {
 		end_op_message 1 "$1"
 		return 1
 	fi
+	if ! adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE:-}"; then
+		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+		end_op_message 1 "$1"
+		return 1
+	fi
 	if [ "${1:-update}" != "update" ]; then
 		ptxt_phase "Configuring AdGuardHome first-run settings."
 		if [ ! -f "${ADDON_DIR}/localtime" ]; then
@@ -7063,7 +7068,6 @@ adguard_install_mode_detect || {
 	sleep 3s
 	exit 1
 }
-adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE}" || exit 1
 
 if [ "${ADGUARD_INSTALL_MODE}" = "wan" ] && [ -n "${NAT_ENV}" ] && [ -z "$2" ]; then
 	PTXT "${WARNING} This router is in a Double-Nat Environment. While for some users of AdGuardHome this may work fine," \
