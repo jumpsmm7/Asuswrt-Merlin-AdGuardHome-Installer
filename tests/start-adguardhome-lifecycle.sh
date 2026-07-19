@@ -78,6 +78,10 @@ adguard_lan_mode() {
 	[ "${INSTALL_MODE:-wan}" = "lan" ]
 }
 
+adguard_refresh_lan_bind_addresses() {
+	return "${LAN_BIND_REFRESH_STATUS:-0}"
+}
+
 adguard_ipset_allowed() {
 	! adguard_lan_mode
 }
@@ -246,6 +250,11 @@ DNSMASQ_UNMANAGED_AFTER_START=0
 run_service_wait_terminal_test
 
 INSTALL_MODE=lan
+LAN_BIND_REFRESH_STATUS=1
+run_test 'LAN mode aborts before startup when dynamic bind refresh fails' 0 0 0 0 0 0 1 ''
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'LAN bind refresh failure was not marked terminal'
+[ "${SERVICE_WAIT_CALLED}" -eq 0 ] || fail 'LAN bind refresh failure continued to the health check'
+LAN_BIND_REFRESH_STATUS=0
 run_test 'LAN mode cleans managed IPSET before startup without setup helper' 0 0 0 0 0 0 1 'IPSet_Disable_Managed
 lower_script start'
 [ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 0 ] || fail 'LAN startup cleanup was incorrectly marked terminal'
