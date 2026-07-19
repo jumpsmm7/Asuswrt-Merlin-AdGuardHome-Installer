@@ -78,11 +78,21 @@ extract_function setup_sync_mode_dependent_yaml || fail 'could not extract mode-
 extract_function setup_sync_restored_yaml_for_wan || fail 'could not extract WAN restore YAML sync helper'
 extract_function setup_sync_mode_dependent_yaml_and_snapshot || fail 'could not extract mode-dependent YAML snapshot sync helper'
 extract_function setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could not extract WAN restore YAML snapshot sync helper'
+extract_function adguard_install_mode_migration_required || fail 'could not extract mode migration action guard'
 extract_function adguard_migrate_detected_install_mode || fail 'could not extract detected-mode migration helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'helper extraction was empty'
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+
+adguard_install_mode_migration_required install --yes || fail 'install must allow mode migration'
+adguard_install_mode_migration_required uninstall --yes || fail 'uninstall must allow mode migration'
+! adguard_install_mode_migration_required status || fail 'status must skip mode migration'
+! adguard_install_mode_migration_required master status || fail 'branch-prefixed status must skip mode migration'
+! adguard_install_mode_migration_required backup --yes || fail 'backup must skip mode migration'
+! adguard_install_mode_migration_required netcheck --mode lan || fail 'netcheck must skip mode migration'
+! adguard_install_mode_migration_required ipset status || fail 'IPSET status must skip mode migration'
+! adguard_install_mode_migration_required uninstall --yes --dry-run || fail 'dry-run uninstall must skip mode migration'
 
 cat >"${STUB_DIR}/chown" <<'EOF_CHOWN' || fail 'could not write chown stub'
 #!/bin/sh

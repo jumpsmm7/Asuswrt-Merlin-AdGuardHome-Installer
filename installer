@@ -5221,6 +5221,25 @@ setup_sync_restored_yaml_and_snapshot_for_wan() {
 	setup_sync_mode_dependent_yaml_and_snapshot
 }
 
+adguard_install_mode_migration_required() {
+	local argument
+	for argument in "$@"; do
+		[ "${argument}" != "--dry-run" ] || return 1
+	done
+	case "${1:-}" in
+		backup | doctor | netcheck | status) return 1 ;;
+		ipset)
+			case "${2:-}" in
+				doctor | status) return 1 ;;
+			esac
+			;;
+	esac
+	case "${2:-}" in
+		backup | doctor | netcheck | status) return 1 ;;
+	esac
+	return 0
+}
+
 adguard_migrate_detected_install_mode() {
 	local previous_mode
 	previous_mode="$1"
@@ -6990,7 +7009,9 @@ adguard_install_mode_detect || {
 	sleep 3s
 	exit 1
 }
-adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE}" || exit 1
+if adguard_install_mode_migration_required "$@"; then
+	adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE}" || exit 1
+fi
 
 if [ "${ADGUARD_INSTALL_MODE}" = "wan" ] && [ -n "${NAT_ENV}" ] && [ -z "$2" ]; then
 	PTXT "${WARNING} This router is in a Double-Nat Environment. While for some users of AdGuardHome this may work fine," \
