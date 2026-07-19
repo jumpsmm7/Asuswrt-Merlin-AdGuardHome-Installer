@@ -4949,50 +4949,20 @@ setup_private_ipv4_bridge_dns_binds() {
 			}
 		')"
 		if [ -z "${bridge_binds}" ]; then
-			bridge_binds="$(ip route show 2>/dev/null | awk -v lan_addr="${NET_ADDR}" '
+			bridge_binds="$(ip -4 addr show scope global 2>/dev/null | awk -v lan_addr="${NET_ADDR}" '
 				function private_ip(ip) {
 					return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
 				}
-				function router_ip(ip) {
-					split(ip, octets, ".")
-					if (octets[1] != "" && octets[2] != "" && octets[3] != "") { return octets[1] "." octets[2] "." octets[3] ".1" }
-					return ""
+				/^[0-9]+: / {
+					iface = $2
+					sub(/:$/, "", iface)
 				}
-				{
-					iface = ""
-					src = ""
-					split($1, dst_parts, "/")
-					dst = dst_parts[1]
-					for (i = 1; i <= NF; i++) {
-						if ($i == "dev") { iface = $(i + 1) }
-						if ($i == "src") { src = $(i + 1) }
-					}
-					if (iface ~ /^br/ && iface != "br0" && private_ip(dst) && !seen[iface]++) {
-						if (!private_ip(src)) { src = router_ip(dst) }
-						if (src != "" && src != lan_addr) { print src }
-					}
+				$1 == "inet" && iface ~ /^br/ && iface != "br0" {
+					split($2, ip_addr, "/")
+					if (ip_addr[1] != lan_addr && private_ip(ip_addr[1]) && !seen[ip_addr[1]]++) { print ip_addr[1] }
 				}
 			')"
 		fi
-	fi
-	if [ -z "${bridge_binds}" ] && ai_have_cmd route; then
-		bridge_binds="$(route 2>/dev/null | awk -v lan_addr="${NET_ADDR}" '
-			function private_ip(ip) {
-				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
-			}
-			function router_ip(ip) {
-				split(ip, octets, ".")
-				if (octets[1] != "" && octets[2] != "" && octets[3] != "") { return octets[1] "." octets[2] "." octets[3] ".1" }
-				return ""
-			}
-			{
-				iface = $NF
-				if (iface ~ /^br/ && iface != "br0" && private_ip($1) && !seen[iface]++) {
-					dns_ip = router_ip($1)
-					if (dns_ip != "" && dns_ip != lan_addr) { print dns_ip }
-				}
-			}
-		')"
 	fi
 	printf "%s\n" "${bridge_binds}"
 }

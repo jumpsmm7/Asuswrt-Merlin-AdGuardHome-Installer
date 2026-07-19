@@ -56,8 +56,12 @@ ip() {
 			[ -n "${IPV6_ASSIGNED:-}" ] && printf '1: br0    inet6 %s/64 scope global\n' "${IPV6_ASSIGNED}"
 			;;
 		'-o -4 addr show scope global')
+			[ "${IP_ONELINE_UNAVAILABLE:-0}" -eq 0 ] || return 1
 			[ -n "${IPV4_FROM_IP:-}" ] && printf '1: br0    inet %s/24 brd 192.168.50.255 scope global br0\n' "${IPV4_FROM_IP}"
 			[ -n "${BRIDGE_ADDRS:-}" ] && printf '%s\n' "${BRIDGE_ADDRS}"
+			;;
+		'-4 addr show scope global')
+			[ -n "${BRIDGE_ADDRS_MULTILINE:-}" ] && printf '%s\n' "${BRIDGE_ADDRS_MULTILINE}"
 			;;
 		'route show')
 			[ -n "${IP_ROUTE_OUTPUT:-}" ] && printf '%s\n' "${IP_ROUTE_OUTPUT}"
@@ -90,6 +94,8 @@ reset_inputs() {
 	IPV6_FROM_NVRAM=""
 	IPV6_ASSIGNED=""
 	BRIDGE_ADDRS=""
+	BRIDGE_ADDRS_MULTILINE=""
+	IP_ONELINE_UNAVAILABLE=0
 	IP_ROUTE_OUTPUT=""
 	ROUTE_OUTPUT=""
 	NET_ADDR=""
@@ -192,13 +198,15 @@ IP_AVAILABLE=1
 ROUTE_AVAILABLE=1
 LAN_IFNAME=br0
 IPV4_FROM_IP=192.168.50.1
+IP_ONELINE_UNAVAILABLE=1
+BRIDGE_ADDRS_MULTILINE='2: br102: <BROADCAST,MULTICAST,UP> mtu 1500
+    inet 192.168.102.254/24 brd 192.168.102.255 scope global br102'
 IP_ROUTE_OUTPUT='192.168.102.0/24 dev br102 proto kernel scope link'
-setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution for route fallback failed'
-assert_bind_values lan-route '192.168.50.1:3000' "${IPV4_FROM_IP}"
-assert_yaml_bind_hosts lan-route 3
-grep -q '^    - 127\.0\.0\.1$' "${TMP_ROOT}/lan-route.yaml" || fail 'LAN DNS loopback bind host from route fallback was not written'
-grep -q '^    - 192\.168\.50\.1$' "${TMP_ROOT}/lan-route.yaml" || fail 'LAN DNS bind host from route fallback was not written'
-grep -q '^    - 192\.168\.102\.1$' "${TMP_ROOT}/lan-route.yaml" || fail 'LAN DNS route fallback bridge bind host was not written'
+setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution for multiline ip fallback failed'
+assert_bind_values lan-multiline-ip '192.168.50.1:3000' "${IPV4_FROM_IP}"
+assert_yaml_bind_hosts lan-multiline-ip 3
+grep -q '^    - 192\.168\.102\.254$' "${TMP_ROOT}/lan-multiline-ip.yaml" || fail 'LAN DNS multiline ip fallback omitted the assigned bridge address'
+! grep -q '^    - 192\.168\.102\.1$' "${TMP_ROOT}/lan-multiline-ip.yaml" || fail 'LAN DNS bind hosts included a guessed route address'
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan
@@ -208,10 +216,8 @@ IPV4_FROM_NVRAM=192.168.1.1
 ROUTE_OUTPUT='192.168.103.0     *               255.255.255.0   U     0      0        0 br103'
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution for legacy route fallback failed'
 assert_bind_values lan-legacy-route '192.168.1.1:3000' "${IPV4_FROM_NVRAM}"
-assert_yaml_bind_hosts lan-legacy-route 3
-grep -q '^    - 127\.0\.0\.1$' "${TMP_ROOT}/lan-legacy-route.yaml" || fail 'LAN DNS loopback bind host from legacy route fallback was not written'
-grep -q '^    - 192\.168\.1\.1$' "${TMP_ROOT}/lan-legacy-route.yaml" || fail 'LAN DNS bind host from legacy route fallback was not written'
-grep -q '^    - 192\.168\.103\.1$' "${TMP_ROOT}/lan-legacy-route.yaml" || fail 'LAN DNS legacy route fallback bridge bind host was not written'
+assert_yaml_bind_hosts lan-legacy-route 2
+! grep -q '^    - 192\.168\.103\.1$' "${TMP_ROOT}/lan-legacy-route.yaml" || fail 'LAN DNS bind hosts included an unconfirmed legacy route address'
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan
