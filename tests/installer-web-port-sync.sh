@@ -25,6 +25,7 @@ mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 {
 	sed -n '/^_quote() {$/,/^PTXT() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^ipv4_is_valid() {$/,/^web_port_in_use() {$/p' "${SCRIPT_PATH}" | sed '$d'
+	sed -n '/^adguardhome_yaml_secure_file() {$/,/^adguardhome_yaml_remove_ipset_file() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^setup_default_web_host() {$/,/^setup_AdGuardHome_impl() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^yaml_nvars_insert() {$/,/^# Interactive menu helpers$/p' "${SCRIPT_PATH}" | sed '$d'
 } >"${FUNCTIONS_FILE}" || fail 'could not extract WebUI port synchronization helpers'
@@ -177,6 +178,7 @@ write_yaml \
 	'    - 0.0.0.0'
 setup_sync_webui_port 6001 || fail 'missing address insertion failed'
 assert_address lan-missing-address-insert '192.168.1.1:6001'
+[ "$(ls -l "${YAML_FILE}" | cut -c 1-10)" = "-rw-------" ] || fail 'missing address insertion did not preserve private YAML permissions'
 if awk '
 	/^filters:[[:space:]]*$/ { in_filters = 1; next }
 	in_filters && /^[^[:space:]]/ { exit }

@@ -22,7 +22,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^agh_conf_value() {$/,/^}$/p; /^agh_install_mode() {$/,/^}$/p; /^agh_dnsmasq_running() {$/,/^}$/p; /^agh_dns_handoff_required() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p' \
+	'/^agh_conf_value() {$/,/^}$/p; /^agh_install_mode() {$/,/^}$/p; /^agh_lan_mode() {$/,/^}$/p; /^agh_dnsmasq_running() {$/,/^}$/p; /^agh_dnsmasq_managed() {$/,/^}$/p; /^agh_dns_handoff_required() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${S99_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'S99 DNS lifecycle functions were not found'
 grep -q '^pre_start_adguardhome() {$' "${FUNCTIONS_FILE}" || fail 'pre-start helper was not found'
@@ -188,7 +188,8 @@ run_case() {
 	agh_binds_lan_ip="$5"
 	expect_handoff="$6"
 	expect_restart="$7"
-	printf '%s\n' "ADGUARD_INSTALL_MODE=\"${mode}\"" >"${WORK_DIR}/.config" || fail "${case_name}: could not write config"
+	dnsmasq_mode="${8:-auto}"
+	printf '%s\n' "ADGUARD_INSTALL_MODE=\"${mode}\"" "ADGUARD_DNSMASQ_MODE=\"${dnsmasq_mode}\"" >"${WORK_DIR}/.config" || fail "${case_name}: could not write config"
 	: >"${CALLS_FILE}"
 	DNSMASQ_RUNNING="${dnsmasq_running}"
 	DNS_BIND_SCOPE="${bind_scope}"
@@ -207,5 +208,6 @@ run_case() {
 run_case 'WAN mode' wan 0 global 0 1 1
 run_case 'LAN mode with dnsmasq running' lan 1 192.168.50.1 1 1 1
 run_case 'LAN mode without dnsmasq' lan 0 192.168.50.1 1 0 0
+run_case 'LAN mode with dnsmasq disabled but running' lan 1 192.168.50.1 1 0 0 disabled
 
 printf '%s\n' 'PASS: S99 DNS handoff lifecycle honors WAN/LAN dnsmasq mode'

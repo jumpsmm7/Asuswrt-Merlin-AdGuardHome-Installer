@@ -106,9 +106,20 @@ agh_dnsmasq_running() {
 	pidof dnsmasq >/dev/null 2>&1
 }
 
+agh_dnsmasq_managed() {
+	if agh_lan_mode && ! agh_dnsmasq_running; then
+		return 1
+	fi
+	case "$(agh_conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" in
+		disabled) return 1 ;;
+		enabled) return 0 ;;
+	esac
+	agh_dnsmasq_running
+}
+
 agh_dns_handoff_required() {
 	case "$(agh_install_mode)" in
-		lan) agh_dnsmasq_running ;;
+		lan) agh_dnsmasq_managed ;;
 		*) return 0 ;;
 	esac
 }
@@ -759,6 +770,12 @@ adguardhome_dns_bind_scope() {
 			gsub(/^\047|\047$/, "", value)
 			return value
 		}
+		function add_bind(value) {
+			value = value_text(value)
+			if (value == "0.0.0.0" || value == "::") wildcard = 1
+			else if (value == lan_ip || value == "127.0.0.1" || value == "::1" || value ~ /^[0-9.]+$/ || value ~ /^[0-9A-Fa-f:]+$/) add_scope(value)
+			else if (value != "") invalid_specific = 1
+		}
 		/^(dns|\047dns\047|"dns"):[[:space:]]*(&[^][{},[:space:]]+[[:space:]]*)?(#.*)?$/ { in_dns = 1; next }
 		/^(dns|\047dns\047|"dns"):/ { exit 1 }
 		in_dns && /^[^[:space:]]/ { exit }
@@ -769,14 +786,23 @@ adguardhome_dns_bind_scope() {
 			value = substr($0, bind_indent + 1)
 			if (value ~ /^[[:space:]]*-[[:space:]]*/) {
 				sub(/^[[:space:]]*-[[:space:]]*/, "", value)
-				value = value_text(value)
-				if (value == "0.0.0.0" || value == "::") wildcard = 1
-				else if (value == lan_ip || value == "127.0.0.1" || value == "::1" || value ~ /^[0-9.]+$/ || value ~ /^[0-9A-Fa-f:]+$/) add_scope(value)
-				else if (value != "") invalid_specific = 1
+				add_bind(value)
 			}
 			next
 		}
 		in_dns && indentation($0) == child_indent && substr($0, child_indent + 1) ~ /^(bind_hosts|\047bind_hosts\047|"bind_hosts"):[[:space:]]*/ {
+			value = substr($0, child_indent + 1)
+			sub(/^(bind_hosts|\047bind_hosts\047|"bind_hosts"):[[:space:]]*/, "", value)
+			sub(/^&[^][{},[:space:]]+[[:space:]]*/, "", value)
+			value = value_text(value)
+			if (value ~ /^\[.*\]$/) {
+				sub(/^\[/, "", value)
+				sub(/\]$/, "", value)
+				count = split(value, values, ",")
+				for (idx = 1; idx <= count; idx++) add_bind(values[idx])
+				next
+			}
+			if (value != "") invalid_specific = 1
 			in_bind = 1
 			bind_indent = child_indent
 			next
