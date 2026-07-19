@@ -38,6 +38,7 @@ extract_function() {
 write_conf() {
 	_key="$1"
 	_value="$2"
+	[ "${FAIL_WRITE_KEY:-}" != "${_key}" ] || return 1
 	_tmp_file="${CONF_FILE}.tmp.$$"
 	awk -v KEY="${_key}" -v VALUE="${_value}" '
 		BEGIN { replaced = 0 }
@@ -86,6 +87,7 @@ extract_function setup_sync_mode_dependent_yaml || fail 'could not extract mode-
 extract_function setup_sync_restored_yaml_for_wan || fail 'could not extract WAN restore YAML sync helper'
 extract_function setup_sync_mode_dependent_yaml_and_snapshot || fail 'could not extract mode-dependent YAML snapshot sync helper'
 extract_function setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could not extract WAN restore YAML snapshot sync helper'
+extract_function restore_mode_migration_yaml || fail 'could not extract mode migration YAML rollback helper'
 extract_function adguard_migrate_detected_install_mode || fail 'could not extract detected-mode migration helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'helper extraction was empty'
 
@@ -104,6 +106,19 @@ PTXT() {
 		shift
 	fi
 	printf '%s\n' "$@"
+}
+
+save_installer_config() {
+	_backup="$1"
+	cp -p "${CONF_FILE}" "${_backup}"
+}
+
+restore_installer_config() {
+	mv -f "$1" "${CONF_FILE}"
+}
+
+discard_installer_config_backup() {
+	rm -f "$1" "$1.absent"
 }
 
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write custom YAML ipset_file'
@@ -310,6 +325,39 @@ for legacy_yaml in "${YAML_FILE}" "${YAML_ORI}"; do
 	grep -Fq -- "- '192.168.50.1:53'" "${legacy_yaml}" || fail 'legacy LAN migration did not replace the WAN reverse target'
 	grep -q '^[[:space:]]*ipset: \[\]$' "${legacy_yaml}" || fail 'legacy LAN migration did not disable inline IPSET mappings'
 	! grep -q 'ipset_file\|example\.com/router' "${legacy_yaml}" || fail 'legacy LAN migration retained an IPSET pathway'
+done
+
+for failed_key in ADGUARD_INSTALL_MODE ADGUARD_IPSET ADGUARD_DNSMASQ_MODE ADGUARD_NETCHECK_MODE; do
+	cat >"${CONF_FILE}" <<'EOF_CONF' || fail "could not reset config for ${failed_key} rollback"
+ADGUARD_WEBUI_PORT="3000"
+ADGUARD_INSTALL_MODE="wan"
+ADGUARD_IPSET="YES"
+ADGUARD_DNSMASQ_MODE="enabled"
+ADGUARD_NETCHECK_MODE="wan"
+EOF_CONF
+	cat >"${YAML_FILE}" <<'EOF_YAML' || fail "could not reset working YAML for ${failed_key} rollback"
+http:
+  address: 0.0.0.0:3000
+dns:
+  bind_hosts:
+    - 0.0.0.0
+  ipset_file: rollback-ipset.conf
+EOF_YAML
+	cp -p "${YAML_FILE}" "${YAML_ORI}" || fail "could not reset original YAML for ${failed_key} rollback"
+	cp -p "${CONF_FILE}" "${TMP_ROOT}/config.before-${failed_key}" || fail "could not preserve config for ${failed_key} rollback"
+	cp -p "${YAML_FILE}" "${TMP_ROOT}/working.before-${failed_key}" || fail "could not preserve working YAML for ${failed_key} rollback"
+	cp -p "${YAML_ORI}" "${TMP_ROOT}/original.before-${failed_key}" || fail "could not preserve original YAML for ${failed_key} rollback"
+	FAIL_WRITE_KEY="${failed_key}"
+	if adguard_migrate_detected_install_mode wan; then
+		fail "mode migration ignored ${failed_key} persistence failure"
+	fi
+	FAIL_WRITE_KEY=''
+	cmp -s "${TMP_ROOT}/config.before-${failed_key}" "${CONF_FILE}" || fail "${failed_key} failure did not restore installer config"
+	cmp -s "${TMP_ROOT}/working.before-${failed_key}" "${YAML_FILE}" || fail "${failed_key} failure did not restore working YAML"
+	cmp -s "${TMP_ROOT}/original.before-${failed_key}" "${YAML_ORI}" || fail "${failed_key} failure did not restore original YAML"
+	[ ! -e "${YAML_FILE}.mode-migration.rollback.$$" ] || fail "${failed_key} failure left a working YAML rollback file"
+	[ ! -e "${YAML_ORI}.mode-migration.rollback.$$" ] || fail "${failed_key} failure left an original YAML rollback file"
+	[ ! -e "${CONF_FILE}.mode-migration.rollback.$$" ] || fail "${failed_key} failure left a config rollback file"
 done
 
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write rollback working YAML'

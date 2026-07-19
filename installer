@@ -5310,8 +5310,24 @@ setup_sync_restored_yaml_and_snapshot_for_wan() {
 	setup_sync_mode_dependent_yaml_and_snapshot
 }
 
+restore_mode_migration_yaml() {
+	local yaml_file_backup="$1" yaml_ori_backup="$2" restore_status=0
+	if [ -f "${yaml_file_backup}" ]; then
+		mv -f "${yaml_file_backup}" "${YAML_FILE}" || restore_status=1
+	else
+		rm -f "${YAML_FILE}" || restore_status=1
+	fi
+	if [ -f "${yaml_ori_backup}" ]; then
+		mv -f "${yaml_ori_backup}" "${YAML_ORI}" || restore_status=1
+	else
+		rm -f "${YAML_ORI}" || restore_status=1
+	fi
+	rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
+	return "${restore_status}"
+}
+
 adguard_migrate_detected_install_mode() {
-	local previous_mode
+	local config_backup previous_mode yaml_file_backup yaml_ori_backup
 	previous_mode="$1"
 	case "${previous_mode}:${ADGUARD_INSTALL_MODE:-}" in
 		wan:lan | lan:wan | :lan)
@@ -5320,16 +5336,36 @@ adguard_migrate_detected_install_mode() {
 			else
 				PTXT "${INFO} Existing installation detected in ${ADGUARD_INSTALL_MODE} mode; updating mode-dependent AdGuardHome settings."
 			fi
+			yaml_file_backup="${YAML_FILE}.mode-migration.rollback.$$"
+			yaml_ori_backup="${YAML_ORI}.mode-migration.rollback.$$"
+			config_backup="${CONF_FILE}.mode-migration.rollback.$$"
+			rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
+			if { [ ! -f "${YAML_FILE}" ] || cp -p "${YAML_FILE}" "${yaml_file_backup}"; } &&
+				{ [ ! -f "${YAML_ORI}" ] || cp -p "${YAML_ORI}" "${yaml_ori_backup}"; } &&
+				save_installer_config "${config_backup}"; then
+				:
+			else
+				rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
+				discard_installer_config_backup "${config_backup}"
+				PTXT "${ERROR} Unable to preserve the current mode configuration."
+				return 1
+			fi
 			if ! setup_sync_mode_dependent_yaml_and_snapshot; then
+				rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
+				discard_installer_config_backup "${config_backup}"
 				PTXT "${ERROR} Unable to update the AdGuardHome configuration for ${ADGUARD_INSTALL_MODE} mode."
 				return 1
 			fi
-			write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\"" || return 1
-			adguard_install_feature_defaults || return 1
-			write_conf ADGUARD_NETCHECK_MODE "\"${ADGUARD_INSTALL_MODE}\"" || return 1
-			case "${ADGUARD_INSTALL_MODE}" in
-				lan) adguardhome_yaml_remove_ipset_file || return 1 ;;
-			esac
+			if ! write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\"" ||
+				! adguard_install_feature_defaults ||
+				! write_conf ADGUARD_NETCHECK_MODE "\"${ADGUARD_INSTALL_MODE}\"" ||
+				{ [ "${ADGUARD_INSTALL_MODE}" = "lan" ] && ! adguardhome_yaml_remove_ipset_file; }; then
+				restore_mode_migration_yaml "${yaml_file_backup}" "${yaml_ori_backup}" || PTXT "${ERROR} Unable to restore the previous AdGuardHome YAML configuration."
+				restore_installer_config "${config_backup}" || PTXT "${ERROR} Unable to restore the previous installer mode configuration."
+				return 1
+			fi
+			rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
+			discard_installer_config_backup "${config_backup}"
 			return 0
 			;;
 	esac
