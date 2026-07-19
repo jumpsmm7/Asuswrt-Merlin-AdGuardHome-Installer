@@ -4854,7 +4854,7 @@ setup_restore_previous_yaml() {
 }
 
 setup_resolve_lan_addresses() {
-	local LAN_IF
+	local LAN_IF NVRAM_ADDR6
 
 	NET_ADDR=""
 	NET_ADDR6=""
@@ -4864,7 +4864,15 @@ setup_resolve_lan_addresses() {
 		NET_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
 	fi
 	[ -n "${NET_ADDR}" ] || NET_ADDR="$(nvram get lan_ipaddr)"
-	[ -n "${NET_ADDR6}" ] || NET_ADDR6="$(nvram get ipv6_rtr_addr)"
+	if [ -z "${NET_ADDR6}" ] && [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
+		NVRAM_ADDR6="$(nvram get ipv6_rtr_addr)"
+		case "${NVRAM_ADDR6}" in
+			""|::) ;;
+			*:*)
+				NET_ADDR6="$(ip -o -6 addr list "${LAN_IF}" 2>/dev/null | awk -v candidate="${NVRAM_ADDR6}" '{ split($4, ip_addr, "/"); if (ip_addr[1] == candidate) { print candidate; exit } }')"
+				;;
+		esac
+	fi
 }
 
 setup_resolve_bind_addresses() {

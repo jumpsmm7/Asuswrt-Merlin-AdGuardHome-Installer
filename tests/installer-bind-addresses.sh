@@ -52,6 +52,9 @@ ip() {
 		'-o -6 addr list br0 scope global')
 			[ -n "${IPV6_FROM_IP:-}" ] && printf '1: br0    inet6 %s/64 scope global\n' "${IPV6_FROM_IP}"
 			;;
+		'-o -6 addr list br0')
+			[ -n "${IPV6_ASSIGNED:-}" ] && printf '1: br0    inet6 %s/64 scope global\n' "${IPV6_ASSIGNED}"
+			;;
 		'-o -4 addr show scope global')
 			[ -n "${IPV4_FROM_IP:-}" ] && printf '1: br0    inet %s/24 brd 192.168.50.255 scope global br0\n' "${IPV4_FROM_IP}"
 			[ -n "${BRIDGE_ADDRS:-}" ] && printf '%s\n' "${BRIDGE_ADDRS}"
@@ -85,6 +88,7 @@ reset_inputs() {
 	IPV4_FROM_NVRAM=""
 	IPV6_FROM_IP=""
 	IPV6_FROM_NVRAM=""
+	IPV6_ASSIGNED=""
 	BRIDGE_ADDRS=""
 	IP_ROUTE_OUTPUT=""
 	ROUTE_OUTPUT=""
@@ -155,6 +159,7 @@ IP_AVAILABLE=1
 LAN_IFNAME=br0
 IPV4_FROM_NVRAM=192.168.1.1
 IPV6_FROM_NVRAM=2001:db8::2
+IPV6_ASSIGNED="${IPV6_FROM_NVRAM}"
 SETUP_DNS_BIND_HOST6='::'
 setup_resolve_lan_addresses
 [ "${NET_ADDR:-}" = "${IPV4_FROM_NVRAM}" ] || fail 'initial YAML LAN IPv4 resolution did not fall back to nvram'
@@ -165,6 +170,21 @@ assert_yaml_bind_hosts lan-nvram 3
 grep -q '^    - 127\.0\.0\.1$' "${TMP_ROOT}/lan-nvram.yaml" || fail 'LAN DNS loopback bind host from nvram fallback was not written'
 grep -q '^    - 192\.168\.1\.1$' "${TMP_ROOT}/lan-nvram.yaml" || fail 'LAN DNS bind host from nvram was not written'
 grep -q '^    - 2001:db8::2$' "${TMP_ROOT}/lan-nvram.yaml" || fail 'LAN DNS IPv6 bind host from nvram was not written'
+
+for invalid_ipv6 in :: 2001:db8::dead; do
+	reset_inputs
+	ADGUARD_INSTALL_MODE=lan
+	IP_AVAILABLE=1
+	LAN_IFNAME=br0
+	IPV4_FROM_NVRAM=192.168.1.1
+	IPV6_FROM_NVRAM="${invalid_ipv6}"
+	IPV6_ASSIGNED=2001:db8::2
+	setup_resolve_lan_addresses
+	[ -z "${NET_ADDR6:-}" ] || fail "LAN IPv6 fallback accepted unusable nvram address ${invalid_ipv6}"
+	setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution without a usable IPv6 fallback failed'
+	assert_bind_values lan-invalid-ipv6 '192.168.1.1:3000' "${IPV4_FROM_NVRAM}"
+	assert_yaml_bind_hosts lan-invalid-ipv6 2
+done
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan
