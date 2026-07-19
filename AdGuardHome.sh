@@ -857,6 +857,123 @@ interface_ipv6_addr() {
 	ip -o -6 addr list "${IFACE}" scope global 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1]; exit }'
 }
 
+adguard_refresh_lan_bind_addresses() {
+	local BIND_HOSTS LAN_ADDR LAN_ADDR6 LAN_IF NVRAM_ADDR6 TEMP_FILE WEB_PORT
+	adguard_lan_mode || return 0
+	[ -f "${YAML_FILE}" ] || return 1
+	LAN_IF="$(nvram get lan_ifname 2>/dev/null)"
+	if [ -n "${LAN_IF}" ]; then
+		LAN_ADDR="$(interface_ipv4_addr "${LAN_IF}")"
+		LAN_ADDR6="$(interface_ipv6_addr "${LAN_IF}")"
+	fi
+	[ -n "${LAN_ADDR:-}" ] || LAN_ADDR="$(nvram get lan_ipaddr 2>/dev/null)"
+	[ -n "${LAN_ADDR}" ] || return 1
+	if [ -z "${LAN_ADDR6:-}" ] && [ -n "${LAN_IF}" ] && have_cmd ip; then
+		NVRAM_ADDR6="$(nvram get ipv6_rtr_addr 2>/dev/null)"
+		case "${NVRAM_ADDR6}" in
+			"" | ::) ;;
+			*:*)
+				LAN_ADDR6="$(ip -o -6 addr list "${LAN_IF}" 2>/dev/null | awk -v candidate="${NVRAM_ADDR6}" '{ split($4, ip_addr, "/"); if (ip_addr[1] == candidate) { print candidate; exit } }')"
+				;;
+		esac
+	fi
+	BIND_HOSTS="$({
+		printf '%s\n' 127.0.0.1 "${LAN_ADDR}" "${LAN_ADDR6:-}"
+		private_ipv4_bridge_dns_options_with_fallbacks | awk 'NF > 1 { print $2 }'
+	} | awk 'NF && !seen[$0]++ { print }')"
+	WEB_PORT="$(awk '
+		function yaml_key_is(line, expected, text, separator, key) {
+			text = line
+			sub(/^[[:space:]]*/, "", text)
+			separator = index(text, ":")
+			if (!separator)
+				return 0
+			key = substr(text, 1, separator - 1)
+			sub(/[[:space:]]*$/, "", key)
+			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
+		}
+		function yaml_mapping_header_is(line, expected, text, separator, value) {
+			if (!yaml_key_is(line, expected))
+				return 0
+			text = line
+			separator = index(text, ":")
+			value = substr(text, separator + 1)
+			sub(/^[[:space:]]*/, "", value)
+			return value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/
+		}
+		/^[^[:space:]]/ && yaml_mapping_header_is($0, "http") { in_http = 1; next }
+		in_http && /^[^[:space:]]/ { exit }
+		in_http && yaml_key_is($0, "address") {
+			value = $0
+			value = substr(value, index(value, ":") + 1)
+			sub(/[[:space:]]+#.*$/, "", value)
+			gsub(/[[:space:]"'"'"']/, "", value)
+			count = split(value, components, ":")
+			print components[count]
+			exit
+		}
+	' "${YAML_FILE}")"
+	case "${WEB_PORT}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	[ "${WEB_PORT}" -gt 0 ] && [ "${WEB_PORT}" -le 65535 ] || return 1
+	TEMP_FILE="${YAML_FILE}.lan-bind.$$"
+	cp -p "${YAML_FILE}" "${TEMP_FILE}" || return 1
+	awk -v bind_hosts="${BIND_HOSTS}" -v web_address="${LAN_ADDR}:${WEB_PORT}" '
+		function indentation(line) { match(line, /^[[:space:]]*/); return RLENGTH }
+		function yaml_key_is(line, expected, text, separator, key) {
+			text = line
+			sub(/^[[:space:]]*/, "", text)
+			separator = index(text, ":")
+			if (!separator)
+				return 0
+			key = substr(text, 1, separator - 1)
+			sub(/[[:space:]]*$/, "", key)
+			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
+		}
+		function yaml_mapping_header_is(line, expected, text, separator, value) {
+			if (!yaml_key_is(line, expected))
+				return 0
+			text = line
+			separator = index(text, ":")
+			value = substr(text, separator + 1)
+			sub(/^[[:space:]]*/, "", value)
+			return value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/
+		}
+		/^[^[:space:]]/ && yaml_mapping_header_is($0, "http") { in_http = 1; print; next }
+		in_http && /^[^[:space:]]/ { in_http = 0 }
+		in_http && yaml_key_is($0, "address") {
+			separator = index($0, ":")
+			print substr($0, 1, separator) " " web_address
+			web_updated = 1
+			next
+		}
+		/^[^[:space:]]/ && yaml_mapping_header_is($0, "dns") { in_dns = 1; print; next }
+		in_dns && /^[^[:space:]]/ { in_dns = 0; in_binds = 0 }
+		in_dns && yaml_key_is($0, "bind_hosts") {
+			bind_indent = indentation($0)
+			separator = index($0, ":")
+			print substr($0, 1, separator)
+			count = split(bind_hosts, hosts, "\n")
+			for (host = 1; host <= count; host++)
+				if (hosts[host] != "") print substr($0, 1, bind_indent) "  - " hosts[host]
+			in_binds = 1
+			binds_updated = 1
+			next
+		}
+		in_binds && $0 ~ /^[[:space:]]*($|#)/ { next }
+		in_binds && indentation($0) >= bind_indent && $0 ~ /^[[:space:]]*-[[:space:]]/ { next }
+		in_binds && indentation($0) > bind_indent { next }
+		in_binds { in_binds = 0 }
+		{ print }
+		END { exit(web_updated && binds_updated ? 0 : 1) }
+	' "${YAML_FILE}" >"${TEMP_FILE}" && mv -f "${TEMP_FILE}" "${YAML_FILE}" || {
+		rm -f "${TEMP_FILE}"
+		return 1
+	}
+	return 0
+}
+
 ipv4_reverse_zone() {
 	printf "%s\n" "$1" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}'
 }
@@ -1360,6 +1477,11 @@ start_adguardhome() {
 	IPSET_START_STOPPED="0"
 	SERVICE_WAIT_TERMINAL_FAILURE="0"
 	if adguard_lan_mode; then
+		if ! adguard_refresh_lan_bind_addresses; then
+			agh_log error start_adguardhome "state=starting action=refresh_lan_bind_addresses result=failed reason=dynamic_address_sync_failed"
+			SERVICE_WAIT_TERMINAL_FAILURE="1"
+			return 1
+		fi
 		if ! IPSet_Disable_Managed; then
 			agh_log error start_adguardhome "state=starting action=disable_managed_ipset result=failed reason=lan_mode_remove_failed"
 			SERVICE_WAIT_TERMINAL_FAILURE="1"

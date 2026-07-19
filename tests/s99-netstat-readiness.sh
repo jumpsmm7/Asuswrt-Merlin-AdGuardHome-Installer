@@ -41,7 +41,8 @@ agh_lan_mode() {
 }
 
 which() {
-	command -v "$1"
+	[ "${1:-}" = nvram ] || return 1
+	printf '%s\n' nvram
 }
 
 nvram() {
