@@ -24,5 +24,10 @@ grep -q 'if \[ "${ADGUARD_FORCE_SETUP_YAML:-0}" = "1" \].*\[ -f "${YAML_FILE}" \
 	fail 'RESTORE does not enter mode-dependent YAML synchronization when requested'
 grep -q 'setup_sync_mode_dependent_yaml_and_snapshot' "${SCRIPT_PATH}" ||
 	fail 'RESTORE does not synchronize both restored YAML pathways'
+grep -q 'setup_sync_mode_dependent_yaml "${yaml_file_stage}"' "${SCRIPT_PATH}" &&
+	grep -q 'setup_sync_mode_dependent_yaml "${yaml_ori_stage}"' "${SCRIPT_PATH}" ||
+	fail 'RESTORE does not stage both restored YAML pathways before publication'
+grep -q 'mv -f "${yaml_file_rollback}" "${YAML_FILE}"' "${SCRIPT_PATH}" ||
+	fail 'RESTORE does not roll back the working YAML when snapshot publication fails'
 
-printf '%s\n' 'PASS: RESTORE rejects missing YAML, preserves feature selections, and synchronizes mode-dependent YAML'
+printf '%s\n' 'PASS: RESTORE rejects missing YAML, preserves feature selections, and atomically synchronizes mode-dependent YAML'

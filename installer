@@ -5218,8 +5218,35 @@ setup_sync_restored_yaml_for_wan() {
 }
 
 setup_sync_mode_dependent_yaml_and_snapshot() {
-	[ ! -f "${YAML_FILE}" ] || setup_sync_mode_dependent_yaml || return 1
-	[ ! -f "${YAML_ORI}" ] || setup_sync_mode_dependent_yaml "${YAML_ORI}" || return 1
+	local yaml_file_stage="${YAML_FILE}.mode-sync.$$" yaml_ori_stage="${YAML_ORI}.mode-sync.$$" yaml_file_rollback="${YAML_FILE}.mode-sync.rollback.$$"
+	if [ -f "${YAML_FILE}" ]; then
+		cp -p "${YAML_FILE}" "${yaml_file_stage}" && cp -p "${YAML_FILE}" "${yaml_file_rollback}" || {
+			rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
+			return 1
+		}
+		setup_sync_mode_dependent_yaml "${yaml_file_stage}" || {
+			rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
+			return 1
+		}
+	fi
+	if [ -f "${YAML_ORI}" ]; then
+		cp -p "${YAML_ORI}" "${yaml_ori_stage}" && setup_sync_mode_dependent_yaml "${yaml_ori_stage}" || {
+			rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
+			return 1
+		}
+	fi
+	if [ -f "${yaml_file_stage}" ]; then
+		mv -f "${yaml_file_stage}" "${YAML_FILE}" || {
+			rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
+			return 1
+		}
+	fi
+	if [ -f "${yaml_ori_stage}" ] && ! mv -f "${yaml_ori_stage}" "${YAML_ORI}"; then
+		[ ! -f "${yaml_file_rollback}" ] || mv -f "${yaml_file_rollback}" "${YAML_FILE}"
+		rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
+		return 1
+	fi
+	rm -f "${yaml_file_rollback}"
 }
 
 setup_sync_restored_yaml_and_snapshot_for_wan() {

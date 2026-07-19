@@ -230,6 +230,27 @@ for restored_yaml in "${YAML_FILE}" "${YAML_ORI}"; do
 done
 ADGUARD_FORCE_SETUP_YAML=0
 
+cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write rollback working YAML'
+http:
+  address: 0.0.0.0:3000
+dns:
+  bind_hosts:
+    - 0.0.0.0
+EOF_YAML
+cp -f "${YAML_FILE}" "${TMP_ROOT}/working-yaml.before-sync" || fail 'could not preserve rollback working YAML'
+cat >"${YAML_ORI}" <<'EOF_YAML' || fail 'could not write malformed original YAML snapshot'
+dns: []
+EOF_YAML
+cp -f "${YAML_ORI}" "${TMP_ROOT}/original-yaml.before-sync" || fail 'could not preserve malformed original YAML snapshot'
+if setup_sync_mode_dependent_yaml_and_snapshot; then
+	fail 'mode-dependent synchronization accepted a malformed original YAML snapshot'
+fi
+cmp -s "${TMP_ROOT}/working-yaml.before-sync" "${YAML_FILE}" || fail 'failed snapshot synchronization changed the working YAML'
+cmp -s "${TMP_ROOT}/original-yaml.before-sync" "${YAML_ORI}" || fail 'failed snapshot synchronization changed the original YAML snapshot'
+[ ! -e "${YAML_FILE}.mode-sync.$$" ] || fail 'failed snapshot synchronization left a working YAML stage'
+[ ! -e "${YAML_ORI}.mode-sync.$$" ] || fail 'failed snapshot synchronization left an original YAML stage'
+[ ! -e "${YAML_FILE}.mode-sync.rollback.$$" ] || fail 'failed snapshot synchronization left a working YAML rollback file'
+
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write restored LAN config for detected WAN'
 ADGUARD_INSTALL_MODE="lan"
 ADGUARD_IPSET="NO"
