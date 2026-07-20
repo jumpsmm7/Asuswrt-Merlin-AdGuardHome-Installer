@@ -29,12 +29,23 @@ sed -n '/^ipv4_is_usable_unicast() {$/,/^}$/p; /^private_ipv4_bridge_dns_options
 
 adguard_lan_mode() { return 0; }
 have_cmd() { return 0; }
-# ip returns duplicate and distinct private addresses in the router's one-line address format.
+# ip returns duplicate and distinct private addresses in both router address formats.
 ip() {
-	printf '%s\n' \
-		'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1' \
-		'5: br1    inet 192.168.102.254/24 brd 192.168.102.255 scope global secondary br1' \
-		'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1'
+	if [ "${IP_OUTPUT_MODE:-fast}" = "fallback" ] && [ "${1:-}" = "-o" ]; then
+		return 0
+	fi
+	if [ "${IP_OUTPUT_MODE:-fast}" = "fallback" ]; then
+		printf '%s\n' \
+			'5: br1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500' \
+			'    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1' \
+			'    inet 192.168.102.254/24 brd 192.168.102.255 scope global secondary br1' \
+			'    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1'
+	else
+		printf '%s\n' \
+			'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1' \
+			'5: br1    inet 192.168.102.254/24 brd 192.168.102.255 scope global secondary br1' \
+			'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1'
+	fi
 }
 # interface_ipv4_addr prints the IPv4 address assigned to the LAN interface.
 interface_ipv4_addr() { printf '%s\n' 192.168.50.27; }
@@ -63,6 +74,11 @@ EOF
 bridge_options="$(private_ipv4_bridge_dns_options)" || fail 'bridge address discovery failed'
 [ "${bridge_options}" = "$(printf '%s\n' 'br1 192.168.101.254' 'br1 192.168.102.254')" ] ||
 	fail 'bridge address discovery did not preserve distinct per-interface addresses'
+IP_OUTPUT_MODE=fallback
+bridge_options="$(private_ipv4_bridge_dns_options)" || fail 'fallback bridge address discovery failed'
+[ "${bridge_options}" = "$(printf '%s\n' 'br1 192.168.101.254' 'br1 192.168.102.254')" ] ||
+	fail 'fallback bridge address discovery did not preserve distinct per-interface addresses'
+IP_OUTPUT_MODE=fast
 
 adguard_refresh_lan_bind_addresses || fail 'dynamic LAN bind refresh failed'
 grep -q '^  address: 192\.168\.50\.27:3443$' "${YAML_FILE}" || fail 'WebUI address or preserved port was not refreshed'

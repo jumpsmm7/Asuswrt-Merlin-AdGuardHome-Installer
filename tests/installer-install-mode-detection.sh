@@ -18,6 +18,24 @@ fail() {
 	exit 1
 }
 
+# extract_function writes a complete shell function, including nested brace groups, to the requested file.
+extract_function() {
+	_function_name="$1"
+	_output_file="$2"
+	awk -v name="${_function_name}" '
+		$0 == name "() {" { copying = 1 }
+		copying {
+			print
+			line = $0
+			opens = gsub(/\{/, "", line)
+			line = $0
+			closes = gsub(/\}/, "", line)
+			depth += opens - closes
+			if (depth == 0) exit
+		}
+	' "${SCRIPT_PATH}" >"${_output_file}"
+}
+
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
@@ -26,7 +44,8 @@ mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n '/^ipv4_is_valid() {$/,/^port_is_valid() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract install mode helpers'
-sed -n '/^rollback_pending_mode_migration() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
+extract_function rollback_pending_mode_migration "${TMP_ROOT}/rollback-function" &&
+	cat "${TMP_ROOT}/rollback-function" >>"${FUNCTIONS_FILE}" ||
 	fail 'could not extract pending migration rollback helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'install mode helper extraction was empty'
 
@@ -58,7 +77,7 @@ event_cleanup_line="$(grep -n 'yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome In
 [ -n "${firewall_cleanup_line}" ] && [ -n "${event_cleanup_line}" ] &&
 	[ "${migration_line}" -lt "${firewall_cleanup_line}" ] && [ "${migration_line}" -lt "${event_cleanup_line}" ] ||
 	fail 'mode migration must finish before firewall state or event hooks are changed'
-sed -n '/^adguard_migrate_detected_install_mode() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_ROOT}/migration" ||
+extract_function adguard_migrate_detected_install_mode "${TMP_ROOT}/migration" ||
 	fail 'could not extract install-mode migration helper'
 wan_hooks_line="$(grep -n 'install_wan_event_scripts' "${TMP_ROOT}/migration" | cut -d: -f1)"
 mode_write_line="$(grep -n 'write_conf ADGUARD_INSTALL_MODE' "${TMP_ROOT}/migration" | head -n 1 | cut -d: -f1)"
@@ -72,7 +91,7 @@ rollback_count="$(grep -c 'rollback_pending_mode_migration || return 2' "${TMP_R
 	fail 'mode migration failure paths do not propagate rollback failures'
 grep -q 'MODE_MIGRATION_HOOKS_BACKUP="${hooks_backup}"' "${TMP_ROOT}/migration" ||
 	fail 'mode migration does not retain hook rollback state for orchestration failures'
-sed -n '/^inst_AdGuardHome() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_ROOT}/install-path" ||
+extract_function inst_AdGuardHome "${TMP_ROOT}/install-path" ||
 	fail 'could not extract install orchestration path'
 awk '
 	/adguard_migrate_detected_install_mode/ { migration = 1; next }

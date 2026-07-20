@@ -5357,7 +5357,7 @@ restore_mode_migration_yaml() {
 backup_mode_migration_wan_hooks() {
 	local backup_dir="$1" hook
 	mkdir -p "${backup_dir}" || return 1
-	for hook in init-start services-stop dnsmasq.postconf firewall-start dnsmasq-sdn.postconf; do
+	for hook in init-start services-stop dnsmasq.postconf firewall-start dnsmasq-sdn.postconf service-event-end; do
 		if [ -f "/jffs/scripts/${hook}" ]; then
 			cp -p "/jffs/scripts/${hook}" "${backup_dir}/${hook}" || {
 				rm -rf "${backup_dir}"
@@ -5374,7 +5374,7 @@ backup_mode_migration_wan_hooks() {
 
 restore_mode_migration_wan_hooks() {
 	local backup_dir="$1" retain_backup="${2:-0}" hook restore_status=0
-	for hook in init-start services-stop dnsmasq.postconf firewall-start dnsmasq-sdn.postconf; do
+	for hook in init-start services-stop dnsmasq.postconf firewall-start dnsmasq-sdn.postconf service-event-end; do
 		if [ -f "${backup_dir}/.${hook}.missing" ]; then
 			rm -f "/jffs/scripts/${hook}" || restore_status=1
 		elif [ -f "${backup_dir}/${hook}" ]; then
@@ -5456,6 +5456,7 @@ adguard_migrate_detected_install_mode() {
 			MODE_MIGRATION_YAML_ORI_BACKUP="${yaml_ori_backup}"
 			MODE_MIGRATION_CONFIG_BACKUP="${config_backup}"
 			MODE_MIGRATION_HOOKS_BACKUP="${hooks_backup}"
+			rm -rf "${hooks_backup}"
 			if ! backup_mode_migration_wan_hooks "${hooks_backup}"; then
 				PTXT "${ERROR} Unable to preserve the previous event scripts."
 				rollback_pending_mode_migration || return 2

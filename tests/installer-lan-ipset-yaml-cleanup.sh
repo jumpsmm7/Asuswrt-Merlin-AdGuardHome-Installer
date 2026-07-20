@@ -34,8 +34,15 @@ extract_function() {
 	_function_name="$1"
 	awk -v name="${_function_name}" '
 		$0 == name "() {" { copying = 1 }
-		copying { print }
-		copying && $0 == "}" { exit }
+		copying {
+			print
+			line = $0
+			opens = gsub(/\{/, "", line)
+			line = $0
+			closes = gsub(/\}/, "", line)
+			depth += opens - closes
+			if (depth == 0) exit
+		}
 	' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" || return 1
 }
 
@@ -125,9 +132,9 @@ backup_mode_migration_wan_hooks() {
 	mkdir -p "$1"
 }
 
-# restore_mode_migration_wan_hooks removes the test-local hook rollback state.
+# restore_mode_migration_wan_hooks removes the test-local hook rollback state unless retention is requested.
 restore_mode_migration_wan_hooks() {
-	rm -rf "$1"
+	[ "${2:-0}" = "1" ] || rm -rf "$1"
 }
 
 # install_wan_event_scripts simulates successful WAN hook synchronization.
