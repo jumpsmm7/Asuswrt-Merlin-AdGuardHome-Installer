@@ -4761,14 +4761,6 @@ inst_AdGuardHome() {
 		end_op_message 1 "$1"
 		return 1
 	fi
-	if [ "${1:-update}" != "RESTORE" ]; then
-		if ! finalize_pending_mode_migration; then
-			PTXT "${ERROR} Unable to remove completed mode-migration recovery backups."
-			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-			end_op_message 1 "$1"
-			return 1
-		fi
-	fi
 	if [ "${1:-update}" != "update" ]; then
 		ptxt_phase "Configuring AdGuardHome first-run settings."
 		if [ ! -f "${ADDON_DIR}/localtime" ]; then
@@ -4792,6 +4784,14 @@ inst_AdGuardHome() {
 		adguard_install_abort_trap_disable_preserve_defer
 		end_op_message 1 "$1"
 		return 1
+	fi
+	if [ "${1:-update}" != "RESTORE" ]; then
+		if ! finalize_pending_mode_migration; then
+			PTXT "${ERROR} Unable to remove completed mode-migration recovery backups."
+			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			end_op_message 1 "$1"
+			return 1
+		fi
 	fi
 	adguard_install_abort_trap_disable_preserve_defer
 	ptxt_ok "AdGuardHome ${1:-install} orchestration complete."
@@ -5452,20 +5452,26 @@ restore_mode_migration_wan_hooks() {
 }
 
 finalize_pending_mode_migration() {
-	local cleanup_status=0
+	local cleanup_status=0 yaml_file_backup yaml_ori_backup config_backup hooks_backup
 	[ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ] || return 0
-	rm -f "${MODE_MIGRATION_YAML_FILE_BACKUP}" "${MODE_MIGRATION_YAML_ORI_BACKUP}" || cleanup_status=1
-	discard_installer_config_backup "${MODE_MIGRATION_CONFIG_BACKUP}" || cleanup_status=1
-	rm -rf "${MODE_MIGRATION_HOOKS_BACKUP}" || cleanup_status=1
-	[ "${cleanup_status}" -eq 0 ] || PTXT "${WARN} Unable to remove completed mode-migration recovery backups; continuing with the completed migration."
+	yaml_file_backup="${MODE_MIGRATION_YAML_FILE_BACKUP}"
+	yaml_ori_backup="${MODE_MIGRATION_YAML_ORI_BACKUP}"
+	config_backup="${MODE_MIGRATION_CONFIG_BACKUP}"
+	hooks_backup="${MODE_MIGRATION_HOOKS_BACKUP}"
+	# Detach the pending marker before nonfatal cleanup so a signal cannot
+	# attempt recovery from a snapshot that is being deleted.
 	MODE_MIGRATION_YAML_FILE_BACKUP=""
 	MODE_MIGRATION_YAML_ORI_BACKUP=""
 	MODE_MIGRATION_CONFIG_BACKUP=""
 	MODE_MIGRATION_HOOKS_BACKUP=""
+	rm -f "${yaml_file_backup}" "${yaml_ori_backup}" || cleanup_status=1
+	discard_installer_config_backup "${config_backup}" || cleanup_status=1
+	rm -rf "${hooks_backup}" || cleanup_status=1
+	[ "${cleanup_status}" -eq 0 ] || PTXT "${WARN} Unable to remove completed mode-migration recovery backups; continuing with the completed migration."
 }
 
 rollback_pending_mode_migration() {
-	local restore_status=0 cleanup_status=0
+	local restore_status=0 cleanup_status=0 yaml_file_backup yaml_ori_backup config_backup hooks_backup
 	[ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ] || return 0
 	restore_mode_migration_yaml "${MODE_MIGRATION_YAML_FILE_BACKUP}" "${MODE_MIGRATION_YAML_ORI_BACKUP}" 1 || {
 		PTXT "${ERROR} Unable to restore the previous AdGuardHome YAML configuration."
@@ -5486,14 +5492,19 @@ rollback_pending_mode_migration() {
 			return 1
 		}
 	fi
-	rm -f "${MODE_MIGRATION_YAML_FILE_BACKUP}" "${MODE_MIGRATION_YAML_ORI_BACKUP}" || cleanup_status=1
-	discard_installer_config_backup "${MODE_MIGRATION_CONFIG_BACKUP}" || cleanup_status=1
-	rm -rf "${MODE_MIGRATION_HOOKS_BACKUP}" || cleanup_status=1
-	[ "${cleanup_status}" -eq 0 ] || PTXT "${WARN} Unable to remove completed mode-migration recovery backups; continuing with the restored installation."
+	yaml_file_backup="${MODE_MIGRATION_YAML_FILE_BACKUP}"
+	yaml_ori_backup="${MODE_MIGRATION_YAML_ORI_BACKUP}"
+	config_backup="${MODE_MIGRATION_CONFIG_BACKUP}"
+	hooks_backup="${MODE_MIGRATION_HOOKS_BACKUP}"
+	# Recovery is complete.  Detach it before best-effort artifact cleanup.
 	MODE_MIGRATION_YAML_FILE_BACKUP=""
 	MODE_MIGRATION_YAML_ORI_BACKUP=""
 	MODE_MIGRATION_CONFIG_BACKUP=""
 	MODE_MIGRATION_HOOKS_BACKUP=""
+	rm -f "${yaml_file_backup}" "${yaml_ori_backup}" || cleanup_status=1
+	discard_installer_config_backup "${config_backup}" || cleanup_status=1
+	rm -rf "${hooks_backup}" || cleanup_status=1
+	[ "${cleanup_status}" -eq 0 ] || PTXT "${WARN} Unable to remove completed mode-migration recovery backups; continuing with the restored installation."
 }
 
 adguard_migrate_detected_install_mode() {

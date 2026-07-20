@@ -114,6 +114,16 @@ extract_function finalize_pending_mode_migration "${TMP_ROOT}/migration-finalize
 	fail 'could not extract mode migration finalizer'
 grep -Fq '[ "${cleanup_status}" -eq 0 ] || PTXT' "${TMP_ROOT}/migration-finalize" ||
 	fail 'mode migration finalization must not block service recovery on backup cleanup failure'
+awk '
+	/MODE_MIGRATION_YAML_FILE_BACKUP=""/ { detached = NR }
+	/rm -f "\$\{yaml_file_backup\}"/ { cleanup = NR }
+	END { exit(detached && cleanup > detached ? 0 : 1) }
+' "${TMP_ROOT}/migration-finalize" || fail 'mode migration finalization exposes partially deleted backups to signal rollback'
+awk '
+	/MODE_MIGRATION_YAML_FILE_BACKUP=""/ { detached = NR }
+	/rm -f "\$\{yaml_file_backup\}"/ { cleanup = NR }
+	END { exit(detached && cleanup > detached ? 0 : 1) }
+' "${TMP_ROOT}/rollback-function" || fail 'mode migration rollback exposes partially deleted backups to signal cleanup'
 extract_function inst_AdGuardHome "${TMP_ROOT}/install-path" ||
 	fail 'could not extract install orchestration path'
 grep -Fq 'if ! finalize_pending_mode_migration; then' "${TMP_ROOT}/install-path" ||
@@ -126,9 +136,18 @@ awk '
 ' "${TMP_ROOT}/install-path" || fail 'finalization failure does not restart the previous installation'
 grep -Fq 'return "${MIGRATE_STATUS}"' "${TMP_ROOT}/install-path" ||
 	fail 'install orchestration does not preserve migration rollback failure status'
-grep -Fq 'inst_AdGuardHome "${1:-update}" "${ADGUARD_BRANCH}"' "${TMP_ROOT}/install-path" &&
-	grep -Fq 'return $?' "${TMP_ROOT}/install-path" ||
-	fail 'recursive package update does not propagate migration failure status'
+awk '
+	/inst_AdGuardHome "\$\{1:-update\}" "\$\{ADGUARD_BRANCH\}"/ { update_call = 1; next }
+	update_call && /^[[:space:]]*$/ { next }
+	update_call { exit($0 ~ /^[[:space:]]*return \$\?[[:space:]]*$/ ? 0 : 1) }
+	END { if (!update_call) exit 1 }
+' "${TMP_ROOT}/install-path" || fail 'recursive package update does not immediately propagate migration failure status'
+
+awk '
+	/if ! agh_complete_startup; then/ { readiness = NR }
+	/if ! finalize_pending_mode_migration; then/ { finalize = NR }
+	END { exit(readiness && finalize > readiness ? 0 : 1) }
+' "${TMP_ROOT}/install-path" || fail 'mode migration is finalized before post-install readiness succeeds'
 awk '
 	/adguard_migrate_detected_install_mode/ { migration = 1; next }
 	migration && /MIGRATE_STATUS=\$\?/ { status = 1; next }
