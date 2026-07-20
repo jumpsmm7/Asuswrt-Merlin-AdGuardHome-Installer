@@ -106,7 +106,7 @@ assert_address() {
 	expected="$2"
 	actual="$(awk '
 		/^http:[[:space:]]*$/ { in_http = 1; next }
-		in_http && /^[^[:space:]]/ { exit }
+		in_http && /^[^[:space:]#]/ { exit }
 		in_http && /^[[:space:]]*address:[[:space:]]*/ {
 			sub(/^[[:space:]]*address:[[:space:]]*/, "")
 			print
@@ -264,6 +264,19 @@ if setup_sync_webui_port 6005 >/dev/null 2>&1; then
 fi
 grep -q '^  address: "127\.0\.0\.1:3000"$' "${YAML_FILE}" ||
 	fail 'multiline flow-style http mapping was rewritten'
+
+reset_router_state
+write_yaml \
+	'http:' \
+	'# bind settings' \
+	'  address: "127.0.0.1:3000"' \
+	'dns:' \
+	'  bind_hosts:' \
+	'    - 0.0.0.0'
+setup_sync_webui_port 6006 || fail 'http address after an unindented comment was not synchronized'
+assert_address http-unindented-comment '127.0.0.1:6006'
+[ "$(grep -c '^[[:space:]]*address:' "${YAML_FILE}")" -eq 1 ] ||
+	fail 'http address after an unindented comment was duplicated'
 
 reset_router_state
 write_yaml \

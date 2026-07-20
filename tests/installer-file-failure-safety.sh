@@ -79,6 +79,7 @@ awk '
 	/^adguard_restore_abort_trap_enable\(\)/,/^}/
 	/^adguard_restore_after_failed_directory_restore\(\)/,/^}/
 	/^adguard_restore_after_failed_replace\(\)/,/^}/
+	/^finalize_pending_mode_migration\(\)/,/^}/
 	/^adguardhome_yaml_ipset_file\(\)/,/^}/
 	/^adguardhome_yaml_remove_ipset_file\(\)/,/^}/
 	/^adguard_enforce_lan_ipset_disabled\(\)/,/^}/

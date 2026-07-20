@@ -126,6 +126,9 @@ awk '
 ' "${TMP_ROOT}/install-path" || fail 'finalization failure does not restart the previous installation'
 grep -Fq 'return "${MIGRATE_STATUS}"' "${TMP_ROOT}/install-path" ||
 	fail 'install orchestration does not preserve migration rollback failure status'
+grep -Fq 'inst_AdGuardHome "${1:-update}" "${ADGUARD_BRANCH}"' "${TMP_ROOT}/install-path" &&
+	grep -Fq 'return $?' "${TMP_ROOT}/install-path" ||
+	fail 'recursive package update does not propagate migration failure status'
 awk '
 	/adguard_migrate_detected_install_mode/ { migration = 1; next }
 	migration && /MIGRATE_STATUS=\$\?/ { status = 1; next }
@@ -143,6 +146,8 @@ grep -q 'Unable to install the required WAN-mode event scripts' "${TMP_ROOT}/mig
 	fail 'LAN-to-WAN migration does not abort when WAN event-script synchronization fails'
 grep -q 'wan:lan | lan:wan | :lan)' "${SCRIPT_PATH}" ||
 	fail 'installer must migrate legacy installs without a saved mode when LAN mode is detected'
+grep -Fq '[ "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" = "wan" ] || [ -z "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" ]' "${FUNCTIONS_FILE}" ||
+	fail 'legacy WAN migration rollback does not restore active firewall state'
 grep -q 'if \[ "${ADGUARD_INSTALL_MODE}" = "wan" \] && \[ -n "${NAT_ENV}" \]' "${SCRIPT_PATH}" ||
 	fail 'double-NAT warning must be gated by WAN install mode'
 grep -q 'if \[ "${ADGUARD_INSTALL_MODE}" = "wan" \]; then' "${SCRIPT_PATH}" ||

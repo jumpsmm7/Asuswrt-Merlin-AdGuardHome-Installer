@@ -289,6 +289,9 @@ installer_cleanup_tmp_file() {
 }
 
 on_installer_exit() {
+	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
+		rollback_pending_mode_migration || PTXT "${ERROR} Unable to roll back the interrupted mode migration."
+	fi
 	cleanup_api_files
 	installer_cleanup_tmp_file setup "${SETUP_YAML_TMP_FILE:-}"
 	installer_cleanup_tmp_file blocklist "${BLOCKLIST_YAML_TMP_FILE:-}"
@@ -3484,7 +3487,7 @@ adguard_install_abort_trap_disable_preserve_defer() {
 }
 
 adguard_install_abort_on_signal() {
-	local OLD_BINARY REPLACE_ACTIVE RESTORE_ACTIVE RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARGET_INSTALLED RESTORE_TARG_DIR STAGE_DIR WAS_RUNNING
+	local MIGRATION_ROLLBACK_STATUS=0 OLD_BINARY REPLACE_ACTIVE RESTORE_ACTIVE RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARGET_INSTALLED RESTORE_TARG_DIR STAGE_DIR WAS_RUNNING
 	OLD_BINARY="${ADGUARD_INSTALL_OLD_BINARY:-}"
 	REPLACE_ACTIVE="${ADGUARD_INSTALL_REPLACE_ACTIVE:-0}"
 	STAGE_DIR="${ADGUARD_INSTALL_STAGE_DIR:-}"
@@ -3496,7 +3499,12 @@ adguard_install_abort_on_signal() {
 	RESTORE_TARGET_INSTALLED="${ADGUARD_RESTORE_TARGET_INSTALLED:-0}"
 	adguard_install_abort_trap_disable
 	[ -z "${STAGE_DIR}" ] || rm -rf "${STAGE_DIR}"
-	if [ "${RESTORE_ACTIVE}" = "1" ]; then
+	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
+		rollback_pending_mode_migration || MIGRATION_ROLLBACK_STATUS=1
+	fi
+	if [ "${MIGRATION_ROLLBACK_STATUS}" -ne 0 ]; then
+		PTXT "${ERROR} Unable to roll back the interrupted mode migration; the previous installation was not restarted."
+	elif [ "${RESTORE_ACTIVE}" = "1" ]; then
 		adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${RESTORE_TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "${RESTORE_TARGET_INSTALLED}"
 	elif [ "${REPLACE_ACTIVE}" = "1" ] && [ -n "${OLD_BINARY}" ]; then
 		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
@@ -4148,6 +4156,13 @@ backup_restore() {
 			return 1
 		fi
 		ptxt_ok "Reinstalled AdGuardHome service scripts after restore."
+		if ! finalize_pending_mode_migration; then
+			ADGUARD_DEFER_END_OP="0"
+			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
+			adguard_install_abort_trap_disable
+			PTXT "${ERROR} Unable to finalize mode migration after restore."
+			return 1
+		fi
 		ADGUARD_DEFER_END_OP="0"
 		adguard_install_abort_trap_disable
 		rm -rf "${RESTORE_ROLLBACK_DIR}"
@@ -4494,6 +4509,7 @@ inst_AdGuardHome() {
 						esac
 					fi
 					inst_AdGuardHome "${1:-update}" "${ADGUARD_BRANCH}"
+					return $?
 				else
 					if [ "${1:-update}" = "update" ]; then
 						PTXT "${INFO} Refreshing installer-managed service integration."
@@ -4745,11 +4761,13 @@ inst_AdGuardHome() {
 		end_op_message 1 "$1"
 		return 1
 	fi
-	if ! finalize_pending_mode_migration; then
-		PTXT "${ERROR} Unable to remove completed mode-migration recovery backups."
-		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-		end_op_message 1 "$1"
-		return 1
+	if [ "${1:-update}" != "RESTORE" ]; then
+		if ! finalize_pending_mode_migration; then
+			PTXT "${ERROR} Unable to remove completed mode-migration recovery backups."
+			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			end_op_message 1 "$1"
+			return 1
+		fi
 	fi
 	if [ "${1:-update}" != "update" ]; then
 		ptxt_phase "Configuring AdGuardHome first-run settings."
@@ -5088,7 +5106,7 @@ setup_sync_webui_port() {
 			in_http = 1
 			next
 		}
-		in_http && /^[^[:space:]]/ { exit }
+		in_http && /^[^[:space:]#]/ { exit }
 		in_http && yaml_key_is($0, "address") { print; exit }
 	' "${YAML_FILE}")"
 	CURRENT_WEB_ADDRESS="$(printf '%s\n' "${CURRENT_WEB_LINE}" | sed 's/^[[:space:]]*["'"'"']\{0,1\}address["'"'"']\{0,1\}[[:space:]]*:[[:space:]]*//; s/[[:space:]][[:space:]]*#.*$//; s/[[:space:]]*$//')"
@@ -5462,7 +5480,7 @@ rollback_pending_mode_migration() {
 		restore_status=1
 	}
 	[ "${restore_status}" -eq 0 ] || return 1
-	if [ "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" = "wan" ] && [ -x "${ADDON_DIR}/AdGuardHome.sh" ]; then
+	if { [ "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" = "wan" ] || [ -z "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" ]; } && [ -x "${ADDON_DIR}/AdGuardHome.sh" ]; then
 		"${ADDON_DIR}/AdGuardHome.sh" firewall >/dev/null 2>&1 || {
 			PTXT "${ERROR} Unable to restore the previous WAN firewall state."
 			return 1

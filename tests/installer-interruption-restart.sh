@@ -334,4 +334,22 @@ awk '
 	END { exit !(final_setup && disable && cleanup && final_setup < disable && disable < cleanup) }
 ' "${SCRIPT_PATH}" || fail 'restore trap is not disabled before rollback cleanup removal'
 
+awk '
+	/^backup_restore\(\) \{/ { in_function = 1 }
+	in_function && /inst_AdGuardHome "\$\{1:-RESTORE\}"/ { install = NR }
+	in_function && /finalize_pending_mode_migration/ { finalize = NR }
+	in_function && /rm -rf "\$\{RESTORE_ROLLBACK_DIR\}"/ { cleanup = NR }
+	in_function && /^}/ { exit }
+	END { exit !(install && finalize && cleanup && install < finalize && finalize < cleanup) }
+' "${SCRIPT_PATH}" || fail 'restore finalizes mode migration before its directory rollback is committed'
+
+awk '
+	/^adguard_install_abort_on_signal\(\) \{/ { in_function = 1 }
+	in_function && /rollback_pending_mode_migration/ { migration = NR }
+	in_function && /adguard_restore_after_failed_directory_restore/ { restore = NR }
+	in_function && /adguard_restart_after_install_abort/ { restart = NR }
+	in_function && /^}/ { exit }
+	END { exit !(migration && restore && restart && migration < restore && migration < restart) }
+' "${SCRIPT_PATH}" || fail 'signal cleanup does not roll back pending mode migration before service recovery'
+
 printf '%s\n' 'PASS: installation interruption restarts the previously running service'
