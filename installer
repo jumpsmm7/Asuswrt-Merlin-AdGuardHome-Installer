@@ -926,7 +926,7 @@ preflight_check_router_eligibility() {
 			;;
 		"")
 			lan_ipaddr="$(nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
-			if ipv4_is_valid "${lan_ipaddr}"; then
+			if ipv4_is_usable_unicast "${lan_ipaddr}"; then
 				PTXT "preflight.router.mode=lan"
 				PTXT "preflight.router.mode.result=OK"
 				PTXT "preflight.router.mode.note=missing-sw-mode-lan-ip-fallback"
@@ -939,7 +939,7 @@ preflight_check_router_eligibility() {
 			;;
 		*)
 			lan_ipaddr="$(nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
-			if ipv4_is_valid "${lan_ipaddr}"; then
+			if ipv4_is_usable_unicast "${lan_ipaddr}"; then
 				PTXT "preflight.router.mode=lan"
 				PTXT "preflight.router.mode.result=OK"
 				PTXT "preflight.router.mode.note=non-router-mode-lan-install"
@@ -5031,7 +5031,7 @@ setup_sync_webui_port() {
 		in_http && /^[^[:space:]]/ { exit }
 		in_http && /^[[:space:]]*address:[[:space:]]*/ { print; exit }
 	' "${YAML_FILE}")"
-	CURRENT_WEB_ADDRESS="$(printf '%s\n' "${CURRENT_WEB_LINE}" | sed 's/^[[:space:]]*address:[[:space:]]*//; s/[[:space:]]*$//')"
+	CURRENT_WEB_ADDRESS="$(printf '%s\n' "${CURRENT_WEB_LINE}" | sed 's/^[[:space:]]*address:[[:space:]]*//; s/[[:space:]][[:space:]]*#.*$//; s/[[:space:]]*$//')"
 	case "${CURRENT_WEB_ADDRESS}" in
 		\"*\")
 			CURRENT_WEB_ADDRESS="${CURRENT_WEB_ADDRESS#\"}"
@@ -5307,8 +5307,33 @@ restore_mode_migration_yaml() {
 	return "${restore_status}"
 }
 
+backup_mode_migration_wan_hooks() {
+	local backup_dir="$1" hook
+	mkdir -p "${backup_dir}" || return 1
+	for hook in init-start services-stop dnsmasq.postconf firewall-start dnsmasq-sdn.postconf; do
+		if [ -f "/jffs/scripts/${hook}" ]; then
+			cp -p "/jffs/scripts/${hook}" "${backup_dir}/${hook}" || return 1
+		else
+			: >"${backup_dir}/.${hook}.missing" || return 1
+		fi
+	done
+}
+
+restore_mode_migration_wan_hooks() {
+	local backup_dir="$1" hook restore_status=0
+	for hook in init-start services-stop dnsmasq.postconf firewall-start dnsmasq-sdn.postconf; do
+		if [ -f "${backup_dir}/.${hook}.missing" ]; then
+			rm -f "/jffs/scripts/${hook}" || restore_status=1
+		elif [ -f "${backup_dir}/${hook}" ]; then
+			cp -p "${backup_dir}/${hook}" "/jffs/scripts/${hook}" || restore_status=1
+		fi
+	done
+	rm -rf "${backup_dir}"
+	return "${restore_status}"
+}
+
 adguard_migrate_detected_install_mode() {
-	local config_backup previous_mode yaml_file_backup yaml_ori_backup
+	local config_backup hooks_backup previous_mode yaml_file_backup yaml_ori_backup
 	previous_mode="$1"
 	case "${previous_mode}:${ADGUARD_INSTALL_MODE:-}" in
 		wan:lan | lan:wan | :lan)
@@ -5320,6 +5345,7 @@ adguard_migrate_detected_install_mode() {
 			yaml_file_backup="${YAML_FILE}.mode-migration.rollback.$$"
 			yaml_ori_backup="${YAML_ORI}.mode-migration.rollback.$$"
 			config_backup="${CONF_FILE}.mode-migration.rollback.$$"
+			hooks_backup="${CONF_FILE}.mode-migration-hooks.rollback.$$"
 			rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
 			if { [ ! -f "${YAML_FILE}" ] || cp -p "${YAML_FILE}" "${yaml_file_backup}"; } &&
 				{ [ ! -f "${YAML_ORI}" ] || cp -p "${YAML_ORI}" "${yaml_ori_backup}"; } &&
@@ -5337,9 +5363,11 @@ adguard_migrate_detected_install_mode() {
 				PTXT "${ERROR} Unable to update the AdGuardHome configuration for ${ADGUARD_INSTALL_MODE} mode."
 				return 1
 			fi
-			if [ "${previous_mode}" = "lan" ] && ! install_wan_event_scripts; then
+			if [ "${previous_mode}" = "lan" ] &&
+				{ ! backup_mode_migration_wan_hooks "${hooks_backup}" || ! install_wan_event_scripts; }; then
 				restore_mode_migration_yaml "${yaml_file_backup}" "${yaml_ori_backup}" || PTXT "${ERROR} Unable to restore the previous AdGuardHome YAML configuration."
 				restore_installer_config "${config_backup}" || PTXT "${ERROR} Unable to restore the previous installer mode configuration."
+				restore_mode_migration_wan_hooks "${hooks_backup}" || PTXT "${ERROR} Unable to restore the previous event scripts."
 				PTXT "${ERROR} Unable to install the required WAN-mode event scripts."
 				return 1
 			fi
@@ -5349,8 +5377,12 @@ adguard_migrate_detected_install_mode() {
 				{ [ "${ADGUARD_INSTALL_MODE}" = "lan" ] && ! adguardhome_yaml_remove_ipset_file; }; then
 				restore_mode_migration_yaml "${yaml_file_backup}" "${yaml_ori_backup}" || PTXT "${ERROR} Unable to restore the previous AdGuardHome YAML configuration."
 				restore_installer_config "${config_backup}" || PTXT "${ERROR} Unable to restore the previous installer mode configuration."
+				if [ "${previous_mode}" = "lan" ]; then
+					restore_mode_migration_wan_hooks "${hooks_backup}" || PTXT "${ERROR} Unable to restore the previous event scripts."
+				fi
 				return 1
 			fi
+			[ "${previous_mode}" != "lan" ] || rm -rf "${hooks_backup}"
 			rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
 			discard_installer_config_backup "${config_backup}"
 			return 0

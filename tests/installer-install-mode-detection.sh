@@ -62,8 +62,10 @@ wan_hooks_line="$(grep -n 'install_wan_event_scripts' "${TMP_ROOT}/migration" | 
 mode_write_line="$(grep -n 'write_conf ADGUARD_INSTALL_MODE' "${TMP_ROOT}/migration" | head -n 1 | cut -d: -f1)"
 [ -n "${wan_hooks_line}" ] && [ -n "${mode_write_line}" ] && [ "${wan_hooks_line}" -lt "${mode_write_line}" ] ||
 	fail 'LAN-to-WAN migration must install WAN event hooks before persisting WAN mode'
-grep -q 'if \[ "${previous_mode}" = "lan" \] && ! install_wan_event_scripts; then' "${TMP_ROOT}/migration" ||
+grep -q '! backup_mode_migration_wan_hooks "${hooks_backup}" || ! install_wan_event_scripts' "${TMP_ROOT}/migration" ||
 	fail 'LAN-to-WAN migration does not require WAN event-script synchronization'
+grep -q 'restore_mode_migration_wan_hooks "${hooks_backup}"' "${TMP_ROOT}/migration" ||
+	fail 'LAN-to-WAN migration does not restore event scripts after failure'
 grep -q 'Unable to install the required WAN-mode event scripts' "${TMP_ROOT}/migration" ||
 	fail 'LAN-to-WAN migration does not abort when WAN event-script synchronization fails'
 grep -q 'wan:lan | lan:wan | :lan)' "${SCRIPT_PATH}" ||

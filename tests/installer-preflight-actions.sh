@@ -23,8 +23,10 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
-sed -n '/^ipv4_is_valid() {$/,/^}$/p; /^preflight_action_requires_entware() {$/,/^preflight_check_path() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
-	fail 'could not extract preflight action helpers'
+{
+	sed -n '/^ipv4_is_valid() {$/,/^ipv4_is_private() {$/p' "${SCRIPT_PATH}" | sed '$d'
+	sed -n '/^preflight_action_requires_entware() {$/,/^preflight_check_path() {$/p' "${SCRIPT_PATH}" | sed '$d'
+} >"${FUNCTIONS_FILE}" || fail 'could not extract preflight action helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'preflight action helper extraction was empty'
 
 sed -n '/^preflight() {$/,/^sanitize_branch() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${PREFLIGHT_FILE}" ||
@@ -250,6 +252,14 @@ run_router_mode_case lan-invalid-ip 2 999.168.50.1 1 \
 	'preflight.router.mode=lan' \
 	'preflight.router.mode.result=FAIL' \
 	'preflight.router.mode.reason=non-router-mode-and-no-usable-lan-ip'
+run_router_mode_case lan-wildcard-ip 2 0.0.0.0 1 \
+	'preflight.router.mode=lan' \
+	'preflight.router.mode.result=FAIL' \
+	'preflight.router.mode.reason=non-router-mode-and-no-usable-lan-ip'
+run_router_mode_case missing-loopback-ip '' 127.0.0.1 1 \
+	'preflight.router.mode=missing' \
+	'preflight.router.mode.result=FAIL' \
+	'preflight.router.mode.reason=missing-sw-mode-and-no-usable-lan-ip'
 run_router_mode_case missing-lan-ip '' 192.168.50.1 0 \
 	'preflight.router.mode=lan' \
 	'preflight.router.mode.result=OK' \

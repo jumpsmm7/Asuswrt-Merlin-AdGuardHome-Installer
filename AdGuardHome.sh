@@ -889,7 +889,8 @@ ipv4_is_usable_unicast() {
 
 # adguard_refresh_lan_bind_addresses updates AdGuardHome's LAN WebUI address and DNS bind hosts in the YAML configuration.
 adguard_refresh_lan_bind_addresses() {
-	local BIND_HOSTS LAN_ADDR LAN_ADDR6 LAN_IF NVRAM_ADDR6 TEMP_FILE WEB_PORT
+	local BIND_HOSTS CURRENT_MD5 LAN_ADDR LAN_ADDR6 LAN_IF NEW_MD5 NVRAM_ADDR6 TEMP_FILE WEB_PORT
+	LAN_BIND_ADDRESSES_CHANGED="0"
 	adguard_lan_mode || return 0
 	[ -f "${YAML_FILE}" ] || return 1
 	LAN_IF="$(nvram get lan_ifname 2>/dev/null)"
@@ -1000,10 +1001,21 @@ adguard_refresh_lan_bind_addresses() {
 		in_binds { in_binds = 0 }
 		{ print }
 		END { exit(web_updated && binds_updated ? 0 : 1) }
-	' "${YAML_FILE}" >"${TEMP_FILE}" && mv -f "${TEMP_FILE}" "${YAML_FILE}" || {
+	' "${YAML_FILE}" >"${TEMP_FILE}" || {
 		rm -f "${TEMP_FILE}"
 		return 1
 	}
+	CURRENT_MD5="$(md5sum "${YAML_FILE}" 2>/dev/null | awk '{ print $1 }')"
+	NEW_MD5="$(md5sum "${TEMP_FILE}" 2>/dev/null | awk '{ print $1 }')"
+	if [ -n "${CURRENT_MD5}" ] && [ "${CURRENT_MD5}" = "${NEW_MD5}" ]; then
+		rm -f "${TEMP_FILE}"
+	else
+		mv -f "${TEMP_FILE}" "${YAML_FILE}" || {
+			rm -f "${TEMP_FILE}"
+			return 1
+		}
+		LAN_BIND_ADDRESSES_CHANGED="1"
+	fi
 	return 0
 }
 
@@ -1641,6 +1653,16 @@ start_monitor() {
 					1)
 						if [ "${MONITOR_ELAPSED}" -ge "${MONITOR_HEALTHCHECK_INTERVAL}" ]; then
 							MONITOR_ELAPSED="0"
+							if adguard_lan_mode; then
+								if ! adguard_refresh_lan_bind_addresses; then
+									agh_log warning start_monitor "state=running action=refresh_lan_bind_addresses reason=periodic_sync result=failed"
+								elif [ "${LAN_BIND_ADDRESSES_CHANGED:-0}" -eq 1 ]; then
+									agh_log info start_monitor "state=running action=refresh_lan_bind_addresses reason=address_changed result=restarting"
+									unset MONITOR_ELAPSED
+									{ adguardhome_run start_adguardhome; }
+									continue
+								fi
+							fi
 							case "$(netcheck_config ADGUARD_NETCHECK_MODE "${DEFAULT_ADGUARD_NETCHECK_MODE}")" in
 								lan | LAN)
 									if { ! service_wait netcheck_lan_dns "${MONITOR_HEALTHCHECK_TIMEOUT}"; }; then

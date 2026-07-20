@@ -158,6 +158,13 @@ assert_address preserve-runtime-port-host '192.168.50.2:4646'
 reset_router_state
 write_yaml \
 	'http:' \
+	'  address: 127.0.0.1:3000 # local only'
+setup_sync_webui_port 4747 || fail 'inline-commented WebUI address synchronization failed'
+assert_address preserve-inline-comment-host '127.0.0.1:4747'
+
+reset_router_state
+write_yaml \
+	'http:' \
 	'  address:'
 setup_sync_webui_port 5555 || fail 'empty WAN address fallback synchronization failed'
 assert_address wan-empty-fallback '0.0.0.0:5555'
