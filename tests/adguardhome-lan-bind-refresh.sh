@@ -8,10 +8,12 @@ TMP_ROOT="${TMPDIR:-/tmp}/adguardhome-lan-bind-refresh.$$"
 FUNCTION_FILE="${TMP_ROOT}/functions"
 YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 
+# cleanup removes the temporary test directory and its contents.
 cleanup() {
 	rm -rf "${TMP_ROOT}"
 }
 
+# fail reports a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -27,9 +29,13 @@ sed -n '/^ipv4_is_usable_unicast() {$/,/^}$/p; /^adguard_refresh_lan_bind_addres
 
 adguard_lan_mode() { return 0; }
 have_cmd() { return 0; }
+# interface_ipv4_addr prints the IPv4 address assigned to the LAN interface.
 interface_ipv4_addr() { printf '%s\n' 192.168.50.27; }
+# interface_ipv6_addr prints the IPv6 address assigned to the LAN interface.
 interface_ipv6_addr() { printf '%s\n' 2001:db8::27; }
+# private_ipv4_bridge_dns_options_with_fallbacks outputs the bridge interface and its fallback private IPv4 DNS address.
 private_ipv4_bridge_dns_options_with_fallbacks() { printf '%s\n' 'br1 192.168.101.1'; }
+# nvram returns fixed test values for the requested NVRAM variable.
 nvram() {
 	case "$2" in
 		lan_ifname) printf '%s\n' br0 ;;
@@ -81,7 +87,9 @@ if adguard_refresh_lan_bind_addresses; then
 fi
 cmp -s "${YAML_FILE}" "${YAML_FILE}.malformed" || fail 'failed refresh modified YAML'
 
+# interface_ipv4_addr prints the IPv4 address assigned to the interface.
 interface_ipv4_addr() { printf '%s\n' 0.0.0.0; }
+# nvram returns fixture values for the requested LAN-related NVRAM key.
 nvram() {
 	case "$2" in
 		lan_ifname) printf '%s\n' br0 ;;

@@ -64,6 +64,7 @@ grep -q '^ADGUARD_IPSET="NO"$' "${CONF_FILE}" || fail 'WAN feature defaults over
 grep -q '^ADGUARD_DNSMASQ_MODE="enabled"$' "${CONF_FILE}" || fail 'WAN existing feature defaults did not save enabled DNSMasq mode'
 
 CONF_FILE="${TMP_ROOT}/new-lan.config"
+# nvram returns the configured LAN gateway address for supported queries and fails for all other queries.
 nvram() {
 	case "${1:-}:${2:-}" in
 		get:lan_gateway) printf '%s\n' 192.168.50.1 ;;
@@ -95,6 +96,7 @@ grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" || fail 'new LAN install d
 grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'new LAN install did not save lan netcheck mode'
 grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'new LAN install did not save balanced profile'
 
+# nvram returns `1` for `sw_mode` requests and fails for all other requests.
 nvram() {
 	case "${1:-}:${2:-}" in
 		get:sw_mode) printf '%s\n' 1 ;;
@@ -106,6 +108,7 @@ configure_runtime_defaults new-install invalid 0 >"${TMP_ROOT}/new-invalid-route
 grep -q '^ADGUARD_INSTALL_MODE="wan"$' "${CONF_FILE}" || fail 'invalid-mode router fallback did not save wan install mode'
 grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'invalid-mode router fallback did not save wan netcheck mode'
 
+# nvram returns `2` for `get:sw_mode` requests and fails for all other requests.
 nvram() {
 	case "${1:-}:${2:-}" in
 		get:sw_mode) printf '%s\n' 2 ;;
@@ -117,6 +120,7 @@ configure_runtime_defaults new-install invalid 1 >"${TMP_ROOT}/new-invalid-lan.o
 grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" || fail 'invalid-mode LAN fallback did not save lan install mode'
 grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'invalid-mode LAN fallback did not save lan netcheck mode'
 
+# nvram returns a failure status for all queries.
 nvram() {
 	return 1
 }

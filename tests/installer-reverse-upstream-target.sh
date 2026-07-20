@@ -7,11 +7,13 @@ SCRIPT_PATH="${1:-installer}"
 TMP_ROOT="${TMPDIR:-/tmp}/installer-reverse-upstream-target.$$"
 FUNCTIONS_FILE="${TMP_ROOT}/functions.sh"
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
 
+# cleanup removes the temporary test workspace.
 cleanup() {
 	rm -rf "${TMP_ROOT}"
 }
@@ -26,15 +28,18 @@ grep -q '^setup_reverse_upstream_target() {$' "${FUNCTIONS_FILE}" || fail 'rever
 . "${FUNCTIONS_FILE}"
 
 ERROR='Error:'
+# PTXT prints each argument on a separate line.
 PTXT() {
 	printf '%s\n' "$@"
 }
+# conf_value returns the test-configured LAN reverse upstream value for the requested key. Supports only ADGUARD_LAN_REVERSE_UPSTREAM.
 conf_value() {
 	case "$1" in
 		ADGUARD_LAN_REVERSE_UPSTREAM) printf '%s\n' "${TEST_CONF_LAN_REVERSE_UPSTREAM:-}" ;;
 		*) return 1 ;;
 	esac
 }
+# nvram reads stubbed LAN gateway and IP address values for test scenarios.
 nvram() {
 	case "$1:${2:-}" in
 		get:lan_gateway) printf '%s\n' "${TEST_LAN_GATEWAY:-}" ;;
@@ -42,6 +47,7 @@ nvram() {
 	esac
 }
 
+# assert_target verifies that reverse upstream target selection succeeds with the expected value.
 assert_target() {
 	case_name="$1"
 	expected="$2"
@@ -53,6 +59,7 @@ assert_target() {
 		fail "${case_name}: expected ${expected}, got ${SETUP_REVERSE_UPSTREAM}"
 }
 
+# assert_failure verifies that reverse upstream target setup fails and preserves the expected target value.
 assert_failure() {
 	case_name="$1"
 	expected_stale="$2"

@@ -78,18 +78,23 @@ CONF_LOG="${LOG}.conf"
 : >"${END_LOG}"
 : >"${CONF_LOG}"
 ADGUARD_INSTALL_MODE='lan'
+# read_yesno fails the test if LAN-mode option 8 prompts for IPSET integration.
 read_yesno() {
 	fail 'LAN-mode option 8 should not prompt for IPSET integration'
 }
+# write_conf appends a configuration key-value pair to the configuration log.
 write_conf() {
 	printf '%s=%s\n' "$1" "$2" >>"${CONF_LOG}"
 }
+# service appends the provided arguments as a single line to the service log.
 service() {
 	printf '%s\n' "$*" >>"${SERVICE_LOG}"
 }
+# PTXT appends the provided text to the log file.
 PTXT() {
 	printf '%s\n' "$*" >>"${LOG}"
 }
+# end_op_message writes the operation status message to the end-operation log.
 end_op_message() {
 	printf '%s\n' "$1" >>"${END_LOG}"
 }

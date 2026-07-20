@@ -23,6 +23,7 @@ assert_single_function() {
 	[ "${FUNCTION_COUNT}" -eq 1 ] || fail "expected one ${FUNCTION_NAME} definition, found ${FUNCTION_COUNT}"
 }
 
+# assert_startup_uses_lock_first_setup verifies that startup has one LAN cleanup gate, one WAN-only lock-first setup call, and no legacy IPSET setup call.
 assert_startup_uses_lock_first_setup() {
 	STARTUP_SETUP_CALLS="$(awk '
 		/^start_adguardhome\(\) \{$/ { in_start = 1; next }
@@ -35,6 +36,7 @@ assert_startup_uses_lock_first_setup() {
 	[ "${STARTUP_SETUP_CALLS}" = '1 1 0' ] || fail "expected one outer LAN cleanup gate, one WAN-only lock-first setup call, and no legacy setup call, found ${STARTUP_SETUP_CALLS}"
 }
 
+# assert_optional_ipset_tools_do_not_gate_startup verifies that optional IPSET-only tools are excluded from the manager startup dependency gate.
 assert_optional_ipset_tools_do_not_gate_startup() {
 	DEPENDENCY_LINE="$(sed -n '/^manager_dependencies_available() {$/,/^}$/p' "${SCRIPT_PATH}" | grep 'for REQUIRED_COMMAND in')"
 	case " ${DEPENDENCY_LINE} " in
@@ -66,26 +68,32 @@ sed -n '/^service_wait() {$/,/^}$/p' "${SCRIPT_PATH}" >"${SERVICE_WAIT_FILE}" ||
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
+# adguard_dnsmasq_managed reports whether dnsmasq is managed by AdGuard Home.
 adguard_dnsmasq_managed() {
 	return "${DNSMASQ_MANAGED_STATUS:-0}"
 }
 
+# conf_value reports whether IPSET configuration is enabled.
 conf_value() {
 	[ "${IPSET_CONFIG:-YES}" = "NO" ] && printf '%s\n' NO || printf '%s\n' YES
 }
 
+# adguard_lan_mode determines whether AdGuard Home is configured for LAN mode.
 adguard_lan_mode() {
 	[ "${INSTALL_MODE:-wan}" = "lan" ]
 }
 
+# adguard_refresh_lan_bind_addresses returns the configured LAN bind-address refresh status.
 adguard_refresh_lan_bind_addresses() {
 	return "${LAN_BIND_REFRESH_STATUS:-0}"
 }
 
+# adguard_ipset_allowed reports whether IPSET integration is allowed outside LAN mode.
 adguard_ipset_allowed() {
 	! adguard_lan_mode
 }
 
+# IPSet_Supported records the IPSET support check and returns its configured status.
 IPSet_Supported() {
 	printf '%s\n' IPSet_Supported >>"${CALLS_FILE}"
 	IPSET_LEGACY_VERSION="${LEGACY_VERSION:-}"
@@ -137,6 +145,7 @@ service() {
 	printf '%s\n' "service $1" >>"${CALLS_FILE}"
 }
 
+# lower_script simulates stop, start, and restart operations using the configured test statuses.
 lower_script() {
 	printf '%s\n' "lower_script $1" >>"${CALLS_FILE}"
 	case "$1" in

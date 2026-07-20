@@ -6,10 +6,12 @@ set -u
 SCRIPT_PATH="${1:-installer}"
 TMP_FILE="${TMPDIR:-/tmp}/installer-event-script-modes.$$"
 
+# cleanup removes temporary extracted files created by the regression check.
 cleanup() {
 	rm -f "${TMP_FILE}" "${TMP_FILE}.wan" "${TMP_FILE}.lan" "${TMP_FILE}.wan-helper"
 }
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1

@@ -9,15 +9,18 @@ FUNCTIONS_FILE="${TEST_ROOT}/functions"
 NVRAM_FILE="${TEST_ROOT}/nvram"
 NVRAM_SETS_FILE="${TEST_ROOT}/nvram-sets"
 
+# cleanup removes the temporary test workspace and its contents.
 cleanup() {
 	rm -rf "${TEST_ROOT}"
 }
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
 
+# write_conf resets the configuration file and writes each provided value on its own line.
 write_conf() {
 	: >"${CONF_FILE}" || fail 'could not reset config file'
 	while [ "$#" -gt 0 ]; do
@@ -26,6 +29,7 @@ write_conf() {
 	done
 }
 
+# nvram_value prints the value associated with a key in the simulated NVRAM file.
 nvram_value() {
 	awk -v KEY="$1" '
 		index($0, KEY "=") == 1 { print substr($0, length(KEY) + 2); found = 1 }
@@ -33,11 +37,13 @@ nvram_value() {
 	' "${NVRAM_FILE}"
 }
 
+# assert_nvram_value verifies that an NVRAM key exists and has the expected value.
 assert_nvram_value() {
 	value="$(nvram_value "$1")" || fail "$2: missing $1"
 	[ "${value}" = "$2" ] || fail "$1: expected $2, got ${value}"
 }
 
+# reset_nvram resets the simulated NVRAM state to the baseline DNS configuration and clears the operation log.
 reset_nvram() {
 	cat >"${NVRAM_FILE}" <<'EOF_NVRAM' || fail 'could not write nvram state'
 dnspriv_enable=1
@@ -67,6 +73,7 @@ _OLD_dhcpd_dns_router=''
 _OLD_dhcp_dns1_x=''
 _OLD_dhcp_dns2_x=''
 
+# nvram simulates the supported NVRAM get, set, and commit operations using test files.
 nvram() {
 	case "$1" in
 		get)
@@ -91,6 +98,7 @@ nvram() {
 	esac
 }
 
+# save_dns_nvram_environment saves the current DNS-related NVRAM values for later restoration.
 save_dns_nvram_environment() {
 	_OLD_dnspriv_enable="$(nvram get dnspriv_enable 2>/dev/null)"
 	_OLD_dhcpd_dns_router="$(nvram get dhcpd_dns_router 2>/dev/null)"
@@ -99,6 +107,7 @@ save_dns_nvram_environment() {
 	_DNS_NVRAM_SAVED=1
 }
 
+# pidof reports a simulated process ID when stubby is marked as running.
 pidof() {
 	if [ "${STUBBY_RUNNING:-0}" = "1" ] && [ "$1" = "stubby" ]; then
 		printf '%s\n' '1234'
@@ -106,14 +115,17 @@ pidof() {
 	fi
 	return 1
 }
+# killall stops the stubby process and records the termination when called with the expected arguments.
 killall() {
 	[ "$*" = '-q -9 stubby' ] || fail "unexpected killall: $*"
 	KILLALL_COUNT="$((KILLALL_COUNT + 1))"
 	STUBBY_RUNNING=0
 }
+# adguard_restart_dnsmasq_if_managed increments the managed dnsmasq restart counter.
 adguard_restart_dnsmasq_if_managed() {
 	DNSMASQ_RESTART_COUNT="$((DNSMASQ_RESTART_COUNT + 1))"
 }
+# service_wait increments the service wait invocation counter.
 service_wait() {
 	SERVICE_WAIT_COUNT="$((SERVICE_WAIT_COUNT + 1))"
 }

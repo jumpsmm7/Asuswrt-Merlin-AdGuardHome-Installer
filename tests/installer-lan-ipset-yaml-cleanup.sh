@@ -13,19 +13,23 @@ TARG_DIR="${TMP_ROOT}/AdGuardHome"
 YAML_FILE="${TARG_DIR}/AdGuardHome.yaml"
 YAML_ORI="${TARG_DIR}/.AdGuardHome.yaml.ori"
 
+# cleanup removes the temporary test workspace.
 cleanup() {
 	rm -rf "${TMP_ROOT}"
 }
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
 
+# mode_string extracts the file type and permission bits for the specified path.
 mode_string() {
 	ls -ld "$1" | awk 'NR == 1 { print substr($1, 1, 10) }'
 }
 
+# extract_function appends the named function definition from the installer script to the functions file.
 extract_function() {
 	_function_name="$1"
 	awk -v name="${_function_name}" '
@@ -35,6 +39,7 @@ extract_function() {
 	' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" || return 1
 }
 
+# write_conf updates a configuration key atomically, replacing its existing assignment or appending it when absent.
 write_conf() {
 	_key="$1"
 	_value="$2"
@@ -57,12 +62,14 @@ write_conf() {
 	}
 }
 
+# assert_no_ipset_file verifies that the YAML file does not contain an `ipset_file` entry.
 assert_no_ipset_file() {
 	if grep -q 'ipset_file' "${YAML_FILE}"; then
 		fail "$1: ipset_file was not removed"
 	fi
 }
 
+# assert_ipset_disabled verifies that inline IPSET mappings are cleared from the YAML configuration.
 assert_ipset_disabled() {
 	assert_no_ipset_file "$1"
 	grep -q '^[[:space:]]*ipset: \[\]$' "${YAML_FILE}" || fail "$1: inline ipset mappings were not cleared"
@@ -101,6 +108,7 @@ EOF_CHOWN
 chmod 755 "${STUB_DIR}/chown" || fail 'could not chmod chown stub'
 
 INFO='Info:'
+# PTXT prints its arguments as text, one per line, ignoring an optional `-n` argument.
 PTXT() {
 	if [ "${1:-}" = "-n" ]; then
 		shift
@@ -108,15 +116,18 @@ PTXT() {
 	printf '%s\n' "$@"
 }
 
+# save_installer_config copies the installer configuration file to the specified backup path while preserving its metadata.
 save_installer_config() {
 	_backup="$1"
 	cp -p "${CONF_FILE}" "${_backup}"
 }
 
+# restore_installer_config restores an installer configuration file from the specified source path.
 restore_installer_config() {
 	mv -f "$1" "${CONF_FILE}"
 }
 
+# discard_installer_config_backup removes the installer configuration backup and its absence marker.
 discard_installer_config_backup() {
 	rm -f "$1" "$1.absent"
 }
@@ -232,14 +243,17 @@ dns:
     - '[::]:553'
 EOF_YAML
 cp -f "${YAML_FILE}" "${YAML_ORI}" || fail 'could not write restored original WAN YAML snapshot'
+# setup_resolve_bind_addresses sets the Web UI address and DNS bind hosts for LAN mode.
 setup_resolve_bind_addresses() {
 	SETUP_WEB_ADDRESS="192.168.50.2:${WEB_PORT}"
 	SETUP_DNS_BIND_HOST='192.168.50.2'
 	SETUP_DNS_BIND_HOST6='fd00::2'
 }
+# setup_reverse_upstream_target sets the reverse DNS upstream target to `192.168.50.1:53`.
 setup_reverse_upstream_target() {
 	SETUP_REVERSE_UPSTREAM='192.168.50.1:53'
 }
+# setup_private_ipv4_bridge_dns_binds configures private IPv4 bridge DNS bind addresses.
 setup_private_ipv4_bridge_dns_binds() {
 	return 0
 }
@@ -308,6 +322,7 @@ dns:
     - '[::]:553'
 EOF_YAML
 cp -f "${YAML_FILE}" "${YAML_ORI}" || fail 'could not write legacy LAN original YAML snapshot'
+# adguard_install_feature_defaults sets default IPSET and DNSMASQ feature configuration values.
 adguard_install_feature_defaults() {
 	write_conf ADGUARD_IPSET '"NO"' || return 1
 	write_conf ADGUARD_DNSMASQ_MODE '"auto"'
@@ -545,14 +560,17 @@ dns:
     - '[::]:553'
 EOF_YAML
 rm -f "${YAML_ORI}"
+# setup_resolve_bind_addresses sets the web address and IPv4 and IPv6 DNS bind hosts used for LAN-mode configuration.
 setup_resolve_bind_addresses() {
 	SETUP_WEB_ADDRESS='192.168.50.2:3000'
 	SETUP_DNS_BIND_HOST='192.168.50.2'
 	SETUP_DNS_BIND_HOST6='fd00::2'
 }
+# setup_reverse_upstream_target sets the reverse DNS upstream target to 192.168.50.254:53.
 setup_reverse_upstream_target() {
 	SETUP_REVERSE_UPSTREAM='192.168.50.254:53'
 }
+# setup_private_ipv4_bridge_dns_binds outputs the private IPv4 bridge DNS bind address.
 setup_private_ipv4_bridge_dns_binds() {
 	printf '%s\n' '192.168.60.1'
 }

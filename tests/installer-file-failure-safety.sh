@@ -345,6 +345,7 @@ EOF
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
 
+	# tar simulates archive listing output for the configured test layout and rejects unsupported invocation options.
 	tar() {
 		case "$1" in
 			-*) ;;
@@ -1010,6 +1011,7 @@ EOF
 		printf '%s\n' "0"
 	}
 
+	# tar extracts a simulated restored installation into the restore staging directory.
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
@@ -1070,6 +1072,7 @@ EOF
 		[ "$(agh_process_count)" -ge 1 ]
 	}
 
+	# tar extracts a simulated restored installation into the restore staging directory.
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
@@ -1136,6 +1139,7 @@ EOF
 		return 0
 	}
 
+	# tar extracts a simulated restored installation into the restore staging directory.
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
@@ -1209,6 +1213,7 @@ EOF
 		[ "$(agh_process_count)" -ge 1 ]
 	}
 
+	# tar extracts a simulated restored installation into the restore staging directory.
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
@@ -1281,6 +1286,7 @@ EOF
 		[ "$(agh_process_count)" -ge 1 ]
 	}
 
+	# tar extracts a simulated restored installation into the restore staging directory.
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)

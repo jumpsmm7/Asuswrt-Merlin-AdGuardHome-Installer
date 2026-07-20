@@ -9,10 +9,12 @@ FUNCTION_FILE="${TMP_ROOT}/cli-run"
 CHECK_FILE="${TMP_ROOT}/check-ipset"
 DRY_RUN_FILE="${TMP_ROOT}/dry-run"
 
+# cleanup removes the temporary test directory and its contents.
 cleanup() {
 	rm -rf "${TMP_ROOT}"
 }
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -37,34 +39,42 @@ WARNING='Warning:'
 ERROR='Error:'
 INSTALL_MODE='lan'
 
+# PTXT appends a message to the dry-run output file.
 PTXT() {
 	printf '%s\n' "$*" >>"${DRY_RUN_FILE}"
 }
 
+#adguard_ipset_allowed determines whether AdGuard IPSET operations are allowed for the current installation mode.
 adguard_ipset_allowed() {
 	[ "${INSTALL_MODE}" = 'wan' ]
 }
 
+# branch_is_safe always reports that the current branch is safe.
 branch_is_safe() {
 	return 0
 }
 
+# check_ipset records an IPSET check message in the check file.
 check_ipset() {
 	printf '%s\n' "$1" >>"${CHECK_FILE}"
 }
 
+# conf_value prints the configured value used by the test harness.
 conf_value() {
 	printf '%s\n' 'YES'
 }
 
+# ptxt_ok is a no-op placeholder for successful preview output handling.
 ptxt_ok() {
 	:
 }
 
+# write_conf is a stub that always succeeds.
 write_conf() {
 	return 0
 }
 
+# run_dry_run_case executes an IPSET refresh dry-run for the specified installation mode and verifies that it reports a preview without performing persistent cleanup.
 run_dry_run_case() {
 	case_name="$1"
 	INSTALL_MODE="$2"
@@ -77,6 +87,7 @@ run_dry_run_case() {
 	grep -q 'Dry-run: would run IPSET refresh' "${DRY_RUN_FILE}" || fail "${case_name}: dry-run preview was not reported"
 }
 
+# run_remote_dry_run_case executes and validates an IPSET refresh pre-initialization dry-run case.
 run_remote_dry_run_case() {
 	case_name="$1"
 	shift

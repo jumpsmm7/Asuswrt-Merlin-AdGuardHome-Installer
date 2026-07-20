@@ -56,6 +56,7 @@ agh_log() {
 	logger -st "${NAME}" "$(agh_timestamp) [${_level}] ${_func}: $*"
 }
 
+# conf_value reads and prints the configured value for a key from the configuration file, returning failure when the file or key is unavailable.
 conf_value() {
 	[ -f "${CONF_FILE}" ] || return 1
 	awk -v KEY="$1" '
@@ -68,6 +69,7 @@ conf_value() {
 	' "${CONF_FILE}"
 }
 
+# adguard_install_mode prints the configured AdGuardHome installation mode, defaulting to `wan` for invalid or missing values.
 adguard_install_mode() {
 	mode="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
 	case "${mode}" in
@@ -76,14 +78,17 @@ adguard_install_mode() {
 	esac
 }
 
+# adguard_lan_mode reports whether AdGuardHome is configured for LAN mode.
 adguard_lan_mode() {
 	[ "$(adguard_install_mode)" = "lan" ]
 }
 
+# adguard_dnsmasq_running reports whether a dnsmasq process is running.
 adguard_dnsmasq_running() {
 	pidof dnsmasq >/dev/null 2>&1
 }
 
+# adguard_dnsmasq_managed determines whether dnsmasq is managed by AdGuardHome based on install mode, dnsmasq availability, and configuration.
 adguard_dnsmasq_managed() {
 	if adguard_lan_mode && ! adguard_dnsmasq_running; then
 		return 1
@@ -95,15 +100,18 @@ adguard_dnsmasq_managed() {
 	adguard_dnsmasq_running
 }
 
+# adguard_ipset_allowed reports whether IPSet integration is allowed outside LAN mode.
 adguard_ipset_allowed() {
 	! adguard_lan_mode
 }
 
+# adguard_restart_dnsmasq_if_managed restarts dnsmasq when it is managed by AdGuardHome.
 adguard_restart_dnsmasq_if_managed() {
 	adguard_dnsmasq_managed || return 0
 	service restart_dnsmasq >/dev/null 2>&1
 }
 
+# have_cmd checks whether the specified command is available.
 have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
@@ -589,10 +597,12 @@ flock_supports_fd() {
 	return "${status}"
 }
 
-# DNS and network helpers
+# check_dns_environment applies or restores DNS-related NVRAM settings based on the requested lifecycle state. 
+# @param MODE The lifecycle state: `running` applies the AdGuard-managed DNS profile, while `stop` restores saved settings.
 
 check_dns_environment() {
 	local MODE NVCHECK
+	# dns_env_set_nvram updates an NVRAM variable when its current value differs from the expected value.
 	dns_env_set_nvram() {
 		local key expected cur changed
 		key="$1"
@@ -605,6 +615,7 @@ check_dns_environment() {
 		changed="1"
 		return 0
 	}
+	# dns_env_apply_profile applies the AdGuard-managed DNS profile and returns success when any DNS setting changes.
 	dns_env_apply_profile() {
 		local changed
 		if adguard_lan_mode; then
@@ -686,6 +697,7 @@ dnsmasq_delete_matching() {
 	sed -i "${SED_SCRIPT}" "${CONFIG}"
 }
 
+# dns_handoff_is_active verifies that the DNS handoff belongs to a running process with matching ownership and start time.
 dns_handoff_is_active() {
 	local HANDOFF_PID HANDOFF_START_TIME PATH_DETAILS PROCESS_START_TIME
 	[ -d "${DNS_HANDOFF_DIR}" ] && [ ! -L "${DNS_HANDOFF_DIR}" ] || return 1
@@ -724,12 +736,14 @@ dns_handoff_is_active() {
 	[ "${PROCESS_START_TIME}" = "${HANDOFF_START_TIME}" ]
 }
 
+# dnsmasq_resolv_conf_cleanup removes the temporary `/tmp/resolv.conf` mount when `/etc/resolv.conf` does not use the ROM-backed file.
 dnsmasq_resolv_conf_cleanup() {
 	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then {
 		umount /tmp/resolv.conf 2>/dev/null
 	}; fi
 }
 
+# dnsmasq_params configures dnsmasq for the LAN or specified SDN interface, including DNS routing, reverse zones, and optional IPSet refresh.
 dnsmasq_params() {
 	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
 	if adguard_lan_mode && [ "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" = "disabled" ] && ! dns_handoff_is_active; then
@@ -823,6 +837,7 @@ dnsmasq_params() {
 	fi
 }
 
+# dnsmasq_action_handler applies dnsmasq configuration, skipping it in LAN mode when dnsmasq is unmanaged and inactive.
 dnsmasq_action_handler() {
 	if adguard_lan_mode && ! adguard_dnsmasq_running && ! dns_handoff_is_active; then
 		case "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" in
@@ -841,6 +856,7 @@ dnsmasq_action_handler() {
 	fi
 }
 
+# interface_ipv4_addr prints the first IPv4 address assigned to the specified network interface.
 interface_ipv4_addr() {
 	local IFACE
 	IFACE="$1"
@@ -849,6 +865,7 @@ interface_ipv4_addr() {
 	ip -o -4 addr list "${IFACE}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1]; exit }'
 }
 
+# interface_ipv6_addr returns the first global IPv6 address assigned to the specified interface.
 interface_ipv6_addr() {
 	local IFACE
 	IFACE="$1"
@@ -857,6 +874,7 @@ interface_ipv6_addr() {
 	ip -o -6 addr list "${IFACE}" scope global 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1]; exit }'
 }
 
+# ipv4_is_usable_unicast validates that an IPv4 address is a usable unicast address.
 ipv4_is_usable_unicast() {
 	printf '%s\n' "$1" | awk -F. '
 		NF != 4 { exit 1 }
@@ -869,6 +887,7 @@ ipv4_is_usable_unicast() {
 	'
 }
 
+# adguard_refresh_lan_bind_addresses updates AdGuardHome's LAN WebUI address and DNS bind hosts in the YAML configuration.
 adguard_refresh_lan_bind_addresses() {
 	local BIND_HOSTS LAN_ADDR LAN_ADDR6 LAN_IF NVRAM_ADDR6 TEMP_FILE WEB_PORT
 	adguard_lan_mode || return 0
@@ -988,6 +1007,7 @@ adguard_refresh_lan_bind_addresses() {
 	return 0
 }
 
+# ipv4_reverse_zone converts an IPv4 address to its reverse DNS zone name.
 ipv4_reverse_zone() {
 	printf "%s\n" "$1" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}'
 }
@@ -1484,6 +1504,8 @@ service_wait() {
 	return "$?"
 }
 
+# start_adguardhome prepares AdGuardHome for startup, launches or restarts it, and verifies network readiness. 
+# It returns failure when address synchronization, IPSet setup, service startup, or the final network check fails.
 start_adguardhome() {
 	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LOWER_SCRIPT_STATUS
 	IPSET_START_FAILURE_SAFE="0"
@@ -1643,6 +1665,7 @@ start_monitor() {
 	done
 }
 
+# stop_adguardhome stops AdGuardHome, restarts managed dnsmasq when required, removes temporary database links, and waits for network checks to complete.
 stop_adguardhome() {
 	local STOP_STATUS
 	STOP_STATUS="0"
@@ -2065,6 +2088,7 @@ IPSet_Current_File() {
 	' "${YAML_FILE}"
 }
 
+# IPSet_Dnsmasq_Restart_After_Unlock restarts managed dnsmasq after releasing the IPSet lock when a restart is pending.
 IPSet_Dnsmasq_Restart_After_Unlock() {
 	[ "${IPSET_DNSMASQ_RESTART_PENDING:-0}" -eq 1 ] || return 0
 	IPSET_DNSMASQ_RESTART_PENDING="0"
@@ -2072,6 +2096,7 @@ IPSet_Dnsmasq_Restart_After_Unlock() {
 	service restart_dnsmasq >/dev/null 2>&1
 }
 
+# IPSet_Current_UID prints the current process's effective user ID.
 IPSet_Current_UID() {
 	awk '
 		$1 == "Uid:" && $3 ~ /^[0-9][0-9]*$/ {
@@ -2111,6 +2136,7 @@ IPSet_Start_Restore() {
 	return 1
 }
 
+# IPSet_Start_While_Locked starts AdGuardHome while deferring any managed dnsmasq restart until the IPSet lock is released.
 IPSet_Start_While_Locked() {
 	local DNSMASQ_RESTART_SKIP STATUS
 	DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
@@ -2274,6 +2300,7 @@ IPSet_Lock_Mkdir_Reap_Stale() {
 	rm -rf "${LOCK_DIR}"
 }
 
+# IPSet_Migrate migrates legacy AdGuardHome IPSet mappings into the managed IPSet configuration and updates the YAML reference.
 IPSet_Migrate() {
 	local CURRENT_FILE TEMP_FILE USER_TEMP_FILE
 	IPSET_MIGRATION_SKIPPED=""
@@ -2506,6 +2533,7 @@ IPSet_Disable_Managed() {
 	agh_log info IPSet_Disable_Managed "state=configuration action=disable_managed_ipset result=disabled reason=unsupported_version"
 }
 
+# IPSet_Disable_Managed_For_Start_Locked stops AdGuardHome to disable managed IPSet configuration, then restores or restarts the service as needed.
 IPSet_Disable_Managed_For_Start_Locked() {
 	local WAS_RUNNING
 	WAS_RUNNING="0"
@@ -2536,11 +2564,14 @@ IPSet_Disable_Managed_For_Start_Locked() {
 	return 0
 }
 
+# IPSet_Enabled reports whether IPSet integration is enabled for the current installation mode and configuration.
 IPSet_Enabled() {
 	adguard_ipset_allowed || return 1
 	[ "$(conf_value ADGUARD_IPSET)" != "NO" ]
 }
 
+# IPSet_Refresh refreshes AdGuardHome IPSet mappings and restarts AdGuardHome when mappings change.
+# The optional argument specifies a dnsmasq configuration file to use for collecting mappings.
 IPSet_Refresh() {
 	local DNSMASQ_RESTART_SKIP RESTART_STATUS
 	if adguard_lan_mode; then
@@ -2667,6 +2698,7 @@ IPSet_Runtime_Prepare() {
 	fi
 }
 
+# IPSet_Setup initializes IPSet configuration and mappings when IPSet is enabled and supported.
 IPSet_Setup() {
 	IPSet_Enabled || return 0
 	IPSet_Supported || return 0
@@ -2674,6 +2706,7 @@ IPSet_Setup() {
 	IPSet_Lock IPSet_Setup_Locked
 }
 
+# IPSet_Setup_For_Start prepares IPSet configuration for AdGuardHome startup, disabling managed IPSet when LAN mode or unsupported settings require it.
 IPSet_Setup_For_Start() {
 	if adguard_lan_mode; then
 		if ! IPSet_Disable_Managed; then

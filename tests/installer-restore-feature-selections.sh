@@ -5,6 +5,7 @@ set -u
 
 SCRIPT_PATH="${1:-installer}"
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1

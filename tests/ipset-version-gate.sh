@@ -34,23 +34,28 @@ chmod +x "${BINARY_FILE}" || fail 'could not create version test binary'
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
+# conf_value prints the configured IPSET value, defaulting to YES when IPSET_CONFIG is unset.
 conf_value() {
 	printf '%s\n' "${IPSET_CONFIG:-YES}"
 }
 
+# adguard_lan_mode determines whether the installation is configured for LAN mode.
 adguard_lan_mode() {
 	[ "${INSTALL_MODE:-wan}" = "lan" ]
 }
 
+# adguard_ipset_allowed determines whether managed IPSET integration is allowed for the current installation mode.
 adguard_ipset_allowed() {
 	! adguard_lan_mode
 }
 
+# IPSet_Disable_Managed records the managed IPSET disable operation and returns its configured status.
 IPSet_Disable_Managed() {
 	printf '%s\n' IPSet_Disable_Managed >>"${CALLS_FILE}"
 	return "${DISABLE_STATUS:-0}"
 }
 
+# IPSet_Lock records a lock request for the specified IPSET operation.
 IPSet_Lock() {
 	printf '%s\n' "lock $1" >>"${CALLS_FILE}"
 }
@@ -59,6 +64,7 @@ logger() {
 	:
 }
 
+# run_start_case exercises startup IPSET gating and verifies the resulting calls and status for a simulated AdGuardHome version.
 run_start_case() {
 	VERSION_OUTPUT="$1"
 	VERSION_STATUS="${2:-0}"

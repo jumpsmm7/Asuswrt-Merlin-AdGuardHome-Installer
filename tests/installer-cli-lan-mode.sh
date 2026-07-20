@@ -11,10 +11,12 @@ WRITES_FILE="${TMP_ROOT}/writes"
 LOG_FILE="${TMP_ROOT}/log"
 YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 
+# cleanup removes the temporary workspace used by the test script.
 cleanup() {
 	rm -rf "${TMP_ROOT}"
 }
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -62,10 +64,12 @@ adguardhome_yaml_ipset_file() {
 	return 0
 }
 
+# adguardhome_yaml_remove_ipset_file is a no-op placeholder for removing an IP set file.
 adguardhome_yaml_remove_ipset_file() {
 	return 0
 }
 
+# write_conf appends a quoted key-value configuration entry to the writes file.
 write_conf() {
 	printf '%s="%s"\n' "$1" "$2" >>"${WRITES_FILE}"
 }
@@ -74,12 +78,15 @@ INFO='Info:'
 WARNING='Warning:'
 ERROR='Error:'
 
+# PTXT appends the provided text followed by a newline to the log file.
 PTXT() {
 	printf '%s\n' "$*" >>"${LOG_FILE}"
 }
+# ptxt_ok is a no-op logging helper.
 ptxt_ok() {
 	:
 }
+# conf_value extracts and prints the configured value for a key from the configuration file.
 conf_value() {
 	awk -v KEY="$1" '
 		index($0, KEY "=") == 1 {
@@ -90,10 +97,17 @@ conf_value() {
 		}
 	' "${CONF_FILE}"
 }
+# cli_write_quoted_conf writes a configuration key and value to the captured writes file.
 cli_write_quoted_conf() {
 	printf '%s=%s\n' "$1" "$2" >>"${WRITES_FILE}"
 }
 
+# run_migrate_case runs a runtime migration scenario and verifies the expected netcheck mode is written.  
+#  
+# Arguments:  
+#   case_name        A label used in failure messages.  
+#   install_mode     The installation mode supplied to the migration.  
+#   expected_netcheck The netcheck mode expected in the migration output.
 run_migrate_case() {
 	case_name="$1"
 	install_mode="$2"

@@ -28,6 +28,7 @@ sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^adguard_restart_
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
+# adguard_dnsmasq_managed reports that DNSmasq is managed by AdGuard Home.
 adguard_dnsmasq_managed() {
 	return 0
 }

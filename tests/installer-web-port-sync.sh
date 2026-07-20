@@ -7,10 +7,12 @@ SCRIPT_PATH="${1:-installer}"
 TMP_ROOT="${TMPDIR:-/tmp}/installer-web-port-sync.$$"
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 
+# cleanup removes the temporary test workspace and its contents.
 cleanup() {
 	rm -rf "${TMP_ROOT}"
 }
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -37,6 +39,7 @@ mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 ERROR='Error:'
 YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 
+# PTXT prints each argument on a separate line, or concatenates arguments without trailing newlines when the first argument is `-n`.
 PTXT() {
 	case "${1:-}" in
 		-n)
@@ -55,10 +58,12 @@ PTXT() {
 	esac
 }
 
+# ai_have_cmd reports whether the `ip` command is available in the test environment.
 ai_have_cmd() {
 	[ "${IP_AVAILABLE:-0}" -eq 1 ] && [ "$1" = "ip" ]
 }
 
+# ip returns a stubbed IPv4 address for the supported br0 query and fails for other arguments.
 ip() {
 	case "$*" in
 		'-o -4 addr list br0')
@@ -68,6 +73,7 @@ ip() {
 	esac
 }
 
+# nvram prints stubbed router values for supported NVRAM queries.
 nvram() {
 	case "${1:-}:${2:-}" in
 		get:lan_ifname) printf '%s\n' "${LAN_IFNAME:-}" ;;
@@ -76,6 +82,7 @@ nvram() {
 	esac
 }
 
+# reset_router_state resets the simulated router state to default WAN-mode values.
 reset_router_state() {
 	ADGUARD_INSTALL_MODE=wan
 	IP_AVAILABLE=0
@@ -84,6 +91,7 @@ reset_router_state() {
 	IPV4_FROM_NVRAM=""
 }
 
+# write_yaml writes each argument as a separate line to the YAML fixture file.
 write_yaml() {
 	: >"${YAML_FILE}" || fail 'could not reset YAML file'
 	while [ "$#" -gt 0 ]; do
@@ -92,6 +100,7 @@ write_yaml() {
 	done
 }
 
+# assert_address checks that the top-level http.address value in the YAML fixture matches the expected value for a test case.
 assert_address() {
 	case_name="$1"
 	expected="$2"

@@ -103,7 +103,7 @@ pre_hook() {
 	return 0
 }
 
-# post_hook records that the post-start hook was invoked and succeeds.
+# post_hook records invocation of the post-start hook and succeeds.
 post_hook() {
 	printf '%s\n' post_hook >>"${CALLS_FILE}"
 	return 0
@@ -143,7 +143,7 @@ grep -q '^pre_hook$' "${CALLS_FILE}" || fail 'explicit no-handoff start skipped 
 grep -q '^post_hook$' "${CALLS_FILE}" || fail 'explicit no-handoff start skipped the post-start hook'
 [ -f "${STARTED_FILE}" ] || fail 'explicit no-handoff start did not launch AdGuardHome'
 
-# A true no-handoff LAN start remains valid and still runs post-start checks.
+# agh_dns_handoff_required indicates that DNS handoff is not required for a LAN start.
 agh_dns_handoff_required() {
 	return 1
 }

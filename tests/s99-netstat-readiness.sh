@@ -36,15 +36,18 @@ mkdir -p "${WORK_DIR}" || fail 'could not create AdGuardHome work directory'
 printf '%s\n' 'http:' '  address: 0.0.0.0:3000' >"${WORK_DIR}/AdGuardHome.yaml" || fail 'could not create YAML stub'
 : >"${CALLS_FILE}" || fail 'could not create calls file'
 
+# agh_lan_mode reports whether LAN mode is enabled.
 agh_lan_mode() {
 	return 0
 }
 
+# which returns `nvram` when queried for that command; otherwise, it fails.
 which() {
 	[ "${1:-}" = nvram ] || return 1
 	printf '%s\n' nvram
 }
 
+# nvram returns the configured LAN IP address for a supported query.
 nvram() {
 	[ "${1:-}" = get ] && [ "${2:-}" = lan_ipaddr ] || return 1
 	printf '%s\n' '192.168.50.1'
@@ -68,6 +71,7 @@ http:
 EOF
 [ "$(adguardhome_dns_bind_scope)" = '127.0.0.1 192.168.50.1' ] || fail 'block DNS bind-host parsing regressed'
 
+# agh_log records a log message in the calls file.
 agh_log() {
 	printf '%s\n' "$*" >>"${CALLS_FILE}"
 }
@@ -82,6 +86,7 @@ pidof() {
 	esac
 }
 
+# netstat emits simulated socket listings selected by NETSTAT_STATE for readiness and ownership tests.
 netstat() {
 	case "${NETSTAT_STATE:-owned}" in
 		owned)
@@ -143,6 +148,7 @@ netstat() {
 	esac
 }
 
+# kill records the requested signal and process identifiers in the calls log.
 kill() {
 	printf '%s\n' "kill $*" >>"${CALLS_FILE}"
 	return 0

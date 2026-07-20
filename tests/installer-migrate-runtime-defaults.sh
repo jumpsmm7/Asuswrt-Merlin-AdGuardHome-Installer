@@ -37,6 +37,7 @@ CONF_FILE="${TMP_ROOT}/.config"
 YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 TARG_DIR="${TMP_ROOT}"
 
+# cli_require_yes is a no-op that succeeds without requiring confirmation.
 cli_require_yes() {
 	return 0
 }

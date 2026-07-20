@@ -7,10 +7,12 @@ SCRIPT_PATH="${1:-installer}"
 TMP_ROOT="${TMPDIR:-/tmp}/installer-install-mode-detection.$$"
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 
+# cleanup removes the temporary test workspace.
 cleanup() {
 	rm -rf "${TMP_ROOT}"
 }
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -80,10 +82,12 @@ fi
 
 ERROR='Error:'
 
+# PTXT prints its arguments as a single line.
 PTXT() {
 	printf '%s\n' "$*"
 }
 
+# run_case executes an install-mode detection test case and fails if the result does not match the expected status or mode.
 run_case() {
 	case_name="$1"
 	sw_value="$2"

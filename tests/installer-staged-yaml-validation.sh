@@ -47,11 +47,15 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 ptxt_ok() { :; }
+# PTXT writes each argument as a separate line to standard output.
 PTXT() {
 	printf '%s\n' "$@"
 }
+# read_input_num sets the selected numeric option to 3.
 read_input_num() { CHOSEN=3; }
+# read_input_port sets the web interface port to 3000.
 read_input_port() { WEB_PORT=3000; }
+# read_yesno records the prompt and returns the configured response for IPSET prompts.
 read_yesno() {
 	printf '%s\n' "$1" >>"${YESNO_LOG}"
 	case "$1" in
@@ -59,6 +63,7 @@ read_yesno() {
 	esac
 	return 1
 }
+# write_conf updates a configuration key with the specified value in the configuration file.
 write_conf() {
 	key="$1"
 	value="$2"
@@ -71,10 +76,13 @@ write_conf() {
 	printf '%s=%s\n' "${key}" "${value}" >>"${tmp_file}"
 	mv -f "${tmp_file}" "${CONF_FILE}"
 }
+# save_dns_filter_settings creates the directory used to store DNS filter settings.
 save_dns_filter_settings() { mkdir -p "$1"; }
+# restore_dns_filter_settings removes the DNS filter settings directory at the specified path.
 restore_dns_filter_settings() { rm -rf "$1"; }
 check_dns_filter() { :; }
 check_dns_local() { :; }
+# check_ipset records the selected IPSET integration option and persists its enabled state.
 check_ipset() {
 	printf '%s\n' "$1" >>"${IPSET_LOG}"
 	case "$1" in
@@ -82,13 +90,16 @@ check_ipset() {
 		*) write_conf ADGUARD_IPSET '"NO"' ;;
 	esac
 }
+# ipv4_is_valid verifies whether an IPv4 address is one of the supported test addresses.
 ipv4_is_valid() {
 	case "$1" in
 		192.168.1.1 | 192.168.50.1) return 0 ;;
 		*) return 1 ;;
 	esac
 }
+# ai_have_cmd reports that the requested command is unavailable.
 ai_have_cmd() { return 1; }
+# nvram simulates the NVRAM reads and writes required by the setup tests.
 nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '1' ;;
@@ -109,6 +120,7 @@ read_input_dns() {
 AdGuardHome_authen() {
 	printf '%s\n' 'users:' '- name: admin' '  password: hash' >>"$2"
 }
+# check_AdGuardHome_yaml validates a YAML file and optionally simulates staged validation failure.
 check_AdGuardHome_yaml() {
 	target="${1:-${YAML_FILE}}"
 	printf '%s\n' "${target}" >>"${CHECK_LOG}"
@@ -123,6 +135,7 @@ check_AdGuardHome_yaml() {
 	return 0
 }
 
+# reset_setup_logs removes setup artifacts and resets per-run logs and input state.
 reset_setup_logs() {
 	rm -f "${YAML_FILE}" "${YAML_ORI}" "${CHECK_LOG}" "${YESNO_LOG}" "${IPSET_LOG}"
 	BOOTSTRAP1=
@@ -133,6 +146,7 @@ reset_setup_logs() {
 	IPSET_YESNO_STATUS=0
 }
 
+# assert_lan_yaml_reverse_upstreams verifies LAN YAML reverse-upstream targets and disabled IPSET configuration for a test case.
 assert_lan_yaml_reverse_upstreams() {
 	expected_target="$1"
 	case_label="$2"

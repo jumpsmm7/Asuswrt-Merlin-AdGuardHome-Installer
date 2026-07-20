@@ -7,15 +7,18 @@ SCRIPT_PATH="${1:-AdGuardHome.sh}"
 TEST_ROOT="${TMPDIR:-/tmp}/adguardhome-runtime-mode-helpers.$$"
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 
+# cleanup removes the temporary test directory and its contents.
 cleanup() {
 	rm -rf "${TEST_ROOT}"
 }
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
 
+# write_conf resets the configuration file and writes each provided configuration line to it.
 write_conf() {
 	: >"${CONF_FILE}" || fail 'could not reset config file'
 	while [ "$#" -gt 0 ]; do
@@ -47,12 +50,14 @@ pidof() {
 	esac
 }
 
+# service simulates the dnsmasq restart service action and records its invocation status.
 service() {
 	[ "$1" = 'restart_dnsmasq' ] || fail "unexpected service action: $*"
 	SERVICE_RESTART_COUNT="$((SERVICE_RESTART_COUNT + 1))"
 	return "${SERVICE_RESTART_STATUS:-0}"
 }
 
+# assert_restart_count verifies the recorded dnsmasq restart count matches the expected count and fails with the supplied message otherwise.
 assert_restart_count() {
 	[ "${SERVICE_RESTART_COUNT}" = "$1" ] || fail "$2"
 }

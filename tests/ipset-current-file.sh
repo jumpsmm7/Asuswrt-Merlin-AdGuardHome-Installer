@@ -36,15 +36,18 @@ logger() {
 	:
 }
 
+# adguard_lan_mode reports whether the installation is configured for LAN mode.
 adguard_lan_mode() {
 	[ "${INSTALL_MODE:-wan}" = "lan" ]
 }
 
+# IPSet_Disable_Managed records that managed IP set handling was disabled for the test.
 IPSet_Disable_Managed() {
 	printf '%s\n' disabled >"${TEST_DIR}/disabled"
 	return 0
 }
 
+# IPSet_Collect_Yaml collects IP set configuration from the YAML file.
 IPSet_Collect_Yaml() {
 	return 0
 }

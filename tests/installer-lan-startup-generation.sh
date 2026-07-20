@@ -7,10 +7,12 @@ SCRIPT_PATH="${1:-installer}"
 TMP_ROOT="${TMPDIR:-/tmp}/installer-lan-startup-generation.$$"
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 
+# cleanup removes the temporary test workspace.
 cleanup() {
 	rm -rf "${TMP_ROOT}"
 }
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -53,14 +55,18 @@ SCRIPT
 chmod 755 "${AGH_FILE}" || fail 'could not create AdGuardHome executable'
 : >"${CONF_FILE}"
 
+# PTXT prints each argument on a separate line.
 PTXT() {
 	printf '%s\n' "$@"
 }
+# create_dir creates the specified directory and any missing parent directories.
 create_dir() {
 	mkdir -p "$1"
 }
 ptxt_ok() { :; }
+# read_input_port sets the web interface port to 3000.
 read_input_port() { WEB_PORT=3000; }
+# read_input_dns sets the first bootstrap DNS server to 9.9.9.9 or the second to 8.8.8.8 depending on whether the first is already set.
 read_input_dns() {
 	if [ -z "${BOOTSTRAP1:-}" ]; then
 		BOOTSTRAP1=9.9.9.9
@@ -68,17 +74,27 @@ read_input_dns() {
 		BOOTSTRAP2=8.8.8.8
 	fi
 }
+# read_yesno indicates a negative response.
 read_yesno() { return 1; }
+# AdGuardHome_authen appends a default AdGuard Home administrator entry to the specified configuration file.
 AdGuardHome_authen() {
 	printf '%s\n' 'users:' '- name: admin' '  password: hash' >>"$2"
 }
+# check_AdGuardHome_yaml validates the AdGuard Home YAML configuration.
 check_AdGuardHome_yaml() { :; }
+# save_dns_filter_settings creates the directory used to preserve DNS filter settings.
 save_dns_filter_settings() { mkdir -p "$1"; }
+# restore_dns_filter_settings removes the specified DNS filter settings directory and its contents.
 restore_dns_filter_settings() { rm -rf "$1"; }
+# check_dns_filter is a no-op test stub for DNS filter checks.
 check_dns_filter() { :; }
+# check_dns_local is a no-op stub for checking local DNS configuration.
 check_dns_local() { :; }
+# check_ipset is a no-op test stub for IP set validation.
 check_ipset() { :; }
+# ai_have_cmd always reports that the requested command is unavailable.
 ai_have_cmd() { return 1; }
+# nvram simulates NVRAM reads and writes for installer tests.
 nvram() {
 	case "${1:-}:${2:-}" in
 		get:sw_mode) printf '%s\n' "${TEST_SW_MODE}" ;;
@@ -94,6 +110,8 @@ nvram() {
 	esac
 }
 
+# run_startup_case validates install-mode detection, runtime defaults, and generated LAN/WAN startup configuration for a test scenario.
+# Arguments are the case name, simulated switch mode, LAN IP address, expected install mode, and expected WebUI bind address.
 run_startup_case() {
 	case_name="$1"
 	TEST_SW_MODE="$2"
@@ -127,6 +145,7 @@ run_startup_case() {
 	esac
 }
 
+# run_startup_failure_case verifies that install-mode detection fails without a usable LAN IPv4 address and leaves configuration artifacts unchanged.
 run_startup_failure_case() {
 	case_name="$1"
 	TEST_SW_MODE="$2"

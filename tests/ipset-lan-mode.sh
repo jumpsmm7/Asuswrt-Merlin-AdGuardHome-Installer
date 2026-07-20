@@ -8,10 +8,12 @@ FUNCTION_FILE="${TMPDIR:-/tmp}/ipset-lan-functions.$$"
 CALLS_FILE="${TMPDIR:-/tmp}/ipset-lan-calls.$$"
 CONF_FILE="${TMPDIR:-/tmp}/ipset-lan-config.$$"
 
+# cleanup removes temporary test files.
 cleanup() {
 	rm -f "${FUNCTION_FILE}" "${CALLS_FILE}" "${CONF_FILE}"
 }
 
+# fail prints a failure message to stderr and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -26,35 +28,42 @@ sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^conf_value() {$/
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
+# agh_log records a formatted log entry in the calls file.
 agh_log() {
 	printf '%s\n' "log $1 $2 $3" >>"${CALLS_FILE}"
 }
 
+# IPSet_Disable_Managed records its invocation and returns the configured disable status.
 IPSet_Disable_Managed() {
 	printf '%s\n' IPSet_Disable_Managed >>"${CALLS_FILE}"
 	return "${DISABLE_STATUS:-0}"
 }
 
+# IPSet_Lock records its invocation and executes the supplied command.
 IPSet_Lock() {
 	printf '%s\n' IPSet_Lock >>"${CALLS_FILE}"
 	"$@"
 }
 
+# IPSet_Setup_Locked records a locked IPSET setup call and succeeds.
 IPSet_Setup_Locked() {
 	printf '%s\n' IPSet_Setup_Locked >>"${CALLS_FILE}"
 	return 0
 }
 
+# IPSet_Supported records that IPSET support was checked and reports success.
 IPSet_Supported() {
 	printf '%s\n' IPSet_Supported >>"${CALLS_FILE}"
 	return 0
 }
 
+# lower_script records a lower-script invocation in the call log and succeeds.
 lower_script() {
 	printf '%s\n' "lower_script $1" >>"${CALLS_FILE}"
 	return 0
 }
 
+# pidof prints a fixed process ID and succeeds.
 pidof() {
 	printf '%s\n' 1234
 	return 0

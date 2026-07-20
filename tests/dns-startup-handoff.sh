@@ -73,15 +73,18 @@ CURRENT_START_TIME="${DNS_HANDOFF_CURRENT_START_TIME}"
 [ "${CURRENT_START_TIME}" = "$(dns_handoff_process_start_time "${CURRENT_PID}")" ] ||
 	fail 'current shell identity did not match its proc start time'
 
+# mark_dns_handoff_active marks the DNS handoff as active in the environment.
 mark_dns_handoff_active() {
 	ADGUARDHOME_DNS_HANDOFF_ACTIVE=1
 	export ADGUARDHOME_DNS_HANDOFF_ACTIVE
 }
 
+# clear_dns_handoff_active clears the active DNS handoff state.
 clear_dns_handoff_active() {
 	unset ADGUARDHOME_DNS_HANDOFF_ACTIVE
 }
 
+# prepare_active_dns_handoff_test_marker prepares and activates a DNS handoff marker for the current process.
 prepare_active_dns_handoff_test_marker() {
 	dns_handoff_set_current_identity || return 1
 	printf '%s %s\n' "${DNS_HANDOFF_CURRENT_PID}" "${DNS_HANDOFF_CURRENT_START_TIME}" >"${DNS_HANDOFF_FILE}" || return 1
@@ -94,19 +97,23 @@ prepare_active_dns_handoff_test_marker() {
 IDENTITY_TEST_PID="$!"
 wait "${IDENTITY_TEST_PID}" ||
 	fail 'background shell identity did not match its proc start time'
+# logger records its arguments in the test command log.
 logger() {
 	printf '%s\n' "logger $*" >>"${CALLS_FILE}"
 }
+# nvram returns stubbed NVRAM values for supported keys.
 nvram() {
 	[ "${1:-}" = get ] && [ "${2:-}" = http_username ] && printf '%s\n' root
 	[ "${1:-}" = get ] && [ "${2:-}" = lan_ipaddr ] && printf '%s\n' 192.168.50.1
 }
+# rm removes files using the system command, optionally simulating handoff marker removal failure.
 rm() {
 	if [ "${RM_HANDOFF_FAIL:-0}" -eq 1 ] && [ "${1:-}" = '-f' ] && [ "${2:-}" = "${DNS_HANDOFF_FILE}" ]; then
 		return 1
 	fi
 	command rm "$@"
 }
+# which reports success for commands stubbed by the test harness and failure for all other commands.
 which() {
 	case "$1" in
 		awk | chmod | kill | ln | logger | ls | mkdir | netstat | nvram | pidof | rm | service | sleep)
@@ -115,6 +122,7 @@ which() {
 	esac
 	return 1
 }
+# pidof reports simulated process IDs for dnsmasq and AdGuardHome based on test state.
 pidof() {
 	case "$1" in
 		dnsmasq)
@@ -135,6 +143,7 @@ pidof() {
 			;;
 	esac
 }
+# netstat simulates netstat output for configured DNS and WebUI ownership states, or fails when NETSTAT_FAIL is enabled.
 netstat() {
 	[ "${NETSTAT_FAIL:-0}" -eq 0 ] || return 1
 	case "${DNS_STATE:-free}" in
@@ -971,9 +980,11 @@ AdGuardHome() {
 pre_hook() {
 	return 1
 }
+# post_hook returns success after the AdGuardHome start hook completes.
 post_hook() {
 	return 0
 }
+# post_failure_hook records the DNSMasq restart-suppression state and performs AdGuardHome start-failure recovery.
 post_failure_hook() {
 	printf '%s\n' "post_failure_hook ${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-0}" >>"${CALLS_FILE}"
 	post_start_failure_adguardhome
@@ -985,17 +996,20 @@ post_failure_hook() {
 rm -f "${STARTED_FILE}"
 (
 	HANDOFF_ENABLED=0
+	# grep filters dnsmasq configuration checks by the simulated handoff state and delegates all other searches to the system grep command.
 	grep() {
 		case "$*" in
 			*'/etc/dnsmasq.conf'*) [ "${HANDOFF_ENABLED}" -eq 1 ] ;;
 			*) command grep "$@" ;;
 		esac
 	}
+	# pre_hook enables DNS handoff, prepares its active marker, and records the hook invocation.
 	pre_hook() {
 		HANDOFF_ENABLED=1
 		prepare_active_dns_handoff_test_marker || return 1
 		printf '%s\n' pre_hook >>"${CALLS_FILE}"
 	}
+	# post_hook records that the post-start hook was invoked.
 	post_hook() {
 		printf '%s\n' post_hook >>"${CALLS_FILE}"
 	}
@@ -1011,6 +1025,7 @@ grep -q '^post_hook$' "${CALLS_FILE}" || fail 'rc.func skipped post-start cleanu
 printf '%s\n' 'port=553' >"${DNSMASQ_CONF_FILE}" || fail 'could not seed stale dnsmasq config'
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 (
+	# grep overrides searches for `/etc/dnsmasq.conf` to inspect the test dnsmasq configuration file.
 	grep() {
 		case "$*" in
 			*'/etc/dnsmasq.conf'*)
@@ -1020,10 +1035,12 @@ rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 			*) command grep "$@" ;;
 		esac
 	}
+	# pre_hook prepares the active DNS handoff marker and records its invocation.
 	pre_hook() {
 		prepare_active_dns_handoff_test_marker || return 1
 		printf '%s\n' stale_pre_hook >>"${CALLS_FILE}"
 	}
+	# post_hook records a stale post-start hook invocation in the test call log.
 	post_hook() {
 		printf '%s\n' stale_post_hook >>"${CALLS_FILE}"
 	}
@@ -1038,13 +1055,16 @@ grep -q '^stale_post_hook$' "${CALLS_FILE}" || fail 'rc.func skipped post-start 
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 (
+	# agh_dns_handoff_required determines whether DNS handoff is required and reports that it is not required.
 	agh_dns_handoff_required() {
 		return 1
 	}
+	# pre_hook prepares the active DNS handoff marker and records its execution.
 	pre_hook() {
 		prepare_active_dns_handoff_test_marker || return 1
 		printf '%s\n' late_handoff_pre_hook >>"${CALLS_FILE}"
 	}
+	# post_hook succeeds when dnsmasq restart recovery is enabled.
 	post_hook() {
 		printf '%s\n' "late_handoff_post_hook ${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-0}" >>"${CALLS_FILE}"
 		[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-0}" = "0" ]
@@ -1059,11 +1079,13 @@ grep -q '^late_handoff_post_hook 0$' "${CALLS_FILE}" || fail 'rc.func suppressed
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 (
+	# pre_hook marks the DNS handoff as required and records the hook invocation.
 	pre_hook() {
 		ADGUARDHOME_DNS_HANDOFF_REQUIRED=1
 		export ADGUARDHOME_DNS_HANDOFF_REQUIRED
 		printf '%s\n' required_handoff_missing_pre_hook >>"${CALLS_FILE}"
 	}
+	# post_hook records that the required DNS handoff marker is missing after startup.
 	post_hook() {
 		printf '%s\n' required_handoff_missing_post_hook >>"${CALLS_FILE}"
 	}
@@ -1081,6 +1103,7 @@ grep -q '^required_handoff_missing_pre_hook$' "${CALLS_FILE}" || fail 'rc.func s
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 (
+	# pre_hook prepares a required DNS handoff marker, removes it to simulate marker loss, and records the test event.
 	pre_hook() {
 		ADGUARDHOME_DNS_HANDOFF_REQUIRED=1
 		export ADGUARDHOME_DNS_HANDOFF_REQUIRED
@@ -1088,6 +1111,7 @@ rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 		rm -f "${DNS_HANDOFF_FILE}" || return 1
 		printf '%s\n' required_handoff_lost_marker_pre_hook >>"${CALLS_FILE}"
 	}
+	# post_hook records that the required handoff marker was lost during the post-start hook.
 	post_hook() {
 		printf '%s\n' required_handoff_lost_marker_post_hook >>"${CALLS_FILE}"
 	}
@@ -1108,6 +1132,7 @@ REQUIRED_PRE_INTERRUPT_READY_FILE="${TEST_ROOT}/required-pre-interrupt-ready"
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}" "${REQUIRED_PRE_INTERRUPT_READY_FILE}"
 (
+	# pre_hook marks DNS handoff as required, prepares its active marker, records readiness, and waits until interrupted.
 	pre_hook() {
 		ADGUARDHOME_DNS_HANDOFF_REQUIRED=1
 		export ADGUARDHOME_DNS_HANDOFF_REQUIRED
@@ -1141,12 +1166,14 @@ disable_dns_handoff || fail 'could not clean up interrupted required pre-start h
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 (
+	# pre_hook marks DNS handoff as unnecessary, suppresses dnsmasq restart recovery, and records its invocation.
 	pre_hook() {
 		ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
 		ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
 		export ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_SKIP_DNSMASQ_RESTART
 		printf '%s\n' no_handoff_pre_hook >>"${CALLS_FILE}"
 	}
+	# post_hook reports whether dnsmasq restart suppression is enabled and succeeds when suppression is active.
 	post_hook() {
 		printf '%s\n' "no_handoff_post_hook ${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-0}" >>"${CALLS_FILE}"
 		[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-0}" = "1" ]
@@ -1159,12 +1186,14 @@ grep -q '^no_handoff_post_hook 1$' "${CALLS_FILE}" || fail 'rc.func did not run 
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}"
 (
+	# pre_hook configures the test to skip DNS handoff and dnsmasq restart, then records its invocation.
 	pre_hook() {
 		ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
 		ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
 		export ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_SKIP_DNSMASQ_RESTART
 		printf '%s\n' no_handoff_fail_pre_hook >>"${CALLS_FILE}"
 	}
+	# post_hook records a simulated post-start hook failure and returns failure.
 	post_hook() {
 		printf '%s\n' no_handoff_fail_post_hook >>"${CALLS_FILE}"
 		return 1
@@ -1185,9 +1214,12 @@ INTERRUPT_GUARD_PID_FILE="${TEST_ROOT}/interrupt-guard-pid"
 rm -f "${INTERRUPT_READY_FILE}" "${INTERRUPT_GUARD_PID_FILE}"
 (
 	HANDOFF_ENABLED=0
+	#adguardhome_start_handoff_is_prepared determines whether the AdGuardHome startup DNS handoff is prepared.
+	# Returns a successful status when the handoff is enabled; otherwise, returns a failure status.
 	adguardhome_start_handoff_is_prepared() {
 		[ "${HANDOFF_ENABLED}" -eq 1 ]
 	}
+	# pre_hook starts the DNS handoff guard and records its process identity for interrupt recovery.
 	pre_hook() {
 		command sh -c 'trap "exit 0" HUP INT TERM; while :; do sleep 1; done' &
 		ADGUARDHOME_DNS_GUARD_PID="$!"
@@ -1195,6 +1227,7 @@ rm -f "${INTERRUPT_READY_FILE}" "${INTERRUPT_GUARD_PID_FILE}"
 		HANDOFF_ENABLED=1
 		mark_dns_handoff_active
 	}
+	# process_pids returns successfully without producing any process IDs.
 	process_pids() {
 		return 0
 	}
@@ -1233,15 +1266,18 @@ NO_HANDOFF_INTERRUPT_READY_FILE="${TEST_ROOT}/no-handoff-interrupt-ready"
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}" "${NO_HANDOFF_INTERRUPT_READY_FILE}"
 (
+	# pre_hook prepares an interrupt test without requiring DNS handoff or dnsmasq restart recovery.
 	pre_hook() {
 		ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
 		ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
 		export ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_SKIP_DNSMASQ_RESTART
 		printf '%s\n' no_handoff_interrupt_pre_hook >>"${CALLS_FILE}"
 	}
+	# process_pids returns successfully without producing any process IDs.
 	process_pids() {
 		return 0
 	}
+	# process_wait_for_start waits indefinitely until interrupted after signaling readiness for no-handoff interrupt tests.
 	process_wait_for_start() {
 		: >"${NO_HANDOFF_INTERRUPT_READY_FILE}"
 		while :; do
@@ -1274,9 +1310,11 @@ NO_HANDOFF_PRE_INTERRUPT_READY_FILE="${TEST_ROOT}/no-handoff-pre-interrupt-ready
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}" "${NO_HANDOFF_PRE_INTERRUPT_READY_FILE}"
 (
+	# agh_dns_handoff_required determines whether DNS handoff is required and reports that it is not required.
 	agh_dns_handoff_required() {
 		return 1
 	}
+	# pre_hook marks the startup as requiring no DNS handoff and waits for interruption.
 	pre_hook() {
 		ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
 		ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
@@ -1311,10 +1349,12 @@ if start >/dev/null; then
 fi
 [ ! -f "${STARTED_FILE}" ] || fail 'rc.func launched AdGuardHome after pre-start failure'
 
+# pre_hook prepares and activates the DNS handoff test marker, returning failure if preparation fails.
 pre_hook() {
 	prepare_active_dns_handoff_test_marker || return 1
 	return 0
 }
+# post_hook indicates that the post-start hook failed.
 post_hook() {
 	return 1
 }

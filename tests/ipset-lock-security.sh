@@ -50,10 +50,12 @@ fi
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
+# adguard_dnsmasq_managed indicates that dnsmasq is managed by AdGuard Home.
 adguard_dnsmasq_managed() {
 	return 0
 }
 
+# id reports an error when the IPSET lock code attempts to invoke the unavailable `id` command.
 id() {
 	fail 'IPSET lock code called unavailable id command'
 }
@@ -220,10 +222,12 @@ lock_action() {
 	printf '%s\n' called >"${TEST_ROOT}/called"
 }
 
+# lock_dnsmasq_action marks a dnsmasq restart as pending.
 lock_dnsmasq_action() {
 	IPSET_DNSMASQ_RESTART_PENDING="1"
 }
 
+# lock_dnsmasq_skip_action marks a pending dnsmasq restart as suppressed.
 lock_dnsmasq_skip_action() {
 	ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
 	IPSET_DNSMASQ_RESTART_PENDING="1"

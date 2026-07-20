@@ -7,10 +7,12 @@ SCRIPT_PATH="${1:-installer}"
 TMP_ROOT="${TMPDIR:-/tmp}/installer-bind-addresses.$$"
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 
+# cleanup removes the temporary test working directory and its contents.
 cleanup() {
 	rm -rf "${TMP_ROOT}"
 }
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -32,10 +34,12 @@ sed -n '/^setup_resolve_lan_addresses() {$/,/^setup_AdGuardHome_impl() {$/p' "${
 ERROR='Error:'
 WEB_PORT=3000
 
+# PTXT prints each argument on a separate line.
 PTXT() {
 	printf '%s\n' "$@"
 }
 
+# ai_have_cmd reports whether the requested network command is available in the test environment.
 ai_have_cmd() {
 	case "$1" in
 		ip) [ "${IP_AVAILABLE:-0}" -eq 1 ] ;;
@@ -44,6 +48,7 @@ ai_have_cmd() {
 	esac
 }
 
+# ip simulates network command output for the test scenarios using configured environment variables.
 ip() {
 	case "$*" in
 		'-o -4 addr list br0')
@@ -70,10 +75,12 @@ ip() {
 	esac
 }
 
+# route prints the configured simulated route output when available.
 route() {
 	[ -n "${ROUTE_OUTPUT:-}" ] && printf '%s\n' "${ROUTE_OUTPUT}"
 }
 
+# nvram retrieves simulated NVRAM values for LAN interface and IP address settings.
 nvram() {
 	case "${1:-}:${2:-}" in
 		get:lan_ifname) printf '%s\n' "${LAN_IFNAME:-}" ;;
@@ -83,6 +90,7 @@ nvram() {
 	esac
 }
 
+# reset_inputs resets simulated network inputs and bind-address state to their default test values.
 reset_inputs() {
 	ADGUARD_INSTALL_MODE=""
 	IP_AVAILABLE=0
@@ -105,6 +113,7 @@ reset_inputs() {
 	SETUP_DNS_BIND_HOST6=""
 }
 
+# assert_bind_values verifies expected web and DNS bind addresses for a test case.
 assert_bind_values() {
 	case_name="$1"
 	expected_web="$2"
@@ -115,6 +124,7 @@ assert_bind_values() {
 	[ "${SETUP_DNS_BIND_HOST6:-}" = "${expected_dns6}" ] || fail "${case_name}: expected DNS IPv6 ${expected_dns6:-empty}, got ${SETUP_DNS_BIND_HOST6:-empty}"
 }
 
+# assert_yaml_bind_hosts verifies that generated YAML contains the expected DNS bind hosts for a test case.
 assert_yaml_bind_hosts() {
 	case_name="$1"
 	expected_count="$2"

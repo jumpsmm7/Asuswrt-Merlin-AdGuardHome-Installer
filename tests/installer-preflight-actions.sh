@@ -134,6 +134,7 @@ EOF
 run_preflight_gate_case missing 1 yes
 run_preflight_gate_case available 0 no
 
+# run_preflight_firewall_mode_case verifies firewall tool checks for a preflight action based on persisted and detected install modes.
 run_preflight_firewall_mode_case() {
 	case_name="$1"
 	action="$2"
@@ -204,6 +205,7 @@ for action in install update restore; do
 	run_preflight_firewall_mode_case "detected-lan-${action}" "${action}" missing lan skipped
 done
 
+# run_router_mode_case tests router eligibility for a router mode and LAN IP address, verifying the status and expected output lines.
 run_router_mode_case() {
 	case_name="$1"
 	sw_mode="$2"
@@ -264,9 +266,12 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 (
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
-	conf_value() { return 1; }
-	adguard_install_mode_detect() { return 1; }
+	# conf_value returns a failure status without producing a configuration value.
+conf_value() { return 1; }
+	# adguard_install_mode_detect determines the detected AdGuard installation mode and returns a failure status when detection is unavailable.
+adguard_install_mode_detect() { return 1; }
 
+	# assert_entware_required verifies that each specified action requires Entware.
 	assert_entware_required() {
 		local action
 		for action in "$@"; do
@@ -347,6 +352,7 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 		done
 	}
 
+	# assert_router_eligibility_skipped verifies that router eligibility is not required for the specified actions.
 	assert_router_eligibility_skipped() {
 		local action
 		for action in "$@"; do
@@ -357,6 +363,7 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 		done
 	}
 
+	# assert_firewall_required verifies that firewall tools are required for each specified preflight action.
 	assert_firewall_required() {
 		local action
 		for action in "$@"; do
@@ -367,6 +374,7 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 		done
 	}
 
+	# assert_firewall_skipped verifies that firewall tools are not required for the specified actions.
 	assert_firewall_skipped() {
 		local action
 		for action in "$@"; do
@@ -377,12 +385,14 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 		done
 	}
 
+	# conf_value returns the configured mode or fails when no mode is configured.
 	conf_value() {
 		case "${CONF_MODE:-missing}" in
 			missing) return 1 ;;
 			*) printf '%s\n' "${CONF_MODE}" ;;
 		esac
 	}
+	# adguard_install_mode_detect sets `ADGUARD_INSTALL_MODE` from `DETECTED_MODE` and fails when no mode is available.
 	adguard_install_mode_detect() {
 		case "${DETECTED_MODE:-missing}" in
 			missing) return 1 ;;
@@ -394,6 +404,7 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 	CONF_MODE=missing DETECTED_MODE=lan assert_firewall_skipped install update restore
 	CONF_MODE=missing DETECTED_MODE=wan assert_firewall_required install update restore
 
+	# assert_base_tools_required verifies that the specified actions require downloader, service, CRU, and firewall tools.
 	assert_base_tools_required() {
 		local action
 		for action in "$@"; do
