@@ -27,19 +27,7 @@ jobs:
           sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq
 
       - name: Run code quality checks
-        run: |
-          set +e
-          tools/code-quality.sh >code-quality.log 2>&1
-          status="$?"
-          cat code-quality.log
-          exit "${status}"
-
-      - name: Upload code quality log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: code-quality-log
-          path: code-quality.log
+        run: tools/code-quality.sh
 
       - name: Explain formatting remediation
         if: failure()
