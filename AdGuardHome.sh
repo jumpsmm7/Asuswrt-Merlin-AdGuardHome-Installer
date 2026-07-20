@@ -597,8 +597,8 @@ flock_supports_fd() {
 	return "${status}"
 }
 
-# check_dns_environment applies or restores DNS-related NVRAM settings based on the requested lifecycle state.
-# @param MODE The lifecycle state: `running` applies the AdGuard-managed DNS profile, while `stop` restores saved settings.
+# check_dns_environment applies or restores DNS-related NVRAM settings in WAN mode; LAN-mode running requests make no changes.
+# @param MODE The lifecycle state: `running` applies the WAN AdGuard-managed DNS profile, while `stop` restores saved settings.
 
 check_dns_environment() {
 	local MODE NVCHECK
@@ -912,7 +912,7 @@ adguard_refresh_lan_bind_addresses() {
 	fi
 	BIND_HOSTS="$({
 		printf '%s\n' 127.0.0.1 "${LAN_ADDR}" "${LAN_ADDR6:-}"
-		private_ipv4_bridge_dns_options_with_fallbacks | awk 'NF > 1 { print $2 }'
+		private_ipv4_bridge_dns_options | awk 'NF > 1 { print $2 }'
 	} | awk 'NF && !seen[$0]++ { print }')"
 	WEB_PORT="$(awk '
 		function yaml_key_is(line, expected, text, separator, key) {
@@ -1168,8 +1168,9 @@ netcheck() {
 }
 
 private_ipv4_bridge_dns_options() {
+	local OPTIONS
 	if have_cmd ip; then
-		ip -o -4 addr show scope global 2>/dev/null | awk '
+		OPTIONS="$(ip -o -4 addr show scope global 2>/dev/null | awk '
 			function private_ip(ip) {
 				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
 			}
@@ -1181,7 +1182,23 @@ private_ipv4_bridge_dns_options() {
 					}
 				}
 			}
-		'
+		')"
+		if [ -z "${OPTIONS}" ]; then
+			OPTIONS="$(ip -4 addr show scope global 2>/dev/null | awk '
+				function private_ip(ip) {
+					return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+				}
+				/^[0-9]+: / {
+					iface = $2
+					sub(/:$/, "", iface)
+				}
+				$1 == "inet" && iface ~ /^br/ && iface != "br0" {
+					split($2, ip_addr, "/")
+					if (private_ip(ip_addr[1]) && !seen[iface]++) { print iface " " ip_addr[1] }
+				}
+			')"
+		fi
+		printf '%s\n' "${OPTIONS}"
 		return
 	fi
 	return 1
@@ -2307,7 +2324,9 @@ IPSet_Migrate() {
 	if adguard_lan_mode; then
 		if ! IPSet_Disable_Managed; then
 			agh_log warning IPSet_Migrate "state=migration action=disable_managed_ipset result=skipped reason=lan_mode_remove_failed"
+			return 1
 		fi
+		IPSET_MIGRATION_SKIPPED="1"
 		return 0
 	fi
 	[ -f "${YAML_FILE}" ] || return 0
@@ -2570,7 +2589,7 @@ IPSet_Enabled() {
 	[ "$(conf_value ADGUARD_IPSET)" != "NO" ]
 }
 
-# IPSet_Refresh refreshes AdGuardHome IPSet mappings and restarts AdGuardHome when mappings change.
+# IPSet_Refresh refreshes AdGuardHome IPSet mappings in WAN mode and restarts AdGuardHome when mappings change; LAN mode is a no-op.
 # The optional argument specifies a dnsmasq configuration file to use for collecting mappings.
 IPSet_Refresh() {
 	local DNSMASQ_RESTART_SKIP RESTART_STATUS

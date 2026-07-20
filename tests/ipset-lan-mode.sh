@@ -102,7 +102,9 @@ IPSet_Migrate || fail 'LAN migration did not return success'
 
 DISABLE_STATUS=1
 : >"${CALLS_FILE}"
-IPSet_Migrate || fail 'LAN migration treated failed cleanup as fatal'
+if IPSet_Migrate; then
+	fail 'LAN migration treated failed cleanup as successful'
+fi
 ACTUAL="$(cat "${CALLS_FILE}")"
 case "${ACTUAL}" in
 	*IPSet_Disable_Managed*'reason=lan_mode_remove_failed'*) : ;;

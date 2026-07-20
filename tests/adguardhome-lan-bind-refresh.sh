@@ -33,8 +33,8 @@ have_cmd() { return 0; }
 interface_ipv4_addr() { printf '%s\n' 192.168.50.27; }
 # interface_ipv6_addr prints the IPv6 address assigned to the LAN interface.
 interface_ipv6_addr() { printf '%s\n' 2001:db8::27; }
-# private_ipv4_bridge_dns_options_with_fallbacks outputs the bridge interface and its fallback private IPv4 DNS address.
-private_ipv4_bridge_dns_options_with_fallbacks() { printf '%s\n' 'br1 192.168.101.1'; }
+# private_ipv4_bridge_dns_options outputs a bridge interface address confirmed as locally assigned.
+private_ipv4_bridge_dns_options() { printf '%s\n' 'br1 192.168.101.254'; }
 # nvram returns fixed test values for the requested NVRAM variable.
 nvram() {
 	case "$2" in
@@ -59,7 +59,7 @@ adguard_refresh_lan_bind_addresses || fail 'dynamic LAN bind refresh failed'
 grep -q '^  address: 192\.168\.50\.27:3443$' "${YAML_FILE}" || fail 'WebUI address or preserved port was not refreshed'
 grep -q '^    - 192\.168\.50\.27$' "${YAML_FILE}" || fail 'LAN IPv4 DNS bind was not refreshed'
 grep -q '^    - 2001:db8::27$' "${YAML_FILE}" || fail 'LAN IPv6 DNS bind was not refreshed'
-grep -q '^    - 192\.168\.101\.1$' "${YAML_FILE}" || fail 'bridge DNS bind was not refreshed'
+grep -q '^    - 192\.168\.101\.254$' "${YAML_FILE}" || fail 'bridge DNS bind was not refreshed'
 ! grep -q '192\.168\.50\.1' "${YAML_FILE}" || fail 'stale LAN bind address remained in YAML'
 
 cat >"${YAML_FILE}" <<'EOF' || fail 'could not write quoted-key fixture'

@@ -90,6 +90,7 @@ extract_function adguardhome_yaml_secure_file || fail 'could not extract YAML se
 extract_function adguardhome_yaml_remove_ipset_file || fail 'could not extract YAML cleanup helper'
 extract_function adguard_enforce_lan_ipset_disabled || fail 'could not extract LAN enforcement helper'
 extract_function port_is_valid || fail 'could not extract port validation helper'
+extract_function runtime_port_is_valid || fail 'could not extract runtime port validation helper'
 extract_function setup_sync_mode_dependent_yaml || fail 'could not extract mode-dependent YAML sync helper'
 extract_function setup_sync_restored_yaml_for_wan || fail 'could not extract WAN restore YAML sync helper'
 extract_function setup_sync_mode_dependent_yaml_and_snapshot || fail 'could not extract mode-dependent YAML snapshot sync helper'
@@ -544,12 +545,12 @@ done
 rm -f "${YAML_FILE}.before"
 
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write WAN-to-LAN sync preferences'
-ADGUARD_WEBUI_PORT="3000"
+ADGUARD_WEBUI_PORT=""
 ADGUARD_LAN_REVERSE_UPSTREAM="192.168.50.254"
 EOF_CONF
 cat >"${YAML_FILE}" <<'EOF_YAML' || fail 'could not write WAN YAML for LAN-mode migration'
 http:
-  address: 0.0.0.0:3000
+  address: 0.0.0.0:443
 dns:
   bind_hosts:
     - 0.0.0.0
@@ -562,7 +563,7 @@ EOF_YAML
 rm -f "${YAML_ORI}"
 # setup_resolve_bind_addresses sets the web address and IPv4 and IPv6 DNS bind hosts used for LAN-mode configuration.
 setup_resolve_bind_addresses() {
-	SETUP_WEB_ADDRESS='192.168.50.2:3000'
+	SETUP_WEB_ADDRESS="192.168.50.2:${WEB_PORT}"
 	SETUP_DNS_BIND_HOST='192.168.50.2'
 	SETUP_DNS_BIND_HOST6='fd00::2'
 }
@@ -576,7 +577,7 @@ setup_private_ipv4_bridge_dns_binds() {
 }
 ADGUARD_INSTALL_MODE='lan'
 setup_sync_mode_dependent_yaml_and_snapshot || fail 'could not migrate WAN YAML to detected LAN mode'
-grep -q '^  address: 192\.168\.50\.2:3000$' "${YAML_FILE}" || fail 'LAN mode migration did not update the WebUI bind'
+grep -q '^  address: 192\.168\.50\.2:443$' "${YAML_FILE}" || fail 'LAN mode migration did not preserve the low WebUI port'
 for bind_host in 127.0.0.1 192.168.50.2 fd00::2 192.168.60.1; do
 	grep -Fq "    - ${bind_host}" "${YAML_FILE}" || fail "LAN mode migration omitted DNS bind ${bind_host}"
 done

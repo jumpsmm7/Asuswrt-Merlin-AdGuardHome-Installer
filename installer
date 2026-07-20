@@ -680,6 +680,13 @@ ipv4_is_valid() {
 	'
 }
 
+ipv4_is_usable_unicast() {
+	ipv4_is_valid "$1" || return 1
+	PTXT "$1" | awk -F. '
+		$1 == 0 || $1 == 127 || $1 >= 224 { exit 1 }
+	'
+}
+
 ipv4_is_private() {
 	ipv4_is_valid "$1" || return 1
 	PTXT "$1" | awk -F. '
@@ -697,7 +704,7 @@ adguard_install_mode_detect() {
 			;;
 		*)
 			lan_ipaddr="$(nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
-			if ! ipv4_is_valid "${lan_ipaddr}"; then
+			if ! ipv4_is_usable_unicast "${lan_ipaddr}"; then
 				PTXT "${ERROR} Unable to determine router LAN IP address."
 				return 1
 			fi
@@ -5109,7 +5116,7 @@ setup_sync_mode_dependent_yaml() {
 			}
 		' "${target_file}" 2>/dev/null)"
 	fi
-	port_is_valid "${web_port}" || web_port="3000"
+	runtime_port_is_valid "${web_port}" || web_port="3000"
 	case "${ADGUARD_INSTALL_MODE:-wan}" in
 		lan)
 			WEB_PORT="${web_port}"
@@ -7153,6 +7160,11 @@ esac
 
 case "${1:-}" in
 	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | migrate-runtime-defaults | uninstall)
+		case "${1:-}" in
+			install | update)
+				adguard_install_mode_detect || exit 1
+				;;
+		esac
 		cli_run "$@"
 		CLI_STATUS="$?"
 		if [ "${CLI_STATUS}" -ne 0 ]; then

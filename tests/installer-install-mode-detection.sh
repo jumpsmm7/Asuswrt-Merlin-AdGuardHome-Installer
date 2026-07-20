@@ -34,6 +34,13 @@ grep -q 'write_conf ADGUARD_INSTALL_MODE "\\"${ADGUARD_INSTALL_MODE}\\""' "${SCR
 	fail 'installer must persist ADGUARD_INSTALL_MODE'
 grep -q 'PREVIOUS_ADGUARD_INSTALL_MODE="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"' "${SCRIPT_PATH}" ||
 	fail 'installer must preserve the saved install mode before detection'
+awk '
+	/^case "\$\{1:-\}" in$/ { in_dispatch = 1 }
+	in_dispatch && /install \| update\)/ { mode_actions = 1 }
+	mode_actions && /adguard_install_mode_detect \|\| exit 1/ { detected = 1 }
+	mode_actions && /cli_run "\$@"/ { exit(detected ? 0 : 1) }
+	END { if (!in_dispatch || !mode_actions) exit 1 }
+' "${SCRIPT_PATH}" || fail 'install/update CLI dispatch does not detect install mode before cli_run'
 grep -q 'adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE:-}"' "${SCRIPT_PATH}" ||
 	fail 'install/update orchestration must migrate mode-dependent settings'
 if sed -n '/^PREVIOUS_ADGUARD_INSTALL_MODE=/,/^if \[ "${ADGUARD_INSTALL_MODE}" = "wan" \]/p' "${SCRIPT_PATH}" |
@@ -125,6 +132,9 @@ run_case media-bridge-lan 4 192.168.50.1 0 lan
 run_case unknown-non-router-lan 9 192.168.50.1 0 lan
 run_case repeater-without-lan-ip 2 "" 1 ""
 run_case ap-with-invalid-lan-ip 3 999.168.50.1 1 ""
+run_case ap-with-wildcard-lan-ip 3 0.0.0.0 1 ""
+run_case ap-with-loopback-lan-ip 3 127.0.0.1 1 ""
+run_case ap-with-multicast-lan-ip 3 224.0.0.1 1 ""
 run_case missing-sw-mode-with-lan-ip "" 192.168.50.1 0 lan
 run_case missing-sw-mode-without-lan-ip "" "" 1 ""
 run_case missing-sw-mode-with-invalid-lan-ip "" 999.168.50.1 1 ""
