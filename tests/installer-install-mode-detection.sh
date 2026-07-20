@@ -67,12 +67,19 @@ mode_write_line="$(grep -n 'write_conf ADGUARD_INSTALL_MODE' "${TMP_ROOT}/migrat
 grep -q '! backup_mode_migration_wan_hooks "${hooks_backup}"' "${TMP_ROOT}/migration" &&
 	grep -q '\[ "${previous_mode}" = "lan" \] && ! install_wan_event_scripts' "${TMP_ROOT}/migration" ||
 	fail 'LAN-to-WAN migration does not preserve and synchronize WAN event scripts'
-grep -q 'restore_mode_migration_wan_hooks "${hooks_backup}"' "${TMP_ROOT}/migration" ||
-	fail 'LAN-to-WAN migration does not restore event scripts after failure'
+rollback_count="$(grep -c 'rollback_pending_mode_migration || return 2' "${TMP_ROOT}/migration")"
+[ "${rollback_count}" -eq 3 ] ||
+	fail 'mode migration failure paths do not propagate rollback failures'
 grep -q 'MODE_MIGRATION_HOOKS_BACKUP="${hooks_backup}"' "${TMP_ROOT}/migration" ||
 	fail 'mode migration does not retain hook rollback state for orchestration failures'
-sed -n '/^inst_AdGuardHome() {$/,/^update_loading_bar 100$/p' "${SCRIPT_PATH}" >"${TMP_ROOT}/install-path" ||
+sed -n '/^inst_AdGuardHome() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_ROOT}/install-path" ||
 	fail 'could not extract install orchestration path'
+awk '
+	/adguard_migrate_detected_install_mode/ { migration = 1; next }
+	migration && /MIGRATE_STATUS=\$\?/ { status = 1; next }
+	status && /\[ "\$\{MIGRATE_STATUS\}" -eq 2 \] \|\| adguard_restart_after_install_abort/ { guarded = 1; exit }
+	END { exit(guarded ? 0 : 1) }
+' "${TMP_ROOT}/install-path" || fail 'migration rollback failure does not block the previous installation restart'
 awk '
 	/Required service-event-end hook could not be configured/ { failure = 1; next }
 	failure && /if rollback_pending_mode_migration; then/ { rollback = 1; next }
@@ -111,6 +118,7 @@ PTXT() {
 }
 
 # Verify every recovery operation can block restart by retaining pending state and returning failure.
+(
 for failed_restore in yaml config hooks; do
 	MODE_MIGRATION_YAML_FILE_BACKUP="${TMP_ROOT}/yaml-backup"
 	MODE_MIGRATION_YAML_ORI_BACKUP="${TMP_ROOT}/yaml-ori-backup"
@@ -132,6 +140,7 @@ discard_installer_config_backup() { :; }
 	[ -n "${MODE_MIGRATION_YAML_FILE_BACKUP}" ] ||
 		fail "${failed_restore} rollback failure cleared pending recovery state"
 done
+) || exit $?
 
 # run_case executes an install-mode detection test case and fails if the result does not match the expected status or mode.
 run_case() {

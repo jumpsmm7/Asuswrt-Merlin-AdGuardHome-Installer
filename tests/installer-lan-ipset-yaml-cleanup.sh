@@ -96,6 +96,7 @@ extract_function setup_sync_restored_yaml_for_wan || fail 'could not extract WAN
 extract_function setup_sync_mode_dependent_yaml_and_snapshot || fail 'could not extract mode-dependent YAML snapshot sync helper'
 extract_function setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could not extract WAN restore YAML snapshot sync helper'
 extract_function restore_mode_migration_yaml || fail 'could not extract mode migration YAML rollback helper'
+extract_function rollback_pending_mode_migration || fail 'could not extract pending mode migration rollback helper'
 extract_function adguard_migrate_detected_install_mode || fail 'could not extract detected-mode migration helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'helper extraction was empty'
 
@@ -110,6 +111,7 @@ chmod 755 "${STUB_DIR}/chown" || fail 'could not chmod chown stub'
 
 ERROR='Error:'
 INFO='Info:'
+ADDON_DIR="${TMP_ROOT}/addon"
 # PTXT prints its arguments as text, one per line, ignoring an optional `-n` argument.
 PTXT() {
 	if [ "${1:-}" = "-n" ]; then

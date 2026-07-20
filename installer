@@ -4371,7 +4371,7 @@ install_wan_event_scripts() {
 }
 
 inst_AdGuardHome() {
-	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
+	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
 	ensure_sha256sum_tool || return 1
@@ -4613,8 +4613,10 @@ inst_AdGuardHome() {
 	ptxt_ok "AdGuardHome service files installed."
 	# Run mode-dependent YAML migration before this orchestration changes
 	# firewall state or event hooks, preserving the previous mode on failure.
-	if ! adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE:-}"; then
-		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+	adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE:-}"
+	MIGRATE_STATUS=$?
+	if [ "${MIGRATE_STATUS}" -ne 0 ]; then
+		[ "${MIGRATE_STATUS}" -eq 2 ] || adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 		end_op_message 1 "$1"
 		return 1
 	fi
@@ -5450,32 +5452,27 @@ adguard_migrate_detected_install_mode() {
 				PTXT "${ERROR} Unable to update the AdGuardHome configuration for ${ADGUARD_INSTALL_MODE} mode."
 				return 1
 			fi
+			MODE_MIGRATION_YAML_FILE_BACKUP="${yaml_file_backup}"
+			MODE_MIGRATION_YAML_ORI_BACKUP="${yaml_ori_backup}"
+			MODE_MIGRATION_CONFIG_BACKUP="${config_backup}"
+			MODE_MIGRATION_HOOKS_BACKUP="${hooks_backup}"
 			if ! backup_mode_migration_wan_hooks "${hooks_backup}"; then
-				restore_mode_migration_yaml "${yaml_file_backup}" "${yaml_ori_backup}" || PTXT "${ERROR} Unable to restore the previous AdGuardHome YAML configuration."
-				restore_installer_config "${config_backup}" || PTXT "${ERROR} Unable to restore the previous installer mode configuration."
 				PTXT "${ERROR} Unable to preserve the previous event scripts."
+				rollback_pending_mode_migration || return 2
 				return 1
 			fi
 			if [ "${previous_mode}" = "lan" ] && ! install_wan_event_scripts; then
-				restore_mode_migration_yaml "${yaml_file_backup}" "${yaml_ori_backup}" || PTXT "${ERROR} Unable to restore the previous AdGuardHome YAML configuration."
-				restore_installer_config "${config_backup}" || PTXT "${ERROR} Unable to restore the previous installer mode configuration."
-				restore_mode_migration_wan_hooks "${hooks_backup}" || PTXT "${ERROR} Unable to restore the previous event scripts."
 				PTXT "${ERROR} Unable to install the required WAN-mode event scripts."
+				rollback_pending_mode_migration || return 2
 				return 1
 			fi
 			if ! write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\"" ||
 				! adguard_install_feature_defaults ||
 				! write_conf ADGUARD_NETCHECK_MODE "\"${ADGUARD_INSTALL_MODE}\"" ||
 				{ [ "${ADGUARD_INSTALL_MODE}" = "lan" ] && ! adguardhome_yaml_remove_ipset_file; }; then
-				restore_mode_migration_yaml "${yaml_file_backup}" "${yaml_ori_backup}" || PTXT "${ERROR} Unable to restore the previous AdGuardHome YAML configuration."
-				restore_installer_config "${config_backup}" || PTXT "${ERROR} Unable to restore the previous installer mode configuration."
-				restore_mode_migration_wan_hooks "${hooks_backup}" || PTXT "${ERROR} Unable to restore the previous event scripts."
+				rollback_pending_mode_migration || return 2
 				return 1
 			fi
-			MODE_MIGRATION_YAML_FILE_BACKUP="${yaml_file_backup}"
-			MODE_MIGRATION_YAML_ORI_BACKUP="${yaml_ori_backup}"
-			MODE_MIGRATION_CONFIG_BACKUP="${config_backup}"
-			MODE_MIGRATION_HOOKS_BACKUP="${hooks_backup}"
 			return 0
 			;;
 	esac

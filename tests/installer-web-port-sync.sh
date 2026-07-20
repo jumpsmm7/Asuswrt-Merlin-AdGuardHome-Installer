@@ -227,16 +227,27 @@ fi
 
 reset_router_state
 write_yaml \
+	'"http":' \
+	'  "address": "127.0.0.1:3000"' \
+	'dns:' \
+	'  bind_hosts:' \
+	'    - 0.0.0.0'
+setup_sync_webui_port 6003 || fail 'block-style quoted http mapping control failed'
+grep -q '^  address: 127\.0\.0\.1:6003$' "${YAML_FILE}" ||
+	fail 'block-style quoted http mapping control did not update its address'
+
+reset_router_state
+write_yaml \
 	'"http": {address: "127.0.0.1:3000"}' \
 	'dns:' \
 	'  bind_hosts:' \
 	'    - 0.0.0.0'
-if setup_sync_webui_port 6003 >/dev/null 2>&1; then
+if setup_sync_webui_port 6004 >/dev/null 2>&1; then
 	fail 'flow-style http mapping was accepted as a block mapping'
 fi
 grep -q '^"http": {address: "127\.0\.0\.1:3000"}$' "${YAML_FILE}" ||
 	fail 'flow-style http mapping was rewritten'
-if grep -q '^  address:' "${YAML_FILE}"; then
+if grep -q '^[[:space:]][[:space:]]*address:' "${YAML_FILE}"; then
 	fail 'flow-style http mapping received an invalid block address'
 fi
 
