@@ -109,6 +109,18 @@ write_conf 'ADGUARD_INSTALL_MODE=lan'
 adguard_restart_dnsmasq_if_managed || fail 'running LAN dnsmasq restart should succeed'
 assert_restart_count 1 'running LAN dnsmasq should be restarted'
 
+DNSMASQ_RUNNING=1
+write_conf 'ADGUARD_INSTALL_MODE=lan'
+adguard_dnsmasq_managed || fail 'running LAN dnsmasq without an explicit mode should be managed by default'
+
+DNSMASQ_RUNNING=1
+write_conf 'ADGUARD_INSTALL_MODE=lan' 'ADGUARD_DNSMASQ_MODE=disabled'
+! adguard_dnsmasq_managed || fail 'disabled dnsmasq mode should override a running LAN dnsmasq'
+
+DNSMASQ_RUNNING=1
+write_conf 'ADGUARD_INSTALL_MODE=lan' 'ADGUARD_DNSMASQ_MODE=enabled'
+adguard_dnsmasq_managed || fail 'enabled dnsmasq mode should keep a running LAN dnsmasq managed'
+
 DNSMASQ_RUNNING=0
 SERVICE_RESTART_COUNT=0
 write_conf 'ADGUARD_DNSMASQ_MODE=enabled'

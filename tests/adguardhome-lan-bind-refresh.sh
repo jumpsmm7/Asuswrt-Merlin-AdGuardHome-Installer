@@ -112,4 +112,16 @@ if adguard_refresh_lan_bind_addresses; then
 fi
 cmp -s "${YAML_FILE}" "${YAML_FILE}.wildcard" || fail 'wildcard LAN IPv4 failure modified YAML'
 
+ipv4_is_usable_unicast '192.168.50.27' || fail 'ipv4_is_usable_unicast rejected a normal unicast address'
+ipv4_is_usable_unicast '223.255.255.255' || fail 'ipv4_is_usable_unicast rejected the address just below the multicast range'
+! ipv4_is_usable_unicast '224.0.0.1' || fail 'ipv4_is_usable_unicast accepted a multicast address'
+! ipv4_is_usable_unicast '127.0.0.1' || fail 'ipv4_is_usable_unicast accepted a loopback address'
+! ipv4_is_usable_unicast '0.1.2.3' || fail 'ipv4_is_usable_unicast accepted an address in the 0.0.0.0/8 range'
+! ipv4_is_usable_unicast '0.0.0.0' || fail 'ipv4_is_usable_unicast accepted the wildcard address'
+! ipv4_is_usable_unicast '256.1.1.1' || fail 'ipv4_is_usable_unicast accepted an out-of-range octet'
+! ipv4_is_usable_unicast '192.168.1' || fail 'ipv4_is_usable_unicast accepted an address with too few octets'
+! ipv4_is_usable_unicast '192.168.1.2.3' || fail 'ipv4_is_usable_unicast accepted an address with too many octets'
+! ipv4_is_usable_unicast '192.168.1.abc' || fail 'ipv4_is_usable_unicast accepted a non-numeric octet'
+! ipv4_is_usable_unicast '' || fail 'ipv4_is_usable_unicast accepted an empty address'
+
 printf '%s\n' 'PASS: LAN startup refreshes dynamic WebUI and DNS bind addresses without partial YAML writes'
