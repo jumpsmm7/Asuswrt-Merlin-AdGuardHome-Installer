@@ -22,19 +22,24 @@ fail() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
-sed -n '/^ipv4_is_usable_unicast() {$/,/^}$/p; /^adguard_refresh_lan_bind_addresses() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail 'could not extract refresh helper'
+sed -n '/^ipv4_is_usable_unicast() {$/,/^}$/p; /^private_ipv4_bridge_dns_options() {$/,/^}$/p; /^adguard_refresh_lan_bind_addresses() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail 'could not extract refresh helper'
 [ -s "${FUNCTION_FILE}" ] || fail 'refresh helper was not found'
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
 adguard_lan_mode() { return 0; }
 have_cmd() { return 0; }
+# ip returns duplicate and distinct private addresses in the router's one-line address format.
+ip() {
+	printf '%s\n' \
+		'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1' \
+		'5: br1    inet 192.168.102.254/24 brd 192.168.102.255 scope global secondary br1' \
+		'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1'
+}
 # interface_ipv4_addr prints the IPv4 address assigned to the LAN interface.
 interface_ipv4_addr() { printf '%s\n' 192.168.50.27; }
 # interface_ipv6_addr prints the IPv6 address assigned to the LAN interface.
 interface_ipv6_addr() { printf '%s\n' 2001:db8::27; }
-# private_ipv4_bridge_dns_options outputs bridge interface names and their locally assigned IPv4 addresses.
-private_ipv4_bridge_dns_options() { printf '%s\n' 'br1 192.168.101.254' 'br1 192.168.102.254'; }
 # nvram returns fixed test values for the requested NVRAM variable.
 nvram() {
 	case "$2" in
@@ -54,6 +59,10 @@ dns:
     - 2001:db8::1
   port: 53
 EOF
+
+bridge_options="$(private_ipv4_bridge_dns_options)" || fail 'bridge address discovery failed'
+[ "${bridge_options}" = "$(printf '%s\n' 'br1 192.168.101.254' 'br1 192.168.102.254')" ] ||
+	fail 'bridge address discovery did not preserve distinct per-interface addresses'
 
 adguard_refresh_lan_bind_addresses || fail 'dynamic LAN bind refresh failed'
 grep -q '^  address: 192\.168\.50\.27:3443$' "${YAML_FILE}" || fail 'WebUI address or preserved port was not refreshed'

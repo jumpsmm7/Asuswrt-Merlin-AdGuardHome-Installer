@@ -119,27 +119,36 @@ PTXT() {
 
 # Verify every recovery operation can block restart by retaining pending state and returning failure.
 (
-for failed_restore in yaml config hooks; do
-	MODE_MIGRATION_YAML_FILE_BACKUP="${TMP_ROOT}/yaml-backup"
-	MODE_MIGRATION_YAML_ORI_BACKUP="${TMP_ROOT}/yaml-ori-backup"
-	MODE_MIGRATION_CONFIG_BACKUP="${TMP_ROOT}/config-backup"
-	MODE_MIGRATION_HOOKS_BACKUP="${TMP_ROOT}/hooks-backup"
-	PREVIOUS_ADGUARD_INSTALL_MODE=lan
-	ADDON_DIR="${TMP_ROOT}/addon"
-	# restore_mode_migration_yaml reports whether YAML state restoration succeeded.
-restore_mode_migration_yaml() { [ "${failed_restore}" != yaml ]; }
-	# restore_installer_config restores the installer configuration and reports whether the restoration succeeded.
-restore_installer_config() { [ "${failed_restore}" != config ]; }
-	# restore_mode_migration_wan_hooks reports whether WAN event-hook restoration succeeded.
-restore_mode_migration_wan_hooks() { [ "${failed_restore}" != hooks ]; }
-	# discard_installer_config_backup discards the backup of the installer configuration.
-discard_installer_config_backup() { :; }
-	if rollback_pending_mode_migration >/dev/null 2>&1; then
-		fail "${failed_restore} rollback failure was reported as success"
-	fi
-	[ -n "${MODE_MIGRATION_YAML_FILE_BACKUP}" ] ||
-		fail "${failed_restore} rollback failure cleared pending recovery state"
-done
+	for failed_restore in yaml config hooks; do
+		MODE_MIGRATION_YAML_FILE_BACKUP="${TMP_ROOT}/yaml-backup"
+		MODE_MIGRATION_YAML_ORI_BACKUP="${TMP_ROOT}/yaml-ori-backup"
+		MODE_MIGRATION_CONFIG_BACKUP="${TMP_ROOT}/config-backup"
+		MODE_MIGRATION_HOOKS_BACKUP="${TMP_ROOT}/hooks-backup"
+		PREVIOUS_ADGUARD_INSTALL_MODE=lan
+		ADDON_DIR="${TMP_ROOT}/addon"
+		rm -rf "${MODE_MIGRATION_HOOKS_BACKUP}"
+		mkdir -p "${MODE_MIGRATION_HOOKS_BACKUP}" || fail 'could not create hook backup fixture'
+		: >"${MODE_MIGRATION_YAML_FILE_BACKUP}" || fail 'could not create YAML backup fixture'
+		: >"${MODE_MIGRATION_YAML_ORI_BACKUP}" || fail 'could not create original YAML backup fixture'
+		: >"${MODE_MIGRATION_CONFIG_BACKUP}" || fail 'could not create installer backup fixture'
+		: >"${MODE_MIGRATION_HOOKS_BACKUP}/firewall-start" || fail 'could not create hook file fixture'
+		# restore_mode_migration_yaml reports whether YAML state restoration succeeded.
+		restore_mode_migration_yaml() { [ "${failed_restore}" != yaml ]; }
+		# restore_installer_config restores the installer configuration and reports whether the restoration succeeded.
+		restore_installer_config() { [ "${failed_restore}" != config ]; }
+		# restore_mode_migration_wan_hooks reports whether WAN event-hook restoration succeeded.
+		restore_mode_migration_wan_hooks() { [ "${failed_restore}" != hooks ]; }
+		# discard_installer_config_backup discards the backup of the installer configuration.
+		discard_installer_config_backup() { :; }
+		if rollback_pending_mode_migration >/dev/null 2>&1; then
+			fail "${failed_restore} rollback failure was reported as success"
+		fi
+		[ -f "${MODE_MIGRATION_YAML_FILE_BACKUP}" ] &&
+			[ -f "${MODE_MIGRATION_YAML_ORI_BACKUP}" ] &&
+			[ -f "${MODE_MIGRATION_CONFIG_BACKUP}" ] &&
+			[ -f "${MODE_MIGRATION_HOOKS_BACKUP}/firewall-start" ] ||
+			fail "${failed_restore} rollback failure discarded recovery artifacts"
+	done
 ) || exit $?
 
 # run_case executes an install-mode detection test case and fails if the result does not match the expected status or mode.
