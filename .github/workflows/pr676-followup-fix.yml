@@ -1,6 +1,11 @@
 name: PR 676 follow-up fixer
 
 on:
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - .github/workflows/pr676-followup-fix.yml
   push:
     branches:
       - v2.6.1
