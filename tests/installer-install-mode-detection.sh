@@ -94,12 +94,30 @@ grep -q 'MODE_MIGRATION_HOOKS_BACKUP="${hooks_backup}"' "${TMP_ROOT}/migration" 
 	fail 'mode migration does not retain hook rollback state for orchestration failures'
 awk '
 	/if ! rm -rf "\$\{hooks_backup\}"; then/ { cleanup = 1; next }
+	cleanup && /^[[:space:]]*fi[[:space:]]*$/ { exit 1 }
 	cleanup && /Unable to clear stale mode-migration event-script backups/ { logged = 1; next }
-	logged && /return 1/ { guarded = 1; exit }
+	cleanup && logged && /^[[:space:]]*return 1[[:space:]]*$/ { guarded = 1; next }
 	END { exit(guarded ? 0 : 1) }
 ' "${TMP_ROOT}/migration" || fail 'mode migration does not abort when stale hook backup cleanup fails'
+extract_function backup_mode_migration_wan_hooks "${TMP_ROOT}/hook-backup" ||
+	fail 'could not extract event-hook backup helper'
+grep -Fq 'stage_dir="${1}.stage.$$"' "${TMP_ROOT}/hook-backup" &&
+	grep -Fq 'mv "${stage_dir}" "${backup_dir}"' "${TMP_ROOT}/hook-backup" ||
+	fail 'mode migration must publish event-hook backups only after staging completes'
+extract_function restore_mode_migration_yaml "${TMP_ROOT}/yaml-restore" ||
+	fail 'could not extract YAML migration restore helper'
+grep -Fq 'mode-migration.restore.$$' "${TMP_ROOT}/yaml-restore" &&
+	grep -Fq 'mv -f "${yaml_file_stage}" "${YAML_FILE}"' "${TMP_ROOT}/yaml-restore" &&
+	grep -Fq 'mv -f "${yaml_ori_stage}" "${YAML_ORI}"' "${TMP_ROOT}/yaml-restore" ||
+	fail 'mode migration YAML recovery must atomically publish staged files'
+extract_function finalize_pending_mode_migration "${TMP_ROOT}/migration-finalize" ||
+	fail 'could not extract mode migration finalizer'
+grep -Fq '[ "${cleanup_status}" -eq 0 ] || return 1' "${TMP_ROOT}/migration-finalize" ||
+	fail 'mode migration finalization must propagate recovery-backup cleanup failures'
 extract_function inst_AdGuardHome "${TMP_ROOT}/install-path" ||
 	fail 'could not extract install orchestration path'
+grep -Fq 'if ! finalize_pending_mode_migration; then' "${TMP_ROOT}/install-path" ||
+	fail 'install orchestration must propagate mode migration finalization failures'
 awk '
 	/adguard_migrate_detected_install_mode/ { migration = 1; next }
 	migration && /MIGRATE_STATUS=\$\?/ { status = 1; next }

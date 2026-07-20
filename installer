@@ -4743,7 +4743,11 @@ inst_AdGuardHome() {
 		end_op_message 1 "$1"
 		return 1
 	fi
-	finalize_pending_mode_migration
+	if ! finalize_pending_mode_migration; then
+		PTXT "${ERROR} Unable to remove completed mode-migration recovery backups."
+		end_op_message 1 "$1"
+		return 1
+	fi
 	if [ "${1:-update}" != "update" ]; then
 		ptxt_phase "Configuring AdGuardHome first-run settings."
 		if [ ! -f "${ADDON_DIR}/localtime" ]; then
@@ -4859,9 +4863,17 @@ save_installer_config() {
 }
 
 restore_installer_config() {
-	local CONFIG_BACKUP="$1" RETAIN_BACKUP="${2:-0}"
+	local CONFIG_BACKUP="$1" RETAIN_BACKUP="${2:-0}" CONFIG_STAGE="${CONF_FILE}.mode-migration.restore.$$"
 	if [ -f "${CONFIG_BACKUP}" ]; then
-		cp -p "${CONFIG_BACKUP}" "${CONF_FILE}" || return 1
+		rm -f "${CONFIG_STAGE}" || return 1
+		cp -p "${CONFIG_BACKUP}" "${CONFIG_STAGE}" || {
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		}
+		mv -f "${CONFIG_STAGE}" "${CONF_FILE}" || {
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		}
 	elif [ -f "${CONFIG_BACKUP}.absent" ]; then
 		rm -f "${CONF_FILE}" || return 1
 	fi
@@ -5338,16 +5350,27 @@ setup_sync_restored_yaml_and_snapshot_for_wan() {
 
 restore_mode_migration_yaml() {
 	local yaml_file_backup="$1" yaml_ori_backup="$2" retain_backup="${3:-0}" restore_status=0
+	local yaml_file_stage="${YAML_FILE}.mode-migration.restore.$$" yaml_ori_stage="${YAML_ORI}.mode-migration.restore.$$"
+	rm -f "${yaml_file_stage}" "${yaml_ori_stage}" || return 1
 	if [ -f "${yaml_file_backup}" ]; then
-		cp -p "${yaml_file_backup}" "${YAML_FILE}" || restore_status=1
+		if cp -p "${yaml_file_backup}" "${yaml_file_stage}"; then
+			mv -f "${yaml_file_stage}" "${YAML_FILE}" || restore_status=1
+		else
+			restore_status=1
+		fi
 	else
 		rm -f "${YAML_FILE}" || restore_status=1
 	fi
 	if [ -f "${yaml_ori_backup}" ]; then
-		cp -p "${yaml_ori_backup}" "${YAML_ORI}" || restore_status=1
+		if cp -p "${yaml_ori_backup}" "${yaml_ori_stage}"; then
+			mv -f "${yaml_ori_stage}" "${YAML_ORI}" || restore_status=1
+		else
+			restore_status=1
+		fi
 	else
 		rm -f "${YAML_ORI}" || restore_status=1
 	fi
+	rm -f "${yaml_file_stage}" "${yaml_ori_stage}"
 	if [ "${restore_status}" -eq 0 ] && [ "${retain_backup}" != "1" ]; then
 		rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
 	fi
@@ -5355,30 +5378,41 @@ restore_mode_migration_yaml() {
 }
 
 backup_mode_migration_wan_hooks() {
-	local backup_dir="$1" hook
-	mkdir -p "${backup_dir}" || return 1
+	local backup_dir="$1" hook stage_dir="${1}.stage.$$"
+	rm -rf "${stage_dir}" || return 1
+	mkdir -p "${stage_dir}" || return 1
 	for hook in init-start services-stop dnsmasq.postconf firewall-start dnsmasq-sdn.postconf service-event-end; do
 		if [ -f "/jffs/scripts/${hook}" ]; then
-			cp -p "/jffs/scripts/${hook}" "${backup_dir}/${hook}" || {
-				rm -rf "${backup_dir}"
+			cp -p "/jffs/scripts/${hook}" "${stage_dir}/${hook}" || {
+				rm -rf "${stage_dir}"
 				return 1
 			}
 		else
-			: >"${backup_dir}/.${hook}.missing" || {
-				rm -rf "${backup_dir}"
+			: >"${stage_dir}/.${hook}.missing" || {
+				rm -rf "${stage_dir}"
 				return 1
 			}
 		fi
 	done
+	mv "${stage_dir}" "${backup_dir}" || {
+		rm -rf "${stage_dir}"
+		return 1
+	}
 }
 
 restore_mode_migration_wan_hooks() {
-	local backup_dir="$1" retain_backup="${2:-0}" hook restore_status=0
+	local backup_dir="$1" retain_backup="${2:-0}" hook restore_status=0 hook_stage
 	for hook in init-start services-stop dnsmasq.postconf firewall-start dnsmasq-sdn.postconf service-event-end; do
 		if [ -f "${backup_dir}/.${hook}.missing" ]; then
 			rm -f "/jffs/scripts/${hook}" || restore_status=1
 		elif [ -f "${backup_dir}/${hook}" ]; then
-			cp -p "${backup_dir}/${hook}" "/jffs/scripts/${hook}" || restore_status=1
+			hook_stage="/jffs/scripts/.${hook}.mode-migration.restore.$$"
+			if rm -f "${hook_stage}" && cp -p "${backup_dir}/${hook}" "${hook_stage}"; then
+				mv -f "${hook_stage}" "/jffs/scripts/${hook}" || restore_status=1
+			else
+				restore_status=1
+			fi
+			rm -f "${hook_stage}"
 		fi
 	done
 	[ "${restore_status}" -ne 0 ] || [ "${retain_backup}" = "1" ] || rm -rf "${backup_dir}"
@@ -5386,15 +5420,20 @@ restore_mode_migration_wan_hooks() {
 }
 
 finalize_pending_mode_migration() {
+	local cleanup_status=0
 	[ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ] || return 0
-	rm -f "${MODE_MIGRATION_YAML_FILE_BACKUP}" "${MODE_MIGRATION_YAML_ORI_BACKUP}"
-	discard_installer_config_backup "${MODE_MIGRATION_CONFIG_BACKUP}"
-	rm -rf "${MODE_MIGRATION_HOOKS_BACKUP}"
+	rm -f "${MODE_MIGRATION_YAML_FILE_BACKUP}" "${MODE_MIGRATION_YAML_ORI_BACKUP}" || cleanup_status=1
+	discard_installer_config_backup "${MODE_MIGRATION_CONFIG_BACKUP}" || cleanup_status=1
+	rm -rf "${MODE_MIGRATION_HOOKS_BACKUP}" || cleanup_status=1
+	[ "${cleanup_status}" -eq 0 ] || return 1
 	MODE_MIGRATION_YAML_FILE_BACKUP=""
+	MODE_MIGRATION_YAML_ORI_BACKUP=""
+	MODE_MIGRATION_CONFIG_BACKUP=""
+	MODE_MIGRATION_HOOKS_BACKUP=""
 }
 
 rollback_pending_mode_migration() {
-	local restore_status=0
+	local restore_status=0 cleanup_status=0
 	[ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ] || return 0
 	restore_mode_migration_yaml "${MODE_MIGRATION_YAML_FILE_BACKUP}" "${MODE_MIGRATION_YAML_ORI_BACKUP}" 1 || {
 		PTXT "${ERROR} Unable to restore the previous AdGuardHome YAML configuration."
@@ -5415,10 +5454,14 @@ rollback_pending_mode_migration() {
 			return 1
 		}
 	fi
-	rm -f "${MODE_MIGRATION_YAML_FILE_BACKUP}" "${MODE_MIGRATION_YAML_ORI_BACKUP}"
-	discard_installer_config_backup "${MODE_MIGRATION_CONFIG_BACKUP}"
-	rm -rf "${MODE_MIGRATION_HOOKS_BACKUP}"
+	rm -f "${MODE_MIGRATION_YAML_FILE_BACKUP}" "${MODE_MIGRATION_YAML_ORI_BACKUP}" || cleanup_status=1
+	discard_installer_config_backup "${MODE_MIGRATION_CONFIG_BACKUP}" || cleanup_status=1
+	rm -rf "${MODE_MIGRATION_HOOKS_BACKUP}" || cleanup_status=1
+	[ "${cleanup_status}" -eq 0 ] || return 1
 	MODE_MIGRATION_YAML_FILE_BACKUP=""
+	MODE_MIGRATION_YAML_ORI_BACKUP=""
+	MODE_MIGRATION_CONFIG_BACKUP=""
+	MODE_MIGRATION_HOOKS_BACKUP=""
 }
 
 adguard_migrate_detected_install_mode() {
