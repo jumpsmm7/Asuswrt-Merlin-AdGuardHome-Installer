@@ -597,7 +597,7 @@ flock_supports_fd() {
 	return "${status}"
 }
 
-# check_dns_environment applies or restores DNS-related NVRAM settings based on the requested lifecycle state. 
+# check_dns_environment applies or restores DNS-related NVRAM settings based on the requested lifecycle state.
 # @param MODE The lifecycle state: `running` applies the AdGuard-managed DNS profile, while `stop` restores saved settings.
 
 check_dns_environment() {
@@ -1504,7 +1504,7 @@ service_wait() {
 	return "$?"
 }
 
-# start_adguardhome prepares AdGuardHome for startup, launches or restarts it, and verifies network readiness. 
+# start_adguardhome prepares AdGuardHome for startup, launches or restarts it, and verifies network readiness.
 # It returns failure when address synchronization, IPSet setup, service startup, or the final network check fails.
 start_adguardhome() {
 	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LOWER_SCRIPT_STATUS

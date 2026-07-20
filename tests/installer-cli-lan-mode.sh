@@ -102,11 +102,11 @@ cli_write_quoted_conf() {
 	printf '%s=%s\n' "$1" "$2" >>"${WRITES_FILE}"
 }
 
-# run_migrate_case runs a runtime migration scenario and verifies the expected netcheck mode is written.  
-#  
-# Arguments:  
-#   case_name        A label used in failure messages.  
-#   install_mode     The installation mode supplied to the migration.  
+# run_migrate_case runs a runtime migration scenario and verifies the expected netcheck mode is written.
+#
+# Arguments:
+#   case_name        A label used in failure messages.
+#   install_mode     The installation mode supplied to the migration.
 #   expected_netcheck The netcheck mode expected in the migration output.
 run_migrate_case() {
 	case_name="$1"

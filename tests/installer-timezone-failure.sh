@@ -68,19 +68,19 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	yaml_nvars_delete() { :; }
 	del_between_magic() { :; }
 	# del_jffs_script removes the JFFS script.
-del_jffs_script() { :; }
+	del_jffs_script() { :; }
 	# write_manager_script creates or updates the manager script.
-write_manager_script() { :; }
+	write_manager_script() { :; }
 	# write_command_script writes a command script.
-write_command_script() { :; }
+	write_command_script() { :; }
 	# write_conf is a no-op stub used to satisfy installer dependencies during regression testing.
-write_conf() { :; }
+	write_conf() { :; }
 	# nvram does nothing and returns success.
-nvram() { :; }
+	nvram() { :; }
 	# grep always returns failure.
-grep() { return 1; }
+	grep() { return 1; }
 	# tar is a no-op stub that suppresses archive command execution.
-tar() { :; }
+	tar() { :; }
 	chown() { :; }
 	rm() { :; }
 	ln() { :; }
