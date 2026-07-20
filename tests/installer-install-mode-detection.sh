@@ -23,7 +23,7 @@ extract_function() {
 	_function_name="$1"
 	_output_file="$2"
 	awk -v name="${_function_name}" '
-		$0 == name "() {" { copying = 1 }
+		$0 == name "() {" { copying = 1; found = 1 }
 		copying {
 			print
 			line = $0
@@ -31,8 +31,9 @@ extract_function() {
 			line = $0
 			closes = gsub(/\}/, "", line)
 			depth += opens - closes
-			if (depth == 0) exit
+			if (depth == 0) { complete = 1; exit }
 		}
+		END { if (!found || !complete || depth != 0) exit 1 }
 	' "${SCRIPT_PATH}" >"${_output_file}"
 }
 
@@ -87,7 +88,7 @@ grep -q '! backup_mode_migration_wan_hooks "${hooks_backup}"' "${TMP_ROOT}/migra
 	grep -q '\[ "${previous_mode}" = "lan" \] && ! install_wan_event_scripts' "${TMP_ROOT}/migration" ||
 	fail 'LAN-to-WAN migration does not preserve and synchronize WAN event scripts'
 rollback_count="$(grep -c 'rollback_pending_mode_migration || return 2' "${TMP_ROOT}/migration")"
-[ "${rollback_count}" -eq 3 ] ||
+[ "${rollback_count}" -eq 4 ] ||
 	fail 'mode migration failure paths do not propagate rollback failures'
 grep -q 'MODE_MIGRATION_HOOKS_BACKUP="${hooks_backup}"' "${TMP_ROOT}/migration" ||
 	fail 'mode migration does not retain hook rollback state for orchestration failures'

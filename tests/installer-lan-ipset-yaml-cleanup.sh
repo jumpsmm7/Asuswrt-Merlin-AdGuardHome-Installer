@@ -33,7 +33,7 @@ mode_string() {
 extract_function() {
 	_function_name="$1"
 	awk -v name="${_function_name}" '
-		$0 == name "() {" { copying = 1 }
+		$0 == name "() {" { copying = 1; found = 1 }
 		copying {
 			print
 			line = $0
@@ -41,8 +41,9 @@ extract_function() {
 			line = $0
 			closes = gsub(/\}/, "", line)
 			depth += opens - closes
-			if (depth == 0) exit
+			if (depth == 0) { complete = 1; exit }
 		}
+		END { if (!found || !complete || depth != 0) exit 1 }
 	' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" || return 1
 }
 

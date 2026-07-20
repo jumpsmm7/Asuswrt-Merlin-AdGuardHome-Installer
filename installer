@@ -5436,6 +5436,7 @@ adguard_migrate_detected_install_mode() {
 			config_backup="${CONF_FILE}.mode-migration.rollback.$$"
 			hooks_backup="${CONF_FILE}.mode-migration-hooks.rollback.$$"
 			rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
+			rm -rf "${hooks_backup}"
 			if { [ ! -f "${YAML_FILE}" ] || cp -p "${YAML_FILE}" "${yaml_file_backup}"; } &&
 				{ [ ! -f "${YAML_ORI}" ] || cp -p "${YAML_ORI}" "${yaml_ori_backup}"; } &&
 				save_installer_config "${config_backup}"; then
@@ -5446,17 +5447,15 @@ adguard_migrate_detected_install_mode() {
 				PTXT "${ERROR} Unable to preserve the current mode configuration."
 				return 1
 			fi
-			if ! setup_sync_mode_dependent_yaml_and_snapshot; then
-				rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
-				discard_installer_config_backup "${config_backup}"
-				PTXT "${ERROR} Unable to update the AdGuardHome configuration for ${ADGUARD_INSTALL_MODE} mode."
-				return 1
-			fi
 			MODE_MIGRATION_YAML_FILE_BACKUP="${yaml_file_backup}"
 			MODE_MIGRATION_YAML_ORI_BACKUP="${yaml_ori_backup}"
 			MODE_MIGRATION_CONFIG_BACKUP="${config_backup}"
 			MODE_MIGRATION_HOOKS_BACKUP="${hooks_backup}"
-			rm -rf "${hooks_backup}"
+			if ! setup_sync_mode_dependent_yaml_and_snapshot; then
+				PTXT "${ERROR} Unable to update the AdGuardHome configuration for ${ADGUARD_INSTALL_MODE} mode."
+				rollback_pending_mode_migration || return 2
+				return 1
+			fi
 			if ! backup_mode_migration_wan_hooks "${hooks_backup}"; then
 				PTXT "${ERROR} Unable to preserve the previous event scripts."
 				rollback_pending_mode_migration || return 2
