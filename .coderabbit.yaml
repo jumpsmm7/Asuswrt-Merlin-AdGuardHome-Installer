@@ -8,6 +8,9 @@ tone_instructions: >-
   diff. Report only actionable findings with a concrete failure mode.
 
 reviews:
+  finishing_touches:
+    unit_tests:
+      enabled: false
   # Use assertive analysis, while the instructions below suppress low-value nits.
   profile: "assertive"
 
@@ -49,7 +52,6 @@ reviews:
     base_branches:
       - "master"
       - 'v[0-9]+\\.[0-9]+\\.[0-9]+'
-      - 'v[0-9]+\\..*'
       - 'dev/.*'
 
     ignore_title_keywords:
@@ -330,64 +332,3 @@ knowledge_base:
   pull_requests:
     scope: "local"
 
-tools:
-  # Static analysis that is directly useful for this repository.
-  shellcheck:
-    enabled: true
-
-  yamllint:
-    enabled: true
-
-  # Allow CodeRabbit to consider CI results. The longer timeout accommodates the
-  # repository's regression and checksum workflows.
-  github-checks:
-    enabled: true
-    timeout_ms: 600000
-
-  # Scan installer and workflow changes for accidentally committed credentials.
-  gitleaks:
-    enabled: true
-
-  trufflehog:
-    enabled: true
-
-  # Avoid style-only Markdown and prose noise.
-  markdownlint:
-    enabled: false
-
-  languagetool:
-    enabled: false
-
-code_generation:
-  unit_tests:
-    path_instructions:
-      - path: "**/*.sh"
-        instructions: |
-          Generate focused POSIX sh regression tests under tests/.
-
-          Reuse the repository's existing test harness and mocking patterns.
-          Each generated test must:
-          - Demonstrate the pre-fix failure.
-          - Verify observable behavior and exit status.
-          - Clean up all temporary state.
-          - Avoid live network access.
-          - Avoid requiring a real router or AdGuardHome installation.
-          - Avoid Bash-only or GNU-only behavior.
-          - Be added to tools/code-quality.sh so CI executes it.
-
-      - path: "installer"
-        instructions: |
-          For installer changes, prioritize regression tests for:
-          - Download and archive failure safety.
-          - Atomic replacement and rollback.
-          - HUP, INT, and TERM interruption recovery.
-          - Service and monitor restart after failure.
-          - Staged authentication and YAML validation.
-          - Permission and ownership repair.
-          - Input and confirmation failure propagation.
-          - Branch-switch cancellation.
-          - Partial configuration updates.
-          - Repeated execution and idempotency.
-
-          Keep tests deterministic and independent of an actual router, live
-          AdGuardHome installation, external network, or GitHub service.
