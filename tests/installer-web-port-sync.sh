@@ -123,7 +123,7 @@ assert_single_address_key() {
 		{
 			line = $0
 			sub(/^[[:space:]]*/, "", line)
-			if (line ~ /^address:/ || line ~ /^"address":/ || line ~ /^'"'"'address'"'"':/) count++
+			if (line ~ /^address[[:space:]]*:/ || line ~ /^"address"[[:space:]]*:/ || line ~ /^'"'"'address'"'"'[[:space:]]*:/) count++
 		}
 		END { print count + 0 }
 	' "${YAML_FILE}")"
@@ -183,6 +183,14 @@ write_yaml \
 setup_sync_webui_port 4848 || fail 'quoted HTTP keys synchronization failed'
 grep -q '^  address: 127\.0\.0\.1:4848$' "${YAML_FILE}" || fail 'quoted HTTP keys did not preserve the WebUI host'
 assert_single_address_key quoted-http-keys
+
+reset_router_state
+write_yaml \
+	'http:' \
+	'  "address" : "192.168.50.3:3000"'
+setup_sync_webui_port 4949 || fail 'spaced quoted address key synchronization failed'
+grep -q '^  address: 192\.168\.50\.3:4949$' "${YAML_FILE}" || fail 'spaced quoted address key did not preserve the WebUI host'
+assert_single_address_key spaced-quoted-address-key
 
 reset_router_state
 write_yaml \
