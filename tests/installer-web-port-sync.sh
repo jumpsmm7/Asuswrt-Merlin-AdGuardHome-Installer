@@ -253,6 +253,20 @@ fi
 
 reset_router_state
 write_yaml \
+	'http: {' \
+	'  address: "127.0.0.1:3000"' \
+	'}' \
+	'dns:' \
+	'  bind_hosts:' \
+	'    - 0.0.0.0'
+if setup_sync_webui_port 6005 >/dev/null 2>&1; then
+	fail 'multiline flow-style http mapping was accepted as a block mapping'
+fi
+grep -q '^  address: "127\.0\.0\.1:3000"$' "${YAML_FILE}" ||
+	fail 'multiline flow-style http mapping was rewritten'
+
+reset_router_state
+write_yaml \
 	'http:' \
 	'  address: 192.168.50.1:3000'
 if setup_sync_webui_port 2999 >/dev/null 2>&1; then

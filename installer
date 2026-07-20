@@ -4017,7 +4017,7 @@ install_adguard_archive() {
 }
 
 backup_restore() {
-	local COMMAND_LINK COMMAND_LINK_DIR RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARG_DIR WAS_RUNNING
+	local COMMAND_LINK COMMAND_LINK_DIR INSTALL_STATUS RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARG_DIR WAS_RUNNING
 	COMMAND_LINK="${ADGUARD_COMMAND_LINK_PATH:-/opt/sbin/AdGuardHome}"
 	COMMAND_LINK_DIR="${COMMAND_LINK%/*}"
 	if [ "$1" = "BACKUP" ] && [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; then
@@ -4137,9 +4137,11 @@ backup_restore() {
 		fi
 		ADGUARD_DEFER_END_OP="1"
 		ptxt_step "Reinstalling AdGuardHome service scripts after restore."
-		if ! inst_AdGuardHome "${1:-RESTORE}"; then
+		inst_AdGuardHome "${1:-RESTORE}"
+		INSTALL_STATUS=$?
+		if [ "${INSTALL_STATUS}" -ne 0 ]; then
 			ADGUARD_DEFER_END_OP="0"
-			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
+			[ "${INSTALL_STATUS}" -eq 2 ] || adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
 			adguard_install_abort_trap_disable
 			rollback_result_notice
 			ptxt_fail "Unable to complete AdGuardHome restore setup; restoring previous installation."
@@ -4618,7 +4620,7 @@ inst_AdGuardHome() {
 	if [ "${MIGRATE_STATUS}" -ne 0 ]; then
 		[ "${MIGRATE_STATUS}" -eq 2 ] || adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 		end_op_message 1 "$1"
-		return 1
+		return "${MIGRATE_STATUS}"
 	fi
 	case "${ADGUARD_INSTALL_MODE:-wan}" in
 		wan)
@@ -4745,6 +4747,7 @@ inst_AdGuardHome() {
 	fi
 	if ! finalize_pending_mode_migration; then
 		PTXT "${ERROR} Unable to remove completed mode-migration recovery backups."
+		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 		end_op_message 1 "$1"
 		return 1
 	fi
@@ -5073,7 +5076,18 @@ setup_sync_webui_port() {
 			sub(/[[:space:]]*$/, "", key)
 			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
 		}
-		/^[^[:space:]]/ && yaml_key_is($0, "http") { in_http = 1; next }
+		function block_http_header(line, text, separator, value) {
+			text = line
+			separator = index(text, ":")
+			value = substr(text, separator + 1)
+			sub(/^[[:space:]]*/, "", value)
+			return value ~ /^(|#|&[^[:space:]#]+([[:space:]]*#.*)?)$/
+		}
+		/^[^[:space:]]/ && yaml_key_is($0, "http") {
+			if (!block_http_header($0)) exit
+			in_http = 1
+			next
+		}
 		in_http && /^[^[:space:]]/ { exit }
 		in_http && yaml_key_is($0, "address") { print; exit }
 	' "${YAML_FILE}")"
@@ -5425,7 +5439,7 @@ finalize_pending_mode_migration() {
 	rm -f "${MODE_MIGRATION_YAML_FILE_BACKUP}" "${MODE_MIGRATION_YAML_ORI_BACKUP}" || cleanup_status=1
 	discard_installer_config_backup "${MODE_MIGRATION_CONFIG_BACKUP}" || cleanup_status=1
 	rm -rf "${MODE_MIGRATION_HOOKS_BACKUP}" || cleanup_status=1
-	[ "${cleanup_status}" -eq 0 ] || return 1
+	[ "${cleanup_status}" -eq 0 ] || PTXT "${WARN} Unable to remove completed mode-migration recovery backups; continuing with the completed migration."
 	MODE_MIGRATION_YAML_FILE_BACKUP=""
 	MODE_MIGRATION_YAML_ORI_BACKUP=""
 	MODE_MIGRATION_CONFIG_BACKUP=""
@@ -5457,7 +5471,7 @@ rollback_pending_mode_migration() {
 	rm -f "${MODE_MIGRATION_YAML_FILE_BACKUP}" "${MODE_MIGRATION_YAML_ORI_BACKUP}" || cleanup_status=1
 	discard_installer_config_backup "${MODE_MIGRATION_CONFIG_BACKUP}" || cleanup_status=1
 	rm -rf "${MODE_MIGRATION_HOOKS_BACKUP}" || cleanup_status=1
-	[ "${cleanup_status}" -eq 0 ] || return 1
+	[ "${cleanup_status}" -eq 0 ] || PTXT "${WARN} Unable to remove completed mode-migration recovery backups; continuing with the restored installation."
 	MODE_MIGRATION_YAML_FILE_BACKUP=""
 	MODE_MIGRATION_YAML_ORI_BACKUP=""
 	MODE_MIGRATION_CONFIG_BACKUP=""

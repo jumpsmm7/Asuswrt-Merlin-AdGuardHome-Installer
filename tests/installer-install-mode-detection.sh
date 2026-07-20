@@ -112,12 +112,20 @@ grep -Fq 'mode-migration.restore.$$' "${TMP_ROOT}/yaml-restore" &&
 	fail 'mode migration YAML recovery must atomically publish staged files'
 extract_function finalize_pending_mode_migration "${TMP_ROOT}/migration-finalize" ||
 	fail 'could not extract mode migration finalizer'
-grep -Fq '[ "${cleanup_status}" -eq 0 ] || return 1' "${TMP_ROOT}/migration-finalize" ||
-	fail 'mode migration finalization must propagate recovery-backup cleanup failures'
+grep -Fq '[ "${cleanup_status}" -eq 0 ] || PTXT' "${TMP_ROOT}/migration-finalize" ||
+	fail 'mode migration finalization must not block service recovery on backup cleanup failure'
 extract_function inst_AdGuardHome "${TMP_ROOT}/install-path" ||
 	fail 'could not extract install orchestration path'
 grep -Fq 'if ! finalize_pending_mode_migration; then' "${TMP_ROOT}/install-path" ||
 	fail 'install orchestration must propagate mode migration finalization failures'
+awk '
+	/if ! finalize_pending_mode_migration; then/ { failure = 1; next }
+	failure && /adguard_restart_after_install_abort "\$\{RESTART_AFTER_ABORT\}"/ { restarted = 1; next }
+	failure && /end_op_message 1 "\$1"/ { exit(restarted ? 0 : 1) }
+	END { if (!failure || !restarted) exit 1 }
+' "${TMP_ROOT}/install-path" || fail 'finalization failure does not restart the previous installation'
+grep -Fq 'return "${MIGRATE_STATUS}"' "${TMP_ROOT}/install-path" ||
+	fail 'install orchestration does not preserve migration rollback failure status'
 awk '
 	/adguard_migrate_detected_install_mode/ { migration = 1; next }
 	migration && /MIGRATE_STATUS=\$\?/ { status = 1; next }

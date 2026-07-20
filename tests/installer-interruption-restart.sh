@@ -326,7 +326,8 @@ awk '
 
 awk '
 	/^backup_restore\(\) \{/ { in_function = 1 }
-	in_function && /if ! inst_AdGuardHome "\$\{1:-RESTORE\}"/ { final_setup = NR; in_final_failure = 1; next }
+	in_function && /inst_AdGuardHome "\$\{1:-RESTORE\}"/ { final_setup = NR; next }
+	in_function && final_setup && /if \[ "\$\{INSTALL_STATUS\}" -ne 0 \]; then/ { in_final_failure = 1; next }
 	in_final_failure && /^[[:space:]]*fi$/ { in_final_failure = 0; next }
 	in_function && final_setup && !in_final_failure && /adguard_install_abort_trap_disable/ { disable = NR }
 	in_function && final_setup && !in_final_failure && /rm -rf "\$\{RESTORE_ROLLBACK_DIR\}"/ { cleanup = NR; exit }
