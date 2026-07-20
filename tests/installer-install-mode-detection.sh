@@ -26,6 +26,8 @@ mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n '/^ipv4_is_valid() {$/,/^port_is_valid() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract install mode helpers'
+sed -n '/^rollback_pending_mode_migration() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract pending migration rollback helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'install mode helper extraction was empty'
 
 grep -q '^adguard_install_mode_detect() {$' "${SCRIPT_PATH}" ||
@@ -69,8 +71,15 @@ grep -q 'restore_mode_migration_wan_hooks "${hooks_backup}"' "${TMP_ROOT}/migrat
 	fail 'LAN-to-WAN migration does not restore event scripts after failure'
 grep -q 'MODE_MIGRATION_HOOKS_BACKUP="${hooks_backup}"' "${TMP_ROOT}/migration" ||
 	fail 'mode migration does not retain hook rollback state for orchestration failures'
-grep -q 'rollback_pending_mode_migration' "${SCRIPT_PATH}" ||
-	fail 'event-script failure pathways do not roll back a pending mode migration'
+sed -n '/^inst_AdGuardHome() {$/,/^update_loading_bar 100$/p' "${SCRIPT_PATH}" >"${TMP_ROOT}/install-path" ||
+	fail 'could not extract install orchestration path'
+awk '
+	/Required service-event-end hook could not be configured/ { failure = 1; next }
+	failure && /if rollback_pending_mode_migration; then/ { rollback = 1; next }
+	rollback && /adguard_restart_after_install_abort/ { verified = 1; exit }
+	failure && /return 1/ { exit 1 }
+	END { exit(verified ? 0 : 1) }
+' "${TMP_ROOT}/install-path" || fail 'service-event failure does not require successful rollback before restart'
 grep -q 'Unable to install the required WAN-mode event scripts' "${TMP_ROOT}/migration" ||
 	fail 'LAN-to-WAN migration does not abort when WAN event-script synchronization fails'
 grep -q 'wan:lan | lan:wan | :lan)' "${SCRIPT_PATH}" ||
@@ -100,6 +109,25 @@ ERROR='Error:'
 PTXT() {
 	printf '%s\n' "$*"
 }
+
+# Verify every recovery operation can block restart by retaining pending state and returning failure.
+for failed_restore in yaml config hooks; do
+	MODE_MIGRATION_YAML_FILE_BACKUP="${TMP_ROOT}/yaml-backup"
+	MODE_MIGRATION_YAML_ORI_BACKUP="${TMP_ROOT}/yaml-ori-backup"
+	MODE_MIGRATION_CONFIG_BACKUP="${TMP_ROOT}/config-backup"
+	MODE_MIGRATION_HOOKS_BACKUP="${TMP_ROOT}/hooks-backup"
+	PREVIOUS_ADGUARD_INSTALL_MODE=lan
+	ADDON_DIR="${TMP_ROOT}/addon"
+	restore_mode_migration_yaml() { [ "${failed_restore}" != yaml ]; }
+	restore_installer_config() { [ "${failed_restore}" != config ]; }
+	restore_mode_migration_wan_hooks() { [ "${failed_restore}" != hooks ]; }
+	discard_installer_config_backup() { :; }
+	if rollback_pending_mode_migration >/dev/null 2>&1; then
+		fail "${failed_restore} rollback failure was reported as success"
+	fi
+	[ -n "${MODE_MIGRATION_YAML_FILE_BACKUP}" ] ||
+		fail "${failed_restore} rollback failure cleared pending recovery state"
+done
 
 # run_case executes an install-mode detection test case and fails if the result does not match the expected status or mode.
 run_case() {

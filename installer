@@ -4633,8 +4633,9 @@ inst_AdGuardHome() {
 		wan)
 			if ! install_wan_event_scripts; then
 				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
-				rollback_pending_mode_migration
-				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				if rollback_pending_mode_migration; then
+					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				fi
 				end_op_message 1 "$1"
 				return 1
 			fi
@@ -4644,31 +4645,35 @@ inst_AdGuardHome() {
 			if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
 				! write_manager_script /jffs/scripts/services-stop "services-stop &"; then
 				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
-				rollback_pending_mode_migration
-				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				if rollback_pending_mode_migration; then
+					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				fi
 				end_op_message 1 "$1"
 				return 1
 			fi
 			if pidof dnsmasq >/dev/null 2>&1; then
 				if ! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq; then
 					PTXT "${ERROR} Required dnsmasq event script could not be configured."
-					rollback_pending_mode_migration
-					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					if rollback_pending_mode_migration; then
+						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					fi
 					end_op_message 1 "$1"
 					return 1
 				fi
 				if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
 				if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
 					PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
-					rollback_pending_mode_migration
-					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					if rollback_pending_mode_migration; then
+						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					fi
 					end_op_message 1 "$1"
 					return 1
 				fi
 				if ! write_conf ADGUARD_DNSMASQ_MODE "\"enabled\""; then
 					PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
-					rollback_pending_mode_migration
-					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					if rollback_pending_mode_migration; then
+						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					fi
 					end_op_message 1 "$1"
 					return 1
 				fi
@@ -4679,8 +4684,9 @@ inst_AdGuardHome() {
 						if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
 						if ! write_conf ADGUARD_DNSMASQ_MODE "\"disabled\""; then
 							PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
-							rollback_pending_mode_migration
-							adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							if rollback_pending_mode_migration; then
+								adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							fi
 							end_op_message 1 "$1"
 							return 1
 						fi
@@ -4689,23 +4695,26 @@ inst_AdGuardHome() {
 						ptxt_warn "dnsmasq is not running; preserving dnsmasq event hooks for LAN-mode startup."
 						if ! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq; then
 							PTXT "${ERROR} Required dnsmasq event script could not be configured."
-							rollback_pending_mode_migration
-							adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							if rollback_pending_mode_migration; then
+								adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							fi
 							end_op_message 1 "$1"
 							return 1
 						fi
 						if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
 						if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
 							PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
-							rollback_pending_mode_migration
-							adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							if rollback_pending_mode_migration; then
+								adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							fi
 							end_op_message 1 "$1"
 							return 1
 						fi
 						if ! write_conf ADGUARD_DNSMASQ_MODE "\"enabled\""; then
 							PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
-							rollback_pending_mode_migration
-							adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							if rollback_pending_mode_migration; then
+								adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							fi
 							end_op_message 1 "$1"
 							return 1
 						fi
@@ -4716,8 +4725,9 @@ inst_AdGuardHome() {
 			;;
 		*)
 			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE:-}. Setup was aborted."
-			rollback_pending_mode_migration
-			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			if rollback_pending_mode_migration; then
+				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			fi
 			end_op_message 1 "$1"
 			return 1
 			;;
@@ -4725,8 +4735,9 @@ inst_AdGuardHome() {
 	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
 	if ! write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'; then
 		PTXT "${ERROR} Required service-event-end hook could not be configured."
-		rollback_pending_mode_migration
-		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+		if rollback_pending_mode_migration; then
+			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+		fi
 		end_op_message 1 "$1"
 		return 1
 	fi
@@ -4846,13 +4857,13 @@ save_installer_config() {
 }
 
 restore_installer_config() {
-	local CONFIG_BACKUP="$1"
+	local CONFIG_BACKUP="$1" RETAIN_BACKUP="${2:-0}"
 	if [ -f "${CONFIG_BACKUP}" ]; then
-		mv -f "${CONFIG_BACKUP}" "${CONF_FILE}" || return 1
+		cp -p "${CONFIG_BACKUP}" "${CONF_FILE}" || return 1
 	elif [ -f "${CONFIG_BACKUP}.absent" ]; then
 		rm -f "${CONF_FILE}" || return 1
 	fi
-	rm -f "${CONFIG_BACKUP}.absent"
+	[ "${RETAIN_BACKUP}" = "1" ] || discard_installer_config_backup "${CONFIG_BACKUP}"
 }
 
 discard_installer_config_backup() {
@@ -5079,12 +5090,15 @@ setup_sync_webui_port() {
 	else
 		YAML_SYNC_TMP_FILE="${YAML_FILE}.webui-port.$$"
 		awk -v address="  address: ${NEW_WEB_ADDRESS}" '
-			function http_header(line, text, separator, key) {
+			function http_header(line, text, separator, key, value) {
 				text = line
 				separator = index(text, ":")
 				if (!separator) return 0
 				key = substr(text, 1, separator - 1)
 				sub(/[[:space:]]*$/, "", key)
+				value = substr(text, separator + 1)
+				sub(/^[[:space:]]*/, "", value)
+				if (value !~ /^(|#|&[^[:space:]#]+([[:space:]]*#.*)?)$/) return 0
 				return key == "http" || key == "\"http\"" || key == sprintf("%chttp%c", 39, 39)
 			}
 			{ print }
@@ -5321,18 +5335,20 @@ setup_sync_restored_yaml_and_snapshot_for_wan() {
 }
 
 restore_mode_migration_yaml() {
-	local yaml_file_backup="$1" yaml_ori_backup="$2" restore_status=0
+	local yaml_file_backup="$1" yaml_ori_backup="$2" retain_backup="${3:-0}" restore_status=0
 	if [ -f "${yaml_file_backup}" ]; then
-		mv -f "${yaml_file_backup}" "${YAML_FILE}" || restore_status=1
+		cp -p "${yaml_file_backup}" "${YAML_FILE}" || restore_status=1
 	else
 		rm -f "${YAML_FILE}" || restore_status=1
 	fi
 	if [ -f "${yaml_ori_backup}" ]; then
-		mv -f "${yaml_ori_backup}" "${YAML_ORI}" || restore_status=1
+		cp -p "${yaml_ori_backup}" "${YAML_ORI}" || restore_status=1
 	else
 		rm -f "${YAML_ORI}" || restore_status=1
 	fi
-	rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
+	if [ "${restore_status}" -eq 0 ] && [ "${retain_backup}" != "1" ]; then
+		rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
+	fi
 	return "${restore_status}"
 }
 
@@ -5341,15 +5357,21 @@ backup_mode_migration_wan_hooks() {
 	mkdir -p "${backup_dir}" || return 1
 	for hook in init-start services-stop dnsmasq.postconf firewall-start dnsmasq-sdn.postconf; do
 		if [ -f "/jffs/scripts/${hook}" ]; then
-			cp -p "/jffs/scripts/${hook}" "${backup_dir}/${hook}" || return 1
+			cp -p "/jffs/scripts/${hook}" "${backup_dir}/${hook}" || {
+				rm -rf "${backup_dir}"
+				return 1
+			}
 		else
-			: >"${backup_dir}/.${hook}.missing" || return 1
+			: >"${backup_dir}/.${hook}.missing" || {
+				rm -rf "${backup_dir}"
+				return 1
+			}
 		fi
 	done
 }
 
 restore_mode_migration_wan_hooks() {
-	local backup_dir="$1" hook restore_status=0
+	local backup_dir="$1" retain_backup="${2:-0}" hook restore_status=0
 	for hook in init-start services-stop dnsmasq.postconf firewall-start dnsmasq-sdn.postconf; do
 		if [ -f "${backup_dir}/.${hook}.missing" ]; then
 			rm -f "/jffs/scripts/${hook}" || restore_status=1
@@ -5357,7 +5379,7 @@ restore_mode_migration_wan_hooks() {
 			cp -p "${backup_dir}/${hook}" "/jffs/scripts/${hook}" || restore_status=1
 		fi
 	done
-	rm -rf "${backup_dir}"
+	[ "${restore_status}" -ne 0 ] || [ "${retain_backup}" = "1" ] || rm -rf "${backup_dir}"
 	return "${restore_status}"
 }
 
@@ -5370,10 +5392,30 @@ finalize_pending_mode_migration() {
 }
 
 rollback_pending_mode_migration() {
+	local restore_status=0
 	[ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ] || return 0
-	restore_mode_migration_yaml "${MODE_MIGRATION_YAML_FILE_BACKUP}" "${MODE_MIGRATION_YAML_ORI_BACKUP}" || PTXT "${ERROR} Unable to restore the previous AdGuardHome YAML configuration."
-	restore_installer_config "${MODE_MIGRATION_CONFIG_BACKUP}" || PTXT "${ERROR} Unable to restore the previous installer mode configuration."
-	restore_mode_migration_wan_hooks "${MODE_MIGRATION_HOOKS_BACKUP}" || PTXT "${ERROR} Unable to restore the previous event scripts."
+	restore_mode_migration_yaml "${MODE_MIGRATION_YAML_FILE_BACKUP}" "${MODE_MIGRATION_YAML_ORI_BACKUP}" 1 || {
+		PTXT "${ERROR} Unable to restore the previous AdGuardHome YAML configuration."
+		restore_status=1
+	}
+	restore_installer_config "${MODE_MIGRATION_CONFIG_BACKUP}" 1 || {
+		PTXT "${ERROR} Unable to restore the previous installer mode configuration."
+		restore_status=1
+	}
+	restore_mode_migration_wan_hooks "${MODE_MIGRATION_HOOKS_BACKUP}" 1 || {
+		PTXT "${ERROR} Unable to restore the previous event scripts."
+		restore_status=1
+	}
+	[ "${restore_status}" -eq 0 ] || return 1
+	if [ "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" = "wan" ] && [ -x "${ADDON_DIR}/AdGuardHome.sh" ]; then
+		"${ADDON_DIR}/AdGuardHome.sh" firewall >/dev/null 2>&1 || {
+			PTXT "${ERROR} Unable to restore the previous WAN firewall state."
+			return 1
+		}
+	fi
+	rm -f "${MODE_MIGRATION_YAML_FILE_BACKUP}" "${MODE_MIGRATION_YAML_ORI_BACKUP}"
+	discard_installer_config_backup "${MODE_MIGRATION_CONFIG_BACKUP}"
+	rm -rf "${MODE_MIGRATION_HOOKS_BACKUP}"
 	MODE_MIGRATION_YAML_FILE_BACKUP=""
 }
 
