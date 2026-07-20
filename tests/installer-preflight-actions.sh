@@ -267,9 +267,9 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
 	# conf_value returns a failure status without producing a configuration value.
-conf_value() { return 1; }
+	conf_value() { return 1; }
 	# adguard_install_mode_detect determines the detected AdGuard installation mode and returns a failure status when detection is unavailable.
-adguard_install_mode_detect() { return 1; }
+	adguard_install_mode_detect() { return 1; }
 
 	# assert_entware_required verifies that each specified action requires Entware.
 	assert_entware_required() {

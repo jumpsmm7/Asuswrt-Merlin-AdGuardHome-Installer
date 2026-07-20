@@ -160,7 +160,7 @@ ipv6_reverse_zone() {
 	printf '%s\n' "1.0.0.0.ip6.arpa"
 }
 
-# sdn_bridge_for_index prints the bridge name associated with a supported SDN index. 
+# sdn_bridge_for_index prints the bridge name associated with a supported SDN index.
 # The index must be `1`; otherwise, the function returns failure.
 sdn_bridge_for_index() {
 	[ "$1" = '1' ] || return 1
