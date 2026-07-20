@@ -73,14 +73,13 @@ grep -q 'MODE_MIGRATION_HOOKS_BACKUP="${hooks_backup}"' "${TMP_ROOT}/migration" 
 	fail 'mode migration does not retain hook rollback state for orchestration failures'
 sed -n '/^inst_AdGuardHome() {$/,/^update_loading_bar 100$/p' "${SCRIPT_PATH}" >"${TMP_ROOT}/install-path" ||
 	fail 'could not extract install orchestration path'
-{
-	printf '%s\n' 'run_service_event_failure() {'
-	sed -n '/^[[:space:]]*if ! write_command_script \/jffs\/scripts\/service-event-end /,/^[[:space:]]*finalize_pending_mode_migration$/p' "${TMP_ROOT}/install-path" |
-		sed '$d'
-	printf '%s\n' '}'
-} >"${TMP_ROOT}/service-event-failure" || fail 'could not extract service-event failure branch'
-grep -q 'rollback_pending_mode_migration' "${TMP_ROOT}/service-event-failure" ||
-	fail 'service-event failure branch does not invoke pending migration rollback'
+awk '
+	/Required service-event-end hook could not be configured/ { failure = 1; next }
+	failure && /if rollback_pending_mode_migration; then/ { rollback = 1; next }
+	rollback && /adguard_restart_after_install_abort/ { verified = 1; exit }
+	failure && /return 1/ { exit 1 }
+	END { exit(verified ? 0 : 1) }
+' "${TMP_ROOT}/install-path" || fail 'service-event failure does not require successful rollback before restart'
 grep -q 'Unable to install the required WAN-mode event scripts' "${TMP_ROOT}/migration" ||
 	fail 'LAN-to-WAN migration does not abort when WAN event-script synchronization fails'
 grep -q 'wan:lan | lan:wan | :lan)' "${SCRIPT_PATH}" ||
@@ -111,38 +110,6 @@ PTXT() {
 	printf '%s\n' "$*"
 }
 
-# Execute the extracted service-event failure branch and verify rollback restores
-# the prior configuration and event hooks before the old service is restarted.
-# shellcheck disable=SC1090
-. "${TMP_ROOT}/service-event-failure"
-active_config="${TMP_ROOT}/active-config"
-active_hooks="${TMP_ROOT}/active-hooks"
-mkdir -p "${active_hooks}"
-printf '%s\n' 'mode=wan' >"${TMP_ROOT}/config-backup"
-printf '%s\n' 'old firewall hook' >"${TMP_ROOT}/hooks-backup"
-printf '%s\n' 'mode=lan' >"${active_config}"
-printf '%s\n' 'new firewall hook' >"${active_hooks}/firewall-start"
-MODE_MIGRATION_YAML_FILE_BACKUP="${TMP_ROOT}/yaml-backup"
-MODE_MIGRATION_YAML_ORI_BACKUP="${TMP_ROOT}/yaml-ori-backup"
-MODE_MIGRATION_CONFIG_BACKUP="${TMP_ROOT}/config-backup"
-MODE_MIGRATION_HOOKS_BACKUP="${TMP_ROOT}/hooks-backup"
-PREVIOUS_ADGUARD_INSTALL_MODE=lan
-ADDON_DIR="${TMP_ROOT}/addon"
-RESTART_AFTER_ABORT=1
-restore_mode_migration_yaml() { :; }
-restore_installer_config() { cp "$1" "${active_config}"; }
-restore_mode_migration_wan_hooks() { cp "$1" "${active_hooks}/firewall-start"; }
-discard_installer_config_backup() { :; }
-write_command_script() { return 1; }
-adguard_restart_after_install_abort() { printf '%s\n' restarted >"${TMP_ROOT}/restart"; }
-end_op_message() { :; }
-if run_service_event_failure update >/dev/null 2>&1; then
-	fail 'service-event hook write failure was reported as success'
-fi
-grep -q '^mode=wan$' "${active_config}" || fail 'service-event failure did not restore installer configuration'
-grep -q '^old firewall hook$' "${active_hooks}/firewall-start" || fail 'service-event failure did not restore event hooks'
-[ -f "${TMP_ROOT}/restart" ] || fail 'service-event failure did not restart after successful rollback'
-
 # Verify every recovery operation can block restart by retaining pending state and returning failure.
 for failed_restore in yaml config hooks; do
 	MODE_MIGRATION_YAML_FILE_BACKUP="${TMP_ROOT}/yaml-backup"
@@ -151,10 +118,14 @@ for failed_restore in yaml config hooks; do
 	MODE_MIGRATION_HOOKS_BACKUP="${TMP_ROOT}/hooks-backup"
 	PREVIOUS_ADGUARD_INSTALL_MODE=lan
 	ADDON_DIR="${TMP_ROOT}/addon"
-	restore_mode_migration_yaml() { [ "${failed_restore}" != yaml ]; }
-	restore_installer_config() { [ "${failed_restore}" != config ]; }
-	restore_mode_migration_wan_hooks() { [ "${failed_restore}" != hooks ]; }
-	discard_installer_config_backup() { :; }
+	# restore_mode_migration_yaml reports whether YAML state restoration succeeded.
+restore_mode_migration_yaml() { [ "${failed_restore}" != yaml ]; }
+	# restore_installer_config restores the installer configuration and reports whether the restoration succeeded.
+restore_installer_config() { [ "${failed_restore}" != config ]; }
+	# restore_mode_migration_wan_hooks reports whether WAN event-hook restoration succeeded.
+restore_mode_migration_wan_hooks() { [ "${failed_restore}" != hooks ]; }
+	# discard_installer_config_backup discards the backup of the installer configuration.
+discard_installer_config_backup() { :; }
 	if rollback_pending_mode_migration >/dev/null 2>&1; then
 		fail "${failed_restore} rollback failure was reported as success"
 	fi

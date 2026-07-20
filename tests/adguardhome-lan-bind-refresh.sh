@@ -33,7 +33,7 @@ have_cmd() { return 0; }
 interface_ipv4_addr() { printf '%s\n' 192.168.50.27; }
 # interface_ipv6_addr prints the IPv6 address assigned to the LAN interface.
 interface_ipv6_addr() { printf '%s\n' 2001:db8::27; }
-# private_ipv4_bridge_dns_options outputs a bridge interface address confirmed as locally assigned.
+# private_ipv4_bridge_dns_options outputs bridge interface names and their locally assigned IPv4 addresses.
 private_ipv4_bridge_dns_options() { printf '%s\n' 'br1 192.168.101.254' 'br1 192.168.102.254'; }
 # nvram returns fixed test values for the requested NVRAM variable.
 nvram() {

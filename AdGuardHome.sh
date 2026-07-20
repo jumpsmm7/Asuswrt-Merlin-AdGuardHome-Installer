@@ -1179,6 +1179,7 @@ netcheck() {
 	return 1
 }
 
+# private_ipv4_bridge_dns_options prints private IPv4 addresses assigned to bridge interfaces other than br0.
 private_ipv4_bridge_dns_options() {
 	local OPTIONS
 	if have_cmd ip; then
