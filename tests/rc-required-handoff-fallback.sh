@@ -119,6 +119,17 @@ grep -q '^pre_hook$' "${CALLS_FILE}" || fail 'required-handoff fallback skipped 
 ! grep -q '^post_hook$' "${CALLS_FILE}" || fail 'required-handoff fallback ran the post-start hook'
 grep -q 'Pre-start hook did not prepare required DNS handoff' "${CALLS_FILE}" || fail 'required-handoff fallback did not log the abort'
 
+# An explicit pre-start decision remains authoritative even when a runtime
+# recheck would otherwise report that handoff is required.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}"
+ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
+export ADGUARDHOME_DNS_HANDOFF_REQUIRED
+start >/dev/null || fail 'rc.func overrode an explicit no-handoff decision'
+grep -q '^pre_hook$' "${CALLS_FILE}" || fail 'explicit no-handoff start skipped the pre-start hook'
+grep -q '^post_hook$' "${CALLS_FILE}" || fail 'explicit no-handoff start skipped the post-start hook'
+[ -f "${STARTED_FILE}" ] || fail 'explicit no-handoff start did not launch AdGuardHome'
+
 # A true no-handoff LAN start remains valid and still runs post-start checks.
 agh_dns_handoff_required() {
 	return 1
