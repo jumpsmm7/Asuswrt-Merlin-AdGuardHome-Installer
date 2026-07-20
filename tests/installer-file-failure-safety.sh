@@ -1169,6 +1169,10 @@ EOF
 		return 0
 	}
 
+	rollback_pending_mode_migration() {
+		return 0
+	}
+
 	inst_AdGuardHome() {
 		end_op_message 1 "$1"
 		return
@@ -1241,6 +1245,10 @@ EOF
 
 	ln() {
 		command ln "$@"
+	}
+
+	rollback_pending_mode_migration() {
+		return 0
 	}
 
 	inst_AdGuardHome() {

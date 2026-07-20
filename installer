@@ -4025,7 +4025,7 @@ install_adguard_archive() {
 }
 
 backup_restore() {
-	local COMMAND_LINK COMMAND_LINK_DIR INSTALL_STATUS RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARG_DIR WAS_RUNNING
+	local COMMAND_LINK COMMAND_LINK_DIR INSTALL_STATUS MIGRATION_ROLLBACK_STATUS RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARG_DIR WAS_RUNNING
 	COMMAND_LINK="${ADGUARD_COMMAND_LINK_PATH:-/opt/sbin/AdGuardHome}"
 	COMMAND_LINK_DIR="${COMMAND_LINK%/*}"
 	if [ "$1" = "BACKUP" ] && [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; then
@@ -4149,10 +4149,21 @@ backup_restore() {
 		INSTALL_STATUS=$?
 		if [ "${INSTALL_STATUS}" -ne 0 ]; then
 			ADGUARD_DEFER_END_OP="0"
-			[ "${INSTALL_STATUS}" -eq 2 ] || adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
+			MIGRATION_ROLLBACK_STATUS=0
+			if [ "${INSTALL_STATUS}" -eq 2 ]; then
+				MIGRATION_ROLLBACK_STATUS=1
+			else
+				rollback_pending_mode_migration || MIGRATION_ROLLBACK_STATUS=1
+			fi
+			if [ "${MIGRATION_ROLLBACK_STATUS}" -eq 0 ]; then
+				adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
+			else
+				adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "0" "1"
+			fi
 			adguard_install_abort_trap_disable
 			rollback_result_notice
 			ptxt_fail "Unable to complete AdGuardHome restore setup; restoring previous installation."
+			[ "${MIGRATION_ROLLBACK_STATUS}" -eq 0 ] || return 2
 			return 1
 		fi
 		ptxt_ok "Reinstalled AdGuardHome service scripts after restore."

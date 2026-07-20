@@ -344,6 +344,26 @@ awk '
 ' "${SCRIPT_PATH}" || fail 'restore finalizes mode migration before its directory rollback is committed'
 
 awk '
+	/^backup_restore\(\) \{/ { in_function = 1 }
+	in_function && /inst_AdGuardHome "\$\{1:-RESTORE\}"/ { install = NR; next }
+	in_function && install && /if \[ "\$\{INSTALL_STATUS\}" -ne 0 \]; then/ { failure = 1; next }
+	failure && /rollback_pending_mode_migration/ { migration = NR; next }
+	failure && /adguard_restore_after_failed_directory_restore/ { directory = NR; exit }
+	in_function && /^}/ { exit }
+	END { exit !(install && failure && migration && directory && migration < directory) }
+' "${SCRIPT_PATH}" || fail 'failed restore replaces the installation directory before rolling back its pending mode migration'
+
+awk '
+	/^backup_restore\(\) \{/ { in_function = 1 }
+	in_function && /inst_AdGuardHome "\$\{1:-RESTORE\}"/ { install = 1; next }
+	install && /MIGRATION_ROLLBACK_STATUS=1/ { rollback_failed = 1; next }
+	rollback_failed && /adguard_restore_after_failed_directory_restore .* "0" "1"/ { restored_without_restart = 1; next }
+	restored_without_restart && /return 2/ { preserved_status = 1; exit }
+	in_function && /^}/ { exit }
+	END { exit !(rollback_failed && restored_without_restart && preserved_status) }
+' "${SCRIPT_PATH}" || fail 'restore rollback failure does not recover the saved directory without restarting or preserve status 2'
+
+awk '
 	/^adguard_install_abort_on_signal\(\) \{/ { in_function = 1 }
 	in_function && /rollback_pending_mode_migration/ { migration = NR }
 	in_function && /adguard_restore_after_failed_directory_restore/ { restore = NR }
