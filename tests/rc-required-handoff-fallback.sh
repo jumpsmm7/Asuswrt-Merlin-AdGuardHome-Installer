@@ -115,8 +115,8 @@ post_failure_hook() {
 	return 0
 }
 
-# The runtime helper is authoritative even when PRECMD forgets to export the
 # agh_dns_handoff_required indicates whether AdGuardHome requires DNS handoff preparation before starting.
+# The runtime helper remains authoritative when PRECMD does not export the handoff requirement.
 agh_dns_handoff_required() {
 	return 0
 }

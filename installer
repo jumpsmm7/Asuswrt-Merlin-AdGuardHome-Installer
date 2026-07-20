@@ -7090,18 +7090,6 @@ if ipv4_is_private "${WAN_IPADDR}"; then NAT_ENV="${WAN_IPADDR}"; else NAT_ENV="
 
 [ -z "${ROUTER_MODEL}" ] && PTXT "${ERROR} This is an unsupported router, sorry." && sleep 3s && exit 1
 PREVIOUS_ADGUARD_INSTALL_MODE="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
-adguard_install_mode_detect || {
-	sleep 3s
-	exit 1
-}
-
-if [ "${ADGUARD_INSTALL_MODE}" = "wan" ] && [ -n "${NAT_ENV}" ] && [ -z "$2" ]; then
-	PTXT "${WARNING} This router is in a Double-Nat Environment. While for some users of AdGuardHome this may work fine," \
-		"${WARNING} Consider this a warning that there is no guarentee that it will." \
-		"${WARNING} The script developer cannot help in this scenario." \
-		"${WARNING} However you are still welcome to use the script."
-	sleep 3s
-fi
 
 if [ -z "$2" ]; then
 	printf '\e[8;50;125t'
@@ -7181,6 +7169,17 @@ esac
 
 case "$2" in
 	"")
+		adguard_install_mode_detect || {
+			sleep 3s
+			exit 1
+		}
+		if [ "${ADGUARD_INSTALL_MODE}" = "wan" ] && [ -n "${NAT_ENV}" ]; then
+			PTXT "${WARNING} This router is in a Double-Nat Environment. While for some users of AdGuardHome this may work fine," \
+				"${WARNING} Consider this a warning that there is no guarentee that it will." \
+				"${WARNING} The script developer cannot help in this scenario." \
+				"${WARNING} However you are still welcome to use the script."
+			sleep 3s
+		fi
 		cleanup
 		check_jffs_enabled
 		if [ "${ADGUARD_INSTALL_MODE}" = "wan" ]; then
@@ -7190,6 +7189,17 @@ case "$2" in
 		menu
 		;;
 	*)
+		case "$2" in
+			"2" | uninstall | doctor | status | [dD] | migrate-runtime-defaults | [mM])
+				# Commands that can run without install mode detection
+				;;
+			*)
+				adguard_install_mode_detect || {
+					sleep 3s
+					exit 1
+				}
+				;;
+		esac
 		if menu_action_allowed "$2"; then
 			menu "$2"
 		else
