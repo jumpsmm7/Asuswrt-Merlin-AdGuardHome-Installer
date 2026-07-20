@@ -1,0 +1,414 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "en-US"
+early_access: true
+
+tone_instructions: >-
+Be direct, technical, concise, and high-signal. Do not praise or restate the
+diff. Report only actionable findings with a concrete failure mode.
+
+reviews:
+
+# Use assertive analysis, while the instructions below suppress low-value nits.
+
+profile: "assertive"
+
+# Set this to false if CodeRabbit should comment without requesting changes.
+
+request_changes_workflow: true
+
+high_level_summary: true
+high_level_summary_in_walkthrough: true
+review_status: true
+review_details: true
+commit_status: true
+fail_commit_status: false
+
+collapse_walkthrough: false
+changed_files_summary: true
+sequence_diagrams: true
+estimate_code_review_effort: true
+assess_linked_issues: true
+related_issues: true
+related_prs: true
+
+suggested_labels: true
+auto_apply_labels: true
+
+in_progress_fortune: false
+poem: false
+enable_prompt_for_ai_agents: true
+abort_on_close: true
+
+auto_review:
+enabled: true
+auto_incremental_review: true
+
+```
+# Avoid auto-pausing during larger installer or regression-test changes.
+auto_pause_after_reviewed_commits: 20
+
+drafts: false
+
+base_branches:
+  - "master"
+  - 'v[0-9]+\.[0-9]+\.[0-9]+'
+  - 'dev/.*'
+
+ignore_title_keywords:
+  - "WIP"
+  - "[skip review]"
+
+labels:
+  - "!do-not-review"
+
+ignore_usernames:
+  - "dependabot[bot]"
+  - "renovate[bot]"
+```
+
+path_filters:
+# Generated archives and digest files are validated by repository CI.
+- "!armv5/*.tar.gz"
+- "!armv7/*.tar.gz"
+- "!armv8/*.tar.gz"
+- "!**/*.md5sum"
+- "!**/*.sha256sum"
+
+```
+# Media files do not need code review.
+- "!**/*.png"
+- "!**/*.jpg"
+- "!**/*.jpeg"
+- "!**/*.gif"
+- "!**/*.webp"
+```
+
+path_instructions:
+- path: "**/*"
+instructions: |
+Treat the repository's AGENTS.md as the primary engineering standard.
+
+```
+    Keep reviews high-signal:
+    - Report only likely correctness, security, compatibility, state-safety,
+      reliability, or meaningful performance defects.
+    - Do not report naming, formatting, wording, or style preferences unless
+      they can cause an actual defect or misleading documentation.
+    - Trace changed helpers into their nearest callers and callees before
+      claiming that a path is safe or broken.
+    - State the exact runtime condition that triggers each finding.
+    - Explain the practical effect on installation, upgrade, service
+      operation, recovery, or router state.
+    - Prefer a minimal fix over a broad refactor.
+    - Do not duplicate findings already reported by CI unless the CI result
+      reveals a distinct root cause.
+    - Do not claim a theoretical issue without identifying a reachable
+      execution path.
+
+- path: "**/*.sh"
+  instructions: |
+    Review as production POSIX /bin/sh code running under BusyBox ash
+    v1.25.1 on Asuswrt-Merlin.
+
+    Check especially for:
+    - Bash-only syntax or GNU-only command options.
+    - Incorrect quoting, word splitting, globbing, IFS handling, or unsafe
+      use of user-controlled input.
+    - set -u failures from unset variables.
+    - Incorrect function, pipeline, conditional, or command-substitution
+      return-status propagation.
+    - Pipeline or subshell behavior that loses variable changes under ash.
+    - Unsafe temporary files, predictable names, symlink races, path
+      traversal, archive extraction, or unsafe file replacement.
+    - Incorrect permissions or ownership and overly broad rm, chmod, chown,
+      killall, or pidof operations.
+    - EXIT, HUP, INT, and TERM trap ordering, reentrancy, and cleanup that
+      can leave services stopped or router state partially changed.
+    - Unbounded waits, retry loops, process leaks, stale PIDs, PID reuse,
+      and excessive process creation on constrained router hardware.
+    - Router-stock PATH precedence over Entware paths.
+    - Use of commands that are unavailable on the target router.
+    - BusyBox applet behavior that differs from GNU implementations.
+
+    Do not flag use of local solely because it is not strictly POSIX.
+    BusyBox ash supports local and this repository permits it.
+
+    Do not recommend Bash, Python, Perl, systemd, apt, realpath, timeout, or
+    GNU coreutils for router runtime code unless the affected path already
+    explicitly depends on an installed Entware package that provides it.
+
+- path: "installer"
+  instructions: |
+    Review every affected install, update, upgrade, restore, uninstall,
+    doctor, branch-switch, configuration, and recovery path.
+
+    Require destructive actions to occur only after applicable preflight
+    checks have succeeded.
+
+    Verify that:
+    - Existing binaries, configuration, and service state remain recoverable
+      until replacements are downloaded, authenticated, extracted,
+      validated, permission-repaired, and ready to publish.
+    - Temporary and staged files remain on the same filesystem when atomic
+      rename behavior is required.
+    - Atomic replacement and rollback are preserved on every failure path.
+    - Failure after stopping AdGuardHome cannot leave the previous usable
+      installation stopped.
+    - HUP, INT, or TERM interruption cannot leave AdGuardHome or its monitor
+      stopped when the prior installation remains usable.
+    - Cleanup traps are installed before the first destructive or
+      service-stopping action.
+    - Cleanup traps do not cause recursive cleanup, duplicate restarts, or
+      loss of the original exit status.
+    - A new helper is wired into all applicable install, update, restore,
+      repair, configuration, and startup paths rather than only the primary
+      path.
+    - Configuration and archive validation happens before publication.
+    - Archive entries cannot escape the intended AdGuardHome directory by
+      absolute paths, dot-dot components, hard links, or unsafe symlinks.
+    - Permissions and ownership are repaired for all configured files,
+      including custom YAML scalar values and IPSET paths.
+    - NVRAM values are preserved and restored where required.
+    - nvram commit is not introduced unnecessarily.
+    - Changes to checksum-covered artifacts are accompanied by regenerated
+      MD5 and SHA-256 files, while treating CI as the checksum authority.
+    - Interactive input failures, EOF, empty values, invalid numeric input,
+      cancellation, and repeated operations return the correct status.
+    - Error messages identify the failed operation without exposing secrets.
+
+- path: "**/S99AdGuardHome"
+  instructions: |
+    Review startup, shutdown, restart, reload, monitor, DNS handoff, and
+    recovery behavior.
+
+    Check:
+    - Stale PID handling and PID reuse.
+    - Exact process matching instead of broad process termination.
+    - Lock acquisition, stale-lock recovery, and fallback behavior when
+      flock is missing or lacks descriptor-lock support.
+    - Bounded startup waits, health checks, retries, and retry backoff.
+    - Idempotent start, stop, reload, and restart operations.
+    - Correct behavior when the service is already running, already stopped,
+      partially started, stuck stopping, or exits during readiness checks.
+    - Signal cleanup and monitor restart behavior.
+    - DNS handoff sequencing so the router does not lose working DNS.
+    - Restoration of prior DNS state if AdGuardHome fails to become ready.
+    - IPSET initialization, cleanup, locking, version checks, and legacy
+      disable paths.
+    - IPv4 and IPv6 handling as separate paths where networking is involved.
+    - Return statuses that accurately report whether the requested service
+      operation succeeded.
+
+- path: "**/rc.func.AdGuardHome"
+  instructions: |
+    Review shared service helpers for:
+    - Correct return codes and failure propagation.
+    - Safe quoting and handling of empty or unset values.
+    - Permissions and ownership repair.
+    - YAML and configuration parsing.
+    - Block-scalar, quoted-scalar, and whitespace handling.
+    - PID and process matching.
+    - File existence and readability checks.
+    - Safe canonical-path and symlink handling.
+    - Consistent use by start, stop, reload, restore, repair, monitor, and
+      configuration paths.
+
+    Treat a helper omitted from one required lifecycle path as a correctness
+    regression, even when the main installation path calls it correctly.
+
+- path: "tests/**"
+  instructions: |
+    Review regression tests for behavior rather than style.
+
+    Require that a bug fix has a focused test that fails before the fix and
+    passes afterward.
+
+    Check:
+    - Success, expected failure, interruption, rollback, partial-state, and
+      repeated or idempotent execution paths where relevant.
+    - Test doubles accurately model sourced helpers and command failures.
+    - Stubs preserve realistic stdout, stderr, exit status, and side effects.
+    - Cleanup restores files, permissions, processes, mounts, environment
+      variables, traps, and temporary state even when the test exits early.
+    - Tests do not depend on execution order, host-specific state, live
+      network access, timing races, Bash-only syntax, or GNU-only behavior
+      unless the test explicitly runs under Bash.
+    - Assertions verify externally observable behavior and exit status, not
+      only that an internal helper was called.
+    - Failure-injection tests fail at the intended operation rather than an
+      earlier setup step.
+    - Interruption tests verify both service and monitor recovery.
+    - Atomic replacement tests verify the published file and backup state.
+    - New tests are registered in tools/code-quality.sh or the applicable
+      workflow so they actually execute in CI.
+    - Existing regression pathways are not silently weakened, skipped, or
+      converted into assertions that always succeed.
+
+    Do not request tests for formatting, comments, documentation-only
+    wording, or trivial constant changes that cannot alter behavior.
+
+- path: "tools/**"
+  instructions: |
+    These scripts drive local validation, shell discovery, formatting, and
+    checksum generation.
+
+    Preserve POSIX sh compatibility and deterministic output.
+
+    Verify:
+    - Failure statuses are not swallowed by wrappers or pipelines.
+    - Every intended router runtime script remains included in shell checks.
+    - Every checksum-covered artifact remains included in both generation
+      and validation.
+    - Temporary files are securely created and always removed.
+    - Generated checksum content cannot silently become stale.
+    - Fix modes do not modify unrelated files.
+    - Local validation and CI validation exercise equivalent pathways.
+    - Router-specific commands are mocked or avoided during host-side tests.
+    - A missing optional tool is distinguished from a failed required check.
+
+- path: ".github/workflows/**"
+  instructions: |
+    Review GitHub Actions separately from router runtime code.
+
+    Bash syntax is allowed only in steps that explicitly select shell: bash.
+    Shell snippets using sh must remain POSIX-compatible.
+
+    Check:
+    - Least-privilege permissions.
+    - Safe behavior for forked pull requests.
+    - Whether secrets or write tokens can reach untrusted PR code.
+    - Whether checkout and ref logic validate the current PR head instead of
+      a stale commit or unintended merge commit.
+    - Races between checksum updater and validation workflows.
+    - Whether polling loops are bounded and fail clearly on timeout.
+    - Conditions that accidentally skip required checks.
+    - Correct propagation of command and job failures.
+    - Safe use of GitHub expressions inside shell code.
+    - Quoting of branch names, paths, arrays, and generated file lists.
+    - Bash arrays and process substitution only inside Bash-selected steps.
+    - Action-version changes and permissions required by those actions.
+    - Whether updated archives and installer files remain covered by both
+      MD5 and SHA-256 validation.
+    - Whether every regression pathway registered in tools/code-quality.sh
+      is still exercised by CI.
+    - Whether automatic checksum commits can cause infinite workflow loops
+      or validate the wrong commit.
+
+- path: "**/*.md"
+  instructions: |
+    Check technical accuracy of installation, upgrade, recovery, command,
+    path, dependency, and troubleshooting instructions.
+
+    Verify:
+    - Examples match the current scripts.
+    - Router commands work with BusyBox and Asuswrt-Merlin.
+    - Entware dependencies are identified where required.
+    - Destructive commands include necessary warnings.
+    - Paths, filenames, branch names, and workflow names are current.
+    - Documentation does not promise behavior that tests or implementation
+      do not provide.
+
+    Ignore grammar or prose preferences unless they make instructions
+    ambiguous, unsafe, or technically incorrect.
+```
+
+chat:
+auto_reply: true
+art: false
+
+knowledge_base:
+
+# Allow CodeRabbit to check current external documentation when needed.
+
+web_search:
+enabled: true
+
+# AGENTS.md is detected automatically and applied to reviews.
+
+code_guidelines:
+enabled: true
+
+# Keep learned review preferences scoped to this repository.
+
+learnings:
+scope: "local"
+approval_delay: 0
+
+# Use this repository's own issue and PR history as review context.
+
+issues:
+scope: "local"
+
+pull_requests:
+scope: "local"
+
+tools:
+
+# Static analysis that is directly useful for this repository.
+
+shellcheck:
+enabled: true
+
+yamllint:
+enabled: true
+
+# Allow CodeRabbit to consider CI results. The longer timeout accommodates the
+
+# repository's regression and checksum workflows.
+
+github-checks:
+enabled: true
+timeout_ms: 600000
+
+# Scan installer and workflow changes for accidentally committed credentials.
+
+gitleaks:
+enabled: true
+
+trufflehog:
+enabled: true
+
+# Avoid style-only Markdown and prose noise.
+
+markdownlint:
+enabled: false
+
+languagetool:
+enabled: false
+
+code_generation:
+unit_tests:
+path_instructions:
+- path: "**/*.sh"
+instructions: |
+Generate focused POSIX sh regression tests under tests/.
+
+```
+      Reuse the repository's existing test harness and mocking patterns.
+      Each generated test must:
+      - Demonstrate the pre-fix failure.
+      - Verify observable behavior and exit status.
+      - Clean up all temporary state.
+      - Avoid live network access.
+      - Avoid requiring a real router or AdGuardHome installation.
+      - Avoid Bash-only or GNU-only behavior.
+      - Be added to tools/code-quality.sh so CI executes it.
+
+  - path: "installer"
+    instructions: |
+      For installer changes, prioritize regression tests for:
+      - Download and archive failure safety.
+      - Atomic replacement and rollback.
+      - HUP, INT, and TERM interruption recovery.
+      - Service and monitor restart after failure.
+      - Staged authentication and YAML validation.
+      - Permission and ownership repair.
+      - Input and confirmation failure propagation.
+      - Branch-switch cancellation.
+      - Partial configuration updates.
+      - Repeated execution and idempotency.
+
+      Keep tests deterministic and independent of an actual router, live
+      AdGuardHome installation, external network, or GitHub service.
+```
