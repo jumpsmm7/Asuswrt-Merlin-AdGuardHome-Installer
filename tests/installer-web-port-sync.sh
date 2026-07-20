@@ -116,6 +116,20 @@ assert_address() {
 	[ "${actual}" = "${expected}" ] || fail "${case_name}: expected address ${expected}, got ${actual:-empty}"
 }
 
+# assert_single_address_key verifies synchronization leaves exactly one quoted or unquoted address key.
+assert_single_address_key() {
+	case_name="$1"
+	count="$(awk '
+		{
+			line = $0
+			sub(/^[[:space:]]*/, "", line)
+			if (line ~ /^address:/ || line ~ /^"address":/ || line ~ /^'"'"'address'"'"':/) count++
+		}
+		END { print count + 0 }
+	' "${YAML_FILE}")"
+	[ "${count}" -eq 1 ] || fail "${case_name}: expected one address key, found ${count}"
+}
+
 reset_router_state
 write_yaml \
 	'http:' \
@@ -168,6 +182,7 @@ write_yaml \
 	'  "address": 127.0.0.1:3000'
 setup_sync_webui_port 4848 || fail 'quoted HTTP keys synchronization failed'
 grep -q '^  address: 127\.0\.0\.1:4848$' "${YAML_FILE}" || fail 'quoted HTTP keys did not preserve the WebUI host'
+assert_single_address_key quoted-http-keys
 
 reset_router_state
 write_yaml \
@@ -235,6 +250,7 @@ write_yaml \
 setup_sync_webui_port 6003 || fail 'block-style quoted http mapping control failed'
 grep -q '^  address: 127\.0\.0\.1:6003$' "${YAML_FILE}" ||
 	fail 'block-style quoted http mapping control did not update its address'
+assert_single_address_key block-style-quoted-http
 
 reset_router_state
 write_yaml \
@@ -264,6 +280,8 @@ if setup_sync_webui_port 6005 >/dev/null 2>&1; then
 fi
 grep -q '^  address: "127\.0\.0\.1:3000"$' "${YAML_FILE}" ||
 	fail 'multiline flow-style http mapping was rewritten'
+grep -q '^http: {$' "${YAML_FILE}" || fail 'multiline flow-style http mapping header was rewritten'
+grep -q '^}$' "${YAML_FILE}" || fail 'multiline flow-style http mapping terminator was rewritten'
 
 reset_router_state
 write_yaml \
