@@ -108,6 +108,7 @@ printf '%s %s\n' "$1" "$2" >>"${CHOWN_LOG}"
 EOF_CHOWN
 chmod 755 "${STUB_DIR}/chown" || fail 'could not chmod chown stub'
 
+ERROR='Error:'
 INFO='Info:'
 # PTXT prints its arguments as text, one per line, ignoring an optional `-n` argument.
 PTXT() {
@@ -115,6 +116,21 @@ PTXT() {
 		shift
 	fi
 	printf '%s\n' "$@"
+}
+
+# backup_mode_migration_wan_hooks creates a test-local marker for retained hook rollback state.
+backup_mode_migration_wan_hooks() {
+	mkdir -p "$1"
+}
+
+# restore_mode_migration_wan_hooks removes the test-local hook rollback state.
+restore_mode_migration_wan_hooks() {
+	rm -rf "$1"
+}
+
+# install_wan_event_scripts simulates successful WAN hook synchronization.
+install_wan_event_scripts() {
+	return 0
 }
 
 # save_installer_config copies the installer configuration file to the specified backup path while preserving its metadata.

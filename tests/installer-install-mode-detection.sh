@@ -36,11 +36,11 @@ grep -q 'PREVIOUS_ADGUARD_INSTALL_MODE="$(conf_value ADGUARD_INSTALL_MODE 2>/dev
 	fail 'installer must preserve the saved install mode before detection'
 awk '
 	/^case "\$\{1:-\}" in$/ { in_dispatch = 1 }
-	in_dispatch && /install \| update\)/ { mode_actions = 1 }
+	in_dispatch && /install \| update \| restore\)/ { mode_actions = 1 }
 	mode_actions && /adguard_install_mode_detect \|\| exit 1/ { detected = 1 }
 	mode_actions && /cli_run "\$@"/ { exit(detected ? 0 : 1) }
 	END { if (!in_dispatch || !mode_actions) exit 1 }
-' "${SCRIPT_PATH}" || fail 'install/update CLI dispatch does not detect install mode before cli_run'
+' "${SCRIPT_PATH}" || fail 'install/update/restore CLI dispatch does not detect install mode before cli_run'
 grep -q 'adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE:-}"' "${SCRIPT_PATH}" ||
 	fail 'install/update orchestration must migrate mode-dependent settings'
 if sed -n '/^PREVIOUS_ADGUARD_INSTALL_MODE=/,/^if \[ "${ADGUARD_INSTALL_MODE}" = "wan" \]/p' "${SCRIPT_PATH}" |
@@ -62,10 +62,15 @@ wan_hooks_line="$(grep -n 'install_wan_event_scripts' "${TMP_ROOT}/migration" | 
 mode_write_line="$(grep -n 'write_conf ADGUARD_INSTALL_MODE' "${TMP_ROOT}/migration" | head -n 1 | cut -d: -f1)"
 [ -n "${wan_hooks_line}" ] && [ -n "${mode_write_line}" ] && [ "${wan_hooks_line}" -lt "${mode_write_line}" ] ||
 	fail 'LAN-to-WAN migration must install WAN event hooks before persisting WAN mode'
-grep -q '! backup_mode_migration_wan_hooks "${hooks_backup}" || ! install_wan_event_scripts' "${TMP_ROOT}/migration" ||
-	fail 'LAN-to-WAN migration does not require WAN event-script synchronization'
+grep -q '! backup_mode_migration_wan_hooks "${hooks_backup}"' "${TMP_ROOT}/migration" &&
+	grep -q '\[ "${previous_mode}" = "lan" \] && ! install_wan_event_scripts' "${TMP_ROOT}/migration" ||
+	fail 'LAN-to-WAN migration does not preserve and synchronize WAN event scripts'
 grep -q 'restore_mode_migration_wan_hooks "${hooks_backup}"' "${TMP_ROOT}/migration" ||
 	fail 'LAN-to-WAN migration does not restore event scripts after failure'
+grep -q 'MODE_MIGRATION_HOOKS_BACKUP="${hooks_backup}"' "${TMP_ROOT}/migration" ||
+	fail 'mode migration does not retain hook rollback state for orchestration failures'
+grep -q 'rollback_pending_mode_migration' "${SCRIPT_PATH}" ||
+	fail 'event-script failure pathways do not roll back a pending mode migration'
 grep -q 'Unable to install the required WAN-mode event scripts' "${TMP_ROOT}/migration" ||
 	fail 'LAN-to-WAN migration does not abort when WAN event-script synchronization fails'
 grep -q 'wan:lan | lan:wan | :lan)' "${SCRIPT_PATH}" ||

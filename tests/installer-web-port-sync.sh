@@ -164,6 +164,13 @@ assert_address preserve-inline-comment-host '127.0.0.1:4747'
 
 reset_router_state
 write_yaml \
+	'"http":' \
+	'  "address": 127.0.0.1:3000'
+setup_sync_webui_port 4848 || fail 'quoted HTTP keys synchronization failed'
+grep -q '^  address: 127\.0\.0\.1:4848$' "${YAML_FILE}" || fail 'quoted HTTP keys did not preserve the WebUI host'
+
+reset_router_state
+write_yaml \
 	'http:' \
 	'  address:'
 setup_sync_webui_port 5555 || fail 'empty WAN address fallback synchronization failed'
