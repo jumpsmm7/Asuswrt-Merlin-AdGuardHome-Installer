@@ -5436,7 +5436,10 @@ adguard_migrate_detected_install_mode() {
 			config_backup="${CONF_FILE}.mode-migration.rollback.$$"
 			hooks_backup="${CONF_FILE}.mode-migration-hooks.rollback.$$"
 			rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
-			rm -rf "${hooks_backup}"
+			if ! rm -rf "${hooks_backup}"; then
+				PTXT "${ERROR} Unable to clear stale mode-migration event-script backups."
+				return 1
+			fi
 			if { [ ! -f "${YAML_FILE}" ] || cp -p "${YAML_FILE}" "${yaml_file_backup}"; } &&
 				{ [ ! -f "${YAML_ORI}" ] || cp -p "${YAML_ORI}" "${yaml_ori_backup}"; } &&
 				save_installer_config "${config_backup}"; then

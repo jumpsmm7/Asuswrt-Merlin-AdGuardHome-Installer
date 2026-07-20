@@ -92,6 +92,12 @@ rollback_count="$(grep -c 'rollback_pending_mode_migration || return 2' "${TMP_R
 	fail 'mode migration failure paths do not propagate rollback failures'
 grep -q 'MODE_MIGRATION_HOOKS_BACKUP="${hooks_backup}"' "${TMP_ROOT}/migration" ||
 	fail 'mode migration does not retain hook rollback state for orchestration failures'
+awk '
+	/if ! rm -rf "\$\{hooks_backup\}"; then/ { cleanup = 1; next }
+	cleanup && /Unable to clear stale mode-migration event-script backups/ { logged = 1; next }
+	logged && /return 1/ { guarded = 1; exit }
+	END { exit(guarded ? 0 : 1) }
+' "${TMP_ROOT}/migration" || fail 'mode migration does not abort when stale hook backup cleanup fails'
 extract_function inst_AdGuardHome "${TMP_ROOT}/install-path" ||
 	fail 'could not extract install orchestration path'
 awk '
