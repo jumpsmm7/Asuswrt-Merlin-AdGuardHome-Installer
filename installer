@@ -4839,6 +4839,9 @@ inst_AdGuardHome() {
 		if ! rollback_pending_mode_migration; then
 			MIGRATE_STATUS=2
 		else
+			# Readiness can fail while the migrated process is still alive.  Stop it
+			# so the restored configuration is loaded before service recovery.
+			agh_stop
 			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 		fi
 		adguard_install_abort_trap_disable_preserve_defer

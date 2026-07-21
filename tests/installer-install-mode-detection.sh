@@ -166,6 +166,16 @@ awk '
 	END { exit(readiness && finalize > readiness ? 0 : 1) }
 ' "${TMP_ROOT}/install-path" || fail 'mode migration is finalized before post-install readiness succeeds'
 awk '
+	/if ! agh_complete_startup; then/ { readiness = 1; next }
+	readiness && /if ! rollback_pending_mode_migration; then/ { rollback = 1; next }
+	rollback && /agh_stop/ { stopped = NR; next }
+	rollback && /adguard_restart_after_install_abort "\$\{RESTART_AFTER_ABORT\}"/ {
+		restarted = NR
+		exit(stopped && stopped < restarted ? 0 : 1)
+	}
+	END { if (!stopped || !restarted) exit 1 }
+' "${TMP_ROOT}/install-path" || fail 'readiness rollback does not stop the migrated process before restoring the previous service state'
+awk '
 	/if ! set_timezone; then/ { failure = "timezone" }
 	/if ! setup_AdGuardHome "" "\$\{1:-install\}"; then/ { failure = "setup" }
 	/if ! agh_complete_startup; then/ { failure = "readiness" }
