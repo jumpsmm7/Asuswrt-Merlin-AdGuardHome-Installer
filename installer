@@ -4175,11 +4175,14 @@ backup_restore() {
 				MODE_MIGRATION_YAML_FILE_BACKUP=""
 				MODE_MIGRATION_YAML_ORI_BACKUP=""
 				MODE_MIGRATION_CONFIG_BACKUP=""
-				MODE_MIGRATION_HOOKS_BACKUP=""
+				MODE_MIGRATION_HOOKS_BACKUP="${MIGRATION_HOOKS_RECOVERY}"
 				adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "0" "1"
 				if [ -n "${MIGRATION_HOOKS_RECOVERY}" ]; then
-					restore_mode_migration_wan_hooks "${MIGRATION_HOOKS_RECOVERY}" ||
+					if restore_mode_migration_wan_hooks "${MIGRATION_HOOKS_RECOVERY}"; then
+						MODE_MIGRATION_HOOKS_BACKUP=""
+					else
 						PTXT "${ERROR} Unable to restore the previous event scripts; recovery snapshot retained at ${MIGRATION_HOOKS_RECOVERY}."
+					fi
 				fi
 			fi
 			adguard_install_abort_trap_disable
