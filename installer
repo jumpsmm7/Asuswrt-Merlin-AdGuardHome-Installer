@@ -290,7 +290,11 @@ installer_cleanup_tmp_file() {
 
 on_installer_exit() {
 	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
-		rollback_pending_mode_migration || PTXT "${ERROR} Unable to roll back the interrupted mode migration."
+		if rollback_pending_mode_migration; then
+			adguard_restart_after_install_abort "${ADGUARD_INSTALL_WAS_RUNNING:-0}"
+		else
+			PTXT "${ERROR} Unable to roll back the interrupted mode migration."
+		fi
 	fi
 	cleanup_api_files
 	installer_cleanup_tmp_file setup "${SETUP_YAML_TMP_FILE:-}"
