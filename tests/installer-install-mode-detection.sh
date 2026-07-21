@@ -102,6 +102,14 @@ rollback_count="$(grep -c 'rollback_pending_mode_migration || return 2' "${TMP_R
 grep -q 'MODE_MIGRATION_HOOKS_BACKUP="${hooks_backup}"' "${TMP_ROOT}/migration" ||
 	fail 'mode migration does not retain hook rollback state for orchestration failures'
 awk '
+	/MODE_MIGRATION_YAML_ORI_BACKUP="\$\{yaml_ori_backup\}"/ { yaml_ori = NR }
+	/MODE_MIGRATION_CONFIG_BACKUP="\$\{config_backup\}"/ { config = NR }
+	/MODE_MIGRATION_HOOKS_BACKUP="\$\{hooks_backup\}"/ { hooks = NR }
+	/MODE_MIGRATION_YAML_FILE_BACKUP="\$\{yaml_file_backup\}"/ { pending = NR }
+	/setup_sync_mode_dependent_yaml_and_snapshot/ { sync = NR }
+	END { exit(yaml_ori && config && hooks && pending > yaml_ori && pending > config && pending > hooks && sync > pending ? 0 : 1) }
+' "${TMP_ROOT}/migration" || fail 'mode migration publishes pending state before rollback paths are complete'
+awk '
 	/if ! rm -rf "\$\{hooks_backup\}"; then/ { cleanup = 1; next }
 	cleanup && /^[[:space:]]*fi[[:space:]]*$/ { exit 1 }
 	cleanup && /Unable to clear stale mode-migration event-script backups/ { logged = 1; next }

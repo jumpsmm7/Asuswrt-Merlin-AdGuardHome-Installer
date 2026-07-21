@@ -5596,10 +5596,10 @@ adguard_migrate_detected_install_mode() {
 				PTXT "${ERROR} Unable to preserve the current mode configuration."
 				return 1
 			fi
-			MODE_MIGRATION_YAML_FILE_BACKUP="${yaml_file_backup}"
 			MODE_MIGRATION_YAML_ORI_BACKUP="${yaml_ori_backup}"
 			MODE_MIGRATION_CONFIG_BACKUP="${config_backup}"
 			MODE_MIGRATION_HOOKS_BACKUP="${hooks_backup}"
+			MODE_MIGRATION_YAML_FILE_BACKUP="${yaml_file_backup}"
 			if ! setup_sync_mode_dependent_yaml_and_snapshot; then
 				PTXT "${ERROR} Unable to update the AdGuardHome configuration for ${ADGUARD_INSTALL_MODE} mode."
 				rollback_pending_mode_migration || return 2
