@@ -306,6 +306,29 @@ assert_address http-unindented-comment '127.0.0.1:6006'
 
 reset_router_state
 write_yaml \
+	'"http": # Web UI settings' \
+	'  "address" : "127.0.0.1:3000"' \
+	'dns:' \
+	'  bind_hosts:' \
+	'    - 0.0.0.0'
+setup_sync_webui_port 6007 || fail 'quoted http mapping with an inline comment was not synchronized'
+grep -q '^  address: 127\.0\.0\.1:6007$' "${YAML_FILE}" ||
+	fail 'quoted http mapping with an inline comment did not update its address'
+assert_single_address_key quoted-http-inline-comment
+
+reset_router_state
+write_yaml \
+	'http: # Web UI settings' \
+	'dns:' \
+	'  bind_hosts:' \
+	'    - 0.0.0.0'
+setup_sync_webui_port 6008 || fail 'http mapping with an inline comment did not receive an address'
+grep -q '^  address: 0\.0\.0\.0:6008$' "${YAML_FILE}" ||
+	fail 'http mapping with an inline comment received the wrong address'
+assert_single_address_key http-inline-comment-insertion
+
+reset_router_state
+write_yaml \
 	'http:' \
 	'  address: 192.168.50.1:3000'
 if setup_sync_webui_port 2999 >/dev/null 2>&1; then

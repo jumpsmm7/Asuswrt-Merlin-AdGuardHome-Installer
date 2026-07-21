@@ -5110,7 +5110,7 @@ setup_sync_webui_port() {
 			separator = index(text, ":")
 			value = substr(text, separator + 1)
 			sub(/^[[:space:]]*/, "", value)
-			return value ~ /^(|#|&[^[:space:]#]+([[:space:]]*#.*)?)$/
+			return value ~ /^(|#.*|&[^[:space:]#]+([[:space:]]*#.*)?)$/
 		}
 		/^[^[:space:]]/ && yaml_key_is($0, "http") {
 			if (!block_http_header($0)) exit
@@ -5155,7 +5155,7 @@ setup_sync_webui_port() {
 				sub(/[[:space:]]*$/, "", key)
 				value = substr(text, separator + 1)
 				sub(/^[[:space:]]*/, "", value)
-				if (value !~ /^(|#|&[^[:space:]#]+([[:space:]]*#.*)?)$/) return 0
+				if (value !~ /^(|#.*|&[^[:space:]#]+([[:space:]]*#.*)?)$/) return 0
 				return key == "http" || key == "\"http\"" || key == sprintf("%chttp%c", 39, 39)
 			}
 			{ print }
