@@ -4150,6 +4150,7 @@ backup_restore() {
 		if [ "${INSTALL_STATUS}" -ne 0 ]; then
 			ADGUARD_DEFER_END_OP="0"
 			MIGRATION_ROLLBACK_STATUS=0
+			MIGRATION_HOOKS_RECOVERY=""
 			if [ "${INSTALL_STATUS}" -eq 2 ]; then
 				MIGRATION_ROLLBACK_STATUS=1
 			else
@@ -4158,14 +4159,28 @@ backup_restore() {
 			if [ "${MIGRATION_ROLLBACK_STATUS}" -eq 0 ]; then
 				adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
 			else
-				# The migration snapshots live below TARG_DIR and cannot survive the
-				# directory rollback.  Detach them before restoring the known-good
-				# directory so EXIT cleanup cannot retry from paths that were removed.
+				# Event scripts live outside TARG_DIR, so preserve their snapshot
+				# outside the directory that is about to be replaced.  A failed hook
+				# restore must not make its only recovery copy disappear with TARG_DIR.
+				if [ -d "${MODE_MIGRATION_HOOKS_BACKUP:-}" ]; then
+					MIGRATION_HOOKS_RECOVERY="${RESTORE_ROLLBACK_DIR}.mode-migration-hooks.$$"
+					rm -rf "${MIGRATION_HOOKS_RECOVERY}"
+					if ! mv "${MODE_MIGRATION_HOOKS_BACKUP}" "${MIGRATION_HOOKS_RECOVERY}"; then
+						MIGRATION_HOOKS_RECOVERY=""
+					fi
+				fi
+				# The remaining snapshots are below TARG_DIR and are superseded by
+				# restoring the known-good directory.  Detach them so EXIT cleanup
+				# cannot retry from paths removed by that directory replacement.
 				MODE_MIGRATION_YAML_FILE_BACKUP=""
 				MODE_MIGRATION_YAML_ORI_BACKUP=""
 				MODE_MIGRATION_CONFIG_BACKUP=""
 				MODE_MIGRATION_HOOKS_BACKUP=""
 				adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "0" "1"
+				if [ -n "${MIGRATION_HOOKS_RECOVERY}" ]; then
+					restore_mode_migration_wan_hooks "${MIGRATION_HOOKS_RECOVERY}" ||
+						PTXT "${ERROR} Unable to restore the previous event scripts; recovery snapshot retained at ${MIGRATION_HOOKS_RECOVERY}."
+				fi
 			fi
 			adguard_install_abort_trap_disable
 			rollback_result_notice

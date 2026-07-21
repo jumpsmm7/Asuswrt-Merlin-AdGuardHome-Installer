@@ -357,12 +357,13 @@ awk '
 	/^backup_restore\(\) \{/ { in_function = 1 }
 	in_function && /inst_AdGuardHome "\$\{1:-RESTORE\}"/ { install = 1; next }
 	install && /MIGRATION_ROLLBACK_STATUS=1/ { rollback_failed = 1; next }
-	rollback_failed && /MODE_MIGRATION_YAML_FILE_BACKUP=""/ { detached = NR; next }
-	rollback_failed && /adguard_restore_after_failed_directory_restore .* "0" "1"/ { restored_without_restart = 1; next }
+	rollback_failed && !preserved_hooks && /MIGRATION_HOOKS_RECOVERY=.*RESTORE_ROLLBACK_DIR/ { preserved_hooks = NR; next }
+	rollback_failed && !detached && /MODE_MIGRATION_YAML_FILE_BACKUP=""/ { detached = NR; next }
+	rollback_failed && !restored_without_restart && /adguard_restore_after_failed_directory_restore .* "0" "1"/ { restored_without_restart = NR; next }
+	restored_without_restart && !retried_hooks && /restore_mode_migration_wan_hooks "\$\{MIGRATION_HOOKS_RECOVERY\}"/ { retried_hooks = NR; next }
 	restored_without_restart && /return 2/ { preserved_status = 1; exit }
-	in_function && /^}/ { exit }
-	END { exit !(rollback_failed && detached && restored_without_restart && preserved_status) }
-' "${SCRIPT_PATH}" || fail 'restore rollback failure does not detach invalid migration state, recover the saved directory without restarting, or preserve status 2'
+	END { exit !(rollback_failed && preserved_hooks && detached && restored_without_restart && retried_hooks && preserved_hooks < detached && detached < restored_without_restart && restored_without_restart < retried_hooks && preserved_status) }
+' "${SCRIPT_PATH}" || fail 'restore rollback failure does not preserve and retry hook recovery around directory rollback, suppress restart, or preserve status 2'
 
 awk '
 	/^adguard_install_abort_on_signal\(\) \{/ { in_function = 1 }
