@@ -56,6 +56,21 @@ grep -q 'write_conf ADGUARD_INSTALL_MODE "\\"${ADGUARD_INSTALL_MODE}\\""' "${SCR
 	fail 'installer must persist ADGUARD_INSTALL_MODE'
 grep -q 'PREVIOUS_ADGUARD_INSTALL_MODE="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"' "${SCRIPT_PATH}" ||
 	fail 'installer must preserve the saved install mode before detection'
+extract_function cli_action_requires_install_mode "${TMP_ROOT}/cli-mode-action" ||
+	fail 'could not extract CLI install-mode action helper'
+(
+	# shellcheck disable=SC1090
+	. "${TMP_ROOT}/cli-mode-action"
+	for mode_action in install update restore; do
+		cli_action_requires_install_mode "${mode_action}" ||
+			fail "${mode_action} must detect the current install mode before CLI dispatch"
+	done
+	for recovery_action in backup doctor status migrate-runtime-defaults uninstall; do
+		if cli_action_requires_install_mode "${recovery_action}"; then
+			fail "${recovery_action} must remain available when install-mode detection fails"
+		fi
+	done
+)
 extract_function backup_restore "${TMP_ROOT}/backup-restore" ||
 	fail 'could not extract backup restore helper'
 awk '
@@ -67,7 +82,7 @@ awk '
 	fail 'restore must capture the archived install mode before enforcing the detected router mode'
 awk '
 	/^case "\$\{1:-\}" in$/ { in_dispatch = 1 }
-	in_dispatch && /install \| update \| restore\)/ { mode_actions = 1 }
+	in_dispatch && /if cli_action_requires_install_mode "\$\{1:-\}"; then/ { mode_actions = 1 }
 	mode_actions && /adguard_install_mode_detect \|\| exit 1/ { detected = 1 }
 	mode_actions && /cli_run "\$@"/ { exit(detected ? 0 : 1) }
 	END { if (!in_dispatch || !mode_actions) exit 1 }

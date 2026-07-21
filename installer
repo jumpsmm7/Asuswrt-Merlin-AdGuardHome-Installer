@@ -6616,6 +6616,13 @@ single_arg_menu_action() {
 	menu_action_allowed "$1"
 }
 
+cli_action_requires_install_mode() {
+	case "${1:-}" in
+		install | update | restore) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
 cli_usage() {
 	PTXT "${INFO} Usage:" \
 		"${INFO}   sh installer install [--installer-branch master] [--adguardhome-branch {release|beta|edge}] --yes [--allow-dns-nvram]" \
@@ -7450,11 +7457,9 @@ esac
 
 case "${1:-}" in
 	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | migrate-runtime-defaults | uninstall)
-		case "${1:-}" in
-			install | update | restore)
-				adguard_install_mode_detect || exit 1
-				;;
-		esac
+		if cli_action_requires_install_mode "${1:-}"; then
+			adguard_install_mode_detect || exit 1
+		fi
 		cli_run "$@"
 		CLI_STATUS="$?"
 		if [ "${CLI_STATUS}" -ne 0 ]; then
