@@ -289,6 +289,13 @@ installer_cleanup_tmp_file() {
 }
 
 on_installer_exit() {
+	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
+		if rollback_pending_mode_migration; then
+			adguard_restart_after_install_abort "${ADGUARD_INSTALL_WAS_RUNNING:-0}"
+		else
+			PTXT "${ERROR} Unable to roll back the interrupted mode migration."
+		fi
+	fi
 	cleanup_api_files
 	installer_cleanup_tmp_file setup "${SETUP_YAML_TMP_FILE:-}"
 	installer_cleanup_tmp_file blocklist "${BLOCKLIST_YAML_TMP_FILE:-}"
@@ -3484,7 +3491,7 @@ adguard_install_abort_trap_disable_preserve_defer() {
 }
 
 adguard_install_abort_on_signal() {
-	local OLD_BINARY REPLACE_ACTIVE RESTORE_ACTIVE RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARGET_INSTALLED RESTORE_TARG_DIR STAGE_DIR WAS_RUNNING
+	local MIGRATION_ROLLED_BACK=0 MIGRATION_ROLLBACK_STATUS=0 OLD_BINARY REPLACE_ACTIVE RESTORE_ACTIVE RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARGET_INSTALLED RESTORE_TARG_DIR STAGE_DIR WAS_RUNNING
 	OLD_BINARY="${ADGUARD_INSTALL_OLD_BINARY:-}"
 	REPLACE_ACTIVE="${ADGUARD_INSTALL_REPLACE_ACTIVE:-0}"
 	STAGE_DIR="${ADGUARD_INSTALL_STAGE_DIR:-}"
@@ -3496,12 +3503,26 @@ adguard_install_abort_on_signal() {
 	RESTORE_TARGET_INSTALLED="${ADGUARD_RESTORE_TARGET_INSTALLED:-0}"
 	adguard_install_abort_trap_disable
 	[ -z "${STAGE_DIR}" ] || rm -rf "${STAGE_DIR}"
-	if [ "${RESTORE_ACTIVE}" = "1" ]; then
-		adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${RESTORE_TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "${RESTORE_TARGET_INSTALLED}"
-	elif [ "${REPLACE_ACTIVE}" = "1" ] && [ -n "${OLD_BINARY}" ]; then
-		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
+	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
+		if rollback_pending_mode_migration; then
+			MIGRATION_ROLLED_BACK=1
+		else
+			MIGRATION_ROLLBACK_STATUS=1
+		fi
+	fi
+	if [ "${MIGRATION_ROLLBACK_STATUS}" -ne 0 ]; then
+		PTXT "${ERROR} Unable to roll back the interrupted mode migration; the previous installation was not restarted."
 	else
-		adguard_restart_after_install_abort "${WAS_RUNNING}"
+		# A migrated process may already be running with the configuration that was
+		# just rolled back.  Stop it before recovering the previous service state.
+		[ "${MIGRATION_ROLLED_BACK}" -eq 0 ] || agh_stop
+		if [ "${RESTORE_ACTIVE}" = "1" ]; then
+			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${RESTORE_TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "${RESTORE_TARGET_INSTALLED}"
+		elif [ "${REPLACE_ACTIVE}" = "1" ] && [ -n "${OLD_BINARY}" ]; then
+			adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
+		else
+			adguard_restart_after_install_abort "${WAS_RUNNING}"
+		fi
 	fi
 	clear_screen
 	ADGUARD_DEFER_END_OP="0"
@@ -4017,7 +4038,7 @@ install_adguard_archive() {
 }
 
 backup_restore() {
-	local COMMAND_LINK COMMAND_LINK_DIR RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARG_DIR WAS_RUNNING
+	local COMMAND_LINK COMMAND_LINK_DIR INSTALL_STATUS MIGRATION_ROLLBACK_STATUS RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARG_DIR WAS_RUNNING
 	COMMAND_LINK="${ADGUARD_COMMAND_LINK_PATH:-/opt/sbin/AdGuardHome}"
 	COMMAND_LINK_DIR="${COMMAND_LINK%/*}"
 	if [ "$1" = "BACKUP" ] && [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; then
@@ -4113,6 +4134,9 @@ backup_restore() {
 		ptxt_ok "Installed staged AdGuardHome backup."
 		ADGUARD_RESTORE_TARGET_INSTALLED="1"
 		rm -rf "${RESTORE_STAGE_DIR}"
+		# Migration rollback must describe the restored installation, not the
+		# installation that was active before the archive was staged.
+		PREVIOUS_ADGUARD_INSTALL_MODE="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
 		ptxt_step "Restoring AdGuardHome ownership and permissions."
 		if ! ensure_adguardhome_directory_permissions; then
 			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
@@ -4137,17 +4161,63 @@ backup_restore() {
 		fi
 		ADGUARD_DEFER_END_OP="1"
 		ptxt_step "Reinstalling AdGuardHome service scripts after restore."
-		if ! inst_AdGuardHome "${1:-RESTORE}"; then
+		inst_AdGuardHome "${1:-RESTORE}"
+		INSTALL_STATUS=$?
+		if [ "${INSTALL_STATUS}" -ne 0 ]; then
 			ADGUARD_DEFER_END_OP="0"
-			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
+			MIGRATION_ROLLBACK_STATUS=0
+			MIGRATION_HOOKS_RECOVERY=""
+			if [ "${INSTALL_STATUS}" -eq 2 ]; then
+				MIGRATION_ROLLBACK_STATUS=1
+			else
+				rollback_pending_mode_migration || MIGRATION_ROLLBACK_STATUS=1
+			fi
+			if [ "${MIGRATION_ROLLBACK_STATUS}" -eq 0 ]; then
+				adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
+			else
+				# Event scripts live outside TARG_DIR, so preserve their snapshot
+				# outside the directory that is about to be replaced.  A failed hook
+				# restore must not make its only recovery copy disappear with TARG_DIR.
+				if [ -d "${MODE_MIGRATION_HOOKS_BACKUP:-}" ]; then
+					MIGRATION_HOOKS_RECOVERY="${RESTORE_ROLLBACK_DIR}.mode-migration-hooks.$$"
+					rm -rf "${MIGRATION_HOOKS_RECOVERY}"
+					if ! mv "${MODE_MIGRATION_HOOKS_BACKUP}" "${MIGRATION_HOOKS_RECOVERY}"; then
+						MIGRATION_HOOKS_RECOVERY=""
+					fi
+				fi
+				# The remaining snapshots are below TARG_DIR and are superseded by
+				# restoring the known-good directory.  Detach them so EXIT cleanup
+				# cannot retry from paths removed by that directory replacement.
+				MODE_MIGRATION_YAML_FILE_BACKUP=""
+				MODE_MIGRATION_YAML_ORI_BACKUP=""
+				MODE_MIGRATION_CONFIG_BACKUP=""
+				MODE_MIGRATION_HOOKS_BACKUP="${MIGRATION_HOOKS_RECOVERY}"
+				adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "0" "1"
+				if [ -n "${MIGRATION_HOOKS_RECOVERY}" ]; then
+					if restore_mode_migration_wan_hooks "${MIGRATION_HOOKS_RECOVERY}"; then
+						MODE_MIGRATION_HOOKS_BACKUP=""
+					else
+						PTXT "${ERROR} Unable to restore the previous event scripts; recovery snapshot retained at ${MIGRATION_HOOKS_RECOVERY}."
+					fi
+				fi
+			fi
 			adguard_install_abort_trap_disable
 			rollback_result_notice
 			ptxt_fail "Unable to complete AdGuardHome restore setup; restoring previous installation."
+			[ "${MIGRATION_ROLLBACK_STATUS}" -eq 0 ] || return 2
 			return 1
 		fi
 		ptxt_ok "Reinstalled AdGuardHome service scripts after restore."
-		ADGUARD_DEFER_END_OP="0"
+		# Commit the restored directory before discarding migration snapshots so
+		# signal cleanup cannot restore the old directory without its mode state.
 		adguard_install_abort_trap_disable
+		if ! finalize_pending_mode_migration; then
+			ADGUARD_DEFER_END_OP="0"
+			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
+			PTXT "${ERROR} Unable to finalize mode migration after restore."
+			return 1
+		fi
+		ADGUARD_DEFER_END_OP="0"
 		rm -rf "${RESTORE_ROLLBACK_DIR}"
 		end_op_message 0 "${1:-RESTORE}"
 	elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
@@ -4371,7 +4441,7 @@ install_wan_event_scripts() {
 }
 
 inst_AdGuardHome() {
-	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
+	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
 	ensure_sha256sum_tool || return 1
@@ -4492,6 +4562,7 @@ inst_AdGuardHome() {
 						esac
 					fi
 					inst_AdGuardHome "${1:-update}" "${ADGUARD_BRANCH}"
+					return $?
 				else
 					if [ "${1:-update}" = "update" ]; then
 						PTXT "${INFO} Refreshing installer-managed service integration."
@@ -4613,10 +4684,12 @@ inst_AdGuardHome() {
 	ptxt_ok "AdGuardHome service files installed."
 	# Run mode-dependent YAML migration before this orchestration changes
 	# firewall state or event hooks, preserving the previous mode on failure.
-	if ! adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE:-}"; then
-		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+	adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE:-}"
+	MIGRATE_STATUS=$?
+	if [ "${MIGRATE_STATUS}" -ne 0 ]; then
+		[ "${MIGRATE_STATUS}" -eq 2 ] || adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 		end_op_message 1 "$1"
-		return 1
+		return "${MIGRATE_STATUS}"
 	fi
 	case "${ADGUARD_INSTALL_MODE:-wan}" in
 		wan)
@@ -4633,7 +4706,9 @@ inst_AdGuardHome() {
 		wan)
 			if ! install_wan_event_scripts; then
 				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
-				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				if rollback_pending_mode_migration; then
+					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				fi
 				end_op_message 1 "$1"
 				return 1
 			fi
@@ -4643,27 +4718,35 @@ inst_AdGuardHome() {
 			if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
 				! write_manager_script /jffs/scripts/services-stop "services-stop &"; then
 				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
-				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				if rollback_pending_mode_migration; then
+					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				fi
 				end_op_message 1 "$1"
 				return 1
 			fi
 			if pidof dnsmasq >/dev/null 2>&1; then
 				if ! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq; then
 					PTXT "${ERROR} Required dnsmasq event script could not be configured."
-					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					if rollback_pending_mode_migration; then
+						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					fi
 					end_op_message 1 "$1"
 					return 1
 				fi
 				if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
 				if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
 					PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
-					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					if rollback_pending_mode_migration; then
+						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					fi
 					end_op_message 1 "$1"
 					return 1
 				fi
 				if ! write_conf ADGUARD_DNSMASQ_MODE "\"enabled\""; then
 					PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
-					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					if rollback_pending_mode_migration; then
+						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					fi
 					end_op_message 1 "$1"
 					return 1
 				fi
@@ -4674,7 +4757,9 @@ inst_AdGuardHome() {
 						if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
 						if ! write_conf ADGUARD_DNSMASQ_MODE "\"disabled\""; then
 							PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
-							adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							if rollback_pending_mode_migration; then
+								adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							fi
 							end_op_message 1 "$1"
 							return 1
 						fi
@@ -4683,20 +4768,26 @@ inst_AdGuardHome() {
 						ptxt_warn "dnsmasq is not running; preserving dnsmasq event hooks for LAN-mode startup."
 						if ! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq; then
 							PTXT "${ERROR} Required dnsmasq event script could not be configured."
-							adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							if rollback_pending_mode_migration; then
+								adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							fi
 							end_op_message 1 "$1"
 							return 1
 						fi
 						if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
 						if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
 							PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
-							adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							if rollback_pending_mode_migration; then
+								adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							fi
 							end_op_message 1 "$1"
 							return 1
 						fi
 						if ! write_conf ADGUARD_DNSMASQ_MODE "\"enabled\""; then
 							PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
-							adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							if rollback_pending_mode_migration; then
+								adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+							fi
 							end_op_message 1 "$1"
 							return 1
 						fi
@@ -4707,7 +4798,9 @@ inst_AdGuardHome() {
 			;;
 		*)
 			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE:-}. Setup was aborted."
-			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			if rollback_pending_mode_migration; then
+				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			fi
 			end_op_message 1 "$1"
 			return 1
 			;;
@@ -4715,7 +4808,9 @@ inst_AdGuardHome() {
 	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
 	if ! write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'; then
 		PTXT "${ERROR} Required service-event-end hook could not be configured."
-		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+		if rollback_pending_mode_migration; then
+			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+		fi
 		end_op_message 1 "$1"
 		return 1
 	fi
@@ -4724,24 +4819,51 @@ inst_AdGuardHome() {
 		if [ ! -f "${ADDON_DIR}/localtime" ]; then
 			PTXT "${INFO} Before setting up AdGuardHome, please choose your right timezone!"
 			if ! set_timezone; then
-				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				MIGRATE_STATUS=1
+				if ! rollback_pending_mode_migration; then
+					MIGRATE_STATUS=2
+				else
+					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				fi
 				end_op_message 1 "$1"
-				return 1
+				return "${MIGRATE_STATUS}"
 			fi
 		fi
 		if ! setup_AdGuardHome "" "${1:-install}"; then
-			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			MIGRATE_STATUS=1
+			if ! rollback_pending_mode_migration; then
+				MIGRATE_STATUS=2
+			else
+				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			fi
 			end_op_message 1
-			return 1
+			return "${MIGRATE_STATUS}"
 		fi
 		ptxt_ok "AdGuardHome first-run configuration completed."
 	fi
 	ptxt_phase "Final readiness summary."
 	ptxt_step "Waiting for AdGuardHome post-install readiness checks."
 	if ! agh_complete_startup; then
+		MIGRATE_STATUS=1
+		if ! rollback_pending_mode_migration; then
+			MIGRATE_STATUS=2
+		else
+			# Readiness can fail while the migrated process is still alive.  Stop it
+			# so the restored configuration is loaded before service recovery.
+			agh_stop
+			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+		fi
 		adguard_install_abort_trap_disable_preserve_defer
 		end_op_message 1 "$1"
-		return 1
+		return "${MIGRATE_STATUS}"
+	fi
+	if [ "${1:-update}" != "RESTORE" ]; then
+		if ! finalize_pending_mode_migration; then
+			PTXT "${ERROR} Unable to remove completed mode-migration recovery backups."
+			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			end_op_message 1 "$1"
+			return 1
+		fi
 	fi
 	adguard_install_abort_trap_disable_preserve_defer
 	ptxt_ok "AdGuardHome ${1:-install} orchestration complete."
@@ -4834,13 +4956,21 @@ save_installer_config() {
 }
 
 restore_installer_config() {
-	local CONFIG_BACKUP="$1"
+	local CONFIG_BACKUP="$1" RETAIN_BACKUP="${2:-0}" CONFIG_STAGE="${CONF_FILE}.mode-migration.restore.$$"
 	if [ -f "${CONFIG_BACKUP}" ]; then
-		mv -f "${CONFIG_BACKUP}" "${CONF_FILE}" || return 1
+		rm -f "${CONFIG_STAGE}" || return 1
+		cp -p "${CONFIG_BACKUP}" "${CONFIG_STAGE}" || {
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		}
+		mv -f "${CONFIG_STAGE}" "${CONF_FILE}" || {
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		}
 	elif [ -f "${CONFIG_BACKUP}.absent" ]; then
 		rm -f "${CONF_FILE}" || return 1
 	fi
-	rm -f "${CONFIG_BACKUP}.absent"
+	[ "${RETAIN_BACKUP}" = "1" ] || discard_installer_config_backup "${CONFIG_BACKUP}"
 }
 
 discard_installer_config_backup() {
@@ -5027,11 +5157,31 @@ setup_sync_webui_port() {
 	NEW_PORT="$1"
 	port_is_valid "${NEW_PORT}" || return 1
 	CURRENT_WEB_LINE="$(awk '
-		/^http:[[:space:]]*$/ { in_http = 1; next }
-		in_http && /^[^[:space:]]/ { exit }
-		in_http && /^[[:space:]]*address:[[:space:]]*/ { print; exit }
+		function yaml_key_is(line, expected, text, separator, key) {
+			text = line
+			sub(/^[[:space:]]*/, "", text)
+			separator = index(text, ":")
+			if (!separator) return 0
+			key = substr(text, 1, separator - 1)
+			sub(/[[:space:]]*$/, "", key)
+			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
+		}
+		function block_http_header(line, text, separator, value) {
+			text = line
+			separator = index(text, ":")
+			value = substr(text, separator + 1)
+			sub(/^[[:space:]]*/, "", value)
+			return value ~ /^(|#.*|&[^[:space:]#]+([[:space:]]*#.*)?)$/
+		}
+		/^[^[:space:]]/ && yaml_key_is($0, "http") {
+			if (!block_http_header($0)) exit
+			in_http = 1
+			next
+		}
+		in_http && /^[^[:space:]#]/ { exit }
+		in_http && yaml_key_is($0, "address") { print; exit }
 	' "${YAML_FILE}")"
-	CURRENT_WEB_ADDRESS="$(printf '%s\n' "${CURRENT_WEB_LINE}" | sed 's/^[[:space:]]*address:[[:space:]]*//; s/[[:space:]][[:space:]]*#.*$//; s/[[:space:]]*$//')"
+	CURRENT_WEB_ADDRESS="$(printf '%s\n' "${CURRENT_WEB_LINE}" | sed 's/^[[:space:]]*["'"'"']\{0,1\}address["'"'"']\{0,1\}[[:space:]]*:[[:space:]]*//; s/[[:space:]][[:space:]]*#.*$//; s/[[:space:]]*$//')"
 	case "${CURRENT_WEB_ADDRESS}" in
 		\"*\")
 			CURRENT_WEB_ADDRESS="${CURRENT_WEB_ADDRESS#\"}"
@@ -5058,8 +5208,19 @@ setup_sync_webui_port() {
 	else
 		YAML_SYNC_TMP_FILE="${YAML_FILE}.webui-port.$$"
 		awk -v address="  address: ${NEW_WEB_ADDRESS}" '
+			function http_header(line, text, separator, key, value) {
+				text = line
+				separator = index(text, ":")
+				if (!separator) return 0
+				key = substr(text, 1, separator - 1)
+				sub(/[[:space:]]*$/, "", key)
+				value = substr(text, separator + 1)
+				sub(/^[[:space:]]*/, "", value)
+				if (value !~ /^(|#.*|&[^[:space:]#]+([[:space:]]*#.*)?)$/) return 0
+				return key == "http" || key == "\"http\"" || key == sprintf("%chttp%c", 39, 39)
+			}
 			{ print }
-			!inserted && /^http:[[:space:]]*$/ {
+			!inserted && /^[^[:space:]]/ && http_header($0) {
 				print address
 				inserted = 1
 			}
@@ -5292,44 +5453,130 @@ setup_sync_restored_yaml_and_snapshot_for_wan() {
 }
 
 restore_mode_migration_yaml() {
-	local yaml_file_backup="$1" yaml_ori_backup="$2" restore_status=0
+	local yaml_file_backup="$1" yaml_ori_backup="$2" retain_backup="${3:-0}" restore_status=0
+	local yaml_file_stage="${YAML_FILE}.mode-migration.restore.$$" yaml_ori_stage="${YAML_ORI}.mode-migration.restore.$$"
+	rm -f "${yaml_file_stage}" "${yaml_ori_stage}" || return 1
 	if [ -f "${yaml_file_backup}" ]; then
-		mv -f "${yaml_file_backup}" "${YAML_FILE}" || restore_status=1
+		if cp -p "${yaml_file_backup}" "${yaml_file_stage}"; then
+			mv -f "${yaml_file_stage}" "${YAML_FILE}" || restore_status=1
+		else
+			restore_status=1
+		fi
 	else
 		rm -f "${YAML_FILE}" || restore_status=1
 	fi
 	if [ -f "${yaml_ori_backup}" ]; then
-		mv -f "${yaml_ori_backup}" "${YAML_ORI}" || restore_status=1
+		if cp -p "${yaml_ori_backup}" "${yaml_ori_stage}"; then
+			mv -f "${yaml_ori_stage}" "${YAML_ORI}" || restore_status=1
+		else
+			restore_status=1
+		fi
 	else
 		rm -f "${YAML_ORI}" || restore_status=1
 	fi
-	rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
+	rm -f "${yaml_file_stage}" "${yaml_ori_stage}"
+	if [ "${restore_status}" -eq 0 ] && [ "${retain_backup}" != "1" ]; then
+		rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
+	fi
 	return "${restore_status}"
 }
 
 backup_mode_migration_wan_hooks() {
-	local backup_dir="$1" hook
-	mkdir -p "${backup_dir}" || return 1
-	for hook in init-start services-stop dnsmasq.postconf firewall-start dnsmasq-sdn.postconf; do
+	local backup_dir="$1" hook stage_dir="${1}.stage.$$"
+	rm -rf "${stage_dir}" || return 1
+	mkdir -p "${stage_dir}" || return 1
+	for hook in init-start services-stop dnsmasq.postconf firewall-start dnsmasq-sdn.postconf service-event-end; do
 		if [ -f "/jffs/scripts/${hook}" ]; then
-			cp -p "/jffs/scripts/${hook}" "${backup_dir}/${hook}" || return 1
+			cp -p "/jffs/scripts/${hook}" "${stage_dir}/${hook}" || {
+				rm -rf "${stage_dir}"
+				return 1
+			}
 		else
-			: >"${backup_dir}/.${hook}.missing" || return 1
+			: >"${stage_dir}/.${hook}.missing" || {
+				rm -rf "${stage_dir}"
+				return 1
+			}
 		fi
 	done
+	mv "${stage_dir}" "${backup_dir}" || {
+		rm -rf "${stage_dir}"
+		return 1
+	}
 }
 
 restore_mode_migration_wan_hooks() {
-	local backup_dir="$1" hook restore_status=0
-	for hook in init-start services-stop dnsmasq.postconf firewall-start dnsmasq-sdn.postconf; do
+	local backup_dir="$1" retain_backup="${2:-0}" hook restore_status=0 hook_stage
+	for hook in init-start services-stop dnsmasq.postconf firewall-start dnsmasq-sdn.postconf service-event-end; do
 		if [ -f "${backup_dir}/.${hook}.missing" ]; then
 			rm -f "/jffs/scripts/${hook}" || restore_status=1
 		elif [ -f "${backup_dir}/${hook}" ]; then
-			cp -p "${backup_dir}/${hook}" "/jffs/scripts/${hook}" || restore_status=1
+			hook_stage="/jffs/scripts/.${hook}.mode-migration.restore.$$"
+			if rm -f "${hook_stage}" && cp -p "${backup_dir}/${hook}" "${hook_stage}"; then
+				mv -f "${hook_stage}" "/jffs/scripts/${hook}" || restore_status=1
+			else
+				restore_status=1
+			fi
+			rm -f "${hook_stage}"
 		fi
 	done
-	rm -rf "${backup_dir}"
+	[ "${restore_status}" -ne 0 ] || [ "${retain_backup}" = "1" ] || rm -rf "${backup_dir}"
 	return "${restore_status}"
+}
+
+finalize_pending_mode_migration() {
+	local cleanup_status=0 yaml_file_backup yaml_ori_backup config_backup hooks_backup
+	[ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ] || return 0
+	yaml_file_backup="${MODE_MIGRATION_YAML_FILE_BACKUP}"
+	yaml_ori_backup="${MODE_MIGRATION_YAML_ORI_BACKUP}"
+	config_backup="${MODE_MIGRATION_CONFIG_BACKUP}"
+	hooks_backup="${MODE_MIGRATION_HOOKS_BACKUP}"
+	# Detach the pending marker before nonfatal cleanup so a signal cannot
+	# attempt recovery from a snapshot that is being deleted.
+	MODE_MIGRATION_YAML_FILE_BACKUP=""
+	MODE_MIGRATION_YAML_ORI_BACKUP=""
+	MODE_MIGRATION_CONFIG_BACKUP=""
+	MODE_MIGRATION_HOOKS_BACKUP=""
+	rm -f "${yaml_file_backup}" "${yaml_ori_backup}" || cleanup_status=1
+	discard_installer_config_backup "${config_backup}" || cleanup_status=1
+	rm -rf "${hooks_backup}" || cleanup_status=1
+	[ "${cleanup_status}" -eq 0 ] || PTXT "${WARN} Unable to remove completed mode-migration recovery backups; continuing with the completed migration."
+}
+
+rollback_pending_mode_migration() {
+	local restore_status=0 cleanup_status=0 yaml_file_backup yaml_ori_backup config_backup hooks_backup
+	[ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ] || return 0
+	restore_mode_migration_yaml "${MODE_MIGRATION_YAML_FILE_BACKUP}" "${MODE_MIGRATION_YAML_ORI_BACKUP}" 1 || {
+		PTXT "${ERROR} Unable to restore the previous AdGuardHome YAML configuration."
+		restore_status=1
+	}
+	restore_installer_config "${MODE_MIGRATION_CONFIG_BACKUP}" 1 || {
+		PTXT "${ERROR} Unable to restore the previous installer mode configuration."
+		restore_status=1
+	}
+	restore_mode_migration_wan_hooks "${MODE_MIGRATION_HOOKS_BACKUP}" 1 || {
+		PTXT "${ERROR} Unable to restore the previous event scripts."
+		restore_status=1
+	}
+	[ "${restore_status}" -eq 0 ] || return 1
+	if { [ "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" = "wan" ] || [ -z "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" ]; } && [ -x "${ADDON_DIR}/AdGuardHome.sh" ]; then
+		"${ADDON_DIR}/AdGuardHome.sh" firewall >/dev/null 2>&1 || {
+			PTXT "${ERROR} Unable to restore the previous WAN firewall state."
+			return 1
+		}
+	fi
+	yaml_file_backup="${MODE_MIGRATION_YAML_FILE_BACKUP}"
+	yaml_ori_backup="${MODE_MIGRATION_YAML_ORI_BACKUP}"
+	config_backup="${MODE_MIGRATION_CONFIG_BACKUP}"
+	hooks_backup="${MODE_MIGRATION_HOOKS_BACKUP}"
+	# Recovery is complete.  Detach it before best-effort artifact cleanup.
+	MODE_MIGRATION_YAML_FILE_BACKUP=""
+	MODE_MIGRATION_YAML_ORI_BACKUP=""
+	MODE_MIGRATION_CONFIG_BACKUP=""
+	MODE_MIGRATION_HOOKS_BACKUP=""
+	rm -f "${yaml_file_backup}" "${yaml_ori_backup}" || cleanup_status=1
+	discard_installer_config_backup "${config_backup}" || cleanup_status=1
+	rm -rf "${hooks_backup}" || cleanup_status=1
+	[ "${cleanup_status}" -eq 0 ] || PTXT "${WARN} Unable to remove completed mode-migration recovery backups; continuing with the restored installation."
 }
 
 adguard_migrate_detected_install_mode() {
@@ -5347,6 +5594,10 @@ adguard_migrate_detected_install_mode() {
 			config_backup="${CONF_FILE}.mode-migration.rollback.$$"
 			hooks_backup="${CONF_FILE}.mode-migration-hooks.rollback.$$"
 			rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
+			if ! rm -rf "${hooks_backup}"; then
+				PTXT "${ERROR} Unable to clear stale mode-migration event-script backups."
+				return 1
+			fi
 			if { [ ! -f "${YAML_FILE}" ] || cp -p "${YAML_FILE}" "${yaml_file_backup}"; } &&
 				{ [ ! -f "${YAML_ORI}" ] || cp -p "${YAML_ORI}" "${yaml_ori_backup}"; } &&
 				save_installer_config "${config_backup}"; then
@@ -5357,34 +5608,32 @@ adguard_migrate_detected_install_mode() {
 				PTXT "${ERROR} Unable to preserve the current mode configuration."
 				return 1
 			fi
+			MODE_MIGRATION_YAML_ORI_BACKUP="${yaml_ori_backup}"
+			MODE_MIGRATION_CONFIG_BACKUP="${config_backup}"
+			MODE_MIGRATION_HOOKS_BACKUP="${hooks_backup}"
+			MODE_MIGRATION_YAML_FILE_BACKUP="${yaml_file_backup}"
 			if ! setup_sync_mode_dependent_yaml_and_snapshot; then
-				rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
-				discard_installer_config_backup "${config_backup}"
 				PTXT "${ERROR} Unable to update the AdGuardHome configuration for ${ADGUARD_INSTALL_MODE} mode."
+				rollback_pending_mode_migration || return 2
 				return 1
 			fi
-			if [ "${previous_mode}" = "lan" ] &&
-				{ ! backup_mode_migration_wan_hooks "${hooks_backup}" || ! install_wan_event_scripts; }; then
-				restore_mode_migration_yaml "${yaml_file_backup}" "${yaml_ori_backup}" || PTXT "${ERROR} Unable to restore the previous AdGuardHome YAML configuration."
-				restore_installer_config "${config_backup}" || PTXT "${ERROR} Unable to restore the previous installer mode configuration."
-				restore_mode_migration_wan_hooks "${hooks_backup}" || PTXT "${ERROR} Unable to restore the previous event scripts."
+			if ! backup_mode_migration_wan_hooks "${hooks_backup}"; then
+				PTXT "${ERROR} Unable to preserve the previous event scripts."
+				rollback_pending_mode_migration || return 2
+				return 1
+			fi
+			if [ "${previous_mode}" = "lan" ] && ! install_wan_event_scripts; then
 				PTXT "${ERROR} Unable to install the required WAN-mode event scripts."
+				rollback_pending_mode_migration || return 2
 				return 1
 			fi
 			if ! write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\"" ||
 				! adguard_install_feature_defaults ||
 				! write_conf ADGUARD_NETCHECK_MODE "\"${ADGUARD_INSTALL_MODE}\"" ||
 				{ [ "${ADGUARD_INSTALL_MODE}" = "lan" ] && ! adguardhome_yaml_remove_ipset_file; }; then
-				restore_mode_migration_yaml "${yaml_file_backup}" "${yaml_ori_backup}" || PTXT "${ERROR} Unable to restore the previous AdGuardHome YAML configuration."
-				restore_installer_config "${config_backup}" || PTXT "${ERROR} Unable to restore the previous installer mode configuration."
-				if [ "${previous_mode}" = "lan" ]; then
-					restore_mode_migration_wan_hooks "${hooks_backup}" || PTXT "${ERROR} Unable to restore the previous event scripts."
-				fi
+				rollback_pending_mode_migration || return 2
 				return 1
 			fi
-			[ "${previous_mode}" != "lan" ] || rm -rf "${hooks_backup}"
-			rm -f "${yaml_file_backup}" "${yaml_ori_backup}"
-			discard_installer_config_backup "${config_backup}"
 			return 0
 			;;
 	esac
@@ -6765,7 +7014,7 @@ cli_write_adguard_branch() {
 }
 
 cli_run() {
-	local cmd sub opt restore_file profile proc_profile adguard_branch installer_branch netcheck_mode netcheck_hosts netcheck_dns netcheck_http netcheck_timeout dns_policy migrate_args
+	local cmd sub opt restore_file profile proc_profile adguard_branch installer_branch netcheck_mode netcheck_hosts netcheck_dns netcheck_http netcheck_timeout dns_policy migrate_args operation_status
 	CLI_MODE="1"
 	export CLI_MODE
 	cmd="${1:-}"
@@ -6903,6 +7152,9 @@ cli_run() {
 			cli_enable_assume_yes
 			AUTO_UPDATE="update"
 			menu update
+			operation_status=$?
+			[ "${operation_status}" -eq 2 ] && return 1
+			return "${operation_status}"
 			;;
 		backup)
 			cli_require_yes || return 1
@@ -6918,6 +7170,9 @@ cli_run() {
 			cli_require_yes || return 1
 			cli_enable_assume_yes
 			cli_backup_restore_file "${restore_file}"
+			operation_status=$?
+			[ "${operation_status}" -eq 2 ] && return 1
+			return "${operation_status}"
 			;;
 		uninstall)
 			[ "${CLI_DRY_RUN}" = "1" ] && {
@@ -7029,6 +7284,9 @@ cli_run() {
 			[ -z "${installer_branch}" ] || write_conf INSTALLER_BRANCH "\"${installer_branch}\"" || return 1
 			cli_write_adguard_branch "${adguard_branch}" || return 1
 			inst_AdGuardHome install
+			operation_status=$?
+			[ "${operation_status}" -eq 2 ] && return 1
+			return "${operation_status}"
 			;;
 	esac
 }
@@ -7193,7 +7451,7 @@ esac
 case "${1:-}" in
 	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | migrate-runtime-defaults | uninstall)
 		case "${1:-}" in
-			install | update)
+			install | update | restore)
 				adguard_install_mode_detect || exit 1
 				;;
 		esac

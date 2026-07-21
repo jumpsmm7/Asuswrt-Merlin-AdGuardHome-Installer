@@ -26,6 +26,8 @@ sed -n '/^adguard_restart_after_install_abort() {$/,/^}/p' "${SCRIPT_PATH}" >"${
 	fail 'could not extract restart helper'
 sed -n '/^adguard_migrate_detected_install_mode() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
 	fail 'could not extract install-mode migration helper'
+sed -n '/^finalize_pending_mode_migration() {$/,/^}/p; /^rollback_pending_mode_migration() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract pending mode-migration helpers'
 sed -n '/^install_wan_event_scripts() {$/,/^set_timezone() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer functions'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'installer function extraction was empty'
 
@@ -88,6 +90,14 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 		printf '%s\n' 'timezone' >>"${CALLS_FILE}"
 		return 1
 	}
+	rollback_pending_mode_migration() {
+		printf '%s\n' 'rollback' >>"${CALLS_FILE}"
+		return 0
+	}
+	adguard_restart_after_install_abort() {
+		printf '%s\n' 'restart' >>"${CALLS_FILE}"
+		return 0
+	}
 	setup_AdGuardHome() {
 		printf '%s\n' 'setup' >>"${CALLS_FILE}"
 		return 0
@@ -112,7 +122,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	fi
 ) || fail 'timezone failure regression subprocess failed'
 
-EXPECTED="$(printf '%s\n' 'timezone' 'end:1 install')"
+EXPECTED="$(printf '%s\n' 'timezone' 'rollback' 'restart' 'end:1 install')"
 ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] || fail "installer continued after timezone failure: ${ACTUAL}"
 

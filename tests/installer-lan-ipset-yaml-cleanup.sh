@@ -33,9 +33,17 @@ mode_string() {
 extract_function() {
 	_function_name="$1"
 	awk -v name="${_function_name}" '
-		$0 == name "() {" { copying = 1 }
-		copying { print }
-		copying && $0 == "}" { exit }
+		$0 == name "() {" { copying = 1; found = 1 }
+		copying {
+			print
+			line = $0
+			opens = gsub(/\{/, "", line)
+			line = $0
+			closes = gsub(/\}/, "", line)
+			depth += opens - closes
+			if (depth == 0) { complete = 1; exit }
+		}
+		END { if (!found || !complete || depth != 0) exit 1 }
 	' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" || return 1
 }
 
@@ -96,6 +104,7 @@ extract_function setup_sync_restored_yaml_for_wan || fail 'could not extract WAN
 extract_function setup_sync_mode_dependent_yaml_and_snapshot || fail 'could not extract mode-dependent YAML snapshot sync helper'
 extract_function setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could not extract WAN restore YAML snapshot sync helper'
 extract_function restore_mode_migration_yaml || fail 'could not extract mode migration YAML rollback helper'
+extract_function rollback_pending_mode_migration || fail 'could not extract pending mode migration rollback helper'
 extract_function adguard_migrate_detected_install_mode || fail 'could not extract detected-mode migration helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'helper extraction was empty'
 
@@ -108,13 +117,30 @@ printf '%s %s\n' "$1" "$2" >>"${CHOWN_LOG}"
 EOF_CHOWN
 chmod 755 "${STUB_DIR}/chown" || fail 'could not chmod chown stub'
 
+ERROR='Error:'
 INFO='Info:'
+ADDON_DIR="${TMP_ROOT}/addon"
 # PTXT prints its arguments as text, one per line, ignoring an optional `-n` argument.
 PTXT() {
 	if [ "${1:-}" = "-n" ]; then
 		shift
 	fi
 	printf '%s\n' "$@"
+}
+
+# backup_mode_migration_wan_hooks creates a test-local marker for retained hook rollback state.
+backup_mode_migration_wan_hooks() {
+	mkdir -p "$1"
+}
+
+# restore_mode_migration_wan_hooks removes the test-local hook rollback state unless retention is requested.
+restore_mode_migration_wan_hooks() {
+	[ "${2:-0}" = "1" ] || rm -rf "$1"
+}
+
+# install_wan_event_scripts simulates successful WAN hook synchronization.
+install_wan_event_scripts() {
+	return 0
 }
 
 # save_installer_config copies the installer configuration file to the specified backup path while preserving its metadata.

@@ -1179,6 +1179,7 @@ netcheck() {
 	return 1
 }
 
+# private_ipv4_bridge_dns_options prints private IPv4 addresses assigned to bridge interfaces other than br0.
 private_ipv4_bridge_dns_options() {
 	local OPTIONS
 	if have_cmd ip; then
@@ -1190,7 +1191,7 @@ private_ipv4_bridge_dns_options() {
 				for (i = 1; i <= NF; i++) {
 					if ($i == "inet") {
 						split($(i + 1), ip_addr, "/")
-						if (private_ip(ip_addr[1]) && !seen[$2]++) { print $2 " " ip_addr[1] }
+						if (private_ip(ip_addr[1]) && !seen[$2, ip_addr[1]]++) { print $2 " " ip_addr[1] }
 					}
 				}
 			}
@@ -1206,7 +1207,7 @@ private_ipv4_bridge_dns_options() {
 				}
 				$1 == "inet" && iface ~ /^br/ && iface != "br0" {
 					split($2, ip_addr, "/")
-					if (private_ip(ip_addr[1]) && !seen[iface]++) { print iface " " ip_addr[1] }
+					if (private_ip(ip_addr[1]) && !seen[iface, ip_addr[1]]++) { print iface " " ip_addr[1] }
 				}
 			')"
 		fi

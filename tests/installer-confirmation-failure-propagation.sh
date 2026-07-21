@@ -13,6 +13,8 @@ fail() {
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 
 INSTALL_FUNCTION="$(sed -n '/^install_wan_event_scripts() {$/,/^setup_AdGuardHome() {$/p' "${SCRIPT_PATH}" | sed '$d')"
+INSTALL_FUNCTION="${INSTALL_FUNCTION}
+$(sed -n '/^finalize_pending_mode_migration() {$/,/^}/p; /^rollback_pending_mode_migration() {$/,/^}/p' "${SCRIPT_PATH}")"
 [ -n "${INSTALL_FUNCTION}" ] || fail 'could not extract inst_AdGuardHome function'
 eval "${INSTALL_FUNCTION}"
 

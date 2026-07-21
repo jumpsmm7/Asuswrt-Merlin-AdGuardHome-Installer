@@ -106,7 +106,7 @@ assert_address() {
 	expected="$2"
 	actual="$(awk '
 		/^http:[[:space:]]*$/ { in_http = 1; next }
-		in_http && /^[^[:space:]]/ { exit }
+		in_http && /^[^[:space:]#]/ { exit }
 		in_http && /^[[:space:]]*address:[[:space:]]*/ {
 			sub(/^[[:space:]]*address:[[:space:]]*/, "")
 			print
@@ -114,6 +114,20 @@ assert_address() {
 		}
 	' "${YAML_FILE}")"
 	[ "${actual}" = "${expected}" ] || fail "${case_name}: expected address ${expected}, got ${actual:-empty}"
+}
+
+# assert_single_address_key verifies synchronization leaves exactly one quoted or unquoted address key.
+assert_single_address_key() {
+	case_name="$1"
+	count="$(awk '
+		{
+			line = $0
+			sub(/^[[:space:]]*/, "", line)
+			if (line ~ /^address[[:space:]]*:/ || line ~ /^"address"[[:space:]]*:/ || line ~ /^'"'"'address'"'"'[[:space:]]*:/) count++
+		}
+		END { print count + 0 }
+	' "${YAML_FILE}")"
+	[ "${count}" -eq 1 ] || fail "${case_name}: expected one address key, found ${count}"
 }
 
 reset_router_state
@@ -161,6 +175,22 @@ write_yaml \
 	'  address: 127.0.0.1:3000 # local only'
 setup_sync_webui_port 4747 || fail 'inline-commented WebUI address synchronization failed'
 assert_address preserve-inline-comment-host '127.0.0.1:4747'
+
+reset_router_state
+write_yaml \
+	'"http":' \
+	'  "address": 127.0.0.1:3000'
+setup_sync_webui_port 4848 || fail 'quoted HTTP keys synchronization failed'
+grep -q '^  address: 127\.0\.0\.1:4848$' "${YAML_FILE}" || fail 'quoted HTTP keys did not preserve the WebUI host'
+assert_single_address_key quoted-http-keys
+
+reset_router_state
+write_yaml \
+	'http:' \
+	'  "address" : "192.168.50.3:3000"'
+setup_sync_webui_port 4949 || fail 'spaced quoted address key synchronization failed'
+grep -q '^  address: 192\.168\.50\.3:4949$' "${YAML_FILE}" || fail 'spaced quoted address key did not preserve the WebUI host'
+assert_single_address_key spaced-quoted-address-key
 
 reset_router_state
 write_yaml \
@@ -217,6 +247,85 @@ fi
 if grep -q '^[[:space:]]*address:[[:space:]]*' "${YAML_FILE}"; then
 	fail 'missing top-level http section wrote an address line'
 fi
+
+reset_router_state
+write_yaml \
+	'"http":' \
+	'  "address": "127.0.0.1:3000"' \
+	'dns:' \
+	'  bind_hosts:' \
+	'    - 0.0.0.0'
+setup_sync_webui_port 6003 || fail 'block-style quoted http mapping control failed'
+grep -q '^  address: 127\.0\.0\.1:6003$' "${YAML_FILE}" ||
+	fail 'block-style quoted http mapping control did not update its address'
+assert_single_address_key block-style-quoted-http
+
+reset_router_state
+write_yaml \
+	'"http": {address: "127.0.0.1:3000"}' \
+	'dns:' \
+	'  bind_hosts:' \
+	'    - 0.0.0.0'
+if setup_sync_webui_port 6004 >/dev/null 2>&1; then
+	fail 'flow-style http mapping was accepted as a block mapping'
+fi
+grep -q '^"http": {address: "127\.0\.0\.1:3000"}$' "${YAML_FILE}" ||
+	fail 'flow-style http mapping was rewritten'
+if grep -q '^[[:space:]][[:space:]]*address:' "${YAML_FILE}"; then
+	fail 'flow-style http mapping received an invalid block address'
+fi
+
+reset_router_state
+write_yaml \
+	'http: {' \
+	'  address: "127.0.0.1:3000"' \
+	'}' \
+	'dns:' \
+	'  bind_hosts:' \
+	'    - 0.0.0.0'
+if setup_sync_webui_port 6005 >/dev/null 2>&1; then
+	fail 'multiline flow-style http mapping was accepted as a block mapping'
+fi
+grep -q '^  address: "127\.0\.0\.1:3000"$' "${YAML_FILE}" ||
+	fail 'multiline flow-style http mapping was rewritten'
+grep -q '^http: {$' "${YAML_FILE}" || fail 'multiline flow-style http mapping header was rewritten'
+grep -q '^}$' "${YAML_FILE}" || fail 'multiline flow-style http mapping terminator was rewritten'
+
+reset_router_state
+write_yaml \
+	'http:' \
+	'# bind settings' \
+	'  address: "127.0.0.1:3000"' \
+	'dns:' \
+	'  bind_hosts:' \
+	'    - 0.0.0.0'
+setup_sync_webui_port 6006 || fail 'http address after an unindented comment was not synchronized'
+assert_address http-unindented-comment '127.0.0.1:6006'
+[ "$(grep -c '^[[:space:]]*address:' "${YAML_FILE}")" -eq 1 ] ||
+	fail 'http address after an unindented comment was duplicated'
+
+reset_router_state
+write_yaml \
+	'"http": # Web UI settings' \
+	'  "address" : "127.0.0.1:3000"' \
+	'dns:' \
+	'  bind_hosts:' \
+	'    - 0.0.0.0'
+setup_sync_webui_port 6007 || fail 'quoted http mapping with an inline comment was not synchronized'
+grep -q '^  address: 127\.0\.0\.1:6007$' "${YAML_FILE}" ||
+	fail 'quoted http mapping with an inline comment did not update its address'
+assert_single_address_key quoted-http-inline-comment
+
+reset_router_state
+write_yaml \
+	'http: # Web UI settings' \
+	'dns:' \
+	'  bind_hosts:' \
+	'    - 0.0.0.0'
+setup_sync_webui_port 6008 || fail 'http mapping with an inline comment did not receive an address'
+grep -q '^  address: 0\.0\.0\.0:6008$' "${YAML_FILE}" ||
+	fail 'http mapping with an inline comment received the wrong address'
+assert_single_address_key http-inline-comment-insertion
 
 reset_router_state
 write_yaml \

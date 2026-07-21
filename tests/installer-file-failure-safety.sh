@@ -79,6 +79,7 @@ awk '
 	/^adguard_restore_abort_trap_enable\(\)/,/^}/
 	/^adguard_restore_after_failed_directory_restore\(\)/,/^}/
 	/^adguard_restore_after_failed_replace\(\)/,/^}/
+	/^finalize_pending_mode_migration\(\)/,/^}/
 	/^adguardhome_yaml_ipset_file\(\)/,/^}/
 	/^adguardhome_yaml_remove_ipset_file\(\)/,/^}/
 	/^adguard_enforce_lan_ipset_disabled\(\)/,/^}/
@@ -125,6 +126,38 @@ printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS
 		fail "installer exit cleanup left blocklist YAML temp file"
 	grep -q '^result=rollback unavailable$' "${ROLLBACK_RESULT_FILE}" ||
 		fail "installer exit cleanup changed the rollback marker"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	CALLS_FILE="${TMP_DIR}/exit-migration-recovery.calls"
+	AGH_FILE="${TMP_DIR}/exit-migration-recovery/AdGuardHome"
+	YAML_FILE="${AGH_FILE}.yaml"
+	YAML_ORI="${TMP_DIR}/exit-migration-recovery/.AdGuardHome.yaml.ori"
+	MODE_MIGRATION_YAML_FILE_BACKUP="${TMP_DIR}/exit-migration-recovery/yaml.backup"
+	ADGUARD_INSTALL_WAS_RUNNING="1"
+	mkdir -p "${TMP_DIR}/exit-migration-recovery" || exit 1
+	rollback_pending_mode_migration() {
+		printf '%s\n' rollback >>"${CALLS_FILE}"
+		MODE_MIGRATION_YAML_FILE_BACKUP=""
+		return 0
+	}
+	adguard_restart_after_install_abort() {
+		printf '%s\n' "restart $1" >>"${CALLS_FILE}"
+	}
+	cleanup_api_files() {
+		return 0
+	}
+	check_dns_environment() {
+		return 0
+	}
+	on_installer_exit
+	[ "$(sed -n '1p' "${CALLS_FILE}")" = rollback ] ||
+		fail "installer exit cleanup did not retry pending mode migration rollback"
+	[ "$(sed -n '2p' "${CALLS_FILE}")" = 'restart 1' ] ||
+		fail "installer exit cleanup did not restart the previously running service after rollback"
 ) || exit 1
 
 (
@@ -1168,6 +1201,10 @@ EOF
 		return 0
 	}
 
+	rollback_pending_mode_migration() {
+		return 0
+	}
+
 	inst_AdGuardHome() {
 		end_op_message 1 "$1"
 		return
@@ -1240,6 +1277,10 @@ EOF
 
 	ln() {
 		command ln "$@"
+	}
+
+	rollback_pending_mode_migration() {
+		return 0
 	}
 
 	inst_AdGuardHome() {
