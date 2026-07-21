@@ -100,15 +100,24 @@ write_yaml() {
 	done
 }
 
-# assert_address checks that the top-level http.address value in the YAML fixture matches the expected value for a test case.
+# assert_address checks that the quoted or unquoted top-level http.address value in the YAML fixture matches the expected value for a test case.
 assert_address() {
 	case_name="$1"
 	expected="$2"
 	actual="$(awk '
-		/^http:[[:space:]]*$/ { in_http = 1; next }
+		function yaml_key_is(line, expected, text, separator, key) {
+			text = line
+			sub(/^[[:space:]]*/, "", text)
+			separator = index(text, ":")
+			if (!separator) return 0
+			key = substr(text, 1, separator - 1)
+			sub(/[[:space:]]*$/, "", key)
+			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
+		}
+		/^[^[:space:]]/ && yaml_key_is($0, "http") { in_http = 1; next }
 		in_http && /^[^[:space:]#]/ { exit }
-		in_http && /^[[:space:]]*address:[[:space:]]*/ {
-			sub(/^[[:space:]]*address:[[:space:]]*/, "")
+		in_http && yaml_key_is($0, "address") {
+			sub(/^[[:space:]]*["'"'"']?address["'"'"']?[[:space:]]*:[[:space:]]*/, "")
 			print
 			exit
 		}
@@ -183,6 +192,14 @@ write_yaml \
 setup_sync_webui_port 4848 || fail 'quoted HTTP keys synchronization failed'
 grep -q '^  address: 127\.0\.0\.1:4848$' "${YAML_FILE}" || fail 'quoted HTTP keys did not preserve the WebUI host'
 assert_single_address_key quoted-http-keys
+
+reset_router_state
+write_yaml \
+	"'http': # WebUI settings" \
+	"  'address': 127.0.0.1:3000"
+setup_sync_webui_port 4898 || fail 'single-quoted HTTP keys synchronization failed'
+assert_address single-quoted-http-keys '127.0.0.1:4898'
+assert_single_address_key single-quoted-http-keys
 
 reset_router_state
 write_yaml \
