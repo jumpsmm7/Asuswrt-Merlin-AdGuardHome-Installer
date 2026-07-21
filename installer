@@ -6998,7 +6998,7 @@ cli_write_adguard_branch() {
 }
 
 cli_run() {
-	local cmd sub opt restore_file profile proc_profile adguard_branch installer_branch netcheck_mode netcheck_hosts netcheck_dns netcheck_http netcheck_timeout dns_policy migrate_args
+	local cmd sub opt restore_file profile proc_profile adguard_branch installer_branch netcheck_mode netcheck_hosts netcheck_dns netcheck_http netcheck_timeout dns_policy migrate_args operation_status
 	CLI_MODE="1"
 	export CLI_MODE
 	cmd="${1:-}"
@@ -7136,6 +7136,9 @@ cli_run() {
 			cli_enable_assume_yes
 			AUTO_UPDATE="update"
 			menu update
+			operation_status=$?
+			[ "${operation_status}" -eq 2 ] && return 1
+			return "${operation_status}"
 			;;
 		backup)
 			cli_require_yes || return 1
@@ -7151,6 +7154,9 @@ cli_run() {
 			cli_require_yes || return 1
 			cli_enable_assume_yes
 			cli_backup_restore_file "${restore_file}"
+			operation_status=$?
+			[ "${operation_status}" -eq 2 ] && return 1
+			return "${operation_status}"
 			;;
 		uninstall)
 			[ "${CLI_DRY_RUN}" = "1" ] && {
@@ -7262,6 +7268,9 @@ cli_run() {
 			[ -z "${installer_branch}" ] || write_conf INSTALLER_BRANCH "\"${installer_branch}\"" || return 1
 			cli_write_adguard_branch "${adguard_branch}" || return 1
 			inst_AdGuardHome install
+			operation_status=$?
+			[ "${operation_status}" -eq 2 ] && return 1
+			return "${operation_status}"
 			;;
 	esac
 }
