@@ -4195,15 +4195,16 @@ backup_restore() {
 			return 1
 		fi
 		ptxt_ok "Reinstalled AdGuardHome service scripts after restore."
+		# Commit the restored directory before discarding migration snapshots so
+		# signal cleanup cannot restore the old directory without its mode state.
+		adguard_install_abort_trap_disable
 		if ! finalize_pending_mode_migration; then
 			ADGUARD_DEFER_END_OP="0"
 			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
-			adguard_install_abort_trap_disable
 			PTXT "${ERROR} Unable to finalize mode migration after restore."
 			return 1
 		fi
 		ADGUARD_DEFER_END_OP="0"
-		adguard_install_abort_trap_disable
 		rm -rf "${RESTORE_ROLLBACK_DIR}"
 		end_op_message 0 "${1:-RESTORE}"
 	elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then

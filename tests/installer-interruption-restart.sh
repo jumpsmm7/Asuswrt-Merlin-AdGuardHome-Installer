@@ -337,11 +337,12 @@ awk '
 awk '
 	/^backup_restore\(\) \{/ { in_function = 1 }
 	in_function && /inst_AdGuardHome "\$\{1:-RESTORE\}"/ { install = NR }
+	in_function && install && /adguard_install_abort_trap_disable/ { disable = NR }
 	in_function && /finalize_pending_mode_migration/ { finalize = NR }
 	in_function && /rm -rf "\$\{RESTORE_ROLLBACK_DIR\}"/ { cleanup = NR }
 	in_function && /^}/ { exit }
-	END { exit !(install && finalize && cleanup && install < finalize && finalize < cleanup) }
-' "${SCRIPT_PATH}" || fail 'restore finalizes mode migration before its directory rollback is committed'
+	END { exit !(install && disable && finalize && cleanup && install < disable && disable < finalize && finalize < cleanup) }
+' "${SCRIPT_PATH}" || fail 'restore does not disable directory rollback before finalizing mode migration and removing its rollback directory'
 
 awk '
 	/^backup_restore\(\) \{/ { in_function = 1 }
