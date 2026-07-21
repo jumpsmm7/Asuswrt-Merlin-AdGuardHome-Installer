@@ -112,12 +112,20 @@ run_check 'Static archive interruption cleanup regression' sh tests/download-sta
 run_check 'Installer file failure safety regression' sh tests/installer-file-failure-safety.sh
 run_check 'Installer progress output regression' sh tests/installer-progress-output.sh
 run_check 'Installer legacy hook cleanup regression' sh tests/installer-legacy-hook-cleanup.sh
+run_check 'Installer event-script mode regression' sh tests/installer-event-script-modes.sh
 run_check 'Installer upgrade runtime-default ordering regression' sh tests/installer-upgrade-runtime-defaults.sh
 run_check 'Installer post-replacement restart regression' sh tests/installer-post-replace-restart.sh
 run_check 'Installer interruption restart regression' sh tests/installer-interruption-restart.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
 run_check 'Installer single-argument action regression' sh tests/installer-single-arg-actions.sh
 run_check 'Installer preflight action regression' sh tests/installer-preflight-actions.sh
+run_check 'Installer install-mode detection regression' sh tests/installer-install-mode-detection.sh
+run_check 'Installer CLI LAN-mode regression' sh tests/installer-cli-lan-mode.sh
+run_check 'Installer CLI IPSET dry-run regression' sh tests/installer-cli-ipset-dry-run.sh
+run_check 'Installer LAN IPSET YAML cleanup regression' sh tests/installer-lan-ipset-yaml-cleanup.sh
+run_check 'Installer bind address regression' sh tests/installer-bind-addresses.sh
+run_check 'Installer LAN startup generation regression' sh tests/installer-lan-startup-generation.sh
+run_check 'Installer WebUI port synchronization regression' sh tests/installer-web-port-sync.sh
 run_check 'Installer end operation rollback regression' sh tests/installer-end-op-rollback.sh
 run_check 'Installer doctor fix safety regression' sh tests/installer-doctor-fix-safety.sh
 run_check 'Installer doctor rollback result regression' sh tests/installer-doctor-rollback-result.sh
@@ -138,18 +146,30 @@ run_check 'Installer confirmation failure propagation regression' sh tests/insta
 run_check 'Installer local-cache preference save failure regression' sh tests/installer-local-cache-save-failure.sh
 run_check 'Installer IPSET preference save failure regression' sh tests/installer-ipset-save-failure.sh
 run_check 'Installer setup IPSET preference save failure regression' sh tests/installer-ipset-setup-save-failure.sh
+run_check 'Installer runtime-default migration regression' sh tests/installer-migrate-runtime-defaults.sh
+run_check 'Installer restore feature-selection regression' sh tests/installer-restore-feature-selections.sh
+run_check 'Installer reverse-upstream target regression' sh tests/installer-reverse-upstream-target.sh
 run_check 'AdGuardHome permission repair regression' sh tests/adguardhome-permissions.sh
+run_check 'AdGuardHome LAN bind refresh regression' sh tests/adguardhome-lan-bind-refresh.sh
 run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
+run_check 'AdGuardHome S99 DNS mode lifecycle regression' sh tests/s99-dns-mode-lifecycle.sh
+run_check 'AdGuardHome S99 netstat readiness regression' sh tests/s99-netstat-readiness.sh
 run_check 'AdGuardHome stop failure regression' sh tests/stop-adguardhome-failure.sh
 run_check 'AdGuardHome monitor retry backoff regression' sh tests/monitor-retry-backoff.sh
 run_check 'AdGuardHome DNS startup handoff regression' run_dns_handoff_check
+run_check 'AdGuardHome required-handoff fallback regression' sh tests/rc-required-handoff-fallback.sh
+run_check 'AdGuardHome runtime mode helper regression' sh tests/adguardhome-runtime-mode-helpers.sh
+run_check 'AdGuardHome runtime DNS environment LAN-mode regression' sh tests/adguardhome-dns-env-lan-mode.sh
+run_check 'AdGuardHome dnsmasq LAN-mode regression' sh tests/dnsmasq-lan-mode.sh
 run_check 'AdGuardHome IPSET version gate regression' sh tests/ipset-version-gate.sh
+run_check 'AdGuardHome IPSET LAN-mode regression' sh tests/ipset-lan-mode.sh
 run_check 'AdGuardHome empty IPSET data regression' sh tests/ipset-empty-rules.sh
 run_check 'AdGuardHome IPSET lock security regression' sh tests/ipset-lock-security.sh
 run_check 'AdGuardHome legacy IPSET disable regression' sh tests/ipset-legacy-disable.sh
 run_check 'IPSET current-file YAML scalar regression' sh tests/ipset-current-file.sh
 run_check 'IPSET setup rollback regression' sh tests/ipset-setup-rollback.sh
 run_check 'IPSET status reporting regression' sh tests/ipset-status.sh
+run_check 'Runtime default regression' sh tests/runtime-default-regression.sh
 
 if require_cmd shellcheck; then
 	run_script_list_check 'ShellCheck POSIX sh static analysis' shellcheck -s sh --severity=warning

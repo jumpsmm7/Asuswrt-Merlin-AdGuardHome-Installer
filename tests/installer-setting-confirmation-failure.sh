@@ -38,9 +38,15 @@ nvram() {
 check_dns_local() {
 	printf '%s\n' "$*" >>"${CHECK_LOG}"
 }
+# check_ipset records its arguments in the check log.
 check_ipset() {
 	printf '%s\n' "$*" >>"${CHECK_LOG}"
 }
+# adguard_ipset_allowed always reports that ipset use is allowed.
+adguard_ipset_allowed() {
+	return 0
+}
+# cli_migrate_runtime_defaults records its arguments in the check log.
 cli_migrate_runtime_defaults() {
 	printf '%s\n' "$*" >>"${CHECK_LOG}"
 }

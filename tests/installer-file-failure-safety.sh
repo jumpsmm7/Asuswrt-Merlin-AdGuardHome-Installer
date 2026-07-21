@@ -66,6 +66,7 @@ awk '
 	/^rollback_result_write\(\)/,/^}/
 	/^rollback_result_summary\(\)/,/^}/
 	/^rollback_result_notice\(\)/,/^}/
+	/^conf_value\(\)/,/^}/
 	/^md5_is_valid\(\)/,/^}/
 	/^file_md5\(\)/,/^}/
 	/^adguard_archive_is_safe\(\)/,/^}/
@@ -78,7 +79,10 @@ awk '
 	/^adguard_restore_abort_trap_enable\(\)/,/^}/
 	/^adguard_restore_after_failed_directory_restore\(\)/,/^}/
 	/^adguard_restore_after_failed_replace\(\)/,/^}/
+	/^finalize_pending_mode_migration\(\)/,/^}/
 	/^adguardhome_yaml_ipset_file\(\)/,/^}/
+	/^adguardhome_yaml_remove_ipset_file\(\)/,/^}/
+	/^adguard_enforce_lan_ipset_disabled\(\)/,/^}/
 	/^chmod_adguardhome_data_files_600\(\)/,/^}/
 	/^ensure_adguardhome_directory_permissions\(\)/,/^}/
 	/^create_backup_archive\(\)/,/^}/
@@ -122,6 +126,38 @@ printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS
 		fail "installer exit cleanup left blocklist YAML temp file"
 	grep -q '^result=rollback unavailable$' "${ROLLBACK_RESULT_FILE}" ||
 		fail "installer exit cleanup changed the rollback marker"
+) || exit 1
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	CALLS_FILE="${TMP_DIR}/exit-migration-recovery.calls"
+	AGH_FILE="${TMP_DIR}/exit-migration-recovery/AdGuardHome"
+	YAML_FILE="${AGH_FILE}.yaml"
+	YAML_ORI="${TMP_DIR}/exit-migration-recovery/.AdGuardHome.yaml.ori"
+	MODE_MIGRATION_YAML_FILE_BACKUP="${TMP_DIR}/exit-migration-recovery/yaml.backup"
+	ADGUARD_INSTALL_WAS_RUNNING="1"
+	mkdir -p "${TMP_DIR}/exit-migration-recovery" || exit 1
+	rollback_pending_mode_migration() {
+		printf '%s\n' rollback >>"${CALLS_FILE}"
+		MODE_MIGRATION_YAML_FILE_BACKUP=""
+		return 0
+	}
+	adguard_restart_after_install_abort() {
+		printf '%s\n' "restart $1" >>"${CALLS_FILE}"
+	}
+	cleanup_api_files() {
+		return 0
+	}
+	check_dns_environment() {
+		return 0
+	}
+	on_installer_exit
+	[ "$(sed -n '1p' "${CALLS_FILE}")" = rollback ] ||
+		fail "installer exit cleanup did not retry pending mode migration rollback"
+	[ "$(sed -n '2p' "${CALLS_FILE}")" = 'restart 1' ] ||
+		fail "installer exit cleanup did not restart the previously running service after rollback"
 ) || exit 1
 
 (
@@ -342,6 +378,7 @@ EOF
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
 
+	# tar simulates archive listing output for the configured test layout and rejects unsupported invocation options.
 	tar() {
 		case "$1" in
 			-*) ;;
@@ -443,6 +480,13 @@ EOF
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/AdGuardHome.yaml/' \
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/data/'
 					;;
+				original-only)
+					printf '%s\n' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
+						'-rwxr-xr-x root/root 1 date ./AdGuardHome/AdGuardHome' \
+						'-rw-r--r-- root/root 1 date ./AdGuardHome/.AdGuardHome.yaml.ori' \
+						'drwxr-xr-x root/root 0 date ./AdGuardHome/data/'
+					;;
 				*)
 					printf '%s\n' \
 						'drwxr-xr-x root/root 0 date ./AdGuardHome/' \
@@ -457,6 +501,9 @@ EOF
 				;;
 			busybox-data-no-slash)
 				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/AdGuardHome.yaml' './AdGuardHome/data'
+				;;
+			original-only)
+				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/.AdGuardHome.yaml.ori' './AdGuardHome/data/'
 				;;
 			missing-yaml)
 				printf '%s\n' './AdGuardHome/' './AdGuardHome/AdGuardHome' './AdGuardHome/data/querylog.json'
@@ -493,6 +540,8 @@ EOF
 	adguard_archive_is_safe ignored 1 || fail "complete AdGuardHome backup layout was rejected"
 	ARCHIVE_LAYOUT="busybox-data-no-slash"
 	adguard_archive_is_safe ignored 1 || fail "complete BusyBox backup layout without data trailing slash was rejected"
+	ARCHIVE_LAYOUT="original-only"
+	adguard_archive_is_safe ignored 1 || fail "backup containing only the original YAML snapshot was rejected"
 	ARCHIVE_LAYOUT="missing-yaml"
 	adguard_archive_is_safe ignored || fail "install archive without restored state was rejected"
 	if adguard_archive_is_safe ignored 1; then
@@ -995,11 +1044,13 @@ EOF
 		printf '%s\n' "0"
 	}
 
+	# tar extracts a simulated restored installation into the restore staging directory.
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
 				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				printf '%s\n' "schema_version: 27" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome.yaml"
 				return 0
 				;;
 		esac
@@ -1054,11 +1105,13 @@ EOF
 		[ "$(agh_process_count)" -ge 1 ]
 	}
 
+	# tar extracts a simulated restored installation into the restore staging directory.
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
 				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				printf '%s\n' "schema_version: 27" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome.yaml"
 				return 0
 				;;
 		esac
@@ -1119,11 +1172,13 @@ EOF
 		return 0
 	}
 
+	# tar extracts a simulated restored installation into the restore staging directory.
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
 				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				printf '%s\n' "schema_version: 27" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome.yaml"
 				return 0
 				;;
 		esac
@@ -1143,6 +1198,10 @@ EOF
 	}
 
 	ln() {
+		return 0
+	}
+
+	rollback_pending_mode_migration() {
 		return 0
 	}
 
@@ -1191,11 +1250,13 @@ EOF
 		[ "$(agh_process_count)" -ge 1 ]
 	}
 
+	# tar extracts a simulated restored installation into the restore staging directory.
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
 				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				printf '%s\n' "schema_version: 27" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome.yaml"
 				return 0
 				;;
 		esac
@@ -1216,6 +1277,10 @@ EOF
 
 	ln() {
 		command ln "$@"
+	}
+
+	rollback_pending_mode_migration() {
+		return 0
 	}
 
 	inst_AdGuardHome() {
@@ -1262,11 +1327,13 @@ EOF
 		[ "$(agh_process_count)" -ge 1 ]
 	}
 
+	# tar extracts a simulated restored installation into the restore staging directory.
 	tar() {
 		case "$*" in
 			*" -C ${BASE_DIR}/.AdGuardHome.restore."*)
 				mkdir -p "${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/data" || return 1
 				printf '%s\n' "restored binary" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome"
+				printf '%s\n' "schema_version: 27" >"${BASE_DIR}/.AdGuardHome.restore.$$/AdGuardHome/AdGuardHome.yaml"
 				return 0
 				;;
 		esac

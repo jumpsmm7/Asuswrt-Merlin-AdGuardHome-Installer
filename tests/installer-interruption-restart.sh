@@ -303,6 +303,40 @@ ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] ||
 	fail "deferred restore interruption did not preserve restart state: ${ACTUAL}"
 
+: >"${CALLS_FILE}"
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	ERROR="Error:"
+	MODE_MIGRATION_YAML_FILE_BACKUP="${TMP_ROOT}/migration.yaml.backup"
+	ADGUARD_INSTALL_WAS_RUNNING=1
+	rollback_pending_mode_migration() {
+		printf '%s\n' rollback >>"${CALLS_FILE}"
+		MODE_MIGRATION_YAML_FILE_BACKUP=""
+		return 0
+	}
+	agh_stop() {
+		printf '%s\n' stop >>"${CALLS_FILE}"
+	}
+	adguard_restart_after_install_abort() {
+		printf '%s\n' "restart:$1" >>"${CALLS_FILE}"
+	}
+	clear_screen() {
+		printf '%s\n' clear >>"${CALLS_FILE}"
+	}
+	end_op_message() {
+		printf '%s\n' "end:$1" >>"${CALLS_FILE}"
+	}
+
+	adguard_install_abort_on_signal
+) || fail 'signal-driven mode migration rollback recovery failed'
+
+EXPECTED="$(printf '%s\n' rollback stop 'restart:1' clear 'end:2')"
+ACTUAL="$(cat "${CALLS_FILE}")"
+[ "${ACTUAL}" = "${EXPECTED}" ] ||
+	fail "signal rollback did not stop the migrated process before service recovery: ${ACTUAL}"
+
 awk '
 	/^install_adguard_archive\(\) \{/ { in_function = 1 }
 	in_function && /adguard_install_abort_trap_enable/ { enable = NR }
@@ -326,11 +360,55 @@ awk '
 
 awk '
 	/^backup_restore\(\) \{/ { in_function = 1 }
-	in_function && /if ! inst_AdGuardHome "\$\{1:-RESTORE\}"/ { final_setup = NR; in_final_failure = 1; next }
+	in_function && /inst_AdGuardHome "\$\{1:-RESTORE\}"/ { final_setup = NR; next }
+	in_function && final_setup && /if \[ "\$\{INSTALL_STATUS\}" -ne 0 \]; then/ { in_final_failure = 1; next }
 	in_final_failure && /^[[:space:]]*fi$/ { in_final_failure = 0; next }
 	in_function && final_setup && !in_final_failure && /adguard_install_abort_trap_disable/ { disable = NR }
 	in_function && final_setup && !in_final_failure && /rm -rf "\$\{RESTORE_ROLLBACK_DIR\}"/ { cleanup = NR; exit }
 	END { exit !(final_setup && disable && cleanup && final_setup < disable && disable < cleanup) }
 ' "${SCRIPT_PATH}" || fail 'restore trap is not disabled before rollback cleanup removal'
+
+awk '
+	/^backup_restore\(\) \{/ { in_function = 1 }
+	in_function && /inst_AdGuardHome "\$\{1:-RESTORE\}"/ { install = NR }
+	in_function && install && /adguard_install_abort_trap_disable/ { disable = NR }
+	in_function && /finalize_pending_mode_migration/ { finalize = NR }
+	in_function && /rm -rf "\$\{RESTORE_ROLLBACK_DIR\}"/ { cleanup = NR }
+	in_function && /^}/ { exit }
+	END { exit !(install && disable && finalize && cleanup && install < disable && disable < finalize && finalize < cleanup) }
+' "${SCRIPT_PATH}" || fail 'restore does not disable directory rollback before finalizing mode migration and removing its rollback directory'
+
+awk '
+	/^backup_restore\(\) \{/ { in_function = 1 }
+	in_function && /inst_AdGuardHome "\$\{1:-RESTORE\}"/ { install = NR; next }
+	in_function && install && /if \[ "\$\{INSTALL_STATUS\}" -ne 0 \]; then/ { failure = 1; next }
+	failure && /rollback_pending_mode_migration/ { migration = NR; next }
+	failure && /adguard_restore_after_failed_directory_restore/ { directory = NR; exit }
+	in_function && /^}/ { exit }
+	END { exit !(install && failure && migration && directory && migration < directory) }
+' "${SCRIPT_PATH}" || fail 'failed restore replaces the installation directory before rolling back its pending mode migration'
+
+awk '
+	/^backup_restore\(\) \{/ { in_function = 1 }
+	in_function && /inst_AdGuardHome "\$\{1:-RESTORE\}"/ { install = 1; next }
+	install && /MIGRATION_ROLLBACK_STATUS=1/ { rollback_failed = 1; next }
+	rollback_failed && !preserved_hooks && /MIGRATION_HOOKS_RECOVERY=.*RESTORE_ROLLBACK_DIR/ { preserved_hooks = NR; next }
+	rollback_failed && !detached && /MODE_MIGRATION_YAML_FILE_BACKUP=""/ { detached = NR; next }
+	rollback_failed && !retained_hooks && /MODE_MIGRATION_HOOKS_BACKUP="\$\{MIGRATION_HOOKS_RECOVERY\}"/ { retained_hooks = NR; next }
+	rollback_failed && !restored_without_restart && /adguard_restore_after_failed_directory_restore .* "0" "1"/ { restored_without_restart = NR; next }
+	restored_without_restart && !retried_hooks && /restore_mode_migration_wan_hooks "\$\{MIGRATION_HOOKS_RECOVERY\}"/ { retried_hooks = NR; next }
+	retried_hooks && /MODE_MIGRATION_HOOKS_BACKUP=""/ { cleared_hooks = NR; next }
+	restored_without_restart && /return 2/ { preserved_status = 1; exit }
+	END { exit !(rollback_failed && preserved_hooks && detached && retained_hooks && restored_without_restart && retried_hooks && cleared_hooks && preserved_hooks < detached && detached < retained_hooks && retained_hooks < restored_without_restart && restored_without_restart < retried_hooks && retried_hooks < cleared_hooks && preserved_status) }
+' "${SCRIPT_PATH}" || fail 'restore rollback failure does not preserve and retry hook recovery around directory rollback, suppress restart, or preserve status 2'
+
+awk '
+	/^adguard_install_abort_on_signal\(\) \{/ { in_function = 1 }
+	in_function && /rollback_pending_mode_migration/ { migration = NR }
+	in_function && /adguard_restore_after_failed_directory_restore/ { restore = NR }
+	in_function && /adguard_restart_after_install_abort/ { restart = NR }
+	in_function && /^}/ { exit }
+	END { exit !(migration && restore && restart && migration < restore && migration < restart) }
+' "${SCRIPT_PATH}" || fail 'signal cleanup does not roll back pending mode migration before service recovery'
 
 printf '%s\n' 'PASS: installation interruption restarts the previously running service'

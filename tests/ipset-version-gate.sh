@@ -34,10 +34,28 @@ chmod +x "${BINARY_FILE}" || fail 'could not create version test binary'
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
+# conf_value prints the configured IPSET value, defaulting to YES when IPSET_CONFIG is unset.
 conf_value() {
 	printf '%s\n' "${IPSET_CONFIG:-YES}"
 }
 
+# adguard_lan_mode determines whether the installation is configured for LAN mode.
+adguard_lan_mode() {
+	[ "${INSTALL_MODE:-wan}" = "lan" ]
+}
+
+# adguard_ipset_allowed determines whether managed IPSET integration is allowed for the current installation mode.
+adguard_ipset_allowed() {
+	! adguard_lan_mode
+}
+
+# IPSet_Disable_Managed records the managed IPSET disable operation and returns its configured status.
+IPSet_Disable_Managed() {
+	printf '%s\n' IPSet_Disable_Managed >>"${CALLS_FILE}"
+	return "${DISABLE_STATUS:-0}"
+}
+
+# IPSet_Lock records a lock request for the specified IPSET operation.
 IPSet_Lock() {
 	printf '%s\n' "lock $1" >>"${CALLS_FILE}"
 }
@@ -46,14 +64,21 @@ logger() {
 	:
 }
 
+# run_start_case exercises startup IPSET gating and verifies the resulting calls and status for a simulated AdGuardHome version.
 run_start_case() {
 	VERSION_OUTPUT="$1"
 	VERSION_STATUS="${2:-0}"
-	export VERSION_OUTPUT VERSION_STATUS
 	EXPECTED="$3"
+	EXPECTED_STATUS="${4:-0}"
+	export VERSION_OUTPUT VERSION_STATUS
 	: >"${CALLS_FILE}"
 
-	IPSet_Setup_For_Start || fail "startup setup failed for version output: ${VERSION_OUTPUT}"
+	if IPSet_Setup_For_Start; then
+		ACTUAL_STATUS=0
+	else
+		ACTUAL_STATUS=$?
+	fi
+	[ "${ACTUAL_STATUS}" -eq "${EXPECTED_STATUS}" ] || fail "startup setup returned ${ACTUAL_STATUS}, expected ${EXPECTED_STATUS} for version output: ${VERSION_OUTPUT}"
 
 	ACTUAL="$(cat "${CALLS_FILE}")"
 	[ "${ACTUAL}" = "${EXPECTED}" ] || fail "unexpected startup gate result for ${VERSION_OUTPUT}: ${ACTUAL}"
@@ -97,5 +122,12 @@ run_start_case 'AdGuard Home unavailable' 1 ''
 IPSET_CONFIG=NO
 run_start_case 'AdGuard Home, version v0.107.48' 0 'lock IPSet_Disable_Managed_For_Start_Locked'
 IPSET_CONFIG=YES
+INSTALL_MODE=lan
+run_case 'AdGuard Home, version v0.107.48' 0 ''
+run_start_case 'AdGuard Home, version v0.107.48' 0 'IPSet_Disable_Managed'
+DISABLE_STATUS=1
+run_start_case 'AdGuard Home, version v0.107.48' 0 'IPSet_Disable_Managed' 1
+DISABLE_STATUS=0
+INSTALL_MODE=wan
 
 printf '%s\n' 'PASS: managed IPSET integration is gated on AdGuardHome v0.107.48 or later'

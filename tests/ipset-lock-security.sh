@@ -29,7 +29,7 @@ if which flock >/dev/null 2>&1 && (exec 9>"${TEST_ROOT}/flock-probe" && flock -n
 	HAS_FLOCK=1
 fi
 rm -f "${TEST_ROOT}/flock-probe"
-sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^IPSet_Current_UID() {$/,/^}$/p; /^IPSet_Directory_Metadata() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock() {$/,/^}$/p; /^IPSet_Lock_Flock() {$/,/^}$/p; /^IPSet_Lock_Flock_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Reap_Stale() {$/,/^}$/p; /^IPSet_Restore_Traps() {$/,/^}$/p; /^IPSet_Runtime_Prepare() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^adguard_restart_dnsmasq_if_managed() {$/,/^}$/p; /^IPSet_Current_UID() {$/,/^}$/p; /^IPSet_Directory_Metadata() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock() {$/,/^}$/p; /^IPSet_Lock_Flock() {$/,/^}$/p; /^IPSet_Lock_Flock_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Reap_Stale() {$/,/^}$/p; /^IPSet_Restore_Traps() {$/,/^}$/p; /^IPSet_Runtime_Prepare() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'IPSET lock functions were not found'
 if ! grep -Eq '^IPSET_RUNTIME_DIR=.*AdGuardHome-ipset' "${SCRIPT_PATH}"; then
 	fail 'the private IPSET runtime directory default is not defined'
@@ -50,6 +50,12 @@ fi
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
+# adguard_dnsmasq_managed indicates that dnsmasq is managed by AdGuard Home.
+adguard_dnsmasq_managed() {
+	return 0
+}
+
+# id reports an error when the IPSET lock code attempts to invoke the unavailable `id` command.
 id() {
 	fail 'IPSET lock code called unavailable id command'
 }
@@ -99,6 +105,10 @@ USE_FLOCK=0
 
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
+
+adguard_dnsmasq_managed() {
+	return 0
+}
 
 have_cmd() {
 	[ "${USE_FLOCK}" -eq 1 ] && [ "$1" = flock ]
@@ -154,6 +164,10 @@ USE_FLOCK=0
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
+adguard_dnsmasq_managed() {
+	return 0
+}
+
 have_cmd() {
 	[ "${USE_FLOCK}" -eq 1 ] && [ "$1" = flock ]
 }
@@ -208,7 +222,14 @@ lock_action() {
 	printf '%s\n' called >"${TEST_ROOT}/called"
 }
 
+# lock_dnsmasq_action marks a dnsmasq restart as pending.
 lock_dnsmasq_action() {
+	IPSET_DNSMASQ_RESTART_PENDING="1"
+}
+
+# lock_dnsmasq_skip_action marks a pending dnsmasq restart as suppressed.
+lock_dnsmasq_skip_action() {
+	ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
 	IPSET_DNSMASQ_RESTART_PENDING="1"
 }
 
@@ -237,6 +258,11 @@ if [ "${HAS_FLOCK}" -eq 1 ]; then
 	rm -f "${TEST_ROOT}/dnsmasq-restarted"
 	IPSet_Lock lock_dnsmasq_action || fail 'could not defer dnsmasq restart with flock'
 	[ -f "${TEST_ROOT}/dnsmasq-restarted" ] || fail 'flock path did not restart dnsmasq after unlock'
+	rm -f "${TEST_ROOT}/dnsmasq-restarted"
+	unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+	IPSet_Lock lock_dnsmasq_skip_action || fail 'could not suppress deferred dnsmasq restart with flock'
+	[ ! -f "${TEST_ROOT}/dnsmasq-restarted" ] || fail 'flock path ignored dnsmasq restart suppression after unlock'
+	unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 	run_interrupt_test flock
 	run_trap_test flock
 fi
@@ -265,6 +291,11 @@ IPSet_Lock lock_action || fail 'could not acquire fallback lock in private runti
 rm -f "${TEST_ROOT}/dnsmasq-restarted"
 IPSet_Lock lock_dnsmasq_action || fail 'could not defer dnsmasq restart with the fallback lock'
 [ -f "${TEST_ROOT}/dnsmasq-restarted" ] || fail 'fallback path did not restart dnsmasq after unlock'
+rm -f "${TEST_ROOT}/dnsmasq-restarted"
+unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+IPSet_Lock lock_dnsmasq_skip_action || fail 'could not suppress deferred dnsmasq restart with the fallback lock'
+[ ! -f "${TEST_ROOT}/dnsmasq-restarted" ] || fail 'fallback path ignored dnsmasq restart suppression after unlock'
+unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 # A waiter that observed an old dead PID must not remove a replacement lock.
 mkdir -m 700 "${IPSET_RUNTIME_DIR}/mkdir" || fail 'could not create replacement fallback lock'
