@@ -39,11 +39,13 @@ ip() {
 			'5: br1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500' \
 			'    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1' \
 			'    inet 192.168.102.254/24 brd 192.168.102.255 scope global secondary br1' \
+			'    inet 192.168.103.254/24 brd 192.168.103.255 scope global secondary br1' \
 			'    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1'
 	else
 		printf '%s\n' \
 			'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1' \
 			'5: br1    inet 192.168.102.254/24 brd 192.168.102.255 scope global secondary br1' \
+			'5: br1    inet 192.168.103.254/24 brd 192.168.103.255 scope global secondary br1' \
 			'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1'
 	fi
 }
@@ -72,11 +74,11 @@ dns:
 EOF
 
 bridge_options="$(private_ipv4_bridge_dns_options)" || fail 'bridge address discovery failed'
-[ "${bridge_options}" = "$(printf '%s\n' 'br1 192.168.101.254' 'br1 192.168.102.254')" ] ||
+[ "${bridge_options}" = "$(printf '%s\n' 'br1 192.168.101.254' 'br1 192.168.102.254' 'br1 192.168.103.254')" ] ||
 	fail 'bridge address discovery did not preserve distinct per-interface addresses'
 IP_OUTPUT_MODE=fallback
 bridge_options="$(private_ipv4_bridge_dns_options)" || fail 'fallback bridge address discovery failed'
-[ "${bridge_options}" = "$(printf '%s\n' 'br1 192.168.101.254' 'br1 192.168.102.254')" ] ||
+[ "${bridge_options}" = "$(printf '%s\n' 'br1 192.168.101.254' 'br1 192.168.102.254' 'br1 192.168.103.254')" ] ||
 	fail 'fallback bridge address discovery did not preserve distinct per-interface addresses'
 IP_OUTPUT_MODE=fast
 
@@ -86,6 +88,7 @@ grep -q '^    - 192\.168\.50\.27$' "${YAML_FILE}" || fail 'LAN IPv4 DNS bind was
 grep -q '^    - 2001:db8::27$' "${YAML_FILE}" || fail 'LAN IPv6 DNS bind was not refreshed'
 grep -q '^    - 192\.168\.101\.254$' "${YAML_FILE}" || fail 'bridge DNS bind was not refreshed'
 grep -q '^    - 192\.168\.102\.254$' "${YAML_FILE}" || fail 'secondary bridge DNS bind was not refreshed'
+grep -q '^    - 192\.168\.103\.254$' "${YAML_FILE}" || fail 'additional bridge DNS bind was not refreshed'
 ! grep -q '192\.168\.50\.1' "${YAML_FILE}" || fail 'stale LAN bind address remained in YAML'
 
 cat >"${YAML_FILE}" <<'EOF' || fail 'could not write quoted-key fixture'
