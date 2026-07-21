@@ -303,6 +303,40 @@ ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] ||
 	fail "deferred restore interruption did not preserve restart state: ${ACTUAL}"
 
+: >"${CALLS_FILE}"
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	ERROR="Error:"
+	MODE_MIGRATION_YAML_FILE_BACKUP="${TMP_ROOT}/migration.yaml.backup"
+	ADGUARD_INSTALL_WAS_RUNNING=1
+	rollback_pending_mode_migration() {
+		printf '%s\n' rollback >>"${CALLS_FILE}"
+		MODE_MIGRATION_YAML_FILE_BACKUP=""
+		return 0
+	}
+	agh_stop() {
+		printf '%s\n' stop >>"${CALLS_FILE}"
+	}
+	adguard_restart_after_install_abort() {
+		printf '%s\n' "restart:$1" >>"${CALLS_FILE}"
+	}
+	clear_screen() {
+		printf '%s\n' clear >>"${CALLS_FILE}"
+	}
+	end_op_message() {
+		printf '%s\n' "end:$1" >>"${CALLS_FILE}"
+	}
+
+	adguard_install_abort_on_signal
+) || fail 'signal-driven mode migration rollback recovery failed'
+
+EXPECTED="$(printf '%s\n' rollback stop 'restart:1' clear 'end:2')"
+ACTUAL="$(cat "${CALLS_FILE}")"
+[ "${ACTUAL}" = "${EXPECTED}" ] ||
+	fail "signal rollback did not stop the migrated process before service recovery: ${ACTUAL}"
+
 awk '
 	/^install_adguard_archive\(\) \{/ { in_function = 1 }
 	in_function && /adguard_install_abort_trap_enable/ { enable = NR }
