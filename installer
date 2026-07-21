@@ -4158,6 +4158,13 @@ backup_restore() {
 			if [ "${MIGRATION_ROLLBACK_STATUS}" -eq 0 ]; then
 				adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
 			else
+				# The migration snapshots live below TARG_DIR and cannot survive the
+				# directory rollback.  Detach them before restoring the known-good
+				# directory so EXIT cleanup cannot retry from paths that were removed.
+				MODE_MIGRATION_YAML_FILE_BACKUP=""
+				MODE_MIGRATION_YAML_ORI_BACKUP=""
+				MODE_MIGRATION_CONFIG_BACKUP=""
+				MODE_MIGRATION_HOOKS_BACKUP=""
 				adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "0" "1"
 			fi
 			adguard_install_abort_trap_disable
