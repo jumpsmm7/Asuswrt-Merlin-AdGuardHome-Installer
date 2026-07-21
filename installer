@@ -4777,24 +4777,40 @@ inst_AdGuardHome() {
 		if [ ! -f "${ADDON_DIR}/localtime" ]; then
 			PTXT "${INFO} Before setting up AdGuardHome, please choose your right timezone!"
 			if ! set_timezone; then
-				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				MIGRATE_STATUS=1
+				if ! rollback_pending_mode_migration; then
+					MIGRATE_STATUS=2
+				else
+					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				fi
 				end_op_message 1 "$1"
-				return 1
+				return "${MIGRATE_STATUS}"
 			fi
 		fi
 		if ! setup_AdGuardHome "" "${1:-install}"; then
-			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			MIGRATE_STATUS=1
+			if ! rollback_pending_mode_migration; then
+				MIGRATE_STATUS=2
+			else
+				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			fi
 			end_op_message 1
-			return 1
+			return "${MIGRATE_STATUS}"
 		fi
 		ptxt_ok "AdGuardHome first-run configuration completed."
 	fi
 	ptxt_phase "Final readiness summary."
 	ptxt_step "Waiting for AdGuardHome post-install readiness checks."
 	if ! agh_complete_startup; then
+		MIGRATE_STATUS=1
+		if ! rollback_pending_mode_migration; then
+			MIGRATE_STATUS=2
+		else
+			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+		fi
 		adguard_install_abort_trap_disable_preserve_defer
 		end_op_message 1 "$1"
-		return 1
+		return "${MIGRATE_STATUS}"
 	fi
 	if [ "${1:-update}" != "RESTORE" ]; then
 		if ! finalize_pending_mode_migration; then
