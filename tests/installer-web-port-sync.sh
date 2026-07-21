@@ -203,6 +203,28 @@ assert_single_address_key single-quoted-http-keys
 
 reset_router_state
 write_yaml \
+	'"http": # WebUI settings' \
+	'dns:' \
+	'  bind_hosts:' \
+	'    - 0.0.0.0'
+setup_sync_webui_port 4908 || fail 'missing address insertion under a double-quoted HTTP key failed'
+assert_address double-quoted-http-address-insertion '0.0.0.0:4908'
+assert_single_address_key double-quoted-http-address-insertion
+grep -q '^dns:$' "${YAML_FILE}" || fail 'double-quoted HTTP address insertion changed following YAML content'
+
+reset_router_state
+write_yaml \
+	"'http': # WebUI settings" \
+	'dns:' \
+	'  bind_hosts:' \
+	'    - 0.0.0.0'
+setup_sync_webui_port 4918 || fail 'missing address insertion under a single-quoted HTTP key failed'
+assert_address single-quoted-http-address-insertion '0.0.0.0:4918'
+assert_single_address_key single-quoted-http-address-insertion
+grep -q '^dns:$' "${YAML_FILE}" || fail 'single-quoted HTTP address insertion changed following YAML content'
+
+reset_router_state
+write_yaml \
 	'http:' \
 	'  "address" : "192.168.50.3:3000"'
 setup_sync_webui_port 4949 || fail 'spaced quoted address key synchronization failed'
