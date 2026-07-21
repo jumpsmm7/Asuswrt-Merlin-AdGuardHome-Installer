@@ -56,6 +56,15 @@ grep -q 'write_conf ADGUARD_INSTALL_MODE "\\"${ADGUARD_INSTALL_MODE}\\""' "${SCR
 	fail 'installer must persist ADGUARD_INSTALL_MODE'
 grep -q 'PREVIOUS_ADGUARD_INSTALL_MODE="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"' "${SCRIPT_PATH}" ||
 	fail 'installer must preserve the saved install mode before detection'
+extract_function backup_restore "${TMP_ROOT}/backup-restore" ||
+	fail 'could not extract backup restore helper'
+awk '
+	/ptxt_ok "Installed staged AdGuardHome backup\."/ { installed = NR }
+	/PREVIOUS_ADGUARD_INSTALL_MODE="\$\(conf_value ADGUARD_INSTALL_MODE 2>\/dev\/null\)"/ { restored_mode = NR }
+	/if ! adguard_enforce_lan_ipset_disabled; then/ { enforcement = NR }
+	END { exit(installed && restored_mode > installed && enforcement > restored_mode ? 0 : 1) }
+' "${TMP_ROOT}/backup-restore" ||
+	fail 'restore must capture the archived install mode before enforcing the detected router mode'
 awk '
 	/^case "\$\{1:-\}" in$/ { in_dispatch = 1 }
 	in_dispatch && /install \| update \| restore\)/ { mode_actions = 1 }

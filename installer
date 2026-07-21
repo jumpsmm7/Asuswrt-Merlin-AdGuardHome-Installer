@@ -4121,6 +4121,9 @@ backup_restore() {
 		ptxt_ok "Installed staged AdGuardHome backup."
 		ADGUARD_RESTORE_TARGET_INSTALLED="1"
 		rm -rf "${RESTORE_STAGE_DIR}"
+		# Migration rollback must describe the restored installation, not the
+		# installation that was active before the archive was staged.
+		PREVIOUS_ADGUARD_INSTALL_MODE="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
 		ptxt_step "Restoring AdGuardHome ownership and permissions."
 		if ! ensure_adguardhome_directory_permissions; then
 			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
