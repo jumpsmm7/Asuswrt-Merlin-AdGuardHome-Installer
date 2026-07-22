@@ -152,7 +152,7 @@ for checksum_case in upstream_sha_only sha_preferred sha_unavailable empty malfo
 		PAYLOAD_SHA256="$(sha256sum "${TMP_DIR}/payload" | awk '{print $1}')"
 		PAYLOAD_MD5="$(md5sum "${TMP_DIR}/payload" | awk '{print $1}')"
 		# ai_have_cmd reports whether the specified command is available for the test scenario.
-ai_have_cmd() { [ "$1" = md5sum ]; }
+		ai_have_cmd() { [ "$1" = md5sum ]; }
 		# http_get_file simulates downloading checksum metadata or a payload for checksum verification tests.
 		http_get_file() {
 			case "$1" in
@@ -194,7 +194,7 @@ ai_have_cmd() { [ "$1" = md5sum ]; }
 		}
 		if [ "${checksum_case}" = md5_hash_failure ]; then
 			# file_md5 computes the MD5 digest for a file and returns a failure status when the digest cannot be computed.
-file_md5() { return 1; }
+			file_md5() { return 1; }
 		fi
 		# chmod records whether mode 755 was requested and succeeds.
 		chmod() {
