@@ -46,6 +46,13 @@ assert_optional_ipset_tools_do_not_gate_startup() {
 	esac
 }
 
+# assert_explicit_restart_uses_restart_wrapper verifies USR2 restart state survives the service lock.
+assert_explicit_restart_uses_restart_wrapper() {
+	MONITOR_FUNCTION="$(sed -n '/^start_monitor() {$/,/^}$/p' "${SCRIPT_PATH}")"
+	printf '%s\n' "${MONITOR_FUNCTION}" | grep -q 'MONITOR_START_ACTION="restart_adguardhome"' || fail 'monitor does not record explicit restart requests'
+	printf '%s\n' "${MONITOR_FUNCTION}" | grep -q 'adguardhome_run "${MONITOR_START_ACTION:-start_adguardhome}"' || fail 'monitor does not pass explicit restart requests through the service lock'
+}
+
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
@@ -59,6 +66,7 @@ assert_single_function IPSet_Setup_For_Start
 assert_single_function IPSet_Setup_For_Start_Locked
 assert_startup_uses_lock_first_setup
 assert_optional_ipset_tools_do_not_gate_startup
+assert_explicit_restart_uses_restart_wrapper
 
 sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^adguard_restart_dnsmasq_if_managed() {$/,/^}$/p; /^start_adguardhome() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Disable_Managed_For_Start_Locked() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Cleanup() {$/,/^}$/p; /^IPSet_Start_Restore() {$/,/^}$/p; /^IPSet_Start_While_Locked() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'startup lifecycle functions were not found'
@@ -85,6 +93,7 @@ adguard_lan_mode() {
 
 # adguard_refresh_lan_bind_addresses returns the configured LAN bind-address refresh status.
 adguard_refresh_lan_bind_addresses() {
+	LAN_BIND_REFRESH_FAILURE_REASON="${LAN_BIND_REFRESH_FAILURE_REASON_RESULT:-}"
 	return "${LAN_BIND_REFRESH_STATUS:-0}"
 }
 
@@ -202,10 +211,12 @@ run_test() {
 	START_STATUS="$7"
 	EXPECTED_STATUS="$8"
 	EXPECTED="$9"
+	START_ACTION="${10:-}"
 	SERVICE_WAIT_CALLED="0"
+	LAN_BIND_REFRESH_FAILURE_REASON_RESULT="${11:-}"
 	: >"${CALLS_FILE}"
 
-	if start_adguardhome; then
+	if start_adguardhome "${START_ACTION}"; then
 		ACTUAL_STATUS=0
 	else
 		ACTUAL_STATUS=$?
@@ -267,6 +278,11 @@ lower_script start'
 run_test 'LAN mode preserves a running daemon when dynamic bind refresh fails' 1 0 0 0 0 0 1 'IPSet_Disable_Managed'
 [ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 0 ] || fail 'running daemon LAN bind refresh failure was incorrectly reported as terminal service failure'
 [ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'running daemon refresh failure prevented the independent service health check'
+run_test 'LAN mode honors an explicit restart when dynamic bind refresh fails' 1 0 0 0 0 0 1 'IPSet_Disable_Managed
+lower_script restart' restart
+[ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'explicit restart refresh failure prevented the independent service health check'
+run_test 'LAN mode rejects an unsafe active YAML before starting the daemon' 0 0 0 0 0 0 1 '' '' active_yaml_not_regular
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'unsafe active YAML was not reported as a terminal startup failure'
 LAN_BIND_REFRESH_STATUS=0
 run_test 'LAN mode cleans managed IPSET before startup without setup helper' 0 0 0 0 0 0 1 'IPSet_Disable_Managed
 lower_script start'

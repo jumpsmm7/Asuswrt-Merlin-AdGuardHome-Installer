@@ -891,10 +891,12 @@ ipv4_is_usable_unicast() {
 adguard_refresh_lan_bind_addresses() {
 	local ACTIVE_MD5 BIND_HOSTS LAN_ADDR LAN_ADDR6 LAN_IF NVRAM_ADDR6 REWRITE_FILE STAGED_MD5 TEMP_FILE WEB_PORT YAML_DIR
 	LAN_BIND_ADDRESSES_CHANGED="0"
+	LAN_BIND_REFRESH_FAILURE_REASON=""
 	adguard_lan_mode || return 0
 	YAML_DIR="${YAML_FILE%/*}"
 	[ "${YAML_DIR}" != "${YAML_FILE}" ] || YAML_DIR="."
 	if [ "${YAML_FILE}" != "${YAML_DIR}/AdGuardHome.yaml" ] || [ ! -f "${YAML_FILE}" ] || [ -L "${YAML_FILE}" ]; then
+		LAN_BIND_REFRESH_FAILURE_REASON="active_yaml_not_regular"
 		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=active_yaml_not_regular config_preserved=1"
 		return 1
 	fi
@@ -1635,6 +1637,10 @@ start_adguardhome() {
 		if ! adguard_refresh_lan_bind_addresses; then
 			LAN_BIND_REFRESH_FAILED="1"
 			agh_log warning start_adguardhome "state=starting action=refresh_lan_bind_addresses result=failed reason=config_refresh_failed config_preserved=1 service_health=pending"
+			if [ "${LAN_BIND_REFRESH_FAILURE_REASON:-}" = "active_yaml_not_regular" ]; then
+				SERVICE_WAIT_TERMINAL_FAILURE="1"
+				return 1
+			fi
 		fi
 		if ! IPSet_Disable_Managed; then
 			agh_log error start_adguardhome "state=starting action=disable_managed_ipset result=failed reason=lan_mode_remove_failed"
@@ -1662,7 +1668,7 @@ start_adguardhome() {
 				LOWER_SCRIPT_STATUS="$?"
 				;;
 			*)
-				if [ "${LAN_BIND_REFRESH_FAILED}" -eq 1 ]; then
+				if [ "${LAN_BIND_REFRESH_FAILED}" -eq 1 ] && [ "${1:-}" != "restart" ]; then
 					LOWER_SCRIPT_STATUS="0"
 				else
 					lower_script restart
@@ -1687,8 +1693,13 @@ start_adguardhome() {
 	fi
 }
 
+# restart_adguardhome preserves an explicit restart request through the service lock.
+restart_adguardhome() {
+	start_adguardhome restart
+}
+
 start_monitor() {
-	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_RECOVERY_RETRY_INTERVAL MONITOR_SLEEP_INTERVAL MONITOR_STATE
+	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_RECOVERY_RETRY_INTERVAL MONITOR_SLEEP_INTERVAL MONITOR_START_ACTION MONITOR_STATE
 	MONITOR_BINARY_RETRY_INTERVAL="10"
 	MONITOR_HEALTHCHECK_INTERVAL="300"
 	MONITOR_HEALTHCHECK_TIMEOUT="150"
@@ -1734,7 +1745,8 @@ start_monitor() {
 				case "${MONITOR_ELAPSED}" in
 					"")
 						MONITOR_ELAPSED="0"
-						{ adguardhome_run start_adguardhome; }
+						{ adguardhome_run "${MONITOR_START_ACTION:-start_adguardhome}"; }
+						unset MONITOR_START_ACTION
 						;;
 				esac
 				case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
@@ -1791,6 +1803,7 @@ start_monitor() {
 			"restart")
 				agh_log info start_monitor "state=restart action=restart_adguardhome reason=signal_USR2 result=restarting"
 				unset MONITOR_ELAPSED
+				MONITOR_START_ACTION="restart_adguardhome"
 				MONITOR_STATE="running"
 				;;
 		esac
