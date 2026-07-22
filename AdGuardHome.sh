@@ -889,7 +889,7 @@ ipv4_is_usable_unicast() {
 
 # adguard_refresh_lan_bind_addresses updates AdGuardHome's LAN WebUI address and DNS bind hosts in the YAML configuration.
 adguard_refresh_lan_bind_addresses() {
-	local BIND_HOSTS COMPARE_STATUS LAN_ADDR LAN_ADDR6 LAN_IF NVRAM_ADDR6 REWRITE_FILE TEMP_FILE WEB_PORT YAML_DIR
+	local ACTIVE_MD5 BIND_HOSTS LAN_ADDR LAN_ADDR6 LAN_IF NVRAM_ADDR6 REWRITE_FILE STAGED_MD5 TEMP_FILE WEB_PORT YAML_DIR
 	LAN_BIND_ADDRESSES_CHANGED="0"
 	adguard_lan_mode || return 0
 	YAML_DIR="${YAML_FILE%/*}"
@@ -963,7 +963,7 @@ adguard_refresh_lan_bind_addresses() {
 		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_copy_failed config_preserved=1"
 		return 1
 	}
-	awk -v bind_hosts="${BIND_HOSTS}" -v web_address="${LAN_ADDR}:${WEB_PORT}" '
+	(umask 077 && awk -v bind_hosts="${BIND_HOSTS}" -v web_address="${LAN_ADDR}:${WEB_PORT}" '
 		function indentation(line) { match(line, /^[[:space:]]*/); return RLENGTH }
 		function yaml_key_is(line, expected, text, separator, key) {
 			text = line
@@ -1011,26 +1011,51 @@ adguard_refresh_lan_bind_addresses() {
 		in_binds { in_binds = 0 }
 		{ print }
 		END { exit(web_updated && binds_updated ? 0 : 1) }
-	' "${TEMP_FILE}" >"${REWRITE_FILE}" || {
+	' "${TEMP_FILE}" >"${REWRITE_FILE}") || {
 		rm -f "${TEMP_FILE}" "${REWRITE_FILE}"
 		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_rewrite_failed config_preserved=1"
 		return 1
 	}
-	if ! mv -f "${REWRITE_FILE}" "${TEMP_FILE}"; then
+	# Rewrite the preserved copy in place so the active YAML owner and mode survive
+	# the eventual atomic replacement.  The rewrite file is created under umask 077.
+	if ! cat "${REWRITE_FILE}" >"${TEMP_FILE}"; then
 		rm -f "${TEMP_FILE}" "${REWRITE_FILE}"
 		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_rewrite_failed config_preserved=1"
 		return 1
 	fi
-	chmod 600 "${TEMP_FILE}" || {
+	rm -f "${REWRITE_FILE}"
+	ACTIVE_MD5="$(md5sum "${YAML_FILE}")" || {
 		rm -f "${TEMP_FILE}"
-		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_chmod_failed config_preserved=1"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
 		return 1
 	}
-	chown 0:0 "${TEMP_FILE}" || {
+	STAGED_MD5="$(md5sum "${TEMP_FILE}")" || {
 		rm -f "${TEMP_FILE}"
-		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_chown_failed config_preserved=1"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
 		return 1
 	}
+	ACTIVE_MD5="${ACTIVE_MD5%%[[:space:]]*}"
+	STAGED_MD5="${STAGED_MD5%%[[:space:]]*}"
+	case "${ACTIVE_MD5}:${STAGED_MD5}" in
+		????????????????????????????????:????????????????????????????????)
+			case "${ACTIVE_MD5}${STAGED_MD5}" in
+				*[!0123456789abcdefABCDEF]*)
+					rm -f "${TEMP_FILE}"
+					agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
+					return 1
+					;;
+			esac
+			;;
+		*)
+			rm -f "${TEMP_FILE}"
+			agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
+			return 1
+			;;
+	esac
+	if [ "${ACTIVE_MD5}" = "${STAGED_MD5}" ]; then
+		rm -f "${TEMP_FILE}"
+		return 0
+	fi
 	if [ ! -x "${ADGUARDHOME_BINARY}" ] ||
 		! "${ADGUARDHOME_BINARY}" --check-config -c "${TEMP_FILE}" --no-check-update -l /dev/null >/dev/null 2>&1; then
 		rm -f "${TEMP_FILE}"
@@ -1071,22 +1096,12 @@ adguard_refresh_lan_bind_addresses() {
 		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=staged_bind_structure_invalid config_preserved=1"
 		return 1
 	fi
-	cmp -s "${YAML_FILE}" "${TEMP_FILE}"
-	COMPARE_STATUS="$?"
-	if [ "${COMPARE_STATUS}" -eq 0 ]; then
+	if ! mv -f "${TEMP_FILE}" "${YAML_FILE}"; then
 		rm -f "${TEMP_FILE}"
-	elif [ "${COMPARE_STATUS}" -eq 1 ]; then
-		mv -f "${TEMP_FILE}" "${YAML_FILE}" || {
-			rm -f "${TEMP_FILE}"
-			agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=atomic_replace_failed config_preserved=1"
-			return 1
-		}
-		LAN_BIND_ADDRESSES_CHANGED="1"
-	else
-		rm -f "${TEMP_FILE}"
-		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=atomic_replace_failed config_preserved=1"
 		return 1
 	fi
+	LAN_BIND_ADDRESSES_CHANGED="1"
 	return 0
 }
 
@@ -1608,14 +1623,16 @@ service_wait() {
 # start_adguardhome prepares AdGuardHome for startup, launches or restarts it, and verifies network readiness.
 # It returns failure when address synchronization, IPSet setup, service startup, or the final network check fails.
 start_adguardhome() {
-	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LOWER_SCRIPT_STATUS
+	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LAN_BIND_REFRESH_FAILED LOWER_SCRIPT_STATUS
 	IPSET_START_FAILURE_SAFE="0"
 	IPSET_START_RESTARTED="0"
 	IPSET_START_STOPPED="0"
+	LAN_BIND_REFRESH_FAILED="0"
 	SERVICE_WAIT_TERMINAL_FAILURE="0"
 	if adguard_lan_mode; then
 		if ! adguard_refresh_lan_bind_addresses; then
-			agh_log warning start_adguardhome "state=starting action=refresh_lan_bind_addresses result=failed reason=config_refresh_failed config_preserved=1 service_health=unchecked"
+			LAN_BIND_REFRESH_FAILED="1"
+			agh_log warning start_adguardhome "state=starting action=refresh_lan_bind_addresses result=failed reason=config_refresh_failed config_preserved=1 service_health=pending"
 		fi
 		if ! IPSet_Disable_Managed; then
 			agh_log error start_adguardhome "state=starting action=disable_managed_ipset result=failed reason=lan_mode_remove_failed"
@@ -1643,8 +1660,12 @@ start_adguardhome() {
 				LOWER_SCRIPT_STATUS="$?"
 				;;
 			*)
-				lower_script restart
-				LOWER_SCRIPT_STATUS="$?"
+				if [ "${LAN_BIND_REFRESH_FAILED}" -eq 1 ]; then
+					LOWER_SCRIPT_STATUS="0"
+				else
+					lower_script restart
+					LOWER_SCRIPT_STATUS="$?"
+				fi
 				;;
 		esac
 		if [ "${LOWER_SCRIPT_STATUS}" -ne 0 ]; then

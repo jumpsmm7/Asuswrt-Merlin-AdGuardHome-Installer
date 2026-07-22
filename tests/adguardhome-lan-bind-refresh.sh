@@ -86,6 +86,8 @@ dns:
     - 2001:db8::1
   port: 53
 EOF
+chmod 640 "${YAML_FILE}" || fail 'could not set fixture permissions'
+YAML_METADATA="$(ls -nd "${YAML_FILE}" | awk '{ print $1, $3, $4 }')" || fail 'could not read fixture metadata'
 
 bridge_options="$(private_ipv4_bridge_dns_options)" || fail 'bridge address discovery failed'
 [ "${bridge_options}" = "$(printf '%s\n' 'br1 192.168.101.254' 'br1 192.168.102.254' 'br1 192.168.103.254')" ] ||
@@ -104,6 +106,7 @@ grep -q '^    - 192\.168\.101\.254$' "${YAML_FILE}" || fail 'bridge DNS bind was
 grep -q '^    - 192\.168\.102\.254$' "${YAML_FILE}" || fail 'secondary bridge DNS bind was not refreshed'
 grep -q '^    - 192\.168\.103\.254$' "${YAML_FILE}" || fail 'additional bridge DNS bind was not refreshed'
 ! grep -q '192\.168\.50\.1' "${YAML_FILE}" || fail 'stale LAN bind address remained in YAML'
+[ "$(ls -nd "${YAML_FILE}" | awk '{ print $1, $3, $4 }')" = "${YAML_METADATA}" ] || fail 'refresh did not preserve the active YAML mode and owner'
 
 cat >"${YAML_FILE}" <<'EOF' || fail 'could not write quoted-key fixture'
 "http": &http_settings # restored web settings
@@ -218,12 +221,16 @@ adguard_refresh_lan_bind_addresses || fail 'quoted inline bind list was not refr
 grep -q '^    - 2001:db8::27$' "${YAML_FILE}" || fail 'inline list was not normalized with the current IPv6 address'
 [ "${LAN_BIND_ADDRESSES_CHANGED}" -eq 1 ] || fail 'changed inline list was not reported as changed'
 cp "${YAML_FILE}" "${YAML_FILE}.before" || fail 'could not preserve no-op fixture'
+: >"${CALLS_FILE}"
 adguard_refresh_lan_bind_addresses || fail 'no-op refresh failed validation'
 [ "${LAN_BIND_ADDRESSES_CHANGED}" -eq 0 ] || fail 'no-op refresh requested a restart'
 cmp -s "${YAML_FILE}" "${YAML_FILE}.before" || fail 'no-op refresh replaced content'
+! grep -q -- '--check-config' "${CALLS_FILE}" || fail 'no-op refresh unnecessarily invoked binary validation'
 
 VALIDATION_STATUS=1
 export VALIDATION_STATUS
+sed 's/192\.168\.50\.27:3443/192.168.50.1:3443/' "${YAML_FILE}" >"${YAML_FILE}.changed" || fail 'could not prepare validation-failure fixture'
+mv "${YAML_FILE}.changed" "${YAML_FILE}" || fail 'could not activate validation-failure fixture'
 assert_rejected_unchanged binary-validation-failure
 unset VALIDATION_STATUS
 grep -q 'reason=adguard_config_validation_failed' "${CALLS_FILE}" || fail 'validation failure reason was not logged'
@@ -236,14 +243,14 @@ if adguard_refresh_lan_bind_addresses; then fail 'symlink active YAML was accept
 YAML_FILE="${ACTIVE_YAML_FILE}"
 
 # Command wrappers deterministically exercise failures that are otherwise filesystem-dependent as root.
-for command_name in cp chmod chown cmp mv; do
+for command_name in cp cat md5sum mv; do
 	cat >"${BIN_DIR}/${command_name}" <<EOF
 #!/bin/sh
 case " \${FAIL_COMMAND:-} \$* " in
   *" ${command_name} "*.AdGuardHome.yaml.lan-bind.*)
-    if [ "${command_name}" != mv ]; then exit \${FAIL_STATUS:-1}; fi
-    case "\$*" in */AdGuardHome.yaml) exit \${FAIL_STATUS:-1} ;; esac
-    ;;
+	if [ "${command_name}" != mv ]; then exit \${FAIL_STATUS:-1}; fi
+	case "\$*" in */AdGuardHome.yaml) exit \${FAIL_STATUS:-1} ;; esac
+	;;
 esac
 exec /usr/bin/${command_name} "\$@"
 EOF
@@ -251,7 +258,7 @@ EOF
 done
 PATH="${BIN_DIR}:${PATH}"
 export PATH
-for failure_case in 'cp:stage_copy_failed:1' 'chmod:stage_chmod_failed:1' 'chown:stage_chown_failed:1' 'cmp:stage_compare_failed:2' 'mv:atomic_replace_failed:1'; do
+for failure_case in 'cp:stage_copy_failed:1' 'cat:stage_rewrite_failed:1' 'md5sum:stage_compare_failed:1' 'md5sum:stage_compare_failed:0' 'mv:atomic_replace_failed:1'; do
 	sed 's/192\.168\.50\.27:3443/192.168.50.1:3443/' "${YAML_FILE}" >"${YAML_FILE}.reset" || fail 'could not prepare command-failure fixture'
 	/usr/bin/mv "${YAML_FILE}.reset" "${YAML_FILE}" || fail 'could not activate command-failure fixture'
 	FAIL_COMMAND="${failure_case%%:*}"
