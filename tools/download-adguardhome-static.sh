@@ -128,6 +128,7 @@ reclaim_stale_metadata_publication_lock() {
 	rm -f "${_stale_candidate}"
 }
 
+# calc_sum computes and prints the hexadecimal checksum for a file using the specified checksum command.
 calc_sum() {
 	_sum_cmd="$1"
 	_file="$2"
@@ -145,6 +146,8 @@ calc_sum() {
 	printf '%s\n' "${_sum_value}"
 }
 
+# download_arch downloads releases for an architecture, publishes channel metadata, and removes obsolete archives.
+# The folder identifies the output directory, and the architecture identifies the upstream release variant.
 download_arch() {
 	_folder="$1"
 	_adguard_arch="$2"

@@ -312,6 +312,7 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 		done
 	}
 
+	# assert_sha256_required verifies that each specified action requires SHA-256 support.
 	assert_sha256_required() {
 		local action
 		for action in "$@"; do
@@ -322,6 +323,7 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 		done
 	}
 
+	# assert_sha256_optional verifies that the specified actions do not require SHA-256 support, exiting with an error if any action does.
 	assert_sha256_optional() {
 		local action
 		for action in "$@"; do
@@ -332,6 +334,7 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 		done
 	}
 
+	# assert_password_hash_required verifies that each specified action requires password hashing support.
 	assert_password_hash_required() {
 		local action
 		for action in "$@"; do

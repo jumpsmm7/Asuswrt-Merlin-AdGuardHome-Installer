@@ -28,12 +28,14 @@ sed -n '/^append_metadata() {$/,/^}$/p; /^acquire_metadata_publication_lock() {$
 . "${FUNCTION_FILE}"
 
 FAILED=0
+# bad_sum prints an invalid checksum value for testing checksum validation.
 bad_sum() { printf '%s\n' not-a-digest; }
 if calc_sum bad_sum "${TEST_ROOT}/unused" >/dev/null 2>&1; then
 	fail "calc_sum accepted malformed checksum output"
 fi
 
 printf '%s\n' "known checksum" >"${TEST_ROOT}/archive.md5sum"
+# chmod always fails with status 1.
 chmod() {
 	return 1
 }

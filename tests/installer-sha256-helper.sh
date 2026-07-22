@@ -113,7 +113,9 @@ EOF_SHA
 	. "${FUNCTIONS_FILE}"
 	ERROR='Error:'
 	BUSYBOX_BIN="${TMP_ROOT}/not-busybox"
-	ai_have_cmd() { [ "$1" = sha256sum ]; }
+	# ai_have_cmd reports whether the requested command is the supported `sha256sum` utility.
+ai_have_cmd() { [ "$1" = sha256sum ]; }
+	# sha256sum prints a zero-filled digest for the specified file and exits with failure.
 	sha256sum() {
 		printf '%064d  %s\n' 0 "$1"
 		return 1

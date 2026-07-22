@@ -151,7 +151,9 @@ for checksum_case in upstream_sha_only sha_preferred sha_unavailable empty malfo
 		printf '%s\n' 'new downloaded copy' >"${TMP_DIR}/payload"
 		PAYLOAD_SHA256="$(sha256sum "${TMP_DIR}/payload" | awk '{print $1}')"
 		PAYLOAD_MD5="$(md5sum "${TMP_DIR}/payload" | awk '{print $1}')"
-		ai_have_cmd() { [ "$1" = md5sum ]; }
+		# ai_have_cmd reports whether the specified command is available for the test scenario.
+ai_have_cmd() { [ "$1" = md5sum ]; }
+		# http_get_file simulates downloading checksum metadata or a payload for checksum verification tests.
 		http_get_file() {
 			case "$1" in
 				*.sha256sum)
@@ -185,13 +187,16 @@ for checksum_case in upstream_sha_only sha_preferred sha_unavailable empty malfo
 					;;
 			esac
 		}
+		# file_sha256 computes and prints the payload's SHA-256 digest, failing when hash calculation is unavailable.
 		file_sha256() {
 			[ "${checksum_case}" != hash_failure ] || return 1
 			printf '%s' "${PAYLOAD_SHA256}"
 		}
 		if [ "${checksum_case}" = md5_hash_failure ]; then
-			file_md5() { return 1; }
+			# file_md5 computes the MD5 digest for a file and returns a failure status when the digest cannot be computed.
+file_md5() { return 1; }
 		fi
+		# chmod records whether mode 755 was requested and succeeds.
 		chmod() {
 			if [ "$1" = 755 ]; then final_chmod=1; fi
 			return 0
@@ -312,6 +317,7 @@ grep -q 'MD5 digest calculation failed' "${TMP_DIR}/md5_hash_failure.out" || fai
 	ERROR="Error:"
 	WARNING="Warning:"
 
+	# ai_have_cmd reports whether the requested checksum command is available.
 	ai_have_cmd() {
 		case "$1" in
 			md5sum | sha256sum) return 0 ;;
@@ -319,6 +325,7 @@ grep -q 'MD5 digest calculation failed' "${TMP_DIR}/md5_hash_failure.out" || fai
 		return 1
 	}
 
+	# http_get_file downloads checksum metadata or the payload fixture into the specified destination based on the URL suffix.
 	http_get_file() {
 		case "$1" in
 			*.md5sum)
@@ -333,6 +340,7 @@ grep -q 'MD5 digest calculation failed' "${TMP_DIR}/md5_hash_failure.out" || fai
 		esac
 	}
 
+	# chmod reports whether the requested permissions are 600.
 	chmod() {
 		[ "$1" = 600 ]
 	}
