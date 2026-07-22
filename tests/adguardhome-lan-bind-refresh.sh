@@ -226,6 +226,7 @@ adguard_refresh_lan_bind_addresses || fail 'no-op refresh failed validation'
 [ "${LAN_BIND_ADDRESSES_CHANGED}" -eq 0 ] || fail 'no-op refresh requested a restart'
 cmp -s "${YAML_FILE}" "${YAML_FILE}.before" || fail 'no-op refresh replaced content'
 ! grep -q -- '--check-config' "${CALLS_FILE}" || fail 'no-op refresh unnecessarily invoked binary validation'
+[ ! -s "${CALLS_FILE}" ] || fail 'no-op refresh unexpectedly invoked the AdGuardHome binary'
 
 VALIDATION_STATUS=1
 export VALIDATION_STATUS

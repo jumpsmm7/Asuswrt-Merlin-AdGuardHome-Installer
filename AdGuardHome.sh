@@ -1052,6 +1052,8 @@ adguard_refresh_lan_bind_addresses() {
 			return 1
 			;;
 	esac
+	# The monitor calls this refresh periodically.  Avoid starting a second
+	# AdGuardHome process to validate content that is byte-for-byte unchanged.
 	if [ "${ACTIVE_MD5}" = "${STAGED_MD5}" ]; then
 		rm -f "${TEMP_FILE}"
 		return 0
