@@ -301,4 +301,52 @@ for INTERRUPT_PHASE in pre handoff launch post; do
 	assert_trap_workspace_removed
 done
 
+# A repeated termination request during process shutdown must not bypass the
+# post-failure hook or trap cleanup.
+REPEAT_RECOVERY_FILE="${TMP_ROOT}/repeat-recovery"
+REPEAT_ARMED_FILE="${TMP_ROOT}/repeat-armed"
+REPEAT_BEFORE_FILE="${TMP_ROOT}/repeat-before"
+REPEAT_AFTER_FILE="${TMP_ROOT}/repeat-after"
+rm -f "${REPEAT_RECOVERY_FILE}" "${REPEAT_ARMED_FILE}" "${REPEAT_BEFORE_FILE}" "${REPEAT_AFTER_FILE}" "${STARTED_FILE}"
+(
+	trap 'printf "%s\n" caller_signal >>"${CALLS_FILE}"' HUP INT TERM
+	trap_snapshot >"${REPEAT_BEFORE_FILE}"
+	stop_launched_process() {
+		: >"${REPEAT_RECOVERY_FILE}"
+		sleep 1
+	}
+	post_failure_hook() {
+		printf '%s\n' repeat_post_failure >>"${CALLS_FILE}"
+	}
+	trap 'trap_snapshot >"${REPEAT_AFTER_FILE}"' 0
+	adguardhome_start_traps_save || exit 1
+	trap 'adguardhome_start_signal_abort' HUP INT TERM
+	: >"${REPEAT_ARMED_FILE}"
+	while :; do sleep 1; done
+) &
+_repeat_pid="$!"
+_repeat_waits=0
+while [ ! -f "${REPEAT_ARMED_FILE}" ] && [ "${_repeat_waits}" -lt 100 ]; do
+	sleep 0.01
+	_repeat_waits="$((_repeat_waits + 1))"
+done
+[ -f "${REPEAT_ARMED_FILE}" ] || fail 'repeated-signal test did not arm its startup trap'
+kill -TERM "${_repeat_pid}" || fail 'could not start repeated-signal recovery'
+_repeat_waits=0
+while [ ! -f "${REPEAT_RECOVERY_FILE}" ] && [ "${_repeat_waits}" -lt 100 ]; do
+	sleep 0.01
+	_repeat_waits="$((_repeat_waits + 1))"
+done
+[ -f "${REPEAT_RECOVERY_FILE}" ] || fail 'signal recovery did not begin'
+kill -TERM "${_repeat_pid}" || fail 'could not send repeated recovery signal'
+set +e
+wait "${_repeat_pid}"
+_repeat_status="$?"
+set -e
+[ "${_repeat_status}" -eq 255 ] || fail "repeated-signal recovery returned ${_repeat_status}"
+grep -q '^repeat_post_failure$' "${CALLS_FILE}" || fail 'repeated signal skipped post-failure recovery'
+[ "$(cat "${REPEAT_AFTER_FILE}")" = "$(cat "${REPEAT_BEFORE_FILE}")" ] ||
+	fail 'repeated signal prevented caller trap restoration'
+assert_trap_workspace_removed
+
 printf '%s\n' 'PASS: rc.func independently enforces required DNS handoff preparation'

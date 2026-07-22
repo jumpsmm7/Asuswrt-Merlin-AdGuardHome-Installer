@@ -35,6 +35,8 @@ sed -n '/^stop_launched_process() {$/,/^}$/p; /^adguardhome_start_handoff_is_pre
 	fail "could not read ${RC_PATH}"
 [ -s "${S99_FUNCTIONS}" ] || fail 'DNS handoff functions were not found'
 [ -s "${RC_FUNCTION}" ] || fail 'service start function was not found'
+sed -n '/^adguardhome_start_signal_abort() {$/,/^}$/p' "${RC_FUNCTION}" | grep -q "trap '' HUP INT TERM" ||
+	fail 'rc.func does not block repeated signals during startup recovery'
 grep -q 'DNS_HANDOFF_DIR="/tmp/AdGuardHome.dns-handoff"' "${S99_PATH}" ||
 	fail 'service script does not use the private dnsmasq handoff directory'
 grep -q 'dns_handoff_is_active || return 0' "${MANAGER_PATH}" ||

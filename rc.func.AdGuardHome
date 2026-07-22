@@ -270,7 +270,8 @@ adguardhome_start_traps_save() {
 }
 
 adguardhome_start_signal_abort() {
-	trap - HUP INT TERM
+	# Do not let a repeated signal interrupt service and DNS recovery.
+	trap '' HUP INT TERM
 	stop_launched_process "${LAUNCH_PID:-}"
 	adguardhome_run_postfailcmd
 	adguardhome_start_traps_restore
