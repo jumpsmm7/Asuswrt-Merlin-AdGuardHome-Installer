@@ -31,7 +31,7 @@ logger() {
 }
 
 IPSet_Current_File() {
-	printf '%s\n' "${CURRENT_FILE}"
+	printf '%s\n' "${IPSET_CURRENT_FILE_RESULT}"
 }
 
 IPSet_Collect_Yaml() {
@@ -51,7 +51,7 @@ IPSet_Refresh_Locked() {
 	if [ "${CREATE_IPSET_FILE:-0}" -eq 1 ]; then
 		printf '%s\n' 'example.com/ROUTE_VPN' >"${IPSET_FILE}"
 	fi
-	return "${REFRESH_STATUS}"
+	return "${IPSET_TEST_REFRESH_STATUS}"
 }
 
 assert_no_backup() {
@@ -64,7 +64,7 @@ YAML_FILE="${TEST_DIR}/AdGuardHome.yaml"
 IPSET_FILE="${TEST_DIR}/ipset.conf"
 NAME=AdGuardHome
 IPSET_USER_FILE="${TEST_DIR}/ipset.user"
-CURRENT_FILE="${IPSET_FILE}"
+IPSET_CURRENT_FILE_RESULT="${IPSET_FILE}"
 LEGACY_RULES=old.example/old_set
 MIGRATE_CALLS=0
 REFRESH_CALLS=0
@@ -73,16 +73,16 @@ ORIGINAL_YAML='dns:
     - old.example/old_set'
 
 printf '%s\n' "${ORIGINAL_YAML}" >"${YAML_FILE}"
-REFRESH_STATUS=7
+IPSET_TEST_REFRESH_STATUS=7
 IPSet_Setup_Locked
 SETUP_STATUS="$?"
-[ "${SETUP_STATUS}" -eq "${REFRESH_STATUS}" ] || fail "setup returned ${SETUP_STATUS} instead of refresh status ${REFRESH_STATUS}"
+[ "${SETUP_STATUS}" -eq "${IPSET_TEST_REFRESH_STATUS}" ] || fail "setup returned ${SETUP_STATUS} instead of refresh status ${IPSET_TEST_REFRESH_STATUS}"
 ACTUAL_YAML="$(cat "${YAML_FILE}")"
 [ "${ACTUAL_YAML}" = "${ORIGINAL_YAML}" ] || fail 'failed refresh did not restore the original YAML'
 assert_no_backup
 
 printf '%s\n' "${ORIGINAL_YAML}" >"${YAML_FILE}"
-REFRESH_STATUS=0
+IPSET_TEST_REFRESH_STATUS=0
 IPSet_Setup_Locked || fail 'setup failed when migration and refresh succeeded'
 EXPECTED_YAML="$(printf '%s\n' 'dns:' '  ipset: []' "  ipset_file: ${IPSET_FILE}")"
 ACTUAL_YAML="$(cat "${YAML_FILE}")"
@@ -91,11 +91,11 @@ assert_no_backup
 
 rm -f "${IPSET_FILE}"
 printf '%s\n' 'dns:' '  ipset: []' >"${YAML_FILE}"
-CURRENT_FILE=""
+IPSET_CURRENT_FILE_RESULT=""
 LEGACY_RULES=""
 MIGRATE_CALLS=0
 REFRESH_CALLS=0
-REFRESH_STATUS=0
+IPSET_TEST_REFRESH_STATUS=0
 CREATE_IPSET_FILE=0
 IPSet_Setup_Locked || fail 'repeated empty setup failed'
 [ "${REFRESH_CALLS}" -eq 1 ] || fail 'repeated empty setup did not refresh before migration'

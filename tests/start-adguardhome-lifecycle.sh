@@ -265,6 +265,7 @@ lower_script start'
 [ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 0 ] || fail 'LAN bind refresh failure was incorrectly reported as terminal service failure'
 [ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'LAN bind refresh failure prevented the independent service health check'
 run_test 'LAN mode preserves a running daemon when dynamic bind refresh fails' 1 0 0 0 0 0 1 'IPSet_Disable_Managed'
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 0 ] || fail 'running daemon LAN bind refresh failure was incorrectly reported as terminal service failure'
 [ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'running daemon refresh failure prevented the independent service health check'
 LAN_BIND_REFRESH_STATUS=0
 run_test 'LAN mode cleans managed IPSET before startup without setup helper' 0 0 0 0 0 0 1 'IPSet_Disable_Managed

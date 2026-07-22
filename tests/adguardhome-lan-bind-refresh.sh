@@ -237,9 +237,11 @@ unset VALIDATION_STATUS
 grep -q 'reason=adguard_config_validation_failed' "${CALLS_FILE}" || fail 'validation failure reason was not logged'
 ! grep -q '192\.168\.' "${CALLS_FILE}" || fail 'validation log exposed YAML address content'
 
-ln -s "${YAML_FILE}" "${TMP_ROOT}/linked.yaml" || fail 'could not create symlink fixture'
+SYMLINK_DIR="${TMP_ROOT}/symlink-test"
+mkdir -p "${SYMLINK_DIR}" || fail 'could not create symlink test directory'
+ln -s "${YAML_FILE}" "${SYMLINK_DIR}/AdGuardHome.yaml" || fail 'could not create symlink fixture'
 ACTIVE_YAML_FILE="${YAML_FILE}"
-YAML_FILE="${TMP_ROOT}/linked.yaml"
+YAML_FILE="${SYMLINK_DIR}/AdGuardHome.yaml"
 if adguard_refresh_lan_bind_addresses; then fail 'symlink active YAML was accepted'; fi
 YAML_FILE="${ACTIVE_YAML_FILE}"
 
