@@ -25,7 +25,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^stop_launched_process() {$/,/^}$/p; /^adguardhome_start_handoff_is_prepared() {$/,/^}$/p; /^adguardhome_start_handoff_required() {$/,/^}$/p; /^adguardhome_run_postfailcmd() {$/,/^}$/p; /^start() {$/,/^}$/p' \
+	'/^stop_launched_process() {$/,/^}$/p; /^adguardhome_start_handoff_is_prepared() {$/,/^}$/p; /^adguardhome_start_handoff_required() {$/,/^}$/p; /^adguardhome_run_postfailcmd() {$/,/^}$/p; /^adguardhome_start_traps_cleanup() {$/,/^}$/p; /^adguardhome_start_traps_restore() {$/,/^}$/p; /^adguardhome_start_traps_save() {$/,/^}$/p; /^adguardhome_start_signal_abort() {$/,/^}$/p; /^start() {$/,/^}$/p' \
 	"${RC_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${RC_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'required rc.func startup helpers were not found'
 
@@ -155,5 +155,150 @@ start >/dev/null || fail 'rc.func rejected a valid no-handoff start'
 grep -q '^pre_hook$' "${CALLS_FILE}" || fail 'no-handoff start skipped the pre-start hook'
 grep -q '^post_hook$' "${CALLS_FILE}" || fail 'no-handoff start skipped the post-start hook'
 [ -f "${STARTED_FILE}" ] || fail 'no-handoff start did not launch AdGuardHome'
+
+# trap_snapshot prints the shell's current trap dispositions. POSIX requires a
+# command substitution containing only trap to preserve the caller's trap state.
+trap_snapshot() {
+	trap
+}
+
+# assert_trap_workspace_removed checks both the private state variables and the
+# predictable PID portion of the temporary directory name.
+assert_trap_workspace_removed() {
+	[ -z "${ADGUARDHOME_START_TRAP_FILE:-}" ] || fail 'trap state file variable was not cleared'
+	[ -z "${ADGUARDHOME_START_TRAP_DIR:-}" ] || fail 'trap state directory variable was not cleared'
+	set -- /tmp/AdGuardHome-start-traps.$$.*
+	[ "$1" = "/tmp/AdGuardHome-start-traps.$$.*" ] || fail 'private trap state directory was not removed'
+}
+
+# run_with_trap_disposition verifies exact preservation for custom, ignored,
+# and default signal dispositions around a selected startup result.
+run_with_trap_disposition() {
+	_disposition="$1"
+	_expected_status="$2"
+	case "${_disposition}" in
+		custom) trap 'printf "%s\n" caller_signal >>"${CALLS_FILE}"' HUP INT TERM ;;
+		ignored) trap '' HUP INT TERM ;;
+		default) trap - HUP INT TERM ;;
+	esac
+	_before_traps="$(trap_snapshot)"
+	set +e
+	start >/dev/null
+	_status="$?"
+	set -e
+	_after_traps="$(trap_snapshot)"
+	[ "${_status}" -eq "${_expected_status}" ] || fail "${_disposition} traps: unexpected start status ${_status}"
+	[ "${_after_traps}" = "${_before_traps}" ] || fail "${_disposition} traps were not restored exactly"
+	assert_trap_workspace_removed
+}
+
+set -e
+ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
+export ADGUARDHOME_DNS_HANDOFF_REQUIRED
+
+# Successful startup preserves each possible caller disposition.
+for _disposition in custom ignored default; do
+	rm -f "${STARTED_FILE}"
+	PRECMD='pre_hook'
+	POSTCMD='post_hook'
+	run_with_trap_disposition "${_disposition}" 0
+done
+
+# Each ordinary failure path restores custom handlers and removes private state.
+PRECMD='false'
+rm -f "${STARTED_FILE}"
+run_with_trap_disposition custom 255
+
+PRECMD='pre_hook'
+ADGUARDHOME_DNS_HANDOFF_REQUIRED=1
+export ADGUARDHOME_DNS_HANDOFF_REQUIRED
+rm -f "${STARTED_FILE}"
+run_with_trap_disposition custom 255
+
+ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
+export ADGUARDHOME_DNS_HANDOFF_REQUIRED
+process_wait_for_start() { return 1; }
+rm -f "${STARTED_FILE}"
+run_with_trap_disposition custom 255
+
+process_wait_for_start() { [ -f "${STARTED_FILE}" ]; }
+POSTCMD='false'
+rm -f "${STARTED_FILE}"
+run_with_trap_disposition custom 255
+POSTCMD='post_hook'
+
+# interrupt_phase waits while the parent sends TERM during each startup phase.
+interrupt_phase() {
+	printf '%s\n' "interrupt ${INTERRUPT_PHASE}" >>"${CALLS_FILE}"
+	: >"${INTERRUPT_READY_FILE}"
+	while :; do
+		sleep 1
+	done
+}
+
+for INTERRUPT_PHASE in pre handoff launch post; do
+	rm -f "${STARTED_FILE}"
+	INTERRUPT_READY_FILE="${TMP_ROOT}/interrupt-ready-${INTERRUPT_PHASE}"
+	INTERRUPT_BEFORE_FILE="${TMP_ROOT}/interrupt-before-${INTERRUPT_PHASE}"
+	INTERRUPT_AFTER_FILE="${TMP_ROOT}/interrupt-after-${INTERRUPT_PHASE}"
+	rm -f "${INTERRUPT_READY_FILE}" "${INTERRUPT_BEFORE_FILE}" "${INTERRUPT_AFTER_FILE}"
+	PRECMD='pre_hook'
+	POSTCMD='post_hook'
+	ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
+	export ADGUARDHOME_DNS_HANDOFF_REQUIRED
+	adguardhome_start_handoff_is_prepared() { return 1; }
+	process_wait_for_start() {
+		_start_waits=0
+		while [ "${_start_waits}" -lt 100 ]; do
+			[ -f "${STARTED_FILE}" ] && return 0
+			_start_waits="$((_start_waits + 1))"
+			sleep 0.01
+		done
+		return 1
+	}
+	case "${INTERRUPT_PHASE}" in
+		pre) PRECMD='interrupt_phase' ;;
+		handoff)
+			HANDOFF_CHECKS=0
+			adguardhome_start_handoff_is_prepared() {
+				HANDOFF_CHECKS="$((HANDOFF_CHECKS + 1))"
+				[ "${HANDOFF_CHECKS}" -eq 1 ] || interrupt_phase
+				return 1
+			}
+			;;
+		launch) process_wait_for_start() { interrupt_phase; return 1; } ;;
+		post)
+			HANDOFF_CHECKS=0
+			adguardhome_start_handoff_is_prepared() {
+				HANDOFF_CHECKS="$((HANDOFF_CHECKS + 1))"
+				[ "${HANDOFF_CHECKS}" -gt 1 ]
+			}
+			POSTCMD='interrupt_phase'
+			;;
+	esac
+	(
+		trap 'printf "%s\n" caller_signal >>"${CALLS_FILE}"' HUP INT TERM
+		trap_snapshot >"${INTERRUPT_BEFORE_FILE}"
+		trap 'trap_snapshot >"${INTERRUPT_AFTER_FILE}"' 0
+		set +e
+		start >/dev/null
+	) &
+	_interrupt_pid="$!"
+	_interrupt_waits=0
+	while [ ! -f "${INTERRUPT_READY_FILE}" ] && [ "${_interrupt_waits}" -lt 100 ]; do
+		sleep 0.01
+		_interrupt_waits="$((_interrupt_waits + 1))"
+	done
+	[ -f "${INTERRUPT_READY_FILE}" ] || fail "${INTERRUPT_PHASE} interruption did not reach its startup phase"
+	kill -TERM "${_interrupt_pid}" || fail "could not interrupt ${INTERRUPT_PHASE} startup phase"
+	set +e
+	wait "${_interrupt_pid}"
+	_interrupt_status="$?"
+	set -e
+	[ "${_interrupt_status}" -eq 255 ] || fail "${INTERRUPT_PHASE} interruption returned ${_interrupt_status}"
+	[ "$(cat "${INTERRUPT_AFTER_FILE}")" = "$(cat "${INTERRUPT_BEFORE_FILE}")" ] ||
+		fail "${INTERRUPT_PHASE} interruption did not restore caller traps before exit"
+	assert_trap_workspace_removed
+done
 
 printf '%s\n' 'PASS: rc.func independently enforces required DNS handoff preparation'

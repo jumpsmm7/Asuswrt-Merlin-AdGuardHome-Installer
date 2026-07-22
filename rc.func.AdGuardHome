@@ -213,6 +213,70 @@ adguardhome_run_postfailcmd() {
 	fi
 }
 
+adguardhome_start_traps_cleanup() {
+	[ -n "${ADGUARDHOME_START_TRAP_FILE:-}" ] && rm -f "${ADGUARDHOME_START_TRAP_FILE}" 2>/dev/null
+	[ -n "${ADGUARDHOME_START_TRAP_DIR:-}" ] && rmdir "${ADGUARDHOME_START_TRAP_DIR}" 2>/dev/null
+	ADGUARDHOME_START_TRAP_FILE=""
+	ADGUARDHOME_START_TRAP_DIR=""
+}
+
+adguardhome_start_traps_restore() {
+	local _TRAP_FILE
+	_TRAP_FILE="${ADGUARDHOME_START_TRAP_FILE:-}"
+	trap - HUP INT TERM
+	if [ -n "${_TRAP_FILE}" ] && [ -f "${_TRAP_FILE}" ] && [ ! -L "${_TRAP_FILE}" ]; then
+		# The shell generated this file inside a directory created mode 700 below.
+		# Sourcing it preserves handlers verbatim without parsing or evaluating input.
+		. "${_TRAP_FILE}"
+	fi
+	adguardhome_start_traps_cleanup
+}
+
+adguardhome_start_traps_save() {
+	local _COUNTER _OLD_UMASK _TRAP_DIR _TRAP_FILE
+	_COUNTER=0
+	ADGUARDHOME_START_TRAP_DIR=""
+	ADGUARDHOME_START_TRAP_FILE=""
+	while [ "${_COUNTER}" -lt 10 ]; do
+		_TRAP_DIR="/tmp/AdGuardHome-start-traps.$$.$_COUNTER"
+		if (umask 077 && mkdir "${_TRAP_DIR}") 2>/dev/null; then
+			break
+		fi
+		_COUNTER="$((_COUNTER + 1))"
+	done
+	[ "${_COUNTER}" -lt 10 ] || return 1
+	[ -d "${_TRAP_DIR}" ] && [ ! -L "${_TRAP_DIR}" ] && chmod 700 "${_TRAP_DIR}" 2>/dev/null || {
+		rm -rf "${_TRAP_DIR}" 2>/dev/null
+		return 1
+	}
+	_TRAP_FILE="${_TRAP_DIR}/state"
+	_OLD_UMASK="$(umask)"
+	umask 077
+	trap >"${_TRAP_FILE}"
+	_COUNTER="$?"
+	umask "${_OLD_UMASK}"
+	[ "${_COUNTER}" -eq 0 ] || {
+		rm -f "${_TRAP_FILE}" 2>/dev/null
+		rmdir "${_TRAP_DIR}" 2>/dev/null
+		return 1
+	}
+	[ -f "${_TRAP_FILE}" ] && [ ! -L "${_TRAP_FILE}" ] && chmod 600 "${_TRAP_FILE}" 2>/dev/null || {
+		rm -f "${_TRAP_FILE}" 2>/dev/null
+		rmdir "${_TRAP_DIR}" 2>/dev/null
+		return 1
+	}
+	ADGUARDHOME_START_TRAP_DIR="${_TRAP_DIR}"
+	ADGUARDHOME_START_TRAP_FILE="${_TRAP_FILE}"
+}
+
+adguardhome_start_signal_abort() {
+	trap - HUP INT TERM
+	stop_launched_process "${LAUNCH_PID:-}"
+	adguardhome_run_postfailcmd
+	adguardhome_start_traps_restore
+	exit 255
+}
+
 start() {
 	local DNS_HANDOFF LAUNCH_PID PIDS POSTCMD_STATUS POSTFAIL_STATUS STOPPED
 	if type service_mark_transition >/dev/null 2>&1; then
@@ -231,7 +295,8 @@ start() {
 		return 0
 	fi
 	if [ "${PROC}" = "AdGuardHome" ]; then
-		trap 'stop_launched_process "${LAUNCH_PID:-}"; adguardhome_run_postfailcmd; exit 255' HUP INT TERM
+		adguardhome_start_traps_save || return 255
+		trap 'adguardhome_start_signal_abort' HUP INT TERM
 	fi
 	if adguardhome_start_handoff_is_prepared; then
 		DNS_HANDOFF=1
@@ -239,7 +304,7 @@ start() {
 		if ! ${PRECMD} >/dev/null 2>&1; then
 			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 			logger -st "${CALLER}" "Pre-start hook failed for ${DESC} from ${CALLER}."
-			[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
+			[ "${PROC}" = "AdGuardHome" ] && adguardhome_start_traps_restore
 			return 255
 		fi
 		if adguardhome_start_handoff_is_prepared; then
@@ -253,7 +318,7 @@ start() {
 			fi
 			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 			logger -st "${CALLER}" "Pre-start hook did not prepare required DNS handoff for ${DESC} from ${CALLER}."
-			trap - HUP INT TERM
+			adguardhome_start_traps_restore
 			return 255
 		else
 			DNS_HANDOFF=0
@@ -274,7 +339,7 @@ start() {
 		fi
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 		logger -st "${CALLER}" "Failed to start ${DESC} from ${CALLER}."
-		[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
+		[ "${PROC}" = "AdGuardHome" ] && adguardhome_start_traps_restore
 		return 255
 	fi
 	POSTCMD_STATUS=0
@@ -311,10 +376,10 @@ start() {
 		fi
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 		logger -st "${CALLER}" "Post-start hook failed for ${DESC} from ${CALLER}."
-		[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
+		[ "${PROC}" = "AdGuardHome" ] && adguardhome_start_traps_restore
 		return 255
 	fi
-	[ "${PROC}" = "AdGuardHome" ] && trap - HUP INT TERM
+	[ "${PROC}" = "AdGuardHome" ] && adguardhome_start_traps_restore
 	PIDS="$(process_pids "${PROC}")"
 	if [ -z "${PIDS}" ]; then
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
