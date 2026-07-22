@@ -21,9 +21,17 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 grep -q 'ensure_sha256sum_tool' "${SCRIPT_PATH}" || fail 'installer is missing shared SHA-256 helper'
+grep -q 'sha256_manifest_digest' "${SCRIPT_PATH}" || fail 'installer is missing strict SHA-256 manifest parsing'
+grep -q 'SHA-256 metadata is unavailable' "${SCRIPT_PATH}" || fail 'installer does not report unavailable checksum metadata'
+grep -q 'falling back to MD5 verification' "${SCRIPT_PATH}" || fail 'installer is missing its SHA-256-unavailable MD5 fallback'
 grep -q 'opkg install coreutils-sha256sum' "${SCRIPT_PATH}" || fail 'installer does not explain the coreutils-sha256sum dependency'
 grep -q 'ptxt_phase "Running AdGuardHome ${1:-install} orchestration."' "${SCRIPT_PATH}" || fail 'installer install/update orchestration phase is missing'
-grep -q 'ensure_sha256sum_tool || return 1' "${SCRIPT_PATH}" || fail 'installer install/update path does not require SHA-256 support'
+grep -q 'downloads will require matching MD5 metadata' "${SCRIPT_PATH}" || fail 'installer install/update path does not allow the MD5 fallback'
+grep -q 'REMOTE_ADGUARD_SHA256="$(adguard_remote_sha256 "$2")"' "${SCRIPT_PATH}" || fail 'package install does not retain channel SHA-256 metadata'
+grep -q 'ARCHIVE_SHA256.*REMOTE_ADGUARD_SHA256' "${SCRIPT_PATH}" || fail 'package install does not bind the archive to channel SHA-256 metadata'
+grep -q 'ARCHIVE_MD5.*REMOTE_ADGUARD_MD5' "${SCRIPT_PATH}" || fail 'package install does not bind the archive to channel MD5 metadata'
+grep -q 'elif md5_is_valid "${REMOTE_ADGUARD_MD5}"; then' "${SCRIPT_PATH}" || fail 'package install does not fall back to channel MD5 when SHA-256 calculation fails'
+grep -q 'channel MD5 checksum verified' "${SCRIPT_PATH}" || fail 'package install does not report successful channel MD5 fallback'
 grep -q 'ensure_blocklist_analyzer_dependencies || return 1' "${SCRIPT_PATH}" || fail 'option 9 does not require dependency checks before verification'
 grep -q 'ensure_sha256sum_tool || return 1' "${SCRIPT_PATH}" || fail 'blocklist dependency helper does not require SHA-256 support'
 grep -q 'if ! ensure_opkg_package python3 || \[ ! -x /opt/bin/python3 \]' "${SCRIPT_PATH}" || fail 'option 9 no longer requires Entware python3'
@@ -37,7 +45,7 @@ grep -q 'mv "${BLOCKLIST_ANALYZER_FILE}.tmp" "${BLOCKLIST_ANALYZER_FILE}"' "${SC
 	fail 'blocklist analyzer temp download is not published to the target-directory path'
 verify_line="$(grep -n 'Verifying blocklist analyzer SHA-256 checksum' "${SCRIPT_PATH}" | cut -d: -f1)" ||
 	fail 'could not find blocklist checksum verification step'
-guard_line="$(grep -n 'if ! ensure_sha256sum_tool; then' "${SCRIPT_PATH}" | cut -d: -f1)" ||
+guard_line="$(grep -n 'if ! ensure_sha256sum_tool; then' "${SCRIPT_PATH}" | head -n 1 | cut -d: -f1)" ||
 	fail 'blocklist checksum verification does not offer coreutils-sha256sum before hashing'
 hash_line="$(grep -n 'file_sha256 "${BLOCKLIST_ANALYZER_FILE}.tmp"' "${SCRIPT_PATH}" | cut -d: -f1)" ||
 	fail 'could not find blocklist file_sha256 call'
@@ -54,6 +62,8 @@ sed -n \
 	-e '/^ptxt_warn() {$/,/^}/p' \
 	-e '/^ptxt_fail() {$/,/^}/p' \
 	-e '/^ai_have_cmd() {$/,/^}/p' \
+	-e '/^sha256_is_valid() {$/,/^}/p' \
+	-e '/^file_sha256() {$/,/^}/p' \
 	-e '/^sha256sum_available() {$/,/^}/p' \
 	-e '/^ensure_sha256sum_tool() {$/,/^}/p' \
 	-e '/^ensure_blocklist_analyzer_dependencies() {$/,/^}/p' \
@@ -102,6 +112,23 @@ EOF_SHA
 	ensure_sha256sum_tool >"${TMP_ROOT}/available.out" 2>&1
 ) || fail 'SHA-256 helper failed when sha256sum was already available'
 [ ! -s "${TMP_ROOT}/available.out" ] || fail 'SHA-256 helper prompted or installed when sha256sum was already available'
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	ERROR='Error:'
+	BUSYBOX_BIN="${TMP_ROOT}/not-busybox"
+	# ai_have_cmd reports whether the requested command is the supported `sha256sum` utility.
+	ai_have_cmd() { [ "$1" = sha256sum ]; }
+	# sha256sum prints a zero-filled digest for the specified file and exits with failure.
+	sha256sum() {
+		printf '%064d  %s\n' 0 "$1"
+		return 1
+	}
+	if file_sha256 "${TMP_ROOT}/unused" >/dev/null 2>&1; then
+		exit 1
+	fi
+) || fail 'file_sha256 accepted digest output from a failing SHA-256 applet'
 
 (
 	# shellcheck disable=SC1090
