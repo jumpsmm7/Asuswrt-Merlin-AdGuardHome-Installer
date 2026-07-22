@@ -2756,17 +2756,34 @@ check_dns_environment() {
 	local MODE NVCHECK result restore_failed
 	dns_env_numeric_timeout() {
 		case "$1" in
-			'' | 0 | *[!0-9]*) return 1 ;;
+			*[!0-9]* | 0* | '') return 1 ;;
 		esac
 		return 0
 	}
 	dns_env_local_ready() {
-		local deadline maxwait now
+		local deadline lookup_pid maxwait now status
 		maxwait="$1"
 		now="$(monotonic_seconds)" || return 1
 		deadline="$((now + maxwait))"
 		while [ "${now}" -lt "${deadline}" ]; do
-			if nslookup localhost 127.0.0.1 >/dev/null 2>&1; then return 0; fi
+			nslookup localhost 127.0.0.1 >/dev/null 2>&1 &
+			lookup_pid="$!"
+			while kill -0 "${lookup_pid}" >/dev/null 2>&1; do
+				now="$(monotonic_seconds)" || {
+					kill "${lookup_pid}" >/dev/null 2>&1 || :
+					wait "${lookup_pid}" 2>/dev/null || :
+					return 1
+				}
+				if [ "${now}" -ge "${deadline}" ]; then
+					kill "${lookup_pid}" >/dev/null 2>&1 || :
+					wait "${lookup_pid}" 2>/dev/null || :
+					return 1
+				fi
+				sleep 1s
+			done
+			wait "${lookup_pid}"
+			status="$?"
+			[ "${status}" -eq 0 ] && return 0
 			now="$(monotonic_seconds)" || return 1
 			[ "${now}" -ge "${deadline}" ] && return 1
 			sleep 1s

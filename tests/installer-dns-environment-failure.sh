@@ -89,11 +89,12 @@ service() {
 }
 
 nslookup() {
-	DNS_CHECK_COUNT="$((DNS_CHECK_COUNT + 1))"
 	printf '%s\n' "nslookup $*" >>"${CALLS_FILE}"
-	[ "${BLOCKING_QUERY:-0}" = 0 ] || MONOTONIC_NOW="$((MONOTONIC_NOW + 10))"
+	[ "${BLOCKING_QUERY:-0}" = 0 ] || /bin/sleep 5
 	[ "${DNS_READY:-1}" = 1 ]
 }
+
+dns_check_count() { grep -c '^nslookup ' "${CALLS_FILE}"; }
 
 reset_case() {
 	cat >"${NVRAM_FILE}" <<'EOF_NVRAM'
@@ -141,6 +142,16 @@ DNS_ENV_READY_TIMEOUT=2
 DNS_ENV_RECOVERY_TIMEOUT=1
 
 reset_case
+DNS_ENV_READY_TIMEOUT=08
+DNS_ENV_RECOVERY_TIMEOUT=09
+check_dns_environment 0 || fail 'leading-zero timeout fallback blocked DNS preparation'
+[ "${DNS_ENV_READY_TIMEOUT}" = 60 ] || fail 'invalid octal startup timeout did not use its numeric default'
+[ "${DNS_ENV_RECOVERY_TIMEOUT}" = 15 ] || fail 'invalid octal recovery timeout did not use its numeric default'
+check_dns_environment 1 || fail 'leading-zero timeout case could not restore its snapshot'
+DNS_ENV_READY_TIMEOUT=2
+DNS_ENV_RECOVERY_TIMEOUT=1
+
+reset_case
 sed '/^dhcp_dns2_x=/d' "${NVRAM_FILE}" >"${NVRAM_FILE}.new" && mv "${NVRAM_FILE}.new" "${NVRAM_FILE}"
 check_dns_environment 0 || fail 'snapshot with an absent NVRAM key was rejected'
 check_dns_environment 1 || fail 'snapshot with an absent NVRAM key was not restored'
@@ -173,13 +184,13 @@ reset_case
 DNS_READY=0
 check_dns_environment 0 && fail 'local DNS readiness failure was accepted'
 assert_original 'DNS readiness failure'
-[ "${DNS_CHECK_COUNT}" = 3 ] || fail 'local DNS and recovery checks were not bounded by their configured deadlines'
+[ "$(dns_check_count)" = 2 ] || fail 'local DNS and recovery checks were not bounded by their configured deadlines'
 
 reset_case
 DNS_READY=0
 BLOCKING_QUERY=1
 check_dns_environment 0 && fail 'blocking local DNS readiness failure was accepted'
-[ "${DNS_CHECK_COUNT}" = 2 ] || fail 'blocking DNS queries exceeded the startup and recovery deadlines'
+[ "$(dns_check_count)" = 2 ] || fail 'blocking DNS queries exceeded the startup and recovery deadlines'
 
 reset_case
 FAIL_COMMIT_AT=2
