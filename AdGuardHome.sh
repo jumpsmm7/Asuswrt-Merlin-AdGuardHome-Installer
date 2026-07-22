@@ -889,10 +889,17 @@ ipv4_is_usable_unicast() {
 
 # adguard_refresh_lan_bind_addresses updates AdGuardHome's LAN WebUI address and DNS bind hosts in the YAML configuration.
 adguard_refresh_lan_bind_addresses() {
-	local BIND_HOSTS CURRENT_MD5 LAN_ADDR LAN_ADDR6 LAN_IF NEW_MD5 NVRAM_ADDR6 TEMP_FILE WEB_PORT
+	local ACTIVE_MD5 BIND_HOSTS LAN_ADDR LAN_ADDR6 LAN_IF NVRAM_ADDR6 REWRITE_FILE STAGED_MD5 TEMP_FILE WEB_PORT YAML_DIR
 	LAN_BIND_ADDRESSES_CHANGED="0"
+	LAN_BIND_REFRESH_FAILURE_REASON=""
 	adguard_lan_mode || return 0
-	[ -f "${YAML_FILE}" ] || return 1
+	YAML_DIR="${YAML_FILE%/*}"
+	[ "${YAML_DIR}" != "${YAML_FILE}" ] || YAML_DIR="."
+	if [ "${YAML_FILE}" != "${YAML_DIR}/AdGuardHome.yaml" ] || [ ! -f "${YAML_FILE}" ] || [ -L "${YAML_FILE}" ]; then
+		LAN_BIND_REFRESH_FAILURE_REASON="active_yaml_not_regular"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=active_yaml_not_regular config_preserved=1"
+		return 1
+	fi
 	LAN_IF="$(nvram get lan_ifname 2>/dev/null)"
 	if [ -n "${LAN_IF}" ]; then
 		LAN_ADDR="$(interface_ipv4_addr "${LAN_IF}")"
@@ -951,9 +958,14 @@ adguard_refresh_lan_bind_addresses() {
 		"" | *[!0-9]*) return 1 ;;
 	esac
 	[ "${WEB_PORT}" -gt 0 ] && [ "${WEB_PORT}" -le 65535 ] || return 1
-	TEMP_FILE="${YAML_FILE}.lan-bind.$$"
-	cp -p "${YAML_FILE}" "${TEMP_FILE}" || return 1
-	awk -v bind_hosts="${BIND_HOSTS}" -v web_address="${LAN_ADDR}:${WEB_PORT}" '
+	TEMP_FILE="${YAML_DIR}/.AdGuardHome.yaml.lan-bind.$$"
+	REWRITE_FILE="${TEMP_FILE}.rewrite"
+	(umask 077 && cp -p "${YAML_FILE}" "${TEMP_FILE}") || {
+		rm -f "${TEMP_FILE}"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_copy_failed config_preserved=1"
+		return 1
+	}
+	(umask 077 && awk -v bind_hosts="${BIND_HOSTS}" -v web_address="${LAN_ADDR}:${WEB_PORT}" '
 		function indentation(line) { match(line, /^[[:space:]]*/); return RLENGTH }
 		function yaml_key_is(line, expected, text, separator, key) {
 			text = line
@@ -1001,21 +1013,99 @@ adguard_refresh_lan_bind_addresses() {
 		in_binds { in_binds = 0 }
 		{ print }
 		END { exit(web_updated && binds_updated ? 0 : 1) }
-	' "${YAML_FILE}" >"${TEMP_FILE}" || {
-		rm -f "${TEMP_FILE}"
+	' "${TEMP_FILE}" >"${REWRITE_FILE}") || {
+		rm -f "${TEMP_FILE}" "${REWRITE_FILE}"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_rewrite_failed config_preserved=1"
 		return 1
 	}
-	CURRENT_MD5="$(md5sum "${YAML_FILE}" 2>/dev/null | awk '{ print $1 }')"
-	NEW_MD5="$(md5sum "${TEMP_FILE}" 2>/dev/null | awk '{ print $1 }')"
-	if [ -n "${CURRENT_MD5}" ] && [ "${CURRENT_MD5}" = "${NEW_MD5}" ]; then
-		rm -f "${TEMP_FILE}"
-	else
-		mv -f "${TEMP_FILE}" "${YAML_FILE}" || {
-			rm -f "${TEMP_FILE}"
-			return 1
-		}
-		LAN_BIND_ADDRESSES_CHANGED="1"
+	# Rewrite the preserved copy in place so the active YAML owner and mode survive
+	# the eventual atomic replacement.  The rewrite file is created under umask 077.
+	if ! cat "${REWRITE_FILE}" >"${TEMP_FILE}"; then
+		rm -f "${TEMP_FILE}" "${REWRITE_FILE}"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_rewrite_failed config_preserved=1"
+		return 1
 	fi
+	rm -f "${REWRITE_FILE}"
+	ACTIVE_MD5="$(md5sum "${YAML_FILE}")" || {
+		rm -f "${TEMP_FILE}"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
+		return 1
+	}
+	STAGED_MD5="$(md5sum "${TEMP_FILE}")" || {
+		rm -f "${TEMP_FILE}"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
+		return 1
+	}
+	ACTIVE_MD5="${ACTIVE_MD5%%[[:space:]]*}"
+	STAGED_MD5="${STAGED_MD5%%[[:space:]]*}"
+	case "${ACTIVE_MD5}:${STAGED_MD5}" in
+		????????????????????????????????:????????????????????????????????)
+			case "${ACTIVE_MD5}${STAGED_MD5}" in
+				*[!0123456789abcdefABCDEF]*)
+					rm -f "${TEMP_FILE}"
+					agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
+					return 1
+					;;
+			esac
+			;;
+		*)
+			rm -f "${TEMP_FILE}"
+			agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
+			return 1
+			;;
+	esac
+	# The monitor calls this refresh periodically.  Avoid starting a second
+	# AdGuardHome process to validate content that is byte-for-byte unchanged.
+	if [ "${ACTIVE_MD5}" = "${STAGED_MD5}" ]; then
+		rm -f "${TEMP_FILE}"
+		return 0
+	fi
+	if [ ! -x "${ADGUARDHOME_BINARY}" ] ||
+		! "${ADGUARDHOME_BINARY}" --check-config -c "${TEMP_FILE}" --no-check-update -l /dev/null >/dev/null 2>&1; then
+		rm -f "${TEMP_FILE}"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=adguard_config_validation_failed config_preserved=1"
+		return 1
+	fi
+	if ! awk '
+		function indentation(line) { match(line, /^[[:space:]]*/); return RLENGTH }
+		function yaml_key_is(line, expected, text, separator, key) {
+			text = line; sub(/^[[:space:]]*/, "", text); separator = index(text, ":")
+			if (!separator) return 0
+			key = substr(text, 1, separator - 1); sub(/[[:space:]]*$/, "", key)
+			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
+		}
+		function mapping_header_is(line, expected, text, separator, value) {
+			if (!yaml_key_is(line, expected)) return 0
+			text = line; separator = index(text, ":"); value = substr(text, separator + 1)
+			sub(/^[[:space:]]*/, "", value)
+			return value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/
+		}
+		/^[^[:space:]]/ {
+			in_http = in_dns = in_binds = 0
+			if (mapping_header_is($0, "http")) { http_maps++; in_http = 1 }
+			else if (mapping_header_is($0, "dns")) { dns_maps++; in_dns = 1 }
+			next
+		}
+		in_http && yaml_key_is($0, "address") {
+			value = substr($0, index($0, ":") + 1); sub(/[[:space:]]+#.*$/, "", value); gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			if (value != "" && value != "~" && value !~ /^(null|Null|NULL)$/ && value !~ /^\*/) usable_addresses++
+			address_keys++
+		}
+		in_dns && yaml_key_is($0, "bind_hosts") { bind_keys++; bind_indent = indentation($0); in_binds = 1; next }
+		in_binds && indentation($0) > bind_indent && $0 ~ /^[[:space:]]*-[[:space:]]*[^#[:space:]][^#]*([[:space:]]+#.*)?$/ { usable_binds++; next }
+		in_binds && $0 !~ /^[[:space:]]*($|#)/ { in_binds = 0 }
+		END { exit(http_maps == 1 && dns_maps == 1 && address_keys == 1 && usable_addresses == 1 && bind_keys == 1 && usable_binds > 0 ? 0 : 1) }
+	' "${TEMP_FILE}"; then
+		rm -f "${TEMP_FILE}"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=staged_bind_structure_invalid config_preserved=1"
+		return 1
+	fi
+	if ! mv -f "${TEMP_FILE}" "${YAML_FILE}"; then
+		rm -f "${TEMP_FILE}"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=atomic_replace_failed config_preserved=1"
+		return 1
+	fi
+	LAN_BIND_ADDRESSES_CHANGED="1"
 	return 0
 }
 
@@ -1537,16 +1627,20 @@ service_wait() {
 # start_adguardhome prepares AdGuardHome for startup, launches or restarts it, and verifies network readiness.
 # It returns failure when address synchronization, IPSet setup, service startup, or the final network check fails.
 start_adguardhome() {
-	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LOWER_SCRIPT_STATUS
+	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LAN_BIND_REFRESH_FAILED LOWER_SCRIPT_STATUS
 	IPSET_START_FAILURE_SAFE="0"
 	IPSET_START_RESTARTED="0"
 	IPSET_START_STOPPED="0"
+	LAN_BIND_REFRESH_FAILED="0"
 	SERVICE_WAIT_TERMINAL_FAILURE="0"
 	if adguard_lan_mode; then
 		if ! adguard_refresh_lan_bind_addresses; then
-			agh_log error start_adguardhome "state=starting action=refresh_lan_bind_addresses result=failed reason=dynamic_address_sync_failed"
-			SERVICE_WAIT_TERMINAL_FAILURE="1"
-			return 1
+			LAN_BIND_REFRESH_FAILED="1"
+			agh_log warning start_adguardhome "state=starting action=refresh_lan_bind_addresses result=failed reason=config_refresh_failed config_preserved=1 service_health=pending"
+			if [ "${LAN_BIND_REFRESH_FAILURE_REASON:-}" = "active_yaml_not_regular" ]; then
+				SERVICE_WAIT_TERMINAL_FAILURE="1"
+				return 1
+			fi
 		fi
 		if ! IPSet_Disable_Managed; then
 			agh_log error start_adguardhome "state=starting action=disable_managed_ipset result=failed reason=lan_mode_remove_failed"
@@ -1574,8 +1668,12 @@ start_adguardhome() {
 				LOWER_SCRIPT_STATUS="$?"
 				;;
 			*)
-				lower_script restart
-				LOWER_SCRIPT_STATUS="$?"
+				if [ "${LAN_BIND_REFRESH_FAILED}" -eq 1 ] && [ "${1:-}" != "restart" ]; then
+					LOWER_SCRIPT_STATUS="0"
+				else
+					lower_script restart
+					LOWER_SCRIPT_STATUS="$?"
+				fi
 				;;
 		esac
 		if [ "${LOWER_SCRIPT_STATUS}" -ne 0 ]; then
@@ -1595,8 +1693,13 @@ start_adguardhome() {
 	fi
 }
 
+# restart_adguardhome preserves an explicit restart request through the service lock.
+restart_adguardhome() {
+	start_adguardhome restart
+}
+
 start_monitor() {
-	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_RECOVERY_RETRY_INTERVAL MONITOR_SLEEP_INTERVAL MONITOR_STATE
+	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_RECOVERY_RETRY_INTERVAL MONITOR_SLEEP_INTERVAL MONITOR_START_ACTION MONITOR_STATE
 	MONITOR_BINARY_RETRY_INTERVAL="10"
 	MONITOR_HEALTHCHECK_INTERVAL="300"
 	MONITOR_HEALTHCHECK_TIMEOUT="150"
@@ -1642,7 +1745,8 @@ start_monitor() {
 				case "${MONITOR_ELAPSED}" in
 					"")
 						MONITOR_ELAPSED="0"
-						{ adguardhome_run start_adguardhome; }
+						{ adguardhome_run "${MONITOR_START_ACTION:-start_adguardhome}"; }
+						unset MONITOR_START_ACTION
 						;;
 				esac
 				case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
@@ -1699,6 +1803,7 @@ start_monitor() {
 			"restart")
 				agh_log info start_monitor "state=restart action=restart_adguardhome reason=signal_USR2 result=restarting"
 				unset MONITOR_ELAPSED
+				MONITOR_START_ACTION="restart_adguardhome"
 				MONITOR_STATE="running"
 				;;
 		esac

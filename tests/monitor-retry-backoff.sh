@@ -29,7 +29,7 @@ MONITOR_STATE='running'
 : >"${CALLS_FILE}"
 
 adguardhome_run() {
-	printf '%s\n' "adguardhome_run $1" >>"${CALLS_FILE}"
+	printf '%s\n' "adguardhome_run $*" >>"${CALLS_FILE}"
 	return 1
 }
 
