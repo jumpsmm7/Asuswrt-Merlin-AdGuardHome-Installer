@@ -653,19 +653,22 @@ file_sha256() {
 	FILE="$1"
 	SHA256_OUTPUT=""
 	if ai_have_cmd sha256sum; then
-		SHA256_OUTPUT="$(sha256sum "${FILE}" | awk '{printf "%s", $1}')" || SHA256_OUTPUT=""
+		SHA256_OUTPUT="$(sha256sum "${FILE}")" || SHA256_OUTPUT=""
 	fi
 	if [ -z "${SHA256_OUTPUT}" ] && [ -x /opt/bin/sha256sum ]; then
-		SHA256_OUTPUT="$(/opt/bin/sha256sum "${FILE}" | awk '{printf "%s", $1}')" || SHA256_OUTPUT=""
+		SHA256_OUTPUT="$(/opt/bin/sha256sum "${FILE}")" || SHA256_OUTPUT=""
 	fi
 	if [ -z "${SHA256_OUTPUT}" ] && [ -x /bin/busybox ]; then
-		SHA256_OUTPUT="$(/bin/busybox sha256sum "${FILE}" | awk '{printf "%s", $1}')" || SHA256_OUTPUT=""
+		SHA256_OUTPUT="$(/bin/busybox sha256sum "${FILE}")" || SHA256_OUTPUT=""
 	fi
 	if [ -z "${SHA256_OUTPUT}" ] && ai_have_cmd busybox; then
-		SHA256_OUTPUT="$(busybox sha256sum "${FILE}" | awk '{printf "%s", $1}')" || SHA256_OUTPUT=""
+		SHA256_OUTPUT="$(busybox sha256sum "${FILE}")" || SHA256_OUTPUT=""
 	fi
 	if [ -z "${SHA256_OUTPUT}" ] && ai_have_cmd openssl; then
-		SHA256_OUTPUT="$(openssl dgst -sha256 "${FILE}" | awk '{printf "%s", $2}')" || SHA256_OUTPUT=""
+		SHA256_OUTPUT="$(openssl dgst -sha256 "${FILE}")" || SHA256_OUTPUT=""
+		SHA256_OUTPUT="$(PTXT "${SHA256_OUTPUT}" | awk '{printf "%s", $2}')" || SHA256_OUTPUT=""
+	else
+		SHA256_OUTPUT="$(PTXT "${SHA256_OUTPUT}" | awk '{printf "%s", $1}')" || SHA256_OUTPUT=""
 	fi
 	if ! sha256_is_valid "${SHA256_OUTPUT}"; then
 		PTXT "${ERROR} Invalid SHA-256 checksum."
@@ -674,6 +677,24 @@ file_sha256() {
 		SHA256_VALUE="${SHA256_OUTPUT}"
 		PTXT -n "${SHA256_VALUE}"
 	fi
+}
+
+sha256_manifest_digest() {
+	local MANIFEST DIGEST
+	MANIFEST="$1"
+	[ -s "${MANIFEST}" ] || return 1
+	DIGEST="$(awk 'NF { count++; if (count == 1) print $1 } END { if (count != 1) exit 1 }' "${MANIFEST}")" || return 1
+	sha256_is_valid "${DIGEST}" || return 1
+	PTXT -n "${DIGEST}"
+}
+
+md5_manifest_digest() {
+	local MANIFEST DIGEST
+	MANIFEST="$1"
+	[ -s "${MANIFEST}" ] || return 1
+	DIGEST="$(awk 'NF { count++; if (count == 1) print $1 } END { if (count != 1) exit 1 }' "${MANIFEST}")" || return 1
+	md5_is_valid "${DIGEST}" || return 1
+	PTXT -n "${DIGEST}"
 }
 
 ipv4_is_valid() {
@@ -802,7 +823,7 @@ preflight_action_requires_password_hash() {
 
 preflight_action_requires_sha256() {
 	case "${1:-install}" in
-		"" | install | update | restore | blocklists | unusedblocklists | 9)
+		blocklists | unusedblocklists | 9)
 			return 0
 			;;
 	esac
@@ -2130,7 +2151,10 @@ adguard_validate_metadata() {
 	if { [ -n "${REMOTE_VER}" ] && [ -n "${REMOTE_BETA}" ] && [ -n "${REMOTE_EDGE}" ] &&
 		[ -n "${REMOTE_RELEASE_ARCHIVE}" ] && [ -n "${REMOTE_BETA_ARCHIVE}" ] && [ -n "${REMOTE_EDGE_ARCHIVE}" ] &&
 		[ -n "${REMOTE_RELEASE_URL}" ] && [ -n "${REMOTE_BETA_URL}" ] && [ -n "${REMOTE_EDGE_URL}" ] &&
-		md5_is_valid "${REMOTE_RELEASE_MD5}" && md5_is_valid "${REMOTE_BETA_MD5}" && md5_is_valid "${REMOTE_EDGE_MD5}"; }; then
+		md5_is_valid "${REMOTE_RELEASE_MD5}" && md5_is_valid "${REMOTE_BETA_MD5}" && md5_is_valid "${REMOTE_EDGE_MD5}" &&
+		{ [ -z "${REMOTE_RELEASE_SHA256}" ] || sha256_is_valid "${REMOTE_RELEASE_SHA256}"; } &&
+		{ [ -z "${REMOTE_BETA_SHA256}" ] || sha256_is_valid "${REMOTE_BETA_SHA256}"; } &&
+		{ [ -z "${REMOTE_EDGE_SHA256}" ] || sha256_is_valid "${REMOTE_EDGE_SHA256}"; }; }; then
 		return 0
 	else
 		return 1
@@ -2342,7 +2366,12 @@ install_blocklist_analyzer() {
 		rm -f "${BLOCKLIST_ANALYZER_FILE}.tmp"
 		return 1
 	fi
-	if [ "$(file_sha256 "${BLOCKLIST_ANALYZER_FILE}.tmp" 2>/dev/null)" != "${BLOCKLIST_ANALYZER_SHA256}" ]; then
+	BLOCKLIST_ANALYZER_CALCULATED_SHA256="$(file_sha256 "${BLOCKLIST_ANALYZER_FILE}.tmp" 2>/dev/null)" || {
+		rm -f "${BLOCKLIST_ANALYZER_FILE}.tmp"
+		ptxt_fail "Unable to calculate the blocklist analyzer SHA-256 checksum."
+		return 1
+	}
+	if [ "${BLOCKLIST_ANALYZER_CALCULATED_SHA256}" != "${BLOCKLIST_ANALYZER_SHA256}" ]; then
 		rm -f "${BLOCKLIST_ANALYZER_FILE}.tmp"
 		ptxt_fail "Blocklist analyzer checksum verification failed."
 		return 1
@@ -2350,12 +2379,12 @@ install_blocklist_analyzer() {
 	ptxt_ok "Blocklist analyzer checksum verified."
 
 	ptxt_step "Installing blocklist analyzer with restrictive permissions."
-	if ! mv "${BLOCKLIST_ANALYZER_FILE}.tmp" "${BLOCKLIST_ANALYZER_FILE}"; then
+	if ! chmod 700 "${BLOCKLIST_ANALYZER_FILE}.tmp" ||
+		! mv "${BLOCKLIST_ANALYZER_FILE}.tmp" "${BLOCKLIST_ANALYZER_FILE}"; then
 		rm -f "${BLOCKLIST_ANALYZER_FILE}.tmp"
 		ptxt_fail "Unable to install blocklist analyzer."
 		return 1
 	fi
-	chmod 700 "${BLOCKLIST_ANALYZER_FILE}"
 	ptxt_ok "Blocklist analyzer is ready."
 }
 
@@ -4308,7 +4337,7 @@ del_jffs_script() {
 }
 
 download_file() {
-	local TARG PERM URL RET FILENAME TMP_FILE TMP_MD5 TMP_SHA256 MD5SUM_OLD MD5SUM_CURR MD5SUM_EXPECTED SHA256SUM_CURR SHA256SUM_EXPECTED COUNT
+	local TARG PERM URL RET FILENAME TMP_FILE TMP_MD5 TMP_SHA256 MD5SUM_OLD MD5SUM_CURR MD5SUM_EXPECTED SHA256SUM_CURR SHA256SUM_EXPECTED SHA256_AVAILABLE COUNT
 	TARG="$1"
 	shift
 	PERM="$1"
@@ -4332,48 +4361,52 @@ download_file() {
 			MD5SUM_EXPECTED=""
 			SHA256SUM_CURR=""
 			SHA256SUM_EXPECTED=""
+			SHA256_AVAILABLE="1"
 			ptxt_step "Downloading ${FILENAME} to ${TARG}/${FILENAME}."
 			rm -f "${TMP_FILE}" "${TMP_MD5}" "${TMP_SHA256}"
 			if http_get_file "${URL}" "${TMP_FILE}" "" insecure && [ -s "${TMP_FILE}" ]; then
 				ptxt_ok "Downloaded ${FILENAME}."
+				if ! chmod 600 "${TMP_FILE}"; then
+					ptxt_warn "Unable to secure the staged ${FILENAME}; retrying download."
+					rm -f "${TMP_FILE}"
+					COUNT="$((COUNT + 1))"
+					continue
+				fi
 				ptxt_step "Checking remote checksum metadata for ${FILENAME}."
-				if http_get_file "${URL}.sha256sum" "${TMP_SHA256}" "" insecure && [ -s "${TMP_SHA256}" ]; then
-					SHA256SUM_EXPECTED="$(awk 'NR == 1 {print $1; exit}' "${TMP_SHA256}")"
-				fi
-				if http_get_file "${URL}.md5sum" "${TMP_MD5}" "" insecure && [ -s "${TMP_MD5}" ]; then
-					MD5SUM_EXPECTED="$(awk 'NR == 1 {print $1; exit}' "${TMP_MD5}")"
-				fi
-				if sha256_is_valid "${SHA256SUM_EXPECTED}"; then
+				if ! http_get_file "${URL}.md5sum" "${TMP_MD5}" "" insecure; then
+					ptxt_warn "MD5 metadata is missing or unavailable for ${FILENAME}; retrying download."
+				elif ! MD5SUM_EXPECTED="$(md5_manifest_digest "${TMP_MD5}")"; then
+					ptxt_warn "MD5 metadata is empty or invalid for ${FILENAME}; retrying download."
+				elif ! http_get_file "${URL}.sha256sum" "${TMP_SHA256}" "" insecure; then
+					SHA256_AVAILABLE="0"
+					ptxt_warn "SHA-256 metadata is unavailable for ${FILENAME}; falling back to MD5 verification."
+				elif ! SHA256SUM_EXPECTED="$(sha256_manifest_digest "${TMP_SHA256}")"; then
+					ptxt_warn "SHA-256 metadata is empty or invalid for ${FILENAME}; retrying download."
+				else
 					ptxt_step "Verifying SHA-256 checksum for ${FILENAME}."
 					if ! SHA256SUM_CURR="$(file_sha256 "${TMP_FILE}" 2>/dev/null)"; then
-						SHA256SUM_CURR=""
-					fi
-					if [ "${SHA256SUM_CURR}" = "${SHA256SUM_EXPECTED}" ]; then
-						MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"
-						ptxt_ok "SHA-256 checksum verified for ${FILENAME}."
-						break
-					fi
-					if [ -n "${SHA256SUM_CURR}" ]; then
+						SHA256_AVAILABLE="0"
+						ptxt_warn "SHA-256 digest calculation is unavailable for ${FILENAME}; falling back to MD5 verification."
+					elif [ "${SHA256SUM_CURR}" != "${SHA256SUM_EXPECTED}" ]; then
 						ptxt_warn "SHA-256 checksum mismatch for ${FILENAME}; retrying download."
 					else
-						ptxt_warn "SHA-256 checksum could not be calculated for ${FILENAME}; falling back to MD5 if available."
+						ptxt_ok "SHA-256 checksum verified for ${FILENAME}."
 					fi
 				fi
-				if ! sha256_is_valid "${SHA256SUM_EXPECTED}" || [ -z "${SHA256SUM_CURR}" ]; then
-					if md5_is_valid "${MD5SUM_EXPECTED}"; then
-						ptxt_step "Verifying MD5 checksum for ${FILENAME}."
-						MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"
-						if [ "${MD5SUM_CURR}" = "${MD5SUM_EXPECTED}" ]; then
-							ptxt_warn "Only MD5 checksum metadata was usable for ${FILENAME}; SHA-256 is preferred."
-							break
-						fi
+				if md5_is_valid "${MD5SUM_EXPECTED}" &&
+					{ [ "${SHA256_AVAILABLE}" = "0" ] ||
+						{ sha256_is_valid "${SHA256SUM_EXPECTED}" && [ "${SHA256SUM_CURR}" = "${SHA256SUM_EXPECTED}" ]; }; }; then
+					ptxt_step "Verifying MD5 checksum for ${FILENAME}."
+					if ! MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"; then
+						ptxt_warn "MD5 digest calculation failed for ${FILENAME}; retrying download."
+					elif [ "${MD5SUM_CURR}" != "${MD5SUM_EXPECTED}" ]; then
 						ptxt_warn "MD5 checksum mismatch for ${FILENAME}; retrying download."
 					else
-						ptxt_warn "No valid remote checksum metadata for ${FILENAME}; using download result."
-						MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"
+						ptxt_ok "MD5 checksum verified for ${FILENAME}."
 						break
 					fi
 				fi
+				rm -f "${TMP_FILE}" "${TMP_MD5}" "${TMP_SHA256}"
 			else
 				ptxt_warn "Download attempt failed for ${FILENAME}; retrying if attempts remain."
 			fi
@@ -4441,10 +4474,12 @@ install_wan_event_scripts() {
 }
 
 inst_AdGuardHome() {
-	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
+	local ADGUARD_TAR INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
-	ensure_sha256sum_tool || return 1
+	if ! ensure_sha256sum_tool; then
+		ptxt_warn "SHA-256 support is unavailable; downloads will require matching MD5 metadata."
+	fi
 	INSTALLER_MD5_OLD=""
 	RESTART_AFTER_ABORT="0"
 	SERVICE_REFRESH_ONLY="${SERVICE_REFRESH_ONLY:-0}"
@@ -4596,8 +4631,6 @@ inst_AdGuardHome() {
 		else
 			ptxt_phase "Installing AdGuardHome package."
 			REMOTE_ADGUARD_ARCHIVE="$(adguard_remote_archive "$2")"
-			REMOTE_ADGUARD_MD5="$(adguard_remote_md5 "$2")"
-			REMOTE_ADGUARD_SHA256="$(adguard_remote_sha256 "$2")"
 			REMOTE_ADGUARD_URL="$(adguard_remote_url "$2")"
 			[ -z "${REMOTE_ADGUARD_ARCHIVE}" ] && REMOTE_ADGUARD_ARCHIVE="${ADGUARD_TAR}"
 			[ -z "${REMOTE_ADGUARD_URL}" ] && REMOTE_ADGUARD_URL="${URL_ARCH}/${REMOTE_ADGUARD_ARCHIVE}"
@@ -4605,37 +4638,6 @@ inst_AdGuardHome() {
 				PTXT "${ERROR} Unable to download AdGuardHome package for your router"
 				end_op_message 1 "$1"
 				return 1
-			fi
-			if sha256_is_valid "${REMOTE_ADGUARD_SHA256}"; then
-				ptxt_step "Verifying SHA-256 checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
-				ARCHIVE_SHA256="$(file_sha256 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || {
-					PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package SHA-256 checksum."
-					rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
-					end_op_message 1 "$1"
-					return 1
-				}
-				if [ "${ARCHIVE_SHA256}" != "${REMOTE_ADGUARD_SHA256}" ]; then
-					PTXT "${ERROR} SHA-256 checksum mismatch for downloaded AdGuardHome package metadata."
-					rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
-					end_op_message 1 "$1"
-					return 1
-				fi
-				ptxt_ok "SHA-256 checksum verified for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
-			elif md5_is_valid "${REMOTE_ADGUARD_MD5}"; then
-				ptxt_step "Verifying MD5 checksum for ${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}."
-				ARCHIVE_MD5="$(file_md5 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || {
-					PTXT "${ERROR} Unable to calculate the downloaded AdGuardHome package MD5 checksum."
-					rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
-					end_op_message 1 "$1"
-					return 1
-				}
-				if [ "${ARCHIVE_MD5}" != "${REMOTE_ADGUARD_MD5}" ]; then
-					PTXT "${ERROR} MD5 checksum mismatch for downloaded AdGuardHome package metadata."
-					rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
-					end_op_message 1 "$1"
-					return 1
-				fi
-				ptxt_warn "Only MD5 package metadata was available; SHA-256 is preferred."
 			fi
 			if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
 			ptxt_step "Replacing AdGuardHome package with downloaded archive."

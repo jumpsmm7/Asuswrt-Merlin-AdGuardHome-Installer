@@ -33,6 +33,8 @@ printf '%s\n' "partial archive" >"${ACTIVE_DOWNLOAD_TMP}" ||
 cleanup_download_tmp
 [ ! -e "${TEST_ROOT}/AdGuardHome_stable_linux_arm64.tar.gz.tmp.$$" ] ||
 	fail "download cleanup left the partial archive behind"
+[ ! -e "${TEST_ROOT}/AdGuardHome_stable_linux_arm64.tar.gz.tmp.$$.sha256sum" ] ||
+	fail "download cleanup left unpublished checksum metadata behind"
 [ -z "${ACTIVE_DOWNLOAD_TMP}" ] ||
 	fail "download cleanup did not clear the tracked path"
 

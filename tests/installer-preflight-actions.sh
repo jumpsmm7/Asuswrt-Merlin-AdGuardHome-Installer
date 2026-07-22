@@ -322,6 +322,16 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 		done
 	}
 
+	assert_sha256_optional() {
+		local action
+		for action in "$@"; do
+			if preflight_action_requires_sha256 "${action}"; then
+				printf '%s\n' "unexpected SHA-256 requirement for MD5-fallback action: ${action}" >&2
+				exit 1
+			fi
+		done
+	}
+
 	assert_password_hash_required() {
 		local action
 		for action in "$@"; do
@@ -460,7 +470,8 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 	assert_router_eligibility_skipped status preflight
 	assert_entware_skipped status preflight
 	assert_jq_skipped '' install update reconfigure restore uninstall ipset backup doctor status preflight netcheck dns-port-policy performance migrate-runtime-defaults
-	assert_sha256_required '' install update restore blocklists unusedblocklists 9
+	assert_sha256_required blocklists unusedblocklists 9
+	assert_sha256_optional '' install update restore
 	assert_password_hash_required '' install reconfigure changepw 3 4
 	assert_timezone_column_required '' install reconfigure restore 4
 ) || fail 'preflight action helper returned an unexpected result'

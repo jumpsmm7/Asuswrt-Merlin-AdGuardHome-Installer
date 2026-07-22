@@ -69,6 +69,9 @@ awk '
 	/^conf_value\(\)/,/^}/
 	/^md5_is_valid\(\)/,/^}/
 	/^file_md5\(\)/,/^}/
+	/^md5_manifest_digest\(\)/,/^}/
+	/^sha256_is_valid\(\)/,/^}/
+	/^sha256_manifest_digest\(\)/,/^}/
 	/^adguard_archive_is_safe\(\)/,/^}/
 	/^adguard_restart_after_failed_replace\(\)/,/^}/
 	/^adguard_restart_after_install_abort\(\)/,/^}/
@@ -127,6 +130,100 @@ printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS
 	grep -q '^result=rollback unavailable$' "${ROLLBACK_RESULT_FILE}" ||
 		fail "installer exit cleanup changed the rollback marker"
 ) || exit 1
+
+# SHA-256 and MD5 must both match when SHA-256 is available.  MD5 alone may
+# authorize the staged file only when SHA-256 metadata or calculation is unavailable.
+for checksum_case in sha_unavailable empty malformed mismatch hash_failure stale_retry missing_md5 empty_md5 malformed_md5 md5_mismatch md5_hash_failure both_valid; do
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	BOLD=''
+	NORM=''
+	INFO='Info:'
+	ERROR='Error:'
+	WARNING='Warning:'
+	attempt=0
+	final_chmod=0
+	printf '%s\n' 'old working copy' >"${TMP_DIR}/target/component"
+	printf '%s\n' 'new downloaded copy' >"${TMP_DIR}/payload"
+	PAYLOAD_SHA256="$(sha256sum "${TMP_DIR}/payload" | awk '{print $1}')"
+	PAYLOAD_MD5="$(md5sum "${TMP_DIR}/payload" | awk '{print $1}')"
+	ai_have_cmd() { [ "$1" = md5sum ]; }
+	http_get_file() {
+		case "$1" in
+			*.sha256sum)
+				case "${checksum_case}" in
+					sha_unavailable) return 1 ;;
+					empty) : >"$2" ;;
+					malformed) printf '%s\n' invalid >"$2" ;;
+					mismatch) printf '%064d\n' 0 >"$2" ;;
+					stale_retry)
+						[ "${attempt}" -eq 1 ] || return 1
+						printf '%064d\n' 0 >"$2"
+						;;
+					hash_failure | both_valid) printf '%s\n' "${PAYLOAD_SHA256}" >"$2" ;;
+					*) printf '%s\n' "${PAYLOAD_SHA256}" >"$2" ;;
+				esac
+				;;
+			*.md5sum)
+				case "${checksum_case}" in
+					missing_md5) return 1 ;;
+					empty_md5) : >"$2" ;;
+					malformed_md5) printf '%s\n' invalid >"$2" ;;
+					md5_mismatch) printf '%032d\n' 0 >"$2" ;;
+					*) printf '%s\n' "${PAYLOAD_MD5}" >"$2" ;;
+				esac
+				;;
+			*) attempt="$((attempt + 1))"; cp "${TMP_DIR}/payload" "$2" ;;
+		esac
+	}
+	file_sha256() {
+		[ "${checksum_case}" != hash_failure ] || return 1
+		printf '%s' "${PAYLOAD_SHA256}"
+	}
+	if [ "${checksum_case}" = md5_hash_failure ]; then
+		file_md5() { return 1; }
+	fi
+	chmod() {
+		if [ "$1" = 755 ]; then final_chmod=1; fi
+		return 0
+	}
+	case "${checksum_case}" in
+		sha_unavailable | hash_failure | stale_retry | both_valid)
+			download_file "${TMP_DIR}/target" 755 "https://example.invalid/component" >"${TMP_DIR}/${checksum_case}.out" 2>&1 ||
+				fail "download_file rejected ${checksum_case} verification"
+			[ "$(sed -n '1p' "${TMP_DIR}/target/component")" = 'new downloaded copy' ] ||
+				fail "${checksum_case} did not publish the verified target"
+			[ "${final_chmod}" -eq 1 ] || fail "${checksum_case} did not apply final permissions"
+			;;
+		*)
+			if download_file "${TMP_DIR}/target" 755 "https://example.invalid/component" >"${TMP_DIR}/${checksum_case}.out" 2>&1; then
+				fail "download_file accepted ${checksum_case} checksum metadata"
+			fi
+			[ "$(sed -n '1p' "${TMP_DIR}/target/component")" = 'old working copy' ] ||
+				fail "${checksum_case} replaced the existing target"
+			[ "${final_chmod}" -eq 0 ] ||
+				fail "${checksum_case} applied executable permissions before verification"
+			;;
+	esac
+	[ ! -e "${TMP_DIR}/target/.component.$$" ] ||
+		fail "${checksum_case} retained a staged artifact"
+	if [ "${checksum_case}" = stale_retry ] && [ "${attempt}" -ne 2 ]; then
+		fail "retry did not discard the prior SHA-256 digest"
+	fi
+) || exit 1
+done
+
+grep -q 'falling back to MD5 verification' "${TMP_DIR}/sha_unavailable.out" || fail 'SHA-256 metadata fallback was not logged'
+grep -q 'empty or invalid' "${TMP_DIR}/empty.out" || fail 'empty metadata cause was not logged'
+grep -q 'empty or invalid' "${TMP_DIR}/malformed.out" || fail 'malformed metadata cause was not logged'
+grep -q 'checksum mismatch' "${TMP_DIR}/mismatch.out" || fail 'checksum mismatch cause was not logged'
+grep -q 'calculation is unavailable' "${TMP_DIR}/hash_failure.out" || fail 'digest calculation fallback was not logged'
+grep -q 'MD5 metadata is missing or unavailable' "${TMP_DIR}/missing_md5.out" || fail 'missing MD5 metadata cause was not logged'
+grep -q 'MD5 metadata is empty or invalid' "${TMP_DIR}/empty_md5.out" || fail 'empty MD5 metadata cause was not logged'
+grep -q 'MD5 metadata is empty or invalid' "${TMP_DIR}/malformed_md5.out" || fail 'malformed MD5 metadata cause was not logged'
+grep -q 'MD5 checksum mismatch' "${TMP_DIR}/md5_mismatch.out" || fail 'MD5 mismatch cause was not logged'
+grep -q 'MD5 digest calculation failed' "${TMP_DIR}/md5_hash_failure.out" || fail 'MD5 calculation failure was not logged'
 
 (
 	# shellcheck disable=SC1090
@@ -196,13 +293,19 @@ printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS
 	WARNING="Warning:"
 
 	ai_have_cmd() {
-		[ "$1" = "md5sum" ]
+		case "$1" in
+			md5sum | sha256sum) return 0 ;;
+		esac
+		return 1
 	}
 
 	http_get_file() {
 		case "$1" in
 			*.md5sum)
 				md5sum "${TMP_DIR}/payload" | awk '{print $1}' >"$2"
+				;;
+			*.sha256sum)
+				sha256sum "${TMP_DIR}/payload" | awk '{print $1}' >"$2"
 				;;
 			*)
 				cp "${TMP_DIR}/payload" "$2"
@@ -211,7 +314,7 @@ printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS
 	}
 
 	chmod() {
-		return 1
+		[ "$1" = 600 ]
 	}
 
 	printf '%s\n' "old working copy" >"${TMP_DIR}/target/component"
