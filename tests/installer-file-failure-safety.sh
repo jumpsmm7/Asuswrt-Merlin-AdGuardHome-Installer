@@ -134,84 +134,87 @@ printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS
 # SHA-256 and MD5 must both match when SHA-256 is available.  MD5 alone may
 # authorize the staged file only when SHA-256 metadata or calculation is unavailable.
 for checksum_case in sha_unavailable empty malformed mismatch hash_failure stale_retry missing_md5 empty_md5 malformed_md5 md5_mismatch md5_hash_failure both_valid; do
-(
-	# shellcheck disable=SC1090
-	. "${FUNCTIONS_FILE}"
-	BOLD=''
-	NORM=''
-	INFO='Info:'
-	ERROR='Error:'
-	WARNING='Warning:'
-	attempt=0
-	final_chmod=0
-	printf '%s\n' 'old working copy' >"${TMP_DIR}/target/component"
-	printf '%s\n' 'new downloaded copy' >"${TMP_DIR}/payload"
-	PAYLOAD_SHA256="$(sha256sum "${TMP_DIR}/payload" | awk '{print $1}')"
-	PAYLOAD_MD5="$(md5sum "${TMP_DIR}/payload" | awk '{print $1}')"
-	ai_have_cmd() { [ "$1" = md5sum ]; }
-	http_get_file() {
-		case "$1" in
-			*.sha256sum)
-				case "${checksum_case}" in
-					sha_unavailable) return 1 ;;
-					empty) : >"$2" ;;
-					malformed) printf '%s\n' invalid >"$2" ;;
-					mismatch) printf '%064d\n' 0 >"$2" ;;
-					stale_retry)
-						[ "${attempt}" -eq 1 ] || return 1
-						printf '%064d\n' 0 >"$2"
-						;;
-					hash_failure | both_valid) printf '%s\n' "${PAYLOAD_SHA256}" >"$2" ;;
-					*) printf '%s\n' "${PAYLOAD_SHA256}" >"$2" ;;
-				esac
+	(
+		# shellcheck disable=SC1090
+		. "${FUNCTIONS_FILE}"
+		BOLD=''
+		NORM=''
+		INFO='Info:'
+		ERROR='Error:'
+		WARNING='Warning:'
+		attempt=0
+		final_chmod=0
+		printf '%s\n' 'old working copy' >"${TMP_DIR}/target/component"
+		printf '%s\n' 'new downloaded copy' >"${TMP_DIR}/payload"
+		PAYLOAD_SHA256="$(sha256sum "${TMP_DIR}/payload" | awk '{print $1}')"
+		PAYLOAD_MD5="$(md5sum "${TMP_DIR}/payload" | awk '{print $1}')"
+		ai_have_cmd() { [ "$1" = md5sum ]; }
+		http_get_file() {
+			case "$1" in
+				*.sha256sum)
+					case "${checksum_case}" in
+						sha_unavailable) return 1 ;;
+						empty) : >"$2" ;;
+						malformed) printf '%s\n' invalid >"$2" ;;
+						mismatch) printf '%064d\n' 0 >"$2" ;;
+						stale_retry)
+							[ "${attempt}" -eq 1 ] || return 1
+							printf '%064d\n' 0 >"$2"
+							;;
+						hash_failure | both_valid) printf '%s\n' "${PAYLOAD_SHA256}" >"$2" ;;
+						*) printf '%s\n' "${PAYLOAD_SHA256}" >"$2" ;;
+					esac
+					;;
+				*.md5sum)
+					case "${checksum_case}" in
+						missing_md5) return 1 ;;
+						empty_md5) : >"$2" ;;
+						malformed_md5) printf '%s\n' invalid >"$2" ;;
+						md5_mismatch) printf '%032d\n' 0 >"$2" ;;
+						*) printf '%s\n' "${PAYLOAD_MD5}" >"$2" ;;
+					esac
+					;;
+				*)
+					attempt="$((attempt + 1))"
+					cp "${TMP_DIR}/payload" "$2"
+					;;
+			esac
+		}
+		file_sha256() {
+			[ "${checksum_case}" != hash_failure ] || return 1
+			printf '%s' "${PAYLOAD_SHA256}"
+		}
+		if [ "${checksum_case}" = md5_hash_failure ]; then
+			file_md5() { return 1; }
+		fi
+		chmod() {
+			if [ "$1" = 755 ]; then final_chmod=1; fi
+			return 0
+		}
+		case "${checksum_case}" in
+			sha_unavailable | hash_failure | stale_retry | both_valid)
+				download_file "${TMP_DIR}/target" 755 "https://example.invalid/component" >"${TMP_DIR}/${checksum_case}.out" 2>&1 ||
+					fail "download_file rejected ${checksum_case} verification"
+				[ "$(sed -n '1p' "${TMP_DIR}/target/component")" = 'new downloaded copy' ] ||
+					fail "${checksum_case} did not publish the verified target"
+				[ "${final_chmod}" -eq 1 ] || fail "${checksum_case} did not apply final permissions"
 				;;
-			*.md5sum)
-				case "${checksum_case}" in
-					missing_md5) return 1 ;;
-					empty_md5) : >"$2" ;;
-					malformed_md5) printf '%s\n' invalid >"$2" ;;
-					md5_mismatch) printf '%032d\n' 0 >"$2" ;;
-					*) printf '%s\n' "${PAYLOAD_MD5}" >"$2" ;;
-				esac
+			*)
+				if download_file "${TMP_DIR}/target" 755 "https://example.invalid/component" >"${TMP_DIR}/${checksum_case}.out" 2>&1; then
+					fail "download_file accepted ${checksum_case} checksum metadata"
+				fi
+				[ "$(sed -n '1p' "${TMP_DIR}/target/component")" = 'old working copy' ] ||
+					fail "${checksum_case} replaced the existing target"
+				[ "${final_chmod}" -eq 0 ] ||
+					fail "${checksum_case} applied executable permissions before verification"
 				;;
-			*) attempt="$((attempt + 1))"; cp "${TMP_DIR}/payload" "$2" ;;
 		esac
-	}
-	file_sha256() {
-		[ "${checksum_case}" != hash_failure ] || return 1
-		printf '%s' "${PAYLOAD_SHA256}"
-	}
-	if [ "${checksum_case}" = md5_hash_failure ]; then
-		file_md5() { return 1; }
-	fi
-	chmod() {
-		if [ "$1" = 755 ]; then final_chmod=1; fi
-		return 0
-	}
-	case "${checksum_case}" in
-		sha_unavailable | hash_failure | stale_retry | both_valid)
-			download_file "${TMP_DIR}/target" 755 "https://example.invalid/component" >"${TMP_DIR}/${checksum_case}.out" 2>&1 ||
-				fail "download_file rejected ${checksum_case} verification"
-			[ "$(sed -n '1p' "${TMP_DIR}/target/component")" = 'new downloaded copy' ] ||
-				fail "${checksum_case} did not publish the verified target"
-			[ "${final_chmod}" -eq 1 ] || fail "${checksum_case} did not apply final permissions"
-			;;
-		*)
-			if download_file "${TMP_DIR}/target" 755 "https://example.invalid/component" >"${TMP_DIR}/${checksum_case}.out" 2>&1; then
-				fail "download_file accepted ${checksum_case} checksum metadata"
-			fi
-			[ "$(sed -n '1p' "${TMP_DIR}/target/component")" = 'old working copy' ] ||
-				fail "${checksum_case} replaced the existing target"
-			[ "${final_chmod}" -eq 0 ] ||
-				fail "${checksum_case} applied executable permissions before verification"
-			;;
-	esac
-	[ ! -e "${TMP_DIR}/target/.component.$$" ] ||
-		fail "${checksum_case} retained a staged artifact"
-	if [ "${checksum_case}" = stale_retry ] && [ "${attempt}" -ne 2 ]; then
-		fail "retry did not discard the prior SHA-256 digest"
-	fi
-) || exit 1
+		[ ! -e "${TMP_DIR}/target/.component.$$" ] ||
+			fail "${checksum_case} retained a staged artifact"
+		if [ "${checksum_case}" = stale_retry ] && [ "${attempt}" -ne 2 ]; then
+			fail "retry did not discard the prior SHA-256 digest"
+		fi
+	) || exit 1
 done
 
 grep -q 'falling back to MD5 verification' "${TMP_DIR}/sha_unavailable.out" || fail 'SHA-256 metadata fallback was not logged'
