@@ -4647,9 +4647,25 @@ inst_AdGuardHome() {
 				return 1
 			fi
 			if sha256_is_valid "${REMOTE_ADGUARD_SHA256}"; then
-				ARCHIVE_SHA256="$(file_sha256 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || ARCHIVE_SHA256=""
-				if [ "${ARCHIVE_SHA256}" != "${REMOTE_ADGUARD_SHA256}" ]; then
-					PTXT "${ERROR} SHA-256 checksum mismatch for downloaded AdGuardHome package metadata."
+				if ARCHIVE_SHA256="$(file_sha256 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)"; then
+					if [ "${ARCHIVE_SHA256}" != "${REMOTE_ADGUARD_SHA256}" ]; then
+						PTXT "${ERROR} SHA-256 checksum mismatch for downloaded AdGuardHome package metadata."
+						rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+						end_op_message 1 "$1"
+						return 1
+					fi
+				elif md5_is_valid "${REMOTE_ADGUARD_MD5}"; then
+					ARCHIVE_MD5="$(file_md5 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || ARCHIVE_MD5=""
+					if [ "${ARCHIVE_MD5}" = "${REMOTE_ADGUARD_MD5}" ]; then
+						ptxt_warn "SHA-256 digest calculation is unavailable; channel MD5 checksum verified."
+					else
+						PTXT "${ERROR} MD5 checksum mismatch for downloaded AdGuardHome package metadata."
+						rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+						end_op_message 1 "$1"
+						return 1
+					fi
+				else
+					PTXT "${ERROR} SHA-256 digest calculation is unavailable and channel MD5 metadata is invalid."
 					rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
 					end_op_message 1 "$1"
 					return 1

@@ -30,6 +30,8 @@ grep -q 'downloads will require matching MD5 metadata' "${SCRIPT_PATH}" || fail 
 grep -q 'REMOTE_ADGUARD_SHA256="$(adguard_remote_sha256 "$2")"' "${SCRIPT_PATH}" || fail 'package install does not retain channel SHA-256 metadata'
 grep -q 'ARCHIVE_SHA256.*REMOTE_ADGUARD_SHA256' "${SCRIPT_PATH}" || fail 'package install does not bind the archive to channel SHA-256 metadata'
 grep -q 'ARCHIVE_MD5.*REMOTE_ADGUARD_MD5' "${SCRIPT_PATH}" || fail 'package install does not bind the archive to channel MD5 metadata'
+grep -q 'elif md5_is_valid "${REMOTE_ADGUARD_MD5}"; then' "${SCRIPT_PATH}" || fail 'package install does not fall back to channel MD5 when SHA-256 calculation fails'
+grep -q 'channel MD5 checksum verified' "${SCRIPT_PATH}" || fail 'package install does not report successful channel MD5 fallback'
 grep -q 'ensure_blocklist_analyzer_dependencies || return 1' "${SCRIPT_PATH}" || fail 'option 9 does not require dependency checks before verification'
 grep -q 'ensure_sha256sum_tool || return 1' "${SCRIPT_PATH}" || fail 'blocklist dependency helper does not require SHA-256 support'
 grep -q 'if ! ensure_opkg_package python3 || \[ ! -x /opt/bin/python3 \]' "${SCRIPT_PATH}" || fail 'option 9 no longer requires Entware python3'
