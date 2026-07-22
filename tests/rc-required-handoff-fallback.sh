@@ -266,7 +266,10 @@ for INTERRUPT_PHASE in pre handoff launch post; do
 				return 1
 			}
 			;;
-		launch) process_wait_for_start() { interrupt_phase; return 1; } ;;
+		launch) process_wait_for_start() {
+			interrupt_phase
+			return 1
+		} ;;
 		post)
 			HANDOFF_CHECKS=0
 			adguardhome_start_handoff_is_prepared() {
