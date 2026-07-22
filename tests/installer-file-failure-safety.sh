@@ -134,7 +134,7 @@ printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS
 # A matching SHA-256 authorizes the staged file without cache-specific MD5
 # metadata.  MD5 may authorize it only when SHA-256 metadata or calculation is
 # unavailable.
-for checksum_case in sha_only sha_unavailable empty malformed mismatch hash_failure stale_retry missing_md5 empty_md5 malformed_md5 md5_mismatch md5_hash_failure both_valid; do
+for checksum_case in upstream_sha_only sha_preferred sha_unavailable empty malformed mismatch hash_failure stale_retry missing_md5 empty_md5 malformed_md5 md5_mismatch md5_hash_failure; do
 	(
 		# shellcheck disable=SC1090
 		. "${FUNCTIONS_FILE}"
@@ -145,6 +145,8 @@ for checksum_case in sha_only sha_unavailable empty malformed mismatch hash_fail
 		WARNING='Warning:'
 		attempt=0
 		final_chmod=0
+		md5_requests=0
+		sha256_requests=0
 		printf '%s\n' 'old working copy' >"${TMP_DIR}/target/component"
 		printf '%s\n' 'new downloaded copy' >"${TMP_DIR}/payload"
 		PAYLOAD_SHA256="$(sha256sum "${TMP_DIR}/payload" | awk '{print $1}')"
@@ -153,6 +155,7 @@ for checksum_case in sha_only sha_unavailable empty malformed mismatch hash_fail
 		http_get_file() {
 			case "$1" in
 				*.sha256sum)
+					sha256_requests="$((sha256_requests + 1))"
 					case "${checksum_case}" in
 						sha_unavailable | missing_md5 | empty_md5 | malformed_md5 | md5_mismatch | md5_hash_failure) return 1 ;;
 						empty) : >"$2" ;;
@@ -162,16 +165,17 @@ for checksum_case in sha_only sha_unavailable empty malformed mismatch hash_fail
 							[ "${attempt}" -eq 1 ] || return 1
 							printf '%064d\n' 0 >"$2"
 							;;
-						hash_failure | both_valid) printf '%s\n' "${PAYLOAD_SHA256}" >"$2" ;;
+						hash_failure | sha_preferred) printf '%s\n' "${PAYLOAD_SHA256}" >"$2" ;;
 						*) printf '%s\n' "${PAYLOAD_SHA256}" >"$2" ;;
 					esac
 					;;
 				*.md5sum)
+					md5_requests="$((md5_requests + 1))"
 					case "${checksum_case}" in
-						sha_only | missing_md5) return 1 ;;
+						upstream_sha_only | missing_md5) return 1 ;;
 						empty_md5) : >"$2" ;;
 						malformed_md5) printf '%s\n' invalid >"$2" ;;
-						md5_mismatch) printf '%032d\n' 0 >"$2" ;;
+						md5_mismatch | sha_preferred) printf '%032d\n' 0 >"$2" ;;
 						*) printf '%s\n' "${PAYLOAD_MD5}" >"$2" ;;
 					esac
 					;;
@@ -193,7 +197,7 @@ for checksum_case in sha_only sha_unavailable empty malformed mismatch hash_fail
 			return 0
 		}
 		case "${checksum_case}" in
-			sha_only | sha_unavailable | hash_failure | stale_retry | both_valid)
+			upstream_sha_only | sha_preferred | sha_unavailable | hash_failure | stale_retry)
 				download_file "${TMP_DIR}/target" 755 "https://example.invalid/component" >"${TMP_DIR}/${checksum_case}.out" 2>&1 ||
 					fail "download_file rejected ${checksum_case} verification"
 				[ "$(sed -n '1p' "${TMP_DIR}/target/component")" = 'new downloaded copy' ] ||
@@ -215,11 +219,20 @@ for checksum_case in sha_only sha_unavailable empty malformed mismatch hash_fail
 		if [ "${checksum_case}" = stale_retry ] && [ "${attempt}" -ne 2 ]; then
 			fail "retry did not discard the prior SHA-256 digest"
 		fi
+		case "${checksum_case}" in
+			upstream_sha_only | sha_preferred | empty | malformed | mismatch)
+				[ "${md5_requests}" -eq 0 ] || fail "${checksum_case} unexpectedly requested MD5 metadata"
+				;;
+			sha_unavailable | hash_failure | missing_md5 | empty_md5 | malformed_md5 | md5_mismatch | md5_hash_failure)
+				[ "${md5_requests}" -gt 0 ] || fail "${checksum_case} did not exercise the MD5 fallback"
+				;;
+		esac
+		[ "${sha256_requests}" -gt 0 ] || fail "${checksum_case} did not request SHA-256 metadata first"
 	) || exit 1
 done
 
 grep -q 'falling back to MD5 verification' "${TMP_DIR}/sha_unavailable.out" || fail 'SHA-256 metadata fallback was not logged'
-if grep -q 'MD5 metadata' "${TMP_DIR}/sha_only.out"; then
+if grep -q 'MD5 metadata' "${TMP_DIR}/upstream_sha_only.out"; then
 	fail 'matching SHA-256 unexpectedly required MD5 metadata'
 fi
 grep -q 'empty or invalid' "${TMP_DIR}/empty.out" || fail 'empty metadata cause was not logged'
