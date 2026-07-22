@@ -135,6 +135,7 @@ run_check 'Installer iterative input regression' sh tests/installer-input-loops.
 run_check 'Installer staged authentication regression' sh tests/installer-staged-authentication.sh
 run_check 'Installer staged YAML validation regression' sh tests/installer-staged-yaml-validation.sh
 run_check 'Installer startup readiness regression' sh tests/installer-startup-readiness.sh
+run_check 'Installer DNS environment failure regression' sh tests/installer-dns-environment-failure.sh
 run_check 'Installer service status wait regression' sh tests/installer-service-status-after-action.sh
 run_check 'Installer mandatory numeric input failure regression' sh tests/installer-mandatory-number-failure.sh
 run_check 'Installer DNS input failure regression' sh tests/installer-dns-input-failure.sh

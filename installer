@@ -28,6 +28,8 @@ export AI_VERSION
 readonly ADGUARD_METADATA_FILE="/tmp/AGH_STATIC_METADATA_$$.txt"
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
 readonly ADGUARDHOME_READY_TIMEOUT="180"
+DNS_ENV_READY_TIMEOUT="${DNS_ENV_READY_TIMEOUT:-60}"
+DNS_ENV_RECOVERY_TIMEOUT="${DNS_ENV_RECOVERY_TIMEOUT:-15}"
 readonly ADDON_DIR="/jffs/addons/AdGuardHome.d"
 readonly BASE_DIR="/opt/etc"
 readonly TARG_DIR="${BASE_DIR}/AdGuardHome"
@@ -2751,54 +2753,148 @@ check_dns_environment() {
 			"${ERROR} Exiting..."
 		exit 1
 	fi
-	local MODE NVCHECK
-	dns_env_set_nvram() {
-		local key expected cur changed
-		key="$1"
-		expected="$2"
-		cur="$(nvram get "${key}" 2>/dev/null)"
-		if [ "${cur}" = "${expected}" ]; then
-			return 1
-		fi
-		nvram set "${key}=${expected}"
-		changed="1"
+	local MODE NVCHECK result restore_failed
+	dns_env_numeric_timeout() {
+		case "$1" in
+			*[!0-9]* | 0* | '') return 1 ;;
+		esac
 		return 0
 	}
+	dns_env_local_ready() {
+		local deadline lookup_pid maxwait now status
+		maxwait="$1"
+		now="$(monotonic_seconds)" || return 1
+		deadline="$((now + maxwait))"
+		while [ "${now}" -lt "${deadline}" ]; do
+			nslookup localhost 127.0.0.1 >/dev/null 2>&1 &
+			lookup_pid="$!"
+			while kill -0 "${lookup_pid}" >/dev/null 2>&1; do
+				now="$(monotonic_seconds)" || {
+					kill "${lookup_pid}" >/dev/null 2>&1 || :
+					wait "${lookup_pid}" 2>/dev/null || :
+					return 1
+				}
+				if [ "${now}" -ge "${deadline}" ]; then
+					kill "${lookup_pid}" >/dev/null 2>&1 || :
+					wait "${lookup_pid}" 2>/dev/null || :
+					return 1
+				fi
+				sleep 1s
+			done
+			wait "${lookup_pid}"
+			status="$?"
+			[ "${status}" -eq 0 ] && return 0
+			now="$(monotonic_seconds)" || return 1
+			[ "${now}" -ge "${deadline}" ] && return 1
+			sleep 1s
+			now="$(monotonic_seconds)" || return 1
+		done
+		return 1
+	}
+	dns_env_set_nvram() {
+		local key expected cur
+		key="$1"
+		expected="$2"
+		cur="$(nvram get "${key}" 2>/dev/null)" || return 1
+		if [ "${cur}" = "${expected}" ]; then
+			return 2
+		fi
+		nvram set "${key}=${expected}" || return 1
+	}
 	dns_env_apply_profile() {
-		local changed
+		local changed key value status
 		changed="0"
-		if dns_env_set_nvram "dnspriv_enable" "0"; then changed="$((changed + 1))"; fi
-		if dns_env_set_nvram "dhcpd_dns_router" "1"; then changed="$((changed + 1))"; fi
-		if dns_env_set_nvram "dhcp_dns1_x" ""; then changed="$((changed + 1))"; fi
-		if dns_env_set_nvram "dhcp_dns2_x" ""; then changed="$((changed + 1))"; fi
-		if [ "${changed}" != "0" ]; then return 0; else return 1; fi
+		DNS_ENV_PROFILE_CHANGED="0"
+		for key in dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; do
+			case "${key}" in
+				dnspriv_enable) value="0" ;;
+				dhcpd_dns_router) value="1" ;;
+				*) value="" ;;
+			esac
+			dns_env_set_nvram "${key}" "${value}"
+			status="$?"
+			case "${status}" in
+				0) changed="$((changed + 1))" ;;
+				2) ;;
+				*)
+					DNS_ENV_PROFILE_CHANGED="${changed}"
+					return 1
+					;;
+			esac
+		done
+		DNS_ENV_PROFILE_CHANGED="${changed}"
+		if [ "${changed}" != "0" ]; then return 0; fi
+		return 2
 	}
 	dns_env_restore_profile() {
-		local changed key cur old
-		changed="0"
+		local failed key old existed restored
+		failed="0"
+		restored="0"
 		for key in dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; do
-			cur="$(nvram get "${key}" 2>/dev/null)"
 			case "${key}" in
-				dnspriv_enable) old="${_OLD_dnspriv_enable}" ;;
-				dhcpd_dns_router) old="${_OLD_dhcpd_dns_router}" ;;
-				dhcp_dns1_x) old="${_OLD_dhcp_dns1_x}" ;;
-				dhcp_dns2_x) old="${_OLD_dhcp_dns2_x}" ;;
+				dnspriv_enable)
+					old="${_OLD_dnspriv_enable}"
+					existed="${_OLD_dnspriv_enable_EXISTS}"
+					;;
+				dhcpd_dns_router)
+					old="${_OLD_dhcpd_dns_router}"
+					existed="${_OLD_dhcpd_dns_router_EXISTS}"
+					;;
+				dhcp_dns1_x)
+					old="${_OLD_dhcp_dns1_x}"
+					existed="${_OLD_dhcp_dns1_x_EXISTS}"
+					;;
+				dhcp_dns2_x)
+					old="${_OLD_dhcp_dns2_x}"
+					existed="${_OLD_dhcp_dns2_x_EXISTS}"
+					;;
 			esac
-			if [ "${cur}" != "${old}" ]; then
-				nvram set "${key}=${old}"
-				changed="$((changed + 1))"
+			if [ "${existed}" = "1" ]; then
+				nvram set "${key}=${old}" && restored="$((restored + 1))" || failed="$((failed + 1))"
+			else
+				nvram unset "${key}" && restored="$((restored + 1))" || failed="$((failed + 1))"
 			fi
 		done
-		if [ "${changed}" != "0" ]; then return 0; else return 1; fi
+		DNS_ENV_RESTORE_SUCCEEDED="${restored}"
+		DNS_ENV_RESTORE_FAILED="${failed}"
+		[ "${failed}" = "0" ]
 	}
+	dns_env_rollback() {
+		local failed result
+		failed="0"
+		DNS_ENV_RESTORE_SUCCEEDED="0"
+		DNS_ENV_RESTORE_FAILED="0"
+		dns_env_restore_profile || failed="$((failed + 1))"
+		nvram commit || failed="$((failed + 1))"
+		service restart_dnsmasq >/dev/null 2>&1 || failed="$((failed + 1))"
+		dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}" || failed="$((failed + 1))"
+		if [ "${failed}" = "0" ]; then
+			result="complete"
+			_DNS_NVRAM_SAVED="0"
+		elif [ "${DNS_ENV_RESTORE_SUCCEEDED}" != "0" ]; then
+			result="partial"
+		else
+			result="failed"
+		fi
+		_DNS_NVRAM_ROLLBACK_ATTEMPTED="1"
+		export _DNS_NVRAM_ROLLBACK_ATTEMPTED _DNS_NVRAM_SAVED
+		PTXT "${WARNING} DNS NVRAM rollback was ${result}."
+		[ "${result}" = "complete" ]
+	}
+	dns_env_numeric_timeout "${DNS_ENV_READY_TIMEOUT}" || DNS_ENV_READY_TIMEOUT="60"
+	dns_env_numeric_timeout "${DNS_ENV_RECOVERY_TIMEOUT}" || DNS_ENV_RECOVERY_TIMEOUT="15"
 	MODE="$1"
 	NVCHECK="0"
+	restore_failed="0"
 	case "${MODE}" in
 		0)
 			# Save original values only once.
 			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
 				ptxt_step "Saving current DNS NVRAM settings."
-				save_dns_nvram_environment
+				if ! save_dns_nvram_environment; then
+					PTXT "${ERROR} Unable to read all required DNS NVRAM settings; no changes were made."
+					return 1
+				fi
 				ptxt_ok "Current DNS NVRAM settings saved."
 			fi
 			if [ "$(pidof stubby)" ]; then
@@ -2808,11 +2904,17 @@ check_dns_environment() {
 				NVCHECK="$((NVCHECK + 1))"
 			fi
 			ptxt_step "Applying installer DNS preparation profile."
-			if dns_env_apply_profile; then
+			dns_env_apply_profile
+			result="$?"
+			if [ "${result}" = "0" ]; then
 				ptxt_ok "Installer DNS preparation profile applied."
 				NVCHECK="$((NVCHECK + 1))"
-			else
+			elif [ "${result}" = "2" ]; then
 				ptxt_ok "Installer DNS preparation profile was already active."
+			else
+				PTXT "${ERROR} Unable to apply the DNS NVRAM profile."
+				dns_env_rollback || true
+				return 1
 			fi
 			;;
 		1)
@@ -2826,7 +2928,13 @@ check_dns_environment() {
 				ptxt_ok "Saved DNS NVRAM settings restored."
 				NVCHECK="$((NVCHECK + 1))"
 			else
-				ptxt_ok "Saved DNS NVRAM settings were already restored."
+				PTXT "${ERROR} Unable to restore all saved DNS NVRAM settings."
+				restore_failed="1"
+				if [ "${DNS_ENV_RESTORE_SUCCEEDED}" != "0" ]; then
+					NVCHECK="$((NVCHECK + 1))"
+				else
+					return 1
+				fi
 			fi
 			;;
 		*)
@@ -2835,12 +2943,17 @@ check_dns_environment() {
 	esac
 	if [ "${NVCHECK}" != "0" ]; then
 		ptxt_step "Committing DNS NVRAM changes and restarting dnsmasq."
-		{ nvram commit; }
-		{ service restart_dnsmasq >/dev/null 2>&1; }
-		(while { ! check_connection; }; do sleep 1s; done) &
-		local PID="$!"
-		wait "${PID}" 2>/dev/null
+		if ! nvram commit || ! service restart_dnsmasq >/dev/null 2>&1 || ! dns_env_local_ready "${DNS_ENV_READY_TIMEOUT}"; then
+			PTXT "${ERROR} DNS readiness did not recover after applying NVRAM changes."
+			dns_env_rollback || true
+			return 1
+		fi
 		ptxt_ok "DNS services refreshed after DNS environment changes."
+	fi
+	[ "${restore_failed}" = "0" ] || return 1
+	if [ "${MODE}" = "1" ]; then
+		_DNS_NVRAM_SAVED="0"
+		export _DNS_NVRAM_SAVED
 	fi
 	ptxt_ok "DNS Environment is Ready."
 	return 0
@@ -3240,9 +3353,21 @@ choose_branch() {
 }
 
 save_dns_nvram_environment() {
-	local VAR VALUE
+	local NVRAM_SHOW VAR VALUE
+	_DNS_NVRAM_SAVED="0"
+	NVRAM_SHOW="$(nvram show 2>/dev/null)" || return 1
 	for VAR in dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; do
-		VALUE="$(nvram get "${VAR}" 2>/dev/null)"
+		VALUE="$(nvram get "${VAR}" 2>/dev/null)" || return 1
+		if printf '%s\n' "${NVRAM_SHOW}" | grep -q "^${VAR}="; then
+			eval "_OLD_${VAR}_EXISTS=1"
+		else
+			eval "_OLD_${VAR}_EXISTS=0"
+		fi
+		if [ -z "${VALUE}" ]; then
+			eval "_OLD_${VAR}_EMPTY=1"
+		else
+			eval "_OLD_${VAR}_EMPTY=0"
+		fi
 		case "${VAR}" in
 			dnspriv_enable) _OLD_dnspriv_enable="${VALUE}" ;;
 			dhcpd_dns_router) _OLD_dhcpd_dns_router="${VALUE}" ;;
@@ -3250,9 +3375,12 @@ save_dns_nvram_environment() {
 			dhcp_dns2_x) _OLD_dhcp_dns2_x="${VALUE}" ;;
 		esac
 	done
-	export _OLD_dnspriv_enable _OLD_dhcpd_dns_router _OLD_dhcp_dns1_x _OLD_dhcp_dns2_x
+	export _OLD_dnspriv_enable _OLD_dhcpd_dns_router _OLD_dhcp_dns1_x _OLD_dhcp_dns2_x \
+		_OLD_dnspriv_enable_EXISTS _OLD_dhcpd_dns_router_EXISTS _OLD_dhcp_dns1_x_EXISTS _OLD_dhcp_dns2_x_EXISTS \
+		_OLD_dnspriv_enable_EMPTY _OLD_dhcpd_dns_router_EMPTY _OLD_dhcp_dns1_x_EMPTY _OLD_dhcp_dns2_x_EMPTY
 	_DNS_NVRAM_SAVED="1"
 	export _DNS_NVRAM_SAVED
+	return 0
 }
 
 # Installer file and setup helpers
@@ -7321,7 +7449,7 @@ cli_run() {
 			cleanup
 			check_jffs_enabled
 			if [ "${ADGUARD_INSTALL_MODE}" = "wan" ]; then
-				check_dns_environment 0
+				check_dns_environment 0 || return 1
 			fi
 			[ -n "${adguard_branch}" ] || adguard_branch="$(conf_value ADGUARD_BRANCH)"
 			[ -n "${adguard_branch}" ] || adguard_branch="release"
@@ -7532,7 +7660,7 @@ case "$2" in
 		cleanup
 		check_jffs_enabled
 		if [ "${ADGUARD_INSTALL_MODE}" = "wan" ]; then
-			check_dns_environment 0
+			check_dns_environment 0 || exit 1
 		fi
 		check_version
 		menu

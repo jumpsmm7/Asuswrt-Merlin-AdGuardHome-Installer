@@ -46,8 +46,10 @@ cleanup_line="$((install_line + cleanup_line - 1))"
 	fail 'CLI install must require WAN DNS/NVRAM consent before cleanup changes router state'
 grep -q 'install_mode="$(conf_value ADGUARD_INSTALL_MODE)"' "${SCRIPT_PATH}" ||
 	fail 'runtime migration preview must read persisted install mode'
-grep -q '^[[:space:]]*check_dns_environment 0$' "${SCRIPT_PATH}" ||
-	fail 'installer must still call DNS environment preparation for WAN paths'
+grep -q '^[[:space:]]*check_dns_environment 0 || return 1$' "${SCRIPT_PATH}" ||
+	fail 'CLI installer must propagate WAN DNS environment preparation failures'
+grep -q '^[[:space:]]*check_dns_environment 0 || exit 1$' "${SCRIPT_PATH}" ||
+	fail 'interactive installer must propagate WAN DNS environment preparation failures'
 grep -q 'LAN mode selected; cleared legacy firewall/IPTABLES state and skipping firewall/IPTABLES management' "${SCRIPT_PATH}" ||
 	fail 'LAN-mode install must report legacy firewall cleanup before skipped firewall/IPTABLES management'
 grep -q 'cleanup_legacy_firewall$' "${SCRIPT_PATH}" ||
