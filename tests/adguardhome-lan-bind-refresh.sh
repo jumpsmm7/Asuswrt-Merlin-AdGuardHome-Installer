@@ -275,7 +275,7 @@ unset FAIL_COMMAND FAIL_STATUS
 # A read-only-filesystem-style staging failure follows the same preservation path as a failed copy.
 sed 's/192\.168\.50\.27:3443/192.168.50.1:3443/' "${YAML_FILE}" >"${YAML_FILE}.reset" || fail 'could not prepare read-only fixture'
 /usr/bin/mv "${YAML_FILE}.reset" "${YAML_FILE}" || fail 'could not activate read-only fixture'
-FAIL_COMMAND=cp
+FAIL_COMMAND="cp"
 export FAIL_COMMAND
 assert_rejected_unchanged read-only-staging-directory
 unset FAIL_COMMAND
