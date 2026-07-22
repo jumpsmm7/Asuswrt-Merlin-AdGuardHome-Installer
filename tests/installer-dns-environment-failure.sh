@@ -28,13 +28,15 @@ ERROR='Error:'
 WARNING='Warning:'
 DNS_ENV_READY_TIMEOUT=2
 DNS_ENV_RECOVERY_TIMEOUT=1
+MONOTONIC_NOW=0
 PTXT() { printf '%s\n' "$*" >>"${CALLS_FILE}"; }
 ptxt_phase() { PTXT "$1"; }
 ptxt_step() { PTXT "$1"; }
 ptxt_ok() { PTXT "$1"; }
 pidof() { return 1; }
 kill_processes() { return 0; }
-sleep() { :; }
+sleep() { MONOTONIC_NOW="$((MONOTONIC_NOW + 1))"; }
+monotonic_seconds() { printf '%s\n' "${MONOTONIC_NOW}"; }
 check_connection() {
 	PUBLIC_CHECK_COUNT="$((PUBLIC_CHECK_COUNT + 1))"
 	[ "${PUBLIC_NETWORK_AVAILABLE:-0}" = 1 ]
@@ -89,6 +91,7 @@ service() {
 nslookup() {
 	DNS_CHECK_COUNT="$((DNS_CHECK_COUNT + 1))"
 	printf '%s\n' "nslookup $*" >>"${CALLS_FILE}"
+	[ "${BLOCKING_QUERY:-0}" = 0 ] || MONOTONIC_NOW="$((MONOTONIC_NOW + 10))"
 	[ "${DNS_READY:-1}" = 1 ]
 }
 
@@ -102,6 +105,7 @@ EOF_NVRAM
 	: >"${CALLS_FILE}"
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0
 	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0
+	BLOCKING_QUERY=0 MONOTONIC_NOW=0
 	_DNS_NVRAM_SAVED=0 _DNS_NVRAM_ROLLBACK_ATTEMPTED=0
 }
 
@@ -169,7 +173,13 @@ reset_case
 DNS_READY=0
 check_dns_environment 0 && fail 'local DNS readiness failure was accepted'
 assert_original 'DNS readiness failure'
-[ "${DNS_CHECK_COUNT}" = 3 ] || fail 'local DNS and recovery checks were not bounded by their configured timeouts'
+[ "${DNS_CHECK_COUNT}" = 3 ] || fail 'local DNS and recovery checks were not bounded by their configured deadlines'
+
+reset_case
+DNS_READY=0
+BLOCKING_QUERY=1
+check_dns_environment 0 && fail 'blocking local DNS readiness failure was accepted'
+[ "${DNS_CHECK_COUNT}" = 2 ] || fail 'blocking DNS queries exceeded the startup and recovery deadlines'
 
 reset_case
 FAIL_COMMIT_AT=2
@@ -182,6 +192,25 @@ FAIL_SERVICE_AT=2
 DNS_READY=0
 check_dns_environment 0 && fail 'rollback service restart failure was accepted'
 grep -q 'rollback was partial' "${CALLS_FILE}" || fail 'rollback service failure was not reported as partial'
+
+reset_case
+check_dns_environment 0 || fail 'DNS preparation for partial exit restoration failed'
+FAIL_SET_AT=5
+check_dns_environment 1 && fail 'partial exit restoration was reported as complete'
+[ "${COMMIT_COUNT}" = 2 ] || fail 'partial exit restoration did not commit successful restores'
+[ "${SERVICE_COUNT}" = 2 ] || fail 'partial exit restoration did not restart dnsmasq'
+
+reset_case
+FAIL_COMMIT_AT=2
+DNS_READY=0
+check_dns_environment 0 && fail 'rollback retry setup was unexpectedly accepted'
+FAIL_COMMIT_AT=0
+DNS_READY=1
+check_dns_environment 1 || fail 'incomplete automatic rollback could not be retried'
+assert_original 'retried rollback'
+
+grep -q 'check_dns_environment 0 || return 1' "${INSTALLER_PATH}" || fail 'CLI install does not propagate DNS preparation failure'
+grep -q 'check_dns_environment 0 || exit 1' "${INSTALLER_PATH}" || fail 'interactive install does not propagate DNS preparation failure'
 
 reset_case
 (

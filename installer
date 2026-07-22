@@ -2753,7 +2753,7 @@ check_dns_environment() {
 			"${ERROR} Exiting..."
 		exit 1
 	fi
-	local MODE NVCHECK result
+	local MODE NVCHECK result restore_failed
 	dns_env_numeric_timeout() {
 		case "$1" in
 			'' | 0 | *[!0-9]*) return 1 ;;
@@ -2761,13 +2761,16 @@ check_dns_environment() {
 		return 0
 	}
 	dns_env_local_ready() {
-		local elapsed maxwait
+		local deadline maxwait now
 		maxwait="$1"
-		elapsed="0"
-		while [ "${elapsed}" -lt "${maxwait}" ]; do
+		now="$(monotonic_seconds)" || return 1
+		deadline="$((now + maxwait))"
+		while [ "${now}" -lt "${deadline}" ]; do
 			if nslookup localhost 127.0.0.1 >/dev/null 2>&1; then return 0; fi
+			now="$(monotonic_seconds)" || return 1
+			[ "${now}" -ge "${deadline}" ] && return 1
 			sleep 1s
-			elapsed="$((elapsed + 1))"
+			now="$(monotonic_seconds)" || return 1
 		done
 		return 1
 	}
@@ -2865,6 +2868,7 @@ check_dns_environment() {
 	dns_env_numeric_timeout "${DNS_ENV_RECOVERY_TIMEOUT}" || DNS_ENV_RECOVERY_TIMEOUT="15"
 	MODE="$1"
 	NVCHECK="0"
+	restore_failed="0"
 	case "${MODE}" in
 		0)
 			# Save original values only once.
@@ -2902,14 +2906,18 @@ check_dns_environment() {
 				ptxt_ok "No saved DNS NVRAM settings to restore."
 				return 0
 			fi
-			if [ "${_DNS_NVRAM_ROLLBACK_ATTEMPTED:-0}" = "1" ]; then return 1; fi
 			ptxt_step "Restoring saved DNS NVRAM settings."
 			if dns_env_restore_profile; then
 				ptxt_ok "Saved DNS NVRAM settings restored."
 				NVCHECK="$((NVCHECK + 1))"
 			else
 				PTXT "${ERROR} Unable to restore all saved DNS NVRAM settings."
-				return 1
+				restore_failed="1"
+				if [ "${DNS_ENV_RESTORE_SUCCEEDED}" != "0" ]; then
+					NVCHECK="$((NVCHECK + 1))"
+				else
+					return 1
+				fi
 			fi
 			;;
 		*)
@@ -2924,6 +2932,11 @@ check_dns_environment() {
 			return 1
 		fi
 		ptxt_ok "DNS services refreshed after DNS environment changes."
+	fi
+	[ "${restore_failed}" = "0" ] || return 1
+	if [ "${MODE}" = "1" ]; then
+		_DNS_NVRAM_SAVED="0"
+		export _DNS_NVRAM_SAVED
 	fi
 	ptxt_ok "DNS Environment is Ready."
 	return 0
@@ -7419,7 +7432,7 @@ cli_run() {
 			cleanup
 			check_jffs_enabled
 			if [ "${ADGUARD_INSTALL_MODE}" = "wan" ]; then
-				check_dns_environment 0
+				check_dns_environment 0 || return 1
 			fi
 			[ -n "${adguard_branch}" ] || adguard_branch="$(conf_value ADGUARD_BRANCH)"
 			[ -n "${adguard_branch}" ] || adguard_branch="release"
@@ -7630,7 +7643,7 @@ case "$2" in
 		cleanup
 		check_jffs_enabled
 		if [ "${ADGUARD_INSTALL_MODE}" = "wan" ]; then
-			check_dns_environment 0
+			check_dns_environment 0 || exit 1
 		fi
 		check_version
 		menu
