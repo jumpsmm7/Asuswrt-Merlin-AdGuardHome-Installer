@@ -131,9 +131,10 @@ printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS
 		fail "installer exit cleanup changed the rollback marker"
 ) || exit 1
 
-# SHA-256 and MD5 must both match when SHA-256 is available.  MD5 alone may
-# authorize the staged file only when SHA-256 metadata or calculation is unavailable.
-for checksum_case in sha_unavailable empty malformed mismatch hash_failure stale_retry missing_md5 empty_md5 malformed_md5 md5_mismatch md5_hash_failure both_valid; do
+# A matching SHA-256 authorizes the staged file without cache-specific MD5
+# metadata.  MD5 may authorize it only when SHA-256 metadata or calculation is
+# unavailable.
+for checksum_case in sha_only sha_unavailable empty malformed mismatch hash_failure stale_retry missing_md5 empty_md5 malformed_md5 md5_mismatch md5_hash_failure both_valid; do
 	(
 		# shellcheck disable=SC1090
 		. "${FUNCTIONS_FILE}"
@@ -153,7 +154,7 @@ for checksum_case in sha_unavailable empty malformed mismatch hash_failure stale
 			case "$1" in
 				*.sha256sum)
 					case "${checksum_case}" in
-						sha_unavailable) return 1 ;;
+						sha_unavailable | missing_md5 | empty_md5 | malformed_md5 | md5_mismatch | md5_hash_failure) return 1 ;;
 						empty) : >"$2" ;;
 						malformed) printf '%s\n' invalid >"$2" ;;
 						mismatch) printf '%064d\n' 0 >"$2" ;;
@@ -167,7 +168,7 @@ for checksum_case in sha_unavailable empty malformed mismatch hash_failure stale
 					;;
 				*.md5sum)
 					case "${checksum_case}" in
-						missing_md5) return 1 ;;
+						sha_only | missing_md5) return 1 ;;
 						empty_md5) : >"$2" ;;
 						malformed_md5) printf '%s\n' invalid >"$2" ;;
 						md5_mismatch) printf '%032d\n' 0 >"$2" ;;
@@ -192,7 +193,7 @@ for checksum_case in sha_unavailable empty malformed mismatch hash_failure stale
 			return 0
 		}
 		case "${checksum_case}" in
-			sha_unavailable | hash_failure | stale_retry | both_valid)
+			sha_only | sha_unavailable | hash_failure | stale_retry | both_valid)
 				download_file "${TMP_DIR}/target" 755 "https://example.invalid/component" >"${TMP_DIR}/${checksum_case}.out" 2>&1 ||
 					fail "download_file rejected ${checksum_case} verification"
 				[ "$(sed -n '1p' "${TMP_DIR}/target/component")" = 'new downloaded copy' ] ||
@@ -218,6 +219,9 @@ for checksum_case in sha_unavailable empty malformed mismatch hash_failure stale
 done
 
 grep -q 'falling back to MD5 verification' "${TMP_DIR}/sha_unavailable.out" || fail 'SHA-256 metadata fallback was not logged'
+if grep -q 'MD5 metadata' "${TMP_DIR}/sha_only.out"; then
+	fail 'matching SHA-256 unexpectedly required MD5 metadata'
+fi
 grep -q 'empty or invalid' "${TMP_DIR}/empty.out" || fail 'empty metadata cause was not logged'
 grep -q 'empty or invalid' "${TMP_DIR}/malformed.out" || fail 'malformed metadata cause was not logged'
 grep -q 'checksum mismatch' "${TMP_DIR}/mismatch.out" || fail 'checksum mismatch cause was not logged'

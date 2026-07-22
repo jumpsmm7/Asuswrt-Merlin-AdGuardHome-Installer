@@ -4373,11 +4373,7 @@ download_file() {
 					continue
 				fi
 				ptxt_step "Checking remote checksum metadata for ${FILENAME}."
-				if ! http_get_file "${URL}.md5sum" "${TMP_MD5}" "" insecure; then
-					ptxt_warn "MD5 metadata is missing or unavailable for ${FILENAME}; retrying download."
-				elif ! MD5SUM_EXPECTED="$(md5_manifest_digest "${TMP_MD5}")"; then
-					ptxt_warn "MD5 metadata is empty or invalid for ${FILENAME}; retrying download."
-				elif ! http_get_file "${URL}.sha256sum" "${TMP_SHA256}" "" insecure; then
+				if ! http_get_file "${URL}.sha256sum" "${TMP_SHA256}" "" insecure; then
 					SHA256_AVAILABLE="0"
 					ptxt_warn "SHA-256 metadata is unavailable for ${FILENAME}; falling back to MD5 verification."
 				elif ! SHA256SUM_EXPECTED="$(sha256_manifest_digest "${TMP_SHA256}")"; then
@@ -4393,9 +4389,17 @@ download_file() {
 						ptxt_ok "SHA-256 checksum verified for ${FILENAME}."
 					fi
 				fi
-				if md5_is_valid "${MD5SUM_EXPECTED}" &&
-					{ [ "${SHA256_AVAILABLE}" = "0" ] ||
-						{ sha256_is_valid "${SHA256SUM_EXPECTED}" && [ "${SHA256SUM_CURR}" = "${SHA256SUM_EXPECTED}" ]; }; }; then
+				if sha256_is_valid "${SHA256SUM_EXPECTED}" && [ "${SHA256SUM_CURR}" = "${SHA256SUM_EXPECTED}" ]; then
+					break
+				fi
+				if [ "${SHA256_AVAILABLE}" = "0" ]; then
+					if ! http_get_file "${URL}.md5sum" "${TMP_MD5}" "" insecure; then
+						ptxt_warn "MD5 metadata is missing or unavailable for ${FILENAME}; retrying download."
+					elif ! MD5SUM_EXPECTED="$(md5_manifest_digest "${TMP_MD5}")"; then
+						ptxt_warn "MD5 metadata is empty or invalid for ${FILENAME}; retrying download."
+					fi
+				fi
+				if [ "${SHA256_AVAILABLE}" = "0" ] && md5_is_valid "${MD5SUM_EXPECTED}"; then
 					ptxt_step "Verifying MD5 checksum for ${FILENAME}."
 					if ! MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"; then
 						ptxt_warn "MD5 digest calculation failed for ${FILENAME}; retrying download."
