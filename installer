@@ -2796,7 +2796,10 @@ check_dns_environment() {
 			case "${status}" in
 				0) changed="$((changed + 1))" ;;
 				2) ;;
-				*) DNS_ENV_PROFILE_CHANGED="${changed}"; return 1 ;;
+				*)
+					DNS_ENV_PROFILE_CHANGED="${changed}"
+					return 1
+					;;
 			esac
 		done
 		DNS_ENV_PROFILE_CHANGED="${changed}"
@@ -2809,10 +2812,22 @@ check_dns_environment() {
 		restored="0"
 		for key in dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; do
 			case "${key}" in
-				dnspriv_enable) old="${_OLD_dnspriv_enable}"; existed="${_OLD_dnspriv_enable_EXISTS}" ;;
-				dhcpd_dns_router) old="${_OLD_dhcpd_dns_router}"; existed="${_OLD_dhcpd_dns_router_EXISTS}" ;;
-				dhcp_dns1_x) old="${_OLD_dhcp_dns1_x}"; existed="${_OLD_dhcp_dns1_x_EXISTS}" ;;
-				dhcp_dns2_x) old="${_OLD_dhcp_dns2_x}"; existed="${_OLD_dhcp_dns2_x_EXISTS}" ;;
+				dnspriv_enable)
+					old="${_OLD_dnspriv_enable}"
+					existed="${_OLD_dnspriv_enable_EXISTS}"
+					;;
+				dhcpd_dns_router)
+					old="${_OLD_dhcpd_dns_router}"
+					existed="${_OLD_dhcpd_dns_router_EXISTS}"
+					;;
+				dhcp_dns1_x)
+					old="${_OLD_dhcp_dns1_x}"
+					existed="${_OLD_dhcp_dns1_x_EXISTS}"
+					;;
+				dhcp_dns2_x)
+					old="${_OLD_dhcp_dns2_x}"
+					existed="${_OLD_dhcp_dns2_x_EXISTS}"
+					;;
 			esac
 			if [ "${existed}" = "1" ]; then
 				nvram set "${key}=${old}" && restored="$((restored + 1))" || failed="$((failed + 1))"
