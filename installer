@@ -4386,6 +4386,7 @@ download_file() {
 					elif [ "${SHA256SUM_CURR}" != "${SHA256SUM_EXPECTED}" ]; then
 						ptxt_warn "SHA-256 checksum mismatch for ${FILENAME}; retrying download."
 					else
+						MD5SUM_CURR="$(file_md5 "${TMP_FILE}" 2>/dev/null)"
 						ptxt_ok "SHA-256 checksum verified for ${FILENAME}."
 					fi
 				fi
@@ -4478,7 +4479,7 @@ install_wan_event_scripts() {
 }
 
 inst_AdGuardHome() {
-	local ADGUARD_TAR INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
+	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
 	if ! ensure_sha256sum_tool; then
@@ -4635,6 +4636,8 @@ inst_AdGuardHome() {
 		else
 			ptxt_phase "Installing AdGuardHome package."
 			REMOTE_ADGUARD_ARCHIVE="$(adguard_remote_archive "$2")"
+			REMOTE_ADGUARD_MD5="$(adguard_remote_md5 "$2")"
+			REMOTE_ADGUARD_SHA256="$(adguard_remote_sha256 "$2")"
 			REMOTE_ADGUARD_URL="$(adguard_remote_url "$2")"
 			[ -z "${REMOTE_ADGUARD_ARCHIVE}" ] && REMOTE_ADGUARD_ARCHIVE="${ADGUARD_TAR}"
 			[ -z "${REMOTE_ADGUARD_URL}" ] && REMOTE_ADGUARD_URL="${URL_ARCH}/${REMOTE_ADGUARD_ARCHIVE}"
@@ -4642,6 +4645,23 @@ inst_AdGuardHome() {
 				PTXT "${ERROR} Unable to download AdGuardHome package for your router"
 				end_op_message 1 "$1"
 				return 1
+			fi
+			if sha256_is_valid "${REMOTE_ADGUARD_SHA256}"; then
+				ARCHIVE_SHA256="$(file_sha256 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || ARCHIVE_SHA256=""
+				if [ "${ARCHIVE_SHA256}" != "${REMOTE_ADGUARD_SHA256}" ]; then
+					PTXT "${ERROR} SHA-256 checksum mismatch for downloaded AdGuardHome package metadata."
+					rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+					end_op_message 1 "$1"
+					return 1
+				fi
+			elif md5_is_valid "${REMOTE_ADGUARD_MD5}"; then
+				ARCHIVE_MD5="$(file_md5 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || ARCHIVE_MD5=""
+				if [ "${ARCHIVE_MD5}" != "${REMOTE_ADGUARD_MD5}" ]; then
+					PTXT "${ERROR} MD5 checksum mismatch for downloaded AdGuardHome package metadata."
+					rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+					end_op_message 1 "$1"
+					return 1
+				fi
 			fi
 			if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
 			ptxt_step "Replacing AdGuardHome package with downloaded archive."

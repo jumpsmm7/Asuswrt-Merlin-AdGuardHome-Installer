@@ -134,7 +134,7 @@ printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS
 # A matching SHA-256 authorizes the staged file without cache-specific MD5
 # metadata.  MD5 may authorize it only when SHA-256 metadata or calculation is
 # unavailable.
-for checksum_case in upstream_sha_only sha_preferred sha_unavailable empty malformed mismatch hash_failure stale_retry missing_md5 empty_md5 malformed_md5 md5_mismatch md5_hash_failure; do
+for checksum_case in upstream_sha_only unchanged_sha sha_preferred sha_unavailable empty malformed mismatch hash_failure stale_retry missing_md5 empty_md5 malformed_md5 md5_mismatch md5_hash_failure; do
 	(
 		# shellcheck disable=SC1090
 		. "${FUNCTIONS_FILE}"
@@ -149,6 +149,9 @@ for checksum_case in upstream_sha_only sha_preferred sha_unavailable empty malfo
 		sha256_requests=0
 		printf '%s\n' 'old working copy' >"${TMP_DIR}/target/component"
 		printf '%s\n' 'new downloaded copy' >"${TMP_DIR}/payload"
+		if [ "${checksum_case}" = unchanged_sha ]; then
+			cp "${TMP_DIR}/target/component" "${TMP_DIR}/payload"
+		fi
 		PAYLOAD_SHA256="$(sha256sum "${TMP_DIR}/payload" | awk '{print $1}')"
 		PAYLOAD_MD5="$(md5sum "${TMP_DIR}/payload" | awk '{print $1}')"
 		# ai_have_cmd reports whether the specified command is available for the test scenario.
@@ -209,6 +212,13 @@ for checksum_case in upstream_sha_only sha_preferred sha_unavailable empty malfo
 					fail "${checksum_case} did not publish the verified target"
 				[ "${final_chmod}" -eq 1 ] || fail "${checksum_case} did not apply final permissions"
 				;;
+			unchanged_sha)
+				download_file "${TMP_DIR}/target" 755 "https://example.invalid/component" >"${TMP_DIR}/${checksum_case}.out" 2>&1 ||
+					fail "download_file rejected ${checksum_case} verification"
+				[ "${final_chmod}" -eq 0 ] || fail "${checksum_case} replaced the unchanged target"
+				grep -q 'is up to date' "${TMP_DIR}/${checksum_case}.out" ||
+					fail "${checksum_case} did not report the unchanged target"
+				;;
 			*)
 				if download_file "${TMP_DIR}/target" 755 "https://example.invalid/component" >"${TMP_DIR}/${checksum_case}.out" 2>&1; then
 					fail "download_file accepted ${checksum_case} checksum metadata"
@@ -225,7 +235,7 @@ for checksum_case in upstream_sha_only sha_preferred sha_unavailable empty malfo
 			fail "retry did not discard the prior SHA-256 digest"
 		fi
 		case "${checksum_case}" in
-			upstream_sha_only | sha_preferred | empty | malformed | mismatch)
+			upstream_sha_only | unchanged_sha | sha_preferred | empty | malformed | mismatch)
 				[ "${md5_requests}" -eq 0 ] || fail "${checksum_case} unexpectedly requested MD5 metadata"
 				;;
 			sha_unavailable | hash_failure | missing_md5 | empty_md5 | malformed_md5 | md5_mismatch | md5_hash_failure)
