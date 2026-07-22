@@ -9,7 +9,10 @@ FUNCTIONS_FILE="${TEST_ROOT}/functions"
 NVRAM_FILE="${TEST_ROOT}/nvram"
 CALLS_FILE="${TEST_ROOT}/calls"
 
-fail() { printf '%s\n' "FAIL: $*" >&2; exit 1; }
+fail() {
+	printf '%s\n' "FAIL: $*" >&2
+	exit 1
+}
 cleanup() { rm -rf "${TEST_ROOT}"; }
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
@@ -56,7 +59,8 @@ nvram() {
 			printf '%s\n' "set $2" >>"${CALLS_FILE}"
 			[ "${FAIL_ALL_SETS:-0}" = 0 ] || return 1
 			[ "${FAIL_SET_AT:-0}" != "${SET_COUNT}" ] || return 1
-			key="${2%%=*}"; value="${2#*=}"
+			key="${2%%=*}"
+			value="${2#*=}"
 			awk -v key="${key}" -v value="${value}" 'BEGIN { done=0 } index($0,key "=")==1 { print key "=" value; done=1; next } { print } END { if (!done) print key "=" value }' "${NVRAM_FILE}" >"${NVRAM_FILE}.new" && mv "${NVRAM_FILE}.new" "${NVRAM_FILE}"
 			;;
 		unset)
