@@ -152,6 +152,9 @@ pidof() {
 # netstat simulates netstat output for configured DNS and WebUI ownership states, or fails when NETSTAT_FAIL is enabled.
 netstat() {
 	printf '%s\n' netstat >>"${NETSTAT_CALLS_FILE}"
+	if [ -n "${NETSTAT_FAIL_AFTER_KILL_FILE:-}" ] && [ -e "${NETSTAT_FAIL_AFTER_KILL_FILE}" ]; then
+		return 1
+	fi
 	if [ -n "${NETSTAT_FAIL_ONCE_FILE:-}" ] && [ ! -e "${NETSTAT_FAIL_ONCE_FILE}" ]; then
 		: >"${NETSTAT_FAIL_ONCE_FILE}"
 		return 1
@@ -222,6 +225,7 @@ kill() {
 			return 1
 		fi
 		[ "${KILL_RELEASES_PORT:-0}" -eq 1 ] && DNS_STATE=free
+		[ -n "${NETSTAT_FAIL_AFTER_KILL_FILE:-}" ] && : >"${NETSTAT_FAIL_AFTER_KILL_FILE}"
 		return 0
 	fi
 	command kill "$@"
@@ -255,6 +259,16 @@ dns_port_available global "${DNS_SOCKET_SNAPSHOT}" || fail 'post-kill snapshot d
 [ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -eq 3 ] || fail 'kill path did not refresh ownership before and after signaling'
 KILL_RELEASES_PORT=0
 unset ADGUARDHOME_FORCE_DNS_PORT_KILL
+
+: >"${CALLS_FILE}"
+DNS_STATE=busy
+KILL_RELEASES_PORT=1
+NETSTAT_FAIL_AFTER_KILL_FILE="${TEST_ROOT}/netstat-fail-after-kill"
+rm -f "${NETSTAT_FAIL_AFTER_KILL_FILE}"
+kill_dns_port_owners || fail 'successful DNS owner kill was rejected after a transient snapshot refresh failure'
+grep -q '^kill -s 9 123$' "${CALLS_FILE}" || fail 'DNS owner was not killed before the snapshot refresh failure'
+unset NETSTAT_FAIL_AFTER_KILL_FILE
+KILL_RELEASES_PORT=0
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy
@@ -745,6 +759,19 @@ stop_dns_port_guard
 
 : >"${CALLS_FILE}"
 DNS_STATE=free
+NETSTAT_FAIL_ONCE_FILE="${TEST_ROOT}/guard-netstat-failed-once"
+rm -f "${NETSTAT_FAIL_ONCE_FILE}"
+ADGUARDHOME_DNS_GUARD_RETRIES=3
+start_dns_port_guard &
+ADGUARDHOME_DNS_GUARD_PID="$!"
+command sleep 0.01
+[ -e "${NETSTAT_FAIL_ONCE_FILE}" ] || fail 'DNS guard did not exercise the transient netstat failure pathway'
+command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || fail 'DNS guard exited after a transient netstat failure'
+stop_dns_port_guard
+unset NETSTAT_FAIL_ONCE_FILE
+
+: >"${CALLS_FILE}"
+DNS_STATE=free
 SLEEP_CALLS=0
 SLEEP_BUSY_AFTER=1
 KILL_RELEASES_PORT=0
@@ -871,6 +898,20 @@ NETSTAT_FAIL=0
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy
+KILL_RELEASES_PORT=1
+NETSTAT_FAIL_ONCE_FILE="${TEST_ROOT}/pre-start-netstat-failed-once"
+rm -f "${NETSTAT_FAIL_ONCE_FILE}"
+ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
+ADGUARDHOME_DNS_GUARD_RETRIES=0
+pre_start_adguardhome || fail 'pre-start did not retry after a transient netstat failure'
+grep -q '^kill -s 9 123$' "${CALLS_FILE}" || fail 'pre-start did not release the DNS owner after retrying snapshot collection'
+stop_dns_port_guard
+disable_dns_handoff || fail 'could not clean up transient-failure pre-start handoff'
+unset NETSTAT_FAIL_ONCE_FILE
+KILL_RELEASES_PORT=0
+
+: >"${CALLS_FILE}"
+DNS_STATE=busy
 KILL_RELEASES_PORT=0
 SLEEP_SETS_OWNED=1
 ADGUARDHOME_DNS_GUARD_RETRIES=3
@@ -915,6 +956,17 @@ ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
 post_start_adguardhome || fail 'post-start did not retry after a transient netstat failure'
 [ "${SLEEP_CALLS}" -eq 1 ] || fail 'transient netstat failure did not consume one bounded retry'
 unset NETSTAT_FAIL_ONCE_FILE ADGUARDHOME_SKIP_DNSMASQ_RESTART
+
+: >"${CALLS_FILE}"
+DNS_STATE=missing
+SLEEP_CALLS=0
+NETSTAT_FAIL=1
+ADGUARDHOME_DNS_WAIT_RETRIES=30
+if post_start_adguardhome; then
+	fail 'post-start succeeded after AdGuardHome exited during failed socket inspection'
+fi
+[ "${SLEEP_CALLS}" -eq 0 ] || fail 'post-start slept after detecting AdGuardHome exit during failed socket inspection'
+NETSTAT_FAIL=0
 
 : >"${CALLS_FILE}"
 DNS_STATE=missing
