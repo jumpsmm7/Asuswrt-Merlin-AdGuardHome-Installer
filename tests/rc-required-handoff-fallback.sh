@@ -189,6 +189,24 @@ grep -q 'Failed to prepare startup trap state for AdGuardHome from test\.' "${CA
 	fail 'trap-state preparation failure was not logged'
 assert_trap_workspace_removed
 
+# Workspace paths must be cleanup-visible before mkdir creates the directory.
+set +e
+rm -f "${TMP_ROOT}/workspace-published"
+(
+	mkdir() {
+		[ "${ADGUARDHOME_START_TRAP_DIR:-}" = "$1" ] || return 91
+		[ "${ADGUARDHOME_START_TRAP_FILE:-}" = "$1/state" ] || return 92
+		: >"${TMP_ROOT}/workspace-published"
+		return 1
+	}
+	adguardhome_start_traps_save
+)
+_workspace_publish_status="$?"
+set -e
+[ "${_workspace_publish_status}" -eq 1 ] || fail "trap workspace was not published before mkdir (${_workspace_publish_status})"
+[ -f "${TMP_ROOT}/workspace-published" ] || fail 'mkdir could not see the published trap workspace'
+assert_trap_workspace_removed
+
 # Predictable legacy directory names must not be able to deny startup.
 _collision_counter=0
 while [ "${_collision_counter}" -lt 10 ]; do

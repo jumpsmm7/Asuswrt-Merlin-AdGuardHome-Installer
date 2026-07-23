@@ -242,11 +242,14 @@ adguardhome_start_traps_save() {
 		_NONCE="${_NONCE%% *}"
 		[ -n "${_NONCE}" ] || return 1
 		_TRAP_DIR="/tmp/AdGuardHome-start-traps.$$.$_NONCE"
+		# Publish the candidate before mkdir so interruption cleanup can see it.
+		ADGUARDHOME_START_TRAP_DIR="${_TRAP_DIR}"
+		ADGUARDHOME_START_TRAP_FILE="${_TRAP_DIR}/state"
 		if (umask 077 && mkdir "${_TRAP_DIR}") 2>/dev/null; then
-			ADGUARDHOME_START_TRAP_DIR="${_TRAP_DIR}"
-			ADGUARDHOME_START_TRAP_FILE="${_TRAP_DIR}/state"
 			break
 		fi
+		ADGUARDHOME_START_TRAP_DIR=""
+		ADGUARDHOME_START_TRAP_FILE=""
 		_COUNTER="$((_COUNTER + 1))"
 	done
 	[ "${_COUNTER}" -lt 10 ] || return 1
