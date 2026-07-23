@@ -162,6 +162,12 @@ trap_snapshot() {
 	trap >"$1"
 }
 
+# managed_trap_count makes the preservation checks non-vacuous: custom and
+# ignored dispositions must be present in snapshots captured by the test shell.
+managed_trap_count() {
+	awk '/ (SIG)?(HUP|INT|TERM)$/ { count++ } END { print count + 0 }' "$1"
+}
+
 # assert_trap_workspace_removed checks both the private state variables and the
 # predictable PID portion of the temporary directory name.
 assert_trap_workspace_removed() {
@@ -267,6 +273,7 @@ assert_trap_workspace_removed
 	trap 'printf "%s\n" "caller
 signal" >/dev/null' HUP
 	trap_snapshot "${TMP_ROOT}/before-multiline-traps"
+	[ "$(managed_trap_count "${TMP_ROOT}/before-multiline-traps")" -eq 1 ] || exit 1
 	adguardhome_start_traps_save || exit 1
 	trap - HUP
 	adguardhome_start_traps_restore
@@ -286,12 +293,20 @@ run_with_trap_disposition() {
 		default) trap - HUP INT TERM ;;
 	esac
 	trap_snapshot "${TMP_ROOT}/before-traps"
+	case "${_disposition}" in
+		custom | ignored) _expected_trap_count=3 ;;
+		default) _expected_trap_count=0 ;;
+	esac
+	[ "$(managed_trap_count "${TMP_ROOT}/before-traps")" -eq "${_expected_trap_count}" ] ||
+		fail "${_disposition} traps were not captured in the current test shell"
 	set +e
 	start >/dev/null
 	_status="$?"
 	set -e
 	trap_snapshot "${TMP_ROOT}/after-traps"
 	[ "${_status}" -eq "${_expected_status}" ] || fail "${_disposition} traps: unexpected start status ${_status}"
+	[ "$(managed_trap_count "${TMP_ROOT}/after-traps")" -eq "${_expected_trap_count}" ] ||
+		fail "${_disposition} traps were not retained in the current test shell"
 	[ "$(cat "${TMP_ROOT}/after-traps")" = "$(cat "${TMP_ROOT}/before-traps")" ] || fail "${_disposition} traps were not restored exactly"
 	assert_trap_workspace_removed
 }
