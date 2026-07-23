@@ -23,6 +23,16 @@ fail() {
 	exit 1
 }
 
+wait_for_file() {
+	_wait_file="$1"
+	_wait_attempts=0
+	while [ ! -e "${_wait_file}" ] && [ "${_wait_attempts}" -lt 100 ]; do
+		_wait_attempts="$((_wait_attempts + 1))"
+		command sleep 0.01
+	done
+	[ -e "${_wait_file}" ]
+}
+
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
@@ -764,8 +774,7 @@ rm -f "${NETSTAT_FAIL_ONCE_FILE}"
 ADGUARDHOME_DNS_GUARD_RETRIES=3
 start_dns_port_guard &
 ADGUARDHOME_DNS_GUARD_PID="$!"
-command sleep 0.01
-[ -e "${NETSTAT_FAIL_ONCE_FILE}" ] || fail 'DNS guard did not exercise the transient netstat failure pathway'
+wait_for_file "${NETSTAT_FAIL_ONCE_FILE}" || fail 'DNS guard did not exercise the transient netstat failure pathway'
 command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || fail 'DNS guard exited after a transient netstat failure'
 stop_dns_port_guard
 unset NETSTAT_FAIL_ONCE_FILE
