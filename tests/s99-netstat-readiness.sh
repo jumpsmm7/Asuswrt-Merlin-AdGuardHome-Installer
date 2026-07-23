@@ -21,7 +21,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_owned_status() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^adguardhome_dns_bind_scope() {$/,/^}$/p; /^dns_port_owner_command() {$/,/^}$/p; /^dns_port_owner_process_name() {$/,/^}$/p; /^dns_port_unknown_refusal_enabled() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^dns_port_has_foreign_owner() {$/,/^}$/p; /^dns_port_needs_release() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p' \
+	'/^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_owned_status() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^dns_socket_snapshot() {$/,/^}$/p; /^dns_socket_snapshot_value() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^adguardhome_dns_bind_scope() {$/,/^}$/p; /^dns_port_owner_command() {$/,/^}$/p; /^dns_port_owner_process_name() {$/,/^}$/p; /^dns_port_unknown_refusal_enabled() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^dns_port_has_foreign_owner() {$/,/^}$/p; /^dns_port_needs_release() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p' \
 	"${S99_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${S99_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'S99 netstat readiness functions were not found'
 grep -q '^adguardhome_single_process_running() {$' "${FUNCTIONS_FILE}" || fail 'single-process fallback helper was not found'
@@ -32,9 +32,11 @@ grep -q '^adguardhome_single_process_running() {$' "${FUNCTIONS_FILE}" || fail '
 PROCS='AdGuardHome'
 WORK_DIR="${TEST_ROOT}/AdGuardHome"
 CALLS_FILE="${TEST_ROOT}/calls"
+NETSTAT_CALLS_FILE="${TEST_ROOT}/netstat-calls"
 mkdir -p "${WORK_DIR}" || fail 'could not create AdGuardHome work directory'
 printf '%s\n' 'http:' '  address: 0.0.0.0:3000' >"${WORK_DIR}/AdGuardHome.yaml" || fail 'could not create YAML stub'
 : >"${CALLS_FILE}" || fail 'could not create calls file'
+: >"${NETSTAT_CALLS_FILE}" || fail 'could not create netstat calls file'
 
 # agh_lan_mode reports whether LAN mode is enabled.
 agh_lan_mode() {
@@ -88,6 +90,7 @@ pidof() {
 
 # netstat emits simulated socket listings selected by NETSTAT_STATE for readiness and ownership tests.
 netstat() {
+	printf '%s\n' netstat >>"${NETSTAT_CALLS_FILE}"
 	case "${NETSTAT_STATE:-owned}" in
 		owned)
 			printf '%s\n' \
@@ -166,16 +169,35 @@ if dns_port_needs_release; then
 	fail 'release check reported AdGuardHome as needing release'
 fi
 
+: >"${NETSTAT_CALLS_FILE}"
+dns_socket_snapshot || fail 'could not collect a shared DNS socket snapshot'
+adguardhome_owns_dns global "${DNS_SOCKET_SNAPSHOT}" || fail 'shared snapshot rejected AdGuardHome ownership'
+dns_port_available global "${DNS_SOCKET_SNAPSHOT}" || fail 'shared snapshot rejected DNS availability'
+if dns_port_has_foreign_owner global "${DNS_SOCKET_SNAPSHOT}"; then
+	fail 'shared snapshot reported an AdGuardHome socket as foreign'
+fi
+if dns_port_needs_release global "${DNS_SOCKET_SNAPSHOT}"; then
+	fail 'shared snapshot reported an AdGuardHome socket as needing release'
+fi
+[ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -eq 1 ] || fail 'DNS helpers recollected netstat instead of sharing one snapshot'
+NETSTAT_STATE=foreign_dnsmasq
+dns_port_available global "${DNS_SOCKET_SNAPSHOT}" || fail 'snapshot changed before an explicit refresh'
+dns_socket_snapshot || fail 'could not refresh the changed DNS socket state'
+if dns_port_available global "${DNS_SOCKET_SNAPSHOT}"; then
+	fail 'refreshed snapshot did not expose changed DNS socket ownership'
+fi
+[ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -eq 2 ] || fail 'changed DNS state was not collected exactly once per snapshot'
+
 NETSTAT_STATE=no_owner
-adguardhome_owns_dns || fail 'DNS fallback rejected bound TCP/UDP port 53 without PID/program ownership'
+if adguardhome_owns_dns; then
+	fail 'DNS readiness accepted bound TCP/UDP port 53 without PID/program ownership'
+fi
 adguardhome_web_port_available || fail 'WebUI fallback rejected bound port without PID/program ownership'
-dns_port_available || fail 'DNS port availability rejected bound ownerless port 53 with one AdGuardHome process'
-if dns_port_has_foreign_owner; then
-	fail 'ownerless DNS port was treated as an explicit foreign owner'
+if dns_port_available; then
+	fail 'DNS port availability accepted bound ownerless port 53'
 fi
-if dns_port_needs_release; then
-	fail 'release check rejected ownerless DNS port with one AdGuardHome process'
-fi
+dns_port_has_foreign_owner || fail 'ownerless DNS port was not treated as unsafe ownership'
+dns_port_needs_release || fail 'release check missed bound ownerless port 53'
 
 PIDOF_STATE=two
 if adguardhome_owns_dns; then
