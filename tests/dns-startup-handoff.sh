@@ -49,6 +49,8 @@ grep -q 'restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"' "${S99_PATH}
 	fail 'pre-start watchdog trap cleanup does not restore caller traps'
 grep -q 'restore_dns_watchdog_traps "${_dns_guard_saved_traps}"' "${S99_PATH}" ||
 	fail 'DNS guard watchdog trap cleanup does not restore caller traps'
+sed -n '/^abort_pre_start_adguardhome() {$/,/^}$/p' "${S99_PATH}" | grep -q 'adguardhome_start_traps_cleanup' ||
+	fail 'pre-start signal recovery does not clean the rc.func trap workspace'
 
 WATCHD_NICE_SNAPSHOT=""
 

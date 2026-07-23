@@ -171,6 +171,32 @@ assert_trap_workspace_removed() {
 	[ "$1" = "/tmp/AdGuardHome-start-traps.$$.*" ] || fail 'private trap state directory was not removed'
 }
 
+# Predictable legacy directory names must not be able to deny startup.
+_collision_counter=0
+while [ "${_collision_counter}" -lt 10 ]; do
+	mkdir "/tmp/AdGuardHome-start-traps.$$.$_collision_counter" || fail 'could not prepare trap directory collision'
+	_collision_counter="$((_collision_counter + 1))"
+done
+adguardhome_start_traps_save || fail 'predictable trap directory collisions denied startup'
+adguardhome_start_traps_restore
+_collision_counter=0
+while [ "${_collision_counter}" -lt 10 ]; do
+	rmdir "/tmp/AdGuardHome-start-traps.$$.$_collision_counter" || fail 'could not remove trap directory collision'
+	_collision_counter="$((_collision_counter + 1))"
+done
+
+# Saving signal traps must neither capture nor later restore an unrelated EXIT trap.
+(
+	trap 'printf "%s\n" initial_exit >/dev/null' 0
+	adguardhome_start_traps_save || exit 1
+	trap 'printf "%s\n" replacement_exit >/dev/null' 0
+	_before_exit_trap="$(trap_snapshot | grep 'EXIT\| 0$')"
+	adguardhome_start_traps_restore
+	_after_exit_trap="$(trap_snapshot | grep 'EXIT\| 0$')"
+	[ "${_after_exit_trap}" = "${_before_exit_trap}" ]
+) || fail 'signal trap restoration changed an unrelated EXIT trap'
+assert_trap_workspace_removed
+
 # run_with_trap_disposition verifies exact preservation for custom, ignored,
 # and default signal dispositions around a selected startup result.
 run_with_trap_disposition() {

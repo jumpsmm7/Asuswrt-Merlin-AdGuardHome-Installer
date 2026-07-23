@@ -233,12 +233,15 @@ adguardhome_start_traps_restore() {
 }
 
 adguardhome_start_traps_save() {
-	local _COUNTER _OLD_UMASK _TRAP_DIR _TRAP_FILE
+	local _COUNTER _NONCE _OLD_UMASK _TRAP_ALL_FILE _TRAP_DIR _TRAP_FILE
 	_COUNTER=0
 	ADGUARDHOME_START_TRAP_DIR=""
 	ADGUARDHOME_START_TRAP_FILE=""
 	while [ "${_COUNTER}" -lt 10 ]; do
-		_TRAP_DIR="/tmp/AdGuardHome-start-traps.$$.$_COUNTER"
+		_NONCE="$(dd if=/dev/urandom bs=16 count=1 2>/dev/null | md5sum)"
+		_NONCE="${_NONCE%% *}"
+		[ -n "${_NONCE}" ] || return 1
+		_TRAP_DIR="/tmp/AdGuardHome-start-traps.$$.$_NONCE"
 		if (umask 077 && mkdir "${_TRAP_DIR}") 2>/dev/null; then
 			break
 		fi
@@ -250,10 +253,16 @@ adguardhome_start_traps_save() {
 		return 1
 	}
 	_TRAP_FILE="${_TRAP_DIR}/state"
+	_TRAP_ALL_FILE="${_TRAP_DIR}/all"
 	_OLD_UMASK="$(umask)"
 	umask 077
-	trap | grep -E ' (SIG)?(HUP|INT|TERM)$' >"${_TRAP_FILE}"
-	_COUNTER="$?"
+	if trap >"${_TRAP_ALL_FILE}"; then
+		grep -E ' (SIG)?(HUP|INT|TERM)$' "${_TRAP_ALL_FILE}" >"${_TRAP_FILE}"
+		_COUNTER="$?"
+	else
+		_COUNTER=2
+	fi
+	rm -f "${_TRAP_ALL_FILE}" 2>/dev/null
 	umask "${_OLD_UMASK}"
 	[ "${_COUNTER}" -eq 0 ] || [ "${_COUNTER}" -eq 1 ] || {
 		rm -f "${_TRAP_FILE}" 2>/dev/null
