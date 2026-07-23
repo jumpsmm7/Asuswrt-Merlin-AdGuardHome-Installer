@@ -1483,6 +1483,7 @@ ensure_adguardhome_work_dir_permissions() {
 pre_start_adguardhome() {
 	_dns_stop_attempts="0"
 	_dns_snapshot_attempts="0"
+	_dns_snapshot_failed="0"
 	_dns_stop_limit="$(dns_retry_limit "${ADGUARDHOME_DNSMASQ_STOP_RETRIES:-}" 10)"
 	_dns_bind_scope="$(adguardhome_dns_bind_scope)"
 	ADGUARDHOME_DNS_BIND_SCOPE="${_dns_bind_scope}"
@@ -1575,11 +1576,15 @@ pre_start_adguardhome() {
 			# Inspection failures have their own bounded allowance so a
 			# transient netstat error does not consume a port-release attempt.
 			_dns_snapshot_attempts="$((_dns_snapshot_attempts + 1))"
-			[ "${_dns_snapshot_attempts}" -gt "${_dns_stop_limit}" ] && break
+			if [ "${_dns_snapshot_attempts}" -ge "${_dns_stop_limit}" ]; then
+				_dns_snapshot_failed="1"
+				break
+			fi
 			sleep 1s
 			continue
 		}
 		_dns_snapshot_attempts="0"
+		_dns_snapshot_failed="0"
 		if dns_port_available "${_dns_bind_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
 			start_dns_port_guard >/dev/null 2>&1 &
 			ADGUARDHOME_DNS_GUARD_PID="$!"
@@ -1605,7 +1610,11 @@ pre_start_adguardhome() {
 		fi
 		sleep 1s
 	done
-	agh_log ERROR pre_start_adguardhome "Unable to release port 53 after ${_dns_stop_limit} attempt(s); startup aborted."
+	if [ "${_dns_snapshot_failed}" = "1" ]; then
+		agh_log ERROR pre_start_adguardhome "Unable to inspect port 53 ownership after ${_dns_stop_limit} attempt(s); startup aborted."
+	else
+		agh_log ERROR pre_start_adguardhome "Unable to release port 53 after ${_dns_stop_limit} attempt(s); startup aborted."
+	fi
 	post_start_failure_adguardhome
 	restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
 	return 1

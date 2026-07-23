@@ -903,6 +903,7 @@ if pre_start_adguardhome; then
 	fail 'pre-start succeeded while port ownership could not be inspected'
 fi
 ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'pre-start stopped dnsmasq without confirming a foreign port 53 owner'
+grep -q 'Unable to inspect port 53 ownership after 2 attempt(s)' "${CALLS_FILE}" || fail 'pre-start did not report the exhausted snapshot retries'
 NETSTAT_FAIL=0
 
 : >"${CALLS_FILE}"
