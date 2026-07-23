@@ -221,19 +221,25 @@ adguardhome_start_traps_cleanup() {
 }
 
 adguardhome_start_traps_restore() {
-	local _TRAP_FILE
+	local _TRAP_FILE _TRAP_STATE
 	_TRAP_FILE="${ADGUARDHOME_START_TRAP_FILE:-}"
-	trap - HUP INT TERM
+	# Keep managed signals blocked until the private workspace is gone.  The
+	# combined eval then resets defaults and restores saved handlers last.
+	trap '' HUP INT TERM
 	if [ -n "${_TRAP_FILE}" ] && [ -f "${_TRAP_FILE}" ] && [ ! -L "${_TRAP_FILE}" ]; then
 		# The shell generated this file inside a directory created mode 700 below.
-		# Sourcing it preserves handlers verbatim without parsing or evaluating input.
-		. "${_TRAP_FILE}"
+		# Preserve the shell-generated commands verbatim for the final eval below.
+		_TRAP_STATE="$(cat "${_TRAP_FILE}")"
+	else
+		_TRAP_STATE=""
 	fi
 	adguardhome_start_traps_cleanup
+	eval "trap - HUP INT TERM
+${_TRAP_STATE}"
 }
 
 adguardhome_start_traps_save() {
-	local _COUNTER _NONCE _OLD_UMASK _TRAP_ALL_FILE _TRAP_DIR _TRAP_FILE
+	local _COUNTER _NONCE _OLD_UMASK _TRAP_ALL_FILE _TRAP_DIR _TRAP_FILE _TRAP_STATE
 	_COUNTER=0
 	ADGUARDHOME_START_TRAP_DIR=""
 	ADGUARDHOME_START_TRAP_FILE=""
@@ -291,21 +297,25 @@ adguardhome_start_traps_save() {
 	fi
 	umask "${_OLD_UMASK}"
 	[ "${_COUNTER}" -eq 0 ] || {
-		. "${_TRAP_ALL_FILE}"
+		_TRAP_STATE="$(cat "${_TRAP_ALL_FILE}" 2>/dev/null)"
 		rm -f "${_TRAP_ALL_FILE}" 2>/dev/null
 		rm -f "${_TRAP_FILE}" 2>/dev/null
 		rmdir "${_TRAP_DIR}" 2>/dev/null
 		ADGUARDHOME_START_TRAP_DIR=""
 		ADGUARDHOME_START_TRAP_FILE=""
+		eval "trap - HUP INT TERM
+${_TRAP_STATE}"
 		return 1
 	}
 	rm -f "${_TRAP_ALL_FILE}" 2>/dev/null
 	[ -f "${_TRAP_FILE}" ] && [ ! -L "${_TRAP_FILE}" ] && chmod 600 "${_TRAP_FILE}" 2>/dev/null || {
-		. "${_TRAP_FILE}"
+		_TRAP_STATE="$(cat "${_TRAP_FILE}" 2>/dev/null)"
 		rm -f "${_TRAP_FILE}" 2>/dev/null
 		rmdir "${_TRAP_DIR}" 2>/dev/null
 		ADGUARDHOME_START_TRAP_DIR=""
 		ADGUARDHOME_START_TRAP_FILE=""
+		eval "trap - HUP INT TERM
+${_TRAP_STATE}"
 		return 1
 	}
 }

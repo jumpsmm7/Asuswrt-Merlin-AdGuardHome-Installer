@@ -156,10 +156,10 @@ grep -q '^pre_hook$' "${CALLS_FILE}" || fail 'no-handoff start skipped the pre-s
 grep -q '^post_hook$' "${CALLS_FILE}" || fail 'no-handoff start skipped the post-start hook'
 [ -f "${STARTED_FILE}" ] || fail 'no-handoff start did not launch AdGuardHome'
 
-# trap_snapshot prints the shell's current trap dispositions. POSIX requires a
-# command substitution containing only trap to preserve the caller's trap state.
+# trap_snapshot writes dispositions in the current shell; command substitution
+# would reset caught traps in dash and other POSIX shells.
 trap_snapshot() {
-	trap
+	trap >"$1"
 }
 
 # assert_trap_workspace_removed checks both the private state variables and the
@@ -188,6 +188,30 @@ grep -q 'failed\.' "${TMP_ROOT}/trap-save-failure-output" || fail 'trap-state pr
 grep -q 'Failed to prepare startup trap state for AdGuardHome from test\.' "${CALLS_FILE}" ||
 	fail 'trap-state preparation failure was not logged'
 assert_trap_workspace_removed
+
+# Save rollback must reset originally-default signals after filtering or final
+# permission setup fails; bare trap snapshots omit default dispositions.
+for _rollback_stage in filter chmod; do
+	(
+		trap - HUP INT TERM
+		trap_snapshot "${TMP_ROOT}/rollback-before-${_rollback_stage}"
+		case "${_rollback_stage}" in
+			filter)
+				awk() { return 1; }
+				;;
+			chmod)
+				chmod() {
+					[ "$1" = 600 ] && return 1
+					command chmod "$@"
+				}
+				;;
+		esac
+		adguardhome_start_traps_save && exit 1
+		trap_snapshot "${TMP_ROOT}/rollback-after-${_rollback_stage}"
+		[ "$(cat "${TMP_ROOT}/rollback-after-${_rollback_stage}")" = "$(cat "${TMP_ROOT}/rollback-before-${_rollback_stage}")" ]
+	) || fail "${_rollback_stage} failure did not restore default signal dispositions"
+	assert_trap_workspace_removed
+done
 
 # Workspace paths must be cleanup-visible before mkdir creates the directory.
 set +e
@@ -230,10 +254,10 @@ done
 	[ "$(wc -l <"${TMP_ROOT}/saved-signal-traps")" -eq 3 ] || exit 1
 	[ "$(cat "${ADGUARDHOME_START_TRAP_FILE}")" = "$(cat "${TMP_ROOT}/saved-signal-traps")" ] || exit 1
 	trap 'printf "%s\n" replacement_exit >/dev/null' 0
-	_before_exit_trap="$(trap_snapshot | grep 'EXIT\| 0$')"
+	trap_snapshot "${TMP_ROOT}/before-exit-traps"
 	adguardhome_start_traps_restore
-	_after_exit_trap="$(trap_snapshot | grep 'EXIT\| 0$')"
-	[ "${_after_exit_trap}" = "${_before_exit_trap}" ]
+	trap_snapshot "${TMP_ROOT}/after-exit-traps"
+	[ "$(grep 'EXIT\| 0$' "${TMP_ROOT}/after-exit-traps")" = "$(grep 'EXIT\| 0$' "${TMP_ROOT}/before-exit-traps")" ]
 ) || fail 'saved trap state was not restricted to HUP, INT, and TERM'
 rm -f "${TMP_ROOT}/saved-signal-traps"
 assert_trap_workspace_removed
@@ -242,12 +266,12 @@ assert_trap_workspace_removed
 (
 	trap 'printf "%s\n" "caller
 signal" >/dev/null' HUP
-	_before_multiline_trap="$(trap_snapshot)"
+	trap_snapshot "${TMP_ROOT}/before-multiline-traps"
 	adguardhome_start_traps_save || exit 1
 	trap - HUP
 	adguardhome_start_traps_restore
-	_after_multiline_trap="$(trap_snapshot)"
-	[ "${_after_multiline_trap}" = "${_before_multiline_trap}" ]
+	trap_snapshot "${TMP_ROOT}/after-multiline-traps"
+	[ "$(cat "${TMP_ROOT}/after-multiline-traps")" = "$(cat "${TMP_ROOT}/before-multiline-traps")" ]
 ) || fail 'multiline signal trap action was not preserved intact'
 assert_trap_workspace_removed
 
@@ -261,14 +285,14 @@ run_with_trap_disposition() {
 		ignored) trap '' HUP INT TERM ;;
 		default) trap - HUP INT TERM ;;
 	esac
-	_before_traps="$(trap_snapshot)"
+	trap_snapshot "${TMP_ROOT}/before-traps"
 	set +e
 	start >/dev/null
 	_status="$?"
 	set -e
-	_after_traps="$(trap_snapshot)"
+	trap_snapshot "${TMP_ROOT}/after-traps"
 	[ "${_status}" -eq "${_expected_status}" ] || fail "${_disposition} traps: unexpected start status ${_status}"
-	[ "${_after_traps}" = "${_before_traps}" ] || fail "${_disposition} traps were not restored exactly"
+	[ "$(cat "${TMP_ROOT}/after-traps")" = "$(cat "${TMP_ROOT}/before-traps")" ] || fail "${_disposition} traps were not restored exactly"
 	assert_trap_workspace_removed
 }
 
@@ -361,8 +385,8 @@ for INTERRUPT_PHASE in pre handoff launch post; do
 	esac
 	(
 		trap 'printf "%s\n" caller_signal >>"${CALLS_FILE}"' HUP INT TERM
-		trap_snapshot >"${INTERRUPT_BEFORE_FILE}"
-		trap 'trap_snapshot >"${INTERRUPT_AFTER_FILE}"' 0
+		trap_snapshot "${INTERRUPT_BEFORE_FILE}"
+		trap 'trap_snapshot "${INTERRUPT_AFTER_FILE}"' 0
 		set +e
 		start >/dev/null
 	) &
@@ -395,7 +419,7 @@ for REPEAT_PHASE in stop postfail; do
 	: >"${CALLS_FILE}"
 	(
 		trap 'printf "%s\n" caller_signal >>"${CALLS_FILE}"' HUP INT TERM
-		trap_snapshot >"${REPEAT_BEFORE_FILE}"
+		trap_snapshot "${REPEAT_BEFORE_FILE}"
 		stop_launched_process() {
 			if [ "${REPEAT_PHASE}" = "stop" ]; then
 				: >"${REPEAT_READY_FILE}"
@@ -409,7 +433,7 @@ for REPEAT_PHASE in stop postfail; do
 			fi
 			printf '%s\n' repeat_post_failure >>"${CALLS_FILE}"
 		}
-		trap 'trap_snapshot >"${REPEAT_AFTER_FILE}"' 0
+		trap 'trap_snapshot "${REPEAT_AFTER_FILE}"' 0
 		adguardhome_start_traps_save || exit 1
 		trap 'adguardhome_start_signal_abort' HUP INT TERM
 		: >"${REPEAT_ARMED_FILE}"

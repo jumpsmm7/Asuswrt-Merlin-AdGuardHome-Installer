@@ -1174,10 +1174,10 @@ abort_pre_start_adguardhome() {
 	trap '' HUP INT TERM
 	trap - EXIT
 	post_start_failure_adguardhome
-	if type adguardhome_start_traps_cleanup >/dev/null 2>&1; then
-		adguardhome_start_traps_cleanup
-	fi
 	restore_dns_watchdog_traps "${_dns_watchdog_abort_saved_traps}"
+	if type adguardhome_start_traps_restore >/dev/null 2>&1; then
+		adguardhome_start_traps_restore
+	fi
 	exit 1
 }
 
