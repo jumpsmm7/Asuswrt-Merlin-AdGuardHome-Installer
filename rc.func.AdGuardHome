@@ -260,7 +260,12 @@ adguardhome_start_traps_save() {
 		# Thus no signal can strand a directory between mkdir and handler setup.
 		_OLD_UMASK="$(umask)"
 		umask 077
-		if ! { trap; } >"${_TRAP_ALL_FILE}"; then
+		# Install the deferral handler in the same compound command as the
+		# snapshot, before the shell can run the next external/setup command.
+		if ! {
+			trap
+			trap 'ADGUARDHOME_START_SIGNAL_PENDING=1' HUP INT TERM
+		} >"${_TRAP_ALL_FILE}"; then
 			umask "${_OLD_UMASK}"
 			adguardhome_start_traps_cleanup
 			return 1
@@ -268,7 +273,6 @@ adguardhome_start_traps_save() {
 		umask "${_OLD_UMASK}"
 		# Defer a startup abort until the snapshot is safe to restore instead of
 		# discarding a signal received while the workspace is initialized.
-		trap 'ADGUARDHOME_START_SIGNAL_PENDING=1' HUP INT TERM
 		ADGUARDHOME_START_TRAP_DIR="${_TRAP_DIR}"
 		ADGUARDHOME_START_TRAP_FILE="${_TRAP_DIR}/state"
 		if (umask 077 && mkdir "${_TRAP_DIR}") 2>/dev/null; then

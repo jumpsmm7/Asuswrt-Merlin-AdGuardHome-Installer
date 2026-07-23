@@ -177,6 +177,39 @@ assert_trap_workspace_removed() {
 	[ "$1" = "/tmp/AdGuardHome-start-traps.$$.*" ] || fail 'private trap state directory was not removed'
 }
 
+# Restoring the caller umask happens immediately after the trap snapshot.  A
+# signal from that boundary must already be deferred rather than reaching the
+# caller's old disposition or being lost.
+_snapshot_boundary_ready="${TMP_ROOT}/trap-snapshot-boundary-ready"
+rm -f "${_snapshot_boundary_ready}"
+(
+	_umask_restore_calls=0
+	umask() {
+		if [ "$#" -gt 0 ] && [ "$1" != 077 ]; then
+			_umask_restore_calls="$((_umask_restore_calls + 1))"
+			if [ "${_umask_restore_calls}" -eq 1 ]; then
+				: >"${_snapshot_boundary_ready}"
+				sleep 1
+			fi
+		fi
+		command umask "$@"
+	}
+	trap 'exit 91' HUP INT TERM
+	adguardhome_start_traps_save || exit 1
+	[ "${ADGUARDHOME_START_SIGNAL_PENDING:-0}" -eq 1 ] || exit 2
+	adguardhome_start_traps_restore
+) &
+_snapshot_boundary_pid="$!"
+_snapshot_boundary_waits=0
+while [ ! -f "${_snapshot_boundary_ready}" ] && [ "${_snapshot_boundary_waits}" -lt 100 ]; do
+	sleep 0.01
+	_snapshot_boundary_waits="$((_snapshot_boundary_waits + 1))"
+done
+[ -f "${_snapshot_boundary_ready}" ] || fail 'trap snapshot boundary was not reached'
+kill -TERM "${_snapshot_boundary_pid}" || fail 'could not signal trap snapshot boundary'
+wait "${_snapshot_boundary_pid}" || fail 'signal between trap snapshot and umask restoration was not deferred'
+assert_trap_workspace_removed
+
 # Trap-state preparation failures must complete the pending status line, log
 # the failure, and preserve the established startup failure status.
 mkdir() {
