@@ -107,7 +107,7 @@ dns_retry_limit() {
 	esac
 }
 
-# dns_socket_snapshot supplies a shared snapshot for each lifecycle iteration.
+# dns_socket_snapshot initializes a valid shared DNS socket snapshot for the current lifecycle iteration.
 dns_socket_snapshot() {
 	DNS_SOCKET_SNAPSHOT=""
 	DNS_SOCKET_SNAPSHOT_VALID="1"

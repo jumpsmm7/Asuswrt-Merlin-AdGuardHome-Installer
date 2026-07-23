@@ -14,15 +14,18 @@ STARTED_FILE="${TEST_ROOT}/started"
 DNSMASQ_CONF_FILE="${TEST_ROOT}/dnsmasq.conf"
 NETSTAT_CALLS_FILE="${TEST_ROOT}/netstat-calls"
 
+# cleanup removes the temporary test workspace and its contents.
 cleanup() {
 	rm -rf "${TEST_ROOT}"
 }
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
 
+# wait_for_file waits briefly for a file to exist and returns success if it appears within 100 attempts.
 wait_for_file() {
 	_wait_file="$1"
 	_wait_attempts=0
@@ -159,7 +162,7 @@ pidof() {
 			;;
 	esac
 }
-# netstat simulates netstat output for configured DNS and WebUI ownership states, or fails when NETSTAT_FAIL is enabled.
+# netstat simulates network socket listings for configured DNS and WebUI ownership states, and can produce transient or persistent failures for test scenarios.
 netstat() {
 	printf '%s\n' netstat >>"${NETSTAT_CALLS_FILE}"
 	if [ -n "${NETSTAT_FAIL_AFTER_KILL_FILE:-}" ] && [ -e "${NETSTAT_FAIL_AFTER_KILL_FILE}" ]; then
@@ -227,6 +230,7 @@ service() {
 	[ "$*" = 'restart_dnsmasq' ] && [ "${DNSMASQ_RESTART_RELEASES_PORT:-0}" -eq 1 ] && DNS_STATE=free
 	return 0
 }
+# kill records invocations, simulates DNS port release for signal-based calls, and delegates other signals to the system command.
 kill() {
 	printf '%s\n' "kill $*" >>"${CALLS_FILE}"
 	if [ "${1:-}" = '-s' ]; then
