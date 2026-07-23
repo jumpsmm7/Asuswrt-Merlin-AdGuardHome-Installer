@@ -915,6 +915,7 @@ ADGUARDHOME_DNSMASQ_STOP_RETRIES=2
 ADGUARDHOME_DNS_GUARD_RETRIES=0
 pre_start_adguardhome || fail 'pre-start did not retry after a transient netstat failure'
 grep -q '^kill -s 9 123$' "${CALLS_FILE}" || fail 'pre-start did not release the DNS owner after retrying snapshot collection'
+[ "${DNS_STATE}" = free ] || fail 'pre-start left the DNS owner active after retrying snapshot collection'
 stop_dns_port_guard
 disable_dns_handoff || fail 'could not clean up transient-failure pre-start handoff'
 unset NETSTAT_FAIL_ONCE_FILE
