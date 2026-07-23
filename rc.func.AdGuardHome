@@ -308,7 +308,7 @@ start() {
 	if [ "${PROC}" = "AdGuardHome" ]; then
 		adguardhome_start_traps_save || {
 			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
-			logger -st "${CALLER}" "Failed to save trap state for ${DESC} from ${CALLER}."
+			logger -st "${CALLER}" "Failed to prepare startup trap state for ${DESC} from ${CALLER}."
 			return 255
 		}
 		trap 'adguardhome_start_signal_abort' HUP INT TERM

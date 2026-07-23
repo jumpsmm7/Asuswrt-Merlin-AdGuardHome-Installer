@@ -171,6 +171,24 @@ assert_trap_workspace_removed() {
 	[ "$1" = "/tmp/AdGuardHome-start-traps.$$.*" ] || fail 'private trap state directory was not removed'
 }
 
+# Trap-state preparation failures must complete the pending status line, log
+# the failure, and preserve the established startup failure status.
+mkdir() {
+	return 1
+}
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}"
+set +e
+start >"${TMP_ROOT}/trap-save-failure-output"
+_trap_save_status="$?"
+set -e
+unset -f mkdir
+[ "${_trap_save_status}" -eq 255 ] || fail "trap-state preparation failure returned ${_trap_save_status}"
+grep -q 'failed\.' "${TMP_ROOT}/trap-save-failure-output" || fail 'trap-state preparation failure did not print failed status'
+grep -q 'Failed to prepare startup trap state for AdGuardHome from test\.' "${CALLS_FILE}" ||
+	fail 'trap-state preparation failure was not logged'
+assert_trap_workspace_removed
+
 # Predictable legacy directory names must not be able to deny startup.
 _collision_counter=0
 while [ "${_collision_counter}" -lt 10 ]; do
