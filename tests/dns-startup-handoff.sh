@@ -302,7 +302,10 @@ if (
 		printf '%s\n' recovery-complete >>"${_pre_start_abort_calls}"
 	}
 	restore_dns_watchdog_traps() {
+		[ "${2:-}" = "1" ] || return 1
 		printf '%s\n' restore >>"${_pre_start_abort_calls}"
+		trap >"${TEST_ROOT}/pre-start-watchdog-restore-traps"
+		grep -q "'' TERM" "${TEST_ROOT}/pre-start-watchdog-restore-traps" || return 1
 	}
 	adguardhome_start_traps_restore() {
 		printf '%s\n' caller-restore >>"${_pre_start_abort_calls}"
@@ -327,6 +330,7 @@ fi
 [ "$(sed -n '5p' "${_pre_start_abort_calls}")" = caller-restore-complete ] || fail 'repeated signal interrupted caller trap restoration'
 rm -f "${_pre_start_abort_calls}"
 rm -f "${TEST_ROOT}/pre-start-recovery-traps"
+rm -f "${TEST_ROOT}/pre-start-watchdog-restore-traps"
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy
