@@ -220,6 +220,19 @@ done
 rm -f "${TMP_ROOT}/saved-signal-traps"
 assert_trap_workspace_removed
 
+# A literal newline in a managed action must remain part of one restorable record.
+(
+	trap 'printf "%s\n" "caller
+signal" >/dev/null' HUP
+	_before_multiline_trap="$(trap_snapshot)"
+	adguardhome_start_traps_save || exit 1
+	trap - HUP
+	adguardhome_start_traps_restore
+	_after_multiline_trap="$(trap_snapshot)"
+	[ "${_after_multiline_trap}" = "${_before_multiline_trap}" ]
+) || fail 'multiline signal trap action was not preserved intact'
+assert_trap_workspace_removed
+
 # run_with_trap_disposition verifies exact preservation for custom, ignored,
 # and default signal dispositions around a selected startup result.
 run_with_trap_disposition() {

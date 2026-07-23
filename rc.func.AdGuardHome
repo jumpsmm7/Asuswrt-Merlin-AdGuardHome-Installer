@@ -243,6 +243,8 @@ adguardhome_start_traps_save() {
 		[ -n "${_NONCE}" ] || return 1
 		_TRAP_DIR="/tmp/AdGuardHome-start-traps.$$.$_NONCE"
 		if (umask 077 && mkdir "${_TRAP_DIR}") 2>/dev/null; then
+			ADGUARDHOME_START_TRAP_DIR="${_TRAP_DIR}"
+			ADGUARDHOME_START_TRAP_FILE="${_TRAP_DIR}/state"
 			break
 		fi
 		_COUNTER="$((_COUNTER + 1))"
@@ -250,33 +252,59 @@ adguardhome_start_traps_save() {
 	[ "${_COUNTER}" -lt 10 ] || return 1
 	[ -d "${_TRAP_DIR}" ] && [ ! -L "${_TRAP_DIR}" ] && chmod 700 "${_TRAP_DIR}" 2>/dev/null || {
 		rm -rf "${_TRAP_DIR}" 2>/dev/null
+		ADGUARDHOME_START_TRAP_DIR=""
+		ADGUARDHOME_START_TRAP_FILE=""
 		return 1
 	}
-	_TRAP_FILE="${_TRAP_DIR}/state"
+	_TRAP_FILE="${ADGUARDHOME_START_TRAP_FILE}"
 	_TRAP_ALL_FILE="${_TRAP_DIR}/all"
 	_OLD_UMASK="$(umask)"
 	umask 077
+	# Capture in the current shell; a pipeline would lose caught traps in ash.
 	if trap >"${_TRAP_ALL_FILE}"; then
-		# Keep this state file limited to the signals temporarily owned by start().
-		grep -E ' (SIG)?(HUP|INT|TERM)$' "${_TRAP_ALL_FILE}" >"${_TRAP_FILE}"
+		# Ignore signals as soon as their complete original state is durable.
+		trap '' HUP INT TERM
+		# Split only at unquoted newlines so literal newlines in actions survive.
+		awk '
+			function emit() {
+				if (record ~ / (SIG)?(HUP|INT|TERM)$/) print record
+				record = ""
+			}
+			{
+				record = record (record == "" ? "" : "\n") $0
+				quoted = 0
+				for (i = 1; i <= length(record); i++) {
+					c = substr(record, i, 1)
+					if (c == "\047") quoted = !quoted
+					else if (!quoted && c == "\\") i++
+				}
+				if (!quoted) emit()
+			}
+			END { if (record != "") emit() }
+		' "${_TRAP_ALL_FILE}" >"${_TRAP_FILE}"
 		_COUNTER="$?"
 	else
 		_COUNTER=2
 	fi
-	rm -f "${_TRAP_ALL_FILE}" 2>/dev/null
 	umask "${_OLD_UMASK}"
-	[ "${_COUNTER}" -eq 0 ] || [ "${_COUNTER}" -eq 1 ] || {
+	[ "${_COUNTER}" -eq 0 ] || {
+		. "${_TRAP_ALL_FILE}"
+		rm -f "${_TRAP_ALL_FILE}" 2>/dev/null
 		rm -f "${_TRAP_FILE}" 2>/dev/null
 		rmdir "${_TRAP_DIR}" 2>/dev/null
+		ADGUARDHOME_START_TRAP_DIR=""
+		ADGUARDHOME_START_TRAP_FILE=""
 		return 1
 	}
+	rm -f "${_TRAP_ALL_FILE}" 2>/dev/null
 	[ -f "${_TRAP_FILE}" ] && [ ! -L "${_TRAP_FILE}" ] && chmod 600 "${_TRAP_FILE}" 2>/dev/null || {
+		. "${_TRAP_FILE}"
 		rm -f "${_TRAP_FILE}" 2>/dev/null
 		rmdir "${_TRAP_DIR}" 2>/dev/null
+		ADGUARDHOME_START_TRAP_DIR=""
+		ADGUARDHOME_START_TRAP_FILE=""
 		return 1
 	}
-	ADGUARDHOME_START_TRAP_DIR="${_TRAP_DIR}"
-	ADGUARDHOME_START_TRAP_FILE="${_TRAP_FILE}"
 }
 
 adguardhome_start_signal_abort() {

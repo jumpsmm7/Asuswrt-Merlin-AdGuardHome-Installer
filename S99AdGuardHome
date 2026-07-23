@@ -1170,7 +1170,9 @@ start_dns_port_guard() {
 
 abort_pre_start_adguardhome() {
 	_dns_watchdog_abort_saved_traps="${1:-}"
-	trap - HUP INT TERM EXIT
+	# Repeated signals must not interrupt DNS recovery or trap cleanup.
+	trap '' HUP INT TERM
+	trap - EXIT
 	post_start_failure_adguardhome
 	restore_dns_watchdog_traps "${_dns_watchdog_abort_saved_traps}"
 	if type adguardhome_start_traps_cleanup >/dev/null 2>&1; then

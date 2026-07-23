@@ -296,6 +296,10 @@ if (
 	eval "$(sed -n '/^abort_pre_start_adguardhome() {$/,/^}$/p' "${S99_PATH}")"
 	post_start_failure_adguardhome() {
 		printf '%s\n' recovery >>"${_pre_start_abort_calls}"
+		trap >"${TEST_ROOT}/pre-start-recovery-traps"
+		grep -q "'' TERM" "${TEST_ROOT}/pre-start-recovery-traps" || return 1
+		grep -q "'' HUP" "${TEST_ROOT}/pre-start-recovery-traps" || return 1
+		printf '%s\n' recovery-complete >>"${_pre_start_abort_calls}"
 	}
 	restore_dns_watchdog_traps() {
 		printf '%s\n' restore >>"${_pre_start_abort_calls}"
@@ -310,8 +314,10 @@ fi
 [ ! -e "${_pre_start_trap_dir}/state" ] || fail 'pre-start signal handler left its trap state file behind'
 [ ! -d "${_pre_start_trap_dir}" ] || fail 'pre-start signal handler left its trap workspace behind'
 [ "$(sed -n '1p' "${_pre_start_abort_calls}")" = recovery ] || fail 'pre-start signal handler skipped DNS recovery'
-[ "$(sed -n '2p' "${_pre_start_abort_calls}")" = restore ] || fail 'pre-start signal handler skipped watchdog trap restoration'
+[ "$(sed -n '2p' "${_pre_start_abort_calls}")" = recovery-complete ] || fail 'repeated signal interrupted pre-start DNS recovery'
+[ "$(sed -n '3p' "${_pre_start_abort_calls}")" = restore ] || fail 'pre-start signal handler skipped watchdog trap restoration'
 rm -f "${_pre_start_abort_calls}"
+rm -f "${TEST_ROOT}/pre-start-recovery-traps"
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy
