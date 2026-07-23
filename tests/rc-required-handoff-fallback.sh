@@ -232,9 +232,6 @@ rm -f "${TMP_ROOT}/workspace-published"
 	mkdir() {
 		[ "${ADGUARDHOME_START_TRAP_DIR:-}" = "$1" ] || return 91
 		[ "${ADGUARDHOME_START_TRAP_FILE:-}" = "$1/state" ] || return 92
-		trap >"${TMP_ROOT}/workspace-create-traps"
-		[ "$(managed_trap_count "${TMP_ROOT}/workspace-create-traps")" -eq 3 ] || return 93
-		grep -q "'' TERM" "${TMP_ROOT}/workspace-create-traps" || return 94
 		: >"${TMP_ROOT}/workspace-published"
 		return 1
 	}
@@ -244,7 +241,39 @@ _workspace_publish_status="$?"
 set -e
 [ "${_workspace_publish_status}" -eq 1 ] || fail "trap workspace was not published before mkdir (${_workspace_publish_status})"
 [ -f "${TMP_ROOT}/workspace-published" ] || fail 'mkdir could not see the published trap workspace'
-rm -f "${TMP_ROOT}/workspace-create-traps"
+assert_trap_workspace_removed
+
+# A signal received while the trap workspace is being initialized must be
+# deferred until start() can run the normal abort and recovery pathway.
+_save_interrupt_ready="${TMP_ROOT}/trap-save-interrupt-ready"
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${_save_interrupt_ready}"
+(
+	set +e
+	mkdir() {
+		: >"${_save_interrupt_ready}"
+		sleep 1
+		command mkdir "$@"
+	}
+	trap 'printf "%s\n" caller_signal >>"${CALLS_FILE}"' HUP INT TERM
+	start >/dev/null
+) &
+_save_interrupt_pid="$!"
+_save_interrupt_waits=0
+while [ ! -f "${_save_interrupt_ready}" ] && [ "${_save_interrupt_waits}" -lt 100 ]; do
+	sleep 0.01
+	_save_interrupt_waits="$((_save_interrupt_waits + 1))"
+done
+[ -f "${_save_interrupt_ready}" ] || fail 'trap-save interruption did not reach workspace initialization'
+kill -TERM "${_save_interrupt_pid}" || fail 'could not interrupt trap workspace initialization'
+set +e
+wait "${_save_interrupt_pid}"
+_save_interrupt_status="$?"
+set -e
+[ "${_save_interrupt_status}" -eq 255 ] || fail "trap-save interruption returned ${_save_interrupt_status}"
+[ ! -f "${STARTED_FILE}" ] || fail 'trap-save interruption launched AdGuardHome'
+grep -q '^post_failure_hook$' "${CALLS_FILE}" || fail 'trap-save interruption skipped failure recovery'
+! grep -q '^caller_signal$' "${CALLS_FILE}" || fail 'trap-save interruption ran the caller handler before recovery'
 assert_trap_workspace_removed
 
 # Predictable legacy directory names must not be able to deny startup.

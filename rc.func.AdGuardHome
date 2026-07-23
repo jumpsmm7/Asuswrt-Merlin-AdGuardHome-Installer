@@ -220,6 +220,7 @@ adguardhome_start_traps_cleanup() {
 	ADGUARDHOME_START_TRAP_FILE=""
 	ADGUARDHOME_START_TRAP_DIR=""
 	ADGUARDHOME_START_TRAP_ALL_FILE=""
+	ADGUARDHOME_START_SIGNAL_PENDING=""
 }
 
 adguardhome_start_traps_restore() {
@@ -243,6 +244,7 @@ ${_TRAP_STATE}"
 adguardhome_start_traps_save() {
 	local _COUNTER _NONCE _OLD_UMASK _TRAP_ALL_FILE _TRAP_DIR _TRAP_FILE _TRAP_STATE
 	_COUNTER=0
+	ADGUARDHOME_START_SIGNAL_PENDING=0
 	ADGUARDHOME_START_TRAP_DIR=""
 	ADGUARDHOME_START_TRAP_FILE=""
 	while [ "${_COUNTER}" -lt 10 ]; do
@@ -264,7 +266,9 @@ adguardhome_start_traps_save() {
 			return 1
 		fi
 		umask "${_OLD_UMASK}"
-		trap '' HUP INT TERM
+		# Defer a startup abort until the snapshot is safe to restore instead of
+		# discarding a signal received while the workspace is initialized.
+		trap 'ADGUARDHOME_START_SIGNAL_PENDING=1' HUP INT TERM
 		ADGUARDHOME_START_TRAP_DIR="${_TRAP_DIR}"
 		ADGUARDHOME_START_TRAP_FILE="${_TRAP_DIR}/state"
 		if (umask 077 && mkdir "${_TRAP_DIR}") 2>/dev/null; then
@@ -395,6 +399,7 @@ start() {
 			return 255
 		}
 		trap 'adguardhome_start_signal_abort' HUP INT TERM
+		[ "${ADGUARDHOME_START_SIGNAL_PENDING:-0}" -eq 0 ] || adguardhome_start_signal_abort
 	fi
 	if adguardhome_start_handoff_is_prepared; then
 		DNS_HANDOFF=1
