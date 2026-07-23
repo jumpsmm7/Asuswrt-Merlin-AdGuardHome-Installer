@@ -284,6 +284,35 @@ trap - EXIT HUP INT TERM
 eval "$(cat "${_dns_saved_test_traps_file}")"
 rm -f "${_dns_saved_test_traps_file}" "${TEST_ROOT}/watchdog-caller-exit" "${TEST_ROOT}/watchdog-caller-term" "${TEST_ROOT}/watchdog-restored-traps"
 
+# The pre-start signal handler exits from inside PRECMD, so start() cannot
+# clean its private trap workspace after the hook returns.
+_pre_start_abort_calls="${TEST_ROOT}/pre-start-abort-calls"
+_pre_start_trap_dir="${TEST_ROOT}/pre-start-traps"
+mkdir "${_pre_start_trap_dir}" || fail 'could not create pre-start trap workspace'
+printf '%s\n' saved >"${_pre_start_trap_dir}/state" || fail 'could not create pre-start trap state'
+if (
+	ADGUARDHOME_START_TRAP_DIR="${_pre_start_trap_dir}"
+	ADGUARDHOME_START_TRAP_FILE="${_pre_start_trap_dir}/state"
+	eval "$(sed -n '/^abort_pre_start_adguardhome() {$/,/^}$/p' "${S99_PATH}")"
+	post_start_failure_adguardhome() {
+		printf '%s\n' recovery >>"${_pre_start_abort_calls}"
+	}
+	restore_dns_watchdog_traps() {
+		printf '%s\n' restore >>"${_pre_start_abort_calls}"
+	}
+	abort_pre_start_adguardhome unused
+); then
+	_pre_start_abort_status=0
+else
+	_pre_start_abort_status="$?"
+fi
+[ "${_pre_start_abort_status}" -eq 1 ] || fail 'pre-start signal handler returned the wrong status'
+[ ! -e "${_pre_start_trap_dir}/state" ] || fail 'pre-start signal handler left its trap state file behind'
+[ ! -d "${_pre_start_trap_dir}" ] || fail 'pre-start signal handler left its trap workspace behind'
+[ "$(sed -n '1p' "${_pre_start_abort_calls}")" = recovery ] || fail 'pre-start signal handler skipped DNS recovery'
+[ "$(sed -n '2p' "${_pre_start_abort_calls}")" = restore ] || fail 'pre-start signal handler skipped watchdog trap restoration'
+rm -f "${_pre_start_abort_calls}"
+
 : >"${CALLS_FILE}"
 DNS_STATE=busy
 DNSMASQ_RESTART_RELEASES_PORT=1
