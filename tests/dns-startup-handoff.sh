@@ -31,10 +31,12 @@ sed -n \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed -n '/^dns_handoff_is_active() {$/,/^}$/p' "${MANAGER_PATH}" >>"${S99_FUNCTIONS}" ||
 	fail "could not read ${MANAGER_PATH}"
-sed -n '/^stop_launched_process() {$/,/^}$/p; /^adguardhome_start_handoff_is_prepared() {$/,/^}$/p; /^adguardhome_start_handoff_required() {$/,/^}$/p; /^adguardhome_run_postfailcmd() {$/,/^}$/p; /^start() {$/,/^}$/p' "${RC_PATH}" >"${RC_FUNCTION}" ||
+sed -n '/^stop_launched_process() {$/,/^}$/p; /^adguardhome_start_handoff_is_prepared() {$/,/^}$/p; /^adguardhome_start_handoff_required() {$/,/^}$/p; /^adguardhome_run_postfailcmd() {$/,/^}$/p; /^adguardhome_start_traps_cleanup() {$/,/^}$/p; /^adguardhome_start_traps_restore() {$/,/^}$/p; /^adguardhome_start_traps_save() {$/,/^}$/p; /^adguardhome_start_signal_abort() {$/,/^}$/p; /^start() {$/,/^}$/p' "${RC_PATH}" >"${RC_FUNCTION}" ||
 	fail "could not read ${RC_PATH}"
 [ -s "${S99_FUNCTIONS}" ] || fail 'DNS handoff functions were not found'
 [ -s "${RC_FUNCTION}" ] || fail 'service start function was not found'
+sed -n '/^adguardhome_start_signal_abort() {$/,/^}$/p' "${RC_FUNCTION}" | grep -q "trap '' HUP INT TERM" ||
+	fail 'rc.func does not block repeated signals during startup recovery'
 grep -q 'DNS_HANDOFF_DIR="/tmp/AdGuardHome.dns-handoff"' "${S99_PATH}" ||
 	fail 'service script does not use the private dnsmasq handoff directory'
 grep -q 'dns_handoff_is_active || return 0' "${MANAGER_PATH}" ||
@@ -47,6 +49,8 @@ grep -q 'restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"' "${S99_PATH}
 	fail 'pre-start watchdog trap cleanup does not restore caller traps'
 grep -q 'restore_dns_watchdog_traps "${_dns_guard_saved_traps}"' "${S99_PATH}" ||
 	fail 'DNS guard watchdog trap cleanup does not restore caller traps'
+sed -n '/^abort_pre_start_adguardhome() {$/,/^}$/p' "${S99_PATH}" | grep -q 'adguardhome_start_traps_restore' ||
+	fail 'pre-start signal recovery does not restore caller traps and clean their workspace'
 
 WATCHD_NICE_SNAPSHOT=""
 
@@ -279,6 +283,66 @@ grep -q 'watchdog-caller-term' "${TEST_ROOT}/watchdog-restored-traps" ||
 trap - EXIT HUP INT TERM
 eval "$(cat "${_dns_saved_test_traps_file}")"
 rm -f "${_dns_saved_test_traps_file}" "${TEST_ROOT}/watchdog-caller-exit" "${TEST_ROOT}/watchdog-caller-term" "${TEST_ROOT}/watchdog-restored-traps"
+
+# Restoration blocks managed signals before consuming and removing its
+# snapshot, so an armed abort handler cannot observe a missing file.
+_dns_restore_order_file="${TEST_ROOT}/watchdog-restore-order"
+printf '%s\n' "trap 'printf caller >>\"${_dns_restore_order_file}\"' TERM" >"${TEST_ROOT}/watchdog-order-traps"
+trap 'printf abort >>"${_dns_restore_order_file}"' TERM
+restore_dns_watchdog_traps "${TEST_ROOT}/watchdog-order-traps"
+[ ! -e "${TEST_ROOT}/watchdog-order-traps" ] || fail 'watchdog trap snapshot was not removed after restoration'
+kill -TERM "$$"
+[ "$(cat "${_dns_restore_order_file}")" = caller ] || fail 'watchdog caller trap was not restored after snapshot cleanup'
+trap - TERM
+rm -f "${_dns_restore_order_file}"
+
+# The pre-start signal handler exits from inside PRECMD, so start() cannot
+# clean its private trap workspace after the hook returns.
+_pre_start_abort_calls="${TEST_ROOT}/pre-start-abort-calls"
+_pre_start_trap_dir="${TEST_ROOT}/pre-start-traps"
+mkdir "${_pre_start_trap_dir}" || fail 'could not create pre-start trap workspace'
+printf '%s\n' saved >"${_pre_start_trap_dir}/state" || fail 'could not create pre-start trap state'
+if (
+	ADGUARDHOME_START_TRAP_DIR="${_pre_start_trap_dir}"
+	ADGUARDHOME_START_TRAP_FILE="${_pre_start_trap_dir}/state"
+	eval "$(sed -n '/^abort_pre_start_adguardhome() {$/,/^}$/p' "${S99_PATH}")"
+	post_start_failure_adguardhome() {
+		printf '%s\n' recovery >>"${_pre_start_abort_calls}"
+		trap >"${TEST_ROOT}/pre-start-recovery-traps"
+		grep -q "'' TERM" "${TEST_ROOT}/pre-start-recovery-traps" || return 1
+		grep -q "'' HUP" "${TEST_ROOT}/pre-start-recovery-traps" || return 1
+		printf '%s\n' recovery-complete >>"${_pre_start_abort_calls}"
+	}
+	restore_dns_watchdog_traps() {
+		[ "${2:-}" = "1" ] || return 1
+		printf '%s\n' restore >>"${_pre_start_abort_calls}"
+		trap >"${TEST_ROOT}/pre-start-watchdog-restore-traps"
+		grep -q "'' TERM" "${TEST_ROOT}/pre-start-watchdog-restore-traps" || return 1
+	}
+	adguardhome_start_traps_restore() {
+		printf '%s\n' caller-restore >>"${_pre_start_abort_calls}"
+		sh -c 'kill -TERM "$PPID"'
+		rm -f "${ADGUARDHOME_START_TRAP_FILE}"
+		rmdir "${ADGUARDHOME_START_TRAP_DIR}"
+		printf '%s\n' caller-restore-complete >>"${_pre_start_abort_calls}"
+	}
+	abort_pre_start_adguardhome unused
+); then
+	_pre_start_abort_status=0
+else
+	_pre_start_abort_status="$?"
+fi
+[ "${_pre_start_abort_status}" -eq 1 ] || fail 'pre-start signal handler returned the wrong status'
+[ ! -e "${_pre_start_trap_dir}/state" ] || fail 'pre-start signal handler left its trap state file behind'
+[ ! -d "${_pre_start_trap_dir}" ] || fail 'pre-start signal handler left its trap workspace behind'
+[ "$(sed -n '1p' "${_pre_start_abort_calls}")" = recovery ] || fail 'pre-start signal handler skipped DNS recovery'
+[ "$(sed -n '2p' "${_pre_start_abort_calls}")" = recovery-complete ] || fail 'repeated signal interrupted pre-start DNS recovery'
+[ "$(sed -n '3p' "${_pre_start_abort_calls}")" = restore ] || fail 'pre-start signal handler skipped watchdog trap restoration'
+[ "$(sed -n '4p' "${_pre_start_abort_calls}")" = caller-restore ] || fail 'caller traps were restored before watchdog traps'
+[ "$(sed -n '5p' "${_pre_start_abort_calls}")" = caller-restore-complete ] || fail 'repeated signal interrupted caller trap restoration'
+rm -f "${_pre_start_abort_calls}"
+rm -f "${TEST_ROOT}/pre-start-recovery-traps"
+rm -f "${TEST_ROOT}/pre-start-watchdog-restore-traps"
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy

@@ -320,11 +320,24 @@ resume_dns_watchdog() {
 
 restore_dns_watchdog_traps() {
 	_dns_watchdog_restore_traps="${1:-}"
+	_dns_watchdog_keep_signals_blocked="${2:-0}"
 	[ -n "${_dns_watchdog_restore_traps}" ] || return 1
 	[ -f "${_dns_watchdog_restore_traps}" ] || return 1
-	trap - HUP INT TERM EXIT
-	eval "$(cat "${_dns_watchdog_restore_traps}")"
+	# The abort handler may still be armed here.  Do not let a repeated signal
+	# observe a removed snapshot before its saved dispositions are active.
+	trap '' HUP INT TERM
+	_dns_watchdog_restore_state="$(cat "${_dns_watchdog_restore_traps}")"
 	rm -f "${_dns_watchdog_restore_traps}" 2>/dev/null
+	if [ "${_dns_watchdog_keep_signals_blocked}" = "1" ]; then
+		# Restore EXIT and other watchdog state, but keep repeat startup signals
+		# blocked until the caller snapshot has also been restored and cleaned.
+		eval "trap - EXIT
+${_dns_watchdog_restore_state}
+trap '' HUP INT TERM"
+	else
+		eval "trap - HUP INT TERM EXIT
+${_dns_watchdog_restore_state}"
+	fi
 }
 
 save_dns_watchdog_traps() {
@@ -1170,9 +1183,14 @@ start_dns_port_guard() {
 
 abort_pre_start_adguardhome() {
 	_dns_watchdog_abort_saved_traps="${1:-}"
-	trap - HUP INT TERM EXIT
+	# Repeated signals must not interrupt DNS recovery or trap cleanup.
+	trap '' HUP INT TERM
+	trap - EXIT
 	post_start_failure_adguardhome
-	restore_dns_watchdog_traps "${_dns_watchdog_abort_saved_traps}"
+	restore_dns_watchdog_traps "${_dns_watchdog_abort_saved_traps}" 1
+	if type adguardhome_start_traps_restore >/dev/null 2>&1; then
+		adguardhome_start_traps_restore
+	fi
 	exit 1
 }
 
