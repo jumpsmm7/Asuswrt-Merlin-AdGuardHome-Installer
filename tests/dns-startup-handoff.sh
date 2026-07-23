@@ -152,6 +152,10 @@ pidof() {
 # netstat simulates netstat output for configured DNS and WebUI ownership states, or fails when NETSTAT_FAIL is enabled.
 netstat() {
 	printf '%s\n' netstat >>"${NETSTAT_CALLS_FILE}"
+	if [ -n "${NETSTAT_FAIL_ONCE_FILE:-}" ] && [ ! -e "${NETSTAT_FAIL_ONCE_FILE}" ]; then
+		: >"${NETSTAT_FAIL_ONCE_FILE}"
+		return 1
+	fi
 	[ "${NETSTAT_FAIL:-0}" -eq 0 ] || return 1
 	case "${DNS_STATE:-free}" in
 		busy)
@@ -248,9 +252,16 @@ dns_socket_snapshot || fail 'could not collect the pre-kill DNS snapshot'
 kill_dns_port_owners global "${DNS_SOCKET_SNAPSHOT}" || fail 'could not release the changing DNS owner'
 [ "${DNS_STATE}" = free ] || fail 'kill did not change the simulated DNS state'
 dns_port_available global "${DNS_SOCKET_SNAPSHOT}" || fail 'post-kill snapshot did not expose the released DNS port'
-[ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -eq 2 ] || fail 'kill path did not refresh netstat exactly once after the state change'
+[ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -eq 3 ] || fail 'kill path did not refresh ownership before and after signaling'
 KILL_RELEASES_PORT=0
 unset ADGUARDHOME_FORCE_DNS_PORT_KILL
+
+: >"${CALLS_FILE}"
+DNS_STATE=busy
+dns_socket_snapshot || fail 'could not collect the stale pre-kill DNS snapshot'
+DNS_STATE=free
+kill_dns_port_owners global "${DNS_SOCKET_SNAPSHOT}" || fail 'stale DNS snapshot was not refreshed before escalation'
+! grep -q '^kill -s 9 123$' "${CALLS_FILE}" || fail 'stale snapshot PID was signaled after releasing port 53'
 
 NETSTAT_FAIL=1
 if dns_port_available; then
@@ -893,6 +904,17 @@ post_start_adguardhome || fail 'post-start did not wait long enough for delayed 
 ! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'post-start ignored restart suppression after delayed DNS ownership'
 SLEEP_OWNED_AFTER=0
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+
+: >"${CALLS_FILE}"
+DNS_STATE=owned
+SLEEP_CALLS=0
+NETSTAT_FAIL_ONCE_FILE="${TEST_ROOT}/netstat-failed-once"
+rm -f "${NETSTAT_FAIL_ONCE_FILE}"
+ADGUARDHOME_DNS_WAIT_RETRIES=2
+ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+post_start_adguardhome || fail 'post-start did not retry after a transient netstat failure'
+[ "${SLEEP_CALLS}" -eq 1 ] || fail 'transient netstat failure did not consume one bounded retry'
+unset NETSTAT_FAIL_ONCE_FILE ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 : >"${CALLS_FILE}"
 DNS_STATE=missing

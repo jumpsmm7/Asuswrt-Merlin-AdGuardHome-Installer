@@ -189,9 +189,7 @@ fi
 [ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -eq 2 ] || fail 'changed DNS state was not collected exactly once per snapshot'
 
 NETSTAT_STATE=no_owner
-if adguardhome_owns_dns; then
-	fail 'DNS readiness accepted bound TCP/UDP port 53 without PID/program ownership'
-fi
+adguardhome_owns_dns || fail 'DNS fallback rejected ownerless sockets with one AdGuardHome process'
 adguardhome_web_port_available || fail 'WebUI fallback rejected bound port without PID/program ownership'
 if dns_port_available; then
 	fail 'DNS port availability accepted bound ownerless port 53'

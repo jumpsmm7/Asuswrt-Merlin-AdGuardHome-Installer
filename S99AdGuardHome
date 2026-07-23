@@ -750,6 +750,7 @@ adguardhome_owns_dns() {
 	'
 	_dns_status="$?"
 	[ "${_dns_status}" -eq 0 ] && return 0
+	[ "${_dns_status}" -eq 2 ] && adguardhome_single_process_running && return 0
 	return 1
 }
 
@@ -870,7 +871,10 @@ dns_port_unknown_refusal_enabled() {
 
 kill_dns_port_owners() {
 	_dns_port_scope="${1:-global}"
-	dns_socket_snapshot_value "$@" || return 1
+	# Do not signal PIDs from a caller's older snapshot. Refresh immediately
+	# before building the kill list to reduce PID-reuse races.
+	dns_socket_snapshot || return 1
+	_dns_socket_table="${DNS_SOCKET_SNAPSHOT}"
 	_dns_owner_actions="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
 		function scoped(local_address,    count, idx, scope_values) {
 			if (scope == "global" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53") return 1
@@ -1163,13 +1167,13 @@ log_adguardhome_dns_wait_failure() {
 
 wait_for_adguardhome_dns() {
 	_dns_wait_attempts="0"
-	_dns_snapshot_failed="0"
 	_dns_wait_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" 30)"
 	agh_log INFO wait_for_adguardhome_dns "Waiting for AdGuardHome to bind DNS port 53."
 	while [ "${_dns_wait_attempts}" -lt "${_dns_wait_limit}" ]; do
 		dns_socket_snapshot || {
-			_dns_snapshot_failed="1"
-			break
+			_dns_wait_attempts="$((_dns_wait_attempts + 1))"
+			sleep 1s
+			continue
 		}
 		adguardhome_owns_dns "${ADGUARDHOME_DNS_BIND_SCOPE:-global}" "${DNS_SOCKET_SNAPSHOT}"
 		_dns_wait_status="$?"
@@ -1184,7 +1188,7 @@ wait_for_adguardhome_dns() {
 		fi
 		sleep 1s
 	done
-	if [ "${_dns_snapshot_failed}" = "0" ] && dns_socket_snapshot && adguardhome_owns_dns "${ADGUARDHOME_DNS_BIND_SCOPE:-global}" "${DNS_SOCKET_SNAPSHOT}"; then
+	if dns_socket_snapshot && adguardhome_owns_dns "${ADGUARDHOME_DNS_BIND_SCOPE:-global}" "${DNS_SOCKET_SNAPSHOT}"; then
 		agh_log INFO wait_for_adguardhome_dns "AdGuardHome owns DNS port 53 on final check."
 		return 0
 	fi
