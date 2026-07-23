@@ -252,10 +252,10 @@ adguardhome_start_traps_save() {
 	_TRAP_FILE="${_TRAP_DIR}/state"
 	_OLD_UMASK="$(umask)"
 	umask 077
-	trap >"${_TRAP_FILE}"
+	trap | grep -E ' (SIG)?(HUP|INT|TERM)$' >"${_TRAP_FILE}"
 	_COUNTER="$?"
 	umask "${_OLD_UMASK}"
-	[ "${_COUNTER}" -eq 0 ] || {
+	[ "${_COUNTER}" -eq 0 ] || [ "${_COUNTER}" -eq 1 ] || {
 		rm -f "${_TRAP_FILE}" 2>/dev/null
 		rmdir "${_TRAP_DIR}" 2>/dev/null
 		return 1
@@ -296,7 +296,11 @@ start() {
 		return 0
 	fi
 	if [ "${PROC}" = "AdGuardHome" ]; then
-		adguardhome_start_traps_save || return 255
+		adguardhome_start_traps_save || {
+			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
+			logger -st "${CALLER}" "Failed to save trap state for ${DESC} from ${CALLER}."
+			return 255
+		}
 		trap 'adguardhome_start_signal_abort' HUP INT TERM
 	fi
 	if adguardhome_start_handoff_is_prepared; then
