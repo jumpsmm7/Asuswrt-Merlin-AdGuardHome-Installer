@@ -873,7 +873,7 @@ kill_dns_port_owners() {
 	_dns_port_scope="${1:-global}"
 	# Do not signal PIDs from a caller's older snapshot. Refresh immediately
 	# before building the kill list to reduce PID-reuse races.
-	dns_socket_snapshot || return 1
+	dns_socket_snapshot || return 3
 	_dns_socket_table="${DNS_SOCKET_SNAPSHOT}"
 	_dns_owner_actions="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
 		function scoped(local_address,    count, idx, scope_values) {
@@ -958,7 +958,7 @@ kill_dns_port_owners() {
 		dns_socket_snapshot || true
 		return 0
 	fi
-	dns_socket_snapshot || return 1
+	dns_socket_snapshot || return 3
 	# The normal dnsmasq stop can race with escalation: netstat may report a
 	# dnsmasq PID that exits before kill(1) signals it. Treat that stale-PID
 	# failure as success if the DNS port is now free.
@@ -1074,12 +1074,15 @@ release_dns_port_from_dnsmasq() {
 	_dns_port_scope="${2:-global}"
 	agh_log INFO "${_dns_release_context}" "Stopping dnsmasq normally before checking port 53 ownership."
 	service stop_dnsmasq >/dev/null 2>&1
-	dns_socket_snapshot || return 1
+	dns_socket_snapshot || return 3
 	if dns_port_available "${_dns_port_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
 		agh_log INFO "${_dns_release_context}" "Port 53 released after stopping dnsmasq."
 		return 0
 	fi
 	kill_dns_port_owners "${_dns_port_scope}" "${DNS_SOCKET_SNAPSHOT}"
+	_dns_kill_status="$?"
+	[ "${_dns_kill_status}" = "3" ] && return 3
+	return "${_dns_kill_status}"
 }
 
 dns_guard_wait_for_stop() {
@@ -1227,7 +1230,15 @@ start_dns_port_guard() {
 			if [ "${_dns_guard_attempts}" = "0" ]; then
 				agh_log INFO start_dns_port_guard "Stopping dnsmasq/releasing port 53 while guard is active."
 			fi
-			release_dns_port_from_dnsmasq start_dns_port_guard "${_dns_bind_scope}" || return 1
+			release_dns_port_from_dnsmasq start_dns_port_guard "${_dns_bind_scope}"
+			_dns_release_status="$?"
+			if [ "${_dns_release_status}" = "3" ]; then
+				suspend_dns_watchdog
+				_dns_guard_attempts="$((_dns_guard_attempts + 1))"
+				sleep 1s
+				continue
+			fi
+			[ "${_dns_release_status}" = "0" ] || return 1
 		fi
 		suspend_dns_watchdog
 		_dns_guard_attempts="$((_dns_guard_attempts + 1))"
@@ -1591,7 +1602,16 @@ pre_start_adguardhome() {
 			return 0
 		fi
 		if dns_port_needs_release "${_dns_bind_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
-			if ! release_dns_port_from_dnsmasq pre_start_adguardhome "${_dns_bind_scope}"; then
+			release_dns_port_from_dnsmasq pre_start_adguardhome "${_dns_bind_scope}"
+			_dns_release_status="$?"
+			if [ "${_dns_release_status}" = "3" ]; then
+				trap 'abort_pre_start_adguardhome "${_dns_watchdog_saved_traps}"' HUP INT TERM EXIT
+				suspend_dns_watchdog
+				_dns_stop_attempts="$((_dns_stop_attempts + 1))"
+				sleep 1s
+				continue
+			fi
+			if [ "${_dns_release_status}" != "0" ]; then
 				agh_log ERROR pre_start_adguardhome "Unable to safely release port 53; startup aborted."
 				post_start_failure_adguardhome
 				restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
