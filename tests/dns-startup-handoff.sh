@@ -284,6 +284,18 @@ trap - EXIT HUP INT TERM
 eval "$(cat "${_dns_saved_test_traps_file}")"
 rm -f "${_dns_saved_test_traps_file}" "${TEST_ROOT}/watchdog-caller-exit" "${TEST_ROOT}/watchdog-caller-term" "${TEST_ROOT}/watchdog-restored-traps"
 
+# Restoration blocks managed signals before consuming and removing its
+# snapshot, so an armed abort handler cannot observe a missing file.
+_dns_restore_order_file="${TEST_ROOT}/watchdog-restore-order"
+printf '%s\n' "trap 'printf caller >>\"${_dns_restore_order_file}\"' TERM" >"${TEST_ROOT}/watchdog-order-traps"
+trap 'printf abort >>"${_dns_restore_order_file}"' TERM
+restore_dns_watchdog_traps "${TEST_ROOT}/watchdog-order-traps"
+[ ! -e "${TEST_ROOT}/watchdog-order-traps" ] || fail 'watchdog trap snapshot was not removed after restoration'
+kill -TERM "$$"
+[ "$(cat "${_dns_restore_order_file}")" = caller ] || fail 'watchdog caller trap was not restored after snapshot cleanup'
+trap - TERM
+rm -f "${_dns_restore_order_file}"
+
 # The pre-start signal handler exits from inside PRECMD, so start() cannot
 # clean its private trap workspace after the hook returns.
 _pre_start_abort_calls="${TEST_ROOT}/pre-start-abort-calls"

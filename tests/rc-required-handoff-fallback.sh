@@ -197,7 +197,7 @@ assert_trap_workspace_removed
 
 # Save rollback must reset originally-default signals after filtering or final
 # permission setup fails; bare trap snapshots omit default dispositions.
-for _rollback_stage in filter chmod; do
+for _rollback_stage in filter directory-chmod file-chmod; do
 	(
 		trap - HUP INT TERM
 		trap_snapshot "${TMP_ROOT}/rollback-before-${_rollback_stage}"
@@ -205,7 +205,13 @@ for _rollback_stage in filter chmod; do
 			filter)
 				awk() { return 1; }
 				;;
-			chmod)
+			directory-chmod)
+				chmod() {
+					[ "$1" = 700 ] && return 1
+					command chmod "$@"
+				}
+				;;
+			file-chmod)
 				chmod() {
 					[ "$1" = 600 ] && return 1
 					command chmod "$@"

@@ -214,10 +214,12 @@ adguardhome_run_postfailcmd() {
 }
 
 adguardhome_start_traps_cleanup() {
+	[ -n "${ADGUARDHOME_START_TRAP_ALL_FILE:-}" ] && rm -f "${ADGUARDHOME_START_TRAP_ALL_FILE}" 2>/dev/null
 	[ -n "${ADGUARDHOME_START_TRAP_FILE:-}" ] && rm -f "${ADGUARDHOME_START_TRAP_FILE}" 2>/dev/null
 	[ -n "${ADGUARDHOME_START_TRAP_DIR:-}" ] && rmdir "${ADGUARDHOME_START_TRAP_DIR}" 2>/dev/null
 	ADGUARDHOME_START_TRAP_FILE=""
 	ADGUARDHOME_START_TRAP_DIR=""
+	ADGUARDHOME_START_TRAP_ALL_FILE=""
 }
 
 adguardhome_start_traps_restore() {
@@ -249,12 +251,16 @@ adguardhome_start_traps_save() {
 		[ -n "${_NONCE}" ] || return 1
 		_TRAP_DIR="/tmp/AdGuardHome-start-traps.$$.$_NONCE"
 		_TRAP_ALL_FILE="${_TRAP_DIR}.all"
+		# Publish the pre-workspace snapshot too, so every rollback and caller
+		# cleanup path can remove it as soon as the pathname exists.
+		ADGUARDHOME_START_TRAP_ALL_FILE="${_TRAP_ALL_FILE}"
 		# Capture before creating the workspace, then block the managed signals.
 		# Thus no signal can strand a directory between mkdir and handler setup.
 		_OLD_UMASK="$(umask)"
 		umask 077
 		if ! { trap; } >"${_TRAP_ALL_FILE}"; then
 			umask "${_OLD_UMASK}"
+			adguardhome_start_traps_cleanup
 			return 1
 		fi
 		umask "${_OLD_UMASK}"
@@ -266,26 +272,35 @@ adguardhome_start_traps_save() {
 				_TRAP_STATE="$(cat "${_TRAP_ALL_FILE}" 2>/dev/null)"
 				rm -f "${_TRAP_ALL_FILE}" 2>/dev/null
 				rmdir "${_TRAP_DIR}" 2>/dev/null
+				ADGUARDHOME_START_TRAP_ALL_FILE=""
+				ADGUARDHOME_START_TRAP_DIR=""
+				ADGUARDHOME_START_TRAP_FILE=""
 				eval "trap - HUP INT TERM
 ${_TRAP_STATE}"
 				return 1
 			}
 			_TRAP_ALL_FILE="${_TRAP_DIR}/all"
+			ADGUARDHOME_START_TRAP_ALL_FILE="${_TRAP_ALL_FILE}"
 			break
 		fi
 		_TRAP_STATE="$(cat "${_TRAP_ALL_FILE}" 2>/dev/null)"
 		rm -f "${_TRAP_ALL_FILE}" 2>/dev/null
 		ADGUARDHOME_START_TRAP_DIR=""
 		ADGUARDHOME_START_TRAP_FILE=""
+		ADGUARDHOME_START_TRAP_ALL_FILE=""
 		eval "trap - HUP INT TERM
 ${_TRAP_STATE}"
 		_COUNTER="$((_COUNTER + 1))"
 	done
 	[ "${_COUNTER}" -lt 10 ] || return 1
 	[ -d "${_TRAP_DIR}" ] && [ ! -L "${_TRAP_DIR}" ] && chmod 700 "${_TRAP_DIR}" 2>/dev/null || {
+		_TRAP_STATE="$(cat "${_TRAP_ALL_FILE}" 2>/dev/null)"
 		rm -rf "${_TRAP_DIR}" 2>/dev/null
 		ADGUARDHOME_START_TRAP_DIR=""
 		ADGUARDHOME_START_TRAP_FILE=""
+		ADGUARDHOME_START_TRAP_ALL_FILE=""
+		eval "trap - HUP INT TERM
+${_TRAP_STATE}"
 		return 1
 	}
 	_TRAP_FILE="${ADGUARDHOME_START_TRAP_FILE}"
@@ -334,6 +349,7 @@ ${_TRAP_STATE}"
 		return 1
 	}
 	rm -f "${_TRAP_ALL_FILE}" 2>/dev/null
+	ADGUARDHOME_START_TRAP_ALL_FILE=""
 	[ -f "${_TRAP_FILE}" ] && [ ! -L "${_TRAP_FILE}" ] && chmod 600 "${_TRAP_FILE}" 2>/dev/null || {
 		_TRAP_STATE="$(cat "${_TRAP_FILE}" 2>/dev/null)"
 		rm -f "${_TRAP_FILE}" 2>/dev/null

@@ -323,6 +323,9 @@ restore_dns_watchdog_traps() {
 	_dns_watchdog_keep_signals_blocked="${2:-0}"
 	[ -n "${_dns_watchdog_restore_traps}" ] || return 1
 	[ -f "${_dns_watchdog_restore_traps}" ] || return 1
+	# The abort handler may still be armed here.  Do not let a repeated signal
+	# observe a removed snapshot before its saved dispositions are active.
+	trap '' HUP INT TERM
 	_dns_watchdog_restore_state="$(cat "${_dns_watchdog_restore_traps}")"
 	rm -f "${_dns_watchdog_restore_traps}" 2>/dev/null
 	if [ "${_dns_watchdog_keep_signals_blocked}" = "1" ]; then
