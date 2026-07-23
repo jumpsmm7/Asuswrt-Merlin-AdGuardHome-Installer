@@ -304,6 +304,13 @@ if (
 	restore_dns_watchdog_traps() {
 		printf '%s\n' restore >>"${_pre_start_abort_calls}"
 	}
+	adguardhome_start_traps_cleanup() {
+		printf '%s\n' cleanup >>"${_pre_start_abort_calls}"
+		sh -c 'kill -TERM "$PPID"'
+		rm -f "${ADGUARDHOME_START_TRAP_FILE}"
+		rmdir "${ADGUARDHOME_START_TRAP_DIR}"
+		printf '%s\n' cleanup-complete >>"${_pre_start_abort_calls}"
+	}
 	abort_pre_start_adguardhome unused
 ); then
 	_pre_start_abort_status=0
@@ -315,7 +322,9 @@ fi
 [ ! -d "${_pre_start_trap_dir}" ] || fail 'pre-start signal handler left its trap workspace behind'
 [ "$(sed -n '1p' "${_pre_start_abort_calls}")" = recovery ] || fail 'pre-start signal handler skipped DNS recovery'
 [ "$(sed -n '2p' "${_pre_start_abort_calls}")" = recovery-complete ] || fail 'repeated signal interrupted pre-start DNS recovery'
-[ "$(sed -n '3p' "${_pre_start_abort_calls}")" = restore ] || fail 'pre-start signal handler skipped watchdog trap restoration'
+[ "$(sed -n '3p' "${_pre_start_abort_calls}")" = cleanup ] || fail 'pre-start signal handler skipped trap workspace cleanup'
+[ "$(sed -n '4p' "${_pre_start_abort_calls}")" = cleanup-complete ] || fail 'repeated signal interrupted trap workspace cleanup'
+[ "$(sed -n '5p' "${_pre_start_abort_calls}")" = restore ] || fail 'watchdog traps were restored before pre-start cleanup completed'
 rm -f "${_pre_start_abort_calls}"
 rm -f "${TEST_ROOT}/pre-start-recovery-traps"
 
