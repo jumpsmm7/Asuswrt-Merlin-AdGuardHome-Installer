@@ -257,6 +257,7 @@ adguardhome_start_traps_save() {
 	_OLD_UMASK="$(umask)"
 	umask 077
 	if trap >"${_TRAP_ALL_FILE}"; then
+		# Keep this state file limited to the signals temporarily owned by start().
 		grep -E ' (SIG)?(HUP|INT|TERM)$' "${_TRAP_ALL_FILE}" >"${_TRAP_FILE}"
 		_COUNTER="$?"
 	else

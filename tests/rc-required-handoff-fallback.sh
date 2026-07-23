@@ -188,13 +188,18 @@ done
 # Saving signal traps must neither capture nor later restore an unrelated EXIT trap.
 (
 	trap 'printf "%s\n" initial_exit >/dev/null' 0
+	trap 'printf "%s\n" caller_signal >/dev/null' HUP INT TERM
 	adguardhome_start_traps_save || exit 1
+	grep -E ' (SIG)?(HUP|INT|TERM)$' "${ADGUARDHOME_START_TRAP_FILE}" >"${TMP_ROOT}/saved-signal-traps" || exit 1
+	[ "$(wc -l <"${TMP_ROOT}/saved-signal-traps")" -eq 3 ] || exit 1
+	[ "$(cat "${ADGUARDHOME_START_TRAP_FILE}")" = "$(cat "${TMP_ROOT}/saved-signal-traps")" ] || exit 1
 	trap 'printf "%s\n" replacement_exit >/dev/null' 0
 	_before_exit_trap="$(trap_snapshot | grep 'EXIT\| 0$')"
 	adguardhome_start_traps_restore
 	_after_exit_trap="$(trap_snapshot | grep 'EXIT\| 0$')"
 	[ "${_after_exit_trap}" = "${_before_exit_trap}" ]
-) || fail 'signal trap restoration changed an unrelated EXIT trap'
+) || fail 'saved trap state was not restricted to HUP, INT, and TERM'
+rm -f "${TMP_ROOT}/saved-signal-traps"
 assert_trap_workspace_removed
 
 # run_with_trap_disposition verifies exact preservation for custom, ignored,
