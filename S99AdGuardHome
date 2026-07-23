@@ -659,7 +659,12 @@ dns_socket_snapshot() {
 	# Append a marker inside the command substitution so trailing newlines from
 	# netstat are retained.  Keeping the snapshot in memory also avoids a
 	# predictable file below /tmp.
-	_dns_snapshot_with_marker="$({ netstat -nlp 2>/dev/null; _dns_snapshot_status="$?"; printf '\037'; exit "${_dns_snapshot_status}"; })" || {
+	_dns_snapshot_with_marker="$({
+		netstat -nlp 2>/dev/null
+		_dns_snapshot_status="$?"
+		printf '\037'
+		exit "${_dns_snapshot_status}"
+	})" || {
 		DNS_SOCKET_SNAPSHOT=""
 		DNS_SOCKET_SNAPSHOT_VALID="0"
 		return 1
