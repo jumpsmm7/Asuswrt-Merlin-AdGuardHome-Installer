@@ -910,7 +910,7 @@ DNS_STATE=busy
 KILL_RELEASES_PORT=1
 NETSTAT_FAIL_ONCE_FILE="${TEST_ROOT}/pre-start-netstat-failed-once"
 rm -f "${NETSTAT_FAIL_ONCE_FILE}"
-ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
+ADGUARDHOME_DNSMASQ_STOP_RETRIES=2
 ADGUARDHOME_DNS_GUARD_RETRIES=0
 pre_start_adguardhome || fail 'pre-start did not retry after a transient netstat failure'
 grep -q '^kill -s 9 123$' "${CALLS_FILE}" || fail 'pre-start did not release the DNS owner after retrying snapshot collection'
