@@ -1003,8 +1003,7 @@ unset NETSTAT_FAIL_CALLS
 : >"${CALLS_FILE}"
 DNS_STATE=busy
 KILL_RELEASES_PORT=1
-NETSTAT_FAIL_ONCE_FILE="${TEST_ROOT}/pre-start-netstat-failed-once"
-rm -f "${NETSTAT_FAIL_ONCE_FILE}"
+NETSTAT_FAIL_CALLS='1'
 ADGUARDHOME_DNSMASQ_STOP_RETRIES=2
 ADGUARDHOME_DNS_GUARD_RETRIES=0
 pre_start_adguardhome || fail 'pre-start did not retry after a transient netstat failure'
@@ -1012,7 +1011,7 @@ grep -q '^kill -s 9 123$' "${CALLS_FILE}" || fail 'pre-start did not release the
 [ "${DNS_STATE}" = free ] || fail 'pre-start left the DNS owner active after retrying snapshot collection'
 stop_dns_port_guard
 disable_dns_handoff || fail 'could not clean up transient-failure pre-start handoff'
-unset NETSTAT_FAIL_ONCE_FILE
+unset NETSTAT_FAIL_CALLS
 KILL_RELEASES_PORT=0
 
 : >"${CALLS_FILE}"
