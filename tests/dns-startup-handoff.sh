@@ -12,22 +12,37 @@ RC_FUNCTION="${TEST_ROOT}/rc-start-function"
 CALLS_FILE="${TEST_ROOT}/calls"
 STARTED_FILE="${TEST_ROOT}/started"
 DNSMASQ_CONF_FILE="${TEST_ROOT}/dnsmasq.conf"
+NETSTAT_CALLS_FILE="${TEST_ROOT}/netstat-calls"
 
+# cleanup removes the temporary test workspace and its contents.
 cleanup() {
 	rm -rf "${TEST_ROOT}"
 }
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
 
+# wait_for_file waits briefly for a file to exist and returns success if it appears within 100 attempts.
+wait_for_file() {
+	_wait_file="$1"
+	_wait_attempts=0
+	while [ ! -e "${_wait_file}" ] && [ "${_wait_attempts}" -lt 100 ]; do
+		_wait_attempts="$((_wait_attempts + 1))"
+		command sleep 0.01
+	done
+	[ -e "${_wait_file}" ]
+}
+
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
+: >"${NETSTAT_CALLS_FILE}" || fail 'could not create netstat calls file'
 
 sed -n \
-	'/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^agh_conf_value() {$/,/^}$/p; /^agh_install_mode() {$/,/^}$/p; /^agh_lan_mode() {$/,/^}$/p; /^agh_dnsmasq_running() {$/,/^}$/p; /^agh_dnsmasq_managed() {$/,/^}$/p; /^agh_dns_handoff_required() {$/,/^}$/p; /^adguardhome_yaml_ipset_file() {$/,/^}$/p; /^chmod_regular_files_600() {$/,/^}$/p; /^ensure_adguardhome_work_dir_permissions() {$/,/^}$/p; /^dns_guard_wait_for_stop() {$/,/^}$/p; /^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_path_has_owner_mode() {$/,/^}$/p; /^dns_handoff_directory_is_private() {$/,/^}$/p; /^dns_handoff_marker_is_private() {$/,/^}$/p; /^dns_handoff_process_is_root() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_set_current_identity() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^remove_inactive_dns_handoff_marker() {$/,/^}$/p; /^dns_handoff_lock_file_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^watchdog_pids() {$/,/^}$/p; /^pid_nice() {$/,/^}$/p; /^save_watchdog_nice() {$/,/^}$/p; /^restore_watchdog_nice() {$/,/^}$/p; /^reap_the_watch_dog() {$/,/^}$/p; /^resume_dns_watchdog() {$/,/^}$/p; /^restore_dns_watchdog_traps() {$/,/^}$/p; /^save_dns_watchdog_traps() {$/,/^}$/p; /^suspend_dns_watchdog() {$/,/^}$/p; /^reclaim_stale_dns_handoff_lock() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^prepare_dns_handoff_marker() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^adguardhome_config_valid() {$/,/^}$/p; /^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_owned_status() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^adguardhome_startup_checks_ready() {$/,/^}$/p; /^wait_for_adguardhome_startup_checks_failure_reason() {$/,/^}$/p; /^wait_for_adguardhome_startup_checks() {$/,/^}$/p; /^log_adguardhome_start_failure() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^dns_port_owner_command() {$/,/^}$/p; /^dns_port_owner_process_name() {$/,/^}$/p; /^adguardhome_dns_bind_scope() {$/,/^}$/p; /^dns_port_unknown_refusal_enabled() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^release_dns_port_from_dnsmasq() {$/,/^}$/p; /^dns_port_has_foreign_owner() {$/,/^}$/p; /^dns_port_needs_release() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^start_dns_port_guard() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
+	'/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^agh_conf_value() {$/,/^}$/p; /^agh_install_mode() {$/,/^}$/p; /^agh_lan_mode() {$/,/^}$/p; /^agh_dnsmasq_running() {$/,/^}$/p; /^agh_dnsmasq_managed() {$/,/^}$/p; /^agh_dns_handoff_required() {$/,/^}$/p; /^adguardhome_yaml_ipset_file() {$/,/^}$/p; /^chmod_regular_files_600() {$/,/^}$/p; /^ensure_adguardhome_work_dir_permissions() {$/,/^}$/p; /^dns_guard_wait_for_stop() {$/,/^}$/p; /^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_path_has_owner_mode() {$/,/^}$/p; /^dns_handoff_directory_is_private() {$/,/^}$/p; /^dns_handoff_marker_is_private() {$/,/^}$/p; /^dns_handoff_process_is_root() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_set_current_identity() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^remove_inactive_dns_handoff_marker() {$/,/^}$/p; /^dns_handoff_lock_file_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^watchdog_pids() {$/,/^}$/p; /^pid_nice() {$/,/^}$/p; /^save_watchdog_nice() {$/,/^}$/p; /^restore_watchdog_nice() {$/,/^}$/p; /^reap_the_watch_dog() {$/,/^}$/p; /^resume_dns_watchdog() {$/,/^}$/p; /^restore_dns_watchdog_traps() {$/,/^}$/p; /^save_dns_watchdog_traps() {$/,/^}$/p; /^suspend_dns_watchdog() {$/,/^}$/p; /^reclaim_stale_dns_handoff_lock() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^prepare_dns_handoff_marker() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^adguardhome_config_valid() {$/,/^}$/p; /^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_owned_status() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^adguardhome_startup_checks_ready() {$/,/^}$/p; /^wait_for_adguardhome_startup_checks_failure_reason() {$/,/^}$/p; /^wait_for_adguardhome_startup_checks() {$/,/^}$/p; /^log_adguardhome_start_failure() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^dns_socket_snapshot() {$/,/^}$/p; /^dns_socket_snapshot_value() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^dns_port_owner_command() {$/,/^}$/p; /^dns_port_owner_process_name() {$/,/^}$/p; /^adguardhome_dns_bind_scope() {$/,/^}$/p; /^dns_port_unknown_refusal_enabled() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^release_dns_port_from_dnsmasq() {$/,/^}$/p; /^dns_port_has_foreign_owner() {$/,/^}$/p; /^dns_port_needs_release() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^start_dns_port_guard() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed -n '/^dns_handoff_is_active() {$/,/^}$/p' "${MANAGER_PATH}" >>"${S99_FUNCTIONS}" ||
 	fail "could not read ${MANAGER_PATH}"
@@ -147,8 +162,20 @@ pidof() {
 			;;
 	esac
 }
-# netstat simulates netstat output for configured DNS and WebUI ownership states, or fails when NETSTAT_FAIL is enabled.
+# netstat simulates network socket listings for configured DNS and WebUI ownership states and can produce transient or persistent failures for test scenarios.
 netstat() {
+	printf '%s\n' netstat >>"${NETSTAT_CALLS_FILE}"
+	_netstat_call_count="$(wc -l <"${NETSTAT_CALLS_FILE}")"
+	case ",${NETSTAT_FAIL_CALLS:-}," in
+		*,"${_netstat_call_count}",*) return 1 ;;
+	esac
+	if [ -n "${NETSTAT_FAIL_AFTER_KILL_FILE:-}" ] && [ -e "${NETSTAT_FAIL_AFTER_KILL_FILE}" ]; then
+		return 1
+	fi
+	if [ -n "${NETSTAT_FAIL_ONCE_FILE:-}" ] && [ ! -e "${NETSTAT_FAIL_ONCE_FILE}" ]; then
+		: >"${NETSTAT_FAIL_ONCE_FILE}"
+		return 1
+	fi
 	[ "${NETSTAT_FAIL:-0}" -eq 0 ] || return 1
 	case "${DNS_STATE:-free}" in
 		busy)
@@ -171,6 +198,9 @@ netstat() {
 			;;
 		busy_no_pid)
 			printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:*'
+			;;
+		ownerless_tcp)
+			printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN'
 			;;
 		busy_alt_dnsmasq)
 			printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 0 0 234/dnsmasq'
@@ -201,12 +231,14 @@ netstat() {
 			;;
 	esac
 }
+# service records the requested service operation and simulates configured dnsmasq restart outcomes.
 service() {
 	printf '%s\n' "service $*" >>"${CALLS_FILE}"
 	[ "$*" = 'restart_dnsmasq' ] && [ "${SERVICE_RESTART_FAIL:-0}" -eq 1 ] && return 1
 	[ "$*" = 'restart_dnsmasq' ] && [ "${DNSMASQ_RESTART_RELEASES_PORT:-0}" -eq 1 ] && DNS_STATE=free
 	return 0
 }
+# kill records invocations, simulates DNS port release for signal-based calls, and delegates other invocations to the system command.
 kill() {
 	printf '%s\n' "kill $*" >>"${CALLS_FILE}"
 	if [ "${1:-}" = '-s' ]; then
@@ -215,6 +247,7 @@ kill() {
 			return 1
 		fi
 		[ "${KILL_RELEASES_PORT:-0}" -eq 1 ] && DNS_STATE=free
+		[ -n "${NETSTAT_FAIL_AFTER_KILL_FILE:-}" ] && : >"${NETSTAT_FAIL_AFTER_KILL_FILE}"
 		return 0
 	fi
 	command kill "$@"
@@ -236,6 +269,36 @@ sleep() {
 
 [ "$(dns_retry_limit invalid 7)" = 7 ] || fail 'invalid DNS retry limit was not replaced with the default'
 [ "$(dns_retry_limit 0 7)" = 0 ] || fail 'zero DNS retry limit was not preserved'
+
+: >"${NETSTAT_CALLS_FILE}"
+DNS_STATE=busy_alt
+KILL_RELEASES_PORT=1
+ADGUARDHOME_FORCE_DNS_PORT_KILL=1
+dns_socket_snapshot || fail 'could not collect the pre-kill DNS snapshot'
+kill_dns_port_owners global "${DNS_SOCKET_SNAPSHOT}" || fail 'could not release the changing DNS owner'
+[ "${DNS_STATE}" = free ] || fail 'kill did not change the simulated DNS state'
+dns_port_available global "${DNS_SOCKET_SNAPSHOT}" || fail 'post-kill snapshot did not expose the released DNS port'
+[ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -eq 3 ] || fail 'kill path did not refresh ownership before and after signaling'
+KILL_RELEASES_PORT=0
+unset ADGUARDHOME_FORCE_DNS_PORT_KILL
+
+: >"${CALLS_FILE}"
+DNS_STATE=busy
+KILL_RELEASES_PORT=1
+NETSTAT_FAIL_AFTER_KILL_FILE="${TEST_ROOT}/netstat-fail-after-kill"
+rm -f "${NETSTAT_FAIL_AFTER_KILL_FILE}"
+kill_dns_port_owners || fail 'successful DNS owner kill was rejected after a transient snapshot refresh failure'
+grep -q '^kill -s 9 123$' "${CALLS_FILE}" || fail 'DNS owner was not killed before the snapshot refresh failure'
+unset NETSTAT_FAIL_AFTER_KILL_FILE
+KILL_RELEASES_PORT=0
+
+: >"${CALLS_FILE}"
+DNS_STATE=busy
+dns_socket_snapshot || fail 'could not collect the stale pre-kill DNS snapshot'
+DNS_STATE=free
+kill_dns_port_owners global "${DNS_SOCKET_SNAPSHOT}" || fail 'stale DNS snapshot was not refreshed before escalation'
+! grep -q '^kill -s 9 123$' "${CALLS_FILE}" || fail 'stale snapshot PID was signaled after releasing port 53'
+
 NETSTAT_FAIL=1
 if dns_port_available; then
 	fail 'failed netstat command was treated as an available DNS port'
@@ -562,6 +625,42 @@ post_start_adguardhome || fail 'LAN post-start without dnsmasq did not clean up 
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 : >"${CALLS_FILE}"
+DNSMASQ_RUNNING=0
+DNS_STATE=free
+SLEEP_CALLS=0
+NETSTAT_FAIL_ONCE_FILE="${TEST_ROOT}/no-handoff-netstat-failed-once"
+rm -f "${NETSTAT_FAIL_ONCE_FILE}"
+pre_start_adguardhome || fail 'LAN pre-start without dnsmasq did not retry a transient netstat failure'
+[ -e "${NETSTAT_FAIL_ONCE_FILE}" ] || fail 'LAN pre-start without dnsmasq did not exercise the transient netstat failure pathway'
+[ "${SLEEP_CALLS}" -eq 1 ] || fail 'LAN pre-start without dnsmasq did not use the bounded snapshot retry wait'
+[ "${ADGUARDHOME_DNS_HANDOFF_REQUIRED:-1}" = "0" ] || fail 'LAN transient-failure pre-start unexpectedly required dnsmasq handoff'
+[ -f "${DNS_HANDOFF_FILE}" ] || fail 'LAN pre-start without dnsmasq did not start after retrying snapshot collection'
+stop_dns_port_guard
+post_start_failure_adguardhome || fail 'LAN transient-failure pre-start did not clean up the temporary handoff'
+unset NETSTAT_FAIL_ONCE_FILE ADGUARDHOME_SKIP_DNSMASQ_RESTART
+
+: >"${CALLS_FILE}"
+: >"${NETSTAT_CALLS_FILE}"
+DNSMASQ_RUNNING=0
+DNS_STATE=free
+SLEEP_CALLS=0
+NETSTAT_FAIL=1
+ADGUARDHOME_DNSMASQ_STOP_RETRIES=2
+if pre_start_adguardhome; then
+	fail 'LAN pre-start without dnsmasq succeeded after exhausting snapshot retries'
+fi
+[ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -eq 2 ] || fail 'LAN pre-start without dnsmasq did not enforce the snapshot retry limit'
+[ "${SLEEP_CALLS}" -eq 1 ] || fail 'LAN pre-start without dnsmasq waited outside the bounded snapshot retry budget'
+[ "${ADGUARDHOME_DNS_HANDOFF_REQUIRED:-1}" = "0" ] || fail 'LAN exhausted-snapshot pre-start unexpectedly required dnsmasq handoff'
+[ ! -e "${DNS_HANDOFF_FILE}" ] || fail 'LAN exhausted-snapshot pre-start armed a temporary handoff marker'
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'LAN exhausted-snapshot pre-start restarted absent dnsmasq'
+! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'LAN exhausted-snapshot pre-start stopped absent dnsmasq'
+grep -q 'Unable to inspect port 53 ownership after 2 attempt(s); startup aborted without DNS handoff' "${CALLS_FILE}" ||
+	fail 'LAN exhausted-snapshot pre-start did not log the bounded inspection failure'
+NETSTAT_FAIL=0
+ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
+
+: >"${CALLS_FILE}"
 printf '%s\n' '#!/bin/sh' 'exit 1' >"${WORK_DIR}/AdGuardHome" || fail 'could not create failing AdGuardHome binary'
 chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod failing AdGuardHome binary'
 DNSMASQ_RUNNING=0
@@ -718,6 +817,37 @@ stop_dns_port_guard
 
 : >"${CALLS_FILE}"
 DNS_STATE=free
+NETSTAT_FAIL_ONCE_FILE="${TEST_ROOT}/guard-netstat-failed-once"
+rm -f "${NETSTAT_FAIL_ONCE_FILE}"
+ADGUARDHOME_DNS_GUARD_RETRIES=3
+start_dns_port_guard &
+ADGUARDHOME_DNS_GUARD_PID="$!"
+wait_for_file "${NETSTAT_FAIL_ONCE_FILE}" || fail 'DNS guard did not exercise the transient netstat failure pathway'
+command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || fail 'DNS guard exited after a transient netstat failure'
+stop_dns_port_guard
+unset NETSTAT_FAIL_ONCE_FILE
+
+: >"${CALLS_FILE}"
+: >"${NETSTAT_CALLS_FILE}"
+DNS_STATE=ownerless_tcp
+SLEEP_CALLS=0
+SLEEP_OWNED_AFTER=1
+ADGUARDHOME_DNS_GUARD_RETRIES=3
+start_dns_port_guard &
+ADGUARDHOME_DNS_GUARD_PID="$!"
+_guard_check_attempts=0
+while [ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -lt 2 ] && [ "${_guard_check_attempts}" -lt 100 ]; do
+	_guard_check_attempts="$((_guard_check_attempts + 1))"
+	command sleep 0.01
+done
+[ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -ge 2 ] || fail 'DNS guard did not retry an ownerless intermediate bind'
+command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || fail 'DNS guard exited during an ownerless intermediate bind'
+! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'DNS guard released an ownerless intermediate bind'
+stop_dns_port_guard
+SLEEP_OWNED_AFTER=0
+
+: >"${CALLS_FILE}"
+DNS_STATE=free
 SLEEP_CALLS=0
 SLEEP_BUSY_AFTER=1
 KILL_RELEASES_PORT=0
@@ -840,7 +970,50 @@ if pre_start_adguardhome; then
 	fail 'pre-start succeeded while port ownership could not be inspected'
 fi
 ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'pre-start stopped dnsmasq without confirming a foreign port 53 owner'
+grep -q 'Unable to inspect port 53 ownership after 2 attempt(s)' "${CALLS_FILE}" || fail 'pre-start did not report the exhausted snapshot retries'
 NETSTAT_FAIL=0
+
+: >"${CALLS_FILE}"
+: >"${NETSTAT_CALLS_FILE}"
+DNS_STATE=busy
+NETSTAT_FAIL_CALLS='1,3,4'
+ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
+ADGUARDHOME_DNS_GUARD_RETRIES=0
+if pre_start_adguardhome; then
+	fail 'pre-start succeeded after exhausting the shared DNS retry budget'
+fi
+[ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -eq 4 ] || fail 'snapshot failures were not charged to the shared DNS retry budget'
+grep -q 'Unable to inspect port 53 ownership after 3 attempt(s)' "${CALLS_FILE}" || fail 'pre-start did not report the exhausted shared snapshot retry budget'
+unset NETSTAT_FAIL_CALLS
+
+: >"${CALLS_FILE}"
+: >"${NETSTAT_CALLS_FILE}"
+DNS_STATE=busy
+SLEEP_CALLS=0
+NETSTAT_FAIL_CALLS='2,4,6'
+ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
+ADGUARDHOME_DNS_GUARD_RETRIES=0
+if pre_start_adguardhome; then
+	fail 'pre-start succeeded after nested snapshot failures exhausted the DNS retry budget'
+fi
+[ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -eq 6 ] || fail 'nested snapshot failures bypassed the shared DNS retry budget'
+[ "${SLEEP_CALLS}" -eq 2 ] || fail 'pre-start slept after the final nested snapshot failure'
+grep -q 'Unable to inspect port 53 ownership after 3 attempt(s)' "${CALLS_FILE}" || fail 'pre-start misreported exhausted nested snapshot retries'
+unset NETSTAT_FAIL_CALLS
+
+: >"${CALLS_FILE}"
+DNS_STATE=busy
+KILL_RELEASES_PORT=1
+NETSTAT_FAIL_CALLS='1'
+ADGUARDHOME_DNSMASQ_STOP_RETRIES=2
+ADGUARDHOME_DNS_GUARD_RETRIES=0
+pre_start_adguardhome || fail 'pre-start did not retry after a transient netstat failure'
+grep -q '^kill -s 9 123$' "${CALLS_FILE}" || fail 'pre-start did not release the DNS owner after retrying snapshot collection'
+[ "${DNS_STATE}" = free ] || fail 'pre-start left the DNS owner active after retrying snapshot collection'
+stop_dns_port_guard
+disable_dns_handoff || fail 'could not clean up transient-failure pre-start handoff'
+unset NETSTAT_FAIL_CALLS
+KILL_RELEASES_PORT=0
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy
@@ -877,6 +1050,28 @@ post_start_adguardhome || fail 'post-start did not wait long enough for delayed 
 ! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'post-start ignored restart suppression after delayed DNS ownership'
 SLEEP_OWNED_AFTER=0
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+
+: >"${CALLS_FILE}"
+DNS_STATE=owned
+SLEEP_CALLS=0
+NETSTAT_FAIL_ONCE_FILE="${TEST_ROOT}/netstat-failed-once"
+rm -f "${NETSTAT_FAIL_ONCE_FILE}"
+ADGUARDHOME_DNS_WAIT_RETRIES=2
+ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+post_start_adguardhome || fail 'post-start did not retry after a transient netstat failure'
+[ "${SLEEP_CALLS}" -eq 1 ] || fail 'transient netstat failure did not consume one bounded retry'
+unset NETSTAT_FAIL_ONCE_FILE ADGUARDHOME_SKIP_DNSMASQ_RESTART
+
+: >"${CALLS_FILE}"
+DNS_STATE=missing
+SLEEP_CALLS=0
+NETSTAT_FAIL=1
+ADGUARDHOME_DNS_WAIT_RETRIES=30
+if post_start_adguardhome; then
+	fail 'post-start succeeded after AdGuardHome exited during failed socket inspection'
+fi
+[ "${SLEEP_CALLS}" -eq 0 ] || fail 'post-start slept after detecting AdGuardHome exit during failed socket inspection'
+NETSTAT_FAIL=0
 
 : >"${CALLS_FILE}"
 DNS_STATE=missing

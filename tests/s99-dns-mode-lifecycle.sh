@@ -107,6 +107,13 @@ dns_retry_limit() {
 	esac
 }
 
+# dns_socket_snapshot initializes a valid shared DNS socket snapshot for the current lifecycle iteration.
+dns_socket_snapshot() {
+	DNS_SOCKET_SNAPSHOT=""
+	DNS_SOCKET_SNAPSHOT_VALID="1"
+	return 0
+}
+
 # dns_port_available checks whether the configured DNS port is available for the specified bind scope.
 dns_port_available() {
 	printf '%s\n' "dns_port_available ${1:-global}" >>"${CALLS_FILE}"

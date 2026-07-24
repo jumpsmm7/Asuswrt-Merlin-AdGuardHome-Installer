@@ -655,11 +655,38 @@ adguardhome_single_process_running() {
 	return 0
 }
 
+dns_socket_snapshot() {
+	# Append a marker inside the command substitution so trailing newlines from
+	# netstat are retained.  Keeping the snapshot in memory also avoids a
+	# predictable file below /tmp.
+	_dns_snapshot_with_marker="$({
+		netstat -nlp 2>/dev/null
+		_dns_snapshot_status="$?"
+		printf '\037'
+		exit "${_dns_snapshot_status}"
+	})" || {
+		DNS_SOCKET_SNAPSHOT=""
+		DNS_SOCKET_SNAPSHOT_VALID="0"
+		return 1
+	}
+	DNS_SOCKET_SNAPSHOT="${_dns_snapshot_with_marker%?}"
+	DNS_SOCKET_SNAPSHOT_VALID="1"
+	return 0
+}
+
+dns_socket_snapshot_value() {
+	if [ "$#" -ge 2 ]; then
+		_dns_socket_table="$2"
+		return 0
+	fi
+	dns_socket_snapshot || return 1
+	_dns_socket_table="${DNS_SOCKET_SNAPSHOT}"
+}
+
 adguardhome_owns_dns() {
 	_dns_port_scope="${1:-global}"
-	_dns_socket_table=""
 	pidof "${PROCS}" >/dev/null 2>&1 || return 2
-	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	dns_socket_snapshot_value "$@" || return 1
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
 		BEGIN {
 			scope_count = split(scope, scope_values, " ")
@@ -723,8 +750,8 @@ adguardhome_owns_dns() {
 	'
 	_dns_status="$?"
 	[ "${_dns_status}" -eq 0 ] && return 0
-	[ "${_dns_status}" -eq 2 ] || return 1
-	adguardhome_single_process_running
+	[ "${_dns_status}" -eq 2 ] && adguardhome_single_process_running && return 0
+	return 1
 }
 
 dns_port_owner_command() {
@@ -844,7 +871,10 @@ dns_port_unknown_refusal_enabled() {
 
 kill_dns_port_owners() {
 	_dns_port_scope="${1:-global}"
-	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	# Do not signal PIDs from a caller's older snapshot. Refresh immediately
+	# before building the kill list to reduce PID-reuse races.
+	dns_socket_snapshot || return 3
+	_dns_socket_table="${DNS_SOCKET_SNAPSHOT}"
 	_dns_owner_actions="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
 		function scoped(local_address,    count, idx, scope_values) {
 			if (scope == "global" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53") return 1
@@ -923,12 +953,16 @@ kill_dns_port_owners() {
 	[ -n "${_dns_pids}" ] || return 0
 	# Intentional word splitting: awk returns a whitespace-delimited PID list.
 	if kill -s 9 ${_dns_pids} 2>/dev/null; then
+		# The owner was terminated successfully. Let the caller recollect state
+		# if this best-effort refresh encounters a transient netstat failure.
+		dns_socket_snapshot || true
 		return 0
 	fi
+	dns_socket_snapshot || return 3
 	# The normal dnsmasq stop can race with escalation: netstat may report a
 	# dnsmasq PID that exits before kill(1) signals it. Treat that stale-PID
 	# failure as success if the DNS port is now free.
-	if dns_port_available "${_dns_port_scope}"; then
+	if dns_port_available "${_dns_port_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
 		agh_log INFO kill_dns_port_owners "Port 53 is free after a failed owner kill; continuing after stale PID race."
 		return 0
 	fi
@@ -937,7 +971,7 @@ kill_dns_port_owners() {
 
 dns_port_available() {
 	_dns_port_scope="${1:-global}"
-	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	dns_socket_snapshot_value "$@" || return 1
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
 		function scoped(local_address,    count, idx, scope_values) {
 			if (scope == "global" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53") return 1
@@ -968,13 +1002,13 @@ dns_port_available() {
 	'
 	_dns_status="$?"
 	[ "${_dns_status}" -eq 0 ] && return 0
-	[ "${_dns_status}" -eq 2 ] || return 1
-	adguardhome_single_process_running
+	return 1
 }
 
 dns_port_has_foreign_owner() {
 	_dns_port_scope="${1:-global}"
-	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	_dns_named_owner_only="${3:-0}"
+	dns_socket_snapshot_value "$@" || return 1
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
 		function scoped(local_address,    count, idx, scope_values) {
 			if (scope == "global" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53") return 1
@@ -985,20 +1019,32 @@ dns_port_has_foreign_owner() {
 			return 0
 		}
 		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && scoped($4) {
+			bound = 1
+			owner = ""
 			for (field = 1; field <= NF; field++) {
 				if ($field ~ /^[0-9]+\/[^[:space:]]+$/) {
+					owner = $field
 					if ($field !~ "/" proc "$") foreign_owner = 1
 					break
 				}
 			}
+			if (owner == "") ownerless = 1
 		}
-		END { exit(foreign_owner ? 0 : 1) }
+		END {
+			if (foreign_owner) exit 0
+			if (ownerless) exit 2
+			exit 1
+		}
 	'
+	_dns_status="$?"
+	[ "${_dns_status}" -eq 0 ] && return 0
+	[ "${_dns_status}" -eq 2 ] && [ "${_dns_named_owner_only}" != "1" ] && return 0
+	return 1
 }
 
 dns_port_needs_release() {
 	_dns_port_scope="${1:-global}"
-	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	dns_socket_snapshot_value "$@" || return 1
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
 		function scoped(local_address,    count, idx, scope_values) {
 			if (scope == "global" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53") return 1
@@ -1028,9 +1074,8 @@ dns_port_needs_release() {
 	'
 	_dns_status="$?"
 	[ "${_dns_status}" -eq 0 ] && return 0
-	[ "${_dns_status}" -eq 2 ] || return 1
-	adguardhome_single_process_running && return 1
-	return 0
+	[ "${_dns_status}" -eq 2 ] && return 0
+	return 1
 }
 
 release_dns_port_from_dnsmasq() {
@@ -1038,11 +1083,15 @@ release_dns_port_from_dnsmasq() {
 	_dns_port_scope="${2:-global}"
 	agh_log INFO "${_dns_release_context}" "Stopping dnsmasq normally before checking port 53 ownership."
 	service stop_dnsmasq >/dev/null 2>&1
-	if dns_port_available "${_dns_port_scope}"; then
+	dns_socket_snapshot || return 3
+	if dns_port_available "${_dns_port_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
 		agh_log INFO "${_dns_release_context}" "Port 53 released after stopping dnsmasq."
 		return 0
 	fi
-	kill_dns_port_owners "${_dns_port_scope}"
+	kill_dns_port_owners "${_dns_port_scope}" "${DNS_SOCKET_SNAPSHOT}"
+	_dns_kill_status="$?"
+	[ "${_dns_kill_status}" = "3" ] && return 3
+	return "${_dns_kill_status}"
 }
 
 dns_guard_wait_for_stop() {
@@ -1081,10 +1130,19 @@ log_adguardhome_dns_wait_failure() {
 		agh_log ERROR log_adguardhome_dns_wait_failure "AdGuardHome did not acquire DNS: AdGuardHome process is missing."
 		return 0
 	fi
-	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || {
+	if [ "${DNS_SOCKET_SNAPSHOT_VALID:-}" = "0" ]; then
 		agh_log ERROR log_adguardhome_dns_wait_failure "AdGuardHome did not acquire DNS: unable to inspect port 53 ownership."
 		return 0
-	}
+	fi
+	if [ "${DNS_SOCKET_SNAPSHOT_VALID:-}" = "1" ]; then
+		_dns_socket_table="${DNS_SOCKET_SNAPSHOT}"
+	else
+		dns_socket_snapshot || {
+			agh_log ERROR log_adguardhome_dns_wait_failure "AdGuardHome did not acquire DNS: unable to inspect port 53 ownership."
+			return 0
+		}
+		_dns_socket_table="${DNS_SOCKET_SNAPSHOT}"
+	fi
 	_dns_wait_failure="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
 		function scoped(local_address,    count, idx, scope_values) {
 			if (scope == "global" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53") return 1
@@ -1126,7 +1184,13 @@ wait_for_adguardhome_dns() {
 	_dns_wait_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" 30)"
 	agh_log INFO wait_for_adguardhome_dns "Waiting for AdGuardHome to bind DNS port 53."
 	while [ "${_dns_wait_attempts}" -lt "${_dns_wait_limit}" ]; do
-		adguardhome_owns_dns "${ADGUARDHOME_DNS_BIND_SCOPE:-global}"
+		dns_socket_snapshot || {
+			adguardhome_single_process_running || break
+			_dns_wait_attempts="$((_dns_wait_attempts + 1))"
+			sleep 1s
+			continue
+		}
+		adguardhome_owns_dns "${ADGUARDHOME_DNS_BIND_SCOPE:-global}" "${DNS_SOCKET_SNAPSHOT}"
 		_dns_wait_status="$?"
 		if [ "${_dns_wait_status}" -eq 0 ]; then
 			agh_log INFO wait_for_adguardhome_dns "AdGuardHome owns DNS port 53 after ${_dns_wait_attempts} attempt(s)."
@@ -1139,7 +1203,7 @@ wait_for_adguardhome_dns() {
 		fi
 		sleep 1s
 	done
-	if adguardhome_owns_dns "${ADGUARDHOME_DNS_BIND_SCOPE:-global}"; then
+	if dns_socket_snapshot && adguardhome_owns_dns "${ADGUARDHOME_DNS_BIND_SCOPE:-global}" "${DNS_SOCKET_SNAPSHOT}"; then
 		agh_log INFO wait_for_adguardhome_dns "AdGuardHome owns DNS port 53 on final check."
 		return 0
 	fi
@@ -1162,14 +1226,30 @@ start_dns_port_guard() {
 	# cannot terminate us during retry sleep without resuming the watchdog.
 	trap 'trap - HUP INT TERM EXIT; exec 3<&- 3>&- 2>/dev/null; rm -f "${_dns_guard_wait_fifo:-}"; resume_dns_watchdog; restore_dns_watchdog_traps "${_dns_guard_saved_traps}"; exit 0' HUP INT TERM EXIT
 	while [ "${_dns_guard_attempts}" -lt "${_dns_guard_limit}" ]; do
-		if adguardhome_owns_dns "${_dns_bind_scope}"; then
+		dns_socket_snapshot || {
+			suspend_dns_watchdog
+			_dns_guard_attempts="$((_dns_guard_attempts + 1))"
+			sleep 1s
+			continue
+		}
+		if adguardhome_owns_dns "${_dns_bind_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
 			break
 		fi
-		if dns_port_has_foreign_owner "${_dns_bind_scope}"; then
+		# Ownerless BusyBox netstat rows can be an intermediate AdGuardHome bind.
+		# Keep guarding, but only release port 53 for a confirmed named owner.
+		if dns_port_has_foreign_owner "${_dns_bind_scope}" "${DNS_SOCKET_SNAPSHOT}" 1; then
 			if [ "${_dns_guard_attempts}" = "0" ]; then
 				agh_log INFO start_dns_port_guard "Stopping dnsmasq/releasing port 53 while guard is active."
 			fi
-			release_dns_port_from_dnsmasq start_dns_port_guard "${_dns_bind_scope}" || return 1
+			release_dns_port_from_dnsmasq start_dns_port_guard "${_dns_bind_scope}"
+			_dns_release_status="$?"
+			if [ "${_dns_release_status}" = "3" ]; then
+				suspend_dns_watchdog
+				_dns_guard_attempts="$((_dns_guard_attempts + 1))"
+				sleep 1s
+				continue
+			fi
+			[ "${_dns_release_status}" = "0" ] || return 1
 		fi
 		suspend_dns_watchdog
 		_dns_guard_attempts="$((_dns_guard_attempts + 1))"
@@ -1424,6 +1504,7 @@ ensure_adguardhome_work_dir_permissions() {
 
 pre_start_adguardhome() {
 	_dns_stop_attempts="0"
+	_dns_snapshot_failed="0"
 	_dns_stop_limit="$(dns_retry_limit "${ADGUARDHOME_DNSMASQ_STOP_RETRIES:-}" 10)"
 	_dns_bind_scope="$(adguardhome_dns_bind_scope)"
 	ADGUARDHOME_DNS_BIND_SCOPE="${_dns_bind_scope}"
@@ -1483,7 +1564,16 @@ pre_start_adguardhome() {
 			agh_log ERROR pre_start_adguardhome "DNS handoff is already active; startup aborted without DNS handoff."
 			return 1
 		fi
-		if dns_port_available "${_dns_bind_scope}"; then
+		_dns_snapshot_attempts="0"
+		while ! dns_socket_snapshot; do
+			_dns_snapshot_attempts="$((_dns_snapshot_attempts + 1))"
+			if [ "${_dns_snapshot_attempts}" -ge "${_dns_stop_limit}" ]; then
+				agh_log ERROR pre_start_adguardhome "Unable to inspect port 53 ownership after ${_dns_stop_limit} attempt(s); startup aborted without DNS handoff."
+				return 1
+			fi
+			sleep 1s
+		done
+		if dns_port_available "${_dns_bind_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
 			prepare_dns_handoff_marker || return 1
 			start_dns_port_guard >/dev/null 2>&1 &
 			ADGUARDHOME_DNS_GUARD_PID="$!"
@@ -1506,19 +1596,53 @@ pre_start_adguardhome() {
 	_dns_watchdog_saved_traps="${DNS_WATCHDOG_TRAP_FILE}"
 	agh_log INFO pre_start_adguardhome "Stopping dnsmasq/releasing port 53 before starting AdGuardHome."
 	while [ "${_dns_stop_attempts}" -lt "${_dns_stop_limit}" ]; do
-		if dns_port_available "${_dns_bind_scope}"; then
+		if ! dns_socket_snapshot; then
+			trap 'abort_pre_start_adguardhome "${_dns_watchdog_saved_traps}"' HUP INT TERM EXIT
+			suspend_dns_watchdog
+			_dns_stop_attempts="$((_dns_stop_attempts + 1))"
+			if [ "${_dns_stop_attempts}" -ge "${_dns_stop_limit}" ]; then
+				_dns_snapshot_failed="1"
+				break
+			fi
+			sleep 1s
+			continue
+		fi
+		[ "${_dns_snapshot_failed}" = "0" ] || break
+		# Continue this release attempt immediately after a recovered
+		# inspection so the confirmed owner cannot be skipped.
+		if dns_port_available "${_dns_bind_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
 			start_dns_port_guard >/dev/null 2>&1 &
 			ADGUARDHOME_DNS_GUARD_PID="$!"
 			agh_log INFO pre_start_adguardhome "Port 53 released; starting AdGuardHome."
 			restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
 			return 0
 		fi
-		if dns_port_needs_release "${_dns_bind_scope}"; then
-			if ! release_dns_port_from_dnsmasq pre_start_adguardhome "${_dns_bind_scope}"; then
+		if dns_port_needs_release "${_dns_bind_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
+			release_dns_port_from_dnsmasq pre_start_adguardhome "${_dns_bind_scope}"
+			_dns_release_status="$?"
+			if [ "${_dns_release_status}" = "3" ]; then
+				trap 'abort_pre_start_adguardhome "${_dns_watchdog_saved_traps}"' HUP INT TERM EXIT
+				suspend_dns_watchdog
+				_dns_stop_attempts="$((_dns_stop_attempts + 1))"
+				if [ "${_dns_stop_attempts}" -ge "${_dns_stop_limit}" ]; then
+					_dns_snapshot_failed="1"
+					break
+				fi
+				sleep 1s
+				continue
+			fi
+			if [ "${_dns_release_status}" != "0" ]; then
 				agh_log ERROR pre_start_adguardhome "Unable to safely release port 53; startup aborted."
 				post_start_failure_adguardhome
 				restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
 				return 1
+			fi
+			if [ "${DNS_SOCKET_SNAPSHOT_VALID:-0}" = "1" ] && dns_port_available "${_dns_bind_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
+				start_dns_port_guard >/dev/null 2>&1 &
+				ADGUARDHOME_DNS_GUARD_PID="$!"
+				agh_log INFO pre_start_adguardhome "Port 53 released; starting AdGuardHome."
+				restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
+				return 0
 			fi
 		fi
 		# The DNS guard is not running yet, so protect this parent-side
@@ -1531,7 +1655,11 @@ pre_start_adguardhome() {
 		fi
 		sleep 1s
 	done
-	agh_log ERROR pre_start_adguardhome "Unable to release port 53 after ${_dns_stop_limit} attempt(s); startup aborted."
+	if [ "${_dns_snapshot_failed}" = "1" ]; then
+		agh_log ERROR pre_start_adguardhome "Unable to inspect port 53 ownership after ${_dns_stop_limit} attempt(s); startup aborted."
+	else
+		agh_log ERROR pre_start_adguardhome "Unable to release port 53 after ${_dns_stop_limit} attempt(s); startup aborted."
+	fi
 	post_start_failure_adguardhome
 	restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
 	return 1
