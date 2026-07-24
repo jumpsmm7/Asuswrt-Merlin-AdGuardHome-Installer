@@ -1553,9 +1553,10 @@ pre_start_adguardhome() {
 			agh_log ERROR pre_start_adguardhome "DNS handoff is already active; startup aborted without DNS handoff."
 			return 1
 		fi
+		_dns_snapshot_attempts="0"
 		while ! dns_socket_snapshot; do
-			_dns_stop_attempts="$((_dns_stop_attempts + 1))"
-			if [ "${_dns_stop_attempts}" -ge "${_dns_stop_limit}" ]; then
+			_dns_snapshot_attempts="$((_dns_snapshot_attempts + 1))"
+			if [ "${_dns_snapshot_attempts}" -ge "${_dns_stop_limit}" ]; then
 				agh_log ERROR pre_start_adguardhome "Unable to inspect port 53 ownership after ${_dns_stop_limit} attempt(s); startup aborted without DNS handoff."
 				return 1
 			fi
