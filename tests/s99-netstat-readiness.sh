@@ -88,7 +88,7 @@ pidof() {
 	esac
 }
 
-# netstat emits simulated socket listings selected by NETSTAT_STATE for readiness and ownership tests.
+# netstat records its invocation and emits simulated socket listings selected by NETSTAT_STATE.
 netstat() {
 	printf '%s\n' netstat >>"${NETSTAT_CALLS_FILE}"
 	case "${NETSTAT_STATE:-owned}" in

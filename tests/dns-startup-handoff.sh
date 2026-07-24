@@ -162,7 +162,7 @@ pidof() {
 			;;
 	esac
 }
-# netstat simulates network socket listings for configured DNS and WebUI ownership states, and can produce transient or persistent failures for test scenarios.
+# netstat simulates DNS and WebUI socket listings, including configured ownership states and transient or persistent failures.
 netstat() {
 	printf '%s\n' netstat >>"${NETSTAT_CALLS_FILE}"
 	_netstat_call_count="$(wc -l <"${NETSTAT_CALLS_FILE}")"
@@ -231,13 +231,14 @@ netstat() {
 			;;
 	esac
 }
+# service logs service invocations and simulates dnsmasq restart success, failure, and port release.
 service() {
 	printf '%s\n' "service $*" >>"${CALLS_FILE}"
 	[ "$*" = 'restart_dnsmasq' ] && [ "${SERVICE_RESTART_FAIL:-0}" -eq 1 ] && return 1
 	[ "$*" = 'restart_dnsmasq' ] && [ "${DNSMASQ_RESTART_RELEASES_PORT:-0}" -eq 1 ] && DNS_STATE=free
 	return 0
 }
-# kill records invocations, simulates DNS port release for signal-based calls, and delegates other signals to the system command.
+# kill records signal calls, optionally releases the simulated DNS port, resets transient netstat failure state, and delegates other invocations to the system command.
 kill() {
 	printf '%s\n' "kill $*" >>"${CALLS_FILE}"
 	if [ "${1:-}" = '-s' ]; then
