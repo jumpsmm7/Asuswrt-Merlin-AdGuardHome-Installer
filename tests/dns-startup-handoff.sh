@@ -621,6 +621,20 @@ post_start_adguardhome || fail 'LAN post-start without dnsmasq did not clean up 
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 : >"${CALLS_FILE}"
+: >"${NETSTAT_CALLS_FILE}"
+DNSMASQ_RUNNING=0
+DNS_STATE=free
+SLEEP_CALLS=0
+NETSTAT_FAIL_CALLS='1'
+ADGUARDHOME_DNSMASQ_STOP_RETRIES=2
+pre_start_adguardhome || fail 'LAN pre-start without dnsmasq did not retry a transient snapshot failure'
+[ "${SLEEP_CALLS}" -eq 1 ] || fail 'LAN pre-start without dnsmasq did not charge the snapshot failure to its retry budget'
+[ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -eq 2 ] || fail 'LAN pre-start without dnsmasq did not stop retrying after snapshot recovery'
+stop_dns_port_guard
+post_start_failure_adguardhome || fail 'could not clean up transient no-handoff snapshot retry'
+unset NETSTAT_FAIL_CALLS ADGUARDHOME_SKIP_DNSMASQ_RESTART
+
+: >"${CALLS_FILE}"
 printf '%s\n' '#!/bin/sh' 'exit 1' >"${WORK_DIR}/AdGuardHome" || fail 'could not create failing AdGuardHome binary'
 chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod failing AdGuardHome binary'
 DNSMASQ_RUNNING=0
@@ -925,6 +939,21 @@ if pre_start_adguardhome; then
 fi
 [ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -eq 4 ] || fail 'snapshot failures were not charged to the shared DNS retry budget'
 grep -q 'Unable to inspect port 53 ownership after 3 attempt(s)' "${CALLS_FILE}" || fail 'pre-start did not report the exhausted shared snapshot retry budget'
+unset NETSTAT_FAIL_CALLS
+
+: >"${CALLS_FILE}"
+: >"${NETSTAT_CALLS_FILE}"
+DNS_STATE=busy
+SLEEP_CALLS=0
+NETSTAT_FAIL_CALLS='2,4,6'
+ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
+ADGUARDHOME_DNS_GUARD_RETRIES=0
+if pre_start_adguardhome; then
+	fail 'pre-start succeeded after nested snapshot failures exhausted the DNS retry budget'
+fi
+[ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -eq 6 ] || fail 'nested snapshot failures bypassed the shared DNS retry budget'
+[ "${SLEEP_CALLS}" -eq 2 ] || fail 'pre-start slept after the final nested snapshot failure'
+grep -q 'Unable to inspect port 53 ownership after 3 attempt(s)' "${CALLS_FILE}" || fail 'pre-start misreported exhausted nested snapshot retries'
 unset NETSTAT_FAIL_CALLS
 
 : >"${CALLS_FILE}"
