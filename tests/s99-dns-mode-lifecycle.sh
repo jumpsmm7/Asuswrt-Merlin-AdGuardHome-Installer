@@ -99,7 +99,7 @@ adguardhome_dns_bind_scope() {
 	printf '%s\n' "${DNS_BIND_SCOPE:-global}"
 }
 
-# dns_retry_limit prints the first argument when it is numeric, or the fallback value when the argument is missing or invalid.
+# dns_retry_limit prints the numeric retry limit from the first argument, or a fallback value when it is missing or invalid.
 dns_retry_limit() {
 	case "${1:-}" in
 		"" | *[!0-9]*) printf '%s\n' "${2:-10}" ;;
