@@ -199,6 +199,9 @@ netstat() {
 		busy_no_pid)
 			printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:*'
 			;;
+		ownerless_tcp)
+			printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN'
+			;;
 		busy_alt_dnsmasq)
 			printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 0 0 234/dnsmasq'
 			;;
@@ -822,6 +825,25 @@ wait_for_file "${NETSTAT_FAIL_ONCE_FILE}" || fail 'DNS guard did not exercise th
 command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || fail 'DNS guard exited after a transient netstat failure'
 stop_dns_port_guard
 unset NETSTAT_FAIL_ONCE_FILE
+
+: >"${CALLS_FILE}"
+: >"${NETSTAT_CALLS_FILE}"
+DNS_STATE=ownerless_tcp
+SLEEP_CALLS=0
+SLEEP_OWNED_AFTER=1
+ADGUARDHOME_DNS_GUARD_RETRIES=3
+start_dns_port_guard &
+ADGUARDHOME_DNS_GUARD_PID="$!"
+_guard_check_attempts=0
+while [ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -lt 2 ] && [ "${_guard_check_attempts}" -lt 100 ]; do
+	_guard_check_attempts="$((_guard_check_attempts + 1))"
+	command sleep 0.01
+done
+[ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -ge 2 ] || fail 'DNS guard did not retry an ownerless intermediate bind'
+command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || fail 'DNS guard exited during an ownerless intermediate bind'
+! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'DNS guard released an ownerless intermediate bind'
+stop_dns_port_guard
+SLEEP_OWNED_AFTER=0
 
 : >"${CALLS_FILE}"
 DNS_STATE=free

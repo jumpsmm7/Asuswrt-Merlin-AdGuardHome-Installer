@@ -1007,6 +1007,7 @@ dns_port_available() {
 
 dns_port_has_foreign_owner() {
 	_dns_port_scope="${1:-global}"
+	_dns_named_owner_only="${3:-0}"
 	dns_socket_snapshot_value "$@" || return 1
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
 		function scoped(local_address,    count, idx, scope_values) {
@@ -1027,10 +1028,18 @@ dns_port_has_foreign_owner() {
 					break
 				}
 			}
-			if (owner == "") foreign_owner = 1
+			if (owner == "") ownerless = 1
 		}
-		END { exit(foreign_owner ? 0 : 1) }
+		END {
+			if (foreign_owner) exit 0
+			if (ownerless) exit 2
+			exit 1
+		}
 	'
+	_dns_status="$?"
+	[ "${_dns_status}" -eq 0 ] && return 0
+	[ "${_dns_status}" -eq 2 ] && [ "${_dns_named_owner_only}" != "1" ] && return 0
+	return 1
 }
 
 dns_port_needs_release() {
@@ -1226,7 +1235,9 @@ start_dns_port_guard() {
 		if adguardhome_owns_dns "${_dns_bind_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
 			break
 		fi
-		if dns_port_has_foreign_owner "${_dns_bind_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
+		# Ownerless BusyBox netstat rows can be an intermediate AdGuardHome bind.
+		# Keep guarding, but only release port 53 for a confirmed named owner.
+		if dns_port_has_foreign_owner "${_dns_bind_scope}" "${DNS_SOCKET_SNAPSHOT}" 1; then
 			if [ "${_dns_guard_attempts}" = "0" ]; then
 				agh_log INFO start_dns_port_guard "Stopping dnsmasq/releasing port 53 while guard is active."
 			fi
