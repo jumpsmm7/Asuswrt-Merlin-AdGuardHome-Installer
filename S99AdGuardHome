@@ -320,11 +320,21 @@ resume_dns_watchdog() {
 
 restore_dns_watchdog_traps() {
 	_dns_watchdog_restore_traps="${1:-}"
+	_dns_watchdog_keep_signals_blocked="${2:-0}"
 	[ -n "${_dns_watchdog_restore_traps}" ] || return 1
 	[ -f "${_dns_watchdog_restore_traps}" ] || return 1
-	trap - HUP INT TERM EXIT
-	eval "$(cat "${_dns_watchdog_restore_traps}")"
+	_dns_watchdog_restore_state="$(cat "${_dns_watchdog_restore_traps}")"
 	rm -f "${_dns_watchdog_restore_traps}" 2>/dev/null
+	if [ "${_dns_watchdog_keep_signals_blocked}" = "1" ]; then
+		# Restore EXIT and other watchdog state, but keep repeat startup signals
+		# blocked until the caller snapshot has also been restored and cleaned.
+		eval "trap - EXIT
+${_dns_watchdog_restore_state}
+trap '' HUP INT TERM"
+	else
+		eval "trap - HUP INT TERM EXIT
+${_dns_watchdog_restore_state}"
+	fi
 }
 
 save_dns_watchdog_traps() {
@@ -646,7 +656,11 @@ adguardhome_owns_dns() {
 	_dns_port_scope="${1:-global}"
 	_dns_socket_table=""
 	pidof "${PROCS}" >/dev/null 2>&1 || return 2
-	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	if [ "${2+x}" = x ]; then
+		_dns_socket_table="${2}"
+	else
+		_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	fi
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
 		BEGIN {
 			scope_count = split(scope, scope_values, " ")
@@ -924,7 +938,11 @@ kill_dns_port_owners() {
 
 dns_port_available() {
 	_dns_port_scope="${1:-global}"
-	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	if [ "${2+x}" = x ]; then
+		_dns_socket_table="${2}"
+	else
+		_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	fi
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
 		function scoped(local_address,    count, idx, scope_values) {
 			if (scope == "global" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53") return 1
@@ -961,7 +979,11 @@ dns_port_available() {
 
 dns_port_has_foreign_owner() {
 	_dns_port_scope="${1:-global}"
-	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	if [ "${2+x}" = x ]; then
+		_dns_socket_table="${2}"
+	else
+		_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	fi
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
 		function scoped(local_address,    count, idx, scope_values) {
 			if (scope == "global" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53") return 1
@@ -985,7 +1007,11 @@ dns_port_has_foreign_owner() {
 
 dns_port_needs_release() {
 	_dns_port_scope="${1:-global}"
-	_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	if [ "${2+x}" = x ]; then
+		_dns_socket_table="${2}"
+	else
+		_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+	fi
 	printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
 		function scoped(local_address,    count, idx, scope_values) {
 			if (scope == "global" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53") return 1
@@ -1149,10 +1175,11 @@ start_dns_port_guard() {
 	# cannot terminate us during retry sleep without resuming the watchdog.
 	trap 'trap - HUP INT TERM EXIT; exec 3<&- 3>&- 2>/dev/null; rm -f "${_dns_guard_wait_fifo:-}"; resume_dns_watchdog; restore_dns_watchdog_traps "${_dns_guard_saved_traps}"; exit 0' HUP INT TERM EXIT
 	while [ "${_dns_guard_attempts}" -lt "${_dns_guard_limit}" ]; do
-		if adguardhome_owns_dns "${_dns_bind_scope}"; then
+		_dns_socket_table="$(netstat -nlp 2>/dev/null)" || return 1
+		if adguardhome_owns_dns "${_dns_bind_scope}" "${_dns_socket_table}"; then
 			break
 		fi
-		if dns_port_has_foreign_owner "${_dns_bind_scope}"; then
+		if dns_port_has_foreign_owner "${_dns_bind_scope}" "${_dns_socket_table}"; then
 			if [ "${_dns_guard_attempts}" = "0" ]; then
 				agh_log INFO start_dns_port_guard "Stopping dnsmasq/releasing port 53 while guard is active."
 			fi
@@ -1174,7 +1201,7 @@ abort_pre_start_adguardhome() {
 	trap '' HUP INT TERM
 	trap - EXIT
 	post_start_failure_adguardhome
-	restore_dns_watchdog_traps "${_dns_watchdog_abort_saved_traps}"
+	restore_dns_watchdog_traps "${_dns_watchdog_abort_saved_traps}" 1
 	if type adguardhome_start_traps_restore >/dev/null 2>&1; then
 		adguardhome_start_traps_restore
 	fi
@@ -1493,14 +1520,20 @@ pre_start_adguardhome() {
 	_dns_watchdog_saved_traps="${DNS_WATCHDOG_TRAP_FILE}"
 	agh_log INFO pre_start_adguardhome "Stopping dnsmasq/releasing port 53 before starting AdGuardHome."
 	while [ "${_dns_stop_attempts}" -lt "${_dns_stop_limit}" ]; do
-		if dns_port_available "${_dns_bind_scope}"; then
+		_dns_socket_table="$(netstat -nlp 2>/dev/null)" || {
+			agh_log ERROR pre_start_adguardhome "Unable to inspect DNS port ownership; startup aborted."
+			post_start_failure_adguardhome
+			restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
+			return 1
+		}
+		if dns_port_available "${_dns_bind_scope}" "${_dns_socket_table}"; then
 			start_dns_port_guard >/dev/null 2>&1 &
 			ADGUARDHOME_DNS_GUARD_PID="$!"
 			agh_log INFO pre_start_adguardhome "Port 53 released; starting AdGuardHome."
 			restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
 			return 0
 		fi
-		if dns_port_needs_release "${_dns_bind_scope}"; then
+		if dns_port_needs_release "${_dns_bind_scope}" "${_dns_socket_table}"; then
 			if ! release_dns_port_from_dnsmasq pre_start_adguardhome "${_dns_bind_scope}"; then
 				agh_log ERROR pre_start_adguardhome "Unable to safely release port 53; startup aborted."
 				post_start_failure_adguardhome

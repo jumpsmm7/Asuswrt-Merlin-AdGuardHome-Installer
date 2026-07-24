@@ -150,7 +150,13 @@ pidof() {
 # netstat simulates netstat output for configured DNS and WebUI ownership states, or fails when NETSTAT_FAIL is enabled.
 netstat() {
 	[ "${NETSTAT_FAIL:-0}" -eq 0 ] || return 1
-	case "${DNS_STATE:-free}" in
+	_dns_netstat_state="${DNS_STATE:-free}"
+	if [ -n "${NETSTAT_SEQUENCE_FILE:-}" ] && [ -s "${NETSTAT_SEQUENCE_FILE}" ]; then
+		_dns_netstat_state="$(sed -n '1p' "${NETSTAT_SEQUENCE_FILE}")"
+		sed '1d' "${NETSTAT_SEQUENCE_FILE}" >"${NETSTAT_SEQUENCE_FILE}.next" || return 1
+		mv "${NETSTAT_SEQUENCE_FILE}.next" "${NETSTAT_SEQUENCE_FILE}" || return 1
+	fi
+	case "${_dns_netstat_state}" in
 		busy)
 			printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 123/dnsmasq'
 			;;
@@ -302,7 +308,10 @@ if (
 		printf '%s\n' recovery-complete >>"${_pre_start_abort_calls}"
 	}
 	restore_dns_watchdog_traps() {
+		[ "${2:-}" = "1" ] || return 1
 		printf '%s\n' restore >>"${_pre_start_abort_calls}"
+		trap >"${TEST_ROOT}/pre-start-watchdog-restore-traps"
+		grep -q "'' TERM" "${TEST_ROOT}/pre-start-watchdog-restore-traps" || return 1
 	}
 	adguardhome_start_traps_restore() {
 		printf '%s\n' caller-restore >>"${_pre_start_abort_calls}"
@@ -327,6 +336,7 @@ fi
 [ "$(sed -n '5p' "${_pre_start_abort_calls}")" = caller-restore-complete ] || fail 'repeated signal interrupted caller trap restoration'
 rm -f "${_pre_start_abort_calls}"
 rm -f "${TEST_ROOT}/pre-start-recovery-traps"
+rm -f "${TEST_ROOT}/pre-start-watchdog-restore-traps"
 
 : >"${CALLS_FILE}"
 DNS_STATE=busy
@@ -769,6 +779,23 @@ grep -q 'pre_start_adguardhome: Port 53 released; starting AdGuardHome' "${CALLS
 	fail 'pre-start did not log the transition to AdGuardHome startup'
 stop_dns_port_guard
 disable_dns_handoff || fail 'could not clean up successful pre-start handoff'
+
+# Availability and release decisions within one retry must use the same socket
+# snapshot. A changing second netstat result must not suppress owner cleanup.
+: >"${CALLS_FILE}"
+NETSTAT_SEQUENCE_FILE="${TEST_ROOT}/netstat-sequence"
+printf '%s\n' busy busy busy free >"${NETSTAT_SEQUENCE_FILE}" || fail 'could not prepare netstat snapshot sequence'
+DNS_STATE=busy
+KILL_RELEASES_PORT=1
+ADGUARDHOME_DNSMASQ_STOP_RETRIES=2
+ADGUARDHOME_DNS_GUARD_RETRIES=0
+pre_start_adguardhome || fail 'pre-start did not release the DNS owner after retrying snapshot collection'
+[ "$(grep -c '^service stop_dnsmasq$' "${CALLS_FILE}")" -eq 1 ] ||
+	fail 'pre-start DNS checks did not share one netstat snapshot per retry'
+unset NETSTAT_SEQUENCE_FILE
+rm -f "${TEST_ROOT}/netstat-sequence"
+stop_dns_port_guard
+disable_dns_handoff || fail 'could not clean up snapshot retry handoff'
 
 : >"${CALLS_FILE}"
 printf '%s\n' '#!/bin/sh' 'exit 1' >"${WORK_DIR}/AdGuardHome" || fail 'could not set failing AdGuardHome config check'
