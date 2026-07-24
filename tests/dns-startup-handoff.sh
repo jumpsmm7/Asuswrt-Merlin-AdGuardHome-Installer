@@ -617,6 +617,42 @@ post_start_adguardhome || fail 'LAN post-start without dnsmasq did not clean up 
 unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 : >"${CALLS_FILE}"
+DNSMASQ_RUNNING=0
+DNS_STATE=free
+SLEEP_CALLS=0
+NETSTAT_FAIL_ONCE_FILE="${TEST_ROOT}/no-handoff-netstat-failed-once"
+rm -f "${NETSTAT_FAIL_ONCE_FILE}"
+pre_start_adguardhome || fail 'LAN pre-start without dnsmasq did not retry a transient netstat failure'
+[ -e "${NETSTAT_FAIL_ONCE_FILE}" ] || fail 'LAN pre-start without dnsmasq did not exercise the transient netstat failure pathway'
+[ "${SLEEP_CALLS}" -eq 1 ] || fail 'LAN pre-start without dnsmasq did not use the bounded snapshot retry wait'
+[ "${ADGUARDHOME_DNS_HANDOFF_REQUIRED:-1}" = "0" ] || fail 'LAN transient-failure pre-start unexpectedly required dnsmasq handoff'
+[ -f "${DNS_HANDOFF_FILE}" ] || fail 'LAN pre-start without dnsmasq did not start after retrying snapshot collection'
+stop_dns_port_guard
+post_start_failure_adguardhome || fail 'LAN transient-failure pre-start did not clean up the temporary handoff'
+unset NETSTAT_FAIL_ONCE_FILE ADGUARDHOME_SKIP_DNSMASQ_RESTART
+
+: >"${CALLS_FILE}"
+: >"${NETSTAT_CALLS_FILE}"
+DNSMASQ_RUNNING=0
+DNS_STATE=free
+SLEEP_CALLS=0
+NETSTAT_FAIL=1
+ADGUARDHOME_DNSMASQ_STOP_RETRIES=2
+if pre_start_adguardhome; then
+	fail 'LAN pre-start without dnsmasq succeeded after exhausting snapshot retries'
+fi
+[ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -eq 2 ] || fail 'LAN pre-start without dnsmasq did not enforce the snapshot retry limit'
+[ "${SLEEP_CALLS}" -eq 1 ] || fail 'LAN pre-start without dnsmasq waited outside the bounded snapshot retry budget'
+[ "${ADGUARDHOME_DNS_HANDOFF_REQUIRED:-1}" = "0" ] || fail 'LAN exhausted-snapshot pre-start unexpectedly required dnsmasq handoff'
+[ ! -e "${DNS_HANDOFF_FILE}" ] || fail 'LAN exhausted-snapshot pre-start armed a temporary handoff marker'
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'LAN exhausted-snapshot pre-start restarted absent dnsmasq'
+! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'LAN exhausted-snapshot pre-start stopped absent dnsmasq'
+grep -q 'Unable to inspect port 53 ownership after 2 attempt(s); startup aborted without DNS handoff' "${CALLS_FILE}" ||
+	fail 'LAN exhausted-snapshot pre-start did not log the bounded inspection failure'
+NETSTAT_FAIL=0
+ADGUARDHOME_DNSMASQ_STOP_RETRIES=3
+
+: >"${CALLS_FILE}"
 printf '%s\n' '#!/bin/sh' 'exit 1' >"${WORK_DIR}/AdGuardHome" || fail 'could not create failing AdGuardHome binary'
 chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod failing AdGuardHome binary'
 DNSMASQ_RUNNING=0
