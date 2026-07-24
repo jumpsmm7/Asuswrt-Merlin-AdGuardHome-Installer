@@ -1553,10 +1553,14 @@ pre_start_adguardhome() {
 			agh_log ERROR pre_start_adguardhome "DNS handoff is already active; startup aborted without DNS handoff."
 			return 1
 		fi
-		dns_socket_snapshot || {
-			agh_log ERROR pre_start_adguardhome "Unable to inspect port 53 ownership; startup aborted without DNS handoff."
-			return 1
-		}
+		while ! dns_socket_snapshot; do
+			_dns_stop_attempts="$((_dns_stop_attempts + 1))"
+			if [ "${_dns_stop_attempts}" -ge "${_dns_stop_limit}" ]; then
+				agh_log ERROR pre_start_adguardhome "Unable to inspect port 53 ownership after ${_dns_stop_limit} attempt(s); startup aborted without DNS handoff."
+				return 1
+			fi
+			sleep 1s
+		done
 		if dns_port_available "${_dns_bind_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
 			prepare_dns_handoff_marker || return 1
 			start_dns_port_guard >/dev/null 2>&1 &
@@ -1580,17 +1584,17 @@ pre_start_adguardhome() {
 	_dns_watchdog_saved_traps="${DNS_WATCHDOG_TRAP_FILE}"
 	agh_log INFO pre_start_adguardhome "Stopping dnsmasq/releasing port 53 before starting AdGuardHome."
 	while [ "${_dns_stop_attempts}" -lt "${_dns_stop_limit}" ]; do
-		_dns_snapshot_attempts="0"
-		while ! dns_socket_snapshot; do
+		if ! dns_socket_snapshot; then
 			trap 'abort_pre_start_adguardhome "${_dns_watchdog_saved_traps}"' HUP INT TERM EXIT
 			suspend_dns_watchdog
-			_dns_snapshot_attempts="$((_dns_snapshot_attempts + 1))"
-			if [ "${_dns_snapshot_attempts}" -ge "${_dns_stop_limit}" ]; then
+			_dns_stop_attempts="$((_dns_stop_attempts + 1))"
+			if [ "${_dns_stop_attempts}" -ge "${_dns_stop_limit}" ]; then
 				_dns_snapshot_failed="1"
 				break
 			fi
 			sleep 1s
-		done
+			continue
+		fi
 		[ "${_dns_snapshot_failed}" = "0" ] || break
 		# Continue this release attempt immediately after a recovered
 		# inspection so the confirmed owner cannot be skipped.
@@ -1608,6 +1612,10 @@ pre_start_adguardhome() {
 				trap 'abort_pre_start_adguardhome "${_dns_watchdog_saved_traps}"' HUP INT TERM EXIT
 				suspend_dns_watchdog
 				_dns_stop_attempts="$((_dns_stop_attempts + 1))"
+				if [ "${_dns_stop_attempts}" -ge "${_dns_stop_limit}" ]; then
+					_dns_snapshot_failed="1"
+					break
+				fi
 				sleep 1s
 				continue
 			fi
@@ -1616,6 +1624,13 @@ pre_start_adguardhome() {
 				post_start_failure_adguardhome
 				restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
 				return 1
+			fi
+			if [ "${DNS_SOCKET_SNAPSHOT_VALID:-0}" = "1" ] && dns_port_available "${_dns_bind_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
+				start_dns_port_guard >/dev/null 2>&1 &
+				ADGUARDHOME_DNS_GUARD_PID="$!"
+				agh_log INFO pre_start_adguardhome "Port 53 released; starting AdGuardHome."
+				restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
+				return 0
 			fi
 		fi
 		# The DNS guard is not running yet, so protect this parent-side
