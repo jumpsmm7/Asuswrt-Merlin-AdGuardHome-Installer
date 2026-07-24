@@ -107,6 +107,12 @@ dns_retry_limit() {
 	esac
 }
 
+# netstat supplies the shared socket snapshot consumed by the pre-start checks;
+# the high-level availability stubs below determine the simulated result.
+netstat() {
+	return 0
+}
+
 # dns_port_available checks whether the configured DNS port is available for the specified bind scope.
 dns_port_available() {
 	printf '%s\n' "dns_port_available ${1:-global}" >>"${CALLS_FILE}"

@@ -226,6 +226,9 @@ rm -f "${TMP_ROOT}/workspace-published"
 	mkdir() {
 		[ "${ADGUARDHOME_START_TRAP_DIR:-}" = "$1" ] || return 91
 		[ "${ADGUARDHOME_START_TRAP_FILE:-}" = "$1/state" ] || return 92
+		trap >"${TMP_ROOT}/workspace-create-traps"
+		[ "$(managed_trap_count "${TMP_ROOT}/workspace-create-traps")" -eq 3 ] || return 93
+		grep -q "'' TERM" "${TMP_ROOT}/workspace-create-traps" || return 94
 		: >"${TMP_ROOT}/workspace-published"
 		return 1
 	}
@@ -235,6 +238,7 @@ _workspace_publish_status="$?"
 set -e
 [ "${_workspace_publish_status}" -eq 1 ] || fail "trap workspace was not published before mkdir (${_workspace_publish_status})"
 [ -f "${TMP_ROOT}/workspace-published" ] || fail 'mkdir could not see the published trap workspace'
+rm -f "${TMP_ROOT}/workspace-create-traps"
 assert_trap_workspace_removed
 
 # Predictable legacy directory names must not be able to deny startup.
@@ -270,8 +274,8 @@ assert_trap_workspace_removed
 
 # A literal newline in a managed action must remain part of one restorable record.
 (
-	trap 'printf "%s\n" "caller
-signal" >/dev/null' HUP
+	trap "printf '%s\\n' \"it's fine
+signal\" >/dev/null" HUP
 	trap_snapshot "${TMP_ROOT}/before-multiline-traps"
 	[ "$(managed_trap_count "${TMP_ROOT}/before-multiline-traps")" -eq 1 ] || exit 1
 	adguardhome_start_traps_save || exit 1
