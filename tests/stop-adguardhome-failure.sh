@@ -83,6 +83,7 @@ sleep() { printf '%s\n' "sleep $*" >>"${CALLS_FILE}"; }
 reset_case() {
 	: >"${CALLS_FILE}"
 	rm -rf "${DNS_HANDOFF_DIR}"
+	unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 	RUNNING="0" DNSMASQ_MANAGED="1" DNSMASQ_RUNNING="1"
 	LOWER_STOP_STATUS="0" LOWER_KILL_STATUS="0" SERVICE_STATUS="0"
 	SOCKET_MODE="ipv4" LOOKUP_MODE="ipv4" NETCHECK_STATUS="0"
@@ -134,19 +135,26 @@ if stop_adguardhome; then fail "active AdGuard Home process was hidden"; fi
 grep -q 'reason=process_still_active' "${CALLS_FILE}" || fail "active process failure was not logged"
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail "DNS restoration was not attempted after stop failure"
 
-# Unmanaged LAN mode checks only process state and stale installer handoff markers.
+# Unmanaged LAN mode checks only process state and installer handoff markers.
 reset_case
 DNSMASQ_MANAGED="0" DNSMASQ_RUNNING="0" SOCKET_MODE="none" LOOKUP_MODE="none" NETCHECK_STATUS="1"
 stop_adguardhome || fail "unmanaged LAN stop incorrectly required dnsmasq or Internet readiness"
 ! grep -q '^netcheck$' "${CALLS_FILE}" || fail "unmanaged LAN stop performed an Internet connectivity check"
-mkdir -p "${DNS_HANDOFF_DIR}" && : >"${DNS_HANDOFF_FILE}"
-if stop_adguardhome; then fail "unmanaged LAN stop ignored a stale handoff marker"; fi
-grep -q 'reason=installer_marker_remains' "${CALLS_FILE}" || fail "stale handoff marker was not logged"
 
-# Managed dnsmasq recovery also requires installer handoff markers to be cleared.
-reset_case
-mkdir -p "${DNS_HANDOFF_DIR}" && : >"${DNS_HANDOFF_FILE}"
-if stop_adguardhome; then fail "managed DNS recovery ignored a stale handoff marker"; fi
-grep -q 'reason=installer_marker_remains' "${CALLS_FILE}" || fail "managed DNS stale handoff marker was not logged"
+# Every managed, unmanaged, and restart-skipped pathway requires every configured
+# installer handoff marker to be cleared.
+for marker in "${DNS_HANDOFF_FILE}" "${DNS_HANDOFF_DIR}/lock"; do
+	for pathway in managed unmanaged restart-skipped; do
+		reset_case
+		case "${pathway}" in
+			unmanaged) DNSMASQ_MANAGED="0" ;;
+			restart-skipped) ADGUARDHOME_SKIP_DNSMASQ_RESTART="1" ;;
+		esac
+		mkdir -p "${DNS_HANDOFF_DIR}" && : >"${marker}"
+		if stop_adguardhome; then fail "${pathway} stop ignored stale marker ${marker}"; fi
+		grep -q 'reason=installer_marker_remains' "${CALLS_FILE}" ||
+			fail "${pathway} stale marker ${marker} was not logged"
+	done
+done
 
 printf '%s\n' "PASS: stop verification separates process, local DNS, and Internet readiness"
