@@ -126,9 +126,9 @@ dns_port_needs_release() {
 	return 1
 }
 
-# start_dns_port_guard records that the DNS port guard was started and returns success.
-start_dns_port_guard() {
-	printf '%s\n' start_dns_port_guard >>"${CALLS_FILE}"
+# launch_dns_port_guard records that the DNS port guard was launched and returns success.
+launch_dns_port_guard() {
+	printf '%s\n' launch_dns_port_guard >>"${CALLS_FILE}"
 	return 0
 }
 
@@ -237,6 +237,7 @@ run_case() {
 	post_start_adguardhome || fail "${case_name}: post-start failed"
 	assert_count '^handoff_dependencies$' "${expect_handoff}" "${case_name}: handoff dependency check count mismatch"
 	assert_count '^enable_dns_handoff$' "${expect_handoff}" "${case_name}: dnsmasq handoff call count mismatch"
+	assert_count '^launch_dns_port_guard$' 1 "${case_name}: DNS port guard launch count mismatch"
 	assert_count '^service restart_dnsmasq$' "${expect_restart}" "${case_name}: dnsmasq restart count mismatch"
 	grep -q "^dns_port_available ${bind_scope}$" "${CALLS_FILE}" || fail "${case_name}: did not check configured DNS bind scope"
 	grep -q '^wait_dns$' "${CALLS_FILE}" || fail "${case_name}: post-start did not wait for AdGuardHome DNS bind"

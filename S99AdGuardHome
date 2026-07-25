@@ -11,6 +11,8 @@ PROCS="AdGuardHome"
 DNS_HANDOFF_DIR="/tmp/AdGuardHome.dns-handoff"
 DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
 DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
+DNS_GUARD_READY_DIR=""
+DNS_GUARD_READY_FILE=""
 WATCHD_NICE_SNAPSHOT=""
 
 agh_timestamp() {
@@ -169,6 +171,50 @@ dns_handoff_directory_is_private() {
 dns_handoff_marker_is_private() {
 	[ -f "${DNS_HANDOFF_FILE}" ] && [ ! -L "${DNS_HANDOFF_FILE}" ] || return 1
 	dns_handoff_path_has_owner_mode - 'rw-------' "${DNS_HANDOFF_FILE}"
+}
+
+dns_guard_readiness_is_private() {
+	[ -n "${DNS_GUARD_READY_DIR:-}" ] && [ -n "${DNS_GUARD_READY_FILE:-}" ] || return 1
+	[ -d "${DNS_GUARD_READY_DIR}" ] && [ ! -L "${DNS_GUARD_READY_DIR}" ] || return 1
+	dns_handoff_path_has_owner_mode d 'rwx------' "${DNS_GUARD_READY_DIR}" || return 1
+	[ -f "${DNS_GUARD_READY_FILE}" ] && [ ! -L "${DNS_GUARD_READY_FILE}" ] || return 1
+	dns_handoff_path_has_owner_mode - 'rw-------' "${DNS_GUARD_READY_FILE}"
+}
+
+dns_guard_readiness_matches_identity() {
+	_dns_ready_pid=""
+	_dns_ready_start_time=""
+	dns_guard_readiness_is_private || return 1
+	IFS=' ' read -r _dns_ready_pid _dns_ready_start_time <"${DNS_GUARD_READY_FILE}" || return 1
+	[ "${_dns_ready_pid}" = "${DNS_GUARD_OWNER_PID}" ] &&
+		[ "${_dns_ready_start_time}" = "${DNS_GUARD_OWNER_START_TIME}" ]
+}
+
+dns_handoff_marker_matches_identity() {
+	_dns_identity_pid="$1"
+	_dns_identity_start_time="$2"
+	_dns_marker_pid=""
+	_dns_marker_start_time=""
+	dns_handoff_directory_is_private || return 1
+	dns_handoff_marker_is_private || return 1
+	IFS=' ' read -r _dns_marker_pid _dns_marker_start_time <"${DNS_HANDOFF_FILE}" || return 1
+	[ "${_dns_marker_pid}" = "${_dns_identity_pid}" ] &&
+		[ "${_dns_marker_start_time}" = "${_dns_identity_start_time}" ]
+}
+
+remove_current_dns_guard_readiness() {
+	[ -n "${DNS_GUARD_READY_DIR:-}" ] || return 0
+	case "${DNS_GUARD_READY_DIR}" in
+		"${DNS_HANDOFF_DIR}/guard-${DNS_GUARD_OWNER_PID:-}-${DNS_GUARD_OWNER_START_TIME:-}") ;;
+		*) return 1 ;;
+	esac
+	[ ! -L "${DNS_GUARD_READY_DIR}" ] || return 1
+	if [ -e "${DNS_GUARD_READY_FILE:-}" ]; then
+		dns_guard_readiness_is_private || return 1
+		rm -f "${DNS_GUARD_READY_FILE}" || return 1
+	fi
+	[ ! -e "${DNS_GUARD_READY_DIR}" ] || rmdir "${DNS_GUARD_READY_DIR}" 2>/dev/null || return 1
+	return 0
 }
 
 dns_handoff_process_is_root() {
@@ -1095,23 +1141,32 @@ release_dns_port_from_dnsmasq() {
 }
 
 dns_guard_wait_for_stop() {
-	_dns_guard_wait_fifo="${DNS_HANDOFF_DIR}/guard-wait.$$"
-	rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
-	if mkfifo "${_dns_guard_wait_fifo}" 2>/dev/null; then
-		if exec 3<>"${_dns_guard_wait_fifo}"; then
-			rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
-			# Block until stop_dns_port_guard() sends a trapped signal.
-			# This avoids a repeated sleep loop while keeping the guard alive.
-			while :; do
-				IFS= read -r _dns_guard_wait_line <&3
-			done
-		fi
+	if [ "${_dns_guard_wait_initialized:-0}" = "1" ]; then
+		while :; do
+			IFS= read -r _dns_guard_wait_line <&3
+		done
 	fi
-	rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
 	# Fallback only if FIFO setup fails. Avoid a hot CPU loop.
 	while :; do
 		sleep 1s
 	done
+}
+
+initialize_dns_guard_wait() {
+	_dns_guard_wait_initialized=0
+	_dns_guard_wait_fifo="${DNS_GUARD_READY_DIR}/wait"
+	rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
+	if mkfifo "${_dns_guard_wait_fifo}" 2>/dev/null; then
+		if command exec 3<>"${_dns_guard_wait_fifo}"; then
+			_dns_guard_wait_initialized=1
+		fi
+	fi
+	if [ -d "${_dns_guard_wait_fifo}" ] && [ ! -L "${_dns_guard_wait_fifo}" ]; then
+		rmdir "${_dns_guard_wait_fifo}" 2>/dev/null || return 1
+	else
+		rm -f "${_dns_guard_wait_fifo}" 2>/dev/null || return 1
+	fi
+	[ "${_dns_guard_wait_initialized}" = "1" ]
 }
 
 stop_dns_port_guard() {
@@ -1120,6 +1175,8 @@ stop_dns_port_guard() {
 	kill "${ADGUARDHOME_DNS_GUARD_PID}" >/dev/null 2>&1
 	wait "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null
 	unset ADGUARDHOME_DNS_GUARD_PID
+	remove_current_dns_guard_readiness || agh_log ERROR stop_dns_port_guard "Unable to remove the DNS guard readiness workspace safely."
+	unset DNS_GUARD_READY_DIR DNS_GUARD_READY_FILE DNS_GUARD_OWNER_PID DNS_GUARD_OWNER_START_TIME
 	agh_log INFO stop_dns_port_guard "DNS port guard stopped."
 	return 0
 }
@@ -1216,6 +1273,16 @@ start_dns_port_guard() {
 	_dns_guard_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_GUARD_RETRIES:-}" 10)"
 	_dns_bind_scope="${ADGUARDHOME_DNS_BIND_SCOPE:-global}"
 	DNS_WATCHDOG_TRAP_FILE=""
+	if [ -z "${DNS_GUARD_OWNER_PID:-}" ] || [ -z "${DNS_GUARD_OWNER_START_TIME:-}" ]; then
+		IFS=' ' read -r DNS_GUARD_OWNER_PID DNS_GUARD_OWNER_START_TIME <"${DNS_HANDOFF_FILE}" || return 1
+		DNS_GUARD_READY_DIR="${DNS_HANDOFF_DIR}/guard-${DNS_GUARD_OWNER_PID}-${DNS_GUARD_OWNER_START_TIME}"
+		DNS_GUARD_READY_FILE="${DNS_GUARD_READY_DIR}/ready"
+		[ ! -e "${DNS_GUARD_READY_DIR}" ] || return 1
+		(
+			umask 077
+			mkdir "${DNS_GUARD_READY_DIR}"
+		) || return 1
+	fi
 	agh_log INFO start_dns_port_guard "Starting DNS port guard."
 	if ! save_dns_watchdog_traps guard; then
 		agh_log ERROR start_dns_port_guard "Unable to preserve DNS guard traps; guard startup aborted."
@@ -1224,7 +1291,23 @@ start_dns_port_guard() {
 	_dns_guard_saved_traps="${DNS_WATCHDOG_TRAP_FILE}"
 	# Install cleanup before the first watchdog STOP so a parent-side shutdown
 	# cannot terminate us during retry sleep without resuming the watchdog.
-	trap 'trap - HUP INT TERM EXIT; exec 3<&- 3>&- 2>/dev/null; rm -f "${_dns_guard_wait_fifo:-}"; resume_dns_watchdog; restore_dns_watchdog_traps "${_dns_guard_saved_traps}"; exit 0' HUP INT TERM EXIT
+	trap 'trap - HUP INT TERM EXIT; exec 3<&- 3>&- 2>/dev/null; rm -f "${_dns_guard_wait_fifo:-}"; remove_current_dns_guard_readiness || true; resume_dns_watchdog; restore_dns_watchdog_traps "${_dns_guard_saved_traps}"; exit 0' HUP INT TERM EXIT
+	# Do not acknowledge readiness until every state needed for safe signal and
+	# watchdog recovery exists and the parent's handoff identity is still active.
+	dns_handoff_marker_matches_identity "${DNS_GUARD_OWNER_PID}" "${DNS_GUARD_OWNER_START_TIME}" || return 1
+	# FIFO initialization is an optimization; the guard uses a bounded sleep
+	# when it is unavailable and must still publish readiness.
+	initialize_dns_guard_wait || {
+		[ ! -e "${_dns_guard_wait_fifo}" ] && [ ! -L "${_dns_guard_wait_fifo}" ] || return 1
+	}
+	dns_handoff_marker_matches_identity "${DNS_GUARD_OWNER_PID}" "${DNS_GUARD_OWNER_START_TIME}" || return 1
+	[ -d "${DNS_GUARD_READY_DIR}" ] && [ ! -L "${DNS_GUARD_READY_DIR}" ] || return 1
+	dns_handoff_path_has_owner_mode d 'rwx------' "${DNS_GUARD_READY_DIR}" || return 1
+	(
+		umask 077
+		printf '%s %s\n' "${DNS_GUARD_OWNER_PID}" "${DNS_GUARD_OWNER_START_TIME}" >"${DNS_GUARD_READY_FILE}"
+	) || return 1
+	dns_guard_readiness_matches_identity || return 1
 	while [ "${_dns_guard_attempts}" -lt "${_dns_guard_limit}" ]; do
 		dns_socket_snapshot || {
 			suspend_dns_watchdog
@@ -1257,6 +1340,42 @@ start_dns_port_guard() {
 	done
 	agh_log INFO start_dns_port_guard "DNS port guard is armed after ${_dns_guard_attempts} attempt(s)."
 	dns_guard_wait_for_stop
+}
+
+launch_dns_port_guard() {
+	dns_handoff_set_current_identity || return 1
+	DNS_GUARD_OWNER_PID="${DNS_HANDOFF_CURRENT_PID}"
+	DNS_GUARD_OWNER_START_TIME="${DNS_HANDOFF_CURRENT_START_TIME}"
+	export DNS_GUARD_OWNER_PID DNS_GUARD_OWNER_START_TIME
+	DNS_GUARD_READY_DIR="${DNS_HANDOFF_DIR}/guard-${DNS_GUARD_OWNER_PID}-${DNS_GUARD_OWNER_START_TIME}"
+	DNS_GUARD_READY_FILE="${DNS_GUARD_READY_DIR}/ready"
+	export DNS_GUARD_READY_DIR DNS_GUARD_READY_FILE
+	[ ! -e "${DNS_GUARD_READY_DIR}" ] || return 1
+	(
+		umask 077
+		mkdir "${DNS_GUARD_READY_DIR}"
+	) || return 1
+	dns_handoff_path_has_owner_mode d 'rwx------' "${DNS_GUARD_READY_DIR}" || {
+		remove_current_dns_guard_readiness || true
+		return 1
+	}
+	start_dns_port_guard >/dev/null 2>&1 &
+	ADGUARDHOME_DNS_GUARD_PID="$!"
+	_dns_guard_ready_attempts=0
+	_dns_guard_ready_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_GUARD_READY_RETRIES:-}" 20)"
+	while [ "${_dns_guard_ready_attempts}" -lt "${_dns_guard_ready_limit}" ]; do
+		kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || break
+		if dns_guard_readiness_matches_identity &&
+			dns_handoff_marker_matches_identity "${DNS_GUARD_OWNER_PID}" "${DNS_GUARD_OWNER_START_TIME}"; then
+			kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null && return 0
+			break
+		fi
+		_dns_guard_ready_attempts="$((_dns_guard_ready_attempts + 1))"
+		[ "${_dns_guard_ready_attempts}" -lt "${_dns_guard_ready_limit}" ] && command usleep 100000
+	done
+	stop_dns_port_guard
+	remove_current_dns_guard_readiness || true
+	return 1
 }
 
 # Service hook helpers
@@ -1575,8 +1694,15 @@ pre_start_adguardhome() {
 		done
 		if dns_port_available "${_dns_bind_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
 			prepare_dns_handoff_marker || return 1
-			start_dns_port_guard >/dev/null 2>&1 &
-			ADGUARDHOME_DNS_GUARD_PID="$!"
+			if ! launch_dns_port_guard; then
+				agh_log ERROR pre_start_adguardhome "DNS port guard did not become ready; startup aborted."
+				if dns_handoff_marker_matches_identity "${DNS_HANDOFF_CURRENT_PID:-}" "${DNS_HANDOFF_CURRENT_START_TIME:-}"; then
+					disable_dns_handoff || true
+				fi
+				resume_dns_watchdog
+				unset ADGUARDHOME_DNS_HANDOFF_ACTIVE ADGUARDHOME_SKIP_DNSMASQ_RESTART
+				return 1
+			fi
 			ADGUARDHOME_DNS_HANDOFF_ACTIVE=1
 			ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
 			export ADGUARDHOME_DNS_HANDOFF_ACTIVE
@@ -1611,8 +1737,12 @@ pre_start_adguardhome() {
 		# Continue this release attempt immediately after a recovered
 		# inspection so the confirmed owner cannot be skipped.
 		if dns_port_available "${_dns_bind_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
-			start_dns_port_guard >/dev/null 2>&1 &
-			ADGUARDHOME_DNS_GUARD_PID="$!"
+			if ! launch_dns_port_guard; then
+				agh_log ERROR pre_start_adguardhome "DNS port guard did not become ready; startup aborted."
+				post_start_failure_adguardhome
+				restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
+				return 1
+			fi
 			agh_log INFO pre_start_adguardhome "Port 53 released; starting AdGuardHome."
 			restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
 			return 0
@@ -1638,8 +1768,12 @@ pre_start_adguardhome() {
 				return 1
 			fi
 			if [ "${DNS_SOCKET_SNAPSHOT_VALID:-0}" = "1" ] && dns_port_available "${_dns_bind_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
-				start_dns_port_guard >/dev/null 2>&1 &
-				ADGUARDHOME_DNS_GUARD_PID="$!"
+				if ! launch_dns_port_guard; then
+					agh_log ERROR pre_start_adguardhome "DNS port guard did not become ready; startup aborted."
+					post_start_failure_adguardhome
+					restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
+					return 1
+				fi
 				agh_log INFO pre_start_adguardhome "Port 53 released; starting AdGuardHome."
 				restore_dns_watchdog_traps "${_dns_watchdog_saved_traps}"
 				return 0
