@@ -9,7 +9,10 @@ FUNCTION_FILE="${TEST_ROOT}/function"
 CALLS_FILE="${TEST_ROOT}/calls"
 
 cleanup() { rm -rf "${TEST_ROOT}"; }
-fail() { printf '%s\n' "FAIL: $*" >&2; exit 1; }
+fail() {
+	printf '%s\n' "FAIL: $*" >&2
+	exit 1
+}
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail "could not create test directory"
