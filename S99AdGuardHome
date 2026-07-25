@@ -1364,7 +1364,8 @@ launch_dns_port_guard() {
 		kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || break
 		if dns_guard_readiness_matches_identity &&
 			dns_handoff_marker_matches_identity "${DNS_GUARD_OWNER_PID}" "${DNS_GUARD_OWNER_START_TIME}"; then
-			return 0
+			kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null && return 0
+			break
 		fi
 		_dns_guard_ready_attempts="$((_dns_guard_ready_attempts + 1))"
 		[ "${_dns_guard_ready_attempts}" -lt "${_dns_guard_ready_limit}" ] && command usleep 100000

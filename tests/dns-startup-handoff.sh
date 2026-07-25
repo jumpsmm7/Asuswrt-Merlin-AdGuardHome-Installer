@@ -76,6 +76,8 @@ sed -n '/^launch_dns_port_guard() {$/,/^}$/p' "${S99_PATH}" | grep -q 'command u
 if sed -n '/^launch_dns_port_guard() {$/,/^}$/p' "${S99_PATH}" | grep -q 'sleep 0\.'; then
 	fail 'DNS guard readiness polling uses an unsupported fractional sleep'
 fi
+[ "$(sed -n '/^launch_dns_port_guard() {$/,/^}$/p' "${S99_PATH}" | grep -c 'kill -0 "${ADGUARDHOME_DNS_GUARD_PID}"')" -eq 2 ] ||
+	fail 'DNS guard readiness acceptance does not recheck guard liveness'
 
 WATCHD_NICE_SNAPSHOT=""
 
