@@ -1810,10 +1810,56 @@ start_monitor() {
 	done
 }
 
-# stop_adguardhome stops AdGuardHome, restarts managed dnsmasq when required, removes temporary database links, and waits for network checks to complete.
+# post_stop_process_ready verifies that AdGuardHome no longer has a running process.
+post_stop_process_ready() {
+	[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -eq 0 ]
+}
+
+# post_stop_handoff_cleared verifies that no installer-owned DNS handoff marker remains.
+post_stop_handoff_cleared() {
+	local marker
+	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock "${DNS_HANDOFF_FILE}" "${DNS_HANDOFF_DIR}/lock"; do
+		[ ! -e "${marker}" ] || return 1
+	done
+	return 0
+}
+
+# post_stop_dnsmasq_ready verifies local port 53 ownership and resolver readiness.
+post_stop_dnsmasq_ready() {
+	local dns_sockets
+	adguard_dnsmasq_running || return 1
+	dns_sockets="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ { print }')"
+	[ -n "${dns_sockets}" ] || return 1
+	if printf '%s\n' "${dns_sockets}" | awk '
+		{
+			owner = ""
+			for (i = NF; i >= 1; i--) if ($i ~ /^[0-9]+\/[^[:space:]]+$/) { owner = $i; break }
+			if (owner !~ /\/dnsmasq$/) exit 1
+		}
+	'; then
+		:
+	else
+		return 1
+	fi
+	nslookup localhost 127.0.0.1 >/dev/null 2>&1 || nslookup localhost ::1 >/dev/null 2>&1
+}
+
+# post_stop_internet_check performs an informational public-connectivity probe.
+post_stop_internet_check() {
+	if ! netcheck; then
+		agh_log warning stop_adguardhome "state=stopped action=check_internet reason=public_connectivity_unavailable result=informational"
+	fi
+	return 0
+}
+
+# stop_adguardhome stops AdGuardHome, restores managed dnsmasq, and verifies local DNS recovery.
 stop_adguardhome() {
-	local STOP_STATUS
+	local DNSMASQ_WAS_MANAGED STOP_STATUS
 	STOP_STATUS="0"
+	DNSMASQ_WAS_MANAGED="0"
+	if adguard_dnsmasq_managed; then
+		DNSMASQ_WAS_MANAGED="1"
+	fi
 	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 		0)
 			:
@@ -1824,24 +1870,31 @@ stop_adguardhome() {
 			fi
 			;;
 	esac
-	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -ne 0 ]; then
+	if ! post_stop_process_ready; then
 		agh_log error stop_adguardhome "state=stopping action=stop_process reason=process_still_active result=active process=${PROCS}"
 		STOP_STATUS="1"
 	fi
-	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
-		if ! adguard_restart_dnsmasq_if_managed; then
+	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ] && [ "${DNSMASQ_WAS_MANAGED}" -eq 1 ]; then
+		if ! service restart_dnsmasq >/dev/null 2>&1; then
 			agh_log error stop_adguardhome "state=stopping action=restart_dnsmasq reason=service_restart_failed result=failed process=${PROCS}"
 			STOP_STATUS="1"
 		fi
+	fi
+	if [ "${DNSMASQ_WAS_MANAGED}" -eq 1 ]; then
+		if ! post_stop_dnsmasq_ready; then
+			agh_log error stop_adguardhome "state=stopping action=verify_local_dns reason=dnsmasq_not_ready result=failed"
+			STOP_STATUS="1"
+		fi
+		post_stop_internet_check
+	elif ! post_stop_handoff_cleared; then
+		agh_log error stop_adguardhome "state=stopping action=verify_handoff reason=installer_marker_remains result=failed"
+		STOP_STATUS="1"
 	fi
 	for db in stats.db sessions.db; do {
 		if [ "$(canonical_path "/tmp/${db}" 2>/dev/null)" = "$(canonical_path "${WORK_DIR}/data/${db}" 2>/dev/null)" ]; then {
 			rm "/tmp/${db}" >/dev/null 2>&1
 		}; fi
 	}; done
-	if ! service_wait netcheck; then
-		STOP_STATUS="1"
-	fi
 	return "${STOP_STATUS}"
 }
 
