@@ -1291,7 +1291,9 @@ start_dns_port_guard() {
 	# Do not acknowledge readiness until every state needed for safe signal and
 	# watchdog recovery exists and the parent's handoff identity is still active.
 	dns_handoff_marker_matches_identity "${DNS_GUARD_OWNER_PID}" "${DNS_GUARD_OWNER_START_TIME}" || return 1
-	initialize_dns_guard_wait || return 1
+	# FIFO initialization is an optimization; the guard uses a bounded sleep
+	# when it is unavailable and must still publish readiness.
+	initialize_dns_guard_wait || true
 	dns_handoff_marker_matches_identity "${DNS_GUARD_OWNER_PID}" "${DNS_GUARD_OWNER_START_TIME}" || return 1
 	[ -d "${DNS_GUARD_READY_DIR}" ] && [ ! -L "${DNS_GUARD_READY_DIR}" ] || return 1
 	dns_handoff_path_has_owner_mode d 'rwx------' "${DNS_GUARD_READY_DIR}" || return 1

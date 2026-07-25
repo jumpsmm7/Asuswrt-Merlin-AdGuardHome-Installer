@@ -95,10 +95,20 @@ exec 3<&- 3>&-
 	mkfifo() {
 		return 1
 	}
-	if initialize_dns_guard_wait; then
+	if initialize_dns_guard_wait 2>/dev/null; then
 		exit 1
 	fi
 ) || fail 'failed DNS guard FIFO initialization was not reported'
+(
+	mkfifo() {
+		mkdir "$1"
+	}
+	if initialize_dns_guard_wait 2>/dev/null; then
+		exit 1
+	fi
+	[ "${_dns_guard_wait_initialized}" = "0" ] || exit 1
+	rmdir "${DNS_GUARD_READY_DIR}/wait"
+) || fail 'failed DNS guard FIFO open was not reported or cleaned up'
 rmdir "${DNS_GUARD_READY_DIR}" || fail 'could not remove guard wait test directory'
 unset DNS_GUARD_READY_DIR
 dns_handoff_set_current_identity ||
@@ -843,6 +853,36 @@ command sleep 0.01
 command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || fail 'DNS guard exited before AdGuardHome owned DNS'
 stop_dns_port_guard
 ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'DNS guard stopped dnsmasq after port 53 was free'
+
+# Exercise both FIFO failure paths through the production launcher. Readiness
+# must still be published and the guard must remain in its bounded-sleep wait.
+mkfifo() {
+	case "${DNS_GUARD_FIFO_TEST_MODE:-}" in
+	fail)
+		return 1
+		;;
+	directory)
+		mkdir "$1"
+		;;
+	*)
+		command mkfifo "$@"
+		;;
+	esac
+}
+for DNS_GUARD_FIFO_TEST_MODE in fail directory; do
+	launch_dns_port_guard || fail "DNS guard did not publish readiness after ${DNS_GUARD_FIFO_TEST_MODE} FIFO initialization"
+	command sleep 0.01
+	command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null ||
+		fail "DNS guard exited instead of using the ${DNS_GUARD_FIFO_TEST_MODE} FIFO bounded-sleep fallback"
+	_failed_ready_dir="${DNS_GUARD_READY_DIR}"
+	_failed_wait_path="${_failed_ready_dir}/wait"
+	stop_dns_port_guard
+	[ ! -e "${_failed_wait_path}" ] || rmdir "${_failed_wait_path}" ||
+		fail "could not clean up the ${DNS_GUARD_FIFO_TEST_MODE} FIFO fallback"
+	[ ! -e "${_failed_ready_dir}" ] || rmdir "${_failed_ready_dir}" ||
+		fail "could not clean up the ${DNS_GUARD_FIFO_TEST_MODE} FIFO readiness directory"
+done
+unset DNS_GUARD_FIFO_TEST_MODE
 
 : >"${CALLS_FILE}"
 DNS_STATE=free
