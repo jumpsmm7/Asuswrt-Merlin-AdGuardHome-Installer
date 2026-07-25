@@ -87,6 +87,7 @@ DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
 umask 077
 DNS_GUARD_READY_DIR="${DNS_HANDOFF_DIR}/ready-init-test"
 mkdir -p "${DNS_GUARD_READY_DIR}" || fail 'could not create guard wait test directory'
+_dns_guard_wait_initialized=0
 initialize_dns_guard_wait || fail 'could not initialize the DNS guard FIFO wait'
 [ "${_dns_guard_wait_initialized}" = "1" ] || fail 'DNS guard FIFO wait was not marked initialized'
 [ ! -e "${DNS_GUARD_READY_DIR}/wait" ] || fail 'DNS guard FIFO wait left its filesystem entry behind'
@@ -107,7 +108,7 @@ exec 3<&- 3>&-
 		exit 1
 	fi
 	[ "${_dns_guard_wait_initialized}" = "0" ] || exit 1
-	rmdir "${DNS_GUARD_READY_DIR}/wait"
+	[ ! -e "${DNS_GUARD_READY_DIR}/wait" ] || exit 1
 ) || fail 'failed DNS guard FIFO open was not reported or cleaned up'
 rmdir "${DNS_GUARD_READY_DIR}" || fail 'could not remove guard wait test directory'
 unset DNS_GUARD_READY_DIR
@@ -877,10 +878,10 @@ for DNS_GUARD_FIFO_TEST_MODE in fail directory; do
 	_failed_ready_dir="${DNS_GUARD_READY_DIR}"
 	_failed_wait_path="${_failed_ready_dir}/wait"
 	stop_dns_port_guard
-	[ ! -e "${_failed_wait_path}" ] || rmdir "${_failed_wait_path}" ||
-		fail "could not clean up the ${DNS_GUARD_FIFO_TEST_MODE} FIFO fallback"
-	[ ! -e "${_failed_ready_dir}" ] || rmdir "${_failed_ready_dir}" ||
-		fail "could not clean up the ${DNS_GUARD_FIFO_TEST_MODE} FIFO readiness directory"
+	[ ! -e "${_failed_wait_path}" ] ||
+		fail "${DNS_GUARD_FIFO_TEST_MODE} FIFO fallback left its wait entry behind"
+	[ ! -e "${_failed_ready_dir}" ] ||
+		fail "${DNS_GUARD_FIFO_TEST_MODE} FIFO fallback left its readiness directory behind"
 done
 unset DNS_GUARD_FIFO_TEST_MODE
 
