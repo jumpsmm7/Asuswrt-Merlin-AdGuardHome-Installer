@@ -85,6 +85,22 @@ DNS_HANDOFF_DIR="${TEST_ROOT}/dns-handoff"
 DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
 DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
 umask 077
+DNS_GUARD_READY_DIR="${DNS_HANDOFF_DIR}/ready-init-test"
+mkdir -p "${DNS_GUARD_READY_DIR}" || fail 'could not create guard wait test directory'
+initialize_dns_guard_wait || fail 'could not initialize the DNS guard FIFO wait'
+[ "${_dns_guard_wait_initialized}" = "1" ] || fail 'DNS guard FIFO wait was not marked initialized'
+[ ! -e "${DNS_GUARD_READY_DIR}/wait" ] || fail 'DNS guard FIFO wait left its filesystem entry behind'
+exec 3<&- 3>&-
+(
+	mkfifo() {
+		return 1
+	}
+	if initialize_dns_guard_wait; then
+		exit 1
+	fi
+) || fail 'failed DNS guard FIFO initialization was not reported'
+rmdir "${DNS_GUARD_READY_DIR}" || fail 'could not remove guard wait test directory'
+unset DNS_GUARD_READY_DIR
 dns_handoff_set_current_identity ||
 	fail 'could not identify the current shell from /proc/self/stat'
 CURRENT_PID="${DNS_HANDOFF_CURRENT_PID}"
