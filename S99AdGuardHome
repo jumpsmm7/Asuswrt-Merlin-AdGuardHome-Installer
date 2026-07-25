@@ -1367,7 +1367,7 @@ launch_dns_port_guard() {
 			return 0
 		fi
 		_dns_guard_ready_attempts="$((_dns_guard_ready_attempts + 1))"
-		[ "${_dns_guard_ready_attempts}" -lt "${_dns_guard_ready_limit}" ] && command sleep 0.1
+		[ "${_dns_guard_ready_attempts}" -lt "${_dns_guard_ready_limit}" ] && command usleep 100000
 	done
 	stop_dns_port_guard
 	remove_current_dns_guard_readiness || true

@@ -39,6 +39,11 @@ wait_for_file() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
+printf '%s\n' '#!/bin/sh' '[ "$1" = "100000" ] || exit 1' 'sleep 0.1' >"${TEST_ROOT}/usleep" ||
+	fail 'could not create usleep test shim'
+chmod 755 "${TEST_ROOT}/usleep" || fail 'could not chmod usleep test shim'
+PATH="${TEST_ROOT}:${PATH}"
+export PATH
 : >"${NETSTAT_CALLS_FILE}" || fail 'could not create netstat calls file'
 
 sed -n \
@@ -66,6 +71,11 @@ grep -q 'restore_dns_watchdog_traps "${_dns_guard_saved_traps}"' "${S99_PATH}" |
 	fail 'DNS guard watchdog trap cleanup does not restore caller traps'
 sed -n '/^abort_pre_start_adguardhome() {$/,/^}$/p' "${S99_PATH}" | grep -q 'adguardhome_start_traps_restore' ||
 	fail 'pre-start signal recovery does not restore caller traps and clean their workspace'
+sed -n '/^launch_dns_port_guard() {$/,/^}$/p' "${S99_PATH}" | grep -q 'command usleep 100000' ||
+	fail 'DNS guard readiness polling does not use the BusyBox integer microsecond delay'
+if sed -n '/^launch_dns_port_guard() {$/,/^}$/p' "${S99_PATH}" | grep -q 'sleep 0\.'; then
+	fail 'DNS guard readiness polling uses an unsupported fractional sleep'
+fi
 
 WATCHD_NICE_SNAPSHOT=""
 
