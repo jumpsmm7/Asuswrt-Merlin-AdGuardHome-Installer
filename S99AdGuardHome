@@ -1165,7 +1165,7 @@ initialize_dns_guard_wait() {
 	fi
 	[ "${_dns_guard_wait_mkfifo_ok}" -eq 1 ] && rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
 	# The bounded sleep fallback is also fully initialized at this point.
-	return $(( 1 - _dns_guard_wait_initialized ))
+	return $((1 - _dns_guard_wait_initialized))
 }
 
 stop_dns_port_guard() {
