@@ -1160,7 +1160,11 @@ initialize_dns_guard_wait() {
 		if command exec 3<>"${_dns_guard_wait_fifo}"; then
 			_dns_guard_wait_initialized=1
 		fi
-		rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
+	fi
+	if [ -d "${_dns_guard_wait_fifo}" ] && [ ! -L "${_dns_guard_wait_fifo}" ]; then
+		rmdir "${_dns_guard_wait_fifo}" 2>/dev/null || return 1
+	else
+		rm -f "${_dns_guard_wait_fifo}" 2>/dev/null || return 1
 	fi
 	[ "${_dns_guard_wait_initialized}" = "1" ]
 }
@@ -1293,7 +1297,9 @@ start_dns_port_guard() {
 	dns_handoff_marker_matches_identity "${DNS_GUARD_OWNER_PID}" "${DNS_GUARD_OWNER_START_TIME}" || return 1
 	# FIFO initialization is an optimization; the guard uses a bounded sleep
 	# when it is unavailable and must still publish readiness.
-	initialize_dns_guard_wait || true
+	initialize_dns_guard_wait || {
+		[ ! -e "${_dns_guard_wait_fifo}" ] && [ ! -L "${_dns_guard_wait_fifo}" ] || return 1
+	}
 	dns_handoff_marker_matches_identity "${DNS_GUARD_OWNER_PID}" "${DNS_GUARD_OWNER_START_TIME}" || return 1
 	[ -d "${DNS_GUARD_READY_DIR}" ] && [ ! -L "${DNS_GUARD_READY_DIR}" ] || return 1
 	dns_handoff_path_has_owner_mode d 'rwx------' "${DNS_GUARD_READY_DIR}" || return 1
