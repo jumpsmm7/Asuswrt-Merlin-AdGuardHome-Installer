@@ -1844,14 +1844,6 @@ post_stop_dnsmasq_ready() {
 	nslookup localhost 127.0.0.1 >/dev/null 2>&1 || nslookup localhost ::1 >/dev/null 2>&1
 }
 
-# post_stop_internet_check performs an informational public-connectivity probe.
-post_stop_internet_check() {
-	if ! netcheck; then
-		agh_log warning stop_adguardhome "state=stopped action=check_internet reason=public_connectivity_unavailable result=informational"
-	fi
-	return 0
-}
-
 # stop_adguardhome stops AdGuardHome, restores managed dnsmasq, and verifies local DNS recovery.
 stop_adguardhome() {
 	local DNSMASQ_READY_ATTEMPTS DNSMASQ_WAS_MANAGED STOP_STATUS
@@ -1891,7 +1883,6 @@ stop_adguardhome() {
 			fi
 			sleep 1
 		done
-		post_stop_internet_check
 	fi
 	if ! post_stop_handoff_cleared; then
 		agh_log error stop_adguardhome "state=stopping action=verify_handoff reason=installer_marker_remains result=failed"

@@ -17,7 +17,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail "could not create test directory"
 
-sed -n '/^post_stop_process_ready() {$/,/^}$/p; /^post_stop_handoff_cleared() {$/,/^}$/p; /^post_stop_dnsmasq_ready() {$/,/^}$/p; /^post_stop_internet_check() {$/,/^}$/p; /^stop_adguardhome() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" ||
+sed -n '/^post_stop_process_ready() {$/,/^}$/p; /^post_stop_handoff_cleared() {$/,/^}$/p; /^post_stop_dnsmasq_ready() {$/,/^}$/p; /^stop_adguardhome() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" ||
 	fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail "stop verification functions were not found"
 # shellcheck disable=SC1090
@@ -90,12 +90,11 @@ reset_case() {
 	DNSMASQ_READY_AFTER="0" DNSMASQ_READY_CHECKS="0"
 }
 
-# An offline WAN is informational once dnsmasq and the local resolver are ready.
+# Stop completion does not run the potentially long public-connectivity probe.
 reset_case
 NETCHECK_STATUS="1"
 stop_adguardhome || fail "offline WAN made a locally healthy stop fail"
-grep -q 'reason=public_connectivity_unavailable.*result=informational' "${CALLS_FILE}" ||
-	fail "offline WAN was not logged as informational"
+! grep -q '^netcheck$' "${CALLS_FILE}" || fail "managed stop performed an Internet connectivity check"
 
 # IPv6-only local DNS is accepted without requiring an IPv4 listener.
 reset_case
