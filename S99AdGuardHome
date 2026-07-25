@@ -1355,7 +1355,10 @@ launch_dns_port_guard() {
 		umask 077
 		mkdir "${DNS_GUARD_READY_DIR}"
 	) || return 1
-	dns_handoff_path_has_owner_mode d 'rwx------' "${DNS_GUARD_READY_DIR}" || return 1
+	dns_handoff_path_has_owner_mode d 'rwx------' "${DNS_GUARD_READY_DIR}" || {
+		remove_current_dns_guard_readiness || true
+		return 1
+	}
 	start_dns_port_guard >/dev/null 2>&1 &
 	ADGUARDHOME_DNS_GUARD_PID="$!"
 	_dns_guard_ready_attempts=0

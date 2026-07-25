@@ -861,6 +861,15 @@ disable_dns_handoff || fail 'could not clean up owned-port pre-start handoff'
 DNS_STATE=free
 ADGUARDHOME_DNS_GUARD_RETRIES=3
 prepare_dns_handoff_marker || fail 'could not prepare the direct guard handoff identity'
+(
+	dns_handoff_path_has_owner_mode() {
+		return 1
+	}
+	if launch_dns_port_guard; then
+		exit 1
+	fi
+	[ ! -e "${DNS_GUARD_READY_DIR}" ] || exit 1
+) || fail 'failed DNS guard readiness mode validation left its directory behind'
 launch_dns_port_guard || fail 'DNS guard did not publish readiness'
 command sleep 0.01
 command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || fail 'DNS guard exited before AdGuardHome owned DNS'
