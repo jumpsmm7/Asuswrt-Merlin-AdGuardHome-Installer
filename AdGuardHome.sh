@@ -1854,7 +1854,7 @@ post_stop_internet_check() {
 
 # stop_adguardhome stops AdGuardHome, restores managed dnsmasq, and verifies local DNS recovery.
 stop_adguardhome() {
-	local DNSMASQ_WAS_MANAGED STOP_STATUS
+	local DNSMASQ_READY_ATTEMPTS DNSMASQ_WAS_MANAGED STOP_STATUS
 	STOP_STATUS="0"
 	DNSMASQ_WAS_MANAGED="0"
 	if adguard_dnsmasq_managed; then
@@ -1881,12 +1881,19 @@ stop_adguardhome() {
 		fi
 	fi
 	if [ "${DNSMASQ_WAS_MANAGED}" -eq 1 ]; then
-		if ! post_stop_dnsmasq_ready; then
-			agh_log error stop_adguardhome "state=stopping action=verify_local_dns reason=dnsmasq_not_ready result=failed"
-			STOP_STATUS="1"
-		fi
+		DNSMASQ_READY_ATTEMPTS="0"
+		until post_stop_dnsmasq_ready; do
+			DNSMASQ_READY_ATTEMPTS="$((DNSMASQ_READY_ATTEMPTS + 1))"
+			if [ "${DNSMASQ_READY_ATTEMPTS}" -ge 5 ]; then
+				agh_log error stop_adguardhome "state=stopping action=verify_local_dns reason=dnsmasq_not_ready result=failed attempts=${DNSMASQ_READY_ATTEMPTS}"
+				STOP_STATUS="1"
+				break
+			fi
+			sleep 1
+		done
 		post_stop_internet_check
-	elif ! post_stop_handoff_cleared; then
+	fi
+	if ! post_stop_handoff_cleared; then
 		agh_log error stop_adguardhome "state=stopping action=verify_handoff reason=installer_marker_remains result=failed"
 		STOP_STATUS="1"
 	fi

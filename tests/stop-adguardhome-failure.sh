@@ -36,6 +36,8 @@ SERVICE_STATUS="0"
 SOCKET_MODE="ipv4"
 LOOKUP_MODE="ipv4"
 NETCHECK_STATUS="0"
+DNSMASQ_READY_AFTER="0"
+DNSMASQ_READY_CHECKS="0"
 
 agh_log() { printf '%s\n' "$*" >>"${CALLS_FILE}"; }
 canonical_path() { return 1; }
@@ -50,7 +52,10 @@ pidof() {
 	esac
 	return 0
 }
-adguard_dnsmasq_running() { [ "${DNSMASQ_RUNNING}" -eq 1 ]; }
+adguard_dnsmasq_running() {
+	DNSMASQ_READY_CHECKS="$((DNSMASQ_READY_CHECKS + 1))"
+	[ "${DNSMASQ_READY_CHECKS}" -gt "${DNSMASQ_READY_AFTER}" ] && [ "${DNSMASQ_RUNNING}" -eq 1 ]
+}
 adguard_dnsmasq_managed() { [ "${DNSMASQ_MANAGED}" -eq 1 ]; }
 service() {
 	printf '%s\n' "service $*" >>"${CALLS_FILE}"
@@ -73,6 +78,7 @@ netcheck() {
 	printf '%s\n' netcheck >>"${CALLS_FILE}"
 	return "${NETCHECK_STATUS}"
 }
+sleep() { printf '%s\n' "sleep $*" >>"${CALLS_FILE}"; }
 
 reset_case() {
 	: >"${CALLS_FILE}"
@@ -80,6 +86,7 @@ reset_case() {
 	RUNNING="0" DNSMASQ_MANAGED="1" DNSMASQ_RUNNING="1"
 	LOWER_STOP_STATUS="0" LOWER_KILL_STATUS="0" SERVICE_STATUS="0"
 	SOCKET_MODE="ipv4" LOOKUP_MODE="ipv4" NETCHECK_STATUS="0"
+	DNSMASQ_READY_AFTER="0" DNSMASQ_READY_CHECKS="0"
 }
 
 # An offline WAN is informational once dnsmasq and the local resolver are ready.
@@ -98,6 +105,21 @@ stop_adguardhome || fail "IPv6-only local DNS recovery failed"
 reset_case
 stop_adguardhome || fail "DNS-without-HTTP recovery failed"
 ! grep -q '^http' "${CALLS_FILE}" || fail "stop recovery attempted an HTTP readiness probe"
+
+# A dispatched dnsmasq restart is polled until its process and resolver become ready.
+reset_case
+DNSMASQ_READY_AFTER="2"
+stop_adguardhome || fail "delayed dnsmasq readiness made a healthy stop fail"
+[ "${DNSMASQ_READY_CHECKS}" -eq 3 ] || fail "dnsmasq readiness was not retried to success"
+[ "$(grep -c '^sleep 1$' "${CALLS_FILE}")" -eq 2 ] || fail "dnsmasq readiness retry delay count was incorrect"
+
+# A dnsmasq restart that never becomes ready fails after the bounded retry window.
+reset_case
+DNSMASQ_RUNNING="0"
+if stop_adguardhome; then fail "dnsmasq readiness timeout was hidden"; fi
+[ "${DNSMASQ_READY_CHECKS}" -eq 5 ] || fail "dnsmasq readiness did not use the bounded retry count"
+[ "$(grep -c '^sleep 1$' "${CALLS_FILE}")" -eq 4 ] || fail "dnsmasq readiness timeout delay count was incorrect"
+grep -q 'reason=dnsmasq_not_ready.*attempts=5' "${CALLS_FILE}" || fail "dnsmasq readiness timeout was not logged"
 
 # A managed dnsmasq restart failure remains fatal.
 reset_case
@@ -120,5 +142,11 @@ stop_adguardhome || fail "unmanaged LAN stop incorrectly required dnsmasq or Int
 mkdir -p "${DNS_HANDOFF_DIR}" && : >"${DNS_HANDOFF_FILE}"
 if stop_adguardhome; then fail "unmanaged LAN stop ignored a stale handoff marker"; fi
 grep -q 'reason=installer_marker_remains' "${CALLS_FILE}" || fail "stale handoff marker was not logged"
+
+# Managed dnsmasq recovery also requires installer handoff markers to be cleared.
+reset_case
+mkdir -p "${DNS_HANDOFF_DIR}" && : >"${DNS_HANDOFF_FILE}"
+if stop_adguardhome; then fail "managed DNS recovery ignored a stale handoff marker"; fi
+grep -q 'reason=installer_marker_remains' "${CALLS_FILE}" || fail "managed DNS stale handoff marker was not logged"
 
 printf '%s\n' "PASS: stop verification separates process, local DNS, and Internet readiness"
