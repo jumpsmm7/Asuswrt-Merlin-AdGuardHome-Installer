@@ -640,6 +640,19 @@ post_start_failure_adguardhome || fail 'LAN transient-failure pre-start did not 
 unset NETSTAT_FAIL_ONCE_FILE ADGUARDHOME_SKIP_DNSMASQ_RESTART
 
 : >"${CALLS_FILE}"
+DNSMASQ_RUNNING=0
+DNS_STATE=free
+ADGUARDHOME_DNS_GUARD_READY_RETRIES=0
+if pre_start_adguardhome; then
+	fail 'LAN pre-start without dnsmasq succeeded when the DNS guard did not become ready'
+fi
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'LAN guard-readiness failure restarted absent dnsmasq'
+! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'LAN guard-readiness failure stopped absent dnsmasq'
+[ ! -e "${DNS_HANDOFF_FILE}" ] || fail 'LAN guard-readiness failure left the temporary handoff marker behind'
+[ -z "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-}" ] || fail 'LAN guard-readiness failure left the handoff active'
+unset ADGUARDHOME_DNS_GUARD_READY_RETRIES ADGUARDHOME_SKIP_DNSMASQ_RESTART
+
+: >"${CALLS_FILE}"
 : >"${NETSTAT_CALLS_FILE}"
 DNSMASQ_RUNNING=0
 DNS_STATE=free

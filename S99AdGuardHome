@@ -1683,11 +1683,10 @@ pre_start_adguardhome() {
 			prepare_dns_handoff_marker || return 1
 			if ! launch_dns_port_guard; then
 				agh_log ERROR pre_start_adguardhome "DNS port guard did not become ready; startup aborted."
-				if dns_handoff_marker_matches_identity "${DNS_GUARD_OWNER_PID:-}" "${DNS_GUARD_OWNER_START_TIME:-}"; then
+				if dns_handoff_marker_matches_identity "${DNS_HANDOFF_CURRENT_PID:-}" "${DNS_HANDOFF_CURRENT_START_TIME:-}"; then
 					disable_dns_handoff || true
 				fi
 				resume_dns_watchdog
-				service restart_dnsmasq >/dev/null 2>&1
 				unset ADGUARDHOME_DNS_HANDOFF_ACTIVE ADGUARDHOME_SKIP_DNSMASQ_RESTART
 				return 1
 			fi

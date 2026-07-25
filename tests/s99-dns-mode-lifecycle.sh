@@ -126,9 +126,9 @@ dns_port_needs_release() {
 	return 1
 }
 
-# start_dns_port_guard records that the DNS port guard was started and returns success.
-start_dns_port_guard() {
-	printf '%s\n' start_dns_port_guard >>"${CALLS_FILE}"
+# launch_dns_port_guard records that the DNS port guard was launched and returns success.
+launch_dns_port_guard() {
+	printf '%s\n' launch_dns_port_guard >>"${CALLS_FILE}"
 	return 0
 }
 
