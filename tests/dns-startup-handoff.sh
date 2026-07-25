@@ -858,15 +858,15 @@ stop_dns_port_guard
 # must still be published and the guard must remain in its bounded-sleep wait.
 mkfifo() {
 	case "${DNS_GUARD_FIFO_TEST_MODE:-}" in
-	fail)
-		return 1
-		;;
-	directory)
-		mkdir "$1"
-		;;
-	*)
-		command mkfifo "$@"
-		;;
+		fail)
+			return 1
+			;;
+		directory)
+			mkdir "$1"
+			;;
+		*)
+			command mkfifo "$@"
+			;;
 	esac
 }
 for DNS_GUARD_FIFO_TEST_MODE in fail directory; do
