@@ -1157,11 +1157,14 @@ initialize_dns_guard_wait() {
 	_dns_guard_wait_fifo="${DNS_GUARD_READY_DIR}/wait"
 	rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
 	if mkfifo "${_dns_guard_wait_fifo}" 2>/dev/null && exec 3<>"${_dns_guard_wait_fifo}"; then
-		rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
 		_dns_guard_wait_initialized=1
 	fi
+	# Clean up the FIFO file whether exec succeeded or not, as long as mkfifo ran.
+	rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
+	# Return success only if both mkfifo and exec succeeded.
+	[ "${_dns_guard_wait_initialized}" = "1" ] && return 0
 	# The bounded sleep fallback is also fully initialized at this point.
-	return 0
+	return 1
 }
 
 stop_dns_port_guard() {
