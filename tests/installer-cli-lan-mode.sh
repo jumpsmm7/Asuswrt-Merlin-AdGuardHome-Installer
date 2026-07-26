@@ -79,6 +79,18 @@ write_conf() {
 INFO='Info:'
 WARNING='Warning:'
 ERROR='Error:'
+ADGUARD_INSTALL_MODE_DETECTION='wan'
+
+adguard_install_mode_confirmed() {
+	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
+		wan | lan) return 0 ;;
+	esac
+	return 1
+}
+
+adguard_install_mode_detect() {
+	return 0
+}
 
 # PTXT appends the provided text followed by a newline to the log file.
 PTXT() {
@@ -125,6 +137,7 @@ EOF_CONF
 	: >"${WRITES_FILE}"
 	: >"${LOG_FILE}"
 	ADGUARD_INSTALL_MODE="${install_mode}"
+	ADGUARD_INSTALL_MODE_DETECTION="${install_mode}"
 
 	cli_migrate_runtime_defaults --yes || fail "${case_name}: migration failed"
 	grep -q "^ADGUARD_NETCHECK_MODE=${expected_netcheck}$" "${WRITES_FILE}" ||
@@ -136,8 +149,6 @@ EOF_CONF
 
 run_migrate_case lan-mode lan lan
 run_migrate_case wan-mode wan wan
-run_migrate_case unknown-mode unknown wan
-
 cat >"${CONF_FILE}" <<EOF_CONF || fail 'dry-run persisted LAN: could not write config'
 ADGUARD_INSTALL_MODE="lan"
 ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
@@ -149,6 +160,7 @@ EOF_CONF
 : >"${WRITES_FILE}"
 : >"${LOG_FILE}"
 unset ADGUARD_INSTALL_MODE
+ADGUARD_INSTALL_MODE_DETECTION='lan'
 cli_migrate_runtime_defaults --dry-run || fail 'dry-run persisted LAN: migration preview failed'
 grep -q 'ADGUARD_NETCHECK_MODE="legacy"; v2.6.0 safer value is "lan"' "${LOG_FILE}" ||
 	fail 'dry-run persisted LAN: expected LAN netcheck preview'

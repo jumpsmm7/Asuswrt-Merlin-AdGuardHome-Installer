@@ -57,6 +57,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	INFO='Info:'
 	ERROR='Error:'
 
+	adguard_install_mode_detect() { return 0; }
 	adguard_install_abort_trap_disable_preserve_defer() { :; }
 	adguard_remote_archive() { printf '%s\n' 'AdGuardHome_test.tar.gz'; }
 	adguard_remote_md5() { :; }

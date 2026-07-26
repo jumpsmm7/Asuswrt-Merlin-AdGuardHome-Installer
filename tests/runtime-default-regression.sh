@@ -44,6 +44,17 @@ INFO='[i]'
 WARNING='[w]'
 ERROR='[!]'
 
+adguard_install_mode_confirmed() {
+	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
+		wan | lan) return 0 ;;
+	esac
+	return 1
+}
+
+adguard_install_mode_detect() {
+	return 0
+}
+
 CONF_FILE="${TMP_ROOT}/new-wan.config"
 ADGUARD_INSTALL_MODE="wan"
 adguard_install_feature_defaults >"${TMP_ROOT}/feature-wan.out" || fail 'WAN install feature defaults failed'
@@ -152,6 +163,7 @@ grep -q 'migrate-runtime-defaults --yes' "${TMP_ROOT}/upgrade-existing.out" ||
 CONF_FILE="${TMP_ROOT}/upgrade-missing.config"
 : >"${CONF_FILE}"
 ADGUARD_INSTALL_MODE="wan"
+ADGUARD_INSTALL_MODE_DETECTION="wan"
 configure_runtime_defaults upgrade >"${TMP_ROOT}/upgrade-missing.out" || fail 'upgrade missing-default pin failed'
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"$' "${CONF_FILE}" || fail 'upgrade missing policy did not pin legacy DNS cleanup'
 grep -q '^ADGUARD_NETCHECK_MODE="legacy"$' "${CONF_FILE}" || fail 'upgrade missing netcheck did not pin legacy mode'

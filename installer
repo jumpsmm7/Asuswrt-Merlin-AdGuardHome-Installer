@@ -7085,6 +7085,11 @@ cli_migrate_runtime_defaults() {
 		esac
 		shift
 	done
+	adguard_install_mode_detect || return 1
+	if ! adguard_install_mode_confirmed; then
+		PTXT "${ERROR} Runtime-default migration requires a confirmed router install mode; no settings were inspected or changed."
+		return 1
+	fi
 	if [ ! -f "${CONF_FILE}" ]; then
 		PTXT "${ERROR} Runtime config not found: ${CONF_FILE}"
 		return 1

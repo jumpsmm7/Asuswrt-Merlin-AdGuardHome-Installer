@@ -36,6 +36,18 @@ ERROR='[!]'
 CONF_FILE="${TMP_ROOT}/.config"
 YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 TARG_DIR="${TMP_ROOT}"
+ADGUARD_INSTALL_MODE_DETECTION='wan'
+
+adguard_install_mode_confirmed() {
+	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
+		wan | lan) return 0 ;;
+	esac
+	return 1
+}
+
+adguard_install_mode_detect() {
+	return 0
+}
 
 # cli_require_yes is a no-op that succeeds without requiring confirmation.
 cli_require_yes() {
@@ -58,6 +70,14 @@ ADGUARD_PROC_PROFILE="aggressive"
 CONFIG
 
 before="$(cat "${CONF_FILE}")"
+ADGUARD_INSTALL_MODE_DETECTION='unknown'
+if cli_migrate_runtime_defaults --yes >"${TMP_ROOT}/unknown-mode"; then
+	fail 'unknown-mode migration was allowed to change runtime defaults'
+fi
+[ "$(cat "${CONF_FILE}")" = "${before}" ] || fail 'unknown-mode migration changed .config'
+grep -q 'requires a confirmed router install mode' "${TMP_ROOT}/unknown-mode" ||
+	fail 'unknown-mode migration did not explain the confirmation requirement'
+ADGUARD_INSTALL_MODE_DETECTION='wan'
 cli_migrate_runtime_defaults >"${TMP_ROOT}/report" || fail 'report-only migration failed'
 [ "$(cat "${CONF_FILE}")" = "${before}" ] || fail 'report-only migration changed .config'
 grep -q 'Legacy runtime default: ADGUARD_NETCHECK_MODE="legacy"' "${TMP_ROOT}/report" || fail 'legacy netcheck value was not reported'

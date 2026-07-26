@@ -35,6 +35,18 @@ INFO='[i]'
 ERROR='[!]'
 WARNING='[w]'
 CONF_FILE="${TMP_ROOT}/.config"
+ADGUARD_INSTALL_MODE_DETECTION='wan'
+
+adguard_install_mode_confirmed() {
+	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
+		wan | lan) return 0 ;;
+	esac
+	return 1
+}
+
+adguard_install_mode_detect() {
+	return 0
+}
 
 cli_require_yes() {
 	return 0
