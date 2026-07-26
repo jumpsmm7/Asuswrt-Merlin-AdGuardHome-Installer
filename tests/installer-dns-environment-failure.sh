@@ -152,6 +152,24 @@ nvram_transaction_apply - 1 || fail 'cleanup transaction apply failed'
 rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove cleanup transaction snapshot'
 
 reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'interrupted transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'interrupted transaction staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'interrupted transaction apply failed'
+NVRAM_TRANSACTION_DIR=''
+nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'dirty transaction snapshot blocked a rerun'
+assert_original 'dirty snapshot rerun'
+[ "${COMMIT_COUNT}" = 2 ] || fail 'dirty snapshot rerun did not commit its restoration'
+[ "${SERVICE_COUNT}" = 2 ] || fail 'dirty snapshot rerun did not restart dnsmasq after restoration'
+[ -f "${NVRAM_TRANSACTION_DIR}/keys" ] || fail 'dirty snapshot rerun did not create a replacement snapshot'
+
+reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'clean transaction snapshot failed'
+: >"${NVRAM_TRANSACTION_DIR}/stale" || fail 'could not mark clean snapshot for replacement check'
+NVRAM_TRANSACTION_DIR=''
+nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'clean transaction snapshot blocked a rerun'
+[ ! -e "${NVRAM_TRANSACTION_DIR}/stale" ] || fail 'clean stale snapshot was not replaced'
+
+reset_case
 DNS_ENV_READY_TIMEOUT=invalid
 DNS_ENV_RECOVERY_TIMEOUT=invalid
 check_dns_environment 0 || fail 'public network unavailability blocked local DNS preparation'

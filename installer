@@ -73,7 +73,7 @@ ai_have_cmd() {
 # snapshot before any write is attempted.  Snapshot files are deliberately
 # simple because NVRAM values used by this installer do not contain newlines.
 nvram_transaction_begin() {
-	local name key snapshot_dir temp_dir
+	local name key service_action snapshot_dir temp_dir
 	name="$1"
 	shift
 	case "${name}" in
@@ -84,8 +84,15 @@ nvram_transaction_begin() {
 	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram" ] || return 1
 	if [ -e "${snapshot_dir}" ] || [ -L "${snapshot_dir}" ]; then
 		if [ -f "${snapshot_dir}/dirty" ]; then
+			case "${name}" in
+				dnsfilter) service_action="restart_firewall;restart_dnsmasq" ;;
+				dns-preparation | lan-domain) service_action="restart_dnsmasq" ;;
+				*) service_action="-" ;;
+			esac
+			NVRAM_TRANSACTION_DIR="${snapshot_dir}"
+			export NVRAM_TRANSACTION_DIR
 			rollback_result_write "NVRAM transaction" "incomplete prior rollback detected" "restoring snapshot at ${snapshot_dir}"
-			if nvram_transaction_restore restart_dnsmasq 0; then
+			if nvram_transaction_restore "${service_action}" 0; then
 				: # Successful restore, continue with new transaction
 			else
 				return 1
