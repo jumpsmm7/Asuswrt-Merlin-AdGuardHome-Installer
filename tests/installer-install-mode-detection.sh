@@ -76,7 +76,7 @@ extract_function startup_action_allows_unknown_install_mode "${TMP_ROOT}/unknown
 			fail "${gated_args}: mode-dependent action bypassed the fresh-install mode gate"
 		fi
 	done
-)
+) || exit $?
 if sed -n '/^[[:space:]]*case "\$2" in$/,/^[[:space:]]*if menu_action_allowed "\$2"; then$/p' "${SCRIPT_PATH}" |
 	grep -q 'migrate-runtime-defaults | \[mM\]'; then
 	fail 'branch-qualified runtime migration must require confirmed install-mode detection'
@@ -97,7 +97,7 @@ extract_function cli_action_requires_install_mode "${TMP_ROOT}/cli-mode-action" 
 			fail "${recovery_action} must remain available when install-mode detection fails"
 		fi
 	done
-)
+) || exit $?
 extract_function backup_restore "${TMP_ROOT}/backup-restore" ||
 	fail 'could not extract backup restore helper'
 awk '

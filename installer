@@ -899,15 +899,19 @@ preflight_action_requires_cru() {
 	return 0
 }
 
+adguard_install_mode_detect_once() {
+	if [ "${PREFLIGHT_INSTALL_MODE_DETECTED:-0}" != "1" ]; then
+		adguard_install_mode_detect >/dev/null 2>&1
+	fi
+}
+
 preflight_action_requires_firewall_tools() {
 	case "${1:-install}" in
 		status | preflight)
 			return 1
 			;;
 	esac
-	if [ "${PREFLIGHT_INSTALL_MODE_DETECTED:-0}" != "1" ]; then
-		adguard_install_mode_detect >/dev/null 2>&1
-	fi
+	adguard_install_mode_detect_once
 	adguard_install_mode_confirmed || return 1
 	[ "${ADGUARD_INSTALL_MODE}" = "lan" ] && return 1
 	return 0
@@ -955,9 +959,7 @@ preflight_check_router_eligibility() {
 	else
 		PTXT "preflight.router.model.result=OK"
 	fi
-	if [ "${PREFLIGHT_INSTALL_MODE_DETECTED:-0}" != "1" ]; then
-		adguard_install_mode_detect >/dev/null 2>&1
-	fi
+	adguard_install_mode_detect_once
 	PTXT "preflight.router.sw_mode=${ADGUARD_INSTALL_MODE_SW_MODE:-missing}"
 	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
 		wan | lan)
