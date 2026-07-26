@@ -1826,25 +1826,41 @@ post_stop_handoff_cleared() {
 
 # post_stop_dnsmasq_ready verifies local port 53 ownership and resolver readiness.
 post_stop_dnsmasq_ready() {
-	local dns_sockets
+	local dns_server dns_servers lan_addr
 	adguard_dnsmasq_running || return 1
-	dns_sockets="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ { print }')"
-	[ -n "${dns_sockets}" ] || return 1
-	if printf '%s\n' "${dns_sockets}" | awk '
-		{
-			owner = ""
-			for (i = NF; i >= 1; i--) if ($i ~ /^[0-9]+\/[^[:space:]]+$/) { owner = $i; break }
-			if (owner != "" && owner !~ /\/dnsmasq$/) exit 1
-			if ($1 ~ /^tcp6?$/) tcp = 1
-			if ($1 ~ /^udp6?$/) udp = 1
+	if dns_servers="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ {
+		owner = ""
+		for (i = NF; i >= 1; i--) if ($i ~ /^[0-9]+\/[^[:space:]]+$/) { owner = $i; break }
+		if (owner != "" && owner !~ /\/dnsmasq$/) bad_owner = 1
+		if ($1 ~ /^tcp6?$/) tcp = 1
+		if ($1 ~ /^udp6?$/) {
+			udp = 1
+			server = $4
+			sub(/:53$/, "", server)
+			gsub(/^\[|\]$/, "", server)
+			servers[server] = 1
 		}
-		END { if (!tcp || !udp) exit 1 }
-	'; then
+	}
+		END {
+			if (bad_owner || !tcp || !udp) exit 1
+			for (server in servers) print server
+		}
+	')" && [ -n "${dns_servers}" ]; then
 		:
 	else
 		return 1
 	fi
-	nslookup localhost 127.0.0.1 >/dev/null 2>&1 || nslookup localhost ::1 >/dev/null 2>&1
+	lan_addr="$(nvram get lan_ipaddr 2>/dev/null)"
+	for dns_server in ${dns_servers}; do
+		case "${dns_server}" in
+			0.0.0.0) dns_server="${lan_addr:-127.0.0.1}" ;;
+			:: | \*) dns_server="::1" ;;
+		esac
+		if nslookup localhost "${dns_server}" >/dev/null 2>&1; then
+			return 0
+		fi
+	done
+	return 1
 }
 
 # stop_adguardhome stops AdGuardHome, restores managed dnsmasq, and verifies local DNS recovery.

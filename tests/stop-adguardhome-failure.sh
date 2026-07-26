@@ -83,6 +83,11 @@ netstat() {
 				'tcp6 0 0 :::53 :::* LISTEN' \
 				'udp6 0 0 :::53 :::*'
 			;;
+		lan)
+			printf '%s\n' \
+				'tcp 0 0 192.168.50.1:53 0.0.0.0:* LISTEN 88/dnsmasq' \
+				'udp 0 0 192.168.50.1:53 0.0.0.0:* 88/dnsmasq'
+			;;
 		missing_tcp) printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 88/dnsmasq' ;;
 		missing_udp) printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 88/dnsmasq' ;;
 		foreign)
@@ -95,8 +100,11 @@ netstat() {
 }
 nslookup() {
 	printf '%s\n' "nslookup $*" >>"${CALLS_FILE}"
-	case "${LOOKUP_MODE}:$2" in ipv4:127.0.0.1 | ipv6:::1) return 0 ;; esac
+	case "${LOOKUP_MODE}:$2" in ipv4:192.168.50.1 | ipv6:::1 | lan:192.168.50.1) return 0 ;; esac
 	return 1
+}
+nvram() {
+	[ "$1" = get ] && [ "$2" = lan_ipaddr ] && printf '%s\n' 192.168.50.1
 }
 netcheck() {
 	printf '%s\n' netcheck >>"${CALLS_FILE}"
@@ -124,6 +132,14 @@ stop_adguardhome || fail "offline WAN made a locally healthy stop fail"
 reset_case
 SOCKET_MODE="ipv6" LOOKUP_MODE="ipv6"
 stop_adguardhome || fail "IPv6-only local DNS recovery failed"
+
+# A bind-interfaces configuration that excludes loopback is probed on the
+# address reported by the dnsmasq-owned socket instead of localhost.
+reset_case
+SOCKET_MODE="lan" LOOKUP_MODE="lan"
+stop_adguardhome || fail "LAN-only dnsmasq listener was not probed"
+grep -q '^nslookup localhost 192\.168\.50\.1$' "${CALLS_FILE}" ||
+	fail "LAN-only dnsmasq listener address was not used"
 
 # BusyBox netstat may omit PID/program metadata; a running dnsmasq and a
 # successful local lookup verify ownerless IPv4 and IPv6 socket rows.
