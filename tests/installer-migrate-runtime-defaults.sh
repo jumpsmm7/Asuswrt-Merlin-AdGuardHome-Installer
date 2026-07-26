@@ -38,6 +38,7 @@ YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 TARG_DIR="${TMP_ROOT}"
 ADGUARD_INSTALL_MODE_DETECTION='wan'
 
+# adguard_install_mode_confirmed reports whether the detected install mode is confirmed as WAN or LAN.
 adguard_install_mode_confirmed() {
 	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
 		wan | lan) return 0 ;;
@@ -45,6 +46,7 @@ adguard_install_mode_confirmed() {
 	return 1
 }
 
+# adguard_install_mode_detect is a no-op stub that succeeds without changing the detected install mode.
 adguard_install_mode_detect() {
 	return 0
 }

@@ -37,6 +37,7 @@ WARNING='[w]'
 CONF_FILE="${TMP_ROOT}/.config"
 ADGUARD_INSTALL_MODE_DETECTION='wan'
 
+# adguard_install_mode_confirmed reports whether the detected installation mode is `wan` or `lan`.
 adguard_install_mode_confirmed() {
 	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
 		wan | lan) return 0 ;;
@@ -44,10 +45,12 @@ adguard_install_mode_confirmed() {
 	return 1
 }
 
+# adguard_install_mode_detect detects the AdGuard installation mode successfully.
 adguard_install_mode_detect() {
 	return 0
 }
 
+# cli_require_yes confirms non-interactive confirmation.
 cli_require_yes() {
 	return 0
 }

@@ -83,6 +83,7 @@ grep -q 'preflight_check_entware_package column || true' "${SCRIPT_PATH}" ||
 grep -q 'preflight.entware.dependent_checks=SKIP_ENTWARE_MISSING' "${SCRIPT_PATH}" ||
 	fail 'preflight must skip Entware-dependent checks when Entware is unavailable'
 
+# run_preflight_gate_case verifies that Entware-dependent preflight checks run or are skipped according to the simulated Entware status.
 run_preflight_gate_case() {
 	case_name="$1"
 	entware_status="$2"
@@ -137,7 +138,7 @@ EOF
 run_preflight_gate_case missing 1 yes
 run_preflight_gate_case available 0 no
 
-# run_preflight_firewall_mode_case verifies firewall tool checks for a preflight action based on persisted and detected install modes.
+# run_preflight_firewall_mode_case verifies flow-aware firewall gating and mode-detection snapshot reuse for a preflight action.
 run_preflight_firewall_mode_case() {
 	case_name="$1"
 	action="$2"
@@ -441,7 +442,7 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 			*) printf '%s\n' "${CONF_MODE}" ;;
 		esac
 	}
-	# adguard_install_mode_detect sets `ADGUARD_INSTALL_MODE` from `DETECTED_MODE` and fails when no mode is available.
+	# adguard_install_mode_detect records the detected install mode and marks detection as unknown when no mode is available.
 	adguard_install_mode_detect() {
 		case "${DETECTED_MODE:-missing}" in
 			missing) ADGUARD_INSTALL_MODE_DETECTION=unknown ;;
@@ -483,6 +484,7 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 		done
 	}
 
+	# assert_timezone_column_required verifies that each specified action requires timezone column support.
 	assert_timezone_column_required() {
 		local action
 		for action in "$@"; do

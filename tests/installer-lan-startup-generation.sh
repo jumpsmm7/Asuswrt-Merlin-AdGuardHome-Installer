@@ -145,7 +145,7 @@ run_startup_case() {
 	esac
 }
 
-# run_startup_failure_case verifies that install-mode detection fails without a usable LAN IPv4 address and leaves configuration artifacts unchanged.
+# run_startup_failure_case verifies that install-mode detection reports an unknown mode and leaves configuration artifacts unchanged.
 run_startup_failure_case() {
 	case_name="$1"
 	TEST_SW_MODE="$2"

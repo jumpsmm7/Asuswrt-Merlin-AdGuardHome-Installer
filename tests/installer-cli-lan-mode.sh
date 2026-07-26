@@ -81,6 +81,7 @@ WARNING='Warning:'
 ERROR='Error:'
 ADGUARD_INSTALL_MODE_DETECTION='wan'
 
+# adguard_install_mode_confirmed confirms that the detected installation mode is either `wan` or `lan`.
 adguard_install_mode_confirmed() {
 	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
 		wan | lan) return 0 ;;
@@ -88,6 +89,7 @@ adguard_install_mode_confirmed() {
 	return 1
 }
 
+# adguard_install_mode_detect determines the installation mode and succeeds.
 adguard_install_mode_detect() {
 	return 0
 }
@@ -121,7 +123,10 @@ cli_write_quoted_conf() {
 # Arguments:
 #   case_name        A label used in failure messages.
 #   install_mode     The installation mode supplied to the migration.
-#   expected_netcheck The netcheck mode expected in the migration output.
+# run_migrate_case verifies that runtime migration writes the expected netcheck mode for an installation mode.
+#   case_name identifies the migration test case.
+#   install_mode is the installation mode under test.
+#   expected_netcheck is the netcheck mode expected in the migration output.
 run_migrate_case() {
 	case_name="$1"
 	install_mode="$2"

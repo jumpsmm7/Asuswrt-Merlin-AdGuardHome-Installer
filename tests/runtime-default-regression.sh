@@ -44,6 +44,7 @@ INFO='[i]'
 WARNING='[w]'
 ERROR='[!]'
 
+# adguard_install_mode_confirmed reports whether the configured installation mode is recognized as WAN or LAN.
 adguard_install_mode_confirmed() {
 	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
 		wan | lan) return 0 ;;
@@ -51,6 +52,7 @@ adguard_install_mode_confirmed() {
 	return 1
 }
 
+# adguard_install_mode_detect always reports successful installation-mode detection.
 adguard_install_mode_detect() {
 	return 0
 }
