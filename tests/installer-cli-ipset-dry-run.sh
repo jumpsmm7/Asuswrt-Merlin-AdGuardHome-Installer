@@ -8,6 +8,7 @@ TMP_ROOT="${TMPDIR:-/tmp}/installer-cli-ipset-dry-run.$$"
 FUNCTION_FILE="${TMP_ROOT}/cli-run"
 CHECK_FILE="${TMP_ROOT}/check-ipset"
 DRY_RUN_FILE="${TMP_ROOT}/dry-run"
+DETECT_FILE="${TMP_ROOT}/detect-mode"
 
 # cleanup removes the temporary test directory and its contents.
 cleanup() {
@@ -38,6 +39,7 @@ INFO='Info:'
 WARNING='Warning:'
 ERROR='Error:'
 INSTALL_MODE='lan'
+INSTALL_MODE_DETECTION='lan'
 
 # PTXT appends a message to the dry-run output file.
 PTXT() {
@@ -47,6 +49,19 @@ PTXT() {
 #adguard_ipset_allowed determines whether AdGuard IPSET operations are allowed for the current installation mode.
 adguard_ipset_allowed() {
 	[ "${INSTALL_MODE}" = 'wan' ]
+}
+
+# adguard_install_mode_confirmed reports whether the current detection is safe for mutating mode-dependent state.
+adguard_install_mode_confirmed() {
+	case "${INSTALL_MODE_DETECTION}" in
+		wan | lan) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+# adguard_install_mode_detect records each live mode-detection attempt.
+adguard_install_mode_detect() {
+	printf '%s\n' "${INSTALL_MODE_DETECTION}" >>"${DETECT_FILE}"
 }
 
 # branch_is_safe always reports that the current branch is safe.
@@ -69,6 +84,11 @@ ptxt_ok() {
 	:
 }
 
+# ipset_status fails if a mode-independent status path reaches live IPSET inspection in LAN mode.
+ipset_status() {
+	fail 'LAN-mode IPSET status unexpectedly inspected live IPSET state'
+}
+
 # write_conf is a stub that always succeeds.
 write_conf() {
 	return 0
@@ -81,9 +101,11 @@ run_dry_run_case() {
 	shift 2
 	: >"${CHECK_FILE}"
 	: >"${DRY_RUN_FILE}"
+	: >"${DETECT_FILE}"
 
 	cli_run ipset refresh "$@" || fail "${case_name}: dry-run failed"
 	[ ! -s "${CHECK_FILE}" ] || fail "${case_name}: dry-run called persistent IPSET cleanup"
+	[ ! -s "${DETECT_FILE}" ] || fail "${case_name}: dry-run performed live install-mode detection"
 	grep -q 'Dry-run: would run IPSET refresh' "${DRY_RUN_FILE}" || fail "${case_name}: dry-run preview was not reported"
 }
 
@@ -109,10 +131,32 @@ run_remote_dry_run_case remote-option-last --yes --dry-run
 run_remote_dry_run_case remote-option-first --dry-run --yes
 
 : >"${CHECK_FILE}"
+: >"${DETECT_FILE}"
 INSTALL_MODE='lan'
+INSTALL_MODE_DETECTION='lan'
 if cli_run ipset refresh; then
 	fail 'non-dry-run LAN refresh should still be refused'
 fi
+[ "$(cat "${DETECT_FILE}")" = 'lan' ] || fail 'non-dry-run LAN refresh did not confirm the current install mode'
 grep -q '^0$' "${CHECK_FILE}" || fail 'non-dry-run LAN refresh did not disable stale IPSET state'
 
-printf '%s\n' 'PASS: IPSET refresh dry-runs never persist LAN-mode cleanup'
+: >"${CHECK_FILE}"
+: >"${DETECT_FILE}"
+INSTALL_MODE='wan'
+INSTALL_MODE_DETECTION='unknown'
+if cli_run ipset refresh --yes; then
+	fail 'unknown-mode IPSET refresh should be refused'
+fi
+[ "$(cat "${DETECT_FILE}")" = 'unknown' ] || fail 'unknown-mode IPSET refresh did not perform live mode detection'
+[ ! -s "${CHECK_FILE}" ] || fail 'unknown-mode IPSET refresh changed IPSET state'
+grep -q 'IPSET refresh requires a confirmed router install mode' "${DRY_RUN_FILE}" ||
+	fail 'unknown-mode IPSET refresh did not explain the confirmation requirement'
+
+: >"${DETECT_FILE}"
+INSTALL_MODE='lan'
+INSTALL_MODE_DETECTION='unknown'
+cli_run ipset status || fail 'IPSET status was blocked when install-mode detection was unknown'
+cli_run ipset doctor || fail 'IPSET doctor was blocked when install-mode detection was unknown'
+[ ! -s "${DETECT_FILE}" ] || fail 'IPSET status or doctor unnecessarily required live mode detection'
+
+printf '%s\n' 'PASS: IPSET refresh requires confirmed mode while dry-runs remain non-mutating'

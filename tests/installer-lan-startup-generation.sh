@@ -111,6 +111,8 @@ nvram() {
 }
 
 # run_startup_case validates install-mode detection, runtime defaults, and generated LAN/WAN startup configuration for a test scenario.
+# run_startup_case verifies install-mode detection, runtime configuration, setup output, and generated LAN/WAN bindings for a startup scenario.
+# run_startup_case verifies install-mode detection, runtime default persistence, and LAN/WAN YAML bindings for a startup scenario.
 # Arguments are the case name, simulated switch mode, LAN IP address, expected install mode, and expected WebUI bind address.
 run_startup_case() {
 	case_name="$1"
@@ -145,7 +147,7 @@ run_startup_case() {
 	esac
 }
 
-# run_startup_failure_case verifies that install-mode detection fails without a usable LAN IPv4 address and leaves configuration artifacts unchanged.
+# run_startup_failure_case verifies that unknown install-mode detection is rejected without setting the install mode or creating YAML or configuration artifacts.
 run_startup_failure_case() {
 	case_name="$1"
 	TEST_SW_MODE="$2"
@@ -155,8 +157,10 @@ run_startup_failure_case() {
 	: >"${CONF_FILE}"
 	ADGUARD_INSTALL_MODE=
 
-	if adguard_install_mode_detect >/dev/null 2>&1; then
-		fail "${case_name}: install mode detection succeeded without a usable LAN IPv4 address"
+	adguard_install_mode_detect >/dev/null 2>&1 || fail "${case_name}: three-state install mode detection failed"
+	[ "${ADGUARD_INSTALL_MODE_DETECTION:-}" = unknown ] || fail "${case_name}: detection was not unknown"
+	if configure_runtime_defaults new-install "${ADGUARD_INSTALL_MODE:-}" 0 >/dev/null 2>&1; then
+		fail "${case_name}: runtime defaults accepted unknown detection"
 	fi
 	[ -z "${ADGUARD_INSTALL_MODE:-}" ] || fail "${case_name}: install mode was set after failed detection"
 	[ ! -e "${YAML_FILE}" ] || fail "${case_name}: YAML was generated after failed detection"
@@ -165,10 +169,10 @@ run_startup_failure_case() {
 
 run_startup_case repeater-lan 2 192.168.1.2 lan 192.168.1.2:3000
 run_startup_case ap-lan 3 192.168.1.2 lan 192.168.1.2:3000
-run_startup_case missing-sw-mode-lan '' 192.168.1.2 lan 192.168.1.2:3000
 run_startup_case router-wan 1 192.168.1.1 wan 0.0.0.0:3000
 run_startup_failure_case repeater-missing-lan-ip 2 ''
 run_startup_failure_case ap-invalid-lan-ip 3 999.168.1.2
 run_startup_failure_case missing-sw-mode-missing-lan-ip '' ''
+run_startup_failure_case missing-sw-mode-usable-lan-ip '' 192.168.1.2
 
 printf '%s\n' 'PASS: installer startup persists mode defaults and generates LAN/WAN YAML bindings'

@@ -26,6 +26,8 @@ sed -n '/^adguard_restart_after_install_abort() {$/,/^}/p' "${SCRIPT_PATH}" >"${
 	fail 'could not extract restart helper'
 sed -n '/^adguard_migrate_detected_install_mode() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
 	fail 'could not extract install-mode migration helper'
+sed -n '/^adguard_install_mode_confirmed() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract confirmed install-mode helper'
 sed -n '/^finalize_pending_mode_migration() {$/,/^}/p; /^rollback_pending_mode_migration() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
 	fail 'could not extract pending mode-migration helpers'
 sed -n '/^install_wan_event_scripts() {$/,/^set_timezone() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer functions'
@@ -44,6 +46,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 
 	ADGUARD_ARCH='test'
 	ADGUARD_INSTALL_MODE='wan'
+	ADGUARD_INSTALL_MODE_DETECTION='wan'
 	ADDON_DIR="${TMP_ROOT}/addon"
 	AGH_FILE="${TMP_ROOT}/target/AdGuardHome"
 	BASE_DIR="${TMP_ROOT}/base"
@@ -54,12 +57,24 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	INFO='Info:'
 	ERROR='Error:'
 
+	# adguard_install_mode_detect determines the installation mode and succeeds when detection completes.
+	adguard_install_mode_detect() {
+		ADGUARD_INSTALL_MODE="${ADGUARD_INSTALL_MODE_DETECTION}"
+		return 0
+	}
+	# adguard_install_abort_trap_disable_preserve_defer is a no-op stub for installation-abort trap handling.
 	adguard_install_abort_trap_disable_preserve_defer() { :; }
+	# adguard_remote_archive returns the remote archive filename for the test installer.
 	adguard_remote_archive() { printf '%s\n' 'AdGuardHome_test.tar.gz'; }
+	# adguard_remote_md5 provides the remote MD5 checksum for the AdGuard Home release.
 	adguard_remote_md5() { :; }
+	# adguard_remote_sha256 is a stub for retrieving the remote SHA-256 checksum.
 	adguard_remote_sha256() { :; }
+	# adguard_remote_url prints the remote URL for the test AdGuardHome archive.
 	adguard_remote_url() { printf '%s\n' 'https://example.invalid/AdGuardHome_test.tar.gz'; }
+	# ensure_sha256sum_tool provides a no-op checksum-tool stub for the installer test.
 	ensure_sha256sum_tool() { :; }
+	# download_file downloads a file.
 	download_file() { return 0; }
 	md5_is_valid() { return 1; }
 	sha256_is_valid() { return 1; }
