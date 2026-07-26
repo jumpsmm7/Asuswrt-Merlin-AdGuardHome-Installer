@@ -143,6 +143,15 @@ check_dns_environment 0 && fail 'NVRAM read failure was accepted'
 [ "${_DNS_NVRAM_SAVED}" = 0 ] || fail 'incomplete snapshot was marked valid'
 
 reset_case
+nvram_transaction_begin cleanup dnspriv_enable || fail 'cleanup transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'cleanup transaction staging failed'
+: >"${NVRAM_TRANSACTION_DIR}/new.untracked" || fail 'could not create unrelated snapshot file'
+nvram_transaction_apply - 1 || fail 'cleanup transaction apply failed'
+[ ! -e "${NVRAM_TRANSACTION_DIR}/new.dnspriv_enable" ] || fail 'staged transaction value was not removed'
+[ -f "${NVRAM_TRANSACTION_DIR}/new.untracked" ] || fail 'transaction cleanup removed an untracked file'
+rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove cleanup transaction snapshot'
+
+reset_case
 DNS_ENV_READY_TIMEOUT=invalid
 DNS_ENV_RECOVERY_TIMEOUT=invalid
 check_dns_environment 0 || fail 'public network unavailability blocked local DNS preparation'

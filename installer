@@ -246,7 +246,9 @@ nvram_transaction_apply() {
 		return 1
 	fi
 	if [ "${keep_snapshot}" = "1" ]; then
-		rm -f "${snapshot_dir}"/new.*
+		while IFS= read -r key; do
+			rm -f "${snapshot_dir}/new.${key}"
+		done <"${snapshot_dir}/keys"
 	else
 		rm -rf "${snapshot_dir}"
 	fi
