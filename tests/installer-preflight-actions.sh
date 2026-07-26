@@ -144,6 +144,7 @@ run_preflight_firewall_mode_case() {
 	conf_mode="$3"
 	detected_mode="$4"
 	expected_firewall="$5"
+	expected_result="${6:-success}"
 	out_file="${TMP_ROOT}/firewall-${case_name}.out"
 	stub_file="${TMP_ROOT}/firewall-${case_name}.stub"
 	cat >"${stub_file}" <<EOF
@@ -177,7 +178,7 @@ preflight_action_requires_downloader() { return 1; }
 preflight_action_requires_service_tools() { return 1; }
 preflight_action_requires_cru() { return 1; }
 preflight_action_requires_jffs_ready() { return 1; }
-preflight_action_requires_router_eligibility() { return 1; }
+preflight_action_requires_router_eligibility() { return 0; }
 preflight_action_requires_entware() { return 1; }
 preflight_action_requires_jq() { return 1; }
 preflight_action_requires_sha256() { return 1; }
@@ -193,9 +194,14 @@ preflight_check_stock_commands() { return 0; }
 preflight_check_router_eligibility() {
 	[ "\${PREFLIGHT_INSTALL_MODE_DETECTED:-0}" = "1" ] || return 1
 	[ "\${detection_count:-0}" -eq 1 ] || return 1
+	adguard_install_mode_confirmed
 }
 . "${PREFLIGHT_FILE}"
-preflight '${action}'
+if preflight '${action}'; then
+	PTXT 'called.preflight_result=success'
+else
+	PTXT 'called.preflight_result=failure'
+fi
 PTXT "called.mode_detection_count=\${detection_count:-0}"
 EOF
 	sh "${stub_file}" >"${out_file}" 2>&1 || true
@@ -216,6 +222,8 @@ EOF
 	esac
 	grep -q '^called.mode_detection_count=1$' "${out_file}" ||
 		fail "${case_name}: preflight did not reuse one mode-detection snapshot"
+	grep -q "^called.preflight_result=${expected_result}$" "${out_file}" ||
+		fail "${case_name}: unexpected preflight result"
 }
 
 for action in install update restore; do
@@ -223,6 +231,7 @@ for action in install update restore; do
 	run_preflight_firewall_mode_case "persisted-lan-detected-wan-${action}" "${action}" lan wan required
 	run_preflight_firewall_mode_case "detected-wan-${action}" "${action}" missing wan required
 	run_preflight_firewall_mode_case "detected-lan-${action}" "${action}" missing lan skipped
+	run_preflight_firewall_mode_case "detected-unknown-${action}" "${action}" missing missing skipped failure
 done
 
 # run_router_mode_case tests router eligibility for a router mode and LAN IP address, verifying the status and expected output lines.
