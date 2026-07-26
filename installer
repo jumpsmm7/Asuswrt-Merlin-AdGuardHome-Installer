@@ -6794,6 +6794,13 @@ cli_action_requires_install_mode() {
 	esac
 }
 
+startup_action_allows_unknown_install_mode() {
+	case "${1:-}:${2:-}" in
+		uninstall:* | *:uninstall | *:2) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
 cli_usage() {
 	PTXT "${INFO} Usage:" \
 		"${INFO}   sh installer install [--installer-branch master] [--adguardhome-branch {release|beta|edge}] --yes [--allow-dns-nvram]" \
@@ -7527,15 +7534,10 @@ if ! adguard_install_mode_confirmed; then
 			if [ -f "${AGH_FILE}" ] || [ -d "${TARG_DIR}" ]; then
 				ADGUARD_INSTALL_MODE="${PREVIOUS_ADGUARD_INSTALL_MODE}"
 			else
-				case "${1:-}:${2:-}" in
-					uninstall:* | *:uninstall | *:2)
-						# Keep cleanup reachable after an interrupted uninstall removed install artifacts.
-						;;
-					*)
-						PTXT "${ERROR} A new installation requires a confirmed WAN or LAN/AP/bridge router mode; no persistent state was modified."
-						exit 1
-						;;
-				esac
+				if ! startup_action_allows_unknown_install_mode "${1:-}" "${2:-}"; then
+					PTXT "${ERROR} A new installation requires a confirmed WAN or LAN/AP/bridge router mode; no persistent state was modified."
+					exit 1
+				fi
 			fi
 			;;
 	esac

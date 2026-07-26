@@ -60,8 +60,23 @@ branch_doctor_line="$(grep -n '^if \[ "${2:-}" = "doctor" \]; then' "${SCRIPT_PA
 startup_detection_line="$(grep -n '^PREVIOUS_ADGUARD_INSTALL_MODE=' "${SCRIPT_PATH}" | head -n 1 | cut -d: -f1)"
 [ -n "${branch_doctor_line}" ] && [ "${branch_doctor_line}" -lt "${startup_detection_line}" ] ||
 	fail 'branch-qualified doctor must dispatch before the fresh-install mode gate'
-grep -q 'uninstall:\* | \*:uninstall | \*:2)' "${SCRIPT_PATH}" ||
-	fail 'uninstall retry paths must bypass the fresh-install mode gate'
+extract_function startup_action_allows_unknown_install_mode "${TMP_ROOT}/unknown-mode-action" ||
+	fail 'could not extract unknown-mode recovery action helper'
+(
+	# shellcheck disable=SC1090
+	. "${TMP_ROOT}/unknown-mode-action"
+	for recovery_args in 'uninstall ' 'uninstall --yes' 'master uninstall' 'master 2'; do
+		set -- ${recovery_args}
+		startup_action_allows_unknown_install_mode "${1:-}" "${2:-}" ||
+			fail "${recovery_args}: uninstall retry must bypass the fresh-install mode gate"
+	done
+	for gated_args in 'install --yes' 'update --yes' 'restore --yes' 'master install' 'master migrate-runtime-defaults' 'master 1'; do
+		set -- ${gated_args}
+		if startup_action_allows_unknown_install_mode "${1:-}" "${2:-}"; then
+			fail "${gated_args}: mode-dependent action bypassed the fresh-install mode gate"
+		fi
+	done
+)
 if sed -n '/^[[:space:]]*case "\$2" in$/,/^[[:space:]]*if menu_action_allowed "\$2"; then$/p' "${SCRIPT_PATH}" |
 	grep -q 'migrate-runtime-defaults | \[mM\]'; then
 	fail 'branch-qualified runtime migration must require confirmed install-mode detection'
