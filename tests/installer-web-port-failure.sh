@@ -97,11 +97,14 @@ check_AdGuardHome_yaml() {
 }
 DNS_FILTER_CHANGED=0
 DNS_FILTER_RESTORES=0
+LAN_DOMAIN_RESTORES=0
 save_dns_filter_settings() {
 	mkdir -p "$1"
 }
 installer_lan_domain_set() { nvram set "lan_domain=$1"; }
-installer_lan_domain_restore() { :; }
+installer_lan_domain_restore() {
+	LAN_DOMAIN_RESTORES="$((LAN_DOMAIN_RESTORES + 1))"
+}
 restore_dns_filter_settings() {
 	DNS_FILTER_RESTORES="$((DNS_FILTER_RESTORES + 1))"
 	DNS_FILTER_CHANGED=0
@@ -222,6 +225,7 @@ YAML_CHECKS=0
 FAIL_WRITE_CONF=1
 DNS_FILTER_CHANGED=0
 DNS_FILTER_RESTORES=0
+LAN_DOMAIN_RESTORES=0
 read_input_port() {
 	WEB_PORT=3000
 	return 0
@@ -235,6 +239,7 @@ grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail 'reconfiguration did not a
 [ ! -e "${YAML_BAK}" ] || fail 'reconfiguration left the YAML backup behind after WebUI port persistence failed'
 [ "${DNS_FILTER_CHANGED}" -eq 0 ] || fail 'reconfiguration left changed DNSFilter settings after WebUI port persistence failed'
 [ "${DNS_FILTER_RESTORES}" -eq 1 ] || fail 'reconfiguration did not restore DNSFilter settings after WebUI port persistence failed'
+[ "${LAN_DOMAIN_RESTORES}" -eq 1 ] || fail 'reconfiguration did not restore LAN domain after WebUI port persistence failed'
 [ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'reconfiguration did not restore installer preferences after WebUI port persistence failed'
 [ -z "${LAN_DOMAIN}" ] || fail 'reconfiguration did not restore the router LAN domain after WebUI port persistence failed'
 

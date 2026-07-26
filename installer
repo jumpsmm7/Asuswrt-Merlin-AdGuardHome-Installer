@@ -82,7 +82,18 @@ nvram_transaction_begin() {
 	snapshot_dir="${BASE_DIR}/.AdGuardHome.nvram/${name}"
 	temp_dir="${snapshot_dir}.tmp.$$"
 	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram" ] || return 1
-	[ ! -e "${snapshot_dir}" ] && [ ! -L "${snapshot_dir}" ] || return 1
+	if [ -e "${snapshot_dir}" ] || [ -L "${snapshot_dir}" ]; then
+		if [ -f "${snapshot_dir}/dirty" ]; then
+			rollback_result_write "NVRAM transaction" "incomplete prior rollback detected" "restoring snapshot at ${snapshot_dir}"
+			if nvram_transaction_restore restart_dnsmasq 0; then
+				: # Successful restore, continue with new transaction
+			else
+				return 1
+			fi
+		else
+			rm -rf "${snapshot_dir}" || return 1
+		fi
+	fi
 	rm -rf "${temp_dir}" || return 1
 	mkdir -p "${temp_dir}" || return 1
 	chmod 700 "${BASE_DIR}/.AdGuardHome.nvram" "${temp_dir}" 2>/dev/null || {
@@ -187,6 +198,8 @@ nvram_transaction_restore() {
 	fi
 	if [ "${failed}" = "0" ]; then
 		[ "${keep_snapshot}" = "1" ] || rm -rf "${snapshot_dir}"
+		NVRAM_TRANSACTION_CHANGED="0"
+		export NVRAM_TRANSACTION_CHANGED
 		return 0
 	fi
 	rollback_result_write "NVRAM transaction" "rollback partial" "snapshot preserved at ${snapshot_dir}"
@@ -201,10 +214,18 @@ nvram_transaction_apply() {
 	[ -f "${snapshot_dir}/keys" ] || return 1
 	if [ "${NVRAM_TRANSACTION_CHANGED:-0}" = "0" ]; then
 		[ "${keep_snapshot}" = "1" ] || rm -rf "${snapshot_dir}"
+		NVRAM_TRANSACTION_CHANGED="0"
+		export NVRAM_TRANSACTION_CHANGED
 		return 0
 	fi
-	: >"${snapshot_dir}/dirty" || return 1
-	chmod 600 "${snapshot_dir}/dirty" || return 1
+	if ! : >"${snapshot_dir}/dirty"; then
+		rm -rf "${snapshot_dir}"
+		return 1
+	fi
+	if ! chmod 600 "${snapshot_dir}/dirty"; then
+		rm -rf "${snapshot_dir}"
+		return 1
+	fi
 	while IFS= read -r key; do
 		[ -f "${snapshot_dir}/new.${key}" ] || continue
 		new="$(cat "${snapshot_dir}/new.${key}")" || {
@@ -229,6 +250,8 @@ nvram_transaction_apply() {
 	else
 		rm -rf "${snapshot_dir}"
 	fi
+	NVRAM_TRANSACTION_CHANGED="0"
+	export NVRAM_TRANSACTION_CHANGED
 	return 0
 }
 
@@ -238,7 +261,10 @@ installer_lan_domain_set() {
 	if ! nvram_transaction_begin lan-domain lan_domain; then
 		return 1
 	fi
-	nvram_transaction_set lan_domain "$1" || return 1
+	if ! nvram_transaction_set lan_domain "$1"; then
+		rm -rf "${NVRAM_TRANSACTION_DIR}"
+		return 1
+	fi
 	nvram_transaction_apply restart_dnsmasq "${keep_snapshot}"
 }
 
@@ -6109,6 +6135,9 @@ setup_AdGuardHome_impl() {
 					fi
 					if [ "${DOMAIN_CONFIG_SELECTION}" = "yes" ] && [ -z "${LAN_DOMAIN_ROLLBACK}" ]; then
 						if ! installer_lan_domain_set "${DOMAIN}" 1; then
+							restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+							[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+							setup_restore_previous_yaml || true
 							PTXT "${ERROR} Unable to persist the LAN domain setting."
 							return 1
 						fi
@@ -6214,8 +6243,9 @@ setup_AdGuardHome_impl() {
 				fi
 				SETUP_YAML_TMP_FILE=""
 				[ -z "${CONFIG_ROLLBACK}" ] || discard_installer_config_backup "${CONFIG_ROLLBACK}"
-				[ -z "${DNS_FILTER_ROLLBACK_DIR}" ] || rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
+				[ -z "${DNS_FILTER_ROLLBACK_DIR}" ] || rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
 				rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
+				rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
 				;;
 		esac
 	fi
@@ -6263,8 +6293,7 @@ uninst_all() {
 	agh_stop
 	cleanup_legacy_firewall
 	if [ "$(conf_value ADGUARD_DOMAIN)" = "yes" ] && ! installer_lan_domain_set ""; then
-		PTXT "${ERROR} Unable to clear the installer-managed LAN domain setting."
-		return 1
+		PTXT "${WARNING} Unable to clear the installer-managed LAN domain setting."
 	fi
 	mv "${TARG_DIR}/installer" "${HOME}/installer"
 	rm -rf "${TARG_DIR}" "${ROLLBACK_RESULT_FILE}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"

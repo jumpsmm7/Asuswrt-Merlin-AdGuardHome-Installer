@@ -233,7 +233,7 @@ reset_case
 (
 	trap 'check_dns_environment 1 >/dev/null 2>&1 || :; exit 0' TERM
 	nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || exit 1
-	: >"${NVRAM_TRANSACTION_DIR}/dirty"
+	: >"${NVRAM_TRANSACTION_DIR}/dirty" || exit 1
 	nvram set dnspriv_enable=0 || exit 1
 	: >"${TEST_ROOT}/signal-ready"
 	while :; do :; done
