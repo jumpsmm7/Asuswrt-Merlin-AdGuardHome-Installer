@@ -65,7 +65,9 @@ extract_function cli_action_requires_install_mode "${TMP_ROOT}/cli-mode-action" 
 		cli_action_requires_install_mode "${mode_action}" ||
 			fail "${mode_action} must detect the current install mode before CLI dispatch"
 	done
-	for recovery_action in backup doctor status migrate-runtime-defaults uninstall; do
+	cli_action_requires_install_mode migrate-runtime-defaults ||
+		fail 'migrate-runtime-defaults must require confirmed install-mode detection'
+	for recovery_action in backup doctor status uninstall; do
 		if cli_action_requires_install_mode "${recovery_action}"; then
 			fail "${recovery_action} must remain available when install-mode detection fails"
 		fi
@@ -76,7 +78,7 @@ extract_function backup_restore "${TMP_ROOT}/backup-restore" ||
 awk '
 	/ptxt_ok "Installed staged AdGuardHome backup\."/ { installed = NR }
 	/PREVIOUS_ADGUARD_INSTALL_MODE="\$\(conf_value ADGUARD_INSTALL_MODE 2>\/dev\/null\)"/ { restored_mode = NR }
-	/if ! adguard_enforce_lan_ipset_disabled; then/ { enforcement = NR }
+	/if adguard_install_mode_confirmed && ! adguard_enforce_lan_ipset_disabled; then/ { enforcement = NR }
 	END { exit(installed && restored_mode > installed && enforcement > restored_mode ? 0 : 1) }
 ' "${TMP_ROOT}/backup-restore" ||
 	fail 'restore must capture the archived install mode before enforcing the detected router mode'
@@ -315,14 +317,14 @@ run_case router-wan 1 192.168.50.1 0 wan
 run_case repeater-lan 2 192.168.50.1 0 lan
 run_case ap-lan 3 192.168.50.1 0 lan
 run_case media-bridge-lan 4 192.168.50.1 0 lan
-run_case unknown-non-router-lan 9 192.168.50.1 0 lan
-run_case repeater-without-lan-ip 2 "" 1 ""
-run_case ap-with-invalid-lan-ip 3 999.168.50.1 1 ""
-run_case ap-with-wildcard-lan-ip 3 0.0.0.0 1 ""
-run_case ap-with-loopback-lan-ip 3 127.0.0.1 1 ""
-run_case ap-with-multicast-lan-ip 3 224.0.0.1 1 ""
-run_case missing-sw-mode-with-lan-ip "" 192.168.50.1 0 lan
-run_case missing-sw-mode-without-lan-ip "" "" 1 ""
-run_case missing-sw-mode-with-invalid-lan-ip "" 999.168.50.1 1 ""
+run_case unknown-non-router 9 192.168.50.1 0 ""
+run_case repeater-without-lan-ip 2 "" 0 ""
+run_case ap-with-invalid-lan-ip 3 999.168.50.1 0 ""
+run_case ap-with-wildcard-lan-ip 3 0.0.0.0 0 ""
+run_case ap-with-loopback-lan-ip 3 127.0.0.1 0 ""
+run_case ap-with-multicast-lan-ip 3 224.0.0.1 0 ""
+run_case missing-sw-mode-with-lan-ip "" 192.168.50.1 0 ""
+run_case missing-sw-mode-without-lan-ip "" "" 0 ""
+run_case missing-sw-mode-with-invalid-lan-ip "" 999.168.50.1 0 ""
 
-printf '%s\n' 'PASS: installer install-mode detection accepts LAN pathways'
+printf '%s\n' 'PASS: installer install-mode detection reports WAN, LAN, and unknown states'

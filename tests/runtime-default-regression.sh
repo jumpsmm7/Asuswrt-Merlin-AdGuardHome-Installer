@@ -104,9 +104,8 @@ nvram() {
 	esac
 }
 CONF_FILE="${TMP_ROOT}/new-invalid-router.config"
-configure_runtime_defaults new-install invalid 0 >"${TMP_ROOT}/new-invalid-router.out" || fail 'invalid-mode router fallback defaults failed'
-grep -q '^ADGUARD_INSTALL_MODE="wan"$' "${CONF_FILE}" || fail 'invalid-mode router fallback did not save wan install mode'
-grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'invalid-mode router fallback did not save wan netcheck mode'
+if configure_runtime_defaults new-install invalid 0 >"${TMP_ROOT}/new-invalid-router.out"; then fail 'invalid mode unexpectedly used sw_mode fallback'; fi
+[ ! -e "${CONF_FILE}" ] || fail 'invalid mode modified persistent defaults'
 
 # nvram returns `2` for `get:sw_mode` requests and fails for all other requests.
 nvram() {
@@ -116,18 +115,16 @@ nvram() {
 	esac
 }
 CONF_FILE="${TMP_ROOT}/new-invalid-lan.config"
-configure_runtime_defaults new-install invalid 1 >"${TMP_ROOT}/new-invalid-lan.out" || fail 'invalid-mode LAN fallback defaults failed'
-grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" || fail 'invalid-mode LAN fallback did not save lan install mode'
-grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'invalid-mode LAN fallback did not save lan netcheck mode'
+if configure_runtime_defaults new-install invalid 1 >"${TMP_ROOT}/new-invalid-lan.out"; then fail 'invalid mode unexpectedly used LAN fallback'; fi
+[ ! -e "${CONF_FILE}" ] || fail 'invalid LAN mode modified persistent defaults'
 
 # nvram returns a failure status for all queries.
 nvram() {
 	return 1
 }
 CONF_FILE="${TMP_ROOT}/new-invalid-missing-sw-mode.config"
-configure_runtime_defaults new-install invalid 0 >"${TMP_ROOT}/new-invalid-missing-sw-mode.out" || fail 'invalid-mode missing sw_mode fallback defaults failed'
-grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" || fail 'invalid-mode missing sw_mode fallback did not save lan install mode'
-grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'invalid-mode missing sw_mode fallback did not save lan netcheck mode'
+if configure_runtime_defaults new-install invalid 0 >"${TMP_ROOT}/new-invalid-missing-sw-mode.out"; then fail 'missing sw_mode unexpectedly inferred LAN mode'; fi
+[ ! -e "${CONF_FILE}" ] || fail 'missing sw_mode modified persistent defaults'
 
 CONF_FILE="${TMP_ROOT}/new-existing-netcheck.config"
 cat >"${CONF_FILE}" <<'CONFIG'

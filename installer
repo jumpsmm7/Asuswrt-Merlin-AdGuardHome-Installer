@@ -591,18 +591,15 @@ adguard_install_feature_defaults() {
 }
 
 configure_runtime_defaults() {
-	local NETCHECK_MODE sw_mode
+	local NETCHECK_MODE
 	case "${1:-}" in
 		new-install)
 			case "${2:-}" in
 				wan) NETCHECK_MODE="wan" ;;
 				lan) NETCHECK_MODE="lan" ;;
 				*)
-					sw_mode="$(nvram get sw_mode 2>/dev/null)" || sw_mode=""
-					case "${sw_mode}" in
-						1) NETCHECK_MODE="wan" ;;
-						*) NETCHECK_MODE="lan" ;;
-					esac
+					PTXT "${ERROR} A confirmed router install mode is required before saving runtime defaults."
+					return 1
 					;;
 			esac
 			write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"1\"" || return 1
@@ -728,20 +725,36 @@ ipv4_is_private() {
 adguard_install_mode_detect() {
 	local lan_ipaddr sw_mode
 	sw_mode="$(nvram get sw_mode 2>/dev/null)" || sw_mode=""
+	ADGUARD_INSTALL_MODE_DETECTION="unknown"
+	ADGUARD_INSTALL_MODE_RAW="${sw_mode}"
+	ADGUARD_INSTALL_MODE_SW_MODE="${sw_mode}"
 	case "${sw_mode}" in
 		1)
+			ADGUARD_INSTALL_MODE_DETECTION="wan"
 			ADGUARD_INSTALL_MODE="wan"
 			;;
-		*)
+		2 | 3 | 4)
 			lan_ipaddr="$(nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
 			if ! ipv4_is_usable_unicast "${lan_ipaddr}"; then
-				PTXT "${ERROR} Unable to determine router LAN IP address."
-				return 1
+				ADGUARD_INSTALL_MODE_RAW="sw_mode=${sw_mode}, lan_ipaddr=${lan_ipaddr:-unreadable}"
+				PTXT "${WARN:-WARNING:} Router install mode is unknown/unreadable (${ADGUARD_INSTALL_MODE_RAW}); retaining any persisted install mode."
+				return 0
 			fi
+			ADGUARD_INSTALL_MODE_DETECTION="lan"
 			ADGUARD_INSTALL_MODE="lan"
+			;;
+		*)
+			PTXT "${WARN:-WARNING:} Router install mode is unknown/unreadable (sw_mode=${sw_mode:-unreadable}); retaining any persisted install mode."
 			;;
 	esac
 	return 0
+}
+
+adguard_install_mode_confirmed() {
+	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
+		wan | lan) return 0 ;;
+	esac
+	return 1
 }
 
 port_is_valid() {
@@ -892,16 +905,9 @@ preflight_action_requires_firewall_tools() {
 			return 1
 			;;
 	esac
-	case "$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)" in
-		lan) return 1 ;;
-		"")
-			if adguard_install_mode_detect >/dev/null 2>&1; then
-				case "${ADGUARD_INSTALL_MODE:-}" in
-					lan) return 1 ;;
-				esac
-			fi
-			;;
-	esac
+	adguard_install_mode_detect >/dev/null 2>&1
+	adguard_install_mode_confirmed || return 1
+	[ "${ADGUARD_INSTALL_MODE}" = "lan" ] && return 1
 	return 0
 }
 
@@ -919,7 +925,7 @@ preflight_check_jffs_ready() {
 }
 
 preflight_check_router_eligibility() {
-	local arch lan_ipaddr model odmpid os result sw_mode
+	local arch model odmpid os result
 	result="OK"
 	PTXT "preflight.router.required=yes"
 	if [ -z "${ROUTER_MODEL:-}" ]; then
@@ -940,45 +946,26 @@ preflight_check_router_eligibility() {
 			arch="$(/bin/uname -m 2>/dev/null)" || arch=""
 			;;
 	esac
-	sw_mode="$(nvram get sw_mode 2>/dev/null)" || sw_mode=""
 	PTXT "preflight.router.model=${model:-missing}"
-	PTXT "preflight.router.sw_mode=${sw_mode:-missing}"
 	if [ -z "${model}" ]; then
 		PTXT "preflight.router.model.result=FAIL"
 		result="FAIL"
 	else
 		PTXT "preflight.router.model.result=OK"
 	fi
-	case "${sw_mode}" in
-		1)
-			PTXT "preflight.router.mode=wan"
+	adguard_install_mode_detect >/dev/null 2>&1
+	PTXT "preflight.router.sw_mode=${ADGUARD_INSTALL_MODE_SW_MODE:-missing}"
+	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
+		wan | lan)
+			PTXT "preflight.router.mode=${ADGUARD_INSTALL_MODE_DETECTION}"
 			PTXT "preflight.router.mode.result=OK"
 			;;
-		"")
-			lan_ipaddr="$(nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
-			if ipv4_is_usable_unicast "${lan_ipaddr}"; then
-				PTXT "preflight.router.mode=lan"
-				PTXT "preflight.router.mode.result=OK"
-				PTXT "preflight.router.mode.note=missing-sw-mode-lan-ip-fallback"
-			else
-				PTXT "preflight.router.mode=missing"
-				PTXT "preflight.router.mode.result=FAIL"
-				PTXT "preflight.router.mode.reason=missing-sw-mode-and-no-usable-lan-ip"
-				result="FAIL"
-			fi
-			;;
 		*)
-			lan_ipaddr="$(nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
-			if ipv4_is_usable_unicast "${lan_ipaddr}"; then
-				PTXT "preflight.router.mode=lan"
-				PTXT "preflight.router.mode.result=OK"
-				PTXT "preflight.router.mode.note=non-router-mode-lan-install"
-			else
-				PTXT "preflight.router.mode=lan"
-				PTXT "preflight.router.mode.result=FAIL"
-				PTXT "preflight.router.mode.reason=non-router-mode-and-no-usable-lan-ip"
-				result="FAIL"
-			fi
+			PTXT "preflight.router.mode=unknown"
+			PTXT "preflight.router.mode.value=${ADGUARD_INSTALL_MODE_RAW:-unreadable}"
+			PTXT "preflight.router.mode.result=FAIL"
+			PTXT "preflight.router.mode.reason=unknown-or-unreadable-router-mode"
+			result="FAIL"
 			;;
 	esac
 	case "${os}" in
@@ -4310,7 +4297,7 @@ backup_restore() {
 			return 1
 		fi
 		ptxt_ok "Restored AdGuardHome command symlink."
-		if ! adguard_enforce_lan_ipset_disabled; then
+		if adguard_install_mode_confirmed && ! adguard_enforce_lan_ipset_disabled; then
 			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "1"
 			adguard_install_abort_trap_disable
 			PTXT "${ERROR} Unable to disable IPSET settings for restored LAN/AP/Bridge mode configuration."
@@ -4852,6 +4839,10 @@ inst_AdGuardHome() {
 		return 1
 	fi
 	ptxt_ok "AdGuardHome service files installed."
+	if ! adguard_install_mode_confirmed; then
+		PTXT "${WARN:-WARNING:} Router mode remains unknown/unreadable (${ADGUARD_INSTALL_MODE_RAW:-unreadable}); retained ADGUARD_INSTALL_MODE=${ADGUARD_INSTALL_MODE} and deferred all mode-dependent migration."
+		return 0
+	fi
 	# Run mode-dependent YAML migration before this orchestration changes
 	# firewall state or event hooks, preserving the previous mode on failure.
 	adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE:-}"
@@ -5752,6 +5743,10 @@ rollback_pending_mode_migration() {
 adguard_migrate_detected_install_mode() {
 	local config_backup hooks_backup previous_mode yaml_file_backup yaml_ori_backup
 	previous_mode="$1"
+	if ! adguard_install_mode_confirmed; then
+		PTXT "${WARN:-WARNING:} Skipping YAML, hooks, firewall, IPSET, dnsmasq, and NVRAM mode migration until router-mode detection is confirmed (value: ${ADGUARD_INSTALL_MODE_RAW:-unreadable})."
+		return 0
+	fi
 	case "${previous_mode}:${ADGUARD_INSTALL_MODE:-}" in
 		wan:lan | lan:wan | :lan)
 			if [ -n "${previous_mode}" ]; then
@@ -6788,7 +6783,7 @@ single_arg_menu_action() {
 
 cli_action_requires_install_mode() {
 	case "${1:-}" in
-		install | update | restore) return 0 ;;
+		install | update | restore | migrate-runtime-defaults) return 0 ;;
 		*) return 1 ;;
 	esac
 }
@@ -7506,6 +7501,25 @@ case "${CLI_STATUS}" in
 		;;
 esac
 
+# Resolve the router mode before any installer preference is written.  An
+# existing install may continue in its persisted mode, but all mode migration
+# remains blocked until a later confirmed detection.
+PREVIOUS_ADGUARD_INSTALL_MODE="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
+adguard_install_mode_detect
+if ! adguard_install_mode_confirmed; then
+	case "${PREVIOUS_ADGUARD_INSTALL_MODE}" in
+		wan | lan) ADGUARD_INSTALL_MODE="${PREVIOUS_ADGUARD_INSTALL_MODE}" ;;
+		*)
+			if [ -f "${AGH_FILE}" ] || [ -d "${TARG_DIR}" ]; then
+				ADGUARD_INSTALL_MODE="${PREVIOUS_ADGUARD_INSTALL_MODE}"
+			else
+				PTXT "${ERROR} A new installation requires a confirmed WAN or LAN/AP/bridge router mode; no persistent state was modified."
+				exit 1
+			fi
+			;;
+	esac
+fi
+
 amtm_update_check "$@"
 
 installer_dependencies_available || exit 1
@@ -7563,8 +7577,6 @@ WAN_IPADDR="$(nvram get wan_ipaddr 2>/dev/null)"
 if ipv4_is_private "${WAN_IPADDR}"; then NAT_ENV="${WAN_IPADDR}"; else NAT_ENV=""; fi
 
 [ -z "${ROUTER_MODEL}" ] && PTXT "${ERROR} This is an unsupported router, sorry." && sleep 3s && exit 1
-PREVIOUS_ADGUARD_INSTALL_MODE="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
-
 if [ -z "$2" ]; then
 	printf '\e[8;50;125t'
 	printf '\033[?7l'
@@ -7629,6 +7641,10 @@ case "${1:-}" in
 	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | migrate-runtime-defaults | uninstall)
 		if cli_action_requires_install_mode "${1:-}"; then
 			adguard_install_mode_detect || exit 1
+			if ! adguard_install_mode_confirmed; then
+				PTXT "${ERROR} ${1:-Install} requires a confirmed router install mode; persisted mode ${PREVIOUS_ADGUARD_INSTALL_MODE:-unset} was retained without migration."
+				exit 1
+			fi
 		fi
 		cli_run "$@"
 		CLI_STATUS="$?"
@@ -7647,6 +7663,11 @@ esac
 case "$2" in
 	"")
 		adguard_install_mode_detect || {
+			sleep 3s
+			exit 1
+		}
+		adguard_install_mode_confirmed || {
+			PTXT "${ERROR} Interactive setup requires a confirmed router install mode; persisted mode ${PREVIOUS_ADGUARD_INSTALL_MODE:-unset} was retained without migration."
 			sleep 3s
 			exit 1
 		}
@@ -7672,6 +7693,11 @@ case "$2" in
 				;;
 			*)
 				adguard_install_mode_detect || {
+					sleep 3s
+					exit 1
+				}
+				adguard_install_mode_confirmed || {
+					PTXT "${ERROR} This setup action requires a confirmed router install mode; persisted mode ${PREVIOUS_ADGUARD_INSTALL_MODE:-unset} was retained without migration."
 					sleep 3s
 					exit 1
 				}

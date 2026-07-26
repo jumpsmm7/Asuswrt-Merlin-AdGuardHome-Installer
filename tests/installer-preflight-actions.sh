@@ -24,7 +24,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 {
-	sed -n '/^ipv4_is_valid() {$/,/^ipv4_is_private() {$/p' "${SCRIPT_PATH}" | sed '$d'
+	sed -n '/^ipv4_is_valid() {$/,/^port_is_valid() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^preflight_action_requires_entware() {$/,/^preflight_check_path() {$/p' "${SCRIPT_PATH}" | sed '$d'
 } >"${FUNCTIONS_FILE}" || fail 'could not extract preflight action helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'preflight action helper extraction was empty'
@@ -58,12 +58,10 @@ grep -q 'preflight_action_requires_cru "${action}"' "${SCRIPT_PATH}" ||
 	fail 'preflight must gate cru checks by action'
 grep -q 'preflight_action_requires_firewall_tools "${action}"' "${SCRIPT_PATH}" ||
 	fail 'preflight must gate firewall checks by action'
-grep -q 'case "$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)" in' "${SCRIPT_PATH}" ||
-	fail 'preflight firewall checks must read persisted install mode'
-grep -q 'lan) return 1 ;;' "${SCRIPT_PATH}" ||
-	fail 'preflight firewall checks must skip LAN install mode'
 grep -q 'adguard_install_mode_detect >/dev/null 2>&1' "${SCRIPT_PATH}" ||
-	fail 'preflight firewall checks must fall back to detected install mode'
+	fail 'preflight firewall checks must use shared install mode detection'
+grep -q 'adguard_install_mode_confirmed || return 1' "${SCRIPT_PATH}" ||
+	fail 'preflight firewall checks must skip mode-dependent checks when detection is unknown'
 grep -q 'preflight_check_jffs_ready || failed="1"' "${SCRIPT_PATH}" ||
 	fail 'preflight must check pending JFFS format for install/reconfigure flows'
 grep -q 'nvram get jffs2_format' "${SCRIPT_PATH}" ||
@@ -157,11 +155,20 @@ conf_value() {
 }
 adguard_install_mode_detect() {
 	case '${detected_mode}' in
-		missing) return 1 ;;
-		*) ADGUARD_INSTALL_MODE='${detected_mode}' ;;
+		missing) ADGUARD_INSTALL_MODE_DETECTION=unknown ;;
+		*) ADGUARD_INSTALL_MODE_DETECTION='${detected_mode}'; ADGUARD_INSTALL_MODE='${detected_mode}' ;;
 	esac
 }
 . "${FUNCTIONS_FILE}"
+adguard_install_mode_detect() {
+	case '${detected_mode}' in
+		missing) ADGUARD_INSTALL_MODE_DETECTION=unknown ;;
+		*) ADGUARD_INSTALL_MODE_DETECTION='${detected_mode}'; ADGUARD_INSTALL_MODE='${detected_mode}' ;;
+	esac
+}
+adguard_install_mode_confirmed() {
+	[ "\${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" != unknown ]
+}
 preflight_action_requires_downloader() { return 1; }
 preflight_action_requires_service_tools() { return 1; }
 preflight_action_requires_cru() { return 1; }
@@ -201,8 +208,8 @@ EOF
 }
 
 for action in install update restore; do
-	run_preflight_firewall_mode_case "persisted-wan-${action}" "${action}" wan lan required
-	run_preflight_firewall_mode_case "persisted-lan-${action}" "${action}" lan wan skipped
+	run_preflight_firewall_mode_case "persisted-wan-detected-lan-${action}" "${action}" wan lan skipped
+	run_preflight_firewall_mode_case "persisted-lan-detected-wan-${action}" "${action}" lan wan required
 	run_preflight_firewall_mode_case "detected-wan-${action}" "${action}" missing wan required
 	run_preflight_firewall_mode_case "detected-lan-${action}" "${action}" missing lan skipped
 done
@@ -246,32 +253,31 @@ run_router_mode_case wan 1 '' 0 \
 	'preflight.router.mode.result=OK'
 run_router_mode_case lan 2 192.168.50.1 0 \
 	'preflight.router.mode=lan' \
-	'preflight.router.mode.result=OK' \
-	'preflight.router.mode.note=non-router-mode-lan-install'
+	'preflight.router.mode.result=OK'
 run_router_mode_case lan-invalid-ip 2 999.168.50.1 1 \
-	'preflight.router.mode=lan' \
+	'preflight.router.mode=unknown' \
 	'preflight.router.mode.result=FAIL' \
-	'preflight.router.mode.reason=non-router-mode-and-no-usable-lan-ip'
+	'preflight.router.mode.reason=unknown-or-unreadable-router-mode'
 run_router_mode_case lan-wildcard-ip 2 0.0.0.0 1 \
-	'preflight.router.mode=lan' \
+	'preflight.router.mode=unknown' \
 	'preflight.router.mode.result=FAIL' \
-	'preflight.router.mode.reason=non-router-mode-and-no-usable-lan-ip'
+	'preflight.router.mode.reason=unknown-or-unreadable-router-mode'
 run_router_mode_case missing-loopback-ip '' 127.0.0.1 1 \
-	'preflight.router.mode=missing' \
+	'preflight.router.mode=unknown' \
 	'preflight.router.mode.result=FAIL' \
-	'preflight.router.mode.reason=missing-sw-mode-and-no-usable-lan-ip'
-run_router_mode_case missing-lan-ip '' 192.168.50.1 0 \
-	'preflight.router.mode=lan' \
-	'preflight.router.mode.result=OK' \
-	'preflight.router.mode.note=missing-sw-mode-lan-ip-fallback'
+	'preflight.router.mode.reason=unknown-or-unreadable-router-mode'
+run_router_mode_case missing-lan-ip '' 192.168.50.1 1 \
+	'preflight.router.mode=unknown' \
+	'preflight.router.mode.result=FAIL' \
+	'preflight.router.mode.reason=unknown-or-unreadable-router-mode'
 run_router_mode_case missing-no-lan-ip '' '' 1 \
-	'preflight.router.mode=missing' \
+	'preflight.router.mode=unknown' \
 	'preflight.router.mode.result=FAIL' \
-	'preflight.router.mode.reason=missing-sw-mode-and-no-usable-lan-ip'
+	'preflight.router.mode.reason=unknown-or-unreadable-router-mode'
 run_router_mode_case lan-no-lan-ip 2 '' 1 \
-	'preflight.router.mode=lan' \
+	'preflight.router.mode=unknown' \
 	'preflight.router.mode.result=FAIL' \
-	'preflight.router.mode.reason=non-router-mode-and-no-usable-lan-ip'
+	'preflight.router.mode.reason=unknown-or-unreadable-router-mode'
 
 (
 	# shellcheck disable=SC1090
@@ -418,12 +424,12 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 	# adguard_install_mode_detect sets `ADGUARD_INSTALL_MODE` from `DETECTED_MODE` and fails when no mode is available.
 	adguard_install_mode_detect() {
 		case "${DETECTED_MODE:-missing}" in
-			missing) return 1 ;;
-			*) ADGUARD_INSTALL_MODE="${DETECTED_MODE}" ;;
+			missing) ADGUARD_INSTALL_MODE_DETECTION=unknown ;;
+			*) ADGUARD_INSTALL_MODE_DETECTION="${DETECTED_MODE}"; ADGUARD_INSTALL_MODE="${DETECTED_MODE}" ;;
 		esac
 	}
-	CONF_MODE=wan DETECTED_MODE=lan assert_firewall_required install update restore
-	CONF_MODE=lan DETECTED_MODE=wan assert_firewall_skipped install update restore
+	CONF_MODE=wan DETECTED_MODE=lan assert_firewall_skipped install update restore
+	CONF_MODE=lan DETECTED_MODE=wan assert_firewall_required install update restore
 	CONF_MODE=missing DETECTED_MODE=lan assert_firewall_skipped install update restore
 	CONF_MODE=missing DETECTED_MODE=wan assert_firewall_required install update restore
 
@@ -464,6 +470,7 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 		done
 	}
 
+	DETECTED_MODE=wan
 	assert_base_tools_required '' install update reconfigure restore uninstall ipset backup doctor netcheck dns-port-policy performance migrate-runtime-defaults
 	assert_base_tools_skipped status preflight
 	assert_entware_required '' install update reconfigure restore uninstall ipset backup doctor netcheck dns-port-policy performance migrate-runtime-defaults

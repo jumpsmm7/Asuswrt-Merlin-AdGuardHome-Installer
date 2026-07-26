@@ -26,6 +26,8 @@ sed -n '/^adguard_restart_after_install_abort() {$/,/^}/p' "${SCRIPT_PATH}" >"${
 	fail 'could not extract restart helper'
 sed -n '/^adguard_migrate_detected_install_mode() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
 	fail 'could not extract install-mode migration helper'
+sed -n '/^adguard_install_mode_confirmed() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract confirmed install-mode helper'
 sed -n '/^finalize_pending_mode_migration() {$/,/^}/p; /^rollback_pending_mode_migration() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
 	fail 'could not extract pending mode-migration helpers'
 sed -n '/^install_wan_event_scripts() {$/,/^set_timezone() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer functions'
@@ -44,6 +46,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 
 	ADGUARD_ARCH='test'
 	ADGUARD_INSTALL_MODE='wan'
+	ADGUARD_INSTALL_MODE_DETECTION='wan'
 	ADDON_DIR="${TMP_ROOT}/addon"
 	AGH_FILE="${TMP_ROOT}/target/AdGuardHome"
 	BASE_DIR="${TMP_ROOT}/base"
