@@ -2947,7 +2947,7 @@ check_connection() {
 ########################################################################################################################
 
 check_dns_environment() {
-	local deadline lookup_pid maxwait mode now status
+	local changed deadline lookup_pid maxwait mode now status
 	ptxt_phase "Preparing DNS environment."
 	if [ -f "/opt/etc/init.d/S61stubby" ] || [ -f "/opt/sbin/stubby" ] || [ -f "/opt/bin/install_stubby" ] || [ -f "/jffs/scripts/install_stubby.sh" ] || [ -d "/jffs/dnscrypt" ] || [ -f "/opt/etc/init.d/S09dnscrypt-proxy" ]; then
 		PTXT "${ERROR} Potential stubby or dnscrypt-proxy installation detected." \
@@ -2999,11 +2999,12 @@ check_dns_environment() {
 			nvram_transaction_set dhcpd_dns_router "1" || return 1
 			nvram_transaction_set dhcp_dns1_x "" || return 1
 			nvram_transaction_set dhcp_dns2_x "" || return 1
+			changed="${NVRAM_TRANSACTION_CHANGED:-0}"
 			if ! nvram_transaction_apply restart_dnsmasq 1; then
 				PTXT "${ERROR} Unable to apply the DNS NVRAM transaction."
 				return 1
 			fi
-			if [ "${NVRAM_TRANSACTION_CHANGED:-0}" != "0" ] && ! dns_env_local_ready "${DNS_ENV_READY_TIMEOUT}"; then
+			if [ "${changed}" != "0" ] && ! dns_env_local_ready "${DNS_ENV_READY_TIMEOUT}"; then
 				PTXT "${ERROR} DNS readiness did not recover after applying NVRAM changes."
 				if nvram_transaction_restore restart_dnsmasq 1 && dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
 					rm -rf "${NVRAM_TRANSACTION_DIR}"
@@ -3038,7 +3039,7 @@ check_dns_environment() {
 }
 
 check_dns_filter() {
-	local key mode use_some yesno_status
+	local changed key mode use_some yesno_status
 	mode="$1"
 	if [ "${mode}" -eq 1 ]; then
 		PTXT "${INFO} You can choose to keep any custom dnsfilter values by only redirect non-custom traffic or send all traffic through to AdGuardHome."
@@ -3076,11 +3077,12 @@ check_dns_filter() {
 			;;
 		*) return 1 ;;
 	esac
+	changed="${NVRAM_TRANSACTION_CHANGED:-0}"
 	if ! nvram_transaction_apply "restart_firewall;restart_dnsmasq" 1; then
 		PTXT "${ERROR} Unable to apply the DNSFilter NVRAM transaction."
 		return 1
 	fi
-	if [ "${NVRAM_TRANSACTION_CHANGED:-0}" != "0" ] && ! check_connection 300; then
+	if [ "${changed}" != "0" ] && ! check_connection 300; then
 		PTXT "${WARNING} Timed out waiting for DNS connectivity; restoring DNSFilter settings."
 		if nvram_transaction_restore "restart_firewall;restart_dnsmasq" 1 && check_connection 300; then
 			rm -rf "${NVRAM_TRANSACTION_DIR}"
