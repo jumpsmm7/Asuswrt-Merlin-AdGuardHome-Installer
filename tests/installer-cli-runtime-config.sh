@@ -47,6 +47,7 @@ adguard_install_mode_confirmed() {
 
 # adguard_install_mode_detect detects the AdGuard installation mode successfully.
 adguard_install_mode_detect() {
+	ADGUARD_INSTALL_MODE="${ADGUARD_INSTALL_MODE_DETECTION}"
 	return 0
 }
 

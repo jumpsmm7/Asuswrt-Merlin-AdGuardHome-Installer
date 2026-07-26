@@ -44,8 +44,8 @@ install_line="$(grep -n '^[[:space:]]*install)$' "${SCRIPT_PATH}" | tail -n 1 | 
 cleanup_line="$((install_line + cleanup_line - 1))"
 [ "${consent_line}" -lt "${cleanup_line}" ] ||
 	fail 'CLI install must require WAN DNS/NVRAM consent before cleanup changes router state'
-grep -q 'install_mode="$(conf_value ADGUARD_INSTALL_MODE)"' "${SCRIPT_PATH}" ||
-	fail 'runtime migration preview must read persisted install mode'
+grep -q 'install_mode="${ADGUARD_INSTALL_MODE}"' "${SCRIPT_PATH}" ||
+	fail 'runtime migration must use the confirmed detected install mode'
 grep -q '^[[:space:]]*check_dns_environment 0 || return 1$' "${SCRIPT_PATH}" ||
 	fail 'CLI installer must propagate WAN DNS environment preparation failures'
 grep -q '^[[:space:]]*check_dns_environment 0 || exit 1$' "${SCRIPT_PATH}" ||
@@ -91,6 +91,7 @@ adguard_install_mode_confirmed() {
 
 # adguard_install_mode_detect determines the installation mode and succeeds.
 adguard_install_mode_detect() {
+	ADGUARD_INSTALL_MODE="${ADGUARD_INSTALL_MODE_DETECTION}"
 	return 0
 }
 
@@ -164,7 +165,6 @@ ADGUARD_PROC_PROFILE="balanced"
 EOF_CONF
 : >"${WRITES_FILE}"
 : >"${LOG_FILE}"
-unset ADGUARD_INSTALL_MODE
 ADGUARD_INSTALL_MODE_DETECTION='lan'
 cli_migrate_runtime_defaults --dry-run || fail 'dry-run persisted LAN: migration preview failed'
 grep -q 'ADGUARD_NETCHECK_MODE="legacy"; v2.6.0 safer value is "lan"' "${LOG_FILE}" ||

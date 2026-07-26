@@ -58,7 +58,10 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	ERROR='Error:'
 
 	# adguard_install_mode_detect determines the installation mode and succeeds when detection completes.
-	adguard_install_mode_detect() { return 0; }
+	adguard_install_mode_detect() {
+		ADGUARD_INSTALL_MODE="${ADGUARD_INSTALL_MODE_DETECTION}"
+		return 0
+	}
 	# adguard_install_abort_trap_disable_preserve_defer is a no-op stub for installation-abort trap handling.
 	adguard_install_abort_trap_disable_preserve_defer() { :; }
 	# adguard_remote_archive returns the remote archive filename for the test installer.

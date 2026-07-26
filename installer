@@ -7102,8 +7102,7 @@ cli_migrate_runtime_defaults() {
 	netcheck_change="0"
 	proc_optimize_change="0"
 	proc_profile_change="0"
-	install_mode="$(conf_value ADGUARD_INSTALL_MODE)"
-	[ -n "${install_mode}" ] || install_mode="${ADGUARD_INSTALL_MODE:-wan}"
+	install_mode="${ADGUARD_INSTALL_MODE}"
 	case "${install_mode}" in
 		lan)
 			netcheck_target="lan"
