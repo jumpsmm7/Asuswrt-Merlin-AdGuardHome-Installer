@@ -14,6 +14,7 @@ FUNCTIONS_FILE="${TEST_ROOT}/installer-doctor-functions"
 BIN_DIR="${TEST_ROOT}/bin"
 LOG_FILE="${TEST_ROOT}/commands.log"
 ACTIVE_MARKER="${TEST_ROOT}/AdGuardHome.dnsmasq.handoff"
+DANGLING_MARKER="${TEST_ROOT}/AdGuardHome.dnsmasq.lock"
 mkdir -p "${TEST_ROOT}" "${BIN_DIR}" || fail 'could not create test directory'
 cleanup() {
 	/bin/rm -rf "${TEST_ROOT}"
@@ -25,6 +26,8 @@ sed -n \
 	"${INSTALLER_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${INSTALLER_PATH}"
 sed "s#/tmp/AdGuardHome\.dnsmasq\.handoff#${ACTIVE_MARKER}#g" "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" || fail 'could not isolate active marker path'
 /bin/mv "${FUNCTIONS_FILE}.tmp" "${FUNCTIONS_FILE}" || fail 'could not update isolated fixture'
+sed "s#/tmp/AdGuardHome\.dnsmasq\.lock#${DANGLING_MARKER}#g" "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" || fail 'could not isolate dangling marker path'
+/bin/mv "${FUNCTIONS_FILE}.tmp" "${FUNCTIONS_FILE}" || fail 'could not update dangling marker fixture'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'doctor functions were not found'
 grep -q '^doctor() {$' "${FUNCTIONS_FILE}" || fail 'installer has no doctor command helper'
 
@@ -65,6 +68,7 @@ done
 
 : >"${LOG_FILE}" || fail 'could not create command log'
 printf '%s\n' "$$" >"${ACTIVE_MARKER}" || fail 'could not create active marker'
+ln -s "${TEST_ROOT}/missing-marker-target" "${DANGLING_MARKER}" || fail 'could not create dangling marker'
 
 PATH="${BIN_DIR}:/bin:/usr/bin" LOG_FILE="${LOG_FILE}" . "${FUNCTIONS_FILE}"
 
@@ -118,6 +122,7 @@ printf '%s\n' "${DOCTOR_OUTPUT}" | grep -q '^\[WARN\].*DNS port 53 TCP and UDP a
 printf '%s\n' "${DOCTOR_OUTPUT}" | grep -q '^\[WARN\].*WebUI port 3000 not owned by AdGuardHome.*Next:' || fail 'WebUI warning did not include next step'
 printf '%s\n' "${DOCTOR_OUTPUT}" | grep -q '^\[WARN\].*nvram dnsfilter_enable_x=unsafe-test-value; DNSFilter may redirect client DNS.*Next:' || fail 'NVRAM warning did not include next step'
 printf '%s\n' "${DOCTOR_OUTPUT}" | grep -q '^\[FAIL\].*/opt/sbin/AdGuardHome target is .*Next:' || fail 'symlink failure did not include next step'
+printf '%s\n' "${DOCTOR_OUTPUT}" | grep -q "^\[WARN\].*dnsmasq handoff marker/lock exists: ${DANGLING_MARKER}.*Next:" || fail 'dangling handoff marker was not reported with its path'
 printf '%s\n' "${DOCTOR_OUTPUT}" | awk '/^\[(WARN|FAIL)\]/ && $0 !~ /\| Next:/ { missing = 1 } END { exit missing ? 0 : 1 }' && fail 'a WARN or FAIL line did not include a next step'
 
 grep -q '^nvram get ' "${LOG_FILE}" || fail 'NVRAM values were not inspected'

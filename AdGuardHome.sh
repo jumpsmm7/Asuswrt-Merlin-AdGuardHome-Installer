@@ -216,7 +216,7 @@ status_dnsmasq_handoff_state() {
 	state="inactive"
 	markers=""
 	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock "${DNS_HANDOFF_FILE}" "${DNS_HANDOFF_DIR}/lock"; do
-		if [ -e "${marker}" ]; then
+		if [ -e "${marker}" ] || [ -L "${marker}" ]; then
 			state="active/stale marker present"
 			markers="${markers}${markers:+, }${marker}"
 		fi
