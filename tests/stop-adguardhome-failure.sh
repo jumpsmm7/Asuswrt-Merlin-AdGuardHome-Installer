@@ -189,18 +189,24 @@ stop_adguardhome || fail "unmanaged LAN stop incorrectly required dnsmasq or Int
 ! grep -q '^netcheck$' "${CALLS_FILE}" || fail "unmanaged LAN stop performed an Internet connectivity check"
 
 # Every managed, unmanaged, and restart-skipped pathway requires every configured
-# installer handoff marker to be cleared.
+# installer handoff marker, including a dangling symlink, to be cleared.
 for marker in "${DNS_HANDOFF_FILE}" "${DNS_HANDOFF_DIR}/lock"; do
-	for pathway in managed unmanaged restart-skipped; do
-		reset_case
-		case "${pathway}" in
-			unmanaged) DNSMASQ_MANAGED="0" ;;
-			restart-skipped) ADGUARDHOME_SKIP_DNSMASQ_RESTART="1" ;;
-		esac
-		mkdir -p "${DNS_HANDOFF_DIR}" && : >"${marker}"
-		if stop_adguardhome; then fail "${pathway} stop ignored stale marker ${marker}"; fi
-		grep -q 'reason=installer_marker_remains' "${CALLS_FILE}" ||
-			fail "${pathway} stale marker ${marker} was not logged"
+	for marker_type in file dangling-symlink; do
+		for pathway in managed unmanaged restart-skipped; do
+			reset_case
+			case "${pathway}" in
+				unmanaged) DNSMASQ_MANAGED="0" ;;
+				restart-skipped) ADGUARDHOME_SKIP_DNSMASQ_RESTART="1" ;;
+			esac
+			mkdir -p "${DNS_HANDOFF_DIR}"
+			case "${marker_type}" in
+				file) : >"${marker}" ;;
+				dangling-symlink) ln -s "${TEST_ROOT}/missing-handoff-target" "${marker}" ;;
+			esac
+			if stop_adguardhome; then fail "${pathway} stop ignored stale ${marker_type} ${marker}"; fi
+			grep -q 'reason=installer_marker_remains' "${CALLS_FILE}" ||
+				fail "${pathway} stale ${marker_type} ${marker} was not logged"
+		done
 	done
 done
 

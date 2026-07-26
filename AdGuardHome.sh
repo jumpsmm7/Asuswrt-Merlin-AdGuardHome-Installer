@@ -1819,7 +1819,7 @@ post_stop_process_ready() {
 post_stop_handoff_cleared() {
 	local marker
 	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock "${DNS_HANDOFF_FILE}" "${DNS_HANDOFF_DIR}/lock"; do
-		[ ! -e "${marker}" ] || return 1
+		[ ! -e "${marker}" ] && [ ! -L "${marker}" ] || return 1
 	done
 	return 0
 }
