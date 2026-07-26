@@ -425,7 +425,10 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 	adguard_install_mode_detect() {
 		case "${DETECTED_MODE:-missing}" in
 			missing) ADGUARD_INSTALL_MODE_DETECTION=unknown ;;
-			*) ADGUARD_INSTALL_MODE_DETECTION="${DETECTED_MODE}"; ADGUARD_INSTALL_MODE="${DETECTED_MODE}" ;;
+			*)
+				ADGUARD_INSTALL_MODE_DETECTION="${DETECTED_MODE}"
+				ADGUARD_INSTALL_MODE="${DETECTED_MODE}"
+				;;
 		esac
 	}
 	CONF_MODE=wan DETECTED_MODE=lan assert_firewall_skipped install update restore
