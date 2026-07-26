@@ -26,6 +26,7 @@ INFO='Info:'
 ERROR='Error:'
 WARNING='Warning:'
 TMP_ROOT="${TMPDIR:-/tmp}/installer-ipset-setup-save-failure.$$"
+BASE_DIR="${TMP_ROOT}/base"
 TARG_DIR="${TMP_ROOT}/target"
 AGH_FILE="${TARG_DIR}/AdGuardHome"
 YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
@@ -53,6 +54,8 @@ nvram() {
 }
 check_dns_filter() { :; }
 save_dns_filter_settings() { mkdir -p "$1"; }
+installer_lan_domain_set() { nvram set "lan_domain=$1"; }
+installer_lan_domain_restore() { :; }
 restore_dns_filter_settings() { rm -rf "$1"; }
 check_dns_local() { :; }
 check_ipset() { return 1; }

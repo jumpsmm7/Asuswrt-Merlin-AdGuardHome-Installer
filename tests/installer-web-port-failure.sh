@@ -40,6 +40,7 @@ INFO='Info:'
 ERROR='Error:'
 WARNING='Warning:'
 TMP_ROOT="${TMPDIR:-/tmp}/installer-web-port-failure.$$"
+BASE_DIR="${TMP_ROOT}/base"
 TARG_DIR="${TMP_ROOT}/target"
 AGH_FILE="${TARG_DIR}/AdGuardHome"
 YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
@@ -99,6 +100,8 @@ DNS_FILTER_RESTORES=0
 save_dns_filter_settings() {
 	mkdir -p "$1"
 }
+installer_lan_domain_set() { nvram set "lan_domain=$1"; }
+installer_lan_domain_restore() { :; }
 restore_dns_filter_settings() {
 	DNS_FILTER_RESTORES="$((DNS_FILTER_RESTORES + 1))"
 	DNS_FILTER_CHANGED=0

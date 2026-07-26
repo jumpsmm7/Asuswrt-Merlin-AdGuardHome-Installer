@@ -28,6 +28,7 @@ INFO='Info:'
 ERROR='Error:'
 WARNING='Warning:'
 TMP_ROOT="${TMPDIR:-/tmp}/installer-dns-input-failure.$$"
+BASE_DIR="${TMP_ROOT}/base"
 ROLLBACK_RESULT_FILE="${TMP_ROOT}/.rollback_result"
 TARG_DIR="${TMP_ROOT}/target"
 AGH_FILE="${TARG_DIR}/AdGuardHome"
@@ -74,6 +75,8 @@ check_dns_filter() {
 save_dns_filter_settings() {
 	mkdir -p "$1"
 }
+installer_lan_domain_set() { nvram set "lan_domain=$1"; }
+installer_lan_domain_restore() { :; }
 restore_dns_filter_settings() {
 	rm -rf "$1"
 }

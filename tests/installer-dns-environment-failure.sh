@@ -18,14 +18,17 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test workspace'
 
-sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" || fail 'could not extract DNS environment helper'
-sed -n '/^save_dns_nvram_environment() {$/,/^}$/p' "${INSTALLER_PATH}" >>"${FUNCTIONS_FILE}" || fail 'could not extract NVRAM snapshot helper'
+sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" || fail 'could not extract NVRAM transaction helpers'
+sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNS environment helper'
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 
 INFO='Info:'
 ERROR='Error:'
 WARNING='Warning:'
+BASE_DIR="${TEST_ROOT}/base"
+ROLLBACK_RESULT_FILE="${BASE_DIR}/rollback-result"
+mkdir -p "${BASE_DIR}" || fail 'could not create installer-managed test directory'
 DNS_ENV_READY_TIMEOUT=2
 DNS_ENV_RECOVERY_TIMEOUT=1
 MONOTONIC_NOW=0
@@ -41,6 +44,7 @@ check_connection() {
 	PUBLIC_CHECK_COUNT="$((PUBLIC_CHECK_COUNT + 1))"
 	[ "${PUBLIC_NETWORK_AVAILABLE:-0}" = 1 ]
 }
+rollback_result_write() { printf '%s\n' "rollback $*" >>"${CALLS_FILE}"; }
 
 nvram_value() {
 	awk -v key="$1" 'index($0, key "=") == 1 { print substr($0, length(key) + 2); found=1 } END { exit(found ? 0 : 1) }' "${NVRAM_FILE}"
@@ -97,6 +101,7 @@ nslookup() {
 dns_check_count() { grep -c '^nslookup ' "${CALLS_FILE}"; }
 
 reset_case() {
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
 	cat >"${NVRAM_FILE}" <<'EOF_NVRAM'
 dnspriv_enable=1
 dhcpd_dns_router=0
@@ -161,12 +166,13 @@ reset_case
 FAIL_SET_AT=2
 check_dns_environment 0 && fail 'NVRAM set failure was accepted'
 assert_original 'set failure'
-grep -q 'rollback was complete' "${CALLS_FILE}" || fail 'set failure rollback result was not reported'
+[ ! -d "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'completed set-failure rollback retained its snapshot'
 
 reset_case
 FAIL_ALL_SETS=1
 check_dns_environment 0 && fail 'complete NVRAM set failure was accepted'
-grep -q 'rollback was failed' "${CALLS_FILE}" || fail 'rollback with no successful restoration was not reported as failed'
+grep -q 'rollback NVRAM transaction rollback partial' "${CALLS_FILE}" || fail 'incomplete set-failure rollback did not preserve evidence'
+[ -d "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'incomplete set-failure rollback removed its snapshot'
 
 reset_case
 FAIL_COMMIT_AT=1
@@ -184,7 +190,7 @@ reset_case
 DNS_READY=0
 check_dns_environment 0 && fail 'local DNS readiness failure was accepted'
 assert_original 'DNS readiness failure'
-[ "$(dns_check_count)" = 2 ] || fail 'local DNS and recovery checks were not bounded by their configured deadlines'
+[ "$(dns_check_count)" = 3 ] || fail 'local DNS and recovery checks were not bounded by their configured deadlines'
 
 reset_case
 DNS_READY=0
@@ -196,13 +202,13 @@ reset_case
 FAIL_COMMIT_AT=2
 DNS_READY=0
 check_dns_environment 0 && fail 'rollback commit failure was accepted'
-grep -q 'rollback was partial' "${CALLS_FILE}" || fail 'rollback commit failure was not reported as partial'
+grep -q 'rollback partial' "${CALLS_FILE}" || fail 'rollback commit failure was not reported as partial'
 
 reset_case
 FAIL_SERVICE_AT=2
 DNS_READY=0
 check_dns_environment 0 && fail 'rollback service restart failure was accepted'
-grep -q 'rollback was partial' "${CALLS_FILE}" || fail 'rollback service failure was not reported as partial'
+grep -q 'rollback partial' "${CALLS_FILE}" || fail 'rollback service failure was not reported as partial'
 
 reset_case
 check_dns_environment 0 || fail 'DNS preparation for partial exit restoration failed'
@@ -226,7 +232,8 @@ grep -q 'check_dns_environment 0 || exit 1' "${INSTALLER_PATH}" || fail 'interac
 reset_case
 (
 	trap 'check_dns_environment 1 >/dev/null 2>&1 || :; exit 0' TERM
-	save_dns_nvram_environment || exit 1
+	nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || exit 1
+	: >"${NVRAM_TRANSACTION_DIR}/dirty"
 	nvram set dnspriv_enable=0 || exit 1
 	: >"${TEST_ROOT}/signal-ready"
 	while :; do :; done

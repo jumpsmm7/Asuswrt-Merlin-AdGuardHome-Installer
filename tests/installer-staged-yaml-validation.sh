@@ -23,6 +23,7 @@ INFO='Info:'
 ERROR='Error:'
 WARNING='Warning:'
 TMP_ROOT="${TMPDIR:-/tmp}/installer-staged-yaml-validation.$$"
+BASE_DIR="${TMP_ROOT}/base"
 TARG_DIR="${TMP_ROOT}/target"
 AGH_FILE="${TARG_DIR}/AdGuardHome"
 YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
@@ -79,6 +80,8 @@ write_conf() {
 # save_dns_filter_settings creates the directory used to store DNS filter settings.
 save_dns_filter_settings() { mkdir -p "$1"; }
 # restore_dns_filter_settings removes the DNS filter settings directory at the specified path.
+installer_lan_domain_set() { nvram set "lan_domain=$1"; }
+installer_lan_domain_restore() { :; }
 restore_dns_filter_settings() { rm -rf "$1"; }
 check_dns_filter() { :; }
 check_dns_local() { :; }

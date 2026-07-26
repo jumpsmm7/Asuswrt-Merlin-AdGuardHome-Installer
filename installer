@@ -69,6 +69,156 @@ ai_have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
 
+# Installer-managed NVRAM transactions.  Each key is read once into a private
+# snapshot before any write is attempted.  Snapshot files are deliberately
+# simple because NVRAM values used by this installer do not contain newlines.
+nvram_transaction_begin() {
+	local name key snapshot_dir temp_dir
+	name="$1"
+	shift
+	case "${name}" in
+		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-]*) return 1 ;;
+	esac
+	snapshot_dir="${BASE_DIR}/.AdGuardHome.nvram/${name}"
+	temp_dir="${snapshot_dir}.tmp.$$"
+	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram" ] || return 1
+	[ ! -e "${snapshot_dir}" ] && [ ! -L "${snapshot_dir}" ] || return 1
+	rm -rf "${temp_dir}" || return 1
+	mkdir -p "${temp_dir}" || return 1
+	chmod 700 "${BASE_DIR}/.AdGuardHome.nvram" "${temp_dir}" 2>/dev/null || {
+		rm -rf "${temp_dir}"
+		return 1
+	}
+	: >"${temp_dir}/keys" || return 1
+	chmod 600 "${temp_dir}/keys" || return 1
+	if ! nvram show >"${temp_dir}/inventory" 2>/dev/null; then
+		rm -rf "${temp_dir}"
+		return 1
+	fi
+	chmod 600 "${temp_dir}/inventory" || { rm -rf "${temp_dir}"; return 1; }
+	for key in "$@"; do
+		case "${key}" in
+			"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]*) rm -rf "${temp_dir}"; return 1 ;;
+		esac
+		if ! nvram get "${key}" >"${temp_dir}/${key}" 2>/dev/null; then
+			rm -rf "${temp_dir}"
+			return 1
+		fi
+		chmod 600 "${temp_dir}/${key}" || { rm -rf "${temp_dir}"; return 1; }
+		if grep -q "^${key}=" "${temp_dir}/inventory"; then
+			: >"${temp_dir}/exists.${key}" || { rm -rf "${temp_dir}"; return 1; }
+			chmod 600 "${temp_dir}/exists.${key}" || { rm -rf "${temp_dir}"; return 1; }
+		fi
+		printf '%s\n' "${key}" >>"${temp_dir}/keys" || { rm -rf "${temp_dir}"; return 1; }
+	done
+	rm -f "${temp_dir}/inventory" || { rm -rf "${temp_dir}"; return 1; }
+	rm -rf "${snapshot_dir}" || { rm -rf "${temp_dir}"; return 1; }
+	mv "${temp_dir}" "${snapshot_dir}" || { rm -rf "${temp_dir}"; return 1; }
+	NVRAM_TRANSACTION_DIR="${snapshot_dir}"
+	NVRAM_TRANSACTION_CHANGED="0"
+	export NVRAM_TRANSACTION_DIR NVRAM_TRANSACTION_CHANGED
+}
+
+nvram_transaction_set() {
+	local key old value_file
+	key="$1"
+	value_file="${NVRAM_TRANSACTION_DIR:-}/new.${key}"
+	[ -f "${NVRAM_TRANSACTION_DIR:-}/${key}" ] || return 1
+	old="$(cat "${NVRAM_TRANSACTION_DIR}/${key}")" || return 1
+	[ "${old}" = "$2" ] && return 0
+	printf '%s' "$2" >"${value_file}" || return 1
+	chmod 600 "${value_file}" || return 1
+	NVRAM_TRANSACTION_CHANGED="1"
+	export NVRAM_TRANSACTION_CHANGED
+}
+
+nvram_transaction_restore() {
+	local failed keep_snapshot key old service_action snapshot_dir
+	snapshot_dir="${NVRAM_TRANSACTION_DIR:-}"
+	service_action="$1"
+	keep_snapshot="${2:-0}"
+	failed="0"
+	[ -f "${snapshot_dir}/keys" ] || return 1
+	if [ ! -f "${snapshot_dir}/dirty" ]; then
+		rm -rf "${snapshot_dir}"
+		return 0
+	fi
+	while IFS= read -r key; do
+		old="$(cat "${snapshot_dir}/${key}")" || { failed="1"; continue; }
+		if [ -f "${snapshot_dir}/exists.${key}" ]; then
+			nvram set "${key}=${old}" || failed="1"
+		else
+			nvram unset "${key}" || failed="1"
+		fi
+	done <"${snapshot_dir}/keys"
+	nvram commit || failed="1"
+	if [ "${service_action}" != "-" ]; then
+		service "${service_action}" >/dev/null 2>&1 || failed="1"
+	fi
+	if [ "${failed}" = "0" ]; then
+		[ "${keep_snapshot}" = "1" ] || rm -rf "${snapshot_dir}"
+		return 0
+	fi
+	rollback_result_write "NVRAM transaction" "rollback partial" "snapshot preserved at ${snapshot_dir}"
+	return 1
+}
+
+nvram_transaction_apply() {
+	local keep_snapshot key new service_action snapshot_dir
+	service_action="$1"
+	keep_snapshot="${2:-0}"
+	snapshot_dir="${NVRAM_TRANSACTION_DIR:-}"
+	[ -f "${snapshot_dir}/keys" ] || return 1
+	if [ "${NVRAM_TRANSACTION_CHANGED:-0}" = "0" ]; then
+		[ "${keep_snapshot}" = "1" ] || rm -rf "${snapshot_dir}"
+		return 0
+	fi
+	: >"${snapshot_dir}/dirty" || return 1
+	chmod 600 "${snapshot_dir}/dirty" || return 1
+	while IFS= read -r key; do
+		[ -f "${snapshot_dir}/new.${key}" ] || continue
+		new="$(cat "${snapshot_dir}/new.${key}")" || {
+			nvram_transaction_restore "${service_action}" || true
+			return 1
+		}
+		if ! nvram set "${key}=${new}"; then
+			nvram_transaction_restore "${service_action}" || true
+			return 1
+		fi
+	done <"${snapshot_dir}/keys"
+	if ! nvram commit; then
+		nvram_transaction_restore "${service_action}" || true
+		return 1
+	fi
+	if [ "${service_action}" != "-" ] && ! service "${service_action}" >/dev/null 2>&1; then
+		nvram_transaction_restore "${service_action}" || true
+		return 1
+	fi
+	if [ "${keep_snapshot}" = "1" ]; then
+		rm -f "${snapshot_dir}"/new.*
+	else
+		rm -rf "${snapshot_dir}"
+	fi
+	return 0
+}
+
+installer_lan_domain_set() {
+	local keep_snapshot
+	keep_snapshot="${2:-0}"
+	if ! nvram_transaction_begin lan-domain lan_domain; then
+		return 1
+	fi
+	nvram_transaction_set lan_domain "$1" || return 1
+	nvram_transaction_apply restart_dnsmasq "${keep_snapshot}"
+}
+
+installer_lan_domain_restore() {
+	NVRAM_TRANSACTION_DIR="${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
+	export NVRAM_TRANSACTION_DIR
+	[ -d "${NVRAM_TRANSACTION_DIR}" ] || return 0
+	nvram_transaction_restore restart_dnsmasq
+}
+
 rollback_result_write() {
 	local context result detail marker_dir tmp_file
 	context="$1"
@@ -2741,6 +2891,7 @@ check_connection() {
 ########################################################################################################################
 
 check_dns_environment() {
+	local deadline lookup_pid maxwait mode now status
 	ptxt_phase "Preparing DNS environment."
 	if [ -f "/opt/etc/init.d/S61stubby" ] || [ -f "/opt/sbin/stubby" ] || [ -f "/opt/bin/install_stubby" ] || [ -f "/jffs/scripts/install_stubby.sh" ] || [ -d "/jffs/dnscrypt" ] || [ -f "/opt/etc/init.d/S09dnscrypt-proxy" ]; then
 		PTXT "${ERROR} Potential stubby or dnscrypt-proxy installation detected." \
@@ -2748,15 +2899,7 @@ check_dns_environment() {
 			"${ERROR} Exiting..."
 		exit 1
 	fi
-	local MODE NVCHECK result restore_failed
-	dns_env_numeric_timeout() {
-		case "$1" in
-			*[!0-9]* | 0* | '') return 1 ;;
-		esac
-		return 0
-	}
 	dns_env_local_ready() {
-		local deadline lookup_pid maxwait now status
 		maxwait="$1"
 		now="$(monotonic_seconds)" || return 1
 		deadline="$((now + maxwait))"
@@ -2764,11 +2907,7 @@ check_dns_environment() {
 			nslookup localhost 127.0.0.1 >/dev/null 2>&1 &
 			lookup_pid="$!"
 			while kill -0 "${lookup_pid}" >/dev/null 2>&1; do
-				now="$(monotonic_seconds)" || {
-					kill "${lookup_pid}" >/dev/null 2>&1 || :
-					wait "${lookup_pid}" 2>/dev/null || :
-					return 1
-				}
+				now="$(monotonic_seconds)" || return 1
 				if [ "${now}" -ge "${deadline}" ]; then
 					kill "${lookup_pid}" >/dev/null 2>&1 || :
 					wait "${lookup_pid}" 2>/dev/null || :
@@ -2780,257 +2919,132 @@ check_dns_environment() {
 			status="$?"
 			[ "${status}" -eq 0 ] && return 0
 			now="$(monotonic_seconds)" || return 1
-			[ "${now}" -ge "${deadline}" ] && return 1
 			sleep 1s
-			now="$(monotonic_seconds)" || return 1
 		done
 		return 1
 	}
-	dns_env_set_nvram() {
-		local key expected cur
-		key="$1"
-		expected="$2"
-		cur="$(nvram get "${key}" 2>/dev/null)" || return 1
-		if [ "${cur}" = "${expected}" ]; then
-			return 2
-		fi
-		nvram set "${key}=${expected}" || return 1
-	}
-	dns_env_apply_profile() {
-		local changed key value status
-		changed="0"
-		DNS_ENV_PROFILE_CHANGED="0"
-		for key in dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; do
-			case "${key}" in
-				dnspriv_enable) value="0" ;;
-				dhcpd_dns_router) value="1" ;;
-				*) value="" ;;
-			esac
-			dns_env_set_nvram "${key}" "${value}"
-			status="$?"
-			case "${status}" in
-				0) changed="$((changed + 1))" ;;
-				2) ;;
-				*)
-					DNS_ENV_PROFILE_CHANGED="${changed}"
-					return 1
-					;;
-			esac
-		done
-		DNS_ENV_PROFILE_CHANGED="${changed}"
-		if [ "${changed}" != "0" ]; then return 0; fi
-		return 2
-	}
-	dns_env_restore_profile() {
-		local failed key old existed restored
-		failed="0"
-		restored="0"
-		for key in dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; do
-			case "${key}" in
-				dnspriv_enable)
-					old="${_OLD_dnspriv_enable}"
-					existed="${_OLD_dnspriv_enable_EXISTS}"
-					;;
-				dhcpd_dns_router)
-					old="${_OLD_dhcpd_dns_router}"
-					existed="${_OLD_dhcpd_dns_router_EXISTS}"
-					;;
-				dhcp_dns1_x)
-					old="${_OLD_dhcp_dns1_x}"
-					existed="${_OLD_dhcp_dns1_x_EXISTS}"
-					;;
-				dhcp_dns2_x)
-					old="${_OLD_dhcp_dns2_x}"
-					existed="${_OLD_dhcp_dns2_x_EXISTS}"
-					;;
-			esac
-			if [ "${existed}" = "1" ]; then
-				nvram set "${key}=${old}" && restored="$((restored + 1))" || failed="$((failed + 1))"
-			else
-				nvram unset "${key}" && restored="$((restored + 1))" || failed="$((failed + 1))"
-			fi
-		done
-		DNS_ENV_RESTORE_SUCCEEDED="${restored}"
-		DNS_ENV_RESTORE_FAILED="${failed}"
-		[ "${failed}" = "0" ]
-	}
-	dns_env_rollback() {
-		local failed result
-		failed="0"
-		DNS_ENV_RESTORE_SUCCEEDED="0"
-		DNS_ENV_RESTORE_FAILED="0"
-		dns_env_restore_profile || failed="$((failed + 1))"
-		nvram commit || failed="$((failed + 1))"
-		service restart_dnsmasq >/dev/null 2>&1 || failed="$((failed + 1))"
-		dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}" || failed="$((failed + 1))"
-		if [ "${failed}" = "0" ]; then
-			result="complete"
-			_DNS_NVRAM_SAVED="0"
-		elif [ "${DNS_ENV_RESTORE_SUCCEEDED}" != "0" ]; then
-			result="partial"
-		else
-			result="failed"
-		fi
-		_DNS_NVRAM_ROLLBACK_ATTEMPTED="1"
-		export _DNS_NVRAM_ROLLBACK_ATTEMPTED _DNS_NVRAM_SAVED
-		PTXT "${WARNING} DNS NVRAM rollback was ${result}."
-		[ "${result}" = "complete" ]
-	}
-	dns_env_numeric_timeout "${DNS_ENV_READY_TIMEOUT}" || DNS_ENV_READY_TIMEOUT="60"
-	dns_env_numeric_timeout "${DNS_ENV_RECOVERY_TIMEOUT}" || DNS_ENV_RECOVERY_TIMEOUT="15"
-	MODE="$1"
-	NVCHECK="0"
-	restore_failed="0"
-	case "${MODE}" in
+	case "${DNS_ENV_READY_TIMEOUT}" in *[!0-9]* | "" | 0*) DNS_ENV_READY_TIMEOUT="60" ;; esac
+	case "${DNS_ENV_RECOVERY_TIMEOUT}" in *[!0-9]* | "" | 0*) DNS_ENV_RECOVERY_TIMEOUT="15" ;; esac
+	mode="$1"
+	case "${mode}" in
 		0)
-			# Save original values only once.
-			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
-				ptxt_step "Saving current DNS NVRAM settings."
-				if ! save_dns_nvram_environment; then
-					PTXT "${ERROR} Unable to read all required DNS NVRAM settings; no changes were made."
-					return 1
-				fi
-				ptxt_ok "Current DNS NVRAM settings saved."
+			ptxt_step "Saving current DNS NVRAM settings."
+			if ! nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; then
+				PTXT "${ERROR} Unable to read all required DNS NVRAM settings; no changes were made."
+				return 1
 			fi
+			_DNS_NVRAM_SAVED="1"
+			export _DNS_NVRAM_SAVED
 			if [ "$(pidof stubby)" ]; then
 				ptxt_step "Stopping conflicting stubby process."
-				{ kill_processes stubby; }
-				ptxt_ok "Conflicting stubby process stopped."
-				NVCHECK="$((NVCHECK + 1))"
+				kill_processes stubby
 			fi
-			ptxt_step "Applying installer DNS preparation profile."
-			dns_env_apply_profile
-			result="$?"
-			if [ "${result}" = "0" ]; then
-				ptxt_ok "Installer DNS preparation profile applied."
-				NVCHECK="$((NVCHECK + 1))"
-			elif [ "${result}" = "2" ]; then
-				ptxt_ok "Installer DNS preparation profile was already active."
-			else
-				PTXT "${ERROR} Unable to apply the DNS NVRAM profile."
-				dns_env_rollback || true
+			nvram_transaction_set dnspriv_enable "0" || return 1
+			nvram_transaction_set dhcpd_dns_router "1" || return 1
+			nvram_transaction_set dhcp_dns1_x "" || return 1
+			nvram_transaction_set dhcp_dns2_x "" || return 1
+			if ! nvram_transaction_apply restart_dnsmasq 1; then
+				PTXT "${ERROR} Unable to apply the DNS NVRAM transaction."
+				return 1
+			fi
+			if [ "${NVRAM_TRANSACTION_CHANGED:-0}" != "0" ] && ! dns_env_local_ready "${DNS_ENV_READY_TIMEOUT}"; then
+				PTXT "${ERROR} DNS readiness did not recover after applying NVRAM changes."
+				if nvram_transaction_restore restart_dnsmasq 1 && dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
+					rm -rf "${NVRAM_TRANSACTION_DIR}"
+				else
+					rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+				fi
 				return 1
 			fi
 			;;
 		1)
-			# Do not restore if we never saved anything.
-			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
+			NVRAM_TRANSACTION_DIR="${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
+			export NVRAM_TRANSACTION_DIR
+			if [ ! -d "${NVRAM_TRANSACTION_DIR}" ]; then
+				_DNS_NVRAM_SAVED="0"
+				export _DNS_NVRAM_SAVED
 				ptxt_ok "No saved DNS NVRAM settings to restore."
 				return 0
 			fi
-			ptxt_step "Restoring saved DNS NVRAM settings."
-			if dns_env_restore_profile; then
-				ptxt_ok "Saved DNS NVRAM settings restored."
-				NVCHECK="$((NVCHECK + 1))"
-			else
+			if ! nvram_transaction_restore restart_dnsmasq 1 || ! dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
+				rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
 				PTXT "${ERROR} Unable to restore all saved DNS NVRAM settings."
-				restore_failed="1"
-				if [ "${DNS_ENV_RESTORE_SUCCEEDED}" != "0" ]; then
-					NVCHECK="$((NVCHECK + 1))"
-				else
-					return 1
-				fi
+				return 1
 			fi
+			rm -rf "${NVRAM_TRANSACTION_DIR}"
+			_DNS_NVRAM_SAVED="0"
+			export _DNS_NVRAM_SAVED
 			;;
-		*)
-			return 1
-			;;
+		*) return 1 ;;
 	esac
-	if [ "${NVCHECK}" != "0" ]; then
-		ptxt_step "Committing DNS NVRAM changes and restarting dnsmasq."
-		if ! nvram commit || ! service restart_dnsmasq >/dev/null 2>&1 || ! dns_env_local_ready "${DNS_ENV_READY_TIMEOUT}"; then
-			PTXT "${ERROR} DNS readiness did not recover after applying NVRAM changes."
-			dns_env_rollback || true
-			return 1
-		fi
-		ptxt_ok "DNS services refreshed after DNS environment changes."
-	fi
-	[ "${restore_failed}" = "0" ] || return 1
-	if [ "${MODE}" = "1" ]; then
-		_DNS_NVRAM_SAVED="0"
-		export _DNS_NVRAM_SAVED
-	fi
 	ptxt_ok "DNS Environment is Ready."
 	return 0
 }
 
 check_dns_filter() {
-	local NVCHECK USE_SOME YESNO_STATUS
-	NVCHECK="0"
-	if [ "$1" -eq 0 ]; then
-		if [ "$(nvram get dnsfilter_enable_x)" != "0" ]; then
-			{ nvram set dnsfilter_enable_x="0"; }
-			NVCHECK="$((NVCHECK + 1))"
-		fi
-		PTXT "${INFO} DNS will not be forced through to AdGuardHome."
-	fi
-	if [ "$1" -eq 1 ]; then
+	local key mode use_some yesno_status
+	mode="$1"
+	if [ "${mode}" -eq 1 ]; then
 		PTXT "${INFO} You can choose to keep any custom dnsfilter values by only redirect non-custom traffic or send all traffic through to AdGuardHome."
 		read_yesno "Do you want to redirect only NON-CUSTOM DNS resolutions on your network through to AdGuardHome?"
-		YESNO_STATUS="$?"
-		case "${YESNO_STATUS}" in
-			0) USE_SOME="0" ;;
-			1) USE_SOME="1" ;;
-			*) return "${YESNO_STATUS}" ;;
+		yesno_status="$?"
+		case "${yesno_status}" in
+			0) use_some="0" ;;
+			1) use_some="1" ;;
+			*) return "${yesno_status}" ;;
 		esac
-		if [ "$(nvram get dnsfilter_enable_x)" != "1" ]; then
-			{ nvram set dnsfilter_enable_x="1"; }
-			NVCHECK="$((NVCHECK + 1))"
-		fi
-		if [ "$USE_SOME" -eq 0 ]; then
-			if [ "$(nvram get dnsfilter_mode)" != "11" ]; then
-				{ nvram set dnsfilter_mode="11"; }
-				NVCHECK="$((NVCHECK + 1))"
-			fi
-			PTXT "${INFO} DNSFilter is set to control DNS through to AdGuardHome, while leaving any Custom Rules and Values."
-		fi
-		if [ "$USE_SOME" -eq 1 ]; then
-			for i in dnsfilter_mode dhcpd_dns_router dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x; do
-				VAR="$(nvram get "${i}" 2>/dev/null)"
-				if [ "${i}" = "dnsfilter_mode" ]; then
-					if [ "$VAR" != "11" ]; then {
-						nvram set "${i}"="11"
-					}; else continue; fi
-				elif [ "${i}" = "dhcpd_dns_router" ]; then
-					if [ "$VAR" != "1" ]; then {
-						nvram set "${i}"="1"
-					}; else continue; fi
-				elif [ "$VAR" ]; then {
-					nvram set "${i}"=""
-				}; else continue; fi
-				NVCHECK="$((NVCHECK + 1))"
-			done
-			PTXT "${INFO} DNS is set to redirect All DNS resolutions through to AdGuardHome."
+	fi
+	if [ "${NVRAM_TRANSACTION_DIR:-}" != "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || [ ! -f "${NVRAM_TRANSACTION_DIR}/keys" ]; then
+		if ! nvram_transaction_begin dnsfilter dnsfilter_enable_x dnsfilter_mode dhcpd_dns_router dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x; then
+			PTXT "${ERROR} Unable to read all required DNSFilter NVRAM settings; no changes were made."
+			return 1
 		fi
 	fi
-	if [ "${NVCHECK}" != "0" ]; then
-		{ nvram commit; }
-		{ service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1; }
-		if ! check_connection 300; then
-			PTXT "${WARNING} Timed out waiting for DNS connectivity."
+	case "${mode}" in
+		0)
+			nvram_transaction_set dnsfilter_enable_x "0" || return 1
+			PTXT "${INFO} DNS will not be forced through to AdGuardHome."
+			;;
+		1)
+			nvram_transaction_set dnsfilter_enable_x "1" || return 1
+			nvram_transaction_set dnsfilter_mode "11" || return 1
+			if [ "${use_some}" = "1" ]; then
+				nvram_transaction_set dhcpd_dns_router "1" || return 1
+				for key in dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x; do
+					nvram_transaction_set "${key}" "" || return 1
+				done
+				PTXT "${INFO} DNS is set to redirect All DNS resolutions through to AdGuardHome."
+			else
+				PTXT "${INFO} DNSFilter is set to control DNS through to AdGuardHome, while leaving any Custom Rules and Values."
+			fi
+			;;
+		*) return 1 ;;
+	esac
+	if ! nvram_transaction_apply "restart_firewall;restart_dnsmasq" 1; then
+		PTXT "${ERROR} Unable to apply the DNSFilter NVRAM transaction."
+		return 1
+	fi
+	if [ "${NVRAM_TRANSACTION_CHANGED:-0}" != "0" ] && ! check_connection 300; then
+		PTXT "${WARNING} Timed out waiting for DNS connectivity; restoring DNSFilter settings."
+		if nvram_transaction_restore "restart_firewall;restart_dnsmasq" 1 && check_connection 300; then
+			rm -rf "${NVRAM_TRANSACTION_DIR}"
+		else
+			rollback_result_write "DNSFilter NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
 		fi
+		return 1
 	fi
 }
 
 save_dns_filter_settings() {
-	local DNS_FILTER_BACKUP_DIR="$1" DNS_FILTER_KEY
-	mkdir -p "${DNS_FILTER_BACKUP_DIR}" || return 1
-	for DNS_FILTER_KEY in dnsfilter_enable_x dnsfilter_mode dhcpd_dns_router dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x; do
-		nvram get "${DNS_FILTER_KEY}" >"${DNS_FILTER_BACKUP_DIR}/${DNS_FILTER_KEY}" 2>/dev/null || return 1
-	done
+	# The argument is retained for compatibility with older setup callers.
+	nvram_transaction_begin dnsfilter dnsfilter_enable_x dnsfilter_mode dhcpd_dns_router dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x
 }
 
 restore_dns_filter_settings() {
-	local DNS_FILTER_BACKUP_DIR="$1" DNS_FILTER_KEY DNS_FILTER_VALUE
-	[ -d "${DNS_FILTER_BACKUP_DIR}" ] || return 0
-	for DNS_FILTER_KEY in dnsfilter_enable_x dnsfilter_mode dhcpd_dns_router dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x; do
-		[ -f "${DNS_FILTER_BACKUP_DIR}/${DNS_FILTER_KEY}" ] || return 1
-		DNS_FILTER_VALUE="$(cat "${DNS_FILTER_BACKUP_DIR}/${DNS_FILTER_KEY}")" || return 1
-		nvram set "${DNS_FILTER_KEY}=${DNS_FILTER_VALUE}" || return 1
-	done
-	nvram commit || return 1
-	service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1 || return 1
-	rm -rf "${DNS_FILTER_BACKUP_DIR}"
+	NVRAM_TRANSACTION_DIR="${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
+	export NVRAM_TRANSACTION_DIR
+	[ -d "${NVRAM_TRANSACTION_DIR}" ] || return 0
+	nvram_transaction_restore "restart_firewall;restart_dnsmasq"
 }
 
 check_ipset() {
@@ -3167,23 +3181,36 @@ check_dns_local() {
 }
 
 check_jffs_enabled() {
-	if [ "$(nvram get jffs2_format)" = "1" ]; then
+	local JFFS2_FORMAT JFFS2_SCRIPTS JFFS2_ENABLED jffs2_enable jffs2_on
+	if ! nvram_transaction_begin jffs-enable jffs2_format jffs2_scripts jffs2_enable jffs2_on; then
+		PTXT "${ERROR} Unable to read all required JFFS NVRAM settings; no changes were made."
+		return 1
+	fi
+	JFFS2_FORMAT="$(cat "${NVRAM_TRANSACTION_DIR}/jffs2_format")" || return 1
+	if [ "${JFFS2_FORMAT}" = "1" ]; then
+		rm -rf "${NVRAM_TRANSACTION_DIR}"
 		PTXT "${ERROR} JFFS partition is scheduled to be reformatted." \
 			"${ERROR} Please reboot to format or disable that setting and try again." \
 			"${ERROR} Exiting..."
 		exit 1
 	fi
-	local JFFS2_SCRIPTS JFFS2_ENABLED jffs2_on
-	JFFS2_SCRIPTS="$(nvram get jffs2_scripts)"
-	[ -z "$(nvram get jffs2_enable)" ] && JFFS2_ENABLED="$(nvram get jffs2_on)" || JFFS2_ENABLED="$(nvram get jffs2_enable)"
-	[ -z "$(nvram get jffs2_enable)" ] && jffs2_on="jffs2_on" || jffs2_on="jffs2_enable"
+	JFFS2_SCRIPTS="$(cat "${NVRAM_TRANSACTION_DIR}/jffs2_scripts")" || return 1
+	jffs2_enable="$(cat "${NVRAM_TRANSACTION_DIR}/jffs2_enable")" || return 1
+	if [ -z "${jffs2_enable}" ]; then
+		JFFS2_ENABLED="$(cat "${NVRAM_TRANSACTION_DIR}/jffs2_on")" || return 1
+		jffs2_on="jffs2_on"
+	else
+		JFFS2_ENABLED="${jffs2_enable}"
+		jffs2_on="jffs2_enable"
+	fi
 	if [ "${JFFS2_ENABLED}" != "1" ] || [ "${JFFS2_SCRIPTS}" != "1" ]; then
 		PTXT "${INFO} JFFS custom scripts and configs are not enabled." \
 			"${INFO} Enabling them now!"
-		nvram set ${jffs2_on}="1"
-		nvram set jffs2_scripts="1"
-		nvram commit
+		nvram_transaction_set "${jffs2_on}" "1" || return 1
+		nvram_transaction_set jffs2_scripts "1" || return 1
+		nvram_transaction_apply - || return 1
 	else
+		rm -rf "${NVRAM_TRANSACTION_DIR}"
 		PTXT "${INFO} JFFS custom scripts and configs are already enabled."
 	fi
 }
@@ -3347,36 +3374,6 @@ choose_branch() {
 	fi
 }
 
-save_dns_nvram_environment() {
-	local NVRAM_SHOW VAR VALUE
-	_DNS_NVRAM_SAVED="0"
-	NVRAM_SHOW="$(nvram show 2>/dev/null)" || return 1
-	for VAR in dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; do
-		VALUE="$(nvram get "${VAR}" 2>/dev/null)" || return 1
-		if printf '%s\n' "${NVRAM_SHOW}" | grep -q "^${VAR}="; then
-			eval "_OLD_${VAR}_EXISTS=1"
-		else
-			eval "_OLD_${VAR}_EXISTS=0"
-		fi
-		if [ -z "${VALUE}" ]; then
-			eval "_OLD_${VAR}_EMPTY=1"
-		else
-			eval "_OLD_${VAR}_EMPTY=0"
-		fi
-		case "${VAR}" in
-			dnspriv_enable) _OLD_dnspriv_enable="${VALUE}" ;;
-			dhcpd_dns_router) _OLD_dhcpd_dns_router="${VALUE}" ;;
-			dhcp_dns1_x) _OLD_dhcp_dns1_x="${VALUE}" ;;
-			dhcp_dns2_x) _OLD_dhcp_dns2_x="${VALUE}" ;;
-		esac
-	done
-	export _OLD_dnspriv_enable _OLD_dhcpd_dns_router _OLD_dhcp_dns1_x _OLD_dhcp_dns2_x \
-		_OLD_dnspriv_enable_EXISTS _OLD_dhcpd_dns_router_EXISTS _OLD_dhcp_dns1_x_EXISTS _OLD_dhcp_dns2_x_EXISTS \
-		_OLD_dnspriv_enable_EMPTY _OLD_dhcpd_dns_router_EMPTY _OLD_dhcp_dns1_x_EMPTY _OLD_dhcp_dns2_x_EMPTY
-	_DNS_NVRAM_SAVED="1"
-	export _DNS_NVRAM_SAVED
-	return 0
-}
 
 # Installer file and setup helpers
 
@@ -6004,7 +6001,12 @@ setup_AdGuardHome_impl() {
 						setup_restore_previous_yaml || true
 						return 1
 					fi
-					LAN_DOMAIN_ROLLBACK="$(nvram get lan_domain)"
+					if ! LAN_DOMAIN_ROLLBACK="$(nvram get lan_domain 2>/dev/null)"; then
+						rm -f "${YAML_ORI_NEW}"
+						setup_restore_previous_yaml || true
+						PTXT "${ERROR} Unable to read the LAN domain NVRAM setting; no changes were made."
+						return 1
+					fi
 					if [ -n "${LAN_DOMAIN_ROLLBACK}" ]; then
 						DOMAIN="${LAN_DOMAIN_ROLLBACK}"
 						DOMAIN_CONFIG_SELECTION="no"
@@ -6077,7 +6079,10 @@ setup_AdGuardHome_impl() {
 						return 1
 					fi
 					if [ "${DOMAIN_CONFIG_SELECTION}" = "yes" ] && [ -z "${LAN_DOMAIN_ROLLBACK}" ]; then
-						nvram set lan_domain="${DOMAIN}" && nvram commit
+						if ! installer_lan_domain_set "${DOMAIN}" 1; then
+							PTXT "${ERROR} Unable to persist the LAN domain setting."
+							return 1
+						fi
 						DOMAIN_LAN_CHANGED=1
 					fi
 					DNS_FILTER_ROLLBACK_DIR="${TMPDIR:-/tmp}/AdGuardHome.dnsfilter.$$"
@@ -6086,8 +6091,7 @@ setup_AdGuardHome_impl() {
 						rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
 						restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 						if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
-							nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
-							nvram commit
+							installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 						fi
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
@@ -6100,8 +6104,7 @@ setup_AdGuardHome_impl() {
 						rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
 						restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 						if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
-							nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
-							nvram commit
+							installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 						fi
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
@@ -6111,8 +6114,7 @@ setup_AdGuardHome_impl() {
 						if ! check_dns_local "${LOCAL_CACHE_SELECTION}"; then
 							restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 							if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
-								nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
-								nvram commit
+								installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 							fi
 							if ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
 								PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
@@ -6126,8 +6128,7 @@ setup_AdGuardHome_impl() {
 						if ! check_dns_local 0; then
 							restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 							if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
-								nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
-								nvram commit
+								installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 							fi
 							if ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
 								PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
@@ -6147,8 +6148,7 @@ setup_AdGuardHome_impl() {
 					! configure_runtime_defaults new-install "${ADGUARD_INSTALL_MODE:-wan}" "${LOCAL_CACHE_SELECTION:-0}"; then
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
-						nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
-						nvram commit
+						installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 					fi
 					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
 						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
@@ -6161,8 +6161,7 @@ setup_AdGuardHome_impl() {
 				if [ -n "${WEB_PORT_SELECTION:-}" ] && ! write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT_SELECTION}\""; then
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
-						nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
-						nvram commit
+						installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 					fi
 					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
 						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
@@ -6175,8 +6174,7 @@ setup_AdGuardHome_impl() {
 				if [ -n "${YAML_ORI_NEW:-}" ] && ! mv -f "${YAML_ORI_NEW}" "${YAML_ORI}"; then
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
-						nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
-						nvram commit
+						installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 					fi
 					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
 						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
@@ -6187,7 +6185,8 @@ setup_AdGuardHome_impl() {
 				fi
 				SETUP_YAML_TMP_FILE=""
 				[ -z "${CONFIG_ROLLBACK}" ] || discard_installer_config_backup "${CONFIG_ROLLBACK}"
-				[ -z "${DNS_FILTER_ROLLBACK_DIR}" ] || rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
+				[ -z "${DNS_FILTER_ROLLBACK_DIR}" ] || rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
+				rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
 				;;
 		esac
 	fi
@@ -6234,7 +6233,10 @@ uninst_all() {
 	fi
 	agh_stop
 	cleanup_legacy_firewall
-	[ "$(conf_value ADGUARD_DOMAIN)" = "yes" ] && nvram set lan_domain="" && nvram commit
+	if [ "$(conf_value ADGUARD_DOMAIN)" = "yes" ] && ! installer_lan_domain_set ""; then
+		PTXT "${ERROR} Unable to clear the installer-managed LAN domain setting."
+		return 1
+	fi
 	mv "${TARG_DIR}/installer" "${HOME}/installer"
 	rm -rf "${TARG_DIR}" "${ROLLBACK_RESULT_FILE}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"
 	yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
