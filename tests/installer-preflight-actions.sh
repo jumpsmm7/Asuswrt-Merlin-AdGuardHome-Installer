@@ -180,7 +180,6 @@ preflight_action_requires_downloader() { return 1; }
 preflight_action_requires_service_tools() { return 1; }
 preflight_action_requires_cru() { return 1; }
 preflight_action_requires_jffs_ready() { return 1; }
-preflight_action_requires_router_eligibility() { return 0; }
 preflight_action_requires_entware() { return 1; }
 preflight_action_requires_jq() { return 1; }
 preflight_action_requires_sha256() { return 1; }
@@ -235,6 +234,7 @@ for action in install update restore; do
 	run_preflight_firewall_mode_case "detected-lan-${action}" "${action}" missing lan skipped
 	run_preflight_firewall_mode_case "detected-unknown-${action}" "${action}" missing missing skipped failure
 done
+run_preflight_firewall_mode_case "detected-unknown-uninstall" uninstall missing missing skipped success
 
 # run_router_mode_case tests router eligibility for a router mode and LAN IP address, verifying the status and expected output lines.
 run_router_mode_case() {
@@ -503,8 +503,8 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 	assert_entware_required '' install update reconfigure restore uninstall ipset backup doctor netcheck dns-port-policy performance migrate-runtime-defaults
 	assert_jffs_ready_required '' install reconfigure 4
 	assert_jffs_ready_skipped update restore uninstall ipset backup doctor netcheck dns-port-policy performance migrate-runtime-defaults status preflight
-	assert_router_eligibility_required '' install update reconfigure restore uninstall ipset backup doctor netcheck dns-port-policy performance migrate-runtime-defaults
-	assert_router_eligibility_skipped status preflight
+	assert_router_eligibility_required '' install update reconfigure restore ipset backup doctor netcheck dns-port-policy performance migrate-runtime-defaults
+	assert_router_eligibility_skipped uninstall status preflight
 	assert_entware_skipped status preflight
 	assert_jq_skipped '' install update reconfigure restore uninstall ipset backup doctor status preflight netcheck dns-port-policy performance migrate-runtime-defaults
 	assert_sha256_required blocklists unusedblocklists 9

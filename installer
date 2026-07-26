@@ -865,7 +865,7 @@ preflight_action_requires_jffs_ready() {
 
 preflight_action_requires_router_eligibility() {
 	case "${1:-install}" in
-		status | preflight)
+		uninstall | status | preflight)
 			return 1
 			;;
 	esac
