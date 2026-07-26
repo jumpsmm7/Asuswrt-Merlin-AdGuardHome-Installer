@@ -70,9 +70,9 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	# adguard_remote_url prints the remote URL for the test AdGuardHome archive.
 	adguard_remote_url() { printf '%s\n' 'https://example.invalid/AdGuardHome_test.tar.gz'; }
 	# ensure_sha256sum_tool provides a no-op checksum-tool stub for the installer test.
-ensure_sha256sum_tool() { :; }
+	ensure_sha256sum_tool() { :; }
 	# download_file downloads a file.
-download_file() { return 0; }
+	download_file() { return 0; }
 	md5_is_valid() { return 1; }
 	sha256_is_valid() { return 1; }
 	agh_process_count() { printf '%s\n' '0'; }

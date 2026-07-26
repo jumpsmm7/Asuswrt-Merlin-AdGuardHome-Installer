@@ -112,7 +112,7 @@ nvram() {
 
 # run_startup_case validates install-mode detection, runtime defaults, and generated LAN/WAN startup configuration for a test scenario.
 # run_startup_case verifies install-mode detection, runtime configuration, setup output, and generated LAN/WAN bindings for a startup scenario.
-# run_startup_case verifies install-mode detection, runtime default persistence, and LAN/WAN YAML bindings for a startup scenario.  
+# run_startup_case verifies install-mode detection, runtime default persistence, and LAN/WAN YAML bindings for a startup scenario.
 # Arguments are the case name, simulated switch mode, LAN IP address, expected install mode, and expected WebUI bind address.
 run_startup_case() {
 	case_name="$1"
