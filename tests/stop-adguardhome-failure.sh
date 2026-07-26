@@ -65,6 +65,8 @@ netstat() {
 	case "${SOCKET_MODE}" in
 		ipv4) printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 88/dnsmasq' ;;
 		ipv6) printf '%s\n' 'udp6 0 0 :::53 :::* 88/dnsmasq' ;;
+		ipv4_ownerless) printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:*' ;;
+		ipv6_ownerless) printf '%s\n' 'udp6 0 0 :::53 :::*' ;;
 		foreign) printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 99/AdGuardHome' ;;
 		none) : ;;
 	esac
@@ -100,6 +102,20 @@ stop_adguardhome || fail "offline WAN made a locally healthy stop fail"
 reset_case
 SOCKET_MODE="ipv6" LOOKUP_MODE="ipv6"
 stop_adguardhome || fail "IPv6-only local DNS recovery failed"
+
+# BusyBox netstat may omit PID/program metadata; a running dnsmasq and a
+# successful local lookup verify ownerless IPv4 and IPv6 socket rows.
+for socket_family in ipv4 ipv6; do
+	reset_case
+	SOCKET_MODE="${socket_family}_ownerless" LOOKUP_MODE="${socket_family}"
+	stop_adguardhome || fail "ownerless ${socket_family} dnsmasq socket was rejected"
+done
+
+# Explicit ownership by another process is never covered by the ownerless fallback.
+reset_case
+SOCKET_MODE="foreign"
+if stop_adguardhome; then fail "foreign-owned DNS socket was accepted"; fi
+grep -q 'reason=dnsmasq_not_ready.*attempts=5' "${CALLS_FILE}" || fail "foreign DNS owner failure was not logged"
 
 # Local DNS success does not depend on HTTP reachability.
 reset_case

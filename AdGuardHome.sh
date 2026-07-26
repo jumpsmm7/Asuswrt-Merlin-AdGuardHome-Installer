@@ -1834,7 +1834,7 @@ post_stop_dnsmasq_ready() {
 		{
 			owner = ""
 			for (i = NF; i >= 1; i--) if ($i ~ /^[0-9]+\/[^[:space:]]+$/) { owner = $i; break }
-			if (owner !~ /\/dnsmasq$/) exit 1
+			if (owner != "" && owner !~ /\/dnsmasq$/) exit 1
 		}
 	'; then
 		:
