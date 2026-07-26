@@ -7541,7 +7541,7 @@ cli_run() {
 			fi
 			cli_enable_assume_yes
 			cleanup
-			check_jffs_enabled
+			check_jffs_enabled || return 1
 			if [ "${ADGUARD_INSTALL_MODE}" = "wan" ]; then
 				check_dns_environment 0 || return 1
 			fi
@@ -7788,7 +7788,7 @@ case "$2" in
 			sleep 3s
 		fi
 		cleanup
-		check_jffs_enabled
+		check_jffs_enabled || exit 1
 		if [ "${ADGUARD_INSTALL_MODE}" = "wan" ]; then
 			check_dns_environment 0 || exit 1
 		fi

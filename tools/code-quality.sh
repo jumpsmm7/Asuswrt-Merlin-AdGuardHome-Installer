@@ -119,6 +119,7 @@ run_check 'Installer interruption restart regression' sh tests/installer-interru
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
 run_check 'Installer single-argument action regression' sh tests/installer-single-arg-actions.sh
 run_check 'Installer preflight action regression' sh tests/installer-preflight-actions.sh
+run_check 'Installer JFFS failure propagation regression' sh tests/installer-jffs-failure.sh
 run_check 'Installer install-mode detection regression' sh tests/installer-install-mode-detection.sh
 run_check 'Installer CLI LAN-mode regression' sh tests/installer-cli-lan-mode.sh
 run_check 'Installer CLI IPSET dry-run regression' sh tests/installer-cli-ipset-dry-run.sh
