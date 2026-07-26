@@ -56,6 +56,16 @@ grep -q 'write_conf ADGUARD_INSTALL_MODE "\\"${ADGUARD_INSTALL_MODE}\\""' "${SCR
 	fail 'installer must persist ADGUARD_INSTALL_MODE'
 grep -q 'PREVIOUS_ADGUARD_INSTALL_MODE="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"' "${SCRIPT_PATH}" ||
 	fail 'installer must preserve the saved install mode before detection'
+branch_doctor_line="$(grep -n '^if \[ "${2:-}" = "doctor" \]; then' "${SCRIPT_PATH}" | cut -d: -f1)"
+startup_detection_line="$(grep -n '^PREVIOUS_ADGUARD_INSTALL_MODE=' "${SCRIPT_PATH}" | head -n 1 | cut -d: -f1)"
+[ -n "${branch_doctor_line}" ] && [ "${branch_doctor_line}" -lt "${startup_detection_line}" ] ||
+	fail 'branch-qualified doctor must dispatch before the fresh-install mode gate'
+grep -q 'uninstall:\* | \*:uninstall | \*:2)' "${SCRIPT_PATH}" ||
+	fail 'uninstall retry paths must bypass the fresh-install mode gate'
+if sed -n '/^[[:space:]]*case "\$2" in$/,/^[[:space:]]*if menu_action_allowed "\$2"; then$/p' "${SCRIPT_PATH}" |
+	grep -q 'migrate-runtime-defaults | \[mM\]'; then
+	fail 'branch-qualified runtime migration must require confirmed install-mode detection'
+fi
 extract_function cli_action_requires_install_mode "${TMP_ROOT}/cli-mode-action" ||
 	fail 'could not extract CLI install-mode action helper'
 (

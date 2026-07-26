@@ -58,8 +58,10 @@ grep -q 'preflight_action_requires_cru "${action}"' "${SCRIPT_PATH}" ||
 	fail 'preflight must gate cru checks by action'
 grep -q 'preflight_action_requires_firewall_tools "${action}"' "${SCRIPT_PATH}" ||
 	fail 'preflight must gate firewall checks by action'
-grep -q 'adguard_install_mode_detect >/dev/null 2>&1' "${SCRIPT_PATH}" ||
-	fail 'preflight firewall checks must use shared install mode detection'
+grep -A12 '^preflight() {$' "${SCRIPT_PATH}" | grep -q 'adguard_install_mode_detect >/dev/null 2>&1' ||
+	fail 'preflight must snapshot shared install mode detection before action checks'
+grep -q 'PREFLIGHT_INSTALL_MODE_DETECTED="1"' "${SCRIPT_PATH}" ||
+	fail 'preflight must mark its install mode snapshot for all action checks'
 grep -q 'adguard_install_mode_confirmed || return 1' "${SCRIPT_PATH}" ||
 	fail 'preflight firewall checks must skip mode-dependent checks when detection is unknown'
 grep -q 'preflight_check_jffs_ready || failed="1"' "${SCRIPT_PATH}" ||
@@ -102,6 +104,7 @@ preflight_action_requires_jq() { return 1; }
 preflight_action_requires_sha256() { return 0; }
 preflight_action_requires_password_hash() { return 0; }
 preflight_action_requires_timezone_column() { return 0; }
+adguard_install_mode_detect() { ADGUARD_INSTALL_MODE_DETECTION=unknown; }
 preflight_check_path() { return 0; }
 preflight_check_stock_commands() { return 0; }
 preflight_check_entware() { return ${entware_status}; }
@@ -161,6 +164,7 @@ adguard_install_mode_detect() {
 }
 . "${FUNCTIONS_FILE}"
 adguard_install_mode_detect() {
+	detection_count="\$((\${detection_count:-0} + 1))"
 	case '${detected_mode}' in
 		missing) ADGUARD_INSTALL_MODE_DETECTION=unknown ;;
 		*) ADGUARD_INSTALL_MODE_DETECTION='${detected_mode}'; ADGUARD_INSTALL_MODE='${detected_mode}' ;;
@@ -186,8 +190,13 @@ preflight_check_path() {
 	return 0
 }
 preflight_check_stock_commands() { return 0; }
+preflight_check_router_eligibility() {
+	[ "\${PREFLIGHT_INSTALL_MODE_DETECTED:-0}" = "1" ] || return 1
+	[ "\${detection_count:-0}" -eq 1 ] || return 1
+}
 . "${PREFLIGHT_FILE}"
 preflight '${action}'
+PTXT "called.mode_detection_count=\${detection_count:-0}"
 EOF
 	sh "${stub_file}" >"${out_file}" 2>&1 || true
 	case "${expected_firewall}" in
@@ -205,6 +214,8 @@ EOF
 			fi
 			;;
 	esac
+	grep -q '^called.mode_detection_count=1$' "${out_file}" ||
+		fail "${case_name}: preflight did not reuse one mode-detection snapshot"
 }
 
 for action in install update restore; do

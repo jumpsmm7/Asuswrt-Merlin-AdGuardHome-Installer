@@ -905,7 +905,9 @@ preflight_action_requires_firewall_tools() {
 			return 1
 			;;
 	esac
-	adguard_install_mode_detect >/dev/null 2>&1
+	if [ "${PREFLIGHT_INSTALL_MODE_DETECTED:-0}" != "1" ]; then
+		adguard_install_mode_detect >/dev/null 2>&1
+	fi
 	adguard_install_mode_confirmed || return 1
 	[ "${ADGUARD_INSTALL_MODE}" = "lan" ] && return 1
 	return 0
@@ -953,7 +955,9 @@ preflight_check_router_eligibility() {
 	else
 		PTXT "preflight.router.model.result=OK"
 	fi
-	adguard_install_mode_detect >/dev/null 2>&1
+	if [ "${PREFLIGHT_INSTALL_MODE_DETECTED:-0}" != "1" ]; then
+		adguard_install_mode_detect >/dev/null 2>&1
+	fi
 	PTXT "preflight.router.sw_mode=${ADGUARD_INSTALL_MODE_SW_MODE:-missing}"
 	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
 		wan | lan)
@@ -1154,6 +1158,8 @@ preflight() {
 	PTXT "preflight.action=${action}"
 	PTXT "preflight.safe_to_paste=yes"
 	PTXT "preflight.path=${PATH}"
+	adguard_install_mode_detect >/dev/null 2>&1
+	PREFLIGHT_INSTALL_MODE_DETECTED="1"
 	preflight_check_path "sh" "/bin/sh" || failed="1"
 	preflight_check_path "nvram" "/bin/nvram" || failed="1"
 	if preflight_action_requires_downloader "${action}"; then
@@ -7483,6 +7489,14 @@ if [ "${2:-}" = "status" ]; then
 	status "${1:-}"
 	exit "$?"
 fi
+if [ "${2:-}" = "doctor" ]; then
+	case "${3:-}" in
+		"" | "--fix")
+			doctor "${3:-}"
+			exit "$?"
+			;;
+	esac
+fi
 
 case "${1:-}" in
 	install | update | restore | uninstall | ipset)
@@ -7513,8 +7527,15 @@ if ! adguard_install_mode_confirmed; then
 			if [ -f "${AGH_FILE}" ] || [ -d "${TARG_DIR}" ]; then
 				ADGUARD_INSTALL_MODE="${PREVIOUS_ADGUARD_INSTALL_MODE}"
 			else
-				PTXT "${ERROR} A new installation requires a confirmed WAN or LAN/AP/bridge router mode; no persistent state was modified."
-				exit 1
+				case "${1:-}:${2:-}" in
+					uninstall:* | *:uninstall | *:2)
+						# Keep cleanup reachable after an interrupted uninstall removed install artifacts.
+						;;
+					*)
+						PTXT "${ERROR} A new installation requires a confirmed WAN or LAN/AP/bridge router mode; no persistent state was modified."
+						exit 1
+						;;
+				esac
 			fi
 			;;
 	esac
@@ -7688,7 +7709,7 @@ case "$2" in
 		;;
 	*)
 		case "$2" in
-			"2" | uninstall | doctor | status | [dD] | migrate-runtime-defaults | [mM])
+			"2" | uninstall | doctor | status | [dD])
 				# Commands that can run without install mode detection
 				;;
 			*)
