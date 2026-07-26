@@ -46,12 +46,12 @@ adguard_install_mode_confirmed() {
 	return 1
 }
 
-# adguard_install_mode_detect is a no-op stub that succeeds without changing the detected install mode.
+# adguard_install_mode_detect succeeds without changing the detected install mode.
 adguard_install_mode_detect() {
 	return 0
 }
 
-# cli_require_yes is a no-op that succeeds without requiring confirmation.
+# cli_require_yes allows the operation to proceed without requiring confirmation.
 cli_require_yes() {
 	return 0
 }

@@ -65,8 +65,10 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	adguard_remote_archive() { printf '%s\n' 'AdGuardHome_test.tar.gz'; }
 	# adguard_remote_md5 provides the remote MD5 checksum for the AdGuard Home release.
 	adguard_remote_md5() { :; }
-	adguard_remote_sha256() { :; }
-	adguard_remote_url() { printf '%s\n' 'https://example.invalid/AdGuardHome_test.tar.gz'; }
+	# adguard_remote_sha256 is a stub for retrieving the remote SHA-256 checksum.
+adguard_remote_sha256() { :; }
+	# adguard_remote_url prints the remote URL for the test AdGuardHome archive.
+adguard_remote_url() { printf '%s\n' 'https://example.invalid/AdGuardHome_test.tar.gz'; }
 	ensure_sha256sum_tool() { :; }
 	download_file() { return 0; }
 	md5_is_valid() { return 1; }

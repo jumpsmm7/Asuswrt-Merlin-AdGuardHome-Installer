@@ -126,7 +126,7 @@ cli_write_quoted_conf() {
 # run_migrate_case verifies that runtime migration writes the expected netcheck mode for an installation mode.
 #   case_name identifies the migration test case.
 #   install_mode is the installation mode under test.
-#   expected_netcheck is the netcheck mode expected in the migration output.
+# run_migrate_case runs runtime-default migration for an install mode and verifies the expected netcheck mode is written.
 run_migrate_case() {
 	case_name="$1"
 	install_mode="$2"
