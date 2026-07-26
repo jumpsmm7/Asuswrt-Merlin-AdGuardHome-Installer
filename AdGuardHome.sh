@@ -216,7 +216,7 @@ status_dnsmasq_handoff_state() {
 	state="inactive"
 	markers=""
 	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock "${DNS_HANDOFF_FILE}" "${DNS_HANDOFF_DIR}/lock"; do
-		if [ -e "${marker}" ]; then
+		if [ -e "${marker}" ] || [ -L "${marker}" ]; then
 			state="active/stale marker present"
 			markers="${markers}${markers:+, }${marker}"
 		fi
@@ -1810,10 +1810,67 @@ start_monitor() {
 	done
 }
 
-# stop_adguardhome stops AdGuardHome, restarts managed dnsmasq when required, removes temporary database links, and waits for network checks to complete.
+# post_stop_process_ready verifies that AdGuardHome no longer has a running process.
+post_stop_process_ready() {
+	[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -eq 0 ]
+}
+
+# post_stop_handoff_cleared verifies that no installer-owned DNS handoff marker remains.
+post_stop_handoff_cleared() {
+	local marker
+	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock "${DNS_HANDOFF_FILE}" "${DNS_HANDOFF_DIR}/lock"; do
+		[ ! -e "${marker}" ] && [ ! -L "${marker}" ] || return 1
+	done
+	return 0
+}
+
+# post_stop_dnsmasq_ready verifies local port 53 ownership and resolver readiness.
+post_stop_dnsmasq_ready() {
+	local dns_server dns_servers lan_addr
+	adguard_dnsmasq_running || return 1
+	if dns_servers="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ {
+		owner = ""
+		for (i = NF; i >= 1; i--) if ($i ~ /^[0-9]+\/[^[:space:]]+$/) { owner = $i; break }
+		if (owner != "" && owner !~ /\/dnsmasq$/) bad_owner = 1
+		if ($1 ~ /^tcp6?$/) tcp = 1
+		if ($1 ~ /^udp6?$/) {
+			udp = 1
+			server = $4
+			sub(/:53$/, "", server)
+			gsub(/^\[|\]$/, "", server)
+			servers[server] = 1
+		}
+	}
+		END {
+			if (bad_owner || !tcp || !udp) exit 1
+			for (server in servers) print server
+		}
+	')" && [ -n "${dns_servers}" ]; then
+		:
+	else
+		return 1
+	fi
+	lan_addr="$(nvram get lan_ipaddr 2>/dev/null)"
+	for dns_server in ${dns_servers}; do
+		case "${dns_server}" in
+			0.0.0.0) dns_server="${lan_addr:-127.0.0.1}" ;;
+			:: | \*) dns_server="::1" ;;
+		esac
+		if nslookup localhost "${dns_server}" >/dev/null 2>&1; then
+			return 0
+		fi
+	done
+	return 1
+}
+
+# stop_adguardhome stops AdGuardHome, restores managed dnsmasq, and verifies local DNS recovery.
 stop_adguardhome() {
-	local STOP_STATUS
+	local DNSMASQ_READY_ATTEMPTS DNSMASQ_WAS_MANAGED STOP_STATUS
 	STOP_STATUS="0"
+	DNSMASQ_WAS_MANAGED="0"
+	if adguard_dnsmasq_managed; then
+		DNSMASQ_WAS_MANAGED="1"
+	fi
 	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 		0)
 			:
@@ -1824,24 +1881,37 @@ stop_adguardhome() {
 			fi
 			;;
 	esac
-	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -ne 0 ]; then
+	if ! post_stop_process_ready; then
 		agh_log error stop_adguardhome "state=stopping action=stop_process reason=process_still_active result=active process=${PROCS}"
 		STOP_STATUS="1"
 	fi
-	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
-		if ! adguard_restart_dnsmasq_if_managed; then
+	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ] && [ "${DNSMASQ_WAS_MANAGED}" -eq 1 ]; then
+		if ! service restart_dnsmasq >/dev/null 2>&1; then
 			agh_log error stop_adguardhome "state=stopping action=restart_dnsmasq reason=service_restart_failed result=failed process=${PROCS}"
 			STOP_STATUS="1"
 		fi
+	fi
+	if [ "${DNSMASQ_WAS_MANAGED}" -eq 1 ]; then
+		DNSMASQ_READY_ATTEMPTS="0"
+		until post_stop_dnsmasq_ready; do
+			DNSMASQ_READY_ATTEMPTS="$((DNSMASQ_READY_ATTEMPTS + 1))"
+			if [ "${DNSMASQ_READY_ATTEMPTS}" -ge 5 ]; then
+				agh_log error stop_adguardhome "state=stopping action=verify_local_dns reason=dnsmasq_not_ready result=failed attempts=${DNSMASQ_READY_ATTEMPTS}"
+				STOP_STATUS="1"
+				break
+			fi
+			sleep 1
+		done
+	fi
+	if ! post_stop_handoff_cleared; then
+		agh_log error stop_adguardhome "state=stopping action=verify_handoff reason=installer_marker_remains result=failed"
+		STOP_STATUS="1"
 	fi
 	for db in stats.db sessions.db; do {
 		if [ "$(canonical_path "/tmp/${db}" 2>/dev/null)" = "$(canonical_path "${WORK_DIR}/data/${db}" 2>/dev/null)" ]; then {
 			rm "/tmp/${db}" >/dev/null 2>&1
 		}; fi
 	}; done
-	if ! service_wait netcheck; then
-		STOP_STATUS="1"
-	fi
 	return "${STOP_STATUS}"
 }
 
