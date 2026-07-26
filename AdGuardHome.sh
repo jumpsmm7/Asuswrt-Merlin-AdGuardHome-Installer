@@ -1835,7 +1835,10 @@ post_stop_dnsmasq_ready() {
 			owner = ""
 			for (i = NF; i >= 1; i--) if ($i ~ /^[0-9]+\/[^[:space:]]+$/) { owner = $i; break }
 			if (owner != "" && owner !~ /\/dnsmasq$/) exit 1
+			if ($1 ~ /^tcp6?$/) tcp = 1
+			if ($1 ~ /^udp6?$/) udp = 1
 		}
+		END { if (!tcp || !udp) exit 1 }
 	'; then
 		:
 	else

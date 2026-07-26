@@ -63,11 +63,33 @@ service() {
 }
 netstat() {
 	case "${SOCKET_MODE}" in
-		ipv4) printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 88/dnsmasq' ;;
-		ipv6) printf '%s\n' 'udp6 0 0 :::53 :::* 88/dnsmasq' ;;
-		ipv4_ownerless) printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:*' ;;
-		ipv6_ownerless) printf '%s\n' 'udp6 0 0 :::53 :::*' ;;
-		foreign) printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 99/AdGuardHome' ;;
+		ipv4)
+			printf '%s\n' \
+				'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 88/dnsmasq' \
+				'udp 0 0 0.0.0.0:53 0.0.0.0:* 88/dnsmasq'
+			;;
+		ipv6)
+			printf '%s\n' \
+				'tcp6 0 0 :::53 :::* LISTEN 88/dnsmasq' \
+				'udp6 0 0 :::53 :::* 88/dnsmasq'
+			;;
+		ipv4_ownerless)
+			printf '%s\n' \
+				'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN' \
+				'udp 0 0 0.0.0.0:53 0.0.0.0:*'
+			;;
+		ipv6_ownerless)
+			printf '%s\n' \
+				'tcp6 0 0 :::53 :::* LISTEN' \
+				'udp6 0 0 :::53 :::*'
+			;;
+		missing_tcp) printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 88/dnsmasq' ;;
+		missing_udp) printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 88/dnsmasq' ;;
+		foreign)
+			printf '%s\n' \
+				'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 88/dnsmasq' \
+				'udp 0 0 0.0.0.0:53 0.0.0.0:* 99/AdGuardHome'
+			;;
 		none) : ;;
 	esac
 }
@@ -109,6 +131,16 @@ for socket_family in ipv4 ipv6; do
 	reset_case
 	SOCKET_MODE="${socket_family}_ownerless" LOOKUP_MODE="${socket_family}"
 	stop_adguardhome || fail "ownerless ${socket_family} dnsmasq socket was rejected"
+done
+
+# Both TCP and UDP port 53 listeners are required even when UDP lookup succeeds.
+for missing_protocol in missing_tcp missing_udp; do
+	reset_case
+	SOCKET_MODE="${missing_protocol}"
+	if stop_adguardhome; then fail "${missing_protocol} DNS socket was accepted"; fi
+	[ "${DNSMASQ_READY_CHECKS}" -eq 5 ] || fail "${missing_protocol} did not use the bounded retry count"
+	grep -q 'reason=dnsmasq_not_ready.*attempts=5' "${CALLS_FILE}" ||
+		fail "${missing_protocol} failure was not logged"
 done
 
 # Explicit ownership by another process is never covered by the ownerless fallback.
