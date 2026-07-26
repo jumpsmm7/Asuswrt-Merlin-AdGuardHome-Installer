@@ -3050,16 +3050,20 @@ check_dns_environment() {
 check_dns_filter() {
 	local changed key mode use_some yesno_status
 	mode="$1"
-	if [ "${mode}" -eq 1 ]; then
-		PTXT "${INFO} You can choose to keep any custom dnsfilter values by only redirect non-custom traffic or send all traffic through to AdGuardHome."
-		read_yesno "Do you want to redirect only NON-CUSTOM DNS resolutions on your network through to AdGuardHome?"
-		yesno_status="$?"
-		case "${yesno_status}" in
-			0) use_some="0" ;;
-			1) use_some="1" ;;
-			*) return "${yesno_status}" ;;
-		esac
-	fi
+	case "${mode}" in
+		0) ;;
+		1)
+			PTXT "${INFO} You can choose to keep any custom dnsfilter values by only redirect non-custom traffic or send all traffic through to AdGuardHome."
+			read_yesno "Do you want to redirect only NON-CUSTOM DNS resolutions on your network through to AdGuardHome?"
+			yesno_status="$?"
+			case "${yesno_status}" in
+				0) use_some="0" ;;
+				1) use_some="1" ;;
+				*) return "${yesno_status}" ;;
+			esac
+			;;
+		*) return 1 ;;
+	esac
 	if [ "${NVRAM_TRANSACTION_DIR:-}" != "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || [ ! -f "${NVRAM_TRANSACTION_DIR}/keys" ]; then
 		if ! nvram_transaction_begin dnsfilter dnsfilter_enable_x dnsfilter_mode dhcpd_dns_router dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x; then
 			PTXT "${ERROR} Unable to read all required DNSFilter NVRAM settings; no changes were made."

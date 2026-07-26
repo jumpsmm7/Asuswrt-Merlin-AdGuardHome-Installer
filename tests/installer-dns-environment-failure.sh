@@ -21,6 +21,7 @@ mkdir -p "${TEST_ROOT}" || fail 'could not create test workspace'
 sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" |
 	sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >"${FUNCTIONS_FILE}" || fail 'could not extract NVRAM transaction helpers'
 sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNS environment helper'
+sed -n '/^check_dns_filter() {$/,/^save_dns_filter_settings() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter helper'
 [ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/nvram (show|get|set|unset|commit)([[:space:];]|$)')" -eq 7 ] || fail 'NVRAM transaction helpers do not consistently use /bin/nvram'
 [ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/grep -q ')" -eq 1 ] || fail 'NVRAM transaction helpers do not use /bin/grep for inventory matching'
 # shellcheck disable=SC1090
@@ -129,6 +130,15 @@ assert_original() {
 	[ "$(nvram_value dhcp_dns1_x)" = '' ] || fail "$1: empty value was not restored"
 	[ "$(nvram_value dhcp_dns2_x)" = 149.112.112.112 ] || fail "$1: dhcp_dns2_x was not restored"
 }
+
+for invalid_mode in '' invalid; do
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
+	if check_dns_filter "${invalid_mode}" 2>"${TEST_ROOT}/invalid-mode.stderr"; then
+		fail "invalid DNSFilter mode '${invalid_mode}' was accepted"
+	fi
+	[ ! -s "${TEST_ROOT}/invalid-mode.stderr" ] || fail "invalid DNSFilter mode '${invalid_mode}' emitted a shell diagnostic"
+	[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail "invalid DNSFilter mode '${invalid_mode}' created a transaction snapshot"
+done
 
 reset_case
 FAIL_SHOW=1
