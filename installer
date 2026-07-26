@@ -7394,6 +7394,11 @@ cli_run() {
 						cli_dry_run "IPSET refresh"
 						return 0
 					}
+					adguard_install_mode_detect || return 1
+					if ! adguard_install_mode_confirmed; then
+						PTXT "${ERROR} IPSET refresh requires a confirmed router install mode; no service or IPSET state was changed."
+						return 1
+					fi
 					if ! adguard_ipset_allowed; then
 						check_ipset 0 || true
 						PTXT "${ERROR} IPSET refresh refused: LAN/AP/Bridge mode does not manage IPTABLES/IPSET rules."
