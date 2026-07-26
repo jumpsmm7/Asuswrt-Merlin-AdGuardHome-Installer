@@ -102,7 +102,7 @@ nvram_transaction_begin() {
 	}
 	: >"${temp_dir}/keys" || return 1
 	chmod 600 "${temp_dir}/keys" || return 1
-	if ! nvram show >"${temp_dir}/inventory" 2>/dev/null; then
+	if ! /bin/nvram show >"${temp_dir}/inventory" 2>/dev/null; then
 		rm -rf "${temp_dir}"
 		return 1
 	fi
@@ -117,7 +117,7 @@ nvram_transaction_begin() {
 				return 1
 				;;
 		esac
-		if ! nvram get "${key}" >"${temp_dir}/${key}" 2>/dev/null; then
+		if ! /bin/nvram get "${key}" >"${temp_dir}/${key}" 2>/dev/null; then
 			rm -rf "${temp_dir}"
 			return 1
 		fi
@@ -125,7 +125,7 @@ nvram_transaction_begin() {
 			rm -rf "${temp_dir}"
 			return 1
 		}
-		if grep -q "^${key}=" "${temp_dir}/inventory"; then
+		if /bin/grep -q "^${key}=" "${temp_dir}/inventory"; then
 			: >"${temp_dir}/exists.${key}" || {
 				rm -rf "${temp_dir}"
 				return 1
@@ -187,12 +187,12 @@ nvram_transaction_restore() {
 			continue
 		}
 		if [ -f "${snapshot_dir}/exists.${key}" ]; then
-			nvram set "${key}=${old}" || failed="1"
+			/bin/nvram set "${key}=${old}" || failed="1"
 		else
-			nvram unset "${key}" || failed="1"
+			/bin/nvram unset "${key}" || failed="1"
 		fi
 	done <"${snapshot_dir}/keys"
-	nvram commit || failed="1"
+	/bin/nvram commit || failed="1"
 	if [ "${service_action}" != "-" ]; then
 		service "${service_action}" >/dev/null 2>&1 || failed="1"
 	fi
@@ -232,12 +232,12 @@ nvram_transaction_apply() {
 			nvram_transaction_restore "${service_action}" || true
 			return 1
 		}
-		if ! nvram set "${key}=${new}"; then
+		if ! /bin/nvram set "${key}=${new}"; then
 			nvram_transaction_restore "${service_action}" || true
 			return 1
 		fi
 	done <"${snapshot_dir}/keys"
-	if ! nvram commit; then
+	if ! /bin/nvram commit; then
 		nvram_transaction_restore "${service_action}" || true
 		return 1
 	fi
