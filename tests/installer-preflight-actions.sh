@@ -139,7 +139,7 @@ run_preflight_gate_case missing 1 yes
 run_preflight_gate_case available 0 no
 
 # run_preflight_firewall_mode_case verifies flow-aware firewall gating and mode-detection snapshot reuse for a preflight action.
-# The expected firewall state may be `required` or `skipped`; the expected result defaults to `success`.
+# run_preflight_firewall_mode_case verifies firewall-tool gating, install-mode detection reuse, and the expected preflight result for an action.
 run_preflight_firewall_mode_case() {
 	case_name="$1"
 	action="$2"
@@ -443,7 +443,7 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 			*) printf '%s\n' "${CONF_MODE}" ;;
 		esac
 	}
-	# adguard_install_mode_detect records the detected install mode and marks detection as unknown when no mode is available.
+	# adguard_install_mode_detect stores the detected mode in the install-mode variables, or marks detection as unknown when no mode is available.
 	adguard_install_mode_detect() {
 		case "${DETECTED_MODE:-missing}" in
 			missing) ADGUARD_INSTALL_MODE_DETECTION=unknown ;;
@@ -458,7 +458,7 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 	CONF_MODE=missing DETECTED_MODE=lan assert_firewall_skipped install update restore
 	CONF_MODE=missing DETECTED_MODE=wan assert_firewall_required install update restore
 
-	# assert_base_tools_required verifies that the specified actions require downloader, service, CRU, and firewall tools.
+	# assert_base_tools_required verifies that each specified action requires downloader, service, CRU, and firewall tools.
 	assert_base_tools_required() {
 		local action
 		for action in "$@"; do

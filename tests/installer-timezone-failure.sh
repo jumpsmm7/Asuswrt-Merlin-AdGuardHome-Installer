@@ -59,7 +59,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 
 	# adguard_install_mode_detect determines the installation mode and succeeds when detection completes.
 	adguard_install_mode_detect() { return 0; }
-	# adguard_install_abort_trap_disable_preserve_defer disables the installation-abort trap while preserving deferred abort handling.
+	# adguard_install_abort_trap_disable_preserve_defer is a no-op stub for installation-abort trap handling.
 	adguard_install_abort_trap_disable_preserve_defer() { :; }
 	# adguard_remote_archive returns the remote archive filename for the test installer.
 	adguard_remote_archive() { printf '%s\n' 'AdGuardHome_test.tar.gz'; }
@@ -69,8 +69,10 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	adguard_remote_sha256() { :; }
 	# adguard_remote_url prints the remote URL for the test AdGuardHome archive.
 	adguard_remote_url() { printf '%s\n' 'https://example.invalid/AdGuardHome_test.tar.gz'; }
-	ensure_sha256sum_tool() { :; }
-	download_file() { return 0; }
+	# ensure_sha256sum_tool provides a no-op checksum-tool stub for the installer test.
+ensure_sha256sum_tool() { :; }
+	# download_file downloads a file.
+download_file() { return 0; }
 	md5_is_valid() { return 1; }
 	sha256_is_valid() { return 1; }
 	agh_process_count() { printf '%s\n' '0'; }

@@ -110,7 +110,7 @@ extract_function adguard_migrate_detected_install_mode || fail 'could not extrac
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
-# adguard_install_mode_confirmed indicates that the installation mode detection is confirmed.
+# adguard_install_mode_confirmed reports that the installation mode detection is confirmed.
 adguard_install_mode_confirmed() { return 0; }
 
 cat >"${STUB_DIR}/chown" <<'EOF_CHOWN' || fail 'could not write chown stub'
