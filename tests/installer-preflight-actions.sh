@@ -138,7 +138,7 @@ EOF
 run_preflight_gate_case missing 1 yes
 run_preflight_gate_case available 0 no
 
-# run_preflight_firewall_mode_case verifies flow-aware firewall gating and mode-detection snapshot reuse for a preflight action.  
+# run_preflight_firewall_mode_case verifies flow-aware firewall gating and mode-detection snapshot reuse for a preflight action.
 # The expected firewall state may be `required` or `skipped`; the expected result defaults to `success`.
 run_preflight_firewall_mode_case() {
 	case_name="$1"
