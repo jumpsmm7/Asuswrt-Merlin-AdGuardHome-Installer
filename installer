@@ -95,25 +95,52 @@ nvram_transaction_begin() {
 		rm -rf "${temp_dir}"
 		return 1
 	fi
-	chmod 600 "${temp_dir}/inventory" || { rm -rf "${temp_dir}"; return 1; }
+	chmod 600 "${temp_dir}/inventory" || {
+		rm -rf "${temp_dir}"
+		return 1
+	}
 	for key in "$@"; do
 		case "${key}" in
-			"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]*) rm -rf "${temp_dir}"; return 1 ;;
+			"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]*)
+				rm -rf "${temp_dir}"
+				return 1
+				;;
 		esac
 		if ! nvram get "${key}" >"${temp_dir}/${key}" 2>/dev/null; then
 			rm -rf "${temp_dir}"
 			return 1
 		fi
-		chmod 600 "${temp_dir}/${key}" || { rm -rf "${temp_dir}"; return 1; }
+		chmod 600 "${temp_dir}/${key}" || {
+			rm -rf "${temp_dir}"
+			return 1
+		}
 		if grep -q "^${key}=" "${temp_dir}/inventory"; then
-			: >"${temp_dir}/exists.${key}" || { rm -rf "${temp_dir}"; return 1; }
-			chmod 600 "${temp_dir}/exists.${key}" || { rm -rf "${temp_dir}"; return 1; }
+			: >"${temp_dir}/exists.${key}" || {
+				rm -rf "${temp_dir}"
+				return 1
+			}
+			chmod 600 "${temp_dir}/exists.${key}" || {
+				rm -rf "${temp_dir}"
+				return 1
+			}
 		fi
-		printf '%s\n' "${key}" >>"${temp_dir}/keys" || { rm -rf "${temp_dir}"; return 1; }
+		printf '%s\n' "${key}" >>"${temp_dir}/keys" || {
+			rm -rf "${temp_dir}"
+			return 1
+		}
 	done
-	rm -f "${temp_dir}/inventory" || { rm -rf "${temp_dir}"; return 1; }
-	rm -rf "${snapshot_dir}" || { rm -rf "${temp_dir}"; return 1; }
-	mv "${temp_dir}" "${snapshot_dir}" || { rm -rf "${temp_dir}"; return 1; }
+	rm -f "${temp_dir}/inventory" || {
+		rm -rf "${temp_dir}"
+		return 1
+	}
+	rm -rf "${snapshot_dir}" || {
+		rm -rf "${temp_dir}"
+		return 1
+	}
+	mv "${temp_dir}" "${snapshot_dir}" || {
+		rm -rf "${temp_dir}"
+		return 1
+	}
 	NVRAM_TRANSACTION_DIR="${snapshot_dir}"
 	NVRAM_TRANSACTION_CHANGED="0"
 	export NVRAM_TRANSACTION_DIR NVRAM_TRANSACTION_CHANGED
@@ -144,7 +171,10 @@ nvram_transaction_restore() {
 		return 0
 	fi
 	while IFS= read -r key; do
-		old="$(cat "${snapshot_dir}/${key}")" || { failed="1"; continue; }
+		old="$(cat "${snapshot_dir}/${key}")" || {
+			failed="1"
+			continue
+		}
 		if [ -f "${snapshot_dir}/exists.${key}" ]; then
 			nvram set "${key}=${old}" || failed="1"
 		else
@@ -3373,7 +3403,6 @@ choose_branch() {
 		fi
 	fi
 }
-
 
 # Installer file and setup helpers
 
