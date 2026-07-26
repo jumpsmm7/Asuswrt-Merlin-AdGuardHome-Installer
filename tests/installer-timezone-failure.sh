@@ -58,13 +58,13 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	ERROR='Error:'
 
 	# adguard_install_mode_detect determines the installation mode and succeeds when detection completes.
-adguard_install_mode_detect() { return 0; }
+	adguard_install_mode_detect() { return 0; }
 	# adguard_install_abort_trap_disable_preserve_defer disables the installation-abort trap while preserving deferred abort handling.
-adguard_install_abort_trap_disable_preserve_defer() { :; }
+	adguard_install_abort_trap_disable_preserve_defer() { :; }
 	# adguard_remote_archive returns the remote archive filename for the test installer.
-adguard_remote_archive() { printf '%s\n' 'AdGuardHome_test.tar.gz'; }
+	adguard_remote_archive() { printf '%s\n' 'AdGuardHome_test.tar.gz'; }
 	# adguard_remote_md5 provides the remote MD5 checksum for the AdGuard Home release.
-adguard_remote_md5() { :; }
+	adguard_remote_md5() { :; }
 	adguard_remote_sha256() { :; }
 	adguard_remote_url() { printf '%s\n' 'https://example.invalid/AdGuardHome_test.tar.gz'; }
 	ensure_sha256sum_tool() { :; }
