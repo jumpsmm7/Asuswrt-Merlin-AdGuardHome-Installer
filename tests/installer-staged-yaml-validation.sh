@@ -79,11 +79,15 @@ write_conf() {
 }
 # save_dns_filter_settings creates the directory used to store DNS filter settings.
 save_dns_filter_settings() { mkdir -p "$1"; }
-# restore_dns_filter_settings removes the DNS filter settings directory at the specified path.
+# installer_lan_domain_set stores the specified LAN domain in NVRAM.
 installer_lan_domain_set() { nvram set "lan_domain=$1"; }
+# installer_lan_domain_restore restores the LAN domain configuration.
 installer_lan_domain_restore() { :; }
+# restore_dns_filter_settings removes the DNS filter settings directory specified by the first argument.
 restore_dns_filter_settings() { rm -rf "$1"; }
+# check_dns_filter is a no-op placeholder for DNS filter checks.
 check_dns_filter() { :; }
+# check_dns_local is a no-op stub for local DNS checks.
 check_dns_local() { :; }
 # check_ipset records the selected IPSET integration option and persists its enabled state.
 check_ipset() {

@@ -72,11 +72,15 @@ check_dns_filter() {
 	[ "${FAIL_NESTED_DNS_PROMPT:-0}" -eq 1 ] && return 2
 	return 0
 }
+# save_dns_filter_settings creates the directory used to preserve DNS filter settings.
 save_dns_filter_settings() {
 	mkdir -p "$1"
 }
+# installer_lan_domain_set sets the router's LAN domain to the specified value.
 installer_lan_domain_set() { nvram set "lan_domain=$1"; }
+# installer_lan_domain_restore restores the installer LAN domain configuration without modifying the test environment.
 installer_lan_domain_restore() { :; }
+# restore_dns_filter_settings removes the saved DNS filter settings directory at the specified path.
 restore_dns_filter_settings() {
 	rm -rf "$1"
 }

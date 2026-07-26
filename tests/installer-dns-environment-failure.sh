@@ -40,12 +40,15 @@ pidof() { return 1; }
 kill_processes() { return 0; }
 sleep() { MONOTONIC_NOW="$((MONOTONIC_NOW + 1))"; }
 monotonic_seconds() { printf '%s\n' "${MONOTONIC_NOW}"; }
+# check_connection checks simulated public network availability and increments the public connectivity check count.
 check_connection() {
 	PUBLIC_CHECK_COUNT="$((PUBLIC_CHECK_COUNT + 1))"
 	[ "${PUBLIC_NETWORK_AVAILABLE:-0}" = 1 ]
 }
+# rollback_result_write records a rollback status message in the calls log.
 rollback_result_write() { printf '%s\n' "rollback $*" >>"${CALLS_FILE}"; }
 
+# nvram_value reads and prints the value for a key from the simulated NVRAM file.
 nvram_value() {
 	awk -v key="$1" 'index($0, key "=") == 1 { print substr($0, length(key) + 2); found=1 } END { exit(found ? 0 : 1) }' "${NVRAM_FILE}"
 }
@@ -98,8 +101,10 @@ nslookup() {
 	[ "${DNS_READY:-1}" = 1 ]
 }
 
+# dns_check_count counts the DNS lookup calls recorded in the calls log and writes the count to stdout.
 dns_check_count() { grep -c '^nslookup ' "${CALLS_FILE}"; }
 
+# reset_case resets the simulated NVRAM, call log, counters, failure injections, and DNS test state for a test case.
 reset_case() {
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
 	cat >"${NVRAM_FILE}" <<'EOF_NVRAM'

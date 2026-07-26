@@ -92,19 +92,24 @@ yaml_nvars_replace() {
 	printf '%s\n' "$*" >>"${WRITE_LOG}"
 }
 YAML_CHECKS=0
+# check_AdGuardHome_yaml increments the YAML validation check counter.
 check_AdGuardHome_yaml() {
 	YAML_CHECKS="$((YAML_CHECKS + 1))"
 }
 DNS_FILTER_CHANGED=0
 DNS_FILTER_RESTORES=0
 LAN_DOMAIN_RESTORES=0
+# save_dns_filter_settings saves DNS filter settings to the specified directory.
 save_dns_filter_settings() {
 	mkdir -p "$1"
 }
+# installer_lan_domain_set sets the LAN domain to the specified value.
 installer_lan_domain_set() { nvram set "lan_domain=$1"; }
+# installer_lan_domain_restore increments the LAN domain restoration counter.
 installer_lan_domain_restore() {
 	LAN_DOMAIN_RESTORES="$((LAN_DOMAIN_RESTORES + 1))"
 }
+# restore_dns_filter_settings restores DNS filter settings and removes the specified temporary directory.
 restore_dns_filter_settings() {
 	DNS_FILTER_RESTORES="$((DNS_FILTER_RESTORES + 1))"
 	DNS_FILTER_CHANGED=0
@@ -226,6 +231,7 @@ FAIL_WRITE_CONF=1
 DNS_FILTER_CHANGED=0
 DNS_FILTER_RESTORES=0
 LAN_DOMAIN_RESTORES=0
+# read_input_port sets the selected WebUI port to 3000 and succeeds.
 read_input_port() {
 	WEB_PORT=3000
 	return 0
