@@ -6783,7 +6783,7 @@ end_op_message() {
 	sleep 3s && clear_screen
 	nvram_transaction_lock_release || {
 		PTXT "${ERROR} Unable to release the installer NVRAM transaction lock before restarting the installer."
-		return 1
+		exit 1
 	}
 	if [ -f "${TARG_DIR}/installer" ]; then
 		chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1

@@ -71,4 +71,32 @@ end_op_message 2 >/dev/null 2>&1 && fail 'deferred interruption with attention r
 grep -q '^result=restore-failed$' "${ROLLBACK_RESULT_FILE}" || fail 'deferred interruption replaced rollback attention result'
 grep -q '^detail=previous installation remains at backup path$' "${ROLLBACK_RESULT_FILE}" || fail 'deferred interruption replaced rollback attention detail'
 
-printf '%s\n' 'PASS: end_op_message records default rollback results without replacing attention records'
+CLI_MODE="0"
+ADGUARD_DEFER_END_OP="0"
+ROLLBACK_RESULT_UPDATED="1"
+INFO='Info:'
+ERROR='Error:'
+BRANCH='testing'
+SCRIPT_LOC="${TEST_ROOT}/missing-installer"
+HOME="${TEST_ROOT}/home"
+mkdir -p "${HOME}" || fail 'could not create test home directory'
+cat >"${TARG_DIR}/installer" <<EOF_INSTALLER
+#!/bin/sh
+printf '%s\n' restarted >"${TEST_ROOT}/unexpected-restart"
+EOF_INSTALLER
+chmod 755 "${TARG_DIR}/installer" || fail 'could not make restart target executable'
+nvram_transaction_lock_release() { return 1; }
+sleep() { :; }
+clear_screen() { :; }
+
+(
+	end_op_message 0 '' >"${TEST_ROOT}/interactive-output" 2>&1
+	printf '%s\n' returned >"${TEST_ROOT}/unexpected-return"
+)
+status=$?
+[ "${status}" -eq 1 ] || fail "interactive lock-release failure exited with status ${status} instead of 1"
+[ ! -e "${TEST_ROOT}/unexpected-return" ] || fail 'interactive lock-release failure returned to its caller'
+[ ! -e "${TEST_ROOT}/unexpected-restart" ] || fail 'interactive lock-release failure restarted without releasing the lock'
+grep -q 'Unable to release the installer NVRAM transaction lock' "${TEST_ROOT}/interactive-output" || fail 'interactive lock-release failure was not reported'
+
+printf '%s\n' 'PASS: end_op_message preserves rollback results and terminates on interactive lock-release failure'
