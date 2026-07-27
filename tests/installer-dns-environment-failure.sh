@@ -48,8 +48,14 @@ ptxt_phase() { PTXT "$1"; }
 ptxt_step() { PTXT "$1"; }
 ptxt_ok() { PTXT "$1"; }
 which() { command -v "$1" >/dev/null 2>&1; }
-pidof() { return 1; }
-kill_processes() { return 0; }
+pidof() {
+	[ "${STUBBY_RUNNING:-0}" = 1 ] && [ "$1" = stubby ] || return 1
+	printf '%s\n' 1234
+}
+kill_processes() {
+	[ "$1" = stubby ] || return 1
+	STUBBY_KILL_COUNT="$((STUBBY_KILL_COUNT + 1))"
+}
 cleanup_api_files() { :; }
 installer_cleanup_tmp_file() { :; }
 rollback_pending_mode_migration() { return 0; }
@@ -145,9 +151,9 @@ dhcp_dns1_x=
 dhcp_dns2_x=149.112.112.112
 EOF_NVRAM
 	: >"${CALLS_FILE}"
-	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0
+	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0
 	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0
-	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0
+	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 STUBBY_RUNNING=0
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
 	_DNS_NVRAM_SAVED=0 _DNS_NVRAM_ROLLBACK_ATTEMPTED=0
 }
@@ -388,6 +394,21 @@ finalize_dns_environment || fail 'successful DNS preparation snapshot could not 
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful install retained its DNS preparation snapshot'
 [ "$(nvram get dnspriv_enable)" = 0 ] || fail 'snapshot finalization restored successfully applied DNS settings'
 nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'finalized DNS preparation snapshot blocked a later installer run'
+rm -rf "${NVRAM_TRANSACTION_DIR}"
+
+reset_case
+cat >"${NVRAM_FILE}" <<'EOF_NVRAM'
+dnspriv_enable=0
+dhcpd_dns_router=1
+dhcp_dns1_x=
+dhcp_dns2_x=
+EOF_NVRAM
+STUBBY_RUNNING=1
+check_dns_environment 0 || fail 'stopping stubby with prepared DNS NVRAM was rejected'
+[ "${STUBBY_KILL_COUNT}" = 1 ] || fail 'running stubby was not stopped exactly once'
+[ "${COMMIT_COUNT}" = 0 ] || fail 'stopping stubby caused an unnecessary NVRAM commit'
+[ "${SERVICE_COUNT}" = 1 ] || fail 'dnsmasq was not restarted after stopping stubby without NVRAM changes'
+[ "$(dns_check_count)" = 1 ] || fail 'local DNS was not checked after stopping stubby without NVRAM changes'
 rm -rf "${NVRAM_TRANSACTION_DIR}"
 
 reset_case

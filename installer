@@ -3168,7 +3168,7 @@ check_connection() {
 ########################################################################################################################
 
 check_dns_environment() {
-	local changed deadline lookup_pid maxwait mode now status
+	local changed deadline lookup_pid maxwait mode now status stubby_stopped
 	ptxt_phase "Preparing DNS environment."
 	if [ -f "/opt/etc/init.d/S61stubby" ] || [ -f "/opt/sbin/stubby" ] || [ -f "/opt/bin/install_stubby" ] || [ -f "/jffs/scripts/install_stubby.sh" ] || [ -d "/jffs/dnscrypt" ] || [ -f "/opt/etc/init.d/S09dnscrypt-proxy" ]; then
 		PTXT "${ERROR} Potential stubby or dnscrypt-proxy installation detected." \
@@ -3210,6 +3210,7 @@ check_dns_environment() {
 	mode="$1"
 	case "${mode}" in
 		0)
+			stubby_stopped="0"
 			ptxt_step "Saving current DNS NVRAM settings."
 			if ! nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; then
 				PTXT "${ERROR} Unable to read all required DNS NVRAM settings; no changes were made."
@@ -3220,6 +3221,7 @@ check_dns_environment() {
 			if [ "$(pidof stubby)" ]; then
 				ptxt_step "Stopping conflicting stubby process."
 				kill_processes stubby
+				stubby_stopped="1"
 			fi
 			nvram_transaction_set dnspriv_enable "0" || return 1
 			nvram_transaction_set dhcpd_dns_router "1" || return 1
@@ -3229,6 +3231,14 @@ check_dns_environment() {
 			if ! nvram_transaction_apply restart_dnsmasq 1; then
 				PTXT "${ERROR} Unable to apply the DNS NVRAM transaction."
 				return 1
+			fi
+			if [ "${stubby_stopped}" = "1" ] && [ "${changed}" = "0" ]; then
+				if ! service restart_dnsmasq >/dev/null 2>&1; then
+					rm -rf "${NVRAM_TRANSACTION_DIR}"
+					PTXT "${ERROR} Unable to restart dnsmasq after stopping stubby."
+					return 1
+				fi
+				changed="1"
 			fi
 			if [ "${changed}" != "0" ] && ! dns_env_local_ready "${DNS_ENV_READY_TIMEOUT}"; then
 				PTXT "${ERROR} DNS readiness did not recover after applying NVRAM changes."
