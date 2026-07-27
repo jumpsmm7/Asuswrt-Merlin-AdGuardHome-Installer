@@ -134,7 +134,7 @@ dns_check_count() { grep -c '^nslookup ' "${CALLS_FILE}"; }
 reset_case() {
 	nvram_transaction_lock_release || fail 'could not release the previous test transaction lock'
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
-	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.d" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"
 	cat >"${NVRAM_FILE}" <<'EOF_NVRAM'
 dnspriv_enable=1
 dhcpd_dns_router=0
@@ -188,25 +188,23 @@ rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove cleanup transaction 
 
 reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'interrupted transaction snapshot failed'
-[ ! -x /usr/bin/flock ] || [ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = flock ] || fail 'descriptor-capable flock was not preferred for NVRAM transactions'
+if nvram_transaction_lock_flock_supports_fd; then
+	[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = flock ] || fail 'descriptor-capable flock was not preferred for NVRAM transactions'
+fi
 nvram_transaction_set dnspriv_enable 0 || fail 'interrupted transaction staging failed'
 nvram_transaction_apply restart_dnsmasq 1 || fail 'interrupted transaction apply failed'
 if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
 	. "${FUNCTIONS_FILE}"
-	rollback_result_write() { :; }
-	nvram() { return 1; }
-	service() { return 1; }
-	nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x
+	exec 8>&-
+	nvram_transaction_lock_acquire
 '; then
 	fail 'overlapping installer acquired the live NVRAM transaction lock'
 fi
 for inherited_lock_mode in flock symlink mkdir invalid; do
 	if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" NVRAM_TRANSACTION_LOCK_MODE="${inherited_lock_mode}" sh -c '
 		. "${FUNCTIONS_FILE}"
-		rollback_result_write() { :; }
-		nvram() { return 1; }
-		service() { return 1; }
-		nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x
+		exec 8>&-
+		nvram_transaction_lock_acquire
 	'; then
 		fail "inherited ${inherited_lock_mode} mode bypassed the live NVRAM transaction lock"
 	fi
@@ -222,36 +220,48 @@ assert_original 'dirty snapshot rerun'
 [ -f "${NVRAM_TRANSACTION_DIR}/keys" ] || fail 'dirty snapshot rerun did not create a replacement snapshot'
 
 nvram_transaction_lock_release || fail 'transaction owner could not release its lock for stale-lock recovery'
-nvram_transaction_lock_flock_supports_fd() { return 1; }
-ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare stale symlink transaction lock'
-nvram_transaction_begin stale-symlink-lock dnspriv_enable || fail 'stale symlink transaction lock blocked recovery'
-[ "$(/usr/bin/readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = "$$" ] || fail 'stale symlink lock was not replaced by the live owner'
-if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
-	. "${FUNCTIONS_FILE}"
+(
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
-	rollback_result_write() { :; }
-	nvram() { return 1; }
-	service() { return 1; }
-	nvram_transaction_begin stale-symlink-lock dnspriv_enable
-'; then
-	fail 'symlink fallback allowed an overlapping NVRAM transaction owner'
-fi
-nvram_transaction_lock_release || fail 'symlink transaction owner could not release its lock'
-nvram_transaction_lock_symlink_acquire() { return 2; }
-mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale transaction lock'
-printf '%s\n' 999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale transaction lock owner'
-nvram_transaction_begin stale-lock dnspriv_enable || fail 'stale NVRAM transaction lock blocked recovery'
-[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "$$" ] || fail 'stale transaction lock was not replaced by the live owner'
-if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
-	. "${FUNCTIONS_FILE}"
+	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare stale symlink transaction lock'
+	nvram_transaction_begin stale-symlink-lock dnspriv_enable || fail 'stale symlink transaction lock blocked recovery'
+	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = "$$" ] || fail 'stale symlink lock was not replaced by the live owner'
+	if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		nvram_transaction_lock_flock_supports_fd() { return 1; }
+		nvram_transaction_lock_symlink_acquire
+	'; then
+		fail 'symlink fallback allowed an overlapping NVRAM transaction owner'
+	else
+		[ "$?" -ne 2 ] || fail 'live symlink lock was reported as unsupported'
+	fi
+	nvram_transaction_lock_release || fail 'symlink transaction owner could not release its lock'
+) || exit 1
+(
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
-	rollback_result_write() { :; }
-	nvram() { return 1; }
-	service() { return 1; }
-	nvram_transaction_begin stale-lock dnspriv_enable
-'; then
-	fail 'mkdir fallback allowed an overlapping NVRAM transaction owner'
-fi
+	nvram_transaction_lock_symlink_acquire() { return 2; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale transaction lock'
+	printf '%s\n' 999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale transaction lock owner'
+	nvram_transaction_lock_acquire || fail 'stale NVRAM transaction lock blocked recovery'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "$$" ] || fail 'stale transaction lock was not replaced by the live owner'
+	if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		nvram_transaction_lock_flock_supports_fd() { return 1; }
+		nvram_transaction_lock_symlink_acquire() { return 2; }
+		nvram_transaction_lock_acquire
+	'; then
+		fail 'mkdir fallback allowed an overlapping NVRAM transaction owner'
+	fi
+	nvram_transaction_lock_release || fail 'mkdir transaction owner could not release its lock'
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare missing-pid transaction lock'
+	nvram_transaction_lock_acquire || fail 'missing-pid transaction lock blocked recovery'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "$$" ] || fail 'missing-pid transaction lock was not replaced by the live owner'
+	nvram_transaction_lock_release || fail 'missing-pid transaction owner could not release its lock'
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare malformed-pid transaction lock'
+	printf '%s\n' invalid >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record malformed transaction lock owner'
+	nvram_transaction_lock_acquire || fail 'malformed-pid transaction lock blocked recovery'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "$$" ] || fail 'malformed-pid transaction lock was not replaced by the live owner'
+	nvram_transaction_lock_release || fail 'malformed-pid transaction owner could not release its lock'
+) || exit 1
 
 reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'clean transaction snapshot failed'
