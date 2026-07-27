@@ -255,6 +255,20 @@ nvram_transaction_lock_release || fail 'transaction owner could not release its 
 ) || exit 1
 (
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare raced stale symlink transaction lock'
+	nvram_transaction_lock_reaper_acquire() {
+		rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || return 1
+		ln -s 1 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+	}
+	nvram_transaction_lock_reaper_release() { :; }
+	if nvram_transaction_lock_symlink_acquire; then
+		fail 'symlink stale-lock reaper replaced a new live owner'
+	fi
+	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = 1 ] || fail 'symlink stale-lock reaper removed a new live owner'
+	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+) || exit 1
+(
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	nvram_transaction_lock_readlink() { return 127; }
 	nvram_transaction_lock_acquire || fail 'missing readlink did not select the mkdir transaction lock fallback'
 	[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = mkdir ] || fail 'missing readlink selected an unusable symlink transaction lock'
@@ -291,6 +305,23 @@ nvram_transaction_lock_release || fail 'transaction owner could not release its 
 	nvram_transaction_lock_acquire || fail 'malformed-pid transaction lock blocked recovery'
 	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "$$" ] || fail 'malformed-pid transaction lock was not replaced by the live owner'
 	nvram_transaction_lock_release || fail 'malformed-pid transaction owner could not release its lock'
+) || exit 1
+(
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_symlink_acquire() { return 2; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare raced stale mkdir transaction lock'
+	printf '%s\n' 999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record raced stale mkdir transaction lock owner'
+	nvram_transaction_lock_reaper_acquire() {
+		rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || return 1
+		mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || return 1
+		printf '%s\n' 1 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid"
+	}
+	nvram_transaction_lock_reaper_release() { :; }
+	if nvram_transaction_lock_acquire; then
+		fail 'mkdir stale-lock reaper replaced a new live owner'
+	fi
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = 1 ] || fail 'mkdir stale-lock reaper removed a new live owner'
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
 ) || exit 1
 
 reset_case
