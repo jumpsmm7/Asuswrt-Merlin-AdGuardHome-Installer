@@ -64,7 +64,7 @@ read_yesno() {
 	esac
 	return 1
 }
-# write_conf updates a configuration key with the specified value in the configuration file.
+# write_conf replaces a configuration key with the specified value in the configuration file.
 write_conf() {
 	key="$1"
 	value="$2"

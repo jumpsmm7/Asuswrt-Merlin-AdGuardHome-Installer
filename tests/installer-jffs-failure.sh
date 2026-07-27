@@ -9,11 +9,13 @@ TEST_ROOT="$(mktemp -d)" || {
 	exit 1
 }
 
+# fail removes the temporary test workspace, prints a failure message to standard error, and exits with status 1.
 fail() {
 	rm -rf "${TEST_ROOT}"
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
+# cleanup removes the temporary test workspace.
 cleanup() { rm -rf "${TEST_ROOT}"; }
 trap cleanup 0
 

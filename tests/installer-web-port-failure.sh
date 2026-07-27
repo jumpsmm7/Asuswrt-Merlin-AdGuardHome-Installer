@@ -62,8 +62,11 @@ cleanup() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
+# ptxt_ok is a no-op text helper used by the test harness.
 ptxt_ok() { :; }
+# PTXT is a no-op text output helper.
 PTXT() { :; }
+# rm removes files normally while simulating cleanup failures for configured LAN-domain or DNS-filter snapshot paths.
 rm() {
 	if [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
 		[ "$*" = "-rf ${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ]; then
@@ -75,7 +78,7 @@ rm() {
 	fi
 	command rm "$@"
 }
-# read_input_port sets WEB_PORT from SELECTED_WEB_PORT and returns the configured input status.
+# read_input_port sets WEB_PORT to the selected WebUI port and returns the configured input status.
 read_input_port() {
 	WEB_PORT="${SELECTED_WEB_PORT:-3000}"
 	return "${READ_INPUT_PORT_STATUS:-1}"
@@ -120,7 +123,7 @@ installer_lan_domain_set() {
 	[ "${FAIL_LAN_DOMAIN_SET:-0}" -eq 0 ] || return 1
 	nvram set "lan_domain=$1"
 }
-# installer_lan_domain_restore increments the LAN domain restoration counter.
+# installer_lan_domain_restore clears the LAN domain and records the restoration.
 installer_lan_domain_restore() {
 	LAN_DOMAIN_RESTORES="$((LAN_DOMAIN_RESTORES + 1))"
 	LAN_DOMAIN=""
@@ -133,6 +136,7 @@ restore_dns_filter_settings() {
 	rm -rf "$1"
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
 }
+# check_dns_filter marks DNS filter settings as changed.
 check_dns_filter() {
 	DNS_FILTER_CHANGED=1
 }
