@@ -170,7 +170,7 @@ nvram_transaction_lock_acquire() {
 	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
 	case "${NVRAM_TRANSACTION_LOCK_MODE:-}" in
 		flock) [ -e "/proc/$$/fd/8" ] && return 0 ;;
-		symlink) [ "$(readlink "${lock_path}.symlink" 2>/dev/null)" = "$$" ] && return 0 ;;
+		symlink) [ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "$$" ] && return 0 ;;
 		mkdir) [ "$(cat "${lock_path}.d/pid" 2>/dev/null)" = "$$" ] && return 0 ;;
 	esac
 	NVRAM_TRANSACTION_LOCK_MODE=""
@@ -255,7 +255,7 @@ nvram_transaction_lock_owned() {
 	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
 	case "${NVRAM_TRANSACTION_LOCK_MODE:-}" in
 		flock) [ -e "/proc/$$/fd/8" ] ;;
-		symlink) [ "$(readlink "${lock_path}.symlink" 2>/dev/null)" = "$$" ] ;;
+		symlink) [ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "$$" ] ;;
 		mkdir) [ "$(cat "${lock_path}.d/pid" 2>/dev/null)" = "$$" ] ;;
 		*) return 1 ;;
 	esac
@@ -291,17 +291,33 @@ nvram_transaction_lock_flock_supports_fd() {
 	return "${status}"
 }
 
+nvram_transaction_lock_readlink() {
+	which readlink >/dev/null 2>&1 || return 127
+	[ "$#" -gt 0 ] || return 0
+	readlink "$1"
+}
+
 nvram_transaction_lock_symlink_acquire() {
 	local lock_owner lock_path
 	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+	if ! nvram_transaction_lock_readlink; then
+		if [ -L "${lock_path}" ]; then
+			printf '%s\n' "Error: cannot inspect NVRAM transaction lock ${lock_path}; readlink is unavailable." >&2
+			return 1
+		fi
+		return 2
+	fi
 	if [ -L "${lock_path}" ]; then
-		lock_owner="$(readlink "${lock_path}" 2>/dev/null)" || return 1
+		lock_owner="$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)" || {
+			printf '%s\n' "Error: cannot inspect NVRAM transaction lock ${lock_path}." >&2
+			return 1
+		}
 		case "${lock_owner}" in
 			"" | *[!0-9]*) ;;
 			*) [ ! -d "/proc/${lock_owner}" ] || return 1 ;;
 		esac
 		nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" || return 1
-		[ "$(readlink "${lock_path}" 2>/dev/null)" = "${lock_owner}" ] || {
+		[ "$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)" = "${lock_owner}" ] || {
 			nvram_transaction_lock_reaper_release "${lock_path}.reaper"
 			return 1
 		}
@@ -329,7 +345,7 @@ nvram_transaction_lock_release() {
 			exec 8>&-
 			;;
 		symlink)
-			[ "$(readlink "${lock_path}.symlink" 2>/dev/null)" = "$$" ] || return 1
+			[ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "$$" ] || return 1
 			rm -f "${lock_path}.symlink" || return 1
 			;;
 		mkdir)

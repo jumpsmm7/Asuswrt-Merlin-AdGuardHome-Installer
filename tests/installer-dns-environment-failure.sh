@@ -238,6 +238,19 @@ nvram_transaction_lock_release || fail 'transaction owner could not release its 
 ) || exit 1
 (
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_readlink() { return 127; }
+	nvram_transaction_lock_acquire || fail 'missing readlink did not select the mkdir transaction lock fallback'
+	[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = mkdir ] || fail 'missing readlink selected an unusable symlink transaction lock'
+	nvram_transaction_lock_release || fail 'mkdir fallback could not be released after missing readlink'
+	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare an uninspectable symlink transaction lock'
+	if nvram_transaction_lock_symlink_acquire 2>"${TEST_ROOT}/readlink-unavailable.stderr"; then
+		fail 'uninspectable symlink transaction lock was accepted'
+	fi
+	grep -q 'readlink is unavailable' "${TEST_ROOT}/readlink-unavailable.stderr" || fail 'missing readlink did not report the uninspectable symlink lock'
+	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+) || exit 1
+(
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	nvram_transaction_lock_symlink_acquire() { return 2; }
 	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale transaction lock'
 	printf '%s\n' 999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale transaction lock owner'
