@@ -303,6 +303,7 @@ nvram_transaction_lock_reaper_acquire() {
 	owner="$(nvram_transaction_lock_owner_current)" || return 1
 	if ! mkdir "${reaper_path}" 2>/dev/null; then
 		reaper_owner="$(cat "${reaper_path}/pid" 2>/dev/null)"
+		[ -n "${reaper_owner}" ] || return 1
 		nvram_transaction_lock_owner_live "${reaper_owner}" && return 1
 		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${reaper_owner}" ] || return 1
 		rm -rf "${reaper_path}" || return 1

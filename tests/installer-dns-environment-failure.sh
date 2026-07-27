@@ -185,6 +185,23 @@ reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not determine the test process lock identity'
 for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
 	mkdir -p "${reaper_path}"
+	if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
+		fail "initializing reaper lock without an owner was reclaimed: ${reaper_path}"
+	fi
+	[ -d "${reaper_path}" ] || fail "initializing reaper lock without an owner was removed: ${reaper_path}"
+	[ ! -e "${reaper_path}/pid" ] || fail "initializing reaper lock acquired an owner: ${reaper_path}"
+	rm -rf "${reaper_path}"
+
+	mkdir -p "${reaper_path}"
+	: >"${reaper_path}/pid"
+	if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
+		fail "initializing reaper lock with an empty owner was reclaimed: ${reaper_path}"
+	fi
+	[ -d "${reaper_path}" ] || fail "initializing reaper lock with an empty owner was removed: ${reaper_path}"
+	[ ! -s "${reaper_path}/pid" ] || fail "initializing reaper lock owner was replaced: ${reaper_path}"
+	rm -rf "${reaper_path}"
+
+	mkdir -p "${reaper_path}"
 	printf '%s\n' 999999999 >"${reaper_path}/pid"
 	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "stale reaper lock was not reclaimed: ${reaper_path}"
 	[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "reclaimed reaper lock has the wrong owner: ${reaper_path}"
