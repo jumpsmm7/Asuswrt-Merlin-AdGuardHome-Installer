@@ -138,6 +138,7 @@ run_check 'Installer staged YAML validation regression' sh tests/installer-stage
 run_check 'Installer startup readiness regression' sh tests/installer-startup-readiness.sh
 run_check 'Installer DNS environment failure regression' sh tests/installer-dns-environment-failure.sh
 run_check 'Installer service status wait regression' sh tests/installer-service-status-after-action.sh
+run_check 'Installer service lock descriptor regression' sh tests/installer-service-lock-fd.sh
 run_check 'Installer mandatory numeric input failure regression' sh tests/installer-mandatory-number-failure.sh
 run_check 'Installer DNS input failure regression' sh tests/installer-dns-input-failure.sh
 run_check 'Installer WebUI port failure regression' sh tests/installer-web-port-failure.sh

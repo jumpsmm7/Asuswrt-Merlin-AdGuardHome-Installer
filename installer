@@ -2376,14 +2376,18 @@ status() {
 	status_line "Last rollback result" "$(rollback_result_summary 2>/dev/null || PTXT "none")"
 }
 
+adguard_service_without_nvram_lock_fd() {
+	( exec 8>&-; "$@" )
+}
+
 agh_restart() {
 	local old_pids
 	if agh_is_running; then
 		ptxt_step "Restarting AdGuardHome service."
 		old_pids="$(pidof AdGuardHome 2>/dev/null)"
-		if (exec 8>&-; service restart_AdGuardHome) >/dev/null 2>&1; then
+		if adguard_service_without_nvram_lock_fd service restart_AdGuardHome >/dev/null 2>&1; then
 			adguard_service_status_after_action restart "${old_pids}" || true
-		elif (exec 8>&-; /opt/etc/init.d/S99AdGuardHome restart); then
+		elif adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome restart; then
 			adguard_service_status_after_action restart "${old_pids}" || true
 		else
 			ptxt_fail "AdGuardHome service restart command failed."
@@ -2404,9 +2408,9 @@ agh_restart() {
 agh_start() {
 	if ! agh_is_running; then
 		ptxt_step "Starting AdGuardHome service."
-		if (exec 8>&-; service start_AdGuardHome) >/dev/null 2>&1; then
+		if adguard_service_without_nvram_lock_fd service start_AdGuardHome >/dev/null 2>&1; then
 			adguard_service_status_after_action start || true
-		elif (exec 8>&-; /opt/etc/init.d/S99AdGuardHome start); then
+		elif adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome start; then
 			adguard_service_status_after_action start || true
 		else
 			ptxt_fail "AdGuardHome service start command failed."
@@ -3067,7 +3071,7 @@ remove_unused_blocklists_from_yaml() {
 	rm -f "${removed_file}"
 	ptxt_warn "Restarting AdGuardHome temporarily interrupts AdGuardHome DNS filtering."
 	OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
-	if service restart_AdGuardHome >/dev/null 2>&1; then
+	if adguard_service_without_nvram_lock_fd service restart_AdGuardHome >/dev/null 2>&1; then
 		adguard_service_status_after_action restart "${OLD_PIDS}" || true
 		ptxt_ok "AdGuardHome restarted after blocklist cleanup."
 	else
@@ -6894,7 +6898,7 @@ menu() {
 				return 1
 			fi
 			OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
-			if ! service restart_AdGuardHome >/dev/null 2>&1; then
+			if ! adguard_service_without_nvram_lock_fd service restart_AdGuardHome >/dev/null 2>&1; then
 				PTXT "${WARNING} The setting was saved, but AdGuardHome could not be restarted automatically."
 			else
 				adguard_service_status_after_action restart "${OLD_PIDS}" || true
@@ -7737,7 +7741,7 @@ cli_run() {
 			fi
 			if [ "${CLI_YES}" = "1" ]; then
 				OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
-				if service restart_AdGuardHome >/dev/null 2>&1 && adguard_service_status_after_action restart "${OLD_PIDS}"; then
+				if adguard_service_without_nvram_lock_fd service restart_AdGuardHome >/dev/null 2>&1 && adguard_service_status_after_action restart "${OLD_PIDS}"; then
 					return 0
 				fi
 				PTXT "${WARNING} IPSET refresh requested, but AdGuardHome could not be restarted."
