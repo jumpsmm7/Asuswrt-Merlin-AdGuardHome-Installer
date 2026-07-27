@@ -79,6 +79,7 @@ nvram_transaction_begin() {
 	case "${name}" in
 		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-]*) return 1 ;;
 	esac
+	nvram_transaction_lock_acquire || return 1
 	snapshot_dir="${BASE_DIR}/.AdGuardHome.nvram/${name}"
 	temp_dir="${snapshot_dir}.tmp.$$"
 	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram" ] || return 1
@@ -162,6 +163,203 @@ nvram_transaction_begin() {
 	NVRAM_TRANSACTION_DIR="${snapshot_dir}"
 	NVRAM_TRANSACTION_CHANGED="0"
 	export NVRAM_TRANSACTION_DIR NVRAM_TRANSACTION_CHANGED
+}
+
+nvram_transaction_lock_acquire() {
+	local lock_dir lock_owner lock_path status
+	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
+	case "${NVRAM_TRANSACTION_LOCK_MODE:-}" in
+		flock) [ -e "/proc/$$/fd/8" ] && return 0 ;;
+		symlink) [ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "$$" ] && return 0 ;;
+		mkdir) [ "$(cat "${lock_path}.d/pid" 2>/dev/null)" = "$$" ] && return 0 ;;
+	esac
+	NVRAM_TRANSACTION_LOCK_MODE=""
+	if nvram_transaction_lock_flock_supports_fd; then
+		[ ! -L "${lock_path}" ] || return 1
+		: >>"${lock_path}" 2>/dev/null || return 1
+		if ! (exec 8<>"${lock_path}") 2>/dev/null; then return 1; fi
+		exec 8<>"${lock_path}" || return 1
+		if /usr/bin/flock -n 8 >/dev/null 2>&1; then
+			NVRAM_TRANSACTION_LOCK_MODE="flock"
+			return 0
+		fi
+		exec 8>&-
+		return 1
+	fi
+	nvram_transaction_lock_symlink_acquire
+	status="$?"
+	case "${status}" in
+		0)
+			NVRAM_TRANSACTION_LOCK_MODE="symlink"
+			return 0
+			;;
+		1) return 1 ;;
+		2) ;;
+		*) return 1 ;;
+	esac
+	lock_dir="${lock_path}.d"
+	if mkdir "${lock_dir}" 2>/dev/null; then
+		printf '%s\n' "$$" >"${lock_dir}/pid" || {
+			rm -rf "${lock_dir}"
+			return 1
+		}
+		chmod 700 "${lock_dir}" 2>/dev/null || {
+			rm -rf "${lock_dir}"
+			return 1
+		}
+		NVRAM_TRANSACTION_LOCK_MODE="mkdir"
+		return 0
+	fi
+	[ ! -L "${lock_dir}" ] || return 1
+	lock_owner="$(cat "${lock_dir}/pid" 2>/dev/null)"
+	case "${lock_owner}" in
+		"" | *[!0-9]*) ;;
+		*) [ ! -d "/proc/${lock_owner}" ] || return 1 ;;
+	esac
+	nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" || return 1
+	[ -d "${lock_dir}" ] && [ ! -L "${lock_dir}" ] || {
+		nvram_transaction_lock_reaper_release "${lock_path}.reaper"
+		return 1
+	}
+	[ "$(cat "${lock_dir}/pid" 2>/dev/null)" = "${lock_owner}" ] || {
+		nvram_transaction_lock_reaper_release "${lock_path}.reaper"
+		return 1
+	}
+	rm -rf "${lock_dir}" || {
+		nvram_transaction_lock_reaper_release "${lock_path}.reaper"
+		return 1
+	}
+	mkdir "${lock_dir}" 2>/dev/null || {
+		nvram_transaction_lock_reaper_release "${lock_path}.reaper"
+		return 1
+	}
+	printf '%s\n' "$$" >"${lock_dir}/pid" || {
+		rm -rf "${lock_dir}"
+		nvram_transaction_lock_reaper_release "${lock_path}.reaper"
+		return 1
+	}
+	chmod 700 "${lock_dir}" 2>/dev/null || {
+		rm -rf "${lock_dir}"
+		nvram_transaction_lock_reaper_release "${lock_path}.reaper"
+		return 1
+	}
+	[ "$(cat "${lock_dir}/pid" 2>/dev/null)" = "$$" ] || {
+		nvram_transaction_lock_reaper_release "${lock_path}.reaper"
+		return 1
+	}
+	nvram_transaction_lock_reaper_release "${lock_path}.reaper" || return 1
+	NVRAM_TRANSACTION_LOCK_MODE="mkdir"
+}
+
+nvram_transaction_lock_owned() {
+	local lock_path
+	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
+	case "${NVRAM_TRANSACTION_LOCK_MODE:-}" in
+		flock) [ -e "/proc/$$/fd/8" ] ;;
+		symlink) [ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "$$" ] ;;
+		mkdir) [ "$(cat "${lock_path}.d/pid" 2>/dev/null)" = "$$" ] ;;
+		*) return 1 ;;
+	esac
+}
+
+nvram_transaction_lock_reaper_acquire() {
+	local reaper_path
+	reaper_path="$1"
+	mkdir "${reaper_path}" 2>/dev/null || return 1
+	printf '%s\n' "$$" >"${reaper_path}/pid" || {
+		rmdir "${reaper_path}" 2>/dev/null
+		return 1
+	}
+}
+
+nvram_transaction_lock_reaper_release() {
+	local reaper_path
+	reaper_path="$1"
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "$$" ] || return 1
+	rm -rf "${reaper_path}"
+}
+
+nvram_transaction_lock_flock_supports_fd() {
+	local probe status
+	[ -x /usr/bin/flock ] || return 1
+	probe="${BASE_DIR}/.AdGuardHome.nvram.flock-probe.$$"
+	(
+		exec 9>"${probe}" || exit 1
+		/usr/bin/flock -n 9 >/dev/null 2>&1
+	)
+	status="$?"
+	rm -f "${probe}"
+	return "${status}"
+}
+
+nvram_transaction_lock_readlink() {
+	which readlink >/dev/null 2>&1 || return 127
+	[ "$#" -gt 0 ] || return 0
+	readlink "$1"
+}
+
+nvram_transaction_lock_symlink_acquire() {
+	local lock_owner lock_path
+	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+	if ! nvram_transaction_lock_readlink; then
+		if [ -L "${lock_path}" ]; then
+			printf '%s\n' "Error: cannot inspect NVRAM transaction lock ${lock_path}; readlink is unavailable." >&2
+			return 1
+		fi
+		return 2
+	fi
+	if [ -L "${lock_path}" ]; then
+		lock_owner="$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)"
+		case "${lock_owner}" in
+			"" | *[!0-9]*) ;;
+			*) [ ! -d "/proc/${lock_owner}" ] || return 1 ;;
+		esac
+		nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" || return 1
+		[ "$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)" = "${lock_owner}" ] || {
+			nvram_transaction_lock_reaper_release "${lock_path}.reaper"
+			return 1
+		}
+		rm -f "${lock_path}" || {
+			nvram_transaction_lock_reaper_release "${lock_path}.reaper"
+			return 1
+		}
+	elif [ -e "${lock_path}" ]; then
+		return 1
+	fi
+	if ln -s "$$" "${lock_path}" 2>/dev/null; then
+		if [ "$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)" != "$$" ]; then
+			if [ -d "${lock_path}.reaper" ] && [ "$(cat "${lock_path}.reaper/pid" 2>/dev/null)" = "$$" ]; then
+				nvram_transaction_lock_reaper_release "${lock_path}.reaper" || true
+			fi
+			return 1
+		fi
+		[ ! -d "${lock_path}.reaper" ] || nvram_transaction_lock_reaper_release "${lock_path}.reaper" || return 1
+		return 0
+	fi
+	[ ! -e "${lock_path}" ] && [ ! -L "${lock_path}" ] || return 1
+	return 2
+}
+
+nvram_transaction_lock_release() {
+	local lock_path
+	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
+	case "${NVRAM_TRANSACTION_LOCK_MODE:-}" in
+		flock)
+			/usr/bin/flock -u 8 >/dev/null 2>&1 || return 1
+			exec 8>&-
+			;;
+		symlink)
+			[ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "$$" ] || return 1
+			rm -f "${lock_path}.symlink" || return 1
+			;;
+		mkdir)
+			[ "$(cat "${lock_path}.d/pid" 2>/dev/null)" = "$$" ] || return 1
+			rm -rf "${lock_path}.d" || return 1
+			;;
+		"") return 0 ;;
+		*) return 1 ;;
+	esac
+	NVRAM_TRANSACTION_LOCK_MODE=""
 }
 
 nvram_transaction_set() {
@@ -516,7 +714,7 @@ on_installer_exit() {
 	cleanup_api_files
 	installer_cleanup_tmp_file setup "${SETUP_YAML_TMP_FILE:-}"
 	installer_cleanup_tmp_file blocklist "${BLOCKLIST_YAML_TMP_FILE:-}"
-	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ]; then
+	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && nvram_transaction_lock_owned; then
 		# Restore any LAN-domain transaction interrupted before setup finalized it.
 		installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 		# Restore any DNSFilter transaction interrupted before setup finalized it.
@@ -526,6 +724,7 @@ on_installer_exit() {
 			check_dns_environment 1
 		fi
 	fi
+	nvram_transaction_lock_release || PTXT "${ERROR} Unable to release the installer NVRAM transaction lock."
 }
 
 python_bcrypt_available() {
@@ -2177,14 +2376,21 @@ status() {
 	status_line "Last rollback result" "$(rollback_result_summary 2>/dev/null || PTXT "none")"
 }
 
+adguard_service_without_nvram_lock_fd() {
+	(
+		exec 8>&-
+		"$@"
+	)
+}
+
 agh_restart() {
 	local old_pids
 	if agh_is_running; then
 		ptxt_step "Restarting AdGuardHome service."
 		old_pids="$(pidof AdGuardHome 2>/dev/null)"
-		if service restart_AdGuardHome >/dev/null 2>&1; then
+		if adguard_service_without_nvram_lock_fd service restart_AdGuardHome >/dev/null 2>&1; then
 			adguard_service_status_after_action restart "${old_pids}" || true
-		elif /opt/etc/init.d/S99AdGuardHome restart; then
+		elif adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome restart; then
 			adguard_service_status_after_action restart "${old_pids}" || true
 		else
 			ptxt_fail "AdGuardHome service restart command failed."
@@ -2205,9 +2411,9 @@ agh_restart() {
 agh_start() {
 	if ! agh_is_running; then
 		ptxt_step "Starting AdGuardHome service."
-		if service start_AdGuardHome >/dev/null 2>&1; then
+		if adguard_service_without_nvram_lock_fd service start_AdGuardHome >/dev/null 2>&1; then
 			adguard_service_status_after_action start || true
-		elif /opt/etc/init.d/S99AdGuardHome start; then
+		elif adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome start; then
 			adguard_service_status_after_action start || true
 		else
 			ptxt_fail "AdGuardHome service start command failed."
@@ -2868,7 +3074,7 @@ remove_unused_blocklists_from_yaml() {
 	rm -f "${removed_file}"
 	ptxt_warn "Restarting AdGuardHome temporarily interrupts AdGuardHome DNS filtering."
 	OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
-	if service restart_AdGuardHome >/dev/null 2>&1; then
+	if adguard_service_without_nvram_lock_fd service restart_AdGuardHome >/dev/null 2>&1; then
 		adguard_service_status_after_action restart "${OLD_PIDS}" || true
 		ptxt_ok "AdGuardHome restarted after blocklist cleanup."
 	else
@@ -4670,6 +4876,7 @@ installer_update_reexec() {
 	chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1
 	AI_REEXECED_INSTALLER="1"
 	export AI_REEXECED_INSTALLER
+	nvram_transaction_lock_release || return 1
 	exec "${TARG_DIR}/installer" "${BRANCH}" "${ACTION}"
 }
 
@@ -6546,6 +6753,10 @@ end_op_message() {
 	PTXT " "
 	PTXT " "
 	sleep 3s && clear_screen
+	nvram_transaction_lock_release || {
+		PTXT "${ERROR} Unable to release the installer NVRAM transaction lock before restarting the installer."
+		return 1
+	}
 	if [ -f "${TARG_DIR}/installer" ]; then
 		chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1
 		exec "${TARG_DIR}/installer" "${BRANCH}"
@@ -6690,7 +6901,7 @@ menu() {
 				return 1
 			fi
 			OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
-			if ! service restart_AdGuardHome >/dev/null 2>&1; then
+			if ! adguard_service_without_nvram_lock_fd service restart_AdGuardHome >/dev/null 2>&1; then
 				PTXT "${WARNING} The setting was saved, but AdGuardHome could not be restarted automatically."
 			else
 				adguard_service_status_after_action restart "${OLD_PIDS}" || true
@@ -7533,7 +7744,7 @@ cli_run() {
 			fi
 			if [ "${CLI_YES}" = "1" ]; then
 				OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
-				if service restart_AdGuardHome >/dev/null 2>&1 && adguard_service_status_after_action restart "${OLD_PIDS}"; then
+				if adguard_service_without_nvram_lock_fd service restart_AdGuardHome >/dev/null 2>&1 && adguard_service_status_after_action restart "${OLD_PIDS}"; then
 					return 0
 				fi
 				PTXT "${WARNING} IPSET refresh requested, but AdGuardHome could not be restarted."
