@@ -395,7 +395,7 @@ BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" TEST_ROOT="${TEST_ROOT
 	ADGUARD_INSTALL_MODE=wan
 	ERROR='Error:'
 	# cleanup_api_files performs no operation.
-cleanup_api_files() { :; }
+	cleanup_api_files() { :; }
 	# installer_cleanup_tmp_file performs temporary-file cleanup.
 	installer_cleanup_tmp_file() { :; }
 	# installer_lan_domain_restore restores the original LAN domain settings from the active transaction snapshot.
