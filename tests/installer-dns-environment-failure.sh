@@ -365,7 +365,7 @@ printf '%s\n' "\$1" >"${TEST_ROOT}/restart-${fallback_mode}.branch"
 EOF_RESTART
 		chmod 755 "${TARG_DIR}/installer" || fail "could not make ${fallback_mode} restart target executable"
 		# sleep does nothing.
-sleep() { :; }
+		sleep() { :; }
 		# clear_screen does nothing.
 		clear_screen() { :; }
 		# rollback_result_needs_attention indicates that rollback attention is not needed.
