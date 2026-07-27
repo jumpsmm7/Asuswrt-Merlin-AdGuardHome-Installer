@@ -118,6 +118,7 @@ installer_lan_domain_set() {
 # installer_lan_domain_restore increments the LAN domain restoration counter.
 installer_lan_domain_restore() {
 	LAN_DOMAIN_RESTORES="$((LAN_DOMAIN_RESTORES + 1))"
+	LAN_DOMAIN=""
 }
 # restore_dns_filter_settings restores DNS filter settings and removes the specified temporary directory.
 restore_dns_filter_settings() {
@@ -285,9 +286,16 @@ printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"'
 FAIL_LAN_DOMAIN_SET=0
 FAIL_DNS_FILTER_SNAPSHOT_CLEANUP=1
 DNS_FILTER_CHANGED=0
+DNS_FILTER_RESTORES=0
+LAN_DOMAIN_RESTORES=0
 if setup_AdGuardHome_impl reconfig reconfig; then
 	fail 'reconfiguration ignored DNSFilter snapshot cleanup failure'
 fi
-[ "${DNS_FILTER_CHANGED}" -eq 1 ] || fail 'DNSFilter snapshot cleanup test did not reach the applied settings path'
+[ "${DNS_FILTER_RESTORES}" -eq 1 ] || fail 'DNSFilter snapshot cleanup failure did not restore DNSFilter settings'
+[ "${LAN_DOMAIN_RESTORES}" -eq 1 ] || fail 'DNSFilter snapshot cleanup failure did not restore the LAN domain'
+[ "${DNS_FILTER_CHANGED}" -eq 0 ] || fail 'DNSFilter snapshot cleanup failure left changed DNSFilter settings'
+[ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'DNSFilter snapshot cleanup failure did not restore the previous YAML'
+[ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'DNSFilter snapshot cleanup failure did not restore installer preferences'
+[ -z "${LAN_DOMAIN}" ] || fail 'DNSFilter snapshot cleanup failure did not restore the router LAN domain'
 
 printf '%s\n' 'PASS: failed WebUI port verification or persistence aborts setup safely'
