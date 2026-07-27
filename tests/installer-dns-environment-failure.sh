@@ -284,7 +284,7 @@ reset_case
 DNS_READY=0
 check_dns_environment 0 && fail 'local DNS readiness failure was accepted'
 assert_original 'DNS readiness failure'
-[ "$(dns_check_count)" = 3 ] || fail 'local DNS and recovery checks were not bounded by their configured deadlines'
+[ "$(dns_check_count)" = 2 ] || fail 'local DNS and recovery checks were not bounded by their configured deadlines'
 
 reset_case
 DNS_READY=0

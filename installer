@@ -2995,6 +2995,7 @@ check_dns_environment() {
 			[ "${status}" -eq 0 ] && return 0
 			now="$(monotonic_seconds)" || return 1
 			sleep 1s
+			now="$(monotonic_seconds)" || return 1
 		done
 		return 1
 	}
