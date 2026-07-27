@@ -50,7 +50,15 @@ cleanup_api_files() { :; }
 installer_cleanup_tmp_file() { :; }
 rollback_pending_mode_migration() { return 0; }
 sleep() { MONOTONIC_NOW="$((MONOTONIC_NOW + 1))"; }
-monotonic_seconds() { printf '%s\n' "${MONOTONIC_NOW}"; }
+monotonic_seconds() {
+	if [ "${MONOTONIC_FAIL_AT:-0}" != 0 ]; then
+		MONOTONIC_CALLS="$(cat "${TEST_ROOT}/monotonic-calls" 2>/dev/null || printf 0)"
+		MONOTONIC_CALLS="$((MONOTONIC_CALLS + 1))"
+		printf '%s\n' "${MONOTONIC_CALLS}" >"${TEST_ROOT}/monotonic-calls"
+		[ "${MONOTONIC_CALLS}" != "${MONOTONIC_FAIL_AT}" ] || return 1
+	fi
+	printf '%s\n' "${MONOTONIC_NOW}"
+}
 # check_connection checks simulated public network availability and increments the public connectivity check count.
 check_connection() {
 	PUBLIC_CHECK_COUNT="$((PUBLIC_CHECK_COUNT + 1))"
@@ -111,6 +119,9 @@ service() {
 
 nslookup() {
 	printf '%s\n' "nslookup $*" >>"${CALLS_FILE}"
+	if [ "${TRACK_LOOKUP:-0}" = 1 ]; then
+		trap 'printf "%s\n" reaped >"${TEST_ROOT}/lookup-reaped"; exit 1' TERM
+	fi
 	[ "${BLOCKING_QUERY:-0}" = 0 ] || /bin/sleep 5
 	[ "${DNS_READY:-1}" = 1 ]
 }
@@ -130,7 +141,8 @@ EOF_NVRAM
 	: >"${CALLS_FILE}"
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0
 	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0
-	BLOCKING_QUERY=0 MONOTONIC_NOW=0
+	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0
+	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
 	_DNS_NVRAM_SAVED=0 _DNS_NVRAM_ROLLBACK_ATTEMPTED=0
 }
 
@@ -262,6 +274,13 @@ DNS_READY=0
 BLOCKING_QUERY=1
 check_dns_environment 0 && fail 'blocking local DNS readiness failure was accepted'
 [ "$(dns_check_count)" = 2 ] || fail 'blocking DNS queries exceeded the startup and recovery deadlines'
+
+reset_case
+BLOCKING_QUERY=1
+TRACK_LOOKUP=1
+MONOTONIC_FAIL_AT=2
+check_dns_environment 0 && fail 'monotonic clock failure was accepted'
+[ -f "${TEST_ROOT}/lookup-reaped" ] || fail 'monotonic clock failure did not reap the active DNS lookup'
 
 reset_case
 FAIL_COMMIT_AT=2

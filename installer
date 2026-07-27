@@ -2976,7 +2976,11 @@ check_dns_environment() {
 			nslookup localhost 127.0.0.1 >/dev/null 2>&1 &
 			lookup_pid="$!"
 			while kill -0 "${lookup_pid}" >/dev/null 2>&1; do
-				now="$(monotonic_seconds)" || return 1
+				now="$(monotonic_seconds)" || {
+					kill "${lookup_pid}" >/dev/null 2>&1 || :
+					wait "${lookup_pid}" 2>/dev/null || :
+					return 1
+				}
 				if [ "${now}" -ge "${deadline}" ]; then
 					kill "${lookup_pid}" >/dev/null 2>&1 || :
 					wait "${lookup_pid}" 2>/dev/null || :
