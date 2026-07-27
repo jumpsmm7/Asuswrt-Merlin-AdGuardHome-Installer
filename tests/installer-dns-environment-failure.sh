@@ -182,19 +182,26 @@ EOF_NVRAM
 }
 
 reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not determine the test process lock identity'
 for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
 	mkdir -p "${reaper_path}"
 	printf '%s\n' 999999999 >"${reaper_path}/pid"
 	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "stale reaper lock was not reclaimed: ${reaper_path}"
-	[ "$(cat "${reaper_path}/pid")" = "$$" ] || fail "reclaimed reaper lock has the wrong owner: ${reaper_path}"
+	[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "reclaimed reaper lock has the wrong owner: ${reaper_path}"
 	nvram_transaction_lock_reaper_release "${reaper_path}" || fail "reclaimed reaper lock was not released: ${reaper_path}"
 
 	mkdir -p "${reaper_path}"
-	printf '%s\n' "$$" >"${reaper_path}/pid"
+	printf '%s\n' "${LOCK_OWNER}" >"${reaper_path}/pid"
 	if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
 		fail "live reaper lock was reclaimed: ${reaper_path}"
 	fi
 	rm -rf "${reaper_path}"
+
+	mkdir -p "${reaper_path}"
+	printf '%s:0\n' "$$" >"${reaper_path}/pid"
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "PID-reused reaper lock was not reclaimed: ${reaper_path}"
+	[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "PID-reused reaper lock has the wrong replacement owner: ${reaper_path}"
+	nvram_transaction_lock_reaper_release "${reaper_path}" || fail "PID-reused reaper lock was not released: ${reaper_path}"
 done
 
 # assert_original verifies that the simulated NVRAM contains the expected original DNS settings, failing with the provided label if any value differs.
@@ -399,7 +406,7 @@ done
 	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare stale symlink transaction lock'
 	nvram_transaction_lock_acquire || fail 'stale symlink transaction lock blocked recovery'
 	[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = symlink ] || fail 'stale symlink lock did not select symlink mode'
-	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = "$$" ] || fail 'stale symlink lock was not replaced by the live owner'
+	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = "${LOCK_OWNER}" ] || fail 'stale symlink lock was not replaced by the live owner'
 	if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
 		. "${FUNCTIONS_FILE}"
 		nvram_transaction_lock_flock_supports_fd() { return 1; }
@@ -410,6 +417,10 @@ done
 		[ "$?" -ne 2 ] || fail 'live symlink lock was reported as unsupported'
 	fi
 	nvram_transaction_lock_release || fail 'symlink transaction owner could not release its lock'
+	ln -s "$$:0" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare PID-reused symlink transaction lock'
+	nvram_transaction_lock_acquire || fail 'PID-reused symlink transaction lock blocked recovery'
+	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = "${LOCK_OWNER}" ] || fail 'PID-reused symlink lock was not replaced'
+	nvram_transaction_lock_release || fail 'PID-reused symlink transaction owner could not release its lock'
 ) || exit 1
 (
 	# nvram_transaction_lock_flock_supports_fd determines whether file-descriptor-based flock locking is supported.
@@ -451,7 +462,7 @@ done
 	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale transaction lock'
 	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale transaction lock owner'
 	nvram_transaction_lock_acquire || fail 'stale NVRAM transaction lock blocked recovery'
-	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "$$" ] || fail 'stale transaction lock was not replaced by the live owner'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "${LOCK_OWNER}" ] || fail 'stale transaction lock was not replaced by the live owner'
 	if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
 		. "${FUNCTIONS_FILE}"
 		nvram_transaction_lock_flock_supports_fd() { return 1; }
@@ -463,13 +474,18 @@ done
 	nvram_transaction_lock_release || fail 'mkdir transaction owner could not release its lock'
 	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare missing-pid transaction lock'
 	nvram_transaction_lock_acquire || fail 'missing-pid transaction lock blocked recovery'
-	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "$$" ] || fail 'missing-pid transaction lock was not replaced by the live owner'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "${LOCK_OWNER}" ] || fail 'missing-pid transaction lock was not replaced by the live owner'
 	nvram_transaction_lock_release || fail 'missing-pid transaction owner could not release its lock'
 	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare malformed-pid transaction lock'
 	printf '%s\n' invalid >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record malformed transaction lock owner'
 	nvram_transaction_lock_acquire || fail 'malformed-pid transaction lock blocked recovery'
-	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "$$" ] || fail 'malformed-pid transaction lock was not replaced by the live owner'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "${LOCK_OWNER}" ] || fail 'malformed-pid transaction lock was not replaced by the live owner'
 	nvram_transaction_lock_release || fail 'malformed-pid transaction owner could not release its lock'
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare PID-reused transaction lock'
+	printf '%s:0\n' "$$" >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record PID-reused transaction lock owner'
+	nvram_transaction_lock_acquire || fail 'PID-reused transaction lock blocked recovery'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "${LOCK_OWNER}" ] || fail 'PID-reused transaction lock was not replaced'
+	nvram_transaction_lock_release || fail 'PID-reused transaction owner could not release its lock'
 ) || exit 1
 (
 	# nvram_transaction_lock_flock_supports_fd determines whether file-descriptor-based flock locking is supported.

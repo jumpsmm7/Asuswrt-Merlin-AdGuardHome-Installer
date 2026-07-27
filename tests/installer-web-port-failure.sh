@@ -161,7 +161,7 @@ nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '1' ;;
 		get:lan_ipaddr) printf '%s\n' '192.168.1.1' ;;
-		get:lan_domain) printf '%s\n' "${LAN_DOMAIN:-}" ;;
+		get:lan_domain) printf '%s\n' "${LAN_DOMAIN_LOOKUP:-}" ;;
 		set:*)
 			LAN_DOMAIN="${2#lan_domain=}"
 			;;
@@ -247,7 +247,7 @@ fi
 printf '%s\n' 'working configuration' >"${YAML_FILE}"
 printf '%s\n' 'original configuration' >"${YAML_ORI}"
 printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
-LAN_DOMAIN=
+LAN_DOMAIN='before-web-port-failure.test'
 : >"${WRITE_LOG}"
 YAML_CHECKS=0
 FAIL_WRITE_CONF=1
@@ -270,12 +270,12 @@ grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail 'reconfiguration did not a
 [ "${DNS_FILTER_RESTORES}" -eq 1 ] || fail 'reconfiguration did not restore DNSFilter settings after WebUI port persistence failed'
 [ "${LAN_DOMAIN_RESTORES}" -eq 1 ] || fail 'reconfiguration did not restore LAN domain after WebUI port persistence failed'
 [ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'reconfiguration did not restore installer preferences after WebUI port persistence failed'
-[ -z "${LAN_DOMAIN}" ] || fail 'reconfiguration did not restore the router LAN domain after WebUI port persistence failed'
+[ "${LAN_DOMAIN}" = 'before-web-port-failure.test' ] || fail 'reconfiguration did not restore the prior router LAN domain after WebUI port persistence failed'
 
 printf '%s\n' 'working configuration' >"${YAML_FILE}"
 printf '%s\n' 'original configuration' >"${YAML_ORI}"
 printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
-LAN_DOMAIN=
+LAN_DOMAIN='before-persistence-failure.test'
 : >"${WRITE_LOG}"
 YAML_CHECKS=0
 FAIL_WRITE_CONF=0
@@ -289,11 +289,12 @@ fi
 [ ! -e "${YAML_ORI}.new.$$" ] || fail 'reconfiguration left staged YAML behind after LAN domain persistence failed'
 [ "${DNS_FILTER_CHANGED}" -eq 0 ] || fail 'reconfiguration changed DNSFilter settings after LAN domain persistence failed'
 [ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'reconfiguration did not restore installer preferences after LAN domain persistence failed'
-[ -z "${LAN_DOMAIN}" ] || fail 'reconfiguration changed the router LAN domain after LAN domain persistence failed'
+[ "${LAN_DOMAIN}" = 'before-persistence-failure.test' ] || fail 'reconfiguration changed the prior router LAN domain after LAN domain persistence failed'
 
 printf '%s\n' 'working configuration' >"${YAML_FILE}"
 printf '%s\n' 'original configuration' >"${YAML_ORI}"
 printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+LAN_DOMAIN='before-dnsfilter-cleanup-failure.test'
 : >"${WRITE_LOG}"
 FAIL_LAN_DOMAIN_SET=0
 FAIL_DNS_FILTER_SNAPSHOT_CLEANUP=1
@@ -308,11 +309,12 @@ fi
 [ "${DNS_FILTER_CHANGED}" -eq 0 ] || fail 'DNSFilter snapshot cleanup failure left changed DNSFilter settings'
 [ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'DNSFilter snapshot cleanup failure did not restore the previous YAML'
 [ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'DNSFilter snapshot cleanup failure did not restore installer preferences'
-[ -z "${LAN_DOMAIN}" ] || fail 'DNSFilter snapshot cleanup failure did not restore the router LAN domain'
+[ "${LAN_DOMAIN}" = 'before-dnsfilter-cleanup-failure.test' ] || fail 'DNSFilter snapshot cleanup failure did not restore the prior router LAN domain'
 
 printf '%s\n' 'working configuration' >"${YAML_FILE}"
 printf '%s\n' 'original configuration' >"${YAML_ORI}"
 printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+LAN_DOMAIN='before-lan-cleanup-failure.test'
 : >"${WRITE_LOG}"
 FAIL_DNS_FILTER_SNAPSHOT_CLEANUP=0
 FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP=1
@@ -327,6 +329,6 @@ fi
 [ "${DNS_FILTER_CHANGED}" -eq 0 ] || fail 'LAN domain snapshot cleanup failure left changed DNSFilter settings'
 [ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'LAN domain snapshot cleanup failure did not restore the previous YAML'
 [ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'LAN domain snapshot cleanup failure did not restore installer preferences'
-[ -z "${LAN_DOMAIN}" ] || fail 'LAN domain snapshot cleanup failure did not restore the router LAN domain'
+[ "${LAN_DOMAIN}" = 'before-lan-cleanup-failure.test' ] || fail 'LAN domain snapshot cleanup failure did not restore the prior router LAN domain'
 
 printf '%s\n' 'PASS: failed WebUI port verification or persistence aborts setup safely'
