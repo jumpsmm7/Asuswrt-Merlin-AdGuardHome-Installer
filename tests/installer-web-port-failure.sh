@@ -104,7 +104,10 @@ save_dns_filter_settings() {
 	mkdir -p "$1"
 }
 # installer_lan_domain_set sets the LAN domain to the specified value.
-installer_lan_domain_set() { nvram set "lan_domain=$1"; }
+installer_lan_domain_set() {
+	[ "${FAIL_LAN_DOMAIN_SET:-0}" -eq 0 ] || return 1
+	nvram set "lan_domain=$1"
+}
 # installer_lan_domain_restore increments the LAN domain restoration counter.
 installer_lan_domain_restore() {
 	LAN_DOMAIN_RESTORES="$((LAN_DOMAIN_RESTORES + 1))"
@@ -248,5 +251,24 @@ grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail 'reconfiguration did not a
 [ "${LAN_DOMAIN_RESTORES}" -eq 1 ] || fail 'reconfiguration did not restore LAN domain after WebUI port persistence failed'
 [ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'reconfiguration did not restore installer preferences after WebUI port persistence failed'
 [ -z "${LAN_DOMAIN}" ] || fail 'reconfiguration did not restore the router LAN domain after WebUI port persistence failed'
+
+printf '%s\n' 'working configuration' >"${YAML_FILE}"
+printf '%s\n' 'original configuration' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+LAN_DOMAIN=
+: >"${WRITE_LOG}"
+YAML_CHECKS=0
+FAIL_WRITE_CONF=0
+FAIL_LAN_DOMAIN_SET=1
+DNS_FILTER_CHANGED=0
+if setup_AdGuardHome_impl reconfig reconfig; then
+	fail 'reconfiguration continued after LAN domain persistence failed'
+fi
+[ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'reconfiguration did not restore the previous YAML after LAN domain persistence failed'
+[ ! -e "${YAML_BAK}" ] || fail 'reconfiguration left the YAML backup behind after LAN domain persistence failed'
+[ ! -e "${YAML_ORI}.new.$$" ] || fail 'reconfiguration left staged YAML behind after LAN domain persistence failed'
+[ "${DNS_FILTER_CHANGED}" -eq 0 ] || fail 'reconfiguration changed DNSFilter settings after LAN domain persistence failed'
+[ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'reconfiguration did not restore installer preferences after LAN domain persistence failed'
+[ -z "${LAN_DOMAIN}" ] || fail 'reconfiguration changed the router LAN domain after LAN domain persistence failed'
 
 printf '%s\n' 'PASS: failed WebUI port verification or persistence aborts setup safely'
