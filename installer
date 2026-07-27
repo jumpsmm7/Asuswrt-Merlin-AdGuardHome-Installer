@@ -167,8 +167,13 @@ nvram_transaction_begin() {
 
 nvram_transaction_lock_acquire() {
 	local lock_dir lock_owner lock_path status
-	[ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || return 0
 	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
+	case "${NVRAM_TRANSACTION_LOCK_MODE:-}" in
+		flock) [ -e "/proc/$$/fd/8" ] && return 0 ;;
+		symlink) [ "$(readlink "${lock_path}.symlink" 2>/dev/null)" = "$$" ] && return 0 ;;
+		mkdir) [ "$(cat "${lock_path}.d/pid" 2>/dev/null)" = "$$" ] && return 0 ;;
+	esac
+	NVRAM_TRANSACTION_LOCK_MODE=""
 	if nvram_transaction_lock_flock_supports_fd; then
 		[ ! -L "${lock_path}" ] || return 1
 		exec 8>"${lock_path}" || return 1

@@ -200,6 +200,17 @@ if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
 '; then
 	fail 'overlapping installer acquired the live NVRAM transaction lock'
 fi
+for inherited_lock_mode in flock symlink mkdir invalid; do
+	if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" NVRAM_TRANSACTION_LOCK_MODE="${inherited_lock_mode}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		rollback_result_write() { :; }
+		nvram() { return 1; }
+		service() { return 1; }
+		nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x
+	'; then
+		fail "inherited ${inherited_lock_mode} mode bypassed the live NVRAM transaction lock"
+	fi
+done
 [ "$(nvram_value dnspriv_enable)" = 0 ] || fail 'overlapping installer restored a live NVRAM transaction'
 [ "${COMMIT_COUNT}" = 1 ] || fail 'overlapping installer committed while another transaction owner was live'
 NVRAM_TRANSACTION_DIR=''
