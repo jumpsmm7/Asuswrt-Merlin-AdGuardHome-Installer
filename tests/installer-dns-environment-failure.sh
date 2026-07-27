@@ -234,6 +234,23 @@ BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" TEST_ROOT="${TEST_ROOT
 [ ! -e "${TEST_ROOT}/non-owner-rollback" ] || fail 'non-owner installer exit rolled back the live NVRAM transaction'
 [ "$(nvram_value dnspriv_enable)" = 0 ] || fail 'overlapping installer restored a live NVRAM transaction'
 [ "${COMMIT_COUNT}" = 1 ] || fail 'overlapping installer committed while another transaction owner was live'
+
+(
+	ADGUARD_INSTALL_MODE=wan
+	ERROR='Error:'
+	cleanup_api_files() { :; }
+	installer_cleanup_tmp_file() { :; }
+	installer_lan_domain_restore() { :; }
+	restore_dns_filter_settings() { return 1; }
+	check_dns_environment() { :; }
+	nvram_transaction_lock_owned() { return 0; }
+	nvram_transaction_lock_release() { return 0; }
+	: >"${CALLS_FILE}"
+	on_installer_exit
+	grep -Fq "Unable to restore the DNSFilter NVRAM settings; review ${ROLLBACK_RESULT_FILE} and the preserved snapshot before restarting setup." "${CALLS_FILE}" ||
+		fail 'installer exit did not report an actionable DNSFilter rollback failure'
+) || exit 1
+
 NVRAM_TRANSACTION_DIR=''
 nvram_transaction_lock_release || fail 'live transaction owner could not release its lock'
 nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'dirty transaction snapshot blocked a rerun'
