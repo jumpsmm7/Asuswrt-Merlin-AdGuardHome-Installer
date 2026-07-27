@@ -244,6 +244,14 @@ FAIL_SNAPSHOT_REMOVE=0
 rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove clean cleanup transaction snapshot'
 
 reset_case
+nvram_transaction_begin clean-apply-cleanup dnspriv_enable || fail 'clean apply transaction snapshot failed'
+FAIL_SNAPSHOT_REMOVE=1
+nvram_transaction_apply - && fail 'clean apply snapshot removal failure was ignored'
+[ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'clean apply snapshot was not retained after removal failure'
+FAIL_SNAPSHOT_REMOVE=0
+rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove clean apply transaction snapshot'
+
+reset_case
 installer_lan_domain_set router.test 1 || fail 'LAN domain cleanup transaction apply failed'
 FAIL_SNAPSHOT_REMOVE=1
 installer_lan_domain_restore && fail 'LAN domain snapshot removal failure was ignored'
