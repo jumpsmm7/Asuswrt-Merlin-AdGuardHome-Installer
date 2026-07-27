@@ -60,10 +60,12 @@ EOF
 chmod +x "${TEST_ROOT}/test_cli"
 
 # Test CLI install pathway - should return 1 when check_jffs_enabled fails
-if "${TEST_ROOT}/test_cli"; then
+"${TEST_ROOT}/test_cli"
+status="$?"
+if [ "${status}" -eq 0 ]; then
 	fail 'CLI install must return 1 when JFFS setup fails'
 fi
-[ "$?" -eq 1 ] || fail 'CLI install must return status 1 when JFFS setup fails'
+[ "${status}" -eq 1 ] || fail 'CLI install must return status 1 when JFFS setup fails'
 
 # Test interactive install pathway - should exit 1 when check_jffs_enabled fails
 cat >"${TEST_ROOT}/test_interactive" <<'EOF'
@@ -72,16 +74,22 @@ check_jffs_enabled() { return 1; }
 ADGUARD_INSTALL_MODE=lan
 NAT_ENV=""
 cleanup() { :; }
+adguard_install_mode_detect() { return 0; }
+adguard_install_mode_confirmed() { return 0; }
 
 EOF
-sed -n '/^case "$2" in$/,/^[[:space:]]*check_version$/p' "${INSTALLER_PATH}" >>"${TEST_ROOT}/test_interactive" ||
+sed -n '/^case "$2" in$/,/^[[:space:]]*menu$/p' "${INSTALLER_PATH}" >>"${TEST_ROOT}/test_interactive" ||
 	fail 'could not extract the interactive install pathway'
+printf '%s\n' '		;;' 'esac' >>"${TEST_ROOT}/test_interactive" ||
+	fail 'could not complete the interactive install harness'
 chmod +x "${TEST_ROOT}/test_interactive"
 
-if "${TEST_ROOT}/test_interactive"; then
+"${TEST_ROOT}/test_interactive"
+status="$?"
+if [ "${status}" -eq 0 ]; then
 	fail 'interactive install must exit 1 when JFFS setup fails'
 fi
-[ "$?" -eq 1 ] || fail 'interactive install must exit with status 1 when JFFS setup fails'
+[ "${status}" -eq 1 ] || fail 'interactive install must exit with status 1 when JFFS setup fails'
 
 # Verify that both call sites are guarded
 call_count="$(grep -c '^[[:space:]]*check_jffs_enabled || \(return\|exit\) 1$' "${INSTALLER_PATH}")" ||
