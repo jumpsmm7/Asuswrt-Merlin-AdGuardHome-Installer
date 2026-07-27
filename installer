@@ -4919,8 +4919,9 @@ installer_update_reexec() {
 	ptxt_ok "Installer was updated at ${TARG_DIR}/installer; restarting the update with the new installer."
 	chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1
 	AI_REEXECED_INSTALLER="1"
-	export AI_REEXECED_INSTALLER
-	nvram_transaction_lock_release || return 1
+	# Preserve the process-owned transaction lock across exec.  The PID is
+	# unchanged, and flock mode also inherits descriptor 8 into the new script.
+	export AI_REEXECED_INSTALLER NVRAM_TRANSACTION_LOCK_MODE
 	exec "${TARG_DIR}/installer" "${BRANCH}" "${ACTION}"
 }
 
