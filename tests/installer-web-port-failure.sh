@@ -113,6 +113,7 @@ LAN_DOMAIN_RESTORES=0
 # save_dns_filter_settings saves DNS filter settings to the specified directory.
 save_dns_filter_settings() {
 	mkdir -p "$1"
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
 }
 # installer_lan_domain_set sets the LAN domain to the specified value.
 installer_lan_domain_set() {
@@ -126,9 +127,11 @@ installer_lan_domain_restore() {
 }
 # restore_dns_filter_settings restores DNS filter settings and removes the specified temporary directory.
 restore_dns_filter_settings() {
+	[ -d "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || return 0
 	DNS_FILTER_RESTORES="$((DNS_FILTER_RESTORES + 1))"
 	DNS_FILTER_CHANGED=0
 	rm -rf "$1"
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
 }
 check_dns_filter() {
 	DNS_FILTER_CHANGED=1
