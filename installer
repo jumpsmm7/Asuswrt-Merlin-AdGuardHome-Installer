@@ -517,6 +517,8 @@ on_installer_exit() {
 	installer_cleanup_tmp_file setup "${SETUP_YAML_TMP_FILE:-}"
 	installer_cleanup_tmp_file blocklist "${BLOCKLIST_YAML_TMP_FILE:-}"
 	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ]; then
+		# Restore any LAN-domain transaction interrupted before setup finalized it.
+		installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 		# Restore any DNSFilter transaction interrupted before setup finalized it.
 		restore_dns_filter_settings
 		# Restore pre-check DNS settings only when exiting without a local adguardhome installation.

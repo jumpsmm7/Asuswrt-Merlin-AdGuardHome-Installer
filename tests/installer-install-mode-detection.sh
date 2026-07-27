@@ -257,6 +257,8 @@ grep -q 'if { \[ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" \] || \[ -n "${DNS_FILTE
 	fail 'LAN runtime defaults must not depend on DNSFilter selection'
 grep -q 'if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" \]; then' "${SCRIPT_PATH}" ||
 	fail 'DNS environment restore must be gated by WAN install mode'
+grep -q 'installer_lan_domain_restore || PTXT' "${SCRIPT_PATH}" ||
+	fail 'installer exit must restore interrupted LAN-domain transactions'
 grep -q 'if \[ ! -f "${AGH_FILE}" \]; then' "${SCRIPT_PATH}" ||
 	fail 'DNS environment restore must remain limited to an absent local installation'
 grep -q 'configure_runtime_defaults new-install "${ADGUARD_INSTALL_MODE:-wan}" "${LOCAL_CACHE_SELECTION:-0}"' "${SCRIPT_PATH}" ||

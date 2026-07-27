@@ -20,6 +20,7 @@ mkdir -p "${TEST_ROOT}" || fail 'could not create test workspace'
 
 sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" |
 	sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >"${FUNCTIONS_FILE}" || fail 'could not extract NVRAM transaction helpers'
+sed -n '/^installer_lan_domain_set() {$/,/^rollback_result_write() {$/p' "${INSTALLER_PATH}" | sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract LAN-domain transaction helpers'
 sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNS environment helper'
 sed -n '/^check_dns_filter() {$/,/^save_dns_filter_settings() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter helper'
 sed -n '/^restore_dns_filter_settings() {$/,/^check_ipset() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter restore helper'
@@ -203,11 +204,17 @@ nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns
 
 reset_case
 printf '%s\n' 'dnsfilter_enable_x=0' >>"${NVRAM_FILE}" || fail 'could not seed DNSFilter NVRAM state'
+nvram_transaction_begin lan-domain lan_domain || fail 'LAN-domain interruption snapshot failed'
+nvram_transaction_set lan_domain interrupted.example || fail 'LAN-domain interruption staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'LAN-domain interruption apply failed'
+[ "$(nvram_value lan_domain)" = interrupted.example ] || fail 'LAN-domain interruption setup did not apply its change'
 nvram_transaction_begin dnsfilter dnsfilter_enable_x || fail 'DNSFilter interruption snapshot failed'
 nvram_transaction_set dnsfilter_enable_x 1 || fail 'DNSFilter interruption staging failed'
 nvram_transaction_apply 'restart_firewall;restart_dnsmasq' 1 || fail 'DNSFilter interruption apply failed'
 [ "$(nvram_value dnsfilter_enable_x)" = 1 ] || fail 'DNSFilter interruption setup did not apply its change'
 on_installer_exit
+[ "$(nvram_value lan_domain)" = '' ] || fail 'installer exit did not restore the interrupted LAN domain'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'installer exit retained a successfully restored LAN-domain snapshot'
 [ "$(nvram_value dnsfilter_enable_x)" = 0 ] || fail 'installer exit did not restore interrupted DNSFilter values'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'installer exit retained a successfully restored DNSFilter snapshot'
 
