@@ -30,13 +30,13 @@ sed -n '/^[[:space:]]*install)$/,/^[[:space:]]*;;$/p' "${INSTALLER_PATH}" |
 [ -s "${TEST_ROOT}/cli_install" ] || fail 'CLI install pathway was not found'
 
 # Stub check_jffs_enabled to fail and wrap in a function
-cat >"${TEST_ROOT}/test_cli" <<'EOF'
+cat >"${TEST_ROOT}/test_cli" <<EOF
 #!/bin/sh
 check_jffs_enabled() { : >"${TEST_ROOT}/cli-jffs-checked"; return 1; }
 CLI_DRY_RUN=0
 cli_require_yes() { return 0; }
 AGH_FILE="${TEST_ROOT}/AdGuardHome"
-: >"${AGH_FILE}"
+: >"\${AGH_FILE}"
 ADGUARD_INSTALL_MODE=lan
 CLI_ALLOW_DNS_NVRAM=1
 cli_enable_assume_yes() { :; }
@@ -74,7 +74,7 @@ fi
 [ -e "${TEST_ROOT}/cli-jffs-checked" ] || fail 'CLI install exited before reaching the JFFS guard'
 
 # Test interactive install pathway - should exit 1 when check_jffs_enabled fails
-cat >"${TEST_ROOT}/test_interactive" <<'EOF'
+cat >"${TEST_ROOT}/test_interactive" <<EOF
 #!/bin/sh
 check_jffs_enabled() { : >"${TEST_ROOT}/interactive-jffs-checked"; return 1; }
 ADGUARD_INSTALL_MODE=lan
