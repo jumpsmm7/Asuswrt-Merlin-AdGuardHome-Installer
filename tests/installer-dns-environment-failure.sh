@@ -126,6 +126,13 @@ service() {
 	[ "${FAIL_ALL_SERVICES:-0}" = 0 ] && [ "${FAIL_SERVICE_AT:-0}" != "${SERVICE_COUNT}" ]
 }
 
+rm() {
+	if [ "${FAIL_SNAPSHOT_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${NVRAM_TRANSACTION_DIR:-}" ]; then
+		return 1
+	fi
+	command rm "$@"
+}
+
 nslookup() {
 	printf '%s\n' "nslookup $*" >>"${CALLS_FILE}"
 	if [ "${TRACK_LOOKUP:-0}" = 1 ]; then
@@ -141,7 +148,9 @@ dns_check_count() { grep -c '^nslookup ' "${CALLS_FILE}"; }
 # reset_case resets the simulated NVRAM, call log, counters, failure injections, and DNS test state for a test case.
 reset_case() {
 	nvram_transaction_lock_release || fail 'could not release the previous test transaction lock'
-	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
+	NVRAM_TRANSACTION_DIR=''
+	NVRAM_TRANSACTION_CHANGED=0
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.d" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"
 	cat >"${NVRAM_FILE}" <<'EOF_NVRAM'
 dnspriv_enable=1
@@ -151,7 +160,7 @@ dhcp_dns2_x=149.112.112.112
 EOF_NVRAM
 	: >"${CALLS_FILE}"
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0
-	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0
+	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_ALL_SERVICES=0 FAIL_SNAPSHOT_REMOVE=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0
 	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 STUBBY_RUNNING=0
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
 	_DNS_NVRAM_SAVED=0 _DNS_NVRAM_ROLLBACK_ATTEMPTED=0
@@ -209,6 +218,22 @@ nvram_transaction_apply - 1 || fail 'cleanup transaction apply failed'
 [ ! -e "${NVRAM_TRANSACTION_DIR}/new.dnspriv_enable" ] || fail 'staged transaction value was not removed'
 [ -f "${NVRAM_TRANSACTION_DIR}/new.untracked" ] || fail 'transaction cleanup removed an untracked file'
 rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove cleanup transaction snapshot'
+
+reset_case
+nvram_transaction_begin clean-cleanup dnspriv_enable || fail 'clean cleanup transaction snapshot failed'
+FAIL_SNAPSHOT_REMOVE=1
+nvram_transaction_restore - && fail 'clean snapshot removal failure was ignored'
+[ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'clean snapshot was not retained after removal failure'
+FAIL_SNAPSHOT_REMOVE=0
+rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove clean cleanup transaction snapshot'
+
+reset_case
+installer_lan_domain_set router.test 1 || fail 'LAN domain cleanup transaction apply failed'
+FAIL_SNAPSHOT_REMOVE=1
+installer_lan_domain_restore && fail 'LAN domain snapshot removal failure was ignored'
+[ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'LAN domain snapshot was not retained after removal failure'
+FAIL_SNAPSHOT_REMOVE=0
+rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove LAN domain cleanup transaction snapshot'
 
 reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'interrupted transaction snapshot failed'

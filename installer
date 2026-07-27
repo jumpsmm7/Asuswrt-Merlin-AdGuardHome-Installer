@@ -400,7 +400,10 @@ nvram_transaction_restore() {
 	failed="0"
 	[ -f "${snapshot_dir}/keys" ] || return 1
 	if [ ! -f "${snapshot_dir}/dirty" ]; then
-		[ "${keep_snapshot}" = "1" ] || rm -rf "${snapshot_dir}"
+		if [ "${keep_snapshot}" != "1" ]; then
+			rm -rf "${snapshot_dir}"
+			[ ! -e "${snapshot_dir}" ] && [ ! -L "${snapshot_dir}" ] || return 1
+		fi
 		return 0
 	fi
 	while IFS= read -r key; do
@@ -419,7 +422,10 @@ nvram_transaction_restore() {
 		service "${service_action}" >/dev/null 2>&1 || failed="1"
 	fi
 	if [ "${failed}" = "0" ]; then
-		[ "${keep_snapshot}" = "1" ] || rm -rf "${snapshot_dir}"
+		if [ "${keep_snapshot}" != "1" ]; then
+			rm -rf "${snapshot_dir}"
+			[ ! -e "${snapshot_dir}" ] && [ ! -L "${snapshot_dir}" ] || return 1
+		fi
 		NVRAM_TRANSACTION_CHANGED="0"
 		export NVRAM_TRANSACTION_CHANGED
 		return 0
