@@ -177,7 +177,7 @@ nvram_transaction_lock_acquire() {
 	if nvram_transaction_lock_flock_supports_fd; then
 		[ ! -L "${lock_path}" ] || return 1
 		: >>"${lock_path}" 2>/dev/null || return 1
-		if ! ( exec 8<>"${lock_path}" ) 2>/dev/null; then return 1; fi
+		if ! (exec 8<>"${lock_path}") 2>/dev/null; then return 1; fi
 		exec 8<>"${lock_path}" || return 1
 		if /usr/bin/flock -n 8 >/dev/null 2>&1; then
 			NVRAM_TRANSACTION_LOCK_MODE="flock"
@@ -2377,7 +2377,10 @@ status() {
 }
 
 adguard_service_without_nvram_lock_fd() {
-	( exec 8>&-; "$@" )
+	(
+		exec 8>&-
+		"$@"
+	)
 }
 
 agh_restart() {
