@@ -219,7 +219,41 @@ for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_
 	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "PID-reused reaper lock was not reclaimed: ${reaper_path}"
 	[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "PID-reused reaper lock has the wrong replacement owner: ${reaper_path}"
 	nvram_transaction_lock_reaper_release "${reaper_path}" || fail "PID-reused reaper lock was not released: ${reaper_path}"
+
+	mkdir -p "${reaper_path}"
+	printf '%s\n' 999999999 >"${reaper_path}/pid"
+	EXPLICIT_OWNER="explicit-owner:$$"
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" "${EXPLICIT_OWNER}" || fail "stale reaper lock was not reclaimed with an explicit owner: ${reaper_path}"
+	[ "$(cat "${reaper_path}/pid")" = "${EXPLICIT_OWNER}" ] || fail "reclaimed reaper lock did not record its explicit owner: ${reaper_path}"
+	if nvram_transaction_lock_reaper_release "${reaper_path}" 'mismatched-owner:1'; then
+		fail "reaper lock release accepted a mismatched explicit owner: ${reaper_path}"
+	fi
+	[ -d "${reaper_path}" ] || fail "reaper lock release with a mismatched explicit owner removed the reaper directory: ${reaper_path}"
+	nvram_transaction_lock_reaper_release "${reaper_path}" "${EXPLICIT_OWNER}" || fail "explicit-owner reaper lock was not released: ${reaper_path}"
+	[ ! -d "${reaper_path}" ] || fail "explicit-owner reaper lock release did not remove the reaper directory: ${reaper_path}"
+
+	mkdir -p "${reaper_path}"
+	printf '%s\n' 999999999 >"${reaper_path}/pid"
+	(
+		# nvram_transaction_lock_owner_current simulates an environment where process identity cannot be determined.
+		nvram_transaction_lock_owner_current() { return 1; }
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" 'explicit-owner:1' &&
+			nvram_transaction_lock_reaper_release "${reaper_path}" 'explicit-owner:1'
+	) || fail "explicit-owner reaper lock handoff unexpectedly required the process-identity helper: ${reaper_path}"
+	[ ! -d "${reaper_path}" ] || fail "explicit-owner reaper lock handoff with a failing process-identity helper did not remove the reaper directory: ${reaper_path}"
 done
+
+if nvram_transaction_lock_flock_supports_fd; then
+	(
+		nvram_transaction_lock_acquire || fail 'could not acquire the flock transaction lock for the owner-independence test'
+		[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = flock ] || fail 'flock mode was not selected for the owner-independence test'
+		# nvram_transaction_lock_owner_current simulates an environment where process identity cannot be determined.
+		nvram_transaction_lock_owner_current() { return 1; }
+		nvram_transaction_lock_owned || fail 'flock lock ownership check required a working process-identity helper'
+		nvram_transaction_lock_acquire || fail 'flock lock re-acquisition required a working process-identity helper'
+		nvram_transaction_lock_release || fail 'flock lock release required a working process-identity helper'
+	) || exit 1
+fi
 
 # assert_original verifies that the simulated NVRAM contains the expected original DNS settings, failing with the provided label if any value differs.
 assert_original() {
@@ -523,6 +557,25 @@ done
 		fail 'mkdir stale-lock reaper replaced a new live owner'
 	fi
 	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = 1 ] || fail 'mkdir stale-lock reaper removed a new live owner'
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
+) || exit 1
+(
+	# nvram_transaction_lock_flock_supports_fd determines whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_symlink_acquire reports that symlink-based lock acquisition is unavailable.
+	nvram_transaction_lock_symlink_acquire() { return 2; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare a stale mkdir transaction lock for the owner-reuse test'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record a stale mkdir transaction lock owner for the owner-reuse test'
+	REAL_OWNER="${LOCK_OWNER}"
+	OWNER_CALLS=0
+	# nvram_transaction_lock_owner_current answers once with the real process identity and fails on every later call.
+	nvram_transaction_lock_owner_current() {
+		OWNER_CALLS="$((OWNER_CALLS + 1))"
+		[ "${OWNER_CALLS}" -eq 1 ] || return 1
+		printf '%s\n' "${REAL_OWNER}"
+	}
+	nvram_transaction_lock_acquire || fail 'stale mkdir transaction lock reclaim called the process-identity helper more than once'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "${REAL_OWNER}" ] || fail 'stale mkdir transaction lock reclaim did not record the precomputed owner'
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
 ) || exit 1
 
