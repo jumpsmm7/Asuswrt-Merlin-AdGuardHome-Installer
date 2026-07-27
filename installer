@@ -177,7 +177,8 @@ nvram_transaction_lock_acquire() {
 	if nvram_transaction_lock_flock_supports_fd; then
 		[ ! -L "${lock_path}" ] || return 1
 		: >>"${lock_path}" 2>/dev/null || return 1
-		exec 8>"${lock_path}" || return 1
+		if ! ( exec 8<>"${lock_path}" ) 2>/dev/null; then return 1; fi
+		exec 8<>"${lock_path}" || return 1
 		if /usr/bin/flock -n 8 >/dev/null 2>&1; then
 			NVRAM_TRANSACTION_LOCK_MODE="flock"
 			return 0
@@ -308,10 +309,7 @@ nvram_transaction_lock_symlink_acquire() {
 		return 2
 	fi
 	if [ -L "${lock_path}" ]; then
-		lock_owner="$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)" || {
-			printf '%s\n' "Error: cannot inspect NVRAM transaction lock ${lock_path}." >&2
-			return 1
-		}
+		lock_owner="$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)"
 		case "${lock_owner}" in
 			"" | *[!0-9]*) ;;
 			*) [ ! -d "/proc/${lock_owner}" ] || return 1 ;;
@@ -329,6 +327,12 @@ nvram_transaction_lock_symlink_acquire() {
 		return 1
 	fi
 	if ln -s "$$" "${lock_path}" 2>/dev/null; then
+		if [ "$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)" != "$$" ]; then
+			if [ -d "${lock_path}.reaper" ] && [ "$(cat "${lock_path}.reaper/pid" 2>/dev/null)" = "$$" ]; then
+				nvram_transaction_lock_reaper_release "${lock_path}.reaper" || true
+			fi
+			return 1
+		fi
 		[ ! -d "${lock_path}.reaper" ] || nvram_transaction_lock_reaper_release "${lock_path}.reaper" || return 1
 		return 0
 	fi

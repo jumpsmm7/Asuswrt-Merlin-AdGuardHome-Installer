@@ -18,8 +18,9 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test workspace'
 
+printf '%s\n' 'which() { command -v "$1" >/dev/null 2>&1; }' >"${FUNCTIONS_FILE}" || fail 'could not create test functions file'
 sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" |
-	sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >"${FUNCTIONS_FILE}" || fail 'could not extract NVRAM transaction helpers'
+	sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract NVRAM transaction helpers'
 sed -n '/^installer_lan_domain_set() {$/,/^rollback_result_write() {$/p' "${INSTALLER_PATH}" | sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract LAN-domain transaction helpers'
 sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNS environment helper'
 sed -n '/^check_dns_filter() {$/,/^save_dns_filter_settings() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter helper'
@@ -45,6 +46,7 @@ PTXT() { printf '%s\n' "$*" >>"${CALLS_FILE}"; }
 ptxt_phase() { PTXT "$1"; }
 ptxt_step() { PTXT "$1"; }
 ptxt_ok() { PTXT "$1"; }
+which() { command -v "$1" >/dev/null 2>&1; }
 pidof() { return 1; }
 kill_processes() { return 0; }
 cleanup_api_files() { :; }
@@ -223,7 +225,8 @@ nvram_transaction_lock_release || fail 'transaction owner could not release its 
 (
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare stale symlink transaction lock'
-	nvram_transaction_begin stale-symlink-lock dnspriv_enable || fail 'stale symlink transaction lock blocked recovery'
+	nvram_transaction_lock_acquire || fail 'stale symlink transaction lock blocked recovery'
+	[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = symlink ] || fail 'stale symlink lock did not select symlink mode'
 	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = "$$" ] || fail 'stale symlink lock was not replaced by the live owner'
 	if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
 		. "${FUNCTIONS_FILE}"
