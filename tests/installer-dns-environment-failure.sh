@@ -61,6 +61,7 @@ kill_processes() {
 	[ "$1" = stubby ] || return 1
 	STUBBY_KILL_COUNT="$((STUBBY_KILL_COUNT + 1))"
 }
+# cleanup_api_files performs no operation.
 cleanup_api_files() { :; }
 # installer_cleanup_tmp_file performs temporary-file cleanup.
 installer_cleanup_tmp_file() { :; }
@@ -83,7 +84,7 @@ check_connection() {
 	PUBLIC_CHECK_COUNT="$((PUBLIC_CHECK_COUNT + 1))"
 	[ "${PUBLIC_NETWORK_AVAILABLE:-0}" = 1 ]
 }
-# rollback_result_write records a rollback status message in the calls log.
+# rollback_result_write appends a rollback status message to the calls log.
 rollback_result_write() { printf '%s\n' "rollback $*" >>"${CALLS_FILE}"; }
 
 # nvram_value reads and prints the value associated with a key from the simulated NVRAM file.
@@ -91,7 +92,7 @@ nvram_value() {
 	awk -v key="$1" 'index($0, key "=") == 1 { print substr($0, length(key) + 2); found=1 } END { exit(found ? 0 : 1) }' "${NVRAM_FILE}"
 }
 
-# nvram simulates NVRAM show, get, set, unset, and commit operations with configurable failures.
+# nvram simulates NVRAM display, retrieval, modification, removal, and commit operations with configurable failure injection.
 nvram() {
 	case "$1" in
 		show)
@@ -159,7 +160,7 @@ nslookup() {
 # dns_check_count counts recorded DNS lookup calls and writes the count to standard output.
 dns_check_count() { grep -c '^nslookup ' "${CALLS_FILE}"; }
 
-# reset_case restores the simulated test environment to its baseline state.
+# reset_case restores the simulated test environment, counters, fault-injection settings, and NVRAM contents to their baseline state.
 reset_case() {
 	nvram_transaction_lock_release || fail 'could not release the previous test transaction lock'
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
@@ -224,7 +225,7 @@ done
 for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
 	rm -rf "${reaper_path}"
 	(
-		# nvram_transaction_lock_owner_current fails to prove the reaper helpers use the supplied owner instead of looking it up.
+		# nvram_transaction_lock_owner_current fails to ensure explicit-owner reaper operations do not perform an owner lookup.
 		nvram_transaction_lock_owner_current() {
 			printf '%s\n' 'Error: owner lookup invoked unexpectedly while an explicit owner was supplied' >&2
 			return 1
@@ -244,7 +245,7 @@ done
 if nvram_transaction_lock_flock_supports_fd; then
 	# nvram_transaction_lock_owner_current fails to prove flock-mode lock helpers never need the process owner identity.
 	# Run this check outside a subshell: flock ownership is tracked via /proc/$$/fd/8, and $$ keeps the
-	# invoking shell's PID even inside a `( ... )` subshell, which would desync it from the forked process.
+	# nvram_transaction_lock_owner_current() rejects owner lookups when flock mode should provide ownership directly.
 	nvram_transaction_lock_owner_current() {
 		printf '%s\n' 'Error: owner lookup invoked unexpectedly for flock mode' >&2
 		return 1
@@ -393,14 +394,15 @@ BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" TEST_ROOT="${TEST_ROOT
 (
 	ADGUARD_INSTALL_MODE=wan
 	ERROR='Error:'
-	cleanup_api_files() { :; }
+	# cleanup_api_files performs no operation.
+cleanup_api_files() { :; }
 	# installer_cleanup_tmp_file performs temporary-file cleanup.
 	installer_cleanup_tmp_file() { :; }
 	# installer_lan_domain_restore restores the original LAN domain settings from the active transaction snapshot.
 	installer_lan_domain_restore() { :; }
 	# restore_dns_filter_settings restores DNSFilter settings and returns a failure status.
 	restore_dns_filter_settings() { return 1; }
-	# check_dns_environment prepares the local DNS environment and optionally restores the transactional NVRAM state.
+	# check_dns_environment prepares the local DNS environment, verifies readiness within bounded time, and restores transactional NVRAM state when requested.
 	check_dns_environment() { :; }
 	# nvram_transaction_lock_owned reports that the current process owns the NVRAM transaction lock.
 	nvram_transaction_lock_owned() { return 0; }
@@ -423,10 +425,10 @@ assert_original 'dirty snapshot rerun'
 nvram_transaction_lock_release || fail 'transaction owner could not release its lock for stale-lock recovery'
 for fallback_mode in symlink mkdir; do
 	(
-		# nvram_transaction_lock_flock_supports_fd determines whether file-descriptor-based flock locking is supported.
+		# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
 		nvram_transaction_lock_flock_supports_fd() { return 1; }
 		if [ "${fallback_mode}" = mkdir ]; then
-			# nvram_transaction_lock_symlink_acquire reports that symlink-based lock acquisition is unavailable.
+			# nvram_transaction_lock_symlink_acquire indicates that symlink-based lock acquisition is unavailable.
 			nvram_transaction_lock_symlink_acquire() { return 2; }
 		fi
 		nvram_transaction_lock_acquire || fail "could not acquire ${fallback_mode} lock before installer restart"
@@ -449,14 +451,14 @@ EOF_RESTART
 		sleep() { :; }
 		# clear_screen does nothing.
 		clear_screen() { :; }
-		# rollback_result_needs_attention indicates that rollback attention is not needed.
+		# rollback_result_needs_attention indicates whether rollback requires attention and returns failure when it does not.
 		rollback_result_needs_attention() { return 1; }
 		end_op_message 0 ''
 	) || fail "installer restart retained its ${fallback_mode} NVRAM transaction lock"
 	[ "$(cat "${TEST_ROOT}/restart-${fallback_mode}.branch" 2>/dev/null)" = testing ] || fail "installer restart did not execute after releasing its ${fallback_mode} lock"
 done
 (
-	# nvram_transaction_lock_flock_supports_fd determines whether file-descriptor-based flock locking is supported.
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare stale symlink transaction lock'
 	nvram_transaction_lock_acquire || fail 'stale symlink transaction lock blocked recovery'
@@ -478,10 +480,10 @@ done
 	nvram_transaction_lock_release || fail 'PID-reused symlink transaction owner could not release its lock'
 ) || exit 1
 (
-	# nvram_transaction_lock_flock_supports_fd determines whether file-descriptor-based flock locking is supported.
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare raced stale symlink transaction lock'
-	# nvram_transaction_lock_reaper_acquire removes any existing transaction lock symlink and creates a new one for reaper ownership.
+	# nvram_transaction_lock_reaper_acquire replaces the transaction lock symlink with a reaper ownership marker.
 	nvram_transaction_lock_reaper_acquire() {
 		rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || return 1
 		ln -s 1 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
@@ -495,7 +497,7 @@ done
 	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 ) || exit 1
 (
-	# nvram_transaction_lock_flock_supports_fd determines whether file-descriptor-based flock locking is supported.
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	# nvram_transaction_lock_readlink indicates that symbolic-link lock inspection is unavailable.
 	nvram_transaction_lock_readlink() { return 127; }
@@ -510,9 +512,9 @@ done
 	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 ) || exit 1
 (
-	# nvram_transaction_lock_flock_supports_fd determines whether file-descriptor-based flock locking is supported.
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
-	# nvram_transaction_lock_symlink_acquire reports that symlink-based lock acquisition is unavailable.
+	# nvram_transaction_lock_symlink_acquire indicates that symlink-based lock acquisition is unavailable.
 	nvram_transaction_lock_symlink_acquire() { return 2; }
 	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale transaction lock'
 	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale transaction lock owner'
@@ -543,9 +545,9 @@ done
 	nvram_transaction_lock_release || fail 'PID-reused transaction owner could not release its lock'
 ) || exit 1
 (
-	# nvram_transaction_lock_flock_supports_fd determines whether file-descriptor-based flock locking is supported.
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
-	# nvram_transaction_lock_symlink_acquire reports that symlink-based lock acquisition is unavailable.
+	# nvram_transaction_lock_symlink_acquire indicates that symlink-based lock acquisition is unavailable.
 	nvram_transaction_lock_symlink_acquire() { return 2; }
 	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare raced stale mkdir transaction lock'
 	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record raced stale mkdir transaction lock owner'
@@ -564,16 +566,16 @@ done
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
 ) || exit 1
 (
-	# nvram_transaction_lock_flock_supports_fd determines whether file-descriptor-based flock locking is supported.
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
-	# nvram_transaction_lock_symlink_acquire reports that symlink-based lock acquisition is unavailable.
+	# nvram_transaction_lock_symlink_acquire indicates that symlink-based lock acquisition is unavailable.
 	nvram_transaction_lock_symlink_acquire() { return 2; }
 	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale transaction lock for owner-lookup counting'
 	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale transaction lock owner for owner-lookup counting'
 	OWNER_CALLS_FILE="${TEST_ROOT}/owner-lookup-calls"
 	: >"${OWNER_CALLS_FILE}"
 	# nvram_transaction_lock_owner_current counts self-owner lookups while preserving the real liveness check for other PIDs.
-	# shellcheck disable=SC2120
+	# nvram_transaction_lock_owner_current returns the current lock owner or a PID and process-start-time identifier for the specified process.
 	nvram_transaction_lock_owner_current() {
 		if [ "$#" -eq 0 ]; then
 			printf '%s\n' x >>"${OWNER_CALLS_FILE}"

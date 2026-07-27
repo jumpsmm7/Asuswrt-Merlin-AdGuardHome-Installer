@@ -57,6 +57,7 @@ PTXT() {
 }
 read_input_num() { CHOSEN=3; }
 read_input_port() { WEB_PORT=3000; }
+# write_conf records configuration writes and updates the stubbed AdGuard Home domain preference.
 write_conf() {
 	printf '%s\n' "$*" >>"${WRITE_LOG}"
 	if [ "$1" = ADGUARD_DOMAIN ]; then
@@ -69,7 +70,7 @@ AdGuardHome_authen() {
 }
 # check_AdGuardHome_yaml is a test stub that reports the AdGuard Home YAML configuration as valid.
 check_AdGuardHome_yaml() { return 0; }
-# check_dns_filter records a DNS filter check and reports whether the nested DNS prompt should fail.
+# check_dns_filter records a DNS filter check and fails when nested DNS prompt failure is enabled.
 check_dns_filter() {
 	DNS_FILTER_CALLS="$((DNS_FILTER_CALLS + 1))"
 	[ "${FAIL_NESTED_DNS_PROMPT:-0}" -eq 1 ] && return 2

@@ -66,7 +66,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 ptxt_ok() { :; }
 # PTXT is a no-op text output helper.
 PTXT() { :; }
-# rm removes files normally while simulating cleanup failures for configured LAN-domain or DNS-filter snapshot paths.
+# rm removes files normally and simulates failure for configured LAN-domain or DNS-filter snapshot cleanup paths.
 rm() {
 	if [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
 		[ "$*" = "-f ${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" ]; then
@@ -129,7 +129,7 @@ installer_lan_domain_restore() {
 	LAN_DOMAIN_RESTORES="$((LAN_DOMAIN_RESTORES + 1))"
 	LAN_DOMAIN="${TEST_LAN_DOMAIN_ROLLBACK:-}"
 }
-# restore_dns_filter_settings restores DNS filter settings and removes the specified temporary directory.
+# restore_dns_filter_settings restores DNS filter settings, clears the change marker, and removes the temporary and snapshot directories.
 restore_dns_filter_settings() {
 	[ -d "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || return 0
 	DNS_FILTER_RESTORES="$((DNS_FILTER_RESTORES + 1))"
@@ -157,6 +157,7 @@ read_input_dns() {
 	fi
 }
 ai_have_cmd() { return 1; }
+# nvram mocks NVRAM get and set operations for installer tests.
 nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '1' ;;
