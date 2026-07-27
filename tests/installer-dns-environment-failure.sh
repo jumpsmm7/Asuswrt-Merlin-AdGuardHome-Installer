@@ -221,6 +221,42 @@ for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_
 	nvram_transaction_lock_reaper_release "${reaper_path}" || fail "PID-reused reaper lock was not released: ${reaper_path}"
 done
 
+for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
+	rm -rf "${reaper_path}"
+	(
+		# nvram_transaction_lock_owner_current fails to prove the reaper helpers use the supplied owner instead of looking it up.
+		nvram_transaction_lock_owner_current() {
+			printf '%s\n' 'Error: owner lookup invoked unexpectedly while an explicit owner was supplied' >&2
+			return 1
+		}
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail "explicit-owner reaper acquire failed while owner lookup was disabled: ${reaper_path}"
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail "explicit-owner reaper acquire did not record the supplied owner: ${reaper_path}"
+		nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail "explicit-owner reaper release failed while owner lookup was disabled: ${reaper_path}"
+	) || exit 1
+	[ ! -e "${reaper_path}" ] || fail "explicit-owner reaper release did not remove the reaper directory: ${reaper_path}"
+
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" '' || fail "empty explicit owner did not fall back to the owner lookup: ${reaper_path}"
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail "empty explicit owner recorded an unexpected owner: ${reaper_path}"
+	nvram_transaction_lock_reaper_release "${reaper_path}" '' || fail "empty explicit owner release did not fall back to the owner lookup: ${reaper_path}"
+	[ ! -e "${reaper_path}" ] || fail "empty explicit owner release did not remove the reaper directory: ${reaper_path}"
+done
+
+if nvram_transaction_lock_flock_supports_fd; then
+	(
+		# nvram_transaction_lock_owner_current fails to prove flock-mode lock helpers never need the process owner identity.
+		nvram_transaction_lock_owner_current() {
+			printf '%s\n' 'Error: owner lookup invoked unexpectedly for flock mode' >&2
+			return 1
+		}
+		nvram_transaction_lock_acquire || fail 'flock transaction lock could not be acquired while owner lookup was disabled'
+		[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = flock ] || fail 'flock mode was not selected while owner lookup was disabled'
+		nvram_transaction_lock_owned || fail 'flock transaction lock ownership check failed while owner lookup was disabled'
+		nvram_transaction_lock_acquire || fail 'flock transaction lock fast-path re-acquire failed while owner lookup was disabled'
+		nvram_transaction_lock_release || fail 'flock transaction lock could not be released while owner lookup was disabled'
+		nvram_transaction_lock_owned && fail 'flock transaction lock ownership check succeeded after release while owner lookup was disabled'
+	) || exit 1
+fi
+
 # assert_original verifies that the simulated NVRAM contains the expected original DNS settings, failing with the provided label if any value differs.
 assert_original() {
 	[ "$(nvram_value dnspriv_enable)" = 1 ] || fail "$1: dnspriv_enable was not restored"
@@ -525,6 +561,38 @@ done
 	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = 1 ] || fail 'mkdir stale-lock reaper removed a new live owner'
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
 ) || exit 1
+(
+	# nvram_transaction_lock_flock_supports_fd determines whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_symlink_acquire reports that symlink-based lock acquisition is unavailable.
+	nvram_transaction_lock_symlink_acquire() { return 2; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale transaction lock for owner-lookup counting'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale transaction lock owner for owner-lookup counting'
+	OWNER_CALLS_FILE="${TEST_ROOT}/owner-lookup-calls"
+	: >"${OWNER_CALLS_FILE}"
+	# nvram_transaction_lock_owner_current counts self-owner lookups while preserving the real liveness check for other PIDs.
+	nvram_transaction_lock_owner_current() {
+		if [ "$#" -eq 0 ]; then
+			printf '%s\n' x >>"${OWNER_CALLS_FILE}"
+			printf '%s\n' "${LOCK_OWNER}"
+			return 0
+		fi
+		case "$1" in
+			"" | *[!0-9]*) return 1 ;;
+		esac
+		owner_start="$(/bin/sed 's/^.*) //' "/proc/$1/stat" 2>/dev/null | /usr/bin/awk '{print $20}')"
+		case "${owner_start}" in
+			"" | *[!0-9]*) return 1 ;;
+		esac
+		printf '%s:%s\n' "$1" "${owner_start}"
+	}
+	nvram_transaction_lock_acquire || fail 'stale mkdir transaction lock reclaim failed while counting owner lookups'
+	[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = mkdir ] || fail 'stale mkdir transaction lock reclaim did not select mkdir mode while counting owner lookups'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "${LOCK_OWNER}" ] || fail 'stale mkdir transaction lock reclaim did not record the live owner while counting owner lookups'
+	[ "$(wc -l <"${OWNER_CALLS_FILE}")" -eq 1 ] || fail "stale mkdir transaction lock reclaim looked up its own owner $(wc -l <"${OWNER_CALLS_FILE}") time(s) instead of once"
+	nvram_transaction_lock_release || fail 'could not release the counted stale mkdir transaction lock'
+) || exit 1
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
 
 reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'clean transaction snapshot failed'
