@@ -64,6 +64,13 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 ptxt_ok() { :; }
 PTXT() { :; }
+rm() {
+	if [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
+		[ "$*" = "-rf ${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ]; then
+		return 1
+	fi
+	command rm "$@"
+}
 # read_input_port sets WEB_PORT from SELECTED_WEB_PORT and returns the configured input status.
 read_input_port() {
 	WEB_PORT="${SELECTED_WEB_PORT:-3000}"
@@ -270,5 +277,17 @@ fi
 [ "${DNS_FILTER_CHANGED}" -eq 0 ] || fail 'reconfiguration changed DNSFilter settings after LAN domain persistence failed'
 [ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'reconfiguration did not restore installer preferences after LAN domain persistence failed'
 [ -z "${LAN_DOMAIN}" ] || fail 'reconfiguration changed the router LAN domain after LAN domain persistence failed'
+
+printf '%s\n' 'working configuration' >"${YAML_FILE}"
+printf '%s\n' 'original configuration' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+: >"${WRITE_LOG}"
+FAIL_LAN_DOMAIN_SET=0
+FAIL_DNS_FILTER_SNAPSHOT_CLEANUP=1
+DNS_FILTER_CHANGED=0
+if setup_AdGuardHome_impl reconfig reconfig; then
+	fail 'reconfiguration ignored DNSFilter snapshot cleanup failure'
+fi
+[ "${DNS_FILTER_CHANGED}" -eq 1 ] || fail 'DNSFilter snapshot cleanup test did not reach the applied settings path'
 
 printf '%s\n' 'PASS: failed WebUI port verification or persistence aborts setup safely'

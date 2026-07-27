@@ -6283,7 +6283,10 @@ setup_AdGuardHome_impl() {
 				[ -z "${CONFIG_ROLLBACK}" ] || discard_installer_config_backup "${CONFIG_ROLLBACK}"
 				[ -z "${DNS_FILTER_ROLLBACK_DIR}" ] || rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
 				rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
-				rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
+				if ! rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"; then
+					PTXT "${ERROR} Unable to finalize the DNSFilter NVRAM settings."
+					return 1
+				fi
 				;;
 		esac
 	fi
