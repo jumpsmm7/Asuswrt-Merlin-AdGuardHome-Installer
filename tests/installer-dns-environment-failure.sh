@@ -158,18 +158,20 @@ EOF_NVRAM
 }
 
 reset_case
-mkdir -p "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper"
-printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper/pid"
-nvram_transaction_lock_reaper_acquire "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" || fail 'stale symlink reaper lock was not reclaimed'
-[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper/pid")" = "$$" ] || fail 'reclaimed symlink reaper lock has the wrong owner'
-nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" || fail 'reclaimed symlink reaper lock was not released'
+for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
+	mkdir -p "${reaper_path}"
+	printf '%s\n' 999999999 >"${reaper_path}/pid"
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "stale reaper lock was not reclaimed: ${reaper_path}"
+	[ "$(cat "${reaper_path}/pid")" = "$$" ] || fail "reclaimed reaper lock has the wrong owner: ${reaper_path}"
+	nvram_transaction_lock_reaper_release "${reaper_path}" || fail "reclaimed reaper lock was not released: ${reaper_path}"
 
-mkdir -p "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"
-printf '%s\n' "$$" >"${BASE_DIR}/.AdGuardHome.nvram.lock.reaper/pid"
-if nvram_transaction_lock_reaper_acquire "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; then
-	fail 'live fallback reaper lock was reclaimed'
-fi
-rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"
+	mkdir -p "${reaper_path}"
+	printf '%s\n' "$$" >"${reaper_path}/pid"
+	if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
+		fail "live reaper lock was reclaimed: ${reaper_path}"
+	fi
+	rm -rf "${reaper_path}"
+done
 
 assert_original() {
 	[ "$(nvram_value dnspriv_enable)" = 1 ] || fail "$1: dnspriv_enable was not restored"
