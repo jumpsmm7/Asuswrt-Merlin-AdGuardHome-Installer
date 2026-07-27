@@ -47,7 +47,7 @@ for lock_mode in flock symlink mkdir; do
 	(
 		nvram_transaction_lock_acquire || fail "could not acquire ${lock_mode} transaction lock"
 		[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = "${lock_mode}" ] || fail "did not acquire ${lock_mode} transaction lock"
-		LOCK_OWNER="$(nvram_transaction_lock_owner_identity "$$")" || fail "could not determine ${lock_mode} lock owner identity"
+		LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail "could not determine ${lock_mode} transaction lock identity"
 		export LOCK_OWNER
 		TARG_DIR="${TEST_ROOT}/${lock_mode}"
 		BRANCH=testing
