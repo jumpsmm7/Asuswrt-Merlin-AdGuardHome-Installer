@@ -97,6 +97,7 @@ awk '
 	/^write_conf\(\)/,/^}/
 ' "${REPO_DIR}/installer" >"${FUNCTIONS_FILE}"
 printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS_FILE}"
+printf '%s\n' 'restore_dns_filter_settings() { return 0; }' >>"${FUNCTIONS_FILE}"
 
 (
 	# shellcheck disable=SC1090

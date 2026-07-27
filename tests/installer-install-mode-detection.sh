@@ -255,8 +255,10 @@ grep -q 'if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" \] && \[ -n "${DNS_FILTER_
 	fail 'DNSFilter mutation must be gated by WAN install mode'
 grep -q 'if { \[ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" \] || \[ -n "${DNS_FILTER_SELECTION:-}" \]; } &&' "${SCRIPT_PATH}" ||
 	fail 'LAN runtime defaults must not depend on DNSFilter selection'
-grep -q 'if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" \] && \[ ! -f "${AGH_FILE}" \]; then' "${SCRIPT_PATH}" ||
+grep -q 'if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" \]; then' "${SCRIPT_PATH}" ||
 	fail 'DNS environment restore must be gated by WAN install mode'
+grep -q 'if \[ ! -f "${AGH_FILE}" \]; then' "${SCRIPT_PATH}" ||
+	fail 'DNS environment restore must remain limited to an absent local installation'
 grep -q 'configure_runtime_defaults new-install "${ADGUARD_INSTALL_MODE:-wan}" "${LOCAL_CACHE_SELECTION:-0}"' "${SCRIPT_PATH}" ||
 	fail 'runtime defaults must receive install mode before local cache selection'
 if grep -q '\[ "$(nvram get sw_mode)" != "1" \].*exit 1' "${SCRIPT_PATH}"; then

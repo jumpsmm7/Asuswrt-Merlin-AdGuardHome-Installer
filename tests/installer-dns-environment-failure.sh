@@ -22,6 +22,8 @@ sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${IN
 	sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >"${FUNCTIONS_FILE}" || fail 'could not extract NVRAM transaction helpers'
 sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNS environment helper'
 sed -n '/^check_dns_filter() {$/,/^save_dns_filter_settings() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter helper'
+sed -n '/^restore_dns_filter_settings() {$/,/^check_ipset() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter restore helper'
+sed -n '/^on_installer_exit() {$/,/^python_bcrypt_available() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer exit handler'
 [ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/nvram (show|get|set|unset|commit)([[:space:];]|$)')" -eq 7 ] || fail 'NVRAM transaction helpers do not consistently use /bin/nvram'
 [ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/grep -q ')" -eq 1 ] || fail 'NVRAM transaction helpers do not use /bin/grep for inventory matching'
 # shellcheck disable=SC1090
@@ -32,6 +34,8 @@ ERROR='Error:'
 WARNING='Warning:'
 BASE_DIR="${TEST_ROOT}/base"
 ROLLBACK_RESULT_FILE="${BASE_DIR}/rollback-result"
+AGH_FILE="${TEST_ROOT}/AdGuardHome"
+ADGUARD_INSTALL_MODE=wan
 mkdir -p "${BASE_DIR}" || fail 'could not create installer-managed test directory'
 DNS_ENV_READY_TIMEOUT=2
 DNS_ENV_RECOVERY_TIMEOUT=1
@@ -42,6 +46,9 @@ ptxt_step() { PTXT "$1"; }
 ptxt_ok() { PTXT "$1"; }
 pidof() { return 1; }
 kill_processes() { return 0; }
+cleanup_api_files() { :; }
+installer_cleanup_tmp_file() { :; }
+rollback_pending_mode_migration() { return 0; }
 sleep() { MONOTONIC_NOW="$((MONOTONIC_NOW + 1))"; }
 monotonic_seconds() { printf '%s\n' "${MONOTONIC_NOW}"; }
 # check_connection checks simulated public network availability and increments the public connectivity check count.
@@ -93,7 +100,10 @@ nvram() {
 }
 
 service() {
-	[ "$*" = restart_dnsmasq ] || return 1
+	case "$*" in
+		restart_dnsmasq | 'restart_firewall;restart_dnsmasq') ;;
+		*) return 1 ;;
+	esac
 	SERVICE_COUNT="$((SERVICE_COUNT + 1))"
 	printf '%s\n' 'service restart_dnsmasq' >>"${CALLS_FILE}"
 	[ "${FAIL_SERVICE_AT:-0}" != "${SERVICE_COUNT}" ]
@@ -178,6 +188,16 @@ nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns
 NVRAM_TRANSACTION_DIR=''
 nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'clean transaction snapshot blocked a rerun'
 [ ! -e "${NVRAM_TRANSACTION_DIR}/stale" ] || fail 'clean stale snapshot was not replaced'
+
+reset_case
+printf '%s\n' 'dnsfilter_enable_x=0' >>"${NVRAM_FILE}" || fail 'could not seed DNSFilter NVRAM state'
+nvram_transaction_begin dnsfilter dnsfilter_enable_x || fail 'DNSFilter interruption snapshot failed'
+nvram_transaction_set dnsfilter_enable_x 1 || fail 'DNSFilter interruption staging failed'
+nvram_transaction_apply 'restart_firewall;restart_dnsmasq' 1 || fail 'DNSFilter interruption apply failed'
+[ "$(nvram_value dnsfilter_enable_x)" = 1 ] || fail 'DNSFilter interruption setup did not apply its change'
+on_installer_exit
+[ "$(nvram_value dnsfilter_enable_x)" = 0 ] || fail 'installer exit did not restore interrupted DNSFilter values'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'installer exit retained a successfully restored DNSFilter snapshot'
 
 reset_case
 DNS_ENV_READY_TIMEOUT=invalid
