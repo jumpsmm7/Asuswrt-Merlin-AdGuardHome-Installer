@@ -6294,7 +6294,18 @@ setup_AdGuardHome_impl() {
 					return 1
 				fi
 				[ -z "${DNS_FILTER_ROLLBACK_DIR}" ] || rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
-				rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
+				if ! rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"; then
+					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+						installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
+					fi
+					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+					fi
+					setup_restore_previous_yaml || true
+					PTXT "${ERROR} Unable to finalize the LAN domain NVRAM setting."
+					return 1
+				fi
 				[ -z "${CONFIG_ROLLBACK}" ] || discard_installer_config_backup "${CONFIG_ROLLBACK}"
 				;;
 		esac
