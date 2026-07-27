@@ -121,13 +121,13 @@ save_dns_filter_settings() {
 # installer_lan_domain_set sets the LAN domain to the specified value.
 installer_lan_domain_set() {
 	[ "${FAIL_LAN_DOMAIN_SET:-0}" -eq 0 ] || return 1
-	LAN_DOMAIN_ROLLBACK="${LAN_DOMAIN:-}"
+	TEST_LAN_DOMAIN_ROLLBACK="${LAN_DOMAIN:-}"
 	nvram set "lan_domain=$1"
 }
 # installer_lan_domain_restore restores the prior LAN domain and records the restoration.
 installer_lan_domain_restore() {
 	LAN_DOMAIN_RESTORES="$((LAN_DOMAIN_RESTORES + 1))"
-	LAN_DOMAIN="${LAN_DOMAIN_ROLLBACK:-}"
+	LAN_DOMAIN="${TEST_LAN_DOMAIN_ROLLBACK:-}"
 }
 # restore_dns_filter_settings restores DNS filter settings and removes the specified temporary directory.
 restore_dns_filter_settings() {

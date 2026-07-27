@@ -325,6 +325,7 @@ nvram_transaction_lock_reaper_acquire() {
 		mkdir "${reaper_path}" 2>/dev/null || return 1
 	fi
 	printf '%s\n' "${owner}" >"${reaper_path}/pid" || {
+		rm -f "${reaper_path}/pid" 2>/dev/null
 		rmdir "${reaper_path}" 2>/dev/null
 		return 1
 	}
@@ -6593,7 +6594,7 @@ setup_AdGuardHome_impl() {
 				if ! rm -f "${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || ! rm -f "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty"; then
 					# If only the second marker failed, re-arm the first transaction before rollback.
 					if [ -d "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ]; then
-						: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || true
+						: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || PTXT "${ERROR} Unable to re-arm the LAN domain NVRAM transaction marker."
 					fi
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
