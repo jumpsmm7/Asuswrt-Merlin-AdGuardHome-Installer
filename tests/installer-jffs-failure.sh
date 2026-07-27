@@ -4,24 +4,86 @@
 set -u
 
 INSTALLER_PATH="${1:-installer}"
-
-fail() {
-	printf '%s\n' "FAIL: $*" >&2
+TEST_ROOT="$(mktemp -d)" || {
+	printf '%s\n' "FAIL: could not create test workspace" >&2
 	exit 1
 }
 
+fail() {
+	rm -rf "${TEST_ROOT}"
+	printf '%s\n' "FAIL: $*" >&2
+	exit 1
+}
+cleanup() { rm -rf "${TEST_ROOT}"; }
+trap cleanup 0
+
 [ -f "${INSTALLER_PATH}" ] || fail "installer script not found: ${INSTALLER_PATH}"
 
-cli_install_body="$(sed -n '/^[[:space:]]*install)$/,/^[[:space:]]*;;$/p' "${INSTALLER_PATH}")" ||
-	fail 'could not inspect the CLI install pathway'
-printf '%s\n' "${cli_install_body}" | grep -q 'check_jffs_enabled || return 1' ||
-	fail 'CLI install must abort when JFFS setup fails'
+# Extract the CLI install function body (without case label and closing ;;)
+sed -n '/^[[:space:]]*install)$/,/^[[:space:]]*;;$/p' "${INSTALLER_PATH}" |
+	sed '1d;$d' >"${TEST_ROOT}/cli_install" ||
+	fail 'could not extract the CLI install pathway'
+[ -s "${TEST_ROOT}/cli_install" ] || fail 'CLI install pathway was not found'
 
-interactive_body="$(sed -n '/^case "$2" in$/,/^[[:space:]]*check_version$/p' "${INSTALLER_PATH}")" ||
-	fail 'could not inspect the interactive install pathway'
-printf '%s\n' "${interactive_body}" | grep -q 'check_jffs_enabled || exit 1' ||
-	fail 'interactive install must abort when JFFS setup fails'
+# Stub check_jffs_enabled to fail and wrap in a function
+cat >"${TEST_ROOT}/test_cli" <<'EOF'
+#!/bin/sh
+check_jffs_enabled() { return 1; }
+CLI_DRY_RUN=0
+cli_require_yes() { return 0; }
+AGH_FILE=/dev/null
+ADGUARD_INSTALL_MODE=lan
+CLI_ALLOW_DNS_NVRAM=1
+cli_enable_assume_yes() { :; }
+cleanup() { :; }
+adguard_branch=""
+installer_branch=""
+conf_value() { :; }
+cli_adguard_branch_is_valid() { return 0; }
+create_dir() { return 0; }
+TARG_DIR=/tmp
+write_conf() { return 0; }
+cli_write_adguard_branch() { return 0; }
+PTXT() { :; }
+check_dns_environment() { return 0; }
+inst_AdGuardHome() { return 0; }
+ERROR="Error:"
 
+cli_install_test() {
+EOF
+cat "${TEST_ROOT}/cli_install" >>"${TEST_ROOT}/test_cli"
+cat >>"${TEST_ROOT}/test_cli" <<'EOF'
+}
+
+cli_install_test
+EOF
+chmod +x "${TEST_ROOT}/test_cli"
+
+# Test CLI install pathway - should return 1 when check_jffs_enabled fails
+if "${TEST_ROOT}/test_cli"; then
+	fail 'CLI install must return 1 when JFFS setup fails'
+fi
+[ "$?" -eq 1 ] || fail 'CLI install must return status 1 when JFFS setup fails'
+
+# Test interactive install pathway - should exit 1 when check_jffs_enabled fails
+cat >"${TEST_ROOT}/test_interactive" <<'EOF'
+#!/bin/sh
+check_jffs_enabled() { return 1; }
+ADGUARD_INSTALL_MODE=lan
+NAT_ENV=""
+cleanup() { :; }
+
+EOF
+sed -n '/^case "$2" in$/,/^[[:space:]]*check_version$/p' "${INSTALLER_PATH}" >>"${TEST_ROOT}/test_interactive" ||
+	fail 'could not extract the interactive install pathway'
+chmod +x "${TEST_ROOT}/test_interactive"
+
+if "${TEST_ROOT}/test_interactive"; then
+	fail 'interactive install must exit 1 when JFFS setup fails'
+fi
+[ "$?" -eq 1 ] || fail 'interactive install must exit with status 1 when JFFS setup fails'
+
+# Verify that both call sites are guarded
 call_count="$(grep -c '^[[:space:]]*check_jffs_enabled || \(return\|exit\) 1$' "${INSTALLER_PATH}")" ||
 	fail 'could not count guarded JFFS setup calls'
 [ "${call_count}" -eq 2 ] || fail 'every JFFS setup call must propagate failure'

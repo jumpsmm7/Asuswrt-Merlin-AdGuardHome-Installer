@@ -4,17 +4,18 @@
 set -u
 
 INSTALLER_PATH="${1:-installer}"
-TEST_ROOT="${TMPDIR:-/tmp}/installer-service-lock-fd.$$"
-FUNCTIONS_FILE="${TEST_ROOT}/functions"
 
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
+
+TEST_ROOT="$(mktemp -d)" || fail 'could not create test workspace'
+FUNCTIONS_FILE="${TEST_ROOT}/functions"
+
 cleanup() { rm -rf "${TEST_ROOT}"; }
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
-mkdir -p "${TEST_ROOT}" || fail 'could not create test workspace'
 
 sed -n '/^adguard_service_without_nvram_lock_fd() {$/,/^}$/p' "${INSTALLER_PATH}" >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract service descriptor helper'

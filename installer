@@ -3247,7 +3247,11 @@ check_dns_environment() {
 				if nvram_transaction_restore restart_dnsmasq 1 && dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
 					rm -rf "${NVRAM_TRANSACTION_DIR}"
 				else
-					rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+					if [ -d "${NVRAM_TRANSACTION_DIR}" ]; then
+						rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+					else
+						rollback_result_write "DNS NVRAM transaction" "rollback partial"
+					fi
 				fi
 				return 1
 			fi
@@ -3262,7 +3266,11 @@ check_dns_environment() {
 				return 0
 			fi
 			if ! nvram_transaction_restore restart_dnsmasq 1 || ! dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
-				rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+				if [ -d "${NVRAM_TRANSACTION_DIR}" ]; then
+					rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+				else
+					rollback_result_write "DNS NVRAM transaction" "rollback partial"
+				fi
 				PTXT "${ERROR} Unable to restore all saved DNS NVRAM settings."
 				return 1
 			fi
