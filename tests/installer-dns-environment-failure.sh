@@ -255,7 +255,8 @@ if nvram_transaction_lock_flock_supports_fd; then
 	nvram_transaction_lock_acquire || fail 'flock transaction lock fast-path re-acquire failed while owner lookup was disabled'
 	nvram_transaction_lock_release || fail 'flock transaction lock could not be released while owner lookup was disabled'
 	nvram_transaction_lock_owned && fail 'flock transaction lock ownership check succeeded after release while owner lookup was disabled'
-	unset -f nvram_transaction_lock_owner_current
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
 fi
 
 # assert_original verifies that the simulated NVRAM contains the expected original DNS settings, failing with the provided label if any value differs.
