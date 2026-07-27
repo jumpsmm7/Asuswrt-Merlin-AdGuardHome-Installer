@@ -10,7 +10,7 @@ tone_instructions: >-
 reviews:
   finishing_touches:
     unit_tests:
-      enabled: false
+      enabled: true
   # Use assertive analysis, while the instructions below suppress low-value nits.
   profile: "assertive"
 
@@ -47,12 +47,13 @@ reviews:
     # Avoid auto-pausing during larger installer or regression-test changes.
     auto_pause_after_reviewed_commits: 20
 
-    drafts: false
+    drafts: true
 
     base_branches:
-      - "master"
-      - 'v[0-9]+\\.[0-9]+\\.[0-9]+'
-      - 'dev/.*'
+      - "master([/](.*))?"
+      - 'v[0-9]+\.[0-9]+\.[0-9]+([/](.*))?'
+      - 'dev([/](.*))?'
+      - 'codex([/](.*))?'
 
     ignore_title_keywords:
       - "WIP"
@@ -64,6 +65,8 @@ reviews:
     ignore_usernames:
       - "dependabot[bot]"
       - "renovate[bot]"
+      - "chatgpt-codex-connector[bot]"
+      - "qodo-code-review[bot]"
 
   path_filters:
     # Generated archives and digest files are validated by repository CI.
