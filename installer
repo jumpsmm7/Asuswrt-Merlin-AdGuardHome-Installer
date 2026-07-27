@@ -169,7 +169,7 @@ nvram_transaction_lock_acquire() {
 	local lock_dir lock_owner lock_path status
 	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
 	case "${NVRAM_TRANSACTION_LOCK_MODE:-}" in
-		flock) [ -e "/proc/$$/fd/8" ] && return 0 ;;
+		flock) nvram_transaction_lock_flock_owned "${lock_path}" && return 0 ;;
 		symlink) [ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "$$" ] && return 0 ;;
 		mkdir) [ "$(cat "${lock_path}.d/pid" 2>/dev/null)" = "$$" ] && return 0 ;;
 	esac
@@ -255,11 +255,18 @@ nvram_transaction_lock_owned() {
 	local lock_path
 	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
 	case "${NVRAM_TRANSACTION_LOCK_MODE:-}" in
-		flock) [ -e "/proc/$$/fd/8" ] ;;
+		flock) nvram_transaction_lock_flock_owned "${lock_path}" ;;
 		symlink) [ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "$$" ] ;;
 		mkdir) [ "$(cat "${lock_path}.d/pid" 2>/dev/null)" = "$$" ] ;;
 		*) return 1 ;;
 	esac
+}
+
+nvram_transaction_lock_flock_owned() {
+	local lock_path
+	lock_path="$1"
+	[ -e "/proc/$$/fd/8" ] || return 1
+	[ "$(nvram_transaction_lock_readlink "/proc/$$/fd/8" 2>/dev/null)" = "${lock_path}" ]
 }
 
 nvram_transaction_lock_reaper_acquire() {
@@ -345,6 +352,7 @@ nvram_transaction_lock_release() {
 	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
 	case "${NVRAM_TRANSACTION_LOCK_MODE:-}" in
 		flock)
+			nvram_transaction_lock_flock_owned "${lock_path}" || return 1
 			/usr/bin/flock -u 8 >/dev/null 2>&1 || return 1
 			exec 8>&-
 			;;

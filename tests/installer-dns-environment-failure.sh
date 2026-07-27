@@ -217,6 +217,25 @@ for inherited_lock_mode in flock symlink mkdir invalid; do
 		fail "inherited ${inherited_lock_mode} mode bypassed the live NVRAM transaction lock"
 	fi
 done
+if nvram_transaction_lock_flock_supports_fd; then
+	BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" TEST_ROOT="${TEST_ROOT}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		exec 8>"${TEST_ROOT}/unrelated-fd"
+		NVRAM_TRANSACTION_LOCK_MODE=flock
+		nvram_transaction_lock_owned && exit 1
+		nvram_transaction_lock_release && exit 1
+		printf "%s\n" retained >&8
+	' || fail 'unrelated descriptor was accepted, closed, or released as the flock transaction lock'
+	[ "$(cat "${TEST_ROOT}/unrelated-fd")" = retained ] || fail 'unrelated descriptor content was not preserved'
+	if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" TEST_ROOT="${TEST_ROOT}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		exec 8>"${TEST_ROOT}/unrelated-acquire-fd"
+		NVRAM_TRANSACTION_LOCK_MODE=flock
+		nvram_transaction_lock_acquire
+	'; then
+		fail 'unrelated descriptor bypassed the live flock transaction lock'
+	fi
+fi
 BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" TEST_ROOT="${TEST_ROOT}" sh -c '
 	. "${FUNCTIONS_FILE}"
 	exec 8>&-
