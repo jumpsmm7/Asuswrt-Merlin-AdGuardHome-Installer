@@ -242,19 +242,20 @@ for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_
 done
 
 if nvram_transaction_lock_flock_supports_fd; then
-	(
-		# nvram_transaction_lock_owner_current fails to prove flock-mode lock helpers never need the process owner identity.
-		nvram_transaction_lock_owner_current() {
-			printf '%s\n' 'Error: owner lookup invoked unexpectedly for flock mode' >&2
-			return 1
-		}
-		nvram_transaction_lock_acquire || fail 'flock transaction lock could not be acquired while owner lookup was disabled'
-		[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = flock ] || fail 'flock mode was not selected while owner lookup was disabled'
-		nvram_transaction_lock_owned || fail 'flock transaction lock ownership check failed while owner lookup was disabled'
-		nvram_transaction_lock_acquire || fail 'flock transaction lock fast-path re-acquire failed while owner lookup was disabled'
-		nvram_transaction_lock_release || fail 'flock transaction lock could not be released while owner lookup was disabled'
-		nvram_transaction_lock_owned && fail 'flock transaction lock ownership check succeeded after release while owner lookup was disabled'
-	) || exit 1
+	# nvram_transaction_lock_owner_current fails to prove flock-mode lock helpers never need the process owner identity.
+	# Run this check outside a subshell: flock ownership is tracked via /proc/$$/fd/8, and $$ keeps the
+	# invoking shell's PID even inside a `( ... )` subshell, which would desync it from the forked process.
+	nvram_transaction_lock_owner_current() {
+		printf '%s\n' 'Error: owner lookup invoked unexpectedly for flock mode' >&2
+		return 1
+	}
+	nvram_transaction_lock_acquire || fail 'flock transaction lock could not be acquired while owner lookup was disabled'
+	[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = flock ] || fail 'flock mode was not selected while owner lookup was disabled'
+	nvram_transaction_lock_owned || fail 'flock transaction lock ownership check failed while owner lookup was disabled'
+	nvram_transaction_lock_acquire || fail 'flock transaction lock fast-path re-acquire failed while owner lookup was disabled'
+	nvram_transaction_lock_release || fail 'flock transaction lock could not be released while owner lookup was disabled'
+	nvram_transaction_lock_owned && fail 'flock transaction lock ownership check succeeded after release while owner lookup was disabled'
+	unset -f nvram_transaction_lock_owner_current
 fi
 
 # assert_original verifies that the simulated NVRAM contains the expected original DNS settings, failing with the provided label if any value differs.
@@ -571,6 +572,7 @@ done
 	OWNER_CALLS_FILE="${TEST_ROOT}/owner-lookup-calls"
 	: >"${OWNER_CALLS_FILE}"
 	# nvram_transaction_lock_owner_current counts self-owner lookups while preserving the real liveness check for other PIDs.
+	# shellcheck disable=SC2120
 	nvram_transaction_lock_owner_current() {
 		if [ "$#" -eq 0 ]; then
 			printf '%s\n' x >>"${OWNER_CALLS_FILE}"
