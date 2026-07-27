@@ -7,10 +7,12 @@ INSTALLER_PATH="${1:-installer}"
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/installer-update-reexec-lock.XXXXXX")" || exit 1
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
+# cleanup removes the temporary test directory and its contents.
 cleanup() { rm -rf "${TEST_ROOT}"; }
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
@@ -24,6 +26,7 @@ sed -n '/^installer_update_reexec() {$/,/^install_wan_event_scripts() {$/p' "${I
 
 BASE_DIR="${TEST_ROOT}/base"
 mkdir -p "${BASE_DIR}" || fail 'could not create installer base directory'
+# file_md5 outputs the placeholder MD5 checksum `new`.
 file_md5() { printf '%s\n' new; }
 ptxt_ok() { :; }
 
@@ -32,9 +35,12 @@ for lock_mode in flock symlink mkdir; do
 		flock)
 			[ -x /usr/bin/flock ] || continue
 			;;
-		symlink) nvram_transaction_lock_flock_supports_fd() { return 1; } ;;
+		symlink) # nvram_transaction_lock_flock_supports_fd indicates that file-descriptor-based flock locking is unsupported.
+			nvram_transaction_lock_flock_supports_fd() { return 1; } ;;
 		mkdir)
+			# nvram_transaction_lock_flock_supports_fd indicates that file-descriptor-based flock locking is unsupported.
 			nvram_transaction_lock_flock_supports_fd() { return 1; }
+			# nvram_transaction_lock_symlink_acquire reports that symlink lock acquisition is unavailable.
 			nvram_transaction_lock_symlink_acquire() { return 2; }
 			;;
 	esac

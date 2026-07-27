@@ -5,6 +5,7 @@ set -u
 
 INSTALLER_PATH="${1:-installer}"
 
+# fail prints an error message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -13,6 +14,7 @@ fail() {
 TEST_ROOT="$(mktemp -d)" || fail 'could not create test workspace'
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 
+# cleanup removes the temporary test workspace.
 cleanup() { rm -rf "${TEST_ROOT}"; }
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
