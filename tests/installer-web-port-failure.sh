@@ -69,11 +69,11 @@ PTXT() { :; }
 # rm removes files normally while simulating cleanup failures for configured LAN-domain or DNS-filter snapshot paths.
 rm() {
 	if [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
-		[ "$*" = "-rf ${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ]; then
+		[ "$*" = "-f ${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" ]; then
 		return 1
 	fi
 	if [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
-		[ "$*" = "-rf ${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ]; then
+		[ "$*" = "-f ${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" ]; then
 		return 1
 	fi
 	command rm "$@"
@@ -121,12 +121,13 @@ save_dns_filter_settings() {
 # installer_lan_domain_set sets the LAN domain to the specified value.
 installer_lan_domain_set() {
 	[ "${FAIL_LAN_DOMAIN_SET:-0}" -eq 0 ] || return 1
+	LAN_DOMAIN_ROLLBACK="${LAN_DOMAIN:-}"
 	nvram set "lan_domain=$1"
 }
-# installer_lan_domain_restore clears the LAN domain and records the restoration.
+# installer_lan_domain_restore restores the prior LAN domain and records the restoration.
 installer_lan_domain_restore() {
 	LAN_DOMAIN_RESTORES="$((LAN_DOMAIN_RESTORES + 1))"
-	LAN_DOMAIN=""
+	LAN_DOMAIN="${LAN_DOMAIN_ROLLBACK:-}"
 }
 # restore_dns_filter_settings restores DNS filter settings and removes the specified temporary directory.
 restore_dns_filter_settings() {
@@ -161,7 +162,7 @@ nvram() {
 		get:dns_local_cache) printf '%s\n' '1' ;;
 		get:lan_ipaddr) printf '%s\n' '192.168.1.1' ;;
 		get:lan_domain) printf '%s\n' "${LAN_DOMAIN:-}" ;;
-		set)
+		set:*)
 			LAN_DOMAIN="${2#lan_domain=}"
 			;;
 	esac

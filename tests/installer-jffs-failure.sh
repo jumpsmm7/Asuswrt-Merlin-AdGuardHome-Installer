@@ -8,6 +8,7 @@ TEST_ROOT="$(mktemp -d)" || {
 	printf '%s\n' "FAIL: could not create test workspace" >&2
 	exit 1
 }
+export TEST_ROOT
 
 # fail removes the temporary test workspace, prints a failure message to standard error, and exits with status 1.
 fail() {
@@ -18,6 +19,7 @@ fail() {
 # cleanup removes the temporary test workspace.
 cleanup() { rm -rf "${TEST_ROOT}"; }
 trap cleanup 0
+trap 'cleanup; exit 1' HUP INT TERM
 
 [ -f "${INSTALLER_PATH}" ] || fail "installer script not found: ${INSTALLER_PATH}"
 
@@ -30,10 +32,11 @@ sed -n '/^[[:space:]]*install)$/,/^[[:space:]]*;;$/p' "${INSTALLER_PATH}" |
 # Stub check_jffs_enabled to fail and wrap in a function
 cat >"${TEST_ROOT}/test_cli" <<'EOF'
 #!/bin/sh
-check_jffs_enabled() { return 1; }
+check_jffs_enabled() { : >"${TEST_ROOT}/cli-jffs-checked"; return 1; }
 CLI_DRY_RUN=0
 cli_require_yes() { return 0; }
-AGH_FILE=/dev/null
+AGH_FILE="${TEST_ROOT}/AdGuardHome"
+: >"${AGH_FILE}"
 ADGUARD_INSTALL_MODE=lan
 CLI_ALLOW_DNS_NVRAM=1
 cli_enable_assume_yes() { :; }
@@ -68,11 +71,12 @@ if [ "${status}" -eq 0 ]; then
 	fail 'CLI install must return 1 when JFFS setup fails'
 fi
 [ "${status}" -eq 1 ] || fail 'CLI install must return status 1 when JFFS setup fails'
+[ -e "${TEST_ROOT}/cli-jffs-checked" ] || fail 'CLI install exited before reaching the JFFS guard'
 
 # Test interactive install pathway - should exit 1 when check_jffs_enabled fails
 cat >"${TEST_ROOT}/test_interactive" <<'EOF'
 #!/bin/sh
-check_jffs_enabled() { return 1; }
+check_jffs_enabled() { : >"${TEST_ROOT}/interactive-jffs-checked"; return 1; }
 ADGUARD_INSTALL_MODE=lan
 NAT_ENV=""
 cleanup() { :; }
@@ -92,6 +96,7 @@ if [ "${status}" -eq 0 ]; then
 	fail 'interactive install must exit 1 when JFFS setup fails'
 fi
 [ "${status}" -eq 1 ] || fail 'interactive install must exit with status 1 when JFFS setup fails'
+[ -e "${TEST_ROOT}/interactive-jffs-checked" ] || fail 'interactive install exited before reaching the JFFS guard'
 
 # Verify that both call sites are guarded
 call_count="$(grep -c '^[[:space:]]*check_jffs_enabled || \(return\|exit\) 1$' "${INSTALLER_PATH}")" ||
