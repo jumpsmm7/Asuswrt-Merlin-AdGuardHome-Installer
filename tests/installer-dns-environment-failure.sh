@@ -157,6 +157,20 @@ EOF_NVRAM
 	_DNS_NVRAM_SAVED=0 _DNS_NVRAM_ROLLBACK_ATTEMPTED=0
 }
 
+reset_case
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper"
+printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper/pid"
+nvram_transaction_lock_reaper_acquire "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" || fail 'stale symlink reaper lock was not reclaimed'
+[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper/pid")" = "$$" ] || fail 'reclaimed symlink reaper lock has the wrong owner'
+nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" || fail 'reclaimed symlink reaper lock was not released'
+
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"
+printf '%s\n' "$$" >"${BASE_DIR}/.AdGuardHome.nvram.lock.reaper/pid"
+if nvram_transaction_lock_reaper_acquire "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; then
+	fail 'live fallback reaper lock was reclaimed'
+fi
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"
+
 assert_original() {
 	[ "$(nvram_value dnspriv_enable)" = 1 ] || fail "$1: dnspriv_enable was not restored"
 	[ "$(nvram_value dhcpd_dns_router)" = 0 ] || fail "$1: dhcpd_dns_router was not restored"
@@ -355,7 +369,7 @@ done
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	nvram_transaction_lock_symlink_acquire() { return 2; }
 	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale transaction lock'
-	printf '%s\n' 999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale transaction lock owner'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale transaction lock owner'
 	nvram_transaction_lock_acquire || fail 'stale NVRAM transaction lock blocked recovery'
 	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "$$" ] || fail 'stale transaction lock was not replaced by the live owner'
 	if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
@@ -381,7 +395,7 @@ done
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	nvram_transaction_lock_symlink_acquire() { return 2; }
 	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare raced stale mkdir transaction lock'
-	printf '%s\n' 999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record raced stale mkdir transaction lock owner'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record raced stale mkdir transaction lock owner'
 	nvram_transaction_lock_reaper_acquire() {
 		rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || return 1
 		mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || return 1

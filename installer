@@ -270,9 +270,18 @@ nvram_transaction_lock_flock_owned() {
 }
 
 nvram_transaction_lock_reaper_acquire() {
-	local reaper_path
+	local reaper_owner reaper_path
 	reaper_path="$1"
-	mkdir "${reaper_path}" 2>/dev/null || return 1
+	if ! mkdir "${reaper_path}" 2>/dev/null; then
+		reaper_owner="$(cat "${reaper_path}/pid" 2>/dev/null)"
+		case "${reaper_owner}" in
+			"" | *[!0-9]*) return 1 ;;
+			*) [ ! -d "/proc/${reaper_owner}" ] || return 1 ;;
+		esac
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${reaper_owner}" ] || return 1
+		rm -rf "${reaper_path}" || return 1
+		mkdir "${reaper_path}" 2>/dev/null || return 1
+	fi
 	printf '%s\n' "$$" >"${reaper_path}/pid" || {
 		rmdir "${reaper_path}" 2>/dev/null
 		return 1
