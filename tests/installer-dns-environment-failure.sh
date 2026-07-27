@@ -218,6 +218,16 @@ check_dns_environment 0 || fail 'public network unavailability blocked local DNS
 [ "${PUBLIC_CHECK_COUNT}" = 0 ] || fail 'DNS preparation used a public connectivity check'
 [ "${DNS_ENV_READY_TIMEOUT}" = 60 ] || fail 'invalid startup readiness timeout did not use its numeric default'
 [ "${DNS_ENV_RECOVERY_TIMEOUT}" = 15 ] || fail 'invalid recovery timeout did not use its numeric default'
+finalize_dns_environment || fail 'successful DNS preparation snapshot could not be finalized'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful install retained its DNS preparation snapshot'
+[ "$(nvram get dnspriv_enable)" = 0 ] || fail 'snapshot finalization restored successfully applied DNS settings'
+nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'finalized DNS preparation snapshot blocked a later installer run'
+rm -rf "${NVRAM_TRANSACTION_DIR}"
+
+reset_case
+DNS_ENV_READY_TIMEOUT=invalid
+DNS_ENV_RECOVERY_TIMEOUT=invalid
+check_dns_environment 0 || fail 'DNS preparation for explicit restore failed'
 check_dns_environment 1 || fail 'successful DNS preparation could not restore its snapshot'
 assert_original 'successful preparation'
 DNS_ENV_READY_TIMEOUT=2
@@ -312,6 +322,7 @@ assert_original 'retried rollback'
 
 grep -q 'check_dns_environment 0 || return 1' "${INSTALLER_PATH}" || fail 'CLI install does not propagate DNS preparation failure'
 grep -q 'check_dns_environment 0 || exit 1' "${INSTALLER_PATH}" || fail 'interactive install does not propagate DNS preparation failure'
+grep -q '^[[:space:]]*if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" \] && ! finalize_dns_environment; then$' "${INSTALLER_PATH}" || fail 'successful WAN installation does not finalize its DNS preparation snapshot'
 
 reset_case
 (

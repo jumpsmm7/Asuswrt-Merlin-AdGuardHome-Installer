@@ -3055,6 +3055,14 @@ check_dns_environment() {
 	return 0
 }
 
+finalize_dns_environment() {
+	local snapshot_dir
+	snapshot_dir="${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
+	[ ! -e "${snapshot_dir}" ] && [ ! -L "${snapshot_dir}" ] || rm -rf "${snapshot_dir}" || return 1
+	_DNS_NVRAM_SAVED="0"
+	export _DNS_NVRAM_SAVED
+}
+
 check_dns_filter() {
 	local changed key mode use_some yesno_status
 	mode="$1"
@@ -5108,6 +5116,11 @@ inst_AdGuardHome() {
 			end_op_message 1 "$1"
 			return 1
 		fi
+	fi
+	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && ! finalize_dns_environment; then
+		PTXT "${ERROR} Unable to remove the completed DNS NVRAM recovery snapshot."
+		end_op_message 1 "$1"
+		return 1
 	fi
 	adguard_install_abort_trap_disable_preserve_defer
 	ptxt_ok "AdGuardHome ${1:-install} orchestration complete."
