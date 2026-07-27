@@ -85,8 +85,11 @@ cat >"${TARG_DIR}/installer" <<EOF_INSTALLER
 printf '%s\n' restarted >"${TEST_ROOT}/unexpected-restart"
 EOF_INSTALLER
 chmod 755 "${TARG_DIR}/installer" || fail 'could not make restart target executable'
+# nvram_transaction_lock_release always fails to release the NVRAM transaction lock.
 nvram_transaction_lock_release() { return 1; }
+# sleep overrides the delay command with a no-op for testing.
 sleep() { :; }
+# clear_screen clears the terminal display.
 clear_screen() { :; }
 
 (

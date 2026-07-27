@@ -68,7 +68,7 @@ installer_cleanup_tmp_file() { :; }
 rollback_pending_mode_migration() { return 0; }
 # sleep advances the simulated monotonic clock by one second.
 sleep() { MONOTONIC_NOW="$((MONOTONIC_NOW + 1))"; }
-# monotonic_seconds outputs the simulated monotonic timestamp and can fail on a configured call.
+# monotonic_seconds outputs the simulated monotonic timestamp and fails on the configured call number when MONOTONIC_FAIL_AT is set.
 monotonic_seconds() {
 	if [ "${MONOTONIC_FAIL_AT:-0}" != 0 ]; then
 		MONOTONIC_CALLS="$(cat "${TEST_ROOT}/monotonic-calls" 2>/dev/null || printf 0)"
@@ -319,7 +319,7 @@ BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" TEST_ROOT="${TEST_ROOT
 	installer_lan_domain_restore() { :; }
 	# restore_dns_filter_settings restores DNSFilter settings and returns a failure status.
 	restore_dns_filter_settings() { return 1; }
-	# check_dns_environment prepares the local DNS environment and restores transactional NVRAM state when requested.
+	# check_dns_environment prepares the local DNS environment and optionally restores the transactional NVRAM state.
 	check_dns_environment() { :; }
 	# nvram_transaction_lock_owned reports that the current process owns the NVRAM transaction lock.
 	nvram_transaction_lock_owned() { return 0; }
@@ -364,10 +364,11 @@ for fallback_mode in symlink mkdir; do
 printf '%s\n' "\$1" >"${TEST_ROOT}/restart-${fallback_mode}.branch"
 EOF_RESTART
 		chmod 755 "${TARG_DIR}/installer" || fail "could not make ${fallback_mode} restart target executable"
-		sleep() { :; }
+		# sleep does nothing.
+sleep() { :; }
 		# clear_screen does nothing.
 		clear_screen() { :; }
-		# rollback_result_needs_attention always indicates that no rollback attention is needed.
+		# rollback_result_needs_attention indicates that rollback attention is not needed.
 		rollback_result_needs_attention() { return 1; }
 		end_op_message 0 ''
 	) || fail "installer restart retained its ${fallback_mode} NVRAM transaction lock"
@@ -458,7 +459,7 @@ done
 	nvram_transaction_lock_symlink_acquire() { return 2; }
 	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare raced stale mkdir transaction lock'
 	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record raced stale mkdir transaction lock owner'
-	# nvram_transaction_lock_reaper_acquire creates a fresh NVRAM transaction lock reaper directory and records its owner marker.
+	# nvram_transaction_lock_reaper_acquire creates the NVRAM transaction lock reaper directory and writes its ownership marker.
 	nvram_transaction_lock_reaper_acquire() {
 		rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || return 1
 		mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || return 1

@@ -136,7 +136,7 @@ restore_dns_filter_settings() {
 	rm -rf "$1"
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
 }
-# check_dns_filter marks DNS filter settings as changed.
+# check_dns_filter marks the DNS filter settings as changed.
 check_dns_filter() {
 	DNS_FILTER_CHANGED=1
 }

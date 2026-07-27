@@ -63,11 +63,13 @@ write_conf() {
 		printf '%s\n' 'ADGUARD_DOMAIN="CHANGED"' >>"${CONF_FILE}"
 	fi
 }
+# AdGuardHome_authen records the authentication target from its second argument.
 AdGuardHome_authen() {
 	AUTH_TARGET="${2:-}"
 }
+# check_AdGuardHome_yaml is a test stub that reports the AdGuard Home YAML configuration as valid.
 check_AdGuardHome_yaml() { return 0; }
-# check_dns_filter increments the DNS filter check count and returns 2 when nested DNS prompt failure is enabled; otherwise, it returns 0.
+# check_dns_filter records a DNS filter check and reports whether the nested DNS prompt should fail.
 check_dns_filter() {
 	DNS_FILTER_CALLS="$((DNS_FILTER_CALLS + 1))"
 	[ "${FAIL_NESTED_DNS_PROMPT:-0}" -eq 1 ] && return 2
