@@ -383,7 +383,7 @@ nvram_transaction_restore() {
 	failed="0"
 	[ -f "${snapshot_dir}/keys" ] || return 1
 	if [ ! -f "${snapshot_dir}/dirty" ]; then
-		rm -rf "${snapshot_dir}"
+		[ "${keep_snapshot}" = "1" ] || rm -rf "${snapshot_dir}"
 		return 0
 	fi
 	while IFS= read -r key; do
