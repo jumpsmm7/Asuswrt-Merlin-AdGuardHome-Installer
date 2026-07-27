@@ -18,7 +18,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test workspace'
 
-printf '%s\n' 'which() { command -v "$1" >/dev/null 2>&1; }' >"${FUNCTIONS_FILE}" || fail 'could not create test functions file'
+: >"${FUNCTIONS_FILE}" || fail 'could not create test functions file'
 sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" |
 	sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract NVRAM transaction helpers'
 sed -n '/^installer_lan_domain_set() {$/,/^rollback_result_write() {$/p' "${INSTALLER_PATH}" | sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract LAN-domain transaction helpers'
@@ -47,7 +47,6 @@ PTXT() { printf '%s\n' "$*" >>"${CALLS_FILE}"; }
 ptxt_phase() { PTXT "$1"; }
 ptxt_step() { PTXT "$1"; }
 ptxt_ok() { PTXT "$1"; }
-which() { command -v "$1" >/dev/null 2>&1; }
 pidof() {
 	[ "${STUBBY_RUNNING:-0}" = 1 ] && [ "$1" = stubby ] || return 1
 	printf '%s\n' 1234
