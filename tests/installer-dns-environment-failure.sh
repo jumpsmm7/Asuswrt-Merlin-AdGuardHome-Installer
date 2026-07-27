@@ -259,6 +259,16 @@ FAIL_SNAPSHOT_REMOVE=0
 rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove clean apply transaction snapshot'
 
 reset_case
+nvram_transaction_begin dirty-apply-cleanup dnspriv_enable || fail 'dirty apply transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'dirty apply transaction staging failed'
+FAIL_SNAPSHOT_REMOVE=1
+nvram_transaction_apply - && fail 'dirty apply snapshot removal failure was ignored'
+[ -f "${NVRAM_TRANSACTION_DIR}/dirty" ] || fail 'dirty apply snapshot was not retained after removal failure'
+[ "$(nvram get dnspriv_enable)" = 0 ] || fail 'dirty apply cleanup failure unexpectedly rolled back NVRAM'
+FAIL_SNAPSHOT_REMOVE=0
+rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove dirty apply transaction snapshot'
+
+reset_case
 installer_lan_domain_set router.test 1 || fail 'LAN domain cleanup transaction apply failed'
 FAIL_SNAPSHOT_REMOVE=1
 installer_lan_domain_restore && fail 'LAN domain snapshot removal failure was ignored'
