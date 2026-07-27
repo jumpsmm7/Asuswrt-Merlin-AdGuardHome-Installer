@@ -3244,8 +3244,15 @@ check_dns_environment() {
 			fi
 			if [ "${stubby_stopped}" = "1" ] && [ "${changed}" = "0" ]; then
 				if ! service restart_dnsmasq >/dev/null 2>&1; then
-					rm -rf "${NVRAM_TRANSACTION_DIR}"
 					PTXT "${ERROR} Unable to restart dnsmasq after stopping stubby."
+					if ! : >"${NVRAM_TRANSACTION_DIR}/dirty" || ! chmod 600 "${NVRAM_TRANSACTION_DIR}/dirty"; then
+						PTXT "${ERROR} Unable to preserve the DNS recovery snapshot."
+					fi
+					if service restart_dnsmasq >/dev/null 2>&1 && dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
+						rm -rf "${NVRAM_TRANSACTION_DIR}"
+					else
+						rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+					fi
 					return 1
 				fi
 				changed="1"

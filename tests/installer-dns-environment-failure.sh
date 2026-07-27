@@ -123,7 +123,7 @@ service() {
 	esac
 	SERVICE_COUNT="$((SERVICE_COUNT + 1))"
 	printf '%s\n' 'service restart_dnsmasq' >>"${CALLS_FILE}"
-	[ "${FAIL_SERVICE_AT:-0}" != "${SERVICE_COUNT}" ]
+	[ "${FAIL_ALL_SERVICES:-0}" = 0 ] && [ "${FAIL_SERVICE_AT:-0}" != "${SERVICE_COUNT}" ]
 }
 
 nslookup() {
@@ -151,7 +151,7 @@ dhcp_dns2_x=149.112.112.112
 EOF_NVRAM
 	: >"${CALLS_FILE}"
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0
-	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0
+	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0
 	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 STUBBY_RUNNING=0
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
 	_DNS_NVRAM_SAVED=0 _DNS_NVRAM_ROLLBACK_ATTEMPTED=0
@@ -445,6 +445,34 @@ check_dns_environment 0 || fail 'stopping stubby with prepared DNS NVRAM was rej
 [ "${SERVICE_COUNT}" = 1 ] || fail 'dnsmasq was not restarted after stopping stubby without NVRAM changes'
 [ "$(dns_check_count)" = 1 ] || fail 'local DNS was not checked after stopping stubby without NVRAM changes'
 rm -rf "${NVRAM_TRANSACTION_DIR}"
+
+reset_case
+cat >"${NVRAM_FILE}" <<'EOF_NVRAM'
+dnspriv_enable=0
+dhcpd_dns_router=1
+dhcp_dns1_x=
+dhcp_dns2_x=
+EOF_NVRAM
+STUBBY_RUNNING=1
+FAIL_SERVICE_AT=1
+check_dns_environment 0 && fail 'initial dnsmasq restart failure after stopping stubby was accepted'
+[ "${SERVICE_COUNT}" = 2 ] || fail 'dnsmasq restart failure after stopping stubby was not retried'
+[ "$(dns_check_count)" = 1 ] || fail 'recovered dnsmasq restart after stopping stubby was not checked'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful dnsmasq recovery retained its snapshot'
+
+reset_case
+cat >"${NVRAM_FILE}" <<'EOF_NVRAM'
+dnspriv_enable=0
+dhcpd_dns_router=1
+dhcp_dns1_x=
+dhcp_dns2_x=
+EOF_NVRAM
+STUBBY_RUNNING=1
+FAIL_ALL_SERVICES=1
+check_dns_environment 0 && fail 'unrecoverable dnsmasq restart failure after stopping stubby was accepted'
+[ "${SERVICE_COUNT}" = 2 ] || fail 'unrecoverable dnsmasq restart failure was not retried before returning'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'unrecoverable dnsmasq restart failure did not preserve recovery state'
+grep -q 'snapshot preserved' "${CALLS_FILE}" || fail 'unrecoverable dnsmasq restart failure did not record rollback evidence'
 
 reset_case
 DNS_ENV_READY_TIMEOUT=invalid
