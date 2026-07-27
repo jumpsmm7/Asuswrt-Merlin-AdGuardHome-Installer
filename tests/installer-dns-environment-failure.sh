@@ -211,6 +211,20 @@ for inherited_lock_mode in flock symlink mkdir invalid; do
 		fail "inherited ${inherited_lock_mode} mode bypassed the live NVRAM transaction lock"
 	fi
 done
+BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" TEST_ROOT="${TEST_ROOT}" sh -c '
+	. "${FUNCTIONS_FILE}"
+	exec 8>&-
+	ADGUARD_INSTALL_MODE=wan
+	AGH_FILE="${TEST_ROOT}/missing-AdGuardHome"
+	cleanup_api_files() { :; }
+	installer_cleanup_tmp_file() { :; }
+	installer_lan_domain_restore() { : >"${TEST_ROOT}/non-owner-rollback"; }
+	restore_dns_filter_settings() { : >"${TEST_ROOT}/non-owner-rollback"; }
+	check_dns_environment() { : >"${TEST_ROOT}/non-owner-rollback"; }
+	PTXT() { :; }
+	on_installer_exit
+' || fail 'non-owner installer exit handler failed'
+[ ! -e "${TEST_ROOT}/non-owner-rollback" ] || fail 'non-owner installer exit rolled back the live NVRAM transaction'
 [ "$(nvram_value dnspriv_enable)" = 0 ] || fail 'overlapping installer restored a live NVRAM transaction'
 [ "${COMMIT_COUNT}" = 1 ] || fail 'overlapping installer committed while another transaction owner was live'
 NVRAM_TRANSACTION_DIR=''
