@@ -26,6 +26,7 @@ sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PA
 sed -n '/^check_dns_filter() {$/,/^save_dns_filter_settings() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter helper'
 sed -n '/^restore_dns_filter_settings() {$/,/^check_ipset() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter restore helper'
 sed -n '/^on_installer_exit() {$/,/^python_bcrypt_available() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer exit handler'
+sed -n '/^end_op_message() {$/,/^menu() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer restart helper'
 [ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/nvram (show|get|set|unset|commit)([[:space:];]|$)')" -eq 7 ] || fail 'NVRAM transaction helpers do not consistently use /bin/nvram'
 [ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/grep -q ')" -eq 1 ] || fail 'NVRAM transaction helpers do not use /bin/grep for inventory matching'
 # shellcheck disable=SC1090
@@ -236,6 +237,35 @@ assert_original 'dirty snapshot rerun'
 [ -f "${NVRAM_TRANSACTION_DIR}/keys" ] || fail 'dirty snapshot rerun did not create a replacement snapshot'
 
 nvram_transaction_lock_release || fail 'transaction owner could not release its lock for stale-lock recovery'
+for fallback_mode in symlink mkdir; do
+	(
+		nvram_transaction_lock_flock_supports_fd() { return 1; }
+		if [ "${fallback_mode}" = mkdir ]; then
+			nvram_transaction_lock_symlink_acquire() { return 2; }
+		fi
+		nvram_transaction_lock_acquire || fail "could not acquire ${fallback_mode} lock before installer restart"
+		[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = "${fallback_mode}" ] || fail "installer restart test did not select ${fallback_mode} mode"
+		TARG_DIR="${TEST_ROOT}/restart-${fallback_mode}"
+		SCRIPT_LOC="${TEST_ROOT}/missing-installer"
+		BRANCH=testing
+		CLI_MODE=0
+		ADGUARD_DEFER_END_OP=0
+		ROLLBACK_RESULT_UPDATED=1
+		mkdir -p "${TARG_DIR}" || fail "could not create ${fallback_mode} restart target"
+		cat >"${TARG_DIR}/installer" <<EOF_RESTART
+#!/bin/sh
+[ ! -L "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" ] || exit 1
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ] || exit 1
+printf '%s\n' "\$1" >"${TEST_ROOT}/restart-${fallback_mode}.branch"
+EOF_RESTART
+		chmod 755 "${TARG_DIR}/installer" || fail "could not make ${fallback_mode} restart target executable"
+		sleep() { :; }
+		clear_screen() { :; }
+		rollback_result_needs_attention() { return 1; }
+		end_op_message 0 ''
+	) || fail "installer restart retained its ${fallback_mode} NVRAM transaction lock"
+	[ "$(cat "${TEST_ROOT}/restart-${fallback_mode}.branch" 2>/dev/null)" = testing ] || fail "installer restart did not execute after releasing its ${fallback_mode} lock"
+done
 (
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare stale symlink transaction lock'
