@@ -157,6 +157,9 @@ service() {
 
 # rm removes files and directories, with optional simulated failures for staged files or the active NVRAM transaction directory.
 rm() {
+	if [ "${FAIL_SETUP_MARKER_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -f ] && [ "${2:-}" = "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; then
+		return 1
+	fi
 	if [ "${FAIL_STAGED_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -f ]; then
 		case "${2:-}" in
 			"${NVRAM_TRANSACTION_DIR:-}"/new.*) return 1 ;;
@@ -183,6 +186,7 @@ dns_check_count() { grep -c '^nslookup ' "${CALLS_FILE}"; }
 
 # reset_case restores the simulated test environment, counters, fault-injection settings, and NVRAM contents to their baseline state.
 reset_case() {
+	FAIL_SETUP_MARKER_REMOVE=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0
 	nvram_transaction_lock_release || fail 'could not release the previous test transaction lock'
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
 	rm -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
@@ -197,7 +201,7 @@ dhcp_dns2_x=149.112.112.112
 EOF_NVRAM
 	: >"${CALLS_FILE}"
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0 STUBBY_RESTART_COUNT=0
-	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_ALL_SERVICES=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0
+	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0
 	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 STUBBY_RUNNING=0 STUBBY_KILL_STUCK=0
 	DNS_ENV_READY_TIMEOUT=2 DNS_ENV_RECOVERY_TIMEOUT=1
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
@@ -233,6 +237,19 @@ nvram_transaction_begin dnsfilter dnsfilter_enable_x || fail 'paired transaction
 [ ! -f "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" ] || fail 'paired transaction recovery treated committed DNSFilter state as rollback state'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'paired transaction recovery retained its completion marker after cleanup'
 [ "${COMMIT_COUNT}" -eq 0 ] || fail 'paired transaction recovery rolled back committed NVRAM state'
+
+reset_case
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram" || fail 'could not create the paired transaction root'
+: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed" || fail 'could not publish the stale paired transaction completion marker'
+FAIL_SETUP_MARKER_REMOVE=1
+if nvram_transaction_begin dnsfilter dnsfilter_enable_x; then
+	fail 'new transaction started while the stale setup completion marker could not be removed'
+fi
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'failed marker cleanup did not retain the setup completion marker'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'failed marker cleanup created a new DNSFilter snapshot'
+FAIL_SETUP_MARKER_REMOVE=0
+nvram_transaction_begin dnsfilter dnsfilter_enable_x || fail 'transaction did not start after the stale setup completion marker became removable'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'successful recovery retained the stale setup completion marker'
 
 reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not determine the test process lock identity'
