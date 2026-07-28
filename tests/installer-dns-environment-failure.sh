@@ -562,18 +562,32 @@ done
 (
 	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# Simulate another installer holding the reaper during fresh symlink publication.
+	nvram_transaction_lock_reaper_acquire() {
+		ln -s 1 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+		return 1
+	}
+	if nvram_transaction_lock_symlink_acquire; then
+		fail 'fresh symlink acquisition ignored an active stale-lock reaper'
+	fi
+	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = 1 ] || fail 'fresh symlink acquisition replaced the reaper owner'
+	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+) || exit 1
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare raced stale symlink transaction lock'
 	# nvram_transaction_lock_reaper_acquire acquires the NVRAM transaction lock for reaping.
 	nvram_transaction_lock_reaper_acquire() {
 		rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || return 1
-		ln -s 1 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+		ln -s "${LOCK_OWNER}" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 	}
 	# nvram_transaction_lock_reaper_release releases the NVRAM transaction lock reaper.
 	nvram_transaction_lock_reaper_release() { :; }
 	if nvram_transaction_lock_symlink_acquire; then
 		fail 'symlink stale-lock reaper replaced a new live owner'
 	fi
-	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = 1 ] || fail 'symlink stale-lock reaper removed a new live owner'
+	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = "${LOCK_OWNER}" ] || fail 'symlink stale-lock reaper removed a new live owner'
 	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 ) || exit 1
 (

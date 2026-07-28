@@ -423,10 +423,13 @@ nvram_transaction_lock_symlink_acquire() {
 		fi
 		return 2
 	fi
+	nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" || return 1
 	if [ -L "${lock_path}" ]; then
 		lock_owner="$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)"
-		nvram_transaction_lock_owner_live "${lock_owner}" && return 1
-		nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" || return 1
+		if nvram_transaction_lock_owner_live "${lock_owner}"; then
+			nvram_transaction_lock_reaper_release "${lock_path}.reaper" || true
+			return 1
+		fi
 		[ "$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)" = "${lock_owner}" ] || {
 			nvram_transaction_lock_reaper_release "${lock_path}.reaper"
 			return 1
@@ -436,18 +439,21 @@ nvram_transaction_lock_symlink_acquire() {
 			return 1
 		}
 	elif [ -e "${lock_path}" ]; then
+		nvram_transaction_lock_reaper_release "${lock_path}.reaper" || true
 		return 1
 	fi
 	if ln -s "${owner}" "${lock_path}" 2>/dev/null; then
 		if [ "$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)" != "${owner}" ]; then
-			if [ -d "${lock_path}.reaper" ] && [ "$(cat "${lock_path}.reaper/pid" 2>/dev/null)" = "${owner}" ]; then
-				nvram_transaction_lock_reaper_release "${lock_path}.reaper" || true
-			fi
+			nvram_transaction_lock_reaper_release "${lock_path}.reaper" || true
 			return 1
 		fi
-		[ ! -d "${lock_path}.reaper" ] || nvram_transaction_lock_reaper_release "${lock_path}.reaper" || return 1
+		nvram_transaction_lock_reaper_release "${lock_path}.reaper" || {
+			rm -f "${lock_path}" || true
+			return 1
+		}
 		return 0
 	fi
+	nvram_transaction_lock_reaper_release "${lock_path}.reaper" || true
 	[ ! -e "${lock_path}" ] && [ ! -L "${lock_path}" ] || return 1
 	return 2
 }
