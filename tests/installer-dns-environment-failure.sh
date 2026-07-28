@@ -134,12 +134,11 @@ service() {
 		restart_dnsmasq | 'restart_firewall;restart_dnsmasq') ;;
 		restart_stubby)
 			STUBBY_RESTART_COUNT="$((STUBBY_RESTART_COUNT + 1))"
-			return 0
 			;;
 		*) return 1 ;;
 	esac
 	SERVICE_COUNT="$((SERVICE_COUNT + 1))"
-	printf '%s\n' 'service restart_dnsmasq' >>"${CALLS_FILE}"
+	printf '%s\n' "service $*" >>"${CALLS_FILE}"
 	[ "${FAIL_ALL_SERVICES:-0}" = 0 ] && [ "${FAIL_SERVICE_AT:-0}" != "${SERVICE_COUNT}" ]
 }
 
@@ -183,7 +182,7 @@ EOF_NVRAM
 	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 STUBBY_RUNNING=0
 	DNS_ENV_READY_TIMEOUT=2 DNS_ENV_RECOVERY_TIMEOUT=1
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
-	_DNS_NVRAM_SAVED=0 _DNS_NVRAM_ROLLBACK_ATTEMPTED=0
+	_DNS_STUBBY_STOPPED=0 _DNS_NVRAM_SAVED=0 _DNS_NVRAM_ROLLBACK_ATTEMPTED=0
 }
 
 reset_case
@@ -665,7 +664,7 @@ EOF_NVRAM
 STUBBY_RUNNING=1
 FAIL_SERVICE_AT=1
 check_dns_environment 0 && fail 'initial dnsmasq restart failure after stopping stubby was accepted'
-[ "${SERVICE_COUNT}" = 2 ] || fail 'dnsmasq restart failure after stopping stubby was not retried'
+[ "${SERVICE_COUNT}" = 3 ] || fail 'dnsmasq restart failure was not retried before stubby recovery'
 [ "$(dns_check_count)" = 1 ] || fail 'recovered dnsmasq restart after stopping stubby was not checked'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful dnsmasq recovery retained its snapshot'
 
@@ -679,7 +678,7 @@ EOF_NVRAM
 STUBBY_RUNNING=1
 FAIL_ALL_SERVICES=1
 check_dns_environment 0 && fail 'unrecoverable dnsmasq restart failure after stopping stubby was accepted'
-[ "${SERVICE_COUNT}" = 2 ] || fail 'unrecoverable dnsmasq restart failure was not retried before returning'
+[ "${SERVICE_COUNT}" = 3 ] || fail 'unrecoverable dnsmasq restart failure and stubby recovery were not attempted before returning'
 [ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'unrecoverable dnsmasq restart failure did not preserve recovery state'
 grep -q 'snapshot preserved' "${CALLS_FILE}" || fail 'unrecoverable dnsmasq restart failure did not record rollback evidence'
 [ "${STUBBY_RESTART_COUNT}" = 1 ] || fail 'unrecoverable DNS preparation did not restore stubby'
@@ -691,6 +690,18 @@ check_dns_environment 0 && fail 'DNS staging failure after stopping stubby was a
 [ "${STUBBY_RESTART_COUNT}" = 1 ] || fail 'DNS staging failure did not restore stubby'
 
 reset_case
+STUBBY_RUNNING=1
+FAIL_SET_AT=1
+FAIL_SERVICE_AT=2
+check_dns_environment 0 && fail 'stubby restore failure after DNS staging failure was accepted'
+[ "${SERVICE_COUNT}" = 2 ] || fail 'stubby restore failure did not participate in service failure injection'
+[ "${STUBBY_RESTART_COUNT}" = 1 ] || fail 'stubby restore failure was not attempted exactly once'
+grep -q '^service restart_stubby$' "${CALLS_FILE}" || fail 'stubby restore failure was not recorded'
+grep -q 'Unable to restart stubby after DNS preparation failed.' "${CALLS_FILE}" || fail 'stubby restore failure was not reported'
+[ "${_DNS_STUBBY_STOPPED}" = 1 ] || fail 'stubby restore failure did not preserve stopped state for later recovery'
+
+reset_case
+[ "${_DNS_STUBBY_STOPPED}" = 0 ] || fail 'reset leaked stopped stubby state from the previous case'
 STUBBY_RUNNING=1
 FAIL_COMMIT_AT=1
 check_dns_environment 0 && fail 'DNS apply failure after stopping stubby was accepted'
