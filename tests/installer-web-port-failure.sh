@@ -373,6 +373,8 @@ fi
 [ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'setup commit marker failure did not restore the previous YAML'
 [ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'setup commit marker failure did not restore installer preferences'
 [ "${LAN_DOMAIN}" = 'before-marker-failure.test' ] || fail 'setup commit marker failure did not restore the prior router LAN domain'
+[ "$(cat "${YAML_ORI}")" = 'original configuration' ] || fail 'setup commit marker failure did not restore the previous original YAML snapshot'
+[ ! -e "${YAML_ORI}.rollback.$$" ] || fail 'setup commit marker failure retained the original YAML rollback artifact'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'setup commit marker failure published the completion marker'
 
 printf '%s\n' 'working configuration' >"${YAML_FILE}"

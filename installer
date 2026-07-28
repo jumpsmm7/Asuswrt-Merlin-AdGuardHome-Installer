@@ -6303,7 +6303,7 @@ adguard_migrate_detected_install_mode() {
 }
 
 setup_AdGuardHome_impl() {
-	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_REARM_FAILED=0 LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
+	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_REARM_FAILED=0 LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_ORI_ROLLBACK="" YAML_ORI_WAS_PRESENT=0 YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ "${ADGUARD_FORCE_SETUP_YAML:-0}" = "1" ] && { [ -f "${YAML_FILE}" ] || [ -f "${YAML_ORI}" ]; }; then
 		PTXT "${INFO} Restored mode differs from detected router mode; updating mode-dependent AdGuardHome settings."
@@ -6670,7 +6670,27 @@ setup_AdGuardHome_impl() {
 					PTXT "${ERROR} Unable to save the AdGuardHome WebUI port."
 					return 1
 				fi
+				if [ -n "${YAML_ORI_NEW:-}" ]; then
+					YAML_ORI_ROLLBACK="${YAML_ORI}.rollback.$$"
+					if [ -e "${YAML_ORI}" ]; then
+						if ! cp -f "${YAML_ORI}" "${YAML_ORI_ROLLBACK}"; then
+							[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+							if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+								installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
+							fi
+							if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+								PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+							fi
+							rm -f "${YAML_ORI_NEW}"
+							setup_restore_previous_yaml || true
+							PTXT "${ERROR} Unable to preserve the previous original AdGuardHome configuration snapshot."
+							return 1
+						fi
+						YAML_ORI_WAS_PRESENT=1
+					fi
+				fi
 				if [ -n "${YAML_ORI_NEW:-}" ] && ! mv -f "${YAML_ORI_NEW}" "${YAML_ORI}"; then
+					rm -f "${YAML_ORI_ROLLBACK}"
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
 						installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
@@ -6692,9 +6712,15 @@ setup_AdGuardHome_impl() {
 						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 					fi
 					setup_restore_previous_yaml || true
+					if [ "${YAML_ORI_WAS_PRESENT}" -eq 1 ]; then
+						mv -f "${YAML_ORI_ROLLBACK}" "${YAML_ORI}" || PTXT "${ERROR} Unable to restore the previous original AdGuardHome configuration snapshot."
+					else
+						rm -f "${YAML_ORI}" || PTXT "${ERROR} Unable to remove the aborted original AdGuardHome configuration snapshot."
+					fi
 					PTXT "${ERROR} Unable to finalize the installer-managed NVRAM settings."
 					return 1
 				fi
+				rm -f "${YAML_ORI_ROLLBACK}"
 				[ -z "${DNS_FILTER_ROLLBACK_DIR}" ] || rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
 				[ -z "${CONFIG_ROLLBACK}" ] || discard_installer_config_backup "${CONFIG_ROLLBACK}"
 				;;
