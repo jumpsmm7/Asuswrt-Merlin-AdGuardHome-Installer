@@ -47,7 +47,7 @@ cleanup() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-# nvram returns `1` for `get:dns_local_cache` requests and produces no output for other requests.
+# nvram prints `1` for `get:dns_local_cache` requests and produces no output for other requests.
 nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '1' ;;
@@ -61,6 +61,7 @@ save_dns_filter_settings() { mkdir -p "$1"; }
 installer_lan_domain_set() { nvram set "lan_domain=$1"; }
 # installer_lan_domain_restore leaves the installer LAN domain setting unchanged.
 installer_lan_domain_restore() { :; }
+# nvram_transaction_finalize_setup_pair finalizes the NVRAM setup transaction successfully.
 nvram_transaction_finalize_setup_pair() { return 0; }
 # restore_dns_filter_settings removes the specified DNS filter settings directory and its contents.
 restore_dns_filter_settings() { rm -rf "$1"; }

@@ -89,6 +89,7 @@ save_dns_filter_settings() { mkdir -p "$1"; }
 installer_lan_domain_set() { nvram set "lan_domain=$1"; }
 # installer_lan_domain_restore restores the configured LAN domain.
 installer_lan_domain_restore() { :; }
+# nvram_transaction_finalize_setup_pair completes the simulated NVRAM setup transaction successfully.
 nvram_transaction_finalize_setup_pair() { return 0; }
 # restore_dns_filter_settings removes the specified directory and all of its contents.
 restore_dns_filter_settings() { rm -rf "$1"; }

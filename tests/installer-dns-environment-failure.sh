@@ -62,7 +62,7 @@ pidof() {
 	[ "${STUBBY_RUNNING:-0}" = 1 ] && [ "$1" = stubby ] || return 1
 	printf '%s\n' 1234
 }
-# killall increments the simulated stubby process termination count and stops stubby unless failure is injected.
+# killall increments the simulated stubby termination count and stops stubby unless termination is configured to remain stuck.
 killall() {
 	[ "$*" = '-q -9 stubby' ] || return 1
 	STUBBY_KILL_COUNT="$((STUBBY_KILL_COUNT + 1))"
@@ -135,7 +135,7 @@ nvram() {
 	esac
 }
 
-# service simulates supported service restarts and reports whether the configured failure injection permits them.
+# service simulates supported service restarts and returns failure when configured injection targets the restart.
 service() {
 	case "$*" in
 		restart_dnsmasq | 'restart_firewall;restart_dnsmasq') ;;
@@ -155,7 +155,7 @@ service() {
 	return 1
 }
 
-# rm removes files and directories, failing when configured to simulate removal of the active NVRAM transaction directory.
+# rm removes files and directories, with optional simulated failures for staged files or the active NVRAM transaction directory.
 rm() {
 	if [ "${FAIL_STAGED_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -f ]; then
 		case "${2:-}" in
@@ -168,7 +168,7 @@ rm() {
 	command rm "$@"
 }
 
-# nslookup simulates a DNS lookup, optionally blocking and tracking termination before reporting readiness.
+# nslookup simulates a DNS lookup, optionally blocks for five seconds, and records termination when configured before reporting DNS readiness.
 nslookup() {
 	printf '%s\n' "nslookup $*" >>"${CALLS_FILE}"
 	if [ "${TRACK_LOOKUP:-0}" = 1 ]; then
@@ -527,11 +527,11 @@ for fallback_mode in symlink mkdir; do
 printf '%s\n' "\$1" >"${TEST_ROOT}/restart-${fallback_mode}.branch"
 EOF_RESTART
 		chmod 755 "${TARG_DIR}/installer" || fail "could not make ${fallback_mode} restart target executable"
-		# sleep does nothing.
+		# sleep advances the simulated clock by one second.
 		sleep() { :; }
 		# clear_screen performs no action.
 		clear_screen() { :; }
-		# rollback_result_needs_attention reports that rollback does not require attention.
+		# rollback_result_needs_attention reports whether rollback requires attention.
 		rollback_result_needs_attention() { return 1; }
 		end_op_message 0 ''
 	) || fail "installer restart retained its ${fallback_mode} NVRAM transaction lock"
@@ -563,7 +563,7 @@ done
 	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare raced stale symlink transaction lock'
-	# nvram_transaction_lock_reaper_acquire acquires the NVRAM transaction lock for reaping by replacing its symlink with a reaper marker.
+	# nvram_transaction_lock_reaper_acquire acquires the NVRAM transaction lock for reaping.
 	nvram_transaction_lock_reaper_acquire() {
 		rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || return 1
 		ln -s 1 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
@@ -631,7 +631,7 @@ done
 	nvram_transaction_lock_symlink_acquire() { return 2; }
 	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare raced stale mkdir transaction lock'
 	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record raced stale mkdir transaction lock owner'
-	# nvram_transaction_lock_reaper_acquire recreates the NVRAM transaction lock reaper directory and records its owner marker.
+	# nvram_transaction_lock_reaper_acquire recreates the NVRAM transaction lock reaper directory and records owner ID 1 in its pid marker.
 	nvram_transaction_lock_reaper_acquire() {
 		rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || return 1
 		mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || return 1
@@ -657,7 +657,7 @@ done
 	# nvram_transaction_lock_owner_current counts self-owner lookups while preserving the real liveness check for other PIDs.
 	# nvram_transaction_lock_owner_current returns the current lock owner or a PID and process-start-time identifier for the specified process.
 	# nvram_transaction_lock_owner_current returns the current lock owner or a PID and process start-time identifier for a numeric PID.
-	# shellcheck disable=SC2120 # called with a PID argument from the sourced installer script
+	# nvram_transaction_lock_owner_current reports the current lock owner or resolves a numeric process ID to its PID and start time.
 	nvram_transaction_lock_owner_current() {
 		if [ "$#" -eq 0 ]; then
 			printf '%s\n' x >>"${OWNER_CALLS_FILE}"

@@ -51,6 +51,7 @@ cleanup() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
+# ptxt_ok performs no operation.
 ptxt_ok() { :; }
 # PTXT prints each argument on a separate line.
 PTXT() {
@@ -85,8 +86,9 @@ save_dns_filter_settings() {
 }
 # installer_lan_domain_set sets the router's LAN domain to the specified value.
 installer_lan_domain_set() { nvram set "lan_domain=$1"; }
-# installer_lan_domain_restore restores the installer LAN domain configuration without modifying the test environment.
+# installer_lan_domain_restore provides a no-op stub for restoring the installer LAN domain configuration.
 installer_lan_domain_restore() { :; }
+# nvram_transaction_finalize_setup_pair completes the NVRAM setup transaction successfully.
 nvram_transaction_finalize_setup_pair() { return 0; }
 # restore_dns_filter_settings removes the saved DNS filter settings directory at the specified path.
 restore_dns_filter_settings() {

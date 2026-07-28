@@ -56,7 +56,7 @@ PTXT() {
 read_input_num() { CHOSEN=3; }
 # read_input_port sets the web interface port to 3000.
 read_input_port() { WEB_PORT=3000; }
-# read_yesno records a prompt and returns its configured response for IPSET prompts.
+# read_yesno records the prompt and returns the configured response for IPSET prompts.
 read_yesno() {
 	printf '%s\n' "$1" >>"${YESNO_LOG}"
 	case "$1" in
@@ -83,6 +83,7 @@ save_dns_filter_settings() { mkdir -p "$1"; }
 installer_lan_domain_set() { nvram set "lan_domain=$1"; }
 # installer_lan_domain_restore performs no operation for LAN domain restoration.
 installer_lan_domain_restore() { :; }
+# nvram_transaction_finalize_setup_pair finalizes the NVRAM setup transaction successfully.
 nvram_transaction_finalize_setup_pair() { return 0; }
 # restore_dns_filter_settings removes the DNS filter settings directory specified by the first argument.
 restore_dns_filter_settings() { rm -rf "$1"; }
