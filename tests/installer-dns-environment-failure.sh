@@ -257,65 +257,65 @@ LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not determin
 	# Exercise the terminal mkdir implementation independently of optional flock and readlink support.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	nvram_transaction_lock_readlink() { return 127; }
-for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
-	mkdir -p "${reaper_path}"
-	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "ownerless reaper lock was not reclaimed: ${reaper_path}"
-	[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "reclaimed ownerless reaper lock has the wrong owner: ${reaper_path}"
-	nvram_transaction_lock_reaper_release "${reaper_path}" || fail "reclaimed ownerless reaper lock was not released: ${reaper_path}"
+	for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
+		mkdir -p "${reaper_path}"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "ownerless reaper lock was not reclaimed: ${reaper_path}"
+		[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "reclaimed ownerless reaper lock has the wrong owner: ${reaper_path}"
+		nvram_transaction_lock_reaper_release "${reaper_path}" || fail "reclaimed ownerless reaper lock was not released: ${reaper_path}"
 
-	mkdir -p "${reaper_path}"
-	: >"${reaper_path}/pid"
-	if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
-		fail "initializing reaper lock with an empty owner was reclaimed: ${reaper_path}"
-	fi
-	[ -d "${reaper_path}" ] || fail "initializing reaper lock with an empty owner was removed: ${reaper_path}"
-	[ ! -s "${reaper_path}/pid" ] || fail "initializing reaper lock owner was replaced: ${reaper_path}"
-	rm -rf "${reaper_path}"
+		mkdir -p "${reaper_path}"
+		: >"${reaper_path}/pid"
+		if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
+			fail "initializing reaper lock with an empty owner was reclaimed: ${reaper_path}"
+		fi
+		[ -d "${reaper_path}" ] || fail "initializing reaper lock with an empty owner was removed: ${reaper_path}"
+		[ ! -s "${reaper_path}/pid" ] || fail "initializing reaper lock owner was replaced: ${reaper_path}"
+		rm -rf "${reaper_path}"
 
-	mkdir -p "${reaper_path}"
-	printf '%s\n' 999999999 >"${reaper_path}/pid"
-	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "stale reaper lock was not reclaimed: ${reaper_path}"
-	[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "reclaimed reaper lock has the wrong owner: ${reaper_path}"
-	nvram_transaction_lock_reaper_release "${reaper_path}" || fail "reclaimed reaper lock was not released: ${reaper_path}"
+		mkdir -p "${reaper_path}"
+		printf '%s\n' 999999999 >"${reaper_path}/pid"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "stale reaper lock was not reclaimed: ${reaper_path}"
+		[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "reclaimed reaper lock has the wrong owner: ${reaper_path}"
+		nvram_transaction_lock_reaper_release "${reaper_path}" || fail "reclaimed reaper lock was not released: ${reaper_path}"
 
-	mkdir -p "${reaper_path}"
-	printf '%s\n' "${LOCK_OWNER}" >"${reaper_path}/pid"
-	if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
-		fail "live reaper lock was reclaimed: ${reaper_path}"
-	fi
-	rm -rf "${reaper_path}"
+		mkdir -p "${reaper_path}"
+		printf '%s\n' "${LOCK_OWNER}" >"${reaper_path}/pid"
+		if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
+			fail "live reaper lock was reclaimed: ${reaper_path}"
+		fi
+		rm -rf "${reaper_path}"
 
-	mkdir -p "${reaper_path}"
-	printf '%s:0\n' "$$" >"${reaper_path}/pid"
-	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "PID-reused reaper lock was not reclaimed: ${reaper_path}"
-	[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "PID-reused reaper lock has the wrong replacement owner: ${reaper_path}"
-	nvram_transaction_lock_reaper_release "${reaper_path}" || fail "PID-reused reaper lock was not released: ${reaper_path}"
-done
+		mkdir -p "${reaper_path}"
+		printf '%s:0\n' "$$" >"${reaper_path}/pid"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "PID-reused reaper lock was not reclaimed: ${reaper_path}"
+		[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "PID-reused reaper lock has the wrong replacement owner: ${reaper_path}"
+		nvram_transaction_lock_reaper_release "${reaper_path}" || fail "PID-reused reaper lock was not released: ${reaper_path}"
+	done
 ) || exit 1
 
 (
 	# Exercise explicit-owner handling in the terminal mkdir implementation.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	nvram_transaction_lock_readlink() { return 127; }
-for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
-	rm -rf "${reaper_path}"
-	(
-		# nvram_transaction_lock_owner_current reports an error and fails when an owner lookup is invoked unexpectedly.
-		nvram_transaction_lock_owner_current() {
-			printf '%s\n' 'Error: owner lookup invoked unexpectedly while an explicit owner was supplied' >&2
-			return 1
-		}
-		nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail "explicit-owner reaper acquire failed while owner lookup was disabled: ${reaper_path}"
-		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail "explicit-owner reaper acquire did not record the supplied owner: ${reaper_path}"
-		nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail "explicit-owner reaper release failed while owner lookup was disabled: ${reaper_path}"
-	) || exit 1
-	[ ! -e "${reaper_path}" ] || fail "explicit-owner reaper release did not remove the reaper directory: ${reaper_path}"
+	for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
+		rm -rf "${reaper_path}"
+		(
+			# nvram_transaction_lock_owner_current reports an error and fails when an owner lookup is invoked unexpectedly.
+			nvram_transaction_lock_owner_current() {
+				printf '%s\n' 'Error: owner lookup invoked unexpectedly while an explicit owner was supplied' >&2
+				return 1
+			}
+			nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail "explicit-owner reaper acquire failed while owner lookup was disabled: ${reaper_path}"
+			[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail "explicit-owner reaper acquire did not record the supplied owner: ${reaper_path}"
+			nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail "explicit-owner reaper release failed while owner lookup was disabled: ${reaper_path}"
+		) || exit 1
+		[ ! -e "${reaper_path}" ] || fail "explicit-owner reaper release did not remove the reaper directory: ${reaper_path}"
 
-	nvram_transaction_lock_reaper_acquire "${reaper_path}" '' || fail "empty explicit owner did not fall back to the owner lookup: ${reaper_path}"
-	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail "empty explicit owner recorded an unexpected owner: ${reaper_path}"
-	nvram_transaction_lock_reaper_release "${reaper_path}" '' || fail "empty explicit owner release did not fall back to the owner lookup: ${reaper_path}"
-	[ ! -e "${reaper_path}" ] || fail "empty explicit owner release did not remove the reaper directory: ${reaper_path}"
-done
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" '' || fail "empty explicit owner did not fall back to the owner lookup: ${reaper_path}"
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail "empty explicit owner recorded an unexpected owner: ${reaper_path}"
+		nvram_transaction_lock_reaper_release "${reaper_path}" '' || fail "empty explicit owner release did not fall back to the owner lookup: ${reaper_path}"
+		[ ! -e "${reaper_path}" ] || fail "empty explicit owner release did not remove the reaper directory: ${reaper_path}"
+	done
 ) || exit 1
 
 (
@@ -619,6 +619,19 @@ done
 	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 ) || exit 1
 (
+	# Reach the post-publication cleanup path by failing only the reaper release.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_reaper_acquire() { return 0; }
+	nvram_transaction_lock_reaper_release() { return 1; }
+	nvram_transaction_lock_symlink_acquire
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "symlink publication returned ${status} instead of 1 when reaper release failed"
+	if [ -e "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" ] ||
+		[ -L "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" ]; then
+		fail 'failed reaper release retained the newly published symlink lock'
+	fi
+) || exit 1
+(
 	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare raced stale symlink transaction lock'
@@ -629,9 +642,9 @@ done
 	}
 	# nvram_transaction_lock_reaper_release releases the NVRAM transaction lock reaper.
 	nvram_transaction_lock_reaper_release() { :; }
-	if nvram_transaction_lock_symlink_acquire; then
-		fail 'symlink stale-lock reaper replaced a new live owner'
-	fi
+	nvram_transaction_lock_symlink_acquire
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "stale-owner race returned ${status} instead of 1"
 	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = "${LOCK_OWNER}" ] || fail 'symlink stale-lock reaper removed a new live owner'
 	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 ) || exit 1
