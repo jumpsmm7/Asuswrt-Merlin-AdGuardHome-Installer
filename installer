@@ -195,7 +195,9 @@ nvram_transaction_finalize_setup_pair() {
 	rm -rf "${snapshot_root}/lan-domain" "${snapshot_root}/dnsfilter" 2>/dev/null || true
 	if [ ! -e "${snapshot_root}/lan-domain" ] && [ ! -L "${snapshot_root}/lan-domain" ] &&
 		[ ! -e "${snapshot_root}/dnsfilter" ] && [ ! -L "${snapshot_root}/dnsfilter" ]; then
-		rm -f "${marker}" 2>/dev/null || true
+		if ! rm -f "${marker}" 2>/dev/null || [ -e "${marker}" ] || [ -L "${marker}" ]; then
+			[ "${mode}" != "recovery" ] || return 1
+		fi
 	fi
 	return 0
 }
