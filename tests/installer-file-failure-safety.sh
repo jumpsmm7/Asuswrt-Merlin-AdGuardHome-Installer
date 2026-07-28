@@ -101,6 +101,7 @@ printf '%s\n' 'restore_dns_filter_settings() { return 0; }' >>"${FUNCTIONS_FILE}
 printf '%s\n' 'installer_lan_domain_restore() { return 0; }' >>"${FUNCTIONS_FILE}"
 printf '%s\n' 'nvram_transaction_lock_owned() { return 0; }' >>"${FUNCTIONS_FILE}"
 printf '%s\n' 'nvram_transaction_lock_release() { return 0; }' >>"${FUNCTIONS_FILE}"
+printf '%s\n' 'nvram_transaction_finalize_setup_pair() { return 0; }' >>"${FUNCTIONS_FILE}"
 
 (
 	# shellcheck disable=SC1090

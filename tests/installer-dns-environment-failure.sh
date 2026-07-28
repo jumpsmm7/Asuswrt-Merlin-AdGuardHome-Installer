@@ -173,6 +173,7 @@ dns_check_count() { grep -c '^nslookup ' "${CALLS_FILE}"; }
 reset_case() {
 	nvram_transaction_lock_release || fail 'could not release the previous test transaction lock'
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
+	rm -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
 	NVRAM_TRANSACTION_DIR=''
 	NVRAM_TRANSACTION_CHANGED=0
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.d" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"
@@ -190,6 +191,18 @@ EOF_NVRAM
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
 	_DNS_STUBBY_STOPPED=0 _DNS_NVRAM_SAVED=0 _DNS_NVRAM_ROLLBACK_ATTEMPTED=0
 }
+
+reset_case
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" || fail 'could not create paired transaction snapshots'
+: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || fail 'could not mark the LAN-domain transaction dirty'
+: >"${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" || fail 'could not mark the DNSFilter transaction dirty'
+: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed" || fail 'could not publish the paired transaction completion marker'
+rm -f "${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || fail 'could not simulate interrupted paired transaction cleanup'
+nvram_transaction_begin dnsfilter dnsfilter_enable_x || fail 'paired transaction recovery did not permit a new DNSFilter transaction'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'paired transaction recovery retained the completed LAN-domain snapshot'
+[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" ] || fail 'paired transaction recovery treated committed DNSFilter state as rollback state'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'paired transaction recovery retained its completion marker after cleanup'
+[ "${COMMIT_COUNT}" -eq 0 ] || fail 'paired transaction recovery rolled back committed NVRAM state'
 
 reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not determine the test process lock identity'

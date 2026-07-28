@@ -87,6 +87,7 @@ save_dns_filter_settings() {
 installer_lan_domain_set() { nvram set "lan_domain=$1"; }
 # installer_lan_domain_restore restores the installer LAN domain configuration without modifying the test environment.
 installer_lan_domain_restore() { :; }
+nvram_transaction_finalize_setup_pair() { return 0; }
 # restore_dns_filter_settings removes the saved DNS filter settings directory at the specified path.
 restore_dns_filter_settings() {
 	rm -rf "$1"

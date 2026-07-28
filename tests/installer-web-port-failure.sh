@@ -140,6 +140,12 @@ restore_dns_filter_settings() {
 	rm -rf "$1"
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
 }
+# nvram_transaction_finalize_setup_pair models the shared commit point for the paired setup transactions.
+nvram_transaction_finalize_setup_pair() {
+	[ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 0 ] || return 1
+	[ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 0 ] || return 1
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
+}
 # check_dns_filter marks the DNS filter settings as changed and fails when configured to simulate an update failure.
 check_dns_filter() {
 	DNS_FILTER_CHANGED=1
