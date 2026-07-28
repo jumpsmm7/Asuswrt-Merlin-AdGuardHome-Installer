@@ -202,6 +202,45 @@ nvram_transaction_finalize_setup_pair() {
 	return 0
 }
 
+nvram_transaction_recover_pending() {
+	local failed service_action snapshot_dir snapshot_root transaction
+	snapshot_root="${BASE_DIR}/.AdGuardHome.nvram"
+	[ ! -L "${snapshot_root}" ] || return 1
+	if [ ! -f "${snapshot_root}/setup-committed" ] &&
+		[ ! -f "${snapshot_root}/lan-domain/dirty" ] &&
+		[ ! -f "${snapshot_root}/dnsfilter/dirty" ] &&
+		[ ! -f "${snapshot_root}/dns-preparation/dirty" ]; then
+		return 0
+	fi
+	nvram_transaction_lock_acquire || return 1
+	failed="0"
+	if ! nvram_transaction_finalize_setup_pair recovery; then
+		failed="1"
+	else
+		for transaction in lan-domain dnsfilter dns-preparation; do
+			snapshot_dir="${snapshot_root}/${transaction}"
+			[ ! -L "${snapshot_dir}" ] || {
+				failed="1"
+				continue
+			}
+			[ -f "${snapshot_dir}/dirty" ] || continue
+			case "${transaction}" in
+				dnsfilter) service_action="restart_firewall;restart_dnsmasq" ;;
+				*) service_action="restart_dnsmasq" ;;
+			esac
+			NVRAM_TRANSACTION_DIR="${snapshot_dir}"
+			export NVRAM_TRANSACTION_DIR
+			if ! nvram_transaction_restore "${service_action}"; then
+				failed="1"
+			fi
+		done
+	fi
+	if ! nvram_transaction_lock_release; then
+		failed="1"
+	fi
+	[ "${failed}" = "0" ]
+}
+
 nvram_transaction_lock_acquire() {
 	local lock_dir lock_owner lock_path owner status
 	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
@@ -8158,6 +8197,10 @@ amtm_update_check "$@"
 
 installer_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
+if ! nvram_transaction_recover_pending; then
+	PTXT "${ERROR} Unable to recover an interrupted installer-managed NVRAM transaction; review ${ROLLBACK_RESULT_FILE} and the preserved snapshot."
+	exit 1
+fi
 if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
 	BLOCKLIST_ANALYZER_SHA256="$(conf_value BLOCKLIST_ANALYZER_SHA256)"
 else
