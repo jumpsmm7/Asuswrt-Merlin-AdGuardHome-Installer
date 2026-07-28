@@ -30,7 +30,8 @@ sed -n '/^end_op_message() {$/,/^menu() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"
 [ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/nvram (show|get|set|unset|commit)([[:space:];]|$)')" -eq 7 ] || fail 'NVRAM transaction helpers do not consistently use /bin/nvram'
 [ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/grep -q ')" -eq 1 ] || fail 'NVRAM transaction helpers do not use /bin/grep for inventory matching'
 LOCK_OWNER_FUNC_BODY="$(sed -n '/^nvram_transaction_lock_owner_current() {$/,/^nvram_transaction_lock_owner_live() {$/p' "${INSTALLER_PATH}")" || fail 'could not extract nvram_transaction_lock_owner_current function'
-[ "$(/bin/grep -Ec '/(bin|usr/bin)/(sed|awk)' <<EOF
+[ "$(
+	/bin/grep -Ec '/(bin|usr/bin)/(sed|awk)' <<EOF
 ${LOCK_OWNER_FUNC_BODY}
 EOF
 )" -eq 0 ] || fail 'NVRAM lock owner parsing does not resolve sed and awk through PATH'
