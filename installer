@@ -789,6 +789,9 @@ on_installer_exit() {
 	cleanup_api_files
 	installer_cleanup_tmp_file setup "${SETUP_YAML_TMP_FILE:-}"
 	installer_cleanup_tmp_file blocklist "${BLOCKLIST_YAML_TMP_FILE:-}"
+	if [ "${_DNS_STUBBY_STOPPED:-0}" = "1" ] && ! restore_stubby_after_dns_failure; then
+		PTXT "${ERROR} Unable to restart stubby after interrupted DNS preparation."
+	fi
 	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && nvram_transaction_lock_owned; then
 		# Restore any LAN-domain transaction interrupted before setup finalized it.
 		installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
@@ -3297,16 +3300,22 @@ check_dns_environment() {
 			export _DNS_NVRAM_SAVED
 			if [ "$(pidof stubby)" ]; then
 				ptxt_step "Stopping conflicting stubby process."
-				kill_processes stubby
+				kill_processes stubby || return 1
 				stubby_stopped="1"
+				_DNS_STUBBY_STOPPED="1"
+				export _DNS_STUBBY_STOPPED
 			fi
-			nvram_transaction_set dnspriv_enable "0" || return 1
-			nvram_transaction_set dhcpd_dns_router "1" || return 1
-			nvram_transaction_set dhcp_dns1_x "" || return 1
-			nvram_transaction_set dhcp_dns2_x "" || return 1
+			if ! nvram_transaction_set dnspriv_enable "0" ||
+				! nvram_transaction_set dhcpd_dns_router "1" ||
+				! nvram_transaction_set dhcp_dns1_x "" ||
+				! nvram_transaction_set dhcp_dns2_x ""; then
+				[ "${stubby_stopped}" = "0" ] || restore_stubby_after_dns_failure || PTXT "${ERROR} Unable to restart stubby after DNS preparation failed."
+				return 1
+			fi
 			changed="${NVRAM_TRANSACTION_CHANGED:-0}"
 			if ! nvram_transaction_apply restart_dnsmasq 1; then
 				PTXT "${ERROR} Unable to apply the DNS NVRAM transaction."
+				[ "${stubby_stopped}" = "0" ] || restore_stubby_after_dns_failure || PTXT "${ERROR} Unable to restart stubby after DNS preparation failed."
 				return 1
 			fi
 			if [ "${stubby_stopped}" = "1" ] && [ "${changed}" = "0" ]; then
@@ -3320,6 +3329,7 @@ check_dns_environment() {
 					else
 						rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
 					fi
+					restore_stubby_after_dns_failure || PTXT "${ERROR} Unable to restart stubby after DNS preparation failed."
 					return 1
 				fi
 				changed="1"
@@ -3335,8 +3345,11 @@ check_dns_environment() {
 						rollback_result_write "DNS NVRAM transaction" "rollback partial"
 					fi
 				fi
+				[ "${stubby_stopped}" = "0" ] || restore_stubby_after_dns_failure || PTXT "${ERROR} Unable to restart stubby after DNS preparation failed."
 				return 1
 			fi
+			_DNS_STUBBY_STOPPED="0"
+			export _DNS_STUBBY_STOPPED
 			;;
 		1)
 			NVRAM_TRANSACTION_DIR="${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
@@ -3364,6 +3377,12 @@ check_dns_environment() {
 	esac
 	ptxt_ok "DNS Environment is Ready."
 	return 0
+}
+
+restore_stubby_after_dns_failure() {
+	service restart_stubby >/dev/null 2>&1 || return 1
+	_DNS_STUBBY_STOPPED="0"
+	export _DNS_STUBBY_STOPPED
 }
 
 finalize_dns_environment() {
@@ -3420,6 +3439,9 @@ check_dns_filter() {
 	changed="${NVRAM_TRANSACTION_CHANGED:-0}"
 	if ! nvram_transaction_apply "restart_firewall;restart_dnsmasq" 1; then
 		PTXT "${ERROR} Unable to apply the DNSFilter NVRAM transaction."
+		if ! restore_dns_filter_settings; then
+			PTXT "${ERROR} Unable to restore the DNSFilter NVRAM transaction; the recovery snapshot was preserved."
+		fi
 		return 1
 	fi
 	if [ "${changed}" != "0" ] && ! check_connection 300; then
@@ -6215,7 +6237,7 @@ adguard_migrate_detected_install_mode() {
 }
 
 setup_AdGuardHome_impl() {
-	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
+	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_REARM_FAILED=0 LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ "${ADGUARD_FORCE_SETUP_YAML:-0}" = "1" ] && { [ -f "${YAML_FILE}" ] || [ -f "${YAML_ORI}" ]; }; then
 		PTXT "${INFO} Restored mode differs from detected router mode; updating mode-dependent AdGuardHome settings."
@@ -6508,7 +6530,11 @@ setup_AdGuardHome_impl() {
 					check_dns_filter "${DNS_FILTER_SELECTION}"
 					YESNO_STATUS="$?"
 					if [ "${YESNO_STATUS}" -ne 0 ]; then
-						rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
+						if restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+							rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
+						else
+							PTXT "${ERROR} Unable to restore the previous DNSFilter settings; the recovery snapshot was preserved."
+						fi
 						restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 						if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
 							installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
@@ -6592,12 +6618,15 @@ setup_AdGuardHome_impl() {
 				fi
 				SETUP_YAML_TMP_FILE=""
 				if ! rm -f "${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || ! rm -f "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty"; then
+					LAN_DOMAIN_REARM_FAILED=0
 					# If only the second marker failed, re-arm the first transaction before rollback.
 					if [ -d "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ]; then
-						: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || PTXT "${ERROR} Unable to re-arm the LAN domain NVRAM transaction marker."
+						: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || LAN_DOMAIN_REARM_FAILED=1
 					fi
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
-					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+					if [ "${LAN_DOMAIN_REARM_FAILED}" -ne 0 ]; then
+						PTXT "${ERROR} Unable to re-arm the LAN domain NVRAM transaction marker; the recovery snapshot was preserved."
+					elif [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
 						installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 					fi
 					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then

@@ -122,12 +122,15 @@ save_dns_filter_settings() {
 installer_lan_domain_set() {
 	[ "${FAIL_LAN_DOMAIN_SET:-0}" -eq 0 ] || return 1
 	TEST_LAN_DOMAIN_ROLLBACK="${LAN_DOMAIN:-}"
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
+	: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty"
 	nvram set "lan_domain=$1"
 }
 # installer_lan_domain_restore restores the prior LAN domain and records the restoration.
 installer_lan_domain_restore() {
 	LAN_DOMAIN_RESTORES="$((LAN_DOMAIN_RESTORES + 1))"
 	LAN_DOMAIN="${TEST_LAN_DOMAIN_ROLLBACK:-}"
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
 }
 # restore_dns_filter_settings restores DNS filter settings, clears the change marker, and removes the temporary and snapshot directories.
 restore_dns_filter_settings() {
@@ -140,6 +143,10 @@ restore_dns_filter_settings() {
 # check_dns_filter marks the DNS filter settings as changed.
 check_dns_filter() {
 	DNS_FILTER_CHANGED=1
+	if [ "${FAIL_CHECK_DNS_FILTER:-0}" -eq 1 ]; then
+		: >"${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty"
+		return 1
+	fi
 }
 check_dns_local() {
 	printf '%s\n' 'ADGUARD_LOCAL="CHANGED"' >>"${CONF_FILE}"
@@ -311,6 +318,10 @@ fi
 [ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'DNSFilter snapshot cleanup failure did not restore the previous YAML'
 [ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'DNSFilter snapshot cleanup failure did not restore installer preferences'
 [ "${LAN_DOMAIN}" = 'before-dnsfilter-cleanup-failure.test' ] || fail 'DNSFilter snapshot cleanup failure did not restore the prior router LAN domain'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'DNSFilter snapshot cleanup rollback retained the LAN-domain transaction directory'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'DNSFilter snapshot cleanup rollback retained the DNSFilter transaction directory'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" ] || fail 'DNSFilter snapshot cleanup rollback retained the LAN-domain dirty marker'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" ] || fail 'DNSFilter snapshot cleanup rollback retained the DNSFilter dirty marker'
 
 printf '%s\n' 'working configuration' >"${YAML_FILE}"
 printf '%s\n' 'original configuration' >"${YAML_ORI}"
@@ -331,5 +342,26 @@ fi
 [ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'LAN domain snapshot cleanup failure did not restore the previous YAML'
 [ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'LAN domain snapshot cleanup failure did not restore installer preferences'
 [ "${LAN_DOMAIN}" = 'before-lan-cleanup-failure.test' ] || fail 'LAN domain snapshot cleanup failure did not restore the prior router LAN domain'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'LAN-domain snapshot cleanup rollback retained the LAN-domain transaction directory'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'LAN-domain snapshot cleanup rollback retained the DNSFilter transaction directory'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" ] || fail 'LAN-domain snapshot cleanup rollback retained the LAN-domain dirty marker'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" ] || fail 'LAN-domain snapshot cleanup rollback retained the DNSFilter dirty marker'
+
+printf '%s\n' 'working configuration' >"${YAML_FILE}"
+printf '%s\n' 'original configuration' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+LAN_DOMAIN='before-dnsfilter-apply-failure.test'
+: >"${WRITE_LOG}"
+FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP=0
+FAIL_CHECK_DNS_FILTER=1
+DNS_FILTER_CHANGED=0
+DNS_FILTER_RESTORES=0
+LAN_DOMAIN_RESTORES=0
+if setup_AdGuardHome_impl reconfig reconfig; then
+	fail 'reconfiguration ignored DNSFilter transaction failure'
+fi
+[ "${DNS_FILTER_RESTORES}" -eq 1 ] || fail 'DNSFilter transaction failure did not restore its snapshot'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'DNSFilter transaction failure retained a successfully restored snapshot'
+[ "${LAN_DOMAIN}" = 'before-dnsfilter-apply-failure.test' ] || fail 'DNSFilter transaction failure did not restore the prior router LAN domain'
 
 printf '%s\n' 'PASS: failed WebUI port verification or persistence aborts setup safely'
