@@ -66,7 +66,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 ptxt_ok() { :; }
 # PTXT is a no-op text output helper.
 PTXT() { :; }
-# rm removes files normally and simulates failure for configured LAN-domain or DNS-filter snapshot cleanup paths.
+# rm removes files normally and simulates configured cleanup failures for LAN-domain or DNS-filter snapshot markers.
 rm() {
 	if [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
 		[ "$*" = "-f ${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" ]; then
@@ -113,12 +113,12 @@ check_AdGuardHome_yaml() {
 DNS_FILTER_CHANGED=0
 DNS_FILTER_RESTORES=0
 LAN_DOMAIN_RESTORES=0
-# save_dns_filter_settings saves DNS filter settings to the specified directory.
+# save_dns_filter_settings saves DNS filter settings to the specified directory and creates a DNS filter snapshot for rollback.
 save_dns_filter_settings() {
 	mkdir -p "$1"
 	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
 }
-# installer_lan_domain_set sets the LAN domain to the specified value.
+# installer_lan_domain_set records the current LAN domain and sets it to the specified value, returning failure when persistence is configured to fail.
 installer_lan_domain_set() {
 	[ "${FAIL_LAN_DOMAIN_SET:-0}" -eq 0 ] || return 1
 	TEST_LAN_DOMAIN_ROLLBACK="${LAN_DOMAIN:-}"
@@ -140,7 +140,7 @@ restore_dns_filter_settings() {
 	rm -rf "$1"
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
 }
-# check_dns_filter marks the DNS filter settings as changed.
+# check_dns_filter marks the DNS filter settings as changed and fails when configured to simulate an update failure.
 check_dns_filter() {
 	DNS_FILTER_CHANGED=1
 	if [ "${FAIL_CHECK_DNS_FILTER:-0}" -eq 1 ]; then
@@ -148,6 +148,7 @@ check_dns_filter() {
 		return 1
 	fi
 }
+# check_dns_local appends a changed local DNS setting to the installer configuration.
 check_dns_local() {
 	printf '%s\n' 'ADGUARD_LOCAL="CHANGED"' >>"${CONF_FILE}"
 }
@@ -156,6 +157,7 @@ check_ipset() {
 }
 read_yesno() { return 1; }
 AdGuardHome_authen() { :; }
+# read_input_dns sets the first or second bootstrap DNS server based on whether the first server is already configured.
 read_input_dns() {
 	if [ -z "${BOOTSTRAP1:-}" ]; then
 		BOOTSTRAP1=9.9.9.9
@@ -163,8 +165,9 @@ read_input_dns() {
 		BOOTSTRAP2=8.8.8.8
 	fi
 }
+# ai_have_cmd indicates that the requested command is unavailable.
 ai_have_cmd() { return 1; }
-# nvram mocks NVRAM get and set operations for installer tests.
+# nvram mocks NVRAM reads and writes used by installer tests.
 nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '1' ;;

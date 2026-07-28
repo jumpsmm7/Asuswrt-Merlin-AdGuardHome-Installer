@@ -59,15 +59,15 @@ check_dns_filter() { :; }
 save_dns_filter_settings() { mkdir -p "$1"; }
 # installer_lan_domain_set writes the specified LAN domain to NVRAM.
 installer_lan_domain_set() { nvram set "lan_domain=$1"; }
-# installer_lan_domain_restore restores the installer LAN domain setting.
+# installer_lan_domain_restore leaves the installer LAN domain setting unchanged.
 installer_lan_domain_restore() { :; }
 # restore_dns_filter_settings removes the specified DNS filter settings directory and its contents.
 restore_dns_filter_settings() { rm -rf "$1"; }
 # check_dns_local performs the DNS locality check.
 check_dns_local() { :; }
-# check_ipset reports whether the IPSET preference check succeeds.
+# check_ipset simulates a failed IPSET preference check.
 check_ipset() { return 1; }
-# check_AdGuardHome_yaml validates the AdGuardHome YAML configuration when validation is enabled and fails otherwise.
+# check_AdGuardHome_yaml verifies that YAML validation is enabled for the test harness.
 check_AdGuardHome_yaml() {
 	[ "${ALLOW_YAML_VALIDATION:-0}" -eq 1 ] || fail 'unexpected YAML validation'
 }
