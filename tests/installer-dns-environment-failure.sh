@@ -205,6 +205,24 @@ EOF_NVRAM
 }
 
 reset_case
+SYMLINK_SNAPSHOT_TARGET="${TEST_ROOT}/symlink-snapshot-target"
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram" "${SYMLINK_SNAPSHOT_TARGET}" || fail 'could not create symlink snapshot target'
+printf '%s\n' dnspriv_enable >"${SYMLINK_SNAPSHOT_TARGET}/keys" || fail 'could not create symlink snapshot keys'
+printf '%s\n' 0 >"${SYMLINK_SNAPSHOT_TARGET}/dnspriv_enable" || fail 'could not create symlink snapshot value'
+: >"${SYMLINK_SNAPSHOT_TARGET}/exists.dnspriv_enable" || fail 'could not create symlink snapshot existence marker'
+: >"${SYMLINK_SNAPSHOT_TARGET}/dirty" || fail 'could not create symlink snapshot dirty marker'
+ln -s "${SYMLINK_SNAPSHOT_TARGET}" "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" || fail 'could not create symlink transaction snapshot'
+if nvram_transaction_begin dns-preparation dnspriv_enable; then
+	fail 'symlink transaction snapshot was accepted'
+fi
+[ "$(nvram get dnspriv_enable)" = 1 ] || fail 'symlink transaction snapshot modified NVRAM'
+[ -f "${SYMLINK_SNAPSHOT_TARGET}/dirty" ] || fail 'symlink transaction snapshot target was modified'
+[ "${COMMIT_COUNT}" -eq 0 ] || fail 'symlink transaction snapshot committed NVRAM'
+[ "${SERVICE_COUNT}" -eq 0 ] || fail 'symlink transaction snapshot restarted a service'
+rm -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" || fail 'could not remove symlink transaction snapshot'
+rm -rf "${SYMLINK_SNAPSHOT_TARGET}" || fail 'could not remove symlink snapshot target'
+
+reset_case
 mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" || fail 'could not create paired transaction snapshots'
 : >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || fail 'could not mark the LAN-domain transaction dirty'
 : >"${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" || fail 'could not mark the DNSFilter transaction dirty'

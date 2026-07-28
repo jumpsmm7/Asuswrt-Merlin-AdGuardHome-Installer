@@ -85,6 +85,7 @@ nvram_transaction_begin() {
 	temp_dir="${snapshot_dir}.tmp.$$"
 	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram" ] || return 1
 	if [ -e "${snapshot_dir}" ] || [ -L "${snapshot_dir}" ]; then
+		[ ! -L "${snapshot_dir}" ] || return 1
 		if [ -f "${snapshot_dir}/dirty" ]; then
 			case "${name}" in
 				dnsfilter) service_action="restart_firewall;restart_dnsmasq" ;;
