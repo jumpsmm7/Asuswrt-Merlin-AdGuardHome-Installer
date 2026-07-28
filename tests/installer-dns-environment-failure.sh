@@ -561,15 +561,13 @@ done
 	nvram_transaction_lock_acquire || fail 'stale symlink transaction lock blocked recovery'
 	[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = symlink ] || fail 'stale symlink lock did not select symlink mode'
 	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = "${LOCK_OWNER}" ] || fail 'stale symlink lock was not replaced by the live owner'
-	if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+	BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
 		. "${FUNCTIONS_FILE}"
 		nvram_transaction_lock_flock_supports_fd() { return 1; }
 		nvram_transaction_lock_symlink_acquire
-	'; then
-		fail 'symlink fallback allowed an overlapping NVRAM transaction owner'
-	else
-		[ "$?" -ne 2 ] || fail 'live symlink lock was reported as unsupported'
-	fi
+	'
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "symlink fallback returned ${status} instead of 1 for overlapping NVRAM transaction owner"
 	nvram_transaction_lock_release || fail 'symlink transaction owner could not release its lock'
 	ln -s "$$:0" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare PID-reused symlink transaction lock'
 	nvram_transaction_lock_acquire || fail 'PID-reused symlink transaction lock blocked recovery'
@@ -584,9 +582,9 @@ done
 		ln -s 1 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 		return 1
 	}
-	if nvram_transaction_lock_symlink_acquire; then
-		fail 'fresh symlink acquisition ignored an active stale-lock reaper'
-	fi
+	nvram_transaction_lock_symlink_acquire
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "fresh symlink acquisition returned ${status} instead of 1 for active stale-lock reaper"
 	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = 1 ] || fail 'fresh symlink acquisition replaced the reaper owner'
 	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 ) || exit 1
