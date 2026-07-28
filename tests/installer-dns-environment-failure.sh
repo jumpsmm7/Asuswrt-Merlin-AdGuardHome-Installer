@@ -227,6 +227,20 @@ rm -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" || fail 'could not remove
 rm -rf "${SYMLINK_SNAPSHOT_TARGET}" || fail 'could not remove symlink snapshot target'
 
 reset_case
+nvram_transaction_begin lan-domain lan_domain || fail 'startup recovery transaction snapshot failed'
+nvram_transaction_set lan_domain interrupted-startup.example || fail 'startup recovery transaction staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'startup recovery transaction apply failed'
+nvram_transaction_lock_release || fail 'startup recovery could not simulate the interrupted owner exiting'
+NVRAM_TRANSACTION_LOCK_MODE=''
+NVRAM_TRANSACTION_DIR=''
+NVRAM_TRANSACTION_CHANGED=0
+nvram_transaction_recover_pending || fail 'startup recovery did not process the pending transaction'
+[ "$(nvram get lan_domain)" = '' ] || fail 'startup recovery did not restore the pending LAN domain transaction'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'startup recovery retained the restored LAN domain snapshot'
+[ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'startup recovery retained the NVRAM transaction lock'
+[ "$(sed -n '/^trap '\''on_installer_exit'\'' EXIT$/,/^if \[ -n "${BLOCKLIST_ANALYZER_SHA256}" \]; then$/p' "${INSTALLER_PATH}" | grep -c '^if ! nvram_transaction_recover_pending; then$')" -eq 1 ] || fail 'installer startup does not recover pending NVRAM transactions before dispatch'
+
+reset_case
 mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" || fail 'could not create paired transaction snapshots'
 : >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || fail 'could not mark the LAN-domain transaction dirty'
 : >"${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" || fail 'could not mark the DNSFilter transaction dirty'
