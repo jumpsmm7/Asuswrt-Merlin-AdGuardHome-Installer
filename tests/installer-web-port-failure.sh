@@ -145,8 +145,7 @@ nvram_transaction_finalize_setup_pair() {
 	[ "${FAIL_SETUP_COMMIT_MARKER:-0}" -eq 0 ] || return 1
 	: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
 	if [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] || [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ]; then
-		rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
-		return 1
+		return 0
 	fi
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
 }
@@ -312,6 +311,7 @@ fi
 [ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'reconfiguration did not restore installer preferences after LAN domain persistence failed'
 [ "${LAN_DOMAIN}" = 'before-persistence-failure.test' ] || fail 'reconfiguration changed the prior router LAN domain after LAN domain persistence failed'
 
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
 printf '%s\n' 'working configuration' >"${YAML_FILE}"
 printf '%s\n' 'original configuration' >"${YAML_ORI}"
 printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"

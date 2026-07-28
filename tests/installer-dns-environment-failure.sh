@@ -155,6 +155,11 @@ service() {
 
 # rm removes files and directories, failing when configured to simulate removal of the active NVRAM transaction directory.
 rm() {
+	if [ "${FAIL_STAGED_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -f ]; then
+		case "${2:-}" in
+			"${NVRAM_TRANSACTION_DIR:-}"/new.*) return 1 ;;
+		esac
+	fi
 	if [ "${FAIL_SNAPSHOT_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${NVRAM_TRANSACTION_DIR:-}" ]; then
 		return 1
 	fi
@@ -190,7 +195,7 @@ dhcp_dns2_x=149.112.112.112
 EOF_NVRAM
 	: >"${CALLS_FILE}"
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0 STUBBY_RESTART_COUNT=0
-	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_ALL_SERVICES=0 FAIL_SNAPSHOT_REMOVE=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0
+	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_ALL_SERVICES=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0
 	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 STUBBY_RUNNING=0
 	DNS_ENV_READY_TIMEOUT=2 DNS_ENV_RECOVERY_TIMEOUT=1
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
@@ -323,6 +328,17 @@ nvram_transaction_apply - 1 || fail 'cleanup transaction apply failed'
 rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove cleanup transaction snapshot'
 
 reset_case
+nvram_transaction_begin staged-cleanup dnspriv_enable || fail 'staged cleanup transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'staged cleanup transaction staging failed'
+FAIL_STAGED_REMOVE=1
+nvram_transaction_apply - 1 && fail 'staged value removal failure was ignored'
+[ "$(nvram get dnspriv_enable)" = 1 ] || fail 'staged value removal failure did not roll back NVRAM'
+[ -f "${NVRAM_TRANSACTION_DIR}/new.dnspriv_enable" ] || fail 'staged value removal failure did not preserve recovery evidence'
+[ "${NVRAM_TRANSACTION_CHANGED}" = 1 ] || fail 'staged value removal failure cleared the changed-state marker'
+FAIL_STAGED_REMOVE=0
+rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove staged cleanup transaction snapshot'
+
+reset_case
 nvram_transaction_begin clean-cleanup dnspriv_enable || fail 'clean cleanup transaction snapshot failed'
 FAIL_SNAPSHOT_REMOVE=1
 nvram_transaction_restore - && fail 'clean snapshot removal failure was ignored'
@@ -355,6 +371,19 @@ installer_lan_domain_restore && fail 'LAN domain snapshot removal failure was ig
 [ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'LAN domain snapshot was not retained after removal failure'
 FAIL_SNAPSHOT_REMOVE=0
 rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove LAN domain cleanup transaction snapshot'
+
+reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'DNS restore cleanup transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'DNS restore cleanup transaction staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'DNS restore cleanup transaction apply failed'
+_DNS_NVRAM_SAVED=1
+FAIL_SNAPSHOT_REMOVE=1
+check_dns_environment 1 && fail 'DNS restore snapshot removal failure was ignored'
+[ "${_DNS_NVRAM_SAVED}" = 1 ] || fail 'DNS restore snapshot removal failure cleared the saved-state marker'
+[ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'DNS restore snapshot removal failure did not preserve the snapshot'
+grep -q "snapshot preserved at ${NVRAM_TRANSACTION_DIR}" "${CALLS_FILE}" || fail 'DNS restore snapshot removal failure was not recorded as partial'
+FAIL_SNAPSHOT_REMOVE=0
+rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove DNS restore cleanup transaction snapshot'
 
 reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'interrupted transaction snapshot failed'
