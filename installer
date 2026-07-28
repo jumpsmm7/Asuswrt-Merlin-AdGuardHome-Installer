@@ -312,7 +312,7 @@ nvram_transaction_lock_owner_current() {
 	case "${owner_pid}" in
 		"" | *[!0-9]*) return 1 ;;
 	esac
-	owner_start="$(/bin/sed 's/^.*) //' "/proc/${owner_pid}/stat" 2>/dev/null | /usr/bin/awk '{print $20}')"
+	owner_start="$(sed 's/^.*) //' "/proc/${owner_pid}/stat" 2>/dev/null | awk '{print $20}')"
 	case "${owner_start}" in
 		"" | *[!0-9]*) return 1 ;;
 	esac
