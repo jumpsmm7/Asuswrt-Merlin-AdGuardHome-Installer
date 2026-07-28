@@ -35,10 +35,10 @@ for lock_mode in flock symlink mkdir; do
 		flock)
 			[ -x /usr/bin/flock ] || continue
 			;;
-		symlink) # nvram_transaction_lock_flock_supports_fd indicates that file-descriptor-based flock locking is unavailable.
+		symlink) # nvram_transaction_lock_flock_supports_fd determines whether file-descriptor-based flock locking is available.
 			nvram_transaction_lock_flock_supports_fd() { return 1; } ;;
 		mkdir)
-			# nvram_transaction_lock_flock_supports_fd indicates that file-descriptor-based flock locking is unavailable.
+			# nvram_transaction_lock_flock_supports_fd determines whether file-descriptor-based flock locking is available.
 			nvram_transaction_lock_flock_supports_fd() { return 1; }
 			# nvram_transaction_lock_symlink_acquire reports that symlink lock acquisition is unavailable.
 			nvram_transaction_lock_symlink_acquire() { return 2; }

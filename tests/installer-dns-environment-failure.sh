@@ -51,7 +51,7 @@ ptxt_phase() { PTXT "$1"; }
 ptxt_step() { PTXT "$1"; }
 # ptxt_ok writes a success message to the test call log.
 ptxt_ok() { PTXT "$1"; }
-# pidof reports the simulated PID when the requested process is stubby and it is configured as running.
+# pidof reports PID 1234 when the requested process is stubby and it is configured as running.
 pidof() {
 	[ "${STUBBY_RUNNING:-0}" = 1 ] && [ "$1" = stubby ] || return 1
 	printf '%s\n' 1234
@@ -79,7 +79,7 @@ monotonic_seconds() {
 	fi
 	printf '%s\n' "${MONOTONIC_NOW}"
 }
-# check_connection checks simulated public network availability and increments the public connectivity check count.
+# check_connection checks whether the simulated public network is available and increments the connectivity check count.
 check_connection() {
 	PUBLIC_CHECK_COUNT="$((PUBLIC_CHECK_COUNT + 1))"
 	[ "${PUBLIC_NETWORK_AVAILABLE:-0}" = 1 ]
@@ -128,7 +128,7 @@ nvram() {
 	esac
 }
 
-# service simulates restarting dnsmasq and records whether the configured service operation succeeds.
+# service simulates supported service restarts and reports whether the configured failure injection permits them.
 service() {
 	case "$*" in
 		restart_dnsmasq | 'restart_firewall;restart_dnsmasq') ;;
@@ -234,7 +234,7 @@ done
 for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
 	rm -rf "${reaper_path}"
 	(
-		# nvram_transaction_lock_owner_current fails to ensure explicit-owner reaper operations do not perform an owner lookup.
+		# nvram_transaction_lock_owner_current reports an error and fails when an owner lookup is invoked unexpectedly.
 		nvram_transaction_lock_owner_current() {
 			printf '%s\n' 'Error: owner lookup invoked unexpectedly while an explicit owner was supplied' >&2
 			return 1
@@ -411,7 +411,7 @@ BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" TEST_ROOT="${TEST_ROOT
 	installer_lan_domain_restore() { :; }
 	# restore_dns_filter_settings restores DNSFilter settings and returns a failure status.
 	restore_dns_filter_settings() { return 1; }
-	# check_dns_environment prepares the local DNS environment, verifies readiness within bounded time, and restores transactional NVRAM state when requested.
+	# check_dns_environment prepares the local DNS environment, verifies local DNS readiness within bounded deadlines, and restores transactional NVRAM state when requested.
 	check_dns_environment() { :; }
 	# nvram_transaction_lock_owned reports that the current process owns the NVRAM transaction lock.
 	nvram_transaction_lock_owned() { return 0; }
@@ -458,9 +458,9 @@ EOF_RESTART
 		chmod 755 "${TARG_DIR}/installer" || fail "could not make ${fallback_mode} restart target executable"
 		# sleep does nothing.
 		sleep() { :; }
-		# clear_screen does nothing.
+		# clear_screen performs no action.
 		clear_screen() { :; }
-		# rollback_result_needs_attention indicates whether rollback requires attention and returns failure when it does not.
+		# rollback_result_needs_attention reports that rollback does not require attention.
 		rollback_result_needs_attention() { return 1; }
 		end_op_message 0 ''
 	) || fail "installer restart retained its ${fallback_mode} NVRAM transaction lock"
@@ -492,7 +492,7 @@ done
 	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare raced stale symlink transaction lock'
-	# nvram_transaction_lock_reaper_acquire replaces the transaction lock symlink with a reaper ownership marker.
+	# nvram_transaction_lock_reaper_acquire acquires the NVRAM transaction lock for reaping by replacing its symlink with a reaper marker.
 	nvram_transaction_lock_reaper_acquire() {
 		rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || return 1
 		ln -s 1 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
@@ -560,7 +560,7 @@ done
 	nvram_transaction_lock_symlink_acquire() { return 2; }
 	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare raced stale mkdir transaction lock'
 	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record raced stale mkdir transaction lock owner'
-	# nvram_transaction_lock_reaper_acquire creates the NVRAM transaction lock reaper directory and writes its ownership marker.
+	# nvram_transaction_lock_reaper_acquire recreates the NVRAM transaction lock reaper directory and records its owner marker.
 	nvram_transaction_lock_reaper_acquire() {
 		rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || return 1
 		mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || return 1
@@ -585,7 +585,8 @@ done
 	: >"${OWNER_CALLS_FILE}"
 	# nvram_transaction_lock_owner_current counts self-owner lookups while preserving the real liveness check for other PIDs.
 	# nvram_transaction_lock_owner_current returns the current lock owner or a PID and process-start-time identifier for the specified process.
-	# shellcheck disable=SC2120 # invoked with a PID argument by nvram_transaction_lock_acquire in the sourced installer script
+	# nvram_transaction_lock_owner_current returns the current lock owner or a PID and process start-time identifier for a numeric PID.
+	# shellcheck disable=SC2120 # called with a PID argument from the sourced installer script
 	nvram_transaction_lock_owner_current() {
 		if [ "$#" -eq 0 ]; then
 			printf '%s\n' x >>"${OWNER_CALLS_FILE}"
