@@ -362,6 +362,7 @@ if setup_AdGuardHome_impl reconfig reconfig; then
 fi
 [ "${DNS_FILTER_RESTORES}" -eq 1 ] || fail 'DNSFilter transaction failure did not restore its snapshot'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'DNSFilter transaction failure retained a successfully restored snapshot'
+[ "${LAN_DOMAIN_RESTORES}" -eq 1 ] || fail 'DNSFilter transaction failure did not restore the LAN domain'
 [ "${LAN_DOMAIN}" = 'before-dnsfilter-apply-failure.test' ] || fail 'DNSFilter transaction failure did not restore the prior router LAN domain'
 
 printf '%s\n' 'PASS: failed WebUI port verification or persistence aborts setup safely'
