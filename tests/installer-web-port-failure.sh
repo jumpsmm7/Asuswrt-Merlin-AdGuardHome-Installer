@@ -162,7 +162,7 @@ nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '1' ;;
 		get:lan_ipaddr) printf '%s\n' '192.168.1.1' ;;
-		get:lan_domain) printf '%s\n' "${LAN_DOMAIN_LOOKUP:-}" ;;
+		get:lan_domain) printf '%s\n' "${LAN_DOMAIN:-}" ;;
 		set:*)
 			LAN_DOMAIN="${2#lan_domain=}"
 			;;
