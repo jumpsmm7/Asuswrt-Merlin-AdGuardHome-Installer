@@ -576,6 +576,7 @@ done
 	: >"${OWNER_CALLS_FILE}"
 	# nvram_transaction_lock_owner_current counts self-owner lookups while preserving the real liveness check for other PIDs.
 	# nvram_transaction_lock_owner_current returns the current lock owner or a PID and process-start-time identifier for the specified process.
+	# shellcheck disable=SC2120 # invoked with a PID argument by nvram_transaction_lock_acquire in the sourced installer script
 	nvram_transaction_lock_owner_current() {
 		if [ "$#" -eq 0 ]; then
 			printf '%s\n' x >>"${OWNER_CALLS_FILE}"
