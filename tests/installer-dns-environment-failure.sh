@@ -139,7 +139,13 @@ service() {
 	esac
 	SERVICE_COUNT="$((SERVICE_COUNT + 1))"
 	printf '%s\n' "service $*" >>"${CALLS_FILE}"
-	[ "${FAIL_ALL_SERVICES:-0}" = 0 ] && [ "${FAIL_SERVICE_AT:-0}" != "${SERVICE_COUNT}" ]
+	if [ "${FAIL_ALL_SERVICES:-0}" = 0 ] && [ "${FAIL_SERVICE_AT:-0}" != "${SERVICE_COUNT}" ]; then
+		case "$*" in
+			restart_stubby) STUBBY_RUNNING=1 ;;
+		esac
+		return 0
+	fi
+	return 1
 }
 
 # rm removes files and directories, failing when configured to simulate removal of the active NVRAM transaction directory.
@@ -699,6 +705,14 @@ check_dns_environment 0 && fail 'stubby restore failure after DNS staging failur
 grep -q '^service restart_stubby$' "${CALLS_FILE}" || fail 'stubby restore failure was not recorded'
 grep -q 'Unable to restart stubby after DNS preparation failed.' "${CALLS_FILE}" || fail 'stubby restore failure was not reported'
 [ "${_DNS_STUBBY_STOPPED}" = 1 ] || fail 'stubby restore failure did not preserve stopped state for later recovery'
+
+reset_case
+STUBBY_RUNNING=1
+FAIL_SET_AT=1
+check_dns_environment 0 && fail 'successful stubby restore after DNS staging failure was unexpectedly accepted'
+[ "${STUBBY_RESTART_COUNT}" = 1 ] || fail 'successful stubby restore was not attempted exactly once'
+[ "${STUBBY_RUNNING}" = 1 ] || fail 'successful stubby restore did not set stubby to running state'
+grep -q '^service restart_stubby$' "${CALLS_FILE}" || fail 'successful stubby restore was not recorded'
 
 reset_case
 [ "${_DNS_STUBBY_STOPPED}" = 0 ] || fail 'reset leaked stopped stubby state from the previous case'
