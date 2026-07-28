@@ -327,7 +327,17 @@ nvram_transaction_lock_acquire() {
 		nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
 		return 1
 	}
-	nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}" || return 1
+	nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}" || {
+		# Reaper release failed; check if lock still belongs to us
+		if [ "$(cat "${lock_dir}/pid" 2>/dev/null)" = "${owner}" ]; then
+			# Lock still validly held by current owner; treat release as successful
+			NVRAM_TRANSACTION_LOCK_MODE="mkdir"
+			return 0
+		fi
+		# Lock ownership changed; clean up and fail
+		rm -rf "${lock_dir}" 2>/dev/null
+		return 1
+	}
 	NVRAM_TRANSACTION_LOCK_MODE="mkdir"
 }
 
@@ -415,13 +425,21 @@ nvram_transaction_lock_reaper_acquire() {
 		reaper_owner="$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)"
 		if [ -n "${reaper_owner}" ] && ! nvram_transaction_lock_owner_live "${reaper_owner}" &&
 			[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${reaper_owner}" ]; then
-			rm -f "${reaper_path}.symlink" || return 1
-			if ln -s "${owner}" "${reaper_path}.symlink" 2>/dev/null; then
-				NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
-				return 0
+			# Atomically reclaim stale symlink: create temp symlink, rename, verify ownership
+			ln -s "${owner}" "${reaper_path}.symlink.$$" 2>/dev/null || return 1
+			if mv -T "${reaper_path}.symlink.$$" "${reaper_path}.symlink" 2>/dev/null ||
+				{ mv "${reaper_path}.symlink.$$" "${reaper_path}.symlink" 2>/dev/null && rm -f "${reaper_path}.symlink.$$"; }; then
+				# Verify we won the race by checking the symlink target
+				if [ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${owner}" ]; then
+					NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
+					return 0
+				fi
+				# Another contender won; clean up and fail
+				rm -f "${reaper_path}.symlink.$$" 2>/dev/null
+				return 1
 			fi
+			rm -f "${reaper_path}.symlink.$$" 2>/dev/null
 		fi
-		[ -e "${reaper_path}.symlink" ] || [ -L "${reaper_path}.symlink" ] || return 1
 		return 1
 	fi
 	if ! mkdir "${reaper_path}" 2>/dev/null; then
