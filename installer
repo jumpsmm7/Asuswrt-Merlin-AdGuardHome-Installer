@@ -6482,7 +6482,7 @@ setup_AdGuardHome_impl() {
 						PTXT "${ERROR} Unable to save the AdGuardHome domain setting."
 						return 1
 					fi
-					if [ "${DOMAIN_CONFIG_SELECTION}" = "yes" ] && [ -z "${LAN_DOMAIN_ROLLBACK}" ]; then
+					if [ -n "${DOMAIN_CONFIG_SELECTION}" ]; then
 						if ! installer_lan_domain_set "${DOMAIN}" 1; then
 							restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 							[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
