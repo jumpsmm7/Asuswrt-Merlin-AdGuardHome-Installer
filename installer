@@ -343,8 +343,9 @@ nvram_transaction_lock_flock_owned() {
 }
 
 nvram_transaction_lock_reaper_acquire() {
-	local owner reaper_owner reaper_path
+	local owner reaper_owner reaper_path reaper_reclaimed
 	reaper_path="$1"
+	reaper_reclaimed=0
 	if [ -n "${2:-}" ]; then
 		owner="$2"
 	else
@@ -352,11 +353,23 @@ nvram_transaction_lock_reaper_acquire() {
 	fi
 	if ! mkdir "${reaper_path}" 2>/dev/null; then
 		reaper_owner="$(cat "${reaper_path}/pid" 2>/dev/null)"
-		[ -n "${reaper_owner}" ] || return 1
-		nvram_transaction_lock_owner_live "${reaper_owner}" && return 1
-		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${reaper_owner}" ] || return 1
-		rm -rf "${reaper_path}" || return 1
-		mkdir "${reaper_path}" 2>/dev/null || return 1
+		if [ -z "${reaper_owner}" ]; then
+			# Allow a live creator time to publish its owner, then reclaim only an
+			# ownerless, still-empty directory left by an interrupted creator.
+			sleep 1
+			reaper_owner="$(cat "${reaper_path}/pid" 2>/dev/null)"
+			if [ -z "${reaper_owner}" ]; then
+				rmdir "${reaper_path}" 2>/dev/null || return 1
+				mkdir "${reaper_path}" 2>/dev/null || return 1
+				reaper_reclaimed=1
+			fi
+		fi
+		if [ "${reaper_reclaimed}" -eq 0 ]; then
+			nvram_transaction_lock_owner_live "${reaper_owner}" && return 1
+			[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${reaper_owner}" ] || return 1
+			rm -rf "${reaper_path}" || return 1
+			mkdir "${reaper_path}" 2>/dev/null || return 1
+		fi
 	fi
 	printf '%s\n' "${owner}" >"${reaper_path}/pid" || {
 		rm -f "${reaper_path}/pid" 2>/dev/null
