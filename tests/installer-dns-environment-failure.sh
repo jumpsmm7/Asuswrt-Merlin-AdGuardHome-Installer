@@ -253,6 +253,10 @@ nvram_transaction_begin dnsfilter dnsfilter_enable_x || fail 'transaction did no
 
 reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not determine the test process lock identity'
+(
+	# Exercise the terminal mkdir implementation independently of optional flock and readlink support.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_readlink() { return 127; }
 for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
 	mkdir -p "${reaper_path}"
 	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "ownerless reaper lock was not reclaimed: ${reaper_path}"
@@ -287,7 +291,12 @@ for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_
 	[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "PID-reused reaper lock has the wrong replacement owner: ${reaper_path}"
 	nvram_transaction_lock_reaper_release "${reaper_path}" || fail "PID-reused reaper lock was not released: ${reaper_path}"
 done
+) || exit 1
 
+(
+	# Exercise explicit-owner handling in the terminal mkdir implementation.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_readlink() { return 127; }
 for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
 	rm -rf "${reaper_path}"
 	(
@@ -307,6 +316,27 @@ for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_
 	nvram_transaction_lock_reaper_release "${reaper_path}" '' || fail "empty explicit owner release did not fall back to the owner lookup: ${reaper_path}"
 	[ ! -e "${reaper_path}" ] || fail "empty explicit owner release did not remove the reaper directory: ${reaper_path}"
 done
+) || exit 1
+
+(
+	reaper_path="${BASE_DIR}/.AdGuardHome.nvram.capability-reaper"
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail 'symlink-capable reaper lock could not be acquired'
+	[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = symlink ] || fail 'reaper did not select the symlink transaction-lock capability'
+	[ "$(readlink "${reaper_path}.symlink")" = "${LOCK_OWNER}" ] || fail 'symlink-capable reaper recorded the wrong owner'
+	nvram_transaction_lock_reaper_release "${reaper_path}" || fail 'symlink-capable reaper lock could not be released'
+	[ ! -L "${reaper_path}.symlink" ] || fail 'symlink-capable reaper lock remained after release'
+) || exit 1
+
+if nvram_transaction_lock_flock_supports_fd; then
+	(
+		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.capability-reaper"
+		nvram_transaction_lock_owner_current() { return 1; }
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail 'flock-capable reaper lock could not be acquired'
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = flock ] || fail 'reaper did not select the flock transaction-lock capability'
+		nvram_transaction_lock_reaper_release "${reaper_path}" || fail 'flock-capable reaper lock could not be released'
+	) || exit 1
+fi
 
 if nvram_transaction_lock_flock_supports_fd; then
 	# nvram_transaction_lock_owner_current fails to prove flock-mode lock helpers never need the process owner identity.

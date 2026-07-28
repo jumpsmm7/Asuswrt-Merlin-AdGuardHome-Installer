@@ -351,10 +351,39 @@ nvram_transaction_lock_reaper_acquire() {
 	local owner reaper_owner reaper_path reaper_reclaimed
 	reaper_path="$1"
 	reaper_reclaimed=0
+	NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+	if nvram_transaction_lock_flock_supports_fd; then
+		[ ! -L "${reaper_path}.lock" ] || return 1
+		: >>"${reaper_path}.lock" 2>/dev/null || return 1
+		exec 9<>"${reaper_path}.lock" || return 1
+		if /usr/bin/flock -n 9 >/dev/null 2>&1; then
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="flock"
+			return 0
+		fi
+		exec 9>&-
+		return 1
+	fi
 	if [ -n "${2:-}" ]; then
 		owner="$2"
 	else
 		owner="$(nvram_transaction_lock_owner_current)" || return 1
+	fi
+	if nvram_transaction_lock_readlink; then
+		if ln -s "${owner}" "${reaper_path}.symlink" 2>/dev/null; then
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
+			return 0
+		fi
+		reaper_owner="$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)"
+		if [ -n "${reaper_owner}" ] && ! nvram_transaction_lock_owner_live "${reaper_owner}" &&
+			[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${reaper_owner}" ]; then
+			rm -f "${reaper_path}.symlink" || return 1
+			if ln -s "${owner}" "${reaper_path}.symlink" 2>/dev/null; then
+				NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
+				return 0
+			fi
+		fi
+		[ -e "${reaper_path}.symlink" ] || [ -L "${reaper_path}.symlink" ] || return 1
+		return 1
 	fi
 	if ! mkdir "${reaper_path}" 2>/dev/null; then
 		reaper_owner="$(cat "${reaper_path}/pid" 2>/dev/null)"
@@ -381,18 +410,38 @@ nvram_transaction_lock_reaper_acquire() {
 		rmdir "${reaper_path}" 2>/dev/null
 		return 1
 	}
+	NVRAM_TRANSACTION_REAPER_LOCK_MODE="mkdir"
 }
 
 nvram_transaction_lock_reaper_release() {
 	local owner reaper_path
 	reaper_path="$1"
-	if [ -n "${2:-}" ]; then
-		owner="$2"
-	else
-		owner="$(nvram_transaction_lock_owner_current)" || return 1
-	fi
-	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || return 1
-	rm -rf "${reaper_path}"
+	case "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" in
+		flock)
+			/usr/bin/flock -u 9 >/dev/null 2>&1 || return 1
+			exec 9>&-
+			;;
+		symlink)
+			if [ -n "${2:-}" ]; then
+				owner="$2"
+			else
+				owner="$(nvram_transaction_lock_owner_current)" || return 1
+			fi
+			[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${owner}" ] || return 1
+			rm -f "${reaper_path}.symlink" || return 1
+			;;
+		mkdir)
+			if [ -n "${2:-}" ]; then
+				owner="$2"
+			else
+				owner="$(nvram_transaction_lock_owner_current)" || return 1
+			fi
+			[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || return 1
+			rm -rf "${reaper_path}" || return 1
+			;;
+		*) return 1 ;;
+	esac
+	NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
 }
 
 nvram_transaction_lock_flock_supports_fd() {
