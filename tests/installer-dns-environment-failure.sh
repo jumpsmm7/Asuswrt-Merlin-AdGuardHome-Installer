@@ -660,6 +660,19 @@ nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns
 rm -rf "${NVRAM_TRANSACTION_DIR}"
 
 reset_case
+check_dns_environment 0 || fail 'DNS preparation for interrupted snapshot cleanup failed'
+DNS_SNAPSHOT="${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
+NVRAM_TRANSACTION_DIR="${DNS_SNAPSHOT}"
+FAIL_SNAPSHOT_REMOVE=1
+finalize_dns_environment || fail 'completed DNS snapshot cleanup failure was treated as a failed commit'
+[ -d "${DNS_SNAPSHOT}" ] || fail 'snapshot cleanup failure injection did not retain the DNS snapshot'
+[ ! -f "${DNS_SNAPSHOT}/dirty" ] || fail 'DNS snapshot remained rollback-eligible after finalization committed'
+FAIL_SNAPSHOT_REMOVE=0
+nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'completed DNS snapshot blocked a later installer run'
+[ "${COMMIT_COUNT}" -eq 1 ] || fail 'completed DNS snapshot was restored after cleanup interruption'
+rm -rf "${NVRAM_TRANSACTION_DIR}"
+
+reset_case
 cat >"${NVRAM_FILE}" <<'EOF_NVRAM'
 dnspriv_enable=0
 dhcpd_dns_router=1

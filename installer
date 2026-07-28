@@ -3424,7 +3424,11 @@ restore_stubby_after_dns_failure() {
 finalize_dns_environment() {
 	local snapshot_dir
 	snapshot_dir="${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
-	[ ! -e "${snapshot_dir}" ] && [ ! -L "${snapshot_dir}" ] || rm -rf "${snapshot_dir}" || return 1
+	if [ -e "${snapshot_dir}" ] || [ -L "${snapshot_dir}" ]; then
+		# Clearing dirty is the commit point; completed snapshot cleanup is best-effort.
+		rm -f "${snapshot_dir}/dirty" || return 1
+		rm -rf "${snapshot_dir}" 2>/dev/null || true
+	fi
 	_DNS_NVRAM_SAVED="0"
 	export _DNS_NVRAM_SAVED
 }
