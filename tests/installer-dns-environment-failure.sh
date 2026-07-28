@@ -62,10 +62,11 @@ pidof() {
 	[ "${STUBBY_RUNNING:-0}" = 1 ] && [ "$1" = stubby ] || return 1
 	printf '%s\n' 1234
 }
-# kill_processes increments the simulated stubby process termination count when called for stubby.
-kill_processes() {
-	[ "$1" = stubby ] || return 1
+# killall increments the simulated stubby process termination count and stops stubby unless failure is injected.
+killall() {
+	[ "$*" = '-q -9 stubby' ] || return 1
 	STUBBY_KILL_COUNT="$((STUBBY_KILL_COUNT + 1))"
+	[ "${STUBBY_KILL_STUCK:-0}" = 0 ] && STUBBY_RUNNING=0
 }
 # cleanup_api_files performs no operation.
 cleanup_api_files() { :; }
@@ -197,7 +198,7 @@ EOF_NVRAM
 	: >"${CALLS_FILE}"
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0 STUBBY_RESTART_COUNT=0
 	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_ALL_SERVICES=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0
-	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 STUBBY_RUNNING=0
+	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 STUBBY_RUNNING=0 STUBBY_KILL_STUCK=0
 	DNS_ENV_READY_TIMEOUT=2 DNS_ENV_RECOVERY_TIMEOUT=1
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
 	_DNS_STUBBY_STOPPED=0 _DNS_NVRAM_SAVED=0 _DNS_NVRAM_ROLLBACK_ATTEMPTED=0
@@ -286,6 +287,13 @@ if nvram_transaction_lock_flock_supports_fd; then
 	nvram_transaction_lock_acquire || fail 'flock transaction lock fast-path re-acquire failed while owner lookup was disabled'
 	nvram_transaction_lock_release || fail 'flock transaction lock could not be released while owner lookup was disabled'
 	nvram_transaction_lock_owned && fail 'flock transaction lock ownership check succeeded after release while owner lookup was disabled'
+	mv "${BASE_DIR}" "${TEST_ROOT}/base-resolved" || fail 'could not prepare resolved flock lock test directory'
+	ln -s "${TEST_ROOT}/base-resolved" "${BASE_DIR}" || fail 'could not create symlinked flock lock test directory'
+	nvram_transaction_lock_acquire || fail 'flock transaction lock could not be acquired through a symlinked base path'
+	nvram_transaction_lock_owned || fail 'flock ownership did not resolve a symlinked base path'
+	nvram_transaction_lock_release || fail 'flock transaction lock through a symlinked base path could not be released'
+	rm -f "${BASE_DIR}" || fail 'could not remove symlinked flock lock test directory'
+	mv "${TEST_ROOT}/base-resolved" "${BASE_DIR}" || fail 'could not restore flock lock test directory'
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
 fi
@@ -718,6 +726,13 @@ check_dns_environment 0 || fail 'stopping stubby with prepared DNS NVRAM was rej
 [ "${SERVICE_COUNT}" = 1 ] || fail 'dnsmasq was not restarted after stopping stubby without NVRAM changes'
 [ "$(dns_check_count)" = 1 ] || fail 'local DNS was not checked after stopping stubby without NVRAM changes'
 rm -rf "${NVRAM_TRANSACTION_DIR}"
+
+reset_case
+STUBBY_RUNNING=1
+STUBBY_KILL_STUCK=1
+check_dns_environment 0 && fail 'DNS preparation continued while stubby remained running'
+[ "${STUBBY_KILL_COUNT}" = 1 ] || fail 'running stubby termination was not attempted exactly once'
+[ "${COMMIT_COUNT}" = 0 ] || fail 'NVRAM was changed while stubby remained running'
 
 reset_case
 cat >"${NVRAM_FILE}" <<'EOF_NVRAM'

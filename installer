@@ -336,10 +336,12 @@ nvram_transaction_lock_owner_live() {
 }
 
 nvram_transaction_lock_flock_owned() {
-	local lock_path
+	local descriptor_path lock_path resolved_lock_path
 	lock_path="$1"
 	[ -e "/proc/$$/fd/8" ] || return 1
-	[ "$(nvram_transaction_lock_readlink "/proc/$$/fd/8" 2>/dev/null)" = "${lock_path}" ]
+	descriptor_path="$(nvram_transaction_lock_readlink -f "/proc/$$/fd/8" 2>/dev/null)" || return 1
+	resolved_lock_path="$(nvram_transaction_lock_readlink -f "${lock_path}" 2>/dev/null)" || return 1
+	[ "${descriptor_path}" = "${resolved_lock_path}" ]
 }
 
 nvram_transaction_lock_reaper_acquire() {
@@ -406,7 +408,7 @@ nvram_transaction_lock_flock_supports_fd() {
 nvram_transaction_lock_readlink() {
 	which readlink >/dev/null 2>&1 || return 127
 	[ "$#" -gt 0 ] || return 0
-	readlink "$1"
+	readlink "$@"
 }
 
 nvram_transaction_lock_symlink_acquire() {
@@ -3354,7 +3356,8 @@ check_dns_environment() {
 			export _DNS_NVRAM_SAVED
 			if [ "$(pidof stubby)" ]; then
 				ptxt_step "Stopping conflicting stubby process."
-				kill_processes stubby || return 1
+				killall -q -9 stubby 2>/dev/null || :
+				[ -z "$(pidof stubby)" ] || return 1
 				stubby_stopped="1"
 				_DNS_STUBBY_STOPPED="1"
 				export _DNS_STUBBY_STOPPED
