@@ -8,6 +8,7 @@ TEST_ROOT="${TMPDIR:-/tmp}/installer-dns-environment-failure.$$"
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 NVRAM_FILE="${TEST_ROOT}/nvram"
 CALLS_FILE="${TEST_ROOT}/calls"
+LOCK_REMOVE_COUNT=0
 
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
@@ -168,6 +169,10 @@ rm() {
 	if [ "${FAIL_SNAPSHOT_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${NVRAM_TRANSACTION_DIR:-}" ]; then
 		return 1
 	fi
+	if [ "$#" -eq 2 ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ]; then
+		LOCK_REMOVE_COUNT="$((LOCK_REMOVE_COUNT + 1))"
+		[ "${FAIL_LOCK_REMOVE_AT:-0}" != "${LOCK_REMOVE_COUNT}" ] || return 1
+	fi
 	command rm "$@"
 }
 
@@ -186,7 +191,8 @@ dns_check_count() { grep -c '^nslookup ' "${CALLS_FILE}"; }
 
 # reset_case restores the simulated test environment, counters, fault-injection settings, and NVRAM contents to their baseline state.
 reset_case() {
-	FAIL_SETUP_MARKER_REMOVE=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0
+	FAIL_LOCK_REMOVE_AT=0 FAIL_SETUP_MARKER_REMOVE=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0
+	LOCK_REMOVE_COUNT=0
 	nvram_transaction_lock_release || fail 'could not release the previous test transaction lock'
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
 	rm -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
@@ -285,6 +291,21 @@ BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" reaper_path="${reaper_
 status="$?"
 [ "${status}" -eq 77 ] || fail "interrupted reaper owner publication exited with status ${status} instead of 77"
 [ ! -e "${reaper_path}" ] || fail 'interrupted reaper owner publication retained the legacy directory'
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/failed-owner-publication.reaper"
+(
+	# Fail only the owner publication: the explicit owner avoids an earlier
+	# printf from owner discovery and exercises the acquisition rollback.
+	printf() { return 1; }
+	if nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"; then
+		exit 1
+	fi
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || exit 1
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || exit 1
+	[ ! -e "${reaper_path}" ] || exit 1
+) || fail 'failed reaper owner publication retained active cleanup state'
 
 reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
@@ -760,6 +781,26 @@ done
 	[ "${status}" -eq 1 ] || fail "mkdir recovery returned ${status} instead of 1 after reaper-release failure"
 	[ ! -e "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ] || fail 'failed reaper release retained the newly published mkdir lock'
 ) || exit 1
+(
+	# A failed rollback after reaper-release failure is terminal: returning to
+	# the same process would leave its live owner recorded and self-deadlock.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_symlink_acquire() { return 2; }
+	nvram_transaction_lock_reaper_acquire() { return 0; }
+	nvram_transaction_lock_reaper_release() { return 1; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale mkdir lock for rollback failure'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale mkdir owner for rollback failure'
+	FAIL_LOCK_REMOVE_AT=2
+	nvram_transaction_lock_acquire
+	: >"${TEST_ROOT}/continued-after-lock-rollback-failure"
+) 2>"${TEST_ROOT}/lock-rollback-failure.stderr"
+status="$?"
+[ "${status}" -eq 1 ] || fail "failed mkdir lock rollback exited with status ${status} instead of 1"
+[ ! -e "${TEST_ROOT}/continued-after-lock-rollback-failure" ] || fail 'installer continued after failing to roll back its owned mkdir lock'
+[ -e "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ] || fail 'failed rollback unexpectedly removed the owned mkdir lock'
+grep -Fq 'unable to roll back owned NVRAM transaction lock' "${TEST_ROOT}/lock-rollback-failure.stderr" || fail 'terminal mkdir lock rollback failure was not reported'
+FAIL_LOCK_REMOVE_AT=0
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
 (
 	# If ownership changes before a failed reaper release, preserve the other
 	# owner's lock rather than deleting unverified state.

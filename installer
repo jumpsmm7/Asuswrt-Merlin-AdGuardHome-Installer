@@ -331,7 +331,10 @@ nvram_transaction_lock_acquire() {
 		# Do not continue while the reaper remains active. Roll back only a
 		# transaction lock whose ownership can still be verified as ours.
 		if [ "$(cat "${lock_dir}/pid" 2>/dev/null)" = "${owner}" ]; then
-			rm -rf "${lock_dir}" 2>/dev/null
+			if ! rm -rf "${lock_dir}" 2>/dev/null || [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
+				printf '%s\n' "Error: unable to roll back owned NVRAM transaction lock ${lock_dir}; stopping recovery." >&2
+				exit 1
+			fi
 		fi
 		return 1
 	}
@@ -450,7 +453,10 @@ nvram_transaction_lock_reaper_acquire() {
 	fi
 	printf '%s\n' "${owner}" >"${reaper_path}/pid" || {
 		rm -f "${reaper_path}/pid" 2>/dev/null
-		rmdir "${reaper_path}" 2>/dev/null
+		if rmdir "${reaper_path}" 2>/dev/null; then
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+			NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+		fi
 		return 1
 	}
 	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || return 1
