@@ -267,6 +267,27 @@ nvram_transaction_begin dnsfilter dnsfilter_enable_x || fail 'transaction did no
 
 reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not determine the test process lock identity'
+reaper_path="${BASE_DIR}/interrupted-publication.reaper"
+BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" reaper_path="${reaper_path}" sh -c '
+	. "${FUNCTIONS_FILE}"
+	trap '\''
+		nvram_transaction_lock_reaper_release_active || exit 1
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || exit 1
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || exit 1
+		exit 77
+	'\'' HUP INT TERM
+	nvram_transaction_lock_flock_supports_fd() {
+		kill -TERM "$$"
+		return 1
+	}
+	nvram_transaction_lock_reaper_acquire "${reaper_path}"
+'
+status="$?"
+[ "${status}" -eq 77 ] || fail "interrupted reaper owner publication exited with status ${status} instead of 77"
+[ ! -e "${reaper_path}" ] || fail 'interrupted reaper owner publication retained the legacy directory'
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
 (
 	# Exercise the terminal mkdir implementation independently of optional flock and readlink support.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }

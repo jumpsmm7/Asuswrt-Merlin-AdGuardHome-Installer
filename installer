@@ -400,8 +400,18 @@ nvram_transaction_lock_reaper_legacy_release() {
 	local owner reaper_path
 	reaper_path="$1"
 	owner="$2"
-	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || return 1
-	rm -rf "${reaper_path}"
+	if [ -f "${reaper_path}/pid" ]; then
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || return 1
+		rm -rf "${reaper_path}" || return 1
+	else
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "legacy" ] || return 1
+		rmdir "${reaper_path}" 2>/dev/null || return 1
+	fi
+	if [ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "legacy" ] &&
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" = "${reaper_path}" ]; then
+		NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+		NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+	fi
 }
 
 nvram_transaction_lock_reaper_acquire() {
@@ -417,7 +427,11 @@ nvram_transaction_lock_reaper_acquire() {
 	fi
 	# Older installers use this directory as the reaper itself. Claim it for
 	# every implementation so old and new installers share one mutex.
-	if ! mkdir "${reaper_path}" 2>/dev/null; then
+	if mkdir "${reaper_path}" 2>/dev/null; then
+		# Arm interruption cleanup before publishing the owner or probing a
+		# capability-specific lock.
+		NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
+	else
 		reaper_owner="$(cat "${reaper_path}/pid" 2>/dev/null)"
 		if [ -z "${reaper_owner}" ]; then
 			sleep 1
@@ -425,6 +439,7 @@ nvram_transaction_lock_reaper_acquire() {
 			if [ -z "${reaper_owner}" ]; then
 				rmdir "${reaper_path}" 2>/dev/null || return 1
 				mkdir "${reaper_path}" 2>/dev/null || return 1
+				NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 				reaper_reclaimed=1
 			fi
 		fi
@@ -433,6 +448,7 @@ nvram_transaction_lock_reaper_acquire() {
 			[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${reaper_owner}" ] || return 1
 			rm -rf "${reaper_path}" || return 1
 			mkdir "${reaper_path}" 2>/dev/null || return 1
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 		fi
 	fi
 	printf '%s\n' "${owner}" >"${reaper_path}/pid" || {
@@ -504,6 +520,15 @@ nvram_transaction_lock_reaper_release() {
 	local owner reaper_path
 	reaper_path="$1"
 	case "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" in
+		legacy)
+			if [ -n "${2:-}" ]; then
+				owner="$2"
+			else
+				owner="$(nvram_transaction_lock_owner_current)" || return 1
+			fi
+			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}" || return 1
+			return 0
+			;;
 		flock)
 			/usr/bin/flock -u 9 >/dev/null 2>&1 || return 1
 			exec 9>&-
