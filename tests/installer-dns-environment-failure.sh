@@ -724,6 +724,38 @@ done
 	nvram_transaction_lock_release || fail 'PID-reused symlink transaction owner could not release its lock'
 ) || exit 1
 (
+	# A failed reaper release must abort stale mkdir recovery and roll back a
+	# newly published lock that is still owned by this process.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_symlink_acquire() { return 2; }
+	nvram_transaction_lock_reaper_acquire() { return 0; }
+	nvram_transaction_lock_reaper_release() { return 1; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale mkdir lock for reaper-release failure'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale mkdir owner for reaper-release failure'
+	nvram_transaction_lock_acquire
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "mkdir recovery returned ${status} instead of 1 after reaper-release failure"
+	[ ! -e "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ] || fail 'failed reaper release retained the newly published mkdir lock'
+) || exit 1
+(
+	# If ownership changes before a failed reaper release, preserve the other
+	# owner's lock rather than deleting unverified state.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_symlink_acquire() { return 2; }
+	nvram_transaction_lock_reaper_acquire() { return 0; }
+	nvram_transaction_lock_reaper_release() {
+		printf '%s\n' 1 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid"
+		return 1
+	}
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale mkdir lock for ownership-change cleanup'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale mkdir owner for ownership-change cleanup'
+	if nvram_transaction_lock_acquire; then
+		fail 'mkdir recovery continued after reaper release failed with changed ownership'
+	fi
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" 2>/dev/null)" = 1 ] || fail 'failed reaper release removed the replacement mkdir owner'
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
+) || exit 1
+(
 	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	# Simulate another installer holding the reaper during fresh symlink publication.

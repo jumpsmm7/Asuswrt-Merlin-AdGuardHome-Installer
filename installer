@@ -328,14 +328,11 @@ nvram_transaction_lock_acquire() {
 		return 1
 	}
 	nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}" || {
-		# Reaper release failed; check if lock still belongs to us
+		# Do not continue while the reaper remains active. Roll back only a
+		# transaction lock whose ownership can still be verified as ours.
 		if [ "$(cat "${lock_dir}/pid" 2>/dev/null)" = "${owner}" ]; then
-			# Lock still validly held by current owner; treat release as successful
-			NVRAM_TRANSACTION_LOCK_MODE="mkdir"
-			return 0
+			rm -rf "${lock_dir}" 2>/dev/null
 		fi
-		# Lock ownership changed; clean up and fail
-		rm -rf "${lock_dir}" 2>/dev/null
 		return 1
 	}
 	NVRAM_TRANSACTION_LOCK_MODE="mkdir"
