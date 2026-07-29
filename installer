@@ -396,61 +396,30 @@ nvram_transaction_lock_flock_owned() {
 	[ "${descriptor_path}" = "${resolved_lock_path}" ]
 }
 
+nvram_transaction_lock_reaper_legacy_release() {
+	local owner reaper_path
+	reaper_path="$1"
+	owner="$2"
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || return 1
+	rm -rf "${reaper_path}"
+}
+
 nvram_transaction_lock_reaper_acquire() {
 	local owner reaper_owner reaper_path reaper_reclaimed
 	reaper_path="$1"
 	reaper_reclaimed=0
 	NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
 	NVRAM_TRANSACTION_REAPER_LOCK_PATH="${reaper_path}"
-	if nvram_transaction_lock_flock_supports_fd; then
-		[ ! -L "${reaper_path}.lock" ] || return 1
-		: >>"${reaper_path}.lock" 2>/dev/null || return 1
-		exec 9<>"${reaper_path}.lock" || return 1
-		if /usr/bin/flock -n 9 >/dev/null 2>&1; then
-			NVRAM_TRANSACTION_REAPER_LOCK_MODE="flock"
-			return 0
-		fi
-		exec 9>&-
-		return 1
-	fi
 	if [ -n "${2:-}" ]; then
 		owner="$2"
 	else
 		owner="$(nvram_transaction_lock_owner_current)" || return 1
 	fi
-	if nvram_transaction_lock_readlink; then
-		if ln -s "${owner}" "${reaper_path}.symlink" 2>/dev/null; then
-			NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
-			return 0
-		fi
-		reaper_owner="$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)"
-		if [ -n "${reaper_owner}" ] && ! nvram_transaction_lock_owner_live "${reaper_owner}" &&
-			[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${reaper_owner}" ]; then
-			# Atomically reclaim stale symlink: create temp symlink, rename, verify ownership
-			ln -s "${owner}" "${reaper_path}.symlink.$$" 2>/dev/null || return 1
-			if mv -T "${reaper_path}.symlink.$$" "${reaper_path}.symlink" 2>/dev/null ||
-				{ mv "${reaper_path}.symlink.$$" "${reaper_path}.symlink" 2>/dev/null && rm -f "${reaper_path}.symlink.$$"; }; then
-				# Verify we won the race by checking the symlink target
-				if [ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${owner}" ]; then
-					NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
-					return 0
-				fi
-				# Another contender won; clean up and fail
-				rm -f "${reaper_path}.symlink.$$" 2>/dev/null
-				return 1
-			fi
-			rm -f "${reaper_path}.symlink.$$" 2>/dev/null
-		fi
-		# A present symlink is an active or unsuccessfully reclaimed lock. If no
-		# artifact was published, symlink creation is unavailable on this
-		# filesystem, so continue with the portable mkdir/PID implementation.
-		[ ! -e "${reaper_path}.symlink" ] && [ ! -L "${reaper_path}.symlink" ] || return 1
-	fi
+	# Older installers use this directory as the reaper itself. Claim it for
+	# every implementation so old and new installers share one mutex.
 	if ! mkdir "${reaper_path}" 2>/dev/null; then
 		reaper_owner="$(cat "${reaper_path}/pid" 2>/dev/null)"
 		if [ -z "${reaper_owner}" ]; then
-			# Allow a live creator time to publish its owner, then reclaim only an
-			# ownerless, still-empty directory left by an interrupted creator.
 			sleep 1
 			reaper_owner="$(cat "${reaper_path}/pid" 2>/dev/null)"
 			if [ -z "${reaper_owner}" ]; then
@@ -471,6 +440,63 @@ nvram_transaction_lock_reaper_acquire() {
 		rmdir "${reaper_path}" 2>/dev/null
 		return 1
 	}
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || return 1
+	if nvram_transaction_lock_flock_supports_fd; then
+		[ ! -L "${reaper_path}.lock" ] || {
+			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+			return 1
+		}
+		: >>"${reaper_path}.lock" 2>/dev/null || {
+			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+			return 1
+		}
+		exec 9<>"${reaper_path}.lock" || {
+			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+			return 1
+		}
+		if /usr/bin/flock -n 9 >/dev/null 2>&1; then
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="flock"
+			return 0
+		fi
+		exec 9>&-
+		nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+		return 1
+	fi
+	if nvram_transaction_lock_readlink; then
+		if ln -s "${owner}" "${reaper_path}.symlink" 2>/dev/null; then
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
+			return 0
+		fi
+		reaper_owner="$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)"
+		if [ -n "${reaper_owner}" ] && ! nvram_transaction_lock_owner_live "${reaper_owner}" &&
+			[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${reaper_owner}" ]; then
+			# Atomically reclaim stale symlink: create temp symlink, rename, verify ownership
+			ln -s "${owner}" "${reaper_path}.symlink.$$" 2>/dev/null || {
+				nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+				return 1
+			}
+			if mv -T "${reaper_path}.symlink.$$" "${reaper_path}.symlink" 2>/dev/null ||
+				{ mv "${reaper_path}.symlink.$$" "${reaper_path}.symlink" 2>/dev/null && rm -f "${reaper_path}.symlink.$$"; }; then
+				# Verify we won the race by checking the symlink target
+				if [ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${owner}" ]; then
+					NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
+					return 0
+				fi
+				# Another contender won; clean up and fail
+				rm -f "${reaper_path}.symlink.$$" 2>/dev/null
+				nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+				return 1
+			fi
+			rm -f "${reaper_path}.symlink.$$" 2>/dev/null
+		fi
+		# A present symlink is an active or unsuccessfully reclaimed lock. If no
+		# artifact was published, symlink creation is unavailable on this
+		# filesystem, so continue with the portable mkdir/PID implementation.
+		[ ! -e "${reaper_path}.symlink" ] && [ ! -L "${reaper_path}.symlink" ] || {
+			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+			return 1
+		}
+	fi
 	NVRAM_TRANSACTION_REAPER_LOCK_MODE="mkdir"
 }
 
@@ -498,10 +524,13 @@ nvram_transaction_lock_reaper_release() {
 				owner="$(nvram_transaction_lock_owner_current)" || return 1
 			fi
 			[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || return 1
-			rm -rf "${reaper_path}" || return 1
 			;;
 		*) return 1 ;;
 	esac
+	if [ -z "${owner:-}" ]; then
+		owner="$(nvram_transaction_lock_owner_current)" || return 1
+	fi
+	nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}" || return 1
 	NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
 	NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
 }

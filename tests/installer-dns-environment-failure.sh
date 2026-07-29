@@ -333,6 +333,35 @@ LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not determin
 ) || exit 1
 
 (
+	# A live directory is the mutex used by older installers. New capability
+	# modes must honor it before publishing their mode-specific artifacts.
+	reaper_path="${BASE_DIR}/.AdGuardHome.nvram.legacy-reaper"
+	mkdir "${reaper_path}" || fail 'could not prepare legacy reaper lock'
+	printf '%s\n' "${LOCK_OWNER}" >"${reaper_path}/pid" || fail 'could not record legacy reaper owner'
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_reaper_acquire "${reaper_path}"
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "symlink reaper returned ${status} instead of 1 for a live legacy reaper"
+	[ ! -L "${reaper_path}.symlink" ] || fail 'symlink reaper bypassed a live legacy reaper'
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'symlink reaper changed the legacy reaper owner'
+	rm -rf "${reaper_path}"
+) || exit 1
+
+if nvram_transaction_lock_flock_supports_fd; then
+	(
+		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.legacy-flock-reaper"
+		mkdir "${reaper_path}" || fail 'could not prepare legacy reaper before flock acquisition'
+		printf '%s\n' "${LOCK_OWNER}" >"${reaper_path}/pid" || fail 'could not record legacy reaper owner before flock acquisition'
+		nvram_transaction_lock_reaper_acquire "${reaper_path}"
+		status="$?"
+		[ "${status}" -eq 1 ] || fail "flock reaper returned ${status} instead of 1 for a live legacy reaper"
+		[ ! -e "/proc/$$/fd/9" ] || fail 'flock reaper opened its descriptor through a live legacy reaper'
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'flock reaper changed the legacy reaper owner'
+		rm -rf "${reaper_path}"
+	) || exit 1
+fi
+
+(
 	reaper_path="${BASE_DIR}/.AdGuardHome.nvram.capability-reaper"
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail 'symlink-capable reaper lock could not be acquired'
@@ -363,9 +392,9 @@ LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not determin
 if nvram_transaction_lock_flock_supports_fd; then
 	(
 		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.capability-reaper"
-		nvram_transaction_lock_owner_current() { return 1; }
 		nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail 'flock-capable reaper lock could not be acquired'
 		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = flock ] || fail 'reaper did not select the flock transaction-lock capability'
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'flock-capable reaper did not publish its legacy-compatible owner'
 		nvram_transaction_lock_reaper_release "${reaper_path}" || fail 'flock-capable reaper lock could not be released'
 	) || exit 1
 fi
