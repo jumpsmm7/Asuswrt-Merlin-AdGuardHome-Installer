@@ -598,6 +598,43 @@ EOF_RESTART
 	) || fail "installer restart retained its ${fallback_mode} NVRAM transaction lock"
 	[ "$(cat "${TEST_ROOT}/restart-${fallback_mode}.branch" 2>/dev/null)" = testing ] || fail "installer restart did not execute after releasing its ${fallback_mode} lock"
 done
+for reaper_mode in symlink mkdir flock; do
+	if [ "${reaper_mode}" = flock ] && ! nvram_transaction_lock_flock_supports_fd; then
+		continue
+	fi
+	(
+		case "${reaper_mode}" in
+			flock) ;;
+			symlink) nvram_transaction_lock_flock_supports_fd() { return 1; } ;;
+			mkdir)
+				nvram_transaction_lock_flock_supports_fd() { return 1; }
+				nvram_transaction_lock_readlink() { return 127; }
+				;;
+		esac
+		nvram_transaction_lock_reaper_acquire "${BASE_DIR}/restart-${reaper_mode}.reaper" || fail "could not acquire ${reaper_mode} reaper before installer restart"
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "${reaper_mode}" ] || fail "installer restart test did not select ${reaper_mode} reaper mode"
+		TARG_DIR="${TEST_ROOT}/restart-reaper-${reaper_mode}"
+		SCRIPT_LOC="${TEST_ROOT}/missing-installer"
+		BRANCH=testing
+		CLI_MODE=0
+		ADGUARD_DEFER_END_OP=0
+		ROLLBACK_RESULT_UPDATED=1
+		mkdir -p "${TARG_DIR}" || fail "could not create ${reaper_mode} reaper restart target"
+		cat >"${TARG_DIR}/installer" <<EOF_REAPER_RESTART
+#!/bin/sh
+[ ! -L "${BASE_DIR}/restart-${reaper_mode}.reaper.symlink" ] || exit 1
+[ ! -e "${BASE_DIR}/restart-${reaper_mode}.reaper" ] || exit 1
+[ ! -e "/proc/\$\$/fd/9" ] || exit 1
+printf '%s\n' "\$1" >"${TEST_ROOT}/restart-reaper-${reaper_mode}.branch"
+EOF_REAPER_RESTART
+		chmod 755 "${TARG_DIR}/installer" || fail "could not make ${reaper_mode} reaper restart target executable"
+		sleep() { :; }
+		clear_screen() { :; }
+		rollback_result_needs_attention() { return 1; }
+		end_op_message 2 ''
+	) || fail "signal restart retained its ${reaper_mode} NVRAM transaction reaper"
+	[ "$(cat "${TEST_ROOT}/restart-reaper-${reaper_mode}.branch" 2>/dev/null)" = testing ] || fail "signal restart did not execute after releasing its ${reaper_mode} reaper"
+done
 (
 	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }

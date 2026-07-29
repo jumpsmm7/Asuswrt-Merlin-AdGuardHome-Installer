@@ -87,6 +87,8 @@ EOF_INSTALLER
 chmod 755 "${TARG_DIR}/installer" || fail 'could not make restart target executable'
 # nvram_transaction_lock_release always fails to release the NVRAM transaction lock.
 nvram_transaction_lock_release() { return 1; }
+# nvram_transaction_lock_reaper_release_active reports that no stale-lock reaper is active.
+nvram_transaction_lock_reaper_release_active() { return 0; }
 # sleep overrides the delay command with a no-op for testing.
 sleep() { :; }
 # clear_screen clears the terminal display.

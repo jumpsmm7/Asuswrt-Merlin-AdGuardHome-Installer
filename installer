@@ -401,6 +401,7 @@ nvram_transaction_lock_reaper_acquire() {
 	reaper_path="$1"
 	reaper_reclaimed=0
 	NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+	NVRAM_TRANSACTION_REAPER_LOCK_PATH="${reaper_path}"
 	if nvram_transaction_lock_flock_supports_fd; then
 		[ ! -L "${reaper_path}.lock" ] || return 1
 		: >>"${reaper_path}.lock" 2>/dev/null || return 1
@@ -499,6 +500,13 @@ nvram_transaction_lock_reaper_release() {
 		*) return 1 ;;
 	esac
 	NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+	NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+}
+
+nvram_transaction_lock_reaper_release_active() {
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] && return 0
+	[ -n "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || return 1
+	nvram_transaction_lock_reaper_release "${NVRAM_TRANSACTION_REAPER_LOCK_PATH}"
 }
 
 nvram_transaction_lock_flock_supports_fd() {
@@ -7078,6 +7086,10 @@ end_op_message() {
 	PTXT " "
 	PTXT " "
 	sleep 3s && clear_screen
+	nvram_transaction_lock_reaper_release_active || {
+		PTXT "${ERROR} Unable to release the installer NVRAM transaction reaper before restarting the installer."
+		exit 1
+	}
 	nvram_transaction_lock_release || {
 		PTXT "${ERROR} Unable to release the installer NVRAM transaction lock before restarting the installer."
 		exit 1
