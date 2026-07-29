@@ -288,6 +288,29 @@ status="$?"
 
 reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/interrupted-symlink-publication.reaper"
+BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" reaper_path="${reaper_path}" sh -c '
+	. "${FUNCTIONS_FILE}"
+	trap '\''
+		nvram_transaction_lock_reaper_release_active || exit 1
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || exit 1
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || exit 1
+		exit 78
+	'\'' HUP INT TERM
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	ln() {
+		command ln "$@" || return 1
+		kill -TERM "$$"
+	}
+	nvram_transaction_lock_reaper_acquire "${reaper_path}"
+'
+status="$?"
+[ "${status}" -eq 78 ] || fail "interrupted reaper symlink publication exited with status ${status} instead of 78"
+[ ! -e "${reaper_path}" ] || fail 'interrupted reaper symlink publication retained the legacy directory'
+[ ! -L "${reaper_path}.symlink" ] || fail 'interrupted reaper symlink publication retained the symlink marker'
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
 (
 	# Exercise the terminal mkdir implementation independently of optional flock and readlink support.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
