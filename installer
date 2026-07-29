@@ -441,7 +441,10 @@ nvram_transaction_lock_reaper_acquire() {
 			fi
 			rm -f "${reaper_path}.symlink.$$" 2>/dev/null
 		fi
-		return 1
+		# A present symlink is an active or unsuccessfully reclaimed lock. If no
+		# artifact was published, symlink creation is unavailable on this
+		# filesystem, so continue with the portable mkdir/PID implementation.
+		[ ! -e "${reaper_path}.symlink" ] && [ ! -L "${reaper_path}.symlink" ] || return 1
 	fi
 	if ! mkdir "${reaper_path}" 2>/dev/null; then
 		reaper_owner="$(cat "${reaper_path}/pid" 2>/dev/null)"

@@ -342,6 +342,24 @@ LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not determin
 	[ ! -L "${reaper_path}.symlink" ] || fail 'symlink-capable reaper lock remained after release'
 ) || exit 1
 
+(
+	reaper_path="${BASE_DIR}/.AdGuardHome.nvram.unsupported-symlink-reaper"
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# ln simulates a filesystem that supports readlink but rejects symlink creation.
+	ln() { return 1; }
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail 'failed symlink publication did not select the mkdir reaper fallback'
+	[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = mkdir ] || fail 'failed symlink publication selected the wrong reaper fallback'
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'mkdir reaper fallback recorded the wrong owner'
+	nvram_transaction_lock_reaper_release "${reaper_path}" || fail 'mkdir reaper fallback could not be released'
+
+	mkdir "${reaper_path}" || fail 'could not prepare stale mkdir reaper after failed symlink publication'
+	printf '%s\n' 999999999 >"${reaper_path}/pid" || fail 'could not record stale mkdir reaper owner after failed symlink publication'
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail 'failed symlink publication blocked stale mkdir reaper recovery'
+	[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = mkdir ] || fail 'stale mkdir reaper recovery selected the wrong fallback mode'
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'stale mkdir reaper was not replaced by the live owner'
+	nvram_transaction_lock_reaper_release "${reaper_path}" || fail 'reclaimed mkdir reaper fallback could not be released'
+) || exit 1
+
 if nvram_transaction_lock_flock_supports_fd; then
 	(
 		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.capability-reaper"
