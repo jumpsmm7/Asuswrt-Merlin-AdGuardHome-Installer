@@ -387,21 +387,19 @@ ln -s "${malformed_target}" "${reaper_path}.symlink" || fail 'could not prepare 
 		[ "${1:-}" != '-T' ] || return 1
 		command mv "$@"
 	}
-	if nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"; then
-		fail 'BusyBox mv accepted a non-atomic stale reaper fallback'
-	else
-		acquire_status=$?
-		[ "${acquire_status}" -eq 1 ] || fail 'BusyBox mv rejection returned an unexpected status'
-	fi
-	[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink")" = "${malformed_target}" ] ||
-		fail 'BusyBox mv rejection replaced the stale reaper symlink'
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'BusyBox mv rejection blocked stale reaper recovery'
+	[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink")" = "${LOCK_OWNER}" ] ||
+		fail 'BusyBox mv fallback published the wrong reaper owner'
 	[ -z "$(find "${malformed_target}" -mindepth 1 -maxdepth 1 -print)" ] ||
-		fail 'BusyBox mv rejection followed the malformed reaper symlink target'
-	[ ! -e "${reaper_path}" ] || fail 'BusyBox mv rejection retained the legacy reaper directory'
+		fail 'BusyBox mv fallback followed the malformed reaper symlink target'
 	[ ! -e "${reaper_path}.symlink.${LOCK_OWNER}" ] && [ ! -L "${reaper_path}.symlink.${LOCK_OWNER}" ] ||
-		fail 'BusyBox mv rejection retained its temporary marker'
+		fail 'BusyBox mv fallback retained its temporary marker'
+	nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'BusyBox mv fallback reaper was not released'
+	[ ! -e "${reaper_path}" ] || fail 'BusyBox mv fallback retained the legacy reaper directory'
+	[ ! -L "${reaper_path}.symlink" ] || fail 'BusyBox mv fallback retained the published reaper symlink'
 )
-rm -f "${reaper_path}.symlink"
 rm -rf "${malformed_target}"
 
 reset_case
