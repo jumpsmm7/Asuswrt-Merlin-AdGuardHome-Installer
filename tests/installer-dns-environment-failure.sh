@@ -353,8 +353,27 @@ status="$?"
 [ ! -e "${reaper_path}" ] || fail 'interrupted stale reaper symlink reclaim retained the legacy directory'
 [ ! -L "${reaper_path}.symlink" ] || fail 'interrupted stale reaper symlink reclaim retained the published owner'
 reaper_test_pid="$(cat "${reaper_path}.test-pid" 2>/dev/null)"
-[ ! -L "${reaper_path}.symlink.${reaper_test_pid}" ] || fail 'interrupted stale reaper symlink reclaim retained its temporary marker'
+[ -z "$(find "${BASE_DIR}" -name "$(basename "${reaper_path}").symlink.${reaper_test_pid}:*" -print -quit)" ] ||
+	fail 'interrupted stale reaper symlink reclaim retained its temporary marker'
 rm -f "${reaper_path}.test-pid"
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/pid-reused-stale-symlink.reaper"
+reused_pid="${LOCK_OWNER%%:*}"
+ln -s 999999999 "${reaper_path}.symlink" || fail 'could not prepare stale reaper symlink for PID-reuse recovery'
+ln -s "${reused_pid}:1" "${reaper_path}.symlink.${reused_pid}" || fail 'could not prepare interrupted PID-only temporary marker'
+(
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'PID reuse blocked stale reaper recovery'
+	[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink")" = "${LOCK_OWNER}" ] ||
+		fail 'PID-reuse recovery published the wrong reaper owner'
+	nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'PID-reuse recovery reaper was not released'
+)
+[ -L "${reaper_path}.symlink.${reused_pid}" ] || fail 'PID-reuse recovery removed an unverified legacy temporary marker'
+rm -f "${reaper_path}.symlink.${reused_pid}"
 
 reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
@@ -526,6 +545,10 @@ if nvram_transaction_lock_flock_supports_fd; then
 		}
 		if nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}"; then
 			fail 'flock reaper release ignored a transient legacy mutex removal failure'
+		else
+			release_status=$?
+			[ "${release_status}" -eq 1 ] || fail 'unexpected flock reaper release status'
+			[ "${REMOVE_ATTEMPTS}" -eq 1 ] || fail 'injected legacy mutex removal failure was not reached'
 		fi
 		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = flock ] || fail 'failed flock reaper release discarded its retryable mode'
 		[ -e "/proc/self/fd/9" ] || fail 'failed flock reaper release closed its retryable descriptor'

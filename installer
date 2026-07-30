@@ -497,18 +497,18 @@ nvram_transaction_lock_reaper_acquire() {
 			# Atomically reclaim stale symlink: create temp symlink, rename, verify ownership
 			# Arm cleanup before either artifact can identify this process. This also
 			# covers a signal delivered after mv publishes the replacement.
-			NVRAM_TRANSACTION_REAPER_TEMP_PATH="${reaper_path}.symlink.$$"
+			NVRAM_TRANSACTION_REAPER_TEMP_PATH="${reaper_path}.symlink.${owner}"
 			NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
-			ln -s "${owner}" "${reaper_path}.symlink.$$" 2>/dev/null || {
+			ln -s "${owner}" "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" 2>/dev/null || {
 				NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
 				NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 				nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
 				return 1
 			}
-			if mv -T "${reaper_path}.symlink.$$" "${reaper_path}.symlink" 2>/dev/null ||
+			if mv -T "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" "${reaper_path}.symlink" 2>/dev/null ||
 				{ rm -f "${reaper_path}.symlink" 2>/dev/null &&
 					ln -s "${owner}" "${reaper_path}.symlink" 2>/dev/null &&
-					rm -f "${reaper_path}.symlink.$$"; }; then
+					rm -f "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}"; }; then
 				# Verify we won the race by checking the symlink target
 				if [ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${owner}" ]; then
 					NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
@@ -516,13 +516,13 @@ nvram_transaction_lock_reaper_acquire() {
 					return 0
 				fi
 				# Another contender won; clean up and fail
-				rm -f "${reaper_path}.symlink.$$" 2>/dev/null
+				rm -f "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" 2>/dev/null
 				NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
 				NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 				nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
 				return 1
 			fi
-			rm -f "${reaper_path}.symlink.$$" 2>/dev/null
+			rm -f "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" 2>/dev/null
 			NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
 			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 		fi
