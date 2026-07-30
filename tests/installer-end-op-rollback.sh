@@ -28,8 +28,16 @@ TARG_DIR="${TEST_ROOT}/target"
 ROLLBACK_RESULT_FILE="${TARG_DIR}/.rollback_result"
 CLI_MODE="1"
 ROLLBACK_RESULT_UPDATED="0"
+ERROR='Error:'
+REAPER_RELEASE_ATTEMPTS="0"
+# nvram_transaction_lock_reaper_release_active records cleanup before early returns.
+nvram_transaction_lock_reaper_release_active() {
+	REAPER_RELEASE_ATTEMPTS=$((REAPER_RELEASE_ATTEMPTS + 1))
+	return 0
+}
 
 end_op_message 1 update >/dev/null 2>&1 && fail 'CLI failure unexpectedly returned success'
+[ "${REAPER_RELEASE_ATTEMPTS}" -eq 1 ] || fail 'CLI failure did not release the active reaper before returning'
 [ -f "${ROLLBACK_RESULT_FILE}" ] || fail 'CLI failure did not write rollback result'
 grep -q '^result=no rollback attempted$' "${ROLLBACK_RESULT_FILE}" || fail 'CLI failure wrote wrong rollback result'
 grep -q '^detail=operation aborted before rollback was needed$' "${ROLLBACK_RESULT_FILE}" || fail 'CLI failure wrote wrong rollback detail'
@@ -54,6 +62,7 @@ ADGUARD_DEFER_END_OP="1"
 ROLLBACK_RESULT_UPDATED="0"
 
 end_op_message 2 >/dev/null 2>&1 && fail 'deferred interruption unexpectedly returned success'
+[ "${REAPER_RELEASE_ATTEMPTS}" -eq 3 ] || fail 'deferred interruption did not release the active reaper before returning'
 [ -f "${ROLLBACK_RESULT_FILE}" ] || fail 'deferred interruption did not write rollback result'
 grep -q '^result=interrupted: no rollback attempted$' "${ROLLBACK_RESULT_FILE}" || fail 'deferred interruption wrote wrong rollback result'
 
@@ -104,4 +113,15 @@ status=$?
 [ ! -e "${TEST_ROOT}/unexpected-restart" ] || fail 'interactive lock-release failure restarted without releasing the lock'
 grep -q 'Unable to release the installer NVRAM transaction lock' "${TEST_ROOT}/interactive-output" || fail 'interactive lock-release failure was not reported'
 
-printf '%s\n' 'PASS: end_op_message preserves rollback results and terminates on interactive lock-release failure'
+CLI_MODE="1"
+ADGUARD_DEFER_END_OP="0"
+nvram_transaction_lock_reaper_release_active() { return 1; }
+if end_op_message 0 >"${TEST_ROOT}/cli-reaper-output" 2>&1; then
+	fail 'CLI reaper-release failure unexpectedly returned success'
+else
+	status=$?
+fi
+[ "${status}" -eq 1 ] || fail "CLI reaper-release failure returned status ${status} instead of 1"
+grep -q 'Unable to release the installer NVRAM transaction reaper' "${TEST_ROOT}/cli-reaper-output" || fail 'CLI reaper-release failure was not reported'
+
+printf '%s\n' 'PASS: end_op_message preserves rollback results and releases reapers before every return'
