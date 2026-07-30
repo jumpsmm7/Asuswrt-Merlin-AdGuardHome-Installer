@@ -396,6 +396,10 @@ nvram_transaction_lock_flock_owned() {
 	[ "${descriptor_path}" = "${resolved_lock_path}" ]
 }
 
+nvram_transaction_lock_reaper_flock_acquire() {
+	/usr/bin/flock -n 9 >/dev/null 2>&1
+}
+
 nvram_transaction_lock_reaper_legacy_release() {
 	local owner reaper_path
 	reaper_path="$1"
@@ -474,10 +478,13 @@ nvram_transaction_lock_reaper_acquire() {
 			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
 			return 1
 		}
-		if /usr/bin/flock -n 9 >/dev/null 2>&1; then
-			NVRAM_TRANSACTION_REAPER_LOCK_MODE="flock"
+		# Arm descriptor cleanup before flock can complete. BusyBox ash may run a
+		# pending signal trap before executing the next shell assignment.
+		NVRAM_TRANSACTION_REAPER_LOCK_MODE="flock"
+		if nvram_transaction_lock_reaper_flock_acquire; then
 			return 0
 		fi
+		NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 		exec 9>&-
 		nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
 		return 1

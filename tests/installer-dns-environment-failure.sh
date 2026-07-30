@@ -487,6 +487,25 @@ LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore 
 ) || exit 1
 
 if nvram_transaction_lock_flock_supports_fd; then
+	BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		reaper_path="${BASE_DIR}/interrupted-flock-acquisition.reaper"
+		trap '\''
+			nvram_transaction_lock_reaper_release_active || exit 1
+			[ ! -e "/proc/$$/fd/9" ] || exit 1
+			[ ! -e "${reaper_path}" ] || exit 1
+			exit 80
+		'\'' HUP INT TERM
+		nvram_transaction_lock_reaper_flock_acquire() {
+			/usr/bin/flock -n 9 >/dev/null 2>&1 || return 1
+			kill -TERM "$$"
+		}
+		nvram_transaction_lock_reaper_acquire "${reaper_path}"
+	'
+	status="$?"
+	[ "${status}" -eq 80 ] || fail "interrupted flock reaper acquisition exited with status ${status} instead of 80"
+	[ ! -e "${BASE_DIR}/interrupted-flock-acquisition.reaper" ] || fail 'interrupted flock reaper acquisition retained the legacy mutex'
+
 	(
 		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.legacy-flock-reaper"
 		mkdir "${reaper_path}" || fail 'could not prepare legacy reaper before flock acquisition'
