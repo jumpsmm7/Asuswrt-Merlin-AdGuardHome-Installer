@@ -490,7 +490,15 @@ nvram_transaction_lock_reaper_acquire() {
 		# pending signal trap before executing the next shell assignment.
 		NVRAM_TRANSACTION_REAPER_LOCK_MODE="flock"
 		if nvram_transaction_lock_reaper_flock_acquire; then
-			return 0
+			# A returning signal trap may have released the reaper after flock
+			# succeeded. Revalidate every published ownership record before the
+			# caller is allowed to enter the transaction critical section.
+			if [ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "flock" ] &&
+				[ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" = "${reaper_path}" ] &&
+				[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ]; then
+				return 0
+			fi
+			return 1
 		fi
 		NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 		exec 9>&-

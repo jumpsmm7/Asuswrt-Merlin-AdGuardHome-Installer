@@ -492,6 +492,26 @@ LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore 
 if nvram_transaction_lock_flock_supports_fd; then
 	BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
 		. "${FUNCTIONS_FILE}"
+		reaper_path="${BASE_DIR}/returning-signal-flock-acquisition.reaper"
+		nvram_transaction_lock_reaper_flock_acquire() {
+			/usr/bin/flock -n 9 >/dev/null 2>&1 || return 1
+			nvram_transaction_lock_reaper_release_active || return 1
+			return 0
+		}
+		nvram_transaction_lock_reaper_acquire "${reaper_path}"
+		status="$?"
+		[ "${status}" -ne 0 ] || exit 81
+		[ "${status}" -eq 1 ] || exit 82
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || exit 83
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || exit 84
+		[ ! -L "/proc/$$/fd/9" ] || exit 85
+		[ ! -e "${reaper_path}" ] || exit 86
+	'
+	status="$?"
+	[ "${status}" -eq 0 ] || fail "returning signal cleanup flock regression exited with status ${status}"
+
+	BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+		. "${FUNCTIONS_FILE}"
 		reaper_path="${BASE_DIR}/interrupted-flock-acquisition.reaper"
 		trap '\''
 			nvram_transaction_lock_reaper_release_active || exit 1
