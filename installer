@@ -696,7 +696,10 @@ nvram_transaction_lock_symlink_acquire() {
 			return 1
 		fi
 		nvram_transaction_lock_reaper_release "${lock_path}.reaper" || {
-			rm -f "${lock_path}" || true
+			if ! rm -f "${lock_path}" 2>/dev/null || [ -e "${lock_path}" ] || [ -L "${lock_path}" ]; then
+				printf '%s\n' "Error: unable to roll back owned NVRAM transaction lock ${lock_path}; stopping recovery." >&2
+				exit 1
+			fi
 			return 1
 		}
 		return 0

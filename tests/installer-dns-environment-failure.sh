@@ -9,6 +9,7 @@ FUNCTIONS_FILE="${TEST_ROOT}/functions"
 NVRAM_FILE="${TEST_ROOT}/nvram"
 CALLS_FILE="${TEST_ROOT}/calls"
 LOCK_REMOVE_COUNT=0
+SYMLINK_LOCK_REMOVE_COUNT=0
 
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
@@ -172,6 +173,10 @@ rm() {
 	if [ "$#" -eq 2 ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ]; then
 		LOCK_REMOVE_COUNT="$((LOCK_REMOVE_COUNT + 1))"
 		[ "${FAIL_LOCK_REMOVE_AT:-0}" != "${LOCK_REMOVE_COUNT}" ] || return 1
+	fi
+	if [ "$#" -ge 2 ] && [ "${1:-}" = -f ] && [ "${2:-}" = "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" ]; then
+		SYMLINK_LOCK_REMOVE_COUNT="$((SYMLINK_LOCK_REMOVE_COUNT + 1))"
+		[ "${FAIL_SYMLINK_LOCK_REMOVE_AT:-0}" != "${SYMLINK_LOCK_REMOVE_COUNT}" ] || return 1
 	fi
 	command rm "$@"
 }
@@ -1020,6 +1025,23 @@ rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
 		fail 'failed reaper release retained the newly published symlink lock'
 	fi
 ) || exit 1
+(
+	# A failed rollback of the published symlink lock is terminal so the
+	# installer cannot resume while its unpublished live-owner lock remains.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_reaper_acquire() { return 0; }
+	nvram_transaction_lock_reaper_release() { return 1; }
+	FAIL_SYMLINK_LOCK_REMOVE_AT=1
+	SYMLINK_LOCK_REMOVE_COUNT=0
+	nvram_transaction_lock_symlink_acquire
+	: >"${TEST_ROOT}/continued-after-symlink-lock-rollback-failure"
+) 2>"${TEST_ROOT}/symlink-lock-rollback-failure.stderr"
+status="$?"
+[ "${status}" -eq 1 ] || fail "failed symlink lock rollback exited with status ${status} instead of 1"
+[ ! -e "${TEST_ROOT}/continued-after-symlink-lock-rollback-failure" ] || fail 'installer continued after failing to roll back its owned symlink lock'
+[ -L "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" ] || fail 'failed rollback unexpectedly removed the owned symlink lock'
+grep -Fq 'unable to roll back owned NVRAM transaction lock' "${TEST_ROOT}/symlink-lock-rollback-failure.stderr" || fail 'terminal symlink lock rollback failure was not reported'
+command rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 (
 	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
