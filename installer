@@ -548,8 +548,20 @@ nvram_transaction_lock_reaper_release() {
 			return 0
 			;;
 		flock)
+			if [ -n "${2:-}" ]; then
+				owner="$2"
+			else
+				owner="$(nvram_transaction_lock_owner_current)" || return 1
+			fi
+			# Keep the descriptor lock held until the shared legacy mutex is
+			# removed so a transient removal failure remains retryable.
+			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}" || return 1
 			/usr/bin/flock -u 9 >/dev/null 2>&1 || return 1
 			exec 9>&-
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+			NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+			NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
+			return 0
 			;;
 		symlink)
 			if [ -n "${2:-}" ]; then

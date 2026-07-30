@@ -488,6 +488,30 @@ if nvram_transaction_lock_flock_supports_fd; then
 		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'flock-capable reaper did not publish its legacy-compatible owner'
 		nvram_transaction_lock_reaper_release "${reaper_path}" || fail 'flock-capable reaper lock could not be released'
 	) || exit 1
+
+	(
+		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.retryable-flock-reaper"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail 'retryable flock reaper lock could not be acquired'
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = flock ] || fail 'retryable reaper did not select flock mode'
+		REMOVE_ATTEMPTS=0
+		rm() {
+			if [ "${1:-}" = -rf ] && [ "${2:-}" = "${reaper_path}" ]; then
+				REMOVE_ATTEMPTS=$((REMOVE_ATTEMPTS + 1))
+				[ "${REMOVE_ATTEMPTS}" -gt 1 ] || return 1
+			fi
+			command rm "$@"
+		}
+		if nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}"; then
+			fail 'flock reaper release ignored a transient legacy mutex removal failure'
+		fi
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = flock ] || fail 'failed flock reaper release discarded its retryable mode'
+		[ -e "/proc/self/fd/9" ] || fail 'failed flock reaper release closed its retryable descriptor'
+		[ -d "${reaper_path}" ] || fail 'failed flock reaper release unexpectedly removed its legacy mutex'
+		nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail 'flock reaper release retry did not succeed'
+		[ ! -e "/proc/self/fd/9" ] || fail 'successful flock reaper release retained descriptor 9'
+		[ ! -e "${reaper_path}" ] || fail 'successful flock reaper release retained its legacy mutex'
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || fail 'successful flock reaper release retained its active mode'
+	) || exit 1
 fi
 
 if nvram_transaction_lock_flock_supports_fd; then
