@@ -554,6 +554,7 @@ if nvram_transaction_lock_flock_supports_fd; then
 		[ -e "/proc/self/fd/9" ] || fail 'failed flock reaper release closed its retryable descriptor'
 		[ -d "${reaper_path}" ] || fail 'failed flock reaper release unexpectedly removed its legacy mutex'
 		nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail 'flock reaper release retry did not succeed'
+		[ "${REMOVE_ATTEMPTS}" -eq 2 ] || fail 'flock reaper release retry did not repeat legacy mutex removal'
 		[ ! -e "/proc/self/fd/9" ] || fail 'successful flock reaper release retained descriptor 9'
 		[ ! -e "${reaper_path}" ] || fail 'successful flock reaper release retained its legacy mutex'
 		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || fail 'successful flock reaper release retained its active mode'
