@@ -124,4 +124,25 @@ fi
 [ "${status}" -eq 1 ] || fail "CLI reaper-release failure returned status ${status} instead of 1"
 grep -q 'Unable to release the installer NVRAM transaction reaper' "${TEST_ROOT}/cli-reaper-output" || fail 'CLI reaper-release failure was not reported'
 
+CLI_MODE="0"
+ADGUARD_DEFER_END_OP="1"
+if end_op_message 2 >"${TEST_ROOT}/deferred-reaper-output" 2>&1; then
+	fail 'deferred reaper-release failure unexpectedly returned success'
+else
+	status=$?
+fi
+[ "${status}" -eq 1 ] || fail "deferred reaper-release failure returned status ${status} instead of 1"
+grep -q 'Unable to release the installer NVRAM transaction reaper' "${TEST_ROOT}/deferred-reaper-output" || fail 'deferred reaper-release failure was not reported'
+
+CLI_MODE="0"
+ADGUARD_DEFER_END_OP="0"
+(
+	end_op_message 2 >"${TEST_ROOT}/signal-reaper-output" 2>&1
+	printf '%s\n' returned >"${TEST_ROOT}/unexpected-signal-return"
+)
+status=$?
+[ "${status}" -eq 1 ] || fail "signal-time reaper-release failure exited with status ${status} instead of 1"
+[ ! -e "${TEST_ROOT}/unexpected-signal-return" ] || fail 'signal-time reaper-release failure returned to the interrupted operation'
+grep -q 'Unable to release the installer NVRAM transaction reaper' "${TEST_ROOT}/signal-reaper-output" || fail 'signal-time reaper-release failure was not reported'
+
 printf '%s\n' 'PASS: end_op_message preserves rollback results and releases reapers before every return'
