@@ -332,6 +332,32 @@ status="$?"
 
 reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/interrupted-stale-symlink-reclaim.reaper"
+ln -s 999999999 "${reaper_path}.symlink" || fail 'could not prepare stale reaper symlink'
+BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" reaper_path="${reaper_path}" sh -c '
+	. "${FUNCTIONS_FILE}"
+	trap '\''
+		nvram_transaction_lock_reaper_release_active || exit 1
+		exit 79
+	'\'' HUP INT TERM
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	mv() {
+		command mv "$@" || return 1
+		kill -TERM "$$"
+	}
+	printf "%s\n" "$$" >"${reaper_path}.test-pid"
+	nvram_transaction_lock_reaper_acquire "${reaper_path}"
+'
+status="$?"
+[ "${status}" -eq 79 ] || fail "interrupted stale reaper symlink reclaim exited with status ${status} instead of 79"
+[ ! -e "${reaper_path}" ] || fail 'interrupted stale reaper symlink reclaim retained the legacy directory'
+[ ! -L "${reaper_path}.symlink" ] || fail 'interrupted stale reaper symlink reclaim retained the published owner'
+reaper_test_pid="$(cat "${reaper_path}.test-pid" 2>/dev/null)"
+[ ! -L "${reaper_path}.symlink.${reaper_test_pid}" ] || fail 'interrupted stale reaper symlink reclaim retained its temporary marker'
+rm -f "${reaper_path}.test-pid"
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
 (
 	# Exercise the terminal mkdir implementation independently of optional flock and readlink support.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }

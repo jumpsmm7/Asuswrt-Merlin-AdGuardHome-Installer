@@ -420,6 +420,7 @@ nvram_transaction_lock_reaper_acquire() {
 	reaper_reclaimed=0
 	NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
 	NVRAM_TRANSACTION_REAPER_LOCK_PATH="${reaper_path}"
+	NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
 	if [ -n "${2:-}" ]; then
 		owner="$2"
 	else
@@ -493,7 +494,13 @@ nvram_transaction_lock_reaper_acquire() {
 		if [ -n "${reaper_owner}" ] && ! nvram_transaction_lock_owner_live "${reaper_owner}" &&
 			[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${reaper_owner}" ]; then
 			# Atomically reclaim stale symlink: create temp symlink, rename, verify ownership
+			# Arm cleanup before either artifact can identify this process. This also
+			# covers a signal delivered after mv publishes the replacement.
+			NVRAM_TRANSACTION_REAPER_TEMP_PATH="${reaper_path}.symlink.$$"
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
 			ln -s "${owner}" "${reaper_path}.symlink.$$" 2>/dev/null || {
+				NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
+				NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 				nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
 				return 1
 			}
@@ -501,15 +508,20 @@ nvram_transaction_lock_reaper_acquire() {
 				{ mv "${reaper_path}.symlink.$$" "${reaper_path}.symlink" 2>/dev/null && rm -f "${reaper_path}.symlink.$$"; }; then
 				# Verify we won the race by checking the symlink target
 				if [ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${owner}" ]; then
+					NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
 					NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
 					return 0
 				fi
 				# Another contender won; clean up and fail
 				rm -f "${reaper_path}.symlink.$$" 2>/dev/null
+				NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
+				NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 				nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
 				return 1
 			fi
 			rm -f "${reaper_path}.symlink.$$" 2>/dev/null
+			NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 		fi
 		# A present symlink is an active or unsuccessfully reclaimed lock. If no
 		# artifact was published, symlink creation is unavailable on this
@@ -545,8 +557,19 @@ nvram_transaction_lock_reaper_release() {
 			else
 				owner="$(nvram_transaction_lock_owner_current)" || return 1
 			fi
+			if [ -n "${NVRAM_TRANSACTION_REAPER_TEMP_PATH:-}" ] &&
+				[ "$(nvram_transaction_lock_readlink "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" 2>/dev/null)" = "${owner}" ]; then
+				rm -f "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" || return 1
+			fi
 			if [ -e "${reaper_path}.symlink" ] || [ -L "${reaper_path}.symlink" ]; then
-				[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${owner}" ] || return 1
+				[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${owner}" ] || {
+					[ -n "${NVRAM_TRANSACTION_REAPER_TEMP_PATH:-}" ] || return 1
+					nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}" || return 1
+					NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+					NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+					NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
+					return 0
+				}
 				rm -f "${reaper_path}.symlink" || return 1
 			fi
 			;;
@@ -566,6 +589,7 @@ nvram_transaction_lock_reaper_release() {
 	nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}" || return 1
 	NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
 	NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+	NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
 }
 
 nvram_transaction_lock_reaper_release_active() {
