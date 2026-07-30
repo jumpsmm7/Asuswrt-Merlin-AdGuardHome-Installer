@@ -358,6 +358,29 @@ rm -f "${reaper_path}.test-pid"
 
 reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/busybox-mv-stale-symlink.reaper"
+malformed_target="${BASE_DIR}/busybox-mv-target"
+mkdir "${malformed_target}" || fail 'could not prepare malformed reaper symlink target'
+ln -s "${malformed_target}" "${reaper_path}.symlink" || fail 'could not prepare malformed reaper symlink'
+(
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	mv() {
+		[ "${1:-}" != '-T' ] || return 1
+		command mv "$@"
+	}
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'BusyBox mv fallback did not reclaim the malformed reaper symlink'
+	[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink")" = "${LOCK_OWNER}" ] ||
+		fail 'BusyBox mv fallback published the wrong reaper owner'
+	[ -z "$(find "${malformed_target}" -mindepth 1 -maxdepth 1 -print -quit)" ] ||
+		fail 'BusyBox mv fallback followed the malformed reaper symlink target'
+	nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'BusyBox mv fallback reaper was not released'
+)
+rm -rf "${malformed_target}"
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
 (
 	# Exercise the terminal mkdir implementation independently of optional flock and readlink support.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }

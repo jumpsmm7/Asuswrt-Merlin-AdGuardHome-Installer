@@ -486,7 +486,8 @@ nvram_transaction_lock_reaper_acquire() {
 		# Arm signal cleanup before publishing the capability marker. A signal
 		# may be delivered after ln completes but before the next shell command.
 		NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
-		if ln -s "${owner}" "${reaper_path}.symlink" 2>/dev/null; then
+		if [ ! -e "${reaper_path}.symlink" ] && [ ! -L "${reaper_path}.symlink" ] &&
+			ln -s "${owner}" "${reaper_path}.symlink" 2>/dev/null; then
 			return 0
 		fi
 		NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
@@ -505,7 +506,9 @@ nvram_transaction_lock_reaper_acquire() {
 				return 1
 			}
 			if mv -T "${reaper_path}.symlink.$$" "${reaper_path}.symlink" 2>/dev/null ||
-				{ mv "${reaper_path}.symlink.$$" "${reaper_path}.symlink" 2>/dev/null && rm -f "${reaper_path}.symlink.$$"; }; then
+				{ rm -f "${reaper_path}.symlink" 2>/dev/null &&
+					ln -s "${owner}" "${reaper_path}.symlink" 2>/dev/null &&
+					rm -f "${reaper_path}.symlink.$$"; }; then
 				# Verify we won the race by checking the symlink target
 				if [ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${owner}" ]; then
 					NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
