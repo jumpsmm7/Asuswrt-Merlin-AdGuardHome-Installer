@@ -527,6 +527,36 @@ fi
 	[ ! -L "${reaper_path}.symlink" ] || fail 'symlink-capable reaper lock remained after release'
 ) || exit 1
 
+for reentrant_mode in symlink mkdir; do
+	(
+		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.reentrant-${reentrant_mode}-reaper"
+		nvram_transaction_lock_flock_supports_fd() { return 1; }
+		if [ "${reentrant_mode}" = mkdir ]; then
+			nvram_transaction_lock_readlink() { return 127; }
+		fi
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" ||
+			fail "${reentrant_mode} reaper could not be acquired for reentrant release"
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "${reentrant_mode}" ] ||
+			fail "${reentrant_mode} reaper selected the wrong mode for reentrant release"
+		REENTRANT_RELEASES=0
+		rm() {
+			if [ "${1:-}" = -rf ] && [ "${2:-}" = "${reaper_path}" ]; then
+				command rm "$@" || return 1
+				REENTRANT_RELEASES=$((REENTRANT_RELEASES + 1))
+				nvram_transaction_lock_reaper_release_active || return 1
+				return 0
+			fi
+			command rm "$@"
+		}
+		nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" ||
+			fail "${reentrant_mode} reaper release failed after deleting its mutex"
+		[ "${REENTRANT_RELEASES}" -eq 1 ] || fail "${reentrant_mode} reentrant release hook was not reached"
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || fail "${reentrant_mode} reentrant release retained its mode"
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || fail "${reentrant_mode} reentrant release retained its path"
+		[ ! -e "${reaper_path}" ] || fail "${reentrant_mode} reentrant release retained its mutex"
+	) || exit 1
+done
+
 (
 	reaper_path="${BASE_DIR}/.AdGuardHome.nvram.unsupported-symlink-reaper"
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
@@ -552,6 +582,28 @@ if nvram_transaction_lock_flock_supports_fd; then
 		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = flock ] || fail 'reaper did not select the flock transaction-lock capability'
 		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'flock-capable reaper did not publish its legacy-compatible owner'
 		nvram_transaction_lock_reaper_release "${reaper_path}" || fail 'flock-capable reaper lock could not be released'
+	) || exit 1
+
+	(
+		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.reentrant-flock-reaper"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" ||
+			fail 'flock reaper could not be acquired for reentrant release'
+		REENTRANT_RELEASES=0
+		rm() {
+			if [ "${1:-}" = -rf ] && [ "${2:-}" = "${reaper_path}" ]; then
+				command rm "$@" || return 1
+				REENTRANT_RELEASES=$((REENTRANT_RELEASES + 1))
+				nvram_transaction_lock_reaper_release_active || return 1
+				return 0
+			fi
+			command rm "$@"
+		}
+		nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" ||
+			fail 'flock reaper release failed after deleting its mutex'
+		[ "${REENTRANT_RELEASES}" -eq 1 ] || fail 'flock reentrant release hook was not reached'
+		[ ! -e "/proc/self/fd/9" ] || fail 'flock reentrant release retained descriptor 9'
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || fail 'flock reentrant release retained its mode'
+		[ ! -e "${reaper_path}" ] || fail 'flock reentrant release retained its mutex'
 	) || exit 1
 
 	(

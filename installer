@@ -404,6 +404,14 @@ nvram_transaction_lock_reaper_legacy_release() {
 	local owner reaper_path
 	reaper_path="$1"
 	owner="$2"
+	if [ ! -e "${reaper_path}" ]; then
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" = "${reaper_path}" ] || return 1
+		if [ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "legacy" ]; then
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+			NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+		fi
+		return 0
+	fi
 	if [ -f "${reaper_path}/pid" ]; then
 		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || return 1
 		rm -rf "${reaper_path}" || return 1
@@ -569,7 +577,13 @@ nvram_transaction_lock_reaper_release() {
 			# Keep the descriptor lock held until the shared legacy mutex is
 			# removed so a transient removal failure remains retryable.
 			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}" || return 1
+			# A signal trap may have completed the same release while rm was
+			# running. In that case fd 9 and all active state are already clear.
+			[ -n "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || return 0
 			/usr/bin/flock -u 9 >/dev/null 2>&1 || return 1
+			# The shared mutex is already gone and the descriptor is unlocked.
+			# Make a signal-triggered nested release idempotent before closing fd 9.
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 			exec 9>&-
 			NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
 			NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
@@ -597,6 +611,9 @@ nvram_transaction_lock_reaper_release() {
 				}
 				rm -f "${reaper_path}.symlink" || return 1
 			fi
+			# Arm the idempotent post-publication phase before removing the shared
+			# mutex so a nested signal cleanup can finish this release safely.
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 			;;
 		mkdir)
 			if [ -n "${2:-}" ]; then
@@ -605,6 +622,7 @@ nvram_transaction_lock_reaper_release() {
 				owner="$(nvram_transaction_lock_owner_current)" || return 1
 			fi
 			[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || return 1
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 			;;
 		*) return 1 ;;
 	esac
