@@ -7,6 +7,16 @@ on:
         type: 'string'
         description: 'Any additional context from the request'
         required: false
+    secrets:
+      APP_PRIVATE_KEY:
+        description: 'GitHub App private key.'
+        required: false
+      GEMINI_API_KEY:
+        description: 'Gemini API key.'
+        required: false
+      GOOGLE_API_KEY:
+        description: 'Google API key for Vertex AI.'
+        required: false
 
 concurrency:
   group: '${{ github.workflow }}-invoke-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number }}'
@@ -19,6 +29,7 @@ defaults:
 jobs:
   invoke:
     runs-on: 'ubuntu-latest'
+    timeout-minutes: 35
     permissions:
       contents: 'read'
       id-token: 'write'
@@ -29,7 +40,7 @@ jobs:
         id: 'mint_identity_token'
         if: |-
           ${{ vars.APP_ID }}
-        uses: 'actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf' # ratchet:actions/create-github-app-token@v2
+        uses: 'actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf'
         with:
           app-id: '${{ vars.APP_ID }}'
           private-key: '${{ secrets.APP_PRIVATE_KEY }}'
@@ -37,14 +48,15 @@ jobs:
           permission-issues: 'write'
           permission-pull-requests: 'write'
 
-      - name: 'Checkout Code'
-        uses: 'actions/checkout@v4' # ratchet:exclude
+      - name: 'Checkout repository'
+        uses: 'actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8'
         with:
           persist-credentials: 'false'
 
       - name: 'Prepare prompt context'
         shell: 'bash'
         run: |-
+          set -euo pipefail
           mkdir -p .gemini/commands
           cp .github/workflows/gemini-invoke.toml .gemini/commands/repository-gemini-invoke.toml
           jq -n \
@@ -65,32 +77,35 @@ jobs:
           REPOSITORY: '${{ github.repository }}'
           ADDITIONAL_CONTEXT: '${{ inputs.additional_context }}'
 
-      - name: 'Run Gemini CLI'
+      - name: 'Run Gemini CLI resiliently'
         id: 'run_gemini'
-        uses: 'google-github-actions/run-gemini-cli@v0' # ratchet:exclude
-        env:
-          GEMINI_CLI_TRUST_WORKSPACE: 'true'
-          GITHUB_TOKEN: '${{ steps.mint_identity_token.outputs.token || secrets.GITHUB_TOKEN || github.token }}'
+        uses: './.github/actions/run-gemini-resilient'
         with:
+          github_token: '${{ steps.mint_identity_token.outputs.token || secrets.GITHUB_TOKEN || github.token }}'
           gcp_location: '${{ vars.GOOGLE_CLOUD_LOCATION }}'
           gcp_project_id: '${{ vars.GOOGLE_CLOUD_PROJECT }}'
           gcp_service_account: '${{ vars.SERVICE_ACCOUNT_EMAIL }}'
           gcp_workload_identity_provider: '${{ vars.GCP_WIF_PROVIDER }}'
           gemini_api_key: '${{ secrets.GEMINI_API_KEY }}'
-          gemini_cli_version: '${{ vars.GEMINI_CLI_VERSION }}'
+          gemini_cli_version: "${{ vars.GEMINI_CLI_VERSION || '0.52.0' }}"
           gemini_debug: '${{ fromJSON(vars.GEMINI_DEBUG || vars.ACTIONS_STEP_DEBUG || false) }}'
-          gemini_model: '${{ vars.GEMINI_MODEL }}'
+          gemini_model: "${{ vars.GEMINI_MODEL || 'auto' }}"
+          fallback_model: "${{ vars.GEMINI_FALLBACK_MODEL || 'flash' }}"
+          fallback_delay_seconds: "${{ vars.GEMINI_FALLBACK_DELAY_SECONDS || '45' }}"
           google_api_key: '${{ secrets.GOOGLE_API_KEY }}'
           use_gemini_code_assist: '${{ vars.GOOGLE_GENAI_USE_GCA }}'
           use_vertex_ai: '${{ vars.GOOGLE_GENAI_USE_VERTEXAI }}'
           upload_artifacts: '${{ vars.UPLOAD_ARTIFACTS }}'
           workflow_name: 'gemini-invoke'
-          # Assistant workflows can be triggered by comments on either Issues or PRs.
-          # We explicitly map both fields so the CLI can correctly categorize the interaction.
           github_pr_number: '${{ github.event.pull_request.number }}'
           github_issue_number: '${{ github.event.issue.number }}'
+          requires_docker: 'true'
           settings: |-
             {
+              "general": {
+                "retryFetchErrors": true,
+                "maxAttempts": 6
+              },
               "model": {
                 "maxSessionTurns": 25
               },
@@ -98,6 +113,9 @@ jobs:
                 "enabled": true,
                 "target": "local",
                 "outfile": ".gemini/telemetry.log"
+              },
+              "mcp": {
+                "allowed": ["github"]
               },
               "mcpServers": {
                 "github": {
@@ -108,7 +126,7 @@ jobs:
                     "--rm",
                     "-e",
                     "GITHUB_PERSONAL_ACCESS_TOKEN",
-                    "ghcr.io/github/github-mcp-server:v0.27.0"
+                    "ghcr.io/github/github-mcp-server:v1.0.5"
                   ],
                   "includeTools": [
                     "add_issue_comment",
@@ -123,8 +141,10 @@ jobs:
                     "list_commits",
                     "search_code"
                   ],
+                  "timeout": 60000,
                   "env": {
-                    "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+                    "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}",
+                    "GITHUB_TOOLS": "add_issue_comment,issue_read,list_issues,search_issues,pull_request_read,list_pull_requests,search_pull_requests,get_commit,get_file_contents,list_commits,search_code"
                   }
                 }
               },
