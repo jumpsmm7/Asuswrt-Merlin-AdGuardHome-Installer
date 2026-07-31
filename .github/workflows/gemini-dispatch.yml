@@ -18,6 +18,10 @@ on:
     types:
       - 'created'
 
+concurrency:
+  group: '${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}'
+  cancel-in-progress: false
+
 defaults:
   run:
     shell: 'bash'
@@ -27,6 +31,7 @@ jobs:
     if: |-
       ${{ fromJSON(vars.GEMINI_DEBUG || vars.ACTIONS_STEP_DEBUG || false) }}
     runs-on: 'ubuntu-latest'
+    timeout-minutes: 5
     permissions:
       contents: 'read'
     steps:
@@ -43,9 +48,6 @@ jobs:
           env | grep '^DEBUG_'
 
   dispatch:
-    # For PRs: only if not from a fork
-    # For issues: only on open/reopen
-    # For comments: only if user types @gemini-cli and is OWNER/MEMBER/COLLABORATOR
     if: |-
       (
         github.event_name == 'pull_request' &&
@@ -59,6 +61,7 @@ jobs:
         contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association || github.event.review.author_association || github.event.issue.author_association)
       )
     runs-on: 'ubuntu-latest'
+    timeout-minutes: 10
     permissions:
       contents: 'read'
       issues: 'write'
@@ -73,7 +76,7 @@ jobs:
         id: 'mint_identity_token'
         if: |-
           ${{ vars.APP_ID }}
-        uses: 'actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf' # ratchet:actions/create-github-app-token@v2
+        uses: 'actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf'
         with:
           app-id: '${{ vars.APP_ID }}'
           private-key: '${{ secrets.APP_PRIVATE_KEY }}'
@@ -83,47 +86,69 @@ jobs:
 
       - name: 'Extract command'
         id: 'extract_command'
-        uses: 'actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea' # ratchet:actions/github-script@v7
+        uses: 'actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea'
         env:
           EVENT_TYPE: '${{ github.event_name }}.${{ github.event.action }}'
           REQUEST: '${{ github.event.comment.body || github.event.review.body || github.event.issue.body }}'
         with:
-          script: |
+          script: |-
             const eventType = process.env.EVENT_TYPE;
-            const request = process.env.REQUEST;
+            const request = process.env.REQUEST || '';
             core.setOutput('request', request);
+            core.setOutput('additional_context', '');
 
             if (eventType === 'pull_request.opened') {
               core.setOutput('command', 'review');
             } else if (['issues.opened', 'issues.reopened'].includes(eventType)) {
               core.setOutput('command', 'triage');
-            } else if (request.startsWith("@gemini-cli /review")) {
+            } else if (request.startsWith('@gemini-cli /review')) {
               core.setOutput('command', 'review');
-              const additionalContext = request.replace(/^@gemini-cli \/review/, '').trim();
-              core.setOutput('additional_context', additionalContext);
-            } else if (request.startsWith("@gemini-cli /triage")) {
+              core.setOutput(
+                'additional_context',
+                request.replace(/^@gemini-cli \/review/, '').trim(),
+              );
+            } else if (request.startsWith('@gemini-cli /triage')) {
               core.setOutput('command', 'triage');
-            } else if (request.startsWith("@gemini-cli /approve")) {
+              core.setOutput(
+                'additional_context',
+                request.replace(/^@gemini-cli \/triage/, '').trim(),
+              );
+            } else if (request.startsWith('@gemini-cli /approve')) {
               core.setOutput('command', 'approve');
-            } else if (request.startsWith("@gemini-cli")) {
-              const additionalContext = request.replace(/^@gemini-cli/, '').trim();
+              core.setOutput(
+                'additional_context',
+                request.replace(/^@gemini-cli \/approve/, '').trim(),
+              );
+            } else if (request.startsWith('@gemini-cli')) {
               core.setOutput('command', 'invoke');
-              core.setOutput('additional_context', additionalContext);
+              core.setOutput(
+                'additional_context',
+                request.replace(/^@gemini-cli/, '').trim(),
+              );
             } else {
               core.setOutput('command', 'fallthrough');
             }
 
       - name: 'Acknowledge request'
+        uses: 'actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea'
         env:
-          GITHUB_TOKEN: '${{ steps.mint_identity_token.outputs.token || secrets.GITHUB_TOKEN || github.token }}'
           ISSUE_NUMBER: '${{ github.event.pull_request.number || github.event.issue.number }}'
           MESSAGE: |-
-            🤖 Hi @${{ github.actor }}, I've received your request, and I'm working on it now! You can track my progress [in the logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for more details.
-          REPOSITORY: '${{ github.repository }}'
-        run: |-
-          gh issue comment "${ISSUE_NUMBER}" \
-            --body "${MESSAGE}" \
-            --repo "${REPOSITORY}"
+            🤖 Hi @${{ github.actor }}, I received your request. The workflow will retry transient Gemini failures and use the configured fallback model when needed. Track progress in [the run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+        with:
+          github-token: '${{ steps.mint_identity_token.outputs.token || secrets.GITHUB_TOKEN || github.token }}'
+          script: |-
+            const issueNumber = Number(process.env.ISSUE_NUMBER);
+            if (!Number.isInteger(issueNumber) || issueNumber < 1) {
+              core.setFailed(`Invalid issue or pull request number: ${process.env.ISSUE_NUMBER}`);
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: process.env.MESSAGE,
+            });
 
   review:
     needs: 'dispatch'
@@ -137,7 +162,10 @@ jobs:
       pull-requests: 'write'
     with:
       additional_context: '${{ needs.dispatch.outputs.additional_context }}'
-    secrets: 'inherit'
+    secrets:
+      APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'
+      GEMINI_API_KEY: '${{ secrets.GEMINI_API_KEY }}'
+      GOOGLE_API_KEY: '${{ secrets.GOOGLE_API_KEY }}'
 
   triage:
     needs: 'dispatch'
@@ -151,7 +179,10 @@ jobs:
       pull-requests: 'write'
     with:
       additional_context: '${{ needs.dispatch.outputs.additional_context }}'
-    secrets: 'inherit'
+    secrets:
+      APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'
+      GEMINI_API_KEY: '${{ secrets.GEMINI_API_KEY }}'
+      GOOGLE_API_KEY: '${{ secrets.GOOGLE_API_KEY }}'
 
   invoke:
     needs: 'dispatch'
@@ -165,7 +196,10 @@ jobs:
       pull-requests: 'write'
     with:
       additional_context: '${{ needs.dispatch.outputs.additional_context }}'
-    secrets: 'inherit'
+    secrets:
+      APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'
+      GEMINI_API_KEY: '${{ secrets.GEMINI_API_KEY }}'
+      GOOGLE_API_KEY: '${{ secrets.GOOGLE_API_KEY }}'
 
   plan-execute:
     needs: 'dispatch'
@@ -179,7 +213,10 @@ jobs:
       pull-requests: 'write'
     with:
       additional_context: '${{ needs.dispatch.outputs.additional_context }}'
-    secrets: 'inherit'
+    secrets:
+      APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'
+      GEMINI_API_KEY: '${{ secrets.GEMINI_API_KEY }}'
+      GOOGLE_API_KEY: '${{ secrets.GOOGLE_API_KEY }}'
 
   fallthrough:
     needs:
@@ -191,6 +228,7 @@ jobs:
     if: |-
       ${{ always() && !cancelled() && (failure() || needs.dispatch.outputs.command == 'fallthrough') }}
     runs-on: 'ubuntu-latest'
+    timeout-minutes: 10
     permissions:
       contents: 'read'
       issues: 'write'
@@ -200,7 +238,7 @@ jobs:
         id: 'mint_identity_token'
         if: |-
           ${{ vars.APP_ID }}
-        uses: 'actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf' # ratchet:actions/create-github-app-token@v2
+        uses: 'actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf'
         with:
           app-id: '${{ vars.APP_ID }}'
           private-key: '${{ secrets.APP_PRIVATE_KEY }}'
@@ -209,13 +247,22 @@ jobs:
           permission-pull-requests: 'write'
 
       - name: 'Send failure comment'
+        uses: 'actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea'
         env:
-          GITHUB_TOKEN: '${{ steps.mint_identity_token.outputs.token || secrets.GITHUB_TOKEN || github.token }}'
           ISSUE_NUMBER: '${{ github.event.pull_request.number || github.event.issue.number }}'
           MESSAGE: |-
-            🤖 I'm sorry @${{ github.actor }}, but I was unable to process your request. Please [see the logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for more details.
-          REPOSITORY: '${{ github.repository }}'
-        run: |-
-          gh issue comment "${ISSUE_NUMBER}" \
-            --body "${MESSAGE}" \
-            --repo "${REPOSITORY}"
+            🤖 I could not complete the request after the primary and fallback Gemini attempts. Please review [the run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for the exact provider or tooling error.
+        with:
+          github-token: '${{ steps.mint_identity_token.outputs.token || secrets.GITHUB_TOKEN || github.token }}'
+          script: |-
+            const issueNumber = Number(process.env.ISSUE_NUMBER);
+            if (!Number.isInteger(issueNumber) || issueNumber < 1) {
+              core.setFailed(`Invalid issue or pull request number: ${process.env.ISSUE_NUMBER}`);
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: process.env.MESSAGE,
+            });
