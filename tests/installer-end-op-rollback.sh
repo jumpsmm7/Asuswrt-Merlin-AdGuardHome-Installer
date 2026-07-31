@@ -80,6 +80,22 @@ end_op_message 2 >/dev/null 2>&1 && fail 'deferred interruption with attention r
 grep -q '^result=restore-failed$' "${ROLLBACK_RESULT_FILE}" || fail 'deferred interruption replaced rollback attention result'
 grep -q '^detail=previous installation remains at backup path$' "${ROLLBACK_RESULT_FILE}" || fail 'deferred interruption replaced rollback attention detail'
 
+for signal_mode in cli deferred; do
+	CLI_MODE="0"
+	ADGUARD_DEFER_END_OP="0"
+	[ "${signal_mode}" != "cli" ] || CLI_MODE="1"
+	[ "${signal_mode}" != "deferred" ] || ADGUARD_DEFER_END_OP="1"
+	rm -f "${TEST_ROOT}/unexpected-signal-return"
+	(
+		END_OP_SIGNAL="1"
+		end_op_message 2 >/dev/null 2>&1
+		printf '%s\n' returned >"${TEST_ROOT}/unexpected-signal-return"
+	)
+	status=$?
+	[ "${status}" -eq 2 ] || fail "${signal_mode} signal cleanup exited with status ${status} instead of 2"
+	[ ! -e "${TEST_ROOT}/unexpected-signal-return" ] || fail "${signal_mode} signal cleanup returned to the interrupted operation"
+done
+
 CLI_MODE="0"
 ADGUARD_DEFER_END_OP="0"
 ROLLBACK_RESULT_UPDATED="1"

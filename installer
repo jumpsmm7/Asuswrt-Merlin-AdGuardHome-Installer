@@ -3412,7 +3412,7 @@ blocklist_yaml_replace_abort_on_signal() {
 }
 
 blocklist_yaml_replace_trap_disable() {
-	trap 'clear_screen; end_op_message 2' HUP INT QUIT ABRT TERM
+	trap 'END_OP_SIGNAL=1; clear_screen; end_op_message 2' HUP INT QUIT ABRT TERM
 	BLOCKLIST_YAML_BACKUP_FILE=""
 	BLOCKLIST_YAML_REMOVED_FILE=""
 	BLOCKLIST_YAML_TMP_FILE=""
@@ -4422,6 +4422,7 @@ adguard_install_abort_trap_disable_preserve_defer() {
 }
 
 adguard_install_abort_on_signal() {
+	END_OP_SIGNAL=1
 	local MIGRATION_ROLLED_BACK=0 MIGRATION_ROLLBACK_STATUS=0 OLD_BINARY REPLACE_ACTIVE RESTORE_ACTIVE RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARGET_INSTALLED RESTORE_TARG_DIR STAGE_DIR WAS_RUNNING
 	OLD_BINARY="${ADGUARD_INSTALL_OLD_BINARY:-}"
 	REPLACE_ACTIVE="${ADGUARD_INSTALL_REPLACE_ACTIVE:-0}"
@@ -7231,6 +7232,12 @@ end_op_message() {
 		fi
 		return 1
 	}
+	# Signal traps must not return into an interrupted lock/recovery operation
+	# after releasing its reaper. CLI and deferred non-signal callers still use
+	# the normal status-specific return paths below.
+	if [ "${END_OP_SIGNAL:-0}" = "1" ] && [ "${1:-0}" = "2" ]; then
+		exit 2
+	fi
 	if [ "${CLI_MODE:-0}" = "1" ]; then
 		case "${1:-0}" in
 			0) return 0 ;;
@@ -7312,7 +7319,7 @@ menu() {
 			CHOSEN="$1"
 			;;
 	esac
-	[ -n "${CHOSEN}" ] && trap 'clear_screen; end_op_message 2' HUP INT QUIT ABRT TERM
+	[ -n "${CHOSEN}" ] && trap 'END_OP_SIGNAL=1; clear_screen; end_op_message 2' HUP INT QUIT ABRT TERM
 	case "${CHOSEN}" in
 		"1" | "install" | "update")
 			ptxt_phase "Selecting install or update operation."
