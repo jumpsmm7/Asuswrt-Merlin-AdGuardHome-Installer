@@ -405,6 +405,12 @@ nvram_transaction_lock_reaper_legacy_release() {
 	reaper_path="$1"
 	owner="$2"
 	if [ ! -e "${reaper_path}" ]; then
+		# A returning signal trap may have completed this release and cleared
+		# the tracked state while the interrupted release was still running.
+		if [ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] &&
+			[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ]; then
+			return 0
+		fi
 		[ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" = "${reaper_path}" ] || return 1
 		if [ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "legacy" ]; then
 			NVRAM_TRANSACTION_REAPER_LOCK_MODE=""

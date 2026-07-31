@@ -637,6 +637,26 @@ for reentrant_mode in symlink mkdir; do
 done
 
 (
+	# A returning signal trap can finish cleanup before an interrupted outer
+	# legacy release resumes. The already-absent, fully cleared lock is success.
+	reaper_path="${BASE_DIR}/.AdGuardHome.nvram.nested-release-reaper"
+	NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+	NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+	nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'legacy reaper release was not idempotent after nested cleanup'
+
+	# Cleared state must not make an existing or differently tracked lock safe.
+	mkdir "${reaper_path}" || fail 'could not prepare unowned legacy reaper'
+	printf '%s\n' 'replacement-owner' >"${reaper_path}/pid" || fail 'could not publish replacement reaper owner'
+	if nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${LOCK_OWNER}"; then
+		fail 'idempotent legacy release removed a replacement owner'
+	fi
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = 'replacement-owner' ] ||
+		fail 'idempotent legacy release changed a replacement owner'
+	rm -rf "${reaper_path}"
+) || exit 1
+
+(
 	reaper_path="${BASE_DIR}/.AdGuardHome.nvram.unsupported-symlink-reaper"
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	# ln simulates a filesystem that supports readlink but rejects symlink creation.
