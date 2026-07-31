@@ -255,7 +255,13 @@ nvram_transaction_recover_pending || fail 'startup recovery did not process the 
 [ "$(nvram get lan_domain)" = '' ] || fail 'startup recovery did not restore the pending LAN domain transaction'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'startup recovery retained the restored LAN domain snapshot'
 [ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'startup recovery retained the NVRAM transaction lock'
-[ "$(sed -n '/^trap '\''on_installer_exit'\'' EXIT$/,/^if \[ -n "${BLOCKLIST_ANALYZER_SHA256}" \]; then$/p' "${INSTALLER_PATH}" | grep -c '^if ! nvram_transaction_recover_pending; then$')" -eq 1 ] || fail 'installer startup does not recover pending NVRAM transactions before dispatch'
+recovery_line="$(grep -n '^if ! nvram_transaction_recover_pending; then$' "${INSTALLER_PATH}" | cut -d: -f1)"
+[ -n "${recovery_line}" ] || fail 'installer startup does not invoke pending NVRAM recovery'
+for dispatch_pattern in '^if \[ "${1:-}" = "preflight" \]; then$' '^if \[ "${1:-}" = "doctor" \]; then$' '^if \[ "${1:-}" = "status" \]; then$' '^if \[ "${2:-}" = "status" \]; then$' '^if \[ "${2:-}" = "doctor" \]; then$'; do
+	dispatch_line="$(grep -n "${dispatch_pattern}" "${INSTALLER_PATH}" | cut -d: -f1)"
+	[ -n "${dispatch_line}" ] || fail "installer startup dispatch pattern is missing: ${dispatch_pattern}"
+	[ "${recovery_line}" -lt "${dispatch_line}" ] || fail "pending NVRAM recovery runs after early dispatch: ${dispatch_pattern}"
+done
 
 reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable || fail 'independent startup recovery snapshot failed'

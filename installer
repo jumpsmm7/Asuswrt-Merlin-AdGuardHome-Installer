@@ -1663,6 +1663,17 @@ installer_dependencies_available() {
 	return 0
 }
 
+nvram_transaction_recovery_dependencies_available() {
+	local required_command
+	for required_command in awk cat chmod kill ln mkdir nvram rm sed service; do
+		if ! ai_have_cmd "${required_command}"; then
+			PTXT "${ERROR} Required NVRAM recovery command is unavailable: ${required_command}" >&2
+			return 1
+		fi
+	done
+	return 0
+}
+
 preflight_action_requires_entware() {
 	case "${1:-install}" in
 		status | preflight)
@@ -8343,6 +8354,13 @@ cli_run() {
 	esac
 }
 
+nvram_transaction_recovery_dependencies_available || exit 1
+trap 'on_installer_exit' EXIT
+if ! nvram_transaction_recover_pending; then
+	PTXT "${ERROR} Unable to recover an interrupted installer-managed NVRAM transaction; review ${ROLLBACK_RESULT_FILE} and the preserved snapshot."
+	exit 1
+fi
+
 if [ "${1:-}" = "preflight" ]; then
 	preflight "${2:-install}"
 	exit "$?"
@@ -8413,11 +8431,6 @@ fi
 amtm_update_check "$@"
 
 installer_dependencies_available || exit 1
-trap 'on_installer_exit' EXIT
-if ! nvram_transaction_recover_pending; then
-	PTXT "${ERROR} Unable to recover an interrupted installer-managed NVRAM transaction; review ${ROLLBACK_RESULT_FILE} and the preserved snapshot."
-	exit 1
-fi
 if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
 	BLOCKLIST_ANALYZER_SHA256="$(conf_value BLOCKLIST_ANALYZER_SHA256)"
 else
