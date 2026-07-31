@@ -472,7 +472,13 @@ nvram_transaction_lock_reaper_acquire() {
 		fi
 		return 1
 	}
-	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || return 1
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || {
+		if [ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" = "${reaper_path}" ]; then
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+			NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+		fi
+		return 1
+	}
 	if nvram_transaction_lock_flock_supports_fd; then
 		[ ! -L "${reaper_path}.lock" ] || {
 			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"

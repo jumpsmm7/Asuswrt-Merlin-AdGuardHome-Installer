@@ -314,6 +314,24 @@ reaper_path="${BASE_DIR}/failed-owner-publication.reaper"
 
 reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/changed-owner-publication.reaper"
+(
+	# Simulate ownership changing or becoming unreadable during the
+	# post-publication revalidation without deleting the preserved artifact.
+	cat() { printf '%s\n' 'replacement-owner'; }
+	if nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"; then
+		exit 1
+	else
+		acquire_status="$?"
+		[ "${acquire_status}" -eq 1 ] || exit 1
+	fi
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || exit 1
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || exit 1
+	[ -f "${reaper_path}/pid" ] || exit 1
+) || fail 'changed reaper owner publication retained active cleanup state or removed recovery evidence'
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
 reaper_path="${BASE_DIR}/interrupted-symlink-publication.reaper"
 BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" reaper_path="${reaper_path}" sh -c '
 	. "${FUNCTIONS_FILE}"
