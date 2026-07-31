@@ -193,17 +193,17 @@ nvram_transaction_finalize_setup_pair() {
 	# transaction may be restored even if interruption splits this cleanup.
 	rm -f "${snapshot_root}/lan-domain/dirty" "${snapshot_root}/dnsfilter/dirty" 2>/dev/null || true
 	rm -rf "${snapshot_root}/lan-domain" "${snapshot_root}/dnsfilter" 2>/dev/null || true
-	if [ ! -e "${snapshot_root}/lan-domain" ] && [ ! -L "${snapshot_root}/lan-domain" ] &&
-		[ ! -e "${snapshot_root}/dnsfilter" ] && [ ! -L "${snapshot_root}/dnsfilter" ]; then
-		if ! rm -f "${marker}" 2>/dev/null || [ -e "${marker}" ] || [ -L "${marker}" ]; then
-			[ "${mode}" != "recovery" ] || return 1
-		fi
+	if [ -e "${snapshot_root}/lan-domain" ] || [ -L "${snapshot_root}/lan-domain" ] ||
+		[ -e "${snapshot_root}/dnsfilter" ] || [ -L "${snapshot_root}/dnsfilter" ]; then
+		[ "${mode}" != "recovery" ] || return 1
+	elif ! rm -f "${marker}" 2>/dev/null || [ -e "${marker}" ] || [ -L "${marker}" ]; then
+		[ "${mode}" != "recovery" ] || return 1
 	fi
 	return 0
 }
 
 nvram_transaction_recover_pending() {
-	local failed service_action snapshot_dir snapshot_root transaction
+	local failed paired_committed service_action snapshot_dir snapshot_root transaction
 	snapshot_root="${BASE_DIR}/.AdGuardHome.nvram"
 	[ ! -L "${snapshot_root}" ] || return 1
 	if [ ! -f "${snapshot_root}/setup-committed" ] &&
@@ -214,8 +214,13 @@ nvram_transaction_recover_pending() {
 	fi
 	nvram_transaction_lock_acquire || return 1
 	failed="0"
+	paired_committed="0"
+	[ ! -f "${snapshot_root}/setup-committed" ] || paired_committed="1"
 	nvram_transaction_finalize_setup_pair recovery || failed="1"
 	for transaction in lan-domain dnsfilter dns-preparation; do
+		case "${paired_committed}:${transaction}" in
+			1:lan-domain | 1:dnsfilter) continue ;;
+		esac
 		snapshot_dir="${snapshot_root}/${transaction}"
 		[ ! -L "${snapshot_dir}" ] || {
 			failed="1"

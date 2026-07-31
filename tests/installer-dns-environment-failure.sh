@@ -171,6 +171,11 @@ rm() {
 	if [ "${FAIL_SNAPSHOT_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${NVRAM_TRANSACTION_DIR:-}" ]; then
 		return 1
 	fi
+	if [ "${FAIL_PAIRED_SNAPSHOT_REMOVE:-0}" = 1 ] && [ "$#" -eq 3 ]; then
+		case "${1:-}:${2:-}:${3:-}" in
+			"-f:${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty:${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" | "-rf:${BASE_DIR}/.AdGuardHome.nvram/lan-domain:${BASE_DIR}/.AdGuardHome.nvram/dnsfilter") return 1 ;;
+		esac
+	fi
 	if [ "$#" -eq 2 ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ]; then
 		LOCK_REMOVE_COUNT="$((LOCK_REMOVE_COUNT + 1))"
 		[ "${FAIL_LOCK_REMOVE_AT:-0}" != "${LOCK_REMOVE_COUNT}" ] || return 1
@@ -197,7 +202,7 @@ dns_check_count() { grep -c '^nslookup ' "${CALLS_FILE}"; }
 
 # reset_case restores the simulated test environment, counters, fault-injection settings, and NVRAM contents to their baseline state.
 reset_case() {
-	FAIL_LOCK_REMOVE_AT=0 FAIL_SETUP_MARKER_REMOVE=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0
+	FAIL_LOCK_REMOVE_AT=0 FAIL_SETUP_MARKER_REMOVE=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0 FAIL_PAIRED_SNAPSHOT_REMOVE=0
 	LOCK_REMOVE_COUNT=0
 	nvram_transaction_lock_release || fail 'could not release the previous test transaction lock'
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
@@ -281,6 +286,31 @@ nvram_transaction_begin dnsfilter dnsfilter_enable_x || fail 'paired transaction
 [ ! -f "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" ] || fail 'paired transaction recovery treated committed DNSFilter state as rollback state'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'paired transaction recovery retained its completion marker after cleanup'
 [ "${COMMIT_COUNT}" -eq 0 ] || fail 'paired transaction recovery rolled back committed NVRAM state'
+
+reset_case
+nvram_transaction_begin lan-domain lan_domain || fail 'committed cleanup LAN-domain snapshot failed'
+nvram_transaction_set lan_domain committed.example || fail 'committed cleanup LAN-domain staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'committed cleanup LAN-domain apply failed'
+nvram_transaction_begin dnsfilter dnsfilter_enable_x || fail 'committed cleanup DNSFilter snapshot failed'
+nvram_transaction_set dnsfilter_enable_x 1 || fail 'committed cleanup DNSFilter staging failed'
+nvram_transaction_apply 'restart_firewall;restart_dnsmasq' 1 || fail 'committed cleanup DNSFilter apply failed'
+FAIL_PAIRED_SNAPSHOT_REMOVE=1
+nvram_transaction_finalize_setup_pair || fail 'paired commit failed when only snapshot cleanup was unavailable'
+nvram_transaction_lock_release || fail 'committed cleanup could not simulate the interrupted owner exiting'
+NVRAM_TRANSACTION_LOCK_MODE=''
+NVRAM_TRANSACTION_DIR=''
+NVRAM_TRANSACTION_CHANGED=0
+commit_count_before_recovery="${COMMIT_COUNT}"
+if nvram_transaction_recover_pending; then
+	fail 'incomplete committed snapshot cleanup was reported as complete'
+fi
+[ "$(nvram get lan_domain)" = committed.example ] || fail 'startup recovery rolled back the committed LAN domain'
+[ "$(nvram get dnsfilter_enable_x)" = 1 ] || fail 'startup recovery rolled back the committed DNSFilter setting'
+[ "${COMMIT_COUNT}" -eq "${commit_count_before_recovery}" ] || fail 'startup recovery committed a rollback for committed setup snapshots'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'incomplete committed cleanup lost its completion marker'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" ] || fail 'committed LAN-domain cleanup evidence was unexpectedly altered'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" ] || fail 'committed DNSFilter cleanup evidence was unexpectedly altered'
+[ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'incomplete committed cleanup retained the NVRAM transaction lock'
 
 reset_case
 mkdir -p "${BASE_DIR}/.AdGuardHome.nvram" || fail 'could not create the paired transaction root'
