@@ -355,6 +355,24 @@ reaper_path="${BASE_DIR}/returning-signal-symlink-publication.reaper"
 
 reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/returning-signal-failed-symlink-publication.reaper"
+(
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	ln() {
+		nvram_transaction_lock_reaper_release_active || return 1
+		return 1
+	}
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "returning signal cleanup after failed symlink publication returned ${status} instead of 1"
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || fail 'failed symlink publication reported an unowned mkdir reaper'
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || fail 'failed symlink publication retained its released reaper path'
+	[ ! -e "${reaper_path}" ] || fail 'failed symlink publication retained the released legacy reaper directory'
+	[ ! -L "${reaper_path}.symlink" ] || fail 'failed symlink publication unexpectedly created a symlink marker'
+) || exit 1
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
 reaper_path="${BASE_DIR}/interrupted-stale-symlink-reclaim.reaper"
 ln -s 999999999 "${reaper_path}.symlink" || fail 'could not prepare stale reaper symlink'
 BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" reaper_path="${reaper_path}" sh -c '

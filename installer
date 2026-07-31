@@ -521,7 +521,10 @@ nvram_transaction_lock_reaper_acquire() {
 			fi
 			return 1
 		fi
-		NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
+		if [ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "symlink" ] &&
+			[ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" = "${reaper_path}" ]; then
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
+		fi
 		reaper_owner="$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)"
 		if [ -n "${reaper_owner}" ] && ! nvram_transaction_lock_owner_live "${reaper_owner}" &&
 			[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${reaper_owner}" ]; then
@@ -568,7 +571,15 @@ nvram_transaction_lock_reaper_acquire() {
 			return 1
 		}
 	fi
-	NVRAM_TRANSACTION_REAPER_LOCK_MODE="mkdir"
+	# A returning signal trap may have released the legacy mutex after a failed
+	# symlink publication. Revalidate it before selecting the mkdir fallback.
+	if [ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "legacy" ] &&
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" = "${reaper_path}" ] &&
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ]; then
+		NVRAM_TRANSACTION_REAPER_LOCK_MODE="mkdir"
+		return 0
+	fi
+	return 1
 }
 
 nvram_transaction_lock_reaper_release() {
