@@ -40,6 +40,7 @@ INFO='Info:'
 ERROR='Error:'
 WARNING='Warning:'
 TMP_ROOT="${TMPDIR:-/tmp}/installer-web-port-failure.$$"
+BASE_DIR="${TMP_ROOT}/base"
 TARG_DIR="${TMP_ROOT}/target"
 AGH_FILE="${TARG_DIR}/AdGuardHome"
 YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
@@ -61,9 +62,23 @@ cleanup() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
+# ptxt_ok is a no-op text helper used by the test harness.
 ptxt_ok() { :; }
+# PTXT is a no-op text output helper.
 PTXT() { :; }
-# read_input_port sets WEB_PORT from SELECTED_WEB_PORT and returns the configured input status.
+# rm removes files and can simulate cleanup failures for configured LAN-domain or DNS-filter snapshot markers.
+rm() {
+	if [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
+		[ "$*" = "-f ${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" ]; then
+		return 1
+	fi
+	if [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
+		[ "$*" = "-f ${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" ]; then
+		return 1
+	fi
+	command rm "$@"
+}
+# read_input_port sets WEB_PORT to the selected WebUI port and returns the configured input status.
 read_input_port() {
 	WEB_PORT="${SELECTED_WEB_PORT:-3000}"
 	return "${READ_INPUT_PORT_STATUS:-1}"
@@ -91,30 +106,76 @@ yaml_nvars_replace() {
 	printf '%s\n' "$*" >>"${WRITE_LOG}"
 }
 YAML_CHECKS=0
+# check_AdGuardHome_yaml increments the YAML validation check counter.
 check_AdGuardHome_yaml() {
 	YAML_CHECKS="$((YAML_CHECKS + 1))"
 }
 DNS_FILTER_CHANGED=0
 DNS_FILTER_RESTORES=0
+LAN_DOMAIN_RESTORES=0
+SETUP_FILE_JOURNALS=0
+# save_dns_filter_settings creates a DNS filter rollback snapshot in the specified directory.
 save_dns_filter_settings() {
 	mkdir -p "$1"
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
 }
+# installer_lan_domain_set saves the current LAN domain and sets a new value, returning failure when persistence is configured to fail.
+installer_lan_domain_set() {
+	[ "${FAIL_LAN_DOMAIN_SET:-0}" -eq 0 ] || return 1
+	TEST_LAN_DOMAIN_ROLLBACK="${LAN_DOMAIN:-}"
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
+	: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty"
+	nvram set "lan_domain=$1"
+}
+# installer_lan_domain_restore restores the prior LAN domain, records the restoration, and removes its transaction state.
+installer_lan_domain_restore() {
+	LAN_DOMAIN_RESTORES="$((LAN_DOMAIN_RESTORES + 1))"
+	LAN_DOMAIN="${TEST_LAN_DOMAIN_ROLLBACK:-}"
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
+}
+# restore_dns_filter_settings restores DNS filter settings, clears the change marker, and removes the temporary and snapshot directories.
 restore_dns_filter_settings() {
+	[ -d "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || return 0
 	DNS_FILTER_RESTORES="$((DNS_FILTER_RESTORES + 1))"
 	DNS_FILTER_CHANGED=0
 	rm -rf "$1"
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
 }
+# nvram_transaction_finalize_setup_pair publishes the setup commit marker and removes transaction snapshots when cleanup succeeds; returns failure if commit publication is disabled.
+nvram_transaction_finalize_setup_pair() {
+	[ "${FAIL_SETUP_COMMIT_MARKER:-0}" -eq 0 ] || return 1
+	: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
+	if [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] || [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ]; then
+		return 0
+	fi
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+}
+# nvram_transaction_setup_files_begin records that setup file publication joined the transaction.
+nvram_transaction_setup_files_begin() {
+	SETUP_FILE_JOURNALS="$((SETUP_FILE_JOURNALS + 1))"
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+}
+# check_dns_filter marks DNS filter settings as changed and fails when configured to simulate an update failure.
 check_dns_filter() {
+	[ ! -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || DNS_FILTER_SAW_SETUP_JOURNAL=1
 	DNS_FILTER_CHANGED=1
+	if [ "${FAIL_CHECK_DNS_FILTER:-0}" -eq 1 ]; then
+		: >"${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty"
+		return 1
+	fi
 }
+# check_dns_local appends a changed local DNS setting to the installer configuration.
 check_dns_local() {
 	printf '%s\n' 'ADGUARD_LOCAL="CHANGED"' >>"${CONF_FILE}"
 }
+# check_ipset appends the changed IP set setting to the installer configuration file.
 check_ipset() {
 	printf '%s\n' 'ADGUARD_IPSET="CHANGED"' >>"${CONF_FILE}"
 }
+# read_yesno indicates a negative response.
 read_yesno() { return 1; }
 AdGuardHome_authen() { :; }
+# read_input_dns sets the first or second bootstrap DNS server based on whether the first server is already configured.
 read_input_dns() {
 	if [ -z "${BOOTSTRAP1:-}" ]; then
 		BOOTSTRAP1=9.9.9.9
@@ -122,13 +183,15 @@ read_input_dns() {
 		BOOTSTRAP2=8.8.8.8
 	fi
 }
+# ai_have_cmd indicates that the requested command is unavailable.
 ai_have_cmd() { return 1; }
+# nvram mocks NVRAM reads and writes used by installer tests.
 nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '1' ;;
 		get:lan_ipaddr) printf '%s\n' '192.168.1.1' ;;
 		get:lan_domain) printf '%s\n' "${LAN_DOMAIN:-}" ;;
-		set)
+		set:*)
 			LAN_DOMAIN="${2#lan_domain=}"
 			;;
 	esac
@@ -210,15 +273,36 @@ fi
 [ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'reconfiguration did not restore the previous YAML after port selection failed'
 [ ! -e "${YAML_BAK}" ] || fail 'reconfiguration left the YAML backup behind after port selection failed'
 
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
 printf '%s\n' 'working configuration' >"${YAML_FILE}"
 printf '%s\n' 'original configuration' >"${YAML_ORI}"
 printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
-LAN_DOMAIN=
+SETUP_FILE_JOURNALS=0
+DNS_FILTER_SAW_SETUP_JOURNAL=0
+DNS_FILTER_CHANGED=0
+read_input_num() {
+	CHOSEN=1
+}
+if ! setup_AdGuardHome_impl reconfig reconfig; then
+	fail 'existing-YAML DNSFilter reconfiguration failed'
+fi
+[ "${SETUP_FILE_JOURNALS}" -eq 1 ] || fail 'existing-YAML DNSFilter reconfiguration did not initialize the setup file journal'
+[ "${DNS_FILTER_SAW_SETUP_JOURNAL}" -eq 1 ] || fail 'existing-YAML DNSFilter reconfiguration applied NVRAM before initializing the setup file journal'
+read_input_num() {
+	CHOSEN=3
+}
+
+printf '%s\n' 'working configuration' >"${YAML_FILE}"
+printf '%s\n' 'original configuration' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+LAN_DOMAIN='before-web-port-failure.test'
 : >"${WRITE_LOG}"
 YAML_CHECKS=0
 FAIL_WRITE_CONF=1
 DNS_FILTER_CHANGED=0
 DNS_FILTER_RESTORES=0
+LAN_DOMAIN_RESTORES=0
+# read_input_port sets the selected WebUI port to 3000 and succeeds.
 read_input_port() {
 	WEB_PORT=3000
 	return 0
@@ -232,7 +316,112 @@ grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail 'reconfiguration did not a
 [ ! -e "${YAML_BAK}" ] || fail 'reconfiguration left the YAML backup behind after WebUI port persistence failed'
 [ "${DNS_FILTER_CHANGED}" -eq 0 ] || fail 'reconfiguration left changed DNSFilter settings after WebUI port persistence failed'
 [ "${DNS_FILTER_RESTORES}" -eq 1 ] || fail 'reconfiguration did not restore DNSFilter settings after WebUI port persistence failed'
+[ "${LAN_DOMAIN_RESTORES}" -eq 1 ] || fail 'reconfiguration did not restore LAN domain after WebUI port persistence failed'
 [ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'reconfiguration did not restore installer preferences after WebUI port persistence failed'
-[ -z "${LAN_DOMAIN}" ] || fail 'reconfiguration did not restore the router LAN domain after WebUI port persistence failed'
+[ "${LAN_DOMAIN}" = 'before-web-port-failure.test' ] || fail 'reconfiguration did not restore the prior router LAN domain after WebUI port persistence failed'
+
+printf '%s\n' 'working configuration' >"${YAML_FILE}"
+printf '%s\n' 'original configuration' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+LAN_DOMAIN='before-persistence-failure.test'
+: >"${WRITE_LOG}"
+YAML_CHECKS=0
+FAIL_WRITE_CONF=0
+FAIL_LAN_DOMAIN_SET=1
+DNS_FILTER_CHANGED=0
+if setup_AdGuardHome_impl reconfig reconfig; then
+	fail 'reconfiguration continued after LAN domain persistence failed'
+fi
+[ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'reconfiguration did not restore the previous YAML after LAN domain persistence failed'
+[ ! -e "${YAML_BAK}" ] || fail 'reconfiguration left the YAML backup behind after LAN domain persistence failed'
+[ ! -e "${YAML_ORI}.new.$$" ] || fail 'reconfiguration left staged YAML behind after LAN domain persistence failed'
+[ "${DNS_FILTER_CHANGED}" -eq 0 ] || fail 'reconfiguration changed DNSFilter settings after LAN domain persistence failed'
+[ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'reconfiguration did not restore installer preferences after LAN domain persistence failed'
+[ "${LAN_DOMAIN}" = 'before-persistence-failure.test' ] || fail 'reconfiguration changed the prior router LAN domain after LAN domain persistence failed'
+
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
+printf '%s\n' 'working configuration' >"${YAML_FILE}"
+printf '%s\n' 'original configuration' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+LAN_DOMAIN='before-dnsfilter-cleanup-failure.test'
+: >"${WRITE_LOG}"
+FAIL_LAN_DOMAIN_SET=0
+FAIL_DNS_FILTER_SNAPSHOT_CLEANUP=1
+DNS_FILTER_CHANGED=0
+DNS_FILTER_RESTORES=0
+LAN_DOMAIN_RESTORES=0
+if ! setup_AdGuardHome_impl reconfig reconfig; then
+	fail 'reconfiguration failed after best-effort DNSFilter snapshot cleanup failed'
+fi
+[ "${DNS_FILTER_RESTORES}" -eq 0 ] || fail 'DNSFilter snapshot cleanup failure rolled back committed DNSFilter settings'
+[ "${LAN_DOMAIN_RESTORES}" -eq 0 ] || fail 'DNSFilter snapshot cleanup failure rolled back the committed LAN domain'
+[ "${DNS_FILTER_CHANGED}" -eq 1 ] || fail 'DNSFilter snapshot cleanup failure did not retain committed DNSFilter settings'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'DNSFilter snapshot cleanup failure did not publish the setup commit marker'
+[ -d "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'DNSFilter snapshot cleanup failure did not preserve the LAN-domain snapshot directory'
+[ -d "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'DNSFilter snapshot cleanup failure did not preserve the DNSFilter snapshot directory'
+
+FAIL_DNS_FILTER_SNAPSHOT_CLEANUP=0
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
+printf '%s\n' 'working configuration' >"${YAML_FILE}"
+printf '%s\n' 'original configuration' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+LAN_DOMAIN='before-lan-cleanup-failure.test'
+: >"${WRITE_LOG}"
+FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP=1
+DNS_FILTER_CHANGED=0
+DNS_FILTER_RESTORES=0
+LAN_DOMAIN_RESTORES=0
+if ! setup_AdGuardHome_impl reconfig reconfig; then
+	fail 'reconfiguration failed after best-effort LAN-domain snapshot cleanup failed'
+fi
+[ "${DNS_FILTER_RESTORES}" -eq 0 ] || fail 'LAN-domain snapshot cleanup failure rolled back committed DNSFilter settings'
+[ "${LAN_DOMAIN_RESTORES}" -eq 0 ] || fail 'LAN-domain snapshot cleanup failure rolled back the committed LAN domain'
+[ "${DNS_FILTER_CHANGED}" -eq 1 ] || fail 'LAN-domain snapshot cleanup failure did not retain committed DNSFilter settings'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'LAN-domain snapshot cleanup failure did not publish the setup commit marker'
+[ -d "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'LAN-domain snapshot cleanup failure did not preserve the LAN-domain snapshot directory'
+[ -d "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'LAN-domain snapshot cleanup failure did not preserve the DNSFilter snapshot directory'
+
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
+printf '%s\n' 'working configuration' >"${YAML_FILE}"
+printf '%s\n' 'original configuration' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+LAN_DOMAIN='before-marker-failure.test'
+: >"${WRITE_LOG}"
+FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP=0
+FAIL_SETUP_COMMIT_MARKER=1
+DNS_FILTER_CHANGED=0
+DNS_FILTER_RESTORES=0
+LAN_DOMAIN_RESTORES=0
+if setup_AdGuardHome_impl reconfig reconfig; then
+	fail 'reconfiguration ignored setup commit marker publication failure'
+fi
+[ "${DNS_FILTER_RESTORES}" -eq 1 ] || fail 'setup commit marker failure did not restore DNSFilter settings'
+[ "${LAN_DOMAIN_RESTORES}" -eq 1 ] || fail 'setup commit marker failure did not restore the LAN domain'
+[ "${DNS_FILTER_CHANGED}" -eq 0 ] || fail 'setup commit marker failure left changed DNSFilter settings'
+[ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'setup commit marker failure did not restore the previous YAML'
+[ "$(cat "${CONF_FILE}")" = "$(printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"')" ] || fail 'setup commit marker failure did not restore installer preferences'
+[ "${LAN_DOMAIN}" = 'before-marker-failure.test' ] || fail 'setup commit marker failure did not restore the prior router LAN domain'
+[ "$(cat "${YAML_ORI}")" = 'original configuration' ] || fail 'setup commit marker failure did not restore the previous original YAML snapshot'
+[ ! -e "${YAML_ORI}.rollback.$$" ] || fail 'setup commit marker failure retained the original YAML rollback artifact'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'setup commit marker failure published the completion marker'
+
+printf '%s\n' 'working configuration' >"${YAML_FILE}"
+printf '%s\n' 'original configuration' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+LAN_DOMAIN='before-dnsfilter-apply-failure.test'
+: >"${WRITE_LOG}"
+FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP=0
+FAIL_SETUP_COMMIT_MARKER=0
+FAIL_CHECK_DNS_FILTER=1
+DNS_FILTER_CHANGED=0
+DNS_FILTER_RESTORES=0
+LAN_DOMAIN_RESTORES=0
+if setup_AdGuardHome_impl reconfig reconfig; then
+	fail 'reconfiguration ignored DNSFilter transaction failure'
+fi
+[ "${DNS_FILTER_RESTORES}" -eq 1 ] || fail 'DNSFilter transaction failure did not restore its snapshot'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'DNSFilter transaction failure retained a successfully restored snapshot'
+[ "${LAN_DOMAIN_RESTORES}" -eq 1 ] || fail 'DNSFilter transaction failure did not restore the LAN domain'
+[ "${LAN_DOMAIN}" = 'before-dnsfilter-apply-failure.test' ] || fail 'DNSFilter transaction failure did not restore the prior router LAN domain'
 
 printf '%s\n' 'PASS: failed WebUI port verification or persistence aborts setup safely'

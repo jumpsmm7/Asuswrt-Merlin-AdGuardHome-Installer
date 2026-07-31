@@ -115,10 +115,12 @@ run_check 'Installer legacy hook cleanup regression' sh tests/installer-legacy-h
 run_check 'Installer event-script mode regression' sh tests/installer-event-script-modes.sh
 run_check 'Installer upgrade runtime-default ordering regression' sh tests/installer-upgrade-runtime-defaults.sh
 run_check 'Installer post-replacement restart regression' sh tests/installer-post-replace-restart.sh
+run_check 'Installer update re-exec lock regression' sh tests/installer-update-reexec-lock.sh
 run_check 'Installer interruption restart regression' sh tests/installer-interruption-restart.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
 run_check 'Installer single-argument action regression' sh tests/installer-single-arg-actions.sh
 run_check 'Installer preflight action regression' sh tests/installer-preflight-actions.sh
+run_check 'Installer JFFS failure propagation regression' sh tests/installer-jffs-failure.sh
 run_check 'Installer install-mode detection regression' sh tests/installer-install-mode-detection.sh
 run_check 'Installer CLI LAN-mode regression' sh tests/installer-cli-lan-mode.sh
 run_check 'Installer CLI IPSET dry-run regression' sh tests/installer-cli-ipset-dry-run.sh
@@ -137,6 +139,7 @@ run_check 'Installer staged YAML validation regression' sh tests/installer-stage
 run_check 'Installer startup readiness regression' sh tests/installer-startup-readiness.sh
 run_check 'Installer DNS environment failure regression' sh tests/installer-dns-environment-failure.sh
 run_check 'Installer service status wait regression' sh tests/installer-service-status-after-action.sh
+run_check 'Installer service lock descriptor regression' sh tests/installer-service-lock-fd.sh
 run_check 'Installer mandatory numeric input failure regression' sh tests/installer-mandatory-number-failure.sh
 run_check 'Installer DNS input failure regression' sh tests/installer-dns-input-failure.sh
 run_check 'Installer WebUI port failure regression' sh tests/installer-web-port-failure.sh

@@ -5,6 +5,7 @@ set -u
 
 SCRIPT_PATH="${1:-installer}"
 TMP_ROOT="${TMPDIR:-/tmp}/installer-lan-startup-generation.$$"
+BASE_DIR="${TMP_ROOT}/base"
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 
 # cleanup removes the temporary test workspace.
@@ -84,7 +85,14 @@ AdGuardHome_authen() {
 check_AdGuardHome_yaml() { :; }
 # save_dns_filter_settings creates the directory used to preserve DNS filter settings.
 save_dns_filter_settings() { mkdir -p "$1"; }
-# restore_dns_filter_settings removes the specified DNS filter settings directory and its contents.
+# installer_lan_domain_set stores the specified LAN domain in NVRAM.
+installer_lan_domain_set() { nvram set "lan_domain=$1"; }
+# installer_lan_domain_restore restores the configured LAN domain.
+installer_lan_domain_restore() { :; }
+# nvram_transaction_finalize_setup_pair completes the simulated NVRAM setup transaction successfully.
+nvram_transaction_finalize_setup_pair() { return 0; }
+nvram_transaction_setup_files_begin() { return 0; }
+# restore_dns_filter_settings removes the specified directory and all of its contents.
 restore_dns_filter_settings() { rm -rf "$1"; }
 # check_dns_filter is a no-op test stub for DNS filter checks.
 check_dns_filter() { :; }
