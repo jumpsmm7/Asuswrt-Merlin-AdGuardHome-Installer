@@ -136,13 +136,16 @@ grep -q 'Unable to release the installer NVRAM transaction reaper' "${TEST_ROOT}
 
 CLI_MODE="0"
 ADGUARD_DEFER_END_OP="0"
-(
-	end_op_message 2 >"${TEST_ROOT}/signal-reaper-output" 2>&1
-	printf '%s\n' returned >"${TEST_ROOT}/unexpected-signal-return"
-)
-status=$?
-[ "${status}" -eq 1 ] || fail "signal-time reaper-release failure exited with status ${status} instead of 1"
-[ ! -e "${TEST_ROOT}/unexpected-signal-return" ] || fail 'signal-time reaper-release failure returned to the interrupted operation'
-grep -q 'Unable to release the installer NVRAM transaction reaper' "${TEST_ROOT}/signal-reaper-output" || fail 'signal-time reaper-release failure was not reported'
+for end_status in 0 1 2; do
+	rm -f "${TEST_ROOT}/unexpected-interactive-return"
+	(
+		end_op_message "${end_status}" >"${TEST_ROOT}/interactive-reaper-output.${end_status}" 2>&1
+		printf '%s\n' returned >"${TEST_ROOT}/unexpected-interactive-return"
+	)
+	status=$?
+	[ "${status}" -eq 1 ] || fail "interactive reaper-release failure for status ${end_status} exited with status ${status} instead of 1"
+	[ ! -e "${TEST_ROOT}/unexpected-interactive-return" ] || fail "interactive reaper-release failure for status ${end_status} returned to its caller"
+	grep -q 'Unable to release the installer NVRAM transaction reaper' "${TEST_ROOT}/interactive-reaper-output.${end_status}" || fail "interactive reaper-release failure for status ${end_status} was not reported"
+done
 
 printf '%s\n' 'PASS: end_op_message preserves rollback results and releases reapers before every return'

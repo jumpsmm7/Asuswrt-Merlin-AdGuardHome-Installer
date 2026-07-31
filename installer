@@ -7214,7 +7214,7 @@ end_op_message() {
 	esac
 	nvram_transaction_lock_reaper_release_active || {
 		PTXT "${ERROR} Unable to release the installer NVRAM transaction reaper before completing the operation."
-		if [ "${1:-0}" = "2" ] && [ "${CLI_MODE:-0}" != "1" ] && [ "${ADGUARD_DEFER_END_OP:-0}" != "1" ]; then
+		if [ "${CLI_MODE:-0}" != "1" ] && [ "${ADGUARD_DEFER_END_OP:-0}" != "1" ]; then
 			exit 1
 		fi
 		return 1
