@@ -203,7 +203,9 @@ nvram_transaction_finalize_setup_pair() {
 }
 
 nvram_transaction_recover_pending() {
-	local failed paired_committed service_action snapshot_dir snapshot_root transaction
+	local failed paired_committed safe_failure service_action snapshot_dir snapshot_root transaction
+	NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE="0"
+	export NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE
 	snapshot_root="${BASE_DIR}/.AdGuardHome.nvram"
 	[ ! -L "${snapshot_root}" ] || return 1
 	if [ ! -f "${snapshot_root}/setup-committed" ] &&
@@ -215,9 +217,13 @@ nvram_transaction_recover_pending() {
 	fi
 	nvram_transaction_lock_acquire || return 1
 	failed="0"
+	safe_failure="0"
 	paired_committed="0"
 	[ ! -f "${snapshot_root}/setup-committed" ] || paired_committed="1"
-	nvram_transaction_finalize_setup_pair recovery || failed="1"
+	if ! nvram_transaction_finalize_setup_pair recovery; then
+		failed="1"
+		[ "${paired_committed}" = "0" ] || safe_failure="1"
+	fi
 	for transaction in lan-domain dnsfilter dns-preparation jffs-enable; do
 		case "${paired_committed}:${transaction}" in
 			1:lan-domain | 1:dnsfilter) continue ;;
@@ -225,6 +231,7 @@ nvram_transaction_recover_pending() {
 		snapshot_dir="${snapshot_root}/${transaction}"
 		[ ! -L "${snapshot_dir}" ] || {
 			failed="1"
+			safe_failure="0"
 			continue
 		}
 		[ -f "${snapshot_dir}/dirty" ] || continue
@@ -237,10 +244,16 @@ nvram_transaction_recover_pending() {
 		export NVRAM_TRANSACTION_DIR
 		if ! nvram_transaction_restore "${service_action}"; then
 			failed="1"
+			safe_failure="0"
 		fi
 	done
 	if ! nvram_transaction_lock_release; then
 		failed="1"
+		safe_failure="0"
+	fi
+	if [ "${failed}" != "0" ] && [ "${safe_failure}" = "1" ]; then
+		NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE="1"
+		export NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE
 	fi
 	[ "${failed}" = "0" ]
 }
@@ -252,6 +265,18 @@ nvram_transaction_recover_startup() {
 		return 0
 	fi
 	nvram_transaction_recover_pending
+}
+
+nvram_transaction_read_only_diagnostic_requested() {
+	case "${1:-}" in
+		status) return 0 ;;
+		doctor) [ -z "${2:-}" ] && return 0 ;;
+	esac
+	case "${2:-}" in
+		status) return 0 ;;
+		doctor) [ -z "${3:-}" ] && return 0 ;;
+	esac
+	return 1
 }
 
 nvram_transaction_lock_acquire() {
@@ -8368,8 +8393,12 @@ cli_run() {
 nvram_transaction_recovery_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
 if ! nvram_transaction_recover_startup; then
-	PTXT "${ERROR} Unable to recover an interrupted installer-managed NVRAM transaction; review ${ROLLBACK_RESULT_FILE} and the preserved snapshot."
-	exit 1
+	if [ "${NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE:-0}" = "1" ] && nvram_transaction_read_only_diagnostic_requested "$@"; then
+		PTXT "${WARNING} Unable to remove a completed installer-managed NVRAM snapshot; continuing with read-only diagnostics."
+	else
+		PTXT "${ERROR} Unable to recover an interrupted installer-managed NVRAM transaction; review ${ROLLBACK_RESULT_FILE} and the preserved snapshot."
+		exit 1
+	fi
 fi
 
 if [ "${1:-}" = "preflight" ]; then

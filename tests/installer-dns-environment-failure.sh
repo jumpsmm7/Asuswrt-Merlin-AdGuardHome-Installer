@@ -255,7 +255,7 @@ nvram_transaction_recover_pending || fail 'startup recovery did not process the 
 [ "$(nvram get lan_domain)" = '' ] || fail 'startup recovery did not restore the pending LAN domain transaction'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'startup recovery retained the restored LAN domain snapshot'
 [ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'startup recovery retained the NVRAM transaction lock'
-recovery_line="$(grep -n '^if ! nvram_transaction_recover_pending; then$' "${INSTALLER_PATH}" | cut -d: -f1)"
+recovery_line="$(grep -n '^if ! nvram_transaction_recover_startup; then$' "${INSTALLER_PATH}" | cut -d: -f1)"
 [ -n "${recovery_line}" ] || fail 'installer startup does not invoke pending NVRAM recovery'
 for dispatch_pattern in '^if \[ "${1:-}" = "preflight" \]; then$' '^if \[ "${1:-}" = "doctor" \]; then$' '^if \[ "${1:-}" = "status" \]; then$' '^if \[ "${2:-}" = "status" \]; then$' '^if \[ "${2:-}" = "doctor" \]; then$'; do
 	dispatch_line="$(grep -n "${dispatch_pattern}" "${INSTALLER_PATH}" | cut -d: -f1)"
@@ -326,6 +326,17 @@ NVRAM_TRANSACTION_CHANGED=0
 commit_count_before_recovery="${COMMIT_COUNT}"
 if nvram_transaction_recover_pending; then
 	fail 'incomplete committed snapshot cleanup was reported as complete'
+fi
+[ "${NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE:-0}" = 1 ] || fail 'committed snapshot cleanup failure did not permit read-only diagnostics'
+nvram_transaction_read_only_diagnostic_requested status || fail 'status was not recognized as a read-only diagnostic'
+nvram_transaction_read_only_diagnostic_requested installer status || fail 'branch status was not recognized as a read-only diagnostic'
+nvram_transaction_read_only_diagnostic_requested doctor || fail 'doctor was not recognized as a read-only diagnostic'
+nvram_transaction_read_only_diagnostic_requested installer doctor || fail 'branch doctor was not recognized as a read-only diagnostic'
+if nvram_transaction_read_only_diagnostic_requested doctor --fix; then
+	fail 'doctor --fix was incorrectly recognized as read-only'
+fi
+if nvram_transaction_read_only_diagnostic_requested preflight; then
+	fail 'preflight was incorrectly recognized as a read-only diagnostic'
 fi
 [ "$(nvram get lan_domain)" = committed.example ] || fail 'startup recovery rolled back the committed LAN domain'
 [ "$(nvram get dnsfilter_enable_x)" = 1 ] || fail 'startup recovery rolled back the committed DNSFilter setting'
