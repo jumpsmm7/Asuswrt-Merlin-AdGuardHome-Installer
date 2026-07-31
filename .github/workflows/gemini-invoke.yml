@@ -45,7 +45,8 @@ jobs:
       - name: 'Prepare prompt context'
         shell: 'bash'
         run: |-
-          mkdir -p .gemini
+          mkdir -p .gemini/commands
+          cp .github/workflows/gemini-invoke.toml .gemini/commands/repository-gemini-invoke.toml
           jq -n \
             --arg title "${TITLE}" \
             --arg desc "${DESCRIPTION}" \
@@ -131,4 +132,4 @@ jobs:
                 "core": []
               }
             }
-          prompt: '/gemini-invoke'
+          prompt: '/repository-gemini-invoke'
