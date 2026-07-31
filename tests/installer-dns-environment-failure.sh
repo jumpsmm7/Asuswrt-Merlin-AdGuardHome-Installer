@@ -257,6 +257,11 @@ nvram_transaction_recover_pending || fail 'startup recovery did not process the 
 [ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'startup recovery retained the NVRAM transaction lock'
 recovery_line="$(grep -n '^if ! nvram_transaction_recover_startup; then$' "${INSTALLER_PATH}" | cut -d: -f1)"
 [ -n "${recovery_line}" ] || fail 'installer startup does not invoke pending NVRAM recovery'
+grep -Fq 'Unable to release the installer NVRAM transaction lock after recovery; review ${ROLLBACK_RESULT_FILE} and any preserved snapshot.' "${INSTALLER_PATH}" ||
+	fail 'startup recovery does not accurately report lock-release failures'
+if grep -Fq 'Unable to recover an interrupted installer-managed NVRAM transaction; review ${ROLLBACK_RESULT_FILE} and the preserved snapshot.' "${INSTALLER_PATH}"; then
+	fail 'startup recovery still reports lock-release failures as interrupted transactions with a guaranteed snapshot'
+fi
 for dispatch_pattern in '^if \[ "${1:-}" = "preflight" \]; then$' '^if \[ "${1:-}" = "doctor" \]; then$' '^if \[ "${1:-}" = "status" \]; then$' '^if \[ "${2:-}" = "status" \]; then$' '^if \[ "${2:-}" = "doctor" \]; then$'; do
 	dispatch_line="$(grep -n "${dispatch_pattern}" "${INSTALLER_PATH}" | cut -d: -f1)"
 	[ -n "${dispatch_line}" ] || fail "installer startup dispatch pattern is missing: ${dispatch_pattern}"

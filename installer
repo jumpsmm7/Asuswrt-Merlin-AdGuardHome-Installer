@@ -8396,7 +8396,7 @@ if ! nvram_transaction_recover_startup; then
 	if [ "${NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE:-0}" = "1" ] && nvram_transaction_read_only_diagnostic_requested "$@"; then
 		PTXT "${WARNING} Unable to remove a completed installer-managed NVRAM snapshot; continuing with read-only diagnostics."
 	else
-		PTXT "${ERROR} Unable to recover an interrupted installer-managed NVRAM transaction; review ${ROLLBACK_RESULT_FILE} and the preserved snapshot."
+		PTXT "${ERROR} Unable to release the installer NVRAM transaction lock after recovery; review ${ROLLBACK_RESULT_FILE} and any preserved snapshot."
 		exit 1
 	fi
 fi
