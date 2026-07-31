@@ -205,7 +205,7 @@ reset_case() {
 	FAIL_LOCK_REMOVE_AT=0 FAIL_SETUP_MARKER_REMOVE=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0 FAIL_PAIRED_SNAPSHOT_REMOVE=0
 	LOCK_REMOVE_COUNT=0
 	nvram_transaction_lock_release || fail 'could not release the previous test transaction lock'
-	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/jffs-enable"
 	rm -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
 	NVRAM_TRANSACTION_DIR=''
 	NVRAM_TRANSACTION_CHANGED=0
@@ -262,6 +262,23 @@ for dispatch_pattern in '^if \[ "${1:-}" = "preflight" \]; then$' '^if \[ "${1:-
 	[ -n "${dispatch_line}" ] || fail "installer startup dispatch pattern is missing: ${dispatch_pattern}"
 	[ "${recovery_line}" -lt "${dispatch_line}" ] || fail "pending NVRAM recovery runs after early dispatch: ${dispatch_pattern}"
 done
+
+reset_case
+nvram_transaction_begin jffs-enable jffs2_scripts jffs2_enable || fail 'JFFS startup recovery transaction snapshot failed'
+nvram_transaction_set jffs2_scripts 1 || fail 'JFFS startup recovery scripts staging failed'
+nvram_transaction_set jffs2_enable 1 || fail 'JFFS startup recovery enable staging failed'
+nvram_transaction_apply - 1 || fail 'JFFS startup recovery transaction apply failed'
+nvram_transaction_lock_release || fail 'JFFS startup recovery could not simulate the interrupted owner exiting'
+NVRAM_TRANSACTION_LOCK_MODE=''
+NVRAM_TRANSACTION_DIR=''
+NVRAM_TRANSACTION_CHANGED=0
+service_count_before_recovery="${SERVICE_COUNT}"
+nvram_transaction_recover_pending || fail 'startup recovery did not process the pending JFFS transaction'
+[ "$(nvram get jffs2_scripts)" = '' ] || fail 'startup recovery did not restore the pending JFFS scripts setting'
+[ "$(nvram get jffs2_enable)" = '' ] || fail 'startup recovery did not restore the pending JFFS enable setting'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/jffs-enable" ] || fail 'startup recovery retained the restored JFFS snapshot'
+[ "${SERVICE_COUNT}" -eq "${service_count_before_recovery}" ] || fail 'JFFS startup recovery restarted an unrelated service'
+[ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'JFFS startup recovery retained the NVRAM transaction lock'
 
 reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable || fail 'independent startup recovery snapshot failed'

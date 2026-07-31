@@ -209,7 +209,8 @@ nvram_transaction_recover_pending() {
 	if [ ! -f "${snapshot_root}/setup-committed" ] &&
 		[ ! -f "${snapshot_root}/lan-domain/dirty" ] &&
 		[ ! -f "${snapshot_root}/dnsfilter/dirty" ] &&
-		[ ! -f "${snapshot_root}/dns-preparation/dirty" ]; then
+		[ ! -f "${snapshot_root}/dns-preparation/dirty" ] &&
+		[ ! -f "${snapshot_root}/jffs-enable/dirty" ]; then
 		return 0
 	fi
 	nvram_transaction_lock_acquire || return 1
@@ -217,7 +218,7 @@ nvram_transaction_recover_pending() {
 	paired_committed="0"
 	[ ! -f "${snapshot_root}/setup-committed" ] || paired_committed="1"
 	nvram_transaction_finalize_setup_pair recovery || failed="1"
-	for transaction in lan-domain dnsfilter dns-preparation; do
+	for transaction in lan-domain dnsfilter dns-preparation jffs-enable; do
 		case "${paired_committed}:${transaction}" in
 			1:lan-domain | 1:dnsfilter) continue ;;
 		esac
@@ -229,6 +230,7 @@ nvram_transaction_recover_pending() {
 		[ -f "${snapshot_dir}/dirty" ] || continue
 		case "${transaction}" in
 			dnsfilter) service_action="restart_firewall;restart_dnsmasq" ;;
+			jffs-enable) service_action="-" ;;
 			*) service_action="restart_dnsmasq" ;;
 		esac
 		NVRAM_TRANSACTION_DIR="${snapshot_dir}"
