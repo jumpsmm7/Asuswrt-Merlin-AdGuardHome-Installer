@@ -253,6 +253,24 @@ nvram_transaction_recover_pending || fail 'startup recovery did not process the 
 [ "$(sed -n '/^trap '\''on_installer_exit'\'' EXIT$/,/^if \[ -n "${BLOCKLIST_ANALYZER_SHA256}" \]; then$/p' "${INSTALLER_PATH}" | grep -c '^if ! nvram_transaction_recover_pending; then$')" -eq 1 ] || fail 'installer startup does not recover pending NVRAM transactions before dispatch'
 
 reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'independent startup recovery snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'independent startup recovery staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'independent startup recovery apply failed'
+nvram_transaction_lock_release || fail 'independent startup recovery could not simulate the interrupted owner exiting'
+: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed" || fail 'could not create failing paired setup marker'
+NVRAM_TRANSACTION_LOCK_MODE=''
+NVRAM_TRANSACTION_DIR=''
+NVRAM_TRANSACTION_CHANGED=0
+FAIL_SETUP_MARKER_REMOVE=1
+if nvram_transaction_recover_pending; then
+	fail 'startup recovery ignored paired finalization failure'
+fi
+[ "$(nvram get dnspriv_enable)" = 1 ] || fail 'paired finalization failure blocked independent DNS recovery'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'paired finalization failure retained the restored DNS snapshot'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'paired finalization failure unexpectedly removed its marker'
+[ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'paired finalization failure retained the NVRAM transaction lock'
+
+reset_case
 mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" || fail 'could not create paired transaction snapshots'
 : >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || fail 'could not mark the LAN-domain transaction dirty'
 : >"${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" || fail 'could not mark the DNSFilter transaction dirty'

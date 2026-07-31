@@ -214,27 +214,24 @@ nvram_transaction_recover_pending() {
 	fi
 	nvram_transaction_lock_acquire || return 1
 	failed="0"
-	if ! nvram_transaction_finalize_setup_pair recovery; then
-		failed="1"
-	else
-		for transaction in lan-domain dnsfilter dns-preparation; do
-			snapshot_dir="${snapshot_root}/${transaction}"
-			[ ! -L "${snapshot_dir}" ] || {
-				failed="1"
-				continue
-			}
-			[ -f "${snapshot_dir}/dirty" ] || continue
-			case "${transaction}" in
-				dnsfilter) service_action="restart_firewall;restart_dnsmasq" ;;
-				*) service_action="restart_dnsmasq" ;;
-			esac
-			NVRAM_TRANSACTION_DIR="${snapshot_dir}"
-			export NVRAM_TRANSACTION_DIR
-			if ! nvram_transaction_restore "${service_action}"; then
-				failed="1"
-			fi
-		done
-	fi
+	nvram_transaction_finalize_setup_pair recovery || failed="1"
+	for transaction in lan-domain dnsfilter dns-preparation; do
+		snapshot_dir="${snapshot_root}/${transaction}"
+		[ ! -L "${snapshot_dir}" ] || {
+			failed="1"
+			continue
+		}
+		[ -f "${snapshot_dir}/dirty" ] || continue
+		case "${transaction}" in
+			dnsfilter) service_action="restart_firewall;restart_dnsmasq" ;;
+			*) service_action="restart_dnsmasq" ;;
+		esac
+		NVRAM_TRANSACTION_DIR="${snapshot_dir}"
+		export NVRAM_TRANSACTION_DIR
+		if ! nvram_transaction_restore "${service_action}"; then
+			failed="1"
+		fi
+	done
 	if ! nvram_transaction_lock_release; then
 		failed="1"
 	fi
