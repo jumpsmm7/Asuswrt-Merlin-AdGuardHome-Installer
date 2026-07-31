@@ -3655,11 +3655,11 @@ check_dns_environment() {
 			export _DNS_NVRAM_SAVED
 			if [ "$(pidof stubby)" ]; then
 				ptxt_step "Stopping conflicting stubby process."
+				_DNS_STUBBY_STOPPED="1"
+				export _DNS_STUBBY_STOPPED
 				killall -q -9 stubby 2>/dev/null || :
 				[ -z "$(pidof stubby)" ] || return 1
 				stubby_stopped="1"
-				_DNS_STUBBY_STOPPED="1"
-				export _DNS_STUBBY_STOPPED
 			fi
 			if ! nvram_transaction_set dnspriv_enable "0" ||
 				! nvram_transaction_set dhcpd_dns_router "1" ||

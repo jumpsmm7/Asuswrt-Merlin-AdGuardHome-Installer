@@ -1421,6 +1421,11 @@ STUBBY_KILL_STUCK=1
 check_dns_environment 0 && fail 'DNS preparation continued while stubby remained running'
 [ "${STUBBY_KILL_COUNT}" = 1 ] || fail 'running stubby termination was not attempted exactly once'
 [ "${COMMIT_COUNT}" = 0 ] || fail 'NVRAM was changed while stubby remained running'
+[ "${_DNS_STUBBY_STOPPED}" = 1 ] || fail 'stubby recovery was not armed before termination completed'
+STUBBY_KILL_STUCK=0
+on_installer_exit
+[ "${STUBBY_RESTART_COUNT}" = 1 ] || fail 'installer exit did not recover stubby after incomplete termination'
+[ "${_DNS_STUBBY_STOPPED}" = 0 ] || fail 'successful exit recovery did not clear the stubby recovery flag'
 
 reset_case
 cat >"${NVRAM_FILE}" <<'EOF_NVRAM'
