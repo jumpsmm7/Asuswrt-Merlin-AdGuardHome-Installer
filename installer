@@ -245,6 +245,15 @@ nvram_transaction_recover_pending() {
 	[ "${failed}" = "0" ]
 }
 
+nvram_transaction_recover_startup() {
+	# A validated update re-exec still owns the live transaction lock and its
+	# DNS preparation snapshot.  Leave both intact for the resumed update.
+	if [ "${AI_REEXECED_INSTALLER:-0}" = "1" ] && nvram_transaction_lock_owned; then
+		return 0
+	fi
+	nvram_transaction_recover_pending
+}
+
 nvram_transaction_lock_acquire() {
 	local lock_dir lock_owner lock_path owner status
 	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
@@ -8358,7 +8367,7 @@ cli_run() {
 
 nvram_transaction_recovery_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
-if ! nvram_transaction_recover_pending; then
+if ! nvram_transaction_recover_startup; then
 	PTXT "${ERROR} Unable to recover an interrupted installer-managed NVRAM transaction; review ${ROLLBACK_RESULT_FILE} and the preserved snapshot."
 	exit 1
 fi
