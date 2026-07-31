@@ -113,6 +113,7 @@ check_AdGuardHome_yaml() {
 DNS_FILTER_CHANGED=0
 DNS_FILTER_RESTORES=0
 LAN_DOMAIN_RESTORES=0
+SETUP_FILES_BEGIN_COUNT=0
 # save_dns_filter_settings creates a DNS filter rollback snapshot in the specified directory.
 save_dns_filter_settings() {
 	mkdir -p "$1"
@@ -151,6 +152,7 @@ nvram_transaction_finalize_setup_pair() {
 }
 # nvram_transaction_setup_files_begin records that setup file publication joined the transaction.
 nvram_transaction_setup_files_begin() {
+	SETUP_FILES_BEGIN_COUNT="$((SETUP_FILES_BEGIN_COUNT + 1))"
 	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 }
 # check_dns_filter marks DNS filter settings as changed and fails when configured to simulate an update failure.
@@ -401,5 +403,21 @@ fi
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'DNSFilter transaction failure retained a successfully restored snapshot'
 [ "${LAN_DOMAIN_RESTORES}" -eq 1 ] || fail 'DNSFilter transaction failure did not restore the LAN domain'
 [ "${LAN_DOMAIN}" = 'before-dnsfilter-apply-failure.test' ] || fail 'DNSFilter transaction failure did not restore the prior router LAN domain'
+
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
+printf '%s\n' 'working configuration' >"${YAML_FILE}"
+printf '%s\n' 'original configuration' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+: >"${WRITE_LOG}"
+FAIL_CHECK_DNS_FILTER=0
+SETUP_FILES_BEGIN_COUNT=0
+read_input_num() {
+	CHOSEN=1
+}
+if ! setup_AdGuardHome_impl reconfig reconfig; then
+	fail 'existing-YAML DNSFilter reconfiguration failed'
+fi
+[ "${SETUP_FILES_BEGIN_COUNT}" -eq 1 ] || fail 'existing-YAML DNSFilter reconfiguration was not journaled exactly once'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'existing-YAML DNSFilter reconfiguration retained its completed file journal'
 
 printf '%s\n' 'PASS: failed WebUI port verification or persistence aborts setup safely'

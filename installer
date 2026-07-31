@@ -6759,7 +6759,7 @@ adguard_migrate_detected_install_mode() {
 }
 
 setup_AdGuardHome_impl() {
-	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_REARM_FAILED=0 LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_ORI_ROLLBACK="" YAML_ORI_WAS_PRESENT=0 YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
+	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_REARM_FAILED=0 LAN_DOMAIN_ROLLBACK="" SETUP_FILES_JOURNALED=0 WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_ORI_ROLLBACK="" YAML_ORI_WAS_PRESENT=0 YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ "${ADGUARD_FORCE_SETUP_YAML:-0}" = "1" ] && { [ -f "${YAML_FILE}" ] || [ -f "${YAML_ORI}" ]; }; then
 		PTXT "${INFO} Restored mode differs from detected router mode; updating mode-dependent AdGuardHome settings."
@@ -7001,6 +7001,7 @@ setup_AdGuardHome_impl() {
 						PTXT "${ERROR} Unable to journal the current installer configuration before setup publication."
 						return 1
 					fi
+					SETUP_FILES_JOURNALED=1
 					PTXT "${INFO} Writing AdGuardHome configuration..."
 					if ! cp -f "${YAML_ORI_NEW}" "${YAML_FILE}"; then
 						rm -f "${YAML_ORI_NEW}"
@@ -7018,6 +7019,12 @@ setup_AdGuardHome_impl() {
 					return 1
 				fi
 				if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && [ -n "${DNS_FILTER_SELECTION:-}" ]; then
+					if [ "${SETUP_FILES_JOURNALED}" -eq 0 ] && ! nvram_transaction_setup_files_begin; then
+						setup_restore_previous_yaml || true
+						PTXT "${ERROR} Unable to journal the current installer configuration before DNSFilter reconfiguration."
+						return 1
+					fi
+					SETUP_FILES_JOURNALED=1
 					CONFIG_ROLLBACK="${TMPDIR:-/tmp}/AdGuardHome.config.$$"
 					if ! save_installer_config "${CONFIG_ROLLBACK}"; then
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
