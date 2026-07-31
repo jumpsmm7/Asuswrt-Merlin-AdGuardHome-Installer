@@ -1,0 +1,330 @@
+name: 'Run Gemini CLI resiliently'
+description: 'Run Gemini CLI with dependency checks, bounded retries, and a fallback model.'
+
+inputs:
+  gcp_location:
+    description: 'Google Cloud location.'
+    required: false
+  gcp_project_id:
+    description: 'Google Cloud project ID.'
+    required: false
+  gcp_service_account:
+    description: 'Google Cloud service account email.'
+    required: false
+  gcp_workload_identity_provider:
+    description: 'Google Cloud Workload Identity Provider.'
+    required: false
+  gemini_api_key:
+    description: 'Gemini API key.'
+    required: false
+  gemini_cli_version:
+    description: 'Gemini CLI version.'
+    required: false
+    default: 'latest'
+  gemini_debug:
+    description: 'Enable Gemini debug output.'
+    required: false
+    default: 'false'
+  gemini_model:
+    description: 'Primary Gemini model or alias.'
+    required: false
+    default: 'auto'
+  fallback_model:
+    description: 'Fallback Gemini model or alias.'
+    required: false
+    default: 'flash'
+  fallback_delay_seconds:
+    description: 'Delay before the fallback attempt.'
+    required: false
+    default: '45'
+  google_api_key:
+    description: 'Vertex AI API key.'
+    required: false
+  use_gemini_code_assist:
+    description: 'Use Gemini Code Assist.'
+    required: false
+    default: 'false'
+  use_vertex_ai:
+    description: 'Use Vertex AI.'
+    required: false
+    default: 'false'
+  upload_artifacts:
+    description: 'Upload Gemini output artifacts.'
+    required: false
+    default: 'false'
+  workflow_name:
+    description: 'Workflow name for Gemini telemetry.'
+    required: true
+  github_pr_number:
+    description: 'Pull request number.'
+    required: false
+  github_issue_number:
+    description: 'Issue number or comma-separated issue numbers.'
+    required: false
+  settings:
+    description: 'Gemini CLI project settings JSON.'
+    required: false
+  extensions:
+    description: 'Gemini CLI extensions JSON.'
+    required: false
+  prompt:
+    description: 'Prompt or slash command passed to Gemini CLI.'
+    required: true
+  github_token:
+    description: 'Token exposed only to the configured GitHub integration.'
+    required: false
+  requires_docker:
+    description: 'Whether the workflow requires Docker for an MCP server.'
+    required: false
+    default: 'false'
+  requires_gh:
+    description: 'Whether the workflow requires the GitHub CLI.'
+    required: false
+    default: 'false'
+
+outputs:
+  summary:
+    description: 'Gemini response from the successful attempt.'
+    value: '${{ steps.result.outputs.summary }}'
+  error:
+    description: 'Gemini error output from the selected attempt.'
+    value: '${{ steps.result.outputs.error }}'
+  used_model:
+    description: 'Model or alias used by the successful attempt.'
+    value: '${{ steps.result.outputs.used_model }}'
+  fallback_used:
+    description: 'Whether the fallback attempt produced the result.'
+    value: '${{ steps.result.outputs.fallback_used }}'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: 'Prepare Gemini runner dependencies'
+      shell: 'bash'
+      env:
+        REQUIRES_DOCKER: '${{ inputs.requires_docker }}'
+        REQUIRES_GH: '${{ inputs.requires_gh }}'
+      run: |-
+        set -euo pipefail
+
+        packages=()
+        command -v jq >/dev/null 2>&1 || packages+=('jq')
+        command -v rg >/dev/null 2>&1 || packages+=('ripgrep')
+        command -v git >/dev/null 2>&1 || packages+=('git')
+        command -v node >/dev/null 2>&1 || packages+=('nodejs')
+        command -v npm >/dev/null 2>&1 || packages+=('npm')
+
+        if [[ "${REQUIRES_GH}" == 'true' ]] && ! command -v gh >/dev/null 2>&1; then
+          packages+=('gh')
+        fi
+
+        if [[ "${REQUIRES_DOCKER}" == 'true' ]] && ! command -v docker >/dev/null 2>&1; then
+          packages+=('docker.io')
+        fi
+
+        if (( ${#packages[@]} > 0 )); then
+          if ! command -v apt-get >/dev/null 2>&1 || ! command -v sudo >/dev/null 2>&1; then
+            echo "::error title=Missing runner dependencies::Unable to install: ${packages[*]}"
+            exit 1
+          fi
+          sudo apt-get update
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}"
+        fi
+
+        for command_name in jq rg git node npm; do
+          if ! command -v "${command_name}" >/dev/null 2>&1; then
+            echo "::error title=Missing runner dependency::${command_name} is required"
+            exit 1
+          fi
+        done
+
+        if [[ "${REQUIRES_GH}" == 'true' ]] && ! command -v gh >/dev/null 2>&1; then
+          echo "::error title=Missing runner dependency::gh is required"
+          exit 1
+        fi
+
+        if [[ "${REQUIRES_DOCKER}" == 'true' ]]; then
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "::error title=Missing runner dependency::docker is required"
+            exit 1
+          fi
+          if ! docker info >/dev/null 2>&1; then
+            sudo systemctl start docker >/dev/null 2>&1 || true
+          fi
+          if ! docker info >/dev/null 2>&1; then
+            echo "::error title=Docker unavailable::The Docker daemon is not accessible"
+            exit 1
+          fi
+        fi
+
+    - name: 'Run Gemini CLI with primary model'
+      id: 'primary'
+      continue-on-error: true
+      uses: 'google-github-actions/run-gemini-cli@f77273f4c914e4bf38440cf36a0369cb64a37489'
+      env:
+        GEMINI_CLI_TRUST_WORKSPACE: 'true'
+        GITHUB_TOKEN: '${{ inputs.github_token }}'
+      with:
+        gcp_location: '${{ inputs.gcp_location }}'
+        gcp_project_id: '${{ inputs.gcp_project_id }}'
+        gcp_service_account: '${{ inputs.gcp_service_account }}'
+        gcp_workload_identity_provider: '${{ inputs.gcp_workload_identity_provider }}'
+        gemini_api_key: '${{ inputs.gemini_api_key }}'
+        gemini_cli_version: '${{ inputs.gemini_cli_version }}'
+        gemini_debug: '${{ inputs.gemini_debug }}'
+        gemini_model: '${{ inputs.gemini_model }}'
+        google_api_key: '${{ inputs.google_api_key }}'
+        use_gemini_code_assist: '${{ inputs.use_gemini_code_assist }}'
+        use_vertex_ai: '${{ inputs.use_vertex_ai }}'
+        upload_artifacts: '${{ inputs.upload_artifacts }}'
+        workflow_name: '${{ inputs.workflow_name }}'
+        github_pr_number: '${{ inputs.github_pr_number }}'
+        github_issue_number: '${{ inputs.github_issue_number }}'
+        settings: '${{ inputs.settings }}'
+        extensions: '${{ inputs.extensions }}'
+        prompt: '${{ inputs.prompt }}'
+
+    - name: 'Classify primary failure'
+      id: 'classify'
+      if: "${{ steps.primary.outcome == 'failure' }}"
+      shell: 'bash'
+      env:
+        PRIMARY_ERROR: '${{ steps.primary.outputs.error }}'
+        PRIMARY_MODEL: '${{ inputs.gemini_model }}'
+        FALLBACK_MODEL: '${{ inputs.fallback_model }}'
+      run: |-
+        set -euo pipefail
+
+        retryable=false
+        if [[ -n "${FALLBACK_MODEL}" && "${FALLBACK_MODEL}" != "${PRIMARY_MODEL}" ]]; then
+          case "${PRIMARY_ERROR}" in
+            *'status 429'*|*'status 500'*|*'status 502'*|*'status 503'*|*'status 504'*|*'RESOURCE_EXHAUSTED'*|*'UNAVAILABLE'*|*'high demand'*|*'fetch failed sending request'*|*'socket hang up'*|*'ECONNRESET'*|*'ETIMEDOUT'*)
+              retryable=true
+              ;;
+          esac
+        fi
+
+        printf 'retryable=%s\n' "${retryable}" >> "${GITHUB_OUTPUT}"
+        if [[ "${retryable}" != 'true' ]]; then
+          echo '::notice title=Gemini fallback skipped::The primary failure is not a transient capacity or transport error, or the fallback model matches the primary model.'
+        fi
+
+    - name: 'Pause before fallback model'
+      if: |-
+        ${{ steps.classify.outputs.retryable == 'true' }}
+      shell: 'bash'
+      env:
+        FALLBACK_DELAY_SECONDS: '${{ inputs.fallback_delay_seconds }}'
+      run: |-
+        set -euo pipefail
+        case "${FALLBACK_DELAY_SECONDS}" in
+          ''|*[!0-9]*)
+            echo "::warning title=Invalid fallback delay::Using 45 seconds instead of '${FALLBACK_DELAY_SECONDS}'"
+            FALLBACK_DELAY_SECONDS=45
+            ;;
+        esac
+        echo "::warning title=Gemini primary attempt failed::Retrying with the fallback model after ${FALLBACK_DELAY_SECONDS} seconds"
+        sleep "${FALLBACK_DELAY_SECONDS}"
+
+    - name: 'Run Gemini CLI with fallback model'
+      id: 'fallback'
+      if: |-
+        ${{ steps.classify.outputs.retryable == 'true' }}
+      continue-on-error: true
+      uses: 'google-github-actions/run-gemini-cli@f77273f4c914e4bf38440cf36a0369cb64a37489'
+      env:
+        GEMINI_CLI_TRUST_WORKSPACE: 'true'
+        GITHUB_TOKEN: '${{ inputs.github_token }}'
+      with:
+        gcp_location: '${{ inputs.gcp_location }}'
+        gcp_project_id: '${{ inputs.gcp_project_id }}'
+        gcp_service_account: '${{ inputs.gcp_service_account }}'
+        gcp_workload_identity_provider: '${{ inputs.gcp_workload_identity_provider }}'
+        gemini_api_key: '${{ inputs.gemini_api_key }}'
+        gemini_cli_version: '${{ inputs.gemini_cli_version }}'
+        gemini_debug: '${{ inputs.gemini_debug }}'
+        gemini_model: '${{ inputs.fallback_model }}'
+        google_api_key: '${{ inputs.google_api_key }}'
+        use_gemini_code_assist: '${{ inputs.use_gemini_code_assist }}'
+        use_vertex_ai: '${{ inputs.use_vertex_ai }}'
+        upload_artifacts: '${{ inputs.upload_artifacts }}'
+        workflow_name: '${{ inputs.workflow_name }}-fallback'
+        github_pr_number: '${{ inputs.github_pr_number }}'
+        github_issue_number: '${{ inputs.github_issue_number }}'
+        settings: '${{ inputs.settings }}'
+        extensions: '${{ inputs.extensions }}'
+        prompt: '${{ inputs.prompt }}'
+
+    - name: 'Select Gemini result'
+      id: 'result'
+      if: '${{ always() }}'
+      shell: 'bash'
+      env:
+        PRIMARY_OUTCOME: '${{ steps.primary.outcome }}'
+        PRIMARY_SUMMARY: '${{ steps.primary.outputs.summary }}'
+        PRIMARY_ERROR: '${{ steps.primary.outputs.error }}'
+        PRIMARY_MODEL: '${{ inputs.gemini_model }}'
+        FALLBACK_OUTCOME: '${{ steps.fallback.outcome }}'
+        FALLBACK_SUMMARY: '${{ steps.fallback.outputs.summary }}'
+        FALLBACK_ERROR: '${{ steps.fallback.outputs.error }}'
+        FALLBACK_MODEL: '${{ inputs.fallback_model }}'
+      run: |-
+        set -euo pipefail
+
+        write_multiline_output() {
+          output_name="$1"
+          output_value="$2"
+          delimiter="__GEMINI_RESILIENT_${RANDOM}_${RANDOM}__"
+          {
+            printf '%s<<%s\n' "${output_name}" "${delimiter}"
+            printf '%s\n' "${output_value}"
+            printf '%s\n' "${delimiter}"
+          } >> "${GITHUB_OUTPUT}"
+        }
+
+        if [[ "${PRIMARY_OUTCOME}" == 'success' ]]; then
+          write_multiline_output 'summary' "${PRIMARY_SUMMARY}"
+          write_multiline_output 'error' "${PRIMARY_ERROR}"
+          printf 'used_model=%s\n' "${PRIMARY_MODEL:-auto}" >> "${GITHUB_OUTPUT}"
+          printf 'fallback_used=false\n' >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+
+        if [[ "${FALLBACK_OUTCOME}" == 'success' ]]; then
+          echo "::notice title=Gemini fallback succeeded::Model '${FALLBACK_MODEL}' completed the request"
+          write_multiline_output 'summary' "${FALLBACK_SUMMARY}"
+          write_multiline_output 'error' "${FALLBACK_ERROR}"
+          printf 'used_model=%s\n' "${FALLBACK_MODEL}" >> "${GITHUB_OUTPUT}"
+          printf 'fallback_used=true\n' >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+
+        {
+          echo 'Gemini primary attempt failed.'
+          [[ -n "${PRIMARY_ERROR}" ]] && printf '%s\n' "${PRIMARY_ERROR}"
+          if [[ "${FALLBACK_OUTCOME}" == 'failure' ]]; then
+            echo
+            echo "Gemini fallback attempt with '${FALLBACK_MODEL}' failed."
+            [[ -n "${FALLBACK_ERROR}" ]] && printf '%s\n' "${FALLBACK_ERROR}"
+          fi
+        } > "${RUNNER_TEMP}/gemini-resilient-error.txt"
+
+        combined_error=''
+        while IFS= read -r error_line || [[ -n "${error_line}" ]]; do
+          if [[ -n "${combined_error}" ]]; then
+            combined_error+=$'\n'
+          fi
+          combined_error+="${error_line}"
+        done < "${RUNNER_TEMP}/gemini-resilient-error.txt"
+
+        fallback_used=false
+        if [[ "${FALLBACK_OUTCOME}" == 'failure' ]]; then
+          fallback_used=true
+        fi
+
+        write_multiline_output 'summary' ''
+        write_multiline_output 'error' "${combined_error}"
+        printf 'used_model=\n' >> "${GITHUB_OUTPUT}"
+        printf 'fallback_used=%s\n' "${fallback_used}" >> "${GITHUB_OUTPUT}"
+        cat "${RUNNER_TEMP}/gemini-resilient-error.txt" >&2
+        exit 1
