@@ -3751,8 +3751,6 @@ check_dns_environment() {
 				[ "${stubby_stopped}" = "0" ] || restore_stubby_after_dns_failure || PTXT "${ERROR} Unable to restart stubby after DNS preparation failed."
 				return 1
 			fi
-			_DNS_STUBBY_STOPPED="0"
-			export _DNS_STUBBY_STOPPED
 			;;
 		1)
 			NVRAM_TRANSACTION_DIR="${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
@@ -3802,6 +3800,8 @@ finalize_dns_environment() {
 	fi
 	_DNS_NVRAM_SAVED="0"
 	export _DNS_NVRAM_SAVED
+	_DNS_STUBBY_STOPPED="0"
+	export _DNS_STUBBY_STOPPED
 }
 
 check_dns_filter() {

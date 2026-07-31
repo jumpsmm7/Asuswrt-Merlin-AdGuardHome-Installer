@@ -1452,7 +1452,23 @@ check_dns_environment 0 || fail 'stopping stubby with prepared DNS NVRAM was rej
 [ "${COMMIT_COUNT}" = 0 ] || fail 'stopping stubby caused an unnecessary NVRAM commit'
 [ "${SERVICE_COUNT}" = 1 ] || fail 'dnsmasq was not restarted after stopping stubby without NVRAM changes'
 [ "$(dns_check_count)" = 1 ] || fail 'local DNS was not checked after stopping stubby without NVRAM changes'
-rm -rf "${NVRAM_TRANSACTION_DIR}"
+[ "${_DNS_STUBBY_STOPPED}" = 1 ] || fail 'successful DNS preparation disarmed stubby recovery before installation finalized'
+finalize_dns_environment || fail 'stubby DNS handoff could not be finalized'
+[ "${_DNS_STUBBY_STOPPED}" = 0 ] || fail 'successful DNS finalization did not disarm stubby recovery'
+
+reset_case
+cat >"${NVRAM_FILE}" <<'EOF_NVRAM'
+dnspriv_enable=0
+dhcpd_dns_router=1
+dhcp_dns1_x=
+dhcp_dns2_x=
+EOF_NVRAM
+STUBBY_RUNNING=1
+check_dns_environment 0 || fail 'DNS preparation before a later installer failure was rejected'
+[ "${_DNS_STUBBY_STOPPED}" = 1 ] || fail 'later installer failures were not armed to restore stubby'
+on_installer_exit
+[ "${STUBBY_RESTART_COUNT}" = 1 ] || fail 'installer exit did not restore stubby after successful DNS preparation'
+[ "${_DNS_STUBBY_STOPPED}" = 0 ] || fail 'installer exit did not clear restored stubby state'
 
 reset_case
 STUBBY_RUNNING=1
