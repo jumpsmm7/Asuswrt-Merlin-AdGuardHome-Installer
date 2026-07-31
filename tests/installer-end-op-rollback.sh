@@ -30,7 +30,7 @@ CLI_MODE="1"
 ROLLBACK_RESULT_UPDATED="0"
 ERROR='Error:'
 REAPER_RELEASE_ATTEMPTS="0"
-# nvram_transaction_lock_reaper_release_active records cleanup before early returns.
+# nvram_transaction_lock_reaper_release_active records an active reaper release attempt before an early return.
 nvram_transaction_lock_reaper_release_active() {
 	REAPER_RELEASE_ATTEMPTS=$((REAPER_RELEASE_ATTEMPTS + 1))
 	return 0
@@ -115,6 +115,7 @@ grep -q 'Unable to release the installer NVRAM transaction lock' "${TEST_ROOT}/i
 
 CLI_MODE="1"
 ADGUARD_DEFER_END_OP="0"
+# nvram_transaction_lock_reaper_release_active releases the active NVRAM transaction lock reaper and returns its status.
 nvram_transaction_lock_reaper_release_active() { return 1; }
 if end_op_message 0 >"${TEST_ROOT}/cli-reaper-output" 2>&1; then
 	fail 'CLI reaper-release failure unexpectedly returned success'
