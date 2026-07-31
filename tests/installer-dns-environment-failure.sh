@@ -47,6 +47,10 @@ WARNING='Warning:'
 BASE_DIR="${TEST_ROOT}/base"
 ROLLBACK_RESULT_FILE="${BASE_DIR}/rollback-result"
 AGH_FILE="${TEST_ROOT}/AdGuardHome"
+YAML_FILE="${TEST_ROOT}/AdGuardHome.yaml"
+YAML_ORI="${TEST_ROOT}/AdGuardHome.yaml.original"
+YAML_BAK="${TEST_ROOT}/AdGuardHome.yaml.backup"
+CONF_FILE="${TEST_ROOT}/.config"
 ADGUARD_INSTALL_MODE=wan
 mkdir -p "${BASE_DIR}" || fail 'could not create installer-managed test directory'
 DNS_ENV_READY_TIMEOUT=2
@@ -255,6 +259,37 @@ nvram_transaction_recover_pending || fail 'startup recovery did not process the 
 [ "$(nvram get lan_domain)" = '' ] || fail 'startup recovery did not restore the pending LAN domain transaction'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'startup recovery retained the restored LAN domain snapshot'
 [ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'startup recovery retained the NVRAM transaction lock'
+
+reset_case
+printf '%s\n' 'previous working yaml' >"${YAML_FILE}"
+printf '%s\n' 'previous original yaml' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+YAML_BACKED_UP=0
+nvram_transaction_setup_files_begin || fail 'setup file journal could not be created'
+printf '%s\n' 'published working yaml' >"${YAML_FILE}"
+printf '%s\n' 'published original yaml' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_DOMAIN="NEW"' >"${CONF_FILE}"
+nvram_transaction_lock_release || fail 'setup file recovery could not simulate the interrupted owner exiting'
+NVRAM_TRANSACTION_LOCK_MODE=''
+nvram_transaction_recover_pending || fail 'startup recovery did not restore interrupted setup file publications'
+[ "$(cat "${YAML_FILE}")" = 'previous working yaml' ] || fail 'startup recovery retained the interrupted working YAML publication'
+[ "$(cat "${YAML_ORI}")" = 'previous original yaml' ] || fail 'startup recovery retained the interrupted original YAML publication'
+[ "$(cat "${CONF_FILE}")" = 'ADGUARD_DOMAIN="OLD"' ] || fail 'startup recovery retained interrupted installer preferences'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'startup recovery retained the restored setup file journal'
+
+reset_case
+printf '%s\n' 'previous working yaml' >"${YAML_FILE}"
+printf '%s\n' 'previous original yaml' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+nvram_transaction_setup_files_begin || fail 'file-only setup journal could not be created'
+printf '%s\n' 'committed working yaml' >"${YAML_FILE}"
+printf '%s\n' 'committed original yaml' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_DOMAIN="NEW"' >"${CONF_FILE}"
+nvram_transaction_finalize_setup_pair || fail 'file-only setup publications could not be committed'
+[ "$(cat "${YAML_FILE}")" = 'committed working yaml' ] || fail 'file-only commit restored the previous working YAML'
+[ "$(cat "${YAML_ORI}")" = 'committed original yaml' ] || fail 'file-only commit restored the previous original YAML'
+[ "$(cat "${CONF_FILE}")" = 'ADGUARD_DOMAIN="NEW"' ] || fail 'file-only commit restored the previous installer preferences'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'file-only commit retained its setup file journal'
 recovery_line="$(grep -n '^if ! nvram_transaction_recover_startup; then$' "${INSTALLER_PATH}" | cut -d: -f1)"
 [ -n "${recovery_line}" ] || fail 'installer startup does not invoke pending NVRAM recovery'
 grep -Fq 'Unable to release the installer NVRAM transaction lock after recovery; review ${ROLLBACK_RESULT_FILE} and any preserved snapshot.' "${INSTALLER_PATH}" ||

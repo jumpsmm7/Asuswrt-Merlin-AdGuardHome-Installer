@@ -147,7 +147,11 @@ nvram_transaction_finalize_setup_pair() {
 	if [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] || [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ]; then
 		return 0
 	fi
-	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+}
+# nvram_transaction_setup_files_begin records that setup file publication joined the transaction.
+nvram_transaction_setup_files_begin() {
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 }
 # check_dns_filter marks DNS filter settings as changed and fails when configured to simulate an update failure.
 check_dns_filter() {

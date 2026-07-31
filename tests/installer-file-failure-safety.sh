@@ -97,17 +97,20 @@ awk '
 	/^write_conf\(\)/,/^}/
 ' "${REPO_DIR}/installer" >"${FUNCTIONS_FILE}"
 printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS_FILE}"
+printf 'BASE_DIR="%s/base"\n' "${TMP_DIR}" >>"${FUNCTIONS_FILE}"
 printf '%s\n' 'restore_dns_filter_settings() { return 0; }' >>"${FUNCTIONS_FILE}"
 printf '%s\n' 'installer_lan_domain_restore() { return 0; }' >>"${FUNCTIONS_FILE}"
 printf '%s\n' 'nvram_transaction_lock_owned() { return 0; }' >>"${FUNCTIONS_FILE}"
 printf '%s\n' 'nvram_transaction_lock_release() { return 0; }' >>"${FUNCTIONS_FILE}"
 printf '%s\n' 'nvram_transaction_finalize_setup_pair() { return 0; }' >>"${FUNCTIONS_FILE}"
+printf '%s\n' 'nvram_transaction_setup_files_restore() { return 0; }' >>"${FUNCTIONS_FILE}"
 
 (
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
 
 	AGH_FILE="${TMP_DIR}/exit-cleanup/AdGuardHome"
+	BASE_DIR="${TMP_DIR}/exit-cleanup"
 	YAML_FILE="${AGH_FILE}.yaml"
 	YAML_ORI="${TMP_DIR}/exit-cleanup/.AdGuardHome.yaml.ori"
 	SETUP_YAML_TMP_FILE="${YAML_ORI}.new.$$"

@@ -174,7 +174,8 @@ nvram_transaction_finalize_setup_pair() {
 	marker="${snapshot_root}/setup-committed"
 	marker_tmp="${marker}.tmp.$$"
 	if [ "${mode}" != "recovery" ]; then
-		if [ ! -d "${snapshot_root}/lan-domain" ] && [ ! -d "${snapshot_root}/dnsfilter" ]; then
+		if [ ! -d "${snapshot_root}/lan-domain" ] && [ ! -d "${snapshot_root}/dnsfilter" ] &&
+			[ ! -d "${snapshot_root}/setup-files" ]; then
 			return 0
 		fi
 		printf '%s\n' committed >"${marker_tmp}" || return 1
@@ -193,13 +194,115 @@ nvram_transaction_finalize_setup_pair() {
 	# transaction may be restored even if interruption splits this cleanup.
 	rm -f "${snapshot_root}/lan-domain/dirty" "${snapshot_root}/dnsfilter/dirty" 2>/dev/null || true
 	rm -rf "${snapshot_root}/lan-domain" "${snapshot_root}/dnsfilter" 2>/dev/null || true
+	rm -rf "${snapshot_root}/setup-files" 2>/dev/null || true
 	if [ -e "${snapshot_root}/lan-domain" ] || [ -L "${snapshot_root}/lan-domain" ] ||
-		[ -e "${snapshot_root}/dnsfilter" ] || [ -L "${snapshot_root}/dnsfilter" ]; then
+		[ -e "${snapshot_root}/dnsfilter" ] || [ -L "${snapshot_root}/dnsfilter" ] ||
+		[ -e "${snapshot_root}/setup-files" ] || [ -L "${snapshot_root}/setup-files" ]; then
 		[ "${mode}" != "recovery" ] || return 1
 	elif ! rm -f "${marker}" 2>/dev/null || [ -e "${marker}" ] || [ -L "${marker}" ]; then
 		[ "${mode}" != "recovery" ] || return 1
 	fi
 	return 0
+}
+
+nvram_transaction_setup_files_begin() {
+	local journal_entry journal_root journal_tmp source
+	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+	journal_tmp="${journal_root}.tmp.$$"
+	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram" ] || return 1
+	[ ! -e "${journal_root}" ] && [ ! -L "${journal_root}" ] || return 1
+	rm -rf "${journal_tmp}" || return 1
+	mkdir -p "${journal_tmp}" || return 1
+	chmod 700 "${journal_tmp}" || {
+		rm -rf "${journal_tmp}"
+		return 1
+	}
+	for source in yaml-file yaml-original config; do
+		journal_entry="${journal_tmp}/${source}"
+		case "${source}" in
+			yaml-file)
+				if [ "${YAML_BACKED_UP:-0}" -eq 1 ] && [ -f "${YAML_BAK}" ]; then
+					cp -p "${YAML_BAK}" "${journal_entry}" || {
+						rm -rf "${journal_tmp}"
+						return 1
+					}
+				elif [ -f "${YAML_FILE}" ]; then
+					cp -p "${YAML_FILE}" "${journal_entry}" || {
+						rm -rf "${journal_tmp}"
+						return 1
+					}
+				else
+					journal_entry="${journal_entry}.absent"
+					: >"${journal_entry}" || {
+						rm -rf "${journal_tmp}"
+						return 1
+					}
+				fi
+				;;
+			yaml-original)
+				if [ -f "${YAML_ORI}" ]; then
+					cp -p "${YAML_ORI}" "${journal_entry}" || {
+						rm -rf "${journal_tmp}"
+						return 1
+					}
+				else
+					journal_entry="${journal_entry}.absent"
+					: >"${journal_entry}" || {
+						rm -rf "${journal_tmp}"
+						return 1
+					}
+				fi
+				;;
+			config)
+				if [ -f "${CONF_FILE}" ]; then
+					cp -p "${CONF_FILE}" "${journal_entry}" || {
+						rm -rf "${journal_tmp}"
+						return 1
+					}
+				else
+					journal_entry="${journal_entry}.absent"
+					: >"${journal_entry}" || {
+						rm -rf "${journal_tmp}"
+						return 1
+					}
+				fi
+				;;
+		esac
+		chmod 600 "${journal_entry}" || {
+			rm -rf "${journal_tmp}"
+			return 1
+		}
+	done
+	mv "${journal_tmp}" "${journal_root}" || {
+		rm -rf "${journal_tmp}"
+		return 1
+	}
+}
+
+nvram_transaction_setup_files_restore() {
+	local journal_root source stage target
+	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+	[ ! -L "${journal_root}" ] || return 1
+	[ -d "${journal_root}" ] || return 0
+	for source in yaml-file yaml-original config; do
+		case "${source}" in
+			yaml-file) target="${YAML_FILE}" ;;
+			yaml-original) target="${YAML_ORI}" ;;
+			config) target="${CONF_FILE}" ;;
+		esac
+		stage="${target}.setup-restore.$$"
+		if [ -f "${journal_root}/${source}" ]; then
+			cp -p "${journal_root}/${source}" "${stage}" && mv -f "${stage}" "${target}" || {
+				rm -f "${stage}"
+				return 1
+			}
+		elif [ -f "${journal_root}/${source}.absent" ]; then
+			rm -f "${target}" || return 1
+		else
+			return 1
+		fi
+	done
+	rm -rf "${journal_root}" || return 1
 }
 
 nvram_transaction_recover_pending() {
@@ -209,6 +312,7 @@ nvram_transaction_recover_pending() {
 	snapshot_root="${BASE_DIR}/.AdGuardHome.nvram"
 	[ ! -L "${snapshot_root}" ] || return 1
 	if [ ! -f "${snapshot_root}/setup-committed" ] &&
+		[ ! -d "${snapshot_root}/setup-files" ] &&
 		[ ! -f "${snapshot_root}/lan-domain/dirty" ] &&
 		[ ! -f "${snapshot_root}/dnsfilter/dirty" ] &&
 		[ ! -f "${snapshot_root}/dns-preparation/dirty" ] &&
@@ -223,6 +327,10 @@ nvram_transaction_recover_pending() {
 	if ! nvram_transaction_finalize_setup_pair recovery; then
 		failed="1"
 		[ "${paired_committed}" = "0" ] || safe_failure="1"
+	fi
+	if [ "${paired_committed}" = "0" ] && ! nvram_transaction_setup_files_restore; then
+		failed="1"
+		safe_failure="0"
 	fi
 	for transaction in lan-domain dnsfilter dns-preparation jffs-enable; do
 		case "${paired_committed}:${transaction}" in
@@ -1184,6 +1292,7 @@ on_installer_exit() {
 	fi
 	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && nvram_transaction_lock_owned; then
 		nvram_transaction_finalize_setup_pair recovery || PTXT "${ERROR} Unable to finish the committed installer-managed NVRAM cleanup."
+		[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || nvram_transaction_setup_files_restore || PTXT "${ERROR} Unable to restore the interrupted installer configuration files."
 		# Restore any LAN-domain transaction interrupted before setup finalized it.
 		installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 		# Restore any DNSFilter transaction interrupted before setup finalized it.
@@ -6884,6 +6993,12 @@ setup_AdGuardHome_impl() {
 					if ! check_AdGuardHome_yaml "${YAML_ORI_NEW}"; then
 						rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						return 1
+					fi
+					if ! nvram_transaction_setup_files_begin; then
+						rm -f "${YAML_ORI_NEW}"
+						setup_restore_previous_yaml || true
+						PTXT "${ERROR} Unable to journal the current installer configuration before setup publication."
 						return 1
 					fi
 					PTXT "${INFO} Writing AdGuardHome configuration..."
