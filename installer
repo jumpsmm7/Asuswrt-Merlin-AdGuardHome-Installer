@@ -6904,6 +6904,13 @@ setup_AdGuardHome_impl() {
 							"${WARNING} Continuing setup with the previous or default IPSET preference."
 					fi
 				fi
+				if { { [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; } || [ "${CHOOSE_NEW}" -eq 1 ] || [ -n "${DNS_FILTER_SELECTION:-}" ]; } &&
+					! nvram_transaction_setup_files_begin; then
+					setup_restore_previous_yaml || true
+					PTXT "${ERROR} Unable to journal the current installer configuration before setup publication."
+					return 1
+				fi
+				SETUP_FILES_JOURNALED=1
 				if { [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; } || [ "${CHOOSE_NEW}" -eq 1 ]; then
 					PTXT "${INFO} Requesting entries for AdGuardHome initial configuration..." \
 						"${INFO} Please set the preferred Web Port for AdGuardHome WebUI." \
@@ -6995,13 +7002,6 @@ setup_AdGuardHome_impl() {
 						setup_restore_previous_yaml || true
 						return 1
 					fi
-					if ! nvram_transaction_setup_files_begin; then
-						rm -f "${YAML_ORI_NEW}"
-						setup_restore_previous_yaml || true
-						PTXT "${ERROR} Unable to journal the current installer configuration before setup publication."
-						return 1
-					fi
-					SETUP_FILES_JOURNALED=1
 					PTXT "${INFO} Writing AdGuardHome configuration..."
 					if ! cp -f "${YAML_ORI_NEW}" "${YAML_FILE}"; then
 						rm -f "${YAML_ORI_NEW}"
