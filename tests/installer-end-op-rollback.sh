@@ -85,6 +85,8 @@ for signal_mode in cli deferred; do
 	ADGUARD_DEFER_END_OP="0"
 	[ "${signal_mode}" != "cli" ] || CLI_MODE="1"
 	[ "${signal_mode}" != "deferred" ] || ADGUARD_DEFER_END_OP="1"
+	# nvram_transaction_lock_reaper_release_active successfully releases the active reaper.
+	nvram_transaction_lock_reaper_release_active() { return 0; }
 	rm -f "${TEST_ROOT}/unexpected-signal-return"
 	(
 		END_OP_SIGNAL="1"
@@ -94,6 +96,19 @@ for signal_mode in cli deferred; do
 	status=$?
 	[ "${status}" -eq 2 ] || fail "${signal_mode} signal cleanup exited with status ${status} instead of 2"
 	[ ! -e "${TEST_ROOT}/unexpected-signal-return" ] || fail "${signal_mode} signal cleanup returned to the interrupted operation"
+
+	# nvram_transaction_lock_reaper_release_active fails to release the active reaper.
+	nvram_transaction_lock_reaper_release_active() { return 1; }
+	rm -f "${TEST_ROOT}/unexpected-signal-return"
+	(
+		END_OP_SIGNAL="1"
+		end_op_message 2 >"${TEST_ROOT}/${signal_mode}-signal-release-output" 2>&1
+		printf '%s\n' returned >"${TEST_ROOT}/unexpected-signal-return"
+	)
+	status=$?
+	[ "${status}" -eq 1 ] || fail "${signal_mode} signal cleanup failure exited with status ${status} instead of 1"
+	[ ! -e "${TEST_ROOT}/unexpected-signal-return" ] || fail "${signal_mode} signal cleanup failure returned to the interrupted operation"
+	grep -q 'Unable to release the installer NVRAM transaction reaper' "${TEST_ROOT}/${signal_mode}-signal-release-output" || fail "${signal_mode} signal cleanup failure was not reported"
 done
 
 CLI_MODE="0"
