@@ -645,6 +645,15 @@ done
 	nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${LOCK_OWNER}" ||
 		fail 'legacy reaper release was not idempotent after nested cleanup'
 
+	# A dangling symlink is still a path entry and must not be mistaken for an
+	# already-absent mutex, even when nested cleanup cleared the active state.
+	ln -s "${reaper_path}.missing" "${reaper_path}" || fail 'could not prepare dangling legacy reaper'
+	if nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${LOCK_OWNER}"; then
+		fail 'legacy reaper release treated a dangling symlink as absent'
+	fi
+	[ -L "${reaper_path}" ] || fail 'legacy reaper release removed an unverified dangling symlink'
+	rm -f "${reaper_path}"
+
 	# Cleared state must not make an existing or differently tracked lock safe.
 	mkdir "${reaper_path}" || fail 'could not prepare unowned legacy reaper'
 	printf '%s\n' 'replacement-owner' >"${reaper_path}/pid" || fail 'could not publish replacement reaper owner'

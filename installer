@@ -404,7 +404,7 @@ nvram_transaction_lock_reaper_legacy_release() {
 	local owner reaper_path
 	reaper_path="$1"
 	owner="$2"
-	if [ ! -e "${reaper_path}" ]; then
+	if [ ! -e "${reaper_path}" ] && [ ! -L "${reaper_path}" ]; then
 		# A returning signal trap may have completed this release and cleared
 		# the tracked state while the interrupted release was still running.
 		if [ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] &&
