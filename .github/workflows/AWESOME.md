@@ -1,0 +1,118 @@
+# Awesome Workflows
+
+Welcome to our collection of awesome community-contributed workflows! This page showcases creative and powerful implementations of the [Google Gemini CLI GitHub Action](https://github.com/google-github-actions/run-gemini-cli) created by the community.
+
+**Want to add your workflow?** Check out the [submission guidelines](./README.md#share-your-workflow) in our main README.
+
+> **⚠️ Security Notice**: Always review and understand any workflow before using it in your repository. Community-contributed workflows are provided as-is and have not been security audited. Verify the code, permissions, and any external dependencies before implementation.
+
+- [Awesome Workflows](#awesome-workflows)
+  - [Workflow Categories](#workflow-categories)
+    - [🔍 Code Quality](#-code-quality)
+    - [📋 Project Management](#-project-management)
+      - [Enforce Contribution Guidelines in Pull Requests](#enforce-contribution-guidelines-in-pull-requests)
+    - [📝 Documentation](#-documentation)
+    - [🛡️ Security](#️-security)
+    - [🧪 Testing](#-testing)
+    - [🚀 Deployment \& Release](#-deployment--release)
+      - [Generate Release Notes](#generate-release-notes)
+    - [🎯 Specialized Use Cases](#-specialized-use-cases)
+  - [Featured Workflows](#featured-workflows)
+
+## Workflow Categories
+
+Browse workflows by category to find exactly what you're looking for.
+
+### 🔍 Code Quality
+
+Workflows that help maintain code quality, perform analysis, or enforce standards.
+
+_No workflows yet. Be the first to contribute!_
+
+### 📋 Project Management
+
+Workflows that help manage GitHub issues, projects, or team collaboration.
+
+#### Enforce Contribution Guidelines in Pull Requests
+
+**Repository:** [jasmeetsb/gemini-github-actions](https://github.com/jasmeetsb/gemini-github-actions)
+
+**Description:** Automates validation of pull requests against your repository's CONTRIBUTING.md using the Google Gemini CLI. The workflow posts a single upserted PR comment indicating PASS/FAIL with a concise checklist of actionable items, and can optionally fail the job to enforce compliance.
+
+**Key Features:**
+
+- Reads and evaluates PR title, body, and diff against CONTRIBUTING.md
+- Posts a single PR comment with a visible PASS/FAIL marker in Comment Title and details of compliance status in the comment body
+- Optional enforcement: fail the workflow when violations are detected
+
+**Setup Requirements:**
+
+- Copy [.github/workflows/pr-contribution-guidelines-enforcement.yml](https://github.com/jasmeetsb/gemini-github-actions/blob/main/.github/workflows/pr-contribution-guidelines-enforcement.yml) to your .github/workflows/ folder.
+- File: `CONTRIBUTING.md` at the repository root
+- (Optional) Repository variable `FAIL_ON_GUIDELINE_VIOLATIONS=true` to fail the workflow on violations
+
+**Example Usage:**
+
+- Define contribution guidelines in CONTRIBUTING.md file
+- Open a new PR or update an existing PR, which would then trigger the workflow
+- Workflow will validate the PR against the contribution guidelines and add a comment in the PR with PASS/FAIL status and details of guideline compliance and non-compliance
+
+  **OR**
+
+- Add following comment in an existing PR **"/validate-contribution"** to trigger the workflow
+
+**Workflow File:**
+
+- Example location in this repo: [.github/workflows/pr-contribution-guidelines-enforcement.yml](https://github.com/jasmeetsb/gemini-github-actions/blob/main/.github/workflows/pr-contribution-guidelines-enforcement.yml)
+- Typical usage in a consumer repo: `.github/workflows/pr-contribution-guidelines-enforcement.yml` (copy the file and adjust settings/secrets as needed)
+
+### 📝 Documentation
+
+Workflows that generate, update, or maintain documentation automatically.
+
+_No workflows yet. Be the first to contribute!_
+
+### 🛡️ Security
+
+Workflows focused on security analysis, vulnerability detection, or compliance.
+
+_No workflows yet. Be the first to contribute!_
+
+### 🧪 Testing
+
+Workflows that enhance testing processes, generate test cases, or analyze test results.
+
+_No workflows yet. Be the first to contribute!_
+
+### 🚀 Deployment & Release
+
+Workflows that handle deployment, release management, or publishing tasks.
+
+#### Generate Release Notes
+
+**Repository:** [conforma/policy](https://github.com/conforma/policy)
+
+Make release notes based on all notable changes since a given tag.
+It categorizes the release notes nicely with emojis, output as Markdown.
+
+**Key Features:**
+
+- Categorize changes in release notes
+- Include relevant links in release notes
+- Add fun emojis in release notes
+
+**Workflow File:** [View on GitHub](https://github.com/conforma/policy/blob/bba371ad8f0fff7eea2ce7a50539cde658645a56/.github/workflows/release.yaml#L93-L114)
+
+### 🎯 Specialized Use Cases
+
+Unique or domain-specific workflows that showcase creative uses of Gemini CLI.
+
+_No workflows yet. Be the first to contribute!_
+
+## Featured Workflows
+
+_Coming soon!_ This section will highlight particularly innovative or popular community workflows.
+
+---
+
+_Want to see your workflow featured here? Check out our [submission guidelines](./README.md#share-your-workflow)!_
