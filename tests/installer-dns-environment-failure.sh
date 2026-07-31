@@ -320,8 +320,8 @@ reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
 reaper_path="${BASE_DIR}/failed-owner-publication.reaper"
 (
-	# Fail only the owner publication: the explicit owner avoids an earlier
-	# printf simulates a failed printf operation by returning status 1.
+	# Fail only the reaper owner-file publication: the explicit owner avoids
+	# calling the overridden printf while determining the current lock owner.
 	printf() { return 1; }
 	if nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"; then
 		exit 1
@@ -335,8 +335,8 @@ reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
 reaper_path="${BASE_DIR}/changed-owner-publication.reaper"
 (
-	# Simulate ownership changing or becoming unreadable during the
-	# cat prints `replacement-owner` followed by a newline, regardless of its arguments.
+	# Simulate the published reaper owner changing during the post-publication
+	# ownership check by making cat report a different owner.
 	cat() { printf '%s\n' 'replacement-owner'; }
 	if nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"; then
 		exit 1
