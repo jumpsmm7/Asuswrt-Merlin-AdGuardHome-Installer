@@ -8,7 +8,10 @@ TEST_ROOT="${TMPDIR:-/tmp}/installer-dns-environment-failure.$$"
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 NVRAM_FILE="${TEST_ROOT}/nvram"
 CALLS_FILE="${TEST_ROOT}/calls"
+LOCK_REMOVE_COUNT=0
+SYMLINK_LOCK_REMOVE_COUNT=0
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -155,7 +158,7 @@ service() {
 	return 1
 }
 
-# rm removes files and directories, with optional simulated failures for staged files or the active NVRAM transaction directory.
+# rm removes files and directories, optionally simulating configured removal failures for transaction and lock artifacts.
 rm() {
 	if [ "${FAIL_SETUP_MARKER_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -f ] && [ "${2:-}" = "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; then
 		return 1
@@ -167,6 +170,14 @@ rm() {
 	fi
 	if [ "${FAIL_SNAPSHOT_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${NVRAM_TRANSACTION_DIR:-}" ]; then
 		return 1
+	fi
+	if [ "$#" -eq 2 ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ]; then
+		LOCK_REMOVE_COUNT="$((LOCK_REMOVE_COUNT + 1))"
+		[ "${FAIL_LOCK_REMOVE_AT:-0}" != "${LOCK_REMOVE_COUNT}" ] || return 1
+	fi
+	if [ "$#" -ge 2 ] && [ "${1:-}" = -f ] && [ "${2:-}" = "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" ]; then
+		SYMLINK_LOCK_REMOVE_COUNT="$((SYMLINK_LOCK_REMOVE_COUNT + 1))"
+		[ "${FAIL_SYMLINK_LOCK_REMOVE_AT:-0}" != "${SYMLINK_LOCK_REMOVE_COUNT}" ] || return 1
 	fi
 	command rm "$@"
 }
@@ -186,7 +197,8 @@ dns_check_count() { grep -c '^nslookup ' "${CALLS_FILE}"; }
 
 # reset_case restores the simulated test environment, counters, fault-injection settings, and NVRAM contents to their baseline state.
 reset_case() {
-	FAIL_SETUP_MARKER_REMOVE=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0
+	FAIL_LOCK_REMOVE_AT=0 FAIL_SETUP_MARKER_REMOVE=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0
+	LOCK_REMOVE_COUNT=0
 	nvram_transaction_lock_release || fail 'could not release the previous test transaction lock'
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
 	rm -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
@@ -267,60 +279,490 @@ nvram_transaction_begin dnsfilter dnsfilter_enable_x || fail 'transaction did no
 
 reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not determine the test process lock identity'
-for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
-	mkdir -p "${reaper_path}"
-	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "ownerless reaper lock was not reclaimed: ${reaper_path}"
-	[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "reclaimed ownerless reaper lock has the wrong owner: ${reaper_path}"
-	nvram_transaction_lock_reaper_release "${reaper_path}" || fail "reclaimed ownerless reaper lock was not released: ${reaper_path}"
+reaper_path="${BASE_DIR}/interrupted-publication.reaper"
+BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" reaper_path="${reaper_path}" sh -c '
+	. "${FUNCTIONS_FILE}"
+	trap '\''
+		nvram_transaction_lock_reaper_release_active || exit 1
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || exit 1
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || exit 1
+		exit 77
+	'\'' HUP INT TERM
+	nvram_transaction_lock_flock_supports_fd() {
+		kill -TERM "$$"
+		return 1
+	}
+	nvram_transaction_lock_reaper_acquire "${reaper_path}"
+'
+status="$?"
+[ "${status}" -eq 77 ] || fail "interrupted reaper owner publication exited with status ${status} instead of 77"
+[ ! -e "${reaper_path}" ] || fail 'interrupted reaper owner publication retained the legacy directory'
 
-	mkdir -p "${reaper_path}"
-	: >"${reaper_path}/pid"
-	if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
-		fail "initializing reaper lock with an empty owner was reclaimed: ${reaper_path}"
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/failed-owner-publication.reaper"
+(
+	# Fail only the owner publication: the explicit owner avoids an earlier
+	# printf simulates a failed printf operation by returning status 1.
+	printf() { return 1; }
+	if nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"; then
+		exit 1
 	fi
-	[ -d "${reaper_path}" ] || fail "initializing reaper lock with an empty owner was removed: ${reaper_path}"
-	[ ! -s "${reaper_path}/pid" ] || fail "initializing reaper lock owner was replaced: ${reaper_path}"
-	rm -rf "${reaper_path}"
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || exit 1
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || exit 1
+	[ ! -e "${reaper_path}" ] || exit 1
+) || fail 'failed reaper owner publication retained active cleanup state'
 
-	mkdir -p "${reaper_path}"
-	printf '%s\n' 999999999 >"${reaper_path}/pid"
-	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "stale reaper lock was not reclaimed: ${reaper_path}"
-	[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "reclaimed reaper lock has the wrong owner: ${reaper_path}"
-	nvram_transaction_lock_reaper_release "${reaper_path}" || fail "reclaimed reaper lock was not released: ${reaper_path}"
-
-	mkdir -p "${reaper_path}"
-	printf '%s\n' "${LOCK_OWNER}" >"${reaper_path}/pid"
-	if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
-		fail "live reaper lock was reclaimed: ${reaper_path}"
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/changed-owner-publication.reaper"
+(
+	# Simulate ownership changing or becoming unreadable during the
+	# cat prints `replacement-owner` followed by a newline, regardless of its arguments.
+	cat() { printf '%s\n' 'replacement-owner'; }
+	if nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"; then
+		exit 1
+	else
+		acquire_status="$?"
+		[ "${acquire_status}" -eq 1 ] || exit 1
 	fi
-	rm -rf "${reaper_path}"
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || exit 1
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || exit 1
+	[ -f "${reaper_path}/pid" ] || exit 1
+) || fail 'changed reaper owner publication retained active cleanup state or removed recovery evidence'
 
-	mkdir -p "${reaper_path}"
-	printf '%s:0\n' "$$" >"${reaper_path}/pid"
-	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "PID-reused reaper lock was not reclaimed: ${reaper_path}"
-	[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "PID-reused reaper lock has the wrong replacement owner: ${reaper_path}"
-	nvram_transaction_lock_reaper_release "${reaper_path}" || fail "PID-reused reaper lock was not released: ${reaper_path}"
-done
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/interrupted-symlink-publication.reaper"
+BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" reaper_path="${reaper_path}" sh -c '
+	. "${FUNCTIONS_FILE}"
+	trap '\''
+		nvram_transaction_lock_reaper_release_active || exit 1
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || exit 1
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || exit 1
+		exit 78
+	'\'' HUP INT TERM
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	ln() {
+		command ln "$@" || return 1
+		kill -TERM "$$"
+	}
+	nvram_transaction_lock_reaper_acquire "${reaper_path}"
+'
+status="$?"
+[ "${status}" -eq 78 ] || fail "interrupted reaper symlink publication exited with status ${status} instead of 78"
+[ ! -e "${reaper_path}" ] || fail 'interrupted reaper symlink publication retained the legacy directory'
+[ ! -L "${reaper_path}.symlink" ] || fail 'interrupted reaper symlink publication retained the symlink marker'
 
-for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/returning-signal-symlink-publication.reaper"
+(
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# ln creates a link and releases the active NVRAM transaction lock reaper.
+	ln() {
+		command ln "$@" || return 1
+		nvram_transaction_lock_reaper_release_active || return 1
+	}
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "returning signal cleanup symlink acquisition returned ${status} instead of 1"
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || fail 'returning signal cleanup left symlink reaper mode active'
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || fail 'returning signal cleanup left symlink reaper path active'
+	[ ! -e "${reaper_path}" ] || fail 'returning signal cleanup retained the legacy reaper directory'
+	[ ! -L "${reaper_path}.symlink" ] || fail 'returning signal cleanup retained the symlink reaper marker'
+) || exit 1
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/returning-signal-failed-symlink-publication.reaper"
+(
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# ln releases the active NVRAM transaction lock reaper and always reports failure.
+	ln() {
+		nvram_transaction_lock_reaper_release_active || return 1
+		return 1
+	}
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "returning signal cleanup after failed symlink publication returned ${status} instead of 1"
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || fail 'failed symlink publication reported an unowned mkdir reaper'
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || fail 'failed symlink publication retained its released reaper path'
+	[ ! -e "${reaper_path}" ] || fail 'failed symlink publication retained the released legacy reaper directory'
+	[ ! -L "${reaper_path}.symlink" ] || fail 'failed symlink publication unexpectedly created a symlink marker'
+) || exit 1
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/interrupted-stale-symlink-reclaim.reaper"
+ln -s 999999999 "${reaper_path}.symlink" || fail 'could not prepare stale reaper symlink'
+BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" reaper_path="${reaper_path}" sh -c '
+	. "${FUNCTIONS_FILE}"
+	trap '\''
+		nvram_transaction_lock_reaper_release_active || exit 1
+		exit 79
+	'\'' HUP INT TERM
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	mv() {
+		command mv "$@" || return 1
+		kill -TERM "$$"
+	}
+	printf "%s\n" "$$" >"${reaper_path}.test-pid"
+	nvram_transaction_lock_reaper_acquire "${reaper_path}"
+'
+status="$?"
+[ "${status}" -eq 79 ] || fail "interrupted stale reaper symlink reclaim exited with status ${status} instead of 79"
+[ ! -e "${reaper_path}" ] || fail 'interrupted stale reaper symlink reclaim retained the legacy directory'
+[ ! -L "${reaper_path}.symlink" ] || fail 'interrupted stale reaper symlink reclaim retained the published owner'
+reaper_test_pid="$(cat "${reaper_path}.test-pid" 2>/dev/null)"
+[ -z "$(find "${BASE_DIR}" -name "$(basename "${reaper_path}").symlink.${reaper_test_pid}:*" -print)" ] ||
+	fail 'interrupted stale reaper symlink reclaim retained its temporary marker'
+rm -f "${reaper_path}.test-pid"
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/pid-reused-stale-symlink.reaper"
+reused_pid="${LOCK_OWNER%%:*}"
+ln -s 999999999 "${reaper_path}.symlink" || fail 'could not prepare stale reaper symlink for PID-reuse recovery'
+ln -s "${reused_pid}:1" "${reaper_path}.symlink.${reused_pid}" || fail 'could not prepare interrupted PID-only temporary marker'
+(
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'PID reuse blocked stale reaper recovery'
+	[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink")" = "${LOCK_OWNER}" ] ||
+		fail 'PID-reuse recovery published the wrong reaper owner'
+	nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'PID-reuse recovery reaper was not released'
+)
+[ -L "${reaper_path}.symlink.${reused_pid}" ] || fail 'PID-reuse recovery removed an unverified legacy temporary marker'
+rm -f "${reaper_path}.symlink.${reused_pid}"
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/busybox-mv-stale-symlink.reaper"
+malformed_target="${BASE_DIR}/busybox-mv-target"
+mkdir "${malformed_target}" || fail 'could not prepare malformed reaper symlink target'
+ln -s "${malformed_target}" "${reaper_path}.symlink" || fail 'could not prepare malformed reaper symlink'
+(
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# mv rejects the -T option and delegates all other invocations to the system mv command.
+	mv() {
+		[ "${1:-}" != '-T' ] || return 1
+		command mv "$@"
+	}
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'BusyBox mv rejection blocked stale reaper recovery'
+	[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink")" = "${LOCK_OWNER}" ] ||
+		fail 'BusyBox mv fallback published the wrong reaper owner'
+	[ -z "$(find "${malformed_target}" -mindepth 1 -maxdepth 1 -print)" ] ||
+		fail 'BusyBox mv fallback followed the malformed reaper symlink target'
+	[ ! -e "${reaper_path}.symlink.${LOCK_OWNER}" ] && [ ! -L "${reaper_path}.symlink.${LOCK_OWNER}" ] ||
+		fail 'BusyBox mv fallback retained its temporary marker'
+	nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'BusyBox mv fallback reaper was not released'
+	[ ! -e "${reaper_path}" ] || fail 'BusyBox mv fallback retained the legacy reaper directory'
+	[ ! -L "${reaper_path}.symlink" ] || fail 'BusyBox mv fallback retained the published reaper symlink'
+)
+rm -rf "${malformed_target}"
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+(
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_readlink reads the transaction lock target and returns 127 when the operation is unavailable.
+	nvram_transaction_lock_readlink() { return 127; }
+	for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
+		mkdir -p "${reaper_path}"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "ownerless reaper lock was not reclaimed: ${reaper_path}"
+		[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "reclaimed ownerless reaper lock has the wrong owner: ${reaper_path}"
+		nvram_transaction_lock_reaper_release "${reaper_path}" || fail "reclaimed ownerless reaper lock was not released: ${reaper_path}"
+
+		mkdir -p "${reaper_path}"
+		: >"${reaper_path}/pid"
+		if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
+			fail "initializing reaper lock with an empty owner was reclaimed: ${reaper_path}"
+		fi
+		[ -d "${reaper_path}" ] || fail "initializing reaper lock with an empty owner was removed: ${reaper_path}"
+		[ ! -s "${reaper_path}/pid" ] || fail "initializing reaper lock owner was replaced: ${reaper_path}"
+		rm -rf "${reaper_path}"
+
+		mkdir -p "${reaper_path}"
+		printf '%s\n' 999999999 >"${reaper_path}/pid"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "stale reaper lock was not reclaimed: ${reaper_path}"
+		[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "reclaimed reaper lock has the wrong owner: ${reaper_path}"
+		nvram_transaction_lock_reaper_release "${reaper_path}" || fail "reclaimed reaper lock was not released: ${reaper_path}"
+
+		mkdir -p "${reaper_path}"
+		printf '%s\n' "${LOCK_OWNER}" >"${reaper_path}/pid"
+		if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
+			fail "live reaper lock was reclaimed: ${reaper_path}"
+		fi
+		rm -rf "${reaper_path}"
+
+		mkdir -p "${reaper_path}"
+		printf '%s:0\n' "$$" >"${reaper_path}/pid"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "PID-reused reaper lock was not reclaimed: ${reaper_path}"
+		[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "PID-reused reaper lock has the wrong replacement owner: ${reaper_path}"
+		nvram_transaction_lock_reaper_release "${reaper_path}" || fail "PID-reused reaper lock was not released: ${reaper_path}"
+	done
+) || exit 1
+
+(
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_readlink reads the transaction lock target and returns 127 when the operation is unavailable.
+	nvram_transaction_lock_readlink() { return 127; }
+	for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
+		rm -rf "${reaper_path}"
+		(
+			# nvram_transaction_lock_owner_current reports an error and fails when called despite an explicit owner being supplied.
+			nvram_transaction_lock_owner_current() {
+				printf '%s\n' 'Error: owner lookup invoked unexpectedly while an explicit owner was supplied' >&2
+				return 1
+			}
+			nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail "explicit-owner reaper acquire failed while owner lookup was disabled: ${reaper_path}"
+			[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail "explicit-owner reaper acquire did not record the supplied owner: ${reaper_path}"
+			nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail "explicit-owner reaper release failed while owner lookup was disabled: ${reaper_path}"
+		) || exit 1
+		[ ! -e "${reaper_path}" ] || fail "explicit-owner reaper release did not remove the reaper directory: ${reaper_path}"
+
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" '' || fail "empty explicit owner did not fall back to the owner lookup: ${reaper_path}"
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail "empty explicit owner recorded an unexpected owner: ${reaper_path}"
+		nvram_transaction_lock_reaper_release "${reaper_path}" '' || fail "empty explicit owner release did not fall back to the owner lookup: ${reaper_path}"
+		[ ! -e "${reaper_path}" ] || fail "empty explicit owner release did not remove the reaper directory: ${reaper_path}"
+	done
+) || exit 1
+
+(
+	# A live directory is the mutex used by older installers. New capability
+	# modes must honor it before publishing their mode-specific artifacts.
+	reaper_path="${BASE_DIR}/.AdGuardHome.nvram.legacy-reaper"
+	mkdir "${reaper_path}" || fail 'could not prepare legacy reaper lock'
+	printf '%s\n' "${LOCK_OWNER}" >"${reaper_path}/pid" || fail 'could not record legacy reaper owner'
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_reaper_acquire "${reaper_path}"
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "symlink reaper returned ${status} instead of 1 for a live legacy reaper"
+	[ ! -L "${reaper_path}.symlink" ] || fail 'symlink reaper bypassed a live legacy reaper'
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'symlink reaper changed the legacy reaper owner'
 	rm -rf "${reaper_path}"
-	(
-		# nvram_transaction_lock_owner_current reports an error and fails when an owner lookup is invoked unexpectedly.
-		nvram_transaction_lock_owner_current() {
-			printf '%s\n' 'Error: owner lookup invoked unexpectedly while an explicit owner was supplied' >&2
-			return 1
+) || exit 1
+
+if nvram_transaction_lock_flock_supports_fd; then
+	BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		reaper_path="${BASE_DIR}/returning-signal-flock-acquisition.reaper"
+		nvram_transaction_lock_reaper_flock_acquire() {
+			/usr/bin/flock -n 9 >/dev/null 2>&1 || return 1
+			nvram_transaction_lock_reaper_release_active || return 1
+			return 0
 		}
-		nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail "explicit-owner reaper acquire failed while owner lookup was disabled: ${reaper_path}"
-		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail "explicit-owner reaper acquire did not record the supplied owner: ${reaper_path}"
-		nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail "explicit-owner reaper release failed while owner lookup was disabled: ${reaper_path}"
-	) || exit 1
-	[ ! -e "${reaper_path}" ] || fail "explicit-owner reaper release did not remove the reaper directory: ${reaper_path}"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}"
+		status="$?"
+		[ "${status}" -ne 0 ] || exit 81
+		[ "${status}" -eq 1 ] || exit 82
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || exit 83
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || exit 84
+		[ ! -L "/proc/$$/fd/9" ] || exit 85
+		[ ! -e "${reaper_path}" ] || exit 86
+	'
+	status="$?"
+	[ "${status}" -eq 0 ] || fail "returning signal cleanup flock regression exited with status ${status}"
 
-	nvram_transaction_lock_reaper_acquire "${reaper_path}" '' || fail "empty explicit owner did not fall back to the owner lookup: ${reaper_path}"
-	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail "empty explicit owner recorded an unexpected owner: ${reaper_path}"
-	nvram_transaction_lock_reaper_release "${reaper_path}" '' || fail "empty explicit owner release did not fall back to the owner lookup: ${reaper_path}"
-	[ ! -e "${reaper_path}" ] || fail "empty explicit owner release did not remove the reaper directory: ${reaper_path}"
+	BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		reaper_path="${BASE_DIR}/interrupted-flock-acquisition.reaper"
+		trap '\''
+			nvram_transaction_lock_reaper_release_active || exit 1
+			[ ! -e "/proc/$$/fd/9" ] || exit 1
+			[ ! -e "${reaper_path}" ] || exit 1
+			exit 80
+		'\'' HUP INT TERM
+		nvram_transaction_lock_reaper_flock_acquire() {
+			/usr/bin/flock -n 9 >/dev/null 2>&1 || return 1
+			kill -TERM "$$"
+		}
+		nvram_transaction_lock_reaper_acquire "${reaper_path}"
+	'
+	status="$?"
+	[ "${status}" -eq 80 ] || fail "interrupted flock reaper acquisition exited with status ${status} instead of 80"
+	[ ! -e "${BASE_DIR}/interrupted-flock-acquisition.reaper" ] || fail 'interrupted flock reaper acquisition retained the legacy mutex'
+
+	(
+		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.legacy-flock-reaper"
+		mkdir "${reaper_path}" || fail 'could not prepare legacy reaper before flock acquisition'
+		printf '%s\n' "${LOCK_OWNER}" >"${reaper_path}/pid" || fail 'could not record legacy reaper owner before flock acquisition'
+		nvram_transaction_lock_reaper_acquire "${reaper_path}"
+		status="$?"
+		[ "${status}" -eq 1 ] || fail "flock reaper returned ${status} instead of 1 for a live legacy reaper"
+		[ ! -e "/proc/$$/fd/9" ] || fail 'flock reaper opened its descriptor through a live legacy reaper'
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'flock reaper changed the legacy reaper owner'
+		rm -rf "${reaper_path}"
+	) || exit 1
+fi
+
+(
+	reaper_path="${BASE_DIR}/.AdGuardHome.nvram.capability-reaper"
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail 'symlink-capable reaper lock could not be acquired'
+	[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = symlink ] || fail 'reaper did not select the symlink transaction-lock capability'
+	[ "$(readlink "${reaper_path}.symlink")" = "${LOCK_OWNER}" ] || fail 'symlink-capable reaper recorded the wrong owner'
+	nvram_transaction_lock_reaper_release "${reaper_path}" || fail 'symlink-capable reaper lock could not be released'
+	[ ! -L "${reaper_path}.symlink" ] || fail 'symlink-capable reaper lock remained after release'
+) || exit 1
+
+for reentrant_mode in symlink mkdir; do
+	(
+		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.reentrant-${reentrant_mode}-reaper"
+		# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+		nvram_transaction_lock_flock_supports_fd() { return 1; }
+		if [ "${reentrant_mode}" = mkdir ]; then
+			# nvram_transaction_lock_readlink reads the transaction lock target and returns 127 when the operation is unavailable.
+			nvram_transaction_lock_readlink() { return 127; }
+		fi
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" ||
+			fail "${reentrant_mode} reaper could not be acquired for reentrant release"
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "${reentrant_mode}" ] ||
+			fail "${reentrant_mode} reaper selected the wrong mode for reentrant release"
+		REENTRANT_RELEASES=0
+		# rm removes the reaper lock path and releases its active lock, or delegates other removals to the system rm command.
+		rm() {
+			if [ "${1:-}" = -rf ] && [ "${2:-}" = "${reaper_path}" ]; then
+				command rm "$@" || return 1
+				REENTRANT_RELEASES=$((REENTRANT_RELEASES + 1))
+				nvram_transaction_lock_reaper_release_active || return 1
+				return 0
+			fi
+			command rm "$@"
+		}
+		nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" ||
+			fail "${reentrant_mode} reaper release failed after deleting its mutex"
+		[ "${REENTRANT_RELEASES}" -eq 1 ] || fail "${reentrant_mode} reentrant release hook was not reached"
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || fail "${reentrant_mode} reentrant release retained its mode"
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || fail "${reentrant_mode} reentrant release retained its path"
+		[ ! -e "${reaper_path}" ] || fail "${reentrant_mode} reentrant release retained its mutex"
+	) || exit 1
 done
+
+(
+	# A returning signal trap can finish cleanup before an interrupted outer
+	# legacy release resumes. The already-absent, fully cleared lock is success.
+	reaper_path="${BASE_DIR}/.AdGuardHome.nvram.nested-release-reaper"
+	NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+	NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+	nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'legacy reaper release was not idempotent after nested cleanup'
+
+	# A dangling symlink is still a path entry and must not be mistaken for an
+	# already-absent mutex, even when nested cleanup cleared the active state.
+	ln -s "${reaper_path}.missing" "${reaper_path}" || fail 'could not prepare dangling legacy reaper'
+	if nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${LOCK_OWNER}"; then
+		fail 'legacy reaper release treated a dangling symlink as absent'
+	fi
+	[ -L "${reaper_path}" ] || fail 'legacy reaper release removed an unverified dangling symlink'
+	rm -f "${reaper_path}"
+
+	# Cleared state must not make an existing or differently tracked lock safe.
+	mkdir "${reaper_path}" || fail 'could not prepare unowned legacy reaper'
+	printf '%s\n' 'replacement-owner' >"${reaper_path}/pid" || fail 'could not publish replacement reaper owner'
+	if nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${LOCK_OWNER}"; then
+		fail 'idempotent legacy release removed a replacement owner'
+	fi
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = 'replacement-owner' ] ||
+		fail 'idempotent legacy release changed a replacement owner'
+	rm -rf "${reaper_path}"
+) || exit 1
+
+(
+	reaper_path="${BASE_DIR}/.AdGuardHome.nvram.unsupported-symlink-reaper"
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# ln simulates a filesystem that supports readlink but rejects symlink creation.
+	ln() { return 1; }
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail 'failed symlink publication did not select the mkdir reaper fallback'
+	[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = mkdir ] || fail 'failed symlink publication selected the wrong reaper fallback'
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'mkdir reaper fallback recorded the wrong owner'
+	nvram_transaction_lock_reaper_release "${reaper_path}" || fail 'mkdir reaper fallback could not be released'
+
+	mkdir "${reaper_path}" || fail 'could not prepare stale mkdir reaper after failed symlink publication'
+	printf '%s\n' 999999999 >"${reaper_path}/pid" || fail 'could not record stale mkdir reaper owner after failed symlink publication'
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail 'failed symlink publication blocked stale mkdir reaper recovery'
+	[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = mkdir ] || fail 'stale mkdir reaper recovery selected the wrong fallback mode'
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'stale mkdir reaper was not replaced by the live owner'
+	nvram_transaction_lock_reaper_release "${reaper_path}" || fail 'reclaimed mkdir reaper fallback could not be released'
+) || exit 1
+
+if nvram_transaction_lock_flock_supports_fd; then
+	(
+		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.capability-reaper"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail 'flock-capable reaper lock could not be acquired'
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = flock ] || fail 'reaper did not select the flock transaction-lock capability'
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'flock-capable reaper did not publish its legacy-compatible owner'
+		nvram_transaction_lock_reaper_release "${reaper_path}" || fail 'flock-capable reaper lock could not be released'
+	) || exit 1
+
+	(
+		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.reentrant-flock-reaper"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" ||
+			fail 'flock reaper could not be acquired for reentrant release'
+		REENTRANT_RELEASES=0
+		# rm removes the reaper lock path and releases its active lock, or delegates other removals to the system rm command.
+		rm() {
+			if [ "${1:-}" = -rf ] && [ "${2:-}" = "${reaper_path}" ]; then
+				command rm "$@" || return 1
+				REENTRANT_RELEASES=$((REENTRANT_RELEASES + 1))
+				nvram_transaction_lock_reaper_release_active || return 1
+				return 0
+			fi
+			command rm "$@"
+		}
+		nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" ||
+			fail 'flock reaper release failed after deleting its mutex'
+		[ "${REENTRANT_RELEASES}" -eq 1 ] || fail 'flock reentrant release hook was not reached'
+		[ ! -e "/proc/self/fd/9" ] || fail 'flock reentrant release retained descriptor 9'
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || fail 'flock reentrant release retained its mode'
+		[ ! -e "${reaper_path}" ] || fail 'flock reentrant release retained its mutex'
+	) || exit 1
+
+	(
+		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.retryable-flock-reaper"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail 'retryable flock reaper lock could not be acquired'
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = flock ] || fail 'retryable reaper did not select flock mode'
+		REMOVE_ATTEMPTS=0
+		# rm simulates a transient failure when recursively removing the reaper path, then delegates other removals to the system `rm`.
+		rm() {
+			if [ "${1:-}" = -rf ] && [ "${2:-}" = "${reaper_path}" ]; then
+				REMOVE_ATTEMPTS=$((REMOVE_ATTEMPTS + 1))
+				[ "${REMOVE_ATTEMPTS}" -gt 1 ] || return 1
+			fi
+			command rm "$@"
+		}
+		if nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}"; then
+			fail 'flock reaper release ignored a transient legacy mutex removal failure'
+		else
+			release_status=$?
+			[ "${release_status}" -eq 1 ] || fail 'unexpected flock reaper release status'
+			[ "${REMOVE_ATTEMPTS}" -eq 1 ] || fail 'injected legacy mutex removal failure was not reached'
+		fi
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = flock ] || fail 'failed flock reaper release discarded its retryable mode'
+		[ -e "/proc/self/fd/9" ] || fail 'failed flock reaper release closed its retryable descriptor'
+		[ -d "${reaper_path}" ] || fail 'failed flock reaper release unexpectedly removed its legacy mutex'
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] ||
+			fail 'failed flock reaper release changed its legacy mutex owner'
+		nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail 'flock reaper release retry did not succeed'
+		[ "${REMOVE_ATTEMPTS}" -eq 2 ] || fail 'flock reaper release retry did not repeat legacy mutex removal'
+		[ ! -e "/proc/self/fd/9" ] || fail 'successful flock reaper release retained descriptor 9'
+		[ ! -e "${reaper_path}" ] || fail 'successful flock reaper release retained its legacy mutex'
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || fail 'successful flock reaper release retained its active mode'
+	) || exit 1
+fi
 
 if nvram_transaction_lock_flock_supports_fd; then
 	# nvram_transaction_lock_owner_current fails to prove flock-mode lock helpers never need the process owner identity.
@@ -568,22 +1010,62 @@ EOF_RESTART
 	) || fail "installer restart retained its ${fallback_mode} NVRAM transaction lock"
 	[ "$(cat "${TEST_ROOT}/restart-${fallback_mode}.branch" 2>/dev/null)" = testing ] || fail "installer restart did not execute after releasing its ${fallback_mode} lock"
 done
+for reaper_mode in symlink mkdir flock; do
+	if [ "${reaper_mode}" = flock ] && ! nvram_transaction_lock_flock_supports_fd; then
+		continue
+	fi
+	(
+		case "${reaper_mode}" in
+			flock) ;;
+			symlink) # nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+				nvram_transaction_lock_flock_supports_fd() { return 1; } ;;
+			mkdir)
+				# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+				nvram_transaction_lock_flock_supports_fd() { return 1; }
+				# nvram_transaction_lock_readlink reads the transaction lock target and returns 127 when the operation is unavailable.
+				nvram_transaction_lock_readlink() { return 127; }
+				;;
+		esac
+		nvram_transaction_lock_reaper_acquire "${BASE_DIR}/restart-${reaper_mode}.reaper" || fail "could not acquire ${reaper_mode} reaper before installer restart"
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "${reaper_mode}" ] || fail "installer restart test did not select ${reaper_mode} reaper mode"
+		TARG_DIR="${TEST_ROOT}/restart-reaper-${reaper_mode}"
+		SCRIPT_LOC="${TEST_ROOT}/missing-installer"
+		BRANCH=testing
+		CLI_MODE=0
+		ADGUARD_DEFER_END_OP=0
+		ROLLBACK_RESULT_UPDATED=1
+		mkdir -p "${TARG_DIR}" || fail "could not create ${reaper_mode} reaper restart target"
+		cat >"${TARG_DIR}/installer" <<EOF_REAPER_RESTART
+#!/bin/sh
+[ ! -L "${BASE_DIR}/restart-${reaper_mode}.reaper.symlink" ] || exit 1
+[ ! -e "${BASE_DIR}/restart-${reaper_mode}.reaper" ] || exit 1
+[ ! -e "/proc/\$\$/fd/9" ] || exit 1
+printf '%s\n' "\$1" >"${TEST_ROOT}/restart-reaper-${reaper_mode}.branch"
+EOF_REAPER_RESTART
+		chmod 755 "${TARG_DIR}/installer" || fail "could not make ${reaper_mode} reaper restart target executable"
+		sleep() { :; }
+		# clear_screen is a no-op placeholder for clearing the terminal screen.
+		clear_screen() { :; }
+		# rollback_result_needs_attention reports that no rollback attention is required.
+		rollback_result_needs_attention() { return 1; }
+		end_op_message 2 ''
+	) || fail "signal restart retained its ${reaper_mode} NVRAM transaction reaper"
+	[ "$(cat "${TEST_ROOT}/restart-reaper-${reaper_mode}.branch" 2>/dev/null)" = testing ] || fail "signal restart did not execute after releasing its ${reaper_mode} reaper"
+done
 (
-	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare stale symlink transaction lock'
 	nvram_transaction_lock_acquire || fail 'stale symlink transaction lock blocked recovery'
 	[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = symlink ] || fail 'stale symlink lock did not select symlink mode'
 	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = "${LOCK_OWNER}" ] || fail 'stale symlink lock was not replaced by the live owner'
-	if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+	BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
 		. "${FUNCTIONS_FILE}"
 		nvram_transaction_lock_flock_supports_fd() { return 1; }
 		nvram_transaction_lock_symlink_acquire
-	'; then
-		fail 'symlink fallback allowed an overlapping NVRAM transaction owner'
-	else
-		[ "$?" -ne 2 ] || fail 'live symlink lock was reported as unsupported'
-	fi
+	'
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "symlink fallback returned ${status} instead of 1 for overlapping NVRAM transaction owner"
 	nvram_transaction_lock_release || fail 'symlink transaction owner could not release its lock'
 	ln -s "$$:0" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare PID-reused symlink transaction lock'
 	nvram_transaction_lock_acquire || fail 'PID-reused symlink transaction lock blocked recovery'
@@ -591,20 +1073,129 @@ done
 	nvram_transaction_lock_release || fail 'PID-reused symlink transaction owner could not release its lock'
 ) || exit 1
 (
-	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	# A failed reaper release must abort stale mkdir recovery and roll back a
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_symlink_acquire acquires the NVRAM transaction lock using a symbolic link.
+	nvram_transaction_lock_symlink_acquire() { return 2; }
+	# nvram_transaction_lock_reaper_acquire acquires the transaction lock reaper.
+	nvram_transaction_lock_reaper_acquire() { return 0; }
+	# nvram_transaction_lock_reaper_release releases the NVRAM transaction lock reaper and reports failure.
+	nvram_transaction_lock_reaper_release() { return 1; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale mkdir lock for reaper-release failure'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale mkdir owner for reaper-release failure'
+	nvram_transaction_lock_acquire
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "mkdir recovery returned ${status} instead of 1 after reaper-release failure"
+	[ ! -e "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ] || fail 'failed reaper release retained the newly published mkdir lock'
+) || exit 1
+(
+	# A failed rollback after reaper-release failure is terminal: returning to
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_symlink_acquire acquires the NVRAM transaction lock using a symbolic link.
+	nvram_transaction_lock_symlink_acquire() { return 2; }
+	# nvram_transaction_lock_reaper_acquire acquires the transaction lock reaper.
+	nvram_transaction_lock_reaper_acquire() { return 0; }
+	# nvram_transaction_lock_reaper_release releases the NVRAM transaction lock reaper and reports failure.
+	nvram_transaction_lock_reaper_release() { return 1; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale mkdir lock for rollback failure'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale mkdir owner for rollback failure'
+	FAIL_LOCK_REMOVE_AT=2
+	nvram_transaction_lock_acquire
+	: >"${TEST_ROOT}/continued-after-lock-rollback-failure"
+) 2>"${TEST_ROOT}/lock-rollback-failure.stderr"
+status="$?"
+[ "${status}" -eq 1 ] || fail "failed mkdir lock rollback exited with status ${status} instead of 1"
+[ ! -e "${TEST_ROOT}/continued-after-lock-rollback-failure" ] || fail 'installer continued after failing to roll back its owned mkdir lock'
+[ -e "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ] || fail 'failed rollback unexpectedly removed the owned mkdir lock'
+grep -Fq 'unable to roll back owned NVRAM transaction lock' "${TEST_ROOT}/lock-rollback-failure.stderr" || fail 'terminal mkdir lock rollback failure was not reported'
+FAIL_LOCK_REMOVE_AT=0
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
+(
+	# If ownership changes before a failed reaper release, preserve the other
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_symlink_acquire acquires the NVRAM transaction lock using a symbolic link.
+	nvram_transaction_lock_symlink_acquire() { return 2; }
+	# nvram_transaction_lock_reaper_acquire acquires the transaction lock reaper.
+	nvram_transaction_lock_reaper_acquire() { return 0; }
+	# nvram_transaction_lock_reaper_release simulates a failed lock-reaper release and records PID 1 in the lock state.
+	nvram_transaction_lock_reaper_release() {
+		printf '%s\n' 1 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid"
+		return 1
+	}
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale mkdir lock for ownership-change cleanup'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale mkdir owner for ownership-change cleanup'
+	if nvram_transaction_lock_acquire; then
+		fail 'mkdir recovery continued after reaper release failed with changed ownership'
+	fi
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" 2>/dev/null)" = 1 ] || fail 'failed reaper release removed the replacement mkdir owner'
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
+) || exit 1
+(
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_reaper_acquire simulates another installer holding the reaper by creating a symlink lock and reporting acquisition failure.
+	nvram_transaction_lock_reaper_acquire() {
+		ln -s 1 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+		return 1
+	}
+	nvram_transaction_lock_symlink_acquire
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "fresh symlink acquisition returned ${status} instead of 1 for active stale-lock reaper"
+	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = 1 ] || fail 'fresh symlink acquisition replaced the reaper owner'
+	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+) || exit 1
+(
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_reaper_acquire acquires the transaction lock reaper.
+	nvram_transaction_lock_reaper_acquire() { return 0; }
+	# nvram_transaction_lock_reaper_release releases the NVRAM transaction lock reaper and reports failure.
+	nvram_transaction_lock_reaper_release() { return 1; }
+	nvram_transaction_lock_symlink_acquire
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "symlink publication returned ${status} instead of 1 when reaper release failed"
+	if [ -e "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" ] ||
+		[ -L "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" ]; then
+		fail 'failed reaper release retained the newly published symlink lock'
+	fi
+) || exit 1
+(
+	# A failed rollback of the published symlink lock is terminal so the
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_reaper_acquire acquires the transaction lock reaper.
+	nvram_transaction_lock_reaper_acquire() { return 0; }
+	# nvram_transaction_lock_reaper_release releases the NVRAM transaction lock reaper and reports failure.
+	nvram_transaction_lock_reaper_release() { return 1; }
+	FAIL_SYMLINK_LOCK_REMOVE_AT=1
+	SYMLINK_LOCK_REMOVE_COUNT=0
+	nvram_transaction_lock_symlink_acquire
+	: >"${TEST_ROOT}/continued-after-symlink-lock-rollback-failure"
+) 2>"${TEST_ROOT}/symlink-lock-rollback-failure.stderr"
+status="$?"
+[ "${status}" -eq 1 ] || fail "failed symlink lock rollback exited with status ${status} instead of 1"
+[ ! -e "${TEST_ROOT}/continued-after-symlink-lock-rollback-failure" ] || fail 'installer continued after failing to roll back its owned symlink lock'
+[ -L "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" ] || fail 'failed rollback unexpectedly removed the owned symlink lock'
+grep -Fq 'unable to roll back owned NVRAM transaction lock' "${TEST_ROOT}/symlink-lock-rollback-failure.stderr" || fail 'terminal symlink lock rollback failure was not reported'
+command rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+(
+	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare raced stale symlink transaction lock'
 	# nvram_transaction_lock_reaper_acquire acquires the NVRAM transaction lock for reaping.
 	nvram_transaction_lock_reaper_acquire() {
 		rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || return 1
-		ln -s 1 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+		ln -s "${LOCK_OWNER}" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 	}
 	# nvram_transaction_lock_reaper_release releases the NVRAM transaction lock reaper.
 	nvram_transaction_lock_reaper_release() { :; }
-	if nvram_transaction_lock_symlink_acquire; then
-		fail 'symlink stale-lock reaper replaced a new live owner'
-	fi
-	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = 1 ] || fail 'symlink stale-lock reaper removed a new live owner'
+	nvram_transaction_lock_symlink_acquire
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "stale-owner race returned ${status} instead of 1"
+	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = "${LOCK_OWNER}" ] || fail 'symlink stale-lock reaper removed a new live owner'
 	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 ) || exit 1
 (
