@@ -113,6 +113,7 @@ check_AdGuardHome_yaml() {
 DNS_FILTER_CHANGED=0
 DNS_FILTER_RESTORES=0
 LAN_DOMAIN_RESTORES=0
+SETUP_FILE_JOURNALS=0
 # save_dns_filter_settings creates a DNS filter rollback snapshot in the specified directory.
 save_dns_filter_settings() {
 	mkdir -p "$1"
@@ -151,10 +152,12 @@ nvram_transaction_finalize_setup_pair() {
 }
 # nvram_transaction_setup_files_begin records that setup file publication joined the transaction.
 nvram_transaction_setup_files_begin() {
+	SETUP_FILE_JOURNALS="$((SETUP_FILE_JOURNALS + 1))"
 	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 }
 # check_dns_filter marks DNS filter settings as changed and fails when configured to simulate an update failure.
 check_dns_filter() {
+	[ ! -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || DNS_FILTER_SAW_SETUP_JOURNAL=1
 	DNS_FILTER_CHANGED=1
 	if [ "${FAIL_CHECK_DNS_FILTER:-0}" -eq 1 ]; then
 		: >"${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty"
@@ -269,6 +272,25 @@ fi
 [ "${YAML_CHECKS}" -eq 1 ] || fail 'reconfiguration continued after WebUI port selection failed'
 [ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'reconfiguration did not restore the previous YAML after port selection failed'
 [ ! -e "${YAML_BAK}" ] || fail 'reconfiguration left the YAML backup behind after port selection failed'
+
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
+printf '%s\n' 'working configuration' >"${YAML_FILE}"
+printf '%s\n' 'original configuration' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+SETUP_FILE_JOURNALS=0
+DNS_FILTER_SAW_SETUP_JOURNAL=0
+DNS_FILTER_CHANGED=0
+read_input_num() {
+	CHOSEN=1
+}
+if ! setup_AdGuardHome_impl reconfig reconfig; then
+	fail 'existing-YAML DNSFilter reconfiguration failed'
+fi
+[ "${SETUP_FILE_JOURNALS}" -eq 1 ] || fail 'existing-YAML DNSFilter reconfiguration did not initialize the setup file journal'
+[ "${DNS_FILTER_SAW_SETUP_JOURNAL}" -eq 1 ] || fail 'existing-YAML DNSFilter reconfiguration applied NVRAM before initializing the setup file journal'
+read_input_num() {
+	CHOSEN=3
+}
 
 printf '%s\n' 'working configuration' >"${YAML_FILE}"
 printf '%s\n' 'original configuration' >"${YAML_ORI}"
