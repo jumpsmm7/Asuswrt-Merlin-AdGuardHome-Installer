@@ -140,12 +140,15 @@ Deduplicate issues across summary and inline comments:
 
 - Qodo posts each issue in two places: once in the **summary comment** (PR-level) and once as an **inline review comment** (attached to the specific code line). These will share the same issue title.
 - Qodo may also post multiple summary comments (Compliance Guide, Code Suggestions, Code Review, etc.) where issues can overlap with slightly different wording.
-- Deduplicate by matching on **issue title** (primary key - the same title means the same issue):
-  - If an issue appears in both the summary comment and as an inline comment, merge them into a single issue
+- Deduplicate by matching on **issue title + file path + line or range** whenever location data is available. A shared title alone is not sufficient evidence that two findings are duplicates:
+  - If an issue appears in both the summary comment and as an inline comment, merge them only when their locations match or the summary explicitly identifies that inline finding
+  - When a summary omits location, correlate it to an inline comment only if the title identifies exactly one inline candidate; otherwise keep every candidate separate
+  - Keep same-title findings at different files or locations as distinct issues, even when their descriptions or prompts overlap
   - Prefer the **inline comment** for file location (it has the exact line context)
   - Prefer the **summary comment** for severity, type, and agent prompt (it is more detailed)
-  - **IMPORTANT:** Preserve each issue's **inline review comment ID** — you will need it later (Step 9) to reply directly to that comment with the decision
-- Also deduplicate across multiple summary comments by location (file path + line numbers) as a secondary key
+  - **IMPORTANT:** Preserve each distinct issue's **inline review comment ID** — you will need it later (Step 9) to reply directly to only that comment with the decision
+- Deduplicate across multiple summary comments only when title and available location data identify the same finding
+- Leave ambiguous matches unmerged; never combine their prompts or comment IDs
 - If the same issue appears in multiple places, combine the agent prompts
 
 **Gerrit deduplication:** Qodo inline comments contain an **Agent Prompt** section (rendered as plain text — Gerrit doesn't support expandable blocks) with detailed fix instructions. When deduplicating, preserve the Agent Prompt from each unique finding.
