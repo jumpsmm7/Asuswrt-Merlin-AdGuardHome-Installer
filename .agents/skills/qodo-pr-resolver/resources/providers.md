@@ -157,6 +157,8 @@ EOF
   ADO_BASE_URL=${ADO_BASE_URL%/}
   ADO_REMOTE=$(git remote get-url origin)
   case "$ADO_REMOTE" in
+    git@ssh.dev.azure.com:v3/*) ADO_REMOTE=https://dev.azure.com/${ADO_REMOTE#git@ssh.dev.azure.com:v3/} ;;
+    ssh://git@ssh.dev.azure.com/v3/*) ADO_REMOTE=https://dev.azure.com/${ADO_REMOTE#ssh://git@ssh.dev.azure.com/v3/} ;;
     https://*@*) ADO_REMOTE=https://${ADO_REMOTE#*@} ;;
   esac
   case "$ADO_REMOTE" in
