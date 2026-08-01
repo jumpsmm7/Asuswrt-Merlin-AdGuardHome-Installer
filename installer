@@ -6114,6 +6114,9 @@ setup_restore_nvram_journal() {
 		[ ! -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
 		return 0
 	fi
+	# The shared marker is the setup commit point.  Deferred journal cleanup
+	# must never turn a committed file publication back into a rollback.
+	[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || return 0
 	if nvram_transaction_setup_files_restore; then
 		SETUP_FILES_JOURNALED=0
 	else

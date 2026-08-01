@@ -253,7 +253,7 @@ grep -q 'if \[ "${ADGUARD_INSTALL_MODE}" = "wan" \]; then' "${SCRIPT_PATH}" ||
 	fail 'DNS environment preparation must be gated by WAN install mode'
 grep -q 'if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" \] && \[ -n "${DNS_FILTER_SELECTION:-}" \]; then' "${SCRIPT_PATH}" ||
 	fail 'DNSFilter mutation must be gated by WAN install mode'
-grep -q 'if { \[ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" \] || \[ -n "${DNS_FILTER_SELECTION:-}" \]; } &&' "${SCRIPT_PATH}" ||
+grep -q 'if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" \] || \[ -n "${DNS_FILTER_SELECTION:-}" \]; then' "${SCRIPT_PATH}" ||
 	fail 'LAN runtime defaults must not depend on DNSFilter selection'
 grep -q 'if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" \]; then' "${SCRIPT_PATH}" ||
 	fail 'DNS environment restore must be gated by WAN install mode'

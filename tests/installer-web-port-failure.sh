@@ -506,4 +506,23 @@ fi
 [ "${DNS_FILTER_SAW_SETUP_JOURNAL}" -eq 1 ] || fail 'existing-YAML DNSFilter reconfiguration did not observe setup journal before check_dns_filter'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'existing-YAML DNSFilter reconfiguration retained its completed file journal'
 
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
+printf '%s\n' 'pre-commit YAML' >"${YAML_FILE}"
+printf '%s\n' 'pre-commit original YAML' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_LOCAL="PRE-COMMIT"' >"${CONF_FILE}"
+SETUP_FILES_JOURNALED=1
+SETUP_FILES_RESTORE_COUNT=0
+nvram_transaction_setup_files_begin || fail 'could not create setup-file journal for committed cleanup regression'
+printf '%s\n' 'committed YAML' >"${YAML_FILE}"
+printf '%s\n' 'committed original YAML' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_LOCAL="COMMITTED"' >"${CONF_FILE}"
+: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
+setup_restore_nvram_journal || fail 'committed setup-file journal guard returned failure'
+[ "${SETUP_FILES_RESTORE_COUNT}" -eq 0 ] || fail 'committed setup-file journal was restored after the setup commit point'
+[ "$(cat "${YAML_FILE}")" = 'committed YAML' ] || fail 'committed setup-file journal guard rolled back the active YAML'
+[ "$(cat "${YAML_ORI}")" = 'committed original YAML' ] || fail 'committed setup-file journal guard rolled back the original YAML snapshot'
+[ "$(cat "${CONF_FILE}")" = 'ADGUARD_LOCAL="COMMITTED"' ] || fail 'committed setup-file journal guard rolled back installer preferences'
+[ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'committed setup-file journal guard removed deferred recovery state'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'committed setup-file journal guard removed the setup commit marker'
+
 printf '%s\n' 'PASS: failed WebUI port verification or persistence aborts setup safely'
