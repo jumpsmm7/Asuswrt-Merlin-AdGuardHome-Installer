@@ -1,19 +1,9 @@
 name: 'Run Gemini CLI resiliently'
-description: 'Prepare the runner and invoke Gemini Code Assist with WIF, retries, and a fallback model.'
+description: 'Prepare the runner and invoke Gemini with one API-key auth path, retries, and a fallback model.'
 
 inputs:
-  gcp_location:
-    description: 'Google Cloud location.'
-    required: false
-    default: 'global'
-  gcp_project_id:
-    description: 'Google Cloud project ID.'
-    required: true
-  gcp_service_account:
-    description: 'Optional service account used by Workload Identity Federation.'
-    required: false
-  gcp_workload_identity_provider:
-    description: 'Google Cloud Workload Identity Provider resource name.'
+  gemini_api_key:
+    description: 'Gemini API key.'
     required: true
   gemini_cli_version:
     description: 'Pinned Gemini CLI version.'
@@ -58,10 +48,10 @@ inputs:
     description: 'Prompt or slash command passed to Gemini CLI.'
     required: true
   github_token:
-    description: 'GitHub token exposed to the action integration.'
+    description: 'GitHub token exposed to the configured GitHub MCP server.'
     required: false
   requires_docker:
-    description: 'Install and verify Docker when a GitHub MCP server needs it.'
+    description: 'Install and verify Docker when an MCP server needs it.'
     required: false
     default: 'false'
   requires_gh:
@@ -89,38 +79,16 @@ runs:
     - name: 'Validate Gemini authentication'
       shell: 'bash'
       env:
-        GCP_PROJECT_ID: '${{ inputs.gcp_project_id }}'
-        GCP_SERVICE_ACCOUNT: '${{ inputs.gcp_service_account }}'
-        GCP_WIF_PROVIDER: '${{ inputs.gcp_workload_identity_provider }}'
+        GEMINI_API_KEY_VALUE: '${{ inputs.gemini_api_key }}'
       run: |-
         set -euo pipefail
-
-        if [[ -z "${GCP_PROJECT_ID}" ]]; then
-          echo '::error title=Missing Google Cloud project::Set the GOOGLE_CLOUD_PROJECT repository variable.'
+        if [[ -z "${GEMINI_API_KEY_VALUE}" ]]; then
+          echo '::error title=Missing Gemini API key::Create the GEMINI_API_KEY repository secret.'
           exit 1
         fi
-        if [[ -z "${GCP_WIF_PROVIDER}" ]]; then
-          echo '::error title=Missing Workload Identity Provider::Set the GCP_WIF_PROVIDER repository variable.'
-          exit 1
-        fi
-        case "${GCP_WIF_PROVIDER}" in
-          projects/*/locations/global/workloadIdentityPools/*/providers/*) ;;
-          *)
-            echo '::error title=Invalid Workload Identity Provider::GCP_WIF_PROVIDER must be the full projects/.../providers/... resource name.'
-            exit 1
-            ;;
-        esac
-        if [[ -n "${GCP_SERVICE_ACCOUNT}" ]]; then
-          case "${GCP_SERVICE_ACCOUNT}" in
-            *@*.iam.gserviceaccount.com) ;;
-            *)
-              echo '::error title=Invalid service account::SERVICE_ACCOUNT_EMAIL is not a service-account email address.'
-              exit 1
-              ;;
-          esac
-        fi
-
-        echo 'Gemini authentication mode: Workload Identity Federation + Gemini Code Assist'
+        echo 'Gemini authentication mode: GEMINI_API_KEY'
+        echo 'Gemini Code Assist: disabled'
+        echo 'Vertex AI: disabled'
 
     - name: 'Install runner dependencies'
       shell: 'bash'
@@ -184,23 +152,17 @@ runs:
       uses: 'google-github-actions/run-gemini-cli@f77273f4c914e4bf38440cf36a0369cb64a37489'
       env:
         GEMINI_CLI_TRUST_WORKSPACE: 'true'
-        GOOGLE_CLOUD_LOCATION: '${{ inputs.gcp_location }}'
-        GOOGLE_CLOUD_PROJECT: '${{ inputs.gcp_project_id }}'
-        GOOGLE_GENAI_USE_GCA: 'true'
+        GOOGLE_GENAI_USE_GCA: 'false'
         GOOGLE_GENAI_USE_VERTEXAI: 'false'
         GITHUB_TOKEN: '${{ inputs.github_token }}'
         NO_COLOR: '1'
         TERM: 'xterm-256color'
       with:
-        gcp_location: '${{ inputs.gcp_location }}'
-        gcp_project_id: '${{ inputs.gcp_project_id }}'
-        gcp_service_account: '${{ inputs.gcp_service_account }}'
-        gcp_workload_identity_provider: '${{ inputs.gcp_workload_identity_provider }}'
-        gcp_token_format: ''
+        gemini_api_key: '${{ inputs.gemini_api_key }}'
         gemini_cli_version: '${{ inputs.gemini_cli_version }}'
         gemini_debug: '${{ inputs.gemini_debug }}'
         gemini_model: '${{ inputs.gemini_model }}'
-        use_gemini_code_assist: 'true'
+        use_gemini_code_assist: 'false'
         use_vertex_ai: 'false'
         upload_artifacts: '${{ inputs.upload_artifacts }}'
         workflow_name: '${{ inputs.workflow_name }}'
@@ -258,23 +220,17 @@ runs:
       uses: 'google-github-actions/run-gemini-cli@f77273f4c914e4bf38440cf36a0369cb64a37489'
       env:
         GEMINI_CLI_TRUST_WORKSPACE: 'true'
-        GOOGLE_CLOUD_LOCATION: '${{ inputs.gcp_location }}'
-        GOOGLE_CLOUD_PROJECT: '${{ inputs.gcp_project_id }}'
-        GOOGLE_GENAI_USE_GCA: 'true'
+        GOOGLE_GENAI_USE_GCA: 'false'
         GOOGLE_GENAI_USE_VERTEXAI: 'false'
         GITHUB_TOKEN: '${{ inputs.github_token }}'
         NO_COLOR: '1'
         TERM: 'xterm-256color'
       with:
-        gcp_location: '${{ inputs.gcp_location }}'
-        gcp_project_id: '${{ inputs.gcp_project_id }}'
-        gcp_service_account: '${{ inputs.gcp_service_account }}'
-        gcp_workload_identity_provider: '${{ inputs.gcp_workload_identity_provider }}'
-        gcp_token_format: ''
+        gemini_api_key: '${{ inputs.gemini_api_key }}'
         gemini_cli_version: '${{ inputs.gemini_cli_version }}'
         gemini_debug: '${{ inputs.gemini_debug }}'
         gemini_model: '${{ inputs.fallback_model }}'
-        use_gemini_code_assist: 'true'
+        use_gemini_code_assist: 'false'
         use_vertex_ai: 'false'
         upload_artifacts: '${{ inputs.upload_artifacts }}'
         workflow_name: '${{ inputs.workflow_name }}-fallback'
