@@ -114,6 +114,7 @@ DNS_FILTER_CHANGED=0
 DNS_FILTER_RESTORES=0
 LAN_DOMAIN_RESTORES=0
 SETUP_FILES_BEGIN_COUNT=0
+SETUP_FILES_RESTORE_COUNT=0
 SETUP_FILE_JOURNALS=0
 # save_dns_filter_settings creates a DNS filter rollback snapshot in the specified directory.
 save_dns_filter_settings() {
@@ -151,11 +152,50 @@ nvram_transaction_finalize_setup_pair() {
 	fi
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 }
-# nvram_transaction_setup_files_begin records that setup file publication joined the transaction.
+# nvram_transaction_setup_files_begin snapshots setup files when publication joins the transaction.
 nvram_transaction_setup_files_begin() {
+	local journal_root source target
+	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 	SETUP_FILES_BEGIN_COUNT="$((SETUP_FILES_BEGIN_COUNT + 1))"
 	SETUP_FILE_JOURNALS="$((SETUP_FILE_JOURNALS + 1))"
-	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+	mkdir -p "${journal_root}" || return 1
+	for source in yaml-file yaml-original config; do
+		case "${source}" in
+			yaml-file) target="${YAML_FILE}" ;;
+			yaml-original) target="${YAML_ORI}" ;;
+			config) target="${CONF_FILE}" ;;
+		esac
+		if [ "${source}" = "yaml-file" ] && [ "${YAML_BACKED_UP:-0}" -eq 1 ] && [ -f "${YAML_BAK}" ]; then
+			cp -p "${YAML_BAK}" "${journal_root}/${source}" || return 1
+		elif [ -f "${target}" ]; then
+			cp -p "${target}" "${journal_root}/${source}" || return 1
+		else
+			: >"${journal_root}/${source}.absent" || return 1
+		fi
+	done
+}
+# nvram_transaction_setup_files_restore restores setup files and removes the journal only after every restore succeeds.
+nvram_transaction_setup_files_restore() {
+	local journal_root source target
+	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+	[ -d "${journal_root}" ] || return 0
+	SETUP_FILES_RESTORE_COUNT="$((SETUP_FILES_RESTORE_COUNT + 1))"
+	[ "${FAIL_SETUP_FILES_RESTORE:-0}" -eq 0 ] || return 1
+	for source in yaml-file yaml-original config; do
+		case "${source}" in
+			yaml-file) target="${YAML_FILE}" ;;
+			yaml-original) target="${YAML_ORI}" ;;
+			config) target="${CONF_FILE}" ;;
+		esac
+		if [ -f "${journal_root}/${source}" ]; then
+			cp -p "${journal_root}/${source}" "${target}" || return 1
+		elif [ -f "${journal_root}/${source}.absent" ]; then
+			rm -f "${target}" || return 1
+		else
+			return 1
+		fi
+	done
+	rm -rf "${journal_root}"
 }
 # check_dns_filter marks DNS filter settings as changed and fails when configured to simulate an update failure.
 check_dns_filter() {
@@ -391,12 +431,15 @@ LAN_DOMAIN='before-marker-failure.test'
 : >"${WRITE_LOG}"
 FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP=0
 FAIL_SETUP_COMMIT_MARKER=1
+FAIL_SETUP_FILES_RESTORE=0
 DNS_FILTER_CHANGED=0
 DNS_FILTER_RESTORES=0
 LAN_DOMAIN_RESTORES=0
+SETUP_FILES_RESTORE_COUNT=0
 if setup_AdGuardHome_impl reconfig reconfig; then
 	fail 'reconfiguration ignored setup commit marker publication failure'
 fi
+[ "${SETUP_FILES_RESTORE_COUNT}" -eq 1 ] || fail 'setup commit marker failure did not invoke setup-file journal restoration'
 [ "${DNS_FILTER_RESTORES}" -eq 1 ] || fail 'setup commit marker failure did not restore DNSFilter settings'
 [ "${LAN_DOMAIN_RESTORES}" -eq 1 ] || fail 'setup commit marker failure did not restore the LAN domain'
 [ "${DNS_FILTER_CHANGED}" -eq 0 ] || fail 'setup commit marker failure left changed DNSFilter settings'
@@ -406,6 +449,7 @@ fi
 [ "$(cat "${YAML_ORI}")" = 'original configuration' ] || fail 'setup commit marker failure did not restore the previous original YAML snapshot'
 [ ! -e "${YAML_ORI}.rollback.$$" ] || fail 'setup commit marker failure retained the original YAML rollback artifact'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'setup commit marker failure published the completion marker'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'setup commit marker failure retained the restored setup-file journal'
 
 printf '%s\n' 'working configuration' >"${YAML_FILE}"
 printf '%s\n' 'original configuration' >"${YAML_ORI}"
@@ -427,11 +471,29 @@ fi
 [ "${LAN_DOMAIN}" = 'before-dnsfilter-apply-failure.test' ] || fail 'DNSFilter transaction failure did not restore the prior router LAN domain'
 
 rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
+printf '%s\n' 'journal YAML' >"${YAML_FILE}"
+printf '%s\n' 'journal original YAML' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_LOCAL="JOURNAL"' 'ADGUARD_IPSET="JOURNAL"' 'ADGUARD_DOMAIN="JOURNAL"' >"${CONF_FILE}"
+: >"${WRITE_LOG}"
+FAIL_CHECK_DNS_FILTER=1
+FAIL_SETUP_FILES_RESTORE=1
+SETUP_FILES_RESTORE_COUNT=0
+if setup_AdGuardHome_impl reconfig reconfig; then
+	fail 'reconfiguration ignored DNSFilter failure while setup-file journal restoration was unavailable'
+fi
+[ "${SETUP_FILES_RESTORE_COUNT}" -eq 1 ] || fail 'setup-file journal restore failure pathway did not invoke restoration'
+[ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'setup-file journal restore failure did not preserve recovery state'
+[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file")" = 'journal YAML' ] || fail 'preserved setup-file journal lost the YAML snapshot'
+[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original")" = 'journal original YAML' ] || fail 'preserved setup-file journal lost the original YAML snapshot'
+[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config")" = "$(printf '%s\n' 'ADGUARD_LOCAL="JOURNAL"' 'ADGUARD_IPSET="JOURNAL"' 'ADGUARD_DOMAIN="JOURNAL"')" ] || fail 'preserved setup-file journal lost the installer configuration snapshot'
+
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
 printf '%s\n' 'working configuration' >"${YAML_FILE}"
 printf '%s\n' 'original configuration' >"${YAML_ORI}"
 printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
 : >"${WRITE_LOG}"
 FAIL_CHECK_DNS_FILTER=0
+FAIL_SETUP_FILES_RESTORE=0
 SETUP_FILES_BEGIN_COUNT=0
 DNS_FILTER_SAW_SETUP_JOURNAL=0
 read_input_num() {

@@ -91,6 +91,7 @@ installer_lan_domain_restore() { :; }
 # nvram_transaction_finalize_setup_pair completes the NVRAM setup transaction successfully.
 nvram_transaction_finalize_setup_pair() { return 0; }
 nvram_transaction_setup_files_begin() { return 0; }
+nvram_transaction_setup_files_restore() { return 0; }
 # restore_dns_filter_settings removes the saved DNS filter settings directory at the specified path.
 restore_dns_filter_settings() {
 	rm -rf "$1"
