@@ -6778,7 +6778,7 @@ adguard_migrate_detected_install_mode() {
 }
 
 setup_AdGuardHome_impl() {
-	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_REARM_FAILED=0 LAN_DOMAIN_ROLLBACK="" SETUP_FILES_JOURNALED=0 WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_ORI_ROLLBACK="" YAML_ORI_WAS_PRESENT=0 YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
+	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_REARM_FAILED=0 LAN_DOMAIN_ROLLBACK="" SETUP_FILES_JOURNALED="${3:-0}" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_ORI_ROLLBACK="" YAML_ORI_WAS_PRESENT=0 YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ "${ADGUARD_FORCE_SETUP_YAML:-0}" = "1" ] && { [ -f "${YAML_FILE}" ] || [ -f "${YAML_ORI}" ]; }; then
 		PTXT "${INFO} Restored mode differs from detected router mode; updating mode-dependent AdGuardHome settings."
@@ -6850,7 +6850,7 @@ setup_AdGuardHome_impl() {
 			fi
 		fi
 		if ! check_AdGuardHome_yaml; then
-			setup_AdGuardHome_impl x
+			setup_AdGuardHome_impl x "${2:-}" "${SETUP_FILES_JOURNALED}"
 			return
 		fi
 		PTXT "${INFO} Found previous AdGuardHome config file"
@@ -6866,7 +6866,7 @@ setup_AdGuardHome_impl() {
 			fi
 			PTXT "${INFO} Use previous settings file"
 		elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
-			setup_AdGuardHome_impl x
+			setup_AdGuardHome_impl x "${2:-}" "${SETUP_FILES_JOURNALED}"
 		else
 			return "${CONFIRM_STATUS}"
 		fi
@@ -6874,7 +6874,7 @@ setup_AdGuardHome_impl() {
 		if [ -f "${YAML_FILE}" ]; then
 			if [ "$1" = "reconfig" ]; then
 				if ! check_AdGuardHome_yaml; then
-					setup_AdGuardHome_impl x
+					setup_AdGuardHome_impl x "${2:-}" "${SETUP_FILES_JOURNALED}"
 					return
 				fi
 				PTXT "${INFO} Found previous AdGuardHome config file"

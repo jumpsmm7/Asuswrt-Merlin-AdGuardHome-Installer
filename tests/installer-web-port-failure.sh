@@ -160,6 +160,7 @@ nvram_transaction_setup_files_begin() {
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 	SETUP_FILES_BEGIN_COUNT="$((SETUP_FILES_BEGIN_COUNT + 1))"
 	SETUP_FILE_JOURNALS="$((SETUP_FILE_JOURNALS + 1))"
+	[ ! -e "${journal_root}" ] || return 1
 	mkdir -p "${journal_root}" || return 1
 	for source in yaml-file yaml-original config; do
 		case "${source}" in
@@ -273,6 +274,26 @@ grep -q 'address: 192.168.50.1:4000' "${WRITE_LOG}" || fail 'existing-config set
 [ "${YAML_CHECKS}" -eq 1 ] || fail 'existing-config setup did not validate the rewritten LAN-bound YAML once'
 [ "${SETUP_FILES_FINALIZE_COUNT}" -eq 1 ] || fail 'existing-config WebUI update did not finalize its setup-file journal'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'existing-config WebUI update retained its completed setup-file journal'
+
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
+rm -f "${YAML_ORI}" "${YAML_BAK}"
+printf '%s\n' 'http:' '  address: 192.168.50.1:3000' 'schema_version: 27' >"${YAML_FILE}"
+: >"${CONF_FILE}"
+: >"${WRITE_LOG}"
+SETUP_FILES_BEGIN_COUNT=0
+SETUP_FILES_FINALIZE_COUNT=0
+read_yesno() {
+	return 1
+}
+read_input_num() {
+	CHOSEN=3
+}
+if ! setup_AdGuardHome_impl ''; then
+	fail 'recursive existing-config setup did not reuse its active setup-file journal'
+fi
+[ "${SETUP_FILES_BEGIN_COUNT}" -eq 1 ] || fail 'recursive existing-config setup initialized its setup-file journal more than once'
+[ "${SETUP_FILES_FINALIZE_COUNT}" -eq 1 ] || fail 'recursive existing-config setup did not finalize its inherited setup-file journal'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'recursive existing-config setup retained its completed setup-file journal'
 
 rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
 printf '%s\n' 'http:' '  address: 192.168.50.1:4000' 'schema_version: 26' >"${YAML_FILE}"
