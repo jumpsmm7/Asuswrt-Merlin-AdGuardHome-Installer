@@ -6110,7 +6110,10 @@ setup_restore_previous_yaml() {
 }
 
 setup_restore_nvram_journal() {
-	[ "${SETUP_FILES_JOURNALED:-0}" -eq 1 ] || return 0
+	if [ "${SETUP_FILES_JOURNALED:-0}" -ne 1 ] &&
+		[ ! -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
+		return 0
+	fi
 	if nvram_transaction_setup_files_restore; then
 		SETUP_FILES_JOURNALED=0
 	else
