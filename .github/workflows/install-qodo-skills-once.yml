@@ -1,6 +1,14 @@
 name: 'Install Qodo skills once'
 
 on:
+  pull_request:
+    types:
+      - 'synchronize'
+    branches:
+      - 'codex/add-posix-shell-helpers-for-nvram-changes'
+    paths:
+      - '.github/workflows/install-qodo-skills-once.yml'
+      - '.agents/skills/**'
   push:
     branches:
       - 'codex/github-mention-add-nvram-transaction-api-and-use-it-for-dns'
@@ -12,6 +20,9 @@ permissions:
 
 jobs:
   install:
+    if: |-
+      github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
