@@ -22,7 +22,6 @@ jobs:
     timeout-minutes: 35
     permissions:
       contents: 'write'
-      id-token: 'write'
       issues: 'write'
       pull-requests: 'write'
     steps:
@@ -41,6 +40,15 @@ jobs:
         uses: 'actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8'
         with:
           persist-credentials: 'false'
+
+      - name: 'Install prompt dependencies'
+        run: |-
+          set -euo pipefail
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends jq
+          fi
+          jq --version
 
       - name: 'Prepare prompt context'
         env:
@@ -69,11 +77,8 @@ jobs:
         id: 'run_gemini'
         uses: './.github/actions/run-gemini-resilient'
         with:
+          gemini_api_key: '${{ secrets.GEMINI_API_KEY }}'
           github_token: '${{ steps.mint_identity_token.outputs.token || secrets.GITHUB_TOKEN || github.token }}'
-          gcp_location: "${{ vars.GOOGLE_CLOUD_LOCATION || 'global' }}"
-          gcp_project_id: '${{ vars.GOOGLE_CLOUD_PROJECT }}'
-          gcp_service_account: '${{ vars.SERVICE_ACCOUNT_EMAIL }}'
-          gcp_workload_identity_provider: '${{ vars.GCP_WIF_PROVIDER }}'
           gemini_cli_version: "${{ vars.GEMINI_CLI_VERSION || '0.52.0' }}"
           gemini_debug: '${{ fromJSON(vars.GEMINI_DEBUG || vars.ACTIONS_STEP_DEBUG || false) }}'
           gemini_model: "${{ vars.GEMINI_MODEL || 'auto' }}"
@@ -97,6 +102,43 @@ jobs:
                 "enabled": true,
                 "target": "local",
                 "outfile": ".gemini/telemetry.log"
+              },
+              "mcp": {
+                "allowed": ["github"]
+              },
+              "mcpServers": {
+                "github": {
+                  "command": "docker",
+                  "args": [
+                    "run",
+                    "-i",
+                    "--rm",
+                    "-e",
+                    "GITHUB_PERSONAL_ACCESS_TOKEN",
+                    "ghcr.io/github/github-mcp-server:v1.0.5"
+                  ],
+                  "includeTools": [
+                    "add_issue_comment",
+                    "issue_read",
+                    "list_issues",
+                    "search_issues",
+                    "create_pull_request",
+                    "pull_request_read",
+                    "list_pull_requests",
+                    "search_pull_requests",
+                    "create_branch",
+                    "create_or_update_file",
+                    "get_commit",
+                    "get_file_contents",
+                    "list_commits",
+                    "search_code"
+                  ],
+                  "timeout": 60000,
+                  "env": {
+                    "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}",
+                    "GITHUB_TOOLS": "add_issue_comment,issue_read,list_issues,search_issues,create_pull_request,pull_request_read,list_pull_requests,search_pull_requests,create_branch,create_or_update_file,get_commit,get_file_contents,list_commits,search_code"
+                  }
+                }
               },
               "tools": {
                 "core": []
