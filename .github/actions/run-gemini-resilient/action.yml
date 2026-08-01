@@ -41,9 +41,9 @@ inputs:
     description: 'Vertex AI API key.'
     required: false
   use_gemini_code_assist:
-    description: 'Use Gemini Code Assist.'
+    description: 'Use Gemini Code Assist. This repository forces this mode on.'
     required: false
-    default: 'false'
+    default: 'true'
   use_vertex_ai:
     description: 'Use Vertex AI.'
     required: false
@@ -163,6 +163,8 @@ runs:
       uses: 'google-github-actions/run-gemini-cli@f77273f4c914e4bf38440cf36a0369cb64a37489'
       env:
         GEMINI_CLI_TRUST_WORKSPACE: 'true'
+        GOOGLE_GENAI_USE_GCA: 'true'
+        GOOGLE_GENAI_USE_VERTEXAI: 'false'
         GITHUB_TOKEN: '${{ inputs.github_token }}'
       with:
         gcp_location: '${{ inputs.gcp_location }}'
@@ -174,8 +176,8 @@ runs:
         gemini_debug: '${{ inputs.gemini_debug }}'
         gemini_model: '${{ inputs.gemini_model }}'
         google_api_key: '${{ inputs.google_api_key }}'
-        use_gemini_code_assist: '${{ inputs.use_gemini_code_assist }}'
-        use_vertex_ai: '${{ inputs.use_vertex_ai }}'
+        use_gemini_code_assist: 'true'
+        use_vertex_ai: 'false'
         upload_artifacts: '${{ inputs.upload_artifacts }}'
         workflow_name: '${{ inputs.workflow_name }}'
         github_pr_number: '${{ inputs.github_pr_number }}'
@@ -234,6 +236,8 @@ runs:
       uses: 'google-github-actions/run-gemini-cli@f77273f4c914e4bf38440cf36a0369cb64a37489'
       env:
         GEMINI_CLI_TRUST_WORKSPACE: 'true'
+        GOOGLE_GENAI_USE_GCA: 'true'
+        GOOGLE_GENAI_USE_VERTEXAI: 'false'
         GITHUB_TOKEN: '${{ inputs.github_token }}'
       with:
         gcp_location: '${{ inputs.gcp_location }}'
@@ -245,8 +249,8 @@ runs:
         gemini_debug: '${{ inputs.gemini_debug }}'
         gemini_model: '${{ inputs.fallback_model }}'
         google_api_key: '${{ inputs.google_api_key }}'
-        use_gemini_code_assist: '${{ inputs.use_gemini_code_assist }}'
-        use_vertex_ai: '${{ inputs.use_vertex_ai }}'
+        use_gemini_code_assist: 'true'
+        use_vertex_ai: 'false'
         upload_artifacts: '${{ inputs.upload_artifacts }}'
         workflow_name: '${{ inputs.workflow_name }}-fallback'
         github_pr_number: '${{ inputs.github_pr_number }}'
