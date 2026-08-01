@@ -123,10 +123,20 @@ glab mr list --source-branch <branch-name>
 
 ```bash
 BRANCH=$(git branch --show-current)
-RESPONSE=$(curl -s -w "\n%{http_code}" -u "$BB_USERNAME:$BB_APP_PASSWORD" \
-  "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests?state=OPEN")
+if ! RESPONSE=$(curl -s -w "\n%{http_code}" -u "$BB_USERNAME:$BB_APP_PASSWORD" \
+  "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests?state=OPEN"); then
+  echo "Error: Bitbucket API request failed (curl error)" >&2
+  exit 1
+fi
 HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
 BODY=$(echo "$RESPONSE" | sed '$d')
+
+case "$HTTP_CODE" in
+  ''|*[!0-9]*)
+    echo "Error: Bitbucket API returned an invalid HTTP status: ${HTTP_CODE:-empty}" >&2
+    exit 1
+    ;;
+esac
 
 if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
   echo "Error: API request failed with HTTP status $HTTP_CODE" >&2
