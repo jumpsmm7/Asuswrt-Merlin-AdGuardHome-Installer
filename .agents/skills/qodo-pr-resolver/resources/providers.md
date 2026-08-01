@@ -208,14 +208,14 @@ if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
   exit 1
 fi
 
-echo "$BODY" | python3 -c "
+echo "$BODY" | python3 -c '
 import sys, json
 data = json.load(sys.stdin)
-branch = '$BRANCH'
+branch = sys.argv[1]
 for pr in data.get('values', []):
-    if pr['source']['branch']['name'] == branch:
-        print(json.dumps({'id': pr['id'], 'title': pr['title']}, indent=2))
-"
+    if pr["source"]["branch"]["name"] == branch:
+        print(json.dumps({"id": pr["id"], "title": pr["title"]}, indent=2))
+' "$BRANCH"
 ```
 
 ### Azure DevOps
