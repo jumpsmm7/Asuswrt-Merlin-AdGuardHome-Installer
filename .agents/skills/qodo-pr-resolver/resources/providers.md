@@ -469,14 +469,17 @@ echo "$BODY"
 
 ```bash
 # Mark the thread as fixed (Azure DevOps uses "fixed" not "resolved"; az repos pr thread update does not exist)
-echo '{"status": "fixed"}' > /tmp/ado_status.json
+umask 077
+ADO_STATUS_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_status.XXXXXX") || exit 1
+trap 'rm -f "${ADO_STATUS_FILE}"' EXIT HUP INT TERM
+printf '%s\n' '{"status": "fixed"}' > "${ADO_STATUS_FILE}" || exit 1
 az devops invoke \
   --area git \
   --resource pullRequestThreads \
   --route-parameters project=$ADO_PROJECT repositoryId=$ADO_REPO_ID pullRequestId=<pr-id> threadId=<thread-id> \
   --http-method PATCH \
   --api-version 7.1 \
-  --in-file /tmp/ado_status.json \
+  --in-file "${ADO_STATUS_FILE}" \
   --output json
 ```
 
