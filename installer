@@ -209,6 +209,9 @@ nvram_transaction_setup_files_begin() {
 	local journal_entry journal_root journal_tmp source
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 	journal_tmp="${journal_root}.tmp.$$"
+	# Setup-file publication shares the NVRAM transaction lock so startup
+	# recovery cannot mistake an active journal for an interrupted operation.
+	nvram_transaction_lock_acquire || return 1
 	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram" ] || return 1
 	[ ! -e "${journal_root}" ] && [ ! -L "${journal_root}" ] || return 1
 	rm -rf "${journal_tmp}" || return 1

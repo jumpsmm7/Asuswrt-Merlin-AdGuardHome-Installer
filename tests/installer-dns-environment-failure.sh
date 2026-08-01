@@ -267,6 +267,7 @@ printf '%s\n' 'previous original yaml' >"${YAML_ORI}"
 printf '%s\n' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
 YAML_BACKED_UP=0
 nvram_transaction_setup_files_begin || fail 'setup file journal could not be created'
+nvram_transaction_lock_owned || fail 'setup file journal was published without owning the NVRAM transaction lock'
 printf '%s\n' 'published working yaml' >"${YAML_FILE}"
 printf '%s\n' 'published original yaml' >"${YAML_ORI}"
 printf '%s\n' 'ADGUARD_DOMAIN="NEW"' >"${CONF_FILE}"
