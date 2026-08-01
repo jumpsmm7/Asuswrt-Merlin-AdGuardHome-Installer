@@ -1,5 +1,8 @@
-# gemini-cli settings
-.gemini/
+# gemini-cli runtime files
+.gemini/*
+!.gemini/context.json
+!.gemini/commands/
+!.gemini/commands/*.toml
 
 # GitHub App credentials
 gha-creds-*.json
