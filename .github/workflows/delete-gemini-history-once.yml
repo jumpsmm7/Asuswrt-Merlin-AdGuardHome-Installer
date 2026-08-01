@@ -1,0 +1,65 @@
+name: 'Delete Gemini workflow history once'
+
+on:
+  push:
+    branches:
+      - 'codex/github-mention-add-nvram-transaction-api-and-use-it-for-dns'
+    paths:
+      - '.github/workflows/delete-gemini-history-once.yml'
+
+permissions:
+  actions: 'write'
+  contents: 'read'
+
+jobs:
+  cleanup:
+    if: "github.event.head_commit.message == 'chore: delete Gemini workflow run history'"
+    runs-on: 'ubuntu-latest'
+    timeout-minutes: 15
+
+    steps:
+      - name: 'Delete Gemini workflow runs'
+        env:
+          GH_TOKEN: '${{ github.token }}'
+          REPOSITORY: '${{ github.repository }}'
+        shell: 'bash'
+        run: |-
+          set -euo pipefail
+
+          deleted_runs=0
+          matched_workflows=0
+
+          while IFS=$'\t' read -r workflow_id workflow_name workflow_path; do
+            [ -n "${workflow_id}" ] || continue
+            matched_workflows=$((matched_workflows + 1))
+            echo "Cleaning ${workflow_name} (${workflow_path})"
+
+            while :; do
+              run_ids="$(gh api \
+                "repos/${REPOSITORY}/actions/workflows/${workflow_id}/runs?per_page=100" \
+                --jq '.workflow_runs[].id')"
+
+              [ -n "${run_ids}" ] || break
+
+              while IFS= read -r run_id; do
+                [ -n "${run_id}" ] || continue
+                gh api --method DELETE \
+                  "repos/${REPOSITORY}/actions/runs/${run_id}"
+                deleted_runs=$((deleted_runs + 1))
+                echo "Deleted run ${run_id}"
+              done <<< "${run_ids}"
+            done
+          done < <(
+            gh api --paginate \
+              "repos/${REPOSITORY}/actions/workflows?per_page=100" \
+              --jq '.workflows[] | select(.path | test("^\\.github/workflows/gemini-[^/]*\\.ya?ml$")) | [.id, .name, .path] | @tsv'
+          )
+
+          {
+            echo '## Gemini workflow history cleanup'
+            echo
+            echo "Matched workflows: ${matched_workflows}"
+            echo "Deleted runs: ${deleted_runs}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          echo "Matched ${matched_workflows} Gemini workflows and deleted ${deleted_runs} runs."
