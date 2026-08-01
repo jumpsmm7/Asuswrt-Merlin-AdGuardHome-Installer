@@ -249,7 +249,7 @@ glab mr view <mr-iid> --comments
 
 ```bash
 # All PR comments including inline comments
-curl -s --netrc-file "$BB_NETRC" \
+curl --fail --silent --show-error --netrc-file "$BB_NETRC" \
   "$BB_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments"
 ```
 
