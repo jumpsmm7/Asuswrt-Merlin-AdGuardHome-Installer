@@ -115,6 +115,11 @@ if [ -n "$QODO_API_URL" ]; then
 elif [ -z "$ENV_NAME" ]; then
   API_URL="https://qodo-platform.qodo.ai/rules/v1"
 else
+  # Validate ENVIRONMENT_NAME before URL construction
+  if ! echo "$ENV_NAME" | grep -qE '^[a-zA-Z0-9_.-]+$'; then
+    echo "Invalid ENVIRONMENT_NAME: must contain only alphanumeric, underscore, dot, or hyphen characters" >&2
+    exit 1
+  fi
   API_URL="https://qodo-platform.${ENV_NAME}.qodo.ai/rules/v1"
 fi
 ```

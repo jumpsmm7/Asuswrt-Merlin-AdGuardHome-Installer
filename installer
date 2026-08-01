@@ -1290,19 +1290,22 @@ on_installer_exit() {
 	if [ "${_DNS_STUBBY_STOPPED:-0}" = "1" ] && ! restore_stubby_after_dns_failure; then
 		PTXT "${ERROR} Unable to restart stubby after interrupted DNS preparation."
 	fi
-	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && nvram_transaction_lock_owned; then
-		nvram_transaction_finalize_setup_pair recovery || PTXT "${ERROR} Unable to finish the committed installer-managed NVRAM cleanup."
-		[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || nvram_transaction_setup_files_restore || PTXT "${ERROR} Unable to restore the interrupted installer configuration files."
-		# Restore any LAN-domain transaction interrupted before setup finalized it.
-		installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
-		# Restore any DNSFilter transaction interrupted before setup finalized it.
-		if ! restore_dns_filter_settings; then
-			PTXT "${ERROR} Unable to restore the DNSFilter NVRAM settings; review ${ROLLBACK_RESULT_FILE} and the preserved snapshot before restarting setup."
+	if nvram_transaction_lock_owned; then
+		if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ]; then
+			nvram_transaction_finalize_setup_pair recovery || PTXT "${ERROR} Unable to finish the committed installer-managed NVRAM cleanup."
+			# Restore any LAN-domain transaction interrupted before setup finalized it.
+			installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
+			# Restore any DNSFilter transaction interrupted before setup finalized it.
+			if ! restore_dns_filter_settings; then
+				PTXT "${ERROR} Unable to restore the DNSFilter NVRAM settings; review ${ROLLBACK_RESULT_FILE} and the preserved snapshot before restarting setup."
+			fi
+			# Restore pre-check DNS settings only when exiting without a local adguardhome installation.
+			if [ ! -f "${AGH_FILE}" ]; then
+				(check_dns_environment 1) || PTXT "${ERROR} Unable to restore the pre-check DNS NVRAM settings."
+			fi
 		fi
-		# Restore pre-check DNS settings only when exiting without a local adguardhome installation.
-		if [ ! -f "${AGH_FILE}" ]; then
-			(check_dns_environment 1) || PTXT "${ERROR} Unable to restore the pre-check DNS NVRAM settings."
-		fi
+		# Restore setup files journal for both WAN and LAN modes
+		setup_restore_nvram_journal || true
 	fi
 	nvram_transaction_lock_release || PTXT "${ERROR} Unable to release the installer NVRAM transaction lock."
 }
@@ -6917,14 +6920,16 @@ setup_AdGuardHome_impl() {
 							"${WARNING} Continuing setup with the previous or default IPSET preference."
 					fi
 				fi
-				if { { [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; } || [ "${CHOOSE_NEW}" -eq 1 ] || [ -n "${DNS_FILTER_SELECTION:-}" ]; } &&
-					! nvram_transaction_setup_files_begin; then
-					setup_restore_previous_yaml || true
-					setup_restore_nvram_journal || true
-					PTXT "${ERROR} Unable to journal the current installer configuration before setup publication."
-					return 1
+				if { { [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; } || [ "${CHOOSE_NEW}" -eq 1 ] || [ -n "${DNS_FILTER_SELECTION:-}" ]; }; then
+					if nvram_transaction_setup_files_begin; then
+						SETUP_FILES_JOURNALED=1
+					else
+						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
+						PTXT "${ERROR} Unable to journal the current installer configuration before setup publication."
+						return 1
+					fi
 				fi
-				SETUP_FILES_JOURNALED=1
 				if { [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; } || [ "${CHOOSE_NEW}" -eq 1 ]; then
 					PTXT "${INFO} Requesting entries for AdGuardHome initial configuration..." \
 						"${INFO} Please set the preferred Web Port for AdGuardHome WebUI." \

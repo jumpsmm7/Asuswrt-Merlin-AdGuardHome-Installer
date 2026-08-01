@@ -123,9 +123,17 @@ glab mr list --source-branch <branch-name>
 
 ```bash
 BRANCH=$(git branch --show-current)
-curl -s -u "$BB_USERNAME:$BB_APP_PASSWORD" \
-  "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests?state=OPEN" \
-  | python3 -c "
+RESPONSE=$(curl -s -w "\n%{http_code}" -u "$BB_USERNAME:$BB_APP_PASSWORD" \
+  "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests?state=OPEN")
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+  echo "Error: API request failed with HTTP status $HTTP_CODE" >&2
+  exit 1
+fi
+
+echo "$BODY" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 branch = '$BRANCH'
@@ -211,11 +219,14 @@ glab api "/projects/:id/merge_requests/<mr-iid>/discussions/<discussion-id>/note
 ### Bitbucket
 
 ```bash
+# Serialize dynamic value before embedding in JSON
+REPLY_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<reply-body>")
+
 curl -s -u "$BB_USERNAME:$BB_APP_PASSWORD" \
   -H "Content-Type: application/json" \
   -X POST \
   "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments" \
-  -d '{"content": {"raw": "<reply-body>"}, "parent": {"id": <inline-comment-id>}}'
+  -d "{\"content\": {\"raw\": ${REPLY_BODY_JSON}}, \"parent\": {\"id\": <inline-comment-id>}}"
 ```
 
 ### Azure DevOps
@@ -252,11 +263,14 @@ glab mr comment <mr-iid> --message '<comment-body>'
 ### Bitbucket
 
 ```bash
+# Serialize dynamic value before embedding in JSON
+COMMENT_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<comment-body>")
+
 curl -s -u "$BB_USERNAME:$BB_APP_PASSWORD" \
   -H "Content-Type: application/json" \
   -X POST \
   "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments" \
-  -d '{"content": {"raw": "<comment-body>"}}'
+  -d "{\"content\": {\"raw\": ${COMMENT_BODY_JSON}}}"
 ```
 
 ### Azure DevOps
@@ -379,15 +393,21 @@ Add `--draft` flag when creating in draft mode.
 
 ```bash
 BRANCH=$(git branch --show-current)
+# Serialize dynamic values before embedding in JSON
+TITLE_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<title>")
+BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<body>")
+BRANCH_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$BRANCH")
+DEST_BRANCH_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "main")
+
 curl -s -u "$BB_USERNAME:$BB_APP_PASSWORD" \
   -H "Content-Type: application/json" \
   -X POST \
   "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests" \
   -d "{
-    \"title\": \"<title>\",
-    \"description\": \"<body>\",
-    \"source\": {\"branch\": {\"name\": \"$BRANCH\"}},
-    \"destination\": {\"branch\": {\"name\": \"main\"}}
+    \"title\": ${TITLE_JSON},
+    \"description\": ${BODY_JSON},
+    \"source\": {\"branch\": {\"name\": ${BRANCH_JSON}}},
+    \"destination\": {\"branch\": {\"name\": ${DEST_BRANCH_JSON}}}
   }"
 ```
 

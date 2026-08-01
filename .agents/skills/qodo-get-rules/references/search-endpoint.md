@@ -58,7 +58,7 @@ Construct `{API_URL}` using the following priority:
 | `staging` | `https://qodo-platform.staging.qodo.ai/rules/v1` |
 | `qodost.st` | `https://qodo-platform.qodost.st.qodo.ai/rules/v1` |
 
-The `ENVIRONMENT_NAME` value is substituted verbatim as a subdomain segment.
+The `ENVIRONMENT_NAME` value must match `^[a-zA-Z0-9_.-]+$` and be non-empty before being used as a subdomain segment. Reject invalid values before URL construction.
 
 **URL resolution priority:** `QODO_API_URL` → `ENVIRONMENT_NAME` → production default
 
@@ -99,11 +99,6 @@ curl -s -X POST \
 
 With optional trace header:
 ```bash
-TRACE_HEADER=""
-if [ -n "${TRACE_ID:-}" ]; then
-  TRACE_HEADER="-H trace_id:${TRACE_ID}"
-fi
-
 BODY=$(SEARCH_QUERY="$SEARCH_QUERY" SCOPE="${SCOPE:-}" python3 - <<'PY'
 import json
 import os
@@ -115,14 +110,24 @@ print(json.dumps(payload))
 PY
 )
 
-curl -s -X POST \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ${API_KEY}" \
-  -H "request-id: ${REQUEST_ID}" \
-  -H "qodo-client-type: skill-qodo-get-rules" \
-  ${TRACE_HEADER} \
-  -d "${BODY}" \
-  "${API_URL}/rules/search"
+if [ -n "${TRACE_ID:-}" ]; then
+  curl -s -X POST \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${API_KEY}" \
+    -H "request-id: ${REQUEST_ID}" \
+    -H "qodo-client-type: skill-qodo-get-rules" \
+    -H "trace_id:${TRACE_ID}" \
+    -d "${BODY}" \
+    "${API_URL}/rules/search"
+else
+  curl -s -X POST \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${API_KEY}" \
+    -H "request-id: ${REQUEST_ID}" \
+    -H "qodo-client-type: skill-qodo-get-rules" \
+    -d "${BODY}" \
+    "${API_URL}/rules/search"
+fi
 ```
 
 ## Example (Python)

@@ -156,19 +156,24 @@ POST /a/changes/<change-id>/revisions/current/review
 ### Reply to an inline comment (human or robot)
 
 ```bash
+# Serialize dynamic values before embedding in JSON
+REPLY_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<reply-body>")
+FILE_PATH_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<file-path>")
+COMMENT_ID_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<comment-id>")
+
 curl -s -u "$GERRIT_USERNAME:$GERRIT_HTTP_PASSWORD" \
   -H "Content-Type: application/json" \
   -X POST \
   "$GERRIT_URL/a/changes/<change-id>/revisions/current/review" \
-  -d '{
-    "comments": {
-      "<file-path>": [{
-        "in_reply_to": "<comment-id>",
-        "message": "<reply-body>",
-        "unresolved": false
+  -d "{
+    \"comments\": {
+      ${FILE_PATH_JSON}: [{
+        \"in_reply_to\": ${COMMENT_ID_JSON},
+        \"message\": ${REPLY_BODY_JSON},
+        \"unresolved\": false
       }]
     }
-  }' | tail -c +6
+  }" | tail -c +6
 ```
 
 - `in_reply_to`: the comment's `id` field (works for both robot and human comments)
@@ -197,11 +202,14 @@ Multiple replies across files can be combined in a single request:
 Uses the same unified endpoint with the `message` field:
 
 ```bash
+# Serialize dynamic value before embedding in JSON
+SUMMARY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<summary-comment-body>")
+
 curl -s -u "$GERRIT_USERNAME:$GERRIT_HTTP_PASSWORD" \
   -H "Content-Type: application/json" \
   -X POST \
   "$GERRIT_URL/a/changes/<change-id>/revisions/current/review" \
-  -d '{"message": "<summary-comment-body>"}' | tail -c +6
+  -d "{\"message\": ${SUMMARY_JSON}}" | tail -c +6
 ```
 
 **Optimization:** Summary and all inline replies can be batched in a single request:
@@ -265,7 +273,14 @@ git push origin HEAD:refs/for/$TARGET_BRANCH
 
 The commit must have a `Change-Id` footer. If missing, install the commit-msg hook:
 ```bash
-curl -sLo .git/hooks/commit-msg $GERRIT_URL/tools/hooks/commit-msg && chmod +x .git/hooks/commit-msg
+HOOK_TMP=$(mktemp)
+if curl -fsSLo "$HOOK_TMP" "$GERRIT_URL/tools/hooks/commit-msg"; then
+  mv "$HOOK_TMP" .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg
+else
+  rm -f "$HOOK_TMP"
+  echo "Failed to download commit-msg hook" >&2
+  exit 1
+fi
 ```
 
 ## Error Handling

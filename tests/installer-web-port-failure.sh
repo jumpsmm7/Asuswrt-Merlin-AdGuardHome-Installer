@@ -433,6 +433,7 @@ printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"'
 : >"${WRITE_LOG}"
 FAIL_CHECK_DNS_FILTER=0
 SETUP_FILES_BEGIN_COUNT=0
+DNS_FILTER_SAW_SETUP_JOURNAL=0
 read_input_num() {
 	CHOSEN=1
 }
@@ -440,6 +441,7 @@ if ! setup_AdGuardHome_impl reconfig reconfig; then
 	fail 'existing-YAML DNSFilter reconfiguration failed'
 fi
 [ "${SETUP_FILES_BEGIN_COUNT}" -eq 1 ] || fail 'existing-YAML DNSFilter reconfiguration was not journaled exactly once'
+[ "${DNS_FILTER_SAW_SETUP_JOURNAL}" -eq 1 ] || fail 'existing-YAML DNSFilter reconfiguration did not observe setup journal before check_dns_filter'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'existing-YAML DNSFilter reconfiguration retained its completed file journal'
 
 printf '%s\n' 'PASS: failed WebUI port verification or persistence aborts setup safely'
