@@ -327,9 +327,14 @@ echo "$BODY"
 
 ```bash
 # Add a reply comment to an existing thread (az repos pr thread does not exist)
-ADO_COMMENT_FILE=$(mktemp)
-trap 'rm -f "$ADO_COMMENT_FILE"' EXIT
-echo '{"content": "<reply-body>", "commentType": 1}' > "$ADO_COMMENT_FILE"
+REPLY_BODY=$(cat <<'EOF'
+<reply-body>
+EOF
+)
+REPLY_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$REPLY_BODY") || exit 1
+ADO_COMMENT_FILE=$(mktemp) || exit 1
+trap 'rm -f "$ADO_COMMENT_FILE"' EXIT HUP INT TERM
+printf '%s\n' "{\"content\": ${REPLY_BODY_JSON}, \"commentType\": 1}" > "$ADO_COMMENT_FILE" || exit 1
 az devops invoke \
   --area git \
   --resource pullRequestThreadComments \
