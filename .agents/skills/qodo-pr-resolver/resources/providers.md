@@ -576,11 +576,13 @@ glab mr update <mr-iid> --ready
 If the title was prefixed with `[DRAFT]`, update it to remove the prefix:
 
 ```bash
+TITLE_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<title-without-draft-prefix>")
+
 if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X PUT \
   "$BB_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>" \
-  -d '{"title": "<title-without-draft-prefix>"}'); then
+  -d "{\"title\": ${TITLE_JSON}}"); then
   echo "Error: Bitbucket API request failed (curl error)" >&2
   exit 1
 fi
