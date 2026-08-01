@@ -22,7 +22,7 @@ Match against:
 - `github.com` → GitHub
 - `gitlab.com` → GitLab
 - `bitbucket.org` → Bitbucket
-- `dev.azure.com` → Azure DevOps
+- `dev.azure.com`, or the host configured by `AZURE_DEVOPS_URL` → Azure DevOps
 - `.gitreview` file or port `29418` or `googlesource.com` → Gerrit (see [gerrit.md](./gerrit.md))
 
 ## Prerequisites by Provider
@@ -129,14 +129,39 @@ EOF
 - **Authenticate and configure:**
   ```bash
   az login
-  # Extract org/project from remote URL and configure defaults:
+  # Normalize the configured service/collection URL. For Azure DevOps Cloud,
+  # the organization is the first path component after dev.azure.com. For
+  # Azure DevOps Server, AZURE_DEVOPS_URL is the collection URL itself.
+  if [ -z "${AZURE_DEVOPS_URL:-}" ] && [ -f "${HOME}/.qodo/config.json" ]; then
+    AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL", ""))' "${HOME}/.qodo/config.json")
+  fi
+  ADO_BASE_URL=${AZURE_DEVOPS_URL:-https://dev.azure.com}
+  ADO_BASE_URL=${ADO_BASE_URL%/}
   ADO_REMOTE=$(git remote get-url origin)
-  ADO_ORG=$(echo "$ADO_REMOTE" | sed -E 's|https://[^@]*@?dev\.azure\.com/([^/]+)/.*|\1|')
-  ADO_PROJECT=$(echo "$ADO_REMOTE" | sed -E 's|https://[^/]*/[^/]+/([^/]+)/.*|\1|')
-  ADO_REPO=$(echo "$ADO_REMOTE" | sed -E 's|.*/([^/]+)$|\1|')
-  az devops configure --defaults organization=https://dev.azure.com/$ADO_ORG project=$ADO_PROJECT
+  case "$ADO_REMOTE" in
+    https://*@*) ADO_REMOTE=https://${ADO_REMOTE#*@} ;;
+  esac
+  case "$ADO_REMOTE" in
+    "$ADO_BASE_URL"/*) ADO_PATH=${ADO_REMOTE#"$ADO_BASE_URL"/} ;;
+    *)
+      echo "Error: remote does not use configured Azure DevOps URL: $ADO_BASE_URL" >&2
+      exit 1
+      ;;
+  esac
+
+  if [ "$ADO_BASE_URL" = "https://dev.azure.com" ]; then
+    ADO_ORG=${ADO_PATH%%/*}
+    ADO_PATH=${ADO_PATH#*/}
+    ADO_ORGANIZATION=$ADO_BASE_URL/$ADO_ORG
+  else
+    ADO_ORGANIZATION=$ADO_BASE_URL
+  fi
+  ADO_PROJECT=${ADO_PATH%%/*}
+  ADO_REPO=${ADO_PATH##*/}
+  ADO_REPO=${ADO_REPO%.git}
+  az devops configure --defaults organization="$ADO_ORGANIZATION" project="$ADO_PROJECT"
   # Get repository ID (required for thread API calls):
-  ADO_REPO_ID=$(az repos show --name $ADO_REPO --query id -o tsv)
+  ADO_REPO_ID=$(az repos show --name "$ADO_REPO" --query id -o tsv)
   ```
 - **Verify:**
   ```bash
