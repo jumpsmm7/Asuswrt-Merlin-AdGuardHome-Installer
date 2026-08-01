@@ -1,0 +1,422 @@
+---
+name: qodo-pr-resolver
+description: "Use when the user wants to review Qodo PR feedback or fix code review comments. Capabilities: view issues by severity, apply fixes interactively or in batch, reply to inline comments, post fix summaries (GitHub, GitLab, Bitbucket, Azure DevOps, Gerrit)"
+triggers:
+  - qodo.?pr.?resolver
+  - pr.?resolver
+  - resolve.?pr
+  - qodo.?fix
+  - fix.?qodo
+  - qodo.?review
+  - review.?qodo
+  - qodo.?issues?
+  - show.?qodo
+  - get.?qodo
+  - qodo.?resolve
+---
+
+# Qodo PR Resolver
+
+Fetch Qodo review issues for your current branch's PR/MR, fix them interactively or in batch, and reply to each inline comment with the decision. Supports GitHub, GitLab, Bitbucket, Azure DevOps, and Gerrit.
+
+## Prerequisites
+
+### Required Tools:
+- **Git** - For branch operations
+- **Git Provider CLI** - One of: `gh` (GitHub), `glab` (GitLab), `curl` (Bitbucket/Gerrit), or `az` (Azure DevOps)
+
+**Installation and authentication details:** See [providers.md](./resources/providers.md) for provider-specific setup instructions.
+
+### Required Context:
+- Must be in a git repository
+- Repository must be hosted on a supported git provider (GitHub, GitLab, Bitbucket, Azure DevOps, or Gerrit)
+- Current branch must have an open PR/MR (or Gerrit change)
+- PR/MR must have been reviewed by Qodo (pr-agent-pro bot, qodo-merge[bot], etc.)
+
+### Quick Check:
+```bash
+git --version                                    # Check git installed
+git remote get-url origin                        # Identify git provider
+```
+
+See [providers.md](./resources/providers.md) for provider-specific verification commands.
+
+## Understanding Qodo Reviews
+
+Qodo (formerly Codium AI) is an AI-powered code review tool that analyzes PRs/MRs with compliance checks, bug detection, and code quality suggestions.
+
+### Bot Identifiers
+Look for comments from: **`pr-agent-pro`**, **`pr-agent-pro-staging`**, **`qodo-merge[bot]`**, **`qodo-ai[bot]`**
+
+### Review Comment Types
+1. **PR Compliance Guide** 🔍 - Security/ticket/custom compliance with 🟢/🟡/🔴/⚪ indicators
+2. **PR Code Suggestions** ✨ - Categorized improvements with importance ratings
+3. **Code Review by Qodo** - Structured issues with 🐞/📘/📎 sections and agent prompts (most detailed)
+
+## Instructions
+
+When the user asks for a code review, to see Qodo issues, or fix Qodo comments:
+
+### Step 0: Check code push status
+
+Check for uncommitted changes, unpushed commits, and get the current branch.
+
+**Note:** Only consider **tracked** files when checking for uncommitted changes. Untracked files (scripts, local configs, etc.) that are not part of the repository should be ignored. Use `git diff --name-only` and `git diff --cached --name-only` rather than `git status --porcelain` which includes untracked files.
+
+#### Scenario A: Uncommitted changes exist
+
+- Inform: "⚠️ You have uncommitted changes. These won't be included in the Qodo review."
+- Ask: "Would you like to commit and push them first?"
+- If yes: Wait for user action, then proceed to Step 1
+- If no: Warn "Proceeding with review of pushed code only" and continue to Step 1
+
+#### Scenario B: Unpushed commits exist
+
+(no uncommitted changes)
+
+- Inform: "⚠️ You have N unpushed commits. Qodo hasn't reviewed them yet."
+- Ask: "Would you like to push them now?"
+- If yes: Execute `git push`, inform "Pushed! Qodo will review shortly." Record internally `JUST_PUSHED = true`. Continue to Step 1 (the Wait for Qodo review flow in Step 3a will handle the waiting).
+- If no: Warn "Proceeding with existing PR review" and continue to Step 1
+
+#### Scenario C: Everything pushed
+
+(both uncommitted changes and unpushed commits are empty)
+
+- Proceed to Step 1
+
+### Step 1: Detect git provider
+
+Detect git provider from the remote URL (`git remote get-url origin`).
+
+See [providers.md](./resources/providers.md) for provider detection patterns. For Gerrit, also check for `.gitreview` file, port 29418 in remote URL, or `googlesource.com` — see [gerrit.md](./resources/gerrit.md#provider-detection).
+
+### Step 2: Find the open PR/MR
+
+Find the open PR/MR for this branch using the provider's CLI.
+
+See [providers.md § Find Open PR/MR](./resources/providers.md#find-open-prmr) for provider-specific commands. For Gerrit, look up the change using the `Change-Id` from the HEAD commit message — see [gerrit.md § Find Open Change](./resources/gerrit.md#find-open-change).
+
+### Step 3: Get Qodo review comments
+
+Get the Qodo review comments using the provider's CLI.
+
+Qodo typically posts both a **summary comment** (PR-level, containing all issues) and **inline review comments** (one per issue, attached to specific lines of code). You must fetch both.
+
+See [providers.md § Fetch Review Comments](./resources/providers.md#fetch-review-comments) for provider-specific commands.
+
+Look for comments where the author is "qodo-merge[bot]", "pr-agent-pro", "pr-agent-pro-staging" or similar Qodo bot name.
+
+**Gerrit note:** Qodo posts as **tagged human comments** via `/comments` with `tag: "autogenerated:qodo"`. Also check change messages (`/messages`) for the summary comment. Filter by `tag` field or bot username. See [gerrit.md § Fetch Review Comments](./resources/gerrit.md#fetch-review-comments).
+
+#### Step 3a: Check if review is ready / Wait for Qodo review
+
+Check if the Qodo review is complete:
+- If any comment contains "Come back again in a few minutes" or "An AI review agent is analysing this pull request", the review is still running
+- If no Qodo bot comments are found at all, the review hasn't started yet
+
+If the review is **not ready** (in progress, not started, or we just pushed/created a PR):
+
+1. Ask using AskUserQuestion: "⏳ Qodo review is not ready yet. Would you like to wait for it to complete?"
+   - Options: **"Wait for review" (Recommended)** / "Exit and come back later"
+2. If **"Exit and come back later"**: Inform "Run this skill again in a few minutes once Qodo has reviewed the PR." Exit skill.
+3. If **"Wait for review"**:
+   - Inform: "Monitoring for Qodo review completion (checking every 30 seconds)..."
+   - Use the **Monitor** tool to poll for review completion:
+     - `description`: "Waiting for Qodo review on PR #<number>"
+     - `timeout_ms`: `600000` (10 minutes)
+     - `persistent`: `false`
+     - `command`: A polling script that runs in a `while true; do ... sleep 30; done` loop. The script should use the **same provider-specific comment-fetch commands from Step 3** (Fetch Review Comments) to check for Qodo bot comments. If Qodo comments are found AND they do not contain "Come back again in a few minutes" or "An AI review agent is analysing this pull request", output `REVIEW_COMPLETE` and exit. Use `|| true` on API calls for transient failure resilience.
+   - When the Monitor emits `REVIEW_COMPLETE`: Inform "Qodo review is ready!" and **return to Step 3** to fetch and parse the review comments normally.
+   - If the Monitor times out (10 minutes): Inform "Qodo review hasn't appeared yet. You can run this skill again later." Exit skill.
+
+If the review **is ready** (Qodo comments found, no "in progress" markers): Proceed directly to Step 3b.
+
+#### Step 3b: Deduplicate issues
+
+Deduplicate issues across summary and inline comments:
+
+- Qodo posts each issue in two places: once in the **summary comment** (PR-level) and once as an **inline review comment** (attached to the specific code line). These will share the same issue title.
+- Qodo may also post multiple summary comments (Compliance Guide, Code Suggestions, Code Review, etc.) where issues can overlap with slightly different wording.
+- Deduplicate by matching on **issue title** (primary key - the same title means the same issue):
+  - If an issue appears in both the summary comment and as an inline comment, merge them into a single issue
+  - Prefer the **inline comment** for file location (it has the exact line context)
+  - Prefer the **summary comment** for severity, type, and agent prompt (it is more detailed)
+  - **IMPORTANT:** Preserve each issue's **inline review comment ID** — you will need it later (Step 8) to reply directly to that comment with the decision
+- Also deduplicate across multiple summary comments by location (file path + line numbers) as a secondary key
+- If the same issue appears in multiple places, combine the agent prompts
+
+**Gerrit deduplication:** Qodo inline comments contain an **Agent Prompt** section (rendered as plain text — Gerrit doesn't support expandable blocks) with detailed fix instructions. When deduplicating, preserve the Agent Prompt from each unique finding.
+
+#### Step 3c: Load prior-round history (oscillation guard)
+
+Qodo re-reviews on every push, so the same code can be flagged across rounds — sometimes with the *opposite* suggestion of a fix you already applied. Without memory of prior rounds, the resolver flip-flops and the PR never converges. Prevent this by reading your own trail before deciding anything.
+
+First, **finalize activation** — uniformly for every provider, from the Step 3 comments (no git, no commit metadata):
+- The resolver's **prior fix-summary comments** are the top-level PR/MR comments (Gerrit: change messages) whose body contains the verbatim marker `Generated by Qodo PR Resolver skill`. Only this skill writes that marker, so human `fix:` commits and Qodo's own review comments are invisible to detection.
+- Set `PRIOR_RESOLVER_PASS = true` iff at least one such summary exists on this PR; otherwise `false` (first run — guard dormant, treat every issue as untagged).
+- **Round number:** each summary's heading is `## Qodo Fix Summary — Round N`. Prior round = `max(highest N parsed from those headings, count of marker-bearing summaries)` (the count floors it if a heading didn't parse; match the heading **anywhere** in the body, since Gerrit prepends a `Patch Set N:` line). This round = prior round + 1; first pass = round 1. Use this N in the Step 8 heading.
+
+When `PRIOR_RESOLVER_PASS = true`, build a **decision ledger keyed by `file` + issue `title`** — a stable identity that survives a prior fix shifting line numbers. (The raised `line` is recorded too, but only to disambiguate multiple same-title findings in one file — never as the primary match key.) Build it from your prior-round records (no new endpoints — reuse the Step 3 comment-fetch commands):
+- Your prior **fix-summary comments** (the marker-bearing comments above) — fixed/deferred issues with reasons, plus the action taken (e.g. "added guard" / "removed guard") used for flip detection.
+- Your prior **inline replies** (`✅ **Fixed** — …` / `⏭️ **Deferred** — …`) on each thread.
+
+Then **tag each issue** parsed in Step 4 by looking it up in the ledger **by its `file` + `title` key** (use the recorded `line` only to pick the nearest match when one file has several same-title entries):
+- **🔁 Repeat** — the `file` + `title` matches a ledger entry already **fixed** in a prior round and is resurfacing.
+- **⚠️ Contradiction** — matched at the same `file` + `title`, the new suggestion would **reverse** a prior applied fix, or re-raises something the user **deliberately deferred**. This is the oscillation signal.
+- **(untagged)** — not seen before; handle normally.
+
+If no prior summary exists (first round), treat all issues as untagged. If the comment fetch fails, **say so** — do not silently behave as if there is no prior round.
+
+See [convergence.md](./resources/convergence.md) for ledger fields, detection heuristics, and the exact behavior/replies for tagged issues.
+
+### Step 4: Parse and display the issues
+
+- Extract the review body/comments from Qodo's review
+- Parse out individual issues/suggestions
+- **IMPORTANT: Preserve Qodo's exact issue titles verbatim** — do not rename, paraphrase, or summarize them. Use the title exactly as Qodo wrote it.
+- **IMPORTANT: Preserve Qodo's original ordering** — display issues in the same order Qodo listed them within each bucket. Qodo already orders by relevance.
+- Extract location, issue description, and suggested fix
+- Extract the agent prompt from Qodo's suggestion (the description of what needs to be fixed)
+
+#### Read Qodo's taxonomy — do not derive it
+
+Qodo's Git review already classifies every issue. Read these values **directly from the comment markup** — never compute, rank, or guess them:
+
+1. **Bucket (severity banner)** — Qodo groups issues under a banner rendered as a shields.io badge image, e.g. `<img src="https://img.shields.io/badge/Action_required-634FD1?style=flat-square" alt="Action required">`. The label GitHub actually displays is the **URL slug** — the text between `/badge/` and the color code — with underscores turned into spaces. Take the label from there, **not** from `alt`: the two can differ (slug `Review_recommended` renders as "Review recommended", while `alt="Remediation recommended"` is only invisible fallback), and the slug is what the user sees, so using it keeps the terminal consistent with the GitHub review. Banners observed, high→low: **Action required**, **Review recommended**, **Optional**. When a bucket has no findings, Qodo may instead print a plain-text banner such as **Great, no actions required** — surface it verbatim. Treat this as an open set: render whatever label Qodo uses; do not map it onto a fixed list.
+
+2. **Type tag(s) + sub-category** — on each issue's summary line the **title comes first**, followed by `<code>`-wrapped tags, e.g. `1.  Insecure auth check <code>🐞 Bug</code> <code>⛨ Security</code>`. Preserve each `<code>` tag verbatim **with its emoji/symbol**: the type (e.g. 🐞 Bug, 📘 Rule violation, 📎 Requirement gap, 🔗 Cross-repo conflict, 🧑 Team insight, 📜 Skill insight) and the sub-category symbol (e.g. ≡ Correctness, ✧ Quality, ☼ Reliability, ⚙ Maintainability, ⛨ Security, …). Both sets are open — read new ones literally. **Ignore status tags** that may also sit on the title line as `<code>`: `<code>✓ Resolved</code>` (title is struck through — already fixed) and `<code>⭐ New</code>` (a novelty marker — **not** a relevance rating).
+
+3. **Relevance stars** — only *some* reviews include them, inside a separate `<summary>Relevance</summary>` section as inline code like `` `⭐⭐ Medium` `` (⭐⭐⭐ High / ⭐⭐ Medium / ⭐ Low). Many reviews (e.g. open-source deployments) omit relevance entirely — if there is no Relevance section, the issue simply has no stars.
+
+**Do NOT invent a severity.** There is no CRITICAL/HIGH/MEDIUM/LOW and no 🔴/🟠/🟡/⚪ derivation — Qodo's banner is the severity signal. Qodo changes types, symbols, and banner labels over time and across environments, so always follow by reading the current values literally; never maintain a parallel taxonomy here.
+
+**Missing data:** if an issue has no stars, no type tag, or no sub-category, omit that field for that issue — never fabricate one.
+
+**Ordering & action defaulting** — derive both from Qodo's own signals, never from a hardcoded list of label strings:
+- **Order:** process buckets in the order Qodo lists them, top to bottom — Qodo already sorts most-severe first. This works for any number of buckets and any labels.
+- **Default Action = `Fix`** for every bucket, **except** a bucket whose banner label signals low priority — a case-insensitive match on `optional`, `advisory`, `informational`, or `no action(s)` → default **`Defer`**. An unrecognized label defaults to **`Fix`** (surface it rather than hide it).
+- The labels observed today (`Action required` / `Review recommended` / `Optional`) are **examples**, not a fixed set — do not special-case them beyond the low-priority keyword rule above.
+
+#### Output format
+
+**IMPORTANT — terminal-safe rendering:**
+- Use actual Unicode emoji/symbol characters (e.g. `🐞`, `📘`, `⛨`, `⚙`, `⭐`), NOT GitHub-style shortcodes (`:beetle:`, `:books:`, `:shield:`, `:star:`) — shortcodes don't render in a terminal.
+- **Never use `&nbsp;` or any HTML entities, and do not use runs of multiple spaces to align columns** — Markdown collapses runs of spaces and `&nbsp;` prints literally in a terminal. Separate fields on the title line with a middot ` · `, put the title after an em-dash ` — `, and place Location/Action on their own indented `-` bullet lines.
+
+Group issues under Qodo's own bucket headers, preserving Qodo's original order within each bucket. For each issue, put the type tag(s), relevance stars, and the verbatim title on one line, then Location and Action as indented bullets beneath. Only render buckets that contain issues, and omit any field Qodo didn't provide (don't fabricate).
+
+For any issue tagged in Step 3c, prefix its **Action** line with the tag (`🔁 Repeat — ` or `⚠️ Contradiction — `) so the user sees which findings are resurfacing or flip-flopping.
+
+**Dedicated oscillation section.** If any issue is tagged ⚠️ Contradiction (or 🔁 Repeat whose `file` + `title` ledger entry previously flipped direction), render a section **above** the main issue list grouping every such candidate, headed by the exact warning:
+
+> ⚠️ Possible oscillation — Qodo is suggesting the opposite of a prior resolver action at this location.
+
+List each candidate with its `file:line`, the prior decision + round number, and the new contradicting suggestion. These issues also appear in the main list (with their tag prefix).
+
+```
+Qodo Issues for PR #123: [PR Title]
+
+━━ Action required ━━
+
+1. 🐞 Bug · ⛨ Security · ⭐⭐⭐ — Insecure authentication check
+   - Location: src/auth/service.py:42
+   - Action: Fix
+
+━━ Review recommended ━━
+
+2. 🧑 Team insight · ◔ Observability · ⭐⭐⭐ — Provider errors logged as error
+   - Location: src/services/sync_service.py:314
+   - Action: Fix
+
+━━ Optional ━━
+
+3. 🧑 Team insight · ⚙ Maintainability — Schema flag lacks description
+   - Location: src/schemas.py:685
+   - Action: Defer (low priority)
+```
+
+### Step 5: Ask user for fix preference
+
+**Single-finding shortcut:** If exactly **one** issue was parsed in Step 4, skip this question entirely — "Review each issue" and "Auto-fix all" collapse to the same thing with one finding and are misleading. Proceed directly to Step 6 (manual review) for that single issue, **regardless of its Action ("Fix" or "Defer")**. If that lone issue is **tagged** in Step 3c (🔁 Repeat / ⚠️ Contradiction / 🛑 hard stop), Step 6's tagged-issue block handles it — including a hard-stop refusal that routes it to Step 8's "Skipped to prevent oscillation" category — *not* the normal Fix/Defer prompt. Otherwise Step 6's per-issue prompt surfaces in single-finding mode, so the user is never silently skipped.
+
+Otherwise (two or more issues), ask the user how they want to proceed using AskUserQuestion:
+
+**Options:**
+- 🔍 "Review each issue" - Review and approve/defer each issue individually (recommended for careful review)
+- ⚡ "Auto-fix all" - Automatically apply all fixes marked as "Fix" without individual approval (faster, but less control)
+- ❌ "Cancel" - Exit without making changes
+
+**Based on the user's choice:**
+- If "Review each issue": Proceed to Step 6 (manual review)
+- If "Auto-fix all": Skip to Step 7 (auto-fix mode - apply all "Fix" issues automatically using Qodo's agent prompts)
+- If "Cancel": Exit the skill
+
+### Step 6: Review and fix issues (manual mode)
+
+If "Review each issue" was selected:
+
+**Tagged issues (from Step 3c) come first and follow [convergence.md](./resources/convergence.md):**
+- **⚠️ Contradiction** — do NOT auto-apply. Present the prior decision + rationale (with round number) alongside the new contradicting suggestion, and AskUserQuestion defaulting to **⏭️ "Defer"** (alternatives: ✅ "Apply" / 🔧 "Modify"). "Defer" holds the prior decision: reply to the thread that it was deliberate and resolve it — this breaks the oscillation.
+- **🔁 Repeat** — re-read the current code first. If the prior fix is intact, default to **Defer** ("addressed in a previous round"). Only treat as a normal fix if the prior fix was lost or genuinely incomplete.
+- **🛑 Hard stop (3rd oscillation cycle)** — if a ledger entry (its `file` + `title` key) has already flipped direction ≥2 times, **refuse to apply** any further change at that location even if the user picks ✅ Apply, unless the user gives an **explicit override message** naming the location. Otherwise resolve the thread and route it to Step 8's "Skipped to prevent oscillation" category. See [convergence.md](./resources/convergence.md#oscillation-cycle-counting-and-hard-stop).
+
+- For each remaining **untagged** issue marked as "Fix" (in Qodo's order, starting with the **topmost** bucket — Qodo lists most-severe first) — **plus**, in single-finding mode, the lone issue when untagged, even if marked "Defer" (a tagged lone issue is handled by the block above, not here):
+  - Read the relevant file(s) to understand the current code
+  - Implement the fix by **executing the Qodo agent prompt as a direct instruction**. The agent prompt is the fix specification — follow it literally, do not reinterpret or improvise a different solution. Only deviate if the prompt is clearly outdated relative to the current code (e.g. references lines that no longer exist), **or if applying it would contradict a deliberate decision recorded in the Step 3c ledger** — in that case stop and treat it as a ⚠️ Contradiction (above) rather than reverting.
+  - Calculate the proposed fix in memory (DO NOT use Edit or Write tool yet)
+  - **Present the fix and ask for approval in a SINGLE step:**
+    1. Show a brief header with issue title and location
+    2. **Show Qodo's agent prompt in full** so the user can verify the fix matches it
+    3. Display current code snippet
+    4. Display proposed change as markdown diff
+    5. Immediately use AskUserQuestion with these options:
+       - If the issue's Action is **"Fix"** (the default for any bucket **not** flagged low-priority/optional):
+         - ✅ "Apply fix" - Apply the proposed change
+         - ⏭️ "Defer" - Skip this issue (will prompt for reason)
+         - 🔧 "Modify" - User wants to adjust the fix first
+       - If the issue's Action is **"Defer"** (only reachable in single-finding mode):
+         - ⏭️ "Confirm defer" - Keep the deferral (will prompt for reason)
+         - ✅ "Apply fix anyway" - Apply the proposed change despite the suggested deferral
+         - 🔧 "Modify" - User wants to adjust the fix first
+  - **WAIT for user's choice via AskUserQuestion**
+  - **If "Apply fix" / "Apply fix anyway" selected:**
+    - Apply change using Edit tool (or Write if creating new file)
+    - **GitHub / GitLab / Bitbucket / Azure DevOps:** Git commit the fix: `git add <modified-files> && git commit -m "fix: <issue title>"`
+    - **Gerrit:** Do NOT commit yet — stage the change (`git add <modified-files>`) but wait until all fixes are applied, then amend into a single commit (see Gerrit note below)
+    - Confirm: "✅ Fix applied!"
+    - Mark issue as completed
+  - **If "Defer" / "Confirm defer" selected:**
+    - Ask for deferral reason using AskUserQuestion
+    - Record reason and move to next issue
+  - **If "Modify" selected:**
+    - Inform user they can make changes manually
+    - Move to next issue
+- Continue until all in-scope issues are addressed or the user decides to stop
+- **After all fixes are applied**, reply to all Qodo inline comments in one batch (see Step 8)
+
+**Gerrit commit strategy:** In Gerrit, each commit becomes a separate change. To keep all fixes as a single new patchset on the existing change:
+1. Apply all fixes (Edit tool) and stage them (`git add`)
+2. After ALL fixes are done, amend the original commit: `git commit --amend --no-edit`
+3. Push once in Step 9
+
+Do NOT create individual commits per fix for Gerrit.
+
+#### Important notes
+
+**Single-step approval with AskUserQuestion:**
+- NO native Edit UI (no persistent permissions possible)
+- Each fix requires explicit approval via custom question
+- Clearer options, no risk of accidental auto-approval
+
+**CRITICAL:** Single validation only - do NOT show the diff separately and then ask. Combine the diff display and the question into ONE message. The user should see: brief context → current code → proposed diff → AskUserQuestion, all at once.
+
+**Example:** Show location, Qodo's guidance, current code, proposed diff, then AskUserQuestion with options (✅ Apply fix / ⏭️ Defer / 🔧 Modify). Wait for user choice, apply via Edit tool if approved.
+
+### Step 7: Auto-fix mode
+
+If "Auto-fix all" was selected:
+
+**Oscillation guard:** issues tagged **🔁 Repeat** or **⚠️ Contradiction** in Step 3c are **excluded from automatic application** — auto-fix is where unattended flip-flop churn happens. Handle them **by tag type** (do not lump together): **⚠️ Contradiction** → still prompt via AskUserQuestion with the Contradiction options (Defer / Apply / Modify) defaulting to **Defer** — the one case auto-fix must interrupt for, so never silently apply *or* silently defer it; **🔁 Repeat** → re-read the current code and **Defer** if the prior fix is intact, else treat as a normal fix; **🛑 hard stop** (≥2 flips at a location) → refuse and route to the "Skipped to prevent oscillation" category. Report all held/excluded tagged issues in the Step 8 summary — never silently skip them. See [convergence.md](./resources/convergence.md).
+
+- For each remaining (untagged) issue marked as "Fix" (in Qodo's order, starting with the **topmost** bucket):
+  - Read the relevant file(s) to understand the current code
+  - Implement the fix by **executing the Qodo agent prompt as a direct instruction**. The agent prompt is the fix specification — follow it literally, do not reinterpret or improvise a different solution. Only deviate if the prompt is clearly outdated relative to the current code (e.g. references lines that no longer exist), **or if applying it would contradict a deliberate decision recorded in the Step 3c ledger** (then exclude it as above).
+  - Apply the fix using Edit tool
+  - **GitHub / GitLab / Bitbucket / Azure DevOps:** Git commit the fix: `git add <modified-files> && git commit -m "fix: <issue title>"`
+  - **Gerrit:** Stage only (`git add <modified-files>`) — do NOT commit yet
+  - Report each fix with the agent prompt that was followed:
+    > ✅ **Fixed: [Issue Title]** at `[Location]`
+    > **Agent prompt:** [the Qodo agent prompt used]
+  - Mark issue as completed
+- **Gerrit:** After ALL fixes are applied, amend into one commit: `git commit --amend --no-edit`
+- Reply to all Qodo inline comments in one batch (see Step 8)
+- After all auto-fixes are applied, display summary:
+  - List of all issues that were fixed
+  - List of any issues that were skipped (with reasons)
+
+### Step 8: Post summary and reply to comments
+
+**REQUIRED:** After all issues have been reviewed (fixed or deferred), ALWAYS post a comment summarizing the actions taken, even if all issues were deferred.
+
+See [providers.md § Post Summary Comment](./resources/providers.md#post-summary-comment) for provider-specific commands and summary format.
+
+**Round-of-record:** the summary comment is how the *next* round detects this one (Step 3c), so its heading **must** be `## Qodo Fix Summary — Round N` (N from Step 3c) and it **must** keep the verbatim `Generated by Qodo PR Resolver skill` footer. Heading + marker are the only prior-round signal — nothing is written to the commit.
+
+**Gerrit:** Batch the summary comment AND all inline replies into a **single API call**. This is more efficient and avoids multiple email notifications. Use the unified review endpoint with both `message` (summary) and `comments` (inline replies) — see [gerrit.md § Post Summary Comment](./resources/gerrit.md#post-summary-comment).
+
+**Important resolution rules for inline replies:**
+- **Fixed** issues: set `"unresolved": false` (resolves the thread)
+- **Deferred** issues: set `"unresolved": false` (resolves the thread — the next Qodo review will re-evaluate)
+- **Held prior decision / hard-stopped** (⚠️ Contradiction kept as-is, or a 3rd-cycle hard stop): set `"unresolved": false`, and make the reply state the prior decision was deliberate (see [convergence.md](./resources/convergence.md)) so the rationale is recorded on the thread for the next round. In the summary, list these under a **dedicated category** titled **"Skipped to prevent oscillation — recommend human resolution"** (NOT under Deferred), each with `file:line` and oscillation reason.
+
+**After posting the summary, resolve the Qodo review comment:**
+
+Find the Qodo "Code Review by Qodo" comment and mark it as resolved or react to acknowledge it.
+
+See [providers.md § Resolve Qodo Review Comment](./resources/providers.md#resolve-qodo-review-comment) for provider-specific commands.
+
+If resolve fails (comment not found, API error), continue — the summary comment is the important part.
+
+### Step 9: Push to remote
+
+If any fixes were applied (commits were created in Steps 6/7), ask the user if they want to push:
+- If yes: `git push` (for Gerrit: `git push origin HEAD:refs/for/<target-branch>` — this creates a new patchset on the existing change, matched by the `Change-Id` in the commit message. See [gerrit.md § Push Changes](./resources/gerrit.md#push-changes))
+- If no: Inform them they can push later with `git push`
+
+**Important:** If all issues were deferred, there are no commits to push — skip this step.
+
+### Step 9b: Handle draft PR status
+
+**Only run this step if `DRAFT_PR_CREATED = true`** (a draft PR was created earlier in this session). Skip entirely if the PR already existed or was created as a regular PR.
+
+- Ask using AskUserQuestion: "We opened this PR as a draft. Would you like to mark it as ready for review, or keep it as a draft?"
+  - Options: **"Mark as ready for review"** / "Keep as draft"
+- If **"Mark as ready for review"**: Use provider CLI to mark PR as ready (see [providers.md § Mark PR Ready for Review](./resources/providers.md#mark-pr-ready-for-review)). Inform: "PR marked as ready for review!"
+- If **"Keep as draft"**: Inform: "PR will remain as a draft. You can mark it ready later."
+
+### Step 10: Show PR URL
+
+After completing all steps, always echo the PR/MR URL to the user so they can easily navigate to it. Use the PR URL detected in Step 2.
+
+Example output: `🔗 PR: https://github.com/owner/repo/pull/123`
+For Gerrit: `🔗 Change: https://<gerrit-host>/c/<project>/+/<change-number>`
+
+### Special cases
+
+#### Unsupported git provider
+
+If the remote URL doesn't match GitHub, GitLab, Bitbucket, Azure DevOps, or Gerrit, inform the user and exit.
+
+See [providers.md § Error Handling](./resources/providers.md#error-handling) for details.
+
+#### No PR/MR exists
+
+- Inform: "No PR/MR found for branch `<branch-name>`. A PR is needed to trigger a Qodo review."
+- **For non-Gerrit providers**, ask using AskUserQuestion: "How would you like to proceed?"
+  - **"Open draft PR" (Recommended)** — Create a draft PR since the code isn't finalized yet. Use provider CLI with draft flag (see [providers.md § Create PR/MR](./resources/providers.md#create-prmr)). **Record internally:** `DRAFT_PR_CREATED = true` and save the PR number/ID. Inform "Draft PR created!" then proceed to the **Wait for Qodo review** flow (Step 3a).
+  - **"Open PR"** — Create a regular (non-draft) PR. Use provider CLI without draft flag (see [providers.md § Create PR/MR](./resources/providers.md#create-prmr)). Set `DRAFT_PR_CREATED = false`. Inform "PR created!" then proceed to the **Wait for Qodo review** flow (Step 3a).
+  - **"I'll open it manually"** — Inform: "No problem! Open the PR yourself, then run this skill again once the PR exists and Qodo has reviewed it." Exit skill.
+- **For Gerrit**, ask: "Would you like me to create a change?" If yes, push with `git push origin HEAD:refs/for/<branch>` (see [gerrit.md § Create Change](./resources/gerrit.md#create-change)). Then proceed to the **Wait for Qodo review** flow (Step 3a). If no, exit skill.
+
+**IMPORTANT:** Do NOT proceed to Step 3b without a PR/MR. This skill only works with Qodo reviews, not manual reviews.
+
+#### No Qodo review yet / Review in progress
+
+Handled by Step 3a — proceeds to the **Wait for Qodo review** flow.
+
+#### Missing CLI tool
+
+If the detected provider's CLI is not installed, provide installation instructions and exit.
+
+See [providers.md § Error Handling](./resources/providers.md#error-handling) for provider-specific installation commands.
+
+#### Inline reply commands
+
+Used per-issue in Steps 6 and 7 to reply to Qodo's inline comments:
+
+Use the inline comment ID preserved during deduplication (Step 3b) to reply directly to Qodo's comment.
+
+See [providers.md § Reply to Inline Comments](./resources/providers.md#reply-to-inline-comments) for provider-specific commands and reply format. For Gerrit, all replies go through a single unified endpoint and can be batched — see [gerrit.md § Reply to Comments](./resources/gerrit.md#reply-to-comments).
+
+Keep replies short (one line). If a reply fails, log it and continue.
