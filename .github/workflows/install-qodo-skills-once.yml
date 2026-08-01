@@ -1,0 +1,53 @@
+name: 'Install Qodo skills once'
+
+on:
+  push:
+    branches:
+      - 'codex/github-mention-add-nvram-transaction-api-and-use-it-for-dns'
+    paths:
+      - '.github/workflows/install-qodo-skills-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out target branch
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          ref: 'codex/github-mention-add-nvram-transaction-api-and-use-it-for-dns'
+          fetch-depth: 0
+
+      - name: Install official Qodo skills for Codex
+        env:
+          DISABLE_TELEMETRY: '1'
+        run: |
+          set -euo pipefail
+          npx --yes skills@latest add qodo-ai/qodo-skills/skills \
+            --skill '*' \
+            --agent codex \
+            --copy \
+            --yes
+
+          test -f .agents/skills/qodo-get-rules/SKILL.md
+          test -f .agents/skills/qodo-pr-resolver/SKILL.md
+
+      - name: Commit installed skills
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/install-qodo-skills-once.yml
+
+          git add -A .agents .github/workflows/install-qodo-skills-once.yml
+          if git diff --cached --quiet; then
+            echo 'Qodo skills are already installed.'
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: install Qodo skills for Codex'
+          git push origin HEAD:codex/github-mention-add-nvram-transaction-api-and-use-it-for-dns
