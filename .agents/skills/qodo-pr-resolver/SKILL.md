@@ -76,7 +76,7 @@ Check for uncommitted changes, unpushed commits, and get the current branch.
 
 - Inform: "⚠️ You have N unpushed commits. Qodo hasn't reviewed them yet."
 - Ask: "Would you like to push them now?"
-- If yes: Execute `git push`, inform "Pushed! Qodo will review shortly." Record internally `JUST_PUSHED = true`. Continue to Step 1 (the Wait for Qodo review flow in Step 3a will handle the waiting).
+- If yes: Immediately before `git push`, record the current UTC time as `PUSH_STARTED_AT`. After the push succeeds, record the pushed commit from `git rev-parse HEAD` as `PUSHED_SHA`, then inform "Pushed! Qodo will review shortly." Record internally `JUST_PUSHED = true`. Continue to Step 1 (the Wait for Qodo review flow in Step 3a will handle the waiting).
 - If no: Warn "Proceeding with existing PR review" and continue to Step 1
 
 #### Scenario C: Everything pushed
@@ -126,7 +126,9 @@ If the review is **not ready** (in progress, not started, or we just pushed/crea
      - `description`: "Waiting for Qodo review on PR #<number>"
      - `timeout_ms`: `600000` (10 minutes)
      - `persistent`: `false`
-     - `command`: A polling script that runs in a `while true; do ... sleep 30; done` loop. The script should use the **same provider-specific comment-fetch commands from Step 3** (Fetch Review Comments) to check for Qodo bot comments. If Qodo comments are found AND they do not contain "Come back again in a few minutes" or "An AI review agent is analysing this pull request", output `REVIEW_COMPLETE` and exit. Use `|| true` on API calls for transient failure resilience.
+     - `command`: A polling script that runs in a `while true; do ... sleep 30; done` loop. The script should use the **same provider-specific comment-fetch commands from Step 3** (Fetch Review Comments) to check for Qodo bot comments. Use `|| true` on API calls for transient failure resilience.
+       - Normally, output `REVIEW_COMPLETE` only when Qodo comments are found and none contain "Come back again in a few minutes" or "An AI review agent is analysing this pull request".
+       - When `JUST_PUSHED = true`, old completed comments are not evidence that the pushed head was reviewed. Output `REVIEW_COMPLETE` only for a completed Qodo review whose provider metadata associates it with `PUSHED_SHA` (for example, a GitHub review `commit_id`, a GitLab diff/head SHA, or a Gerrit patch-set revision) or whose trusted Qodo summary explicitly identifies that full commit SHA. Also require the qualifying review/comment to have been created or updated no earlier than `PUSH_STARTED_AT`. Continue polling if either the head association or timestamp check is unavailable or does not match; never fall back to pre-push comments.
    - When the Monitor emits `REVIEW_COMPLETE`: Inform "Qodo review is ready!" and **return to Step 3** to fetch and parse the review comments normally.
    - If the Monitor times out (10 minutes): Inform "Qodo review hasn't appeared yet. You can run this skill again later." Exit skill.
 
