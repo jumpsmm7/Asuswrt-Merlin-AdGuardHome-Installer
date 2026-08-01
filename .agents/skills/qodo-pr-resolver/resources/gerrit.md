@@ -375,8 +375,8 @@ if ! HOOK_TMP=$(mktemp -p "$HOOK_DIR" commit-msg.XXXXXX 2>/dev/null); then
   exit 1
 fi
 
-# Set up cleanup trap
-trap 'rm -f "$HOOK_TMP"' EXIT INT TERM
+# Extend the run cleanup trap without dropping Gerrit credential cleanup
+trap 'rm -f "$GERRIT_NETRC" "$HOOK_TMP"' EXIT HUP INT TERM
 
 # Download hook to temp location
 if ! curl -fsSLo "$HOOK_TMP" "$GERRIT_URL/tools/hooks/commit-msg"; then
@@ -396,7 +396,8 @@ if ! mv "$HOOK_TMP" "$HOOK_PATH"; then
   exit 1
 fi
 
-trap - EXIT INT TERM
+# The hook is published; keep only the run-scoped credential cleanup active
+trap 'rm -f "$GERRIT_NETRC"' EXIT HUP INT TERM
 ```
 
 ## Error Handling
