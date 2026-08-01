@@ -161,7 +161,7 @@ REPLY_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "
 FILE_PATH_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<file-path>")
 COMMENT_ID_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<comment-id>")
 
-curl -s -u "$GERRIT_USERNAME:$GERRIT_HTTP_PASSWORD" \
+if ! RESPONSE=$(curl -s -w "\n%{http_code}" -u "$GERRIT_USERNAME:$GERRIT_HTTP_PASSWORD" \
   -H "Content-Type: application/json" \
   -X POST \
   "$GERRIT_URL/a/changes/<change-id>/revisions/current/review" \
@@ -173,7 +173,26 @@ curl -s -u "$GERRIT_USERNAME:$GERRIT_HTTP_PASSWORD" \
         \"unresolved\": false
       }]
     }
-  }" | tail -c +6
+  }"); then
+  echo "Error: Gerrit API request failed (curl error)" >&2
+  exit 1
+fi
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+case "$HTTP_CODE" in
+  ''|*[!0-9]*)
+    echo "Error: Gerrit API returned an invalid HTTP status: ${HTTP_CODE:-empty}" >&2
+    exit 1
+    ;;
+esac
+
+if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+  echo "Error: API request failed with HTTP status $HTTP_CODE" >&2
+  exit 1
+fi
+
+echo "$BODY" | tail -c +6
 ```
 
 - `in_reply_to`: the comment's `id` field (works for both robot and human comments)
@@ -199,26 +218,54 @@ Multiple replies across files can be combined in a single request:
 
 ## Post Summary Comment
 
-Uses the same unified endpoint with the `message` field:
+Uses the same unified endpoint with the `message` field. Summary and all inline replies should be batched in a single request:
 
 ```bash
-# Serialize dynamic value before embedding in JSON
+# Serialize dynamic values before embedding in JSON
 SUMMARY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<summary-comment-body>")
+REPLY_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<reply-body>")
+FILE_PATH_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<file-path>")
+COMMENT_ID_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<comment-id>")
 
-curl -s -u "$GERRIT_USERNAME:$GERRIT_HTTP_PASSWORD" \
+if ! RESPONSE=$(curl -s -w "\n%{http_code}" -u "$GERRIT_USERNAME:$GERRIT_HTTP_PASSWORD" \
   -H "Content-Type: application/json" \
   -X POST \
   "$GERRIT_URL/a/changes/<change-id>/revisions/current/review" \
-  -d "{\"message\": ${SUMMARY_JSON}}" | tail -c +6
+  -d "{
+    \"message\": ${SUMMARY_JSON},
+    \"comments\": {
+      ${FILE_PATH_JSON}: [{
+        \"in_reply_to\": ${COMMENT_ID_JSON},
+        \"message\": ${REPLY_BODY_JSON},
+        \"unresolved\": false
+      }]
+    }
+  }"); then
+  echo "Error: Gerrit API request failed (curl error)" >&2
+  exit 1
+fi
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+case "$HTTP_CODE" in
+  ''|*[!0-9]*)
+    echo "Error: Gerrit API returned an invalid HTTP status: ${HTTP_CODE:-empty}" >&2
+    exit 1
+    ;;
+esac
+
+if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+  echo "Error: API request failed with HTTP status $HTTP_CODE" >&2
+  exit 1
+fi
+
+echo "$BODY" | tail -c +6
 ```
 
-**Optimization:** Summary and all inline replies can be batched in a single request:
+**Note:** If posting only the summary without inline replies, omit the `"comments"` field:
 ```json
 {
-  "message": "## Qodo Fix Summary\n...",
-  "comments": {
-    "file1.py": [{"in_reply_to": "id1", "message": "Fixed", "unresolved": false}]
-  }
+  "message": "## Qodo Fix Summary\n..."
 }
 ```
 
@@ -273,14 +320,34 @@ git push origin HEAD:refs/for/$TARGET_BRANCH
 
 The commit must have a `Change-Id` footer. If missing, install the commit-msg hook:
 ```bash
-HOOK_TMP=$(mktemp)
-if curl -fsSLo "$HOOK_TMP" "$GERRIT_URL/tools/hooks/commit-msg"; then
-  mv "$HOOK_TMP" .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg
-else
-  rm -f "$HOOK_TMP"
+HOOK_DIR=".git/hooks"
+HOOK_PATH="$HOOK_DIR/commit-msg"
+
+# Create temp file in the same filesystem for atomic move
+if ! HOOK_TMP=$(mktemp -p "$HOOK_DIR" commit-msg.XXXXXX 2>/dev/null); then
+  echo "Failed to create temporary file for commit-msg hook" >&2
+  exit 1
+fi
+
+# Set up cleanup trap
+trap 'rm -f "$HOOK_TMP"' EXIT INT TERM
+
+# Download hook to temp location
+if ! curl -fsSLo "$HOOK_TMP" "$GERRIT_URL/tools/hooks/commit-msg"; then
   echo "Failed to download commit-msg hook" >&2
   exit 1
 fi
+
+# Make executable before moving into place
+chmod +x "$HOOK_TMP"
+
+# Atomic move
+if ! mv "$HOOK_TMP" "$HOOK_PATH"; then
+  echo "Failed to install commit-msg hook" >&2
+  exit 1
+fi
+
+trap - EXIT INT TERM
 ```
 
 ## Error Handling

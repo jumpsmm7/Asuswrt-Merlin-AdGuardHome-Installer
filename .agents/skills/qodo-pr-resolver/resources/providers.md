@@ -67,9 +67,20 @@ Match against:
   BB_WORKSPACE=$(echo "$BB_REMOTE" | sed -E 's|.*bitbucket\.org[:/]([^/]+)/.*|\1|')
   BB_REPO=$(echo "$BB_REMOTE" | sed -E 's|.*bitbucket\.org[:/][^/]+/([^/.]+)(\.git)?$|\1|')
   ```
+- **Setup netrc file** (to avoid exposing password via command-line arguments):
+  ```bash
+  BB_NETRC="${HOME}/.netrc.bitbucket"
+  cat > "$BB_NETRC" << EOF
+machine api.bitbucket.org
+login $BB_USERNAME
+password $BB_APP_PASSWORD
+EOF
+  chmod 600 "$BB_NETRC"
+  ```
+  For self-hosted Bitbucket, replace `api.bitbucket.org` with your host (e.g. `bitbucket.example.com`).
 - **Verify:**
   ```bash
-  curl -s -u "$BB_USERNAME:$BB_APP_PASSWORD" \
+  curl -s --netrc-file "$BB_NETRC" \
     "https://api.bitbucket.org/2.0/user" | python3 -m json.tool
   ```
 
@@ -123,7 +134,7 @@ glab mr list --source-branch <branch-name>
 
 ```bash
 BRANCH=$(git branch --show-current)
-if ! RESPONSE=$(curl -s -w "\n%{http_code}" -u "$BB_USERNAME:$BB_APP_PASSWORD" \
+if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
   "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests?state=OPEN"); then
   echo "Error: Bitbucket API request failed (curl error)" >&2
   exit 1
@@ -184,7 +195,7 @@ glab mr view <mr-iid> --comments
 
 ```bash
 # All PR comments including inline comments
-curl -s -u "$BB_USERNAME:$BB_APP_PASSWORD" \
+curl -s --netrc-file "$BB_NETRC" \
   "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments"
 ```
 
@@ -232,11 +243,30 @@ glab api "/projects/:id/merge_requests/<mr-iid>/discussions/<discussion-id>/note
 # Serialize dynamic value before embedding in JSON
 REPLY_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<reply-body>")
 
-curl -s -u "$BB_USERNAME:$BB_APP_PASSWORD" \
+if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X POST \
   "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments" \
-  -d "{\"content\": {\"raw\": ${REPLY_BODY_JSON}}, \"parent\": {\"id\": <inline-comment-id>}}"
+  -d "{\"content\": {\"raw\": ${REPLY_BODY_JSON}}, \"parent\": {\"id\": <inline-comment-id>}}"); then
+  echo "Error: Bitbucket API request failed (curl error)" >&2
+  exit 1
+fi
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+case "$HTTP_CODE" in
+  ''|*[!0-9]*)
+    echo "Error: Bitbucket API returned an invalid HTTP status: ${HTTP_CODE:-empty}" >&2
+    exit 1
+    ;;
+esac
+
+if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+  echo "Error: API request failed with HTTP status $HTTP_CODE" >&2
+  exit 1
+fi
+
+echo "$BODY"
 ```
 
 ### Azure DevOps
@@ -276,11 +306,30 @@ glab mr comment <mr-iid> --message '<comment-body>'
 # Serialize dynamic value before embedding in JSON
 COMMENT_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<comment-body>")
 
-curl -s -u "$BB_USERNAME:$BB_APP_PASSWORD" \
+if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X POST \
   "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments" \
-  -d "{\"content\": {\"raw\": ${COMMENT_BODY_JSON}}}"
+  -d "{\"content\": {\"raw\": ${COMMENT_BODY_JSON}}}"); then
+  echo "Error: Bitbucket API request failed (curl error)" >&2
+  exit 1
+fi
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+case "$HTTP_CODE" in
+  ''|*[!0-9]*)
+    echo "Error: Bitbucket API returned an invalid HTTP status: ${HTTP_CODE:-empty}" >&2
+    exit 1
+    ;;
+esac
+
+if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+  echo "Error: API request failed with HTTP status $HTTP_CODE" >&2
+  exit 1
+fi
+
+echo "$BODY"
 ```
 
 ### Azure DevOps
@@ -359,9 +408,28 @@ glab api "/projects/:id/merge_requests/<mr-iid>/discussions/<discussion-id>" \
 
 ```bash
 # Resolve a comment using the dedicated /resolve endpoint (POST, no body required)
-curl -s -u "$BB_USERNAME:$BB_APP_PASSWORD" \
+if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
   -X POST \
-  "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments/<comment-id>/resolve"
+  "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments/<comment-id>/resolve"); then
+  echo "Error: Bitbucket API request failed (curl error)" >&2
+  exit 1
+fi
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+case "$HTTP_CODE" in
+  ''|*[!0-9]*)
+    echo "Error: Bitbucket API returned an invalid HTTP status: ${HTTP_CODE:-empty}" >&2
+    exit 1
+    ;;
+esac
+
+if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+  echo "Error: API request failed with HTTP status $HTTP_CODE" >&2
+  exit 1
+fi
+
+echo "$BODY"
 ```
 
 ### Azure DevOps
@@ -409,7 +477,7 @@ BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<body>
 BRANCH_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$BRANCH")
 DEST_BRANCH_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "main")
 
-curl -s -u "$BB_USERNAME:$BB_APP_PASSWORD" \
+if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X POST \
   "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests" \
@@ -418,7 +486,26 @@ curl -s -u "$BB_USERNAME:$BB_APP_PASSWORD" \
     \"description\": ${BODY_JSON},
     \"source\": {\"branch\": {\"name\": ${BRANCH_JSON}}},
     \"destination\": {\"branch\": {\"name\": ${DEST_BRANCH_JSON}}}
-  }"
+  }"); then
+  echo "Error: Bitbucket API request failed (curl error)" >&2
+  exit 1
+fi
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+case "$HTTP_CODE" in
+  ''|*[!0-9]*)
+    echo "Error: Bitbucket API returned an invalid HTTP status: ${HTTP_CODE:-empty}" >&2
+    exit 1
+    ;;
+esac
+
+if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+  echo "Error: API request failed with HTTP status $HTTP_CODE" >&2
+  exit 1
+fi
+
+echo "$BODY"
 ```
 
 **Note:** Bitbucket Cloud has no native draft PR API. When creating in draft mode, prefix the title with `[DRAFT]` as a convention (e.g. `[DRAFT] <title>`).
@@ -456,11 +543,30 @@ glab mr update <mr-iid> --ready
 If the title was prefixed with `[DRAFT]`, update it to remove the prefix:
 
 ```bash
-curl -s -u "$BB_USERNAME:$BB_APP_PASSWORD" \
+if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X PUT \
   "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>" \
-  -d '{"title": "<title-without-draft-prefix>"}'
+  -d '{"title": "<title-without-draft-prefix>"}'); then
+  echo "Error: Bitbucket API request failed (curl error)" >&2
+  exit 1
+fi
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+case "$HTTP_CODE" in
+  ''|*[!0-9]*)
+    echo "Error: Bitbucket API returned an invalid HTTP status: ${HTTP_CODE:-empty}" >&2
+    exit 1
+    ;;
+esac
+
+if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+  echo "Error: API request failed with HTTP status $HTTP_CODE" >&2
+  exit 1
+fi
+
+echo "$BODY"
 ```
 
 ### Azure DevOps
