@@ -70,12 +70,15 @@ Match against:
 - **Setup netrc file** (to avoid exposing password via command-line arguments):
   ```bash
   BB_NETRC="${HOME}/.netrc.bitbucket"
-  cat > "$BB_NETRC" << EOF
+  umask 077
+  BB_NETRC_TMP=$(mktemp "${BB_NETRC}.XXXXXX")
+  cat > "$BB_NETRC_TMP" << EOF
 machine api.bitbucket.org
 login $BB_USERNAME
 password $BB_APP_PASSWORD
 EOF
-  chmod 600 "$BB_NETRC"
+  chmod 600 "$BB_NETRC_TMP"
+  mv -f "$BB_NETRC_TMP" "$BB_NETRC"
   ```
   For self-hosted Bitbucket, replace `api.bitbucket.org` with your host (e.g. `bitbucket.example.com`).
 - **Verify:**
@@ -273,14 +276,16 @@ echo "$BODY"
 
 ```bash
 # Add a reply comment to an existing thread (az repos pr thread does not exist)
-echo '{"content": "<reply-body>", "commentType": 1}' > /tmp/ado_comment.json
+ADO_COMMENT_FILE=$(mktemp)
+trap 'rm -f "$ADO_COMMENT_FILE"' EXIT
+echo '{"content": "<reply-body>", "commentType": 1}' > "$ADO_COMMENT_FILE"
 az devops invoke \
   --area git \
   --resource pullRequestThreadComments \
   --route-parameters project=$ADO_PROJECT repositoryId=$ADO_REPO_ID pullRequestId=<pr-id> threadId=<thread-id> \
   --http-method POST \
   --api-version 7.1 \
-  --in-file /tmp/ado_comment.json \
+  --in-file "$ADO_COMMENT_FILE" \
   --output json
 ```
 
@@ -336,7 +341,9 @@ echo "$BODY"
 
 ```bash
 # Create a new top-level comment thread (az repos pr thread create does not exist)
-cat > /tmp/ado_thread.json << 'EOF'
+ADO_THREAD_FILE=$(mktemp)
+trap 'rm -f "$ADO_THREAD_FILE"' EXIT
+cat > "$ADO_THREAD_FILE" << 'EOF'
 {"comments": [{"content": "<comment-body>", "commentType": 1}], "status": "active"}
 EOF
 az devops invoke \
@@ -345,7 +352,7 @@ az devops invoke \
   --route-parameters project=$ADO_PROJECT repositoryId=$ADO_REPO_ID pullRequestId=<pr-id> \
   --http-method POST \
   --api-version 7.1 \
-  --in-file /tmp/ado_thread.json \
+  --in-file "$ADO_THREAD_FILE" \
   --output json
 ```
 
