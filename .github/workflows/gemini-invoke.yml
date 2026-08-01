@@ -19,6 +19,7 @@ defaults:
 jobs:
   invoke:
     runs-on: 'ubuntu-latest'
+    timeout-minutes: 35
     permissions:
       contents: 'read'
       id-token: 'write'
@@ -27,9 +28,8 @@ jobs:
     steps:
       - name: 'Mint identity token'
         id: 'mint_identity_token'
-        if: |-
-          ${{ vars.APP_ID }}
-        uses: 'actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf' # ratchet:actions/create-github-app-token@v2
+        if: '${{ vars.APP_ID != "" }}'
+        uses: 'actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf'
         with:
           app-id: '${{ vars.APP_ID }}'
           private-key: '${{ secrets.APP_PRIVATE_KEY }}'
@@ -37,15 +37,24 @@ jobs:
           permission-issues: 'write'
           permission-pull-requests: 'write'
 
-      - name: 'Checkout Code'
-        uses: 'actions/checkout@v4' # ratchet:exclude
+      - name: 'Checkout repository'
+        uses: 'actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8'
         with:
           persist-credentials: 'false'
 
       - name: 'Prepare prompt context'
-        shell: 'bash'
+        env:
+          TITLE: '${{ github.event.pull_request.title || github.event.issue.title }}'
+          DESCRIPTION: '${{ github.event.pull_request.body || github.event.issue.body }}'
+          EVENT_NAME: '${{ github.event_name }}'
+          IS_PULL_REQUEST: '${{ !!github.event.pull_request }}'
+          ISSUE_NUMBER: '${{ github.event.pull_request.number || github.event.issue.number }}'
+          REPOSITORY: '${{ github.repository }}'
+          ADDITIONAL_CONTEXT: '${{ inputs.additional_context }}'
         run: |-
-          mkdir -p .gemini
+          set -euo pipefail
+          mkdir -p .gemini/commands
+          cp .github/workflows/gemini-invoke.toml .gemini/commands/repository-gemini-invoke.toml
           jq -n \
             --arg title "${TITLE}" \
             --arg desc "${DESCRIPTION}" \
@@ -55,41 +64,32 @@ jobs:
             --arg repo "${REPOSITORY}" \
             --arg context "${ADDITIONAL_CONTEXT}" \
             '{title: $title, description: $desc, event_name: $event, is_pull_request: $pr, issue_number: $num, repository: $repo, additional_context: $context}' > .gemini/context.json
-        env:
-          TITLE: '${{ github.event.pull_request.title || github.event.issue.title }}'
-          DESCRIPTION: '${{ github.event.pull_request.body || github.event.issue.body }}'
-          EVENT_NAME: '${{ github.event_name }}'
-          IS_PULL_REQUEST: '${{ !!github.event.pull_request }}'
-          ISSUE_NUMBER: '${{ github.event.pull_request.number || github.event.issue.number }}'
-          REPOSITORY: '${{ github.repository }}'
-          ADDITIONAL_CONTEXT: '${{ inputs.additional_context }}'
 
-      - name: 'Run Gemini CLI'
+      - name: 'Run Gemini CLI resiliently'
         id: 'run_gemini'
-        uses: 'google-github-actions/run-gemini-cli@v0' # ratchet:exclude
-        env:
-          GEMINI_CLI_TRUST_WORKSPACE: 'true'
-          GITHUB_TOKEN: '${{ steps.mint_identity_token.outputs.token || secrets.GITHUB_TOKEN || github.token }}'
+        uses: './.github/actions/run-gemini-resilient'
         with:
-          gcp_location: '${{ vars.GOOGLE_CLOUD_LOCATION }}'
+          github_token: '${{ steps.mint_identity_token.outputs.token || secrets.GITHUB_TOKEN || github.token }}'
+          gcp_location: "${{ vars.GOOGLE_CLOUD_LOCATION || 'global' }}"
           gcp_project_id: '${{ vars.GOOGLE_CLOUD_PROJECT }}'
           gcp_service_account: '${{ vars.SERVICE_ACCOUNT_EMAIL }}'
           gcp_workload_identity_provider: '${{ vars.GCP_WIF_PROVIDER }}'
-          gemini_api_key: '${{ secrets.GEMINI_API_KEY }}'
-          gemini_cli_version: '${{ vars.GEMINI_CLI_VERSION }}'
+          gemini_cli_version: "${{ vars.GEMINI_CLI_VERSION || '0.52.0' }}"
           gemini_debug: '${{ fromJSON(vars.GEMINI_DEBUG || vars.ACTIONS_STEP_DEBUG || false) }}'
-          gemini_model: '${{ vars.GEMINI_MODEL }}'
-          google_api_key: '${{ secrets.GOOGLE_API_KEY }}'
-          use_gemini_code_assist: '${{ vars.GOOGLE_GENAI_USE_GCA }}'
-          use_vertex_ai: '${{ vars.GOOGLE_GENAI_USE_VERTEXAI }}'
-          upload_artifacts: '${{ vars.UPLOAD_ARTIFACTS }}'
+          gemini_model: "${{ vars.GEMINI_MODEL || 'auto' }}"
+          fallback_model: "${{ vars.GEMINI_FALLBACK_MODEL || 'flash' }}"
+          fallback_delay_seconds: "${{ vars.GEMINI_FALLBACK_DELAY_SECONDS || '45' }}"
+          upload_artifacts: '${{ vars.UPLOAD_ARTIFACTS || false }}'
           workflow_name: 'gemini-invoke'
-          # Assistant workflows can be triggered by comments on either Issues or PRs.
-          # We explicitly map both fields so the CLI can correctly categorize the interaction.
           github_pr_number: '${{ github.event.pull_request.number }}'
           github_issue_number: '${{ github.event.issue.number }}'
+          requires_docker: 'true'
           settings: |-
             {
+              "general": {
+                "retryFetchErrors": true,
+                "maxAttempts": 6
+              },
               "model": {
                 "maxSessionTurns": 25
               },
@@ -98,37 +98,8 @@ jobs:
                 "target": "local",
                 "outfile": ".gemini/telemetry.log"
               },
-              "mcpServers": {
-                "github": {
-                  "command": "docker",
-                  "args": [
-                    "run",
-                    "-i",
-                    "--rm",
-                    "-e",
-                    "GITHUB_PERSONAL_ACCESS_TOKEN",
-                    "ghcr.io/github/github-mcp-server:v0.27.0"
-                  ],
-                  "includeTools": [
-                    "add_issue_comment",
-                    "issue_read",
-                    "list_issues",
-                    "search_issues",
-                    "pull_request_read",
-                    "list_pull_requests",
-                    "search_pull_requests",
-                    "get_commit",
-                    "get_file_contents",
-                    "list_commits",
-                    "search_code"
-                  ],
-                  "env": {
-                    "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
-                  }
-                }
-              },
               "tools": {
                 "core": []
               }
             }
-          prompt: '/gemini-invoke'
+          prompt: '/repository-gemini-invoke'
