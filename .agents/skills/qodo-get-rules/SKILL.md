@@ -104,20 +104,43 @@ Check that the required Qodo configuration is present. The default location is `
 - **Request ID**: Generate a UUID (e.g. `python3 -c "import uuid; print(uuid.uuid4())"`) to use as `request-id` for all API calls in this invocation.
 
 Example config parsing:
+
 ```bash
-API_KEY=$(python3 -c "import json,os; c=json.load(open(os.path.expanduser('~/.qodo/config.json'))); print(c['API_KEY'])")
-ENV_NAME=$(python3 -c "import json,os; c=json.load(open(os.path.expanduser('~/.qodo/config.json'))); print(c.get('ENVIRONMENT_NAME',''))")
-QODO_API_URL=$(python3 -c "import json,os; c=json.load(open(os.path.expanduser('~/.qodo/config.json'))); print(c.get('QODO_API_URL',''))")
-REQUEST_ID=$(uuidgen || python3 -c "import uuid; print(uuid.uuid4())")
+CONFIG_FILE="${HOME}/.qodo/config.json"
+CONFIG_API_KEY=""
+CONFIG_ENV_NAME=""
+CONFIG_QODO_API_URL=""
+
+# The config file is an optional fallback; environment-only setup is supported.
+if [ -f "${CONFIG_FILE}" ]; then
+  if ! CONFIG_API_KEY=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("API_KEY", ""))' "${CONFIG_FILE}") ||
+    ! CONFIG_ENV_NAME=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("ENVIRONMENT_NAME", ""))' "${CONFIG_FILE}") ||
+    ! CONFIG_QODO_API_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("QODO_API_URL", ""))' "${CONFIG_FILE}"); then
+    printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
+    exit 1
+  fi
+fi
+
+# Environment variables take precedence over optional config values.
+API_KEY="${QODO_API_KEY:-${CONFIG_API_KEY}}"
+ENV_NAME="${QODO_ENVIRONMENT_NAME:-${CONFIG_ENV_NAME}}"
+QODO_API_URL="${QODO_API_URL:-${CONFIG_QODO_API_URL}}"
+
+if [ -z "${API_KEY}" ]; then
+  printf '%s\n' 'Qodo API key not found. Set QODO_API_KEY or add API_KEY to ~/.qodo/config.json.' >&2
+  exit 1
+fi
+
+REQUEST_ID=$(uuidgen 2>/dev/null || python3 -c 'import uuid; print(uuid.uuid4())')
 # Determine API_URL: QODO_API_URL takes precedence over ENVIRONMENT_NAME
-if [ -n "$QODO_API_URL" ]; then
+if [ -n "${QODO_API_URL}" ]; then
   API_URL="${QODO_API_URL}/rules/v1"
-elif [ -z "$ENV_NAME" ]; then
+elif [ -z "${ENV_NAME}" ]; then
   API_URL="https://qodo-platform.qodo.ai/rules/v1"
 else
   # Validate ENVIRONMENT_NAME before URL construction
-  if ! echo "$ENV_NAME" | grep -qE '^[a-zA-Z0-9_.-]+$'; then
-    echo "Invalid ENVIRONMENT_NAME: must contain only alphanumeric, underscore, dot, or hyphen characters" >&2
+  if ! printf '%s\n' "${ENV_NAME}" | grep -qE '^[a-zA-Z0-9_.-]+$'; then
+    printf '%s\n' 'Invalid ENVIRONMENT_NAME: must contain only alphanumeric, underscore, dot, or hyphen characters' >&2
     exit 1
   fi
   API_URL="https://qodo-platform.${ENV_NAME}.qodo.ai/rules/v1"
