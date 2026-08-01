@@ -6857,6 +6857,13 @@ setup_AdGuardHome_impl() {
 		read_yesno "Do you want to use this file without reconfiguring?"
 		CONFIRM_STATUS=$?
 		if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+			if [ "${SETUP_FILES_JOURNALED}" -eq 1 ]; then
+				if ! nvram_transaction_finalize_setup_pair; then
+					setup_restore_nvram_journal || true
+					PTXT "${ERROR} Unable to finalize the installer configuration updates."
+					return 1
+				fi
+			fi
 			PTXT "${INFO} Use previous settings file"
 		elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
 			setup_AdGuardHome_impl x
