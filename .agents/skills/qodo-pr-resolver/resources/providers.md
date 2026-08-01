@@ -61,6 +61,19 @@ Match against:
   }
   ```
   `BB_URL` is optional — only needed for self-hosted Bitbucket (defaults to `https://api.bitbucket.org`). It must be the REST API base URL, without the `/2.0` suffix.
+- **Load configuration** (existing environment variables take precedence):
+  ```bash
+  QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
+  if [ -f "$QODO_CONFIG" ]; then
+    [ -n "${BB_USERNAME:-}" ] || BB_USERNAME=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("BB_USERNAME", ""))' "$QODO_CONFIG")
+    [ -n "${BB_APP_PASSWORD:-}" ] || BB_APP_PASSWORD=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("BB_APP_PASSWORD", ""))' "$QODO_CONFIG")
+    [ -n "${BB_URL:-}" ] || BB_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("BB_URL", ""))' "$QODO_CONFIG")
+  fi
+  if [ -z "${BB_USERNAME:-}" ] || [ -z "${BB_APP_PASSWORD:-}" ]; then
+    echo "Bitbucket credentials are missing; set BB_USERNAME and BB_APP_PASSWORD or add them to $QODO_CONFIG" >&2
+    exit 1
+  fi
+  ```
 - Normalize the API base URL once, then extract the workspace/project and repository slug from either HTTPS or SSH remote syntax without assuming a particular host:
   ```bash
   BB_URL=${BB_URL:-https://api.bitbucket.org}
@@ -128,13 +141,18 @@ EOF
   `AZURE_DEVOPS_EXT_PAT` replaces `az login`. `AZURE_DEVOPS_URL` is optional — only needed for on-premises Azure DevOps Server.
 - **Authenticate and configure:**
   ```bash
-  az login
+  QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
+  if [ -f "$QODO_CONFIG" ]; then
+    [ -n "${AZURE_DEVOPS_EXT_PAT:-}" ] || AZURE_DEVOPS_EXT_PAT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_EXT_PAT", ""))' "$QODO_CONFIG")
+    [ -n "${AZURE_DEVOPS_URL:-}" ] || AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL", ""))' "$QODO_CONFIG")
+  fi
+  export AZURE_DEVOPS_EXT_PAT
+  if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ]; then
+    az login
+  fi
   # Normalize the configured service/collection URL. For Azure DevOps Cloud,
   # the organization is the first path component after dev.azure.com. For
   # Azure DevOps Server, AZURE_DEVOPS_URL is the collection URL itself.
-  if [ -z "${AZURE_DEVOPS_URL:-}" ] && [ -f "${HOME}/.qodo/config.json" ]; then
-    AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL", ""))' "${HOME}/.qodo/config.json")
-  fi
   ADO_BASE_URL=${AZURE_DEVOPS_URL:-https://dev.azure.com}
   ADO_BASE_URL=${ADO_BASE_URL%/}
   ADO_REMOTE=$(git remote get-url origin)

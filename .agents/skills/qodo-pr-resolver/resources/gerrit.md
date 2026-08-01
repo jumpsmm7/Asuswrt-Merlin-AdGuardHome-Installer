@@ -48,6 +48,21 @@ HTTP Basic Auth with a password generated from Gerrit's settings page.
 - `GERRIT_USERNAME`: Your Gerrit username
 - `GERRIT_HTTP_PASSWORD`: HTTP password from **Settings → HTTP Credentials** (this is NOT your account password)
 
+Load the provider configuration before testing or using these values. Existing environment variables take precedence over the config file:
+
+```bash
+QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
+if [ -f "$QODO_CONFIG" ]; then
+  [ -n "${GERRIT_URL:-}" ] || GERRIT_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("GERRIT_URL", ""))' "$QODO_CONFIG")
+  [ -n "${GERRIT_USERNAME:-}" ] || GERRIT_USERNAME=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("GERRIT_USERNAME", ""))' "$QODO_CONFIG")
+  [ -n "${GERRIT_HTTP_PASSWORD:-}" ] || GERRIT_HTTP_PASSWORD=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("GERRIT_HTTP_PASSWORD", ""))' "$QODO_CONFIG")
+fi
+if [ -z "${GERRIT_URL:-}" ] || [ -z "${GERRIT_USERNAME:-}" ] || [ -z "${GERRIT_HTTP_PASSWORD:-}" ]; then
+  echo "Gerrit credentials are missing; set GERRIT_URL, GERRIT_USERNAME, and GERRIT_HTTP_PASSWORD or add them to $QODO_CONFIG" >&2
+  exit 1
+fi
+```
+
 Create a private netrc file once per resolver run so authenticated requests do not expose the HTTP password in `curl`'s process arguments:
 
 ```bash
