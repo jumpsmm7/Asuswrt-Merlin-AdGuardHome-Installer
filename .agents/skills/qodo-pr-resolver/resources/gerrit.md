@@ -124,20 +124,35 @@ CHANGE_ID=$(git log -1 --format=%b | grep 'Change-Id:' | sed 's/.*Change-Id: //'
 ### Query by Change-Id (preferred)
 
 ```bash
-curl -s --netrc-file "$GERRIT_NETRC" \
-  "$GERRIT_URL/a/changes/?q=change:$CHANGE_ID+status:open&o=CURRENT_REVISION&o=MESSAGES" \
-  | tail -c +6 | python3 -m json.tool
+OPEN_CHANGES_RESPONSE=$(curl --fail --silent --show-error --netrc-file "$GERRIT_NETRC" \
+  "$GERRIT_URL/a/changes/?q=change:$CHANGE_ID+status:open&o=CURRENT_REVISION&o=MESSAGES") || exit 1
+OPEN_CHANGES=$(printf '%s' "$OPEN_CHANGES_RESPONSE" | tail -c +6) || exit 1
 ```
 
 ### Query by project + owner (fallback)
 
 ```bash
-curl -s --netrc-file "$GERRIT_NETRC" \
-  "$GERRIT_URL/a/changes/?q=status:open+project:$GERRIT_PROJECT+owner:self&o=CURRENT_REVISION" \
-  | tail -c +6 | python3 -m json.tool
+OPEN_CHANGES_RESPONSE=$(curl --fail --silent --show-error --netrc-file "$GERRIT_NETRC" \
+  "$GERRIT_URL/a/changes/?q=status:open+project:$GERRIT_PROJECT+owner:self&o=CURRENT_REVISION") || exit 1
+OPEN_CHANGES=$(printf '%s' "$OPEN_CHANGES_RESPONSE" | tail -c +6) || exit 1
 ```
 
 Response is a JSON array. Key fields: `_number` (change number), `project`, `branch`, `current_revision`.
+
+After either lookup, select exactly one change and retain its destination branch for the remainder of the run. Do not replace the selected change's `branch` with `.gitreview`'s default branch:
+
+```bash
+SELECTED_CHANGE=$(printf '%s' "$OPEN_CHANGES" | python3 -c '
+import json, sys
+changes = json.load(sys.stdin)
+if len(changes) != 1:
+    raise SystemExit("expected exactly one open Gerrit change")
+json.dump(changes[0], sys.stdout)
+') || exit 1
+CHANGE_NUMBER=$(printf '%s' "$SELECTED_CHANGE" | python3 -c 'import json, sys; print(json.load(sys.stdin)["_number"])') || exit 1
+TARGET_BRANCH=$(printf '%s' "$SELECTED_CHANGE" | python3 -c 'import json, sys; print(json.load(sys.stdin)["branch"])') || exit 1
+[ -n "$TARGET_BRANCH" ] || { echo "Selected Gerrit change has no target branch" >&2; exit 1; }
+```
 
 ## Fetch Review Comments
 
@@ -343,7 +358,7 @@ Gerrit does **not** use normal `git push`.
 ### Push to existing change (new patch set)
 
 ```bash
-TARGET_BRANCH=$(git config -f .gitreview gerrit.defaultbranch 2>/dev/null || echo "main")
+: "${TARGET_BRANCH:?Select an open Gerrit change and retain its branch first}"
 git push origin HEAD:refs/for/$TARGET_BRANCH
 ```
 
@@ -360,7 +375,9 @@ git push origin HEAD:refs/for/$TARGET_BRANCH%topic=qodo-fixes
 No API call needed — pushing creates the change automatically:
 
 ```bash
-TARGET_BRANCH=$(git config -f .gitreview gerrit.defaultbranch 2>/dev/null || echo "main")
+# For a genuinely new change, choose the destination explicitly; only then fall
+# back to the repository default. Never use this fallback for an existing change.
+TARGET_BRANCH=${TARGET_BRANCH:-$(git config -f .gitreview gerrit.defaultbranch 2>/dev/null || echo "main")}
 git push origin HEAD:refs/for/$TARGET_BRANCH
 ```
 
