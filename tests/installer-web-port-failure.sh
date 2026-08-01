@@ -115,6 +115,7 @@ DNS_FILTER_RESTORES=0
 LAN_DOMAIN_RESTORES=0
 SETUP_FILES_BEGIN_COUNT=0
 SETUP_FILES_RESTORE_COUNT=0
+SETUP_FILES_FINALIZE_COUNT=0
 SETUP_FILE_JOURNALS=0
 # save_dns_filter_settings creates a DNS filter rollback snapshot in the specified directory.
 save_dns_filter_settings() {
@@ -145,6 +146,7 @@ restore_dns_filter_settings() {
 }
 # nvram_transaction_finalize_setup_pair publishes the setup commit marker and removes transaction snapshots when cleanup succeeds; returns failure if commit publication is disabled.
 nvram_transaction_finalize_setup_pair() {
+	SETUP_FILES_FINALIZE_COUNT="$((SETUP_FILES_FINALIZE_COUNT + 1))"
 	[ "${FAIL_SETUP_COMMIT_MARKER:-0}" -eq 0 ] || return 1
 	: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
 	if [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] || [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ]; then
@@ -258,6 +260,7 @@ printf '%s\n' 'http:' '  address: 192.168.50.1:3000' 'schema_version: 27' >"${YA
 YAML_CHECKS=0
 READ_INPUT_PORT_STATUS=0
 SELECTED_WEB_PORT=4000
+SETUP_FILES_FINALIZE_COUNT=0
 # read_yesno returns success to simulate affirmative user input.
 read_yesno() { return 0; }
 if ! setup_AdGuardHome_impl ''; then
@@ -268,6 +271,35 @@ grep -q 'address: 192.168.50.1:3000' "${WRITE_LOG}" || fail 'existing-config set
 grep -q 'address: 192.168.50.1:4000' "${WRITE_LOG}" || fail 'existing-config setup did not preserve the LAN WebUI bind address when changing ports'
 ! grep -q '0\.0\.0\.0:3000' "${WRITE_LOG}" || fail 'existing-config setup used the old wildcard WebUI replacement pattern for a LAN bind'
 [ "${YAML_CHECKS}" -eq 1 ] || fail 'existing-config setup did not validate the rewritten LAN-bound YAML once'
+[ "${SETUP_FILES_FINALIZE_COUNT}" -eq 1 ] || fail 'existing-config WebUI update did not finalize its setup-file journal'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'existing-config WebUI update retained its completed setup-file journal'
+
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
+printf '%s\n' 'http:' '  address: 192.168.50.1:4000' 'schema_version: 26' >"${YAML_FILE}"
+printf '%s\n' 'ADGUARD_WEBUI_PORT="4000"' >"${CONF_FILE}"
+: >"${WRITE_LOG}"
+SETUP_FILES_FINALIZE_COUNT=0
+if ! setup_AdGuardHome_impl ''; then
+	fail 'existing-config setup failed while updating the schema version'
+fi
+grep -q '^schema_version: 26 schema_version: 27 ' "${WRITE_LOG}" || fail 'existing-config setup did not attempt the schema version update'
+[ "${SETUP_FILES_FINALIZE_COUNT}" -eq 1 ] || fail 'existing-config schema update did not finalize its setup-file journal'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'existing-config schema update retained its completed setup-file journal'
+
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
+printf '%s\n' 'http:' '  address: 192.168.50.1:4000' 'schema_version: 26' >"${YAML_FILE}"
+printf '%s\n' 'ADGUARD_WEBUI_PORT="4000"' >"${CONF_FILE}"
+: >"${WRITE_LOG}"
+FAIL_SETUP_COMMIT_MARKER=1
+SETUP_FILES_FINALIZE_COUNT=0
+SETUP_FILES_RESTORE_COUNT=0
+if setup_AdGuardHome_impl ''; then
+	fail 'existing-config schema update ignored setup commit marker publication failure'
+fi
+[ "${SETUP_FILES_FINALIZE_COUNT}" -eq 1 ] || fail 'existing-config schema update did not attempt journal finalization'
+[ "${SETUP_FILES_RESTORE_COUNT}" -eq 1 ] || fail 'existing-config schema finalization failure did not restore the setup-file journal'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'existing-config schema finalization failure retained a restored setup-file journal'
+FAIL_SETUP_COMMIT_MARKER=0
 # read_yesno always indicates a negative response.
 read_yesno() { return 1; }
 READ_INPUT_PORT_STATUS=1
