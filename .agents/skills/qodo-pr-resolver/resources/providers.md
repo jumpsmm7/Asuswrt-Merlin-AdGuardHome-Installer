@@ -60,12 +60,24 @@ Match against:
     "BB_URL": "https://bitbucket.example.com"
   }
   ```
-  `BB_URL` is optional — only needed for self-hosted Bitbucket (defaults to `https://api.bitbucket.org`).
-- Workspace and repo slug are extracted from the remote URL at runtime:
+  `BB_URL` is optional — only needed for self-hosted Bitbucket (defaults to `https://api.bitbucket.org`). It must be the REST API base URL, without the `/2.0` suffix.
+- Normalize the API base URL once, then extract the workspace/project and repository slug from either HTTPS or SSH remote syntax without assuming a particular host:
   ```bash
+  BB_URL=${BB_URL:-https://api.bitbucket.org}
+  BB_URL=${BB_URL%/}
+  BB_HOST=$(printf '%s\n' "$BB_URL" | sed -E 's|^[a-zA-Z][a-zA-Z0-9+.-]*://([^/:]+).*|\1|')
   BB_REMOTE=$(git remote get-url origin)
-  BB_WORKSPACE=$(echo "$BB_REMOTE" | sed -E 's|.*bitbucket\.org[:/]([^/]+)/.*|\1|')
-  BB_REPO=$(echo "$BB_REMOTE" | sed -E 's|.*bitbucket\.org[:/][^/]+/([^/.]+)(\.git)?$|\1|')
+  BB_REMOTE_PATH=$(printf '%s\n' "$BB_REMOTE" | sed -E \
+    -e 's|^[^@]+@[^:]+:||' \
+    -e 's|^[a-zA-Z][a-zA-Z0-9+.-]*://[^/]+/||' \
+    -e 's|^/+||' \
+    -e 's|\.git$||')
+  BB_WORKSPACE=$(printf '%s\n' "$BB_REMOTE_PATH" | cut -d/ -f1)
+  BB_REPO=$(printf '%s\n' "$BB_REMOTE_PATH" | cut -d/ -f2)
+  if [ -z "$BB_HOST" ] || [ -z "$BB_WORKSPACE" ] || [ -z "$BB_REPO" ]; then
+    echo "Failed to derive Bitbucket host, workspace/project, or repository" >&2
+    exit 1
+  fi
   ```
 - **Setup netrc file** (to avoid exposing password via command-line arguments):
   ```bash
@@ -77,7 +89,7 @@ Match against:
   fi
   trap 'rm -f "$BB_NETRC_TMP"' EXIT INT TERM
   if ! cat > "$BB_NETRC_TMP" << EOF
-machine api.bitbucket.org
+machine $BB_HOST
 login $BB_USERNAME
 password $BB_APP_PASSWORD
 EOF
@@ -95,11 +107,10 @@ EOF
   fi
   trap - EXIT INT TERM
   ```
-  For self-hosted Bitbucket, replace `api.bitbucket.org` with your host (e.g. `bitbucket.example.com`).
 - **Verify:**
   ```bash
   curl -s --netrc-file "$BB_NETRC" \
-    "https://api.bitbucket.org/2.0/user" | python3 -m json.tool
+    "$BB_URL/2.0/user" | python3 -m json.tool
   ```
 
 ### Azure DevOps
@@ -153,7 +164,7 @@ glab mr list --source-branch <branch-name>
 ```bash
 BRANCH=$(git branch --show-current)
 if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
-  "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests?state=OPEN"); then
+  "$BB_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests?state=OPEN"); then
   echo "Error: Bitbucket API request failed (curl error)" >&2
   exit 1
 fi
@@ -214,7 +225,7 @@ glab mr view <mr-iid> --comments
 ```bash
 # All PR comments including inline comments
 curl -s --netrc-file "$BB_NETRC" \
-  "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments"
+  "$BB_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments"
 ```
 
 ### Azure DevOps
@@ -264,7 +275,7 @@ REPLY_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "
 if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X POST \
-  "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments" \
+  "$BB_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments" \
   -d "{\"content\": {\"raw\": ${REPLY_BODY_JSON}}, \"parent\": {\"id\": <inline-comment-id>}}"); then
   echo "Error: Bitbucket API request failed (curl error)" >&2
   exit 1
@@ -329,7 +340,7 @@ COMMENT_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))'
 if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X POST \
-  "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments" \
+  "$BB_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments" \
   -d "{\"content\": {\"raw\": ${COMMENT_BODY_JSON}}}"); then
   echo "Error: Bitbucket API request failed (curl error)" >&2
   exit 1
@@ -432,7 +443,7 @@ glab api "/projects/:id/merge_requests/<mr-iid>/discussions/<discussion-id>" \
 # Resolve a comment using the dedicated /resolve endpoint (POST, no body required)
 if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
   -X POST \
-  "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments/<comment-id>/resolve"); then
+  "$BB_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments/<comment-id>/resolve"); then
   echo "Error: Bitbucket API request failed (curl error)" >&2
   exit 1
 fi
@@ -502,7 +513,7 @@ DEST_BRANCH_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' 
 if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X POST \
-  "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests" \
+  "$BB_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests" \
   -d "{
     \"title\": ${TITLE_JSON},
     \"description\": ${BODY_JSON},
@@ -568,7 +579,7 @@ If the title was prefixed with `[DRAFT]`, update it to remove the prefix:
 if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X PUT \
-  "https://api.bitbucket.org/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>" \
+  "$BB_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>" \
   -d '{"title": "<title-without-draft-prefix>"}'); then
   echo "Error: Bitbucket API request failed (curl error)" >&2
   exit 1
