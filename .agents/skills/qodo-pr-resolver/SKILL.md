@@ -297,8 +297,10 @@ If "Review each issue" was selected:
     - Ask for deferral reason using AskUserQuestion
     - Record reason and move to next issue
   - **If "Modify" selected:**
-    - Inform user they can make changes manually
-    - Move to next issue
+    - Ask the user to provide the adjusted diff or make the manual change, then **WAIT**; do not move to the next issue while this finding has no disposition
+    - After the user responds, inspect and validate the adjusted change against the finding and the same scope/final-diff rules used for an applied fix
+    - If the adjusted change is valid, follow the applicable commit/stage steps above, mark the issue completed, and include it as fixed in Step 9
+    - If the user stops without supplying a valid change, record the finding as explicitly pending, omit it from the fixed list, and do not resolve its inline thread
 - Continue until all in-scope issues are addressed or the user decides to stop
 - **After all fixes are pushed**, reply to all Qodo inline comments in one batch (see Step 9)
 
