@@ -205,34 +205,56 @@ glab mr list --source-branch <branch-name>
 
 ```bash
 BRANCH=$(git branch --show-current)
-if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
-  "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests?state=OPEN"); then
-  echo "Error: Bitbucket API request failed (curl error)" >&2
-  exit 1
-fi
-HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-BODY=$(echo "$RESPONSE" | sed '$d')
+NEXT_URL="$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests?state=OPEN"
+FOUND_PR=0
 
-case "$HTTP_CODE" in
-  ''|*[!0-9]*)
-    echo "Error: Bitbucket API returned an invalid HTTP status: ${HTTP_CODE:-empty}" >&2
+while [ -n "$NEXT_URL" ]; do
+  if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" "$NEXT_URL"); then
+    echo "Error: Bitbucket API request failed (curl error)" >&2
     exit 1
-    ;;
-esac
+  fi
+  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+  BODY=$(echo "$RESPONSE" | sed '$d')
 
-if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-  echo "Error: API request failed with HTTP status $HTTP_CODE" >&2
-  exit 1
-fi
+  case "$HTTP_CODE" in
+    ''|*[!0-9]*)
+      echo "Error: Bitbucket API returned an invalid HTTP status: ${HTTP_CODE:-empty}" >&2
+      exit 1
+      ;;
+  esac
 
-echo "$BODY" | python3 -c '
+  if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+    echo "Error: API request failed with HTTP status $HTTP_CODE" >&2
+    exit 1
+  fi
+
+  MATCH=$(printf '%s' "$BODY" | python3 -c '
 import sys, json
 data = json.load(sys.stdin)
 branch = sys.argv[1]
-for pr in data.get('values', []):
+for pr in data.get("values", []):
     if pr["source"]["branch"]["name"] == branch:
-        print(json.dumps({"id": pr["id"], "title": pr["title"]}, indent=2))
+        print(json.dumps({"id": pr["id"], "title": pr["title"]}))
+        break
 ' "$BRANCH"
+  ) || exit 1
+
+  if [ -n "$MATCH" ]; then
+    printf '%s\n' "$MATCH"
+    FOUND_PR=1
+    break
+  fi
+
+  NEXT_URL=$(printf '%s' "$BODY" | python3 -c '
+import sys, json
+data = json.load(sys.stdin)
+print(data.get("next", ""))
+') || exit 1
+done
+
+if [ "$FOUND_PR" -eq 0 ]; then
+  echo "No open pull request found for branch: $BRANCH" >&2
+fi
 ```
 
 ### Azure DevOps
