@@ -76,12 +76,17 @@ All requests must include attribution headers per the [usage tracking guidelines
 ## Example (curl)
 
 ```bash
-# Build body — include scopes only when SCOPE is set
-if [ -n "${SCOPE:-}" ]; then
-  BODY="{\"query\": \"${SEARCH_QUERY}\", \"top_k\": 20, \"scopes\": [\"${SCOPE}\"]}"
-else
-  BODY="{\"query\": \"${SEARCH_QUERY}\", \"top_k\": 20}"
-fi
+# Build body with JSON escaping — include scopes only when SCOPE is set
+BODY=$(SEARCH_QUERY="$SEARCH_QUERY" SCOPE="${SCOPE:-}" python3 - <<'PY'
+import json
+import os
+
+payload = {"query": os.environ["SEARCH_QUERY"], "top_k": 20}
+if os.environ.get("SCOPE"):
+    payload["scopes"] = [os.environ["SCOPE"]]
+print(json.dumps(payload))
+PY
+)
 
 curl -s -X POST \
   -H "Content-Type: application/json" \
@@ -99,11 +104,16 @@ if [ -n "${TRACE_ID:-}" ]; then
   TRACE_HEADER="-H trace_id:${TRACE_ID}"
 fi
 
-if [ -n "${SCOPE:-}" ]; then
-  BODY="{\"query\": \"${SEARCH_QUERY}\", \"top_k\": 20, \"scopes\": [\"${SCOPE}\"]}"
-else
-  BODY="{\"query\": \"${SEARCH_QUERY}\", \"top_k\": 20}"
-fi
+BODY=$(SEARCH_QUERY="$SEARCH_QUERY" SCOPE="${SCOPE:-}" python3 - <<'PY'
+import json
+import os
+
+payload = {"query": os.environ["SEARCH_QUERY"], "top_k": 20}
+if os.environ.get("SCOPE"):
+    payload["scopes"] = [os.environ["SCOPE"]]
+print(json.dumps(payload))
+PY
+)
 
 curl -s -X POST \
   -H "Content-Type: application/json" \

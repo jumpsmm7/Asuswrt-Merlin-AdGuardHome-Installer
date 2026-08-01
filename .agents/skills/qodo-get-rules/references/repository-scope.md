@@ -42,8 +42,9 @@ Detection:
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
-REL_PATH=$(realpath --relative-to="$REPO_ROOT" "$(pwd)" 2>/dev/null \
-  || python3 -c "import os; print(os.path.relpath('$(pwd)', '$REPO_ROOT'))")
+REL_PATH=$(realpath --relative-to="$REPO_ROOT" "$PWD" 2>/dev/null \
+  || python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' \
+    "$PWD" "$REPO_ROOT")
 MODULE=$(echo "$REL_PATH" | sed -n 's|^modules/\([^/]*\).*|\1|p')
 
 if [ -n "$MODULE" ]; then
