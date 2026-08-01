@@ -557,11 +557,25 @@ Add `--draft` flag when creating in draft mode.
 
 ```bash
 BRANCH=$(git branch --show-current)
+DEST_BRANCH=${BB_DEST_BRANCH:-}
+if [ -z "$DEST_BRANCH" ]; then
+  if ! REPO_METADATA=$(curl -fsS --netrc-file "$BB_NETRC" \
+    "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO"); then
+    echo "Error: Unable to retrieve the Bitbucket repository's main branch" >&2
+    exit 1
+  fi
+  DEST_BRANCH=$(printf '%s' "$REPO_METADATA" | \
+    python3 -c 'import json,sys; print((json.load(sys.stdin).get("mainbranch") or {}).get("name") or "")')
+fi
+if [ -z "$DEST_BRANCH" ]; then
+  echo "Error: Bitbucket did not provide a destination branch; set BB_DEST_BRANCH explicitly" >&2
+  exit 1
+fi
 # Serialize dynamic values before embedding in JSON
 TITLE_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<title>")
 BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<body>")
 BRANCH_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$BRANCH")
-DEST_BRANCH_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "main")
+DEST_BRANCH_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$DEST_BRANCH")
 
 if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
@@ -593,6 +607,8 @@ fi
 
 echo "$BODY"
 ```
+
+Set `BB_DEST_BRANCH` before running the example to target an explicitly selected branch. Otherwise, the example retrieves Bitbucket Cloud's configured `mainbranch` for the repository instead of assuming `main`.
 
 **Note:** Bitbucket Cloud has no native draft PR API. When creating in draft mode, prefix the title with `[DRAFT]` as a convention (e.g. `[DRAFT] <title>`).
 
