@@ -339,7 +339,10 @@ if ! curl -fsSLo "$HOOK_TMP" "$GERRIT_URL/tools/hooks/commit-msg"; then
 fi
 
 # Make executable before moving into place
-chmod +x "$HOOK_TMP"
+if ! chmod +x "$HOOK_TMP"; then
+  echo "Failed to set permissions on commit-msg hook" >&2
+  exit 1
+fi
 
 # Atomic move
 if ! mv "$HOOK_TMP" "$HOOK_PATH"; then

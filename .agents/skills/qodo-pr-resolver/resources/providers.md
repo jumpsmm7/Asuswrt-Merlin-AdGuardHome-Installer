@@ -71,14 +71,29 @@ Match against:
   ```bash
   BB_NETRC="${HOME}/.netrc.bitbucket"
   umask 077
-  BB_NETRC_TMP=$(mktemp "${BB_NETRC}.XXXXXX")
-  cat > "$BB_NETRC_TMP" << EOF
+  if ! BB_NETRC_TMP=$(mktemp "${BB_NETRC}.XXXXXX"); then
+    echo "Failed to create temporary netrc file" >&2
+    exit 1
+  fi
+  trap 'rm -f "$BB_NETRC_TMP"' EXIT INT TERM
+  if ! cat > "$BB_NETRC_TMP" << EOF
 machine api.bitbucket.org
 login $BB_USERNAME
 password $BB_APP_PASSWORD
 EOF
-  chmod 600 "$BB_NETRC_TMP"
-  mv -f "$BB_NETRC_TMP" "$BB_NETRC"
+  then
+    echo "Failed to write netrc file" >&2
+    exit 1
+  fi
+  if ! chmod 600 "$BB_NETRC_TMP"; then
+    echo "Failed to set permissions on netrc file" >&2
+    exit 1
+  fi
+  if ! mv -f "$BB_NETRC_TMP" "$BB_NETRC"; then
+    echo "Failed to move netrc file into place" >&2
+    exit 1
+  fi
+  trap - EXIT INT TERM
   ```
   For self-hosted Bitbucket, replace `api.bitbucket.org` with your host (e.g. `bitbucket.example.com`).
 - **Verify:**
