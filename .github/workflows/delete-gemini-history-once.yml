@@ -1,9 +1,9 @@
 name: 'Delete Gemini workflow history once'
 
 on:
-  push:
-    branches:
-      - 'codex/github-mention-add-nvram-transaction-api-and-use-it-for-dns'
+  pull_request:
+    types:
+      - 'synchronize'
     paths:
       - '.github/workflows/delete-gemini-history-once.yml'
 
@@ -13,7 +13,9 @@ permissions:
 
 jobs:
   cleanup:
-    if: "github.event.head_commit.message == 'chore: delete Gemini workflow run history'"
+    if: |-
+      github.head_ref == 'codex/github-mention-add-nvram-transaction-api-and-use-it-for-dns' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: 'ubuntu-latest'
     timeout-minutes: 15
 
