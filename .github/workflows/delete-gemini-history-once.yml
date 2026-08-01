@@ -29,6 +29,7 @@ jobs:
           set -euo pipefail
 
           deleted_runs=0
+          skipped_runs=0
           matched_workflows=0
 
           while IFS=$'\t' read -r workflow_id workflow_name workflow_path; do
@@ -36,20 +37,22 @@ jobs:
             matched_workflows=$((matched_workflows + 1))
             echo "Cleaning ${workflow_name} (${workflow_path})"
 
-            while :; do
-              run_ids="$(gh api \
+            mapfile -t run_ids < <(
+              gh api --paginate \
                 "repos/${REPOSITORY}/actions/workflows/${workflow_id}/runs?per_page=100" \
-                --jq '.workflow_runs[].id')"
+                --jq '.workflow_runs[].id'
+            )
 
-              [ -n "${run_ids}" ] || break
-
-              while IFS= read -r run_id; do
-                [ -n "${run_id}" ] || continue
-                gh api --method DELETE \
-                  "repos/${REPOSITORY}/actions/runs/${run_id}"
+            for run_id in "${run_ids[@]}"; do
+              [ -n "${run_id}" ] || continue
+              if gh api --silent --method DELETE \
+                "repos/${REPOSITORY}/actions/runs/${run_id}"; then
                 deleted_runs=$((deleted_runs + 1))
                 echo "Deleted run ${run_id}"
-              done <<< "${run_ids}"
+              else
+                skipped_runs=$((skipped_runs + 1))
+                echo "Skipped unavailable run ${run_id}"
+              fi
             done
           done < <(
             gh api --paginate \
@@ -62,6 +65,7 @@ jobs:
             echo
             echo "Matched workflows: ${matched_workflows}"
             echo "Deleted runs: ${deleted_runs}"
+            echo "Already unavailable: ${skipped_runs}"
           } >> "${GITHUB_STEP_SUMMARY}"
 
-          echo "Matched ${matched_workflows} Gemini workflows and deleted ${deleted_runs} runs."
+          echo "Matched ${matched_workflows} Gemini workflows, deleted ${deleted_runs} runs, and skipped ${skipped_runs} unavailable runs."
