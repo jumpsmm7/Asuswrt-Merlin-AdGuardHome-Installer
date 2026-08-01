@@ -88,9 +88,14 @@ print(json.dumps(payload))
 PY
 )
 
-curl -s -X POST \
+umask 077
+AUTH_HEADER=$(mktemp) || exit 1
+trap 'rm -f "${AUTH_HEADER}"' EXIT HUP INT TERM
+printf 'Authorization: Bearer %s\n' "${API_KEY}" >"${AUTH_HEADER}" || exit 1
+
+curl --fail --show-error --silent --connect-timeout 10 --max-time 30 -X POST \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ${API_KEY}" \
+  -H "@${AUTH_HEADER}" \
   -H "request-id: ${REQUEST_ID}" \
   -H "qodo-client-type: skill-qodo-get-rules" \
   -d "${BODY}" \
@@ -110,19 +115,24 @@ print(json.dumps(payload))
 PY
 )
 
+umask 077
+AUTH_HEADER=$(mktemp) || exit 1
+trap 'rm -f "${AUTH_HEADER}"' EXIT HUP INT TERM
+printf 'Authorization: Bearer %s\n' "${API_KEY}" >"${AUTH_HEADER}" || exit 1
+
 if [ -n "${TRACE_ID:-}" ]; then
-  curl -s -X POST \
+  curl --fail --show-error --silent --connect-timeout 10 --max-time 30 -X POST \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer ${API_KEY}" \
+    -H "@${AUTH_HEADER}" \
     -H "request-id: ${REQUEST_ID}" \
     -H "qodo-client-type: skill-qodo-get-rules" \
     -H "trace_id:${TRACE_ID}" \
     -d "${BODY}" \
     "${API_URL}/rules/search"
 else
-  curl -s -X POST \
+  curl --fail --show-error --silent --connect-timeout 10 --max-time 30 -X POST \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer ${API_KEY}" \
+    -H "@${AUTH_HEADER}" \
     -H "request-id: ${REQUEST_ID}" \
     -H "qodo-client-type: skill-qodo-get-rules" \
     -d "${BODY}" \
@@ -135,6 +145,7 @@ fi
 ```python
 import json
 import os
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen, Request
 
 headers = {
@@ -152,9 +163,15 @@ if scope:  # omit field entirely when scope is not available
 
 body = json.dumps(payload).encode()
 req = Request(f"{api_url}/rules/search", data=body, headers=headers, method="POST")
-with urlopen(req, timeout=30) as resp:
-    data = json.loads(resp.read())
-rules = data.get("rules", [])
+try:
+    with urlopen(req, timeout=30) as resp:
+        data = json.loads(resp.read())
+except HTTPError as exc:
+    raise SystemExit(f"Qodo rules request failed with HTTP status {exc.code}")
+except (URLError, TimeoutError) as exc:
+    raise SystemExit(f"Qodo rules request failed: {exc}")
+else:
+    rules = data.get("rules", [])
 ```
 
 ## Error Handling
