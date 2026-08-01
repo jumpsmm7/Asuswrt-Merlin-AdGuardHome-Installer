@@ -430,7 +430,7 @@ If `GERRIT_URL`, `GERRIT_USERNAME`, or `GERRIT_HTTP_PASSWORD` is unset:
 
 If `Change-Id` grep returns empty:
 - Inform: "No Change-Id found in commit message."
-- Suggest installing the hook: `curl -sLo .git/hooks/commit-msg $GERRIT_URL/tools/hooks/commit-msg && chmod +x .git/hooks/commit-msg`
+- Direct the user to the validated, atomic commit-msg hook installation flow in [Create Change](#create-change) above. Do not download directly over an existing hook.
 - Exit the skill
 
 ### API authentication failure (HTTP 401)
