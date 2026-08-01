@@ -392,11 +392,14 @@ echo "$BODY"
 
 ```bash
 # Create a new top-level comment thread (az repos pr thread create does not exist)
-ADO_THREAD_FILE=$(mktemp)
-trap 'rm -f "$ADO_THREAD_FILE"' EXIT
-cat > "$ADO_THREAD_FILE" << 'EOF'
-{"comments": [{"content": "<comment-body>", "commentType": 1}], "status": "active"}
+COMMENT_BODY=$(cat <<'EOF'
+<comment-body>
 EOF
+)
+COMMENT_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$COMMENT_BODY") || exit 1
+ADO_THREAD_FILE=$(mktemp) || exit 1
+trap 'rm -f "$ADO_THREAD_FILE"' EXIT HUP INT TERM
+printf '%s\n' "{\"comments\": [{\"content\": ${COMMENT_BODY_JSON}, \"commentType\": 1}], \"status\": \"active\"}" > "$ADO_THREAD_FILE" || exit 1
 az devops invoke \
   --area git \
   --resource pullRequestThreads \
