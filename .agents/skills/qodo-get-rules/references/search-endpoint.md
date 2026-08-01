@@ -2,7 +2,7 @@
 
 ## Request
 
-```
+```http
 POST {API_URL}/rules/search
 Content-Type: application/json
 Authorization: Bearer {API_KEY}
@@ -103,6 +103,7 @@ curl --fail --show-error --silent --connect-timeout 10 --max-time 30 -X POST \
 ```
 
 With optional trace header:
+
 ```bash
 BODY=$(SEARCH_QUERY="$SEARCH_QUERY" SCOPE="${SCOPE:-}" python3 - <<'PY'
 import json
