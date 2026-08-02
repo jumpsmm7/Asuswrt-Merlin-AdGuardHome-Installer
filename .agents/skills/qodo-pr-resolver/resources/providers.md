@@ -104,14 +104,13 @@ fi
   ```
 - **Setup netrc file** (to avoid exposing password via command-line arguments):
   ```bash
-  BB_NETRC="${HOME}/.netrc.bitbucket"
   umask 077
-  if ! BB_NETRC_TMP=$(mktemp "${BB_NETRC}.XXXXXX"); then
+  if ! BB_NETRC=$(mktemp); then
     echo "Failed to create temporary netrc file" >&2
     exit 1
   fi
-  trap 'rm -f "$BB_NETRC_TMP"' EXIT INT TERM
-  if ! cat > "$BB_NETRC_TMP" << EOF
+  trap 'rm -f "$BB_NETRC"' EXIT INT TERM
+  if ! cat > "$BB_NETRC" << EOF
 machine $BB_HOST
 login $BB_USERNAME
 password $BB_APP_PASSWORD
@@ -120,15 +119,10 @@ EOF
     echo "Failed to write netrc file" >&2
     exit 1
   fi
-  if ! chmod 600 "$BB_NETRC_TMP"; then
+  if ! chmod 600 "$BB_NETRC"; then
     echo "Failed to set permissions on netrc file" >&2
     exit 1
   fi
-  if ! mv -f "$BB_NETRC_TMP" "$BB_NETRC"; then
-    echo "Failed to move netrc file into place" >&2
-    exit 1
-  fi
-  trap - EXIT INT TERM
   ```
 - **Verify:**
   ```bash
@@ -406,14 +400,18 @@ REPLY_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "
 ADO_COMMENT_FILE=$(mktemp) || exit 1
 trap 'rm -f "$ADO_COMMENT_FILE"' EXIT HUP INT TERM
 printf '%s\n' "{\"content\": ${REPLY_BODY_JSON}, \"commentType\": 1}" > "$ADO_COMMENT_FILE" || exit 1
-az devops invoke \
+if ! az devops invoke \
   --area git \
   --resource pullRequestThreadComments \
   --route-parameters project=$ADO_PROJECT repositoryId=$ADO_REPO_ID pullRequestId=<pr-id> threadId=<thread-id> \
   --http-method POST \
   --api-version 7.1 \
   --in-file "$ADO_COMMENT_FILE" \
-  --output json
+  --output json; then
+  echo "Error: Failed to post reply comment to Azure DevOps thread" >&2
+  rm -f "$ADO_COMMENT_FILE"
+  exit 1
+fi
 rm -f "$ADO_COMMENT_FILE"
 ```
 
@@ -461,14 +459,18 @@ umask 077
 ADO_STATUS_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_status.XXXXXX") || exit 1
 trap 'rm -f "${ADO_STATUS_FILE}"' EXIT HUP INT TERM
 printf '%s\n' '{"status": "fixed"}' > "${ADO_STATUS_FILE}" || exit 1
-az devops invoke \
+if ! az devops invoke \
   --area git \
   --resource pullRequestThreads \
   --route-parameters project=$ADO_PROJECT repositoryId=$ADO_REPO_ID pullRequestId=<pr-id> threadId=<thread-id> \
   --http-method PATCH \
   --api-version 7.1 \
   --in-file "${ADO_STATUS_FILE}" \
-  --output json
+  --output json; then
+  echo "Error: Failed to resolve Azure DevOps inline thread" >&2
+  rm -f "${ADO_STATUS_FILE}"
+  exit 1
+fi
 rm -f "${ADO_STATUS_FILE}"
 ```
 
@@ -532,14 +534,18 @@ COMMENT_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))'
 ADO_THREAD_FILE=$(mktemp) || exit 1
 trap 'rm -f "$ADO_THREAD_FILE"' EXIT HUP INT TERM
 printf '%s\n' "{\"comments\": [{\"content\": ${COMMENT_BODY_JSON}, \"commentType\": 1}], \"status\": \"active\"}" > "$ADO_THREAD_FILE" || exit 1
-az devops invoke \
+if ! az devops invoke \
   --area git \
   --resource pullRequestThreads \
   --route-parameters project=$ADO_PROJECT repositoryId=$ADO_REPO_ID pullRequestId=<pr-id> \
   --http-method POST \
   --api-version 7.1 \
   --in-file "$ADO_THREAD_FILE" \
-  --output json
+  --output json; then
+  echo "Error: Failed to create Azure DevOps summary comment thread" >&2
+  rm -f "$ADO_THREAD_FILE"
+  exit 1
+fi
 rm -f "$ADO_THREAD_FILE"
 ```
 
@@ -634,14 +640,18 @@ umask 077
 ADO_STATUS_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_status.XXXXXX") || exit 1
 trap 'rm -f "${ADO_STATUS_FILE}"' EXIT HUP INT TERM
 printf '%s\n' '{"status": "fixed"}' > "${ADO_STATUS_FILE}" || exit 1
-az devops invoke \
+if ! az devops invoke \
   --area git \
   --resource pullRequestThreads \
   --route-parameters project=$ADO_PROJECT repositoryId=$ADO_REPO_ID pullRequestId=<pr-id> threadId=<thread-id> \
   --http-method PATCH \
   --api-version 7.1 \
   --in-file "${ADO_STATUS_FILE}" \
-  --output json
+  --output json; then
+  echo "Error: Failed to mark Azure DevOps thread as fixed" >&2
+  rm -f "${ADO_STATUS_FILE}"
+  exit 1
+fi
 rm -f "${ADO_STATUS_FILE}"
 ```
 

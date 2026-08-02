@@ -54,7 +54,10 @@ After confirming a git repository exists, extract the repository scope to pass t
 
 ```bash
 # 1. Confirm inside a git repository
-git rev-parse --is-inside-work-tree
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  printf '%s\n' 'Not inside a git repository' >&2
+  exit 1
+fi
 
 # 2. Get the remote URL
 REMOTE_URL=$(git remote get-url origin 2>/dev/null)
@@ -140,6 +143,11 @@ if [ -z "${REQUEST_ID}" ] || ! printf '%s\n' "${REQUEST_ID}" | grep -qE '^[0-9a-
 fi
 # Determine API_URL: QODO_API_URL takes precedence over ENVIRONMENT_NAME
 if [ -n "${QODO_API_URL}" ]; then
+  # Validate QODO_API_URL is HTTPS and points to a trusted Qodo endpoint
+  if ! printf '%s\n' "${QODO_API_URL}" | grep -qE '^https://([a-zA-Z0-9_-]+\.)*qodo\.ai(/.*)?$'; then
+    printf '%s\n' 'Invalid QODO_API_URL: must use HTTPS and match a trusted Qodo domain (*.qodo.ai)' >&2
+    exit 1
+  fi
   API_URL="${QODO_API_URL}/rules/v1"
 elif [ -z "${ENV_NAME}" ]; then
   API_URL="https://qodo-platform.qodo.ai/rules/v1"

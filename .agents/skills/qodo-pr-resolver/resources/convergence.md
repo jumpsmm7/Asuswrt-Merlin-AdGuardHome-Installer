@@ -118,7 +118,7 @@ defer/hold, is not a flip.
   *even in manual mode*. The only way to proceed is an **explicit override message** naming the
   location (e.g. `override oscillation guard for src/foo.py:42`). Absent an override,
   reply on the thread that the location has oscillated three times, resolve it (`"unresolved": false`),
-  and route it to the Step 8 **"Skipped to prevent oscillation — recommend human resolution"**
+  and route it to the Step 9 **"Skipped to prevent oscillation — recommend human resolution"**
   category.
 
 ## Auto-fix mode guard
