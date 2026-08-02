@@ -117,7 +117,7 @@ SETUP_FILES_BEGIN_COUNT=0
 SETUP_FILES_RESTORE_COUNT=0
 SETUP_FILES_FINALIZE_COUNT=0
 SETUP_FILE_JOURNALS=0
-# save_dns_filter_settings creates a DNS filter rollback snapshot in the specified directory.
+# save_dns_filter_settings creates directories for DNS filter rollback state.
 save_dns_filter_settings() {
 	mkdir -p "$1"
 	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
@@ -144,7 +144,7 @@ restore_dns_filter_settings() {
 	rm -rf "$1"
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
 }
-# nvram_transaction_finalize_setup_pair publishes the setup commit marker and removes transaction snapshots when cleanup succeeds; returns failure if commit publication is disabled.
+# nvram_transaction_finalize_setup_pair publishes the setup commit marker and removes transaction snapshots unless cleanup is configured to fail; returns failure when commit-marker publication is disabled.
 nvram_transaction_finalize_setup_pair() {
 	SETUP_FILES_FINALIZE_COUNT="$((SETUP_FILES_FINALIZE_COUNT + 1))"
 	[ "${FAIL_SETUP_COMMIT_MARKER:-0}" -eq 0 ] || return 1
@@ -154,7 +154,7 @@ nvram_transaction_finalize_setup_pair() {
 	fi
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 }
-# nvram_transaction_setup_files_begin snapshots setup files when publication joins the transaction.
+# nvram_transaction_setup_files_begin snapshots the YAML and configuration files for transaction rollback, recording files that are absent.
 nvram_transaction_setup_files_begin() {
 	local journal_root source target
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
@@ -177,7 +177,7 @@ nvram_transaction_setup_files_begin() {
 		fi
 	done
 }
-# nvram_transaction_setup_files_restore restores setup files and removes the journal only after every restore succeeds.
+# nvram_transaction_setup_files_restore restores journaled setup files and removes the journal only after all restorations succeed.
 nvram_transaction_setup_files_restore() {
 	local journal_root source target
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
@@ -200,7 +200,7 @@ nvram_transaction_setup_files_restore() {
 	done
 	rm -rf "${journal_root}"
 }
-# check_dns_filter marks DNS filter settings as changed and fails when configured to simulate an update failure.
+# check_dns_filter marks DNS-filter settings as changed, records setup-journal availability, and can simulate an update failure.
 check_dns_filter() {
 	[ ! -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || DNS_FILTER_SAW_SETUP_JOURNAL=1
 	DNS_FILTER_CHANGED=1
@@ -209,11 +209,11 @@ check_dns_filter() {
 		return 1
 	fi
 }
-# check_dns_local appends a changed local DNS setting to the installer configuration.
+# check_dns_local appends the changed local DNS setting to the installer configuration.
 check_dns_local() {
 	printf '%s\n' 'ADGUARD_LOCAL="CHANGED"' >>"${CONF_FILE}"
 }
-# check_ipset appends the changed IP set setting to the installer configuration file.
+# check_ipset records that the IP set setting changed and marks an existing setup journal as observed.
 check_ipset() {
 	[ ! -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || IPSET_SAW_SETUP_JOURNAL=1
 	printf '%s\n' 'ADGUARD_IPSET="CHANGED"' >>"${CONF_FILE}"
@@ -263,7 +263,7 @@ YAML_CHECKS=0
 READ_INPUT_PORT_STATUS=0
 SELECTED_WEB_PORT=4000
 SETUP_FILES_FINALIZE_COUNT=0
-# read_yesno returns success to simulate affirmative user input.
+# read_yesno simulates an affirmative user response by returning success.
 read_yesno() { return 0; }
 if ! setup_AdGuardHome_impl ''; then
 	fail 'existing-config setup failed while updating a LAN-bound WebUI port'
@@ -283,9 +283,11 @@ printf '%s\n' 'http:' '  address: 192.168.50.1:3000' 'schema_version: 27' >"${YA
 : >"${WRITE_LOG}"
 SETUP_FILES_BEGIN_COUNT=0
 SETUP_FILES_FINALIZE_COUNT=0
+# read_yesno indicates that a yes-or-no response was not accepted.
 read_yesno() {
 	return 1
 }
+# read_input_num sets the selected input value to 3.
 read_input_num() {
 	CHOSEN=3
 }
@@ -331,6 +333,7 @@ rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
 printf '%s\n' 'http:' '  address: 192.168.50.1:4000' 'schema_version: 26' >"${YAML_FILE}"
 printf '%s\n' 'ADGUARD_WEBUI_PORT="4000"' >"${CONF_FILE}"
 SETUP_FILES_RESTORE_COUNT=0
+# read_yesno indicates that no yes/no response was provided.
 read_yesno() { return 2; }
 if setup_AdGuardHome_impl ''; then
 	fail 'existing-config setup accepted an interrupted confirmation prompt'
@@ -344,6 +347,7 @@ printf '%s\n' 'original configuration' >"${YAML_ORI}"
 printf '%s\n' 'ADGUARD_LOCAL="OLD"' >"${CONF_FILE}"
 SETUP_FILES_RESTORE_COUNT=0
 nvram_transaction_setup_files_begin || fail 'could not initialize inherited setup-file journal fixture'
+# read_input_num indicates that numeric input cannot be read.
 read_input_num() { return 1; }
 if setup_AdGuardHome_impl reconfig reconfig 1; then
 	fail 'reconfiguration accepted an interrupted mode-selection prompt'
@@ -577,6 +581,7 @@ FAIL_CHECK_DNS_FILTER=0
 FAIL_SETUP_FILES_RESTORE=0
 SETUP_FILES_BEGIN_COUNT=0
 DNS_FILTER_SAW_SETUP_JOURNAL=0
+# read_input_num sets the chosen input number to 1.
 read_input_num() {
 	CHOSEN=1
 }
@@ -614,9 +619,11 @@ ADGUARD_INSTALL_MODE=lan
 IPSET_SAW_SETUP_JOURNAL=0
 SETUP_FILES_BEGIN_COUNT=0
 SETUP_FILES_RESTORE_COUNT=0
+# read_input_num sets the chosen input number to 1.
 read_input_num() {
 	CHOSEN=1
 }
+# configure_runtime_defaults configures runtime defaults and reports failure.
 configure_runtime_defaults() {
 	return 1
 }

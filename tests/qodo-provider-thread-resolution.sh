@@ -5,6 +5,7 @@ set -u
 SKILL='.agents/skills/qodo-pr-resolver/SKILL.md'
 PROVIDERS='.agents/skills/qodo-pr-resolver/resources/providers.md'
 
+# fail reports an error message to stderr and exits the script with status 1.
 fail() {
 	printf '%s\n' "FAIL: $1" >&2
 	exit 1
