@@ -6871,6 +6871,7 @@ setup_AdGuardHome_impl() {
 		elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
 			setup_AdGuardHome_impl x "${2:-}" "${SETUP_FILES_JOURNALED}"
 		else
+			setup_restore_nvram_journal || true
 			return "${CONFIRM_STATUS}"
 		fi
 	else
@@ -6887,6 +6888,7 @@ setup_AdGuardHome_impl() {
 				"${INFO}   2) Restore original configuration selections" \
 				"${INFO}   3) Choose new configuration selections"
 			if ! read_input_num "Your selection" 1 3; then
+				setup_restore_nvram_journal || true
 				PTXT "${ERROR} Unable to select a reconfiguration mode. Setup was aborted."
 				return 1
 			fi

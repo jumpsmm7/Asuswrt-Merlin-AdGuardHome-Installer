@@ -326,6 +326,33 @@ read_yesno() { return 1; }
 READ_INPUT_PORT_STATUS=1
 SELECTED_WEB_PORT=3000
 
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
+printf '%s\n' 'http:' '  address: 192.168.50.1:4000' 'schema_version: 26' >"${YAML_FILE}"
+printf '%s\n' 'ADGUARD_WEBUI_PORT="4000"' >"${CONF_FILE}"
+SETUP_FILES_RESTORE_COUNT=0
+read_yesno() { return 2; }
+if setup_AdGuardHome_impl ''; then
+	fail 'existing-config setup accepted an interrupted confirmation prompt'
+fi
+[ "${SETUP_FILES_RESTORE_COUNT}" -eq 1 ] || fail 'interrupted existing-config confirmation did not restore the active setup-file journal'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'interrupted existing-config confirmation retained the restored setup-file journal'
+
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
+printf '%s\n' 'working configuration' >"${YAML_FILE}"
+printf '%s\n' 'original configuration' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_LOCAL="OLD"' >"${CONF_FILE}"
+SETUP_FILES_RESTORE_COUNT=0
+nvram_transaction_setup_files_begin || fail 'could not initialize inherited setup-file journal fixture'
+read_input_num() { return 1; }
+if setup_AdGuardHome_impl reconfig reconfig 1; then
+	fail 'reconfiguration accepted an interrupted mode-selection prompt'
+fi
+[ "${SETUP_FILES_RESTORE_COUNT}" -eq 1 ] || fail 'interrupted reconfiguration selection did not restore the inherited setup-file journal'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'interrupted reconfiguration selection retained the restored setup-file journal'
+
+# read_yesno always indicates a negative response.
+read_yesno() { return 1; }
+
 rm -f "${YAML_ORI}" "${YAML_BAK}"
 printf '%s\n' 'filters:' '  - url: http://example.invalid/filter.txt' 'schema_version: 27' >"${YAML_FILE}"
 printf '%s\n' 'ADGUARD_DOMAIN="router.local"' >"${CONF_FILE}"
