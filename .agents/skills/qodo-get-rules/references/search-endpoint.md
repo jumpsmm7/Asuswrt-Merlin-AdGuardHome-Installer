@@ -48,9 +48,11 @@ Rules are returned ranked by relevance (most relevant first). The list may be em
 
 Construct `{API_URL}` using the following priority:
 
-1. **`QODO_API_URL` in config** (highest priority): If `QODO_API_URL` is present in `~/.qodo/config.json`, use `{QODO_API_URL}/rules/v1` as the full API URL. The `/rules/v1` path is always appended internally — do not include it in the config value.
+1. **`QODO_API_URL` environment variable** (highest priority): If the `QODO_API_URL` environment variable is set, use `{QODO_API_URL}/rules/v1` as the full API URL. The URL must use HTTPS and point to a trusted `*.qodo.ai` domain. The `/rules/v1` path is always appended internally — do not include it in the environment variable value.
 
-2. **`ENVIRONMENT_NAME`-based construction** (fallback): If `QODO_API_URL` is not set, construct from `ENVIRONMENT_NAME` (read from `~/.qodo/config.json`, overridable via `QODO_ENVIRONMENT_NAME` env var):
+2. **`QODO_API_URL` in config** (fallback): If the environment variable is not set but `QODO_API_URL` is present in `~/.qodo/config.json`, use that value with the same validation and path appending rules.
+
+3. **`ENVIRONMENT_NAME`-based construction** (final fallback): If `QODO_API_URL` is not set in either location, construct from `ENVIRONMENT_NAME` (read from `~/.qodo/config.json`, overridable via `QODO_ENVIRONMENT_NAME` env var):
 
 | `ENVIRONMENT_NAME` | `{API_URL}` |
 |---|---|
@@ -60,7 +62,7 @@ Construct `{API_URL}` using the following priority:
 
 The `ENVIRONMENT_NAME` value must match `^[a-zA-Z0-9_.-]+$` and be non-empty before being used as a subdomain segment. Reject invalid values before URL construction.
 
-**URL resolution priority:** `QODO_API_URL` → `ENVIRONMENT_NAME` → production default
+**URL resolution priority:** `QODO_API_URL` environment variable → `QODO_API_URL` config value → `ENVIRONMENT_NAME` → production default
 
 ## Attribution Headers
 

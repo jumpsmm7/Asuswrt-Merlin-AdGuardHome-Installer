@@ -153,6 +153,7 @@ nvram_transaction_finalize_setup_pair() {
 		return 0
 	fi
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+	rm -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
 }
 # nvram_transaction_setup_files_begin snapshots the YAML and configuration files for transaction rollback, recording files that are absent.
 nvram_transaction_setup_files_begin() {

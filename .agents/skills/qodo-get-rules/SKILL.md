@@ -105,7 +105,7 @@ Check that the required Qodo configuration is present. The default location is `
 
 - **API key**: Read from `~/.qodo/config.json` (`API_KEY` field). Environment variable `QODO_API_KEY` takes precedence. If not found, inform the user that an API key is required and provide setup instructions, then exit gracefully.
 - **Environment name**: Read from `~/.qodo/config.json` (`ENVIRONMENT_NAME` field), with `QODO_ENVIRONMENT_NAME` environment variable taking precedence. If not found or empty, use production.
-- **API URL override** (optional): Read from `~/.qodo/config.json` (`QODO_API_URL` field). If present, use `{QODO_API_URL}/rules/v1` as the API base URL. If absent, the `ENVIRONMENT_NAME`-based URL is used.
+- **API URL override** (optional): Read from `~/.qodo/config.json` (`QODO_API_URL` field), with `QODO_API_URL` environment variable taking precedence. If present, use `{QODO_API_URL}/rules/v1` as the API base URL. The URL must use HTTPS and point to a trusted `*.qodo.ai` domain. If absent, the `ENVIRONMENT_NAME`-based URL is used.
 - **Request ID**: Generate a UUID (e.g. `python3 -c "import uuid; print(uuid.uuid4())"`) to use as `request-id` for all API calls in this invocation.
 
 Example config parsing:

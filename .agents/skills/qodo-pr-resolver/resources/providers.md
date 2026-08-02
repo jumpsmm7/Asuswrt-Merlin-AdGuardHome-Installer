@@ -819,7 +819,6 @@ If the remote URL doesn't match any supported provider:
 
 ### API Failures
 
-If inline reply or summary posting fails:
-- Log the error
-- Continue with remaining operations
-- The workflow should not abort due to comment posting failures
+**Summary posting failures:** If the summary comment (Step 9) fails to post, stop the workflow before resolving remaining review state. Record that the round record from Step 3c was not created. Report that the user must retry summary publication before proceeding with resolution operations.
+
+**Inline reply failures:** If an individual inline reply fails, log the error and continue with remaining operations. The workflow should not abort due to inline comment posting failures.
