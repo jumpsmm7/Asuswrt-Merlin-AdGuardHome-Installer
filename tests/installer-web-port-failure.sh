@@ -215,6 +215,7 @@ check_dns_local() {
 }
 # check_ipset appends the changed IP set setting to the installer configuration file.
 check_ipset() {
+	[ ! -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || IPSET_SAW_SETUP_JOURNAL=1
 	printf '%s\n' 'ADGUARD_IPSET="CHANGED"' >>"${CONF_FILE}"
 }
 # read_yesno indicates a negative response.
@@ -604,5 +605,28 @@ setup_restore_nvram_journal || fail 'committed setup-file journal guard returned
 [ "$(cat "${CONF_FILE}")" = 'ADGUARD_LOCAL="COMMITTED"' ] || fail 'committed setup-file journal guard rolled back installer preferences'
 [ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'committed setup-file journal guard removed deferred recovery state'
 [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'committed setup-file journal guard removed the setup commit marker'
+
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
+printf '%s\n' 'working configuration' >"${YAML_FILE}"
+printf '%s\n' 'original configuration' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_IPSET="OLD"' >"${CONF_FILE}"
+ADGUARD_INSTALL_MODE=lan
+IPSET_SAW_SETUP_JOURNAL=0
+SETUP_FILES_BEGIN_COUNT=0
+SETUP_FILES_RESTORE_COUNT=0
+read_input_num() {
+	CHOSEN=1
+}
+configure_runtime_defaults() {
+	return 1
+}
+if setup_AdGuardHome_impl reconfig reconfig; then
+	fail 'LAN existing-YAML reconfiguration ignored runtime-default failure after IPSET update'
+fi
+[ "${SETUP_FILES_BEGIN_COUNT}" -eq 1 ] || fail 'LAN existing-YAML reconfiguration did not initialize the setup-file journal exactly once'
+[ "${IPSET_SAW_SETUP_JOURNAL}" -eq 1 ] || fail 'LAN existing-YAML reconfiguration changed IPSET before initializing the setup-file journal'
+[ "${SETUP_FILES_RESTORE_COUNT}" -eq 1 ] || fail 'LAN runtime-default failure did not restore the setup-file journal'
+[ "$(cat "${CONF_FILE}")" = 'ADGUARD_IPSET="OLD"' ] || fail 'LAN runtime-default failure retained the reconfigured IPSET preference'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'LAN runtime-default failure retained the restored setup-file journal'
 
 printf '%s\n' 'PASS: failed WebUI port verification or persistence aborts setup safely'

@@ -7219,9 +7219,21 @@ setup_AdGuardHome_impl() {
 						fi
 					fi
 				fi
-				if [ "$2" = "reconfig" ] && [ -n "${IPSET_SELECTION:-}" ] && ! check_ipset "${IPSET_SELECTION}"; then
-					PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
-						"${WARNING} Continuing reconfiguration with the previous IPSET preference."
+				if [ "$2" = "reconfig" ] && [ -n "${IPSET_SELECTION:-}" ]; then
+					if [ "${SETUP_FILES_JOURNALED}" -eq 0 ]; then
+						if nvram_transaction_setup_files_begin; then
+							SETUP_FILES_JOURNALED=1
+						else
+							[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+							setup_restore_previous_yaml || true
+							PTXT "${ERROR} Unable to journal the current installer configuration before IPSET reconfiguration."
+							return 1
+						fi
+					fi
+					if ! check_ipset "${IPSET_SELECTION}"; then
+						PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
+							"${WARNING} Continuing reconfiguration with the previous IPSET preference."
+					fi
 				fi
 				if [ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" ] || [ -n "${DNS_FILTER_SELECTION:-}" ]; then
 					if [ "${SETUP_FILES_JOURNALED}" -eq 0 ]; then
