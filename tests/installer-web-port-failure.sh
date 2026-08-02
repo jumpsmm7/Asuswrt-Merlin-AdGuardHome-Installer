@@ -136,7 +136,7 @@ installer_lan_domain_restore() {
 	LAN_DOMAIN="${TEST_LAN_DOMAIN_ROLLBACK:-}"
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
 }
-# restore_dns_filter_settings restores DNS filter settings, clears the change marker, and removes the temporary and snapshot directories.
+# restore_dns_filter_settings clears the DNS filter change marker and removes the temporary and snapshot directories.
 restore_dns_filter_settings() {
 	[ -d "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || return 0
 	DNS_FILTER_RESTORES="$((DNS_FILTER_RESTORES + 1))"
@@ -144,7 +144,7 @@ restore_dns_filter_settings() {
 	rm -rf "$1"
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
 }
-# nvram_transaction_finalize_setup_pair publishes the setup commit marker and removes transaction snapshots unless cleanup is configured to fail; returns failure when commit-marker publication is disabled.
+# nvram_transaction_finalize_setup_pair publishes the setup commit marker and removes transaction snapshots unless snapshot cleanup is configured to fail; returns failure when commit-marker publication is configured to fail.
 nvram_transaction_finalize_setup_pair() {
 	SETUP_FILES_FINALIZE_COUNT="$((SETUP_FILES_FINALIZE_COUNT + 1))"
 	[ "${FAIL_SETUP_COMMIT_MARKER:-0}" -eq 0 ] || return 1
@@ -155,7 +155,7 @@ nvram_transaction_finalize_setup_pair() {
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 	rm -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
 }
-# nvram_transaction_setup_files_begin snapshots the YAML and configuration files for transaction rollback, recording files that are absent.
+# nvram_transaction_setup_files_begin creates a rollback journal containing snapshots of the YAML and configuration files, including markers for files that are absent.
 nvram_transaction_setup_files_begin() {
 	local journal_root source target
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
@@ -210,7 +210,7 @@ check_dns_filter() {
 		return 1
 	fi
 }
-# check_dns_local appends the changed local DNS setting to the installer configuration.
+# check_dns_local appends a changed local DNS setting to the installer configuration.
 check_dns_local() {
 	printf '%s\n' 'ADGUARD_LOCAL="CHANGED"' >>"${CONF_FILE}"
 }
@@ -348,7 +348,7 @@ printf '%s\n' 'original configuration' >"${YAML_ORI}"
 printf '%s\n' 'ADGUARD_LOCAL="OLD"' >"${CONF_FILE}"
 SETUP_FILES_RESTORE_COUNT=0
 nvram_transaction_setup_files_begin || fail 'could not initialize inherited setup-file journal fixture'
-# read_input_num indicates that numeric input cannot be read.
+# read_input_num indicates that numeric input could not be read.
 read_input_num() { return 1; }
 if setup_AdGuardHome_impl reconfig reconfig 1; then
 	fail 'reconfiguration accepted an interrupted mode-selection prompt'

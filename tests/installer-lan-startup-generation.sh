@@ -87,7 +87,7 @@ check_AdGuardHome_yaml() { :; }
 save_dns_filter_settings() { mkdir -p "$1"; }
 # installer_lan_domain_set stores the specified LAN domain in NVRAM.
 installer_lan_domain_set() { nvram set "lan_domain=$1"; }
-# installer_lan_domain_restore restores the configured LAN domain.
+# installer_lan_domain_restore provides a no-op stub for restoring the configured LAN domain.
 installer_lan_domain_restore() { :; }
 # nvram_transaction_finalize_setup_pair completes the simulated NVRAM setup transaction successfully.
 nvram_transaction_finalize_setup_pair() { return 0; }
