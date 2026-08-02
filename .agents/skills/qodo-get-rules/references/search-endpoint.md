@@ -48,9 +48,9 @@ Rules are returned ranked by relevance (most relevant first). The list may be em
 
 Construct `{API_URL}` using the following priority:
 
-1. **`QODO_API_URL` environment variable** (highest priority): If the `QODO_API_URL` environment variable is set, use `{QODO_API_URL}/rules/v1` as the full API URL. The URL must use HTTPS and point to a trusted `*.qodo.ai` domain. The `/rules/v1` path is always appended internally — do not include it in the environment variable value.
+1. **`QODO_API_URL` environment variable** (highest priority): If the `QODO_API_URL` environment variable is set, use `{QODO_API_URL}/rules/v1` as the full API URL. The URL must use HTTPS and point to a trusted `*.qodo.ai` domain. The `/rules/v1` path is always appended internally — do not include it in the environment variable value. Trailing slashes are removed from the base URL before appending `/rules/v1` to prevent double slashes.
 
-2. **`QODO_API_URL` in config** (fallback): If the environment variable is not set but `QODO_API_URL` is present in `~/.qodo/config.json`, use that value with the same validation and path appending rules.
+2. **`QODO_API_URL` in config** (fallback): If the environment variable is not set but `QODO_API_URL` is present in `~/.qodo/config.json`, use that value with the same validation and path appending rules (including trailing-slash removal).
 
 3. **`ENVIRONMENT_NAME`-based construction** (final fallback): If `QODO_API_URL` is not set in either location, construct from `ENVIRONMENT_NAME` (read from `~/.qodo/config.json`, overridable via `QODO_ENVIRONMENT_NAME` env var):
 

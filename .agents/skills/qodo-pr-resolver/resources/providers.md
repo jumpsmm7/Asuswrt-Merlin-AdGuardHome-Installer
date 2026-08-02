@@ -77,6 +77,16 @@ fi
   ```bash
   QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
   if [ -f "$QODO_CONFIG" ]; then
+    # Require secure permissions before reading credentials
+    QODO_DIR=$(dirname "$QODO_CONFIG")
+    if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
+      echo "Error: Qodo config directory $QODO_DIR must have mode 700 (owner-only access)" >&2
+      exit 1
+    fi
+    if [ "$(stat -c '%a' "$QODO_CONFIG" 2>/dev/null || stat -f '%Lp' "$QODO_CONFIG" 2>/dev/null)" != "600" ]; then
+      echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
+      exit 1
+    fi
     [ -n "${BB_USERNAME:-}" ] || BB_USERNAME=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("BB_USERNAME", ""))' "$QODO_CONFIG")
     [ -n "${BB_APP_PASSWORD:-}" ] || BB_APP_PASSWORD=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("BB_APP_PASSWORD", ""))' "$QODO_CONFIG")
   fi
@@ -147,6 +157,16 @@ EOF
   ```bash
   QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
   if [ -f "$QODO_CONFIG" ]; then
+    # Require secure permissions before reading credentials
+    QODO_DIR=$(dirname "$QODO_CONFIG")
+    if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
+      echo "Error: Qodo config directory $QODO_DIR must have mode 700 (owner-only access)" >&2
+      exit 1
+    fi
+    if [ "$(stat -c '%a' "$QODO_CONFIG" 2>/dev/null || stat -f '%Lp' "$QODO_CONFIG" 2>/dev/null)" != "600" ]; then
+      echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
+      exit 1
+    fi
     [ -n "${AZURE_DEVOPS_EXT_PAT:-}" ] || AZURE_DEVOPS_EXT_PAT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_EXT_PAT", ""))' "$QODO_CONFIG")
     [ -n "${AZURE_DEVOPS_URL:-}" ] || AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL", ""))' "$QODO_CONFIG")
   fi
@@ -183,9 +203,19 @@ EOF
   ADO_PROJECT=${ADO_PATH%%/*}
   ADO_REPO=${ADO_PATH##*/}
   ADO_REPO=${ADO_REPO%.git}
-  az devops configure --defaults organization="$ADO_ORGANIZATION" project="$ADO_PROJECT"
+  if ! az devops configure --defaults organization="$ADO_ORGANIZATION" project="$ADO_PROJECT"; then
+    echo "Error: Failed to configure Azure DevOps defaults" >&2
+    exit 1
+  fi
   # Get repository ID (required for thread API calls):
-  ADO_REPO_ID=$(az repos show --name "$ADO_REPO" --query id -o tsv)
+  if ! ADO_REPO_ID=$(az repos show --name "$ADO_REPO" --query id -o tsv); then
+    echo "Error: Failed to retrieve Azure DevOps repository ID" >&2
+    exit 1
+  fi
+  if [ -z "$ADO_REPO_ID" ]; then
+    echo "Error: Azure DevOps repository ID is empty" >&2
+    exit 1
+  fi
   ```
 - **Verify:**
   ```bash
@@ -326,7 +356,7 @@ curl --fail --silent --show-error --netrc-file "$BB_NETRC" \
 az devops invoke \
   --area git \
   --resource pullRequestThreads \
-  --route-parameters project=$ADO_PROJECT repositoryId=$ADO_REPO_ID pullRequestId=<pr-id> \
+  --route-parameters project="$ADO_PROJECT" repositoryId="$ADO_REPO_ID" pullRequestId=<pr-id> \
   --http-method GET \
   --api-version 7.1 \
   --output json
@@ -403,7 +433,7 @@ printf '%s\n' "{\"content\": ${REPLY_BODY_JSON}, \"commentType\": 1}" > "$ADO_CO
 if ! az devops invoke \
   --area git \
   --resource pullRequestThreadComments \
-  --route-parameters project=$ADO_PROJECT repositoryId=$ADO_REPO_ID pullRequestId=<pr-id> threadId=<thread-id> \
+  --route-parameters project="$ADO_PROJECT" repositoryId="$ADO_REPO_ID" pullRequestId="<pr-id>" threadId="<thread-id>" \
   --http-method POST \
   --api-version 7.1 \
   --in-file "$ADO_COMMENT_FILE" \
@@ -462,7 +492,7 @@ printf '%s\n' '{"status": "fixed"}' > "${ADO_STATUS_FILE}" || exit 1
 if ! az devops invoke \
   --area git \
   --resource pullRequestThreads \
-  --route-parameters project=$ADO_PROJECT repositoryId=$ADO_REPO_ID pullRequestId=<pr-id> threadId=<thread-id> \
+  --route-parameters project="$ADO_PROJECT" repositoryId="$ADO_REPO_ID" pullRequestId="<pr-id>" threadId="<thread-id>" \
   --http-method PATCH \
   --api-version 7.1 \
   --in-file "${ADO_STATUS_FILE}" \
@@ -537,7 +567,7 @@ printf '%s\n' "{\"comments\": [{\"content\": ${COMMENT_BODY_JSON}, \"commentType
 if ! az devops invoke \
   --area git \
   --resource pullRequestThreads \
-  --route-parameters project=$ADO_PROJECT repositoryId=$ADO_REPO_ID pullRequestId=<pr-id> \
+  --route-parameters project="$ADO_PROJECT" repositoryId="$ADO_REPO_ID" pullRequestId="<pr-id>" \
   --http-method POST \
   --api-version 7.1 \
   --in-file "$ADO_THREAD_FILE" \
@@ -643,7 +673,7 @@ printf '%s\n' '{"status": "fixed"}' > "${ADO_STATUS_FILE}" || exit 1
 if ! az devops invoke \
   --area git \
   --resource pullRequestThreads \
-  --route-parameters project=$ADO_PROJECT repositoryId=$ADO_REPO_ID pullRequestId=<pr-id> threadId=<thread-id> \
+  --route-parameters project="$ADO_PROJECT" repositoryId="$ADO_REPO_ID" pullRequestId="<pr-id>" threadId="<thread-id>" \
   --http-method PATCH \
   --api-version 7.1 \
   --in-file "${ADO_STATUS_FILE}" \

@@ -148,6 +148,8 @@ if [ -n "${QODO_API_URL}" ]; then
     printf '%s\n' 'Invalid QODO_API_URL: must use HTTPS and match a trusted Qodo domain (*.qodo.ai)' >&2
     exit 1
   fi
+  # Remove trailing slash to prevent double slashes before /rules/v1
+  QODO_API_URL="${QODO_API_URL%/}"
   API_URL="${QODO_API_URL}/rules/v1"
 elif [ -z "${ENV_NAME}" ]; then
   API_URL="https://qodo-platform.qodo.ai/rules/v1"
