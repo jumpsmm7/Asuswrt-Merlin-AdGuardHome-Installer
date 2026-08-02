@@ -384,6 +384,60 @@ az devops invoke \
   --output json
 ```
 
+## Resolve Inline Threads
+
+Posting a reply does **not** resolve its inline thread. After the reply succeeds, use the operation for the active provider. Resolve only the thread correlated with the finding's preserved inline comment or discussion ID.
+
+### GitHub
+
+GitHub resolves pull-request review threads through GraphQL. First map the preserved inline comment database ID to its review-thread node ID, then resolve that node:
+
+```bash
+THREAD_ID=$(gh api graphql \
+  -f owner='{owner}' -f repo='{repo}' -F number=<pr-number> \
+  -f query='query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100){nodes{id isResolved comments(first:100){nodes{databaseId}}} pageInfo{hasNextPage}}}}}' \
+  --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(any(.comments.nodes[]; .databaseId == <inline-comment-id>)) | .id') || exit 1
+[ -n "${THREAD_ID}" ] || { echo 'Error: GitHub review thread not found.' >&2; exit 1; }
+gh api graphql \
+  -f threadId="${THREAD_ID}" \
+  -f query='mutation($threadId:ID!){resolveReviewThread(input:{threadId:$threadId}){thread{id isResolved}}}'
+```
+
+If the pull request can exceed 100 review threads, follow `pageInfo` cursors rather than treating the first page as complete.
+
+### GitLab
+
+```bash
+glab api "/projects/:id/merge_requests/<mr-iid>/discussions/<discussion-id>" \
+  -X PUT \
+  -f resolved=true
+```
+
+### Bitbucket
+
+```bash
+curl --fail --silent --show-error --netrc-file "$BB_NETRC" \
+  -X POST \
+  "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments/<inline-comment-id>/resolve"
+```
+
+### Azure DevOps
+
+```bash
+umask 077
+ADO_STATUS_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_status.XXXXXX") || exit 1
+trap 'rm -f "${ADO_STATUS_FILE}"' EXIT HUP INT TERM
+printf '%s\n' '{"status": "fixed"}' > "${ADO_STATUS_FILE}" || exit 1
+az devops invoke \
+  --area git \
+  --resource pullRequestThreads \
+  --route-parameters project=$ADO_PROJECT repositoryId=$ADO_REPO_ID pullRequestId=<pr-id> threadId=<thread-id> \
+  --http-method PATCH \
+  --api-version 7.1 \
+  --in-file "${ADO_STATUS_FILE}" \
+  --output json
+```
+
 ## Post Summary Comment
 
 After reviewing all issues, post a summary comment to the PR/MR.

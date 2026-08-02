@@ -366,9 +366,10 @@ See [providers.md § Post Summary Comment](./resources/providers.md#post-summary
 **Gerrit:** Batch the summary comment AND all inline replies into a **single API call**. This is more efficient and avoids multiple email notifications. Use the unified review endpoint with both `message` (summary) and `comments` (inline replies) — see [gerrit.md § Post Summary Comment](./resources/gerrit.md#post-summary-comment).
 
 **Important resolution rules for inline replies:**
-- **Fixed** issues: set `"unresolved": false` (resolves the thread)
-- **Deferred** issues: set `"unresolved": false` (resolves the thread — the next Qodo review will re-evaluate)
-- **Held prior decision / hard-stopped** (⚠️ Contradiction kept as-is, or a 3rd-cycle hard stop): set `"unresolved": false`, and make the reply state the prior decision was deliberate (see [convergence.md](./resources/convergence.md)) so the rationale is recorded on the thread for the next round. In the summary, list these under a **dedicated category** titled **"Skipped to prevent oscillation — recommend human resolution"** (NOT under Deferred), each with `file:line` and oscillation reason.
+- Replying does not resolve an inline thread. After a successful reply, run the provider-specific thread-resolution operation in [providers.md § Resolve Inline Threads](./resources/providers.md#resolve-inline-threads).
+- **Fixed** issues: resolve the corresponding inline thread.
+- **Deferred** issues: resolve the corresponding inline thread — the next Qodo review will re-evaluate.
+- **Held prior decision / hard-stopped** (⚠️ Contradiction kept as-is, or a 3rd-cycle hard stop): resolve the corresponding inline thread, and make the reply state the prior decision was deliberate (see [convergence.md](./resources/convergence.md)) so the rationale is recorded on the thread for the next round. In the summary, list these under a **dedicated category** titled **"Skipped to prevent oscillation — recommend human resolution"** (NOT under Deferred), each with `file:line` and oscillation reason.
 
 **After posting the summary, resolve the Qodo review comment:**
 
