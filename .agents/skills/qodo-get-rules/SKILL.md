@@ -134,6 +134,10 @@ if [ -z "${API_KEY}" ]; then
 fi
 
 REQUEST_ID=$(uuidgen 2>/dev/null || python3 -c 'import uuid; print(uuid.uuid4())')
+if [ -z "${REQUEST_ID}" ] || ! printf '%s\n' "${REQUEST_ID}" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
+  printf '%s\n' 'Failed to generate a valid request ID' >&2
+  exit 1
+fi
 # Determine API_URL: QODO_API_URL takes precedence over ENVIRONMENT_NAME
 if [ -n "${QODO_API_URL}" ]; then
   API_URL="${QODO_API_URL}/rules/v1"

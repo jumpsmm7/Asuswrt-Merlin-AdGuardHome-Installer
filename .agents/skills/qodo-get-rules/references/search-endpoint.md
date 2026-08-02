@@ -171,7 +171,11 @@ except HTTPError as exc:
     raise SystemExit(f"Qodo rules request failed with HTTP status {exc.code}")
 except (URLError, TimeoutError) as exc:
     raise SystemExit(f"Qodo rules request failed: {exc}")
+except json.JSONDecodeError as exc:
+    raise SystemExit(f"Qodo rules request failed: invalid JSON response")
 else:
+    if not isinstance(data, dict) or not isinstance(data.get("rules"), list):
+        raise SystemExit("Qodo rules request failed: malformed response (expected object with 'rules' array)")
     rules = data.get("rules", [])
 ```
 
