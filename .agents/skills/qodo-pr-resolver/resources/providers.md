@@ -203,12 +203,8 @@ EOF
   ADO_PROJECT=${ADO_PATH%%/*}
   ADO_REPO=${ADO_PATH##*/}
   ADO_REPO=${ADO_REPO%.git}
-  if ! az devops configure --defaults organization="$ADO_ORGANIZATION" project="$ADO_PROJECT"; then
-    echo "Error: Failed to configure Azure DevOps defaults" >&2
-    exit 1
-  fi
   # Get repository ID (required for thread API calls):
-  if ! ADO_REPO_ID=$(az repos show --name "$ADO_REPO" --query id -o tsv); then
+  if ! ADO_REPO_ID=$(az repos show --organization "$ADO_ORGANIZATION" --project "$ADO_PROJECT" --name "$ADO_REPO" --query id -o tsv); then
     echo "Error: Failed to retrieve Azure DevOps repository ID" >&2
     exit 1
   fi
@@ -306,6 +302,30 @@ import sys, json
 data = json.load(sys.stdin)
 print(data.get("next", ""))
 ') || exit 1
+
+  # Validate NEXT_URL points to the same host as BB_API_URL before using it
+  if [ -n "$NEXT_URL" ]; then
+    if ! python3 - "$NEXT_URL" "$BB_API_URL" <<'PY'
+import sys
+from urllib.parse import urlsplit
+
+next_url = sys.argv[1]
+api_url = sys.argv[2]
+
+next_parsed = urlsplit(next_url)
+api_parsed = urlsplit(api_url)
+
+# Validate scheme, hostname, and port match exactly
+if (next_parsed.scheme != api_parsed.scheme or
+    next_parsed.hostname != api_parsed.hostname or
+    next_parsed.port != api_parsed.port):
+    print(f"Error: Bitbucket API returned next URL with mismatched host/scheme: {next_url}", file=sys.stderr)
+    sys.exit(1)
+PY
+    then
+      exit 1
+    fi
+  fi
 done
 
 if [ "$FOUND_PR" -eq 0 ]; then
@@ -316,7 +336,7 @@ fi
 ### Azure DevOps
 
 ```bash
-az repos pr list --source-branch <branch-name> --status active --output json
+az repos pr list --organization "$ADO_ORGANIZATION" --project "$ADO_PROJECT" --source-branch <branch-name> --status active --output json
 ```
 
 ## Fetch Review Comments
@@ -354,6 +374,7 @@ curl --fail --silent --show-error --netrc-file "$BB_NETRC" \
 # List all PR threads (includes both summary and inline comments)
 # Note: az repos pr thread subcommands do not exist — use az devops invoke
 az devops invoke \
+  --organization "$ADO_ORGANIZATION" \
   --area git \
   --resource pullRequestThreads \
   --route-parameters project="$ADO_PROJECT" repositoryId="$ADO_REPO_ID" pullRequestId=<pr-id> \
@@ -431,6 +452,7 @@ ADO_COMMENT_FILE=$(mktemp) || exit 1
 trap 'rm -f "$ADO_COMMENT_FILE"' EXIT HUP INT TERM
 printf '%s\n' "{\"content\": ${REPLY_BODY_JSON}, \"commentType\": 1}" > "$ADO_COMMENT_FILE" || exit 1
 if ! az devops invoke \
+  --organization "$ADO_ORGANIZATION" \
   --area git \
   --resource pullRequestThreadComments \
   --route-parameters project="$ADO_PROJECT" repositoryId="$ADO_REPO_ID" pullRequestId="<pr-id>" threadId="<thread-id>" \
@@ -490,6 +512,7 @@ ADO_STATUS_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_status.XXXXXX") || exit 1
 trap 'rm -f "${ADO_STATUS_FILE}"' EXIT HUP INT TERM
 printf '%s\n' '{"status": "fixed"}' > "${ADO_STATUS_FILE}" || exit 1
 if ! az devops invoke \
+  --organization "$ADO_ORGANIZATION" \
   --area git \
   --resource pullRequestThreads \
   --route-parameters project="$ADO_PROJECT" repositoryId="$ADO_REPO_ID" pullRequestId="<pr-id>" threadId="<thread-id>" \
@@ -565,6 +588,7 @@ ADO_THREAD_FILE=$(mktemp) || exit 1
 trap 'rm -f "$ADO_THREAD_FILE"' EXIT HUP INT TERM
 printf '%s\n' "{\"comments\": [{\"content\": ${COMMENT_BODY_JSON}, \"commentType\": 1}], \"status\": \"active\"}" > "$ADO_THREAD_FILE" || exit 1
 if ! az devops invoke \
+  --organization "$ADO_ORGANIZATION" \
   --area git \
   --resource pullRequestThreads \
   --route-parameters project="$ADO_PROJECT" repositoryId="$ADO_REPO_ID" pullRequestId="<pr-id>" \
@@ -671,6 +695,7 @@ ADO_STATUS_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_status.XXXXXX") || exit 1
 trap 'rm -f "${ADO_STATUS_FILE}"' EXIT HUP INT TERM
 printf '%s\n' '{"status": "fixed"}' > "${ADO_STATUS_FILE}" || exit 1
 if ! az devops invoke \
+  --organization "$ADO_ORGANIZATION" \
   --area git \
   --resource pullRequestThreads \
   --route-parameters project="$ADO_PROJECT" repositoryId="$ADO_REPO_ID" pullRequestId="<pr-id>" threadId="<thread-id>" \
@@ -768,6 +793,8 @@ Set `BB_DEST_BRANCH` before running the example to target an explicitly selected
 
 ```bash
 az repos pr create \
+  --organization "$ADO_ORGANIZATION" \
+  --project "$ADO_PROJECT" \
   --title '<title>' \
   --description '<body>' \
   --source-branch <branch-name> \
@@ -828,7 +855,7 @@ echo "$BODY"
 ### Azure DevOps
 
 ```bash
-az repos pr update --id <pr-id> --draft false
+az repos pr update --organization "$ADO_ORGANIZATION" --project "$ADO_PROJECT" --id <pr-id> --draft false
 ```
 
 ## Error Handling

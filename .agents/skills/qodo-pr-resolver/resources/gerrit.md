@@ -53,6 +53,16 @@ Load the provider configuration before testing or using these values. Existing e
 ```bash
 QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
 if [ -f "$QODO_CONFIG" ]; then
+  # Require secure permissions before reading credentials
+  QODO_DIR=$(dirname "$QODO_CONFIG")
+  if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
+    echo "Error: Qodo config directory $QODO_DIR must have mode 700 (owner-only access)" >&2
+    exit 1
+  fi
+  if [ "$(stat -c '%a' "$QODO_CONFIG" 2>/dev/null || stat -f '%Lp' "$QODO_CONFIG" 2>/dev/null)" != "600" ]; then
+    echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
+    exit 1
+  fi
   [ -n "${GERRIT_URL:-}" ] || GERRIT_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("GERRIT_URL", ""))' "$QODO_CONFIG")
   [ -n "${GERRIT_USERNAME:-}" ] || GERRIT_USERNAME=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("GERRIT_USERNAME", ""))' "$QODO_CONFIG")
   [ -n "${GERRIT_HTTP_PASSWORD:-}" ] || GERRIT_HTTP_PASSWORD=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("GERRIT_HTTP_PASSWORD", ""))' "$QODO_CONFIG")
@@ -443,6 +453,18 @@ fi
 # Validate downloaded file is non-empty before making executable
 if [ ! -s "$HOOK_TMP" ]; then
   echo "Downloaded commit-msg hook is empty or incomplete" >&2
+  rm -f "$HOOK_TMP"
+  exit 1
+fi
+
+# Validate hook content format (must be a script, not an HTML error page)
+if ! head -n1 "$HOOK_TMP" | grep -q '^#!'; then
+  echo "Downloaded commit-msg hook is not a valid script (missing shebang)" >&2
+  rm -f "$HOOK_TMP"
+  exit 1
+fi
+if grep -qi '<html' "$HOOK_TMP"; then
+  echo "Downloaded commit-msg hook appears to be an HTML error page, not a script" >&2
   rm -f "$HOOK_TMP"
   exit 1
 fi

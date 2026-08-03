@@ -47,10 +47,12 @@ REL_PATH=$(realpath --relative-to="$REPO_ROOT" "$PWD" 2>/dev/null \
     "$PWD" "$REPO_ROOT")
 MODULE=$(echo "$REL_PATH" | sed -n 's|^modules/\([^/]*\).*|\1|p')
 
-if [ -n "$MODULE" ]; then
-  SCOPE="/${REPO_PATH}/modules/${MODULE}/"
-else
-  SCOPE="/${REPO_PATH}/"
+if [ -n "$REPO_PATH" ]; then
+  if [ -n "$MODULE" ]; then
+    SCOPE="/${REPO_PATH}/modules/${MODULE}/"
+  else
+    SCOPE="/${REPO_PATH}/"
+  fi
 fi
 ```
 
