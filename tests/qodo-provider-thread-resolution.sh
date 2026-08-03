@@ -19,7 +19,10 @@ grep -Fq '/discussions/<discussion-id>' "${PROVIDERS}" || fail 'GitLab discussio
 grep -Fq '/comments/<inline-comment-id>/resolve' "${PROVIDERS}" || fail 'Bitbucket inline-comment resolution is missing'
 
 # Extract the "Resolve Inline Threads" section and verify Azure DevOps inline-thread resolution
-ADO_INLINE_SECTION=$(sed -n '/^## Resolve Inline Threads$/,/^## /p' "${PROVIDERS}" | sed '$d')
+if ! grep -Fq '## Post Summary Comment' "${PROVIDERS}"; then
+	fail 'Post Summary Comment section heading not found in providers.md (cannot extract Resolve Inline Threads section)'
+fi
+ADO_INLINE_SECTION=$(sed -n '/^## Resolve Inline Threads$/,/^## Post Summary Comment$/p' "${PROVIDERS}" | sed '$d')
 if [ -z "$ADO_INLINE_SECTION" ]; then
 	fail 'Resolve Inline Threads section not found in providers.md'
 fi

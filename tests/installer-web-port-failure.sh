@@ -140,9 +140,9 @@ installer_lan_domain_restore() {
 restore_dns_filter_settings() {
 	[ -d "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || return 0
 	DNS_FILTER_RESTORES="$((DNS_FILTER_RESTORES + 1))"
+	rm -rf "$1" || return 1
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" || return 1
 	DNS_FILTER_CHANGED=0
-	rm -rf "$1"
-	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
 }
 # nvram_transaction_finalize_setup_pair publishes the setup commit marker and removes transaction snapshots unless snapshot cleanup is configured to fail; returns failure when commit-marker publication is configured to fail.
 nvram_transaction_finalize_setup_pair() {
