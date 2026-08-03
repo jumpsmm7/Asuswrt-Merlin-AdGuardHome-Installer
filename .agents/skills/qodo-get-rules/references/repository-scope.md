@@ -41,6 +41,8 @@ Otherwise the repository-wide scope `/org/repo/` is used.
 Detection:
 
 ```bash
+REPO_PATH=""
+SCOPE=""
 REPO_ROOT=$(git rev-parse --show-toplevel)
 REL_PATH=$(realpath --relative-to="$REPO_ROOT" "$PWD" 2>/dev/null \
   || python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' \

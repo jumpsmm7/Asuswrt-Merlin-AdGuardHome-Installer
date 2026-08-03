@@ -115,7 +115,7 @@ fi
 - **Setup netrc file** (to avoid exposing password via command-line arguments):
   ```bash
   umask 077
-  if ! BB_NETRC=$(mktemp); then
+  if ! BB_NETRC=$(mktemp "${TMPDIR:-/tmp}/bb-netrc.XXXXXX"); then
     echo "Failed to create temporary netrc file" >&2
     exit 1
   fi
@@ -136,7 +136,7 @@ EOF
   ```
 - **Verify:**
   ```bash
-  curl -s --netrc-file "$BB_NETRC" \
+  curl --fail --silent --show-error --netrc-file "$BB_NETRC" \
     "$BB_API_URL/2.0/user" | python3 -m json.tool
   ```
 
@@ -448,7 +448,7 @@ REPLY_BODY=$(cat <<'EOF'
 EOF
 )
 REPLY_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$REPLY_BODY") || exit 1
-ADO_COMMENT_FILE=$(mktemp) || exit 1
+ADO_COMMENT_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_comment.XXXXXX") || exit 1
 trap 'rm -f "$ADO_COMMENT_FILE"' EXIT HUP INT TERM
 printf '%s\n' "{\"content\": ${REPLY_BODY_JSON}, \"commentType\": 1}" > "$ADO_COMMENT_FILE" || exit 1
 if ! az devops invoke \
@@ -476,17 +476,33 @@ Posting a reply does **not** resolve its inline thread. After the reply succeeds
 GitHub resolves pull-request review threads through GraphQL. First map the preserved inline comment database ID to its review-thread node ID, then resolve that node:
 
 ```bash
-THREAD_ID=$(gh api graphql \
-  -f owner='{owner}' -f repo='{repo}' -F number=<pr-number> \
-  -f query='query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100){nodes{id isResolved comments(first:100){nodes{databaseId}}} pageInfo{hasNextPage}}}}}' \
-  --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(any(.comments.nodes[]; .databaseId == <inline-comment-id>)) | .id') || exit 1
+THREAD_ID=""
+CURSOR=""
+while true; do
+  RESPONSE=$(gh api graphql \
+    -f owner='{owner}' -f repo='{repo}' -F number=<pr-number> \
+    ${CURSOR:+-f after="$CURSOR"} \
+    -f query='query($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100,after:$after){nodes{id isResolved comments(first:100){nodes{databaseId}}} pageInfo{hasNextPage endCursor}}}}}') || exit 1
+
+  THREAD_ID=$(printf '%s' "$RESPONSE" | jq -r '.data.repository.pullRequest.reviewThreads.nodes[] | select(any(.comments.nodes[]; .databaseId == <inline-comment-id>)) | .id')
+
+  if [ -n "$THREAD_ID" ]; then
+    break
+  fi
+
+  HAS_NEXT=$(printf '%s' "$RESPONSE" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
+  if [ "$HAS_NEXT" != "true" ]; then
+    break
+  fi
+
+  CURSOR=$(printf '%s' "$RESPONSE" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor')
+done
+
 [ -n "${THREAD_ID}" ] || { echo 'Error: GitHub review thread not found.' >&2; exit 1; }
 gh api graphql \
   -f threadId="${THREAD_ID}" \
   -f query='mutation($threadId:ID!){resolveReviewThread(input:{threadId:$threadId}){thread{id isResolved}}}'
 ```
-
-If the pull request can exceed 100 review threads, follow `pageInfo` cursors rather than treating the first page as complete.
 
 ### GitLab
 
@@ -584,7 +600,7 @@ COMMENT_BODY=$(cat <<'EOF'
 EOF
 )
 COMMENT_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$COMMENT_BODY") || exit 1
-ADO_THREAD_FILE=$(mktemp) || exit 1
+ADO_THREAD_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_thread.XXXXXX") || exit 1
 trap 'rm -f "$ADO_THREAD_FILE"' EXIT HUP INT TERM
 printf '%s\n' "{\"comments\": [{\"content\": ${COMMENT_BODY_JSON}, \"commentType\": 1}], \"status\": \"active\"}" > "$ADO_THREAD_FILE" || exit 1
 if ! az devops invoke \
@@ -792,13 +808,31 @@ Set `BB_DEST_BRANCH` before running the example to target an explicitly selected
 ### Azure DevOps
 
 ```bash
+# Determine target branch: use ADO_TARGET_BRANCH if set, otherwise query the repo default
+if [ -z "${ADO_TARGET_BRANCH:-}" ]; then
+  if ! ADO_DEFAULT_BRANCH=$(az repos show \
+    --organization "$ADO_ORGANIZATION" \
+    --project "$ADO_PROJECT" \
+    --name "$ADO_REPO" \
+    --query defaultBranch -o tsv); then
+    echo "Error: Failed to query Azure DevOps repository default branch" >&2
+    exit 1
+  fi
+  # Strip refs/heads/ prefix
+  ADO_TARGET_BRANCH=${ADO_DEFAULT_BRANCH#refs/heads/}
+  if [ -z "$ADO_TARGET_BRANCH" ]; then
+    echo "Error: Azure DevOps repository default branch is empty" >&2
+    exit 1
+  fi
+fi
+
 az repos pr create \
   --organization "$ADO_ORGANIZATION" \
   --project "$ADO_PROJECT" \
   --title '<title>' \
   --description '<body>' \
   --source-branch <branch-name> \
-  --target-branch main
+  --target-branch "$ADO_TARGET_BRANCH"
 ```
 
 Add `--draft` flag when creating in draft mode.

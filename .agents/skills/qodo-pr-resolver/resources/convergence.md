@@ -70,9 +70,9 @@ Then tag it:
   - the matched ledger entry's `decision` was `deferred`.
 - **(untagged)** — not seen before; handle normally.
 
-When the ledger is empty (first round, or history could not be fetched), treat every issue as
-untagged and proceed normally. **If history fetch fails, say so** — do not silently behave as if
-there is no prior round.
+**First round vs. history unavailable:**
+- When the ledger is empty because no prior authenticated resolver summaries exist (genuine first round), treat every issue as untagged and proceed normally — this is safe; no prior actions exist to contradict.
+- When history fetch **fails** (API error, auth failure, or identity unavailable), do NOT silently proceed as untagged in auto-fix mode. Report the failure to the user and, per SKILL.md Step 3c, require explicit user confirmation before continuing, especially before auto-fix mode applies anything. In manual mode, the user can acknowledge the unavailability and proceed with each fix individually.
 
 ## Behavior for tagged issues
 
@@ -133,6 +133,6 @@ from automatic application**. Auto-fix is where unattended flip-flop churn happe
      interrupt for — never silently apply *or* silently defer it. On Defer, reply with the rationale.
    - **🔁 Repeat** — re-read the current code: if the prior fix is intact, **Defer** ("addressed in
      a previous round"); only if the prior fix was lost/incomplete, treat as a normal fix.
-   - **🛑 Hard stop (≥2 flips)** — refuse; route to the Step 8 "Skipped to prevent oscillation" category.
+   - **🛑 Hard stop (≥2 flips)** — refuse; route to the Step 9 "Skipped to prevent oscillation" category.
 3. Report the held/deferred tagged issues in the summary so the exclusion is visible — never
    silently skip them.

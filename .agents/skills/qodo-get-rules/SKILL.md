@@ -63,6 +63,8 @@ fi
 REMOTE_URL=$(git remote get-url origin 2>/dev/null)
 
 # 3. Parse the URL into a scope path
+REPO_PATH=""
+SCOPE=""
 if [ -n "$REMOTE_URL" ]; then
   # Strip .git suffix if present
   REMOTE_URL="${REMOTE_URL%.git}"
