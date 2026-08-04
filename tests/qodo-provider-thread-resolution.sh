@@ -30,6 +30,17 @@ printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq '{"status": "fixed"}' || fail 'Az
 printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq 'az devops invoke' || fail 'Azure DevOps thread resolution does not use az devops invoke'
 printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq -- '--http-method PATCH' || fail 'Azure DevOps thread resolution does not use PATCH method'
 printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq 'pullRequestThreads' || fail 'Azure DevOps thread resolution does not target pullRequestThreads resource'
-grep -Fq '"unresolved": false' "${GERRIT}" || fail 'Gerrit inline-thread resolution behavior is missing'
+
+# Extract the "Reply to Comments" section from Gerrit documentation and verify thread resolution
+if ! grep -Fq '## Reply to Comments' "${GERRIT}"; then
+	fail 'Reply to Comments section heading not found in gerrit.md (cannot extract section)'
+fi
+GERRIT_REPLY_SECTION=$(sed -n '/^## Reply to Comments$/,/^## /p' "${GERRIT}" | sed '$d')
+if [ -z "$GERRIT_REPLY_SECTION" ]; then
+	fail 'Reply to Comments section not found in gerrit.md'
+fi
+printf '%s\n' "$GERRIT_REPLY_SECTION" | grep -Fq '/revisions/current/review' || fail 'Gerrit Reply to Comments section does not use unified endpoint'
+printf '%s\n' "$GERRIT_REPLY_SECTION" | grep -Fq '"in_reply_to"' || fail 'Gerrit Reply to Comments section does not use in_reply_to field'
+printf '%s\n' "$GERRIT_REPLY_SECTION" | grep -Fq '"unresolved": false' || fail 'Gerrit Reply to Comments section does not set unresolved to false'
 
 printf '%s\n' 'PASS: Qodo provider-specific inline thread resolution is documented and required'

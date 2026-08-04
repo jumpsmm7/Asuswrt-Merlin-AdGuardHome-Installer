@@ -51,6 +51,10 @@ HTTP Basic Auth with a password generated from Gerrit's settings page.
 Load the provider configuration before testing or using these values. Existing environment variables take precedence over the config file:
 
 ```bash
+if [ -z "${HOME:-}" ]; then
+  echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
+  exit 1
+fi
 QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
 if [ -f "$QODO_CONFIG" ]; then
   # Require secure permissions before reading credentials
@@ -98,7 +102,10 @@ fi
 
 umask 077
 GERRIT_NETRC=$(mktemp "${TMPDIR:-/tmp}/qodo-gerrit-netrc.XXXXXX") || exit 1
-trap 'rm -f "$GERRIT_NETRC"' EXIT HUP INT TERM
+trap 'rm -f "$GERRIT_NETRC"' EXIT
+trap 'rm -f "$GERRIT_NETRC"; exit 129' HUP
+trap 'rm -f "$GERRIT_NETRC"; exit 130' INT
+trap 'rm -f "$GERRIT_NETRC"; exit 143' TERM
 if ! printf 'machine %s\nlogin %s\npassword %s\n' \
   "$GERRIT_HOST" "$GERRIT_USERNAME" "$GERRIT_HTTP_PASSWORD" >"$GERRIT_NETRC" || \
   ! chmod 600 "$GERRIT_NETRC"; then
@@ -448,16 +455,19 @@ HOOK_DIR=$(git rev-parse --git-path hooks) || {
 HOOK_PATH="$HOOK_DIR/commit-msg"
 
 # Create temp file in the same filesystem for atomic move
-if ! HOOK_TMP=$(mktemp -p "$HOOK_DIR" commit-msg.XXXXXX 2>/dev/null); then
+if ! HOOK_TMP=$(mktemp "$HOOK_DIR/commit-msg.XXXXXX" 2>/dev/null); then
   echo "Failed to create temporary file for commit-msg hook" >&2
   exit 1
 fi
 
 # Extend the run cleanup trap without dropping Gerrit credential cleanup
-trap 'rm -f "$GERRIT_NETRC" "$HOOK_TMP"' EXIT HUP INT TERM
+trap 'rm -f "$GERRIT_NETRC" "$HOOK_TMP"' EXIT
+trap 'rm -f "$GERRIT_NETRC" "$HOOK_TMP"; exit 129' HUP
+trap 'rm -f "$GERRIT_NETRC" "$HOOK_TMP"; exit 130' INT
+trap 'rm -f "$GERRIT_NETRC" "$HOOK_TMP"; exit 143' TERM
 
 # Download hook to temp location (no redirect following; fail if download incomplete)
-if ! curl -fsS --connect-timeout 10 --max-time 30 -o "$HOOK_TMP" "$GERRIT_URL/tools/hooks/commit-msg"; then
+if ! curl -fsS --connect-timeout 10 --max-time 30 --netrc-file "$GERRIT_NETRC" -o "$HOOK_TMP" "$GERRIT_URL/tools/hooks/commit-msg"; then
   echo "Failed to download commit-msg hook" >&2
   rm -f "$HOOK_TMP"
   exit 1
@@ -495,7 +505,10 @@ if ! mv "$HOOK_TMP" "$HOOK_PATH"; then
 fi
 
 # The hook is published; keep only the run-scoped credential cleanup active
-trap 'rm -f "$GERRIT_NETRC"' EXIT HUP INT TERM
+trap 'rm -f "$GERRIT_NETRC"' EXIT
+trap 'rm -f "$GERRIT_NETRC"; exit 129' HUP
+trap 'rm -f "$GERRIT_NETRC"; exit 130' INT
+trap 'rm -f "$GERRIT_NETRC"; exit 143' TERM
 ```
 
 ## Error Handling

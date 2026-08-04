@@ -30,8 +30,22 @@ For Azure DevOps detection, load `AZURE_DEVOPS_URL` from the Qodo config file as
 ```bash
 # Load AZURE_DEVOPS_URL from Qodo config for provider detection if not already set
 if [ -z "${AZURE_DEVOPS_URL:-}" ]; then
+  if [ -z "${HOME:-}" ]; then
+    echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
+    exit 1
+  fi
   QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
   if [ -f "$QODO_CONFIG" ]; then
+    # Require secure permissions before reading credentials
+    QODO_DIR=$(dirname "$QODO_CONFIG")
+    if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
+      echo "Error: Qodo config directory $QODO_DIR must have mode 700 (owner-only access)" >&2
+      exit 1
+    fi
+    if [ "$(stat -c '%a' "$QODO_CONFIG" 2>/dev/null || stat -f '%Lp' "$QODO_CONFIG" 2>/dev/null)" != "600" ]; then
+      echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
+      exit 1
+    fi
     AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL", ""))' "$QODO_CONFIG" 2>/dev/null || echo "")
   fi
 fi
@@ -39,6 +53,13 @@ fi
 ```
 
 ## Prerequisites by Provider
+
+**Shared requirement for all providers:**
+- **python3** (required for JSON parsing and validation)
+  - **Verify:**
+    ```bash
+    python3 --version
+    ```
 
 ### GitHub
 
@@ -75,6 +96,10 @@ fi
   These examples support **Bitbucket Cloud only**. Bitbucket Server and Data Center use different REST routes and project/repository addressing, so do not point these commands at a self-hosted instance.
 - **Load configuration** (existing environment variables take precedence):
   ```bash
+  if [ -z "${HOME:-}" ]; then
+    echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
+    exit 1
+  fi
   QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
   if [ -f "$QODO_CONFIG" ]; then
     # Require secure permissions before reading credentials
@@ -139,7 +164,7 @@ EOF
   ```
 - **Verify:**
   ```bash
-  curl --fail --silent --show-error --netrc-file "$BB_NETRC" \
+  curl --fail --silent --show-error --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" \
     "$BB_API_URL/2.0/user" | python3 -m json.tool
   ```
 
@@ -158,6 +183,10 @@ EOF
   `AZURE_DEVOPS_EXT_PAT` replaces `az login`. `AZURE_DEVOPS_URL` is optional — only needed for on-premises Azure DevOps Server.
 - **Authenticate and configure:**
   ```bash
+  if [ -z "${HOME:-}" ]; then
+    echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
+    exit 1
+  fi
   QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
   if [ -f "$QODO_CONFIG" ]; then
     # Require secure permissions before reading credentials
@@ -182,6 +211,11 @@ EOF
   # Azure DevOps Server, AZURE_DEVOPS_URL is the collection URL itself.
   ADO_BASE_URL=${AZURE_DEVOPS_URL:-https://dev.azure.com}
   ADO_BASE_URL=${ADO_BASE_URL%/}
+  # Validate ADO_BASE_URL uses HTTPS scheme
+  if ! printf '%s\n' "$ADO_BASE_URL" | grep -qE '^https://'; then
+    echo "Error: AZURE_DEVOPS_URL must use HTTPS scheme" >&2
+    exit 1
+  fi
   ADO_REMOTE=$(git remote get-url origin)
   case "$ADO_REMOTE" in
     git@ssh.dev.azure.com:v3/*) ADO_REMOTE=https://dev.azure.com/${ADO_REMOTE#git@ssh.dev.azure.com:v3/} ;;
@@ -264,7 +298,7 @@ while [ -n "$NEXT_URL" ]; do
     exit 1
   fi
 
-  if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" "$NEXT_URL"); then
+  if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" "$NEXT_URL"); then
     echo "Error: Bitbucket API request failed (curl error)" >&2
     exit 1
   fi
@@ -392,7 +426,7 @@ while [ -n "$NEXT_URL" ]; do
     exit 1
   fi
 
-  if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" "$NEXT_URL"); then
+  if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" "$NEXT_URL"); then
     echo "Error: Bitbucket API request failed (curl error)" >&2
     exit 1
   fi
@@ -499,7 +533,7 @@ glab api "/projects/:id/merge_requests/<mr-iid>/discussions/<discussion-id>/note
 # Serialize dynamic value before embedding in JSON
 REPLY_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<reply-body>")
 
-if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
+if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X POST \
   "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments" \
@@ -611,7 +645,7 @@ glab api "/projects/:id/merge_requests/<mr-iid>/discussions/<discussion-id>" \
 ### Bitbucket
 
 ```bash
-curl --fail --silent --show-error --netrc-file "$BB_NETRC" \
+curl --fail --silent --show-error --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" \
   -X POST \
   "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments/<inline-comment-id>/resolve"
 ```
@@ -664,7 +698,7 @@ glab mr comment <mr-iid> --message '<comment-body>'
 # Serialize dynamic value before embedding in JSON
 COMMENT_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<comment-body>")
 
-if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
+if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X POST \
   "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments" \
@@ -780,7 +814,7 @@ glab api "/projects/:id/merge_requests/<mr-iid>/discussions/<discussion-id>" \
 
 ```bash
 # Resolve a comment using the dedicated /resolve endpoint (POST, no body required)
-if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
+if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" \
   -X POST \
   "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments/<comment-id>/resolve"); then
   echo "Error: Bitbucket API request failed (curl error)" >&2
@@ -857,7 +891,7 @@ Add `--draft` flag when creating in draft mode.
 BRANCH=$(git branch --show-current)
 DEST_BRANCH=${BB_DEST_BRANCH:-}
 if [ -z "$DEST_BRANCH" ]; then
-  if ! REPO_METADATA=$(curl -fsS --netrc-file "$BB_NETRC" \
+  if ! REPO_METADATA=$(curl -fsS --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" \
     "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO"); then
     echo "Error: Unable to retrieve the Bitbucket repository's main branch" >&2
     exit 1
@@ -875,7 +909,7 @@ BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<body>
 BRANCH_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$BRANCH")
 DEST_BRANCH_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$DEST_BRANCH")
 
-if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
+if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X POST \
   "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests" \
@@ -934,6 +968,7 @@ fi
 az repos pr create \
   --organization "$ADO_ORGANIZATION" \
   --project "$ADO_PROJECT" \
+  --repository "$ADO_REPO" \
   --title '<title>' \
   --description '<body>' \
   --source-branch <branch-name> \
@@ -965,7 +1000,7 @@ If the title was prefixed with `[DRAFT]`, update it to remove the prefix:
 ```bash
 TITLE_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<title-without-draft-prefix>")
 
-if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" \
+if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X PUT \
   "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>" \
