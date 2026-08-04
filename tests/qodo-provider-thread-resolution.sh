@@ -27,6 +27,9 @@ if [ -z "$ADO_INLINE_SECTION" ]; then
 	fail 'Resolve Inline Threads section not found in providers.md'
 fi
 printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq '{"status": "fixed"}' || fail 'Azure DevOps thread resolution is missing'
+printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq 'az devops invoke' || fail 'Azure DevOps thread resolution does not use az devops invoke'
+printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq -- '--http-method PATCH' || fail 'Azure DevOps thread resolution does not use PATCH method'
+printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq 'pullRequestThreads' || fail 'Azure DevOps thread resolution does not target pullRequestThreads resource'
 grep -Fq '"unresolved": false' "${GERRIT}" || fail 'Gerrit inline-thread resolution behavior is missing'
 
 printf '%s\n' 'PASS: Qodo provider-specific inline thread resolution is documented and required'

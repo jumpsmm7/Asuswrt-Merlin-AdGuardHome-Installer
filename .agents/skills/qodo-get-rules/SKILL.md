@@ -120,11 +120,24 @@ CONFIG_QODO_API_URL=""
 
 # The config file is an optional fallback; environment-only setup is supported.
 if [ -f "${CONFIG_FILE}" ]; then
-  if ! CONFIG_API_KEY=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("API_KEY", ""))' "${CONFIG_FILE}") ||
-    ! CONFIG_ENV_NAME=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("ENVIRONMENT_NAME", ""))' "${CONFIG_FILE}") ||
-    ! CONFIG_QODO_API_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("QODO_API_URL", ""))' "${CONFIG_FILE}"); then
-    printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
-    exit 1
+  # Only parse config values not already set in environment
+  if [ -z "${QODO_API_KEY:-}" ]; then
+    if ! CONFIG_API_KEY=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("API_KEY", ""))' "${CONFIG_FILE}"); then
+      printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
+      exit 1
+    fi
+  fi
+  if [ -z "${QODO_ENVIRONMENT_NAME:-}" ]; then
+    if ! CONFIG_ENV_NAME=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("ENVIRONMENT_NAME", ""))' "${CONFIG_FILE}"); then
+      printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
+      exit 1
+    fi
+  fi
+  if [ -z "${QODO_API_URL:-}" ]; then
+    if ! CONFIG_QODO_API_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("QODO_API_URL", ""))' "${CONFIG_FILE}"); then
+      printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
+      exit 1
+    fi
   fi
 fi
 

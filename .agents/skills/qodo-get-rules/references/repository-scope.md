@@ -43,13 +43,30 @@ Detection:
 ```bash
 REPO_PATH=""
 SCOPE=""
-REPO_ROOT=$(git rev-parse --show-toplevel)
-REL_PATH=$(realpath --relative-to="$REPO_ROOT" "$PWD" 2>/dev/null \
-  || python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' \
-    "$PWD" "$REPO_ROOT")
-MODULE=$(echo "$REL_PATH" | sed -n 's|^modules/\([^/]*\).*|\1|p')
+
+# Parse REPO_PATH from REMOTE_URL
+if [ -n "$REMOTE_URL" ]; then
+  # Strip .git suffix if present
+  REMOTE_URL="${REMOTE_URL%.git}"
+
+  # Handle SSH format: git@github.com:org/repo
+  if echo "$REMOTE_URL" | grep -q "^git@"; then
+    REPO_PATH=$(echo "$REMOTE_URL" | sed 's/^git@[^:]*://')
+  # Handle HTTPS format: https://github.com/org/repo
+  elif echo "$REMOTE_URL" | grep -q "^https\?://"; then
+    REPO_PATH=$(echo "$REMOTE_URL" | sed 's|^https\?://[^/]*/||')
+  else
+    REPO_PATH=""
+  fi
+fi
 
 if [ -n "$REPO_PATH" ]; then
+  REPO_ROOT=$(git rev-parse --show-toplevel)
+  REL_PATH=$(realpath --relative-to="$REPO_ROOT" "$PWD" 2>/dev/null \
+    || python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' \
+      "$PWD" "$REPO_ROOT")
+  MODULE=$(echo "$REL_PATH" | sed -n 's|^modules/\([^/]*\).*|\1|p')
+
   if [ -n "$MODULE" ]; then
     SCOPE="/${REPO_PATH}/modules/${MODULE}/"
   else

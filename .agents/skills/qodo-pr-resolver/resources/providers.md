@@ -119,7 +119,10 @@ fi
     echo "Failed to create temporary netrc file" >&2
     exit 1
   fi
-  trap 'rm -f "$BB_NETRC"' EXIT INT TERM
+  trap 'rm -f "$BB_NETRC"' EXIT
+  trap 'rm -f "$BB_NETRC"; exit 129' HUP
+  trap 'rm -f "$BB_NETRC"; exit 130' INT
+  trap 'rm -f "$BB_NETRC"; exit 143' TERM
   if ! cat > "$BB_NETRC" << EOF
 machine $BB_HOST
 login $BB_USERNAME
@@ -172,7 +175,7 @@ EOF
   fi
   export AZURE_DEVOPS_EXT_PAT
   if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ]; then
-    az login
+    az login || { echo "Error: az login failed" >&2; exit 1; }
   fi
   # Normalize the configured service/collection URL. For Azure DevOps Cloud,
   # the organization is the first path component after dev.azure.com. For
@@ -336,7 +339,7 @@ fi
 ### Azure DevOps
 
 ```bash
-az repos pr list --organization "$ADO_ORGANIZATION" --project "$ADO_PROJECT" --source-branch <branch-name> --status active --output json
+az repos pr list --organization "$ADO_ORGANIZATION" --project "$ADO_PROJECT" --repository "$ADO_REPO" --source-branch <branch-name> --status active --output json
 ```
 
 ## Fetch Review Comments
@@ -449,7 +452,10 @@ EOF
 )
 REPLY_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$REPLY_BODY") || exit 1
 ADO_COMMENT_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_comment.XXXXXX") || exit 1
-trap 'rm -f "$ADO_COMMENT_FILE"' EXIT HUP INT TERM
+trap 'rm -f "$ADO_COMMENT_FILE"' EXIT
+trap 'rm -f "$ADO_COMMENT_FILE"; exit 129' HUP
+trap 'rm -f "$ADO_COMMENT_FILE"; exit 130' INT
+trap 'rm -f "$ADO_COMMENT_FILE"; exit 143' TERM
 printf '%s\n' "{\"content\": ${REPLY_BODY_JSON}, \"commentType\": 1}" > "$ADO_COMMENT_FILE" || exit 1
 if ! az devops invoke \
   --organization "$ADO_ORGANIZATION" \
@@ -525,7 +531,10 @@ curl --fail --silent --show-error --netrc-file "$BB_NETRC" \
 ```bash
 umask 077
 ADO_STATUS_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_status.XXXXXX") || exit 1
-trap 'rm -f "${ADO_STATUS_FILE}"' EXIT HUP INT TERM
+trap 'rm -f "${ADO_STATUS_FILE}"' EXIT
+trap 'rm -f "${ADO_STATUS_FILE}"; exit 129' HUP
+trap 'rm -f "${ADO_STATUS_FILE}"; exit 130' INT
+trap 'rm -f "${ADO_STATUS_FILE}"; exit 143' TERM
 printf '%s\n' '{"status": "fixed"}' > "${ADO_STATUS_FILE}" || exit 1
 if ! az devops invoke \
   --organization "$ADO_ORGANIZATION" \
@@ -601,7 +610,10 @@ EOF
 )
 COMMENT_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$COMMENT_BODY") || exit 1
 ADO_THREAD_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_thread.XXXXXX") || exit 1
-trap 'rm -f "$ADO_THREAD_FILE"' EXIT HUP INT TERM
+trap 'rm -f "$ADO_THREAD_FILE"' EXIT
+trap 'rm -f "$ADO_THREAD_FILE"; exit 129' HUP
+trap 'rm -f "$ADO_THREAD_FILE"; exit 130' INT
+trap 'rm -f "$ADO_THREAD_FILE"; exit 143' TERM
 printf '%s\n' "{\"comments\": [{\"content\": ${COMMENT_BODY_JSON}, \"commentType\": 1}], \"status\": \"active\"}" > "$ADO_THREAD_FILE" || exit 1
 if ! az devops invoke \
   --organization "$ADO_ORGANIZATION" \
@@ -708,7 +720,10 @@ echo "$BODY"
 # Mark the thread as fixed (Azure DevOps uses "fixed" not "resolved"; az repos pr thread update does not exist)
 umask 077
 ADO_STATUS_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_status.XXXXXX") || exit 1
-trap 'rm -f "${ADO_STATUS_FILE}"' EXIT HUP INT TERM
+trap 'rm -f "${ADO_STATUS_FILE}"' EXIT
+trap 'rm -f "${ADO_STATUS_FILE}"; exit 129' HUP
+trap 'rm -f "${ADO_STATUS_FILE}"; exit 130' INT
+trap 'rm -f "${ADO_STATUS_FILE}"; exit 143' TERM
 printf '%s\n' '{"status": "fixed"}' > "${ADO_STATUS_FILE}" || exit 1
 if ! az devops invoke \
   --organization "$ADO_ORGANIZATION" \

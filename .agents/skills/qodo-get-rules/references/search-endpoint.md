@@ -88,7 +88,7 @@ if os.environ.get("SCOPE"):
     payload["scopes"] = [os.environ["SCOPE"]]
 print(json.dumps(payload))
 PY
-)
+) || exit 1
 
 umask 077
 AUTH_HEADER=$(mktemp) || exit 1
@@ -116,7 +116,7 @@ if os.environ.get("SCOPE"):
     payload["scopes"] = [os.environ["SCOPE"]]
 print(json.dumps(payload))
 PY
-)
+) || exit 1
 
 umask 077
 AUTH_HEADER=$(mktemp) || exit 1
