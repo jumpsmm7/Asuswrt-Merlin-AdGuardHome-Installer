@@ -37,11 +37,10 @@ if [ -z "${AZURE_DEVOPS_URL:-}" ]; then
     # HOME is available; use default config path
     QODO_CONFIG="${HOME}/.qodo/config.json"
   else
-    # Neither QODO_CONFIG nor HOME is set; cannot derive config path
-    echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
-    exit 1
+    # Neither QODO_CONFIG nor HOME is set; skip config file lookup and use cloud default
+    QODO_CONFIG=""
   fi
-  if [ -f "${QODO_CONFIG}" ]; then
+  if [ -n "${QODO_CONFIG}" ] && [ -f "${QODO_CONFIG}" ]; then
     # Require secure permissions before reading credentials
     QODO_DIR=$(dirname "$QODO_CONFIG")
     if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
@@ -52,7 +51,10 @@ if [ -z "${AZURE_DEVOPS_URL:-}" ]; then
       echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
       exit 1
     fi
-    AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL") or "")' "$QODO_CONFIG" 2>/dev/null || echo "")
+    if ! AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL") or "")' "$QODO_CONFIG"); then
+      echo "Error: Failed to parse AZURE_DEVOPS_URL from Qodo config file: $QODO_CONFIG" >&2
+      exit 1
+    fi
   fi
 fi
 # Now match remote URL host against dev.azure.com or AZURE_DEVOPS_URL
@@ -241,8 +243,18 @@ EOF
         echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
         exit 1
       fi
-      [ -n "${AZURE_DEVOPS_EXT_PAT:-}" ] || AZURE_DEVOPS_EXT_PAT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_EXT_PAT") or "")' "$QODO_CONFIG")
-      [ -n "${AZURE_DEVOPS_URL:-}" ] || AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL") or "")' "$QODO_CONFIG")
+      if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ]; then
+        if ! AZURE_DEVOPS_EXT_PAT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_EXT_PAT") or "")' "$QODO_CONFIG"); then
+          echo "Error: Failed to parse AZURE_DEVOPS_EXT_PAT from Qodo config file: $QODO_CONFIG" >&2
+          exit 1
+        fi
+      fi
+      if [ -z "${AZURE_DEVOPS_URL:-}" ]; then
+        if ! AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL") or "")' "$QODO_CONFIG"); then
+          echo "Error: Failed to parse AZURE_DEVOPS_URL from Qodo config file: $QODO_CONFIG" >&2
+          exit 1
+        fi
+      fi
     fi
   fi
   export AZURE_DEVOPS_EXT_PAT

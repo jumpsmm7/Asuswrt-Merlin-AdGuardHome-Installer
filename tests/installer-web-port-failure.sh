@@ -159,9 +159,9 @@ nvram_transaction_finalize_setup_pair() {
 nvram_transaction_setup_files_begin() {
 	local journal_root source target
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+	[ ! -e "${journal_root}" ] || return 1
 	SETUP_FILES_BEGIN_COUNT="$((SETUP_FILES_BEGIN_COUNT + 1))"
 	SETUP_FILE_JOURNALS="$((SETUP_FILE_JOURNALS + 1))"
-	[ ! -e "${journal_root}" ] || return 1
 	mkdir -p "${journal_root}" || return 1
 	for source in yaml-file yaml-original config; do
 		case "${source}" in
@@ -180,20 +180,28 @@ nvram_transaction_setup_files_begin() {
 }
 # nvram_transaction_setup_files_restore restores journaled setup files and removes the journal only after all restorations succeed.
 nvram_transaction_setup_files_restore() {
-	local journal_root source target
+	local journal_root source target stage_file
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 	[ -d "${journal_root}" ] || return 0
 	SETUP_FILES_RESTORE_COUNT="$((SETUP_FILES_RESTORE_COUNT + 1))"
-	[ "${FAIL_SETUP_FILES_RESTORE:-0}" -eq 0 ] || return 1
 	for source in yaml-file yaml-original config; do
 		case "${source}" in
 			yaml-file) target="${YAML_FILE}" ;;
 			yaml-original) target="${YAML_ORI}" ;;
 			config) target="${CONF_FILE}" ;;
 		esac
+		stage_file="${target}.setup-restore.$$"
 		if [ -f "${journal_root}/${source}" ]; then
-			cp -p "${journal_root}/${source}" "${target}" || return 1
+			cp -p "${journal_root}/${source}" "${stage_file}" || { rm -f "${stage_file}"; return 1; }
+			if [ "${FAIL_SETUP_FILES_RESTORE:-0}" -eq 1 ]; then
+				rm -f "${stage_file}"
+				return 1
+			fi
+			mv -f "${stage_file}" "${target}" || { rm -f "${stage_file}"; return 1; }
 		elif [ -f "${journal_root}/${source}.absent" ]; then
+			if [ "${FAIL_SETUP_FILES_RESTORE:-0}" -eq 1 ]; then
+				return 1
+			fi
 			rm -f "${target}" || return 1
 		else
 			return 1
@@ -572,6 +580,9 @@ fi
 [ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file")" = 'journal YAML' ] || fail 'preserved setup-file journal lost the YAML snapshot'
 [ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original")" = 'journal original YAML' ] || fail 'preserved setup-file journal lost the original YAML snapshot'
 [ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config")" = "$(printf '%s\n' 'ADGUARD_LOCAL="JOURNAL"' 'ADGUARD_IPSET="JOURNAL"' 'ADGUARD_DOMAIN="JOURNAL"')" ] || fail 'preserved setup-file journal lost the installer configuration snapshot'
+[ ! -e "${YAML_FILE}.setup-restore.$$" ] || fail 'setup-file journal restore failure left YAML stage file behind'
+[ ! -e "${YAML_ORI}.setup-restore.$$" ] || fail 'setup-file journal restore failure left original YAML stage file behind'
+[ ! -e "${CONF_FILE}.setup-restore.$$" ] || fail 'setup-file journal restore failure left config stage file behind'
 
 rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
 printf '%s\n' 'working configuration' >"${YAML_FILE}"

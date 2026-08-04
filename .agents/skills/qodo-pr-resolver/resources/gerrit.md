@@ -136,8 +136,12 @@ Every `curl` command in this file includes this pipe.
 ### Verify
 
 ```bash
-curl --fail --silent --show-error --connect-timeout 10 --max-time 30 --netrc-file "$GERRIT_NETRC" \
-  "$GERRIT_URL/a/accounts/self" | tail -c +6 | python3 -m json.tool
+if ! VERIFY_RESPONSE=$(curl --fail --silent --show-error --connect-timeout 10 --max-time 30 --netrc-file "$GERRIT_NETRC" \
+  "$GERRIT_URL/a/accounts/self"); then
+  echo "Error: Failed to verify Gerrit account" >&2
+  exit 1
+fi
+printf '%s\n' "$VERIFY_RESPONSE" | tail -c +6 | python3 -m json.tool
 ```
 
 **Note:** All authenticated endpoints use the `/a/` prefix in the path. Some Gerrit instances also have an API prefix (e.g. `/r/`) — if `GERRIT_URL` includes it (e.g. `https://git-master.example.com/r`), the full path becomes `/r/a/changes/...`.
