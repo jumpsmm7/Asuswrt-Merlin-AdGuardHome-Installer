@@ -85,6 +85,9 @@ printf '%s\n' "$REPLY_GITLAB" | grep -Fq "<<'EOF'" && fail 'GitLab inline reply 
 # Fixture: a rendered reply body containing a standalone "EOF" line followed by a command.
 # Writing it out-of-band (as the file-writing tool would, not via a shell heredoc) must
 # preserve it as literal content and must never execute the trailing line.
+REPLY_MARKER=""
+REPLY_FIXTURE_FILE=""
+DANGEROUS_FILE=""
 trap 'rm -f "$REPLY_MARKER" "$REPLY_FIXTURE_FILE" "$DANGEROUS_FILE"' EXIT
 trap 'rm -f "$REPLY_MARKER" "$REPLY_FIXTURE_FILE" "$DANGEROUS_FILE"; exit 1' HUP INT TERM
 REPLY_MARKER=$(mktemp "${TMPDIR:-/tmp}/qodo_reply_marker.XXXXXX") || fail 'unable to create reply marker file'
@@ -104,6 +107,33 @@ for provider in bitbucket azure; do
 		rm -f "$DANGEROUS_FILE"
 	done
 done
+
+# Extract Bitbucket and Azure DevOps Reply to Inline Comments sections and verify
+# that the payload serializer reads the body from a file and does not embed it inline.
+BITBUCKET_REPLY_SECTION=$(sed -n '/^### Bitbucket$/,/^### Azure DevOps$/p' "$PROVIDERS" | sed '$d')
+AZURE_REPLY_SECTION=$(sed -n '/^### Azure DevOps$/,/^## Resolve Inline Threads$/p' "$PROVIDERS" | sed '$d')
+if [ -z "$BITBUCKET_REPLY_SECTION" ]; then
+	fail 'Bitbucket reply subsection not found in Reply to Inline Comments section'
+fi
+if [ -z "$AZURE_REPLY_SECTION" ]; then
+	fail 'Azure DevOps reply subsection not found in Reply to Inline Comments section'
+fi
+
+# Verify Bitbucket reply payload serializer reads from file
+printf '%s\n' "$BITBUCKET_REPLY_SECTION" | grep -Fq 'with open(sys.argv[1], ' || fail 'Bitbucket reply payload serializer does not read from a file'
+printf '%s\n' "$BITBUCKET_REPLY_SECTION" | grep -Fq 'python3 - "$REPLY_FILE"' || fail 'Bitbucket reply payload serializer does not receive the reply file path as an argument'
+# Ensure Bitbucket payload does not embed the body inline (no heredoc with body content)
+if printf '%s\n' "$BITBUCKET_REPLY_SECTION" | grep -E "<<['\"]?EOF['\"]?" | grep -v 'python3 -' | grep -qv '^PY$'; then
+	fail 'Bitbucket reply section embeds the body inline in a heredoc outside the python serializer'
+fi
+
+# Verify Azure DevOps reply payload serializer reads from file
+printf '%s\n' "$AZURE_REPLY_SECTION" | grep -Fq 'with open(sys.argv[1], ' || fail 'Azure DevOps reply payload serializer does not read from a file'
+printf '%s\n' "$AZURE_REPLY_SECTION" | grep -Fq 'python3 - "$REPLY_FILE"' || fail 'Azure DevOps reply payload serializer does not receive the reply file path as an argument'
+# Ensure Azure payload does not embed the body inline (no heredoc with body content)
+if printf '%s\n' "$AZURE_REPLY_SECTION" | grep -E "<<['\"]?EOF['\"]?" | grep -v 'python3 -' | grep -qv '^PY$'; then
+	fail 'Azure DevOps reply section embeds the body inline in a heredoc outside the python serializer'
+fi
 
 rm -f "$REPLY_FIXTURE_FILE" "$REPLY_MARKER"
 REPLY_MARKER=""
@@ -138,6 +168,8 @@ printf '%s\n' "$SUMMARY_GITHUB" | grep -Fq "<<'EOF'" && fail 'GitHub summary com
 printf '%s\n' "$SUMMARY_GITLAB" | grep -Fq "<<'EOF'" && fail 'GitLab summary comment still embeds the comment body inside a shell heredoc'
 
 # Fixture: a rendered summary body containing a standalone "EOF" line followed by a command.
+SUMMARY_MARKER=""
+SUMMARY_FIXTURE_FILE=""
 trap 'rm -f "$SUMMARY_MARKER" "$SUMMARY_FIXTURE_FILE"' EXIT
 trap 'rm -f "$SUMMARY_MARKER" "$SUMMARY_FIXTURE_FILE"; exit 1' HUP INT TERM
 SUMMARY_MARKER=$(mktemp "${TMPDIR:-/tmp}/qodo_summary_marker.XXXXXX") || fail 'unable to create summary marker file'

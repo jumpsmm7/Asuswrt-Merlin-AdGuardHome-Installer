@@ -10,10 +10,21 @@ Assume:
 
 ```sh
 export LC_ALL=C
-export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin${PATH:+:$PATH}"
 ```
 
-Router stock paths must take priority over Entware paths.
+**PATH contracts by script:**
+
+- **installer**: Stock directories followed by inherited PATH:
+  ```sh
+  export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
+  ```
+
+- **AdGuardHome.sh, S99AdGuardHome, rc.func.AdGuardHome**: Stock plus Entware directories without inherited PATH:
+  ```sh
+  export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
+  ```
+
+Router stock paths must take priority over Entware paths. The installer appends inherited PATH to preserve user environment during interactive setup. Runtime service scripts (AdGuardHome.sh, S99AdGuardHome, rc.func.AdGuardHome) use a fixed PATH without inheritance to ensure consistent service behavior regardless of the invoking environment.
 
 ## Cost-conscious behavior
 

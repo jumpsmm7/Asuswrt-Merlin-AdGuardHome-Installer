@@ -247,39 +247,66 @@ grep -q 'wan:lan | lan:wan | :lan)' "${SCRIPT_PATH}" ||
 	fail 'installer must migrate legacy installs without a saved mode when LAN mode is detected'
 grep -Fq '[ "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" = "wan" ] || [ -z "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" ]' "${FUNCTIONS_FILE}" ||
 	fail 'legacy WAN migration rollback does not restore active firewall state'
-# Behavioral test: verify WAN/LAN mode selection logic by executing the mode detection
-# and checking that LAN mode does not attempt WAN-specific DNS filter operations
+# Behavioral test: invoke setup_AdGuardHome_impl with LAN mode and verify that
+# check_dns_filter is not called while configure_runtime_defaults is called exactly once.
+extract_function setup_AdGuardHome_impl "${TMP_ROOT}/setup-function" ||
+	fail 'could not extract setup_AdGuardHome_impl function'
 (
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
+	# shellcheck disable=SC1090
+	. "${TMP_ROOT}/setup-function"
 
-	# Mock environment for LAN mode detection
+	DNS_FILTER_CALL_COUNT=0
+	RUNTIME_DEFAULTS_CALL_COUNT=0
+
+	# Stub check_dns_filter to record calls
+	check_dns_filter() {
+		DNS_FILTER_CALL_COUNT=$((DNS_FILTER_CALL_COUNT + 1))
+	}
+
+	# Stub configure_runtime_defaults to record calls
+	configure_runtime_defaults() {
+		RUNTIME_DEFAULTS_CALL_COUNT=$((RUNTIME_DEFAULTS_CALL_COUNT + 1))
+	}
+
+	# Stub all other dependencies used by setup_AdGuardHome_impl
+	PTXT() { :; }
+	ptxt_ok() { :; }
+	INFO=""
+	ERROR=""
+	AGH_FILE="${TMP_ROOT}/AdGuardHome"
+	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
+	YAML_ORI="${TMP_ROOT}/AdGuardHome.yaml.ori"
+	ADGUARD_FORCE_SETUP_YAML=0
+	setup_sync_mode_dependent_yaml_and_snapshot() { :; }
+	get_web_port_selection() { WEB_PORT_SELECTION="3000"; }
+	setup_yaml_schema_upgrade() { :; }
+	setup_sync_yaml_from_ori() { :; }
+	get_ipset_selection() { IPSET_SELECTION="0"; }
+	conf_value() { return 1; }
+	setup_domain_config() { :; }
+	verify_yaml_valid() { :; }
+	backup_yaml() { :; }
+	service_install_yaml_cfg_file() { :; }
+
+	# Mock environment for LAN mode without DNS filter selection
 	ADGUARD_INSTALL_MODE="lan"
-	NAT_ENV=""
 	DNS_FILTER_SELECTION=""
 
-	# Verify LAN mode does not trigger WAN-specific paths
-	# The installer should not perform DNS filter changes in LAN mode
-	if [ "${ADGUARD_INSTALL_MODE}" = "wan" ] && [ -n "${NAT_ENV}" ]; then
-		fail 'double-NAT warning check ran in LAN mode'
+	# Invoke setup_AdGuardHome_impl with empty DNS_FILTER_SELECTION in LAN mode
+	if ! setup_AdGuardHome_impl "" "new-install" 0 >/dev/null 2>&1; then
+		fail 'setup_AdGuardHome_impl failed in LAN mode with empty DNS_FILTER_SELECTION'
 	fi
 
-	# Verify WAN mode detection would trigger appropriate paths
-	ADGUARD_INSTALL_MODE="wan"
-	NAT_ENV="1"
-	DNS_FILTER_SELECTION="1"
-
-	if [ "${ADGUARD_INSTALL_MODE}" != "wan" ]; then
-		fail 'WAN mode detection failed'
+	# Verify check_dns_filter was not called (LAN mode should not check DNS filter)
+	if [ "${DNS_FILTER_CALL_COUNT}" -ne 0 ]; then
+		fail "LAN mode invoked check_dns_filter ${DNS_FILTER_CALL_COUNT} times (expected 0)"
 	fi
 
-	# Verify LAN runtime defaults don't depend solely on DNSFilter selection
-	ADGUARD_INSTALL_MODE="lan"
-	DNS_FILTER_SELECTION=""
-	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" ] || [ -n "${DNS_FILTER_SELECTION:-}" ]; then
-		: # Expected: LAN mode should not require DNSFilter selection
-	else
-		fail 'LAN runtime defaults incorrectly depend on DNSFilter selection'
+	# Verify configure_runtime_defaults was called exactly once
+	if [ "${RUNTIME_DEFAULTS_CALL_COUNT}" -ne 1 ]; then
+		fail "LAN mode invoked configure_runtime_defaults ${RUNTIME_DEFAULTS_CALL_COUNT} times (expected 1)"
 	fi
 ) || exit $?
 grep -q 'if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" \]; then' "${SCRIPT_PATH}" ||

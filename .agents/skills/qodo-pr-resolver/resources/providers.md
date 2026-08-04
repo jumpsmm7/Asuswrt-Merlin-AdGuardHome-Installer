@@ -572,7 +572,7 @@ fi
 ```
 
 **Reply format:**
-- **Fixed:** `✅ **Fixed** — <what changed, stated directionally (e.g. "added guard clause" / "removed guard clause" / "inverted condition") so a later round can detect a reversal>`
+- **Fixed:** `✅ **Fixed** — [action: <action-enum>] <human-readable rationale>` where `<action-enum>` is a machine-readable tag (e.g. `guard_added`, `guard_removed`, `condition_inverted`, `parameter_added`, `parameter_removed`) and `<human-readable rationale>` explains what changed and why. The action enum must be distinguishable from the rationale text for flip-detection parsing (convergence.md compares action enums, not free-form text).
 - **Deferred:** `⏭️ **Deferred** — <reason for deferring>`
 
 ### GitLab
@@ -999,7 +999,7 @@ fi
 Reviewed and addressed Qodo review issues:
 
 ### ✅ Fixed Issues
-- **Issue Title** (Severity) - what changed, stated directionally (e.g. "added guard clause" / "removed guard clause" / "inverted condition") so a later round can detect a reversal
+- **Issue Title** (Severity) - [action: <action-enum>] <human-readable rationale> where `<action-enum>` is a machine-readable tag (e.g. `guard_added`, `guard_removed`, `condition_inverted`, `parameter_added`, `parameter_removed`) and `<human-readable rationale>` explains what changed and why. The action enum must be distinguishable from the rationale text for flip-detection parsing (convergence.md compares action enums, not free-form text).
 
 ### ⏭️ Deferred Issues
 - **Issue Title** (Severity) - Reason for deferring
@@ -1108,7 +1108,24 @@ If no PR/MR exists for the current branch, create one. The user chooses between 
 ### GitHub
 
 ```bash
-gh pr create --title '<title>' --body '<body>'
+# Create temporary files for title and body to avoid shell injection
+umask 077
+PR_TITLE_FILE=$(mktemp "${TMPDIR:-/tmp}/gh_pr_title.XXXXXX") || exit 1
+PR_BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/gh_pr_body.XXXXXX") || { rm -f "$PR_TITLE_FILE"; exit 1; }
+trap 'rm -f "$PR_TITLE_FILE" "$PR_BODY_FILE"' EXIT
+trap 'rm -f "$PR_TITLE_FILE" "$PR_BODY_FILE"; exit 129' HUP
+trap 'rm -f "$PR_TITLE_FILE" "$PR_BODY_FILE"; exit 130' INT
+trap 'rm -f "$PR_TITLE_FILE" "$PR_BODY_FILE"; exit 143' TERM
+# Write the PR title and body to the files with your file-writing tool now
+# (do not embed the title or body in this script via a heredoc or quoted argument).
+
+gh pr create --title "$(cat "$PR_TITLE_FILE")" --body-file "$PR_BODY_FILE"
+PR_STATUS=$?
+rm -f "$PR_TITLE_FILE" "$PR_BODY_FILE"
+if [ "$PR_STATUS" -ne 0 ]; then
+  echo "Error: GitHub PR creation failed" >&2
+  exit 1
+fi
 ```
 
 Add `--draft` flag when creating in draft mode.
@@ -1116,7 +1133,24 @@ Add `--draft` flag when creating in draft mode.
 ### GitLab
 
 ```bash
-glab mr create --title '<title>' --description '<body>'
+# Create temporary files for title and description to avoid shell injection
+umask 077
+MR_TITLE_FILE=$(mktemp "${TMPDIR:-/tmp}/glab_mr_title.XXXXXX") || exit 1
+MR_DESC_FILE=$(mktemp "${TMPDIR:-/tmp}/glab_mr_desc.XXXXXX") || { rm -f "$MR_TITLE_FILE"; exit 1; }
+trap 'rm -f "$MR_TITLE_FILE" "$MR_DESC_FILE"' EXIT
+trap 'rm -f "$MR_TITLE_FILE" "$MR_DESC_FILE"; exit 129' HUP
+trap 'rm -f "$MR_TITLE_FILE" "$MR_DESC_FILE"; exit 130' INT
+trap 'rm -f "$MR_TITLE_FILE" "$MR_DESC_FILE"; exit 143' TERM
+# Write the MR title and description to the files with your file-writing tool now
+# (do not embed the title or description in this script via a heredoc or quoted argument).
+
+glab mr create --title "$(cat "$MR_TITLE_FILE")" --description "$(cat "$MR_DESC_FILE")"
+MR_STATUS=$?
+rm -f "$MR_TITLE_FILE" "$MR_DESC_FILE"
+if [ "$MR_STATUS" -ne 0 ]; then
+  echo "Error: GitLab MR creation failed" >&2
+  exit 1
+fi
 ```
 
 Add `--draft` flag when creating in draft mode.
@@ -1139,25 +1173,55 @@ if [ -z "$DEST_BRANCH" ]; then
   echo "Error: Bitbucket did not provide a destination branch; set BB_DEST_BRANCH explicitly" >&2
   exit 1
 fi
-# Serialize dynamic values before embedding in JSON
-TITLE_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<title>")
-BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<body>")
-BRANCH_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$BRANCH")
-DEST_BRANCH_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$DEST_BRANCH")
+
+# Create temporary files for title and body to avoid shell injection
+umask 077
+BB_PR_TITLE_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_pr_title.XXXXXX") || exit 1
+BB_PR_BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_pr_body.XXXXXX") || { rm -f "$BB_PR_TITLE_FILE"; exit 1; }
+trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE"' EXIT
+trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE"; exit 129' HUP
+trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE"; exit 130' INT
+trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE"; exit 143' TERM
+# Write the PR title and body to the files with your file-writing tool now
+# (do not embed the title or body in this script via a heredoc or quoted argument).
+
+BB_PR_PAYLOAD_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_pr_payload.XXXXXX") || { rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE"; exit 1; }
+trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_PR_PAYLOAD_FILE"' EXIT
+trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_PR_PAYLOAD_FILE"; exit 129' HUP
+trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_PR_PAYLOAD_FILE"; exit 130' INT
+trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_PR_PAYLOAD_FILE"; exit 143' TERM
+
+python3 - "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BRANCH" "$DEST_BRANCH" >"$BB_PR_PAYLOAD_FILE" <<'PY' || { rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_PR_PAYLOAD_FILE"; exit 1; }
+import json
+import sys
+
+with open(sys.argv[1], 'r') as f:
+    title = f.read()
+with open(sys.argv[2], 'r') as f:
+    body = f.read()
+
+branch = sys.argv[3]
+dest_branch = sys.argv[4]
+
+payload = {
+    "title": title,
+    "description": body,
+    "source": {"branch": {"name": branch}},
+    "destination": {"branch": {"name": dest_branch}}
+}
+print(json.dumps(payload))
+PY
 
 if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X POST \
   "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests" \
-  -d "{
-    \"title\": ${TITLE_JSON},
-    \"description\": ${BODY_JSON},
-    \"source\": {\"branch\": {\"name\": ${BRANCH_JSON}}},
-    \"destination\": {\"branch\": {\"name\": ${DEST_BRANCH_JSON}}}
-  }"); then
+  -d @"$BB_PR_PAYLOAD_FILE"); then
   echo "Error: Bitbucket API request failed (curl error)" >&2
+  rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_PR_PAYLOAD_FILE"
   exit 1
 fi
+rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_PR_PAYLOAD_FILE"
 HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
 BODY=$(echo "$RESPONSE" | sed '$d')
 
@@ -1201,14 +1265,31 @@ if [ -z "${ADO_TARGET_BRANCH:-}" ]; then
   fi
 fi
 
+# Create temporary files for title and description to avoid shell injection
+umask 077
+ADO_PR_TITLE_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_pr_title.XXXXXX") || exit 1
+ADO_PR_DESC_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_pr_desc.XXXXXX") || { rm -f "$ADO_PR_TITLE_FILE"; exit 1; }
+trap 'rm -f "$ADO_PR_TITLE_FILE" "$ADO_PR_DESC_FILE"' EXIT
+trap 'rm -f "$ADO_PR_TITLE_FILE" "$ADO_PR_DESC_FILE"; exit 129' HUP
+trap 'rm -f "$ADO_PR_TITLE_FILE" "$ADO_PR_DESC_FILE"; exit 130' INT
+trap 'rm -f "$ADO_PR_TITLE_FILE" "$ADO_PR_DESC_FILE"; exit 143' TERM
+# Write the PR title and description to the files with your file-writing tool now
+# (do not embed the title or description in this script via a heredoc or quoted argument).
+
 az repos pr create \
   --organization "$ADO_ORGANIZATION" \
   --project "$ADO_PROJECT" \
   --repository "$ADO_REPO" \
-  --title '<title>' \
-  --description '<body>' \
+  --title "$(cat "$ADO_PR_TITLE_FILE")" \
+  --description "$(cat "$ADO_PR_DESC_FILE")" \
   --source-branch <branch-name> \
   --target-branch "$ADO_TARGET_BRANCH"
+ADO_PR_STATUS=$?
+rm -f "$ADO_PR_TITLE_FILE" "$ADO_PR_DESC_FILE"
+if [ "$ADO_PR_STATUS" -ne 0 ]; then
+  echo "Error: Azure DevOps PR creation failed" >&2
+  exit 1
+fi
 ```
 
 Add `--draft` flag when creating in draft mode.
@@ -1234,16 +1315,43 @@ glab mr update <mr-iid> --ready
 If the title was prefixed with `[DRAFT]`, update it to remove the prefix:
 
 ```bash
-TITLE_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<title-without-draft-prefix>")
+# Create temporary file for title to avoid shell injection
+umask 077
+BB_READY_TITLE_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_ready_title.XXXXXX") || exit 1
+trap 'rm -f "$BB_READY_TITLE_FILE"' EXIT
+trap 'rm -f "$BB_READY_TITLE_FILE"; exit 129' HUP
+trap 'rm -f "$BB_READY_TITLE_FILE"; exit 130' INT
+trap 'rm -f "$BB_READY_TITLE_FILE"; exit 143' TERM
+# Write the title without the [DRAFT] prefix to $BB_READY_TITLE_FILE with your file-writing tool now
+# (do not embed the title in this script via a heredoc or quoted argument).
+
+BB_READY_PAYLOAD_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_ready_payload.XXXXXX") || { rm -f "$BB_READY_TITLE_FILE"; exit 1; }
+trap 'rm -f "$BB_READY_TITLE_FILE" "$BB_READY_PAYLOAD_FILE"' EXIT
+trap 'rm -f "$BB_READY_TITLE_FILE" "$BB_READY_PAYLOAD_FILE"; exit 129' HUP
+trap 'rm -f "$BB_READY_TITLE_FILE" "$BB_READY_PAYLOAD_FILE"; exit 130' INT
+trap 'rm -f "$BB_READY_TITLE_FILE" "$BB_READY_PAYLOAD_FILE"; exit 143' TERM
+
+python3 - "$BB_READY_TITLE_FILE" >"$BB_READY_PAYLOAD_FILE" <<'PY' || { rm -f "$BB_READY_TITLE_FILE" "$BB_READY_PAYLOAD_FILE"; exit 1; }
+import json
+import sys
+
+with open(sys.argv[1], 'r') as f:
+    title = f.read()
+
+payload = {"title": title}
+print(json.dumps(payload))
+PY
 
 if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X PUT \
   "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>" \
-  -d "{\"title\": ${TITLE_JSON}}"); then
+  -d @"$BB_READY_PAYLOAD_FILE"); then
   echo "Error: Bitbucket API request failed (curl error)" >&2
+  rm -f "$BB_READY_TITLE_FILE" "$BB_READY_PAYLOAD_FILE"
   exit 1
 fi
+rm -f "$BB_READY_TITLE_FILE" "$BB_READY_PAYLOAD_FILE"
 HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
 BODY=$(echo "$RESPONSE" | sed '$d')
 
