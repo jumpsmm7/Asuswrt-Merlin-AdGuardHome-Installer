@@ -97,12 +97,12 @@ grep -Fq "touch ${REPLY_MARKER}" "$REPLY_FIXTURE_FILE" || fail 'reply fixture co
 
 # Test Bitbucket and Azure DevOps with shell metacharacters and command substitution
 for provider in bitbucket azure; do
-  for dangerous_content in "Single'quote" 'Double"quote' '$(echo injected)' '`echo injected`' 'EOF'; do
-    DANGEROUS_FILE=$(mktemp "${TMPDIR:-/tmp}/qodo_dangerous_${provider}.XXXXXX") || fail "unable to create dangerous content test file for ${provider}"
-    printf 'Fixed: %s\n' "$dangerous_content" >"$DANGEROUS_FILE"
-    grep -Fq "$dangerous_content" "$DANGEROUS_FILE" || fail "${provider}: dangerous content test file was altered"
-    rm -f "$DANGEROUS_FILE"
-  done
+	for dangerous_content in "Single'quote" 'Double"quote' '$(echo injected)' '`echo injected`' 'EOF'; do
+		DANGEROUS_FILE=$(mktemp "${TMPDIR:-/tmp}/qodo_dangerous_${provider}.XXXXXX") || fail "unable to create dangerous content test file for ${provider}"
+		printf 'Fixed: %s\n' "$dangerous_content" >"$DANGEROUS_FILE"
+		grep -Fq "$dangerous_content" "$DANGEROUS_FILE" || fail "${provider}: dangerous content test file was altered"
+		rm -f "$DANGEROUS_FILE"
+	done
 done
 
 rm -f "$REPLY_FIXTURE_FILE" "$REPLY_MARKER"
