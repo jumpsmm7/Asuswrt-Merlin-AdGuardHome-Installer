@@ -192,12 +192,18 @@ nvram_transaction_setup_files_restore() {
 		esac
 		stage_file="${target}.setup-restore.$$"
 		if [ -f "${journal_root}/${source}" ]; then
-			cp -p "${journal_root}/${source}" "${stage_file}" || { rm -f "${stage_file}"; return 1; }
+			cp -p "${journal_root}/${source}" "${stage_file}" || {
+				rm -f "${stage_file}"
+				return 1
+			}
 			if [ "${FAIL_SETUP_FILES_RESTORE:-0}" -eq 1 ]; then
 				rm -f "${stage_file}"
 				return 1
 			fi
-			mv -f "${stage_file}" "${target}" || { rm -f "${stage_file}"; return 1; }
+			mv -f "${stage_file}" "${target}" || {
+				rm -f "${stage_file}"
+				return 1
+			}
 		elif [ -f "${journal_root}/${source}.absent" ]; then
 			if [ "${FAIL_SETUP_FILES_RESTORE:-0}" -eq 1 ]; then
 				return 1

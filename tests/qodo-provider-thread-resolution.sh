@@ -81,7 +81,7 @@ TEMP_PROVIDERS=$(mktemp "${TMPDIR:-/tmp}/test-providers.XXXXXX.md")
 trap 'rm -f "$TEMP_PROVIDERS"' EXIT
 
 # Test 1: Missing closing heading (truncated document)
-sed -n '1,/^## Resolve Inline Threads$/p' "${PROVIDERS}" > "$TEMP_PROVIDERS"
+sed -n '1,/^## Resolve Inline Threads$/p' "${PROVIDERS}" >"$TEMP_PROVIDERS"
 RESOLVE_LINE=$(grep -Fn '## Resolve Inline Threads' "$TEMP_PROVIDERS" | head -n1 | cut -d: -f1)
 SUMMARY_LINE=$(grep -Fn '## Post Summary Comment' "$TEMP_PROVIDERS" | head -n1 | cut -d: -f1)
 if [ -n "$SUMMARY_LINE" ]; then
@@ -93,7 +93,7 @@ fi
 	sed -n '1,/^## Resolve Inline Threads$/p' "${PROVIDERS}" | sed '$d'
 	sed -n '/^## Post Summary Comment$/,/^## /p' "${PROVIDERS}" | sed '$d'
 	sed -n '/^## Resolve Inline Threads$/,/^## Post Summary Comment$/p' "${PROVIDERS}"
-} > "$TEMP_PROVIDERS"
+} >"$TEMP_PROVIDERS"
 RESOLVE_LINE=$(grep -Fn '## Resolve Inline Threads' "$TEMP_PROVIDERS" | head -n1 | cut -d: -f1)
 SUMMARY_LINE=$(grep -Fn '## Post Summary Comment' "$TEMP_PROVIDERS" | head -n1 | cut -d: -f1)
 if [ -z "$RESOLVE_LINE" ] || [ -z "$SUMMARY_LINE" ]; then
