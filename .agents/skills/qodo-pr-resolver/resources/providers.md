@@ -30,17 +30,12 @@ For Azure DevOps detection, load `AZURE_DEVOPS_URL` from the Qodo config file as
 ```bash
 # Load AZURE_DEVOPS_URL from Qodo config for provider detection if not already set
 if [ -z "${AZURE_DEVOPS_URL:-}" ]; then
-  if [ -n "${QODO_CONFIG:-}" ]; then
-    # QODO_CONFIG is explicitly set; use it
-    :
-  elif [ -n "${HOME:-}" ]; then
-    # HOME is available; use default config path
-    QODO_CONFIG="${HOME}/.qodo/config.json"
-  else
-    # Neither QODO_CONFIG nor HOME is set; skip config file lookup and use cloud default
-    QODO_CONFIG=""
+  if [ -z "${HOME:-}" ]; then
+    echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
+    exit 1
   fi
-  if [ -n "${QODO_CONFIG}" ] && [ -f "${QODO_CONFIG}" ]; then
+  QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
+  if [ -f "$QODO_CONFIG" ]; then
     # Require secure permissions before reading credentials
     QODO_DIR=$(dirname "$QODO_CONFIG")
     if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
@@ -51,10 +46,7 @@ if [ -z "${AZURE_DEVOPS_URL:-}" ]; then
       echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
       exit 1
     fi
-    if ! AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL") or "")' "$QODO_CONFIG"); then
-      echo "Error: Failed to parse AZURE_DEVOPS_URL from Qodo config file: $QODO_CONFIG" >&2
-      exit 1
-    fi
+    AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL") or "")' "$QODO_CONFIG" 2>/dev/null || echo "")
   fi
 fi
 # Now match remote URL host against dev.azure.com or AZURE_DEVOPS_URL
@@ -104,36 +96,27 @@ fi
   These examples support **Bitbucket Cloud only**. Bitbucket Server and Data Center use different REST routes and project/repository addressing, so do not point these commands at a self-hosted instance.
 - **Load configuration** (existing environment variables take precedence):
   ```bash
-  # Honor available credentials and explicit QODO_CONFIG before checking HOME
-  if [ -z "${BB_USERNAME:-}" ] || [ -z "${BB_APP_PASSWORD:-}" ]; then
-    if [ -n "${QODO_CONFIG:-}" ]; then
-      # QODO_CONFIG is explicitly set; use it
-      :
-    elif [ -n "${HOME:-}" ]; then
-      # HOME is available; use default config path
-      QODO_CONFIG="${HOME}/.qodo/config.json"
-    else
-      # Neither QODO_CONFIG nor HOME is set; require HOME only when deriving default path
-      echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
+  if [ -z "${HOME:-}" ]; then
+    echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
+    exit 1
+  fi
+  QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
+  if [ -f "$QODO_CONFIG" ]; then
+    # Require secure permissions before reading credentials
+    QODO_DIR=$(dirname "$QODO_CONFIG")
+    if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
+      echo "Error: Qodo config directory $QODO_DIR must have mode 700 (owner-only access)" >&2
       exit 1
     fi
-    if [ -f "${QODO_CONFIG}" ]; then
-      # Require secure permissions before reading credentials
-      QODO_DIR=$(dirname "$QODO_CONFIG")
-      if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
-        echo "Error: Qodo config directory $QODO_DIR must have mode 700 (owner-only access)" >&2
-        exit 1
-      fi
-      if [ "$(stat -c '%a' "$QODO_CONFIG" 2>/dev/null || stat -f '%Lp' "$QODO_CONFIG" 2>/dev/null)" != "600" ]; then
-        echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
-        exit 1
-      fi
-      [ -n "${BB_USERNAME:-}" ] || BB_USERNAME=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("BB_USERNAME", ""))' "$QODO_CONFIG")
-      [ -n "${BB_APP_PASSWORD:-}" ] || BB_APP_PASSWORD=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("BB_APP_PASSWORD", ""))' "$QODO_CONFIG")
+    if [ "$(stat -c '%a' "$QODO_CONFIG" 2>/dev/null || stat -f '%Lp' "$QODO_CONFIG" 2>/dev/null)" != "600" ]; then
+      echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
+      exit 1
     fi
+    [ -n "${BB_USERNAME:-}" ] || BB_USERNAME=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("BB_USERNAME", ""))' "$QODO_CONFIG")
+    [ -n "${BB_APP_PASSWORD:-}" ] || BB_APP_PASSWORD=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("BB_APP_PASSWORD", ""))' "$QODO_CONFIG")
   fi
   if [ -z "${BB_USERNAME:-}" ] || [ -z "${BB_APP_PASSWORD:-}" ]; then
-    echo "Bitbucket credentials are missing; set BB_USERNAME and BB_APP_PASSWORD or add them to ${QODO_CONFIG:-~/.qodo/config.json}" >&2
+    echo "Bitbucket credentials are missing; set BB_USERNAME and BB_APP_PASSWORD or add them to $QODO_CONFIG" >&2
     exit 1
   fi
   ```
@@ -213,56 +196,34 @@ EOF
   ```json
   {
     "AZURE_DEVOPS_EXT_PAT": "your-personal-access-token",
-    "AZURE_DEVOPS_URL": "https://dev.azure.com",
-    "AZURE_DEVOPS_ALLOWED_ORG": "your-organization-name"
+    "AZURE_DEVOPS_URL": "https://dev.azure.com"
   }
   ```
-  `AZURE_DEVOPS_EXT_PAT` replaces `az login`. `AZURE_DEVOPS_URL` is optional — only needed for on-premises Azure DevOps Server. `AZURE_DEVOPS_ALLOWED_ORG` is required when using `AZURE_DEVOPS_EXT_PAT` with Azure DevOps Cloud (`https://dev.azure.com`) to restrict which organization the PAT can be used against.
+  `AZURE_DEVOPS_EXT_PAT` replaces `az login`. `AZURE_DEVOPS_URL` is optional — only needed for on-premises Azure DevOps Server.
 - **Authenticate and configure:**
   ```bash
-  # Honor available credentials and explicit QODO_CONFIG before checking HOME
-  if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ] || [ -z "${AZURE_DEVOPS_URL:-}" ] || [ -z "${AZURE_DEVOPS_ALLOWED_ORG:-}" ]; then
-    if [ -n "${QODO_CONFIG:-}" ]; then
-      # QODO_CONFIG is explicitly set; use it
-      :
-    elif [ -n "${HOME:-}" ]; then
-      # HOME is available; use default config path
-      QODO_CONFIG="${HOME}/.qodo/config.json"
-    else
-      # Neither QODO_CONFIG nor HOME is set; require HOME only when deriving default path
-      echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
+  if [ -z "${HOME:-}" ]; then
+    echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
+    exit 1
+  fi
+  QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
+  if [ -f "$QODO_CONFIG" ]; then
+    # Require secure permissions before reading credentials
+    QODO_DIR=$(dirname "$QODO_CONFIG")
+    if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
+      echo "Error: Qodo config directory $QODO_DIR must have mode 700 (owner-only access)" >&2
       exit 1
     fi
-    if [ -f "${QODO_CONFIG}" ]; then
-      # Require secure permissions before reading credentials
-      QODO_DIR=$(dirname "$QODO_CONFIG")
-      if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
-        echo "Error: Qodo config directory $QODO_DIR must have mode 700 (owner-only access)" >&2
-        exit 1
-      fi
-      if [ "$(stat -c '%a' "$QODO_CONFIG" 2>/dev/null || stat -f '%Lp' "$QODO_CONFIG" 2>/dev/null)" != "600" ]; then
-        echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
-        exit 1
-      fi
-      if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ]; then
-        if ! AZURE_DEVOPS_EXT_PAT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_EXT_PAT") or "")' "$QODO_CONFIG"); then
-          echo "Error: Failed to parse AZURE_DEVOPS_EXT_PAT from Qodo config file: $QODO_CONFIG" >&2
-          exit 1
-        fi
-      fi
-      if [ -z "${AZURE_DEVOPS_URL:-}" ]; then
-        if ! AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL") or "")' "$QODO_CONFIG"); then
-          echo "Error: Failed to parse AZURE_DEVOPS_URL from Qodo config file: $QODO_CONFIG" >&2
-          exit 1
-        fi
-      fi
-      if [ -z "${AZURE_DEVOPS_ALLOWED_ORG:-}" ]; then
-        if ! AZURE_DEVOPS_ALLOWED_ORG=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_ALLOWED_ORG") or "")' "$QODO_CONFIG"); then
-          echo "Error: Failed to parse AZURE_DEVOPS_ALLOWED_ORG from Qodo config file: $QODO_CONFIG" >&2
-          exit 1
-        fi
-      fi
+    if [ "$(stat -c '%a' "$QODO_CONFIG" 2>/dev/null || stat -f '%Lp' "$QODO_CONFIG" 2>/dev/null)" != "600" ]; then
+      echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
+      exit 1
     fi
+    [ -n "${AZURE_DEVOPS_EXT_PAT:-}" ] || AZURE_DEVOPS_EXT_PAT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_EXT_PAT") or "")' "$QODO_CONFIG")
+    [ -n "${AZURE_DEVOPS_URL:-}" ] || AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL") or "")' "$QODO_CONFIG")
+  fi
+  export AZURE_DEVOPS_EXT_PAT
+  if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ]; then
+    az login || { echo "Error: az login failed" >&2; exit 1; }
   fi
   # Normalize the configured service/collection URL. For Azure DevOps Cloud,
   # the organization is the first path component after dev.azure.com. For
@@ -292,23 +253,8 @@ EOF
     ADO_ORG=${ADO_PATH%%/*}
     ADO_PATH=${ADO_PATH#*/}
     ADO_ORGANIZATION=$ADO_BASE_URL/$ADO_ORG
-    # For Azure DevOps Cloud, validate organization against allowlist before using PAT
-    if [ -n "${AZURE_DEVOPS_EXT_PAT:-}" ]; then
-      if [ -z "${AZURE_DEVOPS_ALLOWED_ORG:-}" ]; then
-        echo "Error: AZURE_DEVOPS_ALLOWED_ORG must be set when using AZURE_DEVOPS_EXT_PAT with Azure DevOps Cloud (https://dev.azure.com)" >&2
-        exit 1
-      fi
-      if [ "$ADO_ORG" != "$AZURE_DEVOPS_ALLOWED_ORG" ]; then
-        echo "Error: Organization '$ADO_ORG' extracted from remote URL does not match allowed organization '$AZURE_DEVOPS_ALLOWED_ORG'" >&2
-        exit 1
-      fi
-    fi
   else
     ADO_ORGANIZATION=$ADO_BASE_URL
-  fi
-  export AZURE_DEVOPS_EXT_PAT
-  if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ]; then
-    az login || { echo "Error: az login failed" >&2; exit 1; }
   fi
   ADO_PROJECT=${ADO_PATH%%/*}
   ADO_REPO=${ADO_PATH##*/}
@@ -461,12 +407,7 @@ gh pr view <pr-number> --json comments
 
 # Inline review comments (per-line comments on specific code)
 # Use pagination and flatten page arrays
-# Capture gh api output and exit status before flattening
-if ! GH_COMMENTS_RAW=$(gh api repos/{owner}/{repo}/pulls/<pr-number>/comments --paginate --slurp); then
-  echo "Error: Failed to fetch GitHub pull request comments" >&2
-  exit 1
-fi
-printf '%s' "$GH_COMMENTS_RAW" | python3 -c 'import json, sys; print(json.dumps([item for page in json.load(sys.stdin) for item in page]))'
+gh api repos/{owner}/{repo}/pulls/<pr-number>/comments --paginate --slurp | python3 -c 'import json, sys; print(json.dumps([item for page in json.load(sys.stdin) for item in page]))'
 ```
 
 ### GitLab
@@ -585,12 +526,28 @@ az devops invoke \
 
 Use the inline comment ID preserved during deduplication to reply directly to Qodo's comments.
 
+**Never place rendered reply text inside a shell-quoted argument.** An issue title or deferral
+reason that contains `'` can close the quote early and change what the shell executes. Write the
+rendered text to a temporary file first, then pass the file to the provider command so the shell
+never parses the reply body. Use cleanup traps for `EXIT`, `HUP`, `INT`, and `TERM`, consistent
+with the Azure DevOps examples below.
+
 ### GitHub
 
 ```bash
+REPLY_FILE=$(mktemp "${TMPDIR:-/tmp}/gh_reply.XXXXXX") || exit 1
+trap 'rm -f "$REPLY_FILE"' EXIT
+trap 'rm -f "$REPLY_FILE"; exit 129' HUP
+trap 'rm -f "$REPLY_FILE"; exit 130' INT
+trap 'rm -f "$REPLY_FILE"; exit 143' TERM
+cat > "$REPLY_FILE" <<'EOF'
+<reply-body>
+EOF
+
 gh api repos/{owner}/{repo}/pulls/<pr-number>/comments/<inline-comment-id>/replies \
   -X POST \
-  -f body='<reply-body>'
+  -F body=@"$REPLY_FILE"
+rm -f "$REPLY_FILE"
 ```
 
 **Reply format:**
@@ -600,9 +557,19 @@ gh api repos/{owner}/{repo}/pulls/<pr-number>/comments/<inline-comment-id>/repli
 ### GitLab
 
 ```bash
+REPLY_FILE=$(mktemp "${TMPDIR:-/tmp}/glab_reply.XXXXXX") || exit 1
+trap 'rm -f "$REPLY_FILE"' EXIT
+trap 'rm -f "$REPLY_FILE"; exit 129' HUP
+trap 'rm -f "$REPLY_FILE"; exit 130' INT
+trap 'rm -f "$REPLY_FILE"; exit 143' TERM
+cat > "$REPLY_FILE" <<'EOF'
+<reply-body>
+EOF
+
 glab api "/projects/:id/merge_requests/<mr-iid>/discussions/<discussion-id>/notes" \
   -X POST \
-  -f body='<reply-body>'
+  -F body=@"$REPLY_FILE"
+rm -f "$REPLY_FILE"
 ```
 
 ### Bitbucket
@@ -790,16 +757,42 @@ rm -f "${ADO_STATUS_FILE}"
 
 After reviewing all issues, post a summary comment to the PR/MR.
 
+**Never place rendered comment text inside a shell-quoted argument.** An issue title or deferral
+reason that contains `'` can close the quote early and change what the shell executes. Write the
+rendered text to a temporary file first, then pass the file to the provider command so the shell
+never parses the comment body. Use cleanup traps for `EXIT`, `HUP`, `INT`, and `TERM`, consistent
+with the Azure DevOps examples below.
+
 ### GitHub
 
 ```bash
-gh pr comment <pr-number> --body '<comment-body>'
+COMMENT_FILE=$(mktemp "${TMPDIR:-/tmp}/gh_comment.XXXXXX") || exit 1
+trap 'rm -f "$COMMENT_FILE"' EXIT
+trap 'rm -f "$COMMENT_FILE"; exit 129' HUP
+trap 'rm -f "$COMMENT_FILE"; exit 130' INT
+trap 'rm -f "$COMMENT_FILE"; exit 143' TERM
+cat > "$COMMENT_FILE" <<'EOF'
+<comment-body>
+EOF
+
+gh pr comment <pr-number> --body-file "$COMMENT_FILE"
+rm -f "$COMMENT_FILE"
 ```
 
 ### GitLab
 
 ```bash
-glab mr comment <mr-iid> --message '<comment-body>'
+COMMENT_FILE=$(mktemp "${TMPDIR:-/tmp}/glab_comment.XXXXXX") || exit 1
+trap 'rm -f "$COMMENT_FILE"' EXIT
+trap 'rm -f "$COMMENT_FILE"; exit 129' HUP
+trap 'rm -f "$COMMENT_FILE"; exit 130' INT
+trap 'rm -f "$COMMENT_FILE"; exit 143' TERM
+cat > "$COMMENT_FILE" <<'EOF'
+<comment-body>
+EOF
+
+glab mr comment <mr-iid> < "$COMMENT_FILE"
+rm -f "$COMMENT_FILE"
 ```
 
 ### Bitbucket
