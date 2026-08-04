@@ -168,6 +168,19 @@ OPEN_CHANGES=$(printf '%s' "$OPEN_CHANGES_RESPONSE" | tail -c +6) || exit 1
 ### Query by project + owner (fallback)
 
 ```bash
+# Ensure GERRIT_PROJECT is available; derive from .gitreview or remote URL if empty
+if [ -z "${GERRIT_PROJECT:-}" ]; then
+  # Try extracting from .gitreview first
+  if [ -f .gitreview ]; then
+    GERRIT_PROJECT=$(git config -f .gitreview gerrit.project 2>/dev/null)
+  fi
+  # If still empty, cannot issue fallback query
+  if [ -z "${GERRIT_PROJECT:-}" ]; then
+    echo "Error: Cannot query Gerrit changes without a project identifier; ensure .gitreview exists with gerrit.project configured" >&2
+    exit 1
+  fi
+fi
+
 OPEN_CHANGES_RESPONSE=$(curl --fail --silent --show-error --connect-timeout 10 --max-time 30 --netrc-file "$GERRIT_NETRC" \
   "$GERRIT_URL/a/changes/?q=status:open+project:$GERRIT_PROJECT+owner:self&o=CURRENT_REVISION") || exit 1
 OPEN_CHANGES=$(printf '%s' "$OPEN_CHANGES_RESPONSE" | tail -c +6) || exit 1

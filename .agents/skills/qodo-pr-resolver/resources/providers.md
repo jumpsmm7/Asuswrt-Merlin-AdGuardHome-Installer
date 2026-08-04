@@ -207,7 +207,7 @@ EOF
   ADO_REPO=${ADO_PATH##*/}
   ADO_REPO=${ADO_REPO%.git}
   # Get repository ID (required for thread API calls):
-  if ! ADO_REPO_ID=$(az repos show --organization "$ADO_ORGANIZATION" --project "$ADO_PROJECT" --name "$ADO_REPO" --query id -o tsv); then
+  if ! ADO_REPO_ID=$(az repos show --organization "$ADO_ORGANIZATION" --project "$ADO_PROJECT" --repository "$ADO_REPO" --query id -o tsv); then
     echo "Error: Failed to retrieve Azure DevOps repository ID" >&2
     exit 1
   fi
@@ -353,7 +353,8 @@ Qodo posts both **summary comments** (PR-level) and **inline review comments** (
 gh pr view <pr-number> --json comments
 
 # Inline review comments (per-line comments on specific code)
-gh api repos/{owner}/{repo}/pulls/<pr-number>/comments
+# Use pagination and flatten page arrays
+gh api repos/{owner}/{repo}/pulls/<pr-number>/comments --paginate --slurp | python3 -c 'import json, sys; print(json.dumps([item for page in json.load(sys.stdin) for item in page]))'
 ```
 
 ### GitLab
@@ -367,8 +368,90 @@ glab mr view <mr-iid> --comments
 
 ```bash
 # All PR comments including inline comments
-curl --fail --silent --show-error --netrc-file "$BB_NETRC" \
-  "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments"
+# Follow paginated "next" URLs and merge all values arrays
+NEXT_URL="$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments"
+SEEN_URLS=""
+PAGE_COUNT=0
+MAX_PAGES=100
+ALL_COMMENTS="[]"
+
+while [ -n "$NEXT_URL" ]; do
+  # Check for URL cycle
+  case " $SEEN_URLS " in
+    *" $NEXT_URL "*)
+      echo "Error: Bitbucket API returned a cyclic next URL; aborting to prevent infinite loop" >&2
+      exit 1
+      ;;
+  esac
+  SEEN_URLS="$SEEN_URLS $NEXT_URL"
+
+  # Check page limit
+  PAGE_COUNT=$((PAGE_COUNT + 1))
+  if [ "$PAGE_COUNT" -gt "$MAX_PAGES" ]; then
+    echo "Error: Exceeded maximum page limit ($MAX_PAGES) while fetching comments; aborting" >&2
+    exit 1
+  fi
+
+  if ! RESPONSE=$(curl -s -w "\n%{http_code}" --netrc-file "$BB_NETRC" "$NEXT_URL"); then
+    echo "Error: Bitbucket API request failed (curl error)" >&2
+    exit 1
+  fi
+  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+  BODY=$(echo "$RESPONSE" | sed '$d')
+
+  case "$HTTP_CODE" in
+    ''|*[!0-9]*)
+      echo "Error: Bitbucket API returned an invalid HTTP status: ${HTTP_CODE:-empty}" >&2
+      exit 1
+      ;;
+  esac
+
+  if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+    echo "Error: API request failed with HTTP status $HTTP_CODE" >&2
+    exit 1
+  fi
+
+  # Merge this page's values array into accumulated results
+  ALL_COMMENTS=$(printf '%s\n%s' "$ALL_COMMENTS" "$BODY" | python3 -c '
+import sys, json
+accumulated = json.loads(sys.stdin.readline())
+page_data = json.load(sys.stdin)
+accumulated.extend(page_data.get("values", []))
+print(json.dumps(accumulated))
+') || exit 1
+
+  NEXT_URL=$(printf '%s' "$BODY" | python3 -c '
+import sys, json
+data = json.load(sys.stdin)
+print(data.get("next", ""))
+') || exit 1
+
+  # Validate NEXT_URL points to the same host as BB_API_URL before using it
+  if [ -n "$NEXT_URL" ]; then
+    if ! python3 - "$NEXT_URL" "$BB_API_URL" <<'PY'
+import sys
+from urllib.parse import urlsplit
+
+next_url = sys.argv[1]
+api_url = sys.argv[2]
+
+next_parsed = urlsplit(next_url)
+api_parsed = urlsplit(api_url)
+
+# Validate scheme, hostname, and port match exactly
+if (next_parsed.scheme != api_parsed.scheme or
+    next_parsed.hostname != api_parsed.hostname or
+    next_parsed.port != api_parsed.port):
+    print(f"Error: Bitbucket API returned next URL with mismatched host/scheme: {next_url}", file=sys.stderr)
+    sys.exit(1)
+PY
+    then
+      exit 1
+    fi
+  fi
+done
+
+printf '%s\n' "$ALL_COMMENTS"
 ```
 
 ### Azure DevOps
@@ -485,23 +568,30 @@ GitHub resolves pull-request review threads through GraphQL. First map the prese
 THREAD_ID=""
 CURSOR=""
 while true; do
-  RESPONSE=$(gh api graphql \
+  THREAD_ID=$(gh api graphql \
     -f owner='{owner}' -f repo='{repo}' -F number=<pr-number> \
     ${CURSOR:+-f after="$CURSOR"} \
-    -f query='query($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100,after:$after){nodes{id isResolved comments(first:100){nodes{databaseId}}} pageInfo{hasNextPage endCursor}}}}}') || exit 1
-
-  THREAD_ID=$(printf '%s' "$RESPONSE" | jq -r '.data.repository.pullRequest.reviewThreads.nodes[] | select(any(.comments.nodes[]; .databaseId == <inline-comment-id>)) | .id')
+    -f query='query($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100,after:$after){nodes{id isResolved comments(first:100){nodes{databaseId}}} pageInfo{hasNextPage endCursor}}}}}' \
+    --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(any(.comments.nodes[]; .databaseId == <inline-comment-id>)) | .id') || exit 1
 
   if [ -n "$THREAD_ID" ]; then
     break
   fi
 
-  HAS_NEXT=$(printf '%s' "$RESPONSE" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
+  HAS_NEXT=$(gh api graphql \
+    -f owner='{owner}' -f repo='{repo}' -F number=<pr-number> \
+    ${CURSOR:+-f after="$CURSOR"} \
+    -f query='query($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100,after:$after){nodes{id isResolved comments(first:100){nodes{databaseId}}} pageInfo{hasNextPage endCursor}}}}}' \
+    --jq '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage') || exit 1
   if [ "$HAS_NEXT" != "true" ]; then
     break
   fi
 
-  CURSOR=$(printf '%s' "$RESPONSE" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor')
+  CURSOR=$(gh api graphql \
+    -f owner='{owner}' -f repo='{repo}' -F number=<pr-number> \
+    ${CURSOR:+-f after="$CURSOR"} \
+    -f query='query($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100,after:$after){nodes{id isResolved comments(first:100){nodes{databaseId}}} pageInfo{hasNextPage endCursor}}}}}' \
+    --jq '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor') || exit 1
 done
 
 [ -n "${THREAD_ID}" ] || { echo 'Error: GitHub review thread not found.' >&2; exit 1; }
@@ -828,7 +918,7 @@ if [ -z "${ADO_TARGET_BRANCH:-}" ]; then
   if ! ADO_DEFAULT_BRANCH=$(az repos show \
     --organization "$ADO_ORGANIZATION" \
     --project "$ADO_PROJECT" \
-    --name "$ADO_REPO" \
+    --repository "$ADO_REPO" \
     --query defaultBranch -o tsv); then
     echo "Error: Failed to query Azure DevOps repository default branch" >&2
     exit 1
