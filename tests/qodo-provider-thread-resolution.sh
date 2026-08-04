@@ -85,13 +85,30 @@ printf '%s\n' "$REPLY_GITLAB" | grep -Fq "<<'EOF'" && fail 'GitLab inline reply 
 # Fixture: a rendered reply body containing a standalone "EOF" line followed by a command.
 # Writing it out-of-band (as the file-writing tool would, not via a shell heredoc) must
 # preserve it as literal content and must never execute the trailing line.
-REPLY_MARKER=$(mktemp -u "${TMPDIR:-/tmp}/qodo_reply_marker.XXXXXX")
+trap 'rm -f "$REPLY_MARKER" "$REPLY_FIXTURE_FILE" "$DANGEROUS_FILE"' EXIT
+trap 'rm -f "$REPLY_MARKER" "$REPLY_FIXTURE_FILE" "$DANGEROUS_FILE"; exit 1' HUP INT TERM
+REPLY_MARKER=$(mktemp "${TMPDIR:-/tmp}/qodo_reply_marker.XXXXXX") || fail 'unable to create reply marker file'
+rm -f "$REPLY_MARKER"
 REPLY_FIXTURE_FILE=$(mktemp "${TMPDIR:-/tmp}/qodo_reply_fixture.XXXXXX") || fail 'unable to create reply fixture file'
 printf 'Fixed the issue.\nEOF\ntouch %s\n' "$REPLY_MARKER" >"$REPLY_FIXTURE_FILE"
 [ "$(wc -l <"$REPLY_FIXTURE_FILE")" -eq 3 ] || fail 'reply fixture with standalone EOF line was not preserved as literal content'
 grep -Fq "touch ${REPLY_MARKER}" "$REPLY_FIXTURE_FILE" || fail 'reply fixture content was altered'
 [ -e "$REPLY_MARKER" ] && fail 'reply fixture command was executed instead of remaining literal file content'
+
+# Test Bitbucket and Azure DevOps with shell metacharacters and command substitution
+for provider in bitbucket azure; do
+  for dangerous_content in "Single'quote" 'Double"quote' '$(echo injected)' '`echo injected`' 'EOF'; do
+    DANGEROUS_FILE=$(mktemp "${TMPDIR:-/tmp}/qodo_dangerous_${provider}.XXXXXX") || fail "unable to create dangerous content test file for ${provider}"
+    printf 'Fixed: %s\n' "$dangerous_content" >"$DANGEROUS_FILE"
+    grep -Fq "$dangerous_content" "$DANGEROUS_FILE" || fail "${provider}: dangerous content test file was altered"
+    rm -f "$DANGEROUS_FILE"
+  done
+done
+
 rm -f "$REPLY_FIXTURE_FILE" "$REPLY_MARKER"
+REPLY_MARKER=""
+REPLY_FIXTURE_FILE=""
+DANGEROUS_FILE=""
 
 # Extract the "Post Summary Comment" section for scoped assertions on safe dynamic comment transport
 if ! grep -Fq '## Qodo Fix Summary — Round N' "${PROVIDERS}"; then
@@ -121,12 +138,17 @@ printf '%s\n' "$SUMMARY_GITHUB" | grep -Fq "<<'EOF'" && fail 'GitHub summary com
 printf '%s\n' "$SUMMARY_GITLAB" | grep -Fq "<<'EOF'" && fail 'GitLab summary comment still embeds the comment body inside a shell heredoc'
 
 # Fixture: a rendered summary body containing a standalone "EOF" line followed by a command.
-SUMMARY_MARKER=$(mktemp -u "${TMPDIR:-/tmp}/qodo_summary_marker.XXXXXX")
+trap 'rm -f "$SUMMARY_MARKER" "$SUMMARY_FIXTURE_FILE"' EXIT
+trap 'rm -f "$SUMMARY_MARKER" "$SUMMARY_FIXTURE_FILE"; exit 1' HUP INT TERM
+SUMMARY_MARKER=$(mktemp "${TMPDIR:-/tmp}/qodo_summary_marker.XXXXXX") || fail 'unable to create summary marker file'
+rm -f "$SUMMARY_MARKER"
 SUMMARY_FIXTURE_FILE=$(mktemp "${TMPDIR:-/tmp}/qodo_summary_fixture.XXXXXX") || fail 'unable to create summary fixture file'
 printf '## Qodo Fix Summary\nEOF\ntouch %s\n' "$SUMMARY_MARKER" >"$SUMMARY_FIXTURE_FILE"
 [ "$(wc -l <"$SUMMARY_FIXTURE_FILE")" -eq 3 ] || fail 'summary fixture with standalone EOF line was not preserved as literal content'
 grep -Fq "touch ${SUMMARY_MARKER}" "$SUMMARY_FIXTURE_FILE" || fail 'summary fixture content was altered'
 [ -e "$SUMMARY_MARKER" ] && fail 'summary fixture command was executed instead of remaining literal file content'
 rm -f "$SUMMARY_FIXTURE_FILE" "$SUMMARY_MARKER"
+SUMMARY_MARKER=""
+SUMMARY_FIXTURE_FILE=""
 
 printf '%s\n' 'PASS: Qodo provider-specific inline thread resolution is documented and required'

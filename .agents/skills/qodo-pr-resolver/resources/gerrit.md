@@ -76,7 +76,8 @@ if [ -z "${GERRIT_URL:-}" ] || [ -z "${GERRIT_USERNAME:-}" ] || [ -z "${GERRIT_H
   exit 1
 fi
 
-# Validate GERRIT_URL before creating credentials
+# Normalize and validate GERRIT_URL before creating credentials
+GERRIT_URL="${GERRIT_URL%/}"
 if ! printf '%s\n' "${GERRIT_URL}" | grep -qE '^https://'; then
   echo "Error: GERRIT_URL must use HTTPS scheme" >&2
   exit 1
@@ -87,6 +88,23 @@ if printf '%s\n' "${GERRIT_URL}" | grep -qE '://[^@/]*@'; then
 fi
 if ! GERRIT_HOST_CHECK=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.urlsplit(sys.argv[1]).hostname or "")' "$GERRIT_URL") || [ -z "$GERRIT_HOST_CHECK" ]; then
   echo "Error: GERRIT_URL does not contain a valid host" >&2
+  exit 1
+fi
+if ! python3 - "$GERRIT_URL" <<'PY'
+import sys
+from urllib.parse import urlsplit
+
+url = sys.argv[1]
+parsed = urlsplit(url)
+
+if parsed.query:
+    print(f"Error: GERRIT_URL must not contain query parameters: {url}", file=sys.stderr)
+    sys.exit(1)
+if parsed.fragment:
+    print(f"Error: GERRIT_URL must not contain fragment identifiers: {url}", file=sys.stderr)
+    sys.exit(1)
+PY
+then
   exit 1
 fi
 ```
@@ -141,7 +159,15 @@ if ! VERIFY_RESPONSE=$(curl --fail --silent --show-error --connect-timeout 10 --
   echo "Error: Failed to verify Gerrit account" >&2
   exit 1
 fi
-printf '%s\n' "$VERIFY_RESPONSE" | tail -c +6 | python3 -m json.tool
+if ! VERIFY_JSON=$(printf '%s\n' "$VERIFY_RESPONSE" | tail -c +6); then
+  echo "Error: Failed to strip Gerrit JSON prefix" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$VERIFY_JSON" | python3 -m json.tool >/dev/null 2>&1; then
+  echo "Error: Gerrit account verification returned invalid JSON" >&2
+  exit 1
+fi
+printf '%s\n' "$VERIFY_JSON" | python3 -m json.tool
 ```
 
 **Note:** All authenticated endpoints use the `/a/` prefix in the path. Some Gerrit instances also have an API prefix (e.g. `/r/`) — if `GERRIT_URL` includes it (e.g. `https://git-master.example.com/r`), the full path becomes `/r/a/changes/...`.

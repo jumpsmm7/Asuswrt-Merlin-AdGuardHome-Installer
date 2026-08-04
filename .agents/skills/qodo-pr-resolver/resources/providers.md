@@ -563,7 +563,12 @@ trap 'rm -f "$REPLY_FILE"; exit 143' TERM
 gh api repos/{owner}/{repo}/pulls/<pr-number>/comments/<inline-comment-id>/replies \
   -X POST \
   -F body=@"$REPLY_FILE"
+REPLY_STATUS=$?
 rm -f "$REPLY_FILE"
+if [ "$REPLY_STATUS" -ne 0 ]; then
+  echo "Error: GitHub inline reply failed" >&2
+  continue
+fi
 ```
 
 **Reply format:**
@@ -584,23 +589,56 @@ trap 'rm -f "$REPLY_FILE"; exit 143' TERM
 glab api "/projects/:id/merge_requests/<mr-iid>/discussions/<discussion-id>/notes" \
   -X POST \
   -F body=@"$REPLY_FILE"
+REPLY_STATUS=$?
 rm -f "$REPLY_FILE"
+if [ "$REPLY_STATUS" -ne 0 ]; then
+  echo "Error: GitLab inline reply failed" >&2
+  continue
+fi
 ```
 
 ### Bitbucket
 
 ```bash
-# Serialize dynamic value before embedding in JSON
-REPLY_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<reply-body>")
+# Build payload from file to avoid shell injection
+REPLY_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_reply.XXXXXX") || exit 1
+trap 'rm -f "$REPLY_FILE"' EXIT
+trap 'rm -f "$REPLY_FILE"; exit 129' HUP
+trap 'rm -f "$REPLY_FILE"; exit 130' INT
+trap 'rm -f "$REPLY_FILE"; exit 143' TERM
+# Write the rendered reply body to $REPLY_FILE with your file-writing tool now
+# (do not embed the body in this script via a heredoc or quoted argument).
+
+PAYLOAD_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_payload.XXXXXX") || { rm -f "$REPLY_FILE"; exit 1; }
+trap 'rm -f "$REPLY_FILE" "$PAYLOAD_FILE"' EXIT
+trap 'rm -f "$REPLY_FILE" "$PAYLOAD_FILE"; exit 129' HUP
+trap 'rm -f "$REPLY_FILE" "$PAYLOAD_FILE"; exit 130' INT
+trap 'rm -f "$REPLY_FILE" "$PAYLOAD_FILE"; exit 143' TERM
+
+python3 - "$REPLY_FILE" <inline-comment-id> >"$PAYLOAD_FILE" <<'PY' || { rm -f "$REPLY_FILE" "$PAYLOAD_FILE"; exit 1; }
+import json
+import sys
+
+with open(sys.argv[1], 'r') as f:
+    reply_body = f.read()
+
+payload = {
+    "content": {"raw": reply_body},
+    "parent": {"id": int(sys.argv[2])}
+}
+print(json.dumps(payload))
+PY
 
 if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X POST \
   "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments" \
-  -d "{\"content\": {\"raw\": ${REPLY_BODY_JSON}}, \"parent\": {\"id\": <inline-comment-id>}}"); then
+  -d @"$PAYLOAD_FILE"); then
   echo "Error: Bitbucket inline reply failed (curl error)" >&2
+  rm -f "$REPLY_FILE" "$PAYLOAD_FILE"
   continue
 fi
+rm -f "$REPLY_FILE" "$PAYLOAD_FILE"
 HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
 BODY=$(echo "$RESPONSE" | sed '$d')
 
@@ -623,17 +661,31 @@ echo "$BODY"
 
 ```bash
 # Add a reply comment to an existing thread (az repos pr thread does not exist)
-REPLY_BODY=$(cat <<'EOF'
-<reply-body>
-EOF
-)
-REPLY_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$REPLY_BODY") || { echo "Error: Failed to serialize Azure DevOps reply body" >&2; continue; }
-ADO_COMMENT_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_comment.XXXXXX") || { echo "Error: Failed to create temp file for Azure DevOps reply" >&2; continue; }
-trap 'rm -f "$ADO_COMMENT_FILE"' EXIT
-trap 'rm -f "$ADO_COMMENT_FILE"; exit 129' HUP
-trap 'rm -f "$ADO_COMMENT_FILE"; exit 130' INT
-trap 'rm -f "$ADO_COMMENT_FILE"; exit 143' TERM
-printf '%s\n' "{\"content\": ${REPLY_BODY_JSON}, \"commentType\": 1}" > "$ADO_COMMENT_FILE" || { echo "Error: Failed to write Azure DevOps reply payload" >&2; rm -f "$ADO_COMMENT_FILE"; continue; }
+REPLY_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_reply.XXXXXX") || exit 1
+trap 'rm -f "$REPLY_FILE"' EXIT
+trap 'rm -f "$REPLY_FILE"; exit 129' HUP
+trap 'rm -f "$REPLY_FILE"; exit 130' INT
+trap 'rm -f "$REPLY_FILE"; exit 143' TERM
+# Write the rendered reply body to $REPLY_FILE with your file-writing tool now
+# (do not embed the body in this script via a heredoc or quoted argument).
+
+ADO_COMMENT_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_comment.XXXXXX") || { echo "Error: Failed to create temp file for Azure DevOps reply" >&2; rm -f "$REPLY_FILE"; continue; }
+trap 'rm -f "$REPLY_FILE" "$ADO_COMMENT_FILE"' EXIT
+trap 'rm -f "$REPLY_FILE" "$ADO_COMMENT_FILE"; exit 129' HUP
+trap 'rm -f "$REPLY_FILE" "$ADO_COMMENT_FILE"; exit 130' INT
+trap 'rm -f "$REPLY_FILE" "$ADO_COMMENT_FILE"; exit 143' TERM
+
+python3 - "$REPLY_FILE" >"$ADO_COMMENT_FILE" <<'PY' || { echo "Error: Failed to serialize Azure DevOps reply body" >&2; rm -f "$REPLY_FILE" "$ADO_COMMENT_FILE"; continue; }
+import json
+import sys
+
+with open(sys.argv[1], 'r') as f:
+    reply_body = f.read()
+
+payload = {"content": reply_body, "commentType": 1}
+print(json.dumps(payload))
+PY
+
 if ! az devops invoke \
   --organization "$ADO_ORGANIZATION" \
   --area git \
@@ -644,10 +696,14 @@ if ! az devops invoke \
   --in-file "$ADO_COMMENT_FILE" \
   --output json; then
   echo "Error: Failed to post reply comment to Azure DevOps thread" >&2
-  rm -f "$ADO_COMMENT_FILE"
+  REPLY_STATUS=1
+else
+  REPLY_STATUS=0
+fi
+rm -f "$REPLY_FILE" "$ADO_COMMENT_FILE"
+if [ "$REPLY_STATUS" -ne 0 ]; then
   continue
 fi
-rm -f "$ADO_COMMENT_FILE"
 ```
 
 ## Resolve Inline Threads
@@ -794,7 +850,12 @@ trap 'rm -f "$COMMENT_FILE"; exit 143' TERM
 # (do not embed the body in this script via a heredoc or quoted argument).
 
 gh pr comment <pr-number> --body-file "$COMMENT_FILE"
+COMMENT_STATUS=$?
 rm -f "$COMMENT_FILE"
+if [ "$COMMENT_STATUS" -ne 0 ]; then
+  echo "Error: GitHub summary comment failed" >&2
+  exit 1
+fi
 ```
 
 ### GitLab
@@ -809,21 +870,55 @@ trap 'rm -f "$COMMENT_FILE"; exit 143' TERM
 # (do not embed the body in this script via a heredoc or quoted argument).
 
 glab mr comment <mr-iid> < "$COMMENT_FILE"
+COMMENT_STATUS=$?
 rm -f "$COMMENT_FILE"
+if [ "$COMMENT_STATUS" -ne 0 ]; then
+  echo "Error: GitLab summary comment failed" >&2
+  exit 1
+fi
 ```
 
 ### Bitbucket
 
 ```bash
-# Serialize dynamic value before embedding in JSON
-COMMENT_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "<comment-body>")
+# Build payload from file to avoid shell injection
+COMMENT_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_comment.XXXXXX") || exit 1
+trap 'rm -f "$COMMENT_FILE"' EXIT
+trap 'rm -f "$COMMENT_FILE"; exit 129' HUP
+trap 'rm -f "$COMMENT_FILE"; exit 130' INT
+trap 'rm -f "$COMMENT_FILE"; exit 143' TERM
+# Write the rendered comment body to $COMMENT_FILE with your file-writing tool now
+# (do not embed the body in this script via a heredoc or quoted argument).
+
+PAYLOAD_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_payload.XXXXXX") || { rm -f "$COMMENT_FILE"; exit 1; }
+trap 'rm -f "$COMMENT_FILE" "$PAYLOAD_FILE"' EXIT
+trap 'rm -f "$COMMENT_FILE" "$PAYLOAD_FILE"; exit 129' HUP
+trap 'rm -f "$COMMENT_FILE" "$PAYLOAD_FILE"; exit 130' INT
+trap 'rm -f "$COMMENT_FILE" "$PAYLOAD_FILE"; exit 143' TERM
+
+python3 - "$COMMENT_FILE" >"$PAYLOAD_FILE" <<'PY' || { rm -f "$COMMENT_FILE" "$PAYLOAD_FILE"; exit 1; }
+import json
+import sys
+
+with open(sys.argv[1], 'r') as f:
+    comment_body = f.read()
+
+payload = {"content": {"raw": comment_body}}
+print(json.dumps(payload))
+PY
 
 if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" \
   -H "Content-Type: application/json" \
   -X POST \
   "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments" \
-  -d "{\"content\": {\"raw\": ${COMMENT_BODY_JSON}}}"); then
+  -d @"$PAYLOAD_FILE"); then
   echo "Error: Bitbucket API request failed (curl error)" >&2
+  rm -f "$COMMENT_FILE" "$PAYLOAD_FILE"
+  exit 1
+fi
+COMMENT_STATUS=$?
+rm -f "$COMMENT_FILE" "$PAYLOAD_FILE"
+if [ "$COMMENT_STATUS" -ne 0 ]; then
   exit 1
 fi
 HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
@@ -848,17 +943,34 @@ echo "$BODY"
 
 ```bash
 # Create a new top-level comment thread (az repos pr thread create does not exist)
-COMMENT_BODY=$(cat <<'EOF'
-<comment-body>
-EOF
-)
-COMMENT_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$COMMENT_BODY") || exit 1
-ADO_THREAD_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_thread.XXXXXX") || exit 1
-trap 'rm -f "$ADO_THREAD_FILE"' EXIT
-trap 'rm -f "$ADO_THREAD_FILE"; exit 129' HUP
-trap 'rm -f "$ADO_THREAD_FILE"; exit 130' INT
-trap 'rm -f "$ADO_THREAD_FILE"; exit 143' TERM
-printf '%s\n' "{\"comments\": [{\"content\": ${COMMENT_BODY_JSON}, \"commentType\": 1}], \"status\": \"active\"}" > "$ADO_THREAD_FILE" || exit 1
+COMMENT_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_comment.XXXXXX") || exit 1
+trap 'rm -f "$COMMENT_FILE"' EXIT
+trap 'rm -f "$COMMENT_FILE"; exit 129' HUP
+trap 'rm -f "$COMMENT_FILE"; exit 130' INT
+trap 'rm -f "$COMMENT_FILE"; exit 143' TERM
+# Write the rendered comment body to $COMMENT_FILE with your file-writing tool now
+# (do not embed the body in this script via a heredoc or quoted argument).
+
+ADO_THREAD_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_thread.XXXXXX") || { rm -f "$COMMENT_FILE"; exit 1; }
+trap 'rm -f "$COMMENT_FILE" "$ADO_THREAD_FILE"' EXIT
+trap 'rm -f "$COMMENT_FILE" "$ADO_THREAD_FILE"; exit 129' HUP
+trap 'rm -f "$COMMENT_FILE" "$ADO_THREAD_FILE"; exit 130' INT
+trap 'rm -f "$COMMENT_FILE" "$ADO_THREAD_FILE"; exit 143' TERM
+
+python3 - "$COMMENT_FILE" >"$ADO_THREAD_FILE" <<'PY' || { rm -f "$COMMENT_FILE" "$ADO_THREAD_FILE"; exit 1; }
+import json
+import sys
+
+with open(sys.argv[1], 'r') as f:
+    comment_body = f.read()
+
+payload = {
+    "comments": [{"content": comment_body, "commentType": 1}],
+    "status": "active"
+}
+print(json.dumps(payload))
+PY
+
 if ! az devops invoke \
   --organization "$ADO_ORGANIZATION" \
   --area git \
@@ -869,10 +981,14 @@ if ! az devops invoke \
   --in-file "$ADO_THREAD_FILE" \
   --output json; then
   echo "Error: Failed to create Azure DevOps summary comment thread" >&2
-  rm -f "$ADO_THREAD_FILE"
+  COMMENT_STATUS=1
+else
+  COMMENT_STATUS=0
+fi
+rm -f "$COMMENT_FILE" "$ADO_THREAD_FILE"
+if [ "$COMMENT_STATUS" -ne 0 ]; then
   exit 1
 fi
-rm -f "$ADO_THREAD_FILE"
 ```
 
 **Summary format:** (the `— Round N` heading and `Generated by Qodo PR Resolver skill` footer are how the *next* resolver run detects this round — see SKILL.md Step 3c; `N` = current round number)

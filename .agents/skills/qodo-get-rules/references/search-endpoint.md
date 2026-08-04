@@ -97,13 +97,22 @@ trap 'rm -f "${AUTH_HEADER}"' EXIT
 trap 'rc=$?; trap "" EXIT HUP INT TERM; rm -f "${AUTH_HEADER}"; exit $rc' HUP INT TERM
 printf 'Authorization: Bearer %s\n' "${API_KEY}" >"${AUTH_HEADER}" || exit 1
 
-curl --fail --show-error --silent --connect-timeout 10 --max-time 30 -X POST \
+RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 -X POST \
   -H "Content-Type: application/json" \
   -H "@${AUTH_HEADER}" \
   -H "request-id: ${REQUEST_ID}" \
   -H "qodo-client-type: skill-qodo-get-rules" \
   -d "${BODY}" \
-  "${API_URL}/rules/search"
+  "${API_URL}/rules/search") || exit 1
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY_RESPONSE=$(echo "$RESPONSE" | sed '$d')
+
+if [ "$HTTP_CODE" != "200" ]; then
+  echo "Error: Rules search failed with HTTP status $HTTP_CODE" >&2
+  exit 1
+fi
+
+echo "$BODY_RESPONSE"
 ```
 
 With optional trace header:
@@ -128,23 +137,32 @@ trap 'rc=$?; trap "" EXIT HUP INT TERM; rm -f "${AUTH_HEADER}"; exit $rc' HUP IN
 printf 'Authorization: Bearer %s\n' "${API_KEY}" >"${AUTH_HEADER}" || exit 1
 
 if [ -n "${TRACE_ID:-}" ]; then
-  curl --fail --show-error --silent --connect-timeout 10 --max-time 30 -X POST \
+  RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 -X POST \
     -H "Content-Type: application/json" \
     -H "@${AUTH_HEADER}" \
     -H "request-id: ${REQUEST_ID}" \
     -H "qodo-client-type: skill-qodo-get-rules" \
     -H "trace_id:${TRACE_ID}" \
     -d "${BODY}" \
-    "${API_URL}/rules/search"
+    "${API_URL}/rules/search") || exit 1
 else
-  curl --fail --show-error --silent --connect-timeout 10 --max-time 30 -X POST \
+  RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 -X POST \
     -H "Content-Type: application/json" \
     -H "@${AUTH_HEADER}" \
     -H "request-id: ${REQUEST_ID}" \
     -H "qodo-client-type: skill-qodo-get-rules" \
     -d "${BODY}" \
-    "${API_URL}/rules/search"
+    "${API_URL}/rules/search") || exit 1
 fi
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY_RESPONSE=$(echo "$RESPONSE" | sed '$d')
+
+if [ "$HTTP_CODE" != "200" ]; then
+  echo "Error: Rules search failed with HTTP status $HTTP_CODE" >&2
+  exit 1
+fi
+
+echo "$BODY_RESPONSE"
 ```
 
 ## Example (Python)

@@ -178,6 +178,7 @@ nvram_transaction_finalize_setup_pair() {
 			[ ! -d "${snapshot_root}/setup-files" ]; then
 			return 0
 		fi
+		mkdir -p "${snapshot_root}" || return 1
 		printf '%s\n' committed >"${marker_tmp}" || return 1
 		chmod 600 "${marker_tmp}" || {
 			rm -f "${marker_tmp}"
@@ -1294,8 +1295,9 @@ on_installer_exit() {
 		PTXT "${ERROR} Unable to restart stubby after interrupted DNS preparation."
 	fi
 	if nvram_transaction_lock_owned; then
+		# Finalize setup-pair for both WAN and LAN modes
+		nvram_transaction_finalize_setup_pair recovery || PTXT "${ERROR} Unable to finish the committed installer-managed NVRAM cleanup."
 		if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ]; then
-			nvram_transaction_finalize_setup_pair recovery || PTXT "${ERROR} Unable to finish the committed installer-managed NVRAM cleanup."
 			# Restore any LAN-domain transaction interrupted before setup finalized it.
 			installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 			# Restore any DNSFilter transaction interrupted before setup finalized it.
