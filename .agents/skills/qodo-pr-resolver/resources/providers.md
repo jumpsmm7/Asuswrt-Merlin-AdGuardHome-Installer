@@ -46,7 +46,10 @@ if [ -z "${AZURE_DEVOPS_URL:-}" ]; then
       echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
       exit 1
     fi
-    AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL") or "")' "$QODO_CONFIG" 2>/dev/null || echo "")
+    if ! AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL") or "")' "$QODO_CONFIG"); then
+      echo "Error: Failed to parse AZURE_DEVOPS_URL from $QODO_CONFIG" >&2
+      exit 1
+    fi
   fi
 fi
 # Now match remote URL host against dev.azure.com or AZURE_DEVOPS_URL
@@ -218,8 +221,18 @@ EOF
       echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
       exit 1
     fi
-    [ -n "${AZURE_DEVOPS_EXT_PAT:-}" ] || AZURE_DEVOPS_EXT_PAT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_EXT_PAT") or "")' "$QODO_CONFIG")
-    [ -n "${AZURE_DEVOPS_URL:-}" ] || AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL") or "")' "$QODO_CONFIG")
+    if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ]; then
+      if ! AZURE_DEVOPS_EXT_PAT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_EXT_PAT") or "")' "$QODO_CONFIG"); then
+        echo "Error: Failed to parse AZURE_DEVOPS_EXT_PAT from $QODO_CONFIG" >&2
+        exit 1
+      fi
+    fi
+    if [ -z "${AZURE_DEVOPS_URL:-}" ]; then
+      if ! AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL") or "")' "$QODO_CONFIG"); then
+        echo "Error: Failed to parse AZURE_DEVOPS_URL from $QODO_CONFIG" >&2
+        exit 1
+      fi
+    fi
   fi
   export AZURE_DEVOPS_EXT_PAT
   if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ]; then
@@ -526,11 +539,15 @@ az devops invoke \
 
 Use the inline comment ID preserved during deduplication to reply directly to Qodo's comments.
 
-**Never place rendered reply text inside a shell-quoted argument.** An issue title or deferral
-reason that contains `'` can close the quote early and change what the shell executes. Write the
-rendered text to a temporary file first, then pass the file to the provider command so the shell
-never parses the reply body. Use cleanup traps for `EXIT`, `HUP`, `INT`, and `TERM`, consistent
-with the Azure DevOps examples below.
+**Never place rendered reply text inside a shell-quoted argument or a shell heredoc.** An issue
+title or deferral reason that contains `'` can close a quoted argument early, and a reply body
+that contains a standalone line matching a heredoc delimiter (e.g. a line reading just `EOF`) can
+terminate a `<<'EOF' ... EOF` block early, causing the remaining body text to be parsed and
+executed as shell commands. Create the temporary file path with `mktemp` and register cleanup
+traps for `EXIT`, `HUP`, `INT`, and `TERM` first, consistent with the Azure DevOps examples
+below. Then write the rendered reply body to that file directly with your file-writing tool —
+never by generating a shell script that embeds the body inside a heredoc or quoted argument —
+before passing the file to the provider command below.
 
 ### GitHub
 
@@ -540,9 +557,8 @@ trap 'rm -f "$REPLY_FILE"' EXIT
 trap 'rm -f "$REPLY_FILE"; exit 129' HUP
 trap 'rm -f "$REPLY_FILE"; exit 130' INT
 trap 'rm -f "$REPLY_FILE"; exit 143' TERM
-cat > "$REPLY_FILE" <<'EOF'
-<reply-body>
-EOF
+# Write the rendered reply body to $REPLY_FILE with your file-writing tool now
+# (do not embed the body in this script via a heredoc or quoted argument).
 
 gh api repos/{owner}/{repo}/pulls/<pr-number>/comments/<inline-comment-id>/replies \
   -X POST \
@@ -562,9 +578,8 @@ trap 'rm -f "$REPLY_FILE"' EXIT
 trap 'rm -f "$REPLY_FILE"; exit 129' HUP
 trap 'rm -f "$REPLY_FILE"; exit 130' INT
 trap 'rm -f "$REPLY_FILE"; exit 143' TERM
-cat > "$REPLY_FILE" <<'EOF'
-<reply-body>
-EOF
+# Write the rendered reply body to $REPLY_FILE with your file-writing tool now
+# (do not embed the body in this script via a heredoc or quoted argument).
 
 glab api "/projects/:id/merge_requests/<mr-iid>/discussions/<discussion-id>/notes" \
   -X POST \
@@ -757,11 +772,15 @@ rm -f "${ADO_STATUS_FILE}"
 
 After reviewing all issues, post a summary comment to the PR/MR.
 
-**Never place rendered comment text inside a shell-quoted argument.** An issue title or deferral
-reason that contains `'` can close the quote early and change what the shell executes. Write the
-rendered text to a temporary file first, then pass the file to the provider command so the shell
-never parses the comment body. Use cleanup traps for `EXIT`, `HUP`, `INT`, and `TERM`, consistent
-with the Azure DevOps examples below.
+**Never place rendered comment text inside a shell-quoted argument or a shell heredoc.** An
+issue title or deferral reason that contains `'` can close a quoted argument early, and a
+comment body that contains a standalone line matching a heredoc delimiter (e.g. a line reading
+just `EOF`) can terminate a `<<'EOF' ... EOF` block early, causing the remaining body text to be
+parsed and executed as shell commands. Create the temporary file path with `mktemp` and register
+cleanup traps for `EXIT`, `HUP`, `INT`, and `TERM` first, consistent with the Azure DevOps
+examples below. Then write the rendered comment body to that file directly with your
+file-writing tool — never by generating a shell script that embeds the body inside a heredoc or
+quoted argument — before passing the file to the provider command below.
 
 ### GitHub
 
@@ -771,9 +790,8 @@ trap 'rm -f "$COMMENT_FILE"' EXIT
 trap 'rm -f "$COMMENT_FILE"; exit 129' HUP
 trap 'rm -f "$COMMENT_FILE"; exit 130' INT
 trap 'rm -f "$COMMENT_FILE"; exit 143' TERM
-cat > "$COMMENT_FILE" <<'EOF'
-<comment-body>
-EOF
+# Write the rendered comment body to $COMMENT_FILE with your file-writing tool now
+# (do not embed the body in this script via a heredoc or quoted argument).
 
 gh pr comment <pr-number> --body-file "$COMMENT_FILE"
 rm -f "$COMMENT_FILE"
@@ -787,9 +805,8 @@ trap 'rm -f "$COMMENT_FILE"' EXIT
 trap 'rm -f "$COMMENT_FILE"; exit 129' HUP
 trap 'rm -f "$COMMENT_FILE"; exit 130' INT
 trap 'rm -f "$COMMENT_FILE"; exit 143' TERM
-cat > "$COMMENT_FILE" <<'EOF'
-<comment-body>
-EOF
+# Write the rendered comment body to $COMMENT_FILE with your file-writing tool now
+# (do not embed the body in this script via a heredoc or quoted argument).
 
 glab mr comment <mr-iid> < "$COMMENT_FILE"
 rm -f "$COMMENT_FILE"

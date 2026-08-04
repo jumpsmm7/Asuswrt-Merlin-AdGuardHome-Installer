@@ -76,6 +76,23 @@ printf '%s\n' "$REPLY_GITLAB" | grep -Eq "['\"]<reply-body>['\"]" && fail 'GitLa
 printf '%s\n' "$REPLY_GITHUB" | grep -Fq -- '-F body=@"$REPLY_FILE"' || fail 'GitHub inline reply does not read the reply body from a file'
 printf '%s\n' "$REPLY_GITLAB" | grep -Fq -- '-F body=@"$REPLY_FILE"' || fail 'GitLab inline reply does not read the reply body from a file'
 
+# The reply templates must not embed the rendered body inside a shell heredoc: a body
+# containing a standalone line matching the delimiter (e.g. a literal "EOF" line) would
+# terminate the heredoc early and let the remaining body text execute as shell commands.
+printf '%s\n' "$REPLY_GITHUB" | grep -Fq "<<'EOF'" && fail 'GitHub inline reply still embeds the reply body inside a shell heredoc'
+printf '%s\n' "$REPLY_GITLAB" | grep -Fq "<<'EOF'" && fail 'GitLab inline reply still embeds the reply body inside a shell heredoc'
+
+# Fixture: a rendered reply body containing a standalone "EOF" line followed by a command.
+# Writing it out-of-band (as the file-writing tool would, not via a shell heredoc) must
+# preserve it as literal content and must never execute the trailing line.
+REPLY_MARKER=$(mktemp -u "${TMPDIR:-/tmp}/qodo_reply_marker.XXXXXX")
+REPLY_FIXTURE_FILE=$(mktemp "${TMPDIR:-/tmp}/qodo_reply_fixture.XXXXXX") || fail 'unable to create reply fixture file'
+printf 'Fixed the issue.\nEOF\ntouch %s\n' "$REPLY_MARKER" >"$REPLY_FIXTURE_FILE"
+[ "$(wc -l <"$REPLY_FIXTURE_FILE")" -eq 3 ] || fail 'reply fixture with standalone EOF line was not preserved as literal content'
+grep -Fq "touch ${REPLY_MARKER}" "$REPLY_FIXTURE_FILE" || fail 'reply fixture content was altered'
+[ -e "$REPLY_MARKER" ] && fail 'reply fixture command was executed instead of remaining literal file content'
+rm -f "$REPLY_FIXTURE_FILE" "$REPLY_MARKER"
+
 # Extract the "Post Summary Comment" section for scoped assertions on safe dynamic comment transport
 if ! grep -Fq '## Qodo Fix Summary — Round N' "${PROVIDERS}"; then
 	fail 'Qodo Fix Summary heading not found in providers.md (cannot extract Post Summary Comment section)'
@@ -98,5 +115,18 @@ printf '%s\n' "$SUMMARY_GITHUB" | grep -Eq "['\"]<comment-body>['\"]" && fail 'G
 printf '%s\n' "$SUMMARY_GITLAB" | grep -Eq "['\"]<comment-body>['\"]" && fail 'GitLab summary comment still places rendered comment text inside a shell-quoted <comment-body> placeholder'
 printf '%s\n' "$SUMMARY_GITHUB" | grep -Fq -- '--body-file "$COMMENT_FILE"' || fail 'GitHub summary comment does not use --body-file to read the comment body from a file'
 printf '%s\n' "$SUMMARY_GITLAB" | grep -Fq -- '< "$COMMENT_FILE"' || fail 'GitLab summary comment does not consume the comment body file through standard input'
+
+# The summary templates must not embed the rendered body inside a shell heredoc either.
+printf '%s\n' "$SUMMARY_GITHUB" | grep -Fq "<<'EOF'" && fail 'GitHub summary comment still embeds the comment body inside a shell heredoc'
+printf '%s\n' "$SUMMARY_GITLAB" | grep -Fq "<<'EOF'" && fail 'GitLab summary comment still embeds the comment body inside a shell heredoc'
+
+# Fixture: a rendered summary body containing a standalone "EOF" line followed by a command.
+SUMMARY_MARKER=$(mktemp -u "${TMPDIR:-/tmp}/qodo_summary_marker.XXXXXX")
+SUMMARY_FIXTURE_FILE=$(mktemp "${TMPDIR:-/tmp}/qodo_summary_fixture.XXXXXX") || fail 'unable to create summary fixture file'
+printf '## Qodo Fix Summary\nEOF\ntouch %s\n' "$SUMMARY_MARKER" >"$SUMMARY_FIXTURE_FILE"
+[ "$(wc -l <"$SUMMARY_FIXTURE_FILE")" -eq 3 ] || fail 'summary fixture with standalone EOF line was not preserved as literal content'
+grep -Fq "touch ${SUMMARY_MARKER}" "$SUMMARY_FIXTURE_FILE" || fail 'summary fixture content was altered'
+[ -e "$SUMMARY_MARKER" ] && fail 'summary fixture command was executed instead of remaining literal file content'
+rm -f "$SUMMARY_FIXTURE_FILE" "$SUMMARY_MARKER"
 
 printf '%s\n' 'PASS: Qodo provider-specific inline thread resolution is documented and required'
