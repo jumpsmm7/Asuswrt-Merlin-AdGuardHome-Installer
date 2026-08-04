@@ -178,7 +178,17 @@ except json.JSONDecodeError as exc:
 else:
     if not isinstance(data, dict) or not isinstance(data.get("rules"), list):
         raise SystemExit("Qodo rules request failed: malformed response (expected object with 'rules' array)")
-    rules = data.get("rules", [])
+    # Validate each rule's schema and severity before accepting
+    rules = []
+    for entry in data.get("rules", []):
+        if not isinstance(entry, dict):
+            raise SystemExit("Qodo rules request failed: malformed response (rules array contains non-object entry)")
+        if not isinstance(entry.get("name"), str) or not isinstance(entry.get("content"), str):
+            raise SystemExit("Qodo rules request failed: malformed response (rule missing required string fields 'name' or 'content')")
+        severity = entry.get("severity")
+        if severity not in ("ERROR", "WARNING", "RECOMMENDATION"):
+            raise SystemExit(f"Qodo rules request failed: malformed response (rule has invalid severity: {severity!r}, expected ERROR, WARNING, or RECOMMENDATION)")
+        rules.append(entry)
 ```
 
 ## Error Handling

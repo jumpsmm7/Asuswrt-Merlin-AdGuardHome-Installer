@@ -538,22 +538,22 @@ if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 -
   -X POST \
   "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments" \
   -d "{\"content\": {\"raw\": ${REPLY_BODY_JSON}}, \"parent\": {\"id\": <inline-comment-id>}}"); then
-  echo "Error: Bitbucket API request failed (curl error)" >&2
-  exit 1
+  echo "Error: Bitbucket inline reply failed (curl error)" >&2
+  continue
 fi
 HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
 BODY=$(echo "$RESPONSE" | sed '$d')
 
 case "$HTTP_CODE" in
   ''|*[!0-9]*)
-    echo "Error: Bitbucket API returned an invalid HTTP status: ${HTTP_CODE:-empty}" >&2
-    exit 1
+    echo "Error: Bitbucket inline reply returned invalid HTTP status: ${HTTP_CODE:-empty}" >&2
+    continue
     ;;
 esac
 
 if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-  echo "Error: API request failed with HTTP status $HTTP_CODE" >&2
-  exit 1
+  echo "Error: Bitbucket inline reply failed with HTTP status $HTTP_CODE" >&2
+  continue
 fi
 
 echo "$BODY"
@@ -567,13 +567,13 @@ REPLY_BODY=$(cat <<'EOF'
 <reply-body>
 EOF
 )
-REPLY_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$REPLY_BODY") || exit 1
-ADO_COMMENT_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_comment.XXXXXX") || exit 1
+REPLY_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$REPLY_BODY") || { echo "Error: Failed to serialize Azure DevOps reply body" >&2; continue; }
+ADO_COMMENT_FILE=$(mktemp "${TMPDIR:-/tmp}/ado_comment.XXXXXX") || { echo "Error: Failed to create temp file for Azure DevOps reply" >&2; continue; }
 trap 'rm -f "$ADO_COMMENT_FILE"' EXIT
 trap 'rm -f "$ADO_COMMENT_FILE"; exit 129' HUP
 trap 'rm -f "$ADO_COMMENT_FILE"; exit 130' INT
 trap 'rm -f "$ADO_COMMENT_FILE"; exit 143' TERM
-printf '%s\n' "{\"content\": ${REPLY_BODY_JSON}, \"commentType\": 1}" > "$ADO_COMMENT_FILE" || exit 1
+printf '%s\n' "{\"content\": ${REPLY_BODY_JSON}, \"commentType\": 1}" > "$ADO_COMMENT_FILE" || { echo "Error: Failed to write Azure DevOps reply payload" >&2; rm -f "$ADO_COMMENT_FILE"; continue; }
 if ! az devops invoke \
   --organization "$ADO_ORGANIZATION" \
   --area git \
@@ -585,7 +585,7 @@ if ! az devops invoke \
   --output json; then
   echo "Error: Failed to post reply comment to Azure DevOps thread" >&2
   rm -f "$ADO_COMMENT_FILE"
-  exit 1
+  continue
 fi
 rm -f "$ADO_COMMENT_FILE"
 ```
@@ -601,7 +601,15 @@ GitHub resolves pull-request review threads through GraphQL. First map the prese
 ```bash
 THREAD_ID=""
 CURSOR=""
+PAGE_COUNT=0
+MAX_PAGES=100
 while true; do
+  PAGE_COUNT=$((PAGE_COUNT + 1))
+  if [ "$PAGE_COUNT" -gt "$MAX_PAGES" ]; then
+    echo "Error: Exceeded maximum page limit ($MAX_PAGES) while searching for GitHub review thread; aborting" >&2
+    break
+  fi
+
   THREAD_ID=$(gh api graphql \
     -f owner='{owner}' -f repo='{repo}' -F number=<pr-number> \
     ${CURSOR:+-f after="$CURSOR"} \
@@ -621,11 +629,18 @@ while true; do
     break
   fi
 
-  CURSOR=$(gh api graphql \
+  NEW_CURSOR=$(gh api graphql \
     -f owner='{owner}' -f repo='{repo}' -F number=<pr-number> \
     ${CURSOR:+-f after="$CURSOR"} \
     -f query='query($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100,after:$after){nodes{id isResolved comments(first:100){nodes{databaseId}}} pageInfo{hasNextPage endCursor}}}}}' \
     --jq '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor') || exit 1
+
+  # Validate the new cursor is non-empty and different from current cursor
+  if [ -z "$NEW_CURSOR" ] || [ "$NEW_CURSOR" = "$CURSOR" ]; then
+    echo "Error: GitHub API returned empty or unchanged endCursor; aborting to prevent infinite loop" >&2
+    break
+  fi
+  CURSOR="$NEW_CURSOR"
 done
 
 [ -n "${THREAD_ID}" ] || { echo 'Error: GitHub review thread not found.' >&2; exit 1; }

@@ -291,22 +291,22 @@ if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 -
       }]
     }
   }"); then
-  echo "Error: Gerrit API request failed (curl error)" >&2
-  exit 1
+  echo "Error: Gerrit inline reply failed (curl error)" >&2
+  continue
 fi
 HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
 BODY=$(echo "$RESPONSE" | sed '$d')
 
 case "$HTTP_CODE" in
   ''|*[!0-9]*)
-    echo "Error: Gerrit API returned an invalid HTTP status: ${HTTP_CODE:-empty}" >&2
-    exit 1
+    echo "Error: Gerrit inline reply returned invalid HTTP status: ${HTTP_CODE:-empty}" >&2
+    continue
     ;;
 esac
 
 if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-  echo "Error: API request failed with HTTP status $HTTP_CODE" >&2
-  exit 1
+  echo "Error: Gerrit inline reply failed with HTTP status $HTTP_CODE" >&2
+  continue
 fi
 
 echo "$BODY" | tail -c +6
