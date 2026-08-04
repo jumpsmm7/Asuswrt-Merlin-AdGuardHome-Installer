@@ -30,12 +30,18 @@ For Azure DevOps detection, load `AZURE_DEVOPS_URL` from the Qodo config file as
 ```bash
 # Load AZURE_DEVOPS_URL from Qodo config for provider detection if not already set
 if [ -z "${AZURE_DEVOPS_URL:-}" ]; then
-  if [ -z "${HOME:-}" ]; then
+  if [ -n "${QODO_CONFIG:-}" ]; then
+    # QODO_CONFIG is explicitly set; use it
+    :
+  elif [ -n "${HOME:-}" ]; then
+    # HOME is available; use default config path
+    QODO_CONFIG="${HOME}/.qodo/config.json"
+  else
+    # Neither QODO_CONFIG nor HOME is set; cannot derive config path
     echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
     exit 1
   fi
-  QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
-  if [ -f "$QODO_CONFIG" ]; then
+  if [ -f "${QODO_CONFIG}" ]; then
     # Require secure permissions before reading credentials
     QODO_DIR=$(dirname "$QODO_CONFIG")
     if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
@@ -96,27 +102,36 @@ fi
   These examples support **Bitbucket Cloud only**. Bitbucket Server and Data Center use different REST routes and project/repository addressing, so do not point these commands at a self-hosted instance.
 - **Load configuration** (existing environment variables take precedence):
   ```bash
-  if [ -z "${HOME:-}" ]; then
-    echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
-    exit 1
-  fi
-  QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
-  if [ -f "$QODO_CONFIG" ]; then
-    # Require secure permissions before reading credentials
-    QODO_DIR=$(dirname "$QODO_CONFIG")
-    if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
-      echo "Error: Qodo config directory $QODO_DIR must have mode 700 (owner-only access)" >&2
+  # Honor available credentials and explicit QODO_CONFIG before checking HOME
+  if [ -z "${BB_USERNAME:-}" ] || [ -z "${BB_APP_PASSWORD:-}" ]; then
+    if [ -n "${QODO_CONFIG:-}" ]; then
+      # QODO_CONFIG is explicitly set; use it
+      :
+    elif [ -n "${HOME:-}" ]; then
+      # HOME is available; use default config path
+      QODO_CONFIG="${HOME}/.qodo/config.json"
+    else
+      # Neither QODO_CONFIG nor HOME is set; require HOME only when deriving default path
+      echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
       exit 1
     fi
-    if [ "$(stat -c '%a' "$QODO_CONFIG" 2>/dev/null || stat -f '%Lp' "$QODO_CONFIG" 2>/dev/null)" != "600" ]; then
-      echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
-      exit 1
+    if [ -f "${QODO_CONFIG}" ]; then
+      # Require secure permissions before reading credentials
+      QODO_DIR=$(dirname "$QODO_CONFIG")
+      if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
+        echo "Error: Qodo config directory $QODO_DIR must have mode 700 (owner-only access)" >&2
+        exit 1
+      fi
+      if [ "$(stat -c '%a' "$QODO_CONFIG" 2>/dev/null || stat -f '%Lp' "$QODO_CONFIG" 2>/dev/null)" != "600" ]; then
+        echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
+        exit 1
+      fi
+      [ -n "${BB_USERNAME:-}" ] || BB_USERNAME=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("BB_USERNAME", ""))' "$QODO_CONFIG")
+      [ -n "${BB_APP_PASSWORD:-}" ] || BB_APP_PASSWORD=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("BB_APP_PASSWORD", ""))' "$QODO_CONFIG")
     fi
-    [ -n "${BB_USERNAME:-}" ] || BB_USERNAME=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("BB_USERNAME", ""))' "$QODO_CONFIG")
-    [ -n "${BB_APP_PASSWORD:-}" ] || BB_APP_PASSWORD=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("BB_APP_PASSWORD", ""))' "$QODO_CONFIG")
   fi
   if [ -z "${BB_USERNAME:-}" ] || [ -z "${BB_APP_PASSWORD:-}" ]; then
-    echo "Bitbucket credentials are missing; set BB_USERNAME and BB_APP_PASSWORD or add them to $QODO_CONFIG" >&2
+    echo "Bitbucket credentials are missing; set BB_USERNAME and BB_APP_PASSWORD or add them to ${QODO_CONFIG:-~/.qodo/config.json}" >&2
     exit 1
   fi
   ```
@@ -202,24 +217,33 @@ EOF
   `AZURE_DEVOPS_EXT_PAT` replaces `az login`. `AZURE_DEVOPS_URL` is optional — only needed for on-premises Azure DevOps Server.
 - **Authenticate and configure:**
   ```bash
-  if [ -z "${HOME:-}" ]; then
-    echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
-    exit 1
-  fi
-  QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
-  if [ -f "$QODO_CONFIG" ]; then
-    # Require secure permissions before reading credentials
-    QODO_DIR=$(dirname "$QODO_CONFIG")
-    if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
-      echo "Error: Qodo config directory $QODO_DIR must have mode 700 (owner-only access)" >&2
+  # Honor available credentials and explicit QODO_CONFIG before checking HOME
+  if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ] || [ -z "${AZURE_DEVOPS_URL:-}" ]; then
+    if [ -n "${QODO_CONFIG:-}" ]; then
+      # QODO_CONFIG is explicitly set; use it
+      :
+    elif [ -n "${HOME:-}" ]; then
+      # HOME is available; use default config path
+      QODO_CONFIG="${HOME}/.qodo/config.json"
+    else
+      # Neither QODO_CONFIG nor HOME is set; require HOME only when deriving default path
+      echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
       exit 1
     fi
-    if [ "$(stat -c '%a' "$QODO_CONFIG" 2>/dev/null || stat -f '%Lp' "$QODO_CONFIG" 2>/dev/null)" != "600" ]; then
-      echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
-      exit 1
+    if [ -f "${QODO_CONFIG}" ]; then
+      # Require secure permissions before reading credentials
+      QODO_DIR=$(dirname "$QODO_CONFIG")
+      if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
+        echo "Error: Qodo config directory $QODO_DIR must have mode 700 (owner-only access)" >&2
+        exit 1
+      fi
+      if [ "$(stat -c '%a' "$QODO_CONFIG" 2>/dev/null || stat -f '%Lp' "$QODO_CONFIG" 2>/dev/null)" != "600" ]; then
+        echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
+        exit 1
+      fi
+      [ -n "${AZURE_DEVOPS_EXT_PAT:-}" ] || AZURE_DEVOPS_EXT_PAT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_EXT_PAT") or "")' "$QODO_CONFIG")
+      [ -n "${AZURE_DEVOPS_URL:-}" ] || AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL") or "")' "$QODO_CONFIG")
     fi
-    [ -n "${AZURE_DEVOPS_EXT_PAT:-}" ] || AZURE_DEVOPS_EXT_PAT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_EXT_PAT") or "")' "$QODO_CONFIG")
-    [ -n "${AZURE_DEVOPS_URL:-}" ] || AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL") or "")' "$QODO_CONFIG")
   fi
   export AZURE_DEVOPS_EXT_PAT
   if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ]; then
@@ -407,7 +431,12 @@ gh pr view <pr-number> --json comments
 
 # Inline review comments (per-line comments on specific code)
 # Use pagination and flatten page arrays
-gh api repos/{owner}/{repo}/pulls/<pr-number>/comments --paginate --slurp | python3 -c 'import json, sys; print(json.dumps([item for page in json.load(sys.stdin) for item in page]))'
+# Capture gh api output and exit status before flattening
+if ! GH_COMMENTS_RAW=$(gh api repos/{owner}/{repo}/pulls/<pr-number>/comments --paginate --slurp); then
+  echo "Error: Failed to fetch GitHub pull request comments" >&2
+  exit 1
+fi
+printf '%s' "$GH_COMMENTS_RAW" | python3 -c 'import json, sys; print(json.dumps([item for page in json.load(sys.stdin) for item in page]))'
 ```
 
 ### GitLab

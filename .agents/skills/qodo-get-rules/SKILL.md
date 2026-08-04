@@ -122,15 +122,18 @@ CONFIG_QODO_API_URL=""
 
 # The config file is an optional fallback; environment-only setup is supported.
 if [ -f "${CONFIG_FILE}" ]; then
-  # Validate permissions before reading credentials
-  CONFIG_DIR=$(dirname "${CONFIG_FILE}")
-  if [ "$(stat -c '%a' "$CONFIG_DIR" 2>/dev/null || stat -f '%Lp' "$CONFIG_DIR" 2>/dev/null)" != "700" ]; then
-    printf '%s\n' "Error: Qodo config directory $CONFIG_DIR must have mode 700 (owner-only access)" >&2
-    exit 1
-  fi
-  if [ "$(stat -c '%a' "${CONFIG_FILE}" 2>/dev/null || stat -f '%Lp' "${CONFIG_FILE}" 2>/dev/null)" != "600" ]; then
-    printf '%s\n' "Error: Qodo config file ${CONFIG_FILE} must have mode 600 (owner-only access)" >&2
-    exit 1
+  # Only validate permissions when environment-only setup is insufficient
+  if [ -z "${QODO_API_KEY:-}" ] || [ -z "${QODO_ENVIRONMENT_NAME:-}" ] || [ -z "${QODO_API_URL:-}" ]; then
+    # Validate permissions before reading credentials
+    CONFIG_DIR=$(dirname "${CONFIG_FILE}")
+    if [ "$(stat -c '%a' "$CONFIG_DIR" 2>/dev/null || stat -f '%Lp' "$CONFIG_DIR" 2>/dev/null)" != "700" ]; then
+      printf '%s\n' "Error: Qodo config directory $CONFIG_DIR must have mode 700 (owner-only access)" >&2
+      exit 1
+    fi
+    if [ "$(stat -c '%a' "${CONFIG_FILE}" 2>/dev/null || stat -f '%Lp' "${CONFIG_FILE}" 2>/dev/null)" != "600" ]; then
+      printf '%s\n' "Error: Qodo config file ${CONFIG_FILE} must have mode 600 (owner-only access)" >&2
+      exit 1
+    fi
   fi
   # Only parse config values not already set in environment
   if [ -z "${QODO_API_KEY:-}" ]; then

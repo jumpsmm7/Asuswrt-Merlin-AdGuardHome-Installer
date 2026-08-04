@@ -442,7 +442,15 @@ No API call needed — pushing creates the change automatically:
 ```bash
 # For a genuinely new change, choose the destination explicitly; only then fall
 # back to the repository default. Never use this fallback for an existing change.
-TARGET_BRANCH=${TARGET_BRANCH:-$(git config -f .gitreview gerrit.defaultbranch 2>/dev/null || echo "main")}
+DEFAULT_BRANCH=$(git config -f .gitreview gerrit.defaultbranch 2>/dev/null || echo "")
+if [ -z "${DEFAULT_BRANCH}" ]; then
+  DEFAULT_BRANCH="main"
+fi
+TARGET_BRANCH=${TARGET_BRANCH:-${DEFAULT_BRANCH}}
+if [ -z "${TARGET_BRANCH}" ]; then
+  echo "Error: TARGET_BRANCH is empty; set it explicitly or configure gerrit.defaultbranch" >&2
+  exit 1
+fi
 git push origin HEAD:refs/for/$TARGET_BRANCH
 ```
 

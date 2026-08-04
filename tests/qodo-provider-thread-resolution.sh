@@ -40,6 +40,7 @@ printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq '{"status": "fixed"}' || fail 'Az
 printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq 'az devops invoke' || fail 'Azure DevOps thread resolution does not use az devops invoke'
 printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq -- '--http-method PATCH' || fail 'Azure DevOps thread resolution does not use PATCH method'
 printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq 'pullRequestThreads' || fail 'Azure DevOps thread resolution does not target pullRequestThreads resource'
+printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq 'threadId="<thread-id>"' || fail 'Azure DevOps PATCH request does not include threadId parameter'
 
 # Extract the "Reply to Comments" section from Gerrit documentation and verify thread resolution
 if ! grep -Fq '## Reply to Comments' "${GERRIT}"; then

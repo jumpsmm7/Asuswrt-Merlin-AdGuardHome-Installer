@@ -375,9 +375,10 @@ See [providers.md § Post Summary Comment](./resources/providers.md#post-summary
 
 **Important resolution rules for inline replies:**
 - Replying does not resolve an inline thread. After a successful reply, run the provider-specific thread-resolution operation in [providers.md § Resolve Inline Threads](./resources/providers.md#resolve-inline-threads).
-- **Fixed** issues: resolve the corresponding inline thread.
-- **Deferred** issues: resolve the corresponding inline thread — the next Qodo review will re-evaluate.
+- **Fixed** issues: resolve the corresponding inline thread. If the reply succeeds but the thread-resolution operation fails, record the affected comment ID and resolution error, and list it in a separate **"Unresolved resolution (reply posted, thread-resolution failed)"** category in the summary rather than under normal Fixed results. This is NOT fully handled.
+- **Deferred** issues: resolve the corresponding inline thread. If the reply succeeds but the thread-resolution operation fails, record the affected comment ID and resolution error, and list it in the **"Unresolved resolution"** category rather than under normal Deferred results.
 - **Held prior decision / hard-stopped** (⚠️ Contradiction kept as-is, or a 3rd-cycle hard stop): resolve the corresponding inline thread, and make the reply state the prior decision was deliberate (see [convergence.md](./resources/convergence.md)) so the rationale is recorded on the thread for the next round. In the summary, list these under a **dedicated category** titled **"Skipped to prevent oscillation — recommend human resolution"** (NOT under Deferred), each with `file:line` and oscillation reason.
+- Continue to post the summary even if one or more thread-resolution operations fail.
 
 **After posting the summary, resolve the Qodo review comment:**
 

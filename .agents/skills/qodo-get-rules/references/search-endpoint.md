@@ -93,7 +93,8 @@ PY
 
 umask 077
 AUTH_HEADER=$(mktemp) || exit 1
-trap 'rm -f "${AUTH_HEADER}"' EXIT HUP INT TERM
+trap 'rm -f "${AUTH_HEADER}"' EXIT
+trap 'rc=$?; trap "" EXIT HUP INT TERM; rm -f "${AUTH_HEADER}"; exit $rc' HUP INT TERM
 printf 'Authorization: Bearer %s\n' "${API_KEY}" >"${AUTH_HEADER}" || exit 1
 
 curl --fail --show-error --silent --connect-timeout 10 --max-time 30 -X POST \
@@ -122,7 +123,8 @@ PY
 
 umask 077
 AUTH_HEADER=$(mktemp) || exit 1
-trap 'rm -f "${AUTH_HEADER}"' EXIT HUP INT TERM
+trap 'rm -f "${AUTH_HEADER}"' EXIT
+trap 'rc=$?; trap "" EXIT HUP INT TERM; rm -f "${AUTH_HEADER}"; exit $rc' HUP INT TERM
 printf 'Authorization: Bearer %s\n' "${API_KEY}" >"${AUTH_HEADER}" || exit 1
 
 if [ -n "${TRACE_ID:-}" ]; then

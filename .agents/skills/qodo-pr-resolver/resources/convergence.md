@@ -46,8 +46,9 @@ one entry per issue the resolver has acted on before:
 |-------|--------|
 | `key` (`file` + `title`) | **primary lookup key** — file path + Qodo issue title (verbatim); stable across rounds even when a prior fix shifts the line numbers |
 | `line` | line the issue was raised at (from the inline comment) — recorded for display; used only to **disambiguate** multiple same-title findings in one file, never as the primary match key |
-| `decision` | `fixed` or `deferred` |
-| `rationale` | what was changed / why it was deferred |
+| `decision` | `fixed`, `deferred`, `hard_stopped`, or `held` |
+| `rationale` | what was changed / why it was deferred / stop rationale |
+| `flip_count` | number of direction flips for this location (used for hard-stop detection) |
 | `round` | which prior round — from the `## Qodo Fix Summary — Round N` heading (`max` of parsed N and summary count); uniform across all providers |
 
 ## Tagging current issues against the ledger
