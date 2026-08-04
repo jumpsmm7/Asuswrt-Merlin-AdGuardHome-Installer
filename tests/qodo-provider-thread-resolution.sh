@@ -76,16 +76,36 @@ printf '%s\n' "$GERRIT_REPLY_SECTION" | grep -Fq '/revisions/current/review' || 
 printf '%s\n' "$GERRIT_REPLY_SECTION" | grep -Fq '"in_reply_to"' || fail 'Gerrit Reply to Comments section does not use in_reply_to field'
 printf '%s\n' "$GERRIT_REPLY_SECTION" | grep -Fq '"unresolved": false' || fail 'Gerrit Reply to Comments section does not set unresolved to false'
 
+# validate_section_boundaries checks that the Resolve Inline Threads section
+# precedes the Post Summary Comment section in the given file.
+# Returns 0 if valid, 1 if invalid.
+validate_section_boundaries() {
+	_file=$1
+	if ! grep -Fq '## Resolve Inline Threads' "$_file"; then
+		return 1
+	fi
+	if ! grep -Fq '## Post Summary Comment' "$_file"; then
+		return 1
+	fi
+	_resolve_line=$(grep -Fn '## Resolve Inline Threads' "$_file" | head -n1 | cut -d: -f1)
+	_summary_line=$(grep -Fn '## Post Summary Comment' "$_file" | head -n1 | cut -d: -f1)
+	if [ -z "$_resolve_line" ] || [ -z "$_summary_line" ]; then
+		return 1
+	fi
+	if [ "$_resolve_line" -ge "$_summary_line" ]; then
+		return 1
+	fi
+	return 0
+}
+
 # Test section boundary validation with a truncated/reordered document
-TEMP_PROVIDERS=$(mktemp "${TMPDIR:-/tmp}/test-providers.XXXXXX.md")
+TEMP_PROVIDERS=$(mktemp "${TMPDIR:-/tmp}/test-providers.XXXXXX")
 trap 'rm -f "$TEMP_PROVIDERS"' EXIT
 
 # Test 1: Missing closing heading (truncated document)
 sed -n '1,/^## Resolve Inline Threads$/p' "${PROVIDERS}" >"$TEMP_PROVIDERS"
-RESOLVE_LINE=$(grep -Fn '## Resolve Inline Threads' "$TEMP_PROVIDERS" | head -n1 | cut -d: -f1)
-SUMMARY_LINE=$(grep -Fn '## Post Summary Comment' "$TEMP_PROVIDERS" | head -n1 | cut -d: -f1)
-if [ -n "$SUMMARY_LINE" ]; then
-	fail 'Truncated document test failed: Post Summary Comment section should not exist'
+if validate_section_boundaries "$TEMP_PROVIDERS"; then
+	fail 'Truncated document test failed: validation should fail for document missing Post Summary Comment section'
 fi
 
 # Test 2: Reordered sections (closing heading appears before opening heading)
@@ -94,13 +114,8 @@ fi
 	sed -n '/^## Post Summary Comment$/,/^## /p' "${PROVIDERS}" | sed '$d'
 	sed -n '/^## Resolve Inline Threads$/,/^## Post Summary Comment$/p' "${PROVIDERS}"
 } >"$TEMP_PROVIDERS"
-RESOLVE_LINE=$(grep -Fn '## Resolve Inline Threads' "$TEMP_PROVIDERS" | head -n1 | cut -d: -f1)
-SUMMARY_LINE=$(grep -Fn '## Post Summary Comment' "$TEMP_PROVIDERS" | head -n1 | cut -d: -f1)
-if [ -z "$RESOLVE_LINE" ] || [ -z "$SUMMARY_LINE" ]; then
-	fail 'Reordered sections test setup failed: could not find both headings'
-fi
-if [ "$RESOLVE_LINE" -lt "$SUMMARY_LINE" ]; then
-	fail 'Reordered sections test failed: first occurrence of Resolve should come after Summary in reordered document'
+if validate_section_boundaries "$TEMP_PROVIDERS"; then
+	fail 'Reordered sections test failed: validation should fail for document with Summary section before Resolve section'
 fi
 
 rm -f "$TEMP_PROVIDERS"

@@ -213,14 +213,15 @@ EOF
   ```json
   {
     "AZURE_DEVOPS_EXT_PAT": "your-personal-access-token",
-    "AZURE_DEVOPS_URL": "https://dev.azure.com"
+    "AZURE_DEVOPS_URL": "https://dev.azure.com",
+    "AZURE_DEVOPS_ALLOWED_ORG": "your-organization-name"
   }
   ```
-  `AZURE_DEVOPS_EXT_PAT` replaces `az login`. `AZURE_DEVOPS_URL` is optional — only needed for on-premises Azure DevOps Server.
+  `AZURE_DEVOPS_EXT_PAT` replaces `az login`. `AZURE_DEVOPS_URL` is optional — only needed for on-premises Azure DevOps Server. `AZURE_DEVOPS_ALLOWED_ORG` is required when using `AZURE_DEVOPS_EXT_PAT` with Azure DevOps Cloud (`https://dev.azure.com`) to restrict which organization the PAT can be used against.
 - **Authenticate and configure:**
   ```bash
   # Honor available credentials and explicit QODO_CONFIG before checking HOME
-  if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ] || [ -z "${AZURE_DEVOPS_URL:-}" ]; then
+  if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ] || [ -z "${AZURE_DEVOPS_URL:-}" ] || [ -z "${AZURE_DEVOPS_ALLOWED_ORG:-}" ]; then
     if [ -n "${QODO_CONFIG:-}" ]; then
       # QODO_CONFIG is explicitly set; use it
       :
@@ -255,11 +256,13 @@ EOF
           exit 1
         fi
       fi
+      if [ -z "${AZURE_DEVOPS_ALLOWED_ORG:-}" ]; then
+        if ! AZURE_DEVOPS_ALLOWED_ORG=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_ALLOWED_ORG") or "")' "$QODO_CONFIG"); then
+          echo "Error: Failed to parse AZURE_DEVOPS_ALLOWED_ORG from Qodo config file: $QODO_CONFIG" >&2
+          exit 1
+        fi
+      fi
     fi
-  fi
-  export AZURE_DEVOPS_EXT_PAT
-  if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ]; then
-    az login || { echo "Error: az login failed" >&2; exit 1; }
   fi
   # Normalize the configured service/collection URL. For Azure DevOps Cloud,
   # the organization is the first path component after dev.azure.com. For
@@ -289,8 +292,23 @@ EOF
     ADO_ORG=${ADO_PATH%%/*}
     ADO_PATH=${ADO_PATH#*/}
     ADO_ORGANIZATION=$ADO_BASE_URL/$ADO_ORG
+    # For Azure DevOps Cloud, validate organization against allowlist before using PAT
+    if [ -n "${AZURE_DEVOPS_EXT_PAT:-}" ]; then
+      if [ -z "${AZURE_DEVOPS_ALLOWED_ORG:-}" ]; then
+        echo "Error: AZURE_DEVOPS_ALLOWED_ORG must be set when using AZURE_DEVOPS_EXT_PAT with Azure DevOps Cloud (https://dev.azure.com)" >&2
+        exit 1
+      fi
+      if [ "$ADO_ORG" != "$AZURE_DEVOPS_ALLOWED_ORG" ]; then
+        echo "Error: Organization '$ADO_ORG' extracted from remote URL does not match allowed organization '$AZURE_DEVOPS_ALLOWED_ORG'" >&2
+        exit 1
+      fi
+    fi
   else
     ADO_ORGANIZATION=$ADO_BASE_URL
+  fi
+  export AZURE_DEVOPS_EXT_PAT
+  if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ]; then
+    az login || { echo "Error: az login failed" >&2; exit 1; }
   fi
   ADO_PROJECT=${ADO_PATH%%/*}
   ADO_REPO=${ADO_PATH##*/}
