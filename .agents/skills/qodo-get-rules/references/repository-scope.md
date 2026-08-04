@@ -61,16 +61,19 @@ if [ -n "$REMOTE_URL" ]; then
 fi
 
 if [ -n "$REPO_PATH" ]; then
-  REPO_ROOT=$(git rev-parse --show-toplevel)
-  REL_PATH=$(realpath --relative-to="$REPO_ROOT" "$PWD" 2>/dev/null \
-    || python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' \
-      "$PWD" "$REPO_ROOT")
-  MODULE=$(echo "$REL_PATH" | sed -n 's|^modules/\([^/]*\).*|\1|p')
+  if REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) && [ -n "$REPO_ROOT" ]; then
+    REL_PATH=$(realpath --relative-to="$REPO_ROOT" "$PWD" 2>/dev/null \
+      || python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' \
+        "$PWD" "$REPO_ROOT" 2>/dev/null)
+    if [ -n "$REL_PATH" ]; then
+      MODULE=$(echo "$REL_PATH" | sed -n 's|^modules/\([^/]*\).*|\1|p')
 
-  if [ -n "$MODULE" ]; then
-    SCOPE="/${REPO_PATH}/modules/${MODULE}/"
-  else
-    SCOPE="/${REPO_PATH}/"
+      if [ -n "$MODULE" ]; then
+        SCOPE="/${REPO_PATH}/modules/${MODULE}/"
+      else
+        SCOPE="/${REPO_PATH}/"
+      fi
+    fi
   fi
 fi
 ```

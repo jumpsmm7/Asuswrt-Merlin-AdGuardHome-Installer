@@ -46,7 +46,7 @@ if [ -z "${AZURE_DEVOPS_URL:-}" ]; then
       echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
       exit 1
     fi
-    AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL", ""))' "$QODO_CONFIG" 2>/dev/null || echo "")
+    AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL") or "")' "$QODO_CONFIG" 2>/dev/null || echo "")
   fi
 fi
 # Now match remote URL host against dev.azure.com or AZURE_DEVOPS_URL
@@ -164,8 +164,27 @@ EOF
   ```
 - **Verify:**
   ```bash
-  curl --fail --silent --show-error --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" \
-    "$BB_API_URL/2.0/user" | python3 -m json.tool
+  if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" \
+    "$BB_API_URL/2.0/user"); then
+    echo "Error: Bitbucket API request failed (curl error)" >&2
+    exit 1
+  fi
+  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+  BODY=$(echo "$RESPONSE" | sed '$d')
+
+  case "$HTTP_CODE" in
+    ''|*[!0-9]*)
+      echo "Error: Bitbucket API returned an invalid HTTP status: ${HTTP_CODE:-empty}" >&2
+      exit 1
+      ;;
+  esac
+
+  if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+    echo "Error: Bitbucket verification failed with HTTP status $HTTP_CODE" >&2
+    exit 1
+  fi
+
+  echo "$BODY" | python3 -m json.tool
   ```
 
 ### Azure DevOps
@@ -199,8 +218,8 @@ EOF
       echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
       exit 1
     fi
-    [ -n "${AZURE_DEVOPS_EXT_PAT:-}" ] || AZURE_DEVOPS_EXT_PAT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_EXT_PAT", ""))' "$QODO_CONFIG")
-    [ -n "${AZURE_DEVOPS_URL:-}" ] || AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL", ""))' "$QODO_CONFIG")
+    [ -n "${AZURE_DEVOPS_EXT_PAT:-}" ] || AZURE_DEVOPS_EXT_PAT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_EXT_PAT") or "")' "$QODO_CONFIG")
+    [ -n "${AZURE_DEVOPS_URL:-}" ] || AZURE_DEVOPS_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_URL") or "")' "$QODO_CONFIG")
   fi
   export AZURE_DEVOPS_EXT_PAT
   if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ]; then
@@ -610,30 +629,28 @@ while true; do
     break
   fi
 
-  THREAD_ID=$(gh api graphql \
+  # Execute GraphQL query once per iteration and store the full response
+  GQL_RESPONSE=$(gh api graphql \
     -f owner='{owner}' -f repo='{repo}' -F number=<pr-number> \
     ${CURSOR:+-f after="$CURSOR"} \
-    -f query='query($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100,after:$after){nodes{id isResolved comments(first:100){nodes{databaseId}}} pageInfo{hasNextPage endCursor}}}}}' \
-    --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(any(.comments.nodes[]; .databaseId == <inline-comment-id>)) | .id') || exit 1
+    -f query='query($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100,after:$after){nodes{id isResolved comments(first:100){nodes{databaseId}}} pageInfo{hasNextPage endCursor}}}}}') || exit 1
+
+  # Parse all needed values from the stored response
+  THREAD_ID=$(printf '%s' "$GQL_RESPONSE" | \
+    jq -r '.data.repository.pullRequest.reviewThreads.nodes[] | select(any(.comments.nodes[]; .databaseId == <inline-comment-id>)) | .id') || exit 1
 
   if [ -n "$THREAD_ID" ]; then
     break
   fi
 
-  HAS_NEXT=$(gh api graphql \
-    -f owner='{owner}' -f repo='{repo}' -F number=<pr-number> \
-    ${CURSOR:+-f after="$CURSOR"} \
-    -f query='query($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100,after:$after){nodes{id isResolved comments(first:100){nodes{databaseId}}} pageInfo{hasNextPage endCursor}}}}}' \
-    --jq '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage') || exit 1
+  HAS_NEXT=$(printf '%s' "$GQL_RESPONSE" | \
+    jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage') || exit 1
   if [ "$HAS_NEXT" != "true" ]; then
     break
   fi
 
-  NEW_CURSOR=$(gh api graphql \
-    -f owner='{owner}' -f repo='{repo}' -F number=<pr-number> \
-    ${CURSOR:+-f after="$CURSOR"} \
-    -f query='query($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100,after:$after){nodes{id isResolved comments(first:100){nodes{databaseId}}} pageInfo{hasNextPage endCursor}}}}}' \
-    --jq '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor') || exit 1
+  NEW_CURSOR=$(printf '%s' "$GQL_RESPONSE" | \
+    jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor') || exit 1
 
   # Validate the new cursor is non-empty and different from current cursor
   if [ -z "$NEW_CURSOR" ] || [ "$NEW_CURSOR" = "$CURSOR" ]; then
@@ -660,9 +677,28 @@ glab api "/projects/:id/merge_requests/<mr-iid>/discussions/<discussion-id>" \
 ### Bitbucket
 
 ```bash
-curl --fail --silent --show-error --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" \
+if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 --netrc-file "$BB_NETRC" \
   -X POST \
-  "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments/<inline-comment-id>/resolve"
+  "$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests/<pr-id>/comments/<inline-comment-id>/resolve"); then
+  echo "Error: Bitbucket API request failed (curl error)" >&2
+  exit 1
+fi
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+case "$HTTP_CODE" in
+  ''|*[!0-9]*)
+    echo "Error: Bitbucket API returned an invalid HTTP status: ${HTTP_CODE:-empty}" >&2
+    exit 1
+    ;;
+esac
+
+if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+  echo "Error: Bitbucket inline comment resolution failed with HTTP status $HTTP_CODE" >&2
+  exit 1
+fi
+
+echo "$BODY"
 ```
 
 ### Azure DevOps

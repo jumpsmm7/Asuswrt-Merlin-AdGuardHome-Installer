@@ -189,7 +189,8 @@ if [ -z "${GERRIT_PROJECT:-}" ]; then
 fi
 
 OPEN_CHANGES_RESPONSE=$(curl --fail --silent --show-error --connect-timeout 10 --max-time 30 --netrc-file "$GERRIT_NETRC" \
-  "$GERRIT_URL/a/changes/?q=status:open+project:$GERRIT_PROJECT+owner:self&o=CURRENT_REVISION") || exit 1
+  --get --data-urlencode "q=status:open project:$GERRIT_PROJECT owner:self" --data-urlencode "o=CURRENT_REVISION" \
+  "$GERRIT_URL/a/changes/") || exit 1
 OPEN_CHANGES=$(printf '%s' "$OPEN_CHANGES_RESPONSE" | tail -c +6) || exit 1
 ```
 

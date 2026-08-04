@@ -440,4 +440,4 @@ Use the inline comment ID preserved during deduplication (Step 3b) to reply dire
 
 See [providers.md § Reply to Inline Comments](./resources/providers.md#reply-to-inline-comments) for provider-specific commands and reply format. For Gerrit, all replies go through a single unified endpoint and can be batched — see [gerrit.md § Reply to Comments](./resources/gerrit.md#reply-to-comments).
 
-Keep replies short (one line). If a reply fails, log it and continue.
+Keep replies short (one line). If a reply fails, retry a small fixed number of times (e.g., 2 retries). If it still fails after retries, record the failure (preserve the inline comment ID and error) so that Step 9's summary does NOT claim that finding's disposition was successfully posted. Instead, list failed replies separately in the summary (e.g., under a "Reply failed — needs manual follow-up" section) rather than treating them as resolved or deferred.

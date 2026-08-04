@@ -79,11 +79,12 @@ All requests must include attribution headers per the [usage tracking guidelines
 
 ```bash
 # Build body with JSON escaping — include scopes only when SCOPE is set
-BODY=$(SEARCH_QUERY="$SEARCH_QUERY" SCOPE="${SCOPE:-}" python3 - <<'PY'
+TOP_K=${TOP_K:-20}
+BODY=$(SEARCH_QUERY="$SEARCH_QUERY" SCOPE="${SCOPE:-}" TOP_K="$TOP_K" python3 - <<'PY'
 import json
 import os
 
-payload = {"query": os.environ["SEARCH_QUERY"], "top_k": 20}
+payload = {"query": os.environ["SEARCH_QUERY"], "top_k": int(os.environ["TOP_K"])}
 if os.environ.get("SCOPE"):
     payload["scopes"] = [os.environ["SCOPE"]]
 print(json.dumps(payload))
@@ -107,11 +108,12 @@ curl --fail --show-error --silent --connect-timeout 10 --max-time 30 -X POST \
 With optional trace header:
 
 ```bash
-BODY=$(SEARCH_QUERY="$SEARCH_QUERY" SCOPE="${SCOPE:-}" python3 - <<'PY'
+TOP_K=${TOP_K:-20}
+BODY=$(SEARCH_QUERY="$SEARCH_QUERY" SCOPE="${SCOPE:-}" TOP_K="$TOP_K" python3 - <<'PY'
 import json
 import os
 
-payload = {"query": os.environ["SEARCH_QUERY"], "top_k": 20}
+payload = {"query": os.environ["SEARCH_QUERY"], "top_k": int(os.environ["TOP_K"])}
 if os.environ.get("SCOPE"):
     payload["scopes"] = [os.environ["SCOPE"]]
 print(json.dumps(payload))
@@ -148,8 +150,18 @@ fi
 ```python
 import json
 import os
+import socket
 from urllib.error import HTTPError, URLError
-from urllib.request import urlopen, Request
+from urllib.request import urlopen, Request, HTTPRedirectHandler, build_opener
+
+# Required inputs (from prior steps):
+# api_key: API key from config or QODO_API_KEY env var
+# request_id: UUID generated for this invocation
+# search_query: Generated search query string
+# scope: Repository scope (may be empty)
+# api_url: Constructed API base URL
+
+top_k = int(os.environ.get("TOP_K", "20"))
 
 headers = {
     "Content-Type": "application/json",
@@ -160,18 +172,25 @@ headers = {
 if trace_id := os.environ.get("TRACE_ID"):
     headers["trace_id"] = trace_id
 
-payload = {"query": search_query, "top_k": 20}
+payload = {"query": search_query, "top_k": top_k}
 if scope:  # omit field entirely when scope is not available
     payload["scopes"] = [scope]
 
 body = json.dumps(payload).encode()
 req = Request(f"{api_url}/rules/search", data=body, headers=headers, method="POST")
+
+# Prevent automatic redirects that could leak Authorization header
+class NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise HTTPError(req.full_url, code, "Redirect not allowed", headers, fp)
+
+opener = build_opener(NoRedirectHandler)
 try:
-    with urlopen(req, timeout=30) as resp:
+    with opener.open(req, timeout=30) as resp:
         data = json.loads(resp.read())
 except HTTPError as exc:
     raise SystemExit(f"Qodo rules request failed with HTTP status {exc.code}")
-except (URLError, TimeoutError) as exc:
+except (URLError, socket.timeout) as exc:
     raise SystemExit(f"Qodo rules request failed: {exc}")
 except json.JSONDecodeError as exc:
     raise SystemExit(f"Qodo rules request failed: invalid JSON response")
@@ -183,6 +202,8 @@ else:
     for entry in data.get("rules", []):
         if not isinstance(entry, dict):
             raise SystemExit("Qodo rules request failed: malformed response (rules array contains non-object entry)")
+        if not isinstance(entry.get("id"), str) or not entry.get("id"):
+            raise SystemExit("Qodo rules request failed: malformed response (rule missing required non-empty string field 'id')")
         if not isinstance(entry.get("name"), str) or not isinstance(entry.get("content"), str):
             raise SystemExit("Qodo rules request failed: malformed response (rule missing required string fields 'name' or 'content')")
         severity = entry.get("severity")
