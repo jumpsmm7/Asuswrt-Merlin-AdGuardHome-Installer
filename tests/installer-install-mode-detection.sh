@@ -377,11 +377,15 @@ AGH_STUB
 		fail 'setup_AdGuardHome_impl failed for LAN mode without DNS filter selection'
 	fi
 
+	# Exercise runtime-default configuration directly in LAN mode without a filter selection.
+	configure_runtime_defaults new-install lan 0 ||
+		fail 'configure_runtime_defaults failed for LAN mode without DNS filter selection'
+
 	# Assert that check_dns_filter was called exactly once
 	assert_count '^check_dns_filter$' 1 'check_dns_filter call count mismatch'
 
-	# Assert that configure_runtime_defaults was called exactly once
-	assert_count '^configure_runtime_defaults$' 1 'configure_runtime_defaults call count mismatch'
+	# Assert that configure_runtime_defaults was called by setup and by the direct test.
+	assert_count '^configure_runtime_defaults$' 2 'configure_runtime_defaults call count mismatch'
 
 	# Assert that nvram_transaction_setup_files_begin was called (journal creation)
 	assert_count '^nvram_transaction_setup_files_begin$' 1 'nvram transaction journal creation call count mismatch'
