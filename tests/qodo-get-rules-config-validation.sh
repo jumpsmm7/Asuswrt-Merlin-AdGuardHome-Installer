@@ -39,7 +39,7 @@ cmp -s "${CANONICAL}" "${SNIPPET}" || fail 'SKILL.md config-parsing snippet diff
 run_snippet() {
 	_home="$1"
 	shift
-	env -i HOME="${_home}" PATH="${PATH}" "$@" sh -c '. "$1"; printf "RESULT|%s|%s|%s\n" "${API_KEY}" "${ENV_NAME}" "${API_URL}"' sh "${CANONICAL}"
+	env -i HOME="${_home}" PATH="${PATH:-}" "$@" sh -c '. "$1"; printf "RESULT|%s|%s|%s\n" "${API_KEY}" "${ENV_NAME}" "${API_URL}"' sh "${CANONICAL}"
 }
 
 make_config() {

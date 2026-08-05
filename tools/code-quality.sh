@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/bin/sh
 # Run local quality checks for shell scripts and installer checksums.
 # BusyBox/ash-compatible; keep this script POSIX sh only.
 # Use --fix to apply shfmt formatting instead of checking the diff.
