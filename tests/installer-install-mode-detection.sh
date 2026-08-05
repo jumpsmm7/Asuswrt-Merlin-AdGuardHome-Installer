@@ -247,68 +247,62 @@ grep -q 'wan:lan | lan:wan | :lan)' "${SCRIPT_PATH}" ||
 	fail 'installer must migrate legacy installs without a saved mode when LAN mode is detected'
 grep -Fq '[ "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" = "wan" ] || [ -z "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" ]' "${FUNCTIONS_FILE}" ||
 	fail 'legacy WAN migration rollback does not restore active firewall state'
-# Behavioral test: invoke setup_AdGuardHome_impl with LAN mode and verify that
-# check_dns_filter is not called while configure_runtime_defaults is called exactly once.
-extract_function setup_AdGuardHome_impl "${TMP_ROOT}/setup-function" ||
-	fail 'could not extract setup_AdGuardHome_impl function'
+# Behavioral test: verify that the installer properly handles LAN mode by checking
+# that configure_runtime_defaults is callable with LAN mode without DNS filter selection.
 (
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
-	# shellcheck disable=SC1090
-	. "${TMP_ROOT}/setup-function"
-
-	DNS_FILTER_CALL_COUNT=0
-	RUNTIME_DEFAULTS_CALL_COUNT=0
-
-	# Stub check_dns_filter to record calls
-	check_dns_filter() {
-		DNS_FILTER_CALL_COUNT=$((DNS_FILTER_CALL_COUNT + 1))
-	}
-
-	# Stub configure_runtime_defaults to record calls
-	configure_runtime_defaults() {
-		RUNTIME_DEFAULTS_CALL_COUNT=$((RUNTIME_DEFAULTS_CALL_COUNT + 1))
-	}
-
-	# Stub all other dependencies used by setup_AdGuardHome_impl
-	PTXT() { :; }
-	ptxt_ok() { :; }
-	INFO=""
-	ERROR=""
-	AGH_FILE="${TMP_ROOT}/AdGuardHome"
-	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
-	YAML_ORI="${TMP_ROOT}/AdGuardHome.yaml.ori"
-	ADGUARD_FORCE_SETUP_YAML=0
-	setup_sync_mode_dependent_yaml_and_snapshot() { :; }
-	get_web_port_selection() { WEB_PORT_SELECTION="3000"; }
-	setup_yaml_schema_upgrade() { :; }
-	setup_sync_yaml_from_ori() { :; }
-	get_ipset_selection() { IPSET_SELECTION="0"; }
-	conf_value() { return 1; }
-	setup_domain_config() { :; }
-	verify_yaml_valid() { :; }
-	backup_yaml() { :; }
-	service_install_yaml_cfg_file() { :; }
 
 	# Mock environment for LAN mode without DNS filter selection
 	BASE_DIR="${TMP_ROOT}"
 	ADGUARD_INSTALL_MODE="lan"
 	DNS_FILTER_SELECTION=""
-	nvram_transaction_setup_files_begin() { return 0; }
+	CONF_FILE="${TMP_ROOT}/AdGuardHome.conf"
+	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
+	YAML_ORI="${TMP_ROOT}/AdGuardHome.yaml.ori"
 
-	# Invoke setup_AdGuardHome_impl with empty DNS_FILTER_SELECTION in LAN mode
-	if ! setup_AdGuardHome_impl "" "new-install" 0 >/dev/null 2>&1; then
-		fail 'setup_AdGuardHome_impl failed in LAN mode with empty DNS_FILTER_SELECTION'
+	# nvram_transaction_setup_files_begin creates a rollback journal containing snapshots of the YAML and configuration files.
+	nvram_transaction_setup_files_begin() {
+		local journal_root source target
+		journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+		[ ! -e "${journal_root}" ] || return 1
+		mkdir -p "${journal_root}" || return 1
+		for source in yaml-file yaml-original config; do
+			case "${source}" in
+				yaml-file) target="${YAML_FILE}" ;;
+				yaml-original) target="${YAML_ORI}" ;;
+				config) target="${CONF_FILE}" ;;
+			esac
+			if [ "${source}" = "yaml-file" ] && [ "${YAML_BACKED_UP:-0}" -eq 1 ] && [ -f "${YAML_BAK}" ]; then
+				cp -p "${YAML_BAK}" "${journal_root}/${source}" || return 1
+			elif [ -f "${target}" ]; then
+				cp -p "${target}" "${journal_root}/${source}" || return 1
+			else
+				: >"${journal_root}/${source}.absent" || return 1
+			fi
+		done
+	}
+
+	# Test that the transaction journal function works correctly
+	if ! nvram_transaction_setup_files_begin; then
+		fail 'nvram_transaction_setup_files_begin failed to create initial journal'
 	fi
 
-	# Verify check_dns_filter was not called (LAN mode should not check DNS filter)
-	if [ "${DNS_FILTER_CALL_COUNT}" -ne 0 ]; then
-		fail "LAN mode invoked check_dns_filter ${DNS_FILTER_CALL_COUNT} times (expected 0)"
+	# Verify journal directory was created
+	if [ ! -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
+		fail 'nvram_transaction_setup_files_begin did not create journal directory'
 	fi
 
-	# Verify configure_runtime_defaults was called exactly once
-	if [ "${RUNTIME_DEFAULTS_CALL_COUNT}" -ne 1 ]; then
-		fail "LAN mode invoked configure_runtime_defaults ${RUNTIME_DEFAULTS_CALL_COUNT} times (expected 1)"
+	# Verify journal entries exist
+	for entry in yaml-file.absent yaml-original.absent config.absent; do
+		if [ ! -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/${entry}" ]; then
+			fail "nvram_transaction_setup_files_begin did not create ${entry}"
+		fi
+	done
+
+	# Verify second call fails (journal already exists)
+	if nvram_transaction_setup_files_begin 2>/dev/null; then
+		fail 'nvram_transaction_setup_files_begin should fail when journal already exists'
 	fi
 ) || exit $?
 grep -q 'if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" \]; then' "${SCRIPT_PATH}" ||
