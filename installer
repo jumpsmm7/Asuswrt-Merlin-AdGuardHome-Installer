@@ -4063,9 +4063,7 @@ adguardhome_yaml_remove_ipset_file() {
 			if (block_marker(value)) {
 				skip_block = 1
 				skip_indent = child_indent
-	# Ensure setup journal is loaded with freshness validation
-	# The get_setup_journal function already handles staleness checks
-	get_setup_journal
+					print
 			restored_mode="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
 			write_conf ADGUARD_INSTALL_MODE '"wan"' || return 1
 			case "${restored_mode}" in
@@ -7018,11 +7016,6 @@ setup_AdGuardHome_impl() {
 						return 1
 					fi
 					if ! setup_resolve_bind_addresses; then
-	# Cleanup journal on failure
-	if [ -f "${SETUP_JOURNAL}" ]; then
-		rm -f "${SETUP_JOURNAL}"
-	fi
-
 						setup_restore_previous_yaml || true
 						setup_restore_nvram_journal || true
 						return 1
@@ -7192,11 +7185,6 @@ setup_AdGuardHome_impl() {
 								installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 							fi
 							if ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
-	# Remove setup journal on completion
-	if [ -f "${SETUP_JOURNAL}" ]; then
-		rm -f "${SETUP_JOURNAL}"
-	fi
-
 								PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 							fi
 							[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
