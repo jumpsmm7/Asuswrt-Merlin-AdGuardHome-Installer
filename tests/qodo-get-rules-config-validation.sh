@@ -39,7 +39,7 @@ diff -q "${CANONICAL}" "${SNIPPET}" >/dev/null 2>&1 || fail 'SKILL.md config-par
 run_snippet() {
 	_home="$1"
 	shift
-	env -i HOME="${_home}" PATH="${PATH:-}" "$@" sh -c '. "$1"; printf "RESULT|%s|%s|%s\n" "${API_KEY}" "${ENV_NAME}" "${API_URL}"' sh "${CANONICAL}"
+	env -i HOME="${_home}" PATH="${PATH:-/usr/bin:/bin}" "$@" /bin/sh -c '. "$1"; printf "RESULT|%s|%s|%s\n" "${API_KEY}" "${ENV_NAME}" "${API_URL}"' /bin/sh "${CANONICAL}"
 }
 
 make_config() {
