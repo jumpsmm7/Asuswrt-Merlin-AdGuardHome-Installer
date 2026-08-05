@@ -41,7 +41,7 @@ diff -q "${CANONICAL}" "${SNIPPET}" >/dev/null 2>&1 || fail 'SKILL.md config-par
 run_snippet() {
 	_home="$1"
 	shift
-	env -i HOME="${_home}" PATH="${PATH:-/usr/bin:/bin}" "$@" /bin/sh -c '. "$1"; printf "RESULT|%s|%s|%s|%s\n" "${API_KEY}" "${ENV_NAME}" "${API_URL}" "${REQUEST_ID}"' /bin/sh "${CANONICAL}"
+	env -i HOME="${_home}" PATH="/usr/bin:/bin" "$@" /bin/sh -c '. "$1"; printf "RESULT|%s|%s|%s|%s\n" "${API_KEY}" "${ENV_NAME}" "${API_URL}" "${REQUEST_ID}"' /bin/sh "${CANONICAL}"
 }
 
 make_config() {
@@ -217,7 +217,7 @@ assert_success 'env QODO_API_URL precedence' "${RC}" "${OUT}"
 # regression in generation (uuidgen / /proc / /dev/urandom fallback) that
 # produces a malformed-but-non-empty value cannot silently slip through.
 REQUEST_ID_OUT=$(extract_result_field "${OUT}" 4)
-printf '%s\n' "${REQUEST_ID_OUT}" | grep -qE '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$' ||
+printf '%s\n' "${REQUEST_ID_OUT}" | grep -qE '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-4[0-9A-Fa-f]{3}-[89AaBb][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}$' ||
 	fail "env QODO_API_URL precedence: REQUEST_ID is not a well-formed UUID: '${REQUEST_ID_OUT}'"
 
 # --- Scenario: a top-level JSON value that is not an object (e.g. an array)

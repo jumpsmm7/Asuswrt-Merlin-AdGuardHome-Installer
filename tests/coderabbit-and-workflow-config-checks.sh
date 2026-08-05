@@ -56,7 +56,8 @@ awk '
 	/^permissions:/ { inperm = 1; next }
 	inperm && /^[a-zA-Z]/ { exit }
 	inperm && /contents:[[:space:]]*read/ { found = 1 }
-	END { exit !found }
+	inperm && /^[[:space:]]+[a-zA-Z_-]+:/ { count++ }
+	END { exit !(found && count == 1) }
 ' "${WORKFLOW}" || fail "${WORKFLOW}: expected least-privilege 'contents: read' under the top-level permissions block"
 
 # --- The workflow's own 'run: sh tools/code-quality.sh' invocation must point

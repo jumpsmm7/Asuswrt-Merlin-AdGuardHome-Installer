@@ -40,15 +40,17 @@ for skill_md in "${SKILLS_DIR}"/*/SKILL.md; do
 	FRONTMATTER="${TMP_ROOT}/frontmatter.$$"
 	sed -n "2,$((close_line - 1))p" "${skill_md}" >"${FRONTMATTER}"
 
-	# 'name:' must be present and match the containing directory name exactly.
-	name_line=$(grep -E '^name:[[:space:]]*' "${FRONTMATTER}" | head -n1)
-	[ -n "${name_line}" ] || fail "${skill_md}: frontmatter missing required 'name' field"
+	# 'name:' must be present exactly once and match the containing directory name exactly.
+	name_count=$(grep -cE '^name:[[:space:]]*' "${FRONTMATTER}")
+	[ "${name_count}" -eq 1 ] || fail "${skill_md}: frontmatter must have exactly one 'name' field, found ${name_count}"
+	name_line=$(grep -E '^name:[[:space:]]*' "${FRONTMATTER}")
 	actual_name=$(printf '%s\n' "${name_line}" | sed -e 's/^name:[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//')
 	[ "${actual_name}" = "${expected_name}" ] || fail "${skill_md}: frontmatter name '${actual_name}' does not match directory '${expected_name}'"
 
-	# 'description:' must be present and non-empty once quotes are stripped.
-	description_line=$(grep -E '^description:[[:space:]]*' "${FRONTMATTER}" | head -n1)
-	[ -n "${description_line}" ] || fail "${skill_md}: frontmatter missing required 'description' field"
+	# 'description:' must be present exactly once and non-empty once quotes are stripped.
+	description_count=$(grep -cE '^description:[[:space:]]*' "${FRONTMATTER}")
+	[ "${description_count}" -eq 1 ] || fail "${skill_md}: frontmatter must have exactly one 'description' field, found ${description_count}"
+	description_line=$(grep -E '^description:[[:space:]]*' "${FRONTMATTER}")
 	actual_description=$(printf '%s\n' "${description_line}" | sed -e 's/^description:[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//')
 	[ -n "${actual_description}" ] || fail "${skill_md}: 'description' field is empty"
 
