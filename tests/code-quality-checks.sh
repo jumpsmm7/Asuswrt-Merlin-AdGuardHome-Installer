@@ -16,6 +16,8 @@ fail() {
 [ -f "${SCRIPT_PATH}" ] || fail "expected script not found: ${SCRIPT_PATH}"
 
 TMP_ROOT=$(mktemp -d) || fail 'unable to create exclusive temp workspace'
+trap 'rm -rf "${TMP_ROOT}"' EXIT
+trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
 
 FUNCTIONS_FILE="${TMP_ROOT}/functions.sh"
 sed -n \

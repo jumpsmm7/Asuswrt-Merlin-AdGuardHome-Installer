@@ -20,102 +20,44 @@ if [ -f "${CONFIG_FILE}" ]; then
 		fi
 	fi
 
-	# Parse config file: prefer jq if available, fall back to awk for portability
-	if command -v jq >/dev/null 2>&1; then
-		# Use jq for robust JSON parsing with proper error handling
-		JQ_OUTPUT=$(jq -r '
-			if type != "object" then
-				error("Config file must be a JSON object")
-			else
-				{
-					API_KEY: (if .API_KEY then (if (.API_KEY | type) == "string" then .API_KEY else "" end) else "" end),
-					ENVIRONMENT_NAME: (if .ENVIRONMENT_NAME then (if (.ENVIRONMENT_NAME | type) == "string" then .ENVIRONMENT_NAME else "NON_STRING_VALUE" end) else "" end),
-					QODO_API_URL: (if .QODO_API_URL then (if (.QODO_API_URL | type) == "string" then .QODO_API_URL else "" end) else "" end)
-				} | @json
-			end
-		' "${CONFIG_FILE}" 2>&1)
-		JQ_EXIT=$?
+	# Require jq for robust JSON parsing
+	if ! command -v jq >/dev/null 2>&1; then
+		printf '%s\n' "Error: jq is required to parse ${CONFIG_FILE}. Install jq or use environment variables (QODO_API_KEY, QODO_ENVIRONMENT_NAME, QODO_API_URL)." >&2
+		exit 1
+	fi
 
-		if [ "${JQ_EXIT}" -ne 0 ]; then
-			printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
+	# Use jq for robust JSON parsing with proper error handling
+	JQ_OUTPUT=$(jq -r '
+		if type != "object" then
+			error("Config file must be a JSON object")
+		else
+			{
+				API_KEY: (if .API_KEY then (if (.API_KEY | type) == "string" then .API_KEY else "" end) else "" end),
+				ENVIRONMENT_NAME: (if .ENVIRONMENT_NAME then (if (.ENVIRONMENT_NAME | type) == "string" then .ENVIRONMENT_NAME else "NON_STRING_VALUE" end) else "" end),
+				QODO_API_URL: (if .QODO_API_URL then (if (.QODO_API_URL | type) == "string" then .QODO_API_URL else "" end) else "" end)
+			} | @json
+		end
+	' "${CONFIG_FILE}" 2>&1)
+	JQ_EXIT=$?
+
+	if [ "${JQ_EXIT}" -ne 0 ]; then
+		printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
+		exit 1
+	fi
+
+	# Extract values from jq output
+	if [ -z "${QODO_API_KEY:-}" ]; then
+		CONFIG_API_KEY=$(printf '%s' "${JQ_OUTPUT}" | jq -r '.API_KEY // ""' 2>/dev/null)
+	fi
+	if [ -z "${QODO_ENVIRONMENT_NAME:-}" ]; then
+		CONFIG_ENV_NAME=$(printf '%s' "${JQ_OUTPUT}" | jq -r '.ENVIRONMENT_NAME // ""' 2>/dev/null)
+		if [ "${CONFIG_ENV_NAME}" = "NON_STRING_VALUE" ]; then
+			printf '%s\n' "Error: ENVIRONMENT_NAME in ${CONFIG_FILE} must be a string value" >&2
 			exit 1
 		fi
-
-		# Extract values from jq output
-		if [ -z "${QODO_API_KEY:-}" ]; then
-			CONFIG_API_KEY=$(printf '%s' "${JQ_OUTPUT}" | jq -r '.API_KEY // ""' 2>/dev/null)
-		fi
-		if [ -z "${QODO_ENVIRONMENT_NAME:-}" ]; then
-			CONFIG_ENV_NAME=$(printf '%s' "${JQ_OUTPUT}" | jq -r '.ENVIRONMENT_NAME // ""' 2>/dev/null)
-			if [ "${CONFIG_ENV_NAME}" = "NON_STRING_VALUE" ]; then
-				printf '%s\n' "Error: ENVIRONMENT_NAME in ${CONFIG_FILE} must be a string value" >&2
-				exit 1
-			fi
-		fi
-		if [ -z "${QODO_API_URL:-}" ]; then
-			CONFIG_QODO_API_URL=$(printf '%s' "${JQ_OUTPUT}" | jq -r '.QODO_API_URL // ""' 2>/dev/null)
-		fi
-	else
-		# Fallback: parse with awk for portability (no jq dependency)
-		if [ -z "${QODO_API_KEY:-}" ]; then
-			# Extract API_KEY from JSON using awk
-			CONFIG_API_KEY=$(awk '
-				BEGIN { in_str=0; val="" }
-				/"API_KEY"[[:space:]]*:[[:space:]]*"/ {
-					match($0, /"API_KEY"[[:space:]]*:[[:space:]]*"([^"]*)"/, arr)
-					if (arr[1] != "") {
-						print arr[1]
-						exit
-					}
-				}
-			' "${CONFIG_FILE}" 2>/dev/null)
-			if [ $? -ne 0 ]; then
-				printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
-				exit 1
-			fi
-		fi
-		if [ -z "${QODO_ENVIRONMENT_NAME:-}" ]; then
-			# Extract ENVIRONMENT_NAME from JSON, rejecting non-string values
-			CONFIG_ENV_NAME=$(awk '
-				BEGIN { in_str=0; val="" }
-				/"ENVIRONMENT_NAME"[[:space:]]*:[[:space:]]*"/ {
-					match($0, /"ENVIRONMENT_NAME"[[:space:]]*:[[:space:]]*"([^"]*)"/, arr)
-					if (arr[1] != "") {
-						print arr[1]
-						exit
-					}
-				}
-				/"ENVIRONMENT_NAME"[[:space:]]*:[[:space:]]*[^"]/ {
-					print "NON_STRING_VALUE"
-					exit
-				}
-			' "${CONFIG_FILE}" 2>/dev/null)
-			if [ $? -ne 0 ]; then
-				printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
-				exit 1
-			fi
-			if [ "${CONFIG_ENV_NAME}" = "NON_STRING_VALUE" ]; then
-				printf '%s\n' "Error: ENVIRONMENT_NAME in ${CONFIG_FILE} must be a string value" >&2
-				exit 1
-			fi
-		fi
-		if [ -z "${QODO_API_URL:-}" ]; then
-			# Extract QODO_API_URL from JSON
-			CONFIG_QODO_API_URL=$(awk '
-				BEGIN { in_str=0; val="" }
-				/"QODO_API_URL"[[:space:]]*:[[:space:]]*"/ {
-					match($0, /"QODO_API_URL"[[:space:]]*:[[:space:]]*"([^"]*)"/, arr)
-					if (arr[1] != "") {
-						print arr[1]
-						exit
-					}
-				}
-			' "${CONFIG_FILE}" 2>/dev/null)
-			if [ $? -ne 0 ]; then
-				printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
-				exit 1
-			fi
-		fi
+	fi
+	if [ -z "${QODO_API_URL:-}" ]; then
+		CONFIG_QODO_API_URL=$(printf '%s' "${JQ_OUTPUT}" | jq -r '.QODO_API_URL // ""' 2>/dev/null)
 	fi
 fi
 

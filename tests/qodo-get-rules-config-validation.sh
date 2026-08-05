@@ -32,7 +32,7 @@ awk '
 	incode && /^```$/ { exit }
 	incode { print }
 ' "${SKILL}" >"${SNIPPET}"
-cmp -s "${CANONICAL}" "${SNIPPET}" || fail 'SKILL.md config-parsing snippet differs from the canonical script'
+diff -q "${CANONICAL}" "${SNIPPET}" >/dev/null 2>&1 || fail 'SKILL.md config-parsing snippet differs from the canonical script'
 
 # run_snippet executes only the tracked canonical script with an isolated HOME
 # and an explicit, minimal environment.
