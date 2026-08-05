@@ -17,8 +17,7 @@ fail() {
 
 TMP_ROOT="${TMPDIR:-/tmp}/code-quality-checks.$$"
 mkdir -p "${TMP_ROOT}" || fail 'unable to create temp workspace'
-trap 'rm -rf "${TMP_ROOT}"' EXIT
-trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
+TMP_ROOT=$(mktemp -d) || fail 'unable to create temp workspace'
 
 FUNCTIONS_FILE="${TMP_ROOT}/functions.sh"
 sed -n \

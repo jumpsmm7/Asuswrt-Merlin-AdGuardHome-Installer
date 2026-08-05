@@ -25,8 +25,7 @@ done
 
 TMP_ROOT="${TMPDIR:-/tmp}/qodo-get-rules-config-validation.$$"
 mkdir -p "${TMP_ROOT}" || fail 'unable to create temp workspace'
-trap 'rm -rf "${TMP_ROOT}"' EXIT
-trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
+TMP_ROOT=$(mktemp -d) || fail 'unable to create temp workspace'
 
 SNIPPET="${TMP_ROOT}/config-parsing.sh"
 
