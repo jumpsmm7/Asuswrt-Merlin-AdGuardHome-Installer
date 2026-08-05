@@ -278,8 +278,8 @@ elif [ -z "${ENV_NAME}" ]; then
 else
 	# Validate ENVIRONMENT_NAME before URL construction
 	if ! printf '%s
+	if ! printf '%s
 		printf '%s
-		exit 1
 	fi
 	API_URL="https://qodo-platform.${ENV_NAME}.qodo.ai/rules/v1"
 fi

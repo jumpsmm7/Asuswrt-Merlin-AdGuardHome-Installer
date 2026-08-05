@@ -139,7 +139,7 @@ else
 	# Fallback: generate UUID-like string from /dev/urandom
 	# Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx (UUID v4)
 	if [ -r /dev/urandom ]; then
-		REQUEST_ID=$(dd if=/dev/urandom bs=16 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n' | sed -E 's/^(.{8})(.{4})(.{4})(.{4})(.{12})$/\1-\2-4\3-a\4-\5/')
+		REQUEST_ID=$(dd if=/dev/urandom bs=16 count=1 2>/dev/null | od -An -tx1 | tr -d ' 
 	fi
 fi
 
