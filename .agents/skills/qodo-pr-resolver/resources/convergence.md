@@ -47,8 +47,8 @@ one entry per issue the resolver has acted on before:
 | `key` (`file` + `title`) | **primary lookup key** — file path + Qodo issue title (verbatim); stable across rounds even when a prior fix shifts the line numbers |
 | `line` | line the issue was raised at (from the inline comment) — recorded for display; used only to **disambiguate** multiple same-title findings in one file, never as the primary match key |
 | `decision` | `fixed`, `deferred`, `hard_stopped`, or `held` — `deferred` applies to both manually deferred issues and untagged issues with the "Defer" default action that were processed in auto-fix mode |
-| `action` | machine-readable action enum (e.g. `guard_added`, `guard_removed`, `condition_inverted`, `parameter_added`, `parameter_removed`) — extracted from the fix-summary and inline-reply records; used for flip detection |
-| `rationale` | human-readable text explaining what was changed / why it was deferred / stop rationale — separate from the action enum |
+| `action` | machine-readable action field with defined enum values: `fixed` or `deferred` — extracted from the fix-summary and inline-reply records as a structured field, separate from human-readable rationale text; used for flip detection by comparing consecutive-round values at the same `file` + `title` key |
+| `rationale` | human-readable text explaining what was changed / why it was deferred / stop rationale — stored in a separate field from the `action` enum |
 | `flip_count` | number of direction flips for this location (used for hard-stop detection) |
 | `round` | which prior round — from the `## Qodo Fix Summary — Round N` heading (`max` of parsed N and summary count); uniform across all providers |
 

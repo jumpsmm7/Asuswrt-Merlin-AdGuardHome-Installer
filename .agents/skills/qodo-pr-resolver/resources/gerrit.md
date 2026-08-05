@@ -481,7 +481,6 @@ if [ -z "${TARGET_BRANCH}" ]; then
   echo "Error: TARGET_BRANCH is empty; set it explicitly or configure gerrit.defaultbranch" >&2
   exit 1
 fi
-git push origin HEAD:refs/for/$TARGET_BRANCH
 ```
 
 The commit must have a `Change-Id` footer. If missing, install the commit-msg hook:
@@ -548,6 +547,23 @@ trap 'rm -f "$GERRIT_NETRC"' EXIT
 trap 'rm -f "$GERRIT_NETRC"; exit 129' HUP
 trap 'rm -f "$GERRIT_NETRC"; exit 130' INT
 trap 'rm -f "$GERRIT_NETRC"; exit 143' TERM
+
+# Amend the commit to apply the hook and generate Change-Id
+if ! git commit --amend --no-edit; then
+  echo "Failed to amend commit with Change-Id" >&2
+  exit 1
+fi
+
+# Verify the amended commit contains a Change-Id footer
+if ! git log -1 --format=%B | grep -qE '^Change-Id: I[0-9a-fA-F]{40}$'; then
+  echo "Error: Change-Id footer missing after amending commit; commit-msg hook may have failed" >&2
+  exit 1
+fi
+```
+
+Now push the change:
+```bash
+git push origin HEAD:refs/for/$TARGET_BRANCH
 ```
 
 ## Error Handling
