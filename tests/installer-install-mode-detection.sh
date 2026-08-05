@@ -43,9 +43,10 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
-sed -n \
+_extracted="$(sed -n \
 	'/^conf_value() {$/,/^md5_is_valid() {$/p; /^write_conf() {$/,/^}$/p; /^ipv4_is_valid() {$/,/^port_is_valid() {$/p; /^setup_AdGuardHome() {$/,/^setup_amtmupdate() {$/p' \
-	"${SCRIPT_PATH}" | sed '/^md5_is_valid() {$/d; /^port_is_valid() {$/d; /^setup_amtmupdate() {$/d' >"${FUNCTIONS_FILE}" ||
+	"${SCRIPT_PATH}")" || fail 'could not extract install mode helpers'
+printf '%s\n' "${_extracted}" | sed '/^md5_is_valid() {$/d; /^port_is_valid() {$/d; /^setup_amtmupdate() {$/d' >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract install mode helpers'
 extract_function rollback_pending_mode_migration "${TMP_ROOT}/rollback-function" &&
 	cat "${TMP_ROOT}/rollback-function" >>"${FUNCTIONS_FILE}" ||
