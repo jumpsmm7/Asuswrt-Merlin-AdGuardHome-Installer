@@ -127,11 +127,11 @@ if [ -f "${CONFIG_FILE}" ]; then
 		# Validate permissions before reading credentials
 		CONFIG_DIR=$(dirname "${CONFIG_FILE}")
 		if [ "$(stat -c '%a' "$CONFIG_DIR" 2>/dev/null || stat -f '%Lp' "$CONFIG_DIR" 2>/dev/null)" != "700" ]; then
-			printf '%s
+			printf '%s\n' "Error: Qodo config directory $CONFIG_DIR must have mode 700 (owner-only access)" >&2
 			exit 1
 		fi
 		if [ "$(stat -c '%a' "${CONFIG_FILE}" 2>/dev/null || stat -f '%Lp' "${CONFIG_FILE}" 2>/dev/null)" != "600" ]; then
-			printf '%s
+			printf '%s\n' "Error: Qodo config file ${CONFIG_FILE} must have mode 600 (owner-only access)" >&2
 			exit 1
 		fi
 	fi
@@ -152,8 +152,8 @@ if [ -f "${CONFIG_FILE}" ]; then
 		' "${CONFIG_FILE}" 2>&1)
 		JQ_EXIT=$?
 
-		if [ ${JQ_EXIT} -ne 0 ]; then
-			printf '%s
+		if [ "${JQ_EXIT}" -ne 0 ]; then
+			printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
 			exit 1
 		fi
 
@@ -164,7 +164,7 @@ if [ -f "${CONFIG_FILE}" ]; then
 		if [ -z "${QODO_ENVIRONMENT_NAME:-}" ]; then
 			CONFIG_ENV_NAME=$(printf '%s' "${JQ_OUTPUT}" | jq -r '.ENVIRONMENT_NAME // ""' 2>/dev/null)
 			if [ "${CONFIG_ENV_NAME}" = "NON_STRING_VALUE" ]; then
-				printf '%s
+				printf '%s\n' "Error: ENVIRONMENT_NAME in ${CONFIG_FILE} must be a string value" >&2
 				exit 1
 			fi
 		fi
@@ -186,7 +186,7 @@ if [ -f "${CONFIG_FILE}" ]; then
 				}
 			' "${CONFIG_FILE}" 2>/dev/null)
 			if [ $? -ne 0 ]; then
-				printf '%s
+				printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
 				exit 1
 			fi
 		fi
@@ -207,11 +207,11 @@ if [ -f "${CONFIG_FILE}" ]; then
 				}
 			' "${CONFIG_FILE}" 2>/dev/null)
 			if [ $? -ne 0 ]; then
-				printf '%s
+				printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
 				exit 1
 			fi
 			if [ "${CONFIG_ENV_NAME}" = "NON_STRING_VALUE" ]; then
-				printf '%s
+				printf '%s\n' "Error: ENVIRONMENT_NAME in ${CONFIG_FILE} must be a string value" >&2
 				exit 1
 			fi
 		fi
@@ -228,7 +228,7 @@ if [ -f "${CONFIG_FILE}" ]; then
 				}
 			' "${CONFIG_FILE}" 2>/dev/null)
 			if [ $? -ne 0 ]; then
-				printf '%s
+				printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
 				exit 1
 			fi
 		fi
@@ -241,7 +241,7 @@ ENV_NAME="${QODO_ENVIRONMENT_NAME:-${CONFIG_ENV_NAME}}"
 QODO_API_URL="${QODO_API_URL:-${CONFIG_QODO_API_URL}}"
 
 if [ -z "${API_KEY}" ]; then
-	printf '%s
+	printf '%s\n' 'Qodo API key not found. Set QODO_API_KEY or add API_KEY to ~/.qodo/config.json.' >&2
 	exit 1
 fi
 
