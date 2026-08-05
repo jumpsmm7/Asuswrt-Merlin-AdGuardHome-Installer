@@ -31,11 +31,8 @@ have_cmd() {
 	if [ -z "$_cmd" ]; then
 		return 1
 	fi
-	# Prefer `which` for portability in constrained shells, only fallback if not available.
+	# Use `which` for portability; `command -v` is unavailable on some target shells.
 	if which "$_cmd" >/dev/null 2>&1; then
-		return 0
-	fi
-	if command -v "$_cmd" >/dev/null 2>&1; then
 		return 0
 	fi
 	if type "$_cmd" >/dev/null 2>&1; then
