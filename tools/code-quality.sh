@@ -27,7 +27,21 @@ cleanup() {
 }
 
 have_cmd() {
-	command -v "$1" >/dev/null 2>&1
+	_cmd=${1:-}
+	if [ -z "$_cmd" ]; then
+		return 1
+	fi
+	# Prefer `which` for portability in constrained shells, only fallback if not available.
+	if which "$_cmd" >/dev/null 2>&1; then
+		return 0
+	fi
+	if command -v "$_cmd" >/dev/null 2>&1; then
+		return 0
+	fi
+	if type "$_cmd" >/dev/null 2>&1; then
+		return 0
+	fi
+	return 1
 }
 
 require_cmd() {
