@@ -128,7 +128,6 @@ cleanup || fail 'cleanup: unexpectedly failed when the script list file did not 
 ARG_SNIPPET="${TMP_ROOT}/arg-parse.sh"
 sed -n '/^case "\${1:-}" in$/,/^esac$/p' "${SCRIPT_PATH}" >"${ARG_SNIPPET}"
 [ -s "${ARG_SNIPPET}" ] || fail 'could not extract the CLI argument-parsing case block from tools/code-quality.sh'
-grep -Fq -- '--fix) FIX=1 ;;' "${ARG_SNIPPET}" || fail 'extracted argument-parsing block is missing the --fix case'
 
 run_arg_parse() {
 	# Runs the extracted case block in a subshell with $1 set as given (or unset

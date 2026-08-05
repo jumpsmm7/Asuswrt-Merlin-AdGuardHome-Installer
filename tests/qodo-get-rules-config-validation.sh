@@ -82,6 +82,13 @@ OUT=$(run_snippet "${HOME_NO_KEY}" 2>&1)
 RC=$?
 assert_failure 'no config, no env' "${RC}" "${OUT}" 'Qodo API key not found'
 
+# --- Scenario: whitespace-only API key is rejected as invalid.
+HOME_WHITESPACE_KEY="${TMP_ROOT}/home-whitespace-key"
+mkdir -p "${HOME_WHITESPACE_KEY}" || fail 'unable to create home-whitespace-key fixture'
+OUT=$(run_snippet "${HOME_WHITESPACE_KEY}" QODO_API_KEY='   ' 2>&1)
+RC=$?
+assert_failure 'whitespace-only API key' "${RC}" "${OUT}" 'Qodo API key not found'
+
 # --- Scenario: QODO_API_KEY via env only, no config file -> succeeds with the
 # production default API URL.
 HOME_ENV_KEY="${TMP_ROOT}/home-env-key"
@@ -132,10 +139,10 @@ assert_failure 'insecure config file' "${RC}" "${OUT}" 'must have mode 600'
 
 # --- Scenario: when QODO_API_KEY, QODO_ENVIRONMENT_NAME, and QODO_API_URL are all
 # supplied via the environment, the (unrelated/legacy) config file's permissions
-# must NOT block startup, since it is never consulted.
+# and malformed content must NOT block startup, since it is never consulted.
 HOME_FULL_ENV="${TMP_ROOT}/home-full-env"
 mkdir -p "${HOME_FULL_ENV}" || fail 'unable to create home-full-env fixture'
-make_config "${HOME_FULL_ENV}" '{"API_KEY": "cfg-key"}' 755 644
+make_config "${HOME_FULL_ENV}" '{not valid json' 755 644
 OUT=$(run_snippet "${HOME_FULL_ENV}" QODO_API_KEY=env-key QODO_ENVIRONMENT_NAME=prod QODO_API_URL=https://qodo-platform.qodo.ai 2>&1)
 RC=$?
 assert_success 'full env bypasses insecure config perms' "${RC}" "${OUT}"

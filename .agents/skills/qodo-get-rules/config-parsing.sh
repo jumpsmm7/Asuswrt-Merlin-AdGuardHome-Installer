@@ -6,7 +6,7 @@ CONFIG_QODO_API_URL=""
 
 # The config file is an optional fallback; environment-only setup is supported.
 if [ -f "${CONFIG_FILE}" ]; then
-	# Only validate permissions when environment-only setup is insufficient
+	# Only validate permissions and parse the config when environment-only setup is insufficient
 	if [ -z "${QODO_API_KEY:-}" ] || [ -z "${QODO_ENVIRONMENT_NAME:-}" ] || [ -z "${QODO_API_URL:-}" ]; then
 		# Validate permissions before reading credentials
 		CONFIG_DIR=$(dirname "${CONFIG_FILE}")
@@ -18,46 +18,46 @@ if [ -f "${CONFIG_FILE}" ]; then
 			printf '%s\n' "Error: Qodo config file ${CONFIG_FILE} must have mode 600 (owner-only access)" >&2
 			exit 1
 		fi
-	fi
 
-	# Require jq for robust JSON parsing
-	if ! command -v jq >/dev/null 2>&1; then
-		printf '%s\n' "Error: jq is required to parse ${CONFIG_FILE}. Install jq or use environment variables (QODO_API_KEY, QODO_ENVIRONMENT_NAME, QODO_API_URL)." >&2
-		exit 1
-	fi
-
-	# Use jq for robust JSON parsing with proper error handling
-	JQ_OUTPUT=$(jq -r '
-		if type != "object" then
-			error("Config file must be a JSON object")
-		else
-			{
-				API_KEY: (if .API_KEY then (if (.API_KEY | type) == "string" then .API_KEY else "" end) else "" end),
-				ENVIRONMENT_NAME: (if .ENVIRONMENT_NAME then (if (.ENVIRONMENT_NAME | type) == "string" then .ENVIRONMENT_NAME else "NON_STRING_VALUE" end) else "" end),
-				QODO_API_URL: (if .QODO_API_URL then (if (.QODO_API_URL | type) == "string" then .QODO_API_URL else "" end) else "" end)
-			} | @json
-		end
-	' "${CONFIG_FILE}" 2>&1)
-	JQ_EXIT=$?
-
-	if [ "${JQ_EXIT}" -ne 0 ]; then
-		printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
-		exit 1
-	fi
-
-	# Extract values from jq output
-	if [ -z "${QODO_API_KEY:-}" ]; then
-		CONFIG_API_KEY=$(printf '%s' "${JQ_OUTPUT}" | jq -r '.API_KEY // ""' 2>/dev/null)
-	fi
-	if [ -z "${QODO_ENVIRONMENT_NAME:-}" ]; then
-		CONFIG_ENV_NAME=$(printf '%s' "${JQ_OUTPUT}" | jq -r '.ENVIRONMENT_NAME // ""' 2>/dev/null)
-		if [ "${CONFIG_ENV_NAME}" = "NON_STRING_VALUE" ]; then
-			printf '%s\n' "Error: ENVIRONMENT_NAME in ${CONFIG_FILE} must be a string value" >&2
+		# Require jq for robust JSON parsing
+		if ! command -v jq >/dev/null 2>&1; then
+			printf '%s\n' "Error: jq is required to parse ${CONFIG_FILE}. Install jq or use environment variables (QODO_API_KEY, QODO_ENVIRONMENT_NAME, QODO_API_URL)." >&2
 			exit 1
 		fi
-	fi
-	if [ -z "${QODO_API_URL:-}" ]; then
-		CONFIG_QODO_API_URL=$(printf '%s' "${JQ_OUTPUT}" | jq -r '.QODO_API_URL // ""' 2>/dev/null)
+
+		# Use jq for robust JSON parsing with proper error handling
+		JQ_OUTPUT=$(jq -r '
+			if type != "object" then
+				error("Config file must be a JSON object")
+			else
+				{
+					API_KEY: (if .API_KEY then (if (.API_KEY | type) == "string" then .API_KEY else "" end) else "" end),
+					ENVIRONMENT_NAME: (if .ENVIRONMENT_NAME then (if (.ENVIRONMENT_NAME | type) == "string" then .ENVIRONMENT_NAME else "NON_STRING_VALUE" end) else "" end),
+					QODO_API_URL: (if .QODO_API_URL then (if (.QODO_API_URL | type) == "string" then .QODO_API_URL else "" end) else "" end)
+				} | @json
+			end
+		' "${CONFIG_FILE}" 2>&1)
+		JQ_EXIT=$?
+
+		if [ "${JQ_EXIT}" -ne 0 ]; then
+			printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
+			exit 1
+		fi
+
+		# Extract values from jq output
+		if [ -z "${QODO_API_KEY:-}" ]; then
+			CONFIG_API_KEY=$(printf '%s' "${JQ_OUTPUT}" | jq -r '.API_KEY // ""' 2>/dev/null)
+		fi
+		if [ -z "${QODO_ENVIRONMENT_NAME:-}" ]; then
+			CONFIG_ENV_NAME=$(printf '%s' "${JQ_OUTPUT}" | jq -r '.ENVIRONMENT_NAME // ""' 2>/dev/null)
+			if [ "${CONFIG_ENV_NAME}" = "NON_STRING_VALUE" ]; then
+				printf '%s\n' "Error: ENVIRONMENT_NAME in ${CONFIG_FILE} must be a string value" >&2
+				exit 1
+			fi
+		fi
+		if [ -z "${QODO_API_URL:-}" ]; then
+			CONFIG_QODO_API_URL=$(printf '%s' "${JQ_OUTPUT}" | jq -r '.QODO_API_URL // ""' 2>/dev/null)
+		fi
 	fi
 fi
 
@@ -66,7 +66,8 @@ API_KEY="${QODO_API_KEY:-${CONFIG_API_KEY}}"
 ENV_NAME="${QODO_ENVIRONMENT_NAME:-${CONFIG_ENV_NAME}}"
 QODO_API_URL="${QODO_API_URL:-${CONFIG_QODO_API_URL}}"
 
-if [ -z "${API_KEY}" ]; then
+# Validate API_KEY: reject if empty or whitespace-only
+if [ -z "${API_KEY}" ] || [ -z "$(printf '%s' "${API_KEY}" | tr -d '[:space:]')" ]; then
 	printf '%s\n' 'Qodo API key not found. Set QODO_API_KEY or add API_KEY to ~/.qodo/config.json.' >&2
 	exit 1
 fi
