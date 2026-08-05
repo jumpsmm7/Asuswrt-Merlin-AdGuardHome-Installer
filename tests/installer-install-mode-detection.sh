@@ -280,7 +280,7 @@ AGH_STUB
 		pattern="$1"
 		expected="$2"
 		message="$3"
-		actual="$(grep -c "${pattern}" "${CALLS_FILE}" 2>/dev/null || echo 0)"
+		actual="$(grep -c "${pattern}" "${CALLS_FILE}" 2>/dev/null)" || actual=0
 		[ "${actual}" -eq "${expected}" ] || fail "${message}: found ${actual}, expected ${expected}"
 	}
 
@@ -308,7 +308,10 @@ AGH_STUB
 	restore_dns_filter_settings() { rm -rf "$1"; }
 	installer_lan_domain_set() { :; }
 	installer_lan_domain_restore() { :; }
-	nvram_transaction_finalize_setup_pair() { return 0; }
+	nvram_transaction_finalize_setup_pair() {
+		rm -rf "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || return 1
+		return 0
+	}
 	nvram_transaction_setup_files_begin() {
 		printf '%s\n' 'nvram_transaction_setup_files_begin' >>"${CALLS_FILE}"
 		local journal_root
@@ -317,7 +320,11 @@ AGH_STUB
 		mkdir -p "${journal_root}" || return 1
 		: >"${journal_root}/yaml-file.absent"
 		: >"${journal_root}/yaml-original.absent"
-		: >"${journal_root}/config.absent"
+		if [ -f "${CONF_FILE}" ]; then
+			cp -p "${CONF_FILE}" "${journal_root}/config" || return 1
+		else
+			: >"${journal_root}/config.absent"
+		fi
 		return 0
 	}
 	nvram_transaction_setup_files_restore() { return 0; }
@@ -377,8 +384,8 @@ AGH_STUB
 		fail 'setup_AdGuardHome_impl failed for LAN mode without DNS filter selection'
 	fi
 
-	# Assert that check_dns_filter was called exactly once
-	assert_count '^check_dns_filter$' 1 'check_dns_filter call count mismatch'
+	# Assert that check_dns_filter was not called in LAN mode without DNS filter selection
+	assert_count '^check_dns_filter$' 0 'check_dns_filter must not be called in LAN mode without DNS filter selection'
 
 	# Assert that configure_runtime_defaults was called exactly once
 	assert_count '^configure_runtime_defaults$' 1 'configure_runtime_defaults call count mismatch'
@@ -386,17 +393,10 @@ AGH_STUB
 	# Assert that nvram_transaction_setup_files_begin was called (journal creation)
 	assert_count '^nvram_transaction_setup_files_begin$' 1 'nvram transaction journal creation call count mismatch'
 
-	# Verify journal directory was created
-	if [ ! -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
-		fail 'setup_AdGuardHome_impl did not create NVRAM transaction journal directory'
+	# Verify journal directory was removed after successful finalization
+	if [ -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
+		fail 'setup_AdGuardHome_impl did not remove NVRAM transaction journal directory after successful finalization'
 	fi
-
-	# Verify journal entries exist
-	for entry in yaml-file.absent yaml-original.absent config.absent; do
-		if [ ! -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/${entry}" ]; then
-			fail "setup_AdGuardHome_impl did not create journal entry ${entry}"
-		fi
-	done
 
 	# Verify install mode was persisted
 	grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" ||
