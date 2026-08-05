@@ -1,16 +1,12 @@
 #!/bin/sh
-# Regression test for the qodo-get-rules skill's "Example config parsing" snippet
-# (.agents/skills/qodo-get-rules/SKILL.md, Step 3). This is security-relevant logic
-# (config file permission enforcement, QODO_API_URL trusted-domain validation) that
-# lives inside a documentation fence rather than a tracked shell script, so it can
-# silently regress without any test noticing. This test extracts the snippet
-# verbatim and actually executes it under a variety of scenarios rather than just
-# grepping for expected substrings, so a change that breaks the real behavior
-# (not just the wording) is caught.
+# Regression test for the qodo-get-rules config parser. The canonical logic is
+# tracked in config-parsing.sh; the Markdown example is checked for drift and is
+# never executed directly.
 
 set -u
 
 SKILL='.agents/skills/qodo-get-rules/SKILL.md'
+CANONICAL='.agents/skills/qodo-get-rules/config-parsing.sh'
 SEARCH_ENDPOINT='.agents/skills/qodo-get-rules/references/search-endpoint.md'
 REPO_SCOPE='.agents/skills/qodo-get-rules/references/repository-scope.md'
 
@@ -19,45 +15,32 @@ fail() {
 	exit 1
 }
 
-for f in "${SKILL}" "${SEARCH_ENDPOINT}" "${REPO_SCOPE}"; do
+for f in "${SKILL}" "${CANONICAL}" "${SEARCH_ENDPOINT}" "${REPO_SCOPE}"; do
 	[ -f "${f}" ] || fail "expected skill file not found: ${f}"
 done
 
 TMP_ROOT="${TMPDIR:-/tmp}/qodo-get-rules-config-validation.$$"
 mkdir -p "${TMP_ROOT}" || fail 'unable to create temp workspace'
-TMP_ROOT=$(mktemp -d) || fail 'unable to create temp workspace'
+trap 'rm -rf "${TMP_ROOT}"' EXIT
+trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
 
 SNIPPET="${TMP_ROOT}/config-parsing.sh"
 
-# Extract the "Example config parsing" bash block verbatim from SKILL.md so this
-# test exercises the exact logic an agent would run, instead of a hand-copied
-# re-implementation that could quietly drift from the documented snippet.
+# Verify the documented example remains synchronized with the canonical script.
 awk '
 	/^Example config parsing:$/ { found = 1 }
 	found && /^```bash$/ { incode = 1; next }
 	incode && /^```$/ { exit }
 	incode { print }
 ' "${SKILL}" >"${SNIPPET}"
+cmp -s "${CANONICAL}" "${SNIPPET}" || fail 'SKILL.md config-parsing snippet differs from the canonical script'
 
-[ -s "${SNIPPET}" ] || fail 'could not extract the config-parsing snippet from SKILL.md (heading or fence may have changed)'
-
-# Sanity-check we captured the intended block, not an empty or truncated fragment.
-grep -Fq 'CONFIG_FILE="${HOME}/.qodo/config.json"' "${SNIPPET}" || fail 'extracted snippet does not look like the config-parsing block (unexpected content)'
-grep -Fq 'API_URL="${QODO_API_URL}/rules/v1"' "${SNIPPET}" || fail 'extracted snippet is missing the QODO_API_URL construction logic'
-grep -Fq 'must have mode 700' "${SNIPPET}" || fail 'extracted snippet is missing the config directory permission check'
-grep -Fq 'must have mode 600' "${SNIPPET}" || fail 'extracted snippet is missing the config file permission check'
-
-# Append a machine-readable result line so each scenario below can assert on the
-# final resolved values without parsing human-oriented script output.
-printf '%s\n' 'printf "RESULT|%s|%s|%s\n" "${API_KEY}" "${ENV_NAME}" "${API_URL}"' >>"${SNIPPET}"
-
-# run_snippet executes the extracted snippet with an isolated HOME (so ~/.qodo
-# config lookups are sandboxed) and an explicit, minimal environment (so stray
-# QODO_* variables from the outer shell can never leak into a scenario).
+# run_snippet executes only the tracked canonical script with an isolated HOME
+# and an explicit, minimal environment.
 run_snippet() {
 	_home="$1"
 	shift
-	env -i HOME="${_home}" PATH="${PATH}" "$@" sh "${SNIPPET}"
+	env -i HOME="${_home}" PATH="${PATH}" "$@" sh -c '. "$1"; printf "RESULT|%s|%s|%s\n" "${API_KEY}" "${ENV_NAME}" "${API_URL}"' sh "${CANONICAL}"
 }
 
 make_config() {
