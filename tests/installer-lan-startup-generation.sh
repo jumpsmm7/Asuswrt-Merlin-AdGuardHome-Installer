@@ -180,10 +180,12 @@ run_startup_failure_case() {
 
 run_startup_case repeater-lan 2 192.168.1.2 lan 192.168.1.2:3000
 run_startup_case ap-lan 3 192.168.1.2 lan 192.168.1.2:3000
+run_startup_case media-bridge-lan 4 192.168.1.2 lan 192.168.1.2:3000
 run_startup_case router-wan 1 192.168.1.1 wan 0.0.0.0:3000
 run_startup_failure_case repeater-missing-lan-ip 2 ''
 run_startup_failure_case ap-invalid-lan-ip 3 999.168.1.2
 run_startup_failure_case missing-sw-mode-missing-lan-ip '' ''
 run_startup_failure_case missing-sw-mode-usable-lan-ip '' 192.168.1.2
+run_startup_failure_case unrecognized-sw-mode-usable-lan-ip 9 192.168.1.2
 
 printf '%s\n' 'PASS: installer startup persists mode defaults and generates LAN/WAN YAML bindings'
