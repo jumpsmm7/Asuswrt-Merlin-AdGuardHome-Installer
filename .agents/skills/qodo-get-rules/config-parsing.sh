@@ -36,7 +36,7 @@ if [ -f "${CONFIG_FILE}" ]; then
 		' "${CONFIG_FILE}" 2>&1)
 		JQ_EXIT=$?
 
-		if [ ${JQ_EXIT} -ne 0 ]; then
+		if [ "${JQ_EXIT}" -ne 0 ]; then
 			printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
 			exit 1
 		fi
@@ -142,7 +142,7 @@ else
 		REQUEST_ID=$(
 			dd if=/dev/urandom bs=16 count=1 2>/dev/null |
 				od -An -tx1 |
-				tr -d ' 
+				tr -d ' \n' |
 				sed 's/^\(........\)\(....\).\(...\).\(...\)\(............\)$/\1-\2-4\3-8\4-\5/')
 	fi
 fi
