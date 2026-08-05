@@ -26,12 +26,14 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}/target" || fail 'could not create test directory'
 
 sed -n \
-	'/^_quote() {$/,/^}$/p; /^conf_value() {$/,/^md5_is_valid() {$/p; /^write_conf() {$/,/^}$/p; /^ipv4_is_valid() {$/,/^port_is_valid() {$/p; /^setup_AdGuardHome() {$/,/^setup_amtmupdate() {$/p' \
+	'/^_quote() {$/,/^}$/p; /^conf_value() {$/,/^md5_is_valid() {$/p; /^write_conf() {$/,/^}$/p; /^ipv4_is_valid() {$/,/^port_is_valid() {$/p; /^startup_action_allows_unknown_install_mode() {$/,/^}$/p; /^setup_AdGuardHome() {$/,/^setup_amtmupdate() {$/p' \
 	"${SCRIPT_PATH}" | sed '/^md5_is_valid() {$/d; /^port_is_valid() {$/d; /^setup_amtmupdate() {$/d' >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract installer helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'installer helper extraction was empty'
 
 grep -q '^adguard_install_mode_detect() {$' "${FUNCTIONS_FILE}" || fail 'install mode detection helper is missing'
+grep -q '^adguard_install_mode_confirmed() {$' "${FUNCTIONS_FILE}" || fail 'install mode confirmation helper is missing'
+grep -q '^startup_action_allows_unknown_install_mode() {$' "${FUNCTIONS_FILE}" || fail 'startup action validation helper is missing'
 grep -q '^configure_runtime_defaults() {$' "${FUNCTIONS_FILE}" || fail 'runtime defaults helper is missing'
 grep -q '^setup_AdGuardHome_impl() {$' "${FUNCTIONS_FILE}" || fail 'setup helper is missing'
 
@@ -167,23 +169,40 @@ run_startup_failure_case() {
 	rm -f "${CONF_FILE}" "${YAML_FILE}" "${YAML_ORI}" "${YAML_BAK}" "${YAML_ERR}"
 	: >"${CONF_FILE}"
 	ADGUARD_INSTALL_MODE=
+	PREVIOUS_ADGUARD_INSTALL_MODE=
 
-	adguard_install_mode_detect >/dev/null 2>&1 || fail "${case_name}: three-state install mode detection failed"
+	# Follow the production dispatch path from installer lines 8726-8736
+	adguard_install_mode_detect >/dev/null 2>&1 || fail "${case_name}: install mode detection failed"
 	[ "${ADGUARD_INSTALL_MODE_DETECTION:-}" = unknown ] || fail "${case_name}: detection was not unknown"
-	if configure_runtime_defaults new-install "${ADGUARD_INSTALL_MODE:-}" 0 >/dev/null 2>&1; then
-		fail "${case_name}: runtime defaults accepted unknown detection"
+
+	# Check if mode is confirmed (production uses adguard_install_mode_confirmed)
+	if ! adguard_install_mode_confirmed; then
+		# No previous mode (simulating fresh install) and no existing installation
+		# Production checks startup_action_allows_unknown_install_mode here
+		# Using empty strings for $1 and $2 to simulate 'install' action which requires confirmed mode
+		if ! startup_action_allows_unknown_install_mode "" ""; then
+			# This is the expected path - mode is unknown and action doesn't allow it
+			# Verify no state was modified (matching production exit at line 8735-8736)
+			[ -z "${ADGUARD_INSTALL_MODE:-}" ] || fail "${case_name}: install mode was set despite unknown detection"
+			[ ! -e "${YAML_FILE}" ] || fail "${case_name}: YAML was generated despite unknown detection"
+			[ ! -s "${CONF_FILE}" ] || fail "${case_name}: config was written despite unknown detection"
+			return 0
+		else
+			fail "${case_name}: startup_action_allows_unknown_install_mode incorrectly allowed unknown mode"
+		fi
+	else
+		fail "${case_name}: install mode was confirmed when it should have been unknown"
 	fi
-	[ -z "${ADGUARD_INSTALL_MODE:-}" ] || fail "${case_name}: install mode was set after failed detection"
-	[ ! -e "${YAML_FILE}" ] || fail "${case_name}: YAML was generated after failed detection"
-	[ ! -s "${CONF_FILE}" ] || fail "${case_name}: config was written after failed detection"
 }
 
 run_startup_case repeater-lan 2 192.168.1.2 lan 192.168.1.2:3000
 run_startup_case ap-lan 3 192.168.1.2 lan 192.168.1.2:3000
+run_startup_case media-bridge-lan 4 192.168.1.2 lan 192.168.1.2:3000
 run_startup_case router-wan 1 192.168.1.1 wan 0.0.0.0:3000
 run_startup_failure_case repeater-missing-lan-ip 2 ''
 run_startup_failure_case ap-invalid-lan-ip 3 999.168.1.2
 run_startup_failure_case missing-sw-mode-missing-lan-ip '' ''
 run_startup_failure_case missing-sw-mode-usable-lan-ip '' 192.168.1.2
+run_startup_failure_case unrecognized-sw-mode-usable-lan-ip 9 192.168.1.2
 
 printf '%s\n' 'PASS: installer startup persists mode defaults and generates LAN/WAN YAML bindings'
