@@ -326,7 +326,7 @@ reviews:
         When adding a regression test, register it explicitly in `tools/code-quality.sh`; test files are not automatically discovered by the regression runner. Keep test names in kebab-case with a component/scenario prefix and retain the repository’s `PASS:`/`FAIL:` result convention.
     - path: "tools/**"
       instructions: |
-        Keep validation and generation tools POSIX-compatible and deterministic. Preserve explicit failure propagation, distinguish unavailable optional tools from failed required checks, and ensure shell discovery, regression registration, checksum generation, and checksum validation cover the same intended release artifacts.
+        Keep validation and generation tools POSIX-compatible and deterministic. Preserve explicit failure propagation, distinguish unavailable optional tools from failed required checks, and ensure separate coverage contracts are maintained: shell discovery covers runtime scripts; regression registration covers tests; checksum generation and validation cover release artifacts.
     - path: "armv5/**"
       instructions: |
         Treat archives, VERSION.txt, checksum.txt, and archive checksum sidecars as generated cache outputs. Do not hand-edit them; update them through `tools/download-adguardhome-static.sh` and preserve atomic publication and metadata consistency.

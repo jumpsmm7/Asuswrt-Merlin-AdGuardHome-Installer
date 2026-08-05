@@ -98,10 +98,10 @@ url = sys.argv[1]
 parsed = urlsplit(url)
 
 if parsed.query:
-    print(f"Error: GERRIT_URL must not contain query parameters: {url}", file=sys.stderr)
+    print("Error: GERRIT_URL must not contain query parameters", file=sys.stderr)
     sys.exit(1)
 if parsed.fragment:
-    print(f"Error: GERRIT_URL must not contain fragment identifiers: {url}", file=sys.stderr)
+    print("Error: GERRIT_URL must not contain fragment identifiers", file=sys.stderr)
     sys.exit(1)
 PY
 then
@@ -119,16 +119,18 @@ if [ -z "$GERRIT_HOST" ]; then
 fi
 
 umask 077
-GERRIT_NETRC=$(mktemp "${TMPDIR:-/tmp}/qodo-gerrit-netrc.XXXXXX") || exit 1
-trap 'rm -f "$GERRIT_NETRC"' EXIT
-trap 'rm -f "$GERRIT_NETRC"; exit 129' HUP
-trap 'rm -f "$GERRIT_NETRC"; exit 130' INT
-trap 'rm -f "$GERRIT_NETRC"; exit 143' TERM
+GERRIT_NETRC_DIR=$(mktemp -d "${TMPDIR:-/tmp}/qodo-gerrit-netrc.XXXXXX") || exit 1
+chmod 700 "$GERRIT_NETRC_DIR" || { rm -rf "$GERRIT_NETRC_DIR"; exit 1; }
+GERRIT_NETRC="${GERRIT_NETRC_DIR}/netrc"
+trap 'rm -rf "$GERRIT_NETRC_DIR"' EXIT
+trap 'rm -rf "$GERRIT_NETRC_DIR"; exit 129' HUP
+trap 'rm -rf "$GERRIT_NETRC_DIR"; exit 130' INT
+trap 'rm -rf "$GERRIT_NETRC_DIR"; exit 143' TERM
 if ! printf 'machine %s\nlogin %s\npassword %s\n' \
   "$GERRIT_HOST" "$GERRIT_USERNAME" "$GERRIT_HTTP_PASSWORD" >"$GERRIT_NETRC" || \
   ! chmod 600 "$GERRIT_NETRC"; then
   echo "Error: unable to create protected Gerrit credentials" >&2
-  rm -f "$GERRIT_NETRC"
+  rm -rf "$GERRIT_NETRC_DIR"
   exit 1
 fi
 ```
@@ -260,7 +262,10 @@ COMMENTS_RESPONSE=$(curl --fail --silent --show-error --connect-timeout 10 --max
   printf '%s\n' "Failed to fetch Gerrit comments" >&2
   exit 1
 }
-printf '%s\n' "$COMMENTS_RESPONSE" | tail -c +6 | python3 -m json.tool
+if ! printf '%s\n' "$COMMENTS_RESPONSE" | tail -c +6 | python3 -m json.tool; then
+  printf '%s\n' "Error: invalid JSON response from Gerrit comments API" >&2
+  exit 1
+fi
 ```
 
 Response: map of file paths to arrays of comment objects.
@@ -275,7 +280,10 @@ MESSAGES_RESPONSE=$(curl --fail --silent --show-error --connect-timeout 10 --max
   printf '%s\n' "Failed to fetch Gerrit messages" >&2
   exit 1
 }
-printf '%s\n' "$MESSAGES_RESPONSE" | tail -c +6 | python3 -m json.tool
+if ! printf '%s\n' "$MESSAGES_RESPONSE" | tail -c +6 | python3 -m json.tool; then
+  printf '%s\n' "Error: invalid JSON response from Gerrit messages API" >&2
+  exit 1
+fi
 ```
 
 Returns array of message objects with `id`, `author`, `message`, `date`.
@@ -547,6 +555,12 @@ trap 'rm -f "$GERRIT_NETRC"' EXIT
 trap 'rm -f "$GERRIT_NETRC"; exit 129' HUP
 trap 'rm -f "$GERRIT_NETRC"; exit 130' INT
 trap 'rm -f "$GERRIT_NETRC"; exit 143' TERM
+
+# Check for staged changes before amending
+if ! git diff --cached --quiet; then
+  echo "Error: unrelated staged changes present; aborting amend to avoid including them" >&2
+  exit 1
+fi
 
 # Amend the commit to apply the hook and generate Change-Id
 if ! git commit --amend --no-edit; then
