@@ -110,8 +110,8 @@ done
 
 # Extract Bitbucket and Azure DevOps Reply to Inline Comments sections and verify
 # that the payload serializer reads the body from a file and does not embed it inline.
-BITBUCKET_REPLY_SECTION=$(sed -n '/^### Bitbucket$/,/^### Azure DevOps$/p' "$PROVIDERS" | sed '$d')
-AZURE_REPLY_SECTION=$(sed -n '/^### Azure DevOps$/,/^## Resolve Inline Threads$/p' "$PROVIDERS" | sed '$d')
+BITBUCKET_REPLY_SECTION=$(printf '%s\n' "$REPLY_SECTION" | sed -n '/^### Bitbucket$/,/^### Azure DevOps$/p' | sed '$d')
+AZURE_REPLY_SECTION=$(printf '%s\n' "$REPLY_SECTION" | sed -n '/^### Azure DevOps$/,$p')
 if [ -z "$BITBUCKET_REPLY_SECTION" ]; then
 	fail 'Bitbucket reply subsection not found in Reply to Inline Comments section'
 fi

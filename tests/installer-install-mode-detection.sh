@@ -291,8 +291,10 @@ extract_function setup_AdGuardHome_impl "${TMP_ROOT}/setup-function" ||
 	service_install_yaml_cfg_file() { :; }
 
 	# Mock environment for LAN mode without DNS filter selection
+	BASE_DIR="${TMP_ROOT}"
 	ADGUARD_INSTALL_MODE="lan"
 	DNS_FILTER_SELECTION=""
+	nvram_transaction_setup_files_begin() { return 0; }
 
 	# Invoke setup_AdGuardHome_impl with empty DNS_FILTER_SELECTION in LAN mode
 	if ! setup_AdGuardHome_impl "" "new-install" 0 >/dev/null 2>&1; then
