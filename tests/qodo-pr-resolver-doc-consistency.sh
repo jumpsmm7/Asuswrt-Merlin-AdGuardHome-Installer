@@ -50,7 +50,7 @@ grep -Fq '## Qodo Fix Summary — Round N' "${PROVIDERS}" ||
 # SKILL.md and convergence.md so a future edit can't silently key on line
 # number alone and reintroduce the flip-flop bug the guard exists to prevent.
 for f in "${SKILL}" "${CONVERGENCE}"; do
-	grep -Fq '`file` + `title`' "${f}" || fail "${f}: expected the ledger key description to mention the complete '`file` + `title`' key"
+	grep -Fq '`file` + `title`' "${f}" || fail "${f}: expected the ledger key description to mention the complete '$(file) + $(title)' key"
 done
 
 # --- The hard-stop threshold (>=2 flips triggers a refusal on the 3rd cycle)
