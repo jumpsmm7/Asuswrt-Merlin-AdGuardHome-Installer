@@ -19,8 +19,7 @@ for f in "${SKILL}" "${CANONICAL}" "${SEARCH_ENDPOINT}" "${REPO_SCOPE}"; do
 	[ -f "${f}" ] || fail "expected skill file not found: ${f}"
 done
 
-TMP_ROOT="${TMPDIR:-/tmp}/qodo-get-rules-config-validation.$$"
-mkdir -p "${TMP_ROOT}" || fail 'unable to create temp workspace'
+TMP_ROOT=$(mktemp -d) || fail 'unable to create exclusive temp workspace'
 trap 'rm -rf "${TMP_ROOT}"' EXIT
 trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
 

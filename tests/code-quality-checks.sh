@@ -15,9 +15,7 @@ fail() {
 
 [ -f "${SCRIPT_PATH}" ] || fail "expected script not found: ${SCRIPT_PATH}"
 
-TMP_ROOT="${TMPDIR:-/tmp}/code-quality-checks.$$"
-mkdir -p "${TMP_ROOT}" || fail 'unable to create temp workspace'
-TMP_ROOT=$(mktemp -d) || fail 'unable to create temp workspace'
+TMP_ROOT=$(mktemp -d) || fail 'unable to create exclusive temp workspace'
 
 FUNCTIONS_FILE="${TMP_ROOT}/functions.sh"
 sed -n \

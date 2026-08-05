@@ -20,19 +20,60 @@ if [ -f "${CONFIG_FILE}" ]; then
 	fi
 	# Only parse config values not already set in environment
 	if [ -z "${QODO_API_KEY:-}" ]; then
-		if ! CONFIG_API_KEY=$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get("API_KEY", ""); print(v if isinstance(v, str) and v.strip() else "")' "${CONFIG_FILE}"); then
+		# Extract API_KEY from JSON using awk/sed
+		CONFIG_API_KEY=$(awk '
+			BEGIN { in_str=0; val="" }
+			/"API_KEY"[[:space:]]*:[[:space:]]*"/ {
+				match($0, /"API_KEY"[[:space:]]*:[[:space:]]*"([^"]*)"/, arr)
+				if (arr[1] != "") {
+					print arr[1]
+					exit
+				}
+			}
+		' "${CONFIG_FILE}" 2>/dev/null)
+		if [ $? -ne 0 ]; then
 			printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
 			exit 1
 		fi
 	fi
 	if [ -z "${QODO_ENVIRONMENT_NAME:-}" ]; then
-		if ! CONFIG_ENV_NAME=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("ENVIRONMENT_NAME", ""))' "${CONFIG_FILE}"); then
+		# Extract ENVIRONMENT_NAME from JSON, rejecting non-string values
+		CONFIG_ENV_NAME=$(awk '
+			BEGIN { in_str=0; val="" }
+			/"ENVIRONMENT_NAME"[[:space:]]*:[[:space:]]*"/ {
+				match($0, /"ENVIRONMENT_NAME"[[:space:]]*:[[:space:]]*"([^"]*)"/, arr)
+				if (arr[1] != "") {
+					print arr[1]
+					exit
+				}
+			}
+			/"ENVIRONMENT_NAME"[[:space:]]*:[[:space:]]*[^"]/ {
+				print "NON_STRING_VALUE"
+				exit
+			}
+		' "${CONFIG_FILE}" 2>/dev/null)
+		if [ $? -ne 0 ]; then
 			printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
+			exit 1
+		fi
+		if [ "${CONFIG_ENV_NAME}" = "NON_STRING_VALUE" ]; then
+			printf '%s
 			exit 1
 		fi
 	fi
 	if [ -z "${QODO_API_URL:-}" ]; then
-		if ! CONFIG_QODO_API_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("QODO_API_URL", ""))' "${CONFIG_FILE}"); then
+		# Extract QODO_API_URL from JSON
+		CONFIG_QODO_API_URL=$(awk '
+			BEGIN { in_str=0; val="" }
+			/"QODO_API_URL"[[:space:]]*:[[:space:]]*"/ {
+				match($0, /"QODO_API_URL"[[:space:]]*:[[:space:]]*"([^"]*)"/, arr)
+				if (arr[1] != "") {
+					print arr[1]
+					exit
+				}
+			}
+		' "${CONFIG_FILE}" 2>/dev/null)
+		if [ $? -ne 0 ]; then
 			printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
 			exit 1
 		fi
@@ -49,7 +90,22 @@ if [ -z "${API_KEY}" ]; then
 	exit 1
 fi
 
-REQUEST_ID=$(uuidgen 2>/dev/null || python3 -c 'import uuid; print(uuid.uuid4())')
+# Generate REQUEST_ID without Python dependency
+# Try multiple methods in order of preference
+if command -v uuidgen >/dev/null 2>&1; then
+	REQUEST_ID=$(uuidgen 2>/dev/null)
+elif [ -r /proc/sys/kernel/random/uuid ]; then
+	REQUEST_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null)
+else
+	# Fallback: generate UUID-like string from /dev/urandom
+	# Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx (UUID v4)
+	if [ -r /dev/urandom ]; then
+		REQUEST_ID=$(dd if=/dev/urandom bs=16 count=1 2>/dev/null | od -An -tx1 | tr -d ' 
+			s/^(.{8})(.{4})(.{4})(.{4})(.{12})$/\1-\2-4\3-a\4-\5/
+		')
+	fi
+fi
+
 if [ -z "${REQUEST_ID}" ] || ! printf '%s\n' "${REQUEST_ID}" | grep -qE '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$'; then
 	printf '%s\n' 'Failed to generate a valid request ID' >&2
 	exit 1
