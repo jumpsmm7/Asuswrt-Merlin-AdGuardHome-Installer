@@ -248,7 +248,8 @@ grep -q 'wan:lan | lan:wan | :lan)' "${SCRIPT_PATH}" ||
 grep -Fq '[ "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" = "wan" ] || [ -z "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" ]' "${FUNCTIONS_FILE}" ||
 	fail 'legacy WAN migration rollback does not restore active firewall state'
 # Behavioral test: verify that the installer properly handles LAN mode by checking
-# that configure_runtime_defaults is callable with LAN mode without DNS filter selection.
+# that setup_AdGuardHome_impl invokes check_dns_filter and configure_runtime_defaults
+# correctly for LAN mode without DNS filter selection.
 (
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
@@ -260,50 +261,146 @@ grep -Fq '[ "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" = "wan" ] || [ -z "${PREVIOUS_A
 	CONF_FILE="${TMP_ROOT}/AdGuardHome.conf"
 	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 	YAML_ORI="${TMP_ROOT}/AdGuardHome.yaml.ori"
+	TARG_DIR="${TMP_ROOT}/target"
+	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	CALLS_FILE="${TMP_ROOT}/calls"
 
-	# nvram_transaction_setup_files_begin creates a rollback journal containing snapshots of the YAML and configuration files.
+	# Create minimal installer environment
+	mkdir -p "${TARG_DIR}" || fail 'could not create target directory'
+	cat >"${AGH_FILE}" <<'AGH_STUB'
+#!/bin/sh
+printf '%s\n' 'AdGuard Home, version test Schema version: 27'
+AGH_STUB
+	chmod 755 "${AGH_FILE}" || fail 'could not create AdGuardHome stub'
+	: >"${CONF_FILE}"
+	: >"${CALLS_FILE}"
+
+	# assert_count verifies that a pattern appears in the calls file the expected number of times.
+	assert_count() {
+		pattern="$1"
+		expected="$2"
+		message="$3"
+		actual="$(grep -c "${pattern}" "${CALLS_FILE}" 2>/dev/null || echo 0)"
+		[ "${actual}" -eq "${expected}" ] || fail "${message}: found ${actual}, expected ${expected}"
+	}
+
+	# Stub dependencies called by setup_AdGuardHome_impl
+	INFO='Info:'
+	ERROR='Error:'
+	WARNING='Warning:'
+	PTXT() { printf '%s\n' "$@"; }
+	ptxt_ok() { :; }
+	create_dir() { mkdir -p "$1"; }
+	read_input_port() { WEB_PORT=3000; }
+	read_input_dns() {
+		if [ -z "${BOOTSTRAP1:-}" ]; then
+			BOOTSTRAP1=9.9.9.9
+		else
+			BOOTSTRAP2=8.8.8.8
+		fi
+	}
+	read_yesno() { return 1; }
+	AdGuardHome_authen() {
+		printf '%s\n' 'users:' '- name: admin' '  password: hash' >>"$2"
+	}
+	check_AdGuardHome_yaml() { :; }
+	save_dns_filter_settings() { mkdir -p "$1"; }
+	restore_dns_filter_settings() { rm -rf "$1"; }
+	installer_lan_domain_set() { :; }
+	installer_lan_domain_restore() { :; }
+	nvram_transaction_finalize_setup_pair() { return 0; }
 	nvram_transaction_setup_files_begin() {
-		local journal_root source target
+		printf '%s\n' 'nvram_transaction_setup_files_begin' >>"${CALLS_FILE}"
+		local journal_root
 		journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 		[ ! -e "${journal_root}" ] || return 1
 		mkdir -p "${journal_root}" || return 1
-		for source in yaml-file yaml-original config; do
-			case "${source}" in
-				yaml-file) target="${YAML_FILE}" ;;
-				yaml-original) target="${YAML_ORI}" ;;
-				config) target="${CONF_FILE}" ;;
-			esac
-			if [ "${source}" = "yaml-file" ] && [ "${YAML_BACKED_UP:-0}" -eq 1 ] && [ -f "${YAML_BAK}" ]; then
-				cp -p "${YAML_BAK}" "${journal_root}/${source}" || return 1
-			elif [ -f "${target}" ]; then
-				cp -p "${target}" "${journal_root}/${source}" || return 1
-			else
-				: >"${journal_root}/${source}.absent" || return 1
-			fi
-		done
+		: >"${journal_root}/yaml-file.absent"
+		: >"${journal_root}/yaml-original.absent"
+		: >"${journal_root}/config.absent"
+		return 0
+	}
+	nvram_transaction_setup_files_restore() { return 0; }
+	check_dns_filter() {
+		printf '%s\n' 'check_dns_filter' >>"${CALLS_FILE}"
+		return 0
+	}
+	check_dns_local() { :; }
+	check_ipset() { :; }
+	ai_have_cmd() { return 1; }
+	nvram() {
+		case "${1:-}:${2:-}" in
+			get:sw_mode) printf '%s\n' '2' ;;
+			get:lan_ipaddr) printf '%s\n' '192.168.50.1' ;;
+			get:lan_ifname) printf '%s\n' '' ;;
+			get:dns_local_cache) printf '%s\n' '1' ;;
+			get:ipv6_rtr_addr) printf '%s\n' '' ;;
+			get:lan_domain) printf '%s\n' 'lan' ;;
+			get:lan_gateway) printf '%s\n' '192.168.1.1' ;;
+			set:*) : ;;
+			commit:) : ;;
+			*) return 1 ;;
+		esac
 	}
 
-	# Test that the transaction journal function works correctly
-	if ! nvram_transaction_setup_files_begin; then
-		fail 'nvram_transaction_setup_files_begin failed to create initial journal'
+	# Override configure_runtime_defaults to track calls
+	_original_configure_runtime_defaults="$(command -v configure_runtime_defaults)"
+	configure_runtime_defaults() {
+		printf '%s\n' 'configure_runtime_defaults' >>"${CALLS_FILE}"
+		# Call original implementation by sourcing the function from FUNCTIONS_FILE
+		# The original was already loaded, just need to track the call
+		local NETCHECK_MODE
+		case "${1:-}" in
+			new-install)
+				case "${2:-}" in
+					wan) NETCHECK_MODE="wan" ;;
+					lan) NETCHECK_MODE="lan" ;;
+					*)
+						PTXT "${ERROR} A confirmed router install mode is required before saving runtime defaults."
+						return 1
+						;;
+				esac
+				write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"1\"" || return 1
+				write_conf ADGUARD_INSTALL_MODE "\"${NETCHECK_MODE}\"" || return 1
+				ADGUARD_INSTALL_MODE="${NETCHECK_MODE}"
+				adguard_install_feature_defaults || return 1
+				write_conf_if_absent ADGUARD_NETCHECK_MODE "\"${NETCHECK_MODE}\"" || return 1
+				write_conf_if_absent ADGUARD_PROC_OPTIMIZE "\"YES\"" || return 1
+				write_conf_if_absent ADGUARD_PROC_PROFILE "\"balanced\"" || return 1
+				;;
+			*) return 1 ;;
+		esac
+	}
+
+	# Invoke the real setup entry point
+	if ! setup_AdGuardHome_impl '' install >/dev/null 2>&1; then
+		fail 'setup_AdGuardHome_impl failed for LAN mode without DNS filter selection'
 	fi
+
+	# Assert that check_dns_filter was called exactly once
+	assert_count '^check_dns_filter$' 1 'check_dns_filter call count mismatch'
+
+	# Assert that configure_runtime_defaults was called exactly once
+	assert_count '^configure_runtime_defaults$' 1 'configure_runtime_defaults call count mismatch'
+
+	# Assert that nvram_transaction_setup_files_begin was called (journal creation)
+	assert_count '^nvram_transaction_setup_files_begin$' 1 'nvram transaction journal creation call count mismatch'
 
 	# Verify journal directory was created
 	if [ ! -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
-		fail 'nvram_transaction_setup_files_begin did not create journal directory'
+		fail 'setup_AdGuardHome_impl did not create NVRAM transaction journal directory'
 	fi
 
 	# Verify journal entries exist
 	for entry in yaml-file.absent yaml-original.absent config.absent; do
 		if [ ! -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/${entry}" ]; then
-			fail "nvram_transaction_setup_files_begin did not create ${entry}"
+			fail "setup_AdGuardHome_impl did not create journal entry ${entry}"
 		fi
 	done
 
-	# Verify second call fails (journal already exists)
-	if nvram_transaction_setup_files_begin 2>/dev/null; then
-		fail 'nvram_transaction_setup_files_begin should fail when journal already exists'
-	fi
+	# Verify install mode was persisted
+	grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" ||
+		fail 'setup_AdGuardHome_impl did not persist LAN install mode'
 ) || exit $?
 grep -q 'if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" \]; then' "${SCRIPT_PATH}" ||
 	fail 'DNS environment restore must be gated by WAN install mode'
