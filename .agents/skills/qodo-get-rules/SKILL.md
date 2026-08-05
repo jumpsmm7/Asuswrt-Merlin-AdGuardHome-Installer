@@ -137,7 +137,7 @@ if [ -f "${CONFIG_FILE}" ]; then
   fi
   # Only parse config values not already set in environment
   if [ -z "${QODO_API_KEY:-}" ]; then
-    if ! CONFIG_API_KEY=$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get("API_KEY", ""); print(v if isinstance(v, str) and v else "")' "${CONFIG_FILE}"); then
+    if ! CONFIG_API_KEY=$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get("API_KEY", ""); print(v if isinstance(v, str) and v.strip() else "")' "${CONFIG_FILE}"); then
       printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
       exit 1
     fi

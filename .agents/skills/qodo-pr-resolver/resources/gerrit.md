@@ -123,14 +123,26 @@ GERRIT_NETRC_DIR=$(mktemp -d "${TMPDIR:-/tmp}/qodo-gerrit-netrc.XXXXXX") || exit
 chmod 700 "$GERRIT_NETRC_DIR" || { rm -rf "$GERRIT_NETRC_DIR"; exit 1; }
 GERRIT_NETRC="${GERRIT_NETRC_DIR}/netrc"
 trap 'rm -rf "$GERRIT_NETRC_DIR"' EXIT
-trap 'rm -rf "$GERRIT_NETRC_DIR"; exit 129' HUP
-trap 'rm -rf "$GERRIT_NETRC_DIR"; exit 130' INT
-trap 'rm -rf "$GERRIT_NETRC_DIR"; exit 143' TERM
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+# Reject credentials containing whitespace or newlines (netrc parsing limitation)
+if printf '%s' "$GERRIT_HOST" | grep -qE '[[:space:]]'; then
+  echo "Error: GERRIT_HOST contains whitespace or newline characters (not supported in netrc format)" >&2
+  exit 1
+fi
+if printf '%s' "$GERRIT_USERNAME" | grep -qE '[[:space:]]'; then
+  echo "Error: GERRIT_USERNAME contains whitespace or newline characters (not supported in netrc format)" >&2
+  exit 1
+fi
+if printf '%s' "$GERRIT_HTTP_PASSWORD" | grep -qE '[[:space:]]'; then
+  echo "Error: GERRIT_HTTP_PASSWORD contains whitespace or newline characters (not supported in netrc format)" >&2
+  exit 1
+fi
 if ! printf 'machine %s\nlogin %s\npassword %s\n' \
   "$GERRIT_HOST" "$GERRIT_USERNAME" "$GERRIT_HTTP_PASSWORD" >"$GERRIT_NETRC" || \
   ! chmod 600 "$GERRIT_NETRC"; then
   echo "Error: unable to create protected Gerrit credentials" >&2
-  rm -rf "$GERRIT_NETRC_DIR"
   exit 1
 fi
 ```
