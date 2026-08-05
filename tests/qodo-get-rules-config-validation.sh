@@ -35,11 +35,13 @@ awk '
 diff -q "${CANONICAL}" "${SNIPPET}" >/dev/null 2>&1 || fail 'SKILL.md config-parsing snippet differs from the canonical script'
 
 # run_snippet executes only the tracked canonical script with an isolated HOME
-# and an explicit, minimal environment.
+# and an explicit, minimal environment. The result line carries a 4th field
+# (REQUEST_ID) so tests can verify UUID generation independently of the
+# credential/URL fields.
 run_snippet() {
 	_home="$1"
 	shift
-	env -i HOME="${_home}" PATH="${PATH:-/usr/bin:/bin}" "$@" /bin/sh -c '. "$1"; printf "RESULT|%s|%s|%s\n" "${API_KEY}" "${ENV_NAME}" "${API_URL}"' /bin/sh "${CANONICAL}"
+	env -i HOME="${_home}" PATH="${PATH:-/usr/bin:/bin}" "$@" /bin/sh -c '. "$1"; printf "RESULT|%s|%s|%s|%s\n" "${API_KEY}" "${ENV_NAME}" "${API_URL}" "${REQUEST_ID}"' /bin/sh "${CANONICAL}"
 }
 
 make_config() {
@@ -71,7 +73,7 @@ assert_failure() {
 }
 
 extract_result_field() {
-	# usage: extract_result_field <output> <field-number 1..3>
+	# usage: extract_result_field <output> <field-number 1..4>
 	printf '%s\n' "$1" | grep '^RESULT|' | tail -n1 | cut -d'|' -f "$(($2 + 1))"
 }
 
@@ -209,6 +211,52 @@ OUT=$(run_snippet "${HOME_URL_PRECEDENCE}" QODO_API_URL=https://env-value.qodo.a
 RC=$?
 assert_success 'env QODO_API_URL precedence' "${RC}" "${OUT}"
 [ "$(extract_result_field "${OUT}" 3)" = 'https://env-value.qodo.ai/rules/v1' ] || fail "env QODO_API_URL precedence: config value was used instead of env value: ${OUT}"
+
+# --- Scenario: a successful run must always produce a REQUEST_ID that matches
+# the same UUID v4-shaped format the script itself validates before use, so a
+# regression in generation (uuidgen / /proc / /dev/urandom fallback) that
+# produces a malformed-but-non-empty value cannot silently slip through.
+REQUEST_ID_OUT=$(extract_result_field "${OUT}" 4)
+printf '%s\n' "${REQUEST_ID_OUT}" | grep -qE '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$' ||
+	fail "env QODO_API_URL precedence: REQUEST_ID is not a well-formed UUID: '${REQUEST_ID_OUT}'"
+
+# --- Scenario: a top-level JSON value that is not an object (e.g. an array)
+# is rejected with the same clear error as malformed JSON, rather than
+# silently coercing to empty fields or crashing jq with a raw traceback.
+HOME_JSON_ARRAY="${TMP_ROOT}/home-json-array"
+mkdir -p "${HOME_JSON_ARRAY}" || fail 'unable to create home-json-array fixture'
+make_config "${HOME_JSON_ARRAY}" '["not", "an", "object"]' 700 600
+OUT=$(run_snippet "${HOME_JSON_ARRAY}" 2>&1)
+RC=$?
+assert_failure 'non-object top-level JSON' "${RC}" "${OUT}" 'Fix or remove the invalid Qodo configuration file'
+
+# --- Scenario: a non-string API_KEY value in the config file (e.g. a JSON
+# number) is coerced to empty rather than used verbatim, so the overall
+# script fails with the standard "not found" error instead of leaking a
+# non-string value into the Authorization header.
+HOME_NUMERIC_KEY="${TMP_ROOT}/home-numeric-key"
+mkdir -p "${HOME_NUMERIC_KEY}" || fail 'unable to create home-numeric-key fixture'
+make_config "${HOME_NUMERIC_KEY}" '{"API_KEY": 12345}' 700 600
+OUT=$(run_snippet "${HOME_NUMERIC_KEY}" 2>&1)
+RC=$?
+assert_failure 'non-string API_KEY in config' "${RC}" "${OUT}" 'Qodo API key not found'
+
+# --- Scenario: a non-string ENVIRONMENT_NAME value in the config file (e.g. a
+# JSON number) is explicitly rejected with a dedicated error rather than
+# silently stringified into the API URL.
+HOME_NUMERIC_ENV="${TMP_ROOT}/home-numeric-env"
+mkdir -p "${HOME_NUMERIC_ENV}" || fail 'unable to create home-numeric-env fixture'
+make_config "${HOME_NUMERIC_ENV}" '{"API_KEY": "cfg-key", "ENVIRONMENT_NAME": 42}' 700 600
+OUT=$(run_snippet "${HOME_NUMERIC_ENV}" 2>&1)
+RC=$?
+assert_failure 'non-string ENVIRONMENT_NAME in config' "${RC}" "${OUT}" 'must be a string value'
+
+# --- Scenario: the trusted-domain match is case-sensitive, so an
+# uppercase-domain spoof attempt (e.g. "QODO.AI") is rejected rather than
+# matched case-insensitively against the lowercase "*.qodo.ai" allowlist.
+OUT=$(run_snippet "${HOME_URL}" QODO_API_KEY=k QODO_API_URL=https://QODO.AI 2>&1)
+RC=$?
+assert_failure 'uppercase domain spoof rejected' "${RC}" "${OUT}" 'Invalid QODO_API_URL'
 
 # --- Cross-file consistency: the TOP_K positive-integer validation regex shown in
 # search-endpoint.md's curl and Python examples must actually reject non-positive
