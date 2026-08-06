@@ -220,8 +220,12 @@ if [ -n "${QODO_API_URL}" ]; then
 		exit 1
 	fi
 	# Remove trailing slash to prevent double slashes before /rules/v1
+	# Normalize the optional /rules/v1 suffix to avoid appending it twice.
 	QODO_API_URL="${QODO_API_URL%/}"
-	API_URL="${QODO_API_URL}/rules/v1"
+	case "${QODO_API_URL}" in
+		*/rules/v1) API_URL="${QODO_API_URL}" ;;
+		*) API_URL="${QODO_API_URL}/rules/v1" ;;
+	esac
 elif [ -z "${ENV_NAME}" ]; then
 	API_URL="https://qodo-platform.qodo.ai/rules/v1"
 else
