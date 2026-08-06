@@ -25,9 +25,10 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 mkdir -p "${TMP_ROOT}/target" || fail 'could not create test directory'
 
-sed -n \
+_extracted="$(sed -n \
 	'/^_quote() {$/,/^}$/p; /^conf_value() {$/,/^md5_is_valid() {$/p; /^write_conf() {$/,/^}$/p; /^ipv4_is_valid() {$/,/^port_is_valid() {$/p; /^startup_action_allows_unknown_install_mode() {$/,/^}$/p; /^setup_AdGuardHome() {$/,/^setup_amtmupdate() {$/p' \
-	"${SCRIPT_PATH}" | sed '/^md5_is_valid() {$/d; /^port_is_valid() {$/d; /^setup_amtmupdate() {$/d' >"${FUNCTIONS_FILE}" ||
+	"${SCRIPT_PATH}")" || fail 'could not extract installer helpers'
+printf '%s\n' "${_extracted}" | sed '/^md5_is_valid() {$/d; /^port_is_valid() {$/d; /^setup_amtmupdate() {$/d' >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract installer helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'installer helper extraction was empty'
 

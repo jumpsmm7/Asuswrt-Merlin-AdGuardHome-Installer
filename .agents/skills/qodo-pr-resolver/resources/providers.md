@@ -30,7 +30,7 @@ For Azure DevOps detection, load `AZURE_DEVOPS_URL` from the Qodo config file as
 ```bash
 # Load AZURE_DEVOPS_URL from Qodo config for provider detection if not already set
 if [ -z "${AZURE_DEVOPS_URL:-}" ]; then
-  if [ -z "${HOME:-}" ]; then
+  if [ -z "${HOME:-}" ] && [ -z "${QODO_CONFIG:-}" ] && { [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ] || [ -z "${AZURE_DEVOPS_URL:-}" ]; }; then
     echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
     exit 1
   fi
@@ -99,7 +99,7 @@ fi
   These examples support **Bitbucket Cloud only**. Bitbucket Server and Data Center use different REST routes and project/repository addressing, so do not point these commands at a self-hosted instance.
 - **Load configuration** (existing environment variables take precedence):
   ```bash
-  if [ -z "${HOME:-}" ]; then
+  if [ -z "${HOME:-}" ] && [ -z "${QODO_CONFIG:-}" ] && { [ -z "${BB_USERNAME:-}" ] || [ -z "${BB_APP_PASSWORD:-}" ]; }; then
     echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
     exit 1
   fi
@@ -205,7 +205,7 @@ EOF
   `AZURE_DEVOPS_EXT_PAT` replaces `az login`. `AZURE_DEVOPS_URL` is optional — only needed for on-premises Azure DevOps Server.
 - **Authenticate and configure:**
   ```bash
-  if [ -z "${HOME:-}" ]; then
+  if [ -z "${HOME:-}" ] && [ -z "${QODO_CONFIG:-}" ] && { [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ] || [ -z "${AZURE_DEVOPS_URL:-}" ]; }; then
     echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
     exit 1
   fi

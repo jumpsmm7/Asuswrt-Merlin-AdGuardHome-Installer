@@ -51,7 +51,7 @@ HTTP Basic Auth with a password generated from Gerrit's settings page.
 Load the provider configuration before testing or using these values. Existing environment variables take precedence over the config file:
 
 ```bash
-if [ -z "${HOME:-}" ]; then
+if [ -z "${HOME:-}" ] && [ -z "${QODO_CONFIG:-}" ] && { [ -z "${GERRIT_URL:-}" ] || [ -z "${GERRIT_USERNAME:-}" ] || [ -z "${GERRIT_HTTP_PASSWORD:-}" ]; }; then
   echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
   exit 1
 fi

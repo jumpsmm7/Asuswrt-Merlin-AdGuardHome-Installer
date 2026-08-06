@@ -355,33 +355,14 @@ AGH_STUB
 		esac
 	}
 
+	# Save the original configure_runtime_defaults implementation before wrapping
+	eval "_original_configure_runtime_defaults() $(declare -f configure_runtime_defaults | tail -n +2)"
+
 	# Override configure_runtime_defaults to track calls
-	_original_configure_runtime_defaults="$(command -v configure_runtime_defaults)"
 	configure_runtime_defaults() {
 		printf '%s\n' 'configure_runtime_defaults' >>"${CALLS_FILE}"
-		# Call original implementation by sourcing the function from FUNCTIONS_FILE
-		# The original was already loaded, just need to track the call
-		local NETCHECK_MODE
-		case "${1:-}" in
-			new-install)
-				case "${2:-}" in
-					wan) NETCHECK_MODE="wan" ;;
-					lan) NETCHECK_MODE="lan" ;;
-					*)
-						PTXT "${ERROR} A confirmed router install mode is required before saving runtime defaults."
-						return 1
-						;;
-				esac
-				write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"1\"" || return 1
-				write_conf ADGUARD_INSTALL_MODE "\"${NETCHECK_MODE}\"" || return 1
-				ADGUARD_INSTALL_MODE="${NETCHECK_MODE}"
-				adguard_install_feature_defaults || return 1
-				write_conf_if_absent ADGUARD_NETCHECK_MODE "\"${NETCHECK_MODE}\"" || return 1
-				write_conf_if_absent ADGUARD_PROC_OPTIMIZE "\"YES\"" || return 1
-				write_conf_if_absent ADGUARD_PROC_PROFILE "\"balanced\"" || return 1
-				;;
-			*) return 1 ;;
-		esac
+		# Delegate to the original implementation
+		_original_configure_runtime_defaults "$@"
 	}
 
 	# Invoke the real setup entry point
