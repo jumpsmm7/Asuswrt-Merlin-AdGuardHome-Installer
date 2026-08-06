@@ -258,8 +258,11 @@ grep -Fq '[ "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" = "wan" ] || [ -z "${PREVIOUS_A
 (
 	# shellcheck disable=SC1090
 	WRAPPED_FUNCTIONS="${TMP_ROOT}/functions-wrapped"
-	sed 's/^configure_runtime_defaults() {$/_original_configure_runtime_defaults() {/' "${FUNCTIONS_FILE}" >"${WRAPPED_FUNCTIONS}" ||
-		fail 'could not create wrapped install mode helpers'
+	extract_function configure_runtime_defaults "${TMP_ROOT}/original-runtime-defaults" ||
+		fail 'could not extract configure_runtime_defaults for wrapping'
+	sed 's/^configure_runtime_defaults() {$/_original_configure_runtime_defaults() {/' \
+		"${TMP_ROOT}/original-runtime-defaults" >"${WRAPPED_FUNCTIONS}" ||
+		fail 'could not rename extracted configure_runtime_defaults'
 	cat >>"${WRAPPED_FUNCTIONS}" <<'EOF'
 configure_runtime_defaults() {
 	printf '%s\n' 'configure_runtime_defaults' >>"${CALLS_FILE}"

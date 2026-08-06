@@ -75,6 +75,36 @@ else
 	fail "regression: triggers field not found in test fixture"
 fi
 
+# Test case: unterminated inline list should be rejected
+TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-unterminated-inline-triggers"
+mkdir -p "${TEST_SKILL_DIR}"
+cat >"${TEST_SKILL_DIR}/SKILL.md" <<'EOF'
+---
+name: test-unterminated-inline-triggers
+description: Test skill with unterminated inline triggers list
+triggers: [foo, bar, baz
+---
+# Test Skill
+Content here.
+EOF
+sed -n "2,4p" "${TEST_SKILL_DIR}/SKILL.md" >"${FRONTMATTER}"
+if grep -Eq '^triggers:' "${FRONTMATTER}"; then
+	triggers_line=$(grep -E '^triggers:' "${FRONTMATTER}")
+	# Should detect as inline list (starts with [)
+	if printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\['; then
+		# Should fail validation due to missing closing bracket
+		if printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\[[^]]*\][[:space:]]*$'; then
+			fail "regression: unterminated inline triggers list was accepted"
+		else
+			: # Expected: unterminated list rejected
+		fi
+	else
+		fail "regression: unterminated inline triggers list was not detected as inline format"
+	fi
+else
+	fail "regression: triggers field not found in test fixture"
+fi
+
 # Test case: valid inline list should be accepted
 TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-valid-inline-triggers"
 mkdir -p "${TEST_SKILL_DIR}"
@@ -176,7 +206,10 @@ for skill_md in "${SKILLS_DIR}"/*/SKILL.md; do
 
 		# Check for inline list with values: triggers: [a, b, c]
 		if printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\['; then
-			# Valid inline list - verify it has content between brackets
+			# Valid inline list - must have closing bracket and non-empty content
+			if ! printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\[[^]]*\][[:space:]]*$'; then
+				fail "${skill_md}: 'triggers:' inline list is unterminated or has trailing content"
+			fi
 			if ! printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\[[[:space:]]*[^][:space:]]'; then
 				fail "${skill_md}: 'triggers:' inline list is empty or malformed"
 			fi
