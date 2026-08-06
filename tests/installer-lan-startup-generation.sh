@@ -179,8 +179,8 @@ run_startup_failure_case() {
 	if ! adguard_install_mode_confirmed; then
 		# No previous mode (simulating fresh install) and no existing installation
 		# Production checks startup_action_allows_unknown_install_mode here
-		# Using empty strings for $1 and $2 to simulate 'install' action which requires confirmed mode
-		if ! startup_action_allows_unknown_install_mode "" ""; then
+		# Match the production dispatch arguments for the install action.
+		if ! startup_action_allows_unknown_install_mode install ""; then
 			# This is the expected path - mode is unknown and action doesn't allow it
 			# Verify no state was modified (matching production exit at line 8735-8736)
 			[ -z "${ADGUARD_INSTALL_MODE:-}" ] || fail "${case_name}: install mode was set despite unknown detection"
