@@ -104,7 +104,7 @@ if [ -n "${QODO_API_URL}" ]; then
 	fi
 	# Reject QODO_API_URL containing query string or fragment
 	case "${QODO_API_URL}" in
-		*\?*|*\#*)
+		*\?* | *\#*)
 			printf '%s\n' 'Invalid QODO_API_URL: must not contain query string or fragment' >&2
 			exit 1
 			;;
