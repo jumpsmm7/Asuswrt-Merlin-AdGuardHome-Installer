@@ -183,6 +183,16 @@ OUT=$(run_snippet "${HOME_URL}" QODO_API_KEY=k QODO_API_URL=http://qodo-platform
 RC=$?
 assert_failure 'plain http rejected' "${RC}" "${OUT}" 'Invalid QODO_API_URL'
 
+# --- Scenario: QODO_API_URL rejects a URL containing a query string.
+OUT=$(run_snippet "${HOME_URL}" QODO_API_KEY=k QODO_API_URL='https://qodo.ai/?x=1' 2>&1)
+RC=$?
+assert_failure 'query string rejected' "${RC}" "${OUT}" 'Invalid QODO_API_URL'
+
+# --- Scenario: QODO_API_URL rejects a URL containing a fragment.
+OUT=$(run_snippet "${HOME_URL}" QODO_API_KEY=k QODO_API_URL='https://qodo.ai/#frag' 2>&1)
+RC=$?
+assert_failure 'fragment rejected' "${RC}" "${OUT}" 'Invalid QODO_API_URL'
+
 # --- Scenario: QODO_API_URL accepts a multi-level trusted subdomain and strips a
 # trailing slash before appending /rules/v1 (no double slash).
 OUT=$(run_snippet "${HOME_URL}" QODO_API_KEY=k QODO_API_URL=https://a.b.qodo.ai/ 2>&1)

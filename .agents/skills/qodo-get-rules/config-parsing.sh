@@ -102,6 +102,13 @@ if [ -n "${QODO_API_URL}" ]; then
 		printf '%s\n' 'Invalid QODO_API_URL: must use HTTPS and match a trusted Qodo domain (*.qodo.ai)' >&2
 		exit 1
 	fi
+	# Reject QODO_API_URL containing query string or fragment
+	case "${QODO_API_URL}" in
+		*\?*|*\#*)
+			printf '%s\n' 'Invalid QODO_API_URL: must not contain query string or fragment' >&2
+			exit 1
+			;;
+	esac
 	# Remove trailing slash to prevent double slashes before /rules/v1
 	# Normalize the optional /rules/v1 suffix to avoid appending it twice.
 	QODO_API_URL="${QODO_API_URL%/}"
