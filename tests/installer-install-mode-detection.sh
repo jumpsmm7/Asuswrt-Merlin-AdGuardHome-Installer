@@ -356,6 +356,7 @@ AGH_STUB
 	}
 
 	# Save the original configure_runtime_defaults implementation before wrapping
+	# shellcheck disable=SC3044
 	eval "_original_configure_runtime_defaults() $(declare -f configure_runtime_defaults | tail -n +2)"
 
 	# Override configure_runtime_defaults to track calls
