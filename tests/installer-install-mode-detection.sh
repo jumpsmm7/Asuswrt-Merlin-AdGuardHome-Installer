@@ -257,7 +257,17 @@ grep -Fq '[ "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" = "wan" ] || [ -z "${PREVIOUS_A
 # correctly for LAN mode without DNS filter selection.
 (
 	# shellcheck disable=SC1090
-	. "${FUNCTIONS_FILE}"
+	WRAPPED_FUNCTIONS="${TMP_ROOT}/functions-wrapped"
+	sed 's/^configure_runtime_defaults() {$/_original_configure_runtime_defaults() {/' "${FUNCTIONS_FILE}" >"${WRAPPED_FUNCTIONS}" ||
+		fail 'could not create wrapped install mode helpers'
+	cat >>"${WRAPPED_FUNCTIONS}" <<'EOF'
+configure_runtime_defaults() {
+	printf '%s\n' 'configure_runtime_defaults' >>"${CALLS_FILE}"
+	_original_configure_runtime_defaults "$@"
+}
+EOF
+	# shellcheck disable=SC1090
+	. "${WRAPPED_FUNCTIONS}"
 
 	# Mock environment for LAN mode without DNS filter selection
 	BASE_DIR="${TMP_ROOT}"
@@ -355,15 +365,6 @@ AGH_STUB
 		esac
 	}
 
-	# Save the original configure_runtime_defaults implementation before wrapping
-	eval "_original_configure_runtime_defaults() $(declare -f configure_runtime_defaults | tail -n +2)"
-
-	# Override configure_runtime_defaults to track calls
-	configure_runtime_defaults() {
-		printf '%s\n' 'configure_runtime_defaults' >>"${CALLS_FILE}"
-		# Delegate to the original implementation
-		_original_configure_runtime_defaults "$@"
-	}
 
 	# Invoke the real setup entry point
 	if ! setup_AdGuardHome_impl '' install >/dev/null 2>&1; then
