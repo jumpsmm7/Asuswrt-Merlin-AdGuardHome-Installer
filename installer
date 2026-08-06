@@ -4063,7 +4063,20 @@ adguardhome_yaml_remove_ipset_file() {
 			if (block_marker(value)) {
 				skip_block = 1
 				skip_indent = child_indent
-					print
+			}
+			next
+		}
+		{ print }
+	' "${yaml_target}" >"${tmp_file}" && adguardhome_yaml_secure_file "${tmp_file}" && mv -f "${tmp_file}" "${yaml_target}" && adguardhome_yaml_secure_file "${yaml_target}" || {
+		rm -f "${tmp_file}"
+		return 1
+	}
+}
+
+adguard_enforce_lan_ipset_disabled() {
+	local restored_mode
+	case "${ADGUARD_INSTALL_MODE:-}" in
+		wan)
 			restored_mode="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
 			write_conf ADGUARD_INSTALL_MODE '"wan"' || return 1
 			case "${restored_mode}" in

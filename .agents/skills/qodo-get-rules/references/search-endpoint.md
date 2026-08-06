@@ -80,6 +80,11 @@ All requests must include attribution headers per the [usage tracking guidelines
 ```bash
 # Build body with JSON escaping — include scopes only when SCOPE is set
 TOP_K=${TOP_K:-20}
+# Validate TOP_K is a positive integer
+if ! printf '%s\n' "$TOP_K" | grep -Eq '^[1-9][0-9]*$'; then
+  echo "Error: TOP_K must be a positive integer, got: $TOP_K" >&2
+  exit 1
+fi
 BODY=$(SEARCH_QUERY="$SEARCH_QUERY" SCOPE="${SCOPE:-}" TOP_K="$TOP_K" python3 - <<'PY'
 import json
 import os
@@ -119,6 +124,11 @@ With optional trace header:
 
 ```bash
 TOP_K=${TOP_K:-20}
+# Validate TOP_K is a positive integer
+if ! printf '%s\n' "$TOP_K" | grep -Eq '^[1-9][0-9]*$'; then
+  echo "Error: TOP_K must be a positive integer, got: $TOP_K" >&2
+  exit 1
+fi
 BODY=$(SEARCH_QUERY="$SEARCH_QUERY" SCOPE="${SCOPE:-}" TOP_K="$TOP_K" python3 - <<'PY'
 import json
 import os
@@ -181,7 +191,13 @@ from urllib.request import urlopen, Request, HTTPRedirectHandler, build_opener
 # scope: Repository scope (may be empty)
 # api_url: Constructed API base URL
 
-top_k = int(os.environ.get("TOP_K", "20"))
+# Validate and parse TOP_K
+try:
+    top_k = int(os.environ.get("TOP_K", "20"))
+    if top_k < 1:
+        raise ValueError("must be positive")
+except ValueError as e:
+    raise SystemExit(f"Error: TOP_K must be a positive integer, got: {os.environ.get('TOP_K', '20')}")
 
 headers = {
     "Content-Type": "application/json",

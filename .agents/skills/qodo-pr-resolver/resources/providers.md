@@ -602,18 +602,18 @@ fi
 ```bash
 # Build payload from file to avoid shell injection
 REPLY_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_reply.XXXXXX") || exit 1
-trap 'rm -f "$REPLY_FILE"' EXIT
-trap 'rm -f "$REPLY_FILE"; exit 129' HUP
-trap 'rm -f "$REPLY_FILE"; exit 130' INT
-trap 'rm -f "$REPLY_FILE"; exit 143' TERM
+trap 'rm -f "$REPLY_FILE" "$BB_NETRC"' EXIT
+trap 'rm -f "$REPLY_FILE" "$BB_NETRC"; exit 129' HUP
+trap 'rm -f "$REPLY_FILE" "$BB_NETRC"; exit 130' INT
+trap 'rm -f "$REPLY_FILE" "$BB_NETRC"; exit 143' TERM
 # Write the rendered reply body to $REPLY_FILE with your file-writing tool now
 # (do not embed the body in this script via a heredoc or quoted argument).
 
 PAYLOAD_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_payload.XXXXXX") || { rm -f "$REPLY_FILE"; exit 1; }
-trap 'rm -f "$REPLY_FILE" "$PAYLOAD_FILE"' EXIT
-trap 'rm -f "$REPLY_FILE" "$PAYLOAD_FILE"; exit 129' HUP
-trap 'rm -f "$REPLY_FILE" "$PAYLOAD_FILE"; exit 130' INT
-trap 'rm -f "$REPLY_FILE" "$PAYLOAD_FILE"; exit 143' TERM
+trap 'rm -f "$REPLY_FILE" "$PAYLOAD_FILE" "$BB_NETRC"' EXIT
+trap 'rm -f "$REPLY_FILE" "$PAYLOAD_FILE" "$BB_NETRC"; exit 129' HUP
+trap 'rm -f "$REPLY_FILE" "$PAYLOAD_FILE" "$BB_NETRC"; exit 130' INT
+trap 'rm -f "$REPLY_FILE" "$PAYLOAD_FILE" "$BB_NETRC"; exit 143' TERM
 
 python3 - "$REPLY_FILE" <inline-comment-id> >"$PAYLOAD_FILE" <<'PY' || { rm -f "$REPLY_FILE" "$PAYLOAD_FILE"; exit 1; }
 import json
@@ -883,18 +883,18 @@ fi
 ```bash
 # Build payload from file to avoid shell injection
 COMMENT_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_comment.XXXXXX") || exit 1
-trap 'rm -f "$COMMENT_FILE"' EXIT
-trap 'rm -f "$COMMENT_FILE"; exit 129' HUP
-trap 'rm -f "$COMMENT_FILE"; exit 130' INT
-trap 'rm -f "$COMMENT_FILE"; exit 143' TERM
+trap 'rm -f "$COMMENT_FILE" "$BB_NETRC"' EXIT
+trap 'rm -f "$COMMENT_FILE" "$BB_NETRC"; exit 129' HUP
+trap 'rm -f "$COMMENT_FILE" "$BB_NETRC"; exit 130' INT
+trap 'rm -f "$COMMENT_FILE" "$BB_NETRC"; exit 143' TERM
 # Write the rendered comment body to $COMMENT_FILE with your file-writing tool now
 # (do not embed the body in this script via a heredoc or quoted argument).
 
 PAYLOAD_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_payload.XXXXXX") || { rm -f "$COMMENT_FILE"; exit 1; }
-trap 'rm -f "$COMMENT_FILE" "$PAYLOAD_FILE"' EXIT
-trap 'rm -f "$COMMENT_FILE" "$PAYLOAD_FILE"; exit 129' HUP
-trap 'rm -f "$COMMENT_FILE" "$PAYLOAD_FILE"; exit 130' INT
-trap 'rm -f "$COMMENT_FILE" "$PAYLOAD_FILE"; exit 143' TERM
+trap 'rm -f "$COMMENT_FILE" "$PAYLOAD_FILE" "$BB_NETRC"' EXIT
+trap 'rm -f "$COMMENT_FILE" "$PAYLOAD_FILE" "$BB_NETRC"; exit 129' HUP
+trap 'rm -f "$COMMENT_FILE" "$PAYLOAD_FILE" "$BB_NETRC"; exit 130' INT
+trap 'rm -f "$COMMENT_FILE" "$PAYLOAD_FILE" "$BB_NETRC"; exit 143' TERM
 
 python3 - "$COMMENT_FILE" >"$PAYLOAD_FILE" <<'PY' || { rm -f "$COMMENT_FILE" "$PAYLOAD_FILE"; exit 1; }
 import json
@@ -1178,18 +1178,18 @@ fi
 umask 077
 BB_PR_TITLE_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_pr_title.XXXXXX") || exit 1
 BB_PR_BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_pr_body.XXXXXX") || { rm -f "$BB_PR_TITLE_FILE"; exit 1; }
-trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE"' EXIT
-trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE"; exit 129' HUP
-trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE"; exit 130' INT
-trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE"; exit 143' TERM
+trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_NETRC"' EXIT
+trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_NETRC"; exit 129' HUP
+trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_NETRC"; exit 130' INT
+trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_NETRC"; exit 143' TERM
 # Write the PR title and body to the files with your file-writing tool now
 # (do not embed the title or body in this script via a heredoc or quoted argument).
 
 BB_PR_PAYLOAD_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_pr_payload.XXXXXX") || { rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE"; exit 1; }
-trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_PR_PAYLOAD_FILE"' EXIT
-trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_PR_PAYLOAD_FILE"; exit 129' HUP
-trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_PR_PAYLOAD_FILE"; exit 130' INT
-trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_PR_PAYLOAD_FILE"; exit 143' TERM
+trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_PR_PAYLOAD_FILE" "$BB_NETRC"' EXIT
+trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_PR_PAYLOAD_FILE" "$BB_NETRC"; exit 129' HUP
+trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_PR_PAYLOAD_FILE" "$BB_NETRC"; exit 130' INT
+trap 'rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_PR_PAYLOAD_FILE" "$BB_NETRC"; exit 143' TERM
 
 python3 - "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BRANCH" "$DEST_BRANCH" >"$BB_PR_PAYLOAD_FILE" <<'PY' || { rm -f "$BB_PR_TITLE_FILE" "$BB_PR_BODY_FILE" "$BB_PR_PAYLOAD_FILE"; exit 1; }
 import json
@@ -1318,18 +1318,18 @@ If the title was prefixed with `[DRAFT]`, update it to remove the prefix:
 # Create temporary file for title to avoid shell injection
 umask 077
 BB_READY_TITLE_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_ready_title.XXXXXX") || exit 1
-trap 'rm -f "$BB_READY_TITLE_FILE"' EXIT
-trap 'rm -f "$BB_READY_TITLE_FILE"; exit 129' HUP
-trap 'rm -f "$BB_READY_TITLE_FILE"; exit 130' INT
-trap 'rm -f "$BB_READY_TITLE_FILE"; exit 143' TERM
+trap 'rm -f "$BB_READY_TITLE_FILE" "$BB_NETRC"' EXIT
+trap 'rm -f "$BB_READY_TITLE_FILE" "$BB_NETRC"; exit 129' HUP
+trap 'rm -f "$BB_READY_TITLE_FILE" "$BB_NETRC"; exit 130' INT
+trap 'rm -f "$BB_READY_TITLE_FILE" "$BB_NETRC"; exit 143' TERM
 # Write the title without the [DRAFT] prefix to $BB_READY_TITLE_FILE with your file-writing tool now
 # (do not embed the title in this script via a heredoc or quoted argument).
 
 BB_READY_PAYLOAD_FILE=$(mktemp "${TMPDIR:-/tmp}/bb_ready_payload.XXXXXX") || { rm -f "$BB_READY_TITLE_FILE"; exit 1; }
-trap 'rm -f "$BB_READY_TITLE_FILE" "$BB_READY_PAYLOAD_FILE"' EXIT
-trap 'rm -f "$BB_READY_TITLE_FILE" "$BB_READY_PAYLOAD_FILE"; exit 129' HUP
-trap 'rm -f "$BB_READY_TITLE_FILE" "$BB_READY_PAYLOAD_FILE"; exit 130' INT
-trap 'rm -f "$BB_READY_TITLE_FILE" "$BB_READY_PAYLOAD_FILE"; exit 143' TERM
+trap 'rm -f "$BB_READY_TITLE_FILE" "$BB_READY_PAYLOAD_FILE" "$BB_NETRC"' EXIT
+trap 'rm -f "$BB_READY_TITLE_FILE" "$BB_READY_PAYLOAD_FILE" "$BB_NETRC"; exit 129' HUP
+trap 'rm -f "$BB_READY_TITLE_FILE" "$BB_READY_PAYLOAD_FILE" "$BB_NETRC"; exit 130' INT
+trap 'rm -f "$BB_READY_TITLE_FILE" "$BB_READY_PAYLOAD_FILE" "$BB_NETRC"; exit 143' TERM
 
 python3 - "$BB_READY_TITLE_FILE" >"$BB_READY_PAYLOAD_FILE" <<'PY' || { rm -f "$BB_READY_TITLE_FILE" "$BB_READY_PAYLOAD_FILE"; exit 1; }
 import json

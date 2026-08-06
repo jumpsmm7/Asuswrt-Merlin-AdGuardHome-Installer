@@ -27,7 +27,18 @@ cleanup() {
 }
 
 have_cmd() {
-	which "$1" >/dev/null 2>&1
+	_cmd=${1:-}
+	if [ -z "$_cmd" ]; then
+		return 1
+	fi
+	# Use `which` for portability; `command -v` is unavailable on some target shells.
+	if which "$_cmd" >/dev/null 2>&1; then
+		return 0
+	fi
+	if type "$_cmd" >/dev/null 2>&1; then
+		return 0
+	fi
+	return 1
 }
 
 require_cmd() {
@@ -105,6 +116,11 @@ run_check 'md5sum files match installer artifacts' sh tools/check-md5.sh
 run_check 'sha256sum files match installer artifacts' sh tools/check-sha256.sh
 run_check 'Repository shell portability regression' sh tools/check-shell-portability.sh
 run_check 'Qodo provider thread resolution regression' sh tests/qodo-provider-thread-resolution.sh
+run_check 'Qodo get-rules config validation regression' sh tests/qodo-get-rules-config-validation.sh
+run_check 'Qodo pr-resolver doc consistency regression' sh tests/qodo-pr-resolver-doc-consistency.sh
+run_check 'Skill frontmatter validation regression' sh tests/skill-frontmatter-validation.sh
+run_check 'CodeRabbit and code-quality workflow config regression' sh tests/coderabbit-and-workflow-config-checks.sh
+run_check 'code-quality.sh helper function regression' sh tests/code-quality-checks.sh
 run_check 'Command failure propagation regression' sh tests/command-failure-propagation.sh
 run_check 'Canonical path final-symlink regression' sh tests/canonical-path-symlink.sh
 run_check 'Router runtime PATH priority regression' sh tests/router-path-priority.sh
