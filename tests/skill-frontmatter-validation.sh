@@ -20,6 +20,128 @@ TMP_ROOT=$(mktemp -d) || fail 'unable to create exclusive temp workspace'
 trap 'rm -rf "${TMP_ROOT}"' EXIT
 trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
 
+# Validate a single SKILL.md file. Returns 0 on success, 1 on validation failure.
+# Does NOT call the global `fail` function - caller decides how to handle failures.
+# Args: $1 = path to SKILL.md, $2 = expected skill name (directory basename)
+validate_skill_md() {
+	skill_md="$1"
+	expected_name="$2"
+
+	# The frontmatter must open on line 1.
+	first_line=$(sed -n '1p' "${skill_md}")
+	if [ "${first_line}" != '---' ]; then
+		printf '%s\n' "${skill_md}: expected line 1 to be '---', got: '${first_line}'" >&2
+		return 1
+	fi
+
+	# Locate the closing '---' (first exact match after line 1).
+	close_line=$(awk 'NR>1 && $0=="---" { print NR; exit }' "${skill_md}")
+	if [ -z "${close_line}" ]; then
+		printf '%s\n' "${skill_md}: frontmatter block is never closed with a lone '---' line" >&2
+		return 1
+	fi
+
+	FRONTMATTER="${TMP_ROOT}/frontmatter.$$"
+	sed -n "2,$((close_line - 1))p" "${skill_md}" >"${FRONTMATTER}"
+
+	# 'name:' must be present exactly once and match the containing directory name exactly.
+	name_count=$(grep -cE '^name:[[:space:]]*' "${FRONTMATTER}")
+	if [ "${name_count}" -ne 1 ]; then
+		printf '%s\n' "${skill_md}: frontmatter must have exactly one 'name' field, found ${name_count}" >&2
+		rm -f "${FRONTMATTER}"
+		return 1
+	fi
+	name_line=$(grep -E '^name:[[:space:]]*' "${FRONTMATTER}")
+	actual_name=$(printf '%s\n' "${name_line}" | sed -e 's/^name:[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//')
+	if [ "${actual_name}" != "${expected_name}" ]; then
+		printf '%s\n' "${skill_md}: frontmatter name '${actual_name}' does not match directory '${expected_name}'" >&2
+		rm -f "${FRONTMATTER}"
+		return 1
+	fi
+
+	# 'description:' must be present exactly once and non-empty once quotes are stripped.
+	description_count=$(grep -cE '^description:[[:space:]]*' "${FRONTMATTER}")
+	if [ "${description_count}" -ne 1 ]; then
+		printf '%s\n' "${skill_md}: frontmatter must have exactly one 'description' field, found ${description_count}" >&2
+		rm -f "${FRONTMATTER}"
+		return 1
+	fi
+	description_line=$(grep -E '^description:[[:space:]]*' "${FRONTMATTER}")
+	actual_description=$(printf '%s\n' "${description_line}" | sed -e 's/^description:[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//')
+	if [ -z "${actual_description}" ]; then
+		printf '%s\n' "${skill_md}: 'description' field is empty" >&2
+		rm -f "${FRONTMATTER}"
+		return 1
+	fi
+
+	# When a 'triggers:' field is declared, validate its form and content.
+	if grep -Eq '^triggers:' "${FRONTMATTER}"; then
+		triggers_line=$(grep -E '^triggers:' "${FRONTMATTER}")
+
+		# Check for inline empty list: triggers: []
+		if printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\[\][[:space:]]*$'; then
+			printf '%s\n' "${skill_md}: 'triggers:' is an empty inline list []" >&2
+			rm -f "${FRONTMATTER}"
+			return 1
+		fi
+
+		# Check for inline list with values: triggers: [a, b, c]
+		if printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\['; then
+			# Valid inline list - must have closing bracket and non-empty content
+			if ! printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\[[^]]*\][[:space:]]*$'; then
+				printf '%s\n' "${skill_md}: 'triggers:' inline list is unterminated or has trailing content" >&2
+				rm -f "${FRONTMATTER}"
+				return 1
+			fi
+			if ! printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\[[[:space:]]*[^][:space:]]'; then
+				printf '%s\n' "${skill_md}: 'triggers:' inline list is empty or malformed" >&2
+				rm -f "${FRONTMATTER}"
+				return 1
+			fi
+		# Check for scalar (non-list) value: triggers: invalid
+		elif ! printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*$'; then
+			printf '%s\n' "${skill_md}: 'triggers:' has a scalar value (expected a list)" >&2
+			rm -f "${FRONTMATTER}"
+			return 1
+		# Block-list form: triggers: (followed by list items on subsequent lines)
+		else
+			trigger_count=$(awk '
+				/^triggers:[[:space:]]*$/ { intriggers = 1; next }
+				intriggers && /^[a-zA-Z_-]+:/ { exit }
+				intriggers && /^[[:space:]]*-[[:space:]]*/ { print }
+			' "${FRONTMATTER}" | wc -l | tr -d '[:space:]')
+			if [ "${trigger_count}" -le 0 ]; then
+				printf '%s\n' "${skill_md}: 'triggers:' declared but no list items found" >&2
+				rm -f "${FRONTMATTER}"
+				return 1
+			fi
+
+			blank_trigger_count=$(awk '
+				/^triggers:[[:space:]]*$/ { intriggers = 1; next }
+				intriggers && /^[a-zA-Z_-]+:/ { exit }
+				intriggers && /^[[:space:]]*-[[:space:]]*$/ { print }
+			' "${FRONTMATTER}" | wc -l | tr -d '[:space:]')
+			if [ "${blank_trigger_count}" -ne 0 ]; then
+				printf '%s\n' "${skill_md}: 'triggers:' contains one or more blank list items" >&2
+				rm -f "${FRONTMATTER}"
+				return 1
+			fi
+		fi
+	fi
+
+	# There must be actual skill content after the closing '---', not just an
+	# empty file with a dangling frontmatter block.
+	body_lines=$(sed -n "$((close_line + 1)),\$p" "${skill_md}" | grep -c '[^[:space:]]')
+	if [ "${body_lines}" -le 0 ]; then
+		printf '%s\n' "${skill_md}: no content found after the frontmatter block" >&2
+		rm -f "${FRONTMATTER}"
+		return 1
+	fi
+
+	rm -f "${FRONTMATTER}"
+	return 0
+}
+
 # Regression tests for triggers validation logic
 TEST_SKILLS_DIR="${TMP_ROOT}/test-skills"
 mkdir -p "${TEST_SKILLS_DIR}" || fail 'could not create test skills directory'
@@ -36,17 +158,8 @@ triggers: []
 # Test Skill
 Content here.
 EOF
-FRONTMATTER="${TMP_ROOT}/frontmatter.$$"
-sed -n "2,4p" "${TEST_SKILL_DIR}/SKILL.md" >"${FRONTMATTER}"
-if grep -Eq '^triggers:' "${FRONTMATTER}"; then
-	triggers_line=$(grep -E '^triggers:' "${FRONTMATTER}")
-	if printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\[\][[:space:]]*$'; then
-		: # Expected: empty inline list detected
-	else
-		fail "regression: empty inline triggers list was not detected"
-	fi
-else
-	fail "regression: triggers field not found in test fixture"
+if validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-empty-inline-triggers"; then
+	fail "regression: empty inline triggers list fixture unexpectedly passed validation"
 fi
 
 # Test case: scalar/invalid value should be rejected
@@ -61,18 +174,8 @@ triggers: invalid
 # Test Skill
 Content here.
 EOF
-sed -n "2,4p" "${TEST_SKILL_DIR}/SKILL.md" >"${FRONTMATTER}"
-if grep -Eq '^triggers:' "${FRONTMATTER}"; then
-	triggers_line=$(grep -E '^triggers:' "${FRONTMATTER}")
-	if printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\['; then
-		fail "regression: scalar triggers value was misidentified as inline list"
-	elif ! printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*$'; then
-		: # Expected: scalar value detected
-	else
-		fail "regression: scalar triggers value was not detected"
-	fi
-else
-	fail "regression: triggers field not found in test fixture"
+if validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-scalar-triggers"; then
+	fail "regression: scalar triggers value fixture unexpectedly passed validation"
 fi
 
 # Test case: unterminated inline list should be rejected
@@ -87,22 +190,8 @@ triggers: [foo, bar, baz
 # Test Skill
 Content here.
 EOF
-sed -n "2,4p" "${TEST_SKILL_DIR}/SKILL.md" >"${FRONTMATTER}"
-if grep -Eq '^triggers:' "${FRONTMATTER}"; then
-	triggers_line=$(grep -E '^triggers:' "${FRONTMATTER}")
-	# Should detect as inline list (starts with [)
-	if printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\['; then
-		# Should fail validation due to missing closing bracket
-		if printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\[[^]]*\][[:space:]]*$'; then
-			fail "regression: unterminated inline triggers list was accepted"
-		else
-			: # Expected: unterminated list rejected
-		fi
-	else
-		fail "regression: unterminated inline triggers list was not detected as inline format"
-	fi
-else
-	fail "regression: triggers field not found in test fixture"
+if validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-unterminated-inline-triggers"; then
+	fail "regression: unterminated inline triggers list fixture unexpectedly passed validation"
 fi
 
 # Test case: valid inline list should be accepted
@@ -117,20 +206,8 @@ triggers: [foo, bar, baz]
 # Test Skill
 Content here.
 EOF
-sed -n "2,4p" "${TEST_SKILL_DIR}/SKILL.md" >"${FRONTMATTER}"
-if grep -Eq '^triggers:' "${FRONTMATTER}"; then
-	triggers_line=$(grep -E '^triggers:' "${FRONTMATTER}")
-	if printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\['; then
-		if printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\[[[:space:]]*[^][:space:]]'; then
-			: # Expected: valid inline list accepted
-		else
-			fail "regression: valid inline triggers list was rejected"
-		fi
-	else
-		fail "regression: inline triggers list was not detected"
-	fi
-else
-	fail "regression: triggers field not found in test fixture"
+if ! validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-valid-inline-triggers"; then
+	fail "regression: valid inline triggers list fixture unexpectedly failed validation"
 fi
 
 # Test case: valid block-list should be accepted
@@ -147,19 +224,9 @@ triggers:
 # Test Skill
 Content here.
 EOF
-sed -n "2,5p" "${TEST_SKILL_DIR}/SKILL.md" >"${FRONTMATTER}"
-if grep -Eq '^triggers:[[:space:]]*$' "${FRONTMATTER}"; then
-	trigger_count=$(awk '
-		/^triggers:[[:space:]]*$/ { intriggers = 1; next }
-		intriggers && /^[a-zA-Z_-]+:/ { exit }
-		intriggers && /^[[:space:]]*-[[:space:]]*/ { print }
-	' "${FRONTMATTER}" | wc -l | tr -d '[:space:]')
-	[ "${trigger_count}" -gt 0 ] || fail "regression: valid block-form triggers list was rejected"
-else
-	fail "regression: block-form triggers not detected"
+if ! validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-valid-block-triggers"; then
+	fail "regression: valid block-form triggers list fixture unexpectedly failed validation"
 fi
-
-rm -f "${FRONTMATTER}"
 
 CHECKED=0
 
@@ -170,76 +237,10 @@ for skill_md in "${SKILLS_DIR}"/*/SKILL.md; do
 	skill_dir=$(dirname "${skill_md}")
 	expected_name=$(basename "${skill_dir}")
 
-	# The frontmatter must open on line 1.
-	first_line=$(sed -n '1p' "${skill_md}")
-	[ "${first_line}" = '---' ] || fail "${skill_md}: expected line 1 to be '---', got: '${first_line}'"
-
-	# Locate the closing '---' (first exact match after line 1).
-	close_line=$(awk 'NR>1 && $0=="---" { print NR; exit }' "${skill_md}")
-	[ -n "${close_line}" ] || fail "${skill_md}: frontmatter block is never closed with a lone '---' line"
-
-	FRONTMATTER="${TMP_ROOT}/frontmatter.$$"
-	sed -n "2,$((close_line - 1))p" "${skill_md}" >"${FRONTMATTER}"
-
-	# 'name:' must be present exactly once and match the containing directory name exactly.
-	name_count=$(grep -cE '^name:[[:space:]]*' "${FRONTMATTER}")
-	[ "${name_count}" -eq 1 ] || fail "${skill_md}: frontmatter must have exactly one 'name' field, found ${name_count}"
-	name_line=$(grep -E '^name:[[:space:]]*' "${FRONTMATTER}")
-	actual_name=$(printf '%s\n' "${name_line}" | sed -e 's/^name:[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//')
-	[ "${actual_name}" = "${expected_name}" ] || fail "${skill_md}: frontmatter name '${actual_name}' does not match directory '${expected_name}'"
-
-	# 'description:' must be present exactly once and non-empty once quotes are stripped.
-	description_count=$(grep -cE '^description:[[:space:]]*' "${FRONTMATTER}")
-	[ "${description_count}" -eq 1 ] || fail "${skill_md}: frontmatter must have exactly one 'description' field, found ${description_count}"
-	description_line=$(grep -E '^description:[[:space:]]*' "${FRONTMATTER}")
-	actual_description=$(printf '%s\n' "${description_line}" | sed -e 's/^description:[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//')
-	[ -n "${actual_description}" ] || fail "${skill_md}: 'description' field is empty"
-
-	# When a 'triggers:' field is declared, validate its form and content.
-	if grep -Eq '^triggers:' "${FRONTMATTER}"; then
-		triggers_line=$(grep -E '^triggers:' "${FRONTMATTER}")
-
-		# Check for inline empty list: triggers: []
-		if printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\[\][[:space:]]*$'; then
-			fail "${skill_md}: 'triggers:' is an empty inline list []"
-		fi
-
-		# Check for inline list with values: triggers: [a, b, c]
-		if printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\['; then
-			# Valid inline list - must have closing bracket and non-empty content
-			if ! printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\[[^]]*\][[:space:]]*$'; then
-				fail "${skill_md}: 'triggers:' inline list is unterminated or has trailing content"
-			fi
-			if ! printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*\[[[:space:]]*[^][:space:]]'; then
-				fail "${skill_md}: 'triggers:' inline list is empty or malformed"
-			fi
-		# Check for scalar (non-list) value: triggers: invalid
-		elif ! printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*$'; then
-			fail "${skill_md}: 'triggers:' has a scalar value (expected a list)"
-		# Block-list form: triggers: (followed by list items on subsequent lines)
-		else
-			trigger_count=$(awk '
-				/^triggers:[[:space:]]*$/ { intriggers = 1; next }
-				intriggers && /^[a-zA-Z_-]+:/ { exit }
-				intriggers && /^[[:space:]]*-[[:space:]]*/ { print }
-			' "${FRONTMATTER}" | wc -l | tr -d '[:space:]')
-			[ "${trigger_count}" -gt 0 ] || fail "${skill_md}: 'triggers:' declared but no list items found"
-
-			blank_trigger_count=$(awk '
-				/^triggers:[[:space:]]*$/ { intriggers = 1; next }
-				intriggers && /^[a-zA-Z_-]+:/ { exit }
-				intriggers && /^[[:space:]]*-[[:space:]]*$/ { print }
-			' "${FRONTMATTER}" | wc -l | tr -d '[:space:]')
-			[ "${blank_trigger_count}" -eq 0 ] || fail "${skill_md}: 'triggers:' contains one or more blank list items"
-		fi
+	# Use the shared validation function and fail the whole script on any validation error
+	if ! validate_skill_md "${skill_md}" "${expected_name}"; then
+		fail "validation failed for ${skill_md}"
 	fi
-
-	# There must be actual skill content after the closing '---', not just an
-	# empty file with a dangling frontmatter block.
-	body_lines=$(sed -n "$((close_line + 1)),\$p" "${skill_md}" | grep -c '[^[:space:]]')
-	[ "${body_lines}" -gt 0 ] || fail "${skill_md}: no content found after the frontmatter block"
-
-	rm -f "${FRONTMATTER}"
 done
 
 [ "${CHECKED}" -gt 0 ] || fail "no SKILL.md files found under ${SKILLS_DIR}"
