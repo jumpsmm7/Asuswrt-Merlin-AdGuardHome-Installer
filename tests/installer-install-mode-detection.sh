@@ -365,7 +365,6 @@ AGH_STUB
 		esac
 	}
 
-
 	# Invoke the real setup entry point
 	if ! setup_AdGuardHome_impl '' install >/dev/null 2>&1; then
 		fail 'setup_AdGuardHome_impl failed for LAN mode without DNS filter selection'
