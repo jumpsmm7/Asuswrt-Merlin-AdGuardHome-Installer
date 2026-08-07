@@ -35,10 +35,7 @@ awk '
 ' "${SKILL}" >"${SNIPPET}"
 diff -q "${CANONICAL}" "${SNIPPET}" >/dev/null 2>&1 || fail 'SKILL.md config-parsing snippet differs from the canonical script'
 
-# run_snippet executes only the tracked canonical script with an isolated HOME
-# and an explicit, minimal environment. The result line carries a 4th field
-# (REQUEST_ID) so tests can verify UUID generation independently of the
-# run_snippet executes the canonical configuration parser in an isolated environment and prints the resulting credential and URL fields.
+# run_snippet executes the canonical configuration parser in an isolated environment with an explicit, minimal environment and prints the resulting credential and URL fields; the fourth RESULT field (REQUEST_ID) allows tests to verify UUID generation independently.
 run_snippet() {
 	_home="$1"
 	shift

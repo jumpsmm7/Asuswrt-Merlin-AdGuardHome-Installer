@@ -15,11 +15,13 @@ export LC_ALL=C
 **PATH contracts by script:**
 
 - **installer**: Stock directories followed by inherited PATH:
+
   ```sh
   export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
   ```
 
 - **AdGuardHome.sh, S99AdGuardHome, rc.func.AdGuardHome**: Stock plus Entware directories without inherited PATH:
+
   ```sh
   export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
   ```

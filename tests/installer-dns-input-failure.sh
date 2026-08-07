@@ -92,10 +92,23 @@ installer_lan_domain_restore() { :; }
 nvram_transaction_finalize_setup_pair() { return 0; }
 # nvram_transaction_setup_committed reports whether the setup commit marker exists.
 nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
-# nvram_transaction_setup_files_begin starts the setup-file transaction successfully.
-nvram_transaction_setup_files_begin() { return 0; }
-# nvram_transaction_setup_files_restore reports successful restoration of setup files.
-nvram_transaction_setup_files_restore() { return 0; }
+# nvram_transaction_setup_files_begin starts the setup-file transaction by creating a journal directory and copying setup files.
+nvram_transaction_setup_files_begin() {
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || return 1
+	[ -f "${CONF_FILE}" ] && cp -p "${CONF_FILE}" "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config"
+	[ -f "${YAML_FILE}" ] && cp -p "${YAML_FILE}" "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file"
+	[ -f "${YAML_ORI}" ] && cp -p "${YAML_ORI}" "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original"
+	return 0
+}
+# nvram_transaction_setup_files_restore restores journaled setup files from their copies and removes the journal directory.
+nvram_transaction_setup_files_restore() {
+	[ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || return 0
+	[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config" ] && cp -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config" "${CONF_FILE}"
+	[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file" ] && cp -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file" "${YAML_FILE}"
+	[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original" ] && cp -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original" "${YAML_ORI}"
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+	return 0
+}
 # restore_dns_filter_settings removes the saved DNS filter settings directory at the specified path.
 restore_dns_filter_settings() {
 	rm -rf "$1"
@@ -142,6 +155,8 @@ for FAIL_CONFIRM_PROMPT in 1 2 3; do
 	! grep -q '^ADGUARD_WEBUI_PORT ' "${WRITE_LOG}" || fail "setup saved the WebUI port before confirmation prompt ${FAIL_CONFIRM_PROMPT} completed"
 	[ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail "setup did not restore YAML after confirmation prompt ${FAIL_CONFIRM_PROMPT}"
 	[ ! -e "${YAML_BAK}" ] || fail "setup left the YAML backup after confirmation prompt ${FAIL_CONFIRM_PROMPT}"
+	[ "$(cat "${YAML_ORI}")" = 'original template' ] || fail "setup did not restore YAML_ORI after confirmation prompt ${FAIL_CONFIRM_PROMPT}"
+	[ ! -s "${CONF_FILE}" ] || fail "setup did not restore CONF_FILE after confirmation prompt ${FAIL_CONFIRM_PROMPT}"
 done
 unset FAIL_CONFIRM_PROMPT
 
@@ -164,6 +179,7 @@ fi
 [ "$(cat "${YAML_ORI}")" = 'original template' ] || fail 'setup replaced the original snapshot after nested DNS confirmation failure'
 [ ! -e "${YAML_ORI}.new.$$" ] || fail 'setup left an aborted replacement snapshot after nested DNS confirmation failure'
 [ "$(cat "${CONF_FILE}")" = 'ADGUARD_DOMAIN="OLD"' ] || fail 'setup did not restore installer preferences after nested DNS confirmation failure'
+[ "$(cat "${YAML_FILE}")" = 'working configuration' ] || fail 'setup did not restore YAML_FILE to pre-setup state after nested DNS confirmation failure'
 unset FAIL_NESTED_DNS_PROMPT
 unset FAIL_PROMPT
 
@@ -207,6 +223,7 @@ for FAIL_PROMPT in 1 2; do
 	[ ! -e "${YAML_BAK}" ] || fail "setup left the YAML backup after DNS prompt ${FAIL_PROMPT}"
 	[ "$(cat "${YAML_ORI}")" = 'original template' ] || fail "setup replaced the original snapshot after DNS prompt ${FAIL_PROMPT}"
 	[ ! -e "${YAML_ORI}.new.$$" ] || fail "setup left a partial replacement snapshot after DNS prompt ${FAIL_PROMPT}"
+	[ ! -s "${CONF_FILE}" ] || fail "setup did not restore CONF_FILE to pre-setup state after DNS prompt ${FAIL_PROMPT}"
 done
 
 printf '%s\n' 'PASS: failed DNS input aborts setup and restores the previous configuration'

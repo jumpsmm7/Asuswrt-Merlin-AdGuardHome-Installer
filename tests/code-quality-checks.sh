@@ -73,7 +73,7 @@ grep -Fq 'FAILED: a failing check' "${RUN_CHECK_OUT_FILE}" || fail "run_check: e
 # run_check must forward extra arguments to the command it runs, not just invoke
 # it bare.
 FAILED=0
-run_check 'argument forwarding' test -n 'nonempty' || fail 'run_check: did not forward arguments to the checked command'
+run_check 'argument forwarding' test -n 'nonempty'
 [ "${FAILED}" -eq 0 ] || fail 'run_check: FAILED was set even though the forwarded check should have passed'
 
 # --- run_script_list_check ----------------------------------------------------

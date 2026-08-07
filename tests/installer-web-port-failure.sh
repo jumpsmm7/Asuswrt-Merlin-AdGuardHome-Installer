@@ -152,8 +152,11 @@ nvram_transaction_finalize_setup_pair() {
 	if [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] || [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ]; then
 		return 0
 	fi
-	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
-	rm -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
+	if rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/setup-files"; then
+		rm -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
+	else
+		return 1
+	fi
 }
 # nvram_transaction_setup_committed reports whether the setup commit marker exists.
 nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
