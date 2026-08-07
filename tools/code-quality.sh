@@ -18,7 +18,7 @@ case "${1:-}" in
 		;;
 esac
 
-# Functions are sorted alpha-numerically for readability.
+# cleanup removes the temporary shell-script list file when it exists.
 
 cleanup() {
 	if [ -n "${SCRIPT_LIST}" ] && [ -f "${SCRIPT_LIST}" ]; then
@@ -26,6 +26,7 @@ cleanup() {
 	fi
 }
 
+# have_cmd checks whether a named command is available in the shell environment.
 have_cmd() {
 	_cmd=${1:-}
 	if [ -z "$_cmd" ]; then
@@ -41,6 +42,7 @@ have_cmd() {
 	return 1
 }
 
+# require_cmd verifies that a required command is available and records a failure when it is missing.
 require_cmd() {
 	_cmd="$1"
 	if have_cmd "${_cmd}"; then

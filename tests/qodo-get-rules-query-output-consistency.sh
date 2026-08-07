@@ -14,6 +14,7 @@ SKILL='.agents/skills/qodo-get-rules/SKILL.md'
 QUERY_GEN='.agents/skills/qodo-get-rules/references/query-generation.md'
 OUTPUT_FMT='.agents/skills/qodo-get-rules/references/output-format.md'
 
+# fail prints a failure message to stderr and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $1" >&2
 	exit 1

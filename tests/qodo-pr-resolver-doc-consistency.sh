@@ -14,6 +14,7 @@ CONVERGENCE='.agents/skills/qodo-pr-resolver/resources/convergence.md'
 GERRIT='.agents/skills/qodo-pr-resolver/resources/gerrit.md'
 PROVIDERS='.agents/skills/qodo-pr-resolver/resources/providers.md'
 
+# fail prints a failure message to stderr and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $1" >&2
 	exit 1

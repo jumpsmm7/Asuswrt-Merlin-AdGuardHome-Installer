@@ -158,7 +158,7 @@ if adguard_refresh_lan_bind_addresses; then
 fi
 diff -q "${YAML_FILE}" "${YAML_FILE}.wildcard" >/dev/null 2>&1 || fail 'wildcard LAN IPv4 failure modified YAML'
 
-# Restore usable LAN addresses for staged-validation and failure-path cases.
+# interface_ipv4_addr prints the usable LAN IPv4 address used by staged-validation and failure-path tests.
 interface_ipv4_addr() { printf '%s\n' 192.168.50.27; }
 interface_ipv6_addr() { printf '%s\n' 2001:db8::27; }
 nvram() {

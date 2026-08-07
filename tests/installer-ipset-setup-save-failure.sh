@@ -59,7 +59,7 @@ check_dns_filter() { :; }
 save_dns_filter_settings() { mkdir -p "$1"; }
 # installer_lan_domain_set writes the specified LAN domain to NVRAM.
 installer_lan_domain_set() { nvram set "lan_domain=$1"; }
-# installer_lan_domain_restore leaves the installer LAN domain setting unchanged.
+# installer_lan_domain_restore preserves the installer LAN domain setting.
 installer_lan_domain_restore() { :; }
 # nvram_transaction_finalize_setup_pair finalizes the NVRAM setup transaction successfully.
 nvram_transaction_finalize_setup_pair() { return 0; }

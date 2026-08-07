@@ -8,6 +8,7 @@
 
 set -u
 
+# fail reports a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $1" >&2
 	exit 1
@@ -22,7 +23,7 @@ trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
 
 # Validate a single SKILL.md file. Returns 0 on success, 1 on validation failure.
 # Does NOT call the global `fail` function - caller decides how to handle failures.
-# Args: $1 = path to SKILL.md, $2 = expected skill name (directory basename)
+# validate_skill_md validates a SKILL.md file's frontmatter and required content against its expected skill name.
 validate_skill_md() {
 	skill_md="$1"
 	expected_name="$2"

@@ -8,6 +8,7 @@ set -u
 
 SCRIPT_PATH='tools/code-quality.sh'
 
+# fail prints a failure message containing the specified reason to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $1" >&2
 	exit 1
@@ -95,6 +96,7 @@ RUN_LIST_RC=$?
 # short-circuiting on the first failure).
 RECORD_FILE="${TMP_ROOT}/record.log"
 : >"${RECORD_FILE}"
+# record_and_fail_on_a records the given list item and fails when it matches LIST_ITEM_A.
 record_and_fail_on_a() {
 	printf '%s\n' "$1" >>"${RECORD_FILE}"
 	[ "$1" != "${LIST_ITEM_A}" ]
@@ -129,6 +131,7 @@ ARG_SNIPPET="${TMP_ROOT}/arg-parse.sh"
 sed -n '/^case "\${1:-}" in$/,/^esac$/p' "${SCRIPT_PATH}" >"${ARG_SNIPPET}"
 [ -s "${ARG_SNIPPET}" ] || fail 'could not extract the CLI argument-parsing case block from tools/code-quality.sh'
 
+# run_arg_parse executes the extracted argument-parsing block with the specified argument and prints the resulting FIX value.
 run_arg_parse() {
 	# Runs the extracted case block in a subshell with $1 set as given (or unset
 	# entirely when passed the empty string), then prints the resulting FIX value.

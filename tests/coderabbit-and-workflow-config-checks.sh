@@ -10,6 +10,7 @@ set -u
 CODERABBIT='.coderabbit.yaml'
 WORKFLOW='.github/workflows/code-quality.yml'
 
+# fail reports a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $1" >&2
 	exit 1

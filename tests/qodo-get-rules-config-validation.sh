@@ -10,6 +10,7 @@ CANONICAL='.agents/skills/qodo-get-rules/config-parsing.sh'
 SEARCH_ENDPOINT='.agents/skills/qodo-get-rules/references/search-endpoint.md'
 REPO_SCOPE='.agents/skills/qodo-get-rules/references/repository-scope.md'
 
+# fail reports an error message to stderr and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $1" >&2
 	exit 1
@@ -37,13 +38,14 @@ diff -q "${CANONICAL}" "${SNIPPET}" >/dev/null 2>&1 || fail 'SKILL.md config-par
 # run_snippet executes only the tracked canonical script with an isolated HOME
 # and an explicit, minimal environment. The result line carries a 4th field
 # (REQUEST_ID) so tests can verify UUID generation independently of the
-# credential/URL fields.
+# run_snippet executes the canonical configuration parser in an isolated environment and prints the resulting credential and URL fields.
 run_snippet() {
 	_home="$1"
 	shift
 	env -i HOME="${_home}" PATH="/usr/bin:/bin" "$@" /bin/sh -c '. "$1"; printf "RESULT|%s|%s|%s|%s\n" "${API_KEY}" "${ENV_NAME}" "${API_URL}" "${REQUEST_ID}"' /bin/sh "${CANONICAL}"
 }
 
+# make_config creates a configuration fixture with the specified JSON content and permissions.
 make_config() {
 	# usage: make_config <home_dir> <json_body> <dir_mode> <file_mode>
 	_home="$1"
@@ -56,6 +58,7 @@ make_config() {
 	chmod "${_file_mode}" "${_home}/.qodo/config.json" || fail 'unable to chmod fixture config.json'
 }
 
+# assert_success verifies that a command completed successfully and reports its output when it fails.
 assert_success() {
 	_label="$1"
 	_rc="$2"
@@ -63,6 +66,7 @@ assert_success() {
 	[ "${_rc}" -eq 0 ] || fail "${_label}: expected success, got exit ${_rc}, output: ${_out}"
 }
 
+# assert_failure verifies that a command fails and its output contains the expected text.
 assert_failure() {
 	_label="$1"
 	_rc="$2"
@@ -72,6 +76,7 @@ assert_failure() {
 	printf '%s\n' "${_out}" | grep -Fq "${_needle}" || fail "${_label}: expected output to contain '${_needle}', got: ${_out}"
 }
 
+# extract_result_field extracts a field from the last RESULT record in the parser output.
 extract_result_field() {
 	# usage: extract_result_field <output> <field-number 1..4>
 	printf '%s\n' "$1" | grep '^RESULT|' | tail -n1 | cut -d'|' -f "$(($2 + 1))"
