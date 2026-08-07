@@ -155,6 +155,8 @@ nvram_transaction_finalize_setup_pair() {
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 	rm -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
 }
+# nvram_transaction_setup_committed reports whether the setup commit marker exists.
+nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
 # nvram_transaction_setup_files_begin creates a rollback journal with snapshots of the YAML and configuration files, recording markers for files that are absent.
 nvram_transaction_setup_files_begin() {
 	local journal_root source target

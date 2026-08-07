@@ -90,6 +90,8 @@ installer_lan_domain_set() { nvram set "lan_domain=$1"; }
 installer_lan_domain_restore() { :; }
 # nvram_transaction_finalize_setup_pair completes the NVRAM setup transaction successfully.
 nvram_transaction_finalize_setup_pair() { return 0; }
+# nvram_transaction_setup_committed reports whether the setup commit marker exists.
+nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
 # nvram_transaction_setup_files_begin starts the setup-file transaction successfully.
 nvram_transaction_setup_files_begin() { return 0; }
 # nvram_transaction_setup_files_restore reports successful restoration of setup files.

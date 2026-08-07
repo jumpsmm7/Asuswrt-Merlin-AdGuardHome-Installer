@@ -345,6 +345,8 @@ AGH_STUB
 		rm -rf "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || return 1
 		return 0
 	}
+	# nvram_transaction_setup_committed reports whether the setup commit marker exists.
+	nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
 	# nvram_transaction_setup_files_begin starts a setup journal and records the existing configuration state for rollback.
 	nvram_transaction_setup_files_begin() {
 		printf '%s\n' 'nvram_transaction_setup_files_begin' >>"${CALLS_FILE}"
