@@ -68,7 +68,23 @@ validate_skill_md() {
 		return 1
 	fi
 	description_line=$(grep -E '^description:[[:space:]]*' "${FRONTMATTER}")
-	actual_description=$(printf '%s\n' "${description_line}" | sed -e 's/^description:[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//')
+	# Strip 'description:' prefix and trailing whitespace.
+	actual_description=$(printf '%s\n' "${description_line}" | sed -e 's/^description:[[:space:]]*//' -e 's/[[:space:]]*$//')
+	# If the value starts with a quote, extract quoted content; otherwise take everything up to #.
+	case "${actual_description}" in
+		\"*\")
+			# Quoted string: strip the quotes
+			actual_description=$(printf '%s\n' "${actual_description}" | sed -e 's/^"//' -e 's/"$//')
+			;;
+		\"*)
+			# Starts with quote but doesn't end with one - malformed, treat as empty
+			actual_description=""
+			;;
+		*)
+			# Unquoted: strip everything from # onward (inline comment), then trailing whitespace
+			actual_description=$(printf '%s\n' "${actual_description}" | sed -e 's/#.*//' -e 's/[[:space:]]*$//')
+			;;
+	esac
 	if [ -z "${actual_description}" ]; then
 		printf '%s\n' "${skill_md}: 'description' field is empty" >&2
 		rm -f "${FRONTMATTER}"
@@ -76,7 +92,14 @@ validate_skill_md() {
 	fi
 
 	# When a 'triggers:' field is declared, validate its form and content.
+	# There must be exactly one 'triggers:' field, not multiple.
 	if grep -Eq '^triggers:' "${FRONTMATTER}"; then
+		triggers_count=$(grep -cE '^triggers:' "${FRONTMATTER}")
+		if [ "${triggers_count}" -ne 1 ]; then
+			printf '%s\n' "${skill_md}: frontmatter must have at most one 'triggers' field, found ${triggers_count}" >&2
+			rm -f "${FRONTMATTER}"
+			return 1
+		fi
 		triggers_line=$(grep -E '^triggers:' "${FRONTMATTER}")
 
 		# Check for inline empty list: triggers: []
@@ -227,6 +250,68 @@ Content here.
 EOF
 if ! validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-valid-block-triggers"; then
 	fail "regression: valid block-form triggers list fixture unexpectedly failed validation"
+fi
+
+# Test case: description with only inline comment should be rejected
+TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-description-comment-only"
+mkdir -p "${TEST_SKILL_DIR}"
+cat >"${TEST_SKILL_DIR}/SKILL.md" <<'EOF'
+---
+name: test-description-comment-only
+description: # comment
+---
+# Test Skill
+Content here.
+EOF
+if validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-description-comment-only"; then
+	fail "regression: description with only inline comment fixture unexpectedly passed validation"
+fi
+
+# Test case: description with empty string and inline comment should be rejected
+TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-description-empty-comment"
+mkdir -p "${TEST_SKILL_DIR}"
+cat >"${TEST_SKILL_DIR}/SKILL.md" <<'EOF'
+---
+name: test-description-empty-comment
+description: "" # comment
+---
+# Test Skill
+Content here.
+EOF
+if validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-description-empty-comment"; then
+	fail "regression: description with empty string and inline comment fixture unexpectedly passed validation"
+fi
+
+# Test case: duplicate triggers fields (one valid, one invalid) should be rejected
+TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-duplicate-triggers"
+mkdir -p "${TEST_SKILL_DIR}"
+cat >"${TEST_SKILL_DIR}/SKILL.md" <<'EOF'
+---
+name: test-duplicate-triggers
+description: Test skill with duplicate triggers fields
+triggers: [valid]
+triggers: invalid
+---
+# Test Skill
+Content here.
+EOF
+if validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-duplicate-triggers"; then
+	fail "regression: duplicate triggers fields fixture unexpectedly passed validation"
+fi
+
+# Test case: valid quoted description with hash character should be accepted
+TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-valid-description-with-hash"
+mkdir -p "${TEST_SKILL_DIR}"
+cat >"${TEST_SKILL_DIR}/SKILL.md" <<'EOF'
+---
+name: test-valid-description-with-hash
+description: "This is a valid description with #hashtag in it"
+---
+# Test Skill
+Content here.
+EOF
+if ! validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-valid-description-with-hash"; then
+	fail "regression: valid quoted description with hash character fixture unexpectedly failed validation"
 fi
 
 CHECKED=0
