@@ -309,13 +309,13 @@ AGH_STUB
 	ERROR='Error:'
 	WARNING='Warning:'
 	# PTXT prints each argument on a separate line.
-PTXT() { printf '%s\n' "$@"; }
+	PTXT() { printf '%s\n' "$@"; }
 	# ptxt_ok performs no action.
-ptxt_ok() { :; }
+	ptxt_ok() { :; }
 	# create_dir creates the specified directory and any required parent directories.
-create_dir() { mkdir -p "$1"; }
+	create_dir() { mkdir -p "$1"; }
 	# read_input_port sets the web interface port to 3000.
-read_input_port() { WEB_PORT=3000; }
+	read_input_port() { WEB_PORT=3000; }
 	# read_input_dns sets a default primary bootstrap DNS address or assigns a secondary address when the primary is already set.
 	read_input_dns() {
 		if [ -z "${BOOTSTRAP1:-}" ]; then
@@ -325,21 +325,21 @@ read_input_port() { WEB_PORT=3000; }
 		fi
 	}
 	# read_yesno prompts for and evaluates a yes-or-no response.
-read_yesno() { return 1; }
+	read_yesno() { return 1; }
 	# AdGuardHome_authen appends a default administrator account configuration to the specified file.
 	AdGuardHome_authen() {
 		printf '%s\n' 'users:' '- name: admin' '  password: hash' >>"$2"
 	}
 	# check_AdGuardHome_yaml checks the AdGuard Home YAML configuration.
-check_AdGuardHome_yaml() { :; }
+	check_AdGuardHome_yaml() { :; }
 	# save_dns_filter_settings creates the specified directory for DNS filter settings.
-save_dns_filter_settings() { mkdir -p "$1"; }
+	save_dns_filter_settings() { mkdir -p "$1"; }
 	# restore_dns_filter_settings removes the file or directory specified by its first argument.
-restore_dns_filter_settings() { rm -rf "$1"; }
+	restore_dns_filter_settings() { rm -rf "$1"; }
 	# installer_lan_domain_set marks the LAN domain as configured.
-installer_lan_domain_set() { :; }
+	installer_lan_domain_set() { :; }
 	# installer_lan_domain_restore restores an interrupted LAN-domain configuration transaction.
-installer_lan_domain_restore() { :; }
+	installer_lan_domain_restore() { :; }
 	# nvram_transaction_finalize_setup_pair removes temporary NVRAM setup files and reports whether cleanup succeeded.
 	nvram_transaction_finalize_setup_pair() {
 		rm -rf "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || return 1
@@ -362,18 +362,18 @@ installer_lan_domain_restore() { :; }
 		return 0
 	}
 	# nvram_transaction_setup_files_restore reports successful setup-file restoration.
-nvram_transaction_setup_files_restore() { return 0; }
+	nvram_transaction_setup_files_restore() { return 0; }
 	# check_dns_filter records that DNS filter checking was invoked and succeeds.
 	check_dns_filter() {
 		printf '%s\n' 'check_dns_filter' >>"${CALLS_FILE}"
 		return 0
 	}
 	# check_dns_local checks local DNS availability.
-check_dns_local() { :; }
+	check_dns_local() { :; }
 	# check_ipset checks whether the required ipset functionality is available.
-check_ipset() { :; }
+	check_ipset() { :; }
 	# ai_have_cmd always reports that the requested command is unavailable.
-ai_have_cmd() { return 1; }
+	ai_have_cmd() { return 1; }
 	# nvram returns predefined test values for selected keys and accepts set and commit operations.
 	nvram() {
 		case "${1:-}:${2:-}" in
