@@ -291,4 +291,71 @@ for f in "${SKILL}" "${SEARCH_ENDPOINT}" "${REPO_SCOPE}"; do
 	grep -Fq '"scopes": []' "${f}" || fail "${f}: missing the 'do not send scopes: []' guidance"
 done
 
+# --- Scenario: config file present with correct permissions and a missing
+# QODO_* env trio, but the `jq` binary itself is unavailable on PATH -> the
+# script must fail with its own actionable "jq is required" error instead of
+# silently skipping validation or crashing with an unhandled "command not
+# found". Build a restricted PATH containing only the non-jq utilities the
+# permission-check branch needs, so jq is genuinely unreachable.
+HOME_NO_JQ="${TMP_ROOT}/home-no-jq"
+mkdir -p "${HOME_NO_JQ}" || fail 'unable to create home-no-jq fixture'
+make_config "${HOME_NO_JQ}" '{"API_KEY": "cfg-key"}' 700 600
+
+NOJQ_BIN="${TMP_ROOT}/nojq-bin"
+mkdir -p "${NOJQ_BIN}" || fail 'unable to create restricted PATH fixture directory'
+for tool in dirname stat cat grep sed tr mkdir chmod mktemp rm cut wc basename; do
+	tool_path=$(command -v "${tool}" 2>/dev/null) || continue
+	ln -s "${tool_path}" "${NOJQ_BIN}/${tool}" || fail "unable to symlink ${tool} into restricted PATH fixture"
+done
+[ -e "${NOJQ_BIN}/dirname" ] || fail 'restricted PATH fixture is missing dirname; cannot exercise missing-jq scenario'
+[ -e "${NOJQ_BIN}/stat" ] || fail 'restricted PATH fixture is missing stat; cannot exercise missing-jq scenario'
+[ ! -e "${NOJQ_BIN}/jq" ] || fail 'restricted PATH fixture unexpectedly contains jq'
+
+OUT=$(run_snippet "${HOME_NO_JQ}" PATH="${NOJQ_BIN}" 2>&1)
+RC=$?
+assert_failure 'missing jq dependency' "${RC}" "${OUT}" 'jq is required'
+
+# --- Scenario: a QODO_API_URL supplied via the config file (not the
+# environment) pointing at an untrusted domain must be rejected the same way
+# an env-supplied one is -- the validation must not be skippable just by
+# moving the malicious value into config.json.
+HOME_BAD_CONFIG_URL="${TMP_ROOT}/home-bad-config-url"
+mkdir -p "${HOME_BAD_CONFIG_URL}" || fail 'unable to create home-bad-config-url fixture'
+make_config "${HOME_BAD_CONFIG_URL}" '{"API_KEY": "cfg-key", "QODO_API_URL": "https://evil.example.com"}' 700 600
+OUT=$(run_snippet "${HOME_BAD_CONFIG_URL}" 2>&1)
+RC=$?
+assert_failure 'config-file QODO_API_URL rejected for untrusted domain' "${RC}" "${OUT}" 'Invalid QODO_API_URL'
+
+# --- Scenario: a QODO_API_URL that already ends in /rules/v1 must not have
+# the suffix appended a second time.
+OUT=$(run_snippet "${HOME_URL}" QODO_API_KEY=k QODO_API_URL=https://custom.qodo.ai/rules/v1 2>&1)
+RC=$?
+assert_success 'QODO_API_URL already ending in /rules/v1' "${RC}" "${OUT}"
+[ "$(extract_result_field "${OUT}" 3)" = 'https://custom.qodo.ai/rules/v1' ] ||
+	fail "QODO_API_URL already ending in /rules/v1: unexpected API_URL (possible double-append): ${OUT}"
+
+# --- Scenario: when both ENVIRONMENT_NAME and QODO_API_URL are supplied
+# together in the config file (no environment overrides), QODO_API_URL must
+# still take precedence, matching the documented URL resolution priority.
+HOME_CONFIG_BOTH="${TMP_ROOT}/home-config-both"
+mkdir -p "${HOME_CONFIG_BOTH}" || fail 'unable to create home-config-both fixture'
+make_config "${HOME_CONFIG_BOTH}" '{"API_KEY": "cfg-key", "ENVIRONMENT_NAME": "staging", "QODO_API_URL": "https://custom.qodo.ai"}' 700 600
+OUT=$(run_snippet "${HOME_CONFIG_BOTH}" 2>&1)
+RC=$?
+assert_success 'config QODO_API_URL takes precedence over config ENVIRONMENT_NAME' "${RC}" "${OUT}"
+[ "$(extract_result_field "${OUT}" 3)" = 'https://custom.qodo.ai/rules/v1' ] ||
+	fail "config QODO_API_URL takes precedence over config ENVIRONMENT_NAME: unexpected API_URL: ${OUT}"
+
+# --- Scenario: an explicit empty-string ENVIRONMENT_NAME in the config file
+# (as opposed to the field being entirely absent) must still fall back to the
+# production API URL rather than being treated as a set-but-invalid value.
+HOME_EMPTY_ENV="${TMP_ROOT}/home-empty-env"
+mkdir -p "${HOME_EMPTY_ENV}" || fail 'unable to create home-empty-env fixture'
+make_config "${HOME_EMPTY_ENV}" '{"API_KEY": "cfg-key", "ENVIRONMENT_NAME": ""}' 700 600
+OUT=$(run_snippet "${HOME_EMPTY_ENV}" 2>&1)
+RC=$?
+assert_success 'empty-string ENVIRONMENT_NAME in config defaults to production' "${RC}" "${OUT}"
+[ "$(extract_result_field "${OUT}" 3)" = 'https://qodo-platform.qodo.ai/rules/v1' ] ||
+	fail "empty-string ENVIRONMENT_NAME in config defaults to production: unexpected API_URL: ${OUT}"
+
 printf '%s\n' 'PASS: qodo-get-rules config parsing snippet enforces credential/URL validation as documented'
