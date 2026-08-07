@@ -97,10 +97,21 @@ grep -Fq "${HEADER}" "${OUTPUT_FMT}" || fail "${OUTPUT_FMT}: missing the '${HEAD
 # must match the exact set output-format.md declares as valid {SEVERITY}
 # values, so a rule with a severity the output formatter doesn't recognize
 # can never be silently misrendered.
-for sev in ERROR WARNING RECOMMENDATION; do
-	grep -Fq "${sev}" "${SKILL}" || fail "${SKILL}: expected severity '${sev}' to be documented"
-	grep -Fq "${sev}" "${OUTPUT_FMT}" || fail "${OUTPUT_FMT}: expected severity '${sev}' to be documented"
-done
+# Extract each independently rather than hardcoding the list here, so this
+# test tracks the real content instead of a hand-copied duplicate.
+SKILL_SEVERITIES=$(grep -oE '^\| \*\*[A-Z]+\*\* \|' "${SKILL}" |
+	sed -E 's/^\| \*\*([A-Z]+)\*\* \|$/\1/' | sort)
+[ -n "${SKILL_SEVERITIES}" ] || fail "${SKILL}: could not extract any severities from the Step 7 enforcement table"
+
+OUTPUT_FMT_SEVERITIES=$(grep 'is one of:' "${OUTPUT_FMT}" |
+	tr ',' '\n' | sed 's/.*`\([A-Z]*\)`.*/\1/' | grep -E '^[A-Z]+$' | sort)
+[ -n "${OUTPUT_FMT_SEVERITIES}" ] || fail "${OUTPUT_FMT}: could not extract any severities from the 'is one of:' line"
+
+[ "${SKILL_SEVERITIES}" = "${OUTPUT_FMT_SEVERITIES}" ] || fail "severity vocabulary differs between ${SKILL} and ${OUTPUT_FMT}:
+--- ${SKILL} ---
+${SKILL_SEVERITIES}
+--- ${OUTPUT_FMT} ---
+${OUTPUT_FMT_SEVERITIES}"
 
 # --- The per-rule output line format must be the literal bold-name +
 # bracketed-severity + colon-content pattern shown in output-format.md, so a
