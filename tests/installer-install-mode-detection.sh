@@ -270,6 +270,8 @@ configure_runtime_defaults() {
 }
 EOF
 	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	# shellcheck disable=SC1090
 	. "${WRAPPED_FUNCTIONS}"
 
 	# Mock environment for LAN mode without DNS filter selection
