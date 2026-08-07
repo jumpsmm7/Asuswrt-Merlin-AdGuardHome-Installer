@@ -72,13 +72,15 @@ validate_skill_md() {
 	actual_description=$(printf '%s\n' "${description_line}" | sed -e 's/^description:[[:space:]]*//' -e 's/[[:space:]]*$//')
 	# If the value starts with a quote, extract quoted content; otherwise take everything up to #.
 	case "${actual_description}" in
-		\"*\")
-			# Quoted string: strip the quotes
-			actual_description=$(printf '%s\n' "${actual_description}" | sed -e 's/^"//' -e 's/"$//')
-			;;
 		\"*)
-			# Starts with quote but doesn't end with one - malformed, treat as empty
-			actual_description=""
+			# Double-quoted string: strip the surrounding quotes and any trailing inline comment
+			actual_description=$(printf '%s\n' "${actual_description}" |
+				sed -n 's/^"\(.*\)"[[:space:]]*\(#.*\)\{0,1\}$/\1/p')
+			;;
+		\'*)
+			# Single-quoted string: strip the surrounding quotes and any trailing inline comment
+			actual_description=$(printf '%s\n' "${actual_description}" |
+				sed -n "s/^'\(.*\)'[[:space:]]*\(#.*\)\{0,1\}$/\1/p")
 			;;
 		*)
 			# Unquoted: strip everything from # onward (inline comment), then trailing whitespace
@@ -312,6 +314,36 @@ Content here.
 EOF
 if ! validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-valid-description-with-hash"; then
 	fail "regression: valid quoted description with hash character fixture unexpectedly failed validation"
+fi
+
+# Test case: quoted description followed by an inline comment should be accepted
+TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-description-quoted-inline-comment"
+mkdir -p "${TEST_SKILL_DIR}"
+cat >"${TEST_SKILL_DIR}/SKILL.md" <<'EOF'
+---
+name: test-description-quoted-inline-comment
+description: "Valid text" # comment
+---
+# Test Skill
+Content here.
+EOF
+if ! validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-description-quoted-inline-comment"; then
+	fail "regression: quoted description with inline comment fixture unexpectedly failed validation"
+fi
+
+# Test case: empty single-quoted description should be rejected
+TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-description-empty-single-quote"
+mkdir -p "${TEST_SKILL_DIR}"
+cat >"${TEST_SKILL_DIR}/SKILL.md" <<'EOF'
+---
+name: test-description-empty-single-quote
+description: ''
+---
+# Test Skill
+Content here.
+EOF
+if validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-description-empty-single-quote"; then
+	fail "regression: empty single-quoted description fixture unexpectedly passed validation"
 fi
 
 CHECKED=0
