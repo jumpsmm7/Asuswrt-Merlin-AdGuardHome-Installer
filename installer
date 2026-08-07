@@ -296,10 +296,12 @@ nvram_transaction_setup_files_restore() {
 		esac
 		stage="${target}.setup-restore.$$"
 		if [ -f "${journal_root}/${source}" ]; then
-			cp -p "${journal_root}/${source}" "${stage}" && mv -f "${stage}" "${target}" || {
+			if cp -p "${journal_root}/${source}" "${stage}" && mv -f "${stage}" "${target}"; then
+				:
+			else
 				rm -f "${stage}"
 				return 1
-			}
+			fi
 		elif [ -f "${journal_root}/${source}.absent" ]; then
 			rm -f "${target}" || return 1
 		else
@@ -2071,9 +2073,9 @@ preflight_check_downloader() {
 	fi
 	PTXT "preflight.downloader.required=/usr/sbin/curl or /usr/sbin/wget"
 	PTXT "preflight.downloader.curl.which=${curl_path:-missing}"
-	PTXT "preflight.downloader.curl.stock=$([ -x /usr/sbin/curl ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.downloader.curl.stock=$(if [ -x /usr/sbin/curl ]; then PTXT OK; else PTXT missing; fi)"
 	PTXT "preflight.downloader.wget.which=${wget_path:-missing}"
-	PTXT "preflight.downloader.wget.stock=$([ -x /usr/sbin/wget ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.downloader.wget.stock=$(if [ -x /usr/sbin/wget ]; then PTXT OK; else PTXT missing; fi)"
 	PTXT "preflight.downloader.result=${result}"
 	[ "${result}" = "OK" ]
 }
@@ -2085,9 +2087,9 @@ preflight_check_entware() {
 		result="OK"
 	fi
 	PTXT "preflight.entware.required=yes"
-	PTXT "preflight.entware.opt_dir=$([ -d /opt ] && PTXT OK || PTXT missing)"
-	PTXT "preflight.entware.opkg=$([ -x /opt/bin/opkg ] && PTXT OK || PTXT missing)"
-	PTXT "preflight.entware.config=$({ [ -f /opt/etc/opkg.conf ] || [ -f /opt/etc/init.d/rc.unslung ]; } && PTXT OK || PTXT missing)"
+	PTXT "preflight.entware.opt_dir=$(if [ -d /opt ]; then PTXT OK; else PTXT missing; fi)"
+	PTXT "preflight.entware.opkg=$(if [ -x /opt/bin/opkg ]; then PTXT OK; else PTXT missing; fi)"
+	PTXT "preflight.entware.config=$(if [ -f /opt/etc/opkg.conf ] || [ -f /opt/etc/init.d/rc.unslung ]; then PTXT OK; else PTXT missing; fi)"
 	PTXT "preflight.entware.result=${result}"
 	[ "${result}" = "OK" ]
 }
@@ -2115,10 +2117,10 @@ preflight_check_jq() {
 	fi
 	PTXT "preflight.jq.required=yes"
 	PTXT "preflight.jq.which=${jq_path:-missing}"
-	PTXT "preflight.jq.stock=$([ -x /usr/bin/jq ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.jq.stock=$(if [ -x /usr/bin/jq ]; then PTXT OK; else PTXT missing; fi)"
 	if [ "${allow_entware}" = "1" ]; then
 		[ "${result}" = "OK" ] || [ ! -x /opt/bin/jq ] || result="OK"
-		PTXT "preflight.jq.entware=$([ -x /opt/bin/jq ] && PTXT OK || PTXT missing)"
+		PTXT "preflight.jq.entware=$(if [ -x /opt/bin/jq ]; then PTXT OK; else PTXT missing; fi)"
 		PTXT "preflight.jq.install_hint=opkg install jq"
 	else
 		PTXT "preflight.jq.entware=not_checked"

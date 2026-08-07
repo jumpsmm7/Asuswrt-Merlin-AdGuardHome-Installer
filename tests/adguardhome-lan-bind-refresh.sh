@@ -131,7 +131,7 @@ cp "${YAML_FILE}" "${YAML_FILE}.malformed" || fail 'could not preserve malformed
 if adguard_refresh_lan_bind_addresses; then
 	fail 'refresh accepted YAML without a WebUI address'
 fi
-cmp -s "${YAML_FILE}" "${YAML_FILE}.malformed" || fail 'failed refresh modified YAML'
+diff -q "${YAML_FILE}" "${YAML_FILE}.malformed" >/dev/null 2>&1 || fail 'failed refresh modified YAML'
 
 # interface_ipv4_addr prints the IPv4 address assigned to the interface.
 interface_ipv4_addr() { printf '%s\n' 0.0.0.0; }
@@ -156,7 +156,7 @@ cp "${YAML_FILE}" "${YAML_FILE}.wildcard" || fail 'could not preserve wildcard f
 if adguard_refresh_lan_bind_addresses; then
 	fail 'refresh accepted a wildcard LAN IPv4 address'
 fi
-cmp -s "${YAML_FILE}" "${YAML_FILE}.wildcard" || fail 'wildcard LAN IPv4 failure modified YAML'
+diff -q "${YAML_FILE}" "${YAML_FILE}.wildcard" >/dev/null 2>&1 || fail 'wildcard LAN IPv4 failure modified YAML'
 
 # Restore usable LAN addresses for staged-validation and failure-path cases.
 interface_ipv4_addr() { printf '%s\n' 192.168.50.27; }
@@ -176,7 +176,7 @@ assert_rejected_unchanged() {
 	if adguard_refresh_lan_bind_addresses; then
 		fail "${case_name}: invalid YAML was accepted"
 	fi
-	cmp -s "${YAML_FILE}" "${YAML_FILE}.before" || fail "${case_name}: active YAML changed"
+	diff -q "${YAML_FILE}" "${YAML_FILE}.before" >/dev/null 2>&1 || fail "${case_name}: active YAML changed"
 }
 
 cat >"${YAML_FILE}" <<'EOF'
@@ -224,7 +224,7 @@ cp "${YAML_FILE}" "${YAML_FILE}.before" || fail 'could not preserve no-op fixtur
 : >"${CALLS_FILE}"
 adguard_refresh_lan_bind_addresses || fail 'no-op refresh failed validation'
 [ "${LAN_BIND_ADDRESSES_CHANGED}" -eq 0 ] || fail 'no-op refresh requested a restart'
-cmp -s "${YAML_FILE}" "${YAML_FILE}.before" || fail 'no-op refresh replaced content'
+diff -q "${YAML_FILE}" "${YAML_FILE}.before" >/dev/null 2>&1 || fail 'no-op refresh replaced content'
 ! grep -q -- '--check-config' "${CALLS_FILE}" || fail 'no-op refresh unnecessarily invoked binary validation'
 [ ! -s "${CALLS_FILE}" ] || fail 'no-op refresh unexpectedly invoked the AdGuardHome binary'
 
