@@ -46,6 +46,20 @@ done
 grep -Fq '## Qodo Fix Summary — Round N' "${PROVIDERS}" ||
 	fail "${PROVIDERS}: expected the literal posted heading '## Qodo Fix Summary — Round N'"
 
+# --- Dynamic summaries contain verbatim issue titles and user-provided
+# reasons. Keep both CLI examples on file-based input so apostrophes and shell
+# operators in that untrusted text are never parsed as part of a command.
+grep -Fq 'gh pr comment <pr-number> --body-file "$COMMENT_FILE"' "${PROVIDERS}" ||
+	fail "${PROVIDERS}: GitHub summaries must use --body-file"
+grep -Fq 'glab mr comment <mr-iid> < "$COMMENT_FILE"' "${PROVIDERS}" ||
+	fail "${PROVIDERS}: GitLab summaries must read the body from a file"
+if grep -Fq "gh pr comment <pr-number> --body '<comment-body>'" "${PROVIDERS}"; then
+	fail "${PROVIDERS}: unsafe shell-quoted GitHub summary example is present"
+fi
+if grep -Fq "glab mr comment <mr-iid> --message '<comment-body>'" "${PROVIDERS}"; then
+	fail "${PROVIDERS}: unsafe shell-quoted GitLab summary example is present"
+fi
+
 # --- The ledger's primary lookup key (file + title, never raw line number) is
 # the crux of the oscillation guard; it must be stated consistently in both
 # SKILL.md and convergence.md so a future edit can't silently key on line
