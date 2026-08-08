@@ -66,16 +66,44 @@ fi
 # keeps a safe title (or another safe flag) from masking an unsafe body on the
 # same command and covers single-quoted, double-quoted, and unquoted values.
 UNSAFE_COMMANDS=$(mktemp "${TMPDIR:-/tmp}/unsafe_commands.XXXXXX") || exit 1
-trap 'rm -f "$UNSAFE_COMMANDS"' EXIT
-awk '
+trap 'rm -f "$UNSAFE_COMMANDS"' 0
+
+scan_unsafe_commands() {
+	awk '
 	/(gh pr (comment|create)|glab mr (comment|note|create))/ {
 		command = $0
 		gsub(/--body-file[[:space:]]+[^[:space:]]+/, "", command)
-		gsub(/--(body|message|description)[[:space:]]+"\$\(cat[[:space:]]+"\$[A-Za-z_][A-Za-z0-9_]*"\)"/, "", command)
+		gsub(/--(body|message|description)([[:space:]]+|=)"\$\(cat[[:space:]]+"\$[A-Za-z_][A-Za-z0-9_]*"\)"/, "", command)
 		if (command ~ /--(body|message|description)([[:space:]]|=)/)
 			print $0
 	}
-' "${PROVIDERS}" >"${UNSAFE_COMMANDS}"
+	' "$1"
+}
+
+# Exercise every accepted input path and the quoting/argument variants that
+# previously bypassed this guard. These fixtures keep the scanner itself from
+# silently regressing when providers.md happens not to contain an unsafe line.
+scan_unsafe_commands - >"${UNSAFE_COMMANDS}" <<'EOF'
+gh pr comment 1 --body-file "$COMMENT_FILE" # safe-body-file
+glab mr comment 1 < "$COMMENT_FILE" # safe-stdin
+gh pr create --body "$(cat "$BODY_FILE")" # safe-cat-space
+gh pr create --body="$(cat "$BODY_FILE")" # safe-cat-equals
+gh pr create --title "$(cat "$TITLE_FILE")" --body "$BODY" # unsafe-mixed-title
+gh pr comment 1 --body '$BODY' # unsafe-single-quote
+glab mr note 1 --message "$MESSAGE" # unsafe-double-quote
+glab mr create --description=$DESCRIPTION # unsafe-unquoted
+gh pr create --body-file "$BODY_FILE" --description "$DESCRIPTION" # unsafe-mixed-body-file
+EOF
+
+EXPECTED_UNSAFE='gh pr create --title "$(cat "$TITLE_FILE")" --body "$BODY" # unsafe-mixed-title
+gh pr comment 1 --body '\''$BODY'\'' # unsafe-single-quote
+glab mr note 1 --message "$MESSAGE" # unsafe-double-quote
+glab mr create --description=$DESCRIPTION # unsafe-unquoted
+gh pr create --body-file "$BODY_FILE" --description "$DESCRIPTION" # unsafe-mixed-body-file'
+[ "$(cat "${UNSAFE_COMMANDS}")" = "${EXPECTED_UNSAFE}" ] ||
+	fail 'internal test error: unsafe command scanner did not classify all regression fixtures correctly'
+
+scan_unsafe_commands "${PROVIDERS}" >"${UNSAFE_COMMANDS}"
 
 if [ -s "$UNSAFE_COMMANDS" ]; then
 	cmd=$(head -n 1 "$UNSAFE_COMMANDS" | sed 's/^[[:space:]]*//')
