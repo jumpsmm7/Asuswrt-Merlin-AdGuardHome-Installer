@@ -328,25 +328,23 @@ POST /a/changes/<change-id>/revisions/current/review
 # Keep review-controlled values out of shell arguments. Create protected files first,
 # then write each value directly with the resolver's file-writing tool (not a shell
 # heredoc or quoted shell argument).
+OLD_UMASK=$(umask)
 umask 077
-REPLY_BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/gerrit_reply_body.XXXXXX") || exit 1
-FILE_PATH_FILE=$(mktemp "${TMPDIR:-/tmp}/gerrit_file_path.XXXXXX") || {
-  rm -f "$REPLY_BODY_FILE"
-  exit 1
-}
-COMMENT_ID_FILE=$(mktemp "${TMPDIR:-/tmp}/gerrit_comment_id.XXXXXX") || {
-  rm -f "$REPLY_BODY_FILE" "$FILE_PATH_FILE"
-  exit 1
-}
-trap 'rm -f "$REPLY_BODY_FILE" "$FILE_PATH_FILE" "$COMMENT_ID_FILE"' EXIT
-trap 'rm -f "$REPLY_BODY_FILE" "$FILE_PATH_FILE" "$COMMENT_ID_FILE"; exit 129' HUP
-trap 'rm -f "$REPLY_BODY_FILE" "$FILE_PATH_FILE" "$COMMENT_ID_FILE"; exit 130' INT
-trap 'rm -f "$REPLY_BODY_FILE" "$FILE_PATH_FILE" "$COMMENT_ID_FILE"; exit 143' TERM
+REPLY_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gerrit_reply.XXXXXX") || exit 1
+trap 'rm -rf "$REPLY_DIR"' EXIT
+trap 'rm -rf "$REPLY_DIR"; exit 129' HUP
+trap 'rm -rf "$REPLY_DIR"; exit 130' INT
+trap 'rm -rf "$REPLY_DIR"; exit 143' TERM
+REPLY_BODY_FILE="${REPLY_DIR}/body"
+FILE_PATH_FILE="${REPLY_DIR}/path"
+COMMENT_ID_FILE="${REPLY_DIR}/comment_id"
 # Write <reply-body>, <file-path>, and <comment-id> to their corresponding files now.
 
 REPLY_BODY_JSON=$(python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1], encoding="utf-8").read()))' "$REPLY_BODY_FILE") || exit 1
 FILE_PATH_JSON=$(python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1], encoding="utf-8").read()))' "$FILE_PATH_FILE") || exit 1
 COMMENT_ID_JSON=$(python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1], encoding="utf-8").read()))' "$COMMENT_ID_FILE") || exit 1
+rm -rf "$REPLY_DIR"
+umask "$OLD_UMASK"
 
 if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 --netrc-file "$GERRIT_NETRC" \
   -H "Content-Type: application/json" \
@@ -411,6 +409,7 @@ Uses the same unified endpoint with the `message` field. Summary and all inline 
 # Keep the rendered summary out of shell arguments. Create the protected file and
 # write <summary-comment-body> to it directly with the resolver's file-writing tool
 # (not a shell heredoc or quoted shell argument).
+OLD_UMASK=$(umask)
 umask 077
 SUMMARY_FILE=$(mktemp "${TMPDIR:-/tmp}/gerrit_summary.XXXXXX") || exit 1
 trap 'rm -f "$SUMMARY_FILE"' EXIT
@@ -419,6 +418,8 @@ trap 'rm -f "$SUMMARY_FILE"; exit 130' INT
 trap 'rm -f "$SUMMARY_FILE"; exit 143' TERM
 # Write <summary-comment-body> to $SUMMARY_FILE now.
 SUMMARY_JSON=$(python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1], encoding="utf-8").read()))' "$SUMMARY_FILE") || exit 1
+rm -f "$SUMMARY_FILE"
+umask "$OLD_UMASK"
 
 # Build complete comments object from all accumulated inline replies
 # Each entry: file path -> array of reply objects with in_reply_to, message, unresolved
