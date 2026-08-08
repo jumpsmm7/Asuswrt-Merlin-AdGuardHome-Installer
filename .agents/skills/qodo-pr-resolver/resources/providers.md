@@ -432,9 +432,20 @@ gh api repos/{owner}/{repo}/pulls/<pr-number>/comments --paginate --slurp | pyth
 ### GitLab
 
 ```bash
-# All MR notes including inline comments
-glab mr view <mr-iid> --comments
+# Fetch every discussion page so inline threads retain their structured IDs.
+if ! GITLAB_DISCUSSIONS=$(glab api --paginate \
+  "/projects/:id/merge_requests/<mr-iid>/discussions?per_page=100"); then
+  echo "Error: Failed to fetch GitLab merge-request discussions" >&2
+  exit 1
+fi
+printf '%s\n' "$GITLAB_DISCUSSIONS"
 ```
+
+Treat the paginated output as a sequence of discussion arrays. For each Qodo finding, retain the
+discussion `id`, the matching note `id`, the note's immutable `author.id`, and its `position`
+metadata. Use the discussion `id` for the reply and resolution operations below, the note `id`
+to correlate the exact inline finding, and `author.id` for the Step 3c identity checks. Do not
+derive these identifiers from the rendered `glab mr view --comments` display.
 
 ### Bitbucket
 
@@ -739,21 +750,34 @@ while true; do
     -f query='query($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100,after:$after){nodes{id isResolved comments(first:100){nodes{databaseId}}} pageInfo{hasNextPage endCursor}}}}}') || exit 1
 
   # Parse all needed values from the stored response
-  THREAD_ID=$(printf '%s' "$GQL_RESPONSE" | \
-    jq -r '.data.repository.pullRequest.reviewThreads.nodes[] | select(any(.comments.nodes[]; .databaseId == <inline-comment-id>)) | .id') || exit 1
+  THREAD_ID=$(printf '%s' "$GQL_RESPONSE" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+target = int(sys.argv[1])
+for thread in data["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]:
+    if any(comment.get("databaseId") == target for comment in thread["comments"]["nodes"]):
+        print(thread["id"])
+        break
+' <inline-comment-id>) || exit 1
 
   if [ -n "$THREAD_ID" ]; then
     break
   fi
 
-  HAS_NEXT=$(printf '%s' "$GQL_RESPONSE" | \
-    jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage') || exit 1
+  HAS_NEXT=$(printf '%s' "$GQL_RESPONSE" | python3 -c '
+import json, sys
+value = json.load(sys.stdin)["data"]["repository"]["pullRequest"]["reviewThreads"]["pageInfo"]["hasNextPage"]
+print("true" if value else "false")
+') || exit 1
   if [ "$HAS_NEXT" != "true" ]; then
     break
   fi
 
-  NEW_CURSOR=$(printf '%s' "$GQL_RESPONSE" | \
-    jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor') || exit 1
+  NEW_CURSOR=$(printf '%s' "$GQL_RESPONSE" | python3 -c '
+import json, sys
+value = json.load(sys.stdin)["data"]["repository"]["pullRequest"]["reviewThreads"]["pageInfo"]["endCursor"]
+print(value or "")
+') || exit 1
 
   # Validate the new cursor is non-empty and different from current cursor
   if [ -z "$NEW_CURSOR" ] || [ "$NEW_CURSOR" = "$CURSOR" ]; then
