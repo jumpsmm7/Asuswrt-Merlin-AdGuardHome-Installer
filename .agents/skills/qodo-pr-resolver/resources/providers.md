@@ -116,8 +116,8 @@ fi
         echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
         exit 1
       fi
-      [ -n "${BB_USERNAME:-}" ] || BB_USERNAME=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("BB_USERNAME", ""))' "$QODO_CONFIG")
-      [ -n "${BB_APP_PASSWORD:-}" ] || BB_APP_PASSWORD=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("BB_APP_PASSWORD", ""))' "$QODO_CONFIG")
+      [ -n "${BB_USERNAME:-}" ] || BB_USERNAME=$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get("BB_USERNAME",""); print(v if isinstance(v,str) and v.strip() else "")' "$QODO_CONFIG")
+      [ -n "${BB_APP_PASSWORD:-}" ] || BB_APP_PASSWORD=$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get("BB_APP_PASSWORD",""); print(v if isinstance(v,str) and v.strip() else "")' "$QODO_CONFIG")
     fi
     if [ -z "${BB_USERNAME:-}" ] || [ -z "${BB_APP_PASSWORD:-}" ]; then
       echo "Bitbucket credentials are missing; set BB_USERNAME and BB_APP_PASSWORD or add them to $QODO_CONFIG" >&2

@@ -377,6 +377,9 @@ AGH_STUB
 	# adguard_ipset_allowed checks whether ipset functionality is permitted for the current install mode.
 	adguard_ipset_allowed() {
 		printf '%s\n' 'adguard_ipset_allowed' >>"${CALLS_FILE}"
+		case "${ADGUARD_INSTALL_MODE:-}" in
+			lan) return 1 ;;
+		esac
 		return 0
 	}
 	# ai_have_cmd always reports that the requested command is unavailable.
@@ -403,7 +406,7 @@ AGH_STUB
 		cat "${STDERR_OUTPUT}" >&2
 		fail 'setup_AdGuardHome_impl failed for LAN mode without DNS filter selection'
 	fi
-	if grep -q 'command not found' "${STDERR_OUTPUT}"; then
+	if grep -Eq 'command not found|not found' "${STDERR_OUTPUT}"; then
 		cat "${STDERR_OUTPUT}" >&2
 		fail 'setup_AdGuardHome_impl encountered missing command in LAN mode test'
 	fi
