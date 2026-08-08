@@ -59,11 +59,16 @@ check_dns_filter() { :; }
 save_dns_filter_settings() { mkdir -p "$1"; }
 # installer_lan_domain_set writes the specified LAN domain to NVRAM.
 installer_lan_domain_set() { nvram set "lan_domain=$1"; }
-# installer_lan_domain_restore leaves the installer LAN domain setting unchanged.
+# installer_lan_domain_restore preserves the installer LAN domain setting.
 installer_lan_domain_restore() { :; }
 # nvram_transaction_finalize_setup_pair finalizes the NVRAM setup transaction successfully.
 nvram_transaction_finalize_setup_pair() { return 0; }
+# nvram_transaction_setup_committed reports whether the setup commit marker exists.
+nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
+# nvram_transaction_setup_files_begin begins the NVRAM setup-file transaction successfully.
 nvram_transaction_setup_files_begin() { return 0; }
+# nvram_transaction_setup_files_restore performs a successful no-op restore of setup files for the test harness.
+nvram_transaction_setup_files_restore() { return 0; }
 # restore_dns_filter_settings removes the specified DNS filter settings directory and its contents.
 restore_dns_filter_settings() { rm -rf "$1"; }
 # check_dns_local performs the DNS locality check.
