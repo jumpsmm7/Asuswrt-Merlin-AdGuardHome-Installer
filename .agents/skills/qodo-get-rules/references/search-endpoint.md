@@ -117,7 +117,26 @@ if [ "$HTTP_CODE" != "200" ]; then
   exit 1
 fi
 
-echo "$BODY_RESPONSE"
+VALIDATED_RESPONSE=$(printf '%s' "$BODY_RESPONSE" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError:
+    raise SystemExit("Qodo rules request failed: invalid JSON response")
+if not isinstance(data, dict) or not isinstance(data.get("rules"), list):
+    raise SystemExit("Qodo rules request failed: malformed response (expected object with rules array)")
+for entry in data["rules"]:
+    if not isinstance(entry, dict):
+        raise SystemExit("Qodo rules request failed: malformed response (rules array contains non-object entry)")
+    if not isinstance(entry.get("id"), str) or not entry["id"]:
+        raise SystemExit("Qodo rules request failed: malformed response (rule missing required non-empty string field id)")
+    if not isinstance(entry.get("name"), str) or not isinstance(entry.get("content"), str):
+        raise SystemExit("Qodo rules request failed: malformed response (rule missing required string fields name or content)")
+    if entry.get("severity") not in ("ERROR", "WARNING", "RECOMMENDATION"):
+        raise SystemExit("Qodo rules request failed: malformed response (unsupported rule severity)")
+print(json.dumps(data))
+') || exit 1
+printf '%s\n' "$VALIDATED_RESPONSE"
 ```
 
 With optional trace header:
@@ -172,7 +191,26 @@ if [ "$HTTP_CODE" != "200" ]; then
   exit 1
 fi
 
-echo "$BODY_RESPONSE"
+VALIDATED_RESPONSE=$(printf '%s' "$BODY_RESPONSE" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError:
+    raise SystemExit("Qodo rules request failed: invalid JSON response")
+if not isinstance(data, dict) or not isinstance(data.get("rules"), list):
+    raise SystemExit("Qodo rules request failed: malformed response (expected object with rules array)")
+for entry in data["rules"]:
+    if not isinstance(entry, dict):
+        raise SystemExit("Qodo rules request failed: malformed response (rules array contains non-object entry)")
+    if not isinstance(entry.get("id"), str) or not entry["id"]:
+        raise SystemExit("Qodo rules request failed: malformed response (rule missing required non-empty string field id)")
+    if not isinstance(entry.get("name"), str) or not isinstance(entry.get("content"), str):
+        raise SystemExit("Qodo rules request failed: malformed response (rule missing required string fields name or content)")
+    if entry.get("severity") not in ("ERROR", "WARNING", "RECOMMENDATION"):
+        raise SystemExit("Qodo rules request failed: malformed response (unsupported rule severity)")
+print(json.dumps(data))
+') || exit 1
+printf '%s\n' "$VALIDATED_RESPONSE"
 ```
 
 ## Example (Python)

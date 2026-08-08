@@ -4,28 +4,42 @@ CONFIG_API_KEY=""
 CONFIG_ENV_NAME=""
 CONFIG_QODO_API_URL=""
 
-# The config file is an optional fallback; environment-only setup is supported.
-if [ -f "${CONFIG_FILE}" ]; then
-	# An environment API key is sufficient: optional endpoint variables may use
-	# their documented production defaults without consulting the config file.
-	if [ -z "${QODO_API_KEY:-}" ]; then
-		# Validate permissions before reading credentials
-		CONFIG_DIR=$(dirname "${CONFIG_FILE}")
-		if [ "$(stat -c '%a' "$CONFIG_DIR" 2>/dev/null || stat -f '%Lp' "$CONFIG_DIR" 2>/dev/null)" != "700" ]; then
-			printf '%s\n' "Error: Qodo config directory $CONFIG_DIR must have mode 700 (owner-only access)" >&2
-			exit 1
-		fi
-		if [ "$(stat -c '%a' "${CONFIG_FILE}" 2>/dev/null || stat -f '%Lp' "${CONFIG_FILE}" 2>/dev/null)" != "600" ]; then
+# Read a secure config when a required value is missing or when it can supply an
+# optional endpoint value. If the environment already supplies the API key, an
+# unusable optional config must not prevent the documented endpoint defaults.
+CONFIG_REQUIRED=0
+if [ -z "${QODO_API_KEY:-}" ]; then
+	CONFIG_REQUIRED=1
+fi
+if [ -f "${CONFIG_FILE}" ] && { [ "${CONFIG_REQUIRED}" -eq 1 ] || [ -z "${QODO_ENVIRONMENT_NAME:-}" ] || [ -z "${QODO_API_URL:-}" ]; }; then
+	CONFIG_USABLE=1
+	if [ "$(stat -c '%a' "$(dirname "${CONFIG_FILE}")" 2>/dev/null || stat -f '%Lp' "$(dirname "${CONFIG_FILE}")" 2>/dev/null)" != "700" ] ||
+		[ "$(stat -c '%a' "${CONFIG_FILE}" 2>/dev/null || stat -f '%Lp' "${CONFIG_FILE}" 2>/dev/null)" != "600" ]; then
+		CONFIG_USABLE=0
+		if [ "${CONFIG_REQUIRED}" -eq 1 ]; then
+			# Validate permissions before reading credentials
+			CONFIG_DIR=$(dirname "${CONFIG_FILE}")
+			if [ "$(stat -c '%a' "${CONFIG_DIR}" 2>/dev/null || stat -f '%Lp' "${CONFIG_DIR}" 2>/dev/null)" != "700" ]; then
+				printf '%s\n' "Error: Qodo config directory $CONFIG_DIR must have mode 700 (owner-only access)" >&2
+				exit 1
+			fi
 			printf '%s\n' "Error: Qodo config file ${CONFIG_FILE} must have mode 600 (owner-only access)" >&2
 			exit 1
 		fi
+	fi
 
+	if [ "${CONFIG_USABLE}" -eq 1 ]; then
 		# Require jq for robust JSON parsing
 		if ! command -v jq >/dev/null 2>&1; then
-			printf '%s\n' "Error: jq is required to parse ${CONFIG_FILE}. Install jq or use environment variables (QODO_API_KEY, QODO_ENVIRONMENT_NAME, QODO_API_URL)." >&2
-			exit 1
+			if [ "${CONFIG_REQUIRED}" -eq 1 ]; then
+				printf '%s\n' "Error: jq is required to parse ${CONFIG_FILE}. Install jq or use environment variables (QODO_API_KEY, QODO_ENVIRONMENT_NAME, QODO_API_URL)." >&2
+				exit 1
+			fi
+			CONFIG_USABLE=0
 		fi
+	fi
 
+	if [ "${CONFIG_USABLE}" -eq 1 ]; then
 		# Use jq for robust JSON parsing with proper error handling
 		JQ_OUTPUT=$(jq -r '
 			if type != "object" then
@@ -41,10 +55,15 @@ if [ -f "${CONFIG_FILE}" ]; then
 		JQ_EXIT=$?
 
 		if [ "${JQ_EXIT}" -ne 0 ]; then
-			printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
-			exit 1
+			if [ "${CONFIG_REQUIRED}" -eq 1 ]; then
+				printf '%s\n' "Unable to read ${CONFIG_FILE}. Fix or remove the invalid Qodo configuration file." >&2
+				exit 1
+			fi
+			CONFIG_USABLE=0
 		fi
+	fi
 
+	if [ "${CONFIG_USABLE}" -eq 1 ]; then
 		# Extract values from jq output
 		if [ -z "${QODO_API_KEY:-}" ]; then
 			CONFIG_API_KEY=$(printf '%s' "${JQ_OUTPUT}" | jq -r '.API_KEY // ""' 2>/dev/null)
@@ -52,8 +71,11 @@ if [ -f "${CONFIG_FILE}" ]; then
 		if [ -z "${QODO_ENVIRONMENT_NAME:-}" ]; then
 			CONFIG_ENV_NAME=$(printf '%s' "${JQ_OUTPUT}" | jq -r '.ENVIRONMENT_NAME // ""' 2>/dev/null)
 			if [ "${CONFIG_ENV_NAME}" = "NON_STRING_VALUE" ]; then
-				printf '%s\n' "Error: ENVIRONMENT_NAME in ${CONFIG_FILE} must be a string value" >&2
-				exit 1
+				if [ "${CONFIG_REQUIRED}" -eq 1 ]; then
+					printf '%s\n' "Error: ENVIRONMENT_NAME in ${CONFIG_FILE} must be a string value" >&2
+					exit 1
+				fi
+				CONFIG_ENV_NAME=""
 			fi
 		fi
 		if [ -z "${QODO_API_URL:-}" ]; then

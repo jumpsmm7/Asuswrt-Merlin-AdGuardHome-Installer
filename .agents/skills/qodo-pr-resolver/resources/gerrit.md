@@ -55,21 +55,23 @@ if [ -z "${HOME:-}" ] && [ -z "${QODO_CONFIG:-}" ] && { [ -z "${GERRIT_URL:-}" ]
   echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
   exit 1
 fi
-QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
-if [ -f "$QODO_CONFIG" ]; then
-  # Require secure permissions before reading credentials
-  QODO_DIR=$(dirname "$QODO_CONFIG")
-  if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
-    echo "Error: Qodo config directory $QODO_DIR must have mode 700 (owner-only access)" >&2
-    exit 1
+if [ -z "${GERRIT_URL:-}" ] || [ -z "${GERRIT_USERNAME:-}" ] || [ -z "${GERRIT_HTTP_PASSWORD:-}" ]; then
+  QODO_CONFIG=${QODO_CONFIG:-${HOME}/.qodo/config.json}
+  if [ -f "$QODO_CONFIG" ]; then
+    # Require secure permissions before reading credentials
+    QODO_DIR=$(dirname "$QODO_CONFIG")
+    if [ "$(stat -c '%a' "$QODO_DIR" 2>/dev/null || stat -f '%Lp' "$QODO_DIR" 2>/dev/null)" != "700" ]; then
+      echo "Error: Qodo config directory $QODO_DIR must have mode 700 (owner-only access)" >&2
+      exit 1
+    fi
+    if [ "$(stat -c '%a' "$QODO_CONFIG" 2>/dev/null || stat -f '%Lp' "$QODO_CONFIG" 2>/dev/null)" != "600" ]; then
+      echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
+      exit 1
+    fi
+    [ -n "${GERRIT_URL:-}" ] || GERRIT_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("GERRIT_URL", ""))' "$QODO_CONFIG")
+    [ -n "${GERRIT_USERNAME:-}" ] || GERRIT_USERNAME=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("GERRIT_USERNAME", ""))' "$QODO_CONFIG")
+    [ -n "${GERRIT_HTTP_PASSWORD:-}" ] || GERRIT_HTTP_PASSWORD=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("GERRIT_HTTP_PASSWORD", ""))' "$QODO_CONFIG")
   fi
-  if [ "$(stat -c '%a' "$QODO_CONFIG" 2>/dev/null || stat -f '%Lp' "$QODO_CONFIG" 2>/dev/null)" != "600" ]; then
-    echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
-    exit 1
-  fi
-  [ -n "${GERRIT_URL:-}" ] || GERRIT_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("GERRIT_URL", ""))' "$QODO_CONFIG")
-  [ -n "${GERRIT_USERNAME:-}" ] || GERRIT_USERNAME=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("GERRIT_USERNAME", ""))' "$QODO_CONFIG")
-  [ -n "${GERRIT_HTTP_PASSWORD:-}" ] || GERRIT_HTTP_PASSWORD=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("GERRIT_HTTP_PASSWORD", ""))' "$QODO_CONFIG")
 fi
 if [ -z "${GERRIT_URL:-}" ] || [ -z "${GERRIT_USERNAME:-}" ] || [ -z "${GERRIT_HTTP_PASSWORD:-}" ]; then
   echo "Gerrit credentials are missing; set GERRIT_URL, GERRIT_USERNAME, and GERRIT_HTTP_PASSWORD or add them to $QODO_CONFIG" >&2
