@@ -56,7 +56,6 @@ agh_log() {
 	logger -st "${NAME}" "$(agh_timestamp) [${_level}] ${_func}: $*"
 }
 
-# conf_value reads and prints the configured value for a key from the configuration file, returning failure when the file or key is unavailable.
 conf_value() {
 	[ -f "${CONF_FILE}" ] || return 1
 	awk -v KEY="$1" '
@@ -69,49 +68,6 @@ conf_value() {
 	' "${CONF_FILE}"
 }
 
-# adguard_install_mode prints the configured AdGuardHome installation mode, defaulting to `wan` for invalid or missing values.
-adguard_install_mode() {
-	mode="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
-	case "${mode}" in
-		wan | lan) printf '%s\n' "${mode}" ;;
-		*) printf '%s\n' "wan" ;;
-	esac
-}
-
-# adguard_lan_mode reports whether AdGuardHome is configured for LAN mode.
-adguard_lan_mode() {
-	[ "$(adguard_install_mode)" = "lan" ]
-}
-
-# adguard_dnsmasq_running reports whether a dnsmasq process is running.
-adguard_dnsmasq_running() {
-	pidof dnsmasq >/dev/null 2>&1
-}
-
-# adguard_dnsmasq_managed determines whether dnsmasq is managed by AdGuardHome based on install mode, dnsmasq availability, and configuration.
-adguard_dnsmasq_managed() {
-	if adguard_lan_mode && ! adguard_dnsmasq_running; then
-		return 1
-	fi
-	case "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" in
-		disabled) return 1 ;;
-		enabled) return 0 ;;
-	esac
-	adguard_dnsmasq_running
-}
-
-# adguard_ipset_allowed reports whether IPSet integration is allowed outside LAN mode.
-adguard_ipset_allowed() {
-	! adguard_lan_mode
-}
-
-# adguard_restart_dnsmasq_if_managed restarts dnsmasq when it is managed by AdGuardHome.
-adguard_restart_dnsmasq_if_managed() {
-	adguard_dnsmasq_managed || return 0
-	service restart_dnsmasq >/dev/null 2>&1
-}
-
-# have_cmd checks whether the specified command is available.
 have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
@@ -216,7 +172,7 @@ status_dnsmasq_handoff_state() {
 	state="inactive"
 	markers=""
 	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock "${DNS_HANDOFF_FILE}" "${DNS_HANDOFF_DIR}/lock"; do
-		if [ -e "${marker}" ] || [ -L "${marker}" ]; then
+		if [ -e "${marker}" ]; then
 			state="active/stale marker present"
 			markers="${markers}${markers:+, }${marker}"
 		fi
@@ -597,12 +553,10 @@ flock_supports_fd() {
 	return "${status}"
 }
 
-# check_dns_environment applies or restores DNS-related NVRAM settings in WAN mode; LAN-mode running requests make no changes.
-# @param MODE The lifecycle state: `running` applies the WAN AdGuard-managed DNS profile, while `stop` restores saved settings.
+# DNS and network helpers
 
 check_dns_environment() {
 	local MODE NVCHECK
-	# dns_env_set_nvram updates an NVRAM variable when its current value differs from the expected value.
 	dns_env_set_nvram() {
 		local key expected cur changed
 		key="$1"
@@ -615,12 +569,8 @@ check_dns_environment() {
 		changed="1"
 		return 0
 	}
-	# dns_env_apply_profile applies the AdGuard-managed DNS profile and returns success when any DNS setting changes.
 	dns_env_apply_profile() {
 		local changed
-		if adguard_lan_mode; then
-			return 1
-		fi
 		changed="0"
 		if dns_env_set_nvram "dnspriv_enable" "0"; then changed="$((changed + 1))"; fi
 		if dns_env_set_nvram "dhcpd_dns_router" "1"; then changed="$((changed + 1))"; fi
@@ -650,16 +600,13 @@ check_dns_environment() {
 	NVCHECK="0"
 	case "${MODE}" in
 		running)
-			if adguard_lan_mode; then
-				return 0
+			# Save original values only once.
+			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
+				save_dns_nvram_environment
 			fi
 			if [ "$(pidof stubby | wc -w)" -gt "0" ]; then
 				{ killall -q -9 stubby 2>/dev/null; }
 				NVCHECK="$((NVCHECK + 1))"
-			fi
-			# Save original values only once.
-			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
-				save_dns_nvram_environment
 			fi
 			if dns_env_apply_profile; then NVCHECK="$((NVCHECK + 1))"; fi
 			;;
@@ -678,7 +625,7 @@ check_dns_environment() {
 	if [ "$NVCHECK" != "0" ]; then
 		{ nvram commit; }
 		if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
-			{ adguard_restart_dnsmasq_if_managed; }
+			{ service restart_dnsmasq >/dev/null 2>&1; }
 		fi
 		{ service_wait netcheck 150; }
 	fi
@@ -697,7 +644,6 @@ dnsmasq_delete_matching() {
 	sed -i "${SED_SCRIPT}" "${CONFIG}"
 }
 
-# dns_handoff_is_active verifies that the DNS handoff belongs to a running process with matching ownership and start time.
 dns_handoff_is_active() {
 	local HANDOFF_PID HANDOFF_START_TIME PATH_DETAILS PROCESS_START_TIME
 	[ -d "${DNS_HANDOFF_DIR}" ] && [ ! -L "${DNS_HANDOFF_DIR}" ] || return 1
@@ -736,21 +682,11 @@ dns_handoff_is_active() {
 	[ "${PROCESS_START_TIME}" = "${HANDOFF_START_TIME}" ]
 }
 
-# dnsmasq_resolv_conf_cleanup removes the temporary `/tmp/resolv.conf` mount when `/etc/resolv.conf` does not use the ROM-backed file.
-dnsmasq_resolv_conf_cleanup() {
+dnsmasq_params() {
+	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
 	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then {
 		umount /tmp/resolv.conf 2>/dev/null
 	}; fi
-}
-
-# dnsmasq_params configures dnsmasq for the LAN or specified SDN interface, including DNS routing, reverse zones, and optional IPSet refresh.
-dnsmasq_params() {
-	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
-	if adguard_lan_mode && [ "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" = "disabled" ] && ! dns_handoff_is_active; then
-		agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_disabled"
-		return 0
-	fi
-	dnsmasq_resolv_conf_cleanup
 	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 		0)
 			dns_handoff_is_active || return 0
@@ -831,32 +767,10 @@ dnsmasq_params() {
 	if { ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then {
 		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
 	}; fi
-	if ! adguard_lan_mode; then
-		IPSET_REFRESH_FROM_DNSMASQ="1"
-		IPSet_Refresh "${CONFIG}"
-	fi
+	IPSET_REFRESH_FROM_DNSMASQ="1"
+	IPSet_Refresh "${CONFIG}"
 }
 
-# dnsmasq_action_handler applies dnsmasq configuration, skipping it in LAN mode when dnsmasq is unmanaged and inactive.
-dnsmasq_action_handler() {
-	if adguard_lan_mode && ! adguard_dnsmasq_running && ! dns_handoff_is_active; then
-		case "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" in
-			enabled) ;;
-			*)
-				dnsmasq_resolv_conf_cleanup
-				agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_not_running"
-				return 0
-				;;
-		esac
-	fi
-	if [ -n "${1:-}" ]; then
-		dnsmasq_params "${1}"
-	else
-		dnsmasq_params
-	fi
-}
-
-# interface_ipv4_addr prints the first IPv4 address assigned to the specified network interface.
 interface_ipv4_addr() {
 	local IFACE
 	IFACE="$1"
@@ -865,7 +779,6 @@ interface_ipv4_addr() {
 	ip -o -4 addr list "${IFACE}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1]; exit }'
 }
 
-# interface_ipv6_addr returns the first global IPv6 address assigned to the specified interface.
 interface_ipv6_addr() {
 	local IFACE
 	IFACE="$1"
@@ -874,242 +787,6 @@ interface_ipv6_addr() {
 	ip -o -6 addr list "${IFACE}" scope global 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1]; exit }'
 }
 
-# ipv4_is_usable_unicast validates that an IPv4 address is a usable unicast address.
-ipv4_is_usable_unicast() {
-	printf '%s\n' "$1" | awk -F. '
-		NF != 4 { exit 1 }
-		{
-			for (i = 1; i <= 4; i++) {
-				if ($i !~ /^[0-9][0-9]*$/ || $i < 0 || $i > 255) exit 1
-			}
-			if ($1 == 0 || $1 == 127 || $1 >= 224) exit 1
-		}
-	'
-}
-
-# adguard_refresh_lan_bind_addresses updates AdGuardHome's LAN WebUI address and DNS bind hosts in the YAML configuration.
-adguard_refresh_lan_bind_addresses() {
-	local ACTIVE_MD5 BIND_HOSTS LAN_ADDR LAN_ADDR6 LAN_IF NVRAM_ADDR6 REWRITE_FILE STAGED_MD5 TEMP_FILE WEB_PORT YAML_DIR
-	LAN_BIND_ADDRESSES_CHANGED="0"
-	LAN_BIND_REFRESH_FAILURE_REASON=""
-	adguard_lan_mode || return 0
-	YAML_DIR="${YAML_FILE%/*}"
-	[ "${YAML_DIR}" != "${YAML_FILE}" ] || YAML_DIR="."
-	if [ "${YAML_FILE}" != "${YAML_DIR}/AdGuardHome.yaml" ] || [ ! -f "${YAML_FILE}" ] || [ -L "${YAML_FILE}" ]; then
-		LAN_BIND_REFRESH_FAILURE_REASON="active_yaml_not_regular"
-		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=active_yaml_not_regular config_preserved=1"
-		return 1
-	fi
-	LAN_IF="$(nvram get lan_ifname 2>/dev/null)"
-	if [ -n "${LAN_IF}" ]; then
-		LAN_ADDR="$(interface_ipv4_addr "${LAN_IF}")"
-		LAN_ADDR6="$(interface_ipv6_addr "${LAN_IF}")"
-	fi
-	if ! ipv4_is_usable_unicast "${LAN_ADDR:-}"; then
-		LAN_ADDR="$(nvram get lan_ipaddr 2>/dev/null)"
-	fi
-	ipv4_is_usable_unicast "${LAN_ADDR}" || return 1
-	if [ -z "${LAN_ADDR6:-}" ] && [ -n "${LAN_IF}" ] && have_cmd ip; then
-		NVRAM_ADDR6="$(nvram get ipv6_rtr_addr 2>/dev/null)"
-		case "${NVRAM_ADDR6}" in
-			"" | ::) ;;
-			*:*)
-				LAN_ADDR6="$(ip -o -6 addr list "${LAN_IF}" 2>/dev/null | awk -v candidate="${NVRAM_ADDR6}" '{ split($4, ip_addr, "/"); if (ip_addr[1] == candidate) { print candidate; exit } }')"
-				;;
-		esac
-	fi
-	BIND_HOSTS="$({
-		printf '%s\n' 127.0.0.1 "${LAN_ADDR}" "${LAN_ADDR6:-}"
-		private_ipv4_bridge_dns_options | awk 'NF > 1 { print $2 }'
-	} | awk 'NF && !seen[$0]++ { print }')"
-	WEB_PORT="$(awk '
-		function yaml_key_is(line, expected, text, separator, key) {
-			text = line
-			sub(/^[[:space:]]*/, "", text)
-			separator = index(text, ":")
-			if (!separator)
-				return 0
-			key = substr(text, 1, separator - 1)
-			sub(/[[:space:]]*$/, "", key)
-			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
-		}
-		function yaml_mapping_header_is(line, expected, text, separator, value) {
-			if (!yaml_key_is(line, expected))
-				return 0
-			text = line
-			separator = index(text, ":")
-			value = substr(text, separator + 1)
-			sub(/^[[:space:]]*/, "", value)
-			return value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/
-		}
-		/^[^[:space:]]/ && yaml_mapping_header_is($0, "http") { in_http = 1; next }
-		in_http && /^[^[:space:]]/ { exit }
-		in_http && yaml_key_is($0, "address") {
-			value = $0
-			value = substr(value, index(value, ":") + 1)
-			sub(/[[:space:]]+#.*$/, "", value)
-			gsub(/[[:space:]"'"'"']/, "", value)
-			count = split(value, components, ":")
-			print components[count]
-			exit
-		}
-	' "${YAML_FILE}")"
-	case "${WEB_PORT}" in
-		"" | *[!0-9]*) return 1 ;;
-	esac
-	[ "${WEB_PORT}" -gt 0 ] && [ "${WEB_PORT}" -le 65535 ] || return 1
-	TEMP_FILE="${YAML_DIR}/.AdGuardHome.yaml.lan-bind.$$"
-	REWRITE_FILE="${TEMP_FILE}.rewrite"
-	(umask 077 && cp -p "${YAML_FILE}" "${TEMP_FILE}") || {
-		rm -f "${TEMP_FILE}"
-		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_copy_failed config_preserved=1"
-		return 1
-	}
-	(umask 077 && awk -v bind_hosts="${BIND_HOSTS}" -v web_address="${LAN_ADDR}:${WEB_PORT}" '
-		function indentation(line) { match(line, /^[[:space:]]*/); return RLENGTH }
-		function yaml_key_is(line, expected, text, separator, key) {
-			text = line
-			sub(/^[[:space:]]*/, "", text)
-			separator = index(text, ":")
-			if (!separator)
-				return 0
-			key = substr(text, 1, separator - 1)
-			sub(/[[:space:]]*$/, "", key)
-			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
-		}
-		function yaml_mapping_header_is(line, expected, text, separator, value) {
-			if (!yaml_key_is(line, expected))
-				return 0
-			text = line
-			separator = index(text, ":")
-			value = substr(text, separator + 1)
-			sub(/^[[:space:]]*/, "", value)
-			return value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/
-		}
-		/^[^[:space:]]/ && yaml_mapping_header_is($0, "http") { in_http = 1; print; next }
-		in_http && /^[^[:space:]]/ { in_http = 0 }
-		in_http && yaml_key_is($0, "address") {
-			separator = index($0, ":")
-			print substr($0, 1, separator) " " web_address
-			web_updated = 1
-			next
-		}
-		/^[^[:space:]]/ && yaml_mapping_header_is($0, "dns") { in_dns = 1; print; next }
-		in_dns && /^[^[:space:]]/ { in_dns = 0; in_binds = 0 }
-		in_dns && yaml_key_is($0, "bind_hosts") {
-			bind_indent = indentation($0)
-			separator = index($0, ":")
-			print substr($0, 1, separator)
-			count = split(bind_hosts, hosts, "\n")
-			for (host = 1; host <= count; host++)
-				if (hosts[host] != "") print substr($0, 1, bind_indent) "  - " hosts[host]
-			in_binds = 1
-			binds_updated = 1
-			next
-		}
-		in_binds && $0 ~ /^[[:space:]]*($|#)/ { next }
-		in_binds && indentation($0) >= bind_indent && $0 ~ /^[[:space:]]*-[[:space:]]/ { next }
-		in_binds && indentation($0) > bind_indent { next }
-		in_binds { in_binds = 0 }
-		{ print }
-		END { exit(web_updated && binds_updated ? 0 : 1) }
-	' "${TEMP_FILE}" >"${REWRITE_FILE}") || {
-		rm -f "${TEMP_FILE}" "${REWRITE_FILE}"
-		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_rewrite_failed config_preserved=1"
-		return 1
-	}
-	# Rewrite the preserved copy in place so the active YAML owner and mode survive
-	# the eventual atomic replacement.  The rewrite file is created under umask 077.
-	if ! cat "${REWRITE_FILE}" >"${TEMP_FILE}"; then
-		rm -f "${TEMP_FILE}" "${REWRITE_FILE}"
-		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_rewrite_failed config_preserved=1"
-		return 1
-	fi
-	rm -f "${REWRITE_FILE}"
-	ACTIVE_MD5="$(md5sum "${YAML_FILE}")" || {
-		rm -f "${TEMP_FILE}"
-		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
-		return 1
-	}
-	STAGED_MD5="$(md5sum "${TEMP_FILE}")" || {
-		rm -f "${TEMP_FILE}"
-		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
-		return 1
-	}
-	ACTIVE_MD5="${ACTIVE_MD5%%[[:space:]]*}"
-	STAGED_MD5="${STAGED_MD5%%[[:space:]]*}"
-	case "${ACTIVE_MD5}:${STAGED_MD5}" in
-		????????????????????????????????:????????????????????????????????)
-			case "${ACTIVE_MD5}${STAGED_MD5}" in
-				*[!0123456789abcdefABCDEF]*)
-					rm -f "${TEMP_FILE}"
-					agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
-					return 1
-					;;
-			esac
-			;;
-		*)
-			rm -f "${TEMP_FILE}"
-			agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
-			return 1
-			;;
-	esac
-	# The monitor calls this refresh periodically.  Avoid starting a second
-	# AdGuardHome process to validate content that is byte-for-byte unchanged.
-	if [ "${ACTIVE_MD5}" = "${STAGED_MD5}" ]; then
-		rm -f "${TEMP_FILE}"
-		return 0
-	fi
-	if [ ! -x "${ADGUARDHOME_BINARY}" ] ||
-		! "${ADGUARDHOME_BINARY}" --check-config -c "${TEMP_FILE}" --no-check-update -l /dev/null >/dev/null 2>&1; then
-		rm -f "${TEMP_FILE}"
-		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=adguard_config_validation_failed config_preserved=1"
-		return 1
-	fi
-	if ! awk '
-		function indentation(line) { match(line, /^[[:space:]]*/); return RLENGTH }
-		function yaml_key_is(line, expected, text, separator, key) {
-			text = line; sub(/^[[:space:]]*/, "", text); separator = index(text, ":")
-			if (!separator) return 0
-			key = substr(text, 1, separator - 1); sub(/[[:space:]]*$/, "", key)
-			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
-		}
-		function mapping_header_is(line, expected, text, separator, value) {
-			if (!yaml_key_is(line, expected)) return 0
-			text = line; separator = index(text, ":"); value = substr(text, separator + 1)
-			sub(/^[[:space:]]*/, "", value)
-			return value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/
-		}
-		/^[^[:space:]]/ {
-			in_http = in_dns = in_binds = 0
-			if (mapping_header_is($0, "http")) { http_maps++; in_http = 1 }
-			else if (mapping_header_is($0, "dns")) { dns_maps++; in_dns = 1 }
-			next
-		}
-		in_http && yaml_key_is($0, "address") {
-			value = substr($0, index($0, ":") + 1); sub(/[[:space:]]+#.*$/, "", value); gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-			if (value != "" && value != "~" && value !~ /^(null|Null|NULL)$/ && value !~ /^\*/) usable_addresses++
-			address_keys++
-		}
-		in_dns && yaml_key_is($0, "bind_hosts") { bind_keys++; bind_indent = indentation($0); in_binds = 1; next }
-		in_binds && indentation($0) > bind_indent && $0 ~ /^[[:space:]]*-[[:space:]]*[^#[:space:]][^#]*([[:space:]]+#.*)?$/ { usable_binds++; next }
-		in_binds && $0 !~ /^[[:space:]]*($|#)/ { in_binds = 0 }
-		END { exit(http_maps == 1 && dns_maps == 1 && address_keys == 1 && usable_addresses == 1 && bind_keys == 1 && usable_binds > 0 ? 0 : 1) }
-	' "${TEMP_FILE}"; then
-		rm -f "${TEMP_FILE}"
-		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=staged_bind_structure_invalid config_preserved=1"
-		return 1
-	fi
-	if ! mv -f "${TEMP_FILE}" "${YAML_FILE}"; then
-		rm -f "${TEMP_FILE}"
-		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=atomic_replace_failed config_preserved=1"
-		return 1
-	fi
-	LAN_BIND_ADDRESSES_CHANGED="1"
-	return 0
-}
-
-# ipv4_reverse_zone converts an IPv4 address to its reverse DNS zone name.
 ipv4_reverse_zone() {
 	printf "%s\n" "$1" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}'
 }
@@ -1269,11 +946,9 @@ netcheck() {
 	return 1
 }
 
-# private_ipv4_bridge_dns_options prints private IPv4 addresses assigned to bridge interfaces other than br0.
 private_ipv4_bridge_dns_options() {
-	local OPTIONS
 	if have_cmd ip; then
-		OPTIONS="$(ip -o -4 addr show scope global 2>/dev/null | awk '
+		ip -o -4 addr show scope global 2>/dev/null | awk '
 			function private_ip(ip) {
 				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
 			}
@@ -1281,27 +956,11 @@ private_ipv4_bridge_dns_options() {
 				for (i = 1; i <= NF; i++) {
 					if ($i == "inet") {
 						split($(i + 1), ip_addr, "/")
-						if (private_ip(ip_addr[1]) && !seen[$2, ip_addr[1]]++) { print $2 " " ip_addr[1] }
+						if (private_ip(ip_addr[1]) && !seen[$2]++) { print $2 " " ip_addr[1] }
 					}
 				}
 			}
-		')"
-		if [ -z "${OPTIONS}" ]; then
-			OPTIONS="$(ip -4 addr show scope global 2>/dev/null | awk '
-				function private_ip(ip) {
-					return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
-				}
-				/^[0-9]+: / {
-					iface = $2
-					sub(/:$/, "", iface)
-				}
-				$1 == "inet" && iface ~ /^br/ && iface != "br0" {
-					split($2, ip_addr, "/")
-					if (private_ip(ip_addr[1]) && !seen[iface, ip_addr[1]]++) { print iface " " ip_addr[1] }
-				}
-			')"
-		fi
-		printf '%s\n' "${OPTIONS}"
+		'
 		return
 	fi
 	return 1
@@ -1624,30 +1283,13 @@ service_wait() {
 	return "$?"
 }
 
-# start_adguardhome prepares AdGuardHome for startup, launches or restarts it, and verifies network readiness.
-# It returns failure when address synchronization, IPSet setup, service startup, or the final network check fails.
 start_adguardhome() {
-	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LAN_BIND_REFRESH_FAILED LOWER_SCRIPT_STATUS
+	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LOWER_SCRIPT_STATUS
 	IPSET_START_FAILURE_SAFE="0"
 	IPSET_START_RESTARTED="0"
 	IPSET_START_STOPPED="0"
-	LAN_BIND_REFRESH_FAILED="0"
 	SERVICE_WAIT_TERMINAL_FAILURE="0"
-	if adguard_lan_mode; then
-		if ! adguard_refresh_lan_bind_addresses; then
-			LAN_BIND_REFRESH_FAILED="1"
-			agh_log warning start_adguardhome "state=starting action=refresh_lan_bind_addresses result=failed reason=config_refresh_failed config_preserved=1 service_health=pending"
-			if [ "${LAN_BIND_REFRESH_FAILURE_REASON:-}" = "active_yaml_not_regular" ]; then
-				SERVICE_WAIT_TERMINAL_FAILURE="1"
-				return 1
-			fi
-		fi
-		if ! IPSet_Disable_Managed; then
-			agh_log error start_adguardhome "state=starting action=disable_managed_ipset result=failed reason=lan_mode_remove_failed"
-			SERVICE_WAIT_TERMINAL_FAILURE="1"
-			return 1
-		fi
-	elif ! IPSet_Setup_For_Start; then
+	if ! IPSet_Setup_For_Start; then
 		if [ "${IPSET_START_FAILURE_SAFE}" -ne 1 ]; then
 			agh_log error start_adguardhome "state=starting action=prepare_ipset reason=stale_mapping_risk result=failed failure_safe=0"
 			if [ "${IPSET_START_STOPPED}" -eq 1 ]; then
@@ -1668,12 +1310,8 @@ start_adguardhome() {
 				LOWER_SCRIPT_STATUS="$?"
 				;;
 			*)
-				if [ "${LAN_BIND_REFRESH_FAILED}" -eq 1 ] && [ "${1:-}" != "restart" ]; then
-					LOWER_SCRIPT_STATUS="0"
-				else
-					lower_script restart
-					LOWER_SCRIPT_STATUS="$?"
-				fi
+				lower_script restart
+				LOWER_SCRIPT_STATUS="$?"
 				;;
 		esac
 		if [ "${LOWER_SCRIPT_STATUS}" -ne 0 ]; then
@@ -1693,13 +1331,8 @@ start_adguardhome() {
 	fi
 }
 
-# restart_adguardhome preserves an explicit restart request through the service lock.
-restart_adguardhome() {
-	start_adguardhome restart
-}
-
 start_monitor() {
-	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_RECOVERY_RETRY_INTERVAL MONITOR_SLEEP_INTERVAL MONITOR_START_ACTION MONITOR_STATE
+	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_RECOVERY_RETRY_INTERVAL MONITOR_SLEEP_INTERVAL MONITOR_STATE
 	MONITOR_BINARY_RETRY_INTERVAL="10"
 	MONITOR_HEALTHCHECK_INTERVAL="300"
 	MONITOR_HEALTHCHECK_TIMEOUT="150"
@@ -1745,8 +1378,7 @@ start_monitor() {
 				case "${MONITOR_ELAPSED}" in
 					"")
 						MONITOR_ELAPSED="0"
-						{ adguardhome_run "${MONITOR_START_ACTION:-start_adguardhome}"; }
-						unset MONITOR_START_ACTION
+						{ adguardhome_run start_adguardhome; }
 						;;
 				esac
 				case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
@@ -1758,16 +1390,6 @@ start_monitor() {
 					1)
 						if [ "${MONITOR_ELAPSED}" -ge "${MONITOR_HEALTHCHECK_INTERVAL}" ]; then
 							MONITOR_ELAPSED="0"
-							if adguard_lan_mode; then
-								if ! adguard_refresh_lan_bind_addresses; then
-									agh_log warning start_monitor "state=running action=refresh_lan_bind_addresses reason=periodic_sync result=failed"
-								elif [ "${LAN_BIND_ADDRESSES_CHANGED:-0}" -eq 1 ]; then
-									agh_log info start_monitor "state=running action=refresh_lan_bind_addresses reason=address_changed result=restarting"
-									unset MONITOR_ELAPSED
-									{ adguardhome_run start_adguardhome; }
-									continue
-								fi
-							fi
 							case "$(netcheck_config ADGUARD_NETCHECK_MODE "${DEFAULT_ADGUARD_NETCHECK_MODE}")" in
 								lan | LAN)
 									if { ! service_wait netcheck_lan_dns "${MONITOR_HEALTHCHECK_TIMEOUT}"; }; then
@@ -1803,74 +1425,15 @@ start_monitor() {
 			"restart")
 				agh_log info start_monitor "state=restart action=restart_adguardhome reason=signal_USR2 result=restarting"
 				unset MONITOR_ELAPSED
-				MONITOR_START_ACTION="restart_adguardhome"
 				MONITOR_STATE="running"
 				;;
 		esac
 	done
 }
 
-# post_stop_process_ready verifies that AdGuardHome no longer has a running process.
-post_stop_process_ready() {
-	[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -eq 0 ]
-}
-
-# post_stop_handoff_cleared verifies that no installer-owned DNS handoff marker remains.
-post_stop_handoff_cleared() {
-	local marker
-	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock "${DNS_HANDOFF_FILE}" "${DNS_HANDOFF_DIR}/lock"; do
-		[ ! -e "${marker}" ] && [ ! -L "${marker}" ] || return 1
-	done
-	return 0
-}
-
-# post_stop_dnsmasq_ready verifies local port 53 ownership and resolver readiness.
-post_stop_dnsmasq_ready() {
-	local dns_server dns_servers lan_addr
-	adguard_dnsmasq_running || return 1
-	if dns_servers="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ {
-		owner = ""
-		for (i = NF; i >= 1; i--) if ($i ~ /^[0-9]+\/[^[:space:]]+$/) { owner = $i; break }
-		if (owner != "" && owner !~ /\/dnsmasq$/) bad_owner = 1
-		if ($1 ~ /^tcp6?$/) tcp = 1
-		if ($1 ~ /^udp6?$/) {
-			udp = 1
-			server = $4
-			sub(/:53$/, "", server)
-			gsub(/^\[|\]$/, "", server)
-			servers[server] = 1
-		}
-	}
-		END {
-			if (bad_owner || !tcp || !udp) exit 1
-			for (server in servers) print server
-		}
-	')" && [ -n "${dns_servers}" ]; then
-		:
-	else
-		return 1
-	fi
-	lan_addr="$(nvram get lan_ipaddr 2>/dev/null)"
-	for dns_server in ${dns_servers}; do
-		case "${dns_server}" in
-			0.0.0.0) dns_server="${lan_addr:-127.0.0.1}" ;;
-			:: | \*) dns_server="::1" ;;
-		esac
-		if nslookup localhost "${dns_server}" >/dev/null 2>&1; then
-			return 0
-		fi
-	done
-	return 1
-}
-
-# stop_adguardhome stops AdGuardHome, restores managed dnsmasq, and verifies local DNS recovery.
 stop_adguardhome() {
-	local DNSMASQ_READY_ATTEMPTS DNSMASQ_WAS_MANAGED STOP_STATUS
+	local STOP_STATUS
 	STOP_STATUS="0"
-	DNSMASQ_WAS_MANAGED="0"
-	if adguard_dnsmasq_managed; then
-		DNSMASQ_WAS_MANAGED="1"
-	fi
 	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 		0)
 			:
@@ -1881,37 +1444,24 @@ stop_adguardhome() {
 			fi
 			;;
 	esac
-	if ! post_stop_process_ready; then
+	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -ne 0 ]; then
 		agh_log error stop_adguardhome "state=stopping action=stop_process reason=process_still_active result=active process=${PROCS}"
 		STOP_STATUS="1"
 	fi
-	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ] && [ "${DNSMASQ_WAS_MANAGED}" -eq 1 ]; then
+	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
 		if ! service restart_dnsmasq >/dev/null 2>&1; then
 			agh_log error stop_adguardhome "state=stopping action=restart_dnsmasq reason=service_restart_failed result=failed process=${PROCS}"
 			STOP_STATUS="1"
 		fi
-	fi
-	if [ "${DNSMASQ_WAS_MANAGED}" -eq 1 ]; then
-		DNSMASQ_READY_ATTEMPTS="0"
-		until post_stop_dnsmasq_ready; do
-			DNSMASQ_READY_ATTEMPTS="$((DNSMASQ_READY_ATTEMPTS + 1))"
-			if [ "${DNSMASQ_READY_ATTEMPTS}" -ge 5 ]; then
-				agh_log error stop_adguardhome "state=stopping action=verify_local_dns reason=dnsmasq_not_ready result=failed attempts=${DNSMASQ_READY_ATTEMPTS}"
-				STOP_STATUS="1"
-				break
-			fi
-			sleep 1
-		done
-	fi
-	if ! post_stop_handoff_cleared; then
-		agh_log error stop_adguardhome "state=stopping action=verify_handoff reason=installer_marker_remains result=failed"
-		STOP_STATUS="1"
 	fi
 	for db in stats.db sessions.db; do {
 		if [ "$(canonical_path "/tmp/${db}" 2>/dev/null)" = "$(canonical_path "${WORK_DIR}/data/${db}" 2>/dev/null)" ]; then {
 			rm "/tmp/${db}" >/dev/null 2>&1
 		}; fi
 	}; done
+	if ! service_wait netcheck; then
+		STOP_STATUS="1"
+	fi
 	return "${STOP_STATUS}"
 }
 
@@ -2303,15 +1853,12 @@ IPSet_Current_File() {
 	' "${YAML_FILE}"
 }
 
-# IPSet_Dnsmasq_Restart_After_Unlock restarts managed dnsmasq after releasing the IPSet lock when a restart is pending.
 IPSet_Dnsmasq_Restart_After_Unlock() {
 	[ "${IPSET_DNSMASQ_RESTART_PENDING:-0}" -eq 1 ] || return 0
 	IPSET_DNSMASQ_RESTART_PENDING="0"
-	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ] || return 0
-	service restart_dnsmasq >/dev/null 2>&1
+	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" = "1" ] || service restart_dnsmasq >/dev/null 2>&1
 }
 
-# IPSet_Current_UID prints the current process's effective user ID.
 IPSet_Current_UID() {
 	awk '
 		$1 == "Uid:" && $3 ~ /^[0-9][0-9]*$/ {
@@ -2351,15 +1898,10 @@ IPSet_Start_Restore() {
 	return 1
 }
 
-# IPSet_Start_While_Locked starts AdGuardHome while deferring any managed dnsmasq restart until the IPSet lock is released.
 IPSet_Start_While_Locked() {
 	local DNSMASQ_RESTART_SKIP STATUS
 	DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
-	if adguard_dnsmasq_managed; then
-		IPSET_DNSMASQ_RESTART_PENDING="1"
-	else
-		IPSET_DNSMASQ_RESTART_PENDING="0"
-	fi
+	IPSET_DNSMASQ_RESTART_PENDING="1"
 	ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
 	lower_script start
 	STATUS="$?"
@@ -2515,18 +2057,9 @@ IPSet_Lock_Mkdir_Reap_Stale() {
 	rm -rf "${LOCK_DIR}"
 }
 
-# IPSet_Migrate migrates legacy AdGuardHome IPSet mappings into the managed IPSet configuration and updates the YAML reference.
 IPSet_Migrate() {
 	local CURRENT_FILE TEMP_FILE USER_TEMP_FILE
 	IPSET_MIGRATION_SKIPPED=""
-	if adguard_lan_mode; then
-		if ! IPSet_Disable_Managed; then
-			agh_log warning IPSet_Migrate "state=migration action=disable_managed_ipset result=skipped reason=lan_mode_remove_failed"
-			return 1
-		fi
-		IPSET_MIGRATION_SKIPPED="1"
-		return 0
-	fi
 	[ -f "${YAML_FILE}" ] || return 0
 	if ! CURRENT_FILE="$(IPSet_Current_File)"; then
 		return 1
@@ -2750,7 +2283,6 @@ IPSet_Disable_Managed() {
 	agh_log info IPSet_Disable_Managed "state=configuration action=disable_managed_ipset result=disabled reason=unsupported_version"
 }
 
-# IPSet_Disable_Managed_For_Start_Locked stops AdGuardHome to disable managed IPSet configuration, then restores or restarts the service as needed.
 IPSet_Disable_Managed_For_Start_Locked() {
 	local WAS_RUNNING
 	WAS_RUNNING="0"
@@ -2781,20 +2313,12 @@ IPSet_Disable_Managed_For_Start_Locked() {
 	return 0
 }
 
-# IPSet_Enabled reports whether IPSet integration is enabled for the current installation mode and configuration.
 IPSet_Enabled() {
-	adguard_ipset_allowed || return 1
 	[ "$(conf_value ADGUARD_IPSET)" != "NO" ]
 }
 
-# IPSet_Refresh refreshes AdGuardHome IPSet mappings in WAN mode and restarts AdGuardHome when mappings change; LAN mode is a no-op.
-# The optional argument specifies a dnsmasq configuration file to use for collecting mappings.
 IPSet_Refresh() {
 	local DNSMASQ_RESTART_SKIP RESTART_STATUS
-	if adguard_lan_mode; then
-		agh_log info IPSet_Refresh "state=refresh action=refresh_ipset result=skipped reason=lan_mode"
-		return 0
-	fi
 	IPSet_Enabled || return 0
 	IPSet_Supported || return 0
 	IPSET_REFRESH_CHANGED=""
@@ -2915,7 +2439,6 @@ IPSet_Runtime_Prepare() {
 	fi
 }
 
-# IPSet_Setup initializes IPSet configuration and mappings when IPSet is enabled and supported.
 IPSet_Setup() {
 	IPSet_Enabled || return 0
 	IPSet_Supported || return 0
@@ -2923,15 +2446,7 @@ IPSet_Setup() {
 	IPSet_Lock IPSet_Setup_Locked
 }
 
-# IPSet_Setup_For_Start prepares IPSet configuration for AdGuardHome startup, disabling managed IPSet when LAN mode or unsupported settings require it.
 IPSet_Setup_For_Start() {
-	if adguard_lan_mode; then
-		if ! IPSet_Disable_Managed; then
-			agh_log error IPSet_Setup_For_Start "state=starting action=disable_managed_ipset result=failed reason=lan_mode_remove_failed"
-			return 1
-		fi
-		return 0
-	fi
 	if ! IPSet_Enabled; then
 		IPSet_Lock IPSet_Disable_Managed_For_Start_Locked
 		return $?
@@ -3127,7 +2642,7 @@ case "$1" in
 		{ "${SCRIPT_LOC}" services-stop >/dev/null 2>&1; }
 		;;
 	"dnsmasq" | "dnsmasq-sdn")
-		dnsmasq_action_handler "${2:-}"
+		if [ -n "${2}" ]; then { dnsmasq_params "${2}"; }; else { dnsmasq_params; }; fi
 		;;
 	"firewall")
 		IPSet_Refresh

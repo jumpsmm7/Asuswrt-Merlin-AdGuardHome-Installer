@@ -190,197 +190,8 @@ adguardhome_start_handoff_is_prepared() {
 		[ "${_dns_handoff_start_time}" = "${DNS_HANDOFF_CURRENT_START_TIME}" ]
 }
 
-adguardhome_start_handoff_required() {
-	[ "${PROC}" = "AdGuardHome" ] || return 1
-	case "${ADGUARDHOME_DNS_HANDOFF_REQUIRED+x}:${ADGUARDHOME_DNS_HANDOFF_REQUIRED:-}" in
-		x:1) return 0 ;;
-		x:*) return 1 ;;
-	esac
-	type agh_dns_handoff_required >/dev/null 2>&1 || return 0
-	agh_dns_handoff_required
-}
-
-adguardhome_run_postfailcmd() {
-	[ -n "${POSTFAILCMD:-}" ] || return 0
-	if [ "${PROC}" = "AdGuardHome" ] && [ "${DNS_HANDOFF:-0}" -ne 1 ] && [ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" != "1" ]; then
-		(
-			ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
-			export ADGUARDHOME_SKIP_DNSMASQ_RESTART
-			${POSTFAILCMD} >/dev/null 2>&1
-		)
-	else
-		${POSTFAILCMD} >/dev/null 2>&1
-	fi
-}
-
-adguardhome_start_traps_cleanup() {
-	[ -n "${ADGUARDHOME_START_TRAP_ALL_FILE:-}" ] && rm -f "${ADGUARDHOME_START_TRAP_ALL_FILE}" 2>/dev/null
-	[ -n "${ADGUARDHOME_START_TRAP_FILE:-}" ] && rm -f "${ADGUARDHOME_START_TRAP_FILE}" 2>/dev/null
-	[ -n "${ADGUARDHOME_START_TRAP_DIR:-}" ] && rmdir "${ADGUARDHOME_START_TRAP_DIR}" 2>/dev/null
-	ADGUARDHOME_START_TRAP_FILE=""
-	ADGUARDHOME_START_TRAP_DIR=""
-	ADGUARDHOME_START_TRAP_ALL_FILE=""
-	ADGUARDHOME_START_SIGNAL_PENDING=""
-}
-
-adguardhome_start_traps_restore() {
-	local _TRAP_FILE _TRAP_STATE
-	_TRAP_FILE="${ADGUARDHOME_START_TRAP_FILE:-}"
-	# Keep managed signals blocked until the private workspace is gone.  The
-	# combined eval then resets defaults and restores saved handlers last.
-	trap '' HUP INT TERM
-	if [ -n "${_TRAP_FILE}" ] && [ -f "${_TRAP_FILE}" ] && [ ! -L "${_TRAP_FILE}" ]; then
-		# The shell generated this file inside a directory created mode 700 below.
-		# Preserve the shell-generated commands verbatim for the final eval below.
-		_TRAP_STATE="$(cat "${_TRAP_FILE}")"
-	else
-		_TRAP_STATE=""
-	fi
-	adguardhome_start_traps_cleanup
-	eval "trap - HUP INT TERM
-${_TRAP_STATE}"
-}
-
-adguardhome_start_traps_save() {
-	local _COUNTER _NONCE _OLD_UMASK _TRAP_ALL_FILE _TRAP_DIR _TRAP_FILE _TRAP_STATE
-	_COUNTER=0
-	ADGUARDHOME_START_SIGNAL_PENDING=0
-	ADGUARDHOME_START_TRAP_DIR=""
-	ADGUARDHOME_START_TRAP_FILE=""
-	while [ "${_COUNTER}" -lt 10 ]; do
-		_NONCE="$(dd if=/dev/urandom bs=16 count=1 2>/dev/null | md5sum)"
-		_NONCE="${_NONCE%% *}"
-		[ -n "${_NONCE}" ] || return 1
-		_TRAP_DIR="/tmp/AdGuardHome-start-traps.$$.$_NONCE"
-		_TRAP_ALL_FILE="${_TRAP_DIR}.all"
-		# Publish the pre-workspace snapshot too, so every rollback and caller
-		# cleanup path can remove it as soon as the pathname exists.
-		ADGUARDHOME_START_TRAP_ALL_FILE="${_TRAP_ALL_FILE}"
-		# Capture before creating the workspace, then block the managed signals.
-		# Thus no signal can strand a directory between mkdir and handler setup.
-		_OLD_UMASK="$(umask)"
-		umask 077
-		# Install the deferral handler in the same compound command as the
-		# snapshot, before the shell can run the next external/setup command.
-		if ! {
-			trap
-			trap 'ADGUARDHOME_START_SIGNAL_PENDING=1' HUP INT TERM
-		} >"${_TRAP_ALL_FILE}"; then
-			umask "${_OLD_UMASK}"
-			adguardhome_start_traps_cleanup
-			return 1
-		fi
-		umask "${_OLD_UMASK}"
-		# Defer a startup abort until the snapshot is safe to restore instead of
-		# discarding a signal received while the workspace is initialized.
-		ADGUARDHOME_START_TRAP_DIR="${_TRAP_DIR}"
-		ADGUARDHOME_START_TRAP_FILE="${_TRAP_DIR}/state"
-		if (umask 077 && mkdir "${_TRAP_DIR}") 2>/dev/null; then
-			mv "${_TRAP_ALL_FILE}" "${_TRAP_DIR}/all" 2>/dev/null || {
-				_TRAP_STATE="$(cat "${_TRAP_ALL_FILE}" 2>/dev/null)"
-				rm -f "${_TRAP_ALL_FILE}" 2>/dev/null
-				rmdir "${_TRAP_DIR}" 2>/dev/null
-				ADGUARDHOME_START_TRAP_ALL_FILE=""
-				ADGUARDHOME_START_TRAP_DIR=""
-				ADGUARDHOME_START_TRAP_FILE=""
-				eval "trap - HUP INT TERM
-${_TRAP_STATE}"
-				return 1
-			}
-			_TRAP_ALL_FILE="${_TRAP_DIR}/all"
-			ADGUARDHOME_START_TRAP_ALL_FILE="${_TRAP_ALL_FILE}"
-			break
-		fi
-		_TRAP_STATE="$(cat "${_TRAP_ALL_FILE}" 2>/dev/null)"
-		rm -f "${_TRAP_ALL_FILE}" 2>/dev/null
-		ADGUARDHOME_START_TRAP_DIR=""
-		ADGUARDHOME_START_TRAP_FILE=""
-		ADGUARDHOME_START_TRAP_ALL_FILE=""
-		eval "trap - HUP INT TERM
-${_TRAP_STATE}"
-		_COUNTER="$((_COUNTER + 1))"
-	done
-	[ "${_COUNTER}" -lt 10 ] || return 1
-	[ -d "${_TRAP_DIR}" ] && [ ! -L "${_TRAP_DIR}" ] && chmod 700 "${_TRAP_DIR}" 2>/dev/null || {
-		_TRAP_STATE="$(cat "${_TRAP_ALL_FILE}" 2>/dev/null)"
-		rm -rf "${_TRAP_DIR}" 2>/dev/null
-		ADGUARDHOME_START_TRAP_DIR=""
-		ADGUARDHOME_START_TRAP_FILE=""
-		ADGUARDHOME_START_TRAP_ALL_FILE=""
-		eval "trap - HUP INT TERM
-${_TRAP_STATE}"
-		return 1
-	}
-	_TRAP_FILE="${ADGUARDHOME_START_TRAP_FILE}"
-	_OLD_UMASK="$(umask)"
-	umask 077
-	if [ -f "${_TRAP_ALL_FILE}" ] && [ ! -L "${_TRAP_ALL_FILE}" ]; then
-		# Split only at unquoted newlines so literal newlines in actions survive.
-		awk '
-			function emit() {
-				if (record ~ / (SIG)?(HUP|INT|TERM)$/) print record
-				record = ""
-			}
-			{
-				record = record (record == "" ? "" : "\n") $0
-				single = 0
-				double = 0
-				for (i = 1; i <= length(record); i++) {
-					c = substr(record, i, 1)
-					if (single) {
-						if (c == "\047") single = 0
-					} else if (double) {
-						if (c == "\\") i++
-						else if (c == "\"") double = 0
-					} else if (c == "\047") single = 1
-					else if (c == "\"") double = 1
-					else if (c == "\\") i++
-				}
-				if (!single && !double) emit()
-			}
-			END { if (record != "") emit() }
-		' "${_TRAP_ALL_FILE}" >"${_TRAP_FILE}"
-		_COUNTER="$?"
-	else
-		_COUNTER=2
-	fi
-	umask "${_OLD_UMASK}"
-	[ "${_COUNTER}" -eq 0 ] || {
-		_TRAP_STATE="$(cat "${_TRAP_ALL_FILE}" 2>/dev/null)"
-		rm -f "${_TRAP_ALL_FILE}" 2>/dev/null
-		rm -f "${_TRAP_FILE}" 2>/dev/null
-		rmdir "${_TRAP_DIR}" 2>/dev/null
-		ADGUARDHOME_START_TRAP_DIR=""
-		ADGUARDHOME_START_TRAP_FILE=""
-		eval "trap - HUP INT TERM
-${_TRAP_STATE}"
-		return 1
-	}
-	rm -f "${_TRAP_ALL_FILE}" 2>/dev/null
-	ADGUARDHOME_START_TRAP_ALL_FILE=""
-	[ -f "${_TRAP_FILE}" ] && [ ! -L "${_TRAP_FILE}" ] && chmod 600 "${_TRAP_FILE}" 2>/dev/null || {
-		_TRAP_STATE="$(cat "${_TRAP_FILE}" 2>/dev/null)"
-		rm -f "${_TRAP_FILE}" 2>/dev/null
-		rmdir "${_TRAP_DIR}" 2>/dev/null
-		ADGUARDHOME_START_TRAP_DIR=""
-		ADGUARDHOME_START_TRAP_FILE=""
-		eval "trap - HUP INT TERM
-${_TRAP_STATE}"
-		return 1
-	}
-}
-
-adguardhome_start_signal_abort() {
-	# Do not let a repeated signal interrupt service and DNS recovery.
-	trap '' HUP INT TERM
-	stop_launched_process "${LAUNCH_PID:-}"
-	adguardhome_run_postfailcmd
-	adguardhome_start_traps_restore
-	exit 255
-}
-
 start() {
-	local DNS_HANDOFF LAUNCH_PID PIDS POSTCMD_STATUS POSTFAIL_STATUS STOPPED
+	local DNS_HANDOFF LAUNCH_PID PIDS STOPPED
 	if type service_mark_transition >/dev/null 2>&1; then
 		case "${ACTION:-}" in
 			"restart") service_mark_transition "restarting" ;;
@@ -397,38 +208,15 @@ start() {
 		return 0
 	fi
 	if [ "${PROC}" = "AdGuardHome" ]; then
-		adguardhome_start_traps_save || {
-			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
-			logger -st "${CALLER}" "Failed to prepare startup trap state for ${DESC} from ${CALLER}."
-			return 255
-		}
-		trap 'adguardhome_start_signal_abort' HUP INT TERM
-		[ "${ADGUARDHOME_START_SIGNAL_PENDING:-0}" -eq 0 ] || adguardhome_start_signal_abort
-	fi
-	if adguardhome_start_handoff_is_prepared; then
 		DNS_HANDOFF=1
-	else
+		trap 'stop_launched_process "${LAUNCH_PID:-}"; [ -n "${POSTFAILCMD:-}" ] && ${POSTFAILCMD} >/dev/null 2>&1; exit 255' HUP INT TERM
+	fi
+	if ! adguardhome_start_handoff_is_prepared; then
 		if ! ${PRECMD} >/dev/null 2>&1; then
 			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 			logger -st "${CALLER}" "Pre-start hook failed for ${DESC} from ${CALLER}."
-			[ "${PROC}" = "AdGuardHome" ] && adguardhome_start_traps_restore
+			[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
 			return 255
-		fi
-		if adguardhome_start_handoff_is_prepared; then
-			DNS_HANDOFF=1
-		elif adguardhome_start_handoff_required; then
-			if [ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" = "1" ] && [ -n "${POSTFAILCMD:-}" ]; then
-				POSTFAIL_STATUS=0
-				adguardhome_run_postfailcmd
-				POSTFAIL_STATUS="$?"
-				[ "${POSTFAIL_STATUS}" -eq 0 ] || logger -st "${CALLER}" "Required DNS handoff recovery failed for ${DESC} from ${CALLER}."
-			fi
-			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
-			logger -st "${CALLER}" "Pre-start hook did not prepare required DNS handoff for ${DESC} from ${CALLER}."
-			adguardhome_start_traps_restore
-			return 255
-		else
-			DNS_HANDOFF=0
 		fi
 	fi
 	{
@@ -439,54 +227,38 @@ start() {
 	if ! process_wait_for_start "${PROC}" 10; then
 		stop_launched_process "${LAUNCH_PID}"
 		if [ -n "${POSTFAILCMD:-}" ]; then
-			POSTFAIL_STATUS=0
-			adguardhome_run_postfailcmd
-			POSTFAIL_STATUS="$?"
-			[ "${POSTFAIL_STATUS}" -eq 0 ] || logger -st "${CALLER}" "Failed-start recovery failed for ${DESC} from ${CALLER}."
+			${POSTFAILCMD} >/dev/null 2>&1 || logger -st "${CALLER}" "Failed-start recovery failed for ${DESC} from ${CALLER}."
 		fi
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 		logger -st "${CALLER}" "Failed to start ${DESC} from ${CALLER}."
-		[ "${PROC}" = "AdGuardHome" ] && adguardhome_start_traps_restore
+		[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
 		return 255
 	fi
-	POSTCMD_STATUS=0
-	if [ "${PROC}" = "AdGuardHome" ] && [ "${DNS_HANDOFF}" -ne 1 ]; then
-		(
-			ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
-			export ADGUARDHOME_SKIP_DNSMASQ_RESTART
-			${POSTCMD} >/dev/null 2>&1
-		)
-		POSTCMD_STATUS="$?"
-	else
-		${POSTCMD} >/dev/null 2>&1
-		POSTCMD_STATUS="$?"
-	fi
-	if [ "${POSTCMD_STATUS}" -ne 0 ]; then
-		STOPPED=0
-		signal_process TERM "${PROC}"
-		if process_wait_for_stop "${PROC}" 10; then
-			STOPPED=1
-		else
-			signal_process INT "${PROC}"
-			if process_wait_for_stop "${PROC}" 5; then
+	if [ "${PROC}" != "AdGuardHome" ] || [ "${DNS_HANDOFF}" -eq 1 ]; then
+		if ! ${POSTCMD} >/dev/null 2>&1; then
+			STOPPED=0
+			signal_process TERM "${PROC}"
+			if process_wait_for_stop "${PROC}" 10; then
 				STOPPED=1
 			else
-				signal_process KILL "${PROC}"
-				process_wait_for_stop "${PROC}" 3 && STOPPED=1
+				signal_process INT "${PROC}"
+				if process_wait_for_stop "${PROC}" 5; then
+					STOPPED=1
+				else
+					signal_process KILL "${PROC}"
+					process_wait_for_stop "${PROC}" 3 && STOPPED=1
+				fi
 			fi
+			if [ "${STOPPED}" -eq 1 ] && [ -n "${POSTFAILCMD:-}" ]; then
+				${POSTFAILCMD} >/dev/null 2>&1 || logger -st "${CALLER}" "Post-start failure recovery failed for ${DESC} from ${CALLER}."
+			fi
+			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
+			logger -st "${CALLER}" "Post-start hook failed for ${DESC} from ${CALLER}."
+			[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
+			return 255
 		fi
-		if [ "${STOPPED}" -eq 1 ] && [ -n "${POSTFAILCMD:-}" ]; then
-			POSTFAIL_STATUS=0
-			adguardhome_run_postfailcmd
-			POSTFAIL_STATUS="$?"
-			[ "${POSTFAIL_STATUS}" -eq 0 ] || logger -st "${CALLER}" "Post-start failure recovery failed for ${DESC} from ${CALLER}."
-		fi
-		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
-		logger -st "${CALLER}" "Post-start hook failed for ${DESC} from ${CALLER}."
-		[ "${PROC}" = "AdGuardHome" ] && adguardhome_start_traps_restore
-		return 255
 	fi
-	[ "${PROC}" = "AdGuardHome" ] && adguardhome_start_traps_restore
+	[ "${DNS_HANDOFF}" -eq 1 ] && trap - HUP INT TERM
 	PIDS="$(process_pids "${PROC}")"
 	if [ -z "${PIDS}" ]; then
 		printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"

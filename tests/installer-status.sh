@@ -94,25 +94,4 @@ printf '%s\n' "${STATUS_OUTPUT}" | grep -q '^dnsmasq handoff state: inactive$' |
 printf '%s\n' "${STATUS_OUTPUT}" | grep -q '^Last startup result: .*AdGuardHome startup completed\.$' || fail 'last startup result missing'
 printf '%s\n' "${STATUS_OUTPUT}" | grep -q '^Last rollback result: none$' || fail 'last rollback result missing'
 
-# Both runtime and installer status helpers must report dangling handoff markers.
-for status_source in "${INSTALLER_PATH}" AdGuardHome.sh; do
-	STATUS_HELPER="${TEST_ROOT}/status-handoff-$(basename "${status_source}")"
-	sed -n '/^status_dnsmasq_handoff_state() {$/,/^}$/p' "${status_source}" |
-		sed "s#/tmp/AdGuardHome\.dnsmasq\.handoff#${TEST_ROOT}/dangling-handoff#g; s#/tmp/AdGuardHome\.dnsmasq\.lock#${TEST_ROOT}/dangling-lock#g; s#/tmp/AdGuardHome\.dns-handoff/active#${TEST_ROOT}/missing-active#g; s#/tmp/AdGuardHome\.dns-handoff/lock#${TEST_ROOT}/missing-dir-lock#g" >"${STATUS_HELPER}" ||
-		fail "could not isolate status helper from ${status_source}"
-	[ -s "${STATUS_HELPER}" ] || fail "status helper was not found in ${status_source}"
-	ln -s "${TEST_ROOT}/missing-marker-target" "${TEST_ROOT}/dangling-handoff" || fail 'could not create dangling status marker'
-	ln -s "${TEST_ROOT}/missing-lock-target" "${TEST_ROOT}/dangling-lock" || fail 'could not create dangling status lock'
-	DNS_HANDOFF_DIR="${TEST_ROOT}/missing-handoff-dir"
-	DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
-	# shellcheck disable=SC1090
-	. "${STATUS_HELPER}"
-	HANDOFF_OUTPUT="$(status_dnsmasq_handoff_state)"
-	printf '%s\n' "${HANDOFF_OUTPUT}" | grep -q "active/stale marker present (${TEST_ROOT}/dangling-handoff" ||
-		fail "${status_source} status did not report dangling handoff marker path"
-	printf '%s\n' "${HANDOFF_OUTPUT}" | grep -q "${TEST_ROOT}/dangling-lock" ||
-		fail "${status_source} status did not report dangling handoff lock path"
-	rm -f "${TEST_ROOT}/dangling-handoff" "${TEST_ROOT}/dangling-lock"
-done
-
 printf '%s\n' 'PASS: installer status summarizes runtime state'

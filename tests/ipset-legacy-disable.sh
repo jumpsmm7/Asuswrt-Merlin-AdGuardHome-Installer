@@ -73,6 +73,6 @@ EOF_YAML
 cp "${YAML_FILE}" "${YAML_FILE}.expected" || fail 'could not preserve custom-path fixture'
 IPSet_Disable_Managed || fail 'custom external path was rejected'
 [ -z "${IPSET_DISABLE_CHANGED:-}" ] || fail 'unchanged custom path was reported as changed'
-diff -q "${YAML_FILE}" "${YAML_FILE}.expected" >/dev/null 2>&1 || fail 'custom external path was modified'
+cmp -s "${YAML_FILE}" "${YAML_FILE}.expected" || fail 'custom external path was modified'
 
 printf '%s\n' 'PASS: legacy setup disables only the managed ipset_file and preserves YAML metadata'

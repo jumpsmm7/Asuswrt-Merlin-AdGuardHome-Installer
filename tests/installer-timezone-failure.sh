@@ -24,13 +24,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}/base" "${TMP_ROOT}/target" "${TMP_ROOT}/addon" || fail 'could not create test directories'
 sed -n '/^adguard_restart_after_install_abort() {$/,/^}/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract restart helper'
-sed -n '/^adguard_migrate_detected_install_mode() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
-	fail 'could not extract install-mode migration helper'
-sed -n '/^adguard_install_mode_confirmed() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
-	fail 'could not extract confirmed install-mode helper'
-sed -n '/^finalize_pending_mode_migration() {$/,/^}/p; /^rollback_pending_mode_migration() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
-	fail 'could not extract pending mode-migration helpers'
-sed -n '/^install_wan_event_scripts() {$/,/^set_timezone() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer functions'
+sed -n '/^inst_AdGuardHome() {$/,/^set_timezone() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer function'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'installer function extraction was empty'
 
 cat >"${TMP_ROOT}/target/AdGuardHome" <<'EOF_AGH'
@@ -45,8 +39,6 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	. "${FUNCTIONS_FILE}"
 
 	ADGUARD_ARCH='test'
-	ADGUARD_INSTALL_MODE='wan'
-	ADGUARD_INSTALL_MODE_DETECTION='wan'
 	ADDON_DIR="${TMP_ROOT}/addon"
 	AGH_FILE="${TMP_ROOT}/target/AdGuardHome"
 	BASE_DIR="${TMP_ROOT}/base"
@@ -57,24 +49,12 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	INFO='Info:'
 	ERROR='Error:'
 
-	# adguard_install_mode_detect determines the installation mode and succeeds when detection completes.
-	adguard_install_mode_detect() {
-		ADGUARD_INSTALL_MODE="${ADGUARD_INSTALL_MODE_DETECTION}"
-		return 0
-	}
-	# adguard_install_abort_trap_disable_preserve_defer is a no-op stub for installation-abort trap handling.
 	adguard_install_abort_trap_disable_preserve_defer() { :; }
-	# adguard_remote_archive returns the remote archive filename for the test installer.
 	adguard_remote_archive() { printf '%s\n' 'AdGuardHome_test.tar.gz'; }
-	# adguard_remote_md5 provides the remote MD5 checksum for the AdGuard Home release.
 	adguard_remote_md5() { :; }
-	# adguard_remote_sha256 is a stub for retrieving the remote SHA-256 checksum.
 	adguard_remote_sha256() { :; }
-	# adguard_remote_url prints the remote URL for the test AdGuardHome archive.
 	adguard_remote_url() { printf '%s\n' 'https://example.invalid/AdGuardHome_test.tar.gz'; }
-	# ensure_sha256sum_tool provides a no-op checksum-tool stub for the installer test.
 	ensure_sha256sum_tool() { :; }
-	# download_file downloads a file.
 	download_file() { return 0; }
 	md5_is_valid() { return 1; }
 	sha256_is_valid() { return 1; }
@@ -84,19 +64,11 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	cleanup_legacy_firewall() { :; }
 	yaml_nvars_delete() { :; }
 	del_between_magic() { :; }
-	# del_jffs_script removes the JFFS script.
 	del_jffs_script() { :; }
-	# write_manager_script creates or updates the manager script.
 	write_manager_script() { :; }
-	# write_command_script writes a command script.
 	write_command_script() { :; }
-	# write_conf is a no-op stub used to satisfy installer dependencies during regression testing.
-	write_conf() { :; }
-	# nvram does nothing and returns success.
 	nvram() { :; }
-	# grep always returns failure.
 	grep() { return 1; }
-	# tar is a no-op stub that suppresses archive command execution.
 	tar() { :; }
 	chown() { :; }
 	rm() { :; }
@@ -104,14 +76,6 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	set_timezone() {
 		printf '%s\n' 'timezone' >>"${CALLS_FILE}"
 		return 1
-	}
-	rollback_pending_mode_migration() {
-		printf '%s\n' 'rollback' >>"${CALLS_FILE}"
-		return 0
-	}
-	adguard_restart_after_install_abort() {
-		printf '%s\n' 'restart' >>"${CALLS_FILE}"
-		return 0
 	}
 	setup_AdGuardHome() {
 		printf '%s\n' 'setup' >>"${CALLS_FILE}"
@@ -137,7 +101,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	fi
 ) || fail 'timezone failure regression subprocess failed'
 
-EXPECTED="$(printf '%s\n' 'timezone' 'rollback' 'restart' 'end:1 install')"
+EXPECTED="$(printf '%s\n' 'timezone' 'end:1 install')"
 ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] || fail "installer continued after timezone failure: ${ACTUAL}"
 

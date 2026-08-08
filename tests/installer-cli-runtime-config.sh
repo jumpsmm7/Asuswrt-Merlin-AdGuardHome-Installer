@@ -35,23 +35,7 @@ INFO='[i]'
 ERROR='[!]'
 WARNING='[w]'
 CONF_FILE="${TMP_ROOT}/.config"
-ADGUARD_INSTALL_MODE_DETECTION='wan'
 
-# adguard_install_mode_confirmed reports whether the detected installation mode is `wan` or `lan`.
-adguard_install_mode_confirmed() {
-	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
-		wan | lan) return 0 ;;
-	esac
-	return 1
-}
-
-# adguard_install_mode_detect detects the AdGuard installation mode successfully.
-adguard_install_mode_detect() {
-	ADGUARD_INSTALL_MODE="${ADGUARD_INSTALL_MODE_DETECTION}"
-	return 0
-}
-
-# cli_require_yes confirms non-interactive confirmation.
 cli_require_yes() {
 	return 0
 }
@@ -62,7 +46,6 @@ cli_enable_assume_yes() {
 
 menu() {
 	printf '%s\n' "$1" >"${TMP_ROOT}/menu-action"
-	return "${MENU_STATUS:-0}"
 }
 
 cli_run netcheck --installer-branch dev --mode wan --hosts 'google.com github.com' --dns 127.0.0.1 --require-http yes --timeout 120 >/dev/null ||
@@ -106,12 +89,6 @@ cli_run update --adguardhome-branch beta --yes >/dev/null || fail 'update with A
 grep -q '^ADGUARD_BRANCH="beta"$' "${CONF_FILE}" || fail 'CLI update branch was not persisted'
 [ "${ADGUARD_BRANCH_CHANGED:-0}" = "1" ] || fail 'CLI update branch switch was not marked as changed'
 [ "$(cat "${TMP_ROOT}/menu-action")" = 'update' ] || fail 'CLI update did not dispatch the update menu action'
-
-MENU_STATUS=2
-cli_run update --yes >/dev/null
-STATUS=$?
-[ "${STATUS}" -eq 1 ] || fail 'CLI update exposed operational status 2 as a usage error'
-MENU_STATUS=0
 
 unset ADGUARD_BRANCH_CHANGED
 cli_run update --adguardhome-branch beta --yes >/dev/null || fail 'same-branch update failed'

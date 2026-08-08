@@ -60,7 +60,7 @@ Warning: WARN: Warning test
 Error: FAIL: Failure test
 EOF_EXPECTED
 
-diff -q "${TMP_ROOT}/expected" "${TMP_ROOT}/actual" >/dev/null 2>&1 ||
+cmp -s "${TMP_ROOT}/expected" "${TMP_ROOT}/actual" ||
 	fail "progress helper output changed: $(cat "${TMP_ROOT}/actual")"
 
 printf '%s\n' 'PASS: installer progress output helpers preserve expected prefixes'

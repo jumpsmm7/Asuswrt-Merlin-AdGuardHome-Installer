@@ -26,7 +26,6 @@ INFO='Info:'
 ERROR='Error:'
 WARNING='Warning:'
 TMP_ROOT="${TMPDIR:-/tmp}/installer-ipset-setup-save-failure.$$"
-BASE_DIR="${TMP_ROOT}/base"
 TARG_DIR="${TMP_ROOT}/target"
 AGH_FILE="${TARG_DIR}/AdGuardHome"
 YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
@@ -47,35 +46,16 @@ cleanup() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-# nvram prints `1` for `get:dns_local_cache` requests and produces no output for other requests.
 nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '1' ;;
 	esac
 }
-# check_dns_filter checks the current DNS filter settings.
 check_dns_filter() { :; }
-# save_dns_filter_settings creates the directory specified by the argument.
 save_dns_filter_settings() { mkdir -p "$1"; }
-# installer_lan_domain_set writes the specified LAN domain to NVRAM.
-installer_lan_domain_set() { nvram set "lan_domain=$1"; }
-# installer_lan_domain_restore preserves the installer LAN domain setting.
-installer_lan_domain_restore() { :; }
-# nvram_transaction_finalize_setup_pair finalizes the NVRAM setup transaction successfully.
-nvram_transaction_finalize_setup_pair() { return 0; }
-# nvram_transaction_setup_committed reports whether the setup commit marker exists.
-nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
-# nvram_transaction_setup_files_begin begins the NVRAM setup-file transaction successfully.
-nvram_transaction_setup_files_begin() { return 0; }
-# nvram_transaction_setup_files_restore performs a successful no-op restore of setup files for the test harness.
-nvram_transaction_setup_files_restore() { return 0; }
-# restore_dns_filter_settings removes the specified DNS filter settings directory and its contents.
 restore_dns_filter_settings() { rm -rf "$1"; }
-# check_dns_local performs the DNS locality check.
 check_dns_local() { :; }
-# check_ipset simulates a failed IPSET preference check.
 check_ipset() { return 1; }
-# check_AdGuardHome_yaml verifies that YAML validation is enabled for the test harness.
 check_AdGuardHome_yaml() {
 	[ "${ALLOW_YAML_VALIDATION:-0}" -eq 1 ] || fail 'unexpected YAML validation'
 }
