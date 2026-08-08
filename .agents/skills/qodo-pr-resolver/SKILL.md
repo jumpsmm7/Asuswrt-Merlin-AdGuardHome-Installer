@@ -122,15 +122,14 @@ If the review is **not ready** (in progress, not started, or we just pushed/crea
 2. If **"Exit and come back later"**: Inform "Run this skill again in a few minutes once Qodo has reviewed the PR." Exit skill.
 3. If **"Wait for review"**:
    - Inform: "Monitoring for Qodo review completion (checking every 30 seconds)..."
-   - Use the **Monitor** tool to poll for review completion:
-     - `description`: "Waiting for Qodo review on PR #<number>"
-     - `timeout_ms`: `600000` (10 minutes)
-     - `persistent`: `false`
-     - `command`: A polling script that runs in a `while true; do ... sleep 30; done` loop. The script should use the **same provider-specific comment-fetch commands from Step 3** (Fetch Review Comments) to check for Qodo bot comments. On each polling attempt, capture the fetch command's exit status and, if using an HTTP API, also capture the HTTP status code. Retry only on transient failures (network errors, timeouts, 5xx server errors). If a non-retryable failure is detected (401/403 authentication or permission errors, 404 not found, or other 4xx client errors), terminate the polling loop immediately with an explicit error message identifying the failure type, rather than silently continuing to the generic timeout.
+   - Run a bounded POSIX shell polling script through the supported terminal execution tool (for example, `exec_command`). Do not call a `Monitor` tool: Codex does not expose one.
+     - Limit the script itself to 20 attempts with a 30-second sleep between incomplete checks (`attempt=0; while [ "$attempt" -lt 20 ]; do ...; attempt=$((attempt + 1)); sleep 30; done`). This enforces the 10-minute bound without relying on a non-portable `timeout` command.
+     - Configure the terminal call to yield in at most 30 seconds. If it returns a running session or cell identifier, use the terminal tool's supported wait/poll primitive (for example, an empty `write_stdin` call or `wait` for that identifier) until the script completes; never start a second polling process for the same wait operation.
+     - The polling script should use the **same provider-specific comment-fetch commands from Step 3** (Fetch Review Comments) to check for Qodo bot comments. On each polling attempt, capture the fetch command's exit status and, if using an HTTP API, also capture the HTTP status code. Retry only on transient failures (network errors, timeouts, 5xx server errors). If a non-retryable failure is detected (401/403 authentication or permission errors, 404 not found, or other 4xx client errors), terminate the polling loop immediately with an explicit error message identifying the failure type, rather than silently continuing to the generic timeout.
        - Normally, output `REVIEW_COMPLETE` only when Qodo comments are found and none contain "Come back again in a few minutes" or "An AI review agent is analysing this pull request".
        - When `JUST_PUSHED = true`, old completed comments are not evidence that the pushed head was reviewed. Output `REVIEW_COMPLETE` only for a completed Qodo review whose provider metadata associates it with `PUSHED_SHA` (for example, a GitHub review `commit_id`, a GitLab diff/head SHA, or a Gerrit patch-set revision) or whose trusted Qodo summary explicitly identifies that full commit SHA. Also require the qualifying review/comment to have been created or updated no earlier than `PUSH_STARTED_AT`. Continue polling if either the head association or timestamp check is unavailable or does not match; never fall back to pre-push comments.
-   - When the Monitor emits `REVIEW_COMPLETE`: Inform "Qodo review is ready!" and **return to Step 3** to fetch and parse the review comments normally.
-   - If the Monitor times out (10 minutes): Inform "Qodo review hasn't appeared yet. You can run this skill again later." Exit skill.
+   - When the polling script emits `REVIEW_COMPLETE`: Inform "Qodo review is ready!" and **return to Step 3** to fetch and parse the review comments normally.
+   - If all 20 attempts complete without `REVIEW_COMPLETE`: Inform "Qodo review hasn't appeared yet. You can run this skill again later." Exit skill.
 
 If the review **is ready** (Qodo comments found, no "in progress" markers): Proceed directly to Step 3b.
 
