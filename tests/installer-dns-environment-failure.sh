@@ -98,6 +98,7 @@ monotonic_seconds() {
 # check_connection checks whether the simulated public network is available and increments the connectivity check count.
 check_connection() {
 	PUBLIC_CHECK_COUNT="$((PUBLIC_CHECK_COUNT + 1))"
+	[ "${PUBLIC_NETWORK_RECOVER_AT:-0}" -eq 0 ] || [ "${PUBLIC_CHECK_COUNT}" -lt "${PUBLIC_NETWORK_RECOVER_AT}" ] || PUBLIC_NETWORK_AVAILABLE=1
 	[ "${PUBLIC_NETWORK_AVAILABLE:-0}" = 1 ]
 }
 # rollback_result_write appends a rollback status message to the calls log.
@@ -200,6 +201,7 @@ nslookup() {
 		trap 'printf "%s\n" reaped >"${TEST_ROOT}/lookup-reaped"; exit 1' TERM
 	fi
 	[ "${BLOCKING_QUERY:-0}" = 0 ] || /bin/sleep 5
+	[ "${DNS_READY_AFTER_SERVICE:-0}" -eq 0 ] || [ "${SERVICE_COUNT}" -lt "${DNS_READY_AFTER_SERVICE}" ] || DNS_READY=1
 	[ "${DNS_READY:-1}" = 1 ]
 }
 
@@ -224,8 +226,8 @@ dhcp_dns2_x=149.112.112.112
 EOF_NVRAM
 	: >"${CALLS_FILE}"
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0 STUBBY_RESTART_COUNT=0
-	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0
-	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 STUBBY_RUNNING=0 STUBBY_KILL_STUCK=0
+	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
+	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 DNS_READY_AFTER_SERVICE=0 STUBBY_RUNNING=0 STUBBY_KILL_STUCK=0
 	DNS_ENV_READY_TIMEOUT=2 DNS_ENV_RECOVERY_TIMEOUT=1
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
 	_DNS_STUBBY_STOPPED=0 _DNS_NVRAM_SAVED=0 _DNS_NVRAM_ROLLBACK_ATTEMPTED=0
@@ -932,6 +934,15 @@ for invalid_mode in '' invalid; do
 done
 
 reset_case
+printf '%s\n' 'dnsfilter_enable_x=1' >>"${NVRAM_FILE}" || fail 'could not seed DNSFilter rollback state'
+PUBLIC_NETWORK_RECOVER_AT=2
+FAIL_SNAPSHOT_REMOVE=1
+check_dns_filter 0 && fail 'DNSFilter connectivity rollback was accepted as setup success'
+[ -d "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'DNSFilter cleanup failure did not retain its completed snapshot'
+[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" ] || fail 'DNSFilter completed rollback remained eligible for startup recovery'
+[ "$(nvram_value dnsfilter_enable_x)" = 1 ] || fail 'DNSFilter connectivity rollback did not restore the original value'
+
+reset_case
 FAIL_SHOW=1
 check_dns_environment 0 && fail 'NVRAM inventory read failure was accepted'
 [ "${SET_COUNT}" = 0 ] || fail 'NVRAM changed after a failed inventory read'
@@ -1629,6 +1640,15 @@ FAIL_SERVICE_AT=1
 check_dns_environment 0 && fail 'dnsmasq restart failure was accepted'
 assert_original 'service failure'
 [ "${SERVICE_COUNT}" = 2 ] || fail 'rollback did not restart dnsmasq exactly once after apply restart failure'
+
+reset_case
+DNS_READY=0
+DNS_READY_AFTER_SERVICE=2
+FAIL_SNAPSHOT_REMOVE=1
+check_dns_environment 0 && fail 'DNS readiness rollback was accepted as preparation success'
+[ -d "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'DNS cleanup failure did not retain its completed snapshot'
+[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'DNS completed rollback remained eligible for startup recovery'
+assert_original 'DNS readiness cleanup interruption'
 
 reset_case
 DNS_READY=0

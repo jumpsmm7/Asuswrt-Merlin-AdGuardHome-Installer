@@ -3863,7 +3863,12 @@ check_dns_environment() {
 			if [ "${changed}" != "0" ] && ! dns_env_local_ready "${DNS_ENV_READY_TIMEOUT}"; then
 				PTXT "${ERROR} DNS readiness did not recover after applying NVRAM changes."
 				if nvram_transaction_restore restart_dnsmasq 1 && dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
-					rm -rf "${NVRAM_TRANSACTION_DIR}"
+					# Clearing dirty commits the completed rollback before best-effort snapshot cleanup.
+					if rm -f "${NVRAM_TRANSACTION_DIR}/dirty"; then
+						rm -rf "${NVRAM_TRANSACTION_DIR}" 2>/dev/null || true
+					else
+						rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+					fi
 				else
 					if [ -d "${NVRAM_TRANSACTION_DIR}" ]; then
 						rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
@@ -3981,7 +3986,12 @@ check_dns_filter() {
 	if [ "${changed}" != "0" ] && ! check_connection 300; then
 		PTXT "${WARNING} Timed out waiting for DNS connectivity; restoring DNSFilter settings."
 		if nvram_transaction_restore "restart_firewall;restart_dnsmasq" 1 && check_connection 300; then
-			rm -rf "${NVRAM_TRANSACTION_DIR}"
+			# Clearing dirty commits the completed rollback before best-effort snapshot cleanup.
+			if rm -f "${NVRAM_TRANSACTION_DIR}/dirty"; then
+				rm -rf "${NVRAM_TRANSACTION_DIR}" 2>/dev/null || true
+			else
+				rollback_result_write "DNSFilter NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+			fi
 		else
 			rollback_result_write "DNSFilter NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
 		fi
