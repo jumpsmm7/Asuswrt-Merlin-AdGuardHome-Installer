@@ -46,6 +46,55 @@ done
 grep -Fq '## Qodo Fix Summary — Round N' "${PROVIDERS}" ||
 	fail "${PROVIDERS}: expected the literal posted heading '## Qodo Fix Summary — Round N'"
 
+# --- Dynamic summaries contain verbatim issue titles and user-provided
+# reasons. Keep both CLI examples on file-based input so apostrophes and shell
+# operators in that untrusted text are never parsed as part of a command.
+grep -Fq 'gh pr comment <pr-number> --body-file "$COMMENT_FILE"' "${PROVIDERS}" ||
+	fail "${PROVIDERS}: GitHub summaries must use --body-file"
+grep -Fq 'glab mr comment <mr-iid> < "$COMMENT_FILE"' "${PROVIDERS}" ||
+	fail "${PROVIDERS}: GitLab summaries must read the body from a file"
+if grep -Fq "gh pr comment <pr-number> --body '<comment-body>'" "${PROVIDERS}"; then
+	fail "${PROVIDERS}: unsafe shell-quoted GitHub summary example is present"
+fi
+if grep -Fq "glab mr comment <mr-iid> --message '<comment-body>'" "${PROVIDERS}"; then
+	fail "${PROVIDERS}: unsafe shell-quoted GitLab summary example is present"
+fi
+
+# --- Generic validation: scan every gh/glab summary-posting command in the
+# file to ensure none use inline --body/--message/--description with dynamic
+# content (anything other than safe file-read patterns like $(cat "$FILE")).
+# This catches unsafe variants regardless of placeholder text or argument order.
+UNSAFE_COMMANDS=$(mktemp "${TMPDIR:-/tmp}/unsafe_commands.XXXXXX") || exit 1
+trap 'rm -f "$UNSAFE_COMMANDS"' EXIT
+grep -E '(gh pr (comment|create)|glab mr (comment|note|create))' "${PROVIDERS}" | while IFS= read -r line; do
+	# Skip lines that use safe file-based patterns:
+	# - --body-file "$..."
+	# - < "$COMMENT_FILE" or similar redirection
+	# - --body "$(cat "$FILE")" (reading from file is safe)
+	# - --description "$(cat "$FILE")" (reading from file is safe)
+	case "$line" in
+		*'--body-file'*) continue ;;
+		*'< "$'*) continue ;;
+		*'--body "$(cat "$'*) continue ;;
+		*'--description "$(cat "$'*) continue ;;
+		*'--title "$(cat "$'*) continue ;;
+	esac
+
+	# Check for potentially unsafe inline body/message/description with quotes
+	# that could contain dynamic content (not from a file read)
+	if printf '%s' "$line" | grep -qE '(gh pr (comment|create)|glab mr (comment|note|create)).*(--body|--message|--description)[[:space:]]+"'; then
+		# Record the unsafe command for later reporting
+		printf '%s\n' "$line" >>"$UNSAFE_COMMANDS"
+	fi
+done
+
+if [ -s "$UNSAFE_COMMANDS" ]; then
+	cmd=$(head -n 1 "$UNSAFE_COMMANDS" | sed -E 's/^[[:space:]]*//')
+	rm -f "$UNSAFE_COMMANDS"
+	fail "${PROVIDERS}: found potentially unsafe inline body in command: $cmd"
+fi
+rm -f "$UNSAFE_COMMANDS"
+
 # --- The ledger's primary lookup key (file + title, never raw line number) is
 # the crux of the oscillation guard; it must be stated consistently in both
 # SKILL.md and convergence.md so a future edit can't silently key on line
