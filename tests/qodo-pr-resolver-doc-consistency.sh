@@ -60,36 +60,25 @@ if grep -Fq "glab mr comment <mr-iid> --message '<comment-body>'" "${PROVIDERS}"
 	fail "${PROVIDERS}: unsafe shell-quoted GitLab summary example is present"
 fi
 
-# --- Generic validation: scan every gh/glab summary-posting command in the
-# file to ensure none use inline --body/--message/--description with dynamic
-# content (anything other than safe file-read patterns like $(cat "$FILE")).
-# This catches unsafe variants regardless of placeholder text or argument order.
+# --- Generic validation: scan every gh/glab summary-posting command in one
+# pass. Remove only safe input for the specific body/description flag, then
+# reject any remaining inline --body/--message/--description argument. This
+# keeps a safe title (or another safe flag) from masking an unsafe body on the
+# same command and covers single-quoted, double-quoted, and unquoted values.
 UNSAFE_COMMANDS=$(mktemp "${TMPDIR:-/tmp}/unsafe_commands.XXXXXX") || exit 1
 trap 'rm -f "$UNSAFE_COMMANDS"' EXIT
-grep -E '(gh pr (comment|create)|glab mr (comment|note|create))' "${PROVIDERS}" | while IFS= read -r line; do
-	# Skip lines that use safe file-based patterns:
-	# - --body-file "$..."
-	# - < "$COMMENT_FILE" or similar redirection
-	# - --body "$(cat "$FILE")" (reading from file is safe)
-	# - --description "$(cat "$FILE")" (reading from file is safe)
-	case "$line" in
-		*'--body-file'*) continue ;;
-		*'< "$'*) continue ;;
-		*'--body "$(cat "$'*) continue ;;
-		*'--description "$(cat "$'*) continue ;;
-		*'--title "$(cat "$'*) continue ;;
-	esac
-
-	# Check for potentially unsafe inline body/message/description with quotes
-	# that could contain dynamic content (not from a file read)
-	if printf '%s' "$line" | grep -qE '(gh pr (comment|create)|glab mr (comment|note|create)).*(--body|--message|--description)[[:space:]]+["\']'; then
-		# Record the unsafe command for later reporting
-		printf '%s\n' "$line" >>"$UNSAFE_COMMANDS"
-	fi
-done
+awk '
+	/(gh pr (comment|create)|glab mr (comment|note|create))/ {
+		command = $0
+		gsub(/--body-file[[:space:]]+[^[:space:]]+/, "", command)
+		gsub(/--(body|message|description)[[:space:]]+"\$\(cat[[:space:]]+"\$[A-Za-z_][A-Za-z0-9_]*"\)"/, "", command)
+		if (command ~ /--(body|message|description)([[:space:]]|=)/)
+			print $0
+	}
+' "${PROVIDERS}" >"${UNSAFE_COMMANDS}"
 
 if [ -s "$UNSAFE_COMMANDS" ]; then
-	cmd=$(head -n 1 "$UNSAFE_COMMANDS" | sed -E 's/^[[:space:]]*//')
+	cmd=$(head -n 1 "$UNSAFE_COMMANDS" | sed 's/^[[:space:]]*//')
 	rm -f "$UNSAFE_COMMANDS"
 	fail "${PROVIDERS}: found potentially unsafe inline body in command: $cmd"
 fi
