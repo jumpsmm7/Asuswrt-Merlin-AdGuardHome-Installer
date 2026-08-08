@@ -70,12 +70,30 @@ trap 'rm -f "$UNSAFE_COMMANDS"' 0
 
 scan_unsafe_commands() {
 	awk '
-	/(gh pr (comment|create)|glab mr (comment|note|create))/ {
-		command = $0
-		gsub(/--body-file[[:space:]]+[^[:space:]]+/, "", command)
-		gsub(/--(body|message|description)([[:space:]]+|=)"\$\(cat[[:space:]]+"\$[A-Za-z_][A-Za-z0-9_]*"\)"/, "", command)
-		if (command ~ /--(body|message|description)([[:space:]]|=)/)
-			print $0
+	function inspect_command(command, sanitized) {
+		if (command !~ /(gh pr (comment|create)|glab mr (comment|note|create))/)
+			return
+		sanitized = command
+		gsub(/--body-file[[:space:]]+[^[:space:]]+/, "", sanitized)
+		gsub(/--(body|message|description)([[:space:]]+|=)"\$\(cat[[:space:]]+"\$[A-Za-z_][A-Za-z0-9_]*"\)"/, "", sanitized)
+		if (sanitized ~ /--(body|message|description)([[:space:]]|=)/)
+			print command
+	}
+	{
+		line = $0
+		if (command != "")
+			sub(/^[[:space:]]+/, "", line)
+		command = command (command == "" ? "" : " ") line
+		if (command ~ /\\[[:space:]]*$/) {
+			sub(/[[:space:]]*\\[[:space:]]*$/, "", command)
+			next
+		}
+		inspect_command(command)
+		command = ""
+	}
+	END {
+		if (command != "")
+			inspect_command(command)
 	}
 	' "$1"
 }
@@ -92,6 +110,8 @@ gh pr create --title "$(cat "$TITLE_FILE")" --body "$BODY" # unsafe-mixed-title
 gh pr comment 1 --body '$BODY' # unsafe-single-quote
 glab mr note 1 --message "$MESSAGE" # unsafe-double-quote
 glab mr create --description=$DESCRIPTION # unsafe-unquoted
+glab mr create \
+  --description "$MULTILINE_DESCRIPTION" # unsafe-continuation
 gh pr create --body-file "$BODY_FILE" --description "$DESCRIPTION" # unsafe-mixed-body-file
 EOF
 
@@ -99,6 +119,7 @@ EXPECTED_UNSAFE='gh pr create --title "$(cat "$TITLE_FILE")" --body "$BODY" # un
 gh pr comment 1 --body '\''$BODY'\'' # unsafe-single-quote
 glab mr note 1 --message "$MESSAGE" # unsafe-double-quote
 glab mr create --description=$DESCRIPTION # unsafe-unquoted
+glab mr create --description "$MULTILINE_DESCRIPTION" # unsafe-continuation
 gh pr create --body-file "$BODY_FILE" --description "$DESCRIPTION" # unsafe-mixed-body-file'
 [ "$(cat "${UNSAFE_COMMANDS}")" = "${EXPECTED_UNSAFE}" ] ||
 	fail 'internal test error: unsafe command scanner did not classify all regression fixtures correctly'
