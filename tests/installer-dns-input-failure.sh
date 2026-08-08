@@ -209,6 +209,7 @@ for FAIL_PROMPT in 1 2; do
 	CONFIRM_PROMPTS=0
 	DNS_PROMPTS=0
 	DNS_FILTER_CALLS=0
+	: >"${CONF_FILE}"
 	printf '%s\n' 'working configuration' >"${YAML_FILE}"
 	printf '%s\n' 'original template' >"${YAML_ORI}"
 	: >"${WRITE_LOG}"
