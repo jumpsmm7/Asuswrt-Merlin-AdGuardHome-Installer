@@ -99,7 +99,8 @@ fi
   These examples support **Bitbucket Cloud only**. Bitbucket Server and Data Center use different REST routes and project/repository addressing, so do not point these commands at a self-hosted instance.
 - **Load configuration** (existing environment variables take precedence):
   ```bash
-  if [ -z "${BB_USERNAME:-}" ] || [ -z "${BB_APP_PASSWORD:-}" ]; then
+  if [ -z "$(printf '%s' "${BB_USERNAME:-}" | tr -d '[:space:]')" ] ||
+    [ -z "$(printf '%s' "${BB_APP_PASSWORD:-}" | tr -d '[:space:]')" ]; then
     if [ -z "${HOME:-}" ] && [ -z "${QODO_CONFIG:-}" ]; then
       echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
       exit 1
@@ -116,10 +117,11 @@ fi
         echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
         exit 1
       fi
-      [ -n "${BB_USERNAME:-}" ] || BB_USERNAME=$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get("BB_USERNAME",""); print(v if isinstance(v,str) and v.strip() else "")' "$QODO_CONFIG")
-      [ -n "${BB_APP_PASSWORD:-}" ] || BB_APP_PASSWORD=$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get("BB_APP_PASSWORD",""); print(v if isinstance(v,str) and v.strip() else "")' "$QODO_CONFIG")
+      [ -n "$(printf '%s' "${BB_USERNAME:-}" | tr -d '[:space:]')" ] || BB_USERNAME=$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get("BB_USERNAME",""); print(v if isinstance(v,str) and v.strip() else "")' "$QODO_CONFIG")
+      [ -n "$(printf '%s' "${BB_APP_PASSWORD:-}" | tr -d '[:space:]')" ] || BB_APP_PASSWORD=$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get("BB_APP_PASSWORD",""); print(v if isinstance(v,str) and v.strip() else "")' "$QODO_CONFIG")
     fi
-    if [ -z "${BB_USERNAME:-}" ] || [ -z "${BB_APP_PASSWORD:-}" ]; then
+    if [ -z "$(printf '%s' "${BB_USERNAME:-}" | tr -d '[:space:]')" ] ||
+      [ -z "$(printf '%s' "${BB_APP_PASSWORD:-}" | tr -d '[:space:]')" ]; then
       echo "Bitbucket credentials are missing; set BB_USERNAME and BB_APP_PASSWORD or add them to $QODO_CONFIG" >&2
       exit 1
     fi
@@ -207,7 +209,7 @@ EOF
   `AZURE_DEVOPS_EXT_PAT` replaces `az login`. `AZURE_DEVOPS_URL` is optional — only needed for on-premises Azure DevOps Server.
 - **Authenticate and configure:**
   ```bash
-  if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ] || [ -z "${AZURE_DEVOPS_URL:-}" ]; then
+  if [ -z "$(printf '%s' "${AZURE_DEVOPS_EXT_PAT:-}" | tr -d '[:space:]')" ] || [ -z "${AZURE_DEVOPS_URL:-}" ]; then
     if [ -z "${HOME:-}" ] && [ -z "${QODO_CONFIG:-}" ]; then
       echo "Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined" >&2
       exit 1
@@ -224,8 +226,8 @@ EOF
         echo "Error: Qodo config file $QODO_CONFIG must have mode 600 (owner-only access)" >&2
         exit 1
       fi
-      if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ]; then
-        if ! AZURE_DEVOPS_EXT_PAT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("AZURE_DEVOPS_EXT_PAT") or "")' "$QODO_CONFIG"); then
+      if [ -z "$(printf '%s' "${AZURE_DEVOPS_EXT_PAT:-}" | tr -d '[:space:]')" ]; then
+        if ! AZURE_DEVOPS_EXT_PAT=$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get("AZURE_DEVOPS_EXT_PAT",""); print(v if isinstance(v,str) and v.strip() else "")' "$QODO_CONFIG"); then
           echo "Error: Failed to parse AZURE_DEVOPS_EXT_PAT from $QODO_CONFIG" >&2
           exit 1
         fi
@@ -239,7 +241,7 @@ EOF
     fi
   fi
   export AZURE_DEVOPS_EXT_PAT
-  if [ -z "${AZURE_DEVOPS_EXT_PAT:-}" ]; then
+  if [ -z "$(printf '%s' "${AZURE_DEVOPS_EXT_PAT:-}" | tr -d '[:space:]')" ]; then
     az login || { echo "Error: az login failed" >&2; exit 1; }
   fi
   # Normalize the configured service/collection URL. For Azure DevOps Cloud,
