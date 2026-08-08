@@ -84,7 +84,7 @@ grep -E '(gh pr (comment|create)|glab mr (comment|note|create))' "${PROVIDERS}" 
 	# that could contain dynamic content (not from a file read)
 	if printf '%s' "$line" | grep -qE '(gh pr (comment|create)|glab mr (comment|note|create)).*(--body|--message|--description)[[:space:]]+"'; then
 		# Record the unsafe command for later reporting
-		printf '%s\n' "$line" >> "$UNSAFE_COMMANDS"
+		printf '%s\n' "$line" >>"$UNSAFE_COMMANDS"
 	fi
 done
 
