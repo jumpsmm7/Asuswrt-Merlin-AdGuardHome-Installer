@@ -8861,7 +8861,7 @@ case "${1:-}" in
 		fi
 		exit 0
 		;;
-	status)
+			printf '%s
 		status "${BRANCH}"
 		exit "$?"
 		;;
