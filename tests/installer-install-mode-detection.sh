@@ -374,6 +374,11 @@ AGH_STUB
 	check_dns_local() { :; }
 	# check_ipset checks whether the required ipset functionality is available.
 	check_ipset() { :; }
+	# adguard_ipset_allowed checks whether ipset functionality is permitted for the current install mode.
+	adguard_ipset_allowed() {
+		printf '%s\n' 'adguard_ipset_allowed' >>"${CALLS_FILE}"
+		return 0
+	}
 	# ai_have_cmd always reports that the requested command is unavailable.
 	ai_have_cmd() { return 1; }
 	# nvram returns predefined test values for selected keys and accepts set and commit operations.
@@ -393,8 +398,14 @@ AGH_STUB
 	}
 
 	# Invoke the real setup entry point
-	if ! setup_AdGuardHome_impl '' install >/dev/null 2>&1; then
+	STDERR_OUTPUT="${TMP_ROOT}/setup-stderr"
+	if ! setup_AdGuardHome_impl '' install >"${TMP_ROOT}/setup-stdout" 2>"${STDERR_OUTPUT}"; then
+		cat "${STDERR_OUTPUT}" >&2
 		fail 'setup_AdGuardHome_impl failed for LAN mode without DNS filter selection'
+	fi
+	if grep -q 'command not found' "${STDERR_OUTPUT}"; then
+		cat "${STDERR_OUTPUT}" >&2
+		fail 'setup_AdGuardHome_impl encountered missing command in LAN mode test'
 	fi
 
 	# Assert that check_dns_filter was not called in LAN mode without DNS filter selection

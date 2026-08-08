@@ -62,11 +62,17 @@ if [ -z "$REPLY_SECTION" ]; then
 	fail 'Reply to Inline Comments section not found in providers.md'
 fi
 
+if ! printf '%s\n' "$REPLY_SECTION" | grep -Fq '### GitLab'; then
+	fail 'GitLab subsection heading not found in Reply to Inline Comments section (cannot extract GitHub subsection)'
+fi
 REPLY_GITHUB=$(printf '%s\n' "$REPLY_SECTION" | sed -n '/^### GitHub$/,/^### GitLab$/p' | sed '$d')
-REPLY_GITLAB=$(printf '%s\n' "$REPLY_SECTION" | sed -n '/^### GitLab$/,/^### Bitbucket$/p' | sed '$d')
 if [ -z "$REPLY_GITHUB" ]; then
 	fail 'GitHub subsection not found in Reply to Inline Comments section'
 fi
+if ! printf '%s\n' "$REPLY_SECTION" | grep -Fq '### Bitbucket'; then
+	fail 'Bitbucket subsection heading not found in Reply to Inline Comments section (cannot extract GitLab subsection)'
+fi
+REPLY_GITLAB=$(printf '%s\n' "$REPLY_SECTION" | sed -n '/^### GitLab$/,/^### Bitbucket$/p' | sed '$d')
 if [ -z "$REPLY_GITLAB" ]; then
 	fail 'GitLab subsection not found in Reply to Inline Comments section'
 fi
@@ -110,11 +116,14 @@ done
 
 # Extract Bitbucket and Azure DevOps Reply to Inline Comments sections and verify
 # that the payload serializer reads the body from a file and does not embed it inline.
+if ! printf '%s\n' "$REPLY_SECTION" | grep -Fq '### Azure DevOps'; then
+	fail 'Azure DevOps subsection heading not found in Reply to Inline Comments section (cannot extract Bitbucket subsection)'
+fi
 BITBUCKET_REPLY_SECTION=$(printf '%s\n' "$REPLY_SECTION" | sed -n '/^### Bitbucket$/,/^### Azure DevOps$/p' | sed '$d')
-AZURE_REPLY_SECTION=$(printf '%s\n' "$REPLY_SECTION" | sed -n '/^### Azure DevOps$/,$p')
 if [ -z "$BITBUCKET_REPLY_SECTION" ]; then
 	fail 'Bitbucket reply subsection not found in Reply to Inline Comments section'
 fi
+AZURE_REPLY_SECTION=$(printf '%s\n' "$REPLY_SECTION" | sed -n '/^### Azure DevOps$/,$p')
 if [ -z "$AZURE_REPLY_SECTION" ]; then
 	fail 'Azure DevOps reply subsection not found in Reply to Inline Comments section'
 fi
@@ -149,11 +158,17 @@ if [ -z "$SUMMARY_SECTION" ]; then
 	fail 'Post Summary Comment section not found in providers.md'
 fi
 
+if ! printf '%s\n' "$SUMMARY_SECTION" | grep -Fq '### GitLab'; then
+	fail 'GitLab subsection heading not found in Post Summary Comment section (cannot extract GitHub subsection)'
+fi
 SUMMARY_GITHUB=$(printf '%s\n' "$SUMMARY_SECTION" | sed -n '/^### GitHub$/,/^### GitLab$/p' | sed '$d')
-SUMMARY_GITLAB=$(printf '%s\n' "$SUMMARY_SECTION" | sed -n '/^### GitLab$/,/^### Bitbucket$/p' | sed '$d')
 if [ -z "$SUMMARY_GITHUB" ]; then
 	fail 'GitHub subsection not found in Post Summary Comment section'
 fi
+if ! printf '%s\n' "$SUMMARY_SECTION" | grep -Fq '### Bitbucket'; then
+	fail 'Bitbucket subsection heading not found in Post Summary Comment section (cannot extract GitLab subsection)'
+fi
+SUMMARY_GITLAB=$(printf '%s\n' "$SUMMARY_SECTION" | sed -n '/^### GitLab$/,/^### Bitbucket$/p' | sed '$d')
 if [ -z "$SUMMARY_GITLAB" ]; then
 	fail 'GitLab subsection not found in Post Summary Comment section'
 fi

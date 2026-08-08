@@ -194,11 +194,12 @@ Gerrit has no "source branch" concept. Changes are identified by `Change-Id` fro
 
 ```bash
 CHANGE_ID=$(git log -1 --format=%b | grep -E '^Change-Id: ' | sed 's/^Change-Id: //')
-CHANGE_ID_COUNT=$(printf '%s\n' "${CHANGE_ID}" | grep -c '^' || echo 0)
-if [ "${CHANGE_ID_COUNT}" -eq 0 ]; then
+if [ -z "${CHANGE_ID}" ]; then
   echo "Error: No Change-Id found in commit message" >&2
   exit 1
-elif [ "${CHANGE_ID_COUNT}" -gt 1 ]; then
+fi
+CHANGE_ID_COUNT=$(printf '%s\n' "${CHANGE_ID}" | grep -c '^')
+if [ "${CHANGE_ID_COUNT}" -gt 1 ]; then
   echo "Error: Multiple Change-Id footers found in commit message (expected exactly one)" >&2
   exit 1
 fi

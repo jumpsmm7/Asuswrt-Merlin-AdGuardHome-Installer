@@ -212,9 +212,9 @@ EOF_CANDIDATES
 	select_unused_blocklists_for_removal "${TMP_ROOT}/ids.actual" >/dev/null 2>&1 || true
 ) || fail 'blocklist helper subprocess failed'
 
-diff -q "${TMP_ROOT}/ids.expected" "${TMP_ROOT}/ids.actual" >/dev/null 2>&1 ||
+cmp -s "${TMP_ROOT}/ids.expected" "${TMP_ROOT}/ids.actual" ||
 	fail "unused ID parsing changed: $(cat "${TMP_ROOT}/ids.actual")"
-diff -q "${TMP_ROOT}/candidates.expected" "${TMP_ROOT}/candidates.actual" >/dev/null 2>&1 ||
+cmp -s "${TMP_ROOT}/candidates.expected" "${TMP_ROOT}/candidates.actual" ||
 	fail "YAML filter candidate parsing changed: $(cat "${TMP_ROOT}/candidates.actual")"
 grep -q 'Remove blocklist List A from AdGuardHome.yaml?' "${TMP_ROOT}/prompts.actual" ||
 	fail 'one-by-one prompt does not include the first blocklist name'
@@ -305,7 +305,7 @@ cp "${TMP_ROOT}/AdGuardHome.yaml.restore" "${TMP_ROOT}/AdGuardHome.yaml" ||
 	exit 0
 ) || fail 'blocklist restore fallback subprocess failed'
 
-diff -q "${TMP_ROOT}/AdGuardHome.yaml.restore" "${TMP_ROOT}/AdGuardHome.yaml" >/dev/null 2>&1 ||
+cmp -s "${TMP_ROOT}/AdGuardHome.yaml.restore" "${TMP_ROOT}/AdGuardHome.yaml" ||
 	fail 'backup was not moved back when restore copy failed'
 grep -q 'Validation failed; restored' "${TMP_ROOT}/restore-fallback.out" ||
 	fail 'restore fallback success was not reported'
