@@ -89,7 +89,7 @@ grep -E '(gh pr (comment|create)|glab mr (comment|note|create))' "${PROVIDERS}" 
 done
 
 if [ -s "$UNSAFE_COMMANDS" ]; then
-	cmd=$(head -n 1 "$UNSAFE_COMMANDS" | sed -E 's/^[[:space:]]*//')
+	cmd=$(head -n 1 "$UNSAFE_COMMANDS" | sed 's/^[[:space:]]*//')
 	rm -f "$UNSAFE_COMMANDS"
 	fail "${PROVIDERS}: found potentially unsafe inline body in command: $cmd"
 fi
