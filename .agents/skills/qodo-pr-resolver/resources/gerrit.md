@@ -331,10 +331,10 @@ POST /a/changes/<change-id>/revisions/current/review
 OLD_UMASK=$(umask)
 umask 077
 REPLY_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gerrit_reply.XXXXXX") || exit 1
-trap 'rm -rf "$REPLY_DIR"' EXIT
-trap 'rm -rf "$REPLY_DIR"; exit 129' HUP
-trap 'rm -rf "$REPLY_DIR"; exit 130' INT
-trap 'rm -rf "$REPLY_DIR"; exit 143' TERM
+trap 'rm -rf "$REPLY_DIR" "$GERRIT_NETRC_DIR"' EXIT
+trap 'rm -rf "$REPLY_DIR" "$GERRIT_NETRC_DIR"; exit 129' HUP
+trap 'rm -rf "$REPLY_DIR" "$GERRIT_NETRC_DIR"; exit 130' INT
+trap 'rm -rf "$REPLY_DIR" "$GERRIT_NETRC_DIR"; exit 143' TERM
 REPLY_BODY_FILE="${REPLY_DIR}/body"
 FILE_PATH_FILE="${REPLY_DIR}/path"
 COMMENT_ID_FILE="${REPLY_DIR}/comment_id"
@@ -412,10 +412,10 @@ Uses the same unified endpoint with the `message` field. Summary and all inline 
 OLD_UMASK=$(umask)
 umask 077
 SUMMARY_FILE=$(mktemp "${TMPDIR:-/tmp}/gerrit_summary.XXXXXX") || exit 1
-trap 'rm -f "$SUMMARY_FILE"' EXIT
-trap 'rm -f "$SUMMARY_FILE"; exit 129' HUP
-trap 'rm -f "$SUMMARY_FILE"; exit 130' INT
-trap 'rm -f "$SUMMARY_FILE"; exit 143' TERM
+trap 'rm -f "$SUMMARY_FILE"; rm -rf "$GERRIT_NETRC_DIR"' EXIT
+trap 'rm -f "$SUMMARY_FILE"; rm -rf "$GERRIT_NETRC_DIR"; exit 129' HUP
+trap 'rm -f "$SUMMARY_FILE"; rm -rf "$GERRIT_NETRC_DIR"; exit 130' INT
+trap 'rm -f "$SUMMARY_FILE"; rm -rf "$GERRIT_NETRC_DIR"; exit 143' TERM
 # Write <summary-comment-body> to $SUMMARY_FILE now.
 SUMMARY_JSON=$(python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1], encoding="utf-8").read()))' "$SUMMARY_FILE") || exit 1
 rm -f "$SUMMARY_FILE"
