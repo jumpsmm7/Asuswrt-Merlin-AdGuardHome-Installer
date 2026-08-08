@@ -6,8 +6,9 @@ CONFIG_QODO_API_URL=""
 
 # The config file is an optional fallback; environment-only setup is supported.
 if [ -f "${CONFIG_FILE}" ]; then
-	# Only validate permissions and parse the config when environment-only setup is insufficient
-	if [ -z "${QODO_API_KEY:-}" ] || [ -z "${QODO_ENVIRONMENT_NAME:-}" ] || [ -z "${QODO_API_URL:-}" ]; then
+	# An environment API key is sufficient: optional endpoint variables may use
+	# their documented production defaults without consulting the config file.
+	if [ -z "${QODO_API_KEY:-}" ]; then
 		# Validate permissions before reading credentials
 		CONFIG_DIR=$(dirname "${CONFIG_FILE}")
 		if [ "$(stat -c '%a' "$CONFIG_DIR" 2>/dev/null || stat -f '%Lp' "$CONFIG_DIR" 2>/dev/null)" != "700" ]; then
