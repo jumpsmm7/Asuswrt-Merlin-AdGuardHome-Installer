@@ -156,4 +156,15 @@ ARG_PARSE_RC=$?
 [ "${ARG_PARSE_RC}" -eq 2 ] || fail "argument parsing: expected exit code 2 for an unrecognized argument, got ${ARG_PARSE_RC}"
 printf '%s\n' "${ARG_PARSE_OUT}" | grep -Fq 'Usage:' || fail "argument parsing: expected a usage message for an unrecognized argument, got: ${ARG_PARSE_OUT}"
 
+# --- Orphaned test coverage --------------------------------------------------
+# Every tests/*.sh regression script must be wired into a run_check call in
+# tools/code-quality.sh (tests/dns-startup-handoff.sh is invoked indirectly via
+# run_dns_handoff_check, so it is exempt). A new test file that isn't
+# referenced here would silently receive zero CI coverage.
+for t in tests/*.sh; do
+	[ "${t}" = 'tests/dns-startup-handoff.sh' ] && continue
+	grep -Fq "${t}" "${SCRIPT_PATH}" ||
+		fail "${t} is not referenced by any run_check in ${SCRIPT_PATH}; new test files must be wired in or they get zero CI coverage"
+done
+
 printf '%s\n' 'PASS: tools/code-quality.sh helper functions and argument parsing behave as documented'

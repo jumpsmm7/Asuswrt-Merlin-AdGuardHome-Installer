@@ -144,6 +144,7 @@ run_check 'Installer JFFS failure propagation regression' sh tests/installer-jff
 run_check 'Installer install-mode detection regression' sh tests/installer-install-mode-detection.sh
 run_check 'Installer CLI LAN-mode regression' sh tests/installer-cli-lan-mode.sh
 run_check 'Installer CLI IPSET dry-run regression' sh tests/installer-cli-ipset-dry-run.sh
+run_check 'Installer CLI runtime config regression' sh tests/installer-cli-runtime-config.sh
 run_check 'Installer LAN IPSET YAML cleanup regression' sh tests/installer-lan-ipset-yaml-cleanup.sh
 run_check 'Installer bind address regression' sh tests/installer-bind-addresses.sh
 run_check 'Installer LAN startup generation regression' sh tests/installer-lan-startup-generation.sh
@@ -153,12 +154,15 @@ run_check 'Installer doctor fix safety regression' sh tests/installer-doctor-fix
 run_check 'Installer doctor rollback result regression' sh tests/installer-doctor-rollback-result.sh
 run_check 'Installer SHA-256 helper regression' sh tests/installer-sha256-helper.sh
 run_check 'Installer blocklist cleanup regression' sh tests/installer-blocklist-cleanup.sh
+run_check 'Installer uninstall cleanup regression' sh tests/installer-uninstall-cleanup.sh
 run_check 'Installer iterative input regression' sh tests/installer-input-loops.sh
 run_check 'Installer staged authentication regression' sh tests/installer-staged-authentication.sh
 run_check 'Installer staged YAML validation regression' sh tests/installer-staged-yaml-validation.sh
+run_check 'Installer YAML validation rollback regression' sh tests/installer-yaml-validation-rollback.sh
 run_check 'Installer startup readiness regression' sh tests/installer-startup-readiness.sh
 run_check 'Installer DNS environment failure regression' sh tests/installer-dns-environment-failure.sh
 run_check 'Installer service status wait regression' sh tests/installer-service-status-after-action.sh
+run_check 'Installer status reporting regression' sh tests/installer-status.sh
 run_check 'Installer service lock descriptor regression' sh tests/installer-service-lock-fd.sh
 run_check 'Installer mandatory numeric input failure regression' sh tests/installer-mandatory-number-failure.sh
 run_check 'Installer DNS input failure regression' sh tests/installer-dns-input-failure.sh
@@ -170,6 +174,7 @@ run_check 'Installer confirmation failure propagation regression' sh tests/insta
 run_check 'Installer local-cache preference save failure regression' sh tests/installer-local-cache-save-failure.sh
 run_check 'Installer IPSET preference save failure regression' sh tests/installer-ipset-save-failure.sh
 run_check 'Installer setup IPSET preference save failure regression' sh tests/installer-ipset-setup-save-failure.sh
+run_check 'Installer IPSET allowed-mode fallback regression' sh tests/installer-ipset-allowed-mode-fallback.sh
 run_check 'Installer runtime-default migration regression' sh tests/installer-migrate-runtime-defaults.sh
 run_check 'Installer restore feature-selection regression' sh tests/installer-restore-feature-selections.sh
 run_check 'Installer reverse-upstream target regression' sh tests/installer-reverse-upstream-target.sh
@@ -178,8 +183,10 @@ run_check 'AdGuardHome LAN bind refresh regression' sh tests/adguardhome-lan-bin
 run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
 run_check 'AdGuardHome S99 DNS mode lifecycle regression' sh tests/s99-dns-mode-lifecycle.sh
 run_check 'AdGuardHome S99 netstat readiness regression' sh tests/s99-netstat-readiness.sh
+run_check 'AdGuardHome S99 startup readiness regression' sh tests/s99-startup-readiness.sh
 run_check 'AdGuardHome stop failure regression' sh tests/stop-adguardhome-failure.sh
 run_check 'AdGuardHome monitor retry backoff regression' sh tests/monitor-retry-backoff.sh
+run_check 'AdGuardHome legacy netcheck regression' sh tests/netcheck-legacy.sh
 run_check 'AdGuardHome DNS startup handoff regression' run_dns_handoff_check
 run_check 'AdGuardHome required-handoff fallback regression' sh tests/rc-required-handoff-fallback.sh
 run_check 'AdGuardHome runtime mode helper regression' sh tests/adguardhome-runtime-mode-helpers.sh
