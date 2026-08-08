@@ -178,6 +178,7 @@ nvram_transaction_finalize_setup_pair() {
 			[ ! -d "${snapshot_root}/setup-files" ]; then
 			return 0
 		fi
+		mkdir -p "${snapshot_root}" || return 1
 		printf '%s\n' committed >"${marker_tmp}" || return 1
 		chmod 600 "${marker_tmp}" || {
 			rm -f "${marker_tmp}"
@@ -205,10 +206,17 @@ nvram_transaction_finalize_setup_pair() {
 	return 0
 }
 
+nvram_transaction_setup_committed() {
+	[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]
+}
+
 nvram_transaction_setup_files_begin() {
 	local journal_entry journal_root journal_tmp source
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 	journal_tmp="${journal_root}.tmp.$$"
+	# Setup-file publication shares the NVRAM transaction lock so startup
+	# recovery cannot mistake an active journal for an interrupted operation.
+	nvram_transaction_lock_acquire || return 1
 	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram" ] || return 1
 	[ ! -e "${journal_root}" ] && [ ! -L "${journal_root}" ] || return 1
 	rm -rf "${journal_tmp}" || return 1
@@ -292,10 +300,12 @@ nvram_transaction_setup_files_restore() {
 		esac
 		stage="${target}.setup-restore.$$"
 		if [ -f "${journal_root}/${source}" ]; then
-			cp -p "${journal_root}/${source}" "${stage}" && mv -f "${stage}" "${target}" || {
+			if cp -p "${journal_root}/${source}" "${stage}" && mv -f "${stage}" "${target}"; then
+				:
+			else
 				rm -f "${stage}"
 				return 1
-			}
+			fi
 		elif [ -f "${journal_root}/${source}.absent" ]; then
 			rm -f "${target}" || return 1
 		else
@@ -1048,7 +1058,7 @@ installer_lan_domain_set() {
 }
 
 installer_lan_domain_restore() {
-	[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || return 0
+	! nvram_transaction_setup_committed || return 0
 	NVRAM_TRANSACTION_DIR="${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
 	export NVRAM_TRANSACTION_DIR
 	[ -d "${NVRAM_TRANSACTION_DIR}" ] || return 0
@@ -1290,19 +1300,23 @@ on_installer_exit() {
 	if [ "${_DNS_STUBBY_STOPPED:-0}" = "1" ] && ! restore_stubby_after_dns_failure; then
 		PTXT "${ERROR} Unable to restart stubby after interrupted DNS preparation."
 	fi
-	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && nvram_transaction_lock_owned; then
+	if nvram_transaction_lock_owned; then
+		# Finalize setup-pair for both WAN and LAN modes
 		nvram_transaction_finalize_setup_pair recovery || PTXT "${ERROR} Unable to finish the committed installer-managed NVRAM cleanup."
-		[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || nvram_transaction_setup_files_restore || PTXT "${ERROR} Unable to restore the interrupted installer configuration files."
-		# Restore any LAN-domain transaction interrupted before setup finalized it.
-		installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
-		# Restore any DNSFilter transaction interrupted before setup finalized it.
-		if ! restore_dns_filter_settings; then
-			PTXT "${ERROR} Unable to restore the DNSFilter NVRAM settings; review ${ROLLBACK_RESULT_FILE} and the preserved snapshot before restarting setup."
+		if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ]; then
+			# Restore any LAN-domain transaction interrupted before setup finalized it.
+			installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
+			# Restore any DNSFilter transaction interrupted before setup finalized it.
+			if ! restore_dns_filter_settings; then
+				PTXT "${ERROR} Unable to restore the DNSFilter NVRAM settings; review ${ROLLBACK_RESULT_FILE} and the preserved snapshot before restarting setup."
+			fi
+			# Restore pre-check DNS settings only when exiting without a local adguardhome installation.
+			if [ ! -f "${AGH_FILE}" ]; then
+				(check_dns_environment 1) || PTXT "${ERROR} Unable to restore the pre-check DNS NVRAM settings."
+			fi
 		fi
-		# Restore pre-check DNS settings only when exiting without a local adguardhome installation.
-		if [ ! -f "${AGH_FILE}" ]; then
-			(check_dns_environment 1) || PTXT "${ERROR} Unable to restore the pre-check DNS NVRAM settings."
-		fi
+		# Restore setup files journal for both WAN and LAN modes
+		setup_restore_nvram_journal || true
 	fi
 	nvram_transaction_lock_release || PTXT "${ERROR} Unable to release the installer NVRAM transaction lock."
 }
@@ -2063,9 +2077,9 @@ preflight_check_downloader() {
 	fi
 	PTXT "preflight.downloader.required=/usr/sbin/curl or /usr/sbin/wget"
 	PTXT "preflight.downloader.curl.which=${curl_path:-missing}"
-	PTXT "preflight.downloader.curl.stock=$([ -x /usr/sbin/curl ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.downloader.curl.stock=$(if [ -x /usr/sbin/curl ]; then PTXT OK; else PTXT missing; fi)"
 	PTXT "preflight.downloader.wget.which=${wget_path:-missing}"
-	PTXT "preflight.downloader.wget.stock=$([ -x /usr/sbin/wget ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.downloader.wget.stock=$(if [ -x /usr/sbin/wget ]; then PTXT OK; else PTXT missing; fi)"
 	PTXT "preflight.downloader.result=${result}"
 	[ "${result}" = "OK" ]
 }
@@ -2077,9 +2091,9 @@ preflight_check_entware() {
 		result="OK"
 	fi
 	PTXT "preflight.entware.required=yes"
-	PTXT "preflight.entware.opt_dir=$([ -d /opt ] && PTXT OK || PTXT missing)"
-	PTXT "preflight.entware.opkg=$([ -x /opt/bin/opkg ] && PTXT OK || PTXT missing)"
-	PTXT "preflight.entware.config=$({ [ -f /opt/etc/opkg.conf ] || [ -f /opt/etc/init.d/rc.unslung ]; } && PTXT OK || PTXT missing)"
+	PTXT "preflight.entware.opt_dir=$(if [ -d /opt ]; then PTXT OK; else PTXT missing; fi)"
+	PTXT "preflight.entware.opkg=$(if [ -x /opt/bin/opkg ]; then PTXT OK; else PTXT missing; fi)"
+	PTXT "preflight.entware.config=$(if [ -f /opt/etc/opkg.conf ] || [ -f /opt/etc/init.d/rc.unslung ]; then PTXT OK; else PTXT missing; fi)"
 	PTXT "preflight.entware.result=${result}"
 	[ "${result}" = "OK" ]
 }
@@ -2107,10 +2121,10 @@ preflight_check_jq() {
 	fi
 	PTXT "preflight.jq.required=yes"
 	PTXT "preflight.jq.which=${jq_path:-missing}"
-	PTXT "preflight.jq.stock=$([ -x /usr/bin/jq ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.jq.stock=$(if [ -x /usr/bin/jq ]; then PTXT OK; else PTXT missing; fi)"
 	if [ "${allow_entware}" = "1" ]; then
 		[ "${result}" = "OK" ] || [ ! -x /opt/bin/jq ] || result="OK"
-		PTXT "preflight.jq.entware=$([ -x /opt/bin/jq ] && PTXT OK || PTXT missing)"
+		PTXT "preflight.jq.entware=$(if [ -x /opt/bin/jq ]; then PTXT OK; else PTXT missing; fi)"
 		PTXT "preflight.jq.install_hint=opkg install jq"
 	else
 		PTXT "preflight.jq.entware=not_checked"
@@ -3981,7 +3995,7 @@ save_dns_filter_settings() {
 }
 
 restore_dns_filter_settings() {
-	[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || return 0
+	! nvram_transaction_setup_committed || return 0
 	NVRAM_TRANSACTION_DIR="${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
 	export NVRAM_TRANSACTION_DIR
 	[ -d "${NVRAM_TRANSACTION_DIR}" ] || return 0
@@ -6106,6 +6120,31 @@ setup_restore_previous_yaml() {
 	return 0
 }
 
+setup_restore_nvram_journal() {
+	if [ "${SETUP_FILES_JOURNALED:-0}" -ne 1 ] &&
+		[ ! -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
+		return 0
+	fi
+	# The shared marker is the setup commit point.  Deferred journal cleanup
+	# must never turn a committed file publication back into a rollback.
+	! nvram_transaction_setup_committed || return 0
+	if nvram_transaction_setup_files_restore; then
+		SETUP_FILES_JOURNALED=0
+	else
+		PTXT "${ERROR} Unable to restore the setup journal; recovery state was preserved."
+		return 1
+	fi
+}
+
+# Shared guard for setup_AdGuardHome_impl call sites: journals the current
+# setup files on first use only, so repeated calls do not re-journal.  Relies
+# on the caller's SETUP_FILES_JOURNALED local variable.
+setup_files_begin_if_needed() {
+	[ "${SETUP_FILES_JOURNALED}" -eq 0 ] || return 0
+	nvram_transaction_setup_files_begin || return 1
+	SETUP_FILES_JOURNALED=1
+}
+
 setup_resolve_lan_addresses() {
 	local LAN_IF NVRAM_ADDR6
 
@@ -6759,7 +6798,7 @@ adguard_migrate_detected_install_mode() {
 }
 
 setup_AdGuardHome_impl() {
-	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_REARM_FAILED=0 LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_ORI_ROLLBACK="" YAML_ORI_WAS_PRESENT=0 YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
+	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_REARM_FAILED=0 LAN_DOMAIN_ROLLBACK="" SETUP_FILES_JOURNALED="${3:-0}" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_ORI_ROLLBACK="" YAML_ORI_WAS_PRESENT=0 YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ "${ADGUARD_FORCE_SETUP_YAML:-0}" = "1" ] && { [ -f "${YAML_FILE}" ] || [ -f "${YAML_ORI}" ]; }; then
 		PTXT "${INFO} Restored mode differs from detected router mode; updating mode-dependent AdGuardHome settings."
@@ -6779,50 +6818,84 @@ setup_AdGuardHome_impl() {
 			if ! read_input_port "Default is" 3000; then
 				return 1
 			fi
+			if nvram_transaction_setup_files_begin; then
+				SETUP_FILES_JOURNALED=1
+			else
+				PTXT "${ERROR} Unable to journal the current installer configuration before WebUI port setup."
+				return 1
+			fi
 			CONFIG_ROLLBACK="${TMPDIR:-/tmp}/AdGuardHome.config.webui-port.$$"
 			if ! save_installer_config "${CONFIG_ROLLBACK}"; then
+				setup_restore_nvram_journal || true
 				PTXT "${ERROR} Unable to preserve the previous installer preferences."
 				return 1
 			fi
 			if ! write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT}\""; then
 				restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+				setup_restore_nvram_journal || true
 				PTXT "${ERROR} Unable to save the AdGuardHome WebUI port."
 				return 1
 			fi
 			if ! setup_sync_webui_port "${WEB_PORT}"; then
 				restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+				setup_restore_nvram_journal || true
 				PTXT "${ERROR} Unable to update the AdGuardHome WebUI address."
 				return 1
 			fi
 			discard_installer_config_backup "${CONFIG_ROLLBACK}"
 			CONFIG_ROLLBACK=""
 		elif awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" != "$(awk -F':' '/.*address:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" ]; then
+			if ! setup_files_begin_if_needed; then
+				setup_restore_previous_yaml || true
+				PTXT "${ERROR} Unable to journal the current installer configuration before WebUI port synchronization."
+				return 1
+			fi
 			if ! setup_sync_webui_port "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')"; then
+				setup_restore_nvram_journal || true
 				PTXT "${ERROR} Unable to update the AdGuardHome WebUI address."
 				return 1
 			fi
 		fi
 		##########################################################################################################################################################################################################################################################################
-		if [ -n "$(awk -F': ' '/.*schema:.*/{ print $2 }' "${YAML_FILE}")" ] && [ "$(awk -F': ' '/.*schema:.*/{ print $2 }' "${YAML_FILE}")" != "${SCHEMA_VER}" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema:.*/{ print $2 }' "${YAML_FILE}")" "schema_version: ${SCHEMA_VER}" "${YAML_FILE}"; fi
+		if [ -n "$(awk -F': ' '/.*schema_version:.*/{ print $2 }' "${YAML_FILE}")" ] && [ "$(awk -F': ' '/.*schema_version:.*/{ print $2 }' "${YAML_FILE}")" != "${SCHEMA_VER}" ]; then
+			if ! setup_files_begin_if_needed; then
+				setup_restore_previous_yaml || true
+				PTXT "${ERROR} Unable to journal the current installer configuration before schema version update."
+				return 1
+			fi
+			if ! yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema_version:.*/{ print $2 }' "${YAML_FILE}")" "schema_version: ${SCHEMA_VER}" "${YAML_FILE}"; then
+				setup_restore_nvram_journal || true
+				PTXT "${ERROR} Unable to update the schema version in the configuration file."
+				return 1
+			fi
+		fi
 		if ! check_AdGuardHome_yaml; then
-			setup_AdGuardHome_impl x
+			setup_AdGuardHome_impl x "${2:-}" "${SETUP_FILES_JOURNALED}"
 			return
 		fi
 		PTXT "${INFO} Found previous AdGuardHome config file"
 		read_yesno "Do you want to use this file without reconfiguring?"
 		CONFIRM_STATUS=$?
 		if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+			if [ "${SETUP_FILES_JOURNALED}" -eq 1 ]; then
+				if ! nvram_transaction_finalize_setup_pair; then
+					setup_restore_nvram_journal || true
+					PTXT "${ERROR} Unable to finalize the installer configuration updates."
+					return 1
+				fi
+			fi
 			PTXT "${INFO} Use previous settings file"
 		elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
-			setup_AdGuardHome_impl x
+			setup_AdGuardHome_impl x "${2:-}" "${SETUP_FILES_JOURNALED}"
 		else
+			setup_restore_nvram_journal || true
 			return "${CONFIRM_STATUS}"
 		fi
 	else
 		if [ -f "${YAML_FILE}" ]; then
 			if [ "$1" = "reconfig" ]; then
 				if ! check_AdGuardHome_yaml; then
-					setup_AdGuardHome_impl x
+					setup_AdGuardHome_impl x "${2:-}" "${SETUP_FILES_JOURNALED}"
 					return
 				fi
 				PTXT "${INFO} Found previous AdGuardHome config file"
@@ -6832,6 +6905,7 @@ setup_AdGuardHome_impl() {
 				"${INFO}   2) Restore original configuration selections" \
 				"${INFO}   3) Choose new configuration selections"
 			if ! read_input_num "Your selection" 1 3; then
+				setup_restore_nvram_journal || true
 				PTXT "${ERROR} Unable to select a reconfiguration mode. Setup was aborted."
 				return 1
 			fi
@@ -6840,8 +6914,14 @@ setup_AdGuardHome_impl() {
 					PTXT "${INFO} Using previous settings file"
 					;;
 				2 | 3)
+					if ! setup_files_begin_if_needed; then
+						setup_restore_previous_yaml || true
+						PTXT "${ERROR} Unable to journal the current installer configuration before YAML rotation."
+						return 1
+					fi
 					PTXT "${INFO} Backing up previous settings file..."
 					if ! mv "${YAML_FILE}" "${YAML_BAK}"; then
+						setup_restore_nvram_journal || true
 						PTXT "${ERROR} Unable to back up the previous AdGuardHome configuration. Setup was aborted."
 						return 1
 					fi
@@ -6854,6 +6934,11 @@ setup_AdGuardHome_impl() {
 					;;
 			esac
 		elif [ ! -f "${YAML_FILE}" ] && [ -f "${YAML_ORI}" ]; then
+			if ! setup_files_begin_if_needed; then
+				setup_restore_previous_yaml || true
+				PTXT "${ERROR} Unable to journal the current installer configuration before YAML copy."
+				return 1
+			fi
 			cp -f "${YAML_ORI}" "${YAML_FILE}"
 		fi
 		case "${2:-reconfig}" in
@@ -6868,6 +6953,7 @@ setup_AdGuardHome_impl() {
 							1) DNS_FILTER_SELECTION=0 ;;
 							*)
 								setup_restore_previous_yaml || true
+								setup_restore_nvram_journal || true
 								return "${YESNO_STATUS}"
 								;;
 						esac
@@ -6879,6 +6965,7 @@ setup_AdGuardHome_impl() {
 								1) LOCAL_CACHE_SELECTION=0 ;;
 								*)
 									setup_restore_previous_yaml || true
+									setup_restore_nvram_journal || true
 									return "${YESNO_STATUS}"
 									;;
 							esac
@@ -6892,6 +6979,7 @@ setup_AdGuardHome_impl() {
 							1) IPSET_SELECTION=0 ;;
 							*)
 								setup_restore_previous_yaml || true
+								setup_restore_nvram_journal || true
 								return "${YESNO_STATUS}"
 								;;
 						esac
@@ -6899,16 +6987,24 @@ setup_AdGuardHome_impl() {
 						IPSET_SELECTION=0
 						PTXT "${INFO} IPSET is disabled in LAN/AP/Bridge mode because IPTABLES/IPSET rules are not manageable there."
 					fi
-					if [ "$2" != "reconfig" ] && ! check_ipset "${IPSET_SELECTION}"; then
-						PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
-							"${WARNING} Continuing setup with the previous or default IPSET preference."
+					if [ "$2" != "reconfig" ]; then
+						if ! setup_files_begin_if_needed; then
+							setup_restore_previous_yaml || true
+							PTXT "${ERROR} Unable to journal the current installer configuration before check_ipset."
+							return 1
+						fi
+						if ! check_ipset "${IPSET_SELECTION}"; then
+							PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
+								"${WARNING} Continuing setup with the previous or default IPSET preference."
+						fi
 					fi
 				fi
-				if { { [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; } || [ "${CHOOSE_NEW}" -eq 1 ] || [ -n "${DNS_FILTER_SELECTION:-}" ]; } &&
-					! nvram_transaction_setup_files_begin; then
-					setup_restore_previous_yaml || true
-					PTXT "${ERROR} Unable to journal the current installer configuration before setup publication."
-					return 1
+				if { { [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; } || [ "${CHOOSE_NEW}" -eq 1 ] || [ -n "${DNS_FILTER_SELECTION:-}" ]; }; then
+					if ! setup_files_begin_if_needed; then
+						setup_restore_previous_yaml || true
+						PTXT "${ERROR} Unable to journal the current installer configuration before setup publication."
+						return 1
+					fi
 				fi
 				if { [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; } || [ "${CHOOSE_NEW}" -eq 1 ]; then
 					PTXT "${INFO} Requesting entries for AdGuardHome initial configuration..." \
@@ -6917,6 +7013,7 @@ setup_AdGuardHome_impl() {
 						"${INFO} and not already in use by any other service."
 					if ! read_input_port "Default is" 3000; then
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						return 1
 					fi
 					WEB_PORT_SELECTION="${WEB_PORT}"
@@ -6925,15 +7022,18 @@ setup_AdGuardHome_impl() {
 					if [ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" ] && [ -z "${NET_ADDR}" ]; then
 						PTXT "${ERROR} Unable to resolve the LAN IPv4 address for AdGuardHome LAN mode. Setup was aborted."
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						return 1
 					fi
 					if ! setup_resolve_bind_addresses; then
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						return 1
 					fi
 					if ! setup_reverse_upstream_target; then
 						PTXT "${ERROR} Unable to resolve the reverse upstream target. Setup was aborted."
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						return 1
 					fi
 					YAML_ORI_NEW="${YAML_ORI}.new.$$"
@@ -6944,6 +7044,7 @@ setup_AdGuardHome_impl() {
 					if ! AdGuardHome_authen 1 "${YAML_ORI_NEW}" 0; then
 						rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						return 1
 					fi
 					setup_write_dns_bind_hosts "${YAML_ORI_NEW}"
@@ -6953,11 +7054,13 @@ setup_AdGuardHome_impl() {
 					if ! read_input_dns "Default is" 9.9.9.9 || ! read_input_dns "2nd Default is" 8.8.8.8; then
 						rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						return 1
 					fi
 					if ! LAN_DOMAIN_ROLLBACK="$(nvram get lan_domain 2>/dev/null)"; then
 						rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						PTXT "${ERROR} Unable to read the LAN domain NVRAM setting; no changes were made."
 						return 1
 					fi
@@ -6999,12 +7102,14 @@ setup_AdGuardHome_impl() {
 					if ! check_AdGuardHome_yaml "${YAML_ORI_NEW}"; then
 						rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						return 1
 					fi
 					PTXT "${INFO} Writing AdGuardHome configuration..."
 					if ! cp -f "${YAML_ORI_NEW}" "${YAML_FILE}"; then
 						rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						PTXT "${ERROR} Writing AdGuardHome configuration failed "
 						return 1
 					fi
@@ -7012,16 +7117,23 @@ setup_AdGuardHome_impl() {
 				if ! check_AdGuardHome_yaml; then
 					[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 					setup_restore_previous_yaml || true
+					setup_restore_nvram_journal || true
 					PTXT "${ERROR} Writing AdGuardHome configuration failed " \
 						"${ERROR} Please send ${YAML_ERR} file and screen log of " \
 						"${ERROR} all ssh terminal operations to the script developer."
 					return 1
 				fi
 				if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && [ -n "${DNS_FILTER_SELECTION:-}" ]; then
+					if ! setup_files_begin_if_needed; then
+						setup_restore_previous_yaml || true
+						PTXT "${ERROR} Unable to journal the current installer configuration before DNSFilter reconfiguration."
+						return 1
+					fi
 					CONFIG_ROLLBACK="${TMPDIR:-/tmp}/AdGuardHome.config.$$"
 					if ! save_installer_config "${CONFIG_ROLLBACK}"; then
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						PTXT "${ERROR} Unable to preserve the current installer preferences."
 						return 1
 					fi
@@ -7029,6 +7141,7 @@ setup_AdGuardHome_impl() {
 						restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						PTXT "${ERROR} Unable to save the AdGuardHome domain setting."
 						return 1
 					fi
@@ -7037,6 +7150,7 @@ setup_AdGuardHome_impl() {
 							restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 							[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 							setup_restore_previous_yaml || true
+							setup_restore_nvram_journal || true
 							PTXT "${ERROR} Unable to persist the LAN domain setting."
 							return 1
 						fi
@@ -7052,6 +7166,7 @@ setup_AdGuardHome_impl() {
 						fi
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						PTXT "${ERROR} Unable to preserve the current DNSFilter settings."
 						return 1
 					fi
@@ -7069,6 +7184,7 @@ setup_AdGuardHome_impl() {
 						fi
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						return "${YESNO_STATUS}"
 					fi
 					if [ "$(nvram get dns_local_cache)" != "1" ]; then
@@ -7082,6 +7198,7 @@ setup_AdGuardHome_impl() {
 							fi
 							[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 							setup_restore_previous_yaml || true
+							setup_restore_nvram_journal || true
 							PTXT "${ERROR} Unable to save the AdGuardHome local cache setting."
 							return 1
 						fi
@@ -7096,28 +7213,52 @@ setup_AdGuardHome_impl() {
 							fi
 							[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 							setup_restore_previous_yaml || true
+							setup_restore_nvram_journal || true
 							PTXT "${ERROR} Unable to save the AdGuardHome local cache setting."
 							return 1
 						fi
 					fi
 				fi
-				if [ "$2" = "reconfig" ] && [ -n "${IPSET_SELECTION:-}" ] && ! check_ipset "${IPSET_SELECTION}"; then
-					PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
-						"${WARNING} Continuing reconfiguration with the previous IPSET preference."
+				if [ "$2" = "reconfig" ] && [ -n "${IPSET_SELECTION:-}" ]; then
+					if ! setup_files_begin_if_needed; then
+						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+						setup_restore_previous_yaml || true
+						PTXT "${ERROR} Unable to journal the current installer configuration before IPSET reconfiguration."
+						return 1
+					fi
+					if ! check_ipset "${IPSET_SELECTION}"; then
+						PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
+							"${WARNING} Continuing reconfiguration with the previous IPSET preference."
+					fi
 				fi
-				if { [ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" ] || [ -n "${DNS_FILTER_SELECTION:-}" ]; } &&
-					! configure_runtime_defaults new-install "${ADGUARD_INSTALL_MODE:-wan}" "${LOCAL_CACHE_SELECTION:-0}"; then
-					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
-					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
-						installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
+				if [ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" ] || [ -n "${DNS_FILTER_SELECTION:-}" ]; then
+					if ! setup_files_begin_if_needed; then
+						[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+						if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+							installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
+						fi
+						if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+							PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+						fi
+						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+						setup_restore_previous_yaml || true
+						PTXT "${ERROR} Unable to journal the current installer configuration before configure_runtime_defaults."
+						return 1
 					fi
-					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
-						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+					if ! configure_runtime_defaults new-install "${ADGUARD_INSTALL_MODE:-wan}" "${LOCAL_CACHE_SELECTION:-0}"; then
+						[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+						if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+							installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
+						fi
+						if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+							PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+						fi
+						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
+						PTXT "${ERROR} Unable to save the AdGuardHome runtime defaults."
+						return 1
 					fi
-					[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
-					setup_restore_previous_yaml || true
-					PTXT "${ERROR} Unable to save the AdGuardHome runtime defaults."
-					return 1
 				fi
 				if [ -n "${WEB_PORT_SELECTION:-}" ] && ! write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT_SELECTION}\""; then
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
@@ -7129,6 +7270,7 @@ setup_AdGuardHome_impl() {
 					fi
 					[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 					setup_restore_previous_yaml || true
+					setup_restore_nvram_journal || true
 					PTXT "${ERROR} Unable to save the AdGuardHome WebUI port."
 					return 1
 				fi
@@ -7145,6 +7287,7 @@ setup_AdGuardHome_impl() {
 							fi
 							rm -f "${YAML_ORI_NEW}"
 							setup_restore_previous_yaml || true
+							setup_restore_nvram_journal || true
 							PTXT "${ERROR} Unable to preserve the previous original AdGuardHome configuration snapshot."
 							return 1
 						fi
@@ -7161,6 +7304,7 @@ setup_AdGuardHome_impl() {
 						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 					fi
 					setup_restore_previous_yaml || true
+					setup_restore_nvram_journal || true
 					PTXT "${ERROR} Unable to publish the original AdGuardHome configuration snapshot."
 					return 1
 				fi
@@ -7174,6 +7318,7 @@ setup_AdGuardHome_impl() {
 						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 					fi
 					setup_restore_previous_yaml || true
+					setup_restore_nvram_journal || true
 					if [ "${YAML_ORI_WAS_PRESENT}" -eq 1 ]; then
 						mv -f "${YAML_ORI_ROLLBACK}" "${YAML_ORI}" || PTXT "${ERROR} Unable to restore the previous original AdGuardHome configuration snapshot."
 					else

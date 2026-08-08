@@ -309,6 +309,33 @@ reviews:
 
         Ignore grammar or prose preferences unless they make instructions
         ambiguous, unsafe, or technically incorrect.
+    - path: "**/AdGuardHome.sh"
+      instructions: | 
+        Keep new helpers in the existing purpose-based, alpha-numerically sorted function groups. Preserve the manager’s explicit dependency checks, quoted variable handling, captured return statuses, and dual flock/mkdir lock compatibility paths. Install and restore signal traps around critical sections without losing the original status.
+    - path: "**/S99AdGuardHome"
+      instructions: |
+        Preserve the staged DNS handoff lifecycle: establish the guarded handoff before stopping DNS services, publish AdGuardHome readiness before releasing the handoff, and restore dnsmasq/watchdog state on every startup failure or interruption. Retain FIFO/sleep fallbacks and bounded readiness/retry behavior for older BusyBox routers.
+    - path: "**/rc.func.AdGuardHome"
+      instructions: |
+        Use the shared lifecycle helper for exact process matching, transition-state tracking, graduated signal shutdown, and interruption cleanup. Keep service action return statuses meaningful and ensure AdGuardHome-specific pre/post/pre-failure hooks are invoked consistently.
+    - path: "tests/**"
+      instructions: | 
+        Write standalone POSIX sh regression tests using temporary isolated state, explicit cleanup traps, a `fail` assertion helper, and observable side-effect/exit-status assertions. Prefer extracting the real production functions and replacing router commands with deterministic stubs; inject failures at the targeted operation and cover rollback, interruption, and repeated execution where applicable.
+    - path: "tests/*.sh"
+      instructions: |
+        When adding a regression test, register it explicitly in `tools/code-quality.sh`; test files are not automatically discovered by the regression runner. Keep test names in kebab-case with a component/scenario prefix and retain the repository’s `PASS:`/`FAIL:` result convention.
+    - path: "tools/**"
+      instructions: |
+        Keep validation and generation tools POSIX-compatible and deterministic. Preserve explicit failure propagation, distinguish unavailable optional tools from failed required checks, and ensure separate coverage contracts are maintained: shell discovery covers runtime scripts; regression registration covers tests; checksum generation and validation cover release artifacts.
+    - path: "armv5/**"
+      instructions: |
+        Treat archives, VERSION.txt, checksum.txt, and archive checksum sidecars as generated cache outputs. Do not hand-edit them; update them through `tools/download-adguardhome-static.sh` and preserve atomic publication and metadata consistency.
+    - path: "armv7/**"
+      instructions: |
+        Treat archives, VERSION.txt, checksum.txt, and archive checksum sidecars as generated cache outputs. Do not hand-edit them; update them through `tools/download-adguardhome-static.sh` and preserve atomic publication and metadata consistency.
+    - path: "armv8/**"
+      instructions: |
+        Treat archives, VERSION.txt, checksum.txt, and archive checksum sidecars as generated cache outputs. Do not hand-edit them; update them through `tools/download-adguardhome-static.sh` and preserve atomic publication and metadata consistency.
 
 chat:
   auto_reply: true
