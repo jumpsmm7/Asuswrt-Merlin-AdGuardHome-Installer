@@ -369,6 +369,18 @@ nvram_transaction_recover_pending || fail 'startup recovery ignored clean stoppe
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'clean stubby recovery retained its snapshot'
 
 reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'clean stubby paired snapshot failed'
+: >"${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" || fail 'could not persist clean stopped stubby paired state'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'clean stubby paired apply failed'
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" || fail 'could not create clean stubby paired setup snapshot'
+: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || fail 'could not mark clean stubby paired setup snapshot dirty'
+nvram_transaction_finalize_setup_pair || fail 'clean stubby paired setup commit failed'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'clean stubby setup commit evidence was removed before DNS finalization'
+finalize_dns_environment || fail 'clean stubby paired DNS finalization failed'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'clean stubby setup commit evidence remained after DNS finalization'
+nvram_transaction_lock_release || fail 'clean stubby paired finalization did not release its lock'
+
+reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable || fail 'stubby retry recovery snapshot failed'
 nvram_transaction_set dnspriv_enable 0 || fail 'stubby retry recovery staging failed'
 nvram_transaction_apply restart_dnsmasq 1 || fail 'stubby retry recovery apply failed'
