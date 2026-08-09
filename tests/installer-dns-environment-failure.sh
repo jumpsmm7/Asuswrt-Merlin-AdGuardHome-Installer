@@ -1677,6 +1677,13 @@ printf '%s\n' 'ADGUARD_DOMAIN="NEW"' >"${CONF_FILE}"
 	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config")" = 'ADGUARD_DOMAIN="OLD"' ] || fail 'setup journal failure changed the preserved installer preferences'
 	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file")" = 'previous working yaml' ] || fail 'setup journal failure changed the preserved working YAML'
 	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original")" = 'previous original yaml' ] || fail 'setup journal failure changed the preserved original YAML'
+	FINALIZE_SETUP_PAIR_CALLED=0
+	# nvram_transaction_finalize_setup_pair records an unsafe cleanup attempt after a failed journal restore.
+	nvram_transaction_finalize_setup_pair() { FINALIZE_SETUP_PAIR_CALLED=1; }
+	# nvram_transaction_lock_release leaves the parent test fixture's lock intact.
+	nvram_transaction_lock_release() { :; }
+	on_installer_exit
+	[ "${FINALIZE_SETUP_PAIR_CALLED}" = 0 ] || fail 'installer exit finalized setup state after the file journal restore failed'
 ) || exit 1
 rm -rf "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not clean up setup restore failure fixture'
 

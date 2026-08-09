@@ -1419,9 +1419,13 @@ on_installer_exit() {
 	if nvram_transaction_lock_owned; then
 		# Restore an uncommitted setup journal before recovery can remove the
 		# shared commit marker used to distinguish cleanup from rollback.
-		setup_restore_nvram_journal || PTXT "${ERROR} Unable to restore the journaled installer configuration files."
-		# Finalize setup-pair for both WAN and LAN modes
-		nvram_transaction_finalize_setup_pair recovery || PTXT "${ERROR} Unable to finish the committed installer-managed NVRAM cleanup."
+		if setup_restore_nvram_journal; then
+			# Finalize setup-pair for both WAN and LAN modes only after the
+			# journal is either restored or known to have been committed.
+			nvram_transaction_finalize_setup_pair recovery || PTXT "${ERROR} Unable to finish the committed installer-managed NVRAM cleanup."
+		else
+			PTXT "${ERROR} Unable to restore the journaled installer configuration files."
+		fi
 		if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ]; then
 			# Restore any LAN-domain transaction interrupted before setup finalized it.
 			installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
