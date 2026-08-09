@@ -348,7 +348,11 @@ nvram_transaction_recover_pending() {
 		esac
 		snapshot_dir="${snapshot_root}/${transaction}"
 		if [ "${paired_committed}:${transaction}" = "1:dns-preparation" ]; then
-			rm -f "${snapshot_dir}/dirty" || { failed="1"; safe_failure="0"; continue; }
+			rm -f "${snapshot_dir}/dirty" || {
+				failed="1"
+				safe_failure="0"
+				continue
+			}
 			rm -rf "${snapshot_dir}" 2>/dev/null || true
 			continue
 		fi
