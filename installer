@@ -414,14 +414,42 @@ nvram_transaction_lock_acquire() {
 	NVRAM_TRANSACTION_LOCK_MODE=""
 	if nvram_transaction_lock_flock_supports_fd && nvram_transaction_lock_readlink /proc/$$/fd/0 >/dev/null 2>&1; then
 		[ ! -L "${lock_path}" ] || return 1
-		: >>"${lock_path}" 2>/dev/null || return 1
-		if ! (exec 8<>"${lock_path}") 2>/dev/null; then return 1; fi
-		exec 8<>"${lock_path}" || return 1
+		owner="$(nvram_transaction_lock_owner_current)" || return 1
+		nvram_transaction_lock_reaper_acquire "${lock_path}.symlink.reaper" "${owner}" || return 1
+		# Publish the same ownership artifact used by fallback locking so every
+		# capability mode contends on one mutually exclusive gate.
+		ln -s "${owner}" "${lock_path}.symlink" 2>/dev/null || {
+			nvram_transaction_lock_reaper_release "${lock_path}.symlink.reaper" "${owner}"
+			return 1
+		}
+		: >>"${lock_path}" 2>/dev/null || {
+			rm -f "${lock_path}.symlink"
+			nvram_transaction_lock_reaper_release "${lock_path}.symlink.reaper" "${owner}"
+			return 1
+		}
+		if ! (exec 8<>"${lock_path}") 2>/dev/null; then
+			rm -f "${lock_path}.symlink"
+			nvram_transaction_lock_reaper_release "${lock_path}.symlink.reaper" "${owner}"
+			return 1
+		fi
+		exec 8<>"${lock_path}" || {
+			rm -f "${lock_path}.symlink"
+			nvram_transaction_lock_reaper_release "${lock_path}.symlink.reaper" "${owner}"
+			return 1
+		}
 		if /usr/bin/flock -n 8 >/dev/null 2>&1; then
+			nvram_transaction_lock_reaper_release "${lock_path}.symlink.reaper" "${owner}" || {
+				/usr/bin/flock -u 8 >/dev/null 2>&1
+				exec 8>&-
+				rm -f "${lock_path}.symlink"
+				return 1
+			}
 			NVRAM_TRANSACTION_LOCK_MODE="flock"
 			return 0
 		fi
 		exec 8>&-
+		rm -f "${lock_path}.symlink"
+		nvram_transaction_lock_reaper_release "${lock_path}.symlink.reaper" "${owner}"
 		return 1
 	fi
 	nvram_transaction_lock_symlink_acquire
@@ -544,12 +572,14 @@ nvram_transaction_lock_owner_live() {
 }
 
 nvram_transaction_lock_flock_owned() {
-	local descriptor_path lock_path resolved_lock_path
+	local descriptor_path lock_path owner resolved_lock_path
 	lock_path="$1"
 	[ -e "/proc/$$/fd/8" ] || return 1
 	descriptor_path="$(nvram_transaction_lock_readlink -f "/proc/$$/fd/8" 2>/dev/null)" || return 1
 	resolved_lock_path="$(nvram_transaction_lock_readlink -f "${lock_path}" 2>/dev/null)" || return 1
-	[ "${descriptor_path}" = "${resolved_lock_path}" ]
+	[ "${descriptor_path}" = "${resolved_lock_path}" ] || return 1
+	owner="$(nvram_transaction_lock_owner_current)" || return 1
+	[ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "${owner}" ]
 }
 
 nvram_transaction_lock_reaper_flock_acquire() {
@@ -910,8 +940,13 @@ nvram_transaction_lock_release() {
 	case "${NVRAM_TRANSACTION_LOCK_MODE:-}" in
 		flock)
 			nvram_transaction_lock_flock_owned "${lock_path}" || return 1
+			owner="$(nvram_transaction_lock_owner_current)" || return 1
+			[ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "${owner}" ] || return 1
+			nvram_transaction_lock_reaper_acquire "${lock_path}.symlink.reaper" "${owner}" || return 1
 			/usr/bin/flock -u 8 >/dev/null 2>&1 || return 1
 			exec 8>&-
+			rm -f "${lock_path}.symlink" || return 1
+			nvram_transaction_lock_reaper_release "${lock_path}.symlink.reaper" "${owner}" || return 1
 			;;
 		symlink)
 			owner="$(nvram_transaction_lock_owner_current)" || return 1
@@ -1317,6 +1352,11 @@ on_installer_exit() {
 		fi
 		# Restore setup files journal for both WAN and LAN modes
 		setup_restore_nvram_journal || true
+		if [ -f "${BASE_DIR}/.AdGuardHome.nvram/jffs-enable/dirty" ]; then
+			NVRAM_TRANSACTION_DIR="${BASE_DIR}/.AdGuardHome.nvram/jffs-enable"
+			export NVRAM_TRANSACTION_DIR
+			nvram_transaction_restore - || PTXT "${ERROR} Unable to restore the interrupted JFFS NVRAM transaction."
+		fi
 	fi
 	nvram_transaction_lock_release || PTXT "${ERROR} Unable to release the installer NVRAM transaction lock."
 }
@@ -6925,6 +6965,7 @@ setup_AdGuardHome_impl() {
 					;;
 				2 | 3)
 					if ! setup_files_begin_if_needed; then
+						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
 						PTXT "${ERROR} Unable to journal the current installer configuration before YAML rotation."
 						return 1
@@ -7135,6 +7176,7 @@ setup_AdGuardHome_impl() {
 				fi
 				if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && [ -n "${DNS_FILTER_SELECTION:-}" ]; then
 					if ! setup_files_begin_if_needed; then
+						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
 						PTXT "${ERROR} Unable to journal the current installer configuration before DNSFilter reconfiguration."
 						return 1

@@ -95,9 +95,21 @@ nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup
 # nvram_transaction_setup_files_begin starts the setup-file transaction by creating a journal directory and copying setup files.
 nvram_transaction_setup_files_begin() {
 	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || return 1
-	[ -f "${CONF_FILE}" ] && cp -p "${CONF_FILE}" "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config"
-	[ -f "${YAML_FILE}" ] && cp -p "${YAML_FILE}" "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file"
-	[ -f "${YAML_ORI}" ] && cp -p "${YAML_ORI}" "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original"
+	if [ -f "${CONF_FILE}" ]; then
+		cp -p "${CONF_FILE}" "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config"
+	else
+		: >"${BASE_DIR}/.AdGuardHome.nvram/setup-files/config.absent"
+	fi
+	if [ -f "${YAML_FILE}" ]; then
+		cp -p "${YAML_FILE}" "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file"
+	else
+		: >"${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file.absent"
+	fi
+	if [ -f "${YAML_ORI}" ]; then
+		cp -p "${YAML_ORI}" "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original"
+	else
+		: >"${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original.absent"
+	fi
 	return 0
 }
 # nvram_transaction_setup_files_restore restores journaled setup files from their copies and removes the journal directory.
@@ -106,6 +118,9 @@ nvram_transaction_setup_files_restore() {
 	[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config" ] && cp -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config" "${CONF_FILE}"
 	[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file" ] && cp -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file" "${YAML_FILE}"
 	[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original" ] && cp -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original" "${YAML_ORI}"
+	[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config.absent" ] || rm -f "${CONF_FILE}"
+	[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file.absent" ] || rm -f "${YAML_FILE}"
+	[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original.absent" ] || rm -f "${YAML_ORI}"
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 	return 0
 }

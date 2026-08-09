@@ -581,6 +581,42 @@ if grep -qi '<html' "$HOOK_TMP"; then
   exit 1
 fi
 
+# Verification must be anchored outside the Gerrit server being contacted. Obtain
+# this digest from an approved administrator or distribution channel, never from
+# the hook download response or another URL on the same Gerrit service.
+if [ -z "${GERRIT_COMMIT_MSG_SHA256:-}" ]; then
+  echo "Error: no independently trusted commit-msg checksum is configured; install the hook through an approved distribution path" >&2
+  rm -f "$HOOK_TMP"
+  exit 1
+fi
+case "$GERRIT_COMMIT_MSG_SHA256" in
+  *[!0-9a-fA-F]* | "")
+    echo "Error: GERRIT_COMMIT_MSG_SHA256 must be a 64-character hexadecimal digest" >&2
+    rm -f "$HOOK_TMP"
+    exit 1
+    ;;
+esac
+if [ "${#GERRIT_COMMIT_MSG_SHA256}" -ne 64 ]; then
+  echo "Error: GERRIT_COMMIT_MSG_SHA256 must be a 64-character hexadecimal digest" >&2
+  rm -f "$HOOK_TMP"
+  exit 1
+fi
+if ! command -v sha256sum >/dev/null 2>&1; then
+  echo "Error: sha256sum is required to verify the commit-msg hook; install it through an approved distribution path" >&2
+  rm -f "$HOOK_TMP"
+  exit 1
+fi
+HOOK_SHA256=$(sha256sum "$HOOK_TMP" 2>/dev/null | awk '{print $1}') || {
+  echo "Error: failed to calculate the commit-msg hook checksum" >&2
+  rm -f "$HOOK_TMP"
+  exit 1
+}
+if [ "$HOOK_SHA256" != "$GERRIT_COMMIT_MSG_SHA256" ]; then
+  echo "Error: commit-msg hook checksum verification failed; use an approved distribution path" >&2
+  rm -f "$HOOK_TMP"
+  exit 1
+fi
+
 # Make executable before moving into place
 if ! chmod +x "$HOOK_TMP"; then
   echo "Failed to set permissions on commit-msg hook" >&2

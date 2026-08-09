@@ -170,7 +170,6 @@ run_startup_failure_case() {
 	TEST_LAN_IPADDR="$3"
 
 	rm -f "${CONF_FILE}" "${YAML_FILE}" "${YAML_ORI}" "${YAML_BAK}" "${YAML_ERR}"
-	: >"${CONF_FILE}"
 	ADGUARD_INSTALL_MODE=
 	PREVIOUS_ADGUARD_INSTALL_MODE=
 
@@ -178,24 +177,19 @@ run_startup_failure_case() {
 	adguard_install_mode_detect >/dev/null 2>&1 || fail "${case_name}: install mode detection failed"
 	[ "${ADGUARD_INSTALL_MODE_DETECTION:-}" = unknown ] || fail "${case_name}: detection was not unknown"
 
-	# Check if mode is confirmed (production uses adguard_install_mode_confirmed)
-	if ! adguard_install_mode_confirmed; then
-		# No previous mode (simulating fresh install) and no existing installation
-		# Production checks startup_action_allows_unknown_install_mode here
-		# Match the production dispatch arguments for the install action.
-		if ! startup_action_allows_unknown_install_mode install ""; then
-			# This is the expected path - mode is unknown and action doesn't allow it
-			# Verify no state was modified (matching production exit at line 8735-8736)
-			[ -z "${ADGUARD_INSTALL_MODE:-}" ] || fail "${case_name}: install mode was set despite unknown detection"
-			[ ! -e "${YAML_FILE}" ] || fail "${case_name}: YAML was generated despite unknown detection"
-			[ ! -s "${CONF_FILE}" ] || fail "${case_name}: config was written despite unknown detection"
-			return 0
-		else
-			fail "${case_name}: startup_action_allows_unknown_install_mode incorrectly allowed unknown mode"
-		fi
+	# Exercise the production dispatch decision and its real setup entry point.
+	# Any regression that admits the unknown mode proceeds into the artifact-
+	# producing setup helper and is caught by the state assertions below.
+	startup_status=0
+	if adguard_install_mode_confirmed || startup_action_allows_unknown_install_mode install ""; then
+		setup_AdGuardHome_impl '' install >/dev/null 2>&1 || startup_status="$?"
 	else
-		fail "${case_name}: install mode was confirmed when it should have been unknown"
+		startup_status=1
 	fi
+	[ "${startup_status}" -ne 0 ] || fail "${case_name}: startup dispatch accepted unknown install mode"
+	[ -z "${ADGUARD_INSTALL_MODE:-}" ] || fail "${case_name}: install mode was set despite unknown detection"
+	[ ! -e "${YAML_FILE}" ] || fail "${case_name}: YAML was generated despite unknown detection"
+	[ ! -e "${CONF_FILE}" ] || fail "${case_name}: config was written despite unknown detection"
 }
 
 run_startup_case repeater-lan 2 192.168.1.2 lan 192.168.1.2:3000

@@ -69,6 +69,14 @@ PTXT() { :; }
 # rm removes files and can simulate cleanup failures for configured LAN-domain or DNS-filter snapshot markers.
 rm() {
 	if [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
+		[ "$*" = "-rf ${BASE_DIR}/.AdGuardHome.nvram/lan-domain ${BASE_DIR}/.AdGuardHome.nvram/dnsfilter ${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
+		return 1
+	fi
+	if [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
+		[ "$*" = "-rf ${BASE_DIR}/.AdGuardHome.nvram/lan-domain ${BASE_DIR}/.AdGuardHome.nvram/dnsfilter ${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
+		return 1
+	fi
+	if [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
 		[ "$*" = "-f ${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" ]; then
 		return 1
 	fi
@@ -149,14 +157,10 @@ nvram_transaction_finalize_setup_pair() {
 	SETUP_FILES_FINALIZE_COUNT="$((SETUP_FILES_FINALIZE_COUNT + 1))"
 	[ "${FAIL_SETUP_COMMIT_MARKER:-0}" -eq 0 ] || return 1
 	: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
-	if [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] || [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ]; then
-		return 0
-	fi
 	if rm -rf "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/setup-files"; then
 		rm -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
-	else
-		return 1
 	fi
+	return 0
 }
 # nvram_transaction_setup_committed reports whether the setup commit marker exists.
 nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }

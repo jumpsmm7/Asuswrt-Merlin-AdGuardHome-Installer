@@ -1,4 +1,8 @@
 #!/bin/sh
+if [ -z "${HOME:-}" ]; then
+	printf '%s\n' 'Error: HOME environment variable is required to locate Qodo configuration' >&2
+	exit 1
+fi
 CONFIG_FILE="${HOME}/.qodo/config.json"
 CONFIG_API_KEY=""
 CONFIG_ENV_NAME=""

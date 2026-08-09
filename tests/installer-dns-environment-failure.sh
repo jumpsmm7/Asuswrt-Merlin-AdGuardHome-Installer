@@ -326,6 +326,19 @@ nvram_transaction_recover_pending || fail 'startup recovery did not process the 
 [ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'JFFS startup recovery retained the NVRAM transaction lock'
 
 reset_case
+nvram_transaction_begin jffs-enable jffs2_scripts jffs2_enable || fail 'JFFS exit recovery transaction snapshot failed'
+nvram_transaction_set jffs2_scripts 1 || fail 'JFFS exit recovery scripts staging failed'
+nvram_transaction_set jffs2_enable 1 || fail 'JFFS exit recovery enable staging failed'
+nvram_transaction_apply - 1 || fail 'JFFS exit recovery transaction apply failed'
+ADGUARD_INSTALL_MODE=lan
+on_installer_exit
+[ "$(nvram get jffs2_scripts)" = '' ] || fail 'installer exit did not restore interrupted JFFS scripts'
+[ "$(nvram get jffs2_enable)" = '' ] || fail 'installer exit did not restore interrupted JFFS enablement'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/jffs-enable" ] || fail 'installer exit retained the restored JFFS snapshot'
+[ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'installer exit retained the lock after JFFS restoration'
+ADGUARD_INSTALL_MODE=wan
+
+reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable || fail 'independent startup recovery snapshot failed'
 nvram_transaction_set dnspriv_enable 0 || fail 'independent startup recovery staging failed'
 nvram_transaction_apply restart_dnsmasq 1 || fail 'independent startup recovery apply failed'
@@ -892,19 +905,13 @@ if nvram_transaction_lock_flock_supports_fd; then
 fi
 
 if nvram_transaction_lock_flock_supports_fd; then
-	# nvram_transaction_lock_owner_current fails to prove flock-mode lock helpers never need the process owner identity.
-	# Run this check outside a subshell: flock ownership is tracked via /proc/$$/fd/8, and $$ keeps the
-	# nvram_transaction_lock_owner_current() rejects owner lookups when flock mode should provide ownership directly.
-	nvram_transaction_lock_owner_current() {
-		printf '%s\n' 'Error: owner lookup invoked unexpectedly for flock mode' >&2
-		return 1
-	}
-	nvram_transaction_lock_acquire || fail 'flock transaction lock could not be acquired while owner lookup was disabled'
-	[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = flock ] || fail 'flock mode was not selected while owner lookup was disabled'
-	nvram_transaction_lock_owned || fail 'flock transaction lock ownership check failed while owner lookup was disabled'
-	nvram_transaction_lock_acquire || fail 'flock transaction lock fast-path re-acquire failed while owner lookup was disabled'
-	nvram_transaction_lock_release || fail 'flock transaction lock could not be released while owner lookup was disabled'
-	nvram_transaction_lock_owned && fail 'flock transaction lock ownership check succeeded after release while owner lookup was disabled'
+	# Flock mode publishes the same owner identity used by the fallback gate.
+	nvram_transaction_lock_acquire || fail 'flock transaction lock could not be acquired with its shared owner gate'
+	[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = flock ] || fail 'flock mode was not selected with its shared owner gate'
+	nvram_transaction_lock_owned || fail 'flock transaction lock ownership check failed with its shared owner gate'
+	nvram_transaction_lock_acquire || fail 'flock transaction lock fast-path re-acquire failed with its shared owner gate'
+	nvram_transaction_lock_release || fail 'flock transaction lock could not release its shared owner gate'
+	nvram_transaction_lock_owned && fail 'flock transaction lock ownership check succeeded after shared-gate release'
 	mv "${BASE_DIR}" "${TEST_ROOT}/base-resolved" || fail 'could not prepare resolved flock lock test directory'
 	ln -s "${TEST_ROOT}/base-resolved" "${BASE_DIR}" || fail 'could not create symlinked flock lock test directory'
 	nvram_transaction_lock_acquire || fail 'flock transaction lock could not be acquired through a symlinked base path'
@@ -914,6 +921,23 @@ if nvram_transaction_lock_flock_supports_fd; then
 	mv "${TEST_ROOT}/base-resolved" "${BASE_DIR}" || fail 'could not restore flock lock test directory'
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
+fi
+
+if nvram_transaction_lock_flock_supports_fd; then
+	(
+		# Force this process onto the symlink fallback, then verify a descriptor-
+		# capable child cannot acquire a separate flock lock.
+		nvram_transaction_lock_flock_supports_fd() { return 1; }
+		nvram_transaction_lock_acquire || fail 'could not acquire fallback lock for cross-mode serialization test'
+		[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = symlink ] || fail 'cross-mode serialization test did not select the symlink fallback'
+		if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+			. "${FUNCTIONS_FILE}"
+			nvram_transaction_lock_acquire
+		'; then
+			fail 'descriptor-capable flock bypassed a live fallback transaction lock'
+		fi
+		nvram_transaction_lock_release || fail 'could not release fallback lock after cross-mode serialization test'
+	) || exit 1
 fi
 
 # assert_original verifies that the simulated NVRAM contains the expected original DNS settings, failing with the provided label if any value differs.
