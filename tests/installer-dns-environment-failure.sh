@@ -30,10 +30,10 @@ sed -n '/^check_dns_filter() {$/,/^save_dns_filter_settings() {$/p' "${INSTALLER
 sed -n '/^restore_dns_filter_settings() {$/,/^check_ipset() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter restore helper'
 sed -n '/^on_installer_exit() {$/,/^python_bcrypt_available() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer exit handler'
 sed -n '/^end_op_message() {$/,/^menu() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer restart helper'
-SETUP_RESTORE_FUNCTION="$(sed -n '/^setup_restore_nvram_journal() {$/,/^}$/p' "${INSTALLER_PATH}")" || fail 'could not extract setup journal restore helper'
+SETUP_RESTORE_FUNCTION="$(/bin/sed -n '/^setup_restore_nvram_journal() {$/,/^}$/p' "${INSTALLER_PATH}")" || fail 'could not extract setup journal restore helper'
 [ -n "${SETUP_RESTORE_FUNCTION}" ] || fail 'setup journal restore helper was not found'
 printf '%s\n' "${SETUP_RESTORE_FUNCTION}" |
-	sed 's/^setup_restore_nvram_journal()/setup_restore_nvram_journal_impl()/' >>"${FUNCTIONS_FILE}" || fail 'could not rename setup journal restore helper'
+	/bin/sed 's/^setup_restore_nvram_journal()/setup_restore_nvram_journal_impl()/' >>"${FUNCTIONS_FILE}" || fail 'could not rename setup journal restore helper'
 /bin/grep -q '^setup_restore_nvram_journal_impl() {$' "${FUNCTIONS_FILE}" || fail 'setup journal restore implementation was not extracted'
 cat >>"${FUNCTIONS_FILE}" <<'EOF_SETUP_RESTORE_WRAPPER'
 setup_restore_nvram_journal() {
@@ -1657,16 +1657,24 @@ YAML_BACKED_UP=0
 nvram_transaction_setup_files_begin || fail 'could not create uncommitted setup journal fixture'
 printf '%s\n' 'published working yaml' >"${YAML_FILE}"
 printf '%s\n' 'published original yaml' >"${YAML_ORI}"
-rm -f "${CONF_FILE}" || fail 'could not replace published installer preferences'
-mkdir "${CONF_FILE}" || fail 'could not create setup restore failure fixture'
-if setup_restore_nvram_journal; then
-	fail 'setup journal restore ignored an installer preferences restore failure'
-fi
-[ "$(cat "${YAML_FILE}")" = 'previous working yaml' ] || fail 'setup journal failure did not restore the working YAML'
-[ "$(cat "${YAML_ORI}")" = 'previous original yaml' ] || fail 'setup journal failure did not restore the original YAML'
-[ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'setup journal failure discarded pending recovery state'
-[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config" ] || fail 'setup journal failure did not preserve the installer preferences entry'
-rm -rf "${CONF_FILE}" "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not clean up setup restore failure fixture'
+printf '%s\n' 'ADGUARD_DOMAIN="NEW"' >"${CONF_FILE}"
+(
+	# mv injects a deterministic failure only when publishing the restored installer preferences.
+	mv() {
+		if [ "$#" -eq 3 ] && [ "$1" = -f ] && [ "$2" = "${CONF_FILE}.setup-restore.$$" ] && [ "$3" = "${CONF_FILE}" ]; then
+			return 1
+		fi
+		command mv "$@"
+	}
+	if setup_restore_nvram_journal; then
+		fail 'setup journal restore ignored an installer preferences restore failure'
+	fi
+	[ "$(cat "${YAML_FILE}")" = 'previous working yaml' ] || fail 'setup journal failure did not restore the working YAML'
+	[ "$(cat "${YAML_ORI}")" = 'previous original yaml' ] || fail 'setup journal failure did not restore the original YAML'
+	[ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'setup journal failure discarded pending recovery state'
+	[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config" ] || fail 'setup journal failure did not preserve the installer preferences entry'
+) || exit 1
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not clean up setup restore failure fixture'
 
 reset_case
 nvram_transaction_lock_acquire || fail 'could not acquire transaction lock for committed setup exit fixture'
