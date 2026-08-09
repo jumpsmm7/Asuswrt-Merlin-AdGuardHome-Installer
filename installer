@@ -201,6 +201,7 @@ nvram_transaction_finalize_setup_pair() {
 		[ -e "${snapshot_root}/setup-files" ] || [ -L "${snapshot_root}/setup-files" ]; then
 		[ "${mode}" != "recovery" ] || return 1
 	elif [ ! -f "${snapshot_root}/dns-preparation/dirty" ] &&
+		[ ! -f "${snapshot_root}/dns-preparation/stubby-stopped" ] &&
 		{ ! rm -f "${marker}" 2>/dev/null || [ -e "${marker}" ] || [ -L "${marker}" ]; }; then
 		[ "${mode}" != "recovery" ] || return 1
 	fi
@@ -355,7 +356,13 @@ nvram_transaction_recover_pending() {
 			continue
 		}
 		if [ "${paired_committed}:${transaction}" = "1:dns-preparation" ]; then
-			rm -f "${snapshot_dir}/dirty" || {
+			if [ -f "${snapshot_dir}/stubby-stopped" ] && ! service restart_stubby >/dev/null 2>&1; then
+				failed="1"
+				safe_failure="0"
+				: >"${snapshot_dir}/dirty" || true
+				continue
+			fi
+			rm -f "${snapshot_dir}/dirty" "${snapshot_dir}/stubby-stopped" || {
 				failed="1"
 				safe_failure="0"
 				continue
