@@ -12,7 +12,10 @@ INVALID_QODO_API_URL='__INVALID_QODO_API_URL__'
 qodo_url_authority_valid() {
 	local authority url
 	url="$1"
-	case "${url}" in https://*) ;; *) return 1 ;; esac
+	case "${url}" in
+		https://*) ;;
+		*) return 1 ;;
+	esac
 	authority="${url#https://}"
 	authority="${authority%%/*}"
 	case "${authority}" in
@@ -111,7 +114,9 @@ if [ -n "${CONFIG_QODO_API_URL}" ] && [ "${CONFIG_QODO_API_URL}" != "${INVALID_Q
 	if ! qodo_url_authority_valid "${CONFIG_QODO_API_URL}"; then
 		CONFIG_QODO_API_URL="${INVALID_QODO_API_URL}"
 	else
-		case "${CONFIG_QODO_API_URL}" in *\?* | *\#*) CONFIG_QODO_API_URL="${INVALID_QODO_API_URL}" ;; esac
+		case "${CONFIG_QODO_API_URL}" in
+			*\?* | *\#*) CONFIG_QODO_API_URL="${INVALID_QODO_API_URL}" ;;
+		esac
 	fi
 fi
 
