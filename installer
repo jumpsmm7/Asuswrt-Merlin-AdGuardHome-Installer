@@ -201,6 +201,7 @@ nvram_transaction_finalize_setup_pair() {
 		[ -e "${snapshot_root}/setup-files" ] || [ -L "${snapshot_root}/setup-files" ]; then
 		[ "${mode}" != "recovery" ] || return 1
 	elif [ ! -f "${snapshot_root}/dns-preparation/dirty" ] &&
+		[ ! -f "${snapshot_root}/dns-preparation/stubby-stopped" ] &&
 		{ ! rm -f "${marker}" 2>/dev/null || [ -e "${marker}" ] || [ -L "${marker}" ]; }; then
 		[ "${mode}" != "recovery" ] || return 1
 	fi
