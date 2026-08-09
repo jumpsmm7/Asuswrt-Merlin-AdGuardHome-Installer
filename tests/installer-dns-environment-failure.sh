@@ -30,7 +30,14 @@ sed -n '/^check_dns_filter() {$/,/^save_dns_filter_settings() {$/p' "${INSTALLER
 sed -n '/^restore_dns_filter_settings() {$/,/^check_ipset() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter restore helper'
 sed -n '/^on_installer_exit() {$/,/^python_bcrypt_available() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer exit handler'
 sed -n '/^end_op_message() {$/,/^menu() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer restart helper'
-printf '%s\n' 'setup_restore_nvram_journal() { return 0; }' >>"${FUNCTIONS_FILE}"
+sed -n '/^setup_restore_nvram_journal() {$/,/^}$/p' "${INSTALLER_PATH}" |
+	sed 's/^setup_restore_nvram_journal()/setup_restore_nvram_journal_impl()/' >>"${FUNCTIONS_FILE}" || fail 'could not extract setup journal restore helper'
+cat >>"${FUNCTIONS_FILE}" <<'EOF_SETUP_RESTORE_WRAPPER'
+setup_restore_nvram_journal() {
+	[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || SETUP_RESTORE_SAW_COMMIT=1
+	setup_restore_nvram_journal_impl
+}
+EOF_SETUP_RESTORE_WRAPPER
 printf '%s\n' 'nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }' >>"${FUNCTIONS_FILE}"
 [ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/nvram (show|get|set|unset|commit)([[:space:];]|$)')" -eq 7 ] || fail 'NVRAM transaction helpers do not consistently use /bin/nvram'
 [ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/grep -q ')" -eq 1 ] || fail 'NVRAM transaction helpers do not use /bin/grep for inventory matching'
@@ -1638,6 +1645,16 @@ nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns
 NVRAM_TRANSACTION_DIR=''
 nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'clean transaction snapshot blocked a rerun'
 [ ! -e "${NVRAM_TRANSACTION_DIR}/stale" ] || fail 'clean stale snapshot was not replaced'
+
+reset_case
+nvram_transaction_lock_acquire || fail 'could not acquire transaction lock for committed setup exit fixture'
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create committed setup journal fixture'
+: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed" || fail 'could not create setup commit marker fixture'
+SETUP_RESTORE_SAW_COMMIT=0
+on_installer_exit
+[ "${SETUP_RESTORE_SAW_COMMIT}" = 1 ] || fail 'installer exit finalized the setup marker before checking the file journal'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'installer exit retained the committed setup journal'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'installer exit retained the setup commit marker'
 
 reset_case
 printf '%s\n' 'dnsfilter_enable_x=0' >>"${NVRAM_FILE}" || fail 'could not seed DNSFilter NVRAM state'
