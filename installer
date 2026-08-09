@@ -200,7 +200,9 @@ nvram_transaction_finalize_setup_pair() {
 		[ -e "${snapshot_root}/dnsfilter" ] || [ -L "${snapshot_root}/dnsfilter" ] ||
 		[ -e "${snapshot_root}/setup-files" ] || [ -L "${snapshot_root}/setup-files" ]; then
 		[ "${mode}" != "recovery" ] || return 1
-	elif ! rm -f "${marker}" 2>/dev/null || [ -e "${marker}" ] || [ -L "${marker}" ]; then
+	elif [ ! -f "${snapshot_root}/dns-preparation/dirty" ] &&
+		[ ! -f "${snapshot_root}/dns-preparation/stubby-stopped" ] &&
+		{ ! rm -f "${marker}" 2>/dev/null || [ -e "${marker}" ] || [ -L "${marker}" ]; }; then
 		[ "${mode}" != "recovery" ] || return 1
 	fi
 	return 0
@@ -326,6 +328,7 @@ nvram_transaction_recover_pending() {
 		[ ! -f "${snapshot_root}/lan-domain/dirty" ] &&
 		[ ! -f "${snapshot_root}/dnsfilter/dirty" ] &&
 		[ ! -f "${snapshot_root}/dns-preparation/dirty" ] &&
+		[ ! -f "${snapshot_root}/dns-preparation/stubby-stopped" ] &&
 		[ ! -f "${snapshot_root}/jffs-enable/dirty" ]; then
 		return 0
 	fi
@@ -353,15 +356,26 @@ nvram_transaction_recover_pending() {
 			continue
 		}
 		if [ "${paired_committed}:${transaction}" = "1:dns-preparation" ]; then
-			rm -f "${snapshot_dir}/dirty" || {
+			if [ -f "${snapshot_dir}/stubby-stopped" ] && ! service restart_stubby >/dev/null 2>&1; then
+				failed="1"
+				safe_failure="0"
+				: >"${snapshot_dir}/dirty" || true
+				continue
+			fi
+			rm -f "${snapshot_dir}/dirty" "${snapshot_dir}/stubby-stopped" || {
 				failed="1"
 				safe_failure="0"
 				continue
 			}
 			rm -rf "${snapshot_dir}" 2>/dev/null || true
+			if [ "${failed}" = "0" ] && ! rm -f "${snapshot_root}/setup-committed"; then
+				failed="1"
+				safe_failure="1"
+			fi
 			continue
 		fi
-		[ -f "${snapshot_dir}/dirty" ] || continue
+		[ -f "${snapshot_dir}/dirty" ] ||
+			{ [ "${transaction}" = "dns-preparation" ] && [ -f "${snapshot_dir}/stubby-stopped" ]; } || continue
 		case "${transaction}" in
 			dnsfilter) service_action="restart_firewall;restart_dnsmasq" ;;
 			jffs-enable) service_action="-" ;;
@@ -4038,6 +4052,10 @@ finalize_dns_environment() {
 		rm -f "${snapshot_dir}/dirty" || return 1
 		rm -rf "${snapshot_dir}" 2>/dev/null || true
 	fi
+	# Do not discard the shared commit point while paired setup cleanup is
+	# incomplete; startup recovery must still recognize those snapshots as
+	# committed rather than rollback candidates.
+	nvram_transaction_finalize_setup_pair recovery || return 1
 	_DNS_NVRAM_SAVED="0"
 	export _DNS_NVRAM_SAVED
 	_DNS_STUBBY_STOPPED="0"
