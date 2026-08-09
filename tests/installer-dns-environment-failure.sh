@@ -1671,8 +1671,12 @@ printf '%s\n' 'ADGUARD_DOMAIN="NEW"' >"${CONF_FILE}"
 	fi
 	[ "$(cat "${YAML_FILE}")" = 'previous working yaml' ] || fail 'setup journal failure did not restore the working YAML'
 	[ "$(cat "${YAML_ORI}")" = 'previous original yaml' ] || fail 'setup journal failure did not restore the original YAML'
+	[ "$(cat "${CONF_FILE}")" = 'ADGUARD_DOMAIN="NEW"' ] || fail 'setup journal failure replaced the published installer preferences'
 	[ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'setup journal failure discarded pending recovery state'
 	[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config" ] || fail 'setup journal failure did not preserve the installer preferences entry'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config")" = 'ADGUARD_DOMAIN="OLD"' ] || fail 'setup journal failure changed the preserved installer preferences'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file")" = 'previous working yaml' ] || fail 'setup journal failure changed the preserved working YAML'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original")" = 'previous original yaml' ] || fail 'setup journal failure changed the preserved original YAML'
 ) || exit 1
 rm -rf "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not clean up setup restore failure fixture'
 
