@@ -1380,6 +1380,29 @@ status="$?"
 grep -Fq 'unable to roll back owned NVRAM transaction lock' "${TEST_ROOT}/symlink-lock-rollback-failure.stderr" || fail 'terminal symlink lock rollback failure was not reported'
 command rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 (
+	# Force the symlink path while a live mkdir-mode owner holds the shared lock.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare live mkdir lock for symlink exclusion'
+	printf '%s\n' "${LOCK_OWNER}" >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not publish live mkdir lock owner'
+	if nvram_transaction_lock_symlink_acquire; then
+		fail 'symlink acquisition bypassed a live mkdir-mode transaction lock'
+	fi
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "${LOCK_OWNER}" ] || fail 'symlink acquisition changed the live mkdir owner'
+	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" ] || fail 'symlink acquisition published alongside a live mkdir owner'
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
+) || exit 1
+(
+	# A verified stale mkdir-mode owner is reclaimed before symlink publication.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale mkdir lock for symlink recovery'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not publish stale mkdir lock owner'
+	nvram_transaction_lock_symlink_acquire || fail 'stale mkdir lock blocked symlink acquisition'
+	[ ! -e "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ] || fail 'symlink acquisition retained a verified stale mkdir lock'
+	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = "${LOCK_OWNER}" ] || fail 'symlink acquisition did not publish the current owner'
+	NVRAM_TRANSACTION_LOCK_MODE=symlink
+	nvram_transaction_lock_release || fail 'symlink lock could not be released after stale mkdir recovery'
+) || exit 1
+(
 	# nvram_transaction_lock_flock_supports_fd reports that file-descriptor-based flock locking is unavailable.
 	nvram_transaction_lock_flock_supports_fd() { return 1; }
 	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare raced stale symlink transaction lock'

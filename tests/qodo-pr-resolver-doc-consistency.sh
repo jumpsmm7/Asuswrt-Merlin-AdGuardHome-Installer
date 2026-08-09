@@ -151,8 +151,12 @@ grep -Fq '3rd oscillation cycle' "${SKILL}" || fail "${SKILL}: expected the hard
 # --- Fixed non-directional decisions and every non-fixed terminal decision must
 # serialize consistently across parser and provider contracts.
 grep -Fq 'non-directional fixed changes' "${CONVERGENCE}" || fail "${CONVERGENCE}: missing non-directional fixed action contract"
-grep -Fq '[decision: held] [action: none]' "${PROVIDERS}" || fail "${PROVIDERS}: missing canonical held reply"
-grep -Fq '[decision: hard_stopped] [action: none]' "${PROVIDERS}" || fail "${PROVIDERS}: missing canonical hard-stopped reply"
+grep -Fq 'decision=held action=none rationale=<pct>' "${PROVIDERS}" || fail "${PROVIDERS}: missing canonical held reply"
+grep -Fq 'decision=hard_stopped action=none rationale=<pct>' "${PROVIDERS}" || fail "${PROVIDERS}: missing canonical hard-stopped reply"
+grep -Fq 'decision=deferred action=none rationale=<pct>' "${PROVIDERS}" || fail "${PROVIDERS}: missing canonical deferred reply"
+grep -Fq 'qodo-ledger-v1 scope=summary summary_key=<pct>' "${PROVIDERS}" || fail "${PROVIDERS}: missing summary-only ledger contract"
+grep -Fq 'Percent-encode every value as UTF-8 bytes using uppercase' "${PROVIDERS}" || fail "${PROVIDERS}: missing canonical ledger escaping contract"
+grep -Fq '`qodo-ledger-v1` records using the percent-encoding and exact-key rules' "${SKILL}" || fail "${SKILL}: Step 3c parser does not consume the canonical serialized record"
 grep -Fq 'permit `action=none` for a non-directional fixed change' "${SKILL}" || fail "${SKILL}: Step 3c parser does not accept non-directional fixed records"
 
 # --- Sanity check on the marker/heading fixtures themselves: guard against a

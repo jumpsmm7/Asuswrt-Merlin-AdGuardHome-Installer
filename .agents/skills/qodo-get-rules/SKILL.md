@@ -23,7 +23,7 @@ triggers:
   - "build.*feature"
   - "add.*feature"
   - "fix.*bug"
-  - "refactor"
+  - "qodo.?refactor"
   - "modify.*code"
   - "update.*code"
 ---

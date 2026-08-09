@@ -39,7 +39,12 @@ prior round =
 the heading **anywhere** in the body — Gerrit prepends a `Patch Set N:` line, so the heading is not
 the first line there.
 
-From these, build a **decision ledger keyed by `file` + issue `title`** (the primary lookup key) —
+Parse only canonical `qodo-ledger-v1` records using the exact-key and percent-encoding rules in
+`providers.md`; reject malformed, duplicate, missing, or unknown fields before building history.
+Inline records require provider-verified `file`, `line`, and `comment_id`. Summary-only records use
+their deterministic `summary_key`, never invented location values or free-form rationale matching.
+
+From these, build a **decision ledger keyed by `file` + issue `title`** for inline findings (the primary lookup key) —
 one entry per issue the resolver has acted on before:
 
 | field | source |
@@ -51,6 +56,9 @@ one entry per issue the resolver has acted on before:
 | `rationale` | human-readable text explaining what was changed / why it was deferred / stop rationale — stored in a separate field from the `action` enum |
 | `flip_count` | number of direction flips for this location (used for hard-stop detection) |
 | `round` | which prior round — from the `## Qodo Fix Summary — Round N` heading (`max` of parsed N and summary count); uniform across all providers |
+
+For a summary-only finding, replace the inline key and location fields with `summary_key`; match it
+only to the same decoded key in the next round. Keep duplicate-title occurrence indexes distinct.
 
 ## Tagging current issues against the ledger
 

@@ -163,8 +163,17 @@ First, **finalize activation** — uniformly for every provider, from the Step 3
 - **Round number:** each authenticated summary's heading is `## Qodo Fix Summary — Round N`. Prior round = `max(highest N parsed from those headings, count of authenticated marker-bearing summaries)` (the count floors it if a heading didn't parse; match the heading **anywhere** in the body, since Gerrit prepends a `Patch Set N:` line). This round = prior round + 1; first pass = round 1. Use this N in the Step 9 heading.
 
 When `PRIOR_RESOLVER_PASS = true`, build a **decision ledger keyed by `file` + issue `title`** — a stable identity that survives a prior fix shifting line numbers. (The raised `line` is recorded too, but only to disambiguate multiple same-title findings in one file — never as the primary match key.) Build it from your prior-round records (no new endpoints — reuse the Step 3 comment-fetch commands):
-- Your prior **fix-summary comments** (the marker-bearing comments above) — fixed/deferred issues with human-readable rationale text, machine-readable `file`, `line`, and optional `comment_id` location fields, plus separate machine-readable `decision` and `action` fields. Parse `decision` as `fixed`, `deferred`, `held`, or `hard_stopped`; require a concrete direction-sensitive action for a directional fixed change, permit `action=none` for a non-directional fixed change, and require `action=none` when `decision=deferred`, `held`, or `hard_stopped`. Validate this schema before repeat or contradiction tagging and match duplicate titles using the location fields rather than rationale text.
-- Your prior **inline replies** (`✅ **Fixed** — …` / `⏭️ **Deferred** — …`) on each thread — extract the same `decision` and direction-sensitive `action` fields (separate from prose rationale) and validate them before flip detection.
+- Your prior **fix-summary comments** (the marker-bearing comments above) — parse only canonical
+  `qodo-ledger-v1` records using the percent-encoding and exact-key rules in `resources/providers.md`.
+  Inline-scoped records require verified `file`, `line`, and `comment_id`; summary-scoped records
+  require the deterministic `summary_key` and are matched only by that key. Parse `decision` as
+  `fixed`, `deferred`, `held`, or `hard_stopped`; require a concrete direction-sensitive action for
+  a directional fixed change, permit `action=none` for a non-directional fixed change, and require
+  `action=none` when `decision=deferred`, `held`, or `hard_stopped`. Reject malformed records before
+  repeat or contradiction tagging and never recover fields from rationale text.
+- Your prior **inline replies** (`✅ **Fixed** — …`, `⏭️ **Deferred** — …`, `⏭️ **Held** — …`, or
+  `🛑 **Hard stopped** — …`) on each thread — parse the same canonical record and validate its
+  decision/action combination before flip detection.
 
 Then **tag each issue** parsed in Step 4 by looking it up in the ledger **by its `file` + `title` key** (use the recorded `line` only to pick the nearest match when one file has several same-title entries):
 - **🔁 Repeat** — the `file` + `title` matches a ledger entry already **fixed** in a prior round and is resurfacing.

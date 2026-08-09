@@ -933,8 +933,9 @@ nvram_transaction_lock_readlink() {
 }
 
 nvram_transaction_lock_symlink_acquire() {
-	local lock_owner lock_path owner
+	local lock_dir lock_owner lock_path owner
 	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+	lock_dir="${BASE_DIR}/.AdGuardHome.nvram.lock.d"
 	owner="$(nvram_transaction_lock_owner_current)" || return 1
 	if ! nvram_transaction_lock_readlink; then
 		if [ -L "${lock_path}" ]; then
@@ -944,6 +945,25 @@ nvram_transaction_lock_symlink_acquire() {
 		return 2
 	fi
 	nvram_transaction_lock_reaper_acquire "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
+		[ -d "${lock_dir}" ] && [ ! -L "${lock_dir}" ] || {
+			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+			return 1
+		}
+		lock_owner="$(cat "${lock_dir}/pid" 2>/dev/null)"
+		if nvram_transaction_lock_owner_live "${lock_owner}"; then
+			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+			return 1
+		fi
+		[ "$(cat "${lock_dir}/pid" 2>/dev/null)" = "${lock_owner}" ] || {
+			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+			return 1
+		}
+		rm -rf "${lock_dir}" || {
+			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+			return 1
+		}
+	fi
 	if [ -L "${lock_path}" ]; then
 		lock_owner="$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)"
 		if nvram_transaction_lock_owner_live "${lock_owner}"; then

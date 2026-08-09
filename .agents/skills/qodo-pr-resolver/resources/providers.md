@@ -588,11 +588,27 @@ if [ "$REPLY_STATUS" -ne 0 ]; then
 fi
 ```
 
-**Reply format:**
-- **Fixed:** `✅ **Fixed** — [file: <path>] [line: <line>] [comment_id: <stable-inline-id>] [decision: fixed] [action: <action>] <human-readable rationale>` where `<action>` is one of `guard_added`, `guard_removed`, `condition_changed_to_positive`, `condition_changed_to_negative`, `parameter_added`, `parameter_removed`, or `none`; use `none` only for a non-directional fixed change. The action enum must be distinguishable from rationale text for flip detection.
-- **Deferred:** `⏭️ **Deferred** — [file: <path>] [line: <line>] [comment_id: <stable-inline-id>] [decision: deferred] [action: none] <reason for deferring>`
-- **Held:** `⏭️ **Held** — [file: <path>] [line: <line>] [comment_id: <stable-inline-id>] [decision: held] [action: none] [rationale: <oscillation rationale>]`
-- **Hard stopped:** `🛑 **Hard stopped** — [file: <path>] [line: <line>] [comment_id: <stable-inline-id>] [decision: hard_stopped] [action: none] [reason: <hard-stop reason>]`
+**Canonical ledger serialization:** Every provider must append exactly one
+`qodo-ledger-v1` record to each resolver reply. The record is a single ASCII line of
+space-separated `key=value` pairs. Percent-encode every value as UTF-8 bytes using uppercase
+`%HH`; leave only `A-Z`, `a-z`, `0-9`, `.`, `_`, `~`, and `-` unescaped. This rule applies to
+all fields, including enums, numbers, paths, titles, rationale, and reasons. Producers must encode
+before serialization. Consumers must split the line into the exact keys for its scope, reject
+duplicate, missing, unknown, or malformed percent escapes, and decode only after structural
+validation. Never parse the human-readable prefix or decoded text for ledger fields.
+
+Inline records use the exact key order `scope file line comment_id title decision action rationale`;
+all location fields must be verified from provider metadata before publication:
+
+- **Fixed:** `✅ **Fixed** — <human-readable rationale> qodo-ledger-v1 scope=inline file=<pct> line=<pct> comment_id=<pct> title=<pct> decision=fixed action=<pct> rationale=<pct>`
+- **Deferred:** `⏭️ **Deferred** — <reason> qodo-ledger-v1 scope=inline file=<pct> line=<pct> comment_id=<pct> title=<pct> decision=deferred action=none rationale=<pct>`
+- **Held:** `⏭️ **Held** — <rationale> qodo-ledger-v1 scope=inline file=<pct> line=<pct> comment_id=<pct> title=<pct> decision=held action=none rationale=<pct>`
+- **Hard stopped:** `🛑 **Hard stopped** — <reason> qodo-ledger-v1 scope=inline file=<pct> line=<pct> comment_id=<pct> title=<pct> decision=hard_stopped action=none rationale=<pct>`
+
+The fixed action is one of `guard_added`, `guard_removed`,
+`condition_changed_to_positive`, `condition_changed_to_negative`, `parameter_added`,
+`parameter_removed`, or `none`; `none` is only for a non-directional fixed change. Deferred,
+held, and hard-stopped decisions always use `action=none`.
 
 ### GitLab
 
@@ -1031,14 +1047,23 @@ fi
 Reviewed and addressed Qodo review issues:
 
 ### ✅ Fixed Issues
-- **Issue Title** (Severity) - [file: `<path>`] [line: `<line>`] [comment_id: `<stable-inline-id>`] [decision: fixed] [action: <action>] <human-readable rationale> where `<action>` is one of `guard_added`, `guard_removed`, `condition_changed_to_positive`, `condition_changed_to_negative`, `parameter_added`, `parameter_removed`, or `none`; use `none` only for a non-directional fixed change. The action enum must be distinguishable from rationale text for flip detection.
+- **Issue Title** (Severity) - <human-readable rationale> `qodo-ledger-v1 scope=inline file=<pct> line=<pct> comment_id=<pct> title=<pct> decision=fixed action=<pct> rationale=<pct>`
 
 ### ⏭️ Deferred Issues
-- **Issue Title** (Severity) - [file: `<path>`] [line: `<line>`] [comment_id: `<stable-inline-id>`] [decision: deferred] [action: none] Reason for deferring
+- **Issue Title** (Severity) - Reason for deferring `qodo-ledger-v1 scope=inline file=<pct> line=<pct> comment_id=<pct> title=<pct> decision=deferred action=none rationale=<pct>`
 
 <!-- Include the next section ONLY when the oscillation guard held or hard-stopped an issue (see SKILL.md Step 8); omit it entirely otherwise. -->
 ### 🛑 Skipped to prevent oscillation — recommend human resolution
-- **Issue Title** (`file:line`) - [file: `<path>`] [line: `<line>`] [comment_id: `<stable-inline-id>`] [decision: held] [action: none] oscillation reason (use `decision: hard_stopped` with `action: none` after ≥2 flips)
+- **Issue Title** (`file:line`) - oscillation reason `qodo-ledger-v1 scope=inline file=<pct> line=<pct> comment_id=<pct> title=<pct> decision=held action=none rationale=<pct>` (use `decision=hard_stopped` after ≥2 flips)
+
+For a summary-only finding that has no verified inline location, use the exact key order
+`scope summary_key title decision action rationale` and serialize
+`qodo-ledger-v1 scope=summary summary_key=<pct> title=<pct> decision=<pct> action=<pct> rationale=<pct>`.
+The producer must derive `summary_key` deterministically from the provider, the exact finding title,
+and that title's occurrence index in the Qodo summary. Consumers match summary-only findings only by
+the decoded `summary_key`; they must not invent `file`, `line`, or `comment_id`, correlate by rationale,
+or merge duplicate titles without the occurrence index. Fixed, deferred, held, and hard-stopped
+summary records use the same decision/action rules and percent encoding as inline records.
 
 ---
 [![Qodo](https://www.qodo.ai/wp-content/uploads/2025/03/qodo-logo.svg)](https://qodo.ai)
