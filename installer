@@ -1417,6 +1417,9 @@ on_installer_exit() {
 		PTXT "${ERROR} Unable to restart stubby after interrupted DNS preparation."
 	fi
 	if nvram_transaction_lock_owned; then
+		# Restore an uncommitted setup journal before recovery can remove the
+		# shared commit marker used to distinguish cleanup from rollback.
+		setup_restore_nvram_journal || PTXT "${ERROR} Unable to restore the journaled installer configuration files."
 		# Finalize setup-pair for both WAN and LAN modes
 		nvram_transaction_finalize_setup_pair recovery || PTXT "${ERROR} Unable to finish the committed installer-managed NVRAM cleanup."
 		if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ]; then
@@ -1431,8 +1434,6 @@ on_installer_exit() {
 				(check_dns_environment 1) || PTXT "${ERROR} Unable to restore the pre-check DNS NVRAM settings."
 			fi
 		fi
-		# Restore setup files journal for both WAN and LAN modes
-		setup_restore_nvram_journal || PTXT "${ERROR} Unable to restore the journaled installer configuration files."
 		if [ -f "${BASE_DIR}/.AdGuardHome.nvram/jffs-enable/dirty" ]; then
 			NVRAM_TRANSACTION_DIR="${BASE_DIR}/.AdGuardHome.nvram/jffs-enable"
 			export NVRAM_TRANSACTION_DIR
