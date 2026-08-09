@@ -160,7 +160,8 @@ service() {
 	esac
 	SERVICE_COUNT="$((SERVICE_COUNT + 1))"
 	printf '%s\n' "service $*" >>"${CALLS_FILE}"
-	if [ "${FAIL_ALL_SERVICES:-0}" = 0 ] && [ "${FAIL_SERVICE_AT:-0}" != "${SERVICE_COUNT}" ]; then
+	if [ "${FAIL_ALL_SERVICES:-0}" = 0 ] && [ "${FAIL_SERVICE_AT:-0}" != "${SERVICE_COUNT}" ] &&
+		[ "${FAIL_SERVICE_AT_2:-0}" != "${SERVICE_COUNT}" ]; then
 		case "$*" in
 			restart_stubby) STUBBY_RUNNING=1 ;;
 		esac
@@ -181,6 +182,11 @@ rm() {
 	fi
 	if [ "${FAIL_SNAPSHOT_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${NVRAM_TRANSACTION_DIR:-}" ]; then
 		return 1
+	fi
+	if [ "${FAIL_RESTORED_JOURNAL_REMOVE:-0}" = 1 ] && [ "$#" -ge 2 ] && [ "${1:-}" = -rf ]; then
+		case "${2:-}" in
+			"${BASE_DIR}/.AdGuardHome.nvram/setup-files.restored."*) return 1 ;;
+		esac
 	fi
 	if [ "${FAIL_PAIRED_SNAPSHOT_REMOVE:-0}" = 1 ] && [ "$#" -eq 3 ]; then
 		case "${1:-}:${2:-}:${3:-}" in
@@ -214,7 +220,7 @@ dns_check_count() { grep -c '^nslookup ' "${CALLS_FILE}"; }
 
 # reset_case restores the simulated test environment, counters, fault-injection settings, and NVRAM contents to their baseline state.
 reset_case() {
-	FAIL_LOCK_REMOVE_AT=0 FAIL_SETUP_MARKER_REMOVE=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0 FAIL_PAIRED_SNAPSHOT_REMOVE=0
+	FAIL_LOCK_REMOVE_AT=0 FAIL_SETUP_MARKER_REMOVE=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0 FAIL_PAIRED_SNAPSHOT_REMOVE=0 FAIL_RESTORED_JOURNAL_REMOVE=0
 	LOCK_REMOVE_COUNT=0
 	nvram_transaction_lock_release || fail 'could not release the previous test transaction lock'
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/jffs-enable"
@@ -230,7 +236,7 @@ dhcp_dns2_x=149.112.112.112
 EOF_NVRAM
 	: >"${CALLS_FILE}"
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0 STUBBY_RESTART_COUNT=0
-	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
+	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_SERVICE_AT_2=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
 	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 DNS_READY_AFTER_SERVICE=0 STUBBY_RUNNING=0 STUBBY_KILL_STUCK=0
 	DNS_ENV_READY_TIMEOUT=2 DNS_ENV_RECOVERY_TIMEOUT=1
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
@@ -285,6 +291,23 @@ nvram_transaction_recover_pending || fail 'startup recovery did not restore inte
 [ "$(cat "${YAML_ORI}")" = 'previous original yaml' ] || fail 'startup recovery retained the interrupted original YAML publication'
 [ "$(cat "${CONF_FILE}")" = 'ADGUARD_DOMAIN="OLD"' ] || fail 'startup recovery retained interrupted installer preferences'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'startup recovery retained the restored setup file journal'
+
+reset_case
+printf '%s\n' 'previous working yaml' >"${YAML_FILE}"
+printf '%s\n' 'previous original yaml' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+YAML_BACKED_UP=0
+nvram_transaction_setup_files_begin || fail 'interrupted-cleanup setup file journal could not be created'
+printf '%s\n' 'published working yaml' >"${YAML_FILE}"
+printf '%s\n' 'published original yaml' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_DOMAIN="NEW"' >"${CONF_FILE}"
+FAIL_RESTORED_JOURNAL_REMOVE=1
+nvram_transaction_setup_files_restore || fail 'setup file restore failed before interrupted cleanup simulation'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'restored setup file journal remained pending during cleanup'
+[ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files.restored.$$" ] || fail 'interrupted cleanup did not preserve the inert restored journal fixture'
+nvram_transaction_lock_release || fail 'restored setup file cleanup could not release its transaction lock'
+NVRAM_TRANSACTION_LOCK_MODE=''
+nvram_transaction_recover_pending || fail 'completed setup file restore blocked later startup recovery'
 
 reset_case
 printf '%s\n' 'previous working yaml' >"${YAML_FILE}"
@@ -429,32 +452,10 @@ nvram_transaction_lock_release || fail 'committed clean stubby recovery could no
 NVRAM_TRANSACTION_LOCK_MODE=''
 NVRAM_TRANSACTION_DIR=''
 NVRAM_TRANSACTION_CHANGED=0
-nvram_transaction_recover_pending || fail 'startup recovery did not restart committed stopped stubby'
-[ "${STUBBY_RESTART_COUNT}" -eq 1 ] || fail 'committed stopped stubby was not restarted exactly once'
+nvram_transaction_recover_pending || fail 'startup recovery did not discard committed stopped stubby state'
+[ "${STUBBY_RESTART_COUNT}" -eq 0 ] || fail 'committed stopped stubby was incorrectly restarted'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'committed clean stubby snapshot was not cleared'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'committed clean stubby marker was not cleared'
-
-reset_case
-nvram_transaction_begin dns-preparation dnspriv_enable || fail 'committed stubby retry snapshot failed'
-: >"${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" || fail 'could not create committed stubby retry marker'
-mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" || fail 'could not create committed stubby retry setup snapshot'
-: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || fail 'could not mark committed stubby retry setup snapshot dirty'
-nvram_transaction_finalize_setup_pair || fail 'committed stubby retry setup commit failed'
-nvram_transaction_lock_release || fail 'committed stubby retry recovery could not simulate process death'
-NVRAM_TRANSACTION_LOCK_MODE=''
-NVRAM_TRANSACTION_DIR=''
-NVRAM_TRANSACTION_CHANGED=0
-FAIL_SERVICE_AT="$((SERVICE_COUNT + 1))"
-if nvram_transaction_recover_pending; then
-	fail 'committed stubby recovery ignored the initial restart failure'
-fi
-[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'committed stubby restart failure did not retain retryable recovery state'
-[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'committed stubby restart failure removed setup commit evidence'
-FAIL_SERVICE_AT=0
-nvram_transaction_recover_pending || fail 'committed stubby recovery did not retry the restart'
-[ "${STUBBY_RESTART_COUNT}" -eq 2 ] || fail 'committed stubby restart was not retried exactly once'
-[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful committed stubby retry retained its snapshot'
-[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'successful committed stubby retry retained its setup marker'
 
 reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable || fail 'independent startup recovery snapshot failed'
@@ -1841,6 +1842,17 @@ check_dns_environment 0 && fail 'DNS readiness rollback was accepted as preparat
 [ -d "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'DNS cleanup failure did not retain its completed snapshot'
 [ ! -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'DNS completed rollback remained eligible for startup recovery'
 assert_original 'DNS readiness cleanup interruption'
+
+reset_case
+STUBBY_RUNNING=1
+DNS_READY=0
+DNS_READY_AFTER_SERVICE=2
+FAIL_SERVICE_AT=3
+FAIL_SERVICE_AT_2=4
+check_dns_environment 0 && fail 'DNS readiness rollback with failed stubby recovery was accepted'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" ] || fail 'failed stubby recovery discarded its persisted marker'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'failed stubby recovery discarded its retryable DNS snapshot'
+[ "${STUBBY_RESTART_COUNT}" -eq 2 ] || fail 'failed stubby recovery was not retried by exit-path cleanup'
 
 reset_case
 DNS_READY=0
