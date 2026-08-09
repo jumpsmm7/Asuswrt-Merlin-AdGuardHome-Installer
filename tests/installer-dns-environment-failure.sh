@@ -83,8 +83,12 @@ cleanup_api_files() { :; }
 installer_cleanup_tmp_file() { :; }
 # rollback_pending_mode_migration completes pending mode migration rollback successfully.
 rollback_pending_mode_migration() { return 0; }
-# sleep advances the simulated monotonic clock by one second.
-sleep() { MONOTONIC_NOW="$((MONOTONIC_NOW + 1))"; }
+# sleep advances the simulated monotonic clock and yields so background lookup
+# children can run even when the full regression suite has loaded the host.
+sleep() {
+	MONOTONIC_NOW="$((MONOTONIC_NOW + 1))"
+	/bin/sleep 0
+}
 # monotonic_seconds outputs the simulated monotonic timestamp and fails on the configured call number when MONOTONIC_FAIL_AT is set.
 monotonic_seconds() {
 	if [ "${MONOTONIC_FAIL_AT:-0}" != 0 ]; then
@@ -1294,6 +1298,7 @@ done
 	nvram_transaction_lock_reaper_release() { return 1; }
 	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale mkdir lock for rollback failure'
 	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale mkdir owner for rollback failure'
+	LOCK_REMOVE_COUNT=0
 	FAIL_LOCK_REMOVE_AT=2
 	nvram_transaction_lock_acquire
 	: >"${TEST_ROOT}/continued-after-lock-rollback-failure"
@@ -1452,18 +1457,19 @@ command rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 	nvram_transaction_lock_symlink_acquire() { return 2; }
 	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare raced stale mkdir transaction lock'
 	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record raced stale mkdir transaction lock owner'
+	LIVE_LOCK_OWNER="$(nvram_transaction_lock_owner_current 1)" || fail 'could not read replacement mkdir owner identity'
 	# nvram_transaction_lock_reaper_acquire recreates the NVRAM transaction lock reaper directory and records owner ID 1 in its pid marker.
 	nvram_transaction_lock_reaper_acquire() {
 		rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || return 1
 		mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || return 1
-		printf '%s\n' 1 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid"
+		printf '%s\n' "${LIVE_LOCK_OWNER}" >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid"
 	}
 	# nvram_transaction_lock_reaper_release releases the NVRAM transaction lock reaper.
 	nvram_transaction_lock_reaper_release() { :; }
 	if nvram_transaction_lock_acquire; then
 		fail 'mkdir stale-lock reaper replaced a new live owner'
 	fi
-	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = 1 ] || fail 'mkdir stale-lock reaper removed a new live owner'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "${LIVE_LOCK_OWNER}" ] || fail 'mkdir stale-lock reaper removed a new live owner'
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
 ) || exit 1
 (
