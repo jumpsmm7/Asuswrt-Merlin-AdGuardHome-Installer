@@ -419,6 +419,8 @@ nvram_transaction_recover_pending || fail 'startup recovery did not retain commi
 reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable || fail 'committed clean stubby snapshot failed'
 : >"${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" || fail 'could not create committed clean stubby marker'
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" || fail 'could not create committed clean stubby setup snapshot'
+: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || fail 'could not mark committed clean stubby setup snapshot dirty'
 nvram_transaction_finalize_setup_pair || fail 'clean stubby setup commit failed'
 [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'clean stubby setup commit removed recovery evidence'
 nvram_transaction_lock_release || fail 'committed clean stubby recovery could not simulate process death'
@@ -429,6 +431,28 @@ nvram_transaction_recover_pending || fail 'startup recovery did not restart comm
 [ "${STUBBY_RESTART_COUNT}" -eq 1 ] || fail 'committed stopped stubby was not restarted exactly once'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'committed clean stubby snapshot was not cleared'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'committed clean stubby marker was not cleared'
+
+reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'committed stubby retry snapshot failed'
+: >"${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" || fail 'could not create committed stubby retry marker'
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" || fail 'could not create committed stubby retry setup snapshot'
+: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || fail 'could not mark committed stubby retry setup snapshot dirty'
+nvram_transaction_finalize_setup_pair || fail 'committed stubby retry setup commit failed'
+nvram_transaction_lock_release || fail 'committed stubby retry recovery could not simulate process death'
+NVRAM_TRANSACTION_LOCK_MODE=''
+NVRAM_TRANSACTION_DIR=''
+NVRAM_TRANSACTION_CHANGED=0
+FAIL_SERVICE_AT="$((SERVICE_COUNT + 1))"
+if nvram_transaction_recover_pending; then
+	fail 'committed stubby recovery ignored the initial restart failure'
+fi
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'committed stubby restart failure did not retain retryable recovery state'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'committed stubby restart failure removed setup commit evidence'
+FAIL_SERVICE_AT=0
+nvram_transaction_recover_pending || fail 'committed stubby recovery did not retry the restart'
+[ "${STUBBY_RESTART_COUNT}" -eq 2 ] || fail 'committed stubby restart was not retried exactly once'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful committed stubby retry retained its snapshot'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'successful committed stubby retry retained its setup marker'
 
 reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable || fail 'independent startup recovery snapshot failed'
