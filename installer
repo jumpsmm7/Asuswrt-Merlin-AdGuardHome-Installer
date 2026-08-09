@@ -347,6 +347,11 @@ nvram_transaction_recover_pending() {
 			1:lan-domain | 1:dnsfilter) continue ;;
 		esac
 		snapshot_dir="${snapshot_root}/${transaction}"
+		[ ! -L "${snapshot_dir}" ] || {
+			failed="1"
+			safe_failure="0"
+			continue
+		}
 		if [ "${paired_committed}:${transaction}" = "1:dns-preparation" ]; then
 			rm -f "${snapshot_dir}/dirty" || {
 				failed="1"
@@ -356,11 +361,6 @@ nvram_transaction_recover_pending() {
 			rm -rf "${snapshot_dir}" 2>/dev/null || true
 			continue
 		fi
-		[ ! -L "${snapshot_dir}" ] || {
-			failed="1"
-			safe_failure="0"
-			continue
-		}
 		[ -f "${snapshot_dir}/dirty" ] || continue
 		case "${transaction}" in
 			dnsfilter) service_action="restart_firewall;restart_dnsmasq" ;;
@@ -371,12 +371,20 @@ nvram_transaction_recover_pending() {
 		export NVRAM_TRANSACTION_DIR
 		stubby_recovery="0"
 		[ "${transaction}" != "dns-preparation" ] || [ ! -f "${snapshot_dir}/stubby-stopped" ] || stubby_recovery="1"
-		if ! nvram_transaction_restore "${service_action}"; then
+		if ! nvram_transaction_restore "${service_action}" "${stubby_recovery}"; then
 			failed="1"
 			safe_failure="0"
 		elif [ "${stubby_recovery}" = "1" ] && ! service restart_stubby >/dev/null 2>&1; then
 			failed="1"
 			safe_failure="0"
+			: >"${snapshot_dir}/dirty" || continue
+		elif [ "${stubby_recovery}" = "1" ]; then
+			rm -f "${snapshot_dir}/dirty" || {
+				failed="1"
+				safe_failure="0"
+				continue
+			}
+			rm -rf "${snapshot_dir}" 2>/dev/null || true
 		fi
 	done
 	if ! nvram_transaction_lock_release; then

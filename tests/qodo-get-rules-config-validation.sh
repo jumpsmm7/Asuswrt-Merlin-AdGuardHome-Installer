@@ -270,6 +270,19 @@ OUT=$(run_snippet "${HOME_URL}" QODO_API_KEY=k QODO_API_URL=https://QODO.AI 2>&1
 RC=$?
 assert_failure 'uppercase domain spoof rejected' "${RC}" "${OUT}" 'Invalid QODO_API_URL'
 
+# --- Scenario: a trusted-looking path cannot make an untrusted authority pass.
+OUT=$(run_snippet "${HOME_URL}" QODO_API_KEY=k QODO_API_URL=https://attacker.example/x.qodo.ai 2>&1)
+RC=$?
+assert_failure 'trusted domain in URL path rejected' "${RC}" "${OUT}" 'Invalid QODO_API_URL'
+
+# --- Scenario: userinfo and explicit ports are not trusted endpoint authorities.
+OUT=$(run_snippet "${HOME_URL}" QODO_API_KEY=k QODO_API_URL=https://user@qodo.ai 2>&1)
+RC=$?
+assert_failure 'URL userinfo rejected' "${RC}" "${OUT}" 'Invalid QODO_API_URL'
+OUT=$(run_snippet "${HOME_URL}" QODO_API_KEY=k QODO_API_URL=https://qodo.ai:443 2>&1)
+RC=$?
+assert_failure 'explicit URL port rejected' "${RC}" "${OUT}" 'Invalid QODO_API_URL'
+
 # --- Cross-file consistency: the TOP_K positive-integer validation regex shown in
 # search-endpoint.md's curl and Python examples must actually reject non-positive
 # and non-numeric values and accept positive integers, in both places it appears.
@@ -368,6 +381,8 @@ make_config "${HOME_OPTIONAL_URL_TYPE}" '{"QODO_API_URL": false}' 700 600
 OUT=$(run_snippet "${HOME_OPTIONAL_URL_TYPE}" QODO_API_KEY=env-key QODO_ENVIRONMENT_NAME=prod 2>&1)
 RC=$?
 assert_success 'optional non-string configured URL' "${RC}" "${OUT}"
+[ "$(extract_result_field "${OUT}" 3)" = 'https://qodo-platform.prod.qodo.ai/rules/v1' ] ||
+	fail "optional non-string configured URL: unexpected API_URL: ${OUT}"
 
 # --- Scenario: an optional invalid configured URL is ignored, but is fatal when the config is required.
 HOME_OPTIONAL_BAD_URL="${TMP_ROOT}/home-optional-bad-url"
@@ -375,6 +390,8 @@ make_config "${HOME_OPTIONAL_BAD_URL}" '{"API_KEY":"cfg-key","QODO_API_URL":"htt
 OUT=$(run_snippet "${HOME_OPTIONAL_BAD_URL}" QODO_API_KEY=env-key QODO_ENVIRONMENT_NAME=prod 2>&1)
 RC=$?
 assert_success 'optional invalid configured URL' "${RC}" "${OUT}"
+[ "$(extract_result_field "${OUT}" 3)" = 'https://qodo-platform.prod.qodo.ai/rules/v1' ] ||
+	fail "optional invalid configured URL: unexpected API_URL: ${OUT}"
 OUT=$(run_snippet "${HOME_OPTIONAL_BAD_URL}" 2>&1)
 RC=$?
 assert_failure 'required invalid configured URL' "${RC}" "${OUT}" 'Invalid QODO_API_URL'

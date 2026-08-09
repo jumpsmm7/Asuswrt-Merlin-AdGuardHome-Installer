@@ -339,6 +339,39 @@ on_installer_exit
 ADGUARD_INSTALL_MODE=wan
 
 reset_case
+SYMLINK_SNAPSHOT_TARGET="${TEST_ROOT}/committed-symlink-snapshot-target"
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram" "${SYMLINK_SNAPSHOT_TARGET}" || fail 'could not create committed symlink snapshot fixture'
+: >"${SYMLINK_SNAPSHOT_TARGET}/dirty" || fail 'could not create committed symlink dirty marker'
+: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed" || fail 'could not create committed setup marker for symlink recovery'
+ln -s "${SYMLINK_SNAPSHOT_TARGET}" "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" || fail 'could not create committed symlink DNS snapshot'
+if nvram_transaction_recover_pending; then
+	fail 'startup recovery accepted a committed symlink DNS snapshot'
+fi
+[ -f "${SYMLINK_SNAPSHOT_TARGET}/dirty" ] || fail 'committed symlink recovery altered its target'
+[ "${NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE:-0}" = 0 ] || fail 'committed symlink recovery was classified as safe'
+rm -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
+rm -rf "${SYMLINK_SNAPSHOT_TARGET}"
+
+reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'stubby retry recovery snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'stubby retry recovery staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'stubby retry recovery apply failed'
+: >"${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" || fail 'could not persist stopped stubby recovery state'
+nvram_transaction_lock_release || fail 'stubby retry recovery could not simulate process death'
+NVRAM_TRANSACTION_LOCK_MODE=''
+NVRAM_TRANSACTION_DIR=''
+NVRAM_TRANSACTION_CHANGED=0
+FAIL_SERVICE_AT="$((SERVICE_COUNT + 2))"
+if nvram_transaction_recover_pending; then
+	fail 'stubby recovery ignored the initial restart failure'
+fi
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'stubby restart failure did not retain retryable recovery state'
+FAIL_SERVICE_AT=0
+nvram_transaction_recover_pending || fail 'later startup did not retry stubby recovery'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful stubby retry retained its recovery snapshot'
+[ "${STUBBY_RESTART_COUNT}" -eq 2 ] || fail 'stubby restart was not retried exactly once'
+
+reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable || fail 'independent startup recovery snapshot failed'
 nvram_transaction_set dnspriv_enable 0 || fail 'independent startup recovery staging failed'
 nvram_transaction_apply restart_dnsmasq 1 || fail 'independent startup recovery apply failed'

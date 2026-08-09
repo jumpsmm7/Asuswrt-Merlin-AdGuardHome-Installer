@@ -126,6 +126,22 @@ CONFIG_ENV_NAME=""
 CONFIG_QODO_API_URL=""
 INVALID_QODO_API_URL='__INVALID_QODO_API_URL__'
 
+qodo_url_authority_valid() {
+	local authority url
+	url="$1"
+	case "${url}" in
+		https://*) ;;
+		*) return 1 ;;
+	esac
+	authority="${url#https://}"
+	authority="${authority%%/*}"
+	case "${authority}" in
+		"" | *@* | *:*) return 1 ;;
+		qodo.ai | ?*.qodo.ai) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
 config_mode() {
 	stat -c '%a' "$1" 2>/dev/null || return 1
 }
@@ -212,12 +228,13 @@ fi
 
 # Preserve a present-but-invalid configured endpoint until required/optional policy is known.
 if [ -n "${CONFIG_QODO_API_URL}" ] && [ "${CONFIG_QODO_API_URL}" != "${INVALID_QODO_API_URL}" ]; then
-	case "${CONFIG_QODO_API_URL}" in
-		https://qodo.ai | https://qodo.ai/* | https://*.qodo.ai | https://*.qodo.ai/*)
-			case "${CONFIG_QODO_API_URL}" in *\?* | *\#*) CONFIG_QODO_API_URL="${INVALID_QODO_API_URL}" ;; esac
-			;;
-		*) CONFIG_QODO_API_URL="${INVALID_QODO_API_URL}" ;;
-	esac
+	if ! qodo_url_authority_valid "${CONFIG_QODO_API_URL}"; then
+		CONFIG_QODO_API_URL="${INVALID_QODO_API_URL}"
+	else
+		case "${CONFIG_QODO_API_URL}" in
+			*\?* | *\#*) CONFIG_QODO_API_URL="${INVALID_QODO_API_URL}" ;;
+		esac
+	fi
 fi
 
 # Environment variables take precedence over optional config values.
@@ -271,13 +288,10 @@ fi
 # Determine API_URL: QODO_API_URL takes precedence over ENVIRONMENT_NAME
 if [ -n "${QODO_API_URL}" ]; then
 	# Validate QODO_API_URL is HTTPS and points to a trusted Qodo endpoint
-	case "${QODO_API_URL}" in
-		https://qodo.ai | https://qodo.ai/* | https://*.qodo.ai | https://*.qodo.ai/*) ;;
-		*)
-			printf '%s\n' 'Invalid QODO_API_URL: must use HTTPS and match a trusted Qodo domain (*.qodo.ai)' >&2
-			exit 1
-			;;
-	esac
+	if ! qodo_url_authority_valid "${QODO_API_URL}"; then
+		printf '%s\n' 'Invalid QODO_API_URL: must use HTTPS and match a trusted Qodo domain (*.qodo.ai)' >&2
+		exit 1
+	fi
 	# Reject QODO_API_URL containing query string or fragment
 	case "${QODO_API_URL}" in
 		*\?* | *\#*)
