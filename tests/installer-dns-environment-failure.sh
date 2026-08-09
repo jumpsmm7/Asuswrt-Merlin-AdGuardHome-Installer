@@ -357,6 +357,18 @@ rm -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
 rm -rf "${SYMLINK_SNAPSHOT_TARGET}"
 
 reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'clean stubby recovery snapshot failed'
+: >"${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" || fail 'could not persist clean stopped stubby recovery state'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'clean stubby recovery apply failed'
+nvram_transaction_lock_release || fail 'clean stubby recovery could not simulate process death'
+NVRAM_TRANSACTION_LOCK_MODE=''
+NVRAM_TRANSACTION_DIR=''
+NVRAM_TRANSACTION_CHANGED=0
+nvram_transaction_recover_pending || fail 'startup recovery ignored clean stopped stubby state'
+[ "${STUBBY_RESTART_COUNT}" -eq 1 ] || fail 'clean stopped stubby state did not restart stubby'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'clean stubby recovery retained its snapshot'
+
+reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable || fail 'stubby retry recovery snapshot failed'
 nvram_transaction_set dnspriv_enable 0 || fail 'stubby retry recovery staging failed'
 nvram_transaction_apply restart_dnsmasq 1 || fail 'stubby retry recovery apply failed'
@@ -374,6 +386,23 @@ FAIL_SERVICE_AT=0
 nvram_transaction_recover_pending || fail 'later startup did not retry stubby recovery'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful stubby retry retained its recovery snapshot'
 [ "${STUBBY_RESTART_COUNT}" -eq 2 ] || fail 'stubby restart was not retried exactly once'
+
+reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'committed DNS preparation snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'committed DNS preparation staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'committed DNS preparation apply failed'
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" || fail 'could not create committed LAN-domain snapshot'
+: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || fail 'could not mark committed LAN-domain snapshot dirty'
+nvram_transaction_finalize_setup_pair || fail 'setup commit with pending DNS preparation failed'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'setup commit evidence was removed before DNS finalization'
+nvram_transaction_lock_release || fail 'committed DNS preparation recovery could not simulate process death'
+NVRAM_TRANSACTION_LOCK_MODE=''
+NVRAM_TRANSACTION_DIR=''
+NVRAM_TRANSACTION_CHANGED=0
+nvram_transaction_recover_pending || fail 'startup recovery did not retain committed DNS preparation'
+[ "$(nvram get dnspriv_enable)" = 0 ] || fail 'startup recovery rolled back committed DNS preparation'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'startup recovery retained committed DNS preparation snapshot'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'startup recovery retained completed setup marker'
 
 reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable || fail 'independent startup recovery snapshot failed'

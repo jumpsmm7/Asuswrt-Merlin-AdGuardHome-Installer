@@ -200,7 +200,8 @@ nvram_transaction_finalize_setup_pair() {
 		[ -e "${snapshot_root}/dnsfilter" ] || [ -L "${snapshot_root}/dnsfilter" ] ||
 		[ -e "${snapshot_root}/setup-files" ] || [ -L "${snapshot_root}/setup-files" ]; then
 		[ "${mode}" != "recovery" ] || return 1
-	elif ! rm -f "${marker}" 2>/dev/null || [ -e "${marker}" ] || [ -L "${marker}" ]; then
+	elif [ ! -f "${snapshot_root}/dns-preparation/dirty" ] &&
+		{ ! rm -f "${marker}" 2>/dev/null || [ -e "${marker}" ] || [ -L "${marker}" ]; }; then
 		[ "${mode}" != "recovery" ] || return 1
 	fi
 	return 0
@@ -326,6 +327,7 @@ nvram_transaction_recover_pending() {
 		[ ! -f "${snapshot_root}/lan-domain/dirty" ] &&
 		[ ! -f "${snapshot_root}/dnsfilter/dirty" ] &&
 		[ ! -f "${snapshot_root}/dns-preparation/dirty" ] &&
+		[ ! -f "${snapshot_root}/dns-preparation/stubby-stopped" ] &&
 		[ ! -f "${snapshot_root}/jffs-enable/dirty" ]; then
 		return 0
 	fi
@@ -359,9 +361,14 @@ nvram_transaction_recover_pending() {
 				continue
 			}
 			rm -rf "${snapshot_dir}" 2>/dev/null || true
+			if [ "${failed}" = "0" ] && ! rm -f "${snapshot_root}/setup-committed"; then
+				failed="1"
+				safe_failure="1"
+			fi
 			continue
 		fi
-		[ -f "${snapshot_dir}/dirty" ] || continue
+		[ -f "${snapshot_dir}/dirty" ] ||
+			{ [ "${transaction}" = "dns-preparation" ] && [ -f "${snapshot_dir}/stubby-stopped" ]; } || continue
 		case "${transaction}" in
 			dnsfilter) service_action="restart_firewall;restart_dnsmasq" ;;
 			jffs-enable) service_action="-" ;;
@@ -4031,13 +4038,15 @@ restore_stubby_after_dns_failure() {
 }
 
 finalize_dns_environment() {
-	local snapshot_dir
+	local marker snapshot_dir
 	snapshot_dir="${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
+	marker="${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
 	if [ -e "${snapshot_dir}" ] || [ -L "${snapshot_dir}" ]; then
 		# Clearing dirty is the commit point; completed snapshot cleanup is best-effort.
 		rm -f "${snapshot_dir}/dirty" || return 1
 		rm -rf "${snapshot_dir}" 2>/dev/null || true
 	fi
+	rm -f "${marker}" || return 1
 	_DNS_NVRAM_SAVED="0"
 	export _DNS_NVRAM_SAVED
 	_DNS_STUBBY_STOPPED="0"
