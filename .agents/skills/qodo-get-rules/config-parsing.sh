@@ -167,8 +167,8 @@ fi
 if [ -n "${QODO_API_URL}" ]; then
 	# Validate QODO_API_URL is HTTPS and points to a trusted Qodo endpoint
 	if ! qodo_url_authority_valid "${QODO_API_URL}"; then
-			printf '%s\n' 'Invalid QODO_API_URL: must use HTTPS and match a trusted Qodo domain (*.qodo.ai)' >&2
-			exit 1
+		printf '%s\n' 'Invalid QODO_API_URL: must use HTTPS and match a trusted Qodo domain (*.qodo.ai)' >&2
+		exit 1
 	fi
 	# Reject QODO_API_URL containing query string or fragment
 	case "${QODO_API_URL}" in
