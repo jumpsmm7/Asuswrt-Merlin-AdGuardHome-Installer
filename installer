@@ -356,7 +356,13 @@ nvram_transaction_recover_pending() {
 			continue
 		}
 		if [ "${paired_committed}:${transaction}" = "1:dns-preparation" ]; then
-			rm -f "${snapshot_dir}/dirty" || {
+			if [ -f "${snapshot_dir}/stubby-stopped" ] && ! service restart_stubby >/dev/null 2>&1; then
+				failed="1"
+				safe_failure="0"
+				: >"${snapshot_dir}/dirty" || true
+				continue
+			fi
+			rm -f "${snapshot_dir}/dirty" "${snapshot_dir}/stubby-stopped" || {
 				failed="1"
 				safe_failure="0"
 				continue
@@ -4039,15 +4045,17 @@ restore_stubby_after_dns_failure() {
 }
 
 finalize_dns_environment() {
-	local marker snapshot_dir
+	local snapshot_dir
 	snapshot_dir="${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
-	marker="${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
 	if [ -e "${snapshot_dir}" ] || [ -L "${snapshot_dir}" ]; then
 		# Clearing dirty is the commit point; completed snapshot cleanup is best-effort.
 		rm -f "${snapshot_dir}/dirty" || return 1
 		rm -rf "${snapshot_dir}" 2>/dev/null || true
 	fi
-	rm -f "${marker}" || return 1
+	# Do not discard the shared commit point while paired setup cleanup is
+	# incomplete; startup recovery must still recognize those snapshots as
+	# committed rather than rollback candidates.
+	nvram_transaction_finalize_setup_pair recovery || return 1
 	_DNS_NVRAM_SAVED="0"
 	export _DNS_NVRAM_SAVED
 	_DNS_STUBBY_STOPPED="0"
