@@ -7,6 +7,11 @@ CONFIG_FILE="${HOME}/.qodo/config.json"
 CONFIG_API_KEY=""
 CONFIG_ENV_NAME=""
 CONFIG_QODO_API_URL=""
+INVALID_QODO_API_URL='__INVALID_QODO_API_URL__'
+
+config_mode() {
+	stat -c '%a' "$1" 2>/dev/null || return 1
+}
 
 # Read a secure config when a required value is missing or when it can supply an
 # optional endpoint value. If the environment already supplies the API key, an
@@ -17,13 +22,13 @@ if [ -z "${QODO_API_KEY:-}" ]; then
 fi
 if [ -f "${CONFIG_FILE}" ] && { [ "${CONFIG_REQUIRED}" -eq 1 ] || [ -z "${QODO_ENVIRONMENT_NAME:-}" ] || [ -z "${QODO_API_URL:-}" ]; }; then
 	CONFIG_USABLE=1
-	if [ "$(stat -c '%a' "$(dirname "${CONFIG_FILE}")" 2>/dev/null || stat -f '%Lp' "$(dirname "${CONFIG_FILE}")" 2>/dev/null)" != "700" ] ||
-		[ "$(stat -c '%a' "${CONFIG_FILE}" 2>/dev/null || stat -f '%Lp' "${CONFIG_FILE}" 2>/dev/null)" != "600" ]; then
+	if [ "$(config_mode "$(dirname "${CONFIG_FILE}")")" != "700" ] ||
+		[ "$(config_mode "${CONFIG_FILE}")" != "600" ]; then
 		CONFIG_USABLE=0
 		if [ "${CONFIG_REQUIRED}" -eq 1 ]; then
 			# Validate permissions before reading credentials
 			CONFIG_DIR=$(dirname "${CONFIG_FILE}")
-			if [ "$(stat -c '%a' "${CONFIG_DIR}" 2>/dev/null || stat -f '%Lp' "${CONFIG_DIR}" 2>/dev/null)" != "700" ]; then
+			if [ "$(config_mode "${CONFIG_DIR}")" != "700" ]; then
 				printf '%s\n' "Error: Qodo config directory $CONFIG_DIR must have mode 700 (owner-only access)" >&2
 				exit 1
 			fi
@@ -34,7 +39,7 @@ if [ -f "${CONFIG_FILE}" ] && { [ "${CONFIG_REQUIRED}" -eq 1 ] || [ -z "${QODO_E
 
 	if [ "${CONFIG_USABLE}" -eq 1 ]; then
 		# Require jq for robust JSON parsing
-		if ! command -v jq >/dev/null 2>&1; then
+		if ! which jq >/dev/null 2>&1; then
 			if [ "${CONFIG_REQUIRED}" -eq 1 ]; then
 				printf '%s\n' "Error: jq is required to parse ${CONFIG_FILE}. Install jq or use environment variables (QODO_API_KEY, QODO_ENVIRONMENT_NAME, QODO_API_URL)." >&2
 				exit 1
@@ -52,7 +57,7 @@ if [ -f "${CONFIG_FILE}" ] && { [ "${CONFIG_REQUIRED}" -eq 1 ] || [ -z "${QODO_E
 				{
 					API_KEY: (if .API_KEY then (if (.API_KEY | type) == "string" then .API_KEY else "" end) else "" end),
 					ENVIRONMENT_NAME: (if .ENVIRONMENT_NAME then (if (.ENVIRONMENT_NAME | type) == "string" then .ENVIRONMENT_NAME else "NON_STRING_VALUE" end) else "" end),
-					QODO_API_URL: (if .QODO_API_URL then (if (.QODO_API_URL | type) == "string" then .QODO_API_URL else "" end) else "" end)
+					QODO_API_URL: (if has("QODO_API_URL") then (if (.QODO_API_URL | type) == "string" and (.QODO_API_URL | length) > 0 then .QODO_API_URL else "__INVALID_QODO_API_URL__" end) else "" end)
 				} | @json
 			end
 		' "${CONFIG_FILE}" 2>&1)
@@ -88,6 +93,16 @@ if [ -f "${CONFIG_FILE}" ] && { [ "${CONFIG_REQUIRED}" -eq 1 ] || [ -z "${QODO_E
 	fi
 fi
 
+# Preserve a present-but-invalid configured endpoint until required/optional policy is known.
+if [ -n "${CONFIG_QODO_API_URL}" ] && [ "${CONFIG_QODO_API_URL}" != "${INVALID_QODO_API_URL}" ]; then
+	case "${CONFIG_QODO_API_URL}" in
+		https://qodo.ai | https://qodo.ai/* | https://*.qodo.ai | https://*.qodo.ai/*)
+			case "${CONFIG_QODO_API_URL}" in *\?* | *\#*) CONFIG_QODO_API_URL="${INVALID_QODO_API_URL}" ;; esac
+			;;
+		*) CONFIG_QODO_API_URL="${INVALID_QODO_API_URL}" ;;
+	esac
+fi
+
 # Environment variables take precedence over optional config values.
 API_KEY="${QODO_API_KEY:-${CONFIG_API_KEY}}"
 ENV_NAME="${QODO_ENVIRONMENT_NAME:-${CONFIG_ENV_NAME}}"
@@ -101,7 +116,8 @@ fi
 
 # Generate REQUEST_ID without Python dependency
 # Try multiple methods in order of preference
-if command -v uuidgen >/dev/null 2>&1; then
+REQUEST_ID=""
+if which uuidgen >/dev/null 2>&1; then
 	REQUEST_ID=$(uuidgen 2>/dev/null)
 elif [ -r /proc/sys/kernel/random/uuid ]; then
 	REQUEST_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null)
@@ -111,8 +127,7 @@ else
 	if [ -r /dev/urandom ]; then
 		REQUEST_ID=$(
 			dd if=/dev/urandom bs=16 count=1 2>/dev/null |
-				od -An -tx1 |
-				tr -d ' \n' |
+				sha256sum | cut -c1-32 |
 				sed 's/^\(........\)\(....\).\(...\).\(...\)\(............\)$/\1-\2-4\3-8\4-\5/'
 		)
 	fi
@@ -122,13 +137,30 @@ if [ -z "${REQUEST_ID}" ] || ! printf '%s\n' "${REQUEST_ID}" | grep -qE '^[0-9A-
 	printf '%s\n' 'Failed to generate a valid request ID' >&2
 	exit 1
 fi
+# Reject control characters before validating complete endpoint values.
+if [ "$(printf '%s' "${QODO_API_URL}" | tr -d '[:cntrl:]')" != "${QODO_API_URL}" ] ||
+	[ "$(printf '%s' "${ENV_NAME}" | tr -d '[:cntrl:]')" != "${ENV_NAME}" ]; then
+	printf '%s\n' 'Invalid Qodo endpoint configuration: control characters are not allowed' >&2
+	exit 1
+fi
+if [ "${QODO_API_URL}" = "${INVALID_QODO_API_URL}" ]; then
+	if [ "${CONFIG_REQUIRED}" -eq 1 ]; then
+		printf '%s\n' "Invalid QODO_API_URL in ${CONFIG_FILE}: expected a non-empty string" >&2
+		exit 1
+	fi
+	QODO_API_URL=""
+fi
+
 # Determine API_URL: QODO_API_URL takes precedence over ENVIRONMENT_NAME
 if [ -n "${QODO_API_URL}" ]; then
 	# Validate QODO_API_URL is HTTPS and points to a trusted Qodo endpoint
-	if ! printf '%s\n' "${QODO_API_URL}" | grep -qE '^https://([a-zA-Z0-9_-]+\.)*qodo\.ai(/.*)?$'; then
-		printf '%s\n' 'Invalid QODO_API_URL: must use HTTPS and match a trusted Qodo domain (*.qodo.ai)' >&2
-		exit 1
-	fi
+	case "${QODO_API_URL}" in
+		https://qodo.ai | https://qodo.ai/* | https://*.qodo.ai | https://*.qodo.ai/*) ;;
+		*)
+			printf '%s\n' 'Invalid QODO_API_URL: must use HTTPS and match a trusted Qodo domain (*.qodo.ai)' >&2
+			exit 1
+			;;
+	esac
 	# Reject QODO_API_URL containing query string or fragment
 	case "${QODO_API_URL}" in
 		*\?* | *\#*)
@@ -147,9 +179,11 @@ elif [ -z "${ENV_NAME}" ]; then
 	API_URL="https://qodo-platform.qodo.ai/rules/v1"
 else
 	# Validate ENVIRONMENT_NAME before URL construction
-	if ! printf '%s\n' "${ENV_NAME}" | grep -qE '^[a-zA-Z0-9_.-]+$'; then
-		printf '%s\n' 'Invalid ENVIRONMENT_NAME: must contain only alphanumeric, underscore, dot, or hyphen characters' >&2
-		exit 1
-	fi
+	case "${ENV_NAME}" in
+		*[!a-zA-Z0-9_.-]* | "")
+			printf '%s\n' 'Invalid ENVIRONMENT_NAME: must contain only alphanumeric, underscore, dot, or hyphen characters' >&2
+			exit 1
+			;;
+	esac
 	API_URL="https://qodo-platform.${ENV_NAME}.qodo.ai/rules/v1"
 fi

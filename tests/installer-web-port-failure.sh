@@ -68,11 +68,7 @@ ptxt_ok() { :; }
 PTXT() { :; }
 # rm removes files and can simulate cleanup failures for configured LAN-domain or DNS-filter snapshot markers.
 rm() {
-	if [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
-		[ "$*" = "-rf ${BASE_DIR}/.AdGuardHome.nvram/lan-domain ${BASE_DIR}/.AdGuardHome.nvram/dnsfilter ${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
-		return 1
-	fi
-	if [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
+	if { [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] || [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ]; } &&
 		[ "$*" = "-rf ${BASE_DIR}/.AdGuardHome.nvram/lan-domain ${BASE_DIR}/.AdGuardHome.nvram/dnsfilter ${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
 		return 1
 	fi

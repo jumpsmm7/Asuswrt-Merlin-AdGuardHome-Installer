@@ -361,3 +361,20 @@ assert_success 'empty-string ENVIRONMENT_NAME in config defaults to production' 
 	fail "empty-string ENVIRONMENT_NAME in config defaults to production: unexpected API_URL: ${OUT}"
 
 printf '%s\n' 'PASS: qodo-get-rules config parsing snippet enforces credential/URL validation as documented'
+
+# --- Scenario: an optional non-string configured URL is ignored when the API key comes from the environment.
+HOME_OPTIONAL_URL_TYPE="${TMP_ROOT}/home-optional-url-type"
+make_config "${HOME_OPTIONAL_URL_TYPE}" '{"QODO_API_URL": false}' 700 600
+OUT=$(run_snippet "${HOME_OPTIONAL_URL_TYPE}" QODO_API_KEY=env-key QODO_ENVIRONMENT_NAME=prod 2>&1)
+RC=$?
+assert_success 'optional non-string configured URL' "${RC}" "${OUT}"
+
+# --- Scenario: an optional invalid configured URL is ignored, but is fatal when the config is required.
+HOME_OPTIONAL_BAD_URL="${TMP_ROOT}/home-optional-bad-url"
+make_config "${HOME_OPTIONAL_BAD_URL}" '{"API_KEY":"cfg-key","QODO_API_URL":"https://evil.example"}' 700 600
+OUT=$(run_snippet "${HOME_OPTIONAL_BAD_URL}" QODO_API_KEY=env-key QODO_ENVIRONMENT_NAME=prod 2>&1)
+RC=$?
+assert_success 'optional invalid configured URL' "${RC}" "${OUT}"
+OUT=$(run_snippet "${HOME_OPTIONAL_BAD_URL}" 2>&1)
+RC=$?
+assert_failure 'required invalid configured URL' "${RC}" "${OUT}" 'Invalid QODO_API_URL'

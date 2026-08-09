@@ -316,7 +316,7 @@ nvram_transaction_setup_files_restore() {
 }
 
 nvram_transaction_recover_pending() {
-	local failed paired_committed safe_failure service_action snapshot_dir snapshot_root transaction
+	local failed paired_committed safe_failure service_action snapshot_dir snapshot_root stubby_recovery transaction
 	NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE="0"
 	export NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE
 	snapshot_root="${BASE_DIR}/.AdGuardHome.nvram"
@@ -347,6 +347,11 @@ nvram_transaction_recover_pending() {
 			1:lan-domain | 1:dnsfilter) continue ;;
 		esac
 		snapshot_dir="${snapshot_root}/${transaction}"
+		if [ "${paired_committed}:${transaction}" = "1:dns-preparation" ]; then
+			rm -f "${snapshot_dir}/dirty" || { failed="1"; safe_failure="0"; continue; }
+			rm -rf "${snapshot_dir}" 2>/dev/null || true
+			continue
+		fi
 		[ ! -L "${snapshot_dir}" ] || {
 			failed="1"
 			safe_failure="0"
@@ -360,7 +365,12 @@ nvram_transaction_recover_pending() {
 		esac
 		NVRAM_TRANSACTION_DIR="${snapshot_dir}"
 		export NVRAM_TRANSACTION_DIR
+		stubby_recovery="0"
+		[ "${transaction}" != "dns-preparation" ] || [ ! -f "${snapshot_dir}/stubby-stopped" ] || stubby_recovery="1"
 		if ! nvram_transaction_restore "${service_action}"; then
+			failed="1"
+			safe_failure="0"
+		elif [ "${stubby_recovery}" = "1" ] && ! service restart_stubby >/dev/null 2>&1; then
 			failed="1"
 			safe_failure="0"
 		fi
@@ -417,7 +427,23 @@ nvram_transaction_lock_acquire() {
 		owner="$(nvram_transaction_lock_owner_current)" || return 1
 		nvram_transaction_lock_reaper_acquire "${lock_path}.symlink.reaper" "${owner}" || return 1
 		# Publish the same ownership artifact used by fallback locking so every
-		# capability mode contends on one mutually exclusive gate.
+		# capability mode contends on one mutually exclusive gate. Reclaim a
+		# descriptor owner's stale publication after its kernel lock disappeared.
+		if [ -L "${lock_path}.symlink" ]; then
+			lock_owner="$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)"
+			if [ -n "${lock_owner}" ] && nvram_transaction_lock_owner_live "${lock_owner}"; then
+				nvram_transaction_lock_reaper_release "${lock_path}.symlink.reaper" "${owner}"
+				return 1
+			fi
+			[ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "${lock_owner}" ] || {
+				nvram_transaction_lock_reaper_release "${lock_path}.symlink.reaper" "${owner}"
+				return 1
+			}
+			rm -f "${lock_path}.symlink" || {
+				nvram_transaction_lock_reaper_release "${lock_path}.symlink.reaper" "${owner}"
+				return 1
+			}
+		fi
 		ln -s "${owner}" "${lock_path}.symlink" 2>/dev/null || {
 			nvram_transaction_lock_reaper_release "${lock_path}.symlink.reaper" "${owner}"
 			return 1
@@ -1351,7 +1377,7 @@ on_installer_exit() {
 			fi
 		fi
 		# Restore setup files journal for both WAN and LAN modes
-		setup_restore_nvram_journal || true
+		setup_restore_nvram_journal || PTXT "${ERROR} Unable to restore the journaled installer configuration files."
 		if [ -f "${BASE_DIR}/.AdGuardHome.nvram/jffs-enable/dirty" ]; then
 			NVRAM_TRANSACTION_DIR="${BASE_DIR}/.AdGuardHome.nvram/jffs-enable"
 			export NVRAM_TRANSACTION_DIR
@@ -3867,6 +3893,8 @@ check_dns_environment() {
 				ptxt_step "Stopping conflicting stubby process."
 				_DNS_STUBBY_STOPPED="1"
 				export _DNS_STUBBY_STOPPED
+				: >"${NVRAM_TRANSACTION_DIR}/stubby-stopped" || return 1
+				chmod 600 "${NVRAM_TRANSACTION_DIR}/stubby-stopped" || return 1
 				killall -q -9 stubby 2>/dev/null || :
 				[ -z "$(pidof stubby)" ] || return 1
 				stubby_stopped="1"
@@ -3956,6 +3984,7 @@ restore_stubby_after_dns_failure() {
 	service restart_stubby >/dev/null 2>&1 || return 1
 	_DNS_STUBBY_STOPPED="0"
 	export _DNS_STUBBY_STOPPED
+	rm -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" || return 1
 }
 
 finalize_dns_environment() {
@@ -7369,13 +7398,15 @@ setup_AdGuardHome_impl() {
 					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
 						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 					fi
+					if [ -n "${YAML_ORI_ROLLBACK}" ]; then
+						if [ "${YAML_ORI_WAS_PRESENT}" -eq 1 ]; then
+							mv -f "${YAML_ORI_ROLLBACK}" "${YAML_ORI}" || PTXT "${ERROR} Unable to restore the previous original AdGuardHome configuration snapshot."
+						else
+							rm -f "${YAML_ORI}" || PTXT "${ERROR} Unable to remove the aborted original AdGuardHome configuration snapshot."
+						fi
+					fi
 					setup_restore_previous_yaml || true
 					setup_restore_nvram_journal || true
-					if [ "${YAML_ORI_WAS_PRESENT}" -eq 1 ]; then
-						mv -f "${YAML_ORI_ROLLBACK}" "${YAML_ORI}" || PTXT "${ERROR} Unable to restore the previous original AdGuardHome configuration snapshot."
-					else
-						rm -f "${YAML_ORI}" || PTXT "${ERROR} Unable to remove the aborted original AdGuardHome configuration snapshot."
-					fi
 					PTXT "${ERROR} Unable to finalize the installer-managed NVRAM settings."
 					return 1
 				fi

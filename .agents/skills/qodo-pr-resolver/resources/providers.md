@@ -589,8 +589,8 @@ fi
 ```
 
 **Reply format:**
-- **Fixed:** `✅ **Fixed** — [decision: fixed] [action: <direction-sensitive-action>] <human-readable rationale>` where `<direction-sensitive-action>` is a machine-readable tag (e.g. `guard_added`, `guard_removed`, `condition_inverted`, `parameter_added`, `parameter_removed`) and `<human-readable rationale>` explains what changed and why. The action enum must be distinguishable from the rationale text for flip-detection parsing (convergence.md compares action enums, not free-form text).
-- **Deferred:** `⏭️ **Deferred** — [decision: deferred] [action: none] <reason for deferring>`
+- **Fixed:** `✅ **Fixed** — [file: <path>] [line: <line>] [comment_id: <stable-inline-id>] [decision: fixed] [action: <direction-sensitive-action>] <human-readable rationale>` where `<direction-sensitive-action>` is a machine-readable tag (e.g. `guard_added`, `guard_removed`, `condition_inverted`, `parameter_added`, `parameter_removed`) and `<human-readable rationale>` explains what changed and why. The action enum must be distinguishable from the rationale text for flip-detection parsing (convergence.md compares action enums, not free-form text).
+- **Deferred:** `⏭️ **Deferred** — [file: <path>] [line: <line>] [comment_id: <stable-inline-id>] [decision: deferred] [action: none] <reason for deferring>`
 
 ### GitLab
 
@@ -1029,14 +1029,14 @@ fi
 Reviewed and addressed Qodo review issues:
 
 ### ✅ Fixed Issues
-- **Issue Title** (Severity) - [decision: fixed] [action: <direction-sensitive-action>] <human-readable rationale> where `<direction-sensitive-action>` is a machine-readable tag (e.g. `guard_added`, `guard_removed`, `condition_inverted`, `parameter_added`, `parameter_removed`) and `<human-readable rationale>` explains what changed and why. The action enum must be distinguishable from the rationale text for flip-detection parsing (convergence.md compares action enums, not free-form text).
+- **Issue Title** (Severity) - [file: `<path>`] [line: `<line>`] [comment_id: `<stable-inline-id>`] [decision: fixed] [action: <direction-sensitive-action>] <human-readable rationale> where `<direction-sensitive-action>` is a machine-readable tag (e.g. `guard_added`, `guard_removed`, `condition_inverted`, `parameter_added`, `parameter_removed`) and `<human-readable rationale>` explains what changed and why. The action enum must be distinguishable from the rationale text for flip-detection parsing (convergence.md compares action enums, not free-form text).
 
 ### ⏭️ Deferred Issues
-- **Issue Title** (Severity) - [decision: deferred] [action: none] Reason for deferring
+- **Issue Title** (Severity) - [file: `<path>`] [line: `<line>`] [comment_id: `<stable-inline-id>`] [decision: deferred] [action: none] Reason for deferring
 
 <!-- Include the next section ONLY when the oscillation guard held or hard-stopped an issue (see SKILL.md Step 8); omit it entirely otherwise. -->
 ### 🛑 Skipped to prevent oscillation — recommend human resolution
-- **Issue Title** (`file:line`) - [decision: held] [action: none] oscillation reason (use `decision: hard_stopped` after ≥2 flips)
+- **Issue Title** (`file:line`) - [file: `<path>`] [line: `<line>`] [comment_id: `<stable-inline-id>`] [decision: held] [action: none] oscillation reason (use `decision: hard_stopped` with `action: none` after ≥2 flips)
 
 ---
 [![Qodo](https://www.qodo.ai/wp-content/uploads/2025/03/qodo-logo.svg)](https://qodo.ai)

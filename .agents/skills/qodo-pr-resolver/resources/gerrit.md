@@ -601,6 +601,7 @@ if [ "${#GERRIT_COMMIT_MSG_SHA256}" -ne 64 ]; then
   rm -f "$HOOK_TMP"
   exit 1
 fi
+GERRIT_COMMIT_MSG_SHA256=$(printf '%s' "$GERRIT_COMMIT_MSG_SHA256" | tr '[:upper:]' '[:lower:]')
 if ! command -v sha256sum >/dev/null 2>&1; then
   echo "Error: sha256sum is required to verify the commit-msg hook; install it through an approved distribution path" >&2
   rm -f "$HOOK_TMP"

@@ -351,8 +351,8 @@ FAIL_SETUP_MARKER_REMOVE=1
 if nvram_transaction_recover_pending; then
 	fail 'startup recovery ignored paired finalization failure'
 fi
-[ "$(nvram get dnspriv_enable)" = 1 ] || fail 'paired finalization failure blocked independent DNS recovery'
-[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'paired finalization failure retained the restored DNS snapshot'
+[ "$(nvram get dnspriv_enable)" = 0 ] || fail 'paired setup commit unexpectedly rolled back DNS preparation'
+[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'paired setup commit retained rollback-eligible DNS preparation state'
 [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'paired finalization failure unexpectedly removed its marker'
 [ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'paired finalization failure retained the NVRAM transaction lock'
 
