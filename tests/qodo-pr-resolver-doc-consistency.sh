@@ -148,6 +148,13 @@ done
 grep -Fq '2 flips' "${CONVERGENCE}" || fail "${CONVERGENCE}: expected the hard-stop threshold to reference '2 flips'"
 grep -Fq '3rd oscillation cycle' "${SKILL}" || fail "${SKILL}: expected the hard-stop description to reference the '3rd oscillation cycle'"
 
+# --- Fixed non-directional decisions and every non-fixed terminal decision must
+# serialize consistently across parser and provider contracts.
+grep -Fq 'non-directional fixed changes' "${CONVERGENCE}" || fail "${CONVERGENCE}: missing non-directional fixed action contract"
+grep -Fq '[decision: held] [action: none]' "${PROVIDERS}" || fail "${PROVIDERS}: missing canonical held reply"
+grep -Fq '[decision: hard_stopped] [action: none]' "${PROVIDERS}" || fail "${PROVIDERS}: missing canonical hard-stopped reply"
+grep -Fq 'permit `action=none` for a non-directional fixed change' "${SKILL}" || fail "${SKILL}: Step 3c parser does not accept non-directional fixed records"
+
 # --- Sanity check on the marker/heading fixtures themselves: guard against a
 # future edit accidentally weakening this test by narrowing the constants to
 # an empty or trivially-matching string.

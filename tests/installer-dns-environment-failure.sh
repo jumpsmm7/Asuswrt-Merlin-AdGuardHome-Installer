@@ -1071,10 +1071,10 @@ nvram_transaction_set dnspriv_enable 0 || fail 'DNS restore cleanup transaction 
 nvram_transaction_apply restart_dnsmasq 1 || fail 'DNS restore cleanup transaction apply failed'
 _DNS_NVRAM_SAVED=1
 FAIL_SNAPSHOT_REMOVE=1
-check_dns_environment 1 && fail 'DNS restore snapshot removal failure was ignored'
-[ "${_DNS_NVRAM_SAVED}" = 1 ] || fail 'DNS restore snapshot removal failure cleared the saved-state marker'
-[ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'DNS restore snapshot removal failure did not preserve the snapshot'
-grep -q "snapshot preserved at ${NVRAM_TRANSACTION_DIR}" "${CALLS_FILE}" || fail 'DNS restore snapshot removal failure was not recorded as partial'
+check_dns_environment 1 || fail 'completed DNS restore failed because best-effort snapshot cleanup was interrupted'
+[ "${_DNS_NVRAM_SAVED}" = 0 ] || fail 'completed DNS restore retained the saved-state marker'
+[ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'DNS restore cleanup injection did not retain the inert snapshot'
+[ ! -e "${NVRAM_TRANSACTION_DIR}/dirty" ] || fail 'completed DNS restore retained a dirty marker during cleanup failure'
 FAIL_SNAPSHOT_REMOVE=0
 rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove DNS restore cleanup transaction snapshot'
 
@@ -1415,6 +1415,12 @@ command rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale transaction lock owner'
 	nvram_transaction_lock_acquire || fail 'stale NVRAM transaction lock blocked recovery'
 	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "${LOCK_OWNER}" ] || fail 'stale transaction lock was not replaced by the live owner'
+	if [ -x /usr/bin/flock ] && BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		nvram_transaction_lock_acquire
+	'; then
+		fail 'flock mode overlapped a live mkdir fallback transaction owner'
+	fi
 	if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
 		. "${FUNCTIONS_FILE}"
 		nvram_transaction_lock_flock_supports_fd() { return 1; }

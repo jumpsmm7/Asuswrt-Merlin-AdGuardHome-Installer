@@ -589,8 +589,10 @@ fi
 ```
 
 **Reply format:**
-- **Fixed:** `✅ **Fixed** — [file: <path>] [line: <line>] [comment_id: <stable-inline-id>] [decision: fixed] [action: <direction-sensitive-action>] <human-readable rationale>` where `<direction-sensitive-action>` is exactly one of `guard_added`, `guard_removed`, `condition_changed_to_positive`, `condition_changed_to_negative`, `parameter_added`, or `parameter_removed`, and `<human-readable rationale>` explains what changed and why. The action enum must be distinguishable from the rationale text for flip-detection parsing (convergence.md compares action enums, not free-form text).
+- **Fixed:** `✅ **Fixed** — [file: <path>] [line: <line>] [comment_id: <stable-inline-id>] [decision: fixed] [action: <action>] <human-readable rationale>` where `<action>` is one of `guard_added`, `guard_removed`, `condition_changed_to_positive`, `condition_changed_to_negative`, `parameter_added`, `parameter_removed`, or `none`; use `none` only for a non-directional fixed change. The action enum must be distinguishable from rationale text for flip detection.
 - **Deferred:** `⏭️ **Deferred** — [file: <path>] [line: <line>] [comment_id: <stable-inline-id>] [decision: deferred] [action: none] <reason for deferring>`
+- **Held:** `⏭️ **Held** — [file: <path>] [line: <line>] [comment_id: <stable-inline-id>] [decision: held] [action: none] [rationale: <oscillation rationale>]`
+- **Hard stopped:** `🛑 **Hard stopped** — [file: <path>] [line: <line>] [comment_id: <stable-inline-id>] [decision: hard_stopped] [action: none] [reason: <hard-stop reason>]`
 
 ### GitLab
 
@@ -1029,7 +1031,7 @@ fi
 Reviewed and addressed Qodo review issues:
 
 ### ✅ Fixed Issues
-- **Issue Title** (Severity) - [file: `<path>`] [line: `<line>`] [comment_id: `<stable-inline-id>`] [decision: fixed] [action: <direction-sensitive-action>] <human-readable rationale> where `<direction-sensitive-action>` is exactly one of `guard_added`, `guard_removed`, `condition_changed_to_positive`, `condition_changed_to_negative`, `parameter_added`, or `parameter_removed`, and `<human-readable rationale>` explains what changed and why. The action enum must be distinguishable from the rationale text for flip-detection parsing (convergence.md compares action enums, not free-form text).
+- **Issue Title** (Severity) - [file: `<path>`] [line: `<line>`] [comment_id: `<stable-inline-id>`] [decision: fixed] [action: <action>] <human-readable rationale> where `<action>` is one of `guard_added`, `guard_removed`, `condition_changed_to_positive`, `condition_changed_to_negative`, `parameter_added`, `parameter_removed`, or `none`; use `none` only for a non-directional fixed change. The action enum must be distinguishable from rationale text for flip detection.
 
 ### ⏭️ Deferred Issues
 - **Issue Title** (Severity) - [file: `<path>`] [line: `<line>`] [comment_id: `<stable-inline-id>`] [decision: deferred] [action: none] Reason for deferring

@@ -47,7 +47,7 @@ one entry per issue the resolver has acted on before:
 | `key` (`file` + `title`) | **primary lookup key** — file path + Qodo issue title (verbatim); stable across rounds even when a prior fix shifts the line numbers |
 | `line` | line the issue was raised at (from the inline comment) — recorded for display; used only to **disambiguate** multiple same-title findings in one file, never as the primary match key |
 | `decision` | `fixed`, `deferred`, `hard_stopped`, or `held` — `deferred` applies to both manually deferred issues and untagged issues with the "Defer" default action that were processed in auto-fix mode |
-| `action` | one value from the closed enum `guard_added`, `guard_removed`, `condition_changed_to_positive`, `condition_changed_to_negative`, `parameter_added`, `parameter_removed`, or `none`; use `none` only for `deferred`, `held`, and `hard_stopped` decisions — extracted separately from rationale and compared across rounds |
+| `action` | one value from the closed enum `guard_added`, `guard_removed`, `condition_changed_to_positive`, `condition_changed_to_negative`, `parameter_added`, `parameter_removed`, or `none`; use `none` for non-directional fixed changes and for `deferred`, `held`, and `hard_stopped` decisions — extracted separately from rationale and compared across rounds |
 | `rationale` | human-readable text explaining what was changed / why it was deferred / stop rationale — stored in a separate field from the `action` enum |
 | `flip_count` | number of direction flips for this location (used for hard-stop detection) |
 | `round` | which prior round — from the `## Qodo Fix Summary — Round N` heading (`max` of parsed N and summary count); uniform across all providers |
@@ -111,14 +111,17 @@ For each ledger entry (its `file` + `title` key), parse `decision`, `action`, an
 repeat or contradiction tagging. Count **direction flips** only between inverse direction-sensitive
 actions at that location (for example `guard_added` ↔ `guard_removed`, `parameter_added` ↔
 `parameter_removed`, or `condition_changed_to_positive` ↔ `condition_changed_to_negative`). `decision=fixed` must
-carry the concrete transition action. `decision=deferred`, `held`, or `hard_stopped` must carry
-`action=none`; those decisions preserve the prior direction and never create a flip by themselves.
+carry the concrete transition action for a directional change and may carry `action=none` for a
+non-directional change. `decision=deferred`, `held`, or `hard_stopped` must carry `action=none`;
+all `action=none` records preserve the prior direction and never create a flip by themselves.
 Flip detection must compare parsed action enums, not free-form rationale. An unchanged re-assertion
 is not a flip.
 
 The complete inverse mapping is `guard_added` ↔ `guard_removed`,
 `condition_changed_to_positive` ↔ `condition_changed_to_negative`, and
-`parameter_added` ↔ `parameter_removed`. No other action value is valid.
+`parameter_added` ↔ `parameter_removed`. No other direction-sensitive action value is valid;
+`none` remains valid for non-directional fixed changes and for `deferred`, `held`, and
+`hard_stopped` decisions.
 
 - **0–1 flips** — handle via the normal ⚠️ Contradiction / 🔁 Repeat flow above.
 - **≥2 flips (the 3rd oscillation cycle at that location)** — **hard stop.** The resolver must
