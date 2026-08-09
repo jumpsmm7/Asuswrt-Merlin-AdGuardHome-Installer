@@ -290,7 +290,7 @@ nvram_transaction_setup_files_begin() {
 }
 
 nvram_transaction_setup_files_restore() {
-	local journal_root source stage target
+	local journal_done journal_root source stage target
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 	[ ! -L "${journal_root}" ] || return 1
 	[ -d "${journal_root}" ] || return 0
@@ -314,7 +314,12 @@ nvram_transaction_setup_files_restore() {
 			return 1
 		fi
 	done
-	rm -rf "${journal_root}" || return 1
+	journal_done="${journal_root}.restored.$$"
+	[ ! -e "${journal_done}" ] && [ ! -L "${journal_done}" ] || return 1
+	# Atomically remove the completed journal from the pending path before
+	# best-effort cleanup so interrupted deletion cannot trigger a partial retry.
+	mv "${journal_root}" "${journal_done}" || return 1
+	rm -rf "${journal_done}" 2>/dev/null || true
 }
 
 nvram_transaction_recover_pending() {
@@ -356,12 +361,7 @@ nvram_transaction_recover_pending() {
 			continue
 		}
 		if [ "${paired_committed}:${transaction}" = "1:dns-preparation" ]; then
-			if [ -f "${snapshot_dir}/stubby-stopped" ] && ! service restart_stubby >/dev/null 2>&1; then
-				failed="1"
-				safe_failure="0"
-				: >"${snapshot_dir}/dirty" || true
-				continue
-			fi
+			# Committed DNS preparation intentionally leaves stubby stopped.
 			rm -f "${snapshot_dir}/dirty" "${snapshot_dir}/stubby-stopped" || {
 				failed="1"
 				safe_failure="0"
@@ -3986,8 +3986,11 @@ check_dns_environment() {
 			if [ "${changed}" != "0" ] && ! dns_env_local_ready "${DNS_ENV_READY_TIMEOUT}"; then
 				PTXT "${ERROR} DNS readiness did not recover after applying NVRAM changes."
 				if nvram_transaction_restore restart_dnsmasq 1 && dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
-					# Clearing dirty commits the completed rollback before best-effort snapshot cleanup.
-					if rm -f "${NVRAM_TRANSACTION_DIR}/dirty"; then
+					# Retain the recovery marker until the stopped resolver is running again.
+					if [ "${stubby_stopped}" = "1" ] && ! restore_stubby_after_dns_failure; then
+						rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+					elif rm -f "${NVRAM_TRANSACTION_DIR}/dirty"; then
+						stubby_stopped="0"
 						rm -rf "${NVRAM_TRANSACTION_DIR}" 2>/dev/null || true
 					else
 						rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
