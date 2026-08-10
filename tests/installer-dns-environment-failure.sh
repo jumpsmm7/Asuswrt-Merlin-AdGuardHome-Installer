@@ -766,9 +766,12 @@ LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore 
 	nvram_transaction_lock_readlink() { return 127; }
 	for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
 		mkdir -p "${reaper_path}"
-		nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "ownerless reaper lock was not reclaimed: ${reaper_path}"
-		[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "reclaimed ownerless reaper lock has the wrong owner: ${reaper_path}"
-		nvram_transaction_lock_reaper_release "${reaper_path}" || fail "reclaimed ownerless reaper lock was not released: ${reaper_path}"
+		if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
+			fail "ownerless reaper lock was reclaimed during owner publication: ${reaper_path}"
+		fi
+		[ -d "${reaper_path}" ] || fail "ownerless reaper lock was removed during owner publication: ${reaper_path}"
+		[ ! -e "${reaper_path}/pid" ] || fail "ownerless reaper lock owner was overwritten: ${reaper_path}"
+		rm -rf "${reaper_path}"
 
 		mkdir -p "${reaper_path}"
 		: >"${reaper_path}/pid"

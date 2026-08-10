@@ -680,9 +680,8 @@ nvram_transaction_lock_reaper_legacy_release() {
 }
 
 nvram_transaction_lock_reaper_acquire() {
-	local owner reaper_owner reaper_path reaper_reclaimed
+	local owner reaper_owner reaper_path
 	reaper_path="$1"
-	reaper_reclaimed=0
 	NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
 	NVRAM_TRANSACTION_REAPER_LOCK_PATH="${reaper_path}"
 	NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
@@ -700,22 +699,20 @@ nvram_transaction_lock_reaper_acquire() {
 	else
 		reaper_owner="$(cat "${reaper_path}/pid" 2>/dev/null)"
 		if [ -z "${reaper_owner}" ]; then
+			# Directory creation and PID publication are separate operations in
+			# the portable fallback.  An empty owner can therefore belong to a
+			# live installer paused between them; age alone cannot make it stale.
 			sleep 1
 			reaper_owner="$(cat "${reaper_path}/pid" 2>/dev/null)"
 			if [ -z "${reaper_owner}" ]; then
-				rmdir "${reaper_path}" 2>/dev/null || return 1
-				mkdir "${reaper_path}" 2>/dev/null || return 1
-				NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
-				reaper_reclaimed=1
+				return 1
 			fi
 		fi
-		if [ "${reaper_reclaimed}" -eq 0 ]; then
-			nvram_transaction_lock_owner_live "${reaper_owner}" && return 1
-			[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${reaper_owner}" ] || return 1
-			rm -rf "${reaper_path}" || return 1
-			mkdir "${reaper_path}" 2>/dev/null || return 1
-			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
-		fi
+		nvram_transaction_lock_owner_live "${reaper_owner}" && return 1
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${reaper_owner}" ] || return 1
+		rm -rf "${reaper_path}" || return 1
+		mkdir "${reaper_path}" 2>/dev/null || return 1
+		NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 	fi
 	printf '%s\n' "${owner}" >"${reaper_path}/pid" || {
 		rm -f "${reaper_path}/pid" 2>/dev/null

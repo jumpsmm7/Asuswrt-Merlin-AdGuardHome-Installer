@@ -136,6 +136,7 @@ run_check 'Installer event-script mode regression' sh tests/installer-event-scri
 run_check 'Installer upgrade runtime-default ordering regression' sh tests/installer-upgrade-runtime-defaults.sh
 run_check 'Installer post-replacement restart regression' sh tests/installer-post-replace-restart.sh
 run_check 'Installer update re-exec lock regression' sh tests/installer-update-reexec-lock.sh
+run_check 'Installer reaper owner publication regression' sh tests/installer-reaper-owner-publication.sh
 run_check 'Installer interruption restart regression' sh tests/installer-interruption-restart.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
 run_check 'Installer single-argument action regression' sh tests/installer-single-arg-actions.sh
