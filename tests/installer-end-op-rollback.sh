@@ -56,6 +56,22 @@ end_op_message 1 update >/dev/null 2>&1 && fail 'CLI failure with attention reco
 grep -q '^result=rollback partial$' "${ROLLBACK_RESULT_FILE}" || fail 'CLI failure replaced rollback attention result'
 grep -q '^detail=previous binary restored but service restart failed$' "${ROLLBACK_RESULT_FILE}" || fail 'CLI failure replaced rollback attention detail'
 
+cat >"${ROLLBACK_RESULT_FILE}" <<'RESULT'
+time=2026-07-12 00:00:00
+context=binary-replace
+result=rollback complete
+detail=previous binary restored successfully
+RESULT
+CLI_MODE="1"
+ADGUARD_DEFER_END_OP="0"
+ROLLBACK_RESULT_UPDATED="0"
+REAPER_RELEASE_ATTEMPTS_SAVED="${REAPER_RELEASE_ATTEMPTS}"
+
+end_op_message 1 update >/dev/null 2>&1 && fail 'CLI failure with a benign prior result unexpectedly returned success'
+grep -q '^result=no rollback attempted$' "${ROLLBACK_RESULT_FILE}" || fail 'CLI failure did not overwrite a rollback result that did not need attention'
+grep -q '^detail=operation aborted before rollback was needed$' "${ROLLBACK_RESULT_FILE}" || fail 'CLI failure did not overwrite the detail of a rollback result that did not need attention'
+REAPER_RELEASE_ATTEMPTS="${REAPER_RELEASE_ATTEMPTS_SAVED}"
+
 rm -f "${ROLLBACK_RESULT_FILE}" || fail 'could not reset rollback result'
 CLI_MODE="0"
 ADGUARD_DEFER_END_OP="1"
