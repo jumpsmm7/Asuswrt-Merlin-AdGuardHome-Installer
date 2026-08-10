@@ -1355,7 +1355,7 @@ printf '%s\n' "\$1" >"${TEST_ROOT}/restart-reaper-${reaper_mode}.branch"
 EOF_REAPER_RESTART
 		chmod 755 "${TARG_DIR}/installer" || fail "could not make ${reaper_mode} reaper restart target executable"
 		# sleep ignores requested delays in the test environment.
-sleep() { :; }
+		sleep() { :; }
 		# clear_screen is a no-op placeholder for clearing the terminal screen.
 		clear_screen() { :; }
 		# rollback_result_needs_attention reports whether a rollback result requires attention.
