@@ -7,11 +7,13 @@ INSTALLER_PATH="${1:-installer}"
 TEST_ROOT="${TMPDIR:-/tmp}/installer-reaper-owner-publication.$$"
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 
+# fail reports a test failure and exits with a nonzero status.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
 
+# cleanup removes the temporary test workspace.
 cleanup() { rm -rf "${TEST_ROOT}"; }
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
@@ -25,8 +27,9 @@ sed -n '/^nvram_transaction_recover_startup() {$/,/^installer_lan_domain_set() {
 reaper_path="${TEST_ROOT}/owner-publication.reaper"
 LOCK_OWNER="$$:1"
 
-# Exercise the portable fallback without relying on descriptor locking or symlinks.
+# nvram_transaction_lock_flock_supports_fd reports that file-descriptor locking is unavailable.
 nvram_transaction_lock_flock_supports_fd() { return 1; }
+# nvram_transaction_lock_readlink returns 127 to indicate that symbolic-link support is unavailable.
 nvram_transaction_lock_readlink() { return 127; }
 sleep() { :; }
 

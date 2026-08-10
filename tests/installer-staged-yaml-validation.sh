@@ -97,7 +97,7 @@ restore_dns_filter_settings() { rm -rf "$1"; }
 check_dns_filter() { :; }
 # check_dns_local is a no-op stub for local DNS checks.
 check_dns_local() { :; }
-# check_ipset records the selected IPSET integration option and persists its enabled state.
+# check_ipset records the selected IPSET integration option and persists whether IPSET integration is enabled.
 check_ipset() {
 	printf '%s\n' "$1" >>"${IPSET_LOG}"
 	case "$1" in

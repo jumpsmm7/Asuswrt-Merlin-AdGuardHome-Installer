@@ -68,6 +68,7 @@ fi
 UNSAFE_COMMANDS=$(mktemp "${TMPDIR:-/tmp}/unsafe_commands.XXXXXX") || exit 1
 trap 'rm -f "$UNSAFE_COMMANDS"' 0
 
+# scan_unsafe_commands scans a file for potentially unsafe inline arguments in GitHub and GitLab pull or merge request commands.
 scan_unsafe_commands() {
 	awk '
 	function inspect_command(command, sanitized) {

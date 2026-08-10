@@ -92,7 +92,7 @@ installer_lan_domain_restore() { :; }
 nvram_transaction_finalize_setup_pair() { return 0; }
 # nvram_transaction_setup_committed reports whether the setup commit marker exists.
 nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
-# nvram_transaction_setup_files_begin starts the setup-file transaction by creating a journal directory and copying setup files.
+# nvram_transaction_setup_files_begin starts a setup-file transaction by recording the current configuration, YAML, and original YAML files, including markers for files that are absent.
 nvram_transaction_setup_files_begin() {
 	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || return 1
 	if [ -f "${CONF_FILE}" ]; then
@@ -112,7 +112,7 @@ nvram_transaction_setup_files_begin() {
 	fi
 	return 0
 }
-# nvram_transaction_setup_files_restore restores journaled setup files from their copies and removes the journal directory.
+# nvram_transaction_setup_files_restore restores journaled setup files or removes files marked absent, then deletes the journal directory.
 nvram_transaction_setup_files_restore() {
 	[ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || return 0
 	[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config" ] && cp -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config" "${CONF_FILE}"

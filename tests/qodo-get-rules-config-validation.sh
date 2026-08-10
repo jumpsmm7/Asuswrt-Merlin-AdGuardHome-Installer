@@ -35,7 +35,7 @@ awk '
 ' "${SKILL}" >"${SNIPPET}"
 diff -q "${CANONICAL}" "${SNIPPET}" >/dev/null 2>&1 || fail 'SKILL.md config-parsing snippet differs from the canonical script'
 
-# run_snippet executes the canonical configuration parser in an isolated environment with an explicit, minimal environment and prints the resulting credential and URL fields; the fourth RESULT field (REQUEST_ID) allows tests to verify UUID generation independently.
+# run_snippet runs the canonical configuration parser with an isolated minimal environment and prints the resolved API key, environment name, API URL, and request ID.
 run_snippet() {
 	_home="$1"
 	shift
@@ -73,7 +73,7 @@ assert_failure() {
 	printf '%s\n' "${_out}" | grep -Fq "${_needle}" || fail "${_label}: expected output to contain '${_needle}', got: ${_out}"
 }
 
-# extract_result_field extracts a field from the last RESULT record in the parser output.
+# extract_result_field extracts a field from the last RESULT record in parser output.
 extract_result_field() {
 	# usage: extract_result_field <output> <field-number 1..4>
 	printf '%s\n' "$1" | grep '^RESULT|' | tail -n1 | cut -d'|' -f "$(($2 + 1))"

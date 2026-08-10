@@ -326,7 +326,7 @@ AGH_STUB
 	}
 	# read_yesno prompts for and evaluates a yes-or-no response.
 	read_yesno() { return 1; }
-	# AdGuardHome_authen appends a default administrator account configuration to the specified file.
+	# AdGuardHome_authen appends the default administrator account configuration to the specified file.
 	AdGuardHome_authen() {
 		printf '%s\n' 'users:' '- name: admin' '  password: hash' >>"$2"
 	}
@@ -347,7 +347,7 @@ AGH_STUB
 	}
 	# nvram_transaction_setup_committed reports whether the setup commit marker exists.
 	nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
-	# nvram_transaction_setup_files_begin starts a setup journal and records the existing configuration state for rollback.
+	# nvram_transaction_setup_files_begin creates a setup journal and records the existing configuration or its absence for rollback.
 	nvram_transaction_setup_files_begin() {
 		printf '%s\n' 'nvram_transaction_setup_files_begin' >>"${CALLS_FILE}"
 		local journal_root
@@ -365,7 +365,7 @@ AGH_STUB
 	}
 	# nvram_transaction_setup_files_restore reports successful setup-file restoration.
 	nvram_transaction_setup_files_restore() { return 0; }
-	# check_dns_filter records that DNS filter checking was invoked and succeeds.
+	# check_dns_filter records a DNS filter check invocation and succeeds.
 	check_dns_filter() {
 		printf '%s\n' 'check_dns_filter' >>"${CALLS_FILE}"
 		return 0

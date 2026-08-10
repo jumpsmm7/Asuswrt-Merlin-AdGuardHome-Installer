@@ -28,6 +28,7 @@ BASE_DIR="${TEST_ROOT}/base"
 mkdir -p "${BASE_DIR}" || fail 'could not create installer base directory'
 # file_md5 outputs the placeholder MD5 checksum `new`.
 file_md5() { printf '%s\n' new; }
+# ptxt_ok is a no-op test helper.
 ptxt_ok() { :; }
 
 for lock_mode in flock symlink mkdir; do

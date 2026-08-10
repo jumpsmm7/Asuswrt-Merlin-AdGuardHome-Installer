@@ -23,7 +23,7 @@ trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
 
 # Validate a single SKILL.md file. Returns 0 on success, 1 on validation failure.
 # Does NOT call the global `fail` function - caller decides how to handle failures.
-# validate_skill_md validates a SKILL.md file's frontmatter and required content against its expected skill name.
+# validate_skill_md validates a SKILL.md file's frontmatter, required fields, trigger list, and body content against its expected skill name.
 validate_skill_md() {
 	skill_md="$1"
 	expected_name="$2"

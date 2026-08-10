@@ -9,6 +9,7 @@ CONFIG_ENV_NAME=""
 CONFIG_QODO_API_URL=""
 INVALID_QODO_API_URL='__INVALID_QODO_API_URL__'
 
+# qodo_url_authority_valid determines whether a URL uses HTTPS and has a trusted qodo.ai authority.
 qodo_url_authority_valid() {
 	local authority url
 	url="$1"
@@ -25,6 +26,7 @@ qodo_url_authority_valid() {
 	esac
 }
 
+# config_mode returns the permission mode of the specified file or directory, or fails if it cannot be read.
 config_mode() {
 	stat -c '%a' "$1" 2>/dev/null || return 1
 }

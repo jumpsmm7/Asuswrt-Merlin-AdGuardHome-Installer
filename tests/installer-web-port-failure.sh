@@ -64,9 +64,9 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 # ptxt_ok is a no-op text helper used by the test harness.
 ptxt_ok() { :; }
-# PTXT is a no-op text output helper.
+# PTXT outputs no text.
 PTXT() { :; }
-# rm removes files and can simulate cleanup failures for configured LAN-domain or DNS-filter snapshot markers.
+# rm removes files and simulates cleanup failures for configured LAN-domain or DNS-filter snapshot markers.
 rm() {
 	if { [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] || [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ]; } &&
 		[ "$*" = "-rf ${BASE_DIR}/.AdGuardHome.nvram/lan-domain ${BASE_DIR}/.AdGuardHome.nvram/dnsfilter ${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
@@ -82,7 +82,7 @@ rm() {
 	fi
 	command rm "$@"
 }
-# read_input_port sets WEB_PORT to the selected WebUI port and returns the configured input status.
+# read_input_port sets WEB_PORT to SELECTED_WEB_PORT or 3000 and returns READ_INPUT_PORT_STATUS, defaulting to 1.
 read_input_port() {
 	WEB_PORT="${SELECTED_WEB_PORT:-3000}"
 	return "${READ_INPUT_PORT_STATUS:-1}"
@@ -126,7 +126,7 @@ save_dns_filter_settings() {
 	mkdir -p "$1"
 	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
 }
-# installer_lan_domain_set saves the current LAN domain and sets a new value, returning failure when persistence is configured to fail.
+# installer_lan_domain_set records the current LAN domain and persists a replacement value, failing when persistence is configured to fail.
 installer_lan_domain_set() {
 	[ "${FAIL_LAN_DOMAIN_SET:-0}" -eq 0 ] || return 1
 	TEST_LAN_DOMAIN_ROLLBACK="${LAN_DOMAIN:-}"
@@ -160,7 +160,7 @@ nvram_transaction_finalize_setup_pair() {
 }
 # nvram_transaction_setup_committed reports whether the setup commit marker exists.
 nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
-# nvram_transaction_setup_files_begin creates a rollback journal with snapshots of the YAML and configuration files, recording markers for files that are absent.
+# nvram_transaction_setup_files_begin creates a rollback journal containing snapshots of the YAML and configuration files, and records markers for files that are absent.
 nvram_transaction_setup_files_begin() {
 	local journal_root source target
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
@@ -238,8 +238,9 @@ check_ipset() {
 	[ ! -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || IPSET_SAW_SETUP_JOURNAL=1
 	printf '%s\n' 'ADGUARD_IPSET="CHANGED"' >>"${CONF_FILE}"
 }
-# read_yesno indicates a negative response.
+# read_yesno always indicates a negative response.
 read_yesno() { return 1; }
+# AdGuardHome_authen authenticates with AdGuard Home.
 AdGuardHome_authen() { :; }
 # read_input_dns sets the first or second bootstrap DNS server based on whether the first server is already configured.
 read_input_dns() {
@@ -249,7 +250,7 @@ read_input_dns() {
 		BOOTSTRAP2=8.8.8.8
 	fi
 }
-# ai_have_cmd indicates that the requested command is unavailable.
+# ai_have_cmd reports that the requested command is unavailable.
 ai_have_cmd() { return 1; }
 # nvram mocks NVRAM reads and writes used by installer tests.
 nvram() {
@@ -307,7 +308,7 @@ SETUP_FILES_FINALIZE_COUNT=0
 read_yesno() {
 	return 1
 }
-# read_input_num sets the selected input value to 3.
+# read_input_num sets the chosen input number to 3.
 read_input_num() {
 	CHOSEN=3
 }
@@ -353,7 +354,7 @@ rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
 printf '%s\n' 'http:' '  address: 192.168.50.1:4000' 'schema_version: 26' >"${YAML_FILE}"
 printf '%s\n' 'ADGUARD_WEBUI_PORT="4000"' >"${CONF_FILE}"
 SETUP_FILES_RESTORE_COUNT=0
-# read_yesno indicates that no yes/no response was provided.
+# read_yesno reports that no yes/no response was provided.
 read_yesno() { return 2; }
 if setup_AdGuardHome_impl ''; then
 	fail 'existing-config setup accepted an interrupted confirmation prompt'
@@ -427,6 +428,7 @@ printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"'
 SETUP_FILE_JOURNALS=0
 DNS_FILTER_SAW_SETUP_JOURNAL=0
 DNS_FILTER_CHANGED=0
+# read_input_num sets the chosen input number to 1.
 read_input_num() {
 	CHOSEN=1
 }
@@ -435,6 +437,7 @@ if ! setup_AdGuardHome_impl reconfig reconfig; then
 fi
 [ "${SETUP_FILE_JOURNALS}" -eq 1 ] || fail 'existing-YAML DNSFilter reconfiguration did not initialize the setup file journal'
 [ "${DNS_FILTER_SAW_SETUP_JOURNAL}" -eq 1 ] || fail 'existing-YAML DNSFilter reconfiguration applied NVRAM before initializing the setup file journal'
+# read_input_num sets the chosen input number to 3.
 read_input_num() {
 	CHOSEN=3
 }

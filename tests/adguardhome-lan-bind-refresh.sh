@@ -160,7 +160,9 @@ diff -q "${YAML_FILE}" "${YAML_FILE}.wildcard" >/dev/null 2>&1 || fail 'wildcard
 
 # interface_ipv4_addr prints the usable LAN IPv4 address used by staged-validation and failure-path tests.
 interface_ipv4_addr() { printf '%s\n' 192.168.50.27; }
+# interface_ipv6_addr prints the IPv6 address assigned to the test interface.
 interface_ipv6_addr() { printf '%s\n' 2001:db8::27; }
+# nvram returns fixture values for selected LAN and IPv6 router NVRAM keys.
 nvram() {
 	case "$2" in
 		lan_ifname) printf '%s\n' br0 ;;
