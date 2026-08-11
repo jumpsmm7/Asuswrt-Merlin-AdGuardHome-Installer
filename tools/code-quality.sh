@@ -116,6 +116,7 @@ fi
 
 run_check 'md5sum files match installer artifacts' sh tools/check-md5.sh
 run_check 'sha256sum files match installer artifacts' sh tools/check-sha256.sh
+run_check 'Checksum file format regression' sh tests/checksum-file-format.sh
 run_check 'Repository shell portability regression' sh tools/check-shell-portability.sh
 run_check 'Qodo provider thread resolution regression' sh tests/qodo-provider-thread-resolution.sh
 run_check 'Qodo get-rules config validation regression' sh tests/qodo-get-rules-config-validation.sh

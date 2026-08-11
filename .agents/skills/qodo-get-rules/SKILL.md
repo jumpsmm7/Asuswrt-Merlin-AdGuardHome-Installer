@@ -79,12 +79,18 @@ if [ -n "$REMOTE_URL" ]; then
     REPO_PATH=""
   fi
 
+  case "${REPO_PATH}" in
+    "" | */../* | ../* | */.. | */./* | ./* | */. | *\?* | *\#* | */*/*)
+      REPO_PATH=""
+      ;;
+    */*) ;;
+    *) REPO_PATH="" ;;
+  esac
+
   if [ -n "$REPO_PATH" ]; then
     # 4. Detect module-level scope: check if cwd is inside modules/<name>/
     if REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) && [ -n "$REPO_ROOT" ]; then
-      if REL_PATH=$(realpath --relative-to="$REPO_ROOT" "$PWD" 2>/dev/null || \
-        python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' \
-          "$PWD" "$REPO_ROOT" 2>/dev/null) && [ -n "$REL_PATH" ]; then
+      if REL_PATH=$(git rev-parse --show-prefix 2>/dev/null); then
         MODULE=$(echo "$REL_PATH" | sed -n 's|^modules/\([^/]*\).*|\1|p')
 
         if [ -n "$MODULE" ]; then
@@ -145,7 +151,15 @@ qodo_url_authority_valid() {
 
 # config_mode returns the permission mode of the specified file or directory, or fails if it cannot be read.
 config_mode() {
-	stat -c '%a' "$1" 2>/dev/null || return 1
+	local mode
+	if mode=$(stat -c '%a' "$1" 2>/dev/null); then
+		printf '%s\n' "${mode}"
+	elif mode=$(stat -f '%Lp' "$1" 2>/dev/null); then
+		printf '%s\n' "${mode}"
+	else
+		printf '%s\n' "Error: unable to read permission mode for $1" >&2
+		return 1
+	fi
 }
 
 # Read a secure config when a required value is missing or when it can supply an

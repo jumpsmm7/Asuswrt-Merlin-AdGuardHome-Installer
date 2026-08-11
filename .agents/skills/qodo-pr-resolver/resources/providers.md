@@ -127,6 +127,22 @@ fi
     fi
   fi
   ```
+  Before writing a netrc file, reject whitespace and netrc directive delimiters in either
+  credential so values cannot introduce additional tokens or directives:
+  ```bash
+  case "${BB_USERNAME}" in
+    *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._@+-]* | "")
+      echo "Error: BB_USERNAME contains whitespace or netrc syntax characters" >&2
+      exit 1
+      ;;
+  esac
+  case "${BB_APP_PASSWORD}" in
+    *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._@+/-]* | "")
+      echo "Error: BB_APP_PASSWORD contains whitespace or netrc syntax characters" >&2
+      exit 1
+      ;;
+  esac
+  ```
 - Set the Bitbucket Cloud API endpoint, then extract the workspace and repository slug from either HTTPS or SSH remote syntax:
   ```bash
   BB_API_URL=https://api.bitbucket.org

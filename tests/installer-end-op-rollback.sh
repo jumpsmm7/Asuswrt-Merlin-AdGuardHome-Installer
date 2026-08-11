@@ -162,6 +162,8 @@ grep -q 'Unable to release the installer NVRAM transaction lock' "${TEST_ROOT}/i
 
 CLI_MODE="1"
 ADGUARD_DEFER_END_OP="0"
+# nvram_transaction_lock_release succeeds so only reaper release is under test below.
+nvram_transaction_lock_release() { return 0; }
 # nvram_transaction_lock_reaper_release_active simulates failure to release the active NVRAM transaction reaper.
 nvram_transaction_lock_reaper_release_active() { return 1; }
 if end_op_message 0 >"${TEST_ROOT}/cli-reaper-output" 2>&1; then

@@ -20,6 +20,12 @@ fail() {
 	exit 1
 }
 
+UNSAFE_COMMANDS=""
+cleanup() {
+	[ -z "${UNSAFE_COMMANDS}" ] || rm -f "${UNSAFE_COMMANDS}"
+}
+trap 'cleanup' EXIT HUP INT TERM
+
 for f in "${SKILL}" "${CONVERGENCE}" "${GERRIT}" "${PROVIDERS}"; do
 	[ -f "${f}" ] || fail "expected qodo-pr-resolver doc not found: ${f}"
 done
@@ -66,7 +72,6 @@ fi
 # keeps a safe title (or another safe flag) from masking an unsafe body on the
 # same command and covers single-quoted, double-quoted, and unquoted values.
 UNSAFE_COMMANDS=$(mktemp "${TMPDIR:-/tmp}/unsafe_commands.XXXXXX") || exit 1
-trap 'rm -f "$UNSAFE_COMMANDS"' 0
 
 # scan_unsafe_commands scans a file for potentially unsafe inline arguments in GitHub and GitLab pull or merge request commands.
 scan_unsafe_commands() {

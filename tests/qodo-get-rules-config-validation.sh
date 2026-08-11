@@ -373,8 +373,6 @@ assert_success 'empty-string ENVIRONMENT_NAME in config defaults to production' 
 [ "$(extract_result_field "${OUT}" 3)" = 'https://qodo-platform.qodo.ai/rules/v1' ] ||
 	fail "empty-string ENVIRONMENT_NAME in config defaults to production: unexpected API_URL: ${OUT}"
 
-printf '%s\n' 'PASS: qodo-get-rules config parsing snippet enforces credential/URL validation as documented'
-
 # --- Scenario: an optional non-string configured URL is ignored when the API key comes from the environment.
 HOME_OPTIONAL_URL_TYPE="${TMP_ROOT}/home-optional-url-type"
 make_config "${HOME_OPTIONAL_URL_TYPE}" '{"QODO_API_URL": false}' 700 600
@@ -395,3 +393,5 @@ assert_success 'optional invalid configured URL' "${RC}" "${OUT}"
 OUT=$(run_snippet "${HOME_OPTIONAL_BAD_URL}" 2>&1)
 RC=$?
 assert_failure 'required invalid configured URL' "${RC}" "${OUT}" 'Invalid QODO_API_URL'
+
+printf '%s\n' 'PASS: qodo-get-rules config parsing snippet enforces credential/URL validation as documented'

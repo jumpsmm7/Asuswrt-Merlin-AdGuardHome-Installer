@@ -85,16 +85,16 @@ if ! printf '%s\n' "$TOP_K" | grep -Eq '^[1-9][0-9]*$'; then
   echo "Error: TOP_K must be a positive integer, got: $TOP_K" >&2
   exit 1
 fi
-BODY=$(SEARCH_QUERY="$SEARCH_QUERY" SCOPE="${SCOPE:-}" TOP_K="$TOP_K" python3 - <<'PY'
-import json
-import os
-
-payload = {"query": os.environ["SEARCH_QUERY"], "top_k": int(os.environ["TOP_K"])}
-if os.environ.get("SCOPE"):
-    payload["scopes"] = [os.environ["SCOPE"]]
-print(json.dumps(payload))
-PY
-) || exit 1
+if [ -x /usr/bin/jq ]; then
+  JQ_BIN=/usr/bin/jq
+elif [ -x /opt/bin/jq ]; then
+  JQ_BIN=/opt/bin/jq
+else
+  echo "Error: jq is required (/usr/bin/jq or /opt/bin/jq)" >&2
+  exit 1
+fi
+BODY=$("$JQ_BIN" -cn --arg query "$SEARCH_QUERY" --arg scope "${SCOPE:-}" \
+  --argjson top_k "$TOP_K" '{query: $query, top_k: $top_k} + (if $scope != "" then {scopes: [$scope]} else {} end)') || exit 1
 
 umask 077
 AUTH_HEADER=$(mktemp) || exit 1
@@ -117,25 +117,22 @@ if [ "$HTTP_CODE" != "200" ]; then
   exit 1
 fi
 
-VALIDATED_RESPONSE=$(printf '%s' "$BODY_RESPONSE" | python3 -c '
-import json, sys
-try:
-    data = json.load(sys.stdin)
-except json.JSONDecodeError:
-    raise SystemExit("Qodo rules request failed: invalid JSON response")
-if not isinstance(data, dict) or not isinstance(data.get("rules"), list):
-    raise SystemExit("Qodo rules request failed: malformed response (expected object with rules array)")
-for entry in data["rules"]:
-    if not isinstance(entry, dict):
-        raise SystemExit("Qodo rules request failed: malformed response (rules array contains non-object entry)")
-    if not isinstance(entry.get("id"), str) or not entry["id"]:
-        raise SystemExit("Qodo rules request failed: malformed response (rule missing required non-empty string field id)")
-    if not isinstance(entry.get("name"), str) or not isinstance(entry.get("content"), str):
-        raise SystemExit("Qodo rules request failed: malformed response (rule missing required string fields name or content)")
-    if entry.get("severity") not in ("ERROR", "WARNING", "RECOMMENDATION"):
-        raise SystemExit("Qodo rules request failed: malformed response (unsupported rule severity)")
-print(json.dumps(data))
-') || exit 1
+VALIDATED_RESPONSE=$(printf '%s' "$BODY_RESPONSE" | "$JQ_BIN" -ce '
+  if type != "object" or (.rules | type) != "array" then
+    error("Qodo rules request failed: malformed response (expected object with rules array)")
+  elif any(.rules[]; type != "object") then
+    error("Qodo rules request failed: malformed response (rules array contains non-object entry)")
+  elif any(.rules[]; (.id | type) != "string" or (.id | length) == 0) then
+    error("Qodo rules request failed: malformed response (rule missing required non-empty string field id)")
+  elif any(.rules[]; (.name | type) != "string" or (.content | type) != "string") then
+    error("Qodo rules request failed: malformed response (rule missing required string fields name or content)")
+  elif any(.rules[]; (.severity != "ERROR" and .severity != "WARNING" and .severity != "RECOMMENDATION")) then
+    error("Qodo rules request failed: malformed response (unsupported rule severity)")
+  else . end
+' 2>/dev/null) || {
+  echo "Qodo rules request failed: invalid or malformed JSON response" >&2
+  exit 1
+}
 printf '%s\n' "$VALIDATED_RESPONSE"
 ```
 
@@ -148,16 +145,16 @@ if ! printf '%s\n' "$TOP_K" | grep -Eq '^[1-9][0-9]*$'; then
   echo "Error: TOP_K must be a positive integer, got: $TOP_K" >&2
   exit 1
 fi
-BODY=$(SEARCH_QUERY="$SEARCH_QUERY" SCOPE="${SCOPE:-}" TOP_K="$TOP_K" python3 - <<'PY'
-import json
-import os
-
-payload = {"query": os.environ["SEARCH_QUERY"], "top_k": int(os.environ["TOP_K"])}
-if os.environ.get("SCOPE"):
-    payload["scopes"] = [os.environ["SCOPE"]]
-print(json.dumps(payload))
-PY
-) || exit 1
+if [ -x /usr/bin/jq ]; then
+  JQ_BIN=/usr/bin/jq
+elif [ -x /opt/bin/jq ]; then
+  JQ_BIN=/opt/bin/jq
+else
+  echo "Error: jq is required (/usr/bin/jq or /opt/bin/jq)" >&2
+  exit 1
+fi
+BODY=$("$JQ_BIN" -cn --arg query "$SEARCH_QUERY" --arg scope "${SCOPE:-}" \
+  --argjson top_k "$TOP_K" '{query: $query, top_k: $top_k} + (if $scope != "" then {scopes: [$scope]} else {} end)') || exit 1
 
 umask 077
 AUTH_HEADER=$(mktemp) || exit 1
@@ -191,25 +188,22 @@ if [ "$HTTP_CODE" != "200" ]; then
   exit 1
 fi
 
-VALIDATED_RESPONSE=$(printf '%s' "$BODY_RESPONSE" | python3 -c '
-import json, sys
-try:
-    data = json.load(sys.stdin)
-except json.JSONDecodeError:
-    raise SystemExit("Qodo rules request failed: invalid JSON response")
-if not isinstance(data, dict) or not isinstance(data.get("rules"), list):
-    raise SystemExit("Qodo rules request failed: malformed response (expected object with rules array)")
-for entry in data["rules"]:
-    if not isinstance(entry, dict):
-        raise SystemExit("Qodo rules request failed: malformed response (rules array contains non-object entry)")
-    if not isinstance(entry.get("id"), str) or not entry["id"]:
-        raise SystemExit("Qodo rules request failed: malformed response (rule missing required non-empty string field id)")
-    if not isinstance(entry.get("name"), str) or not isinstance(entry.get("content"), str):
-        raise SystemExit("Qodo rules request failed: malformed response (rule missing required string fields name or content)")
-    if entry.get("severity") not in ("ERROR", "WARNING", "RECOMMENDATION"):
-        raise SystemExit("Qodo rules request failed: malformed response (unsupported rule severity)")
-print(json.dumps(data))
-') || exit 1
+VALIDATED_RESPONSE=$(printf '%s' "$BODY_RESPONSE" | "$JQ_BIN" -ce '
+  if type != "object" or (.rules | type) != "array" then
+    error("Qodo rules request failed: malformed response (expected object with rules array)")
+  elif any(.rules[]; type != "object") then
+    error("Qodo rules request failed: malformed response (rules array contains non-object entry)")
+  elif any(.rules[]; (.id | type) != "string" or (.id | length) == 0) then
+    error("Qodo rules request failed: malformed response (rule missing required non-empty string field id)")
+  elif any(.rules[]; (.name | type) != "string" or (.content | type) != "string") then
+    error("Qodo rules request failed: malformed response (rule missing required string fields name or content)")
+  elif any(.rules[]; (.severity != "ERROR" and .severity != "WARNING" and .severity != "RECOMMENDATION")) then
+    error("Qodo rules request failed: malformed response (unsupported rule severity)")
+  else . end
+' 2>/dev/null) || {
+  echo "Qodo rules request failed: invalid or malformed JSON response" >&2
+  exit 1
+}
 printf '%s\n' "$VALIDATED_RESPONSE"
 ```
 

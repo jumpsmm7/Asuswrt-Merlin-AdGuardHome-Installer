@@ -59,7 +59,9 @@ update_sum_file() {
 
 	_current_value=""
 	if [ -f "${_sum_file}" ]; then
-		_current_value="$(awk 'NF {print $1; exit}' "${_sum_file}")"
+		# Check the complete file so legacy "hash  filename" output is normalized
+		# even when its first field already contains the current digest.
+		_current_value="$(cat "${_sum_file}")"
 	fi
 
 	if [ "${_current_value}" = "${_sum_value}" ]; then

@@ -296,6 +296,7 @@ grep -q 'address: 192.168.50.1:4000' "${WRITE_LOG}" || fail 'existing-config set
 [ "${YAML_CHECKS}" -eq 1 ] || fail 'existing-config setup did not validate the rewritten LAN-bound YAML once'
 [ "${SETUP_FILES_FINALIZE_COUNT}" -eq 1 ] || fail 'existing-config WebUI update did not finalize its setup-file journal'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'existing-config WebUI update retained its completed setup-file journal'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'existing-config WebUI update retained its completed setup commit marker'
 
 rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
 rm -f "${YAML_ORI}" "${YAML_BAK}"
@@ -318,6 +319,7 @@ fi
 [ "${SETUP_FILES_BEGIN_COUNT}" -eq 1 ] || fail 'recursive existing-config setup initialized its setup-file journal more than once'
 [ "${SETUP_FILES_FINALIZE_COUNT}" -eq 1 ] || fail 'recursive existing-config setup did not finalize its inherited setup-file journal'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'recursive existing-config setup retained its completed setup-file journal'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'recursive existing-config setup retained its completed setup commit marker'
 
 rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
 printf '%s\n' 'http:' '  address: 192.168.50.1:4000' 'schema_version: 26' >"${YAML_FILE}"
@@ -330,6 +332,7 @@ fi
 grep -q '^schema_version: 26 schema_version: 27 ' "${WRITE_LOG}" || fail 'existing-config setup did not attempt the schema version update'
 [ "${SETUP_FILES_FINALIZE_COUNT}" -eq 1 ] || fail 'existing-config schema update did not finalize its setup-file journal'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'existing-config schema update retained its completed setup-file journal'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'existing-config schema update retained its completed setup commit marker'
 
 rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
 printf '%s\n' 'http:' '  address: 192.168.50.1:4000' 'schema_version: 26' >"${YAML_FILE}"

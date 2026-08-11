@@ -54,7 +54,14 @@ validate_one() {
 		return 1
 	fi
 
-	_expected="$(awk 'NF {print $1; exit}' "${_md5_file}")"
+	if ! _expected="$(awk '
+		NF { value = $1; count++; if (NF != 1) invalid = 1 }
+		END { if (count != 1 || invalid) exit 1; print value }
+	' "${_md5_file}")"; then
+		printf '%s\n' "Error: ${_md5_file} must contain exactly one checksum value" >&2
+		FAILED=1
+		return 1
+	fi
 	if ! is_md5_hex "${_expected}"; then
 		printf '%s\n' "Error: invalid checksum value in ${_md5_file}: ${_expected}" >&2
 		FAILED=1

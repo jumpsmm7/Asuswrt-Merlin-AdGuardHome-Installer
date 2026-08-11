@@ -124,6 +124,11 @@ validate_skill_md() {
 				rm -f "${FRONTMATTER}"
 				return 1
 			fi
+			if printf '%s\n' "${triggers_line}" | grep -Eq '\[[[:space:]]*,|,[[:space:]]*,|,[[:space:]]*\]'; then
+				printf '%s\n' "${skill_md}: 'triggers:' inline list contains a blank item" >&2
+				rm -f "${FRONTMATTER}"
+				return 1
+			fi
 		# Check for scalar (non-list) value: triggers: invalid
 		elif ! printf '%s\n' "${triggers_line}" | grep -Eq '^triggers:[[:space:]]*$'; then
 			printf '%s\n' "${skill_md}: 'triggers:' has a scalar value (expected a list)" >&2
@@ -186,6 +191,22 @@ Content here.
 EOF
 if validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-empty-inline-triggers"; then
 	fail "regression: empty inline triggers list fixture unexpectedly passed validation"
+fi
+
+# Test case: inline list with a blank item should be rejected
+TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-blank-inline-trigger"
+mkdir -p "${TEST_SKILL_DIR}"
+cat >"${TEST_SKILL_DIR}/SKILL.md" <<'EOF'
+---
+name: test-blank-inline-trigger
+description: Test skill with a blank inline trigger
+triggers: [foo, , bar]
+---
+# Test Skill
+Content here.
+EOF
+if validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-blank-inline-trigger"; then
+	fail "regression: blank inline trigger fixture unexpectedly passed validation"
 fi
 
 # Test case: scalar/invalid value should be rejected
