@@ -32,6 +32,7 @@ sed -n \
 	-e '/^rollback_result_summary() {$/,/^}/p' \
 	-e '/^rollback_result_notice() {$/,/^}/p' \
 	-e '/^adguard_restore_after_failed_directory_restore() {$/,/^}/p' \
+	-e '/^on_installer_exit() {$/,/^}/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail 'could not extract interruption trap helpers'
 printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_ROOT}" >>"${FUNCTIONS_FILE}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'interruption trap helper extraction was empty'
@@ -401,6 +402,50 @@ awk '
 	restored_without_restart && /return 2/ { preserved_status = 1; exit }
 	END { exit !(rollback_failed && preserved_hooks && detached && retained_hooks && restored_without_restart && retried_hooks && cleared_hooks && preserved_hooks < detached && detached < retained_hooks && retained_hooks < restored_without_restart && restored_without_restart < retried_hooks && retried_hooks < cleared_hooks && preserved_status) }
 ' "${SCRIPT_PATH}" || fail 'restore rollback failure does not preserve and retry hook recovery around directory rollback, suppress restart, or preserve status 2'
+
+awk '
+	/^on_installer_exit\(\) \{/ { in_function = 1 }
+	in_function && !journal && /setup_restore_nvram_journal/ { journal = NR }
+	in_function && !migration && /rollback_pending_mode_migration/ { migration = NR }
+	in_function && /^}/ { exit }
+	END { exit !(journal && migration && journal < migration) }
+' "${SCRIPT_PATH}" || fail 'exit recovery does not restore the setup journal before rolling back mode migration'
+
+: >"${CALLS_FILE}"
+RECOVERY_STATE="${TMP_ROOT}/setup-files"
+mkdir "${RECOVERY_STATE}" || fail 'could not create setup journal recovery fixture'
+if (
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	ERROR='Error:'
+	BASE_DIR="${TMP_ROOT}"
+	AGH_FILE="${TMP_ROOT}/AdGuardHome"
+	MODE_MIGRATION_YAML_FILE_BACKUP="${TMP_ROOT}/migration.yaml.backup"
+	ADGUARD_INSTALL_MODE=lan
+	_DNS_STUBBY_STOPPED=0
+	nvram_transaction_lock_owned() { return 0; }
+	setup_restore_nvram_journal() {
+		printf '%s\n' journal-failed >>"${CALLS_FILE}"
+		return 1
+	}
+	rollback_pending_mode_migration() { printf '%s\n' rollback >>"${CALLS_FILE}"; }
+	PTXT() { printf '%s\n' "message:$*" >>"${CALLS_FILE}"; }
+	cleanup_api_files() { :; }
+	installer_cleanup_tmp_file() { :; }
+	nvram_transaction_lock_release() { printf '%s\n' lock-released >>"${CALLS_FILE}"; }
+	on_installer_exit
+); then
+	fail 'failed setup journal restoration returned a successful exit status'
+else
+	status="$?"
+fi
+[ "${status}" -eq 1 ] || fail "failed setup journal restoration returned status ${status} instead of 1"
+[ -d "${RECOVERY_STATE}" ] || fail 'failed setup journal restoration removed its recovery state'
+if grep -q '^rollback$' "${CALLS_FILE}"; then
+	fail 'mode migration rollback ran after setup journal restoration failed'
+fi
+[ "$(grep -c '^journal-failed$' "${CALLS_FILE}")" -eq 1 ] || fail 'failed setup journal restoration was retried during exit cleanup'
+[ "$(grep -c '^lock-released$' "${CALLS_FILE}")" -eq 1 ] || fail 'failed setup journal restoration did not release the transaction lock'
 
 awk '
 	/^adguard_install_abort_on_signal\(\) \{/ { in_function = 1 }

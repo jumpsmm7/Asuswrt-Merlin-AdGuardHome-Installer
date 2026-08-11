@@ -1,5 +1,5 @@
 #!/bin/sh
-# Verify the mkdir reaper cannot reclaim a directory while its owner is being published.
+# Verify stale ownerless reapers are reclaimed after atomic owner publication.
 
 set -u
 
@@ -33,16 +33,27 @@ nvram_transaction_lock_flock_supports_fd() { return 1; }
 nvram_transaction_lock_readlink() { return 127; }
 sleep() { :; }
 
-# This directory represents an installer paused after mkdir and before writing pid.
+# This directory represents an older installer paused after mkdir and before
+# writing pid. A new installer must not steal its directory while it can resume.
 mkdir "${reaper_path}" || fail 'could not create ownerless reaper directory'
 if nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"; then
-	fail 'a contender reclaimed an ownerless reaper during owner publication'
+	fail 'a contender stole a paused legacy owner publication'
 fi
-[ -d "${reaper_path}" ] || fail 'a contender removed the ownerless reaper directory'
-[ ! -e "${reaper_path}/pid" ] || fail 'a contender overwrote the pending reaper owner'
+[ -d "${reaper_path}" ] || fail 'a contender removed the paused legacy reaper'
+printf '%s\n' "${LOCK_OWNER}" >"${reaper_path}/pid" || fail 'paused legacy owner could not resume publication'
+[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'resumed legacy publication changed owner'
+rm -rf "${reaper_path}"
 
-# The original installer must still be able to finish publishing into its directory.
-printf '%s\n' "${LOCK_OWNER}" >"${reaper_path}/pid" || fail 'original owner could not finish publication'
-[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'published reaper owner changed'
+# Dead and PID-reused published owners remain safely reclaimable.
+printf '%s\n' 999999999 >"${reaper_path}.stale-owner"
+mkdir "${reaper_path}" || fail 'could not create stale reaper fixture'
+mv "${reaper_path}.stale-owner" "${reaper_path}/pid" || fail 'could not publish stale reaper owner'
+nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail 'stale published owner was not reclaimed'
+nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail 'stale reaper was not released'
 
-printf '%s\n' 'PASS: mkdir reaper preserves owner publication ownership'
+mkdir "${reaper_path}" || fail 'could not create PID-reuse reaper fixture'
+printf '%s:0\n' "$$" >"${reaper_path}/pid" || fail 'could not publish PID-reuse owner'
+nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail 'PID-reused owner was not reclaimed'
+nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail 'PID-reused reaper was not released'
+
+printf '%s\n' 'PASS: mkdir reaper preserves paused legacy publishers and reclaims verified stale owners'

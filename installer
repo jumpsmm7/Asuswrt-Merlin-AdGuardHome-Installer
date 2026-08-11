@@ -679,9 +679,34 @@ nvram_transaction_lock_reaper_legacy_release() {
 	fi
 }
 
-nvram_transaction_lock_reaper_acquire() {
-	local owner reaper_owner reaper_path
+nvram_transaction_lock_reaper_legacy_claim() {
+	local claim_name claim_path owner reaper_path
 	reaper_path="$1"
+	owner="$2"
+	claim_path="${reaper_path}.claim.${owner}"
+	claim_name="${claim_path##*/}"
+	mkdir "${claim_path}" 2>/dev/null || return 1
+	printf '%s\n' "${owner}" >"${claim_path}/pid" || {
+		rm -rf "${claim_path}" 2>/dev/null
+		return 1
+	}
+	if command mv "${claim_path}" "${reaper_path}" 2>/dev/null; then
+		if [ -d "${reaper_path}/${claim_name}" ]; then
+			rm -rf "${reaper_path:?}/${claim_name:?}" 2>/dev/null
+			return 1
+		fi
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] && return 0
+	fi
+	# When the destination already exists, portable mv may place the claim
+	# directory inside it instead of failing. It never owns the mutex there.
+	rm -rf "${claim_path}" "${reaper_path:?}/${claim_name:?}" 2>/dev/null
+	return 1
+}
+
+nvram_transaction_lock_reaper_acquire() {
+	local claimed owner reaper_owner reaper_path
+	reaper_path="$1"
+	claimed=0
 	NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
 	NVRAM_TRANSACTION_REAPER_LOCK_PATH="${reaper_path}"
 	NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
@@ -690,38 +715,48 @@ nvram_transaction_lock_reaper_acquire() {
 	else
 		owner="$(nvram_transaction_lock_owner_current)" || return 1
 	fi
-	# Older installers use this directory as the reaper itself. Claim it for
-	# every implementation so old and new installers share one mutex.
-	if mkdir "${reaper_path}" 2>/dev/null; then
-		# Arm interruption cleanup before publishing the owner or probing a
-		# capability-specific lock.
-		NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
+	# Publish the directory and its owner together. A prepared sibling is
+	# renamed into place so SIGKILL cannot leave a new ownerless mutex behind.
+	# Arm cleanup before the rename because a returning signal trap may run
+	# after mv publishes the complete directory but before mv returns.
+	NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
+	if nvram_transaction_lock_reaper_legacy_claim "${reaper_path}" "${owner}"; then
+		claimed=1
 	else
+		NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+		if [ ! -e "${reaper_path}" ] && [ ! -L "${reaper_path}" ]; then
+			NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+			return 1
+		fi
 		reaper_owner="$(cat "${reaper_path}/pid" 2>/dev/null)"
 		if [ -z "${reaper_owner}" ]; then
-			# Directory creation and PID publication are separate operations in
-			# the portable fallback.  An empty owner can therefore belong to a
-			# live installer paused between them; age alone cannot make it stale.
-			sleep 1
-			reaper_owner="$(cat "${reaper_path}/pid" 2>/dev/null)"
-			if [ -z "${reaper_owner}" ]; then
-				return 1
-			fi
-		fi
-		nvram_transaction_lock_owner_live "${reaper_owner}" && return 1
-		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${reaper_owner}" ] || return 1
-		rm -rf "${reaper_path}" || return 1
-		mkdir "${reaper_path}" 2>/dev/null || return 1
-		NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
-	fi
-	printf '%s\n' "${owner}" >"${reaper_path}/pid" || {
-		rm -f "${reaper_path}/pid" 2>/dev/null
-		if rmdir "${reaper_path}" 2>/dev/null; then
-			NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+			# Older installers publish the PID after mkdir. An empty record may
+			# therefore still have a live publisher and cannot be reclaimed safely.
 			NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+			return 1
 		fi
+		if [ "${reaper_owner}" != "${owner}" ]; then
+			nvram_transaction_lock_owner_live "${reaper_owner}" && return 1
+			[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${reaper_owner}" ] || return 1
+			rm -rf "${reaper_path}" || return 1
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
+			nvram_transaction_lock_reaper_legacy_claim "${reaper_path}" "${owner}" || {
+				NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+				NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+				return 1
+			}
+			claimed=1
+		fi
+	fi
+	if [ "${claimed}" -ne 1 ]; then
 		return 1
-	}
+	fi
+	if [ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" != "legacy" ] ||
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" != "${reaper_path}" ] ||
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" != "${owner}" ]; then
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" != "${owner}" ] || rm -rf "${reaper_path}" 2>/dev/null
+		return 1
+	fi
 	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || {
 		if [ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" = "${reaper_path}" ]; then
 			NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
@@ -1400,7 +1435,18 @@ installer_cleanup_tmp_file() {
 }
 
 on_installer_exit() {
-	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
+	local setup_journal_restore_status
+	setup_journal_restore_status=0
+	if nvram_transaction_lock_owned; then
+		# Restore setup's pre-migration files before mode rollback restores the
+		# matching hooks and configuration. Reversing this order can republish
+		# post-migration YAML over an otherwise complete migration rollback.
+		if ! setup_restore_nvram_journal; then
+			setup_journal_restore_status=1
+			PTXT "${ERROR} Unable to restore the journaled installer configuration files."
+		fi
+	fi
+	if [ "${setup_journal_restore_status}" -eq 0 ] && [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
 		if rollback_pending_mode_migration; then
 			adguard_restart_after_install_abort "${ADGUARD_INSTALL_WAS_RUNNING:-0}"
 		else
@@ -1416,7 +1462,9 @@ on_installer_exit() {
 	if nvram_transaction_lock_owned; then
 		# Restore an uncommitted setup journal before recovery can remove the
 		# shared commit marker used to distinguish cleanup from rollback.
-		if setup_restore_nvram_journal; then
+		if [ "${setup_journal_restore_status}" -ne 0 ]; then
+			:
+		elif setup_restore_nvram_journal; then
 			# Finalize setup-pair for both WAN and LAN modes only after the
 			# journal is either restored or known to have been committed.
 			nvram_transaction_finalize_setup_pair recovery || PTXT "${ERROR} Unable to finish the committed installer-managed NVRAM cleanup."
@@ -1442,6 +1490,7 @@ on_installer_exit() {
 		fi
 	fi
 	nvram_transaction_lock_release || PTXT "${ERROR} Unable to release the installer NVRAM transaction lock."
+	return "${setup_journal_restore_status}"
 }
 
 python_bcrypt_available() {

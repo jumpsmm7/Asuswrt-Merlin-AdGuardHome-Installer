@@ -767,19 +767,17 @@ LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore 
 	for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
 		mkdir -p "${reaper_path}"
 		if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
-			fail "ownerless reaper lock was reclaimed during owner publication: ${reaper_path}"
+			fail "ownerless legacy reaper lock was reclaimed: ${reaper_path}"
 		fi
-		[ -d "${reaper_path}" ] || fail "ownerless reaper lock was removed during owner publication: ${reaper_path}"
-		[ ! -e "${reaper_path}/pid" ] || fail "ownerless reaper lock owner was overwritten: ${reaper_path}"
+		[ -d "${reaper_path}" ] || fail "ownerless legacy reaper lock was removed: ${reaper_path}"
 		rm -rf "${reaper_path}"
 
 		mkdir -p "${reaper_path}"
 		: >"${reaper_path}/pid"
 		if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
-			fail "initializing reaper lock with an empty owner was reclaimed: ${reaper_path}"
+			fail "empty-owner legacy reaper lock was reclaimed: ${reaper_path}"
 		fi
-		[ -d "${reaper_path}" ] || fail "initializing reaper lock with an empty owner was removed: ${reaper_path}"
-		[ ! -s "${reaper_path}/pid" ] || fail "initializing reaper lock owner was replaced: ${reaper_path}"
+		[ ! -s "${reaper_path}/pid" ] || fail "empty-owner legacy reaper owner was replaced: ${reaper_path}"
 		rm -rf "${reaper_path}"
 
 		mkdir -p "${reaper_path}"
