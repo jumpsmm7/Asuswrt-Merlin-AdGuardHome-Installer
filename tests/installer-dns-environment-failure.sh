@@ -103,8 +103,15 @@ sleep() {
 		[ -n "${current_lookup_count}" ] || current_lookup_count=0
 		[ "${current_lookup_count}" -le "${SYNC_LOOKUP_COUNT:-0}" ] || break
 		yield_count="$((yield_count + 1))"
-		/bin/sleep 0
+		if [ -x /bin/usleep ]; then
+			/bin/usleep 1000
+		else
+			/bin/sleep 0.01
+		fi
 	done
+	if [ "${yield_count}" -ge 20 ] && [ "${current_lookup_count:-0}" -le "${SYNC_LOOKUP_COUNT:-0}" ]; then
+		return 1
+	fi
 	SYNC_LOOKUP_COUNT="${current_lookup_count:-${SYNC_LOOKUP_COUNT:-0}}"
 	MONOTONIC_NOW="$((MONOTONIC_NOW + 1))"
 }
@@ -227,7 +234,7 @@ rm() {
 nslookup() {
 	local lookup_start_count
 	lookup_start_count=$(cat "${TEST_ROOT}/lookup-start-count" 2>/dev/null || printf 0)
-	printf '%s\n' "$((lookup_start_count + 1))" >"${TEST_ROOT}/lookup-start-count"
+	printf '%s\n' "$((lookup_start_count + 1))" >"${TEST_ROOT}/lookup-start-count" || return 1
 	printf '%s\n' "nslookup $*" >>"${CALLS_FILE}"
 	if [ "${TRACK_LOOKUP:-0}" = 1 ]; then
 		trap 'printf "%s\n" reaped >"${TEST_ROOT}/lookup-reaped"; exit 1' TERM
@@ -242,6 +249,7 @@ dns_check_count() { grep -c '^nslookup ' "${CALLS_FILE}"; }
 
 # reset_case restores the simulated test environment, counters, fault-injection settings, and NVRAM contents to their baseline state.
 reset_case() {
+	lookup_pid=""
 	SYNC_LOOKUP_COUNT=0
 	printf '%s\n' 0 >"${TEST_ROOT}/lookup-start-count"
 	FAIL_LOCK_REMOVE_AT=0 FAIL_SETUP_MARKER_REMOVE=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0 FAIL_PAIRED_SNAPSHOT_REMOVE=0 FAIL_RESTORED_JOURNAL_REMOVE=0

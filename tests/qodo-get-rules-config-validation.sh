@@ -402,6 +402,10 @@ for scope_doc in "${SKILL}" "${REPO_SCOPE}"; do
 done
 [ "$(grep -Fc 'JQ_BIN=$(which jq 2>/dev/null)' "${SEARCH_ENDPOINT}")" -eq 2 ] ||
 	fail "${SEARCH_ENDPOINT}: both curl examples must discover jq from PATH"
+[ "$(grep -Fc '"$JQ_BIN" -cse' "${SEARCH_ENDPOINT}")" -eq 2 ] ||
+	fail "${SEARCH_ENDPOINT}: both response validators must slurp the complete JSON input"
+[ "$(grep -Fc 'else .[0] end |' "${SEARCH_ENDPOINT}")" -eq 2 ] ||
+	fail "${SEARCH_ENDPOINT}: both response validators must validate one parsed object"
 if grep -Eq 'JQ_BIN=/(usr|opt)/bin/jq' "${SEARCH_ENDPOINT}"; then
 	fail "${SEARCH_ENDPOINT}: request examples pin jq to a platform-specific path"
 fi

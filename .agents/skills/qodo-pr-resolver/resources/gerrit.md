@@ -639,18 +639,16 @@ fi
 # Preserve an existing hook on the same filesystem. mv retains a symlink as a
 # symlink, and the backup remains until the amended commit verifies successfully.
 HOOK_BACKUP=""
-HOOK_RESTORE_PENDING=1
-if [ -e "$HOOK_PATH" ] || [ -L "$HOOK_PATH" ]; then
-  HOOK_BACKUP=$(mktemp "$HOOK_DIR/commit-msg.backup.XXXXXX") || exit 1
-  rm -f "$HOOK_BACKUP"
-  mv "$HOOK_PATH" "$HOOK_BACKUP" || exit 1
-fi
+HOOK_RESTORE_PENDING=0
 restore_commit_msg_hook() {
-  [ "$HOOK_RESTORE_PENDING" = 1 ] || return 0
-  rm -f "$HOOK_PATH" || return 1
-  if [ -n "$HOOK_BACKUP" ]; then
+  if [ -n "$HOOK_BACKUP" ] && { [ -e "$HOOK_BACKUP" ] || [ -L "$HOOK_BACKUP" ]; }; then
+    rm -f "$HOOK_PATH" || return 1
     mv "$HOOK_BACKUP" "$HOOK_PATH" || return 1
     HOOK_BACKUP=""
+  elif [ "$HOOK_RESTORE_PENDING" = 1 ]; then
+    rm -f "$HOOK_PATH" || return 1
+  else
+    return 0
   fi
   HOOK_RESTORE_PENDING=0
 }
@@ -658,6 +656,13 @@ trap 'restore_commit_msg_hook; rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRI
 trap 'restore_commit_msg_hook; rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"; exit 129' HUP
 trap 'restore_commit_msg_hook; rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"; exit 130' INT
 trap 'restore_commit_msg_hook; rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"; exit 143' TERM
+if [ -e "$HOOK_PATH" ] || [ -L "$HOOK_PATH" ]; then
+  HOOK_BACKUP=$(mktemp "$HOOK_DIR/commit-msg.backup.XXXXXX") || exit 1
+  rm -f "$HOOK_BACKUP"
+  mv "$HOOK_PATH" "$HOOK_BACKUP" || exit 1
+else
+  HOOK_RESTORE_PENDING=1
+fi
 
 # Atomic move. Any subsequent failure or interruption restores the old hook (or
 # removes the new hook when none existed).
@@ -686,14 +691,14 @@ if ! git log -1 --format=%B | grep -qE '^Change-Id: I[0-9a-fA-F]{40}$'; then
   echo "Error: Change-Id footer missing after amending commit; commit-msg hook may have failed" >&2
   exit 1
 fi
-# Verification is the commit point: retain the new hook and discard the backup.
-rm -f "$HOOK_BACKUP"
-HOOK_BACKUP=""
+# Verification is the commit point: disable rollback before discarding the backup.
 HOOK_RESTORE_PENDING=0
 trap 'rm -f "$GERRIT_NETRC"; rm -rf "$GERRIT_NETRC_DIR"' EXIT
 trap 'rm -f "$GERRIT_NETRC"; rm -rf "$GERRIT_NETRC_DIR"; exit 129' HUP
 trap 'rm -f "$GERRIT_NETRC"; rm -rf "$GERRIT_NETRC_DIR"; exit 130' INT
 trap 'rm -f "$GERRIT_NETRC"; rm -rf "$GERRIT_NETRC_DIR"; exit 143' TERM
+rm -f "$HOOK_BACKUP"
+HOOK_BACKUP=""
 ```
 
 Now push the change:

@@ -4815,18 +4815,19 @@ adguard_install_abort_on_signal() {
 		fi
 	fi
 	if [ "${MIGRATION_ROLLBACK_STATUS}" -ne 0 ]; then
-		PTXT "${ERROR} Unable to roll back the interrupted mode migration; the previous installation was not restarted."
+		PTXT "${ERROR} Unable to roll back the interrupted mode migration; attempting previous installation recovery."
+	fi
+	# A migrated process may still be running even when journal or migration
+	# rollback failed. Stop it before recovering the known-good installation.
+	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ] || [ "${MIGRATION_ROLLED_BACK}" -ne 0 ]; then
+		agh_stop
+	fi
+	if [ "${RESTORE_ACTIVE}" = "1" ]; then
+		adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${RESTORE_TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "${RESTORE_TARGET_INSTALLED}"
+	elif [ "${REPLACE_ACTIVE}" = "1" ] && [ -n "${OLD_BINARY}" ]; then
+		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
 	else
-		# A migrated process may already be running with the configuration that was
-		# just rolled back.  Stop it before recovering the previous service state.
-		[ "${MIGRATION_ROLLED_BACK}" -eq 0 ] || agh_stop
-		if [ "${RESTORE_ACTIVE}" = "1" ]; then
-			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${RESTORE_TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "${RESTORE_TARGET_INSTALLED}"
-		elif [ "${REPLACE_ACTIVE}" = "1" ] && [ -n "${OLD_BINARY}" ]; then
-			adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
-		else
-			adguard_restart_after_install_abort "${WAS_RUNNING}"
-		fi
+		adguard_restart_after_install_abort "${WAS_RUNNING}"
 	fi
 	clear_screen
 	ADGUARD_DEFER_END_OP="0"

@@ -24,7 +24,22 @@ UNSAFE_COMMANDS=""
 cleanup() {
 	[ -z "${UNSAFE_COMMANDS}" ] || rm -f "${UNSAFE_COMMANDS}"
 }
-trap 'cleanup' EXIT HUP INT TERM
+cleanup_on_exit() {
+	status="$?"
+	trap - EXIT HUP INT TERM
+	cleanup
+	exit "${status}"
+}
+cleanup_on_signal() {
+	status="$1"
+	trap - EXIT HUP INT TERM
+	cleanup
+	exit "${status}"
+}
+trap 'cleanup_on_exit' EXIT
+trap 'cleanup_on_signal 129' HUP
+trap 'cleanup_on_signal 130' INT
+trap 'cleanup_on_signal 143' TERM
 
 for f in "${SKILL}" "${CONVERGENCE}" "${GERRIT}" "${PROVIDERS}"; do
 	[ -f "${f}" ] || fail "expected qodo-pr-resolver doc not found: ${f}"
@@ -173,8 +188,8 @@ printf '%s\n' "${GERRIT_BATCH}" | grep -Fq 'JQ_BIN=$(which jq 2>/dev/null)' ||
 if printf '%s\n' "${GERRIT_BATCH}" | grep -Fq 'python3'; then
 	fail "${GERRIT}: batched reply flow requires non-stock python3"
 fi
-grep -Fq '[ "$HOOK_RESTORE_PENDING" = 1 ] || return 0' "${GERRIT}" ||
-	fail "${GERRIT}: commit-msg hook rollback is not guarded against repeated cleanup"
+grep -Fq '[ -e "$HOOK_BACKUP" ] || [ -L "$HOOK_BACKUP" ]' "${GERRIT}" ||
+	fail "${GERRIT}: commit-msg hook rollback does not detect a published backup"
 grep -Fq 'HOOK_RESTORE_PENDING=0' "${GERRIT}" ||
 	fail "${GERRIT}: commit-msg hook rollback never clears its pending state"
 grep -Fq '> ⏭️ **Held** —' "${CONVERGENCE}" ||
