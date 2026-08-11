@@ -403,6 +403,14 @@ awk '
 ' "${SCRIPT_PATH}" || fail 'restore rollback failure does not preserve and retry hook recovery around directory rollback, suppress restart, or preserve status 2'
 
 awk '
+	/^on_installer_exit\(\) \{/ { in_function = 1 }
+	in_function && !journal && /setup_restore_nvram_journal/ { journal = NR }
+	in_function && !migration && /rollback_pending_mode_migration/ { migration = NR }
+	in_function && /^}/ { exit }
+	END { exit !(journal && migration && journal < migration) }
+' "${SCRIPT_PATH}" || fail 'exit recovery does not restore the setup journal before rolling back mode migration'
+
+awk '
 	/^adguard_install_abort_on_signal\(\) \{/ { in_function = 1 }
 	in_function && /rollback_pending_mode_migration/ { migration = NR }
 	in_function && /adguard_restore_after_failed_directory_restore/ { restore = NR }
