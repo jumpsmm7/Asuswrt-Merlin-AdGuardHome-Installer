@@ -49,7 +49,14 @@ validate_one() {
 		return 1
 	fi
 
-	_expected="$(awk 'NF {print $1; exit}' "${_sha256_file}")"
+	if ! _expected="$(awk '
+		NF { value = $1; count++; if (NF != 1) invalid = 1 }
+		END { if (count != 1 || invalid) exit 1; print value }
+	' "${_sha256_file}")"; then
+		printf '%s\n' "Error: ${_sha256_file} must contain exactly one checksum value" >&2
+		FAILED=1
+		return 1
+	fi
 	if ! is_sha256_hex "${_expected}"; then
 		printf '%s\n' "Error: invalid checksum value in ${_sha256_file}: ${_expected}" >&2
 		FAILED=1

@@ -93,17 +93,18 @@ Do **not** auto-apply. Present to the user in one message:
 - the **prior decision** and its rationale (from the ledger, with the round number), and
 - the **new contradicting suggestion** (Qodo's current agent prompt).
 
-Default the AskUserQuestion to **"⏭️ Defer"** — holding the prior decision *is* a form of deferral:
-- ⏭️ **Defer** *(default)* — keep the code as-is (hold the prior decision); reply to Qodo's thread
+Default the AskUserQuestion to **"⏭️ Hold prior decision"**:
+- ⏭️ **Hold prior decision** *(default)* — keep the code as-is; reply to Qodo's thread
   that it was deliberate (see reply below). This stops the oscillation.
 - ✅ **Apply** — the user wants to flip; apply the reversal and commit normally.
 - 🔧 **Modify** — user adjusts manually.
 
-When **Defer** is chosen, reply to the thread and resolve it (`"unresolved": false`) with a
-**one-line** rationale that names the prior round, using the canonical **Deferred** prefix so the
-next round's ledger parser recognizes it:
+When **Hold prior decision** is chosen, reply to the thread and resolve it (`"unresolved": false`)
+with a **one-line** rationale that names the prior round. Serialize this established held outcome
+as `decision=held action=none` and route it through oscillation handling; do not use the Deferred
+prefix or `decision=deferred`, which are reserved for deliberate deferrals:
 
-> ⏭️ **Deferred** — 🛑 holding prior decision from round <N> (<rationale>); not reverting to avoid flip-flopping — if still a concern, explain why the prior approach is wrong.
+> ⏭️ **Held** — holding prior decision from round <N> (<rationale>); not reverting to avoid flip-flopping — if still a concern, explain why the prior approach is wrong.
 
 ### 🔁 Repeat
 Re-raised after a prior fix. Before changing anything, **re-read the current code** and check

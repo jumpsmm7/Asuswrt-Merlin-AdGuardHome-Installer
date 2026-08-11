@@ -20,6 +20,27 @@ fail() {
 	exit 1
 }
 
+UNSAFE_COMMANDS=""
+cleanup() {
+	[ -z "${UNSAFE_COMMANDS}" ] || rm -f "${UNSAFE_COMMANDS}"
+}
+cleanup_on_exit() {
+	status="$?"
+	trap - EXIT HUP INT TERM
+	cleanup
+	exit "${status}"
+}
+cleanup_on_signal() {
+	status="$1"
+	trap - EXIT HUP INT TERM
+	cleanup
+	exit "${status}"
+}
+trap 'cleanup_on_exit' EXIT
+trap 'cleanup_on_signal 129' HUP
+trap 'cleanup_on_signal 130' INT
+trap 'cleanup_on_signal 143' TERM
+
 for f in "${SKILL}" "${CONVERGENCE}" "${GERRIT}" "${PROVIDERS}"; do
 	[ -f "${f}" ] || fail "expected qodo-pr-resolver doc not found: ${f}"
 done
@@ -66,7 +87,6 @@ fi
 # keeps a safe title (or another safe flag) from masking an unsafe body on the
 # same command and covers single-quoted, double-quoted, and unquoted values.
 UNSAFE_COMMANDS=$(mktemp "${TMPDIR:-/tmp}/unsafe_commands.XXXXXX") || exit 1
-trap 'rm -f "$UNSAFE_COMMANDS"' 0
 
 # scan_unsafe_commands scans a file for potentially unsafe inline arguments in GitHub and GitLab pull or merge request commands.
 scan_unsafe_commands() {
@@ -159,6 +179,21 @@ grep -Fq 'qodo-ledger-v1 scope=summary summary_key=<pct>' "${PROVIDERS}" || fail
 grep -Fq 'Percent-encode every value as UTF-8 bytes using uppercase' "${PROVIDERS}" || fail "${PROVIDERS}: missing canonical ledger escaping contract"
 grep -Fq '`qodo-ledger-v1` records using the percent-encoding and exact-key rules' "${SKILL}" || fail "${SKILL}: Step 3c parser does not consume the canonical serialized record"
 grep -Fq 'permit `action=none` for a non-directional fixed change' "${SKILL}" || fail "${SKILL}: Step 3c parser does not accept non-directional fixed records"
+
+# Gerrit's batched reply example must use the supported jq provider, while hook
+# rollback must become a no-op after restoring the original hook once.
+GERRIT_BATCH=$(sed -n '/^## Post Summary Comment$/,/^## Resolve Comments$/p' "${GERRIT}")
+printf '%s\n' "${GERRIT_BATCH}" | grep -Fq 'JQ_BIN=$(which jq 2>/dev/null)' ||
+	fail "${GERRIT}: batched reply flow does not discover jq from PATH"
+if printf '%s\n' "${GERRIT_BATCH}" | grep -Fq 'python3'; then
+	fail "${GERRIT}: batched reply flow requires non-stock python3"
+fi
+grep -Fq '[ -e "$HOOK_BACKUP" ] || [ -L "$HOOK_BACKUP" ]' "${GERRIT}" ||
+	fail "${GERRIT}: commit-msg hook rollback does not detect a published backup"
+grep -Fq 'HOOK_RESTORE_PENDING=0' "${GERRIT}" ||
+	fail "${GERRIT}: commit-msg hook rollback never clears its pending state"
+grep -Fq '> ⏭️ **Held** —' "${CONVERGENCE}" ||
+	fail "${CONVERGENCE}: held reply does not use the canonical prefix"
 
 # --- Sanity check on the marker/heading fixtures themselves: guard against a
 # future edit accidentally weakening this test by narrowing the constants to

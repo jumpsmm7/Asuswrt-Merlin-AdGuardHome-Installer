@@ -373,8 +373,6 @@ assert_success 'empty-string ENVIRONMENT_NAME in config defaults to production' 
 [ "$(extract_result_field "${OUT}" 3)" = 'https://qodo-platform.qodo.ai/rules/v1' ] ||
 	fail "empty-string ENVIRONMENT_NAME in config defaults to production: unexpected API_URL: ${OUT}"
 
-printf '%s\n' 'PASS: qodo-get-rules config parsing snippet enforces credential/URL validation as documented'
-
 # --- Scenario: an optional non-string configured URL is ignored when the API key comes from the environment.
 HOME_OPTIONAL_URL_TYPE="${TMP_ROOT}/home-optional-url-type"
 make_config "${HOME_OPTIONAL_URL_TYPE}" '{"QODO_API_URL": false}' 700 600
@@ -395,3 +393,21 @@ assert_success 'optional invalid configured URL' "${RC}" "${OUT}"
 OUT=$(run_snippet "${HOME_OPTIONAL_BAD_URL}" 2>&1)
 RC=$?
 assert_failure 'required invalid configured URL' "${RC}" "${OUT}" 'Invalid QODO_API_URL'
+
+# Repository scope must reject either empty org/repo segment, and request examples
+# must discover jq from PATH rather than pinning platform-specific locations.
+for scope_doc in "${SKILL}" "${REPO_SCOPE}"; do
+	grep -Fq '"" | /* | */ |' "${scope_doc}" ||
+		fail "${scope_doc}: repository scope validation does not reject empty path segments"
+done
+[ "$(grep -Fc 'JQ_BIN=$(which jq 2>/dev/null)' "${SEARCH_ENDPOINT}")" -eq 2 ] ||
+	fail "${SEARCH_ENDPOINT}: both curl examples must discover jq from PATH"
+[ "$(grep -Fc '"$JQ_BIN" -cse' "${SEARCH_ENDPOINT}")" -eq 2 ] ||
+	fail "${SEARCH_ENDPOINT}: both response validators must slurp the complete JSON input"
+[ "$(grep -Fc 'else .[0] end |' "${SEARCH_ENDPOINT}")" -eq 2 ] ||
+	fail "${SEARCH_ENDPOINT}: both response validators must validate one parsed object"
+if grep -Eq 'JQ_BIN=/(usr|opt)/bin/jq' "${SEARCH_ENDPOINT}"; then
+	fail "${SEARCH_ENDPOINT}: request examples pin jq to a platform-specific path"
+fi
+
+printf '%s\n' 'PASS: qodo-get-rules config parsing snippet enforces credential/URL validation as documented'

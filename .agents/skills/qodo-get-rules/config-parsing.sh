@@ -28,7 +28,15 @@ qodo_url_authority_valid() {
 
 # config_mode returns the permission mode of the specified file or directory, or fails if it cannot be read.
 config_mode() {
-	stat -c '%a' "$1" 2>/dev/null || return 1
+	local mode
+	if mode=$(stat -c '%a' "$1" 2>/dev/null); then
+		printf '%s\n' "${mode}"
+	elif mode=$(stat -f '%Lp' "$1" 2>/dev/null); then
+		printf '%s\n' "${mode}"
+	else
+		printf '%s\n' "Error: unable to read permission mode for $1" >&2
+		return 1
+	fi
 }
 
 # Read a secure config when a required value is missing or when it can supply an

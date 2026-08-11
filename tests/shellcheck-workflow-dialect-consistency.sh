@@ -87,6 +87,8 @@ CHECKSUM_BASE='checksum_targets=(installer AdGuardHome.sh S99AdGuardHome rc.func
 grep -Fq 'tools/check-md5.sh' "${WORKFLOW}" || fail "${WORKFLOW}: checksums job is missing tools/check-md5.sh"
 grep -Fq 'tools/check-sha256.sh' "${WORKFLOW}" || fail "${WORKFLOW}: checksums job is missing tools/check-sha256.sh"
 grep -Fq 'tools/update-checksums.sh' "${WORKFLOW}" || fail "${WORKFLOW}: checksums job is missing tools/update-checksums.sh"
+grep -Fq 'busybox ash tests/checksum-file-format.sh' "${WORKFLOW}" ||
+	fail "${WORKFLOW}: checksums job is missing the checksum file-format regression"
 
 # --- Dialect-override consistency between CI and local tooling ------------
 # Both the CI workflow and the local code-quality runner must explicitly

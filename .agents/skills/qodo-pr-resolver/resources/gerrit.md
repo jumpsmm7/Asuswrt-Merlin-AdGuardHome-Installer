@@ -419,26 +419,38 @@ trap 'rm -f "$SUMMARY_FILE"; rm -rf "$GERRIT_NETRC_DIR"; exit 129' HUP
 trap 'rm -f "$SUMMARY_FILE"; rm -rf "$GERRIT_NETRC_DIR"; exit 130' INT
 trap 'rm -f "$SUMMARY_FILE"; rm -rf "$GERRIT_NETRC_DIR"; exit 143' TERM
 # Write <summary-comment-body> to $SUMMARY_FILE now.
-SUMMARY_JSON=$(python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1], encoding="utf-8").read()))' "$SUMMARY_FILE") || exit 1
+JQ_BIN=$(which jq 2>/dev/null)
+if [ -z "$JQ_BIN" ] || [ ! -x "$JQ_BIN" ]; then
+  echo "Error: jq is required and must be executable from PATH" >&2
+  exit 1
+fi
+SUMMARY_JSON=$("$JQ_BIN" -Rs . <"$SUMMARY_FILE") || exit 1
 rm -f "$SUMMARY_FILE"
 umask "$OLD_UMASK"
 
-# Build complete comments object from all accumulated inline replies
-# Each entry: file path -> array of reply objects with in_reply_to, message, unresolved
-# Example builds the comments map from recorded inline-reply data
-COMMENTS_JSON=$(python3 - <<'PY'
-import json
-import sys
+# Before the inline-reply loop, create a protected JSON-lines accumulator and add
+# each actual reply as it is selected. Passing values as argv keeps paths, IDs, and
+# messages out of generated Python source; unresolved is false for resolver replies.
+INLINE_REPLIES_FILE=$(mktemp "${TMPDIR:-/tmp}/gerrit_replies.XXXXXX") || exit 1
+trap 'rm -f "$SUMMARY_FILE" "$INLINE_REPLIES_FILE"; rm -rf "$GERRIT_NETRC_DIR"' EXIT
+trap 'rm -f "$SUMMARY_FILE" "$INLINE_REPLIES_FILE"; rm -rf "$GERRIT_NETRC_DIR"; exit 129' HUP
+trap 'rm -f "$SUMMARY_FILE" "$INLINE_REPLIES_FILE"; rm -rf "$GERRIT_NETRC_DIR"; exit 130' INT
+trap 'rm -f "$SUMMARY_FILE" "$INLINE_REPLIES_FILE"; rm -rf "$GERRIT_NETRC_DIR"; exit 143' TERM
+# Run this once per collected reply, with the loop's actual values:
+"$JQ_BIN" -cn --arg path "$REPLY_PATH" --arg in_reply_to "$REPLY_ID" \
+  --arg message "$REPLY_MESSAGE" --argjson unresolved false \
+  '{path: $path, in_reply_to: $in_reply_to, message: $message, unresolved: $unresolved}' \
+  >>"$INLINE_REPLIES_FILE" || exit 1
 
-# Replace this with actual accumulated reply map from the resolver's inline-reply loop
-# Structure: { "file/path.py": [{"in_reply_to": "comment-id", "message": "reply", "unresolved": false}, ...], ... }
-inline_replies = {
-    "file1.py": [{"in_reply_to": "id1", "message": "Fixed by adding validation", "unresolved": False}],
-    "file2.py": [{"in_reply_to": "id2", "message": "Deferred - low priority", "unresolved": False}]
-}
-print(json.dumps(inline_replies))
-PY
-)
+# After the loop, group every accumulated reply under its file path as Gerrit expects.
+COMMENTS_JSON=$("$JQ_BIN" -sc '
+  reduce .[] as $reply ({};
+    ($reply.path) as $path |
+    ($reply | del(.path)) as $comment |
+    .[$path] = ((.[$path] // []) + [$comment])
+  )
+' "$INLINE_REPLIES_FILE") || exit 1
+rm -f "$INLINE_REPLIES_FILE"
 
 if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 --netrc-file "$GERRIT_NETRC" \
   -H "Content-Type: application/json" \
@@ -550,10 +562,10 @@ if ! HOOK_TMP=$(mktemp "$HOOK_DIR/commit-msg.XXXXXX" 2>/dev/null); then
 fi
 
 # Extend the run cleanup trap without dropping Gerrit credential cleanup
-trap 'rm -f "$GERRIT_NETRC" "$HOOK_TMP"' EXIT
-trap 'rm -f "$GERRIT_NETRC" "$HOOK_TMP"; exit 129' HUP
-trap 'rm -f "$GERRIT_NETRC" "$HOOK_TMP"; exit 130' INT
-trap 'rm -f "$GERRIT_NETRC" "$HOOK_TMP"; exit 143' TERM
+trap 'rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"' EXIT
+trap 'rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"; exit 129' HUP
+trap 'rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"; exit 130' INT
+trap 'rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"; exit 143' TERM
 
 # Download hook to temp location (no redirect following; fail if download incomplete)
 if ! curl -fsS --connect-timeout 10 --max-time 30 --netrc-file "$GERRIT_NETRC" -o "$HOOK_TMP" "$GERRIT_URL/tools/hooks/commit-msg"; then
@@ -624,17 +636,43 @@ if ! chmod +x "$HOOK_TMP"; then
   exit 1
 fi
 
-# Atomic move
+# Preserve an existing hook on the same filesystem. mv retains a symlink as a
+# symlink, and the backup remains until the amended commit verifies successfully.
+HOOK_BACKUP=""
+HOOK_RESTORE_PENDING=0
+restore_commit_msg_hook() {
+  if [ -n "$HOOK_BACKUP" ] && { [ -e "$HOOK_BACKUP" ] || [ -L "$HOOK_BACKUP" ]; }; then
+    rm -f "$HOOK_PATH" || return 1
+    mv "$HOOK_BACKUP" "$HOOK_PATH" || return 1
+    HOOK_BACKUP=""
+  elif [ "$HOOK_RESTORE_PENDING" = 1 ]; then
+    rm -f "$HOOK_PATH" || return 1
+  else
+    return 0
+  fi
+  HOOK_RESTORE_PENDING=0
+}
+trap 'restore_commit_msg_hook; rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"' EXIT
+trap 'restore_commit_msg_hook; rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"; exit 129' HUP
+trap 'restore_commit_msg_hook; rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"; exit 130' INT
+trap 'restore_commit_msg_hook; rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"; exit 143' TERM
+if [ -e "$HOOK_PATH" ] || [ -L "$HOOK_PATH" ]; then
+  HOOK_BACKUP=$(mktemp "$HOOK_DIR/commit-msg.backup.XXXXXX") || exit 1
+  rm -f "$HOOK_BACKUP"
+  mv "$HOOK_PATH" "$HOOK_BACKUP" || exit 1
+else
+  HOOK_RESTORE_PENDING=1
+fi
+
+# Atomic move. Any subsequent failure or interruption restores the old hook (or
+# removes the new hook when none existed).
 if ! mv "$HOOK_TMP" "$HOOK_PATH"; then
   echo "Failed to install commit-msg hook" >&2
+  restore_commit_msg_hook
   exit 1
 fi
 
-# The hook is published; keep only the run-scoped credential cleanup active
-trap 'rm -f "$GERRIT_NETRC"' EXIT
-trap 'rm -f "$GERRIT_NETRC"; exit 129' HUP
-trap 'rm -f "$GERRIT_NETRC"; exit 130' INT
-trap 'rm -f "$GERRIT_NETRC"; exit 143' TERM
+# Keep the rollback-capable traps active until Change-Id verification succeeds.
 
 # Check for staged changes before amending
 if ! git diff --cached --quiet; then
@@ -653,6 +691,14 @@ if ! git log -1 --format=%B | grep -qE '^Change-Id: I[0-9a-fA-F]{40}$'; then
   echo "Error: Change-Id footer missing after amending commit; commit-msg hook may have failed" >&2
   exit 1
 fi
+# Verification is the commit point: disable rollback before discarding the backup.
+HOOK_RESTORE_PENDING=0
+trap 'rm -f "$GERRIT_NETRC"; rm -rf "$GERRIT_NETRC_DIR"' EXIT
+trap 'rm -f "$GERRIT_NETRC"; rm -rf "$GERRIT_NETRC_DIR"; exit 129' HUP
+trap 'rm -f "$GERRIT_NETRC"; rm -rf "$GERRIT_NETRC_DIR"; exit 130' INT
+trap 'rm -f "$GERRIT_NETRC"; rm -rf "$GERRIT_NETRC_DIR"; exit 143' TERM
+rm -f "$HOOK_BACKUP"
+HOOK_BACKUP=""
 ```
 
 Now push the change:

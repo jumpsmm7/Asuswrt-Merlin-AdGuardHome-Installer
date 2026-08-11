@@ -60,11 +60,17 @@ if [ -n "$REMOTE_URL" ]; then
   fi
 fi
 
+case "${REPO_PATH}" in
+  "" | /* | */ | */../* | ../* | */.. | */./* | ./* | */. | *\?* | *\#* | */*/*)
+    REPO_PATH=""
+    ;;
+  */*) ;;
+  *) REPO_PATH="" ;;
+esac
+
 if [ -n "$REPO_PATH" ]; then
   if REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) && [ -n "$REPO_ROOT" ]; then
-    if REL_PATH=$(realpath --relative-to="$REPO_ROOT" "$PWD" 2>/dev/null \
-      || python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' \
-        "$PWD" "$REPO_ROOT" 2>/dev/null) && [ -n "$REL_PATH" ]; then
+    if REL_PATH=$(git rev-parse --show-prefix 2>/dev/null); then
       MODULE=$(echo "$REL_PATH" | sed -n 's|^modules/\([^/]*\).*|\1|p')
 
       if [ -n "$MODULE" ]; then
@@ -84,6 +90,7 @@ Scope is **optional**. If scope cannot be determined for any reason, the skill p
 Skip scope and proceed without error when:
 - No `origin` remote is configured
 - Remote URL cannot be parsed into an org/repo path
+- Parsed repository path is not exactly two non-empty `org/repo` segments, or contains a dot segment, query, or fragment
 - Any other unexpected failure during extraction
 
 Do not send `"scopes": null` or `"scopes": []` — omit the `scopes` field entirely from the request body.

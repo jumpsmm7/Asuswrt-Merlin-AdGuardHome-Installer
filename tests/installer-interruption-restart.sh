@@ -35,6 +35,7 @@ sed -n \
 	-e '/^on_installer_exit() {$/,/^}/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail 'could not extract interruption trap helpers'
 printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_ROOT}" >>"${FUNCTIONS_FILE}"
+printf '%s\n' 'setup_restore_nvram_journal() { return 0; }' >>"${FUNCTIONS_FILE}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'interruption trap helper extraction was empty'
 : >"${CALLS_FILE}"
 
@@ -338,6 +339,39 @@ ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] ||
 	fail "signal rollback did not stop the migrated process before service recovery: ${ACTUAL}"
 
+: >"${CALLS_FILE}"
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+
+	ERROR="Error:"
+	MODE_MIGRATION_YAML_FILE_BACKUP="${TMP_ROOT}/migration.yaml.backup"
+	ADGUARD_INSTALL_WAS_RUNNING=1
+	setup_restore_nvram_journal() {
+		printf '%s\n' journal-failed >>"${CALLS_FILE}"
+		return 1
+	}
+	rollback_pending_mode_migration() {
+		printf '%s\n' unexpected-rollback >>"${CALLS_FILE}"
+	}
+	agh_stop() {
+		printf '%s\n' stop >>"${CALLS_FILE}"
+	}
+	adguard_restart_after_install_abort() {
+		printf '%s\n' "restart:$1" >>"${CALLS_FILE}"
+	}
+	PTXT() { :; }
+	clear_screen() { :; }
+	end_op_message() { :; }
+
+	adguard_install_abort_on_signal
+) || fail 'signal journal failure recovery failed'
+
+EXPECTED="$(printf '%s\n' journal-failed stop 'restart:1')"
+ACTUAL="$(cat "${CALLS_FILE}")"
+[ "${ACTUAL}" = "${EXPECTED}" ] ||
+	fail "signal journal failure bypassed known-good installation recovery: ${ACTUAL}"
+
 awk '
 	/^install_adguard_archive\(\) \{/ { in_function = 1 }
 	in_function && /adguard_install_abort_trap_enable/ { enable = NR }
@@ -412,8 +446,8 @@ awk '
 ' "${SCRIPT_PATH}" || fail 'exit recovery does not restore the setup journal before rolling back mode migration'
 
 : >"${CALLS_FILE}"
-RECOVERY_STATE="${TMP_ROOT}/setup-files"
-mkdir "${RECOVERY_STATE}" || fail 'could not create setup journal recovery fixture'
+RECOVERY_STATE="${TMP_ROOT}/.AdGuardHome.nvram/setup-files"
+mkdir -p "${RECOVERY_STATE}" || fail 'could not create setup journal recovery fixture'
 if (
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"

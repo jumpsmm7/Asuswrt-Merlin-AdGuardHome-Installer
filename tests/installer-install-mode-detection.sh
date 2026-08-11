@@ -342,7 +342,9 @@ AGH_STUB
 	installer_lan_domain_restore() { :; }
 	# nvram_transaction_finalize_setup_pair removes temporary NVRAM setup files and reports whether cleanup succeeded.
 	nvram_transaction_finalize_setup_pair() {
-		rm -rf "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || return 1
+		mkdir -p "${BASE_DIR}/.AdGuardHome.nvram" || return 1
+		: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed" || return 1
+		rm -rf "${BASE_DIR}/.AdGuardHome.nvram/setup-files" 2>/dev/null || true
 		return 0
 	}
 	# nvram_transaction_setup_committed reports whether the setup commit marker exists.

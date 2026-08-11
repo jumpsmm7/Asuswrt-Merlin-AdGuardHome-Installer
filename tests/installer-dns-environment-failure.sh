@@ -93,11 +93,27 @@ cleanup_api_files() { :; }
 installer_cleanup_tmp_file() { :; }
 # rollback_pending_mode_migration rolls back any pending mode migration.
 rollback_pending_mode_migration() { return 0; }
-# sleep advances the simulated monotonic clock and yields so background lookup
-# sleep advances the simulated monotonic clock and yields without delaying execution.
+# sleep waits for a newly spawned DNS child to record its start before advancing
+# the simulated clock, avoiding scheduler-dependent deadline races.
 sleep() {
+	local current_lookup_count yield_count
+	yield_count=0
+	while [ -n "${lookup_pid:-}" ] && kill -0 "${lookup_pid}" 2>/dev/null && [ "${yield_count}" -lt 20 ]; do
+		current_lookup_count=$(cat "${TEST_ROOT}/lookup-start-count" 2>/dev/null || printf 0)
+		[ -n "${current_lookup_count}" ] || current_lookup_count=0
+		[ "${current_lookup_count}" -le "${SYNC_LOOKUP_COUNT:-0}" ] || break
+		yield_count="$((yield_count + 1))"
+		if [ -x /bin/usleep ]; then
+			/bin/usleep 1000
+		else
+			/bin/sleep 0.01
+		fi
+	done
+	if [ "${yield_count}" -ge 20 ] && [ "${current_lookup_count:-0}" -le "${SYNC_LOOKUP_COUNT:-0}" ]; then
+		return 1
+	fi
+	SYNC_LOOKUP_COUNT="${current_lookup_count:-${SYNC_LOOKUP_COUNT:-0}}"
 	MONOTONIC_NOW="$((MONOTONIC_NOW + 1))"
-	/bin/sleep 0
 }
 # monotonic_seconds outputs the simulated monotonic timestamp and fails on the configured call number when MONOTONIC_FAIL_AT is set.
 monotonic_seconds() {
@@ -216,6 +232,9 @@ rm() {
 
 # nslookup simulates a DNS lookup and reports whether DNS is ready. It can block briefly and record termination when configured.
 nslookup() {
+	local lookup_start_count
+	lookup_start_count=$(cat "${TEST_ROOT}/lookup-start-count" 2>/dev/null || printf 0)
+	printf '%s\n' "$((lookup_start_count + 1))" >"${TEST_ROOT}/lookup-start-count" || return 1
 	printf '%s\n' "nslookup $*" >>"${CALLS_FILE}"
 	if [ "${TRACK_LOOKUP:-0}" = 1 ]; then
 		trap 'printf "%s\n" reaped >"${TEST_ROOT}/lookup-reaped"; exit 1' TERM
@@ -230,6 +249,9 @@ dns_check_count() { grep -c '^nslookup ' "${CALLS_FILE}"; }
 
 # reset_case restores the simulated test environment, counters, fault-injection settings, and NVRAM contents to their baseline state.
 reset_case() {
+	lookup_pid=""
+	SYNC_LOOKUP_COUNT=0
+	printf '%s\n' 0 >"${TEST_ROOT}/lookup-start-count"
 	FAIL_LOCK_REMOVE_AT=0 FAIL_SETUP_MARKER_REMOVE=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0 FAIL_PAIRED_SNAPSHOT_REMOVE=0 FAIL_RESTORED_JOURNAL_REMOVE=0
 	LOCK_REMOVE_COUNT=0
 	nvram_transaction_lock_release || fail 'could not release the previous test transaction lock'
@@ -1176,8 +1198,9 @@ rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove dirty apply transact
 reset_case
 installer_lan_domain_set router.test 1 || fail 'LAN domain cleanup transaction apply failed'
 FAIL_SNAPSHOT_REMOVE=1
-installer_lan_domain_restore && fail 'LAN domain snapshot removal failure was ignored'
-[ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'LAN domain snapshot was not retained after removal failure'
+installer_lan_domain_restore || fail 'LAN domain restore failed because best-effort snapshot cleanup was interrupted'
+[ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'LAN domain cleanup injection did not retain the inert snapshot'
+[ ! -f "${NVRAM_TRANSACTION_DIR}/dirty" ] || fail 'LAN domain cleanup interruption left the restored snapshot rollback-eligible'
 FAIL_SNAPSHOT_REMOVE=0
 rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove LAN domain cleanup transaction snapshot'
 
