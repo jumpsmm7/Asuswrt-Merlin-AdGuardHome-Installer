@@ -4041,7 +4041,7 @@ check_dns_environment() {
 					else
 						rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
 					fi
-					restore_stubby_after_dns_failure || PTXT "${ERROR} Unable to restart stubby after DNS preparation failed."
+					[ "${stubby_stopped}" = "0" ] || restore_stubby_after_dns_failure || PTXT "${ERROR} Unable to restart stubby after DNS preparation failed."
 					return 1
 				fi
 				changed="1"

@@ -1931,6 +1931,14 @@ reset_case
 STUBBY_RUNNING=1
 printf '%s\n' 'dnspriv_enable=0' 'dhcpd_dns_router=1' 'dhcp_dns1_x=' 'dhcp_dns2_x=' >"${NVRAM_FILE}" || fail 'could not seed prepared DNS state'
 FAIL_SERVICE_AT=1
+check_dns_environment 0 && fail 'recovered no-change dnsmasq retry was accepted as preparation success'
+[ "${STUBBY_RESTART_COUNT}" -eq 1 ] || fail 'successful no-change recovery restarted stubby more than once'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful no-change recovery retained its snapshot'
+
+reset_case
+STUBBY_RUNNING=1
+printf '%s\n' 'dnspriv_enable=0' 'dhcpd_dns_router=1' 'dhcp_dns1_x=' 'dhcp_dns2_x=' >"${NVRAM_FILE}" || fail 'could not seed prepared DNS state'
+FAIL_SERVICE_AT=1
 FAIL_SERVICE_AT_2=3
 FAIL_SERVICE_AT_3=4
 check_dns_environment 0 && fail 'no-change dnsmasq retry with failed stubby recovery was accepted'
