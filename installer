@@ -1185,8 +1185,11 @@ nvram_transaction_apply() {
 			fi
 		done <"${snapshot_dir}/keys"
 	else
-		rm -rf "${snapshot_dir}"
-		[ ! -e "${snapshot_dir}" ] && [ ! -L "${snapshot_dir}" ] || return 1
+		# Clearing dirty commits the apply before best-effort snapshot cleanup.
+		# An interrupted recursive removal must not make a partial snapshot
+		# eligible for startup rollback.
+		rm -f "${snapshot_dir}/dirty" || return 1
+		rm -rf "${snapshot_dir}" 2>/dev/null || true
 	fi
 	NVRAM_TRANSACTION_CHANGED="0"
 	export NVRAM_TRANSACTION_CHANGED
@@ -4026,7 +4029,15 @@ check_dns_environment() {
 						PTXT "${ERROR} Unable to preserve the DNS recovery snapshot."
 					fi
 					if service restart_dnsmasq >/dev/null 2>&1 && dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
-						rm -rf "${NVRAM_TRANSACTION_DIR}"
+						# Keep the persisted marker until the resolver it represents is
+						# running again; EXIT/startup recovery can then retry safely.
+						if restore_stubby_after_dns_failure; then
+							stubby_stopped="0"
+							rm -f "${NVRAM_TRANSACTION_DIR}/dirty" || true
+							rm -rf "${NVRAM_TRANSACTION_DIR}" 2>/dev/null || true
+						else
+							rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+						fi
 					else
 						rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
 					fi

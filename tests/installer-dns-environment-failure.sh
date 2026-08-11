@@ -187,7 +187,7 @@ service() {
 	SERVICE_COUNT="$((SERVICE_COUNT + 1))"
 	printf '%s\n' "service $*" >>"${CALLS_FILE}"
 	if [ "${FAIL_ALL_SERVICES:-0}" = 0 ] && [ "${FAIL_SERVICE_AT:-0}" != "${SERVICE_COUNT}" ] &&
-		[ "${FAIL_SERVICE_AT_2:-0}" != "${SERVICE_COUNT}" ]; then
+		[ "${FAIL_SERVICE_AT_2:-0}" != "${SERVICE_COUNT}" ] && [ "${FAIL_SERVICE_AT_3:-0}" != "${SERVICE_COUNT}" ]; then
 		case "$*" in
 			restart_stubby) STUBBY_RUNNING=1 ;;
 		esac
@@ -268,7 +268,7 @@ dhcp_dns2_x=149.112.112.112
 EOF_NVRAM
 	: >"${CALLS_FILE}"
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0 STUBBY_RESTART_COUNT=0
-	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_SERVICE_AT_2=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
+	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_SERVICE_AT_2=0 FAIL_SERVICE_AT_3=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
 	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 DNS_READY_AFTER_SERVICE=0 STUBBY_RUNNING=0 STUBBY_KILL_STUCK=0
 	DNS_ENV_READY_TIMEOUT=2 DNS_ENV_RECOVERY_TIMEOUT=1
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
@@ -1189,8 +1189,9 @@ reset_case
 nvram_transaction_begin dirty-apply-cleanup dnspriv_enable || fail 'dirty apply transaction snapshot failed'
 nvram_transaction_set dnspriv_enable 0 || fail 'dirty apply transaction staging failed'
 FAIL_SNAPSHOT_REMOVE=1
-nvram_transaction_apply - && fail 'dirty apply snapshot removal failure was ignored'
-[ -f "${NVRAM_TRANSACTION_DIR}/dirty" ] || fail 'dirty apply snapshot was not retained after removal failure'
+nvram_transaction_apply - || fail 'dirty apply failed because best-effort snapshot cleanup was interrupted'
+[ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'dirty apply cleanup injection did not retain the inert snapshot'
+[ ! -f "${NVRAM_TRANSACTION_DIR}/dirty" ] || fail 'dirty apply cleanup interruption left the applied snapshot rollback-eligible'
 [ "$(nvram get dnspriv_enable)" = 0 ] || fail 'dirty apply cleanup failure unexpectedly rolled back NVRAM'
 FAIL_SNAPSHOT_REMOVE=0
 rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove dirty apply transaction snapshot'
@@ -1925,6 +1926,16 @@ check_dns_environment 0 && fail 'DNS readiness rollback was accepted as preparat
 [ -d "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'DNS cleanup failure did not retain its completed snapshot'
 [ ! -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'DNS completed rollback remained eligible for startup recovery'
 assert_original 'DNS readiness cleanup interruption'
+
+reset_case
+STUBBY_RUNNING=1
+printf '%s\n' 'dnspriv_enable=0' 'dhcpd_dns_router=1' 'dhcp_dns1_x=' 'dhcp_dns2_x=' >"${NVRAM_FILE}" || fail 'could not seed prepared DNS state'
+FAIL_SERVICE_AT=1
+FAIL_SERVICE_AT_2=3
+FAIL_SERVICE_AT_3=4
+check_dns_environment 0 && fail 'no-change dnsmasq retry with failed stubby recovery was accepted'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" ] || fail 'no-change retry discarded the stopped stubby marker before restart'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'no-change retry discarded its retryable DNS snapshot'
 
 reset_case
 STUBBY_RUNNING=1
