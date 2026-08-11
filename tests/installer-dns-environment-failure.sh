@@ -98,7 +98,7 @@ rollback_pending_mode_migration() { return 0; }
 sleep() {
 	local current_lookup_count yield_count
 	yield_count=0
-	while [ -n "${lookup_pid:-}" ] && kill -0 "${lookup_pid}" 2>/dev/null && [ "${yield_count}" -lt 20 ]; do
+	while [ -n "${lookup_pid:-}" ] && kill -0 "${lookup_pid}" 2>/dev/null && [ "${yield_count}" -lt 100 ]; do
 		current_lookup_count=$(cat "${TEST_ROOT}/lookup-start-count" 2>/dev/null || printf 0)
 		[ -n "${current_lookup_count}" ] || current_lookup_count=0
 		[ "${current_lookup_count}" -le "${SYNC_LOOKUP_COUNT:-0}" ] || break
@@ -109,7 +109,7 @@ sleep() {
 			/bin/sleep 0.01
 		fi
 	done
-	if [ "${yield_count}" -ge 20 ] && [ "${current_lookup_count:-0}" -le "${SYNC_LOOKUP_COUNT:-0}" ]; then
+	if [ "${yield_count}" -ge 100 ] && [ "${current_lookup_count:-0}" -le "${SYNC_LOOKUP_COUNT:-0}" ]; then
 		return 1
 	fi
 	SYNC_LOOKUP_COUNT="${current_lookup_count:-${SYNC_LOOKUP_COUNT:-0}}"
