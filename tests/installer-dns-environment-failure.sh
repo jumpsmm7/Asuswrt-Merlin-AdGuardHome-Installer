@@ -97,10 +97,11 @@ rollback_pending_mode_migration() { return 0; }
 # advancing the simulated clock. Each child is synchronized only once so
 # scheduler latency cannot affect the simulated deadline.
 sleep() {
-	local current_lookup_count
+	local current_lookup_count sync_wait_count
 
 	if [ -n "${lookup_pid:-}" ] &&
 		[ "${lookup_pid}" != "${SYNC_LOOKUP_PID:-}" ]; then
+		sync_wait_count=0
 		while :; do
 			current_lookup_count="$(cat "${TEST_ROOT}/lookup-start-count" 2>/dev/null || printf 0)"
 			[ -n "${current_lookup_count}" ] || current_lookup_count=0
@@ -122,6 +123,11 @@ sleep() {
 					break
 				fi
 				fail 'DNS probe exited before publishing its start handshake'
+			fi
+
+			sync_wait_count="$((sync_wait_count + 1))"
+			if [ "${sync_wait_count}" -ge 1000 ]; then
+				fail 'timed out waiting for the DNS lookup child to start'
 			fi
 
 			if [ -x /bin/usleep ]; then
