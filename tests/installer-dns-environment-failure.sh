@@ -198,6 +198,9 @@ service() {
 
 # rm removes files and directories while simulating configured failures for transaction, journal, snapshot, and lock artifacts.
 rm() {
+	if [ "${FAIL_DIRTY_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -f ] && [ "${2:-}" = "${NVRAM_TRANSACTION_DIR:-}/dirty" ]; then
+		return 1
+	fi
 	if [ "${FAIL_SETUP_MARKER_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -f ] && [ "${2:-}" = "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; then
 		return 1
 	fi
@@ -252,7 +255,7 @@ reset_case() {
 	lookup_pid=""
 	SYNC_LOOKUP_COUNT=0
 	printf '%s\n' 0 >"${TEST_ROOT}/lookup-start-count"
-	FAIL_LOCK_REMOVE_AT=0 FAIL_SETUP_MARKER_REMOVE=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0 FAIL_PAIRED_SNAPSHOT_REMOVE=0 FAIL_RESTORED_JOURNAL_REMOVE=0
+	FAIL_LOCK_REMOVE_AT=0 FAIL_DIRTY_REMOVE=0 FAIL_SETUP_MARKER_REMOVE=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0 FAIL_PAIRED_SNAPSHOT_REMOVE=0 FAIL_RESTORED_JOURNAL_REMOVE=0
 	LOCK_REMOVE_COUNT=0
 	nvram_transaction_lock_release || fail 'could not release the previous test transaction lock'
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/jffs-enable"
@@ -1934,6 +1937,16 @@ FAIL_SERVICE_AT=1
 check_dns_environment 0 && fail 'recovered no-change dnsmasq retry was accepted as preparation success'
 [ "${STUBBY_RESTART_COUNT}" -eq 1 ] || fail 'successful no-change recovery restarted stubby more than once'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful no-change recovery retained its snapshot'
+
+reset_case
+STUBBY_RUNNING=1
+printf '%s\n' 'dnspriv_enable=0' 'dhcpd_dns_router=1' 'dhcp_dns1_x=' 'dhcp_dns2_x=' >"${NVRAM_FILE}" || fail 'could not seed prepared DNS state'
+FAIL_SERVICE_AT=1
+FAIL_DIRTY_REMOVE=1
+check_dns_environment 0 && fail 'no-change recovery with failed snapshot finalization was accepted'
+[ "${STUBBY_RESTART_COUNT}" -eq 1 ] || fail 'snapshot finalization failure restarted recovered stubby'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'snapshot finalization failure discarded its retryable snapshot'
+grep -q 'rollback DNS NVRAM transaction rollback partial' "${CALLS_FILE}" || fail 'snapshot finalization failure was not recorded'
 
 reset_case
 STUBBY_RUNNING=1
