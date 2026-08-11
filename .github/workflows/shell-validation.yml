@@ -168,6 +168,7 @@ jobs:
 
           busybox ash tools/check-md5.sh "${checksum_targets[@]}"
           busybox ash tools/check-sha256.sh "${checksum_targets[@]}"
+          busybox ash tests/checksum-file-format.sh
 
   shfmt:
     name: shfmt mksh recommendations
