@@ -692,14 +692,14 @@ nvram_transaction_lock_reaper_legacy_claim() {
 	}
 	if command mv "${claim_path}" "${reaper_path}" 2>/dev/null; then
 		if [ -d "${reaper_path}/${claim_name}" ]; then
-			rm -rf "${reaper_path}/${claim_name}" 2>/dev/null
+			rm -rf "${reaper_path:?}/${claim_name:?}" 2>/dev/null
 			return 1
 		fi
 		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] && return 0
 	fi
 	# When the destination already exists, portable mv may place the claim
 	# directory inside it instead of failing. It never owns the mutex there.
-	rm -rf "${claim_path}" "${reaper_path}/${claim_name}" 2>/dev/null
+	rm -rf "${claim_path}" "${reaper_path:?}/${claim_name:?}" 2>/dev/null
 	return 1
 }
 
