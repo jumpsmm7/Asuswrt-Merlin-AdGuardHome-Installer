@@ -110,7 +110,7 @@ sleep() {
 		fi
 	done
 	if [ "${yield_count}" -ge 100 ] && [ "${current_lookup_count:-0}" -le "${SYNC_LOOKUP_COUNT:-0}" ]; then
-		return 1
+		fail 'timed out waiting for the DNS lookup child to start'
 	fi
 	SYNC_LOOKUP_COUNT="${current_lookup_count:-${SYNC_LOOKUP_COUNT:-0}}"
 	MONOTONIC_NOW="$((MONOTONIC_NOW + 1))"
