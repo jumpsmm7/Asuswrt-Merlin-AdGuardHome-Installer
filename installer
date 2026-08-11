@@ -730,22 +730,10 @@ nvram_transaction_lock_reaper_acquire() {
 		fi
 		reaper_owner="$(cat "${reaper_path}/pid" 2>/dev/null)"
 		if [ -z "${reaper_owner}" ]; then
-			# Give an older installer time to finish its non-atomic publication.
-			# New installers never publish an ownerless directory, so a stable
-			# empty artifact after this compatibility delay is safely stale.
-			sleep 1
-			reaper_owner="$(cat "${reaper_path}/pid" 2>/dev/null)"
-			if [ -z "${reaper_owner}" ]; then
-				rm -rf "${reaper_path}" || return 1
-				NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
-				nvram_transaction_lock_reaper_legacy_claim "${reaper_path}" "${owner}" || {
-					NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
-					NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
-					return 1
-				}
-				reaper_owner="${owner}"
-				claimed=1
-			fi
+			# Older installers publish the PID after mkdir. An empty record may
+			# therefore still have a live publisher and cannot be reclaimed safely.
+			NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+			return 1
 		fi
 		if [ "${reaper_owner}" != "${owner}" ]; then
 			nvram_transaction_lock_owner_live "${reaper_owner}" && return 1
@@ -1447,13 +1435,18 @@ installer_cleanup_tmp_file() {
 }
 
 on_installer_exit() {
+	local setup_journal_restore_status
+	setup_journal_restore_status=0
 	if nvram_transaction_lock_owned; then
 		# Restore setup's pre-migration files before mode rollback restores the
 		# matching hooks and configuration. Reversing this order can republish
 		# post-migration YAML over an otherwise complete migration rollback.
-		setup_restore_nvram_journal || PTXT "${ERROR} Unable to restore the journaled installer configuration files."
+		if ! setup_restore_nvram_journal; then
+			setup_journal_restore_status=1
+			PTXT "${ERROR} Unable to restore the journaled installer configuration files."
+		fi
 	fi
-	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
+	if [ "${setup_journal_restore_status}" -eq 0 ] && [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
 		if rollback_pending_mode_migration; then
 			adguard_restart_after_install_abort "${ADGUARD_INSTALL_WAS_RUNNING:-0}"
 		else
@@ -1469,7 +1462,9 @@ on_installer_exit() {
 	if nvram_transaction_lock_owned; then
 		# Restore an uncommitted setup journal before recovery can remove the
 		# shared commit marker used to distinguish cleanup from rollback.
-		if setup_restore_nvram_journal; then
+		if [ "${setup_journal_restore_status}" -ne 0 ]; then
+			:
+		elif setup_restore_nvram_journal; then
 			# Finalize setup-pair for both WAN and LAN modes only after the
 			# journal is either restored or known to have been committed.
 			nvram_transaction_finalize_setup_pair recovery || PTXT "${ERROR} Unable to finish the committed installer-managed NVRAM cleanup."
@@ -1495,6 +1490,7 @@ on_installer_exit() {
 		fi
 	fi
 	nvram_transaction_lock_release || PTXT "${ERROR} Unable to release the installer NVRAM transaction lock."
+	return "${setup_journal_restore_status}"
 }
 
 python_bcrypt_available() {

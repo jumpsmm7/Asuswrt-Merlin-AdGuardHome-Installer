@@ -766,15 +766,19 @@ LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore 
 	nvram_transaction_lock_readlink() { return 127; }
 	for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
 		mkdir -p "${reaper_path}"
-		nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "ownerless reaper lock was not reclaimed: ${reaper_path}"
-		[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "reclaimed ownerless reaper has the wrong owner: ${reaper_path}"
-		nvram_transaction_lock_reaper_release "${reaper_path}" || fail "reclaimed ownerless reaper was not released: ${reaper_path}"
+		if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
+			fail "ownerless legacy reaper lock was reclaimed: ${reaper_path}"
+		fi
+		[ -d "${reaper_path}" ] || fail "ownerless legacy reaper lock was removed: ${reaper_path}"
+		rm -rf "${reaper_path}"
 
 		mkdir -p "${reaper_path}"
 		: >"${reaper_path}/pid"
-		nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "empty-owner reaper lock was not reclaimed: ${reaper_path}"
-		[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "reclaimed empty-owner reaper has the wrong owner: ${reaper_path}"
-		nvram_transaction_lock_reaper_release "${reaper_path}" || fail "reclaimed empty-owner reaper was not released: ${reaper_path}"
+		if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
+			fail "empty-owner legacy reaper lock was reclaimed: ${reaper_path}"
+		fi
+		[ ! -s "${reaper_path}/pid" ] || fail "empty-owner legacy reaper owner was replaced: ${reaper_path}"
+		rm -rf "${reaper_path}"
 
 		mkdir -p "${reaper_path}"
 		printf '%s\n' 999999999 >"${reaper_path}/pid"
