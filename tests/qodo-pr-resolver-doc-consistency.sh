@@ -165,6 +165,21 @@ grep -Fq 'Percent-encode every value as UTF-8 bytes using uppercase' "${PROVIDER
 grep -Fq '`qodo-ledger-v1` records using the percent-encoding and exact-key rules' "${SKILL}" || fail "${SKILL}: Step 3c parser does not consume the canonical serialized record"
 grep -Fq 'permit `action=none` for a non-directional fixed change' "${SKILL}" || fail "${SKILL}: Step 3c parser does not accept non-directional fixed records"
 
+# Gerrit's batched reply example must use the supported jq provider, while hook
+# rollback must become a no-op after restoring the original hook once.
+GERRIT_BATCH=$(sed -n '/^## Post Summary Comment$/,/^## Resolve Comments$/p' "${GERRIT}")
+printf '%s\n' "${GERRIT_BATCH}" | grep -Fq 'JQ_BIN=$(which jq 2>/dev/null)' ||
+	fail "${GERRIT}: batched reply flow does not discover jq from PATH"
+if printf '%s\n' "${GERRIT_BATCH}" | grep -Fq 'python3'; then
+	fail "${GERRIT}: batched reply flow requires non-stock python3"
+fi
+grep -Fq '[ "$HOOK_RESTORE_PENDING" = 1 ] || return 0' "${GERRIT}" ||
+	fail "${GERRIT}: commit-msg hook rollback is not guarded against repeated cleanup"
+grep -Fq 'HOOK_RESTORE_PENDING=0' "${GERRIT}" ||
+	fail "${GERRIT}: commit-msg hook rollback never clears its pending state"
+grep -Fq '> ⏭️ **Held** —' "${CONVERGENCE}" ||
+	fail "${CONVERGENCE}: held reply does not use the canonical prefix"
+
 # --- Sanity check on the marker/heading fixtures themselves: guard against a
 # future edit accidentally weakening this test by narrowing the constants to
 # an empty or trivially-matching string.

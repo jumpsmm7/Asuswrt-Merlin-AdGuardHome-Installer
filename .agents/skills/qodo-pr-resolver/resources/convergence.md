@@ -104,7 +104,7 @@ with a **one-line** rationale that names the prior round. Serialize this establi
 as `decision=held action=none` and route it through oscillation handling; do not use the Deferred
 prefix or `decision=deferred`, which are reserved for deliberate deferrals:
 
-> 🛑 **Held** — holding prior decision from round <N> (<rationale>); not reverting to avoid flip-flopping — if still a concern, explain why the prior approach is wrong.
+> ⏭️ **Held** — holding prior decision from round <N> (<rationale>); not reverting to avoid flip-flopping — if still a concern, explain why the prior approach is wrong.
 
 ### 🔁 Repeat
 Re-raised after a prior fix. Before changing anything, **re-read the current code** and check

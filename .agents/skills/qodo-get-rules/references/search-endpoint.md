@@ -85,12 +85,9 @@ if ! printf '%s\n' "$TOP_K" | grep -Eq '^[1-9][0-9]*$'; then
   echo "Error: TOP_K must be a positive integer, got: $TOP_K" >&2
   exit 1
 fi
-if [ -x /usr/bin/jq ]; then
-  JQ_BIN=/usr/bin/jq
-elif [ -x /opt/bin/jq ]; then
-  JQ_BIN=/opt/bin/jq
-else
-  echo "Error: jq is required (/usr/bin/jq or /opt/bin/jq)" >&2
+JQ_BIN=$(which jq 2>/dev/null)
+if [ -z "$JQ_BIN" ] || [ ! -x "$JQ_BIN" ]; then
+  echo "Error: jq is required and must be executable from PATH" >&2
   exit 1
 fi
 BODY=$("$JQ_BIN" -cn --arg query "$SEARCH_QUERY" --arg scope "${SCOPE:-}" \
@@ -145,12 +142,9 @@ if ! printf '%s\n' "$TOP_K" | grep -Eq '^[1-9][0-9]*$'; then
   echo "Error: TOP_K must be a positive integer, got: $TOP_K" >&2
   exit 1
 fi
-if [ -x /usr/bin/jq ]; then
-  JQ_BIN=/usr/bin/jq
-elif [ -x /opt/bin/jq ]; then
-  JQ_BIN=/opt/bin/jq
-else
-  echo "Error: jq is required (/usr/bin/jq or /opt/bin/jq)" >&2
+JQ_BIN=$(which jq 2>/dev/null)
+if [ -z "$JQ_BIN" ] || [ ! -x "$JQ_BIN" ]; then
+  echo "Error: jq is required and must be executable from PATH" >&2
   exit 1
 fi
 BODY=$("$JQ_BIN" -cn --arg query "$SEARCH_QUERY" --arg scope "${SCOPE:-}" \

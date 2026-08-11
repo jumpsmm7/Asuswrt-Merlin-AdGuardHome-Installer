@@ -394,4 +394,16 @@ OUT=$(run_snippet "${HOME_OPTIONAL_BAD_URL}" 2>&1)
 RC=$?
 assert_failure 'required invalid configured URL' "${RC}" "${OUT}" 'Invalid QODO_API_URL'
 
+# Repository scope must reject either empty org/repo segment, and request examples
+# must discover jq from PATH rather than pinning platform-specific locations.
+for scope_doc in "${SKILL}" "${REPO_SCOPE}"; do
+	grep -Fq '"" | /* | */ |' "${scope_doc}" ||
+		fail "${scope_doc}: repository scope validation does not reject empty path segments"
+done
+[ "$(grep -Fc 'JQ_BIN=$(which jq 2>/dev/null)' "${SEARCH_ENDPOINT}")" -eq 2 ] ||
+	fail "${SEARCH_ENDPOINT}: both curl examples must discover jq from PATH"
+if grep -Eq 'JQ_BIN=/(usr|opt)/bin/jq' "${SEARCH_ENDPOINT}"; then
+	fail "${SEARCH_ENDPOINT}: request examples pin jq to a platform-specific path"
+fi
+
 printf '%s\n' 'PASS: qodo-get-rules config parsing snippet enforces credential/URL validation as documented'

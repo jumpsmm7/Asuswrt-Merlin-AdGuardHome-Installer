@@ -419,7 +419,12 @@ trap 'rm -f "$SUMMARY_FILE"; rm -rf "$GERRIT_NETRC_DIR"; exit 129' HUP
 trap 'rm -f "$SUMMARY_FILE"; rm -rf "$GERRIT_NETRC_DIR"; exit 130' INT
 trap 'rm -f "$SUMMARY_FILE"; rm -rf "$GERRIT_NETRC_DIR"; exit 143' TERM
 # Write <summary-comment-body> to $SUMMARY_FILE now.
-SUMMARY_JSON=$(python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1], encoding="utf-8").read()))' "$SUMMARY_FILE") || exit 1
+JQ_BIN=$(which jq 2>/dev/null)
+if [ -z "$JQ_BIN" ] || [ ! -x "$JQ_BIN" ]; then
+  echo "Error: jq is required and must be executable from PATH" >&2
+  exit 1
+fi
+SUMMARY_JSON=$("$JQ_BIN" -Rs . <"$SUMMARY_FILE") || exit 1
 rm -f "$SUMMARY_FILE"
 umask "$OLD_UMASK"
 
@@ -432,23 +437,19 @@ trap 'rm -f "$SUMMARY_FILE" "$INLINE_REPLIES_FILE"; rm -rf "$GERRIT_NETRC_DIR"; 
 trap 'rm -f "$SUMMARY_FILE" "$INLINE_REPLIES_FILE"; rm -rf "$GERRIT_NETRC_DIR"; exit 130' INT
 trap 'rm -f "$SUMMARY_FILE" "$INLINE_REPLIES_FILE"; rm -rf "$GERRIT_NETRC_DIR"; exit 143' TERM
 # Run this once per collected reply, with the loop's actual values:
-python3 -c 'import json,sys; print(json.dumps({"path":sys.argv[1], "in_reply_to":sys.argv[2], "message":sys.argv[3], "unresolved":sys.argv[4].lower()=="true"}))' \
-  "$REPLY_PATH" "$REPLY_ID" "$REPLY_MESSAGE" false >>"$INLINE_REPLIES_FILE" || exit 1
+"$JQ_BIN" -cn --arg path "$REPLY_PATH" --arg in_reply_to "$REPLY_ID" \
+  --arg message "$REPLY_MESSAGE" --argjson unresolved false \
+  '{path: $path, in_reply_to: $in_reply_to, message: $message, unresolved: $unresolved}' \
+  >>"$INLINE_REPLIES_FILE" || exit 1
 
 # After the loop, group every accumulated reply under its file path as Gerrit expects.
-COMMENTS_JSON=$(python3 - "$INLINE_REPLIES_FILE" <<'PY'
-import json
-import sys
-
-comments = {}
-with open(sys.argv[1], encoding="utf-8") as replies:
-    for line in replies:
-        reply = json.loads(line)
-        path = reply.pop("path")
-        comments.setdefault(path, []).append(reply)
-print(json.dumps(comments))
-PY
-) || exit 1
+COMMENTS_JSON=$("$JQ_BIN" -sc '
+  reduce .[] as $reply ({};
+    ($reply.path) as $path |
+    ($reply | del(.path)) as $comment |
+    .[$path] = ((.[$path] // []) + [$comment])
+  )
+' "$INLINE_REPLIES_FILE") || exit 1
 rm -f "$INLINE_REPLIES_FILE"
 
 if ! RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 --netrc-file "$GERRIT_NETRC" \
@@ -638,14 +639,20 @@ fi
 # Preserve an existing hook on the same filesystem. mv retains a symlink as a
 # symlink, and the backup remains until the amended commit verifies successfully.
 HOOK_BACKUP=""
+HOOK_RESTORE_PENDING=1
 if [ -e "$HOOK_PATH" ] || [ -L "$HOOK_PATH" ]; then
   HOOK_BACKUP=$(mktemp "$HOOK_DIR/commit-msg.backup.XXXXXX") || exit 1
   rm -f "$HOOK_BACKUP"
   mv "$HOOK_PATH" "$HOOK_BACKUP" || exit 1
 fi
 restore_commit_msg_hook() {
-  rm -f "$HOOK_PATH"
-  [ -z "$HOOK_BACKUP" ] || mv "$HOOK_BACKUP" "$HOOK_PATH"
+  [ "$HOOK_RESTORE_PENDING" = 1 ] || return 0
+  rm -f "$HOOK_PATH" || return 1
+  if [ -n "$HOOK_BACKUP" ]; then
+    mv "$HOOK_BACKUP" "$HOOK_PATH" || return 1
+    HOOK_BACKUP=""
+  fi
+  HOOK_RESTORE_PENDING=0
 }
 trap 'restore_commit_msg_hook; rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"' EXIT
 trap 'restore_commit_msg_hook; rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"; exit 129' HUP
@@ -682,6 +689,7 @@ fi
 # Verification is the commit point: retain the new hook and discard the backup.
 rm -f "$HOOK_BACKUP"
 HOOK_BACKUP=""
+HOOK_RESTORE_PENDING=0
 trap 'rm -f "$GERRIT_NETRC"; rm -rf "$GERRIT_NETRC_DIR"' EXIT
 trap 'rm -f "$GERRIT_NETRC"; rm -rf "$GERRIT_NETRC_DIR"; exit 129' HUP
 trap 'rm -f "$GERRIT_NETRC"; rm -rf "$GERRIT_NETRC_DIR"; exit 130' INT
