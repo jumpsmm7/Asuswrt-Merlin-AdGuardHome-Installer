@@ -7,6 +7,7 @@ umask 077
 SCRIPT_LOC=""
 ADGUARDHOME_BINARY="/opt/sbin/AdGuardHome"
 CONF_FILE="/opt/etc/AdGuardHome/.config"
+WORK_DIR="${CONF_FILE%/*}"
 DNS_HANDOFF_DIR="${DNS_HANDOFF_DIR:-/tmp/AdGuardHome.dns-handoff}"
 DNS_HANDOFF_FILE="${DNS_HANDOFF_FILE:-${DNS_HANDOFF_DIR}/active}"
 MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
@@ -215,11 +216,31 @@ adguard_restart_dnsmasq_if_managed() {
 # database_link_matches_expected reports whether an optional database path is a
 # symlink whose resolved name is the database in the active work directory.
 database_link_matches_expected() {
-	local EXPECTED_PATH LINK_PATH
+	local EXPECTED_CANONICAL EXPECTED_PATH LINK_CANONICAL LINK_PATH
 	LINK_PATH="$1"
 	EXPECTED_PATH="$2"
 	[ -L "${LINK_PATH}" ] || return 1
-	[ "$(canonical_path "${LINK_PATH}" 2>/dev/null)" = "$(canonical_path "${EXPECTED_PATH}" 2>/dev/null)" ]
+	database_link_owned_by_current_user "${LINK_PATH}" || return 1
+	LINK_CANONICAL="$(canonical_path "${LINK_PATH}" 2>/dev/null)" || return 1
+	[ -n "${LINK_CANONICAL}" ] || return 1
+	EXPECTED_CANONICAL="$(canonical_path "${EXPECTED_PATH}" 2>/dev/null)" || return 1
+	[ -n "${EXPECTED_CANONICAL}" ] || return 1
+	[ "${LINK_CANONICAL}" = "${EXPECTED_CANONICAL}" ]
+}
+
+# database_link_owned_by_current_user verifies symlink ownership without
+# following it, so foreign-owned objects are never managed automatically.
+database_link_owned_by_current_user() {
+	local CURRENT_UID LINK_UID
+	CURRENT_UID="$(/usr/bin/awk '$1 == "Uid:" { print $3; exit }' /proc/self/status 2>/dev/null)" || return 1
+	case "${CURRENT_UID}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	LINK_UID="$(LC_ALL=C ls -ldn "$1" 2>/dev/null | /usr/bin/awk 'NR == 1 { print $3; exit }')" || return 1
+	case "${LINK_UID}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	[ "${LINK_UID}" = "${CURRENT_UID}" ]
 }
 
 # database_link_object_type describes an existing path without following a
