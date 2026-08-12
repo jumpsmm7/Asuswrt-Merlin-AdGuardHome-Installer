@@ -108,7 +108,11 @@ load_operation_config() {
 			value = substr($0, length(key) + 2)
 			if (value ~ /^"[^"]*"$/) value = substr(value, 2, length(value) - 2)
 			else if (value ~ /["[:cntrl:]]/) exit 3
-			if (value == "" || value ~ /[|[:cntrl:]]/) exit 3
+			if (value == "") {
+				if (key == "ADGUARD_WEBUI_PORT" || key == "INSTALLER_BRANCH") next
+				exit 3
+			}
+			if (value ~ /[|[:cntrl:]]/) exit 3
 			values[key] = value
 		}
 		END {
@@ -138,8 +142,8 @@ EOF
 	case "${config_dnsmasq_mode}" in -) config_dnsmasq_mode="auto" ;; auto | enabled | disabled) ;; *) return 1 ;; esac
 	case "${config_local}" in -) config_local="NO" ;; YES | NO) ;; *) return 1 ;; esac
 	case "${config_ipset}" in -) config_ipset="YES" ;; YES | NO) ;; *) return 1 ;; esac
-	case "${config_webui_port}" in -) config_webui_port="" ;; *[!0-9]*) return 1 ;; *) [ "${config_webui_port}" -gt 0 ] && [ "${config_webui_port}" -le 65535 ] || return 1 ;; esac
-	case "${config_installer_branch}" in -) config_installer_branch="" ;; *[!A-Za-z0-9._/-]*) return 1 ;; esac
+	case "${config_webui_port}" in -|"") config_webui_port="" ;; *[!0-9]*) return 1 ;; *) [ "${config_webui_port}" -gt 0 ] && [ "${config_webui_port}" -le 65535 ] || return 1 ;; esac
+	case "${config_installer_branch}" in -|"") config_installer_branch="" ;; *[!A-Za-z0-9._/-]*) return 1 ;; esac
 	case "${config_netcheck_hosts}" in -) config_netcheck_hosts="${DEFAULT_ADGUARD_NETCHECK_HOSTS}" ;; *[!A-Za-z0-9._:[:space:]-]*) return 1 ;; esac
 	case "${config_netcheck_dns}" in -) config_netcheck_dns="${DEFAULT_ADGUARD_NETCHECK_DNS}" ;; *[!A-Za-z0-9._:-]*) return 1 ;; esac
 	case "${config_netcheck_require_http}" in -) config_netcheck_require_http="${DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP}" ;; YES | NO) ;; *) return 1 ;; esac
