@@ -201,6 +201,7 @@ run_check 'Installer account validation regression' sh tests/installer-account-v
 run_check 'AdGuardHome permission repair regression' sh tests/adguardhome-permissions.sh
 run_check 'AdGuardHome LAN bind refresh regression' sh tests/adguardhome-lan-bind-refresh.sh
 run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
+run_check 'AdGuardHome optional database link regression' sh tests/optional-database-links.sh
 run_check 'AdGuardHome S99 DNS mode lifecycle regression' sh tests/s99-dns-mode-lifecycle.sh
 run_check 'AdGuardHome S99 netstat readiness regression' sh tests/s99-netstat-readiness.sh
 run_check 'AdGuardHome S99 startup readiness regression' sh tests/s99-startup-readiness.sh

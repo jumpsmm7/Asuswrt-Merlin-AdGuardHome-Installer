@@ -7,9 +7,10 @@ SCRIPT_PATH="${1:-AdGuardHome.sh}"
 FUNCTION_FILE="${TMPDIR:-/tmp}/start-adguardhome-function.$$"
 SERVICE_WAIT_FILE="${TMPDIR:-/tmp}/service-wait-function.$$"
 CALLS_FILE="${TMPDIR:-/tmp}/start-adguardhome-calls.$$"
+DATABASE_LINK_CALLS_FILE="${TMPDIR:-/tmp}/start-adguardhome-database-link-calls.$$"
 
 cleanup() {
-	rm -f "${FUNCTION_FILE}" "${SERVICE_WAIT_FILE}" "${CALLS_FILE}"
+	rm -f "${FUNCTION_FILE}" "${SERVICE_WAIT_FILE}" "${CALLS_FILE}" "${DATABASE_LINK_CALLS_FILE}"
 }
 
 fail() {
@@ -97,8 +98,8 @@ adguard_refresh_lan_bind_addresses() {
 	return "${LAN_BIND_REFRESH_STATUS:-0}"
 }
 
-# Database links are exercised separately by optional-database-links.sh.
 ensure_database_link() {
+	printf '%s -> %s\n' "$1" "$2" >>"${DATABASE_LINK_CALLS_FILE}"
 	return 0
 }
 
@@ -220,6 +221,7 @@ run_test() {
 	SERVICE_WAIT_CALLED="0"
 	LAN_BIND_REFRESH_FAILURE_REASON_RESULT="${11:-}"
 	: >"${CALLS_FILE}"
+	: >"${DATABASE_LINK_CALLS_FILE}"
 
 	if start_adguardhome "${START_ACTION}"; then
 		ACTUAL_STATUS=0
@@ -453,5 +455,10 @@ lower_script start
 IPSet_Lock released
 service restart_dnsmasq
 lower_script restart'
+
+run_test 'successful startup delegates optional database links' 0 1 0 0 0 0 1 'IPSet_Supported
+lower_script start'
+[ "$(cat "${DATABASE_LINK_CALLS_FILE}")" = "/tmp/stats.db -> ${WORK_DIR}/data/stats.db
+/tmp/sessions.db -> ${WORK_DIR}/data/sessions.db" ] || fail 'startup delegated incorrect optional database link pairs'
 
 printf '%s\n' 'PASS: startup treats IPSET integration as optional and preserves lifecycle recovery'

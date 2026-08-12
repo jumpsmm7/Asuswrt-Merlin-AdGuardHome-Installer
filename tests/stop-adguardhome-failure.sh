@@ -7,6 +7,7 @@ SCRIPT_PATH="${1:-AdGuardHome.sh}"
 TEST_ROOT="${TMPDIR:-/tmp}/stop-adguardhome-failure.$$"
 FUNCTION_FILE="${TEST_ROOT}/function"
 CALLS_FILE="${TEST_ROOT}/calls"
+DATABASE_LINK_CALLS_FILE="${TEST_ROOT}/database-link-calls"
 
 cleanup() { rm -rf "${TEST_ROOT}"; }
 fail() {
@@ -41,7 +42,9 @@ DNSMASQ_READY_CHECKS="0"
 
 agh_log() { printf '%s\n' "$*" >>"${CALLS_FILE}"; }
 canonical_path() { return 1; }
-remove_database_link() { return 0; }
+remove_database_link() {
+	printf '%s -> %s\n' "$1" "$2" >>"${DATABASE_LINK_CALLS_FILE}"
+}
 lower_script() {
 	printf '%s\n' "lower_script $1" >>"${CALLS_FILE}"
 	case "$1" in stop) return "${LOWER_STOP_STATUS}" ;; kill) return "${LOWER_KILL_STATUS}" ;; esac
@@ -115,6 +118,7 @@ sleep() { printf '%s\n' "sleep $*" >>"${CALLS_FILE}"; }
 
 reset_case() {
 	: >"${CALLS_FILE}"
+	: >"${DATABASE_LINK_CALLS_FILE}"
 	rm -rf "${DNS_HANDOFF_DIR}"
 	unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 	RUNNING="0" DNSMASQ_MANAGED="1" DNSMASQ_RUNNING="1"
@@ -128,6 +132,8 @@ reset_case
 NETCHECK_STATUS="1"
 stop_adguardhome || fail "offline WAN made a locally healthy stop fail"
 ! grep -q '^netcheck$' "${CALLS_FILE}" || fail "managed stop performed an Internet connectivity check"
+[ "$(cat "${DATABASE_LINK_CALLS_FILE}")" = "/tmp/stats.db -> ${WORK_DIR}/data/stats.db
+/tmp/sessions.db -> ${WORK_DIR}/data/sessions.db" ] || fail 'stop delegated incorrect optional database link pairs'
 
 # IPv6-only local DNS is accepted without requiring an IPv4 listener.
 reset_case
