@@ -32,11 +32,11 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
-sed -n \
+/bin/sed -n \
 	'/^load_operation_config() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_dnsmasq_running() {$/,/^}$/p; /^adguard_dnsmasq_managed() {$/,/^}$/p; /^adguard_restart_dnsmasq_if_managed() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${SCRIPT_PATH}"
-grep -q '^adguard_ipset_allowed() {$' "${FUNCTIONS_FILE}" || fail 'runtime mode helpers missing'
-grep -q '^IPSet_Dnsmasq_Restart_After_Unlock() {$' "${FUNCTIONS_FILE}" || fail 'IPSET dnsmasq restart helper missing'
+/bin/grep -q '^adguard_ipset_allowed() {$' "${FUNCTIONS_FILE}" || fail 'runtime mode helpers missing'
+/bin/grep -q '^IPSet_Dnsmasq_Restart_After_Unlock() {$' "${FUNCTIONS_FILE}" || fail 'IPSET dnsmasq restart helper missing'
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
