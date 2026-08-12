@@ -41,6 +41,7 @@ DNSMASQ_READY_CHECKS="0"
 
 agh_log() { printf '%s\n' "$*" >>"${CALLS_FILE}"; }
 canonical_path() { return 1; }
+remove_database_link() { return 0; }
 lower_script() {
 	printf '%s\n' "lower_script $1" >>"${CALLS_FILE}"
 	case "$1" in stop) return "${LOWER_STOP_STATUS}" ;; kill) return "${LOWER_KILL_STATUS}" ;; esac

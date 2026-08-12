@@ -97,6 +97,11 @@ adguard_refresh_lan_bind_addresses() {
 	return "${LAN_BIND_REFRESH_STATUS:-0}"
 }
 
+# Database links are exercised separately by optional-database-links.sh.
+ensure_database_link() {
+	return 0
+}
+
 # adguard_ipset_allowed reports whether IPSET integration is allowed outside LAN mode.
 adguard_ipset_allowed() {
 	! adguard_lan_mode

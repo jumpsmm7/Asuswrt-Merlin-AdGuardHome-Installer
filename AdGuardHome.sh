@@ -212,6 +212,60 @@ adguard_restart_dnsmasq_if_managed() {
 	service restart_dnsmasq >/dev/null 2>&1
 }
 
+# database_link_matches_expected reports whether an optional database path is a
+# symlink whose resolved name is the database in the active work directory.
+database_link_matches_expected() {
+	local EXPECTED_PATH LINK_PATH
+	LINK_PATH="$1"
+	EXPECTED_PATH="$2"
+	[ -L "${LINK_PATH}" ] || return 1
+	[ "$(canonical_path "${LINK_PATH}" 2>/dev/null)" = "$(canonical_path "${EXPECTED_PATH}" 2>/dev/null)" ]
+}
+
+# database_link_object_type describes an existing path without following a
+# symlink, including a dangling symlink.
+database_link_object_type() {
+	if [ -L "$1" ]; then
+		printf '%s\n' symlink
+	elif [ -f "$1" ]; then
+		printf '%s\n' regular-file
+	elif [ -d "$1" ]; then
+		printf '%s\n' directory
+	elif [ -e "$1" ]; then
+		printf '%s\n' other
+	else
+		printf '%s\n' missing
+	fi
+}
+
+# ensure_database_link creates a missing optional database link.  Existing
+# unexpected objects are preserved, and link failure never gates DNS startup.
+ensure_database_link() {
+	local EXPECTED_PATH LINK_PATH OBJECT_TYPE
+	LINK_PATH="$1"
+	EXPECTED_PATH="$2"
+	if database_link_matches_expected "${LINK_PATH}" "${EXPECTED_PATH}"; then
+		return 0
+	fi
+	OBJECT_TYPE="$(database_link_object_type "${LINK_PATH}")"
+	if [ "${OBJECT_TYPE}" != missing ]; then
+		agh_log warning ensure_database_link "state=starting action=create_database_link result=skipped reason=unexpected_object object_type=${OBJECT_TYPE} path=${LINK_PATH}"
+		return 0
+	fi
+	if ! ln -s "${EXPECTED_PATH}" "${LINK_PATH}" >/dev/null 2>&1; then
+		agh_log warning ensure_database_link "state=starting action=create_database_link result=failed reason=link_create_failed object_type=${OBJECT_TYPE} path=${LINK_PATH} optional=1"
+	fi
+	return 0
+}
+
+# remove_database_link removes only a symlink resolving to the expected active
+# work-directory database.
+remove_database_link() {
+	if database_link_matches_expected "$1" "$2"; then
+		rm "$1" >/dev/null 2>&1 || true
+	fi
+}
+
 # have_cmd checks whether the specified command is available.
 have_cmd() {
 	which "$1" >/dev/null 2>&1
@@ -1774,11 +1828,9 @@ start_adguardhome() {
 			return "${LOWER_SCRIPT_STATUS}"
 		fi
 	fi
-	for db in stats.db sessions.db; do {
-		if [ "$(canonical_path "/tmp/${db}" 2>/dev/null)" != "$(canonical_path "${WORK_DIR}/data/${db}" 2>/dev/null)" ]; then {
-			ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1
-		}; fi
-	}; done
+	for db in stats.db sessions.db; do
+		ensure_database_link "/tmp/${db}" "${WORK_DIR}/data/${db}"
+	done
 	if { service_wait netcheck; }; then
 		return "0"
 	else
@@ -2018,11 +2070,9 @@ stop_adguardhome() {
 		agh_log error stop_adguardhome "state=stopping action=verify_handoff reason=installer_marker_remains result=failed"
 		STOP_STATUS="1"
 	fi
-	for db in stats.db sessions.db; do {
-		if [ "$(canonical_path "/tmp/${db}" 2>/dev/null)" = "$(canonical_path "${WORK_DIR}/data/${db}" 2>/dev/null)" ]; then {
-			rm "/tmp/${db}" >/dev/null 2>&1
-		}; fi
-	}; done
+	for db in stats.db sessions.db; do
+		remove_database_link "/tmp/${db}" "${WORK_DIR}/data/${db}"
+	done
 	return "${STOP_STATUS}"
 }
 
