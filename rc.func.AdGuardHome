@@ -128,6 +128,18 @@ service_state_file_is_private() {
 			END { if (NR == 0) exit 1 }'
 }
 
+service_state_file_migrate_legacy() {
+	local _STATE_CANDIDATE
+	_STATE_CANDIDATE="$1"
+	service_state_dir_is_private || return 1
+	[ -f "${_STATE_CANDIDATE}" ] && [ ! -L "${_STATE_CANDIDATE}" ] || return 1
+	ls -ldn "${_STATE_CANDIDATE}" 2>/dev/null |
+		/usr/bin/awk 'NR == 1 { exit(substr($1, 1, 10) == "-rw-r--r--" && $2 == 1 && $3 == 0 ? 0 : 1) }
+			END { if (NR == 0) exit 1 }' || return 1
+	chmod 600 "${_STATE_CANDIDATE}" 2>/dev/null || return 1
+	service_state_dir_is_private && service_state_file_is_private "${_STATE_CANDIDATE}"
+}
+
 service_timestamp() {
 	date '+%Y/%m/%d %H:%M:%S'
 }
@@ -146,7 +158,7 @@ service_mark_transition() {
 	) 2>/dev/null || return 0
 	service_state_file_is_private "${_STATE_STAGE}" || return 0
 	if [ -e "${_STATE_FILE}" ] || [ -L "${_STATE_FILE}" ]; then
-		service_state_file_is_private "${_STATE_FILE}" || {
+		service_state_file_is_private "${_STATE_FILE}" || service_state_file_migrate_legacy "${_STATE_FILE}" || {
 			rm -f "${_STATE_STAGE}" 2>/dev/null
 			return 0
 		}
@@ -155,10 +167,12 @@ service_mark_transition() {
 }
 
 service_transition_state() {
-	local _STATE
+	local _STATE _STATE_FILE
 	_STATE=""
-	service_state_file_is_private "$(service_state_file)" || return 1
-	IFS= read -r _STATE <"$(service_state_file)" || return 1
+	_STATE_FILE="$(service_state_file)"
+	service_state_dir_is_private || return 1
+	service_state_file_is_private "${_STATE_FILE}" || service_state_file_migrate_legacy "${_STATE_FILE}" || return 1
+	IFS= read -r _STATE <"${_STATE_FILE}" || return 1
 	case "${_STATE}" in
 		"starting" | "stopping" | "restarting")
 			printf '%s\n' "${_STATE}"
@@ -173,7 +187,7 @@ service_clear_transition() {
 	_EXPECT_STATE="${1:-}"
 	_STATE_FILE="$(service_state_file)"
 	service_state_dir_is_private || return 0
-	service_state_file_is_private "${_STATE_FILE}" || return 0
+	service_state_file_is_private "${_STATE_FILE}" || service_state_file_migrate_legacy "${_STATE_FILE}" || return 0
 	if [ -n "${_EXPECT_STATE}" ]; then
 		[ "$(service_transition_state 2>/dev/null)" = "${_EXPECT_STATE}" ] || return 0
 	fi

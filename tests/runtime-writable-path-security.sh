@@ -7,6 +7,7 @@ REPO_DIR="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 TEST_ROOT="${TMPDIR:-/tmp}/runtime-writable-path-security.$$"
 FUNCTIONS_FILE="${TEST_ROOT}/functions.sh"
 RC_FUNCTIONS_FILE="${TEST_ROOT}/rc-functions.sh"
+INSTALLER_FUNCTIONS_FILE="${TEST_ROOT}/installer-functions.sh"
 
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
@@ -40,7 +41,7 @@ sed -n \
 . "${FUNCTIONS_FILE}"
 
 sed -n \
-	'/^service_state_file() {$/,/^}$/p; /^service_state_dir_ready() {$/,/^}$/p; /^service_state_dir_is_private() {$/,/^}$/p; /^service_state_file_is_private() {$/,/^}$/p; /^service_mark_transition() {$/,/^}$/p; /^service_transition_state() {$/,/^}$/p; /^service_clear_transition() {$/,/^}$/p' \
+	'/^service_state_file() {$/,/^}$/p; /^service_state_dir_ready() {$/,/^}$/p; /^service_state_dir_is_private() {$/,/^}$/p; /^service_state_file_is_private() {$/,/^}$/p; /^service_state_file_migrate_legacy() {$/,/^}$/p; /^service_mark_transition() {$/,/^}$/p; /^service_transition_state() {$/,/^}$/p; /^service_clear_transition() {$/,/^}$/p' \
 	"${REPO_DIR}/rc.func.AdGuardHome" >"${RC_FUNCTIONS_FILE}"
 # shellcheck disable=SC1090
 . "${RC_FUNCTIONS_FILE}"
@@ -53,11 +54,35 @@ service_mark_transition starting
 [ "$(service_transition_state)" = "starting" ] || fail 'staged transition state was not published'
 service_clear_transition
 [ ! -e "${STATE_FILE}" ] && [ ! -L "${STATE_FILE}" ] || fail 'validated transition state was not cleared'
+printf '%s\n' stopping >"${STATE_FILE}"
+chmod 644 "${STATE_FILE}"
+[ "$(service_transition_state)" = "stopping" ] || fail 'legacy transition state was not migrated'
+[ "$(ls -ld "${STATE_FILE}" | cut -c2-10)" = 'rw-------' ] || fail 'legacy transition mode was not restricted'
+service_clear_transition stopping
+[ ! -e "${STATE_FILE}" ] || fail 'migrated transition state was not cleared'
 printf '%s\n' stopping >"${TEST_ROOT}/foreign-state"
 ln -s "${TEST_ROOT}/foreign-state" "${STATE_FILE}"
 service_clear_transition
 [ -L "${STATE_FILE}" ] || fail 'foreign transition symlink was removed'
 rm "${STATE_FILE}"
+
+sed -n \
+	'/^cleanup_api_files() {$/,/^}$/p; /^metadata_workspace_create() {$/,/^}$/p; /^metadata_workspace_is_private() {$/,/^}$/p' \
+	"${REPO_DIR}/installer" >"${INSTALLER_FUNCTIONS_FILE}"
+# shellcheck disable=SC1090
+. "${INSTALLER_FUNCTIONS_FILE}"
+ADGUARD_METADATA_DIR="${TEST_ROOT}/metadata"
+ADGUARD_METADATA_FILE="${ADGUARD_METADATA_DIR}/channels.txt"
+ADGUARD_METADATA_DIR_OWNED=0
+metadata_workspace_create || fail 'private metadata workspace was not created'
+[ "$(ls -ld "${ADGUARD_METADATA_DIR}" | cut -c2-10)" = 'rwx------' ] || fail 'metadata workspace mode is not private'
+printf '%s\n' metadata >"${ADGUARD_METADATA_FILE}"
+cleanup_api_files || fail 'owned metadata workspace cleanup failed'
+[ ! -e "${ADGUARD_METADATA_DIR}" ] || fail 'owned metadata workspace was retained'
+ln -s "${TEST_ROOT}/victim-metadata" "${ADGUARD_METADATA_DIR}"
+metadata_workspace_create && fail 'pre-created metadata symlink was accepted'
+[ -L "${ADGUARD_METADATA_DIR}" ] || fail 'foreign metadata symlink was removed'
+rm "${ADGUARD_METADATA_DIR}"
 
 DNS_GUARD_READY_DIR="${TEST_ROOT}/guard"
 mkdir "${DNS_GUARD_READY_DIR}"

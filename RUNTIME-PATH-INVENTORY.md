@@ -16,7 +16,7 @@ temporary replacement lives beside its target whenever publication uses `mv`.
 
 | Kind | Path or path family | Lifetime / publication |
 | --- | --- | --- |
-| download metadata | `/tmp/AGH_STATIC_METADATA_$$.txt{,.release,.beta,.edge}` | One installer invocation; removed by installer cleanup. |
+| download metadata | `/tmp/AGH_STATIC_METADATA_$$.d/channels.txt{,.release,.beta,.edge}` | Files live in an exclusively created root-owned `700` workspace for one installer invocation; exact entries and then the directory are removed by installer cleanup. |
 | NVRAM transaction | `/opt/etc/.AdGuardHome.nvram/{lock,lock.d,reaper,reaper.*,.reaper-*}` and per-transaction `.tmp.$$`, snapshot, `dirty`, `exists.*`, and `new.*` entries | Private `700` snapshot/lock directories. PID plus `/proc` start time identifies owners; reapers revalidate the published identity before removal. |
 | setup journal / marker | `/opt/etc/.AdGuardHome.nvram/setup-files{,.tmp.$$,.done.$$}` and `/opt/etc/.AdGuardHome.nvram/setup-committed{,.tmp.$$}` | Same-filesystem staged journal and commit marker. |
 | rollback result | `/opt/etc/.AdGuardHome.rollback_result{,.tmp.$$}` | Same-filesystem atomic diagnostic publication. |
