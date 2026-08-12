@@ -7,10 +7,11 @@ SCRIPT_PATH="${1:-AdGuardHome.sh}"
 FUNCTION_FILE="${TMPDIR:-/tmp}/start-adguardhome-function.$$"
 SERVICE_WAIT_FILE="${TMPDIR:-/tmp}/service-wait-function.$$"
 CALLS_FILE="${TMPDIR:-/tmp}/start-adguardhome-calls.$$"
-DATABASE_LINK_CALLS_FILE="${TMPDIR:-/tmp}/start-adguardhome-database-link-calls.$$"
+DATABASE_LINK_CALLS_FILE=""
 
 cleanup() {
-	rm -f "${FUNCTION_FILE}" "${SERVICE_WAIT_FILE}" "${CALLS_FILE}" "${DATABASE_LINK_CALLS_FILE}"
+	rm -f "${FUNCTION_FILE}" "${SERVICE_WAIT_FILE}" "${CALLS_FILE}"
+	[ -n "${DATABASE_LINK_CALLS_FILE}" ] && rm -f "${DATABASE_LINK_CALLS_FILE}"
 }
 
 fail() {
@@ -56,6 +57,9 @@ assert_explicit_restart_uses_restart_wrapper() {
 
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
+
+DATABASE_LINK_CALLS_FILE="$(mktemp "${TMPDIR:-/tmp}/start-adguardhome-database-link-calls.XXXXXX")" ||
+	fail 'could not create database-link calls file'
 
 assert_single_function IPSet_Disable_Managed_For_Start_Locked
 assert_single_function IPSet_Enabled
