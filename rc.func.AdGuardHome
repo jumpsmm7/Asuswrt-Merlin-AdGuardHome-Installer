@@ -115,9 +115,10 @@ service_state_dir_ready() {
 }
 
 service_state_file_is_private() {
-	_STATE_FILE="$1"
-	[ -f "${_STATE_FILE}" ] && [ ! -L "${_STATE_FILE}" ] || return 1
-	ls -ldn "${_STATE_FILE}" 2>/dev/null |
+	local _CANDIDATE
+	_CANDIDATE="$1"
+	[ -f "${_CANDIDATE}" ] && [ ! -L "${_CANDIDATE}" ] || return 1
+	ls -ldn "${_CANDIDATE}" 2>/dev/null |
 		awk 'NR == 1 { exit(substr($1, 1, 10) == "-rw-------" && $2 == 1 && $3 == 0 ? 0 : 1) }
 			END { if (NR == 0) exit 1 }'
 }
