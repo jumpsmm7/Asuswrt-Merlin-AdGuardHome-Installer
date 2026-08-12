@@ -93,26 +93,50 @@ cleanup_api_files() { :; }
 installer_cleanup_tmp_file() { :; }
 # rollback_pending_mode_migration rolls back any pending mode migration.
 rollback_pending_mode_migration() { return 0; }
-# sleep waits for a newly spawned DNS child to record its start before advancing
-# the simulated clock, avoiding scheduler-dependent deadline races.
+# sleep waits for each newly spawned DNS child to publish its start before
+# advancing the simulated clock. Each child is synchronized only once so
+# scheduler latency cannot affect the simulated deadline.
 sleep() {
-	local current_lookup_count yield_count
-	yield_count=0
-	while [ -n "${lookup_pid:-}" ] && kill -0 "${lookup_pid}" 2>/dev/null && [ "${yield_count}" -lt 100 ]; do
-		current_lookup_count=$(cat "${TEST_ROOT}/lookup-start-count" 2>/dev/null || printf 0)
-		[ -n "${current_lookup_count}" ] || current_lookup_count=0
-		[ "${current_lookup_count}" -le "${SYNC_LOOKUP_COUNT:-0}" ] || break
-		yield_count="$((yield_count + 1))"
-		if [ -x /bin/usleep ]; then
-			/bin/usleep 1000
-		else
-			/bin/sleep 0.01
-		fi
-	done
-	if [ "${yield_count}" -ge 100 ] && [ "${current_lookup_count:-0}" -le "${SYNC_LOOKUP_COUNT:-0}" ]; then
-		return 1
+	local current_lookup_count sync_wait_count
+
+	if [ -n "${lookup_pid:-}" ] &&
+		[ "${lookup_pid}" != "${SYNC_LOOKUP_PID:-}" ]; then
+		sync_wait_count=0
+		while :; do
+			current_lookup_count="$(cat "${TEST_ROOT}/lookup-start-count" 2>/dev/null || printf 0)"
+			[ -n "${current_lookup_count}" ] || current_lookup_count=0
+
+			if [ "${current_lookup_count}" -gt "${SYNC_LOOKUP_COUNT:-0}" ]; then
+				SYNC_LOOKUP_COUNT="${current_lookup_count}"
+				SYNC_LOOKUP_PID="${lookup_pid}"
+				break
+			fi
+
+			if ! kill -0 "${lookup_pid}" 2>/dev/null; then
+				# The child may finish between the counter read and the liveness
+				# check. Re-read after exit so its completed publication is observed.
+				current_lookup_count="$(cat "${TEST_ROOT}/lookup-start-count" 2>/dev/null || printf 0)"
+				[ -n "${current_lookup_count}" ] || current_lookup_count=0
+				if [ "${current_lookup_count}" -gt "${SYNC_LOOKUP_COUNT:-0}" ]; then
+					SYNC_LOOKUP_COUNT="${current_lookup_count}"
+					SYNC_LOOKUP_PID="${lookup_pid}"
+					break
+				fi
+				fail 'DNS probe exited before publishing its start handshake'
+			fi
+
+			sync_wait_count="$((sync_wait_count + 1))"
+			if [ "${sync_wait_count}" -ge 1000 ]; then
+				fail 'timed out waiting for the DNS lookup child to start'
+			fi
+
+			if [ -x /bin/usleep ]; then
+				/bin/usleep 1000
+			else
+				/bin/sleep 0.01
+			fi
+		done
 	fi
-	SYNC_LOOKUP_COUNT="${current_lookup_count:-${SYNC_LOOKUP_COUNT:-0}}"
 	MONOTONIC_NOW="$((MONOTONIC_NOW + 1))"
 }
 # monotonic_seconds outputs the simulated monotonic timestamp and fails on the configured call number when MONOTONIC_FAIL_AT is set.
@@ -254,6 +278,7 @@ dns_check_count() { grep -c '^nslookup ' "${CALLS_FILE}"; }
 reset_case() {
 	lookup_pid=""
 	SYNC_LOOKUP_COUNT=0
+	SYNC_LOOKUP_PID=""
 	printf '%s\n' 0 >"${TEST_ROOT}/lookup-start-count"
 	FAIL_LOCK_REMOVE_AT=0 FAIL_DIRTY_REMOVE=0 FAIL_SETUP_MARKER_REMOVE=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0 FAIL_PAIRED_SNAPSHOT_REMOVE=0 FAIL_RESTORED_JOURNAL_REMOVE=0
 	LOCK_REMOVE_COUNT=0
