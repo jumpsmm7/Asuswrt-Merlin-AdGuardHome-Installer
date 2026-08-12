@@ -294,6 +294,9 @@ kill() {
 }
 sleep() {
 	SLEEP_CALLS="$((SLEEP_CALLS + 1))"
+	if [ "${DNS_GUARD_FIFO_TEST_MODE:-}" = "fail" ] && [ -n "${DNS_GUARD_FIFO_FALLBACK_MARKER:-}" ]; then
+		: >"${DNS_GUARD_FIFO_FALLBACK_MARKER}"
+	fi
 	if [ "${SLEEP_OWNED_AFTER:-0}" -gt 0 ] && [ "${SLEEP_CALLS}" -ge "${SLEEP_OWNED_AFTER}" ]; then
 		DNS_STATE=owned
 	fi
@@ -893,18 +896,27 @@ mkfifo() {
 	esac
 }
 DNS_GUARD_FIFO_TEST_MODE=fail
+DNS_GUARD_FIFO_FALLBACK_MARKER="${TEST_ROOT}/guard-fifo-fallback"
+export DNS_GUARD_FIFO_TEST_MODE DNS_GUARD_FIFO_FALLBACK_MARKER
+rm -f "${DNS_GUARD_FIFO_FALLBACK_MARKER}"
 launch_dns_port_guard || fail "DNS guard did not publish readiness after ${DNS_GUARD_FIFO_TEST_MODE} FIFO initialization"
-command sleep 0.01
+_failed_guard_pid="${ADGUARDHOME_DNS_GUARD_PID}"
+_failed_guard_start_time="$(dns_handoff_process_start_time "${_failed_guard_pid}")" ||
+	fail 'unable to record the FIFO fallback guard identity'
+wait_for_file "${DNS_GUARD_FIFO_FALLBACK_MARKER}" ||
+	fail 'DNS guard did not enter the FIFO bounded-sleep fallback'
 command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null ||
 	fail "DNS guard exited instead of using the ${DNS_GUARD_FIFO_TEST_MODE} FIFO bounded-sleep fallback"
+[ "$(dns_handoff_process_start_time "${_failed_guard_pid}" 2>/dev/null)" = "${_failed_guard_start_time}" ] ||
+	fail 'FIFO fallback guard identity changed before cleanup'
 _failed_ready_dir="${DNS_GUARD_READY_DIR}"
 _failed_wait_path="${_failed_ready_dir}/wait"
 stop_dns_port_guard
-[ ! -e "${_failed_wait_path}" ] ||
+[ ! -e "${_failed_wait_path}" ] && [ ! -L "${_failed_wait_path}" ] ||
 	fail "${DNS_GUARD_FIFO_TEST_MODE} FIFO fallback left its wait entry behind"
-[ ! -e "${_failed_ready_dir}" ] ||
+[ ! -e "${_failed_ready_dir}" ] && [ ! -L "${_failed_ready_dir}" ] ||
 	fail "${DNS_GUARD_FIFO_TEST_MODE} FIFO fallback left its readiness directory behind"
-unset DNS_GUARD_FIFO_TEST_MODE
+unset DNS_GUARD_FIFO_TEST_MODE DNS_GUARD_FIFO_FALLBACK_MARKER
 
 : >"${CALLS_FILE}"
 DNS_STATE=free

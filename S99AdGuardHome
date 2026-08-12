@@ -186,7 +186,7 @@ dns_guard_fifo_is_private() {
 	[ -n "${_dns_guard_wait_fifo:-}" ] || return 1
 	[ -p "${_dns_guard_wait_fifo}" ] && [ ! -L "${_dns_guard_wait_fifo}" ] || return 1
 	ls -ldn "${_dns_guard_wait_fifo}" 2>/dev/null |
-		awk 'NR == 1 { exit(substr($1, 1, 10) == "prw-------" && $2 == 1 && $3 == 0 ? 0 : 1) }
+		/usr/bin/awk 'NR == 1 { exit(substr($1, 1, 10) == "prw-------" && $2 == 1 && $3 == 0 ? 0 : 1) }
 			END { if (NR == 0) exit 1 }'
 }
 

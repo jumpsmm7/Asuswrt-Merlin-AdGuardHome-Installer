@@ -6,6 +6,7 @@ set -eu
 REPO_DIR="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 TEST_ROOT="${TMPDIR:-/tmp}/runtime-writable-path-security.$$"
 FUNCTIONS_FILE="${TEST_ROOT}/functions.sh"
+RC_FUNCTIONS_FILE="${TEST_ROOT}/rc-functions.sh"
 
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
@@ -20,6 +21,7 @@ cleanup() {
 # Keep the later failure stub visible to ShellCheck without changing the normal
 # test path's use of the system mkfifo utility.
 mkfifo() {
+	[ "${MKFIFO_FAIL:-0}" = "0" ] || return 1
 	command mkfifo "$@"
 }
 
@@ -36,6 +38,26 @@ sed -n \
 	"${REPO_DIR}/S99AdGuardHome" >"${FUNCTIONS_FILE}"
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+
+sed -n \
+	'/^service_state_file() {$/,/^}$/p; /^service_state_dir_ready() {$/,/^}$/p; /^service_state_dir_is_private() {$/,/^}$/p; /^service_state_file_is_private() {$/,/^}$/p; /^service_mark_transition() {$/,/^}$/p; /^service_transition_state() {$/,/^}$/p; /^service_clear_transition() {$/,/^}$/p' \
+	"${REPO_DIR}/rc.func.AdGuardHome" >"${RC_FUNCTIONS_FILE}"
+# shellcheck disable=SC1090
+. "${RC_FUNCTIONS_FILE}"
+
+STATE_FILE="${TEST_ROOT}/service/service-state"
+service_state_file() {
+	printf '%s\n' "${STATE_FILE}"
+}
+service_mark_transition starting
+[ "$(service_transition_state)" = "starting" ] || fail 'staged transition state was not published'
+service_clear_transition
+[ ! -e "${STATE_FILE}" ] && [ ! -L "${STATE_FILE}" ] || fail 'validated transition state was not cleared'
+printf '%s\n' stopping >"${TEST_ROOT}/foreign-state"
+ln -s "${TEST_ROOT}/foreign-state" "${STATE_FILE}"
+service_clear_transition
+[ -L "${STATE_FILE}" ] || fail 'foreign transition symlink was removed'
+rm "${STATE_FILE}"
 
 DNS_GUARD_READY_DIR="${TEST_ROOT}/guard"
 mkdir "${DNS_GUARD_READY_DIR}"
@@ -82,7 +104,7 @@ grep -q "remove_dns_guard_fifo || true; remove_current_dns_guard_readiness" "${R
 
 # Simulate a read-only filesystem by forcing the creation primitive to fail.
 # The operation must fail without publishing or deleting another path.
-mkfifo() { return 1; }
+MKFIFO_FAIL=1
 initialize_dns_guard_wait && fail 'FIFO creation failure was ignored'
 [ ! -e "${DNS_GUARD_READY_DIR}/wait" ] || fail 'failed creation left a path behind'
 
