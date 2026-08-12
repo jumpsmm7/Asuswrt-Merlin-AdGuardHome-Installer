@@ -52,6 +52,9 @@ jobs:
           dash -n tools/update-md5.sh
           dash -n tools/update-checksums.sh
 
+      - name: Run mkdir reaper owner publication regression
+        run: busybox ash tests/installer-reaper-owner-publication.sh
+
   shellcheck:
     name: ShellCheck POSIX ash profile
     runs-on: ubuntu-latest
@@ -165,6 +168,7 @@ jobs:
 
           busybox ash tools/check-md5.sh "${checksum_targets[@]}"
           busybox ash tools/check-sha256.sh "${checksum_targets[@]}"
+          busybox ash tests/checksum-file-format.sh
 
   shfmt:
     name: shfmt mksh recommendations

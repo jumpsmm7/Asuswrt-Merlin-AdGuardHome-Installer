@@ -23,6 +23,7 @@ INFO='Info:'
 ERROR='Error:'
 WARNING='Warning:'
 TMP_ROOT="${TMPDIR:-/tmp}/installer-staged-yaml-validation.$$"
+BASE_DIR="${TMP_ROOT}/base"
 TARG_DIR="${TMP_ROOT}/target"
 AGH_FILE="${TARG_DIR}/AdGuardHome"
 YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
@@ -63,7 +64,7 @@ read_yesno() {
 	esac
 	return 1
 }
-# write_conf updates a configuration key with the specified value in the configuration file.
+# write_conf replaces a configuration key with the specified value in the configuration file.
 write_conf() {
 	key="$1"
 	value="$2"
@@ -78,11 +79,25 @@ write_conf() {
 }
 # save_dns_filter_settings creates the directory used to store DNS filter settings.
 save_dns_filter_settings() { mkdir -p "$1"; }
-# restore_dns_filter_settings removes the DNS filter settings directory at the specified path.
+# installer_lan_domain_set stores the specified LAN domain in NVRAM.
+installer_lan_domain_set() { nvram set "lan_domain=$1"; }
+# installer_lan_domain_restore performs no operation for LAN domain restoration.
+installer_lan_domain_restore() { :; }
+# nvram_transaction_finalize_setup_pair finalizes the NVRAM setup transaction successfully.
+nvram_transaction_finalize_setup_pair() { return 0; }
+# nvram_transaction_setup_committed reports whether the setup commit marker exists.
+nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
+# nvram_transaction_setup_files_begin starts the NVRAM setup-files transaction.
+nvram_transaction_setup_files_begin() { return 0; }
+# nvram_transaction_setup_files_restore restores setup files from the NVRAM transaction.
+nvram_transaction_setup_files_restore() { return 0; }
+# restore_dns_filter_settings removes the DNS filter settings directory specified by the first argument.
 restore_dns_filter_settings() { rm -rf "$1"; }
+# check_dns_filter is a no-op placeholder for DNS filter checks.
 check_dns_filter() { :; }
+# check_dns_local is a no-op stub for local DNS checks.
 check_dns_local() { :; }
-# check_ipset records the selected IPSET integration option and persists its enabled state.
+# check_ipset records the selected IPSET integration option and persists whether IPSET integration is enabled.
 check_ipset() {
 	printf '%s\n' "$1" >>"${IPSET_LOG}"
 	case "$1" in

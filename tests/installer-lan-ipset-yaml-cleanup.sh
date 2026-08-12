@@ -396,9 +396,9 @@ EOF_YAML
 		fail "mode migration ignored ${failed_key} persistence failure"
 	fi
 	FAIL_WRITE_KEY=''
-	cmp -s "${TMP_ROOT}/config.before-${failed_key}" "${CONF_FILE}" || fail "${failed_key} failure did not restore installer config"
-	cmp -s "${TMP_ROOT}/working.before-${failed_key}" "${YAML_FILE}" || fail "${failed_key} failure did not restore working YAML"
-	cmp -s "${TMP_ROOT}/original.before-${failed_key}" "${YAML_ORI}" || fail "${failed_key} failure did not restore original YAML"
+	cmp -s "${TMP_ROOT}/config.before-${failed_key}" "${CONF_FILE}" >/dev/null 2>&1 || fail "${failed_key} failure did not restore installer config"
+	cmp -s "${TMP_ROOT}/working.before-${failed_key}" "${YAML_FILE}" >/dev/null 2>&1 || fail "${failed_key} failure did not restore working YAML"
+	cmp -s "${TMP_ROOT}/original.before-${failed_key}" "${YAML_ORI}" >/dev/null 2>&1 || fail "${failed_key} failure did not restore original YAML"
 	[ ! -e "${YAML_FILE}.mode-migration.rollback.$$" ] || fail "${failed_key} failure left a working YAML rollback file"
 	[ ! -e "${YAML_ORI}.mode-migration.rollback.$$" ] || fail "${failed_key} failure left an original YAML rollback file"
 	[ ! -e "${CONF_FILE}.mode-migration.rollback.$$" ] || fail "${failed_key} failure left a config rollback file"
@@ -419,8 +419,8 @@ cp -f "${YAML_ORI}" "${TMP_ROOT}/original-yaml.before-sync" || fail 'could not p
 if setup_sync_mode_dependent_yaml_and_snapshot; then
 	fail 'mode-dependent synchronization accepted a malformed original YAML snapshot'
 fi
-cmp -s "${TMP_ROOT}/working-yaml.before-sync" "${YAML_FILE}" || fail 'failed snapshot synchronization changed the working YAML'
-cmp -s "${TMP_ROOT}/original-yaml.before-sync" "${YAML_ORI}" || fail 'failed snapshot synchronization changed the original YAML snapshot'
+cmp -s "${TMP_ROOT}/working-yaml.before-sync" "${YAML_FILE}" >/dev/null 2>&1 || fail 'failed snapshot synchronization changed the working YAML'
+cmp -s "${TMP_ROOT}/original-yaml.before-sync" "${YAML_ORI}" >/dev/null 2>&1 || fail 'failed snapshot synchronization changed the original YAML snapshot'
 [ ! -e "${YAML_FILE}.mode-sync.$$" ] || fail 'failed snapshot synchronization left a working YAML stage'
 [ ! -e "${YAML_ORI}.mode-sync.$$" ] || fail 'failed snapshot synchronization left an original YAML stage'
 [ ! -e "${YAML_FILE}.mode-sync.rollback.$$" ] || fail 'failed snapshot synchronization left a working YAML rollback file'
@@ -526,7 +526,7 @@ grep -q '^    "address": 0.0.0.0:3443$' "${YAML_ORI}" || fail 'WAN YAML sync lef
 grep -Fq -- "- '[/router.asus.com/][::]:553'" "${YAML_ORI}" || fail 'WAN YAML sync left the original reverse upstream snapshot in LAN mode'
 grep -q 'name: original-user' "${YAML_ORI}" || fail 'WAN YAML sync replaced original snapshot credentials with working settings'
 grep -q 'https://original.example/dns-query' "${YAML_ORI}" || fail 'WAN YAML sync replaced original snapshot upstreams with working settings'
-! cmp -s "${YAML_FILE}" "${YAML_ORI}" || fail 'WAN YAML sync replaced the distinct original snapshot with the working YAML'
+! cmp -s "${YAML_FILE}" "${YAML_ORI}" >/dev/null 2>&1 || fail 'WAN YAML sync replaced the distinct original snapshot with the working YAML'
 
 rm -f "${YAML_FILE}"
 setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could not synchronize restored original YAML without a working YAML'
@@ -568,7 +568,7 @@ for flow_yaml in \
 	printf '%b\n' "${flow_yaml}" >"${YAML_FILE}" || fail 'could not write restored flow-style YAML'
 	cp -f "${YAML_FILE}" "${YAML_FILE}.before" || fail 'could not preserve restored flow-style YAML'
 	! setup_sync_restored_yaml_for_wan || fail 'WAN YAML sync silently accepted an unsupported flow-style mapping or collection'
-	cmp -s "${YAML_FILE}" "${YAML_FILE}.before" || fail 'WAN YAML sync changed YAML after rejecting unsupported flow style'
+	cmp -s "${YAML_FILE}" "${YAML_FILE}.before" >/dev/null 2>&1 || fail 'WAN YAML sync changed YAML after rejecting unsupported flow style'
 done
 rm -f "${YAML_FILE}.before"
 

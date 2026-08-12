@@ -69,6 +69,1154 @@ ai_have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
 
+# Installer-managed NVRAM transactions.  Each key is read once into a private
+# snapshot before any write is attempted.  Snapshot files are deliberately
+# simple because NVRAM values used by this installer do not contain newlines.
+nvram_transaction_begin() {
+	local name key service_action snapshot_dir temp_dir
+	name="$1"
+	shift
+	case "${name}" in
+		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-]*) return 1 ;;
+	esac
+	nvram_transaction_lock_acquire || return 1
+	nvram_transaction_finalize_setup_pair recovery || return 1
+	snapshot_dir="${BASE_DIR}/.AdGuardHome.nvram/${name}"
+	temp_dir="${snapshot_dir}.tmp.$$"
+	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram" ] || return 1
+	if [ -e "${snapshot_dir}" ] || [ -L "${snapshot_dir}" ]; then
+		[ ! -L "${snapshot_dir}" ] || return 1
+		if [ -f "${snapshot_dir}/dirty" ]; then
+			case "${name}" in
+				dnsfilter) service_action="restart_firewall;restart_dnsmasq" ;;
+				dns-preparation | lan-domain) service_action="restart_dnsmasq" ;;
+				*) service_action="-" ;;
+			esac
+			NVRAM_TRANSACTION_DIR="${snapshot_dir}"
+			export NVRAM_TRANSACTION_DIR
+			rollback_result_write "NVRAM transaction" "incomplete prior rollback detected" "restoring snapshot at ${snapshot_dir}"
+			if nvram_transaction_restore "${service_action}" 0; then
+				: # Successful restore, continue with new transaction
+			else
+				return 1
+			fi
+		else
+			rm -rf "${snapshot_dir}" || return 1
+		fi
+	fi
+	rm -rf "${temp_dir}" || return 1
+	mkdir -p "${temp_dir}" || return 1
+	chmod 700 "${BASE_DIR}/.AdGuardHome.nvram" "${temp_dir}" 2>/dev/null || {
+		rm -rf "${temp_dir}"
+		return 1
+	}
+	: >"${temp_dir}/keys" || return 1
+	chmod 600 "${temp_dir}/keys" || return 1
+	if ! /bin/nvram show >"${temp_dir}/inventory" 2>/dev/null; then
+		rm -rf "${temp_dir}"
+		return 1
+	fi
+	chmod 600 "${temp_dir}/inventory" || {
+		rm -rf "${temp_dir}"
+		return 1
+	}
+	for key in "$@"; do
+		case "${key}" in
+			"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]*)
+				rm -rf "${temp_dir}"
+				return 1
+				;;
+		esac
+		if ! /bin/nvram get "${key}" >"${temp_dir}/${key}" 2>/dev/null; then
+			rm -rf "${temp_dir}"
+			return 1
+		fi
+		chmod 600 "${temp_dir}/${key}" || {
+			rm -rf "${temp_dir}"
+			return 1
+		}
+		if /bin/grep -q "^${key}=" "${temp_dir}/inventory"; then
+			: >"${temp_dir}/exists.${key}" || {
+				rm -rf "${temp_dir}"
+				return 1
+			}
+			chmod 600 "${temp_dir}/exists.${key}" || {
+				rm -rf "${temp_dir}"
+				return 1
+			}
+		fi
+		printf '%s\n' "${key}" >>"${temp_dir}/keys" || {
+			rm -rf "${temp_dir}"
+			return 1
+		}
+	done
+	rm -f "${temp_dir}/inventory" || {
+		rm -rf "${temp_dir}"
+		return 1
+	}
+	rm -rf "${snapshot_dir}" || {
+		rm -rf "${temp_dir}"
+		return 1
+	}
+	mv "${temp_dir}" "${snapshot_dir}" || {
+		rm -rf "${temp_dir}"
+		return 1
+	}
+	NVRAM_TRANSACTION_DIR="${snapshot_dir}"
+	NVRAM_TRANSACTION_CHANGED="0"
+	export NVRAM_TRANSACTION_DIR NVRAM_TRANSACTION_CHANGED
+}
+
+nvram_transaction_finalize_setup_pair() {
+	local marker marker_tmp mode snapshot_root
+	mode="${1:-commit}"
+	snapshot_root="${BASE_DIR}/.AdGuardHome.nvram"
+	marker="${snapshot_root}/setup-committed"
+	marker_tmp="${marker}.tmp.$$"
+	if [ "${mode}" != "recovery" ]; then
+		if [ ! -d "${snapshot_root}/lan-domain" ] && [ ! -d "${snapshot_root}/dnsfilter" ] &&
+			[ ! -d "${snapshot_root}/setup-files" ]; then
+			return 0
+		fi
+		mkdir -p "${snapshot_root}" || return 1
+		printf '%s\n' committed >"${marker_tmp}" || return 1
+		chmod 600 "${marker_tmp}" || {
+			rm -f "${marker_tmp}"
+			return 1
+		}
+		mv "${marker_tmp}" "${marker}" || {
+			rm -f "${marker_tmp}"
+			return 1
+		}
+	elif [ ! -f "${marker}" ]; then
+		return 0
+	fi
+	# The shared marker is the commit point.  Once published, neither paired
+	# transaction may be restored even if interruption splits this cleanup.
+	rm -f "${snapshot_root}/lan-domain/dirty" "${snapshot_root}/dnsfilter/dirty" 2>/dev/null || true
+	rm -rf "${snapshot_root}/lan-domain" "${snapshot_root}/dnsfilter" 2>/dev/null || true
+	rm -rf "${snapshot_root}/setup-files" 2>/dev/null || true
+	if [ -e "${snapshot_root}/lan-domain" ] || [ -L "${snapshot_root}/lan-domain" ] ||
+		[ -e "${snapshot_root}/dnsfilter" ] || [ -L "${snapshot_root}/dnsfilter" ] ||
+		[ -e "${snapshot_root}/setup-files" ] || [ -L "${snapshot_root}/setup-files" ]; then
+		[ "${mode}" != "recovery" ] || return 1
+	elif [ ! -f "${snapshot_root}/dns-preparation/dirty" ] &&
+		[ ! -f "${snapshot_root}/dns-preparation/stubby-stopped" ] &&
+		{ ! rm -f "${marker}" 2>/dev/null || [ -e "${marker}" ] || [ -L "${marker}" ]; }; then
+		[ "${mode}" != "recovery" ] || return 1
+	fi
+	return 0
+}
+
+nvram_transaction_setup_committed() {
+	[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]
+}
+
+nvram_transaction_setup_files_begin() {
+	local journal_entry journal_root journal_tmp source
+	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+	journal_tmp="${journal_root}.tmp.$$"
+	# Setup-file publication shares the NVRAM transaction lock so startup
+	# recovery cannot mistake an active journal for an interrupted operation.
+	nvram_transaction_lock_acquire || return 1
+	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram" ] || return 1
+	[ ! -e "${journal_root}" ] && [ ! -L "${journal_root}" ] || return 1
+	rm -rf "${journal_tmp}" || return 1
+	mkdir -p "${journal_tmp}" || return 1
+	chmod 700 "${journal_tmp}" || {
+		rm -rf "${journal_tmp}"
+		return 1
+	}
+	for source in yaml-file yaml-original config; do
+		journal_entry="${journal_tmp}/${source}"
+		case "${source}" in
+			yaml-file)
+				if [ "${YAML_BACKED_UP:-0}" -eq 1 ] && [ -f "${YAML_BAK}" ]; then
+					cp -p "${YAML_BAK}" "${journal_entry}" || {
+						rm -rf "${journal_tmp}"
+						return 1
+					}
+				elif [ -f "${YAML_FILE}" ]; then
+					cp -p "${YAML_FILE}" "${journal_entry}" || {
+						rm -rf "${journal_tmp}"
+						return 1
+					}
+				else
+					journal_entry="${journal_entry}.absent"
+					: >"${journal_entry}" || {
+						rm -rf "${journal_tmp}"
+						return 1
+					}
+				fi
+				;;
+			yaml-original)
+				if [ -f "${YAML_ORI}" ]; then
+					cp -p "${YAML_ORI}" "${journal_entry}" || {
+						rm -rf "${journal_tmp}"
+						return 1
+					}
+				else
+					journal_entry="${journal_entry}.absent"
+					: >"${journal_entry}" || {
+						rm -rf "${journal_tmp}"
+						return 1
+					}
+				fi
+				;;
+			config)
+				if [ -f "${CONF_FILE}" ]; then
+					cp -p "${CONF_FILE}" "${journal_entry}" || {
+						rm -rf "${journal_tmp}"
+						return 1
+					}
+				else
+					journal_entry="${journal_entry}.absent"
+					: >"${journal_entry}" || {
+						rm -rf "${journal_tmp}"
+						return 1
+					}
+				fi
+				;;
+		esac
+		chmod 600 "${journal_entry}" || {
+			rm -rf "${journal_tmp}"
+			return 1
+		}
+	done
+	mv "${journal_tmp}" "${journal_root}" || {
+		rm -rf "${journal_tmp}"
+		return 1
+	}
+}
+
+nvram_transaction_setup_files_restore() {
+	local journal_done journal_root source stage target
+	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+	[ ! -L "${journal_root}" ] || return 1
+	[ -d "${journal_root}" ] || return 0
+	for source in yaml-file yaml-original config; do
+		case "${source}" in
+			yaml-file) target="${YAML_FILE}" ;;
+			yaml-original) target="${YAML_ORI}" ;;
+			config) target="${CONF_FILE}" ;;
+		esac
+		stage="${target}.setup-restore.$$"
+		if [ -f "${journal_root}/${source}" ]; then
+			if cp -p "${journal_root}/${source}" "${stage}" && mv -f "${stage}" "${target}"; then
+				:
+			else
+				rm -f "${stage}"
+				return 1
+			fi
+		elif [ -f "${journal_root}/${source}.absent" ]; then
+			rm -f "${target}" || return 1
+		else
+			return 1
+		fi
+	done
+	journal_done="${journal_root}.restored.$$"
+	[ ! -e "${journal_done}" ] && [ ! -L "${journal_done}" ] || return 1
+	# Atomically remove the completed journal from the pending path before
+	# best-effort cleanup so interrupted deletion cannot trigger a partial retry.
+	mv "${journal_root}" "${journal_done}" || return 1
+	rm -rf "${journal_done}" 2>/dev/null || true
+}
+
+nvram_transaction_recover_pending() {
+	local failed paired_committed safe_failure service_action snapshot_dir snapshot_root stubby_recovery transaction
+	NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE="0"
+	export NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE
+	snapshot_root="${BASE_DIR}/.AdGuardHome.nvram"
+	[ ! -L "${snapshot_root}" ] || return 1
+	if [ ! -f "${snapshot_root}/setup-committed" ] &&
+		[ ! -d "${snapshot_root}/setup-files" ] &&
+		[ ! -f "${snapshot_root}/lan-domain/dirty" ] &&
+		[ ! -f "${snapshot_root}/dnsfilter/dirty" ] &&
+		[ ! -f "${snapshot_root}/dns-preparation/dirty" ] &&
+		[ ! -f "${snapshot_root}/dns-preparation/stubby-stopped" ] &&
+		[ ! -f "${snapshot_root}/jffs-enable/dirty" ]; then
+		return 0
+	fi
+	nvram_transaction_lock_acquire || return 1
+	failed="0"
+	safe_failure="0"
+	paired_committed="0"
+	[ ! -f "${snapshot_root}/setup-committed" ] || paired_committed="1"
+	if ! nvram_transaction_finalize_setup_pair recovery; then
+		failed="1"
+		[ "${paired_committed}" = "0" ] || safe_failure="1"
+	fi
+	if [ "${paired_committed}" = "0" ] && ! nvram_transaction_setup_files_restore; then
+		failed="1"
+		safe_failure="0"
+	fi
+	for transaction in lan-domain dnsfilter dns-preparation jffs-enable; do
+		case "${paired_committed}:${transaction}" in
+			1:lan-domain | 1:dnsfilter) continue ;;
+		esac
+		snapshot_dir="${snapshot_root}/${transaction}"
+		[ ! -L "${snapshot_dir}" ] || {
+			failed="1"
+			safe_failure="0"
+			continue
+		}
+		if [ "${paired_committed}:${transaction}" = "1:dns-preparation" ]; then
+			# Committed DNS preparation intentionally leaves stubby stopped.
+			rm -f "${snapshot_dir}/dirty" "${snapshot_dir}/stubby-stopped" || {
+				failed="1"
+				safe_failure="0"
+				continue
+			}
+			rm -rf "${snapshot_dir}" 2>/dev/null || true
+			if [ "${failed}" = "0" ] && ! rm -f "${snapshot_root}/setup-committed"; then
+				failed="1"
+				safe_failure="1"
+			fi
+			continue
+		fi
+		[ -f "${snapshot_dir}/dirty" ] ||
+			{ [ "${transaction}" = "dns-preparation" ] && [ -f "${snapshot_dir}/stubby-stopped" ]; } || continue
+		case "${transaction}" in
+			dnsfilter) service_action="restart_firewall;restart_dnsmasq" ;;
+			jffs-enable) service_action="-" ;;
+			*) service_action="restart_dnsmasq" ;;
+		esac
+		NVRAM_TRANSACTION_DIR="${snapshot_dir}"
+		export NVRAM_TRANSACTION_DIR
+		stubby_recovery="0"
+		[ "${transaction}" != "dns-preparation" ] || [ ! -f "${snapshot_dir}/stubby-stopped" ] || stubby_recovery="1"
+		if ! nvram_transaction_restore "${service_action}" "${stubby_recovery}"; then
+			failed="1"
+			safe_failure="0"
+		elif [ "${stubby_recovery}" = "1" ] && ! service restart_stubby >/dev/null 2>&1; then
+			failed="1"
+			safe_failure="0"
+			: >"${snapshot_dir}/dirty" || continue
+		elif [ "${stubby_recovery}" = "1" ]; then
+			rm -f "${snapshot_dir}/dirty" || {
+				failed="1"
+				safe_failure="0"
+				continue
+			}
+			rm -rf "${snapshot_dir}" 2>/dev/null || true
+		fi
+	done
+	if ! nvram_transaction_lock_release; then
+		failed="1"
+		safe_failure="0"
+	fi
+	if [ "${failed}" != "0" ] && [ "${safe_failure}" = "1" ]; then
+		NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE="1"
+		export NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE
+	fi
+	[ "${failed}" = "0" ]
+}
+
+nvram_transaction_recover_startup() {
+	# A validated update re-exec still owns the live transaction lock and its
+	# DNS preparation snapshot.  Leave both intact for the resumed update.
+	if [ "${AI_REEXECED_INSTALLER:-0}" = "1" ] && nvram_transaction_lock_owned; then
+		return 0
+	fi
+	nvram_transaction_recover_pending
+}
+
+nvram_transaction_read_only_diagnostic_requested() {
+	case "${1:-}" in
+		status) return 0 ;;
+		doctor) [ -z "${2:-}" ] && return 0 ;;
+	esac
+	case "${2:-}" in
+		status) return 0 ;;
+		doctor) [ -z "${3:-}" ] && return 0 ;;
+	esac
+	return 1
+}
+
+nvram_transaction_lock_cross_reaper_release() {
+	nvram_transaction_lock_reaper_release "$1.reaper" "$2"
+}
+
+nvram_transaction_lock_acquire() {
+	local lock_dir lock_owner lock_path owner status
+	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
+	case "${NVRAM_TRANSACTION_LOCK_MODE:-}" in
+		flock) nvram_transaction_lock_flock_owned "${lock_path}" && return 0 ;;
+		symlink)
+			owner="$(nvram_transaction_lock_owner_current)" || return 1
+			[ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "${owner}" ] && return 0
+			;;
+		mkdir)
+			owner="$(nvram_transaction_lock_owner_current)" || return 1
+			[ "$(cat "${lock_path}.d/pid" 2>/dev/null)" = "${owner}" ] && return 0
+			;;
+	esac
+	NVRAM_TRANSACTION_LOCK_MODE=""
+	if nvram_transaction_lock_flock_supports_fd && nvram_transaction_lock_readlink /proc/$$/fd/0 >/dev/null 2>&1; then
+		[ ! -L "${lock_path}" ] || return 1
+		owner="$(nvram_transaction_lock_owner_current)" || return 1
+		nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" "${owner}" || return 1
+		lock_dir="${lock_path}.d"
+		if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
+			[ -d "${lock_dir}" ] && [ ! -L "${lock_dir}" ] || {
+				nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
+				return 1
+			}
+			lock_owner="$(cat "${lock_dir}/pid" 2>/dev/null)"
+			if nvram_transaction_lock_owner_live "${lock_owner}"; then
+				nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
+				return 1
+			fi
+			rm -rf "${lock_dir}" || {
+				nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
+				return 1
+			}
+		fi
+		# Publish the same ownership artifact used by fallback locking so every
+		# capability mode contends on one mutually exclusive gate. Reclaim a
+		# descriptor owner's stale publication after its kernel lock disappeared.
+		if [ -L "${lock_path}.symlink" ]; then
+			lock_owner="$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)"
+			if [ -n "${lock_owner}" ] && nvram_transaction_lock_owner_live "${lock_owner}"; then
+				nvram_transaction_lock_cross_reaper_release "${lock_path}" "${owner}"
+				return 1
+			fi
+			[ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "${lock_owner}" ] || {
+				nvram_transaction_lock_cross_reaper_release "${lock_path}" "${owner}"
+				return 1
+			}
+			rm -f "${lock_path}.symlink" || {
+				nvram_transaction_lock_cross_reaper_release "${lock_path}" "${owner}"
+				return 1
+			}
+		fi
+		ln -s "${owner}" "${lock_path}.symlink" 2>/dev/null || {
+			nvram_transaction_lock_cross_reaper_release "${lock_path}" "${owner}"
+			return 1
+		}
+		: >>"${lock_path}" 2>/dev/null || {
+			rm -f "${lock_path}.symlink"
+			nvram_transaction_lock_cross_reaper_release "${lock_path}" "${owner}"
+			return 1
+		}
+		if ! (exec 8<>"${lock_path}") 2>/dev/null; then
+			rm -f "${lock_path}.symlink"
+			nvram_transaction_lock_cross_reaper_release "${lock_path}" "${owner}"
+			return 1
+		fi
+		exec 8<>"${lock_path}" || {
+			rm -f "${lock_path}.symlink"
+			nvram_transaction_lock_cross_reaper_release "${lock_path}" "${owner}"
+			return 1
+		}
+		if /usr/bin/flock -n 8 >/dev/null 2>&1; then
+			nvram_transaction_lock_cross_reaper_release "${lock_path}" "${owner}" || {
+				/usr/bin/flock -u 8 >/dev/null 2>&1
+				exec 8>&-
+				rm -f "${lock_path}.symlink"
+				return 1
+			}
+			NVRAM_TRANSACTION_LOCK_MODE="flock"
+			return 0
+		fi
+		exec 8>&-
+		rm -f "${lock_path}.symlink"
+		nvram_transaction_lock_cross_reaper_release "${lock_path}" "${owner}"
+		return 1
+	fi
+	nvram_transaction_lock_symlink_acquire
+	status="$?"
+	case "${status}" in
+		0)
+			NVRAM_TRANSACTION_LOCK_MODE="symlink"
+			return 0
+			;;
+		1) return 1 ;;
+		2) ;;
+		*) return 1 ;;
+	esac
+	owner="$(nvram_transaction_lock_owner_current)" || return 1
+	lock_dir="${lock_path}.d"
+	nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" "${owner}" || return 1
+	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
+		[ -d "${lock_dir}" ] && [ ! -L "${lock_dir}" ] || {
+			nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
+			return 1
+		}
+		lock_owner="$(cat "${lock_dir}/pid" 2>/dev/null)"
+		if nvram_transaction_lock_owner_live "${lock_owner}"; then
+			nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
+			return 1
+		fi
+		rm -rf "${lock_dir}" || {
+			nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
+			return 1
+		}
+	fi
+	mkdir "${lock_dir}" 2>/dev/null || {
+		nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
+		return 1
+	}
+	printf '%s\n' "${owner}" >"${lock_dir}/pid" || {
+		rm -rf "${lock_dir}"
+		nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
+		return 1
+	}
+	chmod 700 "${lock_dir}" 2>/dev/null || {
+		rm -rf "${lock_dir}"
+		nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
+		return 1
+	}
+	[ "$(cat "${lock_dir}/pid" 2>/dev/null)" = "${owner}" ] || {
+		rm -rf "${lock_dir}"
+		nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
+		return 1
+	}
+	nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}" || {
+		# Do not continue while the reaper remains active. Roll back only a
+		# transaction lock whose ownership can still be verified as ours.
+		if [ "$(cat "${lock_dir}/pid" 2>/dev/null)" = "${owner}" ]; then
+			if ! rm -rf "${lock_dir}" 2>/dev/null || [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
+				printf '%s\n' "Error: unable to roll back owned NVRAM transaction lock ${lock_dir}; stopping recovery." >&2
+				exit 1
+			fi
+		fi
+		return 1
+	}
+	NVRAM_TRANSACTION_LOCK_MODE="mkdir"
+}
+
+nvram_transaction_lock_owned() {
+	local lock_path owner
+	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
+	case "${NVRAM_TRANSACTION_LOCK_MODE:-}" in
+		flock) nvram_transaction_lock_flock_owned "${lock_path}" ;;
+		symlink)
+			owner="$(nvram_transaction_lock_owner_current)" || return 1
+			[ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "${owner}" ]
+			;;
+		mkdir)
+			owner="$(nvram_transaction_lock_owner_current)" || return 1
+			[ "$(cat "${lock_path}.d/pid" 2>/dev/null)" = "${owner}" ]
+			;;
+		*) return 1 ;;
+	esac
+}
+
+nvram_transaction_lock_owner_current() {
+	local owner_pid owner_start
+	owner_pid="${1:-$$}"
+	case "${owner_pid}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	owner_start="$(sed 's/^.*) //' "/proc/${owner_pid}/stat" 2>/dev/null | awk '{print $20}')"
+	case "${owner_start}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	printf '%s:%s\n' "${owner_pid}" "${owner_start}"
+}
+
+nvram_transaction_lock_owner_live() {
+	local current owner owner_pid owner_start
+	owner="$1"
+	case "${owner}" in
+		*:*) ;;
+		*) return 1 ;;
+	esac
+	owner_pid="${owner%%:*}"
+	owner_start="${owner#*:}"
+	case "${owner_pid}:${owner_start}" in
+		*[!0123456789:]*) return 1 ;;
+	esac
+	current="$(nvram_transaction_lock_owner_current "${owner_pid}")" || return 1
+	[ "${current}" = "${owner}" ]
+}
+
+nvram_transaction_lock_flock_owned() {
+	local descriptor_path lock_path owner resolved_lock_path
+	lock_path="$1"
+	[ -e "/proc/$$/fd/8" ] || return 1
+	descriptor_path="$(nvram_transaction_lock_readlink -f "/proc/$$/fd/8" 2>/dev/null)" || return 1
+	resolved_lock_path="$(nvram_transaction_lock_readlink -f "${lock_path}" 2>/dev/null)" || return 1
+	[ "${descriptor_path}" = "${resolved_lock_path}" ] || return 1
+	owner="$(nvram_transaction_lock_owner_current)" || return 1
+	[ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "${owner}" ]
+}
+
+nvram_transaction_lock_reaper_flock_acquire() {
+	/usr/bin/flock -n 9 >/dev/null 2>&1
+}
+
+nvram_transaction_lock_reaper_legacy_release() {
+	local owner reaper_path
+	reaper_path="$1"
+	owner="$2"
+	if [ ! -e "${reaper_path}" ] && [ ! -L "${reaper_path}" ]; then
+		# A returning signal trap may have completed this release and cleared
+		# the tracked state while the interrupted release was still running.
+		if [ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] &&
+			[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ]; then
+			return 0
+		fi
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" = "${reaper_path}" ] || return 1
+		if [ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "legacy" ]; then
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+			NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+		fi
+		return 0
+	fi
+	if [ -f "${reaper_path}/pid" ]; then
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || return 1
+		rm -rf "${reaper_path}" || return 1
+	else
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "legacy" ] || return 1
+		rmdir "${reaper_path}" 2>/dev/null || return 1
+	fi
+	if [ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "legacy" ] &&
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" = "${reaper_path}" ]; then
+		NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+		NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+	fi
+}
+
+nvram_transaction_lock_reaper_legacy_claim() {
+	local claim_name claim_path owner reaper_path
+	reaper_path="$1"
+	owner="$2"
+	claim_path="${reaper_path}.claim.${owner}"
+	claim_name="${claim_path##*/}"
+	mkdir "${claim_path}" 2>/dev/null || return 1
+	printf '%s\n' "${owner}" >"${claim_path}/pid" || {
+		rm -rf "${claim_path}" 2>/dev/null
+		return 1
+	}
+	if command mv "${claim_path}" "${reaper_path}" 2>/dev/null; then
+		if [ -d "${reaper_path}/${claim_name}" ]; then
+			rm -rf "${reaper_path:?}/${claim_name:?}" 2>/dev/null
+			return 1
+		fi
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] && return 0
+	fi
+	# When the destination already exists, portable mv may place the claim
+	# directory inside it instead of failing. It never owns the mutex there.
+	rm -rf "${claim_path}" "${reaper_path:?}/${claim_name:?}" 2>/dev/null
+	return 1
+}
+
+nvram_transaction_lock_reaper_acquire() {
+	local claimed owner reaper_owner reaper_path
+	reaper_path="$1"
+	claimed=0
+	NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+	NVRAM_TRANSACTION_REAPER_LOCK_PATH="${reaper_path}"
+	NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
+	if [ -n "${2:-}" ]; then
+		owner="$2"
+	else
+		owner="$(nvram_transaction_lock_owner_current)" || return 1
+	fi
+	# Publish the directory and its owner together. A prepared sibling is
+	# renamed into place so SIGKILL cannot leave a new ownerless mutex behind.
+	# Arm cleanup before the rename because a returning signal trap may run
+	# after mv publishes the complete directory but before mv returns.
+	NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
+	if nvram_transaction_lock_reaper_legacy_claim "${reaper_path}" "${owner}"; then
+		claimed=1
+	else
+		NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+		if [ ! -e "${reaper_path}" ] && [ ! -L "${reaper_path}" ]; then
+			NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+			return 1
+		fi
+		reaper_owner="$(cat "${reaper_path}/pid" 2>/dev/null)"
+		if [ -z "${reaper_owner}" ]; then
+			# Older installers publish the PID after mkdir. An empty record may
+			# therefore still have a live publisher and cannot be reclaimed safely.
+			NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+			return 1
+		fi
+		if [ "${reaper_owner}" != "${owner}" ]; then
+			nvram_transaction_lock_owner_live "${reaper_owner}" && return 1
+			[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${reaper_owner}" ] || return 1
+			rm -rf "${reaper_path}" || return 1
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
+			nvram_transaction_lock_reaper_legacy_claim "${reaper_path}" "${owner}" || {
+				NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+				NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+				return 1
+			}
+			claimed=1
+		fi
+	fi
+	if [ "${claimed}" -ne 1 ]; then
+		return 1
+	fi
+	if [ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" != "legacy" ] ||
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" != "${reaper_path}" ] ||
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" != "${owner}" ]; then
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" != "${owner}" ] || rm -rf "${reaper_path}" 2>/dev/null
+		return 1
+	fi
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || {
+		if [ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" = "${reaper_path}" ]; then
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+			NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+		fi
+		return 1
+	}
+	if nvram_transaction_lock_flock_supports_fd; then
+		[ ! -L "${reaper_path}.lock" ] || {
+			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+			return 1
+		}
+		: >>"${reaper_path}.lock" 2>/dev/null || {
+			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+			return 1
+		}
+		exec 9<>"${reaper_path}.lock" || {
+			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+			return 1
+		}
+		# Arm descriptor cleanup before flock can complete. BusyBox ash may run a
+		# pending signal trap before executing the next shell assignment.
+		NVRAM_TRANSACTION_REAPER_LOCK_MODE="flock"
+		if nvram_transaction_lock_reaper_flock_acquire; then
+			# A returning signal trap may have released the reaper after flock
+			# succeeded. Revalidate every published ownership record before the
+			# caller is allowed to enter the transaction critical section.
+			if [ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "flock" ] &&
+				[ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" = "${reaper_path}" ] &&
+				[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ]; then
+				return 0
+			fi
+			return 1
+		fi
+		NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
+		exec 9>&-
+		nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+		return 1
+	fi
+	if nvram_transaction_lock_readlink; then
+		# Arm signal cleanup before publishing the capability marker. A signal
+		# may be delivered after ln completes but before the next shell command.
+		NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
+		if [ ! -e "${reaper_path}.symlink" ] && [ ! -L "${reaper_path}.symlink" ] &&
+			ln -s "${owner}" "${reaper_path}.symlink" 2>/dev/null; then
+			# A returning signal trap may have released the reaper after ln
+			# succeeded. Revalidate all active and published ownership state.
+			if [ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "symlink" ] &&
+				[ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" = "${reaper_path}" ] &&
+				[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${owner}" ] &&
+				[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ]; then
+				return 0
+			fi
+			return 1
+		fi
+		if [ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "symlink" ] &&
+			[ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" = "${reaper_path}" ]; then
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
+		fi
+		reaper_owner="$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)"
+		if [ -n "${reaper_owner}" ] && ! nvram_transaction_lock_owner_live "${reaper_owner}" &&
+			[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${reaper_owner}" ]; then
+			# Atomically reclaim stale symlink: create temp symlink, rename, verify ownership
+			# Arm cleanup before either artifact can identify this process. This also
+			# covers a signal delivered after mv publishes the replacement.
+			NVRAM_TRANSACTION_REAPER_TEMP_PATH="${reaper_path}.symlink.${owner}"
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
+			ln -s "${owner}" "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" 2>/dev/null || {
+				NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
+				NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
+				nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+				return 1
+			}
+			# BusyBox 1.25.1 rejects mv -T. The legacy directory is held for this
+			# entire reclaim, so after revalidating the stale owner it is safe to
+			# unlink the marker and rename the temporary symlink into the absent path.
+			if mv -T "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" "${reaper_path}.symlink" 2>/dev/null ||
+				{ [ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${reaper_owner}" ] &&
+					rm -f "${reaper_path}.symlink" &&
+					mv "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" "${reaper_path}.symlink" 2>/dev/null; }; then
+				# Verify we won the race by checking the symlink target
+				if [ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${owner}" ]; then
+					NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
+					NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
+					return 0
+				fi
+				# Another contender won; clean up and fail
+				rm -f "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" 2>/dev/null
+				NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
+				NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
+				nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+				return 1
+			fi
+			rm -f "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" 2>/dev/null
+			NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
+		fi
+		# A present symlink is an active or unsuccessfully reclaimed lock. If no
+		# artifact was published, symlink creation is unavailable on this
+		# filesystem, so continue with the portable mkdir/PID implementation.
+		[ ! -e "${reaper_path}.symlink" ] && [ ! -L "${reaper_path}.symlink" ] || {
+			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+			return 1
+		}
+	fi
+	# A returning signal trap may have released the legacy mutex after a failed
+	# symlink publication. Revalidate it before selecting the mkdir fallback.
+	if [ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "legacy" ] &&
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" = "${reaper_path}" ] &&
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ]; then
+		NVRAM_TRANSACTION_REAPER_LOCK_MODE="mkdir"
+		return 0
+	fi
+	return 1
+}
+
+nvram_transaction_lock_reaper_release() {
+	local owner reaper_path
+	reaper_path="$1"
+	case "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" in
+		legacy)
+			if [ -n "${2:-}" ]; then
+				owner="$2"
+			else
+				owner="$(nvram_transaction_lock_owner_current)" || return 1
+			fi
+			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}" || return 1
+			return 0
+			;;
+		flock)
+			if [ -n "${2:-}" ]; then
+				owner="$2"
+			else
+				owner="$(nvram_transaction_lock_owner_current)" || return 1
+			fi
+			# Keep the descriptor lock held until the shared legacy mutex is
+			# removed so a transient removal failure remains retryable.
+			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}" || return 1
+			# A signal trap may have completed the same release while rm was
+			# running. In that case fd 9 and all active state are already clear.
+			[ -n "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || return 0
+			/usr/bin/flock -u 9 >/dev/null 2>&1 || return 1
+			# The shared mutex is already gone and the descriptor is unlocked.
+			# Make a signal-triggered nested release idempotent before closing fd 9.
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
+			exec 9>&-
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+			NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+			NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
+			return 0
+			;;
+		symlink)
+			if [ -n "${2:-}" ]; then
+				owner="$2"
+			else
+				owner="$(nvram_transaction_lock_owner_current)" || return 1
+			fi
+			if [ -n "${NVRAM_TRANSACTION_REAPER_TEMP_PATH:-}" ] &&
+				[ "$(nvram_transaction_lock_readlink "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" 2>/dev/null)" = "${owner}" ]; then
+				rm -f "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" || return 1
+			fi
+			if [ -e "${reaper_path}.symlink" ] || [ -L "${reaper_path}.symlink" ]; then
+				[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${owner}" ] || {
+					[ -n "${NVRAM_TRANSACTION_REAPER_TEMP_PATH:-}" ] || return 1
+					nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}" || return 1
+					NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+					NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+					NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
+					return 0
+				}
+				rm -f "${reaper_path}.symlink" || return 1
+			fi
+			# Arm the idempotent post-publication phase before removing the shared
+			# mutex so a nested signal cleanup can finish this release safely.
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
+			;;
+		mkdir)
+			if [ -n "${2:-}" ]; then
+				owner="$2"
+			else
+				owner="$(nvram_transaction_lock_owner_current)" || return 1
+			fi
+			[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || return 1
+			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
+			;;
+		*) return 1 ;;
+	esac
+	if [ -z "${owner:-}" ]; then
+		owner="$(nvram_transaction_lock_owner_current)" || return 1
+	fi
+	nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}" || return 1
+	NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+	NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+	NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
+}
+
+nvram_transaction_lock_reaper_release_active() {
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] && return 0
+	[ -n "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || return 1
+	nvram_transaction_lock_reaper_release "${NVRAM_TRANSACTION_REAPER_LOCK_PATH}"
+}
+
+nvram_transaction_lock_flock_supports_fd() {
+	local probe status
+	[ -x /usr/bin/flock ] || return 1
+	probe="${BASE_DIR}/.AdGuardHome.nvram.flock-probe.$$"
+	(
+		exec 9>"${probe}" || exit 1
+		/usr/bin/flock -n 9 >/dev/null 2>&1
+	)
+	status="$?"
+	rm -f "${probe}"
+	return "${status}"
+}
+
+nvram_transaction_lock_readlink() {
+	which readlink >/dev/null 2>&1 || return 127
+	[ "$#" -gt 0 ] || return 0
+	readlink "$@"
+}
+
+nvram_transaction_lock_symlink_acquire() {
+	local lock_dir lock_owner lock_path owner
+	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+	lock_dir="${BASE_DIR}/.AdGuardHome.nvram.lock.d"
+	owner="$(nvram_transaction_lock_owner_current)" || return 1
+	if ! nvram_transaction_lock_readlink; then
+		if [ -L "${lock_path}" ]; then
+			printf '%s\n' "Error: cannot inspect NVRAM transaction lock ${lock_path}; readlink is unavailable." >&2
+			return 1
+		fi
+		return 2
+	fi
+	nvram_transaction_lock_reaper_acquire "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
+		[ -d "${lock_dir}" ] && [ ! -L "${lock_dir}" ] || {
+			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+			return 1
+		}
+		lock_owner="$(cat "${lock_dir}/pid" 2>/dev/null)"
+		if nvram_transaction_lock_owner_live "${lock_owner}"; then
+			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+			return 1
+		fi
+		[ "$(cat "${lock_dir}/pid" 2>/dev/null)" = "${lock_owner}" ] || {
+			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+			return 1
+		}
+		rm -rf "${lock_dir}" || {
+			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+			return 1
+		}
+	fi
+	if [ -L "${lock_path}" ]; then
+		lock_owner="$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)"
+		if nvram_transaction_lock_owner_live "${lock_owner}"; then
+			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+			return 1
+		fi
+		[ "$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)" = "${lock_owner}" ] || {
+			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+			return 1
+		}
+		rm -f "${lock_path}" || {
+			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+			return 1
+		}
+	elif [ -e "${lock_path}" ]; then
+		nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+		return 1
+	fi
+	if ln -s "${owner}" "${lock_path}" 2>/dev/null; then
+		if [ "$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)" != "${owner}" ]; then
+			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+			return 1
+		fi
+		nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || {
+			if ! rm -f "${lock_path}" 2>/dev/null || [ -e "${lock_path}" ] || [ -L "${lock_path}" ]; then
+				printf '%s\n' "Error: unable to roll back owned NVRAM transaction lock ${lock_path}; stopping recovery." >&2
+				exit 1
+			fi
+			return 1
+		}
+		return 0
+	fi
+	nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+	[ ! -e "${lock_path}" ] && [ ! -L "${lock_path}" ] || return 1
+	return 2
+}
+
+nvram_transaction_lock_release() {
+	local lock_path owner
+	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
+	case "${NVRAM_TRANSACTION_LOCK_MODE:-}" in
+		flock)
+			nvram_transaction_lock_flock_owned "${lock_path}" || return 1
+			owner="$(nvram_transaction_lock_owner_current)" || return 1
+			[ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "${owner}" ] || return 1
+			nvram_transaction_lock_reaper_acquire "${lock_path}.symlink.reaper" "${owner}" || return 1
+			/usr/bin/flock -u 8 >/dev/null 2>&1 || return 1
+			exec 8>&-
+			rm -f "${lock_path}.symlink" || return 1
+			nvram_transaction_lock_reaper_release "${lock_path}.symlink.reaper" "${owner}" || return 1
+			;;
+		symlink)
+			owner="$(nvram_transaction_lock_owner_current)" || return 1
+			[ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "${owner}" ] || return 1
+			rm -f "${lock_path}.symlink" || return 1
+			;;
+		mkdir)
+			owner="$(nvram_transaction_lock_owner_current)" || return 1
+			[ "$(cat "${lock_path}.d/pid" 2>/dev/null)" = "${owner}" ] || return 1
+			rm -rf "${lock_path}.d" || return 1
+			;;
+		"") return 0 ;;
+		*) return 1 ;;
+	esac
+	NVRAM_TRANSACTION_LOCK_MODE=""
+}
+
+nvram_transaction_set() {
+	local key old value_file
+	key="$1"
+	value_file="${NVRAM_TRANSACTION_DIR:-}/new.${key}"
+	[ -f "${NVRAM_TRANSACTION_DIR:-}/${key}" ] || return 1
+	old="$(cat "${NVRAM_TRANSACTION_DIR}/${key}")" || return 1
+	[ "${old}" = "$2" ] && return 0
+	printf '%s' "$2" >"${value_file}" || return 1
+	chmod 600 "${value_file}" || return 1
+	NVRAM_TRANSACTION_CHANGED="1"
+	export NVRAM_TRANSACTION_CHANGED
+}
+
+nvram_transaction_restore() {
+	local failed keep_snapshot key old service_action snapshot_dir
+	snapshot_dir="${NVRAM_TRANSACTION_DIR:-}"
+	service_action="$1"
+	keep_snapshot="${2:-0}"
+	failed="0"
+	[ -f "${snapshot_dir}/keys" ] || return 1
+	if [ ! -f "${snapshot_dir}/dirty" ]; then
+		if [ "${keep_snapshot}" != "1" ]; then
+			rm -rf "${snapshot_dir}"
+			[ ! -e "${snapshot_dir}" ] && [ ! -L "${snapshot_dir}" ] || return 1
+		fi
+		return 0
+	fi
+	while IFS= read -r key; do
+		old="$(cat "${snapshot_dir}/${key}")" || {
+			failed="1"
+			continue
+		}
+		if [ -f "${snapshot_dir}/exists.${key}" ]; then
+			/bin/nvram set "${key}=${old}" || failed="1"
+		else
+			/bin/nvram unset "${key}" || failed="1"
+		fi
+	done <"${snapshot_dir}/keys"
+	/bin/nvram commit || failed="1"
+	if [ "${service_action}" != "-" ]; then
+		service "${service_action}" >/dev/null 2>&1 || failed="1"
+	fi
+	if [ "${failed}" = "0" ]; then
+		if [ "${keep_snapshot}" != "1" ]; then
+			# Clearing dirty commits the restore before best-effort snapshot cleanup.
+			rm -f "${snapshot_dir}/dirty" || return 1
+			rm -rf "${snapshot_dir}" 2>/dev/null || true
+		fi
+		NVRAM_TRANSACTION_CHANGED="0"
+		export NVRAM_TRANSACTION_CHANGED
+		return 0
+	fi
+	rollback_result_write "NVRAM transaction" "rollback partial" "snapshot preserved at ${snapshot_dir}"
+	return 1
+}
+
+nvram_transaction_apply() {
+	local keep_snapshot key new service_action snapshot_dir
+	service_action="$1"
+	keep_snapshot="${2:-0}"
+	snapshot_dir="${NVRAM_TRANSACTION_DIR:-}"
+	[ -f "${snapshot_dir}/keys" ] || return 1
+	if [ "${NVRAM_TRANSACTION_CHANGED:-0}" = "0" ]; then
+		if [ "${keep_snapshot}" != "1" ]; then
+			rm -rf "${snapshot_dir}"
+			[ ! -e "${snapshot_dir}" ] && [ ! -L "${snapshot_dir}" ] || return 1
+		fi
+		NVRAM_TRANSACTION_CHANGED="0"
+		export NVRAM_TRANSACTION_CHANGED
+		return 0
+	fi
+	if ! : >"${snapshot_dir}/dirty"; then
+		rm -rf "${snapshot_dir}"
+		return 1
+	fi
+	if ! chmod 600 "${snapshot_dir}/dirty"; then
+		rm -rf "${snapshot_dir}"
+		return 1
+	fi
+	while IFS= read -r key; do
+		[ -f "${snapshot_dir}/new.${key}" ] || continue
+		new="$(cat "${snapshot_dir}/new.${key}")" || {
+			nvram_transaction_restore "${service_action}" || true
+			return 1
+		}
+		if ! /bin/nvram set "${key}=${new}"; then
+			nvram_transaction_restore "${service_action}" || true
+			return 1
+		fi
+	done <"${snapshot_dir}/keys"
+	if ! /bin/nvram commit; then
+		nvram_transaction_restore "${service_action}" || true
+		return 1
+	fi
+	if [ "${service_action}" != "-" ] && ! service "${service_action}" >/dev/null 2>&1; then
+		nvram_transaction_restore "${service_action}" || true
+		return 1
+	fi
+	if [ "${keep_snapshot}" = "1" ]; then
+		while IFS= read -r key; do
+			if ! rm -f "${snapshot_dir}/new.${key}"; then
+				nvram_transaction_restore "${service_action}" 1 || true
+				NVRAM_TRANSACTION_CHANGED="1"
+				export NVRAM_TRANSACTION_CHANGED
+				return 1
+			fi
+		done <"${snapshot_dir}/keys"
+	else
+		# Clearing dirty commits the apply before best-effort snapshot cleanup.
+		# An interrupted recursive removal must not make a partial snapshot
+		# eligible for startup rollback.
+		rm -f "${snapshot_dir}/dirty" || return 1
+		rm -rf "${snapshot_dir}" 2>/dev/null || true
+	fi
+	NVRAM_TRANSACTION_CHANGED="0"
+	export NVRAM_TRANSACTION_CHANGED
+	return 0
+}
+
+installer_lan_domain_set() {
+	local keep_snapshot
+	keep_snapshot="${2:-0}"
+	if ! nvram_transaction_begin lan-domain lan_domain; then
+		return 1
+	fi
+	if ! nvram_transaction_set lan_domain "$1"; then
+		rm -rf "${NVRAM_TRANSACTION_DIR}"
+		return 1
+	fi
+	nvram_transaction_apply restart_dnsmasq "${keep_snapshot}"
+}
+
+installer_lan_domain_restore() {
+	! nvram_transaction_setup_committed || return 0
+	NVRAM_TRANSACTION_DIR="${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
+	export NVRAM_TRANSACTION_DIR
+	[ -d "${NVRAM_TRANSACTION_DIR}" ] || return 0
+	nvram_transaction_restore restart_dnsmasq
+}
+
 rollback_result_write() {
 	local context result detail marker_dir tmp_file
 	context="$1"
@@ -291,7 +1439,18 @@ installer_cleanup_tmp_file() {
 }
 
 on_installer_exit() {
-	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
+	local setup_journal_restore_status
+	setup_journal_restore_status=0
+	if nvram_transaction_lock_owned; then
+		# Restore setup's pre-migration files before mode rollback restores the
+		# matching hooks and configuration. Reversing this order can republish
+		# post-migration YAML over an otherwise complete migration rollback.
+		if ! setup_restore_nvram_journal; then
+			setup_journal_restore_status=1
+			PTXT "${ERROR} Unable to restore the journaled installer configuration files."
+		fi
+	fi
+	if [ "${setup_journal_restore_status}" -eq 0 ] && [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
 		if rollback_pending_mode_migration; then
 			adguard_restart_after_install_abort "${ADGUARD_INSTALL_WAS_RUNNING:-0}"
 		else
@@ -301,10 +1460,41 @@ on_installer_exit() {
 	cleanup_api_files
 	installer_cleanup_tmp_file setup "${SETUP_YAML_TMP_FILE:-}"
 	installer_cleanup_tmp_file blocklist "${BLOCKLIST_YAML_TMP_FILE:-}"
-	# Restore pre-check DNS settings only when exiting without a local adguardhome installation.
-	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && [ ! -f "${AGH_FILE}" ]; then
-		check_dns_environment 1
+	if [ "${_DNS_STUBBY_STOPPED:-0}" = "1" ] && ! restore_stubby_after_dns_failure; then
+		PTXT "${ERROR} Unable to restart stubby after interrupted DNS preparation."
 	fi
+	if nvram_transaction_lock_owned; then
+		# Restore an uncommitted setup journal before recovery can remove the
+		# shared commit marker used to distinguish cleanup from rollback.
+		if [ "${setup_journal_restore_status}" -ne 0 ]; then
+			:
+		elif setup_restore_nvram_journal; then
+			# Finalize setup-pair for both WAN and LAN modes only after the
+			# journal is either restored or known to have been committed.
+			nvram_transaction_finalize_setup_pair recovery || PTXT "${ERROR} Unable to finish the committed installer-managed NVRAM cleanup."
+		else
+			PTXT "${ERROR} Unable to restore the journaled installer configuration files."
+		fi
+		if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ]; then
+			# Restore any LAN-domain transaction interrupted before setup finalized it.
+			installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
+			# Restore any DNSFilter transaction interrupted before setup finalized it.
+			if ! restore_dns_filter_settings; then
+				PTXT "${ERROR} Unable to restore the DNSFilter NVRAM settings; review ${ROLLBACK_RESULT_FILE} and the preserved snapshot before restarting setup."
+			fi
+			# Restore pre-check DNS settings only when exiting without a local adguardhome installation.
+			if [ ! -f "${AGH_FILE}" ]; then
+				(check_dns_environment 1) || PTXT "${ERROR} Unable to restore the pre-check DNS NVRAM settings."
+			fi
+		fi
+		if [ -f "${BASE_DIR}/.AdGuardHome.nvram/jffs-enable/dirty" ]; then
+			NVRAM_TRANSACTION_DIR="${BASE_DIR}/.AdGuardHome.nvram/jffs-enable"
+			export NVRAM_TRANSACTION_DIR
+			nvram_transaction_restore - || PTXT "${ERROR} Unable to restore the interrupted JFFS NVRAM transaction."
+		fi
+	fi
+	nvram_transaction_lock_release || PTXT "${ERROR} Unable to release the installer NVRAM transaction lock."
+	return "${setup_journal_restore_status}"
 }
 
 python_bcrypt_available() {
@@ -808,6 +1998,17 @@ installer_dependencies_available() {
 	return 0
 }
 
+nvram_transaction_recovery_dependencies_available() {
+	local required_command
+	for required_command in awk cat chmod kill ln mkdir nvram rm sed service; do
+		if ! ai_have_cmd "${required_command}"; then
+			PTXT "${ERROR} Required NVRAM recovery command is unavailable: ${required_command}" >&2
+			return 1
+		fi
+	done
+	return 0
+}
+
 preflight_action_requires_entware() {
 	case "${1:-install}" in
 		status | preflight)
@@ -1052,9 +2253,9 @@ preflight_check_downloader() {
 	fi
 	PTXT "preflight.downloader.required=/usr/sbin/curl or /usr/sbin/wget"
 	PTXT "preflight.downloader.curl.which=${curl_path:-missing}"
-	PTXT "preflight.downloader.curl.stock=$([ -x /usr/sbin/curl ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.downloader.curl.stock=$(if [ -x /usr/sbin/curl ]; then PTXT OK; else PTXT missing; fi)"
 	PTXT "preflight.downloader.wget.which=${wget_path:-missing}"
-	PTXT "preflight.downloader.wget.stock=$([ -x /usr/sbin/wget ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.downloader.wget.stock=$(if [ -x /usr/sbin/wget ]; then PTXT OK; else PTXT missing; fi)"
 	PTXT "preflight.downloader.result=${result}"
 	[ "${result}" = "OK" ]
 }
@@ -1066,9 +2267,9 @@ preflight_check_entware() {
 		result="OK"
 	fi
 	PTXT "preflight.entware.required=yes"
-	PTXT "preflight.entware.opt_dir=$([ -d /opt ] && PTXT OK || PTXT missing)"
-	PTXT "preflight.entware.opkg=$([ -x /opt/bin/opkg ] && PTXT OK || PTXT missing)"
-	PTXT "preflight.entware.config=$({ [ -f /opt/etc/opkg.conf ] || [ -f /opt/etc/init.d/rc.unslung ]; } && PTXT OK || PTXT missing)"
+	PTXT "preflight.entware.opt_dir=$(if [ -d /opt ]; then PTXT OK; else PTXT missing; fi)"
+	PTXT "preflight.entware.opkg=$(if [ -x /opt/bin/opkg ]; then PTXT OK; else PTXT missing; fi)"
+	PTXT "preflight.entware.config=$(if [ -f /opt/etc/opkg.conf ] || [ -f /opt/etc/init.d/rc.unslung ]; then PTXT OK; else PTXT missing; fi)"
 	PTXT "preflight.entware.result=${result}"
 	[ "${result}" = "OK" ]
 }
@@ -1096,10 +2297,10 @@ preflight_check_jq() {
 	fi
 	PTXT "preflight.jq.required=yes"
 	PTXT "preflight.jq.which=${jq_path:-missing}"
-	PTXT "preflight.jq.stock=$([ -x /usr/bin/jq ] && PTXT OK || PTXT missing)"
+	PTXT "preflight.jq.stock=$(if [ -x /usr/bin/jq ]; then PTXT OK; else PTXT missing; fi)"
 	if [ "${allow_entware}" = "1" ]; then
 		[ "${result}" = "OK" ] || [ ! -x /opt/bin/jq ] || result="OK"
-		PTXT "preflight.jq.entware=$([ -x /opt/bin/jq ] && PTXT OK || PTXT missing)"
+		PTXT "preflight.jq.entware=$(if [ -x /opt/bin/jq ]; then PTXT OK; else PTXT missing; fi)"
 		PTXT "preflight.jq.install_hint=opkg install jq"
 	else
 		PTXT "preflight.jq.entware=not_checked"
@@ -1956,14 +3157,21 @@ status() {
 	status_line "Last rollback result" "$(rollback_result_summary 2>/dev/null || PTXT "none")"
 }
 
+adguard_service_without_nvram_lock_fd() {
+	(
+		exec 8>&-
+		"$@"
+	)
+}
+
 agh_restart() {
 	local old_pids
 	if agh_is_running; then
 		ptxt_step "Restarting AdGuardHome service."
 		old_pids="$(pidof AdGuardHome 2>/dev/null)"
-		if service restart_AdGuardHome >/dev/null 2>&1; then
+		if adguard_service_without_nvram_lock_fd service restart_AdGuardHome >/dev/null 2>&1; then
 			adguard_service_status_after_action restart "${old_pids}" || true
-		elif /opt/etc/init.d/S99AdGuardHome restart; then
+		elif adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome restart; then
 			adguard_service_status_after_action restart "${old_pids}" || true
 		else
 			ptxt_fail "AdGuardHome service restart command failed."
@@ -1984,9 +3192,9 @@ agh_restart() {
 agh_start() {
 	if ! agh_is_running; then
 		ptxt_step "Starting AdGuardHome service."
-		if service start_AdGuardHome >/dev/null 2>&1; then
+		if adguard_service_without_nvram_lock_fd service start_AdGuardHome >/dev/null 2>&1; then
 			adguard_service_status_after_action start || true
-		elif /opt/etc/init.d/S99AdGuardHome start; then
+		elif adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome start; then
 			adguard_service_status_after_action start || true
 		else
 			ptxt_fail "AdGuardHome service start command failed."
@@ -2552,7 +3760,7 @@ blocklist_yaml_replace_abort_on_signal() {
 }
 
 blocklist_yaml_replace_trap_disable() {
-	trap 'clear_screen; end_op_message 2' HUP INT QUIT ABRT TERM
+	trap 'END_OP_SIGNAL=1; clear_screen; end_op_message 2' HUP INT QUIT ABRT TERM
 	BLOCKLIST_YAML_BACKUP_FILE=""
 	BLOCKLIST_YAML_REMOVED_FILE=""
 	BLOCKLIST_YAML_TMP_FILE=""
@@ -2647,7 +3855,7 @@ remove_unused_blocklists_from_yaml() {
 	rm -f "${removed_file}"
 	ptxt_warn "Restarting AdGuardHome temporarily interrupts AdGuardHome DNS filtering."
 	OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
-	if service restart_AdGuardHome >/dev/null 2>&1; then
+	if adguard_service_without_nvram_lock_fd service restart_AdGuardHome >/dev/null 2>&1; then
 		adguard_service_status_after_action restart "${OLD_PIDS}" || true
 		ptxt_ok "AdGuardHome restarted after blocklist cleanup."
 	else
@@ -2741,6 +3949,7 @@ check_connection() {
 ########################################################################################################################
 
 check_dns_environment() {
+	local changed deadline lookup_pid maxwait mode now status stubby_stopped
 	ptxt_phase "Preparing DNS environment."
 	if [ -f "/opt/etc/init.d/S61stubby" ] || [ -f "/opt/sbin/stubby" ] || [ -f "/opt/bin/install_stubby" ] || [ -f "/jffs/scripts/install_stubby.sh" ] || [ -d "/jffs/dnscrypt" ] || [ -f "/opt/etc/init.d/S09dnscrypt-proxy" ]; then
 		PTXT "${ERROR} Potential stubby or dnscrypt-proxy installation detected." \
@@ -2748,15 +3957,7 @@ check_dns_environment() {
 			"${ERROR} Exiting..."
 		exit 1
 	fi
-	local MODE NVCHECK result restore_failed
-	dns_env_numeric_timeout() {
-		case "$1" in
-			*[!0-9]* | 0* | '') return 1 ;;
-		esac
-		return 0
-	}
 	dns_env_local_ready() {
-		local deadline lookup_pid maxwait now status
 		maxwait="$1"
 		now="$(monotonic_seconds)" || return 1
 		deadline="$((now + maxwait))"
@@ -2780,257 +3981,236 @@ check_dns_environment() {
 			status="$?"
 			[ "${status}" -eq 0 ] && return 0
 			now="$(monotonic_seconds)" || return 1
-			[ "${now}" -ge "${deadline}" ] && return 1
 			sleep 1s
 			now="$(monotonic_seconds)" || return 1
 		done
 		return 1
 	}
-	dns_env_set_nvram() {
-		local key expected cur
-		key="$1"
-		expected="$2"
-		cur="$(nvram get "${key}" 2>/dev/null)" || return 1
-		if [ "${cur}" = "${expected}" ]; then
-			return 2
-		fi
-		nvram set "${key}=${expected}" || return 1
-	}
-	dns_env_apply_profile() {
-		local changed key value status
-		changed="0"
-		DNS_ENV_PROFILE_CHANGED="0"
-		for key in dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; do
-			case "${key}" in
-				dnspriv_enable) value="0" ;;
-				dhcpd_dns_router) value="1" ;;
-				*) value="" ;;
-			esac
-			dns_env_set_nvram "${key}" "${value}"
-			status="$?"
-			case "${status}" in
-				0) changed="$((changed + 1))" ;;
-				2) ;;
-				*)
-					DNS_ENV_PROFILE_CHANGED="${changed}"
-					return 1
-					;;
-			esac
-		done
-		DNS_ENV_PROFILE_CHANGED="${changed}"
-		if [ "${changed}" != "0" ]; then return 0; fi
-		return 2
-	}
-	dns_env_restore_profile() {
-		local failed key old existed restored
-		failed="0"
-		restored="0"
-		for key in dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; do
-			case "${key}" in
-				dnspriv_enable)
-					old="${_OLD_dnspriv_enable}"
-					existed="${_OLD_dnspriv_enable_EXISTS}"
-					;;
-				dhcpd_dns_router)
-					old="${_OLD_dhcpd_dns_router}"
-					existed="${_OLD_dhcpd_dns_router_EXISTS}"
-					;;
-				dhcp_dns1_x)
-					old="${_OLD_dhcp_dns1_x}"
-					existed="${_OLD_dhcp_dns1_x_EXISTS}"
-					;;
-				dhcp_dns2_x)
-					old="${_OLD_dhcp_dns2_x}"
-					existed="${_OLD_dhcp_dns2_x_EXISTS}"
-					;;
-			esac
-			if [ "${existed}" = "1" ]; then
-				nvram set "${key}=${old}" && restored="$((restored + 1))" || failed="$((failed + 1))"
-			else
-				nvram unset "${key}" && restored="$((restored + 1))" || failed="$((failed + 1))"
-			fi
-		done
-		DNS_ENV_RESTORE_SUCCEEDED="${restored}"
-		DNS_ENV_RESTORE_FAILED="${failed}"
-		[ "${failed}" = "0" ]
-	}
-	dns_env_rollback() {
-		local failed result
-		failed="0"
-		DNS_ENV_RESTORE_SUCCEEDED="0"
-		DNS_ENV_RESTORE_FAILED="0"
-		dns_env_restore_profile || failed="$((failed + 1))"
-		nvram commit || failed="$((failed + 1))"
-		service restart_dnsmasq >/dev/null 2>&1 || failed="$((failed + 1))"
-		dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}" || failed="$((failed + 1))"
-		if [ "${failed}" = "0" ]; then
-			result="complete"
-			_DNS_NVRAM_SAVED="0"
-		elif [ "${DNS_ENV_RESTORE_SUCCEEDED}" != "0" ]; then
-			result="partial"
-		else
-			result="failed"
-		fi
-		_DNS_NVRAM_ROLLBACK_ATTEMPTED="1"
-		export _DNS_NVRAM_ROLLBACK_ATTEMPTED _DNS_NVRAM_SAVED
-		PTXT "${WARNING} DNS NVRAM rollback was ${result}."
-		[ "${result}" = "complete" ]
-	}
-	dns_env_numeric_timeout "${DNS_ENV_READY_TIMEOUT}" || DNS_ENV_READY_TIMEOUT="60"
-	dns_env_numeric_timeout "${DNS_ENV_RECOVERY_TIMEOUT}" || DNS_ENV_RECOVERY_TIMEOUT="15"
-	MODE="$1"
-	NVCHECK="0"
-	restore_failed="0"
-	case "${MODE}" in
+	case "${DNS_ENV_READY_TIMEOUT}" in *[!0-9]* | "" | 0*) DNS_ENV_READY_TIMEOUT="60" ;; esac
+	case "${DNS_ENV_RECOVERY_TIMEOUT}" in *[!0-9]* | "" | 0*) DNS_ENV_RECOVERY_TIMEOUT="15" ;; esac
+	mode="$1"
+	case "${mode}" in
 		0)
-			# Save original values only once.
-			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
-				ptxt_step "Saving current DNS NVRAM settings."
-				if ! save_dns_nvram_environment; then
-					PTXT "${ERROR} Unable to read all required DNS NVRAM settings; no changes were made."
-					return 1
-				fi
-				ptxt_ok "Current DNS NVRAM settings saved."
+			stubby_stopped="0"
+			ptxt_step "Saving current DNS NVRAM settings."
+			if ! nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; then
+				PTXT "${ERROR} Unable to read all required DNS NVRAM settings; no changes were made."
+				return 1
 			fi
+			_DNS_NVRAM_SAVED="1"
+			export _DNS_NVRAM_SAVED
 			if [ "$(pidof stubby)" ]; then
 				ptxt_step "Stopping conflicting stubby process."
-				{ kill_processes stubby; }
-				ptxt_ok "Conflicting stubby process stopped."
-				NVCHECK="$((NVCHECK + 1))"
+				_DNS_STUBBY_STOPPED="1"
+				export _DNS_STUBBY_STOPPED
+				: >"${NVRAM_TRANSACTION_DIR}/stubby-stopped" || return 1
+				chmod 600 "${NVRAM_TRANSACTION_DIR}/stubby-stopped" || return 1
+				killall -q -9 stubby 2>/dev/null || :
+				[ -z "$(pidof stubby)" ] || return 1
+				stubby_stopped="1"
 			fi
-			ptxt_step "Applying installer DNS preparation profile."
-			dns_env_apply_profile
-			result="$?"
-			if [ "${result}" = "0" ]; then
-				ptxt_ok "Installer DNS preparation profile applied."
-				NVCHECK="$((NVCHECK + 1))"
-			elif [ "${result}" = "2" ]; then
-				ptxt_ok "Installer DNS preparation profile was already active."
-			else
-				PTXT "${ERROR} Unable to apply the DNS NVRAM profile."
-				dns_env_rollback || true
+			if ! nvram_transaction_set dnspriv_enable "0" ||
+				! nvram_transaction_set dhcpd_dns_router "1" ||
+				! nvram_transaction_set dhcp_dns1_x "" ||
+				! nvram_transaction_set dhcp_dns2_x ""; then
+				[ "${stubby_stopped}" = "0" ] || restore_stubby_after_dns_failure || PTXT "${ERROR} Unable to restart stubby after DNS preparation failed."
+				return 1
+			fi
+			changed="${NVRAM_TRANSACTION_CHANGED:-0}"
+			if ! nvram_transaction_apply restart_dnsmasq 1; then
+				PTXT "${ERROR} Unable to apply the DNS NVRAM transaction."
+				[ "${stubby_stopped}" = "0" ] || restore_stubby_after_dns_failure || PTXT "${ERROR} Unable to restart stubby after DNS preparation failed."
+				return 1
+			fi
+			if [ "${stubby_stopped}" = "1" ] && [ "${changed}" = "0" ]; then
+				if ! service restart_dnsmasq >/dev/null 2>&1; then
+					PTXT "${ERROR} Unable to restart dnsmasq after stopping stubby."
+					if ! : >"${NVRAM_TRANSACTION_DIR}/dirty" || ! chmod 600 "${NVRAM_TRANSACTION_DIR}/dirty"; then
+						PTXT "${ERROR} Unable to preserve the DNS recovery snapshot."
+					fi
+					if service restart_dnsmasq >/dev/null 2>&1 && dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
+						# Keep the persisted marker until the resolver it represents is
+						# running again; EXIT/startup recovery can then retry safely.
+						if restore_stubby_after_dns_failure; then
+							stubby_stopped="0"
+							if rm -f "${NVRAM_TRANSACTION_DIR}/dirty"; then
+								rm -rf "${NVRAM_TRANSACTION_DIR}" 2>/dev/null || true
+							else
+								rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+							fi
+						else
+							rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+						fi
+					else
+						rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+					fi
+					if [ "${stubby_stopped}" != "0" ]; then
+						restore_stubby_after_dns_failure || PTXT "${ERROR} Unable to restart stubby after DNS preparation failed."
+					fi
+					return 1
+				fi
+				changed="1"
+			fi
+			if [ "${changed}" != "0" ] && ! dns_env_local_ready "${DNS_ENV_READY_TIMEOUT}"; then
+				PTXT "${ERROR} DNS readiness did not recover after applying NVRAM changes."
+				if nvram_transaction_restore restart_dnsmasq 1 && dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
+					# Retain the recovery marker until the stopped resolver is running again.
+					if [ "${stubby_stopped}" = "1" ] && ! restore_stubby_after_dns_failure; then
+						rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+					elif rm -f "${NVRAM_TRANSACTION_DIR}/dirty"; then
+						stubby_stopped="0"
+						rm -rf "${NVRAM_TRANSACTION_DIR}" 2>/dev/null || true
+					else
+						rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+					fi
+				else
+					if [ -d "${NVRAM_TRANSACTION_DIR}" ]; then
+						rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+					else
+						rollback_result_write "DNS NVRAM transaction" "rollback partial"
+					fi
+				fi
+				[ "${stubby_stopped}" = "0" ] || restore_stubby_after_dns_failure || PTXT "${ERROR} Unable to restart stubby after DNS preparation failed."
 				return 1
 			fi
 			;;
 		1)
-			# Do not restore if we never saved anything.
-			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
+			NVRAM_TRANSACTION_DIR="${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
+			export NVRAM_TRANSACTION_DIR
+			if [ ! -d "${NVRAM_TRANSACTION_DIR}" ]; then
+				_DNS_NVRAM_SAVED="0"
+				export _DNS_NVRAM_SAVED
 				ptxt_ok "No saved DNS NVRAM settings to restore."
 				return 0
 			fi
-			ptxt_step "Restoring saved DNS NVRAM settings."
-			if dns_env_restore_profile; then
-				ptxt_ok "Saved DNS NVRAM settings restored."
-				NVCHECK="$((NVCHECK + 1))"
-			else
-				PTXT "${ERROR} Unable to restore all saved DNS NVRAM settings."
-				restore_failed="1"
-				if [ "${DNS_ENV_RESTORE_SUCCEEDED}" != "0" ]; then
-					NVCHECK="$((NVCHECK + 1))"
+			if ! nvram_transaction_restore restart_dnsmasq 1 || ! dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
+				if [ -d "${NVRAM_TRANSACTION_DIR}" ]; then
+					rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
 				else
-					return 1
+					rollback_result_write "DNS NVRAM transaction" "rollback partial"
 				fi
+				PTXT "${ERROR} Unable to restore all saved DNS NVRAM settings."
+				return 1
 			fi
+			# Clearing dirty commits the completed restore before best-effort snapshot cleanup.
+			if ! rm -f "${NVRAM_TRANSACTION_DIR}/dirty"; then
+				rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+				PTXT "${ERROR} Unable to restore all saved DNS NVRAM settings."
+				return 1
+			fi
+			rm -rf "${NVRAM_TRANSACTION_DIR}" 2>/dev/null || true
+			_DNS_NVRAM_SAVED="0"
+			export _DNS_NVRAM_SAVED
 			;;
-		*)
-			return 1
-			;;
+		*) return 1 ;;
 	esac
-	if [ "${NVCHECK}" != "0" ]; then
-		ptxt_step "Committing DNS NVRAM changes and restarting dnsmasq."
-		if ! nvram commit || ! service restart_dnsmasq >/dev/null 2>&1 || ! dns_env_local_ready "${DNS_ENV_READY_TIMEOUT}"; then
-			PTXT "${ERROR} DNS readiness did not recover after applying NVRAM changes."
-			dns_env_rollback || true
-			return 1
-		fi
-		ptxt_ok "DNS services refreshed after DNS environment changes."
-	fi
-	[ "${restore_failed}" = "0" ] || return 1
-	if [ "${MODE}" = "1" ]; then
-		_DNS_NVRAM_SAVED="0"
-		export _DNS_NVRAM_SAVED
-	fi
 	ptxt_ok "DNS Environment is Ready."
 	return 0
 }
 
+restore_stubby_after_dns_failure() {
+	service restart_stubby >/dev/null 2>&1 || return 1
+	_DNS_STUBBY_STOPPED="0"
+	export _DNS_STUBBY_STOPPED
+	rm -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" || return 1
+}
+
+finalize_dns_environment() {
+	local snapshot_dir
+	snapshot_dir="${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
+	if [ -e "${snapshot_dir}" ] || [ -L "${snapshot_dir}" ]; then
+		# Clearing dirty is the commit point; completed snapshot cleanup is best-effort.
+		rm -f "${snapshot_dir}/dirty" || return 1
+		rm -rf "${snapshot_dir}" 2>/dev/null || true
+	fi
+	# Do not discard the shared commit point while paired setup cleanup is
+	# incomplete; startup recovery must still recognize those snapshots as
+	# committed rather than rollback candidates.
+	nvram_transaction_finalize_setup_pair recovery || return 1
+	_DNS_NVRAM_SAVED="0"
+	export _DNS_NVRAM_SAVED
+	_DNS_STUBBY_STOPPED="0"
+	export _DNS_STUBBY_STOPPED
+}
+
 check_dns_filter() {
-	local NVCHECK USE_SOME YESNO_STATUS
-	NVCHECK="0"
-	if [ "$1" -eq 0 ]; then
-		if [ "$(nvram get dnsfilter_enable_x)" != "0" ]; then
-			{ nvram set dnsfilter_enable_x="0"; }
-			NVCHECK="$((NVCHECK + 1))"
+	local changed key mode use_some yesno_status
+	mode="$1"
+	case "${mode}" in
+		0) ;;
+		1)
+			PTXT "${INFO} You can choose to keep any custom dnsfilter values by only redirect non-custom traffic or send all traffic through to AdGuardHome."
+			read_yesno "Do you want to redirect only NON-CUSTOM DNS resolutions on your network through to AdGuardHome?"
+			yesno_status="$?"
+			case "${yesno_status}" in
+				0) use_some="0" ;;
+				1) use_some="1" ;;
+				*) return "${yesno_status}" ;;
+			esac
+			;;
+		*) return 1 ;;
+	esac
+	if [ "${NVRAM_TRANSACTION_DIR:-}" != "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || [ ! -f "${NVRAM_TRANSACTION_DIR}/keys" ]; then
+		if ! nvram_transaction_begin dnsfilter dnsfilter_enable_x dnsfilter_mode dhcpd_dns_router dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x; then
+			PTXT "${ERROR} Unable to read all required DNSFilter NVRAM settings; no changes were made."
+			return 1
 		fi
-		PTXT "${INFO} DNS will not be forced through to AdGuardHome."
 	fi
-	if [ "$1" -eq 1 ]; then
-		PTXT "${INFO} You can choose to keep any custom dnsfilter values by only redirect non-custom traffic or send all traffic through to AdGuardHome."
-		read_yesno "Do you want to redirect only NON-CUSTOM DNS resolutions on your network through to AdGuardHome?"
-		YESNO_STATUS="$?"
-		case "${YESNO_STATUS}" in
-			0) USE_SOME="0" ;;
-			1) USE_SOME="1" ;;
-			*) return "${YESNO_STATUS}" ;;
-		esac
-		if [ "$(nvram get dnsfilter_enable_x)" != "1" ]; then
-			{ nvram set dnsfilter_enable_x="1"; }
-			NVCHECK="$((NVCHECK + 1))"
-		fi
-		if [ "$USE_SOME" -eq 0 ]; then
-			if [ "$(nvram get dnsfilter_mode)" != "11" ]; then
-				{ nvram set dnsfilter_mode="11"; }
-				NVCHECK="$((NVCHECK + 1))"
+	case "${mode}" in
+		0)
+			nvram_transaction_set dnsfilter_enable_x "0" || return 1
+			PTXT "${INFO} DNS will not be forced through to AdGuardHome."
+			;;
+		1)
+			nvram_transaction_set dnsfilter_enable_x "1" || return 1
+			nvram_transaction_set dnsfilter_mode "11" || return 1
+			if [ "${use_some}" = "1" ]; then
+				nvram_transaction_set dhcpd_dns_router "1" || return 1
+				for key in dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x; do
+					nvram_transaction_set "${key}" "" || return 1
+				done
+				PTXT "${INFO} DNS is set to redirect All DNS resolutions through to AdGuardHome."
+			else
+				PTXT "${INFO} DNSFilter is set to control DNS through to AdGuardHome, while leaving any Custom Rules and Values."
 			fi
-			PTXT "${INFO} DNSFilter is set to control DNS through to AdGuardHome, while leaving any Custom Rules and Values."
+			;;
+		*) return 1 ;;
+	esac
+	changed="${NVRAM_TRANSACTION_CHANGED:-0}"
+	if ! nvram_transaction_apply "restart_firewall;restart_dnsmasq" 1; then
+		PTXT "${ERROR} Unable to apply the DNSFilter NVRAM transaction."
+		if ! restore_dns_filter_settings; then
+			PTXT "${ERROR} Unable to restore the DNSFilter NVRAM transaction; the recovery snapshot was preserved."
 		fi
-		if [ "$USE_SOME" -eq 1 ]; then
-			for i in dnsfilter_mode dhcpd_dns_router dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x; do
-				VAR="$(nvram get "${i}" 2>/dev/null)"
-				if [ "${i}" = "dnsfilter_mode" ]; then
-					if [ "$VAR" != "11" ]; then {
-						nvram set "${i}"="11"
-					}; else continue; fi
-				elif [ "${i}" = "dhcpd_dns_router" ]; then
-					if [ "$VAR" != "1" ]; then {
-						nvram set "${i}"="1"
-					}; else continue; fi
-				elif [ "$VAR" ]; then {
-					nvram set "${i}"=""
-				}; else continue; fi
-				NVCHECK="$((NVCHECK + 1))"
-			done
-			PTXT "${INFO} DNS is set to redirect All DNS resolutions through to AdGuardHome."
-		fi
+		return 1
 	fi
-	if [ "${NVCHECK}" != "0" ]; then
-		{ nvram commit; }
-		{ service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1; }
-		if ! check_connection 300; then
-			PTXT "${WARNING} Timed out waiting for DNS connectivity."
+	if [ "${changed}" != "0" ] && ! check_connection 300; then
+		PTXT "${WARNING} Timed out waiting for DNS connectivity; restoring DNSFilter settings."
+		if nvram_transaction_restore "restart_firewall;restart_dnsmasq" 1 && check_connection 300; then
+			# Clearing dirty commits the completed rollback before best-effort snapshot cleanup.
+			if rm -f "${NVRAM_TRANSACTION_DIR}/dirty"; then
+				rm -rf "${NVRAM_TRANSACTION_DIR}" 2>/dev/null || true
+			else
+				rollback_result_write "DNSFilter NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+			fi
+		else
+			rollback_result_write "DNSFilter NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
 		fi
+		return 1
 	fi
 }
 
 save_dns_filter_settings() {
-	local DNS_FILTER_BACKUP_DIR="$1" DNS_FILTER_KEY
-	mkdir -p "${DNS_FILTER_BACKUP_DIR}" || return 1
-	for DNS_FILTER_KEY in dnsfilter_enable_x dnsfilter_mode dhcpd_dns_router dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x; do
-		nvram get "${DNS_FILTER_KEY}" >"${DNS_FILTER_BACKUP_DIR}/${DNS_FILTER_KEY}" 2>/dev/null || return 1
-	done
+	# The argument is retained for compatibility with older setup callers.
+	nvram_transaction_begin dnsfilter dnsfilter_enable_x dnsfilter_mode dhcpd_dns_router dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x
 }
 
 restore_dns_filter_settings() {
-	local DNS_FILTER_BACKUP_DIR="$1" DNS_FILTER_KEY DNS_FILTER_VALUE
-	[ -d "${DNS_FILTER_BACKUP_DIR}" ] || return 0
-	for DNS_FILTER_KEY in dnsfilter_enable_x dnsfilter_mode dhcpd_dns_router dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 dnsfilter_rulelist dnsfilter_rulelist1 dnsfilter_rulelist2 dnsfilter_rulelist3 dnsfilter_rulelist4 dnsfilter_rulelist5 dhcp_dns1_x dhcp_dns2_x; do
-		[ -f "${DNS_FILTER_BACKUP_DIR}/${DNS_FILTER_KEY}" ] || return 1
-		DNS_FILTER_VALUE="$(cat "${DNS_FILTER_BACKUP_DIR}/${DNS_FILTER_KEY}")" || return 1
-		nvram set "${DNS_FILTER_KEY}=${DNS_FILTER_VALUE}" || return 1
-	done
-	nvram commit || return 1
-	service "restart_firewall;restart_dnsmasq" >/dev/null 2>&1 || return 1
-	rm -rf "${DNS_FILTER_BACKUP_DIR}"
+	! nvram_transaction_setup_committed || return 0
+	NVRAM_TRANSACTION_DIR="${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
+	export NVRAM_TRANSACTION_DIR
+	[ -d "${NVRAM_TRANSACTION_DIR}" ] || return 0
+	nvram_transaction_restore "restart_firewall;restart_dnsmasq"
 }
 
 check_ipset() {
@@ -3167,23 +4347,36 @@ check_dns_local() {
 }
 
 check_jffs_enabled() {
-	if [ "$(nvram get jffs2_format)" = "1" ]; then
+	local JFFS2_FORMAT JFFS2_SCRIPTS JFFS2_ENABLED jffs2_enable jffs2_on
+	if ! nvram_transaction_begin jffs-enable jffs2_format jffs2_scripts jffs2_enable jffs2_on; then
+		PTXT "${ERROR} Unable to read all required JFFS NVRAM settings; no changes were made."
+		return 1
+	fi
+	JFFS2_FORMAT="$(cat "${NVRAM_TRANSACTION_DIR}/jffs2_format")" || return 1
+	if [ "${JFFS2_FORMAT}" = "1" ]; then
+		rm -rf "${NVRAM_TRANSACTION_DIR}"
 		PTXT "${ERROR} JFFS partition is scheduled to be reformatted." \
 			"${ERROR} Please reboot to format or disable that setting and try again." \
 			"${ERROR} Exiting..."
 		exit 1
 	fi
-	local JFFS2_SCRIPTS JFFS2_ENABLED jffs2_on
-	JFFS2_SCRIPTS="$(nvram get jffs2_scripts)"
-	[ -z "$(nvram get jffs2_enable)" ] && JFFS2_ENABLED="$(nvram get jffs2_on)" || JFFS2_ENABLED="$(nvram get jffs2_enable)"
-	[ -z "$(nvram get jffs2_enable)" ] && jffs2_on="jffs2_on" || jffs2_on="jffs2_enable"
+	JFFS2_SCRIPTS="$(cat "${NVRAM_TRANSACTION_DIR}/jffs2_scripts")" || return 1
+	jffs2_enable="$(cat "${NVRAM_TRANSACTION_DIR}/jffs2_enable")" || return 1
+	if [ -z "${jffs2_enable}" ]; then
+		JFFS2_ENABLED="$(cat "${NVRAM_TRANSACTION_DIR}/jffs2_on")" || return 1
+		jffs2_on="jffs2_on"
+	else
+		JFFS2_ENABLED="${jffs2_enable}"
+		jffs2_on="jffs2_enable"
+	fi
 	if [ "${JFFS2_ENABLED}" != "1" ] || [ "${JFFS2_SCRIPTS}" != "1" ]; then
 		PTXT "${INFO} JFFS custom scripts and configs are not enabled." \
 			"${INFO} Enabling them now!"
-		nvram set ${jffs2_on}="1"
-		nvram set jffs2_scripts="1"
-		nvram commit
+		nvram_transaction_set "${jffs2_on}" "1" || return 1
+		nvram_transaction_set jffs2_scripts "1" || return 1
+		nvram_transaction_apply - || return 1
 	else
+		rm -rf "${NVRAM_TRANSACTION_DIR}"
 		PTXT "${INFO} JFFS custom scripts and configs are already enabled."
 	fi
 }
@@ -3345,37 +4538,6 @@ choose_branch() {
 			return "${CONFIRM_STATUS}"
 		fi
 	fi
-}
-
-save_dns_nvram_environment() {
-	local NVRAM_SHOW VAR VALUE
-	_DNS_NVRAM_SAVED="0"
-	NVRAM_SHOW="$(nvram show 2>/dev/null)" || return 1
-	for VAR in dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; do
-		VALUE="$(nvram get "${VAR}" 2>/dev/null)" || return 1
-		if printf '%s\n' "${NVRAM_SHOW}" | grep -q "^${VAR}="; then
-			eval "_OLD_${VAR}_EXISTS=1"
-		else
-			eval "_OLD_${VAR}_EXISTS=0"
-		fi
-		if [ -z "${VALUE}" ]; then
-			eval "_OLD_${VAR}_EMPTY=1"
-		else
-			eval "_OLD_${VAR}_EMPTY=0"
-		fi
-		case "${VAR}" in
-			dnspriv_enable) _OLD_dnspriv_enable="${VALUE}" ;;
-			dhcpd_dns_router) _OLD_dhcpd_dns_router="${VALUE}" ;;
-			dhcp_dns1_x) _OLD_dhcp_dns1_x="${VALUE}" ;;
-			dhcp_dns2_x) _OLD_dhcp_dns2_x="${VALUE}" ;;
-		esac
-	done
-	export _OLD_dnspriv_enable _OLD_dhcpd_dns_router _OLD_dhcp_dns1_x _OLD_dhcp_dns2_x \
-		_OLD_dnspriv_enable_EXISTS _OLD_dhcpd_dns_router_EXISTS _OLD_dhcp_dns1_x_EXISTS _OLD_dhcp_dns2_x_EXISTS \
-		_OLD_dnspriv_enable_EMPTY _OLD_dhcpd_dns_router_EMPTY _OLD_dhcp_dns1_x_EMPTY _OLD_dhcp_dns2_x_EMPTY
-	_DNS_NVRAM_SAVED="1"
-	export _DNS_NVRAM_SAVED
-	return 0
 }
 
 # Installer file and setup helpers
@@ -3643,6 +4805,7 @@ adguard_install_abort_trap_disable_preserve_defer() {
 }
 
 adguard_install_abort_on_signal() {
+	END_OP_SIGNAL=1
 	local MIGRATION_ROLLED_BACK=0 MIGRATION_ROLLBACK_STATUS=0 OLD_BINARY REPLACE_ACTIVE RESTORE_ACTIVE RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARGET_INSTALLED RESTORE_TARG_DIR STAGE_DIR WAS_RUNNING
 	OLD_BINARY="${ADGUARD_INSTALL_OLD_BINARY:-}"
 	REPLACE_ACTIVE="${ADGUARD_INSTALL_REPLACE_ACTIVE:-0}"
@@ -3655,26 +4818,32 @@ adguard_install_abort_on_signal() {
 	RESTORE_TARGET_INSTALLED="${ADGUARD_RESTORE_TARGET_INSTALLED:-0}"
 	adguard_install_abort_trap_disable
 	[ -z "${STAGE_DIR}" ] || rm -rf "${STAGE_DIR}"
+	# Restore setup's pre-migration file journal before rolling back migration state.
+	# EXIT cleanup will then observe no journal and cannot republish migrated files.
 	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
-		if rollback_pending_mode_migration; then
+		if ! setup_restore_nvram_journal; then
+			MIGRATION_ROLLBACK_STATUS=1
+			PTXT "${ERROR} Unable to restore the journaled installer configuration files."
+		elif rollback_pending_mode_migration; then
 			MIGRATION_ROLLED_BACK=1
 		else
 			MIGRATION_ROLLBACK_STATUS=1
 		fi
 	fi
 	if [ "${MIGRATION_ROLLBACK_STATUS}" -ne 0 ]; then
-		PTXT "${ERROR} Unable to roll back the interrupted mode migration; the previous installation was not restarted."
+		PTXT "${ERROR} Unable to roll back the interrupted mode migration; attempting previous installation recovery."
+	fi
+	# A migrated process may still be running even when journal or migration
+	# rollback failed. Stop it before recovering the known-good installation.
+	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ] || [ "${MIGRATION_ROLLED_BACK}" -ne 0 ]; then
+		agh_stop
+	fi
+	if [ "${RESTORE_ACTIVE}" = "1" ]; then
+		adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${RESTORE_TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "${RESTORE_TARGET_INSTALLED}"
+	elif [ "${REPLACE_ACTIVE}" = "1" ] && [ -n "${OLD_BINARY}" ]; then
+		adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
 	else
-		# A migrated process may already be running with the configuration that was
-		# just rolled back.  Stop it before recovering the previous service state.
-		[ "${MIGRATION_ROLLED_BACK}" -eq 0 ] || agh_stop
-		if [ "${RESTORE_ACTIVE}" = "1" ]; then
-			adguard_restore_after_failed_directory_restore "${RESTORE_ROLLBACK_DIR}" "${RESTORE_TARG_DIR}" "${RESTORE_STAGE_DIR}" "${WAS_RUNNING}" "${RESTORE_TARGET_INSTALLED}"
-		elif [ "${REPLACE_ACTIVE}" = "1" ] && [ -n "${OLD_BINARY}" ]; then
-			adguard_restore_after_failed_replace "${OLD_BINARY}" "${WAS_RUNNING}"
-		else
-			adguard_restart_after_install_abort "${WAS_RUNNING}"
-		fi
+		adguard_restart_after_install_abort "${WAS_RUNNING}"
 	fi
 	clear_screen
 	ADGUARD_DEFER_END_OP="0"
@@ -4583,7 +5752,9 @@ installer_update_reexec() {
 	ptxt_ok "Installer was updated at ${TARG_DIR}/installer; restarting the update with the new installer."
 	chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1
 	AI_REEXECED_INSTALLER="1"
-	export AI_REEXECED_INSTALLER
+	# Preserve the process-owned transaction lock across exec.  The PID is
+	# unchanged, and flock mode also inherits descriptor 8 into the new script.
+	export AI_REEXECED_INSTALLER NVRAM_TRANSACTION_LOCK_MODE
 	exec "${TARG_DIR}/installer" "${BRANCH}" "${ACTION}"
 }
 
@@ -5034,6 +6205,11 @@ inst_AdGuardHome() {
 			return 1
 		fi
 	fi
+	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && ! finalize_dns_environment; then
+		PTXT "${ERROR} Unable to remove the completed DNS NVRAM recovery snapshot."
+		end_op_message 1 "$1"
+		return 1
+	fi
 	adguard_install_abort_trap_disable_preserve_defer
 	ptxt_ok "AdGuardHome ${1:-install} orchestration complete."
 	ptxt_ok "Final readiness summary: service is installed, started, and ready."
@@ -5159,6 +6335,31 @@ setup_restore_previous_yaml() {
 		return 1
 	fi
 	return 0
+}
+
+setup_restore_nvram_journal() {
+	if [ "${SETUP_FILES_JOURNALED:-0}" -ne 1 ] &&
+		[ ! -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
+		return 0
+	fi
+	# The shared marker is the setup commit point.  Deferred journal cleanup
+	# must never turn a committed file publication back into a rollback.
+	! nvram_transaction_setup_committed || return 0
+	if nvram_transaction_setup_files_restore; then
+		SETUP_FILES_JOURNALED=0
+	else
+		PTXT "${ERROR} Unable to restore the setup journal; recovery state was preserved."
+		return 1
+	fi
+}
+
+# Shared guard for setup_AdGuardHome_impl call sites: journals the current
+# setup files on first use only, so repeated calls do not re-journal.  Relies
+# on the caller's SETUP_FILES_JOURNALED local variable.
+setup_files_begin_if_needed() {
+	[ "${SETUP_FILES_JOURNALED}" -eq 0 ] || return 0
+	nvram_transaction_setup_files_begin || return 1
+	SETUP_FILES_JOURNALED=1
 }
 
 setup_resolve_lan_addresses() {
@@ -5814,7 +7015,7 @@ adguard_migrate_detected_install_mode() {
 }
 
 setup_AdGuardHome_impl() {
-	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_ROLLBACK="" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
+	local CHOOSE_NEW=0 CONFIG_ROLLBACK="" DNS_FILTER_ROLLBACK_DIR="" DOMAIN_CONFIG_SELECTION="" DOMAIN_LAN_CHANGED=0 IPSET_SELECTION LAN_DOMAIN_REARM_FAILED=0 LAN_DOMAIN_ROLLBACK="" SETUP_FILES_JOURNALED="${3:-0}" WEB_PORT_SELECTION YAML_ORI_NEW="" YAML_ORI_ROLLBACK="" YAML_ORI_WAS_PRESENT=0 YAML_BACKED_UP=0 SCHEMA_VER="$("${AGH_FILE}" -v --version | awk '/Schema[[:space:]]version:/{ print $NF }' 2>/dev/null)"
 	if [ -z "${SCHEMA_VER}" ]; then SCHEMA_VER="27"; fi
 	if [ "${ADGUARD_FORCE_SETUP_YAML:-0}" = "1" ] && { [ -f "${YAML_FILE}" ] || [ -f "${YAML_ORI}" ]; }; then
 		PTXT "${INFO} Restored mode differs from detected router mode; updating mode-dependent AdGuardHome settings."
@@ -5834,50 +7035,84 @@ setup_AdGuardHome_impl() {
 			if ! read_input_port "Default is" 3000; then
 				return 1
 			fi
+			if nvram_transaction_setup_files_begin; then
+				SETUP_FILES_JOURNALED=1
+			else
+				PTXT "${ERROR} Unable to journal the current installer configuration before WebUI port setup."
+				return 1
+			fi
 			CONFIG_ROLLBACK="${TMPDIR:-/tmp}/AdGuardHome.config.webui-port.$$"
 			if ! save_installer_config "${CONFIG_ROLLBACK}"; then
+				setup_restore_nvram_journal || true
 				PTXT "${ERROR} Unable to preserve the previous installer preferences."
 				return 1
 			fi
 			if ! write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT}\""; then
 				restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+				setup_restore_nvram_journal || true
 				PTXT "${ERROR} Unable to save the AdGuardHome WebUI port."
 				return 1
 			fi
 			if ! setup_sync_webui_port "${WEB_PORT}"; then
 				restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+				setup_restore_nvram_journal || true
 				PTXT "${ERROR} Unable to update the AdGuardHome WebUI address."
 				return 1
 			fi
 			discard_installer_config_backup "${CONFIG_ROLLBACK}"
 			CONFIG_ROLLBACK=""
 		elif awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' | grep -qoE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' && [ "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" != "$(awk -F':' '/.*address:.*/{ print $3 }' "${YAML_FILE}" | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')" ]; then
+			if ! setup_files_begin_if_needed; then
+				setup_restore_previous_yaml || true
+				PTXT "${ERROR} Unable to journal the current installer configuration before WebUI port synchronization."
+				return 1
+			fi
 			if ! setup_sync_webui_port "$(awk -F'=' '/ADGUARD_WEBUI_PORT/ {print $2}' "${CONF_FILE}" | sed -e 's/^"//' -e 's/"$//' | grep -oE '^(3000|[3-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')"; then
+				setup_restore_nvram_journal || true
 				PTXT "${ERROR} Unable to update the AdGuardHome WebUI address."
 				return 1
 			fi
 		fi
 		##########################################################################################################################################################################################################################################################################
-		if [ -n "$(awk -F': ' '/.*schema:.*/{ print $2 }' "${YAML_FILE}")" ] && [ "$(awk -F': ' '/.*schema:.*/{ print $2 }' "${YAML_FILE}")" != "${SCHEMA_VER}" ]; then yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema:.*/{ print $2 }' "${YAML_FILE}")" "schema_version: ${SCHEMA_VER}" "${YAML_FILE}"; fi
+		if [ -n "$(awk -F': ' '/.*schema_version:.*/{ print $2 }' "${YAML_FILE}")" ] && [ "$(awk -F': ' '/.*schema_version:.*/{ print $2 }' "${YAML_FILE}")" != "${SCHEMA_VER}" ]; then
+			if ! setup_files_begin_if_needed; then
+				setup_restore_previous_yaml || true
+				PTXT "${ERROR} Unable to journal the current installer configuration before schema version update."
+				return 1
+			fi
+			if ! yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema_version:.*/{ print $2 }' "${YAML_FILE}")" "schema_version: ${SCHEMA_VER}" "${YAML_FILE}"; then
+				setup_restore_nvram_journal || true
+				PTXT "${ERROR} Unable to update the schema version in the configuration file."
+				return 1
+			fi
+		fi
 		if ! check_AdGuardHome_yaml; then
-			setup_AdGuardHome_impl x
+			setup_AdGuardHome_impl x "${2:-}" "${SETUP_FILES_JOURNALED}"
 			return
 		fi
 		PTXT "${INFO} Found previous AdGuardHome config file"
 		read_yesno "Do you want to use this file without reconfiguring?"
 		CONFIRM_STATUS=$?
 		if [ "${CONFIRM_STATUS}" -eq 0 ]; then
+			if [ "${SETUP_FILES_JOURNALED}" -eq 1 ]; then
+				if ! nvram_transaction_finalize_setup_pair; then
+					setup_restore_nvram_journal || true
+					PTXT "${ERROR} Unable to finalize the installer configuration updates."
+					return 1
+				fi
+			fi
 			PTXT "${INFO} Use previous settings file"
 		elif [ "${CONFIRM_STATUS}" -eq 1 ]; then
-			setup_AdGuardHome_impl x
+			setup_AdGuardHome_impl x "${2:-}" "${SETUP_FILES_JOURNALED}"
 		else
+			setup_restore_nvram_journal || true
 			return "${CONFIRM_STATUS}"
 		fi
 	else
 		if [ -f "${YAML_FILE}" ]; then
 			if [ "$1" = "reconfig" ]; then
 				if ! check_AdGuardHome_yaml; then
-					setup_AdGuardHome_impl x
+					setup_AdGuardHome_impl x "${2:-}" "${SETUP_FILES_JOURNALED}"
 					return
 				fi
 				PTXT "${INFO} Found previous AdGuardHome config file"
@@ -5887,6 +7122,7 @@ setup_AdGuardHome_impl() {
 				"${INFO}   2) Restore original configuration selections" \
 				"${INFO}   3) Choose new configuration selections"
 			if ! read_input_num "Your selection" 1 3; then
+				setup_restore_nvram_journal || true
 				PTXT "${ERROR} Unable to select a reconfiguration mode. Setup was aborted."
 				return 1
 			fi
@@ -5895,8 +7131,15 @@ setup_AdGuardHome_impl() {
 					PTXT "${INFO} Using previous settings file"
 					;;
 				2 | 3)
+					if ! setup_files_begin_if_needed; then
+						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+						setup_restore_previous_yaml || true
+						PTXT "${ERROR} Unable to journal the current installer configuration before YAML rotation."
+						return 1
+					fi
 					PTXT "${INFO} Backing up previous settings file..."
 					if ! mv "${YAML_FILE}" "${YAML_BAK}"; then
+						setup_restore_nvram_journal || true
 						PTXT "${ERROR} Unable to back up the previous AdGuardHome configuration. Setup was aborted."
 						return 1
 					fi
@@ -5909,6 +7152,11 @@ setup_AdGuardHome_impl() {
 					;;
 			esac
 		elif [ ! -f "${YAML_FILE}" ] && [ -f "${YAML_ORI}" ]; then
+			if ! setup_files_begin_if_needed; then
+				setup_restore_previous_yaml || true
+				PTXT "${ERROR} Unable to journal the current installer configuration before YAML copy."
+				return 1
+			fi
 			cp -f "${YAML_ORI}" "${YAML_FILE}"
 		fi
 		case "${2:-reconfig}" in
@@ -5923,6 +7171,7 @@ setup_AdGuardHome_impl() {
 							1) DNS_FILTER_SELECTION=0 ;;
 							*)
 								setup_restore_previous_yaml || true
+								setup_restore_nvram_journal || true
 								return "${YESNO_STATUS}"
 								;;
 						esac
@@ -5934,6 +7183,7 @@ setup_AdGuardHome_impl() {
 								1) LOCAL_CACHE_SELECTION=0 ;;
 								*)
 									setup_restore_previous_yaml || true
+									setup_restore_nvram_journal || true
 									return "${YESNO_STATUS}"
 									;;
 							esac
@@ -5947,6 +7197,7 @@ setup_AdGuardHome_impl() {
 							1) IPSET_SELECTION=0 ;;
 							*)
 								setup_restore_previous_yaml || true
+								setup_restore_nvram_journal || true
 								return "${YESNO_STATUS}"
 								;;
 						esac
@@ -5954,9 +7205,23 @@ setup_AdGuardHome_impl() {
 						IPSET_SELECTION=0
 						PTXT "${INFO} IPSET is disabled in LAN/AP/Bridge mode because IPTABLES/IPSET rules are not manageable there."
 					fi
-					if [ "$2" != "reconfig" ] && ! check_ipset "${IPSET_SELECTION}"; then
-						PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
-							"${WARNING} Continuing setup with the previous or default IPSET preference."
+					if [ "$2" != "reconfig" ]; then
+						if ! setup_files_begin_if_needed; then
+							setup_restore_previous_yaml || true
+							PTXT "${ERROR} Unable to journal the current installer configuration before check_ipset."
+							return 1
+						fi
+						if ! check_ipset "${IPSET_SELECTION}"; then
+							PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
+								"${WARNING} Continuing setup with the previous or default IPSET preference."
+						fi
+					fi
+				fi
+				if { { [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; } || [ "${CHOOSE_NEW}" -eq 1 ] || [ -n "${DNS_FILTER_SELECTION:-}" ]; }; then
+					if ! setup_files_begin_if_needed; then
+						setup_restore_previous_yaml || true
+						PTXT "${ERROR} Unable to journal the current installer configuration before setup publication."
+						return 1
 					fi
 				fi
 				if { [ ! -f "${YAML_ORI}" ] && [ ! -f "${YAML_FILE}" ]; } || [ "${CHOOSE_NEW}" -eq 1 ]; then
@@ -5966,6 +7231,7 @@ setup_AdGuardHome_impl() {
 						"${INFO} and not already in use by any other service."
 					if ! read_input_port "Default is" 3000; then
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						return 1
 					fi
 					WEB_PORT_SELECTION="${WEB_PORT}"
@@ -5974,15 +7240,18 @@ setup_AdGuardHome_impl() {
 					if [ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" ] && [ -z "${NET_ADDR}" ]; then
 						PTXT "${ERROR} Unable to resolve the LAN IPv4 address for AdGuardHome LAN mode. Setup was aborted."
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						return 1
 					fi
 					if ! setup_resolve_bind_addresses; then
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						return 1
 					fi
 					if ! setup_reverse_upstream_target; then
 						PTXT "${ERROR} Unable to resolve the reverse upstream target. Setup was aborted."
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						return 1
 					fi
 					YAML_ORI_NEW="${YAML_ORI}.new.$$"
@@ -5993,6 +7262,7 @@ setup_AdGuardHome_impl() {
 					if ! AdGuardHome_authen 1 "${YAML_ORI_NEW}" 0; then
 						rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						return 1
 					fi
 					setup_write_dns_bind_hosts "${YAML_ORI_NEW}"
@@ -6002,9 +7272,16 @@ setup_AdGuardHome_impl() {
 					if ! read_input_dns "Default is" 9.9.9.9 || ! read_input_dns "2nd Default is" 8.8.8.8; then
 						rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						return 1
 					fi
-					LAN_DOMAIN_ROLLBACK="$(nvram get lan_domain)"
+					if ! LAN_DOMAIN_ROLLBACK="$(nvram get lan_domain 2>/dev/null)"; then
+						rm -f "${YAML_ORI_NEW}"
+						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
+						PTXT "${ERROR} Unable to read the LAN domain NVRAM setting; no changes were made."
+						return 1
+					fi
 					if [ -n "${LAN_DOMAIN_ROLLBACK}" ]; then
 						DOMAIN="${LAN_DOMAIN_ROLLBACK}"
 						DOMAIN_CONFIG_SELECTION="no"
@@ -6043,12 +7320,14 @@ setup_AdGuardHome_impl() {
 					if ! check_AdGuardHome_yaml "${YAML_ORI_NEW}"; then
 						rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						return 1
 					fi
 					PTXT "${INFO} Writing AdGuardHome configuration..."
 					if ! cp -f "${YAML_ORI_NEW}" "${YAML_FILE}"; then
 						rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						PTXT "${ERROR} Writing AdGuardHome configuration failed "
 						return 1
 					fi
@@ -6056,16 +7335,24 @@ setup_AdGuardHome_impl() {
 				if ! check_AdGuardHome_yaml; then
 					[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 					setup_restore_previous_yaml || true
+					setup_restore_nvram_journal || true
 					PTXT "${ERROR} Writing AdGuardHome configuration failed " \
 						"${ERROR} Please send ${YAML_ERR} file and screen log of " \
 						"${ERROR} all ssh terminal operations to the script developer."
 					return 1
 				fi
 				if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && [ -n "${DNS_FILTER_SELECTION:-}" ]; then
+					if ! setup_files_begin_if_needed; then
+						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+						setup_restore_previous_yaml || true
+						PTXT "${ERROR} Unable to journal the current installer configuration before DNSFilter reconfiguration."
+						return 1
+					fi
 					CONFIG_ROLLBACK="${TMPDIR:-/tmp}/AdGuardHome.config.$$"
 					if ! save_installer_config "${CONFIG_ROLLBACK}"; then
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						PTXT "${ERROR} Unable to preserve the current installer preferences."
 						return 1
 					fi
@@ -6073,11 +7360,19 @@ setup_AdGuardHome_impl() {
 						restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						PTXT "${ERROR} Unable to save the AdGuardHome domain setting."
 						return 1
 					fi
-					if [ "${DOMAIN_CONFIG_SELECTION}" = "yes" ] && [ -z "${LAN_DOMAIN_ROLLBACK}" ]; then
-						nvram set lan_domain="${DOMAIN}" && nvram commit
+					if [ -n "${DOMAIN_CONFIG_SELECTION}" ]; then
+						if ! installer_lan_domain_set "${DOMAIN}" 1; then
+							restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+							[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+							setup_restore_previous_yaml || true
+							setup_restore_nvram_journal || true
+							PTXT "${ERROR} Unable to persist the LAN domain setting."
+							return 1
+						fi
 						DOMAIN_LAN_CHANGED=1
 					fi
 					DNS_FILTER_ROLLBACK_DIR="${TMPDIR:-/tmp}/AdGuardHome.dnsfilter.$$"
@@ -6086,39 +7381,43 @@ setup_AdGuardHome_impl() {
 						rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
 						restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 						if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
-							nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
-							nvram commit
+							installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 						fi
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						PTXT "${ERROR} Unable to preserve the current DNSFilter settings."
 						return 1
 					fi
 					check_dns_filter "${DNS_FILTER_SELECTION}"
 					YESNO_STATUS="$?"
 					if [ "${YESNO_STATUS}" -ne 0 ]; then
-						rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
+						if restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+							rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
+						else
+							PTXT "${ERROR} Unable to restore the previous DNSFilter settings; the recovery snapshot was preserved."
+						fi
 						restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 						if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
-							nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
-							nvram commit
+							installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 						fi
 						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
 						return "${YESNO_STATUS}"
 					fi
 					if [ "$(nvram get dns_local_cache)" != "1" ]; then
 						if ! check_dns_local "${LOCAL_CACHE_SELECTION}"; then
 							restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 							if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
-								nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
-								nvram commit
+								installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 							fi
 							if ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
 								PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 							fi
 							[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 							setup_restore_previous_yaml || true
+							setup_restore_nvram_journal || true
 							PTXT "${ERROR} Unable to save the AdGuardHome local cache setting."
 							return 1
 						fi
@@ -6126,68 +7425,132 @@ setup_AdGuardHome_impl() {
 						if ! check_dns_local 0; then
 							restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 							if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
-								nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
-								nvram commit
+								installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 							fi
 							if ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
 								PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 							fi
 							[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 							setup_restore_previous_yaml || true
+							setup_restore_nvram_journal || true
 							PTXT "${ERROR} Unable to save the AdGuardHome local cache setting."
 							return 1
 						fi
 					fi
 				fi
-				if [ "$2" = "reconfig" ] && [ -n "${IPSET_SELECTION:-}" ] && ! check_ipset "${IPSET_SELECTION}"; then
-					PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
-						"${WARNING} Continuing reconfiguration with the previous IPSET preference."
+				if [ "$2" = "reconfig" ] && [ -n "${IPSET_SELECTION:-}" ]; then
+					if ! setup_files_begin_if_needed; then
+						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+						setup_restore_previous_yaml || true
+						PTXT "${ERROR} Unable to journal the current installer configuration before IPSET reconfiguration."
+						return 1
+					fi
+					if ! check_ipset "${IPSET_SELECTION}"; then
+						PTXT "${WARNING} Unable to save the optional AdGuardHome IPSET integration setting." \
+							"${WARNING} Continuing reconfiguration with the previous IPSET preference."
+					fi
 				fi
-				if { [ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" ] || [ -n "${DNS_FILTER_SELECTION:-}" ]; } &&
-					! configure_runtime_defaults new-install "${ADGUARD_INSTALL_MODE:-wan}" "${LOCAL_CACHE_SELECTION:-0}"; then
-					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
-					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
-						nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
-						nvram commit
+				if [ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" ] || [ -n "${DNS_FILTER_SELECTION:-}" ]; then
+					if ! setup_files_begin_if_needed; then
+						[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+						if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+							installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
+						fi
+						if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+							PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+						fi
+						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+						setup_restore_previous_yaml || true
+						PTXT "${ERROR} Unable to journal the current installer configuration before configure_runtime_defaults."
+						return 1
 					fi
-					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
-						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+					if ! configure_runtime_defaults new-install "${ADGUARD_INSTALL_MODE:-wan}" "${LOCAL_CACHE_SELECTION:-0}"; then
+						[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+						if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+							installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
+						fi
+						if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+							PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+						fi
+						[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
+						setup_restore_previous_yaml || true
+						setup_restore_nvram_journal || true
+						PTXT "${ERROR} Unable to save the AdGuardHome runtime defaults."
+						return 1
 					fi
-					[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
-					setup_restore_previous_yaml || true
-					PTXT "${ERROR} Unable to save the AdGuardHome runtime defaults."
-					return 1
 				fi
 				if [ -n "${WEB_PORT_SELECTION:-}" ] && ! write_conf ADGUARD_WEBUI_PORT "\"${WEB_PORT_SELECTION}\""; then
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
-						nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
-						nvram commit
+						installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 					fi
 					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
 						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 					fi
 					[ -z "${YAML_ORI_NEW:-}" ] || rm -f "${YAML_ORI_NEW}"
 					setup_restore_previous_yaml || true
+					setup_restore_nvram_journal || true
 					PTXT "${ERROR} Unable to save the AdGuardHome WebUI port."
 					return 1
 				fi
+				if [ -n "${YAML_ORI_NEW:-}" ]; then
+					YAML_ORI_ROLLBACK="${YAML_ORI}.rollback.$$"
+					if [ -e "${YAML_ORI}" ]; then
+						if ! cp -f "${YAML_ORI}" "${YAML_ORI_ROLLBACK}"; then
+							[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+							if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+								installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
+							fi
+							if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+								PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+							fi
+							rm -f "${YAML_ORI_NEW}"
+							setup_restore_previous_yaml || true
+							setup_restore_nvram_journal || true
+							PTXT "${ERROR} Unable to preserve the previous original AdGuardHome configuration snapshot."
+							return 1
+						fi
+						YAML_ORI_WAS_PRESENT=1
+					fi
+				fi
 				if [ -n "${YAML_ORI_NEW:-}" ] && ! mv -f "${YAML_ORI_NEW}" "${YAML_ORI}"; then
+					rm -f "${YAML_ORI_ROLLBACK}"
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
-						nvram set lan_domain="${LAN_DOMAIN_ROLLBACK}"
-						nvram commit
+						installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
 					fi
 					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
 						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
 					fi
 					setup_restore_previous_yaml || true
+					setup_restore_nvram_journal || true
 					PTXT "${ERROR} Unable to publish the original AdGuardHome configuration snapshot."
 					return 1
 				fi
 				SETUP_YAML_TMP_FILE=""
-				[ -z "${CONFIG_ROLLBACK}" ] || discard_installer_config_backup "${CONFIG_ROLLBACK}"
+				if ! nvram_transaction_finalize_setup_pair; then
+					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
+					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
+						installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
+					fi
+					if [ -n "${DNS_FILTER_ROLLBACK_DIR}" ] && ! restore_dns_filter_settings "${DNS_FILTER_ROLLBACK_DIR}"; then
+						PTXT "${ERROR} Unable to restore the previous DNSFilter settings."
+					fi
+					if [ -n "${YAML_ORI_ROLLBACK}" ]; then
+						if [ "${YAML_ORI_WAS_PRESENT}" -eq 1 ]; then
+							mv -f "${YAML_ORI_ROLLBACK}" "${YAML_ORI}" || PTXT "${ERROR} Unable to restore the previous original AdGuardHome configuration snapshot."
+						else
+							rm -f "${YAML_ORI}" || PTXT "${ERROR} Unable to remove the aborted original AdGuardHome configuration snapshot."
+						fi
+					fi
+					setup_restore_previous_yaml || true
+					setup_restore_nvram_journal || true
+					PTXT "${ERROR} Unable to finalize the installer-managed NVRAM settings."
+					return 1
+				fi
+				rm -f "${YAML_ORI_ROLLBACK}"
 				[ -z "${DNS_FILTER_ROLLBACK_DIR}" ] || rm -rf "${DNS_FILTER_ROLLBACK_DIR}"
+				[ -z "${CONFIG_ROLLBACK}" ] || discard_installer_config_backup "${CONFIG_ROLLBACK}"
 				;;
 		esac
 	fi
@@ -6232,9 +7595,12 @@ uninst_all() {
 			return "${CONFIRM_STATUS}"
 		fi
 	fi
+	if [ "$(conf_value ADGUARD_DOMAIN)" = "yes" ] && ! installer_lan_domain_set ""; then
+		PTXT "${ERROR} Unable to clear the installer-managed LAN domain setting; uninstall was aborted before stopping AdGuardHome."
+		return 1
+	fi
 	agh_stop
 	cleanup_legacy_firewall
-	[ "$(conf_value ADGUARD_DOMAIN)" = "yes" ] && nvram set lan_domain="" && nvram commit
 	mv "${TARG_DIR}/installer" "${HOME}/installer"
 	rm -rf "${TARG_DIR}" "${ROLLBACK_RESULT_FILE}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"
 	yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
@@ -6389,6 +7755,20 @@ end_op_message() {
 			fi
 			;;
 	esac
+	nvram_transaction_lock_reaper_release_active || {
+		PTXT "${ERROR} Unable to release the installer NVRAM transaction reaper before completing the operation."
+		if [ "${END_OP_SIGNAL:-0}" = "1" ] ||
+			{ [ "${CLI_MODE:-0}" != "1" ] && [ "${ADGUARD_DEFER_END_OP:-0}" != "1" ]; }; then
+			exit 1
+		fi
+		return 1
+	}
+	# Signal traps must not return into an interrupted lock/recovery operation
+	# after releasing its reaper. CLI and deferred non-signal callers still use
+	# the normal status-specific return paths below.
+	if [ "${END_OP_SIGNAL:-0}" = "1" ] && [ "${1:-0}" = "2" ]; then
+		exit 2
+	fi
 	if [ "${CLI_MODE:-0}" = "1" ]; then
 		case "${1:-0}" in
 			0) return 0 ;;
@@ -6425,6 +7805,10 @@ end_op_message() {
 	PTXT " "
 	PTXT " "
 	sleep 3s && clear_screen
+	nvram_transaction_lock_release || {
+		PTXT "${ERROR} Unable to release the installer NVRAM transaction lock before restarting the installer."
+		exit 1
+	}
 	if [ -f "${TARG_DIR}/installer" ]; then
 		chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1
 		exec "${TARG_DIR}/installer" "${BRANCH}"
@@ -6466,7 +7850,7 @@ menu() {
 			CHOSEN="$1"
 			;;
 	esac
-	[ -n "${CHOSEN}" ] && trap 'clear_screen; end_op_message 2' HUP INT QUIT ABRT TERM
+	[ -n "${CHOSEN}" ] && trap 'END_OP_SIGNAL=1; clear_screen; end_op_message 2' HUP INT QUIT ABRT TERM
 	case "${CHOSEN}" in
 		"1" | "install" | "update")
 			ptxt_phase "Selecting install or update operation."
@@ -6569,7 +7953,7 @@ menu() {
 				return 1
 			fi
 			OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
-			if ! service restart_AdGuardHome >/dev/null 2>&1; then
+			if ! adguard_service_without_nvram_lock_fd service restart_AdGuardHome >/dev/null 2>&1; then
 				PTXT "${WARNING} The setting was saved, but AdGuardHome could not be restarted automatically."
 			else
 				adguard_service_status_after_action restart "${OLD_PIDS}" || true
@@ -7412,7 +8796,7 @@ cli_run() {
 			fi
 			if [ "${CLI_YES}" = "1" ]; then
 				OLD_PIDS="$(pidof AdGuardHome 2>/dev/null)"
-				if service restart_AdGuardHome >/dev/null 2>&1 && adguard_service_status_after_action restart "${OLD_PIDS}"; then
+				if adguard_service_without_nvram_lock_fd service restart_AdGuardHome >/dev/null 2>&1 && adguard_service_status_after_action restart "${OLD_PIDS}"; then
 					return 0
 				fi
 				PTXT "${WARNING} IPSET refresh requested, but AdGuardHome could not be restarted."
@@ -7466,7 +8850,7 @@ cli_run() {
 			fi
 			cli_enable_assume_yes
 			cleanup
-			check_jffs_enabled
+			check_jffs_enabled || return 1
 			if [ "${ADGUARD_INSTALL_MODE}" = "wan" ]; then
 				check_dns_environment 0 || return 1
 			fi
@@ -7486,6 +8870,17 @@ cli_run() {
 			;;
 	esac
 }
+
+nvram_transaction_recovery_dependencies_available || exit 1
+trap 'on_installer_exit' EXIT
+if ! nvram_transaction_recover_startup; then
+	if [ "${NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE:-0}" = "1" ] && nvram_transaction_read_only_diagnostic_requested "$@"; then
+		PTXT "${WARNING} Unable to remove a completed installer-managed NVRAM snapshot; continuing with read-only diagnostics."
+	else
+		PTXT "${ERROR} Unable to release the installer NVRAM transaction lock after recovery; review ${ROLLBACK_RESULT_FILE} and any preserved snapshot."
+		exit 1
+	fi
+fi
 
 if [ "${1:-}" = "preflight" ]; then
 	preflight "${2:-install}"
@@ -7557,7 +8952,6 @@ fi
 amtm_update_check "$@"
 
 installer_dependencies_available || exit 1
-trap 'on_installer_exit' EXIT
 if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
 	BLOCKLIST_ANALYZER_SHA256="$(conf_value BLOCKLIST_ANALYZER_SHA256)"
 else
@@ -7713,7 +9107,7 @@ case "$2" in
 			sleep 3s
 		fi
 		cleanup
-		check_jffs_enabled
+		check_jffs_enabled || exit 1
 		if [ "${ADGUARD_INSTALL_MODE}" = "wan" ]; then
 			check_dns_environment 0 || exit 1
 		fi

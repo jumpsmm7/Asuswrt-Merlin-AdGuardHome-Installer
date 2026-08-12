@@ -43,12 +43,17 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
-sed -n '/^ipv4_is_valid() {$/,/^port_is_valid() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
+_extracted="$(sed -n \
+	'/^conf_value() {$/,/^md5_is_valid() {$/p; /^write_conf() {$/,/^}$/p; /^ipv4_is_valid() {$/,/^port_is_valid() {$/p; /^setup_AdGuardHome() {$/,/^setup_amtmupdate() {$/p' \
+	"${SCRIPT_PATH}")" || fail 'could not extract install mode helpers'
+printf '%s\n' "${_extracted}" | sed '/^md5_is_valid() {$/d; /^port_is_valid() {$/d; /^setup_amtmupdate() {$/d' >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract install mode helpers'
 extract_function rollback_pending_mode_migration "${TMP_ROOT}/rollback-function" &&
 	cat "${TMP_ROOT}/rollback-function" >>"${FUNCTIONS_FILE}" ||
 	fail 'could not extract pending migration rollback helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'install mode helper extraction was empty'
+grep -q '^setup_AdGuardHome_impl() {$' "${FUNCTIONS_FILE}" ||
+	fail 'setup orchestration helper is missing from the extracted functions'
 
 grep -q '^adguard_install_mode_detect() {$' "${SCRIPT_PATH}" ||
 	fail 'install mode detection helper is missing'
@@ -247,16 +252,191 @@ grep -q 'wan:lan | lan:wan | :lan)' "${SCRIPT_PATH}" ||
 	fail 'installer must migrate legacy installs without a saved mode when LAN mode is detected'
 grep -Fq '[ "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" = "wan" ] || [ -z "${PREVIOUS_ADGUARD_INSTALL_MODE:-}" ]' "${FUNCTIONS_FILE}" ||
 	fail 'legacy WAN migration rollback does not restore active firewall state'
-grep -q 'if \[ "${ADGUARD_INSTALL_MODE}" = "wan" \] && \[ -n "${NAT_ENV}" \]' "${SCRIPT_PATH}" ||
-	fail 'double-NAT warning must be gated by WAN install mode'
-grep -q 'if \[ "${ADGUARD_INSTALL_MODE}" = "wan" \]; then' "${SCRIPT_PATH}" ||
-	fail 'DNS environment preparation must be gated by WAN install mode'
-grep -q 'if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" \] && \[ -n "${DNS_FILTER_SELECTION:-}" \]; then' "${SCRIPT_PATH}" ||
-	fail 'DNSFilter mutation must be gated by WAN install mode'
-grep -q 'if { \[ "${ADGUARD_INSTALL_MODE:-wan}" = "lan" \] || \[ -n "${DNS_FILTER_SELECTION:-}" \]; } &&' "${SCRIPT_PATH}" ||
-	fail 'LAN runtime defaults must not depend on DNSFilter selection'
-grep -q 'if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" \] && \[ ! -f "${AGH_FILE}" \]; then' "${SCRIPT_PATH}" ||
+# Behavioral test: verify that the installer properly handles LAN mode by checking
+# that setup_AdGuardHome_impl invokes check_dns_filter and configure_runtime_defaults
+# correctly for LAN mode without DNS filter selection.
+(
+	# shellcheck disable=SC1090
+	WRAPPED_FUNCTIONS="${TMP_ROOT}/functions-wrapped"
+	extract_function configure_runtime_defaults "${TMP_ROOT}/original-runtime-defaults" ||
+		fail 'could not extract configure_runtime_defaults for wrapping'
+	sed 's/^configure_runtime_defaults() {$/_original_configure_runtime_defaults() {/' \
+		"${TMP_ROOT}/original-runtime-defaults" >"${WRAPPED_FUNCTIONS}" ||
+		fail 'could not rename extracted configure_runtime_defaults'
+	cat >>"${WRAPPED_FUNCTIONS}" <<'EOF'
+configure_runtime_defaults() {
+	printf '%s\n' 'configure_runtime_defaults' >>"${CALLS_FILE}"
+	_original_configure_runtime_defaults "$@"
+}
+EOF
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	# shellcheck disable=SC1090
+	. "${WRAPPED_FUNCTIONS}"
+
+	# Mock environment for LAN mode without DNS filter selection
+	BASE_DIR="${TMP_ROOT}"
+	ADGUARD_INSTALL_MODE="lan"
+	DNS_FILTER_SELECTION=""
+	CONF_FILE="${TMP_ROOT}/AdGuardHome.conf"
+	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
+	YAML_ORI="${TMP_ROOT}/AdGuardHome.yaml.ori"
+	TARG_DIR="${TMP_ROOT}/target"
+	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	CALLS_FILE="${TMP_ROOT}/calls"
+
+	# Create minimal installer environment
+	mkdir -p "${TARG_DIR}" || fail 'could not create target directory'
+	cat >"${AGH_FILE}" <<'AGH_STUB'
+#!/bin/sh
+printf '%s\n' 'AdGuard Home, version test Schema version: 27'
+AGH_STUB
+	chmod 755 "${AGH_FILE}" || fail 'could not create AdGuardHome stub'
+	: >"${CONF_FILE}"
+	: >"${CALLS_FILE}"
+
+	# assert_count verifies that a pattern appears in the calls file the expected number of times.
+	assert_count() {
+		pattern="$1"
+		expected="$2"
+		message="$3"
+		actual="$(grep -c "${pattern}" "${CALLS_FILE}" 2>/dev/null)" || actual=0
+		[ "${actual}" -eq "${expected}" ] || fail "${message}: found ${actual}, expected ${expected}"
+	}
+
+	# Stub dependencies called by setup_AdGuardHome_impl
+	INFO='Info:'
+	ERROR='Error:'
+	WARNING='Warning:'
+	# PTXT prints each argument on a separate line.
+	PTXT() { printf '%s\n' "$@"; }
+	# ptxt_ok performs no action.
+	ptxt_ok() { :; }
+	# create_dir creates the specified directory and any required parent directories.
+	create_dir() { mkdir -p "$1"; }
+	# read_input_port sets the web interface port to 3000.
+	read_input_port() { WEB_PORT=3000; }
+	# read_input_dns sets a default primary bootstrap DNS address or assigns a secondary address when the primary is already set.
+	read_input_dns() {
+		if [ -z "${BOOTSTRAP1:-}" ]; then
+			BOOTSTRAP1=9.9.9.9
+		else
+			BOOTSTRAP2=8.8.8.8
+		fi
+	}
+	# read_yesno prompts for and evaluates a yes-or-no response.
+	read_yesno() { return 1; }
+	# AdGuardHome_authen appends the default administrator account configuration to the specified file.
+	AdGuardHome_authen() {
+		printf '%s\n' 'users:' '- name: admin' '  password: hash' >>"$2"
+	}
+	# check_AdGuardHome_yaml checks the AdGuard Home YAML configuration.
+	check_AdGuardHome_yaml() { :; }
+	# save_dns_filter_settings creates the specified directory for DNS filter settings.
+	save_dns_filter_settings() { mkdir -p "$1"; }
+	# restore_dns_filter_settings removes the file or directory specified by its first argument.
+	restore_dns_filter_settings() { rm -rf "$1"; }
+	# installer_lan_domain_set marks the LAN domain as configured.
+	installer_lan_domain_set() { :; }
+	# installer_lan_domain_restore restores an interrupted LAN-domain configuration transaction.
+	installer_lan_domain_restore() { :; }
+	# nvram_transaction_finalize_setup_pair removes temporary NVRAM setup files and reports whether cleanup succeeded.
+	nvram_transaction_finalize_setup_pair() {
+		mkdir -p "${BASE_DIR}/.AdGuardHome.nvram" || return 1
+		: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed" || return 1
+		rm -rf "${BASE_DIR}/.AdGuardHome.nvram/setup-files" 2>/dev/null || true
+		return 0
+	}
+	# nvram_transaction_setup_committed reports whether the setup commit marker exists.
+	nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
+	# nvram_transaction_setup_files_begin creates a setup journal and records the existing configuration or its absence for rollback.
+	nvram_transaction_setup_files_begin() {
+		printf '%s\n' 'nvram_transaction_setup_files_begin' >>"${CALLS_FILE}"
+		local journal_root
+		journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+		[ ! -e "${journal_root}" ] || return 1
+		mkdir -p "${journal_root}" || return 1
+		: >"${journal_root}/yaml-file.absent"
+		: >"${journal_root}/yaml-original.absent"
+		if [ -f "${CONF_FILE}" ]; then
+			cp -p "${CONF_FILE}" "${journal_root}/config" || return 1
+		else
+			: >"${journal_root}/config.absent"
+		fi
+		return 0
+	}
+	# nvram_transaction_setup_files_restore reports successful setup-file restoration.
+	nvram_transaction_setup_files_restore() { return 0; }
+	# check_dns_filter records a DNS filter check invocation and succeeds.
+	check_dns_filter() {
+		printf '%s\n' 'check_dns_filter' >>"${CALLS_FILE}"
+		return 0
+	}
+	# check_dns_local checks local DNS availability.
+	check_dns_local() { :; }
+	# check_ipset checks whether the required ipset functionality is available.
+	check_ipset() { :; }
+	# adguard_ipset_allowed checks whether ipset functionality is permitted for the current install mode.
+	adguard_ipset_allowed() {
+		printf '%s\n' 'adguard_ipset_allowed' >>"${CALLS_FILE}"
+		case "${ADGUARD_INSTALL_MODE:-}" in
+			lan) return 1 ;;
+		esac
+		return 0
+	}
+	# ai_have_cmd always reports that the requested command is unavailable.
+	ai_have_cmd() { return 1; }
+	# nvram returns predefined test values for selected keys and accepts set and commit operations.
+	nvram() {
+		case "${1:-}:${2:-}" in
+			get:sw_mode) printf '%s\n' '2' ;;
+			get:lan_ipaddr) printf '%s\n' '192.168.50.1' ;;
+			get:lan_ifname) printf '%s\n' '' ;;
+			get:dns_local_cache) printf '%s\n' '1' ;;
+			get:ipv6_rtr_addr) printf '%s\n' '' ;;
+			get:lan_domain) printf '%s\n' 'lan' ;;
+			get:lan_gateway) printf '%s\n' '192.168.1.1' ;;
+			set:*) : ;;
+			commit:) : ;;
+			*) return 1 ;;
+		esac
+	}
+
+	# Invoke the real setup entry point
+	STDERR_OUTPUT="${TMP_ROOT}/setup-stderr"
+	if ! setup_AdGuardHome_impl '' install >"${TMP_ROOT}/setup-stdout" 2>"${STDERR_OUTPUT}"; then
+		cat "${STDERR_OUTPUT}" >&2
+		fail 'setup_AdGuardHome_impl failed for LAN mode without DNS filter selection'
+	fi
+	if grep -Eq 'command not found|not found' "${STDERR_OUTPUT}"; then
+		cat "${STDERR_OUTPUT}" >&2
+		fail 'setup_AdGuardHome_impl encountered missing command in LAN mode test'
+	fi
+
+	# Assert that check_dns_filter was not called in LAN mode without DNS filter selection
+	assert_count '^check_dns_filter$' 0 'check_dns_filter must not be called in LAN mode without DNS filter selection'
+
+	# Assert that configure_runtime_defaults was called exactly once
+	assert_count '^configure_runtime_defaults$' 1 'configure_runtime_defaults call count mismatch'
+
+	# Assert that nvram_transaction_setup_files_begin was called (journal creation)
+	assert_count '^nvram_transaction_setup_files_begin$' 1 'nvram transaction journal creation call count mismatch'
+
+	# Verify journal directory was removed after successful finalization
+	if [ -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
+		fail 'setup_AdGuardHome_impl did not remove NVRAM transaction journal directory after successful finalization'
+	fi
+
+	# Verify install mode was persisted
+	grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" ||
+		fail 'setup_AdGuardHome_impl did not persist LAN install mode'
+) || exit $?
+grep -q 'if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" \]; then' "${SCRIPT_PATH}" ||
 	fail 'DNS environment restore must be gated by WAN install mode'
+grep -q 'installer_lan_domain_restore || PTXT' "${SCRIPT_PATH}" ||
+	fail 'installer exit must restore interrupted LAN-domain transactions'
+grep -q 'if \[ ! -f "${AGH_FILE}" \]; then' "${SCRIPT_PATH}" ||
+	fail 'DNS environment restore must remain limited to an absent local installation'
 grep -q 'configure_runtime_defaults new-install "${ADGUARD_INSTALL_MODE:-wan}" "${LOCAL_CACHE_SELECTION:-0}"' "${SCRIPT_PATH}" ||
 	fail 'runtime defaults must receive install mode before local cache selection'
 if grep -q '\[ "$(nvram get sw_mode)" != "1" \].*exit 1' "${SCRIPT_PATH}"; then

@@ -8,7 +8,10 @@ TEST_ROOT="${TMPDIR:-/tmp}/installer-dns-environment-failure.$$"
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 NVRAM_FILE="${TEST_ROOT}/nvram"
 CALLS_FILE="${TEST_ROOT}/calls"
+LOCK_REMOVE_COUNT=0
+SYMLINK_LOCK_REMOVE_COUNT=0
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -18,34 +21,149 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test workspace'
 
-sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" || fail 'could not extract DNS environment helper'
-sed -n '/^save_dns_nvram_environment() {$/,/^}$/p' "${INSTALLER_PATH}" >>"${FUNCTIONS_FILE}" || fail 'could not extract NVRAM snapshot helper'
+: >"${FUNCTIONS_FILE}" || fail 'could not create test functions file'
+sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" |
+	sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract NVRAM transaction helpers'
+sed -n '/^installer_lan_domain_set() {$/,/^rollback_result_write() {$/p' "${INSTALLER_PATH}" | sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract LAN-domain transaction helpers'
+sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNS environment helper'
+sed -n '/^check_dns_filter() {$/,/^save_dns_filter_settings() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter helper'
+sed -n '/^restore_dns_filter_settings() {$/,/^check_ipset() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter restore helper'
+sed -n '/^on_installer_exit() {$/,/^python_bcrypt_available() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer exit handler'
+sed -n '/^end_op_message() {$/,/^menu() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer restart helper'
+SETUP_RESTORE_FUNCTION="$(/bin/sed -n '/^setup_restore_nvram_journal() {$/,/^}$/p' "${INSTALLER_PATH}")" || fail 'could not extract setup journal restore helper'
+[ -n "${SETUP_RESTORE_FUNCTION}" ] || fail 'setup journal restore helper was not found'
+printf '%s\n' "${SETUP_RESTORE_FUNCTION}" |
+	/bin/sed 's/^setup_restore_nvram_journal()/setup_restore_nvram_journal_impl()/' >>"${FUNCTIONS_FILE}" || fail 'could not rename setup journal restore helper'
+/bin/grep -q '^setup_restore_nvram_journal_impl() {$' "${FUNCTIONS_FILE}" || fail 'setup journal restore implementation was not extracted'
+cat >>"${FUNCTIONS_FILE}" <<'EOF_SETUP_RESTORE_WRAPPER'
+setup_restore_nvram_journal() {
+	[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || SETUP_RESTORE_SAW_COMMIT=1
+	setup_restore_nvram_journal_impl
+}
+EOF_SETUP_RESTORE_WRAPPER
+printf '%s\n' 'nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }' >>"${FUNCTIONS_FILE}"
+[ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/nvram (show|get|set|unset|commit)([[:space:];]|$)')" -eq 7 ] || fail 'NVRAM transaction helpers do not consistently use /bin/nvram'
+[ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/grep -q ')" -eq 1 ] || fail 'NVRAM transaction helpers do not use /bin/grep for inventory matching'
+LOCK_OWNER_FUNC_BODY="$(sed -n '/^nvram_transaction_lock_owner_current() {$/,/^nvram_transaction_lock_owner_live() {$/p' "${INSTALLER_PATH}")" || fail 'could not extract nvram_transaction_lock_owner_current function'
+[ "$(
+	/bin/grep -Ec '/(bin|usr/bin)/(sed|awk)' <<EOF
+${LOCK_OWNER_FUNC_BODY}
+EOF
+)" -eq 0 ] || fail 'NVRAM lock owner parsing does not resolve sed and awk through PATH'
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 
 INFO='Info:'
 ERROR='Error:'
 WARNING='Warning:'
+BASE_DIR="${TEST_ROOT}/base"
+ROLLBACK_RESULT_FILE="${BASE_DIR}/rollback-result"
+AGH_FILE="${TEST_ROOT}/AdGuardHome"
+YAML_FILE="${TEST_ROOT}/AdGuardHome.yaml"
+YAML_ORI="${TEST_ROOT}/AdGuardHome.yaml.original"
+YAML_BAK="${TEST_ROOT}/AdGuardHome.yaml.backup"
+CONF_FILE="${TEST_ROOT}/.config"
+ADGUARD_INSTALL_MODE=wan
+mkdir -p "${BASE_DIR}" || fail 'could not create installer-managed test directory'
 DNS_ENV_READY_TIMEOUT=2
 DNS_ENV_RECOVERY_TIMEOUT=1
 MONOTONIC_NOW=0
+# PTXT appends a message to the calls log.
 PTXT() { printf '%s\n' "$*" >>"${CALLS_FILE}"; }
+# ptxt_phase forwards a phase message to the test output logger.
 ptxt_phase() { PTXT "$1"; }
+# ptxt_step writes a step message to the test call log.
 ptxt_step() { PTXT "$1"; }
+# ptxt_ok writes a success message to the test call log.
 ptxt_ok() { PTXT "$1"; }
-pidof() { return 1; }
-kill_processes() { return 0; }
-sleep() { MONOTONIC_NOW="$((MONOTONIC_NOW + 1))"; }
-monotonic_seconds() { printf '%s\n' "${MONOTONIC_NOW}"; }
+# pidof reports PID 1234 when the requested process is stubby and it is configured as running.
+pidof() {
+	[ "${STUBBY_RUNNING:-0}" = 1 ] && [ "$1" = stubby ] || return 1
+	printf '%s\n' 1234
+}
+# killall simulates terminating stubby, tracking termination attempts and leaving it running when termination is configured to remain stuck.
+killall() {
+	[ "$*" = '-q -9 stubby' ] || return 1
+	STUBBY_KILL_COUNT="$((STUBBY_KILL_COUNT + 1))"
+	[ "${STUBBY_KILL_STUCK:-0}" = 0 ] && STUBBY_RUNNING=0
+}
+# cleanup_api_files performs no operation.
+cleanup_api_files() { :; }
+# installer_cleanup_tmp_file cleans up the installer's temporary file.
+installer_cleanup_tmp_file() { :; }
+# rollback_pending_mode_migration rolls back any pending mode migration.
+rollback_pending_mode_migration() { return 0; }
+# sleep waits for each newly spawned DNS child to publish its start before
+# advancing the simulated clock. Each child is synchronized only once so
+# scheduler latency cannot affect the simulated deadline.
+sleep() {
+	local current_lookup_count sync_wait_count
+
+	if [ -n "${lookup_pid:-}" ] &&
+		[ "${lookup_pid}" != "${SYNC_LOOKUP_PID:-}" ]; then
+		sync_wait_count=0
+		while :; do
+			current_lookup_count="$(cat "${TEST_ROOT}/lookup-start-count" 2>/dev/null || printf 0)"
+			[ -n "${current_lookup_count}" ] || current_lookup_count=0
+
+			if [ "${current_lookup_count}" -gt "${SYNC_LOOKUP_COUNT:-0}" ]; then
+				SYNC_LOOKUP_COUNT="${current_lookup_count}"
+				SYNC_LOOKUP_PID="${lookup_pid}"
+				break
+			fi
+
+			if ! kill -0 "${lookup_pid}" 2>/dev/null; then
+				# The child may finish between the counter read and the liveness
+				# check. Re-read after exit so its completed publication is observed.
+				current_lookup_count="$(cat "${TEST_ROOT}/lookup-start-count" 2>/dev/null || printf 0)"
+				[ -n "${current_lookup_count}" ] || current_lookup_count=0
+				if [ "${current_lookup_count}" -gt "${SYNC_LOOKUP_COUNT:-0}" ]; then
+					SYNC_LOOKUP_COUNT="${current_lookup_count}"
+					SYNC_LOOKUP_PID="${lookup_pid}"
+					break
+				fi
+				fail 'DNS probe exited before publishing its start handshake'
+			fi
+
+			sync_wait_count="$((sync_wait_count + 1))"
+			if [ "${sync_wait_count}" -ge 1000 ]; then
+				fail 'timed out waiting for the DNS lookup child to start'
+			fi
+
+			if [ -x /bin/usleep ]; then
+				/bin/usleep 1000
+			else
+				/bin/sleep 0.01
+			fi
+		done
+	fi
+	MONOTONIC_NOW="$((MONOTONIC_NOW + 1))"
+}
+# monotonic_seconds outputs the simulated monotonic timestamp and fails on the configured call number when MONOTONIC_FAIL_AT is set.
+monotonic_seconds() {
+	if [ "${MONOTONIC_FAIL_AT:-0}" != 0 ]; then
+		MONOTONIC_CALLS="$(cat "${TEST_ROOT}/monotonic-calls" 2>/dev/null || printf 0)"
+		MONOTONIC_CALLS="$((MONOTONIC_CALLS + 1))"
+		printf '%s\n' "${MONOTONIC_CALLS}" >"${TEST_ROOT}/monotonic-calls"
+		[ "${MONOTONIC_CALLS}" != "${MONOTONIC_FAIL_AT}" ] || return 1
+	fi
+	printf '%s\n' "${MONOTONIC_NOW}"
+}
+# check_connection checks whether the simulated public network is available and increments the connectivity check count.
 check_connection() {
 	PUBLIC_CHECK_COUNT="$((PUBLIC_CHECK_COUNT + 1))"
+	[ "${PUBLIC_NETWORK_RECOVER_AT:-0}" -eq 0 ] || [ "${PUBLIC_CHECK_COUNT}" -lt "${PUBLIC_NETWORK_RECOVER_AT}" ] || PUBLIC_NETWORK_AVAILABLE=1
 	[ "${PUBLIC_NETWORK_AVAILABLE:-0}" = 1 ]
 }
+# rollback_result_write appends a rollback status message to the calls log.
+rollback_result_write() { printf '%s\n' "rollback $*" >>"${CALLS_FILE}"; }
 
+# nvram_value reads and prints the value associated with a key from the simulated NVRAM file.
 nvram_value() {
 	awk -v key="$1" 'index($0, key "=") == 1 { print substr($0, length(key) + 2); found=1 } END { exit(found ? 0 : 1) }' "${NVRAM_FILE}"
 }
 
+# nvram simulates NVRAM operations and supports configurable failures for regression testing.
 nvram() {
 	case "$1" in
 		show)
@@ -81,22 +199,95 @@ nvram() {
 	esac
 }
 
+# service simulates supported service restarts and fails when configured failure injection targets the call.
 service() {
-	[ "$*" = restart_dnsmasq ] || return 1
+	case "$*" in
+		restart_dnsmasq | 'restart_firewall;restart_dnsmasq') ;;
+		restart_stubby)
+			STUBBY_RESTART_COUNT="$((STUBBY_RESTART_COUNT + 1))"
+			;;
+		*) return 1 ;;
+	esac
 	SERVICE_COUNT="$((SERVICE_COUNT + 1))"
-	printf '%s\n' 'service restart_dnsmasq' >>"${CALLS_FILE}"
-	[ "${FAIL_SERVICE_AT:-0}" != "${SERVICE_COUNT}" ]
+	printf '%s\n' "service $*" >>"${CALLS_FILE}"
+	if [ "${FAIL_ALL_SERVICES:-0}" = 0 ] && [ "${FAIL_SERVICE_AT:-0}" != "${SERVICE_COUNT}" ] &&
+		[ "${FAIL_SERVICE_AT_2:-0}" != "${SERVICE_COUNT}" ] && [ "${FAIL_SERVICE_AT_3:-0}" != "${SERVICE_COUNT}" ]; then
+		case "$*" in
+			restart_stubby) STUBBY_RUNNING=1 ;;
+		esac
+		return 0
+	fi
+	return 1
 }
 
+# rm removes files and directories while simulating configured failures for transaction, journal, snapshot, and lock artifacts.
+rm() {
+	if [ "${FAIL_DIRTY_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -f ] && [ "${2:-}" = "${NVRAM_TRANSACTION_DIR:-}/dirty" ]; then
+		return 1
+	fi
+	if [ "${FAIL_SETUP_MARKER_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -f ] && [ "${2:-}" = "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; then
+		return 1
+	fi
+	if [ "${FAIL_STAGED_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -f ]; then
+		case "${2:-}" in
+			"${NVRAM_TRANSACTION_DIR:-}"/new.*) return 1 ;;
+		esac
+	fi
+	if [ "${FAIL_SNAPSHOT_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${NVRAM_TRANSACTION_DIR:-}" ]; then
+		return 1
+	fi
+	if [ "${FAIL_RESTORED_JOURNAL_REMOVE:-0}" = 1 ] && [ "$#" -ge 2 ] && [ "${1:-}" = -rf ]; then
+		case "${2:-}" in
+			"${BASE_DIR}/.AdGuardHome.nvram/setup-files.restored."*) return 1 ;;
+		esac
+	fi
+	if [ "${FAIL_PAIRED_SNAPSHOT_REMOVE:-0}" = 1 ] && [ "$#" -eq 3 ]; then
+		case "${1:-}:${2:-}:${3:-}" in
+			"-f:${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty:${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" | "-rf:${BASE_DIR}/.AdGuardHome.nvram/lan-domain:${BASE_DIR}/.AdGuardHome.nvram/dnsfilter") return 1 ;;
+		esac
+	fi
+	if [ "$#" -eq 2 ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ]; then
+		LOCK_REMOVE_COUNT="$((LOCK_REMOVE_COUNT + 1))"
+		[ "${FAIL_LOCK_REMOVE_AT:-0}" != "${LOCK_REMOVE_COUNT}" ] || return 1
+	fi
+	if [ "$#" -ge 2 ] && [ "${1:-}" = -f ] && [ "${2:-}" = "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" ]; then
+		SYMLINK_LOCK_REMOVE_COUNT="$((SYMLINK_LOCK_REMOVE_COUNT + 1))"
+		[ "${FAIL_SYMLINK_LOCK_REMOVE_AT:-0}" != "${SYMLINK_LOCK_REMOVE_COUNT}" ] || return 1
+	fi
+	command rm "$@"
+}
+
+# nslookup simulates a DNS lookup and reports whether DNS is ready. It can block briefly and record termination when configured.
 nslookup() {
+	local lookup_start_count
+	lookup_start_count=$(cat "${TEST_ROOT}/lookup-start-count" 2>/dev/null || printf 0)
+	printf '%s\n' "$((lookup_start_count + 1))" >"${TEST_ROOT}/lookup-start-count" || return 1
 	printf '%s\n' "nslookup $*" >>"${CALLS_FILE}"
+	if [ "${TRACK_LOOKUP:-0}" = 1 ]; then
+		trap 'printf "%s\n" reaped >"${TEST_ROOT}/lookup-reaped"; exit 1' TERM
+	fi
 	[ "${BLOCKING_QUERY:-0}" = 0 ] || /bin/sleep 5
+	[ "${DNS_READY_AFTER_SERVICE:-0}" -eq 0 ] || [ "${SERVICE_COUNT}" -lt "${DNS_READY_AFTER_SERVICE}" ] || DNS_READY=1
 	[ "${DNS_READY:-1}" = 1 ]
 }
 
+# dns_check_count counts recorded DNS lookup calls and writes the count to standard output.
 dns_check_count() { grep -c '^nslookup ' "${CALLS_FILE}"; }
 
+# reset_case restores the simulated test environment, counters, fault-injection settings, and NVRAM contents to their baseline state.
 reset_case() {
+	lookup_pid=""
+	SYNC_LOOKUP_COUNT=0
+	SYNC_LOOKUP_PID=""
+	printf '%s\n' 0 >"${TEST_ROOT}/lookup-start-count"
+	FAIL_LOCK_REMOVE_AT=0 FAIL_DIRTY_REMOVE=0 FAIL_SETUP_MARKER_REMOVE=0 FAIL_SNAPSHOT_REMOVE=0 FAIL_STAGED_REMOVE=0 FAIL_PAIRED_SNAPSHOT_REMOVE=0 FAIL_RESTORED_JOURNAL_REMOVE=0
+	LOCK_REMOVE_COUNT=0
+	nvram_transaction_lock_release || fail 'could not release the previous test transaction lock'
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/jffs-enable"
+	rm -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed"
+	NVRAM_TRANSACTION_DIR=''
+	NVRAM_TRANSACTION_CHANGED=0
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.d" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"
 	cat >"${NVRAM_FILE}" <<'EOF_NVRAM'
 dnspriv_enable=1
 dhcpd_dns_router=0
@@ -104,18 +295,875 @@ dhcp_dns1_x=
 dhcp_dns2_x=149.112.112.112
 EOF_NVRAM
 	: >"${CALLS_FILE}"
-	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0
-	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0
-	BLOCKING_QUERY=0 MONOTONIC_NOW=0
-	_DNS_NVRAM_SAVED=0 _DNS_NVRAM_ROLLBACK_ATTEMPTED=0
+	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0 STUBBY_RESTART_COUNT=0
+	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_SERVICE_AT_2=0 FAIL_SERVICE_AT_3=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
+	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 DNS_READY_AFTER_SERVICE=0 STUBBY_RUNNING=0 STUBBY_KILL_STUCK=0
+	DNS_ENV_READY_TIMEOUT=2 DNS_ENV_RECOVERY_TIMEOUT=1
+	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
+	_DNS_STUBBY_STOPPED=0 _DNS_NVRAM_SAVED=0 _DNS_NVRAM_ROLLBACK_ATTEMPTED=0
 }
 
+reset_case
+SYMLINK_SNAPSHOT_TARGET="${TEST_ROOT}/symlink-snapshot-target"
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram" "${SYMLINK_SNAPSHOT_TARGET}" || fail 'could not create symlink snapshot target'
+printf '%s\n' dnspriv_enable >"${SYMLINK_SNAPSHOT_TARGET}/keys" || fail 'could not create symlink snapshot keys'
+printf '%s\n' 0 >"${SYMLINK_SNAPSHOT_TARGET}/dnspriv_enable" || fail 'could not create symlink snapshot value'
+: >"${SYMLINK_SNAPSHOT_TARGET}/exists.dnspriv_enable" || fail 'could not create symlink snapshot existence marker'
+: >"${SYMLINK_SNAPSHOT_TARGET}/dirty" || fail 'could not create symlink snapshot dirty marker'
+ln -s "${SYMLINK_SNAPSHOT_TARGET}" "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" || fail 'could not create symlink transaction snapshot'
+if nvram_transaction_begin dns-preparation dnspriv_enable; then
+	fail 'symlink transaction snapshot was accepted'
+fi
+[ "$(nvram get dnspriv_enable)" = 1 ] || fail 'symlink transaction snapshot modified NVRAM'
+[ -f "${SYMLINK_SNAPSHOT_TARGET}/dirty" ] || fail 'symlink transaction snapshot target was modified'
+[ "${COMMIT_COUNT}" -eq 0 ] || fail 'symlink transaction snapshot committed NVRAM'
+[ "${SERVICE_COUNT}" -eq 0 ] || fail 'symlink transaction snapshot restarted a service'
+rm -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" || fail 'could not remove symlink transaction snapshot'
+rm -rf "${SYMLINK_SNAPSHOT_TARGET}" || fail 'could not remove symlink snapshot target'
+
+reset_case
+nvram_transaction_begin lan-domain lan_domain || fail 'startup recovery transaction snapshot failed'
+nvram_transaction_set lan_domain interrupted-startup.example || fail 'startup recovery transaction staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'startup recovery transaction apply failed'
+nvram_transaction_lock_release || fail 'startup recovery could not simulate the interrupted owner exiting'
+NVRAM_TRANSACTION_LOCK_MODE=''
+NVRAM_TRANSACTION_DIR=''
+NVRAM_TRANSACTION_CHANGED=0
+nvram_transaction_recover_pending || fail 'startup recovery did not process the pending transaction'
+[ "$(nvram get lan_domain)" = '' ] || fail 'startup recovery did not restore the pending LAN domain transaction'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'startup recovery retained the restored LAN domain snapshot'
+[ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'startup recovery retained the NVRAM transaction lock'
+
+reset_case
+printf '%s\n' 'previous working yaml' >"${YAML_FILE}"
+printf '%s\n' 'previous original yaml' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+YAML_BACKED_UP=0
+nvram_transaction_setup_files_begin || fail 'setup file journal could not be created'
+nvram_transaction_lock_owned || fail 'setup file journal was published without owning the NVRAM transaction lock'
+printf '%s\n' 'published working yaml' >"${YAML_FILE}"
+printf '%s\n' 'published original yaml' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_DOMAIN="NEW"' >"${CONF_FILE}"
+nvram_transaction_lock_release || fail 'setup file recovery could not simulate the interrupted owner exiting'
+NVRAM_TRANSACTION_LOCK_MODE=''
+nvram_transaction_recover_pending || fail 'startup recovery did not restore interrupted setup file publications'
+[ "$(cat "${YAML_FILE}")" = 'previous working yaml' ] || fail 'startup recovery retained the interrupted working YAML publication'
+[ "$(cat "${YAML_ORI}")" = 'previous original yaml' ] || fail 'startup recovery retained the interrupted original YAML publication'
+[ "$(cat "${CONF_FILE}")" = 'ADGUARD_DOMAIN="OLD"' ] || fail 'startup recovery retained interrupted installer preferences'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'startup recovery retained the restored setup file journal'
+
+reset_case
+printf '%s\n' 'previous working yaml' >"${YAML_FILE}"
+printf '%s\n' 'previous original yaml' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+YAML_BACKED_UP=0
+nvram_transaction_setup_files_begin || fail 'interrupted-cleanup setup file journal could not be created'
+printf '%s\n' 'published working yaml' >"${YAML_FILE}"
+printf '%s\n' 'published original yaml' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_DOMAIN="NEW"' >"${CONF_FILE}"
+FAIL_RESTORED_JOURNAL_REMOVE=1
+nvram_transaction_setup_files_restore || fail 'setup file restore failed before interrupted cleanup simulation'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'restored setup file journal remained pending during cleanup'
+[ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files.restored.$$" ] || fail 'interrupted cleanup did not preserve the inert restored journal fixture'
+nvram_transaction_lock_release || fail 'restored setup file cleanup could not release its transaction lock'
+NVRAM_TRANSACTION_LOCK_MODE=''
+nvram_transaction_recover_pending || fail 'completed setup file restore blocked later startup recovery'
+
+reset_case
+printf '%s\n' 'previous working yaml' >"${YAML_FILE}"
+printf '%s\n' 'previous original yaml' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+nvram_transaction_setup_files_begin || fail 'file-only setup journal could not be created'
+printf '%s\n' 'committed working yaml' >"${YAML_FILE}"
+printf '%s\n' 'committed original yaml' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_DOMAIN="NEW"' >"${CONF_FILE}"
+nvram_transaction_finalize_setup_pair || fail 'file-only setup publications could not be committed'
+[ "$(cat "${YAML_FILE}")" = 'committed working yaml' ] || fail 'file-only commit restored the previous working YAML'
+[ "$(cat "${YAML_ORI}")" = 'committed original yaml' ] || fail 'file-only commit restored the previous original YAML'
+[ "$(cat "${CONF_FILE}")" = 'ADGUARD_DOMAIN="NEW"' ] || fail 'file-only commit restored the previous installer preferences'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'file-only commit retained its setup file journal'
+recovery_line="$(grep -n '^if ! nvram_transaction_recover_startup; then$' "${INSTALLER_PATH}" | cut -d: -f1)"
+[ -n "${recovery_line}" ] || fail 'installer startup does not invoke pending NVRAM recovery'
+grep -Fq 'Unable to release the installer NVRAM transaction lock after recovery; review ${ROLLBACK_RESULT_FILE} and any preserved snapshot.' "${INSTALLER_PATH}" ||
+	fail 'startup recovery does not accurately report lock-release failures'
+if grep -Fq 'Unable to recover an interrupted installer-managed NVRAM transaction; review ${ROLLBACK_RESULT_FILE} and the preserved snapshot.' "${INSTALLER_PATH}"; then
+	fail 'startup recovery still reports lock-release failures as interrupted transactions with a guaranteed snapshot'
+fi
+for dispatch_pattern in '^if \[ "${1:-}" = "preflight" \]; then$' '^if \[ "${1:-}" = "doctor" \]; then$' '^if \[ "${1:-}" = "status" \]; then$' '^if \[ "${2:-}" = "status" \]; then$' '^if \[ "${2:-}" = "doctor" \]; then$'; do
+	dispatch_line="$(grep -n "${dispatch_pattern}" "${INSTALLER_PATH}" | cut -d: -f1)"
+	[ -n "${dispatch_line}" ] || fail "installer startup dispatch pattern is missing: ${dispatch_pattern}"
+	[ "${recovery_line}" -lt "${dispatch_line}" ] || fail "pending NVRAM recovery runs after early dispatch: ${dispatch_pattern}"
+done
+
+reset_case
+nvram_transaction_begin jffs-enable jffs2_scripts jffs2_enable || fail 'JFFS startup recovery transaction snapshot failed'
+nvram_transaction_set jffs2_scripts 1 || fail 'JFFS startup recovery scripts staging failed'
+nvram_transaction_set jffs2_enable 1 || fail 'JFFS startup recovery enable staging failed'
+nvram_transaction_apply - 1 || fail 'JFFS startup recovery transaction apply failed'
+nvram_transaction_lock_release || fail 'JFFS startup recovery could not simulate the interrupted owner exiting'
+NVRAM_TRANSACTION_LOCK_MODE=''
+NVRAM_TRANSACTION_DIR=''
+NVRAM_TRANSACTION_CHANGED=0
+service_count_before_recovery="${SERVICE_COUNT}"
+nvram_transaction_recover_pending || fail 'startup recovery did not process the pending JFFS transaction'
+[ "$(nvram get jffs2_scripts)" = '' ] || fail 'startup recovery did not restore the pending JFFS scripts setting'
+[ "$(nvram get jffs2_enable)" = '' ] || fail 'startup recovery did not restore the pending JFFS enable setting'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/jffs-enable" ] || fail 'startup recovery retained the restored JFFS snapshot'
+[ "${SERVICE_COUNT}" -eq "${service_count_before_recovery}" ] || fail 'JFFS startup recovery restarted an unrelated service'
+[ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'JFFS startup recovery retained the NVRAM transaction lock'
+
+reset_case
+nvram_transaction_begin jffs-enable jffs2_scripts jffs2_enable || fail 'JFFS exit recovery transaction snapshot failed'
+nvram_transaction_set jffs2_scripts 1 || fail 'JFFS exit recovery scripts staging failed'
+nvram_transaction_set jffs2_enable 1 || fail 'JFFS exit recovery enable staging failed'
+nvram_transaction_apply - 1 || fail 'JFFS exit recovery transaction apply failed'
+ADGUARD_INSTALL_MODE=lan
+on_installer_exit
+[ "$(nvram get jffs2_scripts)" = '' ] || fail 'installer exit did not restore interrupted JFFS scripts'
+[ "$(nvram get jffs2_enable)" = '' ] || fail 'installer exit did not restore interrupted JFFS enablement'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/jffs-enable" ] || fail 'installer exit retained the restored JFFS snapshot'
+[ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'installer exit retained the lock after JFFS restoration'
+ADGUARD_INSTALL_MODE=wan
+
+reset_case
+SYMLINK_SNAPSHOT_TARGET="${TEST_ROOT}/committed-symlink-snapshot-target"
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram" "${SYMLINK_SNAPSHOT_TARGET}" || fail 'could not create committed symlink snapshot fixture'
+: >"${SYMLINK_SNAPSHOT_TARGET}/dirty" || fail 'could not create committed symlink dirty marker'
+: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed" || fail 'could not create committed setup marker for symlink recovery'
+ln -s "${SYMLINK_SNAPSHOT_TARGET}" "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" || fail 'could not create committed symlink DNS snapshot'
+if nvram_transaction_recover_pending; then
+	fail 'startup recovery accepted a committed symlink DNS snapshot'
+fi
+[ -f "${SYMLINK_SNAPSHOT_TARGET}/dirty" ] || fail 'committed symlink recovery altered its target'
+[ "${NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE:-0}" = 0 ] || fail 'committed symlink recovery was classified as safe'
+rm -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
+rm -rf "${SYMLINK_SNAPSHOT_TARGET}"
+
+reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'clean stubby recovery snapshot failed'
+: >"${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" || fail 'could not persist clean stopped stubby recovery state'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'clean stubby recovery apply failed'
+nvram_transaction_lock_release || fail 'clean stubby recovery could not simulate process death'
+NVRAM_TRANSACTION_LOCK_MODE=''
+NVRAM_TRANSACTION_DIR=''
+NVRAM_TRANSACTION_CHANGED=0
+nvram_transaction_recover_pending || fail 'startup recovery ignored clean stopped stubby state'
+[ "${STUBBY_RESTART_COUNT}" -eq 1 ] || fail 'clean stopped stubby state did not restart stubby'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'clean stubby recovery retained its snapshot'
+
+reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'clean stubby paired snapshot failed'
+: >"${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" || fail 'could not persist clean stopped stubby paired state'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'clean stubby paired apply failed'
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" || fail 'could not create clean stubby paired setup snapshot'
+: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || fail 'could not mark clean stubby paired setup snapshot dirty'
+nvram_transaction_finalize_setup_pair || fail 'clean stubby paired setup commit failed'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'clean stubby setup commit evidence was removed before DNS finalization'
+finalize_dns_environment || fail 'clean stubby paired DNS finalization failed'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'clean stubby setup commit evidence remained after DNS finalization'
+nvram_transaction_lock_release || fail 'clean stubby paired finalization did not release its lock'
+
+reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'stubby retry recovery snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'stubby retry recovery staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'stubby retry recovery apply failed'
+: >"${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" || fail 'could not persist stopped stubby recovery state'
+nvram_transaction_lock_release || fail 'stubby retry recovery could not simulate process death'
+NVRAM_TRANSACTION_LOCK_MODE=''
+NVRAM_TRANSACTION_DIR=''
+NVRAM_TRANSACTION_CHANGED=0
+FAIL_SERVICE_AT="$((SERVICE_COUNT + 2))"
+if nvram_transaction_recover_pending; then
+	fail 'stubby recovery ignored the initial restart failure'
+fi
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'stubby restart failure did not retain retryable recovery state'
+FAIL_SERVICE_AT=0
+nvram_transaction_recover_pending || fail 'later startup did not retry stubby recovery'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful stubby retry retained its recovery snapshot'
+[ "${STUBBY_RESTART_COUNT}" -eq 2 ] || fail 'stubby restart was not retried exactly once'
+
+reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'committed DNS preparation snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'committed DNS preparation staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'committed DNS preparation apply failed'
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" || fail 'could not create committed LAN-domain snapshot'
+: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || fail 'could not mark committed LAN-domain snapshot dirty'
+nvram_transaction_finalize_setup_pair || fail 'setup commit with pending DNS preparation failed'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'setup commit evidence was removed before DNS finalization'
+nvram_transaction_lock_release || fail 'committed DNS preparation recovery could not simulate process death'
+NVRAM_TRANSACTION_LOCK_MODE=''
+NVRAM_TRANSACTION_DIR=''
+NVRAM_TRANSACTION_CHANGED=0
+nvram_transaction_recover_pending || fail 'startup recovery did not retain committed DNS preparation'
+[ "$(nvram get dnspriv_enable)" = 0 ] || fail 'startup recovery rolled back committed DNS preparation'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'startup recovery retained committed DNS preparation snapshot'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'startup recovery retained completed setup marker'
+
+reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'committed clean stubby snapshot failed'
+: >"${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" || fail 'could not create committed clean stubby marker'
+[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'committed clean stubby snapshot unexpectedly contained a dirty marker'
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" || fail 'could not create committed clean stubby setup snapshot'
+: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || fail 'could not mark committed clean stubby setup snapshot dirty'
+nvram_transaction_finalize_setup_pair || fail 'clean stubby setup commit failed'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'clean stubby setup commit removed recovery evidence'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'clean stubby setup commit retained its paired snapshot'
+nvram_transaction_lock_release || fail 'committed clean stubby recovery could not simulate process death'
+NVRAM_TRANSACTION_LOCK_MODE=''
+NVRAM_TRANSACTION_DIR=''
+NVRAM_TRANSACTION_CHANGED=0
+nvram_transaction_recover_pending || fail 'startup recovery did not discard committed stopped stubby state'
+[ "${STUBBY_RESTART_COUNT}" -eq 0 ] || fail 'committed stopped stubby was incorrectly restarted'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'committed clean stubby snapshot was not cleared'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'committed clean stubby marker was not cleared'
+
+reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'independent startup recovery snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'independent startup recovery staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'independent startup recovery apply failed'
+nvram_transaction_lock_release || fail 'independent startup recovery could not simulate the interrupted owner exiting'
+: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed" || fail 'could not create failing paired setup marker'
+NVRAM_TRANSACTION_LOCK_MODE=''
+NVRAM_TRANSACTION_DIR=''
+NVRAM_TRANSACTION_CHANGED=0
+FAIL_SETUP_MARKER_REMOVE=1
+if nvram_transaction_recover_pending; then
+	fail 'startup recovery ignored paired finalization failure'
+fi
+[ "$(nvram get dnspriv_enable)" = 0 ] || fail 'paired setup commit unexpectedly rolled back DNS preparation'
+[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'paired setup commit retained rollback-eligible DNS preparation state'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'paired finalization failure unexpectedly removed its marker'
+[ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'paired finalization failure retained the NVRAM transaction lock'
+
+reset_case
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" || fail 'could not create paired transaction snapshots'
+: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || fail 'could not mark the LAN-domain transaction dirty'
+: >"${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" || fail 'could not mark the DNSFilter transaction dirty'
+: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed" || fail 'could not publish the paired transaction completion marker'
+rm -f "${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" || fail 'could not simulate interrupted paired transaction cleanup'
+nvram_transaction_begin dnsfilter dnsfilter_enable_x || fail 'paired transaction recovery did not permit a new DNSFilter transaction'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'paired transaction recovery retained the completed LAN-domain snapshot'
+[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" ] || fail 'paired transaction recovery treated committed DNSFilter state as rollback state'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'paired transaction recovery retained its completion marker after cleanup'
+[ "${COMMIT_COUNT}" -eq 0 ] || fail 'paired transaction recovery rolled back committed NVRAM state'
+
+reset_case
+nvram_transaction_begin lan-domain lan_domain || fail 'committed cleanup LAN-domain snapshot failed'
+nvram_transaction_set lan_domain committed.example || fail 'committed cleanup LAN-domain staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'committed cleanup LAN-domain apply failed'
+nvram_transaction_begin dnsfilter dnsfilter_enable_x || fail 'committed cleanup DNSFilter snapshot failed'
+nvram_transaction_set dnsfilter_enable_x 1 || fail 'committed cleanup DNSFilter staging failed'
+nvram_transaction_apply 'restart_firewall;restart_dnsmasq' 1 || fail 'committed cleanup DNSFilter apply failed'
+FAIL_PAIRED_SNAPSHOT_REMOVE=1
+nvram_transaction_finalize_setup_pair || fail 'paired commit failed when only snapshot cleanup was unavailable'
+nvram_transaction_lock_release || fail 'committed cleanup could not simulate the interrupted owner exiting'
+NVRAM_TRANSACTION_LOCK_MODE=''
+NVRAM_TRANSACTION_DIR=''
+NVRAM_TRANSACTION_CHANGED=0
+commit_count_before_recovery="${COMMIT_COUNT}"
+if nvram_transaction_recover_pending; then
+	fail 'incomplete committed snapshot cleanup was reported as complete'
+fi
+[ "${NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE:-0}" = 1 ] || fail 'committed snapshot cleanup failure did not permit read-only diagnostics'
+nvram_transaction_read_only_diagnostic_requested status || fail 'status was not recognized as a read-only diagnostic'
+nvram_transaction_read_only_diagnostic_requested installer status || fail 'branch status was not recognized as a read-only diagnostic'
+nvram_transaction_read_only_diagnostic_requested doctor || fail 'doctor was not recognized as a read-only diagnostic'
+nvram_transaction_read_only_diagnostic_requested installer doctor || fail 'branch doctor was not recognized as a read-only diagnostic'
+if nvram_transaction_read_only_diagnostic_requested doctor --fix; then
+	fail 'doctor --fix was incorrectly recognized as read-only'
+fi
+if nvram_transaction_read_only_diagnostic_requested preflight; then
+	fail 'preflight was incorrectly recognized as a read-only diagnostic'
+fi
+[ "$(nvram get lan_domain)" = committed.example ] || fail 'startup recovery rolled back the committed LAN domain'
+[ "$(nvram get dnsfilter_enable_x)" = 1 ] || fail 'startup recovery rolled back the committed DNSFilter setting'
+[ "${COMMIT_COUNT}" -eq "${commit_count_before_recovery}" ] || fail 'startup recovery committed a rollback for committed setup snapshots'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'incomplete committed cleanup lost its completion marker'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" ] || fail 'committed LAN-domain cleanup evidence was unexpectedly altered'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" ] || fail 'committed DNSFilter cleanup evidence was unexpectedly altered'
+[ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'incomplete committed cleanup retained the NVRAM transaction lock'
+
+reset_case
+nvram_transaction_begin lan-domain lan_domain || fail 'DNS finalization guard LAN-domain snapshot failed'
+nvram_transaction_set lan_domain committed.example || fail 'DNS finalization guard LAN-domain staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'DNS finalization guard LAN-domain apply failed'
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'DNS finalization guard preparation snapshot failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'DNS finalization guard preparation apply failed'
+FAIL_PAIRED_SNAPSHOT_REMOVE=1
+nvram_transaction_finalize_setup_pair || fail 'DNS finalization guard setup commit failed'
+if finalize_dns_environment; then
+	fail 'DNS finalization discarded incomplete paired cleanup evidence'
+fi
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'DNS finalization removed the paired setup commit marker'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" ] || fail 'DNS finalization altered incomplete paired cleanup evidence'
+FAIL_PAIRED_SNAPSHOT_REMOVE=0
+nvram_transaction_recover_pending || fail 'startup recovery did not complete guarded paired cleanup'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'guarded paired cleanup retained its LAN-domain snapshot'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'guarded paired cleanup retained its setup marker'
+[ "$(nvram get lan_domain)" = committed.example ] || fail 'guarded paired cleanup rolled back the committed LAN domain'
+
+reset_case
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram" || fail 'could not create the paired transaction root'
+: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed" || fail 'could not publish the stale paired transaction completion marker'
+FAIL_SETUP_MARKER_REMOVE=1
+if nvram_transaction_begin dnsfilter dnsfilter_enable_x; then
+	fail 'new transaction started while the stale setup completion marker could not be removed'
+fi
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'failed marker cleanup did not retain the setup completion marker'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'failed marker cleanup created a new DNSFilter snapshot'
+FAIL_SETUP_MARKER_REMOVE=0
+nvram_transaction_begin dnsfilter dnsfilter_enable_x || fail 'transaction did not start after the stale setup completion marker became removable'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'successful recovery retained the stale setup completion marker'
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not determine the test process lock identity'
+reaper_path="${BASE_DIR}/interrupted-publication.reaper"
+BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" reaper_path="${reaper_path}" sh -c '
+	. "${FUNCTIONS_FILE}"
+	trap '\''
+		nvram_transaction_lock_reaper_release_active || exit 1
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || exit 1
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || exit 1
+		exit 77
+	'\'' HUP INT TERM
+	nvram_transaction_lock_flock_supports_fd() {
+		kill -TERM "$$"
+		return 1
+	}
+	nvram_transaction_lock_reaper_acquire "${reaper_path}"
+'
+status="$?"
+[ "${status}" -eq 77 ] || fail "interrupted reaper owner publication exited with status ${status} instead of 77"
+[ ! -e "${reaper_path}" ] || fail 'interrupted reaper owner publication retained the legacy directory'
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/failed-owner-publication.reaper"
+(
+	# Fail only the reaper owner-file publication: the explicit owner avoids
+	# printf overrides the shell builtin to simulate a failed call.
+	printf() { return 1; }
+	if nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"; then
+		exit 1
+	fi
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || exit 1
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || exit 1
+	[ ! -e "${reaper_path}" ] || exit 1
+) || fail 'failed reaper owner publication retained active cleanup state'
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/changed-owner-publication.reaper"
+(
+	# Simulate the published reaper owner changing during the post-publication
+	# cat outputs a replacement lock owner for ownership-check tests.
+	cat() { printf '%s\n' 'replacement-owner'; }
+	if nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"; then
+		exit 1
+	else
+		acquire_status="$?"
+		[ "${acquire_status}" -eq 1 ] || exit 1
+	fi
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || exit 1
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || exit 1
+	[ -f "${reaper_path}/pid" ] || exit 1
+) || fail 'changed reaper owner publication retained active cleanup state or removed recovery evidence'
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/interrupted-symlink-publication.reaper"
+BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" reaper_path="${reaper_path}" sh -c '
+	. "${FUNCTIONS_FILE}"
+	trap '\''
+		nvram_transaction_lock_reaper_release_active || exit 1
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || exit 1
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || exit 1
+		exit 78
+	'\'' HUP INT TERM
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	ln() {
+		command ln "$@" || return 1
+		kill -TERM "$$"
+	}
+	nvram_transaction_lock_reaper_acquire "${reaper_path}"
+'
+status="$?"
+[ "${status}" -eq 78 ] || fail "interrupted reaper symlink publication exited with status ${status} instead of 78"
+[ ! -e "${reaper_path}" ] || fail 'interrupted reaper symlink publication retained the legacy directory'
+[ ! -L "${reaper_path}.symlink" ] || fail 'interrupted reaper symlink publication retained the symlink marker'
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/returning-signal-symlink-publication.reaper"
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# ln creates a link and releases the active NVRAM transaction lock reaper.
+	ln() {
+		command ln "$@" || return 1
+		nvram_transaction_lock_reaper_release_active || return 1
+	}
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "returning signal cleanup symlink acquisition returned ${status} instead of 1"
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || fail 'returning signal cleanup left symlink reaper mode active'
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || fail 'returning signal cleanup left symlink reaper path active'
+	[ ! -e "${reaper_path}" ] || fail 'returning signal cleanup retained the legacy reaper directory'
+	[ ! -L "${reaper_path}.symlink" ] || fail 'returning signal cleanup retained the symlink reaper marker'
+) || exit 1
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/returning-signal-failed-symlink-publication.reaper"
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# ln releases the active NVRAM transaction lock reaper and always reports failure.
+	ln() {
+		nvram_transaction_lock_reaper_release_active || return 1
+		return 1
+	}
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "returning signal cleanup after failed symlink publication returned ${status} instead of 1"
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || fail 'failed symlink publication reported an unowned mkdir reaper'
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || fail 'failed symlink publication retained its released reaper path'
+	[ ! -e "${reaper_path}" ] || fail 'failed symlink publication retained the released legacy reaper directory'
+	[ ! -L "${reaper_path}.symlink" ] || fail 'failed symlink publication unexpectedly created a symlink marker'
+) || exit 1
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/interrupted-stale-symlink-reclaim.reaper"
+ln -s 999999999 "${reaper_path}.symlink" || fail 'could not prepare stale reaper symlink'
+BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" reaper_path="${reaper_path}" sh -c '
+	. "${FUNCTIONS_FILE}"
+	trap '\''
+		nvram_transaction_lock_reaper_release_active || exit 1
+		exit 79
+	'\'' HUP INT TERM
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	mv() {
+		command mv "$@" || return 1
+		kill -TERM "$$"
+	}
+	printf "%s\n" "$$" >"${reaper_path}.test-pid"
+	nvram_transaction_lock_reaper_acquire "${reaper_path}"
+'
+status="$?"
+[ "${status}" -eq 79 ] || fail "interrupted stale reaper symlink reclaim exited with status ${status} instead of 79"
+[ ! -e "${reaper_path}" ] || fail 'interrupted stale reaper symlink reclaim retained the legacy directory'
+[ ! -L "${reaper_path}.symlink" ] || fail 'interrupted stale reaper symlink reclaim retained the published owner'
+reaper_test_pid="$(cat "${reaper_path}.test-pid" 2>/dev/null)"
+[ -z "$(find "${BASE_DIR}" -name "$(basename "${reaper_path}").symlink.${reaper_test_pid}:*" -print)" ] ||
+	fail 'interrupted stale reaper symlink reclaim retained its temporary marker'
+rm -f "${reaper_path}.test-pid"
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/pid-reused-stale-symlink.reaper"
+reused_pid="${LOCK_OWNER%%:*}"
+ln -s 999999999 "${reaper_path}.symlink" || fail 'could not prepare stale reaper symlink for PID-reuse recovery'
+ln -s "${reused_pid}:1" "${reaper_path}.symlink.${reused_pid}" || fail 'could not prepare interrupted PID-only temporary marker'
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'PID reuse blocked stale reaper recovery'
+	[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink")" = "${LOCK_OWNER}" ] ||
+		fail 'PID-reuse recovery published the wrong reaper owner'
+	nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'PID-reuse recovery reaper was not released'
+)
+[ -L "${reaper_path}.symlink.${reused_pid}" ] || fail 'PID-reuse recovery removed an unverified legacy temporary marker'
+rm -f "${reaper_path}.symlink.${reused_pid}"
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+reaper_path="${BASE_DIR}/busybox-mv-stale-symlink.reaper"
+malformed_target="${BASE_DIR}/busybox-mv-target"
+mkdir "${malformed_target}" || fail 'could not prepare malformed reaper symlink target'
+ln -s "${malformed_target}" "${reaper_path}.symlink" || fail 'could not prepare malformed reaper symlink'
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# mv rejects invocations using the `-T` option and delegates all other arguments to the system `mv` command.
+	mv() {
+		[ "${1:-}" != '-T' ] || return 1
+		command mv "$@"
+	}
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'BusyBox mv rejection blocked stale reaper recovery'
+	[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink")" = "${LOCK_OWNER}" ] ||
+		fail 'BusyBox mv fallback published the wrong reaper owner'
+	[ -z "$(find "${malformed_target}" -mindepth 1 -maxdepth 1 -print)" ] ||
+		fail 'BusyBox mv fallback followed the malformed reaper symlink target'
+	[ ! -e "${reaper_path}.symlink.${LOCK_OWNER}" ] && [ ! -L "${reaper_path}.symlink.${LOCK_OWNER}" ] ||
+		fail 'BusyBox mv fallback retained its temporary marker'
+	nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'BusyBox mv fallback reaper was not released'
+	[ ! -e "${reaper_path}" ] || fail 'BusyBox mv fallback retained the legacy reaper directory'
+	[ ! -L "${reaper_path}.symlink" ] || fail 'BusyBox mv fallback retained the published reaper symlink'
+)
+rm -rf "${malformed_target}"
+
+reset_case
+LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_readlink indicates that symbolic-link lock inspection is unavailable.
+	nvram_transaction_lock_readlink() { return 127; }
+	for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
+		mkdir -p "${reaper_path}"
+		if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
+			fail "ownerless legacy reaper lock was reclaimed: ${reaper_path}"
+		fi
+		[ -d "${reaper_path}" ] || fail "ownerless legacy reaper lock was removed: ${reaper_path}"
+		rm -rf "${reaper_path}"
+
+		mkdir -p "${reaper_path}"
+		: >"${reaper_path}/pid"
+		if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
+			fail "empty-owner legacy reaper lock was reclaimed: ${reaper_path}"
+		fi
+		[ ! -s "${reaper_path}/pid" ] || fail "empty-owner legacy reaper owner was replaced: ${reaper_path}"
+		rm -rf "${reaper_path}"
+
+		mkdir -p "${reaper_path}"
+		printf '%s\n' 999999999 >"${reaper_path}/pid"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "stale reaper lock was not reclaimed: ${reaper_path}"
+		[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "reclaimed reaper lock has the wrong owner: ${reaper_path}"
+		nvram_transaction_lock_reaper_release "${reaper_path}" || fail "reclaimed reaper lock was not released: ${reaper_path}"
+
+		mkdir -p "${reaper_path}"
+		printf '%s\n' "${LOCK_OWNER}" >"${reaper_path}/pid"
+		if nvram_transaction_lock_reaper_acquire "${reaper_path}"; then
+			fail "live reaper lock was reclaimed: ${reaper_path}"
+		fi
+		rm -rf "${reaper_path}"
+
+		mkdir -p "${reaper_path}"
+		printf '%s:0\n' "$$" >"${reaper_path}/pid"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail "PID-reused reaper lock was not reclaimed: ${reaper_path}"
+		[ "$(cat "${reaper_path}/pid")" = "${LOCK_OWNER}" ] || fail "PID-reused reaper lock has the wrong replacement owner: ${reaper_path}"
+		nvram_transaction_lock_reaper_release "${reaper_path}" || fail "PID-reused reaper lock was not released: ${reaper_path}"
+	done
+) || exit 1
+
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_readlink indicates that symbolic-link lock inspection is unavailable.
+	nvram_transaction_lock_readlink() { return 127; }
+	for reaper_path in "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink.reaper" "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"; do
+		rm -rf "${reaper_path}"
+		(
+			# nvram_transaction_lock_owner_current reports an error and fails when called despite an explicit owner being supplied.
+			nvram_transaction_lock_owner_current() {
+				printf '%s\n' 'Error: owner lookup invoked unexpectedly while an explicit owner was supplied' >&2
+				return 1
+			}
+			nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail "explicit-owner reaper acquire failed while owner lookup was disabled: ${reaper_path}"
+			[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail "explicit-owner reaper acquire did not record the supplied owner: ${reaper_path}"
+			nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail "explicit-owner reaper release failed while owner lookup was disabled: ${reaper_path}"
+		) || exit 1
+		[ ! -e "${reaper_path}" ] || fail "explicit-owner reaper release did not remove the reaper directory: ${reaper_path}"
+
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" '' || fail "empty explicit owner did not fall back to the owner lookup: ${reaper_path}"
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail "empty explicit owner recorded an unexpected owner: ${reaper_path}"
+		nvram_transaction_lock_reaper_release "${reaper_path}" '' || fail "empty explicit owner release did not fall back to the owner lookup: ${reaper_path}"
+		[ ! -e "${reaper_path}" ] || fail "empty explicit owner release did not remove the reaper directory: ${reaper_path}"
+	done
+) || exit 1
+
+(
+	# A live directory is the mutex used by older installers. New capability
+	# modes must honor it before publishing their mode-specific artifacts.
+	reaper_path="${BASE_DIR}/.AdGuardHome.nvram.legacy-reaper"
+	mkdir "${reaper_path}" || fail 'could not prepare legacy reaper lock'
+	printf '%s\n' "${LOCK_OWNER}" >"${reaper_path}/pid" || fail 'could not record legacy reaper owner'
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_reaper_acquire "${reaper_path}"
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "symlink reaper returned ${status} instead of 1 for a live legacy reaper"
+	[ ! -L "${reaper_path}.symlink" ] || fail 'symlink reaper bypassed a live legacy reaper'
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'symlink reaper changed the legacy reaper owner'
+	rm -rf "${reaper_path}"
+) || exit 1
+
+if nvram_transaction_lock_flock_supports_fd; then
+	BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		reaper_path="${BASE_DIR}/returning-signal-flock-acquisition.reaper"
+		nvram_transaction_lock_reaper_flock_acquire() {
+			/usr/bin/flock -n 9 >/dev/null 2>&1 || return 1
+			nvram_transaction_lock_reaper_release_active || return 1
+			return 0
+		}
+		nvram_transaction_lock_reaper_acquire "${reaper_path}"
+		status="$?"
+		[ "${status}" -ne 0 ] || exit 81
+		[ "${status}" -eq 1 ] || exit 82
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || exit 83
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || exit 84
+		[ ! -L "/proc/$$/fd/9" ] || exit 85
+		[ ! -e "${reaper_path}" ] || exit 86
+	'
+	status="$?"
+	[ "${status}" -eq 0 ] || fail "returning signal cleanup flock regression exited with status ${status}"
+
+	BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		reaper_path="${BASE_DIR}/interrupted-flock-acquisition.reaper"
+		trap '\''
+			nvram_transaction_lock_reaper_release_active || exit 1
+			[ ! -e "/proc/$$/fd/9" ] || exit 1
+			[ ! -e "${reaper_path}" ] || exit 1
+			exit 80
+		'\'' HUP INT TERM
+		nvram_transaction_lock_reaper_flock_acquire() {
+			/usr/bin/flock -n 9 >/dev/null 2>&1 || return 1
+			kill -TERM "$$"
+		}
+		nvram_transaction_lock_reaper_acquire "${reaper_path}"
+	'
+	status="$?"
+	[ "${status}" -eq 80 ] || fail "interrupted flock reaper acquisition exited with status ${status} instead of 80"
+	[ ! -e "${BASE_DIR}/interrupted-flock-acquisition.reaper" ] || fail 'interrupted flock reaper acquisition retained the legacy mutex'
+
+	(
+		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.legacy-flock-reaper"
+		mkdir "${reaper_path}" || fail 'could not prepare legacy reaper before flock acquisition'
+		printf '%s\n' "${LOCK_OWNER}" >"${reaper_path}/pid" || fail 'could not record legacy reaper owner before flock acquisition'
+		nvram_transaction_lock_reaper_acquire "${reaper_path}"
+		status="$?"
+		[ "${status}" -eq 1 ] || fail "flock reaper returned ${status} instead of 1 for a live legacy reaper"
+		[ ! -e "/proc/$$/fd/9" ] || fail 'flock reaper opened its descriptor through a live legacy reaper'
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'flock reaper changed the legacy reaper owner'
+		rm -rf "${reaper_path}"
+	) || exit 1
+fi
+
+(
+	reaper_path="${BASE_DIR}/.AdGuardHome.nvram.capability-reaper"
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail 'symlink-capable reaper lock could not be acquired'
+	[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = symlink ] || fail 'reaper did not select the symlink transaction-lock capability'
+	[ "$(readlink "${reaper_path}.symlink")" = "${LOCK_OWNER}" ] || fail 'symlink-capable reaper recorded the wrong owner'
+	nvram_transaction_lock_reaper_release "${reaper_path}" || fail 'symlink-capable reaper lock could not be released'
+	[ ! -L "${reaper_path}.symlink" ] || fail 'symlink-capable reaper lock remained after release'
+) || exit 1
+
+for reentrant_mode in symlink mkdir; do
+	(
+		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.reentrant-${reentrant_mode}-reaper"
+		# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+		nvram_transaction_lock_flock_supports_fd() { return 1; }
+		if [ "${reentrant_mode}" = mkdir ]; then
+			# nvram_transaction_lock_readlink indicates that symbolic-link lock inspection is unavailable.
+			nvram_transaction_lock_readlink() { return 127; }
+		fi
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" ||
+			fail "${reentrant_mode} reaper could not be acquired for reentrant release"
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "${reentrant_mode}" ] ||
+			fail "${reentrant_mode} reaper selected the wrong mode for reentrant release"
+		REENTRANT_RELEASES=0
+		# rm removes the reaper lock path and releases its active lock, or delegates other removals to the system rm command.
+		rm() {
+			if [ "${1:-}" = -rf ] && [ "${2:-}" = "${reaper_path}" ]; then
+				command rm "$@" || return 1
+				REENTRANT_RELEASES=$((REENTRANT_RELEASES + 1))
+				nvram_transaction_lock_reaper_release_active || return 1
+				return 0
+			fi
+			command rm "$@"
+		}
+		nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" ||
+			fail "${reentrant_mode} reaper release failed after deleting its mutex"
+		[ "${REENTRANT_RELEASES}" -eq 1 ] || fail "${reentrant_mode} reentrant release hook was not reached"
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || fail "${reentrant_mode} reentrant release retained its mode"
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || fail "${reentrant_mode} reentrant release retained its path"
+		[ ! -e "${reaper_path}" ] || fail "${reentrant_mode} reentrant release retained its mutex"
+	) || exit 1
+done
+
+(
+	# A returning signal trap can finish cleanup before an interrupted outer
+	# legacy release resumes. The already-absent, fully cleared lock is success.
+	reaper_path="${BASE_DIR}/.AdGuardHome.nvram.nested-release-reaper"
+	NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+	NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+	nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${LOCK_OWNER}" ||
+		fail 'legacy reaper release was not idempotent after nested cleanup'
+
+	# A dangling symlink is still a path entry and must not be mistaken for an
+	# already-absent mutex, even when nested cleanup cleared the active state.
+	ln -s "${reaper_path}.missing" "${reaper_path}" || fail 'could not prepare dangling legacy reaper'
+	if nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${LOCK_OWNER}"; then
+		fail 'legacy reaper release treated a dangling symlink as absent'
+	fi
+	[ -L "${reaper_path}" ] || fail 'legacy reaper release removed an unverified dangling symlink'
+	rm -f "${reaper_path}"
+
+	# Cleared state must not make an existing or differently tracked lock safe.
+	mkdir "${reaper_path}" || fail 'could not prepare unowned legacy reaper'
+	printf '%s\n' 'replacement-owner' >"${reaper_path}/pid" || fail 'could not publish replacement reaper owner'
+	if nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${LOCK_OWNER}"; then
+		fail 'idempotent legacy release removed a replacement owner'
+	fi
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = 'replacement-owner' ] ||
+		fail 'idempotent legacy release changed a replacement owner'
+	rm -rf "${reaper_path}"
+) || exit 1
+
+(
+	reaper_path="${BASE_DIR}/.AdGuardHome.nvram.unsupported-symlink-reaper"
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# ln simulates a filesystem that supports readlink but rejects symlink creation.
+	ln() { return 1; }
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail 'failed symlink publication did not select the mkdir reaper fallback'
+	[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = mkdir ] || fail 'failed symlink publication selected the wrong reaper fallback'
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'mkdir reaper fallback recorded the wrong owner'
+	nvram_transaction_lock_reaper_release "${reaper_path}" || fail 'mkdir reaper fallback could not be released'
+
+	mkdir "${reaper_path}" || fail 'could not prepare stale mkdir reaper after failed symlink publication'
+	printf '%s\n' 999999999 >"${reaper_path}/pid" || fail 'could not record stale mkdir reaper owner after failed symlink publication'
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail 'failed symlink publication blocked stale mkdir reaper recovery'
+	[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = mkdir ] || fail 'stale mkdir reaper recovery selected the wrong fallback mode'
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'stale mkdir reaper was not replaced by the live owner'
+	nvram_transaction_lock_reaper_release "${reaper_path}" || fail 'reclaimed mkdir reaper fallback could not be released'
+) || exit 1
+
+if nvram_transaction_lock_flock_supports_fd; then
+	(
+		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.capability-reaper"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" || fail 'flock-capable reaper lock could not be acquired'
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = flock ] || fail 'reaper did not select the flock transaction-lock capability'
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'flock-capable reaper did not publish its legacy-compatible owner'
+		nvram_transaction_lock_reaper_release "${reaper_path}" || fail 'flock-capable reaper lock could not be released'
+	) || exit 1
+
+	(
+		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.reentrant-flock-reaper"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" ||
+			fail 'flock reaper could not be acquired for reentrant release'
+		REENTRANT_RELEASES=0
+		# rm removes the reaper lock path and releases its active lock, or delegates other removals to the system rm command.
+		rm() {
+			if [ "${1:-}" = -rf ] && [ "${2:-}" = "${reaper_path}" ]; then
+				command rm "$@" || return 1
+				REENTRANT_RELEASES=$((REENTRANT_RELEASES + 1))
+				nvram_transaction_lock_reaper_release_active || return 1
+				return 0
+			fi
+			command rm "$@"
+		}
+		nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" ||
+			fail 'flock reaper release failed after deleting its mutex'
+		[ "${REENTRANT_RELEASES}" -eq 1 ] || fail 'flock reentrant release hook was not reached'
+		[ ! -e "/proc/self/fd/9" ] || fail 'flock reentrant release retained descriptor 9'
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || fail 'flock reentrant release retained its mode'
+		[ ! -e "${reaper_path}" ] || fail 'flock reentrant release retained its mutex'
+	) || exit 1
+
+	(
+		reaper_path="${BASE_DIR}/.AdGuardHome.nvram.retryable-flock-reaper"
+		nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail 'retryable flock reaper lock could not be acquired'
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = flock ] || fail 'retryable reaper did not select flock mode'
+		REMOVE_ATTEMPTS=0
+		# rm simulates a single failure when recursively removing the reaper path and delegates all other removals to the system `rm`.
+		rm() {
+			if [ "${1:-}" = -rf ] && [ "${2:-}" = "${reaper_path}" ]; then
+				REMOVE_ATTEMPTS=$((REMOVE_ATTEMPTS + 1))
+				[ "${REMOVE_ATTEMPTS}" -gt 1 ] || return 1
+			fi
+			command rm "$@"
+		}
+		if nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}"; then
+			fail 'flock reaper release ignored a transient legacy mutex removal failure'
+		else
+			release_status=$?
+			[ "${release_status}" -eq 1 ] || fail 'unexpected flock reaper release status'
+			[ "${REMOVE_ATTEMPTS}" -eq 1 ] || fail 'injected legacy mutex removal failure was not reached'
+		fi
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = flock ] || fail 'failed flock reaper release discarded its retryable mode'
+		[ -e "/proc/self/fd/9" ] || fail 'failed flock reaper release closed its retryable descriptor'
+		[ -d "${reaper_path}" ] || fail 'failed flock reaper release unexpectedly removed its legacy mutex'
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] ||
+			fail 'failed flock reaper release changed its legacy mutex owner'
+		nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail 'flock reaper release retry did not succeed'
+		[ "${REMOVE_ATTEMPTS}" -eq 2 ] || fail 'flock reaper release retry did not repeat legacy mutex removal'
+		[ ! -e "/proc/self/fd/9" ] || fail 'successful flock reaper release retained descriptor 9'
+		[ ! -e "${reaper_path}" ] || fail 'successful flock reaper release retained its legacy mutex'
+		[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || fail 'successful flock reaper release retained its active mode'
+	) || exit 1
+fi
+
+if nvram_transaction_lock_flock_supports_fd; then
+	# Flock mode publishes the same owner identity used by the fallback gate.
+	nvram_transaction_lock_acquire || fail 'flock transaction lock could not be acquired with its shared owner gate'
+	[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = flock ] || fail 'flock mode was not selected with its shared owner gate'
+	nvram_transaction_lock_owned || fail 'flock transaction lock ownership check failed with its shared owner gate'
+	nvram_transaction_lock_acquire || fail 'flock transaction lock fast-path re-acquire failed with its shared owner gate'
+	nvram_transaction_lock_release || fail 'flock transaction lock could not release its shared owner gate'
+	nvram_transaction_lock_owned && fail 'flock transaction lock ownership check succeeded after shared-gate release'
+	mv "${BASE_DIR}" "${TEST_ROOT}/base-resolved" || fail 'could not prepare resolved flock lock test directory'
+	ln -s "${TEST_ROOT}/base-resolved" "${BASE_DIR}" || fail 'could not create symlinked flock lock test directory'
+	nvram_transaction_lock_acquire || fail 'flock transaction lock could not be acquired through a symlinked base path'
+	nvram_transaction_lock_owned || fail 'flock ownership did not resolve a symlinked base path'
+	nvram_transaction_lock_release || fail 'flock transaction lock through a symlinked base path could not be released'
+	rm -f "${BASE_DIR}" || fail 'could not remove symlinked flock lock test directory'
+	mv "${TEST_ROOT}/base-resolved" "${BASE_DIR}" || fail 'could not restore flock lock test directory'
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+fi
+
+if nvram_transaction_lock_flock_supports_fd; then
+	(
+		# Force this process onto the symlink fallback, then verify a descriptor-
+		# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+		nvram_transaction_lock_flock_supports_fd() { return 1; }
+		nvram_transaction_lock_acquire || fail 'could not acquire fallback lock for cross-mode serialization test'
+		[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = symlink ] || fail 'cross-mode serialization test did not select the symlink fallback'
+		if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+			. "${FUNCTIONS_FILE}"
+			nvram_transaction_lock_acquire
+		'; then
+			fail 'descriptor-capable flock bypassed a live fallback transaction lock'
+		fi
+		nvram_transaction_lock_release || fail 'could not release fallback lock after cross-mode serialization test'
+	) || exit 1
+fi
+
+# assert_original verifies that the simulated NVRAM contains the expected original DNS settings, failing with the provided label if any value differs.
 assert_original() {
 	[ "$(nvram_value dnspriv_enable)" = 1 ] || fail "$1: dnspriv_enable was not restored"
 	[ "$(nvram_value dhcpd_dns_router)" = 0 ] || fail "$1: dhcpd_dns_router was not restored"
 	[ "$(nvram_value dhcp_dns1_x)" = '' ] || fail "$1: empty value was not restored"
 	[ "$(nvram_value dhcp_dns2_x)" = 149.112.112.112 ] || fail "$1: dhcp_dns2_x was not restored"
 }
+
+for invalid_mode in '' invalid; do
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter"
+	if check_dns_filter "${invalid_mode}" 2>"${TEST_ROOT}/invalid-mode.stderr"; then
+		fail "invalid DNSFilter mode '${invalid_mode}' was accepted"
+	fi
+	[ ! -s "${TEST_ROOT}/invalid-mode.stderr" ] || fail "invalid DNSFilter mode '${invalid_mode}' emitted a shell diagnostic"
+	[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail "invalid DNSFilter mode '${invalid_mode}' created a transaction snapshot"
+done
+
+reset_case
+printf '%s\n' 'dnsfilter_enable_x=1' >>"${NVRAM_FILE}" || fail 'could not seed DNSFilter rollback state'
+PUBLIC_NETWORK_RECOVER_AT=2
+FAIL_SNAPSHOT_REMOVE=1
+check_dns_filter 0 && fail 'DNSFilter connectivity rollback was accepted as setup success'
+[ -d "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'DNSFilter cleanup failure did not retain its completed snapshot'
+[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" ] || fail 'DNSFilter completed rollback remained eligible for startup recovery'
+[ "$(nvram_value dnsfilter_enable_x)" = 1 ] || fail 'DNSFilter connectivity rollback did not restore the original value'
 
 reset_case
 FAIL_SHOW=1
@@ -130,12 +1178,729 @@ check_dns_environment 0 && fail 'NVRAM read failure was accepted'
 [ "${_DNS_NVRAM_SAVED}" = 0 ] || fail 'incomplete snapshot was marked valid'
 
 reset_case
+nvram_transaction_begin cleanup dnspriv_enable || fail 'cleanup transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'cleanup transaction staging failed'
+: >"${NVRAM_TRANSACTION_DIR}/new.untracked" || fail 'could not create unrelated snapshot file'
+nvram_transaction_apply - 1 || fail 'cleanup transaction apply failed'
+[ ! -e "${NVRAM_TRANSACTION_DIR}/new.dnspriv_enable" ] || fail 'staged transaction value was not removed'
+[ -f "${NVRAM_TRANSACTION_DIR}/new.untracked" ] || fail 'transaction cleanup removed an untracked file'
+rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove cleanup transaction snapshot'
+
+reset_case
+nvram_transaction_begin staged-cleanup dnspriv_enable || fail 'staged cleanup transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'staged cleanup transaction staging failed'
+FAIL_STAGED_REMOVE=1
+nvram_transaction_apply - 1 && fail 'staged value removal failure was ignored'
+[ "$(nvram get dnspriv_enable)" = 1 ] || fail 'staged value removal failure did not roll back NVRAM'
+[ -f "${NVRAM_TRANSACTION_DIR}/new.dnspriv_enable" ] || fail 'staged value removal failure did not preserve recovery evidence'
+[ "${NVRAM_TRANSACTION_CHANGED}" = 1 ] || fail 'staged value removal failure cleared the changed-state marker'
+FAIL_STAGED_REMOVE=0
+rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove staged cleanup transaction snapshot'
+
+reset_case
+nvram_transaction_begin clean-cleanup dnspriv_enable || fail 'clean cleanup transaction snapshot failed'
+FAIL_SNAPSHOT_REMOVE=1
+nvram_transaction_restore - && fail 'clean snapshot removal failure was ignored'
+[ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'clean snapshot was not retained after removal failure'
+FAIL_SNAPSHOT_REMOVE=0
+rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove clean cleanup transaction snapshot'
+
+reset_case
+nvram_transaction_begin clean-apply-cleanup dnspriv_enable || fail 'clean apply transaction snapshot failed'
+FAIL_SNAPSHOT_REMOVE=1
+nvram_transaction_apply - && fail 'clean apply snapshot removal failure was ignored'
+[ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'clean apply snapshot was not retained after removal failure'
+FAIL_SNAPSHOT_REMOVE=0
+rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove clean apply transaction snapshot'
+
+reset_case
+nvram_transaction_begin dirty-apply-cleanup dnspriv_enable || fail 'dirty apply transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'dirty apply transaction staging failed'
+FAIL_SNAPSHOT_REMOVE=1
+nvram_transaction_apply - || fail 'dirty apply failed because best-effort snapshot cleanup was interrupted'
+[ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'dirty apply cleanup injection did not retain the inert snapshot'
+[ ! -f "${NVRAM_TRANSACTION_DIR}/dirty" ] || fail 'dirty apply cleanup interruption left the applied snapshot rollback-eligible'
+[ "$(nvram get dnspriv_enable)" = 0 ] || fail 'dirty apply cleanup failure unexpectedly rolled back NVRAM'
+FAIL_SNAPSHOT_REMOVE=0
+rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove dirty apply transaction snapshot'
+
+reset_case
+installer_lan_domain_set router.test 1 || fail 'LAN domain cleanup transaction apply failed'
+FAIL_SNAPSHOT_REMOVE=1
+installer_lan_domain_restore || fail 'LAN domain restore failed because best-effort snapshot cleanup was interrupted'
+[ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'LAN domain cleanup injection did not retain the inert snapshot'
+[ ! -f "${NVRAM_TRANSACTION_DIR}/dirty" ] || fail 'LAN domain cleanup interruption left the restored snapshot rollback-eligible'
+FAIL_SNAPSHOT_REMOVE=0
+rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove LAN domain cleanup transaction snapshot'
+
+reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'DNS restore cleanup transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'DNS restore cleanup transaction staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'DNS restore cleanup transaction apply failed'
+_DNS_NVRAM_SAVED=1
+FAIL_SNAPSHOT_REMOVE=1
+check_dns_environment 1 || fail 'completed DNS restore failed because best-effort snapshot cleanup was interrupted'
+[ "${_DNS_NVRAM_SAVED}" = 0 ] || fail 'completed DNS restore retained the saved-state marker'
+[ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'DNS restore cleanup injection did not retain the inert snapshot'
+[ ! -e "${NVRAM_TRANSACTION_DIR}/dirty" ] || fail 'completed DNS restore retained a dirty marker during cleanup failure'
+FAIL_SNAPSHOT_REMOVE=0
+rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove DNS restore cleanup transaction snapshot'
+
+reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'interrupted transaction snapshot failed'
+if nvram_transaction_lock_flock_supports_fd; then
+	[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = flock ] || fail 'descriptor-capable flock was not preferred for NVRAM transactions'
+fi
+nvram_transaction_set dnspriv_enable 0 || fail 'interrupted transaction staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'interrupted transaction apply failed'
+if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+	. "${FUNCTIONS_FILE}"
+	exec 8>&-
+	nvram_transaction_lock_acquire
+'; then
+	fail 'overlapping installer acquired the live NVRAM transaction lock'
+fi
+for inherited_lock_mode in flock symlink mkdir invalid; do
+	if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" NVRAM_TRANSACTION_LOCK_MODE="${inherited_lock_mode}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		exec 8>&-
+		nvram_transaction_lock_acquire
+	'; then
+		fail "inherited ${inherited_lock_mode} mode bypassed the live NVRAM transaction lock"
+	fi
+done
+if nvram_transaction_lock_flock_supports_fd; then
+	BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" TEST_ROOT="${TEST_ROOT}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		exec 8>"${TEST_ROOT}/unrelated-fd"
+		NVRAM_TRANSACTION_LOCK_MODE=flock
+		nvram_transaction_lock_owned && exit 1
+		nvram_transaction_lock_release && exit 1
+		printf "%s\n" retained >&8
+	' || fail 'unrelated descriptor was accepted, closed, or released as the flock transaction lock'
+	[ "$(cat "${TEST_ROOT}/unrelated-fd")" = retained ] || fail 'unrelated descriptor content was not preserved'
+	if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" TEST_ROOT="${TEST_ROOT}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		exec 8>"${TEST_ROOT}/unrelated-acquire-fd"
+		NVRAM_TRANSACTION_LOCK_MODE=flock
+		nvram_transaction_lock_acquire
+	'; then
+		fail 'unrelated descriptor bypassed the live flock transaction lock'
+	fi
+fi
+BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" TEST_ROOT="${TEST_ROOT}" sh -c '
+	. "${FUNCTIONS_FILE}"
+	exec 8>&-
+	ADGUARD_INSTALL_MODE=wan
+	AGH_FILE="${TEST_ROOT}/missing-AdGuardHome"
+	cleanup_api_files() { :; }
+	installer_cleanup_tmp_file() { :; }
+	installer_lan_domain_restore() { : >"${TEST_ROOT}/non-owner-rollback"; }
+	restore_dns_filter_settings() { : >"${TEST_ROOT}/non-owner-rollback"; }
+	check_dns_environment() { : >"${TEST_ROOT}/non-owner-rollback"; }
+	PTXT() { :; }
+	on_installer_exit
+' || fail 'non-owner installer exit handler failed'
+[ ! -e "${TEST_ROOT}/non-owner-rollback" ] || fail 'non-owner installer exit rolled back the live NVRAM transaction'
+[ "$(nvram_value dnspriv_enable)" = 0 ] || fail 'overlapping installer restored a live NVRAM transaction'
+[ "${COMMIT_COUNT}" = 1 ] || fail 'overlapping installer committed while another transaction owner was live'
+
+(
+	ADGUARD_INSTALL_MODE=wan
+	ERROR='Error:'
+	# cleanup_api_files performs no operation.
+	cleanup_api_files() { :; }
+	# installer_cleanup_tmp_file cleans up the installer's temporary file.
+	installer_cleanup_tmp_file() { :; }
+	# installer_lan_domain_restore restores the original LAN domain settings from the active transaction snapshot.
+	installer_lan_domain_restore() { :; }
+	# restore_dns_filter_settings restores DNSFilter settings and returns a failure status.
+	restore_dns_filter_settings() { return 1; }
+	# check_dns_environment prepares the local DNS environment, verifies local DNS readiness within bounded deadlines, and restores transactional NVRAM state when requested.
+	check_dns_environment() { :; }
+	# nvram_transaction_lock_owned reports that the current process owns the NVRAM transaction lock.
+	nvram_transaction_lock_owned() { return 0; }
+	# nvram_transaction_lock_release releases the active NVRAM transaction lock.
+	nvram_transaction_lock_release() { return 0; }
+	: >"${CALLS_FILE}"
+	on_installer_exit
+	grep -Fq "Unable to restore the DNSFilter NVRAM settings; review ${ROLLBACK_RESULT_FILE} and the preserved snapshot before restarting setup." "${CALLS_FILE}" ||
+		fail 'installer exit did not report an actionable DNSFilter rollback failure'
+) || exit 1
+
+NVRAM_TRANSACTION_DIR=''
+nvram_transaction_lock_release || fail 'live transaction owner could not release its lock'
+nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'dirty transaction snapshot blocked a rerun'
+assert_original 'dirty snapshot rerun'
+[ "${COMMIT_COUNT}" = 2 ] || fail 'dirty snapshot rerun did not commit its restoration'
+[ "${SERVICE_COUNT}" = 2 ] || fail 'dirty snapshot rerun did not restart dnsmasq after restoration'
+[ -f "${NVRAM_TRANSACTION_DIR}/keys" ] || fail 'dirty snapshot rerun did not create a replacement snapshot'
+
+nvram_transaction_lock_release || fail 'transaction owner could not release its lock for stale-lock recovery'
+for fallback_mode in symlink mkdir; do
+	(
+		# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+		nvram_transaction_lock_flock_supports_fd() { return 1; }
+		if [ "${fallback_mode}" = mkdir ]; then
+			# nvram_transaction_lock_symlink_acquire indicates that symlink-based lock acquisition is unavailable.
+			nvram_transaction_lock_symlink_acquire() { return 2; }
+		fi
+		nvram_transaction_lock_acquire || fail "could not acquire ${fallback_mode} lock before installer restart"
+		[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = "${fallback_mode}" ] || fail "installer restart test did not select ${fallback_mode} mode"
+		TARG_DIR="${TEST_ROOT}/restart-${fallback_mode}"
+		SCRIPT_LOC="${TEST_ROOT}/missing-installer"
+		BRANCH=testing
+		CLI_MODE=0
+		ADGUARD_DEFER_END_OP=0
+		ROLLBACK_RESULT_UPDATED=1
+		mkdir -p "${TARG_DIR}" || fail "could not create ${fallback_mode} restart target"
+		cat >"${TARG_DIR}/installer" <<EOF_RESTART
+#!/bin/sh
+[ ! -L "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" ] || exit 1
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ] || exit 1
+printf '%s\n' "\$1" >"${TEST_ROOT}/restart-${fallback_mode}.branch"
+EOF_RESTART
+		chmod 755 "${TARG_DIR}/installer" || fail "could not make ${fallback_mode} restart target executable"
+		# sleep ignores requested delays in the test environment.
+		sleep() { :; }
+		# clear_screen performs no action.
+		clear_screen() { :; }
+		# rollback_result_needs_attention reports whether a rollback result requires attention.
+		rollback_result_needs_attention() { return 1; }
+		end_op_message 0 ''
+	) || fail "installer restart retained its ${fallback_mode} NVRAM transaction lock"
+	[ "$(cat "${TEST_ROOT}/restart-${fallback_mode}.branch" 2>/dev/null)" = testing ] || fail "installer restart did not execute after releasing its ${fallback_mode} lock"
+done
+for reaper_mode in symlink mkdir flock; do
+	if [ "${reaper_mode}" = flock ] && ! nvram_transaction_lock_flock_supports_fd; then
+		continue
+	fi
+	(
+		case "${reaper_mode}" in
+			flock) ;;
+			symlink) # nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+				nvram_transaction_lock_flock_supports_fd() { return 1; } ;;
+			mkdir)
+				# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+				nvram_transaction_lock_flock_supports_fd() { return 1; }
+				# nvram_transaction_lock_readlink indicates that symbolic-link lock inspection is unavailable.
+				nvram_transaction_lock_readlink() { return 127; }
+				;;
+		esac
+		nvram_transaction_lock_reaper_acquire "${BASE_DIR}/restart-${reaper_mode}.reaper" || fail "could not acquire ${reaper_mode} reaper before installer restart"
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "${reaper_mode}" ] || fail "installer restart test did not select ${reaper_mode} reaper mode"
+		TARG_DIR="${TEST_ROOT}/restart-reaper-${reaper_mode}"
+		SCRIPT_LOC="${TEST_ROOT}/missing-installer"
+		BRANCH=testing
+		CLI_MODE=0
+		ADGUARD_DEFER_END_OP=0
+		ROLLBACK_RESULT_UPDATED=1
+		mkdir -p "${TARG_DIR}" || fail "could not create ${reaper_mode} reaper restart target"
+		cat >"${TARG_DIR}/installer" <<EOF_REAPER_RESTART
+#!/bin/sh
+[ ! -L "${BASE_DIR}/restart-${reaper_mode}.reaper.symlink" ] || exit 1
+[ ! -e "${BASE_DIR}/restart-${reaper_mode}.reaper" ] || exit 1
+[ ! -e "/proc/\$\$/fd/9" ] || exit 1
+printf '%s\n' "\$1" >"${TEST_ROOT}/restart-reaper-${reaper_mode}.branch"
+EOF_REAPER_RESTART
+		chmod 755 "${TARG_DIR}/installer" || fail "could not make ${reaper_mode} reaper restart target executable"
+		# sleep ignores requested delays in the test environment.
+		sleep() { :; }
+		# clear_screen is a no-op placeholder for clearing the terminal screen.
+		clear_screen() { :; }
+		# rollback_result_needs_attention reports whether a rollback result requires attention.
+		rollback_result_needs_attention() { return 1; }
+		end_op_message 2 ''
+	) || fail "signal restart retained its ${reaper_mode} NVRAM transaction reaper"
+	[ "$(cat "${TEST_ROOT}/restart-reaper-${reaper_mode}.branch" 2>/dev/null)" = testing ] || fail "signal restart did not execute after releasing its ${reaper_mode} reaper"
+done
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare stale symlink transaction lock'
+	nvram_transaction_lock_acquire || fail 'stale symlink transaction lock blocked recovery'
+	[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = symlink ] || fail 'stale symlink lock did not select symlink mode'
+	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = "${LOCK_OWNER}" ] || fail 'stale symlink lock was not replaced by the live owner'
+	BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		nvram_transaction_lock_flock_supports_fd() { return 1; }
+		nvram_transaction_lock_symlink_acquire
+	'
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "symlink fallback returned ${status} instead of 1 for overlapping NVRAM transaction owner"
+	nvram_transaction_lock_release || fail 'symlink transaction owner could not release its lock'
+	ln -s "$$:0" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare PID-reused symlink transaction lock'
+	nvram_transaction_lock_acquire || fail 'PID-reused symlink transaction lock blocked recovery'
+	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = "${LOCK_OWNER}" ] || fail 'PID-reused symlink lock was not replaced'
+	nvram_transaction_lock_release || fail 'PID-reused symlink transaction owner could not release its lock'
+) || exit 1
+(
+	# A failed reaper release must abort stale mkdir recovery and roll back a
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_symlink_acquire indicates that symlink-based lock acquisition is unavailable.
+	nvram_transaction_lock_symlink_acquire() { return 2; }
+	# nvram_transaction_lock_reaper_acquire acquires the transaction lock reaper.
+	nvram_transaction_lock_reaper_acquire() { return 0; }
+	# nvram_transaction_lock_reaper_release releases the NVRAM transaction lock reaper and reports failure.
+	nvram_transaction_lock_reaper_release() { return 1; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale mkdir lock for reaper-release failure'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale mkdir owner for reaper-release failure'
+	nvram_transaction_lock_acquire
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "mkdir recovery returned ${status} instead of 1 after reaper-release failure"
+	[ ! -e "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ] || fail 'failed reaper release retained the newly published mkdir lock'
+) || exit 1
+(
+	# A failed rollback after reaper-release failure is terminal: returning to
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_symlink_acquire indicates that symlink-based lock acquisition is unavailable.
+	nvram_transaction_lock_symlink_acquire() { return 2; }
+	# nvram_transaction_lock_reaper_acquire acquires the transaction lock reaper.
+	nvram_transaction_lock_reaper_acquire() { return 0; }
+	# nvram_transaction_lock_reaper_release releases the NVRAM transaction lock reaper and reports failure.
+	nvram_transaction_lock_reaper_release() { return 1; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale mkdir lock for rollback failure'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale mkdir owner for rollback failure'
+	LOCK_REMOVE_COUNT=0
+	FAIL_LOCK_REMOVE_AT=2
+	nvram_transaction_lock_acquire
+	: >"${TEST_ROOT}/continued-after-lock-rollback-failure"
+) 2>"${TEST_ROOT}/lock-rollback-failure.stderr"
+status="$?"
+[ "${status}" -eq 1 ] || fail "failed mkdir lock rollback exited with status ${status} instead of 1"
+[ ! -e "${TEST_ROOT}/continued-after-lock-rollback-failure" ] || fail 'installer continued after failing to roll back its owned mkdir lock'
+[ -e "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ] || fail 'failed rollback unexpectedly removed the owned mkdir lock'
+grep -Fq 'unable to roll back owned NVRAM transaction lock' "${TEST_ROOT}/lock-rollback-failure.stderr" || fail 'terminal mkdir lock rollback failure was not reported'
+FAIL_LOCK_REMOVE_AT=0
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
+(
+	# If ownership changes before a failed reaper release, preserve the other
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_symlink_acquire indicates that symlink-based lock acquisition is unavailable.
+	nvram_transaction_lock_symlink_acquire() { return 2; }
+	# nvram_transaction_lock_reaper_acquire acquires the transaction lock reaper.
+	nvram_transaction_lock_reaper_acquire() { return 0; }
+	# nvram_transaction_lock_reaper_release simulates a failed lock-reaper release by recording process ID 1 in the lock state and returning failure.
+	nvram_transaction_lock_reaper_release() {
+		printf '%s\n' 1 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid"
+		return 1
+	}
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale mkdir lock for ownership-change cleanup'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale mkdir owner for ownership-change cleanup'
+	if nvram_transaction_lock_acquire; then
+		fail 'mkdir recovery continued after reaper release failed with changed ownership'
+	fi
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" 2>/dev/null)" = 1 ] || fail 'failed reaper release removed the replacement mkdir owner'
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
+) || exit 1
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_reaper_acquire simulates another installer holding the reaper by creating a symlink lock and reporting acquisition failure.
+	nvram_transaction_lock_reaper_acquire() {
+		ln -s 1 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+		return 1
+	}
+	nvram_transaction_lock_symlink_acquire
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "fresh symlink acquisition returned ${status} instead of 1 for active stale-lock reaper"
+	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = 1 ] || fail 'fresh symlink acquisition replaced the reaper owner'
+	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+) || exit 1
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_reaper_acquire acquires the transaction lock reaper.
+	nvram_transaction_lock_reaper_acquire() { return 0; }
+	# nvram_transaction_lock_reaper_release releases the NVRAM transaction lock reaper and reports failure.
+	nvram_transaction_lock_reaper_release() { return 1; }
+	nvram_transaction_lock_symlink_acquire
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "symlink publication returned ${status} instead of 1 when reaper release failed"
+	if [ -e "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" ] ||
+		[ -L "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" ]; then
+		fail 'failed reaper release retained the newly published symlink lock'
+	fi
+) || exit 1
+(
+	# A failed rollback of the published symlink lock is terminal so the
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_reaper_acquire acquires the transaction lock reaper.
+	nvram_transaction_lock_reaper_acquire() { return 0; }
+	# nvram_transaction_lock_reaper_release releases the NVRAM transaction lock reaper and reports failure.
+	nvram_transaction_lock_reaper_release() { return 1; }
+	FAIL_SYMLINK_LOCK_REMOVE_AT=1
+	SYMLINK_LOCK_REMOVE_COUNT=0
+	nvram_transaction_lock_symlink_acquire
+	: >"${TEST_ROOT}/continued-after-symlink-lock-rollback-failure"
+) 2>"${TEST_ROOT}/symlink-lock-rollback-failure.stderr"
+status="$?"
+[ "${status}" -eq 1 ] || fail "failed symlink lock rollback exited with status ${status} instead of 1"
+[ ! -e "${TEST_ROOT}/continued-after-symlink-lock-rollback-failure" ] || fail 'installer continued after failing to roll back its owned symlink lock'
+[ -L "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" ] || fail 'failed rollback unexpectedly removed the owned symlink lock'
+grep -Fq 'unable to roll back owned NVRAM transaction lock' "${TEST_ROOT}/symlink-lock-rollback-failure.stderr" || fail 'terminal symlink lock rollback failure was not reported'
+command rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare live mkdir lock for symlink exclusion'
+	printf '%s\n' "${LOCK_OWNER}" >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not publish live mkdir lock owner'
+	if nvram_transaction_lock_symlink_acquire; then
+		fail 'symlink acquisition bypassed a live mkdir-mode transaction lock'
+	fi
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "${LOCK_OWNER}" ] || fail 'symlink acquisition changed the live mkdir owner'
+	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" ] || fail 'symlink acquisition published alongside a live mkdir owner'
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
+) || exit 1
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale mkdir lock for symlink recovery'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not publish stale mkdir lock owner'
+	nvram_transaction_lock_symlink_acquire || fail 'stale mkdir lock blocked symlink acquisition'
+	[ ! -e "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ] || fail 'symlink acquisition retained a verified stale mkdir lock'
+	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = "${LOCK_OWNER}" ] || fail 'symlink acquisition did not publish the current owner'
+	NVRAM_TRANSACTION_LOCK_MODE=symlink
+	nvram_transaction_lock_release || fail 'symlink lock could not be released after stale mkdir recovery'
+) || exit 1
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare raced stale symlink transaction lock'
+	# nvram_transaction_lock_reaper_acquire acquires the NVRAM transaction lock for reaping.
+	nvram_transaction_lock_reaper_acquire() {
+		rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || return 1
+		ln -s "${LOCK_OWNER}" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+	}
+	# nvram_transaction_lock_reaper_release releases the NVRAM transaction lock reaper.
+	nvram_transaction_lock_reaper_release() { :; }
+	nvram_transaction_lock_symlink_acquire
+	status="$?"
+	[ "${status}" -eq 1 ] || fail "stale-owner race returned ${status} instead of 1"
+	[ "$(readlink "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink")" = "${LOCK_OWNER}" ] || fail 'symlink stale-lock reaper removed a new live owner'
+	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+) || exit 1
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_readlink indicates that symbolic-link lock inspection is unavailable.
+	nvram_transaction_lock_readlink() { return 127; }
+	nvram_transaction_lock_acquire || fail 'missing readlink did not select the mkdir transaction lock fallback'
+	[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = mkdir ] || fail 'missing readlink selected an unusable symlink transaction lock'
+	nvram_transaction_lock_release || fail 'mkdir fallback could not be released after missing readlink'
+	ln -s 999999 "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not prepare an uninspectable symlink transaction lock'
+	if nvram_transaction_lock_symlink_acquire 2>"${TEST_ROOT}/readlink-unavailable.stderr"; then
+		fail 'uninspectable symlink transaction lock was accepted'
+	fi
+	grep -q 'readlink is unavailable' "${TEST_ROOT}/readlink-unavailable.stderr" || fail 'missing readlink did not report the uninspectable symlink lock'
+	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+) || exit 1
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_symlink_acquire indicates that symlink-based lock acquisition is unavailable.
+	nvram_transaction_lock_symlink_acquire() { return 2; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale transaction lock'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale transaction lock owner'
+	nvram_transaction_lock_acquire || fail 'stale NVRAM transaction lock blocked recovery'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "${LOCK_OWNER}" ] || fail 'stale transaction lock was not replaced by the live owner'
+	if [ -x /usr/bin/flock ] && BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		nvram_transaction_lock_acquire
+	'; then
+		fail 'flock mode overlapped a live mkdir fallback transaction owner'
+	fi
+	if BASE_DIR="${BASE_DIR}" FUNCTIONS_FILE="${FUNCTIONS_FILE}" sh -c '
+		. "${FUNCTIONS_FILE}"
+		nvram_transaction_lock_flock_supports_fd() { return 1; }
+		nvram_transaction_lock_symlink_acquire() { return 2; }
+		nvram_transaction_lock_acquire
+	'; then
+		fail 'mkdir fallback allowed an overlapping NVRAM transaction owner'
+	fi
+	nvram_transaction_lock_release || fail 'mkdir transaction owner could not release its lock'
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare missing-pid transaction lock'
+	nvram_transaction_lock_acquire || fail 'missing-pid transaction lock blocked recovery'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "${LOCK_OWNER}" ] || fail 'missing-pid transaction lock was not replaced by the live owner'
+	nvram_transaction_lock_release || fail 'missing-pid transaction owner could not release its lock'
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare malformed-pid transaction lock'
+	printf '%s\n' invalid >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record malformed transaction lock owner'
+	nvram_transaction_lock_acquire || fail 'malformed-pid transaction lock blocked recovery'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "${LOCK_OWNER}" ] || fail 'malformed-pid transaction lock was not replaced by the live owner'
+	nvram_transaction_lock_release || fail 'malformed-pid transaction owner could not release its lock'
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare PID-reused transaction lock'
+	printf '%s:0\n' "$$" >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record PID-reused transaction lock owner'
+	nvram_transaction_lock_acquire || fail 'PID-reused transaction lock blocked recovery'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "${LOCK_OWNER}" ] || fail 'PID-reused transaction lock was not replaced'
+	nvram_transaction_lock_release || fail 'PID-reused transaction owner could not release its lock'
+) || exit 1
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_symlink_acquire indicates that symlink-based lock acquisition is unavailable.
+	nvram_transaction_lock_symlink_acquire() { return 2; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare raced stale mkdir transaction lock'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record raced stale mkdir transaction lock owner'
+	LIVE_LOCK_OWNER="$(nvram_transaction_lock_owner_current 1)" || fail 'could not read replacement mkdir owner identity'
+	# nvram_transaction_lock_reaper_acquire recreates the NVRAM transaction lock reaper directory and records owner ID 1 in its pid marker.
+	nvram_transaction_lock_reaper_acquire() {
+		rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || return 1
+		mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || return 1
+		printf '%s\n' "${LIVE_LOCK_OWNER}" >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid"
+	}
+	# nvram_transaction_lock_reaper_release releases the NVRAM transaction lock reaper.
+	nvram_transaction_lock_reaper_release() { :; }
+	if nvram_transaction_lock_acquire; then
+		fail 'mkdir stale-lock reaper replaced a new live owner'
+	fi
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "${LIVE_LOCK_OWNER}" ] || fail 'mkdir stale-lock reaper removed a new live owner'
+	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
+) || exit 1
+(
+	# nvram_transaction_lock_flock_supports_fd reports whether file-descriptor-based flock locking is supported.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# nvram_transaction_lock_symlink_acquire indicates that symlink-based lock acquisition is unavailable.
+	nvram_transaction_lock_symlink_acquire() { return 2; }
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not prepare stale transaction lock for owner-lookup counting'
+	printf '%s\n' 999999999 >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale transaction lock owner for owner-lookup counting'
+	OWNER_CALLS_FILE="${TEST_ROOT}/owner-lookup-calls"
+	: >"${OWNER_CALLS_FILE}"
+	# nvram_transaction_lock_owner_current counts self-owner lookups while preserving the real liveness check for other PIDs.
+	# nvram_transaction_lock_owner_current returns the current lock owner or a PID and process-start-time identifier for the specified process.
+	# nvram_transaction_lock_owner_current returns the current lock owner or a PID and process start-time identifier for a numeric PID.
+	# nvram_transaction_lock_owner_current reports the recorded lock owner or returns a numeric process ID with its start time.
+	nvram_transaction_lock_owner_current() {
+		if [ "$#" -eq 0 ]; then
+			printf '%s\n' x >>"${OWNER_CALLS_FILE}"
+			printf '%s\n' "${LOCK_OWNER}"
+			return 0
+		fi
+		case "$1" in
+			"" | *[!0-9]*) return 1 ;;
+		esac
+		owner_start="$(/bin/sed 's/^.*) //' "/proc/$1/stat" 2>/dev/null | /usr/bin/awk '{print $20}')"
+		case "${owner_start}" in
+			"" | *[!0-9]*) return 1 ;;
+		esac
+		printf '%s:%s\n' "$1" "${owner_start}"
+	}
+	nvram_transaction_lock_acquire || fail 'stale mkdir transaction lock reclaim failed while counting owner lookups'
+	[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = mkdir ] || fail 'stale mkdir transaction lock reclaim did not select mkdir mode while counting owner lookups'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid")" = "${LOCK_OWNER}" ] || fail 'stale mkdir transaction lock reclaim did not record the live owner while counting owner lookups'
+	[ "$(wc -l <"${OWNER_CALLS_FILE}")" -eq 1 ] || fail "stale mkdir transaction lock reclaim looked up its own owner $(wc -l <"${OWNER_CALLS_FILE}") time(s) instead of once"
+	nvram_transaction_lock_release || fail 'could not release the counted stale mkdir transaction lock'
+) || exit 1
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
+
+reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'clean transaction snapshot failed'
+: >"${NVRAM_TRANSACTION_DIR}/stale" || fail 'could not mark clean snapshot for replacement check'
+NVRAM_TRANSACTION_DIR=''
+nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'clean transaction snapshot blocked a rerun'
+[ ! -e "${NVRAM_TRANSACTION_DIR}/stale" ] || fail 'clean stale snapshot was not replaced'
+
+reset_case
+printf '%s\n' 'previous working yaml' >"${YAML_FILE}"
+printf '%s\n' 'previous original yaml' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
+YAML_BACKED_UP=0
+nvram_transaction_setup_files_begin || fail 'could not create uncommitted setup journal fixture'
+printf '%s\n' 'published working yaml' >"${YAML_FILE}"
+printf '%s\n' 'published original yaml' >"${YAML_ORI}"
+printf '%s\n' 'ADGUARD_DOMAIN="NEW"' >"${CONF_FILE}"
+(
+	# mv injects a deterministic failure when publishing restored installer preferences.
+	mv() {
+		if [ "$#" -eq 3 ] && [ "$1" = -f ] && [ "$2" = "${CONF_FILE}.setup-restore.$$" ] && [ "$3" = "${CONF_FILE}" ]; then
+			return 1
+		fi
+		command mv "$@"
+	}
+	if setup_restore_nvram_journal; then
+		fail 'setup journal restore ignored an installer preferences restore failure'
+	fi
+	[ "$(cat "${YAML_FILE}")" = 'previous working yaml' ] || fail 'setup journal failure did not restore the working YAML'
+	[ "$(cat "${YAML_ORI}")" = 'previous original yaml' ] || fail 'setup journal failure did not restore the original YAML'
+	[ "$(cat "${CONF_FILE}")" = 'ADGUARD_DOMAIN="NEW"' ] || fail 'setup journal failure replaced the published installer preferences'
+	[ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'setup journal failure discarded pending recovery state'
+	[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config" ] || fail 'setup journal failure did not preserve the installer preferences entry'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config")" = 'ADGUARD_DOMAIN="OLD"' ] || fail 'setup journal failure changed the preserved installer preferences'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file")" = 'previous working yaml' ] || fail 'setup journal failure changed the preserved working YAML'
+	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original")" = 'previous original yaml' ] || fail 'setup journal failure changed the preserved original YAML'
+	FINALIZE_SETUP_PAIR_CALLED=0
+	# nvram_transaction_finalize_setup_pair records an unsafe cleanup attempt after a failed journal restore.
+	nvram_transaction_finalize_setup_pair() { FINALIZE_SETUP_PAIR_CALLED=1; }
+	# nvram_transaction_lock_release leaves the parent test fixture's lock intact.
+	nvram_transaction_lock_release() { :; }
+	on_installer_exit
+	[ "${FINALIZE_SETUP_PAIR_CALLED}" = 0 ] || fail 'installer exit finalized setup state after the file journal restore failed'
+) || exit 1
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not clean up setup restore failure fixture'
+
+reset_case
+nvram_transaction_lock_acquire || fail 'could not acquire transaction lock for committed setup exit fixture'
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create committed setup journal fixture'
+: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed" || fail 'could not create setup commit marker fixture'
+SETUP_RESTORE_SAW_COMMIT=0
+on_installer_exit
+[ "${SETUP_RESTORE_SAW_COMMIT}" = 1 ] || fail 'installer exit finalized the setup marker before checking the file journal'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'installer exit retained the committed setup journal'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'installer exit retained the setup commit marker'
+
+reset_case
+printf '%s\n' 'dnsfilter_enable_x=0' >>"${NVRAM_FILE}" || fail 'could not seed DNSFilter NVRAM state'
+nvram_transaction_begin lan-domain lan_domain || fail 'LAN-domain interruption snapshot failed'
+nvram_transaction_set lan_domain interrupted.example || fail 'LAN-domain interruption staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'LAN-domain interruption apply failed'
+[ "$(nvram_value lan_domain)" = interrupted.example ] || fail 'LAN-domain interruption setup did not apply its change'
+nvram_transaction_begin dnsfilter dnsfilter_enable_x || fail 'DNSFilter interruption snapshot failed'
+nvram_transaction_set dnsfilter_enable_x 1 || fail 'DNSFilter interruption staging failed'
+nvram_transaction_apply 'restart_firewall;restart_dnsmasq' 1 || fail 'DNSFilter interruption apply failed'
+[ "$(nvram_value dnsfilter_enable_x)" = 1 ] || fail 'DNSFilter interruption setup did not apply its change'
+on_installer_exit
+[ "$(nvram_value lan_domain)" = '' ] || fail 'installer exit did not restore the interrupted LAN domain'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'installer exit retained a successfully restored LAN-domain snapshot'
+[ "$(nvram_value dnsfilter_enable_x)" = 0 ] || fail 'installer exit did not restore interrupted DNSFilter values'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'installer exit retained a successfully restored DNSFilter snapshot'
+
+reset_case
 DNS_ENV_READY_TIMEOUT=invalid
 DNS_ENV_RECOVERY_TIMEOUT=invalid
 check_dns_environment 0 || fail 'public network unavailability blocked local DNS preparation'
 [ "${PUBLIC_CHECK_COUNT}" = 0 ] || fail 'DNS preparation used a public connectivity check'
 [ "${DNS_ENV_READY_TIMEOUT}" = 60 ] || fail 'invalid startup readiness timeout did not use its numeric default'
 [ "${DNS_ENV_RECOVERY_TIMEOUT}" = 15 ] || fail 'invalid recovery timeout did not use its numeric default'
+finalize_dns_environment || fail 'successful DNS preparation snapshot could not be finalized'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful install retained its DNS preparation snapshot'
+[ "$(nvram get dnspriv_enable)" = 0 ] || fail 'snapshot finalization restored successfully applied DNS settings'
+nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'finalized DNS preparation snapshot blocked a later installer run'
+rm -rf "${NVRAM_TRANSACTION_DIR}"
+
+reset_case
+check_dns_environment 0 || fail 'DNS preparation for interrupted snapshot cleanup failed'
+DNS_SNAPSHOT="${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
+NVRAM_TRANSACTION_DIR="${DNS_SNAPSHOT}"
+FAIL_SNAPSHOT_REMOVE=1
+finalize_dns_environment || fail 'completed DNS snapshot cleanup failure was treated as a failed commit'
+[ -d "${DNS_SNAPSHOT}" ] || fail 'snapshot cleanup failure injection did not retain the DNS snapshot'
+[ ! -f "${DNS_SNAPSHOT}/dirty" ] || fail 'DNS snapshot remained rollback-eligible after finalization committed'
+FAIL_SNAPSHOT_REMOVE=0
+nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || fail 'completed DNS snapshot blocked a later installer run'
+[ "${COMMIT_COUNT}" -eq 1 ] || fail 'completed DNS snapshot was restored after cleanup interruption'
+rm -rf "${NVRAM_TRANSACTION_DIR}"
+
+reset_case
+cat >"${NVRAM_FILE}" <<'EOF_NVRAM'
+dnspriv_enable=0
+dhcpd_dns_router=1
+dhcp_dns1_x=
+dhcp_dns2_x=
+EOF_NVRAM
+STUBBY_RUNNING=1
+check_dns_environment 0 || fail 'stopping stubby with prepared DNS NVRAM was rejected'
+[ "${STUBBY_KILL_COUNT}" = 1 ] || fail 'running stubby was not stopped exactly once'
+[ "${COMMIT_COUNT}" = 0 ] || fail 'stopping stubby caused an unnecessary NVRAM commit'
+[ "${SERVICE_COUNT}" = 1 ] || fail 'dnsmasq was not restarted after stopping stubby without NVRAM changes'
+[ "$(dns_check_count)" = 1 ] || fail 'local DNS was not checked after stopping stubby without NVRAM changes'
+[ "${_DNS_STUBBY_STOPPED}" = 1 ] || fail 'successful DNS preparation disarmed stubby recovery before installation finalized'
+finalize_dns_environment || fail 'stubby DNS handoff could not be finalized'
+[ "${_DNS_STUBBY_STOPPED}" = 0 ] || fail 'successful DNS finalization did not disarm stubby recovery'
+
+reset_case
+cat >"${NVRAM_FILE}" <<'EOF_NVRAM'
+dnspriv_enable=0
+dhcpd_dns_router=1
+dhcp_dns1_x=
+dhcp_dns2_x=
+EOF_NVRAM
+STUBBY_RUNNING=1
+check_dns_environment 0 || fail 'DNS preparation before a later installer failure was rejected'
+[ "${_DNS_STUBBY_STOPPED}" = 1 ] || fail 'later installer failures were not armed to restore stubby'
+on_installer_exit
+[ "${STUBBY_RESTART_COUNT}" = 1 ] || fail 'installer exit did not restore stubby after successful DNS preparation'
+[ "${_DNS_STUBBY_STOPPED}" = 0 ] || fail 'installer exit did not clear restored stubby state'
+
+reset_case
+STUBBY_RUNNING=1
+STUBBY_KILL_STUCK=1
+check_dns_environment 0 && fail 'DNS preparation continued while stubby remained running'
+[ "${STUBBY_KILL_COUNT}" = 1 ] || fail 'running stubby termination was not attempted exactly once'
+[ "${COMMIT_COUNT}" = 0 ] || fail 'NVRAM was changed while stubby remained running'
+[ "${_DNS_STUBBY_STOPPED}" = 1 ] || fail 'stubby recovery was not armed before termination completed'
+STUBBY_KILL_STUCK=0
+on_installer_exit
+[ "${STUBBY_RESTART_COUNT}" = 1 ] || fail 'installer exit did not recover stubby after incomplete termination'
+[ "${_DNS_STUBBY_STOPPED}" = 0 ] || fail 'successful exit recovery did not clear the stubby recovery flag'
+
+reset_case
+cat >"${NVRAM_FILE}" <<'EOF_NVRAM'
+dnspriv_enable=0
+dhcpd_dns_router=1
+dhcp_dns1_x=
+dhcp_dns2_x=
+EOF_NVRAM
+STUBBY_RUNNING=1
+FAIL_SERVICE_AT=1
+check_dns_environment 0 && fail 'initial dnsmasq restart failure after stopping stubby was accepted'
+[ "${SERVICE_COUNT}" = 3 ] || fail 'dnsmasq restart failure was not retried before stubby recovery'
+[ "$(dns_check_count)" = 1 ] || fail 'recovered dnsmasq restart after stopping stubby was not checked'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful dnsmasq recovery retained its snapshot'
+
+reset_case
+cat >"${NVRAM_FILE}" <<'EOF_NVRAM'
+dnspriv_enable=0
+dhcpd_dns_router=1
+dhcp_dns1_x=
+dhcp_dns2_x=
+EOF_NVRAM
+STUBBY_RUNNING=1
+FAIL_ALL_SERVICES=1
+check_dns_environment 0 && fail 'unrecoverable dnsmasq restart failure after stopping stubby was accepted'
+[ "${SERVICE_COUNT}" = 3 ] || fail 'unrecoverable dnsmasq restart failure and stubby recovery were not attempted before returning'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'unrecoverable dnsmasq restart failure did not preserve recovery state'
+grep -q 'snapshot preserved' "${CALLS_FILE}" || fail 'unrecoverable dnsmasq restart failure did not record rollback evidence'
+[ "${STUBBY_RESTART_COUNT}" = 1 ] || fail 'unrecoverable DNS preparation did not restore stubby'
+
+reset_case
+STUBBY_RUNNING=1
+FAIL_SET_AT=1
+check_dns_environment 0 && fail 'DNS staging failure after stopping stubby was accepted'
+[ "${STUBBY_RESTART_COUNT}" = 1 ] || fail 'DNS staging failure did not restore stubby'
+
+reset_case
+STUBBY_RUNNING=1
+FAIL_SET_AT=1
+FAIL_SERVICE_AT=2
+check_dns_environment 0 && fail 'stubby restore failure after DNS staging failure was accepted'
+[ "${SERVICE_COUNT}" = 2 ] || fail 'stubby restore failure did not participate in service failure injection'
+[ "${STUBBY_RESTART_COUNT}" = 1 ] || fail 'stubby restore failure was not attempted exactly once'
+grep -q '^service restart_stubby$' "${CALLS_FILE}" || fail 'stubby restore failure was not recorded'
+grep -q 'Unable to restart stubby after DNS preparation failed.' "${CALLS_FILE}" || fail 'stubby restore failure was not reported'
+[ "${_DNS_STUBBY_STOPPED}" = 1 ] || fail 'stubby restore failure did not preserve stopped state for later recovery'
+
+reset_case
+STUBBY_RUNNING=1
+FAIL_SET_AT=1
+check_dns_environment 0 && fail 'successful stubby restore after DNS staging failure was unexpectedly accepted'
+[ "${STUBBY_RESTART_COUNT}" = 1 ] || fail 'successful stubby restore was not attempted exactly once'
+[ "${STUBBY_RUNNING}" = 1 ] || fail 'successful stubby restore did not set stubby to running state'
+grep -q '^service restart_stubby$' "${CALLS_FILE}" || fail 'successful stubby restore was not recorded'
+
+reset_case
+[ "${_DNS_STUBBY_STOPPED}" = 0 ] || fail 'reset leaked stopped stubby state from the previous case'
+STUBBY_RUNNING=1
+FAIL_COMMIT_AT=1
+check_dns_environment 0 && fail 'DNS apply failure after stopping stubby was accepted'
+[ "${STUBBY_RESTART_COUNT}" = 1 ] || fail 'DNS apply failure did not restore stubby'
+
+reset_case
+DNS_ENV_READY_TIMEOUT=invalid
+DNS_ENV_RECOVERY_TIMEOUT=invalid
+check_dns_environment 0 || fail 'DNS preparation for explicit restore failed'
 check_dns_environment 1 || fail 'successful DNS preparation could not restore its snapshot'
 assert_original 'successful preparation'
 DNS_ENV_READY_TIMEOUT=2
@@ -161,12 +1926,13 @@ reset_case
 FAIL_SET_AT=2
 check_dns_environment 0 && fail 'NVRAM set failure was accepted'
 assert_original 'set failure'
-grep -q 'rollback was complete' "${CALLS_FILE}" || fail 'set failure rollback result was not reported'
+[ ! -d "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'completed set-failure rollback retained its snapshot'
 
 reset_case
 FAIL_ALL_SETS=1
 check_dns_environment 0 && fail 'complete NVRAM set failure was accepted'
-grep -q 'rollback was failed' "${CALLS_FILE}" || fail 'rollback with no successful restoration was not reported as failed'
+grep -q 'rollback NVRAM transaction rollback partial' "${CALLS_FILE}" || fail 'incomplete set-failure rollback did not preserve evidence'
+[ -d "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'incomplete set-failure rollback removed its snapshot'
 
 reset_case
 FAIL_COMMIT_AT=1
@@ -182,6 +1948,54 @@ assert_original 'service failure'
 
 reset_case
 DNS_READY=0
+DNS_READY_AFTER_SERVICE=2
+FAIL_SNAPSHOT_REMOVE=1
+check_dns_environment 0 && fail 'DNS readiness rollback was accepted as preparation success'
+[ -d "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'DNS cleanup failure did not retain its completed snapshot'
+[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'DNS completed rollback remained eligible for startup recovery'
+assert_original 'DNS readiness cleanup interruption'
+
+reset_case
+STUBBY_RUNNING=1
+printf '%s\n' 'dnspriv_enable=0' 'dhcpd_dns_router=1' 'dhcp_dns1_x=' 'dhcp_dns2_x=' >"${NVRAM_FILE}" || fail 'could not seed prepared DNS state'
+FAIL_SERVICE_AT=1
+check_dns_environment 0 && fail 'recovered no-change dnsmasq retry was accepted as preparation success'
+[ "${STUBBY_RESTART_COUNT}" -eq 1 ] || fail 'successful no-change recovery restarted stubby more than once'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful no-change recovery retained its snapshot'
+
+reset_case
+STUBBY_RUNNING=1
+printf '%s\n' 'dnspriv_enable=0' 'dhcpd_dns_router=1' 'dhcp_dns1_x=' 'dhcp_dns2_x=' >"${NVRAM_FILE}" || fail 'could not seed prepared DNS state'
+FAIL_SERVICE_AT=1
+FAIL_DIRTY_REMOVE=1
+check_dns_environment 0 && fail 'no-change recovery with failed snapshot finalization was accepted'
+[ "${STUBBY_RESTART_COUNT}" -eq 1 ] || fail 'snapshot finalization failure restarted recovered stubby'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'snapshot finalization failure discarded its retryable snapshot'
+grep -q 'rollback DNS NVRAM transaction rollback partial' "${CALLS_FILE}" || fail 'snapshot finalization failure was not recorded'
+
+reset_case
+STUBBY_RUNNING=1
+printf '%s\n' 'dnspriv_enable=0' 'dhcpd_dns_router=1' 'dhcp_dns1_x=' 'dhcp_dns2_x=' >"${NVRAM_FILE}" || fail 'could not seed prepared DNS state'
+FAIL_SERVICE_AT=1
+FAIL_SERVICE_AT_2=3
+FAIL_SERVICE_AT_3=4
+check_dns_environment 0 && fail 'no-change dnsmasq retry with failed stubby recovery was accepted'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" ] || fail 'no-change retry discarded the stopped stubby marker before restart'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'no-change retry discarded its retryable DNS snapshot'
+
+reset_case
+STUBBY_RUNNING=1
+DNS_READY=0
+DNS_READY_AFTER_SERVICE=2
+FAIL_SERVICE_AT=3
+FAIL_SERVICE_AT_2=4
+check_dns_environment 0 && fail 'DNS readiness rollback with failed stubby recovery was accepted'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" ] || fail 'failed stubby recovery discarded its persisted marker'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'failed stubby recovery discarded its retryable DNS snapshot'
+[ "${STUBBY_RESTART_COUNT}" -eq 2 ] || fail 'failed stubby recovery was not retried by exit-path cleanup'
+
+reset_case
+DNS_READY=0
 check_dns_environment 0 && fail 'local DNS readiness failure was accepted'
 assert_original 'DNS readiness failure'
 [ "$(dns_check_count)" = 2 ] || fail 'local DNS and recovery checks were not bounded by their configured deadlines'
@@ -193,16 +2007,23 @@ check_dns_environment 0 && fail 'blocking local DNS readiness failure was accept
 [ "$(dns_check_count)" = 2 ] || fail 'blocking DNS queries exceeded the startup and recovery deadlines'
 
 reset_case
+BLOCKING_QUERY=1
+TRACK_LOOKUP=1
+MONOTONIC_FAIL_AT=2
+check_dns_environment 0 && fail 'monotonic clock failure was accepted'
+[ -f "${TEST_ROOT}/lookup-reaped" ] || fail 'monotonic clock failure did not reap the active DNS lookup'
+
+reset_case
 FAIL_COMMIT_AT=2
 DNS_READY=0
 check_dns_environment 0 && fail 'rollback commit failure was accepted'
-grep -q 'rollback was partial' "${CALLS_FILE}" || fail 'rollback commit failure was not reported as partial'
+grep -q 'rollback partial' "${CALLS_FILE}" || fail 'rollback commit failure was not reported as partial'
 
 reset_case
 FAIL_SERVICE_AT=2
 DNS_READY=0
 check_dns_environment 0 && fail 'rollback service restart failure was accepted'
-grep -q 'rollback was partial' "${CALLS_FILE}" || fail 'rollback service failure was not reported as partial'
+grep -q 'rollback partial' "${CALLS_FILE}" || fail 'rollback service failure was not reported as partial'
 
 reset_case
 check_dns_environment 0 || fail 'DNS preparation for partial exit restoration failed'
@@ -222,11 +2043,13 @@ assert_original 'retried rollback'
 
 grep -q 'check_dns_environment 0 || return 1' "${INSTALLER_PATH}" || fail 'CLI install does not propagate DNS preparation failure'
 grep -q 'check_dns_environment 0 || exit 1' "${INSTALLER_PATH}" || fail 'interactive install does not propagate DNS preparation failure'
+grep -q '^[[:space:]]*if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" \] && ! finalize_dns_environment; then$' "${INSTALLER_PATH}" || fail 'successful WAN installation does not finalize its DNS preparation snapshot'
 
 reset_case
 (
 	trap 'check_dns_environment 1 >/dev/null 2>&1 || :; exit 0' TERM
-	save_dns_nvram_environment || exit 1
+	nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || exit 1
+	: >"${NVRAM_TRANSACTION_DIR}/dirty" || exit 1
 	nvram set dnspriv_enable=0 || exit 1
 	: >"${TEST_ROOT}/signal-ready"
 	while :; do :; done
