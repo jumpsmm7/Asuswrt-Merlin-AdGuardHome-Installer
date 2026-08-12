@@ -25,6 +25,7 @@ write_conf() {
 		printf '%s\n' "$1" >>"${CONF_FILE}" || fail 'could not write config value'
 		shift
 	done
+	load_operation_config action || return 1
 }
 
 trap cleanup 0
@@ -32,7 +33,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^conf_value() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_dnsmasq_running() {$/,/^}$/p; /^adguard_dnsmasq_managed() {$/,/^}$/p; /^adguard_restart_dnsmasq_if_managed() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p' \
+	'/^load_operation_config() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_dnsmasq_running() {$/,/^}$/p; /^adguard_dnsmasq_managed() {$/,/^}$/p; /^adguard_restart_dnsmasq_if_managed() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${SCRIPT_PATH}"
 grep -q '^adguard_ipset_allowed() {$' "${FUNCTIONS_FILE}" || fail 'runtime mode helpers missing'
 grep -q '^IPSet_Dnsmasq_Restart_After_Unlock() {$' "${FUNCTIONS_FILE}" || fail 'IPSET dnsmasq restart helper missing'
@@ -63,9 +64,18 @@ assert_restart_count() {
 }
 
 CONF_FILE="${TEST_ROOT}/AdGuardHome.config"
+DEFAULT_ADGUARD_NETCHECK_HOSTS='google.com github.com snbforums.com'
+DEFAULT_ADGUARD_NETCHECK_DNS='127.0.0.1'
+DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP='NO'
+DEFAULT_ADGUARD_NETCHECK_TIMEOUT='300'
+DEFAULT_ADGUARD_NETCHECK_MODE='wan'
+DEFAULT_ADGUARD_PROC_OPTIMIZE='NO'
+DEFAULT_ADGUARD_PROC_PROFILE='balanced'
+NAME='runtime-mode-test'
 SERVICE_RESTART_COUNT=0
 
 rm -f "${CONF_FILE}"
+load_operation_config action || fail 'missing config snapshot failed'
 [ "$(adguard_install_mode)" = 'wan' ] || fail 'missing config did not default install mode to wan'
 ! adguard_lan_mode || fail 'missing config should not be LAN mode'
 adguard_ipset_allowed || fail 'missing config should allow IPSET'
@@ -75,10 +85,10 @@ write_conf 'ADGUARD_INSTALL_MODE=lan'
 adguard_lan_mode || fail 'lan install mode was not detected'
 ! adguard_ipset_allowed || fail 'lan install mode should not allow IPSET'
 
-write_conf 'ADGUARD_INSTALL_MODE=unexpected'
-[ "$(adguard_install_mode)" = 'wan' ] || fail 'invalid install mode did not default to wan'
-! adguard_lan_mode || fail 'invalid install mode should not be LAN mode'
-adguard_ipset_allowed || fail 'invalid install mode should allow IPSET'
+if write_conf 'ADGUARD_INSTALL_MODE=unexpected'; then
+	fail 'invalid install mode was accepted'
+fi
+write_conf || fail 'could not restore default snapshot'
 
 DNSMASQ_RUNNING=0
 write_conf
