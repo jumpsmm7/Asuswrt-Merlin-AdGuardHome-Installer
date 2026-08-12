@@ -60,10 +60,18 @@ agh_log() {
 # load_operation_config takes one immutable snapshot of the keys needed by an
 # operation.  A monitor refreshes this snapshot only at its healthcheck boundary.
 load_operation_config() {
-	local config_dnsmasq_mode config_install_mode config_installer_branch config_ipset config_local config_netcheck_dns config_netcheck_hosts config_netcheck_mode config_netcheck_require_http config_netcheck_timeout config_proc_optimize config_proc_profile config_row config_status config_webui_port old_ifs scope
+	local config_dnsmasq_mode config_install_mode config_installer_branch config_ipset config_local config_netcheck_dns config_netcheck_hosts config_netcheck_mode config_netcheck_require_http config_netcheck_timeout config_proc_optimize config_proc_profile config_row config_status config_webui_port old_ifs overridden scope
 	scope="$1"
+	overridden=""
+	[ -n "${ADGUARD_NETCHECK_HOSTS_SET:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_HOSTS"
+	[ -n "${ADGUARD_NETCHECK_DNS_SET:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_DNS"
+	[ -n "${ADGUARD_NETCHECK_REQUIRE_HTTP_SET:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_REQUIRE_HTTP"
+	[ -n "${ADGUARD_NETCHECK_TIMEOUT_SET:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_TIMEOUT"
+	[ -n "${ADGUARD_NETCHECK_MODE_SET:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_MODE"
+	[ -n "${ADGUARD_PROC_OPTIMIZE_SET:-}" ] && overridden="${overridden} ADGUARD_PROC_OPTIMIZE"
+	[ -n "${ADGUARD_PROC_PROFILE_SET:-}" ] && overridden="${overridden} ADGUARD_PROC_PROFILE"
 	if [ -f "${CONF_FILE}" ]; then
-		config_row="$(awk -v SCOPE="${scope}" '
+		config_row="$(/usr/bin/awk -v OVERRIDDEN="${overridden} " -v SCOPE="${scope}" '
 		BEGIN {
 			sep = "|"
 			key_list = "ADGUARD_INSTALL_MODE,ADGUARD_DNSMASQ_MODE,ADGUARD_LOCAL,ADGUARD_IPSET,ADGUARD_WEBUI_PORT,INSTALLER_BRANCH,ADGUARD_NETCHECK_HOSTS,ADGUARD_NETCHECK_DNS,ADGUARD_NETCHECK_REQUIRE_HTTP,ADGUARD_NETCHECK_TIMEOUT,ADGUARD_NETCHECK_MODE,ADGUARD_PROC_OPTIMIZE,ADGUARD_PROC_PROFILE"
@@ -77,6 +85,7 @@ load_operation_config() {
 			key = $0
 			sub(/=.*/, "", key)
 			if (index(wanted, " " key " ") == 0) next
+			if (index(OVERRIDDEN, " " key " ") != 0) next
 			if (++seen[key] > 1) exit 2
 			value = substr($0, length(key) + 2)
 			if (value ~ /^"[^"]*"$/) value = substr(value, 2, length(value) - 2)
@@ -85,8 +94,6 @@ load_operation_config() {
 			values[key] = value
 		}
 		END {
-			if (seen[key] > 1) exit 2
-			if (value == "" && key != "") exit 3
 			count = split(key_list, ordered, ",")
 			for (i = 1; i <= count; i++) {
 				if (i > 1) printf "%s", sep
@@ -116,7 +123,7 @@ EOF
 	case "${config_webui_port}" in -) config_webui_port="" ;; *[!0-9]*) return 1 ;; *) [ "${config_webui_port}" -gt 0 ] && [ "${config_webui_port}" -le 65535 ] || return 1 ;; esac
 	case "${config_installer_branch}" in -) config_installer_branch="" ;; *[!A-Za-z0-9._/-]*) return 1 ;; esac
 	case "${config_netcheck_hosts}" in -) config_netcheck_hosts="${DEFAULT_ADGUARD_NETCHECK_HOSTS}" ;; *[!A-Za-z0-9._[:space:]-]*) return 1 ;; esac
-	case "${config_netcheck_dns}" in -) config_netcheck_dns="${DEFAULT_ADGUARD_NETCHECK_DNS}" ;; *[!A-Fa-f0-9:.]*) return 1 ;; esac
+	case "${config_netcheck_dns}" in -) config_netcheck_dns="${DEFAULT_ADGUARD_NETCHECK_DNS}" ;; *[!A-Za-z0-9._:-]*) return 1 ;; esac
 	case "${config_netcheck_require_http}" in -) config_netcheck_require_http="${DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP}" ;; YES | NO) ;; *) return 1 ;; esac
 	case "${config_netcheck_timeout}" in -) config_netcheck_timeout="${DEFAULT_ADGUARD_NETCHECK_TIMEOUT}" ;; *[!0-9]*) return 1 ;; *) [ "${config_netcheck_timeout}" -gt 0 ] || return 1 ;; esac
 	case "${config_netcheck_mode}" in -) config_netcheck_mode="${DEFAULT_ADGUARD_NETCHECK_MODE}" ;; wan | lan | legacy | WAN | LAN | LEGACY) ;; *) return 1 ;; esac
