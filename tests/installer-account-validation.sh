@@ -15,6 +15,9 @@ fail() {
 }
 
 extract_function() {
+	case "$1" in
+		*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]*) return 1 ;;
+	esac
 	sed -n "/^$1() {\$/,/^}/p" "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}"
 }
 
@@ -23,6 +26,8 @@ extract_function adguardhome_yaml_secure_file
 extract_function blocklist_yaml_replace_trap_disable
 extract_function blocklist_yaml_replace_trap_enable
 extract_function remove_unused_blocklists_from_yaml
+sed 's#/bin/nvram#nvram#g; s#/usr/bin/awk#awk#g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.test" || fail 'could not isolate stock account commands'
+mv "${FUNCTIONS_FILE}.test" "${FUNCTIONS_FILE}" || fail 'could not update isolated account helpers'
 . "${FUNCTIONS_FILE}"
 
 cat >"${TMP_ROOT}/bin/nvram" <<'EOF_NVRAM'
@@ -33,7 +38,7 @@ chmod 755 "${TMP_ROOT}/bin/nvram"
 PATH="${TMP_ROOT}/bin:${PATH}"
 export PATH TEST_ACCOUNT
 
-for TEST_ACCOUNT in '-admin' 'admin:root' 'admin/name' 'admin name' 'admin;touch' "admin	name"; do
+for TEST_ACCOUNT in '-admin' 'admin:root' 'admin/name' 'admin name' 'admin;touch' "admin	name" '1001'; do
 	if adguardhome_owner_account >/dev/null 2>&1; then
 		fail "accepted malformed NVRAM username: ${TEST_ACCOUNT}"
 	fi
@@ -77,8 +82,10 @@ cmp -s "${YAML_FILE}.expected" "${YAML_FILE}" || fail 'ownership failure replace
 SERVICE_PATH="$(dirname "${SCRIPT_PATH}")/S99AdGuardHome"
 : >"${TMP_ROOT}/service-functions.sh"
 sed -n '/^adguardhome_owner_account() {$/,/^}/p' "${SERVICE_PATH}" >"${TMP_ROOT}/service-functions.sh"
+sed 's#/bin/nvram#nvram#g; s#/usr/bin/awk#awk#g' "${TMP_ROOT}/service-functions.sh" >"${TMP_ROOT}/service-functions.test" || fail 'could not isolate service stock account commands'
+mv "${TMP_ROOT}/service-functions.test" "${TMP_ROOT}/service-functions.sh" || fail 'could not update isolated service account helper'
 . "${TMP_ROOT}/service-functions.sh"
-for TEST_ACCOUNT in '-admin' 'admin:root' 'admin/name' 'admin name' 'admin$(touch bad)'; do
+for TEST_ACCOUNT in '-admin' 'admin:root' 'admin/name' 'admin name' 'admin$(touch bad)' '1001'; do
 	if adguardhome_owner_account >/dev/null 2>&1; then
 		fail "service helper accepted malformed NVRAM username: ${TEST_ACCOUNT}"
 	fi

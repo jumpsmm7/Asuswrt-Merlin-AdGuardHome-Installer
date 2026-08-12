@@ -83,6 +83,7 @@ awk '
 	/^adguard_restore_after_failed_directory_restore\(\)/,/^}/
 	/^adguard_restore_after_failed_replace\(\)/,/^}/
 	/^finalize_pending_mode_migration\(\)/,/^}/
+	/^adguardhome_owner_account\(\)/,/^}/
 	/^adguardhome_yaml_ipset_file\(\)/,/^}/
 	/^adguardhome_yaml_remove_ipset_file\(\)/,/^}/
 	/^adguard_enforce_lan_ipset_disabled\(\)/,/^}/
@@ -96,6 +97,8 @@ awk '
 	/^write_command_script\(\)/,/^}/
 	/^write_conf\(\)/,/^}/
 ' "${REPO_DIR}/installer" >"${FUNCTIONS_FILE}"
+sed 's#/bin/nvram#nvram#g; s#/usr/bin/awk#awk#g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.test" || fail 'could not isolate stock account commands'
+mv "${FUNCTIONS_FILE}.test" "${FUNCTIONS_FILE}" || fail 'could not update isolated installer helpers'
 printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS_FILE}"
 printf 'BASE_DIR="%s/base"\n' "${TMP_DIR}" >>"${FUNCTIONS_FILE}"
 printf '%s\n' 'restore_dns_filter_settings() { return 0; }' >>"${FUNCTIONS_FILE}"

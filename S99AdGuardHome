@@ -1571,14 +1571,18 @@ chmod_regular_files_600() {
 }
 
 adguardhome_owner_account() {
-	_agh_account="$(nvram get http_username 2>/dev/null)" || return 1
+	_agh_account="$(/bin/nvram get http_username 2>/dev/null)" || return 1
 	[ -n "${_agh_account}" ] || _agh_account="root"
 	case "${_agh_account}" in
 		*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-]* | [.-]* | "") return 1 ;;
 	esac
 	[ "${#_agh_account}" -le 32 ] || return 1
+	case "${_agh_account}" in
+		*[!0123456789]*) ;;
+		*) return 1 ;;
+	esac
 	if [ -r /etc/passwd ]; then
-		awk -F: -v account="${_agh_account}" '$1 == account && (account != "root" || $3 == 0) { found = 1; exit } END { exit(found ? 0 : 1) }' /etc/passwd || return 1
+		/usr/bin/awk -F: -v account="${_agh_account}" '$1 == account && (account != "root" || $3 == 0) { found = 1; exit } END { exit(found ? 0 : 1) }' /etc/passwd || return 1
 	fi
 	printf '%s\n' "${_agh_account}"
 }

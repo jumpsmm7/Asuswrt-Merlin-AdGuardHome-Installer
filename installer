@@ -4267,14 +4267,18 @@ check_ipset() {
 
 adguardhome_owner_account() {
 	local account
-	account="$(nvram get http_username 2>/dev/null)" || return 1
+	account="$(/bin/nvram get http_username 2>/dev/null)" || return 1
 	[ -n "${account}" ] || account="root"
 	case "${account}" in
 		*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-]* | [.-]* | "") return 1 ;;
 	esac
 	[ "${#account}" -le 32 ] || return 1
+	case "${account}" in
+		*[!0123456789]*) ;;
+		*) return 1 ;;
+	esac
 	if [ -r /etc/passwd ]; then
-		awk -F: -v account="${account}" '$1 == account && (account != "root" || $3 == 0) { found = 1; exit } END { exit(found ? 0 : 1) }' /etc/passwd || return 1
+		/usr/bin/awk -F: -v account="${account}" '$1 == account && (account != "root" || $3 == 0) { found = 1; exit } END { exit(found ? 0 : 1) }' /etc/passwd || return 1
 	fi
 	printf '%s\n' "${account}"
 }
