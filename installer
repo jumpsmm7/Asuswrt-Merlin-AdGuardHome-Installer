@@ -22,6 +22,7 @@
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
+umask 077
 
 AI_VERSION="v2.6.1"
 export AI_VERSION

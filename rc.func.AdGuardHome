@@ -2,6 +2,7 @@
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
+umask 077
 
 ACTION="$1"
 CALLER="${2:-$0}"
@@ -23,7 +24,7 @@ ansi_ul="$(printf "\033[4m")"
 
 rc_dependencies_available() {
 	local _REQUIRED_COMMAND
-	for _REQUIRED_COMMAND in chmod date dirname grep kill killall logger mkdir pidof rm sleep; do
+	for _REQUIRED_COMMAND in awk chmod date dirname grep kill killall logger ls mkdir mv pidof rm sleep; do
 		if ! which "${_REQUIRED_COMMAND}" >/dev/null 2>&1; then
 			printf '%s\n' "${CALLER}: required service command is unavailable: ${_REQUIRED_COMMAND}" >&2
 			return 1
@@ -106,8 +107,19 @@ service_state_dir_ready() {
 	[ ! -L "${_STATE_DIR}" ] || return 1
 	mkdir -p "${_STATE_DIR}" 2>/dev/null || return 1
 	[ ! -L "${_STATE_DIR}" ] || return 1
-	chmod 700 "${_STATE_DIR}" 2>/dev/null || return 1
 	[ -d "${_STATE_DIR}" ] || return 1
+	chmod 700 "${_STATE_DIR}" 2>/dev/null || return 1
+	ls -ldn "${_STATE_DIR}" 2>/dev/null |
+		awk 'NR == 1 { exit(substr($1, 1, 10) == "drwx------" && $3 == 0 ? 0 : 1) }
+			END { if (NR == 0) exit 1 }'
+}
+
+service_state_file_is_private() {
+	_STATE_FILE="$1"
+	[ -f "${_STATE_FILE}" ] && [ ! -L "${_STATE_FILE}" ] || return 1
+	ls -ldn "${_STATE_FILE}" 2>/dev/null |
+		awk 'NR == 1 { exit(substr($1, 1, 10) == "-rw-------" && $2 == 1 && $3 == 0 ? 0 : 1) }
+			END { if (NR == 0) exit 1 }'
 }
 
 service_timestamp() {
@@ -115,18 +127,31 @@ service_timestamp() {
 }
 
 service_mark_transition() {
-	local _STATE _STATE_FILE
+	local _STATE _STATE_FILE _STATE_STAGE
 	_STATE="$1"
 	service_state_dir_ready || return 0
 	_STATE_FILE="$(service_state_file)"
-	[ ! -L "${_STATE_FILE}" ] || return 0
-	printf '%s\n' "${_STATE}" >"${_STATE_FILE}" 2>/dev/null || true
+	_STATE_STAGE="${_STATE_FILE}.$$"
+	[ ! -e "${_STATE_STAGE}" ] && [ ! -L "${_STATE_STAGE}" ] || return 0
+	(
+		set -C
+		umask 077
+		printf '%s\n' "${_STATE}" >"${_STATE_STAGE}"
+	) 2>/dev/null || return 0
+	service_state_file_is_private "${_STATE_STAGE}" || return 0
+	if [ -e "${_STATE_FILE}" ] || [ -L "${_STATE_FILE}" ]; then
+		service_state_file_is_private "${_STATE_FILE}" || {
+			rm -f "${_STATE_STAGE}" 2>/dev/null
+			return 0
+		}
+	fi
+	mv -f "${_STATE_STAGE}" "${_STATE_FILE}" 2>/dev/null || rm -f "${_STATE_STAGE}" 2>/dev/null
 }
 
 service_transition_state() {
 	local _STATE
 	_STATE=""
-	[ -r "$(service_state_file)" ] || return 1
+	service_state_file_is_private "$(service_state_file)" || return 1
 	IFS= read -r _STATE <"$(service_state_file)" || return 1
 	case "${_STATE}" in
 		"starting" | "stopping" | "restarting")

@@ -1,6 +1,7 @@
 #!/bin/sh
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
+umask 077
 
 which renice >/dev/null 2>&1 && renice -10 $$ >/dev/null 2>&1
 ENABLED="yes"
@@ -179,6 +180,21 @@ dns_guard_readiness_is_private() {
 	dns_handoff_path_has_owner_mode d 'rwx------' "${DNS_GUARD_READY_DIR}" || return 1
 	[ -f "${DNS_GUARD_READY_FILE}" ] && [ ! -L "${DNS_GUARD_READY_FILE}" ] || return 1
 	dns_handoff_path_has_owner_mode - 'rw-------' "${DNS_GUARD_READY_FILE}"
+}
+
+dns_guard_fifo_is_private() {
+	[ -n "${_dns_guard_wait_fifo:-}" ] || return 1
+	[ -p "${_dns_guard_wait_fifo}" ] && [ ! -L "${_dns_guard_wait_fifo}" ] || return 1
+	ls -ldn "${_dns_guard_wait_fifo}" 2>/dev/null |
+		awk 'NR == 1 { exit(substr($1, 1, 10) == "prw-------" && $2 == 1 && $3 == 0 ? 0 : 1) }
+			END { if (NR == 0) exit 1 }'
+}
+
+remove_dns_guard_fifo() {
+	[ -n "${_dns_guard_wait_fifo:-}" ] || return 0
+	[ ! -e "${_dns_guard_wait_fifo}" ] && [ ! -L "${_dns_guard_wait_fifo}" ] && return 0
+	dns_guard_fifo_is_private || return 1
+	rm -f "${_dns_guard_wait_fifo}"
 }
 
 dns_guard_readiness_matches_identity() {
@@ -1155,17 +1171,20 @@ dns_guard_wait_for_stop() {
 initialize_dns_guard_wait() {
 	_dns_guard_wait_initialized=0
 	_dns_guard_wait_fifo="${DNS_GUARD_READY_DIR}/wait"
-	rm -f "${_dns_guard_wait_fifo}" 2>/dev/null
-	if mkfifo "${_dns_guard_wait_fifo}" 2>/dev/null; then
+	# The readiness directory is private and operation-specific.  Any existing
+	# entry is foreign state; never unlink it or let mkfifo replace it.
+	[ ! -e "${_dns_guard_wait_fifo}" ] && [ ! -L "${_dns_guard_wait_fifo}" ] || return 1
+	if (umask 077 && mkfifo "${_dns_guard_wait_fifo}") 2>/dev/null; then
+		if ! dns_guard_fifo_is_private; then
+			return 1
+		fi
 		if command exec 3<>"${_dns_guard_wait_fifo}"; then
 			_dns_guard_wait_initialized=1
 		fi
 	fi
-	if [ -d "${_dns_guard_wait_fifo}" ] && [ ! -L "${_dns_guard_wait_fifo}" ]; then
-		rmdir "${_dns_guard_wait_fifo}" 2>/dev/null || return 1
-	else
-		rm -f "${_dns_guard_wait_fifo}" 2>/dev/null || return 1
-	fi
+	# Only the FIFO exclusively created and validated above belongs to us.
+	dns_guard_fifo_is_private || return 1
+	remove_dns_guard_fifo 2>/dev/null || return 1
 	[ "${_dns_guard_wait_initialized}" = "1" ]
 }
 
@@ -1291,7 +1310,7 @@ start_dns_port_guard() {
 	_dns_guard_saved_traps="${DNS_WATCHDOG_TRAP_FILE}"
 	# Install cleanup before the first watchdog STOP so a parent-side shutdown
 	# cannot terminate us during retry sleep without resuming the watchdog.
-	trap 'trap - HUP INT TERM EXIT; exec 3<&- 3>&- 2>/dev/null; rm -f "${_dns_guard_wait_fifo:-}"; remove_current_dns_guard_readiness || true; resume_dns_watchdog; restore_dns_watchdog_traps "${_dns_guard_saved_traps}"; exit 0' HUP INT TERM EXIT
+	trap 'trap - HUP INT TERM EXIT; exec 3<&- 3>&- 2>/dev/null; remove_dns_guard_fifo || true; remove_current_dns_guard_readiness || true; resume_dns_watchdog; restore_dns_watchdog_traps "${_dns_guard_saved_traps}"; exit 0' HUP INT TERM EXIT
 	# Do not acknowledge readiness until every state needed for safe signal and
 	# watchdog recovery exists and the parent's handoff identity is still active.
 	dns_handoff_marker_matches_identity "${DNS_GUARD_OWNER_PID}" "${DNS_GUARD_OWNER_START_TIME}" || return 1
