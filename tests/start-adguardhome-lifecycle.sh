@@ -392,11 +392,13 @@ IPSet_Lock released
 lower_script start'
 LEGACY_VERSION=""
 IPSET_CONFIG=NO
+CONFIG_IPSET="${IPSET_CONFIG}"
 run_test 'disabled integration removes managed settings before startup' 0 0 0 0 0 0 1 'IPSet_Lock acquired
 IPSet_Disable_Managed
 IPSet_Lock released
 lower_script start'
 IPSET_CONFIG=YES
+CONFIG_IPSET="${IPSET_CONFIG}"
 
 run_interrupt_cleanup_test 'interrupt restores stopped service' 0
 run_interrupt_cleanup_test 'failed interrupt restoration is not retried' 1
