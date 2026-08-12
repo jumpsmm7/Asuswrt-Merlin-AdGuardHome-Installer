@@ -63,13 +63,13 @@ load_operation_config() {
 	local config_dnsmasq_mode config_install_mode config_installer_branch config_ipset config_local config_netcheck_dns config_netcheck_hosts config_netcheck_mode config_netcheck_require_http config_netcheck_timeout config_proc_optimize config_proc_profile config_row config_status config_webui_port old_ifs overridden scope
 	scope="$1"
 	overridden=""
-	[ -n "${ADGUARD_NETCHECK_HOSTS_SET:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_HOSTS"
-	[ -n "${ADGUARD_NETCHECK_DNS_SET:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_DNS"
-	[ -n "${ADGUARD_NETCHECK_REQUIRE_HTTP_SET:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_REQUIRE_HTTP"
-	[ -n "${ADGUARD_NETCHECK_TIMEOUT_SET:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_TIMEOUT"
-	[ -n "${ADGUARD_NETCHECK_MODE_SET:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_MODE"
-	[ -n "${ADGUARD_PROC_OPTIMIZE_SET:-}" ] && overridden="${overridden} ADGUARD_PROC_OPTIMIZE"
-	[ -n "${ADGUARD_PROC_PROFILE_SET:-}" ] && overridden="${overridden} ADGUARD_PROC_PROFILE"
+	[ -n "${ADGUARD_NETCHECK_HOSTS_SET:-}" ] && [ -n "${ADGUARD_NETCHECK_HOSTS:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_HOSTS"
+	[ -n "${ADGUARD_NETCHECK_DNS_SET:-}" ] && [ -n "${ADGUARD_NETCHECK_DNS:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_DNS"
+	[ -n "${ADGUARD_NETCHECK_REQUIRE_HTTP_SET:-}" ] && [ -n "${ADGUARD_NETCHECK_REQUIRE_HTTP:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_REQUIRE_HTTP"
+	[ -n "${ADGUARD_NETCHECK_TIMEOUT_SET:-}" ] && [ -n "${ADGUARD_NETCHECK_TIMEOUT:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_TIMEOUT"
+	[ -n "${ADGUARD_NETCHECK_MODE_SET:-}" ] && [ -n "${ADGUARD_NETCHECK_MODE:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_MODE"
+	[ -n "${ADGUARD_PROC_OPTIMIZE_SET:-}" ] && [ -n "${ADGUARD_PROC_OPTIMIZE:-}" ] && overridden="${overridden} ADGUARD_PROC_OPTIMIZE"
+	[ -n "${ADGUARD_PROC_PROFILE_SET:-}" ] && [ -n "${ADGUARD_PROC_PROFILE:-}" ] && overridden="${overridden} ADGUARD_PROC_PROFILE"
 	if [ -f "${CONF_FILE}" ]; then
 		config_row="$(/usr/bin/awk -v OVERRIDDEN="${overridden} " -v SCOPE="${scope}" '
 		BEGIN {
@@ -79,6 +79,8 @@ load_operation_config() {
 			gsub(/,/, " ", keys)
 			if (SCOPE == "status") wanted = " ADGUARD_WEBUI_PORT INSTALLER_BRANCH "
 			else if (SCOPE == "stop") wanted = " ADGUARD_INSTALL_MODE ADGUARD_DNSMASQ_MODE "
+			else if (SCOPE == "dnsmasq") wanted = " ADGUARD_INSTALL_MODE ADGUARD_DNSMASQ_MODE ADGUARD_LOCAL "
+			else if (SCOPE == "firewall") wanted = " ADGUARD_INSTALL_MODE ADGUARD_IPSET "
 			else wanted = keys
 		}
 		/^[A-Z][A-Z0-9_]*=/ {
@@ -1871,6 +1873,9 @@ start_monitor() {
 				;;
 			"restart")
 				agh_log info start_monitor "state=restart action=restart_adguardhome reason=signal_USR2 result=restarting"
+				if ! load_operation_config action; then
+					agh_log warning start_monitor "state=restart action=load_config reason=invalid_snapshot result=retained"
+				fi
 				unset MONITOR_ELAPSED
 				MONITOR_START_ACTION="restart_adguardhome"
 				MONITOR_STATE="running"
@@ -3168,9 +3173,20 @@ IPSet_Supported() {
 case "${1:-}" in
 	status) CONFIG_LOAD_SCOPE="status" ;;
 	stop | kill | services-stop) CONFIG_LOAD_SCOPE="stop" ;;
+	dnsmasq | dnsmasq-sdn) CONFIG_LOAD_SCOPE="dnsmasq" ;;
+	firewall) CONFIG_LOAD_SCOPE="firewall" ;;
 	*) CONFIG_LOAD_SCOPE="action" ;;
 esac
-load_operation_config "${CONFIG_LOAD_SCOPE}" || return 1 2>/dev/null || exit 1
+if ! load_operation_config "${CONFIG_LOAD_SCOPE}"; then
+	case "${CONFIG_LOAD_SCOPE}" in
+		stop)
+			CONFIG_INSTALL_MODE="wan"
+			CONFIG_DNSMASQ_MODE="auto"
+			printf '%s\n' "${NAME}: continuing stop with conservative configuration defaults" >&2
+			;;
+		*) return 1 2>/dev/null || exit 1 ;;
+	esac
+fi
 
 if [ "${1:-}" = "status" ]; then
 	status

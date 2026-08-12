@@ -112,6 +112,35 @@ load_operation_config action || fail 'valid environment override did not mask ma
 [ "$(netcheck_config ADGUARD_NETCHECK_TIMEOUT 300)" = '30' ] || fail 'validated environment override was not retained'
 unset ADGUARD_NETCHECK_TIMEOUT ADGUARD_NETCHECK_TIMEOUT_SET
 
+# A marker without a non-empty environment value does not hide the persisted key.
+printf '%s\n' 'ADGUARD_NETCHECK_TIMEOUT="45"' >"${CONF_FILE}"
+ADGUARD_NETCHECK_TIMEOUT=''
+ADGUARD_NETCHECK_TIMEOUT_SET='x'
+load_operation_config action || fail 'marker-only override rejected persisted value'
+[ "${CONFIG_NETCHECK_TIMEOUT}" = '45' ] || fail 'marker-only override hid persisted value'
+unset ADGUARD_NETCHECK_TIMEOUT ADGUARD_NETCHECK_TIMEOUT_SET
+
+# Router hooks validate only the configuration keys they consume.
+cat >"${CONF_FILE}" <<'EOF'
+ADGUARD_INSTALL_MODE="wan"
+ADGUARD_IPSET="YES"
+ADGUARD_WEBUI_PORT="broken"
+ADGUARD_PROC_PROFILE="broken"
+EOF
+load_operation_config firewall || fail 'firewall scope rejected unrelated malformed values'
+[ "${CONFIG_IPSET}" = 'YES' ] || fail 'firewall scope did not load IPSET value'
+cat >"${CONF_FILE}" <<'EOF'
+ADGUARD_INSTALL_MODE="lan"
+ADGUARD_DNSMASQ_MODE="disabled"
+ADGUARD_LOCAL="YES"
+ADGUARD_WEBUI_PORT="broken"
+EOF
+load_operation_config dnsmasq || fail 'dnsmasq scope rejected unrelated malformed values'
+[ "${CONFIG_LOCAL}" = 'YES' ] || fail 'dnsmasq scope did not load local setting'
+
+grep -q 'if ! load_operation_config action; then' "${SCRIPT_PATH}" || fail 'monitor restart does not refresh configuration'
+grep -q 'continuing stop with conservative configuration defaults' "${SCRIPT_PATH}" || fail 'invalid configuration can still block emergency stop'
+
 # Monitoring adopts an atomically replaced valid file only at the documented
 # healthcheck boundary, while a malformed replacement leaves its last snapshot.
 printf '%s\n' 'ADGUARD_NETCHECK_TIMEOUT="30"' >"${CONF_FILE}.new"
