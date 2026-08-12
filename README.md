@@ -770,6 +770,7 @@ sh tests/installer-lan-ipset-yaml-cleanup.sh
 sh tests/installer-event-script-modes.sh
 sh tests/installer-interruption-restart.sh
 sh tests/start-adguardhome-lifecycle.sh
+sh tests/optional-database-links.sh
 ```
 
 Optionally run ShellCheck on a development workstation when ShellCheck is installed outside the router:
