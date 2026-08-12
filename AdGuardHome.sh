@@ -99,6 +99,13 @@ load_operation_config() {
 			else if (SCOPE == "firewall") wanted = " ADGUARD_INSTALL_MODE ADGUARD_IPSET "
 			else wanted = " ADGUARD_INSTALL_MODE ADGUARD_DNSMASQ_MODE ADGUARD_LOCAL ADGUARD_IPSET ADGUARD_NETCHECK_HOSTS ADGUARD_NETCHECK_DNS ADGUARD_NETCHECK_REQUIRE_HTTP ADGUARD_NETCHECK_TIMEOUT ADGUARD_NETCHECK_MODE ADGUARD_PROC_OPTIMIZE ADGUARD_PROC_PROFILE "
 		}
+		/^[A-Z][A-Z0-9_]*[[:space:]]+=/ {
+			key = $0
+			sub(/[[:space:]]+=.*/, "", key)
+			if (index(wanted, " " key " ") == 0) next
+			if (index(OVERRIDDEN, " " key " ") != 0) next
+			exit 3
+		}
 		/^[A-Z][A-Z0-9_]*=/ {
 			key = $0
 			sub(/=.*/, "", key)
@@ -108,7 +115,11 @@ load_operation_config() {
 			value = substr($0, length(key) + 2)
 			if (value ~ /^"[^"]*"$/) value = substr(value, 2, length(value) - 2)
 			else if (value ~ /["[:cntrl:]]/) exit 3
-			if (value == "" || value ~ /[|[:cntrl:]]/) exit 3
+			if (value == "") {
+				if (key == "ADGUARD_WEBUI_PORT" || key == "INSTALLER_BRANCH") next
+				exit 3
+			}
+			if (value ~ /[|[:cntrl:]]/) exit 3
 			values[key] = value
 		}
 		END {

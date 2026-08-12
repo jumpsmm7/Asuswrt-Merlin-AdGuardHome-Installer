@@ -23,10 +23,10 @@ cleanup() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}/bin" || fail 'could not create test directory'
-sed -n '/^set_operation_config_defaults() {$/,/^}$/p; /^load_operation_config() {$/,/^}$/p; /^netcheck_config() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
+/bin/sed -n '/^set_operation_config_defaults() {$/,/^}$/p; /^load_operation_config() {$/,/^}$/p; /^netcheck_config() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract configuration helpers'
 REAL_AWK="$(which awk 2>/dev/null)" || fail 'awk not found'
-sed "s|/usr/bin/awk|${TMP_ROOT}/bin/awk|" "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" || fail 'could not instrument awk call'
+/bin/sed "s|/usr/bin/awk|${TMP_ROOT}/bin/awk|" "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" || fail 'could not instrument awk call'
 mv "${FUNCTIONS_FILE}.tmp" "${FUNCTIONS_FILE}" || fail 'could not publish instrumented helpers'
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
@@ -85,12 +85,19 @@ load_operation_config action || fail 'missing configuration did not use defaults
 [ ! -s "${AWK_CALLS}" ] || fail 'missing configuration unnecessarily invoked awk'
 [ "${CONFIG_INSTALL_MODE}" = 'wan' ] || fail 'missing configuration did not publish defaults'
 
-for invalid in 'ADGUARD_INSTALL_MODE=""' 'ADGUARD_INSTALL_MODE="wan"\nADGUARD_INSTALL_MODE="lan"' 'ADGUARD_NETCHECK_TIMEOUT="bad"' 'ADGUARD_NETCHECK_HOSTS="example.com|injected"'; do
+for invalid in 'ADGUARD_INSTALL_MODE=""' 'ADGUARD_INSTALL_MODE="wan"\nADGUARD_INSTALL_MODE="lan"' 'ADGUARD_DNSMASQ_MODE =disabled' 'ADGUARD_NETCHECK_TIMEOUT="bad"' 'ADGUARD_NETCHECK_HOSTS="example.com|injected"'; do
 	printf '%b\n' "${invalid}" >"${CONF_FILE}"
 	if load_operation_config action >/dev/null 2>&1; then
 		fail "invalid configuration was accepted: ${invalid}"
 	fi
 done
+
+# Explicitly optional empty status values are treated as unset, while required
+# runtime values remain subject to the invalid-value cases above.
+printf '%s\n' 'ADGUARD_WEBUI_PORT=""' 'INSTALLER_BRANCH=""' >"${CONF_FILE}"
+load_operation_config status || fail 'empty optional status values were rejected'
+[ -z "${CONFIG_WEBUI_PORT}" ] || fail 'empty WebUI port was not treated as unset'
+[ -z "${CONFIG_INSTALLER_BRANCH}" ] || fail 'empty installer branch was not treated as unset'
 
 # Scoped reads ignore unrelated keys and still publish complete default globals.
 printf '%s\n' 'ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"' >"${CONF_FILE}"
