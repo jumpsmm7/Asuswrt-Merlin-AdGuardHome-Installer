@@ -165,9 +165,14 @@ CONFIG_NETCHECK_TIMEOUT='stale'
 set_operation_config_defaults
 [ "${CONFIG_LOCAL}:${CONFIG_IPSET}:${CONFIG_NETCHECK_TIMEOUT}" = 'NO:YES:300' ] || fail 'stop fallback did not initialize a complete default snapshot'
 
-grep -q 'if ! load_operation_config action; then' "${SCRIPT_PATH}" || fail 'monitor restart does not refresh configuration'
-grep -q 'if ! load_operation_config stop; then' "${SCRIPT_PATH}" || fail 'monitor stop does not refresh configuration'
-grep -q 'continuing stop with conservative configuration defaults' "${SCRIPT_PATH}" || fail 'invalid configuration can still block emergency stop'
+/bin/grep -q 'if ! load_operation_config action; then' "${SCRIPT_PATH}" || fail 'monitor restart does not refresh configuration'
+/bin/grep -q 'if ! load_operation_config stop; then' "${SCRIPT_PATH}" || fail 'monitor stop does not refresh configuration'
+/bin/grep -q 'continuing stop with conservative configuration defaults' "${SCRIPT_PATH}" || fail 'invalid configuration can still block emergency stop'
+/usr/bin/awk '
+	/if ! load_operation_config stop; then/ { reloaded = 1 }
+	/A place to exit early if needed/ { exit !reloaded }
+	END { if (!reloaded) exit 1 }
+' "${SCRIPT_PATH}" || fail 'monitor stop snapshot reload occurs after the early-stop path'
 
 # Monitoring adopts an atomically replaced valid file only at the documented
 # healthcheck boundary, while a malformed replacement leaves its last snapshot.

@@ -1814,6 +1814,12 @@ start_monitor() {
 				check_dns_environment "running"
 				;;
 		esac
+		if [ "${MONITOR_STATE}" = "stop" ]; then
+			if ! load_operation_config stop; then
+				set_operation_config_defaults
+				agh_log warning start_monitor "state=stop action=load_config reason=invalid_snapshot result=using_defaults"
+			fi
+		fi
 		if [ "${MONITOR_STATE}" = "stop" ]; then # A place to exit early if needed, or if binary becomes unavailable before service-stop.
 			agh_log info start_monitor "state=stop action=stop_monitor reason=signal_USR1 result=stopping"
 			trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
