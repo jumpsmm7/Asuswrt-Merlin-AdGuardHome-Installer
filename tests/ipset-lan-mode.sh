@@ -22,7 +22,7 @@ fail() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^IPSet_Migrate() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^load_operation_config() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^IPSet_Migrate() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'LAN IPSET functions were not found'
 
 # shellcheck disable=SC1090
@@ -74,11 +74,19 @@ IPSET_USER_FILE=/tmp/ipset.user
 YAML_FILE=/tmp/AdGuardHome.yaml
 PROCS=AdGuardHome
 NAME=AdGuardHome
+DEFAULT_ADGUARD_NETCHECK_HOSTS='google.com github.com snbforums.com'
+DEFAULT_ADGUARD_NETCHECK_DNS='127.0.0.1'
+DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP='NO'
+DEFAULT_ADGUARD_NETCHECK_TIMEOUT='300'
+DEFAULT_ADGUARD_NETCHECK_MODE='wan'
+DEFAULT_ADGUARD_PROC_OPTIMIZE='NO'
+DEFAULT_ADGUARD_PROC_PROFILE='balanced'
 
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write LAN config'
 ADGUARD_INSTALL_MODE="lan"
 ADGUARD_IPSET="YES"
 EOF_CONF
+load_operation_config action || fail 'could not load LAN operation snapshot'
 DISABLE_STATUS=0
 : >"${CALLS_FILE}"
 if IPSet_Enabled; then
@@ -128,6 +136,7 @@ cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write WAN config'
 ADGUARD_INSTALL_MODE="wan"
 ADGUARD_IPSET="YES"
 EOF_CONF
+load_operation_config action || fail 'could not load WAN operation snapshot'
 : >"${CALLS_FILE}"
 IPSet_Enabled || fail 'IPSet_Enabled returned false in WAN mode with IPSET enabled'
 IPSet_Refresh || fail 'WAN refresh returned failure with supported IPSET'

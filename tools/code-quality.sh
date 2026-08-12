@@ -206,6 +206,7 @@ run_check 'AdGuardHome S99 netstat readiness regression' sh tests/s99-netstat-re
 run_check 'AdGuardHome S99 startup readiness regression' sh tests/s99-startup-readiness.sh
 run_check 'AdGuardHome stop failure regression' sh tests/stop-adguardhome-failure.sh
 run_check 'AdGuardHome monitor retry backoff regression' sh tests/monitor-retry-backoff.sh
+run_check 'AdGuardHome scoped configuration regression' sh tests/adguardhome-scoped-config.sh
 run_check 'AdGuardHome legacy netcheck regression' sh tests/netcheck-legacy.sh
 run_check 'AdGuardHome DNS startup handoff regression' run_dns_handoff_check
 run_check 'AdGuardHome required-handoff fallback regression' sh tests/rc-required-handoff-fallback.sh

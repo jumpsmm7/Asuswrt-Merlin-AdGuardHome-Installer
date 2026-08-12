@@ -120,8 +120,10 @@ run_start_case 'AdGuard Home, version v0.107.48' 0 'lock IPSet_Setup_For_Start_L
 run_start_case 'unknown version' 0 ''
 run_start_case 'AdGuard Home unavailable' 1 ''
 IPSET_CONFIG=NO
+CONFIG_IPSET="${IPSET_CONFIG}"
 run_start_case 'AdGuard Home, version v0.107.48' 0 'lock IPSet_Disable_Managed_For_Start_Locked'
 IPSET_CONFIG=YES
+CONFIG_IPSET="${IPSET_CONFIG}"
 INSTALL_MODE=lan
 run_case 'AdGuard Home, version v0.107.48' 0 ''
 run_start_case 'AdGuard Home, version v0.107.48' 0 'IPSet_Disable_Managed'
