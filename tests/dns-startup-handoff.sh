@@ -892,19 +892,18 @@ mkfifo() {
 			;;
 	esac
 }
-for DNS_GUARD_FIFO_TEST_MODE in fail; do
-	launch_dns_port_guard || fail "DNS guard did not publish readiness after ${DNS_GUARD_FIFO_TEST_MODE} FIFO initialization"
-	command sleep 0.01
-	command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null ||
-		fail "DNS guard exited instead of using the ${DNS_GUARD_FIFO_TEST_MODE} FIFO bounded-sleep fallback"
-	_failed_ready_dir="${DNS_GUARD_READY_DIR}"
-	_failed_wait_path="${_failed_ready_dir}/wait"
-	stop_dns_port_guard
-	[ ! -e "${_failed_wait_path}" ] ||
-		fail "${DNS_GUARD_FIFO_TEST_MODE} FIFO fallback left its wait entry behind"
-	[ ! -e "${_failed_ready_dir}" ] ||
-		fail "${DNS_GUARD_FIFO_TEST_MODE} FIFO fallback left its readiness directory behind"
-done
+DNS_GUARD_FIFO_TEST_MODE=fail
+launch_dns_port_guard || fail "DNS guard did not publish readiness after ${DNS_GUARD_FIFO_TEST_MODE} FIFO initialization"
+command sleep 0.01
+command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null ||
+	fail "DNS guard exited instead of using the ${DNS_GUARD_FIFO_TEST_MODE} FIFO bounded-sleep fallback"
+_failed_ready_dir="${DNS_GUARD_READY_DIR}"
+_failed_wait_path="${_failed_ready_dir}/wait"
+stop_dns_port_guard
+[ ! -e "${_failed_wait_path}" ] ||
+	fail "${DNS_GUARD_FIFO_TEST_MODE} FIFO fallback left its wait entry behind"
+[ ! -e "${_failed_ready_dir}" ] ||
+	fail "${DNS_GUARD_FIFO_TEST_MODE} FIFO fallback left its readiness directory behind"
 unset DNS_GUARD_FIFO_TEST_MODE
 
 : >"${CALLS_FILE}"

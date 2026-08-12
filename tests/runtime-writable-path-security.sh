@@ -17,6 +17,12 @@ cleanup() {
 	rm -rf "${TEST_ROOT}"
 }
 
+# Keep the later failure stub visible to ShellCheck without changing the normal
+# test path's use of the system mkfifo utility.
+mkfifo() {
+	command mkfifo "$@"
+}
+
 trap cleanup EXIT HUP INT TERM
 umask 077
 mkdir "${TEST_ROOT}"
