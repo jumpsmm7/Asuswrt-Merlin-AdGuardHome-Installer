@@ -87,8 +87,14 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_DIR}" || exit 1
 extract_permission_functions "${REPO_DIR}/installer" "${INSTALLER_FUNCTIONS}" \
 	'adguardhome_yaml_ipset_file() {' 'create_backup_archive() {' || fail 'could not extract installer permission helpers'
+sed -n '/^adguardhome_owner_account() {$/,/^}/p' "${REPO_DIR}/installer" >>"${INSTALLER_FUNCTIONS}" ||
+	fail 'could not extract installer account helper'
 extract_permission_functions "${REPO_DIR}/S99AdGuardHome" "${S99_FUNCTIONS}" \
 	'adguardhome_yaml_ipset_file() {' 'pre_start_adguardhome() {' || fail 'could not extract S99 permission helpers'
+for _functions_file in "${INSTALLER_FUNCTIONS}" "${S99_FUNCTIONS}"; do
+	sed 's#/bin/nvram#nvram#g; s#/usr/bin/awk#awk#g' "${_functions_file}" >"${_functions_file}.test" || fail 'could not isolate stock account commands'
+	mv "${_functions_file}.test" "${_functions_file}" || fail 'could not update isolated permission helpers'
+done
 
 (
 	# shellcheck disable=SC1090

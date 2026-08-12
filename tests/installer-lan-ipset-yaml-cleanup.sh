@@ -94,6 +94,7 @@ mkdir -p "${TMP_ROOT}" "${TARG_DIR}" "${STUB_DIR}" || fail 'could not create tes
 : >"${FUNCTIONS_FILE}"
 extract_function conf_value || fail 'could not extract conf_value'
 extract_function adguardhome_yaml_ipset_file || fail 'could not extract YAML parser'
+extract_function adguardhome_owner_account || fail 'could not extract account validation helper'
 extract_function adguardhome_yaml_secure_file || fail 'could not extract YAML security helper'
 extract_function adguardhome_yaml_remove_ipset_file || fail 'could not extract YAML cleanup helper'
 extract_function adguard_enforce_lan_ipset_disabled || fail 'could not extract LAN enforcement helper'
@@ -106,6 +107,8 @@ extract_function setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could no
 extract_function restore_mode_migration_yaml || fail 'could not extract mode migration YAML rollback helper'
 extract_function rollback_pending_mode_migration || fail 'could not extract pending mode migration rollback helper'
 extract_function adguard_migrate_detected_install_mode || fail 'could not extract detected-mode migration helper'
+sed 's#/bin/nvram#nvram#g; s#/usr/bin/awk#awk#g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.test" || fail 'could not isolate stock account commands'
+mv "${FUNCTIONS_FILE}.test" "${FUNCTIONS_FILE}" || fail 'could not update isolated account helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'helper extraction was empty'
 
 # shellcheck disable=SC1090
@@ -634,12 +637,18 @@ dns:
 EOF_YAML
 cat >"${STUB_DIR}/nvram" <<'EOF_NVRAM' || fail 'could not write nvram username stub'
 #!/bin/sh
-[ "$1" = "get" ] && [ "$2" = "http_username" ] && printf '%s\n' admin
+[ "$1" = "get" ] && [ "$2" = "http_username" ] && printf '%s\n' daemon
 EOF_NVRAM
 chmod 755 "${STUB_DIR}/nvram" || fail 'could not chmod nvram username stub'
 : >"${CHOWN_LOG}"
+awk() {
+	case "$*" in
+		*'account=daemon'*'/etc/passwd') return 0 ;;
+	esac
+	/usr/bin/awk "$@"
+}
 PATH="${STUB_DIR}:${PATH}" CHOWN_LOG="${CHOWN_LOG}" adguardhome_yaml_remove_ipset_file || fail 'nvram username YAML ownership cleanup failed'
-grep -q "admin:root ${YAML_FILE}" "${CHOWN_LOG}" || fail 'YAML ownership did not use nvram http_username'
+grep -q "daemon:root ${YAML_FILE}" "${CHOWN_LOG}" || fail 'YAML ownership did not use nvram http_username'
 [ "$(mode_string "${YAML_FILE}")" = '-rw-------' ] || fail 'YAML mode was not secured with nvram username present'
 assert_no_ipset_file nvram-owner
 

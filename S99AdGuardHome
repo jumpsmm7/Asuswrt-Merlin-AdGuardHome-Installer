@@ -1570,6 +1570,23 @@ chmod_regular_files_600() {
 	' sh {} \;
 }
 
+adguardhome_owner_account() {
+	_agh_account="$(/bin/nvram get http_username 2>/dev/null)" || return 1
+	[ -n "${_agh_account}" ] || _agh_account="root"
+	case "${_agh_account}" in
+		*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-]* | [.-]* | "") return 1 ;;
+	esac
+	[ "${#_agh_account}" -le 32 ] || return 1
+	case "${_agh_account}" in
+		*[!0123456789]*) ;;
+		*) return 1 ;;
+	esac
+	if [ -r /etc/passwd ]; then
+		/usr/bin/awk -F: -v account="${_agh_account}" '$1 == account && (account != "root" || $3 == 0) { found = 1; exit } END { exit(found ? 0 : 1) }' /etc/passwd || return 1
+	fi
+	printf '%s\n' "${_agh_account}"
+}
+
 ensure_adguardhome_work_dir_permissions() {
 	_agh_perm_http_username=""
 	_agh_perm_ipset_file=""
@@ -1578,8 +1595,10 @@ ensure_adguardhome_work_dir_permissions() {
 		logger -st "${PROCS}" "Missing AdGuardHome work directory ${WORK_DIR}."
 		return 1
 	fi
-	_agh_perm_http_username="$(nvram get http_username 2>/dev/null)"
-	[ -n "${_agh_perm_http_username}" ] || _agh_perm_http_username="root"
+	_agh_perm_http_username="$(adguardhome_owner_account)" || {
+		logger -st "${PROCS}" "Invalid or unresolvable router administrator account."
+		return 1
+	}
 	if ! chown "${_agh_perm_http_username}:root" "${WORK_DIR}"; then
 		logger -st "${PROCS}" "Unable to set ownership on ${WORK_DIR}."
 		return 1

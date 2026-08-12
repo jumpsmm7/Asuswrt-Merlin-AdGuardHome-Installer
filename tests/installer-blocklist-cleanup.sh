@@ -39,6 +39,8 @@ sed -n \
 	-e '/^rollback_result_write() {$/,/^}/p' \
 	-e '/^rollback_result_summary() {$/,/^}/p' \
 	-e '/^rollback_result_notice() {$/,/^}/p' \
+	-e '/^adguardhome_owner_account() {$/,/^}/p' \
+	-e '/^adguardhome_yaml_secure_file() {$/,/^}/p' \
 	-e '/^blocklist_analyzer_ids() {$/,/^}/p' \
 	-e '/^run_blocklist_analyzer() {$/,/^}/p' \
 	-e '/^blocklist_yaml_candidates() {$/,/^}/p' \
