@@ -58,7 +58,23 @@ agh_log() {
 }
 
 # load_operation_config takes one immutable snapshot of the keys needed by an
-# operation.  A monitor refreshes this snapshot only at its healthcheck boundary.
+# operation.  A monitor refreshes it at healthchecks and requested restarts.
+set_operation_config_defaults() {
+	CONFIG_INSTALL_MODE="wan"
+	CONFIG_DNSMASQ_MODE="auto"
+	CONFIG_LOCAL="NO"
+	CONFIG_IPSET="YES"
+	CONFIG_WEBUI_PORT=""
+	CONFIG_INSTALLER_BRANCH=""
+	CONFIG_NETCHECK_HOSTS="${DEFAULT_ADGUARD_NETCHECK_HOSTS}"
+	CONFIG_NETCHECK_DNS="${DEFAULT_ADGUARD_NETCHECK_DNS}"
+	CONFIG_NETCHECK_REQUIRE_HTTP="${DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP}"
+	CONFIG_NETCHECK_TIMEOUT="${DEFAULT_ADGUARD_NETCHECK_TIMEOUT}"
+	CONFIG_NETCHECK_MODE="${DEFAULT_ADGUARD_NETCHECK_MODE}"
+	CONFIG_PROC_OPTIMIZE="${DEFAULT_ADGUARD_PROC_OPTIMIZE}"
+	CONFIG_PROC_PROFILE="${DEFAULT_ADGUARD_PROC_PROFILE}"
+}
+
 load_operation_config() {
 	local config_dnsmasq_mode config_install_mode config_installer_branch config_ipset config_local config_netcheck_dns config_netcheck_hosts config_netcheck_mode config_netcheck_require_http config_netcheck_timeout config_proc_optimize config_proc_profile config_row config_status config_webui_port old_ifs overridden scope
 	scope="$1"
@@ -79,9 +95,9 @@ load_operation_config() {
 			gsub(/,/, " ", keys)
 			if (SCOPE == "status") wanted = " ADGUARD_WEBUI_PORT INSTALLER_BRANCH "
 			else if (SCOPE == "stop") wanted = " ADGUARD_INSTALL_MODE ADGUARD_DNSMASQ_MODE "
-			else if (SCOPE == "dnsmasq") wanted = " ADGUARD_INSTALL_MODE ADGUARD_DNSMASQ_MODE ADGUARD_LOCAL "
+			else if (SCOPE == "dnsmasq") wanted = " ADGUARD_INSTALL_MODE ADGUARD_DNSMASQ_MODE ADGUARD_LOCAL ADGUARD_IPSET "
 			else if (SCOPE == "firewall") wanted = " ADGUARD_INSTALL_MODE ADGUARD_IPSET "
-			else wanted = keys
+			else wanted = " ADGUARD_INSTALL_MODE ADGUARD_DNSMASQ_MODE ADGUARD_LOCAL ADGUARD_IPSET ADGUARD_NETCHECK_HOSTS ADGUARD_NETCHECK_DNS ADGUARD_NETCHECK_REQUIRE_HTTP ADGUARD_NETCHECK_TIMEOUT ADGUARD_NETCHECK_MODE ADGUARD_PROC_OPTIMIZE ADGUARD_PROC_PROFILE "
 		}
 		/^[A-Z][A-Z0-9_]*=/ {
 			key = $0
@@ -124,7 +140,7 @@ EOF
 	case "${config_ipset}" in -) config_ipset="YES" ;; YES | NO) ;; *) return 1 ;; esac
 	case "${config_webui_port}" in -) config_webui_port="" ;; *[!0-9]*) return 1 ;; *) [ "${config_webui_port}" -gt 0 ] && [ "${config_webui_port}" -le 65535 ] || return 1 ;; esac
 	case "${config_installer_branch}" in -) config_installer_branch="" ;; *[!A-Za-z0-9._/-]*) return 1 ;; esac
-	case "${config_netcheck_hosts}" in -) config_netcheck_hosts="${DEFAULT_ADGUARD_NETCHECK_HOSTS}" ;; *[!A-Za-z0-9._[:space:]-]*) return 1 ;; esac
+	case "${config_netcheck_hosts}" in -) config_netcheck_hosts="${DEFAULT_ADGUARD_NETCHECK_HOSTS}" ;; *[!A-Za-z0-9._:[:space:]-]*) return 1 ;; esac
 	case "${config_netcheck_dns}" in -) config_netcheck_dns="${DEFAULT_ADGUARD_NETCHECK_DNS}" ;; *[!A-Za-z0-9._:-]*) return 1 ;; esac
 	case "${config_netcheck_require_http}" in -) config_netcheck_require_http="${DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP}" ;; YES | NO) ;; *) return 1 ;; esac
 	case "${config_netcheck_timeout}" in -) config_netcheck_timeout="${DEFAULT_ADGUARD_NETCHECK_TIMEOUT}" ;; *[!0-9]*) return 1 ;; *) [ "${config_netcheck_timeout}" -gt 0 ] || return 1 ;; esac
@@ -1867,6 +1883,10 @@ start_monitor() {
 				;;
 			"stop")
 				agh_log info start_monitor "state=stop action=stop_monitor reason=signal_USR1 result=stopping"
+				if ! load_operation_config stop; then
+					set_operation_config_defaults
+					agh_log warning start_monitor "state=stop action=load_config reason=invalid_snapshot result=using_defaults"
+				fi
 				trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
 				{ adguardhome_run stop_adguardhome; }
 				break
@@ -3180,8 +3200,7 @@ esac
 if ! load_operation_config "${CONFIG_LOAD_SCOPE}"; then
 	case "${CONFIG_LOAD_SCOPE}" in
 		stop)
-			CONFIG_INSTALL_MODE="wan"
-			CONFIG_DNSMASQ_MODE="auto"
+			set_operation_config_defaults
 			printf '%s\n' "${NAME}: continuing stop with conservative configuration defaults" >&2
 			;;
 		*) return 1 2>/dev/null || exit 1 ;;

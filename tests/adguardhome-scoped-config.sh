@@ -23,7 +23,7 @@ cleanup() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}/bin" || fail 'could not create test directory'
-sed -n '/^load_operation_config() {$/,/^}$/p; /^netcheck_config() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
+sed -n '/^set_operation_config_defaults() {$/,/^}$/p; /^load_operation_config() {$/,/^}$/p; /^netcheck_config() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract configuration helpers'
 REAL_AWK="$(which awk 2>/dev/null)" || fail 'awk not found'
 sed "s|/usr/bin/awk|${TMP_ROOT}/bin/awk|" "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" || fail 'could not instrument awk call'
@@ -48,7 +48,7 @@ printf '%s\n' call >>"\${AWK_CALLS}"
 exec "${REAL_AWK}" "\$@"
 EOF
 chmod 700 "${TMP_ROOT}/bin/awk" || fail 'could not install awk counter'
-PATH="${TMP_ROOT}/bin:${PATH}"
+PATH="${TMP_ROOT}/bin${PATH:+:${PATH}}"
 
 cat >"${CONF_FILE}" <<'EOF'
 ADGUARD_INSTALL_MODE="lan"
@@ -138,7 +138,28 @@ EOF
 load_operation_config dnsmasq || fail 'dnsmasq scope rejected unrelated malformed values'
 [ "${CONFIG_LOCAL}" = 'YES' ] || fail 'dnsmasq scope did not load local setting'
 
+cat >"${CONF_FILE}" <<'EOF'
+ADGUARD_IPSET="NO"
+ADGUARD_WEBUI_PORT="broken"
+INSTALLER_BRANCH="bad branch"
+ADGUARD_NETCHECK_HOSTS="example.com:8080 2001:db8::1"
+EOF
+load_operation_config action || fail 'action scope rejected status-only values or supported host colons'
+[ "${CONFIG_IPSET}" = 'NO' ] || fail 'action scope did not load IPSET value'
+[ "${CONFIG_NETCHECK_HOSTS}" = 'example.com:8080 2001:db8::1' ] || fail 'action scope rejected supported host colons'
+
+printf '%s\n' 'ADGUARD_IPSET="NO"' >"${CONF_FILE}"
+load_operation_config dnsmasq || fail 'dnsmasq scope rejected IPSET setting'
+[ "${CONFIG_IPSET}" = 'NO' ] || fail 'dnsmasq scope did not load disabled IPSET setting'
+
+CONFIG_LOCAL='stale'
+CONFIG_IPSET='stale'
+CONFIG_NETCHECK_TIMEOUT='stale'
+set_operation_config_defaults
+[ "${CONFIG_LOCAL}:${CONFIG_IPSET}:${CONFIG_NETCHECK_TIMEOUT}" = 'NO:YES:300' ] || fail 'stop fallback did not initialize a complete default snapshot'
+
 grep -q 'if ! load_operation_config action; then' "${SCRIPT_PATH}" || fail 'monitor restart does not refresh configuration'
+grep -q 'if ! load_operation_config stop; then' "${SCRIPT_PATH}" || fail 'monitor stop does not refresh configuration'
 grep -q 'continuing stop with conservative configuration defaults' "${SCRIPT_PATH}" || fail 'invalid configuration can still block emergency stop'
 
 # Monitoring adopts an atomically replaced valid file only at the documented
