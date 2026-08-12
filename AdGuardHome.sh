@@ -57,26 +57,90 @@ agh_log() {
 	logger -st "${NAME}" "$(agh_timestamp) [${_level}] ${_func}: $*"
 }
 
-# conf_value reads and prints the configured value for a key from the configuration file, returning failure when the file or key is unavailable.
-conf_value() {
-	[ -f "${CONF_FILE}" ] || return 1
-	awk -v KEY="$1" '
-		index($0, KEY "=") == 1 {
-			VALUE = substr($0, length(KEY) + 2)
-			gsub(/^"|"$/, "", VALUE)
-			print VALUE
-			exit
+# load_operation_config takes one immutable snapshot of the keys needed by an
+# operation.  A monitor refreshes this snapshot only at its healthcheck boundary.
+load_operation_config() {
+	local config_dnsmasq_mode config_install_mode config_installer_branch config_ipset config_local config_netcheck_dns config_netcheck_hosts config_netcheck_mode config_netcheck_require_http config_netcheck_timeout config_proc_optimize config_proc_profile config_row config_status config_webui_port old_ifs scope
+	scope="$1"
+	if [ -f "${CONF_FILE}" ]; then
+		config_row="$(awk -v SCOPE="${scope}" '
+		BEGIN {
+			sep = "|"
+			key_list = "ADGUARD_INSTALL_MODE,ADGUARD_DNSMASQ_MODE,ADGUARD_LOCAL,ADGUARD_IPSET,ADGUARD_WEBUI_PORT,INSTALLER_BRANCH,ADGUARD_NETCHECK_HOSTS,ADGUARD_NETCHECK_DNS,ADGUARD_NETCHECK_REQUIRE_HTTP,ADGUARD_NETCHECK_TIMEOUT,ADGUARD_NETCHECK_MODE,ADGUARD_PROC_OPTIMIZE,ADGUARD_PROC_PROFILE"
+			keys = " " key_list " "
+			gsub(/,/, " ", keys)
+			if (SCOPE == "status") wanted = " ADGUARD_WEBUI_PORT INSTALLER_BRANCH "
+			else if (SCOPE == "stop") wanted = " ADGUARD_INSTALL_MODE ADGUARD_DNSMASQ_MODE "
+			else wanted = keys
 		}
-	' "${CONF_FILE}"
+		/^[A-Z][A-Z0-9_]*=/ {
+			key = $0
+			sub(/=.*/, "", key)
+			if (index(wanted, " " key " ") == 0) next
+			if (++seen[key] > 1) exit 2
+			value = substr($0, length(key) + 2)
+			if (value ~ /^"[^"]*"$/) value = substr(value, 2, length(value) - 2)
+			else if (value ~ /["[:cntrl:]]/) exit 3
+			if (value == "" || value ~ /[|[:cntrl:]]/) exit 3
+			values[key] = value
+		}
+		END {
+			if (seen[key] > 1) exit 2
+			if (value == "" && key != "") exit 3
+			count = split(key_list, ordered, ",")
+			for (i = 1; i <= count; i++) {
+				if (i > 1) printf "%s", sep
+				printf "%s", (ordered[i] in values ? values[ordered[i]] : "-")
+			}
+			printf "\n"
+		}
+		' "${CONF_FILE}" 2>/dev/null)"
+		config_status="$?"
+		if [ "${config_status}" -ne 0 ]; then
+			printf '%s\n' "${NAME}: invalid or duplicate configuration value in ${CONF_FILE}" >&2
+			return 1
+		fi
+	else
+		config_row='-|-|-|-|-|-|-|-|-|-|-|-|-'
+	fi
+	old_ifs="${IFS}"
+	IFS='|' read -r config_install_mode config_dnsmasq_mode config_local config_ipset config_webui_port config_installer_branch config_netcheck_hosts config_netcheck_dns config_netcheck_require_http config_netcheck_timeout config_netcheck_mode config_proc_optimize config_proc_profile <<EOF
+${config_row}
+EOF
+	IFS="${old_ifs}"
+
+	case "${config_install_mode}" in -) config_install_mode="wan" ;; wan | lan) ;; *) return 1 ;; esac
+	case "${config_dnsmasq_mode}" in -) config_dnsmasq_mode="auto" ;; auto | enabled | disabled) ;; *) return 1 ;; esac
+	case "${config_local}" in -) config_local="NO" ;; YES | NO) ;; *) return 1 ;; esac
+	case "${config_ipset}" in -) config_ipset="YES" ;; YES | NO) ;; *) return 1 ;; esac
+	case "${config_webui_port}" in -) config_webui_port="" ;; *[!0-9]*) return 1 ;; *) [ "${config_webui_port}" -gt 0 ] && [ "${config_webui_port}" -le 65535 ] || return 1 ;; esac
+	case "${config_installer_branch}" in -) config_installer_branch="" ;; *[!A-Za-z0-9._/-]*) return 1 ;; esac
+	case "${config_netcheck_hosts}" in -) config_netcheck_hosts="${DEFAULT_ADGUARD_NETCHECK_HOSTS}" ;; *[!A-Za-z0-9._[:space:]-]*) return 1 ;; esac
+	case "${config_netcheck_dns}" in -) config_netcheck_dns="${DEFAULT_ADGUARD_NETCHECK_DNS}" ;; *[!A-Fa-f0-9:.]*) return 1 ;; esac
+	case "${config_netcheck_require_http}" in -) config_netcheck_require_http="${DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP}" ;; YES | NO) ;; *) return 1 ;; esac
+	case "${config_netcheck_timeout}" in -) config_netcheck_timeout="${DEFAULT_ADGUARD_NETCHECK_TIMEOUT}" ;; *[!0-9]*) return 1 ;; *) [ "${config_netcheck_timeout}" -gt 0 ] || return 1 ;; esac
+	case "${config_netcheck_mode}" in -) config_netcheck_mode="${DEFAULT_ADGUARD_NETCHECK_MODE}" ;; wan | lan | legacy | WAN | LAN | LEGACY) ;; *) return 1 ;; esac
+	case "${config_proc_optimize}" in -) config_proc_optimize="${DEFAULT_ADGUARD_PROC_OPTIMIZE}" ;; YES | NO | yes | no | Yes | No | ON | OFF | on | off | On | Off | TRUE | FALSE | true | false | True | False | 0 | 1) ;; *) return 1 ;; esac
+	case "${config_proc_profile}" in -) config_proc_profile="${DEFAULT_ADGUARD_PROC_PROFILE}" ;; off | safe | balanced | aggressive) ;; *) return 1 ;; esac
+	CONFIG_INSTALL_MODE="${config_install_mode}"
+	CONFIG_DNSMASQ_MODE="${config_dnsmasq_mode}"
+	CONFIG_LOCAL="${config_local}"
+	CONFIG_IPSET="${config_ipset}"
+	CONFIG_WEBUI_PORT="${config_webui_port}"
+	CONFIG_INSTALLER_BRANCH="${config_installer_branch}"
+	CONFIG_NETCHECK_HOSTS="${config_netcheck_hosts}"
+	CONFIG_NETCHECK_DNS="${config_netcheck_dns}"
+	CONFIG_NETCHECK_REQUIRE_HTTP="${config_netcheck_require_http}"
+	CONFIG_NETCHECK_TIMEOUT="${config_netcheck_timeout}"
+	CONFIG_NETCHECK_MODE="${config_netcheck_mode}"
+	CONFIG_PROC_OPTIMIZE="${config_proc_optimize}"
+	CONFIG_PROC_PROFILE="${config_proc_profile}"
+	CONFIG_SCOPE="${scope}"
 }
 
 # adguard_install_mode prints the configured AdGuardHome installation mode, defaulting to `wan` for invalid or missing values.
 adguard_install_mode() {
-	mode="$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
-	case "${mode}" in
-		wan | lan) printf '%s\n' "${mode}" ;;
-		*) printf '%s\n' "wan" ;;
-	esac
+	printf '%s\n' "${CONFIG_INSTALL_MODE:-wan}"
 }
 
 # adguard_lan_mode reports whether AdGuardHome is configured for LAN mode.
@@ -94,7 +158,7 @@ adguard_dnsmasq_managed() {
 	if adguard_lan_mode && ! adguard_dnsmasq_running; then
 		return 1
 	fi
-	case "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" in
+	case "${CONFIG_DNSMASQ_MODE:-auto}" in
 		disabled) return 1 ;;
 		enabled) return 0 ;;
 	esac
@@ -196,7 +260,7 @@ agh_web_port() {
 		"" | *[!0-9]*) ;;
 		*) [ "${YAML_PORT}" -gt 0 ] && [ "${YAML_PORT}" -le 65535 ] && printf '%s\n' "${YAML_PORT}" && return 0 ;;
 	esac
-	CONF_PORT="$(conf_value ADGUARD_WEBUI_PORT 2>/dev/null)"
+	CONF_PORT="${CONFIG_WEBUI_PORT:-}"
 	case "${CONF_PORT}" in
 		"" | *[!0-9]*) ;;
 		*) [ "${CONF_PORT}" -gt 0 ] && [ "${CONF_PORT}" -le 65535 ] && printf '%s\n' "${CONF_PORT}" && return 0 ;;
@@ -294,7 +358,7 @@ status_port53_ownership() {
 
 status_selected_branch() {
 	local branch
-	branch="$(conf_value INSTALLER_BRANCH 2>/dev/null)"
+	branch="${CONFIG_INSTALLER_BRANCH:-}"
 	printf '%s\n' "${branch:-unknown}"
 }
 
@@ -747,7 +811,7 @@ dnsmasq_resolv_conf_cleanup() {
 # dnsmasq_params configures dnsmasq for the LAN or specified SDN interface, including DNS routing, reverse zones, and optional IPSet refresh.
 dnsmasq_params() {
 	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
-	if adguard_lan_mode && [ "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" = "disabled" ] && ! dns_handoff_is_active; then
+	if adguard_lan_mode && [ "${CONFIG_DNSMASQ_MODE:-auto}" = "disabled" ] && ! dns_handoff_is_active; then
 		agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_disabled"
 		return 0
 	fi
@@ -829,7 +893,7 @@ dnsmasq_params() {
 			done
 			;;
 	esac
-	if { ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then {
+	if { ! resolv_conf_uses_rom && [ "${CONFIG_LOCAL:-NO}" = "YES" ]; }; then {
 		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
 	}; fi
 	if ! adguard_lan_mode; then
@@ -841,7 +905,7 @@ dnsmasq_params() {
 # dnsmasq_action_handler applies dnsmasq configuration, skipping it in LAN mode when dnsmasq is unmanaged and inactive.
 dnsmasq_action_handler() {
 	if adguard_lan_mode && ! adguard_dnsmasq_running && ! dns_handoff_is_active; then
-		case "$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" in
+		case "${CONFIG_DNSMASQ_MODE:-auto}" in
 			enabled) ;;
 			*)
 				dnsmasq_resolv_conf_cleanup
@@ -1127,12 +1191,8 @@ netcheck_config() {
 		printf '%s\n' "${value}"
 		return 0
 	fi
-	value="$(conf_value "$1")"
-	if [ -n "${value}" ]; then
-		printf '%s\n' "${value}"
-		return 0
-	fi
-	printf '%s\n' "$2"
+	eval "value=\${CONFIG_${1#ADGUARD_}:-}"
+	printf '%s\n' "${value:-$2}"
 }
 
 netcheck_dns_ok() {
@@ -1452,12 +1512,8 @@ proc_config() {
 		printf '%s\n' "${value}"
 		return 0
 	fi
-	value="$(conf_value "$1")"
-	if [ -n "${value}" ]; then
-		printf '%s\n' "${value}"
-		return 0
-	fi
-	printf '%s\n' "$2"
+	eval "value=\${CONFIG_${1#ADGUARD_}:-}"
+	printf '%s\n' "${value:-$2}"
 }
 
 proc_optimizations() {
@@ -1759,6 +1815,11 @@ start_monitor() {
 					1)
 						if [ "${MONITOR_ELAPSED}" -ge "${MONITOR_HEALTHCHECK_INTERVAL}" ]; then
 							MONITOR_ELAPSED="0"
+							# An atomic .config replacement becomes visible as one snapshot here;
+							# failed validation retains the preceding healthcheck snapshot.
+							if ! load_operation_config monitor-healthcheck; then
+								agh_log warning start_monitor "state=running action=load_config reason=invalid_snapshot result=retained"
+							fi
 							if adguard_lan_mode; then
 								if ! adguard_refresh_lan_bind_addresses; then
 									agh_log warning start_monitor "state=running action=refresh_lan_bind_addresses reason=periodic_sync result=failed"
@@ -2785,7 +2846,7 @@ IPSet_Disable_Managed_For_Start_Locked() {
 # IPSet_Enabled reports whether IPSet integration is enabled for the current installation mode and configuration.
 IPSet_Enabled() {
 	adguard_ipset_allowed || return 1
-	[ "$(conf_value ADGUARD_IPSET)" != "NO" ]
+	[ "${CONFIG_IPSET:-YES}" != "NO" ]
 }
 
 # IPSet_Refresh refreshes AdGuardHome IPSet mappings in WAN mode and restarts AdGuardHome when mappings change; LAN mode is a no-op.
@@ -3096,6 +3157,13 @@ IPSet_Supported() {
 	agh_log warning IPSet_Supported "state=compatibility action=check_version result=skipped reason=parse_failed"
 	return 1
 }
+
+case "${1:-}" in
+	status) CONFIG_LOAD_SCOPE="status" ;;
+	stop | kill | services-stop) CONFIG_LOAD_SCOPE="stop" ;;
+	*) CONFIG_LOAD_SCOPE="action" ;;
+esac
+load_operation_config "${CONFIG_LOAD_SCOPE}" || return 1 2>/dev/null || exit 1
 
 if [ "${1:-}" = "status" ]; then
 	status

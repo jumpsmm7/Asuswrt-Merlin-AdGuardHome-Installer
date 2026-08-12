@@ -25,6 +25,9 @@ write_conf() {
 	: >"${CONF_FILE}" || fail 'could not reset config file'
 	while [ "$#" -gt 0 ]; do
 		printf '%s\n' "$1" >>"${CONF_FILE}" || fail 'could not write config value'
+		case "$1" in
+			ADGUARD_INSTALL_MODE=*) CONFIG_INSTALL_MODE="${1#*=}" ;;
+		esac
 		shift
 	done
 }
@@ -59,7 +62,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^conf_value() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^check_dns_environment() {$/,/^}$/p' \
+	'/^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^check_dns_environment() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${SCRIPT_PATH}"
 grep -q '^check_dns_environment() {$' "${FUNCTIONS_FILE}" || fail 'check_dns_environment helper missing'
 
