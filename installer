@@ -3855,6 +3855,12 @@ remove_unused_blocklists_from_yaml() {
 		ptxt_warn "No matching numeric filter IDs were found under filters:."
 		return 1
 	fi
+	if ! adguardhome_yaml_secure_file "${tmp_file}"; then
+		rm -f "${tmp_file}" "${removed_file}"
+		rollback_result_write "blocklist yaml replacement" "failed: no change" "could not secure staged YAML"
+		rollback_result_notice
+		return 1
+	fi
 	blocklist_yaml_replace_trap_enable "${backup_file}" "${removed_file}" "${tmp_file}"
 	if ! mv "${tmp_file}" "${YAML_FILE}"; then
 		rm -f "${tmp_file}" "${removed_file}"
@@ -4259,14 +4265,27 @@ check_ipset() {
 	write_conf ADGUARD_IPSET "\"${IPSET_ENABLED}\""
 }
 
+adguardhome_owner_account() {
+	local account
+	account="$(nvram get http_username 2>/dev/null)" || return 1
+	[ -n "${account}" ] || account="root"
+	case "${account}" in
+		*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-]* | [.-]* | "") return 1 ;;
+	esac
+	[ "${#account}" -le 32 ] || return 1
+	if [ -r /etc/passwd ]; then
+		awk -F: -v account="${account}" '$1 == account && (account != "root" || $3 == 0) { found = 1; exit } END { exit(found ? 0 : 1) }' /etc/passwd || return 1
+	fi
+	printf '%s\n' "${account}"
+}
+
 adguardhome_yaml_secure_file() {
 	local http_username yaml_target
 	yaml_target="${1:-${YAML_FILE}}"
 	[ -f "${yaml_target}" ] || return 0
 	chmod 600 "${yaml_target}" || return 1
 	if which nvram >/dev/null 2>&1; then
-		http_username="$(nvram get http_username 2>/dev/null)"
-		[ -n "${http_username}" ] || http_username="root"
+		http_username="$(adguardhome_owner_account)" || return 1
 		chown "${http_username}:root" "${yaml_target}" || return 1
 	fi
 }
@@ -5214,8 +5233,10 @@ ensure_adguardhome_directory_permissions() {
 		PTXT "${ERROR} ${TARG_DIR} does not exist."
 		return 1
 	fi
-	HTTP_USERNAME="$(nvram get http_username 2>/dev/null)"
-	[ -n "${HTTP_USERNAME}" ] || HTTP_USERNAME="root"
+	HTTP_USERNAME="$(adguardhome_owner_account)" || {
+		PTXT "${ERROR} Invalid or unresolvable router administrator account."
+		return 1
+	}
 	if ! chown "${HTTP_USERNAME}:root" "${TARG_DIR}"; then
 		PTXT "${ERROR} Unable to set ownership on ${TARG_DIR}."
 		return 1

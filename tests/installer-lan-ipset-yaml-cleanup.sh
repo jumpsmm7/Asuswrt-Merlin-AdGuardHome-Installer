@@ -94,6 +94,7 @@ mkdir -p "${TMP_ROOT}" "${TARG_DIR}" "${STUB_DIR}" || fail 'could not create tes
 : >"${FUNCTIONS_FILE}"
 extract_function conf_value || fail 'could not extract conf_value'
 extract_function adguardhome_yaml_ipset_file || fail 'could not extract YAML parser'
+extract_function adguardhome_owner_account || fail 'could not extract account validation helper'
 extract_function adguardhome_yaml_secure_file || fail 'could not extract YAML security helper'
 extract_function adguardhome_yaml_remove_ipset_file || fail 'could not extract YAML cleanup helper'
 extract_function adguard_enforce_lan_ipset_disabled || fail 'could not extract LAN enforcement helper'
@@ -634,12 +635,12 @@ dns:
 EOF_YAML
 cat >"${STUB_DIR}/nvram" <<'EOF_NVRAM' || fail 'could not write nvram username stub'
 #!/bin/sh
-[ "$1" = "get" ] && [ "$2" = "http_username" ] && printf '%s\n' admin
+[ "$1" = "get" ] && [ "$2" = "http_username" ] && printf '%s\n' daemon
 EOF_NVRAM
 chmod 755 "${STUB_DIR}/nvram" || fail 'could not chmod nvram username stub'
 : >"${CHOWN_LOG}"
 PATH="${STUB_DIR}:${PATH}" CHOWN_LOG="${CHOWN_LOG}" adguardhome_yaml_remove_ipset_file || fail 'nvram username YAML ownership cleanup failed'
-grep -q "admin:root ${YAML_FILE}" "${CHOWN_LOG}" || fail 'YAML ownership did not use nvram http_username'
+grep -q "daemon:root ${YAML_FILE}" "${CHOWN_LOG}" || fail 'YAML ownership did not use nvram http_username'
 [ "$(mode_string "${YAML_FILE}")" = '-rw-------' ] || fail 'YAML mode was not secured with nvram username present'
 assert_no_ipset_file nvram-owner
 
