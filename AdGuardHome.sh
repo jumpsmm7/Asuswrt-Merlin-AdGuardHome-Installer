@@ -2,6 +2,7 @@
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
+umask 077
 
 SCRIPT_LOC=""
 ADGUARDHOME_BINARY="/opt/sbin/AdGuardHome"

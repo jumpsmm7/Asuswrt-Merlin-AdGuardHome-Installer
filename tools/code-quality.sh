@@ -81,6 +81,21 @@ run_dns_handoff_check() {
 	return 1
 }
 
+run_writable_path_security_check() {
+	if [ "$(id -u)" -eq 0 ]; then
+		sh tests/runtime-writable-path-security.sh
+		return
+	fi
+
+	if have_cmd sudo && sudo -n true >/dev/null 2>&1; then
+		sudo -n sh tests/runtime-writable-path-security.sh
+		return
+	fi
+
+	printf '%s\n' 'Error: the runtime writable-path security regression requires root privileges or passwordless sudo.' >&2
+	return 1
+}
+
 run_script_list_check() {
 	_name="$1"
 	shift
@@ -193,6 +208,7 @@ run_check 'AdGuardHome monitor retry backoff regression' sh tests/monitor-retry-
 run_check 'AdGuardHome legacy netcheck regression' sh tests/netcheck-legacy.sh
 run_check 'AdGuardHome DNS startup handoff regression' run_dns_handoff_check
 run_check 'AdGuardHome required-handoff fallback regression' sh tests/rc-required-handoff-fallback.sh
+run_check 'Runtime writable-path security regression' run_writable_path_security_check
 run_check 'AdGuardHome runtime mode helper regression' sh tests/adguardhome-runtime-mode-helpers.sh
 run_check 'AdGuardHome runtime DNS environment LAN-mode regression' sh tests/adguardhome-dns-env-lan-mode.sh
 run_check 'AdGuardHome dnsmasq LAN-mode regression' sh tests/dnsmasq-lan-mode.sh

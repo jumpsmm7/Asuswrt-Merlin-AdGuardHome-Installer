@@ -22,16 +22,28 @@ trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
 
 FUNCTIONS_FILE="${TMP_ROOT}/functions.sh"
 sed -n \
-	'/^cleanup() {$/,/^}$/p; /^have_cmd() {$/,/^}$/p; /^require_cmd() {$/,/^}$/p; /^run_check() {$/,/^}$/p; /^run_script_list_check() {$/,/^}$/p' \
+	'/^cleanup() {$/,/^}$/p; /^have_cmd() {$/,/^}$/p; /^require_cmd() {$/,/^}$/p; /^run_check() {$/,/^}$/p; /^run_writable_path_security_check() {$/,/^}$/p; /^run_script_list_check() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'function extraction from tools/code-quality.sh was empty (helper functions may have been renamed)'
 
-for fn in cleanup have_cmd require_cmd run_check run_script_list_check; do
+for fn in cleanup have_cmd require_cmd run_check run_writable_path_security_check run_script_list_check; do
 	grep -Fq "${fn}() {" "${FUNCTIONS_FILE}" || fail "extracted functions file is missing ${fn}()"
 done
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+
+# The writable-path regression validates root-owned runtime state.  Verify the
+# runner executes it directly as root and does not silently run it unprivileged.
+(
+	id() {
+		printf '%s\n' 0
+	}
+	sh() {
+		[ "$1" = 'tests/runtime-writable-path-security.sh' ]
+	}
+	run_writable_path_security_check
+) || fail 'root writable-path regression dispatch failed'
 
 # --- have_cmd ---------------------------------------------------------------
 
