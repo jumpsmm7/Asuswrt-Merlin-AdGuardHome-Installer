@@ -41,6 +41,14 @@ logger() {
 	printf '%s\n' "logger $*" >>"${CALLS_FILE}"
 }
 
+load_operation_config() {
+	return 0
+}
+
+set_operation_config_defaults() {
+	:
+}
+
 pidof() {
 	return 1
 }
