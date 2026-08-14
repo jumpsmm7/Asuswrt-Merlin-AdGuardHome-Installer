@@ -229,7 +229,7 @@ database_link_matches_expected() {
 }
 
 # database_link_owned_by_current_user verifies symlink ownership without
-# database_link_owned_by_current_user determines whether a path is owned by the current user.
+# database_link_owned_by_current_user reports whether the specified path is owned by the current user.
 database_link_owned_by_current_user() {
 	local CURRENT_UID LINK_UID
 	CURRENT_UID="$(/usr/bin/awk '$1 == "Uid:" { print $3; exit }' /proc/self/status 2>/dev/null)" || return 1
@@ -244,7 +244,7 @@ database_link_owned_by_current_user() {
 }
 
 # database_link_object_type describes an existing path without following a
-# database_link_object_type prints the filesystem object type for a path, including dangling symlinks.
+# database_link_object_type reports the filesystem object type at the specified path, including dangling symbolic links.
 database_link_object_type() {
 	if [ -L "$1" ]; then
 		printf '%s\n' symlink
