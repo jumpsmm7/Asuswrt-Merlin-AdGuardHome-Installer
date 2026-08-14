@@ -44,9 +44,11 @@ OPTIONAL_DATABASE_RAN_FILE="${TMP_ROOT}/optional-database.ran"
 WRITABLE_PATH_RAN_FILE="${TMP_ROOT}/writable-path.ran"
 (
 	OPTIONAL_DATABASE_STATUS=0
+	# id prints a root user ID for privileged-command tests.
 	id() {
 		printf '%s\n' 0
 	}
+	# sh simulates the optional database-link and runtime writable-path security checks for regression testing.
 	sh() {
 		case "$1" in
 			tests/optional-database-links.sh)
@@ -91,9 +93,11 @@ grep -Fq 'FAILED: AdGuardHome optional database link regression' "${OPTIONAL_DAT
 # run_check, set FAILED, and preserve its actionable privilege diagnostic.
 OPTIONAL_DATABASE_UNPRIVILEGED_OUT_FILE="${TMP_ROOT}/optional-database-unprivileged.out"
 (
+	# id prints the current user ID as 1000.
 	id() {
 		printf '%s\n' 1000
 	}
+	# have_cmd checks whether a command is available.
 	have_cmd() {
 		return 1
 	}

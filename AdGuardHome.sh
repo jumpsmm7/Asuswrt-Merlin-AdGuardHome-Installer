@@ -214,7 +214,7 @@ adguard_restart_dnsmasq_if_managed() {
 }
 
 # database_link_matches_expected reports whether an optional database path is a
-# symlink whose resolved name is the database in the active work directory.
+# database_link_matches_expected verifies that a user-owned symlink resolves to the expected database path.
 database_link_matches_expected() {
 	local EXPECTED_CANONICAL EXPECTED_PATH LINK_CANONICAL LINK_PATH
 	LINK_PATH="$1"
@@ -229,7 +229,7 @@ database_link_matches_expected() {
 }
 
 # database_link_owned_by_current_user verifies symlink ownership without
-# following it, so foreign-owned objects are never managed automatically.
+# database_link_owned_by_current_user checks whether the specified path is owned by the current user.
 database_link_owned_by_current_user() {
 	local CURRENT_UID LINK_UID
 	CURRENT_UID="$(/usr/bin/awk '$1 == "Uid:" { print $3; exit }' /proc/self/status 2>/dev/null)" || return 1
@@ -244,7 +244,7 @@ database_link_owned_by_current_user() {
 }
 
 # database_link_object_type describes an existing path without following a
-# symlink, including a dangling symlink.
+# database_link_object_type prints the filesystem object type for a path, including dangling symlinks.
 database_link_object_type() {
 	if [ -L "$1" ]; then
 		printf '%s\n' symlink
@@ -260,7 +260,7 @@ database_link_object_type() {
 }
 
 # ensure_database_link creates a missing optional database link.  Existing
-# unexpected objects are preserved, and link failure never gates DNS startup.
+# ensure_database_link creates a database symlink when the link path is missing, preserving unexpected objects and treating creation failures as non-fatal.
 ensure_database_link() {
 	local EXPECTED_PATH LINK_PATH OBJECT_TYPE
 	LINK_PATH="$1"
@@ -280,7 +280,7 @@ ensure_database_link() {
 }
 
 # remove_database_link removes only a symlink resolving to the expected active
-# work-directory database.
+# remove_database_link removes a database link only when it matches the expected target.
 remove_database_link() {
 	if database_link_matches_expected "$1" "$2"; then
 		rm "$1" >/dev/null 2>&1 || true
@@ -1793,7 +1793,7 @@ service_wait() {
 }
 
 # start_adguardhome prepares AdGuardHome for startup, launches or restarts it, and verifies network readiness.
-# It returns failure when address synchronization, IPSet setup, service startup, or the final network check fails.
+# start_adguardhome prepares DNS integration, starts or restarts AdGuardHome, and verifies network readiness. It returns failure if required preparation, service startup, or the final network check fails.
 start_adguardhome() {
 	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LAN_BIND_REFRESH_FAILED LOWER_SCRIPT_STATUS db
 	IPSET_START_FAILURE_SAFE="0"
