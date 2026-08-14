@@ -2047,7 +2047,7 @@ post_stop_dnsmasq_ready() {
 	return 1
 }
 
-# stop_adguardhome stops AdGuardHome, restores managed dnsmasq, and verifies local DNS recovery.
+# stop_adguardhome stops AdGuardHome, restores managed dnsmasq, verifies shutdown and local DNS recovery, and removes expected database links.
 stop_adguardhome() {
 	local DNSMASQ_READY_ATTEMPTS DNSMASQ_WAS_MANAGED STOP_STATUS db
 	STOP_STATUS="0"
