@@ -44,9 +44,11 @@ OPTIONAL_DATABASE_RAN_FILE="${TMP_ROOT}/optional-database.ran"
 WRITABLE_PATH_RAN_FILE="${TMP_ROOT}/writable-path.ran"
 (
 	OPTIONAL_DATABASE_STATUS=0
+	# id prints a zero user ID.
 	id() {
 		printf '%s\n' 0
 	}
+	# sh simulates execution of selected regression scripts and records their invocation status.
 	sh() {
 		case "$1" in
 			tests/optional-database-links.sh)

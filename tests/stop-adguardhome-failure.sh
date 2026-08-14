@@ -9,7 +9,9 @@ FUNCTION_FILE="${TEST_ROOT}/function"
 CALLS_FILE="${TEST_ROOT}/calls"
 DATABASE_LINK_CALLS_FILE="${TEST_ROOT}/database-link-calls"
 
+# cleanup removes the temporary test environment.
 cleanup() { rm -rf "${TEST_ROOT}"; }
+# fail reports a test failure and exits with a nonzero status.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -40,11 +42,15 @@ NETCHECK_STATUS="0"
 DNSMASQ_READY_AFTER="0"
 DNSMASQ_READY_CHECKS="0"
 
+# agh_log records a message in the test call log.
 agh_log() { printf '%s\n' "$*" >>"${CALLS_FILE}"; }
+# canonical_path returns a failure status.
 canonical_path() { return 1; }
+# remove_database_link records a database-link removal request in the test call log.
 remove_database_link() {
 	printf '%s -> %s\n' "$1" "$2" >>"${DATABASE_LINK_CALLS_FILE}"
 }
+# lower_script records the requested action and returns its configured status for stop or kill operations.
 lower_script() {
 	printf '%s\n' "lower_script $1" >>"${CALLS_FILE}"
 	case "$1" in stop) return "${LOWER_STOP_STATUS}" ;; kill) return "${LOWER_KILL_STATUS}" ;; esac
@@ -116,6 +122,7 @@ netcheck() {
 }
 sleep() { printf '%s\n' "sleep $*" >>"${CALLS_FILE}"; }
 
+# reset_case resets mocked call logs, temporary handoff state, and test scenario variables.
 reset_case() {
 	: >"${CALLS_FILE}"
 	: >"${DATABASE_LINK_CALLS_FILE}"

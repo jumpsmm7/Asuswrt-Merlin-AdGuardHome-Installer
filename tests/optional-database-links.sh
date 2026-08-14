@@ -12,10 +12,12 @@ TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/optional-database-links.XXXXXX")" || {
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 LOG_FILE="${TEST_ROOT}/log"
 
+# cleanup removes the temporary test root directory when it is defined.
 cleanup() {
 	[ -n "${TEST_ROOT}" ] && rm -rf "${TEST_ROOT}"
 }
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -34,10 +36,12 @@ mkdir -p "${TEST_ROOT}/tmp" "${TEST_ROOT}/work/data" || fail 'could not create t
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 
+# have_cmd checks whether the specified command is available.
 have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
 
+# agh_log appends the provided message to the configured log file.
 agh_log() {
 	printf '%s\n' "$*" >>"${LOG_FILE}"
 }
