@@ -1786,7 +1786,7 @@ proc_write() {
 		[ "${applied}" = "${value}" ] || return 1
 		boot_id="$(proc_boot_id 2>/dev/null)"
 		if [ -n "${state_boot_id}" ] && [ "${state_boot_id}" != "${boot_id}" ]; then
-			rm -f "${state_file}"
+			rm -f "${state_file}" || return 1
 			# procfs reset after reboot; claim nothing if the boot default already
 			# matches, otherwise preserve this boot's value before reapplying.
 			[ "${current_value}" = "${value}" ] && return 0

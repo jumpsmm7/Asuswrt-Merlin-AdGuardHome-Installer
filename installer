@@ -7671,6 +7671,7 @@ uninst_all() {
 	if [ -x "${TARG_DIR}/AdGuardHome.sh" ]; then
 		if ! "${TARG_DIR}/AdGuardHome.sh" proc-restore x; then
 			PTXT "${ERROR} Unable to restore installer-managed kernel settings."
+			agh_start || true
 			return 1
 		fi
 	fi

@@ -157,6 +157,18 @@ proc_write rmem_max 4194304 262144 16777216 || fail 'post-reboot reapplication f
 [ "$(cat "${PROC_SYS_ROOT}/net/core/rmem_max")" = 4194304 ] || fail 'post-reboot value was not reapplied'
 [ "$(cat "${PROC_STATE_DIR}/rmem_max")" = '524288 4194304 boot-two' ] || fail 'post-reboot prior value was not refreshed'
 
+# A stale state file that cannot be removed must prevent reapplication.
+printf '%s\n' 524288 >"${PROC_SYS_ROOT}/net/core/rmem_max"
+printf '%s\n' '262144 4194304 boot-one' >"${PROC_STATE_DIR}/rmem_max"
+rm() {
+	case "$*" in *"${PROC_STATE_DIR}/rmem_max"*) return 1 ;; esac
+	command rm "$@"
+}
+proc_write rmem_max 4194304 262144 16777216 && fail 'stale-state removal failure was ignored'
+[ "$(cat "${PROC_SYS_ROOT}/net/core/rmem_max")" = 524288 ] || fail 'value changed after stale-state removal failure'
+[ -f "${PROC_STATE_DIR}/rmem_max" ] || fail 'failed stale-state removal lost ownership record'
+rm() { command rm "$@"; }
+
 # Uninstall must restore before removing the installation tree and retain it on failure.
 UNINSTALL_FUNCTION_FILE="${TMP_ROOT}/uninstall-function"
 sed -n '/^uninst_all() {$/,/^}$/p' installer >"${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall function extraction failed'
@@ -170,6 +182,7 @@ run_uninstall_test() (
 	ROLLBACK_RESULT_FILE="${TMP_ROOT}/rollback-$1"
 	EVENTS_FILE="${TMP_ROOT}/events-$1"
 	RESTORE_RESULT="$2"
+	START_RESULT="${3:-0}"
 	mkdir -p "${TARG_DIR}" "${BASE_DIR}" "${HOME}"
 	printf '%s\n' installer >"${TARG_DIR}/installer"
 	cat >"${TARG_DIR}/AdGuardHome.sh" <<'EOF'
@@ -183,7 +196,8 @@ EOF
 	INFO=INFO ERROR=ERROR CONFIRM_STATUS=0
 	PTXT() { printf '%s\n' "$*" >>"${EVENTS_FILE}"; }
 	conf_value() { printf '%s\n' no; }
-	agh_stop() { :; }
+	agh_stop() { printf '%s\n' stop >>"${EVENTS_FILE}"; }
+	agh_start() { printf '%s\n' start >>"${EVENTS_FILE}"; return "${START_RESULT:-0}"; }
 	cleanup_legacy_firewall() { :; }
 	yaml_nvars_delete() { :; }
 	del_jffs_script() { :; }
@@ -199,13 +213,20 @@ EOF
 	uninst_all
 )
 run_uninstall_test success 0 || fail 'successful uninstall failed'
-[ "$(sed -n '1p' "${TMP_ROOT}/events-success")" = restore ] || fail 'uninstall did not restore first'
-[ "$(sed -n '2p' "${TMP_ROOT}/events-success")" = remove ] || fail 'uninstall did not remove after restore'
+[ "$(sed -n '1p' "${TMP_ROOT}/events-success")" = stop ] || fail 'successful uninstall did not stop service first'
+[ "$(sed -n '2p' "${TMP_ROOT}/events-success")" = restore ] || fail 'uninstall did not restore after stopping'
+[ "$(sed -n '3p' "${TMP_ROOT}/events-success")" = remove ] || fail 'uninstall did not remove after restore'
 [ ! -e "${TMP_ROOT}/uninstall-success" ] || fail 'successful uninstall retained installation path'
 run_uninstall_test failure 1 && fail 'failed restoration did not abort uninstall'
 [ -d "${TMP_ROOT}/uninstall-failure" ] || fail 'failed restoration removed installation path'
-[ "$(sed -n '1p' "${TMP_ROOT}/events-failure")" = restore ] || fail 'failed uninstall did not attempt restoration'
-[ "$(sed -n '2p' "${TMP_ROOT}/events-failure")" = 'ERROR Unable to restore installer-managed kernel settings.' ] || fail 'failed restoration error was not reported'
+[ "$(sed -n '1p' "${TMP_ROOT}/events-failure")" = stop ] || fail 'failed uninstall did not stop service first'
+[ "$(sed -n '2p' "${TMP_ROOT}/events-failure")" = restore ] || fail 'failed uninstall did not attempt restoration'
+[ "$(sed -n '3p' "${TMP_ROOT}/events-failure")" = 'ERROR Unable to restore installer-managed kernel settings.' ] || fail 'failed restoration error was not reported'
+[ "$(sed -n '4p' "${TMP_ROOT}/events-failure")" = start ] || fail 'failed restoration did not restart retained installation'
+run_uninstall_test restart-failure 1 1 && fail 'restore and restart failures did not abort uninstall'
+[ -d "${TMP_ROOT}/uninstall-restart-failure" ] || fail 'restart failure removed retained installation path'
+[ "$(sed -n '3p' "${TMP_ROOT}/events-restart-failure")" = 'ERROR Unable to restore installer-managed kernel settings.' ] || fail 'restart failure obscured restoration error'
+[ "$(sed -n '4p' "${TMP_ROOT}/events-restart-failure")" = start ] || fail 'restart failure was not exercised'
 
 rm -rf "${TMP_ROOT}"
 printf '%s\n' 'PASS: proc settings are validated, owned, and restored conservatively'
