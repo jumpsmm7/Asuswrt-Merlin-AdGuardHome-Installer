@@ -9,13 +9,13 @@ SERVICE_WAIT_FILE="${TMPDIR:-/tmp}/service-wait-function.$$"
 CALLS_FILE="${TMPDIR:-/tmp}/start-adguardhome-calls.$$"
 DATABASE_LINK_CALLS_FILE=""
 
-# cleanup removes temporary test files and the optional database-link call log.
+# cleanup removes temporary files created by the test script.
 cleanup() {
 	rm -f "${FUNCTION_FILE}" "${SERVICE_WAIT_FILE}" "${CALLS_FILE}"
 	[ -n "${DATABASE_LINK_CALLS_FILE}" ] && rm -f "${DATABASE_LINK_CALLS_FILE}"
 }
 
-# fail prints a failure message to standard error and exits with a failure status.
+# fail reports a test failure and exits with a nonzero status.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -98,13 +98,13 @@ adguard_lan_mode() {
 	[ "${INSTALL_MODE:-wan}" = "lan" ]
 }
 
-# adguard_refresh_lan_bind_addresses records the configured LAN bind-address refresh result and returns its status.
+# adguard_refresh_lan_bind_addresses records the LAN bind-address refresh failure reason and returns its status.
 adguard_refresh_lan_bind_addresses() {
 	LAN_BIND_REFRESH_FAILURE_REASON="${LAN_BIND_REFRESH_FAILURE_REASON_RESULT:-}"
 	return "${LAN_BIND_REFRESH_STATUS:-0}"
 }
 
-# ensure_database_link records a database link request and succeeds.
+# ensure_database_link records a database-link setup request for testing.
 ensure_database_link() {
 	printf '%s -> %s\n' "$1" "$2" >>"${DATABASE_LINK_CALLS_FILE}"
 	return 0
@@ -208,13 +208,13 @@ ln() {
 	fail "database-link setup escaped the test double: $*"
 }
 
-# Stop successful starts before the function enters its router-only health-check path.
+# service_wait records that the service health-check path was invoked and reports failure.
 service_wait() {
 	SERVICE_WAIT_CALLED="1"
 	return 1
 }
 
-# run_test executes a startup scenario and verifies its status and service lifecycle.
+# run_test executes a configured startup scenario and verifies its exit status and recorded lifecycle calls.
 run_test() {
 	DESCRIPTION="$1"
 	RUNNING="$2"
@@ -298,6 +298,7 @@ lower_script restart' restart
 [ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'explicit restart refresh failure prevented the independent service health check'
 run_test 'LAN mode rejects an unsafe active YAML before starting the daemon' 0 0 0 0 0 0 1 '' '' active_yaml_not_regular
 [ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'unsafe active YAML was not reported as a terminal startup failure'
+[ ! -s "${DATABASE_LINK_CALLS_FILE}" ] || fail 'unsafe active YAML failure delegated optional database links'
 LAN_BIND_REFRESH_STATUS=0
 run_test 'LAN mode cleans managed IPSET before startup without setup helper' 0 0 0 0 0 0 1 'IPSet_Disable_Managed
 lower_script start'
@@ -388,6 +389,7 @@ run_test 'lower-script restart failure aborts before health check' 1 1 0 0 0 7 7
 lower_script restart'
 [ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'lower-script restart failure was not marked terminal'
 [ "${SERVICE_WAIT_CALLED}" -eq 0 ] || fail 'lower-script restart failure reached the health check'
+[ ! -s "${DATABASE_LINK_CALLS_FILE}" ] || fail 'lower-script restart failure delegated optional database links'
 run_test 'lower-script start failure aborts before health check' 0 1 0 0 0 8 8 'IPSet_Supported
 lower_script start'
 [ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'lower-script start failure was not marked terminal'

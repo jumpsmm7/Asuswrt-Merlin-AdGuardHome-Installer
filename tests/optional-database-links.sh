@@ -12,12 +12,12 @@ TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/optional-database-links.XXXXXX")" || {
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 LOG_FILE="${TEST_ROOT}/log"
 
-# cleanup removes the temporary test directory and its contents when TEST_ROOT is set.
+# cleanup removes the initialized temporary test directory.
 cleanup() {
 	[ -n "${TEST_ROOT}" ] && rm -rf "${TEST_ROOT}"
 }
 
-# fail reports an error message and exits with a failure status.
+# fail reports a test failure and exits with a nonzero status.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -26,7 +26,7 @@ fail() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-[ "$(id -u)" -eq 0 ] || fail 'foreign-owned database link checks require root privileges'
+[ "$(id -u)" -eq 0 ] || fail 'foreign-owned database link checks require root privileges; run this test as root or with passwordless sudo'
 
 mkdir -p "${TEST_ROOT}/tmp" "${TEST_ROOT}/work/data" || fail 'could not create test directories'
 /bin/sed -n '/^canonical_path() {$/,/^}$/p; /^database_link_matches_expected() {$/,/^}$/p; /^database_link_owned_by_current_user() {$/,/^}$/p; /^database_link_object_type() {$/,/^}$/p; /^ensure_database_link() {$/,/^}$/p; /^remove_database_link() {$/,/^}$/p' \
@@ -36,12 +36,12 @@ mkdir -p "${TEST_ROOT}/tmp" "${TEST_ROOT}/work/data" || fail 'could not create t
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 
-# have_cmd checks whether the specified command is available.
+# have_cmd checks whether a command is available in the system PATH.
 have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
 
-# agh_log appends a message to the configured log file.
+# agh_log records a message in the configured log file.
 agh_log() {
 	printf '%s\n' "$*" >>"${LOG_FILE}"
 }

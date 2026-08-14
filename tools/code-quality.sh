@@ -54,6 +54,7 @@ require_cmd() {
 	return 1
 }
 
+# run_check runs a named check, reports its result, and marks the overall run as failed when the check fails.
 run_check() {
 	_name="$1"
 	shift
@@ -82,7 +83,7 @@ run_dns_handoff_check() {
 	return 1
 }
 
-# run_optional_database_link_check runs the optional database link regression test with root privileges or passwordless sudo.
+# run_optional_database_link_check runs the optional database link regression as root or through passwordless sudo.
 run_optional_database_link_check() {
 	if [ "$(id -u)" -eq 0 ]; then
 		sh tests/optional-database-links.sh
@@ -98,7 +99,7 @@ run_optional_database_link_check() {
 	return 1
 }
 
-# run_writable_path_security_check runs the runtime writable-path security regression test as root or through passwordless sudo.
+# run_writable_path_security_check runs the runtime writable-path security regression as root or through passwordless sudo.
 run_writable_path_security_check() {
 	if [ "$(id -u)" -eq 0 ]; then
 		sh tests/runtime-writable-path-security.sh

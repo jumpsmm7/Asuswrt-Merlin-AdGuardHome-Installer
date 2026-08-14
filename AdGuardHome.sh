@@ -214,7 +214,7 @@ adguard_restart_dnsmasq_if_managed() {
 }
 
 # database_link_matches_expected reports whether an optional database path is a
-# database_link_matches_expected checks whether a user-owned symbolic link resolves to the expected database path.
+# database_link_matches_expected verifies that a symlink owned by the current user resolves to the expected database path.
 database_link_matches_expected() {
 	local EXPECTED_CANONICAL EXPECTED_PATH LINK_CANONICAL LINK_PATH
 	LINK_PATH="$1"
@@ -260,7 +260,7 @@ database_link_object_type() {
 }
 
 # ensure_database_link creates a missing optional database link.  Existing
-# ensure_database_link creates the expected database symlink when the link path is missing, while preserving unexpected objects and treating creation failures as nonfatal.
+# ensure_database_link creates the expected database symlink when the destination is missing, preserves unexpected objects, and treats creation failures as non-fatal.
 ensure_database_link() {
 	local EXPECTED_PATH LINK_PATH OBJECT_TYPE
 	LINK_PATH="$1"
@@ -280,7 +280,7 @@ ensure_database_link() {
 }
 
 # remove_database_link removes only a symlink resolving to the expected active
-# remove_database_link removes a user-owned symlink when it resolves to the expected database path.
+# remove_database_link removes the specified database link when it points to the expected target.
 remove_database_link() {
 	if database_link_matches_expected "$1" "$2"; then
 		rm "$1" >/dev/null 2>&1 || true
@@ -1731,6 +1731,7 @@ lower_script() {
 	esac
 }
 
+# service_wait waits for a service readiness check to succeed, a terminal failure to occur, or the configured timeout to elapse.
 service_wait() {
 	umask 022
 	local maxwait
@@ -1793,9 +1794,9 @@ service_wait() {
 }
 
 # start_adguardhome prepares AdGuardHome for startup, launches or restarts it, and verifies network readiness.
-# start_adguardhome prepares network and IPSet integration, starts or restarts AdGuardHome, and waits for network readiness.
+# start_adguardhome prepares DNS integration, starts or restarts AdGuardHome, and verifies network readiness. It returns failure if required preparation, service startup, or the final network check fails.
 start_adguardhome() {
-	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LAN_BIND_REFRESH_FAILED LOWER_SCRIPT_STATUS
+	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LAN_BIND_REFRESH_FAILED LOWER_SCRIPT_STATUS db
 	IPSET_START_FAILURE_SAFE="0"
 	IPSET_START_RESTARTED="0"
 	IPSET_START_STOPPED="0"
@@ -2008,7 +2009,7 @@ post_stop_handoff_cleared() {
 	return 0
 }
 
-# post_stop_dnsmasq_ready verifies local port 53 ownership and resolver readiness.
+# post_stop_dnsmasq_ready verifies that dnsmasq owns local port 53 and can resolve localhost through an available DNS server.
 post_stop_dnsmasq_ready() {
 	local dns_server dns_servers lan_addr
 	adguard_dnsmasq_running || return 1
@@ -2047,9 +2048,9 @@ post_stop_dnsmasq_ready() {
 	return 1
 }
 
-# stop_adguardhome stops AdGuardHome, restores managed DNS integration, and verifies process termination, DNS readiness, and handoff cleanup.
+# stop_adguardhome stops AdGuardHome, restores managed dnsmasq, verifies shutdown and local DNS recovery, and removes expected database links.
 stop_adguardhome() {
-	local DNSMASQ_READY_ATTEMPTS DNSMASQ_WAS_MANAGED STOP_STATUS
+	local DNSMASQ_READY_ATTEMPTS DNSMASQ_WAS_MANAGED STOP_STATUS db
 	STOP_STATUS="0"
 	DNSMASQ_WAS_MANAGED="0"
 	if adguard_dnsmasq_managed; then
