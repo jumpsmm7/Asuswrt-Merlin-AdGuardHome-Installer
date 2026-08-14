@@ -54,6 +54,7 @@ require_cmd() {
 	return 1
 }
 
+# run_check runs a named check, reports its result, and marks the overall run as failed when the check fails.
 run_check() {
 	_name="$1"
 	shift

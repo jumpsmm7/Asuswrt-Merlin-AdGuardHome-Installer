@@ -48,7 +48,7 @@ WRITABLE_PATH_RAN_FILE="${TMP_ROOT}/writable-path.ran"
 	id() {
 		printf '%s\n' 0
 	}
-	# sh simulates execution of selected regression scripts and records their invocation status.
+	# sh simulates selected regression scripts, records their execution, and returns the configured status.
 	sh() {
 		case "$1" in
 			tests/optional-database-links.sh)
