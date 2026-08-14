@@ -770,6 +770,14 @@ sh tests/installer-lan-ipset-yaml-cleanup.sh
 sh tests/installer-event-script-modes.sh
 sh tests/installer-interruption-restart.sh
 sh tests/start-adguardhome-lifecycle.sh
+if [ "$(id -u)" -eq 0 ]; then
+	sh tests/optional-database-links.sh
+elif which sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+	sudo -n sh tests/optional-database-links.sh
+else
+	printf '%s\n' 'The optional database link regression requires root privileges or passwordless sudo.' >&2
+	false
+fi
 ```
 
 Optionally run ShellCheck on a development workstation when ShellCheck is installed outside the router:
