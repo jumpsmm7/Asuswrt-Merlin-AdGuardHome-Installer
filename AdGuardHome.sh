@@ -214,7 +214,7 @@ adguard_restart_dnsmasq_if_managed() {
 }
 
 # database_link_matches_expected reports whether an optional database path is a
-# database_link_matches_expected verifies that an owned symbolic link resolves to the expected database path.
+# database_link_matches_expected verifies that a symlink owned by the current user resolves to the expected database path.
 database_link_matches_expected() {
 	local EXPECTED_CANONICAL EXPECTED_PATH LINK_CANONICAL LINK_PATH
 	LINK_PATH="$1"
@@ -229,7 +229,7 @@ database_link_matches_expected() {
 }
 
 # database_link_owned_by_current_user verifies symlink ownership without
-# database_link_owned_by_current_user checks whether the specified path is owned by the current user.
+# database_link_owned_by_current_user determines whether a path is owned by the current user.
 database_link_owned_by_current_user() {
 	local CURRENT_UID LINK_UID
 	CURRENT_UID="$(/usr/bin/awk '$1 == "Uid:" { print $3; exit }' /proc/self/status 2>/dev/null)" || return 1
@@ -244,7 +244,7 @@ database_link_owned_by_current_user() {
 }
 
 # database_link_object_type describes an existing path without following a
-# database_link_object_type classifies a path as a symlink, regular file, directory, other object, or missing path.
+# database_link_object_type prints the filesystem object type for a path, including dangling symlinks.
 database_link_object_type() {
 	if [ -L "$1" ]; then
 		printf '%s\n' symlink
@@ -1794,9 +1794,9 @@ service_wait() {
 }
 
 # start_adguardhome prepares AdGuardHome for startup, launches or restarts it, and verifies network readiness.
-# start_adguardhome prepares DNS and IPSet integration, starts or restarts AdGuardHome, ensures database links, and waits for readiness.
+# start_adguardhome prepares DNS integration, starts or restarts AdGuardHome, and verifies network readiness. It returns failure if required preparation, service startup, or the final network check fails.
 start_adguardhome() {
-	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LAN_BIND_REFRESH_FAILED LOWER_SCRIPT_STATUS
+	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LAN_BIND_REFRESH_FAILED LOWER_SCRIPT_STATUS db
 	IPSET_START_FAILURE_SAFE="0"
 	IPSET_START_RESTARTED="0"
 	IPSET_START_STOPPED="0"
@@ -2050,7 +2050,7 @@ post_stop_dnsmasq_ready() {
 
 # stop_adguardhome stops AdGuardHome, restores managed dnsmasq, verifies shutdown and local DNS recovery, and removes expected database links.
 stop_adguardhome() {
-	local DNSMASQ_READY_ATTEMPTS DNSMASQ_WAS_MANAGED STOP_STATUS
+	local DNSMASQ_READY_ATTEMPTS DNSMASQ_WAS_MANAGED STOP_STATUS db
 	STOP_STATUS="0"
 	DNSMASQ_WAS_MANAGED="0"
 	if adguard_dnsmasq_managed; then

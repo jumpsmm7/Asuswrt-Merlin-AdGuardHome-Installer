@@ -44,11 +44,11 @@ OPTIONAL_DATABASE_RAN_FILE="${TMP_ROOT}/optional-database.ran"
 WRITABLE_PATH_RAN_FILE="${TMP_ROOT}/writable-path.ran"
 (
 	OPTIONAL_DATABASE_STATUS=0
-	# id prints a zero user ID.
+	# id prints a root user ID for privileged-command tests.
 	id() {
 		printf '%s\n' 0
 	}
-	# sh simulates selected regression scripts, records their execution, and returns the configured status.
+	# sh simulates the optional database-link and runtime writable-path security checks for regression testing.
 	sh() {
 		case "$1" in
 			tests/optional-database-links.sh)
@@ -88,6 +88,27 @@ grep -Fq 'FAIL: simulated optional database link regression failure' "${OPTIONAL
 	fail 'optional database-link regression failure output was not forwarded'
 grep -Fq 'FAILED: AdGuardHome optional database link regression' "${OPTIONAL_DATABASE_FAIL_OUT_FILE}" ||
 	fail 'optional database-link regression did not report failed status'
+
+# Without root or passwordless sudo, the privileged helper must fail through
+# run_check, set FAILED, and preserve its actionable privilege diagnostic.
+OPTIONAL_DATABASE_UNPRIVILEGED_OUT_FILE="${TMP_ROOT}/optional-database-unprivileged.out"
+(
+	# id simulates the current user ID by printing 1000.
+	id() {
+		printf '%s\n' 1000
+	}
+	# have_cmd checks whether a command is available.
+	have_cmd() {
+		return 1
+	}
+	FAILED=0
+	run_check 'AdGuardHome optional database link regression' run_optional_database_link_check >"${OPTIONAL_DATABASE_UNPRIVILEGED_OUT_FILE}" 2>&1
+	[ "${FAILED}" -eq 1 ] || exit 1
+) || fail 'unprivileged optional database-link regression did not set FAILED=1'
+grep -Fq 'requires root privileges or passwordless sudo' "${OPTIONAL_DATABASE_UNPRIVILEGED_OUT_FILE}" ||
+	fail 'unprivileged optional database-link regression omitted its privilege error'
+grep -Fq 'FAILED: AdGuardHome optional database link regression' "${OPTIONAL_DATABASE_UNPRIVILEGED_OUT_FILE}" ||
+	fail 'unprivileged optional database-link regression did not report failed status'
 
 # --- have_cmd ---------------------------------------------------------------
 

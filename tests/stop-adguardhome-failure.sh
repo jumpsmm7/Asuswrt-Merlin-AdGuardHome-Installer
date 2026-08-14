@@ -9,9 +9,9 @@ FUNCTION_FILE="${TEST_ROOT}/function"
 CALLS_FILE="${TEST_ROOT}/calls"
 DATABASE_LINK_CALLS_FILE="${TEST_ROOT}/database-link-calls"
 
-# cleanup removes the temporary test environment.
+# cleanup removes the temporary test directory and its contents.
 cleanup() { rm -rf "${TEST_ROOT}"; }
-# fail reports a test failure and exits with a nonzero status.
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -42,11 +42,11 @@ NETCHECK_STATUS="0"
 DNSMASQ_READY_AFTER="0"
 DNSMASQ_READY_CHECKS="0"
 
-# agh_log records a message in the test call log.
+# agh_log records the supplied message in the test call log.
 agh_log() { printf '%s\n' "$*" >>"${CALLS_FILE}"; }
-# canonical_path returns a failure status.
+# canonical_path resolves a path to its canonical form.
 canonical_path() { return 1; }
-# remove_database_link records a database-link removal request in the test call log.
+# remove_database_link records a database link removal request.
 remove_database_link() {
 	printf '%s -> %s\n' "$1" "$2" >>"${DATABASE_LINK_CALLS_FILE}"
 }
@@ -116,15 +116,15 @@ nslookup() {
 nvram() {
 	[ "$1" = get ] && [ "$2" = lan_ipaddr ] && printf '%s\n' 192.168.50.1
 }
-# netcheck records a network connectivity check and returns its configured status.
+# netcheck records a network connectivity check and returns the configured mock status.
 netcheck() {
 	printf '%s\n' netcheck >>"${CALLS_FILE}"
 	return "${NETCHECK_STATUS}"
 }
-# sleep records the requested delay in the test call log.
+# sleep records the requested delay in the calls log without pausing execution.
 sleep() { printf '%s\n' "sleep $*" >>"${CALLS_FILE}"; }
 
-# reset_case resets mocked call logs, temporary handoff state, and test scenario variables.
+# reset_case resets mocked state and temporary files for an isolated test case.
 reset_case() {
 	: >"${CALLS_FILE}"
 	: >"${DATABASE_LINK_CALLS_FILE}"

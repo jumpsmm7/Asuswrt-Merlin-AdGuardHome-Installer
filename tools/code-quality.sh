@@ -83,7 +83,7 @@ run_dns_handoff_check() {
 	return 1
 }
 
-# run_optional_database_link_check runs the optional database link regression test with root privileges or passwordless sudo.
+# run_optional_database_link_check runs the optional database link regression as root or through passwordless sudo.
 run_optional_database_link_check() {
 	if [ "$(id -u)" -eq 0 ]; then
 		sh tests/optional-database-links.sh
