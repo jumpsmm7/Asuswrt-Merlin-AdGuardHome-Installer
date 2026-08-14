@@ -3398,7 +3398,7 @@ IPSet_Supported() {
 
 case "${1:-}" in
 	status) CONFIG_LOAD_SCOPE="status" ;;
-	stop | kill | services-stop) CONFIG_LOAD_SCOPE="stop" ;;
+	stop | kill | services-stop | proc-restore) CONFIG_LOAD_SCOPE="stop" ;;
 	dnsmasq | dnsmasq-sdn) CONFIG_LOAD_SCOPE="dnsmasq" ;;
 	firewall) CONFIG_LOAD_SCOPE="firewall" ;;
 	*) CONFIG_LOAD_SCOPE="action" ;;
