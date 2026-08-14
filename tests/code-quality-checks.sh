@@ -22,28 +22,52 @@ trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
 
 FUNCTIONS_FILE="${TMP_ROOT}/functions.sh"
 sed -n \
-	'/^cleanup() {$/,/^}$/p; /^have_cmd() {$/,/^}$/p; /^require_cmd() {$/,/^}$/p; /^run_check() {$/,/^}$/p; /^run_writable_path_security_check() {$/,/^}$/p; /^run_script_list_check() {$/,/^}$/p' \
+	'/^cleanup() {$/,/^}$/p; /^have_cmd() {$/,/^}$/p; /^require_cmd() {$/,/^}$/p; /^run_check() {$/,/^}$/p; /^run_optional_database_link_check() {$/,/^}$/p; /^run_writable_path_security_check() {$/,/^}$/p; /^run_script_list_check() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'function extraction from tools/code-quality.sh was empty (helper functions may have been renamed)'
 
-for fn in cleanup have_cmd require_cmd run_check run_writable_path_security_check run_script_list_check; do
+for fn in cleanup have_cmd require_cmd run_check run_optional_database_link_check run_writable_path_security_check run_script_list_check; do
 	grep -Fq "${fn}() {" "${FUNCTIONS_FILE}" || fail "extracted functions file is missing ${fn}()"
 done
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 
-# The writable-path regression validates root-owned runtime state.  Verify the
-# runner executes it directly as root and does not silently run it unprivileged.
+# The writable-path and optional database-link regressions validate root-owned
+# state.  Verify the runner executes both directly as root so the database
+# test's foreign-owned symlink assertions cannot be skipped.  Exercise the same
+# run_check dispatch used by the complete quality runner and verify output,
+# status accounting, and the test command's observable side effect.
+OPTIONAL_DATABASE_OUT_FILE="${TMP_ROOT}/optional-database.out"
+OPTIONAL_DATABASE_RAN_FILE="${TMP_ROOT}/optional-database.ran"
 (
+	# id prints the root user identifier.
 	id() {
 		printf '%s\n' 0
 	}
+	# sh simulates execution of selected test scripts and records optional database-link test execution.
 	sh() {
-		[ "$1" = 'tests/runtime-writable-path-security.sh' ]
+		case "$1" in
+			tests/optional-database-links.sh)
+				printf '%s\n' 'Optional database link tests passed.'
+				: >"${OPTIONAL_DATABASE_RAN_FILE}"
+				return 0
+				;;
+			tests/runtime-writable-path-security.sh) return 0 ;;
+		esac
+		return 1
 	}
-	run_writable_path_security_check
-) || fail 'root writable-path regression dispatch failed'
+	run_writable_path_security_check || exit 1
+	FAILED=0
+	run_check 'AdGuardHome optional database link regression' run_optional_database_link_check >"${OPTIONAL_DATABASE_OUT_FILE}" 2>&1
+	[ "$?" -eq 0 ] || exit 1
+	[ "${FAILED}" -eq 0 ] || exit 1
+) || fail 'root optional database-link regression dispatch failed or set FAILED=1'
+[ -f "${OPTIONAL_DATABASE_RAN_FILE}" ] || fail 'optional database-link regression command was not invoked'
+grep -Fq 'Optional database link tests passed.' "${OPTIONAL_DATABASE_OUT_FILE}" ||
+	fail 'optional database-link regression output was not forwarded'
+grep -Fq 'OK: AdGuardHome optional database link regression' "${OPTIONAL_DATABASE_OUT_FILE}" ||
+	fail 'optional database-link regression did not report successful status'
 
 # --- have_cmd ---------------------------------------------------------------
 

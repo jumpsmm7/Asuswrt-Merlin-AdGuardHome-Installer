@@ -7,6 +7,7 @@ umask 077
 SCRIPT_LOC=""
 ADGUARDHOME_BINARY="/opt/sbin/AdGuardHome"
 CONF_FILE="/opt/etc/AdGuardHome/.config"
+WORK_DIR="${CONF_FILE%/*}"
 DNS_HANDOFF_DIR="${DNS_HANDOFF_DIR:-/tmp/AdGuardHome.dns-handoff}"
 DNS_HANDOFF_FILE="${DNS_HANDOFF_FILE:-${DNS_HANDOFF_DIR}/active}"
 MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
@@ -210,6 +211,80 @@ adguard_ipset_allowed() {
 adguard_restart_dnsmasq_if_managed() {
 	adguard_dnsmasq_managed || return 0
 	service restart_dnsmasq >/dev/null 2>&1
+}
+
+# database_link_matches_expected reports whether an optional database path is a
+# database_link_matches_expected checks whether a user-owned symbolic link resolves to the expected database path.
+database_link_matches_expected() {
+	local EXPECTED_CANONICAL EXPECTED_PATH LINK_CANONICAL LINK_PATH
+	LINK_PATH="$1"
+	EXPECTED_PATH="$2"
+	[ -L "${LINK_PATH}" ] || return 1
+	database_link_owned_by_current_user "${LINK_PATH}" || return 1
+	LINK_CANONICAL="$(canonical_path "${LINK_PATH}" 2>/dev/null)" || return 1
+	[ -n "${LINK_CANONICAL}" ] || return 1
+	EXPECTED_CANONICAL="$(canonical_path "${EXPECTED_PATH}" 2>/dev/null)" || return 1
+	[ -n "${EXPECTED_CANONICAL}" ] || return 1
+	[ "${LINK_CANONICAL}" = "${EXPECTED_CANONICAL}" ]
+}
+
+# database_link_owned_by_current_user verifies symlink ownership without
+# database_link_owned_by_current_user reports whether the specified path is owned by the current user.
+database_link_owned_by_current_user() {
+	local CURRENT_UID LINK_UID
+	CURRENT_UID="$(/usr/bin/awk '$1 == "Uid:" { print $3; exit }' /proc/self/status 2>/dev/null)" || return 1
+	case "${CURRENT_UID}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	LINK_UID="$(LC_ALL=C ls -ldn "$1" 2>/dev/null | /usr/bin/awk 'NR == 1 { print $3; exit }')" || return 1
+	case "${LINK_UID}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	[ "${LINK_UID}" = "${CURRENT_UID}" ]
+}
+
+# database_link_object_type describes an existing path without following a
+# database_link_object_type reports the filesystem object type at the specified path, including dangling symbolic links.
+database_link_object_type() {
+	if [ -L "$1" ]; then
+		printf '%s\n' symlink
+	elif [ -f "$1" ]; then
+		printf '%s\n' regular-file
+	elif [ -d "$1" ]; then
+		printf '%s\n' directory
+	elif [ -e "$1" ]; then
+		printf '%s\n' other
+	else
+		printf '%s\n' missing
+	fi
+}
+
+# ensure_database_link creates a missing optional database link.  Existing
+# ensure_database_link creates the expected database symlink when the link path is missing, while preserving unexpected objects and treating creation failures as nonfatal.
+ensure_database_link() {
+	local EXPECTED_PATH LINK_PATH OBJECT_TYPE
+	LINK_PATH="$1"
+	EXPECTED_PATH="$2"
+	if database_link_matches_expected "${LINK_PATH}" "${EXPECTED_PATH}"; then
+		return 0
+	fi
+	OBJECT_TYPE="$(database_link_object_type "${LINK_PATH}")"
+	if [ "${OBJECT_TYPE}" != missing ]; then
+		agh_log warning ensure_database_link "state=starting action=create_database_link result=skipped reason=unexpected_object object_type=${OBJECT_TYPE} path=${LINK_PATH}"
+		return 0
+	fi
+	if ! ln -s "${EXPECTED_PATH}" "${LINK_PATH}" >/dev/null 2>&1; then
+		agh_log warning ensure_database_link "state=starting action=create_database_link result=failed reason=link_create_failed object_type=${OBJECT_TYPE} path=${LINK_PATH} optional=1"
+	fi
+	return 0
+}
+
+# remove_database_link removes only a symlink resolving to the expected active
+# remove_database_link removes a user-owned symlink when it resolves to the expected database path.
+remove_database_link() {
+	if database_link_matches_expected "$1" "$2"; then
+		rm "$1" >/dev/null 2>&1 || true
+	fi
 }
 
 # have_cmd checks whether the specified command is available.
@@ -1718,7 +1793,7 @@ service_wait() {
 }
 
 # start_adguardhome prepares AdGuardHome for startup, launches or restarts it, and verifies network readiness.
-# It returns failure when address synchronization, IPSet setup, service startup, or the final network check fails.
+# start_adguardhome prepares network and IPSet integration, starts or restarts AdGuardHome, and waits for network readiness.
 start_adguardhome() {
 	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LAN_BIND_REFRESH_FAILED LOWER_SCRIPT_STATUS
 	IPSET_START_FAILURE_SAFE="0"
@@ -1774,11 +1849,9 @@ start_adguardhome() {
 			return "${LOWER_SCRIPT_STATUS}"
 		fi
 	fi
-	for db in stats.db sessions.db; do {
-		if [ "$(canonical_path "/tmp/${db}" 2>/dev/null)" != "$(canonical_path "${WORK_DIR}/data/${db}" 2>/dev/null)" ]; then {
-			ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1
-		}; fi
-	}; done
+	for db in stats.db sessions.db; do
+		ensure_database_link "/tmp/${db}" "${WORK_DIR}/data/${db}"
+	done
 	if { service_wait netcheck; }; then
 		return "0"
 	else
@@ -1974,7 +2047,7 @@ post_stop_dnsmasq_ready() {
 	return 1
 }
 
-# stop_adguardhome stops AdGuardHome, restores managed dnsmasq, and verifies local DNS recovery.
+# stop_adguardhome stops AdGuardHome, restores managed DNS integration, and verifies process termination, DNS readiness, and handoff cleanup.
 stop_adguardhome() {
 	local DNSMASQ_READY_ATTEMPTS DNSMASQ_WAS_MANAGED STOP_STATUS
 	STOP_STATUS="0"
@@ -2018,11 +2091,9 @@ stop_adguardhome() {
 		agh_log error stop_adguardhome "state=stopping action=verify_handoff reason=installer_marker_remains result=failed"
 		STOP_STATUS="1"
 	fi
-	for db in stats.db sessions.db; do {
-		if [ "$(canonical_path "/tmp/${db}" 2>/dev/null)" = "$(canonical_path "${WORK_DIR}/data/${db}" 2>/dev/null)" ]; then {
-			rm "/tmp/${db}" >/dev/null 2>&1
-		}; fi
-	}; done
+	for db in stats.db sessions.db; do
+		remove_database_link "/tmp/${db}" "${WORK_DIR}/data/${db}"
+	done
 	return "${STOP_STATUS}"
 }
 

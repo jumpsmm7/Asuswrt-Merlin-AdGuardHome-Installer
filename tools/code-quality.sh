@@ -66,6 +66,7 @@ run_check() {
 	fi
 }
 
+# run_dns_handoff_check runs the DNS startup handoff regression test with root privileges or passwordless sudo.
 run_dns_handoff_check() {
 	if [ "$(id -u)" -eq 0 ]; then
 		sh tests/dns-startup-handoff.sh
@@ -81,6 +82,23 @@ run_dns_handoff_check() {
 	return 1
 }
 
+# run_optional_database_link_check runs the optional database link regression test with root privileges or passwordless sudo.
+run_optional_database_link_check() {
+	if [ "$(id -u)" -eq 0 ]; then
+		sh tests/optional-database-links.sh
+		return
+	fi
+
+	if have_cmd sudo && sudo -n true >/dev/null 2>&1; then
+		sudo -n sh tests/optional-database-links.sh
+		return
+	fi
+
+	printf '%s\n' 'Error: the optional database link regression requires root privileges or passwordless sudo.' >&2
+	return 1
+}
+
+# run_writable_path_security_check runs the runtime writable-path security regression test as root or through passwordless sudo.
 run_writable_path_security_check() {
 	if [ "$(id -u)" -eq 0 ]; then
 		sh tests/runtime-writable-path-security.sh
@@ -201,6 +219,7 @@ run_check 'Installer account validation regression' sh tests/installer-account-v
 run_check 'AdGuardHome permission repair regression' sh tests/adguardhome-permissions.sh
 run_check 'AdGuardHome LAN bind refresh regression' sh tests/adguardhome-lan-bind-refresh.sh
 run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
+run_check 'AdGuardHome optional database link regression' run_optional_database_link_check
 run_check 'AdGuardHome S99 DNS mode lifecycle regression' sh tests/s99-dns-mode-lifecycle.sh
 run_check 'AdGuardHome S99 netstat readiness regression' sh tests/s99-netstat-readiness.sh
 run_check 'AdGuardHome S99 startup readiness regression' sh tests/s99-startup-readiness.sh

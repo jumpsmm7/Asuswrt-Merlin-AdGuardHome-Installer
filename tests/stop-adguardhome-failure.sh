@@ -7,8 +7,11 @@ SCRIPT_PATH="${1:-AdGuardHome.sh}"
 TEST_ROOT="${TMPDIR:-/tmp}/stop-adguardhome-failure.$$"
 FUNCTION_FILE="${TEST_ROOT}/function"
 CALLS_FILE="${TEST_ROOT}/calls"
+DATABASE_LINK_CALLS_FILE="${TEST_ROOT}/database-link-calls"
 
+# cleanup removes the temporary test directory and its contents.
 cleanup() { rm -rf "${TEST_ROOT}"; }
+# fail reports a test failure with the provided message and exits with a failure status.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -39,8 +42,15 @@ NETCHECK_STATUS="0"
 DNSMASQ_READY_AFTER="0"
 DNSMASQ_READY_CHECKS="0"
 
+# agh_log records a message in the test call log.
 agh_log() { printf '%s\n' "$*" >>"${CALLS_FILE}"; }
+# canonical_path resolves a path to its canonical form and returns failure when resolution is unavailable.
 canonical_path() { return 1; }
+# remove_database_link records a database-link removal request and its source and destination paths.
+remove_database_link() {
+	printf '%s -> %s\n' "$1" "$2" >>"${DATABASE_LINK_CALLS_FILE}"
+}
+# lower_script records the requested action and returns its configured status for stop or kill operations.
 lower_script() {
 	printf '%s\n' "lower_script $1" >>"${CALLS_FILE}"
 	case "$1" in stop) return "${LOWER_STOP_STATUS}" ;; kill) return "${LOWER_KILL_STATUS}" ;; esac
@@ -112,8 +122,10 @@ netcheck() {
 }
 sleep() { printf '%s\n' "sleep $*" >>"${CALLS_FILE}"; }
 
+# reset_case resets mocked state, tracked calls, handoff markers, and stop-test configuration for a test case.
 reset_case() {
 	: >"${CALLS_FILE}"
+	: >"${DATABASE_LINK_CALLS_FILE}"
 	rm -rf "${DNS_HANDOFF_DIR}"
 	unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
 	RUNNING="0" DNSMASQ_MANAGED="1" DNSMASQ_RUNNING="1"
@@ -127,6 +139,8 @@ reset_case
 NETCHECK_STATUS="1"
 stop_adguardhome || fail "offline WAN made a locally healthy stop fail"
 ! grep -q '^netcheck$' "${CALLS_FILE}" || fail "managed stop performed an Internet connectivity check"
+[ "$(cat "${DATABASE_LINK_CALLS_FILE}")" = "/tmp/stats.db -> ${WORK_DIR}/data/stats.db
+/tmp/sessions.db -> ${WORK_DIR}/data/sessions.db" ] || fail 'stop delegated incorrect optional database link pairs'
 
 # IPv6-only local DNS is accepted without requiring an IPv4 listener.
 reset_case
