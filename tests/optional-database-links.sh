@@ -12,10 +12,12 @@ TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/optional-database-links.XXXXXX")" || {
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 LOG_FILE="${TEST_ROOT}/log"
 
+# cleanup removes the temporary test directory when it has been initialized.
 cleanup() {
 	[ -n "${TEST_ROOT}" ] && rm -rf "${TEST_ROOT}"
 }
 
+# fail reports a test failure and exits with a nonzero status.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -34,10 +36,12 @@ mkdir -p "${TEST_ROOT}/tmp" "${TEST_ROOT}/work/data" || fail 'could not create t
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 
+# have_cmd checks whether a command is available in the system PATH.
 have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
 
+# agh_log records a message in the configured log file.
 agh_log() {
 	printf '%s\n' "$*" >>"${LOG_FILE}"
 }
@@ -81,6 +85,7 @@ ensure_database_link "${LINK}" "${EXPECTED}" || fail 'directory was treated as f
 
 # A permission-denied link creation is optional and logs the missing type.
 rmdir "${LINK}" || fail 'could not reset directory'
+# ln always fails with a nonzero status.
 ln() { return 1; }
 ensure_database_link "${LINK}" "${EXPECTED}" || fail 'permission-denied link creation gated startup'
 [ ! -e "${LINK}" ] && [ ! -L "${LINK}" ] || fail 'permission-denied fixture unexpectedly created a link'
