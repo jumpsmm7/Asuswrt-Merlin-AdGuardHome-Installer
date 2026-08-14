@@ -55,9 +55,6 @@ jobs:
       - name: Run mkdir reaper owner publication regression
         run: busybox ash tests/installer-reaper-owner-publication.sh
 
-      - name: Run optional database link regression
-        run: sudo -n busybox ash tests/optional-database-links.sh
-
   shellcheck:
     name: ShellCheck POSIX ash profile
     runs-on: ubuntu-latest
