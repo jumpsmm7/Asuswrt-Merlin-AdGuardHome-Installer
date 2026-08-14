@@ -98,7 +98,7 @@ adguard_lan_mode() {
 	[ "${INSTALL_MODE:-wan}" = "lan" ]
 }
 
-# adguard_refresh_lan_bind_addresses returns the configured LAN bind-address refresh status.
+# adguard_refresh_lan_bind_addresses records the configured LAN bind-address refresh result and returns its status.
 adguard_refresh_lan_bind_addresses() {
 	LAN_BIND_REFRESH_FAILURE_REASON="${LAN_BIND_REFRESH_FAILURE_REASON_RESULT:-}"
 	return "${LAN_BIND_REFRESH_STATUS:-0}"
@@ -214,6 +214,7 @@ service_wait() {
 	return 1
 }
 
+# run_test executes a startup scenario and verifies its status and service lifecycle.
 run_test() {
 	DESCRIPTION="$1"
 	RUNNING="$2"
