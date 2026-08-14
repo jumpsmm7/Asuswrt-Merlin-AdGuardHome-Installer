@@ -91,7 +91,7 @@ grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'migration dry-ru
 cli_run migrate-runtime-defaults --yes >/dev/null || fail 'migration CLI failed'
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'migration did not persist refuse-unknown policy'
 grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'migration did not persist netcheck mode'
-grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'migration did not persist balanced performance profile'
+grep -q '^ADGUARD_PROC_PROFILE="aggressive"$' "${CONF_FILE}" || fail 'migration did not preserve aggressive performance profile'
 
 cli_adguard_branch_is_valid edge || fail 'edge AdGuardHome branch should be valid'
 if cli_adguard_branch_is_valid master; then
