@@ -50,7 +50,7 @@ canonical_path() { return 1; }
 remove_database_link() {
 	printf '%s -> %s\n' "$1" "$2" >>"${DATABASE_LINK_CALLS_FILE}"
 }
-# lower_script records the requested action and returns its configured status for stop or kill operations.
+# lower_script records the requested stop or kill action and returns its configured status.
 lower_script() {
 	printf '%s\n' "lower_script $1" >>"${CALLS_FILE}"
 	case "$1" in stop) return "${LOWER_STOP_STATUS}" ;; kill) return "${LOWER_KILL_STATUS}" ;; esac
@@ -116,10 +116,12 @@ nslookup() {
 nvram() {
 	[ "$1" = get ] && [ "$2" = lan_ipaddr ] && printf '%s\n' 192.168.50.1
 }
+# netcheck records a network connectivity check and returns its configured status.
 netcheck() {
 	printf '%s\n' netcheck >>"${CALLS_FILE}"
 	return "${NETCHECK_STATUS}"
 }
+# sleep records the requested delay in the test call log.
 sleep() { printf '%s\n' "sleep $*" >>"${CALLS_FILE}"; }
 
 # reset_case resets mocked call logs, temporary handoff state, and test scenario variables.

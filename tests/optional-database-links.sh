@@ -85,6 +85,7 @@ ensure_database_link "${LINK}" "${EXPECTED}" || fail 'directory was treated as f
 
 # A permission-denied link creation is optional and logs the missing type.
 rmdir "${LINK}" || fail 'could not reset directory'
+# ln simulates a failed link-creation command.
 ln() { return 1; }
 ensure_database_link "${LINK}" "${EXPECTED}" || fail 'permission-denied link creation gated startup'
 [ ! -e "${LINK}" ] && [ ! -L "${LINK}" ] || fail 'permission-denied fixture unexpectedly created a link'

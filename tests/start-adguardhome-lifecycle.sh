@@ -208,7 +208,7 @@ ln() {
 	fail "database-link setup escaped the test double: $*"
 }
 
-# Stop successful starts before the function enters its router-only health-check path.
+# service_wait records that the function was called and returns a failure status.
 service_wait() {
 	SERVICE_WAIT_CALLED="1"
 	return 1

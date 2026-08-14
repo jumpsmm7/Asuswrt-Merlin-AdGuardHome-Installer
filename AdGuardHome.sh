@@ -260,7 +260,7 @@ database_link_object_type() {
 }
 
 # ensure_database_link creates a missing optional database link.  Existing
-# ensure_database_link creates the expected database symlink when the destination is missing, while preserving unexpected objects and treating creation failures as non-fatal.
+# ensure_database_link creates the expected database symlink when the destination is missing, preserves unexpected objects, and treats creation failures as non-fatal.
 ensure_database_link() {
 	local EXPECTED_PATH LINK_PATH OBJECT_TYPE
 	LINK_PATH="$1"
@@ -280,7 +280,7 @@ ensure_database_link() {
 }
 
 # remove_database_link removes only a symlink resolving to the expected active
-# remove_database_link removes the specified database link when it matches the expected target.
+# remove_database_link removes the specified database link when it points to the expected target.
 remove_database_link() {
 	if database_link_matches_expected "$1" "$2"; then
 		rm "$1" >/dev/null 2>&1 || true
@@ -1731,6 +1731,7 @@ lower_script() {
 	esac
 }
 
+# service_wait waits for a service readiness check to succeed, a terminal failure to occur, or the configured timeout to elapse.
 service_wait() {
 	umask 022
 	local maxwait
@@ -1793,7 +1794,7 @@ service_wait() {
 }
 
 # start_adguardhome prepares AdGuardHome for startup, launches or restarts it, and verifies network readiness.
-# start_adguardhome prepares DNS integration, starts or restarts AdGuardHome, and waits for network readiness. It fails on terminal configuration, service startup, or readiness errors.
+# start_adguardhome prepares DNS and IPSet integration, starts or restarts AdGuardHome, ensures database links, and waits for readiness.
 start_adguardhome() {
 	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LAN_BIND_REFRESH_FAILED LOWER_SCRIPT_STATUS
 	IPSET_START_FAILURE_SAFE="0"
@@ -2008,7 +2009,7 @@ post_stop_handoff_cleared() {
 	return 0
 }
 
-# post_stop_dnsmasq_ready verifies local port 53 ownership and resolver readiness.
+# post_stop_dnsmasq_ready verifies that dnsmasq owns local port 53 and can resolve localhost through an available DNS server.
 post_stop_dnsmasq_ready() {
 	local dns_server dns_servers lan_addr
 	adguard_dnsmasq_running || return 1
