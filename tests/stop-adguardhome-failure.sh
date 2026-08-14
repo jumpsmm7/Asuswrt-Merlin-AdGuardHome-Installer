@@ -116,10 +116,12 @@ nslookup() {
 nvram() {
 	[ "$1" = get ] && [ "$2" = lan_ipaddr ] && printf '%s\n' 192.168.50.1
 }
+# netcheck records a network connectivity check and returns the configured mock status.
 netcheck() {
 	printf '%s\n' netcheck >>"${CALLS_FILE}"
 	return "${NETCHECK_STATUS}"
 }
+# sleep records the requested delay in the calls log without pausing execution.
 sleep() { printf '%s\n' "sleep $*" >>"${CALLS_FILE}"; }
 
 # reset_case resets mocked state and temporary files for an isolated test case.

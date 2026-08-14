@@ -12,7 +12,7 @@ TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/optional-database-links.XXXXXX")" || {
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 LOG_FILE="${TEST_ROOT}/log"
 
-# cleanup removes the temporary test directory when it has been initialized.
+# cleanup removes the initialized temporary test directory.
 cleanup() {
 	[ -n "${TEST_ROOT}" ] && rm -rf "${TEST_ROOT}"
 }

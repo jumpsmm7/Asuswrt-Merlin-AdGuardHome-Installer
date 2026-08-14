@@ -93,7 +93,7 @@ grep -Fq 'FAILED: AdGuardHome optional database link regression' "${OPTIONAL_DAT
 # run_check, set FAILED, and preserve its actionable privilege diagnostic.
 OPTIONAL_DATABASE_UNPRIVILEGED_OUT_FILE="${TMP_ROOT}/optional-database-unprivileged.out"
 (
-	# id prints the current user ID as 1000.
+	# id simulates the current user ID by printing 1000.
 	id() {
 		printf '%s\n' 1000
 	}

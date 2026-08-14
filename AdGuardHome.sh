@@ -214,7 +214,7 @@ adguard_restart_dnsmasq_if_managed() {
 }
 
 # database_link_matches_expected reports whether an optional database path is a
-# database_link_matches_expected verifies that a user-owned symlink resolves to the expected database path.
+# database_link_matches_expected verifies that a symlink owned by the current user resolves to the expected database path.
 database_link_matches_expected() {
 	local EXPECTED_CANONICAL EXPECTED_PATH LINK_CANONICAL LINK_PATH
 	LINK_PATH="$1"
@@ -229,7 +229,7 @@ database_link_matches_expected() {
 }
 
 # database_link_owned_by_current_user verifies symlink ownership without
-# database_link_owned_by_current_user checks whether the specified path is owned by the current user.
+# database_link_owned_by_current_user determines whether a path is owned by the current user.
 database_link_owned_by_current_user() {
 	local CURRENT_UID LINK_UID
 	CURRENT_UID="$(/usr/bin/awk '$1 == "Uid:" { print $3; exit }' /proc/self/status 2>/dev/null)" || return 1
@@ -260,7 +260,7 @@ database_link_object_type() {
 }
 
 # ensure_database_link creates a missing optional database link.  Existing
-# ensure_database_link creates a database symlink when the link path is missing, preserving unexpected objects and treating creation failures as non-fatal.
+# ensure_database_link creates a symlink to the expected database path when the link path is missing, preserving existing unexpected objects and treating creation failures as non-fatal.
 ensure_database_link() {
 	local EXPECTED_PATH LINK_PATH OBJECT_TYPE
 	LINK_PATH="$1"
@@ -280,7 +280,7 @@ ensure_database_link() {
 }
 
 # remove_database_link removes only a symlink resolving to the expected active
-# remove_database_link removes a database link only when it matches the expected target.
+# remove_database_link removes a database link when it resolves to the expected target.
 remove_database_link() {
 	if database_link_matches_expected "$1" "$2"; then
 		rm "$1" >/dev/null 2>&1 || true
@@ -1731,6 +1731,7 @@ lower_script() {
 	esac
 }
 
+# service_wait waits for a service readiness check to succeed or until the specified timeout, returning the check's status.
 service_wait() {
 	umask 022
 	local maxwait
