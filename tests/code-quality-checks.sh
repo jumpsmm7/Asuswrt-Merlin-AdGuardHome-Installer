@@ -41,9 +41,11 @@ done
 OPTIONAL_DATABASE_OUT_FILE="${TMP_ROOT}/optional-database.out"
 OPTIONAL_DATABASE_RAN_FILE="${TMP_ROOT}/optional-database.ran"
 (
+	# id prints the root user identifier.
 	id() {
 		printf '%s\n' 0
 	}
+	# sh simulates execution of selected test scripts and records optional database-link test execution.
 	sh() {
 		case "$1" in
 			tests/optional-database-links.sh)

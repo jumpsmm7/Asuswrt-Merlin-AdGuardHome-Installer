@@ -9,11 +9,13 @@ SERVICE_WAIT_FILE="${TMPDIR:-/tmp}/service-wait-function.$$"
 CALLS_FILE="${TMPDIR:-/tmp}/start-adguardhome-calls.$$"
 DATABASE_LINK_CALLS_FILE=""
 
+# cleanup removes temporary test files and the optional database-link call log.
 cleanup() {
 	rm -f "${FUNCTION_FILE}" "${SERVICE_WAIT_FILE}" "${CALLS_FILE}"
 	[ -n "${DATABASE_LINK_CALLS_FILE}" ] && rm -f "${DATABASE_LINK_CALLS_FILE}"
 }
 
+# fail prints a failure message to standard error and exits with a failure status.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -96,12 +98,13 @@ adguard_lan_mode() {
 	[ "${INSTALL_MODE:-wan}" = "lan" ]
 }
 
-# adguard_refresh_lan_bind_addresses returns the configured LAN bind-address refresh status.
+# adguard_refresh_lan_bind_addresses records the configured LAN bind-address refresh result and returns its status.
 adguard_refresh_lan_bind_addresses() {
 	LAN_BIND_REFRESH_FAILURE_REASON="${LAN_BIND_REFRESH_FAILURE_REASON_RESULT:-}"
 	return "${LAN_BIND_REFRESH_STATUS:-0}"
 }
 
+# ensure_database_link records a database link request and succeeds.
 ensure_database_link() {
 	printf '%s -> %s\n' "$1" "$2" >>"${DATABASE_LINK_CALLS_FILE}"
 	return 0
@@ -211,6 +214,7 @@ service_wait() {
 	return 1
 }
 
+# run_test executes a startup scenario and verifies its status and service lifecycle.
 run_test() {
 	DESCRIPTION="$1"
 	RUNNING="$2"
