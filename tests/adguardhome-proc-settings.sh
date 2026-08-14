@@ -30,6 +30,13 @@ CONFIG_PROC_PROFILE=balanced
 agh_log() { printf '%s\n' "$*" >>"${LOG_FILE}"; }
 IPV6_SERVICE=native
 nvram() { [ "${1:-}" = get ] && printf '%s\n' "${IPV6_SERVICE}"; }
+RM_FAIL_STATE=0
+rm() {
+	if [ "${RM_FAIL_STATE}" = 1 ]; then
+		case "$*" in *"${PROC_STATE_DIR}/rmem_max"*) return 1 ;; esac
+	fi
+	command rm "$@"
+}
 printf '%s\n' boot-one >"${PROC_BOOT_ID_FILE}"
 
 # Targets are allowlisted and requested values must be inside their numeric range.
@@ -160,14 +167,11 @@ proc_write rmem_max 4194304 262144 16777216 || fail 'post-reboot reapplication f
 # A stale state file that cannot be removed must prevent reapplication.
 printf '%s\n' 524288 >"${PROC_SYS_ROOT}/net/core/rmem_max"
 printf '%s\n' '262144 4194304 boot-one' >"${PROC_STATE_DIR}/rmem_max"
-rm() {
-	case "$*" in *"${PROC_STATE_DIR}/rmem_max"*) return 1 ;; esac
-	command rm "$@"
-}
+RM_FAIL_STATE=1
 proc_write rmem_max 4194304 262144 16777216 && fail 'stale-state removal failure was ignored'
 [ "$(cat "${PROC_SYS_ROOT}/net/core/rmem_max")" = 524288 ] || fail 'value changed after stale-state removal failure'
 [ -f "${PROC_STATE_DIR}/rmem_max" ] || fail 'failed stale-state removal lost ownership record'
-rm() { command rm "$@"; }
+RM_FAIL_STATE=0
 
 # Uninstall must restore before removing the installation tree and retain it on failure.
 UNINSTALL_FUNCTION_FILE="${TMP_ROOT}/uninstall-function"
