@@ -167,6 +167,7 @@ set_operation_config_defaults
 
 /bin/grep -q 'if ! load_operation_config action; then' "${SCRIPT_PATH}" || fail 'monitor restart does not refresh configuration'
 /bin/grep -q 'if ! load_operation_config stop; then' "${SCRIPT_PATH}" || fail 'monitor stop does not refresh configuration'
+/bin/grep -q 'stop | kill | services-stop | proc-restore) CONFIG_LOAD_SCOPE="stop"' "${SCRIPT_PATH}" || fail 'proc restoration is not protected by stop-scope configuration fallback'
 /bin/grep -q 'continuing stop with conservative configuration defaults' "${SCRIPT_PATH}" || fail 'invalid configuration can still block emergency stop'
 /usr/bin/awk '
 	/if ! load_operation_config stop; then/ { reloaded = 1 }

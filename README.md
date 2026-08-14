@@ -368,7 +368,7 @@ The aggressive profile applies these additional values:
 | `net.ipv6.icmp.ratelimit` | `0` | Applied only when `nvram get ipv6_service` is non-empty; keeps IPv6 control feedback available. |
 | `net.ipv6.neigh.default.gc_thresh1/2/3` | `256/1024/2048` | Applied only when IPv6 is configured; avoids premature IPv6 neighbour-cache reclamation. |
 
-Each target is allowlisted and its requested value is range-checked before writing. The installer saves the value it found before its first successful change and does not rewrite or log a setting that already has the requested value. Disable, profile changes, service stop, and uninstall restore a saved value only when the current proc value still matches the installer-applied value. A later administrator change is therefore never overwritten. If swap or IPv6 becomes unavailable, settings that depend on it are restored using the same ownership check.
+Each target is allowlisted and its requested value is range-checked before writing. The installer saves the value it found before its first successful change and does not rewrite or log a setting that already has the requested value. Disable, profile changes, service stop, and uninstall restore a saved value only when the current proc value still matches the installer-applied value. A later administrator value that differs from the installer-applied value is therefore preserved; rewriting the same value cannot be detected. If swap or IPv6 becomes unavailable, settings that depend on it are restored using the same ownership check.
 
 To disable runtime optimization completely, set:
 
@@ -391,7 +391,7 @@ sh installer performance --profile low-memory
 sh installer performance --profile fast
 ```
 
-`balanced` writes `ADGUARD_PROC_PROFILE="balanced"`, `low-memory` writes `ADGUARD_PROC_PROFILE="safe"`, and `fast` writes `ADGUARD_PROC_PROFILE="aggressive"`. Runtime proc changes and successful restorations are logged once per actual change with old and new values. Missing, unreadable, or unwritable proc entries are logged as failures, but startup does not fail only because a proc/sysctl operation fails.
+`balanced` writes `ADGUARD_PROC_PROFILE="balanced"`, `low-memory` writes `ADGUARD_PROC_PROFILE="safe"`, and `fast` writes `ADGUARD_PROC_PROFILE="aggressive"`. Apply-time proc changes and successful restorations are logged once per actual change with old and new values. Missing, unreadable, or unwritable targets are logged as failures during application; startup does not fail only because a proc/sysctl operation fails.
 
 ## Verify AdGuardHome is running
 

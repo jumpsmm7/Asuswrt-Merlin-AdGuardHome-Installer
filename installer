@@ -7669,7 +7669,10 @@ uninst_all() {
 	fi
 	agh_stop
 	if [ -x "${TARG_DIR}/AdGuardHome.sh" ]; then
-		"${TARG_DIR}/AdGuardHome.sh" proc-restore x || PTXT "${ERROR} Unable to restore installer-managed kernel settings."
+		if ! "${TARG_DIR}/AdGuardHome.sh" proc-restore x; then
+			PTXT "${ERROR} Unable to restore installer-managed kernel settings."
+			return 1
+		fi
 	fi
 	cleanup_legacy_firewall
 	mv "${TARG_DIR}/installer" "${HOME}/installer"

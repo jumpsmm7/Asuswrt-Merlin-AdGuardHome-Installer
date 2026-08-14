@@ -18,6 +18,7 @@ IPSET_RUNTIME_DIR="${IPSET_RUNTIME_DIR:-/opt/var/run/AdGuardHome-ipset}"
 IPSET_USER_FILE="/opt/etc/AdGuardHome/ipset.user"
 PROC_SYS_ROOT="${PROC_SYS_ROOT:-/proc/sys}"
 PROC_SWAPS_FILE="${PROC_SWAPS_FILE:-/proc/swaps}"
+PROC_BOOT_ID_FILE="${PROC_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}"
 PROC_STATE_DIR="${PROC_STATE_DIR:-${WORK_DIR}/proc-sys-state}"
 YAML_FILE="/opt/etc/AdGuardHome/AdGuardHome.yaml"
 DEFAULT_ADGUARD_NETCHECK_HOSTS="google.com github.com snbforums.com"
@@ -1744,6 +1745,14 @@ proc_target() {
 	esac
 }
 
+proc_boot_id() {
+	local boot_id
+	[ -r "${PROC_BOOT_ID_FILE}" ] || return 1
+	IFS= read -r boot_id <"${PROC_BOOT_ID_FILE}" || return 1
+	case "${boot_id}" in "" | *[!A-Za-z0-9-]*) return 1 ;; esac
+	printf '%s\n' "${boot_id}"
+}
+
 proc_restore_ipv6() {
 	local id
 	for id in ipv6_icmp_ratelimit ipv6_neigh_gc_thresh1 ipv6_neigh_gc_thresh2 ipv6_neigh_gc_thresh3; do
@@ -1752,7 +1761,7 @@ proc_restore_ipv6() {
 }
 
 proc_write() {
-	local applied id maximum minimum old_value state_file state_tmp target value
+	local applied boot_id current_value id maximum minimum old_value state_boot_id state_file state_tmp target value
 	id="$1"
 	value="$2"
 	minimum="$3"
@@ -1771,10 +1780,20 @@ proc_write() {
 		return 1
 	fi
 	case "${old_value}" in "" | *[!0-9]*) return 1 ;; esac
+	current_value="${old_value}"
 	if [ -f "${state_file}" ]; then
-		IFS=' ' read -r old_value applied <"${state_file}" || return 1
+		IFS=' ' read -r old_value applied state_boot_id <"${state_file}" || return 1
 		[ "${applied}" = "${value}" ] || return 1
-		[ "$(cat "${target}" 2>/dev/null)" = "${value}" ] && return 0
+		boot_id="$(proc_boot_id 2>/dev/null)"
+		if [ -n "${state_boot_id}" ] && [ "${state_boot_id}" != "${boot_id}" ]; then
+			rm -f "${state_file}"
+			# procfs reset after reboot; claim nothing if the boot default already
+			# matches, otherwise preserve this boot's value before reapplying.
+			[ "${current_value}" = "${value}" ] && return 0
+			proc_write "${id}" "${value}" "${minimum}" "${maximum}"
+			return $?
+		fi
+		[ "${current_value}" = "${value}" ] && return 0
 		# An administrator changed the setting after application; relinquish it.
 		rm -f "${state_file}"
 		return 0
@@ -1783,7 +1802,8 @@ proc_write() {
 	mkdir -p "${PROC_STATE_DIR}" 2>/dev/null || return 1
 	# Publish the rollback record before changing procfs so interruption is safe.
 	state_tmp="${state_file}.tmp.$$"
-	if ! printf '%s %s\n' "${old_value}" "${value}" >"${state_tmp}" ||
+	boot_id="$(proc_boot_id 2>/dev/null)"
+	if ! printf '%s %s %s\n' "${old_value}" "${value}" "${boot_id}" >"${state_tmp}" ||
 		! mv -f "${state_tmp}" "${state_file}"; then
 		rm -f "${state_tmp}"
 		return 1
@@ -1798,12 +1818,17 @@ proc_write() {
 }
 
 proc_restore_one() {
-	local applied id old_value state_file target
+	local applied boot_id id old_value state_boot_id state_file target
 	id="$1"
 	proc_target "${id}" || return 1
 	state_file="${PROC_STATE_DIR}/${id}"
 	[ -f "${state_file}" ] || return 0
-	IFS=' ' read -r old_value applied <"${state_file}" || return 1
+	IFS=' ' read -r old_value applied state_boot_id <"${state_file}" || return 1
+	boot_id="$(proc_boot_id 2>/dev/null)"
+	if [ -n "${state_boot_id}" ] && [ "${state_boot_id}" != "${boot_id}" ]; then
+		rm -f "${state_file}"
+		return 0
+	fi
 	target="${PROC_TARGET}"
 	if [ "$(cat "${target}" 2>/dev/null)" = "${applied}" ]; then
 		if printf '%s\n' "${old_value}" >"${target}" 2>/dev/null; then
@@ -3398,7 +3423,7 @@ IPSet_Supported() {
 
 case "${1:-}" in
 	status) CONFIG_LOAD_SCOPE="status" ;;
-	stop | kill | services-stop) CONFIG_LOAD_SCOPE="stop" ;;
+	stop | kill | services-stop | proc-restore) CONFIG_LOAD_SCOPE="stop" ;;
 	dnsmasq | dnsmasq-sdn) CONFIG_LOAD_SCOPE="dnsmasq" ;;
 	firewall) CONFIG_LOAD_SCOPE="firewall" ;;
 	*) CONFIG_LOAD_SCOPE="action" ;;
