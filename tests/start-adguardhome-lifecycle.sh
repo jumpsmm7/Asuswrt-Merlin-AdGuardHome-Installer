@@ -7,9 +7,11 @@ SCRIPT_PATH="${1:-AdGuardHome.sh}"
 FUNCTION_FILE="${TMPDIR:-/tmp}/start-adguardhome-function.$$"
 SERVICE_WAIT_FILE="${TMPDIR:-/tmp}/service-wait-function.$$"
 CALLS_FILE="${TMPDIR:-/tmp}/start-adguardhome-calls.$$"
+DATABASE_LINK_CALLS_FILE=""
 
 cleanup() {
 	rm -f "${FUNCTION_FILE}" "${SERVICE_WAIT_FILE}" "${CALLS_FILE}"
+	[ -n "${DATABASE_LINK_CALLS_FILE}" ] && rm -f "${DATABASE_LINK_CALLS_FILE}"
 }
 
 fail() {
@@ -56,6 +58,9 @@ assert_explicit_restart_uses_restart_wrapper() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
+DATABASE_LINK_CALLS_FILE="$(mktemp "${TMPDIR:-/tmp}/start-adguardhome-database-link-calls.XXXXXX")" ||
+	fail 'could not create database-link calls file'
+
 assert_single_function IPSet_Disable_Managed_For_Start_Locked
 assert_single_function IPSet_Enabled
 assert_single_function IPSet_Dnsmasq_Restart_After_Unlock
@@ -95,6 +100,11 @@ adguard_lan_mode() {
 adguard_refresh_lan_bind_addresses() {
 	LAN_BIND_REFRESH_FAILURE_REASON="${LAN_BIND_REFRESH_FAILURE_REASON_RESULT:-}"
 	return "${LAN_BIND_REFRESH_STATUS:-0}"
+}
+
+ensure_database_link() {
+	printf '%s -> %s\n' "$1" "$2" >>"${DATABASE_LINK_CALLS_FILE}"
+	return 0
 }
 
 # adguard_ipset_allowed reports whether IPSET integration is allowed outside LAN mode.
@@ -215,6 +225,7 @@ run_test() {
 	SERVICE_WAIT_CALLED="0"
 	LAN_BIND_REFRESH_FAILURE_REASON_RESULT="${11:-}"
 	: >"${CALLS_FILE}"
+	: >"${DATABASE_LINK_CALLS_FILE}"
 
 	if start_adguardhome "${START_ACTION}"; then
 		ACTUAL_STATUS=0
@@ -448,5 +459,10 @@ lower_script start
 IPSet_Lock released
 service restart_dnsmasq
 lower_script restart'
+
+run_test 'successful startup delegates optional database links' 0 1 0 0 0 0 1 'IPSet_Supported
+lower_script start'
+[ "$(cat "${DATABASE_LINK_CALLS_FILE}")" = "/tmp/stats.db -> ${WORK_DIR}/data/stats.db
+/tmp/sessions.db -> ${WORK_DIR}/data/sessions.db" ] || fail 'startup delegated incorrect optional database link pairs'
 
 printf '%s\n' 'PASS: startup treats IPSET integration as optional and preserves lifecycle recovery'
