@@ -16,6 +16,12 @@ LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 IPSET_FILE="/opt/etc/AdGuardHome/ipset.conf"
 IPSET_RUNTIME_DIR="${IPSET_RUNTIME_DIR:-/opt/var/run/AdGuardHome-ipset}"
 IPSET_USER_FILE="/opt/etc/AdGuardHome/ipset.user"
+PROC_SYS_ROOT="${PROC_SYS_ROOT:-/proc/sys}"
+PROC_SWAPS_FILE="${PROC_SWAPS_FILE:-/proc/swaps}"
+PROC_BOOT_ID_FILE="${PROC_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}"
+PROC_STATE_DIR="${PROC_STATE_DIR:-${WORK_DIR}/proc-sys-state}"
+PROC_LOCK_DIR="${PROC_LOCK_DIR:-${WORK_DIR}/proc-sys-lock}"
+PROC_LOCK_FILE="${PROC_LOCK_FILE:-${WORK_DIR}/proc-sys.lock}"
 YAML_FILE="/opt/etc/AdGuardHome/AdGuardHome.yaml"
 DEFAULT_ADGUARD_NETCHECK_HOSTS="google.com github.com snbforums.com"
 DEFAULT_ADGUARD_NETCHECK_DNS="127.0.0.1"
@@ -23,7 +29,7 @@ DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP="NO"
 DEFAULT_ADGUARD_NETCHECK_TIMEOUT="300"
 DEFAULT_ADGUARD_NETCHECK_MODE="wan"
 DEFAULT_ADGUARD_PROC_OPTIMIZE="NO"
-DEFAULT_ADGUARD_PROC_PROFILE="balanced"
+DEFAULT_ADGUARD_PROC_PROFILE="aggressive"
 INSTALLER_SCRIPT="/opt/etc/AdGuardHome/installer"
 ADGUARD_NETCHECK_HOSTS_SET="${ADGUARD_NETCHECK_HOSTS:+x}"
 ADGUARD_NETCHECK_DNS_SET="${ADGUARD_NETCHECK_DNS:+x}"
@@ -1627,35 +1633,33 @@ proc_config() {
 	printf '%s\n' "${value:-$2}"
 }
 
-proc_optimizations() {
+proc_optimizations_locked() {
 	local enabled profile
 	enabled="$(proc_config ADGUARD_PROC_OPTIMIZE "${DEFAULT_ADGUARD_PROC_OPTIMIZE}")"
 	profile="$(proc_config ADGUARD_PROC_PROFILE "${DEFAULT_ADGUARD_PROC_PROFILE}")"
 	case "${enabled}" in
 		YES | yes | Yes | ON | on | On | TRUE | true | True | 1) ;;
 		*)
-			agh_log info proc_optimizations "state=proc_optimize action=skip reason=disabled result=skipped enabled=${enabled} profile=${profile}"
+			proc_restore_locked
 			return 0
 			;;
 	esac
 
-	# Profile documentation:
-	# off: no proc/sysctl values are changed.
-	# safe: /proc/sys/net/core/rmem_max=4194304, /proc/sys/net/core/wmem_max=1048576.
-	# balanced: safe values plus /proc/sys/net/netfilter/nf_conntrack_tcp_timeout_max_retrans=240.
-	# aggressive: balanced values plus /proc/sys/kernel/pid_max=4194304,
-	#   /proc/sys/vm/overcommit_memory=2, /proc/sys/vm/swappiness=60,
-	#   /proc/sys/vm/overcommit_ratio=50, /proc/sys/net/ipv4/icmp_ratelimit=0,
-	#   /proc/sys/net/ipv4/neigh/default/gc_thresh1=256,
-	#   /proc/sys/net/ipv4/neigh/default/gc_thresh2=1024,
-	#   /proc/sys/net/ipv4/neigh/default/gc_thresh3=2048, and when IPv6 is
-	#   configured, /proc/sys/net/ipv6/icmp/ratelimit=0,
-	#   /proc/sys/net/ipv6/neigh/default/gc_thresh1=256,
-	#   /proc/sys/net/ipv6/neigh/default/gc_thresh2=1024,
-	#   /proc/sys/net/ipv6/neigh/default/gc_thresh3=2048.
+	# safe: socket buffer ceilings prevent high-volume UDP DNS traffic from being
+	# dropped because AdGuard Home's requested per-socket buffers are capped.
+	# balanced: safe plus a shorter maximum-retransmit conntrack lifetime, which
+	# releases stalled TCP DNS connection state sooner on memory-limited routers.
+	# aggressive: balanced plus, when swap is active, strict virtual-memory
+	# commitment and normal swap reclaim.  These retain a system-wide memory
+	# reserve instead of allowing unrelated allocations to exhaust memory and kill
+	# DNS.  Higher neighbour-cache thresholds avoid cache reclamation during large
+	# client bursts, while unrestricted ICMP control replies keep path/error feedback
+	# available to AdGuard Home's upstream traffic.  A larger PID space is applied
+	# by every enabled profile to reduce PID collisions with concurrent NVRAM/user
+	# scripts on long-running routers.
 	case "${profile}" in
 		off)
-			agh_log info proc_optimizations "state=proc_optimize action=skip reason=profile_off result=skipped profile=${profile}"
+			proc_restore_locked
 			return 0
 			;;
 		safe | balanced | aggressive) ;;
@@ -1665,51 +1669,265 @@ proc_optimizations() {
 			;;
 	esac
 
-	proc_write "4194304" "/proc/sys/net/core/rmem_max"
-	proc_write "1048576" "/proc/sys/net/core/wmem_max"
+	proc_write rmem_max "4194304" "262144" "16777216"
+	proc_write wmem_max "1048576" "262144" "16777216"
+	proc_write pid_max "4194304" "300" "4194304"
 	case "${profile}" in
 		balanced | aggressive)
-			proc_write "240" "/proc/sys/net/netfilter/nf_conntrack_tcp_timeout_max_retrans"
+			proc_write conntrack_tcp_timeout_max_retrans "240" "1" "86400"
 			;;
+		*) proc_restore_one conntrack_tcp_timeout_max_retrans ;;
 	esac
 	case "${profile}" in
 		aggressive)
-			proc_write "4194304" "/proc/sys/kernel/pid_max"
-			proc_write "2" "/proc/sys/vm/overcommit_memory"
-			proc_write "60" "/proc/sys/vm/swappiness"
-			proc_write "50" "/proc/sys/vm/overcommit_ratio"
-			proc_write "0" "/proc/sys/net/ipv4/icmp_ratelimit"
-			proc_write "256" "/proc/sys/net/ipv4/neigh/default/gc_thresh1"
-			proc_write "1024" "/proc/sys/net/ipv4/neigh/default/gc_thresh2"
-			proc_write "2048" "/proc/sys/net/ipv4/neigh/default/gc_thresh3"
-			if [ -n "$(nvram get ipv6_service 2>/dev/null)" ]; then
-				proc_write "0" "/proc/sys/net/ipv6/icmp/ratelimit"
-				proc_write "256" "/proc/sys/net/ipv6/neigh/default/gc_thresh1"
-				proc_write "1024" "/proc/sys/net/ipv6/neigh/default/gc_thresh2"
-				proc_write "2048" "/proc/sys/net/ipv6/neigh/default/gc_thresh3"
+			if proc_swap_active; then
+				proc_write vm_overcommit_memory "2" "0" "2"
+				proc_write vm_swappiness "60" "0" "200"
+				proc_write vm_overcommit_ratio "50" "0" "100"
+			else
+				proc_restore_one vm_overcommit_memory
+				proc_restore_one vm_swappiness
+				proc_restore_one vm_overcommit_ratio
 			fi
+			proc_write ipv4_icmp_ratelimit "0" "0" "100000"
+			proc_write ipv4_neigh_gc_thresh1 "256" "1" "1048576"
+			proc_write ipv4_neigh_gc_thresh2 "1024" "1" "1048576"
+			proc_write ipv4_neigh_gc_thresh3 "2048" "1" "1048576"
+			if [ -n "$(nvram get ipv6_service 2>/dev/null)" ]; then
+				proc_write ipv6_icmp_ratelimit "0" "0" "100000"
+				proc_write ipv6_neigh_gc_thresh1 "256" "1" "1048576"
+				proc_write ipv6_neigh_gc_thresh2 "1024" "1" "1048576"
+				proc_write ipv6_neigh_gc_thresh3 "2048" "1" "1048576"
+			else
+				proc_restore_ipv6
+			fi
+			;;
+		*)
+			proc_restore_one vm_overcommit_memory
+			proc_restore_one vm_swappiness
+			proc_restore_one vm_overcommit_ratio
+			proc_restore_one ipv4_icmp_ratelimit
+			proc_restore_one ipv4_neigh_gc_thresh1
+			proc_restore_one ipv4_neigh_gc_thresh2
+			proc_restore_one ipv4_neigh_gc_thresh3
+			proc_restore_ipv6
 			;;
 	esac
 	return 0
 }
 
+proc_optimizations() {
+	proc_lock_run proc_optimizations_locked
+}
+
+proc_swap_active() {
+	local device remainder
+	[ -r "${PROC_SWAPS_FILE}" ] || return 1
+	while read -r device remainder; do
+		case "${device}" in "" | Filename) continue ;; esac
+		return 0
+	done <"${PROC_SWAPS_FILE}"
+	return 1
+}
+
+proc_target() {
+	case "$1" in
+		rmem_max) PROC_TARGET="${PROC_SYS_ROOT}/net/core/rmem_max" ;;
+		wmem_max) PROC_TARGET="${PROC_SYS_ROOT}/net/core/wmem_max" ;;
+		conntrack_tcp_timeout_max_retrans) PROC_TARGET="${PROC_SYS_ROOT}/net/netfilter/nf_conntrack_tcp_timeout_max_retrans" ;;
+		pid_max) PROC_TARGET="${PROC_SYS_ROOT}/kernel/pid_max" ;;
+		vm_overcommit_memory) PROC_TARGET="${PROC_SYS_ROOT}/vm/overcommit_memory" ;;
+		vm_swappiness) PROC_TARGET="${PROC_SYS_ROOT}/vm/swappiness" ;;
+		vm_overcommit_ratio) PROC_TARGET="${PROC_SYS_ROOT}/vm/overcommit_ratio" ;;
+		ipv4_icmp_ratelimit) PROC_TARGET="${PROC_SYS_ROOT}/net/ipv4/icmp_ratelimit" ;;
+		ipv4_neigh_gc_thresh1) PROC_TARGET="${PROC_SYS_ROOT}/net/ipv4/neigh/default/gc_thresh1" ;;
+		ipv4_neigh_gc_thresh2) PROC_TARGET="${PROC_SYS_ROOT}/net/ipv4/neigh/default/gc_thresh2" ;;
+		ipv4_neigh_gc_thresh3) PROC_TARGET="${PROC_SYS_ROOT}/net/ipv4/neigh/default/gc_thresh3" ;;
+		ipv6_icmp_ratelimit) PROC_TARGET="${PROC_SYS_ROOT}/net/ipv6/icmp/ratelimit" ;;
+		ipv6_neigh_gc_thresh1) PROC_TARGET="${PROC_SYS_ROOT}/net/ipv6/neigh/default/gc_thresh1" ;;
+		ipv6_neigh_gc_thresh2) PROC_TARGET="${PROC_SYS_ROOT}/net/ipv6/neigh/default/gc_thresh2" ;;
+		ipv6_neigh_gc_thresh3) PROC_TARGET="${PROC_SYS_ROOT}/net/ipv6/neigh/default/gc_thresh3" ;;
+		*) return 1 ;;
+	esac
+}
+
+proc_boot_id() {
+	local boot_id
+	[ -r "${PROC_BOOT_ID_FILE}" ] || return 1
+	IFS= read -r boot_id <"${PROC_BOOT_ID_FILE}" || return 1
+	case "${boot_id}" in "" | *[!A-Za-z0-9-]*) return 1 ;; esac
+	printf '%s\n' "${boot_id}"
+}
+
+proc_lock_run() {
+	local attempts has_usleep owner ownerless_attempts reaper status
+	if [ "${PROC_LOCK_FORCE_MKDIR:-0}" != 1 ] && have_cmd flock && flock_supports_fd; then
+		(
+			mkdir -p "${WORK_DIR}" 2>/dev/null || exit 1
+			exec 6>"${PROC_LOCK_FILE}" || exit 1
+			flock 6 || exit 1
+			"$@"
+		)
+		return $?
+	fi
+	(
+		attempts=0
+		ownerless_attempts=0
+		if which usleep >/dev/null 2>&1; then has_usleep=1; else has_usleep=0; fi
+		reaper="${PROC_LOCK_DIR}.reap.$$"
+		rm -rf "${reaper}"
+		while ! mkdir "${PROC_LOCK_DIR}" 2>/dev/null; do
+			[ -d "${PROC_LOCK_DIR}" ] && [ ! -L "${PROC_LOCK_DIR}" ] || exit 1
+			owner="$(cat "${PROC_LOCK_DIR}/pid" 2>/dev/null)"
+			case "${owner}" in
+				"" | *[!0-9]*)
+					ownerless_attempts="$((ownerless_attempts + 1))"
+					if [ "${ownerless_attempts}" -ge 5 ] && mv "${PROC_LOCK_DIR}" "${reaper}" 2>/dev/null; then
+						rm -rf "${reaper}"
+						continue
+					fi
+					;;
+				*)
+					if ! kill -0 "${owner}" 2>/dev/null; then
+						if mv "${PROC_LOCK_DIR}" "${reaper}" 2>/dev/null; then
+							rm -rf "${reaper}"
+							continue
+						fi
+					fi
+					;;
+			esac
+			attempts="$((attempts + 1))"
+			[ "${attempts}" -lt 50 ] || exit 1
+			if [ "${has_usleep}" -eq 1 ]; then usleep 100000; else sleep 1; fi
+		done
+		printf '%s\n' "$$" >"${PROC_LOCK_DIR}/pid" || {
+			rm -rf "${PROC_LOCK_DIR}"
+			exit 1
+		}
+		trap 'rm -rf "${PROC_LOCK_DIR}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+		"$@"
+		status="$?"
+		rm -rf "${PROC_LOCK_DIR}"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		exit "${status}"
+	)
+}
+
+proc_restore_ipv6() {
+	local id
+	for id in ipv6_icmp_ratelimit ipv6_neigh_gc_thresh1 ipv6_neigh_gc_thresh2 ipv6_neigh_gc_thresh3; do
+		proc_restore_one "${id}"
+	done
+}
+
 proc_write() {
-	local old_value target value
-	value="$1"
-	target="$2"
+	local applied boot_id current_value id maximum minimum old_value state_boot_id state_file state_tmp target value
+	id="$1"
+	value="$2"
+	minimum="$3"
+	maximum="$4"
+	proc_target "${id}" || return 1
+	target="${PROC_TARGET}"
+	state_file="${PROC_STATE_DIR}/${id}"
+	case "${value}:${minimum}:${maximum}" in *[!0-9:]*) return 1 ;; esac
+	[ "${value}" -ge "${minimum}" ] && [ "${value}" -le "${maximum}" ] || return 1
 	if [ ! -e "${target}" ]; then
 		agh_log warning proc_write "state=proc_optimize action=write target=${target} new_value=${value} reason=missing result=failed"
-		return 0
+		return 1
 	fi
 	if ! IFS= read -r old_value <"${target}"; then
-		old_value=""
 		agh_log warning proc_write "state=proc_optimize action=read target=${target} new_value=${value} reason=read_failed result=failed"
+		return 1
 	fi
-	agh_log info proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value}"
-	if ! printf '%s' "${value}" >"${target}" 2>/dev/null; then
+	case "${old_value}" in "" | *[!0-9]*) return 1 ;; esac
+	current_value="${old_value}"
+	if [ -f "${state_file}" ]; then
+		IFS=' ' read -r old_value applied state_boot_id <"${state_file}" || return 1
+		[ "${applied}" = "${value}" ] || return 1
+		boot_id="$(proc_boot_id 2>/dev/null)"
+		if [ -n "${state_boot_id}" ] && [ -n "${boot_id}" ] && [ "${state_boot_id}" != "${boot_id}" ]; then
+			rm -f "${state_file}" || return 1
+			# procfs reset after reboot; claim nothing if the boot default already
+			# matches, otherwise preserve this boot's value before reapplying.
+			[ "${current_value}" = "${value}" ] && return 0
+			proc_write "${id}" "${value}" "${minimum}" "${maximum}"
+			return $?
+		fi
+		[ "${current_value}" = "${value}" ] && return 0
+		if [ "${current_value}" = "${old_value}" ]; then
+			if ! printf '%s\n' "${value}" >"${target}" 2>/dev/null; then
+				agh_log warning proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value} result=failed"
+				return 1
+			fi
+			agh_log info proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value} result=changed"
+			return 0
+		fi
+		# An administrator changed the setting after application; relinquish it.
+		rm -f "${state_file}"
+		return 0
+	fi
+	[ "${old_value}" = "${value}" ] && return 0
+	mkdir -p "${PROC_STATE_DIR}" 2>/dev/null || return 1
+	# Publish the rollback record before changing procfs so interruption is safe.
+	state_tmp="${state_file}.tmp.$$"
+	boot_id="$(proc_boot_id 2>/dev/null)"
+	if ! printf '%s %s %s\n' "${old_value}" "${value}" "${boot_id}" >"${state_tmp}" ||
+		! mv -f "${state_tmp}" "${state_file}"; then
+		rm -f "${state_tmp}"
+		return 1
+	fi
+	if ! printf '%s\n' "${value}" >"${target}" 2>/dev/null; then
 		agh_log warning proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value} result=failed"
+		rm -f "${state_file}"
+		return 1
 	fi
+	agh_log info proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value} result=changed"
 	return 0
+}
+
+proc_restore_one() {
+	local applied boot_id current_value id old_value state_boot_id state_file target
+	id="$1"
+	proc_target "${id}" || return 1
+	state_file="${PROC_STATE_DIR}/${id}"
+	[ -f "${state_file}" ] || return 0
+	IFS=' ' read -r old_value applied state_boot_id <"${state_file}" || return 1
+	boot_id="$(proc_boot_id 2>/dev/null)"
+	if [ -n "${state_boot_id}" ] && [ -n "${boot_id}" ] && [ "${state_boot_id}" != "${boot_id}" ]; then
+		rm -f "${state_file}"
+		return 0
+	fi
+	target="${PROC_TARGET}"
+	if ! { IFS= read -r current_value <"${target}"; } 2>/dev/null; then
+		agh_log warning proc_restore "state=proc_optimize action=read target=${target} reason=read_failed result=failed"
+		return 1
+	fi
+	if [ "${current_value}" = "${applied}" ]; then
+		if printf '%s\n' "${old_value}" >"${target}" 2>/dev/null; then
+			agh_log info proc_restore "state=proc_optimize action=restore target=${target} old_value=${applied} new_value=${old_value} result=changed"
+			rm -f "${state_file}"
+		else
+			agh_log warning proc_restore "state=proc_optimize action=restore target=${target} old_value=${applied} new_value=${old_value} result=failed"
+			return 1
+		fi
+	else
+		# Preserve an administrator's later value and discard our ownership record.
+		rm -f "${state_file}"
+	fi
+}
+
+proc_restore_locked() {
+	local failed id
+	failed=0
+	for id in rmem_max wmem_max pid_max conntrack_tcp_timeout_max_retrans vm_overcommit_memory vm_swappiness vm_overcommit_ratio ipv4_icmp_ratelimit ipv4_neigh_gc_thresh1 ipv4_neigh_gc_thresh2 ipv4_neigh_gc_thresh3 ipv6_icmp_ratelimit ipv6_neigh_gc_thresh1 ipv6_neigh_gc_thresh2 ipv6_neigh_gc_thresh3; do
+		proc_restore_one "${id}" || failed=1
+	done
+	rmdir "${PROC_STATE_DIR}" 2>/dev/null || true
+	[ "${failed}" -eq 0 ]
+}
+
+proc_restore() {
+	proc_lock_run proc_restore_locked
 }
 netcheck_lan_dns() {
 	# Ignore public DNS overrides in LAN mode; this probe is only for the
@@ -3281,7 +3499,7 @@ IPSet_Supported() {
 
 case "${1:-}" in
 	status) CONFIG_LOAD_SCOPE="status" ;;
-	stop | kill | services-stop) CONFIG_LOAD_SCOPE="stop" ;;
+	stop | kill | services-stop | proc-restore) CONFIG_LOAD_SCOPE="stop" ;;
 	dnsmasq | dnsmasq-sdn) CONFIG_LOAD_SCOPE="dnsmasq" ;;
 	firewall) CONFIG_LOAD_SCOPE="firewall" ;;
 	*) CONFIG_LOAD_SCOPE="action" ;;
@@ -3320,6 +3538,9 @@ case "$1" in
 	"monitor-start")
 		if [ -n "${MON_PID}" ]; then { stop_monitor "${MON_PID}"; }; else { start_monitor & } fi
 		;;
+	"proc-restore")
+		proc_restore
+		;;
 	"start" | "restart")
 		{ "${SCRIPT_LOC}" init-start >/dev/null 2>&1; }
 		;;
@@ -3340,6 +3561,7 @@ case "$1" in
 				{ "${SCRIPT_LOC}" monitor-start; }
 				;;
 			"services-stop")
+				proc_restore
 				{ stop_monitor "$$"; }
 				;;
 		esac
