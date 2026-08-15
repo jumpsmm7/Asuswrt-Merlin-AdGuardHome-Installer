@@ -4,7 +4,10 @@
 set -u
 
 S99_PATH="${1:-S99AdGuardHome}"
-TMP_ROOT="${TMPDIR:-/tmp}/agh-go-environment.$$"
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/agh-go-environment.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive test workspace' >&2
+	exit 1
+}
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 
 fail() {
@@ -14,7 +17,6 @@ fail() {
 }
 
 trap 'rm -rf "${TMP_ROOT}"' 0 HUP INT TERM
-mkdir -p "${TMP_ROOT}" || fail 'setup failed'
 sed -n '/^agh_uint_in_range() {$/,/^}$/p; /^agh_godebug_valid() {$/,/^}$/p; /^agh_memory_limit_mib() {$/,/^}$/p; /^launch_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${FUNCTIONS_FILE}" || fail 'function extraction failed'
 # shellcheck disable=SC1090
@@ -50,6 +52,22 @@ for invalid_gomaxprocs in 0 -1 invalid; do
 		[ "${GOMAXPROCS}" = "${DEFAULT_GOMAXPROCS}" ]
 	) || fail "invalid GOMAXPROCS did not retain the detected default: ${invalid_gomaxprocs}"
 done
+
+GOGC_INIT="${TMP_ROOT}/gogc-init"
+sed -n '/^GOGC="${ADGUARDHOME_GOGC:-50}"$/,/^esac$/p' "${S99_PATH}" >"${GOGC_INIT}" ||
+	fail 'GOGC initialization extraction failed'
+(
+	ADGUARDHOME_GOGC=off
+	# shellcheck disable=SC1090
+	. "${GOGC_INIT}"
+	[ "${GOGC}" = off ]
+) || fail 'documented GOGC=off override was not preserved'
+(
+	ADGUARDHOME_GOGC=invalid
+	# shellcheck disable=SC1090
+	. "${GOGC_INIT}"
+	[ "${GOGC}" = 50 ]
+) || fail 'invalid GOGC override did not use the safe default'
 
 agh_uint_in_range 1 1 1000 || fail 'lower numeric bound rejected'
 agh_uint_in_range 1000 1 1000 || fail 'upper numeric bound rejected'

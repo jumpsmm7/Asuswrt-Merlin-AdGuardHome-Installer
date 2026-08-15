@@ -81,7 +81,10 @@ launch_adguardhome() {
 }
 # Lower GOGC values reduce AdGuardHome memory growth, but increase garbage-collection CPU cost.
 GOGC="${ADGUARDHOME_GOGC:-50}"
-agh_uint_in_range "${GOGC}" 1 1000 || GOGC="50"
+case "${GOGC}" in
+	off) ;;
+	*) agh_uint_in_range "${GOGC}" 1 1000 || GOGC="50" ;;
+esac
 CPU_COUNT=""
 if which grep >/dev/null 2>&1; then
 	CPU_COUNT="$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)"
