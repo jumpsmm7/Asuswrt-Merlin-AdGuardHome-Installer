@@ -62,15 +62,17 @@ agh_godebug_valid() {
 }
 
 agh_memory_limit_mib() {
-	if [ "${1:-}" = "0" ]; then
-		printf '%s\n' "1"
-	elif agh_uint_in_range "${1:-}" 1 384; then
-		printf '%s\n' "$1"
-	elif agh_uint_in_range "${1:-}" 385 999999; then
-		printf '%s\n' "384"
-	else
-		printf '%s\n' "128"
-	fi
+	case "${1:-}" in
+		"" | *[!0-9]*) printf '%s\n' "128" ;;
+		*[!0]*)
+			if agh_uint_in_range "$1" 1 384; then
+				printf '%s\n' "$1"
+			else
+				printf '%s\n' "384"
+			fi
+			;;
+		*) printf '%s\n' "1" ;;
+	esac
 }
 
 launch_adguardhome() {
@@ -82,7 +84,7 @@ launch_adguardhome() {
 # Lower GOGC values reduce AdGuardHome memory growth, but increase garbage-collection CPU cost.
 GOGC="${ADGUARDHOME_GOGC:-50}"
 case "${GOGC}" in
-	off) ;;
+	off | 0) ;;
 	*) agh_uint_in_range "${GOGC}" 1 1000 || GOGC="50" ;;
 esac
 CPU_COUNT=""

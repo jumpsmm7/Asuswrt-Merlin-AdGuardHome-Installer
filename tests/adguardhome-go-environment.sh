@@ -63,6 +63,12 @@ sed -n '/^GOGC="${ADGUARDHOME_GOGC:-50}"$/,/^esac$/p' "${S99_PATH}" >"${GOGC_INI
 	[ "${GOGC}" = off ]
 ) || fail 'documented GOGC=off override was not preserved'
 (
+	ADGUARDHOME_GOGC=0
+	# shellcheck disable=SC1090
+	. "${GOGC_INIT}"
+	[ "${GOGC}" = 0 ]
+) || fail 'documented GOGC=0 override was not preserved'
+(
 	ADGUARDHOME_GOGC=invalid
 	# shellcheck disable=SC1090
 	. "${GOGC_INIT}"
@@ -81,6 +87,7 @@ done
 [ "$(agh_memory_limit_mib 31)" = 31 ] || fail 'calculated memory limit below 32 MiB was increased'
 [ "$(agh_memory_limit_mib 384)" = 384 ] || fail 'maximum calculated memory limit rejected'
 [ "$(agh_memory_limit_mib 385)" = 384 ] || fail 'oversized calculated memory limit was not capped'
+[ "$(agh_memory_limit_mib 1000000)" = 384 ] || fail 'large calculated memory limit was not capped'
 for bad_memory_limit in '' invalid '64;command'; do
 	[ "$(agh_memory_limit_mib "${bad_memory_limit}")" = 128 ] ||
 		fail "invalid calculated memory limit was not reset: ${bad_memory_limit}"
