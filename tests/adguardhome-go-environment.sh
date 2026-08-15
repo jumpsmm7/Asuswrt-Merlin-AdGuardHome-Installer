@@ -74,6 +74,41 @@ sed -n '/^GOGC="${ADGUARDHOME_GOGC:-50}"$/,/^esac$/p' "${S99_PATH}" >"${GOGC_INI
 	. "${GOGC_INIT}"
 	[ "${GOGC}" = 50 ]
 ) || fail 'invalid GOGC override did not use the safe default'
+(
+	ADGUARDHOME_GOGC=200
+	# shellcheck disable=SC1090
+	. "${GOGC_INIT}"
+	[ "${GOGC}" = 200 ]
+) || fail 'valid numeric GOGC override was not preserved'
+(
+	ADGUARDHOME_GOGC=1000
+	# shellcheck disable=SC1090
+	. "${GOGC_INIT}"
+	[ "${GOGC}" = 1000 ]
+) || fail 'upper-bound GOGC override was not preserved'
+(
+	ADGUARDHOME_GOGC=1001
+	# shellcheck disable=SC1090
+	. "${GOGC_INIT}"
+	[ "${GOGC}" = 50 ]
+) || fail 'out-of-range GOGC override did not use the safe default'
+
+for valid_gomaxprocs in 1 8 64; do
+	(
+		DEFAULT_GOMAXPROCS=2
+		ADGUARDHOME_GOMAXPROCS="${valid_gomaxprocs}"
+		# shellcheck disable=SC1090
+		. "${GOMAXPROCS_INIT}"
+		[ "${GOMAXPROCS}" = "${valid_gomaxprocs}" ]
+	) || fail "valid GOMAXPROCS override was not preserved: ${valid_gomaxprocs}"
+done
+(
+	DEFAULT_GOMAXPROCS=2
+	ADGUARDHOME_GOMAXPROCS=65
+	# shellcheck disable=SC1090
+	. "${GOMAXPROCS_INIT}"
+	[ "${GOMAXPROCS}" = "${DEFAULT_GOMAXPROCS}" ]
+) || fail 'out-of-range GOMAXPROCS override did not retain the detected default'
 
 agh_uint_in_range 1 1 1000 || fail 'lower numeric bound rejected'
 agh_uint_in_range 1000 1 1000 || fail 'upper numeric bound rejected'
@@ -82,6 +117,13 @@ for hostile_number in '' 0 1001 -1 1x '1;touch' '1 2' '1>file' '1=2'; do
 		fail "hostile numeric value accepted: ${hostile_number}"
 	fi
 done
+agh_uint_in_range 5 5 5 || fail 'value equal to both bounds was rejected'
+if agh_uint_in_range 4 5 5; then
+	fail 'value below equal bounds was accepted'
+fi
+if agh_uint_in_range 6 5 5; then
+	fail 'value above equal bounds was accepted'
+fi
 [ "$(agh_memory_limit_mib 1)" = 1 ] || fail 'small calculated memory limit rejected'
 [ "$(agh_memory_limit_mib 0)" = 1 ] || fail 'zero calculated memory limit was not clamped to 1 MiB'
 [ "$(agh_memory_limit_mib 31)" = 31 ] || fail 'calculated memory limit below 32 MiB was increased'
@@ -94,9 +136,11 @@ for bad_memory_limit in '' invalid '64;command'; do
 done
 
 agh_godebug_valid 'disablethp=1,http2debug=0,netdns=go+2' || fail 'valid GODEBUG rejected'
+agh_godebug_valid '' || fail 'empty GODEBUG was rejected'
+agh_godebug_valid 'x=abc-1.2+3' || fail 'single entry with a hyphen and plus in the value was rejected'
 for hostile_godebug in 'disablethp=1;touch /tmp/pwned' 'disablethp=1 extra=1' \
 	'disablethp=1>file' 'disablethp=$(touch)' 'disablethp=1&x=1' 'disablethp=1,,x=1' \
-	'=1' 'x=' 'x=1=2'; do
+	'=1' 'x=' 'x=1=2' ',x=1' 'x=1,'; do
 	if agh_godebug_valid "${hostile_godebug}"; then
 		fail "hostile GODEBUG accepted: ${hostile_godebug}"
 	fi
