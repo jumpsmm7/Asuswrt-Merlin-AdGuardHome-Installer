@@ -31,9 +31,15 @@ agh_log() { printf '%s\n' "$*" >>"${LOG_FILE}"; }
 IPV6_SERVICE=native
 nvram() { [ "${1:-}" = get ] && printf '%s\n' "${IPV6_SERVICE}"; }
 RM_FAIL_STATE=0
+RM_FAIL_STATE_HIT=0
 rm() {
 	if [ "${RM_FAIL_STATE}" = 1 ]; then
-		case "$*" in *"${PROC_STATE_DIR}/rmem_max"*) return 1 ;; esac
+		case "$*" in
+			*"${PROC_STATE_DIR}/rmem_max"*)
+				RM_FAIL_STATE_HIT=1
+				return 1
+				;;
+		esac
 	fi
 	command rm "$@"
 }
@@ -168,7 +174,9 @@ proc_write rmem_max 4194304 262144 16777216 || fail 'post-reboot reapplication f
 printf '%s\n' 524288 >"${PROC_SYS_ROOT}/net/core/rmem_max"
 printf '%s\n' '262144 4194304 boot-one' >"${PROC_STATE_DIR}/rmem_max"
 RM_FAIL_STATE=1
+RM_FAIL_STATE_HIT=0
 proc_write rmem_max 4194304 262144 16777216 && fail 'stale-state removal failure was ignored'
+[ "${RM_FAIL_STATE_HIT}" = 1 ] || fail 'stale-state removal failure path was not exercised'
 [ "$(cat "${PROC_SYS_ROOT}/net/core/rmem_max")" = 524288 ] || fail 'value changed after stale-state removal failure'
 [ -f "${PROC_STATE_DIR}/rmem_max" ] || fail 'failed stale-state removal lost ownership record'
 RM_FAIL_STATE=0
