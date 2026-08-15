@@ -1824,8 +1824,8 @@ configure_runtime_defaults() {
 			adguard_install_feature_defaults || return 1
 			write_conf_if_absent ADGUARD_NETCHECK_MODE "\"${NETCHECK_MODE}\"" || return 1
 			write_conf_if_absent ADGUARD_PROC_OPTIMIZE "\"YES\"" || return 1
-			write_conf_if_absent ADGUARD_PROC_PROFILE "\"balanced\"" || return 1
-			ptxt_ok "Runtime defaults saved: DNS port refusal enabled, netcheck mode ${NETCHECK_MODE}, performance profile balanced."
+			write_conf_if_absent ADGUARD_PROC_PROFILE "\"aggressive\"" || return 1
+			ptxt_ok "Runtime defaults saved: DNS port refusal enabled, netcheck mode ${NETCHECK_MODE}, performance profile aggressive."
 			;;
 		upgrade)
 			write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"0\"" || return 1
@@ -7668,6 +7668,18 @@ uninst_all() {
 		return 1
 	fi
 	agh_stop
+	if [ -d "${TARG_DIR}/proc-sys-state" ] && [ ! -x "${TARG_DIR}/AdGuardHome.sh" ]; then
+		PTXT "${ERROR} Unable to restore installer-managed kernel settings."
+		agh_start || true
+		return 1
+	fi
+	if [ -x "${TARG_DIR}/AdGuardHome.sh" ]; then
+		if ! "${TARG_DIR}/AdGuardHome.sh" proc-restore x; then
+			PTXT "${ERROR} Unable to restore installer-managed kernel settings."
+			agh_start || true
+			return 1
+		fi
+	fi
 	cleanup_legacy_firewall
 	mv "${TARG_DIR}/installer" "${HOME}/installer"
 	rm -rf "${TARG_DIR}" "${ROLLBACK_RESULT_FILE}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"
@@ -8527,7 +8539,7 @@ cli_migrate_runtime_default() {
 }
 
 cli_migrate_runtime_defaults() {
-	local apply dry_run changes dns_port_change ipset_change netcheck_change proc_optimize_change proc_profile_change proc_optimize_current install_mode netcheck_target
+	local apply dry_run changes dns_port_change ipset_change netcheck_change proc_optimize_change proc_profile_change proc_optimize_current proc_profile_current install_mode netcheck_target
 	apply="0"
 	dry_run="0"
 	changes="0"
@@ -8579,16 +8591,20 @@ cli_migrate_runtime_defaults() {
 	}
 	proc_optimize_current="$(conf_value ADGUARD_PROC_OPTIMIZE)"
 	if [ -z "${proc_optimize_current}" ]; then
-		PTXT "${INFO} Missing runtime default: ADGUARD_PROC_OPTIMIZE; v2.6.0 keeps optimization enabled only with the safer balanced profile."
+		PTXT "${INFO} Missing runtime default: ADGUARD_PROC_OPTIMIZE; optimization remains enabled with the compatible aggressive profile."
 		changes="1"
 		proc_optimize_change="1"
 	else
 		PTXT "${INFO} Runtime default already set: ADGUARD_PROC_OPTIMIZE=\"${proc_optimize_current}\"."
 	fi
-	cli_migrate_runtime_default ADGUARD_PROC_PROFILE aggressive balanced || {
+	proc_profile_current="$(conf_value ADGUARD_PROC_PROFILE)"
+	if [ -z "${proc_profile_current}" ]; then
+		PTXT "${INFO} Missing runtime default: ADGUARD_PROC_PROFILE; compatible value is \"aggressive\"."
 		changes="1"
 		proc_profile_change="1"
-	}
+	else
+		PTXT "${INFO} Runtime default already set: ADGUARD_PROC_PROFILE=\"${proc_profile_current}\"."
+	fi
 	if [ "${changes}" = "0" ]; then
 		ptxt_ok "Runtime defaults already use v2.6.0 safer values or custom overrides."
 		return 0
@@ -8616,7 +8632,7 @@ cli_migrate_runtime_defaults() {
 		cli_write_quoted_conf ADGUARD_PROC_OPTIMIZE YES || return 1
 	fi
 	if [ "${proc_profile_change}" = "1" ]; then
-		cli_write_quoted_conf ADGUARD_PROC_PROFILE balanced || return 1
+		cli_write_quoted_conf ADGUARD_PROC_PROFILE aggressive || return 1
 	fi
 	ptxt_ok "Runtime defaults migrated to v2.6.0 safer values."
 }

@@ -224,20 +224,30 @@ sh installer dns-port-policy --policy legacy
 
 ### Performance profile
 
-Use the balanced profile for most routers:
+The default and legacy-compatible profile is `aggressive` to preserve full functionality across supported Asuswrt-Merlin routers:
 
 ```sh
-sh installer performance --profile balanced
+sh installer performance --profile fast
 ```
 
 Other supported profile choices:
 
 ```sh
 sh installer performance --profile low-memory
-sh installer performance --profile fast
+sh installer performance --profile balanced
 ```
 
-`low-memory` maps to the safer low-impact profile. `fast` maps to the legacy aggressive profile and should be used only when you understand the router-wide proc/sysctl changes.
+`fast` maps to the default `aggressive` profile. Users may choose `balanced` or `low-memory` to reduce tuning, accepting the risk that omitted protections may be required for their router. `low-memory` maps to `safe`. The profiles manage the following proc values:
+
+| Profile | Managed settings |
+| --- | --- |
+| `safe` | Socket ceilings `rmem_max=4194304` and `wmem_max=1048576`, plus `pid_max=4194304` to reduce collisions with concurrent NVRAM/user scripts. |
+| `balanced` | `safe` plus `nf_conntrack_tcp_timeout_max_retrans=240` to release stalled TCP DNS state sooner. |
+| `aggressive` | `balanced` plus memory-pressure, ICMP, and neighbour-cache tuning described below. |
+
+The aggressive memory values (`overcommit_memory=2`, `swappiness=60`, and `overcommit_ratio=50`) are applied only when `/proc/swaps` reports active swap. Without active swap, previously installer-owned memory values are restored when their targets remain readable and ownership still matches. Aggressive also sets IPv4 `icmp_ratelimit=0` and neighbour thresholds `256/1024/2048`; it applies the corresponding IPv6 values only when `nvram get ipv6_service` indicates IPv6 is configured. These settings keep network control feedback and neighbour entries available during heavy DNS client traffic.
+
+The installer allowlists every proc target, validates the requested numeric range, and records the original value once before changing it. Repeated checks do not rewrite or re-log an already applied value. On profile changes, disable, service stop, or uninstall, a readable value is restored only if it still matches the installer-applied value. A later administrator value that differs from the installer-applied value is preserved; rewriting the same value cannot be detected. Use `fast` only when you understand these router-wide changes.
 
 ## DNS behavior and port 53 ownership
 

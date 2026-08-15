@@ -100,7 +100,7 @@ Optional features may require additional Entware packages. For example, the unus
 - v2.6.0 uses safer runtime defaults for new installs while preserving existing `.config` values during upgrades.
 - New installs refuse to terminate unknown non-AdGuardHome owners of port `53` by default. Existing installs that keep `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=0` retain legacy cleanup until migrated.
 - New installs save `ADGUARD_NETCHECK_MODE=wan` when router/local-cache DNS is selected, or `ADGUARD_NETCHECK_MODE=lan` for LAN-only service management. Existing installs keep their saved mode.
-- New installs use the lower-risk `balanced` runtime proc/sysctl profile. Existing installs keep their saved optimization setting and profile unless changed manually. If the runtime script is launched without an installer-managed `.config`, proc/sysctl optimization stays disabled by default.
+- New installs and legacy-compatible defaults use the full `aggressive` runtime proc/sysctl profile. Users may explicitly select a reduced profile, accepting the router-specific functionality risk. If the runtime script is launched without an installer-managed `.config`, its fallback profile is also `aggressive` when optimization is explicitly enabled.
 
 ## Features
 
@@ -165,7 +165,7 @@ sh installer ipset refresh --yes
 sh installer ipset refresh --dry-run
 sh installer netcheck --mode wan --hosts "google.com github.com snbforums.com" --dns 127.0.0.1 --require-http NO --timeout 300
 sh installer dns-port-policy --policy refuse-unknown
-sh installer performance --profile balanced
+sh installer performance --profile fast
 sh installer migrate-runtime-defaults
 sh installer migrate-runtime-defaults --dry-run
 sh installer migrate-runtime-defaults --yes
@@ -248,13 +248,13 @@ sh installer migrate-runtime-defaults
 sh installer migrate-runtime-defaults --dry-run
 ```
 
-To write the safer v2.6.0 defaults for legacy or missing runtime settings, run:
+To write the current DNS/netcheck defaults and fill a missing proc profile with the compatible `aggressive` default, run:
 
 ```sh
 sh installer migrate-runtime-defaults --yes
 ```
 
-The migration helper updates only legacy or missing runtime defaults. It preserves custom runtime choices such as `ADGUARD_NETCHECK_MODE="lan"`, `ADGUARD_PROC_OPTIMIZE="NO"`, or an already balanced/safe process profile.
+The migration helper updates only legacy or missing runtime defaults. It does not downgrade an aggressive proc profile and preserves custom runtime choices such as `ADGUARD_NETCHECK_MODE="lan"`, `ADGUARD_PROC_OPTIMIZE="NO"`, or an explicitly selected balanced/safe process profile.
 
 ### Netcheck modes
 
@@ -338,24 +338,37 @@ This writes `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"`.
 
 ### Runtime optimization profile
 
-New installs use the lower-risk balanced proc/sysctl profile by default:
+New installs and the legacy-compatible runtime fallback use the full aggressive proc/sysctl profile by default to preserve functionality across supported Asuswrt-Merlin routers:
 
 ```sh
 ADGUARD_PROC_OPTIMIZE="YES"
-ADGUARD_PROC_PROFILE="balanced"
+ADGUARD_PROC_PROFILE="aggressive"
 ```
 
-Upgrades keep the saved value; when no value exists, the installer pins the legacy aggressive profile for compatibility.
-When no installer-managed `.config` is available at all, the runtime script defaults to optimization disabled rather than applying proc/sysctl writes implicitly.
+Upgrades keep an explicitly saved profile; when no value exists, the installer pins `aggressive` for compatibility. When no installer-managed `.config` is available, proc optimization remains disabled unless it is explicitly enabled, but the selected fallback profile is `aggressive`.
 
 The supported profiles are:
 
 | Profile | Behaviour |
 | --- | --- |
-| `off` | Do not write proc/sysctl values. |
-| `safe` | Set UDP receive and write buffer limits. |
-| `balanced` | Apply `safe` plus lower the conntrack TCP max retrans timeout. |
-| `aggressive` | Apply `balanced` plus the legacy PID, memory overcommit, swappiness, ICMP rate-limit, and neighbour-cache tuning. |
+| `off` | Restore installer-owned proc values and do not apply tuning. |
+| `safe` | Set `rmem_max=4194304`, `wmem_max=1048576`, and `pid_max=4194304`. The socket ceilings support bursty DNS traffic; the larger PID space reduces collisions with concurrent NVRAM and user scripts. |
+| `balanced` | Apply `safe` and set `nf_conntrack_tcp_timeout_max_retrans=240` so stalled TCP DNS connection state is released sooner. |
+| `aggressive` | Apply `balanced`, the ICMP and neighbour-cache settings listed below, and the memory settings only while active swap is reported by `/proc/swaps`. |
+
+The aggressive profile applies these additional values:
+
+| Setting | Value | Condition and purpose |
+| --- | ---: | --- |
+| `vm.overcommit_memory` | `2` | Active swap only; keeps strict virtual-memory commitment. |
+| `vm.swappiness` | `60` | Active swap only; enables normal swap reclaim under memory pressure. |
+| `vm.overcommit_ratio` | `50` | Active swap only; retains a system-wide memory commitment reserve. |
+| `net.ipv4.icmp_ratelimit` | `0` | Keeps IPv4 path and error feedback available during heavy upstream DNS traffic. |
+| `net.ipv4.neigh.default.gc_thresh1/2/3` | `256/1024/2048` | Avoids premature IPv4 neighbour-cache reclamation during large client bursts. |
+| `net.ipv6.icmp.ratelimit` | `0` | Applied only when `nvram get ipv6_service` is non-empty; keeps IPv6 control feedback available. |
+| `net.ipv6.neigh.default.gc_thresh1/2/3` | `256/1024/2048` | Applied only when IPv6 is configured; avoids premature IPv6 neighbour-cache reclamation. |
+
+Each target is allowlisted and its requested value is range-checked before writing. The installer saves the value it found before its first successful change and does not rewrite or log a setting that already has the requested value. Disable, profile changes, service stop, and uninstall restore a saved value only when the current proc value still matches the installer-applied value. A later administrator value that differs from the installer-applied value is therefore preserved; rewriting the same value cannot be detected. If swap or IPv6 becomes unavailable, settings that depend on it are restored using the same ownership check.
 
 To disable runtime optimization completely, set:
 
@@ -363,7 +376,7 @@ To disable runtime optimization completely, set:
 ADGUARD_PROC_OPTIMIZE="NO"
 ```
 
-To keep optimization enabled but select a lower profile, set for example:
+Reducing the profile can omit PID, connection-state, memory-pressure, or network-cache protections needed by an individual router. Users choosing that risk can select a lower profile, for example:
 
 ```sh
 ADGUARD_PROC_OPTIMIZE="YES"
@@ -378,7 +391,7 @@ sh installer performance --profile low-memory
 sh installer performance --profile fast
 ```
 
-`balanced` writes `ADGUARD_PROC_PROFILE="balanced"`, `low-memory` writes `ADGUARD_PROC_PROFILE="safe"`, and `fast` writes `ADGUARD_PROC_PROFILE="aggressive"`. Runtime proc writes are logged with old and new values when they are attempted, and startup does not fail only because a proc/sysctl write fails.
+`balanced` writes `ADGUARD_PROC_PROFILE="balanced"`, `low-memory` writes `ADGUARD_PROC_PROFILE="safe"`, and `fast` writes `ADGUARD_PROC_PROFILE="aggressive"`. Apply-time proc changes and successful restorations are logged once per actual change with old and new values. Missing, unreadable, or unwritable targets are logged as failures during application; startup does not fail only because a proc/sysctl operation fails.
 
 ## Verify AdGuardHome is running
 

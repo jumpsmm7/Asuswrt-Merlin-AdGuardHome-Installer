@@ -25,6 +25,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${INSTALLER_PATH}" ] || fail "installer script not found: ${INSTALLER_PATH}"
 [ -f "${S99_PATH}" ] || fail "S99 script not found: ${S99_PATH}"
 [ -f "${MANAGER_PATH}" ] || fail "manager script not found: ${MANAGER_PATH}"
+grep -q '^DEFAULT_ADGUARD_PROC_PROFILE="aggressive"$' "${MANAGER_PATH}" || fail 'runtime fallback profile is not aggressive'
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n \
@@ -67,8 +68,8 @@ configure_runtime_defaults new-install wan 0 >"${TMP_ROOT}/new-wan.out" || fail 
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'new WAN install did not refuse unknown DNS owners'
 grep -q '^ADGUARD_INSTALL_MODE="wan"$' "${CONF_FILE}" || fail 'new WAN install did not save wan install mode'
 grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'new WAN install did not save wan netcheck mode'
-grep -q '^ADGUARD_PROC_OPTIMIZE="YES"$' "${CONF_FILE}" || fail 'new WAN install did not enable balanced optimization'
-grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'new WAN install did not save balanced profile'
+grep -q '^ADGUARD_PROC_OPTIMIZE="YES"$' "${CONF_FILE}" || fail 'new WAN install did not enable optimization'
+grep -q '^ADGUARD_PROC_PROFILE="aggressive"$' "${CONF_FILE}" || fail 'new WAN install did not save aggressive profile'
 
 CONF_FILE="${TMP_ROOT}/feature-wan-existing-no.config"
 printf '%s\n' 'ADGUARD_IPSET="NO"' >"${CONF_FILE}" || fail 'could not seed WAN feature config'
@@ -108,7 +109,7 @@ CONF_FILE="${TMP_ROOT}/new-lan.config"
 configure_runtime_defaults new-install lan 1 >"${TMP_ROOT}/new-lan.out" || fail 'new LAN defaults failed'
 grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" || fail 'new LAN install did not save lan install mode'
 grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'new LAN install did not save lan netcheck mode'
-grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'new LAN install did not save balanced profile'
+grep -q '^ADGUARD_PROC_PROFILE="aggressive"$' "${CONF_FILE}" || fail 'new LAN install did not save aggressive profile'
 
 # nvram returns `1` for `sw_mode` requests and fails for all other requests.
 nvram() {
@@ -183,7 +184,7 @@ cli_migrate_runtime_defaults --yes >"${TMP_ROOT}/upgrade-missing-migrate.out" ||
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'upgrade migration did not enable DNS owner refusal'
 grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'upgrade migration did not save wan netcheck mode'
 grep -q '^ADGUARD_PROC_OPTIMIZE="YES"$' "${CONF_FILE}" || fail 'upgrade migration did not preserve optimization enablement'
-grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'upgrade migration did not save balanced profile'
+grep -q '^ADGUARD_PROC_PROFILE="aggressive"$' "${CONF_FILE}" || fail 'upgrade migration did not preserve aggressive profile'
 
 # shellcheck disable=SC1090
 . "${S99_FUNCTIONS}"
@@ -205,4 +206,4 @@ fi
 manager_default="$(sed -n 's/^DEFAULT_ADGUARD_PROC_OPTIMIZE="\([^"]*\)"$/\1/p' "${MANAGER_PATH}" | sed -n '1p')"
 [ "${manager_default}" = 'NO' ] || fail 'manager no-config proc optimization fallback is not disabled'
 
-printf '%s\n' 'PASS: runtime defaults preserve upgrades, migrate legacy pins, and apply safer new-install fallbacks'
+printf '%s\n' 'PASS: runtime defaults preserve upgrades and use aggressive proc compatibility defaults'

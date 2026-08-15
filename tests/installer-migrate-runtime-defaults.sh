@@ -111,7 +111,7 @@ cli_run migrate-runtime-defaults --yes >"${TMP_ROOT}/apply" || fail 'CLI apply m
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'DNS port policy was not migrated'
 grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'netcheck mode was not migrated'
 grep -q '^ADGUARD_PROC_OPTIMIZE="YES"$' "${CONF_FILE}" || fail 'process optimization was not preserved'
-grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'process profile was not migrated'
+grep -q '^ADGUARD_PROC_PROFILE="aggressive"$' "${CONF_FILE}" || fail 'aggressive process profile was not preserved'
 
 cat >"${CONF_FILE}" <<'CONFIG'
 ADGUARD_INSTALL_MODE="lan"
