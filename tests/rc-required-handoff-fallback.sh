@@ -52,6 +52,14 @@ launch_adguardhome() {
 	AdGuardHome
 }
 
+# type can simulate a mixed-version S99 script that predates launch_adguardhome.
+type() {
+	if [ "${USE_LEGACY_LAUNCH:-0}" -eq 1 ] && [ "${1:-}" = "launch_adguardhome" ]; then
+		return 1
+	fi
+	command type "$@"
+}
+
 # service_mark_transition performs no action.
 service_mark_transition() {
 	:
@@ -157,6 +165,16 @@ start >/dev/null || fail 'rc.func rejected a valid no-handoff start'
 grep -q '^pre_hook$' "${CALLS_FILE}" || fail 'no-handoff start skipped the pre-start hook'
 grep -q '^post_hook$' "${CALLS_FILE}" || fail 'no-handoff start skipped the post-start hook'
 [ -f "${STARTED_FILE}" ] || fail 'no-handoff start did not launch AdGuardHome'
+
+# A partially published downgrade must use the older S99 PREARGS/ARGS contract.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}"
+USE_LEGACY_LAUNCH=1
+PREARGS=''
+ARGS=''
+start >/dev/null || fail 'rc.func did not fall back for an older S99 script'
+[ -f "${STARTED_FILE}" ] || fail 'legacy PREARGS/ARGS fallback did not launch AdGuardHome'
+USE_LEGACY_LAUNCH=0
 
 # trap_snapshot writes dispositions in the current shell; command substitution
 # would reset caught traps in dash and other POSIX shells.

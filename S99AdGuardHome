@@ -62,7 +62,9 @@ agh_godebug_valid() {
 }
 
 agh_memory_limit_mib() {
-	if agh_uint_in_range "${1:-}" 1 384; then
+	if [ "${1:-}" = "0" ]; then
+		printf '%s\n' "1"
+	elif agh_uint_in_range "${1:-}" 1 384; then
 		printf '%s\n' "$1"
 	elif agh_uint_in_range "${1:-}" 385 999999; then
 		printf '%s\n' "384"

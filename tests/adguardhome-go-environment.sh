@@ -37,6 +37,20 @@ LOG_FILE=syslog
 [ "${ARGS}" = '-s run -c /opt/etc/AdGuardHome/AdGuardHome.yaml -w /opt/etc/AdGuardHome --pidfile /opt/var/run/AdGuardHome.pid --no-check-update -l syslog' ] ||
 	fail 'legacy ARGS does not retain required service paths'
 
+GOMAXPROCS_INIT="${TMP_ROOT}/gomaxprocs-init"
+sed -n '/^GOMAXPROCS="${ADGUARDHOME_GOMAXPROCS:-${DEFAULT_GOMAXPROCS}}"$/,/^agh_uint_in_range "${GOMAXPROCS}" 1 64/p' \
+	"${S99_PATH}" >"${GOMAXPROCS_INIT}" || fail 'GOMAXPROCS initialization extraction failed'
+[ "$(wc -l <"${GOMAXPROCS_INIT}")" -eq 2 ] || fail 'GOMAXPROCS initialization changed unexpectedly'
+for invalid_gomaxprocs in 0 -1 invalid; do
+	(
+		DEFAULT_GOMAXPROCS=2
+		ADGUARDHOME_GOMAXPROCS="${invalid_gomaxprocs}"
+		# shellcheck disable=SC1090
+		. "${GOMAXPROCS_INIT}"
+		[ "${GOMAXPROCS}" = "${DEFAULT_GOMAXPROCS}" ]
+	) || fail "invalid GOMAXPROCS did not retain the detected default: ${invalid_gomaxprocs}"
+done
+
 agh_uint_in_range 1 1 1000 || fail 'lower numeric bound rejected'
 agh_uint_in_range 1000 1 1000 || fail 'upper numeric bound rejected'
 for hostile_number in '' 0 1001 -1 1x '1;touch' '1 2' '1>file' '1=2'; do
@@ -45,10 +59,11 @@ for hostile_number in '' 0 1001 -1 1x '1;touch' '1 2' '1>file' '1=2'; do
 	fi
 done
 [ "$(agh_memory_limit_mib 1)" = 1 ] || fail 'small calculated memory limit rejected'
+[ "$(agh_memory_limit_mib 0)" = 1 ] || fail 'zero calculated memory limit was not clamped to 1 MiB'
 [ "$(agh_memory_limit_mib 31)" = 31 ] || fail 'calculated memory limit below 32 MiB was increased'
 [ "$(agh_memory_limit_mib 384)" = 384 ] || fail 'maximum calculated memory limit rejected'
 [ "$(agh_memory_limit_mib 385)" = 384 ] || fail 'oversized calculated memory limit was not capped'
-for bad_memory_limit in '' 0 invalid '64;command'; do
+for bad_memory_limit in '' invalid '64;command'; do
 	[ "$(agh_memory_limit_mib "${bad_memory_limit}")" = 128 ] ||
 		fail "invalid calculated memory limit was not reset: ${bad_memory_limit}"
 done
