@@ -122,6 +122,11 @@ case "${THP_ENABLED}" in
 		GODEBUG="${GODEBUG:+${GODEBUG}}"
 		;;
 esac
+# Keep the legacy launch strings until service-script updates are published as
+# one transaction.  Their variable components are validated above, and the
+# current rc.func uses launch_adguardhome instead.
+PREARGS="env TZ=/etc/localtime GOGC=${GOGC} GOMAXPROCS=${GOMAXPROCS} GOMEMLIMIT=${GOMEMLIMIT} QUIC_GO_DISABLE_ECN=true GODEBUG=${GODEBUG}"
+ARGS="-s run -c ${WORK_DIR}/AdGuardHome.yaml -w ${WORK_DIR} --pidfile ${PID_FILE} --no-check-update -l ${LOG_FILE}"
 
 # Functions are grouped by purpose; names are sorted alpha-numerically within each group.
 

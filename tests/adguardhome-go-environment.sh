@@ -20,6 +20,23 @@ sed -n '/^agh_uint_in_range() {$/,/^}$/p; /^agh_godebug_valid() {$/,/^}$/p; /^ag
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 
+LEGACY_ASSIGNMENTS="${TMP_ROOT}/legacy-assignments"
+sed -n '/^PREARGS=/p; /^ARGS=/p' "${S99_PATH}" >"${LEGACY_ASSIGNMENTS}" || fail 'legacy assignment extraction failed'
+[ "$(wc -l <"${LEGACY_ASSIGNMENTS}")" -eq 2 ] || fail 'legacy launch compatibility assignments are missing'
+GOGC=50
+GOMAXPROCS=2
+GOMEMLIMIT=128MiB
+GODEBUG=netdns=go+2
+WORK_DIR=/opt/etc/AdGuardHome
+PID_FILE=/opt/var/run/AdGuardHome.pid
+LOG_FILE=syslog
+# shellcheck disable=SC1090
+. "${LEGACY_ASSIGNMENTS}"
+[ "${PREARGS}" = 'env TZ=/etc/localtime GOGC=50 GOMAXPROCS=2 GOMEMLIMIT=128MiB QUIC_GO_DISABLE_ECN=true GODEBUG=netdns=go+2' ] ||
+	fail 'legacy PREARGS does not retain validated Go environment assignments'
+[ "${ARGS}" = '-s run -c /opt/etc/AdGuardHome/AdGuardHome.yaml -w /opt/etc/AdGuardHome --pidfile /opt/var/run/AdGuardHome.pid --no-check-update -l syslog' ] ||
+	fail 'legacy ARGS does not retain required service paths'
+
 agh_uint_in_range 1 1 1000 || fail 'lower numeric bound rejected'
 agh_uint_in_range 1000 1 1000 || fail 'upper numeric bound rejected'
 for hostile_number in '' 0 1001 -1 1x '1;touch' '1 2' '1>file' '1=2'; do
