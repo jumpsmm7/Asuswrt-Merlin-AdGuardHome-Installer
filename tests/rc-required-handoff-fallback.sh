@@ -38,7 +38,6 @@ CRITICAL='yes'
 ENABLED='yes'
 DESC='AdGuardHome'
 PROC='AdGuardHome'
-PREARGS=''
 ARGS=''
 PRECMD='pre_hook'
 POSTCMD='post_hook'
@@ -49,6 +48,10 @@ ansi_yellow=''
 ansi_red=''
 ansi_green=''
 ansi_std=''
+
+launch_adguardhome() {
+	"$@"
+}
 
 # service_mark_transition performs no action.
 service_mark_transition() {
