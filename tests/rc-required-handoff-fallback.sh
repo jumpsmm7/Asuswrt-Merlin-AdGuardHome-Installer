@@ -169,11 +169,23 @@ grep -q '^post_hook$' "${CALLS_FILE}" || fail 'no-handoff start skipped the post
 # A partially published downgrade must use the older S99 PREARGS/ARGS contract.
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}"
+LEGACY_LAUNCH_LOG="${TMP_ROOT}/legacy-launch"
+mkdir -p "${TMP_ROOT}/bin" || fail 'could not create legacy launcher directory'
+cat >"${TMP_ROOT}/bin/AdGuardHome" <<'EOF'
+#!/bin/sh
+printf '%s\n' "${LEGACY_ENV:-}|$*" >"${LEGACY_LAUNCH_LOG}"
+: >"${STARTED_FILE}"
+EOF
+chmod 755 "${TMP_ROOT}/bin/AdGuardHome" || fail 'could not make legacy launcher executable'
+PATH="${TMP_ROOT}/bin:${PATH}"
+export PATH LEGACY_LAUNCH_LOG STARTED_FILE
 USE_LEGACY_LAUNCH=1
-PREARGS=''
-ARGS=''
+PREARGS='env LEGACY_ENV=safe-value'
+ARGS='--legacy-flag safe-argument'
 start >/dev/null || fail 'rc.func did not fall back for an older S99 script'
 [ -f "${STARTED_FILE}" ] || fail 'legacy PREARGS/ARGS fallback did not launch AdGuardHome'
+[ "$(cat "${LEGACY_LAUNCH_LOG}")" = 'safe-value|--legacy-flag safe-argument' ] ||
+	fail 'legacy PREARGS/ARGS fallback did not preserve the environment and arguments'
 USE_LEGACY_LAUNCH=0
 
 # trap_snapshot writes dispositions in the current shell; command substitution
