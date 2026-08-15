@@ -1307,13 +1307,12 @@ CRITICAL='yes'
 ENABLED='yes'
 DESC='AdGuardHome'
 PROC='AdGuardHome'
-ARGS=''
 PRECMD='pre_hook'
 POSTCMD='post_hook'
 POSTFAILCMD='post_failure_hook'
 
 launch_adguardhome() {
-	"$@"
+	AdGuardHome
 }
 
 process_pids() {

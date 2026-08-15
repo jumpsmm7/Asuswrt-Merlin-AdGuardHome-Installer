@@ -482,7 +482,7 @@ start() {
 		fi
 	fi
 	{
-		launch_adguardhome ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null &
+		launch_adguardhome >/dev/null 2>&1 </dev/null &
 		LAUNCH_PID="$!"
 	}
 	if ! process_wait_for_start "${PROC}" 10; then
