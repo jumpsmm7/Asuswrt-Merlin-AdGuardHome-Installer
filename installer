@@ -7668,6 +7668,11 @@ uninst_all() {
 		return 1
 	fi
 	agh_stop
+	if [ -d "${TARG_DIR}/proc-sys-state" ] && [ ! -x "${TARG_DIR}/AdGuardHome.sh" ]; then
+		PTXT "${ERROR} Unable to restore installer-managed kernel settings."
+		agh_start || true
+		return 1
+	fi
 	if [ -x "${TARG_DIR}/AdGuardHome.sh" ]; then
 		if ! "${TARG_DIR}/AdGuardHome.sh" proc-restore x; then
 			PTXT "${ERROR} Unable to restore installer-managed kernel settings."

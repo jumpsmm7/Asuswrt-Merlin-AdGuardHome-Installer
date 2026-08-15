@@ -15,7 +15,7 @@ fail() {
 }
 
 mkdir -p "${TMP_ROOT}/proc/net/core" "${TMP_ROOT}/proc/net/netfilter" "${TMP_ROOT}/proc/net/ipv4/neigh/default" "${TMP_ROOT}/proc/net/ipv6/icmp" "${TMP_ROOT}/proc/net/ipv6/neigh/default" "${TMP_ROOT}/proc/kernel" "${TMP_ROOT}/proc/vm" "${TMP_ROOT}/state" || fail 'setup failed'
-sed -n '/^proc_config() {$/,/^}$/p; /^proc_optimizations() {$/,/^}$/p; /^proc_swap_active() {$/,/^}$/p; /^proc_target() {$/,/^}$/p; /^proc_boot_id() {$/,/^}$/p; /^proc_restore_ipv6() {$/,/^}$/p; /^proc_write() {$/,/^}$/p; /^proc_restore_one() {$/,/^}$/p; /^proc_restore() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail 'function extraction failed'
+sed -n '/^proc_config() {$/,/^}$/p; /^proc_optimizations_locked() {$/,/^}$/p; /^proc_optimizations() {$/,/^}$/p; /^proc_swap_active() {$/,/^}$/p; /^proc_target() {$/,/^}$/p; /^proc_boot_id() {$/,/^}$/p; /^proc_lock_run() {$/,/^}$/p; /^proc_restore_ipv6() {$/,/^}$/p; /^proc_write() {$/,/^}$/p; /^proc_restore_one() {$/,/^}$/p; /^proc_restore_locked() {$/,/^}$/p; /^proc_restore() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail 'function extraction failed'
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
@@ -23,6 +23,10 @@ PROC_SYS_ROOT="${TMP_ROOT}/proc"
 PROC_SWAPS_FILE="${TMP_ROOT}/swaps"
 PROC_BOOT_ID_FILE="${TMP_ROOT}/boot_id"
 PROC_STATE_DIR="${TMP_ROOT}/state"
+PROC_LOCK_DIR="${TMP_ROOT}/proc-lock"
+PROC_LOCK_FILE="${TMP_ROOT}/proc.lock"
+PROC_LOCK_FORCE_MKDIR=1
+WORK_DIR="${TMP_ROOT}"
 DEFAULT_ADGUARD_PROC_OPTIMIZE=NO
 DEFAULT_ADGUARD_PROC_PROFILE=aggressive
 CONFIG_PROC_OPTIMIZE=YES
@@ -157,9 +161,31 @@ proc_optimizations || fail 'profile switch failed'
 printf '%s\n' 524288 >"${PROC_SYS_ROOT}/net/core/rmem_max"
 mkdir -p "${PROC_STATE_DIR}"
 printf '%s\n' '524288 4194304 boot-one' >"${PROC_STATE_DIR}/rmem_max"
+proc_write rmem_max 4194304 262144 16777216 || fail 'same-boot pending application was not retried'
+[ "$(cat "${PROC_SYS_ROOT}/net/core/rmem_max")" = 4194304 ] || fail 'same-boot pending application remained unapplied'
+[ -f "${PROC_STATE_DIR}/rmem_max" ] || fail 'same-boot retry lost ownership state'
 printf '%s\n' 4194304 >"${PROC_SYS_ROOT}/net/core/rmem_max"
 proc_restore
 [ "$(cat "${PROC_SYS_ROOT}/net/core/rmem_max")" = 524288 ] || fail 'interrupted application was not restored'
+
+# An unavailable boot ID falls back to current-value ownership during restore.
+mkdir -p "${PROC_STATE_DIR}"
+printf '%s\n' '524288 4194304 boot-one' >"${PROC_STATE_DIR}/rmem_max"
+printf '%s\n' 4194304 >"${PROC_SYS_ROOT}/net/core/rmem_max"
+rm -f "${PROC_BOOT_ID_FILE}"
+proc_restore_one rmem_max || fail 'restore failed when boot ID was unavailable'
+[ "$(cat "${PROC_SYS_ROOT}/net/core/rmem_max")" = 524288 ] || fail 'unavailable boot ID prevented owned restoration'
+[ ! -e "${PROC_STATE_DIR}/rmem_max" ] || fail 'unavailable boot ID left restored ownership state'
+printf '%s\n' boot-one >"${PROC_BOOT_ID_FILE}"
+
+# A failed procfs read retains ownership state for a later restoration attempt.
+rm -f "${PROC_SYS_ROOT}/net/core/rmem_max"
+mkdir "${PROC_SYS_ROOT}/net/core/rmem_max"
+printf '%s\n' '524288 4194304 boot-one' >"${PROC_STATE_DIR}/rmem_max"
+proc_restore_one rmem_max && fail 'restore succeeded after procfs read failure'
+[ -f "${PROC_STATE_DIR}/rmem_max" ] || fail 'procfs read failure discarded ownership state'
+rmdir "${PROC_SYS_ROOT}/net/core/rmem_max"
+printf '%s\n' 524288 >"${PROC_SYS_ROOT}/net/core/rmem_max"
 
 # A stale record from an earlier boot is replaced and tuning is reapplied.
 printf '%s\n' 524288 >"${PROC_SYS_ROOT}/net/core/rmem_max"
@@ -195,6 +221,7 @@ run_uninstall_test() (
 	EVENTS_FILE="${TMP_ROOT}/events-$1"
 	RESTORE_RESULT="$2"
 	START_RESULT="${3:-0}"
+	HELPER_MODE="${4:-usable}"
 	mkdir -p "${TARG_DIR}" "${BASE_DIR}" "${HOME}"
 	printf '%s\n' installer >"${TARG_DIR}/installer"
 	cat >"${TARG_DIR}/AdGuardHome.sh" <<'EOF'
@@ -204,15 +231,16 @@ printf '%s\n' restore >>"${EVENTS_FILE}"
 exit "${RESTORE_RESULT}"
 EOF
 	chmod 755 "${TARG_DIR}/AdGuardHome.sh"
+	if [ "${HELPER_MODE}" = unusable ]; then
+		chmod 644 "${TARG_DIR}/AdGuardHome.sh"
+		mkdir "${TARG_DIR}/proc-sys-state"
+	fi
 	export TARG_DIR EVENTS_FILE RESTORE_RESULT
 	INFO=INFO ERROR=ERROR CONFIRM_STATUS=0
 	PTXT() { printf '%s\n' "$*" >>"${EVENTS_FILE}"; }
 	conf_value() { printf '%s\n' no; }
 	agh_stop() { printf '%s\n' stop >>"${EVENTS_FILE}"; }
-	agh_start() {
-		printf '%s\n' start >>"${EVENTS_FILE}"
-		return "${START_RESULT:-0}"
-	}
+	agh_start() { printf '%s\n' start >>"${EVENTS_FILE}"; return "${START_RESULT:-0}"; }
 	cleanup_legacy_firewall() { :; }
 	yaml_nvars_delete() { :; }
 	del_jffs_script() { :; }
@@ -242,6 +270,27 @@ run_uninstall_test restart-failure 1 1 && fail 'restore and restart failures did
 [ -d "${TMP_ROOT}/uninstall-restart-failure" ] || fail 'restart failure removed retained installation path'
 [ "$(sed -n '3p' "${TMP_ROOT}/events-restart-failure")" = 'ERROR Unable to restore installer-managed kernel settings.' ] || fail 'restart failure obscured restoration error'
 [ "$(sed -n '4p' "${TMP_ROOT}/events-restart-failure")" = start ] || fail 'restart failure was not exercised'
+run_uninstall_test unusable-helper 0 0 unusable && fail 'unusable rollback helper did not abort uninstall'
+[ -d "${TMP_ROOT}/uninstall-unusable-helper" ] || fail 'unusable rollback helper removed retained installation path'
+[ "$(sed -n '2p' "${TMP_ROOT}/events-unusable-helper")" = 'ERROR Unable to restore installer-managed kernel settings.' ] || fail 'unusable rollback helper error was not reported'
+[ "$(sed -n '3p' "${TMP_ROOT}/events-unusable-helper")" = start ] || fail 'unusable rollback helper did not restart retained installation'
+
+# The mkdir fallback serializes complete proc transactions.
+LOCK_EVENTS="${TMP_ROOT}/lock-events"
+lock_holder() {
+	printf '%s\n' first-start >>"${LOCK_EVENTS}"
+	sleep 1
+	printf '%s\n' first-end >>"${LOCK_EVENTS}"
+}
+lock_waiter() { printf '%s\n' second >>"${LOCK_EVENTS}"; }
+proc_lock_run lock_holder &
+lock_pid="$!"
+while [ ! -d "${PROC_LOCK_DIR}" ]; do sleep 1; done
+proc_lock_run lock_waiter || fail 'serialized waiter failed'
+wait "${lock_pid}" || fail 'serialized holder failed'
+[ "$(sed -n '1p' "${LOCK_EVENTS}")" = first-start ] || fail 'lock holder did not start first'
+[ "$(sed -n '2p' "${LOCK_EVENTS}")" = first-end ] || fail 'lock waiter overlapped holder'
+[ "$(sed -n '3p' "${LOCK_EVENTS}")" = second ] || fail 'lock waiter did not run after holder'
 
 rm -rf "${TMP_ROOT}"
 printf '%s\n' 'PASS: proc settings are validated, owned, and restored conservatively'

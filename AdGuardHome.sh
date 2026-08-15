@@ -20,6 +20,8 @@ PROC_SYS_ROOT="${PROC_SYS_ROOT:-/proc/sys}"
 PROC_SWAPS_FILE="${PROC_SWAPS_FILE:-/proc/swaps}"
 PROC_BOOT_ID_FILE="${PROC_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}"
 PROC_STATE_DIR="${PROC_STATE_DIR:-${WORK_DIR}/proc-sys-state}"
+PROC_LOCK_DIR="${PROC_LOCK_DIR:-${WORK_DIR}/proc-sys-lock}"
+PROC_LOCK_FILE="${PROC_LOCK_FILE:-${WORK_DIR}/proc-sys.lock}"
 YAML_FILE="/opt/etc/AdGuardHome/AdGuardHome.yaml"
 DEFAULT_ADGUARD_NETCHECK_HOSTS="google.com github.com snbforums.com"
 DEFAULT_ADGUARD_NETCHECK_DNS="127.0.0.1"
@@ -1631,14 +1633,14 @@ proc_config() {
 	printf '%s\n' "${value:-$2}"
 }
 
-proc_optimizations() {
+proc_optimizations_locked() {
 	local enabled profile
 	enabled="$(proc_config ADGUARD_PROC_OPTIMIZE "${DEFAULT_ADGUARD_PROC_OPTIMIZE}")"
 	profile="$(proc_config ADGUARD_PROC_PROFILE "${DEFAULT_ADGUARD_PROC_PROFILE}")"
 	case "${enabled}" in
 		YES | yes | Yes | ON | on | On | TRUE | true | True | 1) ;;
 		*)
-			proc_restore
+			proc_restore_locked
 			return 0
 			;;
 	esac
@@ -1657,7 +1659,7 @@ proc_optimizations() {
 	# scripts on long-running routers.
 	case "${profile}" in
 		off)
-			proc_restore
+			proc_restore_locked
 			return 0
 			;;
 		safe | balanced | aggressive) ;;
@@ -1714,6 +1716,10 @@ proc_optimizations() {
 	return 0
 }
 
+proc_optimizations() {
+	proc_lock_run proc_optimizations_locked
+}
+
 proc_swap_active() {
 	local device remainder
 	[ -r "${PROC_SWAPS_FILE}" ] || return 1
@@ -1753,6 +1759,60 @@ proc_boot_id() {
 	printf '%s\n' "${boot_id}"
 }
 
+proc_lock_run() {
+	local attempts has_usleep owner ownerless_attempts reaper status
+	if [ "${PROC_LOCK_FORCE_MKDIR:-0}" != 1 ] && have_cmd flock && flock_supports_fd; then
+		(
+			mkdir -p "${WORK_DIR}" 2>/dev/null || exit 1
+			exec 6>"${PROC_LOCK_FILE}" || exit 1
+			flock 6 || exit 1
+			"$@"
+		)
+		return $?
+	fi
+	(
+		attempts=0
+		ownerless_attempts=0
+		if which usleep >/dev/null 2>&1; then has_usleep=1; else has_usleep=0; fi
+		reaper="${PROC_LOCK_DIR}.reap.$$"
+		rm -rf "${reaper}"
+		while ! mkdir "${PROC_LOCK_DIR}" 2>/dev/null; do
+			[ -d "${PROC_LOCK_DIR}" ] && [ ! -L "${PROC_LOCK_DIR}" ] || exit 1
+			owner="$(cat "${PROC_LOCK_DIR}/pid" 2>/dev/null)"
+			case "${owner}" in
+				"" | *[!0-9]*)
+					ownerless_attempts="$((ownerless_attempts + 1))"
+					if [ "${ownerless_attempts}" -ge 5 ] && mv "${PROC_LOCK_DIR}" "${reaper}" 2>/dev/null; then
+						rm -rf "${reaper}"
+						continue
+					fi
+					;;
+				*)
+					if ! kill -0 "${owner}" 2>/dev/null; then
+						if mv "${PROC_LOCK_DIR}" "${reaper}" 2>/dev/null; then
+							rm -rf "${reaper}"
+							continue
+						fi
+					fi
+					;;
+			esac
+			attempts="$((attempts + 1))"
+			[ "${attempts}" -lt 50 ] || exit 1
+			if [ "${has_usleep}" -eq 1 ]; then usleep 100000; else sleep 1; fi
+		done
+		printf '%s\n' "$$" >"${PROC_LOCK_DIR}/pid" || {
+			rm -rf "${PROC_LOCK_DIR}"
+			exit 1
+		}
+		trap 'rm -rf "${PROC_LOCK_DIR}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+		"$@"
+		status="$?"
+		rm -rf "${PROC_LOCK_DIR}"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		exit "${status}"
+	)
+}
+
 proc_restore_ipv6() {
 	local id
 	for id in ipv6_icmp_ratelimit ipv6_neigh_gc_thresh1 ipv6_neigh_gc_thresh2 ipv6_neigh_gc_thresh3; do
@@ -1785,7 +1845,7 @@ proc_write() {
 		IFS=' ' read -r old_value applied state_boot_id <"${state_file}" || return 1
 		[ "${applied}" = "${value}" ] || return 1
 		boot_id="$(proc_boot_id 2>/dev/null)"
-		if [ -n "${state_boot_id}" ] && [ "${state_boot_id}" != "${boot_id}" ]; then
+		if [ -n "${state_boot_id}" ] && [ -n "${boot_id}" ] && [ "${state_boot_id}" != "${boot_id}" ]; then
 			rm -f "${state_file}" || return 1
 			# procfs reset after reboot; claim nothing if the boot default already
 			# matches, otherwise preserve this boot's value before reapplying.
@@ -1794,6 +1854,14 @@ proc_write() {
 			return $?
 		fi
 		[ "${current_value}" = "${value}" ] && return 0
+		if [ "${current_value}" = "${old_value}" ]; then
+			if ! printf '%s\n' "${value}" >"${target}" 2>/dev/null; then
+				agh_log warning proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value} result=failed"
+				return 1
+			fi
+			agh_log info proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value} result=changed"
+			return 0
+		fi
 		# An administrator changed the setting after application; relinquish it.
 		rm -f "${state_file}"
 		return 0
@@ -1818,19 +1886,23 @@ proc_write() {
 }
 
 proc_restore_one() {
-	local applied boot_id id old_value state_boot_id state_file target
+	local applied boot_id current_value id old_value state_boot_id state_file target
 	id="$1"
 	proc_target "${id}" || return 1
 	state_file="${PROC_STATE_DIR}/${id}"
 	[ -f "${state_file}" ] || return 0
 	IFS=' ' read -r old_value applied state_boot_id <"${state_file}" || return 1
 	boot_id="$(proc_boot_id 2>/dev/null)"
-	if [ -n "${state_boot_id}" ] && [ "${state_boot_id}" != "${boot_id}" ]; then
+	if [ -n "${state_boot_id}" ] && [ -n "${boot_id}" ] && [ "${state_boot_id}" != "${boot_id}" ]; then
 		rm -f "${state_file}"
 		return 0
 	fi
 	target="${PROC_TARGET}"
-	if [ "$(cat "${target}" 2>/dev/null)" = "${applied}" ]; then
+	if ! { IFS= read -r current_value <"${target}"; } 2>/dev/null; then
+		agh_log warning proc_restore "state=proc_optimize action=read target=${target} reason=read_failed result=failed"
+		return 1
+	fi
+	if [ "${current_value}" = "${applied}" ]; then
 		if printf '%s\n' "${old_value}" >"${target}" 2>/dev/null; then
 			agh_log info proc_restore "state=proc_optimize action=restore target=${target} old_value=${applied} new_value=${old_value} result=changed"
 			rm -f "${state_file}"
@@ -1844,7 +1916,7 @@ proc_restore_one() {
 	fi
 }
 
-proc_restore() {
+proc_restore_locked() {
 	local failed id
 	failed=0
 	for id in rmem_max wmem_max pid_max conntrack_tcp_timeout_max_retrans vm_overcommit_memory vm_swappiness vm_overcommit_ratio ipv4_icmp_ratelimit ipv4_neigh_gc_thresh1 ipv4_neigh_gc_thresh2 ipv4_neigh_gc_thresh3 ipv6_icmp_ratelimit ipv6_neigh_gc_thresh1 ipv6_neigh_gc_thresh2 ipv6_neigh_gc_thresh3; do
@@ -1852,6 +1924,10 @@ proc_restore() {
 	done
 	rmdir "${PROC_STATE_DIR}" 2>/dev/null || true
 	[ "${failed}" -eq 0 ]
+}
+
+proc_restore() {
+	proc_lock_run proc_restore_locked
 }
 netcheck_lan_dns() {
 	# Ignore public DNS overrides in LAN mode; this probe is only for the
