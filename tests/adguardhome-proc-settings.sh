@@ -240,7 +240,10 @@ EOF
 	PTXT() { printf '%s\n' "$*" >>"${EVENTS_FILE}"; }
 	conf_value() { printf '%s\n' no; }
 	agh_stop() { printf '%s\n' stop >>"${EVENTS_FILE}"; }
-	agh_start() { printf '%s\n' start >>"${EVENTS_FILE}"; return "${START_RESULT:-0}"; }
+	agh_start() {
+		printf '%s\n' start >>"${EVENTS_FILE}"
+		return "${START_RESULT:-0}"
+	}
 	cleanup_legacy_firewall() { :; }
 	yaml_nvars_delete() { :; }
 	del_jffs_script() { :; }
