@@ -48,11 +48,12 @@ ansi_red=''
 ansi_green=''
 ansi_std=''
 
+# launch_adguardhome launches AdGuardHome.
 launch_adguardhome() {
 	AdGuardHome
 }
 
-# type can simulate a mixed-version S99 script that predates launch_adguardhome.
+# type can simulate whether the legacy launch contract is required, then delegates other type checks to the shell.
 type() {
 	if [ "${USE_LEGACY_LAUNCH:-0}" -eq 1 ] && [ "${1:-}" = "launch_adguardhome" ]; then
 		return 1
@@ -195,7 +196,7 @@ start >/dev/null || fail 'rc.func did not fall back for an older S99 script'
 USE_LEGACY_LAUNCH=0
 
 # trap_snapshot writes dispositions in the current shell; command substitution
-# would reset caught traps in dash and other POSIX shells.
+# trap_snapshot saves the current signal trap definitions to the specified file.
 trap_snapshot() {
 	trap >"$1"
 }

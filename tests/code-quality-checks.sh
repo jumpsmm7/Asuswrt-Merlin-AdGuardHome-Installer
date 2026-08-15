@@ -49,7 +49,7 @@ GO_ENVIRONMENT_RAN_FILE="${TMP_ROOT}/go-environment.ran"
 	id() {
 		printf '%s\n' 0
 	}
-	# sh simulates the optional database-link and runtime writable-path security checks for regression testing.
+	# sh simulates the optional database-link, runtime writable-path, and AdGuardHome Go environment checks used by the regression test.
 	sh() {
 		case "$1" in
 			tests/optional-database-links.sh)
