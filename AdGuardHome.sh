@@ -1038,7 +1038,7 @@ dnsmasq_action_handler() {
 	fi
 }
 
-# interface_ipv4_addr prints the first IPv4 address assigned to the specified network interface.
+# interface_ipv4_addr prints the first unique usable global IPv4 address assigned to the specified network interface.
 interface_ipv4_addr() {
 	local IFACE
 	IFACE="$1"
@@ -1077,7 +1077,7 @@ ipv4_is_usable_unicast() {
 	'
 }
 
-# adguard_refresh_lan_bind_addresses updates AdGuardHome's LAN WebUI address and DNS bind hosts in the YAML configuration, preserving the active configuration when staging or validation fails.
+# adguard_refresh_lan_bind_addresses updates AdGuardHome's LAN WebUI address and DNS bind hosts in the YAML configuration while preserving the active configuration when staging or validation fails.
 adguard_refresh_lan_bind_addresses() {
 	local ACTIVE_MD5 BIND_HOSTS LAN_ADDR LAN_ADDR6 LAN_IF NVRAM_ADDR6 REWRITE_FILE STAGED_MD5 TEMP_FILE WEB_PORT YAML_DIR
 	LAN_BIND_ADDRESSES_CHANGED="0"
@@ -1361,6 +1361,7 @@ netcheck_ping_ok() {
 	return 1
 }
 
+# netcheck_legacy waits for system time and verifies connectivity through local DNS, ping, and HTTP checks against configured hosts.
 netcheck_legacy() {
 	local host livecheck timewait
 	livecheck="0"
@@ -1396,7 +1397,7 @@ netcheck_legacy() {
 	done
 }
 
-# netcheck verifies system time and network connectivity according to the configured mode, DNS hosts, and optional HTTP requirement.
+# netcheck verifies system time and configured network connectivity, including optional DNS, ping, and HTTP checks. In LAN mode, it waits for system time and skips public network probes. Returns success when the required checks pass.
 netcheck() {
 	local dns_ok dns_server hosts http_required mode ping_ok timeout waited
 	mode="$(netcheck_config ADGUARD_NETCHECK_MODE "${DEFAULT_ADGUARD_NETCHECK_MODE}")"
@@ -1462,7 +1463,7 @@ netcheck() {
 	return 1
 }
 
-# private_ipv4_bridge_dns_options prints usable global IPv4 addresses assigned to secondary bridge interfaces.
+# private_ipv4_bridge_dns_options prints usable global IPv4 addresses assigned to bridge interfaces other than the LAN interface.
 private_ipv4_bridge_dns_options() {
 	local ADDRESS_OUTPUT BRIDGE_ADDR BRIDGE_IF LAN_IF OPTIONS
 	LAN_IF="${1:-}"
@@ -1511,7 +1512,7 @@ private_ipv4_bridge_dns_options() {
 	return 1
 }
 
-# private_ipv4_bridge_address_is_assigned checks that an IPv4 fallback address is currently assigned to its bridge.
+# private_ipv4_bridge_address_is_assigned verifies that an IPv4 address is assigned to the specified bridge interface.
 private_ipv4_bridge_address_is_assigned() {
 	local BRIDGE_ADDR BRIDGE_IF
 	BRIDGE_IF="${1:-}"
@@ -1585,7 +1586,7 @@ private_ipv4_legacy_route_dns_options() {
 	'
 }
 
-# private_ipv4_route_dns_options lists non-LAN bridge interfaces and their private IPv4 DNS source addresses.
+# private_ipv4_route_dns_options lists non-LAN bridge interfaces and their private IPv4 DNS source addresses from the routing table.
 private_ipv4_route_dns_options() {
 	local LAN_IF
 	LAN_IF="${1:-}"

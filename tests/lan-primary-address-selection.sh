@@ -66,7 +66,7 @@ ip() {
 if interface_ipv4_addr ''; then fail 'interface_ipv4_addr accepted an empty interface argument'; fi
 if interface_ipv6_addr ''; then fail 'interface_ipv6_addr accepted an empty interface argument'; fi
 
-# have_cmd reports that the requested command is unavailable.
+# have_cmd simulates an unavailable command for tests.
 have_cmd() { return 1; }
 [ -z "$(interface_ipv4_addr br0)" ] || fail 'IPv4 selection returned an address without the ip command available'
 [ -z "$(interface_ipv6_addr br0)" ] || fail 'IPv6 selection returned an address without the ip command available'

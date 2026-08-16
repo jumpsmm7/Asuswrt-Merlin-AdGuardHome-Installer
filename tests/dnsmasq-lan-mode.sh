@@ -122,7 +122,7 @@ conf_value() {
 	esac
 }
 
-# nvram returns the configured value for a supported key when called with the `get` operation.
+# nvram returns the mocked value for a supported key when called with the `get` operation.
 nvram() {
 	[ "$1" = 'get' ] || return 1
 	case "$2" in

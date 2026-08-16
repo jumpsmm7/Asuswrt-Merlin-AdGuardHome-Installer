@@ -41,7 +41,9 @@ EOF
 chmod 700 "${ADGUARDHOME_BINARY}" || fail 'could not make validation stub executable'
 export ADGUARDHOME_BINARY CALLS_FILE
 
+# adguard_lan_mode indicates that AdGuard Home LAN mode is enabled.
 adguard_lan_mode() { return 0; }
+# have_cmd reports whether the requested command is available.
 have_cmd() { return 0; }
 # ip emits mock interface address data in fast or fallback format, including duplicate and distinct private addresses.
 ip() {

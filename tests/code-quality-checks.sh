@@ -51,7 +51,7 @@ PRIVATE_IPV4_FALLBACK_RAN_FILE="${TMP_ROOT}/private-ipv4-fallback.ran"
 	id() {
 		printf '%s\n' 0
 	}
-	# sh simulates the database-link, writable-path security, and Go-environment checks used by the regression test.
+	# sh simulates regression-test commands and records their execution status.
 	sh() {
 		case "$1" in
 			tests/optional-database-links.sh)

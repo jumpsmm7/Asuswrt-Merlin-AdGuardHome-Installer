@@ -55,7 +55,7 @@ if private_ipv4_legacy_route_dns_options; then
 	fail 'private_ipv4_legacy_route_dns_options accepted a missing LAN interface argument'
 fi
 
-# have_cmd reports whether the requested command is available for the test.
+# have_cmd reports whether the requested command is the mocked `ip` command available to the test.
 have_cmd() { [ "$1" = ip ]; }
 # ip simulates the mocked network command used to provide route discovery output for bridge interfaces.
 ip() {
@@ -89,7 +89,7 @@ fallback_options="$(private_ipv4_bridge_dns_options_with_fallbacks br5)" || fail
 [ "${fallback_options}" = 'br7 10.0.7.1' ] ||
 	fail "fallback chain did not use the tier-2 route discovery result (got: ${fallback_options})"
 
-# --- A successful scan with only rejected addresses never derives an unassigned route address ---
+# ip emits mocked address and route data for br7, and fails for other command arguments.
 ip() {
 	case "$*" in
 		'-o -4 addr show scope global') printf '%s\n' '2: br7 inet 10.0.7.2/24 scope global deprecated br7' ;;
@@ -100,8 +100,8 @@ ip() {
 fallback_options="$(private_ipv4_bridge_dns_options_with_fallbacks br5)" || fail 'rejected-address scan failed'
 [ -z "${fallback_options}" ] || fail 'route fallback advertised an unassigned address after a successful empty scan'
 
-# have_cmd reports whether the requested command is the legacy `route` command.
-have_cmd() { [ "$1" = route ] || [ "$1" = ifconfig ]; } # route and ifconfig emit mocked legacy bridge state.
+# have_cmd reports whether the requested command is `route` or `ifconfig`.
+have_cmd() { [ "$1" = route ] || [ "$1" = ifconfig ]; } # route emits mocked legacy route entries for br5 and br7.
 route() {
 	printf '%s\n' \
 		'10.0.5.0       0.0.0.0         255.255.255.0   U     0      0        0 br5' \
@@ -123,7 +123,7 @@ fallback_options="$(private_ipv4_bridge_dns_options_with_fallbacks br5)" || fail
 [ "${fallback_options}" = 'br7 10.0.7.1' ] ||
 	fail "fallback chain did not use the tier-3 legacy route discovery result (got: ${fallback_options})"
 
-# --- When no discovery command is available, the fallback chain produces no options ---
+# have_cmd reports that no requested command is available.
 have_cmd() { return 1; }
 fallback_options="$(private_ipv4_bridge_dns_options_with_fallbacks br5)"
 [ -z "${fallback_options}" ] || fail 'fallback chain produced output with no available discovery commands'
@@ -140,9 +140,9 @@ if private_ipv4_bridge_address_is_assigned '' 10.0.5.1; then
 	fail 'private_ipv4_bridge_address_is_assigned accepted a missing interface argument'
 fi
 
-# have_cmd reports that only `ip` is available for the assignment-check tests.
+# have_cmd reports whether the requested command is the mocked `ip` command available to the test.
 have_cmd() { [ "$1" = ip ]; }
-# ip simulates addresses currently assigned to the requested bridge device.
+# ip simulates addresses assigned to the requested bridge device.
 ip() {
 	case "$*" in
 		'-o -4 addr show dev br5 scope global')
@@ -161,7 +161,7 @@ if private_ipv4_bridge_address_is_assigned br9 10.0.9.1; then
 	fail 'private_ipv4_bridge_address_is_assigned accepted an address for an interface with no ip output'
 fi
 
-# have_cmd reports that only `ifconfig` is available, exercising the legacy fallback path.
+# have_cmd reports whether the requested command is `ifconfig` in the test environment.
 have_cmd() { [ "$1" = ifconfig ]; }
 # ifconfig simulates BusyBox-style and legacy net-tools-style address output for the requested bridge.
 ifconfig() {
@@ -179,7 +179,7 @@ if private_ipv4_bridge_address_is_assigned br5 10.0.5.9; then
 	fail 'private_ipv4_bridge_address_is_assigned accepted an address absent from ifconfig output'
 fi
 
-# Neither `ip` nor `ifconfig` is available; the assignment check must fail closed.
+# have_cmd reports that no requested command is available.
 have_cmd() { return 1; }
 if private_ipv4_bridge_address_is_assigned br5 10.0.5.1; then
 	fail 'private_ipv4_bridge_address_is_assigned accepted an address with no discovery command available'
