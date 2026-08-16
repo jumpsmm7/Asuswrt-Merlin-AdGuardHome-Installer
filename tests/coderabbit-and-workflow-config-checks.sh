@@ -31,12 +31,14 @@ review_checker_is_enforced() {
 	grep -Fxq '        run: sh tools/code-quality.sh' "${_review_workflow}" || return 1
 	grep -Fq 'run: sh tools/code-quality.sh || true' "${_review_workflow}" && return 1
 	awk '
-		/^  local-quality:$/ { in_job = 1; next }
+		/^  local-quality:$/ { in_job = 1; saw_job = 1; next }
 		in_job && /^  [a-zA-Z0-9_-]+:$/ { in_job = 0; in_checker_step = 0 }
 		in_job && /^    continue-on-error:[[:space:]]*true([[:space:]]|$)/ { exit 1 }
-		in_job && /^      - name: Run local code quality checks$/ { in_checker_step = 1; next }
+		in_job && /^      - name: Run local code quality checks$/ { in_checker_step = 1; saw_checker_step = 1; next }
 		in_checker_step && /^      - name:/ { in_checker_step = 0 }
 		in_checker_step && /^        continue-on-error:[[:space:]]*true([[:space:]]|$)/ { exit 1 }
+		in_checker_step && /^        run: sh tools\/code-quality\.sh$/ { saw_checker_command = 1 }
+		END { if (!saw_job || !saw_checker_step || !saw_checker_command) exit 1 }
 	' "${_review_workflow}"
 }
 
@@ -124,6 +126,11 @@ awk '{
 	fail 'could not create job continue-on-error workflow fixture'
 if review_checker_is_enforced "${TMP_ROOT}/job-continue-on-error.yml"; then
 	fail 'review workflow validation accepted continue-on-error on the checker job'
+fi
+sed 's/^  local-quality:$/  renamed-quality:/' "${REVIEW_WORKFLOW}" >"${TMP_ROOT}/misplaced-checker.yml" ||
+	fail 'could not create misplaced checker workflow fixture'
+if review_checker_is_enforced "${TMP_ROOT}/misplaced-checker.yml"; then
+	fail 'review workflow validation accepted the shared checker outside the required job'
 fi
 
 # --- The workflow must run on pull_request and push to guard both the PR and
