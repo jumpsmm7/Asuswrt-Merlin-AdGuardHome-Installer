@@ -213,6 +213,38 @@ start >/dev/null || fail 'rc.func did not fall back when the marked launch helpe
 USE_LEGACY_LAUNCH=0
 ADGUARDHOME_LAUNCH_HELPER=1
 
+# The safe launch helper must only be used for the actual AdGuardHome
+# process; a differently named PROC must still use the legacy PREARGS/ARGS
+# contract even when a launch_adguardhome function is defined and enabled.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${LEGACY_LAUNCH_LOG}" "${UNEXPECTED_PATH_HELPER}" "${TMP_ROOT}/unexpected-launch-helper"
+cat >"${TMP_ROOT}/bin/OtherProc" <<'EOF'
+#!/bin/sh
+{
+	printf '%s\n' "$#" "${LEGACY_ENV:-}"
+	printf '%s\n' "$@"
+} >"${LEGACY_LAUNCH_LOG}"
+: >"${STARTED_FILE}"
+EOF
+chmod 755 "${TMP_ROOT}/bin/OtherProc" || fail 'could not make non-AdGuardHome legacy launcher executable'
+launch_adguardhome() {
+	: >"${TMP_ROOT}/unexpected-launch-helper"
+	return 1
+}
+ADGUARDHOME_LAUNCH_HELPER=1
+PROC='OtherProc'
+PREARGS='env LEGACY_ENV=safe-value'
+ARGS='--legacy-flag safe-argument'
+start >/dev/null || fail 'rc.func did not use the legacy contract for a non-AdGuardHome PROC'
+[ -f "${STARTED_FILE}" ] || fail 'non-AdGuardHome PROC did not launch through the legacy contract'
+[ "$(sed -n '1p' "${LEGACY_LAUNCH_LOG}")" = 2 ] || fail 'non-AdGuardHome PROC legacy launch changed the argument count'
+[ "$(sed -n '2p' "${LEGACY_LAUNCH_LOG}")" = safe-value ] || fail 'non-AdGuardHome PROC legacy launch lost the environment value'
+[ "$(sed -n '3p' "${LEGACY_LAUNCH_LOG}")" = --legacy-flag ] || fail 'non-AdGuardHome PROC legacy launch changed the first argument'
+[ "$(sed -n '4p' "${LEGACY_LAUNCH_LOG}")" = safe-argument ] || fail 'non-AdGuardHome PROC legacy launch changed the second argument'
+[ ! -e "${TMP_ROOT}/unexpected-launch-helper" ] || fail 'non-AdGuardHome PROC invoked the safe launch helper function'
+PROC='AdGuardHome'
+rm -f "${STARTED_FILE}" "${LEGACY_LAUNCH_LOG}"
+
 # trap_snapshot writes dispositions in the current shell; command substitution
 # trap_snapshot saves the current signal trap configuration to the specified file.
 trap_snapshot() {

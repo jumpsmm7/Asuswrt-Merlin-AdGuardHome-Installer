@@ -105,6 +105,12 @@ sed -n '/^GOGC="${ADGUARDHOME_GOGC:-50}"$/,/^esac$/p' "${S99_PATH}" >"${GOGC_INI
 	[ "${GOGC}" = 50 ]
 ) || fail 'invalid GOGC override did not use the safe default'
 (
+	ADGUARDHOME_GOGC=1
+	# shellcheck disable=SC1090
+	. "${GOGC_INIT}"
+	[ "${GOGC}" = 1 ]
+) || fail 'minimum in-range GOGC override was not preserved'
+(
 	ADGUARDHOME_GOGC=200
 	# shellcheck disable=SC1090
 	. "${GOGC_INIT}"
@@ -153,12 +159,16 @@ agh_godebug_valid '' || fail 'empty GODEBUG string was rejected'
 agh_godebug_valid 'disablethp=1' || fail 'single GODEBUG entry without a comma was rejected'
 agh_godebug_valid 'disablethp=1,http2debug=0,netdns=go+2' || fail 'valid GODEBUG rejected'
 for hostile_godebug in 'disablethp=1;touch /tmp/pwned' 'disablethp=1 extra=1' \
-	'disablethp=1>file' 'disablethp=$(touch)' 'disablethp=1&x=1' 'disablethp=1,,x=1' \
+	'disablethp=1>file' 'disablethp=$(touch)' 'disablethp=`touch`' 'disablethp=1&x=1' 'disablethp=1,,x=1' \
 	'=1' 'x=' 'x=1=2'; do
 	if agh_godebug_valid "${hostile_godebug}"; then
 		fail "hostile GODEBUG accepted: ${hostile_godebug}"
 	fi
 done
+hostile_godebug_newline="$(printf 'disablethp=1\nrm -rf /tmp')"
+if agh_godebug_valid "${hostile_godebug_newline}"; then
+	fail 'hostile GODEBUG containing an embedded newline was accepted'
+fi
 
 ENV_LOG="${TMP_ROOT}/env.log"
 COMMAND_LOG="${TMP_ROOT}/command.log"
