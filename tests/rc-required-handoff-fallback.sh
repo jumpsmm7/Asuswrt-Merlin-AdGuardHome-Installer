@@ -200,6 +200,16 @@ start >/dev/null || fail 'rc.func did not fall back for an older S99 script'
 [ "$(wc -l <"${LEGACY_LAUNCH_LOG}")" -eq 4 ] || fail 'legacy fallback added unexpected arguments'
 [ ! -e "${TMP_ROOT}/unexpected-launch-helper" ] || fail 'legacy fallback invoked the unmarked shell helper'
 [ ! -e "${UNEXPECTED_PATH_HELPER}" ] || fail 'legacy fallback invoked the same-named PATH executable'
+
+# A stale helper marker must not resolve a same-named executable from PATH.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${LEGACY_LAUNCH_LOG}" "${UNEXPECTED_PATH_HELPER}"
+unset -f launch_adguardhome
+ADGUARDHOME_LAUNCH_HELPER=1
+start >/dev/null || fail 'rc.func did not fall back when the marked launch helper function was absent'
+[ -f "${STARTED_FILE}" ] || fail 'missing launch helper function did not use the legacy fallback'
+[ -f "${LEGACY_LAUNCH_LOG}" ] || fail 'missing launch helper function did not preserve the legacy launch contract'
+[ ! -e "${UNEXPECTED_PATH_HELPER}" ] || fail 'stale helper marker invoked the same-named PATH executable'
 USE_LEGACY_LAUNCH=0
 ADGUARDHOME_LAUNCH_HELPER=1
 

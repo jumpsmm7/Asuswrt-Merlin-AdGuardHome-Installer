@@ -177,7 +177,7 @@ printf '%s\n' "$#" "$@" >"${COMMAND_LOG}"
 printf '%s\n' "$$" >"${PID_LOG}"
 EOF
 chmod 755 "${TMP_ROOT}/bin/env" || fail 'could not make fake env executable'
-PATH="${TMP_ROOT}/bin:${PATH}"
+PATH="${TMP_ROOT}/bin:${PATH:-}"
 export PATH ENV_LOG COMMAND_LOG PID_LOG
 GOGC='50;extra-command'
 GOMAXPROCS='2 extra-argument'

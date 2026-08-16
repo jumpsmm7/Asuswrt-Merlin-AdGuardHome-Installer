@@ -43,6 +43,7 @@ agh_godebug_valid() {
 	esac
 	_agh_old_ifs="${IFS}"
 	IFS=,
+	# Intentional field splitting: each comma-delimited GODEBUG entry is validated separately.
 	for _agh_entry in ${_agh_godebug}; do
 		case "${_agh_entry}" in
 			*=*) ;;
