@@ -169,6 +169,23 @@ if adguard_refresh_lan_bind_addresses; then
 fi
 cmp -s "${YAML_FILE}" "${YAML_FILE}.wildcard" >/dev/null 2>&1 || fail 'wildcard LAN IPv4 failure modified YAML'
 
+# interface_ipv4_addr reports no stable address while NVRAM retains a stale, syntactically valid address.
+interface_ipv4_addr() { return 0; }
+# nvram returns a stale LAN IPv4 address that is not assigned to the primary interface.
+nvram() {
+	case "$2" in
+		lan_ifname) printf '%s\n' br0 ;;
+		lan_ipaddr) printf '%s\n' 192.168.50.1 ;;
+		ipv6_rtr_addr) printf '%s\n' 2001:db8::1 ;;
+	esac
+}
+cp "${YAML_FILE}" "${YAML_FILE}.unstable" || fail 'could not preserve unstable-address fixture'
+if adguard_refresh_lan_bind_addresses; then
+	fail 'refresh accepted an unassigned NVRAM LAN IPv4 address'
+fi
+cmp -s "${YAML_FILE}" "${YAML_FILE}.unstable" >/dev/null 2>&1 || fail 'missing stable LAN IPv4 modified YAML'
+grep -q 'reason=lan_ipv4_unavailable config_preserved=1' "${CALLS_FILE}" || fail 'missing stable LAN IPv4 was not logged'
+
 # interface_ipv4_addr prints the usable LAN IPv4 address used by staged-validation and failure-path tests.
 interface_ipv4_addr() { printf '%s\n' 192.168.50.27; }
 # interface_ipv6_addr prints the IPv6 address assigned to the test interface.

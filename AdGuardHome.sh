@@ -1096,9 +1096,10 @@ adguard_refresh_lan_bind_addresses() {
 		LAN_ADDR6="$(interface_ipv6_addr "${LAN_IF}")"
 	fi
 	if ! ipv4_is_usable_unicast "${LAN_ADDR:-}"; then
-		LAN_ADDR="$(nvram get lan_ipaddr 2>/dev/null)"
+		LAN_BIND_REFRESH_FAILURE_REASON="lan_ipv4_unavailable"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=lan_ipv4_unavailable config_preserved=1"
+		return 1
 	fi
-	ipv4_is_usable_unicast "${LAN_ADDR}" || return 1
 	if [ -z "${LAN_ADDR6:-}" ] && [ -n "${LAN_IF}" ] && have_cmd ip; then
 		NVRAM_ADDR6="$(nvram get ipv6_rtr_addr 2>/dev/null)"
 		case "${NVRAM_ADDR6}" in
