@@ -51,11 +51,15 @@ ai_have_cmd() {
 # ip simulates network command output for the test scenarios using configured environment variables.
 ip() {
 	case "$*" in
-		'-o -4 addr list br0')
+		'-o -4 addr list br0 scope global')
 			[ -n "${IPV4_FROM_IP:-}" ] && printf '1: br0    inet %s/24 brd 192.168.50.255 scope global br0\n' "${IPV4_FROM_IP}"
 			;;
 		'-o -6 addr list br0 scope global')
-			[ -n "${IPV6_FROM_IP:-}" ] && printf '1: br0    inet6 %s/64 scope global\n' "${IPV6_FROM_IP}"
+			if [ -n "${IPV6_GLOBAL_OUTPUT:-}" ]; then
+				printf '%s\n' "${IPV6_GLOBAL_OUTPUT}"
+			elif [ -n "${IPV6_FROM_IP:-}" ]; then
+				printf '1: br0    inet6 %s/64 scope global\n' "${IPV6_FROM_IP}"
+			fi
 			;;
 		'-o -6 addr list br0')
 			[ -n "${IPV6_ASSIGNED:-}" ] && printf '1: br0    inet6 %s/64 scope global\n' "${IPV6_ASSIGNED}"
@@ -99,6 +103,7 @@ reset_inputs() {
 	IPV4_FROM_IP=""
 	IPV4_FROM_NVRAM=""
 	IPV6_FROM_IP=""
+	IPV6_GLOBAL_OUTPUT=""
 	IPV6_FROM_NVRAM=""
 	IPV6_ASSIGNED=""
 	BRIDGE_ADDRS=""
@@ -162,12 +167,34 @@ setup_resolve_lan_addresses
 [ "${NET_ADDR6:-}" = "${IPV6_FROM_IP}" ] || fail 'initial YAML LAN IPv6 resolution did not prefer ip output'
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution from ip failed'
 assert_bind_values lan-ip '192.168.50.1:3000' "${IPV4_FROM_IP}" "${IPV6_FROM_IP}"
-assert_yaml_bind_hosts lan-ip 5
+assert_yaml_bind_hosts lan-ip 3
 grep -q '^    - 127\.0\.0\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS loopback bind host was not written'
 grep -q '^    - 192\.168\.50\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS bind host from ip was not written'
 grep -q '^    - 2001:db8::1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS IPv6 bind host from ip was not written'
-grep -q '^    - 192\.168\.101\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS bind host for guest bridge was not written'
-grep -q '^    - 10\.52\.0\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS bind host for SDN bridge was not written'
+! grep -q '^    - 192\.168\.101\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'guest bridge unexpectedly widened LAN listener scope'
+! grep -q '^    - 10\.52\.0\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'SDN bridge unexpectedly widened LAN listener scope'
+
+# Multi-bridge guest, SDN, and VPN topologies retain the primary-only policy.
+for topology in multi-bridge guest-network sdn-active vpn-bridge ap-mode repeater-mode; do
+	BRIDGE_ADDRS='2: br1    inet 192.168.101.1/24 brd 192.168.101.255 scope global br1
+3: br52    inet 10.52.0.1/24 brd 10.52.0.255 scope global br52
+4: br-vpn  inet 172.20.0.1/24 brd 172.20.0.255 scope global br-vpn'
+	assert_yaml_bind_hosts "${topology}" 3
+	! grep -Eq '^    - (192\.168\.101\.1|10\.52\.0\.1|172\.20\.0\.1)$' "${TMP_ROOT}/${topology}.yaml" ||
+		fail "${topology}: secondary bridge widened LAN listener scope"
+done
+
+# Prefer a stable global IPv6 address over temporary, tentative, and deprecated addresses.
+IPV6_FROM_IP='2001:db8::10'
+IPV6_GLOBAL_OUTPUT='1: br0    inet6 2001:db8::99/64 scope global temporary dynamic
+1: br0    inet6 2001:db8::98/64 scope global tentative
+1: br0    inet6 2001:db8::97/64 scope global deprecated
+1: br0    inet6 2001:db8::10/64 scope global'
+setup_resolve_lan_addresses
+[ "${NET_ADDR6:-}" = '2001:db8::10' ] || fail 'IPv6 discovery did not prefer the stable global address'
+setup_resolve_bind_addresses >/dev/null || fail 'stable IPv6 bind resolution failed'
+assert_yaml_bind_hosts ipv6-temporary 3
+! grep -Eq '^    - 2001:db8::(99|98|97)$' "${TMP_ROOT}/ipv6-temporary.yaml" || fail 'unstable IPv6 address was added'
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan
@@ -214,8 +241,8 @@ BRIDGE_ADDRS_MULTILINE='2: br102: <BROADCAST,MULTICAST,UP> mtu 1500
 IP_ROUTE_OUTPUT='192.168.102.0/24 dev br102 proto kernel scope link'
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution for multiline ip fallback failed'
 assert_bind_values lan-multiline-ip '192.168.50.1:3000' "${IPV4_FROM_IP}"
-assert_yaml_bind_hosts lan-multiline-ip 3
-grep -q '^    - 192\.168\.102\.254$' "${TMP_ROOT}/lan-multiline-ip.yaml" || fail 'LAN DNS multiline ip fallback omitted the assigned bridge address'
+assert_yaml_bind_hosts lan-multiline-ip 2
+! grep -q '^    - 192\.168\.102\.254$' "${TMP_ROOT}/lan-multiline-ip.yaml" || fail 'LAN DNS multiline discovery widened listener scope'
 ! grep -q '^    - 192\.168\.102\.1$' "${TMP_ROOT}/lan-multiline-ip.yaml" || fail 'LAN DNS bind hosts included a guessed route address'
 
 reset_inputs
@@ -239,4 +266,4 @@ if setup_resolve_bind_addresses >/dev/null 2>&1; then
 	fail 'LAN bind resolution succeeded without IPv4 address'
 fi
 
-printf '%s\n' 'PASS: installer bind address resolution keeps WAN DNS wildcard-bound while LAN DNS includes loopback, LAN IPv4, LAN IPv6, and bridge IPv4 binds'
+printf '%s\n' 'PASS: installer binding keeps WAN wildcard scope and LAN loopback/primary-bridge scope'

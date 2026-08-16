@@ -208,6 +208,14 @@ LAN mode avoids public Internet probes for isolated or local-only deployments:
 sh installer netcheck --mode lan
 ```
 
+LAN-mode DNS binding is limited to loopback and the primary `lan_ifname` bridge
+(stable IPv4 and, when available, stable global IPv6). Secondary private,
+guest/SDN, and VPN bridges are not added—even with dnsmasq SDN integration—and
+there is no explicit interface allow-list today. This avoids silently widening
+the listener when a guest, VPN, AP, repeater, or renumbered interface appears.
+Firewall behavior is separate: LAN mode installs no firewall/IPTABLES rules, so
+listener and firewall reachability must be tested independently.
+
 ### DNS port-owner cleanup policy
 
 The safer policy refuses to kill unknown non-dnsmasq owners of port `53`:

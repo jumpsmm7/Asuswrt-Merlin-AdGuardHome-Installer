@@ -298,6 +298,28 @@ ADGUARD_NETCHECK_MODE="lan"
 
 LAN mode skips public WAN probes. The monitor still checks local AdGuardHome DNS responsiveness after the process is expected to be serving DNS.
 
+#### LAN listener scope
+
+LAN mode uses the conservative, topology-independent default: DNS listens on
+`127.0.0.1` and on the current IPv4 address of the primary LAN bridge
+(`lan_ifname`), plus one stable global IPv6 address on that bridge when present.
+It does **not** automatically bind every private bridge, and an address is never
+selected merely because it has an RFC 1918 prefix. Guest/SDN and VPN bridges are
+not listener addresses, including while `dnsmasq-sdn.postconf` integration is
+active; those networks use normal router forwarding to the primary LAN address.
+There is currently no interface-selection list.
+
+Temporary, tentative, deprecated, duplicate, loopback, link-local, multicast,
+and broadcast addresses are excluded from discovery. IPv4 and IPv6 are selected
+independently, so IPv6 absence does not change the IPv4 listener. AP, media
+bridge, and repeater installs follow the same rule, and startup/monitor refreshes
+replace a renumbered primary address without retaining the old address.
+
+Listener binding and firewall policy are intentionally independent. LAN mode
+does not install firewall/IPTABLES rules; changing a bind address does not imply
+that traffic is allowed or blocked on an interface. Validate reachability and
+firewall behavior separately for each router topology.
+
 ### DNS port-owner cleanup policy
 
 During startup, dnsmasq is stopped normally so AdGuardHome can own port `53`. New installs default to conservative handling:

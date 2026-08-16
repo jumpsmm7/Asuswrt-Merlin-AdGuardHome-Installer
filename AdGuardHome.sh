@@ -1044,7 +1044,11 @@ interface_ipv4_addr() {
 	IFACE="$1"
 	[ -n "${IFACE}" ] || return 1
 	have_cmd ip || return 1
-	ip -o -4 addr list "${IFACE}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1]; exit }'
+	ip -o -4 addr list "${IFACE}" scope global 2>/dev/null | awk '
+		$0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
+			split($4, ip_addr, "/")
+			if (!seen[ip_addr[1]]++) { print ip_addr[1]; exit }
+		}'
 }
 
 # interface_ipv6_addr returns the first global IPv6 address assigned to the specified interface.
@@ -1053,7 +1057,11 @@ interface_ipv6_addr() {
 	IFACE="$1"
 	[ -n "${IFACE}" ] || return 1
 	have_cmd ip || return 1
-	ip -o -6 addr list "${IFACE}" scope global 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1]; exit }'
+	ip -o -6 addr list "${IFACE}" scope global 2>/dev/null | awk '
+		$0 !~ /(^|[[:space:]])(tentative|deprecated|temporary|mngtmpaddr)([[:space:]]|$)/ {
+			split($4, ip_addr, "/")
+			if (!seen[ip_addr[1]]++) { print ip_addr[1]; exit }
+		}'
 }
 
 # ipv4_is_usable_unicast validates that an IPv4 address is a usable unicast address.
@@ -1100,9 +1108,11 @@ adguard_refresh_lan_bind_addresses() {
 				;;
 		esac
 	fi
+	# LAN mode intentionally binds only loopback and the primary LAN bridge.
+	# Guest, SDN, VPN, and other bridges are reached through normal routing and
+	# dnsmasq integration; discovering them must not expand the listener scope.
 	BIND_HOSTS="$({
 		printf '%s\n' 127.0.0.1 "${LAN_ADDR}" "${LAN_ADDR6:-}"
-		private_ipv4_bridge_dns_options | awk 'NF > 1 { print $2 }'
 	} | awk 'NF && !seen[$0]++ { print }')"
 	WEB_PORT="$(awk '
 		function yaml_key_is(line, expected, text, separator, key) {

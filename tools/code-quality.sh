@@ -219,6 +219,7 @@ run_check 'Installer reverse-upstream target regression' sh tests/installer-reve
 run_check 'Installer account validation regression' sh tests/installer-account-validation.sh
 run_check 'AdGuardHome permission repair regression' sh tests/adguardhome-permissions.sh
 run_check 'AdGuardHome LAN bind refresh regression' sh tests/adguardhome-lan-bind-refresh.sh
+run_check 'LAN primary address selection regression' sh tests/lan-primary-address-selection.sh
 run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
 run_check 'AdGuardHome optional database link regression' run_optional_database_link_check
 run_check 'AdGuardHome S99 DNS mode lifecycle regression' sh tests/s99-dns-mode-lifecycle.sh
