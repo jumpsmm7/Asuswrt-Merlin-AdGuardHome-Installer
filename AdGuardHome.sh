@@ -1044,7 +1044,7 @@ interface_ipv4_addr() {
 	IFACE="$1"
 	[ -n "${IFACE}" ] || return 1
 	have_cmd ip || return 1
-	ip -o -4 addr list "${IFACE}" scope global 2>/dev/null | awk '
+	ip -o -4 addr list "${IFACE}" scope global 2>/dev/null | /usr/bin/awk '
 		$0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
 			split($4, ip_addr, "/")
 			if (!seen[ip_addr[1]]++) { print ip_addr[1]; exit }
@@ -1057,8 +1057,8 @@ interface_ipv6_addr() {
 	IFACE="$1"
 	[ -n "${IFACE}" ] || return 1
 	have_cmd ip || return 1
-	ip -o -6 addr list "${IFACE}" scope global 2>/dev/null | awk '
-		$0 !~ /(^|[[:space:]])(tentative|deprecated|temporary|mngtmpaddr)([[:space:]]|$)/ {
+	ip -o -6 addr list "${IFACE}" scope global 2>/dev/null | /usr/bin/awk '
+		$0 !~ /(^|[[:space:]])(tentative|deprecated|dadfailed|temporary)([[:space:]]|$)/ {
 			split($4, ip_addr, "/")
 			if (!seen[ip_addr[1]]++) { print ip_addr[1]; exit }
 		}'
@@ -1104,16 +1104,20 @@ adguard_refresh_lan_bind_addresses() {
 		case "${NVRAM_ADDR6}" in
 			"" | ::) ;;
 			*:*)
-				LAN_ADDR6="$(ip -o -6 addr list "${LAN_IF}" 2>/dev/null | awk -v candidate="${NVRAM_ADDR6}" '{ split($4, ip_addr, "/"); if (ip_addr[1] == candidate) { print candidate; exit } }')"
+				LAN_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global 2>/dev/null | /usr/bin/awk -v candidate="${NVRAM_ADDR6}" '
+					$0 !~ /(^|[[:space:]])(tentative|deprecated|dadfailed|temporary)([[:space:]]|$)/ {
+						split($4, ip_addr, "/")
+						if (ip_addr[1] == candidate) { print candidate; exit }
+					}')"
 				;;
 		esac
 	fi
-	# LAN mode intentionally binds only loopback and the primary LAN bridge.
-	# Guest, SDN, VPN, and other bridges are reached through normal routing and
-	# dnsmasq integration; discovering them must not expand the listener scope.
+	# Keep every discovered bridge address bound because dnsmasq advertises each
+	# bridge's own address to clients on that network.
 	BIND_HOSTS="$({
 		printf '%s\n' 127.0.0.1 "${LAN_ADDR}" "${LAN_ADDR6:-}"
-	} | awk 'NF && !seen[$0]++ { print }')"
+		private_ipv4_bridge_dns_options | /usr/bin/awk 'NF > 1 { print $2 }'
+	} | /usr/bin/awk 'NF && !seen[$0]++ { print }')"
 	WEB_PORT="$(awk '
 		function yaml_key_is(line, expected, text, separator, key) {
 			text = line
@@ -1457,38 +1461,44 @@ netcheck() {
 	return 1
 }
 
-# private_ipv4_bridge_dns_options prints private IPv4 addresses assigned to bridge interfaces other than br0.
+# private_ipv4_bridge_dns_options prints usable global IPv4 addresses assigned to bridge interfaces other than br0.
 private_ipv4_bridge_dns_options() {
-	local OPTIONS
+	local BRIDGE_ADDR BRIDGE_IF OPTIONS
 	if have_cmd ip; then
-		OPTIONS="$(ip -o -4 addr show scope global 2>/dev/null | awk '
-			function private_ip(ip) {
-				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+		OPTIONS="$(ip -o -4 addr show scope global 2>/dev/null | /usr/bin/awk '
+			function usable_ip(ip, octets) {
+				split(ip, octets, ".")
+				return ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
 			}
-			$2 ~ /^br/ && $2 != "br0" {
+			$2 ~ /^br/ && $2 != "br0" && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
 				for (i = 1; i <= NF; i++) {
 					if ($i == "inet") {
 						split($(i + 1), ip_addr, "/")
-						if (private_ip(ip_addr[1]) && !seen[$2, ip_addr[1]]++) { print $2 " " ip_addr[1] }
+						if (usable_ip(ip_addr[1]) && !seen[$2, ip_addr[1]]++) { print $2 " " ip_addr[1] }
 					}
 				}
 			}
 		')"
 		if [ -z "${OPTIONS}" ]; then
-			OPTIONS="$(ip -4 addr show scope global 2>/dev/null | awk '
-				function private_ip(ip) {
-					return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+			OPTIONS="$(ip -4 addr show scope global 2>/dev/null | /usr/bin/awk '
+				function usable_ip(ip, octets) {
+					split(ip, octets, ".")
+					return ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
 				}
 				/^[0-9]+: / {
 					iface = $2
 					sub(/:$/, "", iface)
 				}
-				$1 == "inet" && iface ~ /^br/ && iface != "br0" {
+				$1 == "inet" && iface ~ /^br/ && iface != "br0" && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
 					split($2, ip_addr, "/")
-					if (private_ip(ip_addr[1]) && !seen[iface, ip_addr[1]]++) { print iface " " ip_addr[1] }
+					if (usable_ip(ip_addr[1]) && !seen[iface, ip_addr[1]]++) { print iface " " ip_addr[1] }
 				}
 			')"
 		fi
+		printf '%s\n' "${OPTIONS}" | while read -r BRIDGE_IF BRIDGE_ADDR; do
+			[ -n "${BRIDGE_IF}" ] && [ -n "${BRIDGE_ADDR}" ] || continue
+			agh_log info bridge_discovery "state=discovered family=ipv4 interface=${BRIDGE_IF} address=${BRIDGE_ADDR}"
+		done
 		printf '%s\n' "${OPTIONS}"
 		return
 	fi

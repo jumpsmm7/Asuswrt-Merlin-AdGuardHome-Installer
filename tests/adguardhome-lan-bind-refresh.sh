@@ -102,7 +102,10 @@ adguard_refresh_lan_bind_addresses || fail 'dynamic LAN bind refresh failed'
 grep -q '^  address: 192\.168\.50\.27:3443$' "${YAML_FILE}" || fail 'WebUI address or preserved port was not refreshed'
 grep -q '^    - 192\.168\.50\.27$' "${YAML_FILE}" || fail 'LAN IPv4 DNS bind was not refreshed'
 grep -q '^    - 2001:db8::27$' "${YAML_FILE}" || fail 'LAN IPv6 DNS bind was not refreshed'
-! grep -Eq '^    - 192\.168\.10[123]\.254$' "${YAML_FILE}" || fail 'secondary bridge widened the refreshed listener scope'
+grep -q '^    - 192\.168\.101\.254$' "${YAML_FILE}" || fail 'bridge DNS bind was not refreshed'
+grep -q '^    - 192\.168\.102\.254$' "${YAML_FILE}" || fail 'secondary bridge DNS bind was not refreshed'
+grep -q '^    - 192\.168\.103\.254$' "${YAML_FILE}" || fail 'additional bridge DNS bind was not refreshed'
+grep -q 'state=discovered family=ipv4 interface=br1 address=192\.168\.101\.254' "${CALLS_FILE}" || fail 'discovered bridge pair was not logged'
 ! grep -q '192\.168\.50\.1' "${YAML_FILE}" || fail 'stale LAN bind address remained in YAML'
 [ "$(ls -nd "${YAML_FILE}" | awk '{ print $1, $3, $4 }')" = "${YAML_METADATA}" ] || fail 'refresh did not preserve the active YAML mode and owner'
 
@@ -226,7 +229,7 @@ adguard_refresh_lan_bind_addresses || fail 'no-op refresh failed validation'
 [ "${LAN_BIND_ADDRESSES_CHANGED}" -eq 0 ] || fail 'no-op refresh requested a restart'
 cmp -s "${YAML_FILE}" "${YAML_FILE}.before" >/dev/null 2>&1 || fail 'no-op refresh replaced content'
 ! grep -q -- '--check-config' "${CALLS_FILE}" || fail 'no-op refresh unnecessarily invoked binary validation'
-[ ! -s "${CALLS_FILE}" ] || fail 'no-op refresh unexpectedly invoked the AdGuardHome binary'
+! grep -q '^--check-config' "${CALLS_FILE}" || fail 'no-op refresh unexpectedly invoked the AdGuardHome binary'
 
 VALIDATION_STATUS=1
 export VALIDATION_STATUS
@@ -235,7 +238,7 @@ mv "${YAML_FILE}.changed" "${YAML_FILE}" || fail 'could not activate validation-
 assert_rejected_unchanged binary-validation-failure
 unset VALIDATION_STATUS
 grep -q 'reason=adguard_config_validation_failed' "${CALLS_FILE}" || fail 'validation failure reason was not logged'
-! grep -q '192\.168\.' "${CALLS_FILE}" || fail 'validation log exposed YAML address content'
+! grep 'reason=adguard_config_validation_failed' "${CALLS_FILE}" | grep -q '192\.168\.' || fail 'validation failure log exposed YAML address content'
 
 SYMLINK_DIR="${TMP_ROOT}/symlink-test"
 mkdir -p "${SYMLINK_DIR}" || fail 'could not create symlink test directory'

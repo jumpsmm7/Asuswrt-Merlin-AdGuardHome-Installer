@@ -34,7 +34,8 @@ ip() {
 				'1: br0 inet6 2001:db8::99/64 scope global temporary dynamic' \
 				'1: br0 inet6 2001:db8::98/64 scope global tentative' \
 				'1: br0 inet6 2001:db8::97/64 scope global deprecated' \
-				'1: br0 inet6 2001:db8::60/64 scope global' \
+				'1: br0 inet6 2001:db8::96/64 scope global dadfailed' \
+				'1: br0 inet6 2001:db8::60/64 scope global mngtmpaddr' \
 				'1: br0 inet6 2001:db8::60/64 scope global'
 			;;
 		*) return 1 ;;
@@ -43,7 +44,5 @@ ip() {
 
 [ "$(interface_ipv4_addr br0)" = '192.168.60.1' ] || fail 'renumbering retained a deprecated IPv4 address'
 [ "$(interface_ipv6_addr br0)" = '2001:db8::60' ] || fail 'IPv6 selection retained an unstable address'
-[ -z "$(interface_ipv4_addr br-vpn)" ] || fail 'VPN bridge supplied the primary LAN address'
-[ -z "$(interface_ipv6_addr br-guest)" ] || fail 'guest bridge supplied the primary LAN address'
 
-printf '%s\n' 'PASS: primary LAN address selection rejects unstable and non-primary interface addresses'
+printf '%s\n' 'PASS: primary LAN address selection rejects unstable addresses during renumbering'

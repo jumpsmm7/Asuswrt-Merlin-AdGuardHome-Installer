@@ -208,11 +208,12 @@ LAN mode avoids public Internet probes for isolated or local-only deployments:
 sh installer netcheck --mode lan
 ```
 
-LAN-mode DNS binding is limited to loopback and the primary `lan_ifname` bridge
-(stable IPv4 and, when available, stable global IPv6). Secondary private,
-guest/SDN, and VPN bridges are not added—even with dnsmasq SDN integration—and
-there is no explicit interface allow-list today. This avoids silently widening
-the listener when a guest, VPN, AP, repeater, or renumbered interface appears.
+LAN-mode DNS binding includes loopback, the primary `lan_ifname` bridge (stable
+IPv4 and, when available, stable global IPv6), and usable assigned IPv4
+addresses on other `br*` interfaces. The latter keeps guest/SDN addresses that
+dnsmasq advertises reachable and is based on assigned bridge addresses, not an
+IPv4 private-prefix match. VPN bridges are therefore included and there is no
+explicit interface allow-list today. Discovered secondary pairs are logged.
 Firewall behavior is separate: LAN mode installs no firewall/IPTABLES rules, so
 listener and firewall reachability must be tested independently.
 
