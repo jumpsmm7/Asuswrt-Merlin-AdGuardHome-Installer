@@ -89,6 +89,16 @@ fallback_options="$(private_ipv4_bridge_dns_options_with_fallbacks br5)" || fail
 [ "${fallback_options}" = 'br7 10.0.7.1' ] ||
 	fail "fallback chain did not use the tier-2 route discovery result (got: ${fallback_options})"
 
+# Route fallback discovery reports an assigned link-local address; it must not become a dnsmasq DHCP option.
+private_ipv4_bridge_dns_options() { return 1; }
+private_ipv4_route_dns_options() { printf '%s\n' 'br7 169.254.7.1'; }
+private_ipv4_bridge_address_is_assigned() { return 0; }
+fallback_options="$(private_ipv4_bridge_dns_options_with_fallbacks br5)" || fail 'link-local fallback filtering failed'
+[ -z "${fallback_options}" ] || fail 'IPv4 link-local bridge address reached dnsmasq DHCP options'
+# Restore the production helpers for the remaining fallback scenarios.
+# shellcheck disable=SC1090
+. "${FUNCTION_FILE}"
+
 # ip emits mocked address and route data for br7, and fails for other command arguments.
 ip() {
 	case "$*" in

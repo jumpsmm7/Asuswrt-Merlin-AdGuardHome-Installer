@@ -1474,7 +1474,7 @@ private_ipv4_bridge_dns_options() {
 			OPTIONS="$(printf '%s\n' "${ADDRESS_OUTPUT}" | /usr/bin/awk -v lan_if="${LAN_IF}" '
 			function usable_ip(ip, octets) {
 				split(ip, octets, ".")
-				return ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
+				return ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && !(octets[1] == 169 && octets[2] == 254) && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
 			}
 			$2 ~ /^br/ && $2 != lan_if && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
 				for (i = 1; i <= NF; i++) {
@@ -1489,7 +1489,7 @@ private_ipv4_bridge_dns_options() {
 			OPTIONS="$(printf '%s\n' "${ADDRESS_OUTPUT}" | /usr/bin/awk -v lan_if="${LAN_IF}" '
 				function usable_ip(ip, octets) {
 					split(ip, octets, ".")
-					return ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
+					return ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && !(octets[1] == 169 && octets[2] == 254) && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
 				}
 				/^[0-9]+: / {
 					iface = $2
@@ -1557,6 +1557,9 @@ private_ipv4_bridge_dns_options_with_fallbacks() {
 	fi
 	printf '%s\n' "${OPTIONS}" | while read -r BRIDGE_IF BRIDGE_ADDR; do
 		[ -n "${BRIDGE_IF}" ] && [ -n "${BRIDGE_ADDR}" ] || continue
+		case "${BRIDGE_ADDR}" in
+			169.254.*) continue ;;
+		esac
 		private_ipv4_bridge_address_is_assigned "${BRIDGE_IF}" "${BRIDGE_ADDR}" || continue
 		printf '%s %s\n' "${BRIDGE_IF}" "${BRIDGE_ADDR}"
 	done

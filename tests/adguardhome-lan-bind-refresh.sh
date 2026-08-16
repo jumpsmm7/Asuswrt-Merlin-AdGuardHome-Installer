@@ -65,6 +65,7 @@ ip() {
 		printf '%s\n' \
 			'2: br9    inet 192.168.9.2/24 brd 192.168.9.255 scope global br9' \
 			'3: br0    inet 192.168.50.254/24 brd 192.168.50.255 scope global br0' \
+			'4: br2    inet 169.254.20.1/16 brd 169.254.255.255 scope global br2' \
 			'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1' \
 			'5: br1    inet 192.168.102.254/24 brd 192.168.102.255 scope global secondary br1' \
 			'5: br1    inet 192.168.103.254/24 brd 192.168.103.255 scope global secondary br1' \
@@ -115,6 +116,7 @@ grep -q '^    - 192\.168\.50\.254$' "${YAML_FILE}" || fail 'br0 was not retained
 grep -q '^    - 192\.168\.101\.254$' "${YAML_FILE}" || fail 'bridge DNS bind was not refreshed'
 grep -q '^    - 192\.168\.102\.254$' "${YAML_FILE}" || fail 'secondary bridge DNS bind was not refreshed'
 grep -q '^    - 192\.168\.103\.254$' "${YAML_FILE}" || fail 'additional bridge DNS bind was not refreshed'
+! grep -q '169\.254\.20\.1' "${YAML_FILE}" || fail 'IPv4 link-local bridge address reached bind_hosts'
 grep -q 'state=discovered family=ipv4 interface=br1 address=192\.168\.101\.254' "${CALLS_FILE}" || fail 'discovered bridge pair was not logged'
 ! grep -q '192\.168\.50\.1' "${YAML_FILE}" || fail 'stale LAN bind address remained in YAML'
 [ "$(ls -nd "${YAML_FILE}" | awk '{ print $1, $3, $4 }')" = "${YAML_METADATA}" ] || fail 'refresh did not preserve the active YAML mode and owner'
