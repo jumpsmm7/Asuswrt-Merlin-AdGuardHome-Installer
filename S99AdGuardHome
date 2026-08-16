@@ -46,15 +46,24 @@ agh_godebug_valid() {
 	for _agh_entry in ${_agh_godebug}; do
 		case "${_agh_entry}" in
 			*=*) ;;
-			*) IFS="${_agh_old_ifs}"; return 1 ;;
+			*)
+				IFS="${_agh_old_ifs}"
+				return 1
+				;;
 		esac
 		_agh_key="${_agh_entry%%=*}"
 		_agh_value="${_agh_entry#*=}"
 		case "${_agh_key}" in
-			"" | *[!A-Za-z0-9_.-]*) IFS="${_agh_old_ifs}"; return 1 ;;
+			"" | *[!A-Za-z0-9_.-]*)
+				IFS="${_agh_old_ifs}"
+				return 1
+				;;
 		esac
 		case "${_agh_value}" in
-			"" | *[!A-Za-z0-9_+.-]*) IFS="${_agh_old_ifs}"; return 1 ;;
+			"" | *[!A-Za-z0-9_+.-]*)
+				IFS="${_agh_old_ifs}"
+				return 1
+				;;
 		esac
 	done
 	IFS="${_agh_old_ifs}"
