@@ -35,7 +35,7 @@ ip() {
 				'1: br0 inet6 2001:db8::98/64 scope global tentative' \
 				'1: br0 inet6 2001:db8::97/64 scope global deprecated' \
 				'1: br0 inet6 2001:db8::96/64 scope global dadfailed' \
-				'1: br0 inet6 2001:db8::60/64 scope global mngtmpaddr' \
+				'1: br0 inet6 2001:db8::61/64 scope global mngtmpaddr' \
 				'1: br0 inet6 2001:db8::60/64 scope global'
 			;;
 		*) return 1 ;;

@@ -309,11 +309,12 @@ currently no explicit interface-selection list. Discovery logs every selected
 secondary interface/address pair. An address is never selected merely because
 it has an RFC 1918 prefix.
 
-Temporary, tentative, deprecated, duplicate, loopback, link-local, multicast,
-and broadcast addresses are excluded from discovery. IPv4 and IPv6 are selected
-independently, so IPv6 absence does not change the IPv4 listener. AP, media
-bridge, and repeater installs follow the same rule, and startup/monitor refreshes
-replace a renumbered primary address without retaining the old address.
+Temporary, management-flagged (`mngtmpaddr`), tentative, deprecated, duplicate,
+loopback, link-local, multicast, and broadcast addresses are excluded from
+discovery. IPv4 and IPv6 are selected independently, so IPv6 absence does not
+change the IPv4 listener. AP, media bridge, and repeater installs follow the same
+rule, and startup/monitor refreshes replace a renumbered primary address without
+retaining the old address.
 
 IPv6 discovery for secondary bridges is not needed because dnsmasq advertises
 their IPv4 address. Listener binding and firewall policy remain independent.

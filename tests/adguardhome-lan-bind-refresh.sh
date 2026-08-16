@@ -50,6 +50,10 @@ ip() {
 	fi
 	if [ "${IP_OUTPUT_MODE:-fast}" = "fallback" ]; then
 		printf '%s\n' \
+			'2: br9: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500' \
+			'    inet 192.168.9.2/24 brd 192.168.9.255 scope global br9' \
+			'3: br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500' \
+			'    inet 192.168.50.254/24 brd 192.168.50.255 scope global br0' \
 			'5: br1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500' \
 			'    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1' \
 			'    inet 192.168.102.254/24 brd 192.168.102.255 scope global secondary br1' \
@@ -57,6 +61,8 @@ ip() {
 			'    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1'
 	else
 		printf '%s\n' \
+			'2: br9    inet 192.168.9.2/24 brd 192.168.9.255 scope global br9' \
+			'3: br0    inet 192.168.50.254/24 brd 192.168.50.255 scope global br0' \
 			'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1' \
 			'5: br1    inet 192.168.102.254/24 brd 192.168.102.255 scope global secondary br1' \
 			'5: br1    inet 192.168.103.254/24 brd 192.168.103.255 scope global secondary br1' \
@@ -70,7 +76,7 @@ interface_ipv6_addr() { printf '%s\n' 2001:db8::27; }
 # nvram returns fixed test values for the requested NVRAM variable.
 nvram() {
 	case "$2" in
-		lan_ifname) printf '%s\n' br0 ;;
+		lan_ifname) printf '%s\n' br9 ;;
 		lan_ipaddr) printf '%s\n' 192.168.50.1 ;;
 		ipv6_rtr_addr) printf '%s\n' 2001:db8::1 ;;
 	esac
@@ -89,12 +95,12 @@ EOF
 chmod 640 "${YAML_FILE}" || fail 'could not set fixture permissions'
 YAML_METADATA="$(ls -nd "${YAML_FILE}" | awk '{ print $1, $3, $4 }')" || fail 'could not read fixture metadata'
 
-bridge_options="$(private_ipv4_bridge_dns_options)" || fail 'bridge address discovery failed'
-[ "${bridge_options}" = "$(printf '%s\n' 'br1 192.168.101.254' 'br1 192.168.102.254' 'br1 192.168.103.254')" ] ||
+bridge_options="$(private_ipv4_bridge_dns_options br9)" || fail 'bridge address discovery failed'
+[ "${bridge_options}" = "$(printf '%s\n' 'br0 192.168.50.254' 'br1 192.168.101.254' 'br1 192.168.102.254' 'br1 192.168.103.254')" ] ||
 	fail 'bridge address discovery did not preserve distinct per-interface addresses'
 IP_OUTPUT_MODE=fallback
-bridge_options="$(private_ipv4_bridge_dns_options)" || fail 'fallback bridge address discovery failed'
-[ "${bridge_options}" = "$(printf '%s\n' 'br1 192.168.101.254' 'br1 192.168.102.254' 'br1 192.168.103.254')" ] ||
+bridge_options="$(private_ipv4_bridge_dns_options br9)" || fail 'fallback bridge address discovery failed'
+[ "${bridge_options}" = "$(printf '%s\n' 'br0 192.168.50.254' 'br1 192.168.101.254' 'br1 192.168.102.254' 'br1 192.168.103.254')" ] ||
 	fail 'fallback bridge address discovery did not preserve distinct per-interface addresses'
 IP_OUTPUT_MODE=fast
 
@@ -102,6 +108,8 @@ adguard_refresh_lan_bind_addresses || fail 'dynamic LAN bind refresh failed'
 grep -q '^  address: 192\.168\.50\.27:3443$' "${YAML_FILE}" || fail 'WebUI address or preserved port was not refreshed'
 grep -q '^    - 192\.168\.50\.27$' "${YAML_FILE}" || fail 'LAN IPv4 DNS bind was not refreshed'
 grep -q '^    - 2001:db8::27$' "${YAML_FILE}" || fail 'LAN IPv6 DNS bind was not refreshed'
+grep -q '^    - 192\.168\.50\.254$' "${YAML_FILE}" || fail 'br0 was not retained when the primary LAN interface was br9'
+! grep -q '^    - 192\.168\.9\.2$' "${YAML_FILE}" || fail 'non-br0 primary LAN interface was added as a secondary bind'
 grep -q '^    - 192\.168\.101\.254$' "${YAML_FILE}" || fail 'bridge DNS bind was not refreshed'
 grep -q '^    - 192\.168\.102\.254$' "${YAML_FILE}" || fail 'secondary bridge DNS bind was not refreshed'
 grep -q '^    - 192\.168\.103\.254$' "${YAML_FILE}" || fail 'additional bridge DNS bind was not refreshed'

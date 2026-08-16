@@ -54,6 +54,12 @@ ip() {
 		'-o -4 addr list br0 scope global')
 			[ -n "${IPV4_FROM_IP:-}" ] && printf '1: br0    inet %s/24 brd 192.168.50.255 scope global br0\n' "${IPV4_FROM_IP}"
 			;;
+		'-o -4 addr list br9 scope global')
+			[ -n "${IPV4_FROM_IP:-}" ] && printf '1: br9    inet %s/24 brd 192.168.9.255 scope global br9\n' "${IPV4_FROM_IP}"
+			;;
+		'-o -6 addr list br9 scope global')
+			[ -n "${IPV6_FROM_IP:-}" ] && printf '1: br9    inet6 %s/64 scope global\n' "${IPV6_FROM_IP}"
+			;;
 		'-o -6 addr list br0 scope global')
 			if [ -n "${IPV6_GLOBAL_OUTPUT:-}" ]; then
 				printf '%s\n' "${IPV6_GLOBAL_OUTPUT}"
@@ -115,6 +121,7 @@ reset_inputs() {
 	SETUP_WEB_ADDRESS="preset"
 	SETUP_DNS_BIND_HOST="preset"
 	SETUP_DNS_BIND_HOST6=""
+	SETUP_LAN_IF=""
 }
 
 # assert_bind_values verifies expected web and DNS bind addresses for a test case.
@@ -198,12 +205,25 @@ IPV6_GLOBAL_OUTPUT='1: br0    inet6 2001:db8::99/64 scope global temporary dynam
 1: br0    inet6 2001:db8::98/64 scope global tentative
 1: br0    inet6 2001:db8::97/64 scope global deprecated
 1: br0    inet6 2001:db8::96/64 scope global dadfailed
-1: br0    inet6 2001:db8::10/64 scope global mngtmpaddr'
+1: br0    inet6 2001:db8::95/64 scope global mngtmpaddr
+1: br0    inet6 2001:db8::10/64 scope global'
 setup_resolve_lan_addresses
 [ "${NET_ADDR6:-}" = '2001:db8::10' ] || fail 'IPv6 discovery did not prefer the stable global address'
 setup_resolve_bind_addresses >/dev/null || fail 'stable IPv6 bind resolution failed'
 assert_yaml_bind_hosts ipv6-temporary 6
-! grep -Eq '^    - 2001:db8::(99|98|97|96)$' "${TMP_ROOT}/ipv6-temporary.yaml" || fail 'unstable IPv6 address was added'
+! grep -Eq '^    - 2001:db8::(99|98|97|96|95)$' "${TMP_ROOT}/ipv6-temporary.yaml" || fail 'unstable IPv6 address was added'
+
+reset_inputs
+ADGUARD_INSTALL_MODE=lan
+IP_AVAILABLE=1
+LAN_IFNAME=br9
+IPV4_FROM_IP=192.168.9.1
+BRIDGE_ADDRS='2: br9 inet 192.168.9.2/24 brd 192.168.9.255 scope global secondary br9
+3: br0 inet 192.168.50.1/24 brd 192.168.50.255 scope global br0'
+setup_resolve_bind_addresses >/dev/null || fail 'non-br0 primary LAN bind resolution failed'
+assert_yaml_bind_hosts non-br0-primary 3
+grep -q '^    - 192\.168\.50\.1$' "${TMP_ROOT}/non-br0-primary.yaml" || fail 'br0 was omitted when it was a secondary bridge'
+! grep -q '^    - 192\.168\.9\.2$' "${TMP_ROOT}/non-br0-primary.yaml" || fail 'non-br0 primary interface was added as a secondary bridge'
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan

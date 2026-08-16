@@ -1004,7 +1004,7 @@ dnsmasq_params() {
 			:
 			;;
 		:*)
-			private_ipv4_bridge_dns_options_with_fallbacks | while read -r NIVARS NDVARS; do
+			private_ipv4_bridge_dns_options_with_fallbacks "${LAN_IF}" | while read -r NIVARS NDVARS; do
 				[ -n "${NIVARS}" ] && [ -n "${NDVARS}" ] || continue
 				printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >>"${CONFIG}"
 			done
@@ -1058,7 +1058,7 @@ interface_ipv6_addr() {
 	[ -n "${IFACE}" ] || return 1
 	have_cmd ip || return 1
 	ip -o -6 addr list "${IFACE}" scope global 2>/dev/null | /usr/bin/awk '
-		$0 !~ /(^|[[:space:]])(tentative|deprecated|dadfailed|temporary)([[:space:]]|$)/ {
+		$0 !~ /(^|[[:space:]])(tentative|deprecated|dadfailed|temporary|mngtmpaddr)([[:space:]]|$)/ {
 			split($4, ip_addr, "/")
 			if (!seen[ip_addr[1]]++) { print ip_addr[1]; exit }
 		}'
@@ -1105,7 +1105,7 @@ adguard_refresh_lan_bind_addresses() {
 			"" | ::) ;;
 			*:*)
 				LAN_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global 2>/dev/null | /usr/bin/awk -v candidate="${NVRAM_ADDR6}" '
-					$0 !~ /(^|[[:space:]])(tentative|deprecated|dadfailed|temporary)([[:space:]]|$)/ {
+					$0 !~ /(^|[[:space:]])(tentative|deprecated|dadfailed|temporary|mngtmpaddr)([[:space:]]|$)/ {
 						split($4, ip_addr, "/")
 						if (ip_addr[1] == candidate) { print candidate; exit }
 					}')"
@@ -1116,7 +1116,7 @@ adguard_refresh_lan_bind_addresses() {
 	# bridge's own address to clients on that network.
 	BIND_HOSTS="$({
 		printf '%s\n' 127.0.0.1 "${LAN_ADDR}" "${LAN_ADDR6:-}"
-		private_ipv4_bridge_dns_options | /usr/bin/awk 'NF > 1 { print $2 }'
+		private_ipv4_bridge_dns_options "${LAN_IF}" | /usr/bin/awk 'NF > 1 { print $2 }'
 	} | /usr/bin/awk 'NF && !seen[$0]++ { print }')"
 	WEB_PORT="$(awk '
 		function yaml_key_is(line, expected, text, separator, key) {
@@ -1461,16 +1461,18 @@ netcheck() {
 	return 1
 }
 
-# private_ipv4_bridge_dns_options prints usable global IPv4 addresses assigned to bridge interfaces other than br0.
+# private_ipv4_bridge_dns_options prints usable global IPv4 addresses assigned to secondary bridge interfaces.
 private_ipv4_bridge_dns_options() {
-	local BRIDGE_ADDR BRIDGE_IF OPTIONS
+	local BRIDGE_ADDR BRIDGE_IF LAN_IF OPTIONS
+	LAN_IF="${1:-}"
+	[ -n "${LAN_IF}" ] || return 1
 	if have_cmd ip; then
-		OPTIONS="$(ip -o -4 addr show scope global 2>/dev/null | /usr/bin/awk '
+		OPTIONS="$(ip -o -4 addr show scope global 2>/dev/null | /usr/bin/awk -v lan_if="${LAN_IF}" '
 			function usable_ip(ip, octets) {
 				split(ip, octets, ".")
 				return ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
 			}
-			$2 ~ /^br/ && $2 != "br0" && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
+			$2 ~ /^br/ && $2 != lan_if && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
 				for (i = 1; i <= NF; i++) {
 					if ($i == "inet") {
 						split($(i + 1), ip_addr, "/")
@@ -1480,7 +1482,7 @@ private_ipv4_bridge_dns_options() {
 			}
 		')"
 		if [ -z "${OPTIONS}" ]; then
-			OPTIONS="$(ip -4 addr show scope global 2>/dev/null | /usr/bin/awk '
+			OPTIONS="$(ip -4 addr show scope global 2>/dev/null | /usr/bin/awk -v lan_if="${LAN_IF}" '
 				function usable_ip(ip, octets) {
 					split(ip, octets, ".")
 					return ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
@@ -1489,7 +1491,7 @@ private_ipv4_bridge_dns_options() {
 					iface = $2
 					sub(/:$/, "", iface)
 				}
-				$1 == "inet" && iface ~ /^br/ && iface != "br0" && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
+				$1 == "inet" && iface ~ /^br/ && iface != lan_if && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
 					split($2, ip_addr, "/")
 					if (usable_ip(ip_addr[1]) && !seen[iface, ip_addr[1]]++) { print iface " " ip_addr[1] }
 				}
@@ -1506,20 +1508,25 @@ private_ipv4_bridge_dns_options() {
 }
 
 private_ipv4_bridge_dns_options_with_fallbacks() {
-	local OPTIONS
-	OPTIONS="$(private_ipv4_bridge_dns_options)"
+	local LAN_IF OPTIONS
+	LAN_IF="${1:-}"
+	[ -n "${LAN_IF}" ] || return 1
+	OPTIONS="$(private_ipv4_bridge_dns_options "${LAN_IF}")"
 	if [ -z "${OPTIONS}" ]; then
-		OPTIONS="$(private_ipv4_route_dns_options)"
+		OPTIONS="$(private_ipv4_route_dns_options "${LAN_IF}")"
 	fi
 	if [ -z "${OPTIONS}" ]; then
-		OPTIONS="$(private_ipv4_legacy_route_dns_options)"
+		OPTIONS="$(private_ipv4_legacy_route_dns_options "${LAN_IF}")"
 	fi
 	printf "%s\n" "${OPTIONS}"
 }
 
 private_ipv4_legacy_route_dns_options() {
+	local LAN_IF
+	LAN_IF="${1:-}"
+	[ -n "${LAN_IF}" ] || return 1
 	have_cmd route || return 1
-	route 2>/dev/null | awk '
+	route 2>/dev/null | awk -v lan_if="${LAN_IF}" '
 		function private_ip(ip) {
 			return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
 		}
@@ -1530,7 +1537,7 @@ private_ipv4_legacy_route_dns_options() {
 		}
 		{
 			iface = $NF
-			if (iface ~ /^br/ && iface != "br0" && private_ip($1) && !seen[iface]++) {
+			if (iface ~ /^br/ && iface != lan_if && private_ip($1) && !seen[iface]++) {
 				dns_ip = router_ip($1)
 				if (dns_ip != "") { print iface " " dns_ip }
 			}
@@ -1539,8 +1546,11 @@ private_ipv4_legacy_route_dns_options() {
 }
 
 private_ipv4_route_dns_options() {
+	local LAN_IF
+	LAN_IF="${1:-}"
+	[ -n "${LAN_IF}" ] || return 1
 	if have_cmd ip; then
-		ip route show 2>/dev/null | awk '
+		ip route show 2>/dev/null | awk -v lan_if="${LAN_IF}" '
 			function private_ip(ip) {
 				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
 			}
@@ -1558,7 +1568,7 @@ private_ipv4_route_dns_options() {
 					if ($i == "dev") { iface = $(i + 1) }
 					if ($i == "src") { src = $(i + 1) }
 				}
-				if (iface ~ /^br/ && iface != "br0" && private_ip(dst) && !seen[iface]++) {
+				if (iface ~ /^br/ && iface != lan_if && private_ip(dst) && !seen[iface]++) {
 					if (!private_ip(src)) { src = router_ip(dst) }
 					if (src != "") { print iface " " src }
 				}

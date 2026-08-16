@@ -6436,6 +6436,7 @@ setup_resolve_lan_addresses() {
 	NET_ADDR=""
 	NET_ADDR6=""
 	LAN_IF="$(nvram get lan_ifname)"
+	SETUP_LAN_IF="${LAN_IF}"
 	if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
 		NET_ADDR="$(ip -o -4 addr list "${LAN_IF}" scope global 2>/dev/null | /usr/bin/awk '
 			$0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
@@ -6443,7 +6444,7 @@ setup_resolve_lan_addresses() {
 				if (!seen[ip_addr[1]]++) { print ip_addr[1]; exit }
 			}')"
 		NET_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global 2>/dev/null | /usr/bin/awk '
-			$0 !~ /(^|[[:space:]])(tentative|deprecated|dadfailed|temporary)([[:space:]]|$)/ {
+			$0 !~ /(^|[[:space:]])(tentative|deprecated|dadfailed|temporary|mngtmpaddr)([[:space:]]|$)/ {
 				split($4, ip_addr, "/")
 				if (!seen[ip_addr[1]]++) { print ip_addr[1]; exit }
 			}')"
@@ -6455,7 +6456,7 @@ setup_resolve_lan_addresses() {
 			"" | ::) ;;
 			*:*)
 				NET_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global 2>/dev/null | /usr/bin/awk -v candidate="${NVRAM_ADDR6}" '
-					$0 !~ /(^|[[:space:]])(tentative|deprecated|dadfailed|temporary)([[:space:]]|$)/ {
+					$0 !~ /(^|[[:space:]])(tentative|deprecated|dadfailed|temporary|mngtmpaddr)([[:space:]]|$)/ {
 						split($4, ip_addr, "/")
 						if (ip_addr[1] == candidate) { print candidate; exit }
 					}')"
@@ -6520,16 +6521,17 @@ setup_reverse_upstream_target() {
 }
 
 setup_private_ipv4_bridge_dns_binds() {
-	local bridge_binds
+	local bridge_binds primary_if
 
 	bridge_binds=""
+	primary_if="${1:-${SETUP_LAN_IF:-}}"
 	if ai_have_cmd ip; then
-		bridge_binds="$(ip -o -4 addr show scope global 2>/dev/null | /usr/bin/awk -v lan_addr="${NET_ADDR}" '
+		bridge_binds="$(ip -o -4 addr show scope global 2>/dev/null | /usr/bin/awk -v lan_addr="${NET_ADDR}" -v primary_if="${primary_if}" '
 			function usable_ip(ip, octets) {
 				split(ip, octets, ".")
 				return ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
 			}
-			$2 ~ /^br/ && $2 != "br0" && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
+			$2 ~ /^br/ && $2 != primary_if && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
 				for (i = 1; i <= NF; i++) {
 					if ($i == "inet") {
 						split($(i + 1), ip_addr, "/")
@@ -6539,7 +6541,7 @@ setup_private_ipv4_bridge_dns_binds() {
 			}
 		')"
 		if [ -z "${bridge_binds}" ]; then
-			bridge_binds="$(ip -4 addr show scope global 2>/dev/null | /usr/bin/awk -v lan_addr="${NET_ADDR}" '
+			bridge_binds="$(ip -4 addr show scope global 2>/dev/null | /usr/bin/awk -v lan_addr="${NET_ADDR}" -v primary_if="${primary_if}" '
 				function usable_ip(ip, octets) {
 					split(ip, octets, ".")
 					return ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
@@ -6548,7 +6550,7 @@ setup_private_ipv4_bridge_dns_binds() {
 					iface = $2
 					sub(/:$/, "", iface)
 				}
-				$1 == "inet" && iface ~ /^br/ && iface != "br0" && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
+				$1 == "inet" && iface ~ /^br/ && iface != primary_if && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
 					split($2, ip_addr, "/")
 					if (ip_addr[1] != lan_addr && usable_ip(ip_addr[1]) && !seen[ip_addr[1]]++) { print ip_addr[1] }
 				}
@@ -6568,7 +6570,7 @@ setup_write_dns_bind_hosts() {
 				PTXT "127.0.0.1"
 				PTXT "${SETUP_DNS_BIND_HOST}"
 				PTXT "${SETUP_DNS_BIND_HOST6}"
-				setup_private_ipv4_bridge_dns_binds
+				setup_private_ipv4_bridge_dns_binds "${SETUP_LAN_IF:-}"
 			} | awk 'NF && !seen[$0]++ { print "    - " $0 }' >>"${target_file}"
 			;;
 		*)
@@ -6743,7 +6745,7 @@ setup_sync_mode_dependent_yaml() {
 					PTXT "127.0.0.1"
 					PTXT "${SETUP_DNS_BIND_HOST}"
 					PTXT "${SETUP_DNS_BIND_HOST6}"
-					setup_private_ipv4_bridge_dns_binds
+					setup_private_ipv4_bridge_dns_binds "${SETUP_LAN_IF:-}"
 				} | awk 'NF && !seen[$0]++ { print }'
 			)"
 			;;
