@@ -1472,24 +1472,26 @@ private_ipv4_bridge_dns_options() {
 	if have_cmd ip; then
 		if ADDRESS_OUTPUT="$(ip -o -4 addr show scope global 2>/dev/null)"; then
 			OPTIONS="$(printf '%s\n' "${ADDRESS_OUTPUT}" | /usr/bin/awk -v lan_if="${LAN_IF}" '
-			function usable_ip(ip, octets) {
+			function usable_ip(ip, broadcast, octets) {
 				split(ip, octets, ".")
-				return ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && !(octets[1] == 169 && octets[2] == 254) && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
+				return ip != broadcast && ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && !(octets[1] == 169 && octets[2] == 254) && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
 			}
 			$2 ~ /^br/ && $2 != lan_if && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
+				broadcast = ""
+				for (i = 1; i < NF; i++) if ($i == "brd") broadcast = $(i + 1)
 				for (i = 1; i <= NF; i++) {
 					if ($i == "inet") {
 						split($(i + 1), ip_addr, "/")
-						if (usable_ip(ip_addr[1]) && !seen[$2, ip_addr[1]]++) { print $2 " " ip_addr[1] }
+						if (usable_ip(ip_addr[1], broadcast) && !seen[$2, ip_addr[1]]++) { print $2 " " ip_addr[1] }
 					}
 				}
 			}
 			')"
 		elif ADDRESS_OUTPUT="$(ip -4 addr show scope global 2>/dev/null)"; then
 			OPTIONS="$(printf '%s\n' "${ADDRESS_OUTPUT}" | /usr/bin/awk -v lan_if="${LAN_IF}" '
-				function usable_ip(ip, octets) {
+				function usable_ip(ip, broadcast, octets) {
 					split(ip, octets, ".")
-					return ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && !(octets[1] == 169 && octets[2] == 254) && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
+					return ip != broadcast && ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && !(octets[1] == 169 && octets[2] == 254) && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
 				}
 				/^[0-9]+: / {
 					iface = $2
@@ -1497,7 +1499,9 @@ private_ipv4_bridge_dns_options() {
 				}
 				$1 == "inet" && iface ~ /^br/ && iface != lan_if && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
 					split($2, ip_addr, "/")
-					if (usable_ip(ip_addr[1]) && !seen[iface, ip_addr[1]]++) { print iface " " ip_addr[1] }
+					broadcast = ""
+					for (i = 1; i < NF; i++) if ($i == "brd") broadcast = $(i + 1)
+					if (usable_ip(ip_addr[1], broadcast) && !seen[iface, ip_addr[1]]++) { print iface " " ip_addr[1] }
 				}
 				')"
 		else
