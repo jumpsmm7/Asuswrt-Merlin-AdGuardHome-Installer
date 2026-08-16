@@ -49,7 +49,7 @@ GO_ENVIRONMENT_RAN_FILE="${TMP_ROOT}/go-environment.ran"
 	id() {
 		printf '%s\n' 0
 	}
-	# sh simulates selected regression-test scripts and records whether each script was invoked.
+	# sh simulates the database-link, writable-path security, and Go-environment checks used by the regression test.
 	sh() {
 		case "$1" in
 			tests/optional-database-links.sh)

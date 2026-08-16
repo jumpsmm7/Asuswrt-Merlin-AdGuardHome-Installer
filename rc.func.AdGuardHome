@@ -482,10 +482,18 @@ start() {
 		fi
 	fi
 	{
-		if type launch_adguardhome >/dev/null 2>&1; then
-			launch_adguardhome >/dev/null 2>&1 </dev/null &
+		if [ "${ADGUARDHOME_LAUNCH_HELPER:-0}" = "1" ] && [ "${PROC}" = "AdGuardHome" ]; then
+			case "$(type launch_adguardhome 2>/dev/null)" in
+				*" is a function" | *" is a shell function")
+					launch_adguardhome >/dev/null 2>&1 </dev/null &
+					;;
+				*)
+					# Compatibility requires intentional splitting of legacy PREARGS and ARGS into command words.
+					${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null &
+					;;
+			esac
 		else
-			# Compatibility for a partially published downgrade with an older S99 script.
+			# Compatibility requires intentional splitting of legacy PREARGS and ARGS into command words.
 			${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null &
 		fi
 		LAUNCH_PID="$!"

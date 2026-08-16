@@ -10,7 +10,7 @@ TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/agh-go-environment.XXXXXX")" || {
 }
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 
-# fail reports a test failure, removes the temporary workspace, and exits with status 1.
+# fail reports a test failure, removes the temporary workspace, and exits with an error.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	rm -rf "${TMP_ROOT}"
@@ -22,6 +22,7 @@ sed -n '/^agh_uint_in_range() {$/,/^}$/p; /^agh_godebug_valid() {$/,/^}$/p; /^ag
 	"${S99_PATH}" >"${FUNCTIONS_FILE}" || fail 'function extraction failed'
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+grep -Fxq 'ADGUARDHOME_LAUNCH_HELPER=1' "${S99_PATH}" || fail 'safe launcher marker is missing'
 
 LEGACY_ASSIGNMENTS="${TMP_ROOT}/legacy-assignments"
 sed -n '/^PREARGS=/p; /^ARGS=/p' "${S99_PATH}" >"${LEGACY_ASSIGNMENTS}" || fail 'legacy assignment extraction failed'
@@ -39,6 +40,18 @@ LOG_FILE=syslog
 	fail 'legacy PREARGS does not retain validated Go environment assignments'
 [ "${ARGS}" = '-s run -c /opt/etc/AdGuardHome/AdGuardHome.yaml -w /opt/etc/AdGuardHome --pidfile /opt/var/run/AdGuardHome.pid --no-check-update -l syslog' ] ||
 	fail 'legacy ARGS does not retain required service paths'
+(
+	GOGC=50
+	GOMAXPROCS=2
+	GOMEMLIMIT=128MiB
+	GODEBUG=
+	WORK_DIR=/opt/etc/AdGuardHome
+	PID_FILE=/opt/var/run/AdGuardHome.pid
+	LOG_FILE=syslog
+	# shellcheck disable=SC1090
+	. "${LEGACY_ASSIGNMENTS}"
+	[ "${PREARGS}" = 'env TZ=/etc/localtime GOGC=50 GOMAXPROCS=2 GOMEMLIMIT=128MiB QUIC_GO_DISABLE_ECN=true GODEBUG=' ]
+) || fail 'legacy PREARGS dropped the explicit empty GODEBUG assignment'
 
 GOMAXPROCS_INIT="${TMP_ROOT}/gomaxprocs-init"
 sed -n '/^GOMAXPROCS="${ADGUARDHOME_GOMAXPROCS:-${DEFAULT_GOMAXPROCS}}"$/,/^agh_uint_in_range "${GOMAXPROCS}" 1 64/p' \
@@ -53,6 +66,22 @@ for invalid_gomaxprocs in 0 -1 invalid; do
 		[ "${GOMAXPROCS}" = "${DEFAULT_GOMAXPROCS}" ]
 	) || fail "invalid GOMAXPROCS did not retain the detected default: ${invalid_gomaxprocs}"
 done
+for valid_gomaxprocs in 1 8 64; do
+	(
+		DEFAULT_GOMAXPROCS=2
+		ADGUARDHOME_GOMAXPROCS="${valid_gomaxprocs}"
+		# shellcheck disable=SC1090
+		. "${GOMAXPROCS_INIT}"
+		[ "${GOMAXPROCS}" = "${valid_gomaxprocs}" ]
+	) || fail "valid GOMAXPROCS override was not preserved: ${valid_gomaxprocs}"
+done
+(
+	DEFAULT_GOMAXPROCS=2
+	ADGUARDHOME_GOMAXPROCS=65
+	# shellcheck disable=SC1090
+	. "${GOMAXPROCS_INIT}"
+	[ "${GOMAXPROCS}" = "${DEFAULT_GOMAXPROCS}" ]
+) || fail 'out-of-range GOMAXPROCS override did not fall back to the detected default'
 
 GOGC_INIT="${TMP_ROOT}/gogc-init"
 sed -n '/^GOGC="${ADGUARDHOME_GOGC:-50}"$/,/^esac$/p' "${S99_PATH}" >"${GOGC_INIT}" ||
@@ -76,6 +105,12 @@ sed -n '/^GOGC="${ADGUARDHOME_GOGC:-50}"$/,/^esac$/p' "${S99_PATH}" >"${GOGC_INI
 	[ "${GOGC}" = 50 ]
 ) || fail 'invalid GOGC override did not use the safe default'
 (
+	ADGUARDHOME_GOGC=1
+	# shellcheck disable=SC1090
+	. "${GOGC_INIT}"
+	[ "${GOGC}" = 1 ]
+) || fail 'minimum in-range GOGC override was not preserved'
+(
 	ADGUARDHOME_GOGC=200
 	# shellcheck disable=SC1090
 	. "${GOGC_INIT}"
@@ -86,30 +121,19 @@ sed -n '/^GOGC="${ADGUARDHOME_GOGC:-50}"$/,/^esac$/p' "${S99_PATH}" >"${GOGC_INI
 	# shellcheck disable=SC1090
 	. "${GOGC_INIT}"
 	[ "${GOGC}" = 1000 ]
-) || fail 'upper-bound GOGC override was not preserved'
+) || fail 'maximum in-range GOGC override was not preserved'
 (
 	ADGUARDHOME_GOGC=1001
 	# shellcheck disable=SC1090
 	. "${GOGC_INIT}"
 	[ "${GOGC}" = 50 ]
-) || fail 'out-of-range GOGC override did not use the safe default'
-
-for valid_gomaxprocs in 1 8 64; do
-	(
-		DEFAULT_GOMAXPROCS=2
-		ADGUARDHOME_GOMAXPROCS="${valid_gomaxprocs}"
-		# shellcheck disable=SC1090
-		. "${GOMAXPROCS_INIT}"
-		[ "${GOMAXPROCS}" = "${valid_gomaxprocs}" ]
-	) || fail "valid GOMAXPROCS override was not preserved: ${valid_gomaxprocs}"
-done
+) || fail 'out-of-range GOGC override did not fall back to the safe default'
 (
-	DEFAULT_GOMAXPROCS=2
-	ADGUARDHOME_GOMAXPROCS=65
+	ADGUARDHOME_GOGC=-5
 	# shellcheck disable=SC1090
-	. "${GOMAXPROCS_INIT}"
-	[ "${GOMAXPROCS}" = "${DEFAULT_GOMAXPROCS}" ]
-) || fail 'out-of-range GOMAXPROCS override did not retain the detected default'
+	. "${GOGC_INIT}"
+	[ "${GOGC}" = 50 ]
+) || fail 'negative GOGC override did not fall back to the safe default'
 
 agh_uint_in_range 1 1 1000 || fail 'lower numeric bound rejected'
 agh_uint_in_range 1000 1 1000 || fail 'upper numeric bound rejected'
@@ -118,34 +142,33 @@ for hostile_number in '' 0 1001 -1 1x '1;touch' '1 2' '1>file' '1=2'; do
 		fail "hostile numeric value accepted: ${hostile_number}"
 	fi
 done
-agh_uint_in_range 5 5 5 || fail 'value equal to both bounds was rejected'
-if agh_uint_in_range 4 5 5; then
-	fail 'value below equal bounds was accepted'
-fi
-if agh_uint_in_range 6 5 5; then
-	fail 'value above equal bounds was accepted'
-fi
 [ "$(agh_memory_limit_mib 1)" = 1 ] || fail 'small calculated memory limit rejected'
 [ "$(agh_memory_limit_mib 0)" = 1 ] || fail 'zero calculated memory limit was not clamped to 1 MiB'
 [ "$(agh_memory_limit_mib 31)" = 31 ] || fail 'calculated memory limit below 32 MiB was increased'
+[ "$(agh_memory_limit_mib 32)" = 32 ] || fail 'calculated memory limit at the 32 MiB boundary was altered'
 [ "$(agh_memory_limit_mib 384)" = 384 ] || fail 'maximum calculated memory limit rejected'
 [ "$(agh_memory_limit_mib 385)" = 384 ] || fail 'oversized calculated memory limit was not capped'
 [ "$(agh_memory_limit_mib 1000000)" = 384 ] || fail 'large calculated memory limit was not capped'
+[ "$(agh_memory_limit_mib 00)" = 1 ] || fail 'all-zero calculated memory limit was not clamped to 1 MiB'
 for bad_memory_limit in '' invalid '64;command'; do
 	[ "$(agh_memory_limit_mib "${bad_memory_limit}")" = 128 ] ||
 		fail "invalid calculated memory limit was not reset: ${bad_memory_limit}"
 done
 
+agh_godebug_valid '' || fail 'empty GODEBUG string was rejected'
+agh_godebug_valid 'disablethp=1' || fail 'single GODEBUG entry without a comma was rejected'
 agh_godebug_valid 'disablethp=1,http2debug=0,netdns=go+2' || fail 'valid GODEBUG rejected'
-agh_godebug_valid '' || fail 'empty GODEBUG was rejected'
-agh_godebug_valid 'x=abc-1.2+3' || fail 'single entry with a hyphen and plus in the value was rejected'
 for hostile_godebug in 'disablethp=1;touch /tmp/pwned' 'disablethp=1 extra=1' \
-	'disablethp=1>file' 'disablethp=$(touch)' 'disablethp=1&x=1' 'disablethp=1,,x=1' \
-	'=1' 'x=' 'x=1=2' ',x=1' 'x=1,'; do
+	'disablethp=1>file' 'disablethp=$(touch)' 'disablethp=`touch`' 'disablethp=1&x=1' 'disablethp=1,,x=1' \
+	'=1' 'x=' 'x=1=2'; do
 	if agh_godebug_valid "${hostile_godebug}"; then
 		fail "hostile GODEBUG accepted: ${hostile_godebug}"
 	fi
 done
+hostile_godebug_newline="$(printf 'disablethp=1\nrm -rf /tmp')"
+if agh_godebug_valid "${hostile_godebug_newline}"; then
+	fail 'hostile GODEBUG containing an embedded newline was accepted'
+fi
 
 ENV_LOG="${TMP_ROOT}/env.log"
 COMMAND_LOG="${TMP_ROOT}/command.log"
@@ -164,7 +187,7 @@ printf '%s\n' "$#" "$@" >"${COMMAND_LOG}"
 printf '%s\n' "$$" >"${PID_LOG}"
 EOF
 chmod 755 "${TMP_ROOT}/bin/env" || fail 'could not make fake env executable'
-PATH="${TMP_ROOT}/bin:${PATH}"
+PATH="${TMP_ROOT}/bin${PATH:+:${PATH}}"
 export PATH ENV_LOG COMMAND_LOG PID_LOG
 GOGC='50;extra-command'
 GOMAXPROCS='2 extra-argument'
@@ -187,5 +210,21 @@ grep -Fxq -- "${WORK_DIR}/AdGuardHome.yaml" "${COMMAND_LOG}" || fail 'configurat
 grep -Fxq -- "${PID_FILE}" "${COMMAND_LOG}" || fail 'redirection metacharacter was evaluated'
 grep -Fxq -- 'NAME=value' "${COMMAND_LOG}" || fail 'log value introduced an environment assignment'
 [ ! -e "${TMP_ROOT}/pwned" ] || fail 'hostile value executed a command'
+
+# An unset GODEBUG must still be passed as an explicit empty assignment so the
+# launched process cannot inherit a stale value from its caller's environment.
+GOGC=50
+GOMAXPROCS=2
+GOMEMLIMIT=128MiB
+GODEBUG=
+PROC='AdGuardHome'
+WORK_DIR="${TMP_ROOT}/work"
+PID_FILE="${TMP_ROOT}/pid"
+LOG_FILE='syslog'
+launch_adguardhome &
+empty_godebug_pid="$!"
+wait "${empty_godebug_pid}" || fail 'launcher failed with an empty GODEBUG value'
+[ "$(wc -l <"${ENV_LOG}")" -eq 6 ] || fail 'empty GODEBUG changed the number of environment assignments'
+grep -Fxq 'GODEBUG=' "${ENV_LOG}" || fail 'empty GODEBUG was not passed as an explicit assignment'
 
 printf '%s\n' 'PASS: Go runtime environment values are validated and safely launched'

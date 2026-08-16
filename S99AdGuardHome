@@ -43,6 +43,7 @@ agh_godebug_valid() {
 	esac
 	_agh_old_ifs="${IFS}"
 	IFS=,
+	# Intentional field splitting: each comma-delimited GODEBUG entry is validated separately.
 	for _agh_entry in ${_agh_godebug}; do
 		case "${_agh_entry}" in
 			*=*) ;;
@@ -90,6 +91,7 @@ launch_adguardhome() {
 		"${PROC}" -s run -c "${WORK_DIR}/AdGuardHome.yaml" -w "${WORK_DIR}" \
 		--pidfile "${PID_FILE}" --no-check-update -l "${LOG_FILE}"
 }
+ADGUARDHOME_LAUNCH_HELPER=1
 # Lower GOGC values reduce AdGuardHome memory growth, but increase garbage-collection CPU cost.
 GOGC="${ADGUARDHOME_GOGC:-50}"
 case "${GOGC}" in
