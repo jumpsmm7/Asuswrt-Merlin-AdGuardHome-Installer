@@ -48,7 +48,7 @@ ansi_red=''
 ansi_green=''
 ansi_std=''
 
-# launch_adguardhome launches AdGuardHome, recording an unexpected helper invocation when legacy launch mode is enabled.
+# launch_adguardhome invokes AdGuardHome unless legacy launch mode is enabled, in which case it records an unexpected helper invocation and fails.
 launch_adguardhome() {
 	if [ "${USE_LEGACY_LAUNCH:-0}" -eq 1 ]; then
 		: >"${TMP_ROOT}/unexpected-launch-helper"
@@ -227,6 +227,7 @@ cat >"${TMP_ROOT}/bin/OtherProc" <<'EOF'
 : >"${STARTED_FILE}"
 EOF
 chmod 755 "${TMP_ROOT}/bin/OtherProc" || fail 'could not make non-AdGuardHome legacy launcher executable'
+# launch_adguardhome records unexpected helper usage and returns failure.
 launch_adguardhome() {
 	: >"${TMP_ROOT}/unexpected-launch-helper"
 	return 1
