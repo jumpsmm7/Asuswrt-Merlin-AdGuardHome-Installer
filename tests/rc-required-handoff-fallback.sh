@@ -38,8 +38,6 @@ CRITICAL='yes'
 ENABLED='yes'
 DESC='AdGuardHome'
 PROC='AdGuardHome'
-PREARGS=''
-ARGS=''
 PRECMD='pre_hook'
 POSTCMD='post_hook'
 POSTFAILCMD='post_failure_hook'
@@ -49,6 +47,16 @@ ansi_yellow=''
 ansi_red=''
 ansi_green=''
 ansi_std=''
+
+# launch_adguardhome invokes AdGuardHome unless legacy launch mode is enabled, in which case it records an unexpected helper invocation and fails.
+launch_adguardhome() {
+	if [ "${USE_LEGACY_LAUNCH:-0}" -eq 1 ]; then
+		: >"${TMP_ROOT}/unexpected-launch-helper"
+		return 1
+	fi
+	AdGuardHome
+}
+ADGUARDHOME_LAUNCH_HELPER=1
 
 # service_mark_transition performs no action.
 service_mark_transition() {
@@ -156,8 +164,96 @@ grep -q '^pre_hook$' "${CALLS_FILE}" || fail 'no-handoff start skipped the pre-s
 grep -q '^post_hook$' "${CALLS_FILE}" || fail 'no-handoff start skipped the post-start hook'
 [ -f "${STARTED_FILE}" ] || fail 'no-handoff start did not launch AdGuardHome'
 
-# trap_snapshot writes dispositions in the current shell; command substitution
-# would reset caught traps in dash and other POSIX shells.
+# A partially published downgrade must use the older S99 PREARGS/ARGS contract.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}"
+LEGACY_LAUNCH_LOG="${TMP_ROOT}/legacy-launch"
+mkdir -p "${TMP_ROOT}/bin" || fail 'could not create legacy launcher directory'
+cat >"${TMP_ROOT}/bin/AdGuardHome" <<'EOF'
+#!/bin/sh
+{
+	printf '%s\n' "$#" "${LEGACY_ENV:-}"
+	printf '%s\n' "$@"
+} >"${LEGACY_LAUNCH_LOG}"
+: >"${STARTED_FILE}"
+EOF
+cat >"${TMP_ROOT}/bin/launch_adguardhome" <<'EOF'
+#!/bin/sh
+: >"${UNEXPECTED_PATH_HELPER}"
+exit 1
+EOF
+chmod 755 "${TMP_ROOT}/bin/AdGuardHome" || fail 'could not make legacy launcher executable'
+chmod 755 "${TMP_ROOT}/bin/launch_adguardhome" || fail 'could not make same-named PATH fixture executable'
+PATH="${TMP_ROOT}/bin:${PATH}"
+UNEXPECTED_PATH_HELPER="${TMP_ROOT}/unexpected-path-helper"
+export PATH LEGACY_LAUNCH_LOG STARTED_FILE UNEXPECTED_PATH_HELPER
+USE_LEGACY_LAUNCH=1
+ADGUARDHOME_LAUNCH_HELPER=0
+PREARGS='env LEGACY_ENV=safe-value'
+ARGS='--legacy-flag safe-argument'
+start >/dev/null || fail 'rc.func did not fall back for an older S99 script'
+[ -f "${STARTED_FILE}" ] || fail 'legacy PREARGS/ARGS fallback did not launch AdGuardHome'
+[ "$(sed -n '1p' "${LEGACY_LAUNCH_LOG}")" = 2 ] || fail 'legacy fallback changed the argument count'
+[ "$(sed -n '2p' "${LEGACY_LAUNCH_LOG}")" = safe-value ] || fail 'legacy fallback lost the environment value'
+[ "$(sed -n '3p' "${LEGACY_LAUNCH_LOG}")" = --legacy-flag ] || fail 'legacy fallback changed the first argument'
+[ "$(sed -n '4p' "${LEGACY_LAUNCH_LOG}")" = safe-argument ] || fail 'legacy fallback changed the second argument'
+[ "$(wc -l <"${LEGACY_LAUNCH_LOG}")" -eq 4 ] || fail 'legacy fallback added unexpected arguments'
+[ ! -e "${TMP_ROOT}/unexpected-launch-helper" ] || fail 'legacy fallback invoked the unmarked shell helper'
+[ ! -e "${UNEXPECTED_PATH_HELPER}" ] || fail 'legacy fallback invoked the same-named PATH executable'
+
+# A stale helper marker must not resolve a same-named executable from PATH.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${LEGACY_LAUNCH_LOG}" "${UNEXPECTED_PATH_HELPER}"
+unset -f launch_adguardhome
+ADGUARDHOME_LAUNCH_HELPER=1
+start >/dev/null || fail 'rc.func did not fall back when the marked launch helper function was absent'
+[ -f "${STARTED_FILE}" ] || fail 'missing launch helper function did not use the legacy fallback'
+[ -f "${LEGACY_LAUNCH_LOG}" ] || fail 'missing launch helper function did not preserve the legacy launch contract'
+[ ! -e "${UNEXPECTED_PATH_HELPER}" ] || fail 'stale helper marker invoked the same-named PATH executable'
+USE_LEGACY_LAUNCH=0
+ADGUARDHOME_LAUNCH_HELPER=1
+
+# The safe launch helper must only be used for the actual AdGuardHome
+# process; a differently named PROC must still use the legacy PREARGS/ARGS
+# contract even when a launch_adguardhome function is defined and enabled.
+: >"${CALLS_FILE}"
+rm -f "${STARTED_FILE}" "${LEGACY_LAUNCH_LOG}" "${UNEXPECTED_PATH_HELPER}" "${TMP_ROOT}/unexpected-launch-helper"
+cat >"${TMP_ROOT}/bin/OtherProc" <<'EOF'
+#!/bin/sh
+{
+	printf '%s\n' "$#" "${LEGACY_ENV:-}"
+	printf '%s\n' "$@"
+} >"${LEGACY_LAUNCH_LOG}"
+: >"${STARTED_FILE}"
+EOF
+chmod 755 "${TMP_ROOT}/bin/OtherProc" || fail 'could not make non-AdGuardHome legacy launcher executable'
+# launch_adguardhome records unexpected helper usage and returns failure.
+launch_adguardhome() {
+	: >"${TMP_ROOT}/unexpected-launch-helper"
+	return 1
+}
+ADGUARDHOME_LAUNCH_HELPER=1
+PROC='OtherProc'
+PREARGS='env LEGACY_ENV=safe-value'
+ARGS='--legacy-flag safe-argument'
+start >/dev/null || fail 'rc.func did not use the legacy contract for a non-AdGuardHome PROC'
+[ -f "${STARTED_FILE}" ] || fail 'non-AdGuardHome PROC did not launch through the legacy contract'
+[ "$(sed -n '1p' "${LEGACY_LAUNCH_LOG}")" = 2 ] || fail 'non-AdGuardHome PROC legacy launch changed the argument count'
+[ "$(sed -n '2p' "${LEGACY_LAUNCH_LOG}")" = safe-value ] || fail 'non-AdGuardHome PROC legacy launch lost the environment value'
+[ "$(sed -n '3p' "${LEGACY_LAUNCH_LOG}")" = --legacy-flag ] || fail 'non-AdGuardHome PROC legacy launch changed the first argument'
+[ "$(sed -n '4p' "${LEGACY_LAUNCH_LOG}")" = safe-argument ] || fail 'non-AdGuardHome PROC legacy launch changed the second argument'
+[ ! -e "${TMP_ROOT}/unexpected-launch-helper" ] || fail 'non-AdGuardHome PROC invoked the safe launch helper function'
+PROC='AdGuardHome'
+rm -f "${STARTED_FILE}" "${LEGACY_LAUNCH_LOG}"
+# Restore the normal helper fixture so the remaining startup, signal, and trap
+# cases continue to exercise the current S99/rc.func contract.
+launch_adguardhome() {
+	AdGuardHome
+}
+USE_LEGACY_LAUNCH=0
+ADGUARDHOME_LAUNCH_HELPER=1
+
+# trap_snapshot saves the current signal trap configuration to the specified file.
 trap_snapshot() {
 	trap >"$1"
 }

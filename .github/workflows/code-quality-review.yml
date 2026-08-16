@@ -40,28 +40,10 @@ jobs:
       - name: Install shell tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck shfmt ripgrep
-
-      - name: Run ShellCheck (static analysis)
-        run: |
-          echo "Running ShellCheck on all shell scripts..."
-          find . -type f -name "*.sh" | while read -r script; do
-            echo "Checking: $script"
-            shellcheck "$script" || true
-          done
-
-      - name: Run ShellFormat Check
-        run: |
-          echo "Checking shell script formatting..."
-          shfmt -d $(find . -type f -name "*.sh") || true
+          sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq
 
       - name: Run local code quality checks
-        run: |
-          set +e
-          tools/code-quality.sh > code-quality.log 2>&1
-          status=$?
-          cat code-quality.log
-          exit 0
+        run: sh tools/code-quality.sh
 
   sonarcloud:
     name: SonarCloud Code Analysis
