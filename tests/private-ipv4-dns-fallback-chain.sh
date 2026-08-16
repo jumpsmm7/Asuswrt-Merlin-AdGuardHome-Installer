@@ -60,7 +60,7 @@ have_cmd() { [ "$1" = ip ]; }
 # ip simulates the mocked network command used to provide route discovery output for bridge interfaces.
 ip() {
 	case "$*" in
-		'-o -4 addr show scope global'|'-4 addr show scope global') return 1 ;;
+		'-o -4 addr show scope global' | '-4 addr show scope global') return 1 ;;
 		'-o -4 addr show dev br5 scope global') printf '%s\n' '1: br5 inet 10.0.5.1/24 scope global br5' ;;
 		'-o -4 addr show dev br7 scope global') printf '%s\n' '2: br7 inet 10.0.7.1/24 scope global br7' ;;
 		'route show')
