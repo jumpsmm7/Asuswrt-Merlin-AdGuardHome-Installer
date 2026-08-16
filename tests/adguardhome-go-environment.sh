@@ -10,6 +10,7 @@ TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/agh-go-environment.XXXXXX")" || {
 }
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 
+# fail reports a test failure, removes the temporary workspace, and exits with an error.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	rm -rf "${TMP_ROOT}"

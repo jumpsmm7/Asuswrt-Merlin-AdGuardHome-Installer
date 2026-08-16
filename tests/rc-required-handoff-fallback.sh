@@ -48,6 +48,7 @@ ansi_red=''
 ansi_green=''
 ansi_std=''
 
+# launch_adguardhome launches AdGuardHome, recording an unexpected helper invocation when legacy launch mode is enabled.
 launch_adguardhome() {
 	if [ "${USE_LEGACY_LAUNCH:-0}" -eq 1 ]; then
 		: >"${TMP_ROOT}/unexpected-launch-helper"
@@ -203,7 +204,7 @@ USE_LEGACY_LAUNCH=0
 ADGUARDHOME_LAUNCH_HELPER=1
 
 # trap_snapshot writes dispositions in the current shell; command substitution
-# would reset caught traps in dash and other POSIX shells.
+# trap_snapshot saves the current signal trap configuration to the specified file.
 trap_snapshot() {
 	trap >"$1"
 }

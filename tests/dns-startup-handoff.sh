@@ -1311,11 +1311,13 @@ PRECMD='pre_hook'
 POSTCMD='post_hook'
 POSTFAILCMD='post_failure_hook'
 
+# launch_adguardhome launches AdGuardHome.
 launch_adguardhome() {
 	AdGuardHome
 }
 ADGUARDHOME_LAUNCH_HELPER=1
 
+# process_pids prints the simulated process ID when the startup marker file exists.
 process_pids() {
 	[ -f "${STARTED_FILE}" ] && printf '%s\n' 456
 }
