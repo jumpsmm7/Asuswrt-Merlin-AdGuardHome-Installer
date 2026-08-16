@@ -159,6 +159,12 @@ grep -q '^    - 0\.0\.0\.0$' "${TMP_ROOT}/wan.yaml" || fail 'WAN DNS bind host w
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan
+NET_ADDR=192.168.50.1
+BRIDGE_ADDRS='2: br1 inet 192.168.101.1/24 scope global br1'
+[ -z "$(setup_private_ipv4_bridge_dns_binds '')" ] || fail 'empty primary interface widened bridge DNS binds'
+
+reset_inputs
+ADGUARD_INSTALL_MODE=lan
 IP_AVAILABLE=1
 LAN_IFNAME=br0
 IPV4_FROM_IP=192.168.50.1

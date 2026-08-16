@@ -6525,6 +6525,7 @@ setup_private_ipv4_bridge_dns_binds() {
 
 	bridge_binds=""
 	primary_if="${1:-${SETUP_LAN_IF:-}}"
+	[ -n "${primary_if}" ] || return 0
 	if ai_have_cmd ip; then
 		bridge_binds="$(ip -o -4 addr show scope global 2>/dev/null | /usr/bin/awk -v lan_addr="${NET_ADDR}" -v primary_if="${primary_if}" '
 			function usable_ip(ip, octets) {

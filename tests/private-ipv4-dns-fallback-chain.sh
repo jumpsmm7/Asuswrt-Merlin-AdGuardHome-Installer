@@ -57,8 +57,9 @@ have_cmd() { [ "$1" = ip ]; }
 # ip simulates the mocked network command used to provide route discovery output for bridge interfaces.
 ip() {
 	case "$*" in
-		'-o -4 addr show scope global') return 0 ;;
-		'-4 addr show scope global') return 0 ;;
+		'-o -4 addr show scope global'|'-4 addr show scope global') return 1 ;;
+		'-o -4 addr show dev br5 scope global') printf '%s\n' '1: br5 inet 10.0.5.1/24 scope global br5' ;;
+		'-o -4 addr show dev br7 scope global') printf '%s\n' '2: br7 inet 10.0.7.1/24 scope global br7' ;;
 		'route show')
 			printf '%s\n' \
 				'10.0.5.0/24 dev br5 proto kernel scope link src 10.0.5.1' \
@@ -80,17 +81,35 @@ route_options="$(private_ipv4_route_dns_options br0)" || fail 'tier-2 route disc
 [ "${route_options}" = "$(printf '%s\n' 'br5 10.0.5.1' 'br7 10.0.7.1')" ] ||
 	fail "tier-2 route discovery incorrectly excluded br0 when it was not the primary interface (got: ${route_options})"
 
-# --- An empty tier 1 result falls through to tier 2, threading the primary interface the whole way ---
+# --- An unavailable tier 1 falls through to tier 2, threading the primary interface the whole way ---
 fallback_options="$(private_ipv4_bridge_dns_options_with_fallbacks br5)" || fail 'fallback chain failed to reach tier 2'
 [ "${fallback_options}" = 'br7 10.0.7.1' ] ||
 	fail "fallback chain did not use the tier-2 route discovery result (got: ${fallback_options})"
 
+# --- A successful scan with only rejected addresses never derives an unassigned route address ---
+ip() {
+	case "$*" in
+		'-o -4 addr show scope global') printf '%s\n' '2: br7 inet 10.0.7.2/24 scope global deprecated br7' ;;
+		'route show') printf '%s\n' '10.0.7.0/24 dev br7 proto kernel scope link src 10.0.7.1' ;;
+		*) return 1 ;;
+	esac
+}
+fallback_options="$(private_ipv4_bridge_dns_options_with_fallbacks br5)" || fail 'rejected-address scan failed'
+[ -z "${fallback_options}" ] || fail 'route fallback advertised an unassigned address after a successful empty scan'
+
 # have_cmd reports whether the requested command is the legacy `route` command.
-have_cmd() { [ "$1" = route ]; } # route emits mocked legacy routing entries for bridge interfaces br5 and br7.
+have_cmd() { [ "$1" = route ] || [ "$1" = ifconfig ]; } # route and ifconfig emit mocked legacy bridge state.
 route() {
 	printf '%s\n' \
 		'10.0.5.0       0.0.0.0         255.255.255.0   U     0      0        0 br5' \
 		'10.0.7.0       0.0.0.0         255.255.255.0   U     0      0        0 br7'
+}
+ifconfig() {
+	case "$1" in
+		br5) printf '%s\n' 'inet addr:10.0.5.1  Bcast:10.0.5.255  Mask:255.255.255.0' ;;
+		br7) printf '%s\n' 'inet addr:10.0.7.1  Bcast:10.0.7.255  Mask:255.255.255.0' ;;
+		*) return 1 ;;
+	esac
 }
 
 legacy_options="$(private_ipv4_legacy_route_dns_options br5)" || fail 'tier-3 legacy route discovery failed'

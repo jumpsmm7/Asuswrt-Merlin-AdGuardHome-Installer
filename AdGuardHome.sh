@@ -1464,11 +1464,12 @@ netcheck() {
 
 # private_ipv4_bridge_dns_options prints usable global IPv4 addresses assigned to secondary bridge interfaces.
 private_ipv4_bridge_dns_options() {
-	local BRIDGE_ADDR BRIDGE_IF LAN_IF OPTIONS
+	local ADDRESS_OUTPUT BRIDGE_ADDR BRIDGE_IF LAN_IF OPTIONS
 	LAN_IF="${1:-}"
 	[ -n "${LAN_IF}" ] || return 1
 	if have_cmd ip; then
-		OPTIONS="$(ip -o -4 addr show scope global 2>/dev/null | /usr/bin/awk -v lan_if="${LAN_IF}" '
+		if ADDRESS_OUTPUT="$(ip -o -4 addr show scope global 2>/dev/null)"; then
+			OPTIONS="$(printf '%s\n' "${ADDRESS_OUTPUT}" | /usr/bin/awk -v lan_if="${LAN_IF}" '
 			function usable_ip(ip, octets) {
 				split(ip, octets, ".")
 				return ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
@@ -1481,9 +1482,9 @@ private_ipv4_bridge_dns_options() {
 					}
 				}
 			}
-		')"
-		if [ -z "${OPTIONS}" ]; then
-			OPTIONS="$(ip -4 addr show scope global 2>/dev/null | /usr/bin/awk -v lan_if="${LAN_IF}" '
+			')"
+		elif ADDRESS_OUTPUT="$(ip -4 addr show scope global 2>/dev/null)"; then
+			OPTIONS="$(printf '%s\n' "${ADDRESS_OUTPUT}" | /usr/bin/awk -v lan_if="${LAN_IF}" '
 				function usable_ip(ip, octets) {
 					split(ip, octets, ".")
 					return ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
@@ -1496,7 +1497,9 @@ private_ipv4_bridge_dns_options() {
 					split($2, ip_addr, "/")
 					if (usable_ip(ip_addr[1]) && !seen[iface, ip_addr[1]]++) { print iface " " ip_addr[1] }
 				}
-			')"
+				')"
+		else
+			return 1
 		fi
 		printf '%s\n' "${OPTIONS}" | while read -r BRIDGE_IF BRIDGE_ADDR; do
 			[ -n "${BRIDGE_IF}" ] && [ -n "${BRIDGE_ADDR}" ] || continue
@@ -1508,19 +1511,53 @@ private_ipv4_bridge_dns_options() {
 	return 1
 }
 
+# private_ipv4_bridge_address_is_assigned checks that an IPv4 fallback address is currently assigned to its bridge.
+private_ipv4_bridge_address_is_assigned() {
+	local BRIDGE_ADDR BRIDGE_IF
+	BRIDGE_IF="${1:-}"
+	BRIDGE_ADDR="${2:-}"
+	[ -n "${BRIDGE_IF}" ] && [ -n "${BRIDGE_ADDR}" ] || return 1
+	if have_cmd ip; then
+		ip -o -4 addr show dev "${BRIDGE_IF}" scope global 2>/dev/null | /usr/bin/awk -v expected="${BRIDGE_ADDR}" '
+			{ for (i = 1; i < NF; i++) if ($i == "inet") { split($(i + 1), address, "/"); if (address[1] == expected) found = 1 } }
+			END { exit(found ? 0 : 1) }
+		'
+		return
+	fi
+	if have_cmd ifconfig; then
+		ifconfig "${BRIDGE_IF}" 2>/dev/null | /usr/bin/awk -v expected="${BRIDGE_ADDR}" '
+			{
+				for (i = 1; i <= NF; i++) {
+					address = $i
+					sub(/^addr:/, "", address)
+					if ((address == expected && $(i - 1) == "inet") || ($i ~ /^addr:/ && address == expected)) found = 1
+				}
+			}
+			END { exit(found ? 0 : 1) }
+		'
+		return
+	fi
+	return 1
+}
+
 # private_ipv4_bridge_dns_options_with_fallbacks selects IPv4 bridge DNS options for the specified LAN interface, using route-based and legacy fallbacks when needed.
 private_ipv4_bridge_dns_options_with_fallbacks() {
-	local LAN_IF OPTIONS
+	local BRIDGE_ADDR BRIDGE_IF LAN_IF OPTIONS
 	LAN_IF="${1:-}"
 	[ -n "${LAN_IF}" ] || return 1
-	OPTIONS="$(private_ipv4_bridge_dns_options "${LAN_IF}")"
-	if [ -z "${OPTIONS}" ]; then
-		OPTIONS="$(private_ipv4_route_dns_options "${LAN_IF}")"
+	if OPTIONS="$(private_ipv4_bridge_dns_options "${LAN_IF}")"; then
+		printf "%s\n" "${OPTIONS}"
+		return 0
 	fi
+	OPTIONS="$(private_ipv4_route_dns_options "${LAN_IF}")"
 	if [ -z "${OPTIONS}" ]; then
 		OPTIONS="$(private_ipv4_legacy_route_dns_options "${LAN_IF}")"
 	fi
-	printf "%s\n" "${OPTIONS}"
+	printf '%s\n' "${OPTIONS}" | while read -r BRIDGE_IF BRIDGE_ADDR; do
+		[ -n "${BRIDGE_IF}" ] && [ -n "${BRIDGE_ADDR}" ] || continue
+		private_ipv4_bridge_address_is_assigned "${BRIDGE_IF}" "${BRIDGE_ADDR}" || continue
+		printf '%s %s\n' "${BRIDGE_IF}" "${BRIDGE_ADDR}"
+	done
 }
 
 # private_ipv4_legacy_route_dns_options identifies private IPv4 router addresses for bridge interfaces other than the specified LAN interface and outputs interface-address pairs.
