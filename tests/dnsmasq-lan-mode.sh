@@ -12,6 +12,7 @@ IPSET_CALLS_FILE="${TEST_ROOT}/ipset-calls"
 UMOUNT_CALLS_FILE="${TEST_ROOT}/umount-calls"
 DNSMASQ_CONF_FILE="${TEST_ROOT}/dnsmasq.conf"
 DNSMASQ_SDN_CONF_FILE="${TEST_ROOT}/dnsmasq-1.conf"
+BRIDGE_FALLBACK_CALLS_FILE="${TEST_ROOT}/bridge-fallback-calls"
 
 # cleanup removes the test sandbox directory and its contents.
 cleanup() {
@@ -125,8 +126,8 @@ conf_value() {
 nvram() {
 	[ "$1" = 'get' ] || return 1
 	case "$2" in
-		rc_support) printf '%s\n' 'mtlancfg' ;;
-		lan_ifname) printf '%s\n' 'br0' ;;
+		rc_support) printf '%s\n' "${NVRAM_RC_SUPPORT:-mtlancfg}" ;;
+		lan_ifname) printf '%s\n' "${NVRAM_LAN_IFNAME:-br0}" ;;
 		lan_ipaddr) printf '%s\n' '192.168.50.1' ;;
 		ipv6_rtr_addr) printf '%s\n' 'fd00::1' ;;
 		*) return 1 ;;
@@ -173,11 +174,18 @@ IPSet_Refresh() {
 	printf '%s\n' "$1" >>"${IPSET_CALLS_FILE}"
 }
 
+# private_ipv4_bridge_dns_options_with_fallbacks records the LAN interface it was called with and emits the configured bridge DNS pairs.
+private_ipv4_bridge_dns_options_with_fallbacks() {
+	printf '%s\n' "$1" >>"${BRIDGE_FALLBACK_CALLS_FILE}"
+	[ -z "${BRIDGE_DNS_OPTIONS}" ] || printf '%s\n' "${BRIDGE_DNS_OPTIONS}"
+}
+
 # reset_case resets test logs, recorded calls, sandboxed dnsmasq configurations, and scenario state to their default values.
 reset_case() {
 	: >"${LOG_FILE}"
 	: >"${IPSET_CALLS_FILE}"
 	: >"${UMOUNT_CALLS_FILE}"
+	: >"${BRIDGE_FALLBACK_CALLS_FILE}"
 	printf '%s\n' '# base config' >"${DNSMASQ_CONF_FILE}" || fail 'could not reset base dnsmasq config'
 	printf '%s\n' '# sdn config' >"${DNSMASQ_SDN_CONF_FILE}" || fail 'could not reset sdn dnsmasq config'
 	DNS_HANDOFF_ACTIVE='0'
@@ -188,6 +196,9 @@ reset_case() {
 	CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
 	RESOLV_CONF_USES_ROM='1'
 	RESOLV_CONF_TMP_MOUNT='0'
+	unset NVRAM_RC_SUPPORT
+	NVRAM_LAN_IFNAME='br0'
+	BRIDGE_DNS_OPTIONS=''
 }
 
 # assert_no_ipset_refresh verifies that no IPSET refresh calls were recorded for the test case.
@@ -345,5 +356,74 @@ dnsmasq_action_handler || fail 'LAN stopped dnsmasq handoff path failed'
 	fail 'LAN stopped dnsmasq handoff path logged stopped dnsmasq skip reason'
 assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN stopped dnsmasq handoff path'
 assert_no_ipset_refresh 'LAN stopped dnsmasq handoff path'
+
+# Base-config generation threads the resolved primary LAN interface into the
+# bridge DNS fallback helper and writes a dhcp-option line per discovered pair.
+reset_case
+ADGUARD_INSTALL_MODE='wan'
+DNSMASQ_RUNNING='0'
+ADGUARD_RUNNING='1'
+ADGUARD_DNSMASQ_MODE='auto'
+CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
+NVRAM_LAN_IFNAME='br0'
+NVRAM_RC_SUPPORT='some_other_feature'
+BRIDGE_DNS_OPTIONS="$(printf '%s\n' 'br1 192.168.101.254' 'br2 192.168.102.1')"
+dnsmasq_action_handler || fail 'bridge DNS dhcp-option base config path failed'
+[ "$(cat "${BRIDGE_FALLBACK_CALLS_FILE}")" = 'br0' ] ||
+	fail 'bridge DNS fallback helper was not invoked with the resolved primary LAN interface'
+grep -q '^dhcp-option=br1,6,192\.168\.101\.254$' "${DNSMASQ_CONF_FILE}" ||
+	fail 'bridge DNS dhcp-option for the first discovered bridge was not written'
+grep -q '^dhcp-option=br2,6,192\.168\.102\.1$' "${DNSMASQ_CONF_FILE}" ||
+	fail 'bridge DNS dhcp-option for the second discovered bridge was not written'
+
+# A different resolved LAN interface is threaded through unchanged.
+reset_case
+ADGUARD_INSTALL_MODE='wan'
+DNSMASQ_RUNNING='0'
+ADGUARD_RUNNING='1'
+ADGUARD_DNSMASQ_MODE='auto'
+CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
+NVRAM_LAN_IFNAME='br9'
+NVRAM_RC_SUPPORT='other_feature'
+BRIDGE_DNS_OPTIONS="$(printf '%s\n' 'br0 192.168.50.254')"
+dnsmasq_action_handler || fail 'bridge DNS dhcp-option path failed for a non-br0 primary interface'
+[ "$(cat "${BRIDGE_FALLBACK_CALLS_FILE}")" = 'br9' ] ||
+	fail 'bridge DNS fallback helper did not receive the non-br0 primary LAN interface'
+grep -q '^dhcp-option=br0,6,192\.168\.50\.254$' "${DNSMASQ_CONF_FILE}" ||
+	fail 'bridge DNS dhcp-option for a secondary br0 bridge was not written'
+
+# Incomplete interface/address pairs from the fallback helper are skipped without writing malformed options.
+reset_case
+ADGUARD_INSTALL_MODE='wan'
+DNSMASQ_RUNNING='0'
+ADGUARD_RUNNING='1'
+ADGUARD_DNSMASQ_MODE='auto'
+CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
+NVRAM_LAN_IFNAME='br0'
+NVRAM_RC_SUPPORT='other_feature'
+BRIDGE_DNS_OPTIONS="$(printf '%s\n' 'br1 192.168.101.254' 'br2' '' 'br3 192.168.103.1')"
+dnsmasq_action_handler || fail 'bridge DNS dhcp-option path failed with an incomplete discovery pair'
+grep -q '^dhcp-option=br1,6,192\.168\.101\.254$' "${DNSMASQ_CONF_FILE}" ||
+	fail 'bridge DNS dhcp-option before the incomplete pair was not written'
+grep -q '^dhcp-option=br3,6,192\.168\.103\.1$' "${DNSMASQ_CONF_FILE}" ||
+	fail 'bridge DNS dhcp-option after the incomplete pair was not written'
+! grep -q '^dhcp-option=br2,6,$' "${DNSMASQ_CONF_FILE}" ||
+	fail 'bridge DNS dhcp-option was written for an interface without an address'
+
+# The mtlancfg rc_support flag skips bridge DNS discovery entirely for the base config.
+reset_case
+ADGUARD_INSTALL_MODE='wan'
+DNSMASQ_RUNNING='0'
+ADGUARD_RUNNING='1'
+ADGUARD_DNSMASQ_MODE='auto'
+CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
+NVRAM_LAN_IFNAME='br0'
+NVRAM_RC_SUPPORT='mtlancfg'
+BRIDGE_DNS_OPTIONS="$(printf '%s\n' 'br1 192.168.101.254')"
+dnsmasq_action_handler || fail 'mtlancfg bridge DNS skip path failed'
+[ ! -s "${BRIDGE_FALLBACK_CALLS_FILE}" ] ||
+	fail 'mtlancfg rc_support unexpectedly invoked the bridge DNS fallback helper'
+! grep -q '^dhcp-option=br1,6,192\.168\.101\.254$' "${DNSMASQ_CONF_FILE}" ||
+	fail 'mtlancfg rc_support unexpectedly wrote a secondary bridge dhcp-option'
 
 printf '%s\n' 'dnsmasq LAN-mode tests passed.'

@@ -128,4 +128,61 @@ have_cmd() { return 1; }
 fallback_options="$(private_ipv4_bridge_dns_options_with_fallbacks br5)"
 [ -z "${fallback_options}" ] || fail 'fallback chain produced output with no available discovery commands'
 
+# --- private_ipv4_bridge_address_is_assigned is exercised directly, independent of the fallback chain ---
+
+if private_ipv4_bridge_address_is_assigned; then
+	fail 'private_ipv4_bridge_address_is_assigned accepted missing interface and address arguments'
+fi
+if private_ipv4_bridge_address_is_assigned br5; then
+	fail 'private_ipv4_bridge_address_is_assigned accepted a missing address argument'
+fi
+if private_ipv4_bridge_address_is_assigned '' 10.0.5.1; then
+	fail 'private_ipv4_bridge_address_is_assigned accepted a missing interface argument'
+fi
+
+# have_cmd reports that only `ip` is available for the assignment-check tests.
+have_cmd() { [ "$1" = ip ]; }
+# ip simulates addresses currently assigned to the requested bridge device.
+ip() {
+	case "$*" in
+		'-o -4 addr show dev br5 scope global')
+			printf '%s\n' '1: br5 inet 10.0.5.1/24 brd 10.0.5.255 scope global br5'
+			;;
+		'-o -4 addr show dev br9 scope global') return 1 ;;
+		*) return 1 ;;
+	esac
+}
+private_ipv4_bridge_address_is_assigned br5 10.0.5.1 ||
+	fail 'private_ipv4_bridge_address_is_assigned rejected an address currently assigned via ip'
+if private_ipv4_bridge_address_is_assigned br5 10.0.5.2; then
+	fail 'private_ipv4_bridge_address_is_assigned accepted an address not assigned to the bridge'
+fi
+if private_ipv4_bridge_address_is_assigned br9 10.0.9.1; then
+	fail 'private_ipv4_bridge_address_is_assigned accepted an address for an interface with no ip output'
+fi
+
+# have_cmd reports that only `ifconfig` is available, exercising the legacy fallback path.
+have_cmd() { [ "$1" = ifconfig ]; }
+# ifconfig simulates BusyBox-style and legacy net-tools-style address output for the requested bridge.
+ifconfig() {
+	case "$1" in
+		br5) printf '%s\n' 'br5       Link encap:Ethernet  HWaddr 00:11:22:33:44:55  ' 'inet addr:10.0.5.1  Bcast:10.0.5.255  Mask:255.255.255.0' ;;
+		br7) printf '%s\n' 'br7: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500' 'inet 10.0.7.1  netmask 255.255.255.0  broadcast 10.0.7.255' ;;
+		*) return 1 ;;
+	esac
+}
+private_ipv4_bridge_address_is_assigned br5 10.0.5.1 ||
+	fail 'private_ipv4_bridge_address_is_assigned rejected a legacy "addr:" formatted ifconfig address'
+private_ipv4_bridge_address_is_assigned br7 10.0.7.1 ||
+	fail 'private_ipv4_bridge_address_is_assigned rejected a modern unlabeled ifconfig address'
+if private_ipv4_bridge_address_is_assigned br5 10.0.5.9; then
+	fail 'private_ipv4_bridge_address_is_assigned accepted an address absent from ifconfig output'
+fi
+
+# Neither `ip` nor `ifconfig` is available; the assignment check must fail closed.
+have_cmd() { return 1; }
+if private_ipv4_bridge_address_is_assigned br5 10.0.5.1; then
+	fail 'private_ipv4_bridge_address_is_assigned accepted an address with no discovery command available'
+fi
+
 printf '%s\n' 'PASS: private IPv4 bridge DNS fallback chain requires and threads the primary LAN interface through every tier'
