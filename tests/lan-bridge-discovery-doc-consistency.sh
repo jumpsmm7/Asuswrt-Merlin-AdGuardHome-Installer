@@ -7,7 +7,11 @@ set -u
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
 README_PATH="${2:-README.md}"
 WIKI_PATH="${3:-WIKI.md}"
-TMP_ROOT="${TMPDIR:-/tmp}/lan-bridge-discovery-doc-consistency.$$"
+umask 077
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/lan-bridge-discovery-doc-consistency.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create secure test directory' >&2
+	exit 1
+}
 BRIDGE_FUNCTION_FILE="${TMP_ROOT}/private_ipv4_bridge_dns_options"
 
 # cleanup removes the temporary test directory and its contents.
@@ -27,7 +31,6 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${SCRIPT_PATH}" ] || fail "script not found: ${SCRIPT_PATH}"
 [ -f "${README_PATH}" ] || fail "README not found: ${README_PATH}"
 [ -f "${WIKI_PATH}" ] || fail "WIKI not found: ${WIKI_PATH}"
-mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n '/^private_ipv4_bridge_dns_options() {$/,/^}$/p' "${SCRIPT_PATH}" >"${BRIDGE_FUNCTION_FILE}" ||
 	fail 'could not extract private_ipv4_bridge_dns_options'

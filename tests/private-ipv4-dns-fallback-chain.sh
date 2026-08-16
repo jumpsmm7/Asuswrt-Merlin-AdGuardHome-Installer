@@ -6,7 +6,11 @@
 set -u
 
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
-TMP_ROOT="${TMPDIR:-/tmp}/private-ipv4-dns-fallback-chain.$$"
+umask 077
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/private-ipv4-dns-fallback-chain.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create secure test directory' >&2
+	exit 1
+}
 FUNCTION_FILE="${TMP_ROOT}/functions"
 
 # cleanup removes the temporary test directory and its contents.
@@ -22,7 +26,6 @@ fail() {
 
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
-mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n '/^private_ipv4_bridge_dns_options() {$/,/^resolv_conf_is_tmp_mount() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTION_FILE}" ||
 	fail 'could not extract bridge DNS fallback helpers'
