@@ -227,6 +227,7 @@ run_check 'AdGuardHome S99 startup readiness regression' sh tests/s99-startup-re
 run_check 'AdGuardHome stop failure regression' sh tests/stop-adguardhome-failure.sh
 run_check 'AdGuardHome monitor retry backoff regression' sh tests/monitor-retry-backoff.sh
 run_check 'AdGuardHome proc setting ownership regression' sh tests/adguardhome-proc-settings.sh
+run_check 'AdGuardHome Go runtime environment regression' sh tests/adguardhome-go-environment.sh
 run_check 'AdGuardHome scoped configuration regression' sh tests/adguardhome-scoped-config.sh
 run_check 'AdGuardHome legacy netcheck regression' sh tests/netcheck-legacy.sh
 run_check 'AdGuardHome DNS startup handoff regression' run_dns_handoff_check

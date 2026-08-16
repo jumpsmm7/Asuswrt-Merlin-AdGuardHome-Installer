@@ -42,6 +42,7 @@ OPTIONAL_DATABASE_OUT_FILE="${TMP_ROOT}/optional-database.out"
 OPTIONAL_DATABASE_FAIL_OUT_FILE="${TMP_ROOT}/optional-database-fail.out"
 OPTIONAL_DATABASE_RAN_FILE="${TMP_ROOT}/optional-database.ran"
 WRITABLE_PATH_RAN_FILE="${TMP_ROOT}/writable-path.ran"
+GO_ENVIRONMENT_RAN_FILE="${TMP_ROOT}/go-environment.ran"
 (
 	OPTIONAL_DATABASE_STATUS=0
 	# id prints a root user ID for privileged-command tests.
@@ -64,11 +65,17 @@ WRITABLE_PATH_RAN_FILE="${TMP_ROOT}/writable-path.ran"
 				: >"${WRITABLE_PATH_RAN_FILE}"
 				return 0
 				;;
+			tests/adguardhome-go-environment.sh)
+				: >"${GO_ENVIRONMENT_RAN_FILE}"
+				return 0
+				;;
 		esac
 		return 1
 	}
 	run_writable_path_security_check || exit 1
 	FAILED=0
+	run_check 'AdGuardHome Go runtime environment regression' sh tests/adguardhome-go-environment.sh || exit 1
+	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'AdGuardHome optional database link regression' run_optional_database_link_check >"${OPTIONAL_DATABASE_OUT_FILE}" 2>&1
 	[ "$?" -eq 0 ] || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
@@ -79,6 +86,7 @@ WRITABLE_PATH_RAN_FILE="${TMP_ROOT}/writable-path.ran"
 	[ "${FAILED}" -eq 1 ] || exit 1
 ) || fail 'root privileged regression dispatch status accounting failed'
 [ -f "${WRITABLE_PATH_RAN_FILE}" ] || fail 'writable-path security regression command was not invoked'
+[ -f "${GO_ENVIRONMENT_RAN_FILE}" ] || fail 'Go runtime environment regression command was not invoked'
 [ -f "${OPTIONAL_DATABASE_RAN_FILE}" ] || fail 'optional database-link regression command was not invoked'
 grep -Fq 'Optional database link tests passed.' "${OPTIONAL_DATABASE_OUT_FILE}" ||
 	fail 'optional database-link regression output was not forwarded'

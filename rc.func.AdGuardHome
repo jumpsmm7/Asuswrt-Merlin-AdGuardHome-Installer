@@ -482,10 +482,14 @@ start() {
 		fi
 	fi
 	{
-		${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null &
+		if [ "${ADGUARDHOME_LAUNCH_HELPER:-0}" = "1" ] && [ "${PROC}" = "AdGuardHome" ]; then
+			launch_adguardhome >/dev/null 2>&1 </dev/null &
+		else
+			# Compatibility for a partially published downgrade with an older S99 script.
+			${PREARGS} ${PROC} ${ARGS} >/dev/null 2>&1 </dev/null &
+		fi
 		LAUNCH_PID="$!"
 	}
-	#echo ${PREARGS} ${PROC} ${ARGS}
 	if ! process_wait_for_start "${PROC}" 10; then
 		stop_launched_process "${LAUNCH_PID}"
 		if [ -n "${POSTFAILCMD:-}" ]; then

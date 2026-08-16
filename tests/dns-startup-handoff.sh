@@ -1307,11 +1307,14 @@ CRITICAL='yes'
 ENABLED='yes'
 DESC='AdGuardHome'
 PROC='AdGuardHome'
-PREARGS=''
-ARGS=''
 PRECMD='pre_hook'
 POSTCMD='post_hook'
 POSTFAILCMD='post_failure_hook'
+
+launch_adguardhome() {
+	AdGuardHome
+}
+ADGUARDHOME_LAUNCH_HELPER=1
 
 process_pids() {
 	[ -f "${STARTED_FILE}" ] && printf '%s\n' 456
