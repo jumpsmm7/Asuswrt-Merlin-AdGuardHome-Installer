@@ -21,7 +21,8 @@ fail() {
 	exit 1
 }
 
-trap 'rm -rf "${TMP_ROOT}"' 0 HUP INT TERM
+trap 'rm -rf "${TMP_ROOT}"' 0
+trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
 
 # review_checker_is_enforced verifies that the shared checker runs directly and
 # that neither its step nor its local-quality job suppresses a failure.
