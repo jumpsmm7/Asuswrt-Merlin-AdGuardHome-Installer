@@ -6,6 +6,7 @@ set -u
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
 TMP_FILE="${TMPDIR:-/tmp}/lan-primary-address-selection.$$"
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -19,8 +20,10 @@ sed -n '/^interface_ipv4_addr() {$/,/^}$/p; /^interface_ipv6_addr() {$/,/^}$/p' 
 # shellcheck disable=SC1090
 . "${TMP_FILE}"
 
+# have_cmd checks whether the requested command is `ip`.
 have_cmd() { [ "$1" = ip ]; }
 
+# ip simulates address-listing output for the test interfaces.
 ip() {
 	case "$*" in
 		'-o -4 addr list br0 scope global')
@@ -63,7 +66,7 @@ ip() {
 if interface_ipv4_addr ''; then fail 'interface_ipv4_addr accepted an empty interface argument'; fi
 if interface_ipv6_addr ''; then fail 'interface_ipv6_addr accepted an empty interface argument'; fi
 
-# When the ip command is unavailable, neither helper can report an address.
+# have_cmd reports that the requested command is unavailable.
 have_cmd() { return 1; }
 [ -z "$(interface_ipv4_addr br0)" ] || fail 'IPv4 selection returned an address without the ip command available'
 [ -z "$(interface_ipv6_addr br0)" ] || fail 'IPv6 selection returned an address without the ip command available'

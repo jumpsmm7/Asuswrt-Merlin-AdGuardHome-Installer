@@ -1051,7 +1051,7 @@ interface_ipv4_addr() {
 		}'
 }
 
-# interface_ipv6_addr returns the first global IPv6 address assigned to the specified interface.
+# interface_ipv6_addr prints the first usable global IPv6 address assigned to the specified interface.
 interface_ipv6_addr() {
 	local IFACE
 	IFACE="$1"
@@ -1077,7 +1077,7 @@ ipv4_is_usable_unicast() {
 	'
 }
 
-# adguard_refresh_lan_bind_addresses updates AdGuardHome's LAN WebUI address and DNS bind hosts in the YAML configuration.
+# adguard_refresh_lan_bind_addresses updates AdGuardHome's LAN WebUI address and DNS bind hosts in the YAML configuration, preserving the active configuration when staging or validation fails.
 adguard_refresh_lan_bind_addresses() {
 	local ACTIVE_MD5 BIND_HOSTS LAN_ADDR LAN_ADDR6 LAN_IF NVRAM_ADDR6 REWRITE_FILE STAGED_MD5 TEMP_FILE WEB_PORT YAML_DIR
 	LAN_BIND_ADDRESSES_CHANGED="0"
@@ -1396,6 +1396,7 @@ netcheck_legacy() {
 	done
 }
 
+# netcheck verifies system time and network connectivity according to the configured mode, DNS hosts, and optional HTTP requirement.
 netcheck() {
 	local dns_ok dns_server hosts http_required mode ping_ok timeout waited
 	mode="$(netcheck_config ADGUARD_NETCHECK_MODE "${DEFAULT_ADGUARD_NETCHECK_MODE}")"
@@ -1507,6 +1508,7 @@ private_ipv4_bridge_dns_options() {
 	return 1
 }
 
+# private_ipv4_bridge_dns_options_with_fallbacks selects IPv4 bridge DNS options for the specified LAN interface, using route-based and legacy fallbacks when needed.
 private_ipv4_bridge_dns_options_with_fallbacks() {
 	local LAN_IF OPTIONS
 	LAN_IF="${1:-}"
@@ -1521,6 +1523,7 @@ private_ipv4_bridge_dns_options_with_fallbacks() {
 	printf "%s\n" "${OPTIONS}"
 }
 
+# private_ipv4_legacy_route_dns_options identifies private IPv4 router addresses for bridge interfaces other than the specified LAN interface and outputs interface-address pairs.
 private_ipv4_legacy_route_dns_options() {
 	local LAN_IF
 	LAN_IF="${1:-}"
@@ -1545,6 +1548,7 @@ private_ipv4_legacy_route_dns_options() {
 	'
 }
 
+# private_ipv4_route_dns_options lists non-LAN bridge interfaces and their private IPv4 DNS source addresses.
 private_ipv4_route_dns_options() {
 	local LAN_IF
 	LAN_IF="${1:-}"

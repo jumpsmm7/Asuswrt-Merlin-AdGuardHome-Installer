@@ -33,9 +33,10 @@ sed -n '/^private_ipv4_bridge_dns_options() {$/,/^resolv_conf_is_tmp_mount() {$/
 # agh_log discards bridge-discovery log lines; only discovery output is under test here.
 agh_log() { :; }
 
-# --- Every tier rejects a missing primary LAN interface argument ---
+# have_cmd reports whether the requested command is available for the test.
 have_cmd() { [ "$1" = ip ] || [ "$1" = route ]; }
 ip() { return 1; }
+# route simulates an unavailable legacy route command by returning failure.
 route() { return 1; }
 
 if private_ipv4_bridge_dns_options; then
@@ -51,8 +52,9 @@ if private_ipv4_legacy_route_dns_options; then
 	fail 'private_ipv4_legacy_route_dns_options accepted a missing LAN interface argument'
 fi
 
-# --- Tier 2 (`ip route show`) excludes the actual primary LAN interface, not a hardcoded br0 ---
+# have_cmd reports whether the requested command is available for the test.
 have_cmd() { [ "$1" = ip ]; }
+# ip simulates the mocked network command used to provide route discovery output for bridge interfaces.
 ip() {
 	case "$*" in
 		'-o -4 addr show scope global') return 0 ;;
@@ -83,8 +85,8 @@ fallback_options="$(private_ipv4_bridge_dns_options_with_fallbacks br5)" || fail
 [ "${fallback_options}" = 'br7 10.0.7.1' ] ||
 	fail "fallback chain did not use the tier-2 route discovery result (got: ${fallback_options})"
 
-# --- Tier 3 (legacy `route`) excludes the actual primary LAN interface, not a hardcoded br0 ---
-have_cmd() { [ "$1" = route ]; } # 'ip' unavailable forces tiers 1 and 2 to fail over to tier 3.
+# have_cmd reports whether the requested command is the legacy `route` command.
+have_cmd() { [ "$1" = route ]; } # route emits mocked legacy routing entries for bridge interfaces br5 and br7.
 route() {
 	printf '%s\n' \
 		'10.0.5.0       0.0.0.0         255.255.255.0   U     0      0        0 br5' \

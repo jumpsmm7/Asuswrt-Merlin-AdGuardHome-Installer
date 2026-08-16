@@ -43,7 +43,7 @@ export ADGUARDHOME_BINARY CALLS_FILE
 
 adguard_lan_mode() { return 0; }
 have_cmd() { return 0; }
-# ip returns duplicate and distinct private addresses in both router address formats.
+# ip emits mock interface address data in fast or fallback format, including duplicate and distinct private addresses.
 ip() {
 	if [ "${IP_OUTPUT_MODE:-fast}" = "fallback" ] && [ "${1:-}" = "-o" ]; then
 		return 0
