@@ -245,8 +245,14 @@ start >/dev/null || fail 'rc.func did not use the legacy contract for a non-AdGu
 [ ! -e "${TMP_ROOT}/unexpected-launch-helper" ] || fail 'non-AdGuardHome PROC invoked the safe launch helper function'
 PROC='AdGuardHome'
 rm -f "${STARTED_FILE}" "${LEGACY_LAUNCH_LOG}"
+# Restore the normal helper fixture so the remaining startup, signal, and trap
+# cases continue to exercise the current S99/rc.func contract.
+launch_adguardhome() {
+	AdGuardHome
+}
+USE_LEGACY_LAUNCH=0
+ADGUARDHOME_LAUNCH_HELPER=1
 
-# trap_snapshot writes dispositions in the current shell; command substitution
 # trap_snapshot saves the current signal trap configuration to the specified file.
 trap_snapshot() {
 	trap >"$1"

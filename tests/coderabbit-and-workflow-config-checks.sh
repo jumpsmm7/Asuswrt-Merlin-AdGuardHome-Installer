@@ -1,6 +1,6 @@
 #!/bin/sh
-# Regression test for .coderabbit.yaml and .github/workflows/code-quality.yml.
-# Neither file is shell code, so shellcheck/shfmt never look at them; this is
+# Regression test for .coderabbit.yaml and the code-quality workflows.
+# These files are not shell code, so shellcheck/shfmt never look at them; this is
 # the only guard against YAML-breaking tab indentation and against the
 # checked-in review/CI configuration silently drifting away from the files
 # and scripts it is supposed to cover.
@@ -9,6 +9,7 @@ set -u
 
 CODERABBIT='.coderabbit.yaml'
 WORKFLOW='.github/workflows/code-quality.yml'
+REVIEW_WORKFLOW='.github/workflows/code-quality-review.yml'
 
 # fail reports a failure message to standard error and exits with status 1.
 fail() {
@@ -16,7 +17,7 @@ fail() {
 	exit 1
 }
 
-for f in "${CODERABBIT}" "${WORKFLOW}"; do
+for f in "${CODERABBIT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}"; do
 	[ -f "${f}" ] || fail "expected config file not found: ${f}"
 done
 
@@ -24,7 +25,7 @@ done
 # GitHub Actions both treat tabs as invalid/undefined indentation, and a tab
 # introduced by an editor would not be caught by any shell-focused linter.
 TAB=$(printf '\t')
-for f in "${CODERABBIT}" "${WORKFLOW}"; do
+for f in "${CODERABBIT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}"; do
 	if grep -Fq "${TAB}" "${f}"; then
 		fail "${f}: contains literal tab character(s); YAML/workflow indentation must use spaces"
 	fi
@@ -68,10 +69,21 @@ awk '
 grep -Fq 'sh tools/code-quality.sh' "${WORKFLOW}" || fail "${WORKFLOW}: expected the quality job to run 'sh tools/code-quality.sh'"
 [ -f 'tools/code-quality.sh' ] || fail "tools/code-quality.sh referenced by ${WORKFLOW} does not exist"
 
+# --- The advisory review workflow must exercise the same orchestrator and
+# allow its status to fail the job. Keeping a second, best-effort list of
+# linters or forcing exit 0 can hide a broken regression pathway.
+grep -Fq 'run: sh tools/code-quality.sh' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: expected the review job to run 'sh tools/code-quality.sh' directly"
+if grep -Eq 'shellcheck .*\|\| true|shfmt .*\|\| true|exit 0' "${REVIEW_WORKFLOW}"; then
+	fail "${REVIEW_WORKFLOW}: quality failures must propagate to the review job"
+fi
+grep -Fq 'sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: expected the same host-side dependencies as the blocking quality workflow"
+
 # --- The workflow must run on pull_request and push to guard both the PR and
 # the branch it merges into; dropping either trigger would silently reduce
 # coverage without any other check noticing.
 grep -Eq '^[[:space:]]*pull_request:' "${WORKFLOW}" || fail "${WORKFLOW}: expected an 'on: pull_request' trigger"
 grep -Eq '^[[:space:]]*push:' "${WORKFLOW}" || fail "${WORKFLOW}: expected an 'on: push' trigger"
 
-printf '%s\n' 'PASS: .coderabbit.yaml and code-quality.yml keep required structure and stay pointed at real files'
+printf '%s\n' 'PASS: .coderabbit.yaml and code-quality workflows keep required structure and execute real checks'
