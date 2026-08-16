@@ -53,7 +53,7 @@ launch_adguardhome() {
 	AdGuardHome
 }
 
-# type can simulate whether the legacy launch contract is required, then delegates other type checks to the shell.
+# type determines whether the legacy launch contract is required for `launch_adguardhome` and delegates other type checks to the shell.
 type() {
 	if [ "${USE_LEGACY_LAUNCH:-0}" -eq 1 ] && [ "${1:-}" = "launch_adguardhome" ]; then
 		return 1
