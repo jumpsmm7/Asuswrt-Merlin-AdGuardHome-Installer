@@ -58,6 +58,9 @@ jobs:
       - name: Run process signaling regression with BusyBox ash
         run: busybox ash tests/rc-process-signaling.sh
 
+      - name: Run bounded service lifecycle integration matrix
+        run: busybox ash tests/service-lifecycle-integration.sh
+
       - name: Run optional database link regression
         run: sudo -n busybox ash tests/optional-database-links.sh
 
