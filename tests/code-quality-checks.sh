@@ -45,6 +45,7 @@ WRITABLE_PATH_RAN_FILE="${TMP_ROOT}/writable-path.ran"
 GO_ENVIRONMENT_RAN_FILE="${TMP_ROOT}/go-environment.ran"
 LAN_BRIDGE_DOC_RAN_FILE="${TMP_ROOT}/lan-bridge-doc.ran"
 PRIVATE_IPV4_FALLBACK_RAN_FILE="${TMP_ROOT}/private-ipv4-fallback.ran"
+PROCESS_SIGNALING_RAN_FILE="${TMP_ROOT}/process-signaling.ran"
 (
 	OPTIONAL_DATABASE_STATUS=0
 	# id prints a root user ID for privileged-command tests.
@@ -75,6 +76,10 @@ PRIVATE_IPV4_FALLBACK_RAN_FILE="${TMP_ROOT}/private-ipv4-fallback.ran"
 				: >"${PRIVATE_IPV4_FALLBACK_RAN_FILE}"
 				return 0
 				;;
+			tests/rc-process-signaling.sh)
+				: >"${PROCESS_SIGNALING_RAN_FILE}"
+				return 0
+				;;
 			tests/lan-bridge-discovery-doc-consistency.sh)
 				: >"${LAN_BRIDGE_DOC_RAN_FILE}"
 				return 0
@@ -87,6 +92,8 @@ PRIVATE_IPV4_FALLBACK_RAN_FILE="${TMP_ROOT}/private-ipv4-fallback.ran"
 	run_check 'AdGuardHome Go runtime environment regression' sh tests/adguardhome-go-environment.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'Private IPv4 DNS fallback chain regression' sh tests/private-ipv4-dns-fallback-chain.sh || exit 1
+	[ "${FAILED}" -eq 0 ] || exit 1
+	run_check 'AdGuardHome process signaling regression' sh tests/rc-process-signaling.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'LAN bridge discovery documentation consistency regression' sh tests/lan-bridge-discovery-doc-consistency.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
@@ -102,6 +109,7 @@ PRIVATE_IPV4_FALLBACK_RAN_FILE="${TMP_ROOT}/private-ipv4-fallback.ran"
 [ -f "${WRITABLE_PATH_RAN_FILE}" ] || fail 'writable-path security regression command was not invoked'
 [ -f "${GO_ENVIRONMENT_RAN_FILE}" ] || fail 'Go runtime environment regression command was not invoked'
 [ -f "${PRIVATE_IPV4_FALLBACK_RAN_FILE}" ] || fail 'private IPv4 fallback regression command was not invoked'
+[ -f "${PROCESS_SIGNALING_RAN_FILE}" ] || fail 'process signaling regression command was not invoked'
 [ -f "${LAN_BRIDGE_DOC_RAN_FILE}" ] || fail 'LAN bridge documentation regression command was not invoked'
 [ -f "${OPTIONAL_DATABASE_RAN_FILE}" ] || fail 'optional database-link regression command was not invoked'
 grep -Fq 'Optional database link tests passed.' "${OPTIONAL_DATABASE_OUT_FILE}" ||

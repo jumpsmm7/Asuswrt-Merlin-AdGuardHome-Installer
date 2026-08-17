@@ -2,7 +2,7 @@
 
 set -u
 
-ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ROOT_DIR=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
 HELPERS=$(sed -n '/^process_pids() {/,/^# Service action helpers/p' "${ROOT_DIR}/rc.func.AdGuardHome")
 
 fail() {

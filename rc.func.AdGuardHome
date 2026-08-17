@@ -105,7 +105,7 @@ signal_process() {
 	fi
 	[ "${_PIDOF_STATUS}" -eq 0 ] || return "${_PIDOF_STATUS}"
 	_VALID_PIDS="$(
-		printf '%s\n' "${_PIDS}" | awk '
+		printf '%s\n' "${_PIDS}" | /usr/bin/awk '
 			{
 				for (field = 1; field <= NF; field++) {
 					pid = $field
