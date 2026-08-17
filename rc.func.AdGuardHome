@@ -42,7 +42,7 @@ process_pid_matches() {
 	_PID="$1"
 	_PROC="$2"
 	[ -r "/proc/${_PID}/comm" ] || return 1
-	IFS= read -r _COMM < "/proc/${_PID}/comm" || return 1
+	IFS= read -r _COMM <"/proc/${_PID}/comm" || return 1
 	[ "${_COMM}" = "${_PROC}" ]
 }
 
