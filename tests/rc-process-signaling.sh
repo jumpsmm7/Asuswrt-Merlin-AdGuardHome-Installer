@@ -129,41 +129,32 @@ esac
 DEPS_ROOT=$(mktemp -d) || fail 'unable to create exclusive dependency-check test directory'
 trap 'rm -rf "${GLOB_ROOT}" "${DEPS_ROOT}"' 0
 trap 'rm -rf "${GLOB_ROOT}" "${DEPS_ROOT}"; exit 1' HUP INT TERM
-mkdir -p "${DEPS_ROOT}/bin" || fail 'unable to create fake command directory'
 
 # All commands rc_dependencies_available actually requires must be reported
 # available (killall is deliberately absent, proving it is no longer checked).
-cat >"${DEPS_ROOT}/bin/which" <<'EOF' || fail 'unable to write fake which for the full-dependency case'
-#!/bin/sh
-case "$1" in
-	awk | chmod | date | dirname | grep | kill | logger | ls | mkdir | mv | pidof | rm | sleep) exit 0 ;;
-	*) exit 1 ;;
-esac
-EOF
-chmod +x "${DEPS_ROOT}/bin/which" || fail 'unable to make fake which executable'
 (
-	PATH="${DEPS_ROOT}/bin"
-	export PATH
 	CALLER=rc-dependency-test
+	which() {
+		case "$1" in
+			awk | chmod | date | dirname | grep | kill | logger | ls | mkdir | mv | pidof | rm | sleep) return 0 ;;
+			*) return 1 ;;
+		esac
+	}
 	eval "${DEPENDENCIES_HELPER}"
 	rc_dependencies_available
 ) || fail 'rc_dependencies_available failed without killall even though every command it actually checks is available'
 
 # A genuinely missing required command (kill) must still fail the gate with
 # an actionable diagnostic naming that command.
-cat >"${DEPS_ROOT}/bin/which" <<'EOF' || fail 'unable to write fake which for the missing-command case'
-#!/bin/sh
-case "$1" in
-	awk | chmod | date | dirname | grep | logger | ls | mkdir | mv | pidof | rm | sleep) exit 0 ;;
-	*) exit 1 ;;
-esac
-EOF
-chmod +x "${DEPS_ROOT}/bin/which" || fail 'unable to make fake which executable'
 DEPS_ERR_FILE="${DEPS_ROOT}/missing-kill.err"
 (
-	PATH="${DEPS_ROOT}/bin"
-	export PATH
 	CALLER=rc-dependency-test
+	which() {
+		case "$1" in
+			awk | chmod | date | dirname | grep | logger | ls | mkdir | mv | pidof | rm | sleep) return 0 ;;
+			*) return 1 ;;
+		esac
+	}
 	eval "${DEPENDENCIES_HELPER}"
 	rc_dependencies_available
 ) 2>"${DEPS_ERR_FILE}" && fail 'rc_dependencies_available succeeded despite a missing required command (kill)'
