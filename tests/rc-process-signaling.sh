@@ -78,6 +78,20 @@ run_case '44' 0 '' 1 ''
 # PID reuse is refused when /proc identity no longer names the expected process.
 run_case '55' 0 '99' 1 ''
 
+# process_pid_matches reads the real /proc filesystem; exercise it directly
+# against this shell's own live PID/comm instead of only through the stub
+# used by run_case above.
+(
+	eval "${HELPERS}"
+	OWN_COMM=""
+	IFS= read -r OWN_COMM <"/proc/$$/comm" || fail 'unable to read this process comm entry for the process_pid_matches regression'
+	[ -n "${OWN_COMM}" ] || fail '/proc/$$/comm was empty for the process_pid_matches regression'
+	process_pid_matches "$$" "${OWN_COMM}" || fail 'process_pid_matches rejected this live process against its own /proc comm name'
+	process_pid_matches "$$" "${OWN_COMM}-not-a-real-name" && fail 'process_pid_matches matched an incorrect process name'
+	process_pid_matches 999999999 "${OWN_COMM}" && fail 'process_pid_matches matched an implausible nonexistent PID'
+	:
+) || fail 'process_pid_matches direct /proc regression failed'
+
 # The service stop path retains its bounded TERM -> INT -> KILL escalation.
 (
 	STOP_HELPER=$(sed -n '/^stop() {/,/^rc_dependencies_available/p' "${ROOT_DIR}/rc.func.AdGuardHome" | sed '$d')
@@ -102,5 +116,58 @@ run_case '55' 0 '99' 1 ''
 	[ "${SIGNAL_LOG}" = 'TERM INT KILL' ] || fail "unexpected escalation signals: ${SIGNAL_LOG}"
 	[ "${WAIT_LOG}" = '10 5 3' ] || fail "unexpected escalation waits: ${WAIT_LOG}"
 )
+
+# rc_dependencies_available no longer requires killall now that signal_process
+# only signals identity-rechecked PIDs directly; a router without killall
+# installed must still be able to start the service.
+DEPENDENCIES_HELPER=$(sed -n '/^rc_dependencies_available() {$/,/^}$/p' "${ROOT_DIR}/rc.func.AdGuardHome")
+[ -n "${DEPENDENCIES_HELPER}" ] || fail 'could not extract rc_dependencies_available from rc.func.AdGuardHome'
+case "${DEPENDENCIES_HELPER}" in
+	*killall*) fail 'rc_dependencies_available still lists killall as a required command' ;;
+esac
+
+DEPS_ROOT=$(mktemp -d) || fail 'unable to create exclusive dependency-check test directory'
+trap 'rm -rf "${GLOB_ROOT}" "${DEPS_ROOT}"' 0
+trap 'rm -rf "${GLOB_ROOT}" "${DEPS_ROOT}"; exit 1' HUP INT TERM
+mkdir -p "${DEPS_ROOT}/bin" || fail 'unable to create fake command directory'
+
+# All commands rc_dependencies_available actually requires must be reported
+# available (killall is deliberately absent, proving it is no longer checked).
+cat >"${DEPS_ROOT}/bin/which" <<'EOF' || fail 'unable to write fake which for the full-dependency case'
+#!/bin/sh
+case "$1" in
+	awk | chmod | date | dirname | grep | kill | logger | ls | mkdir | mv | pidof | rm | sleep) exit 0 ;;
+	*) exit 1 ;;
+esac
+EOF
+chmod +x "${DEPS_ROOT}/bin/which" || fail 'unable to make fake which executable'
+(
+	PATH="${DEPS_ROOT}/bin"
+	export PATH
+	CALLER=rc-dependency-test
+	eval "${DEPENDENCIES_HELPER}"
+	rc_dependencies_available
+) || fail 'rc_dependencies_available failed without killall even though every command it actually checks is available'
+
+# A genuinely missing required command (kill) must still fail the gate with
+# an actionable diagnostic naming that command.
+cat >"${DEPS_ROOT}/bin/which" <<'EOF' || fail 'unable to write fake which for the missing-command case'
+#!/bin/sh
+case "$1" in
+	awk | chmod | date | dirname | grep | logger | ls | mkdir | mv | pidof | rm | sleep) exit 0 ;;
+	*) exit 1 ;;
+esac
+EOF
+chmod +x "${DEPS_ROOT}/bin/which" || fail 'unable to make fake which executable'
+DEPS_ERR_FILE="${DEPS_ROOT}/missing-kill.err"
+(
+	PATH="${DEPS_ROOT}/bin"
+	export PATH
+	CALLER=rc-dependency-test
+	eval "${DEPENDENCIES_HELPER}"
+	rc_dependencies_available
+) 2>"${DEPS_ERR_FILE}" && fail 'rc_dependencies_available succeeded despite a missing required command (kill)'
+grep -Fq 'rc-dependency-test: required service command is unavailable: kill' "${DEPS_ERR_FILE}" ||
+	fail "rc_dependencies_available did not report the missing kill command, got: $(cat "${DEPS_ERR_FILE}")"
 
 printf '%s\n' 'rc process signaling tests passed'
