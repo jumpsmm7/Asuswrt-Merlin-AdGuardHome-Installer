@@ -175,6 +175,8 @@ BRIDGE_ADDRS='2: br1    inet 192.168.101.1/24 brd 192.168.101.255 scope global b
 3: br52    inet 10.52.0.1/24 brd 10.52.0.255 scope global br52
 4: br-public inet 198.51.100.1/24 brd 198.51.100.255 scope global br-public
 4: br-public inet 198.51.100.1/24 brd 198.51.100.255 scope global secondary br-public
+5: br-bad inet 169.254.20.1/16 brd 169.254.255.255 scope global br-bad
+5: br-bad inet 192.0.2.255/24 brd 192.0.2.255 scope global br-bad
 5: br-bad inet 127.0.0.2/8 scope global br-bad
 5: br-bad inet 224.0.0.1/4 scope global br-bad
 5: br-bad inet 255.255.255.255/32 scope global br-bad
@@ -193,7 +195,7 @@ grep -q '^    - 2001:db8::1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS IPv6 bi
 grep -q '^    - 192\.168\.101\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'advertised guest bridge address was not bound'
 grep -q '^    - 10\.52\.0\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'advertised SDN bridge address was not bound'
 grep -q '^    - 198\.51\.100\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'assigned bridge address was filtered solely by its IPv4 prefix'
-! grep -Eq '^    - (127\.0\.0\.2|224\.0\.0\.1|255\.255\.255\.255|192\.0\.2\.[23])$' "${TMP_ROOT}/lan-ip.yaml" || fail 'unusable bridge address was written'
+! grep -Eq '^    - (127\.0\.0\.2|169\.254\.20\.1|192\.0\.2\.255|224\.0\.0\.1|255\.255\.255\.255|192\.0\.2\.[23])$' "${TMP_ROOT}/lan-ip.yaml" || fail 'unusable bridge address was written'
 
 # Multi-bridge guest, SDN, and VPN topologies retain every advertised bridge address.
 for topology in multi-bridge guest-network sdn-active vpn-bridge ap-mode repeater-mode; do
@@ -271,12 +273,15 @@ LAN_IFNAME=br0
 IPV4_FROM_IP=192.168.50.1
 IP_ONELINE_UNAVAILABLE=1
 BRIDGE_ADDRS_MULTILINE='2: br102: <BROADCAST,MULTICAST,UP> mtu 1500
+    inet 169.254.102.1/16 brd 169.254.255.255 scope global br102
+    inet 192.168.102.255/24 brd 192.168.102.255 scope global br102
     inet 192.168.102.254/24 brd 192.168.102.255 scope global br102'
 IP_ROUTE_OUTPUT='192.168.102.0/24 dev br102 proto kernel scope link'
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution for multiline ip fallback failed'
 assert_bind_values lan-multiline-ip '192.168.50.1:3000' "${IPV4_FROM_IP}"
 assert_yaml_bind_hosts lan-multiline-ip 3
 grep -q '^    - 192\.168\.102\.254$' "${TMP_ROOT}/lan-multiline-ip.yaml" || fail 'LAN DNS multiline discovery omitted the assigned bridge address'
+! grep -Eq '^    - (169\.254\.102\.1|192\.168\.102\.255)$' "${TMP_ROOT}/lan-multiline-ip.yaml" || fail 'LAN DNS multiline discovery included a link-local or broadcast address'
 ! grep -q '^    - 192\.168\.102\.1$' "${TMP_ROOT}/lan-multiline-ip.yaml" || fail 'LAN DNS bind hosts included a guessed route address'
 
 reset_inputs
