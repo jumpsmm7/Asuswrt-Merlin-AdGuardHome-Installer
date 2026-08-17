@@ -504,7 +504,11 @@ assert_invalid_hooks() {
 	[ ! -e "${STARTED_FILE}" ] || fail 'invalid hook configuration launched the service'
 	[ ! -e "${DNS_HANDOFF_FILE}" ] || fail 'invalid hook configuration created a handoff marker'
 	[ ! -e "${TRANSITION_FILE}" ] || fail 'invalid hook configuration published a service transition'
-	[ "$(grep -c '^pre_hook$' "${CALLS_FILE}" 2>/dev/null || true)" -eq 0 ] ||
+	_pre_hook_calls=0
+	if [ -e "${CALLS_FILE}" ]; then
+		_pre_hook_calls="$(grep -c '^pre_hook$' "${CALLS_FILE}" || true)"
+	fi
+	[ "${_pre_hook_calls}" -eq 0 ] ||
 		fail 'invalid hook configuration invoked the pre-start hook'
 }
 
