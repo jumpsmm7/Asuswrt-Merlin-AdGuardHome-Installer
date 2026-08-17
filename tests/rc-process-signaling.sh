@@ -5,11 +5,13 @@ set -u
 ROOT_DIR=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
 HELPERS=$(sed -n '/^process_pids() {/,/^# Service action helpers/p' "${ROOT_DIR}/rc.func.AdGuardHome")
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
 
+# run_case executes a process-signaling test case and verifies its status, signal, and variable-isolation results.
 run_case() (
 	PIDOF_OUTPUT="$1"
 	PIDOF_STATUS="$2"
@@ -118,14 +120,19 @@ run_case '22' 0 '22' 5 '-s TERM 22' 5
 	ansi_green=''
 	SIGNAL_LOG=''
 	WAIT_LOG=''
-	service_mark_transition() { :; }
-	service_clear_transition() { :; }
-	signal_process() { SIGNAL_LOG="${SIGNAL_LOG}${SIGNAL_LOG:+ }$1"; }
+	# service_mark_transition provides a no-op service transition marker.
+service_mark_transition() { :; }
+	# service_clear_transition clears the service transition state.
+service_clear_transition() { :; }
+	# signal_process records the requested signal for a process.
+signal_process() { SIGNAL_LOG="${SIGNAL_LOG}${SIGNAL_LOG:+ }$1"; }
+	# process_wait_for_stop records the requested wait duration and succeeds for a three-second wait.
 	process_wait_for_stop() {
 		WAIT_LOG="${WAIT_LOG}${WAIT_LOG:+ }$2"
 		[ "$2" -eq 3 ]
 	}
-	process_pids() { return 1; }
+	# process_pids returns failure.
+process_pids() { return 1; }
 	stop >/dev/null || fail 'bounded stop escalation did not succeed after KILL'
 	[ "${SIGNAL_LOG}" = 'TERM INT KILL' ] || fail "unexpected escalation signals: ${SIGNAL_LOG}"
 	[ "${WAIT_LOG}" = '10 5 3' ] || fail "unexpected escalation waits: ${WAIT_LOG}"
@@ -148,6 +155,7 @@ trap 'rm -rf "${GLOB_ROOT}" "${DEPS_ROOT}"; exit 1' HUP INT TERM
 # available (killall is deliberately absent, proving it is no longer checked).
 (
 	CALLER=rc-dependency-test
+	# which reports whether a command is available to the test environment.
 	which() {
 		case "$1" in
 			awk | chmod | date | dirname | grep | kill | logger | ls | mkdir | mv | pidof | rm | sleep) return 0 ;;
@@ -163,6 +171,7 @@ trap 'rm -rf "${GLOB_ROOT}" "${DEPS_ROOT}"; exit 1' HUP INT TERM
 DEPS_ERR_FILE="${DEPS_ROOT}/missing-kill.err"
 (
 	CALLER=rc-dependency-test
+	# which reports whether a command is available in the test environment.
 	which() {
 		case "$1" in
 			awk | chmod | date | dirname | grep | logger | ls | mkdir | mv | pidof | rm | sleep) return 0 ;;
