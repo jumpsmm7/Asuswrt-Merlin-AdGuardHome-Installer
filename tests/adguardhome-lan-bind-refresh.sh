@@ -41,22 +41,33 @@ EOF
 chmod 700 "${ADGUARDHOME_BINARY}" || fail 'could not make validation stub executable'
 export ADGUARDHOME_BINARY CALLS_FILE
 
+# adguard_lan_mode indicates that AdGuard Home LAN mode is enabled.
 adguard_lan_mode() { return 0; }
+# have_cmd reports whether the requested command is available.
 have_cmd() { return 0; }
-# ip returns duplicate and distinct private addresses in both router address formats.
+# ip emits mock interface address data in fast or fallback format, including duplicate and distinct private addresses.
 ip() {
 	if [ "${IP_OUTPUT_MODE:-fast}" = "fallback" ] && [ "${1:-}" = "-o" ]; then
-		return 0
+		return 1
 	fi
 	if [ "${IP_OUTPUT_MODE:-fast}" = "fallback" ]; then
 		printf '%s\n' \
+			'2: br9: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500' \
+			'    inet 192.168.9.2/24 brd 192.168.9.255 scope global br9' \
+			'3: br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500' \
+			'    inet 192.168.50.254/24 brd 192.168.50.255 scope global br0' \
 			'5: br1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500' \
+			'    inet 192.168.100.255/24 brd 192.168.100.255 scope global br1' \
 			'    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1' \
 			'    inet 192.168.102.254/24 brd 192.168.102.255 scope global secondary br1' \
 			'    inet 192.168.103.254/24 brd 192.168.103.255 scope global secondary br1' \
 			'    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1'
 	else
 		printf '%s\n' \
+			'2: br9    inet 192.168.9.2/24 brd 192.168.9.255 scope global br9' \
+			'3: br0    inet 192.168.50.254/24 brd 192.168.50.255 scope global br0' \
+			'4: br2    inet 169.254.20.1/16 brd 169.254.255.255 scope global br2' \
+			'5: br1    inet 192.168.100.255/24 brd 192.168.100.255 scope global br1' \
 			'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1' \
 			'5: br1    inet 192.168.102.254/24 brd 192.168.102.255 scope global secondary br1' \
 			'5: br1    inet 192.168.103.254/24 brd 192.168.103.255 scope global secondary br1' \
@@ -70,7 +81,7 @@ interface_ipv6_addr() { printf '%s\n' 2001:db8::27; }
 # nvram returns fixed test values for the requested NVRAM variable.
 nvram() {
 	case "$2" in
-		lan_ifname) printf '%s\n' br0 ;;
+		lan_ifname) printf '%s\n' br9 ;;
 		lan_ipaddr) printf '%s\n' 192.168.50.1 ;;
 		ipv6_rtr_addr) printf '%s\n' 2001:db8::1 ;;
 	esac
@@ -89,12 +100,12 @@ EOF
 chmod 640 "${YAML_FILE}" || fail 'could not set fixture permissions'
 YAML_METADATA="$(ls -nd "${YAML_FILE}" | awk '{ print $1, $3, $4 }')" || fail 'could not read fixture metadata'
 
-bridge_options="$(private_ipv4_bridge_dns_options)" || fail 'bridge address discovery failed'
-[ "${bridge_options}" = "$(printf '%s\n' 'br1 192.168.101.254' 'br1 192.168.102.254' 'br1 192.168.103.254')" ] ||
+bridge_options="$(private_ipv4_bridge_dns_options br9)" || fail 'bridge address discovery failed'
+[ "${bridge_options}" = "$(printf '%s\n' 'br0 192.168.50.254' 'br1 192.168.101.254' 'br1 192.168.102.254' 'br1 192.168.103.254')" ] ||
 	fail 'bridge address discovery did not preserve distinct per-interface addresses'
 IP_OUTPUT_MODE=fallback
-bridge_options="$(private_ipv4_bridge_dns_options)" || fail 'fallback bridge address discovery failed'
-[ "${bridge_options}" = "$(printf '%s\n' 'br1 192.168.101.254' 'br1 192.168.102.254' 'br1 192.168.103.254')" ] ||
+bridge_options="$(private_ipv4_bridge_dns_options br9)" || fail 'fallback bridge address discovery failed'
+[ "${bridge_options}" = "$(printf '%s\n' 'br0 192.168.50.254' 'br1 192.168.101.254' 'br1 192.168.102.254' 'br1 192.168.103.254')" ] ||
 	fail 'fallback bridge address discovery did not preserve distinct per-interface addresses'
 IP_OUTPUT_MODE=fast
 
@@ -102,9 +113,14 @@ adguard_refresh_lan_bind_addresses || fail 'dynamic LAN bind refresh failed'
 grep -q '^  address: 192\.168\.50\.27:3443$' "${YAML_FILE}" || fail 'WebUI address or preserved port was not refreshed'
 grep -q '^    - 192\.168\.50\.27$' "${YAML_FILE}" || fail 'LAN IPv4 DNS bind was not refreshed'
 grep -q '^    - 2001:db8::27$' "${YAML_FILE}" || fail 'LAN IPv6 DNS bind was not refreshed'
+grep -q '^    - 192\.168\.50\.254$' "${YAML_FILE}" || fail 'br0 was not retained when the primary LAN interface was br9'
+! grep -q '^    - 192\.168\.9\.2$' "${YAML_FILE}" || fail 'non-br0 primary LAN interface was added as a secondary bind'
 grep -q '^    - 192\.168\.101\.254$' "${YAML_FILE}" || fail 'bridge DNS bind was not refreshed'
 grep -q '^    - 192\.168\.102\.254$' "${YAML_FILE}" || fail 'secondary bridge DNS bind was not refreshed'
 grep -q '^    - 192\.168\.103\.254$' "${YAML_FILE}" || fail 'additional bridge DNS bind was not refreshed'
+! grep -q '192\.168\.100\.255' "${YAML_FILE}" || fail 'directed broadcast address reached bind_hosts'
+! grep -q '169\.254\.20\.1' "${YAML_FILE}" || fail 'IPv4 link-local bridge address reached bind_hosts'
+grep -q 'state=discovered family=ipv4 interface=br1 address=192\.168\.101\.254' "${CALLS_FILE}" || fail 'discovered bridge pair was not logged'
 ! grep -q '192\.168\.50\.1' "${YAML_FILE}" || fail 'stale LAN bind address remained in YAML'
 [ "$(ls -nd "${YAML_FILE}" | awk '{ print $1, $3, $4 }')" = "${YAML_METADATA}" ] || fail 'refresh did not preserve the active YAML mode and owner'
 
@@ -157,6 +173,23 @@ if adguard_refresh_lan_bind_addresses; then
 	fail 'refresh accepted a wildcard LAN IPv4 address'
 fi
 cmp -s "${YAML_FILE}" "${YAML_FILE}.wildcard" >/dev/null 2>&1 || fail 'wildcard LAN IPv4 failure modified YAML'
+
+# interface_ipv4_addr reports no stable address while NVRAM retains a stale, syntactically valid address.
+interface_ipv4_addr() { return 0; }
+# nvram returns a stale LAN IPv4 address that is not assigned to the primary interface.
+nvram() {
+	case "$2" in
+		lan_ifname) printf '%s\n' br0 ;;
+		lan_ipaddr) printf '%s\n' 192.168.50.1 ;;
+		ipv6_rtr_addr) printf '%s\n' 2001:db8::1 ;;
+	esac
+}
+cp "${YAML_FILE}" "${YAML_FILE}.unstable" || fail 'could not preserve unstable-address fixture'
+if adguard_refresh_lan_bind_addresses; then
+	fail 'refresh accepted an unassigned NVRAM LAN IPv4 address'
+fi
+cmp -s "${YAML_FILE}" "${YAML_FILE}.unstable" >/dev/null 2>&1 || fail 'missing stable LAN IPv4 modified YAML'
+grep -q 'reason=lan_ipv4_unavailable config_preserved=1' "${CALLS_FILE}" || fail 'missing stable LAN IPv4 was not logged'
 
 # interface_ipv4_addr prints the usable LAN IPv4 address used by staged-validation and failure-path tests.
 interface_ipv4_addr() { printf '%s\n' 192.168.50.27; }
@@ -228,7 +261,7 @@ adguard_refresh_lan_bind_addresses || fail 'no-op refresh failed validation'
 [ "${LAN_BIND_ADDRESSES_CHANGED}" -eq 0 ] || fail 'no-op refresh requested a restart'
 cmp -s "${YAML_FILE}" "${YAML_FILE}.before" >/dev/null 2>&1 || fail 'no-op refresh replaced content'
 ! grep -q -- '--check-config' "${CALLS_FILE}" || fail 'no-op refresh unnecessarily invoked binary validation'
-[ ! -s "${CALLS_FILE}" ] || fail 'no-op refresh unexpectedly invoked the AdGuardHome binary'
+! grep -q '^--check-config' "${CALLS_FILE}" || fail 'no-op refresh unexpectedly invoked the AdGuardHome binary'
 
 VALIDATION_STATUS=1
 export VALIDATION_STATUS
@@ -237,7 +270,7 @@ mv "${YAML_FILE}.changed" "${YAML_FILE}" || fail 'could not activate validation-
 assert_rejected_unchanged binary-validation-failure
 unset VALIDATION_STATUS
 grep -q 'reason=adguard_config_validation_failed' "${CALLS_FILE}" || fail 'validation failure reason was not logged'
-! grep -q '192\.168\.' "${CALLS_FILE}" || fail 'validation log exposed YAML address content'
+! grep 'reason=adguard_config_validation_failed' "${CALLS_FILE}" | grep -q '192\.168\.' || fail 'validation failure log exposed YAML address content'
 
 SYMLINK_DIR="${TMP_ROOT}/symlink-test"
 mkdir -p "${SYMLINK_DIR}" || fail 'could not create symlink test directory'
