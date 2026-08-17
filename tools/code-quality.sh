@@ -228,6 +228,7 @@ run_check 'AdGuardHome S99 DNS mode lifecycle regression' sh tests/s99-dns-mode-
 run_check 'AdGuardHome S99 netstat readiness regression' sh tests/s99-netstat-readiness.sh
 run_check 'AdGuardHome S99 startup readiness regression' sh tests/s99-startup-readiness.sh
 run_check 'AdGuardHome stop failure regression' sh tests/stop-adguardhome-failure.sh
+run_check 'AdGuardHome process signaling regression' sh tests/rc-process-signaling.sh
 run_check 'AdGuardHome monitor retry backoff regression' sh tests/monitor-retry-backoff.sh
 run_check 'AdGuardHome proc setting ownership regression' sh tests/adguardhome-proc-settings.sh
 run_check 'AdGuardHome Go runtime environment regression' sh tests/adguardhome-go-environment.sh

@@ -1840,6 +1840,15 @@ proc_boot_id() {
 	printf '%s\n' "${boot_id}"
 }
 
+proc_lock_mkdir_cleanup() {
+	local owner
+	[ -d "${PROC_LOCK_DIR}" ] && [ ! -L "${PROC_LOCK_DIR}" ] || return 1
+	owner="$(cat "${PROC_LOCK_DIR}/pid" 2>/dev/null)"
+	[ "${owner}" = "$$" ] || return 1
+	rm -f "${PROC_LOCK_DIR}/pid" || return 1
+	rmdir "${PROC_LOCK_DIR}"
+}
+
 proc_lock_run() {
 	local attempts has_usleep owner ownerless_attempts reaper status
 	if [ "${PROC_LOCK_FORCE_MKDIR:-0}" != 1 ] && have_cmd flock && flock_supports_fd; then
@@ -1882,13 +1891,14 @@ proc_lock_run() {
 			if [ "${has_usleep}" -eq 1 ]; then usleep 100000; else sleep 1; fi
 		done
 		printf '%s\n' "$$" >"${PROC_LOCK_DIR}/pid" || {
-			rm -rf "${PROC_LOCK_DIR}"
+			rm -f "${PROC_LOCK_DIR}/pid"
+			rmdir "${PROC_LOCK_DIR}" 2>/dev/null
 			exit 1
 		}
-		trap 'rm -rf "${PROC_LOCK_DIR}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+		trap 'proc_lock_mkdir_cleanup; exit 1' HUP INT QUIT ABRT TERM TSTP
 		"$@"
 		status="$?"
-		rm -rf "${PROC_LOCK_DIR}"
+		proc_lock_mkdir_cleanup || exit 1
 		trap - HUP INT QUIT ABRT TERM TSTP
 		exit "${status}"
 	)
