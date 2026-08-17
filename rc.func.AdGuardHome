@@ -287,16 +287,35 @@ adguardhome_start_handoff_required() {
 	agh_dns_handoff_required
 }
 
+hook_function_is_valid() {
+	local _HOOK_NAME _HOOK_TYPE
+	_HOOK_NAME="$1"
+	case "${_HOOK_NAME}" in
+		"" | [!a-zA-Z_]* | *[!a-zA-Z0-9_]*) return 1 ;;
+	esac
+	_HOOK_TYPE="$(type "${_HOOK_NAME}" 2>/dev/null)" || return 1
+	case "${_HOOK_TYPE}" in
+		*" is a function" | *" is a shell function") return 0 ;;
+	esac
+	return 1
+}
+
+start_hooks_are_valid() {
+	hook_function_is_valid "${PRECMD:-}" || return 1
+	hook_function_is_valid "${POSTCMD:-}" || return 1
+	[ -z "${POSTFAILCMD:-}" ] || hook_function_is_valid "${POSTFAILCMD}"
+}
+
 adguardhome_run_postfailcmd() {
 	[ -n "${POSTFAILCMD:-}" ] || return 0
 	if [ "${PROC}" = "AdGuardHome" ] && [ "${DNS_HANDOFF:-0}" -ne 1 ] && [ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" != "1" ]; then
 		(
 			ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
 			export ADGUARDHOME_SKIP_DNSMASQ_RESTART
-			${POSTFAILCMD} >/dev/null 2>&1
+			"${POSTFAILCMD}" >/dev/null 2>&1
 		)
 	else
-		${POSTFAILCMD} >/dev/null 2>&1
+		"${POSTFAILCMD}" >/dev/null 2>&1
 	fi
 }
 
@@ -468,14 +487,18 @@ adguardhome_start_signal_abort() {
 
 start() {
 	local DNS_HANDOFF LAUNCH_PID PIDS POSTCMD_STATUS POSTFAIL_STATUS STOPPED
+	{ [ "${CRITICAL}" != "yes" ] && [ "${CALLER}" = "cron" ]; } && return 7
+	[ "${ENABLED}" != "yes" ] && return 8
+	if ! start_hooks_are_valid; then
+		logger -st "${CALLER}" "Invalid service hook configuration for ${DESC} from ${CALLER}."
+		return 255
+	fi
 	if type service_mark_transition >/dev/null 2>&1; then
 		case "${ACTION:-}" in
 			"restart") service_mark_transition "restarting" ;;
 			*) service_mark_transition "starting" ;;
 		esac
 	fi
-	{ [ "${CRITICAL}" != "yes" ] && [ "${CALLER}" = "cron" ]; } && return 7
-	[ "${ENABLED}" != "yes" ] && return 8
 	printf "%s" "${ansi_white} Starting ${DESC}... ${ansi_std}"
 	DNS_HANDOFF=0
 	PIDS="$(process_pids "${PROC}")"
@@ -495,7 +518,7 @@ start() {
 	if adguardhome_start_handoff_is_prepared; then
 		DNS_HANDOFF=1
 	else
-		if ! ${PRECMD} >/dev/null 2>&1; then
+		if ! "${PRECMD}" >/dev/null 2>&1; then
 			printf "%s\n" "            ${ansi_red} failed. ${ansi_std}"
 			logger -st "${CALLER}" "Pre-start hook failed for ${DESC} from ${CALLER}."
 			[ "${PROC}" = "AdGuardHome" ] && adguardhome_start_traps_restore
@@ -553,11 +576,11 @@ start() {
 		(
 			ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
 			export ADGUARDHOME_SKIP_DNSMASQ_RESTART
-			${POSTCMD} >/dev/null 2>&1
+			"${POSTCMD}" >/dev/null 2>&1
 		)
 		POSTCMD_STATUS="$?"
 	else
-		${POSTCMD} >/dev/null 2>&1
+		"${POSTCMD}" >/dev/null 2>&1
 		POSTCMD_STATUS="$?"
 	fi
 	if [ "${POSTCMD_STATUS}" -ne 0 ]; then
