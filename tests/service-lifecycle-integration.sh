@@ -16,14 +16,16 @@ WORKSPACE_CREATED=0
 cleanup() {
 	trap '' HUP INT TERM
 	if [ -n "${WATCHDOG_PID:-}" ]; then
-		signal_process_tree TERM "${WATCHDOG_PID}"
-		signal_process_tree KILL "${WATCHDOG_PID}"
+		capture_process_tree "${WATCHDOG_PID}" "${SUITE_TMP}/cleanup-watchdog.pids"
+		signal_process_snapshot TERM "${SUITE_TMP}/cleanup-watchdog.pids"
+		signal_process_snapshot KILL "${SUITE_TMP}/cleanup-watchdog.pids"
 		wait "${WATCHDOG_PID}" 2>/dev/null || true
 		WATCHDOG_PID=""
 	fi
 	if [ -n "${CASE_PID:-}" ]; then
-		signal_process_tree TERM "${CASE_PID}"
-		signal_process_tree KILL "${CASE_PID}"
+		capture_process_tree "${CASE_PID}" "${SUITE_TMP}/cleanup-case.pids"
+		signal_process_snapshot TERM "${SUITE_TMP}/cleanup-case.pids"
+		signal_process_snapshot KILL "${SUITE_TMP}/cleanup-case.pids"
 		wait "${CASE_PID}" 2>/dev/null || true
 		CASE_PID=""
 	fi
@@ -38,12 +40,28 @@ fail() {
 	exit 1
 }
 
-# signal_process_tree signals descendants before their parent.  Reading PPid
-# from procfs avoids setsid(1), which is not part of the router stock command
-# inventory, and prevents background test helpers surviving a timed-out case.
-signal_process_tree() {
-	tree_signal="$1"
-	parent_pid="$2"
+# process_start_time prints the kernel start time for a PID so a retained PID
+# cannot signal an unrelated process if the number is reused during cleanup.
+process_start_time() {
+	[ -r "/proc/$1/stat" ] || return 1
+	IFS= read -r process_stat <"/proc/$1/stat" || return 1
+	process_stat=${process_stat##*) }
+	# Intentional field splitting: start time is field 20 after the comm value.
+	# shellcheck disable=SC2086
+	set -- ${process_stat}
+	process_field=1
+	while [ "${process_field}" -lt 20 ]; do
+		shift
+		process_field=$((process_field + 1))
+	done
+	printf '%s\n' "$1"
+}
+
+# append_process_tree records descendants before their parent.  The retained
+# identities remain usable after TERM causes children to be reparented.
+append_process_tree() {
+	parent_pid="$1"
+	pid_file="$2"
 	for status_file in /proc/[0-9]*/status; do
 		[ -r "${status_file}" ] || continue
 		child_pid=${status_file#/proc/}
@@ -56,10 +74,28 @@ signal_process_tree() {
 			fi
 		done <"${status_file}"
 		if [ "${child_parent}" = "${parent_pid}" ]; then
-			(signal_process_tree "${tree_signal}" "${child_pid}")
+			(append_process_tree "${child_pid}" "${pid_file}")
 		fi
 	done
-	kill "-${tree_signal}" "${parent_pid}" 2>/dev/null || true
+	parent_start_time=$(process_start_time "${parent_pid}") || return 0
+	printf '%s %s\n' "${parent_pid}" "${parent_start_time}" >>"${pid_file}"
+}
+
+capture_process_tree() {
+	: >"$2" || return 1
+	append_process_tree "$1" "$2"
+}
+
+signal_process_snapshot() {
+	tree_signal="$1"
+	pid_file="$2"
+	[ -r "${pid_file}" ] || return 0
+	while IFS=' ' read -r retained_pid retained_start_time; do
+		[ -n "${retained_pid}" ] || continue
+		current_start_time=$(process_start_time "${retained_pid}") || continue
+		[ "${current_start_time}" = "${retained_start_time}" ] || continue
+		kill "-${tree_signal}" "${retained_pid}" 2>/dev/null || true
+	done <"${pid_file}"
 }
 
 # run_bounded runs one integration scenario with a portable watchdog.  It does
@@ -88,9 +124,10 @@ run_bounded() {
 		done
 		kill -0 "${case_pid}" 2>/dev/null || exit 0
 		: >"${timed_out}"
-		signal_process_tree TERM "${case_pid}"
+		capture_process_tree "${case_pid}" "${case_output}.pids"
+		signal_process_snapshot TERM "${case_output}.pids"
 		sleep 2
-		signal_process_tree KILL "${case_pid}"
+		signal_process_snapshot KILL "${case_output}.pids"
 	) &
 	watchdog_pid=$!
 	WATCHDOG_PID="${watchdog_pid}"
