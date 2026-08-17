@@ -6431,7 +6431,7 @@ setup_files_begin_if_needed() {
 }
 
 setup_resolve_lan_addresses() {
-	local LAN_IF NVRAM_ADDR6
+	local LAN_IF NVRAM_ADDR4 NVRAM_ADDR6
 
 	NET_ADDR=""
 	NET_ADDR6=""
@@ -6449,7 +6449,18 @@ setup_resolve_lan_addresses() {
 				if (!seen[ip_addr[1]]++) { print ip_addr[1]; exit }
 			}')"
 	fi
-	[ -n "${NET_ADDR}" ] || NET_ADDR="$(nvram get lan_ipaddr)"
+	if [ -z "${NET_ADDR}" ]; then
+		NVRAM_ADDR4="$(nvram get lan_ipaddr)"
+		if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
+			NET_ADDR="$(ip -o -4 addr list "${LAN_IF}" scope global 2>/dev/null | /usr/bin/awk -v candidate="${NVRAM_ADDR4}" '
+				$0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
+					split($4, ip_addr, "/")
+					if (ip_addr[1] == candidate) { print candidate; exit }
+				}')"
+		else
+			NET_ADDR="${NVRAM_ADDR4}"
+		fi
+	fi
 	if [ -z "${NET_ADDR6}" ] && [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
 		NVRAM_ADDR6="$(nvram get ipv6_rtr_addr)"
 		case "${NVRAM_ADDR6}" in

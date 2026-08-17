@@ -4,7 +4,11 @@
 set -u
 
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
-TMP_FILE="${TMPDIR:-/tmp}/lan-primary-address-selection.$$"
+umask 077
+TMP_FILE="$(mktemp "${TMPDIR:-/tmp}/lan-primary-address-selection.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create secure temporary file' >&2
+	exit 1
+}
 
 # fail prints a failure message to standard error and exits with status 1.
 fail() {

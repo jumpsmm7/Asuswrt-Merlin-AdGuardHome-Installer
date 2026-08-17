@@ -189,6 +189,12 @@ if private_ipv4_bridge_address_is_assigned br5 10.0.5.9; then
 	fail 'private_ipv4_bridge_address_is_assigned accepted an address absent from ifconfig output'
 fi
 
+# When both commands exist, a failed ip query falls through to a matching ifconfig address.
+have_cmd() { [ "$1" = ip ] || [ "$1" = ifconfig ]; }
+ip() { return 1; }
+private_ipv4_bridge_address_is_assigned br5 10.0.5.1 ||
+	fail 'private_ipv4_bridge_address_is_assigned did not fall back to ifconfig after ip failed'
+
 # have_cmd reports that no requested command is available.
 have_cmd() { return 1; }
 if private_ipv4_bridge_address_is_assigned br5 10.0.5.1; then

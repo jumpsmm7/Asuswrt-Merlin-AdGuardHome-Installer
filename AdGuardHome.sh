@@ -1524,11 +1524,12 @@ private_ipv4_bridge_address_is_assigned() {
 	BRIDGE_ADDR="${2:-}"
 	[ -n "${BRIDGE_IF}" ] && [ -n "${BRIDGE_ADDR}" ] || return 1
 	if have_cmd ip; then
-		ip -o -4 addr show dev "${BRIDGE_IF}" scope global 2>/dev/null | /usr/bin/awk -v expected="${BRIDGE_ADDR}" '
+		if ip -o -4 addr show dev "${BRIDGE_IF}" scope global 2>/dev/null | /usr/bin/awk -v expected="${BRIDGE_ADDR}" '
 			{ for (i = 1; i < NF; i++) if ($i == "inet") { split($(i + 1), address, "/"); if (address[1] == expected) found = 1 } }
 			END { exit(found ? 0 : 1) }
-		'
-		return
+		'; then
+			return 0
+		fi
 	fi
 	if have_cmd ifconfig; then
 		ifconfig "${BRIDGE_IF}" 2>/dev/null | /usr/bin/awk -v expected="${BRIDGE_ADDR}" '

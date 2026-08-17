@@ -52,7 +52,13 @@ ai_have_cmd() {
 ip() {
 	case "$*" in
 		'-o -4 addr list br0 scope global')
-			[ -n "${IPV4_FROM_IP:-}" ] && printf '1: br0    inet %s/24 brd 192.168.50.255 scope global br0\n' "${IPV4_FROM_IP}"
+			if [ -n "${IPV4_GLOBAL_OUTPUT:-}" ]; then
+				printf '%s\n' "${IPV4_GLOBAL_OUTPUT}"
+			elif [ -n "${IPV4_FROM_IP:-}" ]; then
+				printf '1: br0    inet %s/24 brd 192.168.50.255 scope global br0\n' "${IPV4_FROM_IP}"
+			elif [ -n "${IPV4_ASSIGNED:-}" ]; then
+				printf '1: br0    inet %s/24 brd 192.168.1.255 scope global br0\n' "${IPV4_ASSIGNED}"
+			fi
 			;;
 		'-o -4 addr list br9 scope global')
 			[ -n "${IPV4_FROM_IP:-}" ] && printf '1: br9    inet %s/24 brd 192.168.9.255 scope global br9\n' "${IPV4_FROM_IP}"
@@ -106,7 +112,9 @@ reset_inputs() {
 	ROUTE_AVAILABLE=0
 	LAN_IFNAME=""
 	IPV4_FROM_IP=""
+	IPV4_GLOBAL_OUTPUT=""
 	IPV4_FROM_NVRAM=""
+	IPV4_ASSIGNED=""
 	IPV6_FROM_IP=""
 	IPV6_GLOBAL_OUTPUT=""
 	IPV6_FROM_NVRAM=""
@@ -238,6 +246,7 @@ ADGUARD_INSTALL_MODE=lan
 IP_AVAILABLE=1
 LAN_IFNAME=br0
 IPV4_FROM_NVRAM=192.168.1.1
+IPV4_ASSIGNED="${IPV4_FROM_NVRAM}"
 IPV6_FROM_NVRAM=2001:db8::2
 IPV6_ASSIGNED="${IPV6_FROM_NVRAM}"
 SETUP_DNS_BIND_HOST6='::'
@@ -257,6 +266,7 @@ for invalid_ipv6 in :: 2001:db8::dead; do
 	IP_AVAILABLE=1
 	LAN_IFNAME=br0
 	IPV4_FROM_NVRAM=192.168.1.1
+	IPV4_ASSIGNED="${IPV4_FROM_NVRAM}"
 	IPV6_FROM_NVRAM="${invalid_ipv6}"
 	setup_resolve_lan_addresses
 	[ -z "${NET_ADDR6:-}" ] || fail "LAN IPv6 fallback accepted unusable nvram address ${invalid_ipv6}"
@@ -264,6 +274,19 @@ for invalid_ipv6 in :: 2001:db8::dead; do
 	assert_bind_values lan-invalid-ipv6 '192.168.1.1:3000' "${IPV4_FROM_NVRAM}"
 	assert_yaml_bind_hosts lan-invalid-ipv6 2
 done
+
+reset_inputs
+ADGUARD_INSTALL_MODE=lan
+IP_AVAILABLE=1
+LAN_IFNAME=br0
+IPV4_FROM_NVRAM=192.168.1.1
+IPV4_GLOBAL_OUTPUT='1: br0 inet 192.168.1.2/24 scope global tentative br0
+1: br0 inet 192.168.1.3/24 scope global deprecated br0'
+setup_resolve_lan_addresses
+[ -z "${NET_ADDR:-}" ] || fail 'initial YAML LAN IPv4 resolution accepted an unassigned NVRAM fallback'
+if setup_resolve_bind_addresses >/dev/null 2>&1; then
+	fail 'LAN bind resolution accepted an unassigned NVRAM IPv4 fallback'
+fi
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan
