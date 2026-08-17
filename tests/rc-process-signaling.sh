@@ -16,6 +16,7 @@ run_case() (
 	MATCHING_PIDS="$3"
 	expected_status="$4"
 	expected_kill="$5"
+	KILL_EXIT_STATUS="${6:-0}"
 	KILL_LOG=""
 	_SIGNAL=outer-signal
 	_PROC=outer-process
@@ -37,7 +38,7 @@ run_case() (
 	}
 	kill() {
 		KILL_LOG="$*"
-		return 0
+		return "${KILL_EXIT_STATUS}"
 	}
 
 	status=0
@@ -77,6 +78,19 @@ run_case '44' 0 '' 1 ''
 
 # PID reuse is refused when /proc identity no longer names the expected process.
 run_case '55' 0 '99' 1 ''
+
+# A non-zero pidof exit status must short-circuit before PID validation/signaling
+# even when pidof also printed PID-shaped output alongside its failure.
+run_case '22' 3 '22' 3 ''
+
+# Leading-zero-padded and unpadded spellings of the same PID must collapse to a
+# single signaled PID, not merely identical repeated tokens.
+run_case '22 022' 0 '22' 0 '-s TERM 22'
+
+# When every PID survives validation and identity recheck but the final kill
+# invocation itself fails, signal_process must propagate kill's exit status
+# rather than reporting success.
+run_case '22' 0 '22' 5 '-s TERM 22' 5
 
 # process_pid_matches reads the real /proc filesystem; exercise it directly
 # against this shell's own live PID/comm instead of only through the stub
