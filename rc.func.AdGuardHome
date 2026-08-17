@@ -24,7 +24,7 @@ ansi_ul="$(printf "\033[4m")"
 
 rc_dependencies_available() {
 	local _REQUIRED_COMMAND
-	for _REQUIRED_COMMAND in awk chmod date dirname grep kill killall logger ls mkdir mv pidof rm sleep; do
+	for _REQUIRED_COMMAND in awk chmod date dirname grep kill logger ls mkdir mv pidof rm sleep; do
 		if ! which "${_REQUIRED_COMMAND}" >/dev/null 2>&1; then
 			printf '%s\n' "${CALLER}: required service command is unavailable: ${_REQUIRED_COMMAND}" >&2
 			return 1
@@ -35,6 +35,15 @@ rc_dependencies_available() {
 
 process_pids() {
 	pidof "$1" 2>/dev/null
+}
+
+process_pid_matches() {
+	local _PID _PROC _COMM
+	_PID="$1"
+	_PROC="$2"
+	[ -r "/proc/${_PID}/comm" ] || return 1
+	IFS= read -r _COMM < "/proc/${_PID}/comm" || return 1
+	[ "${_COMM}" = "${_PROC}" ]
 }
 
 process_running() {
@@ -84,15 +93,43 @@ stop_launched_process() {
 }
 
 signal_process() {
+	local _SIGNAL _PROC _PIDS _PID _VALID_PIDS _PIDOF_STATUS
 	_SIGNAL="$1"
 	_PROC="$2"
 	_PIDS="$(process_pids "${_PROC}")"
-	if [ -n "${_PIDS}" ]; then
-		# Intentional word splitting: pidof returns a whitespace-delimited PID list.
-		kill -s "${_SIGNAL}" ${_PIDS} 2>/dev/null || killall -q "-${_SIGNAL}" "${_PROC}" 2>/dev/null
-	else
-		killall -q "-${_SIGNAL}" "${_PROC}" 2>/dev/null
+	_PIDOF_STATUS="$?"
+	if [ -z "${_PIDS}" ]; then
+		# pidof commonly returns 1 for no match; either way, there is no safe PID to signal.
+		[ "${_PIDOF_STATUS}" -eq 0 ] && return 0
+		return "${_PIDOF_STATUS}"
 	fi
+	[ "${_PIDOF_STATUS}" -eq 0 ] || return "${_PIDOF_STATUS}"
+	_VALID_PIDS="$(
+		printf '%s\n' "${_PIDS}" | awk '
+			{
+				for (field = 1; field <= NF; field++) {
+					pid = $field
+					if (pid !~ /^[0-9]+$/) continue
+					sub(/^0+/, "", pid)
+					if (pid == "" || pid == "1" || seen[pid]++) continue
+					printf "%s%s", separator, pid
+					separator = " "
+				}
+			}
+			END { if (separator != "") print "" }
+		'
+	)" || return 1
+	[ -n "${_VALID_PIDS}" ] || return 1
+	_PIDS=""
+	# Recheck identity immediately before signaling to avoid exited or reused PIDs.
+	for _PID in ${_VALID_PIDS}; do
+		if process_pid_matches "${_PID}" "${_PROC}"; then
+			_PIDS="${_PIDS}${_PIDS:+ }${_PID}"
+		fi
+	done
+	[ -n "${_PIDS}" ] || return 1
+	# Intentional splitting: every field is now a unique, revalidated decimal PID > 1.
+	kill -s "${_SIGNAL}" ${_PIDS} 2>/dev/null
 }
 
 # Service action helpers
