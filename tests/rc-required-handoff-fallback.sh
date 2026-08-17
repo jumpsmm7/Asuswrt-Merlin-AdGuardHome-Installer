@@ -8,6 +8,7 @@ TMP_ROOT="${TMPDIR:-/tmp}/rc-required-handoff-fallback.$$"
 FUNCTION_FILE="${TMP_ROOT}/functions"
 CALLS_FILE="${TMP_ROOT}/calls"
 STARTED_FILE="${TMP_ROOT}/started"
+TRANSITION_FILE="${TMP_ROOT}/transition"
 
 # cleanup removes the temporary test workspace.
 cleanup() {
@@ -25,7 +26,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^stop_launched_process() {$/,/^}$/p; /^adguardhome_start_handoff_is_prepared() {$/,/^}$/p; /^adguardhome_start_handoff_required() {$/,/^}$/p; /^adguardhome_run_postfailcmd() {$/,/^}$/p; /^adguardhome_start_traps_cleanup() {$/,/^}$/p; /^adguardhome_start_traps_restore() {$/,/^}$/p; /^adguardhome_start_traps_save() {$/,/^}$/p; /^adguardhome_start_signal_abort() {$/,/^}$/p; /^start() {$/,/^}$/p' \
+	'/^stop_launched_process() {$/,/^}$/p; /^adguardhome_start_handoff_is_prepared() {$/,/^}$/p; /^adguardhome_start_handoff_required() {$/,/^}$/p; /^hook_function_is_valid() {$/,/^}$/p; /^start_hooks_are_valid() {$/,/^}$/p; /^adguardhome_run_postfailcmd() {$/,/^}$/p; /^adguardhome_start_traps_cleanup() {$/,/^}$/p; /^adguardhome_start_traps_restore() {$/,/^}$/p; /^adguardhome_start_traps_save() {$/,/^}$/p; /^adguardhome_start_signal_abort() {$/,/^}$/p; /^start() {$/,/^}$/p' \
 	"${RC_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${RC_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'required rc.func startup helpers were not found'
 
@@ -58,9 +59,9 @@ launch_adguardhome() {
 }
 ADGUARDHOME_LAUNCH_HELPER=1
 
-# service_mark_transition performs no action.
+# service_mark_transition records that startup published transitional state.
 service_mark_transition() {
-	:
+	: >"${TRANSITION_FILE}"
 }
 
 # process_pids prints the simulated process ID when the service start marker exists.
@@ -121,6 +122,11 @@ post_hook() {
 post_failure_hook() {
 	printf '%s\n' post_failure_hook >>"${CALLS_FILE}"
 	return 0
+}
+
+# failing_hook is a valid hook function whose body reports failure.
+failing_hook() {
+	return 1
 }
 
 # agh_dns_handoff_required indicates whether AdGuardHome requires DNS handoff preparation before starting.
@@ -483,6 +489,44 @@ set -e
 ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
 export ADGUARDHOME_DNS_HANDOFF_REQUIRED
 
+# assert_invalid_hooks verifies unsafe or unavailable names in any hook
+# variable fail before startup publishes state or invokes the pre-start hook.
+assert_invalid_hooks() {
+	PRECMD="$1"
+	POSTCMD="$2"
+	POSTFAILCMD="$3"
+	rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}" "${TRANSITION_FILE}" "${CALLS_FILE}"
+	set +e
+	start >/dev/null
+	_status="$?"
+	set -e
+	[ "${_status}" -eq 255 ] || fail "invalid hook configuration was accepted: ${PRECMD}:${POSTCMD}:${POSTFAILCMD}"
+	[ ! -e "${STARTED_FILE}" ] || fail 'invalid hook configuration launched the service'
+	[ ! -e "${DNS_HANDOFF_FILE}" ] || fail 'invalid hook configuration created a handoff marker'
+	[ ! -e "${TRANSITION_FILE}" ] || fail 'invalid hook configuration published a service transition'
+	[ "$(grep -c '^pre_hook$' "${CALLS_FILE}" 2>/dev/null || true)" -eq 0 ] ||
+		fail 'invalid hook configuration invoked the pre-start hook'
+}
+
+assert_invalid_hooks 'missing_hook' 'post_hook' 'post_failure_hook'
+assert_invalid_hooks 'pre_hook' 'missing_hook' 'post_failure_hook'
+assert_invalid_hooks 'pre_hook' 'post_hook' 'missing_hook'
+assert_invalid_hooks '' 'post_hook' 'post_failure_hook'
+assert_invalid_hooks '9invalid' 'post_hook' 'post_failure_hook'
+assert_invalid_hooks 'pre hook' 'post_hook' 'post_failure_hook'
+assert_invalid_hooks 'pre_hook argument' 'post_hook' 'post_failure_hook'
+assert_invalid_hooks 'pre_hook/extra' 'post_hook' 'post_failure_hook'
+assert_invalid_hooks 'pre_hook;false' 'post_hook' 'post_failure_hook'
+assert_invalid_hooks 'pre_hook$(false)' 'post_hook' 'post_failure_hook'
+
+# The recovery hook remains optional, but a configured value must be a function.
+PRECMD='pre_hook'
+POSTFAILCMD=''
+start_hooks_are_valid || fail 'empty optional POSTFAILCMD was rejected'
+POSTFAILCMD='missing_post_failure_hook'
+start_hooks_are_valid && fail 'missing POSTFAILCMD function was accepted'
+POSTFAILCMD='post_failure_hook'
+
 # Successful startup preserves each possible caller disposition.
 for _disposition in custom ignored default; do
 	rm -f "${STARTED_FILE}"
@@ -492,7 +536,7 @@ for _disposition in custom ignored default; do
 done
 
 # Each ordinary failure path restores custom handlers and removes private state.
-PRECMD='false'
+PRECMD='failing_hook'
 rm -f "${STARTED_FILE}"
 run_with_trap_disposition custom 255
 
@@ -509,7 +553,7 @@ rm -f "${STARTED_FILE}"
 run_with_trap_disposition custom 255
 
 process_wait_for_start() { [ -f "${STARTED_FILE}" ]; }
-POSTCMD='false'
+POSTCMD='failing_hook'
 rm -f "${STARTED_FILE}"
 run_with_trap_disposition custom 255
 POSTCMD='post_hook'
