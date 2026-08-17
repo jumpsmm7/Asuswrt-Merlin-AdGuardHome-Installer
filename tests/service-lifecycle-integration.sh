@@ -57,6 +57,14 @@ process_start_time() {
 	printf '%s\n' "$1"
 }
 
+process_identity_matches() {
+	identity_pid="$1"
+	identity_start_time="$2"
+	[ -n "${identity_start_time}" ] || return 1
+	current_start_time=$(process_start_time "${identity_pid}") || return 1
+	[ "${current_start_time}" = "${identity_start_time}" ]
+}
+
 # append_process_tree records descendants before their parent.  The retained
 # identities remain usable after TERM causes children to be reparented.
 append_process_tree() {
@@ -82,8 +90,20 @@ append_process_tree() {
 }
 
 capture_process_tree() {
-	: >"$2" || return 1
-	append_process_tree "$1" "$2"
+	capture_pid="$1"
+	capture_file="$2"
+	expected_start_time="${3:-}"
+	if [ -n "${expected_start_time}" ]; then
+		process_identity_matches "${capture_pid}" "${expected_start_time}" || return 1
+	fi
+	: >"${capture_file}" || return 1
+	append_process_tree "${capture_pid}" "${capture_file}"
+	if [ -n "${expected_start_time}" ]; then
+		process_identity_matches "${capture_pid}" "${expected_start_time}" || {
+			: >"${capture_file}"
+			return 1
+		}
+	fi
 }
 
 signal_process_snapshot() {
@@ -115,16 +135,18 @@ run_bounded() {
 	) >"${case_output}" 2>&1 &
 	case_pid=$!
 	CASE_PID="${case_pid}"
+	case_start_time=$(process_start_time "${case_pid}") || case_start_time=""
 	(
+		[ -n "${case_start_time}" ] || exit 0
 		elapsed=0
 		while [ "${elapsed}" -lt "${TIMEOUT_SECONDS}" ]; do
-			kill -0 "${case_pid}" 2>/dev/null || exit 0
+			process_identity_matches "${case_pid}" "${case_start_time}" || exit 0
 			sleep 1
 			elapsed=$((elapsed + 1))
 		done
-		kill -0 "${case_pid}" 2>/dev/null || exit 0
+		process_identity_matches "${case_pid}" "${case_start_time}" || exit 0
 		: >"${timed_out}"
-		capture_process_tree "${case_pid}" "${case_output}.pids"
+		capture_process_tree "${case_pid}" "${case_output}.pids" "${case_start_time}" || exit 0
 		signal_process_snapshot TERM "${case_output}.pids"
 		sleep 2
 		signal_process_snapshot KILL "${case_output}.pids"
