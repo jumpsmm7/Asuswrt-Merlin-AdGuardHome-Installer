@@ -60,6 +60,9 @@ jobs:
 
       - name: Run bounded service lifecycle integration matrix
         run: busybox ash tests/service-lifecycle-integration.sh
+        env:
+          AGH_INTEGRATION_SHELL: busybox
+          AGH_INTEGRATION_SHELL_ARG: ash
 
       - name: Run optional database link regression
         run: sudo -n busybox ash tests/optional-database-links.sh

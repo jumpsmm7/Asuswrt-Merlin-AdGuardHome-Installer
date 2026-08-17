@@ -7,6 +7,8 @@ ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd) || exit 1
 SUITE_TMP="${TMPDIR:-/tmp}/agh-integration.$$"
 RESULTS_FILE="${SUITE_TMP}/results"
 TIMEOUT_SECONDS="${AGH_INTEGRATION_TIMEOUT:-90}"
+TEST_SHELL="${AGH_INTEGRATION_SHELL:-sh}"
+TEST_SHELL_ARG="${AGH_INTEGRATION_SHELL_ARG:-}"
 
 cleanup() {
 	rm -rf "${SUITE_TMP}"
@@ -15,6 +17,30 @@ cleanup() {
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
+}
+
+# signal_process_tree signals descendants before their parent.  Reading PPid
+# from procfs avoids setsid(1), which is not part of the router stock command
+# inventory, and prevents background test helpers surviving a timed-out case.
+signal_process_tree() {
+	tree_signal="$1"
+	parent_pid="$2"
+	for status_file in /proc/[0-9]*/status; do
+		[ -r "${status_file}" ] || continue
+		child_pid=${status_file#/proc/}
+		child_pid=${child_pid%/status}
+		child_parent=""
+		while read -r status_key status_value status_rest; do
+			if [ "${status_key}" = 'PPid:' ]; then
+				child_parent="${status_value}"
+				break
+			fi
+		done <"${status_file}"
+		if [ "${child_parent}" = "${parent_pid}" ]; then
+			(signal_process_tree "${tree_signal}" "${child_pid}")
+		fi
+	done
+	kill "-${tree_signal}" "${parent_pid}" 2>/dev/null || true
 }
 
 # run_bounded runs one integration scenario with a portable watchdog.  It does
@@ -27,16 +53,19 @@ run_bounded() {
 
 	(
 		cd "${ROOT_DIR}" || exit 1
-		exec sh "${test_script}"
+		if [ -n "${TEST_SHELL_ARG}" ]; then
+			exec "${TEST_SHELL}" "${TEST_SHELL_ARG}" "${test_script}"
+		fi
+		exec "${TEST_SHELL}" "${test_script}"
 	) >"${case_output}" 2>&1 &
 	case_pid=$!
 	(
 		sleep "${TIMEOUT_SECONDS}"
 		if kill -0 "${case_pid}" 2>/dev/null; then
 			: >"${timed_out}"
-			kill -TERM "${case_pid}" 2>/dev/null || true
+			signal_process_tree TERM "${case_pid}"
 			sleep 2
-			kill -KILL "${case_pid}" 2>/dev/null || true
+			signal_process_tree KILL "${case_pid}"
 		fi
 	) &
 	watchdog_pid=$!

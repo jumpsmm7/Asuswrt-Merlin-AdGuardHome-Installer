@@ -272,6 +272,9 @@ printf '%s\n' "${ARG_PARSE_OUT}" | grep -Fq 'Usage:' || fail "argument parsing: 
 # referenced here would silently receive zero CI coverage.
 for t in tests/*.sh; do
 	[ "${t}" = 'tests/dns-startup-handoff.sh' ] && continue
+	# This matrix is run with BusyBox ash by shell-validation.yml and composes
+	# component regressions already registered individually below.
+	[ "${t}" = 'tests/service-lifecycle-integration.sh' ] && continue
 	grep -Fq "${t}" "${SCRIPT_PATH}" ||
 		fail "${t} is not referenced by any run_check in ${SCRIPT_PATH}; new test files must be wired in or they get zero CI coverage"
 done
