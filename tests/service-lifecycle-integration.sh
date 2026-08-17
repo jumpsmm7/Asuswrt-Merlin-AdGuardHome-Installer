@@ -9,9 +9,28 @@ RESULTS_FILE="${SUITE_TMP}/results"
 TIMEOUT_SECONDS="${AGH_INTEGRATION_TIMEOUT:-90}"
 TEST_SHELL="${AGH_INTEGRATION_SHELL:-sh}"
 TEST_SHELL_ARG="${AGH_INTEGRATION_SHELL_ARG:-}"
+CASE_PID=""
+WATCHDOG_PID=""
+WORKSPACE_CREATED=0
 
 cleanup() {
-	rm -rf "${SUITE_TMP}"
+	trap '' HUP INT TERM
+	if [ -n "${WATCHDOG_PID:-}" ]; then
+		signal_process_tree TERM "${WATCHDOG_PID}"
+		signal_process_tree KILL "${WATCHDOG_PID}"
+		wait "${WATCHDOG_PID}" 2>/dev/null || true
+		WATCHDOG_PID=""
+	fi
+	if [ -n "${CASE_PID:-}" ]; then
+		signal_process_tree TERM "${CASE_PID}"
+		signal_process_tree KILL "${CASE_PID}"
+		wait "${CASE_PID}" 2>/dev/null || true
+		CASE_PID=""
+	fi
+	if [ "${WORKSPACE_CREATED:-0}" -eq 1 ]; then
+		rm -rf "${SUITE_TMP}"
+		WORKSPACE_CREATED=0
+	fi
 }
 
 fail() {
@@ -59,21 +78,28 @@ run_bounded() {
 		exec "${TEST_SHELL}" "${test_script}"
 	) >"${case_output}" 2>&1 &
 	case_pid=$!
+	CASE_PID="${case_pid}"
 	(
-		sleep "${TIMEOUT_SECONDS}"
-		if kill -0 "${case_pid}" 2>/dev/null; then
-			: >"${timed_out}"
-			signal_process_tree TERM "${case_pid}"
-			sleep 2
-			signal_process_tree KILL "${case_pid}"
-		fi
+		elapsed=0
+		while [ "${elapsed}" -lt "${TIMEOUT_SECONDS}" ]; do
+			kill -0 "${case_pid}" 2>/dev/null || exit 0
+			sleep 1
+			elapsed=$((elapsed + 1))
+		done
+		kill -0 "${case_pid}" 2>/dev/null || exit 0
+		: >"${timed_out}"
+		signal_process_tree TERM "${case_pid}"
+		sleep 2
+		signal_process_tree KILL "${case_pid}"
 	) &
 	watchdog_pid=$!
+	WATCHDOG_PID="${watchdog_pid}"
 
 	case_status=0
 	wait "${case_pid}" || case_status=$?
-	kill "${watchdog_pid}" 2>/dev/null || true
-	wait "${watchdog_pid}" 2>/dev/null || true
+	CASE_PID=""
+	wait "${watchdog_pid}" || true
+	WATCHDOG_PID=""
 
 	if [ -e "${timed_out}" ]; then
 		cat "${case_output}" >&2
@@ -92,7 +118,9 @@ case "${TIMEOUT_SECONDS}" in
 	'' | *[!0-9]*) fail 'AGH_INTEGRATION_TIMEOUT must be a positive integer' ;;
 	0) fail 'AGH_INTEGRATION_TIMEOUT must be greater than zero' ;;
 esac
-mkdir -p "${SUITE_TMP}" || fail 'could not create integration workspace'
+umask 077
+mkdir "${SUITE_TMP}" || fail 'could not create exclusive integration workspace'
+WORKSPACE_CREATED=1
 : >"${RESULTS_FILE}" || fail 'could not create result log'
 
 # The component regressions use command shims and isolated filesystems.  Taken
