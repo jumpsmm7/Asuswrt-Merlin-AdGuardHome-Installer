@@ -121,18 +121,18 @@ run_case '22' 0 '22' 5 '-s TERM 22' 5
 	SIGNAL_LOG=''
 	WAIT_LOG=''
 	# service_mark_transition provides a no-op service transition marker.
-service_mark_transition() { :; }
+	service_mark_transition() { :; }
 	# service_clear_transition clears the service transition state.
-service_clear_transition() { :; }
+	service_clear_transition() { :; }
 	# signal_process records the requested signal for a process.
-signal_process() { SIGNAL_LOG="${SIGNAL_LOG}${SIGNAL_LOG:+ }$1"; }
+	signal_process() { SIGNAL_LOG="${SIGNAL_LOG}${SIGNAL_LOG:+ }$1"; }
 	# process_wait_for_stop records the requested wait duration and succeeds for a three-second wait.
 	process_wait_for_stop() {
 		WAIT_LOG="${WAIT_LOG}${WAIT_LOG:+ }$2"
 		[ "$2" -eq 3 ]
 	}
 	# process_pids returns failure.
-process_pids() { return 1; }
+	process_pids() { return 1; }
 	stop >/dev/null || fail 'bounded stop escalation did not succeed after KILL'
 	[ "${SIGNAL_LOG}" = 'TERM INT KILL' ] || fail "unexpected escalation signals: ${SIGNAL_LOG}"
 	[ "${WAIT_LOG}" = '10 5 3' ] || fail "unexpected escalation waits: ${WAIT_LOG}"
