@@ -61,10 +61,10 @@ jobs:
 
       - name: Run bounded service lifecycle integration matrix
         # DNS handoff validates root-only FIFO ownership, matching router init.
-        run: timeout --kill-after=10 600 sudo -n env AGH_INTEGRATION_SHELL=busybox AGH_INTEGRATION_SHELL_ARG=ash busybox ash tests/service-lifecycle-integration.sh
+        run: sudo -n timeout --kill-after=10 600 env AGH_INTEGRATION_SHELL=busybox AGH_INTEGRATION_SHELL_ARG=ash busybox ash tests/service-lifecycle-integration.sh
 
       - name: Run optional database link regression
-        run: timeout --kill-after=10 180 sudo -n busybox ash tests/optional-database-links.sh
+        run: sudo -n timeout --kill-after=10 180 busybox ash tests/optional-database-links.sh
 
   shellcheck:
     name: ShellCheck POSIX ash profile

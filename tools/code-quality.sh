@@ -65,6 +65,17 @@ run_test_command() {
 	"$@"
 }
 
+# run_privileged_test_command places the optional CI timeout inside sudo so it
+# can signal the complete root-owned process group. Unbounded local runs retain
+# the direct sudo invocation.
+run_privileged_test_command() {
+	if [ "${TEST_MAX_RUNTIME_SECONDS}" -gt 0 ]; then
+		sudo -n timeout --kill-after=10 "${TEST_MAX_RUNTIME_SECONDS}" "$@"
+		return
+	fi
+	sudo -n "$@"
+}
+
 # run_check runs a named check, reports its result, and marks the overall run as failed when the check fails.
 run_check() {
 	_name="$1"
@@ -96,7 +107,7 @@ run_dns_handoff_check() {
 	fi
 
 	if have_cmd sudo && sudo -n true >/dev/null 2>&1; then
-		run_test_command sudo -n sh tests/dns-startup-handoff.sh
+		run_privileged_test_command sh tests/dns-startup-handoff.sh
 		return
 	fi
 
@@ -112,7 +123,7 @@ run_optional_database_link_check() {
 	fi
 
 	if have_cmd sudo && sudo -n true >/dev/null 2>&1; then
-		run_test_command sudo -n sh tests/optional-database-links.sh
+		run_privileged_test_command sh tests/optional-database-links.sh
 		return
 	fi
 
@@ -128,7 +139,7 @@ run_writable_path_security_check() {
 	fi
 
 	if have_cmd sudo && sudo -n true >/dev/null 2>&1; then
-		run_test_command sudo -n sh tests/runtime-writable-path-security.sh
+		run_privileged_test_command sh tests/runtime-writable-path-security.sh
 		return
 	fi
 

@@ -88,6 +88,13 @@ grep -Fq 'tools/check-md5.sh' "${WORKFLOW}" || fail "${WORKFLOW}: checksums job 
 grep -Fq 'tools/check-sha256.sh' "${WORKFLOW}" || fail "${WORKFLOW}: checksums job is missing tools/check-sha256.sh"
 grep -Fq 'run: timeout --kill-after=10 180 busybox ash tests/rc-process-signaling.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: POSIX syntax job does not run a bounded process signaling regression with BusyBox ash"
+grep -Fq 'run: sudo -n timeout --kill-after=10 600 env AGH_INTEGRATION_SHELL=busybox' "${WORKFLOW}" ||
+	fail "${WORKFLOW}: lifecycle timeout must run inside sudo"
+grep -Fq 'run: sudo -n timeout --kill-after=10 180 busybox ash tests/optional-database-links.sh' "${WORKFLOW}" ||
+	fail "${WORKFLOW}: optional database timeout must run inside sudo"
+if grep -Eq 'run: timeout .*sudo -n' "${WORKFLOW}"; then
+	fail "${WORKFLOW}: privileged regression timeout runs outside sudo"
+fi
 grep -Fq 'tools/update-checksums.sh' "${WORKFLOW}" || fail "${WORKFLOW}: checksums job is missing tools/update-checksums.sh"
 grep -Fq 'busybox ash tests/checksum-file-format.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: checksums job is missing the checksum file-format regression"
