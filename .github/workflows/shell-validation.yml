@@ -58,6 +58,10 @@ jobs:
       - name: Run process signaling regression with BusyBox ash
         run: busybox ash tests/rc-process-signaling.sh
 
+      - name: Run bounded service lifecycle integration matrix
+        # DNS handoff validates root-only FIFO ownership, matching router init.
+        run: sudo -n env AGH_INTEGRATION_SHELL=busybox AGH_INTEGRATION_SHELL_ARG=ash busybox ash tests/service-lifecycle-integration.sh
+
       - name: Run optional database link regression
         run: sudo -n busybox ash tests/optional-database-links.sh
 
