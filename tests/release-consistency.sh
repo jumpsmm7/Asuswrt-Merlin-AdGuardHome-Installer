@@ -16,11 +16,17 @@ refresh_manifests() {
 
 write_architecture_fixture() {
 	_directory="$1"
+	case "${_directory}" in
+		armv5) _archive_arch='armv5' ;;
+		armv7) _archive_arch='armv7' ;;
+		armv8) _archive_arch='arm64' ;;
+		*) return 1 ;;
+	esac
 	mkdir -p "${TMP_ROOT}/${_directory}" || return 1
 	{
 		printf '%s\n' '# file channel version md5 sha256'
 		for _channel in stable beta edge; do
-			_file="AdGuardHome_${_channel}_linux_test.tar.gz"
+			_file="AdGuardHome_${_channel}_linux_${_archive_arch}.tar.gz"
 			printf '%s\n' "${_directory}-${_channel}" >"${TMP_ROOT}/${_directory}/${_file}" || return 1
 			refresh_manifests "${TMP_ROOT}/${_directory}/${_file}" || return 1
 			_md5="$(cat "${TMP_ROOT}/${_directory}/${_file}.md5sum")"
@@ -48,6 +54,20 @@ CURRENT_VERSION="$(awk -F= '/^AI_VERSION=/ { gsub(/"/, "", $2); print $2; exit }
 VERSION_PATTERN="$(printf '%s\n' "${CURRENT_VERSION}" | sed 's/\./\\./g')"
 
 RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null || fail 'valid fixture was rejected'
+
+awk 'BEGIN { OFS="\t" }
+	$1 !~ /^#/ && $2 == "stable" { $2 = "edge" }
+	$1 !~ /^#/ && $2 == "edge" && $1 ~ /_edge_/ { $2 = "stable" }
+	{ print }' "${TMP_ROOT}/armv5/checksum.txt" >"${TMP_ROOT}/armv5/checksum.txt.tmp"
+mv "${TMP_ROOT}/armv5/checksum.txt.tmp" "${TMP_ROOT}/armv5/checksum.txt"
+if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >"${TMP_ROOT}/channel-name-mismatch.out" 2>&1; then
+	fail 'mislabeled stable and edge archive rows were accepted'
+fi
+grep -q 'expected AdGuardHome_edge_linux_armv5.tar.gz, advertised AdGuardHome_stable_linux_armv5.tar.gz' \
+	"${TMP_ROOT}/channel-name-mismatch.out" || fail 'mislabeled stable archive row was not diagnosed'
+grep -q 'expected AdGuardHome_stable_linux_armv5.tar.gz, advertised AdGuardHome_edge_linux_armv5.tar.gz' \
+	"${TMP_ROOT}/channel-name-mismatch.out" || fail 'mislabeled edge archive row was not diagnosed'
+write_architecture_fixture armv5 || fail 'unable to restore armv5 fixture'
 
 sed '/[[:space:]]stable[[:space:]]/s/version=v1\.0\.0/version=v1.0.1/' \
 	"${TMP_ROOT}/armv5/checksum.txt" >"${TMP_ROOT}/armv5/checksum.txt.tmp"
@@ -109,7 +129,7 @@ fi
 write_architecture_fixture armv5 || fail 'unable to restore armv5 fixture'
 
 # Intentional glob expansion removes the advertised archive and both checksum sidecars.
-rm -f "${TMP_ROOT}/armv5/AdGuardHome_edge_linux_test.tar.gz"*
+rm -f "${TMP_ROOT}/armv5/AdGuardHome_edge_linux_armv5.tar.gz"*
 if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null 2>&1; then
 	fail 'missing advertised archive was accepted'
 fi

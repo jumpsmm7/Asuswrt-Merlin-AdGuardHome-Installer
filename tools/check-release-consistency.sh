@@ -75,6 +75,15 @@ verify_architecture_metadata() {
 	_directory="$1"
 	_channel_file="${_directory}/checksum.txt"
 	_seen_channels=""
+	case "${_directory}" in
+		armv5) _archive_arch='armv5' ;;
+		armv7) _archive_arch='armv7' ;;
+		armv8) _archive_arch='arm64' ;;
+		*)
+			fail "unsupported architecture directory: ${_directory}"
+			return
+			;;
+	esac
 
 	if [ ! -f "${_channel_file}" ]; then
 		fail "missing expected channel manifest: ${_channel_file}"
@@ -107,6 +116,11 @@ verify_architecture_metadata() {
 				continue
 				;;
 		esac
+		_expected_file="AdGuardHome_${_channel}_linux_${_archive_arch}.tar.gz"
+		if [ "${_file}" != "${_expected_file}" ]; then
+			fail "archive name mismatch in ${_channel_file}: expected ${_expected_file}, advertised ${_file}"
+			continue
+		fi
 		case " ${_seen_channels} " in
 			*" ${_channel} "*)
 				fail "duplicate ${_channel} channel in ${_channel_file}"
