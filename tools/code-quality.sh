@@ -9,6 +9,7 @@ FAILED=0
 FIX=0
 SCRIPT_LIST=""
 TEST_MAX_RUNTIME_SECONDS="${TEST_MAX_RUNTIME_SECONDS:-0}"
+GNU_TIMEOUT=""
 
 case "${1:-}" in
 	--fix) FIX=1 ;;
@@ -55,11 +56,33 @@ require_cmd() {
 	return 1
 }
 
+# configure_test_timeout resolves and approves GNU coreutils timeout for CI.
+# Production/router runs leave the runtime limit at zero and skip this probe.
+configure_test_timeout() {
+	[ "${TEST_MAX_RUNTIME_SECONDS}" -gt 0 ] || return 0
+	GNU_TIMEOUT=$(which timeout 2>/dev/null) || GNU_TIMEOUT=""
+	case "${GNU_TIMEOUT}" in
+		/*) ;;
+		*) GNU_TIMEOUT="" ;;
+	esac
+	if [ -z "${GNU_TIMEOUT}" ] || [ ! -x "${GNU_TIMEOUT}" ]; then
+		printf '%s\n' 'Error: GNU coreutils timeout is required when TEST_MAX_RUNTIME_SECONDS is set.' >&2
+		return 1
+	fi
+	_timeout_version=$("${GNU_TIMEOUT}" --version 2>/dev/null) || _timeout_version=""
+	case "${_timeout_version}" in
+		timeout\ \(GNU\ coreutils\)*) return 0 ;;
+	esac
+	GNU_TIMEOUT=""
+	printf '%s\n' 'Error: PATH timeout is not the required GNU coreutils implementation.' >&2
+	return 1
+}
+
 # run_test_command optionally bounds a CI test command with GNU timeout. Router
 # runs leave TEST_MAX_RUNTIME_SECONDS unset and do not depend on timeout(1).
 run_test_command() {
 	if [ "${TEST_MAX_RUNTIME_SECONDS}" -gt 0 ]; then
-		timeout --kill-after=10 "${TEST_MAX_RUNTIME_SECONDS}" "$@"
+		"${GNU_TIMEOUT}" --kill-after=10 "${TEST_MAX_RUNTIME_SECONDS}" "$@"
 		return
 	fi
 	"$@"
@@ -70,7 +93,7 @@ run_test_command() {
 # the direct sudo invocation.
 run_privileged_test_command() {
 	if [ "${TEST_MAX_RUNTIME_SECONDS}" -gt 0 ]; then
-		sudo -n timeout --kill-after=10 "${TEST_MAX_RUNTIME_SECONDS}" "$@"
+		sudo -n "${GNU_TIMEOUT}" --kill-after=10 "${TEST_MAX_RUNTIME_SECONDS}" "$@"
 		return
 	fi
 	sudo -n "$@"
@@ -180,8 +203,7 @@ case "${TEST_MAX_RUNTIME_SECONDS}" in
 		exit 2
 		;;
 esac
-if [ "${TEST_MAX_RUNTIME_SECONDS}" -gt 0 ] && ! have_cmd timeout; then
-	printf '%s\n' 'Error: timeout is required when TEST_MAX_RUNTIME_SECONDS is set.' >&2
+if ! configure_test_timeout; then
 	exit 2
 fi
 
