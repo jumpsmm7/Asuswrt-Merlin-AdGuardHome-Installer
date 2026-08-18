@@ -22,8 +22,34 @@ for artifact in installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome; do
 	md5sum "${TMP_ROOT}/${artifact}" | awk 'NF { print $1; exit }' >"${TMP_ROOT}/${artifact}.md5sum"
 	sha256sum "${TMP_ROOT}/${artifact}" | awk 'NF { print $1; exit }' >"${TMP_ROOT}/${artifact}.sha256sum"
 done
+mkdir -p "${TMP_ROOT}/armv5" || fail 'unable to create archive fixture'
+cp armv5/AdGuardHome_stable_linux_armv5.tar.gz* "${TMP_ROOT}/armv5/" || fail 'unable to copy archive fixture'
+{
+	printf '%s\tstable\tversion=test\t' AdGuardHome_stable_linux_armv5.tar.gz
+	md5sum "${TMP_ROOT}/armv5/AdGuardHome_stable_linux_armv5.tar.gz" | awk '{ print $1 }'
+	printf '\t'
+	sha256sum "${TMP_ROOT}/armv5/AdGuardHome_stable_linux_armv5.tar.gz" | awk '{ print $1 }'
+} >"${TMP_ROOT}/armv5/checksum.txt"
+for directory in armv7 armv8; do
+	mkdir -p "${TMP_ROOT}/${directory}"
+	: >"${TMP_ROOT}/${directory}/checksum.txt"
+done
 
 RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null || fail 'valid fixture was rejected'
+
+sed 's/\([[:space:]]\)[0-9a-f]\{32\}\([[:space:]]\)/\1deadbeefdeadbeefdeadbeefdeadbeef\2/' "${TMP_ROOT}/armv5/checksum.txt" >"${TMP_ROOT}/armv5/checksum.tmp"
+mv "${TMP_ROOT}/armv5/checksum.tmp" "${TMP_ROOT}/armv5/checksum.txt"
+if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null 2>&1; then
+	fail 'stale aggregate checksum was accepted'
+fi
+
+# Restore the known-good aggregate metadata for the remaining checks.
+{
+	printf '%s\tstable\tversion=test\t' AdGuardHome_stable_linux_armv5.tar.gz
+	md5sum "${TMP_ROOT}/armv5/AdGuardHome_stable_linux_armv5.tar.gz" | awk '{print $1}'
+	printf '\t'
+	sha256sum "${TMP_ROOT}/armv5/AdGuardHome_stable_linux_armv5.tar.gz" | awk '{print $1}'
+} >"${TMP_ROOT}/armv5/checksum.txt"
 
 sed 's/AI_VERSION="v2.6.5"/AI_VERSION="v9.9.9"/' "${TMP_ROOT}/installer" >"${TMP_ROOT}/installer.tmp"
 mv "${TMP_ROOT}/installer.tmp" "${TMP_ROOT}/installer"

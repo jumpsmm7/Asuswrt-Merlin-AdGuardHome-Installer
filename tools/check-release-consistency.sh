@@ -17,6 +17,34 @@ manifest_value() {
 		END { if (count != 1 || invalid) exit 1; print value }' "$1"
 }
 
+verify_aggregate() {
+	_checksum_file="$1"
+	_checksum_dir="${_checksum_file%/*}"
+	[ "${_checksum_dir}" != "${_checksum_file}" ] || _checksum_dir=.
+	_checksum_lineno=0
+	while IFS=' 	' read -r _archive _channel _version _aggregate_md5 _aggregate_sha256 _extra || [ -n "${_archive:-}" ]; do
+		_checksum_lineno=$((_checksum_lineno + 1))
+		case "${_archive:-}" in
+			''|\#*) continue ;;
+		esac
+		if [ -n "${_extra:-}" ] || [ -z "${_channel:-}" ] || [ -z "${_version:-}" ] ||
+			[ -z "${_aggregate_md5:-}" ] || [ -z "${_aggregate_sha256:-}" ]; then
+			fail "invalid aggregate checksum entry: ${_checksum_file}:${_checksum_lineno}"
+			continue
+		fi
+		_artifact="${_checksum_dir}/${_archive}"
+		if [ ! -f "${_artifact}" ]; then
+			fail "aggregate checksum references missing archive: ${_artifact}"
+			continue
+		fi
+		verify_artifact "${_artifact}"
+		_expected_md5="$(manifest_value "${_artifact}.md5sum" 2>/dev/null)" || continue
+		_expected_sha256="$(manifest_value "${_artifact}.sha256sum" 2>/dev/null)" || continue
+		[ "${_aggregate_md5}" = "${_expected_md5}" ] || fail "${_checksum_file}:${_checksum_lineno} has stale MD5 for ${_archive}"
+		[ "${_aggregate_sha256}" = "${_expected_sha256}" ] || fail "${_checksum_file}:${_checksum_lineno} has stale SHA-256 for ${_archive}"
+	done < "${_checksum_file}"
+}
+
 verify_artifact() {
 	_artifact="$1"
 	_md5_file="${_artifact}.md5sum"
@@ -80,6 +108,11 @@ fi
 
 set -- installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
 for _directory in armv5 armv7 armv8; do
+	if [ ! -f "${_directory}/checksum.txt" ]; then
+		fail "missing expected aggregate manifest: ${_directory}/checksum.txt"
+	else
+		verify_aggregate "${_directory}/checksum.txt"
+	fi
 	for _archive in "${_directory}"/*.tar.gz; do
 		[ -f "${_archive}" ] || continue
 		set -- "$@" "${_archive}"
