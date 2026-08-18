@@ -55,6 +55,20 @@ VERSION_PATTERN="$(printf '%s\n' "${CURRENT_VERSION}" | sed 's/\./\\./g')"
 
 RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null || fail 'valid fixture was rejected'
 
+awk 'BEGIN { OFS="\t" }
+	$1 !~ /^#/ && $2 == "stable" { $2 = "edge" }
+	$1 !~ /^#/ && $2 == "edge" && $1 ~ /_edge_/ { $2 = "stable" }
+	{ print }' "${TMP_ROOT}/armv5/checksum.txt" >"${TMP_ROOT}/armv5/checksum.txt.tmp"
+mv "${TMP_ROOT}/armv5/checksum.txt.tmp" "${TMP_ROOT}/armv5/checksum.txt"
+if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >"${TMP_ROOT}/channel-name-mismatch.out" 2>&1; then
+	fail 'mislabeled stable and edge archive rows were accepted'
+fi
+grep -q 'expected AdGuardHome_edge_linux_armv5.tar.gz, advertised AdGuardHome_stable_linux_armv5.tar.gz' \
+	"${TMP_ROOT}/channel-name-mismatch.out" || fail 'mislabeled stable archive row was not diagnosed'
+grep -q 'expected AdGuardHome_stable_linux_armv5.tar.gz, advertised AdGuardHome_edge_linux_armv5.tar.gz' \
+	"${TMP_ROOT}/channel-name-mismatch.out" || fail 'mislabeled edge archive row was not diagnosed'
+write_architecture_fixture armv5 || fail 'unable to restore armv5 fixture'
+
 sed '/[[:space:]]stable[[:space:]]/s/version=v1\.0\.0/version=v1.0.1/' \
 	"${TMP_ROOT}/armv5/checksum.txt" >"${TMP_ROOT}/armv5/checksum.txt.tmp"
 mv "${TMP_ROOT}/armv5/checksum.txt.tmp" "${TMP_ROOT}/armv5/checksum.txt"
