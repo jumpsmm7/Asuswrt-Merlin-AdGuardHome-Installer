@@ -79,6 +79,18 @@ grep -q 'stable channel version differs in armv7/checksum.txt: expected v1.0.1, 
 	"${TMP_ROOT}/version-mismatch.out" || fail 'architecture-specific stable version mismatch was not diagnosed'
 write_architecture_fixture armv5 || fail 'unable to restore armv5 fixture'
 
+awk 'BEGIN { OFS = "\t" } /^#/ { print; next } { if ($2 == "stable") $2 = "edge"; else if ($2 == "edge") $2 = "stable"; print }' \
+	"${TMP_ROOT}/armv7/checksum.txt" >"${TMP_ROOT}/armv7/checksum.txt.tmp"
+mv "${TMP_ROOT}/armv7/checksum.txt.tmp" "${TMP_ROOT}/armv7/checksum.txt"
+if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >"${TMP_ROOT}/channel-filename-mismatch.out" 2>&1; then
+	fail 'swapped stable and edge channel labels were accepted'
+fi
+grep -q 'expected AdGuardHome_edge_linux_armv7.tar.gz, advertised AdGuardHome_stable_linux_armv7.tar.gz' \
+	"${TMP_ROOT}/channel-filename-mismatch.out" || fail 'stable archive with edge channel label was not diagnosed'
+grep -q 'expected AdGuardHome_stable_linux_armv7.tar.gz, advertised AdGuardHome_edge_linux_armv7.tar.gz' \
+	"${TMP_ROOT}/channel-filename-mismatch.out" || fail 'edge archive with stable channel label was not diagnosed'
+write_architecture_fixture armv7 || fail 'unable to restore armv7 fixture'
+
 sed "s/AI_VERSION=\"${VERSION_PATTERN}\"/AI_VERSION=\"v9.9.9\"/" "${TMP_ROOT}/installer" >"${TMP_ROOT}/installer.tmp"
 mv "${TMP_ROOT}/installer.tmp" "${TMP_ROOT}/installer"
 refresh_manifests "${TMP_ROOT}/installer"

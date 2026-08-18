@@ -116,9 +116,13 @@ verify_architecture_metadata() {
 				continue
 				;;
 		esac
-		_expected_file="AdGuardHome_${_channel}_linux_${_archive_arch}.tar.gz"
+		case "${_directory}" in
+			armv5) _expected_file="AdGuardHome_${_channel}_linux_armv5.tar.gz" ;;
+			armv7) _expected_file="AdGuardHome_${_channel}_linux_armv7.tar.gz" ;;
+			armv8) _expected_file="AdGuardHome_${_channel}_linux_arm64.tar.gz" ;;
+		esac
 		if [ "${_file}" != "${_expected_file}" ]; then
-			fail "archive name mismatch in ${_channel_file}: expected ${_expected_file}, advertised ${_file}"
+			fail "channel archive name mismatch in ${_channel_file}: expected ${_expected_file}, advertised ${_file}"
 			continue
 		fi
 		case " ${_seen_channels} " in
