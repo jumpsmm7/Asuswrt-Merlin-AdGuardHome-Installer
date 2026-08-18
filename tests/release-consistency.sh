@@ -93,7 +93,8 @@ refresh_manifests "${TMP_ROOT}/installer"
 if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null 2>&1; then
 	fail 'malformed dotted release version was accepted'
 fi
-BOUNDARY_VERSION="${CURRENT_VERSION}0"
+STALE_VERSION="${CURRENT_VERSION%.*}.1"
+BOUNDARY_VERSION="${STALE_VERSION}0"
 sed "s/${VERSION_PATTERN}/${BOUNDARY_VERSION}/g" installer >"${TMP_ROOT}/installer"
 refresh_manifests "${TMP_ROOT}/installer"
 RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null ||
@@ -101,7 +102,6 @@ RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >
 cp installer "${TMP_ROOT}/installer"
 refresh_manifests "${TMP_ROOT}/installer"
 
-STALE_VERSION="${CURRENT_VERSION%.*}.1"
 if [ "${STALE_VERSION}" != "${CURRENT_VERSION}" ]; then
 	printf '%s\n' "# stale release ${STALE_VERSION}" >>"${TMP_ROOT}/installer"
 	refresh_manifests "${TMP_ROOT}/installer"
