@@ -22,16 +22,17 @@ trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
 
 FUNCTIONS_FILE="${TMP_ROOT}/functions.sh"
 sed -n \
-	'/^cleanup() {$/,/^}$/p; /^have_cmd() {$/,/^}$/p; /^require_cmd() {$/,/^}$/p; /^run_check() {$/,/^}$/p; /^run_optional_database_link_check() {$/,/^}$/p; /^run_writable_path_security_check() {$/,/^}$/p; /^run_script_list_check() {$/,/^}$/p' \
+	'/^cleanup() {$/,/^}$/p; /^have_cmd() {$/,/^}$/p; /^require_cmd() {$/,/^}$/p; /^run_test_command() {$/,/^}$/p; /^run_check() {$/,/^}$/p; /^run_optional_database_link_check() {$/,/^}$/p; /^run_writable_path_security_check() {$/,/^}$/p; /^run_script_list_check() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'function extraction from tools/code-quality.sh was empty (helper functions may have been renamed)'
 
-for fn in cleanup have_cmd require_cmd run_check run_optional_database_link_check run_writable_path_security_check run_script_list_check; do
+for fn in cleanup have_cmd require_cmd run_test_command run_check run_optional_database_link_check run_writable_path_security_check run_script_list_check; do
 	grep -Fq "${fn}() {" "${FUNCTIONS_FILE}" || fail "extracted functions file is missing ${fn}()"
 done
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+TEST_MAX_RUNTIME_SECONDS=0
 
 # The writable-path and optional database-link regressions validate root-owned
 # state.  Verify the runner executes both directly as root so the database

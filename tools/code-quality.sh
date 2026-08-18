@@ -8,6 +8,7 @@ set -u
 FAILED=0
 FIX=0
 SCRIPT_LIST=""
+TEST_MAX_RUNTIME_SECONDS="${TEST_MAX_RUNTIME_SECONDS:-0}"
 
 case "${1:-}" in
 	--fix) FIX=1 ;;
@@ -54,12 +55,32 @@ require_cmd() {
 	return 1
 }
 
+# run_test_command optionally bounds a CI test command with GNU timeout. Router
+# runs leave TEST_MAX_RUNTIME_SECONDS unset and do not depend on timeout(1).
+run_test_command() {
+	if [ "${TEST_MAX_RUNTIME_SECONDS}" -gt 0 ]; then
+		timeout --kill-after=10 "${TEST_MAX_RUNTIME_SECONDS}" "$@"
+		return
+	fi
+	"$@"
+}
+
 # run_check runs a named check, reports its result, and marks the overall run as failed when the check fails.
 run_check() {
 	_name="$1"
 	shift
 	printf '%s\n' "==> ${_name}"
-	if "$@"; then
+	case "${1:-}" in
+		run_dns_handoff_check | run_optional_database_link_check | run_writable_path_security_check)
+			"$@"
+			_check_status=$?
+			;;
+		*)
+			run_test_command "$@"
+			_check_status=$?
+			;;
+	esac
+	if [ "${_check_status}" -eq 0 ]; then
 		printf '%s\n' "OK: ${_name}"
 	else
 		printf '%s\n' "FAILED: ${_name}" >&2
@@ -70,12 +91,12 @@ run_check() {
 # run_dns_handoff_check runs the DNS startup handoff regression test with root privileges or passwordless sudo.
 run_dns_handoff_check() {
 	if [ "$(id -u)" -eq 0 ]; then
-		sh tests/dns-startup-handoff.sh
+		run_test_command sh tests/dns-startup-handoff.sh
 		return
 	fi
 
 	if have_cmd sudo && sudo -n true >/dev/null 2>&1; then
-		sudo -n sh tests/dns-startup-handoff.sh
+		run_test_command sudo -n sh tests/dns-startup-handoff.sh
 		return
 	fi
 
@@ -86,12 +107,12 @@ run_dns_handoff_check() {
 # run_optional_database_link_check runs the optional database link regression as root or through passwordless sudo.
 run_optional_database_link_check() {
 	if [ "$(id -u)" -eq 0 ]; then
-		sh tests/optional-database-links.sh
+		run_test_command sh tests/optional-database-links.sh
 		return
 	fi
 
 	if have_cmd sudo && sudo -n true >/dev/null 2>&1; then
-		sudo -n sh tests/optional-database-links.sh
+		run_test_command sudo -n sh tests/optional-database-links.sh
 		return
 	fi
 
@@ -102,12 +123,12 @@ run_optional_database_link_check() {
 # run_writable_path_security_check runs the runtime writable-path security regression as root or through passwordless sudo.
 run_writable_path_security_check() {
 	if [ "$(id -u)" -eq 0 ]; then
-		sh tests/runtime-writable-path-security.sh
+		run_test_command sh tests/runtime-writable-path-security.sh
 		return
 	fi
 
 	if have_cmd sudo && sudo -n true >/dev/null 2>&1; then
-		sudo -n sh tests/runtime-writable-path-security.sh
+		run_test_command sudo -n sh tests/runtime-writable-path-security.sh
 		return
 	fi
 
@@ -141,6 +162,17 @@ run_script_list_check() {
 
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
+
+case "${TEST_MAX_RUNTIME_SECONDS}" in
+	'' | *[!0-9]*)
+		printf '%s\n' 'Error: TEST_MAX_RUNTIME_SECONDS must be a non-negative integer.' >&2
+		exit 2
+		;;
+esac
+if [ "${TEST_MAX_RUNTIME_SECONDS}" -gt 0 ] && ! have_cmd timeout; then
+	printf '%s\n' 'Error: timeout is required when TEST_MAX_RUNTIME_SECONDS is set.' >&2
+	exit 2
+fi
 
 SCRIPT_LIST="${TMPDIR:-/tmp}/code-quality-scripts.$$"
 if ! sh tools/list-shell-scripts.sh >"${SCRIPT_LIST}"; then
