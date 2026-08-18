@@ -49,6 +49,16 @@ VERSION_PATTERN="$(printf '%s\n' "${CURRENT_VERSION}" | sed 's/\./\\./g')"
 
 RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null || fail 'valid fixture was rejected'
 
+sed '/[[:space:]]stable[[:space:]]/s/version=v1\.0\.0/version=v1.0.1/' \
+	"${TMP_ROOT}/armv5/checksum.txt" >"${TMP_ROOT}/armv5/checksum.txt.tmp"
+mv "${TMP_ROOT}/armv5/checksum.txt.tmp" "${TMP_ROOT}/armv5/checksum.txt"
+if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >"${TMP_ROOT}/version-mismatch.out" 2>&1; then
+	fail 'architecture-specific stable version mismatch was accepted'
+fi
+grep -q 'stable channel version differs in armv7/checksum.txt: expected v1.0.1, actual v1.0.0' \
+	"${TMP_ROOT}/version-mismatch.out" || fail 'architecture-specific stable version mismatch was not diagnosed'
+write_architecture_fixture armv5 || fail 'unable to restore armv5 fixture'
+
 sed "s/AI_VERSION=\"${VERSION_PATTERN}\"/AI_VERSION=\"v9.9.9\"/" "${TMP_ROOT}/installer" >"${TMP_ROOT}/installer.tmp"
 mv "${TMP_ROOT}/installer.tmp" "${TMP_ROOT}/installer"
 refresh_manifests "${TMP_ROOT}/installer"

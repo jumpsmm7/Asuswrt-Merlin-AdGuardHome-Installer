@@ -116,7 +116,34 @@ verify_architecture_metadata() {
 		_seen_channels="${_seen_channels}${_seen_channels:+ }${_channel}"
 		case "${_version}" in
 			version=?*) ;;
-			*) fail "invalid version in ${_channel_file} for ${_file}" ;;
+			*)
+				fail "invalid version in ${_channel_file} for ${_file}"
+				continue
+				;;
+		esac
+		_version="${_version#version=}"
+		case "${_channel}" in
+			stable)
+				if [ -z "${EXPECTED_STABLE_VERSION}" ]; then
+					EXPECTED_STABLE_VERSION="${_version}"
+				elif [ "${EXPECTED_STABLE_VERSION}" != "${_version}" ]; then
+					fail "stable channel version differs in ${_channel_file}: expected ${EXPECTED_STABLE_VERSION}, actual ${_version}"
+				fi
+				;;
+			beta)
+				if [ -z "${EXPECTED_BETA_VERSION}" ]; then
+					EXPECTED_BETA_VERSION="${_version}"
+				elif [ "${EXPECTED_BETA_VERSION}" != "${_version}" ]; then
+					fail "beta channel version differs in ${_channel_file}: expected ${EXPECTED_BETA_VERSION}, actual ${_version}"
+				fi
+				;;
+			edge)
+				if [ -z "${EXPECTED_EDGE_VERSION}" ]; then
+					EXPECTED_EDGE_VERSION="${_version}"
+				elif [ "${EXPECTED_EDGE_VERSION}" != "${_version}" ]; then
+					fail "edge channel version differs in ${_channel_file}: expected ${EXPECTED_EDGE_VERSION}, actual ${_version}"
+				fi
+				;;
 		esac
 		case "${_md5}" in
 			????????????????????????????????) ;;
@@ -189,6 +216,9 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 set -- installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
+EXPECTED_STABLE_VERSION=""
+EXPECTED_BETA_VERSION=""
+EXPECTED_EDGE_VERSION=""
 for _directory in armv5 armv7 armv8; do
 	verify_architecture_metadata "${_directory}"
 done
