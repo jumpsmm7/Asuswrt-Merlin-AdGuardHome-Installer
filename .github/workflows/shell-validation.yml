@@ -54,17 +54,17 @@ jobs:
           dash -n tools/update-checksums.sh
 
       - name: Run mkdir reaper owner publication regression
-        run: timeout --kill-after=10 180 busybox ash tests/installer-reaper-owner-publication.sh
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-reaper-owner-publication.sh
 
       - name: Run process signaling regression with BusyBox ash
-        run: timeout --kill-after=10 180 busybox ash tests/rc-process-signaling.sh
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/rc-process-signaling.sh
 
       - name: Run bounded service lifecycle integration matrix
         # DNS handoff validates root-only FIFO ownership, matching router init.
-        run: sudo -n timeout --kill-after=10 600 env AGH_INTEGRATION_SHELL=busybox AGH_INTEGRATION_SHELL_ARG=ash busybox ash tests/service-lifecycle-integration.sh
+        run: sudo -n /usr/bin/timeout --kill-after=10 600 env AGH_INTEGRATION_SHELL=busybox AGH_INTEGRATION_SHELL_ARG=ash busybox ash tests/service-lifecycle-integration.sh
 
       - name: Run optional database link regression
-        run: sudo -n timeout --kill-after=10 180 busybox ash tests/optional-database-links.sh
+        run: sudo -n /usr/bin/timeout --kill-after=10 180 busybox ash tests/optional-database-links.sh
 
   shellcheck:
     name: ShellCheck POSIX ash profile

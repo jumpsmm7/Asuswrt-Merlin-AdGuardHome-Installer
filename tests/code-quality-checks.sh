@@ -33,27 +33,14 @@ done
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 TEST_MAX_RUNTIME_SECONDS=0
-GNU_TIMEOUT=""
+GNU_TIMEOUT="/usr/bin/timeout"
 
-# Only an absolute executable identifying itself as GNU coreutils timeout may
-# enable the GNU-specific --kill-after option.
-GNU_TIMEOUT_FIXTURE="${TMP_ROOT}/timeout"
-cat >"${GNU_TIMEOUT_FIXTURE}" <<'EOF'
-#!/bin/sh
-printf '%s\n' 'timeout (GNU coreutils) 9.1'
-EOF
-chmod 700 "${GNU_TIMEOUT_FIXTURE}" || fail 'could not prepare GNU timeout fixture'
-which() { printf '%s\n' "${GNU_TIMEOUT_FIXTURE}"; }
+# Only the documented coreutils path may enable the GNU-specific option; a
+# PATH-level timeout shim must not affect provider selection.
+which() { printf '%s\n' "${TMP_ROOT}/unapproved-timeout"; }
 TEST_MAX_RUNTIME_SECONDS=180
 configure_test_timeout || fail 'GNU coreutils timeout provider was rejected'
-[ "${GNU_TIMEOUT}" = "${GNU_TIMEOUT_FIXTURE}" ] || fail 'approved GNU timeout path was not retained'
-cat >"${GNU_TIMEOUT_FIXTURE}" <<'EOF'
-#!/bin/sh
-printf '%s\n' 'BusyBox v1.25.1 multi-call binary.'
-EOF
-if configure_test_timeout 2>/dev/null; then
-	fail 'BusyBox timeout provider was accepted for GNU options'
-fi
+[ "${GNU_TIMEOUT}" = /usr/bin/timeout ] || fail 'approved GNU timeout path was not retained'
 unset -f which 2>/dev/null || unset which 2>/dev/null || true
 
 # A bounded privileged regression must launch timeout as root so it can signal

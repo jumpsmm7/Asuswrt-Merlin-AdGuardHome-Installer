@@ -9,7 +9,7 @@ FAILED=0
 FIX=0
 SCRIPT_LIST=""
 TEST_MAX_RUNTIME_SECONDS="${TEST_MAX_RUNTIME_SECONDS:-0}"
-GNU_TIMEOUT=""
+GNU_TIMEOUT="/usr/bin/timeout"
 
 case "${1:-}" in
 	--fix) FIX=1 ;;
@@ -60,21 +60,15 @@ require_cmd() {
 # Production/router runs leave the runtime limit at zero and skip this probe.
 configure_test_timeout() {
 	[ "${TEST_MAX_RUNTIME_SECONDS}" -gt 0 ] || return 0
-	GNU_TIMEOUT=$(which timeout 2>/dev/null) || GNU_TIMEOUT=""
-	case "${GNU_TIMEOUT}" in
-		/*) ;;
-		*) GNU_TIMEOUT="" ;;
-	esac
-	if [ -z "${GNU_TIMEOUT}" ] || [ ! -x "${GNU_TIMEOUT}" ]; then
-		printf '%s\n' 'Error: GNU coreutils timeout is required when TEST_MAX_RUNTIME_SECONDS is set.' >&2
+	if [ ! -x "${GNU_TIMEOUT}" ]; then
+		printf '%s\n' "Error: approved GNU coreutils timeout is required at ${GNU_TIMEOUT}." >&2
 		return 1
 	fi
 	_timeout_version=$("${GNU_TIMEOUT}" --version 2>/dev/null) || _timeout_version=""
 	case "${_timeout_version}" in
 		timeout\ \(GNU\ coreutils\)*) return 0 ;;
 	esac
-	GNU_TIMEOUT=""
-	printf '%s\n' 'Error: PATH timeout is not the required GNU coreutils implementation.' >&2
+	printf '%s\n' "Error: ${GNU_TIMEOUT} is not the required GNU coreutils implementation." >&2
 	return 1
 }
 
