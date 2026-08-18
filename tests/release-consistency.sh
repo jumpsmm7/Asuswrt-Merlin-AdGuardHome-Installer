@@ -108,8 +108,8 @@ write_architecture_fixture armv5 || fail 'unable to restore armv5 fixture'
 (
 	cd "${TMP_ROOT}" || exit 1
 	mkdir -p "${TMP_ROOT}/git-home" "${TMP_ROOT}/git-hooks" "${TMP_ROOT}/git-template" &&
-	export HOME="${TMP_ROOT}/git-home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 &&
-	git init -q --template="${TMP_ROOT}/git-template" &&
+		export HOME="${TMP_ROOT}/git-home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 &&
+		git init -q --template="${TMP_ROOT}/git-template" &&
 		git config user.name 'Release Test' &&
 		git config user.email 'release-test@example.invalid' &&
 		git config commit.gpgSign false &&

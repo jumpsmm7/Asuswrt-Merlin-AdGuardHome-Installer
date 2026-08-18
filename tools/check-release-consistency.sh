@@ -90,16 +90,28 @@ verify_architecture_metadata() {
 			continue
 		fi
 		case "${_file}" in
-			*/* | .* | *[!A-Za-z0-9._+=-]*) fail "invalid archive name in ${_channel_file}: ${_file}"; continue ;;
+			*/* | .* | *[!A-Za-z0-9._+=-]*)
+				fail "invalid archive name in ${_channel_file}: ${_file}"
+				continue
+				;;
 			*.tar.gz) ;;
-			*) fail "invalid archive name in ${_channel_file}: ${_file}"; continue ;;
+			*)
+				fail "invalid archive name in ${_channel_file}: ${_file}"
+				continue
+				;;
 		esac
 		case "${_channel}" in
 			stable | beta | edge) ;;
-			*) fail "invalid channel in ${_channel_file}: ${_channel:-<missing>}"; continue ;;
+			*)
+				fail "invalid channel in ${_channel_file}: ${_channel:-<missing>}"
+				continue
+				;;
 		esac
 		case " ${_seen_channels} " in
-			*" ${_channel} "*) fail "duplicate ${_channel} channel in ${_channel_file}"; continue ;;
+			*" ${_channel} "*)
+				fail "duplicate ${_channel} channel in ${_channel_file}"
+				continue
+				;;
 		esac
 		_seen_channels="${_seen_channels}${_seen_channels:+ }${_channel}"
 		case "${_version}" in
@@ -108,14 +120,28 @@ verify_architecture_metadata() {
 		esac
 		case "${_md5}" in
 			????????????????????????????????) ;;
-			*) fail "invalid MD5 in ${_channel_file} for ${_file}"; continue ;;
+			*)
+				fail "invalid MD5 in ${_channel_file} for ${_file}"
+				continue
+				;;
 		esac
-		case "${_md5}" in *[!0123456789abcdefABCDEF]*) fail "invalid MD5 in ${_channel_file} for ${_file}"; continue ;; esac
+		case "${_md5}" in *[!0123456789abcdefABCDEF]*)
+			fail "invalid MD5 in ${_channel_file} for ${_file}"
+			continue
+			;;
+		esac
 		case "${_sha256}" in
 			????????????????????????????????????????????????????????????????) ;;
-			*) fail "invalid SHA-256 in ${_channel_file} for ${_file}"; continue ;;
+			*)
+				fail "invalid SHA-256 in ${_channel_file} for ${_file}"
+				continue
+				;;
 		esac
-		case "${_sha256}" in *[!0123456789abcdefABCDEF]*) fail "invalid SHA-256 in ${_channel_file} for ${_file}"; continue ;; esac
+		case "${_sha256}" in *[!0123456789abcdefABCDEF]*)
+			fail "invalid SHA-256 in ${_channel_file} for ${_file}"
+			continue
+			;;
+		esac
 
 		_artifact="${_directory}/${_file}"
 		if [ ! -f "${_artifact}" ]; then
