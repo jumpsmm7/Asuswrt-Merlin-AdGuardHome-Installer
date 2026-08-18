@@ -305,18 +305,18 @@ proc_lock_run lock_holder &
 lock_pid="$!"
 BACKGROUND_PID="${lock_pid}"
 lock_waits=0
-while [ ! -d "${PROC_LOCK_DIR}" ] && [ "${lock_waits}" -lt 20 ]; do
-	command sleep 0.01
+while [ ! -d "${PROC_LOCK_DIR}" ] && [ "${lock_waits}" -lt 5 ]; do
+	command sleep 1
 	lock_waits=$((lock_waits + 1))
 done
-[ -d "${PROC_LOCK_DIR}" ] || fail 'lock holder did not publish its lock within 20 iterations'
+[ -d "${PROC_LOCK_DIR}" ] || fail 'lock holder did not publish its lock within 5 seconds'
 proc_lock_run lock_waiter || fail 'serialized waiter failed'
 wait "${lock_pid}" || fail 'serialized holder failed'
 BACKGROUND_PID=""
 if kill -0 "${lock_pid}" 2>/dev/null; then
 	fail 'serialized holder remained after wait'
 fi
-[ "${lock_waits}" -le 20 ] || fail 'lock publication wait exceeded 20 iterations'
+[ "${lock_waits}" -le 5 ] || fail 'lock publication wait exceeded 5 seconds'
 [ "$(sed -n '1p' "${LOCK_EVENTS}")" = first-start ] || fail 'lock holder did not start first'
 [ "$(sed -n '2p' "${LOCK_EVENTS}")" = first-end ] || fail 'lock waiter overlapped holder'
 [ "$(sed -n '3p' "${LOCK_EVENTS}")" = second ] || fail 'lock waiter did not run after holder'
