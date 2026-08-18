@@ -1992,6 +1992,7 @@ FAIL_SERVICE_AT_2=4
 check_dns_environment 0 && fail 'DNS readiness rollback with failed stubby recovery was accepted'
 [ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/stubby-stopped" ] || fail 'failed stubby recovery discarded its persisted marker'
 [ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'failed stubby recovery discarded its retryable DNS snapshot'
+on_installer_exit
 [ "${STUBBY_RESTART_COUNT}" -eq 2 ] || fail 'failed stubby recovery was not retried by exit-path cleanup'
 
 reset_case

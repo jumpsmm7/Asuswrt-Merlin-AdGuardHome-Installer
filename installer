@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.6.1                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.6.5                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -24,7 +24,7 @@ export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
 umask 077
 
-AI_VERSION="v2.6.1"
+AI_VERSION="v2.6.5"
 export AI_VERSION
 readonly ADGUARD_METADATA_DIR="/tmp/AGH_STATIC_METADATA_$$.d"
 readonly ADGUARD_METADATA_FILE="${ADGUARD_METADATA_DIR}/channels.txt"
@@ -3988,7 +3988,7 @@ check_connection() {
 ########################################################################################################################
 
 check_dns_environment() {
-	local changed deadline lookup_pid maxwait mode now status stubby_stopped
+	local changed deadline lookup_pid maxwait mode now status stubby_recovery_attempted stubby_stopped
 	ptxt_phase "Preparing DNS environment."
 	if [ -f "/opt/etc/init.d/S61stubby" ] || [ -f "/opt/sbin/stubby" ] || [ -f "/opt/bin/install_stubby" ] || [ -f "/jffs/scripts/install_stubby.sh" ] || [ -d "/jffs/dnscrypt" ] || [ -f "/opt/etc/init.d/S09dnscrypt-proxy" ]; then
 		PTXT "${ERROR} Potential stubby or dnscrypt-proxy installation detected." \
@@ -4031,6 +4031,7 @@ check_dns_environment() {
 	case "${mode}" in
 		0)
 			stubby_stopped="0"
+			stubby_recovery_attempted="0"
 			ptxt_step "Saving current DNS NVRAM settings."
 			if ! nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x; then
 				PTXT "${ERROR} Unable to read all required DNS NVRAM settings; no changes were made."
@@ -4094,8 +4095,11 @@ check_dns_environment() {
 				PTXT "${ERROR} DNS readiness did not recover after applying NVRAM changes."
 				if nvram_transaction_restore restart_dnsmasq 1 && dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
 					# Retain the recovery marker until the stopped resolver is running again.
-					if [ "${stubby_stopped}" = "1" ] && ! restore_stubby_after_dns_failure; then
-						rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+					if [ "${stubby_stopped}" = "1" ]; then
+						stubby_recovery_attempted="1"
+						if ! restore_stubby_after_dns_failure; then
+							rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+						fi
 					elif rm -f "${NVRAM_TRANSACTION_DIR}/dirty"; then
 						stubby_stopped="0"
 						rm -rf "${NVRAM_TRANSACTION_DIR}" 2>/dev/null || true
@@ -4109,7 +4113,9 @@ check_dns_environment() {
 						rollback_result_write "DNS NVRAM transaction" "rollback partial"
 					fi
 				fi
-				[ "${stubby_stopped}" = "0" ] || restore_stubby_after_dns_failure || PTXT "${ERROR} Unable to restart stubby after DNS preparation failed."
+				if [ "${stubby_stopped}" != "0" ] && [ "${stubby_recovery_attempted}" = "0" ]; then
+					restore_stubby_after_dns_failure || PTXT "${ERROR} Unable to restart stubby after DNS preparation failed."
+				fi
 				return 1
 			fi
 			;;
