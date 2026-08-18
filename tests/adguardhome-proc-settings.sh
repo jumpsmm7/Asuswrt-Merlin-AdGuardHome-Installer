@@ -291,6 +291,10 @@ run_uninstall_test unusable-helper 0 0 unusable && fail 'unusable rollback helpe
 
 # The mkdir fallback serializes complete proc transactions.
 LOCK_EVENTS="${TMP_ROOT}/lock-events"
+sleep() {
+	SLEEP_CALLS=$((SLEEP_CALLS + 1))
+	command sleep 0.01
+}
 lock_holder() {
 	printf '%s\n' first-start >>"${LOCK_EVENTS}"
 	command sleep 1
