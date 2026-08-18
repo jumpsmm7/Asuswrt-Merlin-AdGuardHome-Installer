@@ -49,6 +49,8 @@ done
 for directory in armv5 armv7 armv8; do
 	write_architecture_fixture "${directory}" || fail "unable to create ${directory} fixture"
 done
+grep -q '^AdGuardHome_stable_linux_arm64\.tar\.gz[[:space:]]' "${TMP_ROOT}/armv8/checksum.txt" ||
+	fail 'stable armv8 fixture does not advertise the arm64 archive'
 CURRENT_VERSION="$(awk -F= '/^AI_VERSION=/ { gsub(/"/, "", $2); print $2; exit }' "${TMP_ROOT}/installer")"
 [ -n "${CURRENT_VERSION}" ] || fail 'unable to read fixture installer version'
 VERSION_PATTERN="$(printf '%s\n' "${CURRENT_VERSION}" | sed 's/\./\\./g')"
