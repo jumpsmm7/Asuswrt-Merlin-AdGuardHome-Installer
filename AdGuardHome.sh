@@ -1466,15 +1466,16 @@ netcheck() {
 
 # private_ipv4_bridge_dns_options prints usable global IPv4 addresses assigned to bridge interfaces other than the LAN interface.
 private_ipv4_bridge_dns_options() {
-	local ADDRESS_OUTPUT BRIDGE_ADDR BRIDGE_IF LAN_IF OPTIONS
+	local ADDRESS_OUTPUT BRIDGE_ADDR BRIDGE_IF LAN_IF OPTIONS ALLOW_PUBLIC_BRIDGE_DNS
 	LAN_IF="${1:-}"
 	[ -n "${LAN_IF}" ] || return 1
+	ALLOW_PUBLIC_BRIDGE_DNS="$(/usr/bin/awk -F= '/^ADGUARD_ALLOW_PUBLIC_BRIDGE_DNS=/ { value=$2; gsub(/^"|"$/, "", value); print value; exit }' "${CONF_FILE}" 2>/dev/null)"
 	if have_cmd ip; then
 		if ADDRESS_OUTPUT="$(ip -o -4 addr show scope global 2>/dev/null)"; then
-			OPTIONS="$(printf '%s\n' "${ADDRESS_OUTPUT}" | /usr/bin/awk -v lan_if="${LAN_IF}" '
+			OPTIONS="$(printf '%s\n' "${ADDRESS_OUTPUT}" | /usr/bin/awk -v lan_if="${LAN_IF}" -v allow_public="${ALLOW_PUBLIC_BRIDGE_DNS}" '
 			function usable_ip(ip, broadcast, octets) {
 				split(ip, octets, ".")
-				return ip != broadcast && ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && !(octets[1] == 169 && octets[2] == 254) && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
+				return ip != broadcast && ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && !(octets[1] == 169 && octets[2] == 254) && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255 && (allow_public == "YES" || octets[1] == 10 || (octets[1] == 172 && octets[2] >= 16 && octets[2] <= 31) || (octets[1] == 192 && octets[2] == 168))
 			}
 			$2 ~ /^br/ && $2 != lan_if && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
 				broadcast = ""
@@ -1488,10 +1489,10 @@ private_ipv4_bridge_dns_options() {
 			}
 			')"
 		elif ADDRESS_OUTPUT="$(ip -4 addr show scope global 2>/dev/null)"; then
-			OPTIONS="$(printf '%s\n' "${ADDRESS_OUTPUT}" | /usr/bin/awk -v lan_if="${LAN_IF}" '
+			OPTIONS="$(printf '%s\n' "${ADDRESS_OUTPUT}" | /usr/bin/awk -v lan_if="${LAN_IF}" -v allow_public="${ALLOW_PUBLIC_BRIDGE_DNS}" '
 				function usable_ip(ip, broadcast, octets) {
 					split(ip, octets, ".")
-					return ip != broadcast && ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && !(octets[1] == 169 && octets[2] == 254) && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
+					return ip != broadcast && ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && !(octets[1] == 169 && octets[2] == 254) && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255 && (allow_public == "YES" || octets[1] == 10 || (octets[1] == 172 && octets[2] >= 16 && octets[2] <= 31) || (octets[1] == 192 && octets[2] == 168))
 				}
 				/^[0-9]+: / {
 					iface = $2
