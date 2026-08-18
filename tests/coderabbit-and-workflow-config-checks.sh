@@ -70,6 +70,23 @@ done
 grep -Fq 'path: "installer"' "${CODERABBIT}" || fail "${CODERABBIT}: expected a literal path_instructions entry for \"installer\""
 [ -f 'installer' ] || fail "installer file referenced by ${CODERABBIT} does not exist"
 
+# --- BusyBox review guidance must retain the targeted high-risk constructs
+# without reverting to broad command-name matching that creates noisy findings.
+for expected in \
+	'`set -o pipefail`' \
+	'`${var//...}`' \
+	'`read -a`' \
+	'GNU-only `sed`, `find`, `xargs`, `date`, or `grep` flags' \
+	'`local NAME="$(command)"`' \
+	'Suffixed runtime `sleep` operands' \
+	'attacker-influenced PATH' \
+	'New unconditional `flock` acquisition' \
+	'New runtime dependencies on Python, Perl, `realpath`, or `timeout`'; do
+	grep -Fq "${expected}" "${CODERABBIT}" || fail "${CODERABBIT}: missing targeted review guidance: ${expected}"
+done
+grep -Fq 'Do not require absolute' "${CODERABBIT}" ||
+	fail "${CODERABBIT}: command-path guidance would create noisy absolute-path findings"
+
 # --- Generated checksum artifacts must stay excluded from review, matching
 # the repository's convention that checksums are CI-generated, not authored.
 grep -Fq '"!**/*.md5sum"' "${CODERABBIT}" || fail "${CODERABBIT}: expected path_filters to exclude **/*.md5sum"

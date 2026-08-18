@@ -111,6 +111,17 @@ reviews:
 
         Check especially for:
         - Bash-only syntax or GNU-only command options.
+        - Exact introductions of `set -o pipefail`, `${var//...}`, `<<<`,
+          `<(...)`, `>(...)`, `read -a`, `readarray`, or `mapfile`; distinguish
+          these from POSIX command substitution, prefix/suffix removal, and
+          non-executable examples.
+        - GNU-only `sed`, `find`, `xargs`, `date`, or `grep` flags in router
+          runtime lines, checked against BusyBox v1.25.1 rather than rejected by
+          command name; exempt tooling that explicitly selects a host GNU binary.
+        - `local NAME="$(command)"` only when later control flow needs the
+          command's status; recommend a separate declaration and assignment.
+        - Suffixed runtime `sleep` operands unless support is established for
+          the target BusyBox build; prefer validated integer seconds.
         - Incorrect quoting, word splitting, globbing, IFS handling, or unsafe
           use of user-controlled input.
         - set -u failures from unset variables.
@@ -126,7 +137,15 @@ reviews:
         - Unbounded waits, retry loops, process leaks, stale PIDs, PID reuse,
           and excessive process creation on constrained router hardware.
         - Router-stock PATH precedence over Entware paths.
+        - Unqualified privileged/security-sensitive commands only where an unsafe
+          or attacker-influenced PATH can change resolution. Do not require absolute
+          paths under the documented stock-first PATH.
         - Use of commands that are unavailable on the target router.
+        - New runtime dependencies on Python, Perl, `realpath`, or `timeout`,
+          excluding established provisioned Entware flows and explicit CI-only
+          GNU tooling.
+        - New unconditional `flock` acquisition; accept calls reached only
+          after availability/capability probes with the existing fallback intact.
         - BusyBox applet behavior that differs from GNU implementations.
 
         Do not flag use of local solely because it is not strictly POSIX.
@@ -361,4 +380,3 @@ knowledge_base:
 
   pull_requests:
     scope: "local"
-
