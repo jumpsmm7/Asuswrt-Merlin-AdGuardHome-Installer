@@ -43,10 +43,13 @@ done
 for directory in armv5 armv7 armv8; do
 	write_architecture_fixture "${directory}" || fail "unable to create ${directory} fixture"
 done
+CURRENT_VERSION="$(awk -F= '/^AI_VERSION=/ { gsub(/"/, "", $2); print $2; exit }' "${TMP_ROOT}/installer")"
+[ -n "${CURRENT_VERSION}" ] || fail 'unable to read fixture installer version'
+VERSION_PATTERN="$(printf '%s\n' "${CURRENT_VERSION}" | sed 's/\./\\./g')"
 
 RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null || fail 'valid fixture was rejected'
 
-sed 's/AI_VERSION="v2.6.5"/AI_VERSION="v9.9.9"/' "${TMP_ROOT}/installer" >"${TMP_ROOT}/installer.tmp"
+sed "s/AI_VERSION=\"${VERSION_PATTERN}\"/AI_VERSION=\"v9.9.9\"/" "${TMP_ROOT}/installer" >"${TMP_ROOT}/installer.tmp"
 mv "${TMP_ROOT}/installer.tmp" "${TMP_ROOT}/installer"
 refresh_manifests "${TMP_ROOT}/installer"
 if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null 2>&1; then
@@ -55,18 +58,31 @@ fi
 cp installer "${TMP_ROOT}/installer"
 refresh_manifests "${TMP_ROOT}/installer"
 
-sed 's/v2\.6\.5/v2..6.5./g' "${TMP_ROOT}/installer" >"${TMP_ROOT}/installer.tmp"
+MALFORMED_VERSION="${CURRENT_VERSION%.*}..${CURRENT_VERSION##*.}"
+sed "s/${VERSION_PATTERN}/${MALFORMED_VERSION}/g" "${TMP_ROOT}/installer" >"${TMP_ROOT}/installer.tmp"
 mv "${TMP_ROOT}/installer.tmp" "${TMP_ROOT}/installer"
 refresh_manifests "${TMP_ROOT}/installer"
 if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null 2>&1; then
 	fail 'malformed dotted release version was accepted'
 fi
-sed 's/v2\.6\.5/v2.6.10/g' installer >"${TMP_ROOT}/installer"
+BOUNDARY_VERSION="${CURRENT_VERSION}0"
+sed "s/${VERSION_PATTERN}/${BOUNDARY_VERSION}/g" installer >"${TMP_ROOT}/installer"
 refresh_manifests "${TMP_ROOT}/installer"
 RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null ||
-	fail 'v2.6.10 was mistaken for the legacy v2.6.1 identifier'
+	fail "${BOUNDARY_VERSION} was mistaken for the derived stale release identifier"
 cp installer "${TMP_ROOT}/installer"
 refresh_manifests "${TMP_ROOT}/installer"
+
+STALE_VERSION="${CURRENT_VERSION%.*}.1"
+if [ "${STALE_VERSION}" != "${CURRENT_VERSION}" ]; then
+	printf '%s\n' "# stale release ${STALE_VERSION}" >>"${TMP_ROOT}/installer"
+	refresh_manifests "${TMP_ROOT}/installer"
+	if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null 2>&1; then
+		fail "derived stale release ${STALE_VERSION} was accepted"
+	fi
+	cp installer "${TMP_ROOT}/installer"
+	refresh_manifests "${TMP_ROOT}/installer"
+fi
 
 rm -f "${TMP_ROOT}/AdGuardHome.sh.sha256sum"
 if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null 2>&1; then
@@ -91,9 +107,14 @@ write_architecture_fixture armv5 || fail 'unable to restore armv5 fixture'
 
 (
 	cd "${TMP_ROOT}" || exit 1
-	git init -q &&
+	mkdir -p "${TMP_ROOT}/git-home" "${TMP_ROOT}/git-hooks" "${TMP_ROOT}/git-template" &&
+	export HOME="${TMP_ROOT}/git-home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 &&
+	git init -q --template="${TMP_ROOT}/git-template" &&
 		git config user.name 'Release Test' &&
 		git config user.email 'release-test@example.invalid' &&
+		git config commit.gpgSign false &&
+		git config tag.gpgSign false &&
+		git config core.hooksPath "${TMP_ROOT}/git-hooks" &&
 		git add . &&
 		git commit -qm baseline &&
 		git commit --allow-empty -qm candidate

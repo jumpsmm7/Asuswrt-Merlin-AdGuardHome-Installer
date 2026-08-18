@@ -39,14 +39,16 @@ verify_artifact() {
 		fail "invalid SHA-256 manifest: ${_sha256_file}"
 		return
 	}
-	_actual_md5="$(md5sum "${_artifact}" 2>/dev/null | awk 'NF { print $1; exit }')" || {
+	_actual_md5="$(md5sum "${_artifact}" 2>/dev/null | awk 'NF { print $1; exit }')"
+	if [ -z "${_actual_md5}" ]; then
 		fail "could not calculate MD5 for ${_artifact}"
 		return
-	}
-	_actual_sha256="$(sha256sum "${_artifact}" 2>/dev/null | awk 'NF { print $1; exit }')" || {
+	fi
+	_actual_sha256="$(sha256sum "${_artifact}" 2>/dev/null | awk 'NF { print $1; exit }')"
+	if [ -z "${_actual_sha256}" ]; then
 		fail "could not calculate SHA-256 for ${_artifact}"
 		return
-	}
+	fi
 	[ "${_expected_md5}" = "${_actual_md5}" ] || fail "${_artifact} does not match ${_md5_file}"
 	[ "${_expected_sha256}" = "${_actual_sha256}" ] || fail "${_artifact} does not match ${_sha256_file}"
 	[ -z "${_metadata_md5}" ] || [ "${_metadata_md5}" = "${_actual_md5}" ] || fail "${_artifact} MD5 does not match architecture checksum.txt"
@@ -147,8 +149,10 @@ BANNER_VERSION="$(awk '{ for (field = 1; field <= NF; field++) if ($field ~ /^v[
 [ -n "${BANNER_VERSION}" ] || fail 'installer banner version is missing or invalid'
 [ "${AI_VERSION}" = "${BANNER_VERSION}" ] || fail "banner ${BANNER_VERSION:-<missing>} and AI_VERSION ${AI_VERSION:-<missing>} differ"
 
-if grep -q 'v2\.6\.1\([^0-9]\|$\)' installer; then
-	fail 'release identifier v2.6.1 remains in installer'
+STALE_RELEASE_VERSION="${AI_VERSION%.*}.1"
+STALE_RELEASE_PATTERN="$(printf '%s\n' "${STALE_RELEASE_VERSION}" | sed 's/\./\\./g')"
+if [ "${STALE_RELEASE_VERSION}" != "${AI_VERSION}" ] && grep -q "${STALE_RELEASE_PATTERN}\\([^0-9]\\|$\\)" installer; then
+	fail "release identifier ${STALE_RELEASE_VERSION} remains in installer"
 fi
 
 RELEASE_BASE_RESOLVED=""
