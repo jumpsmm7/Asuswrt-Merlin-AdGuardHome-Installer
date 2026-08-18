@@ -94,6 +94,14 @@ Flag newly introduced use of:
 * Bash-specific function syntax
 * Other syntax requiring `/bin/bash`
 
+Keep these checks syntax-aware and limited to executable changed lines. In
+particular, do not confuse ordinary `$(...)` command substitution with process
+substitution, `${value#prefix}` with `${value//old/new}`, or examples in quoted
+test fixtures and documentation with code that runs on the router. Explicitly
+check for `set -o pipefail`, `<<<`, `<(...)`, `>(...)`, `read -a`, `readarray`,
+and `mapfile`; these constructs can otherwise look plausible while still
+failing under the target `ash`.
+
 Compatible patterns include:
 
 * `[ ... ]`
@@ -117,6 +125,12 @@ Review changed shell code for:
 * Tests that become invalid when a variable is empty.
 * Incorrect operator precedence in combined `[ ... ]` expressions.
 * Commands whose exit status is hidden or discarded unexpectedly.
+
+When a changed command substitution's status controls the next action, flag
+`local NAME="$(command)"`: BusyBox `ash` reports the status of `local` rather
+than reliably preserving the substitution's status. The targeted correction is
+to declare the local first and assign it in a separate command. Do not flag a
+combined declaration when the substitution status is intentionally ignored.
 
 Do not request unquoted expansion merely to shorten code.
 
@@ -145,6 +159,19 @@ uptime usleep vi watch wc which xargs zcat
 ```
 
 Flag GNU-only options unless support for the target BusyBox version or a required Entware package is established.
+
+For router runtime changes, inspect `sed`, `find`, `xargs`, `date`, and `grep`
+options individually against BusyBox v1.25.1. Pay particular attention to GNU
+long options and to `sed -E`/`-z`, `find -printf`/`-regextype`, `xargs -d`,
+`date -I`/`--iso-8601`, and `grep -P`/`--include`/`--exclude`; do not flag
+portable options merely because GNU also implements them. Exclude host-only CI
+and test tooling when it explicitly selects a GNU binary.
+
+The supported firmware and existing runtime convention accept integer seconds
+as either `sleep N` or `sleep Ns`. Do not flag the established `Ns` suffix.
+Review newly introduced fractional operands or other suffixes only when their
+support on BusyBox v1.25.1 is not established; ignore prose, mocks, and test
+assertions that merely mention a sleep invocation.
 
 Do not assume an applet listed above supports every option provided by its GNU counterpart.
 
@@ -199,6 +226,11 @@ Do not assume the following commands are available from the stock router environ
 
 `python3` is acceptable only in an established Entware flow that installs or verifies the required package.
 
+Flag new router-runtime dependencies on `python`, `python3`, `perl`, `realpath`,
+or `timeout` unless the same execution path explicitly provisions and verifies
+an allowed provider. Do not treat comments, diagnostics, test fixtures, or the
+CI-only approved `/usr/bin/timeout` wrapper as runtime dependencies.
+
 Also flag new assumptions involving:
 
 * GNU coreutils behavior
@@ -243,6 +275,13 @@ When changed code requires an absolute router-stock path, review it against thes
 
 Do not automatically require absolute paths when the configured `PATH` safely resolves the intended router-stock command first.
 
+Flag a newly unqualified privileged or security-sensitive command only when its
+resolution can be influenced by an unsafe `PATH` (for example, Entware or a
+writable directory precedes router-stock paths). Prefer restoring the documented
+stock-first `PATH`; require the known absolute path only where resolution itself
+crosses a trust boundary. Do not create noise for ordinary unqualified applets
+under the repository's fixed stock-first `PATH`.
+
 Treat commands such as the following as router-stock or firmware-provided binaries rather than guaranteed BusyBox applets:
 
 * `curl`
@@ -282,6 +321,9 @@ Any changed locking code must preserve:
 * Protection against stale locks and PID reuse where practical.
 
 Flag code that makes `flock` an unconditional requirement or removes a working fallback.
+
+Apply this check only to new or changed lock acquisition paths. A guarded call
+inside an already-probed flock branch is not unconditional use.
 
 ## Filesystem assumptions
 

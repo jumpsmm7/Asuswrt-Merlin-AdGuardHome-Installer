@@ -88,6 +88,29 @@ reviews:
       instructions: |
         Treat the repository's AGENTS.md as the primary engineering standard.
 
+        For every changed shell file recognized by tools/list-shell-scripts.sh,
+        including extensionless `installer`, `S99AdGuardHome`, and
+        `rc.func.AdGuardHome`, apply these targeted runtime checks:
+        - Exact introductions of `set -o pipefail`, `${var//...}`, `<<<`,
+          `<(...)`, `>(...)`, `read -a`, `readarray`, or `mapfile`; distinguish
+          these from POSIX command substitution, prefix/suffix removal, and
+          non-executable examples.
+        - GNU-only `sed`, `find`, `xargs`, `date`, or `grep` flags, checked
+          against BusyBox v1.25.1 rather than rejected by command name; exempt
+          tooling that explicitly selects a host GNU binary.
+        - `local NAME="$(command)"` only when later control flow needs the
+          command's status; recommend a separate declaration and assignment.
+        - Sleep operands outside the repository-supported integer-seconds forms
+          (`sleep N` and `sleep Ns`); do not flag the established `Ns` suffix.
+        - Unqualified privileged/security-sensitive commands only where an unsafe
+          or attacker-influenced PATH can change resolution. Do not require absolute
+          paths under the documented stock-first PATH.
+        - New runtime dependencies on Python, Perl, `realpath`, or `timeout`,
+          excluding established provisioned Entware flows and explicit CI-only
+          GNU tooling.
+        - New unconditional `flock` acquisition; accept calls reached only
+          after availability/capability probes with the existing fallback intact.
+
         Keep reviews high-signal:
         - Report only likely correctness, security, compatibility, state-safety,
           reliability, or meaningful performance defects.
@@ -99,6 +122,8 @@ reviews:
         - Explain the practical effect on installation, upgrade, service
           operation, recovery, or router state.
         - Prefer a minimal fix over a broad refactor.
+        - When a checksum-covered runtime artifact changes, verify both its
+          `.md5sum` and `.sha256sum` sidecars are updated.
         - Do not duplicate findings already reported by CI unless the CI result
           reveals a distinct root cause.
         - Do not claim a theoretical issue without identifying a reachable
@@ -361,4 +386,3 @@ knowledge_base:
 
   pull_requests:
     scope: "local"
-

@@ -8,6 +8,7 @@
 set -u
 
 CODERABBIT='.coderabbit.yaml'
+CODEX_PROMPT='.github/prompts/codex-code-improvement.md'
 WORKFLOW='.github/workflows/code-quality.yml'
 REVIEW_WORKFLOW='.github/workflows/code-quality-review.yml'
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/workflow-config-checks.XXXXXX")" || {
@@ -42,7 +43,7 @@ review_checker_is_enforced() {
 	' "${_review_workflow}"
 }
 
-for f in "${CODERABBIT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}"; do
+for f in "${CODERABBIT}" "${CODEX_PROMPT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}"; do
 	[ -f "${f}" ] || fail "expected config file not found: ${f}"
 done
 
@@ -50,7 +51,7 @@ done
 # GitHub Actions both treat tabs as invalid/undefined indentation, and a tab
 # introduced by an editor would not be caught by any shell-focused linter.
 TAB=$(printf '\t')
-for f in "${CODERABBIT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}"; do
+for f in "${CODERABBIT}" "${CODEX_PROMPT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}"; do
 	if grep -Fq "${TAB}" "${f}"; then
 		fail "${f}: contains literal tab character(s); YAML/workflow indentation must use spaces"
 	fi
@@ -69,6 +70,39 @@ done
 # installer script doesn't silently drop it from targeted review guidance.
 grep -Fq 'path: "installer"' "${CODERABBIT}" || fail "${CODERABBIT}: expected a literal path_instructions entry for \"installer\""
 [ -f 'installer' ] || fail "installer file referenced by ${CODERABBIT} does not exist"
+
+# --- BusyBox review guidance must live in the shared path block so it applies
+# to both *.sh files and every extensionless runtime script in the inventory.
+SHARED_INSTRUCTIONS="${TMP_ROOT}/shared-instructions"
+awk '
+	/^    - path: "\*\*\/\*"$/ { in_shared = 1; next }
+	in_shared && /^    - path:/ { exit }
+	in_shared { print }
+' "${CODERABBIT}" >"${SHARED_INSTRUCTIONS}" || fail "could not extract shared CodeRabbit instructions"
+[ -s "${SHARED_INSTRUCTIONS}" ] || fail "${CODERABBIT}: shared path instructions are empty"
+for expected in \
+	'`set -o pipefail`' \
+	'`${var//...}`' \
+	'`read -a`' \
+	'GNU-only `sed`, `find`, `xargs`, `date`, or `grep` flags' \
+	'`local NAME="$(command)"`' \
+	'`sleep N` and `sleep Ns`' \
+	'attacker-influenced PATH' \
+	'New unconditional `flock` acquisition' \
+	'New runtime dependencies on Python, Perl, `realpath`, or `timeout`'; do
+	grep -Fq "${expected}" "${SHARED_INSTRUCTIONS}" || fail "${CODERABBIT}: shared path scope is missing targeted review guidance: ${expected}"
+done
+for runtime_script in installer S99AdGuardHome rc.func.AdGuardHome; do
+	grep -Fq "\`${runtime_script}\`" "${SHARED_INSTRUCTIONS}" ||
+		fail "${CODERABBIT}: shared shell guidance does not name extensionless runtime script ${runtime_script}"
+done
+grep -Fq 'Do not require absolute' "${SHARED_INSTRUCTIONS}" ||
+	fail "${CODERABBIT}: command-path guidance would create noisy absolute-path findings"
+grep -Fq '`.md5sum` and `.sha256sum` sidecars' "${SHARED_INSTRUCTIONS}" ||
+	fail "${CODERABBIT}: shared review guidance must check both runtime artifact checksum formats"
+if ! grep -Fq '`.md5sum` and' "${CODEX_PROMPT}" || ! grep -Fq '`.sha256sum` updates' "${CODEX_PROMPT}"; then
+	fail "${CODEX_PROMPT}: Codex guidance must check both runtime artifact checksum formats"
+fi
 
 # --- Generated checksum artifacts must stay excluded from review, matching
 # the repository's convention that checksums are CI-generated, not authored.
