@@ -15,6 +15,7 @@ jobs:
   posix-syntax:
     name: BusyBox ash syntax
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,21 +54,22 @@ jobs:
           dash -n tools/update-checksums.sh
 
       - name: Run mkdir reaper owner publication regression
-        run: busybox ash tests/installer-reaper-owner-publication.sh
+        run: timeout --kill-after=10 180 busybox ash tests/installer-reaper-owner-publication.sh
 
       - name: Run process signaling regression with BusyBox ash
-        run: busybox ash tests/rc-process-signaling.sh
+        run: timeout --kill-after=10 180 busybox ash tests/rc-process-signaling.sh
 
       - name: Run bounded service lifecycle integration matrix
         # DNS handoff validates root-only FIFO ownership, matching router init.
-        run: sudo -n env AGH_INTEGRATION_SHELL=busybox AGH_INTEGRATION_SHELL_ARG=ash busybox ash tests/service-lifecycle-integration.sh
+        run: sudo -n timeout --kill-after=10 600 env AGH_INTEGRATION_SHELL=busybox AGH_INTEGRATION_SHELL_ARG=ash busybox ash tests/service-lifecycle-integration.sh
 
       - name: Run optional database link regression
-        run: sudo -n busybox ash tests/optional-database-links.sh
+        run: sudo -n timeout --kill-after=10 180 busybox ash tests/optional-database-links.sh
 
   shellcheck:
     name: ShellCheck POSIX ash profile
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -99,6 +101,7 @@ jobs:
   checksums:
     name: Checksum validation
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # Pull request runs can start before the separate checksum updater workflow
     # has pushed its chore commit. This job waits for that branch update and
     # validates the latest PR head. Non-bot push runs are skipped so they do not
@@ -183,6 +186,7 @@ jobs:
   shfmt:
     name: shfmt mksh recommendations
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -22,16 +22,57 @@ trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
 
 FUNCTIONS_FILE="${TMP_ROOT}/functions.sh"
 sed -n \
-	'/^cleanup() {$/,/^}$/p; /^have_cmd() {$/,/^}$/p; /^require_cmd() {$/,/^}$/p; /^run_check() {$/,/^}$/p; /^run_optional_database_link_check() {$/,/^}$/p; /^run_writable_path_security_check() {$/,/^}$/p; /^run_script_list_check() {$/,/^}$/p' \
+	'/^cleanup() {$/,/^}$/p; /^have_cmd() {$/,/^}$/p; /^require_cmd() {$/,/^}$/p; /^configure_test_timeout() {$/,/^}$/p; /^run_test_command() {$/,/^}$/p; /^run_privileged_test_command() {$/,/^}$/p; /^run_check() {$/,/^}$/p; /^run_optional_database_link_check() {$/,/^}$/p; /^run_writable_path_security_check() {$/,/^}$/p; /^run_script_list_check() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'function extraction from tools/code-quality.sh was empty (helper functions may have been renamed)'
 
-for fn in cleanup have_cmd require_cmd run_check run_optional_database_link_check run_writable_path_security_check run_script_list_check; do
+for fn in cleanup have_cmd require_cmd configure_test_timeout run_test_command run_privileged_test_command run_check run_optional_database_link_check run_writable_path_security_check run_script_list_check; do
 	grep -Fq "${fn}() {" "${FUNCTIONS_FILE}" || fail "extracted functions file is missing ${fn}()"
 done
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+TEST_MAX_RUNTIME_SECONDS=0
+GNU_TIMEOUT=""
+
+# Only an absolute executable identifying itself as GNU coreutils timeout may
+# enable the GNU-specific --kill-after option.
+GNU_TIMEOUT_FIXTURE="${TMP_ROOT}/timeout"
+cat >"${GNU_TIMEOUT_FIXTURE}" <<'EOF'
+#!/bin/sh
+printf '%s\n' 'timeout (GNU coreutils) 9.1'
+EOF
+chmod 700 "${GNU_TIMEOUT_FIXTURE}" || fail 'could not prepare GNU timeout fixture'
+which() { printf '%s\n' "${GNU_TIMEOUT_FIXTURE}"; }
+TEST_MAX_RUNTIME_SECONDS=180
+configure_test_timeout || fail 'GNU coreutils timeout provider was rejected'
+[ "${GNU_TIMEOUT}" = "${GNU_TIMEOUT_FIXTURE}" ] || fail 'approved GNU timeout path was not retained'
+cat >"${GNU_TIMEOUT_FIXTURE}" <<'EOF'
+#!/bin/sh
+printf '%s\n' 'BusyBox v1.25.1 multi-call binary.'
+EOF
+if configure_test_timeout 2>/dev/null; then
+	fail 'BusyBox timeout provider was accepted for GNU options'
+fi
+unset -f which 2>/dev/null || unset which 2>/dev/null || true
+
+# A bounded privileged regression must launch timeout as root so it can signal
+# every root-owned descendant, while an unbounded local run invokes the test
+# directly through sudo.
+PRIVILEGED_ARGS_FILE="${TMP_ROOT}/privileged-args"
+sudo() {
+	printf '%s\n' "$*" >"${PRIVILEGED_ARGS_FILE}"
+}
+TEST_MAX_RUNTIME_SECONDS=180
+GNU_TIMEOUT=/usr/bin/timeout
+run_privileged_test_command sh tests/optional-database-links.sh || fail 'bounded privileged command failed'
+[ "$(cat "${PRIVILEGED_ARGS_FILE}")" = '-n /usr/bin/timeout --kill-after=10 180 sh tests/optional-database-links.sh' ] ||
+	fail 'bounded timeout was not placed inside sudo'
+TEST_MAX_RUNTIME_SECONDS=0
+run_privileged_test_command sh tests/optional-database-links.sh || fail 'unbounded privileged command failed'
+[ "$(cat "${PRIVILEGED_ARGS_FILE}")" = '-n sh tests/optional-database-links.sh' ] ||
+	fail 'unbounded privileged command did not retain direct sudo ordering'
+unset -f sudo 2>/dev/null || unset sudo 2>/dev/null || true
 
 # The writable-path and optional database-link regressions validate root-owned
 # state.  Verify the runner executes both directly as root so the database

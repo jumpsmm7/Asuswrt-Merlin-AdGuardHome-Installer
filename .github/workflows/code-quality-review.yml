@@ -20,6 +20,7 @@ jobs:
   local-quality:
     name: Local Code Quality Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
     permissions:
       contents: read
@@ -43,11 +44,14 @@ jobs:
           sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq
 
       - name: Run local code quality checks
+        env:
+          TEST_MAX_RUNTIME_SECONDS: 180
         run: sh tools/code-quality.sh
 
   sonarcloud:
     name: SonarCloud Code Analysis
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
     permissions:
       contents: read
