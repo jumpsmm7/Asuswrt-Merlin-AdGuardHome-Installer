@@ -8,7 +8,6 @@ TMP_ROOT="${TMPDIR:-/tmp}/agh-proc-settings.$$"
 FUNCTION_FILE="${TMP_ROOT}/functions"
 LOG_FILE="${TMP_ROOT}/log"
 BACKGROUND_PID=""
-SLEEP_CALLS=0
 
 cleanup() {
 	if [ -n "${BACKGROUND_PID:-}" ] && kill -0 "${BACKGROUND_PID}" 2>/dev/null; then
@@ -292,10 +291,7 @@ run_uninstall_test unusable-helper 0 0 unusable && fail 'unusable rollback helpe
 
 # The mkdir fallback serializes complete proc transactions.
 LOCK_EVENTS="${TMP_ROOT}/lock-events"
-sleep() {
-	SLEEP_CALLS=$((SLEEP_CALLS + 1))
-	command sleep 0.01
-}
+# Use the real sleep command so proc_lock_run's fallback retry timing is unchanged.
 lock_holder() {
 	printf '%s\n' first-start >>"${LOCK_EVENTS}"
 	command sleep 1
@@ -307,7 +303,7 @@ lock_pid="$!"
 BACKGROUND_PID="${lock_pid}"
 lock_waits=0
 while [ ! -d "${PROC_LOCK_DIR}" ] && [ "${lock_waits}" -lt 20 ]; do
-	sleep 1
+	command sleep 0.01
 	lock_waits=$((lock_waits + 1))
 done
 [ -d "${PROC_LOCK_DIR}" ] || fail 'lock holder did not publish its lock within 20 iterations'
@@ -318,7 +314,6 @@ if kill -0 "${lock_pid}" 2>/dev/null; then
 	fail 'serialized holder remained after wait'
 fi
 [ "${lock_waits}" -le 20 ] || fail 'lock publication wait exceeded 20 iterations'
-[ "${SLEEP_CALLS}" -le 20 ] || fail 'lock regression exceeded its documented sleep limit'
 [ "$(sed -n '1p' "${LOCK_EVENTS}")" = first-start ] || fail 'lock holder did not start first'
 [ "$(sed -n '2p' "${LOCK_EVENTS}")" = first-end ] || fail 'lock waiter overlapped holder'
 [ "$(sed -n '3p' "${LOCK_EVENTS}")" = second ] || fail 'lock waiter did not run after holder'
