@@ -298,7 +298,7 @@ sleep() {
 }
 lock_holder() {
 	printf '%s\n' first-start >>"${LOCK_EVENTS}"
-	sleep 1
+	command sleep 1
 	printf '%s\n' first-end >>"${LOCK_EVENTS}"
 }
 lock_waiter() { printf '%s\n' second >>"${LOCK_EVENTS}"; }
