@@ -10,12 +10,15 @@ Review scope:
 - Call out bugs, unsafe shell expansions, BusyBox/POSIX ash portability regressions, checksum drift, and missing validation.
 - Target changed executable lines for `set -o pipefail`, `${var//...}`,
   here-strings/process substitution, array-reading builtins, status-masking
-  `local NAME="$(command)"`, unverified sleep suffixes, and GNU-only runtime
-  flags; do not match comments, fixtures, or similar POSIX constructs.
+  `local NAME="$(command)"`, unsupported sleep operands, and GNU-only runtime
+  flags in every inventory-listed shell file, including extensionless runtime
+  scripts; do not match comments, fixtures, similar POSIX constructs, or the
+  repository-supported integer forms `sleep N` and `sleep Ns`.
 - Flag unsafe command resolution, unconditional `flock`, and new Python, Perl,
   `realpath`, or `timeout` runtime dependencies only when the changed execution
   path actually introduces that requirement.
-- Check whether changed installer/service artifacts need matching `.md5sum` updates.
+- Check whether changed installer/service artifacts need matching `.md5sum` and
+  `.sha256sum` updates.
 - Consider whether changes remain compatible with constrained router environments.
 
 Useful local checks:

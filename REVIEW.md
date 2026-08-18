@@ -167,10 +167,11 @@ long options and to `sed -E`/`-z`, `find -printf`/`-regextype`, `xargs -d`,
 portable options merely because GNU also implements them. Exclude host-only CI
 and test tooling when it explicitly selects a GNU binary.
 
-Do not introduce suffixed `sleep` operands in router runtime code. Unless the
-specific BusyBox v1.25.1 build capability is established, use validated integer
-seconds (for example, `sleep 1`, not `sleep 1s`); do not flag prose, mocks, or
-test assertions that merely mention a suffixed invocation.
+The supported firmware and existing runtime convention accept integer seconds
+as either `sleep N` or `sleep Ns`. Do not flag the established `Ns` suffix.
+Review newly introduced fractional operands or other suffixes only when their
+support on BusyBox v1.25.1 is not established; ignore prose, mocks, and test
+assertions that merely mention a sleep invocation.
 
 Do not assume an applet listed above supports every option provided by its GNU counterpart.
 
