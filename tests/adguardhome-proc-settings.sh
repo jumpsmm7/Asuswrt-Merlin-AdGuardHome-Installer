@@ -324,7 +324,10 @@ fi
 # Exercise and observe an EXIT cleanup trap independently before this test's
 # own cleanup removes the workspace.
 trap_marker="${TMP_ROOT}/cleanup-trap-ran"
-(trap 'printf "%s\n" ran >"${trap_marker}"' 0; :) || fail 'cleanup trap probe failed'
+(
+	trap 'printf "%s\n" ran >"${trap_marker}"' 0
+	:
+) || fail 'cleanup trap probe failed'
 [ -f "${trap_marker}" ] || fail 'cleanup trap did not run'
 
 printf '%s\n' 'PASS: proc settings are validated, owned, and restored conservatively'
