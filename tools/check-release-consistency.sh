@@ -19,6 +19,8 @@ manifest_value() {
 
 verify_artifact() {
 	_artifact="$1"
+	_metadata_md5="${2:-}"
+	_metadata_sha256="${3:-}"
 	_md5_file="${_artifact}.md5sum"
 	_sha256_file="${_artifact}.sha256sum"
 
@@ -47,8 +49,16 @@ verify_artifact() {
 	}
 	[ "${_expected_md5}" = "${_actual_md5}" ] || fail "${_artifact} does not match ${_md5_file}"
 	[ "${_expected_sha256}" = "${_actual_sha256}" ] || fail "${_artifact} does not match ${_sha256_file}"
+	[ -z "${_metadata_md5}" ] || [ "${_metadata_md5}" = "${_actual_md5}" ] || fail "${_artifact} MD5 does not match architecture checksum.txt"
+	[ -z "${_metadata_sha256}" ] || [ "${_metadata_sha256}" = "${_actual_sha256}" ] || fail "${_artifact} SHA-256 does not match architecture checksum.txt"
 
-	if [ -n "${RELEASE_BASE_RESOLVED:-}" ] && ! git diff --quiet "${RELEASE_BASE_RESOLVED}" -- "${_artifact}"; then
+	_base_blob=""
+	_current_blob=""
+	if [ -n "${RELEASE_BASE_RESOLVED:-}" ]; then
+		_base_blob="$(git rev-parse "${RELEASE_BASE_RESOLVED}:${_artifact}" 2>/dev/null || true)"
+		_current_blob="$(git hash-object "${_artifact}" 2>/dev/null || true)"
+	fi
+	if [ -n "${_base_blob}" ] && [ -n "${_current_blob}" ] && [ "${_base_blob}" != "${_current_blob}" ]; then
 		for _manifest in "${_md5_file}" "${_sha256_file}"; do
 			_old_manifest="$(git show "${RELEASE_BASE_RESOLVED}:${_manifest}" 2>/dev/null || true)"
 			_current_manifest="$(cat "${_manifest}")"
@@ -59,15 +69,85 @@ verify_artifact() {
 	fi
 }
 
+verify_architecture_metadata() {
+	_directory="$1"
+	_channel_file="${_directory}/checksum.txt"
+	_seen_channels=""
+
+	if [ ! -f "${_channel_file}" ]; then
+		fail "missing expected channel manifest: ${_channel_file}"
+		return
+	fi
+
+	while read -r _file _channel _version _md5 _sha256 _extra; do
+		case "${_file}" in
+			'' | \#*) continue ;;
+		esac
+		if [ -n "${_extra:-}" ]; then
+			fail "malformed channel manifest entry in ${_channel_file}: ${_file}"
+			continue
+		fi
+		case "${_file}" in
+			*/* | .* | *[!A-Za-z0-9._+=-]*) fail "invalid archive name in ${_channel_file}: ${_file}"; continue ;;
+			*.tar.gz) ;;
+			*) fail "invalid archive name in ${_channel_file}: ${_file}"; continue ;;
+		esac
+		case "${_channel}" in
+			stable | beta | edge) ;;
+			*) fail "invalid channel in ${_channel_file}: ${_channel:-<missing>}"; continue ;;
+		esac
+		case " ${_seen_channels} " in
+			*" ${_channel} "*) fail "duplicate ${_channel} channel in ${_channel_file}"; continue ;;
+		esac
+		_seen_channels="${_seen_channels}${_seen_channels:+ }${_channel}"
+		case "${_version}" in
+			version=?*) ;;
+			*) fail "invalid version in ${_channel_file} for ${_file}" ;;
+		esac
+		case "${_md5}" in
+			????????????????????????????????) ;;
+			*) fail "invalid MD5 in ${_channel_file} for ${_file}"; continue ;;
+		esac
+		case "${_md5}" in *[!0123456789abcdefABCDEF]*) fail "invalid MD5 in ${_channel_file} for ${_file}"; continue ;; esac
+		case "${_sha256}" in
+			????????????????????????????????????????????????????????????????) ;;
+			*) fail "invalid SHA-256 in ${_channel_file} for ${_file}"; continue ;;
+		esac
+		case "${_sha256}" in *[!0123456789abcdefABCDEF]*) fail "invalid SHA-256 in ${_channel_file} for ${_file}"; continue ;; esac
+
+		_artifact="${_directory}/${_file}"
+		if [ ! -f "${_artifact}" ]; then
+			fail "channel manifest references missing archive: ${_artifact}"
+			continue
+		fi
+		verify_artifact "${_artifact}" "${_md5}" "${_sha256}"
+	done <"${_channel_file}"
+
+	for _required_channel in stable beta edge; do
+		case " ${_seen_channels} " in
+			*" ${_required_channel} "*) ;;
+			*) fail "missing ${_required_channel} channel in ${_channel_file}" ;;
+		esac
+	done
+
+	# Intentional glob expansion enumerates archives so unadvertised files cannot bypass validation.
+	for _archive in "${_directory}"/*.tar.gz; do
+		[ -f "${_archive}" ] || continue
+		_archive_name="${_archive##*/}"
+		awk -v archive="${_archive_name}" '$1 == archive && $1 !~ /^#/ { found = 1 } END { exit !found }' "${_channel_file}" ||
+			fail "archive is not advertised by ${_channel_file}: ${_archive}"
+	done
+}
+
 cd "${RELEASE_ROOT}" || exit 1
 
-AI_VERSION="$(awk -F= '/^AI_VERSION="v[0-9][0-9.]*"$/ { gsub(/"/, "", $2); print $2; exit }' installer)"
-BANNER_VERSION="$(sed -n 's/^#.* \(v[0-9][0-9.]*\)  *#$/\1/p' installer | head -n 1)"
+AI_VERSION="$(awk -F= '/^AI_VERSION="v[0-9]{1,2}(\.[0-9]{1,2}){2}"$/ { gsub(/"/, "", $2); print $2; exit }' installer)"
+BANNER_VERSION="$(awk '{ for (field = 1; field <= NF; field++) if ($field ~ /^v[0-9]{1,2}(\.[0-9]{1,2}){2}$/) { print $field; exit } }' installer)"
 [ -n "${AI_VERSION}" ] || fail 'installer AI_VERSION is missing or invalid'
 [ -n "${BANNER_VERSION}" ] || fail 'installer banner version is missing or invalid'
 [ "${AI_VERSION}" = "${BANNER_VERSION}" ] || fail "banner ${BANNER_VERSION:-<missing>} and AI_VERSION ${AI_VERSION:-<missing>} differ"
 
-if grep -q 'v2\.6\.1' installer; then
+if grep -q 'v2\.6\.1\([^0-9]\|$\)' installer; then
 	fail 'release identifier v2.6.1 remains in installer'
 fi
 
@@ -80,10 +160,7 @@ fi
 
 set -- installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome
 for _directory in armv5 armv7 armv8; do
-	for _archive in "${_directory}"/*.tar.gz; do
-		[ -f "${_archive}" ] || continue
-		set -- "$@" "${_archive}"
-	done
+	verify_architecture_metadata "${_directory}"
 done
 
 for _artifact; do
