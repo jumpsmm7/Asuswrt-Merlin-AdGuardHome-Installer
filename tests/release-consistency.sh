@@ -10,8 +10,10 @@ fail() {
 
 refresh_manifests() {
 	_target="$1"
-	md5sum "${_target}" | awk 'NF { print $1; exit }' >"${_target}.md5sum"
-	sha256sum "${_target}" | awk 'NF { print $1; exit }' >"${_target}.sha256sum"
+	_md5_output="$(md5sum "${_target}")" || return 1
+	printf '%s\n' "${_md5_output}" | awk 'NF { print $1; exit }' >"${_target}.md5sum"
+	_sha256_output="$(sha256sum "${_target}")" || return 1
+	printf '%s\n' "${_sha256_output}" | awk 'NF { print $1; exit }' >"${_target}.sha256sum"
 }
 
 write_architecture_fixture() {
