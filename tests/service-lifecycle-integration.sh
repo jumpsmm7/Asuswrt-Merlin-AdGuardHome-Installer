@@ -10,24 +10,30 @@ TIMEOUT_SECONDS="${AGH_INTEGRATION_TIMEOUT:-90}"
 TEST_SHELL="${AGH_INTEGRATION_SHELL:-sh}"
 TEST_SHELL_ARG="${AGH_INTEGRATION_SHELL_ARG:-}"
 CASE_PID=""
+CASE_START_TIME=""
 WATCHDOG_PID=""
+WATCHDOG_START_TIME=""
 WORKSPACE_CREATED=0
 
 cleanup() {
 	trap '' HUP INT TERM
 	if [ -n "${WATCHDOG_PID:-}" ]; then
-		capture_process_tree "${WATCHDOG_PID}" "${SUITE_TMP}/cleanup-watchdog.pids"
-		signal_process_snapshot TERM "${SUITE_TMP}/cleanup-watchdog.pids"
-		signal_process_snapshot KILL "${SUITE_TMP}/cleanup-watchdog.pids"
+		if [ -n "${WATCHDOG_START_TIME:-}" ] && capture_process_tree "${WATCHDOG_PID}" "${SUITE_TMP}/cleanup-watchdog.pids" "${WATCHDOG_START_TIME}"; then
+			signal_process_snapshot TERM "${SUITE_TMP}/cleanup-watchdog.pids"
+			signal_process_snapshot KILL "${SUITE_TMP}/cleanup-watchdog.pids"
+		fi
 		wait "${WATCHDOG_PID}" 2>/dev/null || true
 		WATCHDOG_PID=""
+		WATCHDOG_START_TIME=""
 	fi
 	if [ -n "${CASE_PID:-}" ]; then
-		capture_process_tree "${CASE_PID}" "${SUITE_TMP}/cleanup-case.pids"
-		signal_process_snapshot TERM "${SUITE_TMP}/cleanup-case.pids"
-		signal_process_snapshot KILL "${SUITE_TMP}/cleanup-case.pids"
+		if [ -n "${CASE_START_TIME:-}" ] && capture_process_tree "${CASE_PID}" "${SUITE_TMP}/cleanup-case.pids" "${CASE_START_TIME}"; then
+			signal_process_snapshot TERM "${SUITE_TMP}/cleanup-case.pids"
+			signal_process_snapshot KILL "${SUITE_TMP}/cleanup-case.pids"
+		fi
 		wait "${CASE_PID}" 2>/dev/null || true
 		CASE_PID=""
+		CASE_START_TIME=""
 	fi
 	if [ "${WORKSPACE_CREATED:-0}" -eq 1 ]; then
 		rm -rf "${SUITE_TMP}"
@@ -136,6 +142,7 @@ run_bounded() {
 	case_pid=$!
 	CASE_PID="${case_pid}"
 	case_start_time=$(process_start_time "${case_pid}") || case_start_time=""
+	CASE_START_TIME="${case_start_time}"
 	(
 		[ -n "${case_start_time}" ] || exit 0
 		elapsed=0
@@ -153,12 +160,15 @@ run_bounded() {
 	) &
 	watchdog_pid=$!
 	WATCHDOG_PID="${watchdog_pid}"
+	WATCHDOG_START_TIME=$(process_start_time "${watchdog_pid}") || WATCHDOG_START_TIME=""
 
 	case_status=0
 	wait "${case_pid}" || case_status=$?
 	CASE_PID=""
+	CASE_START_TIME=""
 	wait "${watchdog_pid}" || true
 	WATCHDOG_PID=""
+	WATCHDOG_START_TIME=""
 
 	if [ -e "${timed_out}" ]; then
 		cat "${case_output}" >&2

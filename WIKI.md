@@ -209,8 +209,10 @@ sh installer netcheck --mode lan
 ```
 
 LAN-mode DNS binding includes loopback, the primary `lan_ifname` bridge (stable
-IPv4 and, when available, stable global IPv6), and assigned RFC 1918 IPv4
-addresses on other `br*` interfaces. The latter keeps private guest/SDN
+IPv4 and, when available, stable global IPv6), and IPv4 addresses on other
+`br*` interfaces only when they are assigned to that interface and use an RFC
+1918 prefix. VPN bridges qualify only with an assigned RFC 1918 address;
+`100.64.0.0/10`, public, and other non-RFC 1918 ranges are excluded. This keeps private guest/SDN
 addresses that dnsmasq advertises reachable while excluding public secondary
 bridge addresses from automatic resolver binding. Discovered secondary pairs
 are logged.

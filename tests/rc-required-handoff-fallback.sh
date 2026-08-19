@@ -75,7 +75,7 @@ process_wait_for_start() {
 	while [ "${_counter}" -lt 100 ]; do
 		[ -f "${STARTED_FILE}" ] && return 0
 		_counter="$((_counter + 1))"
-		sleep 0.01
+		sleep 1
 	done
 	return 1
 }
@@ -304,7 +304,7 @@ rm -f "${_snapshot_boundary_ready}"
 _snapshot_boundary_pid="$!"
 _snapshot_boundary_waits=0
 while [ ! -f "${_snapshot_boundary_ready}" ] && [ "${_snapshot_boundary_waits}" -lt 100 ]; do
-	sleep 0.01
+	sleep 1
 	_snapshot_boundary_waits="$((_snapshot_boundary_waits + 1))"
 done
 [ -f "${_snapshot_boundary_ready}" ] || fail 'trap snapshot boundary was not reached'
@@ -365,8 +365,8 @@ set +e
 rm -f "${TMP_ROOT}/workspace-published"
 (
 	mkdir() {
-		[ "${ADGUARDHOME_START_TRAP_DIR:-}" = "$1" ] || return 91
-		[ "${ADGUARDHOME_START_TRAP_FILE:-}" = "$1/state" ] || return 92
+		[ "${ADGUARDHOME_START_TRAP_DIR:-}" = "$1" ] || return 1
+		[ "${ADGUARDHOME_START_TRAP_FILE:-}" = "$1/state" ] || return 1
 		: >"${TMP_ROOT}/workspace-published"
 		return 1
 	}
@@ -396,7 +396,7 @@ rm -f "${STARTED_FILE}" "${_save_interrupt_ready}"
 _save_interrupt_pid="$!"
 _save_interrupt_waits=0
 while [ ! -f "${_save_interrupt_ready}" ] && [ "${_save_interrupt_waits}" -lt 100 ]; do
-	sleep 0.01
+	sleep 1
 	_save_interrupt_waits="$((_save_interrupt_waits + 1))"
 done
 [ -f "${_save_interrupt_ready}" ] || fail 'trap-save interruption did not reach workspace initialization'
@@ -587,7 +587,7 @@ for INTERRUPT_PHASE in pre handoff launch post; do
 		while [ "${_start_waits}" -lt 100 ]; do
 			[ -f "${STARTED_FILE}" ] && return 0
 			_start_waits="$((_start_waits + 1))"
-			sleep 0.01
+			sleep 1
 		done
 		return 1
 	}
@@ -624,7 +624,7 @@ for INTERRUPT_PHASE in pre handoff launch post; do
 	_interrupt_pid="$!"
 	_interrupt_waits=0
 	while [ ! -f "${INTERRUPT_READY_FILE}" ] && [ "${_interrupt_waits}" -lt 100 ]; do
-		sleep 0.01
+		sleep 1
 		_interrupt_waits="$((_interrupt_waits + 1))"
 	done
 	[ -f "${INTERRUPT_READY_FILE}" ] || fail "${INTERRUPT_PHASE} interruption did not reach its startup phase"
@@ -673,14 +673,14 @@ for REPEAT_PHASE in stop postfail; do
 	_repeat_pid="$!"
 	_repeat_waits=0
 	while [ ! -f "${REPEAT_ARMED_FILE}" ] && [ "${_repeat_waits}" -lt 100 ]; do
-		sleep 0.01
+		sleep 1
 		_repeat_waits="$((_repeat_waits + 1))"
 	done
 	[ -f "${REPEAT_ARMED_FILE}" ] || fail 'repeated-signal test did not arm its startup trap'
 	kill -TERM "${_repeat_pid}" || fail 'could not start repeated-signal recovery'
 	_repeat_waits=0
 	while [ ! -f "${REPEAT_READY_FILE}" ] && [ "${_repeat_waits}" -lt 100 ]; do
-		sleep 0.01
+		sleep 1
 		_repeat_waits="$((_repeat_waits + 1))"
 	done
 	[ -f "${REPEAT_READY_FILE}" ] || fail "signal recovery did not reach ${REPEAT_PHASE}"

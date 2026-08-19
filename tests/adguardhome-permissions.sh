@@ -89,6 +89,7 @@ extract_permission_functions "${REPO_DIR}/installer" "${INSTALLER_FUNCTIONS}" \
 	'adguardhome_yaml_ipset_file() {' 'create_backup_archive() {' || fail 'could not extract installer permission helpers'
 sed -n '/^adguardhome_owner_account() {$/,/^}/p' "${REPO_DIR}/installer" >>"${INSTALLER_FUNCTIONS}" ||
 	fail 'could not extract installer account helper'
+grep -q '^adguardhome_owner_account() {$' "${INSTALLER_FUNCTIONS}" || fail 'installer account helper extraction was empty'
 extract_permission_functions "${REPO_DIR}/S99AdGuardHome" "${S99_FUNCTIONS}" \
 	'adguardhome_yaml_ipset_file() {' 'pre_start_adguardhome() {' || fail 'could not extract S99 permission helpers'
 for _functions_file in "${INSTALLER_FUNCTIONS}" "${S99_FUNCTIONS}"; do

@@ -24,7 +24,7 @@ ansi_ul="$(printf "\033[4m")"
 
 rc_dependencies_available() {
 	local _REQUIRED_COMMAND
-	for _REQUIRED_COMMAND in awk chmod date dirname grep kill logger ls mkdir mv pidof rm sleep; do
+	for _REQUIRED_COMMAND in awk chmod date dd dirname grep kill logger ls md5sum mkdir mv pidof rm sleep; do
 		if ! which "${_REQUIRED_COMMAND}" >/dev/null 2>&1; then
 			printf '%s\n' "${CALLER}: required service command is unavailable: ${_REQUIRED_COMMAND}" >&2
 			return 1
@@ -356,7 +356,7 @@ adguardhome_start_traps_save() {
 	while [ "${_COUNTER}" -lt 10 ]; do
 		_NONCE="$(dd if=/dev/urandom bs=16 count=1 2>/dev/null | md5sum)"
 		_NONCE="${_NONCE%% *}"
-		[ -n "${_NONCE}" ] || return 1
+		[ -n "${_NONCE}" ] && [ "${_NONCE}" != d41d8cd98f00b204e9800998ecf8427e ] || return 1
 		_TRAP_DIR="/tmp/AdGuardHome-start-traps.$$.$_NONCE"
 		_TRAP_ALL_FILE="${_TRAP_DIR}.all"
 		# Publish the pre-workspace snapshot too, so every rollback and caller

@@ -6,7 +6,10 @@ set -u
 S99_PATH="${1:-S99AdGuardHome}"
 RC_PATH="${2:-rc.func.AdGuardHome}"
 MANAGER_PATH="${3:-AdGuardHome.sh}"
-TEST_ROOT="${TMPDIR:-/tmp}/adguardhome-dns-handoff.$$"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/adguardhome-dns-handoff.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive test directory' >&2
+	exit 1
+}
 S99_FUNCTIONS="${TEST_ROOT}/s99-functions"
 RC_FUNCTION="${TEST_ROOT}/rc-start-function"
 CALLS_FILE="${TEST_ROOT}/calls"
@@ -38,7 +41,6 @@ wait_for_file() {
 
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
-mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 printf '%s\n' '#!/bin/sh' '[ "$1" = "100000" ] || exit 1' 'sleep 0.1' >"${TEST_ROOT}/usleep" ||
 	fail 'could not create usleep test shim'
 chmod 755 "${TEST_ROOT}/usleep" || fail 'could not chmod usleep test shim'

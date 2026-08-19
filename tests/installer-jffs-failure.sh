@@ -46,7 +46,7 @@ installer_branch=""
 conf_value() { :; }
 cli_adguard_branch_is_valid() { return 0; }
 create_dir() { return 0; }
-TARG_DIR=/tmp
+TARG_DIR="${TEST_ROOT}/target"
 write_conf() { return 0; }
 cli_write_adguard_branch() { return 0; }
 PTXT() { :; }
@@ -84,8 +84,10 @@ adguard_install_mode_detect() { return 0; }
 adguard_install_mode_confirmed() { return 0; }
 
 EOF
-sed -n '/^case "$2" in$/,/^[[:space:]]*menu$/p' "${INSTALLER_PATH}" >>"${TEST_ROOT}/test_interactive" ||
+sed -n '/^case "$2" in$/,/^[[:space:]]*menu$/p' "${INSTALLER_PATH}" >"${TEST_ROOT}/interactive.fragment" ||
 	fail 'could not extract the interactive install pathway'
+[ -s "${TEST_ROOT}/interactive.fragment" ] || fail 'interactive install pathway extraction was empty'
+cat "${TEST_ROOT}/interactive.fragment" >>"${TEST_ROOT}/test_interactive" || fail 'could not append the interactive install pathway'
 printf '%s\n' '		;;' 'esac' >>"${TEST_ROOT}/test_interactive" ||
 	fail 'could not complete the interactive install harness'
 chmod +x "${TEST_ROOT}/test_interactive"

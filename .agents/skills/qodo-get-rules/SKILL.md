@@ -358,7 +358,7 @@ See [query generation guidelines](references/query-generation.md) for the full s
 
 ### Step 5: Call POST /rules/search
 
-Call the search endpoint **once per query** (topic query and cross-cutting query), each with the configured `TOP_K` value (default: 20 — see [search endpoint](references/search-endpoint.md) for tuning guidance). When parallel execution is available, run both calls in parallel. Merge results, deduplicating by rule ID. Topic query results take priority.
+First call the search endpoint **once per query** for the topic and cross-cutting queries, each with the configured `TOP_K` value (default: 20 — see [search endpoint](references/search-endpoint.md) for tuning guidance). When parallel execution is available, run those two initial calls in parallel. If and only if the initial topic response contains fewer than three rules, broaden the topic query and retry that topic search once after both initial calls finish. Do not retry the cross-cutting query. Merge the initial topic, optional broadened-topic, and cross-cutting results in that order, deduplicating by rule ID so topic results take priority.
 
 Include `scopes` in the request body if `SCOPE` was detected in Step 2. If `SCOPE` is empty, omit the field entirely — do not send `"scopes": null` or `"scopes": []`.
 

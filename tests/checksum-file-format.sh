@@ -33,4 +33,10 @@ sh tools/update-checksums.sh "${TARGET}" >/dev/null || fail 'checksum updater fa
 sh tools/check-md5.sh "${TARGET}" >/dev/null || fail 'MD5 validator rejected normalized output'
 sh tools/check-sha256.sh "${TARGET}" >/dev/null || fail 'SHA-256 validator rejected normalized output'
 
+printf '%s\n\n' "${MD5}" >"${TARGET}.md5sum"
+printf '%s\n\n' "${SHA256}" >"${TARGET}.sha256sum"
+sh tools/update-checksums.sh "${TARGET}" >/dev/null || fail 'checksum updater failed to normalize trailing blank lines'
+[ "$(wc -l <"${TARGET}.md5sum")" -eq 1 ] || fail 'checksum updater retained trailing MD5 blank lines'
+[ "$(wc -l <"${TARGET}.sha256sum")" -eq 1 ] || fail 'checksum updater retained trailing SHA-256 blank lines'
+
 printf '%s\n' 'PASS: checksum files contain exactly one digest value'

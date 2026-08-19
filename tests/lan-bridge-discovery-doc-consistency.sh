@@ -58,12 +58,8 @@ for private_range in 'octets\[1\] == 10' 'octets\[1\] == 172' 'octets\[1\] == 19
 	grep -q "${private_range}" "${BRIDGE_FUNCTION_FILE}" ||
 		fail "private_ipv4_bridge_dns_options no longer selects ${private_range} addresses"
 done
-grep -qi 'Public IPv4 addresses on secondary bridges' "${README_PATH}" ||
-	fail 'README.md no longer identifies public secondary bridge addresses'
-grep -qi 'selected automatically' "${README_PATH}" ||
-	fail 'README.md no longer documents that public secondary bridge addresses are excluded automatically'
-grep -qi 'excluding public secondary' "${WIKI_PATH}" ||
-	fail 'WIKI.md no longer documents that public secondary bridge addresses are excluded'
+grep -q '100\.64\.0\.0/10' "${README_PATH}" || fail 'README.md no longer documents shared-range exclusion'
+grep -q '100\.64\.0\.0/10' "${WIKI_PATH}" || fail 'WIKI.md no longer documents shared-range exclusion'
 
 # README.md and WIKI.md both claim discovered secondary bridge pairs are logged;
 # the implementation must actually emit a bridge_discovery log event.
@@ -76,6 +72,7 @@ grep -qi 'logged' "${WIKI_PATH}" || fail 'WIKI.md no longer documents that bridg
 # not itself invoke iptables.
 sed -n '/^adguard_refresh_lan_bind_addresses() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_ROOT}/refresh_function" ||
 	fail 'could not extract adguard_refresh_lan_bind_addresses'
+[ -s "${TMP_ROOT}/refresh_function" ] || fail 'adguard_refresh_lan_bind_addresses extraction was empty'
 ! grep -qi 'iptables' "${TMP_ROOT}/refresh_function" ||
 	fail 'adguard_refresh_lan_bind_addresses unexpectedly manages firewall rules, contradicting the documented independence of binding and firewall policy'
 grep -qi 'firewall' "${README_PATH}" || fail 'README.md no longer documents the firewall/binding independence disclaimer'

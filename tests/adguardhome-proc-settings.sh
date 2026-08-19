@@ -4,7 +4,10 @@
 set -u
 
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
-TMP_ROOT="${TMPDIR:-/tmp}/agh-proc-settings.$$"
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/agh-proc-settings.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive test directory' >&2
+	exit 1
+}
 FUNCTION_FILE="${TMP_ROOT}/functions"
 LOG_FILE="${TMP_ROOT}/log"
 BACKGROUND_PID=""
@@ -291,9 +294,14 @@ run_uninstall_test unusable-helper 0 0 unusable && fail 'unusable rollback helpe
 
 # The mkdir fallback serializes complete proc transactions.
 LOCK_EVENTS="${TMP_ROOT}/lock-events"
+mkdir "${PROC_LOCK_DIR}" || fail 'could not create unpublished lock cleanup fixture'
+proc_lock_mkdir_cleanup && fail 'unpublished lock cleanup unexpectedly reported valid ownership'
+[ ! -d "${PROC_LOCK_DIR}" ] || fail 'unpublished lock cleanup left the lock directory behind'
+_trap_line=$(sed -n '/^proc_lock_run() {$/,/^}$/p' "${SCRIPT_PATH}" | grep -n "trap 'proc_lock_mkdir_cleanup" | head -n 1 | cut -d: -f1)
+_publish_line=$(sed -n '/^proc_lock_run() {$/,/^}$/p' "${SCRIPT_PATH}" | grep -n 'printf.*PROC_LOCK_DIR}/pid' | head -n 1 | cut -d: -f1)
+[ -n "${_trap_line}" ] && [ -n "${_publish_line}" ] && [ "${_trap_line}" -lt "${_publish_line}" ] || fail 'proc lock cleanup trap is not armed before owner publication'
 sleep() {
-	SLEEP_CALLS=$((SLEEP_CALLS + 1))
-	command sleep 0.01
+	:
 }
 lock_holder() {
 	printf '%s\n' first-start >>"${LOCK_EVENTS}"
@@ -310,11 +318,12 @@ proc_lock_run lock_holder &
 lock_pid="$!"
 BACKGROUND_PID="${lock_pid}"
 lock_waits=0
-while [ ! -d "${PROC_LOCK_DIR}" ] && [ "${lock_waits}" -lt 5 ]; do
+while [ "$(sed -n '1p' "${LOCK_EVENTS}" 2>/dev/null)" != first-start ] && [ "${lock_waits}" -lt 5 ]; do
+	[ "$(sed -n '1p' "${LOCK_EVENTS}" 2>/dev/null)" = first-start ] && break
 	command sleep 1
 	lock_waits=$((lock_waits + 1))
 done
-[ -d "${PROC_LOCK_DIR}" ] || fail 'lock holder did not publish its lock within 5 seconds'
+[ "$(sed -n '1p' "${LOCK_EVENTS}" 2>/dev/null)" = first-start ] || fail 'lock holder did not start within 5 seconds'
 proc_lock_run lock_waiter || fail 'serialized waiter failed'
 wait "${lock_pid}" || fail 'serialized holder failed'
 BACKGROUND_PID=""

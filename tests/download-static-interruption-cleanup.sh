@@ -38,6 +38,12 @@ cleanup_download_tmp
 [ -z "${ACTIVE_DOWNLOAD_TMP}" ] ||
 	fail "download cleanup did not clear the tracked path"
 
+_sha256_file="${TEST_ROOT}/AdGuardHome_stable_linux_arm64.tar.gz.sha256sum"
+ACTIVE_DOWNLOAD_TMP="${_sha256_file}.tmp.$$"
+printf '%s\n' "partial checksum" >"${ACTIVE_DOWNLOAD_TMP}" || fail "could not create partial checksum"
+cleanup_download_tmp
+[ ! -e "${_sha256_file}.tmp.$$" ] || fail "download cleanup left the tracked checksum temporary file behind"
+
 grep -F "trap 'cleanup_download_tmp; exit 1' HUP INT QUIT ABRT TERM" "${SCRIPT_PATH}" >/dev/null ||
 	fail "download cleanup is not installed for interruption signals"
 

@@ -136,7 +136,7 @@ run_case '22' 0 '22' 5 '-s TERM 22' 5
 	stop >/dev/null || fail 'bounded stop escalation did not succeed after KILL'
 	[ "${SIGNAL_LOG}" = 'TERM INT KILL' ] || fail "unexpected escalation signals: ${SIGNAL_LOG}"
 	[ "${WAIT_LOG}" = '10 5 3' ] || fail "unexpected escalation waits: ${WAIT_LOG}"
-)
+) || fail 'bounded TERM/INT/KILL escalation regression failed'
 
 # rc_dependencies_available no longer requires killall now that signal_process
 # only signals identity-rechecked PIDs directly; a router without killall
@@ -158,7 +158,7 @@ trap 'rm -rf "${GLOB_ROOT}" "${DEPS_ROOT}"; exit 1' HUP INT TERM
 	# which reports whether a command is available to the test environment.
 	which() {
 		case "$1" in
-			awk | chmod | date | dirname | grep | kill | logger | ls | mkdir | mv | pidof | rm | sleep) return 0 ;;
+			awk | chmod | date | dd | dirname | grep | kill | logger | ls | md5sum | mkdir | mv | pidof | rm | sleep) return 0 ;;
 			*) return 1 ;;
 		esac
 	}
@@ -174,7 +174,7 @@ DEPS_ERR_FILE="${DEPS_ROOT}/missing-kill.err"
 	# which reports whether a command is available in the test environment.
 	which() {
 		case "$1" in
-			awk | chmod | date | dirname | grep | logger | ls | mkdir | mv | pidof | rm | sleep) return 0 ;;
+			awk | chmod | date | dd | dirname | grep | logger | ls | md5sum | mkdir | mv | pidof | rm | sleep) return 0 ;;
 			*) return 1 ;;
 		esac
 	}

@@ -23,6 +23,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 /bin/sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^load_operation_config() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^IPSet_Migrate() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^DEFAULT_ADGUARD_[A-Z_]*=/p' "${SCRIPT_PATH}" >>"${FUNCTION_FILE}" || fail 'could not extract runtime defaults'
 [ -s "${FUNCTION_FILE}" ] || fail 'LAN IPSET functions were not found'
 
 # shellcheck disable=SC1090
@@ -74,14 +75,6 @@ IPSET_USER_FILE=/tmp/ipset.user
 YAML_FILE=/tmp/AdGuardHome.yaml
 PROCS=AdGuardHome
 NAME=AdGuardHome
-DEFAULT_ADGUARD_NETCHECK_HOSTS='google.com github.com snbforums.com'
-DEFAULT_ADGUARD_NETCHECK_DNS='127.0.0.1'
-DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP='NO'
-DEFAULT_ADGUARD_NETCHECK_TIMEOUT='300'
-DEFAULT_ADGUARD_NETCHECK_MODE='wan'
-DEFAULT_ADGUARD_PROC_OPTIMIZE='NO'
-DEFAULT_ADGUARD_PROC_PROFILE='aggressive'
-
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write LAN config'
 ADGUARD_INSTALL_MODE="lan"
 ADGUARD_IPSET="YES"

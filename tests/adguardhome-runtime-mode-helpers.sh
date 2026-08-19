@@ -35,6 +35,7 @@ mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 /bin/sed -n \
 	'/^load_operation_config() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_dnsmasq_running() {$/,/^}$/p; /^adguard_dnsmasq_managed() {$/,/^}$/p; /^adguard_restart_dnsmasq_if_managed() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^DEFAULT_ADGUARD_[A-Z_]*=/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" || fail 'could not extract runtime defaults'
 /bin/grep -q '^adguard_ipset_allowed() {$' "${FUNCTIONS_FILE}" || fail 'runtime mode helpers missing'
 /bin/grep -q '^IPSet_Dnsmasq_Restart_After_Unlock() {$' "${FUNCTIONS_FILE}" || fail 'IPSET dnsmasq restart helper missing'
 
@@ -64,13 +65,6 @@ assert_restart_count() {
 }
 
 CONF_FILE="${TEST_ROOT}/AdGuardHome.config"
-DEFAULT_ADGUARD_NETCHECK_HOSTS='google.com github.com snbforums.com'
-DEFAULT_ADGUARD_NETCHECK_DNS='127.0.0.1'
-DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP='NO'
-DEFAULT_ADGUARD_NETCHECK_TIMEOUT='300'
-DEFAULT_ADGUARD_NETCHECK_MODE='wan'
-DEFAULT_ADGUARD_PROC_OPTIMIZE='NO'
-DEFAULT_ADGUARD_PROC_PROFILE='aggressive'
 NAME='runtime-mode-test'
 SERVICE_RESTART_COUNT=0
 

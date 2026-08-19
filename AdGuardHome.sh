@@ -219,7 +219,6 @@ adguard_restart_dnsmasq_if_managed() {
 	service restart_dnsmasq >/dev/null 2>&1
 }
 
-# database_link_matches_expected reports whether an optional database path is a
 # database_link_matches_expected verifies that a symlink owned by the current user resolves to the expected database path.
 database_link_matches_expected() {
 	local EXPECTED_CANONICAL EXPECTED_PATH LINK_CANONICAL LINK_PATH
@@ -234,7 +233,6 @@ database_link_matches_expected() {
 	[ "${LINK_CANONICAL}" = "${EXPECTED_CANONICAL}" ]
 }
 
-# database_link_owned_by_current_user verifies symlink ownership without
 # database_link_owned_by_current_user reports whether the specified path is owned by the current user.
 database_link_owned_by_current_user() {
 	local CURRENT_UID LINK_UID
@@ -249,7 +247,6 @@ database_link_owned_by_current_user() {
 	[ "${LINK_UID}" = "${CURRENT_UID}" ]
 }
 
-# database_link_object_type describes an existing path without following a
 # database_link_object_type reports the filesystem object type at the specified path, including dangling symbolic links.
 database_link_object_type() {
 	if [ -L "$1" ]; then
@@ -265,7 +262,6 @@ database_link_object_type() {
 	fi
 }
 
-# ensure_database_link creates a missing optional database link.  Existing
 # ensure_database_link creates the expected database symlink when the destination is missing, preserves unexpected objects, and treats creation failures as non-fatal.
 ensure_database_link() {
 	local EXPECTED_PATH LINK_PATH OBJECT_TYPE
@@ -285,7 +281,6 @@ ensure_database_link() {
 	return 0
 }
 
-# remove_database_link removes only a symlink resolving to the expected active
 # remove_database_link removes the specified database link when it points to the expected target.
 remove_database_link() {
 	if database_link_matches_expected "$1" "$2"; then
@@ -1079,7 +1074,7 @@ ipv4_is_usable_unicast() {
 
 # adguard_refresh_lan_bind_addresses updates AdGuardHome's LAN WebUI address and DNS bind hosts in the YAML configuration while preserving the active configuration when staging or validation fails.
 adguard_refresh_lan_bind_addresses() {
-	local ACTIVE_MD5 BIND_HOSTS LAN_ADDR LAN_ADDR6 LAN_IF NVRAM_ADDR6 REWRITE_FILE STAGED_MD5 TEMP_FILE WEB_PORT YAML_DIR
+	local ACTIVE_MD5 BIND_HOSTS LAN_ADDR LAN_ADDR6 LAN_IF NVRAM_ADDR6 REWRITE_FILE SAVED_TRAPS STAGED_MD5 TEMP_FILE WEB_PORT YAML_DIR
 	LAN_BIND_ADDRESSES_CHANGED="0"
 	LAN_BIND_REFRESH_FAILURE_REASON=""
 	adguard_lan_mode || return 0
@@ -1157,9 +1152,13 @@ adguard_refresh_lan_bind_addresses() {
 	[ "${WEB_PORT}" -gt 0 ] && [ "${WEB_PORT}" -le 65535 ] || return 1
 	TEMP_FILE="${YAML_DIR}/.AdGuardHome.yaml.lan-bind.$$"
 	REWRITE_FILE="${TEMP_FILE}.rewrite"
+	SAVED_TRAPS="$(trap)"
+	trap 'rm -f "${TEMP_FILE}" "${REWRITE_FILE}"; trap - HUP INT QUIT ABRT TERM TSTP; [ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
 	(umask 077 && cp -p "${YAML_FILE}" "${TEMP_FILE}") || {
 		rm -f "${TEMP_FILE}"
 		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_copy_failed config_preserved=1"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
 		return 1
 	}
 	(umask 077 && awk -v bind_hosts="${BIND_HOSTS}" -v web_address="${LAN_ADDR}:${WEB_PORT}" '
@@ -1213,6 +1212,8 @@ adguard_refresh_lan_bind_addresses() {
 	' "${TEMP_FILE}" >"${REWRITE_FILE}") || {
 		rm -f "${TEMP_FILE}" "${REWRITE_FILE}"
 		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_rewrite_failed config_preserved=1"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
 		return 1
 	}
 	# Rewrite the preserved copy in place so the active YAML owner and mode survive
@@ -1220,17 +1221,23 @@ adguard_refresh_lan_bind_addresses() {
 	if ! cat "${REWRITE_FILE}" >"${TEMP_FILE}"; then
 		rm -f "${TEMP_FILE}" "${REWRITE_FILE}"
 		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_rewrite_failed config_preserved=1"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
 		return 1
 	fi
 	rm -f "${REWRITE_FILE}"
 	ACTIVE_MD5="$(md5sum "${YAML_FILE}")" || {
 		rm -f "${TEMP_FILE}"
 		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
 		return 1
 	}
 	STAGED_MD5="$(md5sum "${TEMP_FILE}")" || {
 		rm -f "${TEMP_FILE}"
 		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
 		return 1
 	}
 	ACTIVE_MD5="${ACTIVE_MD5%%[[:space:]]*}"
@@ -1241,6 +1248,8 @@ adguard_refresh_lan_bind_addresses() {
 				*[!0123456789abcdefABCDEF]*)
 					rm -f "${TEMP_FILE}"
 					agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
+					trap - HUP INT QUIT ABRT TERM TSTP
+					[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
 					return 1
 					;;
 			esac
@@ -1248,6 +1257,8 @@ adguard_refresh_lan_bind_addresses() {
 		*)
 			rm -f "${TEMP_FILE}"
 			agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
+			trap - HUP INT QUIT ABRT TERM TSTP
+			[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
 			return 1
 			;;
 	esac
@@ -1255,12 +1266,16 @@ adguard_refresh_lan_bind_addresses() {
 	# AdGuardHome process to validate content that is byte-for-byte unchanged.
 	if [ "${ACTIVE_MD5}" = "${STAGED_MD5}" ]; then
 		rm -f "${TEMP_FILE}"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
 		return 0
 	fi
 	if [ ! -x "${ADGUARDHOME_BINARY}" ] ||
 		! "${ADGUARDHOME_BINARY}" --check-config -c "${TEMP_FILE}" --no-check-update -l /dev/null >/dev/null 2>&1; then
 		rm -f "${TEMP_FILE}"
 		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=adguard_config_validation_failed config_preserved=1"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
 		return 1
 	fi
 	if ! awk '
@@ -1295,14 +1310,20 @@ adguard_refresh_lan_bind_addresses() {
 	' "${TEMP_FILE}"; then
 		rm -f "${TEMP_FILE}"
 		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=staged_bind_structure_invalid config_preserved=1"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
 		return 1
 	fi
 	if ! mv -f "${TEMP_FILE}" "${YAML_FILE}"; then
 		rm -f "${TEMP_FILE}"
 		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=atomic_replace_failed config_preserved=1"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
 		return 1
 	fi
 	LAN_BIND_ADDRESSES_CHANGED="1"
+	trap - HUP INT QUIT ABRT TERM TSTP
+	[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
 	return 0
 }
 
@@ -1855,7 +1876,16 @@ proc_process_start_time() {
 proc_lock_mkdir_cleanup() {
 	local current_start owner owner_start
 	[ -d "${PROC_LOCK_DIR}" ] && [ ! -L "${PROC_LOCK_DIR}" ] || return 1
-	IFS=' ' read -r owner owner_start <"${PROC_LOCK_DIR}/pid" || return 1
+	if [ ! -f "${PROC_LOCK_DIR}/pid" ] || [ -L "${PROC_LOCK_DIR}/pid" ]; then
+		rm -f "${PROC_LOCK_DIR}/pid" 2>/dev/null
+		rmdir "${PROC_LOCK_DIR}" 2>/dev/null
+		return 1
+	fi
+	IFS=' ' read -r owner owner_start <"${PROC_LOCK_DIR}/pid" || {
+		rm -f "${PROC_LOCK_DIR}/pid" 2>/dev/null
+		rmdir "${PROC_LOCK_DIR}" 2>/dev/null
+		return 1
+	}
 	[ "${owner}" = "$$" ] || return 1
 	current_start="$(proc_process_start_time "$$")" || return 1
 	[ "${owner_start}" = "${current_start}" ] || return 1
@@ -1907,13 +1937,13 @@ proc_lock_run() {
 			[ "${attempts}" -lt 50 ] || exit 1
 			if [ "${has_usleep}" -eq 1 ]; then usleep 100000; else sleep 1; fi
 		done
+		trap 'proc_lock_mkdir_cleanup; exit 1' HUP INT QUIT ABRT TERM TSTP
 		current_start="$(proc_process_start_time "$$")" || exit 1
 		printf '%s %s\n' "$$" "${current_start}" >"${PROC_LOCK_DIR}/pid" || {
 			rm -f "${PROC_LOCK_DIR}/pid"
 			rmdir "${PROC_LOCK_DIR}" 2>/dev/null
 			exit 1
 		}
-		trap 'proc_lock_mkdir_cleanup; exit 1' HUP INT QUIT ABRT TERM TSTP
 		"$@"
 		status="$?"
 		proc_lock_mkdir_cleanup || exit 1

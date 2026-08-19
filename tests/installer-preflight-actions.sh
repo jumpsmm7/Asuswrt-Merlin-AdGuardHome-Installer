@@ -174,7 +174,7 @@ adguard_install_mode_detect() {
 	esac
 }
 adguard_install_mode_confirmed() {
-	[ "\${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" != unknown ]
+	case "\${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in wan | lan) return 0 ;; *) return 1 ;; esac
 }
 preflight_action_requires_downloader() { return 1; }
 preflight_action_requires_service_tools() { return 1; }

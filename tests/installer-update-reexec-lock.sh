@@ -32,6 +32,7 @@ file_md5() { printf '%s\n' new; }
 ptxt_ok() { :; }
 
 for lock_mode in flock symlink mkdir; do
+	(
 	case "${lock_mode}" in
 		flock)
 			[ -x /usr/bin/flock ] || continue
@@ -80,8 +81,9 @@ EOF_TARGET
 	) || fail "installer re-exec did not preserve ${lock_mode} transaction lock"
 	[ "$(cat "${TEST_ROOT}/${lock_mode}.result" 2>/dev/null)" = preserved ] || fail "${lock_mode} re-exec target did not run"
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
-	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
+	) || fail "${lock_mode} lock-mode iteration failed"
 done
 
 printf '%s\n' 'PASS: installer update re-exec preserves live NVRAM transactions and locks'

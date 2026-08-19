@@ -28,18 +28,10 @@ printf '%s\n' "$RESOLVE_INLINE_SECTION" | grep -Fq 'resolveReviewThread(input:{t
 printf '%s\n' "$RESOLVE_INLINE_SECTION" | grep -Fq '/discussions/<discussion-id>' || fail 'GitLab discussion resolution is missing'
 printf '%s\n' "$RESOLVE_INLINE_SECTION" | grep -Fq '/comments/<inline-comment-id>/resolve' || fail 'Bitbucket inline-comment resolution is missing'
 
-# Extract the "Resolve Inline Threads" section and verify Azure DevOps inline-thread resolution
-if ! grep -Fq '## Post Summary Comment' "${PROVIDERS}"; then
-	fail 'Post Summary Comment section heading not found in providers.md (cannot extract Resolve Inline Threads section)'
-fi
-ADO_INLINE_SECTION=$(sed -n '/^## Resolve Inline Threads$/,/^## Post Summary Comment$/p' "${PROVIDERS}" | sed '$d')
-if [ -z "$ADO_INLINE_SECTION" ]; then
-	fail 'Resolve Inline Threads section not found in providers.md'
-fi
-printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq '{"status": "fixed"}' || fail 'Azure DevOps thread resolution is missing'
-printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq 'az devops invoke' || fail 'Azure DevOps thread resolution does not use az devops invoke'
-printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq -- '--http-method PATCH' || fail 'Azure DevOps thread resolution does not use PATCH method'
-printf '%s\n' "$ADO_INLINE_SECTION" | grep -Fq 'pullRequestThreads' || fail 'Azure DevOps thread resolution does not target pullRequestThreads resource'
+printf '%s\n' "$RESOLVE_INLINE_SECTION" | grep -Fq '{"status": "fixed"}' || fail 'Azure DevOps thread resolution is missing'
+printf '%s\n' "$RESOLVE_INLINE_SECTION" | grep -Fq 'az devops invoke' || fail 'Azure DevOps thread resolution does not use az devops invoke'
+printf '%s\n' "$RESOLVE_INLINE_SECTION" | grep -Fq -- '--http-method PATCH' || fail 'Azure DevOps thread resolution does not use PATCH method'
+printf '%s\n' "$RESOLVE_INLINE_SECTION" | grep -Fq 'pullRequestThreads' || fail 'Azure DevOps thread resolution does not target pullRequestThreads resource'
 
 # Extract the "Reply to Comments" section from Gerrit documentation and verify thread resolution
 if ! grep -Fq '## Reply to Comments' "${GERRIT}"; then
@@ -138,7 +130,7 @@ fi
 printf '%s\n' "$BITBUCKET_REPLY_SECTION" | grep -Fq 'with open(sys.argv[1], ' || fail 'Bitbucket reply payload serializer does not read from a file'
 printf '%s\n' "$BITBUCKET_REPLY_SECTION" | grep -Fq 'python3 - "$REPLY_FILE"' || fail 'Bitbucket reply payload serializer does not receive the reply file path as an argument'
 # Ensure Bitbucket payload does not embed the body inline (no heredoc with body content)
-if printf '%s\n' "$BITBUCKET_REPLY_SECTION" | grep -E "<<['\"]?EOF['\"]?" | grep -v 'python3 -' | grep -qv '^PY$'; then
+if printf '%s\n' "$BITBUCKET_REPLY_SECTION" | grep -E "<<['\"]?EOF['\"]?" | grep -v 'python3 -' >/dev/null; then
 	fail 'Bitbucket reply section embeds the body inline in a heredoc outside the python serializer'
 fi
 
@@ -146,7 +138,7 @@ fi
 printf '%s\n' "$AZURE_REPLY_SECTION" | grep -Fq 'with open(sys.argv[1], ' || fail 'Azure DevOps reply payload serializer does not read from a file'
 printf '%s\n' "$AZURE_REPLY_SECTION" | grep -Fq 'python3 - "$REPLY_FILE"' || fail 'Azure DevOps reply payload serializer does not receive the reply file path as an argument'
 # Ensure Azure payload does not embed the body inline (no heredoc with body content)
-if printf '%s\n' "$AZURE_REPLY_SECTION" | grep -E "<<['\"]?EOF['\"]?" | grep -v 'python3 -' | grep -qv '^PY$'; then
+if printf '%s\n' "$AZURE_REPLY_SECTION" | grep -E "<<['\"]?EOF['\"]?" | grep -v 'python3 -' >/dev/null; then
 	fail 'Azure DevOps reply section embeds the body inline in a heredoc outside the python serializer'
 fi
 

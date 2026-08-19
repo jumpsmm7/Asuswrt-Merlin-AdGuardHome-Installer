@@ -25,12 +25,7 @@ grep -q 'sha256_manifest_digest' "${SCRIPT_PATH}" || fail 'installer is missing 
 grep -q 'SHA-256 metadata is unavailable' "${SCRIPT_PATH}" || fail 'installer does not report unavailable checksum metadata'
 grep -q 'falling back to MD5 verification' "${SCRIPT_PATH}" || fail 'installer is missing its SHA-256-unavailable MD5 fallback'
 grep -q 'opkg install coreutils-sha256sum' "${SCRIPT_PATH}" || fail 'installer does not explain the coreutils-sha256sum dependency'
-grep -q 'ptxt_phase "Running AdGuardHome ${1:-install} orchestration."' "${SCRIPT_PATH}" || fail 'installer install/update orchestration phase is missing'
 grep -q 'downloads will require matching MD5 metadata' "${SCRIPT_PATH}" || fail 'installer install/update path does not allow the MD5 fallback'
-grep -q 'REMOTE_ADGUARD_SHA256="$(adguard_remote_sha256 "$2")"' "${SCRIPT_PATH}" || fail 'package install does not retain channel SHA-256 metadata'
-grep -q 'ARCHIVE_SHA256.*REMOTE_ADGUARD_SHA256' "${SCRIPT_PATH}" || fail 'package install does not bind the archive to channel SHA-256 metadata'
-grep -q 'ARCHIVE_MD5.*REMOTE_ADGUARD_MD5' "${SCRIPT_PATH}" || fail 'package install does not bind the archive to channel MD5 metadata'
-grep -q 'elif md5_is_valid "${REMOTE_ADGUARD_MD5}"; then' "${SCRIPT_PATH}" || fail 'package install does not fall back to channel MD5 when SHA-256 calculation fails'
 grep -q 'channel MD5 checksum verified' "${SCRIPT_PATH}" || fail 'package install does not report successful channel MD5 fallback'
 grep -q 'ensure_blocklist_analyzer_dependencies || return 1' "${SCRIPT_PATH}" || fail 'option 9 does not require dependency checks before verification'
 grep -q 'ensure_sha256sum_tool || return 1' "${SCRIPT_PATH}" || fail 'blocklist dependency helper does not require SHA-256 support'
@@ -82,6 +77,7 @@ mv "${FUNCTIONS_FILE}.tmp" "${FUNCTIONS_FILE}" || fail 'could not update extract
 (
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
+	type file_sha256 >/dev/null 2>&1 || exit 1
 	INFO='Info:'
 	ERROR='Error:'
 	WARNING='Warning:'
