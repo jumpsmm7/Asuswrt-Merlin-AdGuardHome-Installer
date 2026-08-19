@@ -222,6 +222,18 @@ dns:
 EOS
 	ensure_adguardhome_work_dir_permissions >/dev/null || fail 'S99 permission helper failed with parent-traversing absolute IPSET file'
 	assert_mode "${TMP_DIR}/s99/external-ipset.conf" '-rw-------'
+
+	rm -f "${WORK_DIR}/AdGuardHome" || exit 1
+	if ensure_adguardhome_work_dir_permissions >/dev/null; then
+		fail 'S99 permission helper accepted a missing AdGuardHome binary'
+	fi
+	printf '%s\n' '#!/bin/sh' >"${TMP_DIR}/foreign-AdGuardHome" || exit 1
+	chmod 600 "${TMP_DIR}/foreign-AdGuardHome" || exit 1
+	ln -s "${TMP_DIR}/foreign-AdGuardHome" "${WORK_DIR}/AdGuardHome" || exit 1
+	if ensure_adguardhome_work_dir_permissions >/dev/null; then
+		fail 'S99 permission helper accepted a symbolic-link AdGuardHome binary'
+	fi
+	assert_mode "${TMP_DIR}/foreign-AdGuardHome" '-rw-------'
 ) || exit 1
 
 awk '

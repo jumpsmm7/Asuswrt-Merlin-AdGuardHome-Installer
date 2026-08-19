@@ -56,6 +56,9 @@ jobs:
       - name: Run mkdir reaper owner publication regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-reaper-owner-publication.sh
 
+      - name: Run proc setting lock identity regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/adguardhome-proc-settings.sh
+
       - name: Run process signaling regression with BusyBox ash
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/rc-process-signaling.sh
 

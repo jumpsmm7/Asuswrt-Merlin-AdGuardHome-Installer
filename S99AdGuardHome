@@ -1664,8 +1664,8 @@ ensure_adguardhome_work_dir_permissions() {
 		logger -st "${PROCS}" "Missing AdGuardHome work directory ${WORK_DIR}."
 		return 1
 	fi
-	if [ ! -f "${WORK_DIR}/AdGuardHome" ]; then
-		logger -st "${PROCS}" "Missing AdGuardHome binary ${WORK_DIR}/AdGuardHome."
+	if [ ! -f "${WORK_DIR}/AdGuardHome" ] || [ -L "${WORK_DIR}/AdGuardHome" ]; then
+		logger -st "${PROCS}" "Missing or unsafe AdGuardHome binary ${WORK_DIR}/AdGuardHome."
 		return 1
 	fi
 	_agh_perm_http_username="$(adguardhome_owner_account)" || {

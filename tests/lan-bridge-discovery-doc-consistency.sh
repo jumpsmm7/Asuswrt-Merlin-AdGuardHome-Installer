@@ -48,13 +48,22 @@ grep -q 'dadfailed' "${SCRIPT_PATH}" || fail 'AdGuardHome.sh no longer excludes 
 grep -qi 'duplicate' "${README_PATH}" || fail 'README.md does not document the dadfailed (duplicate address) exclusion'
 grep -qi 'stable' "${WIKI_PATH}" || fail 'WIKI.md no longer documents that only stable addresses are selected'
 
-# README.md documents that secondary-bridge selection is not merely an RFC 1918
-# prefix match, so the implementation must not gate it on a private-prefix check.
-grep -q 'RFC 1918' "${README_PATH}" || fail 'README.md no longer documents the RFC 1918 disclaimer'
-! grep -q 'function private_ip(' "${BRIDGE_FUNCTION_FILE}" ||
-	fail 'private_ipv4_bridge_dns_options still gates secondary bridges on a private IPv4 prefix, contradicting README.md'
+# README.md and WIKI.md document that automatic secondary-bridge binding is
+# limited to RFC 1918 addresses, so the implementation must retain each range.
+grep -q 'RFC 1918' "${README_PATH}" || fail 'README.md no longer documents the RFC 1918 listener policy'
+grep -q 'RFC 1918' "${WIKI_PATH}" || fail 'WIKI.md no longer documents the RFC 1918 listener policy'
 grep -q 'function usable_ip(' "${BRIDGE_FUNCTION_FILE}" ||
 	fail 'private_ipv4_bridge_dns_options no longer uses the documented usable_ip filter'
+for private_range in 'octets\[1\] == 10' 'octets\[1\] == 172' 'octets\[1\] == 192'; do
+	grep -q "${private_range}" "${BRIDGE_FUNCTION_FILE}" ||
+		fail "private_ipv4_bridge_dns_options no longer selects ${private_range} addresses"
+done
+grep -qi 'Public IPv4 addresses on secondary bridges' "${README_PATH}" ||
+	fail 'README.md no longer identifies public secondary bridge addresses'
+grep -qi 'selected automatically' "${README_PATH}" ||
+	fail 'README.md no longer documents that public secondary bridge addresses are excluded automatically'
+grep -qi 'excluding public secondary' "${WIKI_PATH}" ||
+	fail 'WIKI.md no longer documents that public secondary bridge addresses are excluded'
 
 # README.md and WIKI.md both claim discovered secondary bridge pairs are logged;
 # the implementation must actually emit a bridge_discovery log event.

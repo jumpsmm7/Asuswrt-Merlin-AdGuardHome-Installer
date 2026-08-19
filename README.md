@@ -302,12 +302,12 @@ LAN mode skips public WAN probes. The monitor still checks local AdGuardHome DNS
 
 LAN mode listens on `127.0.0.1`, the current IPv4 address of the primary LAN
 bridge (`lan_ifname`), and one stable global IPv6 address on that bridge when
-present. It also binds usable global IPv4 addresses actually assigned to other
-`br*` interfaces, because dnsmasq advertises each guest/SDN bridge's own address
-as its DNS server. This includes an assigned VPN bridge address; there is
-currently no explicit interface-selection list. Discovery logs every selected
-secondary interface/address pair. An address is never selected merely because
-it has an RFC 1918 prefix.
+present. It also binds RFC 1918 IPv4 addresses actually assigned to other `br*`
+interfaces, because dnsmasq advertises each private guest/SDN bridge's own
+address as its DNS server. Public IPv4 addresses on secondary bridges are not
+selected automatically; this avoids exposing a resolver without an explicit
+operator configuration. Discovery logs every selected secondary
+interface/address pair.
 
 Temporary, management-flagged (`mngtmpaddr`), tentative, deprecated, duplicate,
 loopback, link-local, multicast, and broadcast addresses are excluded from

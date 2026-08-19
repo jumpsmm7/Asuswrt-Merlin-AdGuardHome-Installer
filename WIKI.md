@@ -209,11 +209,11 @@ sh installer netcheck --mode lan
 ```
 
 LAN-mode DNS binding includes loopback, the primary `lan_ifname` bridge (stable
-IPv4 and, when available, stable global IPv6), and usable assigned IPv4
-addresses on other `br*` interfaces. The latter keeps guest/SDN addresses that
-dnsmasq advertises reachable and is based on assigned bridge addresses, not an
-IPv4 private-prefix match. VPN bridges are therefore included and there is no
-explicit interface allow-list today. Discovered secondary pairs are logged.
+IPv4 and, when available, stable global IPv6), and assigned RFC 1918 IPv4
+addresses on other `br*` interfaces. The latter keeps private guest/SDN
+addresses that dnsmasq advertises reachable while excluding public secondary
+bridge addresses from automatic resolver binding. Discovered secondary pairs
+are logged.
 Firewall behavior is separate: LAN mode installs no firewall/IPTABLES rules, so
 listener and firewall reachability must be tested independently.
 
