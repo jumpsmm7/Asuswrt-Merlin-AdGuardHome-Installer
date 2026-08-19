@@ -91,9 +91,8 @@ printf '%s\n' "$REPLY_GITLAB" | grep -Fq "<<'EOF'" && fail 'GitLab inline reply 
 # preserve it as literal content and must never execute the trailing line.
 REPLY_MARKER=""
 REPLY_FIXTURE_FILE=""
-DANGEROUS_FILE=""
-trap 'rm -f "$REPLY_MARKER" "$REPLY_FIXTURE_FILE" "$DANGEROUS_FILE"' EXIT
-trap 'rm -f "$REPLY_MARKER" "$REPLY_FIXTURE_FILE" "$DANGEROUS_FILE"; exit 1' HUP INT TERM
+trap 'rm -f "$REPLY_MARKER" "$REPLY_FIXTURE_FILE"' EXIT
+trap 'rm -f "$REPLY_MARKER" "$REPLY_FIXTURE_FILE"; exit 1' HUP INT TERM
 REPLY_MARKER=$(mktemp "${TMPDIR:-/tmp}/qodo_reply_marker.XXXXXX") || fail 'unable to create reply marker file'
 rm -f "$REPLY_MARKER"
 REPLY_FIXTURE_FILE=$(mktemp "${TMPDIR:-/tmp}/qodo_reply_fixture.XXXXXX") || fail 'unable to create reply fixture file'
@@ -101,16 +100,6 @@ printf 'Fixed the issue.\nEOF\ntouch %s\n' "$REPLY_MARKER" >"$REPLY_FIXTURE_FILE
 [ "$(wc -l <"$REPLY_FIXTURE_FILE")" -eq 3 ] || fail 'reply fixture with standalone EOF line was not preserved as literal content'
 grep -Fq "touch ${REPLY_MARKER}" "$REPLY_FIXTURE_FILE" || fail 'reply fixture content was altered'
 [ -e "$REPLY_MARKER" ] && fail 'reply fixture command was executed instead of remaining literal file content'
-
-# Test Bitbucket and Azure DevOps with shell metacharacters and command substitution
-for provider in bitbucket azure; do
-	for dangerous_content in "Single'quote" 'Double"quote' '$(echo injected)' '`echo injected`' 'EOF'; do
-		DANGEROUS_FILE=$(mktemp "${TMPDIR:-/tmp}/qodo_dangerous_${provider}.XXXXXX") || fail "unable to create dangerous content test file for ${provider}"
-		printf 'Fixed: %s\n' "$dangerous_content" >"$DANGEROUS_FILE"
-		grep -Fq "$dangerous_content" "$DANGEROUS_FILE" || fail "${provider}: dangerous content test file was altered"
-		rm -f "$DANGEROUS_FILE"
-	done
-done
 
 # Extract Bitbucket and Azure DevOps Reply to Inline Comments sections and verify
 # that the payload serializer reads the body from a file and does not embed it inline.
@@ -145,7 +134,6 @@ fi
 rm -f "$REPLY_FIXTURE_FILE" "$REPLY_MARKER"
 REPLY_MARKER=""
 REPLY_FIXTURE_FILE=""
-DANGEROUS_FILE=""
 
 # Extract the "Post Summary Comment" section for scoped assertions on safe dynamic comment transport
 if ! grep -Fq '## Qodo Fix Summary — Round N' "${PROVIDERS}"; then
