@@ -4,7 +4,10 @@
 set -u
 
 S99_PATH="${1:-S99AdGuardHome}"
-TEST_ROOT="${TMPDIR:-/tmp}/s99-netstat-readiness.$$"
+TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/s99-netstat-readiness.XXXXXX") || {
+	printf '%s\n' 'FAIL: could not create test directory' >&2
+	exit 1
+}
 FUNCTIONS_FILE="${TEST_ROOT}/s99-functions"
 
 cleanup() {
@@ -18,7 +21,6 @@ fail() {
 
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
-mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
 	'/^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_owned_status() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^dns_socket_snapshot() {$/,/^}$/p; /^dns_socket_snapshot_value() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^adguardhome_dns_bind_scope() {$/,/^}$/p; /^dns_port_owner_command() {$/,/^}$/p; /^dns_port_owner_process_name() {$/,/^}$/p; /^dns_port_unknown_refusal_enabled() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^dns_port_has_foreign_owner() {$/,/^}$/p; /^dns_port_needs_release() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p' \
