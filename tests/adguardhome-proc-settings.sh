@@ -306,10 +306,6 @@ proc_lock_mkdir_cleanup && fail 'unpublished lock cleanup unexpectedly reported 
 _trap_line=$(sed -n '/^proc_lock_run() {$/,/^}$/p' "${SCRIPT_PATH}" | grep -n "trap 'proc_lock_mkdir_cleanup" | head -n 1 | cut -d: -f1)
 _publish_line=$(sed -n '/^proc_lock_run() {$/,/^}$/p' "${SCRIPT_PATH}" | grep -n 'printf.*PROC_LOCK_DIR}/pid' | head -n 1 | cut -d: -f1)
 [ -n "${_trap_line}" ] && [ -n "${_publish_line}" ] && [ "${_trap_line}" -lt "${_publish_line}" ] || fail 'proc lock cleanup trap is not armed before owner publication'
-# sleep does nothing and returns successfully.
-sleep() {
-	:
-}
 # lock_holder records lock acquisition events around a one-second delay.
 lock_holder() {
 	printf '%s\n' first-start >>"${LOCK_EVENTS}"
