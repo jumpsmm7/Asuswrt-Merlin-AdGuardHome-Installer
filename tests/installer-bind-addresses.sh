@@ -48,7 +48,7 @@ ai_have_cmd() {
 	esac
 }
 
-# ip simulates network command output for test scenarios using configured environment variables.
+# ip simulates network address and route queries using configured test environment variables.
 ip() {
 	case "$*" in
 		'-o -4 addr list br0 scope global')

@@ -330,6 +330,7 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 		done
 	}
 
+	# assert_jq_skipped verifies that the specified actions do not require jq.
 	assert_jq_skipped() {
 		local action
 		for action in "$@"; do
@@ -351,7 +352,7 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 		done
 	}
 
-	# assert_sha256_optional verifies that the specified actions do not require SHA-256 support, exiting with an error if any action does.
+	# assert_sha256_optional verifies that each specified action can proceed without SHA-256 support, exiting with an error if an action requires it.
 	assert_sha256_optional() {
 		local action
 		for action in "$@"; do
@@ -436,14 +437,14 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 		done
 	}
 
-	# conf_value returns the configured mode or fails when no mode is configured.
+	# conf_value outputs the configured mode and fails when no mode is configured.
 	conf_value() {
 		case "${CONF_MODE:-missing}" in
 			missing) return 1 ;;
 			*) printf '%s\n' "${CONF_MODE}" ;;
 		esac
 	}
-	# adguard_install_mode_detect stores the detected mode in the install-mode variables, or marks detection as unknown when no mode is available.
+	# adguard_install_mode_detect records the detected installation mode, or marks the mode as unknown when detection provides no value.
 	adguard_install_mode_detect() {
 		case "${DETECTED_MODE:-missing}" in
 			missing) ADGUARD_INSTALL_MODE_DETECTION=unknown ;;

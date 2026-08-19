@@ -20,7 +20,7 @@ fail() {
 	exit 1
 }
 
-# write_conf resets the configuration file and writes each provided value on its own line.
+# write_conf resets the configuration file, writes each provided value on its own line, and records the configured installation mode.
 write_conf() {
 	: >"${CONF_FILE}" || fail 'could not reset config file'
 	while [ "$#" -gt 0 ]; do

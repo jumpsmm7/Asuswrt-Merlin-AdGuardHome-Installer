@@ -15,6 +15,7 @@ WATCHDOG_PID=""
 WATCHDOG_START_TIME=""
 WORKSPACE_CREATED=0
 
+# cleanup stops active test and watchdog processes and removes the temporary workspace.
 cleanup() {
 	trap '' HUP INT TERM
 	if [ -n "${WATCHDOG_PID:-}" ]; then
@@ -41,13 +42,14 @@ cleanup() {
 	fi
 }
 
+# fail reports an error message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
 
 # process_start_time prints the kernel start time for a PID so a retained PID
-# cannot signal an unrelated process if the number is reused during cleanup.
+# process_start_time prints the kernel start time recorded for a process ID.
 process_start_time() {
 	[ -r "/proc/$1/stat" ] || return 1
 	IFS= read -r process_stat <"/proc/$1/stat" || return 1
@@ -63,6 +65,7 @@ process_start_time() {
 	printf '%s\n' "$1"
 }
 
+# process_identity_matches verifies that a process has the recorded start time for the specified process ID.
 process_identity_matches() {
 	identity_pid="$1"
 	identity_start_time="$2"
@@ -72,7 +75,7 @@ process_identity_matches() {
 }
 
 # append_process_tree records descendants before their parent.  The retained
-# identities remain usable after TERM causes children to be reparented.
+# append_process_tree records a process and its descendants with their kernel start times, listing descendants before their parent.
 append_process_tree() {
 	parent_pid="$1"
 	pid_file="$2"
@@ -95,6 +98,7 @@ append_process_tree() {
 	printf '%s %s\n' "${parent_pid}" "${parent_start_time}" >>"${pid_file}"
 }
 
+# capture_process_tree records a process and its descendants, verifies the process identity before and after capture when an expected start time is provided, and writes the snapshot to a file.
 capture_process_tree() {
 	capture_pid="$1"
 	capture_file="$2"
@@ -112,6 +116,7 @@ capture_process_tree() {
 	fi
 }
 
+# signal_process_snapshot sends the specified signal to recorded processes whose identities still match.
 signal_process_snapshot() {
 	tree_signal="$1"
 	pid_file="$2"
@@ -125,7 +130,7 @@ signal_process_snapshot() {
 }
 
 # run_bounded runs one integration scenario with a portable watchdog.  It does
-# not depend on timeout(1), which is not available in the router stock PATH.
+# run_bounded runs a test script within the configured timeout and records successful completion.
 run_bounded() {
 	case_name="$1"
 	test_script="$2"

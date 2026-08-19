@@ -57,7 +57,7 @@ require_cmd() {
 }
 
 # configure_test_timeout resolves and approves GNU coreutils timeout for CI.
-# Production/router runs leave the runtime limit at zero and skip this probe.
+# configure_test_timeout validates the configured runtime limit and verifies that GNU coreutils timeout is available when a positive limit is set.
 configure_test_timeout() {
 	[ "${TEST_MAX_RUNTIME_SECONDS}" -gt 0 ] || return 0
 	if [ ! -x "${GNU_TIMEOUT}" ]; then
@@ -73,7 +73,7 @@ configure_test_timeout() {
 }
 
 # run_test_command optionally bounds a CI test command with GNU timeout. Router
-# runs leave TEST_MAX_RUNTIME_SECONDS unset and do not depend on timeout(1).
+# run_test_command executes a test command with the configured runtime limit when one is enabled.
 run_test_command() {
 	if [ "${TEST_MAX_RUNTIME_SECONDS}" -gt 0 ]; then
 		"${GNU_TIMEOUT}" --kill-after=10 "${TEST_MAX_RUNTIME_SECONDS}" "$@"
@@ -84,7 +84,7 @@ run_test_command() {
 
 # run_privileged_test_command places the optional CI timeout inside sudo so it
 # can signal the complete root-owned process group. Unbounded local runs retain
-# the direct sudo invocation.
+# run_privileged_test_command executes a command with passwordless sudo and optionally enforces the configured maximum runtime.
 run_privileged_test_command() {
 	if [ "${TEST_MAX_RUNTIME_SECONDS}" -gt 0 ]; then
 		sudo -n "${GNU_TIMEOUT}" --kill-after=10 "${TEST_MAX_RUNTIME_SECONDS}" "$@"
@@ -164,6 +164,7 @@ run_writable_path_security_check() {
 	return 1
 }
 
+# run_script_list_check runs a check command for each script in the generated script list and reports whether any invocation failed.
 run_script_list_check() {
 	_name="$1"
 	shift

@@ -50,7 +50,7 @@ export ADGUARDHOME_BINARY CALLS_FILE
 adguard_lan_mode() { return 0; }
 # have_cmd reports whether the requested command is available.
 have_cmd() { return 0; }
-# ip emits mock interface address data in fast or fallback format, including duplicate and distinct private addresses.
+# ip emits mock interface address data in fast or fallback format, including duplicate, broadcast, link-local, and distinct private addresses.
 ip() {
 	if [ "${IP_OUTPUT_MODE:-fast}" = "fallback" ] && [ "${1:-}" = "-o" ]; then
 		return 1
@@ -182,7 +182,7 @@ cmp -s "${YAML_FILE}" "${YAML_FILE}.wildcard" >/dev/null 2>&1 || fail 'wildcard 
 
 # interface_ipv4_addr reports no stable address while NVRAM retains a stale, syntactically valid address.
 interface_ipv4_addr() { return 0; }
-# nvram returns a stale LAN IPv4 address that is not assigned to the primary interface.
+# nvram provides mocked values for the LAN interface, LAN IPv4 address, and IPv6 router address.
 nvram() {
 	case "$2" in
 		lan_ifname) printf '%s\n' br0 ;;
@@ -201,7 +201,7 @@ grep -q 'reason=lan_ipv4_unavailable config_preserved=1' "${CALLS_FILE}" || fail
 interface_ipv4_addr() { printf '%s\n' 192.168.50.27; }
 # interface_ipv6_addr prints the IPv6 address assigned to the test interface.
 interface_ipv6_addr() { printf '%s\n' 2001:db8::27; }
-# nvram returns fixture values for selected LAN and IPv6 router NVRAM keys.
+# nvram provides mocked values for the LAN interface, LAN IPv4 address, and IPv6 router address.
 nvram() {
 	case "$2" in
 		lan_ifname) printf '%s\n' br0 ;;
@@ -210,7 +210,7 @@ nvram() {
 	esac
 }
 
-# assert_rejected_unchanged verifies structural failures never replace the active YAML.
+# assert_rejected_unchanged verifies that a refresh failure leaves the active YAML unchanged.
 assert_rejected_unchanged() {
 	case_name="$1"
 	cp "${YAML_FILE}" "${YAML_FILE}.before" || fail "${case_name}: could not preserve fixture"

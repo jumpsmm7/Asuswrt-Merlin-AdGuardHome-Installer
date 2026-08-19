@@ -9,11 +9,13 @@ FUNCTIONS_FILE="${TMP_ROOT}/functions.sh"
 trap 'rm -rf "${TMP_ROOT}"' EXIT HUP INT TERM
 mkdir -p "${TMP_ROOT}/bin"
 
+# fail reports a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
 
+# extract_function extracts a named shell function from the configured script into the functions file.
 extract_function() {
 	case "$1" in
 		*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]*) return 1 ;;
@@ -65,15 +67,25 @@ EOF_YAML
 cp "${YAML_FILE}" "${YAML_FILE}.expected"
 printf '%s\n' 1 >"${TMP_ROOT}/ids"
 PTXT() { :; }
+# ptxt_warn is a no-op warning handler.
 ptxt_warn() { :; }
+# ptxt_step provides a no-op step hook.
 ptxt_step() { :; }
+# ptxt_ok performs a successful no-op.
 ptxt_ok() { :; }
+# ptxt_fail provides a no-op replacement for the failure-reporting function.
 ptxt_fail() { :; }
+# rollback_result_write is a no-op stub used during testing.
 rollback_result_write() { :; }
+# rollback_result_notice is a placeholder for reporting rollback results.
 rollback_result_notice() { :; }
+# check_AdGuardHome_yaml verifies the AdGuard Home YAML configuration.
 check_AdGuardHome_yaml() { :; }
+# clear_screen intentionally performs no action.
 clear_screen() { :; }
+# end_op_message performs no operation.
 end_op_message() { :; }
+# blocklist_yaml_candidates provides a placeholder for blocklist YAML candidate handling.
 blocklist_yaml_candidates() { :; }
 chown() { return 1; }
 

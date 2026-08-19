@@ -39,6 +39,7 @@ is_md5_hex() {
 	esac
 }
 
+# validate_one validates a source file against its adjacent MD5 checksum file and records validation failures.
 validate_one() {
 	_src_file="$1"
 	_md5_file="${_src_file}.md5sum"

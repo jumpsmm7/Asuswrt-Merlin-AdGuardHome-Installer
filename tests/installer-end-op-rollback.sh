@@ -145,9 +145,9 @@ chmod 755 "${TARG_DIR}/installer" || fail 'could not make restart target executa
 nvram_transaction_lock_release() { return 1; }
 # nvram_transaction_lock_reaper_release_active reports that the active NVRAM transaction reaper was released.
 nvram_transaction_lock_reaper_release_active() { return 0; }
-# sleep overrides the delay command with a no-op for testing.
+# sleep replaces the standard delay command with a no-op for testing.
 sleep() { :; }
-# clear_screen clears the terminal display.
+# clear_screen is a no-op placeholder for clearing the terminal display.
 clear_screen() { :; }
 
 (
@@ -162,7 +162,7 @@ grep -q 'Unable to release the installer NVRAM transaction lock' "${TEST_ROOT}/i
 
 CLI_MODE="1"
 ADGUARD_DEFER_END_OP="0"
-# nvram_transaction_lock_release succeeds so only reaper release is under test below.
+# nvram_transaction_lock_release reports a successful transaction-lock release.
 nvram_transaction_lock_release() { return 0; }
 # nvram_transaction_lock_reaper_release_active simulates failure to release the active NVRAM transaction reaper.
 nvram_transaction_lock_reaper_release_active() { return 1; }

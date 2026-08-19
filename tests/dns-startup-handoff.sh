@@ -113,6 +113,7 @@ initialize_dns_guard_wait || fail 'could not initialize the DNS guard FIFO wait'
 [ ! -e "${DNS_GUARD_READY_DIR}/wait" ] || fail 'DNS guard FIFO wait left its filesystem entry behind'
 exec 3<&- 3>&-
 (
+	# mkfifo reports that FIFO creation is unavailable.
 	mkfifo() {
 		return 1
 	}
@@ -121,6 +122,7 @@ exec 3<&- 3>&-
 	fi
 ) || fail 'failed DNS guard FIFO initialization was not reported'
 (
+	# mkfifo creates a directory at the specified path.
 	mkfifo() {
 		mkdir "$1"
 	}
@@ -176,7 +178,7 @@ nvram() {
 		*) return 1 ;;
 	esac
 }
-# rm removes files using the system command, optionally simulating handoff marker removal failure.
+# rm removes files with the system command and can simulate failure when removing the DNS handoff marker.
 rm() {
 	if [ "${RM_HANDOFF_FAIL:-0}" -eq 1 ] && [ "${1:-}" = '-f' ] && [ "${2:-}" = "${DNS_HANDOFF_FILE}" ]; then
 		return 1
@@ -282,7 +284,7 @@ netstat() {
 			;;
 	esac
 }
-# service records the requested service operation and simulates configured dnsmasq restart outcomes.
+# service records a requested service operation and simulates configured dnsmasq restart outcomes.
 service() {
 	printf '%s\n' "service $*" >>"${CALLS_FILE}"
 	[ "$*" = 'restart_dnsmasq' ] && [ "${SERVICE_RESTART_FAIL:-0}" -eq 1 ] && return 1
@@ -303,6 +305,7 @@ kill() {
 	fi
 	command kill "$@"
 }
+# sleep records a simulated delay and updates configured DNS and web readiness states.
 sleep() {
 	SLEEP_CALLS="$((SLEEP_CALLS + 1))"
 	if [ "${DNS_GUARD_FIFO_TEST_MODE:-}" = "fail" ] && [ -n "${DNS_GUARD_FIFO_FALLBACK_MARKER:-}" ]; then
@@ -423,6 +426,7 @@ if (
 	ADGUARDHOME_START_TRAP_DIR="${_pre_start_trap_dir}"
 	ADGUARDHOME_START_TRAP_FILE="${_pre_start_trap_dir}/state"
 	eval "$(sed -n '/^abort_pre_start_adguardhome() {$/,/^}$/p' "${S99_PATH}")"
+	# post_start_failure_adguardhome records and verifies recovery after an AdGuardHome startup failure.
 	post_start_failure_adguardhome() {
 		printf '%s\n' recovery >>"${_pre_start_abort_calls}"
 		trap >"${TEST_ROOT}/pre-start-recovery-traps"
@@ -430,12 +434,14 @@ if (
 		grep -q "'' HUP" "${TEST_ROOT}/pre-start-recovery-traps" || return 1
 		printf '%s\n' recovery-complete >>"${_pre_start_abort_calls}"
 	}
+	# restore_dns_watchdog_traps restores DNS watchdog signal traps during pre-start abort handling.
 	restore_dns_watchdog_traps() {
 		[ "${2:-}" = "1" ] || return 1
 		printf '%s\n' restore >>"${_pre_start_abort_calls}"
 		trap >"${TEST_ROOT}/pre-start-watchdog-restore-traps"
 		grep -q "'' TERM" "${TEST_ROOT}/pre-start-watchdog-restore-traps" || return 1
 	}
+	# adguardhome_start_traps_restore restores the caller's termination handling and removes the temporary startup trap state.
 	adguardhome_start_traps_restore() {
 		printf '%s\n' caller-restore >>"${_pre_start_abort_calls}"
 		sh -c 'kill -TERM "$PPID"'
@@ -877,6 +883,7 @@ DNS_STATE=free
 ADGUARDHOME_DNS_GUARD_RETRIES=3
 prepare_dns_handoff_marker || fail 'could not prepare the direct guard handoff identity'
 (
+	# dns_handoff_path_has_owner_mode reports whether the DNS handoff path has the expected owner and permissions.
 	dns_handoff_path_has_owner_mode() {
 		return 1
 	}
@@ -908,7 +915,7 @@ unset ADGUARDHOME_DNS_GUARD_PID
 prepare_dns_handoff_marker || fail 'could not restore the direct guard handoff identity'
 
 # Exercise both FIFO failure paths through the production launcher. Readiness
-# must still be published and the guard must remain in its owner-verified wait.
+# mkfifo creates a FIFO, or simulates creation failure or directory creation according to DNS_GUARD_FIFO_TEST_MODE.
 mkfifo() {
 	case "${DNS_GUARD_FIFO_TEST_MODE:-}" in
 		fail)
@@ -1333,7 +1340,7 @@ PRECMD='pre_hook'
 POSTCMD='post_hook'
 POSTFAILCMD='post_failure_hook'
 
-# launch_adguardhome launches AdGuardHome.
+# launch_adguardhome starts AdGuardHome.
 launch_adguardhome() {
 	AdGuardHome
 }

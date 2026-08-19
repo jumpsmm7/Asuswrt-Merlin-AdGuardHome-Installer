@@ -166,12 +166,12 @@ for checksum_case in upstream_sha_only unchanged_sha sha_preferred sha_unavailab
 		fi
 		PAYLOAD_SHA256="$(sha256sum "${TMP_DIR}/payload" | awk '{print $1}')"
 		PAYLOAD_MD5="$(md5sum "${TMP_DIR}/payload" | awk '{print $1}')"
-		# ai_have_cmd reports whether the specified command is available for the test scenario.
+		# ai_have_cmd reports whether the specified checksum command is available for the test scenario.
 		ai_have_cmd() {
 			[ "$1" = md5sum ] && return 0
 			[ "$1" = sha256sum ] && [ "${checksum_case}" != sha_unavailable ]
 		}
-		# http_get_file simulates downloading checksum metadata or a payload for checksum verification tests.
+		# http_get_file simulates downloading checksum metadata or payload files for checksum verification tests.
 		http_get_file() {
 			case "$1" in
 				*.sha256sum)
@@ -212,7 +212,7 @@ for checksum_case in upstream_sha_only unchanged_sha sha_preferred sha_unavailab
 			printf '%s' "${PAYLOAD_SHA256}"
 		}
 		if [ "${checksum_case}" = md5_hash_failure ]; then
-			# file_md5 computes the MD5 digest for a file and returns a failure status when the digest cannot be computed.
+			# file_md5 always reports that the MD5 digest could not be computed.
 			file_md5() { return 1; }
 		fi
 		# chmod records whether mode 755 was requested and succeeds.
@@ -343,7 +343,7 @@ grep -q 'MD5 digest calculation failed' "${TMP_DIR}/md5_hash_failure.out" || fai
 	ERROR="Error:"
 	WARNING="Warning:"
 
-	# ai_have_cmd reports whether the requested checksum command is available.
+	# ai_have_cmd reports whether the requested checksum command is supported.
 	ai_have_cmd() {
 		case "$1" in
 			md5sum | sha256sum) return 0 ;;

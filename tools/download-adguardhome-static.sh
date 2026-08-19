@@ -99,6 +99,7 @@ acquire_metadata_publication_lock() {
 	rm -f "${_lock_tmp}"
 }
 
+# reclaim_stale_metadata_publication_lock removes a metadata publication lock after confirming its owner is inactive and the lock has not changed.
 reclaim_stale_metadata_publication_lock() {
 	_lock_file="$1"
 	_stale_candidate="${_lock_file}.stale.$$"
@@ -147,7 +148,7 @@ calc_sum() {
 }
 
 # download_arch downloads releases for an architecture, publishes channel metadata, and removes obsolete archives.
-# The folder identifies the output directory, and the architecture identifies the upstream release variant.
+# download_arch downloads stable, beta, and edge archives for an architecture and publishes their metadata in the corresponding output directory.
 download_arch() {
 	_folder="$1"
 	_adguard_arch="$2"

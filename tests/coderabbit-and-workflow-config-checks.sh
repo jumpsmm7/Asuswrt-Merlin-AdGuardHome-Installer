@@ -26,7 +26,7 @@ trap 'rm -rf "${TMP_ROOT}"' 0
 trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
 
 # review_checker_is_enforced verifies that the shared checker runs directly and
-# that neither its step nor its local-quality job suppresses a failure.
+# review_checker_is_enforced verifies that the review workflow runs the local quality checker in the local-quality job without suppressing failures.
 review_checker_is_enforced() {
 	_review_workflow="$1"
 	grep -Fxq '        run: sh tools/code-quality.sh' "${_review_workflow}" || return 1

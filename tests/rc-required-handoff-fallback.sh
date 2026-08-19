@@ -49,7 +49,7 @@ ansi_red=''
 ansi_green=''
 ansi_std=''
 
-# launch_adguardhome invokes AdGuardHome unless legacy launch mode is enabled, in which case it records an unexpected helper invocation and fails.
+# launch_adguardhome starts AdGuardHome using the configured launch mode.
 launch_adguardhome() {
 	if [ "${USE_LEGACY_LAUNCH:-0}" -eq 1 ]; then
 		: >"${TMP_ROOT}/unexpected-launch-helper"
@@ -124,13 +124,13 @@ post_failure_hook() {
 	return 0
 }
 
-# failing_hook is a valid hook function whose body reports failure.
+# failing_hook is a valid hook function that returns a failure status.
 failing_hook() {
 	return 1
 }
 
 # agh_dns_handoff_required indicates whether AdGuardHome requires DNS handoff preparation before starting.
-# The runtime helper remains authoritative when PRECMD does not export the handoff requirement.
+# agh_dns_handoff_required indicates that AdGuardHome DNS handoff is required.
 agh_dns_handoff_required() {
 	return 0
 }
@@ -252,7 +252,7 @@ start >/dev/null || fail 'rc.func did not use the legacy contract for a non-AdGu
 PROC='AdGuardHome'
 rm -f "${STARTED_FILE}" "${LEGACY_LAUNCH_LOG}"
 # Restore the normal helper fixture so the remaining startup, signal, and trap
-# cases continue to exercise the current S99/rc.func contract.
+# launch_adguardhome starts the AdGuardHome service.
 launch_adguardhome() {
 	AdGuardHome
 }
@@ -265,13 +265,13 @@ trap_snapshot() {
 }
 
 # managed_trap_count makes the preservation checks non-vacuous: custom and
-# ignored dispositions must be present in snapshots captured by the test shell.
+# managed_trap_count counts HUP, INT, and TERM trap dispositions in the specified snapshot file.
 managed_trap_count() {
 	awk '/ (SIG)?(HUP|INT|TERM)$/ { count++ } END { print count + 0 }' "$1"
 }
 
 # assert_trap_workspace_removed checks both the private state variables and the
-# predictable PID portion of the temporary directory name.
+# assert_trap_workspace_removed verifies that temporary trap state variables and workspace files were removed.
 assert_trap_workspace_removed() {
 	[ -z "${ADGUARDHOME_START_TRAP_FILE:-}" ] || fail 'trap state file variable was not cleared'
 	[ -z "${ADGUARDHOME_START_TRAP_DIR:-}" ] || fail 'trap state directory variable was not cleared'
@@ -286,6 +286,7 @@ _snapshot_boundary_ready="${TMP_ROOT}/trap-snapshot-boundary-ready"
 rm -f "${_snapshot_boundary_ready}"
 (
 	_umask_restore_calls=0
+	# umask temporarily delays non-default umask changes while recording restoration calls.
 	umask() {
 		if [ "$#" -gt 0 ] && [ "$1" != 077 ]; then
 			_umask_restore_calls="$((_umask_restore_calls + 1))"
@@ -313,7 +314,7 @@ wait "${_snapshot_boundary_pid}" || fail 'signal between trap snapshot and umask
 assert_trap_workspace_removed
 
 # Trap-state preparation failures must complete the pending status line, log
-# the failure, and preserve the established startup failure status.
+# mkdir simulates a directory creation failure by returning a failure status.
 mkdir() {
 	return 1
 }
@@ -338,15 +339,18 @@ for _rollback_stage in filter directory-chmod file-chmod; do
 		trap_snapshot "${TMP_ROOT}/rollback-before-${_rollback_stage}"
 		case "${_rollback_stage}" in
 			filter)
-				awk() { return 1; }
+				# awk always fails with a status of 1.
+awk() { return 1; }
 				;;
 			directory-chmod)
+				# chmod prevents mode 700 and delegates all other mode changes to the system chmod command.
 				chmod() {
 					[ "$1" = 700 ] && return 1
 					command chmod "$@"
 				}
 				;;
 			file-chmod)
+				# chmod prevents mode 600 and delegates other mode changes to the system chmod command.
 				chmod() {
 					[ "$1" = 600 ] && return 1
 					command chmod "$@"
@@ -364,6 +368,7 @@ done
 set +e
 rm -f "${TMP_ROOT}/workspace-published"
 (
+	# mkdir creates the published workspace marker and fails when the requested path matches the expected trap-state directory.
 	mkdir() {
 		[ "${ADGUARDHOME_START_TRAP_DIR:-}" = "$1" ] || return 1
 		[ "${ADGUARDHOME_START_TRAP_FILE:-}" = "$1/state" ] || return 1
@@ -385,6 +390,7 @@ _save_interrupt_ready="${TMP_ROOT}/trap-save-interrupt-ready"
 rm -f "${STARTED_FILE}" "${_save_interrupt_ready}"
 (
 	set +e
+	# mkdir creates the target directory after marking interrupt handling as ready.
 	mkdir() {
 		: >"${_save_interrupt_ready}"
 		sleep 1
@@ -457,7 +463,7 @@ signal\" >/dev/null" HUP
 assert_trap_workspace_removed
 
 # run_with_trap_disposition verifies exact preservation for custom, ignored,
-# and default signal dispositions around a selected startup result.
+# run_with_trap_disposition configures and verifies signal traps while testing startup behavior for the expected status.
 run_with_trap_disposition() {
 	_disposition="$1"
 	_expected_status="$2"
@@ -490,7 +496,7 @@ ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
 export ADGUARDHOME_DNS_HANDOFF_REQUIRED
 
 # assert_invalid_hooks verifies unsafe or unavailable names in any hook
-# variable fail before startup publishes state or invokes the pre-start hook.
+# assert_invalid_hooks verifies that invalid hook configuration aborts startup before invoking hooks or publishing service state.
 assert_invalid_hooks() {
 	PRECMD="$1"
 	POSTCMD="$2"
@@ -552,17 +558,19 @@ run_with_trap_disposition custom 255
 
 ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
 export ADGUARDHOME_DNS_HANDOFF_REQUIRED
+# process_wait_for_start reports that the simulated process has not started.
 process_wait_for_start() { return 1; }
 rm -f "${STARTED_FILE}"
 run_with_trap_disposition custom 255
 
+# process_wait_for_start checks whether the service startup marker exists.
 process_wait_for_start() { [ -f "${STARTED_FILE}" ]; }
 POSTCMD='failing_hook'
 rm -f "${STARTED_FILE}"
 run_with_trap_disposition custom 255
 POSTCMD='post_hook'
 
-# interrupt_phase waits while the parent sends TERM during each startup phase.
+# interrupt_phase records the current startup phase and waits indefinitely for termination during interruption testing.
 interrupt_phase() {
 	printf '%s\n' "interrupt ${INTERRUPT_PHASE}" >>"${CALLS_FILE}"
 	: >"${INTERRUPT_READY_FILE}"
@@ -581,7 +589,9 @@ for INTERRUPT_PHASE in pre handoff launch post; do
 	POSTCMD='post_hook'
 	ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
 	export ADGUARDHOME_DNS_HANDOFF_REQUIRED
-	adguardhome_start_handoff_is_prepared() { return 1; }
+	# adguardhome_start_handoff_is_prepared determines whether the AdGuardHome startup DNS handoff is prepared and reports that it is not prepared.
+adguardhome_start_handoff_is_prepared() { return 1; }
+	# process_wait_for_start waits for the startup marker file to appear, returning success when detected or failure after 100 seconds.
 	process_wait_for_start() {
 		_start_waits=0
 		while [ "${_start_waits}" -lt 100 ]; do
@@ -595,18 +605,21 @@ for INTERRUPT_PHASE in pre handoff launch post; do
 		pre) PRECMD='interrupt_phase' ;;
 		handoff)
 			HANDOFF_CHECKS=0
+			# adguardhome_start_handoff_is_prepared increments the handoff-check counter, interrupts later checks, and reports that handoff preparation is incomplete.
 			adguardhome_start_handoff_is_prepared() {
 				HANDOFF_CHECKS="$((HANDOFF_CHECKS + 1))"
 				[ "${HANDOFF_CHECKS}" -eq 1 ] || interrupt_phase
 				return 1
 			}
 			;;
-		launch) process_wait_for_start() {
+		launch) # process_wait_for_start waits for the simulated service startup and reports interruption.
+		process_wait_for_start() {
 			interrupt_phase
 			return 1
 		} ;;
 		post)
 			HANDOFF_CHECKS=0
+			# adguardhome_start_handoff_is_prepared determines whether the AdGuardHome startup handoff has been prepared.
 			adguardhome_start_handoff_is_prepared() {
 				HANDOFF_CHECKS="$((HANDOFF_CHECKS + 1))"
 				[ "${HANDOFF_CHECKS}" -gt 1 ]
@@ -651,12 +664,14 @@ for REPEAT_PHASE in stop postfail; do
 	(
 		trap 'printf "%s\n" caller_signal >>"${CALLS_FILE}"' HUP INT TERM
 		trap_snapshot "${REPEAT_BEFORE_FILE}"
+		# stop_launched_process pauses repeated stop-phase processing and signals readiness.
 		stop_launched_process() {
 			if [ "${REPEAT_PHASE}" = "stop" ]; then
 				: >"${REPEAT_READY_FILE}"
 				sleep 1
 			fi
 		}
+		# post_failure_hook records a post-failure hook invocation and, when requested, signals readiness before completing.
 		post_failure_hook() {
 			if [ "${REPEAT_PHASE}" = "postfail" ]; then
 				: >"${REPEAT_READY_FILE}"

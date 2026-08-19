@@ -28,6 +28,7 @@ PROCS='AdGuardHome'
 MONITOR_STATE='running'
 : >"${CALLS_FILE}"
 
+#adguardhome_run logs the command arguments and reports failure.
 adguardhome_run() {
 	printf '%s\n' "adguardhome_run $*" >>"${CALLS_FILE}"
 	return 1
@@ -37,14 +38,17 @@ check_dns_environment() {
 	printf '%s\n' "check_dns_environment $1" >>"${CALLS_FILE}"
 }
 
+# logger records its arguments in the call log.
 logger() {
 	printf '%s\n' "logger $*" >>"${CALLS_FILE}"
 }
 
+# load_operation_config is a no-op configuration loader used by the monitor test.
 load_operation_config() {
 	return 0
 }
 
+# set_operation_config_defaults sets default operation configuration values.
 set_operation_config_defaults() {
 	:
 }

@@ -7,16 +7,19 @@ set -u
 FAILED=0
 RELEASE_ROOT="${RELEASE_ROOT:-$(CDPATH= cd "$(dirname "$0")/.." && pwd)}"
 
+# fail reports an error message and marks release validation as failed.
 fail() {
 	printf '%s\n' "Error: $1" >&2
 	FAILED=1
 }
 
+# manifest_value parses a checksum manifest and outputs its single nonempty field-only value.
 manifest_value() {
 	awk 'NF { value = $1; count++; if (NF != 1) invalid = 1 }
 		END { if (count != 1 || invalid) exit 1; print value }' "$1"
 }
 
+# verify_artifact validates an artifact's checksum manifests, optional architecture metadata, and stale checksum detection against the release base.
 verify_artifact() {
 	_artifact="$1"
 	_metadata_md5="${2:-}"
@@ -71,6 +74,7 @@ verify_artifact() {
 	fi
 }
 
+# verify_architecture_metadata validates channel metadata, archives, and checksums for an architecture directory.
 verify_architecture_metadata() {
 	_directory="$1"
 	_channel_file="${_directory}/checksum.txt"

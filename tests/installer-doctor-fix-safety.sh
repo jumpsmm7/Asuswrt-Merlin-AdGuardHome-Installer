@@ -16,6 +16,7 @@ LOG_FILE="${TEST_ROOT}/commands.log"
 ACTIVE_MARKER="${TEST_ROOT}/AdGuardHome.dnsmasq.handoff"
 DANGLING_MARKER="${TEST_ROOT}/AdGuardHome.dnsmasq.lock"
 mkdir -p "${TEST_ROOT}" "${BIN_DIR}" || fail 'could not create test directory'
+# cleanup removes the temporary test directory and its contents.
 cleanup() {
 	/bin/rm -rf "${TEST_ROOT}"
 }

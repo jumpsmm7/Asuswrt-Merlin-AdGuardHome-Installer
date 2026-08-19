@@ -18,7 +18,7 @@ fail() {
 	exit 1
 }
 
-# write_conf resets the configuration file and writes each provided configuration line to it.
+# write_conf resets the configuration file, writes the provided configuration lines, and reloads the operation configuration.
 write_conf() {
 	: >"${CONF_FILE}" || fail 'could not reset config file'
 	while [ "$#" -gt 0 ]; do

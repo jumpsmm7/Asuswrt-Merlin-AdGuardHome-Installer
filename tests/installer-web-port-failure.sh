@@ -66,7 +66,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 ptxt_ok() { :; }
 # PTXT outputs no text.
 PTXT() { :; }
-# rm removes files and simulates cleanup failures for configured LAN-domain or DNS-filter snapshot markers.
+# rm removes files and simulates configured cleanup failures for transaction snapshots and setup-file artifacts.
 rm() {
 	if { [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] || [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ]; } &&
 		[ "$*" = "-rf ${BASE_DIR}/.AdGuardHome.nvram/lan-domain ${BASE_DIR}/.AdGuardHome.nvram/dnsfilter ${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
@@ -82,7 +82,7 @@ rm() {
 	fi
 	command rm "$@"
 }
-# read_input_port sets WEB_PORT to SELECTED_WEB_PORT or 3000 and returns READ_INPUT_PORT_STATUS, defaulting to 1.
+# read_input_port sets the WebUI port from the selected port or defaults to 3000, then returns the configured input status.
 read_input_port() {
 	WEB_PORT="${SELECTED_WEB_PORT:-3000}"
 	return "${READ_INPUT_PORT_STATUS:-1}"
@@ -134,7 +134,7 @@ installer_lan_domain_set() {
 	: >"${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty"
 	nvram set "lan_domain=$1"
 }
-# installer_lan_domain_restore restores the prior LAN domain, records the restoration, and removes its transaction state.
+# installer_lan_domain_restore restores the previous LAN domain, records the restoration, and removes its transaction state.
 installer_lan_domain_restore() {
 	LAN_DOMAIN_RESTORES="$((LAN_DOMAIN_RESTORES + 1))"
 	LAN_DOMAIN="${TEST_LAN_DOMAIN_ROLLBACK:-}"
@@ -148,7 +148,7 @@ restore_dns_filter_settings() {
 	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" || return 1
 	DNS_FILTER_CHANGED=0
 }
-# nvram_transaction_finalize_setup_pair publishes the setup commit marker and removes transaction snapshots; it fails if marker publication fails and retains snapshots when cleanup is configured to fail.
+# nvram_transaction_finalize_setup_pair publishes the setup commit marker and removes transaction snapshots, returning failure if marker publication fails and retaining snapshots if cleanup fails.
 nvram_transaction_finalize_setup_pair() {
 	SETUP_FILES_FINALIZE_COUNT="$((SETUP_FILES_FINALIZE_COUNT + 1))"
 	[ "${FAIL_SETUP_COMMIT_MARKER:-0}" -eq 0 ] || return 1
@@ -242,7 +242,7 @@ check_ipset() {
 read_yesno() { return 1; }
 # AdGuardHome_authen authenticates with AdGuard Home.
 AdGuardHome_authen() { :; }
-# read_input_dns sets the first or second bootstrap DNS server based on whether the first server is already configured.
+# read_input_dns assigns a default bootstrap DNS server to the first or second slot based on whether the first slot is configured.
 read_input_dns() {
 	if [ -z "${BOOTSTRAP1:-}" ]; then
 		BOOTSTRAP1=9.9.9.9
@@ -357,7 +357,7 @@ rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
 printf '%s\n' 'http:' '  address: 192.168.50.1:4000' 'schema_version: 26' >"${YAML_FILE}"
 printf '%s\n' 'ADGUARD_WEBUI_PORT="4000"' >"${CONF_FILE}"
 SETUP_FILES_RESTORE_COUNT=0
-# read_yesno reports that no yes/no response was provided.
+# read_yesno simulates an interrupted yes/no prompt by returning status 2.
 read_yesno() { return 2; }
 if setup_AdGuardHome_impl ''; then
 	fail 'existing-config setup accepted an interrupted confirmation prompt'

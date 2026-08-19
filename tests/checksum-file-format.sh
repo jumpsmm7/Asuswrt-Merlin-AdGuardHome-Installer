@@ -3,6 +3,7 @@
 
 set -u
 
+# fail reports an error message to stderr and exits with a failure status.
 fail() {
 	printf '%s\n' "FAIL: $1" >&2
 	exit 1

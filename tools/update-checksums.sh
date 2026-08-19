@@ -38,6 +38,7 @@ is_hex_len() {
 	[ "${#_value}" -eq "${_len}" ]
 }
 
+# update_sum_file updates a checksum file with the calculated digest for a source file, normalizing outdated contents.
 update_sum_file() {
 	_src_file="$1"
 	_sum_file="$2"

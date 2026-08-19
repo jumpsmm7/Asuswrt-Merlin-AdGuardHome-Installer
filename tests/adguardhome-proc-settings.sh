@@ -12,6 +12,7 @@ FUNCTION_FILE="${TMP_ROOT}/functions"
 LOG_FILE="${TMP_ROOT}/log"
 BACKGROUND_PID=""
 
+# cleanup stops the background process, waits for it to exit, and removes the temporary test directory.
 cleanup() {
 	if [ -n "${BACKGROUND_PID:-}" ] && kill -0 "${BACKGROUND_PID}" 2>/dev/null; then
 		kill "${BACKGROUND_PID}" 2>/dev/null || true
@@ -23,6 +24,7 @@ cleanup() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
+# fail reports a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -45,11 +47,14 @@ DEFAULT_ADGUARD_PROC_OPTIMIZE=NO
 DEFAULT_ADGUARD_PROC_PROFILE=aggressive
 CONFIG_PROC_OPTIMIZE=YES
 CONFIG_PROC_PROFILE=balanced
+# agh_log appends the provided message to the configured log file.
 agh_log() { printf '%s\n' "$*" >>"${LOG_FILE}"; }
 IPV6_SERVICE=native
+# nvram returns the configured IPv6 service when invoked with `get`.
 nvram() { [ "${1:-}" = get ] && printf '%s\n' "${IPV6_SERVICE}"; }
 RM_FAIL_STATE=0
 RM_FAIL_STATE_HIT=0
+# rm simulates a failure when removing the configured `rmem_max` state file, otherwise delegates to the system `rm` command.
 rm() {
 	if [ "${RM_FAIL_STATE}" = 1 ]; then
 		case "$*" in
@@ -226,6 +231,7 @@ UNINSTALL_FUNCTION_FILE="${TMP_ROOT}/uninstall-function"
 sed -n '/^uninst_all() {$/,/^}$/p' installer >"${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall function extraction failed'
 # shellcheck disable=SC1090
 . "${UNINSTALL_FUNCTION_FILE}"
+# run_uninstall_test creates an isolated uninstall scenario, invokes uninst_all, and records restoration, restart, and removal events. Restore and start results control simulated outcomes; helper mode controls rollback-helper usability.
 run_uninstall_test() (
 	TARG_DIR="${TMP_ROOT}/uninstall-$1"
 	BASE_DIR="${TMP_ROOT}/base-$1"
@@ -300,14 +306,17 @@ proc_lock_mkdir_cleanup && fail 'unpublished lock cleanup unexpectedly reported 
 _trap_line=$(sed -n '/^proc_lock_run() {$/,/^}$/p' "${SCRIPT_PATH}" | grep -n "trap 'proc_lock_mkdir_cleanup" | head -n 1 | cut -d: -f1)
 _publish_line=$(sed -n '/^proc_lock_run() {$/,/^}$/p' "${SCRIPT_PATH}" | grep -n 'printf.*PROC_LOCK_DIR}/pid' | head -n 1 | cut -d: -f1)
 [ -n "${_trap_line}" ] && [ -n "${_publish_line}" ] && [ "${_trap_line}" -lt "${_publish_line}" ] || fail 'proc lock cleanup trap is not armed before owner publication'
+# sleep does nothing and returns successfully.
 sleep() {
 	:
 }
+# lock_holder records lock acquisition events around a one-second delay.
 lock_holder() {
 	printf '%s\n' first-start >>"${LOCK_EVENTS}"
 	command sleep 1
 	printf '%s\n' first-end >>"${LOCK_EVENTS}"
 }
+# lock_waiter records the waiter's execution in the lock event log.
 lock_waiter() { printf '%s\n' second >>"${LOCK_EVENTS}"; }
 mkdir "${PROC_LOCK_DIR}" || fail 'could not create stale identity lock fixture'
 printf '%s %s\n' "$$" 0 >"${PROC_LOCK_DIR}/pid" || fail 'could not publish stale identity lock fixture'

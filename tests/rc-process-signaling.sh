@@ -28,16 +28,19 @@ run_case() (
 	_PIDOF_STATUS=outer-status
 
 	eval "${HELPERS}"
+	# process_pids prints the configured process ID output and returns its configured status.
 	process_pids() {
 		[ -n "${PIDOF_OUTPUT}" ] && printf '%s\n' "${PIDOF_OUTPUT}"
 		return "${PIDOF_STATUS}"
 	}
+	# process_pid_matches checks whether a PID belongs to the AdGuardHome process.
 	process_pid_matches() {
 		case " ${MATCHING_PIDS} " in
 			*" $1 "*) [ "$2" = AdGuardHome ] ;;
 			*) return 1 ;;
 		esac
 	}
+	# kill records its arguments in KILL_LOG and returns KILL_EXIT_STATUS.
 	kill() {
 		KILL_LOG="$*"
 		return "${KILL_EXIT_STATUS}"
@@ -124,14 +127,14 @@ run_case '22' 0 '22' 5 '-s TERM 22' 5
 	service_mark_transition() { :; }
 	# service_clear_transition clears the service transition state.
 	service_clear_transition() { :; }
-	# signal_process records the requested signal for a process.
+	# signal_process records the requested signal in SIGNAL_LOG.
 	signal_process() { SIGNAL_LOG="${SIGNAL_LOG}${SIGNAL_LOG:+ }$1"; }
 	# process_wait_for_stop records the requested wait duration and succeeds for a three-second wait.
 	process_wait_for_stop() {
 		WAIT_LOG="${WAIT_LOG}${WAIT_LOG:+ }$2"
 		[ "$2" -eq 3 ]
 	}
-	# process_pids returns failure.
+	# process_pids always returns failure.
 	process_pids() { return 1; }
 	stop >/dev/null || fail 'bounded stop escalation did not succeed after KILL'
 	[ "${SIGNAL_LOG}" = 'TERM INT KILL' ] || fail "unexpected escalation signals: ${SIGNAL_LOG}"

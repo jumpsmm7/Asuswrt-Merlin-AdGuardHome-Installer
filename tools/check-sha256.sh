@@ -34,6 +34,7 @@ is_sha256_hex() {
 	[ "${#_value}" -eq 64 ]
 }
 
+# validate_one validates a source file against its companion SHA-256 checksum file, reporting errors and updating FAILED when validation fails.
 validate_one() {
 	_src_file="$1"
 	_sha256_file="${_src_file}.sha256sum"

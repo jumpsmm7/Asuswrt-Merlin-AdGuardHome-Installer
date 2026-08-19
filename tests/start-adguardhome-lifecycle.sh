@@ -204,6 +204,7 @@ readlink() {
 	printf '/mock/%s\n' "${2##*/}"
 }
 
+# ln overrides the link command and reports an unexpected database-link setup attempt.
 ln() {
 	fail "database-link setup escaped the test double: $*"
 }

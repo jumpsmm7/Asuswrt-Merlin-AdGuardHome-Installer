@@ -641,6 +641,7 @@ cat >"${STUB_DIR}/nvram" <<'EOF_NVRAM' || fail 'could not write nvram username s
 EOF_NVRAM
 chmod 755 "${STUB_DIR}/nvram" || fail 'could not chmod nvram username stub'
 : >"${CHOWN_LOG}"
+# awk intercepts the daemon account lookup and delegates all other invocations to the system awk.
 awk() {
 	case "$*" in
 		*'account=daemon'*'/etc/passwd') return 0 ;;

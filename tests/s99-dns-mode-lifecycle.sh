@@ -216,7 +216,7 @@ assert_count() {
 }
 
 # run_case executes a DNS handoff lifecycle scenario and verifies its expected behavior.
-# Arguments specify the case name, installation mode, dnsmasq state, DNS bind scope, LAN binding state, expected handoff count, expected restart count, and optional dnsmasq mode.
+# run_case executes an AdGuardHome DNS handoff lifecycle test case with the specified installation, dnsmasq, and DNS binding conditions, then verifies the expected handoff and restart activity.
 run_case() {
 	case_name="$1"
 	mode="$2"

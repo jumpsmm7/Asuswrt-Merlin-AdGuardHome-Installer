@@ -21,15 +21,18 @@ fail() {
 }
 
 UNSAFE_COMMANDS=""
+# cleanup removes the temporary unsafe-command fixture file when it exists.
 cleanup() {
 	[ -z "${UNSAFE_COMMANDS}" ] || rm -f "${UNSAFE_COMMANDS}"
 }
+# cleanup_on_exit restores the original exit status after removing temporary resources and disabling exit and signal traps.
 cleanup_on_exit() {
 	status="$?"
 	trap - EXIT HUP INT TERM
 	cleanup
 	exit "${status}"
 }
+# cleanup_on_signal removes temporary resources and exits with the supplied status.
 cleanup_on_signal() {
 	status="$1"
 	trap - EXIT HUP INT TERM

@@ -9,18 +9,20 @@ FUNCTIONS_FILE="${TEST_ROOT}/functions.sh"
 RC_FUNCTIONS_FILE="${TEST_ROOT}/rc-functions.sh"
 INSTALLER_FUNCTIONS_FILE="${TEST_ROOT}/installer-functions.sh"
 
+# fail reports a test failure to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
 
+# cleanup restores permissions under the test root and removes the temporary test directory.
 cleanup() {
 	chmod -R u+rwx "${TEST_ROOT}" 2>/dev/null || true
 	rm -rf "${TEST_ROOT}"
 }
 
 # Keep the later failure stub visible to ShellCheck without changing the normal
-# test path's use of the system mkfifo utility.
+# mkfifo provides a controllable wrapper around the system `mkfifo` utility for testing creation failures.
 mkfifo() {
 	[ "${MKFIFO_FAIL:-0}" = "0" ] || return 1
 	command mkfifo "$@"
@@ -47,6 +49,7 @@ sed -n \
 . "${RC_FUNCTIONS_FILE}"
 
 STATE_FILE="${TEST_ROOT}/service/service-state"
+# service_state_file prints the path of the service state file.
 service_state_file() {
 	printf '%s\n' "${STATE_FILE}"
 }

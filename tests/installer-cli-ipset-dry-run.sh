@@ -51,7 +51,7 @@ adguard_ipset_allowed() {
 	[ "${INSTALL_MODE}" = 'wan' ]
 }
 
-# adguard_install_mode_confirmed reports whether the current detection is safe for mutating mode-dependent state.
+# adguard_install_mode_confirmed reports whether the detected installation mode is confirmed as WAN or LAN.
 adguard_install_mode_confirmed() {
 	case "${INSTALL_MODE_DETECTION}" in
 		wan | lan) return 0 ;;
@@ -89,7 +89,7 @@ ipset_status() {
 	fail 'LAN-mode IPSET status unexpectedly inspected live IPSET state'
 }
 
-# write_conf is a stub that always succeeds.
+# write_conf always succeeds without writing configuration.
 write_conf() {
 	return 0
 }

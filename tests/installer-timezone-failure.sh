@@ -57,7 +57,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	INFO='Info:'
 	ERROR='Error:'
 
-	# adguard_install_mode_detect determines the installation mode and succeeds when detection completes.
+	# adguard_install_mode_detect sets the installation mode from the test-provided detection result.
 	adguard_install_mode_detect() {
 		ADGUARD_INSTALL_MODE="${ADGUARD_INSTALL_MODE_DETECTION}"
 		return 0
@@ -68,7 +68,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	adguard_remote_archive() { printf '%s\n' 'AdGuardHome_test.tar.gz'; }
 	# adguard_remote_md5 provides the remote MD5 checksum for the AdGuard Home release.
 	adguard_remote_md5() { :; }
-	# adguard_remote_sha256 is a stub for retrieving the remote SHA-256 checksum.
+	# adguard_remote_sha256 provides a no-op placeholder for remote SHA-256 checksum retrieval.
 	adguard_remote_sha256() { :; }
 	# adguard_remote_url prints the remote URL for the test AdGuardHome archive.
 	adguard_remote_url() { printf '%s\n' 'https://example.invalid/AdGuardHome_test.tar.gz'; }
@@ -76,8 +76,10 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	ensure_sha256sum_tool() { :; }
 	# download_file downloads a file.
 	download_file() { return 0; }
-	md5_is_valid() { return 1; }
-	sha256_is_valid() { return 1; }
+	# md5_is_valid determines whether an MD5 checksum is valid.
+md5_is_valid() { return 1; }
+	# sha256_is_valid reports that the SHA-256 checksum is invalid.
+sha256_is_valid() { return 1; }
 	agh_process_count() { printf '%s\n' '0'; }
 	install_adguard_archive() { return 0; }
 	create_dir() { mkdir -p "$1"; }

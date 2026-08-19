@@ -56,6 +56,7 @@ agh_timestamp() {
 	date '+%Y/%m/%d %H:%M:%S'
 }
 
+# agh_log records a timestamped AdGuardHome message in the system log.
 agh_log() {
 	local _level _func
 	_level="$1"
@@ -65,7 +66,7 @@ agh_log() {
 }
 
 # load_operation_config takes one immutable snapshot of the keys needed by an
-# operation.  A monitor refreshes it at healthchecks and requested restarts.
+# set_operation_config_defaults sets default values for the operation configuration snapshot.
 set_operation_config_defaults() {
 	CONFIG_INSTALL_MODE="wan"
 	CONFIG_DNSMASQ_MODE="auto"
@@ -82,6 +83,7 @@ set_operation_config_defaults() {
 	CONFIG_PROC_PROFILE="${DEFAULT_ADGUARD_PROC_PROFILE}"
 }
 
+# load_operation_config loads and validates the configuration for the requested scope, applies defaults and environment overrides, and stores the resulting values in scoped CONFIG_* variables.
 load_operation_config() {
 	local config_dnsmasq_mode config_install_mode config_installer_branch config_ipset config_local config_netcheck_dns config_netcheck_hosts config_netcheck_mode config_netcheck_require_http config_netcheck_timeout config_proc_optimize config_proc_profile config_row config_status config_webui_port old_ifs overridden scope
 	scope="$1"
@@ -196,7 +198,7 @@ adguard_dnsmasq_running() {
 	pidof dnsmasq >/dev/null 2>&1
 }
 
-# adguard_dnsmasq_managed determines whether dnsmasq is managed by AdGuardHome based on install mode, dnsmasq availability, and configuration.
+# adguard_dnsmasq_managed determines whether dnsmasq is managed by AdGuardHome under the current installation and configuration settings.
 adguard_dnsmasq_managed() {
 	if adguard_lan_mode && ! adguard_dnsmasq_running; then
 		return 1
@@ -363,7 +365,7 @@ manager_dependencies_available() {
 	return 0
 }
 
-# Status helpers
+# agh_web_port determines the configured AdGuardHome WebUI port and prints it when valid.
 
 agh_web_port() {
 	local CONF_PORT YAML_PORT
@@ -388,6 +390,7 @@ status_adguardhome_version() {
 	fi
 }
 
+# status_dnsmasq_handoff_state reports whether DNS handoff marker files are present and lists their paths.
 status_dnsmasq_handoff_state() {
 	local marker markers state
 	state="inactive"
@@ -468,6 +471,7 @@ status_port53_ownership() {
 	'
 }
 
+# status_selected_branch reports the configured installer branch or `unknown` when no branch is selected.
 status_selected_branch() {
 	local branch
 	branch="${CONFIG_INSTALLER_BRANCH:-}"
@@ -1014,7 +1018,7 @@ dnsmasq_params() {
 	fi
 }
 
-# dnsmasq_action_handler applies dnsmasq configuration, skipping it in LAN mode when dnsmasq is unmanaged and inactive.
+# dnsmasq_action_handler applies the requested dnsmasq configuration action, or skips it in LAN mode when dnsmasq is inactive and unmanaged.
 dnsmasq_action_handler() {
 	if adguard_lan_mode && ! adguard_dnsmasq_running && ! dns_handoff_is_active; then
 		case "${CONFIG_DNSMASQ_MODE:-auto}" in
@@ -1033,7 +1037,7 @@ dnsmasq_action_handler() {
 	fi
 }
 
-# interface_ipv4_addr prints the first unique usable global IPv4 address assigned to the specified network interface.
+# interface_ipv4_addr prints the first usable global IPv4 address assigned to the specified network interface.
 interface_ipv4_addr() {
 	local IFACE
 	IFACE="$1"
@@ -1072,7 +1076,7 @@ ipv4_is_usable_unicast() {
 	'
 }
 
-# adguard_refresh_lan_bind_addresses updates AdGuardHome's LAN WebUI address and DNS bind hosts in the YAML configuration while preserving the active configuration when staging or validation fails.
+# adguard_refresh_lan_bind_addresses updates AdGuardHome's LAN WebUI address and DNS bind hosts in the YAML configuration, preserving the active configuration when staging or validation fails.
 adguard_refresh_lan_bind_addresses() {
 	local ACTIVE_MD5 BIND_HOSTS LAN_ADDR LAN_ADDR6 LAN_IF NVRAM_ADDR6 REWRITE_FILE SAVED_TRAPS STAGED_MD5 TEMP_FILE WEB_PORT YAML_DIR
 	LAN_BIND_ADDRESSES_CHANGED="0"
@@ -1336,6 +1340,7 @@ ipv6_reverse_zone() {
 	printf "%s\n" "$1" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/'
 }
 
+# netcheck_config prints the explicitly set network-check value, the scoped configuration value, or the supplied default.
 netcheck_config() {
 	local is_set value
 	eval "is_set=\${$1_SET:-}"
@@ -1348,6 +1353,7 @@ netcheck_config() {
 	printf '%s\n' "${value:-$2}"
 }
 
+# netcheck_dns_ok checks whether any provided hostname resolves through the specified DNS server.
 netcheck_dns_ok() {
 	local dns_server host
 	dns_server="$1"
@@ -1372,6 +1378,7 @@ netcheck_http_ok() {
 	return 1
 }
 
+# netcheck_ping_ok checks whether any provided host responds to a single ping within three seconds.
 netcheck_ping_ok() {
 	local host
 	for host in "$@"; do
@@ -1538,7 +1545,7 @@ private_ipv4_bridge_dns_options() {
 	return 1
 }
 
-# private_ipv4_bridge_address_is_assigned verifies that an IPv4 address is assigned to the specified bridge interface.
+# private_ipv4_bridge_address_is_assigned verifies that the specified IPv4 address is assigned to the bridge interface.
 private_ipv4_bridge_address_is_assigned() {
 	local BRIDGE_ADDR BRIDGE_IF
 	BRIDGE_IF="${1:-}"
@@ -1721,7 +1728,7 @@ system_time_ready() {
 	[ "${now}" -ge "${script_time}" ]
 }
 
-# Process tuning helpers
+# proc_config resolves a process-tuning value from an explicit setting, operation configuration, or fallback default.
 
 proc_config() {
 	local is_set value
@@ -1735,6 +1742,7 @@ proc_config() {
 	printf '%s\n' "${value:-$2}"
 }
 
+# proc_optimizations_locked applies the configured process and network kernel optimizations while holding the process-optimization lock, or restores managed settings when optimization is disabled.
 proc_optimizations_locked() {
 	local enabled profile
 	enabled="$(proc_config ADGUARD_PROC_OPTIMIZE "${DEFAULT_ADGUARD_PROC_OPTIMIZE}")"
@@ -1818,10 +1826,12 @@ proc_optimizations_locked() {
 	return 0
 }
 
+# proc_optimizations applies configured process and kernel optimizations under a serialized lock.
 proc_optimizations() {
 	proc_lock_run proc_optimizations_locked
 }
 
+# proc_swap_active reports whether the system has an active swap device.
 proc_swap_active() {
 	local device remainder
 	[ -r "${PROC_SWAPS_FILE}" ] || return 1
@@ -1832,6 +1842,7 @@ proc_swap_active() {
 	return 1
 }
 
+# proc_target maps a process setting identifier to its corresponding procfs path and fails for unsupported identifiers.
 proc_target() {
 	case "$1" in
 		rmem_max) PROC_TARGET="${PROC_SYS_ROOT}/net/core/rmem_max" ;;
@@ -1853,6 +1864,7 @@ proc_target() {
 	esac
 }
 
+# proc_boot_id reads and prints the validated system boot identifier, returning failure when it is unavailable or invalid.
 proc_boot_id() {
 	local boot_id
 	[ -r "${PROC_BOOT_ID_FILE}" ] || return 1
@@ -1861,6 +1873,7 @@ proc_boot_id() {
 	printf '%s\n' "${boot_id}"
 }
 
+# proc_process_start_time prints the process start time in clock ticks for a given PID.
 proc_process_start_time() {
 	local fields stat
 	[ -r "/proc/$1/stat" ] || return 1
@@ -1873,6 +1886,7 @@ proc_process_start_time() {
 	printf '%s\n' "$1"
 }
 
+# proc_lock_mkdir_cleanup removes the procfs lock directory when it is owned by the current process.
 proc_lock_mkdir_cleanup() {
 	local current_start owner owner_start
 	[ -d "${PROC_LOCK_DIR}" ] && [ ! -L "${PROC_LOCK_DIR}" ] || return 1
@@ -1893,6 +1907,7 @@ proc_lock_mkdir_cleanup() {
 	rmdir "${PROC_LOCK_DIR}"
 }
 
+# proc_lock_run serializes a command using an available file lock or a process-validated directory lock.
 proc_lock_run() {
 	local attempts current_start has_usleep owner owner_start ownerless_attempts reaper status
 	if [ "${PROC_LOCK_FORCE_MKDIR:-0}" != 1 ] && have_cmd flock && flock_supports_fd; then
@@ -1955,6 +1970,7 @@ proc_lock_run() {
 	)
 }
 
+# proc_restore_ipv6 restores managed IPv6 procfs settings to their recorded original values.
 proc_restore_ipv6() {
 	local id
 	for id in ipv6_icmp_ratelimit ipv6_neigh_gc_thresh1 ipv6_neigh_gc_thresh2 ipv6_neigh_gc_thresh3; do
@@ -1962,6 +1978,7 @@ proc_restore_ipv6() {
 	done
 }
 
+# proc_write applies a validated procfs value and records state needed to restore the original setting safely.
 proc_write() {
 	local applied boot_id current_value id maximum minimum old_value state_boot_id state_file state_tmp target value
 	id="$1"
@@ -2027,6 +2044,7 @@ proc_write() {
 	return 0
 }
 
+# proc_restore_one restores one managed procfs setting when its current value still matches the value previously applied by the script.
 proc_restore_one() {
 	local applied boot_id current_value id old_value state_boot_id state_file target
 	id="$1"
@@ -2058,6 +2076,7 @@ proc_restore_one() {
 	fi
 }
 
+# proc_restore_locked restores managed procfs settings while holding the process-settings lock and reports whether all restorations succeeded.
 proc_restore_locked() {
 	local failed id
 	failed=0
@@ -2068,9 +2087,11 @@ proc_restore_locked() {
 	[ "${failed}" -eq 0 ]
 }
 
+# proc_restore restores managed procfs settings to their original values.
 proc_restore() {
 	proc_lock_run proc_restore_locked
 }
+# netcheck_lan_dns checks whether the local AdGuardHome listener resolves localhost successfully in LAN mode.
 netcheck_lan_dns() {
 	# Ignore public DNS overrides in LAN mode; this probe is only for the
 	# local AdGuardHome listener after the process has started.
@@ -2081,7 +2102,7 @@ netcheck_lan_dns() {
 	return 0
 }
 
-# Service lifecycle helpers
+# lower_script delegates a service command to the lower-level service script.
 
 lower_script() {
 	case "$1" in
@@ -2154,7 +2175,7 @@ service_wait() {
 }
 
 # start_adguardhome prepares AdGuardHome for startup, launches or restarts it, and verifies network readiness.
-# start_adguardhome prepares DNS integration, starts or restarts AdGuardHome, and verifies network readiness. It returns failure if required preparation, service startup, or the final network check fails.
+# start_adguardhome prepares DNS integration, starts or restarts AdGuardHome, and verifies network readiness, returning failure when required preparation, startup, or validation fails.
 start_adguardhome() {
 	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LAN_BIND_REFRESH_FAILED LOWER_SCRIPT_STATUS db
 	IPSET_START_FAILURE_SAFE="0"
@@ -2225,6 +2246,7 @@ restart_adguardhome() {
 	start_adguardhome restart
 }
 
+# start_monitor supervises AdGuardHome, restarting it when requested or when health checks detect a failure, and stopping it on request.
 start_monitor() {
 	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_RECOVERY_RETRY_INTERVAL MONITOR_SLEEP_INTERVAL MONITOR_START_ACTION MONITOR_STATE
 	MONITOR_BINARY_RETRY_INTERVAL="10"
@@ -2355,7 +2377,7 @@ start_monitor() {
 	done
 }
 
-# post_stop_process_ready verifies that AdGuardHome no longer has a running process.
+# post_stop_process_ready verifies that AdGuardHome has no running process.
 post_stop_process_ready() {
 	[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -eq 0 ]
 }
@@ -2369,7 +2391,7 @@ post_stop_handoff_cleared() {
 	return 0
 }
 
-# post_stop_dnsmasq_ready verifies that dnsmasq owns local port 53 and can resolve localhost through an available DNS server.
+# post_stop_dnsmasq_ready verifies that dnsmasq owns local port 53 and resolves localhost through an available DNS server.
 post_stop_dnsmasq_ready() {
 	local dns_server dns_servers lan_addr
 	adguard_dnsmasq_running || return 1
@@ -3598,6 +3620,7 @@ IPSet_Setup_Locked() {
 	return "${REFRESH_STATUS}"
 }
 
+# IPSet_Supported determines whether the installed AdGuardHome version supports IPSet configuration and records legacy-version status.
 IPSet_Supported() {
 	local VERSION_CLASS VERSION_OUTPUT
 	IPSET_LEGACY_VERSION=""

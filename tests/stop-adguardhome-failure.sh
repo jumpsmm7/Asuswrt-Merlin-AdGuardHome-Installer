@@ -47,15 +47,16 @@ DNSMASQ_READY_CHECKS="0"
 agh_log() { printf '%s\n' "$*" >>"${CALLS_FILE}"; }
 # canonical_path resolves a path to its canonical form.
 canonical_path() { return 1; }
-# remove_database_link records a database link removal request.
+# remove_database_link records a database link removal request by appending its source and target paths to the calls file.
 remove_database_link() {
 	printf '%s -> %s\n' "$1" "$2" >>"${DATABASE_LINK_CALLS_FILE}"
 }
-# lower_script records the requested stop or kill action and returns its configured status.
+# lower_script records the requested action and returns its configured status.
 lower_script() {
 	printf '%s\n' "lower_script $1" >>"${CALLS_FILE}"
 	case "$1" in stop) return "${LOWER_STOP_STATUS}" ;; kill) return "${LOWER_KILL_STATUS}" ;; esac
 }
+# pidof reports mock process IDs for AdGuardHome and dnsmasq based on their configured running states.
 pidof() {
 	case "$1" in
 		AdGuardHome) [ "${RUNNING}" -eq 1 ] && printf '%s\n' 123 ;;
@@ -63,15 +64,19 @@ pidof() {
 	esac
 	return 0
 }
+# adguard_dnsmasq_running determines whether dnsmasq is ready after the configured number of readiness checks.
 adguard_dnsmasq_running() {
 	DNSMASQ_READY_CHECKS="$((DNSMASQ_READY_CHECKS + 1))"
 	[ "${DNSMASQ_READY_CHECKS}" -gt "${DNSMASQ_READY_AFTER}" ] && [ "${DNSMASQ_RUNNING}" -eq 1 ]
 }
+# adguard_dnsmasq_managed determines whether dnsmasq is managed by AdGuard Home.
 adguard_dnsmasq_managed() { [ "${DNSMASQ_MANAGED}" -eq 1 ]; }
+# service records the requested service command and returns the configured service status.
 service() {
 	printf '%s\n' "service $*" >>"${CALLS_FILE}"
 	return "${SERVICE_STATUS}"
 }
+# netstat emits mocked TCP and UDP port 53 listener records according to SOCKET_MODE.
 netstat() {
 	case "${SOCKET_MODE}" in
 		ipv4)
@@ -109,11 +114,13 @@ netstat() {
 		none) : ;;
 	esac
 }
+# nslookup records the lookup request and succeeds only for configured IPv4, IPv6, or LAN test results.
 nslookup() {
 	printf '%s\n' "nslookup $*" >>"${CALLS_FILE}"
 	case "${LOOKUP_MODE}:$2" in ipv4:192.168.50.1 | ipv6:::1 | lan:192.168.50.1) return 0 ;; esac
 	return 1
 }
+# nvram returns the configured LAN IP address for `lan_ipaddr` get requests.
 nvram() {
 	[ "$1" = get ] && [ "$2" = lan_ipaddr ] && printf '%s\n' 192.168.50.1
 }

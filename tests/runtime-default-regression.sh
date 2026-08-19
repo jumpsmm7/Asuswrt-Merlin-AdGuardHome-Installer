@@ -53,7 +53,7 @@ adguard_install_mode_confirmed() {
 	return 1
 }
 
-# adguard_install_mode_detect always reports successful installation-mode detection.
+# adguard_install_mode_detect sets the installation mode from the configured detection value and reports success.
 adguard_install_mode_detect() {
 	ADGUARD_INSTALL_MODE="${ADGUARD_INSTALL_MODE_DETECTION}"
 	return 0
@@ -111,7 +111,7 @@ grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" || fail 'new LAN install d
 grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'new LAN install did not save lan netcheck mode'
 grep -q '^ADGUARD_PROC_PROFILE="aggressive"$' "${CONF_FILE}" || fail 'new LAN install did not save aggressive profile'
 
-# nvram returns `1` for `sw_mode` requests and fails for all other requests.
+# nvram prints `1` for `sw_mode` requests and fails for all other requests.
 nvram() {
 	case "${1:-}:${2:-}" in
 		get:sw_mode) printf '%s\n' 1 ;;
@@ -122,7 +122,7 @@ CONF_FILE="${TMP_ROOT}/new-invalid-router.config"
 if configure_runtime_defaults new-install invalid 0 >"${TMP_ROOT}/new-invalid-router.out"; then fail 'invalid mode unexpectedly used sw_mode fallback'; fi
 [ ! -e "${CONF_FILE}" ] || fail 'invalid mode modified persistent defaults'
 
-# nvram returns `2` for `get:sw_mode` requests and fails for all other requests.
+# nvram prints `2` for `get:sw_mode` requests and fails for all other requests.
 nvram() {
 	case "${1:-}:${2:-}" in
 		get:sw_mode) printf '%s\n' 2 ;;

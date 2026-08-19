@@ -11,11 +11,13 @@ TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/adguardhome-scoped-config.XXXXXX")" || {
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 AWK_CALLS="${TMP_ROOT}/awk.calls"
 
+# fail prints an error message and exits with a failure status.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
 
+# cleanup removes the temporary test environment.
 cleanup() {
 	rm -rf "${TMP_ROOT}"
 }

@@ -16,6 +16,7 @@ fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
+# cleanup removes the temporary test environment.
 cleanup() { rm -rf "${TEST_ROOT}"; }
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
@@ -95,7 +96,7 @@ installer_cleanup_tmp_file() { :; }
 rollback_pending_mode_migration() { return 0; }
 # sleep waits for each newly spawned DNS child to publish its start before
 # advancing the simulated clock. Each child is synchronized only once so
-# scheduler latency cannot affect the simulated deadline.
+# sleep advances simulated monotonic time while synchronizing with asynchronous DNS probe startup.
 sleep() {
 	local current_lookup_count sync_wait_count
 
@@ -163,7 +164,7 @@ nvram_value() {
 	awk -v key="$1" 'index($0, key "=") == 1 { print substr($0, length(key) + 2); found=1 } END { exit(found ? 0 : 1) }' "${NVRAM_FILE}"
 }
 
-# nvram simulates NVRAM operations and supports configurable failures for regression testing.
+# nvram simulates NVRAM operations for regression tests, including configurable read, write, and commit failures.
 nvram() {
 	case "$1" in
 		show)
@@ -220,7 +221,7 @@ service() {
 	return 1
 }
 
-# rm removes files and directories while simulating configured failures for transaction, journal, snapshot, and lock artifacts.
+# rm removes files and directories, with configurable failures for transaction recovery, journal cleanup, and lock handling.
 rm() {
 	if [ "${FAIL_DIRTY_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -f ] && [ "${2:-}" = "${NVRAM_TRANSACTION_DIR:-}/dirty" ]; then
 		return 1
@@ -971,7 +972,7 @@ for reentrant_mode in symlink mkdir; do
 		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "${reentrant_mode}" ] ||
 			fail "${reentrant_mode} reaper selected the wrong mode for reentrant release"
 		REENTRANT_RELEASES=0
-		# rm removes the reaper lock path and releases its active lock, or delegates other removals to the system rm command.
+		# rm removes the reaper lock path and releases its active lock; other paths are removed with the system rm command.
 		rm() {
 			if [ "${1:-}" = -rf ] && [ "${2:-}" = "${reaper_path}" ]; then
 				command rm "$@" || return 1
@@ -1052,7 +1053,7 @@ if nvram_transaction_lock_flock_supports_fd; then
 		nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" ||
 			fail 'flock reaper could not be acquired for reentrant release'
 		REENTRANT_RELEASES=0
-		# rm removes the reaper lock path and releases its active lock, or delegates other removals to the system rm command.
+		# rm removes the reaper lock path and releases its active lock; other paths are removed with the system rm command.
 		rm() {
 			if [ "${1:-}" = -rf ] && [ "${2:-}" = "${reaper_path}" ]; then
 				command rm "$@" || return 1
@@ -1576,7 +1577,7 @@ command rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 		rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || return 1
 		ln -s "${LOCK_OWNER}" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 	}
-	# nvram_transaction_lock_reaper_release releases the NVRAM transaction lock reaper.
+	# nvram_transaction_lock_reaper_release provides a no-op hook for releasing the NVRAM transaction lock reaper.
 	nvram_transaction_lock_reaper_release() { :; }
 	nvram_transaction_lock_symlink_acquire
 	status="$?"
@@ -1652,7 +1653,7 @@ command rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 		mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || return 1
 		printf '%s\n' "${LIVE_LOCK_OWNER}" >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid"
 	}
-	# nvram_transaction_lock_reaper_release releases the NVRAM transaction lock reaper.
+	# nvram_transaction_lock_reaper_release provides a no-op hook for releasing the NVRAM transaction lock reaper.
 	nvram_transaction_lock_reaper_release() { :; }
 	if nvram_transaction_lock_acquire; then
 		fail 'mkdir stale-lock reaper replaced a new live owner'
@@ -1672,7 +1673,7 @@ command rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 	# nvram_transaction_lock_owner_current counts self-owner lookups while preserving the real liveness check for other PIDs.
 	# nvram_transaction_lock_owner_current returns the current lock owner or a PID and process-start-time identifier for the specified process.
 	# nvram_transaction_lock_owner_current returns the current lock owner or a PID and process start-time identifier for a numeric PID.
-	# nvram_transaction_lock_owner_current reports the recorded lock owner or returns a numeric process ID with its start time.
+	# nvram_transaction_lock_owner_current reports the recorded lock owner, or formats a process ID with its start time when given a process ID.
 	nvram_transaction_lock_owner_current() {
 		if [ "$#" -eq 0 ]; then
 			printf '%s\n' x >>"${OWNER_CALLS_FILE}"
@@ -1713,7 +1714,7 @@ printf '%s\n' 'published working yaml' >"${YAML_FILE}"
 printf '%s\n' 'published original yaml' >"${YAML_ORI}"
 printf '%s\n' 'ADGUARD_DOMAIN="NEW"' >"${CONF_FILE}"
 (
-	# mv injects a deterministic failure when publishing restored installer preferences.
+	# mv simulates a failure when publishing restored installer preferences.
 	mv() {
 		if [ "$#" -eq 3 ] && [ "$1" = -f ] && [ "$2" = "${CONF_FILE}.setup-restore.$$" ] && [ "$3" = "${CONF_FILE}" ]; then
 			return 1
@@ -1732,9 +1733,9 @@ printf '%s\n' 'ADGUARD_DOMAIN="NEW"' >"${CONF_FILE}"
 	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file")" = 'previous working yaml' ] || fail 'setup journal failure changed the preserved working YAML'
 	[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original")" = 'previous original yaml' ] || fail 'setup journal failure changed the preserved original YAML'
 	FINALIZE_SETUP_PAIR_CALLED=0
-	# nvram_transaction_finalize_setup_pair records an unsafe cleanup attempt after a failed journal restore.
+	# nvram_transaction_finalize_setup_pair records that setup-pair finalization was attempted.
 	nvram_transaction_finalize_setup_pair() { FINALIZE_SETUP_PAIR_CALLED=1; }
-	# nvram_transaction_lock_release leaves the parent test fixture's lock intact.
+	# nvram_transaction_lock_release preserves the parent test fixture's transaction lock.
 	nvram_transaction_lock_release() { :; }
 	on_installer_exit
 	[ "${FINALIZE_SETUP_PAIR_CALLED}" = 0 ] || fail 'installer exit finalized setup state after the file journal restore failed'

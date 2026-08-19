@@ -30,10 +30,12 @@ logger() {
 	:
 }
 
+# IPSet_Current_File prints the configured current IP set file path.
 IPSet_Current_File() {
 	printf '%s\n' "${IPSET_CURRENT_FILE_RESULT}"
 }
 
+# IPSet_Collect_Yaml collects legacy rules and returns the configured collection status.
 IPSet_Collect_Yaml() {
 	[ "${COLLECT_YAML_STATUS:-0}" -eq 0 ] || return "${COLLECT_YAML_STATUS}"
 	[ -z "${LEGACY_RULES:-}" ] || printf '%s\n' "${LEGACY_RULES}"
@@ -46,6 +48,7 @@ IPSet_Migrate() {
 	return 0
 }
 
+# IPSet_Refresh_Locked refreshes the managed IP set and reports the refresh status.
 IPSet_Refresh_Locked() {
 	REFRESH_CALLS="$((REFRESH_CALLS + 1))"
 	if [ "${CREATE_IPSET_FILE:-0}" -eq 1 ]; then
@@ -54,6 +57,7 @@ IPSet_Refresh_Locked() {
 	return "${IPSET_TEST_REFRESH_STATUS}"
 }
 
+# assert_no_backup verifies that no setup backup file exists for the YAML file.
 assert_no_backup() {
 	set -- "${YAML_FILE}.ipset-setup."*
 	[ ! -e "$1" ] || fail "setup backup was not removed: $1"

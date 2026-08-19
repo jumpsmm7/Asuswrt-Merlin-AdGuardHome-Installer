@@ -24,7 +24,7 @@ sed -n '/^interface_ipv4_addr() {$/,/^}$/p; /^interface_ipv6_addr() {$/,/^}$/p' 
 # shellcheck disable=SC1090
 . "${TMP_FILE}"
 
-# have_cmd checks whether the requested command is `ip`.
+# have_cmd reports whether the requested command is `ip`.
 have_cmd() { [ "$1" = ip ]; }
 
 # ip simulates address-listing output for the test interfaces.

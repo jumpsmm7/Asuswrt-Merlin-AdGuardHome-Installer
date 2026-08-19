@@ -334,7 +334,7 @@ AGH_STUB
 	check_AdGuardHome_yaml() { :; }
 	# save_dns_filter_settings creates the specified directory for DNS filter settings.
 	save_dns_filter_settings() { mkdir -p "$1"; }
-	# restore_dns_filter_settings removes the file or directory specified by its first argument.
+	# restore_dns_filter_settings removes the file or directory at the specified path.
 	restore_dns_filter_settings() { rm -rf "$1"; }
 	# installer_lan_domain_set marks the LAN domain as configured.
 	installer_lan_domain_set() { :; }
@@ -365,7 +365,7 @@ AGH_STUB
 		fi
 		return 0
 	}
-	# nvram_transaction_setup_files_restore reports successful setup-file restoration.
+	# nvram_transaction_setup_files_restore indicates successful setup-file restoration.
 	nvram_transaction_setup_files_restore() { return 0; }
 	# check_dns_filter records a DNS filter check invocation and succeeds.
 	check_dns_filter() {

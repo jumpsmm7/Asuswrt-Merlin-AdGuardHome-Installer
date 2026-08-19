@@ -38,6 +38,7 @@ agh_log() { :; }
 
 # have_cmd reports whether the requested command is available for the test.
 have_cmd() { [ "$1" = ip ] || [ "$1" = route ]; }
+# ip returns a failure status to simulate an unavailable `ip` command.
 ip() { return 1; }
 # route simulates an unavailable legacy route command by returning failure.
 route() { return 1; }
@@ -89,9 +90,11 @@ fallback_options="$(private_ipv4_bridge_dns_options_with_fallbacks br5)" || fail
 [ "${fallback_options}" = 'br7 10.0.7.1' ] ||
 	fail "fallback chain did not use the tier-2 route discovery result (got: ${fallback_options})"
 
-# Route fallback discovery reports an assigned link-local address; it must not become a dnsmasq DHCP option.
+# private_ipv4_bridge_dns_options indicates that no DNS options are available by returning failure.
 private_ipv4_bridge_dns_options() { return 1; }
+# private_ipv4_route_dns_options discovers IPv4 DNS options from bridge routes, excluding the primary interface.
 private_ipv4_route_dns_options() { printf '%s\n' 'br7 169.254.7.1'; }
+# private_ipv4_bridge_address_is_assigned checks whether an IPv4 address is assigned to an interface.
 private_ipv4_bridge_address_is_assigned() { return 0; }
 fallback_options="$(private_ipv4_bridge_dns_options_with_fallbacks br5)" || fail 'link-local fallback filtering failed'
 [ -z "${fallback_options}" ] || fail 'IPv4 link-local bridge address reached dnsmasq DHCP options'
@@ -117,6 +120,7 @@ route() {
 		'10.0.5.0       0.0.0.0         255.255.255.0   U     0      0        0 br5' \
 		'10.0.7.0       0.0.0.0         255.255.255.0   U     0      0        0 br7'
 }
+#ifconfig emits mocked IPv4 address data for supported bridge interfaces.
 ifconfig() {
 	case "$1" in
 		br5) printf '%s\n' 'inet addr:10.0.5.1  Bcast:10.0.5.255  Mask:255.255.255.0' ;;
@@ -133,7 +137,7 @@ fallback_options="$(private_ipv4_bridge_dns_options_with_fallbacks br5)" || fail
 [ "${fallback_options}" = 'br7 10.0.7.1' ] ||
 	fail "fallback chain did not use the tier-3 legacy route discovery result (got: ${fallback_options})"
 
-# have_cmd reports that no requested command is available.
+# have_cmd reports that no command is available.
 have_cmd() { return 1; }
 fallback_options="$(private_ipv4_bridge_dns_options_with_fallbacks br5)"
 [ -z "${fallback_options}" ] || fail 'fallback chain produced output with no available discovery commands'
@@ -191,11 +195,12 @@ fi
 
 # When both commands exist, a failed ip query falls through to a matching ifconfig address.
 have_cmd() { [ "$1" = ip ] || [ "$1" = ifconfig ]; }
+# ip returns a failure status to simulate an unavailable `ip` command.
 ip() { return 1; }
 private_ipv4_bridge_address_is_assigned br5 10.0.5.1 ||
 	fail 'private_ipv4_bridge_address_is_assigned did not fall back to ifconfig after ip failed'
 
-# have_cmd reports that no requested command is available.
+# have_cmd reports that no command is available.
 have_cmd() { return 1; }
 if private_ipv4_bridge_address_is_assigned br5 10.0.5.1; then
 	fail 'private_ipv4_bridge_address_is_assigned accepted an address with no discovery command available'

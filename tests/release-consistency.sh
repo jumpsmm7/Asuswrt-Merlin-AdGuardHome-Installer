@@ -3,11 +3,13 @@
 
 set -u
 
+# fail reports an error message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $1" >&2
 	exit 1
 }
 
+# refresh_manifests computes MD5 and SHA-256 checksums for a file and writes them to sidecar manifest files.
 refresh_manifests() {
 	_target="$1"
 	_md5_output="$(md5sum "${_target}")" || return 1
@@ -16,6 +18,7 @@ refresh_manifests() {
 	printf '%s\n' "${_sha256_output}" | awk 'NF { print $1; exit }' >"${_target}.sha256sum"
 }
 
+# write_architecture_fixture creates release archive fixtures and checksum manifests for a supported architecture.
 write_architecture_fixture() {
 	_directory="$1"
 	case "${_directory}" in

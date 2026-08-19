@@ -36,7 +36,7 @@ TEST_MAX_RUNTIME_SECONDS=0
 GNU_TIMEOUT="/usr/bin/timeout"
 
 # Only the documented coreutils path may enable the GNU-specific option; a
-# PATH-level timeout shim must not affect provider selection.
+# which simulates discovery of an unapproved timeout provider for testing.
 which() { printf '%s\n' "${TMP_ROOT}/unapproved-timeout"; }
 TEST_MAX_RUNTIME_SECONDS=180
 configure_test_timeout || fail 'GNU coreutils timeout provider was rejected'
@@ -47,6 +47,7 @@ unset -f which 2>/dev/null || unset which 2>/dev/null || true
 # every root-owned descendant, while an unbounded local run invokes the test
 # directly through sudo.
 PRIVILEGED_ARGS_FILE="${TMP_ROOT}/privileged-args"
+# sudo records its arguments in the privileged-arguments file.
 sudo() {
 	printf '%s\n' "$*" >"${PRIVILEGED_ARGS_FILE}"
 }
@@ -76,7 +77,7 @@ PRIVATE_IPV4_FALLBACK_RAN_FILE="${TMP_ROOT}/private-ipv4-fallback.ran"
 PROCESS_SIGNALING_RAN_FILE="${TMP_ROOT}/process-signaling.ran"
 (
 	OPTIONAL_DATABASE_STATUS=0
-	# id prints a root user ID for privileged-command tests.
+	# id prints 0 to simulate a root user ID in privileged-command tests.
 	id() {
 		printf '%s\n' 0
 	}
@@ -233,7 +234,7 @@ RUN_LIST_RC=$?
 # short-circuiting on the first failure).
 RECORD_FILE="${TMP_ROOT}/record.log"
 : >"${RECORD_FILE}"
-# record_and_fail_on_a records the given list item and fails when it matches LIST_ITEM_A.
+# record_and_fail_on_a records a list item and reports failure when it matches LIST_ITEM_A.
 record_and_fail_on_a() {
 	printf '%s\n' "$1" >>"${RECORD_FILE}"
 	[ "$1" != "${LIST_ITEM_A}" ]
