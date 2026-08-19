@@ -173,7 +173,7 @@ run_script_list_check() {
 	printf '%s\n' "==> ${_name}"
 	while IFS= read -r _script; do
 		if [ -n "${_script}" ]; then
-			if ! "$@" "${_script}"; then
+			if ! run_test_command "$@" "${_script}"; then
 				_check_failed=1
 			fi
 		fi
