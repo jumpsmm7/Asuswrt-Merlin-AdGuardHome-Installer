@@ -196,13 +196,13 @@ setup_resolve_lan_addresses
 [ "${NET_ADDR6:-}" = "${IPV6_FROM_IP}" ] || fail 'initial YAML LAN IPv6 resolution did not prefer ip output'
 setup_resolve_bind_addresses >/dev/null || fail 'LAN bind resolution from ip failed'
 assert_bind_values lan-ip '192.168.50.1:3000' "${IPV4_FROM_IP}" "${IPV6_FROM_IP}"
-assert_yaml_bind_hosts lan-ip 6
+assert_yaml_bind_hosts lan-ip 5
 grep -q '^    - 127\.0\.0\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS loopback bind host was not written'
 grep -q '^    - 192\.168\.50\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS bind host from ip was not written'
 grep -q '^    - 2001:db8::1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'LAN DNS IPv6 bind host from ip was not written'
 grep -q '^    - 192\.168\.101\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'advertised guest bridge address was not bound'
 grep -q '^    - 10\.52\.0\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'advertised SDN bridge address was not bound'
-grep -q '^    - 198\.51\.100\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'assigned bridge address was filtered solely by its IPv4 prefix'
+! grep -q '^    - 198\.51\.100\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'public bridge address was automatically exposed'
 ! grep -Eq '^    - (127\.0\.0\.2|169\.254\.20\.1|192\.0\.2\.255|224\.0\.0\.1|255\.255\.255\.255|192\.0\.2\.[23])$' "${TMP_ROOT}/lan-ip.yaml" || fail 'unusable bridge address was written'
 
 # Multi-bridge guest, SDN, and VPN topologies retain every advertised bridge address.

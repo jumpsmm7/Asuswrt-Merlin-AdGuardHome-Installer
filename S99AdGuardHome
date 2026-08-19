@@ -1664,6 +1664,10 @@ ensure_adguardhome_work_dir_permissions() {
 		logger -st "${PROCS}" "Missing AdGuardHome work directory ${WORK_DIR}."
 		return 1
 	fi
+	if [ ! -f "${WORK_DIR}/AdGuardHome" ]; then
+		logger -st "${PROCS}" "Missing AdGuardHome binary ${WORK_DIR}/AdGuardHome."
+		return 1
+	fi
 	_agh_perm_http_username="$(adguardhome_owner_account)" || {
 		logger -st "${PROCS}" "Invalid or unresolvable router administrator account."
 		return 1
@@ -1723,6 +1727,10 @@ ensure_adguardhome_work_dir_permissions() {
 	done
 	if [ -f "${WORK_DIR}/AdGuardHome" ] && ! chmod 755 "${WORK_DIR}/AdGuardHome"; then
 		logger -st "${PROCS}" "Unable to set executable permissions on ${WORK_DIR}/AdGuardHome."
+		return 1
+	fi
+	if [ ! -x "${WORK_DIR}/AdGuardHome" ]; then
+		logger -st "${PROCS}" "AdGuardHome binary is not executable: ${WORK_DIR}/AdGuardHome."
 		return 1
 	fi
 	return 0

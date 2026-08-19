@@ -1474,7 +1474,7 @@ private_ipv4_bridge_dns_options() {
 			OPTIONS="$(printf '%s\n' "${ADDRESS_OUTPUT}" | /usr/bin/awk -v lan_if="${LAN_IF}" '
 			function usable_ip(ip, broadcast, octets) {
 				split(ip, octets, ".")
-				return ip != broadcast && ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && !(octets[1] == 169 && octets[2] == 254) && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
+				return ip != broadcast && ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && (octets[1] == 10 || (octets[1] == 172 && octets[2] >= 16 && octets[2] <= 31) || (octets[1] == 192 && octets[2] == 168)) && octets[3] <= 255 && octets[4] <= 255
 			}
 			$2 ~ /^br/ && $2 != lan_if && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
 				broadcast = ""
@@ -1491,7 +1491,7 @@ private_ipv4_bridge_dns_options() {
 			OPTIONS="$(printf '%s\n' "${ADDRESS_OUTPUT}" | /usr/bin/awk -v lan_if="${LAN_IF}" '
 				function usable_ip(ip, broadcast, octets) {
 					split(ip, octets, ".")
-					return ip != broadcast && ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && octets[1] != 0 && octets[1] != 127 && !(octets[1] == 169 && octets[2] == 254) && octets[1] < 224 && octets[2] <= 255 && octets[3] <= 255 && octets[4] <= 255
+					return ip != broadcast && ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && (octets[1] == 10 || (octets[1] == 172 && octets[2] >= 16 && octets[2] <= 31) || (octets[1] == 192 && octets[2] == 168)) && octets[3] <= 255 && octets[4] <= 255
 				}
 				/^[0-9]+: / {
 					iface = $2
@@ -1840,17 +1840,31 @@ proc_boot_id() {
 	printf '%s\n' "${boot_id}"
 }
 
+proc_process_start_time() {
+	local fields stat
+	[ -r "/proc/$1/stat" ] || return 1
+	IFS= read -r stat <"/proc/$1/stat" || return 1
+	fields="${stat##*) }"
+	# Intentional word splitting: /proc/<pid>/stat is a space-delimited record.
+	set -- ${fields}
+	shift 19
+	case "${1:-}" in "" | *[!0-9]*) return 1 ;; esac
+	printf '%s\n' "$1"
+}
+
 proc_lock_mkdir_cleanup() {
-	local owner
+	local current_start owner owner_start
 	[ -d "${PROC_LOCK_DIR}" ] && [ ! -L "${PROC_LOCK_DIR}" ] || return 1
-	owner="$(cat "${PROC_LOCK_DIR}/pid" 2>/dev/null)"
+	IFS=' ' read -r owner owner_start <"${PROC_LOCK_DIR}/pid" || return 1
 	[ "${owner}" = "$$" ] || return 1
+	current_start="$(proc_process_start_time "$$")" || return 1
+	[ "${owner_start}" = "${current_start}" ] || return 1
 	rm -f "${PROC_LOCK_DIR}/pid" || return 1
 	rmdir "${PROC_LOCK_DIR}"
 }
 
 proc_lock_run() {
-	local attempts has_usleep owner ownerless_attempts reaper status
+	local attempts current_start has_usleep owner owner_start ownerless_attempts reaper status
 	if [ "${PROC_LOCK_FORCE_MKDIR:-0}" != 1 ] && have_cmd flock && flock_supports_fd; then
 		(
 			mkdir -p "${WORK_DIR}" 2>/dev/null || exit 1
@@ -1868,7 +1882,9 @@ proc_lock_run() {
 		rm -rf "${reaper}"
 		while ! mkdir "${PROC_LOCK_DIR}" 2>/dev/null; do
 			[ -d "${PROC_LOCK_DIR}" ] && [ ! -L "${PROC_LOCK_DIR}" ] || exit 1
-			owner="$(cat "${PROC_LOCK_DIR}/pid" 2>/dev/null)"
+			owner=""
+			owner_start=""
+			IFS=' ' read -r owner owner_start <"${PROC_LOCK_DIR}/pid" 2>/dev/null || owner=""
 			case "${owner}" in
 				"" | *[!0-9]*)
 					ownerless_attempts="$((ownerless_attempts + 1))"
@@ -1878,7 +1894,8 @@ proc_lock_run() {
 					fi
 					;;
 				*)
-					if ! kill -0 "${owner}" 2>/dev/null; then
+					current_start="$(proc_process_start_time "${owner}" 2>/dev/null)"
+					if [ -z "${owner_start}" ] || [ "${current_start}" != "${owner_start}" ]; then
 						if mv "${PROC_LOCK_DIR}" "${reaper}" 2>/dev/null; then
 							rm -rf "${reaper}"
 							continue
@@ -1890,7 +1907,8 @@ proc_lock_run() {
 			[ "${attempts}" -lt 50 ] || exit 1
 			if [ "${has_usleep}" -eq 1 ]; then usleep 100000; else sleep 1; fi
 		done
-		printf '%s\n' "$$" >"${PROC_LOCK_DIR}/pid" || {
+		current_start="$(proc_process_start_time "$$")" || exit 1
+		printf '%s %s\n' "$$" "${current_start}" >"${PROC_LOCK_DIR}/pid" || {
 			rm -f "${PROC_LOCK_DIR}/pid"
 			rmdir "${PROC_LOCK_DIR}" 2>/dev/null
 			exit 1
@@ -3599,6 +3617,7 @@ if ! load_operation_config "${CONFIG_LOAD_SCOPE}"; then
 	case "${CONFIG_LOAD_SCOPE}" in
 		stop)
 			set_operation_config_defaults
+			CONFIG_DNSMASQ_MODE="enabled"
 			printf '%s\n' "${NAME}: continuing stop with conservative configuration defaults" >&2
 			;;
 		*) return 1 2>/dev/null || exit 1 ;;

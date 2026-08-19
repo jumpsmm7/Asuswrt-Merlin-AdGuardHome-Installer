@@ -71,7 +71,8 @@ ip() {
 			'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1' \
 			'5: br1    inet 192.168.102.254/24 brd 192.168.102.255 scope global secondary br1' \
 			'5: br1    inet 192.168.103.254/24 brd 192.168.103.255 scope global secondary br1' \
-			'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1'
+			'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1' \
+			'6: br-public    inet 198.51.100.1/24 brd 198.51.100.255 scope global br-public'
 	fi
 }
 # interface_ipv4_addr prints the IPv4 address assigned to the LAN interface.
