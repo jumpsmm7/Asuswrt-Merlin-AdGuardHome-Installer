@@ -1226,15 +1226,11 @@ release_dns_port_from_dnsmasq() {
 }
 
 dns_guard_wait_for_stop() {
-	if [ "${_dns_guard_wait_initialized:-0}" = "1" ]; then
-		while :; do
-			IFS= read -r _dns_guard_wait_line <&3
-		done
-	fi
-	# Fallback only if FIFO setup fails. Avoid a hot CPU loop.
-	while :; do
+	while dns_handoff_marker_matches_identity "${DNS_GUARD_OWNER_PID}" "${DNS_GUARD_OWNER_START_TIME}" &&
+		dns_handoff_marker_is_active; do
 		sleep 1s
 	done
+	agh_log WARNING dns_guard_wait_for_stop "DNS handoff owner disappeared; stopping the DNS port guard."
 }
 
 initialize_dns_guard_wait() {
@@ -1383,8 +1379,8 @@ start_dns_port_guard() {
 	# Do not acknowledge readiness until every state needed for safe signal and
 	# watchdog recovery exists and the parent's handoff identity is still active.
 	dns_handoff_marker_matches_identity "${DNS_GUARD_OWNER_PID}" "${DNS_GUARD_OWNER_START_TIME}" || return 1
-	# FIFO initialization is an optimization; the guard uses a bounded sleep
-	# when it is unavailable and must still publish readiness.
+	# FIFO initialization is optional; owner-identity polling governs the guard
+	# lifetime when it is unavailable and readiness must still be published.
 	initialize_dns_guard_wait || {
 		[ ! -e "${_dns_guard_wait_fifo}" ] && [ ! -L "${_dns_guard_wait_fifo}" ] || return 1
 	}
