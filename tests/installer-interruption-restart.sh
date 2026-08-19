@@ -365,11 +365,11 @@ ACTUAL="$(cat "${CALLS_FILE}")"
 		printf '%s\n' "restart:$1" >>"${CALLS_FILE}"
 	}
 	# PTXT suppresses test output.
-PTXT() { :; }
+	PTXT() { :; }
 	# clear_screen clears the terminal screen.
-clear_screen() { :; }
+	clear_screen() { :; }
 	# end_op_message performs no operation.
-end_op_message() { :; }
+	end_op_message() { :; }
 
 	adguard_install_abort_on_signal
 ) || fail 'signal journal failure recovery failed'
@@ -465,21 +465,21 @@ if (
 	ADGUARD_INSTALL_MODE=lan
 	_DNS_STUBBY_STOPPED=0
 	# nvram_transaction_lock_owned reports that the NVRAM transaction lock is owned.
-nvram_transaction_lock_owned() { return 0; }
+	nvram_transaction_lock_owned() { return 0; }
 	# setup_restore_nvram_journal records a journal restoration failure and returns a failure status.
 	setup_restore_nvram_journal() {
 		printf '%s\n' journal-failed >>"${CALLS_FILE}"
 		return 1
 	}
 	# rollback_pending_mode_migration records a pending mode-migration rollback in the call log.
-rollback_pending_mode_migration() { printf '%s\n' rollback >>"${CALLS_FILE}"; }
+	rollback_pending_mode_migration() { printf '%s\n' rollback >>"${CALLS_FILE}"; }
 	# PTXT records the supplied message in the calls file.
-PTXT() { printf '%s\n' "message:$*" >>"${CALLS_FILE}"; }
+	PTXT() { printf '%s\n' "message:$*" >>"${CALLS_FILE}"; }
 	# cleanup_api_files removes temporary API files.
-cleanup_api_files() { :; }
+	cleanup_api_files() { :; }
 	installer_cleanup_tmp_file() { :; }
 	# nvram_transaction_lock_release releases the NVRAM transaction lock and records the release event.
-nvram_transaction_lock_release() { printf '%s\n' lock-released >>"${CALLS_FILE}"; }
+	nvram_transaction_lock_release() { printf '%s\n' lock-released >>"${CALLS_FILE}"; }
 	on_installer_exit
 ); then
 	fail 'failed setup journal restoration returned a successful exit status'

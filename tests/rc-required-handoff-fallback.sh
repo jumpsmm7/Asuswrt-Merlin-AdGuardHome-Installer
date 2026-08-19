@@ -340,7 +340,7 @@ for _rollback_stage in filter directory-chmod file-chmod; do
 		case "${_rollback_stage}" in
 			filter)
 				# awk always fails with a status of 1.
-awk() { return 1; }
+				awk() { return 1; }
 				;;
 			directory-chmod)
 				# chmod prevents mode 700 and delegates all other mode changes to the system chmod command.
@@ -590,7 +590,7 @@ for INTERRUPT_PHASE in pre handoff launch post; do
 	ADGUARDHOME_DNS_HANDOFF_REQUIRED=0
 	export ADGUARDHOME_DNS_HANDOFF_REQUIRED
 	# adguardhome_start_handoff_is_prepared determines whether the AdGuardHome startup DNS handoff is prepared and reports that it is not prepared.
-adguardhome_start_handoff_is_prepared() { return 1; }
+	adguardhome_start_handoff_is_prepared() { return 1; }
 	# process_wait_for_start waits for the startup marker file to appear, returning success when detected or failure after 100 seconds.
 	process_wait_for_start() {
 		_start_waits=0
@@ -613,10 +613,10 @@ adguardhome_start_handoff_is_prepared() { return 1; }
 			}
 			;;
 		launch) # process_wait_for_start waits for the simulated service startup and reports interruption.
-		process_wait_for_start() {
-			interrupt_phase
-			return 1
-		} ;;
+			process_wait_for_start() {
+				interrupt_phase
+				return 1
+			} ;;
 		post)
 			HANDOFF_CHECKS=0
 			# adguardhome_start_handoff_is_prepared determines whether the AdGuardHome startup handoff has been prepared.
