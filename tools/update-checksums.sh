@@ -57,14 +57,16 @@ update_sum_file() {
 		return 1
 	fi
 
+	_current_lines=0
 	_current_value=""
 	if [ -f "${_sum_file}" ]; then
 		# Check the complete file so legacy "hash  filename" output is normalized
 		# even when its first field already contains the current digest.
 		_current_value="$(cat "${_sum_file}")"
+		_current_lines="$(wc -l <"${_sum_file}")" || _current_lines=0
 	fi
 
-	if [ "${_current_value}" = "${_sum_value}" ]; then
+	if [ "${_current_lines}" -eq 1 ] 2>/dev/null && [ "${_current_value}" = "${_sum_value}" ]; then
 		printf '%s\n' "OK: ${_sum_file} already current"
 		return 0
 	fi

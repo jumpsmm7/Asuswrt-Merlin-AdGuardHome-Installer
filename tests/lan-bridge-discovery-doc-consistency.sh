@@ -48,13 +48,18 @@ grep -q 'dadfailed' "${SCRIPT_PATH}" || fail 'AdGuardHome.sh no longer excludes 
 grep -qi 'duplicate' "${README_PATH}" || fail 'README.md does not document the dadfailed (duplicate address) exclusion'
 grep -qi 'stable' "${WIKI_PATH}" || fail 'WIKI.md no longer documents that only stable addresses are selected'
 
-# README.md documents that secondary-bridge selection is not merely an RFC 1918
-# prefix match, so the implementation must not gate it on a private-prefix check.
-grep -q 'RFC 1918' "${README_PATH}" || fail 'README.md no longer documents the RFC 1918 disclaimer'
-! grep -q 'function private_ip(' "${BRIDGE_FUNCTION_FILE}" ||
-	fail 'private_ipv4_bridge_dns_options still gates secondary bridges on a private IPv4 prefix, contradicting README.md'
+# README.md and WIKI.md document that automatic secondary-bridge binding is
+# limited to RFC 1918 addresses, so the implementation must retain each range.
+grep -q 'RFC 1918' "${README_PATH}" || fail 'README.md no longer documents the RFC 1918 listener policy'
+grep -q 'RFC 1918' "${WIKI_PATH}" || fail 'WIKI.md no longer documents the RFC 1918 listener policy'
 grep -q 'function usable_ip(' "${BRIDGE_FUNCTION_FILE}" ||
 	fail 'private_ipv4_bridge_dns_options no longer uses the documented usable_ip filter'
+for private_range in 'octets\[1\] == 10' 'octets\[1\] == 172' 'octets\[1\] == 192'; do
+	grep -q "${private_range}" "${BRIDGE_FUNCTION_FILE}" ||
+		fail "private_ipv4_bridge_dns_options no longer selects ${private_range} addresses"
+done
+grep -q '100\.64\.0\.0/10' "${README_PATH}" || fail 'README.md no longer documents shared-range exclusion'
+grep -q '100\.64\.0\.0/10' "${WIKI_PATH}" || fail 'WIKI.md no longer documents shared-range exclusion'
 
 # README.md and WIKI.md both claim discovered secondary bridge pairs are logged;
 # the implementation must actually emit a bridge_discovery log event.
@@ -67,6 +72,7 @@ grep -qi 'logged' "${WIKI_PATH}" || fail 'WIKI.md no longer documents that bridg
 # not itself invoke iptables.
 sed -n '/^adguard_refresh_lan_bind_addresses() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_ROOT}/refresh_function" ||
 	fail 'could not extract adguard_refresh_lan_bind_addresses'
+[ -s "${TMP_ROOT}/refresh_function" ] || fail 'adguard_refresh_lan_bind_addresses extraction was empty'
 ! grep -qi 'iptables' "${TMP_ROOT}/refresh_function" ||
 	fail 'adguard_refresh_lan_bind_addresses unexpectedly manages firewall rules, contradicting the documented independence of binding and firewall policy'
 grep -qi 'firewall' "${README_PATH}" || fail 'README.md no longer documents the firewall/binding independence disclaimer'

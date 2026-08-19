@@ -17,7 +17,8 @@ fail() {
 	exit 1
 }
 
-trap 'rm -rf "${TMP_ROOT}"' 0 HUP INT TERM
+trap 'rm -rf "${TMP_ROOT}"' 0
+trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
 sed -n '/^agh_uint_in_range() {$/,/^}$/p; /^agh_godebug_valid() {$/,/^}$/p; /^agh_memory_limit_mib() {$/,/^}$/p; /^launch_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${FUNCTIONS_FILE}" || fail 'function extraction failed'
 # shellcheck disable=SC1090

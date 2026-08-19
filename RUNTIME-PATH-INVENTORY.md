@@ -39,9 +39,11 @@ are included because rollback and restore consume them.
 | flock probe | `/tmp/adguardhome-flock-test.$$` | Capability probe only; exact path removed after the probe. |
 | DNS handoff | `/tmp/AdGuardHome.dns-handoff/{active,lock,lock.<pid>,lock.stale.$$}` | Shared with `S99AdGuardHome`; root-owned `700` directory and `600` single-link marker files. Marker identity is PID plus `/proc/<pid>/stat` start time. |
 | LAN YAML refresh | `/opt/etc/AdGuardHome/.AdGuardHome.yaml.lan-bind.$${,.rewrite}` | Same directory/filesystem as the active YAML; validated before atomic `mv`. |
+| proc rollback state | `${WORK_DIR}/proc-sys-state/<setting>{,.tmp.$$}` | Original and applied proc values, published atomically for conservative restoration. |
+| proc lock | `${WORK_DIR}/proc-sys.lock`, `${WORK_DIR}/proc-sys-lock{,/pid}`, and `${WORK_DIR}/proc-sys-lock.reap.$$` | Optional descriptor lock plus private mkdir/PID fallback and stale-lock reclaim path. |
 | IPSet runtime | `/opt/var/run/AdGuardHome-ipset/{flock,mkdir,mkdir/pid,mkdir/traps,reap.*,traps.$$}` | Root-owned private lock workspace with bounded stale-lock retries and exact-owner cleanup. |
 | IPSet stages | `ipset.user.{tmp,new,legacy}.$$`, `AdGuardHome.yaml.{ipset,ipset-legacy,ipset-setup}.$$`, and `ipset.conf.{raw,tmp}.$$` | Same-filesystem stages and rollback copy, removed by exact name. |
-| database links | `/tmp/{querylog.json,stats.db,sessions.db}` | Installer-owned compatibility symlinks; removed only when canonical targets still match the active work directory. |
+| database links | `/tmp/{stats.db,sessions.db}` | Installer-owned compatibility symlinks; removed only when canonical targets still match the active work directory. |
 | resolver bind mount | `/tmp/resolv.conf` | Router-managed mount point; unmounted only after mount and canonical-path checks. |
 
 ## `S99AdGuardHome`

@@ -4,7 +4,10 @@
 set -u
 
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
-TEST_ROOT="${TMPDIR:-/tmp}/stop-adguardhome-failure.$$"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/stop-adguardhome-failure.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive test directory' >&2
+	exit 1
+}
 FUNCTION_FILE="${TEST_ROOT}/function"
 CALLS_FILE="${TEST_ROOT}/calls"
 DATABASE_LINK_CALLS_FILE="${TEST_ROOT}/database-link-calls"
@@ -18,8 +21,6 @@ fail() {
 }
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
-mkdir -p "${TEST_ROOT}" || fail "could not create test directory"
-
 sed -n '/^post_stop_process_ready() {$/,/^}$/p; /^post_stop_handoff_cleared() {$/,/^}$/p; /^post_stop_dnsmasq_ready() {$/,/^}$/p; /^stop_adguardhome() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" ||
 	fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail "stop verification functions were not found"

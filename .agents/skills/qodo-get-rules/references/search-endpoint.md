@@ -93,6 +93,8 @@ fi
 BODY=$("$JQ_BIN" -cn --arg query "$SEARCH_QUERY" --arg scope "${SCOPE:-}" \
   --argjson top_k "$TOP_K" '{query: $query, top_k: $top_k} + (if $scope != "" then {scopes: [$scope]} else {} end)') || exit 1
 
+# Scope cleanup traps so caller handlers remain unchanged.
+(
 umask 077
 AUTH_HEADER=$(mktemp) || exit 1
 trap 'rm -f "${AUTH_HEADER}"' EXIT
@@ -134,6 +136,7 @@ VALIDATED_RESPONSE=$(printf '%s' "$BODY_RESPONSE" | "$JQ_BIN" -cse '
   exit 1
 }
 printf '%s\n' "$VALIDATED_RESPONSE"
+)
 ```
 
 With optional trace header:
@@ -153,6 +156,8 @@ fi
 BODY=$("$JQ_BIN" -cn --arg query "$SEARCH_QUERY" --arg scope "${SCOPE:-}" \
   --argjson top_k "$TOP_K" '{query: $query, top_k: $top_k} + (if $scope != "" then {scopes: [$scope]} else {} end)') || exit 1
 
+# Scope cleanup traps so caller handlers remain unchanged.
+(
 umask 077
 AUTH_HEADER=$(mktemp) || exit 1
 trap 'rm -f "${AUTH_HEADER}"' EXIT
@@ -205,6 +210,7 @@ VALIDATED_RESPONSE=$(printf '%s' "$BODY_RESPONSE" | "$JQ_BIN" -cse '
   exit 1
 }
 printf '%s\n' "$VALIDATED_RESPONSE"
+)
 ```
 
 ## Example (Python)

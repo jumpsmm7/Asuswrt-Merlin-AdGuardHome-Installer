@@ -46,6 +46,14 @@ HTTP Basic Auth with a password generated from Gerrit's settings page.
 ```
 - `GERRIT_URL`: Gerrit instance base URL (always required — there is no default host)
 - `GERRIT_USERNAME`: Your Gerrit username
+
+### Create Change Prerequisites
+
+Creating or amending a Gerrit change requires `sha256sum` and an independently
+trusted `GERRIT_COMMIT_MSG_SHA256` value. Obtain the 64-character digest from an
+approved Gerrit administrator or distribution channel that is independent of
+the server used to download the hook; never derive trust from the hook response
+or another URL on that same Gerrit service.
 - `GERRIT_HTTP_PASSWORD`: HTTP password from **Settings → HTTP Credentials** (this is NOT your account password)
 
 Load the provider configuration before testing or using these values. Existing environment variables take precedence over the config file:
@@ -385,9 +393,11 @@ echo "$BODY" | tail -c +6
 - `in_reply_to`: the comment's `id` field (works for both robot and human comments)
 - `unresolved: false` resolves the thread in the same call — no separate resolve step needed
 
-**Reply format** (same as other providers):
-- **Fixed:** `✅ **Fixed** — <what changed, stated directionally — see [providers.md § Reply to Inline Comments](./providers.md#reply-to-inline-comments)>` — set `"unresolved": false`
-- **Deferred:** `⏭️ **Deferred** — <reason>` — set `"unresolved": false`
+**Reply format:** Every Fixed, Deferred, Held, and Hard stopped reply must append
+the canonical `qodo-ledger-v1` inline record defined in
+[providers.md § Reply to Inline Comments](./providers.md#reply-to-inline-comments),
+with the matching decision/action rules. Always set `"unresolved": false` for
+all four outcomes.
 
 Resolution of deferred items will be re-evaluated by the next Qodo review when a new patchset is pushed.
 
@@ -652,10 +662,22 @@ restore_commit_msg_hook() {
   fi
   HOOK_RESTORE_PENDING=0
 }
-trap 'restore_commit_msg_hook; rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"' EXIT
-trap 'restore_commit_msg_hook; rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"; exit 129' HUP
-trap 'restore_commit_msg_hook; rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"; exit 130' INT
-trap 'restore_commit_msg_hook; rm -f "$GERRIT_NETRC" "$HOOK_TMP"; rm -rf "$GERRIT_NETRC_DIR"; exit 143' TERM
+cleanup_commit_msg_hook() {
+  _cleanup_status="$1"
+  _restore_status=0
+  restore_commit_msg_hook || _restore_status=$?
+  rm -f "$GERRIT_NETRC" "$HOOK_TMP"
+  rm -rf "$GERRIT_NETRC_DIR"
+  if [ "$_restore_status" -ne 0 ]; then
+    echo "Error: failed to restore the previous Gerrit commit-msg hook" >&2
+    [ "$_cleanup_status" -ne 0 ] || _cleanup_status="$_restore_status"
+  fi
+  return "$_cleanup_status"
+}
+trap '_status=$?; trap - EXIT HUP INT TERM; cleanup_commit_msg_hook "$_status"; exit $?' EXIT
+trap 'trap - EXIT HUP INT TERM; cleanup_commit_msg_hook 129; exit 129' HUP
+trap 'trap - EXIT HUP INT TERM; cleanup_commit_msg_hook 130; exit 130' INT
+trap 'trap - EXIT HUP INT TERM; cleanup_commit_msg_hook 143; exit 143' TERM
 if [ -e "$HOOK_PATH" ] || [ -L "$HOOK_PATH" ]; then
   HOOK_BACKUP=$(mktemp "$HOOK_DIR/commit-msg.backup.XXXXXX") || exit 1
   rm -f "$HOOK_BACKUP"

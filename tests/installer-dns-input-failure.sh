@@ -94,19 +94,21 @@ nvram_transaction_finalize_setup_pair() { return 0; }
 nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
 # nvram_transaction_setup_files_begin starts a setup-file transaction by recording the current configuration, YAML, and original YAML files, including markers for files that are absent.
 nvram_transaction_setup_files_begin() {
-	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || return 1
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram" || return 1
+	[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || return 1
+	mkdir "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || return 1
 	if [ -f "${CONF_FILE}" ]; then
-		cp -p "${CONF_FILE}" "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config"
+		cp -p "${CONF_FILE}" "${BASE_DIR}/.AdGuardHome.nvram/setup-files/config" || return 1
 	else
 		: >"${BASE_DIR}/.AdGuardHome.nvram/setup-files/config.absent"
 	fi
 	if [ -f "${YAML_FILE}" ]; then
-		cp -p "${YAML_FILE}" "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file"
+		cp -p "${YAML_FILE}" "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file" || return 1
 	else
 		: >"${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-file.absent"
 	fi
 	if [ -f "${YAML_ORI}" ]; then
-		cp -p "${YAML_ORI}" "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original"
+		cp -p "${YAML_ORI}" "${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original" || return 1
 	else
 		: >"${BASE_DIR}/.AdGuardHome.nvram/setup-files/yaml-original.absent"
 	fi

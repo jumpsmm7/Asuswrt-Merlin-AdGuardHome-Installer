@@ -331,6 +331,9 @@ glab mr list --source-branch <branch-name>
 BRANCH=$(git branch --show-current)
 NEXT_URL="$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests?state=OPEN"
 FOUND_PR=0
+MATCH_FILE=$(mktemp) || exit 1
+trap 'rm -f "$MATCH_FILE"' EXIT
+trap 'rm -f "$MATCH_FILE"; exit 1' HUP INT TERM
 SEEN_URLS=""
 PAGE_COUNT=0
 MAX_PAGES=100
@@ -371,22 +374,14 @@ while [ -n "$NEXT_URL" ]; do
     exit 1
   fi
 
-  MATCH=$(printf '%s' "$BODY" | python3 -c '
+  printf '%s' "$BODY" | python3 -c '
 import sys, json
 data = json.load(sys.stdin)
 branch = sys.argv[1]
 for pr in data.get("values", []):
     if pr["source"]["branch"]["name"] == branch:
-        print(json.dumps({"id": pr["id"], "title": pr["title"]}))
-        break
-' "$BRANCH"
-  ) || exit 1
-
-  if [ -n "$MATCH" ]; then
-    printf '%s\n' "$MATCH"
-    FOUND_PR=1
-    break
-  fi
+        print(json.dumps({"id": pr["id"], "title": pr["title"], "destination": pr["destination"]["branch"]["name"]}))
+' "$BRANCH" >>"$MATCH_FILE" || exit 1
 
   NEXT_URL=$(printf '%s' "$BODY" | python3 -c '
 import sys, json
@@ -419,7 +414,15 @@ PY
   fi
 done
 
-if [ "$FOUND_PR" -eq 0 ]; then
+MATCH_COUNT=$(wc -l <"$MATCH_FILE") || exit 1
+if [ "$MATCH_COUNT" -eq 1 ]; then
+  cat "$MATCH_FILE"
+  FOUND_PR=1
+elif [ "$MATCH_COUNT" -gt 1 ]; then
+  echo "Error: multiple open pull requests use source branch $BRANCH; select the pull request ID and destination branch explicitly:" >&2
+  cat "$MATCH_FILE" >&2
+  exit 1
+else
   echo "No open pull request found for branch: $BRANCH" >&2
 fi
 ```

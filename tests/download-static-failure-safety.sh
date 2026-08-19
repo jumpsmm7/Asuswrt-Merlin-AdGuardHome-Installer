@@ -26,6 +26,9 @@ sed -n '/^append_metadata() {$/,/^}$/p; /^acquire_metadata_publication_lock() {$
 
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
+for helper in append_metadata acquire_metadata_publication_lock calc_sum download_arch recover_archive_publication recover_metadata_publication reclaim_stale_metadata_publication_lock release_metadata_publication_lock archive_publication_owner_is_active refresh_unchanged_archive_checksums refresh_unchanged_archive_md5 acquire_archive_publication_state publish_archive_with_checksums publish_archive_with_md5 prune_stale_versioned_archives publish_metadata_files write_md5sum_file write_sha256sum_file; do
+	type "${helper}" >/dev/null 2>&1 || fail "static download helper extraction missing ${helper}"
+done
 
 FAILED=0
 # bad_sum prints an invalid checksum value for testing checksum validation.

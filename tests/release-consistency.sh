@@ -44,7 +44,7 @@ mkdir -p "${TMP_ROOT}/tools" || fail 'unable to create fixture directory'
 cp tools/check-release-consistency.sh "${TMP_ROOT}/tools/" || fail 'unable to copy release check'
 for artifact in installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome; do
 	cp "${artifact}" "${TMP_ROOT}/${artifact}" || fail "unable to copy ${artifact}"
-	refresh_manifests "${TMP_ROOT}/${artifact}"
+	refresh_manifests "${TMP_ROOT}/${artifact}" || fail "unable to refresh manifest for ${artifact}"
 done
 for directory in armv5 armv7 armv8; do
 	write_architecture_fixture "${directory}" || fail "unable to create ${directory} fixture"
@@ -95,44 +95,44 @@ write_architecture_fixture armv7 || fail 'unable to restore armv7 fixture'
 
 sed "s/AI_VERSION=\"${VERSION_PATTERN}\"/AI_VERSION=\"v9.9.9\"/" "${TMP_ROOT}/installer" >"${TMP_ROOT}/installer.tmp"
 mv "${TMP_ROOT}/installer.tmp" "${TMP_ROOT}/installer"
-refresh_manifests "${TMP_ROOT}/installer"
+refresh_manifests "${TMP_ROOT}/installer" || fail "unable to refresh installer manifest"
 if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null 2>&1; then
 	fail 'banner/version mismatch was accepted'
 fi
 cp installer "${TMP_ROOT}/installer"
-refresh_manifests "${TMP_ROOT}/installer"
+refresh_manifests "${TMP_ROOT}/installer" || fail "unable to refresh installer manifest"
 
 MALFORMED_VERSION="${CURRENT_VERSION%.*}..${CURRENT_VERSION##*.}"
 sed "s/${VERSION_PATTERN}/${MALFORMED_VERSION}/g" "${TMP_ROOT}/installer" >"${TMP_ROOT}/installer.tmp"
 mv "${TMP_ROOT}/installer.tmp" "${TMP_ROOT}/installer"
-refresh_manifests "${TMP_ROOT}/installer"
+refresh_manifests "${TMP_ROOT}/installer" || fail "unable to refresh installer manifest"
 if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null 2>&1; then
 	fail 'malformed dotted release version was accepted'
 fi
 STALE_VERSION="${CURRENT_VERSION%.*}.1"
 BOUNDARY_VERSION="${STALE_VERSION}0"
 sed "s/${VERSION_PATTERN}/${BOUNDARY_VERSION}/g" installer >"${TMP_ROOT}/installer"
-refresh_manifests "${TMP_ROOT}/installer"
+refresh_manifests "${TMP_ROOT}/installer" || fail "unable to refresh installer manifest"
 RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null ||
 	fail "${BOUNDARY_VERSION} was mistaken for the derived stale release identifier"
 cp installer "${TMP_ROOT}/installer"
-refresh_manifests "${TMP_ROOT}/installer"
+refresh_manifests "${TMP_ROOT}/installer" || fail "unable to refresh installer manifest"
 
 if [ "${STALE_VERSION}" != "${CURRENT_VERSION}" ]; then
 	printf '%s\n' "# stale release ${STALE_VERSION}" >>"${TMP_ROOT}/installer"
-	refresh_manifests "${TMP_ROOT}/installer"
+	refresh_manifests "${TMP_ROOT}/installer" || fail "unable to refresh installer manifest"
 	if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null 2>&1; then
 		fail "derived stale release ${STALE_VERSION} was accepted"
 	fi
 	cp installer "${TMP_ROOT}/installer"
-	refresh_manifests "${TMP_ROOT}/installer"
+	refresh_manifests "${TMP_ROOT}/installer" || fail "unable to refresh installer manifest"
 fi
 
 rm -f "${TMP_ROOT}/AdGuardHome.sh.sha256sum"
 if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null 2>&1; then
 	fail 'missing manifest was accepted'
 fi
-refresh_manifests "${TMP_ROOT}/AdGuardHome.sh"
+refresh_manifests "${TMP_ROOT}/AdGuardHome.sh" || fail "unable to refresh AdGuardHome.sh manifest"
 
 sed '3s/[0-9a-f][0-9a-f]*$/0000000000000000000000000000000000000000000000000000000000000000/' \
 	"${TMP_ROOT}/armv5/checksum.txt" >"${TMP_ROOT}/armv5/checksum.txt.tmp"

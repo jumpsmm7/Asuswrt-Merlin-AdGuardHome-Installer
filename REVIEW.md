@@ -63,7 +63,12 @@ Do not report naming, formatting, spelling, comment wording, or minor simplifica
 
 The primary runtime is POSIX `/bin/sh` using BusyBox `ash` on Asuswrt-Merlin routers.
 
-Assume:
+The installer preserves inherited PATH entries after the trusted router and
+Entware paths. Service scripts instead set the fixed stock-plus-Entware PATH
+shown below and do not inherit caller entries. In both cases stock paths remain
+first.
+
+Assume for service scripts:
 
 ```sh
 export LC_ALL=C
@@ -152,9 +157,9 @@ Commonly available BusyBox applets include:
 ash awk basename cat chmod chown cp crond crontab cut date dd df
 dirname dmesg du echo egrep env expr find grep gunzip gzip head
 hostname ifconfig kill killall ln logger logread ls md5sum mkdir
-mount mv nc netstat nohup nslookup pidof ping ping6 printf ps pwd
+mount mkfifo mv nc netstat nohup nslookup pidof ping ping6 printf ps pwd
 readlink reboot rm rmdir route sed sh sha256sum sleep sort stty
-sync tail tar tee test top touch tr true umount uname uniq unzip
+renice sync tail tar tee test top touch tr true umount uname uniq unzip
 uptime usleep vi watch wc which xargs zcat
 ```
 

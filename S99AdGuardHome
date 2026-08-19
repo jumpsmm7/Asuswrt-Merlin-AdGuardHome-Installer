@@ -1226,15 +1226,11 @@ release_dns_port_from_dnsmasq() {
 }
 
 dns_guard_wait_for_stop() {
-	if [ "${_dns_guard_wait_initialized:-0}" = "1" ]; then
-		while :; do
-			IFS= read -r _dns_guard_wait_line <&3
-		done
-	fi
-	# Fallback only if FIFO setup fails. Avoid a hot CPU loop.
-	while :; do
+	while dns_handoff_marker_matches_identity "${DNS_GUARD_OWNER_PID}" "${DNS_GUARD_OWNER_START_TIME}" &&
+		dns_handoff_marker_is_active; do
 		sleep 1s
 	done
+	agh_log WARNING dns_guard_wait_for_stop "DNS handoff owner disappeared; stopping the DNS port guard."
 }
 
 initialize_dns_guard_wait() {
@@ -1383,8 +1379,8 @@ start_dns_port_guard() {
 	# Do not acknowledge readiness until every state needed for safe signal and
 	# watchdog recovery exists and the parent's handoff identity is still active.
 	dns_handoff_marker_matches_identity "${DNS_GUARD_OWNER_PID}" "${DNS_GUARD_OWNER_START_TIME}" || return 1
-	# FIFO initialization is an optimization; the guard uses a bounded sleep
-	# when it is unavailable and must still publish readiness.
+	# FIFO initialization is optional; owner-identity polling governs the guard
+	# lifetime when it is unavailable and readiness must still be published.
 	initialize_dns_guard_wait || {
 		[ ! -e "${_dns_guard_wait_fifo}" ] && [ ! -L "${_dns_guard_wait_fifo}" ] || return 1
 	}
@@ -1450,7 +1446,7 @@ launch_dns_port_guard() {
 	start_dns_port_guard >/dev/null 2>&1 &
 	ADGUARDHOME_DNS_GUARD_PID="$!"
 	_dns_guard_ready_attempts=0
-	_dns_guard_ready_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_GUARD_READY_RETRIES:-}" 20)"
+	_dns_guard_ready_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_GUARD_READY_RETRIES:-}" 50)"
 	while [ "${_dns_guard_ready_attempts}" -lt "${_dns_guard_ready_limit}" ]; do
 		kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || break
 		if dns_guard_readiness_matches_identity &&
@@ -1664,6 +1660,10 @@ ensure_adguardhome_work_dir_permissions() {
 		logger -st "${PROCS}" "Missing AdGuardHome work directory ${WORK_DIR}."
 		return 1
 	fi
+	if [ ! -f "${WORK_DIR}/AdGuardHome" ] || [ -L "${WORK_DIR}/AdGuardHome" ]; then
+		logger -st "${PROCS}" "Missing or unsafe AdGuardHome binary ${WORK_DIR}/AdGuardHome."
+		return 1
+	fi
 	_agh_perm_http_username="$(adguardhome_owner_account)" || {
 		logger -st "${PROCS}" "Invalid or unresolvable router administrator account."
 		return 1
@@ -1723,6 +1723,10 @@ ensure_adguardhome_work_dir_permissions() {
 	done
 	if [ -f "${WORK_DIR}/AdGuardHome" ] && ! chmod 755 "${WORK_DIR}/AdGuardHome"; then
 		logger -st "${PROCS}" "Unable to set executable permissions on ${WORK_DIR}/AdGuardHome."
+		return 1
+	fi
+	if [ ! -x "${WORK_DIR}/AdGuardHome" ]; then
+		logger -st "${PROCS}" "AdGuardHome binary is not executable: ${WORK_DIR}/AdGuardHome."
 		return 1
 	fi
 	return 0

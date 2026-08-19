@@ -6,7 +6,10 @@ set -u
 S99_PATH="${1:-S99AdGuardHome}"
 RC_PATH="${2:-rc.func.AdGuardHome}"
 MANAGER_PATH="${3:-AdGuardHome.sh}"
-TEST_ROOT="${TMPDIR:-/tmp}/adguardhome-dns-handoff.$$"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/adguardhome-dns-handoff.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive test directory' >&2
+	exit 1
+}
 S99_FUNCTIONS="${TEST_ROOT}/s99-functions"
 RC_FUNCTION="${TEST_ROOT}/rc-start-function"
 CALLS_FILE="${TEST_ROOT}/calls"
@@ -38,7 +41,6 @@ wait_for_file() {
 
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
-mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 printf '%s\n' '#!/bin/sh' '[ "$1" = "100000" ] || exit 1' 'sleep 0.1' >"${TEST_ROOT}/usleep" ||
 	fail 'could not create usleep test shim'
 chmod 755 "${TEST_ROOT}/usleep" || fail 'could not chmod usleep test shim'
@@ -80,6 +82,10 @@ if sed -n '/^launch_dns_port_guard() {$/,/^}$/p' "${S99_PATH}" | grep -q 'sleep 
 fi
 [ "$(sed -n '/^launch_dns_port_guard() {$/,/^}$/p' "${S99_PATH}" | grep -c 'kill -0 "${ADGUARDHOME_DNS_GUARD_PID}"')" -eq 2 ] ||
 	fail 'DNS guard readiness acceptance does not recheck guard liveness'
+sed -n '/^dns_guard_wait_for_stop() {$/,/^}$/p' "${S99_PATH}" | grep -q 'dns_handoff_marker_matches_identity' ||
+	fail 'DNS guard wait does not periodically verify the expected handoff identity'
+sed -n '/^dns_guard_wait_for_stop() {$/,/^}$/p' "${S99_PATH}" | grep -q 'dns_handoff_marker_is_active' ||
+	fail 'DNS guard wait does not periodically verify owner process identity'
 
 WATCHD_NICE_SNAPSHOT=""
 
@@ -882,11 +888,24 @@ prepare_dns_handoff_marker || fail 'could not prepare the direct guard handoff i
 launch_dns_port_guard || fail 'DNS guard did not publish readiness'
 command sleep 0.01
 command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || fail 'DNS guard exited before AdGuardHome owned DNS'
-stop_dns_port_guard
+_orphan_guard_pid="${ADGUARDHOME_DNS_GUARD_PID}"
+_orphan_ready_dir="${DNS_GUARD_READY_DIR}"
+rm -f "${DNS_HANDOFF_FILE}" || fail 'could not remove the direct guard handoff marker'
+_orphan_wait_attempts=0
+while command kill -0 "${_orphan_guard_pid}" 2>/dev/null && [ "${_orphan_wait_attempts}" -lt 100 ]; do
+	_orphan_wait_attempts="$((_orphan_wait_attempts + 1))"
+	command sleep 0.01
+done
+wait "${_orphan_guard_pid}" 2>/dev/null || fail 'orphaned DNS guard cleanup failed'
+! command kill -0 "${_orphan_guard_pid}" 2>/dev/null || fail 'DNS guard remained after its handoff owner disappeared'
+[ ! -e "${_orphan_ready_dir}" ] && [ ! -L "${_orphan_ready_dir}" ] ||
+	fail 'orphaned DNS guard left its readiness workspace behind'
+unset ADGUARDHOME_DNS_GUARD_PID
 ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'DNS guard stopped dnsmasq after port 53 was free'
+prepare_dns_handoff_marker || fail 'could not restore the direct guard handoff identity'
 
 # Exercise both FIFO failure paths through the production launcher. Readiness
-# must still be published and the guard must remain in its bounded-sleep wait.
+# must still be published and the guard must remain in its owner-verified wait.
 mkfifo() {
 	case "${DNS_GUARD_FIFO_TEST_MODE:-}" in
 		fail)
@@ -909,9 +928,9 @@ _failed_guard_pid="${ADGUARDHOME_DNS_GUARD_PID}"
 _failed_guard_start_time="$(dns_handoff_process_start_time "${_failed_guard_pid}")" ||
 	fail 'unable to record the FIFO fallback guard identity'
 wait_for_file "${DNS_GUARD_FIFO_FALLBACK_MARKER}" ||
-	fail 'DNS guard did not enter the FIFO bounded-sleep fallback'
+	fail 'DNS guard did not enter the FIFO owner-verified fallback'
 command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null ||
-	fail "DNS guard exited instead of using the ${DNS_GUARD_FIFO_TEST_MODE} FIFO bounded-sleep fallback"
+	fail "DNS guard exited instead of using the ${DNS_GUARD_FIFO_TEST_MODE} FIFO owner-verified fallback"
 [ "$(dns_handoff_process_start_time "${_failed_guard_pid}" 2>/dev/null)" = "${_failed_guard_start_time}" ] ||
 	fail 'FIFO fallback guard identity changed before cleanup'
 _failed_ready_dir="${DNS_GUARD_READY_DIR}"

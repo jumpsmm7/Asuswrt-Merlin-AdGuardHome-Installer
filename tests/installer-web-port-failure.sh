@@ -644,6 +644,7 @@ rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
 printf '%s\n' 'working configuration' >"${YAML_FILE}"
 printf '%s\n' 'original configuration' >"${YAML_ORI}"
 printf '%s\n' 'ADGUARD_IPSET="OLD"' >"${CONF_FILE}"
+SAVED_ADGUARD_INSTALL_MODE="${ADGUARD_INSTALL_MODE:-}"
 ADGUARD_INSTALL_MODE=lan
 IPSET_SAW_SETUP_JOURNAL=0
 SETUP_FILES_BEGIN_COUNT=0
@@ -664,5 +665,7 @@ fi
 [ "${SETUP_FILES_RESTORE_COUNT}" -eq 1 ] || fail 'LAN runtime-default failure did not restore the setup-file journal'
 [ "$(cat "${CONF_FILE}")" = 'ADGUARD_IPSET="OLD"' ] || fail 'LAN runtime-default failure retained the reconfigured IPSET preference'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'LAN runtime-default failure retained the restored setup-file journal'
+ADGUARD_INSTALL_MODE="${SAVED_ADGUARD_INSTALL_MODE}"
+eval "${RUNTIME_DEFAULT_FUNCTIONS}"
 
 printf '%s\n' 'PASS: failed WebUI port verification or persistence aborts setup safely'

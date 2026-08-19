@@ -167,14 +167,17 @@ for checksum_case in upstream_sha_only unchanged_sha sha_preferred sha_unavailab
 		PAYLOAD_SHA256="$(sha256sum "${TMP_DIR}/payload" | awk '{print $1}')"
 		PAYLOAD_MD5="$(md5sum "${TMP_DIR}/payload" | awk '{print $1}')"
 		# ai_have_cmd reports whether the specified command is available for the test scenario.
-		ai_have_cmd() { [ "$1" = md5sum ]; }
+		ai_have_cmd() {
+			[ "$1" = md5sum ] && return 0
+			[ "$1" = sha256sum ] && [ "${checksum_case}" != sha_unavailable ]
+		}
 		# http_get_file simulates downloading checksum metadata or a payload for checksum verification tests.
 		http_get_file() {
 			case "$1" in
 				*.sha256sum)
 					sha256_requests="$((sha256_requests + 1))"
 					case "${checksum_case}" in
-						sha_unavailable | missing_md5 | empty_md5 | malformed_md5 | md5_mismatch | md5_hash_failure) return 1 ;;
+						missing_md5 | empty_md5 | malformed_md5 | md5_mismatch | md5_hash_failure) return 1 ;;
 						empty) : >"$2" ;;
 						malformed) printf '%s\n' invalid >"$2" ;;
 						mismatch) printf '%064d\n' 0 >"$2" ;;
@@ -205,6 +208,7 @@ for checksum_case in upstream_sha_only unchanged_sha sha_preferred sha_unavailab
 		# file_sha256 computes and prints the payload's SHA-256 digest, failing when hash calculation is unavailable.
 		file_sha256() {
 			[ "${checksum_case}" != hash_failure ] || return 1
+			ai_have_cmd sha256sum || return 1
 			printf '%s' "${PAYLOAD_SHA256}"
 		}
 		if [ "${checksum_case}" = md5_hash_failure ]; then

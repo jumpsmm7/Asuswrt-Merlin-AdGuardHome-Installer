@@ -4,7 +4,10 @@
 set -u
 
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
-TMP_ROOT="${TMPDIR:-/tmp}/adguardhome-lan-bind-refresh.$$"
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/adguardhome-lan-bind-refresh.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive test directory' >&2
+	exit 1
+}
 FUNCTION_FILE="${TMP_ROOT}/functions"
 YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 CALLS_FILE="${TMP_ROOT}/calls"
@@ -24,9 +27,11 @@ fail() {
 
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
-mkdir -p "${TMP_ROOT}" "${BIN_DIR}" || fail 'could not create test directory'
+mkdir "${BIN_DIR}" || fail 'could not create test bin directory'
 sed -n '/^ipv4_is_usable_unicast() {$/,/^}$/p; /^private_ipv4_bridge_dns_options() {$/,/^}$/p; /^adguard_refresh_lan_bind_addresses() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail 'could not extract refresh helper'
 [ -s "${FUNCTION_FILE}" ] || fail 'refresh helper was not found'
+grep -q 'rm -f "${TEMP_FILE}" "${REWRITE_FILE}"' "${FUNCTION_FILE}" || fail 'refresh signal cleanup does not remove both staged files'
+grep -q '\[ -n "${SAVED_TRAPS}" \] && eval "${SAVED_TRAPS}"' "${FUNCTION_FILE}" || fail 'refresh helper does not restore saved signal traps'
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
@@ -71,7 +76,8 @@ ip() {
 			'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1' \
 			'5: br1    inet 192.168.102.254/24 brd 192.168.102.255 scope global secondary br1' \
 			'5: br1    inet 192.168.103.254/24 brd 192.168.103.255 scope global secondary br1' \
-			'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1'
+			'5: br1    inet 192.168.101.254/24 brd 192.168.101.255 scope global br1' \
+			'6: br-public    inet 198.51.100.1/24 brd 198.51.100.255 scope global br-public'
 	fi
 }
 # interface_ipv4_addr prints the IPv4 address assigned to the LAN interface.

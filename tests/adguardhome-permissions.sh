@@ -89,6 +89,7 @@ extract_permission_functions "${REPO_DIR}/installer" "${INSTALLER_FUNCTIONS}" \
 	'adguardhome_yaml_ipset_file() {' 'create_backup_archive() {' || fail 'could not extract installer permission helpers'
 sed -n '/^adguardhome_owner_account() {$/,/^}/p' "${REPO_DIR}/installer" >>"${INSTALLER_FUNCTIONS}" ||
 	fail 'could not extract installer account helper'
+grep -q '^adguardhome_owner_account() {$' "${INSTALLER_FUNCTIONS}" || fail 'installer account helper extraction was empty'
 extract_permission_functions "${REPO_DIR}/S99AdGuardHome" "${S99_FUNCTIONS}" \
 	'adguardhome_yaml_ipset_file() {' 'pre_start_adguardhome() {' || fail 'could not extract S99 permission helpers'
 for _functions_file in "${INSTALLER_FUNCTIONS}" "${S99_FUNCTIONS}"; do
@@ -222,6 +223,18 @@ dns:
 EOS
 	ensure_adguardhome_work_dir_permissions >/dev/null || fail 'S99 permission helper failed with parent-traversing absolute IPSET file'
 	assert_mode "${TMP_DIR}/s99/external-ipset.conf" '-rw-------'
+
+	rm -f "${WORK_DIR}/AdGuardHome" || exit 1
+	if ensure_adguardhome_work_dir_permissions >/dev/null; then
+		fail 'S99 permission helper accepted a missing AdGuardHome binary'
+	fi
+	printf '%s\n' '#!/bin/sh' >"${TMP_DIR}/foreign-AdGuardHome" || exit 1
+	chmod 600 "${TMP_DIR}/foreign-AdGuardHome" || exit 1
+	ln -s "${TMP_DIR}/foreign-AdGuardHome" "${WORK_DIR}/AdGuardHome" || exit 1
+	if ensure_adguardhome_work_dir_permissions >/dev/null; then
+		fail 'S99 permission helper accepted a symbolic-link AdGuardHome binary'
+	fi
+	assert_mode "${TMP_DIR}/foreign-AdGuardHome" '-rw-------'
 ) || exit 1
 
 awk '
