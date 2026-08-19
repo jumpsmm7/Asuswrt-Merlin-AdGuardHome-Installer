@@ -1226,8 +1226,14 @@ release_dns_port_from_dnsmasq() {
 }
 
 dns_guard_wait_for_stop() {
+	_dns_guard_wait_attempts=0
 	while dns_handoff_marker_matches_identity "${DNS_GUARD_OWNER_PID}" "${DNS_GUARD_OWNER_START_TIME}" &&
 		dns_handoff_marker_is_active; do
+		_dns_guard_wait_attempts="$((_dns_guard_wait_attempts + 1))"
+		[ "${_dns_guard_wait_attempts}" -lt 300 ] || {
+			agh_log ERROR dns_guard_wait_for_stop "DNS handoff owner did not disappear after ${_dns_guard_wait_attempts} seconds; stopping the DNS port guard."
+			exit 0
+		}
 		sleep 1s
 	done
 	agh_log WARNING dns_guard_wait_for_stop "DNS handoff owner disappeared; stopping the DNS port guard."

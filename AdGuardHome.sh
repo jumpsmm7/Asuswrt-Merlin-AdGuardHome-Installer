@@ -1938,7 +1938,10 @@ proc_lock_run() {
 			if [ "${has_usleep}" -eq 1 ]; then usleep 100000; else sleep 1; fi
 		done
 		trap 'proc_lock_mkdir_cleanup; exit 1' HUP INT QUIT ABRT TERM TSTP
-		current_start="$(proc_process_start_time "$$")" || exit 1
+		current_start="$(proc_process_start_time "$$")" || {
+			proc_lock_mkdir_cleanup
+			exit 1
+		}
 		printf '%s %s\n' "$$" "${current_start}" >"${PROC_LOCK_DIR}/pid" || {
 			rm -f "${PROC_LOCK_DIR}/pid"
 			rmdir "${PROC_LOCK_DIR}" 2>/dev/null

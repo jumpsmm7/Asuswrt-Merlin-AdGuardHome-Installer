@@ -896,6 +896,9 @@ while command kill -0 "${_orphan_guard_pid}" 2>/dev/null && [ "${_orphan_wait_at
 	_orphan_wait_attempts="$((_orphan_wait_attempts + 1))"
 	command sleep 0.01
 done
+if command kill -0 "${_orphan_guard_pid}" 2>/dev/null; then
+	fail 'orphaned DNS guard still alive after polling deadline'
+fi
 wait "${_orphan_guard_pid}" 2>/dev/null || fail 'orphaned DNS guard cleanup failed'
 ! command kill -0 "${_orphan_guard_pid}" 2>/dev/null || fail 'DNS guard remained after its handoff owner disappeared'
 [ ! -e "${_orphan_ready_dir}" ] && [ ! -L "${_orphan_ready_dir}" ] ||
