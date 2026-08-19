@@ -98,7 +98,7 @@ jobs:
 
           while IFS= read -r script; do
             echo "shellcheck -s sh: ${script}"
-            shellcheck -s sh --severity=warning "${script}"
+            /usr/bin/timeout --kill-after=10 60 shellcheck -s sh --severity=warning "${script}"
           done < "${scripts_file}"
 
   checksums:
