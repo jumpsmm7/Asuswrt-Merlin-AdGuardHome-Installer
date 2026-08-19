@@ -223,7 +223,7 @@ download_one() {
 	_sha256=""
 
 	printf '%s\n' "Downloading ${_version_url}"
-	_version_response="$(curl -fsL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 120 "${_version_url}")" || {
+	_version_response="$(curl -fsL --proto '=https' --proto-redir '=https' --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 120 "${_version_url}")" || {
 		printf '%s\n' "Error: failed to download ${_version_url}" >&2
 		FAILED=1
 		return 1
@@ -247,7 +247,7 @@ download_one() {
 	esac
 	printf '%s\n' "Downloading ${_url} -> ${_dest_file}"
 	ACTIVE_DOWNLOAD_TMP="${_tmp_file}"
-	if ! curl -fL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 -o "${_tmp_file}" "${_url}"; then
+	if ! curl -fL --proto '=https' --proto-redir '=https' --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 -o "${_tmp_file}" "${_url}"; then
 		cleanup_download_tmp
 		printf '%s\n' "Error: failed to download ${_url}" >&2
 		FAILED=1
