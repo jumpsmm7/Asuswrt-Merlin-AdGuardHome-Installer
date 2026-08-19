@@ -49,16 +49,30 @@ for lock_mode in flock symlink mkdir; do
 			;;
 	esac
 	(
-		nvram_transaction_lock_acquire || fail "could not acquire ${lock_mode} transaction lock"
-		[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = "${lock_mode}" ] || fail "did not acquire ${lock_mode} transaction lock"
-		LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail "could not determine ${lock_mode} transaction lock identity"
-		export LOCK_OWNER
-		TARG_DIR="${TEST_ROOT}/${lock_mode}"
-		BRANCH=testing
-		mkdir -p "${TARG_DIR}" || fail "could not create ${lock_mode} re-exec target"
-		mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" || fail "could not create ${lock_mode} live DNS snapshot"
-		: >"${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" || fail "could not mark ${lock_mode} DNS snapshot dirty"
-		cat >"${TARG_DIR}/installer" <<EOF_TARGET
+		case "${lock_mode}" in
+			flock)
+				[ -x /usr/bin/flock ] || continue
+				;;
+			symlink) # nvram_transaction_lock_flock_supports_fd determines whether file-descriptor-based flock locking is available.
+				nvram_transaction_lock_flock_supports_fd() { return 1; } ;;
+			mkdir)
+				# nvram_transaction_lock_flock_supports_fd determines whether file-descriptor-based flock locking is available.
+				nvram_transaction_lock_flock_supports_fd() { return 1; }
+				# nvram_transaction_lock_symlink_acquire reports that symlink lock acquisition is unavailable.
+				nvram_transaction_lock_symlink_acquire() { return 2; }
+				;;
+		esac
+		(
+			nvram_transaction_lock_acquire || fail "could not acquire ${lock_mode} transaction lock"
+			[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = "${lock_mode}" ] || fail "did not acquire ${lock_mode} transaction lock"
+			LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail "could not determine ${lock_mode} transaction lock identity"
+			export LOCK_OWNER
+			TARG_DIR="${TEST_ROOT}/${lock_mode}"
+			BRANCH=testing
+			mkdir -p "${TARG_DIR}" || fail "could not create ${lock_mode} re-exec target"
+			mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" || fail "could not create ${lock_mode} live DNS snapshot"
+			: >"${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" || fail "could not mark ${lock_mode} DNS snapshot dirty"
+			cat >"${TARG_DIR}/installer" <<EOF_TARGET
 #!/bin/sh
 [ "\${AI_REEXECED_INSTALLER:-}" = "1" ] || exit 1
 [ "\${NVRAM_TRANSACTION_LOCK_MODE:-}" = "${lock_mode}" ] || exit 1
@@ -77,14 +91,14 @@ case "${lock_mode}" in
 esac
 printf '%s\n' preserved >"${TEST_ROOT}/${lock_mode}.result"
 EOF_TARGET
-		chmod 755 "${TARG_DIR}/installer" || fail "could not make ${lock_mode} re-exec target executable"
-		installer_update_reexec update old
-		exit 1
-	) || fail "installer re-exec did not preserve ${lock_mode} transaction lock"
-	[ "$(cat "${TEST_ROOT}/${lock_mode}.result" 2>/dev/null)" = preserved ] || fail "${lock_mode} re-exec target did not run"
-	rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
-	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
-	rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
+			chmod 755 "${TARG_DIR}/installer" || fail "could not make ${lock_mode} re-exec target executable"
+			installer_update_reexec update old
+			exit 1
+		) || fail "installer re-exec did not preserve ${lock_mode} transaction lock"
+		[ "$(cat "${TEST_ROOT}/${lock_mode}.result" 2>/dev/null)" = preserved ] || fail "${lock_mode} re-exec target did not run"
+		rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
+		rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
+		rm -rf "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
 	) || fail "${lock_mode} lock-mode iteration failed"
 done
 

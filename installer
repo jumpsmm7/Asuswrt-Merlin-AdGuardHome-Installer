@@ -837,8 +837,8 @@ nvram_transaction_lock_reaper_acquire() {
 			# entire reclaim, so after revalidating the stale owner it is safe to
 			# unlink the marker and rename the temporary symlink into the absent path.
 			if { [ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${reaper_owner}" ] &&
-					rm -f "${reaper_path}.symlink" &&
-					mv "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" "${reaper_path}.symlink" 2>/dev/null; }; then
+				rm -f "${reaper_path}.symlink" &&
+				mv "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" "${reaper_path}.symlink" 2>/dev/null; }; then
 				# Verify we won the race by checking the symlink target
 				if [ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${owner}" ]; then
 					NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
