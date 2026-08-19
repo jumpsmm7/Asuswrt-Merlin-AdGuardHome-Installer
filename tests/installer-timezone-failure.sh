@@ -77,9 +77,9 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	# download_file downloads a file.
 	download_file() { return 0; }
 	# md5_is_valid determines whether an MD5 checksum is valid.
-md5_is_valid() { return 1; }
+	md5_is_valid() { return 1; }
 	# sha256_is_valid reports that the SHA-256 checksum is invalid.
-sha256_is_valid() { return 1; }
+	sha256_is_valid() { return 1; }
 	agh_process_count() { printf '%s\n' '0'; }
 	install_adguard_archive() { return 0; }
 	create_dir() { mkdir -p "$1"; }
