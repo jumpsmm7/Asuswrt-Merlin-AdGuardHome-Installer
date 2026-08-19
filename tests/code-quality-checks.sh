@@ -231,6 +231,38 @@ RUN_LIST_RC=$?
 [ "${RUN_LIST_RC}" -eq 0 ] || fail 'run_script_list_check: expected success when every item passes'
 [ "${FAILED}" -eq 0 ] || fail 'run_script_list_check: FAILED was set even though every item passed'
 
+# When a runtime limit is configured, every per-script command must be routed
+# through run_test_command so ShellCheck/shfmt cannot bypass the timeout policy.
+TIMEOUT_RECORD_FILE="${TMP_ROOT}/timeout-record.log"
+MOCK_TIMEOUT="${TMP_ROOT}/timeout"
+cat >"${MOCK_TIMEOUT}" <<'EOF_TIMEOUT'
+#!/bin/sh
+printf '%s\n' "$*" >>"${TIMEOUT_RECORD_FILE}"
+[ "$1" = '--kill-after=10' ] || exit 97
+shift
+[ "$#" -gt 0 ] || exit 97
+shift
+"$@"
+EOF_TIMEOUT
+chmod +x "${MOCK_TIMEOUT}" || fail 'run_script_list_check: could not make timeout recorder executable'
+export TIMEOUT_RECORD_FILE
+TEST_MAX_RUNTIME_SECONDS=37
+GNU_TIMEOUT="${MOCK_TIMEOUT}"
+: >"${TIMEOUT_RECORD_FILE}"
+FAILED=0
+run_script_list_check 'bounded items pass' true
+RUN_LIST_RC=$?
+[ "${RUN_LIST_RC}" -eq 0 ] || fail 'run_script_list_check: bounded per-item command unexpectedly failed'
+[ "${FAILED}" -eq 0 ] || fail 'run_script_list_check: bounded per-item command set FAILED'
+[ "$(wc -l <"${TIMEOUT_RECORD_FILE}")" -eq 2 ] || fail 'run_script_list_check: timeout wrapper did not run once per non-blank list entry'
+grep -Fq -- "--kill-after=10 37 true ${LIST_ITEM_A}" "${TIMEOUT_RECORD_FILE}" ||
+	fail 'run_script_list_check: first list item did not use the configured timeout wrapper'
+grep -Fq -- "--kill-after=10 37 true ${LIST_ITEM_B}" "${TIMEOUT_RECORD_FILE}" ||
+	fail 'run_script_list_check: second list item did not use the configured timeout wrapper'
+TEST_MAX_RUNTIME_SECONDS=0
+GNU_TIMEOUT=/usr/bin/timeout
+unset TIMEOUT_RECORD_FILE
+
 # A per-item command that records how it was invoked, so we can confirm every
 # non-blank line in the list was actually visited (blank lines skipped, no
 # short-circuiting on the first failure).
