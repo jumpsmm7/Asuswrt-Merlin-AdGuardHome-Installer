@@ -24,6 +24,7 @@ Review scope:
 Useful local checks:
 - `tools/code-quality.sh`
 - `tools/check-md5.sh`
+- `tools/check-sha256.sh`
 - `tools/list-shell-scripts.sh | xargs shellcheck -s sh --severity=warning`
 - `tools/list-shell-scripts.sh | xargs shfmt -d -ln mksh -i 0 -ci`
 
