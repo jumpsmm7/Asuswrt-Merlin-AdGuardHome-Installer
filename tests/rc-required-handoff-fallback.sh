@@ -292,7 +292,7 @@ rm -f "${_snapshot_boundary_ready}"
 			_umask_restore_calls="$((_umask_restore_calls + 1))"
 			if [ "${_umask_restore_calls}" -eq 1 ]; then
 				: >"${_snapshot_boundary_ready}"
-				sleep 1
+				sleep 2
 			fi
 		fi
 		command umask "$@"

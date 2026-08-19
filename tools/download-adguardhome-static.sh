@@ -147,7 +147,6 @@ calc_sum() {
 	printf '%s\n' "${_sum_value}"
 }
 
-# download_arch downloads releases for an architecture, publishes channel metadata, and removes obsolete archives.
 # download_arch downloads stable, beta, and edge archives for an architecture and publishes their metadata in the corresponding output directory.
 download_arch() {
 	_folder="$1"

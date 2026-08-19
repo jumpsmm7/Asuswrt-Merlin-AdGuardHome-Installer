@@ -36,12 +36,14 @@ TEST_MAX_RUNTIME_SECONDS=0
 GNU_TIMEOUT="/usr/bin/timeout"
 
 # Only the documented coreutils path may enable the GNU-specific option; a
-# which simulates discovery of an unapproved timeout provider for testing.
-which() { printf '%s\n' "${TMP_ROOT}/unapproved-timeout"; }
+# non-approved timeout provider must be rejected by configure_test_timeout.
+GNU_TIMEOUT="${TMP_ROOT}/unapproved-timeout"
 TEST_MAX_RUNTIME_SECONDS=180
-configure_test_timeout || fail 'GNU coreutils timeout provider was rejected'
+configure_test_timeout && fail 'unapproved timeout provider was accepted'
+GNU_TIMEOUT="/usr/bin/timeout"
+TEST_MAX_RUNTIME_SECONDS=180
+configure_test_timeout || fail 'approved GNU timeout path was rejected'
 [ "${GNU_TIMEOUT}" = /usr/bin/timeout ] || fail 'approved GNU timeout path was not retained'
-unset -f which 2>/dev/null || unset which 2>/dev/null || true
 
 # A bounded privileged regression must launch timeout as root so it can signal
 # every root-owned descendant, while an unbounded local run invokes the test
