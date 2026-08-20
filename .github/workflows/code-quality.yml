@@ -138,7 +138,7 @@ jobs:
           sh tests/s99-usleep-fallback.sh
           sh tests/dnsmasq-adaptive-readiness.sh
           sh tests/stop-adguardhome-failure.sh
-          sh tests/dns-startup-handoff.sh
+          sudo -n sh tests/dns-startup-handoff.sh
           sh tools/check-md5.sh
           sh tools/check-sha256.sh
           sh tools/check-release-consistency.sh
