@@ -10,7 +10,7 @@ permissions:
 jobs:
   apply:
     name: Apply verified final fixes
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'v2.6.5'
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'v2.6.5' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -70,17 +70,23 @@ jobs:
           sh tools/check-md5.sh AdGuardHome.sh rc.func.AdGuardHome
           sh tools/check-sha256.sh AdGuardHome.sh rc.func.AdGuardHome
 
-      - name: Commit verified fixes
+      - name: Commit verified non-workflow fixes
         env:
           TARGET_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           set -eu
+          git restore --source=HEAD -- \
+            .github/workflows/apply-final-merge-readiness.yml \
+            .github/workflows/code-quality-review.yml \
+            .github/workflows/code-quality.yml \
+            .github/workflows/osv-scanner.yml \
+            .github/workflows/shell-validation.yml
           if git diff --quiet && git diff --cached --quiet; then
-            echo 'No final merge-readiness changes were required.'
+            echo 'No non-workflow final merge-readiness changes were required.'
             exit 0
           fi
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
-          git commit -m 'fix: close final merge-readiness gaps'
+          git commit -m 'fix: close final runtime merge-readiness gaps'
           git push origin "HEAD:${TARGET_BRANCH}"
