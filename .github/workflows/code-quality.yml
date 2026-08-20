@@ -42,6 +42,9 @@ jobs:
       - name: Lint GitHub Actions workflows
         run: actionlint -shellcheck= -pyflakes=
 
+      - name: Run merge-readiness analysis config regression
+        run: sh tests/merge-readiness-analysis-config.sh
+
       - name: Run code quality checks
         # GNU timeout is CI-only; router production scripts remain independent of it.
         env:
