@@ -9,14 +9,20 @@ RELEASE_ROOT="${RELEASE_ROOT:-$(CDPATH= cd "$(dirname "$0")/.." && pwd)}"
 
 # fail reports an error message and marks release validation as failed.
 fail() {
-	printf '%s\n' "Error: $1" >&2
+	local _message
+	_message="$1"
+	printf '%s\n' "Error: ${_message}" >&2
 	FAILED=1
+	return 0
 }
 
 # manifest_value parses a checksum manifest and outputs its single nonempty field-only value.
 manifest_value() {
+	local _manifest
+	_manifest="$1"
 	awk 'NF { value = $1; count++; if (NF != 1) invalid = 1 }
-		END { if (count != 1 || invalid) exit 1; print value }' "$1"
+		END { if (count != 1 || invalid) exit 1; print value }' "${_manifest}"
+	return $?
 }
 
 # verify_artifact validates an artifact's checksum manifests, optional architecture metadata, and stale checksum detection against the release base.
@@ -97,6 +103,7 @@ verify_architecture_metadata() {
 	while read -r _file _channel _version _md5 _sha256 _extra; do
 		case "${_file}" in
 			'' | \#*) continue ;;
+			*) : ;;
 		esac
 		if [ -n "${_extra:-}" ]; then
 			fail "malformed channel manifest entry in ${_channel_file}: ${_file}"
@@ -130,6 +137,7 @@ verify_architecture_metadata() {
 				fail "duplicate ${_channel} channel in ${_channel_file}"
 				continue
 				;;
+			*) : ;;
 		esac
 		_seen_channels="${_seen_channels}${_seen_channels:+ }${_channel}"
 		case "${_version}" in
@@ -162,6 +170,7 @@ verify_architecture_metadata() {
 					fail "edge channel version differs in ${_channel_file}: expected ${EXPECTED_EDGE_VERSION}, actual ${_version}"
 				fi
 				;;
+			*) : ;;
 		esac
 		case "${_md5}" in
 			????????????????????????????????) ;;
@@ -170,10 +179,12 @@ verify_architecture_metadata() {
 				continue
 				;;
 		esac
-		case "${_md5}" in *[!0123456789abcdefABCDEF]*)
-			fail "invalid MD5 in ${_channel_file} for ${_file}"
-			continue
-			;;
+		case "${_md5}" in
+			*[!0123456789abcdefABCDEF]*)
+				fail "invalid MD5 in ${_channel_file} for ${_file}"
+				continue
+				;;
+			*) : ;;
 		esac
 		case "${_sha256}" in
 			????????????????????????????????????????????????????????????????) ;;
@@ -182,10 +193,12 @@ verify_architecture_metadata() {
 				continue
 				;;
 		esac
-		case "${_sha256}" in *[!0123456789abcdefABCDEF]*)
-			fail "invalid SHA-256 in ${_channel_file} for ${_file}"
-			continue
-			;;
+		case "${_sha256}" in
+			*[!0123456789abcdefABCDEF]*)
+				fail "invalid SHA-256 in ${_channel_file} for ${_file}"
+				continue
+				;;
+			*) : ;;
 		esac
 
 		_artifact="${_directory}/${_file}"
@@ -227,10 +240,9 @@ if [ "${STALE_RELEASE_VERSION}" != "${AI_VERSION}" ] && grep -q "${STALE_RELEASE
 fi
 
 RELEASE_BASE_RESOLVED=""
-if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-	if git rev-parse --verify "${RELEASE_BASE:-HEAD^}" >/dev/null 2>&1; then
-		RELEASE_BASE_RESOLVED="$(git rev-parse --verify "${RELEASE_BASE:-HEAD^}")"
-	fi
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
+	git rev-parse --verify "${RELEASE_BASE:-HEAD^}" >/dev/null 2>&1; then
+	RELEASE_BASE_RESOLVED="$(git rev-parse --verify "${RELEASE_BASE:-HEAD^}")"
 fi
 
 set -- installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome

@@ -28,13 +28,14 @@ qodo_url_authority_valid() {
 
 # config_mode returns the permission mode of the specified file or directory, or fails if it cannot be read.
 config_mode() {
-	local mode
-	if mode=$(stat -c '%a' "$1" 2>/dev/null); then
+	local config_path mode
+	config_path="$1"
+	if mode=$(stat -c '%a' "${config_path}" 2>/dev/null); then
 		printf '%s\n' "${mode}"
-	elif mode=$(stat -f '%Lp' "$1" 2>/dev/null); then
+	elif mode=$(stat -f '%Lp' "${config_path}" 2>/dev/null); then
 		printf '%s\n' "${mode}"
 	else
-		printf '%s\n' "Error: unable to read permission mode for $1" >&2
+		printf '%s\n' "Error: unable to read permission mode for ${config_path}" >&2
 		return 1
 	fi
 }
@@ -63,15 +64,13 @@ if [ -f "${CONFIG_FILE}" ] && { [ "${CONFIG_REQUIRED}" -eq 1 ] || [ -z "${QODO_E
 		fi
 	fi
 
-	if [ "${CONFIG_USABLE}" -eq 1 ]; then
-		# Require jq for robust JSON parsing
-		if ! which jq >/dev/null 2>&1; then
-			if [ "${CONFIG_REQUIRED}" -eq 1 ]; then
-				printf '%s\n' "Error: jq is required to parse ${CONFIG_FILE}. Install jq or use environment variables (QODO_API_KEY, QODO_ENVIRONMENT_NAME, QODO_API_URL)." >&2
-				exit 1
-			fi
-			CONFIG_USABLE=0
+	# Require jq for robust JSON parsing.
+	if [ "${CONFIG_USABLE}" -eq 1 ] && ! which jq >/dev/null 2>&1; then
+		if [ "${CONFIG_REQUIRED}" -eq 1 ]; then
+			printf '%s\n' "Error: jq is required to parse ${CONFIG_FILE}. Install jq or use environment variables (QODO_API_KEY, QODO_ENVIRONMENT_NAME, QODO_API_URL)." >&2
+			exit 1
 		fi
+		CONFIG_USABLE=0
 	fi
 
 	if [ "${CONFIG_USABLE}" -eq 1 ]; then
@@ -126,6 +125,7 @@ if [ -n "${CONFIG_QODO_API_URL}" ] && [ "${CONFIG_QODO_API_URL}" != "${INVALID_Q
 	else
 		case "${CONFIG_QODO_API_URL}" in
 			*\?* | *\#*) CONFIG_QODO_API_URL="${INVALID_QODO_API_URL}" ;;
+			*) : ;;
 		esac
 	fi
 fi
@@ -191,6 +191,7 @@ if [ -n "${QODO_API_URL}" ]; then
 			printf '%s\n' 'Invalid QODO_API_URL: must not contain query string or fragment' >&2
 			exit 1
 			;;
+		*) : ;;
 	esac
 	# Remove trailing slash to prevent double slashes before /rules/v1
 	# Normalize the optional /rules/v1 suffix to avoid appending it twice.
@@ -208,6 +209,7 @@ else
 			printf '%s\n' 'Invalid ENVIRONMENT_NAME: must contain only alphanumeric, underscore, dot, or hyphen characters' >&2
 			exit 1
 			;;
+		*) : ;;
 	esac
 	API_URL="https://qodo-platform.${ENV_NAME}.qodo.ai/rules/v1"
 fi

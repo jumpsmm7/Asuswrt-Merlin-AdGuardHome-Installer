@@ -67,6 +67,7 @@ configure_test_timeout() {
 	_timeout_version=$("${GNU_TIMEOUT}" --version 2>/dev/null) || _timeout_version=""
 	case "${_timeout_version}" in
 		timeout\ \(GNU\ coreutils\)*) return 0 ;;
+		*) : ;;
 	esac
 	printf '%s\n' "Error: ${GNU_TIMEOUT} is not the required GNU coreutils implementation." >&2
 	return 1
@@ -172,10 +173,8 @@ run_script_list_check() {
 
 	printf '%s\n' "==> ${_name}"
 	while IFS= read -r _script; do
-		if [ -n "${_script}" ]; then
-			if ! run_test_command "$@" "${_script}"; then
-				_check_failed=1
-			fi
+		if [ -n "${_script}" ] && ! run_test_command "$@" "${_script}"; then
+			_check_failed=1
 		fi
 	done <"${SCRIPT_LIST}"
 
@@ -197,6 +196,7 @@ case "${TEST_MAX_RUNTIME_SECONDS}" in
 		printf '%s\n' 'Error: TEST_MAX_RUNTIME_SECONDS must be a non-negative integer.' >&2
 		exit 2
 		;;
+	*) : ;;
 esac
 if ! configure_test_timeout; then
 	exit 2
