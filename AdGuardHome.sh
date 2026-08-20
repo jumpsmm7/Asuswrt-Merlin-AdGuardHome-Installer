@@ -2405,15 +2405,22 @@ post_stop_dnsmasq_ready() {
 			server = $4
 			sub(/:53$/, "", server)
 			gsub(/^\[|\]$/, "", server)
-			servers[server] = 1
+			if (!seen[server]++) {
+				servers[server] = 1
+			}
 		}
 	}
 		END {
 			if (bad_owner || !tcp || !udp) exit 1
 			for (server in servers) print server
 		}
-	')" && [ -n "${dns_servers}" ]; then
-		:
+	')" || return 1
+	if [ -z "${dns_servers}" ]; then
+		return 1
+	fi
+	if printf '%s
+		return 1
+	fi
 	else
 		return 1
 	fi
