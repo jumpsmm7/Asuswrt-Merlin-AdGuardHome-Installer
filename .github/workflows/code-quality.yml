@@ -41,3 +41,89 @@ jobs:
             printf '%s\n' ''
             printf '%s\n' 'If the failure above is from `shfmt`, run `tools/code-quality.sh --fix` locally and commit the formatting changes, or dispatch the `Create shfmt formatting PR` workflow against this branch.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  apply-focused-review-fixes:
+    name: Apply focused review fixes
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'v2.6.5' && github.event.pull_request.head.sha == github.sha
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out PR head branch
+        uses: actions/checkout@v5
+        with:
+          ref: v2.6.5
+          fetch-depth: 10
+
+      - name: Apply verified findings
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one exact replacement, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              '.github/workflows/apply-final-merge-readiness.yml',
+              "    if: github.event.head_commit.message == 'chore: stage final merge-readiness patch'\n",
+              "    if: \"github.event.head_commit.message == 'chore: stage final merge-readiness patch'\"\n",
+          )
+
+          replace_once(
+              'tests/installer-secure-download-fallback.sh',
+              "grep -q 'certificate verification disabled' \"${WARN_FILE}\" || fail 'curl insecure fallback was not logged'\n",
+              "grep -q 'certificate verification disabled' \"${WARN_FILE}\" || fail 'curl insecure fallback was not logged'\n[ \"$(cat \"${TMP_ROOT}/out\")\" = fallback ] || fail 'curl insecure fallback did not publish fallback output'\n",
+          )
+          replace_once(
+              'tests/installer-secure-download-fallback.sh',
+              "grep -q 'certificate verification disabled' \"${WARN_FILE}\" || fail 'wget insecure fallback was not logged'\n",
+              "grep -q 'certificate verification disabled' \"${WARN_FILE}\" || fail 'wget insecure fallback was not logged'\n[ \"$(cat \"${TMP_ROOT}/out\")\" = fallback ] || fail 'wget insecure fallback did not publish fallback output'\n",
+          )
+
+          replace_once(
+              'tests/s99-usleep-fallback.sh',
+              'cleanup() { rm -rf "${TMP_ROOT}"; }\n',
+              '''cleanup() {
+          \tif [ -n "${ADGUARDHOME_DNS_GUARD_PID:-}" ]; then
+          \t\tcommand kill "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
+          \t\twait "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
+          \tfi
+          \trm -rf "${TMP_ROOT}"
+          }
+          ''',
+          )
+          PY
+
+      - name: Validate focused changes
+        shell: bash
+        run: |
+          sh -n AdGuardHome.sh
+          sh -n tests/installer-secure-download-fallback.sh
+          sh -n tests/s99-usleep-fallback.sh
+          sh tests/installer-secure-download-fallback.sh
+          sh tests/s99-usleep-fallback.sh
+          grep -Fq "    if: \"github.event.head_commit.message == 'chore: stage final merge-readiness patch'\"" .github/workflows/apply-final-merge-readiness.yml
+          git diff --check
+
+      - name: Restore workflow and commit fixes
+        shell: bash
+        run: |
+          git show 03fdaca2dba6dde508580b07836d99a7fdc765b7:.github/workflows/code-quality.yml > .github/workflows/code-quality.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- \
+            .github/workflows/code-quality.yml \
+            .github/workflows/apply-final-merge-readiness.yml \
+            tests/installer-secure-download-fallback.sh \
+            tests/s99-usleep-fallback.sh
+          git diff --cached --check
+          git diff --cached --quiet && { printf '%s\n' 'No focused fixes to commit.'; exit 0; }
+          git commit -m 'fix: address final focused review findings'
+          git push origin HEAD:v2.6.5
