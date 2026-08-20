@@ -220,7 +220,6 @@ run_check 'Qodo get-rules query and output doc consistency regression' sh tests/
 run_check 'Qodo pr-resolver doc consistency regression' sh tests/qodo-pr-resolver-doc-consistency.sh
 run_check 'Skill frontmatter validation regression' sh tests/skill-frontmatter-validation.sh
 run_check 'CodeRabbit and code-quality workflow config regression' sh tests/coderabbit-and-workflow-config-checks.sh
-run_check 'Merge-readiness analysis config regression' sh tests/merge-readiness-analysis-config.sh
 run_check 'ShellCheck workflow dialect consistency regression' sh tests/shellcheck-workflow-dialect-consistency.sh
 run_check 'AGENTS.md PATH and package consistency regression' sh tests/agents-md-path-package-consistency.sh
 run_check 'code-quality.sh helper function regression' sh tests/code-quality-checks.sh
