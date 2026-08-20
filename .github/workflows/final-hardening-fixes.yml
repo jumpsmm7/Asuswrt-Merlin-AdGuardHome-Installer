@@ -1,0 +1,372 @@
+name: Apply final hardening fixes
+
+on:
+  push:
+    branches:
+      - v2.6.5
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'chore: stage final hardening fixes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out review branch
+        uses: actions/checkout@v5
+        with:
+          ref: v2.6.5
+          fetch-depth: 0
+
+      - name: Apply verified findings
+        shell: sh
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text()
+              found = text.count(old)
+              if found != count:
+                  raise SystemExit(f"{path}: expected {count} occurrence(s), found {found}: {old[:80]!r}")
+              p.write_text(text.replace(old, new, count))
+
+          # 1. Auto-fix contradictions must preserve the established held outcome.
+          replace(
+              '.agents/skills/qodo-pr-resolver/resources/convergence.md',
+              '''   - **⚠️ Contradiction** — always prompt via AskUserQuestion with the Contradiction options
+             (Defer / Apply / Modify) defaulting to **Defer**; this is the one case auto-fix must
+             interrupt for — never silently apply *or* silently defer it. On Defer, reply with the rationale.
+          ''',
+              '''   - **⚠️ Contradiction** — always prompt via AskUserQuestion with the Contradiction options
+             (**Hold prior decision** / Apply / Modify) defaulting to **Hold prior decision**; this is the one case auto-fix must
+             interrupt for — never silently apply *or* silently hold it. When the user holds the prior
+             decision, keep the code unchanged, preserve the ledger outcome as `decision=held action=none`,
+             reply with the one-line **Held** rationale defined above, and resolve the thread.
+          ''')
+
+          # 2. Stage resolver-owned paths with an option terminator for every path operand.
+          replace(
+              '.agents/skills/qodo-pr-resolver/SKILL.md',
+              '''    - **GitHub / GitLab / Bitbucket / Azure DevOps:** Git commit the fix. Stage only the files modified by the resolver (explicitly list them; do not use `git add .` or `git add -A` which would capture pre-existing changes), then commit: `git add <resolver-modified-files> && git commit -m "fix: <issue title>"`. The issue title comes from Qodo's review content and must be treated as untrusted input; pass it safely as commit message content via a properly quoted/escaped variable or mechanism that prevents shell metacharacters, newlines, quotes, or command-substitution sequences from altering the shell command. If a `PRE_EXISTING_MODIFICATIONS` baseline exists, ensure only resolver-introduced changes are staged.
+              - **Gerrit:** Do NOT commit yet — stage the change (`git add <resolver-modified-files>`) but wait until all fixes are applied, then amend into a single commit (see Gerrit note below). If a `PRE_EXISTING_MODIFICATIONS` baseline exists, ensure only resolver-introduced changes are staged.
+          ''',
+              '''    - **GitHub / GitLab / Bitbucket / Azure DevOps:** Git commit the fix. Stage only the files modified by the resolver (explicitly list them; do not use `git add .` or `git add -A` which would capture pre-existing changes). Precede every resolver-modified path operand with the `--` option terminator; when staging individually, use an argument-safe form such as `git add -- "$file"` for each validated path, then commit with `git commit -m "fix: <issue title>"`. The issue title comes from Qodo's review content and must be treated as untrusted input; pass it safely as commit message content via a properly quoted/escaped variable or mechanism that prevents shell metacharacters, newlines, quotes, or command-substitution sequences from altering the shell command. If a `PRE_EXISTING_MODIFICATIONS` baseline exists, ensure only resolver-introduced changes are staged.
+              - **Gerrit:** Do NOT commit yet — stage only resolver-modified paths, preceding every path operand with the `--` option terminator (for example, `git add -- "$file"` when staging individually), but wait until all fixes are applied, then amend into a single commit (see Gerrit note below). If a `PRE_EXISTING_MODIFICATIONS` baseline exists, ensure only resolver-introduced changes are staged.
+          ''')
+          replace(
+              '.agents/skills/qodo-pr-resolver/SKILL.md',
+              '''1. Apply all fixes (Edit tool) and stage them (`git add`)
+          ''',
+              '''1. Apply all fixes (Edit tool) and stage only resolver-modified paths with an option terminator (for example, `git add -- "$file"` for each path)
+          ''')
+
+          # 3. Remove fractional sleep from BusyBox-targeted polling paths.
+          p = Path('tests/dns-startup-handoff.sh')
+          text = p.read_text()
+          fractional_count = text.count('command sleep 0.01')
+          if fractional_count < 1:
+              raise SystemExit('tests/dns-startup-handoff.sh: expected at least one fractional polling sleep')
+          text = text.replace('command sleep 0.01', 'command usleep 100000')
+          p.write_text(text)
+
+          # 4. Track checksum publication temporaries across interruption cleanup.
+          replace(
+              'tools/download-adguardhome-static.sh',
+              '''ACTIVE_DOWNLOAD_TMP=""
+          ACTIVE_PUBLICATION_ARCHIVE=""
+          ''',
+              '''ACTIVE_DOWNLOAD_TMP=""
+          ACTIVE_DOWNLOAD_MD5_TMP=""
+          ACTIVE_DOWNLOAD_SHA256_TMP=""
+          ACTIVE_PUBLICATION_ARCHIVE=""
+          ''')
+          replace(
+              'tools/download-adguardhome-static.sh',
+              '''	if [ -n "${ACTIVE_DOWNLOAD_TMP:-}" ]; then
+          		rm -f "${ACTIVE_DOWNLOAD_TMP}"
+          		ACTIVE_DOWNLOAD_TMP=""
+          	fi
+          }
+          ''',
+              '''	if [ -n "${ACTIVE_DOWNLOAD_TMP:-}" ]; then
+          		rm -f "${ACTIVE_DOWNLOAD_TMP}"
+          		ACTIVE_DOWNLOAD_TMP=""
+          	fi
+          	if [ -n "${ACTIVE_DOWNLOAD_MD5_TMP:-}" ]; then
+          		rm -f "${ACTIVE_DOWNLOAD_MD5_TMP}"
+          		ACTIVE_DOWNLOAD_MD5_TMP=""
+          	fi
+          	if [ -n "${ACTIVE_DOWNLOAD_SHA256_TMP:-}" ]; then
+          		rm -f "${ACTIVE_DOWNLOAD_SHA256_TMP}"
+          		ACTIVE_DOWNLOAD_SHA256_TMP=""
+          	fi
+          }
+          ''')
+          replace(
+              'tools/download-adguardhome-static.sh',
+              '''	_md5_tmp="${_md5_file}.tmp.$$"
+          	_sha256_tmp="${_sha256_file}.tmp.$$"
+          	_publish_state="${_archive_file}.publish-in-progress"
+          ''',
+              '''	_md5_tmp="${_md5_file}.tmp.$$"
+          	_sha256_tmp="${_sha256_file}.tmp.$$"
+          	ACTIVE_DOWNLOAD_MD5_TMP="${_md5_tmp}"
+          	ACTIVE_DOWNLOAD_SHA256_TMP="${_sha256_tmp}"
+          	_publish_state="${_archive_file}.publish-in-progress"
+          ''')
+          replace(
+              'tools/download-adguardhome-static.sh',
+              '''		ACTIVE_PUBLICATION_ARCHIVE=""
+          		return 0
+          	fi
+          ''',
+              '''		ACTIVE_PUBLICATION_ARCHIVE=""
+          		ACTIVE_DOWNLOAD_MD5_TMP=""
+          		ACTIVE_DOWNLOAD_SHA256_TMP=""
+          		return 0
+          	fi
+          ''')
+          replace(
+              'tools/download-adguardhome-static.sh',
+              '''	ACTIVE_PUBLICATION_ARCHIVE=""
+          	FAILED=1
+          	return 1
+          }
+          ''',
+              '''	ACTIVE_PUBLICATION_ARCHIVE=""
+          	ACTIVE_DOWNLOAD_MD5_TMP=""
+          	ACTIVE_DOWNLOAD_SHA256_TMP=""
+          	FAILED=1
+          	return 1
+          }
+          ''')
+          replace(
+              'tests/download-static-interruption-cleanup.sh',
+              '''ACTIVE_DOWNLOAD_TMP="${TEST_ROOT}/AdGuardHome_stable_linux_arm64.tar.gz.tmp.$$"
+          printf '%s\n' "partial archive" >"${ACTIVE_DOWNLOAD_TMP}" ||
+          	fail "could not create partial archive"
+          cleanup_download_tmp
+          [ ! -e "${TEST_ROOT}/AdGuardHome_stable_linux_arm64.tar.gz.tmp.$$" ] ||
+          	fail "download cleanup left the partial archive behind"
+          [ ! -e "${TEST_ROOT}/AdGuardHome_stable_linux_arm64.tar.gz.tmp.$$.sha256sum" ] ||
+          	fail "download cleanup left unpublished checksum metadata behind"
+          [ -z "${ACTIVE_DOWNLOAD_TMP}" ] ||
+          	fail "download cleanup did not clear the tracked path"
+
+          _sha256_file="${TEST_ROOT}/AdGuardHome_stable_linux_arm64.tar.gz.sha256sum"
+          ACTIVE_DOWNLOAD_TMP="${_sha256_file}.tmp.$$"
+          printf '%s\n' "partial checksum" >"${ACTIVE_DOWNLOAD_TMP}" || fail "could not create partial checksum"
+          cleanup_download_tmp
+          [ ! -e "${_sha256_file}.tmp.$$" ] || fail "download cleanup left the tracked checksum temporary file behind"
+          ''',
+              '''_archive_file="${TEST_ROOT}/AdGuardHome_stable_linux_arm64.tar.gz"
+          ACTIVE_DOWNLOAD_TMP="${_archive_file}.tmp.$$"
+          ACTIVE_DOWNLOAD_MD5_TMP="${_archive_file}.md5sum.tmp.$$"
+          ACTIVE_DOWNLOAD_SHA256_TMP="${_archive_file}.sha256sum.tmp.$$"
+          _archive_tmp="${ACTIVE_DOWNLOAD_TMP}"
+          _md5_tmp="${ACTIVE_DOWNLOAD_MD5_TMP}"
+          _sha256_tmp="${ACTIVE_DOWNLOAD_SHA256_TMP}"
+          printf '%s\n' "partial archive" >"${_archive_tmp}" || fail "could not create partial archive"
+          printf '%s\n' "partial md5" >"${_md5_tmp}" || fail "could not create partial MD5 checksum"
+          printf '%s\n' "partial sha256" >"${_sha256_tmp}" || fail "could not create partial SHA256 checksum"
+          grep -F 'ACTIVE_DOWNLOAD_MD5_TMP="${_md5_tmp}"' "${SCRIPT_PATH}" >/dev/null ||
+          	fail "publisher does not track the MD5 publication temporary"
+          grep -F 'ACTIVE_DOWNLOAD_SHA256_TMP="${_sha256_tmp}"' "${SCRIPT_PATH}" >/dev/null ||
+          	fail "publisher does not track the SHA256 publication temporary"
+          cleanup_download_tmp
+          for _tracked_tmp in "${_archive_tmp}" "${_md5_tmp}" "${_sha256_tmp}"; do
+          	[ ! -e "${_tracked_tmp}" ] || fail "download cleanup left tracked temporary ${_tracked_tmp} behind"
+          done
+          [ -z "${ACTIVE_DOWNLOAD_TMP}" ] || fail "download cleanup did not clear the tracked archive path"
+          [ -z "${ACTIVE_DOWNLOAD_MD5_TMP}" ] || fail "download cleanup did not clear the tracked MD5 path"
+          [ -z "${ACTIVE_DOWNLOAD_SHA256_TMP}" ] || fail "download cleanup did not clear the tracked SHA256 path"
+          ''')
+          replace(
+              'tests/download-static-interruption-cleanup.sh',
+              '''printf '%s\n' "PASS: interrupted static downloads remove partial archives"
+          ''',
+              '''printf '%s\n' "PASS: interrupted static downloads remove partial archives and checksum publication temporaries"
+          ''')
+
+          # 5. Treat the fixture-generated dangling marker as data, not sed/grep syntax.
+          replace(
+              'tests/installer-doctor-fix-safety.sh',
+              '''sed "s#/tmp/AdGuardHome\\.dnsmasq\\.lock#${DANGLING_MARKER}#g" "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" || fail 'could not isolate dangling marker path'
+          ''',
+              '''DANGLING_MARKER_SED="$(printf '%s\\n' "${DANGLING_MARKER}" | sed 's/[\\&#]/\\\\&/g')" || fail 'could not escape dangling marker path'
+          sed "s#/tmp/AdGuardHome\\.dnsmasq\\.lock#${DANGLING_MARKER_SED}#g" "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" || fail 'could not isolate dangling marker path'
+          ''')
+          replace(
+              'tests/installer-doctor-fix-safety.sh',
+              '''printf '%s\n' "${DOCTOR_OUTPUT}" | grep -q "^\\[WARN\\].*dnsmasq handoff marker/lock exists: ${DANGLING_MARKER}.*Next:" || fail 'dangling handoff marker was not reported with its path'
+          ''',
+              '''printf '%s\n' "${DOCTOR_OUTPUT}" | awk -v marker="${DANGLING_MARKER}" '
+          	/^\\[WARN\\]/ && index($0, marker) && index($0, "| Next:") { found = 1 }
+          	END { exit found ? 0 : 1 }
+          ' || fail 'dangling handoff marker was not reported with its path and next step'
+          ''')
+
+          # 6. Record successful reaper releases and assert observable signal/interactive ordering.
+          replace(
+              'tests/installer-end-op-rollback.sh',
+              '''	# nvram_transaction_lock_reaper_release_active reports that the active NVRAM transaction reaper was released.
+          	nvram_transaction_lock_reaper_release_active() { return 0; }
+          	rm -f "${TEST_ROOT}/unexpected-signal-return"
+          ''',
+              '''	SIGNAL_REAPER_LOG="${TEST_ROOT}/${signal_mode}-signal-reaper.log"
+          	: >"${SIGNAL_REAPER_LOG}" || fail "could not create ${signal_mode} signal reaper log"
+          	# nvram_transaction_lock_reaper_release_active records a successful active-reaper release.
+          	nvram_transaction_lock_reaper_release_active() {
+          		printf '%s\n' release >>"${SIGNAL_REAPER_LOG}"
+          		return 0
+          	}
+          	rm -f "${TEST_ROOT}/unexpected-signal-return"
+          ''')
+          replace(
+              'tests/installer-end-op-rollback.sh',
+              '''	[ "${status}" -eq 2 ] || fail "${signal_mode} signal cleanup exited with status ${status} instead of 2"
+          	[ ! -e "${TEST_ROOT}/unexpected-signal-return" ] || fail "${signal_mode} signal cleanup returned to the interrupted operation"
+
+          	# nvram_transaction_lock_reaper_release_active simulates failure to release the active NVRAM transaction reaper.
+          ''',
+              '''	[ "${status}" -eq 2 ] || fail "${signal_mode} signal cleanup exited with status ${status} instead of 2"
+          	[ ! -e "${TEST_ROOT}/unexpected-signal-return" ] || fail "${signal_mode} signal cleanup returned to the interrupted operation"
+          	[ "$(wc -l <"${SIGNAL_REAPER_LOG}")" -eq 1 ] || fail "${signal_mode} signal cleanup did not release the active reaper exactly once before exit"
+
+          	# nvram_transaction_lock_reaper_release_active simulates failure to release the active NVRAM transaction reaper.
+          ''')
+          replace(
+              'tests/installer-end-op-rollback.sh',
+              '''# nvram_transaction_lock_release always fails to release the NVRAM transaction lock.
+          nvram_transaction_lock_release() { return 1; }
+          # nvram_transaction_lock_reaper_release_active reports that the active NVRAM transaction reaper was released.
+          nvram_transaction_lock_reaper_release_active() { return 0; }
+          ''',
+              '''INTERACTIVE_RELEASE_LOG="${TEST_ROOT}/interactive-release-order.log"
+          : >"${INTERACTIVE_RELEASE_LOG}" || fail 'could not create interactive release-order log'
+          # nvram_transaction_lock_release records the lock-release attempt and then fails it.
+          nvram_transaction_lock_release() {
+          	printf '%s\n' lock >>"${INTERACTIVE_RELEASE_LOG}"
+          	return 1
+          }
+          # nvram_transaction_lock_reaper_release_active records the successful active-reaper release.
+          nvram_transaction_lock_reaper_release_active() {
+          	printf '%s\n' reaper >>"${INTERACTIVE_RELEASE_LOG}"
+          	return 0
+          }
+          ''')
+          replace(
+              'tests/installer-end-op-rollback.sh',
+              '''grep -q 'Unable to release the installer NVRAM transaction lock' "${TEST_ROOT}/interactive-output" || fail 'interactive lock-release failure was not reported'
+
+          CLI_MODE="1"
+          ''',
+              '''grep -q 'Unable to release the installer NVRAM transaction lock' "${TEST_ROOT}/interactive-output" || fail 'interactive lock-release failure was not reported'
+          [ "$(grep -c '^reaper$' "${INTERACTIVE_RELEASE_LOG}")" -eq 1 ] || fail 'interactive path did not release the active reaper exactly once'
+          [ "$(sed -n '1p' "${INTERACTIVE_RELEASE_LOG}")" = reaper ] || fail 'interactive path attempted lock release before active-reaper release'
+          [ "$(sed -n '2p' "${INTERACTIVE_RELEASE_LOG}")" = lock ] || fail 'interactive path did not attempt the transaction lock release after the active reaper'
+
+          CLI_MODE="1"
+          ''')
+
+          # 7. Downloader stubs must fail closed when no recognized output operand was supplied.
+          for command, marker, diagnostic in (
+              ('curl', "\tcase \" $* \" in\n", 'curl stub did not receive a recognized -o output path'),
+              ('wget', "\tcase \" $* \" in\n", 'wget stub did not receive a recognized -O output path'),
+          ):
+              path = Path('tests/installer-secure-download-fallback.sh')
+              text = path.read_text()
+              start = text.index(f'{command}() {{')
+              next_start = text.find('\n}\n', start)
+              if next_start < 0:
+                  raise SystemExit(f'could not locate {command} stub')
+              block = text[start:next_start]
+              if diagnostic in block:
+                  continue
+              idx = block.index(marker)
+              block = block[:idx] + f'''\tif [ -z "${{_out}}" ]; then\n\t\tprintf '%s\\n' '{diagnostic}' >&2\n\t\treturn 2\n\tfi\n''' + block[idx:]
+              text = text[:start] + block + text[next_start:]
+              path.write_text(text)
+
+          # 8. Interrupted writable-path tests must terminate after cleanup.
+          replace(
+              'tests/runtime-writable-path-security.sh',
+              '''trap cleanup EXIT HUP INT TERM
+          ''',
+              '''trap cleanup EXIT
+          trap 'cleanup; exit 1' HUP INT TERM
+          ''')
+
+          # 9. The documented Qodo endpoint returns an object, not a singleton array.
+          old_validation = '''  if type != "array" or length != 1 then
+              error("Qodo rules request failed: invalid JSON response (expected exactly one object)")
+            else .[0] end |
+            if type != "object" or (.rules | type) != "array" then
+              error("Qodo rules request failed: malformed response (expected object with rules array)")
+          '''
+          new_validation = '''  if type != "object" or (.rules | type) != "array" then
+              error("Qodo rules request failed: malformed response (expected object with rules array)")
+          '''
+          replace('.agents/skills/qodo-get-rules/references/search-endpoint.md', old_validation, new_validation, count=2)
+
+          # 10. Service-script PATH is fixed and must not inherit caller entries.
+          replace(
+              'REVIEW.md',
+              '''export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin${PATH:+:$PATH}"
+          ''',
+              '''export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
+          ''')
+          PY
+
+      - name: Validate focused changes
+        shell: sh
+        run: |
+          set -eu
+          sh -n tools/download-adguardhome-static.sh
+          sh -n tests/dns-startup-handoff.sh
+          sh -n tests/download-static-interruption-cleanup.sh
+          sh -n tests/installer-doctor-fix-safety.sh
+          sh -n tests/installer-end-op-rollback.sh
+          sh -n tests/installer-secure-download-fallback.sh
+          sh -n tests/runtime-writable-path-security.sh
+          sudo -n sh tests/dns-startup-handoff.sh
+          sh tests/download-static-interruption-cleanup.sh
+          sh tests/installer-doctor-fix-safety.sh
+          sh tests/installer-end-op-rollback.sh
+          sh tests/installer-secure-download-fallback.sh
+          sudo -n sh tests/runtime-writable-path-security.sh
+          sh tests/qodo-provider-thread-resolution.sh
+          sh tests/qodo-get-rules-config-validation.sh
+          sh tests/qodo-get-rules-query-output-consistency.sh
+          ! grep -F 'command sleep 0.01' tests/dns-startup-handoff.sh
+          ! grep -F 'type != "array" or length != 1' .agents/skills/qodo-get-rules/references/search-endpoint.md
+          git diff --check
+
+      - name: Commit verified fixes
+        shell: sh
+        run: |
+          set -eu
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for file in \
+            .agents/skills/qodo-pr-resolver/resources/convergence.md \
+            .agents/skills/qodo-pr-resolver/SKILL.md \
+            tests/dns-startup-handoff.sh \
+            tools/download-adguardhome-static.sh \
+            tests/download-static-interruption-cleanup.sh \
+            tests/installer-doctor-fix-safety.sh \
+            tests/installer-end-op-rollback.sh \
+            tests/installer-secure-download-fallback.sh \
+            tests/runtime-writable-path-security.sh \
+            .agents/skills/qodo-get-rules/references/search-endpoint.md \
+            REVIEW.md
+          do
+            git add -- "$file"
+          done
+          git diff --cached --check
+          git commit -m 'fix: address final CodeRabbit review findings'
+          git push origin HEAD:v2.6.5
