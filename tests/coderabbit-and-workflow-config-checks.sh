@@ -143,6 +143,16 @@ if grep -Eq 'shellcheck .*\|\| true|shfmt .*\|\| true|exit 0' "${REVIEW_WORKFLOW
 fi
 grep -Fq 'sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq' "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: expected the same host-side dependencies as the blocking quality workflow"
+[ "$(grep -Fc -- '--connect-timeout 10 --max-time 60' "${REVIEW_WORKFLOW}")" -eq 2 ] ||
+	fail "${REVIEW_WORKFLOW}: both Sonar requests must have bounded request-level timeouts"
+grep -Fq 'if not isinstance(payload, dict):' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: Sonar response validation must reject non-object payloads"
+grep -Fq 'not isinstance(issues, list)' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: Sonar response validation must require an issues list"
+grep -Fq 'type(total) is not int' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: Sonar response validation must require an integer total"
+grep -Fq 'total < len(issues)' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: Sonar response validation must reject inconsistent totals"
 
 # Each supported suppression form must independently make the validator fail.
 sed 's@run: sh tools/code-quality.sh$@run: sh tools/code-quality.sh || true@' "${REVIEW_WORKFLOW}" >"${TMP_ROOT}/checker-or-true.yml" ||
@@ -178,18 +188,27 @@ fi
 grep -Eq '^[[:space:]]*pull_request:' "${WORKFLOW}" || fail "${WORKFLOW}: expected an 'on: pull_request' trigger"
 grep -Eq '^[[:space:]]*push:' "${WORKFLOW}" || fail "${WORKFLOW}: expected an 'on: push' trigger"
 
-# --- The Sonar parser cleanup must be idempotent, and its publisher must keep
-# the checksum-covered runtime script and both sidecars in one commit.
+# --- The Sonar parser cleanup must be idempotent. Pull-request validation must
+# use the immutable head SHA with a non-persistent read-only checkout and fail
+# when the parser rewrite or checksum sidecars would change the committed tree.
 grep -Fq 'old_count == 1 and new_count == 0' "${SONAR_REWRITE}" ||
 	fail "${SONAR_REWRITE}: expected validation of the pre-rewrite state"
 grep -Fq 'old_count == 0 and new_count == 1' "${SONAR_REWRITE}" ||
 	fail "${SONAR_REWRITE}: expected the already-applied rewrite state to succeed"
 grep -Fq 'sh tools/update-checksums.sh AdGuardHome.sh' "${WORKFLOW}" ||
-	fail "${WORKFLOW}: Sonar parser cleanup must regenerate AdGuardHome.sh checksums"
-grep -Fq 'git add -- AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum' "${WORKFLOW}" ||
-	fail "${WORKFLOW}: Sonar parser cleanup must stage both checksum sidecars atomically"
-grep -Fq 'git diff --cached --quiet' "${WORKFLOW}" ||
-	fail "${WORKFLOW}: Sonar parser cleanup must accept an already-current no-op"
+	fail "${WORKFLOW}: Sonar parser validation must regenerate AdGuardHome.sh checksums before comparison"
+grep -Fq 'ref: ${{ github.event.pull_request.head.sha }}' "${WORKFLOW}" ||
+	fail "${WORKFLOW}: Sonar parser validation must check the immutable pull-request head SHA"
+grep -Fq 'persist-credentials: false' "${WORKFLOW}" ||
+	fail "${WORKFLOW}: Sonar parser validation must not persist checkout credentials"
+if grep -Fq 'contents: write' "${WORKFLOW}"; then
+	fail "${WORKFLOW}: pull-request quality workflow must not grant contents write permission"
+fi
+if grep -Fq 'git push origin HEAD:v2.6.5' "${WORKFLOW}"; then
+	fail "${WORKFLOW}: pull-request quality workflow must not publish branch changes"
+fi
+grep -Fq 'git diff --exit-code -- AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum' "${WORKFLOW}" ||
+	fail "${WORKFLOW}: Sonar parser validation must fail when generated artifacts differ"
 
 # --- Static archive publication creates both sidecars itself. The cache job
 # stages complete architecture directories so archive and digest changes stay

@@ -13,6 +13,7 @@ TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/lan-bridge-discovery-doc-consistency.XXXX
 	exit 1
 }
 BRIDGE_FUNCTION_FILE="${TMP_ROOT}/private_ipv4_bridge_dns_options"
+IPV6_FUNCTION_FILE="${TMP_ROOT}/interface_ipv6_addr"
 
 # cleanup removes the temporary test directory and its contents.
 cleanup() {
@@ -35,15 +36,21 @@ trap 'cleanup; exit 1' HUP INT TERM
 sed -n '/^private_ipv4_bridge_dns_options() {$/,/^}$/p' "${SCRIPT_PATH}" >"${BRIDGE_FUNCTION_FILE}" ||
 	fail 'could not extract private_ipv4_bridge_dns_options'
 [ -s "${BRIDGE_FUNCTION_FILE}" ] || fail 'private_ipv4_bridge_dns_options extraction was empty'
+sed -n '/^interface_ipv6_addr() {$/,/^}$/p' "${SCRIPT_PATH}" >"${IPV6_FUNCTION_FILE}" ||
+	fail 'could not extract interface_ipv6_addr'
+[ -s "${IPV6_FUNCTION_FILE}" ] || fail 'interface_ipv6_addr extraction was empty'
 
 # The unstable-address exclusion flags used by the awk filters must each be
 # documented in README.md, either by the kernel flag name or its plain-English
 # equivalent (e.g. "duplicate" for the dadfailed flag). WIKI.md intentionally
 # summarizes this as "stable" rather than enumerating every excluded flag.
-for term in tentative deprecated temporary mngtmpaddr; do
-	grep -q "${term}" "${SCRIPT_PATH}" || fail "AdGuardHome.sh no longer excludes ${term} addresses"
+for term in tentative deprecated temporary; do
+	grep -q "${term}" "${IPV6_FUNCTION_FILE}" || fail "AdGuardHome.sh no longer excludes ${term} IPv6 addresses"
 	grep -qi "${term}" "${README_PATH}" || fail "README.md does not document the ${term} exclusion"
 done
+! grep -q 'mngtmpaddr' "${IPV6_FUNCTION_FILE}" || fail 'interface_ipv6_addr incorrectly excludes stable mngtmpaddr template addresses'
+grep -qi 'mngtmpaddr' "${README_PATH}" || fail 'README.md does not document mngtmpaddr eligibility'
+grep -qi 'mngtmpaddr' "${WIKI_PATH}" || fail 'WIKI.md does not document mngtmpaddr eligibility'
 grep -q 'dadfailed' "${SCRIPT_PATH}" || fail 'AdGuardHome.sh no longer excludes dadfailed addresses'
 grep -qi 'duplicate' "${README_PATH}" || fail 'README.md does not document the dadfailed (duplicate address) exclusion'
 grep -qi 'stable' "${WIKI_PATH}" || fail 'WIKI.md no longer documents that only stable addresses are selected'
@@ -73,6 +80,8 @@ grep -qi 'logged' "${WIKI_PATH}" || fail 'WIKI.md no longer documents that bridg
 sed -n '/^adguard_refresh_lan_bind_addresses() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_ROOT}/refresh_function" ||
 	fail 'could not extract adguard_refresh_lan_bind_addresses'
 [ -s "${TMP_ROOT}/refresh_function" ] || fail 'adguard_refresh_lan_bind_addresses extraction was empty'
+! grep -q 'mngtmpaddr' "${TMP_ROOT}/refresh_function" ||
+	fail 'LAN bind refresh incorrectly excludes stable mngtmpaddr template addresses'
 ! grep -qi 'iptables' "${TMP_ROOT}/refresh_function" ||
 	fail 'adguard_refresh_lan_bind_addresses unexpectedly manages firewall rules, contradicting the documented independence of binding and firewall policy'
 grep -qi 'firewall' "${README_PATH}" || fail 'README.md no longer documents the firewall/binding independence disclaimer'

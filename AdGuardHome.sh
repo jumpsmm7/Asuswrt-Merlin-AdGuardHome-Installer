@@ -1061,7 +1061,7 @@ interface_ipv6_addr() {
 	[ -n "${IFACE}" ] || return 1
 	have_cmd ip || return 1
 	ip -o -6 addr list "${IFACE}" scope global 2>/dev/null | /usr/bin/awk '
-		$0 !~ /(^|[[:space:]])(tentative|deprecated|dadfailed|temporary|mngtmpaddr)([[:space:]]|$)/ {
+		$0 !~ /(^|[[:space:]])(tentative|deprecated|dadfailed|temporary)([[:space:]]|$)/ {
 			split($4, ip_addr, "/")
 			if (!seen[ip_addr[1]]++) { print ip_addr[1]; exit }
 		}'
@@ -1109,7 +1109,7 @@ adguard_refresh_lan_bind_addresses() {
 			"" | ::) ;;
 			*:*)
 				LAN_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global 2>/dev/null | /usr/bin/awk -v candidate="${NVRAM_ADDR6}" '
-					$0 !~ /(^|[[:space:]])(tentative|deprecated|dadfailed|temporary|mngtmpaddr)([[:space:]]|$)/ {
+					$0 !~ /(^|[[:space:]])(tentative|deprecated|dadfailed|temporary)([[:space:]]|$)/ {
 						split($4, ip_addr, "/")
 						if (ip_addr[1] == candidate) { print candidate; exit }
 					}')"

@@ -119,14 +119,14 @@ jobs:
           issues_file="$(mktemp "${RUNNER_TEMP:-/tmp}/sonar-issues.XXXXXX")" || exit 1
           trap 'rm -f "${issues_file}"' EXIT HUP INT TERM
 
-          if gate_response="$(curl --proto '=https' --proto-redir '=https' -fsS -u "${SONAR_TOKEN}:" "${gate_url}")"; then
+          if gate_response="$(curl --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 60 -fsS -u "${SONAR_TOKEN}:" "${gate_url}")"; then
             printf '%s\n' 'SonarQube Cloud quality gate response:'
             printf '%s\n' "${gate_response}"
           else
             printf '%s\n' 'Warning: unable to retrieve SonarQube Cloud quality gate details.' >&2
           fi
 
-          curl --proto '=https' --proto-redir '=https' -fsS -u "${SONAR_TOKEN}:" "${issues_url}" >"${issues_file}" || {
+          curl --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 60 -fsS -u "${SONAR_TOKEN}:" "${issues_url}" >"${issues_file}" || {
             printf '%s\n' 'Error: unable to retrieve unresolved SonarQube Cloud issues.' >&2
             exit 1
           }
@@ -139,8 +139,26 @@ jobs:
           with open(path, encoding="utf-8") as handle:
               payload = json.load(handle)
 
-          issues = payload.get("issues", [])
-          total = int(payload.get("total", len(issues)))
+          if not isinstance(payload, dict):
+              print("Error: Sonar issues response must be a JSON object.", file=sys.stderr)
+              sys.exit(1)
+
+          issues = payload.get("issues")
+          total = payload.get("total")
+          if (
+              not isinstance(issues, list)
+              or type(total) is not int
+              or total < 0
+              or total < len(issues)
+              or any(not isinstance(issue, dict) for issue in issues)
+          ):
+              print(
+                  "Error: Sonar issues response must contain a list-valued issues field, "
+                  "a non-negative integer total not smaller than the returned issue count, "
+                  "and object-valued issue entries.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
           type_quality = {
               "BUG": "RELIABILITY",
               "CODE_SMELL": "MAINTAINABILITY",

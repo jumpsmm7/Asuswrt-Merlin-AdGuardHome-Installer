@@ -311,9 +311,11 @@ selected automatically; this avoids exposing a resolver without an explicit
 operator configuration. Discovery logs every selected secondary
 interface/address pair.
 
-Temporary, management-flagged (`mngtmpaddr`), tentative, deprecated, duplicate,
-loopback, link-local, multicast, and broadcast addresses are excluded from
-discovery. IPv4 and IPv6 are selected independently, so IPv6 absence does not
+Temporary, tentative, deprecated, duplicate, loopback, link-local, multicast,
+and broadcast addresses are excluded from discovery. A stable global IPv6
+address carrying `mngtmpaddr` remains eligible: that flag marks the template
+used by the kernel to manage temporary privacy addresses and does not itself
+make the template address temporary. IPv4 and IPv6 are selected independently, so IPv6 absence does not
 change the IPv4 listener. AP, media bridge, and repeater installs follow the same
 rule, and startup/monitor refreshes replace a renumbered primary address without
 retaining the old address.

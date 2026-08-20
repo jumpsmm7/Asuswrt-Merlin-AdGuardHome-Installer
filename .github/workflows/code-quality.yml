@@ -63,46 +63,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write
+      contents: read
     steps:
-      - name: Check out source branch
+      - name: Check out immutable pull request head
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: v2.6.5
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
           fetch-depth: 2
 
-      - name: Apply final merge-readiness fixes
+      - name: Validate parser-friendly rewrite
         run: |
           set -eu
-          python3 .github/scripts/apply-final-merge-readiness.py
           python3 .github/scripts/fix-sonar-shell-parse.py
-          sh tools/update-checksums.sh AdGuardHome.sh installer
           sh -n AdGuardHome.sh
-          sh -n installer
-          sh -n tests/lan-primary-address-selection.sh
-          sh -n tests/installer-bind-addresses.sh
-          sh -n tests/lan-bridge-discovery-doc-consistency.sh
-          sh -n tests/coderabbit-and-workflow-config-checks.sh
-          sh tests/lan-primary-address-selection.sh
-          sh tests/installer-bind-addresses.sh
-          sh tests/lan-bridge-discovery-doc-consistency.sh
-          sh tests/coderabbit-and-workflow-config-checks.sh
-          sh tools/check-md5.sh
-          sh tools/check-sha256.sh
-
-          git rm -- .github/scripts/apply-final-merge-readiness.py
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- \
-            AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum \
-            installer installer.md5sum installer.sha256sum \
-            README.md WIKI.md \
-            tests/lan-primary-address-selection.sh \
-            tests/installer-bind-addresses.sh \
-            tests/lan-bridge-discovery-doc-consistency.sh \
-            tests/coderabbit-and-workflow-config-checks.sh \
-            .github/workflows/code-quality-review.yml \
-            .github/workflows/code-quality.yml
-          git diff --cached --check
-          git commit -m 'fix: close final merge-readiness gaps'
-          git push origin HEAD:v2.6.5
+          sh tests/installer-status.sh
+          sh tools/update-checksums.sh AdGuardHome.sh
+          git diff --check
+          git diff --exit-code -- AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum || {
+            printf '%s\n' 'Error: Sonar parser cleanup or checksum sidecars are not current.' >&2
+            exit 1
+          }

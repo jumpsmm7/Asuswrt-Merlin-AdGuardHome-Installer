@@ -215,7 +215,9 @@ IPv4 and, when available, stable global IPv6), and IPv4 addresses on other
 `100.64.0.0/10`, public, and other non-RFC 1918 ranges are excluded. This keeps private guest/SDN
 addresses that dnsmasq advertises reachable while excluding public secondary
 bridge addresses from automatic resolver binding. Discovered secondary pairs
-are logged.
+are logged. Stable global IPv6 addresses carrying `mngtmpaddr` remain eligible;
+`mngtmpaddr` marks the template used to manage temporary privacy addresses and is
+distinct from the `temporary` flag.
 Firewall behavior is separate: LAN mode installs no firewall/IPTABLES rules, so
 listener and firewall reachability must be tested independently.
 

@@ -215,8 +215,8 @@ for topology in multi-bridge guest-network sdn-active vpn-bridge ap-mode repeate
 		fail "${topology}: assigned secondary bridge addresses were omitted"
 done
 
-# Prefer a stable global IPv6 address over temporary, tentative, and deprecated addresses.
-IPV6_FROM_IP='2001:db8::10'
+# Prefer a stable mngtmpaddr IPv6 template over temporary, tentative, deprecated, and dadfailed addresses.
+IPV6_FROM_IP='2001:db8::95'
 IPV6_GLOBAL_OUTPUT='1: br0    inet6 2001:db8::99/64 scope global temporary dynamic
 1: br0    inet6 2001:db8::98/64 scope global tentative
 1: br0    inet6 2001:db8::97/64 scope global deprecated
@@ -224,10 +224,11 @@ IPV6_GLOBAL_OUTPUT='1: br0    inet6 2001:db8::99/64 scope global temporary dynam
 1: br0    inet6 2001:db8::95/64 scope global mngtmpaddr
 1: br0    inet6 2001:db8::10/64 scope global'
 setup_resolve_lan_addresses
-[ "${NET_ADDR6:-}" = '2001:db8::10' ] || fail 'IPv6 discovery did not prefer the stable global address'
+[ "${NET_ADDR6:-}" = '2001:db8::95' ] || fail 'IPv6 discovery rejected the stable mngtmpaddr template address'
 setup_resolve_bind_addresses >/dev/null || fail 'stable IPv6 bind resolution failed'
 assert_yaml_bind_hosts ipv6-temporary 6
-! grep -Eq '^    - 2001:db8::(99|98|97|96|95)$' "${TMP_ROOT}/ipv6-temporary.yaml" || fail 'unstable IPv6 address was added'
+grep -q '^    - 2001:db8::95$' "${TMP_ROOT}/ipv6-temporary.yaml" || fail 'stable mngtmpaddr IPv6 template address was omitted'
+! grep -Eq '^    - 2001:db8::(99|98|97|96)$' "${TMP_ROOT}/ipv6-temporary.yaml" || fail 'unstable IPv6 address was added'
 
 reset_inputs
 ADGUARD_INSTALL_MODE=lan

@@ -60,7 +60,7 @@ ip() {
 }
 
 [ "$(interface_ipv4_addr br0)" = '192.168.60.1' ] || fail 'renumbering retained a deprecated IPv4 address'
-[ "$(interface_ipv6_addr br0)" = '2001:db8::60' ] || fail 'IPv6 selection retained an unstable address'
+[ "$(interface_ipv6_addr br0)" = '2001:db8::61' ] || fail 'IPv6 selection rejected a stable mngtmpaddr template address'
 
 # When every candidate address is unstable, neither helper falls back to a filtered-out address.
 [ -z "$(interface_ipv4_addr br1)" ] || fail 'IPv4 selection returned an address although every candidate was unstable'
