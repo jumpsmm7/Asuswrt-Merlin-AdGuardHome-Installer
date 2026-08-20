@@ -1570,14 +1570,34 @@ curl_insecure_arg() {
 }
 
 http_get_file() {
-	local URL OUT HEADERS INSECURE CURL_ARGS WGET_ARGS
+	local URL OUT HEADERS ALLOW_INSECURE CURL_ARGS WGET_ARGS FALLBACK_ARG SECURE_STATUS
 	URL="$1"
 	OUT="$2"
 	HEADERS="${3:-}"
-	INSECURE="${4:-}"
+	ALLOW_INSECURE="${4:-}"
 	if ai_have_cmd curl; then
 		CURL_ARGS="$(curl_common_args)"
-		[ "${INSECURE}" = "insecure" ] && CURL_ARGS="${CURL_ARGS}$(curl_insecure_arg)"
+		if [ -n "${HEADERS}" ]; then
+			curl ${CURL_ARGS} -D "${HEADERS}" -f -sL "${URL}" -o "${OUT}"
+			SECURE_STATUS="$?"
+		else
+			curl ${CURL_ARGS} -f -sL "${URL}" -o "${OUT}"
+			SECURE_STATUS="$?"
+		fi
+		[ "${SECURE_STATUS}" -eq 0 ] && return 0
+		[ "${ALLOW_INSECURE}" = "insecure" ] || return "${SECURE_STATUS}"
+		case "${URL}" in
+			https://*) ;;
+			*) return "${SECURE_STATUS}" ;;
+		esac
+		FALLBACK_ARG="$(curl_insecure_arg)"
+		[ -n "${FALLBACK_ARG}" ] || return "${SECURE_STATUS}"
+		ptxt_warn "Certificate-verified download failed for ${URL}; retrying with certificate verification disabled."
+		rm -f "${OUT}" || return "${SECURE_STATUS}"
+		if [ -n "${HEADERS}" ]; then
+			: >"${HEADERS}" || return "${SECURE_STATUS}"
+		fi
+		CURL_ARGS="${CURL_ARGS}${FALLBACK_ARG}"
 		if [ -n "${HEADERS}" ]; then
 			curl ${CURL_ARGS} -D "${HEADERS}" -f -sL "${URL}" -o "${OUT}"
 		else
@@ -1585,7 +1605,28 @@ http_get_file() {
 		fi
 	elif ai_have_cmd wget; then
 		WGET_ARGS="$(wget_common_args)"
-		[ "${INSECURE}" = "insecure" ] && WGET_ARGS="${WGET_ARGS}$(wget_insecure_arg)"
+		if [ -n "${HEADERS}" ] && wget_has_option '--server-response'; then
+			wget ${WGET_ARGS} --server-response -q -O "${OUT}" "${URL}" 2>"${HEADERS}"
+			SECURE_STATUS="$?"
+		else
+			[ -n "${HEADERS}" ] && : >"${HEADERS}"
+			wget ${WGET_ARGS} -q -O "${OUT}" "${URL}"
+			SECURE_STATUS="$?"
+		fi
+		[ "${SECURE_STATUS}" -eq 0 ] && return 0
+		[ "${ALLOW_INSECURE}" = "insecure" ] || return "${SECURE_STATUS}"
+		case "${URL}" in
+			https://*) ;;
+			*) return "${SECURE_STATUS}" ;;
+		esac
+		FALLBACK_ARG="$(wget_insecure_arg)"
+		[ -n "${FALLBACK_ARG}" ] || return "${SECURE_STATUS}"
+		ptxt_warn "Certificate-verified download failed for ${URL}; retrying with certificate verification disabled."
+		rm -f "${OUT}" || return "${SECURE_STATUS}"
+		if [ -n "${HEADERS}" ]; then
+			: >"${HEADERS}" || return "${SECURE_STATUS}"
+		fi
+		WGET_ARGS="${WGET_ARGS}${FALLBACK_ARG}"
 		if [ -n "${HEADERS}" ] && wget_has_option '--server-response'; then
 			wget ${WGET_ARGS} --server-response -q -O "${OUT}" "${URL}" 2>"${HEADERS}"
 		else
@@ -1598,16 +1639,13 @@ http_get_file() {
 }
 
 http_get_stdout() {
-	local URL INSECURE CURL_ARGS WGET_ARGS
+	local URL CURL_ARGS WGET_ARGS
 	URL="$1"
-	INSECURE="${2:-}"
 	if ai_have_cmd curl; then
 		CURL_ARGS="$(curl_common_args)"
-		[ "${INSECURE}" = "insecure" ] && CURL_ARGS="${CURL_ARGS}$(curl_insecure_arg)"
 		curl ${CURL_ARGS} -f -sL "${URL}"
 	elif ai_have_cmd wget; then
 		WGET_ARGS="$(wget_common_args)"
-		[ "${INSECURE}" = "insecure" ] && WGET_ARGS="${WGET_ARGS}$(wget_insecure_arg)"
 		wget ${WGET_ARGS} -q -O - "${URL}"
 	else
 		return 127

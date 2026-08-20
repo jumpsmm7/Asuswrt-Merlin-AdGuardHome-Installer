@@ -1453,6 +1453,12 @@ launch_dns_port_guard() {
 	ADGUARDHOME_DNS_GUARD_PID="$!"
 	_dns_guard_ready_attempts=0
 	_dns_guard_ready_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_GUARD_READY_RETRIES:-}" 50)"
+	_dns_guard_ready_uses_usleep=0
+	if which usleep >/dev/null 2>&1; then
+		_dns_guard_ready_uses_usleep=1
+	else
+		_dns_guard_ready_limit="$(((_dns_guard_ready_limit + 9) / 10))"
+	fi
 	while [ "${_dns_guard_ready_attempts}" -lt "${_dns_guard_ready_limit}" ]; do
 		kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || break
 		if dns_guard_readiness_matches_identity &&
@@ -1461,7 +1467,13 @@ launch_dns_port_guard() {
 			break
 		fi
 		_dns_guard_ready_attempts="$((_dns_guard_ready_attempts + 1))"
-		[ "${_dns_guard_ready_attempts}" -lt "${_dns_guard_ready_limit}" ] && command usleep 100000
+		if [ "${_dns_guard_ready_attempts}" -lt "${_dns_guard_ready_limit}" ]; then
+			if [ "${_dns_guard_ready_uses_usleep}" -eq 1 ]; then
+				command usleep 100000
+			else
+				sleep 1
+			fi
+		fi
 	done
 	stop_dns_port_guard
 	remove_current_dns_guard_readiness || true

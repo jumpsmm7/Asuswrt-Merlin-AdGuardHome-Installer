@@ -188,7 +188,7 @@ rm() {
 # which reports success for commands stubbed by the test harness and failure for all other commands.
 which() {
 	case "$1" in
-		awk | chmod | kill | ln | logger | ls | mkdir | netstat | nvram | pidof | rm | service | sleep)
+		awk | chmod | kill | ln | logger | ls | mkdir | netstat | nvram | pidof | rm | service | sleep | usleep)
 			return 0
 			;;
 	esac

@@ -2391,11 +2391,46 @@ post_stop_handoff_cleared() {
 	return 0
 }
 
+# monotonic_seconds returns integer seconds from the kernel monotonic uptime clock.
+monotonic_seconds() {
+	local UPTIME_REST UPTIME_SECONDS UPTIME_VALUE
+	[ -r /proc/uptime ] || return 1
+	IFS=' ' read -r UPTIME_VALUE UPTIME_REST </proc/uptime || return 1
+	UPTIME_SECONDS="${UPTIME_VALUE%%.*}"
+	case "${UPTIME_SECONDS}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	printf '%s\n' "${UPTIME_SECONDS}"
+}
+
+# post_stop_dnsmasq_timeout returns the bounded local-DNS recovery budget in seconds.
+post_stop_dnsmasq_timeout() {
+	local CONFIGURED RESTART_SECONDS TIMEOUT
+	CONFIGURED="${ADGUARDHOME_DNSMASQ_READY_TIMEOUT:-}"
+	case "${CONFIGURED}" in
+		"" | *[!0-9]*) ;;
+		*)
+			if [ "${CONFIGURED}" -ge 5 ] && [ "${CONFIGURED}" -le 120 ]; then
+				printf '%s\n' "${CONFIGURED}"
+				return 0
+			fi
+			;;
+	esac
+	RESTART_SECONDS="${1:-0}"
+	case "${RESTART_SECONDS}" in
+		"" | *[!0-9]*) RESTART_SECONDS="0" ;;
+	esac
+	TIMEOUT="$((RESTART_SECONDS * 3 + 10))"
+	[ "${TIMEOUT}" -ge 15 ] || TIMEOUT="15"
+	[ "${TIMEOUT}" -le 60 ] || TIMEOUT="60"
+	printf '%s\n' "${TIMEOUT}"
+}
+
 # post_stop_dnsmasq_ready verifies that dnsmasq owns local port 53 and resolves localhost through an available DNS server.
 post_stop_dnsmasq_ready() {
 	local dns_server dns_servers lan_addr
 	adguard_dnsmasq_running || return 1
-	if dns_servers="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ {
+	dns_servers="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ {
 		owner = ""
 		for (i = NF; i >= 1; i--) if ($i ~ /^[0-9]+\/[^[:space:]]+$/) { owner = $i; break }
 		if (owner != "" && owner !~ /\/dnsmasq$/) bad_owner = 1
@@ -2415,15 +2450,7 @@ post_stop_dnsmasq_ready() {
 			for (server in servers) print server
 		}
 	')" || return 1
-	if [ -z "${dns_servers}" ]; then
-		return 1
-	fi
-	if printf '%s
-		return 1
-	fi
-	else
-		return 1
-	fi
+	[ -n "${dns_servers}" ] || return 1
 	lan_addr="$(nvram get lan_ipaddr 2>/dev/null)"
 	for dns_server in ${dns_servers}; do
 		case "${dns_server}" in
@@ -2439,9 +2466,10 @@ post_stop_dnsmasq_ready() {
 
 # stop_adguardhome stops AdGuardHome, restores managed dnsmasq, verifies shutdown and local DNS recovery, and removes expected database links.
 stop_adguardhome() {
-	local DNSMASQ_READY_ATTEMPTS DNSMASQ_WAS_MANAGED STOP_STATUS db
+	local DNSMASQ_READY_ATTEMPTS DNSMASQ_READY_TIMEOUT DNSMASQ_RESTART_ELAPSED DNSMASQ_RESTART_END DNSMASQ_RESTART_START DNSMASQ_WAS_MANAGED STOP_STATUS db
 	STOP_STATUS="0"
 	DNSMASQ_WAS_MANAGED="0"
+	DNSMASQ_RESTART_ELAPSED="0"
 	if adguard_dnsmasq_managed; then
 		DNSMASQ_WAS_MANAGED="1"
 	fi
@@ -2460,22 +2488,38 @@ stop_adguardhome() {
 		STOP_STATUS="1"
 	fi
 	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ] && [ "${DNSMASQ_WAS_MANAGED}" -eq 1 ]; then
+		DNSMASQ_RESTART_START="$(monotonic_seconds 2>/dev/null)" || DNSMASQ_RESTART_START=""
 		if ! service restart_dnsmasq >/dev/null 2>&1; then
 			agh_log error stop_adguardhome "state=stopping action=restart_dnsmasq reason=service_restart_failed result=failed process=${PROCS}"
 			STOP_STATUS="1"
 		fi
+		DNSMASQ_RESTART_END="$(monotonic_seconds 2>/dev/null)" || DNSMASQ_RESTART_END=""
+		case "${DNSMASQ_RESTART_START}:${DNSMASQ_RESTART_END}" in
+			*[!0-9:]* | :* | *:)
+				DNSMASQ_RESTART_ELAPSED="0"
+				;;
+			*)
+				if [ "${DNSMASQ_RESTART_END}" -ge "${DNSMASQ_RESTART_START}" ]; then
+					DNSMASQ_RESTART_ELAPSED="$((DNSMASQ_RESTART_END - DNSMASQ_RESTART_START))"
+				fi
+				;;
+		esac
 	fi
 	if [ "${DNSMASQ_WAS_MANAGED}" -eq 1 ]; then
+		DNSMASQ_READY_TIMEOUT="$(post_stop_dnsmasq_timeout "${DNSMASQ_RESTART_ELAPSED}")"
 		DNSMASQ_READY_ATTEMPTS="0"
 		until post_stop_dnsmasq_ready; do
 			DNSMASQ_READY_ATTEMPTS="$((DNSMASQ_READY_ATTEMPTS + 1))"
-			if [ "${DNSMASQ_READY_ATTEMPTS}" -ge 5 ]; then
-				agh_log error stop_adguardhome "state=stopping action=verify_local_dns reason=dnsmasq_not_ready result=failed attempts=${DNSMASQ_READY_ATTEMPTS}"
+			if [ "${DNSMASQ_READY_ATTEMPTS}" -ge "${DNSMASQ_READY_TIMEOUT}" ]; then
+				agh_log error stop_adguardhome "state=stopping action=verify_local_dns reason=dnsmasq_not_ready result=failed attempts=${DNSMASQ_READY_ATTEMPTS} restart_elapsed=${DNSMASQ_RESTART_ELAPSED} timeout=${DNSMASQ_READY_TIMEOUT}"
 				STOP_STATUS="1"
 				break
 			fi
 			sleep 1
 		done
+		if [ "${DNSMASQ_READY_ATTEMPTS}" -lt "${DNSMASQ_READY_TIMEOUT}" ]; then
+			agh_log info stop_adguardhome "state=stopping action=verify_local_dns result=ready attempts=${DNSMASQ_READY_ATTEMPTS} restart_elapsed=${DNSMASQ_RESTART_ELAPSED} timeout=${DNSMASQ_READY_TIMEOUT}"
+		fi
 	fi
 	if ! post_stop_handoff_cleared; then
 		agh_log error stop_adguardhome "state=stopping action=verify_handoff reason=installer_marker_remains result=failed"

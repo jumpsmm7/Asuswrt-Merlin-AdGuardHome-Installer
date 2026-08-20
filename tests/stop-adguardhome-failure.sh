@@ -21,7 +21,7 @@ fail() {
 }
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
-sed -n '/^post_stop_process_ready() {$/,/^}$/p; /^post_stop_handoff_cleared() {$/,/^}$/p; /^post_stop_dnsmasq_ready() {$/,/^}$/p; /^stop_adguardhome() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" ||
+sed -n '/^monotonic_seconds() {$/,/^}$/p; /^post_stop_dnsmasq_timeout() {$/,/^}$/p; /^post_stop_process_ready() {$/,/^}$/p; /^post_stop_handoff_cleared() {$/,/^}$/p; /^post_stop_dnsmasq_ready() {$/,/^}$/p; /^stop_adguardhome() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" ||
 	fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail "stop verification functions were not found"
 # shellcheck disable=SC1090
@@ -138,6 +138,7 @@ reset_case() {
 	: >"${DATABASE_LINK_CALLS_FILE}"
 	rm -rf "${DNS_HANDOFF_DIR}"
 	unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+	ADGUARDHOME_DNSMASQ_READY_TIMEOUT="5"
 	RUNNING="0" DNSMASQ_MANAGED="1" DNSMASQ_RUNNING="1"
 	LOWER_STOP_STATUS="0" LOWER_KILL_STATUS="0" SERVICE_STATUS="0"
 	SOCKET_MODE="ipv4" LOOKUP_MODE="ipv4" NETCHECK_STATUS="0"

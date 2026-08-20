@@ -253,6 +253,7 @@ run_check 'Installer end operation rollback regression' sh tests/installer-end-o
 run_check 'Installer doctor fix safety regression' sh tests/installer-doctor-fix-safety.sh
 run_check 'Installer doctor rollback result regression' sh tests/installer-doctor-rollback-result.sh
 run_check 'Installer SHA-256 helper regression' sh tests/installer-sha256-helper.sh
+run_check 'Installer secure transport fallback regression' sh tests/installer-secure-download-fallback.sh
 run_check 'Installer blocklist cleanup regression' sh tests/installer-blocklist-cleanup.sh
 run_check 'Installer uninstall cleanup regression' sh tests/installer-uninstall-cleanup.sh
 run_check 'Installer iterative input regression' sh tests/installer-input-loops.sh
@@ -289,7 +290,9 @@ run_check 'AdGuardHome optional database link regression' run_optional_database_
 run_check 'AdGuardHome S99 DNS mode lifecycle regression' sh tests/s99-dns-mode-lifecycle.sh
 run_check 'AdGuardHome S99 netstat readiness regression' sh tests/s99-netstat-readiness.sh
 run_check 'AdGuardHome S99 startup readiness regression' sh tests/s99-startup-readiness.sh
+run_check 'AdGuardHome S99 usleep fallback regression' sh tests/s99-usleep-fallback.sh
 run_check 'AdGuardHome stop failure regression' sh tests/stop-adguardhome-failure.sh
+run_check 'AdGuardHome dnsmasq adaptive readiness regression' sh tests/dnsmasq-adaptive-readiness.sh
 run_check 'AdGuardHome process signaling regression' sh tests/rc-process-signaling.sh
 run_check 'AdGuardHome monitor retry backoff regression' sh tests/monitor-retry-backoff.sh
 run_check 'AdGuardHome proc setting ownership regression' sh tests/adguardhome-proc-settings.sh
