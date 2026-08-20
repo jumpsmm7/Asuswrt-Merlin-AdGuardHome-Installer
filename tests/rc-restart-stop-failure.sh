@@ -31,8 +31,14 @@ sed -n '/^rc_dependencies_available || exit 1$/,/^#logger /p' "${RC_PATH}" | sed
 (
 	rc_dependencies_available() { return 0; }
 	check() { return 0; }
-	stop() { printf '%s\n' stop >>"${EVENTS}"; return 255; }
-	start() { printf '%s\n' start >>"${EVENTS}"; return 0; }
+	stop() {
+		printf '%s\n' stop >>"${EVENTS}"
+		return 255
+	}
+	start() {
+		printf '%s\n' start >>"${EVENTS}"
+		return 0
+	}
 	reload() { return 0; }
 	PROCS=AdGuardHome
 	DESC=AdGuardHome
@@ -50,8 +56,14 @@ _status="$?"
 (
 	rc_dependencies_available() { return 0; }
 	check() { return 0; }
-	stop() { printf '%s\n' stop >>"${EVENTS}"; return 0; }
-	start() { printf '%s\n' start >>"${EVENTS}"; return 0; }
+	stop() {
+		printf '%s\n' stop >>"${EVENTS}"
+		return 0
+	}
+	start() {
+		printf '%s\n' start >>"${EVENTS}"
+		return 0
+	}
 	reload() { return 0; }
 	PROCS=AdGuardHome
 	DESC=AdGuardHome
@@ -67,8 +79,14 @@ _status="$?"
 (
 	rc_dependencies_available() { return 0; }
 	check() { return 1; }
-	stop() { printf '%s\n' stop >>"${EVENTS}"; return 0; }
-	start() { printf '%s\n' start >>"${EVENTS}"; return 0; }
+	stop() {
+		printf '%s\n' stop >>"${EVENTS}"
+		return 0
+	}
+	start() {
+		printf '%s\n' start >>"${EVENTS}"
+		return 0
+	}
 	reload() { return 0; }
 	PROCS=AdGuardHome
 	DESC=AdGuardHome
