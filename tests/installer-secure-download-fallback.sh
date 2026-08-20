@@ -44,6 +44,10 @@ curl() {
 		fi
 		[ "${_arg}" = '-o' ] && _next=1
 	done
+	if [ -z "${_out}" ]; then
+		printf '%s\n' 'curl stub did not receive a recognized -o output path' >&2
+		return 2
+	fi
 	case " $* " in
 		*' -k '*)
 			printf '%s\n' fallback >"${_out}"
@@ -70,6 +74,10 @@ wget() {
 		fi
 		[ "${_arg}" = '-O' ] && _next=1
 	done
+	if [ -z "${_out}" ]; then
+		printf '%s\n' 'wget stub did not receive a recognized -O output path' >&2
+		return 2
+	fi
 	case " $* " in
 		*' --no-check-certificate '*)
 			printf '%s\n' fallback >"${_out}"

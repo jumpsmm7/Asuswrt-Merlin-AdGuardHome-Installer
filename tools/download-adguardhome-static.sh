@@ -8,6 +8,8 @@ BASE_URL="https://static.adguard.com/adguardhome"
 OUT_DIR="${1:-.}"
 FAILED=0
 ACTIVE_DOWNLOAD_TMP=""
+ACTIVE_DOWNLOAD_MD5_TMP=""
+ACTIVE_DOWNLOAD_SHA256_TMP=""
 ACTIVE_PUBLICATION_ARCHIVE=""
 
 # Functions are sorted alpha-numerically for readability.
@@ -22,6 +24,14 @@ cleanup_download_tmp() {
 	if [ -n "${ACTIVE_DOWNLOAD_TMP:-}" ]; then
 		rm -f "${ACTIVE_DOWNLOAD_TMP}"
 		ACTIVE_DOWNLOAD_TMP=""
+	fi
+	if [ -n "${ACTIVE_DOWNLOAD_MD5_TMP:-}" ]; then
+		rm -f "${ACTIVE_DOWNLOAD_MD5_TMP}"
+		ACTIVE_DOWNLOAD_MD5_TMP=""
+	fi
+	if [ -n "${ACTIVE_DOWNLOAD_SHA256_TMP:-}" ]; then
+		rm -f "${ACTIVE_DOWNLOAD_SHA256_TMP}"
+		ACTIVE_DOWNLOAD_SHA256_TMP=""
 	fi
 }
 
@@ -460,6 +470,8 @@ publish_archive_with_checksums() {
 	_sha256_file="${_archive_file}.sha256sum"
 	_md5_tmp="${_md5_file}.tmp.$$"
 	_sha256_tmp="${_sha256_file}.tmp.$$"
+	ACTIVE_DOWNLOAD_MD5_TMP="${_md5_tmp}"
+	ACTIVE_DOWNLOAD_SHA256_TMP="${_sha256_tmp}"
 	_publish_state="${_archive_file}.publish-in-progress"
 	_publish_state_tmp="${_publish_state}.tmp.$$"
 	_archive_backup="${_archive_file}.previous"
@@ -568,6 +580,8 @@ publish_archive_with_checksums() {
 			return 1
 		fi
 		ACTIVE_PUBLICATION_ARCHIVE=""
+		ACTIVE_DOWNLOAD_MD5_TMP=""
+		ACTIVE_DOWNLOAD_SHA256_TMP=""
 		return 0
 	fi
 
@@ -577,6 +591,8 @@ publish_archive_with_checksums() {
 		printf '%s\n' "Error: recovery failed; inspect ${_archive_backup}, ${_md5_backup}, and ${_sha256_backup}" >&2
 	fi
 	ACTIVE_PUBLICATION_ARCHIVE=""
+	ACTIVE_DOWNLOAD_MD5_TMP=""
+	ACTIVE_DOWNLOAD_SHA256_TMP=""
 	FAILED=1
 	return 1
 }

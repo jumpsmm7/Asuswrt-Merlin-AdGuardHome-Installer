@@ -149,8 +149,10 @@ from automatic application**. Auto-fix is where unattended flip-flop churn happe
 1. Apply only the untagged "Fix" issues automatically.
 2. Handle tagged issues **by tag type** — never lump them together:
    - **⚠️ Contradiction** — always prompt via AskUserQuestion with the Contradiction options
-     (Defer / Apply / Modify) defaulting to **Defer**; this is the one case auto-fix must
-     interrupt for — never silently apply *or* silently defer it. On Defer, reply with the rationale.
+     (**Hold prior decision** / Apply / Modify) defaulting to **Hold prior decision**; this is the one case auto-fix must
+     interrupt for — never silently apply *or* silently hold it. When the user holds the prior
+     decision, keep the code unchanged, preserve the ledger outcome as `decision=held action=none`,
+     reply with the one-line **Held** rationale defined above, and resolve the thread.
    - **🔁 Repeat** — re-read the current code: if the prior fix is intact, **Defer** ("addressed in
      a previous round"); only if the prior fix was lost/incomplete, treat as a normal fix.
    - **🛑 Hard stop (≥2 flips)** — refuse; route to the Step 9 "Skipped to prevent oscillation" category.

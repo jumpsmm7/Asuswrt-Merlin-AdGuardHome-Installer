@@ -34,7 +34,7 @@ wait_for_file() {
 	_wait_attempts=0
 	while [ ! -e "${_wait_file}" ] && [ "${_wait_attempts}" -lt 100 ]; do
 		_wait_attempts="$((_wait_attempts + 1))"
-		command sleep 0.01
+		command usleep 100000
 	done
 	[ -e "${_wait_file}" ]
 }
@@ -893,7 +893,7 @@ prepare_dns_handoff_marker || fail 'could not prepare the direct guard handoff i
 	[ ! -e "${DNS_GUARD_READY_DIR}" ] || exit 1
 ) || fail 'failed DNS guard readiness mode validation left its directory behind'
 launch_dns_port_guard || fail 'DNS guard did not publish readiness'
-command sleep 0.01
+command usleep 100000
 command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || fail 'DNS guard exited before AdGuardHome owned DNS'
 _orphan_guard_pid="${ADGUARDHOME_DNS_GUARD_PID}"
 _orphan_ready_dir="${DNS_GUARD_READY_DIR}"
@@ -901,7 +901,7 @@ rm -f "${DNS_HANDOFF_FILE}" || fail 'could not remove the direct guard handoff m
 _orphan_wait_attempts=0
 while command kill -0 "${_orphan_guard_pid}" 2>/dev/null && [ "${_orphan_wait_attempts}" -lt 100 ]; do
 	_orphan_wait_attempts="$((_orphan_wait_attempts + 1))"
-	command sleep 0.01
+	command usleep 100000
 done
 if command kill -0 "${_orphan_guard_pid}" 2>/dev/null; then
 	fail 'orphaned DNS guard still alive after polling deadline'
@@ -973,7 +973,7 @@ launch_dns_port_guard || fail 'DNS guard did not publish readiness'
 _guard_check_attempts=0
 while [ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -lt 2 ] && [ "${_guard_check_attempts}" -lt 100 ]; do
 	_guard_check_attempts="$((_guard_check_attempts + 1))"
-	command sleep 0.01
+	command usleep 100000
 done
 [ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -ge 2 ] || fail 'DNS guard did not retry an ownerless intermediate bind'
 command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || fail 'DNS guard exited during an ownerless intermediate bind'
@@ -991,7 +991,7 @@ launch_dns_port_guard || fail 'DNS guard did not publish readiness'
 _guard_check_attempts=0
 while ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" && [ "${_guard_check_attempts}" -lt 20 ]; do
 	_guard_check_attempts="$((_guard_check_attempts + 1))"
-	command sleep 0.01
+	command usleep 100000
 done
 grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'DNS guard did not stop dnsmasq after it reclaimed a free port'
 stop_dns_port_guard
@@ -1001,7 +1001,7 @@ SLEEP_BUSY_AFTER=0
 DNS_STATE=owned
 ADGUARDHOME_DNS_GUARD_RETRIES=3
 launch_dns_port_guard || fail 'DNS guard did not publish readiness'
-command sleep 0.01
+command usleep 100000
 stop_dns_port_guard
 ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'DNS guard stopped dnsmasq after AdGuardHome owned port 53'
 disable_dns_handoff || fail 'could not clean up the direct guard handoff identity'
@@ -1159,10 +1159,10 @@ launch_dns_port_guard || fail 'DNS guard did not publish readiness'
 _guard_check_attempts=0
 while ! grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" && [ "${_guard_check_attempts}" -lt 20 ]; do
 	_guard_check_attempts="$((_guard_check_attempts + 1))"
-	command sleep 0.01
+	command usleep 100000
 done
 grep -q '^service stop_dnsmasq$' "${CALLS_FILE}" || fail 'bounded guard did not stop a respawned dnsmasq'
-command sleep 0.01
+command usleep 100000
 command kill -0 "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || fail 'DNS guard exited before explicit cleanup'
 _guard_pid="${ADGUARDHOME_DNS_GUARD_PID}"
 stop_dns_port_guard
@@ -1355,7 +1355,7 @@ process_wait_for_start() {
 	while [ "${_counter}" -lt 20 ]; do
 		[ -f "${STARTED_FILE}" ] && return 0
 		_counter="$((_counter + 1))"
-		command sleep 0.01
+		command usleep 100000
 	done
 	return 1
 }
@@ -1548,7 +1548,7 @@ _required_pre_interrupt_pid="$!"
 _required_pre_interrupt_waits=0
 while [ ! -f "${REQUIRED_PRE_INTERRUPT_READY_FILE}" ] && [ "${_required_pre_interrupt_waits}" -lt 100 ]; do
 	_required_pre_interrupt_waits="$((_required_pre_interrupt_waits + 1))"
-	command sleep 0.01
+	command usleep 100000
 done
 [ -f "${REQUIRED_PRE_INTERRUPT_READY_FILE}" ] || fail 'interrupted required pre-start did not reach the guarded pre-start window'
 command kill -TERM "${_required_pre_interrupt_pid}" 2>/dev/null || fail 'could not interrupt required pre-start'
@@ -1645,7 +1645,7 @@ _interrupt_start_pid="$!"
 _interrupt_wait_attempts=0
 while [ ! -f "${INTERRUPT_READY_FILE}" ] && [ "${_interrupt_wait_attempts}" -lt 100 ]; do
 	_interrupt_wait_attempts="$((_interrupt_wait_attempts + 1))"
-	command sleep 0.01
+	command usleep 100000
 done
 [ -f "${INTERRUPT_READY_FILE}" ] || fail 'interrupted start did not reach the guarded startup window'
 command kill -TERM "${_interrupt_start_pid}" 2>/dev/null || fail 'could not interrupt guarded startup'
@@ -1692,7 +1692,7 @@ _no_handoff_interrupt_pid="$!"
 _no_handoff_interrupt_waits=0
 while [ ! -f "${NO_HANDOFF_INTERRUPT_READY_FILE}" ] && [ "${_no_handoff_interrupt_waits}" -lt 100 ]; do
 	_no_handoff_interrupt_waits="$((_no_handoff_interrupt_waits + 1))"
-	command sleep 0.01
+	command usleep 100000
 done
 [ -f "${NO_HANDOFF_INTERRUPT_READY_FILE}" ] || fail 'interrupted no-handoff start did not reach the startup window'
 command kill -TERM "${_no_handoff_interrupt_pid}" 2>/dev/null || fail 'could not interrupt no-handoff startup'
@@ -1730,7 +1730,7 @@ _no_handoff_pre_interrupt_pid="$!"
 _no_handoff_pre_interrupt_waits=0
 while [ ! -f "${NO_HANDOFF_PRE_INTERRUPT_READY_FILE}" ] && [ "${_no_handoff_pre_interrupt_waits}" -lt 100 ]; do
 	_no_handoff_pre_interrupt_waits="$((_no_handoff_pre_interrupt_waits + 1))"
-	command sleep 0.01
+	command usleep 100000
 done
 [ -f "${NO_HANDOFF_PRE_INTERRUPT_READY_FILE}" ] || fail 'interrupted no-handoff pre-start did not reach the guarded pre-start window'
 command kill -TERM "${_no_handoff_pre_interrupt_pid}" 2>/dev/null || fail 'could not interrupt no-handoff pre-start'
@@ -1823,7 +1823,7 @@ AdGuardHome() {
 }
 process_wait_for_start() {
 	while [ ! -f "${LATE_LAUNCH_PID_FILE}" ]; do
-		command sleep 0.01
+		command usleep 100000
 	done
 	return 1
 }

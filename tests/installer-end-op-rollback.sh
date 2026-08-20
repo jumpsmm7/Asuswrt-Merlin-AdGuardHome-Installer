@@ -101,8 +101,13 @@ for signal_mode in cli deferred; do
 	ADGUARD_DEFER_END_OP="0"
 	[ "${signal_mode}" != "cli" ] || CLI_MODE="1"
 	[ "${signal_mode}" != "deferred" ] || ADGUARD_DEFER_END_OP="1"
-	# nvram_transaction_lock_reaper_release_active reports that the active NVRAM transaction reaper was released.
-	nvram_transaction_lock_reaper_release_active() { return 0; }
+	SIGNAL_REAPER_LOG="${TEST_ROOT}/${signal_mode}-signal-reaper.log"
+	: >"${SIGNAL_REAPER_LOG}" || fail "could not create ${signal_mode} signal reaper log"
+	# nvram_transaction_lock_reaper_release_active records a successful active-reaper release.
+	nvram_transaction_lock_reaper_release_active() {
+		printf '%s\n' release >>"${SIGNAL_REAPER_LOG}"
+		return 0
+	}
 	rm -f "${TEST_ROOT}/unexpected-signal-return"
 	(
 		END_OP_SIGNAL="1"
@@ -112,6 +117,7 @@ for signal_mode in cli deferred; do
 	status=$?
 	[ "${status}" -eq 2 ] || fail "${signal_mode} signal cleanup exited with status ${status} instead of 2"
 	[ ! -e "${TEST_ROOT}/unexpected-signal-return" ] || fail "${signal_mode} signal cleanup returned to the interrupted operation"
+	[ "$(wc -l <"${SIGNAL_REAPER_LOG}")" -eq 1 ] || fail "${signal_mode} signal cleanup did not release the active reaper exactly once before exit"
 
 	# nvram_transaction_lock_reaper_release_active simulates failure to release the active NVRAM transaction reaper.
 	nvram_transaction_lock_reaper_release_active() { return 1; }
@@ -141,10 +147,18 @@ cat >"${TARG_DIR}/installer" <<EOF_INSTALLER
 printf '%s\n' restarted >"${TEST_ROOT}/unexpected-restart"
 EOF_INSTALLER
 chmod 755 "${TARG_DIR}/installer" || fail 'could not make restart target executable'
-# nvram_transaction_lock_release always fails to release the NVRAM transaction lock.
-nvram_transaction_lock_release() { return 1; }
-# nvram_transaction_lock_reaper_release_active reports that the active NVRAM transaction reaper was released.
-nvram_transaction_lock_reaper_release_active() { return 0; }
+INTERACTIVE_RELEASE_LOG="${TEST_ROOT}/interactive-release-order.log"
+: >"${INTERACTIVE_RELEASE_LOG}" || fail 'could not create interactive release-order log'
+# nvram_transaction_lock_release records the lock-release attempt and then fails it.
+nvram_transaction_lock_release() {
+	printf '%s\n' lock >>"${INTERACTIVE_RELEASE_LOG}"
+	return 1
+}
+# nvram_transaction_lock_reaper_release_active records the successful active-reaper release.
+nvram_transaction_lock_reaper_release_active() {
+	printf '%s\n' reaper >>"${INTERACTIVE_RELEASE_LOG}"
+	return 0
+}
 # sleep replaces the standard delay command with a no-op for testing.
 sleep() { :; }
 # clear_screen is a no-op placeholder for clearing the terminal display.
@@ -159,6 +173,9 @@ status=$?
 [ ! -e "${TEST_ROOT}/unexpected-return" ] || fail 'interactive lock-release failure returned to its caller'
 [ ! -e "${TEST_ROOT}/unexpected-restart" ] || fail 'interactive lock-release failure restarted without releasing the lock'
 grep -q 'Unable to release the installer NVRAM transaction lock' "${TEST_ROOT}/interactive-output" || fail 'interactive lock-release failure was not reported'
+[ "$(grep -c '^reaper$' "${INTERACTIVE_RELEASE_LOG}")" -eq 1 ] || fail 'interactive path did not release the active reaper exactly once'
+[ "$(sed -n '1p' "${INTERACTIVE_RELEASE_LOG}")" = reaper ] || fail 'interactive path attempted lock release before active-reaper release'
+[ "$(sed -n '2p' "${INTERACTIVE_RELEASE_LOG}")" = lock ] || fail 'interactive path did not attempt the transaction lock release after the active reaper'
 
 CLI_MODE="1"
 ADGUARD_DEFER_END_OP="0"

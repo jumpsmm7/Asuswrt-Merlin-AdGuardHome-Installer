@@ -27,24 +27,29 @@ sed -n '/^cleanup_download_tmp() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
-ACTIVE_DOWNLOAD_TMP="${TEST_ROOT}/AdGuardHome_stable_linux_arm64.tar.gz.tmp.$$"
-printf '%s\n' "partial archive" >"${ACTIVE_DOWNLOAD_TMP}" ||
-	fail "could not create partial archive"
+_archive_file="${TEST_ROOT}/AdGuardHome_stable_linux_arm64.tar.gz"
+ACTIVE_DOWNLOAD_TMP="${_archive_file}.tmp.$$"
+ACTIVE_DOWNLOAD_MD5_TMP="${_archive_file}.md5sum.tmp.$$"
+ACTIVE_DOWNLOAD_SHA256_TMP="${_archive_file}.sha256sum.tmp.$$"
+_archive_tmp="${ACTIVE_DOWNLOAD_TMP}"
+_md5_tmp="${ACTIVE_DOWNLOAD_MD5_TMP}"
+_sha256_tmp="${ACTIVE_DOWNLOAD_SHA256_TMP}"
+printf '%s\n' "partial archive" >"${_archive_tmp}" || fail "could not create partial archive"
+printf '%s\n' "partial md5" >"${_md5_tmp}" || fail "could not create partial MD5 checksum"
+printf '%s\n' "partial sha256" >"${_sha256_tmp}" || fail "could not create partial SHA256 checksum"
+grep -F 'ACTIVE_DOWNLOAD_MD5_TMP="${_md5_tmp}"' "${SCRIPT_PATH}" >/dev/null ||
+	fail "publisher does not track the MD5 publication temporary"
+grep -F 'ACTIVE_DOWNLOAD_SHA256_TMP="${_sha256_tmp}"' "${SCRIPT_PATH}" >/dev/null ||
+	fail "publisher does not track the SHA256 publication temporary"
 cleanup_download_tmp
-[ ! -e "${TEST_ROOT}/AdGuardHome_stable_linux_arm64.tar.gz.tmp.$$" ] ||
-	fail "download cleanup left the partial archive behind"
-[ ! -e "${TEST_ROOT}/AdGuardHome_stable_linux_arm64.tar.gz.tmp.$$.sha256sum" ] ||
-	fail "download cleanup left unpublished checksum metadata behind"
-[ -z "${ACTIVE_DOWNLOAD_TMP}" ] ||
-	fail "download cleanup did not clear the tracked path"
-
-_sha256_file="${TEST_ROOT}/AdGuardHome_stable_linux_arm64.tar.gz.sha256sum"
-ACTIVE_DOWNLOAD_TMP="${_sha256_file}.tmp.$$"
-printf '%s\n' "partial checksum" >"${ACTIVE_DOWNLOAD_TMP}" || fail "could not create partial checksum"
-cleanup_download_tmp
-[ ! -e "${_sha256_file}.tmp.$$" ] || fail "download cleanup left the tracked checksum temporary file behind"
+for _tracked_tmp in "${_archive_tmp}" "${_md5_tmp}" "${_sha256_tmp}"; do
+	[ ! -e "${_tracked_tmp}" ] || fail "download cleanup left tracked temporary ${_tracked_tmp} behind"
+done
+[ -z "${ACTIVE_DOWNLOAD_TMP}" ] || fail "download cleanup did not clear the tracked archive path"
+[ -z "${ACTIVE_DOWNLOAD_MD5_TMP}" ] || fail "download cleanup did not clear the tracked MD5 path"
+[ -z "${ACTIVE_DOWNLOAD_SHA256_TMP}" ] || fail "download cleanup did not clear the tracked SHA256 path"
 
 grep -F "trap 'cleanup_download_tmp; exit 1' HUP INT QUIT ABRT TERM" "${SCRIPT_PATH}" >/dev/null ||
 	fail "download cleanup is not installed for interruption signals"
 
-printf '%s\n' "PASS: interrupted static downloads remove partial archives"
+printf '%s\n' "PASS: interrupted static downloads remove partial archives and checksum publication temporaries"

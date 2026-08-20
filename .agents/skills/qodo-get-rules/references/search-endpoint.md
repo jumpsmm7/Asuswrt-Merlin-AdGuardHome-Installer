@@ -117,9 +117,6 @@ if [ "$HTTP_CODE" != "200" ]; then
 fi
 
 VALIDATED_RESPONSE=$(printf '%s' "$BODY_RESPONSE" | "$JQ_BIN" -cse '
-  if type != "array" or length != 1 then
-    error("Qodo rules request failed: invalid JSON response (expected exactly one object)")
-  else .[0] end |
   if type != "object" or (.rules | type) != "array" then
     error("Qodo rules request failed: malformed response (expected object with rules array)")
   elif any(.rules[]; type != "object") then
@@ -191,9 +188,6 @@ if [ "$HTTP_CODE" != "200" ]; then
 fi
 
 VALIDATED_RESPONSE=$(printf '%s' "$BODY_RESPONSE" | "$JQ_BIN" -cse '
-  if type != "array" or length != 1 then
-    error("Qodo rules request failed: invalid JSON response (expected exactly one object)")
-  else .[0] end |
   if type != "object" or (.rules | type) != "array" then
     error("Qodo rules request failed: malformed response (expected object with rules array)")
   elif any(.rules[]; type != "object") then

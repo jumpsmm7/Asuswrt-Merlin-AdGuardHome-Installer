@@ -28,7 +28,8 @@ mkfifo() {
 	command mkfifo "$@"
 }
 
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'cleanup; exit 1' HUP INT TERM
 umask 077
 mkdir "${TEST_ROOT}"
 
