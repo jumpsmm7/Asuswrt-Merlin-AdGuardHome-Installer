@@ -69,20 +69,21 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: v2.6.5
-          fetch-depth: 4
+          fetch-depth: 2
 
       - name: Apply reviewed Sonar fixes
         run: |
           set -eu
-          [ -f .github/scripts/apply-sonar-maintainability.py ] || {
-            printf '%s\n' 'Error: staged Sonar patch helper is missing.' >&2
-            exit 1
-          }
-          [ -f .github/scripts/sync-qodo-config-snippet.py ] || {
-            printf '%s\n' 'Error: staged Qodo snippet sync helper is missing.' >&2
-            exit 1
-          }
-          git show 74ad1fb7c0a0ca2f1e231e944eac74e05f787f08:.github/workflows/code-quality.yml > "${RUNNER_TEMP}/code-quality.yml.original"
+          for helper in \
+            .github/scripts/apply-sonar-maintainability.py \
+            .github/scripts/sync-qodo-config-snippet.py \
+            .github/scripts/code-quality.original.yml; do
+            [ -f "${helper}" ] || {
+              printf '%s\n' "Error: staged helper is missing: ${helper}" >&2
+              exit 1
+            }
+          done
+          cp .github/scripts/code-quality.original.yml "${RUNNER_TEMP}/code-quality.yml.original"
           python3 .github/scripts/apply-sonar-maintainability.py
           python3 .github/scripts/sync-qodo-config-snippet.py
 
@@ -105,6 +106,7 @@ jobs:
           rm -f .github/workflows/apply-sonar-maintainability.yml
           rm -f .github/scripts/apply-sonar-maintainability.py
           rm -f .github/scripts/sync-qodo-config-snippet.py
+          rm -f .github/scripts/code-quality.original.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -- sonar-project.properties \
@@ -116,7 +118,8 @@ jobs:
             .github/workflows/code-quality.yml \
             .github/workflows/apply-sonar-maintainability.yml \
             .github/scripts/apply-sonar-maintainability.py \
-            .github/scripts/sync-qodo-config-snippet.py
+            .github/scripts/sync-qodo-config-snippet.py \
+            .github/scripts/code-quality.original.yml
           git diff --cached --check
           git commit -m 'fix: address Sonar maintainability findings'
           git push origin HEAD:v2.6.5
