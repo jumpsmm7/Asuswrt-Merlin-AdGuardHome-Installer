@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: cache-adguardhome-static-${{ github.ref }}
@@ -18,10 +18,12 @@ jobs:
     name: Download static AdGuardHome archives
     runs-on: ubuntu-latest
     if: github.ref_type == 'branch'
+    permissions:
+      contents: write
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
           persist-credentials: true
@@ -46,6 +48,6 @@ jobs:
           fi
 
           git status --short
-          git add armv8 armv7 armv5
+          git add -- armv8 armv7 armv5
           git commit -m "chore: update AdGuardHome static archives"
           git push origin HEAD:${GITHUB_REF_NAME}
