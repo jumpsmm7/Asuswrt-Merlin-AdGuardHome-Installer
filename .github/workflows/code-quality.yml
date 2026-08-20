@@ -68,6 +68,22 @@ jobs:
           fi
 
           python3 .github/scripts/apply-final-hardening.py
+          python3 <<'PY'
+          from pathlib import Path
+          path = Path('tests/qodo-get-rules-config-validation.sh')
+          text = path.read_text()
+          old = '''[ "$(grep -Fc 'else .[0] end |' "${SEARCH_ENDPOINT}")" -eq 2 ] ||
+          \tfail "${SEARCH_ENDPOINT}: both response validators must validate one parsed object"
+          '''
+          new = '''[ "$(grep -Fc 'if type != "object" or (.rules | type) != "array" then' "${SEARCH_ENDPOINT}")" -eq 2 ] ||
+          \tfail "${SEARCH_ENDPOINT}: both response validators must directly validate the documented object with a rules array"
+          [ "$(grep -Fc 'else .[0] end |' "${SEARCH_ENDPOINT}")" -eq 0 ] ||
+          \tfail "${SEARCH_ENDPOINT}: response validators still unwrap the obsolete singleton-array response"
+          '''
+          if text.count(old) != 1:
+              raise SystemExit('qodo-get-rules config regression: obsolete response-validator assertion was not found exactly once')
+          path.write_text(text.replace(old, new, 1))
+          PY
 
           busybox ash -n tools/download-adguardhome-static.sh
           busybox ash -n tests/dns-startup-handoff.sh
@@ -76,6 +92,7 @@ jobs:
           busybox ash -n tests/installer-end-op-rollback.sh
           busybox ash -n tests/installer-secure-download-fallback.sh
           busybox ash -n tests/runtime-writable-path-security.sh
+          busybox ash -n tests/qodo-get-rules-config-validation.sh
 
           sudo -n busybox ash tests/dns-startup-handoff.sh
           sh tests/download-static-interruption-cleanup.sh
@@ -114,6 +131,7 @@ jobs:
             tests/installer-secure-download-fallback.sh \
             tests/runtime-writable-path-security.sh \
             .agents/skills/qodo-get-rules/references/search-endpoint.md \
+            tests/qodo-get-rules-config-validation.sh \
             REVIEW.md
           do
             git add -- "$file"
