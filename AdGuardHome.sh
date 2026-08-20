@@ -2273,6 +2273,7 @@ start_monitor() {
 		if [ "${MONITOR_STATE}" = "stop" ]; then
 			if ! load_operation_config stop; then
 				set_operation_config_defaults
+				CONFIG_DNSMASQ_MODE="enabled"
 				agh_log warning start_monitor "state=stop action=load_config reason=invalid_snapshot result=using_defaults"
 			fi
 		fi
@@ -2358,6 +2359,7 @@ start_monitor() {
 				agh_log info start_monitor "state=stop action=stop_monitor reason=signal_USR1 result=stopping"
 				if ! load_operation_config stop; then
 					set_operation_config_defaults
+					CONFIG_DNSMASQ_MODE="enabled"
 					agh_log warning start_monitor "state=stop action=load_config reason=invalid_snapshot result=using_defaults"
 				fi
 				trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP

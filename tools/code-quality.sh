@@ -295,6 +295,8 @@ run_check 'AdGuardHome S99 usleep fallback regression' sh tests/s99-usleep-fallb
 run_check 'AdGuardHome stop failure regression' sh tests/stop-adguardhome-failure.sh
 run_check 'AdGuardHome dnsmasq adaptive readiness regression' sh tests/dnsmasq-adaptive-readiness.sh
 run_check 'AdGuardHome process signaling regression' sh tests/rc-process-signaling.sh
+run_check 'AdGuardHome restart stop-failure propagation regression' sh tests/rc-restart-stop-failure.sh
+run_check 'AdGuardHome monitor stop config fallback regression' sh tests/monitor-stop-config-fallback.sh
 run_check 'AdGuardHome deterministic startup signal recovery regression' sh tests/rc-startup-signal-determinism.sh
 run_check 'AdGuardHome monitor retry backoff regression' sh tests/monitor-retry-backoff.sh
 run_check 'AdGuardHome proc setting ownership regression' sh tests/adguardhome-proc-settings.sh

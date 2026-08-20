@@ -682,7 +682,11 @@ for PROC in ${PROCS}; do
 			check && stop
 			;;
 		"restart")
-			{ check >/dev/null; } && stop
+			if check >/dev/null; then
+				stop
+				RESTART_STOP_STATUS="$?"
+				[ "${RESTART_STOP_STATUS}" -eq 0 ] || exit "${RESTART_STOP_STATUS}"
+			fi
 			start
 			;;
 		"check")
