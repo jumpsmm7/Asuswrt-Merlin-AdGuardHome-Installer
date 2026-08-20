@@ -11,7 +11,7 @@ defaults:
     shell: sh
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   shell-quality:
@@ -41,3 +41,83 @@ jobs:
             printf '%s\n' ''
             printf '%s\n' 'If the failure above is from `shfmt`, run `tools/code-quality.sh --fix` locally and commit the formatting changes, or dispatch the `Create shfmt formatting PR` workflow against this branch.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  apply-final-hardening:
+    name: Apply verified final hardening fixes
+    if: github.event_name == 'pull_request' && github.head_ref == 'v2.6.5'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out PR head
+        uses: actions/checkout@v5
+        with:
+          ref: v2.6.5
+          fetch-depth: 0
+
+      - name: Install focused test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y busybox-static dnsmasq
+
+      - name: Apply and validate verified findings
+        run: |
+          set -eu
+          if ! grep -Fq '(Defer / Apply / Modify) defaulting to **Defer**' .agents/skills/qodo-pr-resolver/resources/convergence.md; then
+            printf '%s\n' 'Verified final hardening fixes are already present.'
+            exit 0
+          fi
+
+          python3 .github/scripts/apply-final-hardening.py
+
+          busybox ash -n tools/download-adguardhome-static.sh
+          busybox ash -n tests/dns-startup-handoff.sh
+          busybox ash -n tests/download-static-interruption-cleanup.sh
+          busybox ash -n tests/installer-doctor-fix-safety.sh
+          busybox ash -n tests/installer-end-op-rollback.sh
+          busybox ash -n tests/installer-secure-download-fallback.sh
+          busybox ash -n tests/runtime-writable-path-security.sh
+
+          sudo -n busybox ash tests/dns-startup-handoff.sh
+          busybox ash tests/download-static-interruption-cleanup.sh
+          busybox ash tests/installer-doctor-fix-safety.sh
+          busybox ash tests/installer-end-op-rollback.sh
+          busybox ash tests/installer-secure-download-fallback.sh
+          sudo -n busybox ash tests/runtime-writable-path-security.sh
+          busybox ash tests/qodo-provider-thread-resolution.sh
+          busybox ash tests/qodo-get-rules-config-validation.sh
+          busybox ash tests/qodo-get-rules-query-output-consistency.sh
+
+          ! grep -F 'command sleep 0.01' tests/dns-startup-handoff.sh
+          ! grep -F 'type != "array" or length != 1' .agents/skills/qodo-get-rules/references/search-endpoint.md
+          grep -F 'decision=held action=none' .agents/skills/qodo-pr-resolver/resources/convergence.md >/dev/null
+          grep -F 'git add -- "$file"' .agents/skills/qodo-pr-resolver/SKILL.md >/dev/null
+          git diff --check
+
+      - name: Commit focused fixes
+        run: |
+          set -eu
+          if git diff --quiet; then
+            printf '%s\n' 'No focused hardening changes to commit.'
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for file in \
+            .agents/skills/qodo-pr-resolver/resources/convergence.md \
+            .agents/skills/qodo-pr-resolver/SKILL.md \
+            tests/dns-startup-handoff.sh \
+            tools/download-adguardhome-static.sh \
+            tests/download-static-interruption-cleanup.sh \
+            tests/installer-doctor-fix-safety.sh \
+            tests/installer-end-op-rollback.sh \
+            tests/installer-secure-download-fallback.sh \
+            tests/runtime-writable-path-security.sh \
+            .agents/skills/qodo-get-rules/references/search-endpoint.md \
+            REVIEW.md
+          do
+            git add -- "$file"
+          done
+          git diff --cached --check
+          git commit -m 'fix: address final CodeRabbit review findings'
+          git push origin HEAD:v2.6.5
