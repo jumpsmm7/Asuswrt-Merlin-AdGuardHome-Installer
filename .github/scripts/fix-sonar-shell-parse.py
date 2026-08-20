@@ -10,7 +10,15 @@ new = (
     '\t\tprintf \'%s\\n\' "${state}"\n'
     '\tfi\n'
 )
-count = text.count(old)
-if count != 1:
-    raise SystemExit(f"AdGuardHome.sh: expected one status marker expression, found {count}")
-path.write_text(text.replace(old, new, 1))
+old_count = text.count(old)
+new_count = text.count(new)
+
+if old_count == 1 and new_count == 0:
+    path.write_text(text.replace(old, new, 1))
+elif old_count == 0 and new_count == 1:
+    print("AdGuardHome.sh: Sonar parser cleanup already applied")
+else:
+    raise SystemExit(
+        "AdGuardHome.sh: unexpected status marker state "
+        f"(old={old_count}, new={new_count})"
+    )
