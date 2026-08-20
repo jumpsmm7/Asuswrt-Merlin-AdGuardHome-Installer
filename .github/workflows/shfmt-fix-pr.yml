@@ -18,8 +18,7 @@ on:
       - '**/*.sh'
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: shfmt-format-${{ github.ref }}
@@ -30,40 +29,51 @@ jobs:
     name: Create shfmt formatting PR
     runs-on: ubuntu-latest
     if: github.ref_type == 'branch'
+    permissions:
+      contents: write
+      pull-requests: write
 
     steps:
       - name: Resolve target branch
         id: branch
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TARGET_BRANCH: ${{ inputs.target_branch }}
         run: |
           set -euo pipefail
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.target_branch }}" ]; then
-            target_branch="${{ inputs.target_branch }}"
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ -n "${INPUT_TARGET_BRANCH}" ]; then
+            target_branch="${INPUT_TARGET_BRANCH}"
           else
             target_branch="${GITHUB_REF_NAME}"
           fi
 
           case "${target_branch}" in
-            ""|*..*|/*|*' '*|*'~'*|*'^'*|*':'*|*'?'*|*'['*|*'\\'*)
+            ""|*..*|/*|*[^A-Za-z0-9._/-]*|*'~'*|*'^'*|*':'*|*'?'*|*'['*|*'\\'*)
               echo "Invalid target branch: ${target_branch}" >&2
               exit 1
               ;;
           esac
+
+          if ! git check-ref-format --branch "${target_branch}" >/dev/null 2>&1; then
+            echo "Invalid target branch: ${target_branch}" >&2
+            exit 1
+          fi
 
           safe_branch="$(printf '%s' "${target_branch}" | tr '/@' '--' | tr -cd 'A-Za-z0-9._-')"
           echo "target=${target_branch}" >> "${GITHUB_OUTPUT}"
           echo "safe=${safe_branch}" >> "${GITHUB_OUTPUT}"
 
       - name: Checkout target branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ steps.branch.outputs.target }}
           fetch-depth: 0
           persist-credentials: true
 
       - name: Set up Go for shfmt
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: 'stable'
           cache: false
@@ -108,7 +118,7 @@ jobs:
           fi
 
       - name: Create pull request
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6.1.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           base: ${{ steps.branch.outputs.target }}
