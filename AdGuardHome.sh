@@ -401,7 +401,11 @@ status_dnsmasq_handoff_state() {
 			markers="${markers}${markers:+, }${marker}"
 		fi
 	done
-	printf '%s\n' "${state}${markers:+ (${markers})}"
+	if [ -n "${markers}" ]; then
+		printf '%s\n' "${state} (${markers})"
+	else
+		printf '%s\n' "${state}"
+	fi
 }
 
 status_installer_version() {
