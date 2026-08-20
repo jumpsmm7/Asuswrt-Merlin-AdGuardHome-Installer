@@ -100,6 +100,7 @@ http_get_file 'https://example.invalid/component' "${TMP_ROOT}/out" '' insecure 
 ! sed -n '1p' "${CALLS_FILE}" | grep -q ' -k ' || fail 'first curl attempt disabled certificate verification'
 sed -n '2p' "${CALLS_FILE}" | grep -q ' -k ' || fail 'second curl attempt did not use -k fallback'
 grep -q 'certificate verification disabled' "${WARN_FILE}" || fail 'curl insecure fallback was not logged'
+[ "$(cat "${TMP_ROOT}/out")" = fallback ] || fail 'curl insecure fallback did not publish fallback output'
 
 : >"${CALLS_FILE}"
 if http_get_file 'http://example.invalid/component' "${TMP_ROOT}/out" '' insecure; then
@@ -123,5 +124,6 @@ http_get_file 'https://example.invalid/component' "${TMP_ROOT}/out" '' insecure 
 ! sed -n '1p' "${CALLS_FILE}" | grep -q -e '--no-check-certificate' || fail 'first wget attempt disabled certificate verification'
 sed -n '2p' "${CALLS_FILE}" | grep -q -e '--no-check-certificate' || fail 'second wget attempt did not use certificate fallback'
 grep -q 'certificate verification disabled' "${WARN_FILE}" || fail 'wget insecure fallback was not logged'
+[ "$(cat "${TMP_ROOT}/out")" = fallback ] || fail 'wget insecure fallback did not publish fallback output'
 
 printf '%s\n' 'PASS: installer secure-first transport fallback'
