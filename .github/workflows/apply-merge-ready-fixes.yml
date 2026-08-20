@@ -1,0 +1,349 @@
+name: Apply merge-ready fixes
+
+on:
+  push:
+    branches:
+      - v2.6.5
+    paths:
+      - .github/workflows/apply-merge-ready-fixes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: v2.6.5
+          fetch-depth: 2
+
+      - name: Apply final merge-readiness fixes
+        run: |
+          set -eu
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path, old, new, expected=1):
+              file_path = Path(path)
+              text = file_path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(
+                      f"{path}: expected {expected} occurrence(s) of replacement marker, found {count}"
+                  )
+              file_path.write_text(text.replace(old, new), encoding="utf-8")
+
+          unstable = "(tentative|deprecated|dadfailed|temporary|mngtmpaddr)"
+          stable = "(tentative|deprecated|dadfailed|temporary)"
+          replace_exact("AdGuardHome.sh", unstable, stable, 2)
+          replace_exact("installer", unstable, stable, 2)
+
+          replace_exact(
+              "README.md",
+              """Temporary, management-flagged (`mngtmpaddr`), tentative, deprecated, duplicate,
+          loopback, link-local, multicast, and broadcast addresses are excluded from
+          discovery. IPv4 and IPv6 are selected independently, so IPv6 absence does not
+          change the IPv4 listener. AP, media bridge, and repeater installs follow the same
+          rule, and startup/monitor refreshes replace a renumbered primary address without
+          retaining the old address.""",
+              """Temporary, tentative, deprecated, duplicate, loopback, link-local, multicast,
+          and broadcast addresses are excluded from discovery. A stable global IPv6
+          address carrying `mngtmpaddr` remains eligible: that flag marks the template
+          used by the kernel to manage temporary privacy addresses and does not itself
+          make the template address temporary. IPv4 and IPv6 are selected independently,
+          so IPv6 absence does not change the IPv4 listener. AP, media bridge, and repeater
+          installs follow the same rule, and startup/monitor refreshes replace a renumbered
+          primary address without retaining the old address.""",
+          )
+
+          replace_exact(
+              "WIKI.md",
+              """bridge addresses from automatic resolver binding. Discovered secondary pairs
+          are logged.
+          Firewall behavior is separate: LAN mode installs no firewall/IPTABLES rules, so""",
+              """bridge addresses from automatic resolver binding. Discovered secondary pairs
+          are logged. Stable global IPv6 addresses carrying `mngtmpaddr` remain eligible;
+          `mngtmpaddr` marks the template used to manage temporary privacy addresses and is
+          distinct from the `temporary` flag.
+          Firewall behavior is separate: LAN mode installs no firewall/IPTABLES rules, so""",
+          )
+
+          replace_exact(
+              "tests/lan-primary-address-selection.sh",
+              "[ \"$(interface_ipv6_addr br0)\" = '2001:db8::60' ] || fail 'IPv6 selection retained an unstable address'",
+              "[ \"$(interface_ipv6_addr br0)\" = '2001:db8::61' ] || fail 'IPv6 selection rejected a stable mngtmpaddr template address'",
+          )
+
+          replace_exact(
+              "tests/installer-bind-addresses.sh",
+              "# Prefer a stable global IPv6 address over temporary, tentative, and deprecated addresses.",
+              "# Prefer a stable mngtmpaddr IPv6 template over temporary, tentative, deprecated, and dadfailed addresses.",
+          )
+          replace_exact(
+              "tests/installer-bind-addresses.sh",
+              "IPV6_FROM_IP='2001:db8::10'",
+              "IPV6_FROM_IP='2001:db8::95'",
+          )
+          replace_exact(
+              "tests/installer-bind-addresses.sh",
+              "[ \"${NET_ADDR6:-}\" = '2001:db8::10' ] || fail 'IPv6 discovery did not prefer the stable global address'",
+              "[ \"${NET_ADDR6:-}\" = '2001:db8::95' ] || fail 'IPv6 discovery rejected the stable mngtmpaddr template address'",
+          )
+          replace_exact(
+              "tests/installer-bind-addresses.sh",
+              """assert_yaml_bind_hosts ipv6-temporary 6
+          ! grep -Eq '^    - 2001:db8::(99|98|97|96|95)$' \"${TMP_ROOT}/ipv6-temporary.yaml\" || fail 'unstable IPv6 address was added'""",
+              """assert_yaml_bind_hosts ipv6-temporary 6
+          grep -q '^    - 2001:db8::95$' \"${TMP_ROOT}/ipv6-temporary.yaml\" || fail 'stable mngtmpaddr IPv6 template address was omitted'
+          ! grep -Eq '^    - 2001:db8::(99|98|97|96)$' \"${TMP_ROOT}/ipv6-temporary.yaml\" || fail 'unstable IPv6 address was added'""",
+          )
+
+          replace_exact(
+              "tests/lan-bridge-discovery-doc-consistency.sh",
+              'BRIDGE_FUNCTION_FILE="${TMP_ROOT}/private_ipv4_bridge_dns_options"',
+              'BRIDGE_FUNCTION_FILE="${TMP_ROOT}/private_ipv4_bridge_dns_options"\nIPV6_FUNCTION_FILE="${TMP_ROOT}/interface_ipv6_addr"',
+          )
+          replace_exact(
+              "tests/lan-bridge-discovery-doc-consistency.sh",
+              """[ -s \"${BRIDGE_FUNCTION_FILE}\" ] || fail 'private_ipv4_bridge_dns_options extraction was empty'
+
+          # The unstable-address exclusion flags used by the awk filters must each be
+          # documented in README.md, either by the kernel flag name or its plain-English
+          # equivalent (e.g. \"duplicate\" for the dadfailed flag). WIKI.md intentionally
+          # summarizes this as \"stable\" rather than enumerating every excluded flag.
+          for term in tentative deprecated temporary mngtmpaddr; do
+          \tgrep -q \"${term}\" \"${SCRIPT_PATH}\" || fail \"AdGuardHome.sh no longer excludes ${term} addresses\"
+          \tgrep -qi \"${term}\" \"${README_PATH}\" || fail \"README.md does not document the ${term} exclusion\"
+          done
+          grep -q 'dadfailed' \"${SCRIPT_PATH}\" || fail 'AdGuardHome.sh no longer excludes dadfailed addresses'
+          grep -qi 'duplicate' \"${README_PATH}\" || fail 'README.md does not document the dadfailed (duplicate address) exclusion'
+          grep -qi 'stable' \"${WIKI_PATH}\" || fail 'WIKI.md no longer documents that only stable addresses are selected'""",
+              """[ -s \"${BRIDGE_FUNCTION_FILE}\" ] || fail 'private_ipv4_bridge_dns_options extraction was empty'
+          sed -n '/^interface_ipv6_addr() {$/,/^}$/p' \"${SCRIPT_PATH}\" >\"${IPV6_FUNCTION_FILE}\" ||
+          \tfail 'could not extract interface_ipv6_addr'
+          [ -s \"${IPV6_FUNCTION_FILE}\" ] || fail 'interface_ipv6_addr extraction was empty'
+
+          # Truly unstable IPv6 flags must remain excluded and documented. mngtmpaddr is
+          # different: it marks a stable template used to manage temporary privacy addresses.
+          for term in tentative deprecated temporary; do
+          \tgrep -q \"${term}\" \"${IPV6_FUNCTION_FILE}\" || fail \"AdGuardHome.sh no longer excludes ${term} IPv6 addresses\"
+          \tgrep -qi \"${term}\" \"${README_PATH}\" || fail \"README.md does not document the ${term} exclusion\"
+          done
+          ! grep -q 'mngtmpaddr' \"${IPV6_FUNCTION_FILE}\" || fail 'interface_ipv6_addr incorrectly excludes stable mngtmpaddr template addresses'
+          grep -qi 'mngtmpaddr' \"${README_PATH}\" || fail 'README.md does not document mngtmpaddr eligibility'
+          grep -qi 'mngtmpaddr' \"${WIKI_PATH}\" || fail 'WIKI.md does not document mngtmpaddr eligibility'
+          grep -q 'dadfailed' \"${SCRIPT_PATH}\" || fail 'AdGuardHome.sh no longer excludes dadfailed addresses'
+          grep -qi 'duplicate' \"${README_PATH}\" || fail 'README.md does not document the dadfailed (duplicate address) exclusion'
+          grep -qi 'stable' \"${WIKI_PATH}\" || fail 'WIKI.md no longer documents that stable addresses are selected'""",
+          )
+          replace_exact(
+              "tests/lan-bridge-discovery-doc-consistency.sh",
+              """[ -s \"${TMP_ROOT}/refresh_function\" ] || fail 'adguard_refresh_lan_bind_addresses extraction was empty'
+          ! grep -qi 'iptables' \"${TMP_ROOT}/refresh_function\" ||""",
+              """[ -s \"${TMP_ROOT}/refresh_function\" ] || fail 'adguard_refresh_lan_bind_addresses extraction was empty'
+          ! grep -q 'mngtmpaddr' \"${TMP_ROOT}/refresh_function\" ||
+          \tfail 'LAN bind refresh incorrectly excludes stable mngtmpaddr template addresses'
+          ! grep -qi 'iptables' \"${TMP_ROOT}/refresh_function\" ||""",
+          )
+
+          review_workflow = Path(".github/workflows/code-quality-review.yml")
+          review_text = review_workflow.read_text(encoding="utf-8")
+          curl_marker = "curl --proto '=https' --proto-redir '=https' -fsS -u"
+          if review_text.count(curl_marker) != 2:
+              raise SystemExit("code-quality-review.yml: expected exactly two Sonar curl calls")
+          review_text = review_text.replace(
+              curl_marker,
+              "curl --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 60 -fsS -u",
+          )
+          old_payload = """          issues = payload.get(\"issues\", [])
+          total = int(payload.get(\"total\", len(issues)))"""
+          new_payload = """          if not isinstance(payload, dict):
+              print(\"Error: Sonar issues response must be a JSON object.\", file=sys.stderr)
+              sys.exit(1)
+
+          issues = payload.get(\"issues\")
+          total = payload.get(\"total\")
+          if (
+              not isinstance(issues, list)
+              or type(total) is not int
+              or total < 0
+              or total < len(issues)
+              or any(not isinstance(issue, dict) for issue in issues)
+          ):
+              print(
+                  \"Error: Sonar issues response must contain a list-valued issues field, \"
+                  \"a non-negative integer total not smaller than the returned issue count, \"
+                  \"and object-valued issue entries.\",
+                  file=sys.stderr,
+              )
+              sys.exit(1)"""
+          if review_text.count(old_payload) != 1:
+              raise SystemExit("code-quality-review.yml: Sonar payload marker changed unexpectedly")
+          review_workflow.write_text(review_text.replace(old_payload, new_payload), encoding="utf-8")
+
+          pr_head_expr = "$" + "{{ github.event.pull_request.head.sha }}"
+          workflow = Path(".github/workflows/code-quality.yml")
+          workflow_text = workflow.read_text(encoding="utf-8")
+          old_job = """  apply-sonar-parser-cleanup:
+            name: Apply Sonar parser cleanup
+            if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'v2.6.5'
+            runs-on: ubuntu-latest
+            timeout-minutes: 10
+            permissions:
+              contents: write
+            steps:
+              - name: Check out source branch
+                uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+                with:
+                  ref: v2.6.5
+                  fetch-depth: 2
+
+              - name: Apply parser-friendly rewrite
+                run: |
+                  set -eu
+                  python3 .github/scripts/fix-sonar-shell-parse.py
+                  sh -n AdGuardHome.sh
+                  sh tests/installer-status.sh
+                  sh tools/update-checksums.sh AdGuardHome.sh
+
+              - name: Publish validated production change
+                run: |
+                  set -eu
+                  git config user.name 'github-actions[bot]'
+                  git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+                  git add -- AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum
+                  git diff --cached --check
+                  if git diff --cached --quiet; then
+                    printf '%s\\n' 'Sonar parser cleanup and checksums are already current.'
+                    exit 0
+                  fi
+                  git commit -m 'fix: make status output Sonar-parseable'
+                  git push origin HEAD:v2.6.5"""
+          new_job = f"""  apply-sonar-parser-cleanup:
+            name: Apply Sonar parser cleanup
+            if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'v2.6.5'
+            runs-on: ubuntu-latest
+            timeout-minutes: 10
+            permissions:
+              contents: read
+            steps:
+              - name: Check out immutable pull request head
+                uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+                with:
+                  ref: {pr_head_expr}
+                  persist-credentials: false
+                  fetch-depth: 2
+
+              - name: Validate parser-friendly rewrite
+                run: |
+                  set -eu
+                  python3 .github/scripts/fix-sonar-shell-parse.py
+                  sh -n AdGuardHome.sh
+                  sh tests/installer-status.sh
+                  sh tools/update-checksums.sh AdGuardHome.sh
+                  git diff --check
+                  git diff --exit-code -- AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum || {{
+                    printf '%s\\n' 'Error: Sonar parser cleanup or checksum sidecars are not current.' >&2
+                    exit 1
+                  }}"""
+          if workflow_text.count(old_job) != 1:
+              raise SystemExit("code-quality.yml: Sonar cleanup job marker changed unexpectedly")
+          workflow.write_text(workflow_text.replace(old_job, new_job), encoding="utf-8")
+
+          config_test = Path("tests/coderabbit-and-workflow-config-checks.sh")
+          config_text = config_test.read_text(encoding="utf-8")
+          old_contract = """# --- The Sonar parser cleanup must be idempotent, and its publisher must keep
+          # the checksum-covered runtime script and both sidecars in one commit.
+          grep -Fq 'old_count == 1 and new_count == 0' \"${SONAR_REWRITE}\" ||
+          \tfail \"${SONAR_REWRITE}: expected validation of the pre-rewrite state\"
+          grep -Fq 'old_count == 0 and new_count == 1' \"${SONAR_REWRITE}\" ||
+          \tfail \"${SONAR_REWRITE}: expected the already-applied rewrite state to succeed\"
+          grep -Fq 'sh tools/update-checksums.sh AdGuardHome.sh' \"${WORKFLOW}\" ||
+          \tfail \"${WORKFLOW}: Sonar parser cleanup must regenerate AdGuardHome.sh checksums\"
+          grep -Fq 'git add -- AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum' \"${WORKFLOW}\" ||
+          \tfail \"${WORKFLOW}: Sonar parser cleanup must stage both checksum sidecars atomically\"
+          grep -Fq 'git diff --cached --quiet' \"${WORKFLOW}\" ||
+          \tfail \"${WORKFLOW}: Sonar parser cleanup must accept an already-current no-op\""""
+          new_contract = f"""# --- The Sonar parser cleanup must be idempotent. Pull-request validation must
+          # use the immutable head SHA with a non-persistent read-only checkout and fail
+          # when the parser rewrite or checksum sidecars would change the committed tree.
+          grep -Fq 'old_count == 1 and new_count == 0' \"${{SONAR_REWRITE}}\" ||
+          \tfail \"${{SONAR_REWRITE}}: expected validation of the pre-rewrite state\"
+          grep -Fq 'old_count == 0 and new_count == 1' \"${{SONAR_REWRITE}}\" ||
+          \tfail \"${{SONAR_REWRITE}}: expected the already-applied rewrite state to succeed\"
+          grep -Fq 'sh tools/update-checksums.sh AdGuardHome.sh' \"${{WORKFLOW}}\" ||
+          \tfail \"${{WORKFLOW}}: Sonar parser validation must regenerate AdGuardHome.sh checksums before comparison\"
+          grep -Fq 'ref: {pr_head_expr}' \"${{WORKFLOW}}\" ||
+          \tfail \"${{WORKFLOW}}: Sonar parser validation must check the immutable pull-request head SHA\"
+          grep -Fq 'persist-credentials: false' \"${{WORKFLOW}}\" ||
+          \tfail \"${{WORKFLOW}}: Sonar parser validation must not persist checkout credentials\"
+          if grep -Fq 'contents: write' \"${{WORKFLOW}}\"; then
+          \tfail \"${{WORKFLOW}}: pull-request quality workflow must not grant contents write permission\"
+          fi
+          if grep -Fq 'git push origin HEAD:v2.6.5' \"${{WORKFLOW}}\"; then
+          \tfail \"${{WORKFLOW}}: pull-request quality workflow must not publish branch changes\"
+          fi
+          grep -Fq 'git diff --exit-code -- AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum' \"${{WORKFLOW}}\" ||
+          \tfail \"${{WORKFLOW}}: Sonar parser validation must fail when generated artifacts differ\""""
+          if config_text.count(old_contract) != 1:
+              raise SystemExit("workflow regression: Sonar cleanup contract marker changed unexpectedly")
+          config_text = config_text.replace(old_contract, new_contract)
+          dependency_marker = """grep -Fq 'sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq' \"${REVIEW_WORKFLOW}\" ||
+          \tfail \"${REVIEW_WORKFLOW}: expected the same host-side dependencies as the blocking quality workflow\""""
+          sonar_assertions = dependency_marker + """
+          [ \"$(grep -Fc -- '--connect-timeout 10 --max-time 60' \"${REVIEW_WORKFLOW}\")\" -eq 2 ] ||
+          \tfail \"${REVIEW_WORKFLOW}: both Sonar requests must have bounded request-level timeouts\"
+          grep -Fq 'if not isinstance(payload, dict):' \"${REVIEW_WORKFLOW}\" ||
+          \tfail \"${REVIEW_WORKFLOW}: Sonar response validation must reject non-object payloads\"
+          grep -Fq 'not isinstance(issues, list)' \"${REVIEW_WORKFLOW}\" ||
+          \tfail \"${REVIEW_WORKFLOW}: Sonar response validation must require an issues list\"
+          grep -Fq 'type(total) is not int' \"${REVIEW_WORKFLOW}\" ||
+          \tfail \"${REVIEW_WORKFLOW}: Sonar response validation must require an integer total\"
+          grep -Fq 'total < len(issues)' \"${REVIEW_WORKFLOW}\" ||
+          \tfail \"${REVIEW_WORKFLOW}: Sonar response validation must reject inconsistent totals\""""
+          if config_text.count(dependency_marker) != 1:
+              raise SystemExit("workflow regression: dependency assertion marker changed unexpectedly")
+          config_test.write_text(config_text.replace(dependency_marker, sonar_assertions), encoding="utf-8")
+          PY
+
+          python3 .github/scripts/fix-sonar-shell-parse.py
+          sh tools/update-checksums.sh AdGuardHome.sh installer
+          sh -n AdGuardHome.sh
+          sh -n installer
+          sh -n tests/lan-primary-address-selection.sh
+          sh -n tests/installer-bind-addresses.sh
+          sh -n tests/lan-bridge-discovery-doc-consistency.sh
+          sh -n tests/coderabbit-and-workflow-config-checks.sh
+          sh tests/lan-primary-address-selection.sh
+          sh tests/installer-bind-addresses.sh
+          sh tests/lan-bridge-discovery-doc-consistency.sh
+          sh tests/coderabbit-and-workflow-config-checks.sh
+          sh tools/check-md5.sh
+          sh tools/check-sha256.sh
+
+      - name: Commit validated fixes
+        run: |
+          set -eu
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- \
+            AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum \
+            installer installer.md5sum installer.sha256sum \
+            README.md WIKI.md \
+            tests/lan-primary-address-selection.sh \
+            tests/installer-bind-addresses.sh \
+            tests/lan-bridge-discovery-doc-consistency.sh \
+            tests/coderabbit-and-workflow-config-checks.sh \
+            .github/workflows/code-quality-review.yml \
+            .github/workflows/code-quality.yml
+          git diff --cached --check
+          git diff --cached --quiet && {
+            printf '%s\n' 'No merge-readiness changes were needed.'
+            exit 0
+          }
+          git commit -m 'fix: close final merge-readiness gaps'
+          git push origin HEAD:v2.6.5
