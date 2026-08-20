@@ -53,6 +53,9 @@ jobs:
           dash -n tools/update-md5.sh
           dash -n tools/update-checksums.sh
 
+      - name: Run checksum output validation regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/static-checksum-output-validation.sh
+
       - name: Run mkdir reaper owner publication regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-reaper-owner-publication.sh
 
@@ -61,6 +64,9 @@ jobs:
 
       - name: Run process signaling regression with BusyBox ash
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/rc-process-signaling.sh
+
+      - name: Run deterministic startup signal recovery regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/rc-startup-signal-determinism.sh
 
       - name: Run bounded service lifecycle integration matrix
         # DNS handoff validates root-only FIFO ownership, matching router init.
