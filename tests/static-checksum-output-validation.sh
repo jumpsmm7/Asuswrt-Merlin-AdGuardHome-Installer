@@ -6,14 +6,10 @@ set -u
 SCRIPT_PATH="${1:-tools/download-adguardhome-static.sh}"
 TEST_ROOT="${TMPDIR:-/tmp}/static-checksum-output-validation.$$"
 FUNCTION_FILE="${TEST_ROOT}/functions"
-FAKE_BIN="${TEST_ROOT}/bin"
 FAKE_SUM_LOG="${TEST_ROOT}/sum-calls"
 INPUT_FILE="${TEST_ROOT}/input"
-ORIGINAL_PATH="${PATH}"
 
 cleanup() {
-	PATH="${ORIGINAL_PATH}"
-	export PATH
 	rm -rf "${TEST_ROOT}"
 }
 
@@ -24,7 +20,7 @@ fail() {
 
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
-mkdir -p "${FAKE_BIN}" || fail 'could not create checksum fixture directory'
+mkdir -p "${TEST_ROOT}" || fail 'could not create checksum fixture directory'
 printf '%s\n' payload >"${INPUT_FILE}" || fail 'could not create checksum fixture input'
 
 sed -n '/^calc_sum() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" ||
@@ -35,49 +31,60 @@ sed -n '/^calc_sum() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" ||
 . "${FUNCTION_FILE}"
 type calc_sum >/dev/null 2>&1 || fail 'calc_sum helper extraction failed'
 
-cat >"${FAKE_BIN}/checksum-fixture" <<'EOF_FIXTURE'
-#!/bin/sh
-printf '%s %s\n' "${0##*/}" "${FAKE_SUM_CASE:-unset}" >>"${FAKE_SUM_LOG}"
-case "${FAKE_SUM_CASE:-}" in
-	md5-valid)
-		printf '%s  %s\n' '0123456789abcdef0123456789abcdef' "$1"
-		;;
-	md5-nonhex)
-		printf '%s  %s\n' '0123456789abcdef0123456789abcdeg' "$1"
-		;;
-	md5-short)
-		printf '%s  %s\n' '0123456789abcdef0123456789abcde' "$1"
-		;;
-	md5-long)
-		printf '%s  %s\n' '0123456789abcdef0123456789abcdef0' "$1"
-		;;
-	sha256-valid)
-		printf '%s  %s\n' '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' "$1"
-		;;
-	sha256-nonhex)
-		printf '%s  %s\n' '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg' "$1"
-		;;
-	sha256-short)
-		printf '%s  %s\n' '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde' "$1"
-		;;
-	sha256-long)
-		printf '%s  %s\n' '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0' "$1"
-		;;
-	command-failure)
-		exit 7
-		;;
-	*)
-		exit 8
-		;;
-esac
-EOF_FIXTURE
-chmod 755 "${FAKE_BIN}/checksum-fixture" || fail 'could not make checksum fixture executable'
-ln "${FAKE_BIN}/checksum-fixture" "${FAKE_BIN}/md5sum" || fail 'could not create md5sum fixture'
-ln "${FAKE_BIN}/checksum-fixture" "${FAKE_BIN}/sha256sum" || fail 'could not create sha256sum fixture'
-ln "${FAKE_BIN}/checksum-fixture" "${FAKE_BIN}/fake-sum" || fail 'could not create unsupported checksum fixture'
+checksum_fixture_output() {
+	_command="$1"
+	shift
+	printf '%s %s\n' "${_command}" "${FAKE_SUM_CASE:-unset}" >>"${FAKE_SUM_LOG}"
+	case "${FAKE_SUM_CASE:-}" in
+		md5-valid)
+			printf '%s  %s\n' '0123456789abcdef0123456789abcdef' "$1"
+			;;
+		md5-nonhex)
+			printf '%s  %s\n' '0123456789abcdef0123456789abcdeg' "$1"
+			;;
+		md5-short)
+			printf '%s  %s\n' '0123456789abcdef0123456789abcde' "$1"
+			;;
+		md5-long)
+			printf '%s  %s\n' '0123456789abcdef0123456789abcdef0' "$1"
+			;;
+		sha256-valid)
+			printf '%s  %s\n' '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' "$1"
+			;;
+		sha256-nonhex)
+			printf '%s  %s\n' '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg' "$1"
+			;;
+		sha256-short)
+			printf '%s  %s\n' '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde' "$1"
+			;;
+		sha256-long)
+			printf '%s  %s\n' '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0' "$1"
+			;;
+		command-failure)
+			return 7
+			;;
+		*)
+			return 8
+			;;
+	esac
+}
 
-PATH="${FAKE_BIN}:${PATH}"
-export PATH FAKE_SUM_LOG
+# Override the exact supported command names as shell functions.  BusyBox ash
+# may execute BusyBox applets ahead of PATH fixtures, but shell functions take
+# precedence and therefore exercise calc_sum's md5sum/sha256sum branches
+# deterministically.
+md5sum() {
+	checksum_fixture_output md5sum "$@"
+}
+
+sha256sum() {
+	checksum_fixture_output sha256sum "$@"
+}
+
+fake_sum() {
+	checksum_fixture_output fake_sum "$@"
+}
+
 : >"${FAKE_SUM_LOG}"
 
 assert_accepts() {
@@ -123,17 +130,17 @@ for _case in sha256-nonhex sha256-short sha256-long command-failure; do
 	assert_rejects "${_case}" sha256sum
 done
 
-# Separately prove calc_sum still rejects an unsupported command identity even
-# when that executable emits an otherwise valid MD5-shaped digest.
+# Separately prove calc_sum rejects an unsupported command identity even when
+# that command executes and emits an otherwise valid MD5-shaped digest.
 FAKE_SUM_CASE=md5-valid
 export FAKE_SUM_CASE
 _before="$(wc -l <"${FAKE_SUM_LOG}")"
-if calc_sum fake-sum "${INPUT_FILE}" >/dev/null 2>&1; then
+if calc_sum fake_sum "${INPUT_FILE}" >/dev/null 2>&1; then
 	fail 'calc_sum accepted an unsupported checksum command identity'
 fi
 _after="$(wc -l <"${FAKE_SUM_LOG}")"
 [ "${_after}" -eq "$((_before + 1))" ] || fail 'unsupported command fixture did not execute'
-grep -q '^fake-sum md5-valid$' "${FAKE_SUM_LOG}" ||
+grep -q '^fake_sum md5-valid$' "${FAKE_SUM_LOG}" ||
 	fail 'unsupported command rejection was not tested independently of command execution'
 
 printf '%s\n' 'PASS: calc_sum validates supported checksum command output by identity, length, content, and exit status'
