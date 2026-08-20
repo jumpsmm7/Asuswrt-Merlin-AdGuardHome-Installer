@@ -27,14 +27,14 @@ jobs:
     steps:
       - name: Check out pull request merge
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
           fetch-depth: 0
 
       - name: Check out selected ref
         if: github.event_name != 'pull_request'
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
 
@@ -49,7 +49,7 @@ jobs:
         run: sh tools/code-quality.sh
 
   sonarcloud:
-    name: SonarQube Cloud Advisory Scan
+    name: SonarQube Cloud Quality Gate
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)
@@ -58,14 +58,14 @@ jobs:
     steps:
       - name: Check out pull request merge
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
           fetch-depth: 0
 
       - name: Check out selected ref
         if: github.event_name != 'pull_request'
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
 
@@ -93,21 +93,11 @@ jobs:
           printf '%s\n' "${JAVA_HOME_21_X64}/bin" >> "${GITHUB_PATH}"
           "${JAVA_HOME_21_X64}/bin/java" -version
 
-      - name: SonarQube Cloud advisory scan
-        id: sonar_scan
-        continue-on-error: true
+      - name: SonarQube Cloud scan and quality gate
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        with:
+          args: >-
+            -Dsonar.qualitygate.wait=true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_SCANNER_SKIP_JRE_PROVISIONING: "true"
-
-      - name: Report SonarQube Cloud advisory status
-        if: always()
-        env:
-          SONAR_OUTCOME: ${{ steps.sonar_scan.outcome }}
-        run: |
-          if [ "${SONAR_OUTCOME}" = success ]; then
-            printf '%s\n' 'SonarQube Cloud EU advisory analysis completed successfully.'
-          else
-            printf '%s\n' '::warning title=SonarQube Cloud EU advisory unavailable::The advisory scanner could not complete against the SonarQube Cloud EU instance (sonarcloud.io). If SonarQube Cloud returns HTTP 401/403, verify that SONAR_TOKEN was generated in the EU instance and has permission to analyze this project.'
-          fi
