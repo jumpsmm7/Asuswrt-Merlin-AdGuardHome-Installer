@@ -65,6 +65,12 @@ jobs:
       - name: Run process signaling regression with BusyBox ash
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/rc-process-signaling.sh
 
+      - name: Run restart stop-failure propagation regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/rc-restart-stop-failure.sh
+
+      - name: Run monitor stop config fallback regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/monitor-stop-config-fallback.sh
+
       - name: Run deterministic startup signal recovery regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/rc-startup-signal-determinism.sh
 
