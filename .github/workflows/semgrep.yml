@@ -1,0 +1,48 @@
+name: Semgrep Security Scan
+
+on:
+  pull_request:
+    branches: [dev]
+  push:
+    branches: [dev, master, main]
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  semgrep:
+    name: Semgrep repository policy scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Semgrep Community Edition
+        shell: sh
+        run: |
+          set -eu
+          python3 -m venv "${RUNNER_TEMP}/semgrep-venv"
+          "${RUNNER_TEMP}/semgrep-venv/bin/pip" install --disable-pip-version-check 'semgrep==1.172.0'
+          printf '%s\n' "${RUNNER_TEMP}/semgrep-venv/bin" >> "${GITHUB_PATH}"
+
+      - name: Generate Semgrep SARIF
+        shell: sh
+        run: semgrep scan --config .semgrep.yml --metrics=off --sarif --output semgrep.sarif .
+
+      - name: Upload Semgrep results
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep-repository-policy
+
+      - name: Enforce repository security policies
+        shell: sh
+        run: semgrep scan --config .semgrep.yml --metrics=off --error .
