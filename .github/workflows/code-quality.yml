@@ -76,14 +76,12 @@ jobs:
           set -eu
           for helper in \
             .github/scripts/apply-sonar-maintainability.py \
-            .github/scripts/sync-qodo-config-snippet.py \
-            .github/scripts/code-quality.original.yml; do
+            .github/scripts/sync-qodo-config-snippet.py; do
             [ -f "${helper}" ] || {
               printf '%s\n' "Error: staged helper is missing: ${helper}" >&2
               exit 1
             }
           done
-          cp .github/scripts/code-quality.original.yml "${RUNNER_TEMP}/code-quality.yml.original"
           python3 .github/scripts/apply-sonar-maintainability.py
           python3 .github/scripts/sync-qodo-config-snippet.py
 
@@ -99,14 +97,9 @@ jobs:
           sh tests/download-static-failure-safety.sh
           sh tests/qodo-get-rules-config-validation.sh
 
-      - name: Publish fixes and restore CI
+      - name: Publish validated code changes
         run: |
           set -eu
-          cp "${RUNNER_TEMP}/code-quality.yml.original" .github/workflows/code-quality.yml
-          rm -f .github/workflows/apply-sonar-maintainability.yml
-          rm -f .github/scripts/apply-sonar-maintainability.py
-          rm -f .github/scripts/sync-qodo-config-snippet.py
-          rm -f .github/scripts/code-quality.original.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -- sonar-project.properties \
@@ -114,12 +107,7 @@ jobs:
             tools/code-quality.sh \
             tools/check-release-consistency.sh \
             .agents/skills/qodo-get-rules/config-parsing.sh \
-            .agents/skills/qodo-get-rules/SKILL.md \
-            .github/workflows/code-quality.yml \
-            .github/workflows/apply-sonar-maintainability.yml \
-            .github/scripts/apply-sonar-maintainability.py \
-            .github/scripts/sync-qodo-config-snippet.py \
-            .github/scripts/code-quality.original.yml
+            .agents/skills/qodo-get-rules/SKILL.md
           git diff --cached --check
           git commit -m 'fix: address Sonar maintainability findings'
           git push origin HEAD:v2.6.5
