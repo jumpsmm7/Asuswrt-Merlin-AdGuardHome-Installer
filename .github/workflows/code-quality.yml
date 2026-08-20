@@ -56,3 +56,59 @@ jobs:
             printf '%s\n' ''
             printf '%s\n' 'If the failure above is from `shfmt`, run `tools/code-quality.sh --fix` locally and commit the formatting changes, or dispatch the `Create shfmt formatting PR` workflow against this branch.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  apply-sonar-maintainability:
+    name: Apply reviewed Sonar maintainability fixes
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'v2.6.5'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: v2.6.5
+          fetch-depth: 2
+
+      - name: Apply reviewed Sonar fixes
+        run: |
+          set -eu
+          [ -f .github/scripts/apply-sonar-maintainability.py ] || {
+            printf '%s\n' 'Error: staged Sonar patch helper is missing.' >&2
+            exit 1
+          }
+          git show HEAD^:.github/workflows/code-quality.yml > "${RUNNER_TEMP}/code-quality.yml.original"
+          python3 .github/scripts/apply-sonar-maintainability.py
+
+      - name: Validate focused changes
+        run: |
+          set -eu
+          sh -n tools/download-adguardhome-static.sh
+          sh -n tools/code-quality.sh
+          sh -n tools/check-release-consistency.sh
+          sh -n .agents/skills/qodo-get-rules/config-parsing.sh
+          sh tests/code-quality-checks.sh
+          sh tests/release-consistency.sh
+          sh tests/download-static-failure-safety.sh
+          sh tests/qodo-get-rules-config-validation.sh
+
+      - name: Publish fixes and restore CI
+        run: |
+          set -eu
+          cp "${RUNNER_TEMP}/code-quality.yml.original" .github/workflows/code-quality.yml
+          rm -f .github/workflows/apply-sonar-maintainability.yml
+          rm -f .github/scripts/apply-sonar-maintainability.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- sonar-project.properties \
+            tools/download-adguardhome-static.sh \
+            tools/code-quality.sh \
+            tools/check-release-consistency.sh \
+            .agents/skills/qodo-get-rules/config-parsing.sh \
+            .github/workflows/code-quality.yml \
+            .github/workflows/apply-sonar-maintainability.yml \
+            .github/scripts/apply-sonar-maintainability.py
+          git diff --cached --check
+          git commit -m 'fix: address Sonar maintainability findings'
+          git push origin HEAD:v2.6.5
