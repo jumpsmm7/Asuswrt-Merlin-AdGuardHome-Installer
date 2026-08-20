@@ -22,6 +22,26 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
+      - name: Correct indentation-aware monitor matcher
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/scripts/final-merge-readiness.py')
+          text = path.read_text(encoding='utf-8')
+          old = 'replace_exact("AdGuardHome.sh", monitor_old, monitor_new, expected=2)'
+          new = '''replace_exact("AdGuardHome.sh", monitor_old, monitor_new, expected=1)
+          replace_exact(
+              "AdGuardHome.sh",
+              monitor_old.replace("\\t\\t\\t", "\\t\\t\\t\\t"),
+              monitor_new.replace("\\t\\t\\t", "\\t\\t\\t\\t"),
+              expected=1,
+          )'''
+          if text.count(old) != 1:
+              raise SystemExit('final helper monitor matcher was not found exactly once')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+
       - name: Apply final merge-readiness patch
         run: python3 .github/scripts/final-merge-readiness.py
 
