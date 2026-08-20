@@ -226,6 +226,7 @@ run_check 'code-quality.sh helper function regression' sh tests/code-quality-che
 run_check 'Command failure propagation regression' sh tests/command-failure-propagation.sh
 run_check 'Canonical path final-symlink regression' sh tests/canonical-path-symlink.sh
 run_check 'Router runtime PATH priority regression' sh tests/router-path-priority.sh
+run_check 'Static checksum output validation regression' sh tests/static-checksum-output-validation.sh
 run_check 'Static archive failure safety regression' sh tests/download-static-failure-safety.sh
 run_check 'Static archive interruption cleanup regression' sh tests/download-static-interruption-cleanup.sh
 run_check 'Installer file failure safety regression' sh tests/installer-file-failure-safety.sh
@@ -294,6 +295,7 @@ run_check 'AdGuardHome S99 usleep fallback regression' sh tests/s99-usleep-fallb
 run_check 'AdGuardHome stop failure regression' sh tests/stop-adguardhome-failure.sh
 run_check 'AdGuardHome dnsmasq adaptive readiness regression' sh tests/dnsmasq-adaptive-readiness.sh
 run_check 'AdGuardHome process signaling regression' sh tests/rc-process-signaling.sh
+run_check 'AdGuardHome deterministic startup signal recovery regression' sh tests/rc-startup-signal-determinism.sh
 run_check 'AdGuardHome monitor retry backoff regression' sh tests/monitor-retry-backoff.sh
 run_check 'AdGuardHome proc setting ownership regression' sh tests/adguardhome-proc-settings.sh
 run_check 'AdGuardHome Go runtime environment regression' sh tests/adguardhome-go-environment.sh
