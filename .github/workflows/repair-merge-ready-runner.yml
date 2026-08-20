@@ -1,0 +1,67 @@
+name: Repair merge-ready runner
+
+on:
+  push:
+    branches:
+      - v2.6.5
+    paths:
+      - .github/workflows/repair-merge-ready-runner.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out source branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: v2.6.5
+          fetch-depth: 2
+
+      - name: Repair runner and remove this helper
+        run: |
+          set -eu
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/apply-merge-ready-fixes.yml')
+          text = path.read_text(encoding='utf-8')
+          start_marker = '          new_contract = f"""# --- The Sonar parser cleanup must be idempotent.'
+          end_marker = '\n          if config_text.count(old_contract) != 1:'
+          start = text.find(start_marker)
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('could not locate merge-runner contract block')
+          replacement = '''          new_contract = """# --- The Sonar parser cleanup must be idempotent. Pull-request validation must
+          # use the immutable head SHA with a non-persistent read-only checkout and fail
+          # when the parser rewrite or checksum sidecars would change the committed tree.
+          grep -Fq 'old_count == 1 and new_count == 0' \"${SONAR_REWRITE}\" ||
+          \\tfail \"${SONAR_REWRITE}: expected validation of the pre-rewrite state\"
+          grep -Fq 'old_count == 0 and new_count == 1' \"${SONAR_REWRITE}\" ||
+          \\tfail \"${SONAR_REWRITE}: expected the already-applied rewrite state to succeed\"
+          grep -Fq 'sh tools/update-checksums.sh AdGuardHome.sh' \"${WORKFLOW}\" ||
+          \\tfail \"${WORKFLOW}: Sonar parser validation must regenerate AdGuardHome.sh checksums before comparison\"
+          grep -Fq 'ref: @PR_HEAD@' \"${WORKFLOW}\" ||
+          \\tfail \"${WORKFLOW}: Sonar parser validation must check the immutable pull-request head SHA\"
+          grep -Fq 'persist-credentials: false' \"${WORKFLOW}\" ||
+          \\tfail \"${WORKFLOW}: Sonar parser validation must not persist checkout credentials\"
+          if grep -Fq 'contents: write' \"${WORKFLOW}\"; then
+          \\tfail \"${WORKFLOW}: pull-request quality workflow must not grant contents write permission\"
+          fi
+          if grep -Fq 'git push origin HEAD:v2.6.5' \"${WORKFLOW}\"; then
+          \\tfail \"${WORKFLOW}: pull-request quality workflow must not publish branch changes\"
+          fi
+          grep -Fq 'git diff --exit-code -- AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum' \"${WORKFLOW}\" ||
+          \\tfail \"${WORKFLOW}: Sonar parser validation must fail when generated artifacts differ\""".replace("@PR_HEAD@", pr_head_expr)'''
+          path.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
+          PY
+          git rm -- .github/workflows/repair-merge-ready-runner.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- .github/workflows/apply-merge-ready-fixes.yml
+          git diff --cached --check
+          git commit -m 'chore: repair merge-readiness automation'
+          git push origin HEAD:v2.6.5
