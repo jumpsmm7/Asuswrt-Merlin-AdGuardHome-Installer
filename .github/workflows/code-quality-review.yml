@@ -101,3 +101,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_SCANNER_SKIP_JRE_PROVISIONING: "true"
+
+      - name: Report failed Sonar quality gate conditions
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          SONAR_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -eu
+          gate_url="https://sonarcloud.io/api/qualitygates/project_status?projectKey=jumpsmm7_Asuswrt-Merlin-AdGuardHome-Installer&pullRequest=${SONAR_PR_NUMBER}"
+          if gate_response="$(curl -fsS -u "${SONAR_TOKEN}:" "${gate_url}")"; then
+            printf '%s\n' 'SonarQube Cloud quality gate response:'
+            printf '%s\n' "${gate_response}"
+          else
+            printf '%s\n' 'Warning: unable to retrieve SonarQube Cloud quality gate details.' >&2
+          fi
