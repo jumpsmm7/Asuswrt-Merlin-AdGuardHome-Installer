@@ -22,24 +22,39 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
-      - name: Correct indentation-aware monitor matcher
+      - name: Correct final helper matchers
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
           path = Path('.github/scripts/final-merge-readiness.py')
           text = path.read_text(encoding='utf-8')
-          old = 'replace_exact("AdGuardHome.sh", monitor_old, monitor_new, expected=2)'
-          new = '''replace_exact("AdGuardHome.sh", monitor_old, monitor_new, expected=1)
+
+          old_matcher = 'replace_exact("AdGuardHome.sh", monitor_old, monitor_new, expected=2)'
+          new_matcher = '''replace_exact("AdGuardHome.sh", monitor_old, monitor_new, expected=1)
           replace_exact(
               "AdGuardHome.sh",
               monitor_old.replace("\\t\\t\\t", "\\t\\t\\t\\t"),
               monitor_new.replace("\\t\\t\\t", "\\t\\t\\t\\t"),
               expected=1,
           )'''
-          if text.count(old) != 1:
+          if text.count(old_matcher) != 1:
               raise SystemExit('final helper monitor matcher was not found exactly once')
-          path.write_text(text.replace(old, new), encoding='utf-8')
+          text = text.replace(old_matcher, new_matcher)
+
+          old_launch = '''start_monitor &
+          MONITOR_TEST_PID="$!"
+          wait_for_file "${READY_FILE}"'''
+          new_launch = '''set +u
+          start_monitor &
+          MONITOR_TEST_PID="$!"
+          set -u
+          wait_for_file "${READY_FILE}"'''
+          if text.count(old_launch) != 1:
+              raise SystemExit('monitor regression launch block was not found exactly once')
+          text = text.replace(old_launch, new_launch)
+
+          path.write_text(text, encoding='utf-8')
           PY
 
       - name: Apply final merge-readiness patch
