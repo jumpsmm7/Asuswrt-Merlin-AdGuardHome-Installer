@@ -41,7 +41,7 @@ jobs:
       - name: Install shell tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq
+          sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq coreutils
 
       - name: Run local code quality checks
         env:
