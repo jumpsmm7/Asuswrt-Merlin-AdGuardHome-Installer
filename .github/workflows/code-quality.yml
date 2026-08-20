@@ -54,7 +54,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: v2.6.5
-          fetch-depth: 0
+          fetch-depth: 2
 
       - name: Repair concurrent malformed dnsmasq edit
         shell: bash
@@ -64,6 +64,11 @@ jobs:
 
           path = Path('AdGuardHome.sh')
           text = path.read_text()
+          prefix_old = '\tif dns_servers="$(netstat -nlp 2>/dev/null | awk'
+          prefix_new = '\tdns_servers="$(netstat -nlp 2>/dev/null | awk'
+          if text.count(prefix_old) != 1:
+              raise SystemExit(f'expected one malformed dnsmasq assignment prefix, found {text.count(prefix_old)}')
+          text = text.replace(prefix_old, prefix_new, 1)
           old = '''\t')" || return 1
           \tif [ -z "${dns_servers}" ]; then
           \t\treturn 1
@@ -81,7 +86,7 @@ jobs:
           \tlan_addr="$(nvram get lan_ipaddr 2>/dev/null)"
           '''
           if text.count(old) != 1:
-              raise SystemExit(f'expected one malformed dnsmasq block, found {text.count(old)}')
+              raise SystemExit(f'expected one malformed dnsmasq tail, found {text.count(old)}')
           path.write_text(text.replace(old, new, 1))
           PY
           sh -n AdGuardHome.sh
