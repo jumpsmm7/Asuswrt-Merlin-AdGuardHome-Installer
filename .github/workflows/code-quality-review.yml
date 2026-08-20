@@ -82,12 +82,24 @@ jobs:
           printf '::add-mask::%s\n' "${normalized_token}"
           printf 'SONAR_TOKEN=%s\n' "${normalized_token}" >> "${GITHUB_ENV}"
 
+      - name: Select Java 21 for SonarScanner
+        run: |
+          set -eu
+          [ -n "${JAVA_HOME_21_X64:-}" ] && [ -x "${JAVA_HOME_21_X64}/bin/java" ] || {
+            printf '%s\n' 'Error: GitHub runner Java 21 is unavailable.' >&2
+            exit 1
+          }
+          printf 'JAVA_HOME=%s\n' "${JAVA_HOME_21_X64}" >> "${GITHUB_ENV}"
+          printf '%s\n' "${JAVA_HOME_21_X64}/bin" >> "${GITHUB_PATH}"
+          "${JAVA_HOME_21_X64}/bin/java" -version
+
       - name: SonarQube Cloud advisory scan
         id: sonar_scan
         continue-on-error: true
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_SCANNER_SKIP_JRE_PROVISIONING: "true"
 
       - name: Report SonarQube Cloud advisory status
         if: always()
@@ -97,5 +109,5 @@ jobs:
           if [ "${SONAR_OUTCOME}" = success ]; then
             printf '%s\n' 'SonarQube Cloud advisory analysis completed successfully.'
           else
-            printf '%s\n' '::warning title=SonarQube Cloud advisory unavailable::The advisory scanner could not complete. This does not replace or weaken the required local, BusyBox, Semgrep, OSV, Scorecard, checksum, or Actionlint gates. Repair SONAR_TOKEN authorization to restore advisory analysis.'
+            printf '%s\n' '::warning title=SonarQube Cloud advisory unavailable::The advisory scanner could not complete. JRE auto-provisioning is disabled and the GitHub runner Java 21 runtime is used directly. If SonarQube Cloud still returns HTTP 401/403, regenerate SONAR_TOKEN and replace the GitHub Actions secret.'
           fi
