@@ -108,10 +108,20 @@ jobs:
           SONAR_PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -eu
-          gate_url="https://sonarcloud.io/api/qualitygates/project_status?projectKey=jumpsmm7_Asuswrt-Merlin-AdGuardHome-Installer&pullRequest=${SONAR_PR_NUMBER}"
+          project_key='jumpsmm7_Asuswrt-Merlin-AdGuardHome-Installer'
+          gate_url="https://sonarcloud.io/api/qualitygates/project_status?projectKey=${project_key}&pullRequest=${SONAR_PR_NUMBER}"
+          issues_url="https://sonarcloud.io/api/issues/search?componentKeys=${project_key}&pullRequest=${SONAR_PR_NUMBER}&resolved=false&ps=100"
+
           if gate_response="$(curl -fsS -u "${SONAR_TOKEN}:" "${gate_url}")"; then
             printf '%s\n' 'SonarQube Cloud quality gate response:'
             printf '%s\n' "${gate_response}"
           else
             printf '%s\n' 'Warning: unable to retrieve SonarQube Cloud quality gate details.' >&2
+          fi
+
+          if issues_response="$(curl -fsS -u "${SONAR_TOKEN}:" "${issues_url}")"; then
+            printf '%s\n' 'SonarQube Cloud unresolved pull-request issues:'
+            printf '%s\n' "${issues_response}"
+          else
+            printf '%s\n' 'Warning: unable to retrieve SonarQube Cloud issue details.' >&2
           fi
