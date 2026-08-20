@@ -99,25 +99,15 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_REGION: ${{ vars.SONAR_REGION }}
           SONAR_SCANNER_SKIP_JRE_PROVISIONING: "true"
 
       - name: Report SonarQube Cloud advisory status
         if: always()
         env:
           SONAR_OUTCOME: ${{ steps.sonar_scan.outcome }}
-          SONAR_REGION_CONFIG: ${{ vars.SONAR_REGION }}
         run: |
           if [ "${SONAR_OUTCOME}" = success ]; then
-            printf '%s\n' 'SonarQube Cloud advisory analysis completed successfully.'
+            printf '%s\n' 'SonarQube Cloud EU advisory analysis completed successfully.'
           else
-            case "${SONAR_REGION_CONFIG:-}" in
-              us|US)
-                sonar_instance='US (sonarqube.us)'
-                ;;
-              *)
-                sonar_instance='EU/default (sonarcloud.io)'
-                ;;
-            esac
-            printf '%s\n' "::warning title=SonarQube Cloud advisory unavailable::The advisory scanner could not complete against ${sonar_instance}. If SonarQube Cloud returns HTTP 401/403, regenerate SONAR_TOKEN in that same SonarQube Cloud instance and replace the GitHub Actions secret. Set the repository variable SONAR_REGION=us only when the SonarQube Cloud project itself is hosted in the US instance."
+            printf '%s\n' '::warning title=SonarQube Cloud EU advisory unavailable::The advisory scanner could not complete against the SonarQube Cloud EU instance (sonarcloud.io). If SonarQube Cloud returns HTTP 401/403, verify that SONAR_TOKEN was generated in the EU instance and has permission to analyze this project.'
           fi
