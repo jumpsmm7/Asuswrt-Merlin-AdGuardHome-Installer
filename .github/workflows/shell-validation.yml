@@ -137,11 +137,14 @@ jobs:
       - name: Wait for checksum chore commit on pull requests
         if: github.event_name == 'pull_request'
         shell: bash
+        env:
+          TARGET_BRANCH: ${{ github.event.pull_request.head.ref }}
+          ORIGINAL_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
 
-          target_branch="${{ github.event.pull_request.head.ref }}"
-          original_sha="${{ github.event.pull_request.head.sha }}"
+          target_branch="${TARGET_BRANCH}"
+          original_sha="${ORIGINAL_SHA}"
           checksum_files=(installer.md5sum installer.sha256sum AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum S99AdGuardHome.md5sum S99AdGuardHome.sha256sum rc.func.AdGuardHome.md5sum rc.func.AdGuardHome.sha256sum)
           checksum_targets=(installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome)
           while IFS= read -r archive; do
