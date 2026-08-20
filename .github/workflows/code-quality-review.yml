@@ -69,6 +69,19 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Normalize Sonar token
+        env:
+          RAW_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set -eu
+          normalized_token="$(printf '%s' "${RAW_SONAR_TOKEN}" | tr -d '\r\n')"
+          [ -n "${normalized_token}" ] || {
+            printf '%s\n' 'Error: SONAR_TOKEN is empty after normalization.' >&2
+            exit 1
+          }
+          printf '::add-mask::%s\n' "${normalized_token}"
+          printf 'SONAR_TOKEN=%s\n' "${normalized_token}" >> "${GITHUB_ENV}"
+
       - name: SonarQube Cloud Scan and quality gate
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         with:
@@ -76,4 +89,3 @@ jobs:
             -Dsonar.qualitygate.wait=true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
