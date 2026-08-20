@@ -102,26 +102,107 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_SCANNER_SKIP_JRE_PROVISIONING: "true"
 
-      - name: Report failed Sonar quality gate conditions
-        if: failure() && github.event_name == 'pull_request'
+      - name: Enforce zero unresolved Sonar issues
+        if: always() && github.event_name == 'pull_request'
         env:
           SONAR_PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -eu
+          [ -n "${SONAR_TOKEN:-}" ] || {
+            printf '%s\n' 'Error: SONAR_TOKEN is unavailable for strict issue enforcement.' >&2
+            exit 1
+          }
+
           project_key='jumpsmm7_Asuswrt-Merlin-AdGuardHome-Installer'
           gate_url="https://sonarcloud.io/api/qualitygates/project_status?projectKey=${project_key}&pullRequest=${SONAR_PR_NUMBER}"
-          issues_url="https://sonarcloud.io/api/issues/search?componentKeys=${project_key}&pullRequest=${SONAR_PR_NUMBER}&resolved=false&types=VULNERABILITY&ps=100"
+          issues_url="https://sonarcloud.io/api/issues/search?componentKeys=${project_key}&pullRequest=${SONAR_PR_NUMBER}&resolved=false&ps=500"
+          issues_file="$(mktemp "${RUNNER_TEMP:-/tmp}/sonar-issues.XXXXXX")" || exit 1
+          trap 'rm -f "${issues_file}"' EXIT HUP INT TERM
 
-          if gate_response="$(curl -fsS -u "${SONAR_TOKEN}:" "${gate_url}")"; then
+          if gate_response="$(curl --proto '=https' --proto-redir '=https' -fsS -u "${SONAR_TOKEN}:" "${gate_url}")"; then
             printf '%s\n' 'SonarQube Cloud quality gate response:'
             printf '%s\n' "${gate_response}"
           else
             printf '%s\n' 'Warning: unable to retrieve SonarQube Cloud quality gate details.' >&2
           fi
 
-          if issues_response="$(curl -fsS -u "${SONAR_TOKEN}:" "${issues_url}")"; then
-            printf '%s\n' 'SonarQube Cloud unresolved pull-request vulnerabilities:'
-            printf '%s\n' "${issues_response}"
-          else
-            printf '%s\n' 'Warning: unable to retrieve SonarQube Cloud vulnerability details.' >&2
-          fi
+          curl --proto '=https' --proto-redir '=https' -fsS -u "${SONAR_TOKEN}:" "${issues_url}" >"${issues_file}" || {
+            printf '%s\n' 'Error: unable to retrieve unresolved SonarQube Cloud issues.' >&2
+            exit 1
+          }
+
+          python3 - "${issues_file}" <<'PY'
+          import json
+          import sys
+
+          path = sys.argv[1]
+          with open(path, encoding="utf-8") as handle:
+              payload = json.load(handle)
+
+          issues = payload.get("issues", [])
+          total = int(payload.get("total", len(issues)))
+          type_quality = {
+              "BUG": "RELIABILITY",
+              "CODE_SMELL": "MAINTAINABILITY",
+              "VULNERABILITY": "SECURITY",
+          }
+
+          counts = {"RELIABILITY": 0, "MAINTAINABILITY": 0, "SECURITY": 0, "OTHER": 0}
+          rendered = []
+
+          for issue in issues:
+              impacts = issue.get("impacts") or []
+              qualities = sorted(
+                  {
+                      impact.get("softwareQuality")
+                      for impact in impacts
+                      if impact.get("softwareQuality")
+                  }
+              )
+              if not qualities:
+                  qualities = [type_quality.get(issue.get("type"), "OTHER")]
+
+              for quality in qualities:
+                  counts[quality if quality in counts else "OTHER"] += 1
+
+              severity = issue.get("severity") or ",".join(
+                  sorted(
+                      {
+                          impact.get("severity", "")
+                          for impact in impacts
+                          if impact.get("severity")
+                      }
+                  )
+              ) or "UNKNOWN"
+              component = issue.get("component", "unknown")
+              line = issue.get("line")
+              location = f"{component}:{line}" if line else component
+              rendered.append(
+                  f"- {','.join(qualities)} {severity} {issue.get('rule', 'unknown')} "
+                  f"{location} - {issue.get('message', '')}"
+              )
+
+          print(
+              "Sonar unresolved issue summary: "
+              f"total={total} reliability={counts['RELIABILITY']} "
+              f"maintainability={counts['MAINTAINABILITY']} "
+              f"security={counts['SECURITY']} other={counts['OTHER']}"
+          )
+          for line in rendered:
+              print(line)
+
+          if total:
+              if total > len(issues):
+                  print(
+                      f"Only the first {len(issues)} of {total} unresolved issues were returned.",
+                      file=sys.stderr,
+                  )
+              print(
+                  "Error: unresolved Sonar issues remain; reliability, maintainability, "
+                  "and security issues are merge-blocking.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          print("No unresolved Sonar reliability, maintainability, or security issues remain.")
+          PY
