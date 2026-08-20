@@ -7,7 +7,13 @@ TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/s99-usleep-fallback.XXXXXX")" || exit 1
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 CALLS_FILE="${TMP_ROOT}/calls"
 
-cleanup() { rm -rf "${TMP_ROOT}"; }
+cleanup() {
+	if [ -n "${ADGUARDHOME_DNS_GUARD_PID:-}" ]; then
+		command kill "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
+		wait "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
+	fi
+	rm -rf "${TMP_ROOT}"
+}
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
