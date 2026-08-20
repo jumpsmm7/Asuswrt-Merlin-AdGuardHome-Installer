@@ -44,7 +44,7 @@ jobs:
 
   apply-focused-review-fixes:
     name: Apply focused review fixes
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'v2.6.5' && github.event.pull_request.head.sha == github.sha
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'v2.6.5'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
