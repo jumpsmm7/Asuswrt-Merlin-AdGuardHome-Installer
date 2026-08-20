@@ -99,6 +99,7 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_REGION: us
           SONAR_SCANNER_SKIP_JRE_PROVISIONING: "true"
 
       - name: Report SonarQube Cloud advisory status
@@ -109,5 +110,5 @@ jobs:
           if [ "${SONAR_OUTCOME}" = success ]; then
             printf '%s\n' 'SonarQube Cloud advisory analysis completed successfully.'
           else
-            printf '%s\n' '::warning title=SonarQube Cloud advisory unavailable::The advisory scanner could not complete. JRE auto-provisioning is disabled and the GitHub runner Java 21 runtime is used directly. If SonarQube Cloud still returns HTTP 401/403, regenerate SONAR_TOKEN and replace the GitHub Actions secret.'
+            printf '%s\n' '::warning title=SonarQube Cloud advisory unavailable::The advisory scanner could not complete against the SonarQube Cloud US region. If SonarQube Cloud returns HTTP 401/403, regenerate SONAR_TOKEN in the US instance and replace the GitHub Actions secret.'
           fi
