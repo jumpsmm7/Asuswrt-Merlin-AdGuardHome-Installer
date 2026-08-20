@@ -41,3 +41,119 @@ jobs:
             printf '%s\n' ''
             printf '%s\n' 'If the failure above is from `shfmt`, run `tools/code-quality.sh --fix` locally and commit the formatting changes, or dispatch the `Create shfmt formatting PR` workflow against this branch.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  apply-final-readiness-fixes:
+    name: Apply verified final readiness fixes
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'v2.6.5'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Check out PR head branch
+        uses: actions/checkout@v5
+        with:
+          ref: v2.6.5
+          fetch-depth: 0
+
+      - name: Repair concurrent malformed dnsmasq edit
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('AdGuardHome.sh')
+          text = path.read_text()
+          old = '''\t')" || return 1
+          \tif [ -z "${dns_servers}" ]; then
+          \t\treturn 1
+          \tfi
+          \tif printf '%s
+          \t\treturn 1
+          \tfi
+          \telse
+          \t\treturn 1
+          \tfi
+          \tlan_addr="$(nvram get lan_ipaddr 2>/dev/null)"
+          '''
+          new = '''\t')" || return 1
+          \t[ -n "${dns_servers}" ] || return 1
+          \tlan_addr="$(nvram get lan_ipaddr 2>/dev/null)"
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one malformed dnsmasq block, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          sh -n AdGuardHome.sh
+
+      - name: Apply requested runtime changes
+        shell: bash
+        run: |
+          awk '
+            /^          python3 - <<'"'"'PY'"'"'$/ { capture=1; next }
+            capture && /^          PY$/ { exit }
+            capture { sub(/^          /, ""); print }
+          ' .github/workflows/apply-final-merge-readiness.yml > /tmp/apply-final.py
+          test -s /tmp/apply-final.py
+          python3 /tmp/apply-final.py
+          chmod 755 \
+            tests/installer-secure-download-fallback.sh \
+            tests/s99-usleep-fallback.sh \
+            tests/dnsmasq-adaptive-readiness.sh
+          sed -i "s/grep -q -- '--no-check-certificate'/grep -q -e '--no-check-certificate'/g" tests/installer-secure-download-fallback.sh
+
+      - name: Refresh checksums and validate
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck shfmt
+          sh tools/update-checksums.sh
+          sh -n installer
+          sh -n S99AdGuardHome
+          sh -n AdGuardHome.sh
+          sh -n tests/installer-secure-download-fallback.sh
+          sh -n tests/s99-usleep-fallback.sh
+          sh -n tests/dnsmasq-adaptive-readiness.sh
+          shellcheck -s sh --severity=warning \
+            tests/installer-secure-download-fallback.sh \
+            tests/s99-usleep-fallback.sh \
+            tests/dnsmasq-adaptive-readiness.sh
+          shfmt -d -ln mksh -i 0 -ci \
+            installer S99AdGuardHome AdGuardHome.sh \
+            tests/installer-secure-download-fallback.sh \
+            tests/s99-usleep-fallback.sh \
+            tests/dnsmasq-adaptive-readiness.sh \
+            tests/dns-startup-handoff.sh \
+            tests/stop-adguardhome-failure.sh
+          sh tests/installer-secure-download-fallback.sh
+          sh tests/s99-usleep-fallback.sh
+          sh tests/dnsmasq-adaptive-readiness.sh
+          sh tests/stop-adguardhome-failure.sh
+          sh tests/dns-startup-handoff.sh
+          sh tools/check-md5.sh
+          sh tools/check-sha256.sh
+          sh tools/check-release-consistency.sh
+
+      - name: Restore workflow and commit patch
+        shell: bash
+        run: |
+          git show HEAD^:.github/workflows/code-quality.yml > .github/workflows/code-quality.yml
+          rm -f .github/workflows/repair-dnsmasq-readiness.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- \
+            .github/workflows/code-quality.yml \
+            .github/workflows/repair-dnsmasq-readiness.yml \
+            installer installer.md5sum installer.sha256sum \
+            S99AdGuardHome S99AdGuardHome.md5sum S99AdGuardHome.sha256sum \
+            AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum \
+            tests/installer-secure-download-fallback.sh \
+            tests/s99-usleep-fallback.sh \
+            tests/dnsmasq-adaptive-readiness.sh \
+            tests/dns-startup-handoff.sh \
+            tests/stop-adguardhome-failure.sh \
+            tools/code-quality.sh
+          git diff --cached --check
+          git diff --cached --quiet && { printf '%s\n' 'No patch changes to commit.'; exit 0; }
+          git commit -m 'fix: harden download and DNS recovery'
+          git push origin HEAD:v2.6.5
