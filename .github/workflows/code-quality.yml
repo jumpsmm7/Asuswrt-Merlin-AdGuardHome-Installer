@@ -54,7 +54,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: v2.6.5
-          fetch-depth: 2
+          fetch-depth: 10
 
       - name: Repair concurrent malformed dnsmasq edit
         shell: bash
@@ -112,6 +112,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y shellcheck shfmt
+          shfmt -w -ln mksh -i 0 -ci \
+            tests/installer-secure-download-fallback.sh \
+            tests/s99-usleep-fallback.sh \
+            tests/dnsmasq-adaptive-readiness.sh
           sh tools/update-checksums.sh
           sh -n installer
           sh -n S99AdGuardHome
@@ -142,7 +146,7 @@ jobs:
       - name: Restore workflow and commit patch
         shell: bash
         run: |
-          git show HEAD^:.github/workflows/code-quality.yml > .github/workflows/code-quality.yml
+          git show c66c602387b44c4b6d7839faad0e01189dbed866:.github/workflows/code-quality.yml > .github/workflows/code-quality.yml
           rm -f .github/workflows/repair-dnsmasq-readiness.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
