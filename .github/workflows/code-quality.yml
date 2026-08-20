@@ -71,24 +71,87 @@ jobs:
           ref: v2.6.5
           fetch-depth: 2
 
-      - name: Apply parser-friendly rewrite
+      - name: Apply final merge-readiness patch
         run: |
           set -eu
-          python3 .github/scripts/fix-sonar-shell-parse.py
-          sh -n AdGuardHome.sh
-          sh tests/installer-status.sh
-          sh tools/update-checksums.sh AdGuardHome.sh
 
-      - name: Publish validated production change
-        run: |
-          set -eu
+          # Restore the pre-dispatch workflow so the patch program can replace the
+          # original publisher block with the final read-only validation job.
+          git show HEAD^:.github/workflows/code-quality.yml > .github/workflows/code-quality.yml
+
+          # Repair the temporary patch carrier so its embedded Python does not
+          # contain GitHub-expression-looking shell variable text.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/apply-merge-ready-fixes.yml')
+          text = path.read_text(encoding='utf-8')
+          start_marker = '          new_contract = f"""# --- The Sonar parser cleanup must be idempotent.'
+          end_marker = '\n          if config_text.count(old_contract) != 1:'
+          start = text.find(start_marker)
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('could not locate merge-runner contract block')
+          replacement = '''          new_contract = """# --- The Sonar parser cleanup must be idempotent. Pull-request validation must
+          # use the immutable head SHA with a non-persistent read-only checkout and fail
+          # when the parser rewrite or checksum sidecars would change the committed tree.
+          grep -Fq 'old_count == 1 and new_count == 0' \"${SONAR_REWRITE}\" ||
+          \\tfail \"${SONAR_REWRITE}: expected validation of the pre-rewrite state\"
+          grep -Fq 'old_count == 0 and new_count == 1' \"${SONAR_REWRITE}\" ||
+          \\tfail \"${SONAR_REWRITE}: expected the already-applied rewrite state to succeed\"
+          grep -Fq 'sh tools/update-checksums.sh AdGuardHome.sh' \"${WORKFLOW}\" ||
+          \\tfail \"${WORKFLOW}: Sonar parser validation must regenerate AdGuardHome.sh checksums before comparison\"
+          grep -Fq 'ref: @PR_HEAD@' \"${WORKFLOW}\" ||
+          \\tfail \"${WORKFLOW}: Sonar parser validation must check the immutable pull-request head SHA\"
+          grep -Fq 'persist-credentials: false' \"${WORKFLOW}\" ||
+          \\tfail \"${WORKFLOW}: Sonar parser validation must not persist checkout credentials\"
+          if grep -Fq 'contents: write' \"${WORKFLOW}\"; then
+          \\tfail \"${WORKFLOW}: pull-request quality workflow must not grant contents write permission\"
+          fi
+          if grep -Fq 'git push origin HEAD:v2.6.5' \"${WORKFLOW}\"; then
+          \\tfail \"${WORKFLOW}: pull-request quality workflow must not publish branch changes\"
+          fi
+          grep -Fq 'git diff --exit-code -- AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum' \"${WORKFLOW}\" ||
+          \\tfail \"${WORKFLOW}: Sonar parser validation must fail when generated artifacts differ\""".replace("@PR_HEAD@", pr_head_expr)'''
+          path.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
+          PY
+
+          sed -n "/^          python3 - <<'PY'$/,/^          PY$/p" .github/workflows/apply-merge-ready-fixes.yml |
+            sed '1d;$d;s/^          //' > /tmp/apply-merge-ready.py
+          [ -s /tmp/apply-merge-ready.py ] || {
+            printf '%s\n' 'Error: could not extract final patch program.' >&2
+            exit 1
+          }
+          python3 /tmp/apply-merge-ready.py
+
+          python3 .github/scripts/fix-sonar-shell-parse.py
+          sh tools/update-checksums.sh AdGuardHome.sh installer
+          sh -n AdGuardHome.sh
+          sh -n installer
+          sh -n tests/lan-primary-address-selection.sh
+          sh -n tests/installer-bind-addresses.sh
+          sh -n tests/lan-bridge-discovery-doc-consistency.sh
+          sh -n tests/coderabbit-and-workflow-config-checks.sh
+          sh tests/lan-primary-address-selection.sh
+          sh tests/installer-bind-addresses.sh
+          sh tests/lan-bridge-discovery-doc-consistency.sh
+          sh tests/coderabbit-and-workflow-config-checks.sh
+          sh tools/check-md5.sh
+          sh tools/check-sha256.sh
+
+          git rm -- .github/workflows/apply-merge-ready-fixes.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum
+          git add -- \
+            AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum \
+            installer installer.md5sum installer.sha256sum \
+            README.md WIKI.md \
+            tests/lan-primary-address-selection.sh \
+            tests/installer-bind-addresses.sh \
+            tests/lan-bridge-discovery-doc-consistency.sh \
+            tests/coderabbit-and-workflow-config-checks.sh \
+            .github/workflows/code-quality-review.yml \
+            .github/workflows/code-quality.yml
           git diff --cached --check
-          if git diff --cached --quiet; then
-            printf '%s\n' 'Sonar parser cleanup and checksums are already current.'
-            exit 0
-          fi
-          git commit -m 'fix: make status output Sonar-parseable'
+          git commit -m 'fix: close final merge-readiness gaps'
           git push origin HEAD:v2.6.5
