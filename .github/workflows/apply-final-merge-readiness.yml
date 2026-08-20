@@ -1,0 +1,51 @@
+name: Apply final merge-readiness fixes
+
+on:
+  pull_request:
+    types: [synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    name: Apply verified final fixes
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'v2.6.5'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply final merge-readiness patch
+        run: python3 .github/scripts/final-merge-readiness.py
+
+      - name: Validate targeted shell behavior and checksums
+        run: |
+          set -eu
+          sh -n AdGuardHome.sh
+          sh -n rc.func.AdGuardHome
+          sh tests/monitor-stop-config-fallback.sh
+          sh tests/rc-restart-stop-failure.sh
+          sh tools/check-md5.sh AdGuardHome.sh rc.func.AdGuardHome
+          sh tools/check-sha256.sh AdGuardHome.sh rc.func.AdGuardHome
+
+      - name: Commit verified fixes
+        env:
+          TARGET_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -eu
+          if git diff --quiet && git diff --cached --quiet; then
+            echo 'No final merge-readiness changes were required.'
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'fix: close final merge-readiness gaps'
+          git push origin "HEAD:${TARGET_BRANCH}"
