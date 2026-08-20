@@ -11,6 +11,11 @@ CODERABBIT='.coderabbit.yaml'
 CODEX_PROMPT='.github/prompts/codex-code-improvement.md'
 WORKFLOW='.github/workflows/code-quality.yml'
 REVIEW_WORKFLOW='.github/workflows/code-quality-review.yml'
+CACHE_WORKFLOW='.github/workflows/cache-adguardhome-static.yml'
+SONAR_REWRITE='.github/scripts/fix-sonar-shell-parse.py'
+SEMGREP='.semgrep.yml'
+SONAR='sonar-project.properties'
+STATIC_DOWNLOADER='tools/download-adguardhome-static.sh'
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/workflow-config-checks.XXXXXX")" || {
 	printf '%s\n' 'FAIL: could not create workflow regression workspace' >&2
 	exit 1
@@ -43,7 +48,7 @@ review_checker_is_enforced() {
 	' "${_review_workflow}"
 }
 
-for f in "${CODERABBIT}" "${CODEX_PROMPT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}"; do
+for f in "${CODERABBIT}" "${CODEX_PROMPT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}" "${CACHE_WORKFLOW}" "${SONAR_REWRITE}" "${SEMGREP}" "${SONAR}" "${STATIC_DOWNLOADER}"; do
 	[ -f "${f}" ] || fail "expected config file not found: ${f}"
 done
 
@@ -172,5 +177,40 @@ fi
 # coverage without any other check noticing.
 grep -Eq '^[[:space:]]*pull_request:' "${WORKFLOW}" || fail "${WORKFLOW}: expected an 'on: pull_request' trigger"
 grep -Eq '^[[:space:]]*push:' "${WORKFLOW}" || fail "${WORKFLOW}: expected an 'on: push' trigger"
+
+# --- The Sonar parser cleanup must be idempotent, and its publisher must keep
+# the checksum-covered runtime script and both sidecars in one commit.
+grep -Fq 'old_count == 1 and new_count == 0' "${SONAR_REWRITE}" ||
+	fail "${SONAR_REWRITE}: expected validation of the pre-rewrite state"
+grep -Fq 'old_count == 0 and new_count == 1' "${SONAR_REWRITE}" ||
+	fail "${SONAR_REWRITE}: expected the already-applied rewrite state to succeed"
+grep -Fq 'sh tools/update-checksums.sh AdGuardHome.sh' "${WORKFLOW}" ||
+	fail "${WORKFLOW}: Sonar parser cleanup must regenerate AdGuardHome.sh checksums"
+grep -Fq 'git add -- AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum' "${WORKFLOW}" ||
+	fail "${WORKFLOW}: Sonar parser cleanup must stage both checksum sidecars atomically"
+grep -Fq 'git diff --cached --quiet' "${WORKFLOW}" ||
+	fail "${WORKFLOW}: Sonar parser cleanup must accept an already-current no-op"
+
+# --- Static archive publication creates both sidecars itself. The cache job
+# stages complete architecture directories so archive and digest changes stay
+# in the same commit without a redundant second checksum pass.
+grep -Fq '_md5_file="${_archive_file}.md5sum"' "${STATIC_DOWNLOADER}" ||
+	fail "${STATIC_DOWNLOADER}: static archive publisher no longer derives its MD5 sidecar"
+grep -Fq '_sha256_file="${_archive_file}.sha256sum"' "${STATIC_DOWNLOADER}" ||
+	fail "${STATIC_DOWNLOADER}: static archive publisher no longer derives its SHA-256 sidecar"
+grep -Fq 'git add -- armv8 armv7 armv5' "${CACHE_WORKFLOW}" ||
+	fail "${CACHE_WORKFLOW}: static archive job must stage complete architecture directories"
+
+# --- Security policy must catch insecure downloader bypass options even when
+# curl or wget is invoked through an absolute trusted router path.
+grep -Fq '(?:/[^ \t\n]*/)?curl' "${SEMGREP}" ||
+	fail "${SEMGREP}: insecure curl rule no longer covers absolute executable paths"
+grep -Fq '(?:/[^ \t\n]*/)?wget' "${SEMGREP}" ||
+	fail "${SEMGREP}: insecure wget rule no longer covers absolute executable paths"
+
+# --- Sonar must assign all extensionless production shell entrypoints to its
+# Shell analyzer in addition to normal *.sh files.
+grep -Fqx 'sonar.lang.patterns.shell=**/*.sh,installer,S99AdGuardHome,rc.func.AdGuardHome' "${SONAR}" ||
+	fail "${SONAR}: Shell language patterns no longer include all extensionless runtime entrypoints"
 
 printf '%s\n' 'PASS: .coderabbit.yaml and code-quality workflows keep required structure and execute real checks'
