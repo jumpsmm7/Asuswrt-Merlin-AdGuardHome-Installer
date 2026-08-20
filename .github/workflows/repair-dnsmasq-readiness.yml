@@ -1,0 +1,61 @@
+name: Repair dnsmasq readiness syntax
+
+on:
+  push:
+    branches:
+      - v2.6.5
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.head_commit.message == 'chore: repair malformed dnsmasq readiness'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: v2.6.5
+          fetch-depth: 0
+
+      - name: Repair concurrent malformed edit
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('AdGuardHome.sh')
+          text = path.read_text()
+          old = '''\t')" || return 1
+\tif [ -z "${dns_servers}" ]; then
+\t\treturn 1
+\tfi
+\tif printf '%s
+\t\treturn 1
+\tfi
+\telse
+\t\treturn 1
+\tfi
+\tlan_addr="$(nvram get lan_ipaddr 2>/dev/null)"
+'''
+          new = '''\t')" || return 1
+\t[ -n "${dns_servers}" ] || return 1
+\tlan_addr="$(nvram get lan_ipaddr 2>/dev/null)"
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one malformed dnsmasq block, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+          sh -n AdGuardHome.sh
+          git diff --check -- AdGuardHome.sh
+
+      - name: Commit repair and retrigger final patch
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- AdGuardHome.sh
+          git commit -m 'chore: stage final merge-readiness patch'
+          git push origin HEAD:v2.6.5
