@@ -10,14 +10,16 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
-  security-events: write
 
 jobs:
   scan-pr:
     name: OSV new-vulnerability scan
     if: github.event_name == 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@3adb4b14a2b0623876d18d863a498b785fb3752d # v2.3.8
     with:
       scan-args: |-
@@ -29,6 +31,10 @@ jobs:
   scan-full:
     name: OSV full vulnerability scan
     if: github.event_name != 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@3adb4b14a2b0623876d18d863a498b785fb3752d # v2.3.8
     with:
       scan-args: |-
