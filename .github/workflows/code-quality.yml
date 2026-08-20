@@ -78,14 +78,14 @@ jobs:
           busybox ash -n tests/runtime-writable-path-security.sh
 
           sudo -n busybox ash tests/dns-startup-handoff.sh
-          busybox ash tests/download-static-interruption-cleanup.sh
-          busybox ash tests/installer-doctor-fix-safety.sh
-          busybox ash tests/installer-end-op-rollback.sh
-          busybox ash tests/installer-secure-download-fallback.sh
-          sudo -n busybox ash tests/runtime-writable-path-security.sh
-          busybox ash tests/qodo-provider-thread-resolution.sh
-          busybox ash tests/qodo-get-rules-config-validation.sh
-          busybox ash tests/qodo-get-rules-query-output-consistency.sh
+          sh tests/download-static-interruption-cleanup.sh
+          sh tests/installer-doctor-fix-safety.sh
+          sh tests/installer-end-op-rollback.sh
+          sh tests/installer-secure-download-fallback.sh
+          sudo -n sh tests/runtime-writable-path-security.sh
+          sh tests/qodo-provider-thread-resolution.sh
+          sh tests/qodo-get-rules-config-validation.sh
+          sh tests/qodo-get-rules-query-output-consistency.sh
 
           ! grep -F 'command sleep 0.01' tests/dns-startup-handoff.sh
           ! grep -F 'type != "array" or length != 1' .agents/skills/qodo-get-rules/references/search-endpoint.md
