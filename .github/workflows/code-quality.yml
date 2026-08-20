@@ -56,3 +56,34 @@ jobs:
             printf '%s\n' ''
             printf '%s\n' 'If the failure above is from `shfmt`, run `tools/code-quality.sh --fix` locally and commit the formatting changes, or dispatch the `Create shfmt formatting PR` workflow against this branch.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  apply-sonar-parser-cleanup:
+    name: Apply Sonar parser cleanup
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'v2.6.5'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: v2.6.5
+          fetch-depth: 2
+
+      - name: Apply parser-friendly rewrite
+        run: |
+          set -eu
+          python3 .github/scripts/fix-sonar-shell-parse.py
+          sh -n AdGuardHome.sh
+          sh tests/installer-status.sh
+
+      - name: Publish validated production change
+        run: |
+          set -eu
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- AdGuardHome.sh
+          git diff --cached --check
+          git commit -m 'fix: make status output Sonar-parseable'
+          git push origin HEAD:v2.6.5
