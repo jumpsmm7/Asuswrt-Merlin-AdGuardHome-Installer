@@ -57,16 +57,16 @@ run_case() (
 )
 
 # Empty pidof output and pidof failure must never cause a broad name-based signal.
-run_case '' 0 '' 0 ''
-run_case '' 2 '' 2 ''
+run_case '' 0 '' 0 '' || fail 'empty pidof output signaling case failed'
+run_case '' 2 '' 2 '' || fail 'pidof failure signaling case failed'
 
 # Reserved and wholly malformed PID lists are refused.
-run_case '0' 0 '' 1 ''
-run_case '1' 0 '' 1 ''
-run_case 'bad nope' 0 '' 1 ''
+run_case '0' 0 '' 1 '' || fail 'reserved PID 0 signaling case failed'
+run_case '1' 0 '' 1 '' || fail 'reserved PID 1 signaling case failed'
+run_case 'bad nope' 0 '' 1 '' || fail 'malformed PID signaling case failed'
 
 # Malformed/reserved fields are discarded, while valid decimal PIDs are deduplicated.
-run_case '0 bad 22 1 22 0033' 0 '22 33' 0 '-s TERM 22 33'
+run_case '0 bad 22 1 22 0033' 0 '22 33' 0 '-s TERM 22 33' || fail 'mixed PID validation and deduplication case failed'
 
 # Malformed glob fields must be rejected before intentional PID-list splitting.
 GLOB_ROOT=$(mktemp -d) || fail 'unable to create glob-expansion test directory'
@@ -79,23 +79,23 @@ touch "${GLOB_ROOT}/66" || fail 'unable to create numeric glob-expansion fixture
 ) || fail 'malformed glob field was expanded before PID validation'
 
 # A process that exits before the identity recheck is not signaled.
-run_case '44' 0 '' 1 ''
+run_case '44' 0 '' 1 '' || fail 'process-exit signaling case failed'
 
 # PID reuse is refused when /proc identity no longer names the expected process.
-run_case '55' 0 '99' 1 ''
+run_case '55' 0 '99' 1 '' || fail 'PID-reuse signaling case failed'
 
 # A non-zero pidof exit status must short-circuit before PID validation/signaling
 # even when pidof also printed PID-shaped output alongside its failure.
-run_case '22' 3 '22' 3 ''
+run_case '22' 3 '22' 3 '' || fail 'pidof-status propagation case failed'
 
 # Leading-zero-padded and unpadded spellings of the same PID must collapse to a
 # single signaled PID, not merely identical repeated tokens.
-run_case '22 022' 0 '22' 0 '-s TERM 22'
+run_case '22 022' 0 '22' 0 '-s TERM 22' || fail 'normalized PID deduplication case failed'
 
 # When every PID survives validation and identity recheck but the final kill
 # invocation itself fails, signal_process must propagate kill's exit status
 # rather than reporting success.
-run_case '22' 0 '22' 5 '-s TERM 22' 5
+run_case '22' 0 '22' 5 '-s TERM 22' 5 || fail 'kill-status propagation case failed'
 
 # process_pid_matches reads the real /proc filesystem; exercise it directly
 # against this shell's own live PID/comm instead of only through the stub
@@ -187,4 +187,4 @@ DEPS_ERR_FILE="${DEPS_ROOT}/missing-kill.err"
 grep -Fq 'rc-dependency-test: required service command is unavailable: kill' "${DEPS_ERR_FILE}" ||
 	fail "rc_dependencies_available did not report the missing kill command, got: $(cat "${DEPS_ERR_FILE}")"
 
-printf '%s\n' 'rc process signaling tests passed'
+printf '%s\n' 'PASS: rc process signaling tests passed'

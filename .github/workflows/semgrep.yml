@@ -34,6 +34,32 @@ jobs:
           "${RUNNER_TEMP}/semgrep-venv/bin/pip" install --disable-pip-version-check 'semgrep==1.172.0'
           printf '%s\n' "${RUNNER_TEMP}/semgrep-venv/bin" >> "${GITHUB_PATH}"
 
+      - name: Verify chmod guardrail fixtures
+        shell: sh
+        run: |
+          set -eu
+          fixture_dir="${RUNNER_TEMP}/semgrep-chmod-fixture"
+          fixture_json="${RUNNER_TEMP}/semgrep-chmod-fixtures.json"
+          mkdir -p "${fixture_dir}"
+          cp tests/fixtures/semgrep/chmod-world-writable.sh "${fixture_dir}/installer"
+          (
+            cd "${fixture_dir}"
+            semgrep scan --config "${GITHUB_WORKSPACE}/.semgrep.yml" --metrics=off --json installer > "${fixture_json}"
+          )
+          python3 - "${fixture_json}" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              results = json.load(handle).get("results", [])
+          matches = [
+              result for result in results
+              if result.get("check_id", "").endswith("asuswrt-no-world-writable-chmod")
+          ]
+          if len(matches) != 5:
+              raise SystemExit(f"expected 5 chmod guardrail fixture matches, found {len(matches)}")
+          PY
+
       - name: Generate Semgrep SARIF
         shell: sh
         run: semgrep scan --config .semgrep.yml --metrics=off --sarif --output semgrep.sarif .

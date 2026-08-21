@@ -4,7 +4,10 @@
 set -u
 
 INSTALLER_PATH="${1:-installer}"
-TEST_ROOT="${TMPDIR:-/tmp}/installer-reaper-owner-publication.$$"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/installer-reaper-owner-publication.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive reaper test workspace' >&2
+	exit 1
+}
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 
 # fail reports a test failure and exits with a nonzero status.
@@ -18,11 +21,14 @@ cleanup() { rm -rf "${TEST_ROOT}"; }
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-mkdir -p "${TEST_ROOT}" || fail 'could not create test workspace'
 sed -n '/^nvram_transaction_recover_startup() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" |
 	sed '$d' >"${FUNCTIONS_FILE}" || fail 'could not extract transaction lock helpers'
+[ -s "${FUNCTIONS_FILE}" ] || fail 'transaction lock helper extraction was empty'
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+for reaper_fn in nvram_transaction_lock_reaper_acquire nvram_transaction_lock_reaper_release; do
+	type "${reaper_fn}" >/dev/null 2>&1 || fail "extracted helpers are missing ${reaper_fn}()"
+done
 
 reaper_path="${TEST_ROOT}/owner-publication.reaper"
 LOCK_OWNER="$$:1"

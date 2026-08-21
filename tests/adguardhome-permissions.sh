@@ -4,7 +4,10 @@
 set -u
 
 REPO_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-TMP_DIR="${TMPDIR:-/tmp}/agh-permissions.$$"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agh-permissions.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive permission-test workspace' >&2
+	exit 1
+}
 INSTALLER_FUNCTIONS="${TMP_DIR}/installer-functions.sh"
 S99_FUNCTIONS="${TMP_DIR}/s99-functions.sh"
 
@@ -84,7 +87,6 @@ EOS
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-mkdir -p "${TMP_DIR}" || exit 1
 extract_permission_functions "${REPO_DIR}/installer" "${INSTALLER_FUNCTIONS}" \
 	'adguardhome_yaml_ipset_file() {' 'create_backup_archive() {' || fail 'could not extract installer permission helpers'
 sed -n '/^adguardhome_owner_account() {$/,/^}/p' "${REPO_DIR}/installer" >>"${INSTALLER_FUNCTIONS}" ||

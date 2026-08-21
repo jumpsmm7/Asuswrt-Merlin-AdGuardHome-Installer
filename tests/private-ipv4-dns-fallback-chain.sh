@@ -30,6 +30,14 @@ trap 'cleanup; exit 1' HUP INT TERM
 sed -n '/^private_ipv4_bridge_dns_options() {$/,/^resolv_conf_is_tmp_mount() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTION_FILE}" ||
 	fail 'could not extract bridge DNS fallback helpers'
 [ -s "${FUNCTION_FILE}" ] || fail 'bridge DNS fallback helper extraction was empty'
+for helper in \
+	private_ipv4_bridge_dns_options \
+	private_ipv4_bridge_address_is_assigned \
+	private_ipv4_bridge_dns_options_with_fallbacks \
+	private_ipv4_legacy_route_dns_options \
+	private_ipv4_route_dns_options; do
+	grep -Fq "${helper}() {" "${FUNCTION_FILE}" || fail "bridge DNS fallback helper extraction is missing ${helper}"
+done
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 

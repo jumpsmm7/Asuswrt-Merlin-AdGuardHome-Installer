@@ -4,7 +4,10 @@
 set -u
 
 RC_PATH="${1:-rc.func.AdGuardHome}"
-TMP_ROOT="${TMPDIR:-/tmp}/rc-startup-signal-determinism.$$"
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/rc-startup-signal-determinism.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive startup-signal test directory' >&2
+	exit 1
+}
 FUNCTION_FILE="${TMP_ROOT}/functions"
 CALLS_FILE="${TMP_ROOT}/calls"
 STARTED_FILE="${TMP_ROOT}/started"
@@ -53,7 +56,6 @@ hold_until_release() {
 
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
-mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n \
 	'/^stop_launched_process() {$/,/^}$/p; /^adguardhome_start_handoff_is_prepared() {$/,/^}$/p; /^adguardhome_start_handoff_required() {$/,/^}$/p; /^hook_function_is_valid() {$/,/^}$/p; /^start_hooks_are_valid() {$/,/^}$/p; /^adguardhome_run_postfailcmd() {$/,/^}$/p; /^adguardhome_start_traps_cleanup() {$/,/^}$/p; /^adguardhome_start_traps_restore() {$/,/^}$/p; /^adguardhome_start_traps_save() {$/,/^}$/p; /^adguardhome_start_signal_abort() {$/,/^}$/p; /^start() {$/,/^}$/p' \

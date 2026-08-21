@@ -205,15 +205,14 @@ grep -q '^    - 10\.52\.0\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'advertised SDN
 ! grep -q '^    - 198\.51\.100\.1$' "${TMP_ROOT}/lan-ip.yaml" || fail 'public bridge address was automatically exposed'
 ! grep -Eq '^    - (127\.0\.0\.2|169\.254\.20\.1|192\.0\.2\.255|224\.0\.0\.1|255\.255\.255\.255|192\.0\.2\.[23])$' "${TMP_ROOT}/lan-ip.yaml" || fail 'unusable bridge address was written'
 
-# Multi-bridge guest, SDN, and VPN topologies retain every advertised bridge address.
-for topology in multi-bridge guest-network sdn-active vpn-bridge ap-mode repeater-mode; do
-	BRIDGE_ADDRS='2: br1    inet 192.168.101.1/24 brd 192.168.101.255 scope global br1
+# One representative multi-bridge fixture requires every guest, SDN, and VPN address.
+BRIDGE_ADDRS='2: br1    inet 192.168.101.1/24 brd 192.168.101.255 scope global br1
 3: br52    inet 10.52.0.1/24 brd 10.52.0.255 scope global br52
 4: br-vpn  inet 172.20.0.1/24 brd 172.20.0.255 scope global br-vpn'
-	assert_yaml_bind_hosts "${topology}" 6
-	grep -Eq '^    - (192\.168\.101\.1|10\.52\.0\.1|172\.20\.0\.1)$' "${TMP_ROOT}/${topology}.yaml" ||
-		fail "${topology}: assigned secondary bridge addresses were omitted"
-done
+assert_yaml_bind_hosts multi-bridge 6
+grep -q '^    - 192\.168\.101\.1$' "${TMP_ROOT}/multi-bridge.yaml" || fail 'multi-bridge: guest bridge address was omitted'
+grep -q '^    - 10\.52\.0\.1$' "${TMP_ROOT}/multi-bridge.yaml" || fail 'multi-bridge: SDN bridge address was omitted'
+grep -q '^    - 172\.20\.0\.1$' "${TMP_ROOT}/multi-bridge.yaml" || fail 'multi-bridge: VPN bridge address was omitted'
 
 # Prefer a stable mngtmpaddr IPv6 template over temporary, tentative, deprecated, and dadfailed addresses.
 IPV6_FROM_IP='2001:db8::95'

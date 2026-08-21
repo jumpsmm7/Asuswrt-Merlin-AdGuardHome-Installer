@@ -23,6 +23,7 @@ fail() {
 # write_conf resets the configuration file, writes each provided value on its own line, and records the configured installation mode.
 write_conf() {
 	: >"${CONF_FILE}" || fail 'could not reset config file'
+	CONFIG_INSTALL_MODE=""
 	while [ "$#" -gt 0 ]; do
 		printf '%s\n' "$1" >>"${CONF_FILE}" || fail 'could not write config value'
 		case "$1" in

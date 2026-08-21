@@ -44,4 +44,4 @@ protected_launches="$(grep -Ec 'adguard_service_without_nvram_lock_fd (service (
 [ "${service_launches}" -gt 0 ] || fail 'no AdGuardHome service launch was found; the coverage pattern is stale'
 [ "${service_launches}" -eq "${protected_launches}" ] || fail 'an AdGuardHome service launch bypasses descriptor isolation'
 
-printf '%s\n' 'Installer service lock descriptor tests passed.'
+printf '%s\n' 'PASS: AdGuardHome service launches cannot inherit the NVRAM transaction lock descriptor'

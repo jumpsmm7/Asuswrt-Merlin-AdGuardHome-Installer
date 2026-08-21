@@ -100,9 +100,13 @@ fi
 [ "${status}" -eq 1 ] || fail 'interactive install must exit with status 1 when JFFS setup fails'
 [ -e "${TEST_ROOT}/interactive-jffs-checked" ] || fail 'interactive install exited before reaching the JFFS guard'
 
-# Verify that both call sites are guarded
-call_count="$(grep -c '^[[:space:]]*check_jffs_enabled || \(return\|exit\) 1$' "${INSTALLER_PATH}")" ||
-	fail 'could not count guarded JFFS setup calls'
+# Verify that both call sites are guarded.
+call_count="$(grep -c '^[[:space:]]*check_jffs_enabled || \(return\|exit\) 1$' "${INSTALLER_PATH}")"
+grep_status="$?"
+case "${grep_status}" in
+	0 | 1) ;;
+	*) fail 'could not count guarded JFFS setup calls' ;;
+esac
 [ "${call_count}" -eq 2 ] || fail 'every JFFS setup call must propagate failure'
 
 printf '%s\n' 'PASS: JFFS setup failures abort CLI and interactive installs'

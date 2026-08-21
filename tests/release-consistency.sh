@@ -154,28 +154,32 @@ if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh
 fi
 write_architecture_fixture armv5 || fail 'unable to restore armv5 fixture'
 
-(
-	cd "${TMP_ROOT}" || exit 1
-	mkdir -p "${TMP_ROOT}/git-home" "${TMP_ROOT}/git-hooks" "${TMP_ROOT}/git-template" &&
-		export HOME="${TMP_ROOT}/git-home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 &&
-		git init -q --template="${TMP_ROOT}/git-template" &&
-		git config user.name 'Release Test' &&
-		git config user.email 'release-test@example.invalid' &&
-		git config commit.gpgSign false &&
-		git config tag.gpgSign false &&
-		git config core.hooksPath "${TMP_ROOT}/git-hooks" &&
-		git add . &&
-		git commit -qm baseline &&
-		git commit --allow-empty -qm candidate
-) || fail 'unable to create stale-manifest Git fixture'
-chmod +x "${TMP_ROOT}/AdGuardHome.sh"
-RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null ||
-	fail 'mode-only artifact change was mistaken for a stale checksum'
-printf '%s\n' '# changed' >>"${TMP_ROOT}/AdGuardHome.sh"
-if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >"${TMP_ROOT}/stale.out" 2>&1; then
-	fail 'artifact/manifest mismatch was accepted'
+if which git >/dev/null 2>&1; then
+	(
+		cd "${TMP_ROOT}" || exit 1
+		mkdir -p "${TMP_ROOT}/git-home" "${TMP_ROOT}/git-hooks" "${TMP_ROOT}/git-template" &&
+			export HOME="${TMP_ROOT}/git-home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 &&
+			git init -q --template="${TMP_ROOT}/git-template" &&
+			git config user.name 'Release Test' &&
+			git config user.email 'release-test@example.invalid' &&
+			git config commit.gpgSign false &&
+			git config tag.gpgSign false &&
+			git config core.hooksPath "${TMP_ROOT}/git-hooks" &&
+			git add . &&
+			git commit -qm baseline &&
+			git commit --allow-empty -qm candidate
+	) || fail 'unable to create stale-manifest Git fixture'
+	chmod +x "${TMP_ROOT}/AdGuardHome.sh"
+	RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null ||
+		fail 'mode-only artifact change was mistaken for a stale checksum'
+	printf '%s\n' '# changed' >>"${TMP_ROOT}/AdGuardHome.sh"
+	if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >"${TMP_ROOT}/stale.out" 2>&1; then
+		fail 'artifact/manifest mismatch was accepted'
+	fi
+	grep -q 'changed distributed file has an unchanged stale checksum' "${TMP_ROOT}/stale.out" ||
+		fail 'unchanged stale manifest was not diagnosed'
+else
+	printf '%s\n' 'SKIP: stale-manifest Git fixture requires git'
 fi
-grep -q 'changed distributed file has an unchanged stale checksum' "${TMP_ROOT}/stale.out" ||
-	fail 'unchanged stale manifest was not diagnosed'
 
 printf '%s\n' 'PASS: release consistency failures are detected'

@@ -73,11 +73,14 @@ for f in "${SKILL}" "${QUERY_GEN}"; do
 	[ "${FIELD_ORDER}" = 'Name:,Category:,Content:,' ] || fail "${f}: expected the first three-line template to declare Name:, Category:, then Content:, got: ${FIELD_ORDER}"
 done
 
-# --- TOP_K's documented default of 20 must agree between SKILL.md's Step 5
-# and query-generation.md's worked example; a drift here would make one doc's
-# guidance silently wrong relative to the other.
+# --- TOP_K's documented default remains 20, while query-generation guidance
+# must route both searches through the configured value rather than hardcoding
+# that default at the call site.
 grep -Fq 'default: 20' "${SKILL}" || fail "${SKILL}: expected Step 5 to document the TOP_K default as 20"
-grep -Fq 'top_k=20 each' "${QUERY_GEN}" || fail "${QUERY_GEN}: expected the worked example to call the search endpoint with top_k=20 each"
+grep -Fq 'each using the configured `TOP_K` value' "${QUERY_GEN}" || fail "${QUERY_GEN}: expected the worked example to use the configured TOP_K value for both endpoint calls"
+if grep -Fq 'top_k=20 each' "${QUERY_GEN}"; then
+	fail "${QUERY_GEN}: worked example still hardcodes the TOP_K default at the endpoint calls"
+fi
 
 # --- Both queries per assignment (topic + cross-cutting) must be described
 # consistently as a pair of exactly two queries in both files.

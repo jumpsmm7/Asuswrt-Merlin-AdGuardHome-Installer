@@ -646,7 +646,7 @@ awk() {
 	case "$*" in
 		*'account=daemon'*'/etc/passwd') return 0 ;;
 	esac
-	/usr/bin/awk "$@"
+	command awk "$@"
 }
 PATH="${STUB_DIR}:${PATH}" CHOWN_LOG="${CHOWN_LOG}" adguardhome_yaml_remove_ipset_file || fail 'nvram username YAML ownership cleanup failed'
 grep -q "daemon:root ${YAML_FILE}" "${CHOWN_LOG}" || fail 'YAML ownership did not use nvram http_username'

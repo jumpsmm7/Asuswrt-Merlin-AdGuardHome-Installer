@@ -145,7 +145,7 @@ Call the search endpoint **once per query** (each with the configured `TOP_K` va
 4. Write 1-2 sentences for **Content** describing what should be checked or enforced; include tech stack details when the repository context is known
 5. Assemble the three-line structured topic query
 6. Generate the cross-cutting query: choose the Category based on the org's rule emphasis (or default to `Architecture`), and tailor the Content to reflect what the org enforces broadly
-7. Call the search endpoint with both queries (top_k=20 each), merge and deduplicate results
+7. Call the search endpoint with both queries (each using the configured `TOP_K` value), merge and deduplicate results
 
 ## Fallback
 

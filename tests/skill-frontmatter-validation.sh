@@ -173,9 +173,38 @@ validate_skill_md() {
 	return 0
 }
 
-# Regression tests for triggers validation logic
+# Regression tests for frontmatter validation logic.
 TEST_SKILLS_DIR="${TMP_ROOT}/test-skills"
 mkdir -p "${TEST_SKILLS_DIR}" || fail 'could not create test skills directory'
+
+# Test case: name must match the containing skill directory.
+TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-name-directory-mismatch"
+mkdir -p "${TEST_SKILL_DIR}"
+cat >"${TEST_SKILL_DIR}/SKILL.md" <<'EOF'
+---
+name: different-skill-name
+description: Test skill with mismatched directory and frontmatter names
+---
+# Test Skill
+Content here.
+EOF
+if validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-name-directory-mismatch"; then
+	fail "regression: name/directory mismatch fixture unexpectedly passed validation"
+fi
+
+# Test case: an unclosed frontmatter block must be rejected.
+TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-unclosed-frontmatter"
+mkdir -p "${TEST_SKILL_DIR}"
+cat >"${TEST_SKILL_DIR}/SKILL.md" <<'EOF'
+---
+name: test-unclosed-frontmatter
+description: Test skill with unclosed frontmatter
+# Test Skill
+Content here.
+EOF
+if validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-unclosed-frontmatter"; then
+	fail "regression: unclosed frontmatter fixture unexpectedly passed validation"
+fi
 
 # Test case: empty inline list should be rejected
 TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-empty-inline-triggers"

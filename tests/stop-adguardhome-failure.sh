@@ -24,6 +24,9 @@ trap 'cleanup; exit 1' HUP INT TERM
 sed -n '/^monotonic_seconds() {$/,/^}$/p; /^post_stop_dnsmasq_timeout() {$/,/^}$/p; /^post_stop_process_ready() {$/,/^}$/p; /^post_stop_handoff_cleared() {$/,/^}$/p; /^post_stop_dnsmasq_ready() {$/,/^}$/p; /^stop_adguardhome() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" ||
 	fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail "stop verification functions were not found"
+for helper in monotonic_seconds post_stop_dnsmasq_timeout post_stop_process_ready post_stop_handoff_cleared post_stop_dnsmasq_ready stop_adguardhome; do
+	grep -Fq "${helper}() {" "${FUNCTION_FILE}" || fail "stop verification helper extraction is missing ${helper}"
+done
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 

@@ -26,7 +26,7 @@ rules:
     pattern-regex: '(?m)^[ \t]*(?:command[ \t]+)?(?:/[^ \t\n]*/)?wget[^\n#]*[ \t]--no-check-certificate(?:[ \t]|$)'
 
   - id: asuswrt-no-world-writable-chmod
-    message: Production router paths must not be made world-writable with chmod 666 or 777.
+    message: Production router paths must not be made world-writable with chmod octal 666/777 forms or symbolic a+w.
     languages: [generic]
     severity: ERROR
     paths:
@@ -36,7 +36,7 @@ rules:
         - S99AdGuardHome
         - rc.func.AdGuardHome
         - tools/*.sh
-    pattern-regex: '(?m)^[ \t]*(?:command[ \t]+)?chmod[^\n#]*[ \t](?:666|777)(?:[ \t]|$)'
+    pattern-regex: '(?m)^[ \t]*(?:command[ \t]+)?chmod[^\n#]*[ \t](?:0*(?:666|777)|a\+w)(?:[ \t]|$)'
 
   - id: asuswrt-service-path-must-be-fixed
     message: Service scripts must use the fixed trusted PATH and must not inherit caller PATH entries.

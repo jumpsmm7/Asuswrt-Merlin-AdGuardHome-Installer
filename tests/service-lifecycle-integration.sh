@@ -14,6 +14,7 @@ CASE_START_TIME=""
 WATCHDOG_PID=""
 WATCHDOG_START_TIME=""
 WORKSPACE_CREATED=0
+SCENARIO_COUNT=0
 
 # cleanup stops active test and watchdog processes and removes the temporary workspace.
 cleanup() {
@@ -183,7 +184,9 @@ run_bounded() {
 		cat "${case_output}" >&2
 		fail "${case_name} exited with status ${case_status}"
 	fi
-	printf '%s\n' "PASS ${case_name}" | tee -a "${RESULTS_FILE}"
+	printf '%s\n' "PASS ${case_name}" | tee -a "${RESULTS_FILE}" >/dev/null || fail "could not record ${case_name} result"
+	SCENARIO_COUNT="$((SCENARIO_COUNT + 1))"
+	printf '%s\n' "PASS ${case_name}"
 }
 
 trap cleanup 0
@@ -222,5 +225,5 @@ run_bounded dns_environment tests/installer-dns-environment-failure.sh
 run_bounded runtime_modes tests/adguardhome-runtime-mode-helpers.sh
 run_bounded custom_config tests/adguardhome-scoped-config.sh
 
-[ "$(wc -l <"${RESULTS_FILE}")" -eq 20 ] || fail 'integration matrix did not complete every scenario group'
+[ "$(wc -l <"${RESULTS_FILE}")" -eq "${SCENARIO_COUNT}" ] || fail 'integration matrix did not complete every scenario group'
 printf '%s\n' 'PASS: installer and service lifecycle integration matrix'

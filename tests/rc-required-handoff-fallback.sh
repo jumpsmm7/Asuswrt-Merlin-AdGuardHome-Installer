@@ -393,7 +393,7 @@ rm -f "${STARTED_FILE}" "${_save_interrupt_ready}"
 	# mkdir creates the target directory after marking interrupt handling as ready.
 	mkdir() {
 		: >"${_save_interrupt_ready}"
-		sleep 1
+		sleep 2
 		command mkdir "$@"
 	}
 	trap 'printf "%s\n" caller_signal >>"${CALLS_FILE}"' HUP INT TERM
@@ -668,14 +668,14 @@ for REPEAT_PHASE in stop postfail; do
 		stop_launched_process() {
 			if [ "${REPEAT_PHASE}" = "stop" ]; then
 				: >"${REPEAT_READY_FILE}"
-				sleep 1
+				sleep 2
 			fi
 		}
 		# post_failure_hook records a post-failure hook invocation and, when requested, signals readiness before completing.
 		post_failure_hook() {
 			if [ "${REPEAT_PHASE}" = "postfail" ]; then
 				: >"${REPEAT_READY_FILE}"
-				sleep 1
+				sleep 2
 			fi
 			printf '%s\n' repeat_post_failure >>"${CALLS_FILE}"
 		}

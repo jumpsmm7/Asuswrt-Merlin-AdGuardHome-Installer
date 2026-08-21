@@ -16,8 +16,12 @@ trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
 TARGET="${TMP_ROOT}/artifact"
 printf '%s\n' 'checksum format fixture' >"${TARGET}" || fail 'unable to create checksum fixture'
 
-MD5=$(md5sum "${TARGET}" | awk 'NF { print $1; exit }') || fail 'unable to calculate fixture MD5'
-SHA256=$(sha256sum "${TARGET}" | awk 'NF { print $1; exit }') || fail 'unable to calculate fixture SHA-256'
+MD5_OUTPUT=$(md5sum "${TARGET}") || fail 'unable to calculate fixture MD5'
+MD5=$(printf '%s\n' "${MD5_OUTPUT}" | awk 'NF { print $1; exit }')
+[ -n "${MD5}" ] || fail 'unable to calculate fixture MD5'
+SHA256_OUTPUT=$(sha256sum "${TARGET}") || fail 'unable to calculate fixture SHA-256'
+SHA256=$(printf '%s\n' "${SHA256_OUTPUT}" | awk 'NF { print $1; exit }')
+[ -n "${SHA256}" ] || fail 'unable to calculate fixture SHA-256'
 printf '%s  %s\n' "${MD5}" "${TARGET}" >"${TARGET}.md5sum"
 printf '%s  %s\n' "${SHA256}" "${TARGET}" >"${TARGET}.sha256sum"
 

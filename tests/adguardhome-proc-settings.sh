@@ -3,6 +3,7 @@
 
 set -u
 
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd) || exit 1
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/agh-proc-settings.XXXXXX")" || {
 	printf '%s\n' 'FAIL: could not create exclusive test directory' >&2
@@ -228,7 +229,7 @@ RM_FAIL_STATE=0
 
 # Uninstall must restore before removing the installation tree and retain it on failure.
 UNINSTALL_FUNCTION_FILE="${TMP_ROOT}/uninstall-function"
-sed -n '/^uninst_all() {$/,/^}$/p' installer >"${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall function extraction failed'
+sed -n '/^uninst_all() {$/,/^}$/p' "${ROOT_DIR}/installer" >"${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall function extraction failed'
 # shellcheck disable=SC1090
 . "${UNINSTALL_FUNCTION_FILE}"
 # run_uninstall_test creates an isolated uninstall scenario, invokes uninst_all, and records restoration, restart, and removal events. Restore and start results control simulated outcomes; helper mode controls rollback-helper usability.

@@ -35,7 +35,10 @@ for lock_mode in flock symlink mkdir; do
 	(
 		case "${lock_mode}" in
 			flock)
-				[ -x /usr/bin/flock ] || exit 0
+				if [ ! -x /usr/bin/flock ]; then
+					printf '%s\n' 'SKIP: flock lock-mode re-exec regression requires /usr/bin/flock'
+					exit 0
+				fi
 				;;
 			symlink) # nvram_transaction_lock_flock_supports_fd determines whether file-descriptor-based flock locking is available.
 				nvram_transaction_lock_flock_supports_fd() { return 1; } ;;

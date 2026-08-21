@@ -54,6 +54,9 @@ sed -n '/^remove_unused_blocklists_from_yaml() {$/,/^cleanup_unused_blocklists()
 sed 's#/opt/bin/python3#${PYTHON3_BIN:-/opt/bin/python3}#g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" ||
 	fail 'could not make Entware python3 path mockable'
 mv "${FUNCTIONS_FILE}.tmp" "${FUNCTIONS_FILE}" || fail 'could not update extracted blocklist helpers'
+for helper in adguardhome_owner_account adguardhome_yaml_secure_file; do
+	grep -Fq "${helper}() {" "${FUNCTIONS_FILE}" || fail "blocklist helper extraction is missing ${helper}"
+done
 
 (
 	# shellcheck disable=SC1090
