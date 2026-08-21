@@ -1890,6 +1890,55 @@ proc_process_start_time() {
 	printf '%s\n' "$1"
 }
 
+# proc_lock_claim_matches verifies that the publication claim still belongs to the specified process identity.
+proc_lock_claim_matches() {
+	local claim_owner
+	[ -L "${PROC_LOCK_DIR}.claim" ] || return 1
+	claim_owner="$(readlink "${PROC_LOCK_DIR}.claim" 2>/dev/null)" || return 1
+	[ "${claim_owner}" = "$1 $2" ]
+}
+
+# proc_lock_claim_acquire serializes fallback-lock publication and stale-lock reaping.
+proc_lock_claim_acquire() {
+	local attempts claim_owner claim_pid claim_start current_start reaper self_start
+	self_start="$1"
+	reaper="${PROC_LOCK_DIR}.claim.reap.$$"
+	rm -f "${reaper}"
+	attempts=0
+	while ! ln -s "$$ ${self_start}" "${PROC_LOCK_DIR}.claim" 2>/dev/null; do
+		claim_owner="$(readlink "${PROC_LOCK_DIR}.claim" 2>/dev/null)" || claim_owner=""
+		claim_pid="${claim_owner%% *}"
+		claim_start="${claim_owner#* }"
+		case "${claim_pid}:${claim_start}" in
+			*[!0-9:]* | :* | *:) current_start="" ;;
+			*) current_start="$(proc_process_start_time "${claim_pid}" 2>/dev/null)" ;;
+		esac
+		if [ -z "${current_start}" ] || [ "${current_start}" != "${claim_start}" ]; then
+			if mv "${PROC_LOCK_DIR}.claim" "${reaper}" 2>/dev/null; then
+				claim_owner="$(readlink "${reaper}" 2>/dev/null)" || claim_owner=""
+				claim_pid="${claim_owner%% *}"
+				claim_start="${claim_owner#* }"
+				current_start="$(proc_process_start_time "${claim_pid}" 2>/dev/null)"
+				if [ -n "${current_start}" ] && [ "${current_start}" = "${claim_start}" ]; then
+					mv "${reaper}" "${PROC_LOCK_DIR}.claim" 2>/dev/null || return 1
+				else
+					rm -f "${reaper}"
+				fi
+			fi
+		fi
+		attempts="$((attempts + 1))"
+		[ "${attempts}" -lt 50 ] || return 1
+		if which usleep >/dev/null 2>&1; then usleep 100000; else sleep 1; fi
+	done
+	proc_lock_claim_matches "$$" "${self_start}"
+}
+
+# proc_lock_claim_release removes the publication claim only while it still belongs to this process.
+proc_lock_claim_release() {
+	proc_lock_claim_matches "$$" "$1" || return 1
+	rm -f "${PROC_LOCK_DIR}.claim"
+}
+
 # proc_lock_mkdir_cleanup removes the procfs lock directory when it is owned by the current process.
 proc_lock_mkdir_cleanup() {
 	local current_start owner owner_start
@@ -1899,7 +1948,7 @@ proc_lock_mkdir_cleanup() {
 		rmdir "${PROC_LOCK_DIR}" 2>/dev/null
 		return 1
 	fi
-	IFS=' ' read -r owner owner_start <"${PROC_LOCK_DIR}/pid" || {
+	IFS=' ' read -r owner owner_start 2>/dev/null <"${PROC_LOCK_DIR}/pid" || {
 		rm -f "${PROC_LOCK_DIR}/pid" 2>/dev/null
 		rmdir "${PROC_LOCK_DIR}" 2>/dev/null
 		return 1
@@ -1913,7 +1962,7 @@ proc_lock_mkdir_cleanup() {
 
 # proc_lock_run serializes a command using an available file lock or a process-validated directory lock.
 proc_lock_run() {
-	local attempts current_start has_usleep owner owner_start ownerless_attempts reaper status
+	local attempts current_start has_usleep owner owner_start reaper self_start status
 	if [ "${PROC_LOCK_FORCE_MKDIR:-0}" != 1 ] && have_cmd flock && flock_supports_fd; then
 		(
 			mkdir -p "${WORK_DIR}" 2>/dev/null || exit 1
@@ -1925,20 +1974,29 @@ proc_lock_run() {
 	fi
 	(
 		attempts=0
-		ownerless_attempts=0
 		if which usleep >/dev/null 2>&1; then has_usleep=1; else has_usleep=0; fi
 		reaper="${PROC_LOCK_DIR}.reap.$$"
 		rm -rf "${reaper}"
-		while ! mkdir "${PROC_LOCK_DIR}" 2>/dev/null; do
+		self_start="$(proc_process_start_time "$$")" || exit 1
+		while :; do
+			proc_lock_claim_acquire "${self_start}" || exit 1
+			if mkdir "${PROC_LOCK_DIR}" 2>/dev/null; then
+				trap 'proc_lock_mkdir_cleanup; exit 1' HUP INT QUIT ABRT TERM TSTP
+				proc_lock_claim_matches "$$" "${self_start}" || exit 1
+				printf '%s %s\n' "$$" "${self_start}" >"${PROC_LOCK_DIR}/pid" || exit 1
+				proc_lock_claim_matches "$$" "${self_start}" || exit 1
+				proc_lock_claim_release "${self_start}" || exit 1
+				break
+			fi
 			[ -d "${PROC_LOCK_DIR}" ] && [ ! -L "${PROC_LOCK_DIR}" ] || exit 1
 			owner=""
 			owner_start=""
-			IFS=' ' read -r owner owner_start <"${PROC_LOCK_DIR}/pid" 2>/dev/null || owner=""
+			IFS=' ' read -r owner owner_start 2>/dev/null <"${PROC_LOCK_DIR}/pid" || owner=""
 			case "${owner}" in
 				"" | *[!0-9]*)
-					ownerless_attempts="$((ownerless_attempts + 1))"
-					if [ "${ownerless_attempts}" -ge 5 ] && mv "${PROC_LOCK_DIR}" "${reaper}" 2>/dev/null; then
+					if mv "${PROC_LOCK_DIR}" "${reaper}" 2>/dev/null; then
 						rm -rf "${reaper}"
+						proc_lock_claim_release "${self_start}" || exit 1
 						continue
 					fi
 					;;
@@ -1947,25 +2005,17 @@ proc_lock_run() {
 					if [ -z "${owner_start}" ] || [ "${current_start}" != "${owner_start}" ]; then
 						if mv "${PROC_LOCK_DIR}" "${reaper}" 2>/dev/null; then
 							rm -rf "${reaper}"
+							proc_lock_claim_release "${self_start}" || exit 1
 							continue
 						fi
 					fi
 					;;
 			esac
+			proc_lock_claim_release "${self_start}" || exit 1
 			attempts="$((attempts + 1))"
 			[ "${attempts}" -lt 50 ] || exit 1
 			if [ "${has_usleep}" -eq 1 ]; then usleep 100000; else sleep 1; fi
 		done
-		trap 'proc_lock_mkdir_cleanup; exit 1' HUP INT QUIT ABRT TERM TSTP
-		current_start="$(proc_process_start_time "$$")" || {
-			proc_lock_mkdir_cleanup
-			exit 1
-		}
-		printf '%s %s\n' "$$" "${current_start}" >"${PROC_LOCK_DIR}/pid" || {
-			rm -f "${PROC_LOCK_DIR}/pid"
-			rmdir "${PROC_LOCK_DIR}" 2>/dev/null
-			exit 1
-		}
 		"$@"
 		status="$?"
 		proc_lock_mkdir_cleanup || exit 1

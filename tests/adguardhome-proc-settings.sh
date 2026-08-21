@@ -32,7 +32,7 @@ fail() {
 }
 
 mkdir -p "${TMP_ROOT}/proc/net/core" "${TMP_ROOT}/proc/net/netfilter" "${TMP_ROOT}/proc/net/ipv4/neigh/default" "${TMP_ROOT}/proc/net/ipv6/icmp" "${TMP_ROOT}/proc/net/ipv6/neigh/default" "${TMP_ROOT}/proc/kernel" "${TMP_ROOT}/proc/vm" "${TMP_ROOT}/state" || fail 'setup failed'
-sed -n '/^proc_config() {$/,/^}$/p; /^proc_optimizations_locked() {$/,/^}$/p; /^proc_optimizations() {$/,/^}$/p; /^proc_swap_active() {$/,/^}$/p; /^proc_target() {$/,/^}$/p; /^proc_boot_id() {$/,/^}$/p; /^proc_process_start_time() {$/,/^}$/p; /^proc_lock_mkdir_cleanup() {$/,/^}$/p; /^proc_lock_run() {$/,/^}$/p; /^proc_restore_ipv6() {$/,/^}$/p; /^proc_write() {$/,/^}$/p; /^proc_restore_one() {$/,/^}$/p; /^proc_restore_locked() {$/,/^}$/p; /^proc_restore() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail 'function extraction failed'
+sed -n '/^proc_config() {$/,/^}$/p; /^proc_optimizations_locked() {$/,/^}$/p; /^proc_optimizations() {$/,/^}$/p; /^proc_swap_active() {$/,/^}$/p; /^proc_target() {$/,/^}$/p; /^proc_boot_id() {$/,/^}$/p; /^proc_process_start_time() {$/,/^}$/p; /^proc_lock_claim_matches() {$/,/^}$/p; /^proc_lock_claim_acquire() {$/,/^}$/p; /^proc_lock_claim_release() {$/,/^}$/p; /^proc_lock_mkdir_cleanup() {$/,/^}$/p; /^proc_lock_run() {$/,/^}$/p; /^proc_restore_ipv6() {$/,/^}$/p; /^proc_write() {$/,/^}$/p; /^proc_restore_one() {$/,/^}$/p; /^proc_restore_locked() {$/,/^}$/p; /^proc_restore() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail 'function extraction failed'
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
@@ -55,6 +55,19 @@ IPV6_SERVICE=native
 nvram() { [ "${1:-}" = get ] && printf '%s\n' "${IPV6_SERVICE}"; }
 RM_FAIL_STATE=0
 RM_FAIL_STATE_HIT=0
+PAUSE_LOCK_PUBLICATION=0
+PAUSE_LOCK_ENTERED="${TMP_ROOT}/lock-publication-entered"
+PAUSE_LOCK_RELEASE="${TMP_ROOT}/lock-publication-release"
+# mkdir can pause the first fallback-lock owner after directory creation to exercise owner publication races.
+mkdir() {
+	command mkdir "$@" || return $?
+	if [ "${PAUSE_LOCK_PUBLICATION}" = 1 ] && [ "$1" = "${PROC_LOCK_DIR}" ] && [ ! -e "${PAUSE_LOCK_ENTERED}" ]; then
+		: >"${PAUSE_LOCK_ENTERED}"
+		while [ ! -e "${PAUSE_LOCK_RELEASE}" ]; do
+			command sleep 1
+		done
+	fi
+}
 # rm simulates a failure when removing the configured `rmem_max` state file, otherwise delegates to the system `rm` command.
 rm() {
 	if [ "${RM_FAIL_STATE}" = 1 ]; then
@@ -315,6 +328,29 @@ lock_holder() {
 }
 # lock_waiter records the waiter's execution in the lock event log.
 lock_waiter() { printf '%s\n' second >>"${LOCK_EVENTS}"; }
+PAUSE_LOCK_PUBLICATION=1
+export PAUSE_LOCK_PUBLICATION PAUSE_LOCK_ENTERED PAUSE_LOCK_RELEASE
+proc_lock_run lock_holder &
+lock_pid="$!"
+BACKGROUND_PID="${lock_pid}"
+publication_waits=0
+while [ ! -e "${PAUSE_LOCK_ENTERED}" ] && [ "${publication_waits}" -lt 5 ]; do
+	command sleep 1
+	publication_waits="$((publication_waits + 1))"
+done
+[ -e "${PAUSE_LOCK_ENTERED}" ] || fail 'fallback lock owner did not pause before publication'
+proc_lock_run lock_waiter &
+waiter_pid="$!"
+command sleep 1
+kill -0 "${lock_pid}" 2>/dev/null || fail 'paused fallback lock owner was reaped before publication'
+kill -0 "${waiter_pid}" 2>/dev/null || fail 'fallback lock contender exited while owner publication was paused'
+: >"${PAUSE_LOCK_RELEASE}"
+wait "${lock_pid}" || fail 'paused fallback lock owner failed after publication resumed'
+BACKGROUND_PID=""
+wait "${waiter_pid}" || fail 'fallback lock contender failed after owner publication'
+[ "$(cat "${LOCK_EVENTS}")" = "$(printf '%s\n' first-start first-end second)" ] || fail 'fallback lock contender overlapped paused owner publication'
+PAUSE_LOCK_PUBLICATION=0
+rm -f "${LOCK_EVENTS}" "${PAUSE_LOCK_ENTERED}" "${PAUSE_LOCK_RELEASE}"
 mkdir "${PROC_LOCK_DIR}" || fail 'could not create stale identity lock fixture'
 printf '%s %s\n' "$$" 0 >"${PROC_LOCK_DIR}/pid" || fail 'could not publish stale identity lock fixture'
 proc_lock_run lock_waiter || fail 'reused-PID lock identity was not reclaimed'
