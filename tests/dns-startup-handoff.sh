@@ -1844,4 +1844,4 @@ fi
 ! grep -q '^launch_alive_during_recovery$' "${CALLS_FILE}" || fail 'dnsmasq recovery ran before the timed-out launch stopped'
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'timed-out launch did not restore dnsmasq'
 
-printf '%s\n' 'DNS startup handoff tests passed.'
+printf '%s\n' 'PASS: DNS startup handoff tests passed'

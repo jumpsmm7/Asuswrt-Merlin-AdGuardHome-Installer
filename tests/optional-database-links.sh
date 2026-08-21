@@ -114,4 +114,4 @@ ensure_database_link "${LINK}" "${EXPECTED}" || fail 'foreign-owned link was tre
 remove_database_link "${LINK}" "${EXPECTED}"
 [ -L "${LINK}" ] || fail 'foreign-owned link was removed'
 
-printf '%s\n' 'Optional database link tests passed.'
+printf '%s\n' 'PASS: optional database link tests passed'

@@ -89,7 +89,7 @@ PROCESS_SIGNALING_RAN_FILE="${TMP_ROOT}/process-signaling.ran"
 			tests/optional-database-links.sh)
 				: >"${OPTIONAL_DATABASE_RAN_FILE}"
 				if [ "${OPTIONAL_DATABASE_STATUS}" -eq 0 ]; then
-					printf '%s\n' 'Optional database link tests passed.'
+					printf '%s\n' 'PASS: optional database link tests passed'
 				else
 					printf '%s\n' 'FAIL: simulated optional database link regression failure' >&2
 				fi
@@ -143,7 +143,7 @@ PROCESS_SIGNALING_RAN_FILE="${TMP_ROOT}/process-signaling.ran"
 [ -f "${PROCESS_SIGNALING_RAN_FILE}" ] || fail 'process signaling regression command was not invoked'
 [ -f "${LAN_BRIDGE_DOC_RAN_FILE}" ] || fail 'LAN bridge documentation regression command was not invoked'
 [ -f "${OPTIONAL_DATABASE_RAN_FILE}" ] || fail 'optional database-link regression command was not invoked'
-grep -Fq 'Optional database link tests passed.' "${OPTIONAL_DATABASE_OUT_FILE}" ||
+grep -Fq 'PASS: optional database link tests passed' "${OPTIONAL_DATABASE_OUT_FILE}" ||
 	fail 'optional database-link regression output was not forwarded'
 grep -Fq 'OK: AdGuardHome optional database link regression' "${OPTIONAL_DATABASE_OUT_FILE}" ||
 	fail 'optional database-link regression did not report successful status'
