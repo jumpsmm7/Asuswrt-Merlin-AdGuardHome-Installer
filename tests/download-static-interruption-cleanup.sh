@@ -20,9 +20,9 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail "could not create test directory"
 
-sed -n '/^cleanup_download_tmp() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" ||
+sed -n '/^cleanup_download_tmp() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p; /^write_sha256sum_file() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" ||
 	fail "could not read ${SCRIPT_PATH}"
-[ -s "${FUNCTION_FILE}" ] || fail "download cleanup helper was not found"
+[ -s "${FUNCTION_FILE}" ] || fail "download cleanup helpers were not found"
 
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
@@ -48,6 +48,36 @@ done
 [ -z "${ACTIVE_DOWNLOAD_TMP}" ] || fail "download cleanup did not clear the tracked archive path"
 [ -z "${ACTIVE_DOWNLOAD_MD5_TMP}" ] || fail "download cleanup did not clear the tracked MD5 path"
 [ -z "${ACTIVE_DOWNLOAD_SHA256_TMP}" ] || fail "download cleanup did not clear the tracked SHA256 path"
+
+run_interrupted_checksum_writer() {
+	_writer="$1"
+	_suffix="$2"
+	_digest="$3"
+	_archive="${TEST_ROOT}/${_writer}.tar.gz"
+
+	if sh -c '
+		. "$1"
+		ACTIVE_DOWNLOAD_TMP=""
+		ACTIVE_DOWNLOAD_MD5_TMP=""
+		ACTIVE_DOWNLOAD_SHA256_TMP=""
+		ACTIVE_PUBLICATION_ARCHIVE=""
+		FAILED=0
+		chmod() {
+			kill -TERM "$$"
+			return 1
+		}
+		trap "cleanup_download_tmp; exit 97" TERM
+		"$2" "$3" "$4"
+	' sh "${FUNCTION_FILE}" "${_writer}" "${_archive}" "${_digest}"; then
+		fail "${_writer} did not terminate when interrupted"
+	fi
+	for _writer_tmp in "${_archive}.${_suffix}.tmp."*; do
+		[ ! -e "${_writer_tmp}" ] || fail "${_writer} left interrupted temporary ${_writer_tmp} behind"
+	done
+}
+
+run_interrupted_checksum_writer write_md5sum_file md5sum 0123456789abcdef0123456789abcdef
+run_interrupted_checksum_writer write_sha256sum_file sha256sum 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
 grep -F "trap 'cleanup_download_tmp; exit 1' HUP INT QUIT ABRT TERM" "${SCRIPT_PATH}" >/dev/null ||
 	fail "download cleanup is not installed for interruption signals"

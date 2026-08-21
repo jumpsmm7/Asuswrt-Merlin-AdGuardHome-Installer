@@ -815,13 +815,16 @@ write_md5sum_file() {
 	_md5="$2"
 	_md5_file="${_archive_file}.md5sum"
 	_md5_tmp="${_md5_file}.tmp.$$"
+	ACTIVE_DOWNLOAD_MD5_TMP="${_md5_tmp}"
 
 	if ! printf '%s\n' "${_md5}" >"${_md5_tmp}" || ! chmod 644 "${_md5_tmp}" || ! mv "${_md5_tmp}" "${_md5_file}"; then
 		rm -f "${_md5_tmp}"
+		ACTIVE_DOWNLOAD_MD5_TMP=""
 		printf '%s\n' "Error: could not update ${_md5_file}" >&2
 		FAILED=1
 		return 1
 	fi
+	ACTIVE_DOWNLOAD_MD5_TMP=""
 }
 
 write_sha256sum_file() {
@@ -829,13 +832,16 @@ write_sha256sum_file() {
 	_sha256="$2"
 	_sha256_file="${_archive_file}.sha256sum"
 	_sha256_tmp="${_sha256_file}.tmp.$$"
+	ACTIVE_DOWNLOAD_SHA256_TMP="${_sha256_tmp}"
 
 	if ! printf '%s\n' "${_sha256}" >"${_sha256_tmp}" || ! chmod 644 "${_sha256_tmp}" || ! mv "${_sha256_tmp}" "${_sha256_file}"; then
 		rm -f "${_sha256_tmp}"
+		ACTIVE_DOWNLOAD_SHA256_TMP=""
 		printf '%s\n' "Error: could not update ${_sha256_file}" >&2
 		FAILED=1
 		return 1
 	fi
+	ACTIVE_DOWNLOAD_SHA256_TMP=""
 }
 
 require_cmd awk
