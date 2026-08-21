@@ -443,7 +443,7 @@ done
 	trap_snapshot "${TMP_ROOT}/before-exit-traps"
 	adguardhome_start_traps_restore
 	trap_snapshot "${TMP_ROOT}/after-exit-traps"
-	[ "$(grep 'EXIT\| 0$' "${TMP_ROOT}/after-exit-traps")" = "$(grep 'EXIT\| 0$' "${TMP_ROOT}/before-exit-traps")" ]
+	[ "$(grep -E 'EXIT| 0$' "${TMP_ROOT}/after-exit-traps")" = "$(grep -E 'EXIT| 0$' "${TMP_ROOT}/before-exit-traps")" ]
 ) || fail 'saved trap state was not restricted to HUP, INT, and TERM'
 rm -f "${TMP_ROOT}/saved-signal-traps"
 assert_trap_workspace_removed

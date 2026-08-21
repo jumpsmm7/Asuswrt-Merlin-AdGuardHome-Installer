@@ -781,6 +781,7 @@ The release validation pass performs these actions:
 - Checks repository shell scripts for POSIX/BusyBox portability.
 - Verifies SHA-256 metadata for installer-managed artifacts.
 - Runs selected router-sensitive regressions for DNS handoff, IPSET setup/status/locking, rollback and doctor rollback behavior, CLI runtime configuration, and interruption restart handling.
+- Requires root privileges or passwordless `sudo` for `tests/optional-database-links.sh`; non-privileged maintainers must have passwordless sudo available before running the complete pass.
 - Optionally runs ShellCheck static analysis against the primary scripts when ShellCheck is installed on a development workstation outside the router.
 
 Run the required release validation commands from the repository root:

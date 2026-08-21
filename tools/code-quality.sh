@@ -100,7 +100,7 @@ run_check() {
 	shift
 	printf '%s\n' "==> ${_name}"
 	case "${1:-}" in
-		run_dns_handoff_check | run_optional_database_link_check | run_writable_path_security_check)
+		run_privileged_regression_check)
 			"$@"
 			_check_status=$?
 			;;
@@ -117,51 +117,22 @@ run_check() {
 	fi
 }
 
-# run_dns_handoff_check runs the DNS startup handoff regression test with root privileges or passwordless sudo.
-run_dns_handoff_check() {
+# run_privileged_regression_check runs a regression test with root privileges or passwordless sudo.
+run_privileged_regression_check() {
+	_test_path="$1"
+	_diagnostic_noun="$2"
+
 	if [ "$(id -u)" -eq 0 ]; then
-		run_test_command sh tests/dns-startup-handoff.sh
+		run_test_command sh "${_test_path}"
 		return
 	fi
 
 	if have_cmd sudo && sudo -n true >/dev/null 2>&1; then
-		run_privileged_test_command sh tests/dns-startup-handoff.sh
+		run_privileged_test_command sh "${_test_path}"
 		return
 	fi
 
-	printf '%s\n' 'Error: the DNS startup handoff regression requires root privileges or passwordless sudo.' >&2
-	return 1
-}
-
-# run_optional_database_link_check runs the optional database link regression as root or through passwordless sudo.
-run_optional_database_link_check() {
-	if [ "$(id -u)" -eq 0 ]; then
-		run_test_command sh tests/optional-database-links.sh
-		return
-	fi
-
-	if have_cmd sudo && sudo -n true >/dev/null 2>&1; then
-		run_privileged_test_command sh tests/optional-database-links.sh
-		return
-	fi
-
-	printf '%s\n' 'Error: the optional database link regression requires root privileges or passwordless sudo.' >&2
-	return 1
-}
-
-# run_writable_path_security_check runs the runtime writable-path security regression as root or through passwordless sudo.
-run_writable_path_security_check() {
-	if [ "$(id -u)" -eq 0 ]; then
-		run_test_command sh tests/runtime-writable-path-security.sh
-		return
-	fi
-
-	if have_cmd sudo && sudo -n true >/dev/null 2>&1; then
-		run_privileged_test_command sh tests/runtime-writable-path-security.sh
-		return
-	fi
-
-	printf '%s\n' 'Error: the runtime writable-path security regression requires root privileges or passwordless sudo.' >&2
+	printf '%s\n' "Error: the ${_diagnostic_noun} requires root privileges or passwordless sudo." >&2
 	return 1
 }
 
@@ -287,7 +258,7 @@ run_check 'LAN primary address selection regression' sh tests/lan-primary-addres
 run_check 'Private IPv4 DNS fallback chain regression' sh tests/private-ipv4-dns-fallback-chain.sh
 run_check 'LAN bridge discovery documentation consistency regression' sh tests/lan-bridge-discovery-doc-consistency.sh
 run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
-run_check 'AdGuardHome optional database link regression' run_optional_database_link_check
+run_check 'AdGuardHome optional database link regression' run_privileged_regression_check tests/optional-database-links.sh 'optional database link regression'
 run_check 'AdGuardHome S99 DNS mode lifecycle regression' sh tests/s99-dns-mode-lifecycle.sh
 run_check 'AdGuardHome S99 netstat readiness regression' sh tests/s99-netstat-readiness.sh
 run_check 'AdGuardHome S99 startup readiness regression' sh tests/s99-startup-readiness.sh
@@ -303,9 +274,9 @@ run_check 'AdGuardHome proc setting ownership regression' sh tests/adguardhome-p
 run_check 'AdGuardHome Go runtime environment regression' sh tests/adguardhome-go-environment.sh
 run_check 'AdGuardHome scoped configuration regression' sh tests/adguardhome-scoped-config.sh
 run_check 'AdGuardHome legacy netcheck regression' sh tests/netcheck-legacy.sh
-run_check 'AdGuardHome DNS startup handoff regression' run_dns_handoff_check
+run_check 'AdGuardHome DNS startup handoff regression' run_privileged_regression_check tests/dns-startup-handoff.sh 'DNS startup handoff regression'
 run_check 'AdGuardHome required-handoff fallback regression' sh tests/rc-required-handoff-fallback.sh
-run_check 'Runtime writable-path security regression' run_writable_path_security_check
+run_check 'Runtime writable-path security regression' run_privileged_regression_check tests/runtime-writable-path-security.sh 'runtime writable-path security regression'
 run_check 'AdGuardHome runtime mode helper regression' sh tests/adguardhome-runtime-mode-helpers.sh
 run_check 'AdGuardHome runtime DNS environment LAN-mode regression' sh tests/adguardhome-dns-env-lan-mode.sh
 run_check 'AdGuardHome dnsmasq LAN-mode regression' sh tests/dnsmasq-lan-mode.sh

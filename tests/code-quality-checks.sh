@@ -22,11 +22,11 @@ trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
 
 FUNCTIONS_FILE="${TMP_ROOT}/functions.sh"
 sed -n \
-	'/^cleanup() {$/,/^}$/p; /^have_cmd() {$/,/^}$/p; /^require_cmd() {$/,/^}$/p; /^configure_test_timeout() {$/,/^}$/p; /^run_test_command() {$/,/^}$/p; /^run_privileged_test_command() {$/,/^}$/p; /^run_check() {$/,/^}$/p; /^run_optional_database_link_check() {$/,/^}$/p; /^run_writable_path_security_check() {$/,/^}$/p; /^run_script_list_check() {$/,/^}$/p' \
+	'/^cleanup() {$/,/^}$/p; /^have_cmd() {$/,/^}$/p; /^require_cmd() {$/,/^}$/p; /^configure_test_timeout() {$/,/^}$/p; /^run_test_command() {$/,/^}$/p; /^run_privileged_test_command() {$/,/^}$/p; /^run_check() {$/,/^}$/p; /^run_privileged_regression_check() {$/,/^}$/p; /^run_script_list_check() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'function extraction from tools/code-quality.sh was empty (helper functions may have been renamed)'
 
-for fn in cleanup have_cmd require_cmd configure_test_timeout run_test_command run_privileged_test_command run_check run_optional_database_link_check run_writable_path_security_check run_script_list_check; do
+for fn in cleanup have_cmd require_cmd configure_test_timeout run_test_command run_privileged_test_command run_check run_privileged_regression_check run_script_list_check; do
 	grep -Fq "${fn}() {" "${FUNCTIONS_FILE}" || fail "extracted functions file is missing ${fn}()"
 done
 
@@ -118,7 +118,7 @@ PROCESS_SIGNALING_RAN_FILE="${TMP_ROOT}/process-signaling.ran"
 		esac
 		return 1
 	}
-	run_writable_path_security_check || exit 1
+	run_privileged_regression_check tests/runtime-writable-path-security.sh 'runtime writable-path security regression' || exit 1
 	FAILED=0
 	run_check 'AdGuardHome Go runtime environment regression' sh tests/adguardhome-go-environment.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
@@ -128,12 +128,12 @@ PROCESS_SIGNALING_RAN_FILE="${TMP_ROOT}/process-signaling.ran"
 	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'LAN bridge discovery documentation consistency regression' sh tests/lan-bridge-discovery-doc-consistency.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
-	run_check 'AdGuardHome optional database link regression' run_optional_database_link_check >"${OPTIONAL_DATABASE_OUT_FILE}" 2>&1
+	run_check 'AdGuardHome optional database link regression' run_privileged_regression_check tests/optional-database-links.sh 'optional database link regression' >"${OPTIONAL_DATABASE_OUT_FILE}" 2>&1
 	[ "$?" -eq 0 ] || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
 	OPTIONAL_DATABASE_STATUS=1
 	FAILED=0
-	run_check 'AdGuardHome optional database link regression' run_optional_database_link_check >"${OPTIONAL_DATABASE_FAIL_OUT_FILE}" 2>&1
+	run_check 'AdGuardHome optional database link regression' run_privileged_regression_check tests/optional-database-links.sh 'optional database link regression' >"${OPTIONAL_DATABASE_FAIL_OUT_FILE}" 2>&1
 	[ "$?" -eq 0 ] || exit 1
 	[ "${FAILED}" -eq 1 ] || exit 1
 ) || fail 'root privileged regression dispatch status accounting failed'
@@ -165,10 +165,10 @@ OPTIONAL_DATABASE_UNPRIVILEGED_OUT_FILE="${TMP_ROOT}/optional-database-unprivile
 		return 1
 	}
 	FAILED=0
-	run_check 'AdGuardHome optional database link regression' run_optional_database_link_check >"${OPTIONAL_DATABASE_UNPRIVILEGED_OUT_FILE}" 2>&1
+	run_check 'AdGuardHome optional database link regression' run_privileged_regression_check tests/optional-database-links.sh 'optional database link regression' >"${OPTIONAL_DATABASE_UNPRIVILEGED_OUT_FILE}" 2>&1
 	[ "${FAILED}" -eq 1 ] || exit 1
 ) || fail 'unprivileged optional database-link regression did not set FAILED=1'
-grep -Fq 'requires root privileges or passwordless sudo' "${OPTIONAL_DATABASE_UNPRIVILEGED_OUT_FILE}" ||
+grep -Fq 'Error: the optional database link regression requires root privileges or passwordless sudo.' "${OPTIONAL_DATABASE_UNPRIVILEGED_OUT_FILE}" ||
 	fail 'unprivileged optional database-link regression omitted its privilege error'
 grep -Fq 'FAILED: AdGuardHome optional database link regression' "${OPTIONAL_DATABASE_UNPRIVILEGED_OUT_FILE}" ||
 	fail 'unprivileged optional database-link regression did not report failed status'
@@ -330,11 +330,9 @@ printf '%s\n' "${ARG_PARSE_OUT}" | grep -Fq 'Usage:' || fail "argument parsing: 
 
 # --- Orphaned test coverage --------------------------------------------------
 # Every tests/*.sh regression script must be wired into a run_check call in
-# tools/code-quality.sh (tests/dns-startup-handoff.sh is invoked indirectly via
-# run_dns_handoff_check, so it is exempt). A new test file that isn't
-# referenced here would silently receive zero CI coverage.
+# tools/code-quality.sh. A new test file that isn't referenced here would
+# silently receive zero CI coverage.
 for t in tests/*.sh; do
-	[ "${t}" = 'tests/dns-startup-handoff.sh' ] && continue
 	# This matrix is run with BusyBox ash by shell-validation.yml and composes
 	# component regressions already registered individually below.
 	[ "${t}" = 'tests/service-lifecycle-integration.sh' ] && continue
