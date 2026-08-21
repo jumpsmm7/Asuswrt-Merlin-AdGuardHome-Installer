@@ -8,16 +8,21 @@ GUARDRAIL_FILE="SONAR-GUARDRAILS.md"
 FAILED=0
 
 fail() {
-	printf '%s\n' "Error: $1" >&2
+	local _message
+	_message="$1"
+	printf '%s\n' "Error: ${_message}" >&2
 	FAILED=1
+	return 0
 }
 
 require_text() {
+	local _file _text
 	_file="$1"
 	_text="$2"
 	if ! grep -F "${_text}" "${_file}" >/dev/null 2>&1; then
 		fail "missing required Sonar contract text in ${_file}: ${_text}"
 	fi
+	return 0
 }
 
 for required_file in "${CONFIG_FILE}" "${GUARDRAIL_FILE}" AGENTS.md .amazonq/rules/AGENTS.md REVIEW.md; do
@@ -35,13 +40,18 @@ require_text "${CONFIG_FILE}" 'sonar.lang.patterns.shell=**/*.sh,installer,S99Ad
 require_text "${CONFIG_FILE}" 'SONAR-GUARDRAILS.md and tools/check-sonar-shell-contract.sh'
 
 sonar_exclusions="$(sed -n 's/^sonar\.exclusions=//p' "${CONFIG_FILE}")"
-normalized_exclusions=",${sonar_exclusions},"
-case "${normalized_exclusions}" in
-	*'*.sh'* | *',installer,'* | *',S99AdGuardHome,'* | *',rc.func.AdGuardHome,'* | *',AdGuardHome.sh,'*)
-		fail 'router runtime shell must not be excluded from Sonar analysis'
-		;;
-	*) : ;;
-esac
+sonar_exclusion_entries="$(printf '%s\n' "${sonar_exclusions}" | tr ',' '\n')"
+while IFS= read -r sonar_exclusion; do
+	case "${sonar_exclusion}" in
+		*'*.sh'* | installer | */installer | S99AdGuardHome | */S99AdGuardHome | rc.func.AdGuardHome | */rc.func.AdGuardHome | AdGuardHome.sh | */AdGuardHome.sh)
+			fail "router runtime shell must not be excluded from Sonar analysis: ${sonar_exclusion}"
+			break
+			;;
+		*) : ;;
+	esac
+done <<EOF_SONAR_EXCLUSIONS
+${sonar_exclusion_entries}
+EOF_SONAR_EXCLUSIONS
 
 if grep -E '^sonar\.issue\.ignore\.multicriteria\.[^.]+\.ruleKey=(shell|shelldre):\*$' "${CONFIG_FILE}" >/dev/null 2>&1; then
 	fail 'blanket Sonar Shell rule suppressions are not allowed'
