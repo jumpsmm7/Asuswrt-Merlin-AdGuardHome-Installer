@@ -2,7 +2,7 @@
 
 These instructions apply to the entire repository unless a deeper `AGENTS.md` overrides them.
 
-Amazon Q Developer must treat this file as binding repository guidance. When generic Linux or Bash advice conflicts with these rules, follow this repository's BusyBox `ash` and Asuswrt-Merlin requirements.
+This file is the canonical repository guardrail set for all coding and review agents, including Codex, Amazon Q Developer, CodeRabbit, and Qodo. Agent-specific configuration may add workflow or provider details, but it must not weaken or contradict these rules. When agent-specific guidance conflicts with this file, this file wins.
 
 ## Primary target
 
@@ -28,30 +28,34 @@ export LC_ALL=C
   export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
   ```
 
-Router stock paths must take priority over Entware paths. The installer appends inherited PATH to preserve user environment during interactive setup. Runtime service scripts (AdGuardHome.sh, S99AdGuardHome, rc.func.AdGuardHome) use a fixed PATH without inheritance to ensure consistent service behavior regardless of the invoking environment.
+Router stock paths must take priority over Entware paths. The installer appends inherited PATH to preserve user environment during interactive setup. Runtime service scripts (`AdGuardHome.sh`, `S99AdGuardHome`, and `rc.func.AdGuardHome`) use a fixed PATH without inheritance to ensure consistent service behavior regardless of the invoking environment.
 
-## Cost-conscious behavior
+## Shared review and editing posture
 
-Keep reviews and edits small, targeted, and high-signal.
+All agents must use the same finding threshold and investigation guardrails.
 
-* Inspect the diff first.
-* Read only the directly touched files and the nearest callers/callees needed to understand the change.
-* Do not scan the whole repository unless the user explicitly asks or the diff cannot be reviewed safely without it.
-* Do not rewrite large blocks just for style.
-* Prefer minimal patches over broad refactors.
-* Avoid low-value nits. Comment only when there is a likely bug, security regression, router-breaking edge case, compatibility issue, or meaningful performance problem.
-* In review mode, cap findings to the most important issues. If no high-confidence issue exists, say so plainly.
-* Do not run expensive, network-heavy, or installation commands during review unless the user explicitly asks.
-* When validation is needed, prefer syntax-only checks on touched shell files.
+* Inspect the current diff first and verify each proposed finding against the current code before reporting or fixing it.
+* Read only the directly touched files and the nearest callers, callees, configuration, tests, and lifecycle paths needed to prove the behavior.
+* Report a finding only when there is a concrete, reachable failure condition and a practical effect on correctness, security, compatibility, router state, service lifecycle, reliability, or meaningful performance.
+* Do not raise speculative, theoretical, style-only, naming, formatting, wording, or preference findings unless they create a real defect.
+* Do not duplicate findings already enforced reliably by existing automated checks unless the check exposes a distinct root cause that still requires code changes.
+* Group repeated instances of the same underlying problem instead of reporting them separately.
+* Do not fill a finding quota. If no high-confidence issue exists, report no finding.
+* Every finding should identify the exact failure condition, the practical effect, and a minimal compatible correction.
+* Prefer minimal patches over broad refactors and do not reformat or rewrite unrelated code.
+* When resolving existing review feedback, re-verify every finding against the current branch, fix only still-valid issues, and skip obsolete findings with a brief reason.
+* Do not run expensive, network-heavy, installation, firmware-changing, or destructive commands during review unless the user explicitly asks or they are required to validate the changed behavior.
+* Do not claim a test or command passed unless it was actually run successfully.
 
-Recommended review priority:
+Prioritize findings in this order:
 
 1. Security regressions.
-2. Service interruption, restore-path, or cleanup regressions.
-3. BusyBox `ash` / POSIX compatibility issues.
-4. Router-specific edge cases involving NVRAM, firewall, WAN, DNS, VPN, or service state.
-5. Performance problems on constrained router hardware.
-6. Maintainability issues only when they can cause real defects.
+2. Service interruption, rollback, cleanup, or restore-path regressions.
+3. BusyBox `ash` or POSIX `/bin/sh` compatibility failures.
+4. Router-specific failures involving NVRAM, firewall, WAN, DNS, VPN, IPSET, or service state.
+5. Install, upgrade, restore, or uninstall failures.
+6. Performance regressions on constrained router hardware.
+7. Maintainability concerns only when they can reasonably cause a defect.
 
 ## Shell compatibility rules
 
@@ -81,7 +85,7 @@ Use POSIX-safe constructs:
 
 ## Shell syntax, quoting, and punctuation contract
 
-These are hard requirements for Amazon Q Developer when writing or editing shell code in this repository. Do not "clean up" working shell by applying Python, JavaScript, Bash, or desktop-Linux punctuation conventions.
+These are hard requirements for every coding or review agent when writing, suggesting, or evaluating shell code in this repository. Do not apply Python, JavaScript, Bash, or desktop-Linux punctuation conventions to POSIX shell.
 
 Tokenization and separators:
 
@@ -114,6 +118,7 @@ Tests, conditionals, and control flow:
 * Use `case "${value}" in ... esac` for multi-pattern matching instead of Bash `[[ ... =~ ... ]]`.
 * Use `read -r` unless backslash interpretation is intentionally required.
 * Do not rely on variables modified inside a pipeline-fed `while` loop being available afterward; pipeline components may run in subshells.
+* When a command substitution's status controls the next action, do not hide it behind `local NAME="$(command)"`; declare the local first and assign separately. Do not flag a combined declaration when the substitution status is intentionally ignored.
 
 Functions, redirections, and here-documents:
 
@@ -135,16 +140,8 @@ Embedded-language safety:
 
 * Shell files in this repository contain AWK, `sed`, `jq`, regex, YAML, and JSON fragments. Validate the syntax of the embedded language separately from the outer shell quoting.
 * Do not remove required AWK commas, regex escapes, JSON commas/quotes, or YAML spacing while adjusting shell quotes.
-* When an embedded program is single-quoted, remember that shell variables do not expand inside it unless values are passed explicitly (for example with `awk -v`).
+* When an embedded program is single-quoted, remember that shell variables do not expand inside it unless values are passed explicitly, for example with `awk -v`.
 * When changing nested quotes, verify both layers: the shell must parse, and the embedded expression must still receive the intended characters.
-
-Required pre-delivery checks for shell changes:
-
-1. Run `sh -n` on every touched shell script or shell fixture.
-2. If ShellCheck is available in the development environment, run `shellcheck -s sh` on touched runtime shell files.
-3. Inspect the final diff for unmatched quotes, accidental commas, missing separators/terminators, unquoted expansions, Bash-only syntax, and GNU-only assumptions.
-4. Run the nearest targeted regression test(s) for the changed behavior when available.
-5. Do not claim a command or test passed unless it was actually run successfully.
 
 General shell rules:
 
@@ -309,19 +306,21 @@ Check for:
 
 ## Validation
 
-For touched shell scripts, suggest or run syntax checks with:
+For touched shell scripts or shell fixtures, run the syntax check that matches the target environment when available:
 
 ```sh
 sh -n scriptname
 ```
 
-If ShellCheck is available outside the router, it may be used as an additional check:
+For router-runtime shell, BusyBox `ash -n` is preferred when BusyBox is available in the validation environment. If ShellCheck is available off-router, use it as an additional check:
 
 ```sh
 shellcheck -s sh scriptname
 ```
 
-Do not require validation commands that need Python, Perl, GNU coreutils, `systemd`, `apt`, or Entware unless explicitly allowed.
+Run the nearest targeted regression test for changed behavior when practical. Do not require validation commands that need Python, Perl, GNU coreutils, `systemd`, `apt`, network access, or a new Entware package unless the changed feature explicitly requires that environment.
+
+Before delivery, inspect the final diff for unmatched quotes, accidental commas, missing separators or terminators, unquoted expansions, Bash-only syntax, GNU-only assumptions, and unrelated changes.
 
 ## Answer style for this repository
 

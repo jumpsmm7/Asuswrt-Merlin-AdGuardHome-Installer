@@ -1,16 +1,16 @@
 #!/bin/sh
-# Regression test for .amazonq/rules/AGENTS.md's factual claims about this
-# repository's PATH contracts and Entware package governance. AGENTS.md is
-# read by AI reviewers/agents as ground truth about the codebase; if its
-# documented PATH exports or "Allowed Entware packages" list ever drifted
-# from what the scripts actually do, reviewers would silently give incorrect
-# guidance (e.g. flagging a legitimate opkg install as undocumented, or
-# missing a real router-stock-vs-Entware-fallback ambiguity) without any
-# other check noticing, since AGENTS.md is prose, not executable code.
+# Regression test for the repository's shared AI-agent guardrails. The root
+# AGENTS.md is canonical; Amazon Q mirrors it exactly, while Qodo, CodeRabbit,
+# and Codex may add provider-specific review workflow details without weakening
+# the shared runtime, finding-threshold, PATH, or dependency rules.
 
 set -u
 
-AGENTS='.amazonq/rules/AGENTS.md'
+CANONICAL_AGENTS='AGENTS.md'
+AMAZONQ_AGENTS='.amazonq/rules/AGENTS.md'
+QODO_REVIEW='REVIEW.md'
+CODERABBIT='.coderabbit.yaml'
+CODEX_PROMPT='.github/prompts/codex-code-improvement.md'
 INSTALLER="${1:-installer}"
 AGH='AdGuardHome.sh'
 S99='S99AdGuardHome'
@@ -22,77 +22,181 @@ fail() {
 	exit 1
 }
 
-for f in "${AGENTS}" "${INSTALLER}" "${AGH}" "${S99}" "${RCFUNC}"; do
+# require_text verifies that a required literal guardrail remains present.
+require_text() {
+	file="$1"
+	text="$2"
+	description="$3"
+	grep -Fq "${text}" "${file}" || fail "${file}: missing shared guardrail: ${description}"
+}
+
+for f in "${CANONICAL_AGENTS}" "${AMAZONQ_AGENTS}" "${QODO_REVIEW}" "${CODERABBIT}" "${CODEX_PROMPT}" \
+	"${INSTALLER}" "${AGH}" "${S99}" "${RCFUNC}"; do
 	[ -f "${f}" ] || fail "expected file not found: ${f}"
 done
 
-# --- PATH contract 1: the installer's inherited-PATH contract --------------
-# AGENTS.md documents this exact export for the installer; it must match the
-# installer's real export byte-for-byte, since the doc is what reviewers use
-# to judge whether a PATH change is a regression.
-INSTALLER_PATH_CONTRACT='export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"'
-grep -Fq "${INSTALLER_PATH_CONTRACT}" "${AGENTS}" ||
-	fail "${AGENTS}: missing the documented installer PATH contract: ${INSTALLER_PATH_CONTRACT}"
-grep -Fq "${INSTALLER_PATH_CONTRACT}" "${INSTALLER}" ||
-	fail "${INSTALLER}: does not export PATH using the contract documented in ${AGENTS}"
+# Amazon Q receives its rules from .amazonq/rules. Keep that file byte-for-byte
+# identical to the canonical root guardrails so authoring/fixing behavior cannot
+# silently diverge from the rules used by the other agents.
+cmp -s "${CANONICAL_AGENTS}" "${AMAZONQ_AGENTS}" ||
+	fail "${AMAZONQ_AGENTS} must exactly mirror ${CANONICAL_AGENTS}"
 
-# --- PATH contract 2: the fixed runtime-service PATH contract ---------------
-# The three runtime service scripts must all use the identical fixed PATH
-# (no inherited PATH) documented in AGENTS.md.
-RUNTIME_PATH_CONTRACT='export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"'
-grep -Fq "${RUNTIME_PATH_CONTRACT}" "${AGENTS}" ||
-	fail "${AGENTS}: missing the documented runtime-service PATH contract: ${RUNTIME_PATH_CONTRACT}"
-for f in "${AGH}" "${S99}" "${RCFUNC}"; do
-	grep -Fq "${RUNTIME_PATH_CONTRACT}" "${f}" ||
-		fail "${f}: does not export PATH using the fixed runtime-service contract documented in ${AGENTS}"
+require_text "${CANONICAL_AGENTS}" \
+	'This file is the canonical repository guardrail set for all coding and review agents' \
+	'canonical all-agent precedence declaration'
+require_text "${CANONICAL_AGENTS}" \
+	'verify each proposed finding against the current code before reporting or fixing it.' \
+	'current-code verification before findings'
+require_text "${CANONICAL_AGENTS}" \
+	'Do not fill a finding quota. If no high-confidence issue exists, report no finding.' \
+	'no finding quota / high-confidence threshold'
+require_text "${CANONICAL_AGENTS}" \
+	'Every finding should identify the exact failure condition, the practical effect, and a minimal compatible correction.' \
+	'failure condition, impact, and minimal correction requirement'
+require_text "${CANONICAL_AGENTS}" \
+	'Shell command arguments are separated by whitespace, **not commas**.' \
+	'shell argument punctuation rule'
+require_text "${CANONICAL_AGENTS}" \
+	'Keep quote pairs balanced.' \
+	'shell quote balancing rule'
+require_text "${CANONICAL_AGENTS}" \
+	'Target BusyBox version: `BusyBox v1.25.1`.' \
+	'BusyBox target version'
+
+# All reviewers use the same priority order even if their provider-specific
+# configuration contains additional checks.
+for priority in \
+	'1. Security regressions.' \
+	'2. Service interruption, rollback, cleanup, or restore-path regressions.' \
+	'3. BusyBox `ash` or POSIX `/bin/sh` compatibility failures.' \
+	'4. Router-specific failures involving NVRAM, firewall, WAN, DNS, VPN, IPSET, or service state.' \
+	'5. Install, upgrade, restore, or uninstall failures.' \
+	'6. Performance regressions on constrained router hardware.' \
+	'7. Maintainability concerns only when they can reasonably cause a defect.'; do
+	require_text "${CANONICAL_AGENTS}" "${priority}" "canonical review priority ${priority}"
+	require_text "${QODO_REVIEW}" "${priority}" "Qodo review priority ${priority}"
 done
 
-# The installer's PATH must never itself use the fixed runtime contract (it
-# must keep inheriting PATH), or the two documented contracts would collapse
-# into one and the "installer inherits, services don't" guidance would be
-# meaningless.
+# Qodo's REVIEW.md remains its detailed reviewer contract, but it must preserve
+# the same evidence threshold, BusyBox target, and minimal-fix posture.
+require_text "${QODO_REVIEW}" \
+	'Do not raise speculative findings that lack a concrete failure scenario.' \
+	'Qodo concrete-failure threshold'
+require_text "${QODO_REVIEW}" \
+	'Do not fill a finding quota. When no high-confidence issue exists, return no finding.' \
+	'Qodo no-quota threshold'
+require_text "${QODO_REVIEW}" \
+	'1. The exact failure condition.' \
+	'Qodo exact failure-condition requirement'
+require_text "${QODO_REVIEW}" \
+	'3. A minimal compatible correction.' \
+	'Qodo minimal correction requirement'
+require_text "${QODO_REVIEW}" \
+	'BusyBox v1.25.1' \
+	'Qodo BusyBox target version'
+require_text "${QODO_REVIEW}" \
+	'Unquoted expansions that can split words or expand globs.' \
+	'Qodo shell quoting review guardrail'
+
+# CodeRabbit already supports repository-level path instructions. Require its
+# global policy to keep delegating to the canonical file and to use the same
+# reachable-defect/minimal-fix threshold.
+require_text "${CODERABBIT}" \
+	"Treat the repository's AGENTS.md as the primary engineering standard." \
+	'CodeRabbit canonical AGENTS.md delegation'
+require_text "${CODERABBIT}" \
+	'Report only likely correctness, security, compatibility, state-safety,' \
+	'CodeRabbit actionable-defect threshold'
+require_text "${CODERABBIT}" \
+	'Do not claim a theoretical issue without identifying a reachable' \
+	'CodeRabbit reachable-path requirement'
+require_text "${CODERABBIT}" \
+	'Prefer a minimal fix over a broad refactor.' \
+	'CodeRabbit minimal-fix requirement'
+require_text "${CODERABBIT}" \
+	'Review as production POSIX /bin/sh code running under BusyBox ash' \
+	'CodeRabbit POSIX BusyBox runtime target'
+require_text "${CODERABBIT}" \
+	'v1.25.1 on Asuswrt-Merlin.' \
+	'CodeRabbit BusyBox version target'
+
+# Codex's provider-specific prompt must explicitly defer to the canonical file
+# and apply the same current-code/high-confidence/minimal-fix review posture.
+require_text "${CODEX_PROMPT}" \
+	'Treat the repository-root `AGENTS.md` as the canonical engineering and review guardrail set.' \
+	'Codex canonical AGENTS.md delegation'
+require_text "${CODEX_PROMPT}" \
+	'verify every proposed finding against the current code before reporting it.' \
+	'Codex current-code verification requirement'
+require_text "${CODEX_PROMPT}" \
+	'Report only actionable findings with a concrete, reachable failure mode and practical impact.' \
+	'Codex reachable-defect threshold'
+require_text "${CODEX_PROMPT}" \
+	'If no high-confidence issue exists, report no finding.' \
+	'Codex no-quota threshold'
+require_text "${CODEX_PROMPT}" \
+	'Prefer a minimal compatible correction over a broad refactor or style rewrite.' \
+	'Codex minimal-fix requirement'
+
+# --- PATH contract 1: the installer's inherited-PATH contract --------------
+INSTALLER_PATH_CONTRACT='export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"'
+require_text "${CANONICAL_AGENTS}" "${INSTALLER_PATH_CONTRACT}" 'canonical installer PATH contract'
+grep -Fq "${INSTALLER_PATH_CONTRACT}" "${INSTALLER}" ||
+	fail "${INSTALLER}: does not export PATH using the contract documented in ${CANONICAL_AGENTS}"
+require_text "${QODO_REVIEW}" \
+	'The installer preserves inherited PATH entries after the trusted router and' \
+	'Qodo installer inherited-PATH contract'
+
+# --- PATH contract 2: the fixed runtime-service PATH contract ---------------
+RUNTIME_PATH_CONTRACT='export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"'
+require_text "${CANONICAL_AGENTS}" "${RUNTIME_PATH_CONTRACT}" 'canonical runtime-service PATH contract'
+require_text "${QODO_REVIEW}" "${RUNTIME_PATH_CONTRACT}" 'Qodo runtime-service PATH contract'
+for f in "${AGH}" "${S99}" "${RCFUNC}"; do
+	grep -Fq "${RUNTIME_PATH_CONTRACT}" "${f}" ||
+		fail "${f}: does not export PATH using the fixed runtime-service contract documented in ${CANONICAL_AGENTS}"
+done
+
 grep -Fq "${RUNTIME_PATH_CONTRACT}" "${INSTALLER}" &&
 	fail "${INSTALLER}: unexpectedly also exports the fixed runtime-service PATH contract"
 
 # --- Allowed Entware packages vs. actual installer usage -------------------
-# Extract the bulleted package list under the "Allowed Entware packages"
-# heading in AGENTS.md, independent of any hardcoded copy, so this test
-# tracks the real doc content.
 AGENTS_PACKAGES=$(awk '
 	/^Allowed Entware packages currently referenced by the installer are:$/ { inlist = 1; next }
 	inlist && /^\* `[A-Za-z0-9_-]+`$/ { print; next }
 	inlist && NF == 0 { next }
 	inlist { exit }
-' "${AGENTS}" | sed -E 's/^\* `([A-Za-z0-9_-]+)`$/\1/' | sort -u)
-[ -n "${AGENTS_PACKAGES}" ] || fail "${AGENTS}: could not extract any packages from the 'Allowed Entware packages' list"
+' "${CANONICAL_AGENTS}" | sed -E 's/^\* `([A-Za-z0-9_-]+)`$/\1/' | sort -u)
+[ -n "${AGENTS_PACKAGES}" ] || fail "${CANONICAL_AGENTS}: could not extract any packages from the allowed Entware package list"
 
-# Extract every literal package name actually passed to the installer's own
-# opkg-management helpers, rather than reimplementing the installer's logic.
 INSTALLER_PACKAGES=$(grep -oE '(ensure_opkg_package|preflight_check_entware_package|opkg_pkg_installed) [A-Za-z0-9_-]+' "${INSTALLER}" |
 	awk '{print $2}' | sort -u)
 [ -n "${INSTALLER_PACKAGES}" ] || fail "${INSTALLER}: could not find any opkg-managed package references"
 
-[ "${AGENTS_PACKAGES}" = "${INSTALLER_PACKAGES}" ] || fail "Entware package list differs between ${AGENTS} and packages actually referenced in ${INSTALLER}:
---- ${AGENTS} 'Allowed Entware packages' ---
+[ "${AGENTS_PACKAGES}" = "${INSTALLER_PACKAGES}" ] || fail "Entware package list differs between ${CANONICAL_AGENTS} and packages actually referenced in ${INSTALLER}:
+--- ${CANONICAL_AGENTS} 'Allowed Entware packages' ---
 ${AGENTS_PACKAGES}
 --- packages referenced in ${INSTALLER} ---
 ${INSTALLER_PACKAGES}"
 
-# Sanity check on the extraction itself, so a future edit that empties both
-# lists in tandem can't silently pass this comparison.
 PACKAGE_COUNT=$(printf '%s\n' "${AGENTS_PACKAGES}" | grep -c '.')
 [ "${PACKAGE_COUNT}" -ge 6 ] || fail "expected at least 6 allowed Entware packages, found ${PACKAGE_COUNT}: ${AGENTS_PACKAGES}"
 
-# --- jq: router-stock binary, not an installed Entware package -------------
-# AGENTS.md documents jq as a router-stock binary at a fixed path rather than
-# an Entware package; the installer's own stock-path probe must agree, and jq
-# must never appear in the opkg-managed package extraction above (it would
-# contradict the "router-stock binary" classification).
-grep -Fq '`jq`: `/usr/bin/jq`' "${AGENTS}" ||
-	fail "${AGENTS}: expected jq to be documented as a router-stock binary at /usr/bin/jq"
-grep -Fq '[ -x /usr/bin/jq ]' "${INSTALLER}" ||
-	fail "${INSTALLER}: expected the jq preflight check to probe the router-stock path /usr/bin/jq documented in ${AGENTS}"
-printf '%s\n' "${INSTALLER_PACKAGES}" | grep -Fxq 'jq' &&
-	fail "${INSTALLER}: jq is opkg-managed like an Entware package, contradicting its 'router-stock binary' classification in ${AGENTS}"
+# REVIEW.md duplicates the package list for Qodo, so require it to remain in
+# lockstep with the canonical list rather than merely containing a few names.
+QODO_PACKAGES=$(awk '
+	/^Allowed Entware packages currently referenced by the installer are:$/ { inlist = 1; next }
+	inlist && /^\* `[A-Za-z0-9_-]+`$/ { print; next }
+	inlist && NF == 0 { next }
+	inlist { exit }
+' "${QODO_REVIEW}" | sed -E 's/^\* `([A-Za-z0-9_-]+)`$/\1/' | sort -u)
+[ "${QODO_PACKAGES}" = "${AGENTS_PACKAGES}" ] ||
+	fail "${QODO_REVIEW}: allowed Entware package list drifted from ${CANONICAL_AGENTS}"
 
-printf '%s\n' 'PASS: AGENTS.md PATH contracts and Entware package governance list stay consistent with the installer and runtime scripts'
+# --- jq: router-stock binary, not an installed Entware package -------------
+require_text "${CANONICAL_AGENTS}" '`jq`: `/usr/bin/jq`' 'jq router-stock path'
+grep -Fq '[ -x /usr/bin/jq ]' "${INSTALLER}" ||
+	fail "${INSTALLER}: expected the jq preflight check to probe the router-stock path /usr/bin/jq documented in ${CANONICAL_AGENTS}"
+printf '%s\n' "${INSTALLER_PACKAGES}" | grep -Fxq 'jq' &&
+	fail "${INSTALLER}: jq is opkg-managed like an Entware package, contradicting its router-stock classification"
+
+printf '%s\n' 'PASS: shared agent guardrails, PATH contracts, and Entware package governance remain aligned across Codex, Amazon Q, CodeRabbit, and Qodo'

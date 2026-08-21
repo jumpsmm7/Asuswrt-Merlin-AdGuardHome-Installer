@@ -2,6 +2,8 @@
 
 These instructions apply to the entire repository unless a deeper `AGENTS.md` overrides them.
 
+This file is the canonical repository guardrail set for all coding and review agents, including Codex, Amazon Q Developer, CodeRabbit, and Qodo. Agent-specific configuration may add workflow or provider details, but it must not weaken or contradict these rules. When agent-specific guidance conflicts with this file, this file wins.
+
 ## Primary target
 
 This repository targets POSIX `/bin/sh` scripts running under BusyBox `ash` on Asuswrt-Merlin routers with Entware installed for the AdGuardHome installer runtime.
@@ -10,33 +12,50 @@ Assume:
 
 ```sh
 export LC_ALL=C
-export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin${PATH:+:$PATH}"
 ```
 
-Router stock paths must take priority over Entware paths.
+**PATH contracts by script:**
 
-## Cost-conscious Codex behavior
+- **installer**: Stock directories followed by inherited PATH:
 
-Keep reviews and edits small, targeted, and high-signal.
+  ```sh
+  export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
+  ```
 
-* Inspect the diff first.
-* Read only the directly touched files and the nearest callers/callees needed to understand the change.
-* Do not scan the whole repository unless the user explicitly asks or the diff cannot be reviewed safely without it.
-* Do not rewrite large blocks just for style.
-* Prefer minimal patches over broad refactors.
-* Avoid low-value nits. Comment only when there is a likely bug, security regression, router-breaking edge case, compatibility issue, or meaningful performance problem.
-* In review mode, cap findings to the most important issues. If no high-confidence issue exists, say so plainly.
-* Do not run expensive, network-heavy, or installation commands during review unless the user explicitly asks.
-* When validation is needed, prefer syntax-only checks on touched shell files.
+- **AdGuardHome.sh, S99AdGuardHome, rc.func.AdGuardHome**: Stock plus Entware directories without inherited PATH:
 
-Recommended review priority:
+  ```sh
+  export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
+  ```
+
+Router stock paths must take priority over Entware paths. The installer appends inherited PATH to preserve user environment during interactive setup. Runtime service scripts (`AdGuardHome.sh`, `S99AdGuardHome`, and `rc.func.AdGuardHome`) use a fixed PATH without inheritance to ensure consistent service behavior regardless of the invoking environment.
+
+## Shared review and editing posture
+
+All agents must use the same finding threshold and investigation guardrails.
+
+* Inspect the current diff first and verify each proposed finding against the current code before reporting or fixing it.
+* Read only the directly touched files and the nearest callers, callees, configuration, tests, and lifecycle paths needed to prove the behavior.
+* Report a finding only when there is a concrete, reachable failure condition and a practical effect on correctness, security, compatibility, router state, service lifecycle, reliability, or meaningful performance.
+* Do not raise speculative, theoretical, style-only, naming, formatting, wording, or preference findings unless they create a real defect.
+* Do not duplicate findings already enforced reliably by existing automated checks unless the check exposes a distinct root cause that still requires code changes.
+* Group repeated instances of the same underlying problem instead of reporting them separately.
+* Do not fill a finding quota. If no high-confidence issue exists, report no finding.
+* Every finding should identify the exact failure condition, the practical effect, and a minimal compatible correction.
+* Prefer minimal patches over broad refactors and do not reformat or rewrite unrelated code.
+* When resolving existing review feedback, re-verify every finding against the current branch, fix only still-valid issues, and skip obsolete findings with a brief reason.
+* Do not run expensive, network-heavy, installation, firmware-changing, or destructive commands during review unless the user explicitly asks or they are required to validate the changed behavior.
+* Do not claim a test or command passed unless it was actually run successfully.
+
+Prioritize findings in this order:
 
 1. Security regressions.
-2. Service interruption, restore-path, or cleanup regressions.
-3. BusyBox `ash` / POSIX compatibility issues.
-4. Router-specific edge cases involving NVRAM, firewall, WAN, DNS, VPN, or service state.
-5. Performance problems on constrained router hardware.
-6. Maintainability issues only when they can cause real defects.
+2. Service interruption, rollback, cleanup, or restore-path regressions.
+3. BusyBox `ash` or POSIX `/bin/sh` compatibility failures.
+4. Router-specific failures involving NVRAM, firewall, WAN, DNS, VPN, IPSET, or service state.
+5. Install, upgrade, restore, or uninstall failures.
+6. Performance regressions on constrained router hardware.
+7. Maintainability concerns only when they can reasonably cause a defect.
 
 ## Shell compatibility rules
 
@@ -63,6 +82,66 @@ Use POSIX-safe constructs:
 * `while read -r line; do ... done`
 * command substitution with `$(...)`
 * functions as `name() { ...; }`
+
+## Shell syntax, quoting, and punctuation contract
+
+These are hard requirements for every coding or review agent when writing, suggesting, or evaluating shell code in this repository. Do not apply Python, JavaScript, Bash, or desktop-Linux punctuation conventions to POSIX shell.
+
+Tokenization and separators:
+
+* Shell command arguments are separated by whitespace, **not commas**. Do not write Python/C-style calls such as `printf '%s\n', "${value}"` or `command arg1, arg2` unless the comma is literal data required by the called program.
+* Preserve commas that belong to an embedded language or command syntax. For example, AWK function calls require commas: `substr(value, 1, 3)` and `split(value, parts, "/")`.
+* Variable assignments use `NAME=value` with no spaces around `=`. Use `NAME="${value}"` when expansion is needed.
+* Separate commands with a newline or `;`. Use `&&` or `||` only when success/failure chaining is intentional.
+* `if`, `elif`, `while`, `until`, and `for` headers must have a separator before `then` or `do`, normally `; then` or `; do` when kept on one line.
+* Do not omit required terminators: `fi`, `done`, `esac`, and `;;` for completed `case` arms.
+* Do not add commas between `case` patterns, command arguments, test operands, function arguments at the shell level, or redirections unless the invoked command's own syntax requires them.
+
+Quoting and expansion:
+
+* Quote parameter expansions by default: use `"${var}"`, not `$var`, unless field splitting or pathname expansion is deliberately required.
+* Quote command substitutions when the result must remain one argument: `"$(command)"`.
+* Quote path variables and redirection targets: `>"${file}"`, `rm -f "${file}"`, `cd "${dir}"`.
+* Use double quotes when expansions must occur and single quotes for literal text that must not expand.
+* Keep quote pairs balanced. Never leave unmatched `'` or `"` characters in generated shell.
+* Use braces around parameter names when adjacent text could be parsed as part of the variable name: `"${name}_suffix"`.
+* Under `set -u`, use forms such as `${var:-}` when an unset variable is valid and expected.
+* Do not single-quote text that is supposed to expand variables or command substitutions.
+* Do not leave wildcard characters unquoted unless pathname expansion is intended. `case` patterns are an exception when pattern matching is intentional.
+* Keep `printf` format strings literal and pass data as separate arguments, for example `printf '%s\n' "${value}"`. Do not use user-controlled data as the format string.
+
+Tests, conditionals, and control flow:
+
+* POSIX test syntax requires spaces: `[ "${value}" = "expected" ]`, not `["${value}"="expected"]`.
+* Use `=` and `!=` for string comparisons in `[ ... ]`; use `-eq`, `-ne`, `-lt`, `-le`, `-gt`, and `-ge` for integer comparisons.
+* Prefer `[ -n "${value:-}" ]` and `[ -z "${value:-}" ]` for explicit non-empty/empty checks.
+* Use `case "${value}" in ... esac` for multi-pattern matching instead of Bash `[[ ... =~ ... ]]`.
+* Use `read -r` unless backslash interpretation is intentionally required.
+* Do not rely on variables modified inside a pipeline-fed `while` loop being available afterward; pipeline components may run in subshells.
+* When a command substitution's status controls the next action, do not hide it behind `local NAME="$(command)"`; declare the local first and assign separately. Do not flag a combined declaration when the substitution status is intentionally ignored.
+
+Functions, redirections, and here-documents:
+
+* Define functions as `name() { ...; }`. Keep a command separator before the closing `}`.
+* Attach file-descriptor numbers directly to redirection operators, for example `2>/dev/null` and `2>&1`.
+* Quote here-document delimiters (`<<'EOF'`) when the body must remain literal. Use an unquoted delimiter only when parameter or command expansion in the body is intentional.
+* Preserve redirection order when it matters; `>"${file}" 2>&1` is not interchangeable with `2>&1 >"${file}"`.
+* Keep temporary-file creation, cleanup traps, and ownership/permission handling compatible with BusyBox and the existing repository patterns.
+
+Asuswrt-Merlin shell style:
+
+* Preserve the surrounding file's tab-based indentation for shell blocks; do not mass-convert indentation.
+* Keep one logical command per line unless a short `&&`/`||` chain clearly improves the existing code.
+* Use LF line endings, no trailing whitespace, and exactly one trailing newline at end of text files.
+* Preserve nearby declaration/order/style conventions unless changing them is necessary for correctness.
+* Keep patches narrowly scoped. Do not reformat unrelated code while fixing shell syntax.
+
+Embedded-language safety:
+
+* Shell files in this repository contain AWK, `sed`, `jq`, regex, YAML, and JSON fragments. Validate the syntax of the embedded language separately from the outer shell quoting.
+* Do not remove required AWK commas, regex escapes, JSON commas/quotes, or YAML spacing while adjusting shell quotes.
+* When an embedded program is single-quoted, remember that shell variables do not expand inside it unless values are passed explicitly, for example with `awk -v`.
+* When changing nested quotes, verify both layers: the shell must parse, and the embedded expression must still receive the intended characters.
 
 General shell rules:
 
@@ -103,13 +182,13 @@ Target BusyBox version: `BusyBox v1.25.1`.
 Treat BusyBox applets as limited implementations, not GNU coreutils.
 Avoid GNU-only flags unless confirmed for BusyBox v1.25.1.
 
-Available BusyBox applets include: `ash`, `awk`, `basename`, `cat`, `chmod`, `chown`, `cp`, `crond`, `crontab`, `cut`, `date`, `dd`, `df`, `dirname`, `dmesg`, `du`, `echo`, `egrep`, `env`, `expr`, `find`, `grep`, `gunzip`, `gzip`, `head`, `hostname`, `ifconfig`, `kill`, `killall`, `ln`, `logger`, `logread`, `ls`, `md5sum`, `mkdir`, `mount`, `mv`, `nc`, `netstat`, `nohup`, `nslookup`, `pidof`, `ping`, `ping6`, `printf`, `ps`, `pwd`, `readlink`, `reboot`, `rm`, `rmdir`, `route`, `sed`, `sh`, `sha256sum`, `sleep`, `sort`, `stty`, `sync`, `tail`, `tar`, `tee`, `test`, `top`, `touch`, `tr`, `true`, `umount`, `uname`, `uniq`, `unzip`, `uptime`, `usleep`, `vi`, `watch`, `wc`, `which`, `xargs`, and `zcat`.
+Available BusyBox applets include: `ash`, `awk`, `basename`, `cat`, `chmod`, `chown`, `cp`, `crond`, `crontab`, `cut`, `date`, `dd`, `df`, `dirname`, `dmesg`, `du`, `echo`, `egrep`, `env`, `expr`, `find`, `grep`, `gunzip`, `gzip`, `head`, `hostname`, `ifconfig`, `kill`, `killall`, `ln`, `logger`, `logread`, `ls`, `md5sum`, `mkdir`, `mkfifo`, `mount`, `mv`, `nc`, `netstat`, `nohup`, `nslookup`, `pidof`, `ping`, `ping6`, `printf`, `ps`, `pwd`, `readlink`, `reboot`, `renice`, `rm`, `rmdir`, `route`, `sed`, `sh`, `sha256sum`, `sleep`, `sort`, `stty`, `sync`, `tail`, `tar`, `tee`, `test`, `top`, `touch`, `tr`, `true`, `umount`, `uname`, `uniq`, `unzip`, `uptime`, `usleep`, `vi`, `watch`, `wc`, `which`, `xargs`, and `zcat`.
 
 `flock` is optional across supported firmware. Do not rely on it unconditionally; preserve the existing compatibility probe and fallback path for IPSET/service locking when `flock` is absent or lacks descriptor-lock support.
 
 ## Important router stock command paths
 
-Prefer these known stock paths when absolute paths are needed:
+When no default path has been defined earlier, prefer these known stock paths when absolute paths are needed:
 
 * `awk`: `/usr/bin/awk`
 * `sed`: `/bin/sed`
@@ -227,19 +306,21 @@ Check for:
 
 ## Validation
 
-For touched shell scripts, suggest or run syntax checks with:
+For touched shell scripts or shell fixtures, run the syntax check that matches the target environment when available:
 
 ```sh
 sh -n scriptname
 ```
 
-If ShellCheck is available outside the router, it may be used as an additional check:
+For router-runtime shell, BusyBox `ash -n` is preferred when BusyBox is available in the validation environment. If ShellCheck is available off-router, use it as an additional check:
 
 ```sh
 shellcheck -s sh scriptname
 ```
 
-Do not require validation commands that need Python, Perl, GNU coreutils, `systemd`, `apt`, or Entware unless explicitly allowed.
+Run the nearest targeted regression test for changed behavior when practical. Do not require validation commands that need Python, Perl, GNU coreutils, `systemd`, `apt`, network access, or a new Entware package unless the changed feature explicitly requires that environment.
+
+Before delivery, inspect the final diff for unmatched quotes, accidental commas, missing separators or terminators, unquoted expansions, Bash-only syntax, GNU-only assumptions, and unrelated changes.
 
 ## Answer style for this repository
 
