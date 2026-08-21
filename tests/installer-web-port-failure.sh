@@ -70,17 +70,17 @@ PTXT() { :; }
 rm() {
 	if { [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] || [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ]; } &&
 		[ "$*" = "-rf ${BASE_DIR}/.AdGuardHome.nvram/lan-domain ${BASE_DIR}/.AdGuardHome.nvram/dnsfilter ${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
-		RM_FAILURES_INJECTED="$(( ${RM_FAILURES_INJECTED:-0} + 1 ))"
+		RM_FAILURES_INJECTED="$((${RM_FAILURES_INJECTED:-0} + 1))"
 		return 1
 	fi
 	if [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
 		[ "$*" = "-f ${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" ]; then
-		RM_FAILURES_INJECTED="$(( ${RM_FAILURES_INJECTED:-0} + 1 ))"
+		RM_FAILURES_INJECTED="$((${RM_FAILURES_INJECTED:-0} + 1))"
 		return 1
 	fi
 	if [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
 		[ "$*" = "-f ${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" ]; then
-		RM_FAILURES_INJECTED="$(( ${RM_FAILURES_INJECTED:-0} + 1 ))"
+		RM_FAILURES_INJECTED="$((${RM_FAILURES_INJECTED:-0} + 1))"
 		return 1
 	fi
 	command rm "$@"
