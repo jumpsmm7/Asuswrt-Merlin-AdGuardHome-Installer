@@ -2,6 +2,8 @@
 
 These instructions apply to the entire repository unless a deeper `AGENTS.md` overrides them.
 
+Amazon Q Developer must treat this file as binding repository guidance. When generic Linux or Bash advice conflicts with these rules, follow this repository's BusyBox `ash` and Asuswrt-Merlin requirements.
+
 ## Primary target
 
 This repository targets POSIX `/bin/sh` scripts running under BusyBox `ash` on Asuswrt-Merlin routers with Entware installed for the AdGuardHome installer runtime.
@@ -76,6 +78,73 @@ Use POSIX-safe constructs:
 * `while read -r line; do ... done`
 * command substitution with `$(...)`
 * functions as `name() { ...; }`
+
+## Shell syntax, quoting, and punctuation contract
+
+These are hard requirements for Amazon Q Developer when writing or editing shell code in this repository. Do not "clean up" working shell by applying Python, JavaScript, Bash, or desktop-Linux punctuation conventions.
+
+Tokenization and separators:
+
+* Shell command arguments are separated by whitespace, **not commas**. Do not write Python/C-style calls such as `printf '%s\n', "${value}"` or `command arg1, arg2` unless the comma is literal data required by the called program.
+* Preserve commas that belong to an embedded language or command syntax. For example, AWK function calls require commas: `substr(value, 1, 3)` and `split(value, parts, "/")`.
+* Variable assignments use `NAME=value` with no spaces around `=`. Use `NAME="${value}"` when expansion is needed.
+* Separate commands with a newline or `;`. Use `&&` or `||` only when success/failure chaining is intentional.
+* `if`, `elif`, `while`, `until`, and `for` headers must have a separator before `then` or `do`, normally `; then` or `; do` when kept on one line.
+* Do not omit required terminators: `fi`, `done`, `esac`, and `;;` for completed `case` arms.
+* Do not add commas between `case` patterns, command arguments, test operands, function arguments at the shell level, or redirections unless the invoked command's own syntax requires them.
+
+Quoting and expansion:
+
+* Quote parameter expansions by default: use `"${var}"`, not `$var`, unless field splitting or pathname expansion is deliberately required.
+* Quote command substitutions when the result must remain one argument: `"$(command)"`.
+* Quote path variables and redirection targets: `>"${file}"`, `rm -f "${file}"`, `cd "${dir}"`.
+* Use double quotes when expansions must occur and single quotes for literal text that must not expand.
+* Keep quote pairs balanced. Never leave unmatched `'` or `"` characters in generated shell.
+* Use braces around parameter names when adjacent text could be parsed as part of the variable name: `"${name}_suffix"`.
+* Under `set -u`, use forms such as `${var:-}` when an unset variable is valid and expected.
+* Do not single-quote text that is supposed to expand variables or command substitutions.
+* Do not leave wildcard characters unquoted unless pathname expansion is intended. `case` patterns are an exception when pattern matching is intentional.
+* Keep `printf` format strings literal and pass data as separate arguments, for example `printf '%s\n' "${value}"`. Do not use user-controlled data as the format string.
+
+Tests, conditionals, and control flow:
+
+* POSIX test syntax requires spaces: `[ "${value}" = "expected" ]`, not `["${value}"="expected"]`.
+* Use `=` and `!=` for string comparisons in `[ ... ]`; use `-eq`, `-ne`, `-lt`, `-le`, `-gt`, and `-ge` for integer comparisons.
+* Prefer `[ -n "${value:-}" ]` and `[ -z "${value:-}" ]` for explicit non-empty/empty checks.
+* Use `case "${value}" in ... esac` for multi-pattern matching instead of Bash `[[ ... =~ ... ]]`.
+* Use `read -r` unless backslash interpretation is intentionally required.
+* Do not rely on variables modified inside a pipeline-fed `while` loop being available afterward; pipeline components may run in subshells.
+
+Functions, redirections, and here-documents:
+
+* Define functions as `name() { ...; }`. Keep a command separator before the closing `}`.
+* Attach file-descriptor numbers directly to redirection operators, for example `2>/dev/null` and `2>&1`.
+* Quote here-document delimiters (`<<'EOF'`) when the body must remain literal. Use an unquoted delimiter only when parameter or command expansion in the body is intentional.
+* Preserve redirection order when it matters; `>"${file}" 2>&1` is not interchangeable with `2>&1 >"${file}"`.
+* Keep temporary-file creation, cleanup traps, and ownership/permission handling compatible with BusyBox and the existing repository patterns.
+
+Asuswrt-Merlin shell style:
+
+* Preserve the surrounding file's tab-based indentation for shell blocks; do not mass-convert indentation.
+* Keep one logical command per line unless a short `&&`/`||` chain clearly improves the existing code.
+* Use LF line endings, no trailing whitespace, and exactly one trailing newline at end of text files.
+* Preserve nearby declaration/order/style conventions unless changing them is necessary for correctness.
+* Keep patches narrowly scoped. Do not reformat unrelated code while fixing shell syntax.
+
+Embedded-language safety:
+
+* Shell files in this repository contain AWK, `sed`, `jq`, regex, YAML, and JSON fragments. Validate the syntax of the embedded language separately from the outer shell quoting.
+* Do not remove required AWK commas, regex escapes, JSON commas/quotes, or YAML spacing while adjusting shell quotes.
+* When an embedded program is single-quoted, remember that shell variables do not expand inside it unless values are passed explicitly (for example with `awk -v`).
+* When changing nested quotes, verify both layers: the shell must parse, and the embedded expression must still receive the intended characters.
+
+Required pre-delivery checks for shell changes:
+
+1. Run `sh -n` on every touched shell script or shell fixture.
+2. If ShellCheck is available in the development environment, run `shellcheck -s sh` on touched runtime shell files.
+3. Inspect the final diff for unmatched quotes, accidental commas, missing separators/terminators, unquoted expansions, Bash-only syntax, and GNU-only assumptions.
+4. Run the nearest targeted regression test(s) for the changed behavior when available.
+5. Do not claim a command or test passed unless it was actually run successfully.
 
 General shell rules:
 

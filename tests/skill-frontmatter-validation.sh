@@ -45,31 +45,33 @@ validate_skill_md() {
 	FRONTMATTER="${TMP_ROOT}/frontmatter.$$"
 	sed -n "2,$((close_line - 1))p" "${skill_md}" >"${FRONTMATTER}"
 
-	# 'name:' must be present exactly once and match the containing directory name exactly.
-	name_count=$(grep -cE '^name:[[:space:]]*' "${FRONTMATTER}")
+	# 'name:' must be present exactly once, separated from its value by whitespace,
+	# and match the containing directory name exactly.
+	name_count=$(grep -cE '^name:[[:space:]]+' "${FRONTMATTER}")
 	if [ "${name_count}" -ne 1 ]; then
 		printf '%s\n' "${skill_md}: frontmatter must have exactly one 'name' field, found ${name_count}" >&2
 		rm -f "${FRONTMATTER}"
 		return 1
 	fi
-	name_line=$(grep -E '^name:[[:space:]]*' "${FRONTMATTER}")
-	actual_name=$(printf '%s\n' "${name_line}" | sed -e 's/^name:[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//')
+	name_line=$(grep -E '^name:[[:space:]]+' "${FRONTMATTER}")
+	actual_name=$(printf '%s\n' "${name_line}" | sed -e 's/^name:[[:space:]][[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//')
 	if [ "${actual_name}" != "${expected_name}" ]; then
 		printf '%s\n' "${skill_md}: frontmatter name '${actual_name}' does not match directory '${expected_name}'" >&2
 		rm -f "${FRONTMATTER}"
 		return 1
 	fi
 
-	# 'description:' must be present exactly once and non-empty once quotes are stripped.
-	description_count=$(grep -cE '^description:[[:space:]]*' "${FRONTMATTER}")
+	# 'description:' must be present exactly once, separated from its value by
+	# whitespace, and non-empty once quotes are stripped.
+	description_count=$(grep -cE '^description:[[:space:]]+' "${FRONTMATTER}")
 	if [ "${description_count}" -ne 1 ]; then
 		printf '%s\n' "${skill_md}: frontmatter must have exactly one 'description' field, found ${description_count}" >&2
 		rm -f "${FRONTMATTER}"
 		return 1
 	fi
-	description_line=$(grep -E '^description:[[:space:]]*' "${FRONTMATTER}")
+	description_line=$(grep -E '^description:[[:space:]]+' "${FRONTMATTER}")
 	# Strip 'description:' prefix and trailing whitespace.
-	actual_description=$(printf '%s\n' "${description_line}" | sed -e 's/^description:[[:space:]]*//' -e 's/[[:space:]]*$//')
+	actual_description=$(printf '%s\n' "${description_line}" | sed -e 's/^description:[[:space:]][[:space:]]*//' -e 's/[[:space:]]*$//')
 	# If the value starts with a quote, extract quoted content; otherwise take everything up to #.
 	case "${actual_description}" in
 		\"*)
@@ -190,6 +192,36 @@ Content here.
 EOF
 if validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-name-directory-mismatch"; then
 	fail "regression: name/directory mismatch fixture unexpectedly passed validation"
+fi
+
+# Test case: name must have whitespace after the colon.
+TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-name-no-separator"
+mkdir -p "${TEST_SKILL_DIR}"
+cat >"${TEST_SKILL_DIR}/SKILL.md" <<'EOF'
+---
+name:test-name-no-separator
+description: Test skill with malformed name key/value separation
+---
+# Test Skill
+Content here.
+EOF
+if validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-name-no-separator"; then
+	fail "regression: name without whitespace after colon unexpectedly passed validation"
+fi
+
+# Test case: description must have whitespace after the colon.
+TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-description-no-separator"
+mkdir -p "${TEST_SKILL_DIR}"
+cat >"${TEST_SKILL_DIR}/SKILL.md" <<'EOF'
+---
+name: test-description-no-separator
+description:valid
+---
+# Test Skill
+Content here.
+EOF
+if validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-description-no-separator"; then
+	fail "regression: description without whitespace after colon unexpectedly passed validation"
 fi
 
 # Test case: an unclosed frontmatter block must be rejected.

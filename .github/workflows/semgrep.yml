@@ -56,8 +56,8 @@ jobs:
               result for result in results
               if result.get("check_id", "").endswith("asuswrt-no-world-writable-chmod")
           ]
-          if len(matches) != 5:
-              raise SystemExit(f"expected 5 chmod guardrail fixture matches, found {len(matches)}")
+          if len(matches) != 8:
+              raise SystemExit(f"expected 8 chmod guardrail fixture matches, found {len(matches)}")
           PY
 
       - name: Generate Semgrep SARIF
