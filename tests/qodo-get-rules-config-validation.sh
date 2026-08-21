@@ -404,10 +404,12 @@ done
 	fail "${SEARCH_ENDPOINT}: both curl examples must discover jq from PATH"
 [ "$(grep -Fc '"$JQ_BIN" -cse' "${SEARCH_ENDPOINT}")" -eq 2 ] ||
 	fail "${SEARCH_ENDPOINT}: both response validators must slurp the complete JSON input"
+[ "$(grep -Fc 'if length != 1 then' "${SEARCH_ENDPOINT}")" -eq 2 ] ||
+	fail "${SEARCH_ENDPOINT}: both response validators must reject multiple JSON documents before unwrapping slurped input"
+[ "$(grep -Fc 'else .[0] end |' "${SEARCH_ENDPOINT}")" -eq 2 ] ||
+	fail "${SEARCH_ENDPOINT}: both response validators must unwrap the single slurped JSON document"
 [ "$(grep -Fc 'if type != "object" or (.rules | type) != "array" then' "${SEARCH_ENDPOINT}")" -eq 2 ] ||
-	fail "${SEARCH_ENDPOINT}: both response validators must directly validate the documented object with a rules array"
-[ "$(grep -Fc 'else .[0] end |' "${SEARCH_ENDPOINT}")" -eq 0 ] ||
-	fail "${SEARCH_ENDPOINT}: response validators still unwrap the obsolete singleton-array response"
+	fail "${SEARCH_ENDPOINT}: both response validators must validate the unwrapped object with a rules array"
 if grep -Eq 'JQ_BIN=/(usr|opt)/bin/jq' "${SEARCH_ENDPOINT}"; then
 	fail "${SEARCH_ENDPOINT}: request examples pin jq to a platform-specific path"
 fi
