@@ -22,6 +22,13 @@ if [ -z "${QODO_CONFIG:-}" ]; then
   fi
   QODO_CONFIG="${HOME}/.qodo/config.json"
 fi
+case "${QODO_CONFIG}" in
+  /*) ;;
+  *)
+    printf '%s\n' 'Error: QODO_CONFIG must be an absolute path' >&2
+    exit 1
+    ;;
+esac
 QODO_DIR="$(dirname "${QODO_CONFIG}")" || exit 1
 (umask 077 && mkdir -p "${QODO_DIR}")
 chmod 700 "${QODO_DIR}"
