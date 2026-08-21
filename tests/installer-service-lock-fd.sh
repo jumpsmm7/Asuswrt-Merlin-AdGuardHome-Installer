@@ -11,7 +11,8 @@ fail() {
 	exit 1
 }
 
-TEST_ROOT="$(mktemp -d)" || fail 'could not create test workspace'
+TEST_ROOT="${TMPDIR:-/tmp}/installer-service-lock-fd.$$"
+(umask 077 && mkdir "${TEST_ROOT}") || exit 1
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 
 # cleanup removes the temporary test workspace.

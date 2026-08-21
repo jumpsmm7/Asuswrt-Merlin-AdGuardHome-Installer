@@ -4,7 +4,8 @@
 set -u
 
 INSTALLER_PATH="${1:-installer}"
-TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/installer-update-reexec-lock.XXXXXX")" || exit 1
+TEST_ROOT="${TMPDIR:-/tmp}/installer-update-reexec-lock.$$"
+(umask 077 && mkdir "${TEST_ROOT}") || exit 1
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 
 # fail prints a failure message to standard error and exits with status 1.

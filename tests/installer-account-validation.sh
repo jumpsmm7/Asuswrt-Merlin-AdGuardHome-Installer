@@ -4,10 +4,10 @@
 set -eu
 
 SCRIPT_PATH="${1:-./installer}"
-TMP_ROOT="${TMPDIR:-/tmp}/agh-account-validation.$$"
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/agh-account-validation.XXXXXX")" || exit 1
 FUNCTIONS_FILE="${TMP_ROOT}/functions.sh"
 trap 'rm -rf "${TMP_ROOT}"' EXIT HUP INT TERM
-mkdir -p "${TMP_ROOT}/bin"
+mkdir "${TMP_ROOT}/bin"
 
 # fail reports a failure message to standard error and exits with status 1.
 fail() {

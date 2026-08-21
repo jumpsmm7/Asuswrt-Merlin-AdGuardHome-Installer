@@ -74,7 +74,7 @@ CONFIG
 
 before="$(cat "${CONF_FILE}")"
 ADGUARD_INSTALL_MODE_DETECTION='unknown'
-if cli_migrate_runtime_defaults --yes >"${TMP_ROOT}/unknown-mode"; then
+if cli_migrate_runtime_defaults --yes >"${TMP_ROOT}/unknown-mode" 2>&1; then
 	fail 'unknown-mode migration was allowed to change runtime defaults'
 fi
 [ "$(cat "${CONF_FILE}")" = "${before}" ] || fail 'unknown-mode migration changed .config'

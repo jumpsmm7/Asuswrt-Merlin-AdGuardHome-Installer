@@ -70,14 +70,17 @@ PTXT() { :; }
 rm() {
 	if { [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] || [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ]; } &&
 		[ "$*" = "-rf ${BASE_DIR}/.AdGuardHome.nvram/lan-domain ${BASE_DIR}/.AdGuardHome.nvram/dnsfilter ${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
+		RM_FAILURES_INJECTED="$(( ${RM_FAILURES_INJECTED:-0} + 1 ))"
 		return 1
 	fi
 	if [ "${FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
 		[ "$*" = "-f ${BASE_DIR}/.AdGuardHome.nvram/lan-domain/dirty" ]; then
+		RM_FAILURES_INJECTED="$(( ${RM_FAILURES_INJECTED:-0} + 1 ))"
 		return 1
 	fi
 	if [ "${FAIL_DNS_FILTER_SNAPSHOT_CLEANUP:-0}" -eq 1 ] &&
 		[ "$*" = "-f ${BASE_DIR}/.AdGuardHome.nvram/dnsfilter/dirty" ]; then
+		RM_FAILURES_INJECTED="$(( ${RM_FAILURES_INJECTED:-0} + 1 ))"
 		return 1
 	fi
 	command rm "$@"
@@ -499,6 +502,7 @@ printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"'
 LAN_DOMAIN='before-dnsfilter-cleanup-failure.test'
 : >"${WRITE_LOG}"
 FAIL_LAN_DOMAIN_SET=0
+RM_FAILURES_INJECTED=0
 FAIL_DNS_FILTER_SNAPSHOT_CLEANUP=1
 DNS_FILTER_CHANGED=0
 DNS_FILTER_RESTORES=0
@@ -512,6 +516,7 @@ fi
 [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'DNSFilter snapshot cleanup failure did not publish the setup commit marker'
 [ -d "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'DNSFilter snapshot cleanup failure did not preserve the LAN-domain snapshot directory'
 [ -d "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'DNSFilter snapshot cleanup failure did not preserve the DNSFilter snapshot directory'
+[ "${RM_FAILURES_INJECTED}" -gt 0 ] || fail 'DNSFilter cleanup failure was not injected'
 
 FAIL_DNS_FILTER_SNAPSHOT_CLEANUP=0
 rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
@@ -520,6 +525,7 @@ printf '%s\n' 'original configuration' >"${YAML_ORI}"
 printf '%s\n' 'ADGUARD_LOCAL="OLD"' 'ADGUARD_IPSET="OLD"' 'ADGUARD_DOMAIN="OLD"' >"${CONF_FILE}"
 LAN_DOMAIN='before-lan-cleanup-failure.test'
 : >"${WRITE_LOG}"
+RM_FAILURES_INJECTED=0
 FAIL_LAN_DOMAIN_SNAPSHOT_CLEANUP=1
 DNS_FILTER_CHANGED=0
 DNS_FILTER_RESTORES=0
@@ -533,6 +539,7 @@ fi
 [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ] || fail 'LAN-domain snapshot cleanup failure did not publish the setup commit marker'
 [ -d "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'LAN-domain snapshot cleanup failure did not preserve the LAN-domain snapshot directory'
 [ -d "${BASE_DIR}/.AdGuardHome.nvram/dnsfilter" ] || fail 'LAN-domain snapshot cleanup failure did not preserve the DNSFilter snapshot directory'
+[ "${RM_FAILURES_INJECTED}" -gt 0 ] || fail 'LAN-domain cleanup failure was not injected'
 
 rm -rf "${BASE_DIR}/.AdGuardHome.nvram"
 printf '%s\n' 'working configuration' >"${YAML_FILE}"

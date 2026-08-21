@@ -12,6 +12,11 @@ TRANSITION_FILE="${TMP_ROOT}/transition"
 
 # cleanup removes the temporary test workspace.
 cleanup() {
+	_collision_cleanup=0
+	while [ "${_collision_cleanup}" -lt 10 ]; do
+		rmdir "/tmp/AdGuardHome-start-traps.$$.${_collision_cleanup}" 2>/dev/null || :
+		_collision_cleanup="$((_collision_cleanup + 1))"
+	done
 	rm -rf "${TMP_ROOT}"
 }
 

@@ -10,7 +10,7 @@ rules:
         - S99AdGuardHome
         - rc.func.AdGuardHome
         - tools/*.sh
-    pattern-regex: '(?m)^[ \t]*(?:command[ \t]+)?(?:/[^ \t\n]*/)?curl[^\n#]*(?:[ \t]-k(?:[ \t]|$)|[ \t]--insecure(?:[ \t]|$))'
+    pattern-regex: '(?m)^[ \t]*(?:command[ \t]+)?(?:/[^ \t\n]*/)?curl[^\n#]*(?:[ \t]-[A-Za-z]*k[A-Za-z]*(?:[ \t]|$)|[ \t]--insecure(?:[ \t]|$))'
 
   - id: asuswrt-no-direct-insecure-wget
     message: Direct wget certificate bypass is forbidden; use the reviewed secure-first downloader helper.

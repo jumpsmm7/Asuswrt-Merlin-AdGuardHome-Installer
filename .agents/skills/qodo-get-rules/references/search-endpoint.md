@@ -108,8 +108,8 @@ RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 30 -X POS
   -H "qodo-client-type: skill-qodo-get-rules" \
   -d "${BODY}" \
   "${API_URL}/rules/search") || exit 1
-HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-BODY_RESPONSE=$(echo "$RESPONSE" | sed '$d')
+HTTP_CODE=$(printf '%s\n' "$RESPONSE" | tail -n 1)
+BODY_RESPONSE=$(printf '%s\n' "$RESPONSE" | sed '$d')
 
 if [ "$HTTP_CODE" != "200" ]; then
   echo "Error: Rules search failed with HTTP status $HTTP_CODE" >&2
@@ -182,8 +182,8 @@ else
     -d "${BODY}" \
     "${API_URL}/rules/search") || exit 1
 fi
-HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-BODY_RESPONSE=$(echo "$RESPONSE" | sed '$d')
+HTTP_CODE=$(printf '%s\n' "$RESPONSE" | tail -n 1)
+BODY_RESPONSE=$(printf '%s\n' "$RESPONSE" | sed '$d')
 
 if [ "$HTTP_CODE" != "200" ]; then
   echo "Error: Rules search failed with HTTP status $HTTP_CODE" >&2

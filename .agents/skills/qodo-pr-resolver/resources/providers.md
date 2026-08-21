@@ -10,6 +10,21 @@ This document contains all provider-specific CLI commands and API interactions f
 - Azure DevOps (via `az` CLI with DevOps extension)
 - Gerrit (via REST API with `curl`) — see [gerrit.md](./gerrit.md)
 
+## Secure Qodo Configuration Setup
+
+Before using file-backed provider credentials, create the configuration with loader-compatible permissions:
+
+```bash
+QODO_DIR="${HOME}/.qodo"
+QODO_CONFIG="${QODO_DIR}/config.json"
+(umask 077 && mkdir -p "${QODO_DIR}")
+chmod 700 "${QODO_DIR}"
+[ -e "${QODO_CONFIG}" ] || (umask 077 && printf '%s\n' '{}' >"${QODO_CONFIG}")
+chmod 600 "${QODO_CONFIG}"
+```
+
+The Bitbucket and Azure DevOps examples below assume this secure setup has been completed.
+
 ## Provider Detection
 
 Detect the git provider from the remote URL:
@@ -24,6 +39,8 @@ Match against:
 - `bitbucket.org` → Bitbucket
 - `dev.azure.com`, or the host configured by `AZURE_DEVOPS_URL` (from environment or `~/.qodo/config.json`) → Azure DevOps
 - `.gitreview` file or port `29418` or `googlesource.com` → Gerrit (see [gerrit.md](./gerrit.md))
+
+Complete [Secure Qodo Configuration Setup](#secure-qodo-configuration-setup) before file-backed detection.
 
 For Azure DevOps detection, load `AZURE_DEVOPS_URL` from the Qodo config file as a fallback if not set in the environment:
 
@@ -85,6 +102,8 @@ fi
   ```
 
 ### Bitbucket
+
+Complete [Secure Qodo Configuration Setup](#secure-qodo-configuration-setup) before storing credentials.
 
 **Authentication:** Bitbucket REST API with an App Password (there is no official `bb` CLI)
 - Create an App Password: Bitbucket → **Settings → App passwords**
@@ -211,6 +230,8 @@ EOF
   ```
 
 ### Azure DevOps
+
+Complete [Secure Qodo Configuration Setup](#secure-qodo-configuration-setup) before storing a PAT.
 
 **CLI:** `az` with DevOps extension
 - **Install:** `brew install azure-cli` or [docs.microsoft.com/cli/azure](https://docs.microsoft.com/cli/azure)

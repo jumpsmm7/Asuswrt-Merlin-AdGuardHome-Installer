@@ -287,7 +287,17 @@ if adguard_refresh_lan_bind_addresses; then fail 'symlink active YAML was accept
 YAML_FILE="${ACTIVE_YAML_FILE}"
 
 # Command wrappers deterministically exercise failures that are otherwise filesystem-dependent as root.
+REAL_CP="$(which cp)" || fail 'could not resolve cp'
+REAL_CAT="$(which cat)" || fail 'could not resolve cat'
+REAL_MD5SUM="$(which md5sum)" || fail 'could not resolve md5sum'
+REAL_MV="$(which mv)" || fail 'could not resolve mv'
 for command_name in cp cat md5sum mv; do
+	case "${command_name}" in
+		cp) real_command="${REAL_CP}" ;;
+		cat) real_command="${REAL_CAT}" ;;
+		md5sum) real_command="${REAL_MD5SUM}" ;;
+		mv) real_command="${REAL_MV}" ;;
+	esac
 	cat >"${BIN_DIR}/${command_name}" <<EOF
 #!/bin/sh
 case " \${FAIL_COMMAND:-} \$* " in
@@ -296,7 +306,7 @@ case " \${FAIL_COMMAND:-} \$* " in
 	case "\$*" in */AdGuardHome.yaml) exit \${FAIL_STATUS:-1} ;; esac
 	;;
 esac
-exec /usr/bin/${command_name} "\$@"
+exec ${real_command} "\$@"
 EOF
 	chmod 700 "${BIN_DIR}/${command_name}" || fail "could not create ${command_name} failure wrapper"
 done
@@ -304,7 +314,7 @@ PATH="${BIN_DIR}:${PATH}"
 export PATH
 for failure_case in 'cp:stage_copy_failed:1' 'cat:stage_rewrite_failed:1' 'md5sum:stage_compare_failed:1' 'md5sum:stage_compare_failed:0' 'mv:atomic_replace_failed:1'; do
 	sed 's/192\.168\.50\.27:3443/192.168.50.1:3443/' "${YAML_FILE}" >"${YAML_FILE}.reset" || fail 'could not prepare command-failure fixture'
-	/usr/bin/mv "${YAML_FILE}.reset" "${YAML_FILE}" || fail 'could not activate command-failure fixture'
+	"${REAL_MV}" "${YAML_FILE}.reset" "${YAML_FILE}" || fail 'could not activate command-failure fixture'
 	FAIL_COMMAND="${failure_case%%:*}"
 	remainder="${failure_case#*:}"
 	expected_reason="${remainder%%:*}"
@@ -318,7 +328,7 @@ unset FAIL_COMMAND FAIL_STATUS
 
 # A read-only-filesystem-style staging failure follows the same preservation path as a failed copy.
 sed 's/192\.168\.50\.27:3443/192.168.50.1:3443/' "${YAML_FILE}" >"${YAML_FILE}.reset" || fail 'could not prepare read-only fixture'
-/usr/bin/mv "${YAML_FILE}.reset" "${YAML_FILE}" || fail 'could not activate read-only fixture'
+"${REAL_MV}" "${YAML_FILE}.reset" "${YAML_FILE}" || fail 'could not activate read-only fixture'
 FAIL_COMMAND="cp"
 export FAIL_COMMAND
 assert_rejected_unchanged read-only-staging-directory

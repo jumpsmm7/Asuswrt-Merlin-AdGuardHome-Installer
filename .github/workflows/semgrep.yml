@@ -34,6 +34,16 @@ jobs:
           "${RUNNER_TEMP}/semgrep-venv/bin/pip" install --disable-pip-version-check 'semgrep==1.172.0'
           printf '%s\n' "${RUNNER_TEMP}/semgrep-venv/bin" >> "${GITHUB_PATH}"
 
+      - name: Verify insecure downloader fixtures
+        shell: sh
+        run: |
+          set -eu
+          fixture_dir="${RUNNER_TEMP}/semgrep-insecure-fixture"
+          mkdir -p "${fixture_dir}"
+          cp tests/fixtures/semgrep/insecure-downloads.sh "${fixture_dir}/installer"
+          semgrep scan --config "${GITHUB_WORKSPACE}/.semgrep.yml" --metrics=off --json "${fixture_dir}/installer" >"${fixture_dir}/results.json"
+          [ "$(grep -o 'asuswrt-no-direct-insecure-curl' "${fixture_dir}/results.json" | wc -l)" -eq 4 ]
+
       - name: Verify chmod guardrail fixtures
         shell: sh
         run: |

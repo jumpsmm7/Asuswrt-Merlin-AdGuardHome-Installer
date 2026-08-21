@@ -402,7 +402,7 @@ After code generation, inform the user about rule application:
 
 ## Configuration
 
-See [README.md](../../README.md#configuration) for full configuration instructions, including API key setup and environment variable options.
+See [README.md](../../../README.md#configuration) for full configuration instructions, including API key setup and environment variable options.
 
 ---
 

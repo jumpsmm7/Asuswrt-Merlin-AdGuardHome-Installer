@@ -141,6 +141,14 @@ CONF_FILE="${TMP_ROOT}/new-invalid-missing-sw-mode.config"
 if configure_runtime_defaults new-install invalid 0 >"${TMP_ROOT}/new-invalid-missing-sw-mode.out"; then fail 'missing sw_mode unexpectedly inferred LAN mode'; fi
 [ ! -e "${CONF_FILE}" ] || fail 'missing sw_mode modified persistent defaults'
 
+# nvram restores normal sw_mode behavior for subsequent scenarios.
+nvram() {
+	case "${1:-}:${2:-}" in
+		get:sw_mode) printf '%s\n' 1 ;;
+		*) return 1 ;;
+	esac
+}
+
 CONF_FILE="${TMP_ROOT}/new-existing-netcheck.config"
 cat >"${CONF_FILE}" <<'CONFIG'
 ADGUARD_NETCHECK_MODE="legacy"

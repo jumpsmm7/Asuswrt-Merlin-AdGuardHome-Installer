@@ -115,6 +115,7 @@ if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh
 	fail 'malformed dotted release version was accepted'
 fi
 STALE_VERSION="${CURRENT_VERSION%.*}.1"
+[ "${STALE_VERSION}" != "${CURRENT_VERSION}" ] || STALE_VERSION="${CURRENT_VERSION%.*}.2"
 BOUNDARY_VERSION="${STALE_VERSION}0"
 sed "s/${VERSION_PATTERN}/${BOUNDARY_VERSION}/g" installer >"${TMP_ROOT}/installer"
 refresh_manifests "${TMP_ROOT}/installer" || fail "unable to refresh installer manifest"

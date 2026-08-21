@@ -42,7 +42,12 @@ require_text "${CONFIG_FILE}" 'SONAR-GUARDRAILS.md and tools/check-sonar-shell-c
 sonar_exclusions="$(sed -n 's/^sonar\.exclusions=//p' "${CONFIG_FILE}")"
 sonar_exclusion_entries="$(printf '%s\n' "${sonar_exclusions}" | tr ',' '\n')"
 while IFS= read -r sonar_exclusion; do
+	sonar_exclusion="$(printf '%s\n' "${sonar_exclusion}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
 	case "${sonar_exclusion}" in
+		'*' | '**' | '*/*' | '**/*')
+			fail "blanket Sonar exclusion is not allowed: ${sonar_exclusion}"
+			break
+			;;
 		*'*.sh'* | installer | */installer | S99AdGuardHome | */S99AdGuardHome | rc.func.AdGuardHome | */rc.func.AdGuardHome | AdGuardHome.sh | */AdGuardHome.sh)
 			fail "router runtime shell must not be excluded from Sonar analysis: ${sonar_exclusion}"
 			break
