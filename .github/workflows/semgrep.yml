@@ -43,6 +43,7 @@ jobs:
           cp tests/fixtures/semgrep/insecure-downloads.sh "${fixture_dir}/installer"
           semgrep scan --config "${GITHUB_WORKSPACE}/.semgrep.yml" --metrics=off --json "${fixture_dir}/installer" >"${fixture_dir}/results.json"
           [ "$(grep -o 'asuswrt-no-direct-insecure-curl' "${fixture_dir}/results.json" | wc -l)" -eq 4 ]
+          [ "$(grep -o 'asuswrt-no-direct-insecure-wget' "${fixture_dir}/results.json" | wc -l)" -eq 1 ]
 
       - name: Verify chmod guardrail fixtures
         shell: sh

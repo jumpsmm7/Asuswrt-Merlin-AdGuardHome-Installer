@@ -42,7 +42,10 @@ require_text "${CONFIG_FILE}" 'SONAR-GUARDRAILS.md and tools/check-sonar-shell-c
 sonar_exclusions="$(sed -n 's/^sonar\.exclusions=//p' "${CONFIG_FILE}")"
 sonar_exclusion_entries="$(printf '%s\n' "${sonar_exclusions}" | tr ',' '\n')"
 while IFS= read -r sonar_exclusion; do
-	sonar_exclusion="$(printf '%s\n' "${sonar_exclusion}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+	if ! sonar_exclusion="$(printf '%s\n' "${sonar_exclusion}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"; then
+		fail 'could not normalize sonar.exclusions entry'
+		break
+	fi
 	case "${sonar_exclusion}" in
 		'*' | '**' | '*/*' | '**/*')
 			fail "blanket Sonar exclusion is not allowed: ${sonar_exclusion}"
