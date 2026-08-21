@@ -64,7 +64,7 @@ run_interrupted_checksum_writer() {
 		FAILED=0
 		chmod() {
 			kill -TERM "$$"
-			return 1
+			return 0
 		}
 		trap "cleanup_download_tmp; exit 97" TERM
 		"$2" "$3" "$4"
