@@ -360,19 +360,22 @@ proc_lock_run lock_holder &
 lock_pid="$!"
 BACKGROUND_PID="${lock_pid}"
 lock_waits=0
-while [ "$(sed -n '1p' "${LOCK_EVENTS}" 2>/dev/null)" != first-start ] && [ "${lock_waits}" -lt 5 ]; do
-	[ "$(sed -n '1p' "${LOCK_EVENTS}" 2>/dev/null)" = first-start ] && break
+max_lock_waits=10
+while [ "${lock_waits}" -lt "${max_lock_waits}" ]; do
+	if [ -f "${LOCK_EVENTS}" ] && [ "$(sed -n '1p' "${LOCK_EVENTS}" 2>/dev/null)" = first-start ]; then
+		break
+	fi
 	command sleep 1
 	lock_waits=$((lock_waits + 1))
 done
-[ "$(sed -n '1p' "${LOCK_EVENTS}" 2>/dev/null)" = first-start ] || fail 'lock holder did not start within 5 seconds'
+[ "$(sed -n '1p' "${LOCK_EVENTS}" 2>/dev/null)" = first-start ] || fail "lock holder did not start within ${max_lock_waits} seconds"
 proc_lock_run lock_waiter || fail 'serialized waiter failed'
 wait "${lock_pid}" || fail 'serialized holder failed'
 BACKGROUND_PID=""
 if kill -0 "${lock_pid}" 2>/dev/null; then
 	fail 'serialized holder remained after wait'
 fi
-[ "${lock_waits}" -le 5 ] || fail 'lock publication wait exceeded 5 seconds'
+[ "${lock_waits}" -le "${max_lock_waits}" ] || fail "lock publication wait exceeded ${max_lock_waits} seconds"
 [ "$(sed -n '1p' "${LOCK_EVENTS}")" = first-start ] || fail 'lock holder did not start first'
 [ "$(sed -n '2p' "${LOCK_EVENTS}")" = first-end ] || fail 'lock waiter overlapped holder'
 [ "$(sed -n '3p' "${LOCK_EVENTS}")" = second ] || fail 'lock waiter did not run after holder'

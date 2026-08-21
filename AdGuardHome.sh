@@ -1927,7 +1927,7 @@ proc_lock_claim_acquire() {
 			fi
 		fi
 		attempts="$((attempts + 1))"
-		[ "${attempts}" -lt 50 ] || return 1
+		[ "${attempts}" -lt 100 ] || return 1
 		if which usleep >/dev/null 2>&1; then usleep 100000; else sleep 1; fi
 	done
 	proc_lock_claim_matches "$$" "${self_start}"
@@ -1942,22 +1942,37 @@ proc_lock_claim_release() {
 # proc_lock_mkdir_cleanup removes the procfs lock directory when it is owned by the current process.
 proc_lock_mkdir_cleanup() {
 	local current_start owner owner_start
-	[ -d "${PROC_LOCK_DIR}" ] && [ ! -L "${PROC_LOCK_DIR}" ] || return 1
+	current_start="$(proc_process_start_time "$$")" || return 1
+	proc_lock_claim_acquire "${current_start}" || return 1
+	if [ ! -d "${PROC_LOCK_DIR}" ] || [ -L "${PROC_LOCK_DIR}" ]; then
+		proc_lock_claim_release "${current_start}" 2>/dev/null
+		return 1
+	fi
 	if [ ! -f "${PROC_LOCK_DIR}/pid" ] || [ -L "${PROC_LOCK_DIR}/pid" ]; then
 		rm -f "${PROC_LOCK_DIR}/pid" 2>/dev/null
 		rmdir "${PROC_LOCK_DIR}" 2>/dev/null
+		proc_lock_claim_release "${current_start}" 2>/dev/null
 		return 1
 	fi
 	IFS=' ' read -r owner owner_start 2>/dev/null <"${PROC_LOCK_DIR}/pid" || {
 		rm -f "${PROC_LOCK_DIR}/pid" 2>/dev/null
 		rmdir "${PROC_LOCK_DIR}" 2>/dev/null
+		proc_lock_claim_release "${current_start}" 2>/dev/null
 		return 1
 	}
-	[ "${owner}" = "$$" ] || return 1
-	current_start="$(proc_process_start_time "$$")" || return 1
-	[ "${owner_start}" = "${current_start}" ] || return 1
-	rm -f "${PROC_LOCK_DIR}/pid" || return 1
-	rmdir "${PROC_LOCK_DIR}"
+	if [ "${owner}" != "$$" ] || [ "${owner_start}" != "${current_start}" ]; then
+		proc_lock_claim_release "${current_start}" 2>/dev/null
+		return 1
+	fi
+	rm -f "${PROC_LOCK_DIR}/pid" || {
+		proc_lock_claim_release "${current_start}" 2>/dev/null
+		return 1
+	}
+	rmdir "${PROC_LOCK_DIR}" || {
+		proc_lock_claim_release "${current_start}" 2>/dev/null
+		return 1
+	}
+	proc_lock_claim_release "${current_start}"
 }
 
 # proc_lock_run serializes a command using an available file lock or a process-validated directory lock.
@@ -2013,7 +2028,7 @@ proc_lock_run() {
 			esac
 			proc_lock_claim_release "${self_start}" || exit 1
 			attempts="$((attempts + 1))"
-			[ "${attempts}" -lt 50 ] || exit 1
+			[ "${attempts}" -lt 100 ] || exit 1
 			if [ "${has_usleep}" -eq 1 ]; then usleep 100000; else sleep 1; fi
 		done
 		"$@"
