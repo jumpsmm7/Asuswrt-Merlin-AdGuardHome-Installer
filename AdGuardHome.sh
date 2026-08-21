@@ -2277,8 +2277,13 @@ start_monitor() {
 		if [ "${MONITOR_STATE}" = "stop" ]; then
 			if ! load_operation_config stop; then
 				set_operation_config_defaults
-				CONFIG_DNSMASQ_MODE="enabled"
-				agh_log warning start_monitor "state=stop action=load_config reason=invalid_snapshot result=using_defaults"
+				# Use runtime detection instead of hardcoded fallback
+				if adguard_dnsmasq_running; then
+					CONFIG_DNSMASQ_MODE="auto"
+				else
+					CONFIG_DNSMASQ_MODE="disabled"
+				fi
+				agh_log warning start_monitor "state=stop action=load_config reason=invalid_snapshot result=using_runtime_detection"
 			fi
 		fi
 		if [ "${MONITOR_STATE}" = "stop" ]; then # A place to exit early if needed, or if binary becomes unavailable before service-stop.
