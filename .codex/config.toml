@@ -1,0 +1,9 @@
+# Repository-scoped remote MCP servers for Codex.
+
+[mcp_servers.context7]
+url = "https://mcp.context7.com/mcp"
+enabled = true
+
+[mcp_servers.firecrawl]
+url = "https://mcp.firecrawl.dev/v2/mcp"
+enabled = true
