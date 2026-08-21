@@ -45,6 +45,10 @@ while IFS= read -r script; do
 	fail_match 'Bash process substitution is not supported' '(^|[^$])(<|>)\(' "${script}"
 done <"${SCRIPT_LIST}"
 
+if ! sh tools/check-sonar-shell-contract.sh; then
+	FAILED=1
+fi
+
 if [ "${FAILED}" -ne 0 ]; then
 	exit 1
 fi
