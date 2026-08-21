@@ -276,7 +276,7 @@ run_check 'AdGuardHome scoped configuration regression' sh tests/adguardhome-sco
 run_check 'AdGuardHome legacy netcheck regression' sh tests/netcheck-legacy.sh
 run_check 'AdGuardHome DNS startup handoff regression' run_privileged_regression_check tests/dns-startup-handoff.sh 'DNS startup handoff regression'
 run_check 'AdGuardHome required-handoff fallback regression' sh tests/rc-required-handoff-fallback.sh
-run_check 'AdGuardHome service lifecycle integration regression' sh tests/service-lifecycle-integration.sh
+run_check 'AdGuardHome service lifecycle integration regression' run_privileged_regression_check tests/service-lifecycle-integration.sh 'service lifecycle integration regression'
 run_check 'Runtime writable-path security regression' run_privileged_regression_check tests/runtime-writable-path-security.sh 'runtime writable-path security regression'
 run_check 'AdGuardHome runtime mode helper regression' sh tests/adguardhome-runtime-mode-helpers.sh
 run_check 'AdGuardHome runtime DNS environment LAN-mode regression' sh tests/adguardhome-dns-env-lan-mode.sh

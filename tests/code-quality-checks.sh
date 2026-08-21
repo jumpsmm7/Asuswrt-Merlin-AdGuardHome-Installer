@@ -340,4 +340,7 @@ for t in tests/*.sh; do
 		fail "${t} is not referenced by any run_check in ${SCRIPT_PATH}; new test files must be wired in or they get zero CI coverage"
 done
 
+grep -Fq "run_check 'AdGuardHome service lifecycle integration regression' run_privileged_regression_check tests/service-lifecycle-integration.sh 'service lifecycle integration regression'" "${SCRIPT_PATH}" ||
+	fail 'service lifecycle integration regression is not dispatched through the privileged test helper'
+
 printf '%s\n' 'PASS: tools/code-quality.sh helper functions and argument parsing behave as documented'
