@@ -759,6 +759,8 @@ MD5 checksum sidecars remain part of the v2.6.5 release format for this compatib
 
 ## Development checks
 
+Real-router release candidates must complete the version-controlled [v2.6.5 acceptance checklist](RELEASE-2.6.5-CHECKLIST.md); unexecuted mandatory hardware rows block release approval.
+
 Repository shell scripts are written for POSIX/BusyBox `ash` compatibility. Avoid Bash-only syntax such as arrays, process substitution, `[[ ... ]]`, and non-portable `pipefail`.
 
 Run the repository quality helper before opening a pull request:
