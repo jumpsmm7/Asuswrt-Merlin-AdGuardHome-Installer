@@ -751,6 +751,10 @@ The local stable filenames use `stable`, while the upstream static AdGuardHome c
 
 ## Download integrity compatibility policy
 
+The installer always attempts a certificate-verified HTTPS request first. On older router firmware whose CA store cannot validate the server certificate, selected installer-managed downloads may make one explicit HTTPS fallback request with certificate verification disabled (`curl --insecure`/`-k` or `wget --no-check-certificate`). The fallback is never used for plain HTTP, must be enabled by the individual download call, and emits a warning when activated.
+
+Checksum verification remains mandatory after that transport fallback and before a staged installer-managed artifact replaces the working copy. The installer prefers a matching SHA-256 digest and permits a matching MD5 digest only through the legacy compatibility policy below; missing, malformed, or mismatching applicable checksum data prevents the artifact from being accepted. This checksum gate detects corruption and inconsistent downloads, but it does not authenticate a download when an active attacker can replace both the artifact and checksum metadata. In particular, MD5 is retained for legacy compatibility and is not a cryptographic substitute for certificate validation or SHA-256.
+
 The installer prefers SHA-256 for download integrity verification. An MD5 fallback remains intentional compatibility behavior for supported legacy environments, but it is allowed only when SHA-256 metadata is unavailable or SHA-256 calculation support is unavailable. Invalid, empty, or mismatching SHA-256 metadata causes the download to fail or retry and never permits a downgrade to MD5 verification.
 
 The legacy-compatible MD5 path requires valid MD5 metadata and a matching calculated digest. A download fails when neither the SHA-256 path nor the MD5 compatibility path verifies the artifact. Checksum integrity verification and TLS certificate verification are separate safeguards: a valid checksum does not replace certificate validation, and certificate validation does not replace checksum verification.

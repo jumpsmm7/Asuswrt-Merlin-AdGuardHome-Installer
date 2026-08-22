@@ -3,6 +3,7 @@
 set -u
 
 INSTALLER="${1:-installer}"
+README_PATH="${2:-README.md}"
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/installer-secure-download.XXXXXX")" || exit 1
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 CALLS_FILE="${TMP_ROOT}/calls"
@@ -18,6 +19,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 sed -n '/^http_get_file() {$/,/^}$/p' "${INSTALLER}" >"${FUNCTIONS_FILE}" || fail 'could not extract http_get_file'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'http_get_file extraction was empty'
+[ -f "${README_PATH}" ] || fail "download policy documentation was not found: ${README_PATH}"
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 
@@ -133,5 +135,12 @@ http_get_file 'https://example.invalid/component' "${TMP_ROOT}/out" '' insecure 
 sed -n '2p' "${CALLS_FILE}" | grep -q -e '--no-check-certificate' || fail 'second wget attempt did not use certificate fallback'
 grep -q 'certificate verification disabled' "${WARN_FILE}" || fail 'wget insecure fallback was not logged'
 [ "$(cat "${TMP_ROOT}/out")" = fallback ] || fail 'wget insecure fallback did not publish fallback output'
+
+grep -Fq 'always attempts a certificate-verified HTTPS request first' "${README_PATH}" ||
+	fail 'download policy does not document secure-first transport behavior'
+grep -Fq 'Checksum verification remains mandatory after that transport fallback' "${README_PATH}" ||
+	fail 'download policy does not document the post-fallback checksum gate'
+grep -Fq 'does not authenticate a download when an active attacker can replace both the artifact and checksum metadata' "${README_PATH}" ||
+	fail 'download policy overstates the protection provided by checksum metadata'
 
 printf '%s\n' 'PASS: installer secure-first transport fallback'
