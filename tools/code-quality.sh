@@ -185,6 +185,7 @@ run_check 'Release version and manifest consistency' sh tools/check-release-cons
 run_check 'Checksum file format regression' sh tests/checksum-file-format.sh
 run_check 'Release consistency regression' sh tests/release-consistency.sh
 run_check 'Repository shell portability regression' sh tools/check-shell-portability.sh
+run_check 'Router command and BusyBox portability policy regression' sh tests/shell-portability-policy.sh
 run_check 'Qodo provider thread resolution regression' sh tests/qodo-provider-thread-resolution.sh
 run_check 'Qodo get-rules config validation regression' sh tests/qodo-get-rules-config-validation.sh
 run_check 'Qodo get-rules query and output doc consistency regression' sh tests/qodo-get-rules-query-output-consistency.sh

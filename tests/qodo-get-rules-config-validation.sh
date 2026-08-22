@@ -319,7 +319,7 @@ make_config "${HOME_NO_JQ}" '{"API_KEY": "cfg-key"}' 700 600
 NOJQ_BIN="${TMP_ROOT}/nojq-bin"
 mkdir -p "${NOJQ_BIN}" || fail 'unable to create restricted PATH fixture directory'
 for tool in dirname stat cat grep sed tr mkdir chmod mktemp rm cut wc basename; do
-	tool_path=$(command -v "${tool}" 2>/dev/null) || continue
+	tool_path=$(which "${tool}" 2>/dev/null) || continue
 	ln -s "${tool_path}" "${NOJQ_BIN}/${tool}" || fail "unable to symlink ${tool} into restricted PATH fixture"
 done
 [ -e "${NOJQ_BIN}/dirname" ] || fail 'restricted PATH fixture is missing dirname; cannot exercise missing-jq scenario'
