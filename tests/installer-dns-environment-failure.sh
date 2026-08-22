@@ -203,7 +203,7 @@ nvram() {
 # service simulates supported service restarts and fails when configured failure injection targets the call.
 service() {
 	case "$*" in
-		restart_dnsmasq | 'restart_firewall;restart_dnsmasq') ;;
+		restart_dnsmasq | restart_firewall) ;;
 		restart_stubby)
 			STUBBY_RESTART_COUNT="$((STUBBY_RESTART_COUNT + 1))"
 			;;
@@ -319,6 +319,7 @@ fi
 [ -f "${SYMLINK_SNAPSHOT_TARGET}/dirty" ] || fail 'symlink transaction snapshot target was modified'
 [ "${COMMIT_COUNT}" -eq 0 ] || fail 'symlink transaction snapshot committed NVRAM'
 [ "${SERVICE_COUNT}" -eq 0 ] || fail 'symlink transaction snapshot restarted a service'
+[ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'failed transaction snapshot retained the global NVRAM lock'
 rm -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" || fail 'could not remove symlink transaction snapshot'
 rm -rf "${SYMLINK_SNAPSHOT_TARGET}" || fail 'could not remove symlink snapshot target'
 
@@ -555,6 +556,8 @@ nvram_transaction_apply restart_dnsmasq 1 || fail 'committed cleanup LAN-domain 
 nvram_transaction_begin dnsfilter dnsfilter_enable_x || fail 'committed cleanup DNSFilter snapshot failed'
 nvram_transaction_set dnsfilter_enable_x 1 || fail 'committed cleanup DNSFilter staging failed'
 nvram_transaction_apply 'restart_firewall;restart_dnsmasq' 1 || fail 'committed cleanup DNSFilter apply failed'
+[ "$(tail -n 2 "${CALLS_FILE}")" = "$(printf '%s\n' 'service restart_firewall' 'service restart_dnsmasq')" ] ||
+	fail 'DNSFilter apply did not issue separate firewall and dnsmasq restart actions'
 FAIL_PAIRED_SNAPSHOT_REMOVE=1
 nvram_transaction_finalize_setup_pair || fail 'paired commit failed when only snapshot cleanup was unavailable'
 nvram_transaction_lock_release || fail 'committed cleanup could not simulate the interrupted owner exiting'

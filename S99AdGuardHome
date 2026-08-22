@@ -152,7 +152,7 @@ ARGS="-s run -c ${WORK_DIR}/AdGuardHome.yaml -w ${WORK_DIR} --pidfile ${PID_FILE
 
 agh_conf_value() {
 	[ -f "${WORK_DIR}/.config" ] || return 1
-	awk -v KEY="$1" '
+	/usr/bin/awk -v KEY="$1" '
 		index($0, KEY "=") == 1 {
 			VALUE = substr($0, length(KEY) + 2)
 			gsub(/^"|"$/, "", VALUE)

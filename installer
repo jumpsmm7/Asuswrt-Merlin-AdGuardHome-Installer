@@ -76,13 +76,24 @@ ai_have_cmd() {
 # snapshot before any write is attempted.  Snapshot files are deliberately
 # simple because NVRAM values used by this installer do not contain newlines.
 nvram_transaction_begin() {
-	local name key service_action snapshot_dir temp_dir
+	local name status
 	name="$1"
 	shift
 	case "${name}" in
 		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-]*) return 1 ;;
 	esac
 	nvram_transaction_lock_acquire || return 1
+	nvram_transaction_begin_locked "${name}" "$@" && return 0
+	status="$?"
+	nvram_transaction_lock_release || true
+	return "${status}"
+}
+
+# nvram_transaction_begin_locked creates a transaction snapshot while the caller owns the global lock.
+nvram_transaction_begin_locked() {
+	local name key service_action snapshot_dir temp_dir
+	name="$1"
+	shift
 	nvram_transaction_finalize_setup_pair recovery || return 1
 	snapshot_dir="${BASE_DIR}/.AdGuardHome.nvram/${name}"
 	temp_dir="${snapshot_dir}.tmp.$$"
@@ -1118,9 +1129,7 @@ nvram_transaction_restore() {
 		fi
 	done <"${snapshot_dir}/keys"
 	/bin/nvram commit || failed="1"
-	if [ "${service_action}" != "-" ]; then
-		service "${service_action}" >/dev/null 2>&1 || failed="1"
-	fi
+	nvram_transaction_restart_services "${service_action}" || failed="1"
 	if [ "${failed}" = "0" ]; then
 		if [ "${keep_snapshot}" != "1" ]; then
 			# Clearing dirty commits the restore before best-effort snapshot cleanup.
@@ -1133,6 +1142,25 @@ nvram_transaction_restore() {
 	fi
 	rollback_result_write "NVRAM transaction" "rollback partial" "snapshot preserved at ${snapshot_dir}"
 	return 1
+}
+
+# nvram_transaction_restart_services runs each validated transaction restart action separately.
+nvram_transaction_restart_services() {
+	local failed service_action
+	service_action="$1"
+	failed="0"
+	case "${service_action}" in
+		-) return 0 ;;
+		restart_dnsmasq | restart_firewall)
+			service "${service_action}" >/dev/null 2>&1 || failed="1"
+			;;
+		'restart_firewall;restart_dnsmasq')
+			service restart_firewall >/dev/null 2>&1 || failed="1"
+			service restart_dnsmasq >/dev/null 2>&1 || failed="1"
+			;;
+		*) return 1 ;;
+	esac
+	[ "${failed}" = "0" ]
 }
 
 nvram_transaction_apply() {
@@ -1173,7 +1201,7 @@ nvram_transaction_apply() {
 		nvram_transaction_restore "${service_action}" || true
 		return 1
 	fi
-	if [ "${service_action}" != "-" ] && ! service "${service_action}" >/dev/null 2>&1; then
+	if ! nvram_transaction_restart_services "${service_action}"; then
 		nvram_transaction_restore "${service_action}" || true
 		return 1
 	fi
