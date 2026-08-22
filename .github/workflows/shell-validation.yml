@@ -15,14 +15,18 @@ jobs:
   posix-syntax:
     name: BusyBox ash syntax
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Install BusyBox
         run: |
           sudo apt-get update
-          sudo apt-get install -y busybox-static
+          sudo apt-get install -y busybox-static coreutils
+          /usr/bin/timeout --version
 
       - name: Check router-side syntax with BusyBox ash
         run: |
@@ -52,17 +56,49 @@ jobs:
           dash -n tools/update-md5.sh
           dash -n tools/update-checksums.sh
 
+      - name: Run checksum output validation regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/static-checksum-output-validation.sh
+
+      - name: Run mkdir reaper owner publication regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-reaper-owner-publication.sh
+
+      - name: Run proc setting lock identity regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/adguardhome-proc-settings.sh
+
+      - name: Run process signaling regression with BusyBox ash
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/rc-process-signaling.sh
+
+      - name: Run restart stop-failure propagation regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/rc-restart-stop-failure.sh
+
+      - name: Run monitor stop config fallback regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/monitor-stop-config-fallback.sh
+
+      - name: Run deterministic startup signal recovery regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/rc-startup-signal-determinism.sh
+
+      - name: Run bounded service lifecycle integration matrix
+        # DNS handoff validates root-only FIFO ownership, matching router init.
+        run: sudo -n /usr/bin/timeout --kill-after=10 600 env AGH_INTEGRATION_SHELL=busybox AGH_INTEGRATION_SHELL_ARG=ash busybox ash tests/service-lifecycle-integration.sh
+
+      - name: Run optional database link regression
+        run: sudo -n /usr/bin/timeout --kill-after=10 180 busybox ash tests/optional-database-links.sh
+
   shellcheck:
     name: ShellCheck POSIX ash profile
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Install ShellCheck
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck
+          sudo apt-get install -y shellcheck coreutils
+          /usr/bin/timeout --version
 
       - name: Run ShellCheck with sh dialect
         run: |
@@ -80,12 +116,13 @@ jobs:
 
           while IFS= read -r script; do
             echo "shellcheck -s sh: ${script}"
-            shellcheck -s sh --severity=warning "${script}"
+            /usr/bin/timeout --kill-after=10 60 shellcheck -s sh --severity=warning "${script}"
           done < "${scripts_file}"
 
   checksums:
     name: Checksum validation
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # Pull request runs can start before the separate checksum updater workflow
     # has pushed its chore commit. This job waits for that branch update and
     # validates the latest PR head. Non-bot push runs are skipped so they do not
@@ -93,7 +130,7 @@ jobs:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.actor == 'github-actions[bot]'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
           fetch-depth: 0
@@ -106,11 +143,14 @@ jobs:
       - name: Wait for checksum chore commit on pull requests
         if: github.event_name == 'pull_request'
         shell: bash
+        env:
+          TARGET_BRANCH: ${{ github.event.pull_request.head.ref }}
+          ORIGINAL_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
 
-          target_branch="${{ github.event.pull_request.head.ref }}"
-          original_sha="${{ github.event.pull_request.head.sha }}"
+          target_branch="${TARGET_BRANCH}"
+          original_sha="${ORIGINAL_SHA}"
           checksum_files=(installer.md5sum installer.sha256sum AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum S99AdGuardHome.md5sum S99AdGuardHome.sha256sum rc.func.AdGuardHome.md5sum rc.func.AdGuardHome.sha256sum)
           checksum_targets=(installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome)
           while IFS= read -r archive; do
@@ -165,16 +205,20 @@ jobs:
 
           busybox ash tools/check-md5.sh "${checksum_targets[@]}"
           busybox ash tools/check-sha256.sh "${checksum_targets[@]}"
+          busybox ash tests/checksum-file-format.sh
 
   shfmt:
     name: shfmt mksh recommendations
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Go for shfmt
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: 'stable'
           cache: false

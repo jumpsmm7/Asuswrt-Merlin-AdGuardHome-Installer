@@ -10,7 +10,7 @@ tone_instructions: >-
 reviews:
   finishing_touches:
     unit_tests:
-      enabled: false
+      enabled: true
   # Use assertive analysis, while the instructions below suppress low-value nits.
   profile: "assertive"
 
@@ -47,12 +47,13 @@ reviews:
     # Avoid auto-pausing during larger installer or regression-test changes.
     auto_pause_after_reviewed_commits: 20
 
-    drafts: false
+    drafts: true
 
     base_branches:
-      - "master"
-      - 'v[0-9]+\\.[0-9]+\\.[0-9]+'
-      - 'dev/.*'
+      - "master([/](.*))?"
+      - 'v[0-9]+\.[0-9]+\.[0-9]+([/](.*))?'
+      - 'dev([/](.*))?'
+      - 'codex([/](.*))?'
 
     ignore_title_keywords:
       - "WIP"
@@ -64,6 +65,8 @@ reviews:
     ignore_usernames:
       - "dependabot[bot]"
       - "renovate[bot]"
+      - "chatgpt-codex-connector[bot]"
+      - "qodo-code-review[bot]"
 
   path_filters:
     # Generated archives and digest files are validated by repository CI.
@@ -85,6 +88,29 @@ reviews:
       instructions: |
         Treat the repository's AGENTS.md as the primary engineering standard.
 
+        For every changed shell file recognized by tools/list-shell-scripts.sh,
+        including extensionless `installer`, `S99AdGuardHome`, and
+        `rc.func.AdGuardHome`, apply these targeted runtime checks:
+        - Exact introductions of `set -o pipefail`, `${var//...}`, `<<<`,
+          `<(...)`, `>(...)`, `read -a`, `readarray`, or `mapfile`; distinguish
+          these from POSIX command substitution, prefix/suffix removal, and
+          non-executable examples.
+        - GNU-only `sed`, `find`, `xargs`, `date`, or `grep` flags, checked
+          against BusyBox v1.25.1 rather than rejected by command name; exempt
+          tooling that explicitly selects a host GNU binary.
+        - `local NAME="$(command)"` only when later control flow needs the
+          command's status; recommend a separate declaration and assignment.
+        - Sleep operands outside the repository-supported integer-seconds forms
+          (`sleep N` and `sleep Ns`); do not flag the established `Ns` suffix.
+        - Unqualified privileged/security-sensitive commands only where an unsafe
+          or attacker-influenced PATH can change resolution. Do not require absolute
+          paths under the documented stock-first PATH.
+        - New runtime dependencies on Python, Perl, `realpath`, or `timeout`,
+          excluding established provisioned Entware flows and explicit CI-only
+          GNU tooling.
+        - New unconditional `flock` acquisition; accept calls reached only
+          after availability/capability probes with the existing fallback intact.
+
         Keep reviews high-signal:
         - Report only likely correctness, security, compatibility, state-safety,
           reliability, or meaningful performance defects.
@@ -96,6 +122,8 @@ reviews:
         - Explain the practical effect on installation, upgrade, service
           operation, recovery, or router state.
         - Prefer a minimal fix over a broad refactor.
+        - When a checksum-covered runtime artifact changes, verify both its
+          `.md5sum` and `.sha256sum` sidecars are updated.
         - Do not duplicate findings already reported by CI unless the CI result
           reveals a distinct root cause.
         - Do not claim a theoretical issue without identifying a reachable
@@ -195,6 +223,8 @@ reviews:
         - Return statuses that accurately report whether the requested service
           operation succeeded.
 
+        Preserve the staged DNS handoff lifecycle: establish the guarded handoff before stopping DNS services, publish AdGuardHome readiness before releasing the handoff, and restore dnsmasq/watchdog state on every startup failure or interruption. Retain FIFO/sleep fallbacks and bounded readiness/retry behavior for older BusyBox routers.
+
     - path: "**/rc.func.AdGuardHome"
       instructions: |
         Review shared service helpers for:
@@ -211,6 +241,8 @@ reviews:
 
         Treat a helper omitted from one required lifecycle path as a correctness
         regression, even when the main installation path calls it correctly.
+
+        Use the shared lifecycle helper for exact process matching, transition-state tracking, graduated signal shutdown, and interruption cleanup. Keep service action return statuses meaningful and ensure AdGuardHome-specific pre/post/pre-failure hooks are invoked consistently.
 
     - path: "tests/**"
       instructions: |
@@ -243,12 +275,14 @@ reviews:
         Do not request tests for formatting, comments, documentation-only
         wording, or trivial constant changes that cannot alter behavior.
 
+        Write standalone POSIX sh regression tests using temporary isolated state, explicit cleanup traps, a `fail` assertion helper, and observable side-effect/exit-status assertions. Prefer extracting the real production functions and replacing router commands with deterministic stubs; inject failures at the targeted operation and cover rollback, interruption, and repeated execution where applicable.
+
     - path: "tools/**"
       instructions: |
         These scripts drive local validation, shell discovery, formatting, and
         checksum generation.
 
-        Preserve POSIX sh compatibility and deterministic output.
+        Preserve POSIX sh compatibility and deterministic output. Preserve explicit failure propagation, distinguish unavailable optional tools from failed required checks, and ensure separate coverage contracts are maintained: shell discovery covers runtime scripts; regression registration covers tests; checksum generation and validation cover release artifacts.
 
         Verify:
         - Failure statuses are not swallowed by wrappers or pipelines.
@@ -306,6 +340,21 @@ reviews:
 
         Ignore grammar or prose preferences unless they make instructions
         ambiguous, unsafe, or technically incorrect.
+    - path: "**/AdGuardHome.sh"
+      instructions: |
+        Keep new helpers in the existing purpose-based, alpha-numerically sorted function groups. Preserve the manager's explicit dependency checks, quoted variable handling, captured return statuses, and dual flock/mkdir lock compatibility paths. Install and restore signal traps around critical sections without losing the original status.
+    - path: "tests/*.sh"
+      instructions: |
+        When adding a regression test, register it explicitly in `tools/code-quality.sh`; test files are not automatically discovered by the regression runner. Keep test names in kebab-case with a component/scenario prefix and retain the repository's `PASS:`/`FAIL:` result convention.
+    - path: "armv5/**"
+      instructions: |
+        Treat archives, VERSION.txt, checksum.txt, and archive checksum sidecars as generated cache outputs. Do not hand-edit them; update them through `tools/download-adguardhome-static.sh` and preserve atomic publication and metadata consistency.
+    - path: "armv7/**"
+      instructions: |
+        Treat archives, VERSION.txt, checksum.txt, and archive checksum sidecars as generated cache outputs. Do not hand-edit them; update them through `tools/download-adguardhome-static.sh` and preserve atomic publication and metadata consistency.
+    - path: "armv8/**"
+      instructions: |
+        Treat archives, VERSION.txt, checksum.txt, and archive checksum sidecars as generated cache outputs. Do not hand-edit them; update them through `tools/download-adguardhome-static.sh` and preserve atomic publication and metadata consistency.
 
 chat:
   auto_reply: true
@@ -331,4 +380,3 @@ knowledge_base:
 
   pull_requests:
     scope: "local"
-

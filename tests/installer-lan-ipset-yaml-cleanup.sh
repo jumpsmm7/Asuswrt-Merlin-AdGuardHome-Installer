@@ -94,6 +94,7 @@ mkdir -p "${TMP_ROOT}" "${TARG_DIR}" "${STUB_DIR}" || fail 'could not create tes
 : >"${FUNCTIONS_FILE}"
 extract_function conf_value || fail 'could not extract conf_value'
 extract_function adguardhome_yaml_ipset_file || fail 'could not extract YAML parser'
+extract_function adguardhome_owner_account || fail 'could not extract account validation helper'
 extract_function adguardhome_yaml_secure_file || fail 'could not extract YAML security helper'
 extract_function adguardhome_yaml_remove_ipset_file || fail 'could not extract YAML cleanup helper'
 extract_function adguard_enforce_lan_ipset_disabled || fail 'could not extract LAN enforcement helper'
@@ -106,10 +107,14 @@ extract_function setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could no
 extract_function restore_mode_migration_yaml || fail 'could not extract mode migration YAML rollback helper'
 extract_function rollback_pending_mode_migration || fail 'could not extract pending mode migration rollback helper'
 extract_function adguard_migrate_detected_install_mode || fail 'could not extract detected-mode migration helper'
+sed 's#/bin/nvram#nvram#g; s#/usr/bin/awk#awk#g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.test" || fail 'could not isolate stock account commands'
+mv "${FUNCTIONS_FILE}.test" "${FUNCTIONS_FILE}" || fail 'could not update isolated account helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'helper extraction was empty'
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+# adguard_install_mode_confirmed reports that the installation mode detection is confirmed.
+adguard_install_mode_confirmed() { return 0; }
 
 cat >"${STUB_DIR}/chown" <<'EOF_CHOWN' || fail 'could not write chown stub'
 #!/bin/sh
@@ -394,9 +399,9 @@ EOF_YAML
 		fail "mode migration ignored ${failed_key} persistence failure"
 	fi
 	FAIL_WRITE_KEY=''
-	cmp -s "${TMP_ROOT}/config.before-${failed_key}" "${CONF_FILE}" || fail "${failed_key} failure did not restore installer config"
-	cmp -s "${TMP_ROOT}/working.before-${failed_key}" "${YAML_FILE}" || fail "${failed_key} failure did not restore working YAML"
-	cmp -s "${TMP_ROOT}/original.before-${failed_key}" "${YAML_ORI}" || fail "${failed_key} failure did not restore original YAML"
+	cmp -s "${TMP_ROOT}/config.before-${failed_key}" "${CONF_FILE}" >/dev/null 2>&1 || fail "${failed_key} failure did not restore installer config"
+	cmp -s "${TMP_ROOT}/working.before-${failed_key}" "${YAML_FILE}" >/dev/null 2>&1 || fail "${failed_key} failure did not restore working YAML"
+	cmp -s "${TMP_ROOT}/original.before-${failed_key}" "${YAML_ORI}" >/dev/null 2>&1 || fail "${failed_key} failure did not restore original YAML"
 	[ ! -e "${YAML_FILE}.mode-migration.rollback.$$" ] || fail "${failed_key} failure left a working YAML rollback file"
 	[ ! -e "${YAML_ORI}.mode-migration.rollback.$$" ] || fail "${failed_key} failure left an original YAML rollback file"
 	[ ! -e "${CONF_FILE}.mode-migration.rollback.$$" ] || fail "${failed_key} failure left a config rollback file"
@@ -417,8 +422,8 @@ cp -f "${YAML_ORI}" "${TMP_ROOT}/original-yaml.before-sync" || fail 'could not p
 if setup_sync_mode_dependent_yaml_and_snapshot; then
 	fail 'mode-dependent synchronization accepted a malformed original YAML snapshot'
 fi
-cmp -s "${TMP_ROOT}/working-yaml.before-sync" "${YAML_FILE}" || fail 'failed snapshot synchronization changed the working YAML'
-cmp -s "${TMP_ROOT}/original-yaml.before-sync" "${YAML_ORI}" || fail 'failed snapshot synchronization changed the original YAML snapshot'
+cmp -s "${TMP_ROOT}/working-yaml.before-sync" "${YAML_FILE}" >/dev/null 2>&1 || fail 'failed snapshot synchronization changed the working YAML'
+cmp -s "${TMP_ROOT}/original-yaml.before-sync" "${YAML_ORI}" >/dev/null 2>&1 || fail 'failed snapshot synchronization changed the original YAML snapshot'
 [ ! -e "${YAML_FILE}.mode-sync.$$" ] || fail 'failed snapshot synchronization left a working YAML stage'
 [ ! -e "${YAML_ORI}.mode-sync.$$" ] || fail 'failed snapshot synchronization left an original YAML stage'
 [ ! -e "${YAML_FILE}.mode-sync.rollback.$$" ] || fail 'failed snapshot synchronization left a working YAML rollback file'
@@ -524,7 +529,7 @@ grep -q '^    "address": 0.0.0.0:3443$' "${YAML_ORI}" || fail 'WAN YAML sync lef
 grep -Fq -- "- '[/router.asus.com/][::]:553'" "${YAML_ORI}" || fail 'WAN YAML sync left the original reverse upstream snapshot in LAN mode'
 grep -q 'name: original-user' "${YAML_ORI}" || fail 'WAN YAML sync replaced original snapshot credentials with working settings'
 grep -q 'https://original.example/dns-query' "${YAML_ORI}" || fail 'WAN YAML sync replaced original snapshot upstreams with working settings'
-! cmp -s "${YAML_FILE}" "${YAML_ORI}" || fail 'WAN YAML sync replaced the distinct original snapshot with the working YAML'
+! cmp -s "${YAML_FILE}" "${YAML_ORI}" >/dev/null 2>&1 || fail 'WAN YAML sync replaced the distinct original snapshot with the working YAML'
 
 rm -f "${YAML_FILE}"
 setup_sync_restored_yaml_and_snapshot_for_wan || fail 'could not synchronize restored original YAML without a working YAML'
@@ -566,7 +571,7 @@ for flow_yaml in \
 	printf '%b\n' "${flow_yaml}" >"${YAML_FILE}" || fail 'could not write restored flow-style YAML'
 	cp -f "${YAML_FILE}" "${YAML_FILE}.before" || fail 'could not preserve restored flow-style YAML'
 	! setup_sync_restored_yaml_for_wan || fail 'WAN YAML sync silently accepted an unsupported flow-style mapping or collection'
-	cmp -s "${YAML_FILE}" "${YAML_FILE}.before" || fail 'WAN YAML sync changed YAML after rejecting unsupported flow style'
+	cmp -s "${YAML_FILE}" "${YAML_FILE}.before" >/dev/null 2>&1 || fail 'WAN YAML sync changed YAML after rejecting unsupported flow style'
 done
 rm -f "${YAML_FILE}.before"
 
@@ -632,12 +637,27 @@ dns:
 EOF_YAML
 cat >"${STUB_DIR}/nvram" <<'EOF_NVRAM' || fail 'could not write nvram username stub'
 #!/bin/sh
-[ "$1" = "get" ] && [ "$2" = "http_username" ] && printf '%s\n' admin
+[ "$1" = "get" ] && [ "$2" = "http_username" ] && printf '%s\n' daemon
 EOF_NVRAM
 chmod 755 "${STUB_DIR}/nvram" || fail 'could not chmod nvram username stub'
 : >"${CHOWN_LOG}"
-PATH="${STUB_DIR}:${PATH}" CHOWN_LOG="${CHOWN_LOG}" adguardhome_yaml_remove_ipset_file || fail 'nvram username YAML ownership cleanup failed'
-grep -q "admin:root ${YAML_FILE}" "${CHOWN_LOG}" || fail 'YAML ownership did not use nvram http_username'
+# awk intercepts the daemon account lookup and delegates all other invocations to the system awk.
+awk() {
+	case "$*" in
+		*'account=daemon'*'/etc/passwd') return 0 ;;
+	esac
+	command awk "$@"
+}
+(
+	PATH="${STUB_DIR}:${PATH}"
+	CHOWN_LOG="${CHOWN_LOG}"
+	export PATH CHOWN_LOG
+	chown() {
+		printf '%s %s\n' "$1" "$2" >>"${CHOWN_LOG}"
+	}
+	adguardhome_yaml_remove_ipset_file
+) || fail 'nvram username YAML ownership cleanup failed'
+grep -q "daemon:root ${YAML_FILE}" "${CHOWN_LOG}" || fail 'YAML ownership did not use nvram http_username'
 [ "$(mode_string "${YAML_FILE}")" = '-rw-------' ] || fail 'YAML mode was not secured with nvram username present'
 assert_no_ipset_file nvram-owner
 
@@ -651,7 +671,12 @@ cat >"${STUB_DIR}/chown" <<'EOF_CHOWN_FAIL' || fail 'could not write failing cho
 exit 1
 EOF_CHOWN_FAIL
 chmod 755 "${STUB_DIR}/chown" || fail 'could not chmod failing chown stub'
-if PATH="${STUB_DIR}:${PATH}" adguardhome_yaml_remove_ipset_file; then
+if (
+	PATH="${STUB_DIR}:${PATH}"
+	export PATH
+	chown() { return 1; }
+	adguardhome_yaml_remove_ipset_file
+); then
 	fail 'cleanup succeeded despite failing YAML chown'
 fi
 [ "$(mode_string "${YAML_FILE}")" = '-rw-------' ] || fail 'YAML mode was not tightened before failing chown'
@@ -672,7 +697,15 @@ exit 0
 EOF_NVRAM
 chmod 755 "${STUB_DIR}/nvram" || fail 'could not chmod empty nvram stub'
 : >"${CHOWN_LOG}"
-PATH="${STUB_DIR}:${PATH}" CHOWN_LOG="${CHOWN_LOG}" adguardhome_yaml_remove_ipset_file || fail 'empty nvram YAML ownership cleanup failed'
+(
+	PATH="${STUB_DIR}:${PATH}"
+	CHOWN_LOG="${CHOWN_LOG}"
+	export PATH CHOWN_LOG
+	chown() {
+		printf '%s %s\n' "$1" "$2" >>"${CHOWN_LOG}"
+	}
+	adguardhome_yaml_remove_ipset_file
+) || fail 'empty nvram YAML ownership cleanup failed'
 grep -q "root:root ${YAML_FILE}" "${CHOWN_LOG}" || fail 'YAML ownership did not fall back to root for empty nvram username'
 [ "$(mode_string "${YAML_FILE}")" = '-rw-------' ] || fail 'YAML mode was not secured with empty nvram username'
 assert_no_ipset_file nvram-empty-owner

@@ -20,11 +20,15 @@ fail() {
 	exit 1
 }
 
-# write_conf resets the configuration file and writes each provided value on its own line.
+# write_conf resets the configuration file, writes each provided value on its own line, and records the configured installation mode.
 write_conf() {
 	: >"${CONF_FILE}" || fail 'could not reset config file'
+	CONFIG_INSTALL_MODE=""
 	while [ "$#" -gt 0 ]; do
 		printf '%s\n' "$1" >>"${CONF_FILE}" || fail 'could not write config value'
+		case "$1" in
+			ADGUARD_INSTALL_MODE=*) CONFIG_INSTALL_MODE="${1#*=}" ;;
+		esac
 		shift
 	done
 }
@@ -58,10 +62,10 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
-sed -n \
-	'/^conf_value() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^check_dns_environment() {$/,/^}$/p' \
+/bin/sed -n \
+	'/^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^check_dns_environment() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${SCRIPT_PATH}"
-grep -q '^check_dns_environment() {$' "${FUNCTIONS_FILE}" || fail 'check_dns_environment helper missing'
+/bin/grep -q '^check_dns_environment() {$' "${FUNCTIONS_FILE}" || fail 'check_dns_environment helper missing'
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"

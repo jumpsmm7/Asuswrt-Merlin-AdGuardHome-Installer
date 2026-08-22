@@ -7,11 +7,15 @@ SCRIPT_PATH="${1:-AdGuardHome.sh}"
 FUNCTION_FILE="${TMPDIR:-/tmp}/start-adguardhome-function.$$"
 SERVICE_WAIT_FILE="${TMPDIR:-/tmp}/service-wait-function.$$"
 CALLS_FILE="${TMPDIR:-/tmp}/start-adguardhome-calls.$$"
+DATABASE_LINK_CALLS_FILE=""
 
+# cleanup removes temporary files created by the test script.
 cleanup() {
 	rm -f "${FUNCTION_FILE}" "${SERVICE_WAIT_FILE}" "${CALLS_FILE}"
+	[ -n "${DATABASE_LINK_CALLS_FILE}" ] && rm -f "${DATABASE_LINK_CALLS_FILE}"
 }
 
+# fail reports a test failure and exits with a nonzero status.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -46,8 +50,18 @@ assert_optional_ipset_tools_do_not_gate_startup() {
 	esac
 }
 
+# assert_explicit_restart_uses_restart_wrapper verifies USR2 restart state survives the service lock.
+assert_explicit_restart_uses_restart_wrapper() {
+	MONITOR_FUNCTION="$(sed -n '/^start_monitor() {$/,/^}$/p' "${SCRIPT_PATH}")"
+	printf '%s\n' "${MONITOR_FUNCTION}" | grep -q 'MONITOR_START_ACTION="restart_adguardhome"' || fail 'monitor does not record explicit restart requests'
+	printf '%s\n' "${MONITOR_FUNCTION}" | grep -q 'adguardhome_run "${MONITOR_START_ACTION:-start_adguardhome}"' || fail 'monitor does not pass explicit restart requests through the service lock'
+}
+
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
+
+DATABASE_LINK_CALLS_FILE="$(mktemp "${TMPDIR:-/tmp}/start-adguardhome-database-link-calls.XXXXXX")" ||
+	fail 'could not create database-link calls file'
 
 assert_single_function IPSet_Disable_Managed_For_Start_Locked
 assert_single_function IPSet_Enabled
@@ -59,6 +73,7 @@ assert_single_function IPSet_Setup_For_Start
 assert_single_function IPSet_Setup_For_Start_Locked
 assert_startup_uses_lock_first_setup
 assert_optional_ipset_tools_do_not_gate_startup
+assert_explicit_restart_uses_restart_wrapper
 
 sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^adguard_restart_dnsmasq_if_managed() {$/,/^}$/p; /^start_adguardhome() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Disable_Managed_For_Start_Locked() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Cleanup() {$/,/^}$/p; /^IPSet_Start_Restore() {$/,/^}$/p; /^IPSet_Start_While_Locked() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Setup_For_Start_Locked() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'startup lifecycle functions were not found'
@@ -83,9 +98,16 @@ adguard_lan_mode() {
 	[ "${INSTALL_MODE:-wan}" = "lan" ]
 }
 
-# adguard_refresh_lan_bind_addresses returns the configured LAN bind-address refresh status.
+# adguard_refresh_lan_bind_addresses records the LAN bind-address refresh failure reason and returns its status.
 adguard_refresh_lan_bind_addresses() {
+	LAN_BIND_REFRESH_FAILURE_REASON="${LAN_BIND_REFRESH_FAILURE_REASON_RESULT:-}"
 	return "${LAN_BIND_REFRESH_STATUS:-0}"
+}
+
+# ensure_database_link records a database-link setup request for testing.
+ensure_database_link() {
+	printf '%s -> %s\n' "$1" "$2" >>"${DATABASE_LINK_CALLS_FILE}"
+	return 0
 }
 
 # adguard_ipset_allowed reports whether IPSET integration is allowed outside LAN mode.
@@ -182,16 +204,18 @@ readlink() {
 	printf '/mock/%s\n' "${2##*/}"
 }
 
+# ln overrides the link command and reports an unexpected database-link setup attempt.
 ln() {
 	fail "database-link setup escaped the test double: $*"
 }
 
-# Stop successful starts before the function enters its router-only health-check path.
+# service_wait records that the service health-check path was invoked and reports failure.
 service_wait() {
 	SERVICE_WAIT_CALLED="1"
 	return 1
 }
 
+# run_test executes a configured startup scenario and verifies its exit status and recorded lifecycle calls.
 run_test() {
 	DESCRIPTION="$1"
 	RUNNING="$2"
@@ -202,10 +226,13 @@ run_test() {
 	START_STATUS="$7"
 	EXPECTED_STATUS="$8"
 	EXPECTED="$9"
+	START_ACTION="${10:-}"
 	SERVICE_WAIT_CALLED="0"
+	LAN_BIND_REFRESH_FAILURE_REASON_RESULT="${11:-}"
 	: >"${CALLS_FILE}"
+	: >"${DATABASE_LINK_CALLS_FILE}"
 
-	if start_adguardhome; then
+	if start_adguardhome "${START_ACTION}"; then
 		ACTUAL_STATUS=0
 	else
 		ACTUAL_STATUS=$?
@@ -260,9 +287,19 @@ run_service_wait_terminal_test
 
 INSTALL_MODE=lan
 LAN_BIND_REFRESH_STATUS=1
-run_test 'LAN mode aborts before startup when dynamic bind refresh fails' 0 0 0 0 0 0 1 ''
-[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'LAN bind refresh failure was not marked terminal'
-[ "${SERVICE_WAIT_CALLED}" -eq 0 ] || fail 'LAN bind refresh failure continued to the health check'
+run_test 'LAN mode preserves service startup when dynamic bind refresh fails' 0 0 0 0 0 0 1 'IPSet_Disable_Managed
+lower_script start'
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 0 ] || fail 'LAN bind refresh failure was incorrectly reported as terminal service failure'
+[ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'LAN bind refresh failure prevented the independent service health check'
+run_test 'LAN mode preserves a running daemon when dynamic bind refresh fails' 1 0 0 0 0 0 1 'IPSet_Disable_Managed'
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 0 ] || fail 'running daemon LAN bind refresh failure was incorrectly reported as terminal service failure'
+[ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'running daemon refresh failure prevented the independent service health check'
+run_test 'LAN mode honors an explicit restart when dynamic bind refresh fails' 1 0 0 0 0 0 1 'IPSet_Disable_Managed
+lower_script restart' restart
+[ "${SERVICE_WAIT_CALLED}" -eq 1 ] || fail 'explicit restart refresh failure prevented the independent service health check'
+run_test 'LAN mode rejects an unsafe active YAML before starting the daemon' 0 0 0 0 0 0 1 '' '' active_yaml_not_regular
+[ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'unsafe active YAML was not reported as a terminal startup failure'
+[ ! -s "${DATABASE_LINK_CALLS_FILE}" ] || fail 'unsafe active YAML failure delegated optional database links'
 LAN_BIND_REFRESH_STATUS=0
 run_test 'LAN mode cleans managed IPSET before startup without setup helper' 0 0 0 0 0 0 1 'IPSet_Disable_Managed
 lower_script start'
@@ -353,6 +390,7 @@ run_test 'lower-script restart failure aborts before health check' 1 1 0 0 0 7 7
 lower_script restart'
 [ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'lower-script restart failure was not marked terminal'
 [ "${SERVICE_WAIT_CALLED}" -eq 0 ] || fail 'lower-script restart failure reached the health check'
+[ ! -s "${DATABASE_LINK_CALLS_FILE}" ] || fail 'lower-script restart failure delegated optional database links'
 run_test 'lower-script start failure aborts before health check' 0 1 0 0 0 8 8 'IPSet_Supported
 lower_script start'
 [ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ] || fail 'lower-script start failure was not marked terminal'
@@ -372,11 +410,13 @@ IPSet_Lock released
 lower_script start'
 LEGACY_VERSION=""
 IPSET_CONFIG=NO
+CONFIG_IPSET="${IPSET_CONFIG}"
 run_test 'disabled integration removes managed settings before startup' 0 0 0 0 0 0 1 'IPSet_Lock acquired
 IPSet_Disable_Managed
 IPSet_Lock released
 lower_script start'
 IPSET_CONFIG=YES
+CONFIG_IPSET="${IPSET_CONFIG}"
 
 run_interrupt_cleanup_test 'interrupt restores stopped service' 0
 run_interrupt_cleanup_test 'failed interrupt restoration is not retried' 1
@@ -426,5 +466,10 @@ lower_script start
 IPSet_Lock released
 service restart_dnsmasq
 lower_script restart'
+
+run_test 'successful startup delegates optional database links' 0 1 0 0 0 0 1 'IPSet_Supported
+lower_script start'
+[ "$(cat "${DATABASE_LINK_CALLS_FILE}")" = "/tmp/stats.db -> ${WORK_DIR}/data/stats.db
+/tmp/sessions.db -> ${WORK_DIR}/data/sessions.db" ] || fail 'startup delegated incorrect optional database link pairs'
 
 printf '%s\n' 'PASS: startup treats IPSET integration as optional and preserves lifecycle recovery'

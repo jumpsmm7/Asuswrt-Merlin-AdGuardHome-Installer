@@ -4,7 +4,10 @@
 set -u
 
 REPO_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-TMP_DIR="${TMPDIR:-/tmp}/agh-permissions.$$"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agh-permissions.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive permission-test workspace' >&2
+	exit 1
+}
 INSTALLER_FUNCTIONS="${TMP_DIR}/installer-functions.sh"
 S99_FUNCTIONS="${TMP_DIR}/s99-functions.sh"
 
@@ -84,11 +87,17 @@ EOS
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-mkdir -p "${TMP_DIR}" || exit 1
 extract_permission_functions "${REPO_DIR}/installer" "${INSTALLER_FUNCTIONS}" \
 	'adguardhome_yaml_ipset_file() {' 'create_backup_archive() {' || fail 'could not extract installer permission helpers'
+sed -n '/^adguardhome_owner_account() {$/,/^}/p' "${REPO_DIR}/installer" >>"${INSTALLER_FUNCTIONS}" ||
+	fail 'could not extract installer account helper'
+grep -q '^adguardhome_owner_account() {$' "${INSTALLER_FUNCTIONS}" || fail 'installer account helper extraction was empty'
 extract_permission_functions "${REPO_DIR}/S99AdGuardHome" "${S99_FUNCTIONS}" \
 	'adguardhome_yaml_ipset_file() {' 'pre_start_adguardhome() {' || fail 'could not extract S99 permission helpers'
+for _functions_file in "${INSTALLER_FUNCTIONS}" "${S99_FUNCTIONS}"; do
+	sed 's#/bin/nvram#nvram#g; s#/usr/bin/awk#awk#g' "${_functions_file}" >"${_functions_file}.test" || fail 'could not isolate stock account commands'
+	mv "${_functions_file}.test" "${_functions_file}" || fail 'could not update isolated permission helpers'
+done
 
 (
 	# shellcheck disable=SC1090
@@ -216,6 +225,18 @@ dns:
 EOS
 	ensure_adguardhome_work_dir_permissions >/dev/null || fail 'S99 permission helper failed with parent-traversing absolute IPSET file'
 	assert_mode "${TMP_DIR}/s99/external-ipset.conf" '-rw-------'
+
+	rm -f "${WORK_DIR}/AdGuardHome" || exit 1
+	if ensure_adguardhome_work_dir_permissions >/dev/null; then
+		fail 'S99 permission helper accepted a missing AdGuardHome binary'
+	fi
+	printf '%s\n' '#!/bin/sh' >"${TMP_DIR}/foreign-AdGuardHome" || exit 1
+	chmod 600 "${TMP_DIR}/foreign-AdGuardHome" || exit 1
+	ln -s "${TMP_DIR}/foreign-AdGuardHome" "${WORK_DIR}/AdGuardHome" || exit 1
+	if ensure_adguardhome_work_dir_permissions >/dev/null; then
+		fail 'S99 permission helper accepted a symbolic-link AdGuardHome binary'
+	fi
+	assert_mode "${TMP_DIR}/foreign-AdGuardHome" '-rw-------'
 ) || exit 1
 
 awk '

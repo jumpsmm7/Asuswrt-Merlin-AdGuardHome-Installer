@@ -27,7 +27,7 @@ mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 {
 	sed -n '/^_quote() {$/,/^PTXT() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^ipv4_is_valid() {$/,/^web_port_in_use() {$/p' "${SCRIPT_PATH}" | sed '$d'
-	sed -n '/^adguardhome_yaml_secure_file() {$/,/^adguardhome_yaml_remove_ipset_file() {$/p' "${SCRIPT_PATH}" | sed '$d'
+	sed -n '/^adguardhome_owner_account() {$/,/^adguardhome_yaml_remove_ipset_file() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^setup_default_web_host() {$/,/^setup_AdGuardHome_impl() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^yaml_nvars_insert() {$/,/^# Interactive menu helpers$/p' "${SCRIPT_PATH}" | sed '$d'
 } >"${FUNCTIONS_FILE}" || fail 'could not extract WebUI port synchronization helpers'

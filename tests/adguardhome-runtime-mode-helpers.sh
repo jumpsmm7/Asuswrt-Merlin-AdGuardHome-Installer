@@ -4,7 +4,10 @@
 set -u
 
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
-TEST_ROOT="${TMPDIR:-/tmp}/adguardhome-runtime-mode-helpers.$$"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/adguardhome-runtime-mode-helpers.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive test directory' >&2
+	exit 1
+}
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 
 # cleanup removes the temporary test directory and its contents.
@@ -18,24 +21,24 @@ fail() {
 	exit 1
 }
 
-# write_conf resets the configuration file and writes each provided configuration line to it.
+# write_conf resets the configuration file, writes the provided configuration lines, and reloads the operation configuration.
 write_conf() {
 	: >"${CONF_FILE}" || fail 'could not reset config file'
 	while [ "$#" -gt 0 ]; do
 		printf '%s\n' "$1" >>"${CONF_FILE}" || fail 'could not write config value'
 		shift
 	done
+	load_operation_config action || return 1
 }
 
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
-mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
-
-sed -n \
-	'/^conf_value() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_dnsmasq_running() {$/,/^}$/p; /^adguard_dnsmasq_managed() {$/,/^}$/p; /^adguard_restart_dnsmasq_if_managed() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p' \
+/bin/sed -n \
+	'/^load_operation_config() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_dnsmasq_running() {$/,/^}$/p; /^adguard_dnsmasq_managed() {$/,/^}$/p; /^adguard_restart_dnsmasq_if_managed() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${SCRIPT_PATH}"
-grep -q '^adguard_ipset_allowed() {$' "${FUNCTIONS_FILE}" || fail 'runtime mode helpers missing'
-grep -q '^IPSet_Dnsmasq_Restart_After_Unlock() {$' "${FUNCTIONS_FILE}" || fail 'IPSET dnsmasq restart helper missing'
+sed -n '/^DEFAULT_ADGUARD_[A-Z_]*=/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" || fail 'could not extract runtime defaults'
+/bin/grep -q '^adguard_ipset_allowed() {$' "${FUNCTIONS_FILE}" || fail 'runtime mode helpers missing'
+/bin/grep -q '^IPSet_Dnsmasq_Restart_After_Unlock() {$' "${FUNCTIONS_FILE}" || fail 'IPSET dnsmasq restart helper missing'
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
@@ -63,9 +66,11 @@ assert_restart_count() {
 }
 
 CONF_FILE="${TEST_ROOT}/AdGuardHome.config"
+NAME='runtime-mode-test'
 SERVICE_RESTART_COUNT=0
 
 rm -f "${CONF_FILE}"
+load_operation_config action || fail 'missing config snapshot failed'
 [ "$(adguard_install_mode)" = 'wan' ] || fail 'missing config did not default install mode to wan'
 ! adguard_lan_mode || fail 'missing config should not be LAN mode'
 adguard_ipset_allowed || fail 'missing config should allow IPSET'
@@ -75,10 +80,10 @@ write_conf 'ADGUARD_INSTALL_MODE=lan'
 adguard_lan_mode || fail 'lan install mode was not detected'
 ! adguard_ipset_allowed || fail 'lan install mode should not allow IPSET'
 
-write_conf 'ADGUARD_INSTALL_MODE=unexpected'
-[ "$(adguard_install_mode)" = 'wan' ] || fail 'invalid install mode did not default to wan'
-! adguard_lan_mode || fail 'invalid install mode should not be LAN mode'
-adguard_ipset_allowed || fail 'invalid install mode should allow IPSET'
+if write_conf 'ADGUARD_INSTALL_MODE=unexpected'; then
+	fail 'invalid install mode was accepted'
+fi
+write_conf || fail 'could not restore default snapshot'
 
 DNSMASQ_RUNNING=0
 write_conf

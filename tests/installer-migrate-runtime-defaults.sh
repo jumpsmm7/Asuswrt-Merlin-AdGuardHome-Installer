@@ -21,7 +21,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^adguardhome_yaml_ipset_file() {$/,/^}$/p; /^adguardhome_yaml_secure_file() {$/,/^}$/p; /^adguardhome_yaml_remove_ipset_file() {$/,/^}$/p; /^branch_is_safe() {$/,/^}$/p; /^cli_bool_value() {$/,/^}$/p; /^cli_adguard_branch_is_valid() {$/,/^}$/p; /^cli_simple_value_is_safe() {$/,/^}$/p; /^cli_host_list_is_safe() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^cli_netcheck_config_values() {$/,/^}$/p; /^cli_dns_port_policy() {$/,/^}$/p; /^cli_migrate_runtime_default() {$/,/^}$/p; /^cli_migrate_runtime_defaults() {$/,/^}$/p; /^cli_installer_branch_from_args() {$/,/^}$/p; /^cli_write_adguard_branch() {$/,/^}$/p; /^cli_run() {$/,/^}$/p; /^cli_pre_runtime_defaults_preview() {$/,/^}$/p' \
+	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^adguardhome_yaml_ipset_file() {$/,/^}$/p; /^adguardhome_owner_account() {$/,/^}$/p; /^adguardhome_yaml_secure_file() {$/,/^}$/p; /^adguardhome_yaml_remove_ipset_file() {$/,/^}$/p; /^branch_is_safe() {$/,/^}$/p; /^cli_bool_value() {$/,/^}$/p; /^cli_adguard_branch_is_valid() {$/,/^}$/p; /^cli_simple_value_is_safe() {$/,/^}$/p; /^cli_host_list_is_safe() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^cli_netcheck_config_values() {$/,/^}$/p; /^cli_dns_port_policy() {$/,/^}$/p; /^cli_migrate_runtime_default() {$/,/^}$/p; /^cli_migrate_runtime_defaults() {$/,/^}$/p; /^cli_installer_branch_from_args() {$/,/^}$/p; /^cli_write_adguard_branch() {$/,/^}$/p; /^cli_run() {$/,/^}$/p; /^cli_pre_runtime_defaults_preview() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'runtime migration helper extraction was empty'
 grep -q '^cli_migrate_runtime_defaults() {$' "${FUNCTIONS_FILE}" || fail 'migration helper missing'
@@ -36,8 +36,23 @@ ERROR='[!]'
 CONF_FILE="${TMP_ROOT}/.config"
 YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 TARG_DIR="${TMP_ROOT}"
+ADGUARD_INSTALL_MODE_DETECTION='wan'
 
-# cli_require_yes is a no-op that succeeds without requiring confirmation.
+# adguard_install_mode_confirmed reports whether the detected install mode is confirmed as WAN or LAN.
+adguard_install_mode_confirmed() {
+	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
+		wan | lan) return 0 ;;
+	esac
+	return 1
+}
+
+# adguard_install_mode_detect publishes the mode represented by the detection stub.
+adguard_install_mode_detect() {
+	ADGUARD_INSTALL_MODE="${ADGUARD_INSTALL_MODE_DETECTION}"
+	return 0
+}
+
+# cli_require_yes allows the operation to proceed without requiring confirmation.
 cli_require_yes() {
 	return 0
 }
@@ -58,6 +73,14 @@ ADGUARD_PROC_PROFILE="aggressive"
 CONFIG
 
 before="$(cat "${CONF_FILE}")"
+ADGUARD_INSTALL_MODE_DETECTION='unknown'
+if cli_migrate_runtime_defaults --yes >"${TMP_ROOT}/unknown-mode" 2>&1; then
+	fail 'unknown-mode migration was allowed to change runtime defaults'
+fi
+[ "$(cat "${CONF_FILE}")" = "${before}" ] || fail 'unknown-mode migration changed .config'
+grep -q 'requires a confirmed router install mode' "${TMP_ROOT}/unknown-mode" ||
+	fail 'unknown-mode migration did not explain the confirmation requirement'
+ADGUARD_INSTALL_MODE_DETECTION='wan'
 cli_migrate_runtime_defaults >"${TMP_ROOT}/report" || fail 'report-only migration failed'
 [ "$(cat "${CONF_FILE}")" = "${before}" ] || fail 'report-only migration changed .config'
 grep -q 'Legacy runtime default: ADGUARD_NETCHECK_MODE="legacy"' "${TMP_ROOT}/report" || fail 'legacy netcheck value was not reported'
@@ -88,7 +111,7 @@ cli_run migrate-runtime-defaults --yes >"${TMP_ROOT}/apply" || fail 'CLI apply m
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'DNS port policy was not migrated'
 grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'netcheck mode was not migrated'
 grep -q '^ADGUARD_PROC_OPTIMIZE="YES"$' "${CONF_FILE}" || fail 'process optimization was not preserved'
-grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'process profile was not migrated'
+grep -q '^ADGUARD_PROC_PROFILE="aggressive"$' "${CONF_FILE}" || fail 'aggressive process profile was not preserved'
 
 cat >"${CONF_FILE}" <<'CONFIG'
 ADGUARD_INSTALL_MODE="lan"
@@ -108,23 +131,14 @@ dns:
   ipset_file: ipset.conf
   port: 53
 YAML
-# Startup detection may leave the shell variable at its newly detected value,
-# but migration must follow the install mode already persisted for this install.
+# A confirmed current detection must override a stale persisted install mode.
 ADGUARD_INSTALL_MODE="wan"
-cli_run migrate-runtime-defaults --yes >"${TMP_ROOT}/lan-apply" || fail 'LAN-mode apply migration failed'
+cli_run migrate-runtime-defaults --yes >"${TMP_ROOT}/wan-apply" || fail 'WAN-mode apply migration failed'
 grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" || fail 'LAN install mode was not preserved'
-grep -q '^ADGUARD_IPSET="NO"$' "${CONF_FILE}" || fail 'LAN-mode IPSET was not disabled during migration'
-grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'LAN-mode netcheck was not migrated to lan'
-if grep -q 'ipset_file' "${YAML_FILE}"; then
-	fail 'LAN-mode migration did not remove dns.ipset_file from YAML'
-fi
-grep -q '^[[:space:]]*ipset: \[\]$' "${YAML_FILE}" || fail 'LAN-mode migration did not clear inline dns.ipset mappings'
-if grep -q 'example\.com/router' "${YAML_FILE}"; then
-	fail 'LAN-mode migration retained an inline dns.ipset mapping'
-fi
-if grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}"; then
-	fail 'LAN-mode migration regressed to WAN netcheck mode'
-fi
+grep -q '^ADGUARD_IPSET="YES"$' "${CONF_FILE}" || fail 'confirmed WAN migration changed persisted IPSET state'
+grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'confirmed WAN migration did not override stale LAN mode'
+grep -q 'ipset_file: ipset.conf' "${YAML_FILE}" || fail 'confirmed WAN migration removed dns.ipset_file'
+grep -q 'example\.com/router' "${YAML_FILE}" || fail 'confirmed WAN migration removed inline dns.ipset mappings'
 
 cat >"${CONF_FILE}" <<'CONFIG'
 ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"

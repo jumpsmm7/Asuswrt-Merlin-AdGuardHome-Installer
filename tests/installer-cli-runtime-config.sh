@@ -35,7 +35,23 @@ INFO='[i]'
 ERROR='[!]'
 WARNING='[w]'
 CONF_FILE="${TMP_ROOT}/.config"
+ADGUARD_INSTALL_MODE_DETECTION='wan'
 
+# adguard_install_mode_confirmed reports whether the detected installation mode is `wan` or `lan.
+adguard_install_mode_confirmed() {
+	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
+		wan | lan) return 0 ;;
+	esac
+	return 1
+}
+
+# adguard_install_mode_detect sets the AdGuard installation mode from the configured test value.
+adguard_install_mode_detect() {
+	ADGUARD_INSTALL_MODE="${ADGUARD_INSTALL_MODE_DETECTION}"
+	return 0
+}
+
+# cli_require_yes confirms non-interactive confirmation.
 cli_require_yes() {
 	return 0
 }
@@ -75,7 +91,7 @@ grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'migration dry-ru
 cli_run migrate-runtime-defaults --yes >/dev/null || fail 'migration CLI failed'
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'migration did not persist refuse-unknown policy'
 grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'migration did not persist netcheck mode'
-grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'migration did not persist balanced performance profile'
+grep -q '^ADGUARD_PROC_PROFILE="aggressive"$' "${CONF_FILE}" || fail 'migration did not preserve aggressive performance profile'
 
 cli_adguard_branch_is_valid edge || fail 'edge AdGuardHome branch should be valid'
 if cli_adguard_branch_is_valid master; then
