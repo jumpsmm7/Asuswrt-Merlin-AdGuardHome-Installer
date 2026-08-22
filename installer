@@ -75,6 +75,14 @@ ai_have_cmd() {
 # Installer-managed NVRAM transactions.  Each key is read once into a private
 # snapshot before any write is attempted.  Snapshot files are deliberately
 # simple because NVRAM values used by this installer do not contain newlines.
+nvram_transaction_begin_fail() {
+	local temp_dir
+	temp_dir="$1"
+	[ -z "${temp_dir}" ] || rm -rf "${temp_dir}"
+	nvram_transaction_lock_release
+	return 1
+}
+
 nvram_transaction_begin() {
 	local name key service_action snapshot_dir temp_dir
 	name="$1"
@@ -83,12 +91,12 @@ nvram_transaction_begin() {
 		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-]*) return 1 ;;
 	esac
 	nvram_transaction_lock_acquire || return 1
-	nvram_transaction_finalize_setup_pair recovery || return 1
+	nvram_transaction_finalize_setup_pair recovery || nvram_transaction_begin_fail ""
 	snapshot_dir="${BASE_DIR}/.AdGuardHome.nvram/${name}"
 	temp_dir="${snapshot_dir}.tmp.$$"
-	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram" ] || return 1
+	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram" ] || nvram_transaction_begin_fail "${temp_dir}"
 	if [ -e "${snapshot_dir}" ] || [ -L "${snapshot_dir}" ]; then
-		[ ! -L "${snapshot_dir}" ] || return 1
+		[ ! -L "${snapshot_dir}" ] || nvram_transaction_begin_fail "${temp_dir}"
 		if [ -f "${snapshot_dir}/dirty" ]; then
 			case "${name}" in
 				dnsfilter) service_action="restart_firewall;restart_dnsmasq" ;;
@@ -1119,7 +1127,13 @@ nvram_transaction_restore() {
 	done <"${snapshot_dir}/keys"
 	/bin/nvram commit || failed="1"
 	if [ "${service_action}" != "-" ]; then
-		service "${service_action}" >/dev/null 2>&1 || failed="1"
+		case "${service_action}" in
+			restart_firewall\;restart_dnsmasq)
+				service restart_firewall >/dev/null 2>&1 || failed="1"
+				service restart_dnsmasq >/dev/null 2>&1 || failed="1"
+				;;
+			*) service "${service_action}" >/dev/null 2>&1 || failed="1" ;;
+		esac
 	fi
 	if [ "${failed}" = "0" ]; then
 		if [ "${keep_snapshot}" != "1" ]; then
