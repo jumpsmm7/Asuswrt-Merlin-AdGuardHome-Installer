@@ -1,16 +1,8 @@
 #!/bin/sh
-# Run BusyBox ash regression scripts with command hashing disabled so PATH-based
-# command stubs are re-resolved after tests prepend their private stub directory.
+# Run one regression script under BusyBox ash with command hashing disabled so
+# PATH-prepended command stubs replace commands resolved earlier in the script.
 
-if [ "${1:-}" != ash ]; then
-	exec /usr/bin/busybox "$@"
-fi
-
-shift
-if [ "$#" -eq 0 ]; then
-	exec /usr/bin/busybox ash
-fi
-
+[ "$#" -gt 0 ] || exit 2
 script="$1"
 shift
 exec /usr/bin/busybox ash -c 'set +h; . "$0"' "${script}" "$@"
