@@ -4509,7 +4509,7 @@ check_jffs_enabled() {
 }
 
 check_version() {
-	local RMNSTALL LINSTALL MD5SUM_L MD5SUM_R MD5SUM_EXPECTED REMOTE_INSTALLER REMOTE_INSTALLER_MD5 ADGUARD_BRANCH ADGUARD_VER REMOTE_ADGUARD_VER varcnt
+	local RMNSTALL LINSTALL MD5SUM_L MD5SUM_R MD5SUM_EXPECTED REMOTE_INSTALLER REMOTE_INSTALLER_MD5 ADGUARD_BRANCH ADGUARD_VER ADGUARD_WEB_URL REMOTE_ADGUARD_VER varcnt
 	if [ -f "${TARG_DIR}/installer" ] && [ -f "${AGH_FILE}" ] && [ -z "$2" ]; then
 		if [ -n "$1" ] || { check_connection; }; then
 			REMOTE_INSTALLER="${TARG_DIR}/.installer.remote.$$"
@@ -4593,10 +4593,13 @@ check_version() {
 						;;
 				esac
 			fi
+			# A new AdGuardHome installation intentionally exposes its setup WebUI over
+			# HTTP on the router LAN until the administrator configures HTTPS in AdGuardHome.
+			ADGUARD_WEB_URL="http://$(nvram get lan_ipaddr):$(awk -F: '/.*address:.*/{ print $3 }' "${YAML_FILE}")" # NOSONAR
 			PTXT "${INFO} ADGUARDHOME_VER=${ADGUARD_VER}" \
 				"${INFO} Run Option 1 to if you want to change builds or upgrade when updates are available." \
 				"${INFO} To visit AdGuardHome," \
-				"${INFO} please go to http://$(nvram get lan_ipaddr):$(awk -F: '/.*address:.*/{ print $3 }' "${YAML_FILE}")." \
+				"${INFO} please go to ${ADGUARD_WEB_URL}." \
 				"${INFO} You can use the WebUI to change things to your liking!" \
 				"${INFO} Stop by https://github.com/AdguardTeam/AdGuardHome/wiki " \
 				"${INFO} for any configuration needs. "
