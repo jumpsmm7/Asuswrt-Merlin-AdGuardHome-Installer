@@ -70,24 +70,37 @@ case "${QODO_DIR}" in
     exit 1
     ;;
 esac
-if [ -e "${QODO_DIR}" ]; then
-  if [ ! -d "${QODO_DIR}" ]; then
-    printf '%s\n' 'Error: QODO_CONFIG parent must be a directory' >&2
-    exit 1
+QODO_CURRENT_UID="$(id -u)" || exit 1
+QODO_PATH_CHECK="${QODO_DIR}"
+QODO_VALIDATION_ROOT="${QODO_ROOT:-${QODO_DIR}}"
+while :; do
+  if [ -e "${QODO_PATH_CHECK}" ]; then
+    if [ ! -d "${QODO_PATH_CHECK}" ]; then
+      printf '%s\n' 'Error: QODO_CONFIG parent must be a directory' >&2
+      exit 1
+    fi
+    QODO_DIR_UID="$(stat -c '%u' "${QODO_PATH_CHECK}" 2>/dev/null || stat -f '%u' "${QODO_PATH_CHECK}" 2>/dev/null)" || exit 1
+    QODO_DIR_MODE="$(stat -c '%a' "${QODO_PATH_CHECK}" 2>/dev/null || stat -f '%Lp' "${QODO_PATH_CHECK}" 2>/dev/null)" || exit 1
+    if [ "${QODO_DIR_UID}" != "${QODO_CURRENT_UID}" ] || [ "${QODO_DIR_MODE}" != 700 ]; then
+      printf '%s\n' 'Error: existing QODO_CONFIG parents must be owned by the current user with mode 700' >&2
+      exit 1
+    fi
   fi
-  QODO_DIR_UID="$(stat -c '%u' "${QODO_DIR}" 2>/dev/null || stat -f '%u' "${QODO_DIR}" 2>/dev/null)" || exit 1
-  QODO_DIR_MODE="$(stat -c '%a' "${QODO_DIR}" 2>/dev/null || stat -f '%Lp' "${QODO_DIR}" 2>/dev/null)" || exit 1
-  if [ "${QODO_DIR_UID}" != "$(id -u)" ] || [ "${QODO_DIR_MODE}" != 700 ]; then
-    printf '%s\n' 'Error: existing QODO_CONFIG parent must be owned by the current user with mode 700' >&2
-    exit 1
-  fi
-else
+  [ "${QODO_PATH_CHECK}" = "${QODO_VALIDATION_ROOT}" ] && break
+  QODO_PATH_CHECK="$(dirname "${QODO_PATH_CHECK}")" || exit 1
+done
+if [ ! -e "${QODO_DIR}" ]; then
   (umask 077 && mkdir -p "${QODO_DIR}") || exit 1
   chmod 700 "${QODO_DIR}" || exit 1
 fi
 if [ -e "${QODO_CONFIG}" ]; then
   if [ ! -f "${QODO_CONFIG}" ]; then
     printf '%s\n' 'Error: existing QODO_CONFIG must be a regular file' >&2
+    exit 1
+  fi
+  QODO_CONFIG_UID="$(stat -c '%u' "${QODO_CONFIG}" 2>/dev/null || stat -f '%u' "${QODO_CONFIG}" 2>/dev/null)" || exit 1
+  if [ "${QODO_CONFIG_UID}" != "${QODO_CURRENT_UID}" ]; then
+    printf '%s\n' 'Error: existing QODO_CONFIG must be owned by the current user' >&2
     exit 1
   fi
 else
