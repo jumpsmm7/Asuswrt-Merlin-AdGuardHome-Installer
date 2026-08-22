@@ -78,9 +78,7 @@ jobs:
 
       - name: Run bounded service lifecycle integration matrix
         # DNS handoff validates root-only FIFO ownership, matching router init.
-        # The nested helper uses a no-hash BusyBox wrapper so PATH-prepended
-        # command stubs replace commands resolved earlier in that test script.
-        run: sudo -n /usr/bin/timeout --kill-after=10 600 env AGH_INTEGRATION_SHELL=sh AGH_INTEGRATION_SHELL_ARG=tests/busybox-ash-nohash.sh busybox ash tests/service-lifecycle-integration.sh
+        run: sudo -n /usr/bin/timeout --kill-after=10 600 env AGH_INTEGRATION_SHELL=busybox AGH_INTEGRATION_SHELL_ARG=ash busybox ash tests/service-lifecycle-integration.sh
 
       - name: Run optional database link regression
         run: sudo -n /usr/bin/timeout --kill-after=10 180 busybox ash tests/optional-database-links.sh
