@@ -62,6 +62,15 @@ require_text "${CANONICAL_AGENTS}" \
 require_text "${CANONICAL_AGENTS}" \
 	'Target BusyBox version: `BusyBox v1.25.1`.' \
 	'BusyBox target version'
+require_text "${CANONICAL_AGENTS}" \
+	'`python3` for validation helpers such as `.github/scripts/fix-sonar-shell-parse.py`.' \
+	'validation-host python3 allowlist'
+require_text "${CANONICAL_AGENTS}" \
+	'GNU coreutils `timeout` at `/usr/bin/timeout` for bounding regression and lint commands.' \
+	'validation-host GNU timeout allowlist'
+require_text "${CANONICAL_AGENTS}" \
+	'These commands are validation-host exceptions only.' \
+	'validation prerequisites excluded from router runtime'
 
 # All reviewers use the same priority order even if their provider-specific
 # configuration contains additional checks.

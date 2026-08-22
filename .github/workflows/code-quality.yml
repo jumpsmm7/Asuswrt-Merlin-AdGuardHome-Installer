@@ -27,7 +27,9 @@ jobs:
       - name: Install shell tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq curl coreutils
+          sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq curl python3 coreutils
+          python3 --version
+          /usr/bin/timeout --version
 
       - name: Install actionlint
         env:

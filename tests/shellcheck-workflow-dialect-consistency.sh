@@ -76,6 +76,12 @@ grep -Fq 'tools/list-shell-scripts.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: posix-syntax/shellcheck/shfmt jobs must enumerate scripts via tools/list-shell-scripts.sh"
 grep -Fq 'tests/installer-reaper-owner-publication.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: posix-syntax job is missing the reaper owner publication regression"
+[ "$(grep -Fc 'sudo apt-get install -y busybox-static coreutils' "${WORKFLOW}")" -eq 1 ] ||
+	fail "${WORKFLOW}: POSIX regression job must explicitly install GNU coreutils timeout"
+[ "$(grep -Fc 'sudo apt-get install -y shellcheck coreutils' "${WORKFLOW}")" -eq 1 ] ||
+	fail "${WORKFLOW}: ShellCheck job must explicitly install GNU coreutils timeout"
+[ "$(grep -Fc '/usr/bin/timeout --version' "${WORKFLOW}")" -eq 2 ] ||
+	fail "${WORKFLOW}: timeout-using jobs must verify the approved GNU implementation"
 
 # --- Checksum target consistency within the workflow ----------------------
 # The chore-commit wait step and the validation step must agree on the same

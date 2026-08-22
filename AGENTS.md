@@ -306,6 +306,21 @@ Check for:
 
 ## Validation
 
+Validation hosts and CI runners, unlike router runtime scripts, explicitly allow these host-only prerequisites:
+
+* `python3` for validation helpers such as `.github/scripts/fix-sonar-shell-parse.py`.
+* GNU coreutils `timeout` at `/usr/bin/timeout` for bounding regression and lint commands. Do not use a PATH-resolved or BusyBox `timeout` substitute.
+
+Install and verify them on Debian/Ubuntu validation hosts with:
+
+```sh
+sudo apt-get install -y python3 coreutils
+python3 --version
+/usr/bin/timeout --version
+```
+
+These commands are validation-host exceptions only. They do not allow `python3` or GNU `timeout` dependencies in router-runtime scripts, and they do not imply that either command is available in the router stock PATH.
+
 For touched shell scripts or shell fixtures, run the syntax check that matches the target environment when available:
 
 ```sh

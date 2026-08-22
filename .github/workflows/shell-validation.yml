@@ -25,7 +25,8 @@ jobs:
       - name: Install BusyBox
         run: |
           sudo apt-get update
-          sudo apt-get install -y busybox-static
+          sudo apt-get install -y busybox-static coreutils
+          /usr/bin/timeout --version
 
       - name: Check router-side syntax with BusyBox ash
         run: |
@@ -96,7 +97,8 @@ jobs:
       - name: Install ShellCheck
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck
+          sudo apt-get install -y shellcheck coreutils
+          /usr/bin/timeout --version
 
       - name: Run ShellCheck with sh dialect
         run: |
