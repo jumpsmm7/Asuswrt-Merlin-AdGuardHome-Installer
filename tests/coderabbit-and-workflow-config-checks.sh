@@ -12,6 +12,7 @@ CODEX_PROMPT='.github/prompts/codex-code-improvement.md'
 WORKFLOW='.github/workflows/code-quality.yml'
 REVIEW_WORKFLOW='.github/workflows/code-quality-review.yml'
 CACHE_WORKFLOW='.github/workflows/cache-adguardhome-static.yml'
+SCORECARD_WORKFLOW='.github/workflows/scorecard.yml'
 SONAR_REWRITE='.github/scripts/fix-sonar-shell-parse.py'
 SEMGREP='.semgrep.yml'
 SONAR='sonar-project.properties'
@@ -47,7 +48,7 @@ review_checker_is_enforced() {
 	' "${_review_workflow}"
 }
 
-for f in "${CODERABBIT}" "${CODEX_PROMPT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}" "${CACHE_WORKFLOW}" "${SONAR_REWRITE}" "${SEMGREP}" "${SONAR}" "${STATIC_DOWNLOADER}"; do
+for f in "${CODERABBIT}" "${CODEX_PROMPT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}" "${CACHE_WORKFLOW}" "${SCORECARD_WORKFLOW}" "${SONAR_REWRITE}" "${SEMGREP}" "${SONAR}" "${STATIC_DOWNLOADER}"; do
 	[ -f "${f}" ] || fail "expected config file not found: ${f}"
 done
 
@@ -55,7 +56,7 @@ done
 # GitHub Actions both treat tabs as invalid/undefined indentation, and a tab
 # introduced by an editor would not be caught by any shell-focused linter.
 TAB=$(printf '\t')
-for f in "${CODERABBIT}" "${CODEX_PROMPT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}"; do
+for f in "${CODERABBIT}" "${CODEX_PROMPT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}" "${SCORECARD_WORKFLOW}"; do
 	if grep -Fq "${TAB}" "${f}"; then
 		fail "${f}: contains literal tab character(s); YAML/workflow indentation must use spaces"
 	fi
@@ -190,6 +191,15 @@ fi
 # coverage without any other check noticing.
 grep -Eq '^[[:space:]]*pull_request:' "${WORKFLOW}" || fail "${WORKFLOW}: expected an 'on: pull_request' trigger"
 grep -Eq '^[[:space:]]*push:' "${WORKFLOW}" || fail "${WORKFLOW}: expected an 'on: push' trigger"
+
+# --- OpenSSF Scorecard only supports push analysis for the repository's
+# default branch. Keep both push and pull-request filters off the development
+# branch so a development-branch event cannot start an unsupported analysis.
+[ "$(grep -Fc '    branches: [master, main]' "${SCORECARD_WORKFLOW}")" -eq 2 ] ||
+	fail "${SCORECARD_WORKFLOW}: push and pull_request must target only default-branch names"
+if grep -Eq '^[[:space:]]+branches:.*dev' "${SCORECARD_WORKFLOW}"; then
+	fail "${SCORECARD_WORKFLOW}: development branch must not trigger OpenSSF Scorecard"
+fi
 
 # --- The Sonar parser cleanup must be idempotent. Pull-request validation must
 # use the immutable head SHA with a non-persistent read-only checkout and fail
