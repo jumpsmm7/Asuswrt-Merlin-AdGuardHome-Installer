@@ -648,7 +648,12 @@ awk() {
 	esac
 	command awk "$@"
 }
-PATH="${STUB_DIR}:${PATH}" CHOWN_LOG="${CHOWN_LOG}" adguardhome_yaml_remove_ipset_file || fail 'nvram username YAML ownership cleanup failed'
+(
+	PATH="${STUB_DIR}:${PATH}"
+	CHOWN_LOG="${CHOWN_LOG}"
+	export PATH CHOWN_LOG
+	adguardhome_yaml_remove_ipset_file
+) || fail 'nvram username YAML ownership cleanup failed'
 grep -q "daemon:root ${YAML_FILE}" "${CHOWN_LOG}" || fail 'YAML ownership did not use nvram http_username'
 [ "$(mode_string "${YAML_FILE}")" = '-rw-------' ] || fail 'YAML mode was not secured with nvram username present'
 assert_no_ipset_file nvram-owner
@@ -663,7 +668,11 @@ cat >"${STUB_DIR}/chown" <<'EOF_CHOWN_FAIL' || fail 'could not write failing cho
 exit 1
 EOF_CHOWN_FAIL
 chmod 755 "${STUB_DIR}/chown" || fail 'could not chmod failing chown stub'
-if PATH="${STUB_DIR}:${PATH}" adguardhome_yaml_remove_ipset_file; then
+if (
+	PATH="${STUB_DIR}:${PATH}"
+	export PATH
+	adguardhome_yaml_remove_ipset_file
+); then
 	fail 'cleanup succeeded despite failing YAML chown'
 fi
 [ "$(mode_string "${YAML_FILE}")" = '-rw-------' ] || fail 'YAML mode was not tightened before failing chown'
@@ -684,7 +693,12 @@ exit 0
 EOF_NVRAM
 chmod 755 "${STUB_DIR}/nvram" || fail 'could not chmod empty nvram stub'
 : >"${CHOWN_LOG}"
-PATH="${STUB_DIR}:${PATH}" CHOWN_LOG="${CHOWN_LOG}" adguardhome_yaml_remove_ipset_file || fail 'empty nvram YAML ownership cleanup failed'
+(
+	PATH="${STUB_DIR}:${PATH}"
+	CHOWN_LOG="${CHOWN_LOG}"
+	export PATH CHOWN_LOG
+	adguardhome_yaml_remove_ipset_file
+) || fail 'empty nvram YAML ownership cleanup failed'
 grep -q "root:root ${YAML_FILE}" "${CHOWN_LOG}" || fail 'YAML ownership did not fall back to root for empty nvram username'
 [ "$(mode_string "${YAML_FILE}")" = '-rw-------' ] || fail 'YAML mode was not secured with empty nvram username'
 assert_no_ipset_file nvram-empty-owner
