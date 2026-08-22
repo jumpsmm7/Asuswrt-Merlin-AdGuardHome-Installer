@@ -66,7 +66,13 @@ ADGUARDHOME_LAUNCH_HELPER=1
 
 # service_mark_transition records that startup published transitional state.
 service_mark_transition() {
-	: >"${TRANSITION_FILE}"
+	printf '%s\n' "$1" >"${TRANSITION_FILE}"
+}
+
+# service_clear_transition removes only the expected simulated transition.
+service_clear_transition() {
+	[ "$(cat "${TRANSITION_FILE}" 2>/dev/null)" = "$1" ] || return 0
+	rm -f "${TRANSITION_FILE}"
 }
 
 # process_pids prints the simulated process ID when the service start marker exists.
@@ -139,6 +145,20 @@ failing_hook() {
 agh_dns_handoff_required() {
 	return 0
 }
+
+# An idempotent start completes the transition it published instead of leaving
+# status stuck at starting. The expected-state argument also protects a newer
+# concurrent transition from being cleared accidentally.
+for ACTION in start restart; do
+	: >"${STARTED_FILE}"
+	start >/dev/null || fail "idempotent ${ACTION} start rejected an already-running service"
+	[ ! -e "${TRANSITION_FILE}" ] || fail "idempotent ${ACTION} start retained its transition"
+done
+ACTION='start'
+printf '%s\n' restarting >"${TRANSITION_FILE}"
+service_clear_transition starting
+[ "$(cat "${TRANSITION_FILE}")" = restarting ] || fail 'expected-state clear removed a newer transition'
+rm -f "${STARTED_FILE}" "${TRANSITION_FILE}"
 
 : >"${CALLS_FILE}"
 rm -f "${STARTED_FILE}"

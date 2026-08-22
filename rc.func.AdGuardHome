@@ -486,7 +486,7 @@ adguardhome_start_signal_abort() {
 }
 
 start() {
-	local DNS_HANDOFF LAUNCH_PID PIDS POSTCMD_STATUS POSTFAIL_STATUS STOPPED
+	local DNS_HANDOFF LAUNCH_PID PIDS POSTCMD_STATUS POSTFAIL_STATUS START_TRANSITION STOPPED
 	{ [ "${CRITICAL}" != "yes" ] && [ "${CALLER}" = "cron" ]; } && return 7
 	[ "${ENABLED}" != "yes" ] && return 8
 	if ! start_hooks_are_valid; then
@@ -495,14 +495,18 @@ start() {
 	fi
 	if type service_mark_transition >/dev/null 2>&1; then
 		case "${ACTION:-}" in
-			"restart") service_mark_transition "restarting" ;;
-			*) service_mark_transition "starting" ;;
+			"restart") START_TRANSITION="restarting" ;;
+			*) START_TRANSITION="starting" ;;
 		esac
+		service_mark_transition "${START_TRANSITION}"
 	fi
 	printf "%s" "${ansi_white} Starting ${DESC}... ${ansi_std}"
 	DNS_HANDOFF=0
 	PIDS="$(process_pids "${PROC}")"
 	if [ -n "${PIDS}" ]; then
+		if [ -n "${START_TRANSITION:-}" ] && type service_clear_transition >/dev/null 2>&1; then
+			service_clear_transition "${START_TRANSITION}"
+		fi
 		printf "%s\n" "            ${ansi_yellow} already running. ${ansi_std}"
 		return 0
 	fi
