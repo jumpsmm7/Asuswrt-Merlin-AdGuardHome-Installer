@@ -5768,14 +5768,14 @@ download_file() {
 				ptxt_step "Checking remote checksum metadata for ${FILENAME}."
 				if ! http_get_file "${URL}.sha256sum" "${TMP_SHA256}" "" insecure; then
 					SHA256_AVAILABLE="0"
-					ptxt_warn "SHA-256 metadata is unavailable for ${FILENAME}; falling back to MD5 verification."
+					ptxt_warn "SHA-256 metadata is unavailable for ${FILENAME}; using the intentional legacy-compatible MD5 verification path."
 				elif ! SHA256SUM_EXPECTED="$(sha256_manifest_digest "${TMP_SHA256}")"; then
 					ptxt_warn "SHA-256 metadata is empty or invalid for ${FILENAME}; retrying download."
 				else
 					ptxt_step "Verifying SHA-256 checksum for ${FILENAME}."
 					if ! SHA256SUM_CURR="$(file_sha256 "${TMP_FILE}" 2>/dev/null)"; then
 						SHA256_AVAILABLE="0"
-						ptxt_warn "SHA-256 digest calculation is unavailable for ${FILENAME}; falling back to MD5 verification."
+						ptxt_warn "SHA-256 digest calculation is unavailable for ${FILENAME}; using the intentional legacy-compatible MD5 verification path."
 					elif [ "${SHA256SUM_CURR}" != "${SHA256SUM_EXPECTED}" ]; then
 						ptxt_warn "SHA-256 checksum mismatch for ${FILENAME}; retrying download."
 					else
@@ -6052,7 +6052,7 @@ inst_AdGuardHome() {
 				elif md5_is_valid "${REMOTE_ADGUARD_MD5}"; then
 					ARCHIVE_MD5="$(file_md5 "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}" 2>/dev/null)" || ARCHIVE_MD5=""
 					if [ "${ARCHIVE_MD5}" = "${REMOTE_ADGUARD_MD5}" ]; then
-						ptxt_warn "SHA-256 digest calculation is unavailable; channel MD5 checksum verified."
+						ptxt_warn "SHA-256 digest calculation is unavailable; the AdGuard Home archive was verified through the intentional legacy-compatible MD5 verification path."
 					else
 						PTXT "${ERROR} MD5 checksum mismatch for downloaded AdGuardHome package metadata."
 						rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
@@ -6073,6 +6073,7 @@ inst_AdGuardHome() {
 					end_op_message 1 "$1"
 					return 1
 				fi
+				ptxt_warn "The AdGuard Home archive was verified through the intentional legacy-compatible MD5 verification path because SHA-256 metadata is unavailable."
 			fi
 			if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
 			ptxt_step "Replacing AdGuardHome package with downloaded archive."

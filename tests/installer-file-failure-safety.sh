@@ -264,7 +264,7 @@ for checksum_case in upstream_sha_only unchanged_sha sha_preferred sha_unavailab
 	) || exit 1
 done
 
-grep -q 'falling back to MD5 verification' "${TMP_DIR}/sha_unavailable.out" || fail 'SHA-256 metadata fallback was not logged'
+grep -q 'intentional legacy-compatible MD5 verification path' "${TMP_DIR}/sha_unavailable.out" || fail 'SHA-256 metadata fallback was not logged as intentional compatibility behavior'
 if grep -q 'MD5 metadata' "${TMP_DIR}/upstream_sha_only.out"; then
 	fail 'matching SHA-256 unexpectedly required MD5 metadata'
 fi

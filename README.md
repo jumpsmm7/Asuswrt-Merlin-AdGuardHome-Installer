@@ -749,6 +749,14 @@ Each architecture folder also gets generated metadata:
 
 The local stable filenames use `stable`, while the upstream static AdGuardHome channel path remains `release` to match the installer branch naming.
 
+## Download integrity compatibility policy
+
+The installer prefers SHA-256 for download integrity verification. An MD5 fallback remains intentional compatibility behavior for supported legacy environments, but it is allowed only when SHA-256 metadata is unavailable or SHA-256 calculation support is unavailable. Invalid, empty, or mismatching SHA-256 metadata causes the download to fail or retry and never permits a downgrade to MD5 verification.
+
+The legacy-compatible MD5 path requires valid MD5 metadata and a matching calculated digest. A download fails when neither the SHA-256 path nor the MD5 compatibility path verifies the artifact. Checksum integrity verification and TLS certificate verification are separate safeguards: a valid checksum does not replace certificate validation, and certificate validation does not replace checksum verification.
+
+MD5 checksum sidecars remain part of the v2.6.5 release format for this compatibility policy; they are not the preferred verification path.
+
 ## Development checks
 
 Repository shell scripts are written for POSIX/BusyBox `ash` compatibility. Avoid Bash-only syntax such as arrays, process substitution, `[[ ... ]]`, and non-portable `pipefail`.

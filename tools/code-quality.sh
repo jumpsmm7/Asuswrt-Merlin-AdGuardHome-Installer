@@ -225,6 +225,7 @@ run_check 'Installer end operation rollback regression' sh tests/installer-end-o
 run_check 'Installer doctor fix safety regression' sh tests/installer-doctor-fix-safety.sh
 run_check 'Installer doctor rollback result regression' sh tests/installer-doctor-rollback-result.sh
 run_check 'Installer SHA-256 helper regression' sh tests/installer-sha256-helper.sh
+run_check 'Installer checksum compatibility policy regression' sh tests/installer-checksum-compatibility-policy.sh
 run_check 'Installer secure transport fallback regression' sh tests/installer-secure-download-fallback.sh
 run_check 'Installer blocklist cleanup regression' sh tests/installer-blocklist-cleanup.sh
 run_check 'Installer uninstall cleanup regression' sh tests/installer-uninstall-cleanup.sh
