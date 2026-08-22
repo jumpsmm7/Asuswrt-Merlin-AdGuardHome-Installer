@@ -218,6 +218,7 @@ run_check 'Installer CLI LAN-mode regression' sh tests/installer-cli-lan-mode.sh
 run_check 'Installer CLI IPSET dry-run regression' sh tests/installer-cli-ipset-dry-run.sh
 run_check 'Installer CLI runtime config regression' sh tests/installer-cli-runtime-config.sh
 run_check 'Installer LAN IPSET YAML cleanup regression' sh tests/installer-lan-ipset-yaml-cleanup.sh
+run_check 'Installer mode-migration transaction regression' sh tests/installer-mode-migration-transaction.sh
 run_check 'Installer bind address regression' sh tests/installer-bind-addresses.sh
 run_check 'Installer LAN startup generation regression' sh tests/installer-lan-startup-generation.sh
 run_check 'Installer WebUI port synchronization regression' sh tests/installer-web-port-sync.sh

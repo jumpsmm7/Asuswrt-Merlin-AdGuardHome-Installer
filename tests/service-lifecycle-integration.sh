@@ -210,6 +210,7 @@ run_bounded preflight_storage tests/installer-preflight-actions.sh
 run_bounded readonly_jffs tests/installer-jffs-failure.sh
 run_bounded yaml_hooks tests/installer-staged-yaml-validation.sh
 run_bounded mode_matrix tests/s99-dns-mode-lifecycle.sh
+run_bounded mode_migration_transaction tests/installer-mode-migration-transaction.sh
 run_bounded dns_handoff tests/dns-startup-handoff.sh
 run_bounded netstat_matrix tests/s99-netstat-readiness.sh
 run_bounded process_signals tests/rc-process-signaling.sh
