@@ -475,13 +475,23 @@ run_internal_case() {
 	esac
 }
 
+# run_real_helper_regression uses the integration shell when one is configured,
+# so BusyBox lifecycle jobs exercise the extracted production helpers directly.
+run_real_helper_regression() {
+	if [ -n "${AGH_INTEGRATION_SHELL_ARG:-}" ]; then
+		"${AGH_INTEGRATION_SHELL:-sh}" "${AGH_INTEGRATION_SHELL_ARG}" tests/installer-lan-ipset-yaml-cleanup.sh
+	else
+		"${AGH_INTEGRATION_SHELL:-sh}" tests/installer-lan-ipset-yaml-cleanup.sh
+	fi
+}
+
 if [ "${CASE_MODE}" != main ]; then
 	run_internal_case "${CASE_MODE}" "${FAIL_POINT}" || exit 1
 	exit 0
 fi
 
 # Keep the existing real-helper regression and add composed lifecycle coverage above it.
-sh tests/installer-lan-ipset-yaml-cleanup.sh >/dev/null || fail 'real mode-migration helper regression failed'
+run_real_helper_regression >/dev/null || fail 'real mode-migration helper regression failed'
 for success_case in wan_to_lan lan_to_wan unknown idempotent_wan idempotent_lan; do
 	MODE_MIGRATION_TEST_ROOT="${TEST_ROOT}/${success_case}" sh "$0" "${SCRIPT_PATH}" "${success_case}" || fail "${success_case} transaction failed"
 done
