@@ -322,6 +322,37 @@ run_uninstall_test unusable-helper 0 0 unusable && fail 'unusable rollback helpe
 
 # The mkdir fallback serializes complete proc transactions.
 LOCK_EVENTS="${TMP_ROOT}/lock-events"
+LOCK_WORKER="${TMP_ROOT}/lock-worker.sh"
+cat >"${LOCK_WORKER}" <<'EOF'
+#!/bin/sh
+set -u
+. "${FUNCTION_FILE}"
+PROC_LOCK_FORCE_MKDIR=1
+# mkdir can pause a worker after lock-directory creation to test publication handoff.
+mkdir() {
+	command mkdir "$@" || return $?
+	if [ "${PAUSE_LOCK_PUBLICATION:-0}" = 1 ] && [ "$1" = "${PROC_LOCK_DIR}" ] && [ ! -e "${PAUSE_LOCK_ENTERED}" ]; then
+		: >"${PAUSE_LOCK_ENTERED}"
+		while [ ! -e "${PAUSE_LOCK_RELEASE}" ]; do
+			command sleep 1
+		done
+	fi
+}
+# lock_holder records lock acquisition around a bounded delay.
+lock_holder() {
+	printf '%s\n' first-start >>"${LOCK_EVENTS}"
+	command sleep 1
+	printf '%s\n' first-end >>"${LOCK_EVENTS}"
+}
+# lock_waiter records execution after the holder releases the lock.
+lock_waiter() { printf '%s\n' second >>"${LOCK_EVENTS}"; }
+case "$1" in
+	holder) proc_lock_run lock_holder ;;
+	waiter) proc_lock_run lock_waiter ;;
+	*) exit 2 ;;
+esac
+EOF
+chmod 700 "${LOCK_WORKER}" || fail 'could not prepare fallback lock worker'
 mkdir "${PROC_LOCK_DIR}" || fail 'could not create unpublished lock cleanup fixture'
 proc_lock_mkdir_cleanup && fail 'unpublished lock cleanup unexpectedly reported valid ownership'
 [ ! -d "${PROC_LOCK_DIR}" ] || fail 'unpublished lock cleanup left the lock directory behind'
@@ -342,8 +373,9 @@ lock_holder() {
 # lock_waiter records the waiter's execution in the lock event log.
 lock_waiter() { printf '%s\n' second >>"${LOCK_EVENTS}"; }
 PAUSE_LOCK_PUBLICATION=1
-export PAUSE_LOCK_PUBLICATION PAUSE_LOCK_ENTERED PAUSE_LOCK_RELEASE
-proc_lock_run lock_holder &
+FUNCTION_FILE="${FUNCTION_FILE}" PROC_LOCK_DIR="${PROC_LOCK_DIR}" PROC_LOCK_FILE="${PROC_LOCK_FILE}" WORK_DIR="${WORK_DIR}" \
+	LOCK_EVENTS="${LOCK_EVENTS}" PAUSE_LOCK_PUBLICATION=1 PAUSE_LOCK_ENTERED="${PAUSE_LOCK_ENTERED}" PAUSE_LOCK_RELEASE="${PAUSE_LOCK_RELEASE}" \
+	sh "${LOCK_WORKER}" holder &
 lock_pid="$!"
 BACKGROUND_PID="${lock_pid}"
 publication_waits=0
@@ -352,7 +384,9 @@ while [ ! -e "${PAUSE_LOCK_ENTERED}" ] && [ "${publication_waits}" -lt 5 ]; do
 	publication_waits="$((publication_waits + 1))"
 done
 [ -e "${PAUSE_LOCK_ENTERED}" ] || fail 'fallback lock owner did not pause before publication'
-proc_lock_run lock_waiter &
+FUNCTION_FILE="${FUNCTION_FILE}" PROC_LOCK_DIR="${PROC_LOCK_DIR}" PROC_LOCK_FILE="${PROC_LOCK_FILE}" WORK_DIR="${WORK_DIR}" \
+	LOCK_EVENTS="${LOCK_EVENTS}" PAUSE_LOCK_PUBLICATION=0 PAUSE_LOCK_ENTERED="${PAUSE_LOCK_ENTERED}" PAUSE_LOCK_RELEASE="${PAUSE_LOCK_RELEASE}" \
+	sh "${LOCK_WORKER}" waiter &
 waiter_pid="$!"
 command sleep 1
 kill -0 "${lock_pid}" 2>/dev/null || fail 'paused fallback lock owner was reaped before publication'
@@ -369,7 +403,9 @@ printf '%s %s\n' "$$" 0 >"${PROC_LOCK_DIR}/pid" || fail 'could not publish stale
 proc_lock_run lock_waiter || fail 'reused-PID lock identity was not reclaimed'
 [ "$(cat "${LOCK_EVENTS}")" = second ] || fail 'reused-PID lock reclaim did not run the waiter'
 rm -f "${LOCK_EVENTS}"
-proc_lock_run lock_holder &
+FUNCTION_FILE="${FUNCTION_FILE}" PROC_LOCK_DIR="${PROC_LOCK_DIR}" PROC_LOCK_FILE="${PROC_LOCK_FILE}" WORK_DIR="${WORK_DIR}" \
+	LOCK_EVENTS="${LOCK_EVENTS}" PAUSE_LOCK_PUBLICATION=0 PAUSE_LOCK_ENTERED="${PAUSE_LOCK_ENTERED}" PAUSE_LOCK_RELEASE="${PAUSE_LOCK_RELEASE}" \
+	sh "${LOCK_WORKER}" holder &
 lock_pid="$!"
 BACKGROUND_PID="${lock_pid}"
 lock_waits=0
@@ -382,7 +418,9 @@ while [ "${lock_waits}" -lt "${max_lock_waits}" ]; do
 	lock_waits=$((lock_waits + 1))
 done
 [ "$(sed -n '1p' "${LOCK_EVENTS}" 2>/dev/null)" = first-start ] || fail "lock holder did not start within ${max_lock_waits} seconds"
-proc_lock_run lock_waiter || fail 'serialized waiter failed'
+FUNCTION_FILE="${FUNCTION_FILE}" PROC_LOCK_DIR="${PROC_LOCK_DIR}" PROC_LOCK_FILE="${PROC_LOCK_FILE}" WORK_DIR="${WORK_DIR}" \
+	LOCK_EVENTS="${LOCK_EVENTS}" PAUSE_LOCK_PUBLICATION=0 PAUSE_LOCK_ENTERED="${PAUSE_LOCK_ENTERED}" PAUSE_LOCK_RELEASE="${PAUSE_LOCK_RELEASE}" \
+	sh "${LOCK_WORKER}" waiter || fail 'serialized waiter failed'
 wait "${lock_pid}" || fail 'serialized holder failed'
 BACKGROUND_PID=""
 if kill -0 "${lock_pid}" 2>/dev/null; then
