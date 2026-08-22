@@ -9,6 +9,7 @@ FAILED=0
 FIX=0
 SCRIPT_LIST=""
 TEST_MAX_RUNTIME_SECONDS="${TEST_MAX_RUNTIME_SECONDS:-0}"
+SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS="${SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS:-600}"
 GNU_TIMEOUT="/usr/bin/timeout"
 
 case "${1:-}" in
@@ -115,6 +116,19 @@ run_check() {
 		printf '%s\n' "FAILED: ${_name}" >&2
 		FAILED=1
 	fi
+}
+
+# run_long_check gives the serial lifecycle integration matrix its dedicated CI limit.
+run_long_check() {
+	_name="$1"
+	_limit="$2"
+	shift 2
+	_saved_limit="${TEST_MAX_RUNTIME_SECONDS}"
+	TEST_MAX_RUNTIME_SECONDS="${_limit}"
+	run_check "${_name}" "$@"
+	_status="$?"
+	TEST_MAX_RUNTIME_SECONDS="${_saved_limit}"
+	return "${_status}"
 }
 
 # run_privileged_regression_check runs a regression test with root privileges or passwordless sudo.
@@ -279,7 +293,7 @@ run_check 'AdGuardHome scoped configuration regression' sh tests/adguardhome-sco
 run_check 'AdGuardHome legacy netcheck regression' sh tests/netcheck-legacy.sh
 run_check 'AdGuardHome DNS startup handoff regression' run_privileged_regression_check tests/dns-startup-handoff.sh 'DNS startup handoff regression'
 run_check 'AdGuardHome required-handoff fallback regression' sh tests/rc-required-handoff-fallback.sh
-run_check 'AdGuardHome service lifecycle integration regression' run_privileged_regression_check tests/service-lifecycle-integration.sh 'service lifecycle integration regression'
+run_long_check 'AdGuardHome service lifecycle integration regression' "${SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS}" run_privileged_regression_check tests/service-lifecycle-integration.sh 'service lifecycle integration regression'
 run_check 'Runtime writable-path security regression' run_privileged_regression_check tests/runtime-writable-path-security.sh 'runtime writable-path security regression'
 run_check 'AdGuardHome runtime mode helper regression' sh tests/adguardhome-runtime-mode-helpers.sh
 run_check 'AdGuardHome runtime DNS environment LAN-mode regression' sh tests/adguardhome-dns-env-lan-mode.sh

@@ -5691,13 +5691,25 @@ cleanup() {
 }
 
 cleanup_legacy_firewall() {
+	local failed raw_rules
+	failed="0"
 	if [ -x "${ADDON_DIR}/AdGuardHome.sh" ] && grep -q 'Unload_IPTables' "${ADDON_DIR}/AdGuardHome.sh"; then
 		"${ADDON_DIR}/AdGuardHome.sh" firewall unload 2>/dev/null
 	fi
 	while iptables -t raw -D OUTPUT -j ADGUARDHOME 2>/dev/null; do :; done
-	iptables -t raw -F ADGUARDHOME 2>/dev/null
-	iptables -t raw -X ADGUARDHOME 2>/dev/null
-	del_jffs_script /jffs/scripts/firewall-start
+	if iptables -t raw -nL ADGUARDHOME >/dev/null 2>&1; then
+		iptables -t raw -F ADGUARDHOME 2>/dev/null || failed="1"
+		iptables -t raw -X ADGUARDHOME 2>/dev/null || failed="1"
+	fi
+	del_jffs_script /jffs/scripts/firewall-start || failed="1"
+	raw_rules="$(iptables -t raw -S 2>/dev/null)" || failed="1"
+	if printf '%s\n' "${raw_rules}" | grep -q 'ADGUARDHOME'; then
+		failed="1"
+	fi
+	if [ -f /jffs/scripts/firewall-start ] && grep -q -F "[ -x ${ADDON_DIR}/AdGuardHome.sh ]" /jffs/scripts/firewall-start; then
+		failed="1"
+	fi
+	[ "${failed}" = "0" ]
 }
 
 create_dir() {
@@ -6175,7 +6187,14 @@ inst_AdGuardHome() {
 			cleanup_legacy_firewall
 			;;
 		lan)
-			cleanup_legacy_firewall
+			if ! cleanup_legacy_firewall; then
+				PTXT "${ERROR} Unable to clear legacy firewall/IPTABLES state for LAN mode."
+				if rollback_pending_mode_migration; then
+					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				fi
+				end_op_message 1 "$1"
+				return 1
+			fi
 			PTXT "${INFO} LAN mode selected; cleared legacy firewall/IPTABLES state and skipping firewall/IPTABLES management."
 			;;
 	esac
@@ -6203,7 +6222,18 @@ inst_AdGuardHome() {
 				end_op_message 1 "$1"
 				return 1
 			fi
-			if pidof dnsmasq >/dev/null 2>&1; then
+			if [ "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" = "disabled" ]; then
+				del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || ptxt_warn "Unable to remove the AdGuardHome dnsmasq.postconf hook; continuing LAN-mode setup."
+				if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
+				if ! write_conf ADGUARD_DNSMASQ_MODE "\"disabled\""; then
+					PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
+					if rollback_pending_mode_migration; then
+						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					fi
+					end_op_message 1 "$1"
+					return 1
+				fi
+			elif pidof dnsmasq >/dev/null 2>&1; then
 				if ! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq; then
 					PTXT "${ERROR} Required dnsmasq event script could not be configured."
 					if rollback_pending_mode_migration; then
@@ -6230,20 +6260,6 @@ inst_AdGuardHome() {
 					return 1
 				fi
 			else
-				case "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" in
-					disabled)
-						del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || ptxt_warn "Unable to remove the AdGuardHome dnsmasq.postconf hook; continuing LAN-mode setup."
-						if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
-						if ! write_conf ADGUARD_DNSMASQ_MODE "\"disabled\""; then
-							PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
-							if rollback_pending_mode_migration; then
-								adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-							fi
-							end_op_message 1 "$1"
-							return 1
-						fi
-						;;
-					*)
 						ptxt_warn "dnsmasq is not running; preserving dnsmasq event hooks for LAN-mode startup."
 						if ! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq; then
 							PTXT "${ERROR} Required dnsmasq event script could not be configured."
@@ -6270,8 +6286,6 @@ inst_AdGuardHome() {
 							end_op_message 1 "$1"
 							return 1
 						fi
-						;;
-				esac
 			fi
 			ptxt_ok "Asuswrt-Merlin event scripts configured."
 			;;
@@ -6671,18 +6685,15 @@ setup_write_dns_bind_hosts() {
 }
 
 setup_default_web_host() {
-	local LAN_ADDR LAN_IF
+	local LAN_ADDR
 
 	case "${ADGUARD_INSTALL_MODE:-wan}" in
 		wan)
 			PTXT "0.0.0.0"
 			;;
 		lan)
-			LAN_IF="$(nvram get lan_ifname)"
-			if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
-				LAN_ADDR="$(ip -o -4 addr list "${LAN_IF}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1] }')"
-			fi
-			[ -n "${LAN_ADDR:-}" ] || LAN_ADDR="$(nvram get lan_ipaddr)"
+			setup_resolve_lan_addresses
+			LAN_ADDR="${NET_ADDR}"
 			if ! ipv4_is_valid "${LAN_ADDR}"; then
 				PTXT "${ERROR} Unable to resolve the LAN IPv4 address for AdGuardHome LAN mode. Setup was aborted."
 				return 1

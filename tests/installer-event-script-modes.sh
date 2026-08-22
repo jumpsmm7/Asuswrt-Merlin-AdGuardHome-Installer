@@ -105,8 +105,11 @@ grep -q 'del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FILE}.la
 	fail 'LAN branch does not remove only the installer-managed dnsmasq.postconf hook when dnsmasq is stopped'
 grep -q 'del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not remove the installer-managed SDN dnsmasq hook when dnsmasq is stopped'
-grep -q 'case "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" in' "${TMP_FILE}.lan" ||
-	fail 'LAN branch does not read persisted dnsmasq mode before handling stopped dnsmasq'
+grep -q '\[ "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" = "disabled" \]' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not preserve disabled dnsmasq mode before checking runtime state'
+disabled_line="$(grep -n '\[ "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" = "disabled" \]' "${TMP_FILE}.lan" | head -n 1 | cut -d: -f1)"
+pid_line="$(grep -n 'pidof dnsmasq >/dev/null 2>&1' "${TMP_FILE}.lan" | head -n 1 | cut -d: -f1)"
+[ "${disabled_line}" -lt "${pid_line}" ] || fail 'LAN branch checks runtime dnsmasq state before preserving disabled mode'
 grep -q 'ptxt_warn "dnsmasq is not running; preserving dnsmasq event hooks for LAN-mode startup."' "${TMP_FILE}.lan" ||
 	fail 'LAN branch extraction does not include transient stopped-dnsmasq path'
 grep -q 'write_conf ADGUARD_DNSMASQ_MODE "\\"enabled\\""' "${TMP_FILE}.lan" ||

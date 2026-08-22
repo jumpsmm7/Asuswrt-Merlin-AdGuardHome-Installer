@@ -28,6 +28,7 @@ mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 	sed -n '/^_quote() {$/,/^PTXT() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^ipv4_is_valid() {$/,/^web_port_in_use() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^adguardhome_owner_account() {$/,/^adguardhome_yaml_remove_ipset_file() {$/p' "${SCRIPT_PATH}" | sed '$d'
+	sed -n '/^setup_resolve_lan_addresses() {$/,/^setup_resolve_bind_addresses() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^setup_default_web_host() {$/,/^setup_AdGuardHome_impl() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^yaml_nvars_insert() {$/,/^# Interactive menu helpers$/p' "${SCRIPT_PATH}" | sed '$d'
 } >"${FUNCTIONS_FILE}" || fail 'could not extract WebUI port synchronization helpers'
@@ -66,8 +67,12 @@ ai_have_cmd() {
 # ip returns a stubbed IPv4 address for the supported br0 query and fails for other arguments.
 ip() {
 	case "$*" in
-		'-o -4 addr list br0')
-			[ -n "${IPV4_FROM_IP:-}" ] && printf '1: br0    inet %s/24 brd 192.168.50.255 scope global br0\n' "${IPV4_FROM_IP}"
+		'-o -4 addr list br0 scope global')
+			if [ -n "${IPV4_OUTPUT:-}" ]; then
+				printf '%s\n' "${IPV4_OUTPUT}"
+			elif [ -n "${IPV4_FROM_IP:-}" ]; then
+				printf '1: br0    inet %s/24 brd 192.168.50.255 scope global br0\n' "${IPV4_FROM_IP}"
+			fi
 			;;
 		*) return 1 ;;
 	esac
@@ -88,6 +93,7 @@ reset_router_state() {
 	IP_AVAILABLE=0
 	LAN_IFNAME=""
 	IPV4_FROM_IP=""
+	IPV4_OUTPUT=""
 	IPV4_FROM_NVRAM=""
 }
 
@@ -249,6 +255,15 @@ write_yaml \
 	'  address: malformed-address'
 setup_sync_webui_port 6000 || fail 'malformed LAN address fallback synchronization failed'
 assert_address lan-malformed-fallback '192.168.50.1:6000'
+
+reset_router_state
+ADGUARD_INSTALL_MODE=lan
+IP_AVAILABLE=1
+LAN_IFNAME=br0
+IPV4_OUTPUT="$(printf '%s\n' '1: br0 inet 192.168.40.9/24 scope global tentative br0' '1: br0 inet 192.168.50.1/24 scope global br0')"
+write_yaml 'http:' '  address: malformed-address'
+setup_sync_webui_port 6008 || fail 'stable LAN address selection failed'
+assert_address lan-stable-address-fallback '192.168.50.1:6008'
 
 reset_router_state
 ADGUARD_INSTALL_MODE=lan
