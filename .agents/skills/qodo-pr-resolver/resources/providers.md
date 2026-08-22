@@ -70,10 +70,12 @@ case "${QODO_DIR}" in
     exit 1
     ;;
 esac
-(umask 077 && mkdir -p "${QODO_DIR}")
-chmod 700 "${QODO_DIR}"
-[ -e "${QODO_CONFIG}" ] || (umask 077 && printf '%s\n' '{}' >"${QODO_CONFIG}")
-chmod 600 "${QODO_CONFIG}"
+(umask 077 && mkdir -p "${QODO_DIR}") || exit 1
+chmod 700 "${QODO_DIR}" || exit 1
+if [ ! -e "${QODO_CONFIG}" ]; then
+  (umask 077 && printf '%s\n' '{}' >"${QODO_CONFIG}") || exit 1
+fi
+chmod 600 "${QODO_CONFIG}" || exit 1
 ```
 
 The Bitbucket and Azure DevOps examples below assume this secure setup has been completed.

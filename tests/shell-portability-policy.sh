@@ -24,7 +24,10 @@ trap 'cleanup; exit 1' HUP INT TERM
 # must retain an explicit successful return rather than relying on rm status.
 sed -n '/^cleanup() {$/,/^}$/p' "${CHECKER}" | grep -q '^[[:space:]]*return 0$' ||
 	fail 'portability checker cleanup helper lacks an explicit return'
-if sh "${ROOT_DIR}/tools/list-shell-scripts.sh" | grep -q '^tests/fixtures/portability/fail/'; then
+if ! discovered_scripts="$(sh "${ROOT_DIR}/tools/list-shell-scripts.sh")"; then
+	fail 'shell script discovery failed'
+fi
+if printf '%s\n' "${discovered_scripts}" | grep -q '^tests/fixtures/portability/fail/'; then
 	fail 'intentional negative fixtures leaked into the general shell lint list'
 fi
 sed -n '/case "${path}" in/,/esac/p' "${ROOT_DIR}/tools/list-shell-scripts.sh" | grep -q '^[[:space:]]*\*)' ||

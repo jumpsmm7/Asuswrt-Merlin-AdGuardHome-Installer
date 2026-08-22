@@ -65,11 +65,12 @@ sanitize_shell_source() {
 				if (!single && !double) {
 					tail = substr(line, i)
 					quote = sprintf("%c", 39)
-					if (match(tail, "^<<-?[[:space:]]*" quote "[A-Za-z_][A-Za-z0-9_]*" quote)) {
+					if (match(tail, "^<<-?[[:space:]]*" quote "[A-Za-z_][A-Za-z0-9_]*" quote) ||
+						match(tail, "^<<-?[[:space:]]*\"[A-Za-z_][A-Za-z0-9_]*\"")) {
 						token = substr(tail, RSTART, RLENGTH)
 						heredoc_tabs = token ~ /^<<-/
-						sub("^<<-?[[:space:]]*" quote, "", token)
-						sub(quote "$", "", token)
+						sub("^<<-?[[:space:]]*[\"" quote "]", "", token)
+						sub("[\"" quote "]$", "", token)
 						heredoc = token
 						out = out " "
 						i += RLENGTH - 1
