@@ -4,8 +4,11 @@
 set -u
 
 FAILED=0
-SCRIPT_LIST="${TMPDIR:-/tmp}/shell-portability-scripts.$$"
-SANITIZED_FILE="${TMPDIR:-/tmp}/shell-portability-sanitized.$$"
+SCRIPT_LIST="$(mktemp "${TMPDIR:-/tmp}/shell-portability-scripts.XXXXXX")" || exit 1
+SANITIZED_FILE="$(mktemp "${TMPDIR:-/tmp}/shell-portability-sanitized.XXXXXX")" || {
+	rm -f "${SCRIPT_LIST}"
+	exit 1
+}
 
 # cleanup removes checker scratch files.
 cleanup() { rm -f "${SCRIPT_LIST}" "${SANITIZED_FILE}"; }
@@ -47,12 +50,6 @@ sanitize_shell_source() {
 				print ""
 				next
 			}
-			if (match(line, /<<[[:space:]]*'"'"'[A-Za-z_][A-Za-z0-9_]*'"'"'/)) {
-				token = substr(line, RSTART, RLENGTH)
-				sub(/^<<[[:space:]]*'"'"'/, "", token)
-				sub(/'"'"'$/, "", token)
-				heredoc = token
-			}
 			out = ""
 			double = 0
 			escape = 0
@@ -60,6 +57,19 @@ sanitize_shell_source() {
 				c = substr(line, i, 1)
 				if (escape) { if (!single) out = out c; escape = 0; continue }
 				if (!single && c == "\\") { out = out c; escape = 1; continue }
+				if (!single && !double) {
+					tail = substr(line, i)
+					quote = sprintf("%c", 39)
+					if (match(tail, "^<<[[:space:]]*" quote "[A-Za-z_][A-Za-z0-9_]*" quote)) {
+						token = substr(tail, RSTART, RLENGTH)
+						sub("^<<[[:space:]]*" quote, "", token)
+						sub(quote "$", "", token)
+						heredoc = token
+						out = out " "
+						i += RLENGTH - 1
+						continue
+					}
+				}
 				if (c == sprintf("%c", 39)) { single = !single; out = out " "; continue }
 				if (!single && c == "\"") { double = !double; out = out c; continue }
 				if (!single && !double && c == "#" && (i == 1 || substr(line, i - 1, 1) ~ /[[:space:]]/)) break
@@ -94,7 +104,7 @@ check_runtime_commands() {
 		FAILED=1
 	fi
 	if grep -Eq '(^[[:space:]]*|[;&|()][[:space:]]*)flock([[:space:]]|$)' "${SANITIZED_FILE}" &&
-		{ ! grep -q 'flock_supports_fd' "${_script}" || ! grep -Eq 'mkdir.*fallback|fallback.*mkdir|Lock_Mkdir|proc_lock_run' "${_script}"; }; then
+		{ ! grep -q 'flock_supports_fd' "${SANITIZED_FILE}" || ! grep -Eq 'mkdir.*fallback|fallback.*mkdir|mkdir.*(LOCK|lock)|Lock_Mkdir|proc_lock_run' "${SANITIZED_FILE}"; }; then
 		printf '%s\n' "Error: unconditional flock use lacks the capability probe and mkdir/PID fallback: ${_script}" >&2
 		FAILED=1
 	fi

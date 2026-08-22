@@ -102,7 +102,7 @@ EOF
 		printf '%s\n' disabled >"${IPSET_STATE}"
 	fi
 	cp "${YAML_FILE}" "${YAML_ORI}" || return 1
-	printf 'ADGUARD_INSTALL_MODE="%s"\nADGUARD_IPSET="%s"\n' "${initial_mode}" "$( [ "${initial_mode}" = wan ] && printf YES || printf NO )" >"${CONF_FILE}"
+	printf 'ADGUARD_INSTALL_MODE="%s"\nADGUARD_IPSET="%s"\n' "${initial_mode}" "$([ "${initial_mode}" = wan ] && printf YES || printf NO)" >"${CONF_FILE}"
 	command chmod 755 "${HOOK_FILE}" || return 1
 	HOOK_MODE_INITIAL="$(ls -ld "${HOOK_FILE}" | cut -c1-10)"
 	printf '%s\n' running >"${SERVICE_STATE}"
@@ -127,14 +127,38 @@ rollback_transaction() {
 	rm -f "${TEST_ROOT}/tmp/yaml.stage" "${TEST_ROOT}/tmp/original.stage"
 	for rollback_item in yaml original config hook firewall4 firewall6 ipset service; do
 		case "${rollback_item}" in
-			yaml) rollback_target="${YAML_FILE}"; rollback_boundary=yaml_rollback ;;
-			original) rollback_target="${YAML_ORI}"; rollback_boundary=original_yaml_rollback ;;
-			config) rollback_target="${CONF_FILE}"; rollback_boundary=config_rollback ;;
-			hook) rollback_target="${HOOK_FILE}"; rollback_boundary=hook_rollback ;;
-			firewall4) rollback_target="${FIREWALL4}"; rollback_boundary=firewall_rollback ;;
-			firewall6) rollback_target="${FIREWALL6}"; rollback_boundary=firewall_rollback ;;
-			ipset) rollback_target="${IPSET_STATE}"; rollback_boundary=firewall_rollback ;;
-			service) rollback_target="${SERVICE_STATE}"; rollback_boundary=previous_service_restart ;;
+			yaml)
+				rollback_target="${YAML_FILE}"
+				rollback_boundary=yaml_rollback
+				;;
+			original)
+				rollback_target="${YAML_ORI}"
+				rollback_boundary=original_yaml_rollback
+				;;
+			config)
+				rollback_target="${CONF_FILE}"
+				rollback_boundary=config_rollback
+				;;
+			hook)
+				rollback_target="${HOOK_FILE}"
+				rollback_boundary=hook_rollback
+				;;
+			firewall4)
+				rollback_target="${FIREWALL4}"
+				rollback_boundary=firewall_rollback
+				;;
+			firewall6)
+				rollback_target="${FIREWALL6}"
+				rollback_boundary=firewall_rollback
+				;;
+			ipset)
+				rollback_target="${IPSET_STATE}"
+				rollback_boundary=firewall_rollback
+				;;
+			service)
+				rollback_target="${SERVICE_STATE}"
+				rollback_boundary=previous_service_restart
+				;;
 		esac
 		if checkpoint "${rollback_boundary}" && cp -p "${RECOVERY_DIR}/${rollback_item}" "${rollback_target}"; then :; else rollback_status=1; fi
 	done
@@ -176,16 +200,16 @@ run_transaction() {
 	[ "${current_mode}" != "${target_mode}" ] || return 0
 	mkdir "${RECOVERY_DIR}" || return 1
 	trap on_transaction_signal HUP INT TERM
-	checkpoint active_yaml_backup && cp -p "${YAML_FILE}" "${RECOVERY_DIR}/yaml" || { rm -rf "${RECOVERY_DIR}"; return 1; }
-	checkpoint original_yaml_backup && cp -p "${YAML_ORI}" "${RECOVERY_DIR}/original" || { rm -rf "${RECOVERY_DIR}"; return 1; }
-	checkpoint config_backup && cp -p "${CONF_FILE}" "${RECOVERY_DIR}/config" || { rm -rf "${RECOVERY_DIR}"; return 1; }
-	checkpoint hook_backup && cp -p "${HOOK_FILE}" "${RECOVERY_DIR}/hook" || { rm -rf "${RECOVERY_DIR}"; return 1; }
+	checkpoint active_yaml_backup && cp -p "${YAML_FILE}" "${RECOVERY_DIR}/yaml" || { trap - HUP INT TERM; rm -rf "${RECOVERY_DIR}"; return 1; }
+	checkpoint original_yaml_backup && cp -p "${YAML_ORI}" "${RECOVERY_DIR}/original" || { trap - HUP INT TERM; rm -rf "${RECOVERY_DIR}"; return 1; }
+	checkpoint config_backup && cp -p "${CONF_FILE}" "${RECOVERY_DIR}/config" || { trap - HUP INT TERM; rm -rf "${RECOVERY_DIR}"; return 1; }
+	checkpoint hook_backup && cp -p "${HOOK_FILE}" "${RECOVERY_DIR}/hook" || { trap - HUP INT TERM; rm -rf "${RECOVERY_DIR}"; return 1; }
 	cp -p "${FIREWALL4}" "${RECOVERY_DIR}/firewall4" && cp -p "${FIREWALL6}" "${RECOVERY_DIR}/firewall6" &&
-		cp -p "${IPSET_STATE}" "${RECOVERY_DIR}/ipset" && cp -p "${SERVICE_STATE}" "${RECOVERY_DIR}/service" || return 1
-	checkpoint service_stop && service stop_AdGuardHome || { rollback_transaction; return 1; }
+		cp -p "${IPSET_STATE}" "${RECOVERY_DIR}/ipset" && cp -p "${SERVICE_STATE}" "${RECOVERY_DIR}/service" || { trap - HUP INT TERM; rm -rf "${RECOVERY_DIR}"; return 1; }
+	checkpoint service_stop && service stop_AdGuardHome || { rollback_transaction; trap - HUP INT TERM; return 1; }
 	printf '%s\n' stopped >"${SERVICE_STATE}"
-	checkpoint before_yaml_publication || { rollback_transaction; return 1; }
-	checkpoint active_yaml_staged_rewrite || { rollback_transaction; return 1; }
+	checkpoint before_yaml_publication || { rollback_transaction; trap - HUP INT TERM; return 1; }
+	checkpoint active_yaml_staged_rewrite || { rollback_transaction; trap - HUP INT TERM; return 1; }
 	if [ "${target_mode}" = lan ]; then
 		cat >"${TEST_ROOT}/tmp/yaml.stage" <<'EOF'
 http:
@@ -209,29 +233,35 @@ dns:
     - '[/router.asus.com/]192.168.50.1:53'
 EOF
 	fi
-	checkpoint original_yaml_staged_rewrite && cp "${TEST_ROOT}/tmp/yaml.stage" "${TEST_ROOT}/tmp/original.stage" || { rollback_transaction; return 1; }
-	checkpoint active_yaml_publication && mv "${TEST_ROOT}/tmp/yaml.stage" "${YAML_FILE}" || { rollback_transaction; return 1; }
-	checkpoint after_active_yaml_publication || { rollback_transaction; return 1; }
-	checkpoint original_yaml_publication && mv "${TEST_ROOT}/tmp/original.stage" "${YAML_ORI}" || { rollback_transaction; return 1; }
-	checkpoint after_original_yaml_publication || { rollback_transaction; return 1; }
+	checkpoint original_yaml_staged_rewrite && cp "${TEST_ROOT}/tmp/yaml.stage" "${TEST_ROOT}/tmp/original.stage" || { rollback_transaction; trap - HUP INT TERM; return 1; }
+	checkpoint active_yaml_publication && mv "${TEST_ROOT}/tmp/yaml.stage" "${YAML_FILE}" || { rollback_transaction; trap - HUP INT TERM; return 1; }
+	checkpoint after_active_yaml_publication || { rollback_transaction; trap - HUP INT TERM; return 1; }
+	checkpoint original_yaml_publication && mv "${TEST_ROOT}/tmp/original.stage" "${YAML_ORI}" || { rollback_transaction; trap - HUP INT TERM; return 1; }
+	checkpoint after_original_yaml_publication || { rollback_transaction; trap - HUP INT TERM; return 1; }
 	if [ "${target_mode}" = lan ]; then
-		checkpoint ipset_yaml_cleanup || { rollback_transaction; return 1; }
-		checkpoint hook_removal && : >"${HOOK_FILE}" || { rollback_transaction; return 1; }
+		checkpoint ipset_yaml_cleanup || { rollback_transaction; trap - HUP INT TERM; return 1; }
+		checkpoint hook_removal && : >"${HOOK_FILE}" || { rollback_transaction; trap - HUP INT TERM; return 1; }
 		printf '%s\n' disabled >"${IPSET_STATE}"
 	else
-		checkpoint hook_installation && printf '%s\n' WAN_HOOK=1 >"${HOOK_FILE}" || { rollback_transaction; return 1; }
+		checkpoint hook_installation && printf '%s\n' WAN_HOOK=1 >"${HOOK_FILE}" || { rollback_transaction; trap - HUP INT TERM; return 1; }
 		printf '%s\n' enabled >"${IPSET_STATE}"
 	fi
-	checkpoint after_hook_mutation || { rollback_transaction; return 1; }
-	checkpoint config_persistence && printf 'ADGUARD_INSTALL_MODE="%s"\nADGUARD_IPSET="%s"\n' "${target_mode}" "$( [ "${target_mode}" = wan ] && printf YES || printf NO )" >"${CONF_FILE}" || { rollback_transaction; return 1; }
-	checkpoint after_config_persistence || { rollback_transaction; return 1; }
-	checkpoint ipv4_firewall_update && iptables -w || { rollback_transaction; return 1; }
-	checkpoint ipv6_firewall_update && ip6tables -w || { rollback_transaction; return 1; }
-	if [ "${target_mode}" = wan ]; then printf '%s\n' wan-rule >"${FIREWALL4}"; printf '%s\n' wan6-rule >"${FIREWALL6}"; else : >"${FIREWALL4}"; : >"${FIREWALL6}"; fi
-	checkpoint service_start && service start_AdGuardHome || { rollback_transaction; return 1; }
+	checkpoint after_hook_mutation || { rollback_transaction; trap - HUP INT TERM; return 1; }
+	checkpoint config_persistence && printf 'ADGUARD_INSTALL_MODE="%s"\nADGUARD_IPSET="%s"\n' "${target_mode}" "$([ "${target_mode}" = wan ] && printf YES || printf NO)" >"${CONF_FILE}" || { rollback_transaction; trap - HUP INT TERM; return 1; }
+	checkpoint after_config_persistence || { rollback_transaction; trap - HUP INT TERM; return 1; }
+	checkpoint ipv4_firewall_update && iptables -w || { rollback_transaction; trap - HUP INT TERM; return 1; }
+	checkpoint ipv6_firewall_update && ip6tables -w || { rollback_transaction; trap - HUP INT TERM; return 1; }
+	if [ "${target_mode}" = wan ]; then
+		printf '%s\n' wan-rule >"${FIREWALL4}"
+		printf '%s\n' wan6-rule >"${FIREWALL6}"
+	else
+		: >"${FIREWALL4}"
+		: >"${FIREWALL6}"
+	fi
+	checkpoint service_start && service start_AdGuardHome || { rollback_transaction; trap - HUP INT TERM; return 1; }
 	printf '%s\n' running >"${SERVICE_STATE}"
-	checkpoint after_service_start || { rollback_transaction; return 1; }
-	checkpoint startup_readiness && netstat -ln || { rollback_transaction; return 1; }
+	checkpoint after_service_start || { rollback_transaction; trap - HUP INT TERM; return 1; }
+	checkpoint startup_readiness && netstat -ln || { rollback_transaction; trap - HUP INT TERM; return 1; }
 	: >"${SUCCESS_MARKER}"
 	rm -rf "${RECOVERY_DIR}"
 	trap - HUP INT TERM
@@ -276,19 +306,37 @@ run_internal_case() {
 			run_transaction "${idempotent_mode}" confirmed || return 1
 			assert_initial_state && ! grep -q service "${CALL_LOG}"
 			;;
+		command_failure)
+			initialize_case wan || return 1
+			FAIL_COMMAND=service
+			FAIL_INVOCATION=1
+			if run_transaction lan confirmed; then
+				return 1
+			fi
+			assert_initial_state && [ ! -d "${RECOVERY_DIR}" ] && [ "$(cat "${ROLLBACK_RESULT}")" = complete ] &&
+				grep -q '^service stop_AdGuardHome$' "${CALL_LOG}"
+			;;
 		failure)
 			failure_initial=wan
 			failure_target=lan
-			if [ "${case_point}" = hook_installation ]; then failure_initial=lan; failure_target=wan; fi
+			if [ "${case_point}" = hook_installation ]; then
+				failure_initial=lan
+				failure_target=wan
+			fi
 			initialize_case "${failure_initial}" || return 1
 			case "${case_point}" in
 				yaml_rollback | original_yaml_rollback | config_rollback | hook_rollback | firewall_rollback | previous_service_restart | recovery_artifact_cleanup)
 					FAIL_POINT=startup_readiness
 					ROLLBACK_FAIL_POINT="${case_point}"
 					;;
-				*) FAIL_POINT="${case_point}"; ROLLBACK_FAIL_POINT='' ;;
+				*)
+					FAIL_POINT="${case_point}"
+					ROLLBACK_FAIL_POINT=''
+					;;
 			esac
-			if run_transaction "${failure_target}" confirmed; then return 1; fi
+			if run_transaction "${failure_target}" confirmed; then
+				return 1
+			fi
 			case "${case_point}" in
 				yaml_rollback | original_yaml_rollback | config_rollback | hook_rollback | firewall_rollback | previous_service_restart | recovery_artifact_cleanup)
 					[ "$(cat "${ROLLBACK_RESULT}")" = partial ] && [ -d "${RECOVERY_DIR}" ] && [ ! -e "${SUCCESS_MARKER}" ] || return 1
@@ -299,7 +347,9 @@ run_internal_case() {
 				active_yaml_backup | original_yaml_backup | config_backup | hook_backup)
 					assert_initial_state && [ ! -d "${RECOVERY_DIR}" ]
 					;;
-				*) assert_initial_state && [ ! -d "${RECOVERY_DIR}" ] && [ "$(cat "${ROLLBACK_RESULT}")" = complete ] ;;
+				*)
+					assert_initial_state && [ ! -d "${RECOVERY_DIR}" ] && [ "$(cat "${ROLLBACK_RESULT}")" = complete ]
+					;;
 			esac
 			;;
 		signal)
@@ -314,8 +364,14 @@ run_internal_case() {
 				after_config_persistence) SIGNAL_POINT=after_config_persistence ;;
 				after_service_stop) SIGNAL_POINT=before_yaml_publication ;;
 				after_service_start_before_readiness) SIGNAL_POINT=after_service_start ;;
-				during_rollback) FAIL_POINT=startup_readiness; SIGNAL_POINT=yaml_rollback ;;
-				during_final_cleanup) FAIL_POINT=startup_readiness; SIGNAL_POINT=recovery_artifact_cleanup ;;
+				during_rollback)
+					FAIL_POINT=startup_readiness
+					SIGNAL_POINT=yaml_rollback
+					;;
+				during_final_cleanup)
+					FAIL_POINT=startup_readiness
+					SIGNAL_POINT=recovery_artifact_cleanup
+					;;
 			esac
 			run_transaction lan confirmed
 			return 1
@@ -333,6 +389,7 @@ sh tests/installer-lan-ipset-yaml-cleanup.sh >/dev/null || fail 'real mode-migra
 for success_case in wan_to_lan lan_to_wan unknown idempotent_wan idempotent_lan; do
 	MODE_MIGRATION_TEST_ROOT="${TEST_ROOT}/${success_case}" sh "$0" "${SCRIPT_PATH}" "${success_case}" || fail "${success_case} transaction failed"
 done
+MODE_MIGRATION_TEST_ROOT="${TEST_ROOT}/command-service-stop" sh "$0" "${SCRIPT_PATH}" command_failure || fail 'service command failure transaction assertions failed'
 for failure_case in active_yaml_backup original_yaml_backup config_backup hook_backup active_yaml_staged_rewrite original_yaml_staged_rewrite active_yaml_publication original_yaml_publication ipset_yaml_cleanup hook_installation hook_removal config_persistence ipv4_firewall_update ipv6_firewall_update service_stop service_start startup_readiness yaml_rollback original_yaml_rollback config_rollback hook_rollback firewall_rollback previous_service_restart recovery_artifact_cleanup; do
 	MODE_MIGRATION_TEST_ROOT="${TEST_ROOT}/failure-${failure_case}" sh "$0" "${SCRIPT_PATH}" failure "${failure_case}" || fail "${failure_case} failure transaction assertions failed"
 done

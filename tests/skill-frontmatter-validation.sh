@@ -54,7 +54,16 @@ validate_skill_md() {
 		return 1
 	fi
 	name_line=$(grep -E '^name:[[:space:]]+' "${FRONTMATTER}")
-	actual_name=$(printf '%s\n' "${name_line}" | sed -e 's/^name:[[:space:]][[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+	actual_name=$(printf '%s\n' "${name_line}" | sed -e 's/^name:[[:space:]][[:space:]]*//' -e 's/[[:space:]]*$//')
+	case "${actual_name}" in
+		\"*\") actual_name="${actual_name#\"}"; actual_name="${actual_name%\"}" ;;
+		\'*\') actual_name="${actual_name#\'}"; actual_name="${actual_name%\'}" ;;
+		\"* | \'*)
+			printf '%s\n' "${skill_md}: frontmatter name has an unclosed leading quote" >&2
+			rm -f "${FRONTMATTER}"
+			return 1
+			;;
+	esac
 	if [ "${actual_name}" != "${expected_name}" ]; then
 		printf '%s\n' "${skill_md}: frontmatter name '${actual_name}' does not match directory '${expected_name}'" >&2
 		rm -f "${FRONTMATTER}"
@@ -195,6 +204,21 @@ description: Test skill with a single-quoted name
 Content here.
 EOF
 validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-single-quoted-name" || fail 'single-quoted matching name fixture failed validation'
+
+# Test case: stripping one outer quote pair must preserve nested quote content.
+TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test"
+mkdir -p "${TEST_SKILL_DIR}"
+cat >"${TEST_SKILL_DIR}/SKILL.md" <<'EOF'
+---
+name: "'test'"
+description: Test skill with nested quote content
+---
+# Test Skill
+Content here.
+EOF
+if validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" test; then
+	fail 'regression: nested quote content was stripped and accepted as the directory name'
+fi
 
 # Test case: name must match the containing skill directory.
 TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-name-directory-mismatch"

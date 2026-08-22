@@ -58,6 +58,14 @@ RM_FAIL_STATE_HIT=0
 PAUSE_LOCK_PUBLICATION=0
 PAUSE_LOCK_ENTERED="${TMP_ROOT}/lock-publication-entered"
 PAUSE_LOCK_RELEASE="${TMP_ROOT}/lock-publication-release"
+PID_RECORD_WRITE_FAIL=0
+# printf can fail the fallback-lock owner publication without affecting other test output.
+printf() {
+	if [ "${PID_RECORD_WRITE_FAIL}" = 1 ] && [ "$1" = '%s %s\n' ] && [ "${2:-}" = "$$" ] && [ -d "${PROC_LOCK_DIR}" ]; then
+		return 1
+	fi
+	command printf "$@"
+}
 # mkdir can pause the first fallback-lock owner after directory creation to exercise owner publication races.
 mkdir() {
 	command mkdir "$@" || return $?
@@ -320,6 +328,11 @@ proc_lock_mkdir_cleanup && fail 'unpublished lock cleanup unexpectedly reported 
 _trap_line=$(sed -n '/^proc_lock_run() {$/,/^}$/p' "${SCRIPT_PATH}" | grep -n "trap 'proc_lock_mkdir_cleanup" | head -n 1 | cut -d: -f1)
 _publish_line=$(sed -n '/^proc_lock_run() {$/,/^}$/p' "${SCRIPT_PATH}" | grep -n 'printf.*PROC_LOCK_DIR}/pid' | head -n 1 | cut -d: -f1)
 [ -n "${_trap_line}" ] && [ -n "${_publish_line}" ] && [ "${_trap_line}" -lt "${_publish_line}" ] || fail 'proc lock cleanup trap is not armed before owner publication'
+PID_RECORD_WRITE_FAIL=1
+proc_lock_run true && fail 'failed fallback lock PID publication unexpectedly succeeded'
+PID_RECORD_WRITE_FAIL=0
+[ ! -d "${PROC_LOCK_DIR}" ] || fail 'failed fallback lock PID publication left the lock directory behind'
+[ ! -e "${PROC_LOCK_DIR}.claim" ] || fail 'failed fallback lock PID publication left the claim behind'
 # lock_holder records lock acquisition events around a one-second delay.
 lock_holder() {
 	printf '%s\n' first-start >>"${LOCK_EVENTS}"

@@ -1943,7 +1943,7 @@ proc_lock_claim_release() {
 proc_lock_mkdir_cleanup() {
 	local current_start owner owner_start
 	current_start="$(proc_process_start_time "$$")" || return 1
-	proc_lock_claim_acquire "${current_start}" || return 1
+	proc_lock_claim_matches "$$" "${current_start}" || proc_lock_claim_acquire "${current_start}" || return 1
 	if [ ! -d "${PROC_LOCK_DIR}" ] || [ -L "${PROC_LOCK_DIR}" ]; then
 		proc_lock_claim_release "${current_start}" 2>/dev/null
 		return 1
@@ -1997,10 +1997,10 @@ proc_lock_run() {
 			proc_lock_claim_acquire "${self_start}" || exit 1
 			if mkdir "${PROC_LOCK_DIR}" 2>/dev/null; then
 				trap 'proc_lock_mkdir_cleanup; exit 1' HUP INT QUIT ABRT TERM TSTP
-				proc_lock_claim_matches "$$" "${self_start}" || exit 1
-				printf '%s %s\n' "$$" "${self_start}" >"${PROC_LOCK_DIR}/pid" || exit 1
-				proc_lock_claim_matches "$$" "${self_start}" || exit 1
-				proc_lock_claim_release "${self_start}" || exit 1
+				proc_lock_claim_matches "$$" "${self_start}" || { proc_lock_mkdir_cleanup; exit 1; }
+				printf '%s %s\n' "$$" "${self_start}" >"${PROC_LOCK_DIR}/pid" || { proc_lock_mkdir_cleanup; exit 1; }
+				proc_lock_claim_matches "$$" "${self_start}" || { proc_lock_mkdir_cleanup; exit 1; }
+				proc_lock_claim_release "${self_start}" || { proc_lock_mkdir_cleanup; exit 1; }
 				break
 			fi
 			[ -d "${PROC_LOCK_DIR}" ] && [ ! -L "${PROC_LOCK_DIR}" ] || exit 1

@@ -1,2 +1,2 @@
 #!/bin/sh
-mapfile values < input
+mapfile values <input

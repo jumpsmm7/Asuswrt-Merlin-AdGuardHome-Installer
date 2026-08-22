@@ -95,7 +95,8 @@ http_get_file() {
 			case "${SCENARIO}" in
 				sha_missing_md5 | sha_calc_unavailable) printf '%s\n' "${PAYLOAD_MD5}" >"$2" ;;
 				md5_invalid) printf '%s\n' invalid >"$2" ;;
-				md5_mismatch | checksum_calculation_failure) printf '%032d\n' 0 >"$2" ;;
+				md5_mismatch) printf '%032d\n' 0 >"$2" ;;
+				checksum_calculation_failure) printf '%s\n' "${PAYLOAD_MD5}" >"$2" ;;
 				retry_state)
 					[ "${PAYLOAD_REQUESTS}" -eq 1 ] || return 1
 					printf '%032d\n' 0 >"$2"
@@ -174,6 +175,7 @@ for fallback_case in sha_missing_md5 sha_calc_unavailable; do
 	reset_case "${fallback_case}"
 	download_file "${TARGET_DIR}" 755 'https://example.invalid/component' >/dev/null 2>&1 || fail "${fallback_case}: compatible MD5 fallback was rejected"
 	[ "${MD5_REQUESTS}" -gt 0 ] || fail "${fallback_case}: MD5 metadata was not requested"
+	[ "$(cat "${TARGET_DIR}/component")" = 'verified payload' ] || fail "${fallback_case}: compatible MD5 fallback did not publish the payload"
 	grep -q 'intentional legacy-compatible MD5 verification path' "${WARNINGS_FILE}" || fail "${fallback_case}: compatibility warning was not emitted"
 done
 

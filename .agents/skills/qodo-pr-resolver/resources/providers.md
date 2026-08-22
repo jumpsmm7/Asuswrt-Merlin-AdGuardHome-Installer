@@ -15,12 +15,19 @@ This document contains all provider-specific CLI commands and API interactions f
 Before using file-backed provider credentials, create the configuration with loader-compatible permissions:
 
 ```bash
+if [ -n "${HOME:-}" ]; then
+  QODO_HOME="$(CDPATH= cd -- "${HOME}" && pwd -P)" || {
+    printf '%s\n' 'Error: HOME must name an accessible directory' >&2
+    exit 1
+  }
+  QODO_ROOT="${QODO_HOME}/.qodo"
+fi
 if [ -z "${QODO_CONFIG:-}" ]; then
-  if [ -z "${HOME:-}" ]; then
+  if [ -z "${QODO_ROOT:-}" ]; then
     printf '%s\n' 'Error: HOME environment variable is not set; set QODO_CONFIG explicitly or ensure HOME is defined' >&2
     exit 1
   fi
-  QODO_CONFIG="${HOME}/.qodo/config.json"
+  QODO_CONFIG="${QODO_ROOT}/config.json"
 fi
 case "${QODO_CONFIG}" in
   /*) ;;
@@ -29,22 +36,37 @@ case "${QODO_CONFIG}" in
     exit 1
     ;;
 esac
-if [ -z "${HOME:-}" ]; then
-  printf '%s\n' 'Error: HOME environment variable is required to validate QODO_CONFIG' >&2
-  exit 1
-fi
 case "${QODO_CONFIG}" in
-  "${HOME}/.qodo/"*) ;;
-  *)
-    printf '%s\n' 'Error: QODO_CONFIG must be located within the user-owned ~/.qodo directory' >&2
+  *//* | */./* | */. | */../* | */.. | */)
+    printf '%s\n' 'Error: QODO_CONFIG must use a canonical absolute path without traversal components' >&2
     exit 1
     ;;
 esac
+if [ -n "${QODO_ROOT:-}" ]; then
+  case "${QODO_CONFIG}" in
+    "${QODO_ROOT}/"*) ;;
+    *)
+      printf '%s\n' 'Error: QODO_CONFIG must be located within the user-owned ~/.qodo directory' >&2
+      exit 1
+      ;;
+  esac
+fi
 QODO_DIR="$(dirname "${QODO_CONFIG}")" || exit 1
-[ ! -L "${HOME}/.qodo" ] && [ ! -L "${QODO_DIR}" ] && [ ! -L "${QODO_CONFIG}" ] || {
-  printf '%s\n' 'Error: QODO_CONFIG and its Qodo parent directories must not be symbolic links' >&2
-  exit 1
-}
+QODO_PATH_CHECK="${QODO_CONFIG}"
+while [ "${QODO_PATH_CHECK}" != / ]; do
+  if [ -L "${QODO_PATH_CHECK}" ]; then
+    printf '%s\n' 'Error: QODO_CONFIG and its Qodo parent directories must not be symbolic links' >&2
+    exit 1
+  fi
+  QODO_PATH_CHECK="$(dirname "${QODO_PATH_CHECK}")" || exit 1
+done
+case "${QODO_DIR}" in
+  /*) ;;
+  *)
+    printf '%s\n' 'Error: QODO_CONFIG parent canonicalization failed' >&2
+    exit 1
+    ;;
+esac
 (umask 077 && mkdir -p "${QODO_DIR}")
 chmod 700 "${QODO_DIR}"
 [ -e "${QODO_CONFIG}" ] || (umask 077 && printf '%s\n' '{}' >"${QODO_CONFIG}")

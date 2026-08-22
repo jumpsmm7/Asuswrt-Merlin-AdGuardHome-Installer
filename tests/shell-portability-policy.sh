@@ -24,7 +24,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 check_rejected() {
 	fixture="$1"
 	case "${fixture##*/}" in
-		runtime-* | unconditional-flock.sh)
+		runtime-* | *flock*.sh)
 			cp "${fixture}" "${TEST_ROOT}/AdGuardHome.sh" || return 1
 			checked_file="${TEST_ROOT}/AdGuardHome.sh"
 			;;
