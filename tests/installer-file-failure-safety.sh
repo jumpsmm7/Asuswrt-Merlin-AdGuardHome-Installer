@@ -146,7 +146,7 @@ printf '%s\n' 'setup_restore_nvram_journal() { return 0; }' >>"${FUNCTIONS_FILE}
 # A matching SHA-256 authorizes the staged file without cache-specific MD5
 # metadata.  MD5 may authorize it only when SHA-256 metadata or calculation is
 # unavailable.
-for checksum_case in upstream_sha_only unchanged_sha sha_preferred sha_unavailable empty malformed mismatch hash_failure stale_retry missing_md5 empty_md5 malformed_md5 md5_mismatch md5_hash_failure; do
+for checksum_case in upstream_sha_only unchanged_sha sha_preferred sha_unavailable empty malformed sha_filename multiple_sha mismatch hash_failure stale_retry missing_md5 empty_md5 malformed_md5 md5_mismatch md5_hash_failure; do
 	(
 		# shellcheck disable=SC1090
 		. "${FUNCTIONS_FILE}"
@@ -180,6 +180,8 @@ for checksum_case in upstream_sha_only unchanged_sha sha_preferred sha_unavailab
 						missing_md5 | empty_md5 | malformed_md5 | md5_mismatch | md5_hash_failure) return 1 ;;
 						empty) : >"$2" ;;
 						malformed) printf '%s\n' invalid >"$2" ;;
+						sha_filename) printf '%s  %s\n' "${PAYLOAD_SHA256}" component >"$2" ;;
+						multiple_sha) printf '%s\n%s\n' "${PAYLOAD_SHA256}" "${PAYLOAD_SHA256}" >"$2" ;;
 						mismatch) printf '%064d\n' 0 >"$2" ;;
 						stale_retry)
 							[ "${attempt}" -eq 1 ] || return 1
@@ -251,7 +253,7 @@ for checksum_case in upstream_sha_only unchanged_sha sha_preferred sha_unavailab
 			fail "retry did not discard the prior SHA-256 digest"
 		fi
 		case "${checksum_case}" in
-			upstream_sha_only | unchanged_sha | sha_preferred | empty | malformed | mismatch)
+			upstream_sha_only | unchanged_sha | sha_preferred | empty | malformed | sha_filename | multiple_sha | mismatch)
 				[ "${md5_requests}" -eq 0 ] || fail "${checksum_case} unexpectedly requested MD5 metadata"
 				;;
 			sha_unavailable | hash_failure | missing_md5 | empty_md5 | malformed_md5 | md5_mismatch | md5_hash_failure)
@@ -268,6 +270,8 @@ if grep -q 'MD5 metadata' "${TMP_DIR}/upstream_sha_only.out"; then
 fi
 grep -q 'empty or invalid' "${TMP_DIR}/empty.out" || fail 'empty metadata cause was not logged'
 grep -q 'empty or invalid' "${TMP_DIR}/malformed.out" || fail 'malformed metadata cause was not logged'
+grep -q 'empty or invalid' "${TMP_DIR}/sha_filename.out" || fail 'filename-bearing SHA-256 metadata cause was not logged'
+grep -q 'empty or invalid' "${TMP_DIR}/multiple_sha.out" || fail 'multiple-record SHA-256 metadata cause was not logged'
 grep -q 'checksum mismatch' "${TMP_DIR}/mismatch.out" || fail 'checksum mismatch cause was not logged'
 grep -q 'calculation is unavailable' "${TMP_DIR}/hash_failure.out" || fail 'digest calculation fallback was not logged'
 grep -q 'MD5 metadata is missing or unavailable' "${TMP_DIR}/missing_md5.out" || fail 'missing MD5 metadata cause was not logged'

@@ -29,7 +29,22 @@ case "${QODO_CONFIG}" in
     exit 1
     ;;
 esac
+if [ -z "${HOME:-}" ]; then
+  printf '%s\n' 'Error: HOME environment variable is required to validate QODO_CONFIG' >&2
+  exit 1
+fi
+case "${QODO_CONFIG}" in
+  "${HOME}/.qodo/"*) ;;
+  *)
+    printf '%s\n' 'Error: QODO_CONFIG must be located within the user-owned ~/.qodo directory' >&2
+    exit 1
+    ;;
+esac
 QODO_DIR="$(dirname "${QODO_CONFIG}")" || exit 1
+[ ! -L "${HOME}/.qodo" ] && [ ! -L "${QODO_DIR}" ] && [ ! -L "${QODO_CONFIG}" ] || {
+  printf '%s\n' 'Error: QODO_CONFIG and its Qodo parent directories must not be symbolic links' >&2
+  exit 1
+}
 (umask 077 && mkdir -p "${QODO_DIR}")
 chmod 700 "${QODO_DIR}"
 [ -e "${QODO_CONFIG}" ] || (umask 077 && printf '%s\n' '{}' >"${QODO_CONFIG}")
@@ -366,8 +381,8 @@ BRANCH=$(git branch --show-current)
 NEXT_URL="$BB_API_URL/2.0/repositories/$BB_WORKSPACE/$BB_REPO/pullrequests?state=OPEN"
 FOUND_PR=0
 MATCH_FILE=$(mktemp) || exit 1
-trap 'rm -f "$MATCH_FILE"' EXIT
-trap 'rm -f "$MATCH_FILE"; exit 1' HUP INT TERM
+trap 'rm -f "$MATCH_FILE" "$BB_NETRC"' EXIT
+trap 'rm -f "$MATCH_FILE" "$BB_NETRC"; exit 1' HUP INT TERM
 SEEN_URLS=""
 PAGE_COUNT=0
 MAX_PAGES=100

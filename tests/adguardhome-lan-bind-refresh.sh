@@ -28,7 +28,7 @@ fail() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir "${BIN_DIR}" || fail 'could not create test bin directory'
-sed -n '/^ipv4_is_usable_unicast() {$/,/^}$/p; /^private_ipv4_bridge_dns_options() {$/,/^}$/p; /^adguard_refresh_lan_bind_addresses() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail 'could not extract refresh helper'
+sed -n '/^ipv4_is_usable_unicast() {$/,/^}$/p; /^private_ipv4_bridge_dns_options() {$/,/^}$/p; /^private_ipv4_bridge_dns_options_with_fallbacks() {$/,/^}$/p; /^adguard_refresh_lan_bind_addresses() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail 'could not extract refresh helper'
 [ -s "${FUNCTION_FILE}" ] || fail 'refresh helper was not found'
 grep -q 'rm -f "${TEMP_FILE}" "${REWRITE_FILE}"' "${FUNCTION_FILE}" || fail 'refresh signal cleanup does not remove both staged files'
 grep -q '\[ -n "${SAVED_TRAPS}" \] && eval "${SAVED_TRAPS}"' "${FUNCTION_FILE}" || fail 'refresh helper does not restore saved signal traps'
@@ -129,6 +129,21 @@ grep -q '^    - 192\.168\.103\.254$' "${YAML_FILE}" || fail 'additional bridge D
 grep -q 'state=discovered family=ipv4 interface=br1 address=192\.168\.101\.254' "${CALLS_FILE}" || fail 'discovered bridge pair was not logged'
 ! grep -q '192\.168\.50\.1' "${YAML_FILE}" || fail 'stale LAN bind address remained in YAML'
 [ "$(ls -nd "${YAML_FILE}" | awk '{ print $1, $3, $4 }')" = "${YAML_METADATA}" ] || fail 'refresh did not preserve the active YAML mode and owner'
+
+(
+	FALLBACK_YAML_DIR="${TMP_ROOT}/route-fallback"
+	mkdir "${FALLBACK_YAML_DIR}" || exit 1
+	FALLBACK_YAML_FILE="${FALLBACK_YAML_DIR}/AdGuardHome.yaml"
+	cp "${YAML_FILE}" "${FALLBACK_YAML_FILE}" || exit 1
+	YAML_FILE="${FALLBACK_YAML_FILE}"
+	# Force bridge discovery through the route fallback and return one assigned private bridge address.
+	private_ipv4_bridge_dns_options() { return 1; }
+	private_ipv4_route_dns_options() { printf '%s\n' 'br7 192.168.77.1'; }
+	private_ipv4_legacy_route_dns_options() { return 1; }
+	private_ipv4_bridge_address_is_assigned() { return 0; }
+	adguard_refresh_lan_bind_addresses || exit 1
+	grep -q '^    - 192\.168\.77\.1$' "${YAML_FILE}"
+) || fail 'route-fallback bridge address was omitted from refreshed bind hosts'
 
 cat >"${YAML_FILE}" <<'EOF' || fail 'could not write quoted-key fixture'
 "http": &http_settings # restored web settings

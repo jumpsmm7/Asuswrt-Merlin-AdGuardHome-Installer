@@ -1120,7 +1120,7 @@ adguard_refresh_lan_bind_addresses() {
 	# bridge's own address to clients on that network.
 	BIND_HOSTS="$({
 		printf '%s\n' 127.0.0.1 "${LAN_ADDR}" "${LAN_ADDR6:-}"
-		private_ipv4_bridge_dns_options "${LAN_IF}" | /usr/bin/awk 'NF > 1 { print $2 }'
+		private_ipv4_bridge_dns_options_with_fallbacks "${LAN_IF}" | /usr/bin/awk 'NF > 1 { print $2 }'
 	} | /usr/bin/awk 'NF && !seen[$0]++ { print }')"
 	WEB_PORT="$(awk '
 		function yaml_key_is(line, expected, text, separator, key) {
@@ -2033,7 +2033,9 @@ proc_lock_run() {
 		done
 		"$@"
 		status="$?"
-		proc_lock_mkdir_cleanup || exit 1
+		if ! proc_lock_mkdir_cleanup && [ "${status}" -eq 0 ]; then
+			status=1
+		fi
 		trap - HUP INT QUIT ABRT TERM TSTP
 		exit "${status}"
 	)

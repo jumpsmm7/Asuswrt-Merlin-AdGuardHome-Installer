@@ -1935,7 +1935,7 @@ sha256_manifest_digest() {
 	local MANIFEST DIGEST
 	MANIFEST="$1"
 	[ -s "${MANIFEST}" ] || return 1
-	DIGEST="$(awk 'NF { count++; if (count == 1) print $1 } END { if (count != 1) exit 1 }' "${MANIFEST}")" || return 1
+	DIGEST="$(awk 'NF { count++; if (count == 1 && NF == 1) print $1; else invalid = 1 } END { if (count != 1 || invalid) exit 1 }' "${MANIFEST}")" || return 1
 	sha256_is_valid "${DIGEST}" || return 1
 	PTXT -n "${DIGEST}"
 }

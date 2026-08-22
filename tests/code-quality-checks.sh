@@ -39,7 +39,9 @@ GNU_TIMEOUT="/usr/bin/timeout"
 # non-approved timeout provider must be rejected by configure_test_timeout.
 GNU_TIMEOUT="${TMP_ROOT}/unapproved-timeout"
 TEST_MAX_RUNTIME_SECONDS=180
-configure_test_timeout && fail 'unapproved timeout provider was accepted'
+printf '%s\n' '#!/bin/sh' 'printf "%s\n" "not GNU timeout"' >"${GNU_TIMEOUT}" || fail 'could not create non-GNU timeout fixture'
+chmod 755 "${GNU_TIMEOUT}" || fail 'could not make non-GNU timeout fixture executable'
+configure_test_timeout 2>/dev/null && fail 'unapproved timeout provider was accepted'
 GNU_TIMEOUT="/usr/bin/timeout"
 TEST_MAX_RUNTIME_SECONDS=180
 configure_test_timeout || fail 'approved GNU timeout path was rejected'

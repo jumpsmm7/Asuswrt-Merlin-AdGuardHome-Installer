@@ -71,6 +71,16 @@ jobs:
               raise SystemExit(f"expected 8 chmod guardrail fixture matches, found {len(matches)}")
           PY
 
+      - name: Verify inherited service PATH fixtures
+        shell: sh
+        run: |
+          set -eu
+          fixture_dir="${RUNNER_TEMP}/semgrep-path-fixture"
+          mkdir -p "${fixture_dir}"
+          cp tests/fixtures/semgrep/inherited-service-path.sh "${fixture_dir}/AdGuardHome.sh"
+          semgrep scan --config "${GITHUB_WORKSPACE}/.semgrep.yml" --metrics=off --json "${fixture_dir}/AdGuardHome.sh" >"${fixture_dir}/results.json"
+          [ "$(grep -o 'asuswrt-service-path-must-be-fixed' "${fixture_dir}/results.json" | wc -l)" -eq 3 ]
+
       - name: Generate Semgrep SARIF
         shell: sh
         run: semgrep scan --config .semgrep.yml --metrics=off --sarif --output semgrep.sarif .

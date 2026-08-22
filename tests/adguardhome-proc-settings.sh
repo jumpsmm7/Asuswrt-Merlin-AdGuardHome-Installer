@@ -380,6 +380,24 @@ fi
 [ "$(sed -n '2p' "${LOCK_EVENTS}")" = first-end ] || fail 'lock waiter overlapped holder'
 [ "$(sed -n '3p' "${LOCK_EVENTS}")" = second ] || fail 'lock waiter did not run after holder'
 
+# Cleanup failure must not replace a guarded command's existing nonzero status.
+(
+	PROC_LOCK_DIR="${TMP_ROOT}/status-lock"
+	# proc_lock_mkdir_cleanup simulates a cleanup failure after the guarded command completes.
+	proc_lock_mkdir_cleanup() { return 1; }
+	# guarded_failure returns a distinctive command failure status.
+	guarded_failure() { return 7; }
+	proc_lock_run guarded_failure
+	[ "$?" -eq 7 ]
+) || fail 'proc lock cleanup failure replaced the guarded command status'
+(
+	PROC_LOCK_DIR="${TMP_ROOT}/cleanup-status-lock"
+	# proc_lock_mkdir_cleanup simulates a cleanup failure after a successful guarded command.
+	proc_lock_mkdir_cleanup() { return 1; }
+	proc_lock_run true
+	[ "$?" -eq 1 ]
+) || fail 'proc lock cleanup failure was ignored after a successful guarded command'
+
 # Exercise and observe an EXIT cleanup trap independently before this test's
 # own cleanup removes the workspace.
 trap_marker="${TMP_ROOT}/cleanup-trap-ran"

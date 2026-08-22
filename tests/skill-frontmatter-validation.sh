@@ -54,7 +54,7 @@ validate_skill_md() {
 		return 1
 	fi
 	name_line=$(grep -E '^name:[[:space:]]+' "${FRONTMATTER}")
-	actual_name=$(printf '%s\n' "${name_line}" | sed -e 's/^name:[[:space:]][[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//')
+	actual_name=$(printf '%s\n' "${name_line}" | sed -e 's/^name:[[:space:]][[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
 	if [ "${actual_name}" != "${expected_name}" ]; then
 		printf '%s\n' "${skill_md}: frontmatter name '${actual_name}' does not match directory '${expected_name}'" >&2
 		rm -f "${FRONTMATTER}"
@@ -152,7 +152,11 @@ validate_skill_md() {
 			blank_trigger_count=$(awk '
 				/^triggers:[[:space:]]*$/ { intriggers = 1; next }
 				intriggers && /^[a-zA-Z_-]+:/ { exit }
-				intriggers && /^[[:space:]]*-[[:space:]]*$/ { print }
+				intriggers {
+					line = $0
+					sub(/[[:space:]]*#.*/, "", line)
+					if (line ~ /^[[:space:]]*-[[:space:]]*$/) print
+				}
 			' "${FRONTMATTER}" | wc -l | tr -d '[:space:]')
 			if [ "${blank_trigger_count}" -ne 0 ]; then
 				printf '%s\n' "${skill_md}: 'triggers:' contains one or more blank list items" >&2
@@ -178,6 +182,19 @@ validate_skill_md() {
 # Regression tests for frontmatter validation logic.
 TEST_SKILLS_DIR="${TMP_ROOT}/test-skills"
 mkdir -p "${TEST_SKILLS_DIR}" || fail 'could not create test skills directory'
+
+# Test case: a matching single-quoted name should be accepted.
+TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-single-quoted-name"
+mkdir -p "${TEST_SKILL_DIR}"
+cat >"${TEST_SKILL_DIR}/SKILL.md" <<'EOF'
+---
+name: 'test-single-quoted-name'
+description: Test skill with a single-quoted name
+---
+# Test Skill
+Content here.
+EOF
+validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-single-quoted-name" || fail 'single-quoted matching name fixture failed validation'
 
 # Test case: name must match the containing skill directory.
 TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-name-directory-mismatch"
@@ -334,6 +351,23 @@ Content here.
 EOF
 if ! validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-valid-block-triggers"; then
 	fail "regression: valid block-form triggers list fixture unexpectedly failed validation"
+fi
+
+# Test case: a comment-only block trigger should be rejected.
+TEST_SKILL_DIR="${TEST_SKILLS_DIR}/test-comment-only-trigger"
+mkdir -p "${TEST_SKILL_DIR}"
+cat >"${TEST_SKILL_DIR}/SKILL.md" <<'EOF'
+---
+name: test-comment-only-trigger
+description: Test skill with a comment-only trigger
+triggers:
+  - # comment
+---
+# Test Skill
+Content here.
+EOF
+if validate_skill_md "${TEST_SKILL_DIR}/SKILL.md" "test-comment-only-trigger"; then
+	fail 'regression: comment-only trigger fixture unexpectedly passed validation'
 fi
 
 # Test case: description with only inline comment should be rejected

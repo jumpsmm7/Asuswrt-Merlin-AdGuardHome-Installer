@@ -4,7 +4,10 @@
 set -u
 
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
-TEST_ROOT="${TMPDIR:-/tmp}/adguardhome-runtime-mode-helpers.$$"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/adguardhome-runtime-mode-helpers.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive test directory' >&2
+	exit 1
+}
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 
 # cleanup removes the temporary test directory and its contents.
@@ -30,8 +33,6 @@ write_conf() {
 
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
-mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
-
 /bin/sed -n \
 	'/^load_operation_config() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_dnsmasq_running() {$/,/^}$/p; /^adguard_dnsmasq_managed() {$/,/^}$/p; /^adguard_restart_dnsmasq_if_managed() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${SCRIPT_PATH}"
