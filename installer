@@ -6260,32 +6260,32 @@ inst_AdGuardHome() {
 					return 1
 				fi
 			else
-						ptxt_warn "dnsmasq is not running; preserving dnsmasq event hooks for LAN-mode startup."
-						if ! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq; then
-							PTXT "${ERROR} Required dnsmasq event script could not be configured."
-							if rollback_pending_mode_migration; then
-								adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-							fi
-							end_op_message 1 "$1"
-							return 1
-						fi
-						if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
-						if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
-							PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
-							if rollback_pending_mode_migration; then
-								adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-							fi
-							end_op_message 1 "$1"
-							return 1
-						fi
-						if ! write_conf ADGUARD_DNSMASQ_MODE "\"enabled\""; then
-							PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
-							if rollback_pending_mode_migration; then
-								adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-							fi
-							end_op_message 1 "$1"
-							return 1
-						fi
+				ptxt_warn "dnsmasq is not running; preserving dnsmasq event hooks for LAN-mode startup."
+				if ! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq; then
+					PTXT "${ERROR} Required dnsmasq event script could not be configured."
+					if rollback_pending_mode_migration; then
+						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					fi
+					end_op_message 1 "$1"
+					return 1
+				fi
+				if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
+				if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
+					PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
+					if rollback_pending_mode_migration; then
+						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					fi
+					end_op_message 1 "$1"
+					return 1
+				fi
+				if ! write_conf ADGUARD_DNSMASQ_MODE "\"enabled\""; then
+					PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
+					if rollback_pending_mode_migration; then
+						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					fi
+					end_op_message 1 "$1"
+					return 1
+				fi
 			fi
 			ptxt_ok "Asuswrt-Merlin event scripts configured."
 			;;
