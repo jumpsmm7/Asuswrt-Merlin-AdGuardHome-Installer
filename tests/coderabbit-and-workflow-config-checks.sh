@@ -140,8 +140,12 @@ review_checker_is_enforced "${REVIEW_WORKFLOW}" ||
 if grep -Eq 'shellcheck .*\|\| true|shfmt .*\|\| true|exit 0' "${REVIEW_WORKFLOW}"; then
 	fail "${REVIEW_WORKFLOW}: quality failures must propagate to the review job"
 fi
-grep -Fq 'sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq' "${REVIEW_WORKFLOW}" ||
+grep -Fq 'sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq python3 coreutils' "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: expected the same host-side dependencies as the blocking quality workflow"
+grep -Fq 'python3 --version' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: expected the validation-host python3 prerequisite check"
+grep -Fq '/usr/bin/timeout --version' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: expected the approved GNU timeout prerequisite check"
 [ "$(grep -Fc -- '--connect-timeout 10 --max-time 60' "${REVIEW_WORKFLOW}")" -eq 2 ] ||
 	fail "${REVIEW_WORKFLOW}: both Sonar requests must have bounded request-level timeouts"
 grep -Fq 'if not isinstance(payload, dict):' "${REVIEW_WORKFLOW}" ||
