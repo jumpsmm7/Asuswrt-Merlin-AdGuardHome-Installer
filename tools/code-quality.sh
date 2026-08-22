@@ -8,6 +8,9 @@ set -u
 FAILED=0
 FIX=0
 SCRIPT_LIST=""
+TEST_MAX_RUNTIME_SECONDS="${TEST_MAX_RUNTIME_SECONDS:-0}"
+SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS="${SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS:-600}"
+GNU_TIMEOUT="/usr/bin/timeout"
 
 case "${1:-}" in
 	--fix) FIX=1 ;;
@@ -18,7 +21,7 @@ case "${1:-}" in
 		;;
 esac
 
-# Functions are sorted alpha-numerically for readability.
+# cleanup removes the temporary shell-script list file when it exists.
 
 cleanup() {
 	if [ -n "${SCRIPT_LIST}" ] && [ -f "${SCRIPT_LIST}" ]; then
@@ -26,10 +29,23 @@ cleanup() {
 	fi
 }
 
+# have_cmd checks whether a named command is available in the shell environment.
 have_cmd() {
-	which "$1" >/dev/null 2>&1
+	_cmd=${1:-}
+	if [ -z "$_cmd" ]; then
+		return 1
+	fi
+	# Use `which` for portability; `command -v` is unavailable on some target shells.
+	if which "$_cmd" >/dev/null 2>&1; then
+		return 0
+	fi
+	if type "$_cmd" >/dev/null 2>&1; then
+		return 0
+	fi
+	return 1
 }
 
+# require_cmd verifies that a required command is available and records a failure when it is missing.
 require_cmd() {
 	_cmd="$1"
 	if have_cmd "${_cmd}"; then
@@ -41,11 +57,60 @@ require_cmd() {
 	return 1
 }
 
+# configure_test_timeout resolves and approves GNU coreutils timeout for CI.
+# configure_test_timeout validates the configured runtime limit and verifies that GNU coreutils timeout is available when a positive limit is set.
+configure_test_timeout() {
+	[ "${TEST_MAX_RUNTIME_SECONDS}" -gt 0 ] || return 0
+	if [ ! -x "${GNU_TIMEOUT}" ]; then
+		printf '%s\n' "Error: approved GNU coreutils timeout is required at ${GNU_TIMEOUT}." >&2
+		return 1
+	fi
+	_timeout_version=$("${GNU_TIMEOUT}" --version 2>/dev/null) || _timeout_version=""
+	case "${_timeout_version}" in
+		timeout\ \(GNU\ coreutils\)*) return 0 ;;
+		*) : ;;
+	esac
+	printf '%s\n' "Error: ${GNU_TIMEOUT} is not the required GNU coreutils implementation." >&2
+	return 1
+}
+
+# run_test_command optionally bounds a CI test command with GNU timeout. Router
+# run_test_command executes a test command with the configured runtime limit when one is enabled.
+run_test_command() {
+	if [ "${TEST_MAX_RUNTIME_SECONDS}" -gt 0 ]; then
+		"${GNU_TIMEOUT}" --kill-after=10 "${TEST_MAX_RUNTIME_SECONDS}" "$@"
+		return
+	fi
+	"$@"
+}
+
+# run_privileged_test_command places the optional CI timeout inside sudo so it
+# can signal the complete root-owned process group. Unbounded local runs retain
+# run_privileged_test_command executes a command with passwordless sudo and optionally enforces the configured maximum runtime.
+run_privileged_test_command() {
+	if [ "${TEST_MAX_RUNTIME_SECONDS}" -gt 0 ]; then
+		sudo -n "${GNU_TIMEOUT}" --kill-after=10 "${TEST_MAX_RUNTIME_SECONDS}" "$@"
+		return
+	fi
+	sudo -n "$@"
+}
+
+# run_check runs a named check, reports its result, and marks the overall run as failed when the check fails.
 run_check() {
 	_name="$1"
 	shift
 	printf '%s\n' "==> ${_name}"
-	if "$@"; then
+	case "${1:-}" in
+		run_privileged_regression_check)
+			"$@"
+			_check_status=$?
+			;;
+		*)
+			run_test_command "$@"
+			_check_status=$?
+			;;
+	esac
+	if [ "${_check_status}" -eq 0 ]; then
 		printf '%s\n' "OK: ${_name}"
 	else
 		printf '%s\n' "FAILED: ${_name}" >&2
@@ -53,21 +118,39 @@ run_check() {
 	fi
 }
 
-run_dns_handoff_check() {
+# run_long_check gives the serial lifecycle integration matrix its dedicated CI limit.
+run_long_check() {
+	_name="$1"
+	_limit="$2"
+	shift 2
+	_saved_limit="${TEST_MAX_RUNTIME_SECONDS}"
+	TEST_MAX_RUNTIME_SECONDS="${_limit}"
+	run_check "${_name}" "$@"
+	_status="$?"
+	TEST_MAX_RUNTIME_SECONDS="${_saved_limit}"
+	return "${_status}"
+}
+
+# run_privileged_regression_check runs a regression test with root privileges or passwordless sudo.
+run_privileged_regression_check() {
+	_test_path="$1"
+	_diagnostic_noun="$2"
+
 	if [ "$(id -u)" -eq 0 ]; then
-		sh tests/dns-startup-handoff.sh
+		run_test_command sh "${_test_path}"
 		return
 	fi
 
 	if have_cmd sudo && sudo -n true >/dev/null 2>&1; then
-		sudo -n sh tests/dns-startup-handoff.sh
+		run_privileged_test_command sh "${_test_path}"
 		return
 	fi
 
-	printf '%s\n' 'Error: the DNS startup handoff regression requires root privileges or passwordless sudo.' >&2
+	printf '%s\n' "Error: the ${_diagnostic_noun} requires root privileges or passwordless sudo." >&2
 	return 1
 }
 
+# run_script_list_check runs a check command for each script in the generated script list and reports whether any invocation failed.
 run_script_list_check() {
 	_name="$1"
 	shift
@@ -75,10 +158,8 @@ run_script_list_check() {
 
 	printf '%s\n' "==> ${_name}"
 	while IFS= read -r _script; do
-		if [ -n "${_script}" ]; then
-			if ! "$@" "${_script}"; then
-				_check_failed=1
-			fi
+		if [ -n "${_script}" ] && ! run_test_command "$@" "${_script}"; then
+			_check_failed=1
 		fi
 	done <"${SCRIPT_LIST}"
 
@@ -95,6 +176,17 @@ run_script_list_check() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
+case "${TEST_MAX_RUNTIME_SECONDS}" in
+	'' | *[!0-9]*)
+		printf '%s\n' 'Error: TEST_MAX_RUNTIME_SECONDS must be a non-negative integer.' >&2
+		exit 2
+		;;
+	*) : ;;
+esac
+if ! configure_test_timeout; then
+	exit 2
+fi
+
 SCRIPT_LIST="${TMPDIR:-/tmp}/code-quality-scripts.$$"
 if ! sh tools/list-shell-scripts.sh >"${SCRIPT_LIST}"; then
 	printf '%s\n' 'Error: could not list shell scripts.' >&2
@@ -103,31 +195,65 @@ fi
 
 run_check 'md5sum files match installer artifacts' sh tools/check-md5.sh
 run_check 'sha256sum files match installer artifacts' sh tools/check-sha256.sh
+run_check 'Release version and manifest consistency' sh tools/check-release-consistency.sh
+run_check 'Checksum file format regression' sh tests/checksum-file-format.sh
+run_check 'Release consistency regression' sh tests/release-consistency.sh
 run_check 'Repository shell portability regression' sh tools/check-shell-portability.sh
+run_check 'Router command and BusyBox portability policy regression' sh tests/shell-portability-policy.sh
+run_check 'Qodo provider thread resolution regression' sh tests/qodo-provider-thread-resolution.sh
+run_check 'Qodo get-rules config validation regression' sh tests/qodo-get-rules-config-validation.sh
+run_check 'Qodo get-rules query and output doc consistency regression' sh tests/qodo-get-rules-query-output-consistency.sh
+run_check 'Qodo pr-resolver doc consistency regression' sh tests/qodo-pr-resolver-doc-consistency.sh
+run_check 'Skill frontmatter validation regression' sh tests/skill-frontmatter-validation.sh
+run_check 'CodeRabbit and code-quality workflow config regression' sh tests/coderabbit-and-workflow-config-checks.sh
+run_check 'ShellCheck workflow dialect consistency regression' sh tests/shellcheck-workflow-dialect-consistency.sh
+run_check 'AGENTS.md PATH and package consistency regression' sh tests/agents-md-path-package-consistency.sh
+run_check 'code-quality.sh helper function regression' sh tests/code-quality-checks.sh
 run_check 'Command failure propagation regression' sh tests/command-failure-propagation.sh
 run_check 'Canonical path final-symlink regression' sh tests/canonical-path-symlink.sh
 run_check 'Router runtime PATH priority regression' sh tests/router-path-priority.sh
+run_check 'Static checksum output validation regression' sh tests/static-checksum-output-validation.sh
 run_check 'Static archive failure safety regression' sh tests/download-static-failure-safety.sh
 run_check 'Static archive interruption cleanup regression' sh tests/download-static-interruption-cleanup.sh
 run_check 'Installer file failure safety regression' sh tests/installer-file-failure-safety.sh
 run_check 'Installer progress output regression' sh tests/installer-progress-output.sh
 run_check 'Installer legacy hook cleanup regression' sh tests/installer-legacy-hook-cleanup.sh
+run_check 'Installer event-script mode regression' sh tests/installer-event-script-modes.sh
 run_check 'Installer upgrade runtime-default ordering regression' sh tests/installer-upgrade-runtime-defaults.sh
 run_check 'Installer post-replacement restart regression' sh tests/installer-post-replace-restart.sh
+run_check 'Installer update re-exec lock regression' sh tests/installer-update-reexec-lock.sh
+run_check 'Installer reaper owner publication regression' sh tests/installer-reaper-owner-publication.sh
 run_check 'Installer interruption restart regression' sh tests/installer-interruption-restart.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
 run_check 'Installer single-argument action regression' sh tests/installer-single-arg-actions.sh
 run_check 'Installer preflight action regression' sh tests/installer-preflight-actions.sh
+run_check 'Installer JFFS failure propagation regression' sh tests/installer-jffs-failure.sh
+run_check 'Installer install-mode detection regression' sh tests/installer-install-mode-detection.sh
+run_check 'Installer CLI LAN-mode regression' sh tests/installer-cli-lan-mode.sh
+run_check 'Installer CLI IPSET dry-run regression' sh tests/installer-cli-ipset-dry-run.sh
+run_check 'Installer CLI runtime config regression' sh tests/installer-cli-runtime-config.sh
+run_check 'Installer LAN IPSET YAML cleanup regression' sh tests/installer-lan-ipset-yaml-cleanup.sh
+run_check 'Installer mode-migration transaction regression' sh tests/installer-mode-migration-transaction.sh
+run_check 'Installer bind address regression' sh tests/installer-bind-addresses.sh
+run_check 'Installer LAN startup generation regression' sh tests/installer-lan-startup-generation.sh
+run_check 'Installer WebUI port synchronization regression' sh tests/installer-web-port-sync.sh
 run_check 'Installer end operation rollback regression' sh tests/installer-end-op-rollback.sh
 run_check 'Installer doctor fix safety regression' sh tests/installer-doctor-fix-safety.sh
 run_check 'Installer doctor rollback result regression' sh tests/installer-doctor-rollback-result.sh
 run_check 'Installer SHA-256 helper regression' sh tests/installer-sha256-helper.sh
+run_check 'Installer checksum compatibility policy regression' sh tests/installer-checksum-compatibility-policy.sh
+run_check 'Installer secure transport fallback regression' sh tests/installer-secure-download-fallback.sh
 run_check 'Installer blocklist cleanup regression' sh tests/installer-blocklist-cleanup.sh
+run_check 'Installer uninstall cleanup regression' sh tests/installer-uninstall-cleanup.sh
 run_check 'Installer iterative input regression' sh tests/installer-input-loops.sh
 run_check 'Installer staged authentication regression' sh tests/installer-staged-authentication.sh
 run_check 'Installer staged YAML validation regression' sh tests/installer-staged-yaml-validation.sh
+run_check 'Installer YAML validation rollback regression' sh tests/installer-yaml-validation-rollback.sh
 run_check 'Installer startup readiness regression' sh tests/installer-startup-readiness.sh
+run_check 'Installer DNS environment failure regression' sh tests/installer-dns-environment-failure.sh
 run_check 'Installer service status wait regression' sh tests/installer-service-status-after-action.sh
+run_check 'Installer status reporting regression' sh tests/installer-status.sh
+run_check 'Installer service lock descriptor regression' sh tests/installer-service-lock-fd.sh
 run_check 'Installer mandatory numeric input failure regression' sh tests/installer-mandatory-number-failure.sh
 run_check 'Installer DNS input failure regression' sh tests/installer-dns-input-failure.sh
 run_check 'Installer WebUI port failure regression' sh tests/installer-web-port-failure.sh
@@ -138,18 +264,49 @@ run_check 'Installer confirmation failure propagation regression' sh tests/insta
 run_check 'Installer local-cache preference save failure regression' sh tests/installer-local-cache-save-failure.sh
 run_check 'Installer IPSET preference save failure regression' sh tests/installer-ipset-save-failure.sh
 run_check 'Installer setup IPSET preference save failure regression' sh tests/installer-ipset-setup-save-failure.sh
+run_check 'Installer IPSET allowed-mode fallback regression' sh tests/installer-ipset-allowed-mode-fallback.sh
+run_check 'Installer runtime-default migration regression' sh tests/installer-migrate-runtime-defaults.sh
+run_check 'Installer restore feature-selection regression' sh tests/installer-restore-feature-selections.sh
+run_check 'Installer reverse-upstream target regression' sh tests/installer-reverse-upstream-target.sh
+run_check 'Installer account validation regression' sh tests/installer-account-validation.sh
 run_check 'AdGuardHome permission repair regression' sh tests/adguardhome-permissions.sh
+run_check 'AdGuardHome LAN bind refresh regression' sh tests/adguardhome-lan-bind-refresh.sh
+run_check 'LAN primary address selection regression' sh tests/lan-primary-address-selection.sh
+run_check 'Private IPv4 DNS fallback chain regression' sh tests/private-ipv4-dns-fallback-chain.sh
+run_check 'LAN bridge discovery documentation consistency regression' sh tests/lan-bridge-discovery-doc-consistency.sh
 run_check 'AdGuardHome startup lifecycle regression' sh tests/start-adguardhome-lifecycle.sh
+run_check 'AdGuardHome optional database link regression' run_privileged_regression_check tests/optional-database-links.sh 'optional database link regression'
+run_check 'AdGuardHome S99 DNS mode lifecycle regression' sh tests/s99-dns-mode-lifecycle.sh
+run_check 'AdGuardHome S99 netstat readiness regression' sh tests/s99-netstat-readiness.sh
+run_check 'AdGuardHome S99 startup readiness regression' sh tests/s99-startup-readiness.sh
+run_check 'AdGuardHome S99 usleep fallback regression' sh tests/s99-usleep-fallback.sh
 run_check 'AdGuardHome stop failure regression' sh tests/stop-adguardhome-failure.sh
+run_check 'AdGuardHome dnsmasq adaptive readiness regression' sh tests/dnsmasq-adaptive-readiness.sh
+run_check 'AdGuardHome process signaling regression' sh tests/rc-process-signaling.sh
+run_check 'AdGuardHome restart stop-failure propagation regression' sh tests/rc-restart-stop-failure.sh
+run_check 'AdGuardHome monitor stop config fallback regression' sh tests/monitor-stop-config-fallback.sh
+run_check 'AdGuardHome deterministic startup signal recovery regression' sh tests/rc-startup-signal-determinism.sh
 run_check 'AdGuardHome monitor retry backoff regression' sh tests/monitor-retry-backoff.sh
-run_check 'AdGuardHome DNS startup handoff regression' run_dns_handoff_check
+run_check 'AdGuardHome proc setting ownership regression' sh tests/adguardhome-proc-settings.sh
+run_check 'AdGuardHome Go runtime environment regression' sh tests/adguardhome-go-environment.sh
+run_check 'AdGuardHome scoped configuration regression' sh tests/adguardhome-scoped-config.sh
+run_check 'AdGuardHome legacy netcheck regression' sh tests/netcheck-legacy.sh
+run_check 'AdGuardHome DNS startup handoff regression' run_privileged_regression_check tests/dns-startup-handoff.sh 'DNS startup handoff regression'
+run_check 'AdGuardHome required-handoff fallback regression' sh tests/rc-required-handoff-fallback.sh
+run_long_check 'AdGuardHome service lifecycle integration regression' "${SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS}" run_privileged_regression_check tests/service-lifecycle-integration.sh 'service lifecycle integration regression'
+run_check 'Runtime writable-path security regression' run_privileged_regression_check tests/runtime-writable-path-security.sh 'runtime writable-path security regression'
+run_check 'AdGuardHome runtime mode helper regression' sh tests/adguardhome-runtime-mode-helpers.sh
+run_check 'AdGuardHome runtime DNS environment LAN-mode regression' sh tests/adguardhome-dns-env-lan-mode.sh
+run_check 'AdGuardHome dnsmasq LAN-mode regression' sh tests/dnsmasq-lan-mode.sh
 run_check 'AdGuardHome IPSET version gate regression' sh tests/ipset-version-gate.sh
+run_check 'AdGuardHome IPSET LAN-mode regression' sh tests/ipset-lan-mode.sh
 run_check 'AdGuardHome empty IPSET data regression' sh tests/ipset-empty-rules.sh
 run_check 'AdGuardHome IPSET lock security regression' sh tests/ipset-lock-security.sh
 run_check 'AdGuardHome legacy IPSET disable regression' sh tests/ipset-legacy-disable.sh
 run_check 'IPSET current-file YAML scalar regression' sh tests/ipset-current-file.sh
 run_check 'IPSET setup rollback regression' sh tests/ipset-setup-rollback.sh
 run_check 'IPSET status reporting regression' sh tests/ipset-status.sh
+run_check 'Runtime default regression' sh tests/runtime-default-regression.sh
 
 if require_cmd shellcheck; then
 	run_script_list_check 'ShellCheck POSIX sh static analysis' shellcheck -s sh --severity=warning

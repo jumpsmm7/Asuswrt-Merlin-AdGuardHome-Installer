@@ -1,0 +1,177 @@
+#!/bin/sh
+# Verify CLI LAN-mode install and migration paths do not regress to WAN DNS/netcheck defaults.
+
+set -u
+
+SCRIPT_PATH="${1:-installer}"
+TMP_ROOT="${TMPDIR:-/tmp}/installer-cli-lan-mode.$$"
+FUNCTIONS_FILE="${TMP_ROOT}/functions"
+CONF_FILE="${TMP_ROOT}/.config"
+WRITES_FILE="${TMP_ROOT}/writes"
+LOG_FILE="${TMP_ROOT}/log"
+YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
+
+# cleanup removes the temporary workspace used by the test script.
+cleanup() {
+	rm -rf "${TMP_ROOT}"
+}
+
+# fail prints a failure message to standard error and exits with status 1.
+fail() {
+	printf '%s\n' "FAIL: $*" >&2
+	exit 1
+}
+
+trap cleanup 0
+trap 'cleanup; exit 1' HUP INT TERM
+
+[ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
+mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
+
+sed -n '/^cli_migrate_runtime_default() {$/,/^cli_installer_branch_from_args() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
+	fail 'could not extract runtime migration helpers'
+[ -s "${FUNCTIONS_FILE}" ] || fail 'runtime migration helper extraction was empty'
+
+grep -q 'if \[ "${ADGUARD_INSTALL_MODE}" = "wan" \]; then' "${SCRIPT_PATH}" ||
+	fail 'CLI install DNS preparation must be gated by WAN install mode'
+grep -q 'Refusing install DNS/NVRAM rewrite without --allow-dns-nvram' "${SCRIPT_PATH}" ||
+	fail 'CLI install must still require DNS/NVRAM permission for WAN rewrites'
+consent_line="$(grep -n 'Refusing install DNS/NVRAM rewrite without --allow-dns-nvram' "${SCRIPT_PATH}" | tail -n 1 | cut -d: -f1)"
+cleanup_line="$(sed -n '/^[[:space:]]*install)$/,/^[[:space:]]*;;$/p' "${SCRIPT_PATH}" | grep -n '^[[:space:]]*cleanup$' | head -n 1 | cut -d: -f1)"
+[ -n "${consent_line}" ] && [ -n "${cleanup_line}" ] ||
+	fail 'could not locate CLI install consent and cleanup ordering'
+install_line="$(grep -n '^[[:space:]]*install)$' "${SCRIPT_PATH}" | tail -n 1 | cut -d: -f1)"
+cleanup_line="$((install_line + cleanup_line - 1))"
+[ "${consent_line}" -lt "${cleanup_line}" ] ||
+	fail 'CLI install must require WAN DNS/NVRAM consent before cleanup changes router state'
+grep -q 'install_mode="${ADGUARD_INSTALL_MODE}"' "${SCRIPT_PATH}" ||
+	fail 'runtime migration must use the confirmed detected install mode'
+grep -q '^[[:space:]]*check_dns_environment 0 || return 1$' "${SCRIPT_PATH}" ||
+	fail 'CLI installer must propagate WAN DNS environment preparation failures'
+grep -q '^[[:space:]]*check_dns_environment 0 || exit 1$' "${SCRIPT_PATH}" ||
+	fail 'interactive installer must propagate WAN DNS environment preparation failures'
+grep -q 'LAN mode selected; cleared legacy firewall/IPTABLES state and skipping firewall/IPTABLES management' "${SCRIPT_PATH}" ||
+	fail 'LAN-mode install must report legacy firewall cleanup before skipped firewall/IPTABLES management'
+grep -q 'cleanup_legacy_firewall$' "${SCRIPT_PATH}" ||
+	fail 'uninstall/WAN/LAN transition cleanup must still remove legacy firewall integration'
+grep -q 'cli_migrate_runtime_default ADGUARD_NETCHECK_MODE legacy "${netcheck_target}"' "${SCRIPT_PATH}" ||
+	fail 'runtime migration must use the install-mode netcheck target'
+grep -q 'cli_write_quoted_conf ADGUARD_NETCHECK_MODE "${netcheck_target}"' "${SCRIPT_PATH}" ||
+	fail 'runtime migration writeback must use the install-mode netcheck target'
+
+# shellcheck disable=SC1090
+. "${FUNCTIONS_FILE}"
+
+adguardhome_yaml_ipset_file() {
+	return 0
+}
+
+# adguardhome_yaml_remove_ipset_file is a no-op placeholder for removing an IP set file.
+adguardhome_yaml_remove_ipset_file() {
+	return 0
+}
+
+# write_conf appends a quoted key-value configuration entry to the writes file.
+write_conf() {
+	printf '%s="%s"\n' "$1" "$2" >>"${WRITES_FILE}"
+}
+
+INFO='Info:'
+WARNING='Warning:'
+ERROR='Error:'
+ADGUARD_INSTALL_MODE_DETECTION='wan'
+
+# adguard_install_mode_confirmed confirms that the detected installation mode is either `wan` or `lan`.
+adguard_install_mode_confirmed() {
+	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
+		wan | lan) return 0 ;;
+	esac
+	return 1
+}
+
+# adguard_install_mode_detect determines the installation mode and succeeds.
+adguard_install_mode_detect() {
+	ADGUARD_INSTALL_MODE="${ADGUARD_INSTALL_MODE_DETECTION}"
+	return 0
+}
+
+# PTXT appends the provided text followed by a newline to the log file.
+PTXT() {
+	printf '%s\n' "$*" >>"${LOG_FILE}"
+}
+# ptxt_ok is a no-op logging helper.
+ptxt_ok() {
+	:
+}
+# conf_value extracts and prints the configured value for a key from the configuration file.
+conf_value() {
+	awk -v KEY="$1" '
+		index($0, KEY "=") == 1 {
+			VALUE = substr($0, length(KEY) + 2)
+			gsub(/^"|"$/, "", VALUE)
+			print VALUE
+			exit
+		}
+	' "${CONF_FILE}"
+}
+# cli_write_quoted_conf writes a configuration key and value to the captured writes file.
+cli_write_quoted_conf() {
+	printf '%s=%s\n' "$1" "$2" >>"${WRITES_FILE}"
+}
+
+# run_migrate_case runs a runtime migration scenario and verifies the expected netcheck mode is written.
+#
+# Arguments:
+#   case_name        A label used in failure messages.
+#   install_mode     The installation mode supplied to the migration.
+# run_migrate_case verifies that runtime migration writes the expected netcheck mode for an installation mode.
+#   case_name identifies the migration test case.
+#   install_mode is the installation mode under test.
+# run_migrate_case runs runtime-default migration for an install mode and verifies the expected netcheck mode is written.
+run_migrate_case() {
+	case_name="$1"
+	install_mode="$2"
+	expected_netcheck="$3"
+
+	cat >"${CONF_FILE}" <<EOF_CONF || fail "${case_name}: could not write config"
+ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
+ADGUARD_NETCHECK_MODE="legacy"
+ADGUARD_IPSET="NO"
+ADGUARD_PROC_OPTIMIZE="YES"
+ADGUARD_PROC_PROFILE="balanced"
+EOF_CONF
+	: >"${WRITES_FILE}"
+	: >"${LOG_FILE}"
+	ADGUARD_INSTALL_MODE="${install_mode}"
+	ADGUARD_INSTALL_MODE_DETECTION="${install_mode}"
+
+	cli_migrate_runtime_defaults --yes || fail "${case_name}: migration failed"
+	grep -q "^ADGUARD_NETCHECK_MODE=${expected_netcheck}$" "${WRITES_FILE}" ||
+		fail "${case_name}: expected netcheck write ${expected_netcheck}"
+	if grep -q '^ADGUARD_NETCHECK_MODE=wan$' "${WRITES_FILE}" && [ "${expected_netcheck}" != 'wan' ]; then
+		fail "${case_name}: LAN migration wrote WAN netcheck mode"
+	fi
+}
+
+run_migrate_case lan-mode lan lan
+run_migrate_case wan-mode wan wan
+cat >"${CONF_FILE}" <<EOF_CONF || fail 'dry-run persisted LAN: could not write config'
+ADGUARD_INSTALL_MODE="lan"
+ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
+ADGUARD_NETCHECK_MODE="legacy"
+ADGUARD_IPSET="NO"
+ADGUARD_PROC_OPTIMIZE="YES"
+ADGUARD_PROC_PROFILE="balanced"
+EOF_CONF
+: >"${WRITES_FILE}"
+: >"${LOG_FILE}"
+ADGUARD_INSTALL_MODE_DETECTION='lan'
+cli_migrate_runtime_defaults --dry-run || fail 'dry-run persisted LAN: migration preview failed'
+grep -q 'ADGUARD_NETCHECK_MODE="legacy"; v2.6.0 safer value is "lan"' "${LOG_FILE}" ||
+	fail 'dry-run persisted LAN: expected LAN netcheck preview'
+if grep -q 'ADGUARD_NETCHECK_MODE="legacy"; v2.6.0 safer value is "wan"' "${LOG_FILE}"; then
+	fail 'dry-run persisted LAN: preview regressed to WAN netcheck mode'
+fi
+[ ! -s "${WRITES_FILE}" ] || fail 'dry-run persisted LAN: dry-run wrote config'
+
+printf '%s\n' 'PASS: CLI LAN mode guards DNS prep and migrates netcheck by install mode'

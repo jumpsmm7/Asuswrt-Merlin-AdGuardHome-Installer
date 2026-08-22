@@ -100,7 +100,7 @@ Optional features may require additional Entware packages. For example, the unus
 - v2.6.0 uses safer runtime defaults for new installs while preserving existing `.config` values during upgrades.
 - New installs refuse to terminate unknown non-AdGuardHome owners of port `53` by default. Existing installs that keep `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=0` retain legacy cleanup until migrated.
 - New installs save `ADGUARD_NETCHECK_MODE=wan` when router/local-cache DNS is selected, or `ADGUARD_NETCHECK_MODE=lan` for LAN-only service management. Existing installs keep their saved mode.
-- New installs use the lower-risk `balanced` runtime proc/sysctl profile. Existing installs keep their saved optimization setting and profile unless changed manually. If the runtime script is launched without an installer-managed `.config`, proc/sysctl optimization stays disabled by default.
+- New installs and legacy-compatible defaults use the full `aggressive` runtime proc/sysctl profile. Users may explicitly select a reduced profile, accepting the router-specific functionality risk. If the runtime script is launched without an installer-managed `.config`, its fallback profile is also `aggressive` when optimization is explicitly enabled.
 
 ## Features
 
@@ -165,7 +165,7 @@ sh installer ipset refresh --yes
 sh installer ipset refresh --dry-run
 sh installer netcheck --mode wan --hosts "google.com github.com snbforums.com" --dns 127.0.0.1 --require-http NO --timeout 300
 sh installer dns-port-policy --policy refuse-unknown
-sh installer performance --profile balanced
+sh installer performance --profile fast
 sh installer migrate-runtime-defaults
 sh installer migrate-runtime-defaults --dry-run
 sh installer migrate-runtime-defaults --yes
@@ -248,13 +248,13 @@ sh installer migrate-runtime-defaults
 sh installer migrate-runtime-defaults --dry-run
 ```
 
-To write the safer v2.6.0 defaults for legacy or missing runtime settings, run:
+To write the current DNS/netcheck defaults and fill a missing proc profile with the compatible `aggressive` default, run:
 
 ```sh
 sh installer migrate-runtime-defaults --yes
 ```
 
-The migration helper updates only legacy or missing runtime defaults. It preserves custom runtime choices such as `ADGUARD_NETCHECK_MODE="lan"`, `ADGUARD_PROC_OPTIMIZE="NO"`, or an already balanced/safe process profile.
+The migration helper updates only legacy or missing runtime defaults. It does not downgrade an aggressive proc profile and preserves custom runtime choices such as `ADGUARD_NETCHECK_MODE="lan"`, `ADGUARD_PROC_OPTIMIZE="NO"`, or an explicitly selected balanced/safe process profile.
 
 ### Netcheck modes
 
@@ -298,6 +298,34 @@ ADGUARD_NETCHECK_MODE="lan"
 
 LAN mode skips public WAN probes. The monitor still checks local AdGuardHome DNS responsiveness after the process is expected to be serving DNS.
 
+#### LAN listener scope
+
+LAN mode listens on `127.0.0.1`, the current IPv4 address of the primary LAN
+bridge (`lan_ifname`), and one stable global IPv6 address on that bridge when
+present. It also binds IPv4 addresses only when they are both assigned to the
+secondary `br*` interface and use an RFC 1918 prefix, because dnsmasq
+advertises each private guest/SDN bridge's own
+address as its DNS server. VPN bridges qualify only when their assigned address
+is RFC 1918; public and shared ranges such as `100.64.0.0/10` are not
+selected automatically; this avoids exposing a resolver without an explicit
+operator configuration. Discovery logs every selected secondary
+interface/address pair.
+
+Temporary, tentative, deprecated, duplicate, loopback, link-local, multicast,
+and broadcast addresses are excluded from discovery. A stable global IPv6
+address carrying `mngtmpaddr` remains eligible: that flag marks the template
+used by the kernel to manage temporary privacy addresses and does not itself
+make the template address temporary. IPv4 and IPv6 are selected independently, so IPv6 absence does not
+change the IPv4 listener. AP, media bridge, and repeater installs follow the same
+rule, and startup/monitor refreshes replace a renumbered primary address without
+retaining the old address.
+
+IPv6 discovery for secondary bridges is not needed because dnsmasq advertises
+their IPv4 address. Listener binding and firewall policy remain independent.
+LAN mode does not install firewall/IPTABLES rules; changing a bind address does
+not imply that traffic is allowed or blocked on an interface. Validate
+reachability and firewall behavior separately for each router topology.
+
 ### DNS port-owner cleanup policy
 
 During startup, dnsmasq is stopped normally so AdGuardHome can own port `53`. New installs default to conservative handling:
@@ -338,24 +366,37 @@ This writes `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"`.
 
 ### Runtime optimization profile
 
-New installs use the lower-risk balanced proc/sysctl profile by default:
+New installs and the legacy-compatible runtime fallback use the full aggressive proc/sysctl profile by default to preserve functionality across supported Asuswrt-Merlin routers:
 
 ```sh
 ADGUARD_PROC_OPTIMIZE="YES"
-ADGUARD_PROC_PROFILE="balanced"
+ADGUARD_PROC_PROFILE="aggressive"
 ```
 
-Upgrades keep the saved value; when no value exists, the installer pins the legacy aggressive profile for compatibility.
-When no installer-managed `.config` is available at all, the runtime script defaults to optimization disabled rather than applying proc/sysctl writes implicitly.
+Upgrades keep an explicitly saved profile; when no value exists, the installer pins `aggressive` for compatibility. When no installer-managed `.config` is available, proc optimization remains disabled unless it is explicitly enabled, but the selected fallback profile is `aggressive`.
 
 The supported profiles are:
 
 | Profile | Behaviour |
 | --- | --- |
-| `off` | Do not write proc/sysctl values. |
-| `safe` | Set UDP receive and write buffer limits. |
-| `balanced` | Apply `safe` plus lower the conntrack TCP max retrans timeout. |
-| `aggressive` | Apply `balanced` plus the legacy PID, memory overcommit, swappiness, ICMP rate-limit, and neighbour-cache tuning. |
+| `off` | Restore installer-owned proc values and do not apply tuning. |
+| `safe` | Set `rmem_max=4194304`, `wmem_max=1048576`, and `pid_max=4194304`. The socket ceilings support bursty DNS traffic; the larger PID space reduces collisions with concurrent NVRAM and user scripts. |
+| `balanced` | Apply `safe` and set `nf_conntrack_tcp_timeout_max_retrans=240` so stalled TCP DNS connection state is released sooner. |
+| `aggressive` | Apply `balanced`, the ICMP and neighbour-cache settings listed below, and the memory settings only while active swap is reported by `/proc/swaps`. |
+
+The aggressive profile applies these additional values:
+
+| Setting | Value | Condition and purpose |
+| --- | ---: | --- |
+| `vm.overcommit_memory` | `2` | Active swap only; keeps strict virtual-memory commitment. |
+| `vm.swappiness` | `60` | Active swap only; enables normal swap reclaim under memory pressure. |
+| `vm.overcommit_ratio` | `50` | Active swap only; retains a system-wide memory commitment reserve. |
+| `net.ipv4.icmp_ratelimit` | `0` | Keeps IPv4 path and error feedback available during heavy upstream DNS traffic. |
+| `net.ipv4.neigh.default.gc_thresh1/2/3` | `256/1024/2048` | Avoids premature IPv4 neighbour-cache reclamation during large client bursts. |
+| `net.ipv6.icmp.ratelimit` | `0` | Applied only when `nvram get ipv6_service` is non-empty; keeps IPv6 control feedback available. |
+| `net.ipv6.neigh.default.gc_thresh1/2/3` | `256/1024/2048` | Applied only when IPv6 is configured; avoids premature IPv6 neighbour-cache reclamation. |
+
+Each target is allowlisted and its requested value is range-checked before writing. The installer saves the value it found before its first successful change and does not rewrite or log a setting that already has the requested value. Disable, profile changes, service stop, and uninstall restore a saved value only when the current proc value still matches the installer-applied value. A later administrator value that differs from the installer-applied value is therefore preserved; rewriting the same value cannot be detected. If swap or IPv6 becomes unavailable, settings that depend on it are restored using the same ownership check.
 
 To disable runtime optimization completely, set:
 
@@ -363,7 +404,7 @@ To disable runtime optimization completely, set:
 ADGUARD_PROC_OPTIMIZE="NO"
 ```
 
-To keep optimization enabled but select a lower profile, set for example:
+Reducing the profile can omit PID, connection-state, memory-pressure, or network-cache protections needed by an individual router. Users choosing that risk can select a lower profile, for example:
 
 ```sh
 ADGUARD_PROC_OPTIMIZE="YES"
@@ -378,7 +419,7 @@ sh installer performance --profile low-memory
 sh installer performance --profile fast
 ```
 
-`balanced` writes `ADGUARD_PROC_PROFILE="balanced"`, `low-memory` writes `ADGUARD_PROC_PROFILE="safe"`, and `fast` writes `ADGUARD_PROC_PROFILE="aggressive"`. Runtime proc writes are logged with old and new values when they are attempted, and startup does not fail only because a proc/sysctl write fails.
+`balanced` writes `ADGUARD_PROC_PROFILE="balanced"`, `low-memory` writes `ADGUARD_PROC_PROFILE="safe"`, and `fast` writes `ADGUARD_PROC_PROFILE="aggressive"`. Apply-time proc changes and successful restorations are logged once per actual change with old and new values. Missing, unreadable, or unwritable targets are logged as failures during application; startup does not fail only because a proc/sysctl operation fails.
 
 ## Verify AdGuardHome is running
 
@@ -708,7 +749,21 @@ Each architecture folder also gets generated metadata:
 
 The local stable filenames use `stable`, while the upstream static AdGuardHome channel path remains `release` to match the installer branch naming.
 
+## Download integrity compatibility policy
+
+The installer always attempts a certificate-verified HTTPS request first. On older router firmware whose CA store cannot validate the server certificate, selected installer-managed downloads may make one explicit HTTPS fallback request with certificate verification disabled (`curl --insecure`/`-k` or `wget --no-check-certificate`). The fallback is never used for plain HTTP, must be enabled by the individual download call, and emits a warning when activated.
+
+Checksum verification remains mandatory after that transport fallback and before a staged installer-managed artifact replaces the working copy. The installer prefers a matching SHA-256 digest and permits a matching MD5 digest only through the legacy compatibility policy below; missing, malformed, or mismatching applicable checksum data prevents the artifact from being accepted. This checksum gate detects corruption and inconsistent downloads, but it does not authenticate a download when an active attacker can replace both the artifact and checksum metadata. In particular, MD5 is retained for legacy compatibility and is not a cryptographic substitute for certificate validation or SHA-256.
+
+The installer prefers SHA-256 for download integrity verification. An MD5 fallback remains intentional compatibility behavior for supported legacy environments, but it is allowed only when SHA-256 metadata is unavailable or SHA-256 calculation support is unavailable. Invalid, empty, or mismatching SHA-256 metadata causes the download to fail or retry and never permits a downgrade to MD5 verification.
+
+The legacy-compatible MD5 path requires valid MD5 metadata and a matching calculated digest. A download fails when neither the SHA-256 path nor the MD5 compatibility path verifies the artifact. Checksum integrity verification and TLS certificate verification are separate safeguards: a valid checksum does not replace certificate validation, and certificate validation does not replace checksum verification.
+
+MD5 checksum sidecars remain part of the v2.6.5 release format for this compatibility policy; they are not the preferred verification path.
+
 ## Development checks
+
+Real-router release candidates must complete the version-controlled [v2.6.5 acceptance checklist](RELEASE-2.6.5-CHECKLIST.md); unexecuted mandatory hardware rows block release approval.
 
 Repository shell scripts are written for POSIX/BusyBox `ash` compatibility. Avoid Bash-only syntax such as arrays, process substitution, `[[ ... ]]`, and non-portable `pipefail`.
 
@@ -740,6 +795,7 @@ The release validation pass performs these actions:
 - Checks repository shell scripts for POSIX/BusyBox portability.
 - Verifies SHA-256 metadata for installer-managed artifacts.
 - Runs selected router-sensitive regressions for DNS handoff, IPSET setup/status/locking, rollback and doctor rollback behavior, CLI runtime configuration, and interruption restart handling.
+- Requires root privileges or passwordless `sudo` for `tests/optional-database-links.sh`; non-privileged maintainers must have passwordless sudo available before running the complete pass.
 - Optionally runs ShellCheck static analysis against the primary scripts when ShellCheck is installed on a development workstation outside the router.
 
 Run the required release validation commands from the repository root:
@@ -754,14 +810,31 @@ Run the selected regression tests that cover the router-sensitive release paths:
 
 ```sh
 sh tests/dns-startup-handoff.sh
+sh tests/s99-netstat-readiness.sh
+sh tests/dnsmasq-lan-mode.sh
+sh tests/adguardhome-dns-env-lan-mode.sh
 sh tests/ipset-version-gate.sh
+sh tests/ipset-lan-mode.sh
 sh tests/ipset-lock-security.sh
 sh tests/ipset-setup-rollback.sh
 sh tests/ipset-status.sh
 sh tests/installer-end-op-rollback.sh
 sh tests/installer-doctor-rollback-result.sh
 sh tests/installer-cli-runtime-config.sh
+sh tests/installer-cli-lan-mode.sh
+sh tests/installer-lan-ipset-yaml-cleanup.sh
+sh tests/installer-event-script-modes.sh
 sh tests/installer-interruption-restart.sh
+sh tests/start-adguardhome-lifecycle.sh
+sh tests/rc-process-signaling.sh
+if [ "$(id -u)" -eq 0 ]; then
+	sh tests/optional-database-links.sh
+elif which sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+	sudo -n sh tests/optional-database-links.sh
+else
+	printf '%s\n' 'The optional database link regression requires root privileges or passwordless sudo.' >&2
+	false
+fi
 ```
 
 Optionally run ShellCheck on a development workstation when ShellCheck is installed outside the router:

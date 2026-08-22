@@ -17,17 +17,40 @@ jobs:
   shell-quality:
     name: Shell and checksum quality checks
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
 
       - name: Install shell tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq
+          sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq curl python3 coreutils
+          python3 --version
+          /usr/bin/timeout --version
+
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: '1.7.12'
+          ACTIONLINT_SHA256: '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'
+        run: |
+          set -eu
+          archive="/tmp/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --proto '=https' --proto-redir '=https' "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" -o "${archive}"
+          printf '%s  %s\n' "${ACTIONLINT_SHA256}" "${archive}" | sha256sum -c -
+          tar -xzf "${archive}" -C /tmp actionlint
+          sudo install -m 0755 /tmp/actionlint /usr/local/bin/actionlint
+
+      - name: Lint GitHub Actions workflows
+        run: actionlint -shellcheck= -pyflakes=
 
       - name: Run code quality checks
-        run: tools/code-quality.sh
+        # GNU timeout is CI-only; router production scripts remain independent of it.
+        env:
+          TEST_MAX_RUNTIME_SECONDS: 180
+        run: sh tools/code-quality.sh
 
       - name: Explain formatting remediation
         if: failure()
@@ -37,3 +60,31 @@ jobs:
             printf '%s\n' ''
             printf '%s\n' 'If the failure above is from `shfmt`, run `tools/code-quality.sh --fix` locally and commit the formatting changes, or dispatch the `Create shfmt formatting PR` workflow against this branch.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  apply-sonar-parser-cleanup:
+    name: Apply Sonar parser cleanup
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out immutable pull request head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Validate parser-friendly rewrite
+        run: |
+          set -eu
+          python3 .github/scripts/fix-sonar-shell-parse.py
+          sh -n AdGuardHome.sh
+          sh tests/installer-status.sh
+          sh tools/update-checksums.sh AdGuardHome.sh
+          git diff --check
+          git diff --exit-code -- AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum || {
+            printf '%s\n' 'Error: Sonar parser cleanup or checksum sidecars are not current.' >&2
+            exit 1
+          }
