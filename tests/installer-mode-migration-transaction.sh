@@ -200,16 +200,48 @@ run_transaction() {
 	[ "${current_mode}" != "${target_mode}" ] || return 0
 	mkdir "${RECOVERY_DIR}" || return 1
 	trap on_transaction_signal HUP INT TERM
-	checkpoint active_yaml_backup && cp -p "${YAML_FILE}" "${RECOVERY_DIR}/yaml" || { trap - HUP INT TERM; rm -rf "${RECOVERY_DIR}"; return 1; }
-	checkpoint original_yaml_backup && cp -p "${YAML_ORI}" "${RECOVERY_DIR}/original" || { trap - HUP INT TERM; rm -rf "${RECOVERY_DIR}"; return 1; }
-	checkpoint config_backup && cp -p "${CONF_FILE}" "${RECOVERY_DIR}/config" || { trap - HUP INT TERM; rm -rf "${RECOVERY_DIR}"; return 1; }
-	checkpoint hook_backup && cp -p "${HOOK_FILE}" "${RECOVERY_DIR}/hook" || { trap - HUP INT TERM; rm -rf "${RECOVERY_DIR}"; return 1; }
+	checkpoint active_yaml_backup && cp -p "${YAML_FILE}" "${RECOVERY_DIR}/yaml" || {
+		trap - HUP INT TERM
+		rm -rf "${RECOVERY_DIR}"
+		return 1
+	}
+	checkpoint original_yaml_backup && cp -p "${YAML_ORI}" "${RECOVERY_DIR}/original" || {
+		trap - HUP INT TERM
+		rm -rf "${RECOVERY_DIR}"
+		return 1
+	}
+	checkpoint config_backup && cp -p "${CONF_FILE}" "${RECOVERY_DIR}/config" || {
+		trap - HUP INT TERM
+		rm -rf "${RECOVERY_DIR}"
+		return 1
+	}
+	checkpoint hook_backup && cp -p "${HOOK_FILE}" "${RECOVERY_DIR}/hook" || {
+		trap - HUP INT TERM
+		rm -rf "${RECOVERY_DIR}"
+		return 1
+	}
 	cp -p "${FIREWALL4}" "${RECOVERY_DIR}/firewall4" && cp -p "${FIREWALL6}" "${RECOVERY_DIR}/firewall6" &&
-		cp -p "${IPSET_STATE}" "${RECOVERY_DIR}/ipset" && cp -p "${SERVICE_STATE}" "${RECOVERY_DIR}/service" || { trap - HUP INT TERM; rm -rf "${RECOVERY_DIR}"; return 1; }
-	checkpoint service_stop && service stop_AdGuardHome || { rollback_transaction; trap - HUP INT TERM; return 1; }
+		cp -p "${IPSET_STATE}" "${RECOVERY_DIR}/ipset" && cp -p "${SERVICE_STATE}" "${RECOVERY_DIR}/service" || {
+		trap - HUP INT TERM
+		rm -rf "${RECOVERY_DIR}"
+		return 1
+	}
+	checkpoint service_stop && service stop_AdGuardHome || {
+		rollback_transaction
+		trap - HUP INT TERM
+		return 1
+	}
 	printf '%s\n' stopped >"${SERVICE_STATE}"
-	checkpoint before_yaml_publication || { rollback_transaction; trap - HUP INT TERM; return 1; }
-	checkpoint active_yaml_staged_rewrite || { rollback_transaction; trap - HUP INT TERM; return 1; }
+	checkpoint before_yaml_publication || {
+		rollback_transaction
+		trap - HUP INT TERM
+		return 1
+	}
+	checkpoint active_yaml_staged_rewrite || {
+		rollback_transaction
+		trap - HUP INT TERM
+		return 1
+	}
 	if [ "${target_mode}" = lan ]; then
 		cat >"${TEST_ROOT}/tmp/yaml.stage" <<'EOF'
 http:
@@ -233,24 +265,76 @@ dns:
     - '[/router.asus.com/]192.168.50.1:53'
 EOF
 	fi
-	checkpoint original_yaml_staged_rewrite && cp "${TEST_ROOT}/tmp/yaml.stage" "${TEST_ROOT}/tmp/original.stage" || { rollback_transaction; trap - HUP INT TERM; return 1; }
-	checkpoint active_yaml_publication && mv "${TEST_ROOT}/tmp/yaml.stage" "${YAML_FILE}" || { rollback_transaction; trap - HUP INT TERM; return 1; }
-	checkpoint after_active_yaml_publication || { rollback_transaction; trap - HUP INT TERM; return 1; }
-	checkpoint original_yaml_publication && mv "${TEST_ROOT}/tmp/original.stage" "${YAML_ORI}" || { rollback_transaction; trap - HUP INT TERM; return 1; }
-	checkpoint after_original_yaml_publication || { rollback_transaction; trap - HUP INT TERM; return 1; }
+	checkpoint original_yaml_staged_rewrite && cp "${TEST_ROOT}/tmp/yaml.stage" "${TEST_ROOT}/tmp/original.stage" || {
+		rollback_transaction
+		trap - HUP INT TERM
+		return 1
+	}
+	checkpoint active_yaml_publication && mv "${TEST_ROOT}/tmp/yaml.stage" "${YAML_FILE}" || {
+		rollback_transaction
+		trap - HUP INT TERM
+		return 1
+	}
+	checkpoint after_active_yaml_publication || {
+		rollback_transaction
+		trap - HUP INT TERM
+		return 1
+	}
+	checkpoint original_yaml_publication && mv "${TEST_ROOT}/tmp/original.stage" "${YAML_ORI}" || {
+		rollback_transaction
+		trap - HUP INT TERM
+		return 1
+	}
+	checkpoint after_original_yaml_publication || {
+		rollback_transaction
+		trap - HUP INT TERM
+		return 1
+	}
 	if [ "${target_mode}" = lan ]; then
-		checkpoint ipset_yaml_cleanup || { rollback_transaction; trap - HUP INT TERM; return 1; }
-		checkpoint hook_removal && : >"${HOOK_FILE}" || { rollback_transaction; trap - HUP INT TERM; return 1; }
+		checkpoint ipset_yaml_cleanup || {
+			rollback_transaction
+			trap - HUP INT TERM
+			return 1
+		}
+		checkpoint hook_removal && : >"${HOOK_FILE}" || {
+			rollback_transaction
+			trap - HUP INT TERM
+			return 1
+		}
 		printf '%s\n' disabled >"${IPSET_STATE}"
 	else
-		checkpoint hook_installation && printf '%s\n' WAN_HOOK=1 >"${HOOK_FILE}" || { rollback_transaction; trap - HUP INT TERM; return 1; }
+		checkpoint hook_installation && printf '%s\n' WAN_HOOK=1 >"${HOOK_FILE}" || {
+			rollback_transaction
+			trap - HUP INT TERM
+			return 1
+		}
 		printf '%s\n' enabled >"${IPSET_STATE}"
 	fi
-	checkpoint after_hook_mutation || { rollback_transaction; trap - HUP INT TERM; return 1; }
-	checkpoint config_persistence && printf 'ADGUARD_INSTALL_MODE="%s"\nADGUARD_IPSET="%s"\n' "${target_mode}" "$([ "${target_mode}" = wan ] && printf YES || printf NO)" >"${CONF_FILE}" || { rollback_transaction; trap - HUP INT TERM; return 1; }
-	checkpoint after_config_persistence || { rollback_transaction; trap - HUP INT TERM; return 1; }
-	checkpoint ipv4_firewall_update && iptables -w || { rollback_transaction; trap - HUP INT TERM; return 1; }
-	checkpoint ipv6_firewall_update && ip6tables -w || { rollback_transaction; trap - HUP INT TERM; return 1; }
+	checkpoint after_hook_mutation || {
+		rollback_transaction
+		trap - HUP INT TERM
+		return 1
+	}
+	checkpoint config_persistence && printf 'ADGUARD_INSTALL_MODE="%s"\nADGUARD_IPSET="%s"\n' "${target_mode}" "$([ "${target_mode}" = wan ] && printf YES || printf NO)" >"${CONF_FILE}" || {
+		rollback_transaction
+		trap - HUP INT TERM
+		return 1
+	}
+	checkpoint after_config_persistence || {
+		rollback_transaction
+		trap - HUP INT TERM
+		return 1
+	}
+	checkpoint ipv4_firewall_update && iptables -w || {
+		rollback_transaction
+		trap - HUP INT TERM
+		return 1
+	}
+	checkpoint ipv6_firewall_update && ip6tables -w || {
+		rollback_transaction
+		trap - HUP INT TERM
+		return 1
+	}
 	if [ "${target_mode}" = wan ]; then
 		printf '%s\n' wan-rule >"${FIREWALL4}"
 		printf '%s\n' wan6-rule >"${FIREWALL6}"
@@ -258,10 +342,22 @@ EOF
 		: >"${FIREWALL4}"
 		: >"${FIREWALL6}"
 	fi
-	checkpoint service_start && service start_AdGuardHome || { rollback_transaction; trap - HUP INT TERM; return 1; }
+	checkpoint service_start && service start_AdGuardHome || {
+		rollback_transaction
+		trap - HUP INT TERM
+		return 1
+	}
 	printf '%s\n' running >"${SERVICE_STATE}"
-	checkpoint after_service_start || { rollback_transaction; trap - HUP INT TERM; return 1; }
-	checkpoint startup_readiness && netstat -ln || { rollback_transaction; trap - HUP INT TERM; return 1; }
+	checkpoint after_service_start || {
+		rollback_transaction
+		trap - HUP INT TERM
+		return 1
+	}
+	checkpoint startup_readiness && netstat -ln || {
+		rollback_transaction
+		trap - HUP INT TERM
+		return 1
+	}
 	: >"${SUCCESS_MARKER}"
 	rm -rf "${RECOVERY_DIR}"
 	trap - HUP INT TERM

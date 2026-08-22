@@ -56,8 +56,14 @@ validate_skill_md() {
 	name_line=$(grep -E '^name:[[:space:]]+' "${FRONTMATTER}")
 	actual_name=$(printf '%s\n' "${name_line}" | sed -e 's/^name:[[:space:]][[:space:]]*//' -e 's/[[:space:]]*$//')
 	case "${actual_name}" in
-		\"*\") actual_name="${actual_name#\"}"; actual_name="${actual_name%\"}" ;;
-		\'*\') actual_name="${actual_name#\'}"; actual_name="${actual_name%\'}" ;;
+		\"*\")
+			actual_name="${actual_name#\"}"
+			actual_name="${actual_name%\"}"
+			;;
+		\'*\')
+			actual_name="${actual_name#\'}"
+			actual_name="${actual_name%\'}"
+			;;
 		\"* | \'*)
 			printf '%s\n' "${skill_md}: frontmatter name has an unclosed leading quote" >&2
 			rm -f "${FRONTMATTER}"

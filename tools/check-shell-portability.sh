@@ -127,7 +127,10 @@ check_script() {
 		FAILED=1
 	fi
 	[ "${_script}" = tools/check-shell-portability.sh ] && return 0
-	sanitize_shell_source "${_script}" || { FAILED=1; return 0; }
+	sanitize_shell_source "${_script}" || {
+		FAILED=1
+		return 0
+	}
 	report_match 'Bash test syntax is not supported' '(^[[:space:]]*|[;&|()][[:space:]]*)\[\[[[:space:]]' "${_script}"
 	report_match 'Bash function syntax is not supported' '^[[:space:]]*function[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' "${_script}"
 	report_match 'the source keyword is not POSIX' '(^[[:space:]]*|[;&|()][[:space:]]*)source[[:space:]]+' "${_script}"

@@ -1,2 +1,2 @@
 #!/bin/sh
-read -r value <<< input
+read -r value <<<input

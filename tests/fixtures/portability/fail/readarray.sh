@@ -1,2 +1,2 @@
 #!/bin/sh
-readarray values < input
+readarray values <input
