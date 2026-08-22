@@ -1965,7 +1965,7 @@ printf '%s\n' 'dnspriv_enable=0' 'dhcpd_dns_router=1' 'dhcp_dns1_x=' 'dhcp_dns2_
 FAIL_SERVICE_AT=1
 check_dns_environment 0 && fail 'recovered no-change dnsmasq retry was accepted as preparation success'
 [ "${STUBBY_RESTART_COUNT}" -eq 1 ] || fail 'successful no-change recovery restarted stubby more than once'
-[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful no-change recovery retained its snapshot'
+[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'successful no-change recovery retained rollback-eligible state'
 
 reset_case
 STUBBY_RUNNING=1
