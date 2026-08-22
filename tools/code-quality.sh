@@ -256,6 +256,7 @@ run_check 'Installer restore feature-selection regression' sh tests/installer-re
 run_check 'Installer reverse-upstream target regression' sh tests/installer-reverse-upstream-target.sh
 run_check 'Installer account validation regression' sh tests/installer-account-validation.sh
 run_check 'AdGuardHome permission repair regression' sh tests/adguardhome-permissions.sh
+run_check 'AdGuardHome review safety regression' sh tests/adguardhome-review-safety.sh
 run_check 'AdGuardHome LAN bind refresh regression' sh tests/adguardhome-lan-bind-refresh.sh
 run_check 'LAN primary address selection regression' sh tests/lan-primary-address-selection.sh
 run_check 'Private IPv4 DNS fallback chain regression' sh tests/private-ipv4-dns-fallback-chain.sh
