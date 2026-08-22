@@ -19,10 +19,12 @@ report_match() {
 		printf '%s\n' "Error: ${_description}: ${_script}" >&2
 		FAILED=1
 	fi
+	return 0
 }
 
 # sanitize_shell_source removes comments, single-quoted embedded programs, and literal heredoc bodies.
 sanitize_shell_source() {
+	_source_file="$1"
 	awk '
 		BEGIN { single = 0; embedded = 0; heredoc = "" }
 		{
@@ -65,15 +67,16 @@ sanitize_shell_source() {
 			}
 			print out
 		}
-	' "$1" >"${SANITIZED_FILE}"
+	' "${_source_file}" >"${SANITIZED_FILE}"
+	return $?
 }
 
 # runtime_script reports whether command dependency restrictions apply to a production router script.
 runtime_script() {
 	case "${1##*/}" in
 		installer | AdGuardHome.sh | S99AdGuardHome | rc.func.AdGuardHome) return 0 ;;
+		*) return 1 ;;
 	esac
-	return 1
 }
 
 # check_runtime_commands rejects commands unavailable from the router runtime contract.
@@ -90,12 +93,12 @@ check_runtime_commands() {
 		printf '%s\n' "Error: unapproved router-runtime python3 dependency: ${_script}" >&2
 		FAILED=1
 	fi
-	if grep -Eq '(^[[:space:]]*|[;&|()][[:space:]]*)flock([[:space:]]|$)' "${SANITIZED_FILE}"; then
-		if ! grep -q 'flock_supports_fd' "${_script}" || ! grep -Eq 'mkdir.*fallback|fallback.*mkdir|Lock_Mkdir|proc_lock_run' "${_script}"; then
-			printf '%s\n' "Error: unconditional flock use lacks the capability probe and mkdir/PID fallback: ${_script}" >&2
-			FAILED=1
-		fi
+	if grep -Eq '(^[[:space:]]*|[;&|()][[:space:]]*)flock([[:space:]]|$)' "${SANITIZED_FILE}" &&
+		{ ! grep -q 'flock_supports_fd' "${_script}" || ! grep -Eq 'mkdir.*fallback|fallback.*mkdir|Lock_Mkdir|proc_lock_run' "${_script}"; }; then
+		printf '%s\n' "Error: unconditional flock use lacks the capability probe and mkdir/PID fallback: ${_script}" >&2
+		FAILED=1
 	fi
+	return 0
 }
 
 # check_script applies syntax and conservative command-position policy checks to one file.
@@ -127,6 +130,7 @@ check_script() {
 	report_match 'select is not supported' '(^[[:space:]]*|[;&|()][[:space:]]*)select[[:space:]]+[A-Za-z_]' "${_script}"
 	report_match 'coproc is not supported' '(^[[:space:]]*|[;&|()][[:space:]]*)coproc([[:space:]]|$)' "${_script}"
 	if runtime_script "${_script}"; then check_runtime_commands "${_script}"; fi
+	return 0
 }
 
 trap cleanup 0
@@ -139,8 +143,10 @@ else
 fi
 while IFS= read -r script; do
 	[ -n "${script}" ] || continue
-	case "${script}" in tests/fixtures/portability/*) continue ;; esac
-	check_script "${script}"
+	case "${script}" in
+		tests/fixtures/portability/*) continue ;;
+		*) check_script "${script}" ;;
+	esac
 done <"${SCRIPT_LIST}"
 
 if [ "$#" -eq 0 ] && ! sh tools/check-sonar-shell-contract.sh; then FAILED=1; fi
