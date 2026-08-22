@@ -20,7 +20,10 @@ if [ -n "${HOME:-}" ]; then
     printf '%s\n' 'Error: HOME must name an accessible directory' >&2
     exit 1
   }
-  QODO_ROOT="${QODO_HOME}/.qodo"
+  case "${QODO_HOME}" in
+    /) QODO_ROOT='/.qodo' ;;
+    *) QODO_ROOT="${QODO_HOME}/.qodo" ;;
+  esac
 fi
 if [ -z "${QODO_CONFIG:-}" ]; then
   if [ -z "${QODO_ROOT:-}" ]; then

@@ -32,7 +32,7 @@ report_match() {
 sanitize_shell_source() {
 	_source_file="$1"
 	awk '
-		BEGIN { single = 0; embedded = 0; heredoc = "" }
+		BEGIN { single = 0; embedded = 0; heredoc = ""; heredoc_tabs = 0 }
 		{
 			line = $0
 			# Existing optional Entware authentication support is an approved python3 flow.
@@ -49,7 +49,9 @@ sanitize_shell_source() {
 				next
 			}
 			if (heredoc != "") {
-				if (line == heredoc) heredoc = ""
+				terminator = line
+				if (heredoc_tabs) sub(/^\t+/, "", terminator)
+				if (terminator == heredoc) { heredoc = ""; heredoc_tabs = 0 }
 				print ""
 				next
 			}
@@ -63,9 +65,10 @@ sanitize_shell_source() {
 				if (!single && !double) {
 					tail = substr(line, i)
 					quote = sprintf("%c", 39)
-					if (match(tail, "^<<[[:space:]]*" quote "[A-Za-z_][A-Za-z0-9_]*" quote)) {
+					if (match(tail, "^<<-?[[:space:]]*" quote "[A-Za-z_][A-Za-z0-9_]*" quote)) {
 						token = substr(tail, RSTART, RLENGTH)
-						sub("^<<[[:space:]]*" quote, "", token)
+						heredoc_tabs = token ~ /^<<-/
+						sub("^<<-?[[:space:]]*" quote, "", token)
 						sub(quote "$", "", token)
 						heredoc = token
 						out = out " "
