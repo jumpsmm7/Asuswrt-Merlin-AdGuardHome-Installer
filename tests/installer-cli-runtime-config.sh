@@ -35,7 +35,23 @@ INFO='[i]'
 ERROR='[!]'
 WARNING='[w]'
 CONF_FILE="${TMP_ROOT}/.config"
+ADGUARD_INSTALL_MODE_DETECTION='wan'
 
+# adguard_install_mode_confirmed reports whether the detected installation mode is `wan` or `lan.
+adguard_install_mode_confirmed() {
+	case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
+		wan | lan) return 0 ;;
+	esac
+	return 1
+}
+
+# adguard_install_mode_detect sets the AdGuard installation mode from the configured test value.
+adguard_install_mode_detect() {
+	ADGUARD_INSTALL_MODE="${ADGUARD_INSTALL_MODE_DETECTION}"
+	return 0
+}
+
+# cli_require_yes confirms non-interactive confirmation.
 cli_require_yes() {
 	return 0
 }
@@ -46,6 +62,7 @@ cli_enable_assume_yes() {
 
 menu() {
 	printf '%s\n' "$1" >"${TMP_ROOT}/menu-action"
+	return "${MENU_STATUS:-0}"
 }
 
 cli_run netcheck --installer-branch dev --mode wan --hosts 'google.com github.com' --dns 127.0.0.1 --require-http yes --timeout 120 >/dev/null ||
@@ -74,7 +91,7 @@ grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'migration dry-ru
 cli_run migrate-runtime-defaults --yes >/dev/null || fail 'migration CLI failed'
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'migration did not persist refuse-unknown policy'
 grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'migration did not persist netcheck mode'
-grep -q '^ADGUARD_PROC_PROFILE="balanced"$' "${CONF_FILE}" || fail 'migration did not persist balanced performance profile'
+grep -q '^ADGUARD_PROC_PROFILE="aggressive"$' "${CONF_FILE}" || fail 'migration did not preserve aggressive performance profile'
 
 cli_adguard_branch_is_valid edge || fail 'edge AdGuardHome branch should be valid'
 if cli_adguard_branch_is_valid master; then
@@ -89,6 +106,12 @@ cli_run update --adguardhome-branch beta --yes >/dev/null || fail 'update with A
 grep -q '^ADGUARD_BRANCH="beta"$' "${CONF_FILE}" || fail 'CLI update branch was not persisted'
 [ "${ADGUARD_BRANCH_CHANGED:-0}" = "1" ] || fail 'CLI update branch switch was not marked as changed'
 [ "$(cat "${TMP_ROOT}/menu-action")" = 'update' ] || fail 'CLI update did not dispatch the update menu action'
+
+MENU_STATUS=2
+cli_run update --yes >/dev/null
+STATUS=$?
+[ "${STATUS}" -eq 1 ] || fail 'CLI update exposed operational status 2 as a usage error'
+MENU_STATUS=0
 
 unset ADGUARD_BRANCH_CHANGED
 cli_run update --adguardhome-branch beta --yes >/dev/null || fail 'same-branch update failed'

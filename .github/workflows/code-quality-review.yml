@@ -20,72 +20,211 @@ jobs:
   local-quality:
     name: Local Code Quality Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
     permissions:
       contents: read
     steps:
       - name: Check out pull request merge
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Check out selected ref
         if: github.event_name != 'pull_request'
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Install shell tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck shfmt ripgrep
-
-      - name: Run ShellCheck (static analysis)
-        run: |
-          echo "Running ShellCheck on all shell scripts..."
-          find . -type f -name "*.sh" | while read -r script; do
-            echo "Checking: $script"
-            shellcheck "$script" || true
-          done
-
-      - name: Run ShellFormat Check
-        run: |
-          echo "Checking shell script formatting..."
-          shfmt -d $(find . -type f -name "*.sh") || true
+          sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq python3 coreutils
+          python3 --version
+          /usr/bin/timeout --version
 
       - name: Run local code quality checks
-        run: |
-          set +e
-          tools/code-quality.sh > code-quality.log 2>&1
-          status=$?
-          cat code-quality.log
-          exit 0
+        env:
+          TEST_MAX_RUNTIME_SECONDS: 180
+        run: sh tools/code-quality.sh
 
   sonarcloud:
-    name: SonarCloud Code Analysis
+    name: SonarQube Cloud Quality Gate
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    timeout-minutes: 15
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)
     permissions:
       contents: read
     steps:
       - name: Check out pull request merge
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
           fetch-depth: 0
 
       - name: Check out selected ref
         if: github.event_name != 'pull_request'
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
 
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+      - name: Normalize Sonar token
+        env:
+          RAW_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set -eu
+          normalized_token="$(printf '%s' "${RAW_SONAR_TOKEN}" | tr -d '\r\n')"
+          [ -n "${normalized_token}" ] || {
+            printf '%s\n' 'Error: SONAR_TOKEN is empty after normalization.' >&2
+            exit 1
+          }
+          printf '::add-mask::%s\n' "${normalized_token}"
+          printf 'SONAR_TOKEN=%s\n' "${normalized_token}" >> "${GITHUB_ENV}"
+
+      - name: Select Java 21 for SonarScanner
+        run: |
+          set -eu
+          [ -n "${JAVA_HOME_21_X64:-}" ] && [ -x "${JAVA_HOME_21_X64}/bin/java" ] || {
+            printf '%s\n' 'Error: GitHub runner Java 21 is unavailable.' >&2
+            exit 1
+          }
+          printf 'JAVA_HOME=%s\n' "${JAVA_HOME_21_X64}" >> "${GITHUB_ENV}"
+          printf '%s\n' "${JAVA_HOME_21_X64}/bin" >> "${GITHUB_PATH}"
+          "${JAVA_HOME_21_X64}/bin/java" -version
+
+      - name: SonarQube Cloud scan and quality gate
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        with:
+          args: >-
+            -Dsonar.qualitygate.wait=true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        continue-on-error: true
+          SONAR_SCANNER_SKIP_JRE_PROVISIONING: "true"
+
+      - name: Enforce zero unresolved Sonar issues
+        if: always() && github.event_name == 'pull_request'
+        env:
+          SONAR_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -eu
+          [ -n "${SONAR_TOKEN:-}" ] || {
+            printf '%s\n' 'Error: SONAR_TOKEN is unavailable for strict issue enforcement.' >&2
+            exit 1
+          }
+
+          project_key='jumpsmm7_Asuswrt-Merlin-AdGuardHome-Installer'
+          gate_url="https://sonarcloud.io/api/qualitygates/project_status?projectKey=${project_key}&pullRequest=${SONAR_PR_NUMBER}"
+          issues_url="https://sonarcloud.io/api/issues/search?componentKeys=${project_key}&pullRequest=${SONAR_PR_NUMBER}&resolved=false&ps=500"
+          issues_file="$(mktemp "${RUNNER_TEMP:-/tmp}/sonar-issues.XXXXXX")" || exit 1
+          trap 'rm -f "${issues_file}"' EXIT HUP INT TERM
+
+          if gate_response="$(curl --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 60 -fsS -u "${SONAR_TOKEN}:" "${gate_url}")"; then
+            printf '%s\n' 'SonarQube Cloud quality gate response:'
+            printf '%s\n' "${gate_response}"
+          else
+            printf '%s\n' 'Warning: unable to retrieve SonarQube Cloud quality gate details.' >&2
+          fi
+
+          curl --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 60 -fsS -u "${SONAR_TOKEN}:" "${issues_url}" >"${issues_file}" || {
+            printf '%s\n' 'Error: unable to retrieve unresolved SonarQube Cloud issues.' >&2
+            exit 1
+          }
+
+          python3 - "${issues_file}" <<'PY'
+          import json
+          import sys
+
+          path = sys.argv[1]
+          with open(path, encoding="utf-8") as handle:
+              payload = json.load(handle)
+
+          if not isinstance(payload, dict):
+              print("Error: Sonar issues response must be a JSON object.", file=sys.stderr)
+              sys.exit(1)
+
+          issues = payload.get("issues")
+          total = payload.get("total")
+          if (
+              not isinstance(issues, list)
+              or type(total) is not int
+              or total < 0
+              or total < len(issues)
+              or any(not isinstance(issue, dict) for issue in issues)
+          ):
+              print(
+                  "Error: Sonar issues response must contain a list-valued issues field, "
+                  "a non-negative integer total not smaller than the returned issue count, "
+                  "and object-valued issue entries.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          type_quality = {
+              "BUG": "RELIABILITY",
+              "CODE_SMELL": "MAINTAINABILITY",
+              "VULNERABILITY": "SECURITY",
+          }
+
+          counts = {"RELIABILITY": 0, "MAINTAINABILITY": 0, "SECURITY": 0, "OTHER": 0}
+          rendered = []
+
+          for issue in issues:
+              impacts = issue.get("impacts") or []
+              qualities = sorted(
+                  {
+                      impact.get("softwareQuality")
+                      for impact in impacts
+                      if impact.get("softwareQuality")
+                  }
+              )
+              if not qualities:
+                  qualities = [type_quality.get(issue.get("type"), "OTHER")]
+
+              for quality in qualities:
+                  counts[quality if quality in counts else "OTHER"] += 1
+
+              severity = issue.get("severity") or ",".join(
+                  sorted(
+                      {
+                          impact.get("severity", "")
+                          for impact in impacts
+                          if impact.get("severity")
+                      }
+                  )
+              ) or "UNKNOWN"
+              component = issue.get("component", "unknown")
+              line = issue.get("line")
+              location = f"{component}:{line}" if line else component
+              rendered.append(
+                  f"- {','.join(qualities)} {severity} {issue.get('rule', 'unknown')} "
+                  f"{location} - {issue.get('message', '')}"
+              )
+
+          print(
+              "Sonar unresolved issue summary: "
+              f"total={total} reliability={counts['RELIABILITY']} "
+              f"maintainability={counts['MAINTAINABILITY']} "
+              f"security={counts['SECURITY']} other={counts['OTHER']}"
+          )
+          for line in rendered:
+              print(line)
+
+          if total:
+              if total > len(issues):
+                  print(
+                      f"Only the first {len(issues)} of {total} unresolved issues were returned.",
+                      file=sys.stderr,
+                  )
+              print(
+                  "Error: unresolved Sonar issues remain; reliability, maintainability, "
+                  "and security issues are merge-blocking.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          print("No unresolved Sonar reliability, maintainability, or security issues remain.")
+          PY

@@ -12,12 +12,15 @@ fail() {
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 
+IPSET_ALLOWED_FUNCTION="$(sed -n '/^adguard_ipset_allowed() {$/,/^}$/p' "${SCRIPT_PATH}")"
 CHECK_IPSET_FUNCTION="$(sed -n '/^check_ipset() {$/,/^}$/p' "${SCRIPT_PATH}")"
 MENU_FUNCTION="$(sed -n '/^menu() {$/,/^read_input_dns() {$/p' "${SCRIPT_PATH}" | sed '$d')"
 
+[ -n "${IPSET_ALLOWED_FUNCTION}" ] || fail 'could not extract adguard_ipset_allowed function'
 [ -n "${CHECK_IPSET_FUNCTION}" ] || fail 'could not extract check_ipset function'
 [ -n "${MENU_FUNCTION}" ] || fail 'could not extract menu function'
 
+eval "${IPSET_ALLOWED_FUNCTION}"
 eval "${CHECK_IPSET_FUNCTION}"
 eval "${MENU_FUNCTION}"
 
@@ -29,6 +32,7 @@ BASE_DIR='/tmp/unused'
 HOME='/tmp/unused'
 SCRIPT_LOC='/tmp/unused/installer'
 BRANCH='test'
+ADGUARD_INSTALL_MODE='wan'
 
 for ANSWER in yes no; do
 	LOG="${TMPDIR:-/tmp}/installer-ipset-save-failure.${ANSWER}.$$"
@@ -65,4 +69,43 @@ for ANSWER in yes no; do
 	rm -f "${LOG}" "${SERVICE_LOG}" "${END_LOG}"
 done
 
-printf '%s\n' 'PASS: option 8 stops when the IPSET preference cannot be saved'
+LOG="${TMPDIR:-/tmp}/installer-ipset-lan-mode.$$"
+SERVICE_LOG="${LOG}.service"
+END_LOG="${LOG}.end"
+CONF_LOG="${LOG}.conf"
+: >"${LOG}"
+: >"${SERVICE_LOG}"
+: >"${END_LOG}"
+: >"${CONF_LOG}"
+ADGUARD_INSTALL_MODE='lan'
+# read_yesno fails the test if LAN-mode option 8 prompts for IPSET integration.
+read_yesno() {
+	fail 'LAN-mode option 8 should not prompt for IPSET integration'
+}
+# write_conf appends a configuration key-value pair to the configuration log.
+write_conf() {
+	printf '%s=%s\n' "$1" "$2" >>"${CONF_LOG}"
+}
+# service appends the provided arguments as a single line to the service log.
+service() {
+	printf '%s\n' "$*" >>"${SERVICE_LOG}"
+}
+# PTXT appends the provided text to the log file.
+PTXT() {
+	printf '%s\n' "$*" >>"${LOG}"
+}
+# end_op_message writes the operation status message to the end-operation log.
+end_op_message() {
+	printf '%s\n' "$1" >>"${END_LOG}"
+}
+
+if menu setipset; then
+	fail 'LAN-mode option 8 succeeded instead of refusing IPSET changes'
+fi
+grep -q '^ADGUARD_IPSET="NO"$' "${CONF_LOG}" || fail 'LAN-mode option 8 did not persist ADGUARD_IPSET=NO'
+grep -q 'IPSET integration is disabled in LAN/AP/Bridge mode' "${LOG}" || fail 'LAN-mode option 8 did not explain refusal'
+[ ! -s "${SERVICE_LOG}" ] || fail 'LAN-mode option 8 restarted AdGuardHome'
+[ "$(cat "${END_LOG}")" = '1' ] || fail 'LAN-mode option 8 did not report aborted operation'
+rm -f "${LOG}" "${SERVICE_LOG}" "${END_LOG}" "${CONF_LOG}"
+
+printf '%s\n' 'PASS: option 8 stops when IPSET cannot be saved and refuses LAN-mode IPSET changes'

@@ -29,7 +29,7 @@ on:
         default: ""
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: update-checksums-${{ github.ref }}
@@ -40,6 +40,8 @@ jobs:
     name: Update checksum files
     runs-on: ubuntu-latest
     if: github.ref_type == 'branch'
+    permissions:
+      contents: write
 
     steps:
       - name: Resolve target branch
@@ -72,7 +74,7 @@ jobs:
           echo "target=${target_branch}" >> "${GITHUB_OUTPUT}"
 
       - name: Checkout target branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ steps.branch.outputs.target }}
           fetch-depth: 0
@@ -113,6 +115,6 @@ jobs:
           fi
 
           git status --short -- "${checksum_files[@]}"
-          git add "${checksum_files[@]}"
+          git add -- "${checksum_files[@]}"
           git commit -m "chore: update checksum files"
           git push origin "HEAD:${PUSH_TARGET}"

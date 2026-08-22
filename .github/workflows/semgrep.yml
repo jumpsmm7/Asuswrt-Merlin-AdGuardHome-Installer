@@ -1,0 +1,97 @@
+name: Semgrep Security Scan
+
+on:
+  pull_request:
+    branches: [dev]
+  push:
+    branches: [dev, master, main]
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: Semgrep repository policy scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Semgrep Community Edition
+        shell: sh
+        run: |
+          set -eu
+          python3 -m venv "${RUNNER_TEMP}/semgrep-venv"
+          "${RUNNER_TEMP}/semgrep-venv/bin/pip" install --disable-pip-version-check 'semgrep==1.172.0'
+          printf '%s\n' "${RUNNER_TEMP}/semgrep-venv/bin" >> "${GITHUB_PATH}"
+
+      - name: Verify insecure downloader fixtures
+        shell: sh
+        run: |
+          set -eu
+          fixture_dir="${RUNNER_TEMP}/semgrep-insecure-fixture"
+          mkdir -p "${fixture_dir}"
+          cp tests/fixtures/semgrep/insecure-downloads.sh "${fixture_dir}/installer"
+          semgrep scan --config "${GITHUB_WORKSPACE}/.semgrep.yml" --metrics=off --json "${fixture_dir}/installer" >"${fixture_dir}/results.json"
+          [ "$(grep -o 'asuswrt-no-direct-insecure-curl' "${fixture_dir}/results.json" | wc -l)" -eq 4 ]
+          [ "$(grep -o 'asuswrt-no-direct-insecure-wget' "${fixture_dir}/results.json" | wc -l)" -eq 1 ]
+
+      - name: Verify chmod guardrail fixtures
+        shell: sh
+        run: |
+          set -eu
+          fixture_dir="${RUNNER_TEMP}/semgrep-chmod-fixture"
+          fixture_json="${RUNNER_TEMP}/semgrep-chmod-fixtures.json"
+          mkdir -p "${fixture_dir}"
+          cp tests/fixtures/semgrep/chmod-world-writable.sh "${fixture_dir}/installer"
+          (
+            cd "${fixture_dir}"
+            semgrep scan --config "${GITHUB_WORKSPACE}/.semgrep.yml" --metrics=off --json installer > "${fixture_json}"
+          )
+          python3 - "${fixture_json}" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              results = json.load(handle).get("results", [])
+          matches = [
+              result for result in results
+              if result.get("check_id", "").endswith("asuswrt-no-world-writable-chmod")
+          ]
+          if len(matches) != 8:
+              raise SystemExit(f"expected 8 chmod guardrail fixture matches, found {len(matches)}")
+          PY
+
+      - name: Verify inherited service PATH fixtures
+        shell: sh
+        run: |
+          set -eu
+          fixture_dir="${RUNNER_TEMP}/semgrep-path-fixture"
+          mkdir -p "${fixture_dir}"
+          cp tests/fixtures/semgrep/inherited-service-path.sh "${fixture_dir}/AdGuardHome.sh"
+          semgrep scan --config "${GITHUB_WORKSPACE}/.semgrep.yml" --metrics=off --json "${fixture_dir}/AdGuardHome.sh" >"${fixture_dir}/results.json"
+          [ "$(grep -o 'asuswrt-service-path-must-be-fixed' "${fixture_dir}/results.json" | wc -l)" -eq 3 ]
+
+      - name: Generate Semgrep SARIF
+        shell: sh
+        run: semgrep scan --config .semgrep.yml --metrics=off --sarif --output semgrep.sarif .
+
+      - name: Upload Semgrep results
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep-repository-policy
+
+      - name: Enforce repository security policies
+        shell: sh
+        run: semgrep scan --config .semgrep.yml --metrics=off --error .

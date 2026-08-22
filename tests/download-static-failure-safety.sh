@@ -20,16 +20,25 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}/out/armv7" || fail "could not create test directory"
 
-sed -n '/^append_metadata() {$/,/^}$/p; /^acquire_metadata_publication_lock() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^recover_metadata_publication() {$/,/^}$/p; /^reclaim_stale_metadata_publication_lock() {$/,/^}$/p; /^release_metadata_publication_lock() {$/,/^}$/p; /^archive_publication_owner_is_active() {$/,/^}$/p; /^refresh_unchanged_archive_checksums() {$/,/^}$/p; /^refresh_unchanged_archive_md5() {$/,/^}$/p; /^acquire_archive_publication_state() {$/,/^}$/p; /^publish_archive_with_checksums() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^prune_stale_versioned_archives() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p; /^write_sha256sum_file() {$/,/^}$/p' \
+sed -n '/^append_metadata() {$/,/^}$/p; /^acquire_metadata_publication_lock() {$/,/^}$/p; /^calc_sum() {$/,/^}$/p; /^download_arch() {$/,/^}$/p; /^recover_archive_publication() {$/,/^}$/p; /^recover_metadata_publication() {$/,/^}$/p; /^reclaim_stale_metadata_publication_lock() {$/,/^}$/p; /^release_metadata_publication_lock() {$/,/^}$/p; /^archive_publication_owner_is_active() {$/,/^}$/p; /^refresh_unchanged_archive_checksums() {$/,/^}$/p; /^refresh_unchanged_archive_md5() {$/,/^}$/p; /^acquire_archive_publication_state() {$/,/^}$/p; /^publish_archive_with_checksums() {$/,/^}$/p; /^publish_archive_with_md5() {$/,/^}$/p; /^prune_stale_versioned_archives() {$/,/^}$/p; /^publish_metadata_files() {$/,/^}$/p; /^write_md5sum_file() {$/,/^}$/p; /^write_sha256sum_file() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail "static download helpers were not found"
 
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
+for helper in append_metadata acquire_metadata_publication_lock calc_sum download_arch recover_archive_publication recover_metadata_publication reclaim_stale_metadata_publication_lock release_metadata_publication_lock archive_publication_owner_is_active refresh_unchanged_archive_checksums refresh_unchanged_archive_md5 acquire_archive_publication_state publish_archive_with_checksums publish_archive_with_md5 prune_stale_versioned_archives publish_metadata_files write_md5sum_file write_sha256sum_file; do
+	type "${helper}" >/dev/null 2>&1 || fail "static download helper extraction missing ${helper}"
+done
 
 FAILED=0
+# bad_sum prints an invalid checksum value for testing checksum validation.
+bad_sum() { printf '%s\n' not-a-digest; }
+if calc_sum bad_sum "${TEST_ROOT}/unused" >/dev/null 2>&1; then
+	fail "calc_sum accepted malformed checksum output"
+fi
 
 printf '%s\n' "known checksum" >"${TEST_ROOT}/archive.md5sum"
+# chmod always fails with status 1.
 chmod() {
 	return 1
 }
