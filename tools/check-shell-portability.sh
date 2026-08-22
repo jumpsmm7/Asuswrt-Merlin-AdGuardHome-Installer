@@ -11,7 +11,10 @@ SANITIZED_FILE="$(mktemp "${TMPDIR:-/tmp}/shell-portability-sanitized.XXXXXX")" 
 }
 
 # cleanup removes checker scratch files.
-cleanup() { rm -f "${SCRIPT_LIST}" "${SANITIZED_FILE}"; }
+cleanup() {
+	rm -f "${SCRIPT_LIST}" "${SANITIZED_FILE}"
+	return 0
+}
 
 # report_match reports a policy violation when the sanitized shell source matches an ERE.
 report_match() {

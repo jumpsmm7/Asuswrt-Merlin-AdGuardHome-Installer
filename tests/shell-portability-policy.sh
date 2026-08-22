@@ -20,6 +20,11 @@ fail() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
+# The checker is analyzed by Sonar as production shell, so its cleanup helper
+# must retain an explicit successful return rather than relying on rm status.
+sed -n '/^cleanup() {$/,/^}$/p' "${CHECKER}" | grep -q '^[[:space:]]*return 0$' ||
+	fail 'portability checker cleanup helper lacks an explicit return'
+
 # check_rejected requires the checker to reject one negative fixture.
 check_rejected() {
 	fixture="$1"
