@@ -70,11 +70,30 @@ case "${QODO_DIR}" in
     exit 1
     ;;
 esac
-(umask 077 && mkdir -p "${QODO_DIR}") || exit 1
-chmod 700 "${QODO_DIR}" || exit 1
-if [ ! -e "${QODO_CONFIG}" ]; then
+if [ -e "${QODO_DIR}" ]; then
+  if [ ! -d "${QODO_DIR}" ]; then
+    printf '%s\n' 'Error: QODO_CONFIG parent must be a directory' >&2
+    exit 1
+  fi
+  QODO_DIR_UID="$(stat -c '%u' "${QODO_DIR}" 2>/dev/null || stat -f '%u' "${QODO_DIR}" 2>/dev/null)" || exit 1
+  QODO_DIR_MODE="$(stat -c '%a' "${QODO_DIR}" 2>/dev/null || stat -f '%Lp' "${QODO_DIR}" 2>/dev/null)" || exit 1
+  if [ "${QODO_DIR_UID}" != "$(id -u)" ] || [ "${QODO_DIR_MODE}" != 700 ]; then
+    printf '%s\n' 'Error: existing QODO_CONFIG parent must be owned by the current user with mode 700' >&2
+    exit 1
+  fi
+else
+  (umask 077 && mkdir -p "${QODO_DIR}") || exit 1
+  chmod 700 "${QODO_DIR}" || exit 1
+fi
+if [ -e "${QODO_CONFIG}" ]; then
+  if [ ! -f "${QODO_CONFIG}" ]; then
+    printf '%s\n' 'Error: existing QODO_CONFIG must be a regular file' >&2
+    exit 1
+  fi
+else
   (umask 077 && printf '%s\n' '{}' >"${QODO_CONFIG}") || exit 1
 fi
+[ -f "${QODO_CONFIG}" ] || exit 1
 chmod 600 "${QODO_CONFIG}" || exit 1
 ```
 
