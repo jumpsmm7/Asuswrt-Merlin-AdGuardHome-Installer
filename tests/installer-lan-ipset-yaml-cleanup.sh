@@ -652,7 +652,9 @@ awk() {
 	PATH="${STUB_DIR}:${PATH}"
 	CHOWN_LOG="${CHOWN_LOG}"
 	export PATH CHOWN_LOG
-	hash -r
+	chown() {
+		printf '%s %s\n' "$1" "$2" >>"${CHOWN_LOG}"
+	}
 	adguardhome_yaml_remove_ipset_file
 ) || fail 'nvram username YAML ownership cleanup failed'
 grep -q "daemon:root ${YAML_FILE}" "${CHOWN_LOG}" || fail 'YAML ownership did not use nvram http_username'
@@ -672,7 +674,7 @@ chmod 755 "${STUB_DIR}/chown" || fail 'could not chmod failing chown stub'
 if (
 	PATH="${STUB_DIR}:${PATH}"
 	export PATH
-	hash -r
+	chown() { return 1; }
 	adguardhome_yaml_remove_ipset_file
 ); then
 	fail 'cleanup succeeded despite failing YAML chown'
@@ -699,7 +701,9 @@ chmod 755 "${STUB_DIR}/nvram" || fail 'could not chmod empty nvram stub'
 	PATH="${STUB_DIR}:${PATH}"
 	CHOWN_LOG="${CHOWN_LOG}"
 	export PATH CHOWN_LOG
-	hash -r
+	chown() {
+		printf '%s %s\n' "$1" "$2" >>"${CHOWN_LOG}"
+	}
 	adguardhome_yaml_remove_ipset_file
 ) || fail 'empty nvram YAML ownership cleanup failed'
 grep -q "root:root ${YAML_FILE}" "${CHOWN_LOG}" || fail 'YAML ownership did not fall back to root for empty nvram username'
