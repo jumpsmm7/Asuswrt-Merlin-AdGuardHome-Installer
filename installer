@@ -1400,16 +1400,23 @@ bcrypt_tool_available() {
 
 ensure_opkg_package() {
 	_pkg="$1"
+	shift
 	case "${_pkg}" in
 		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.+-]*)
 			return 1
 			;;
 	esac
+	for _option in "$@"; do
+		case "${_option}" in
+			--force-depends | --force-overwrite) ;;
+			*) return 1 ;;
+		esac
+	done
 	if opkg_pkg_installed "${_pkg}"; then
 		return 0
 	fi
 
-	if ! opkg_clean_env install "${_pkg}" >/dev/null 2>&1; then
+	if ! opkg_clean_env install "${_pkg}" "$@" >/dev/null 2>&1; then
 		return 1
 	fi
 	opkg_pkg_installed "${_pkg}"
@@ -1431,6 +1438,42 @@ sha256sum_available() {
 	if ai_have_cmd openssl && openssl dgst -sha256 /dev/null >/dev/null 2>&1; then
 		return 0
 	fi
+	return 1
+}
+
+jq_executable_usable() {
+	[ -n "${1:-}" ] && [ -x "$1" ] || return 1
+	printf '%s\n' '{}' | "$1" -e . >/dev/null 2>&1
+}
+
+jq_available() {
+	local resolved_jq
+	resolved_jq="$(which jq 2>/dev/null)" || resolved_jq=""
+	if jq_executable_usable "${resolved_jq}"; then
+		return 0
+	fi
+	if [ "${resolved_jq}" != "/opt/bin/jq" ] && jq_executable_usable /opt/bin/jq; then
+		return 0
+	fi
+	return 1
+}
+
+ensure_jq_tool() {
+	if jq_available; then
+		return 0
+	fi
+	ptxt_warn "No usable jq executable was found; JSON parsing support is required."
+	PTXT "${INFO} Installing Entware package: opkg install jq-full --force-depends --force-overwrite"
+	ptxt_step "Installing Entware jq-full package."
+	if ! ensure_opkg_package jq-full --force-depends --force-overwrite; then
+		ptxt_fail "Unable to install Entware jq-full."
+		return 1
+	fi
+	if jq_available; then
+		ptxt_ok "jq JSON parsing support is available."
+		return 0
+	fi
+	ptxt_fail "jq-full was installed, but jq is still unusable."
 	return 1
 }
 
@@ -2113,10 +2156,11 @@ preflight_action_requires_entware() {
 
 preflight_action_requires_jq() {
 	case "${1:-install}" in
-		*)
-			return 1
+		"" | install | update | reconfigure | restore | 1 | 4 | [rR])
+			return 0
 			;;
 	esac
+	return 1
 }
 
 preflight_action_requires_password_hash() {
@@ -2379,20 +2423,33 @@ preflight_check_entware_package() {
 }
 
 preflight_check_jq() {
-	local allow_entware jq_path result
+	local allow_entware entware_result jq_path result stock_result
 	allow_entware="$1"
 	jq_path="$(which jq 2>/dev/null)" || jq_path=""
 	result="FAIL"
-	if [ -x /usr/bin/jq ]; then
+	stock_result="missing"
+	entware_result="missing"
+	[ -z "${jq_path}" ] || [ ! -e "${jq_path}" ] || stock_result="unusable"
+	[ ! -e /opt/bin/jq ] || entware_result="unusable"
+	if jq_executable_usable "${jq_path}"; then
 		result="OK"
+		stock_result="OK"
+	fi
+	if jq_executable_usable /opt/bin/jq; then
+		entware_result="OK"
+		if [ "${allow_entware}" = "1" ]; then
+			result="OK"
+		fi
 	fi
 	PTXT "preflight.jq.required=yes"
 	PTXT "preflight.jq.which=${jq_path:-missing}"
-	PTXT "preflight.jq.stock=$(if [ -x /usr/bin/jq ]; then PTXT OK; else PTXT missing; fi)"
+	PTXT "preflight.jq.stock=${stock_result}"
 	if [ "${allow_entware}" = "1" ]; then
-		[ "${result}" = "OK" ] || [ ! -x /opt/bin/jq ] || result="OK"
-		PTXT "preflight.jq.entware=$(if [ -x /opt/bin/jq ]; then PTXT OK; else PTXT missing; fi)"
-		PTXT "preflight.jq.install_hint=opkg install jq"
+		PTXT "preflight.jq.entware=${entware_result}"
+		if [ "${result}" != "OK" ]; then
+			preflight_check_entware_package jq-full || true
+			PTXT "preflight.jq.install_hint=opkg install jq-full --force-depends --force-overwrite"
+		fi
 	else
 		PTXT "preflight.jq.entware=not_checked"
 	fi
@@ -8052,6 +8109,10 @@ menu() {
 	case "${CHOSEN}" in
 		"1" | "install" | "update")
 			ptxt_phase "Selecting install or update operation."
+			ensure_jq_tool || {
+				end_op_message 1
+				return 1
+			}
 			if [ "${CHOSEN}" = "update" ]; then
 				ptxt_step "Starting requested AdGuardHome update."
 				AUTO_UPDATE="update"
@@ -8079,7 +8140,15 @@ menu() {
 			;;
 		"4" | "reconfigure")
 			PTXT "${INFO} This operation allows you to configure AdGuardHome"
-			if read_yesno "Do you want to proceed?"; then setup_AdGuardHome reconfig; else end_op_message 1; fi
+			if read_yesno "Do you want to proceed?"; then
+				ensure_jq_tool || {
+					end_op_message 1
+					return 1
+				}
+				setup_AdGuardHome reconfig
+			else
+				end_op_message 1
+			fi
 			;;
 		"5" | "setamtmupdate")
 			PTXT "${INFO} This operation allows you to enable or disable AMTM's ability to manage updates for this script and by extension, AdGuardHome." \
@@ -8196,6 +8265,10 @@ menu() {
 			PTXT "${INFO} This operation will restore everything!"
 			if read_yesno "Do you want to continue?"; then
 				ptxt_ok "Restore operation confirmed."
+				ensure_jq_tool || {
+					end_op_message 1
+					return 1
+				}
 				backup_restore RESTORE
 			else
 				ptxt_warn "Restore operation declined."
@@ -8945,6 +9018,7 @@ cli_run() {
 				return 0
 			}
 			cli_require_yes || return 1
+			ensure_jq_tool || return 1
 			cli_enable_assume_yes
 			cli_backup_restore_file "${restore_file}"
 			operation_status=$?
@@ -9041,6 +9115,7 @@ cli_run() {
 				return 0
 			}
 			cli_require_yes || return 1
+			ensure_jq_tool || return 1
 			if [ ! -f "${AGH_FILE}" ]; then
 				PTXT "${ERROR} Non-interactive install cannot complete fresh first-run setup."
 				PTXT "${ERROR} Run the interactive installer for fresh installs, or use restore --file with an existing backup."

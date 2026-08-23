@@ -212,6 +212,7 @@ Allowed Entware packages currently referenced by the installer are:
 * `coreutils-sha256sum`
 * `go`
 * `go_nohf`
+* `jq-full`
 * `python3`
 * `python3-bcrypt`
 

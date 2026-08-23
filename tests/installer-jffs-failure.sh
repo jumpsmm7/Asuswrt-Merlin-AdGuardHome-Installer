@@ -35,6 +35,7 @@ cat >"${TEST_ROOT}/test_cli" <<EOF
 check_jffs_enabled() { : >"${TEST_ROOT}/cli-jffs-checked"; return 1; }
 CLI_DRY_RUN=0
 cli_require_yes() { return 0; }
+ensure_jq_tool() { return 0; }
 AGH_FILE="${TEST_ROOT}/AdGuardHome"
 : >"\${AGH_FILE}"
 ADGUARD_INSTALL_MODE=lan
