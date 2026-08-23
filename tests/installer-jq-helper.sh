@@ -9,7 +9,10 @@ FUNCTIONS_FILE="${TMP_ROOT}/functions"
 ENTWARE_JQ="${TMP_ROOT}/opt/bin/jq"
 
 cleanup() { rm -rf "${TMP_ROOT}"; }
-fail() { printf '%s\n' "FAIL: $*" >&2; exit 1; }
+fail() {
+	printf '%s\n' "FAIL: $*" >&2
+	exit 1
+}
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
