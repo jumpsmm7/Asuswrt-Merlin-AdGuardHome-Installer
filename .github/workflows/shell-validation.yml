@@ -59,6 +59,9 @@ jobs:
       - name: Run checksum output validation regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/static-checksum-output-validation.sh
 
+      - name: Run installer jq dependency regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-jq-helper.sh
+
       - name: Run mkdir reaper owner publication regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-reaper-owner-publication.sh
 

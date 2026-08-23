@@ -203,8 +203,10 @@ QODO_PACKAGES=$(awk '
 
 # --- jq: router-stock binary, not an installed Entware package -------------
 require_text "${CANONICAL_AGENTS}" '`jq`: `/usr/bin/jq`' 'jq router-stock path'
-grep -Fq '[ -x /usr/bin/jq ]' "${INSTALLER}" ||
-	fail "${INSTALLER}: expected the jq preflight check to probe the router-stock path /usr/bin/jq documented in ${CANONICAL_AGENTS}"
+grep -Fq 'jq_path="$(which jq 2>/dev/null)"' "${INSTALLER}" ||
+	fail "${INSTALLER}: expected the jq preflight check to honor the documented stock-first installer PATH"
+grep -Fq 'jq_executable_usable "${jq_path}"' "${INSTALLER}" ||
+	fail "${INSTALLER}: expected the jq preflight check to functionally probe the PATH-resolved jq"
 printf '%s\n' "${INSTALLER_PACKAGES}" | grep -Fxq 'jq' &&
 	fail "${INSTALLER}: jq is opkg-managed like an Entware package, contradicting its router-stock classification"
 
