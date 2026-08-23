@@ -48,8 +48,8 @@ fi
 
 grep -q 'preflight_check_jq "${entware_required}"' "${SCRIPT_PATH}" ||
 	fail 'preflight jq check must receive the Entware-required state'
-grep -q 'preflight.jq.install_hint=opkg install jq-full --force-depends --force-overwrite' "${SCRIPT_PATH}" ||
-	fail 'preflight jq check must report the Entware install hint'
+grep -q 'preflight_check_entware_package jq-full "opkg install jq-full --force-depends --force-overwrite"' "${SCRIPT_PATH}" ||
+	fail 'preflight jq check must report one canonical Entware install hint'
 grep -q 'preflight_check_stock_commands || failed="1"' "${SCRIPT_PATH}" ||
 	fail 'preflight must check the broader stock command set'
 grep -q 'preflight_action_requires_downloader "${action}"' "${SCRIPT_PATH}" ||

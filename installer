@@ -1465,7 +1465,12 @@ ensure_jq_tool() {
 	ptxt_warn "No usable jq executable was found; JSON parsing support is required."
 	PTXT "${INFO} Installing Entware package: opkg install jq-full --force-depends --force-overwrite"
 	ptxt_step "Installing Entware jq-full package."
-	if ! ensure_opkg_package jq-full --force-depends --force-overwrite; then
+	if opkg_pkg_installed jq-full; then
+		opkg_clean_env install jq-full --force-depends --force-overwrite >/dev/null 2>&1 || {
+			ptxt_fail "Unable to repair Entware jq-full."
+			return 1
+		}
+	elif ! ensure_opkg_package jq-full --force-depends --force-overwrite; then
 		ptxt_fail "Unable to install Entware jq-full."
 		return 1
 	fi
@@ -2410,15 +2415,16 @@ preflight_check_entware() {
 }
 
 preflight_check_entware_package() {
-	local pkg result
+	local install_hint pkg result
 	pkg="$1"
+	install_hint="${2:-opkg install ${pkg}}"
 	result="MISSING"
 	if opkg_pkg_installed "${pkg}"; then
 		result="OK"
 	fi
 	PTXT "preflight.entware.package.${pkg}.required=yes"
 	PTXT "preflight.entware.package.${pkg}.result=${result}"
-	[ "${result}" = "OK" ] || PTXT "preflight.entware.package.${pkg}.install_hint=opkg install ${pkg}"
+	[ "${result}" = "OK" ] || PTXT "preflight.entware.package.${pkg}.install_hint=${install_hint}"
 	[ "${result}" = "OK" ]
 }
 
@@ -2429,10 +2435,12 @@ preflight_check_jq() {
 	result="FAIL"
 	stock_result="missing"
 	entware_result="missing"
-	[ -z "${jq_path}" ] || [ ! -e "${jq_path}" ] || stock_result="unusable"
+	[ ! -e /usr/bin/jq ] || stock_result="unusable"
 	[ ! -e /opt/bin/jq ] || entware_result="unusable"
 	if jq_executable_usable "${jq_path}"; then
 		result="OK"
+	fi
+	if jq_executable_usable /usr/bin/jq; then
 		stock_result="OK"
 	fi
 	if jq_executable_usable /opt/bin/jq; then
@@ -2447,8 +2455,7 @@ preflight_check_jq() {
 	if [ "${allow_entware}" = "1" ]; then
 		PTXT "preflight.jq.entware=${entware_result}"
 		if [ "${result}" != "OK" ]; then
-			preflight_check_entware_package jq-full || true
-			PTXT "preflight.jq.install_hint=opkg install jq-full --force-depends --force-overwrite"
+			preflight_check_entware_package jq-full "opkg install jq-full --force-depends --force-overwrite" || true
 		fi
 	else
 		PTXT "preflight.jq.entware=not_checked"
@@ -8109,11 +8116,11 @@ menu() {
 	case "${CHOSEN}" in
 		"1" | "install" | "update")
 			ptxt_phase "Selecting install or update operation."
-			ensure_jq_tool || {
-				end_op_message 1
-				return 1
-			}
 			if [ "${CHOSEN}" = "update" ]; then
+				ensure_jq_tool || {
+					end_op_message 1
+					return 1
+				}
 				ptxt_step "Starting requested AdGuardHome update."
 				AUTO_UPDATE="update"
 				inst_AdGuardHome "${AUTO_UPDATE:-update}"
@@ -8123,6 +8130,10 @@ menu() {
 					"${INFO} Also some start scripts will be installed/modified as required."
 				if read_yesno "Do you want to install AdGuardHome?"; then
 					ptxt_ok "Install operation confirmed."
+					ensure_jq_tool || {
+						end_op_message 1
+						return 1
+					}
 					inst_AdGuardHome "${AUTO_UPDATE:-install}"
 				else
 					ptxt_warn "Install operation declined."
@@ -9115,7 +9126,6 @@ cli_run() {
 				return 0
 			}
 			cli_require_yes || return 1
-			ensure_jq_tool || return 1
 			if [ ! -f "${AGH_FILE}" ]; then
 				PTXT "${ERROR} Non-interactive install cannot complete fresh first-run setup."
 				PTXT "${ERROR} Run the interactive installer for fresh installs, or use restore --file with an existing backup."
@@ -9131,6 +9141,7 @@ cli_run() {
 			if [ "${ADGUARD_INSTALL_MODE}" = "wan" ]; then
 				check_dns_environment 0 || return 1
 			fi
+			ensure_jq_tool || return 1
 			[ -n "${adguard_branch}" ] || adguard_branch="$(conf_value ADGUARD_BRANCH)"
 			[ -n "${adguard_branch}" ] || adguard_branch="release"
 			cli_adguard_branch_is_valid "${adguard_branch}" || {

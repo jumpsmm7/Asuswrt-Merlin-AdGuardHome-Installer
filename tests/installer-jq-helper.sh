@@ -43,6 +43,7 @@ run_case() {
 	install_status="$4"
 	post_install_status="$5"
 	expected_status="$6"
+	package_registered="${7:-0}"
 	case_root="${TMP_ROOT}/${case_name}"
 	mkdir -p "${case_root}" || return 1
 	rm -f "${TMP_ROOT}/bin/jq" "${ENTWARE_JQ}"
@@ -61,6 +62,18 @@ run_case() {
 			[ "$1" = jq ] || return 1
 			[ -x "${TMP_ROOT}/bin/jq" ] || return 1
 			printf '%s\n' "${TMP_ROOT}/bin/jq"
+		}
+		opkg_pkg_installed() {
+			[ "$1" = jq-full ] && [ "${package_registered}" -eq 1 ]
+		}
+		opkg_clean_env() {
+			[ "$#" -eq 4 ] || return 1
+			[ "$1" = install ] || return 1
+			[ "$2" = jq-full ] || return 1
+			[ "$3" = --force-depends ] || return 1
+			[ "$4" = --force-overwrite ] || return 1
+			[ "${install_status}" -eq 0 ] || return 1
+			make_jq "${ENTWARE_JQ}" "${post_install_status}"
 		}
 		ensure_opkg_package() {
 			[ "$#" -eq 3 ] || return 1
@@ -82,5 +95,6 @@ run_case broken-present 1 missing 1 1 1
 run_case install-ok missing missing 0 0 0
 run_case install-failed missing missing 1 0 1
 run_case install-unusable missing missing 0 1 1
+run_case repair-installed-unusable missing 1 0 0 0 1
 
 printf '%s\n' 'PASS: jq helpers require functional JSON parsing and jq-full installation'

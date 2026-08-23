@@ -79,6 +79,7 @@ GO_ENVIRONMENT_RAN_FILE="${TMP_ROOT}/go-environment.ran"
 LAN_BRIDGE_DOC_RAN_FILE="${TMP_ROOT}/lan-bridge-doc.ran"
 PRIVATE_IPV4_FALLBACK_RAN_FILE="${TMP_ROOT}/private-ipv4-fallback.ran"
 PROCESS_SIGNALING_RAN_FILE="${TMP_ROOT}/process-signaling.ran"
+JQ_HELPER_RAN_FILE="${TMP_ROOT}/jq-helper.ran"
 (
 	OPTIONAL_DATABASE_STATUS=0
 	# id prints 0 to simulate a root user ID in privileged-command tests.
@@ -117,6 +118,10 @@ PROCESS_SIGNALING_RAN_FILE="${TMP_ROOT}/process-signaling.ran"
 				: >"${LAN_BRIDGE_DOC_RAN_FILE}"
 				return 0
 				;;
+			tests/installer-jq-helper.sh)
+				: >"${JQ_HELPER_RAN_FILE}"
+				return 0
+				;;
 		esac
 		return 1
 	}
@@ -129,6 +134,8 @@ PROCESS_SIGNALING_RAN_FILE="${TMP_ROOT}/process-signaling.ran"
 	run_check 'AdGuardHome process signaling regression' sh tests/rc-process-signaling.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'LAN bridge discovery documentation consistency regression' sh tests/lan-bridge-discovery-doc-consistency.sh || exit 1
+	[ "${FAILED}" -eq 0 ] || exit 1
+	run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'AdGuardHome optional database link regression' run_privileged_regression_check tests/optional-database-links.sh 'optional database link regression' >"${OPTIONAL_DATABASE_OUT_FILE}" 2>&1
 	[ "$?" -eq 0 ] || exit 1
@@ -144,6 +151,7 @@ PROCESS_SIGNALING_RAN_FILE="${TMP_ROOT}/process-signaling.ran"
 [ -f "${PRIVATE_IPV4_FALLBACK_RAN_FILE}" ] || fail 'private IPv4 fallback regression command was not invoked'
 [ -f "${PROCESS_SIGNALING_RAN_FILE}" ] || fail 'process signaling regression command was not invoked'
 [ -f "${LAN_BRIDGE_DOC_RAN_FILE}" ] || fail 'LAN bridge documentation regression command was not invoked'
+[ -f "${JQ_HELPER_RAN_FILE}" ] || fail 'installer jq helper regression command was not invoked'
 [ -f "${OPTIONAL_DATABASE_RAN_FILE}" ] || fail 'optional database-link regression command was not invoked'
 grep -Fq 'PASS: optional database link tests passed' "${OPTIONAL_DATABASE_OUT_FILE}" ||
 	fail 'optional database-link regression output was not forwarded'
