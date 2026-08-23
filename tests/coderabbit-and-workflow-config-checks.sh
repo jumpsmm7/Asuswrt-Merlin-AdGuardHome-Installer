@@ -12,6 +12,8 @@ CODEX_PROMPT='.github/prompts/codex-code-improvement.md'
 WORKFLOW='.github/workflows/code-quality.yml'
 REVIEW_WORKFLOW='.github/workflows/code-quality-review.yml'
 SHELL_VALIDATION_WORKFLOW='.github/workflows/shell-validation.yml'
+LOCAL_QUALITY_RUNNER='tools/code-quality.sh'
+LOCAL_QUALITY_TEST='tests/code-quality-checks.sh'
 CACHE_WORKFLOW='.github/workflows/cache-adguardhome-static.yml'
 SCORECARD_WORKFLOW='.github/workflows/scorecard.yml'
 SONAR_REWRITE='.github/scripts/fix-sonar-shell-parse.py'
@@ -213,6 +215,14 @@ grep -Fq 'sh tools/update-checksums.sh AdGuardHome.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: Sonar parser validation must regenerate AdGuardHome.sh checksums before comparison"
 grep -Fq 'busybox ash tests/installer-jq-helper.sh' "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: expected the installer jq dependency regression to run with BusyBox ash"
+grep -Fq "run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh" "${LOCAL_QUALITY_RUNNER}" ||
+	fail "${LOCAL_QUALITY_RUNNER}: expected the installer jq dependency regression in the local quality matrix"
+grep -Fq 'tests/installer-jq-helper.sh)' "${LOCAL_QUALITY_TEST}" ||
+	fail "${LOCAL_QUALITY_TEST}: expected mock dispatch for the installer jq dependency regression"
+grep -Fq "run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh" "${LOCAL_QUALITY_TEST}" ||
+	fail "${LOCAL_QUALITY_TEST}: expected the installer jq dependency regression dispatch to be exercised"
+grep -Fq '[ -f "${JQ_HELPER_RAN_FILE}" ]' "${LOCAL_QUALITY_TEST}" ||
+	fail "${LOCAL_QUALITY_TEST}: expected an observable assertion that the installer jq regression ran"
 grep -Fq 'ref: ${{ github.event.pull_request.head.sha }}' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: Sonar parser validation must check the immutable pull-request head SHA"
 grep -Fq 'persist-credentials: false' "${WORKFLOW}" ||
