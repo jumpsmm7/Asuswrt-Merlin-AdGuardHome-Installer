@@ -67,19 +67,21 @@ run_case() {
 			[ "$1" = jq-full ] && [ "${package_registered}" -eq 1 ]
 		}
 		opkg_clean_env() {
-			[ "$#" -eq 4 ] || return 1
+			[ "$#" -eq 5 ] || return 1
 			[ "$1" = install ] || return 1
 			[ "$2" = jq-full ] || return 1
 			[ "$3" = --force-depends ] || return 1
 			[ "$4" = --force-overwrite ] || return 1
+			[ "$5" = --force-reinstall ] || return 1
 			[ "${install_status}" -eq 0 ] || return 1
 			make_jq "${ENTWARE_JQ}" "${post_install_status}"
 		}
 		ensure_opkg_package() {
-			[ "$#" -eq 3 ] || return 1
+			[ "$#" -eq 4 ] || return 1
 			[ "$1" = jq-full ] || return 1
 			[ "$2" = --force-depends ] || return 1
 			[ "$3" = --force-overwrite ] || return 1
+			[ "$4" = --force-reinstall ] || return 1
 			[ "${install_status}" -eq 0 ] || return 1
 			make_jq "${ENTWARE_JQ}" "${post_install_status}"
 		}

@@ -48,7 +48,7 @@ fi
 
 grep -q 'preflight_check_jq "${entware_required}"' "${SCRIPT_PATH}" ||
 	fail 'preflight jq check must receive the Entware-required state'
-grep -q 'preflight_check_entware_package jq-full "opkg install jq-full --force-depends --force-overwrite"' "${SCRIPT_PATH}" ||
+grep -q 'preflight_check_entware_package jq-full "opkg install jq-full --force-depends --force-overwrite --force-reinstall"' "${SCRIPT_PATH}" ||
 	fail 'preflight jq check must report one canonical Entware install hint'
 grep -q 'preflight_check_stock_commands || failed="1"' "${SCRIPT_PATH}" ||
 	fail 'preflight must check the broader stock command set'
@@ -72,7 +72,7 @@ grep -q 'preflight_check_router_eligibility || failed="1"' "${SCRIPT_PATH}" ||
 	fail 'preflight must check router eligibility for actionable flows'
 grep -q 'preflight_check_entware_package coreutils-sha256sum || true' "${SCRIPT_PATH}" ||
 	fail 'preflight must keep coreutils-sha256sum package guidance from satisfying SHA-256 support'
-grep -q 'preflight.entware.password_hash.install_hint=opkg install python3 python3-bcrypt' "${SCRIPT_PATH}" ||
+grep -q 'preflight.entware.password_hash.install_hint=opkg install python3 python3-bcrypt --force-depends --force-overwrite --force-reinstall' "${SCRIPT_PATH}" ||
 	fail 'preflight must report password hashing package guidance'
 grep -q 'python_bcrypt_available || bcrypt_tool_available' "${SCRIPT_PATH}" ||
 	fail 'preflight must verify bcrypt-tool before reporting password hashing support'

@@ -163,6 +163,8 @@ Entware is an expected dependency for this installer. Existing installer/service
 
 Do not add unrelated Entware dependencies casually. If a new Entware package is needed, update the allowed package list in this section in the same change, clearly separate stock-router code from Entware-dependent code, and include or preserve the required `opkg install ...` step.
 
+Installer-managed Entware package installations use the canonical option set `--force-depends --force-overwrite --force-reinstall`. Preserve all three options for every `ensure_opkg_package` call, direct repair install, user-facing install command, and preflight install hint, including `jq-full`.
+
 Allowed Entware packages currently referenced by the installer are:
 
 * `apache`

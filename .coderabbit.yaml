@@ -124,6 +124,10 @@ reviews:
         - Prefer a minimal fix over a broad refactor.
         - When a checksum-covered runtime artifact changes, verify both its
           `.md5sum` and `.sha256sum` sidecars are updated.
+        - When Entware package installation changes, require the canonical
+          `--force-depends --force-overwrite --force-reinstall` options on all
+          installer-managed package calls, repair commands, and install hints,
+          including `jq-full`.
         - Do not duplicate findings already reported by CI unless the CI result
           reveals a distinct root cause.
         - Do not claim a theoretical issue without identifying a reachable

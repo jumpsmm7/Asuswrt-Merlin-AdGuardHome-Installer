@@ -327,7 +327,7 @@ sh installer unusedblocklists
 The analyzer requires Entware Python 3. If it is not already installed and you want this feature, install it after Entware is available:
 
 ```sh
-opkg install python3 coreutils-sha256sum
+opkg install python3 coreutils-sha256sum --force-depends --force-overwrite --force-reinstall
 ```
 
 Review analyzer output carefully. A list reported as unused had no matching query-log hits during the analyzed window; that does not prove the list is unnecessary for all future traffic.

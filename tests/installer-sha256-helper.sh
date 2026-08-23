@@ -29,7 +29,7 @@ grep -q 'downloads will require matching MD5 metadata' "${SCRIPT_PATH}" || fail 
 grep -q 'AdGuard Home archive was verified through the intentional legacy-compatible MD5 verification path' "${SCRIPT_PATH}" || fail 'package install does not report successful channel MD5 fallback'
 grep -q 'ensure_blocklist_analyzer_dependencies || return 1' "${SCRIPT_PATH}" || fail 'option 9 does not require dependency checks before verification'
 grep -q 'ensure_sha256sum_tool || return 1' "${SCRIPT_PATH}" || fail 'blocklist dependency helper does not require SHA-256 support'
-grep -q 'if ! ensure_opkg_package python3 || \[ ! -x /opt/bin/python3 \]' "${SCRIPT_PATH}" || fail 'option 9 no longer requires Entware python3'
+grep -q 'if ! ensure_opkg_package python3 --force-depends --force-overwrite --force-reinstall || \[ ! -x /opt/bin/python3 \]' "${SCRIPT_PATH}" || fail 'option 9 no longer requires Entware python3 with canonical install options'
 grep -q 'readonly BLOCKLIST_ANALYZER_FILE="${TARG_DIR}/blocklist_analyzer.py"' "${SCRIPT_PATH}" ||
 	fail 'blocklist analyzer is not installed under the AdGuardHome target directory'
 grep -q 'readonly BLOCKLIST_ANALYZER_URL="https://gist.githubusercontent.com/graysky2/8035291d1bf87b8fe3693668965337e1/raw/a4be7655095d6ff880c2f3748964b825d7c45bd2/blocklilst_analyzer.py"' "${SCRIPT_PATH}" ||

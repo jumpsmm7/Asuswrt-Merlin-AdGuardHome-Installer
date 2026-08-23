@@ -24,6 +24,9 @@ Review scope:
   path actually introduces that requirement.
 - Check whether changed installer/service artifacts need matching `.md5sum` and
   `.sha256sum` updates.
+- Require installer-managed Entware package calls, repair commands, and install
+  hints to preserve `--force-depends --force-overwrite --force-reinstall`,
+  including for `jq-full`.
 - Consider whether changes remain compatible with constrained router environments.
 
 Useful local checks:
