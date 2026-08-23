@@ -48,6 +48,9 @@ fi
 
 grep -q 'preflight_check_jq "${entware_required}"' "${SCRIPT_PATH}" ||
 	fail 'preflight jq check must receive the Entware-required state'
+if grep -q 'ensure_jq_tool ||' "${SCRIPT_PATH}"; then
+	fail 'installer actions must not require jq when no action consumes JSON'
+fi
 grep -q 'preflight.jq.install_hint=opkg install jq-full --force-depends --force-overwrite' "${SCRIPT_PATH}" ||
 	fail 'preflight jq check must report the Entware install hint'
 grep -q 'preflight_check_stock_commands || failed="1"' "${SCRIPT_PATH}" ||
@@ -330,17 +333,6 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 		done
 	}
 
-	# assert_jq_required verifies that each specified action requires jq.
-	assert_jq_required() {
-		local action
-		for action in "$@"; do
-			if ! preflight_action_requires_jq "${action}"; then
-				printf '%s\n' "expected jq requirement for action: ${action}" >&2
-				exit 1
-			fi
-		done
-	}
-
 	# assert_jq_skipped verifies that the specified actions do not require jq.
 	assert_jq_skipped() {
 		local action
@@ -518,8 +510,7 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 	assert_router_eligibility_required '' install update reconfigure restore ipset backup doctor netcheck dns-port-policy performance migrate-runtime-defaults
 	assert_router_eligibility_skipped uninstall status preflight
 	assert_entware_skipped status preflight
-	assert_jq_required '' install update reconfigure restore 1 4 r R
-	assert_jq_skipped uninstall ipset backup doctor status preflight netcheck dns-port-policy performance migrate-runtime-defaults
+	assert_jq_skipped '' install update reconfigure restore 1 4 r R uninstall ipset backup doctor status preflight netcheck dns-port-policy performance migrate-runtime-defaults
 	assert_sha256_required blocklists unusedblocklists 9
 	assert_sha256_optional '' install update restore
 	assert_password_hash_required '' install reconfigure changepw 3 4

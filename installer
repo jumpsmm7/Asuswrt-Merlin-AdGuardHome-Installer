@@ -2155,11 +2155,6 @@ preflight_action_requires_entware() {
 }
 
 preflight_action_requires_jq() {
-	case "${1:-install}" in
-		"" | install | update | reconfigure | restore | 1 | 4 | [rR])
-			return 0
-			;;
-	esac
 	return 1
 }
 
@@ -8109,10 +8104,6 @@ menu() {
 	case "${CHOSEN}" in
 		"1" | "install" | "update")
 			ptxt_phase "Selecting install or update operation."
-			ensure_jq_tool || {
-				end_op_message 1
-				return 1
-			}
 			if [ "${CHOSEN}" = "update" ]; then
 				ptxt_step "Starting requested AdGuardHome update."
 				AUTO_UPDATE="update"
@@ -8141,10 +8132,6 @@ menu() {
 		"4" | "reconfigure")
 			PTXT "${INFO} This operation allows you to configure AdGuardHome"
 			if read_yesno "Do you want to proceed?"; then
-				ensure_jq_tool || {
-					end_op_message 1
-					return 1
-				}
 				setup_AdGuardHome reconfig
 			else
 				end_op_message 1
@@ -8265,10 +8252,6 @@ menu() {
 			PTXT "${INFO} This operation will restore everything!"
 			if read_yesno "Do you want to continue?"; then
 				ptxt_ok "Restore operation confirmed."
-				ensure_jq_tool || {
-					end_op_message 1
-					return 1
-				}
 				backup_restore RESTORE
 			else
 				ptxt_warn "Restore operation declined."
@@ -9018,7 +9001,6 @@ cli_run() {
 				return 0
 			}
 			cli_require_yes || return 1
-			ensure_jq_tool || return 1
 			cli_enable_assume_yes
 			cli_backup_restore_file "${restore_file}"
 			operation_status=$?
@@ -9115,7 +9097,6 @@ cli_run() {
 				return 0
 			}
 			cli_require_yes || return 1
-			ensure_jq_tool || return 1
 			if [ ! -f "${AGH_FILE}" ]; then
 				PTXT "${ERROR} Non-interactive install cannot complete fresh first-run setup."
 				PTXT "${ERROR} Run the interactive installer for fresh installs, or use restore --file with an existing backup."
