@@ -1222,6 +1222,15 @@ nvram_transaction_restore - || fail 'concurrent present-key transaction rollback
 [ "$(nvram_value dnspriv_enable)" = 2 ] || fail 'rollback overwrote a newer value for an initially present key'
 
 reset_case
+nvram_transaction_begin concurrent-untouched dnspriv_enable dnsfilter_enable_x || fail 'concurrent untouched-key transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'concurrent untouched-key transaction staging failed'
+nvram_transaction_apply - 1 || fail 'concurrent untouched-key transaction apply failed'
+nvram set dnsfilter_enable_x=2 || fail 'could not simulate a concurrent untouched-key writer'
+nvram_transaction_restore - || fail 'concurrent untouched-key transaction rollback failed'
+[ "$(nvram_value dnspriv_enable)" = 1 ] || fail 'rollback did not restore a value changed by the transaction'
+[ "$(nvram_value dnsfilter_enable_x)" = 2 ] || fail 'rollback overwrote a newer value for an untouched key'
+
+reset_case
 nvram_transaction_begin concurrent-unset dnspriv_enable || fail 'concurrent unset transaction snapshot failed'
 nvram_transaction_set dnspriv_enable 0 || fail 'concurrent unset transaction staging failed'
 nvram_transaction_apply - 1 || fail 'concurrent unset transaction apply failed'

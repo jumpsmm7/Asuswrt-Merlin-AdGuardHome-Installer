@@ -1138,6 +1138,7 @@ nvram_transaction_restore() {
 		elif [ -f "${snapshot_dir}/applied.${key}" ]; then
 			expected_file="${snapshot_dir}/applied.${key}"
 		fi
+		[ -n "${expected_file}" ] || continue
 		if [ -n "${expected_file}" ]; then
 			expected="$(cat "${expected_file}")" || {
 				failed="1"
