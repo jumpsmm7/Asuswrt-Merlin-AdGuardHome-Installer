@@ -4,7 +4,10 @@
 set -u
 
 SCRIPT_PATH="${1:-installer}"
-TMP_ROOT="${TMPDIR:-/tmp}/installer-preflight-actions.$$"
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/installer-preflight-actions.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create test directory' >&2
+	exit 1
+}
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 PREFLIGHT_FILE="${TMP_ROOT}/preflight"
 SHA256_FILE="${TMP_ROOT}/sha256-functions"
@@ -22,7 +25,6 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
-mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 {
 	sed -n '/^ipv4_is_valid() {$/,/^port_is_valid() {$/p' "${SCRIPT_PATH}" | sed '$d'
