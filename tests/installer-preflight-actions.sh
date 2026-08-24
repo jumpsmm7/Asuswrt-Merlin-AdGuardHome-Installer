@@ -7,6 +7,7 @@ SCRIPT_PATH="${1:-installer}"
 TMP_ROOT="${TMPDIR:-/tmp}/installer-preflight-actions.$$"
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 PREFLIGHT_FILE="${TMP_ROOT}/preflight"
+SHA256_FILE="${TMP_ROOT}/sha256-functions"
 
 cleanup() {
 	rm -rf "${TMP_ROOT}"
@@ -32,6 +33,16 @@ mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 sed -n '/^preflight() {$/,/^sanitize_branch() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${PREFLIGHT_FILE}" ||
 	fail 'could not extract preflight function'
 [ -s "${PREFLIGHT_FILE}" ] || fail 'preflight function extraction was empty'
+
+{
+	sed -n '/^sha256sum_available() {$/,/^jq_executable_usable() {$/p' "${SCRIPT_PATH}" | sed '$d'
+	sed -n '/^preflight_check_sha256_support() {$/,/^preflight_check_timezone_column() {$/p' "${SCRIPT_PATH}" | sed '$d'
+} >"${SHA256_FILE}" || fail 'could not extract SHA-256 preflight helpers'
+[ -s "${SHA256_FILE}" ] || fail 'SHA-256 preflight helper extraction was empty'
+sed -e 's#/opt/bin/sha256sum#"${SHA256SUM_OPT_BIN:-/opt/bin/sha256sum}"#g' \
+	-e 's#/bin/busybox#"${BUSYBOX_BIN:-/bin/busybox}"#g' \
+	"${SHA256_FILE}" >"${SHA256_FILE}.tmp" || fail 'could not isolate SHA-256 helper paths'
+mv "${SHA256_FILE}.tmp" "${SHA256_FILE}" || fail 'could not update isolated SHA-256 helpers'
 
 usage_line="$(grep -n 'sh installer preflight \[install|reconfigure|update|restore|uninstall|status\]' "${SCRIPT_PATH}" | cut -d: -f1)" ||
 	fail 'preflight usage line is missing'
@@ -115,16 +126,22 @@ preflight_check_timezone_column() { PTXT 'called.column=yes'; return 0; }
 . "${PREFLIGHT_FILE}"
 preflight install
 EOF
-	sh "${stub_file}" >"${out_file}" 2>&1 || true
+	run_status=0
+	(. "${stub_file}") >"${out_file}" 2>&1 || run_status=$?
 	case "${expected_skip}" in
 		yes)
+			[ "${run_status}" -eq 1 ] || fail 'preflight must fail when Entware is missing'
 			grep -q 'preflight.entware.dependent_checks=SKIP_ENTWARE_MISSING' "${out_file}" ||
 				fail 'preflight must report skipped Entware-dependent checks when Entware is missing'
-			if grep -q '^called\.' "${out_file}"; then
-				fail 'preflight must not run Entware-dependent checks when Entware is missing'
+			grep -q 'called.sha256=yes' "${out_file}" ||
+				fail 'preflight must check stock-compatible SHA-256 support when Entware is missing'
+			if grep -q '^called\.password_hash=yes$' "${out_file}" ||
+				grep -q '^called\.column=yes$' "${out_file}"; then
+				fail 'preflight must not run Entware-dependent password or column checks when Entware is missing'
 			fi
 			;;
 		no)
+			[ "${run_status}" -eq 0 ] || fail 'preflight must succeed when Entware is available'
 			grep -q 'called.sha256=yes' "${out_file}" || fail 'preflight must run SHA-256 check when Entware is available'
 			grep -q 'called.password_hash=yes' "${out_file}" || fail 'preflight must run password hash check when Entware is available'
 			grep -q 'called.column=yes' "${out_file}" || fail 'preflight must run column check when Entware is available'
@@ -137,6 +154,170 @@ EOF
 
 run_preflight_gate_case missing 1 yes
 run_preflight_gate_case available 0 no
+
+# run_preflight_sha_action_case verifies that checksum-dependent actions invoke the SHA-256 preflight independently of Entware.
+run_preflight_sha_action_case() {
+	action="$1"
+	expected="$2"
+	out_file="${TMP_ROOT}/sha-action-${action:-default}.out"
+	stub_file="${TMP_ROOT}/sha-action-${action:-default}.stub"
+	cat >"${stub_file}" <<EOF
+PTXT() { printf '%s\n' "\$*"; }
+AI_VERSION=TEST
+PATH=/bin:/sbin:/usr/bin:/usr/sbin
+adguard_install_mode_detect() { ADGUARD_INSTALL_MODE_DETECTION=unknown; }
+preflight_action_requires_downloader() { return 1; }
+preflight_action_requires_service_tools() { return 1; }
+preflight_action_requires_cru() { return 1; }
+preflight_action_requires_firewall_tools() { return 1; }
+preflight_action_requires_jffs_ready() { return 1; }
+preflight_action_requires_router_eligibility() { return 1; }
+preflight_action_requires_entware() { return 1; }
+preflight_action_requires_jq() { return 1; }
+preflight_action_requires_password_hash() { return 1; }
+preflight_action_requires_timezone_column() { return 1; }
+. "${FUNCTIONS_FILE}"
+preflight_check_path() { return 0; }
+preflight_check_stock_commands() { return 0; }
+preflight_check_sha256_support() { PTXT 'called.sha256=yes'; return 0; }
+. "${PREFLIGHT_FILE}"
+preflight '${action}'
+EOF
+	sh "${stub_file}" >"${out_file}" 2>&1 || true
+	case "${expected}" in
+		called) grep -q '^called.sha256=yes$' "${out_file}" || fail "${action:-default}: SHA-256 preflight was not called" ;;
+		skipped)
+			grep -q '^preflight.sha256.result=SKIP$' "${out_file}" || fail "${action}: SHA-256 preflight was not skipped"
+			if grep -q '^called.sha256=yes$' "${out_file}"; then fail "${action}: SHA-256 preflight was called"; fi
+			;;
+	esac
+}
+
+for action in '' install update restore switchbranch 1 7 r R blocklists unusedblocklists 9; do
+	run_preflight_sha_action_case "${action}" called
+done
+for action in uninstall reconfigure status preflight backup doctor; do
+	run_preflight_sha_action_case "${action}" skipped
+done
+
+# Exercise the shared functional probe used by both preflight and runtime enforcement.
+mkdir -p "${TMP_ROOT}/sha256-bin" || fail 'could not create temporary SHA-256 fixture directory'
+cat >"${TMP_ROOT}/sha256-bin/sha256sum" <<'EOF'
+#!/bin/sh
+printf '%s  %s\n' 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' "${1:-}"
+EOF
+chmod 755 "${TMP_ROOT}/sha256-bin/sha256sum" || fail 'could not make temporary SHA-256 fixture executable'
+cat >"${TMP_ROOT}/sha256-bin/which" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = sha256sum ] || exit 1
+sha256_path="${PATH%%:*}/sha256sum"
+[ -x "${sha256_path}" ] || exit 1
+printf '%s\n' "${sha256_path}"
+EOF
+chmod 755 "${TMP_ROOT}/sha256-bin/which" || fail 'could not make temporary which fixture executable'
+(
+	PTXT() { printf '%s\n' "$*"; }
+	ai_have_cmd() {
+		[ "$1" = sha256sum ] || return 1
+		[ "$(which "$1" 2>/dev/null)" = "${TMP_ROOT}/sha256-bin/sha256sum" ]
+	}
+	preflight_check_entware_package() {
+		PTXT 'called.package=yes'
+		return 1
+	}
+	. "${SHA256_FILE}"
+	PATH="${TMP_ROOT}/sha256-bin"
+	SHA256SUM_OPT_BIN="${TMP_ROOT}/missing-opt-sha256sum"
+	BUSYBOX_BIN="${TMP_ROOT}/missing-busybox"
+	sha256sum_available || exit 1
+	preflight_check_sha256_support 0 || exit 1
+) >"${TMP_ROOT}/sha-stock.out" 2>&1 || fail 'functional PATH sha256sum must satisfy SHA-256 preflight'
+if grep -q '^called.package=yes$' "${TMP_ROOT}/sha-stock.out"; then
+	fail 'functional stock sha256sum must not require coreutils-sha256sum'
+fi
+
+mkdir -p "${TMP_ROOT}/opt/bin" || fail 'could not create temporary Entware SHA-256 fixture directory'
+cp "${TMP_ROOT}/sha256-bin/sha256sum" "${TMP_ROOT}/opt/bin/sha256sum" ||
+	fail 'could not create temporary Entware SHA-256 fixture'
+chmod 755 "${TMP_ROOT}/opt/bin/sha256sum" || fail 'could not make temporary Entware SHA-256 fixture executable'
+mkdir -p "${TMP_ROOT}/no-sha-bin" || fail 'could not create empty PATH fixture directory'
+cat >"${TMP_ROOT}/no-sha-bin/which" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+chmod 755 "${TMP_ROOT}/no-sha-bin/which" || fail 'could not make empty PATH which fixture executable'
+(
+	PTXT() { printf '%s\n' "$*"; }
+	ai_have_cmd() { return 1; }
+	preflight_check_entware_package() {
+		PTXT 'called.package=yes'
+		return 1
+	}
+	. "${SHA256_FILE}"
+	PATH="${TMP_ROOT}/no-sha-bin"
+	SHA256SUM_OPT_BIN="${TMP_ROOT}/opt/bin/sha256sum"
+	BUSYBOX_BIN="${TMP_ROOT}/missing-busybox"
+	sha256sum_available || exit 1
+	preflight_check_sha256_support 1 || exit 1
+) >"${TMP_ROOT}/sha-opt.out" 2>&1 || fail 'functional /opt/bin/sha256sum must satisfy SHA-256 preflight when Entware is present'
+if grep -q '^called.package=yes$' "${TMP_ROOT}/sha-opt.out"; then
+	fail 'functional /opt/bin/sha256sum must not require coreutils-sha256sum'
+fi
+mkdir -p "${TMP_ROOT}/failing-bin"
+cat >"${TMP_ROOT}/failing-bin/sha256sum" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+chmod 755 "${TMP_ROOT}/failing-bin/sha256sum"
+cat >"${TMP_ROOT}/failing-bin/which" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = sha256sum ] || exit 1
+sha256_path="${PATH%%:*}/sha256sum"
+[ -x "${sha256_path}" ] || exit 1
+printf '%s\n' "${sha256_path}"
+EOF
+chmod 755 "${TMP_ROOT}/failing-bin/which"
+(
+	PTXT() { printf '%s\n' "$*"; }
+	ai_have_cmd() { [ "$1" = sha256sum ]; }
+	preflight_check_entware_package() {
+		PTXT 'called.package=yes'
+		return 1
+	}
+	. "${SHA256_FILE}"
+	PATH="${TMP_ROOT}/failing-bin"
+	SHA256SUM_OPT_BIN="${TMP_ROOT}/missing-opt-sha256sum"
+	BUSYBOX_BIN="${TMP_ROOT}/missing-busybox"
+	if sha256sum_available; then
+		exit 1
+	fi
+	if preflight_check_sha256_support 1; then
+		exit 1
+	fi
+) >"${TMP_ROOT}/sha-failing.out" 2>&1 || fail 'present but failing sha256sum must be reported missing'
+grep -q '^preflight.sha256.result=MISSING$' "${TMP_ROOT}/sha-failing.out" || fail 'failing sha256sum did not report MISSING'
+grep -q '^called.package=yes$' "${TMP_ROOT}/sha-failing.out" || fail 'missing SHA-256 support with Entware must run the package diagnostic'
+
+(
+	PTXT() { printf '%s\n' "$*"; }
+	ai_have_cmd() { [ "$1" = sha256sum ]; }
+	preflight_check_entware_package() {
+		PTXT 'called.package=yes'
+		return 1
+	}
+	. "${SHA256_FILE}"
+	PATH="${TMP_ROOT}/failing-bin"
+	SHA256SUM_OPT_BIN="${TMP_ROOT}/missing-opt-sha256sum"
+	BUSYBOX_BIN="${TMP_ROOT}/missing-busybox"
+	if preflight_check_sha256_support 0; then
+		exit 1
+	fi
+) >"${TMP_ROOT}/sha-no-entware.out" 2>&1 || fail 'missing SHA-256 support without Entware must fail preflight'
+grep -q '^preflight.entware.package.coreutils-sha256sum.required=not_checked$' "${TMP_ROOT}/sha-no-entware.out" ||
+	fail 'missing SHA-256 support without Entware must skip the package diagnostic'
+if grep -q '^called.package=yes$' "${TMP_ROOT}/sha-no-entware.out"; then
+	fail 'missing SHA-256 support without Entware ran the package diagnostic'
+fi
 
 # run_preflight_firewall_mode_case verifies flow-aware firewall gating and mode-detection snapshot reuse for a preflight action.
 # run_preflight_firewall_mode_case verifies firewall-tool gating, install-mode detection reuse, and the expected preflight result for an action.
@@ -520,8 +701,8 @@ run_router_mode_case lan-no-lan-ip 2 '' 1 \
 	assert_entware_skipped status preflight
 	assert_jq_required '' install update reconfigure restore 1 4 r R
 	assert_jq_skipped uninstall ipset backup doctor status preflight netcheck dns-port-policy performance migrate-runtime-defaults
-	assert_sha256_required blocklists unusedblocklists 9
-	assert_sha256_optional '' install update restore
+	assert_sha256_required '' install update restore switchbranch 1 7 r R blocklists unusedblocklists 9
+	assert_sha256_optional uninstall reconfigure changepw ipset backup doctor status preflight netcheck dns-port-policy performance migrate-runtime-defaults
 	assert_password_hash_required '' install reconfigure changepw 3 4
 	assert_timezone_column_required '' install reconfigure restore 4
 ) || fail 'preflight action helper returned an unexpected result'

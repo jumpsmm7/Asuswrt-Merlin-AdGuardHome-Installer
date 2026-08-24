@@ -215,6 +215,8 @@ grep -Fq 'sh tools/update-checksums.sh AdGuardHome.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: Sonar parser validation must regenerate AdGuardHome.sh checksums before comparison"
 grep -Fq 'busybox ash tests/installer-jq-helper.sh' "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: expected the installer jq dependency regression to run with BusyBox ash"
+grep -Fq 'busybox ash tests/installer-preflight-actions.sh' "${SHELL_VALIDATION_WORKFLOW}" ||
+	fail "${SHELL_VALIDATION_WORKFLOW}: expected the installer preflight action regression to run with BusyBox ash"
 grep -Fq "run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh" "${LOCAL_QUALITY_RUNNER}" ||
 	fail "${LOCAL_QUALITY_RUNNER}: expected the installer jq dependency regression in the local quality matrix"
 grep -Fq 'tests/installer-jq-helper.sh)' "${LOCAL_QUALITY_TEST}" ||

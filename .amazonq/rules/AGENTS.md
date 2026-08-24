@@ -165,6 +165,8 @@ Do not add unrelated Entware dependencies casually. If a new Entware package is 
 
 Installer-managed Entware package installations use the canonical option set `--force-depends --force-overwrite --force-reinstall`. Preserve all three options for every `ensure_opkg_package` call, direct repair install, user-facing install command, and preflight install hint, including `jq-full`.
 
+SHA-256 preflight and runtime enforcement must use the shared functional `sha256sum_available()` probe. Accept a working stock/PATH `sha256sum`, `/opt/bin/sha256sum` when Entware is mounted, the BusyBox SHA-256 applet, or stock OpenSSL. Do not gate the functional preflight probe on Entware package status; only run the `coreutils-sha256sum` package diagnostic when Entware is available and no supported implementation works. After changing `installer`, regenerate both `installer.md5sum` and `installer.sha256sum`.
+
 Allowed Entware packages currently referenced by the installer are:
 
 * `apache`
