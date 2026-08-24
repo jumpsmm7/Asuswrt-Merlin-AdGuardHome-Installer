@@ -1431,7 +1431,10 @@ ensure_opkg_package() {
 }
 
 sha256sum_available() {
-	if ai_have_cmd sha256sum && sha256sum /dev/null >/dev/null 2>&1; then
+	local sha256sum_bin
+	sha256sum_bin="$(which sha256sum 2>/dev/null)" || sha256sum_bin=""
+	if [ -n "${sha256sum_bin}" ] && [ -x "${sha256sum_bin}" ] &&
+		"${sha256sum_bin}" /dev/null >/dev/null 2>&1; then
 		return 0
 	fi
 	if [ -x /opt/bin/sha256sum ] && /opt/bin/sha256sum /dev/null >/dev/null 2>&1; then

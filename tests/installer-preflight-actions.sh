@@ -204,6 +204,12 @@ cat >"${TMP_ROOT}/sha256-bin/sha256sum" <<'EOF'
 printf '%s  %s\n' 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' "${1:-}"
 EOF
 chmod 755 "${TMP_ROOT}/sha256-bin/sha256sum" || fail 'could not make temporary SHA-256 fixture executable'
+cat >"${TMP_ROOT}/sha256-bin/which" <<EOF
+#!/bin/sh
+[ "\${1:-}" = sha256sum ] || exit 1
+printf '%s\n' '${TMP_ROOT}/sha256-bin/sha256sum'
+EOF
+chmod 755 "${TMP_ROOT}/sha256-bin/which" || fail 'could not make temporary which fixture executable'
 (
 	PTXT() { printf '%s\n' "$*"; }
 	ai_have_cmd() { [ "$1" = sha256sum ] && [ -x "${TMP_ROOT}/sha256-bin/sha256sum" ]; }
@@ -226,6 +232,12 @@ mkdir -p "${TMP_ROOT}/opt/bin" || fail 'could not create temporary Entware SHA-2
 cp "${TMP_ROOT}/sha256-bin/sha256sum" "${TMP_ROOT}/opt/bin/sha256sum" ||
 	fail 'could not create temporary Entware SHA-256 fixture'
 chmod 755 "${TMP_ROOT}/opt/bin/sha256sum" || fail 'could not make temporary Entware SHA-256 fixture executable'
+mkdir -p "${TMP_ROOT}/no-sha-bin" || fail 'could not create empty PATH fixture directory'
+cat >"${TMP_ROOT}/no-sha-bin/which" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+chmod 755 "${TMP_ROOT}/no-sha-bin/which" || fail 'could not make empty PATH which fixture executable'
 (
 	PTXT() { printf '%s\n' "$*"; }
 	ai_have_cmd() { return 1; }
@@ -234,6 +246,7 @@ chmod 755 "${TMP_ROOT}/opt/bin/sha256sum" || fail 'could not make temporary Entw
 		return 1
 	}
 	. "${SHA256_FILE}"
+	PATH="${TMP_ROOT}/no-sha-bin"
 	SHA256SUM_OPT_BIN="${TMP_ROOT}/opt/bin/sha256sum"
 	BUSYBOX_BIN="${TMP_ROOT}/missing-busybox"
 	sha256sum_available || exit 1
@@ -248,6 +261,12 @@ cat >"${TMP_ROOT}/failing-bin/sha256sum" <<'EOF'
 exit 1
 EOF
 chmod 755 "${TMP_ROOT}/failing-bin/sha256sum"
+cat >"${TMP_ROOT}/failing-bin/which" <<EOF
+#!/bin/sh
+[ "\${1:-}" = sha256sum ] || exit 1
+printf '%s\n' '${TMP_ROOT}/failing-bin/sha256sum'
+EOF
+chmod 755 "${TMP_ROOT}/failing-bin/which"
 (
 	PTXT() { printf '%s\n' "$*"; }
 	ai_have_cmd() { [ "$1" = sha256sum ]; }
