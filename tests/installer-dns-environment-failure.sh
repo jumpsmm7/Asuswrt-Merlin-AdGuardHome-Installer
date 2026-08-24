@@ -2041,8 +2041,8 @@ assert_original 'set failure'
 reset_case
 FAIL_ALL_SETS=1
 check_dns_environment 0 && fail 'complete NVRAM set failure was accepted'
-grep -q 'rollback NVRAM transaction rollback partial' "${CALLS_FILE}" || fail 'incomplete set-failure rollback did not preserve evidence'
-[ -d "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'incomplete set-failure rollback removed its snapshot'
+assert_original 'complete set failure'
+[ ! -d "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'complete set-failure rollback retained its snapshot'
 
 reset_case
 FAIL_COMMIT_AT=1
@@ -2162,6 +2162,7 @@ reset_case
 (
 	trap 'check_dns_environment 1 >/dev/null 2>&1 || :; exit 0' TERM
 	nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || exit 1
+	nvram_transaction_set dnspriv_enable 0 || exit 1
 	: >"${NVRAM_TRANSACTION_DIR}/dirty" || exit 1
 	nvram set dnspriv_enable=0 || exit 1
 	: >"${TEST_ROOT}/signal-ready"
