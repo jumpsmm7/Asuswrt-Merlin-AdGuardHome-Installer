@@ -1,6 +1,10 @@
-name: Update tzdata packages
+name: Update Tz-data packages
 
 on:
+  push:
+    branches: [master, main]
+    paths:
+      - .github/workflows/update-tzdata.yml
   schedule:
     - cron: '23 4 * * 1'
   workflow_dispatch:
