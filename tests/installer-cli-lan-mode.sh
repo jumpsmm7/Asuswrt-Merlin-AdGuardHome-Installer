@@ -52,6 +52,14 @@ grep -q '^[[:space:]]*check_dns_environment 0 || exit 1$' "${SCRIPT_PATH}" ||
 	fail 'interactive installer must propagate WAN DNS environment preparation failures'
 grep -q 'LAN mode selected; cleared legacy firewall/IPTABLES state and skipping firewall/IPTABLES management' "${SCRIPT_PATH}" ||
 	fail 'LAN-mode install must report legacy firewall cleanup before skipped firewall/IPTABLES management'
+grep -q 'LAN mode selected; no legacy firewall/IPTABLES state requires cleanup' "${SCRIPT_PATH}" ||
+	fail 'LAN-mode install must report when legacy firewall cleanup is unnecessary'
+awk '
+	/^[[:space:]]*lan\)$/ { in_lan = 1 }
+	in_lan && /if legacy_firewall_cleanup_needed; then/ { guarded = 1 }
+	guarded && /if ! cleanup_legacy_firewall; then/ { cleanup = 1; exit }
+	END { exit(guarded && cleanup ? 0 : 1) }
+' "${SCRIPT_PATH}" || fail 'LAN-mode cleanup failure handling must run only when legacy firewall state exists'
 grep -q 'cleanup_legacy_firewall$' "${SCRIPT_PATH}" ||
 	fail 'uninstall/WAN/LAN transition cleanup must still remove legacy firewall integration'
 grep -q 'cli_migrate_runtime_default ADGUARD_NETCHECK_MODE legacy "${netcheck_target}"' "${SCRIPT_PATH}" ||
@@ -155,6 +163,38 @@ EOF_CONF
 
 run_migrate_case lan-mode lan lan
 run_migrate_case wan-mode wan wan
+
+sed -n '/^legacy_firewall_cleanup_needed() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_ROOT}/legacy-firewall-check" ||
+	fail 'could not extract legacy firewall state check'
+(
+	# shellcheck disable=SC1090
+	. "${TMP_ROOT}/legacy-firewall-check"
+	ADDON_DIR="${TMP_ROOT}/addon"
+	iptables() {
+		case "${IPTABLES_TEST_STATE}" in
+			legacy)
+				printf '%s\n' '-N ADGUARDHOME'
+				;;
+			empty)
+				printf '%s\n' '-P OUTPUT ACCEPT'
+				;;
+			error)
+				return 1
+				;;
+		esac
+	}
+	IPTABLES_TEST_STATE=legacy
+	legacy_firewall_cleanup_needed || fail 'legacy firewall chain was not detected'
+	IPTABLES_TEST_STATE=empty
+	if legacy_firewall_cleanup_needed; then
+		fail 'empty firewall state incorrectly required cleanup'
+	fi
+	IPTABLES_TEST_STATE=error
+	if legacy_firewall_cleanup_needed; then
+		fail 'unreadable empty firewall state incorrectly required cleanup'
+	fi
+) || exit $?
+
 cat >"${CONF_FILE}" <<EOF_CONF || fail 'dry-run persisted LAN: could not write config'
 ADGUARD_INSTALL_MODE="lan"
 ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"

@@ -20,5 +20,7 @@ UNINSTALL_FUNCTION="$(sed -n '/^uninst_all() {$/,/^}/p' "${SCRIPT_PATH}")"
 
 printf '%s\n' "${UNINSTALL_FUNCTION}" | grep -q 'rm -rf .*"${ROLLBACK_RESULT_FILE}"' ||
 	fail 'uninstall cleanup does not remove rollback result marker'
+printf '%s\n' "${UNINSTALL_FUNCTION}" | grep -Fq '[ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf' ||
+	fail 'uninstall cleanup does not guard the optional dnsmasq.postconf file'
 
-printf '%s\n' 'PASS: uninstall cleanup removes rollback result marker'
+printf '%s\n' 'PASS: uninstall cleanup removes rollback state and tolerates an absent dnsmasq.postconf file'

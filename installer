@@ -5878,6 +5878,16 @@ cleanup_legacy_firewall() {
 	[ "${failed}" = "0" ]
 }
 
+legacy_firewall_cleanup_needed() {
+	if iptables -t raw -S 2>/dev/null | grep -q 'ADGUARDHOME'; then
+		return 0
+	fi
+	if [ -f /jffs/scripts/firewall-start ] && grep -q -F "[ -x ${ADDON_DIR}/AdGuardHome.sh ]" /jffs/scripts/firewall-start; then
+		return 0
+	fi
+	return 1
+}
+
 create_dir() {
 	if ! mkdir -p "${1}"; then
 		PTXT "${ERROR} Unable to create ${1}!"
@@ -6353,15 +6363,19 @@ inst_AdGuardHome() {
 			cleanup_legacy_firewall
 			;;
 		lan)
-			if ! cleanup_legacy_firewall; then
-				PTXT "${ERROR} Unable to clear legacy firewall/IPTABLES state for LAN mode."
-				if rollback_pending_mode_migration; then
-					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			if legacy_firewall_cleanup_needed; then
+				if ! cleanup_legacy_firewall; then
+					PTXT "${ERROR} Unable to clear legacy firewall/IPTABLES state for LAN mode."
+					if rollback_pending_mode_migration; then
+						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					fi
+					end_op_message 1 "$1"
+					return 1
 				fi
-				end_op_message 1 "$1"
-				return 1
+				PTXT "${INFO} LAN mode selected; cleared legacy firewall/IPTABLES state and skipping firewall/IPTABLES management."
+			else
+				PTXT "${INFO} LAN mode selected; no legacy firewall/IPTABLES state requires cleanup."
 			fi
-			PTXT "${INFO} LAN mode selected; cleared legacy firewall/IPTABLES state and skipping firewall/IPTABLES management."
 			;;
 	esac
 	[ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
@@ -7967,7 +7981,7 @@ uninst_all() {
 	cleanup_legacy_firewall
 	mv "${TARG_DIR}/installer" "${HOME}/installer"
 	rm -rf "${TARG_DIR}" "${ROLLBACK_RESULT_FILE}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"
-	yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
+	[ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
 	del_jffs_script /jffs/scripts/init-start
 	del_jffs_script /jffs/scripts/dnsmasq.postconf
 	del_jffs_script /jffs/scripts/firewall-start
