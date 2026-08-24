@@ -127,7 +127,7 @@ preflight_check_timezone_column() { PTXT 'called.column=yes'; return 0; }
 preflight install
 EOF
 	run_status=0
-	sh "${stub_file}" >"${out_file}" 2>&1 || run_status=$?
+	( . "${stub_file}" ) >"${out_file}" 2>&1 || run_status=$?
 	case "${expected_skip}" in
 		yes)
 			[ "${run_status}" -eq 1 ] || fail 'preflight must fail when Entware is missing'
@@ -207,10 +207,12 @@ cat >"${TMP_ROOT}/sha256-bin/sha256sum" <<'EOF'
 printf '%s  %s\n' 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' "${1:-}"
 EOF
 chmod 755 "${TMP_ROOT}/sha256-bin/sha256sum" || fail 'could not make temporary SHA-256 fixture executable'
-cat >"${TMP_ROOT}/sha256-bin/which" <<EOF
+cat >"${TMP_ROOT}/sha256-bin/which" <<'EOF'
 #!/bin/sh
-[ "\${1:-}" = sha256sum ] || exit 1
-printf '%s\n' '${TMP_ROOT}/sha256-bin/sha256sum'
+[ "${1:-}" = sha256sum ] || exit 1
+sha256_path="${PATH%%:*}/sha256sum"
+[ -x "${sha256_path}" ] || exit 1
+printf '%s\n' "${sha256_path}"
 EOF
 chmod 755 "${TMP_ROOT}/sha256-bin/which" || fail 'could not make temporary which fixture executable'
 (
@@ -267,10 +269,12 @@ cat >"${TMP_ROOT}/failing-bin/sha256sum" <<'EOF'
 exit 1
 EOF
 chmod 755 "${TMP_ROOT}/failing-bin/sha256sum"
-cat >"${TMP_ROOT}/failing-bin/which" <<EOF
+cat >"${TMP_ROOT}/failing-bin/which" <<'EOF'
 #!/bin/sh
-[ "\${1:-}" = sha256sum ] || exit 1
-printf '%s\n' '${TMP_ROOT}/failing-bin/sha256sum'
+[ "${1:-}" = sha256sum ] || exit 1
+sha256_path="${PATH%%:*}/sha256sum"
+[ -x "${sha256_path}" ] || exit 1
+printf '%s\n' "${sha256_path}"
 EOF
 chmod 755 "${TMP_ROOT}/failing-bin/which"
 (
