@@ -289,7 +289,13 @@ nslookup() {
 	if [ "${TRACK_LOOKUP:-0}" = 1 ]; then
 		trap 'printf "%s\n" reaped >"${TEST_ROOT}/lookup-reaped"; exit 1' TERM
 	fi
-	[ "${BLOCKING_QUERY:-0}" = 0 ] || /bin/sleep 5
+	# Keep the probe blocked until the deadline logic terminates it. Using an
+	# external sleep here can leave the shell waiting on, or orphan, the sleep
+	# process after TERM on loaded CI runners and makes the probe-count assertion
+	# timing-dependent.
+	if [ "${BLOCKING_QUERY:-0}" != 0 ]; then
+		while :; do :; done
+	fi
 	[ "${DNS_READY_AFTER_SERVICE:-0}" -eq 0 ] || [ "${SERVICE_COUNT}" -lt "${DNS_READY_AFTER_SERVICE}" ] || DNS_READY=1
 	[ "${DNS_READY:-1}" = 1 ]
 }
