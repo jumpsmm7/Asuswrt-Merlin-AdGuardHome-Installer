@@ -250,8 +250,12 @@ chmod 755 "${TMP_ROOT}/failing-bin/sha256sum"
 	PATH="${TMP_ROOT}/failing-bin"
 	SHA256SUM_OPT_BIN="${TMP_ROOT}/missing-opt-sha256sum"
 	BUSYBOX_BIN="${TMP_ROOT}/missing-busybox"
-	! sha256sum_available || exit 1
-	! preflight_check_sha256_support 1 || exit 1
+	if sha256sum_available; then
+		exit 1
+	fi
+	if preflight_check_sha256_support 1; then
+		exit 1
+	fi
 ) >"${TMP_ROOT}/sha-failing.out" 2>&1 || fail 'present but failing sha256sum must be reported missing'
 grep -q '^preflight.sha256.result=MISSING$' "${TMP_ROOT}/sha-failing.out" || fail 'failing sha256sum did not report MISSING'
 grep -q '^called.package=yes$' "${TMP_ROOT}/sha-failing.out" || fail 'missing SHA-256 support with Entware must run the package diagnostic'
@@ -264,7 +268,9 @@ grep -q '^called.package=yes$' "${TMP_ROOT}/sha-failing.out" || fail 'missing SH
 	PATH="${TMP_ROOT}/failing-bin"
 	SHA256SUM_OPT_BIN="${TMP_ROOT}/missing-opt-sha256sum"
 	BUSYBOX_BIN="${TMP_ROOT}/missing-busybox"
-	! preflight_check_sha256_support 0 || exit 1
+	if preflight_check_sha256_support 0; then
+		exit 1
+	fi
 ) >"${TMP_ROOT}/sha-no-entware.out" 2>&1 || fail 'missing SHA-256 support without Entware must fail preflight'
 grep -q '^preflight.entware.package.coreutils-sha256sum.required=not_checked$' "${TMP_ROOT}/sha-no-entware.out" ||
 	fail 'missing SHA-256 support without Entware must skip the package diagnostic'
