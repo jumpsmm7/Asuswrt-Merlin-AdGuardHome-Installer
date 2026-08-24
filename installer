@@ -1127,9 +1127,11 @@ nvram_transaction_restore() {
 	fi
 	inventory_file="${snapshot_dir}/restore-inventory.$$"
 	if ! /bin/nvram show >"${inventory_file}" 2>/dev/null; then
-		rm -f "${inventory_file}" 2>/dev/null || true
-		rollback_result_write "NVRAM transaction" "rollback partial" "snapshot preserved at ${snapshot_dir}"
-		return 1
+		if [ ! -s "${inventory_file}" ]; then
+			rm -f "${inventory_file}" 2>/dev/null || true
+			rollback_result_write "NVRAM transaction" "rollback partial" "snapshot preserved at ${snapshot_dir}"
+			return 1
+		fi
 	fi
 	chmod 600 "${inventory_file}" || {
 		rm -f "${inventory_file}" 2>/dev/null || true

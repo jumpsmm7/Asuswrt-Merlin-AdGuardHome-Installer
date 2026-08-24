@@ -182,7 +182,7 @@ nvram() {
 	case "$1" in
 		show)
 			[ "${FAIL_SHOW:-0}" = 0 ] || return 1
-			cat "${NVRAM_FILE}"
+			cat "${NVRAM_FILE}" || return 1
 			[ "${FAIL_SHOW_STATUS:-0}" = 0 ]
 			;;
 		get)
@@ -1202,6 +1202,18 @@ FAIL_SHOW_STATUS=1
 nvram_transaction_begin nonzero-inventory dnspriv_enable || fail 'populated NVRAM inventory with nonzero status was rejected'
 [ "$(cat "${NVRAM_TRANSACTION_DIR}/dnspriv_enable")" = 1 ] || fail 'nonzero-status NVRAM inventory did not preserve the requested value'
 [ -f "${NVRAM_TRANSACTION_DIR}/exists.dnspriv_enable" ] || fail 'nonzero-status NVRAM inventory did not preserve key existence'
+
+reset_case
+FAIL_SHOW_STATUS=1
+nvram_transaction_begin nonzero-rollback dnspriv_enable dhcpd_dns_router || fail 'nonzero-status rollback snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'nonzero-status rollback first setting was not staged'
+nvram_transaction_set dhcpd_dns_router 1 || fail 'nonzero-status rollback second setting was not staged'
+FAIL_SET_AT=2
+nvram_transaction_apply - && fail 'injected NVRAM set failure was accepted'
+[ "$(nvram_value dnspriv_enable)" = 1 ] || fail 'nonzero-status rollback did not restore the changed key'
+[ "$(nvram_value dhcpd_dns_router)" = 0 ] || fail 'nonzero-status rollback changed the unapplied key'
+[ "${COMMIT_COUNT}" -eq 1 ] || fail 'nonzero-status rollback did not commit the restoration exactly once'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/nonzero-rollback" ] || fail 'completed nonzero-status rollback retained its snapshot'
 
 reset_case
 FAIL_GET_KEY=dhcp_dns1_x
