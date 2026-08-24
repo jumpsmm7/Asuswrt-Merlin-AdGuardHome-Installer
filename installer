@@ -2851,10 +2851,10 @@ AdGuardHome_authen() {
 			;;
 	esac
 	if [ "$1" -eq 0 ]; then
-		yaml_nvars_delete "- name:" "${YAML_FILE}"
-		yaml_nvars_delete "  password:" "${YAML_FILE}"
-		yaml_nvars_insert "users:" "\  password: ${PW1_ENCRYPTED}" "${YAML_FILE}"
-		yaml_nvars_insert "users:" "- name: ${USERNAME}" "${YAML_FILE}"
+		yaml_nvars_file_action delete "- name:" "${YAML_FILE}"
+		yaml_nvars_file_action delete "  password:" "${YAML_FILE}"
+		yaml_nvars_file_action insert "users:" "\  password: ${PW1_ENCRYPTED}" "${YAML_FILE}"
+		yaml_nvars_file_action insert "users:" "- name: ${USERNAME}" "${YAML_FILE}"
 		check_AdGuardHome_yaml "${YAML_FILE}"
 		ptxt_step "Waiting for AdGuardHome post-install readiness checks."
 		if ! agh_complete_startup; then
@@ -6942,7 +6942,7 @@ setup_sync_webui_port() {
 			;;
 	esac
 	if [ -n "${CURRENT_WEB_LINE}" ]; then
-		yaml_nvars_replace "${CURRENT_WEB_LINE}" "  address: ${NEW_WEB_ADDRESS}" "${YAML_FILE}"
+		yaml_nvars_file_action replace "${CURRENT_WEB_LINE}" "  address: ${NEW_WEB_ADDRESS}" "${YAML_FILE}"
 	else
 		YAML_SYNC_TMP_FILE="${YAML_FILE}.webui-port.$$"
 		awk -v address="  address: ${NEW_WEB_ADDRESS}" '
@@ -7448,7 +7448,7 @@ setup_AdGuardHome_impl() {
 				PTXT "${ERROR} Unable to journal the current installer configuration before schema version update."
 				return 1
 			fi
-			if ! yaml_nvars_replace "schema_version: $(awk -F': ' '/.*schema_version:.*/{ print $2 }' "${YAML_FILE}")" "schema_version: ${SCHEMA_VER}" "${YAML_FILE}"; then
+			if ! yaml_nvars_file_action replace "schema_version: $(awk -F': ' '/.*schema_version:.*/{ print $2 }' "${YAML_FILE}")" "schema_version: ${SCHEMA_VER}" "${YAML_FILE}"; then
 				setup_restore_nvram_journal || true
 				PTXT "${ERROR} Unable to update the schema version in the configuration file."
 				return 1

@@ -23,6 +23,9 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
+if grep -Eq '^[[:space:]]*yaml_nvars_(append|delete|insert|replace)[[:space:]]' "${SCRIPT_PATH}"; then
+	fail 'installer contains an unguarded direct nvars action'
+fi
 sed -n '/^yaml_nvars_file_action() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" ||
 	fail 'could not extract guarded nvars file action'
 [ -s "${FUNCTION_FILE}" ] || fail 'guarded nvars file action extraction was empty'

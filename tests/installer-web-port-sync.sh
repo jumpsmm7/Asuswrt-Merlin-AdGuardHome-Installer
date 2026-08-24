@@ -30,7 +30,7 @@ mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 	sed -n '/^adguardhome_owner_account() {$/,/^adguardhome_yaml_remove_ipset_file() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^setup_resolve_lan_addresses() {$/,/^setup_resolve_bind_addresses() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^setup_default_web_host() {$/,/^setup_AdGuardHome_impl() {$/p' "${SCRIPT_PATH}" | sed '$d'
-	sed -n '/^yaml_nvars_insert() {$/,/^# Interactive menu helpers$/p' "${SCRIPT_PATH}" | sed '$d'
+	sed -n '/^yaml_nvars_file_action() {$/,/^# Interactive menu helpers$/p' "${SCRIPT_PATH}" | sed '$d'
 } >"${FUNCTIONS_FILE}" || fail 'could not extract WebUI port synchronization helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'WebUI port synchronization helper extraction was empty'
 
