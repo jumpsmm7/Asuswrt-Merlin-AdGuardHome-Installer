@@ -4601,7 +4601,23 @@ check_dns_local() {
 }
 
 check_jffs_enabled() {
-	local JFFS2_FORMAT JFFS2_SCRIPTS JFFS2_ENABLED jffs2_enable jffs2_on
+	local JFFS2_FORMAT JFFS2_SCRIPTS JFFS2_ENABLED jffs2_enable jffs2_format jffs2_on jffs2_scripts
+	jffs2_format="$(/bin/nvram get jffs2_format 2>/dev/null)" || jffs2_format=""
+	jffs2_scripts="$(/bin/nvram get jffs2_scripts 2>/dev/null)" || jffs2_scripts=""
+	jffs2_enable="$(/bin/nvram get jffs2_enable 2>/dev/null)" || jffs2_enable=""
+	if [ -z "${jffs2_enable}" ]; then
+		JFFS2_ENABLED="$(/bin/nvram get jffs2_on 2>/dev/null)" || JFFS2_ENABLED=""
+	else
+		JFFS2_ENABLED="${jffs2_enable}"
+	fi
+	if [ -z "${jffs2_format}" ] && [ "${jffs2_scripts}" = "1" ] && [ "${JFFS2_ENABLED}" = "1" ]; then
+		PTXT "${INFO} Adding the missing legacy JFFS format setting."
+		if ! /bin/nvram set jffs2_format=0 || ! /bin/nvram commit; then
+			/bin/nvram unset jffs2_format >/dev/null 2>&1 || true
+			PTXT "${ERROR} Unable to persist the legacy JFFS format setting; no other changes were made."
+			return 1
+		fi
+	fi
 	if ! nvram_transaction_begin jffs-enable jffs2_format jffs2_scripts jffs2_enable jffs2_on; then
 		PTXT "${ERROR} Unable to read all required JFFS NVRAM settings; no changes were made."
 		return 1
