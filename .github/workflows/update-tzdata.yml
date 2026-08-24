@@ -1,6 +1,15 @@
-name: Update tzdata packages
+name: Update Tz-data packages
 
 on:
+  push:
+    branches:
+      - master
+      - main
+      - dev
+      - 'dev/**'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+    paths:
+      - .github/workflows/update-tzdata.yml
   schedule:
     - cron: '23 4 * * 1'
   workflow_dispatch:
@@ -64,7 +73,7 @@ jobs:
       - name: Download current packages
         shell: bash
         env:
-          MIRROR_URL: https://mirror.archlinuxarm.org
+          MIRROR_URL: https://de.mirror.archlinuxarm.org
           SIGNING_KEY_FINGERPRINT: 68B3537F39A313B3E574D06777193F152BDBE6A6
         run: |
           set -euo pipefail
