@@ -6,6 +6,7 @@ set -u
 INSTALLER_PATH="${1:-installer}"
 TEST_ROOT="${TMPDIR:-/tmp}/installer-dns-environment-failure.$$"
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
+JFFS_FUNCTIONS_FILE="${TEST_ROOT}/jffs-functions"
 NVRAM_FILE="${TEST_ROOT}/nvram"
 CALLS_FILE="${TEST_ROOT}/calls"
 LOCK_REMOVE_COUNT=0
@@ -29,7 +30,8 @@ sed -n '/^installer_lan_domain_set() {$/,/^rollback_result_write() {$/p' "${INST
 sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNS environment helper'
 sed -n '/^check_dns_filter() {$/,/^save_dns_filter_settings() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter helper'
 sed -n '/^restore_dns_filter_settings() {$/,/^check_ipset() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter restore helper'
-sed -n '/^check_jffs_enabled() {$/,/^check_version() {$/p' "${INSTALLER_PATH}" | sed -e '$d' -e 's|/bin/nvram|nvram|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract JFFS helper'
+sed -n '/^check_jffs_enabled() {$/,/^check_version() {$/p' "${INSTALLER_PATH}" >"${JFFS_FUNCTIONS_FILE}" || fail 'could not extract JFFS helper'
+sed -e '$d' -e 's|/bin/nvram|nvram|g' "${JFFS_FUNCTIONS_FILE}" >>"${FUNCTIONS_FILE}" || fail 'could not prepare JFFS helper'
 sed -n '/^on_installer_exit() {$/,/^python_bcrypt_available() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer exit handler'
 sed -n '/^end_op_message() {$/,/^menu() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer restart helper'
 SETUP_RESTORE_FUNCTION="$(/bin/sed -n '/^setup_restore_nvram_journal() {$/,/^}$/p' "${INSTALLER_PATH}")" || fail 'could not extract setup journal restore helper'
@@ -44,8 +46,8 @@ setup_restore_nvram_journal() {
 }
 EOF_SETUP_RESTORE_WRAPPER
 printf '%s\n' 'nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }' >>"${FUNCTIONS_FILE}"
-[ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/nvram (show|get|set|unset|commit)([[:space:];]|$)')" -eq 7 ] || fail 'NVRAM transaction helpers do not consistently use /bin/nvram'
-[ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/grep -q ')" -eq 1 ] || fail 'NVRAM transaction helpers do not use /bin/grep for inventory matching'
+[ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/nvram (show|get|set|unset|commit)([[:space:];]|$)')" -eq 8 ] || fail 'NVRAM transaction helpers do not consistently use /bin/nvram'
+[ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/grep -q ')" -eq 2 ] || fail 'NVRAM transaction helpers do not use /bin/grep for inventory matching'
 LOCK_OWNER_FUNC_BODY="$(sed -n '/^nvram_transaction_lock_owner_current() {$/,/^nvram_transaction_lock_owner_live() {$/p' "${INSTALLER_PATH}")" || fail 'could not extract nvram_transaction_lock_owner_current function'
 [ "$(
 	/bin/grep -Ec '/(bin|usr/bin)/(sed|awk)' <<EOF
@@ -159,6 +161,16 @@ check_connection() {
 }
 # rollback_result_write appends a rollback status message to the calls log.
 rollback_result_write() { printf '%s\n' "rollback $*" >>"${CALLS_FILE}"; }
+
+# grep injects restore-inventory read failures while delegating all other searches to the host implementation.
+grep() {
+	if [ "${FAIL_INVENTORY_GREP_STATUS:-0}" -gt 1 ]; then
+		case "${*}" in
+			*-inventory.*) return "${FAIL_INVENTORY_GREP_STATUS}" ;;
+		esac
+	fi
+	command grep "$@"
+}
 
 # nvram_value reads and prints the value associated with a key from the simulated NVRAM file.
 nvram_value() {
@@ -306,7 +318,7 @@ dhcp_dns2_x=149.112.112.112
 EOF_NVRAM
 	: >"${CALLS_FILE}"
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0 STUBBY_RESTART_COUNT=0
-	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_GET_ABSENT_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_SERVICE_AT_2=0 FAIL_SERVICE_AT_3=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
+	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_GET_ABSENT_KEY='' FAIL_INVENTORY_GREP_STATUS=0 FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_SERVICE_AT_2=0 FAIL_SERVICE_AT_3=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
 	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 DNS_READY_AFTER_SERVICE=0 STUBBY_RUNNING=0 STUBBY_KILL_STUCK=0
 	DNS_ENV_READY_TIMEOUT=2 DNS_ENV_RECOVERY_TIMEOUT=1
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
@@ -1220,11 +1232,67 @@ nvram_transaction_restore - || fail 'concurrent present-key transaction rollback
 [ "$(nvram_value dnspriv_enable)" = 2 ] || fail 'rollback overwrote a newer value for an initially present key'
 
 reset_case
+nvram_transaction_begin concurrent-untouched dnspriv_enable dnsfilter_enable_x || fail 'concurrent untouched-key transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'concurrent untouched-key transaction staging failed'
+nvram_transaction_apply - 1 || fail 'concurrent untouched-key transaction apply failed'
+nvram set dnsfilter_enable_x=2 || fail 'could not simulate a concurrent untouched-key writer'
+nvram_transaction_restore - || fail 'concurrent untouched-key transaction rollback failed'
+[ "$(nvram_value dnspriv_enable)" = 1 ] || fail 'rollback did not restore a value changed by the transaction'
+[ "$(nvram_value dnsfilter_enable_x)" = 2 ] || fail 'rollback overwrote a newer value for an untouched key'
+
+reset_case
+nvram_transaction_begin concurrent-unset dnspriv_enable || fail 'concurrent unset transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'concurrent unset transaction staging failed'
+nvram_transaction_apply - 1 || fail 'concurrent unset transaction apply failed'
+nvram unset dnspriv_enable || fail 'could not simulate a concurrent key removal'
+FAIL_GET_ABSENT_KEY=dnspriv_enable
+nvram_transaction_restore - || fail 'concurrent key removal caused rollback failure'
+if nvram_value dnspriv_enable >/dev/null 2>&1; then
+	fail 'rollback recreated a concurrently removed key'
+fi
+
+reset_case
+nvram_transaction_begin concurrent-empty-unset dnspriv_enable || fail 'empty-value concurrent unset transaction snapshot failed'
+nvram_transaction_set dnspriv_enable '' || fail 'empty-value concurrent unset transaction staging failed'
+nvram_transaction_apply - 1 || fail 'empty-value concurrent unset transaction apply failed'
+nvram unset dnspriv_enable || fail 'could not simulate removal of an empty applied value'
+FAIL_GET_ABSENT_KEY=dnspriv_enable
+nvram_transaction_restore - || fail 'empty-value concurrent removal caused rollback failure'
+if nvram_value dnspriv_enable >/dev/null 2>&1; then
+	fail 'rollback recreated a concurrently removed key with an empty applied value'
+fi
+
+reset_case
+nvram_transaction_begin inventory-grep-failure dnspriv_enable || fail 'inventory grep failure transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'inventory grep failure transaction staging failed'
+nvram_transaction_apply - 1 || fail 'inventory grep failure transaction apply failed'
+FAIL_INVENTORY_GREP_STATUS=2
+nvram_transaction_restore - && fail 'inventory grep failure was accepted as a completed rollback'
+[ -f "${NVRAM_TRANSACTION_DIR}/dirty" ] || fail 'inventory grep failure discarded its recovery marker'
+[ "$(nvram_value dnspriv_enable)" = 0 ] || fail 'inventory grep failure changed NVRAM during failed rollback'
+
+reset_case
+nvram_transaction_begin unreadable-current dnspriv_enable || fail 'unreadable current-value transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'unreadable current-value transaction staging failed'
+nvram_transaction_apply - 1 || fail 'unreadable current-value transaction apply failed'
+FAIL_GET_KEY=dnspriv_enable
+nvram_transaction_restore - && fail 'current-value read failure was accepted as a completed rollback'
+[ -f "${NVRAM_TRANSACTION_DIR}/dirty" ] || fail 'current-value read failure discarded its recovery marker'
+[ "$(nvram_value dnspriv_enable)" = 0 ] || fail 'current-value read failure changed NVRAM during failed rollback'
+
+reset_case
 printf '%s\n' 'jffs2_scripts=1' 'jffs2_enable=1' 'jffs2_on=1' >>"${NVRAM_FILE}" || fail 'could not seed enabled JFFS settings'
 FAIL_GET_ABSENT_KEY=jffs2_format
 check_jffs_enabled || fail 'missing legacy JFFS format setting was not repaired'
 [ "$(nvram_value jffs2_format)" = 0 ] || fail 'missing legacy JFFS format setting was not set to zero'
 [ "${COMMIT_COUNT}" -eq 1 ] || fail 'missing legacy JFFS format repair did not commit exactly once'
+
+reset_case
+printf '%s\n' 'jffs2_format=1' 'jffs2_scripts=1' 'jffs2_enable=1' 'jffs2_on=1' >>"${NVRAM_FILE}" || fail 'could not seed pending JFFS format state'
+FAIL_GET_KEY=jffs2_format
+check_jffs_enabled && fail 'unreadable existing JFFS format setting was treated as absent'
+[ "$(nvram_value jffs2_format)" = 1 ] || fail 'unreadable pending JFFS format setting was changed'
+[ "${COMMIT_COUNT}" -eq 0 ] || fail 'unreadable pending JFFS format setting was committed'
 
 reset_case
 printf '%s\n' 'jffs2_scripts=1' 'jffs2_enable=1' 'jffs2_on=1' >>"${NVRAM_FILE}" || fail 'could not seed enabled JFFS settings for commit failure'
@@ -2004,8 +2072,8 @@ assert_original 'set failure'
 reset_case
 FAIL_ALL_SETS=1
 check_dns_environment 0 && fail 'complete NVRAM set failure was accepted'
-grep -q 'rollback NVRAM transaction rollback partial' "${CALLS_FILE}" || fail 'incomplete set-failure rollback did not preserve evidence'
-[ -d "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'incomplete set-failure rollback removed its snapshot'
+assert_original 'complete set failure'
+[ ! -d "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'complete set-failure rollback retained its snapshot'
 
 reset_case
 FAIL_COMMIT_AT=1
@@ -2125,6 +2193,7 @@ reset_case
 (
 	trap 'check_dns_environment 1 >/dev/null 2>&1 || :; exit 0' TERM
 	nvram_transaction_begin dns-preparation dnspriv_enable dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x || exit 1
+	nvram_transaction_set dnspriv_enable 0 || exit 1
 	: >"${NVRAM_TRANSACTION_DIR}/dirty" || exit 1
 	nvram set dnspriv_enable=0 || exit 1
 	: >"${TEST_ROOT}/signal-ready"
