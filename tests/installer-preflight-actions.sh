@@ -213,7 +213,10 @@ chmod 755 "${TMP_ROOT}/sha256-bin/which" || fail 'could not make temporary which
 (
 	PTXT() { printf '%s\n' "$*"; }
 	ai_have_cmd() { [ "$1" = sha256sum ] && [ -x "${TMP_ROOT}/sha256-bin/sha256sum" ]; }
-	preflight_check_entware_package() { PTXT 'called.package=yes'; return 1; }
+	preflight_check_entware_package() {
+		PTXT 'called.package=yes'
+		return 1
+	}
 	. "${SHA256_FILE}"
 	PATH="${TMP_ROOT}/sha256-bin"
 	SHA256SUM_OPT_BIN="${TMP_ROOT}/missing-opt-sha256sum"
@@ -238,7 +241,10 @@ chmod 755 "${TMP_ROOT}/no-sha-bin/which" || fail 'could not make empty PATH whic
 (
 	PTXT() { printf '%s\n' "$*"; }
 	ai_have_cmd() { return 1; }
-	preflight_check_entware_package() { PTXT 'called.package=yes'; return 1; }
+	preflight_check_entware_package() {
+		PTXT 'called.package=yes'
+		return 1
+	}
 	. "${SHA256_FILE}"
 	PATH="${TMP_ROOT}/no-sha-bin"
 	SHA256SUM_OPT_BIN="${TMP_ROOT}/opt/bin/sha256sum"
@@ -264,7 +270,10 @@ chmod 755 "${TMP_ROOT}/failing-bin/which"
 (
 	PTXT() { printf '%s\n' "$*"; }
 	ai_have_cmd() { [ "$1" = sha256sum ]; }
-	preflight_check_entware_package() { PTXT 'called.package=yes'; return 1; }
+	preflight_check_entware_package() {
+		PTXT 'called.package=yes'
+		return 1
+	}
 	. "${SHA256_FILE}"
 	PATH="${TMP_ROOT}/failing-bin"
 	SHA256SUM_OPT_BIN="${TMP_ROOT}/missing-opt-sha256sum"
@@ -282,7 +291,10 @@ grep -q '^called.package=yes$' "${TMP_ROOT}/sha-failing.out" || fail 'missing SH
 (
 	PTXT() { printf '%s\n' "$*"; }
 	ai_have_cmd() { [ "$1" = sha256sum ]; }
-	preflight_check_entware_package() { PTXT 'called.package=yes'; return 1; }
+	preflight_check_entware_package() {
+		PTXT 'called.package=yes'
+		return 1
+	}
 	. "${SHA256_FILE}"
 	PATH="${TMP_ROOT}/failing-bin"
 	SHA256SUM_OPT_BIN="${TMP_ROOT}/missing-opt-sha256sum"
