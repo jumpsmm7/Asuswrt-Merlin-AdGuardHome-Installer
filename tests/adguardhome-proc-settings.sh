@@ -287,6 +287,7 @@ EOF
 		return "${START_RESULT:-0}"
 	}
 	cleanup_legacy_firewall() { :; }
+	yaml_nvars_file_action() { :; }
 	yaml_nvars_delete() { :; }
 	del_jffs_script() { :; }
 	del_between_magic() { :; }

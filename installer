@@ -6380,7 +6380,7 @@ inst_AdGuardHome() {
 			fi
 			;;
 	esac
-	[ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
+	yaml_nvars_file_action delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
 	for i in init-start services-stop; do { if { ! grep -q "${ADDON_DIR}/AdGuardHome.sh $i &" "/jffs/scripts/${i}" && grep -q "${ADDON_DIR}/AdGuardHome.sh $i" "/jffs/scripts/${i}"; }; then del_jffs_script "/jffs/scripts/${i}"; fi; }; done
 	case "${ADGUARD_INSTALL_MODE:-wan}" in
 		wan)
@@ -7983,7 +7983,7 @@ uninst_all() {
 	cleanup_legacy_firewall
 	mv "${TARG_DIR}/installer" "${HOME}/installer"
 	rm -rf "${TARG_DIR}" "${ROLLBACK_RESULT_FILE}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"
-	[ -f "/jffs/scripts/dnsmasq.postconf" ] && yaml_nvars_delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
+	yaml_nvars_file_action delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
 	del_jffs_script /jffs/scripts/init-start
 	del_jffs_script /jffs/scripts/dnsmasq.postconf
 	del_jffs_script /jffs/scripts/firewall-start
@@ -8100,6 +8100,26 @@ yaml_nvars_append() {
 yaml_nvars_delete() {
 	PATTERN="$(_quote "$1")"
 	sed -i "/${PATTERN}/d" "$2"
+}
+
+yaml_nvars_file_action() {
+	local ACTION FILE
+	[ "$#" -gt 0 ] || return 1
+	ACTION="$1"
+	shift
+	case "${ACTION}" in
+		append | delete) FILE="${2:-}" ;;
+		insert | replace) FILE="${3:-}" ;;
+		*) return 1 ;;
+	esac
+	[ -n "${FILE}" ] || return 1
+	[ -f "${FILE}" ] || return 0
+	case "${ACTION}" in
+		append) yaml_nvars_append "$@" ;;
+		delete) yaml_nvars_delete "$@" ;;
+		insert) yaml_nvars_insert "$@" ;;
+		replace) yaml_nvars_replace "$@" ;;
+	esac
 }
 
 yaml_nvars_insert() {

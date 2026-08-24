@@ -86,6 +86,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	install_adguard_archive() { return 0; }
 	create_dir() { mkdir -p "$1"; }
 	cleanup_legacy_firewall() { :; }
+	yaml_nvars_file_action() { :; }
 	yaml_nvars_delete() { :; }
 	del_between_magic() { :; }
 	# del_jffs_script removes the JFFS script.
