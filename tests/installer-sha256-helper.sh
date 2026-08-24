@@ -32,7 +32,7 @@ grep -q 'ensure_sha256sum_tool || return 1' "${SCRIPT_PATH}" || fail 'blocklist 
 grep -q 'if ! ensure_opkg_package python3 --force-depends --force-overwrite --force-reinstall || \[ ! -x /opt/bin/python3 \]' "${SCRIPT_PATH}" || fail 'option 9 no longer requires Entware python3 with canonical install options'
 grep -q 'readonly BLOCKLIST_ANALYZER_FILE="${TARG_DIR}/blocklist_analyzer.py"' "${SCRIPT_PATH}" ||
 	fail 'blocklist analyzer is not installed under the AdGuardHome target directory'
-grep -q 'readonly BLOCKLIST_ANALYZER_URL="https://gist.githubusercontent.com/graysky2/8035291d1bf87b8fe3693668965337e1/raw/a4be7655095d6ff880c2f3748964b825d7c45bd2/blocklilst_analyzer.py"' "${SCRIPT_PATH}" ||
+grep -q 'readonly BLOCKLIST_ANALYZER_URL="https://gist.githubusercontent.com/jumpsmm7/da69039cbee6eadd3b1d483c07c4bf19/raw/a4be7655095d6ff880c2f3748964b825d7c45bd2/blocklilst_analyzer.py"' "${SCRIPT_PATH}" ||
 	fail 'blocklist analyzer URL is not pinned to the expected gist revision'
 grep -q 'http_get_file "${BLOCKLIST_ANALYZER_URL}" "${BLOCKLIST_ANALYZER_FILE}.tmp"' "${SCRIPT_PATH}" ||
 	fail 'blocklist analyzer is not downloaded to the target-directory temp path'
