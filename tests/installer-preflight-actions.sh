@@ -197,26 +197,30 @@ for action in uninstall reconfigure status preflight backup doctor; do
 done
 
 # Exercise the shared functional probe used by both preflight and runtime enforcement.
+mkdir -p "${TMP_ROOT}/sha256-bin" || fail 'could not create temporary SHA-256 fixture directory'
+cat >"${TMP_ROOT}/sha256-bin/sha256sum" <<'EOF'
+#!/bin/sh
+printf '%s  %s\n' 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' "${1:-}"
+EOF
+chmod 755 "${TMP_ROOT}/sha256-bin/sha256sum" || fail 'could not make temporary SHA-256 fixture executable'
 (
 	PTXT() { printf '%s\n' "$*"; }
-	ai_have_cmd() { which "$1" >/dev/null 2>&1; }
+	ai_have_cmd() { [ "$1" = sha256sum ] && [ -x "${TMP_ROOT}/sha256-bin/sha256sum" ]; }
 	preflight_check_entware_package() { PTXT 'called.package=yes'; return 1; }
 	. "${SHA256_FILE}"
-	PATH=/usr/bin:/bin
+	PATH="${TMP_ROOT}/sha256-bin"
 	SHA256SUM_OPT_BIN="${TMP_ROOT}/missing-opt-sha256sum"
 	BUSYBOX_BIN="${TMP_ROOT}/missing-busybox"
 	sha256sum_available || exit 1
 	preflight_check_sha256_support 0 || exit 1
-) >"${TMP_ROOT}/sha-stock.out" 2>&1 || fail 'functional stock /usr/bin/sha256sum must satisfy SHA-256 preflight'
+) >"${TMP_ROOT}/sha-stock.out" 2>&1 || fail 'functional PATH sha256sum must satisfy SHA-256 preflight'
 if grep -q '^called.package=yes$' "${TMP_ROOT}/sha-stock.out"; then
 	fail 'functional stock sha256sum must not require coreutils-sha256sum'
 fi
 
 mkdir -p "${TMP_ROOT}/opt/bin" || fail 'could not create temporary Entware SHA-256 fixture directory'
-cat >"${TMP_ROOT}/opt/bin/sha256sum" <<'EOF'
-#!/bin/sh
-exec /usr/bin/sha256sum "$@"
-EOF
+cp "${TMP_ROOT}/sha256-bin/sha256sum" "${TMP_ROOT}/opt/bin/sha256sum" ||
+	fail 'could not create temporary Entware SHA-256 fixture'
 chmod 755 "${TMP_ROOT}/opt/bin/sha256sum" || fail 'could not make temporary Entware SHA-256 fixture executable'
 (
 	PTXT() { printf '%s\n' "$*"; }
