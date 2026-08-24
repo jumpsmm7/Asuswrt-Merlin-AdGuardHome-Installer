@@ -1108,7 +1108,7 @@ nvram_transaction_set() {
 }
 
 nvram_transaction_restore() {
-	local current expected expected_file failed keep_snapshot key old service_action snapshot_dir
+	local current expected expected_file failed inventory_file inventory_status keep_snapshot key old service_action snapshot_dir
 	snapshot_dir="${NVRAM_TRANSACTION_DIR:-}"
 	service_action="$1"
 	keep_snapshot="${2:-0}"
@@ -1121,6 +1121,16 @@ nvram_transaction_restore() {
 		fi
 		return 0
 	fi
+	inventory_file="${snapshot_dir}/restore-inventory.$$"
+	if ! /bin/nvram show >"${inventory_file}" 2>/dev/null; then
+		rm -f "${inventory_file}" 2>/dev/null || true
+		rollback_result_write "NVRAM transaction" "rollback partial" "snapshot preserved at ${snapshot_dir}"
+		return 1
+	fi
+	chmod 600 "${inventory_file}" || {
+		rm -f "${inventory_file}" 2>/dev/null || true
+		return 1
+	}
 	while IFS= read -r key; do
 		expected_file=""
 		if [ -f "${snapshot_dir}/new.${key}" ]; then
@@ -1128,19 +1138,27 @@ nvram_transaction_restore() {
 		elif [ -f "${snapshot_dir}/applied.${key}" ]; then
 			expected_file="${snapshot_dir}/applied.${key}"
 		fi
+		[ -n "${expected_file}" ] || continue
 		if [ -n "${expected_file}" ]; then
 			expected="$(cat "${expected_file}")" || {
 				failed="1"
 				continue
 			}
-			if current="$(/bin/nvram get "${key}" 2>/dev/null)"; then
-				[ "${current}" = "${expected}" ] || continue
-			elif [ -f "${snapshot_dir}/exists.${key}" ]; then
+			/bin/grep -q "^${key}=" "${inventory_file}"
+			inventory_status="$?"
+			case "${inventory_status}" in
+				0) ;;
+				1) continue ;;
+				*)
+					failed="1"
+					continue
+					;;
+			esac
+			current="$(/bin/nvram get "${key}" 2>/dev/null)" || {
 				failed="1"
 				continue
-			else
-				continue
-			fi
+			}
+			[ "${current}" = "${expected}" ] || continue
 		fi
 		old="$(cat "${snapshot_dir}/${key}")" || {
 			failed="1"
@@ -1152,6 +1170,7 @@ nvram_transaction_restore() {
 			/bin/nvram unset "${key}" || failed="1"
 		fi
 	done <"${snapshot_dir}/keys"
+	rm -f "${inventory_file}" || failed="1"
 	/bin/nvram commit || failed="1"
 	nvram_transaction_restart_services "${service_action}" || failed="1"
 	if [ "${failed}" = "0" ]; then
