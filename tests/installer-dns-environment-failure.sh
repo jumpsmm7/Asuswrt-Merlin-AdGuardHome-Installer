@@ -29,6 +29,7 @@ sed -n '/^installer_lan_domain_set() {$/,/^rollback_result_write() {$/p' "${INST
 sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNS environment helper'
 sed -n '/^check_dns_filter() {$/,/^save_dns_filter_settings() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter helper'
 sed -n '/^restore_dns_filter_settings() {$/,/^check_ipset() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter restore helper'
+sed -n '/^check_jffs_enabled() {$/,/^check_version() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract JFFS helper'
 sed -n '/^on_installer_exit() {$/,/^python_bcrypt_available() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer exit handler'
 sed -n '/^end_op_message() {$/,/^menu() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer restart helper'
 SETUP_RESTORE_FUNCTION="$(/bin/sed -n '/^setup_restore_nvram_journal() {$/,/^}$/p' "${INSTALLER_PATH}")" || fail 'could not extract setup journal restore helper'
@@ -1180,6 +1181,30 @@ FAIL_GET_KEY=dhcp_dns1_x
 check_dns_environment 0 && fail 'NVRAM read failure was accepted'
 [ "${SET_COUNT}" = 0 ] || fail 'NVRAM changed after an incomplete snapshot'
 [ "${_DNS_NVRAM_SAVED}" = 0 ] || fail 'incomplete snapshot was marked valid'
+
+reset_case
+FAIL_GET_KEY=optional_missing_key
+nvram_transaction_begin missing-key optional_missing_key || fail 'absent NVRAM key read failure was rejected'
+[ ! -f "${NVRAM_TRANSACTION_DIR}/exists.optional_missing_key" ] || fail 'absent NVRAM key was marked as existing'
+[ ! -s "${NVRAM_TRANSACTION_DIR}/optional_missing_key" ] || fail 'absent NVRAM key snapshot was not empty'
+nvram_transaction_set optional_missing_key 1 || fail 'absent NVRAM key staging failed'
+nvram_transaction_apply - 1 || fail 'absent NVRAM key apply failed'
+nvram_transaction_restore - || fail 'absent NVRAM key rollback failed'
+if nvram_value optional_missing_key >/dev/null 2>&1; then
+	fail 'absent NVRAM key was not unset during rollback'
+fi
+
+reset_case
+printf '%s\n' 'jffs2_scripts=1' 'jffs2_enable=1' 'jffs2_on=1' >>"${NVRAM_FILE}" || fail 'could not seed enabled JFFS settings'
+FAIL_GET_KEY=jffs2_format
+check_jffs_enabled || fail 'missing legacy JFFS format setting was not repaired'
+[ "$(nvram_value jffs2_format)" = 0 ] || fail 'missing legacy JFFS format setting was not set to zero'
+[ "${COMMIT_COUNT}" -eq 1 ] || fail 'missing legacy JFFS format repair did not commit exactly once'
+
+reset_case
+printf '%s\n' 'jffs2_format=0' 'jffs2_scripts=1' 'jffs2_enable=1' 'jffs2_on=1' >>"${NVRAM_FILE}" || fail 'could not seed complete JFFS settings'
+check_jffs_enabled || fail 'complete JFFS settings were rejected'
+[ "${COMMIT_COUNT}" -eq 0 ] || fail 'existing legacy JFFS format setting was committed unnecessarily'
 
 reset_case
 nvram_transaction_begin cleanup dnspriv_enable || fail 'cleanup transaction snapshot failed'

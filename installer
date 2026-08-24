@@ -91,7 +91,7 @@ nvram_transaction_begin() {
 
 # nvram_transaction_begin_locked creates a transaction snapshot while the caller owns the global lock.
 nvram_transaction_begin_locked() {
-	local name key service_action snapshot_dir temp_dir
+	local exists name key service_action snapshot_dir temp_dir
 	name="$1"
 	shift
 	nvram_transaction_finalize_setup_pair recovery || return 1
@@ -141,7 +141,11 @@ nvram_transaction_begin_locked() {
 				return 1
 				;;
 		esac
-		if ! /bin/nvram get "${key}" >"${temp_dir}/${key}" 2>/dev/null; then
+		exists="0"
+		if /bin/grep -q "^${key}=" "${temp_dir}/inventory"; then
+			exists="1"
+		fi
+		if ! /bin/nvram get "${key}" >"${temp_dir}/${key}" 2>/dev/null && [ "${exists}" = "1" ]; then
 			rm -rf "${temp_dir}"
 			return 1
 		fi
@@ -149,7 +153,7 @@ nvram_transaction_begin_locked() {
 			rm -rf "${temp_dir}"
 			return 1
 		}
-		if /bin/grep -q "^${key}=" "${temp_dir}/inventory"; then
+		if [ "${exists}" = "1" ]; then
 			: >"${temp_dir}/exists.${key}" || {
 				rm -rf "${temp_dir}"
 				return 1
@@ -4583,6 +4587,10 @@ check_jffs_enabled() {
 			"${INFO} Enabling them now!"
 		nvram_transaction_set "${jffs2_on}" "1" || return 1
 		nvram_transaction_set jffs2_scripts "1" || return 1
+		nvram_transaction_apply - || return 1
+	elif [ ! -f "${NVRAM_TRANSACTION_DIR}/exists.jffs2_format" ]; then
+		PTXT "${INFO} Adding the missing legacy JFFS format setting."
+		nvram_transaction_set jffs2_format "0" || return 1
 		nvram_transaction_apply - || return 1
 	else
 		rm -rf "${NVRAM_TRANSACTION_DIR}"
