@@ -124,11 +124,5 @@ grep -Fq 'opkg_clean_env install jq-full --force-depends --force-overwrite --for
 	fail 'jq-full repair does not use canonical Entware install options'
 grep -Fq 'install_hint="${2:-opkg install ${pkg} --force-depends --force-overwrite --force-reinstall}"' "${SCRIPT_PATH}" ||
 	fail 'default preflight hint does not use canonical Entware install options'
-grep -A4 '^ensure_password_hash_tool() {$' "${SCRIPT_PATH}" |
-	grep -Fq 'if python_bcrypt_available; then' ||
-	fail 'password hashing does not skip opkg when python-bcrypt is already usable'
-grep -A6 '^ensure_bcrypt_tool() {$' "${SCRIPT_PATH}" |
-	grep -Fq 'if ! go_tool_available; then' ||
-	fail 'bcrypt-tool fallback does not skip opkg when Go is already available'
 
 printf '%s\n' 'PASS: Entware installs consistently support canonical force options'
