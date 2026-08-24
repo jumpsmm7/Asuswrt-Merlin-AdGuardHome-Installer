@@ -1,6 +1,15 @@
-name: Update tzdata packages
+name: Update Tz-data packages
 
 on:
+  push:
+    branches:
+      - master
+      - main
+      - dev
+      - 'dev/**'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+    paths:
+      - .github/workflows/update-tzdata.yml
   schedule:
     - cron: '23 4 * * 1'
   workflow_dispatch:
@@ -64,7 +73,10 @@ jobs:
       - name: Download current packages
         shell: bash
         env:
-          MIRROR_URL: https://mirror.archlinuxarm.org
+          MIRROR_URLS: >-
+            http://mirror.archlinuxarm.org
+            http://de.mirror.archlinuxarm.org
+            http://eu.mirror.archlinuxarm.org
           SIGNING_KEY_FINGERPRINT: 68B3537F39A313B3E574D06777193F152BDBE6A6
         run: |
           set -euo pipefail
@@ -97,25 +109,45 @@ jobs:
             fi
           }
 
+          download_verified_pair() {
+            local max_time mirror_url output_file relative_path signature_file
+            relative_path="$1"
+            output_file="$2"
+            max_time="$3"
+            signature_file="${output_file}.sig"
+
+            # MIRROR_URLS is a trusted, whitespace-separated workflow setting.
+            # Every HTTP payload is authenticated before it is consumed.
+            for mirror_url in ${MIRROR_URLS}; do
+              rm -f "${output_file}" "${signature_file}"
+              printf 'Downloading %s from %s\n' "${relative_path}" "${mirror_url}"
+              if curl --fail --location --silent --show-error \
+                --proto '=http' --proto-redir '=http' \
+                --connect-timeout 15 --max-time "${max_time}" \
+                "${mirror_url}/${relative_path}" --output "${output_file}" &&
+                curl --fail --location --silent --show-error \
+                  --proto '=http' --proto-redir '=http' \
+                  --connect-timeout 15 --max-time 120 \
+                  "${mirror_url}/${relative_path}.sig" --output "${signature_file}" &&
+                verify_signature "${output_file}" "${signature_file}"; then
+                return 0
+              fi
+              printf 'Mirror failed verification or download: %s\n' "${mirror_url}" >&2
+            done
+
+            rm -f "${output_file}" "${signature_file}"
+            printf 'No mirror supplied a verified copy of %s\n' "${relative_path}" >&2
+            return 1
+          }
+
           download_package() {
-            local architecture output_arch database database_signature description filename package_url
-            local upstream_file upstream_signature package_info package_version package_arch output_file
+            local architecture output_arch database description filename
+            local upstream_file package_info package_version package_arch output_file
             architecture="$1"
             output_arch="$2"
             database="${stage_dir}/core-${architecture}.db"
 
-            curl --fail --location --silent --show-error \
-              --proto '=https' --proto-redir '=https' \
-              --connect-timeout 15 --max-time 120 \
-              "${MIRROR_URL}/${architecture}/core/core.db" \
-              --output "${database}"
-            database_signature="${database}.sig"
-            curl --fail --location --silent --show-error \
-              --proto '=https' --proto-redir '=https' \
-              --connect-timeout 15 --max-time 120 \
-              "${MIRROR_URL}/${architecture}/core/core.db.sig" \
-              --output "${database_signature}"
-            verify_signature "${database}" "${database_signature}"
+            download_verified_pair "${architecture}/core/core.db" "${database}" 120
 
             description="$(tar --wildcards -xOf "${database}" 'tzdata-*/desc')"
             filename="$(printf '%s\n' "${description}" | awk '$0 == "%FILENAME%" { getline; print; exit }')"
@@ -131,18 +163,8 @@ jobs:
               return 1
             fi
 
-            package_url="${MIRROR_URL}/${architecture}/core/${filename}"
             upstream_file="${stage_dir}/upstream-${architecture}.${filename##*.}"
-            upstream_signature="${upstream_file}.sig"
-            curl --fail --location --silent --show-error \
-              --proto '=https' --proto-redir '=https' \
-              --connect-timeout 15 --max-time 300 \
-              "${package_url}" --output "${upstream_file}"
-            curl --fail --location --silent --show-error \
-              --proto '=https' --proto-redir '=https' \
-              --connect-timeout 15 --max-time 120 \
-              "${package_url}.sig" --output "${upstream_signature}"
-            verify_signature "${upstream_file}" "${upstream_signature}"
+            download_verified_pair "${architecture}/core/${filename}" "${upstream_file}" 300
 
             if ! package_info="$(tar -xOf "${upstream_file}" ./.PKGINFO 2>/dev/null)"; then
               printf 'Failed to extract .PKGINFO from %s\n' "${upstream_file}" >&2
