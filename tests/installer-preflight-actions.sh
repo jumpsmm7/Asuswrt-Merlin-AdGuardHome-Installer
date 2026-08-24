@@ -133,7 +133,8 @@ EOF
 				fail 'preflight must report skipped Entware-dependent checks when Entware is missing'
 			grep -q 'called.sha256=yes' "${out_file}" ||
 				fail 'preflight must check stock-compatible SHA-256 support when Entware is missing'
-			if grep -q '^called\.\(password_hash\|column\)=yes$' "${out_file}"; then
+			if grep -q '^called\.password_hash=yes$' "${out_file}" ||
+				grep -q '^called\.column=yes$' "${out_file}"; then
 				fail 'preflight must not run Entware-dependent password or column checks when Entware is missing'
 			fi
 			;;
