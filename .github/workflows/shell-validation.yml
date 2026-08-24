@@ -62,6 +62,9 @@ jobs:
       - name: Run installer jq dependency regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-jq-helper.sh
 
+      - name: Run Entware install option regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-opkg-options.sh
+
       - name: Run mkdir reaper owner publication regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-reaper-owner-publication.sh
 

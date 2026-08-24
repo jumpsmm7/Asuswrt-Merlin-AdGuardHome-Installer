@@ -27,7 +27,7 @@ require_text() {
 	file="$1"
 	text="$2"
 	description="$3"
-	grep -Fq "${text}" "${file}" || fail "${file}: missing shared guardrail: ${description}"
+	grep -Fq -e "${text}" "${file}" || fail "${file}: missing shared guardrail: ${description}"
 }
 
 for f in "${CANONICAL_AGENTS}" "${AMAZONQ_AGENTS}" "${QODO_REVIEW}" "${CODERABBIT}" "${CODEX_PROMPT}" \
@@ -200,6 +200,13 @@ QODO_PACKAGES=$(awk '
 ' "${QODO_REVIEW}" | sed -E 's/^\* `([A-Za-z0-9_-]+)`$/\1/' | sort -u)
 [ "${QODO_PACKAGES}" = "${AGENTS_PACKAGES}" ] ||
 	fail "${QODO_REVIEW}: allowed Entware package list drifted from ${CANONICAL_AGENTS}"
+
+ENTWARE_OPTION_CONTRACT='--force-depends --force-overwrite --force-reinstall'
+require_text "${CANONICAL_AGENTS}" "${ENTWARE_OPTION_CONTRACT}" 'canonical Entware install option contract'
+require_text "${AMAZONQ_AGENTS}" "${ENTWARE_OPTION_CONTRACT}" 'Amazon Q Entware install option contract'
+require_text "${QODO_REVIEW}" "${ENTWARE_OPTION_CONTRACT}" 'Qodo Entware install option contract'
+require_text '.coderabbit.yaml' "${ENTWARE_OPTION_CONTRACT}" 'CodeRabbit Entware install option contract'
+require_text '.github/prompts/codex-code-improvement.md' "${ENTWARE_OPTION_CONTRACT}" 'Codex Entware install option contract'
 
 # --- jq: router-stock binary, not an installed Entware package -------------
 require_text "${CANONICAL_AGENTS}" '`jq`: `/usr/bin/jq`' 'jq router-stock path'

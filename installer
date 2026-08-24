@@ -1362,27 +1362,33 @@ clear_screen() {
 	return 0
 }
 
+go_tool_available() {
+	[ -x /opt/bin/go/bin/go ]
+}
+
 ensure_bcrypt_tool() {
 	if bcrypt_tool_available; then
 		return 0
 	fi
-	case "$(/bin/uname -m)" in
-		"aarch64" | "arm64")
-			ensure_opkg_package go || return 1
-			;;
-		"armv7l" | *)
-			if opkg_pkg_available go_nohf; then
-				ensure_opkg_package go_nohf || return 1
-			else
-				ensure_opkg_package go || return 1
-			fi
-			;;
-	esac
+	if ! go_tool_available; then
+		case "$(/bin/uname -m)" in
+			"aarch64" | "arm64")
+				ensure_opkg_package go --force-depends --force-overwrite --force-reinstall || return 1
+				;;
+			"armv7l" | *)
+				if opkg_pkg_available go_nohf; then
+					ensure_opkg_package go_nohf --force-depends --force-overwrite --force-reinstall || return 1
+				else
+					ensure_opkg_package go --force-depends --force-overwrite --force-reinstall || return 1
+				fi
+				;;
+		esac
+	fi
 	export GOROOT="/opt/bin/go"
 	export GOBIN="/opt/bin/"
 	GO_CACHE_DIR="/tmp/AdGuardHome-go-build-cache"
 	GO_PATH_DIR="/tmp/AdGuardHome-go-path"
-	[ -x /opt/bin/go/bin/go ] || return 1
+	go_tool_available || return 1
 	mkdir -p "${GO_CACHE_DIR}" "${GO_PATH_DIR}" || return 1
 	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/opt/bin/go/bin" HOME="${GO_PATH_DIR}" GOCACHE="${GO_CACHE_DIR}" GOPATH="${GO_PATH_DIR}" GOROOT="${GOROOT}" GOBIN="${GOBIN}" /opt/bin/go/bin/go install gophers.dev/cmds/bcrypt-tool@latest >/dev/null 2>&1 || return 1
 	bcrypt_tool_available
@@ -1400,6 +1406,7 @@ bcrypt_tool_available() {
 
 ensure_opkg_package() {
 	_pkg="$1"
+	_force_reinstall=0
 	shift
 	case "${_pkg}" in
 		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.+-]*)
@@ -1409,10 +1416,11 @@ ensure_opkg_package() {
 	for _option in "$@"; do
 		case "${_option}" in
 			--force-depends | --force-overwrite) ;;
+			--force-reinstall) _force_reinstall=1 ;;
 			*) return 1 ;;
 		esac
 	done
-	if opkg_pkg_installed "${_pkg}"; then
+	if opkg_pkg_installed "${_pkg}" && [ "${_force_reinstall:-0}" -eq 0 ]; then
 		return 0
 	fi
 
@@ -1463,14 +1471,14 @@ ensure_jq_tool() {
 		return 0
 	fi
 	ptxt_warn "No usable jq executable was found; JSON parsing support is required."
-	PTXT "${INFO} Installing Entware package: opkg install jq-full --force-depends --force-overwrite"
+	PTXT "${INFO} Installing Entware package: opkg install jq-full --force-depends --force-overwrite --force-reinstall"
 	ptxt_step "Installing Entware jq-full package."
 	if opkg_pkg_installed jq-full; then
-		opkg_clean_env install jq-full --force-depends --force-overwrite >/dev/null 2>&1 || {
+		opkg_clean_env install jq-full --force-depends --force-overwrite --force-reinstall >/dev/null 2>&1 || {
 			ptxt_fail "Unable to repair Entware jq-full."
 			return 1
 		}
-	elif ! ensure_opkg_package jq-full --force-depends --force-overwrite; then
+	elif ! ensure_opkg_package jq-full --force-depends --force-overwrite --force-reinstall; then
 		ptxt_fail "Unable to install Entware jq-full."
 		return 1
 	fi
@@ -1488,9 +1496,9 @@ ensure_sha256sum_tool() {
 	fi
 	ptxt_warn "Neither sha256sum nor OpenSSL SHA-256 support was found in PATH; checksum verification is required."
 	PTXT "${INFO} Some Asuswrt-Merlin firmware builds do not include sha256sum."
-	PTXT "${INFO} Installing Entware package: opkg install coreutils-sha256sum"
+	PTXT "${INFO} Installing Entware package: opkg install coreutils-sha256sum --force-depends --force-overwrite --force-reinstall"
 	ptxt_step "Installing Entware coreutils-sha256sum package."
-	if ! ensure_opkg_package coreutils-sha256sum; then
+	if ! ensure_opkg_package coreutils-sha256sum --force-depends --force-overwrite --force-reinstall; then
 		ptxt_fail "Unable to install Entware coreutils-sha256sum."
 		return 1
 	fi
@@ -1503,8 +1511,11 @@ ensure_sha256sum_tool() {
 }
 
 ensure_password_hash_tool() {
-	ensure_opkg_package python3 || true
-	ensure_opkg_package python3-bcrypt || true
+	if python_bcrypt_available; then
+		return 0
+	fi
+	ensure_opkg_package python3 --force-depends --force-overwrite --force-reinstall || true
+	ensure_opkg_package python3-bcrypt --force-depends --force-overwrite --force-reinstall || true
 	if python_bcrypt_available; then
 		return 0
 	fi
@@ -2417,7 +2428,7 @@ preflight_check_entware() {
 preflight_check_entware_package() {
 	local install_hint pkg result
 	pkg="$1"
-	install_hint="${2:-opkg install ${pkg}}"
+	install_hint="${2:-opkg install ${pkg} --force-depends --force-overwrite --force-reinstall}"
 	result="MISSING"
 	if opkg_pkg_installed "${pkg}"; then
 		result="OK"
@@ -2455,7 +2466,7 @@ preflight_check_jq() {
 	if [ "${allow_entware}" = "1" ]; then
 		PTXT "preflight.jq.entware=${entware_result}"
 		if [ "${result}" != "OK" ]; then
-			preflight_check_entware_package jq-full "opkg install jq-full --force-depends --force-overwrite" || true
+			preflight_check_entware_package jq-full "opkg install jq-full --force-depends --force-overwrite --force-reinstall" || true
 		fi
 	else
 		PTXT "preflight.jq.entware=not_checked"
@@ -2474,7 +2485,7 @@ preflight_check_password_hash_support() {
 	PTXT "preflight.entware.password_hash.required=yes"
 	PTXT "preflight.entware.password_hash.result=${result}"
 	if [ "${result}" != "OK" ]; then
-		PTXT "preflight.entware.password_hash.install_hint=opkg install python3 python3-bcrypt"
+		PTXT "preflight.entware.password_hash.install_hint=opkg install python3 python3-bcrypt --force-depends --force-overwrite --force-reinstall"
 		preflight_check_entware_package python3 || failed="1"
 		preflight_check_entware_package python3-bcrypt || failed="1"
 	fi
@@ -3683,10 +3694,10 @@ ensure_blocklist_analyzer_dependencies() {
 	ptxt_step "Checking for Entware python3."
 	if [ ! -x /opt/bin/python3 ]; then
 		ptxt_warn "python3 is required to run the analyzer, but it was not found."
-		PTXT "${INFO} Entware python3 can be installed with: opkg install python3"
+		PTXT "${INFO} Entware python3 can be installed with: opkg install python3 --force-depends --force-overwrite --force-reinstall"
 		if read_yesno "Do you want Entware to install python3 now?"; then
 			ptxt_step "Installing Entware python3 package."
-			if ! ensure_opkg_package python3 || [ ! -x /opt/bin/python3 ]; then
+			if ! ensure_opkg_package python3 --force-depends --force-overwrite --force-reinstall || [ ! -x /opt/bin/python3 ]; then
 				ptxt_fail "Unable to install or find Entware python3."
 				return 1
 			fi
@@ -6446,7 +6457,7 @@ set_timezone() {
 			;;
 	esac
 	TZ_DATA="tzdata-2021e-1-${TZ_ARCH}.pkg.tar.bz2"
-	ensure_opkg_package column || return 1
+	ensure_opkg_package column --force-depends --force-overwrite --force-reinstall || return 1
 	ai_have_cmd sort || {
 		PTXT "${ERROR} Required timezone selection command is unavailable: sort"
 		return 1

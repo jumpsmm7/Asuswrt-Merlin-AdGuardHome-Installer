@@ -200,6 +200,7 @@ New Entware dependencies must satisfy all of the following:
 * The dependency is actually required.
 * The package is added to the repository’s allowed package list.
 * The required `opkg install ...` path is added or preserved.
+* Installer-managed package installs, repair commands, and install hints preserve `--force-depends --force-overwrite --force-reinstall`, including for `jq-full`.
 * Stock-router code and Entware-dependent code remain clearly separated.
 * The command is not assumed to exist before package installation succeeds.
 * Failure to install the package is handled.

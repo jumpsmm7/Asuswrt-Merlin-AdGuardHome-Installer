@@ -179,7 +179,7 @@ sh installer uninstall --dry-run
 
 The dry-run paths print what would be done and avoid changing the live install.
 
-The `preflight` command checks router-stock command availability and action-specific prerequisites without changing router state. Run `sh installer preflight` before a new install, or pass the flow you plan to run: `install`, `reconfigure`, `update`, `restore`, `uninstall`, or `status`. Its output uses `preflight.name=value` lines, includes `preflight.safe_to_paste=yes`, and is intended for issue reports. The install/reconfigure/update/restore/uninstall flows check stock `/bin/sh`, `/bin/nvram`, a stock downloader (`/usr/sbin/curl` or `/usr/sbin/wget`), `/sbin/service`, and `/usr/sbin/cru`. Checks for `/usr/sbin/iptables` and `/usr/sbin/ip6tables` apply only when the action requires WAN firewall management; LAN-mode runs report those checks as `SKIP`. Install, reconfigure, update, and restore also require a `jq` executable that can successfully parse JSON. The installer prefers the stock-first PATH result and otherwise installs the Entware fallback with `opkg install jq-full --force-depends --force-overwrite`. Entware mount and Entware package/tool probes are reported only for flows that need Entware, while `preflight status` skips Entware-dependent checks.
+The `preflight` command checks router-stock command availability and action-specific prerequisites without changing router state. Run `sh installer preflight` before a new install, or pass the flow you plan to run: `install`, `reconfigure`, `update`, `restore`, `uninstall`, or `status`. Its output uses `preflight.name=value` lines, includes `preflight.safe_to_paste=yes`, and is intended for issue reports. The install/reconfigure/update/restore/uninstall flows check stock `/bin/sh`, `/bin/nvram`, a stock downloader (`/usr/sbin/curl` or `/usr/sbin/wget`), `/sbin/service`, and `/usr/sbin/cru`. Checks for `/usr/sbin/iptables` and `/usr/sbin/ip6tables` apply only when the action requires WAN firewall management; LAN-mode runs report those checks as `SKIP`. Install, reconfigure, update, and restore also require a `jq` executable that can successfully parse JSON. The installer prefers the stock-first PATH result and otherwise installs the Entware fallback with `opkg install jq-full --force-depends --force-overwrite --force-reinstall`. Entware mount and Entware package/tool probes are reported only for flows that need Entware, while `preflight status` skips Entware-dependent checks.
 
 The `ipset refresh` command checks whether IPSET integration is enabled. Without `--yes`, it does not restart AdGuardHome; with `--yes`, it restarts AdGuardHome so refreshed mappings can take effect.
 
@@ -484,13 +484,13 @@ Removal can be handled in two ways after the unused list report is printed. The 
 Python 3 is required to run the analyzer. On Entware-based installs, install it before using the analyzer if the installer has not already installed it for you:
 
 ```sh
-opkg install python3 coreutils-sha256sum
+opkg install python3 coreutils-sha256sum --force-depends --force-overwrite --force-reinstall
 ```
 
 For SHA-256 verification support on firmware builds that do not include stock `sha256sum`, install the optional Entware package:
 
 ```sh
-opkg install coreutils-sha256sum
+opkg install coreutils-sha256sum --force-depends --force-overwrite --force-reinstall
 ```
 
 `python3` and `coreutils-sha256sum` are optional Entware dependencies, not stock Asuswrt-Merlin router commands. The analyzer itself is optional; users who do not want Entware Python 3 installed can skip this feature and manage filter lists manually from the AdGuardHome web interface.
