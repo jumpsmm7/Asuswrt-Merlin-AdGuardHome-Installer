@@ -4265,16 +4265,25 @@ check_dns_environment() {
 			fi
 			if [ "${changed}" != "0" ] && ! dns_env_local_ready "${DNS_ENV_READY_TIMEOUT}"; then
 				PTXT "${ERROR} DNS readiness did not recover after applying NVRAM changes."
-				if nvram_transaction_restore restart_dnsmasq 1 && dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
-					# Retain the recovery marker until the stopped resolver is running again.
-					if [ "${stubby_stopped}" = "1" ]; then
+				if nvram_transaction_restore restart_dnsmasq 1; then
+					if [ "${stubby_stopped}" = "0" ]; then
+						# NVRAM rollback is complete. Clear its recovery marker before
+						# best-effort readiness checks and snapshot cleanup.
+						if rm -f "${NVRAM_TRANSACTION_DIR}/dirty"; then
+							if dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
+								rm -rf "${NVRAM_TRANSACTION_DIR}" 2>/dev/null || true
+							else
+								rollback_result_write "DNS NVRAM transaction" "rollback complete" "DNS readiness did not recover"
+							fi
+						else
+							rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+						fi
+					elif dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
+						# Retain the recovery marker until the stopped resolver is running again.
 						stubby_recovery_attempted="1"
 						if ! restore_stubby_after_dns_failure; then
 							rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
 						fi
-					elif rm -f "${NVRAM_TRANSACTION_DIR}/dirty"; then
-						stubby_stopped="0"
-						rm -rf "${NVRAM_TRANSACTION_DIR}" 2>/dev/null || true
 					else
 						rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
 					fi
