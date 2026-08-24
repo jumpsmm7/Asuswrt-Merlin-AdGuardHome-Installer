@@ -6,6 +6,7 @@ set -u
 SCRIPT_PATH="${1:-installer}"
 TMP_ROOT=""
 FUNCTIONS_FILE=""
+TOOL_FUNCTIONS_FILE=""
 CALL_FILE=""
 CANONICAL_OPTIONS='--force-depends --force-overwrite --force-reinstall'
 
@@ -33,11 +34,18 @@ while [ "${attempt}" -lt 100 ]; do
 done
 [ -n "${TMP_ROOT}" ] || fail 'could not create private test directory'
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
+TOOL_FUNCTIONS_FILE="${TMP_ROOT}/tool-functions"
 CALL_FILE="${TMP_ROOT}/opkg-call"
 
 sed -n '/^ensure_opkg_package() {$/,/^sha256sum_available() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract ensure_opkg_package'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'ensure_opkg_package extraction was empty'
+
+{
+	sed -n '/^go_tool_available() {$/,/^bcrypt_tool_available() {$/p' "${SCRIPT_PATH}" | sed '$d'
+	sed -n '/^ensure_password_hash_tool() {$/,/^hash_password_python() {$/p' "${SCRIPT_PATH}" | sed '$d'
+} >"${TOOL_FUNCTIONS_FILE}" || fail 'could not extract conditional tool helpers'
+[ -s "${TOOL_FUNCTIONS_FILE}" ] || fail 'conditional tool helper extraction was empty'
 
 run_case() {
 	case_name="$1"
@@ -76,6 +84,37 @@ run_case missing-install 0 0 "install column ${CANONICAL_OPTIONS}" column \
 	--force-depends --force-overwrite --force-reinstall
 run_case unsupported-option 0 1 '' jq-full --force-unsupported
 
+(
+	# shellcheck disable=SC1090
+	. "${TOOL_FUNCTIONS_FILE}"
+	python_bcrypt_available() { return 0; }
+	ensure_opkg_package() {
+		printf '%s\n' "$*" >"${CALL_FILE}"
+		return 1
+	}
+	ensure_password_hash_tool
+) || fail 'healthy python-bcrypt probe did not satisfy password hashing dependency'
+[ ! -e "${CALL_FILE}" ] || fail 'healthy python-bcrypt probe triggered an opkg repair'
+
+(
+	# shellcheck disable=SC1090
+	. "${TOOL_FUNCTIONS_FILE}"
+	bcrypt_built=0
+	bcrypt_tool_available() { [ "${bcrypt_built}" -eq 1 ]; }
+	go_tool_available() { return 0; }
+	ensure_opkg_package() {
+		printf '%s\n' "$*" >"${CALL_FILE}"
+		return 1
+	}
+	mkdir() { return 0; }
+	env() {
+		bcrypt_built=1
+		return 0
+	}
+	ensure_bcrypt_tool
+) || fail 'existing Go toolchain did not build the bcrypt fallback'
+[ ! -e "${CALL_FILE}" ] || fail 'existing Go toolchain triggered an opkg repair'
+
 if grep -E '^[[:space:]]*ensure_opkg_package[[:space:]]+[A-Za-z0-9_.+-]+' "${SCRIPT_PATH}" |
 	grep -Ev -- '--force-depends --force-overwrite --force-reinstall([[:space:]]|$)' >/dev/null; then
 	fail 'an ensure_opkg_package call is missing canonical Entware install options'
@@ -89,7 +128,7 @@ grep -A4 '^ensure_password_hash_tool() {$' "${SCRIPT_PATH}" |
 	grep -Fq 'if python_bcrypt_available; then' ||
 	fail 'password hashing does not skip opkg when python-bcrypt is already usable'
 grep -A6 '^ensure_bcrypt_tool() {$' "${SCRIPT_PATH}" |
-	grep -Fq 'if [ ! -x /opt/bin/go/bin/go ]; then' ||
+	grep -Fq 'if ! go_tool_available; then' ||
 	fail 'bcrypt-tool fallback does not skip opkg when Go is already available'
 
 printf '%s\n' 'PASS: Entware installs consistently support canonical force options'
