@@ -189,6 +189,9 @@ sed -n '/^legacy_firewall_cleanup_needed() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_
 	if legacy_firewall_cleanup_needed; then
 		fail 'empty firewall state incorrectly required cleanup'
 	fi
+	printf '%s\n' "[ -x ${ADDON_DIR}/AdGuardHome.sh ]" >"${TMP_ROOT}/firewall-start" ||
+		fail 'could not create managed firewall-start hook'
+	legacy_firewall_cleanup_needed "${TMP_ROOT}/firewall-start" || fail 'managed firewall-start hook was not detected'
 	IPTABLES_TEST_STATE=error
 	legacy_firewall_cleanup_needed || fail 'failed firewall inspection did not require cleanup'
 ) || exit $?

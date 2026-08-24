@@ -5879,12 +5879,13 @@ cleanup_legacy_firewall() {
 }
 
 legacy_firewall_cleanup_needed() {
-	local raw_rules
+	local firewall_start raw_rules
+	firewall_start="${1:-/jffs/scripts/firewall-start}"
 	raw_rules="$(iptables -t raw -S 2>/dev/null)" || return 0
-	if printf '%s\n' "${raw_rules}" | grep -q 'ADGUARDHOME'; then
+	if printf '%s\n' "${raw_rules}" | /bin/grep -q 'ADGUARDHOME'; then
 		return 0
 	fi
-	if [ -f /jffs/scripts/firewall-start ] && grep -q -F "[ -x ${ADDON_DIR}/AdGuardHome.sh ]" /jffs/scripts/firewall-start; then
+	if [ -f "${firewall_start}" ] && /bin/grep -q -F "[ -x ${ADDON_DIR}/AdGuardHome.sh ]" "${firewall_start}"; then
 		return 0
 	fi
 	return 1
