@@ -127,7 +127,7 @@ preflight_check_timezone_column() { PTXT 'called.column=yes'; return 0; }
 preflight install
 EOF
 	run_status=0
-	( . "${stub_file}" ) >"${out_file}" 2>&1 || run_status=$?
+	(. "${stub_file}") >"${out_file}" 2>&1 || run_status=$?
 	case "${expected_skip}" in
 		yes)
 			[ "${run_status}" -eq 1 ] || fail 'preflight must fail when Entware is missing'
