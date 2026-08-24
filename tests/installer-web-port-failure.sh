@@ -112,6 +112,12 @@ discard_installer_config_backup() {
 yaml_nvars_replace() {
 	printf '%s\n' "$*" >>"${WRITE_LOG}"
 }
+# yaml_nvars_file_action forwards guarded replacement calls for the existing test YAML file.
+yaml_nvars_file_action() {
+	[ "$1" = "replace" ] || return 1
+	shift
+	yaml_nvars_replace "$@"
+}
 YAML_CHECKS=0
 # check_AdGuardHome_yaml increments the YAML validation check counter.
 check_AdGuardHome_yaml() {
