@@ -71,6 +71,12 @@ require_text "${CANONICAL_AGENTS}" \
 require_text "${CANONICAL_AGENTS}" \
 	'These commands are validation-host exceptions only.' \
 	'validation prerequisites excluded from router runtime'
+require_text "${CANONICAL_AGENTS}" \
+	'SHA-256 preflight and runtime enforcement must use the shared functional `sha256sum_available()` probe.' \
+	'shared SHA-256 functional probe contract'
+require_text "${CANONICAL_AGENTS}" \
+	'only run the `coreutils-sha256sum` package diagnostic when Entware is available and no supported implementation works.' \
+	'conditional Entware SHA-256 package diagnostic contract'
 
 # All reviewers use the same priority order even if their provider-specific
 # configuration contains additional checks.

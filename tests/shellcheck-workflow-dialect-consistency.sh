@@ -96,6 +96,8 @@ grep -Fq 'run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/rc-process
 	fail "${WORKFLOW}: POSIX syntax job does not run a bounded process signaling regression with BusyBox ash"
 grep -Fq 'run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-reaper-owner-publication.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: reaper regression does not use the approved timeout path"
+grep -Fq 'run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-preflight-actions.sh' "${WORKFLOW}" ||
+	fail "${WORKFLOW}: installer preflight regression does not run with bounded BusyBox ash"
 grep -Fq 'run: sudo -n /usr/bin/timeout --kill-after=10 600 env AGH_INTEGRATION_SHELL=busybox' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: lifecycle timeout must run inside sudo"
 grep -Fq 'run: sudo -n /usr/bin/timeout --kill-after=10 180 busybox ash tests/optional-database-links.sh' "${WORKFLOW}" ||
