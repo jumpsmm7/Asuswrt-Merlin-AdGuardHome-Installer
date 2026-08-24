@@ -1108,7 +1108,7 @@ nvram_transaction_set() {
 }
 
 nvram_transaction_restore() {
-	local current expected expected_file failed keep_snapshot key old service_action snapshot_dir
+	local current expected expected_file failed keep_snapshot key old service_action snapshot_dir inventory inventory_status
 	snapshot_dir="${NVRAM_TRANSACTION_DIR:-}"
 	service_action="$1"
 	keep_snapshot="${2:-0}"
@@ -1121,6 +1121,8 @@ nvram_transaction_restore() {
 		fi
 		return 0
 	fi
+	inventory="$(/bin/nvram show 2>/dev/null)"
+	inventory_status="$?"
 	while IFS= read -r key; do
 		expected_file=""
 		if [ -f "${snapshot_dir}/new.${key}" ]; then
@@ -1135,7 +1137,7 @@ nvram_transaction_restore() {
 			}
 			if current="$(/bin/nvram get "${key}" 2>/dev/null)"; then
 				[ "${current}" = "${expected}" ] || continue
-			elif [ -f "${snapshot_dir}/exists.${key}" ]; then
+			elif [ "${inventory_status}" != "0" ] || printf '%s\n' "${inventory}" | grep -q "^${key}="; then
 				failed="1"
 				continue
 			else
