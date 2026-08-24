@@ -1337,6 +1337,12 @@ check_jffs_enabled || fail 'complete JFFS settings were rejected'
 [ "${COMMIT_COUNT}" -eq 0 ] || fail 'existing legacy JFFS format setting was committed unnecessarily'
 
 reset_case
+printf '%s\n' 'jffs2_format=0' 'jffs2_scripts=1' 'jffs2_enable=1' 'jffs2_on=1' >>"${NVRAM_FILE}" || fail 'could not seed complete JFFS settings for direct check'
+FAIL_SHOW=1
+check_jffs_enabled || fail 'complete JFFS settings unnecessarily required an NVRAM inventory'
+[ "${COMMIT_COUNT}" -eq 0 ] || fail 'direct JFFS check committed unchanged settings'
+
+reset_case
 nvram_transaction_begin cleanup dnspriv_enable || fail 'cleanup transaction snapshot failed'
 nvram_transaction_set dnspriv_enable 0 || fail 'cleanup transaction staging failed'
 : >"${NVRAM_TRANSACTION_DIR}/new.untracked" || fail 'could not create unrelated snapshot file'
