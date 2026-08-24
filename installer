@@ -1366,18 +1366,20 @@ ensure_bcrypt_tool() {
 	if bcrypt_tool_available; then
 		return 0
 	fi
-	case "$(/bin/uname -m)" in
-		"aarch64" | "arm64")
-			ensure_opkg_package go --force-depends --force-overwrite --force-reinstall || return 1
-			;;
-		"armv7l" | *)
-			if opkg_pkg_available go_nohf; then
-				ensure_opkg_package go_nohf --force-depends --force-overwrite --force-reinstall || return 1
-			else
+	if [ ! -x /opt/bin/go/bin/go ]; then
+		case "$(/bin/uname -m)" in
+			"aarch64" | "arm64")
 				ensure_opkg_package go --force-depends --force-overwrite --force-reinstall || return 1
-			fi
-			;;
-	esac
+				;;
+			"armv7l" | *)
+				if opkg_pkg_available go_nohf; then
+					ensure_opkg_package go_nohf --force-depends --force-overwrite --force-reinstall || return 1
+				else
+					ensure_opkg_package go --force-depends --force-overwrite --force-reinstall || return 1
+				fi
+				;;
+		esac
+	fi
 	export GOROOT="/opt/bin/go"
 	export GOBIN="/opt/bin/"
 	GO_CACHE_DIR="/tmp/AdGuardHome-go-build-cache"
@@ -1505,6 +1507,9 @@ ensure_sha256sum_tool() {
 }
 
 ensure_password_hash_tool() {
+	if python_bcrypt_available; then
+		return 0
+	fi
 	ensure_opkg_package python3 --force-depends --force-overwrite --force-reinstall || true
 	ensure_opkg_package python3-bcrypt --force-depends --force-overwrite --force-reinstall || true
 	if python_bcrypt_available; then

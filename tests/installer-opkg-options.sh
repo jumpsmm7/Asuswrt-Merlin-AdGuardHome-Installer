@@ -4,13 +4,13 @@
 set -u
 
 SCRIPT_PATH="${1:-installer}"
-TMP_ROOT="${TMPDIR:-/tmp}/installer-opkg-options.$$"
-FUNCTIONS_FILE="${TMP_ROOT}/functions"
-CALL_FILE="${TMP_ROOT}/opkg-call"
+TMP_ROOT=""
+FUNCTIONS_FILE=""
+CALL_FILE=""
 CANONICAL_OPTIONS='--force-depends --force-overwrite --force-reinstall'
 
 cleanup() {
-	rm -rf "${TMP_ROOT}"
+	[ -z "${TMP_ROOT}" ] || rm -rf "${TMP_ROOT}"
 }
 
 fail() {
@@ -22,7 +22,18 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
-mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
+attempt=0
+while [ "${attempt}" -lt 100 ]; do
+	attempt="$((attempt + 1))"
+	candidate="${TMPDIR:-/tmp}/installer-opkg-options.$$.$attempt"
+	if (umask 077 && mkdir "${candidate}"); then
+		TMP_ROOT="${candidate}"
+		break
+	fi
+done
+[ -n "${TMP_ROOT}" ] || fail 'could not create private test directory'
+FUNCTIONS_FILE="${TMP_ROOT}/functions"
+CALL_FILE="${TMP_ROOT}/opkg-call"
 
 sed -n '/^ensure_opkg_package() {$/,/^sha256sum_available() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract ensure_opkg_package'
@@ -74,5 +85,11 @@ grep -Fq 'opkg_clean_env install jq-full --force-depends --force-overwrite --for
 	fail 'jq-full repair does not use canonical Entware install options'
 grep -Fq 'install_hint="${2:-opkg install ${pkg} --force-depends --force-overwrite --force-reinstall}"' "${SCRIPT_PATH}" ||
 	fail 'default preflight hint does not use canonical Entware install options'
+grep -A4 '^ensure_password_hash_tool() {$' "${SCRIPT_PATH}" |
+	grep -Fq 'if python_bcrypt_available; then' ||
+	fail 'password hashing does not skip opkg when python-bcrypt is already usable'
+grep -A6 '^ensure_bcrypt_tool() {$' "${SCRIPT_PATH}" |
+	grep -Fq 'if [ ! -x /opt/bin/go/bin/go ]; then' ||
+	fail 'bcrypt-tool fallback does not skip opkg when Go is already available'
 
 printf '%s\n' 'PASS: Entware installs consistently support canonical force options'
