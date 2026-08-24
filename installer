@@ -1108,7 +1108,7 @@ nvram_transaction_set() {
 }
 
 nvram_transaction_restore() {
-	local failed keep_snapshot key old service_action snapshot_dir
+	local current expected expected_file failed keep_snapshot key old service_action snapshot_dir
 	snapshot_dir="${NVRAM_TRANSACTION_DIR:-}"
 	service_action="$1"
 	keep_snapshot="${2:-0}"
@@ -1122,6 +1122,26 @@ nvram_transaction_restore() {
 		return 0
 	fi
 	while IFS= read -r key; do
+		expected_file=""
+		if [ -f "${snapshot_dir}/new.${key}" ]; then
+			expected_file="${snapshot_dir}/new.${key}"
+		elif [ -f "${snapshot_dir}/applied.${key}" ]; then
+			expected_file="${snapshot_dir}/applied.${key}"
+		fi
+		if [ -n "${expected_file}" ]; then
+			expected="$(cat "${expected_file}")" || {
+				failed="1"
+				continue
+			}
+			if current="$(/bin/nvram get "${key}" 2>/dev/null)"; then
+				[ "${current}" = "${expected}" ] || continue
+			elif [ -f "${snapshot_dir}/exists.${key}" ]; then
+				failed="1"
+				continue
+			else
+				continue
+			fi
+		fi
 		old="$(cat "${snapshot_dir}/${key}")" || {
 			failed="1"
 			continue
@@ -1211,7 +1231,8 @@ nvram_transaction_apply() {
 	fi
 	if [ "${keep_snapshot}" = "1" ]; then
 		while IFS= read -r key; do
-			if ! rm -f "${snapshot_dir}/new.${key}"; then
+			[ -f "${snapshot_dir}/new.${key}" ] || continue
+			if ! mv -f "${snapshot_dir}/new.${key}" "${snapshot_dir}/applied.${key}"; then
 				nvram_transaction_restore "${service_action}" 1 || true
 				NVRAM_TRANSACTION_CHANGED="1"
 				export NVRAM_TRANSACTION_CHANGED
@@ -4587,6 +4608,9 @@ check_jffs_enabled() {
 			"${INFO} Enabling them now!"
 		nvram_transaction_set "${jffs2_on}" "1" || return 1
 		nvram_transaction_set jffs2_scripts "1" || return 1
+		if [ ! -f "${NVRAM_TRANSACTION_DIR}/exists.jffs2_format" ]; then
+			nvram_transaction_set jffs2_format "0" || return 1
+		fi
 		nvram_transaction_apply - || return 1
 	elif [ ! -f "${NVRAM_TRANSACTION_DIR}/exists.jffs2_format" ]; then
 		PTXT "${INFO} Adding the missing legacy JFFS format setting."
