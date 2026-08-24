@@ -29,6 +29,7 @@ sed -n '/^installer_lan_domain_set() {$/,/^rollback_result_write() {$/p' "${INST
 sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNS environment helper'
 sed -n '/^check_dns_filter() {$/,/^save_dns_filter_settings() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter helper'
 sed -n '/^restore_dns_filter_settings() {$/,/^check_ipset() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter restore helper'
+sed -n '/^check_jffs_enabled() {$/,/^check_version() {$/p' "${INSTALLER_PATH}" | sed -e '$d' -e 's|/bin/nvram|nvram|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract JFFS helper'
 sed -n '/^on_installer_exit() {$/,/^python_bcrypt_available() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer exit handler'
 sed -n '/^end_op_message() {$/,/^menu() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer restart helper'
 SETUP_RESTORE_FUNCTION="$(/bin/sed -n '/^setup_restore_nvram_journal() {$/,/^}$/p' "${INSTALLER_PATH}")" || fail 'could not extract setup journal restore helper'
@@ -173,6 +174,9 @@ nvram() {
 			;;
 		get)
 			[ "${FAIL_GET_KEY:-}" != "$2" ] || return 1
+			if [ "${FAIL_GET_ABSENT_KEY:-}" = "$2" ] && ! nvram_value "$2" >/dev/null 2>&1; then
+				return 1
+			fi
 			nvram_value "$2" || return 0
 			;;
 		set)
@@ -229,11 +233,6 @@ rm() {
 	if [ "${FAIL_SETUP_MARKER_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -f ] && [ "${2:-}" = "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; then
 		return 1
 	fi
-	if [ "${FAIL_STAGED_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -f ]; then
-		case "${2:-}" in
-			"${NVRAM_TRANSACTION_DIR:-}"/new.*) return 1 ;;
-		esac
-	fi
 	if [ "${FAIL_SNAPSHOT_REMOVE:-0}" = 1 ] && [ "$#" -eq 2 ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${NVRAM_TRANSACTION_DIR:-}" ]; then
 		return 1
 	fi
@@ -256,6 +255,16 @@ rm() {
 		[ "${FAIL_SYMLINK_LOCK_REMOVE_AT:-0}" != "${SYMLINK_LOCK_REMOVE_COUNT}" ] || return 1
 	fi
 	command rm "$@"
+}
+
+# mv moves files while allowing applied-value publication failures to be injected.
+mv() {
+	if [ "${FAIL_STAGED_REMOVE:-0}" = 1 ] && [ "$#" -eq 3 ] && [ "${1:-}" = -f ]; then
+		case "${2:-}:${3:-}" in
+			"${NVRAM_TRANSACTION_DIR:-}"/new.*:"${NVRAM_TRANSACTION_DIR:-}"/applied.*) return 1 ;;
+		esac
+	fi
+	command mv "$@"
 }
 
 # nslookup simulates a DNS lookup and reports whether DNS is ready. It can block briefly and record termination when configured.
@@ -297,7 +306,7 @@ dhcp_dns2_x=149.112.112.112
 EOF_NVRAM
 	: >"${CALLS_FILE}"
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0 STUBBY_RESTART_COUNT=0
-	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_SERVICE_AT_2=0 FAIL_SERVICE_AT_3=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
+	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_GET_ABSENT_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_SERVICE_AT_2=0 FAIL_SERVICE_AT_3=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
 	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 DNS_READY_AFTER_SERVICE=0 STUBBY_RUNNING=0 STUBBY_KILL_STUCK=0
 	DNS_ENV_READY_TIMEOUT=2 DNS_ENV_RECOVERY_TIMEOUT=1
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
@@ -1182,11 +1191,71 @@ check_dns_environment 0 && fail 'NVRAM read failure was accepted'
 [ "${_DNS_NVRAM_SAVED}" = 0 ] || fail 'incomplete snapshot was marked valid'
 
 reset_case
+FAIL_GET_KEY=optional_missing_key
+nvram_transaction_begin missing-key optional_missing_key || fail 'absent NVRAM key read failure was rejected'
+FAIL_GET_KEY=''
+[ ! -f "${NVRAM_TRANSACTION_DIR}/exists.optional_missing_key" ] || fail 'absent NVRAM key was marked as existing'
+[ ! -s "${NVRAM_TRANSACTION_DIR}/optional_missing_key" ] || fail 'absent NVRAM key snapshot was not empty'
+nvram_transaction_set optional_missing_key 1 || fail 'absent NVRAM key staging failed'
+nvram_transaction_apply - 1 || fail 'absent NVRAM key apply failed'
+nvram_transaction_restore - || fail 'absent NVRAM key rollback failed'
+if nvram_value optional_missing_key >/dev/null 2>&1; then
+	fail 'absent NVRAM key was not unset during rollback'
+fi
+
+reset_case
+nvram_transaction_begin concurrent-absent optional_missing_key || fail 'concurrent absent-key transaction snapshot failed'
+nvram_transaction_set optional_missing_key 1 || fail 'concurrent absent-key transaction staging failed'
+nvram_transaction_apply - 1 || fail 'concurrent absent-key transaction apply failed'
+nvram set optional_missing_key=2 || fail 'could not simulate a concurrent absent-key writer'
+nvram_transaction_restore - || fail 'concurrent absent-key transaction rollback failed'
+[ "$(nvram_value optional_missing_key)" = 2 ] || fail 'rollback deleted a newer value for an initially absent key'
+
+reset_case
+nvram_transaction_begin concurrent-present dnspriv_enable || fail 'concurrent present-key transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'concurrent present-key transaction staging failed'
+nvram_transaction_apply - 1 || fail 'concurrent present-key transaction apply failed'
+nvram set dnspriv_enable=2 || fail 'could not simulate a concurrent present-key writer'
+nvram_transaction_restore - || fail 'concurrent present-key transaction rollback failed'
+[ "$(nvram_value dnspriv_enable)" = 2 ] || fail 'rollback overwrote a newer value for an initially present key'
+
+reset_case
+printf '%s\n' 'jffs2_scripts=1' 'jffs2_enable=1' 'jffs2_on=1' >>"${NVRAM_FILE}" || fail 'could not seed enabled JFFS settings'
+FAIL_GET_ABSENT_KEY=jffs2_format
+check_jffs_enabled || fail 'missing legacy JFFS format setting was not repaired'
+[ "$(nvram_value jffs2_format)" = 0 ] || fail 'missing legacy JFFS format setting was not set to zero'
+[ "${COMMIT_COUNT}" -eq 1 ] || fail 'missing legacy JFFS format repair did not commit exactly once'
+
+reset_case
+printf '%s\n' 'jffs2_scripts=1' 'jffs2_enable=1' 'jffs2_on=1' >>"${NVRAM_FILE}" || fail 'could not seed enabled JFFS settings for commit failure'
+FAIL_GET_ABSENT_KEY=jffs2_format
+FAIL_COMMIT_AT=1
+check_jffs_enabled && fail 'legacy JFFS format commit failure was accepted'
+if nvram_value jffs2_format >/dev/null 2>&1; then
+	fail 'failed legacy JFFS format commit retained the uncommitted value'
+fi
+
+reset_case
+printf '%s\n' 'jffs2_scripts=0' 'jffs2_enable=0' 'jffs2_on=0' >>"${NVRAM_FILE}" || fail 'could not seed disabled JFFS settings'
+FAIL_GET_ABSENT_KEY=jffs2_format
+check_jffs_enabled || fail 'disabled JFFS settings with a missing legacy format key were not repaired'
+[ "$(nvram_value jffs2_format)" = 0 ] || fail 'fresh-install JFFS repair did not set the missing legacy format key'
+[ "$(nvram_value jffs2_enable)" = 1 ] || fail 'fresh-install JFFS repair did not enable JFFS'
+[ "$(nvram_value jffs2_scripts)" = 1 ] || fail 'fresh-install JFFS repair did not enable custom scripts'
+[ "${COMMIT_COUNT}" -eq 1 ] || fail 'fresh-install JFFS repair did not commit all settings together'
+
+reset_case
+printf '%s\n' 'jffs2_format=0' 'jffs2_scripts=1' 'jffs2_enable=1' 'jffs2_on=1' >>"${NVRAM_FILE}" || fail 'could not seed complete JFFS settings'
+check_jffs_enabled || fail 'complete JFFS settings were rejected'
+[ "${COMMIT_COUNT}" -eq 0 ] || fail 'existing legacy JFFS format setting was committed unnecessarily'
+
+reset_case
 nvram_transaction_begin cleanup dnspriv_enable || fail 'cleanup transaction snapshot failed'
 nvram_transaction_set dnspriv_enable 0 || fail 'cleanup transaction staging failed'
 : >"${NVRAM_TRANSACTION_DIR}/new.untracked" || fail 'could not create unrelated snapshot file'
 nvram_transaction_apply - 1 || fail 'cleanup transaction apply failed'
 [ ! -e "${NVRAM_TRANSACTION_DIR}/new.dnspriv_enable" ] || fail 'staged transaction value was not removed'
+[ "$(cat "${NVRAM_TRANSACTION_DIR}/applied.dnspriv_enable")" = 0 ] || fail 'applied transaction value was not retained for conflict detection'
 [ -f "${NVRAM_TRANSACTION_DIR}/new.untracked" ] || fail 'transaction cleanup removed an untracked file'
 rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove cleanup transaction snapshot'
 
@@ -2004,6 +2073,8 @@ DNS_READY=0
 check_dns_environment 0 && fail 'local DNS readiness failure was accepted'
 assert_original 'DNS readiness failure'
 [ "$(dns_check_count)" = 2 ] || fail 'local DNS and recovery checks were not bounded by their configured deadlines'
+[ -d "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'completed DNS rollback did not retain diagnostics after readiness failure'
+[ ! -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'completed DNS rollback remained eligible after readiness failure'
 
 reset_case
 DNS_READY=0
