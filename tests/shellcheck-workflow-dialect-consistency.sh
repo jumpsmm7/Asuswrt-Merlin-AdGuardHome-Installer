@@ -98,6 +98,8 @@ grep -Fq 'run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-
 	fail "${WORKFLOW}: reaper regression does not use the approved timeout path"
 grep -Fq 'run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-preflight-actions.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: installer preflight regression does not run with bounded BusyBox ash"
+grep -Fq 'run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-dns-environment-failure.sh' "${WORKFLOW}" ||
+	fail "${WORKFLOW}: installer NVRAM transaction regression does not run with bounded BusyBox ash"
 grep -Fq 'run: sudo -n /usr/bin/timeout --kill-after=10 600 env AGH_INTEGRATION_SHELL=busybox' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: lifecycle timeout must run inside sudo"
 grep -Fq 'run: sudo -n /usr/bin/timeout --kill-after=10 180 busybox ash tests/optional-database-links.sh' "${WORKFLOW}" ||

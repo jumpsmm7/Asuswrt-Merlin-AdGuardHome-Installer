@@ -91,7 +91,7 @@ nvram_transaction_begin() {
 
 # nvram_transaction_begin_locked creates a transaction snapshot while the caller owns the global lock.
 nvram_transaction_begin_locked() {
-	local name key service_action snapshot_dir temp_dir
+	local exists name key service_action snapshot_dir temp_dir
 	name="$1"
 	shift
 	nvram_transaction_finalize_setup_pair recovery || return 1
@@ -141,7 +141,11 @@ nvram_transaction_begin_locked() {
 				return 1
 				;;
 		esac
-		if ! /bin/nvram get "${key}" >"${temp_dir}/${key}" 2>/dev/null; then
+		exists="0"
+		if /bin/grep -q "^${key}=" "${temp_dir}/inventory"; then
+			exists="1"
+		fi
+		if ! /bin/nvram get "${key}" >"${temp_dir}/${key}" 2>/dev/null && [ "${exists}" = "1" ]; then
 			rm -rf "${temp_dir}"
 			return 1
 		fi
@@ -149,7 +153,7 @@ nvram_transaction_begin_locked() {
 			rm -rf "${temp_dir}"
 			return 1
 		}
-		if /bin/grep -q "^${key}=" "${temp_dir}/inventory"; then
+		if [ "${exists}" = "1" ]; then
 			: >"${temp_dir}/exists.${key}" || {
 				rm -rf "${temp_dir}"
 				return 1
@@ -1104,7 +1108,7 @@ nvram_transaction_set() {
 }
 
 nvram_transaction_restore() {
-	local failed keep_snapshot key old service_action snapshot_dir
+	local current expected expected_file failed keep_snapshot key old service_action snapshot_dir
 	snapshot_dir="${NVRAM_TRANSACTION_DIR:-}"
 	service_action="$1"
 	keep_snapshot="${2:-0}"
@@ -1118,6 +1122,26 @@ nvram_transaction_restore() {
 		return 0
 	fi
 	while IFS= read -r key; do
+		expected_file=""
+		if [ -f "${snapshot_dir}/new.${key}" ]; then
+			expected_file="${snapshot_dir}/new.${key}"
+		elif [ -f "${snapshot_dir}/applied.${key}" ]; then
+			expected_file="${snapshot_dir}/applied.${key}"
+		fi
+		if [ -n "${expected_file}" ]; then
+			expected="$(cat "${expected_file}")" || {
+				failed="1"
+				continue
+			}
+			if current="$(/bin/nvram get "${key}" 2>/dev/null)"; then
+				[ "${current}" = "${expected}" ] || continue
+			elif [ -f "${snapshot_dir}/exists.${key}" ]; then
+				failed="1"
+				continue
+			else
+				continue
+			fi
+		fi
 		old="$(cat "${snapshot_dir}/${key}")" || {
 			failed="1"
 			continue
@@ -1207,7 +1231,8 @@ nvram_transaction_apply() {
 	fi
 	if [ "${keep_snapshot}" = "1" ]; then
 		while IFS= read -r key; do
-			if ! rm -f "${snapshot_dir}/new.${key}"; then
+			[ -f "${snapshot_dir}/new.${key}" ] || continue
+			if ! mv -f "${snapshot_dir}/new.${key}" "${snapshot_dir}/applied.${key}"; then
 				nvram_transaction_restore "${service_action}" 1 || true
 				NVRAM_TRANSACTION_CHANGED="1"
 				export NVRAM_TRANSACTION_CHANGED
@@ -4240,16 +4265,25 @@ check_dns_environment() {
 			fi
 			if [ "${changed}" != "0" ] && ! dns_env_local_ready "${DNS_ENV_READY_TIMEOUT}"; then
 				PTXT "${ERROR} DNS readiness did not recover after applying NVRAM changes."
-				if nvram_transaction_restore restart_dnsmasq 1 && dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
-					# Retain the recovery marker until the stopped resolver is running again.
-					if [ "${stubby_stopped}" = "1" ]; then
+				if nvram_transaction_restore restart_dnsmasq 1; then
+					if [ "${stubby_stopped}" = "0" ]; then
+						# NVRAM rollback is complete. Clear its recovery marker before
+						# best-effort readiness checks and snapshot cleanup.
+						if rm -f "${NVRAM_TRANSACTION_DIR}/dirty"; then
+							if dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
+								rm -rf "${NVRAM_TRANSACTION_DIR}" 2>/dev/null || true
+							else
+								rollback_result_write "DNS NVRAM transaction" "rollback complete" "DNS readiness did not recover"
+							fi
+						else
+							rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+						fi
+					elif dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
+						# Retain the recovery marker until the stopped resolver is running again.
 						stubby_recovery_attempted="1"
 						if ! restore_stubby_after_dns_failure; then
 							rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
 						fi
-					elif rm -f "${NVRAM_TRANSACTION_DIR}/dirty"; then
-						stubby_stopped="0"
-						rm -rf "${NVRAM_TRANSACTION_DIR}" 2>/dev/null || true
 					else
 						rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
 					fi
@@ -4583,6 +4617,13 @@ check_jffs_enabled() {
 			"${INFO} Enabling them now!"
 		nvram_transaction_set "${jffs2_on}" "1" || return 1
 		nvram_transaction_set jffs2_scripts "1" || return 1
+		if [ ! -f "${NVRAM_TRANSACTION_DIR}/exists.jffs2_format" ]; then
+			nvram_transaction_set jffs2_format "0" || return 1
+		fi
+		nvram_transaction_apply - || return 1
+	elif [ ! -f "${NVRAM_TRANSACTION_DIR}/exists.jffs2_format" ]; then
+		PTXT "${INFO} Adding the missing legacy JFFS format setting."
+		nvram_transaction_set jffs2_format "0" || return 1
 		nvram_transaction_apply - || return 1
 	else
 		rm -rf "${NVRAM_TRANSACTION_DIR}"

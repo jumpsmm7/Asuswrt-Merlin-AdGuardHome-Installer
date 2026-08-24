@@ -65,6 +65,9 @@ jobs:
       - name: Run installer preflight action regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-preflight-actions.sh
 
+      - name: Run installer NVRAM transaction and JFFS compatibility regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-dns-environment-failure.sh
+
       - name: Run Entware install option regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-opkg-options.sh
 
