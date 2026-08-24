@@ -126,9 +126,11 @@ preflight_check_timezone_column() { PTXT 'called.column=yes'; return 0; }
 . "${PREFLIGHT_FILE}"
 preflight install
 EOF
-	sh "${stub_file}" >"${out_file}" 2>&1 || true
+	run_status=0
+	sh "${stub_file}" >"${out_file}" 2>&1 || run_status=$?
 	case "${expected_skip}" in
 		yes)
+			[ "${run_status}" -eq 1 ] || fail 'preflight must fail when Entware is missing'
 			grep -q 'preflight.entware.dependent_checks=SKIP_ENTWARE_MISSING' "${out_file}" ||
 				fail 'preflight must report skipped Entware-dependent checks when Entware is missing'
 			grep -q 'called.sha256=yes' "${out_file}" ||
@@ -139,6 +141,7 @@ EOF
 			fi
 			;;
 		no)
+			[ "${run_status}" -eq 0 ] || fail 'preflight must succeed when Entware is available'
 			grep -q 'called.sha256=yes' "${out_file}" || fail 'preflight must run SHA-256 check when Entware is available'
 			grep -q 'called.password_hash=yes' "${out_file}" || fail 'preflight must run password hash check when Entware is available'
 			grep -q 'called.column=yes' "${out_file}" || fail 'preflight must run column check when Entware is available'
@@ -212,7 +215,10 @@ EOF
 chmod 755 "${TMP_ROOT}/sha256-bin/which" || fail 'could not make temporary which fixture executable'
 (
 	PTXT() { printf '%s\n' "$*"; }
-	ai_have_cmd() { [ "$1" = sha256sum ] && [ -x "${TMP_ROOT}/sha256-bin/sha256sum" ]; }
+	ai_have_cmd() {
+		[ "$1" = sha256sum ] || return 1
+		[ "$(which "$1" 2>/dev/null)" = "${TMP_ROOT}/sha256-bin/sha256sum" ]
+	}
 	preflight_check_entware_package() {
 		PTXT 'called.package=yes'
 		return 1
