@@ -4,12 +4,17 @@ on:
   schedule:
     - cron: '23 4 * * 1'
   workflow_dispatch:
+    inputs:
+      target_branch:
+        description: Branch to update; defaults to the branch selected when starting the workflow
+        required: false
+        default: ''
 
 permissions:
   contents: read
 
 concurrency:
-  group: update-tzdata-${{ github.ref }}
+  group: update-tzdata-${{ inputs.target_branch || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -21,9 +26,38 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout branch
+      - name: Resolve target branch
+        id: branch
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TARGET_BRANCH: ${{ inputs.target_branch }}
+        run: |
+          set -euo pipefail
+
+          if [ "${EVENT_NAME}" = 'workflow_dispatch' ] && [ -n "${INPUT_TARGET_BRANCH}" ]; then
+            target_branch="${INPUT_TARGET_BRANCH}"
+          else
+            target_branch="${GITHUB_REF_NAME}"
+          fi
+
+          case "${target_branch}" in
+            ''|*..*|/*|*[^A-Za-z0-9._/-]*|*'~'*|*'^'*|*':'*|*'?'*|*'['*|*'\'*)
+              printf 'Invalid target branch: %s\n' "${target_branch}" >&2
+              exit 1
+              ;;
+          esac
+          if ! git check-ref-format --branch "${target_branch}" >/dev/null 2>&1; then
+            printf 'Invalid target branch: %s\n' "${target_branch}" >&2
+            exit 1
+          fi
+
+          printf 'target=%s\n' "${target_branch}" >>"${GITHUB_OUTPUT}"
+
+      - name: Checkout target branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ steps.branch.outputs.target }}
           fetch-depth: 0
           persist-credentials: true
 
@@ -203,7 +237,7 @@ jobs:
       - name: Commit package updates
         shell: bash
         env:
-          PUSH_TARGET: ${{ github.ref_name }}
+          PUSH_TARGET: ${{ steps.branch.outputs.target }}
         run: |
           set -euo pipefail
 
