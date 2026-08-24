@@ -162,6 +162,16 @@ check_connection() {
 # rollback_result_write appends a rollback status message to the calls log.
 rollback_result_write() { printf '%s\n' "rollback $*" >>"${CALLS_FILE}"; }
 
+# grep injects restore-inventory read failures while delegating all other searches to the host implementation.
+grep() {
+	if [ "${FAIL_INVENTORY_GREP_STATUS:-0}" -gt 1 ]; then
+		case "${*}" in
+			*-inventory.*) return "${FAIL_INVENTORY_GREP_STATUS}" ;;
+		esac
+	fi
+	command grep "$@"
+}
+
 # nvram_value reads and prints the value associated with a key from the simulated NVRAM file.
 nvram_value() {
 	awk -v key="$1" 'index($0, key "=") == 1 { print substr($0, length(key) + 2); found=1 } END { exit(found ? 0 : 1) }' "${NVRAM_FILE}"
@@ -308,7 +318,7 @@ dhcp_dns2_x=149.112.112.112
 EOF_NVRAM
 	: >"${CALLS_FILE}"
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0 STUBBY_RESTART_COUNT=0
-	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_GET_ABSENT_KEY='' FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_SERVICE_AT_2=0 FAIL_SERVICE_AT_3=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
+	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_GET_ABSENT_KEY='' FAIL_INVENTORY_GREP_STATUS=0 FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_SERVICE_AT_2=0 FAIL_SERVICE_AT_3=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
 	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 DNS_READY_AFTER_SERVICE=0 STUBBY_RUNNING=0 STUBBY_KILL_STUCK=0
 	DNS_ENV_READY_TIMEOUT=2 DNS_ENV_RECOVERY_TIMEOUT=1
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
@@ -1235,10 +1245,31 @@ nvram_transaction_begin concurrent-unset dnspriv_enable || fail 'concurrent unse
 nvram_transaction_set dnspriv_enable 0 || fail 'concurrent unset transaction staging failed'
 nvram_transaction_apply - 1 || fail 'concurrent unset transaction apply failed'
 nvram unset dnspriv_enable || fail 'could not simulate a concurrent key removal'
+FAIL_GET_ABSENT_KEY=dnspriv_enable
 nvram_transaction_restore - || fail 'concurrent key removal caused rollback failure'
 if nvram_value dnspriv_enable >/dev/null 2>&1; then
 	fail 'rollback recreated a concurrently removed key'
 fi
+
+reset_case
+nvram_transaction_begin concurrent-empty-unset dnspriv_enable || fail 'empty-value concurrent unset transaction snapshot failed'
+nvram_transaction_set dnspriv_enable '' || fail 'empty-value concurrent unset transaction staging failed'
+nvram_transaction_apply - 1 || fail 'empty-value concurrent unset transaction apply failed'
+nvram unset dnspriv_enable || fail 'could not simulate removal of an empty applied value'
+FAIL_GET_ABSENT_KEY=dnspriv_enable
+nvram_transaction_restore - || fail 'empty-value concurrent removal caused rollback failure'
+if nvram_value dnspriv_enable >/dev/null 2>&1; then
+	fail 'rollback recreated a concurrently removed key with an empty applied value'
+fi
+
+reset_case
+nvram_transaction_begin inventory-grep-failure dnspriv_enable || fail 'inventory grep failure transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'inventory grep failure transaction staging failed'
+nvram_transaction_apply - 1 || fail 'inventory grep failure transaction apply failed'
+FAIL_INVENTORY_GREP_STATUS=2
+nvram_transaction_restore - && fail 'inventory grep failure was accepted as a completed rollback'
+[ -f "${NVRAM_TRANSACTION_DIR}/dirty" ] || fail 'inventory grep failure discarded its recovery marker'
+[ "$(nvram_value dnspriv_enable)" = 0 ] || fail 'inventory grep failure changed NVRAM during failed rollback'
 
 reset_case
 nvram_transaction_begin unreadable-current dnspriv_enable || fail 'unreadable current-value transaction snapshot failed'

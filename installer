@@ -1108,7 +1108,7 @@ nvram_transaction_set() {
 }
 
 nvram_transaction_restore() {
-	local current expected expected_file failed inventory_file keep_snapshot key old service_action snapshot_dir
+	local current expected expected_file failed inventory_file inventory_status keep_snapshot key old service_action snapshot_dir
 	snapshot_dir="${NVRAM_TRANSACTION_DIR:-}"
 	service_action="$1"
 	keep_snapshot="${2:-0}"
@@ -1144,14 +1144,21 @@ nvram_transaction_restore() {
 				failed="1"
 				continue
 			}
-			if current="$(/bin/nvram get "${key}" 2>/dev/null)"; then
-				[ "${current}" = "${expected}" ] || continue
-			elif /bin/grep -q "^${key}=" "${inventory_file}"; then
+			/bin/grep -q "^${key}=" "${inventory_file}"
+			inventory_status="$?"
+			case "${inventory_status}" in
+				0) ;;
+				1) continue ;;
+				*)
+					failed="1"
+					continue
+					;;
+			esac
+			current="$(/bin/nvram get "${key}" 2>/dev/null)" || {
 				failed="1"
 				continue
-			else
-				continue
-			fi
+			}
+			[ "${current}" = "${expected}" ] || continue
 		fi
 		old="$(cat "${snapshot_dir}/${key}")" || {
 			failed="1"
