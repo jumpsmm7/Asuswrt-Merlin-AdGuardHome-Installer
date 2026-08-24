@@ -190,9 +190,7 @@ sed -n '/^legacy_firewall_cleanup_needed() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_
 		fail 'empty firewall state incorrectly required cleanup'
 	fi
 	IPTABLES_TEST_STATE=error
-	if legacy_firewall_cleanup_needed; then
-		fail 'unreadable empty firewall state incorrectly required cleanup'
-	fi
+	legacy_firewall_cleanup_needed || fail 'failed firewall inspection did not require cleanup'
 ) || exit $?
 
 cat >"${CONF_FILE}" <<EOF_CONF || fail 'dry-run persisted LAN: could not write config'
