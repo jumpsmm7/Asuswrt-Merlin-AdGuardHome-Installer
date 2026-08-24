@@ -127,8 +127,12 @@ nvram_transaction_begin_locked() {
 	: >"${temp_dir}/keys" || return 1
 	chmod 600 "${temp_dir}/keys" || return 1
 	if ! /bin/nvram show >"${temp_dir}/inventory" 2>/dev/null; then
-		rm -rf "${temp_dir}"
-		return 1
+		# Some HND firmware returns a failure status after emitting a usable
+		# inventory. Reject only a failed read that produced no snapshot data.
+		if [ ! -s "${temp_dir}/inventory" ]; then
+			rm -rf "${temp_dir}"
+			return 1
+		fi
 	fi
 	chmod 600 "${temp_dir}/inventory" || {
 		rm -rf "${temp_dir}"
