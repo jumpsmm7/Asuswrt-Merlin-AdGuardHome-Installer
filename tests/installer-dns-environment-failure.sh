@@ -182,7 +182,8 @@ nvram() {
 	case "$1" in
 		show)
 			[ "${FAIL_SHOW:-0}" = 0 ] || return 1
-			cat "${NVRAM_FILE}"
+			cat "${NVRAM_FILE}" || return 1
+			[ "${FAIL_SHOW_STATUS:-0}" = 0 ]
 			;;
 		get)
 			[ "${FAIL_GET_KEY:-}" != "$2" ] || return 1
@@ -318,7 +319,7 @@ dhcp_dns2_x=149.112.112.112
 EOF_NVRAM
 	: >"${CALLS_FILE}"
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0 STUBBY_RESTART_COUNT=0
-	FAIL_SHOW=0 FAIL_GET_KEY='' FAIL_GET_ABSENT_KEY='' FAIL_INVENTORY_GREP_STATUS=0 FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_SERVICE_AT_2=0 FAIL_SERVICE_AT_3=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
+	FAIL_SHOW=0 FAIL_SHOW_STATUS=0 FAIL_GET_KEY='' FAIL_GET_ABSENT_KEY='' FAIL_INVENTORY_GREP_STATUS=0 FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_SERVICE_AT_2=0 FAIL_SERVICE_AT_3=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
 	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 DNS_READY_AFTER_SERVICE=0 STUBBY_RUNNING=0 STUBBY_KILL_STUCK=0
 	DNS_ENV_READY_TIMEOUT=2 DNS_ENV_RECOVERY_TIMEOUT=1
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
@@ -1197,6 +1198,24 @@ check_dns_environment 0 && fail 'NVRAM inventory read failure was accepted'
 [ "${_DNS_NVRAM_SAVED}" = 0 ] || fail 'failed inventory snapshot was marked valid'
 
 reset_case
+FAIL_SHOW_STATUS=1
+nvram_transaction_begin nonzero-inventory dnspriv_enable || fail 'populated NVRAM inventory with nonzero status was rejected'
+[ "$(cat "${NVRAM_TRANSACTION_DIR}/dnspriv_enable")" = 1 ] || fail 'nonzero-status NVRAM inventory did not preserve the requested value'
+[ -f "${NVRAM_TRANSACTION_DIR}/exists.dnspriv_enable" ] || fail 'nonzero-status NVRAM inventory did not preserve key existence'
+
+reset_case
+FAIL_SHOW_STATUS=1
+nvram_transaction_begin nonzero-rollback dnspriv_enable dhcpd_dns_router || fail 'nonzero-status rollback snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'nonzero-status rollback first setting was not staged'
+nvram_transaction_set dhcpd_dns_router 1 || fail 'nonzero-status rollback second setting was not staged'
+FAIL_SET_AT=2
+nvram_transaction_apply - && fail 'injected NVRAM set failure was accepted'
+[ "$(nvram_value dnspriv_enable)" = 1 ] || fail 'nonzero-status rollback did not restore the changed key'
+[ "$(nvram_value dhcpd_dns_router)" = 0 ] || fail 'nonzero-status rollback changed the unapplied key'
+[ "${COMMIT_COUNT}" -eq 1 ] || fail 'nonzero-status rollback did not commit the restoration exactly once'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/nonzero-rollback" ] || fail 'completed nonzero-status rollback retained its snapshot'
+
+reset_case
 FAIL_GET_KEY=dhcp_dns1_x
 check_dns_environment 0 && fail 'NVRAM read failure was accepted'
 [ "${SET_COUNT}" = 0 ] || fail 'NVRAM changed after an incomplete snapshot'
@@ -1316,6 +1335,12 @@ reset_case
 printf '%s\n' 'jffs2_format=0' 'jffs2_scripts=1' 'jffs2_enable=1' 'jffs2_on=1' >>"${NVRAM_FILE}" || fail 'could not seed complete JFFS settings'
 check_jffs_enabled || fail 'complete JFFS settings were rejected'
 [ "${COMMIT_COUNT}" -eq 0 ] || fail 'existing legacy JFFS format setting was committed unnecessarily'
+
+reset_case
+printf '%s\n' 'jffs2_format=0' 'jffs2_scripts=1' 'jffs2_enable=1' 'jffs2_on=1' >>"${NVRAM_FILE}" || fail 'could not seed complete JFFS settings for direct check'
+FAIL_SHOW=1
+check_jffs_enabled || fail 'complete JFFS settings unnecessarily required an NVRAM inventory'
+[ "${COMMIT_COUNT}" -eq 0 ] || fail 'direct JFFS check committed unchanged settings'
 
 reset_case
 nvram_transaction_begin cleanup dnspriv_enable || fail 'cleanup transaction snapshot failed'

@@ -127,8 +127,12 @@ nvram_transaction_begin_locked() {
 	: >"${temp_dir}/keys" || return 1
 	chmod 600 "${temp_dir}/keys" || return 1
 	if ! /bin/nvram show >"${temp_dir}/inventory" 2>/dev/null; then
-		rm -rf "${temp_dir}"
-		return 1
+		# Some HND firmware returns a failure status after emitting a usable
+		# inventory. Reject only a failed read that produced no snapshot data.
+		if [ ! -s "${temp_dir}/inventory" ]; then
+			rm -rf "${temp_dir}"
+			return 1
+		fi
 	fi
 	chmod 600 "${temp_dir}/inventory" || {
 		rm -rf "${temp_dir}"
@@ -1123,9 +1127,11 @@ nvram_transaction_restore() {
 	fi
 	inventory_file="${snapshot_dir}/restore-inventory.$$"
 	if ! /bin/nvram show >"${inventory_file}" 2>/dev/null; then
-		rm -f "${inventory_file}" 2>/dev/null || true
-		rollback_result_write "NVRAM transaction" "rollback partial" "snapshot preserved at ${snapshot_dir}"
-		return 1
+		if [ ! -s "${inventory_file}" ]; then
+			rm -f "${inventory_file}" 2>/dev/null || true
+			rollback_result_write "NVRAM transaction" "rollback partial" "snapshot preserved at ${snapshot_dir}"
+			return 1
+		fi
 	fi
 	chmod 600 "${inventory_file}" || {
 		rm -f "${inventory_file}" 2>/dev/null || true
@@ -4610,6 +4616,24 @@ check_dns_local() {
 
 check_jffs_enabled() {
 	local JFFS2_FORMAT JFFS2_SCRIPTS JFFS2_ENABLED jffs2_enable jffs2_on
+	JFFS2_FORMAT="$(/bin/nvram get jffs2_format 2>/dev/null)" || JFFS2_FORMAT=""
+	JFFS2_SCRIPTS="$(/bin/nvram get jffs2_scripts 2>/dev/null)" || JFFS2_SCRIPTS=""
+	jffs2_enable="$(/bin/nvram get jffs2_enable 2>/dev/null)" || jffs2_enable=""
+	if [ -z "${jffs2_enable}" ]; then
+		JFFS2_ENABLED="$(/bin/nvram get jffs2_on 2>/dev/null)" || JFFS2_ENABLED=""
+	else
+		JFFS2_ENABLED="${jffs2_enable}"
+	fi
+	if [ "${JFFS2_FORMAT}" = "1" ]; then
+		PTXT "${ERROR} JFFS partition is scheduled to be reformatted." \
+			"${ERROR} Please reboot to format or disable that setting and try again." \
+			"${ERROR} Exiting..."
+		exit 1
+	fi
+	if [ "${JFFS2_FORMAT}" = "0" ] && [ "${JFFS2_ENABLED}" = "1" ] && [ "${JFFS2_SCRIPTS}" = "1" ]; then
+		PTXT "${INFO} JFFS custom scripts and configs are already enabled."
+		return 0
+	fi
 	if ! nvram_transaction_begin jffs-enable jffs2_format jffs2_scripts jffs2_enable jffs2_on; then
 		PTXT "${ERROR} Unable to read all required JFFS NVRAM settings; no changes were made."
 		return 1
