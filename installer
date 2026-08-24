@@ -2190,7 +2190,7 @@ preflight_action_requires_password_hash() {
 
 preflight_action_requires_sha256() {
 	case "${1:-install}" in
-		blocklists | unusedblocklists | 9)
+		"" | install | update | restore | switchbranch | 1 | 7 | [rR] | blocklists | unusedblocklists | 9)
 			return 0
 			;;
 	esac
@@ -2501,7 +2501,11 @@ preflight_check_sha256_support() {
 	fi
 	PTXT "preflight.sha256.required=yes"
 	PTXT "preflight.sha256.result=MISSING"
-	preflight_check_entware_package coreutils-sha256sum || true
+	if [ "${1:-0}" = "1" ]; then
+		preflight_check_entware_package coreutils-sha256sum || true
+	else
+		PTXT "preflight.entware.package.coreutils-sha256sum.required=not_checked"
+	fi
 	return 1
 }
 
@@ -2588,13 +2592,13 @@ preflight() {
 		PTXT "preflight.jq.required=no"
 		PTXT "preflight.jq.result=SKIP"
 	fi
+	if preflight_action_requires_sha256 "${action}"; then
+		preflight_check_sha256_support "${entware_available_now}" || failed="1"
+	else
+		PTXT "preflight.sha256.required=no"
+		PTXT "preflight.sha256.result=SKIP"
+	fi
 	if [ "${entware_required}" = "1" ] && [ "${entware_available_now}" = "1" ]; then
-		if preflight_action_requires_sha256 "${action}"; then
-			preflight_check_sha256_support || failed="1"
-		else
-			PTXT "preflight.sha256.required=no"
-			PTXT "preflight.sha256.result=SKIP"
-		fi
 		if preflight_action_requires_password_hash "${action}"; then
 			preflight_check_password_hash_support || failed="1"
 		else
