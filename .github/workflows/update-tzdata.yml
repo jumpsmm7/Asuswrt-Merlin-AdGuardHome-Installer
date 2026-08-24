@@ -1,0 +1,128 @@
+name: Update tzdata packages
+
+on:
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-tzdata-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  update-tzdata:
+    name: Update ARM tzdata packages
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Download current packages
+        shell: bash
+        env:
+          MIRROR_URL: https://mirror.archlinuxarm.org
+        run: |
+          set -euo pipefail
+
+          stage_dir="$(mktemp -d)"
+          trap 'rm -rf "${stage_dir}"' EXIT
+
+          download_package() {
+            local architecture output_arch database description filename package_url
+            local upstream_file package_info package_version package_arch output_file
+            architecture="$1"
+            output_arch="$2"
+            database="${stage_dir}/core-${architecture}.db"
+
+            curl --fail --location --silent --show-error \
+              --connect-timeout 15 --max-time 120 \
+              "${MIRROR_URL}/${architecture}/core/core.db" \
+              --output "${database}"
+            description="$(tar -xOf "${database}" 'tzdata-*/desc')"
+            filename="$(printf '%s\n' "${description}" | awk '$0 == "%FILENAME%" { getline; print; exit }')"
+            case "${filename}" in
+              tzdata-*.pkg.tar.bz2|tzdata-*.pkg.tar.xz|tzdata-*.pkg.tar.zst) ;;
+              *)
+                printf 'Unexpected tzdata filename for %s: %s\n' "${architecture}" "${filename}" >&2
+                return 1
+                ;;
+            esac
+            [ "${filename}" = "$(basename "${filename}")" ] || return 1
+
+            package_url="${MIRROR_URL}/${architecture}/core/${filename}"
+            upstream_file="${stage_dir}/${filename}"
+            curl --fail --location --silent --show-error \
+              --connect-timeout 15 --max-time 300 \
+              "${package_url}" --output "${upstream_file}"
+            package_info="$(tar -xOf "${upstream_file}" ./.PKGINFO)"
+            package_version="$(printf '%s\n' "${package_info}" | awk -F ' = ' '$1 == "pkgver" { print $2; exit }')"
+            package_arch="$(printf '%s\n' "${package_info}" | awk -F ' = ' '$1 == "arch" { print $2; exit }')"
+            case "${package_version}" in
+              ''|*[!A-Za-z0-9._+-]*) return 1 ;;
+            esac
+            case "${package_arch}:${architecture}" in
+              aarch64:aarch64|armv7h:armv7h|any:*) ;;
+              *)
+                printf 'Package architecture mismatch: %s for %s\n' "${package_arch}" "${architecture}" >&2
+                return 1
+                ;;
+            esac
+
+            output_file="${stage_dir}/tzdata-${package_version}-${output_arch}.pkg.tar.bz2"
+            case "${upstream_file}" in
+              *.bz2) cp "${upstream_file}" "${output_file}" ;;
+              *.xz) xz --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
+              *.zst) zstd --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
+            esac
+            tar -tjf "${output_file}" >/dev/null
+            printf '%s\n' "${package_version}" >"${stage_dir}/version-${output_arch}"
+          }
+
+          download_package aarch64 aarch64
+          download_package armv7h arm
+
+          aarch64_version="$(cat "${stage_dir}/version-aarch64")"
+          arm_version="$(cat "${stage_dir}/version-arm")"
+          if [ "${aarch64_version}" != "${arm_version}" ]; then
+            printf 'tzdata versions differ: aarch64=%s arm=%s\n' "${aarch64_version}" "${arm_version}" >&2
+            exit 1
+          fi
+
+          rm -f tzdata-*-aarch64.pkg.tar.bz2 tzdata-*-aarch64.pkg.tar.bz2.md5sum tzdata-*-aarch64.pkg.tar.bz2.sha256sum
+          rm -f tzdata-*-arm.pkg.tar.bz2 tzdata-*-arm.pkg.tar.bz2.md5sum tzdata-*-arm.pkg.tar.bz2.sha256sum
+          mv "${stage_dir}/tzdata-${aarch64_version}-aarch64.pkg.tar.bz2" .
+          mv "${stage_dir}/tzdata-${arm_version}-arm.pkg.tar.bz2" .
+
+          sed -i "s/TZ_DATA=\"tzdata-[^\"]*-\${TZ_ARCH}\.pkg\.tar\.bz2\"/TZ_DATA=\"tzdata-${aarch64_version}-\${TZ_ARCH}.pkg.tar.bz2\"/" installer
+          sh tools/update-checksums.sh \
+            "tzdata-${aarch64_version}-aarch64.pkg.tar.bz2" \
+            "tzdata-${arm_version}-arm.pkg.tar.bz2" \
+            installer
+
+      - name: Commit package updates
+        shell: bash
+        env:
+          PUSH_TARGET: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$(git status --porcelain -- installer installer.md5sum installer.sha256sum 'tzdata-*')" ]; then
+            echo 'tzdata packages are already current.'
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- installer installer.md5sum installer.sha256sum tzdata-*
+          git commit -m 'chore: update tzdata packages'
+          git push origin "HEAD:${PUSH_TARGET}"
