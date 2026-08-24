@@ -270,6 +270,7 @@ run_check 'Installer runtime-default migration regression' sh tests/installer-mi
 run_check 'Installer restore feature-selection regression' sh tests/installer-restore-feature-selections.sh
 run_check 'Installer reverse-upstream target regression' sh tests/installer-reverse-upstream-target.sh
 run_check 'Installer account validation regression' sh tests/installer-account-validation.sh
+run_check 'Installer opkg options regression' sh tests/installer-opkg-options.sh
 run_check 'AdGuardHome permission repair regression' sh tests/adguardhome-permissions.sh
 run_check 'AdGuardHome LAN bind refresh regression' sh tests/adguardhome-lan-bind-refresh.sh
 run_check 'LAN primary address selection regression' sh tests/lan-primary-address-selection.sh
