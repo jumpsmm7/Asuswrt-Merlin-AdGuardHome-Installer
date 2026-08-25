@@ -32,20 +32,33 @@ for archive in "${TMP_DIR}/plain.tar" "${TMP_DIR}/dotted.tar"; do
 	fi
 done
 
-mkdir -p "${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc"
+mkdir -p "${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc" "${TMP_DIR}/tzdata-with-posix/usr/share/zoneinfo/posix"
 printf 'TZif test timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc/UTC"
+printf 'TZif test timezone\n' >"${TMP_DIR}/tzdata-with-posix/usr/share/zoneinfo/posix/UTC"
 printf '%s\n' 'package metadata' >"${TMP_DIR}/tzdata/.PKGINFO"
+cp "${TMP_DIR}/tzdata/.PKGINFO" "${TMP_DIR}/tzdata-with-posix/.PKGINFO"
 tar -cf "${TMP_DIR}/tzdata.tar" -C "${TMP_DIR}/tzdata" .
+tar -cf "${TMP_DIR}/tzdata-with-posix.tar" -C "${TMP_DIR}/tzdata-with-posix" .
+bzip2 -c "${TMP_DIR}/tzdata.tar" >"${TMP_DIR}/tzdata.tar.bz2"
+bzip2 -c "${TMP_DIR}/tzdata-with-posix.tar" >"${TMP_DIR}/tzdata-with-posix.tar.bz2"
+if tar -tjf "${TMP_DIR}/tzdata.tar.bz2" 2>/dev/null |
+	awk '/^\.\/usr\/share\/zoneinfo\/posix\/./ && !/\/$/ { found = 1 } END { exit !found }'; then
+	fail 'Archive without POSIX payload unexpectedly passed validation'
+fi
+if ! tar -tjf "${TMP_DIR}/tzdata-with-posix.tar.bz2" 2>/dev/null |
+	awk '/^\.\/usr\/share\/zoneinfo\/posix\/./ && !/\/$/ { found = 1 } END { exit !found }'; then
+	fail 'Archive with POSIX payload failed validation'
+fi
 xz -c "${TMP_DIR}/tzdata.tar" >"${TMP_DIR}/tzdata.pkg.tar.xz"
-xz -dc "${TMP_DIR}/tzdata.pkg.tar.xz" |
+xz --decompress --stdout "${TMP_DIR}/tzdata.pkg.tar.xz" |
 	bzip2 -9 >"${TMP_DIR}/tzdata.pkg.tar.bz2"
-bzip2 -dc "${TMP_DIR}/tzdata.pkg.tar.bz2" >"${TMP_DIR}/recompressed.tar"
+bzip2 --decompress --stdout "${TMP_DIR}/tzdata.pkg.tar.bz2" >"${TMP_DIR}/recompressed.tar"
 if ! cmp "${TMP_DIR}/tzdata.tar" "${TMP_DIR}/recompressed.tar"; then
 	fail 'xz-to-bzip2 conversion changed the tar byte stream'
 fi
 
 UPDATE_SCRIPT="${REPO_DIR}/tools/update-tzdata.sh"
-grep -Fq '*.xz) xz -dc "${upstream_file}" | bzip2 -9 >"${output_file}" ;;' \
+grep -Fq '*.xz) xz --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;' \
 	"${UPDATE_SCRIPT}" || fail 'Update script does not preserve the xz tar stream during recompression'
 grep -Fq 'download_package aarch64 aarch64' "${UPDATE_SCRIPT}" ||
 	fail 'Update script does not publish the aarch64 package'

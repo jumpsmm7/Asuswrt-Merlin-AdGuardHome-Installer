@@ -169,10 +169,15 @@ download_package() {
 	output_file="${stage_dir}/tzdata-${package_version}-${output_arch}.pkg.tar.bz2"
 	case "${upstream_file}" in
 		*.bz2) cp "${upstream_file}" "${output_file}" ;;
-		*.xz) xz -dc "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
+		*.xz) xz --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
 		*.zst) zstd --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
 	esac
 	tar -tjf "${output_file}" >/dev/null
+	if ! tar -tjf "${output_file}" |
+		awk '/^\.\/usr\/share\/zoneinfo\/posix\/./ && !/\/$/ { found = 1 } END { exit !found }'; then
+		printf 'Package has no usable ./usr/share/zoneinfo/posix payload: %s\n' "${filename}" >&2
+		return 1
+	fi
 	"${PYTHON3}" - "${output_file}" <<'PY'
 import posixpath
 import sys
