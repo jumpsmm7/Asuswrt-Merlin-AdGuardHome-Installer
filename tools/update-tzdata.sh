@@ -100,7 +100,7 @@ download_package() {
 	description="$(tar --wildcards -xOf "${database}" 'tzdata-*/desc')"
 	filename="$(printf '%s\n' "${description}" | awk '$0 == "%FILENAME%" { getline; print; exit }')"
 	case "${filename}" in
-		tzdata-*.pkg.tar.bz2|tzdata-*.pkg.tar.xz|tzdata-*.pkg.tar.zst) ;;
+		tzdata-*.pkg.tar.bz2 | tzdata-*.pkg.tar.xz | tzdata-*.pkg.tar.zst) ;;
 		*)
 			printf 'Unexpected tzdata filename for %s: %s\n' "${architecture}" "${filename}" >&2
 			return 1
@@ -125,10 +125,10 @@ download_package() {
 		return 1
 	fi
 	case "${package_version}" in
-		''|*[!A-Za-z0-9._+-]*) return 1 ;;
+		'' | *[!A-Za-z0-9._+-]*) return 1 ;;
 	esac
 	case "${package_arch}:${architecture}" in
-		aarch64:aarch64|armv7h:armv7h|any:*) ;;
+		aarch64:aarch64 | armv7h:armv7h | any:*) ;;
 		*)
 			printf 'Package architecture mismatch: %s for %s\n' "${package_arch}" "${architecture}" >&2
 			return 1
