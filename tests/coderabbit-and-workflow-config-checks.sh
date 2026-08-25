@@ -226,6 +226,8 @@ grep -Fq '      - tests/update-tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
 	fail "${TZDATA_WORKFLOW}: tzdata regression changes must trigger the update workflow"
 grep -Fq '      - tools/tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
 	fail "${TZDATA_WORKFLOW}: tzdata helper changes must trigger the update workflow"
+grep -Fq '      - tools/normalize-tzdata-package.py' "${TZDATA_WORKFLOW}" ||
+	fail "${TZDATA_WORKFLOW}: tzdata normalizer changes must trigger the update workflow"
 grep -Fq '        run: sh tests/update-tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
 	fail "${TZDATA_WORKFLOW}: expected the tzdata metadata regression before package publication"
 grep -Fq "run_check 'tzdata package metadata regression' sh tests/update-tzdata-package-info.sh" "${LOCAL_QUALITY_RUNNER}" ||

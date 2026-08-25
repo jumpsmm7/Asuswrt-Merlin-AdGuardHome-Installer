@@ -42,7 +42,8 @@ python3_cmd="${PYTHON3:-python3}"
 if ! command -v "${python3_cmd}" >/dev/null 2>&1; then
 	fail "Selected Python 3 interpreter is unavailable: ${python3_cmd}"
 fi
-"${python3_cmd}" "${REPO_DIR}/tools/normalize-tzdata-package.py" "${TMP_DIR}/tzdata-without-posix.tar.bz2"
+normalizer="${REPO_DIR}/tools/normalize-tzdata-package.py"
+"${python3_cmd}" "${normalizer}" "${TMP_DIR}/tzdata-without-posix.tar.bz2"
 if ! tar -xOf "${TMP_DIR}/tzdata-without-posix.tar.bz2" ./usr/share/zoneinfo/posix/Etc/UTC |
 	grep -q '^TZif test timezone$'; then
 	fail 'Failed to add the installer-compatible POSIX timezone payload'
@@ -63,6 +64,30 @@ if ! tar -xOf "${TMP_DIR}/tzdata-without-posix.tar.bz2" ./.PKGINFO |
 	grep -q '^package metadata$'; then
 	fail 'Timezone normalization did not preserve package metadata'
 fi
+
+cp "${TMP_DIR}/tzdata-without-posix.tar.bz2" "${TMP_DIR}/invalid-suffix.tbz"
+if "${python3_cmd}" "${normalizer}" "${TMP_DIR}/invalid-suffix.tbz" >/dev/null 2>&1; then
+	fail 'Normalizer accepted a package without the required suffix'
+fi
+ln -s tzdata-without-posix.tar.bz2 "${TMP_DIR}/linked-package.tar.bz2"
+if "${python3_cmd}" "${normalizer}" "${TMP_DIR}/linked-package.tar.bz2" >/dev/null 2>&1; then
+	fail 'Normalizer accepted a symbolic-link package path'
+fi
+"${python3_cmd}" -c '
+import io
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1], "w:bz2") as package:
+	member = tarfile.TarInfo("../escape")
+	payload = b"TZif unsafe timezone\n"
+	member.size = len(payload)
+	package.addfile(member, io.BytesIO(payload))
+' "${TMP_DIR}/unsafe-member.tar.bz2"
+if "${python3_cmd}" "${normalizer}" "${TMP_DIR}/unsafe-member.tar.bz2" >/dev/null 2>&1; then
+	fail 'Normalizer accepted an unsafe archive member path'
+fi
+[ ! -e "${TMP_DIR}/escape" ] || fail 'Unsafe archive member escaped the test directory'
 
 printf '%s\n' 'not package metadata' >"${TMP_DIR}/README"
 printf '%s\n' 'not a tar archive' >"${TMP_DIR}/corrupt.tar"
