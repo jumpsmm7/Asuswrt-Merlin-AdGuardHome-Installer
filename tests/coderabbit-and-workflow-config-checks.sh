@@ -12,6 +12,7 @@ CODEX_PROMPT='.github/prompts/codex-code-improvement.md'
 WORKFLOW='.github/workflows/code-quality.yml'
 REVIEW_WORKFLOW='.github/workflows/code-quality-review.yml'
 SHELL_VALIDATION_WORKFLOW='.github/workflows/shell-validation.yml'
+TZDATA_WORKFLOW='.github/workflows/update-tzdata.yml'
 LOCAL_QUALITY_RUNNER='tools/code-quality.sh'
 LOCAL_QUALITY_TEST='tests/code-quality-checks.sh'
 CACHE_WORKFLOW='.github/workflows/cache-adguardhome-static.yml'
@@ -51,7 +52,7 @@ review_checker_is_enforced() {
 	' "${_review_workflow}"
 }
 
-for f in "${CODERABBIT}" "${CODEX_PROMPT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}" "${SHELL_VALIDATION_WORKFLOW}" "${CACHE_WORKFLOW}" "${SCORECARD_WORKFLOW}" "${SONAR_REWRITE}" "${SEMGREP}" "${SONAR}" "${STATIC_DOWNLOADER}"; do
+for f in "${CODERABBIT}" "${CODEX_PROMPT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}" "${SHELL_VALIDATION_WORKFLOW}" "${TZDATA_WORKFLOW}" "${CACHE_WORKFLOW}" "${SCORECARD_WORKFLOW}" "${SONAR_REWRITE}" "${SEMGREP}" "${SONAR}" "${STATIC_DOWNLOADER}"; do
 	[ -f "${f}" ] || fail "expected config file not found: ${f}"
 done
 
@@ -59,7 +60,7 @@ done
 # GitHub Actions both treat tabs as invalid/undefined indentation, and a tab
 # introduced by an editor would not be caught by any shell-focused linter.
 TAB=$(printf '\t')
-for f in "${CODERABBIT}" "${CODEX_PROMPT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}" "${SHELL_VALIDATION_WORKFLOW}" "${SCORECARD_WORKFLOW}"; do
+for f in "${CODERABBIT}" "${CODEX_PROMPT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}" "${SHELL_VALIDATION_WORKFLOW}" "${TZDATA_WORKFLOW}" "${SCORECARD_WORKFLOW}"; do
 	if grep -Fq "${TAB}" "${f}"; then
 		fail "${f}: contains literal tab character(s); YAML/workflow indentation must use spaces"
 	fi
@@ -219,6 +220,14 @@ grep -Fq 'busybox ash tests/installer-preflight-actions.sh' "${SHELL_VALIDATION_
 	fail "${SHELL_VALIDATION_WORKFLOW}: expected the installer preflight action regression to run with BusyBox ash"
 grep -Fq 'busybox ash tests/installer-dns-environment-failure.sh' "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: expected the installer NVRAM transaction regression to run with BusyBox ash"
+grep -Fq 'busybox ash tests/update-tzdata-package-info.sh' "${SHELL_VALIDATION_WORKFLOW}" ||
+	fail "${SHELL_VALIDATION_WORKFLOW}: expected the tzdata metadata regression to run with BusyBox ash"
+grep -Fq '      - tests/update-tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
+	fail "${TZDATA_WORKFLOW}: tzdata regression changes must trigger the update workflow"
+grep -Fq '      - tools/tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
+	fail "${TZDATA_WORKFLOW}: tzdata helper changes must trigger the update workflow"
+grep -Fq '        run: sh tests/update-tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
+	fail "${TZDATA_WORKFLOW}: expected the tzdata metadata regression before package publication"
 grep -Fq "run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh" "${LOCAL_QUALITY_RUNNER}" ||
 	fail "${LOCAL_QUALITY_RUNNER}: expected the installer jq dependency regression in the local quality matrix"
 grep -Fq 'tests/installer-jq-helper.sh)' "${LOCAL_QUALITY_TEST}" ||

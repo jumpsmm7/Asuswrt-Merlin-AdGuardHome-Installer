@@ -59,6 +59,9 @@ jobs:
       - name: Run checksum output validation regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/static-checksum-output-validation.sh
 
+      - name: Run tzdata package metadata regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/update-tzdata-package-info.sh
+
       - name: Run installer jq dependency regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-jq-helper.sh
 

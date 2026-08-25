@@ -10,6 +10,7 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+'
     paths:
       - .github/workflows/update-tzdata.yml
+      - tests/update-tzdata-package-info.sh
       - tools/tzdata-package-info.sh
       - tools/update-tzdata.sh
   schedule:
@@ -71,6 +72,9 @@ jobs:
           ref: ${{ steps.branch.outputs.target }}
           fetch-depth: 0
           persist-credentials: true
+
+      - name: Run tzdata package metadata regression
+        run: sh tests/update-tzdata-package-info.sh
 
       - name: Download current packages
         env:
