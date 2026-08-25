@@ -35,7 +35,12 @@ def is_timezone_file(package, member):
 	if not member.isfile():
 		return False
 	stream = package.extractfile(member)
-	return stream is not None and stream.read(4) == b"TZif"
+	if stream is None:
+		return False
+	try:
+		return stream.read(4) == b"TZif"
+	finally:
+		stream.close()
 
 
 def link_target(member):
