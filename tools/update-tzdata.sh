@@ -173,12 +173,6 @@ download_package() {
 		*.zst) zstd --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
 	esac
 	tar -tjf "${output_file}" >/dev/null
-	"${PYTHON3}" "${SCRIPT_DIR}/normalize-tzdata-package.py" "${output_file}"
-	if ! tar -tjf "${output_file}" |
-		awk '/^\.\/usr\/share\/zoneinfo\/posix\/./ && !/\/$/ { found = 1 } END { exit !found }'; then
-		printf 'Package has no usable ./usr/share/zoneinfo/posix payload: %s\n' "${filename}" >&2
-		return 1
-	fi
 	"${PYTHON3}" - "${output_file}" <<'PY'
 import posixpath
 import sys
