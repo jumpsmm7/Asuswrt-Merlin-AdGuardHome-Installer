@@ -86,7 +86,11 @@ def main(archive):
 			members = package.getmembers()
 			for member in members:
 				stream = package.extractfile(member) if member.isfile() else None
-				output.addfile(member, stream)
+				try:
+					output.addfile(member, stream)
+				finally:
+					if stream is not None:
+						stream.close()
 			for member in members:
 				name = normalized_member_name(member.name)
 				is_timezone_directory = member.isdir() and (
@@ -102,7 +106,11 @@ def main(archive):
 				if member.islnk():
 					posix_member.linkname = f"./{POSIX_PREFIX}{link_target(member).removeprefix(ZONEINFO_PREFIX)}"
 				stream = package.extractfile(member) if member.isfile() else None
-				output.addfile(posix_member, stream)
+				try:
+					output.addfile(posix_member, stream)
+				finally:
+					if stream is not None:
+						stream.close()
 		os.replace(temporary_name, archive)
 	finally:
 		if os.path.exists(temporary_name):
