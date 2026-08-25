@@ -22,6 +22,7 @@ cleanup() { rm -rf "${TEST_ROOT}"; }
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test workspace'
+mkfifo "${TEST_ROOT}/block.fifo" || fail 'could not create blocking DNS query FIFO'
 
 : >"${FUNCTIONS_FILE}" || fail 'could not create test functions file'
 sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" |
@@ -289,7 +290,11 @@ nslookup() {
 	if [ "${TRACK_LOOKUP:-0}" = 1 ]; then
 		trap 'printf "%s\n" reaped >"${TEST_ROOT}/lookup-reaped"; exit 1' TERM
 	fi
-	[ "${BLOCKING_QUERY:-0}" = 0 ] || /bin/sleep 5
+	# Block without an external child process or a CPU-burning loop until the
+	# deadline logic terminates the probe.
+	if [ "${BLOCKING_QUERY:-0}" != 0 ]; then
+		read -r _blocked_lookup <"${TEST_ROOT}/block.fifo" || :
+	fi
 	[ "${DNS_READY_AFTER_SERVICE:-0}" -eq 0 ] || [ "${SERVICE_COUNT}" -lt "${DNS_READY_AFTER_SERVICE}" ] || DNS_READY=1
 	[ "${DNS_READY:-1}" = 1 ]
 }
