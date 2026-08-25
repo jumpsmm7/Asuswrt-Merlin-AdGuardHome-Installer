@@ -350,8 +350,8 @@ for t in tests/*.sh; do
 		fail "${t} is not referenced by any run_check in ${SCRIPT_PATH}; new test files must be wired in or they get zero CI coverage"
 done
 
-grep -Fq "run_check 'tzdata normalizer Python regression' \"\${PYTHON3:-python3}\" tests/normalize-tzdata-package.py" "${SCRIPT_PATH}" ||
-	fail 'tzdata normalizer Python regression is not registered in tools/code-quality.sh'
+grep -Fq "run_check 'tzdata package conversion regression' sh tests/update-tzdata-package-info.sh" "${SCRIPT_PATH}" ||
+	fail 'tzdata package conversion regression is not registered in tools/code-quality.sh'
 
 grep -Fq "run_long_check 'AdGuardHome service lifecycle integration regression' \"\${SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS}\" run_privileged_regression_check tests/service-lifecycle-integration.sh 'service lifecycle integration regression'" "${SCRIPT_PATH}" ||
 	fail 'service lifecycle integration regression does not use its dedicated timeout and privileged test helper'
