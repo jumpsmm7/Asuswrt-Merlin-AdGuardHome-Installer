@@ -39,15 +39,15 @@ printf 'TZif POSIX test timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/posix
 printf '%s\n' 'package metadata' >"${TMP_DIR}/tzdata/.PKGINFO"
 tar -cf "${TMP_DIR}/tzdata.tar" -C "${TMP_DIR}/tzdata" .
 xz -c "${TMP_DIR}/tzdata.tar" >"${TMP_DIR}/tzdata.pkg.tar.xz"
-xz -dc "${TMP_DIR}/tzdata.pkg.tar.xz" |
+xz -d -c "${TMP_DIR}/tzdata.pkg.tar.xz" |
 	bzip2 -9 >"${TMP_DIR}/tzdata.pkg.tar.bz2"
-bzip2 -dc "${TMP_DIR}/tzdata.pkg.tar.bz2" >"${TMP_DIR}/recompressed.tar"
+bzip2 -d -c "${TMP_DIR}/tzdata.pkg.tar.bz2" >"${TMP_DIR}/recompressed.tar"
 if ! cmp "${TMP_DIR}/tzdata.tar" "${TMP_DIR}/recompressed.tar"; then
 	fail 'xz-to-bzip2 conversion changed the tar byte stream'
 fi
 
 UPDATE_SCRIPT="${REPO_DIR}/tools/update-tzdata.sh"
-grep -Fq '*.xz) xz -dc "${upstream_file}" | bzip2 -9 >"${output_file}" ;;' \
+grep -Fq '*.xz) xz -d -c "${upstream_file}" | bzip2 -9 >"${output_file}" ;;' \
 	"${UPDATE_SCRIPT}" || fail 'Update script does not preserve the xz tar stream during recompression'
 grep -Fq 'download_package aarch64 aarch64' "${UPDATE_SCRIPT}" ||
 	fail 'Update script does not publish the aarch64 package'
