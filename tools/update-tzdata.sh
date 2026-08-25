@@ -105,7 +105,7 @@ discover_package_filename() {
 		--cacert "${CURL_CA_BUNDLE}" \
 		--proto '=https' --proto-redir '=https' \
 		--connect-timeout 15 --max-time 120 \
-		"${PACKAGE_INDEX_URL}/${architecture}/tzdata" --output "${package_page}"; then
+		"${PACKAGE_INDEX_URL}/any/tzdata" --output "${package_page}"; then
 		printf 'Failed to download tzdata package page for %s\n' "${architecture}" >&2
 		return 1
 	fi
