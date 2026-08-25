@@ -228,6 +228,8 @@ grep -Fq '      - tools/tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
 	fail "${TZDATA_WORKFLOW}: tzdata helper changes must trigger the update workflow"
 grep -Fq '        run: sh tests/update-tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
 	fail "${TZDATA_WORKFLOW}: expected the tzdata metadata regression before package publication"
+grep -Fq "run_check 'tzdata package metadata regression' sh tests/update-tzdata-package-info.sh" "${LOCAL_QUALITY_RUNNER}" ||
+	fail "${LOCAL_QUALITY_RUNNER}: expected the tzdata metadata regression in the local and CI quality matrix"
 grep -Fq "run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh" "${LOCAL_QUALITY_RUNNER}" ||
 	fail "${LOCAL_QUALITY_RUNNER}: expected the installer jq dependency regression in the local quality matrix"
 grep -Fq 'tests/installer-jq-helper.sh)' "${LOCAL_QUALITY_TEST}" ||
