@@ -149,6 +149,7 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Install BusyBox
         run: |
@@ -159,6 +160,7 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: bash
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           TARGET_BRANCH: ${{ github.event.pull_request.head.ref }}
           ORIGINAL_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
@@ -186,8 +188,10 @@ jobs:
           git reset --hard
           git clean -f -- "${checksum_files[@]}"
 
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 -w 0)"
           for attempt in $(seq 1 30); do
-            git fetch --quiet origin "${target_branch}"
+            git -c http.https://github.com/.extraheader="${auth_header}" \
+              fetch --quiet origin "${target_branch}"
             remote_sha="$(git rev-parse FETCH_HEAD)"
             remote_subject="$(git log -1 --format=%s "${remote_sha}")"
 
