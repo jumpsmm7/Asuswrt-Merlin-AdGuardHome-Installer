@@ -88,6 +88,18 @@ download_verified_pair() {
 	return 1
 }
 
+extract_package_info() {
+	local package_file package_info_member
+	package_file="$1"
+	package_info_member="$(tar -tf "${package_file}" 2>/dev/null |
+		awk '$0 == ".PKGINFO" || $0 == "./.PKGINFO" { print; exit }')"
+	if [ -z "${package_info_member}" ]; then
+		return 1
+	fi
+
+	tar -xOf "${package_file}" "${package_info_member}" 2>/dev/null
+}
+
 discover_package_filename() {
 	local architecture filename mirror_host mirror_url package_listing protocol redirect_protocols
 	architecture="$1"
@@ -142,7 +154,7 @@ download_package() {
 	upstream_file="${stage_dir}/upstream-${architecture}.${filename##*.}"
 	download_verified_pair "${architecture}/core/${filename}" "${upstream_file}" 300
 
-	if ! package_info="$(tar -xOf "${upstream_file}" ./.PKGINFO 2>/dev/null)"; then
+	if ! package_info="$(extract_package_info "${upstream_file}")"; then
 		printf 'Failed to extract .PKGINFO from %s\n' "${upstream_file}" >&2
 		return 1
 	fi
