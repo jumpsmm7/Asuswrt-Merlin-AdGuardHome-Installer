@@ -169,7 +169,7 @@ download_package() {
 	output_file="${stage_dir}/tzdata-${package_version}-${output_arch}.pkg.tar.bz2"
 	case "${upstream_file}" in
 		*.bz2) cp "${upstream_file}" "${output_file}" ;;
-		*.xz) xz --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
+		*.xz) xz -dc "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
 		*.zst) zstd --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
 	esac
 	tar -tjf "${output_file}" >/dev/null
