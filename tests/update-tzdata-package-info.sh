@@ -44,11 +44,11 @@ if ! command -v "${python3_cmd}" >/dev/null 2>&1; then
 fi
 normalizer="${REPO_DIR}/tools/normalize-tzdata-package.py"
 "${python3_cmd}" "${normalizer}" "${TMP_DIR}/tzdata-without-posix.tar.bz2"
-if ! tar -xOf "${TMP_DIR}/tzdata-without-posix.tar.bz2" ./usr/share/zoneinfo/posix/Etc/UTC |
+if ! tar -xOjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" ./usr/share/zoneinfo/posix/Etc/UTC |
 	grep -q '^TZif test timezone$'; then
 	fail 'Failed to add the installer-compatible POSIX timezone payload'
 fi
-if tar -tf "${TMP_DIR}/tzdata-without-posix.tar.bz2" |
+if tar -tjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" |
 	grep -q '^\./usr/share/zoneinfo/posix/right/'; then
 	fail 'Added leap-second-aware timezone data to the POSIX payload'
 fi
@@ -60,7 +60,7 @@ fi
 if [ "$(cat "${TMP_DIR}/normalized/usr/share/zoneinfo/posix/UTC")" != 'TZif test timezone' ]; then
 	fail 'Failed to preserve timezone aliases in the POSIX payload'
 fi
-if ! tar -xOf "${TMP_DIR}/tzdata-without-posix.tar.bz2" ./.PKGINFO |
+if ! tar -xOjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" ./.PKGINFO |
 	grep -q '^package metadata$'; then
 	fail 'Timezone normalization did not preserve package metadata'
 fi
