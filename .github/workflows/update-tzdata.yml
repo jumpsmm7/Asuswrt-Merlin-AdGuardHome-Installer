@@ -65,7 +65,7 @@ jobs:
           printf 'target=%s\n' "${target_branch}" >>"${GITHUB_OUTPUT}"
 
       - name: Checkout target branch
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ steps.branch.outputs.target }}
           fetch-depth: 0
@@ -79,7 +79,6 @@ jobs:
             nj.us.mirror.archlinuxarm.org
             fl.us.mirror.archlinuxarm.org
             mirror.archlinuxarm.org
-          PACKAGE_INDEX_URL: https://archlinuxarm.org/packages
           PYTHON3: /usr/bin/python3
           SIGNING_KEY_FINGERPRINT: 68B3537F39A313B3E574D06777193F152BDBE6A6
         run: sh tools/update-tzdata.sh .
