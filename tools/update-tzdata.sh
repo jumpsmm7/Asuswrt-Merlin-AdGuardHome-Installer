@@ -127,7 +127,10 @@ download_package() {
 	local upstream_file package_info package_version package_arch output_file
 	architecture="$1"
 	output_arch="$2"
-	filename="$(discover_package_filename "${architecture}")"
+	if ! filename="$(discover_package_filename "${architecture}")" || [ -z "${filename}" ]; then
+		printf 'Failed to discover package filename for %s\n' "${architecture}" >&2
+		return 1
+	fi
 	if [ "${filename}" != "$(basename "${filename}")" ]; then
 		printf 'Filename contains path separators: %s\n' "${filename}" >&2
 		return 1
