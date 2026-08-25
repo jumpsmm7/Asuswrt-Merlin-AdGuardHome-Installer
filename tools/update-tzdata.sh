@@ -5,8 +5,19 @@
 set -eu
 
 OUT_DIR="${1:-.}"
-: "${MIRROR_URLS:?MIRROR_URLS is required}"
+: "${CURL_CA_BUNDLE:?CURL_CA_BUNDLE is required}"
+: "${MIRROR_HOSTS:?MIRROR_HOSTS is required}"
+: "${PYTHON3:?PYTHON3 is required}"
 : "${SIGNING_KEY_FINGERPRINT:?SIGNING_KEY_FINGERPRINT is required}"
+
+if [ ! -r "${CURL_CA_BUNDLE}" ]; then
+	printf 'Certificate authority bundle is not readable: %s\n' "${CURL_CA_BUNDLE}" >&2
+	exit 1
+fi
+if [ "${PYTHON3}" != /usr/bin/python3 ] || [ ! -x "${PYTHON3}" ]; then
+	printf 'Trusted Python 3 interpreter is unavailable: %s\n' "${PYTHON3}" >&2
+	exit 1
+fi
 
 cd "${OUT_DIR}" || exit 1
 
@@ -39,29 +50,37 @@ verify_signature() {
 }
 
 download_verified_pair() {
-	local max_time mirror_url output_file relative_path signature_file
+	local max_time mirror_host mirror_url output_file protocol redirect_protocols relative_path signature_file
 	relative_path="$1"
 	output_file="$2"
 	max_time="$3"
 	signature_file="${output_file}.sig"
 
-	# MIRROR_URLS is a trusted, whitespace-separated workflow setting.
-	# Every HTTP payload is authenticated before it is consumed.
-	for mirror_url in ${MIRROR_URLS}; do
-		rm -f "${output_file}" "${signature_file}"
-		printf 'Downloading %s from %s\n' "${relative_path}" "${mirror_url}"
-		if curl --fail --location --silent --show-error \
-			--proto '=http' --proto-redir '=http' \
-			--connect-timeout 15 --max-time "${max_time}" \
-			"${mirror_url}/${relative_path}" --output "${output_file}" &&
-			curl --fail --location --silent --show-error \
-				--proto '=http' --proto-redir '=http' \
-				--connect-timeout 15 --max-time 120 \
-				"${mirror_url}/${relative_path}.sig" --output "${signature_file}" &&
-			verify_signature "${output_file}" "${signature_file}"; then
-			return 0
-		fi
-		printf 'Mirror failed verification or download: %s\n' "${mirror_url}" >&2
+	# MIRROR_HOSTS is a trusted, whitespace-separated workflow setting. Try all
+	# TLS endpoints before the signed HTTP fallback, and authenticate every pair
+	# before consuming it.
+	for protocol in https http; do
+		redirect_protocols="=${protocol}"
+		[ "${protocol}" != http ] || redirect_protocols='=http,https'
+		for mirror_host in ${MIRROR_HOSTS}; do
+			mirror_url="${protocol}://${mirror_host}"
+			rm -f "${output_file}" "${signature_file}"
+			printf 'Downloading %s from %s\n' "${relative_path}" "${mirror_url}"
+			if curl --fail --location --silent --show-error \
+				--cacert "${CURL_CA_BUNDLE}" \
+				--proto "=${protocol}" --proto-redir "${redirect_protocols}" \
+				--connect-timeout 15 --max-time "${max_time}" \
+				"${mirror_url}/${relative_path}" --output "${output_file}" &&
+				curl --fail --location --silent --show-error \
+					--cacert "${CURL_CA_BUNDLE}" \
+					--proto "=${protocol}" --proto-redir "${redirect_protocols}" \
+					--connect-timeout 15 --max-time 120 \
+					"${mirror_url}/${relative_path}.sig" --output "${signature_file}" &&
+				verify_signature "${output_file}" "${signature_file}"; then
+				return 0
+			fi
+			printf 'Mirror failed verification or download: %s\n' "${mirror_url}" >&2
+		done
 	done
 
 	rm -f "${output_file}" "${signature_file}"
@@ -128,7 +147,7 @@ download_package() {
 		printf 'Package has no usable ./usr/share/zoneinfo/posix payload: %s\n' "${filename}" >&2
 		return 1
 	fi
-	python3 - "${output_file}" <<'PY'
+	"${PYTHON3}" - "${output_file}" <<'PY'
 import posixpath
 import sys
 import tarfile
