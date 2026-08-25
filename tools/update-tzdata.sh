@@ -100,7 +100,7 @@ download_package() {
 	description="$(tar --wildcards -xOf "${database}" 'tzdata-*/desc')"
 	filename="$(printf '%s\n' "${description}" | awk '$0 == "%FILENAME%" { getline; print; exit }')"
 	case "${filename}" in
-		tzdata-*.pkg.tar.bz2|tzdata-*.pkg.tar.xz|tzdata-*.pkg.tar.zst) ;;
+		tzdata-*.pkg.tar.bz2 | tzdata-*.pkg.tar.xz | tzdata-*.pkg.tar.zst) ;;
 		*)
 			printf 'Unexpected tzdata filename for %s: %s\n' "${architecture}" "${filename}" >&2
 			return 1
@@ -125,11 +125,10 @@ download_package() {
 		return 1
 	fi
 	case "${package_version}" in
-		''|*[!A-Za-z0-9._+-]*) return 1 ;;
-		*) : ;;
+		'' | *[!A-Za-z0-9._+-]*) return 1 ;;
 	esac
 	case "${package_arch}:${architecture}" in
-		aarch64:aarch64|armv7h:armv7h|any:*) ;;
+		aarch64:aarch64 | armv7h:armv7h | any:*) ;;
 		*)
 			printf 'Package architecture mismatch: %s for %s\n' "${package_arch}" "${architecture}" >&2
 			return 1
@@ -141,10 +140,6 @@ download_package() {
 		*.bz2) cp "${upstream_file}" "${output_file}" ;;
 		*.xz) xz --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
 		*.zst) zstd --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
-		*)
-			printf 'Unsupported tzdata package compression: %s\n' "${upstream_file}" >&2
-			return 1
-			;;
 	esac
 	tar -tjf "${output_file}" >/dev/null
 	if ! tar -tjf "${output_file}" |
