@@ -38,7 +38,8 @@ printf 'TZif test timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc/UTC"
 printf 'TZif POSIX test timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/posix/Etc/UTC"
 printf '%s\n' 'package metadata' >"${TMP_DIR}/tzdata/.PKGINFO"
 tar -cf "${TMP_DIR}/tzdata.tar" -C "${TMP_DIR}/tzdata" .
-xz -c "${TMP_DIR}/tzdata.tar" >"${TMP_DIR}/tzdata.pkg.tar.xz"
+# BusyBox provides only the xz decompressor; fixture creation is host-only.
+/usr/bin/xz -c "${TMP_DIR}/tzdata.tar" >"${TMP_DIR}/tzdata.pkg.tar.xz"
 xz -d -c "${TMP_DIR}/tzdata.pkg.tar.xz" |
 	bzip2 -9 >"${TMP_DIR}/tzdata.pkg.tar.bz2"
 bzip2 -d -c "${TMP_DIR}/tzdata.pkg.tar.bz2" >"${TMP_DIR}/recompressed.tar"
