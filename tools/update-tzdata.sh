@@ -4,6 +4,9 @@
 
 set -eu
 
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "${0}")" && pwd)"
+. "${SCRIPT_DIR}/tzdata-package-info.sh"
+
 OUT_DIR="${1:-.}"
 : "${CURL_CA_BUNDLE:?CURL_CA_BUNDLE is required}"
 : "${MIRROR_HOSTS:?MIRROR_HOSTS is required}"
@@ -86,18 +89,6 @@ download_verified_pair() {
 	rm -f "${output_file}" "${signature_file}"
 	printf 'No mirror supplied a verified copy of %s\n' "${relative_path}" >&2
 	return 1
-}
-
-extract_package_info() {
-	local package_file package_info_member
-	package_file="$1"
-	package_info_member="$(tar -tf "${package_file}" 2>/dev/null |
-		awk '$0 == ".PKGINFO" || $0 == "./.PKGINFO" { print; exit }')"
-	if [ -z "${package_info_member}" ]; then
-		return 1
-	fi
-
-	tar -xOf "${package_file}" "${package_info_member}" 2>/dev/null
 }
 
 discover_package_filename() {

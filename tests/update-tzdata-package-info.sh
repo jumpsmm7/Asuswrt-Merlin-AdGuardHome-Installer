@@ -6,18 +6,7 @@ REPO_DIR="$(CDPATH= cd -- "$(dirname "${0}")/.." && pwd)"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' 0
 
-extract_function="$({
-	awk '
-		/^extract_package_info\(\) \{/ { copying = 1 }
-		copying { print }
-		copying && /^}/ { exit }
-	' "${REPO_DIR}/tools/update-tzdata.sh"
-})"
-if [ -z "${extract_function}" ]; then
-	printf '%s\n' 'extract_package_info function not found' >&2
-	exit 1
-fi
-eval "${extract_function}"
+. "${REPO_DIR}/tools/tzdata-package-info.sh"
 
 mkdir "${TMP_DIR}/plain" "${TMP_DIR}/dotted"
 printf '%s\n' 'pkgver = 2026c-1' 'arch = aarch64' >"${TMP_DIR}/plain/.PKGINFO"
