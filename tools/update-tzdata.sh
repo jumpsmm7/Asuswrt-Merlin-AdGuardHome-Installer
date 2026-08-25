@@ -180,14 +180,19 @@ import tarfile
 
 archive = sys.argv[1]
 with tarfile.open(archive, "r:bz2") as package:
+    has_posix_timezone = False
     for member in package.getmembers():
         normalized_name = posixpath.normpath(member.name)
         if member.name.startswith("/") or normalized_name == ".." or normalized_name.startswith("../"):
             raise SystemExit(f"Unsafe archive member path: {member.name}")
+        if member.isfile() and normalized_name.startswith("usr/share/zoneinfo/posix/"):
+            has_posix_timezone = True
         if member.issym() or member.islnk():
             link_path = posixpath.normpath(posixpath.join(posixpath.dirname(normalized_name), member.linkname))
             if member.linkname.startswith("/") or link_path == ".." or link_path.startswith("../"):
                 raise SystemExit(f"Unsafe archive link: {member.name} -> {member.linkname}")
+    if not has_posix_timezone:
+        raise SystemExit(f"Package has no usable POSIX timezone payload: {archive}")
 PY
 	printf '%s\n' "${package_version}" >"${stage_dir}/version-${output_arch}"
 }

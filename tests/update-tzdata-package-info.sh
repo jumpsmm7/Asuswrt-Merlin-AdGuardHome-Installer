@@ -32,8 +32,10 @@ for archive in "${TMP_DIR}/plain.tar" "${TMP_DIR}/dotted.tar"; do
 	fi
 done
 
-mkdir -p "${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc"
+mkdir -p "${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc" \
+	"${TMP_DIR}/tzdata/usr/share/zoneinfo/posix/Etc"
 printf 'TZif test timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc/UTC"
+printf 'TZif POSIX test timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/posix/Etc/UTC"
 printf '%s\n' 'package metadata' >"${TMP_DIR}/tzdata/.PKGINFO"
 tar -cf "${TMP_DIR}/tzdata.tar" -C "${TMP_DIR}/tzdata" .
 xz -c "${TMP_DIR}/tzdata.tar" >"${TMP_DIR}/tzdata.pkg.tar.xz"
@@ -53,6 +55,28 @@ grep -Fq 'download_package armv7h arm' "${UPDATE_SCRIPT}" ||
 	fail 'Update script does not publish the armv7h package'
 if grep -Fq 'normalize-tzdata-package.py' "${UPDATE_SCRIPT}"; then
 	fail 'Update script still rewrites tzdata package contents'
+fi
+grep -Fq 'if not has_posix_timezone:' "${UPDATE_SCRIPT}" ||
+	fail 'Update script does not reject packages without a usable POSIX timezone payload'
+grep -Fq 'if member.isfile() and normalized_name.startswith("usr/share/zoneinfo/posix/"):' \
+	"${UPDATE_SCRIPT}" || fail 'Update script does not require a regular POSIX timezone file'
+
+mkdir -p "${TMP_DIR}/without-posix/usr/share/zoneinfo/Etc"
+printf 'TZif test timezone\n' >"${TMP_DIR}/without-posix/usr/share/zoneinfo/Etc/UTC"
+tar -cjf "${TMP_DIR}/without-posix.tar.bz2" -C "${TMP_DIR}/without-posix" .
+awk 'found && $0 == "PY" { exit } found { print } /^import posixpath$/ { found = 1; print }' \
+	"${UPDATE_SCRIPT}" >"${TMP_DIR}/validate-package.py"
+python3_cmd="${PYTHON3:-/usr/bin/python3}"
+if [ ! -x "${python3_cmd}" ]; then
+	fail "Selected Python 3 interpreter is unavailable: ${python3_cmd}"
+fi
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/without-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive without a POSIX timezone payload unexpectedly passed validation'
+fi
+if ! "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/tzdata.pkg.tar.bz2"; then
+	fail 'Archive with a POSIX timezone payload unexpectedly failed validation'
 fi
 
 printf '%s\n' 'not package metadata' >"${TMP_DIR}/README"
