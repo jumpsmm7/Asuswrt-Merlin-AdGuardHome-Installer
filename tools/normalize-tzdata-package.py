@@ -11,6 +11,7 @@ import tempfile
 
 ZONEINFO_PREFIX = "usr/share/zoneinfo/"
 POSIX_PREFIX = f"{ZONEINFO_PREFIX}posix/"
+RIGHT_PREFIX = f"{ZONEINFO_PREFIX}right/"
 
 
 def normalized_member_name(name):
@@ -64,6 +65,7 @@ def main(archive):
 			normalized_member_name(member.name)
 			for member in members
 			if normalized_member_name(member.name).startswith(ZONEINFO_PREFIX)
+			and not normalized_member_name(member.name).startswith(RIGHT_PREFIX)
 			and is_timezone_file(package, member)
 		}
 		while True:

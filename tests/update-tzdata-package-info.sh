@@ -32,8 +32,9 @@ for archive in "${TMP_DIR}/plain.tar" "${TMP_DIR}/dotted.tar"; do
 	fi
 done
 
-mkdir -p "${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc"
+mkdir -p "${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc" "${TMP_DIR}/tzdata/usr/share/zoneinfo/right/Etc"
 printf 'TZif test timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc/UTC"
+printf 'TZif leap-second timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/right/Etc/UTC"
 ln -s Etc/UTC "${TMP_DIR}/tzdata/usr/share/zoneinfo/UTC"
 printf '%s\n' 'package metadata' >"${TMP_DIR}/tzdata/.PKGINFO"
 tar -cjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" -C "${TMP_DIR}/tzdata" .
@@ -41,6 +42,10 @@ tar -cjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" -C "${TMP_DIR}/tzdata" .
 if ! tar -xOf "${TMP_DIR}/tzdata-without-posix.tar.bz2" ./usr/share/zoneinfo/posix/Etc/UTC |
 	grep -q '^TZif test timezone$'; then
 	fail 'Failed to add the installer-compatible POSIX timezone payload'
+fi
+if tar -tf "${TMP_DIR}/tzdata-without-posix.tar.bz2" |
+	grep -q '^\./usr/share/zoneinfo/posix/right/'; then
+	fail 'Added leap-second-aware timezone data to the POSIX payload'
 fi
 mkdir "${TMP_DIR}/normalized"
 tar -xjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" -C "${TMP_DIR}/normalized" ./usr/share/zoneinfo/posix
