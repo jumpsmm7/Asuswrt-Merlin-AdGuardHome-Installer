@@ -7,6 +7,7 @@ set -eu
 OUT_DIR="${1:-.}"
 : "${CURL_CA_BUNDLE:?CURL_CA_BUNDLE is required}"
 : "${MIRROR_HOSTS:?MIRROR_HOSTS is required}"
+: "${PACKAGE_INDEX_URL:?PACKAGE_INDEX_URL is required}"
 : "${PYTHON3:?PYTHON3 is required}"
 : "${SIGNING_KEY_FINGERPRINT:?SIGNING_KEY_FINGERPRINT is required}"
 
@@ -88,24 +89,45 @@ download_verified_pair() {
 	return 1
 }
 
-download_package() {
-	local architecture output_arch database description filename
-	local upstream_file package_info package_version package_arch output_file
+discover_package_filename() {
+	local architecture package_page filename
 	architecture="$1"
-	output_arch="$2"
-	database="${stage_dir}/core-${architecture}.db"
+	package_page="${stage_dir}/package-${architecture}.html"
 
-	download_verified_pair "${architecture}/core/core.db" "${database}" 120
-
-	description="$(tar --wildcards -xOf "${database}" 'tzdata-*/desc')"
-	filename="$(printf '%s\n' "${description}" | awk '$0 == "%FILENAME%" { getline; print; exit }')"
+	case "${PACKAGE_INDEX_URL}" in
+		https://archlinuxarm.org/packages) ;;
+		*)
+			printf 'Unexpected Arch Linux ARM package index URL: %s\n' "${PACKAGE_INDEX_URL}" >&2
+			return 1
+			;;
+	esac
+	if ! curl --fail --location --silent --show-error \
+		--cacert "${CURL_CA_BUNDLE}" \
+		--proto '=https' --proto-redir '=https' \
+		--connect-timeout 15 --max-time 120 \
+		"${PACKAGE_INDEX_URL}/${architecture}/tzdata" --output "${package_page}"; then
+		printf 'Failed to download tzdata package page for %s\n' "${architecture}" >&2
+		return 1
+	fi
+	filename="$(grep -Eo "tzdata-[A-Za-z0-9._+-]+-${architecture}\\.pkg\\.tar\\.(bz2|xz|zst)" "${package_page}" |
+		head -n 1)"
 	case "${filename}" in
-		tzdata-*.pkg.tar.bz2 | tzdata-*.pkg.tar.xz | tzdata-*.pkg.tar.zst) ;;
+		tzdata-*-${architecture}.pkg.tar.bz2 | tzdata-*-${architecture}.pkg.tar.xz | tzdata-*-${architecture}.pkg.tar.zst)
+			printf '%s\n' "${filename}"
+			;;
 		*)
 			printf 'Unexpected tzdata filename for %s: %s\n' "${architecture}" "${filename}" >&2
 			return 1
 			;;
 	esac
+}
+
+download_package() {
+	local architecture output_arch filename
+	local upstream_file package_info package_version package_arch output_file
+	architecture="$1"
+	output_arch="$2"
+	filename="$(discover_package_filename "${architecture}")"
 	if [ "${filename}" != "$(basename "${filename}")" ]; then
 		printf 'Filename contains path separators: %s\n' "${filename}" >&2
 		return 1
@@ -176,19 +198,33 @@ if [ "${aarch64_version}" != "${arm_version}" ]; then
 	exit 1
 fi
 
+publish_package() {
+	local output_arch package_version published_file staged_file
+	output_arch="$1"
+	package_version="$2"
+	published_file="tzdata-${package_version}-${output_arch}.pkg.tar.bz2"
+	staged_file="${stage_dir}/${published_file}"
+
+	if [ ! -f "${staged_file}" ]; then
+		printf '%s package file not found: %s\n' "${output_arch}" "${staged_file}" >&2
+		return 1
+	fi
+	if ! tar -tjf "${staged_file}" >/dev/null; then
+		printf 'Invalid bzip2 package archive: %s\n' "${staged_file}" >&2
+		return 1
+	fi
+	mv "${staged_file}" "${published_file}"
+	if [ ! -f "${published_file}" ]; then
+		printf 'Failed to publish package file: %s\n' "${published_file}" >&2
+		return 1
+	fi
+}
+
 # These globs intentionally remove every superseded package and sidecar.
 rm -f tzdata-*-aarch64.pkg.tar.bz2 tzdata-*-aarch64.pkg.tar.bz2.md5sum tzdata-*-aarch64.pkg.tar.bz2.sha256sum
 rm -f tzdata-*-arm.pkg.tar.bz2 tzdata-*-arm.pkg.tar.bz2.md5sum tzdata-*-arm.pkg.tar.bz2.sha256sum
-if [ ! -f "${stage_dir}/tzdata-${aarch64_version}-aarch64.pkg.tar.bz2" ]; then
-	printf 'aarch64 package file not found\n' >&2
-	exit 1
-fi
-if [ ! -f "${stage_dir}/tzdata-${arm_version}-arm.pkg.tar.bz2" ]; then
-	printf 'arm package file not found\n' >&2
-	exit 1
-fi
-mv "${stage_dir}/tzdata-${aarch64_version}-aarch64.pkg.tar.bz2" .
-mv "${stage_dir}/tzdata-${arm_version}-arm.pkg.tar.bz2" .
+publish_package aarch64 "${aarch64_version}"
+publish_package arm "${arm_version}"
 
 if ! grep -Eq '^[[:space:]]*TZ_DATA="tzdata-[^"]*-\$\{TZ_ARCH\}\.pkg\.tar\.bz2"$' installer; then
 	printf 'Expected TZ_DATA assignment not found in installer\n' >&2
