@@ -101,6 +101,12 @@ def timezone_names(package, members):
 
 def has_usable_posix_payload(package, members):
 	"""Return whether POSIX contains TZif data or an alias resolving to it."""
+	if any(
+		(member.issym() or member.islnk())
+		and normalized_member_name(member.name).startswith(POSIX_PREFIX)
+		for member in members
+	):
+		return False
 	names = {
 		normalized_member_name(member.name)
 		for member in members
@@ -170,6 +176,10 @@ def validated_archive_path(archive):
 def rewrite_archive(archive, members, names):
 	"""Rewrite a validated package atomically with its POSIX payload."""
 	directory = os.path.dirname(archive)
+	members_by_name = {normalized_member_name(member.name): member for member in members}
+	generated_names = {
+		f"{POSIX_PREFIX}{strip_prefix(name, ZONEINFO_PREFIX)}" for name in names
+	}
 	with tempfile.NamedTemporaryFile(dir=directory, delete=False) as temporary:  # NOSONAR
 		temporary_name = temporary.name
 	try:
@@ -178,6 +188,13 @@ def rewrite_archive(archive, members, names):
 			for member in members:
 				name = normalized_member_name(member.name)
 				if name == POSIX_PREFIX.rstrip("/") or name.startswith(POSIX_PREFIX):
+					if (member.issym() or member.islnk()) and name not in generated_names:
+						source_member = linked_file(member, members_by_name)
+						posix_member = copy.copy(member)
+						posix_member.type = tarfile.REGTYPE
+						posix_member.linkname = ""
+						posix_member.size = source_member.size
+						copy_member(package, output, source_member, posix_member)
 					continue
 				copy_member(package, output, member)
 			add_posix_members(package, output, members, names)
