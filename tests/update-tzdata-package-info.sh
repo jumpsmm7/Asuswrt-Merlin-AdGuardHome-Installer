@@ -2,13 +2,16 @@
 
 set -eu
 
-if ! REPO_DIR="$(CDPATH= cd -- "$(dirname "${0}")/.." && pwd)"; then
-	printf '%s\n' 'Failed to resolve repository directory' >&2
+fail() {
+	printf 'FAIL: %s\n' "$1" >&2
 	exit 1
+}
+
+if ! REPO_DIR="$(CDPATH= cd -- "$(dirname "${0}")/.." && pwd)"; then
+	fail 'Failed to resolve repository directory'
 fi
 if ! TMP_DIR="$(mktemp -d)"; then
-	printf '%s\n' 'Failed to create tzdata test directory' >&2
-	exit 1
+	fail 'Failed to create tzdata test directory'
 fi
 trap 'rm -rf "${TMP_DIR}"' 0
 
@@ -22,13 +25,25 @@ tar -cf "${TMP_DIR}/dotted.tar" -C "${TMP_DIR}/dotted" ./.PKGINFO
 
 for archive in "${TMP_DIR}/plain.tar" "${TMP_DIR}/dotted.tar"; do
 	if ! package_info="$(extract_package_info "${archive}")"; then
-		printf 'Failed to extract package metadata from %s\n' "${archive}" >&2
-		exit 1
+		fail "Failed to extract package metadata from ${archive}"
 	fi
 	if ! printf '%s\n' "${package_info}" | grep -q '^pkgver = 2026c-1$'; then
-		printf 'Failed to extract package metadata from %s\n' "${archive}" >&2
-		exit 1
+		fail "Failed to extract package metadata from ${archive}"
 	fi
 done
 
-printf '%s\n' 'update-tzdata package metadata tests passed'
+printf '%s\n' 'not package metadata' >"${TMP_DIR}/README"
+printf '%s\n' 'not a tar archive' >"${TMP_DIR}/corrupt.tar"
+tar -cf "${TMP_DIR}/missing-metadata.tar" -C "${TMP_DIR}" README
+
+if extract_package_info "${TMP_DIR}/does-not-exist.tar" >/dev/null 2>&1; then
+	fail 'Missing archive unexpectedly supplied package metadata'
+fi
+if extract_package_info "${TMP_DIR}/corrupt.tar" >/dev/null 2>&1; then
+	fail 'Corrupt archive unexpectedly supplied package metadata'
+fi
+if extract_package_info "${TMP_DIR}/missing-metadata.tar" >/dev/null 2>&1; then
+	fail 'Archive without .PKGINFO unexpectedly supplied package metadata'
+fi
+
+printf '%s\n' 'PASS: update-tzdata package metadata tests passed'
