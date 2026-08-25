@@ -81,6 +81,26 @@ if ! "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
 	"${TMP_DIR}/tzdata.pkg.tar.bz2"; then
 	fail 'Archive with a POSIX timezone payload unexpectedly failed validation'
 fi
+"${python3_cmd}" - "${TMP_DIR}/unsafe-hard-link.tar.bz2" <<'PY'
+import io
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1], "w:bz2") as package:
+    timezone = tarfile.TarInfo("./usr/share/zoneinfo/posix/Etc/UTC")
+    payload = b"TZif POSIX test timezone\n"
+    timezone.size = len(payload)
+    package.addfile(timezone, io.BytesIO(payload))
+
+    hard_link = tarfile.TarInfo("./usr/share/zoneinfo/posix/Etc/Unsafe")
+    hard_link.type = tarfile.LNKTYPE
+    hard_link.linkname = "../../etc/passwd"
+    package.addfile(hard_link)
+PY
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/unsafe-hard-link.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive with an archive-root-traversing hard link unexpectedly passed validation'
+fi
 
 printf '%s\n' 'not package metadata' >"${TMP_DIR}/README"
 printf '%s\n' 'not a tar archive' >"${TMP_DIR}/corrupt.tar"
