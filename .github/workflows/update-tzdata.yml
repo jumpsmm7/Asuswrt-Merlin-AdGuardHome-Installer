@@ -11,7 +11,9 @@ on:
     paths:
       - .github/workflows/update-tzdata.yml
       - tests/update-tzdata-package-info.sh
+      - tests/normalize-tzdata-package.py
       - tools/tzdata-package-info.sh
+      - tools/normalize-tzdata-package.py
       - tools/update-tzdata.sh
   schedule:
     - cron: '23 4 * * 1'
@@ -74,6 +76,8 @@ jobs:
           persist-credentials: true
 
       - name: Run tzdata package metadata regression
+        env:
+          PYTHON3: /usr/bin/python3
         run: sh tests/update-tzdata-package-info.sh
 
       - name: Download current packages

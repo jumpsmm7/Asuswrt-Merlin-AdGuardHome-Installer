@@ -222,14 +222,30 @@ grep -Fq 'busybox ash tests/installer-dns-environment-failure.sh' "${SHELL_VALID
 	fail "${SHELL_VALIDATION_WORKFLOW}: expected the installer NVRAM transaction regression to run with BusyBox ash"
 grep -Fq 'busybox ash tests/update-tzdata-package-info.sh' "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: expected the tzdata metadata regression to run with BusyBox ash"
+grep -Fq '          PYTHON3: /usr/bin/python3' "${SHELL_VALIDATION_WORKFLOW}" ||
+	fail "${SHELL_VALIDATION_WORKFLOW}: expected an explicit host Python for the tzdata regression"
 grep -Fq '      - tests/update-tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
 	fail "${TZDATA_WORKFLOW}: tzdata regression changes must trigger the update workflow"
+grep -Fq '      - tests/normalize-tzdata-package.py' "${TZDATA_WORKFLOW}" ||
+	fail "${TZDATA_WORKFLOW}: tzdata Python regression changes must trigger the update workflow"
 grep -Fq '      - tools/tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
 	fail "${TZDATA_WORKFLOW}: tzdata helper changes must trigger the update workflow"
+grep -Fq '      - tools/normalize-tzdata-package.py' "${TZDATA_WORKFLOW}" ||
+	fail "${TZDATA_WORKFLOW}: tzdata normalizer changes must trigger the update workflow"
 grep -Fq '        run: sh tests/update-tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
 	fail "${TZDATA_WORKFLOW}: expected the tzdata metadata regression before package publication"
+grep -Fq '      - name: Run tzdata normalizer regression and collect coverage' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: expected the tzdata security regression and coverage before Sonar analysis"
+grep -Fq '          sh tests/update-tzdata-package-info.sh' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: expected the tzdata security regression command before Sonar analysis"
+grep -Fq "          \"\${PYTHON3}\" -m coverage run --branch --include='tools/normalize-tzdata-package.py' tests/normalize-tzdata-package.py" "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: expected Python coverage collection for the tzdata normalizer"
+grep -Fqx 'sonar.python.coverage.reportPaths=coverage.xml' "${SONAR}" ||
+	fail "${SONAR}: expected Sonar to import Python coverage"
 grep -Fq "run_check 'tzdata package metadata regression' sh tests/update-tzdata-package-info.sh" "${LOCAL_QUALITY_RUNNER}" ||
 	fail "${LOCAL_QUALITY_RUNNER}: expected the tzdata metadata regression in the local and CI quality matrix"
+grep -Fq "run_check 'tzdata normalizer Python regression' \"\${PYTHON3:-python3}\" tests/normalize-tzdata-package.py" "${LOCAL_QUALITY_RUNNER}" ||
+	fail "${LOCAL_QUALITY_RUNNER}: expected the tzdata Python regression in the local and CI quality matrix"
 grep -Fq "run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh" "${LOCAL_QUALITY_RUNNER}" ||
 	fail "${LOCAL_QUALITY_RUNNER}: expected the installer jq dependency regression in the local quality matrix"
 grep -Fq 'tests/installer-jq-helper.sh)' "${LOCAL_QUALITY_TEST}" ||

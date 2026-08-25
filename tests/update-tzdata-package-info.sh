@@ -32,6 +32,85 @@ for archive in "${TMP_DIR}/plain.tar" "${TMP_DIR}/dotted.tar"; do
 	fi
 done
 
+mkdir -p "${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc" "${TMP_DIR}/tzdata/usr/share/zoneinfo/right/Etc"
+printf 'TZif test timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc/UTC"
+printf 'TZif leap-second timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/right/Etc/UTC"
+ln -s Etc/UTC "${TMP_DIR}/tzdata/usr/share/zoneinfo/UTC"
+printf '%s\n' 'package metadata' >"${TMP_DIR}/tzdata/.PKGINFO"
+tar -cjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" -C "${TMP_DIR}/tzdata" .
+python3_cmd="${PYTHON3:-python3}"
+if ! command -v "${python3_cmd}" >/dev/null 2>&1; then
+	fail "Selected Python 3 interpreter is unavailable: ${python3_cmd}"
+fi
+normalizer="${REPO_DIR}/tools/normalize-tzdata-package.py"
+"${python3_cmd}" "${normalizer}" "${TMP_DIR}/tzdata-without-posix.tar.bz2"
+if ! tar -xOjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" ./usr/share/zoneinfo/posix/Etc/UTC |
+	grep -q '^TZif test timezone$'; then
+	fail 'Failed to add the installer-compatible POSIX timezone payload'
+fi
+if tar -tjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" |
+	grep -q '^\./usr/share/zoneinfo/posix/right/'; then
+	fail 'Added leap-second-aware timezone data to the POSIX payload'
+fi
+mkdir "${TMP_DIR}/normalized"
+tar -xjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" -C "${TMP_DIR}/normalized" ./usr/share/zoneinfo/posix
+if [ -L "${TMP_DIR}/normalized/usr/share/zoneinfo/posix/UTC" ]; then
+	fail 'Timezone aliases were not materialized in the POSIX payload'
+fi
+if [ "$(cat "${TMP_DIR}/normalized/usr/share/zoneinfo/posix/UTC")" != 'TZif test timezone' ]; then
+	fail 'Failed to preserve timezone aliases in the POSIX payload'
+fi
+if ! tar -xOjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" ./.PKGINFO |
+	grep -q '^package metadata$'; then
+	fail 'Timezone normalization did not preserve package metadata'
+fi
+
+mkdir -p "${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/Etc" \
+	"${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/Asia" \
+	"${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/posix"
+printf 'TZif existing timezone\n' >"${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/Etc/UTC"
+printf 'TZif missing POSIX timezone\n' >"${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/Asia/Tokyo"
+ln -s ../Etc/UTC "${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/posix/UTC"
+tar -cjf "${TMP_DIR}/tzdata-with-posix-alias.tar.bz2" -C "${TMP_DIR}/tzdata-with-posix-alias" .
+"${python3_cmd}" "${normalizer}" "${TMP_DIR}/tzdata-with-posix-alias.tar.bz2"
+mkdir "${TMP_DIR}/normalized-existing"
+tar -xjf "${TMP_DIR}/tzdata-with-posix-alias.tar.bz2" -C "${TMP_DIR}/normalized-existing" \
+	./usr/share/zoneinfo/posix
+if [ -L "${TMP_DIR}/normalized-existing/usr/share/zoneinfo/posix/UTC" ]; then
+	fail 'Existing POSIX timezone alias was not materialized'
+fi
+if [ "$(cat "${TMP_DIR}/normalized-existing/usr/share/zoneinfo/posix/UTC")" != 'TZif existing timezone' ]; then
+	fail 'Failed to preserve an existing POSIX timezone alias'
+fi
+if [ "$(cat "${TMP_DIR}/normalized-existing/usr/share/zoneinfo/posix/Asia/Tokyo")" != \
+	'TZif missing POSIX timezone' ]; then
+	fail 'Failed to rebuild a partially populated POSIX timezone tree'
+fi
+
+cp "${TMP_DIR}/tzdata-without-posix.tar.bz2" "${TMP_DIR}/invalid-suffix.tbz"
+if "${python3_cmd}" "${normalizer}" "${TMP_DIR}/invalid-suffix.tbz" >/dev/null 2>&1; then
+	fail 'Normalizer accepted a package without the required suffix'
+fi
+ln -s tzdata-without-posix.tar.bz2 "${TMP_DIR}/linked-package.tar.bz2"
+if "${python3_cmd}" "${normalizer}" "${TMP_DIR}/linked-package.tar.bz2" >/dev/null 2>&1; then
+	fail 'Normalizer accepted a symbolic-link package path'
+fi
+"${python3_cmd}" -c '
+import io
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1], "w:bz2") as package:
+	member = tarfile.TarInfo("../escape")
+	payload = b"TZif unsafe timezone\n"
+	member.size = len(payload)
+	package.addfile(member, io.BytesIO(payload))
+' "${TMP_DIR}/unsafe-member.tar.bz2"
+if "${python3_cmd}" "${normalizer}" "${TMP_DIR}/unsafe-member.tar.bz2" >/dev/null 2>&1; then
+	fail 'Normalizer accepted an unsafe archive member path'
+fi
+[ ! -e "${TMP_DIR}/escape" ] || fail 'Unsafe archive member escaped the test directory'
+
 printf '%s\n' 'not package metadata' >"${TMP_DIR}/README"
 printf '%s\n' 'not a tar archive' >"${TMP_DIR}/corrupt.tar"
 tar -cf "${TMP_DIR}/missing-metadata.tar" -C "${TMP_DIR}" README
