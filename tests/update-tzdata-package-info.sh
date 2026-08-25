@@ -32,6 +32,26 @@ for archive in "${TMP_DIR}/plain.tar" "${TMP_DIR}/dotted.tar"; do
 	fi
 done
 
+mkdir -p "${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc"
+printf 'TZif test timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc/UTC"
+ln -s Etc/UTC "${TMP_DIR}/tzdata/usr/share/zoneinfo/UTC"
+printf '%s\n' 'package metadata' >"${TMP_DIR}/tzdata/.PKGINFO"
+tar -cjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" -C "${TMP_DIR}/tzdata" .
+/usr/bin/python3 "${REPO_DIR}/tools/normalize-tzdata-package.py" "${TMP_DIR}/tzdata-without-posix.tar.bz2"
+if ! tar -xOf "${TMP_DIR}/tzdata-without-posix.tar.bz2" ./usr/share/zoneinfo/posix/Etc/UTC |
+	grep -q '^TZif test timezone$'; then
+	fail 'Failed to add the installer-compatible POSIX timezone payload'
+fi
+mkdir "${TMP_DIR}/normalized"
+tar -xjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" -C "${TMP_DIR}/normalized" ./usr/share/zoneinfo/posix
+if [ "$(cat "${TMP_DIR}/normalized/usr/share/zoneinfo/posix/UTC")" != 'TZif test timezone' ]; then
+	fail 'Failed to preserve timezone aliases in the POSIX payload'
+fi
+if ! tar -xOf "${TMP_DIR}/tzdata-without-posix.tar.bz2" ./.PKGINFO |
+	grep -q '^package metadata$'; then
+	fail 'Timezone normalization did not preserve package metadata'
+fi
+
 printf '%s\n' 'not package metadata' >"${TMP_DIR}/README"
 printf '%s\n' 'not a tar archive' >"${TMP_DIR}/corrupt.tar"
 tar -cf "${TMP_DIR}/missing-metadata.tar" -C "${TMP_DIR}" README

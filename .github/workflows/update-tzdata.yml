@@ -12,6 +12,7 @@ on:
       - .github/workflows/update-tzdata.yml
       - tests/update-tzdata-package-info.sh
       - tools/tzdata-package-info.sh
+      - tools/normalize-tzdata-package.py
       - tools/update-tzdata.sh
   schedule:
     - cron: '23 4 * * 1'
