@@ -2,8 +2,14 @@
 
 set -eu
 
-REPO_DIR="$(CDPATH= cd -- "$(dirname "${0}")/.." && pwd)"
-TMP_DIR="$(mktemp -d)"
+if ! REPO_DIR="$(CDPATH= cd -- "$(dirname "${0}")/.." && pwd)"; then
+	printf '%s\n' 'Failed to resolve repository directory' >&2
+	exit 1
+fi
+if ! TMP_DIR="$(mktemp -d)"; then
+	printf '%s\n' 'Failed to create tzdata test directory' >&2
+	exit 1
+fi
 trap 'rm -rf "${TMP_DIR}"' 0
 
 . "${REPO_DIR}/tools/tzdata-package-info.sh"
@@ -15,7 +21,10 @@ tar -cf "${TMP_DIR}/plain.tar" -C "${TMP_DIR}/plain" .PKGINFO
 tar -cf "${TMP_DIR}/dotted.tar" -C "${TMP_DIR}/dotted" ./.PKGINFO
 
 for archive in "${TMP_DIR}/plain.tar" "${TMP_DIR}/dotted.tar"; do
-	package_info="$(extract_package_info "${archive}")"
+	if ! package_info="$(extract_package_info "${archive}")"; then
+		printf 'Failed to extract package metadata from %s\n' "${archive}" >&2
+		exit 1
+	fi
 	if ! printf '%s\n' "${package_info}" | grep -q '^pkgver = 2026c-1$'; then
 		printf 'Failed to extract package metadata from %s\n' "${archive}" >&2
 		exit 1
