@@ -261,6 +261,7 @@ run_check 'Installer DNS input failure regression' sh tests/installer-dns-input-
 run_check 'Installer WebUI port failure regression' sh tests/installer-web-port-failure.sh
 run_check 'Installer timezone failure regression' sh tests/installer-timezone-failure.sh
 run_check 'tzdata package metadata regression' sh tests/update-tzdata-package-info.sh
+run_check 'tzdata normalizer Python regression' "${PYTHON3:-python3}" tests/normalize-tzdata-package.py
 run_check 'Installer branch switch cancellation regression' sh tests/installer-branch-switch-cancel.sh
 run_check 'Installer setting confirmation failure regression' sh tests/installer-setting-confirmation-failure.sh
 run_check 'Installer confirmation failure propagation regression' sh tests/installer-confirmation-failure-propagation.sh

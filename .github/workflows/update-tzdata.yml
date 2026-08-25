@@ -11,6 +11,7 @@ on:
     paths:
       - .github/workflows/update-tzdata.yml
       - tests/update-tzdata-package-info.sh
+      - tests/normalize-tzdata-package.py
       - tools/tzdata-package-info.sh
       - tools/normalize-tzdata-package.py
       - tools/update-tzdata.sh
