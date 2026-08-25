@@ -49,6 +49,9 @@ if tar -tf "${TMP_DIR}/tzdata-without-posix.tar.bz2" |
 fi
 mkdir "${TMP_DIR}/normalized"
 tar -xjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" -C "${TMP_DIR}/normalized" ./usr/share/zoneinfo/posix
+if [ -L "${TMP_DIR}/normalized/usr/share/zoneinfo/posix/UTC" ]; then
+	fail 'Timezone aliases were not materialized in the POSIX payload'
+fi
 if [ "$(cat "${TMP_DIR}/normalized/usr/share/zoneinfo/posix/UTC")" != 'TZif test timezone' ]; then
 	fail 'Failed to preserve timezone aliases in the POSIX payload'
 fi

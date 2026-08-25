@@ -52,6 +52,12 @@ def link_target(member):
 	return target
 
 
+def linked_file(member, members_by_name):
+	while member.issym() or member.islnk():
+		member = members_by_name[link_target(member)]
+	return member
+
+
 def main(archive):
 	directory = os.path.dirname(os.path.abspath(archive))
 	with tarfile.open(archive, "r:bz2") as package:
@@ -86,6 +92,7 @@ def main(archive):
 	try:
 		with tarfile.open(archive, "r:bz2") as package, tarfile.open(temporary_name, "w:bz2") as output:
 			members = package.getmembers()
+			members_by_name = {normalized_member_name(member.name): member for member in members}
 			for member in members:
 				stream = package.extractfile(member) if member.isfile() else None
 				try:
@@ -105,9 +112,13 @@ def main(archive):
 				posix_member = copy.copy(member)
 				relative_name = "" if name == ZONEINFO_PREFIX.rstrip("/") else name.removeprefix(ZONEINFO_PREFIX)
 				posix_member.name = f"./{POSIX_PREFIX}{relative_name}"
-				if member.islnk():
-					posix_member.linkname = f"./{POSIX_PREFIX}{link_target(member).removeprefix(ZONEINFO_PREFIX)}"
-				stream = package.extractfile(member) if member.isfile() else None
+				source_member = member
+				if member.issym() or member.islnk():
+					source_member = linked_file(member, members_by_name)
+					posix_member.type = tarfile.REGTYPE
+					posix_member.linkname = ""
+					posix_member.size = source_member.size
+				stream = package.extractfile(source_member) if source_member.isfile() else None
 				try:
 					output.addfile(posix_member, stream)
 				finally:
