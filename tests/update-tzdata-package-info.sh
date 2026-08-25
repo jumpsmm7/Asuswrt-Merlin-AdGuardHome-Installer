@@ -62,8 +62,8 @@ if grep -Fq 'normalize-tzdata-package.py' "${UPDATE_SCRIPT}"; then
 fi
 grep -Fq 'if not has_posix_timezone:' "${UPDATE_SCRIPT}" ||
 	fail 'Update script does not reject packages without a usable POSIX timezone payload'
-grep -Fq 'if member.isfile() and normalized_name.startswith("usr/share/zoneinfo/posix/"):' \
-	"${UPDATE_SCRIPT}" || fail 'Update script does not require a regular POSIX timezone file'
+grep -Fq 'if (member.isfile() and member.size > 0 and' "${UPDATE_SCRIPT}" ||
+	fail 'Update script does not require a non-empty regular POSIX timezone file'
 
 mkdir -p "${TMP_DIR}/without-posix/usr/share/zoneinfo/Etc"
 printf 'TZif test timezone\n' >"${TMP_DIR}/without-posix/usr/share/zoneinfo/Etc/UTC"
@@ -77,6 +77,13 @@ fi
 if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
 	"${TMP_DIR}/without-posix.tar.bz2" >/dev/null 2>&1; then
 	fail 'Archive without a POSIX timezone payload unexpectedly passed validation'
+fi
+mkdir -p "${TMP_DIR}/empty-posix/usr/share/zoneinfo/posix/Etc"
+: >"${TMP_DIR}/empty-posix/usr/share/zoneinfo/posix/Etc/UTC"
+tar -cjf "${TMP_DIR}/empty-posix.tar.bz2" -C "${TMP_DIR}/empty-posix" .
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/empty-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive with only an empty POSIX timezone file unexpectedly passed validation'
 fi
 if ! "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
 	"${TMP_DIR}/tzdata.pkg.tar.bz2"; then
