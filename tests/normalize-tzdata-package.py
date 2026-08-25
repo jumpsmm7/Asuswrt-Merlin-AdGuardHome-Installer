@@ -92,31 +92,36 @@ class NormalizeTzdataPackageTests(unittest.TestCase):
 						member.type = tarfile.SYMTYPE
 						member.linkname = link_name
 					package.addfile(member)
+				archive_path = os.fspath(archive)
 				with self.assertRaises(SystemExit):
-					NORMALIZER.main(os.fspath(archive))
+					NORMALIZER.main(archive_path)
 
 	def test_rejects_invalid_archive_paths(self):
 		"""Reject missing, incorrectly suffixed, and symbolic-link inputs."""
+		missing_path = os.fspath(self.archive("missing.tar.bz2"))
 		with self.assertRaises(SystemExit):
-			NORMALIZER.main(os.fspath(self.archive("missing.tar.bz2")))
+			NORMALIZER.main(missing_path)
 		invalid_suffix = self.archive("tzdata.tbz")
 		invalid_suffix.touch()
+		invalid_suffix_path = os.fspath(invalid_suffix)
 		with self.assertRaises(SystemExit):
-			NORMALIZER.main(os.fspath(invalid_suffix))
+			NORMALIZER.main(invalid_suffix_path)
 		target = self.archive()
 		self.create_package(target)
 		linked = self.archive("linked.tar.bz2")
 		linked.symlink_to(target.name)
+		linked_path = os.fspath(linked)
 		with self.assertRaises(SystemExit):
-			NORMALIZER.main(os.fspath(linked))
+			NORMALIZER.main(linked_path)
 
 	def test_rejects_unusable_and_broken_alias_payloads(self):
 		"""Reject packages without TZif data and invalid selected alias chains."""
 		empty = self.archive("empty.tar.bz2")
 		with tarfile.open(empty, "w:bz2") as package:
 			add_file(package, "./README", b"not timezone data\n")
+		empty_path = os.fspath(empty)
 		with self.assertRaises(SystemExit):
-			NORMALIZER.main(os.fspath(empty))
+			NORMALIZER.main(empty_path)
 
 		first = tarfile.TarInfo("usr/share/zoneinfo/First")
 		first.type = tarfile.SYMTYPE
