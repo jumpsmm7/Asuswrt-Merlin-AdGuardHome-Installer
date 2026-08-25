@@ -13,8 +13,12 @@ ZONEINFO_PREFIX = "usr/share/zoneinfo/"
 POSIX_PREFIX = f"{ZONEINFO_PREFIX}posix/"
 
 
+def strip_prefix(value, prefix):
+	return value[len(prefix):] if value.startswith(prefix) else value
+
+
 def normalized_member_name(name):
-	return posixpath.normpath(name.removeprefix("./"))
+	return posixpath.normpath(strip_prefix(name, "./"))
 
 
 def validate_member(member):
@@ -35,12 +39,7 @@ def is_timezone_file(package, member):
 	if not member.isfile():
 		return False
 	stream = package.extractfile(member)
-	if stream is None:
-		return False
-	try:
-		return stream.read(4) == b"TZif"
-	finally:
-		stream.close()
+	return stream is not None and stream.read(4) == b"TZif"
 
 
 def link_target(member):
@@ -97,10 +96,10 @@ def main(archive):
 				if name not in timezone_names and not is_timezone_directory:
 					continue
 				posix_member = copy.copy(member)
-				relative_name = "" if name == ZONEINFO_PREFIX.rstrip("/") else name.removeprefix(ZONEINFO_PREFIX)
+				relative_name = "" if name == ZONEINFO_PREFIX.rstrip("/") else strip_prefix(name, ZONEINFO_PREFIX)
 				posix_member.name = f"./{POSIX_PREFIX}{relative_name}"
 				if member.islnk():
-					posix_member.linkname = f"./{POSIX_PREFIX}{link_target(member).removeprefix(ZONEINFO_PREFIX)}"
+					posix_member.linkname = f"./{POSIX_PREFIX}{strip_prefix(link_target(member), ZONEINFO_PREFIX)}"
 				stream = package.extractfile(member) if member.isfile() else None
 				output.addfile(posix_member, stream)
 		os.replace(temporary_name, archive)
