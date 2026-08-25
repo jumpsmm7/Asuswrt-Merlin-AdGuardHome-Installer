@@ -109,10 +109,10 @@ discover_package_filename() {
 		printf 'Failed to download tzdata package page for %s\n' "${architecture}" >&2
 		return 1
 	fi
-	filename="$(grep -Eo "tzdata-[A-Za-z0-9._+-]+-${architecture}\\.pkg\\.tar\\.(bz2|xz|zst)" "${package_page}" |
+	filename="$(grep -Eo "tzdata-[A-Za-z0-9._+-]+-(any|${architecture})\\.pkg\\.tar\\.(bz2|xz|zst)" "${package_page}" |
 		head -n 1)"
 	case "${filename}" in
-		tzdata-*-${architecture}.pkg.tar.bz2 | tzdata-*-${architecture}.pkg.tar.xz | tzdata-*-${architecture}.pkg.tar.zst)
+		tzdata-*-any.pkg.tar.bz2 | tzdata-*-any.pkg.tar.xz | tzdata-*-any.pkg.tar.zst | tzdata-*-${architecture}.pkg.tar.bz2 | tzdata-*-${architecture}.pkg.tar.xz | tzdata-*-${architecture}.pkg.tar.zst)
 			printf '%s\n' "${filename}"
 			;;
 		*)
