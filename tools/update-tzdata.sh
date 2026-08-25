@@ -218,6 +218,13 @@ publish_package() {
 		printf 'Failed to publish package file: %s\n' "${published_file}" >&2
 		return 1
 	fi
+	if ! sh tools/update-checksums.sh "${published_file}" ||
+		[ ! -f "${published_file}.md5sum" ] ||
+		[ ! -f "${published_file}.sha256sum" ]; then
+		printf 'Failed to publish package checksums: %s\n' "${published_file}" >&2
+		rm -f "${published_file}" "${published_file}.md5sum" "${published_file}.sha256sum"
+		return 1
+	fi
 }
 
 # These globs intentionally remove every superseded package and sidecar.
@@ -236,6 +243,4 @@ if ! grep -Fq "TZ_DATA=\"tzdata-${aarch64_version}-\${TZ_ARCH}.pkg.tar.bz2\"" in
 	exit 1
 fi
 sh tools/update-checksums.sh \
-	"tzdata-${aarch64_version}-aarch64.pkg.tar.bz2" \
-	"tzdata-${arm_version}-arm.pkg.tar.bz2" \
 	installer
