@@ -99,6 +99,26 @@ def timezone_names(package, members):
 		names.update(new_names)
 
 
+def has_usable_posix_payload(package, members):
+	"""Return whether POSIX contains TZif data or an alias resolving to it."""
+	names = {
+		normalized_member_name(member.name)
+		for member in members
+		if not normalized_member_name(member.name).startswith(RIGHT_PREFIX)
+		and is_timezone_file(package, member)
+	}
+	while True:
+		linked_names = {
+			normalized_member_name(member.name)
+			for member in members
+			if (member.issym() or member.islnk()) and link_target(member) in names
+		}
+		new_names = linked_names - names
+		if not new_names:
+			return any(name.startswith(POSIX_PREFIX) for name in names)
+		names.update(new_names)
+
+
 def copy_member(package, output, member, output_member=None):
 	"""Copy one member and guarantee closure of its extracted data stream."""
 	stream = package.extractfile(member) if member.isfile() else None
@@ -156,6 +176,9 @@ def rewrite_archive(archive, members, names):
 		# The CLI path is canonicalized and validated as a regular .tar.bz2 file.
 		with tarfile.open(archive, "r:bz2") as package, tarfile.open(temporary_name, "w:bz2") as output:  # NOSONAR
 			for member in members:
+				name = normalized_member_name(member.name)
+				if name == POSIX_PREFIX.rstrip("/") or name.startswith(POSIX_PREFIX):
+					continue
 				copy_member(package, output, member)
 			add_posix_members(package, output, members, names)
 		os.replace(temporary_name, archive)  # NOSONAR
@@ -171,7 +194,7 @@ def main(archive):
 		members = package.getmembers()
 		for member in members:
 			validate_member(member)
-		if any(normalized_member_name(member.name).startswith(POSIX_PREFIX) and member.isfile() for member in members):
+		if has_usable_posix_payload(package, members):
 			return
 		names = timezone_names(package, members)
 	if not names:

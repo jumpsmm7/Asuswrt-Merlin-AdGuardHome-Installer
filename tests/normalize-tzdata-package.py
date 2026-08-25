@@ -40,7 +40,7 @@ class NormalizeTzdataPackageTests(unittest.TestCase):
 		"""Return a package path inside the isolated workspace."""
 		return self.directory / name
 
-	def create_package(self, archive, include_posix=False):
+	def create_package(self, archive, include_posix=False, partial_posix=False, posix_alias=False):
 		"""Create a minimal tzdata package containing a file and aliases."""
 		with tarfile.open(archive, "w:bz2") as package:
 			add_file(package, "./usr/share/zoneinfo/Etc/UTC", b"TZif standard\n")
@@ -51,6 +51,13 @@ class NormalizeTzdataPackageTests(unittest.TestCase):
 			package.addfile(alias)
 			if include_posix:
 				add_file(package, "./usr/share/zoneinfo/posix/Etc/UTC", b"TZif existing\n")
+			if partial_posix:
+				add_file(package, "./usr/share/zoneinfo/posix/.placeholder", b"not timezone data\n")
+			if posix_alias:
+				alias = tarfile.TarInfo("./usr/share/zoneinfo/posix/UTC")
+				alias.type = tarfile.SYMTYPE
+				alias.linkname = "../Etc/UTC"
+				package.addfile(alias)
 
 	def test_normalizes_payload_and_materializes_alias(self):
 		"""Synthesize POSIX files without copying the leap-second tree."""
@@ -77,6 +84,28 @@ class NormalizeTzdataPackageTests(unittest.TestCase):
 		NORMALIZER.main(os.fspath(archive))
 
 		self.assertEqual(archive.read_bytes(), before)
+
+	def test_existing_posix_alias_is_unchanged(self):
+		"""Accept a POSIX alias that resolves to usable timezone data."""
+		archive = self.archive()
+		self.create_package(archive, posix_alias=True)
+		before = archive.read_bytes()
+
+		NORMALIZER.main(os.fspath(archive))
+
+		self.assertEqual(archive.read_bytes(), before)
+
+	def test_partial_posix_payload_is_replaced(self):
+		"""Replace a placeholder-only POSIX tree with usable timezone data."""
+		archive = self.archive()
+		self.create_package(archive, partial_posix=True)
+
+		NORMALIZER.main(os.fspath(archive))
+
+		with tarfile.open(archive, "r:bz2") as package:
+			members = {NORMALIZER.normalized_member_name(member.name): member for member in package.getmembers()}
+			self.assertIn("usr/share/zoneinfo/posix/Etc/UTC", members)
+			self.assertNotIn("usr/share/zoneinfo/posix/.placeholder", members)
 
 	def test_rejects_unsafe_member_and_link_paths(self):
 		"""Reject traversal in both member names and symbolic-link targets."""
