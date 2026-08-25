@@ -38,7 +38,11 @@ printf 'TZif leap-second timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/righ
 ln -s Etc/UTC "${TMP_DIR}/tzdata/usr/share/zoneinfo/UTC"
 printf '%s\n' 'package metadata' >"${TMP_DIR}/tzdata/.PKGINFO"
 tar -cjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" -C "${TMP_DIR}/tzdata" .
-/usr/bin/python3 "${REPO_DIR}/tools/normalize-tzdata-package.py" "${TMP_DIR}/tzdata-without-posix.tar.bz2"
+python3_cmd="${PYTHON3:-python3}"
+if ! command -v "${python3_cmd}" >/dev/null 2>&1; then
+	fail "Selected Python 3 interpreter is unavailable: ${python3_cmd}"
+fi
+"${python3_cmd}" "${REPO_DIR}/tools/normalize-tzdata-package.py" "${TMP_DIR}/tzdata-without-posix.tar.bz2"
 if ! tar -xOf "${TMP_DIR}/tzdata-without-posix.tar.bz2" ./usr/share/zoneinfo/posix/Etc/UTC |
 	grep -q '^TZif test timezone$'; then
 	fail 'Failed to add the installer-compatible POSIX timezone payload'
