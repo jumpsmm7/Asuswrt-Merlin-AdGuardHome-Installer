@@ -169,7 +169,7 @@ download_package() {
 	output_file="${stage_dir}/tzdata-${package_version}-${output_arch}.pkg.tar.bz2"
 	case "${upstream_file}" in
 		*.bz2) cp "${upstream_file}" "${output_file}" ;;
-		*.xz) xz --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
+		*.xz) xz -d -c "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
 		*.zst) zstd --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
 	esac
 	tar -tjf "${output_file}" >/dev/null
@@ -180,14 +180,23 @@ import tarfile
 
 archive = sys.argv[1]
 with tarfile.open(archive, "r:bz2") as package:
+    has_posix_timezone = False
     for member in package.getmembers():
         normalized_name = posixpath.normpath(member.name)
         if member.name.startswith("/") or normalized_name == ".." or normalized_name.startswith("../"):
             raise SystemExit(f"Unsafe archive member path: {member.name}")
-        if member.issym() or member.islnk():
+        if member.isfile() and normalized_name.startswith("usr/share/zoneinfo/posix/"):
+            has_posix_timezone = True
+        if member.issym():
             link_path = posixpath.normpath(posixpath.join(posixpath.dirname(normalized_name), member.linkname))
-            if member.linkname.startswith("/") or link_path == ".." or link_path.startswith("../"):
-                raise SystemExit(f"Unsafe archive link: {member.name} -> {member.linkname}")
+        elif member.islnk():
+            link_path = posixpath.normpath(member.linkname)
+        else:
+            continue
+        if member.linkname.startswith("/") or link_path == ".." or link_path.startswith("../"):
+            raise SystemExit(f"Unsafe archive link: {member.name} -> {member.linkname}")
+    if not has_posix_timezone:
+        raise SystemExit(f"Package has no usable POSIX timezone payload: {archive}")
 PY
 	printf '%s\n' "${package_version}" >"${stage_dir}/version-${output_arch}"
 }

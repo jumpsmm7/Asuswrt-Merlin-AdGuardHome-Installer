@@ -32,27 +32,75 @@ for archive in "${TMP_DIR}/plain.tar" "${TMP_DIR}/dotted.tar"; do
 	fi
 done
 
-mkdir -p "${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc"
+mkdir -p "${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc" \
+	"${TMP_DIR}/tzdata/usr/share/zoneinfo/posix/Etc"
 printf 'TZif test timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc/UTC"
+printf 'TZif POSIX test timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/posix/Etc/UTC"
 printf '%s\n' 'package metadata' >"${TMP_DIR}/tzdata/.PKGINFO"
 tar -cf "${TMP_DIR}/tzdata.tar" -C "${TMP_DIR}/tzdata" .
-xz -c "${TMP_DIR}/tzdata.tar" >"${TMP_DIR}/tzdata.pkg.tar.xz"
-xz --decompress --stdout "${TMP_DIR}/tzdata.pkg.tar.xz" |
+# BusyBox provides only the xz decompressor; fixture creation is host-only.
+/usr/bin/xz -c "${TMP_DIR}/tzdata.tar" >"${TMP_DIR}/tzdata.pkg.tar.xz"
+xz -d -c "${TMP_DIR}/tzdata.pkg.tar.xz" |
 	bzip2 -9 >"${TMP_DIR}/tzdata.pkg.tar.bz2"
-bzip2 --decompress --stdout "${TMP_DIR}/tzdata.pkg.tar.bz2" >"${TMP_DIR}/recompressed.tar"
+bzip2 -d -c "${TMP_DIR}/tzdata.pkg.tar.bz2" >"${TMP_DIR}/recompressed.tar"
 if ! cmp "${TMP_DIR}/tzdata.tar" "${TMP_DIR}/recompressed.tar"; then
 	fail 'xz-to-bzip2 conversion changed the tar byte stream'
 fi
 
 UPDATE_SCRIPT="${REPO_DIR}/tools/update-tzdata.sh"
-grep -Fq '*.xz) xz --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;' \
+grep -Fq '*.xz) xz -d -c "${upstream_file}" | bzip2 -9 >"${output_file}" ;;' \
 	"${UPDATE_SCRIPT}" || fail 'Update script does not preserve the xz tar stream during recompression'
+if grep -Eq '(xz|bzip2) -dc([[:space:]]|$)' "${UPDATE_SCRIPT}" "${0}"; then
+	fail 'Combined decompression flags are incompatible with the BusyBox applets'
+fi
 grep -Fq 'download_package aarch64 aarch64' "${UPDATE_SCRIPT}" ||
 	fail 'Update script does not publish the aarch64 package'
 grep -Fq 'download_package armv7h arm' "${UPDATE_SCRIPT}" ||
 	fail 'Update script does not publish the armv7h package'
 if grep -Fq 'normalize-tzdata-package.py' "${UPDATE_SCRIPT}"; then
 	fail 'Update script still rewrites tzdata package contents'
+fi
+grep -Fq 'if not has_posix_timezone:' "${UPDATE_SCRIPT}" ||
+	fail 'Update script does not reject packages without a usable POSIX timezone payload'
+grep -Fq 'if member.isfile() and normalized_name.startswith("usr/share/zoneinfo/posix/"):' \
+	"${UPDATE_SCRIPT}" || fail 'Update script does not require a regular POSIX timezone file'
+
+mkdir -p "${TMP_DIR}/without-posix/usr/share/zoneinfo/Etc"
+printf 'TZif test timezone\n' >"${TMP_DIR}/without-posix/usr/share/zoneinfo/Etc/UTC"
+tar -cjf "${TMP_DIR}/without-posix.tar.bz2" -C "${TMP_DIR}/without-posix" .
+awk 'found && $0 == "PY" { exit } found { print } /^import posixpath$/ { found = 1; print }' \
+	"${UPDATE_SCRIPT}" >"${TMP_DIR}/validate-package.py"
+python3_cmd="${PYTHON3:-/usr/bin/python3}"
+if [ ! -x "${python3_cmd}" ]; then
+	fail "Selected Python 3 interpreter is unavailable: ${python3_cmd}"
+fi
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/without-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive without a POSIX timezone payload unexpectedly passed validation'
+fi
+if ! "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/tzdata.pkg.tar.bz2"; then
+	fail 'Archive with a POSIX timezone payload unexpectedly failed validation'
+fi
+"${python3_cmd}" - "${TMP_DIR}/unsafe-hard-link.tar.bz2" <<'PY'
+import io
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1], "w:bz2") as package:
+    timezone = tarfile.TarInfo("./usr/share/zoneinfo/posix/Etc/UTC")
+    payload = b"TZif POSIX test timezone\n"
+    timezone.size = len(payload)
+    package.addfile(timezone, io.BytesIO(payload))
+
+    hard_link = tarfile.TarInfo("./usr/share/zoneinfo/posix/Etc/Unsafe")
+    hard_link.type = tarfile.LNKTYPE
+    hard_link.linkname = "../../etc/passwd"
+    package.addfile(hard_link)
+PY
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/unsafe-hard-link.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive with an archive-root-traversing hard link unexpectedly passed validation'
 fi
 
 printf '%s\n' 'not package metadata' >"${TMP_DIR}/README"
