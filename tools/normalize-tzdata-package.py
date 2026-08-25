@@ -99,30 +99,24 @@ def timezone_names(package, members):
 		names.update(new_names)
 
 
-def has_usable_posix_payload(package, members):
-	"""Return whether POSIX contains TZif data or an alias resolving to it."""
+def has_usable_posix_payload(package, members, names):
+	"""Return whether POSIX has materialized data for every selected timezone."""
 	if any(
 		(member.issym() or member.islnk())
 		and normalized_member_name(member.name).startswith(POSIX_PREFIX)
 		for member in members
 	):
 		return False
-	names = {
+	posix_names = {
 		normalized_member_name(member.name)
 		for member in members
-		if not normalized_member_name(member.name).startswith(RIGHT_PREFIX)
+		if normalized_member_name(member.name).startswith(POSIX_PREFIX)
 		and is_timezone_file(package, member)
 	}
-	while True:
-		linked_names = {
-			normalized_member_name(member.name)
-			for member in members
-			if (member.issym() or member.islnk()) and link_target(member) in names
-		}
-		new_names = linked_names - names
-		if not new_names:
-			return any(name.startswith(POSIX_PREFIX) for name in names)
-		names.update(new_names)
+	expected_names = {
+		f"{POSIX_PREFIX}{strip_prefix(name, ZONEINFO_PREFIX)}" for name in names
+	}
+	return expected_names.issubset(posix_names)
 
 
 def copy_member(package, output, member, output_member=None):
@@ -211,11 +205,11 @@ def main(archive):
 		members = package.getmembers()
 		for member in members:
 			validate_member(member)
-		if has_usable_posix_payload(package, members):
-			return
 		names = timezone_names(package, members)
-	if not names:
-		raise SystemExit(f"Package has no usable {ZONEINFO_PREFIX} timezone payload: {archive}")
+		if not names:
+			raise SystemExit(f"Package has no usable {ZONEINFO_PREFIX} timezone payload: {archive}")
+		if has_usable_posix_payload(package, members, names):
+			return
 	rewrite_archive(archive, members, names)
 
 

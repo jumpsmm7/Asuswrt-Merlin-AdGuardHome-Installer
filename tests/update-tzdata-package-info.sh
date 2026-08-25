@@ -66,8 +66,10 @@ if ! tar -xOjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" ./.PKGINFO |
 fi
 
 mkdir -p "${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/Etc" \
+	"${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/Asia" \
 	"${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/posix"
 printf 'TZif existing timezone\n' >"${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/Etc/UTC"
+printf 'TZif missing POSIX timezone\n' >"${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/Asia/Tokyo"
 ln -s ../Etc/UTC "${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/posix/UTC"
 tar -cjf "${TMP_DIR}/tzdata-with-posix-alias.tar.bz2" -C "${TMP_DIR}/tzdata-with-posix-alias" .
 "${python3_cmd}" "${normalizer}" "${TMP_DIR}/tzdata-with-posix-alias.tar.bz2"
@@ -79,6 +81,10 @@ if [ -L "${TMP_DIR}/normalized-existing/usr/share/zoneinfo/posix/UTC" ]; then
 fi
 if [ "$(cat "${TMP_DIR}/normalized-existing/usr/share/zoneinfo/posix/UTC")" != 'TZif existing timezone' ]; then
 	fail 'Failed to preserve an existing POSIX timezone alias'
+fi
+if [ "$(cat "${TMP_DIR}/normalized-existing/usr/share/zoneinfo/posix/Asia/Tokyo")" != \
+	'TZif missing POSIX timezone' ]; then
+	fail 'Failed to rebuild a partially populated POSIX timezone tree'
 fi
 
 cp "${TMP_DIR}/tzdata-without-posix.tar.bz2" "${TMP_DIR}/invalid-suffix.tbz"

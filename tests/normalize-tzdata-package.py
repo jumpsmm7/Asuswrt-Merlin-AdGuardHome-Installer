@@ -51,6 +51,7 @@ class NormalizeTzdataPackageTests(unittest.TestCase):
 			package.addfile(alias)
 			if include_posix:
 				add_file(package, "./usr/share/zoneinfo/posix/Etc/UTC", b"TZif existing\n")
+				add_file(package, "./usr/share/zoneinfo/posix/UTC", b"TZif existing alias\n")
 			if partial_posix:
 				add_file(package, "./usr/share/zoneinfo/posix/.placeholder", b"not timezone data\n")
 			if posix_alias:
@@ -85,15 +86,33 @@ class NormalizeTzdataPackageTests(unittest.TestCase):
 
 		self.assertEqual(archive.read_bytes(), before)
 
-	def test_existing_posix_alias_is_unchanged(self):
-		"""Accept a POSIX alias that resolves to usable timezone data."""
+	def test_existing_posix_alias_is_materialized(self):
+		"""Rewrite a POSIX alias as a file safe for subtree extraction."""
 		archive = self.archive()
 		self.create_package(archive, posix_alias=True)
-		before = archive.read_bytes()
 
 		NORMALIZER.main(os.fspath(archive))
 
-		self.assertEqual(archive.read_bytes(), before)
+		with tarfile.open(archive, "r:bz2") as package:
+			members = {NORMALIZER.normalized_member_name(member.name): member for member in package.getmembers()}
+			alias = members["usr/share/zoneinfo/posix/UTC"]
+			self.assertTrue(alias.isfile())
+			with package.extractfile(alias) as stream:
+				self.assertEqual(stream.read(), b"TZif standard\n")
+
+	def test_incomplete_posix_payload_is_rebuilt(self):
+		"""Add source zones missing from an otherwise usable POSIX tree."""
+		archive = self.archive()
+		with tarfile.open(archive, "w:bz2") as package:
+			add_file(package, "./usr/share/zoneinfo/Etc/UTC", b"TZif standard\n")
+			add_file(package, "./usr/share/zoneinfo/Asia/Tokyo", b"TZif Tokyo\n")
+			add_file(package, "./usr/share/zoneinfo/posix/Etc/UTC", b"TZif existing\n")
+
+		NORMALIZER.main(os.fspath(archive))
+
+		with tarfile.open(archive, "r:bz2") as package:
+			members = {NORMALIZER.normalized_member_name(member.name): member for member in package.getmembers()}
+			self.assertIn("usr/share/zoneinfo/posix/Asia/Tokyo", members)
 
 	def test_partial_posix_payload_is_replaced(self):
 		"""Replace a placeholder-only POSIX tree with usable timezone data."""
