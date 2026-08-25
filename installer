@@ -6564,7 +6564,7 @@ set_timezone() {
 			TZ_ARCH="arm"
 			;;
 	esac
-	TZ_DATA="tzdata-2021e-1-${TZ_ARCH}.pkg.tar.bz2"
+	TZ_DATA="tzdata-2026c-1-${TZ_ARCH}.pkg.tar.bz2"
 	ensure_opkg_package column --force-depends --force-overwrite --force-reinstall || return 1
 	ai_have_cmd sort || {
 		PTXT "${ERROR} Required timezone selection command is unavailable: sort"
