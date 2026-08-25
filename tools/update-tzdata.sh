@@ -189,6 +189,11 @@ with tarfile.open(archive, "r:bz2") as package:
             if member.linkname.startswith("/") or link_path == ".." or link_path.startswith("../"):
                 raise SystemExit(f"Unsafe archive link: {member.name} -> {member.linkname}")
 PY
+	if ! tar -tjf "${output_file}" |
+		awk '/^\.\/usr\/share\/zoneinfo\/posix\/./ && !/\/$/ { found = 1 } END { exit !found }'; then
+		printf 'Package has no usable ./usr/share/zoneinfo/posix payload: %s\n' "${filename}" >&2
+		return 1
+	fi
 	printf '%s\n' "${package_version}" >"${stage_dir}/version-${output_arch}"
 }
 
