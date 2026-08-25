@@ -260,6 +260,7 @@ run_check 'Installer mandatory numeric input failure regression' sh tests/instal
 run_check 'Installer DNS input failure regression' sh tests/installer-dns-input-failure.sh
 run_check 'Installer WebUI port failure regression' sh tests/installer-web-port-failure.sh
 run_check 'Installer timezone failure regression' sh tests/installer-timezone-failure.sh
+run_check 'tzdata package metadata regression' sh tests/update-tzdata-package-info.sh
 run_check 'Installer branch switch cancellation regression' sh tests/installer-branch-switch-cancel.sh
 run_check 'Installer setting confirmation failure regression' sh tests/installer-setting-confirmation-failure.sh
 run_check 'Installer confirmation failure propagation regression' sh tests/installer-confirmation-failure-propagation.sh

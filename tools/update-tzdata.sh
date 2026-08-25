@@ -4,6 +4,9 @@
 
 set -eu
 
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "${0}")" && pwd)"
+. "${SCRIPT_DIR}/tzdata-package-info.sh"
+
 OUT_DIR="${1:-.}"
 : "${CURL_CA_BUNDLE:?CURL_CA_BUNDLE is required}"
 : "${MIRROR_HOSTS:?MIRROR_HOSTS is required}"
@@ -142,7 +145,7 @@ download_package() {
 	upstream_file="${stage_dir}/upstream-${architecture}.${filename##*.}"
 	download_verified_pair "${architecture}/core/${filename}" "${upstream_file}" 300
 
-	if ! package_info="$(tar -xOf "${upstream_file}" ./.PKGINFO 2>/dev/null)"; then
+	if ! package_info="$(extract_package_info "${upstream_file}")"; then
 		printf 'Failed to extract .PKGINFO from %s\n' "${upstream_file}" >&2
 		return 1
 	fi
