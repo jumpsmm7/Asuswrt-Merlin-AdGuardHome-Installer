@@ -89,6 +89,9 @@ JQ_HELPER_RAN_FILE="${TMP_ROOT}/jq-helper.ran"
 	# sh simulates regression-test commands and records their execution status.
 	sh() {
 		case "$1" in
+			tests/update-tzdata-package-info.sh)
+				return 0
+				;;
 			tests/optional-database-links.sh)
 				: >"${OPTIONAL_DATABASE_RAN_FILE}"
 				if [ "${OPTIONAL_DATABASE_STATUS}" -eq 0 ]; then
