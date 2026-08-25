@@ -7,7 +7,6 @@ set -eu
 OUT_DIR="${1:-.}"
 : "${CURL_CA_BUNDLE:?CURL_CA_BUNDLE is required}"
 : "${MIRROR_HOSTS:?MIRROR_HOSTS is required}"
-: "${PACKAGE_INDEX_URL:?PACKAGE_INDEX_URL is required}"
 : "${PYTHON3:?PYTHON3 is required}"
 : "${SIGNING_KEY_FINGERPRINT:?SIGNING_KEY_FINGERPRINT is required}"
 
@@ -90,36 +89,40 @@ download_verified_pair() {
 }
 
 discover_package_filename() {
-	local architecture package_page filename
+	local architecture filename mirror_host mirror_url package_listing protocol redirect_protocols
 	architecture="$1"
-	package_page="${stage_dir}/package-${architecture}.html"
+	package_listing="${stage_dir}/package-${architecture}.html"
 
-	case "${PACKAGE_INDEX_URL}" in
-		https://archlinuxarm.org/packages) ;;
-		*)
-			printf 'Unexpected Arch Linux ARM package index URL: %s\n' "${PACKAGE_INDEX_URL}" >&2
-			return 1
-			;;
-	esac
-	if ! curl --fail --location --silent --show-error \
-		--cacert "${CURL_CA_BUNDLE}" \
-		--proto '=https' --proto-redir '=https' \
-		--connect-timeout 15 --max-time 120 \
-		"${PACKAGE_INDEX_URL}/any/tzdata" --output "${package_page}"; then
-		printf 'Failed to download tzdata package page for %s\n' "${architecture}" >&2
-		return 1
-	fi
-	filename="$(grep -Eo "tzdata-[A-Za-z0-9._+-]+-(any|${architecture})\\.pkg\\.tar\\.(bz2|xz|zst)" "${package_page}" |
-		head -n 1)"
-	case "${filename}" in
-		tzdata-*-any.pkg.tar.bz2 | tzdata-*-any.pkg.tar.xz | tzdata-*-any.pkg.tar.zst | tzdata-*-${architecture}.pkg.tar.bz2 | tzdata-*-${architecture}.pkg.tar.xz | tzdata-*-${architecture}.pkg.tar.zst)
-			printf '%s\n' "${filename}"
-			;;
-		*)
-			printf 'Unexpected tzdata filename for %s: %s\n' "${architecture}" "${filename}" >&2
-			return 1
-			;;
-	esac
+	# Discover the filename from the same mirrors that serve the package.  The
+	# public package-index pages are not a stable API and may return 404 even
+	# while the repository remains available.
+	for protocol in https http; do
+		redirect_protocols="=${protocol}"
+		[ "${protocol}" != http ] || redirect_protocols='=http,https'
+		for mirror_host in ${MIRROR_HOSTS}; do
+			mirror_url="${protocol}://${mirror_host}"
+			if ! curl --fail --location --silent --show-error \
+				--cacert "${CURL_CA_BUNDLE}" \
+				--proto "=${protocol}" --proto-redir "${redirect_protocols}" \
+				--connect-timeout 15 --max-time 120 \
+				"${mirror_url}/${architecture}/core/" --output "${package_listing}"; then
+				printf 'Failed to download package listing from %s\n' "${mirror_url}" >&2
+				continue
+			fi
+			filename="$(grep -Eo "tzdata-[A-Za-z0-9._+-]+-(any|${architecture})\\.pkg\\.tar\\.(bz2|xz|zst)" "${package_listing}" |
+				head -n 1)"
+			case "${filename}" in
+				tzdata-*-any.pkg.tar.bz2 | tzdata-*-any.pkg.tar.xz | tzdata-*-any.pkg.tar.zst | tzdata-*-${architecture}.pkg.tar.bz2 | tzdata-*-${architecture}.pkg.tar.xz | tzdata-*-${architecture}.pkg.tar.zst)
+					printf '%s\n' "${filename}"
+					return 0
+					;;
+			esac
+			printf 'No valid tzdata filename in package listing from %s\n' "${mirror_url}" >&2
+		done
+	done
+
+	printf 'Failed to discover package filename for %s from all mirrors\n' "${architecture}" >&2
+	return 1
 }
 
 download_package() {
