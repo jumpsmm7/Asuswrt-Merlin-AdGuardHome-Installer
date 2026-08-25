@@ -49,6 +49,9 @@ fi
 UPDATE_SCRIPT="${REPO_DIR}/tools/update-tzdata.sh"
 grep -Fq '*.xz) xz -d -c "${upstream_file}" | bzip2 -9 >"${output_file}" ;;' \
 	"${UPDATE_SCRIPT}" || fail 'Update script does not preserve the xz tar stream during recompression'
+if grep -Eq '(xz|bzip2) -dc([[:space:]]|$)' "${UPDATE_SCRIPT}" "${0}"; then
+	fail 'Combined decompression flags are incompatible with the BusyBox applets'
+fi
 grep -Fq 'download_package aarch64 aarch64' "${UPDATE_SCRIPT}" ||
 	fail 'Update script does not publish the aarch64 package'
 grep -Fq 'download_package armv7h arm' "${UPDATE_SCRIPT}" ||
