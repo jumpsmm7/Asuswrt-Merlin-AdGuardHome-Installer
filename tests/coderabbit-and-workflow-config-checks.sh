@@ -222,6 +222,8 @@ grep -Fq 'busybox ash tests/installer-dns-environment-failure.sh' "${SHELL_VALID
 	fail "${SHELL_VALIDATION_WORKFLOW}: expected the installer NVRAM transaction regression to run with BusyBox ash"
 grep -Fq 'busybox ash tests/update-tzdata-package-info.sh' "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: expected the tzdata metadata regression to run with BusyBox ash"
+grep -Fq '          PYTHON3: /usr/bin/python3' "${SHELL_VALIDATION_WORKFLOW}" ||
+	fail "${SHELL_VALIDATION_WORKFLOW}: expected an explicit host Python for the tzdata regression"
 grep -Fq '      - tests/update-tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
 	fail "${TZDATA_WORKFLOW}: tzdata regression changes must trigger the update workflow"
 grep -Fq '      - tools/tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
@@ -230,6 +232,10 @@ grep -Fq '      - tools/normalize-tzdata-package.py' "${TZDATA_WORKFLOW}" ||
 	fail "${TZDATA_WORKFLOW}: tzdata normalizer changes must trigger the update workflow"
 grep -Fq '        run: sh tests/update-tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
 	fail "${TZDATA_WORKFLOW}: expected the tzdata metadata regression before package publication"
+grep -Fq '      - name: Run tzdata normalizer regression before analysis' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: expected the tzdata security regression before Sonar analysis"
+grep -Fq '          sh tests/update-tzdata-package-info.sh' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: expected the tzdata security regression command before Sonar analysis"
 grep -Fq "run_check 'tzdata package metadata regression' sh tests/update-tzdata-package-info.sh" "${LOCAL_QUALITY_RUNNER}" ||
 	fail "${LOCAL_QUALITY_RUNNER}: expected the tzdata metadata regression in the local and CI quality matrix"
 grep -Fq "run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh" "${LOCAL_QUALITY_RUNNER}" ||

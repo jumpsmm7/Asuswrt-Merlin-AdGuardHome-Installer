@@ -97,6 +97,13 @@ jobs:
           printf '%s\n' "${JAVA_HOME_21_X64}/bin" >> "${GITHUB_PATH}"
           "${JAVA_HOME_21_X64}/bin/java" -version
 
+      - name: Run tzdata normalizer regression before analysis
+        env:
+          PYTHON3: /usr/bin/python3
+        run: |
+          "${PYTHON3}" --version
+          sh tests/update-tzdata-package-info.sh
+
       - name: SonarQube Cloud scan and quality gate
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         with:

@@ -75,6 +75,8 @@ jobs:
           persist-credentials: true
 
       - name: Run tzdata package metadata regression
+        env:
+          PYTHON3: /usr/bin/python3
         run: sh tests/update-tzdata-package-info.sh
 
       - name: Download current packages
