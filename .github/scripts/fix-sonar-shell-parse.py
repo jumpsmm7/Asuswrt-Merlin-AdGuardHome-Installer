@@ -1,3 +1,13 @@
+"""Apply SonarQube shell parser compatibility fixes to AdGuardHome.sh.
+
+This script transforms shell parameter expansion syntax that the SonarQube
+shell parser cannot parse into equivalent conditional forms. The rewrite
+preserves runtime behavior while enabling Sonar analysis to proceed.
+
+The script replaces conditional parameter expansion with explicit conditionals
+to work around parser limitations, ensuring the modified script remains
+functionally identical to the original.
+"""
 from pathlib import Path
 
 path = Path("AdGuardHome.sh")
