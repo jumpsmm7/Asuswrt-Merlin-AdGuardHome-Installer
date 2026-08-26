@@ -204,7 +204,9 @@ with tarfile.open(archive, "r:bz2") as package:
         if member.name.startswith("/") or normalized_name == ".." or normalized_name.startswith("../"):
             raise SystemExit(f"Unsafe archive member path: {member.name}")
         if normalized_name.startswith("usr/share/zoneinfo/posix/") and not member.isdir():
-            if not member.name.startswith(("./usr/share/zoneinfo/posix/", "usr/share/zoneinfo/posix/")):
+            has_dot_prefix = member.name.startswith("./usr/share/zoneinfo/posix/")
+            has_plain_prefix = member.name.startswith("usr/share/zoneinfo/posix/")
+            if not has_dot_prefix and not has_plain_prefix:
                 raise SystemExit(f"POSIX timezone has an unsupported archive path: {member.name}")
             if not member.isfile():
                 raise SystemExit(f"POSIX timezone is not a regular file: {member.name}")
