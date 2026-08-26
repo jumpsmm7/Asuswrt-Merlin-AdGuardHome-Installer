@@ -146,7 +146,7 @@ recompress_xz_package() {
 	rm -f "${decompressed_file}"
 }
 
-# download_package downloads, validates, and repackages the timezone package for an architecture. 
+# download_package downloads, validates, and repackages the timezone package for an architecture.
 # The output architecture identifies the package filename and records the downloaded package version.
 download_package() {
 	local architecture output_arch filename
