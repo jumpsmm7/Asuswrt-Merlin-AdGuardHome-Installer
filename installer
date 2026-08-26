@@ -6553,7 +6553,19 @@ inst_AdGuardHome() {
 }
 
 filter_timezone_members() {
-	awk '!/\/$/ {timezone=$0; sub(/^\.\//, "", timezone); if (timezone ~ /^usr\/share\/zoneinfo\/posix\// && timezone !~ /(^|\/)\.\.(\/|$)/) print $0}'
+	awk '
+		!/\/$/ {
+			raw = $0
+			timezone = $0
+			sub(/^\.\//, "", timezone)
+			if (timezone ~ /^usr\/share\/zoneinfo\/posix\// &&
+				timezone !~ /(^|\/)\.\.(\/|$)/ &&
+				!(timezone in seen)) {
+				seen[timezone] = 1
+				print raw
+			}
+		}
+	'
 }
 
 format_timezone_menu() {

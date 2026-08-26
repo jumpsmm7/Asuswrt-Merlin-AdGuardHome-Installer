@@ -149,6 +149,16 @@ for timezone_prefix in './usr/share/zoneinfo/posix/' 'usr/share/zoneinfo/posix/'
 		fail "Installer timezone menu is ambiguous for ${timezone_prefix} archive members"
 	fi
 done
+mixed_timezone_members='./usr/share/zoneinfo/posix/America/Cordoba
+usr/share/zoneinfo/posix/America/Cordoba'
+filtered_timezone_members="$(printf '%s\n' "${mixed_timezone_members}" | filter_timezone_members)"
+if [ "${filtered_timezone_members}" != './usr/share/zoneinfo/posix/America/Cordoba' ]; then
+	fail 'Installer did not retain only the first raw path for a mixed-prefix timezone duplicate'
+fi
+timezone_menu="$(printf '%s\n' "${mixed_timezone_members}" | format_timezone_menu)"
+if [ "${timezone_menu}" != '  1) America/Cordoba' ]; then
+	fail 'Installer timezone menu contains a mixed-prefix duplicate'
+fi
 mkdir -p "${TMP_DIR}/symlink-posix/usr/share/zoneinfo/posix"
 ln -s Etc/UTC "${TMP_DIR}/symlink-posix/usr/share/zoneinfo/posix/UTC"
 tar -cjf "${TMP_DIR}/symlink-posix.tar.bz2" -C "${TMP_DIR}/symlink-posix" .
