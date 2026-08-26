@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
@@ -59,9 +59,7 @@ jobs:
       - name: Run checksum output validation regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/static-checksum-output-validation.sh
 
-      - name: Run tzdata package metadata regression
-        env:
-          PYTHON3: /usr/bin/python3
+      - name: Run tzdata package conversion regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/update-tzdata-package-info.sh
 
       - name: Run installer jq dependency regression
@@ -107,7 +105,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
@@ -147,10 +145,12 @@ jobs:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.actor == 'github-actions[bot]'
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Install BusyBox
         run: |
@@ -158,9 +158,10 @@ jobs:
           sudo apt-get install -y busybox-static
 
       - name: Wait for checksum chore commit on pull requests
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         shell: bash
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           TARGET_BRANCH: ${{ github.event.pull_request.head.ref }}
           ORIGINAL_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
@@ -188,8 +189,10 @@ jobs:
           git reset --hard
           git clean -f -- "${checksum_files[@]}"
 
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 -w 0)"
           for attempt in $(seq 1 30); do
-            git fetch --quiet origin "${target_branch}"
+            git -c http.https://github.com/.extraheader="${auth_header}" \
+              fetch --quiet origin "${target_branch}"
             remote_sha="$(git rev-parse FETCH_HEAD)"
             remote_subject="$(git log -1 --format=%s "${remote_sha}")"
 
@@ -230,7 +233,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 

@@ -80,6 +80,7 @@ LAN_BRIDGE_DOC_RAN_FILE="${TMP_ROOT}/lan-bridge-doc.ran"
 PRIVATE_IPV4_FALLBACK_RAN_FILE="${TMP_ROOT}/private-ipv4-fallback.ran"
 PROCESS_SIGNALING_RAN_FILE="${TMP_ROOT}/process-signaling.ran"
 JQ_HELPER_RAN_FILE="${TMP_ROOT}/jq-helper.ran"
+TZDATA_PACKAGE_INFO_RAN_FILE="${TMP_ROOT}/tzdata-package-info.ran"
 (
 	OPTIONAL_DATABASE_STATUS=0
 	# id prints 0 to simulate a root user ID in privileged-command tests.
@@ -89,6 +90,10 @@ JQ_HELPER_RAN_FILE="${TMP_ROOT}/jq-helper.ran"
 	# sh simulates regression-test commands and records their execution status.
 	sh() {
 		case "$1" in
+			tests/update-tzdata-package-info.sh)
+				: >"${TZDATA_PACKAGE_INFO_RAN_FILE}"
+				return 0
+				;;
 			tests/optional-database-links.sh)
 				: >"${OPTIONAL_DATABASE_RAN_FILE}"
 				if [ "${OPTIONAL_DATABASE_STATUS}" -eq 0 ]; then
@@ -137,6 +142,8 @@ JQ_HELPER_RAN_FILE="${TMP_ROOT}/jq-helper.ran"
 	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
+	run_check 'tzdata package conversion regression' sh tests/update-tzdata-package-info.sh || exit 1
+	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'AdGuardHome optional database link regression' run_privileged_regression_check tests/optional-database-links.sh 'optional database link regression' >"${OPTIONAL_DATABASE_OUT_FILE}" 2>&1
 	[ "$?" -eq 0 ] || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
@@ -152,6 +159,7 @@ JQ_HELPER_RAN_FILE="${TMP_ROOT}/jq-helper.ran"
 [ -f "${PROCESS_SIGNALING_RAN_FILE}" ] || fail 'process signaling regression command was not invoked'
 [ -f "${LAN_BRIDGE_DOC_RAN_FILE}" ] || fail 'LAN bridge documentation regression command was not invoked'
 [ -f "${JQ_HELPER_RAN_FILE}" ] || fail 'installer jq helper regression command was not invoked'
+[ -f "${TZDATA_PACKAGE_INFO_RAN_FILE}" ] || fail 'tzdata package conversion regression command was not invoked'
 [ -f "${OPTIONAL_DATABASE_RAN_FILE}" ] || fail 'optional database-link regression command was not invoked'
 grep -Fq 'PASS: optional database link tests passed' "${OPTIONAL_DATABASE_OUT_FILE}" ||
 	fail 'optional database-link regression output was not forwarded'
@@ -350,8 +358,8 @@ for t in tests/*.sh; do
 		fail "${t} is not referenced by any run_check in ${SCRIPT_PATH}; new test files must be wired in or they get zero CI coverage"
 done
 
-grep -Fq "run_check 'tzdata normalizer Python regression' \"\${PYTHON3:-python3}\" tests/normalize-tzdata-package.py" "${SCRIPT_PATH}" ||
-	fail 'tzdata normalizer Python regression is not registered in tools/code-quality.sh'
+grep -Fq "run_check 'tzdata package conversion regression' sh tests/update-tzdata-package-info.sh" "${SCRIPT_PATH}" ||
+	fail 'tzdata package conversion regression is not registered in tools/code-quality.sh'
 
 grep -Fq "run_long_check 'AdGuardHome service lifecycle integration regression' \"\${SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS}\" run_privileged_regression_check tests/service-lifecycle-integration.sh 'service lifecycle integration regression'" "${SCRIPT_PATH}" ||
 	fail 'service lifecycle integration regression does not use its dedicated timeout and privileged test helper'

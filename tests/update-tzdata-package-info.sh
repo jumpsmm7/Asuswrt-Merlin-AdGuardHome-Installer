@@ -32,84 +32,133 @@ for archive in "${TMP_DIR}/plain.tar" "${TMP_DIR}/dotted.tar"; do
 	fi
 done
 
-mkdir -p "${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc" "${TMP_DIR}/tzdata/usr/share/zoneinfo/right/Etc"
+mkdir -p "${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc" \
+	"${TMP_DIR}/tzdata/usr/share/zoneinfo/posix/Etc"
 printf 'TZif test timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/Etc/UTC"
-printf 'TZif leap-second timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/right/Etc/UTC"
-ln -s Etc/UTC "${TMP_DIR}/tzdata/usr/share/zoneinfo/UTC"
+printf 'TZif POSIX test timezone\n' >"${TMP_DIR}/tzdata/usr/share/zoneinfo/posix/Etc/UTC"
 printf '%s\n' 'package metadata' >"${TMP_DIR}/tzdata/.PKGINFO"
-tar -cjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" -C "${TMP_DIR}/tzdata" .
-python3_cmd="${PYTHON3:-python3}"
-if ! command -v "${python3_cmd}" >/dev/null 2>&1; then
+tar -cf "${TMP_DIR}/tzdata.tar" -C "${TMP_DIR}/tzdata" .
+# BusyBox provides only the xz decompressor; fixture creation is host-only.
+/usr/bin/xz -c "${TMP_DIR}/tzdata.tar" >"${TMP_DIR}/tzdata.pkg.tar.xz"
+xz -d -c "${TMP_DIR}/tzdata.pkg.tar.xz" |
+	bzip2 -9 >"${TMP_DIR}/tzdata.pkg.tar.bz2"
+bzip2 -d -c "${TMP_DIR}/tzdata.pkg.tar.bz2" >"${TMP_DIR}/recompressed.tar"
+if ! cmp "${TMP_DIR}/tzdata.tar" "${TMP_DIR}/recompressed.tar"; then
+	fail 'xz-to-bzip2 conversion changed the tar byte stream'
+fi
+
+UPDATE_SCRIPT="${REPO_DIR}/tools/update-tzdata.sh"
+grep -Fq '*.xz) recompress_xz_package "${upstream_file}" "${output_file}" ;;' \
+	"${UPDATE_SCRIPT}" || fail 'Update script does not verify xz decompression before recompression'
+if grep -Eq '(xz|bzip2) -dc([[:space:]]|$)' "${UPDATE_SCRIPT}" "${0}"; then
+	fail 'Combined decompression flags are incompatible with the BusyBox applets'
+fi
+awk 'found { print } /^recompress_xz_package\(\) \{/ { found = 1; print } found && /^}/ { exit }' \
+	"${UPDATE_SCRIPT}" >"${TMP_DIR}/recompress-xz-package.sh"
+. "${TMP_DIR}/recompress-xz-package.sh"
+cp "${TMP_DIR}/tzdata.pkg.tar.xz" "${TMP_DIR}/malformed.pkg.tar.xz"
+printf '\3757zXZ\000' >>"${TMP_DIR}/malformed.pkg.tar.xz"
+printf '%s\n' 'stale output' >"${TMP_DIR}/malformed.pkg.tar.bz2"
+printf '%s\n' 'stale temporary stream' >"${TMP_DIR}/malformed.pkg.tar.bz2.tar"
+if recompress_xz_package "${TMP_DIR}/malformed.pkg.tar.xz" \
+	"${TMP_DIR}/malformed.pkg.tar.bz2" >/dev/null 2>&1; then
+	fail 'Malformed trailing XZ data unexpectedly passed recompression'
+fi
+if [ -e "${TMP_DIR}/malformed.pkg.tar.bz2" ] ||
+	[ -e "${TMP_DIR}/malformed.pkg.tar.bz2.tar" ]; then
+	fail 'Failed XZ decompression left conversion files behind'
+fi
+grep -Fq 'download_package aarch64 aarch64' "${UPDATE_SCRIPT}" ||
+	fail 'Update script does not publish the aarch64 package'
+grep -Fq 'download_package armv7h arm' "${UPDATE_SCRIPT}" ||
+	fail 'Update script does not publish the armv7h package'
+if grep -Fq 'normalize-tzdata-package.py' "${UPDATE_SCRIPT}"; then
+	fail 'Update script still rewrites tzdata package contents'
+fi
+grep -Fq 'if not has_posix_timezone:' "${UPDATE_SCRIPT}" ||
+	fail 'Update script does not reject packages without a usable POSIX timezone payload'
+
+mkdir -p "${TMP_DIR}/without-posix/usr/share/zoneinfo/Etc"
+printf 'TZif test timezone\n' >"${TMP_DIR}/without-posix/usr/share/zoneinfo/Etc/UTC"
+tar -cjf "${TMP_DIR}/without-posix.tar.bz2" -C "${TMP_DIR}/without-posix" .
+awk 'found && $0 == "PY" { exit } found { print } /^import posixpath$/ { found = 1; print }' \
+	"${UPDATE_SCRIPT}" >"${TMP_DIR}/validate-package.py"
+python3_cmd="${PYTHON3:-/usr/bin/python3}"
+if [ ! -x "${python3_cmd}" ]; then
 	fail "Selected Python 3 interpreter is unavailable: ${python3_cmd}"
 fi
-normalizer="${REPO_DIR}/tools/normalize-tzdata-package.py"
-"${python3_cmd}" "${normalizer}" "${TMP_DIR}/tzdata-without-posix.tar.bz2"
-if ! tar -xOjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" ./usr/share/zoneinfo/posix/Etc/UTC |
-	grep -q '^TZif test timezone$'; then
-	fail 'Failed to add the installer-compatible POSIX timezone payload'
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/without-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive without a POSIX timezone payload unexpectedly passed validation'
 fi
-if tar -tjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" |
-	grep -q '^\./usr/share/zoneinfo/posix/right/'; then
-	fail 'Added leap-second-aware timezone data to the POSIX payload'
-fi
-mkdir "${TMP_DIR}/normalized"
-tar -xjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" -C "${TMP_DIR}/normalized" ./usr/share/zoneinfo/posix
-if [ -L "${TMP_DIR}/normalized/usr/share/zoneinfo/posix/UTC" ]; then
-	fail 'Timezone aliases were not materialized in the POSIX payload'
-fi
-if [ "$(cat "${TMP_DIR}/normalized/usr/share/zoneinfo/posix/UTC")" != 'TZif test timezone' ]; then
-	fail 'Failed to preserve timezone aliases in the POSIX payload'
-fi
-if ! tar -xOjf "${TMP_DIR}/tzdata-without-posix.tar.bz2" ./.PKGINFO |
-	grep -q '^package metadata$'; then
-	fail 'Timezone normalization did not preserve package metadata'
-fi
-
-mkdir -p "${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/Etc" \
-	"${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/Asia" \
-	"${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/posix"
-printf 'TZif existing timezone\n' >"${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/Etc/UTC"
-printf 'TZif missing POSIX timezone\n' >"${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/Asia/Tokyo"
-ln -s ../Etc/UTC "${TMP_DIR}/tzdata-with-posix-alias/usr/share/zoneinfo/posix/UTC"
-tar -cjf "${TMP_DIR}/tzdata-with-posix-alias.tar.bz2" -C "${TMP_DIR}/tzdata-with-posix-alias" .
-"${python3_cmd}" "${normalizer}" "${TMP_DIR}/tzdata-with-posix-alias.tar.bz2"
-mkdir "${TMP_DIR}/normalized-existing"
-tar -xjf "${TMP_DIR}/tzdata-with-posix-alias.tar.bz2" -C "${TMP_DIR}/normalized-existing" \
-	./usr/share/zoneinfo/posix
-if [ -L "${TMP_DIR}/normalized-existing/usr/share/zoneinfo/posix/UTC" ]; then
-	fail 'Existing POSIX timezone alias was not materialized'
-fi
-if [ "$(cat "${TMP_DIR}/normalized-existing/usr/share/zoneinfo/posix/UTC")" != 'TZif existing timezone' ]; then
-	fail 'Failed to preserve an existing POSIX timezone alias'
-fi
-if [ "$(cat "${TMP_DIR}/normalized-existing/usr/share/zoneinfo/posix/Asia/Tokyo")" != \
-	'TZif missing POSIX timezone' ]; then
-	fail 'Failed to rebuild a partially populated POSIX timezone tree'
-fi
-
-cp "${TMP_DIR}/tzdata-without-posix.tar.bz2" "${TMP_DIR}/invalid-suffix.tbz"
-if "${python3_cmd}" "${normalizer}" "${TMP_DIR}/invalid-suffix.tbz" >/dev/null 2>&1; then
-	fail 'Normalizer accepted a package without the required suffix'
-fi
-ln -s tzdata-without-posix.tar.bz2 "${TMP_DIR}/linked-package.tar.bz2"
-if "${python3_cmd}" "${normalizer}" "${TMP_DIR}/linked-package.tar.bz2" >/dev/null 2>&1; then
-	fail 'Normalizer accepted a symbolic-link package path'
-fi
-"${python3_cmd}" -c '
+"${python3_cmd}" - "${TMP_DIR}/plain-prefix-posix.tar.bz2" <<'PY'
 import io
 import sys
 import tarfile
 
 with tarfile.open(sys.argv[1], "w:bz2") as package:
-	member = tarfile.TarInfo("../escape")
-	payload = b"TZif unsafe timezone\n"
-	member.size = len(payload)
-	package.addfile(member, io.BytesIO(payload))
-' "${TMP_DIR}/unsafe-member.tar.bz2"
-if "${python3_cmd}" "${normalizer}" "${TMP_DIR}/unsafe-member.tar.bz2" >/dev/null 2>&1; then
-	fail 'Normalizer accepted an unsafe archive member path'
+    timezone = tarfile.TarInfo("usr/share/zoneinfo/posix/Etc/UTC")
+    payload = b"TZif POSIX test timezone\n"
+    timezone.size = len(payload)
+    package.addfile(timezone, io.BytesIO(payload))
+PY
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/plain-prefix-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive without the installer-required ./ POSIX prefix unexpectedly passed validation'
 fi
-[ ! -e "${TMP_DIR}/escape" ] || fail 'Unsafe archive member escaped the test directory'
+mkdir -p "${TMP_DIR}/symlink-posix/usr/share/zoneinfo/posix"
+ln -s Etc/UTC "${TMP_DIR}/symlink-posix/usr/share/zoneinfo/posix/UTC"
+tar -cjf "${TMP_DIR}/symlink-posix.tar.bz2" -C "${TMP_DIR}/symlink-posix" .
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/symlink-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive with only a safe POSIX timezone symbolic link unexpectedly passed validation'
+fi
+mkdir -p "${TMP_DIR}/alias-posix/usr/share/zoneinfo/posix/Etc"
+printf 'TZif POSIX test timezone\n' >"${TMP_DIR}/alias-posix/usr/share/zoneinfo/posix/Etc/UTC"
+ln -s Etc/UTC "${TMP_DIR}/alias-posix/usr/share/zoneinfo/posix/UTC"
+tar -cjf "${TMP_DIR}/alias-posix.tar.bz2" -C "${TMP_DIR}/alias-posix" .
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/alias-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive with a selectable POSIX timezone alias unexpectedly passed validation'
+fi
+mkdir -p "${TMP_DIR}/empty-posix/usr/share/zoneinfo/posix/Etc"
+: >"${TMP_DIR}/empty-posix/usr/share/zoneinfo/posix/Etc/UTC"
+tar -cjf "${TMP_DIR}/empty-posix.tar.bz2" -C "${TMP_DIR}/empty-posix" .
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/empty-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive with only an empty POSIX timezone file unexpectedly passed validation'
+fi
+mkdir -p "${TMP_DIR}/invalid-posix/usr/share/zoneinfo/posix/Etc"
+printf 'not timezone data\n' >"${TMP_DIR}/invalid-posix/usr/share/zoneinfo/posix/Etc/UTC"
+tar -cjf "${TMP_DIR}/invalid-posix.tar.bz2" -C "${TMP_DIR}/invalid-posix" .
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/invalid-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive with invalid POSIX timezone data unexpectedly passed validation'
+fi
+if ! "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/tzdata.pkg.tar.bz2"; then
+	fail 'Archive with a POSIX timezone payload unexpectedly failed validation'
+fi
+"${python3_cmd}" - "${TMP_DIR}/unsafe-hard-link.tar.bz2" <<'PY'
+import io
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1], "w:bz2") as package:
+    timezone = tarfile.TarInfo("./usr/share/zoneinfo/posix/Etc/UTC")
+    payload = b"TZif POSIX test timezone\n"
+    timezone.size = len(payload)
+    package.addfile(timezone, io.BytesIO(payload))
+
+    hard_link = tarfile.TarInfo("./usr/share/zoneinfo/posix/Etc/Unsafe")
+    hard_link.type = tarfile.LNKTYPE
+    hard_link.linkname = "../../etc/passwd"
+    package.addfile(hard_link)
+PY
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/unsafe-hard-link.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive with an archive-root-traversing hard link unexpectedly passed validation'
+fi
 
 printf '%s\n' 'not package metadata' >"${TMP_DIR}/README"
 printf '%s\n' 'not a tar archive' >"${TMP_DIR}/corrupt.tar"
@@ -125,4 +174,4 @@ if extract_package_info "${TMP_DIR}/missing-metadata.tar" >/dev/null 2>&1; then
 	fail 'Archive without .PKGINFO unexpectedly supplied package metadata'
 fi
 
-printf '%s\n' 'PASS: update-tzdata package metadata tests passed'
+printf '%s\n' 'PASS: update-tzdata package conversion tests passed'

@@ -128,6 +128,24 @@ discover_package_filename() {
 	return 1
 }
 
+recompress_xz_package() {
+	local decompressed_file output_file upstream_file
+	upstream_file="$1"
+	output_file="$2"
+	decompressed_file="${output_file}.tar"
+
+	rm -f "${decompressed_file}" "${output_file}"
+	if ! xz -d -c "${upstream_file}" >"${decompressed_file}"; then
+		rm -f "${decompressed_file}" "${output_file}"
+		return 1
+	fi
+	if ! bzip2 -9 <"${decompressed_file}" >"${output_file}"; then
+		rm -f "${decompressed_file}" "${output_file}"
+		return 1
+	fi
+	rm -f "${decompressed_file}"
+}
+
 download_package() {
 	local architecture output_arch filename
 	local upstream_file package_info package_version package_arch output_file
@@ -169,16 +187,10 @@ download_package() {
 	output_file="${stage_dir}/tzdata-${package_version}-${output_arch}.pkg.tar.bz2"
 	case "${upstream_file}" in
 		*.bz2) cp "${upstream_file}" "${output_file}" ;;
-		*.xz) xz --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
+		*.xz) recompress_xz_package "${upstream_file}" "${output_file}" ;;
 		*.zst) zstd --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
 	esac
 	tar -tjf "${output_file}" >/dev/null
-	"${PYTHON3}" "${SCRIPT_DIR}/normalize-tzdata-package.py" "${output_file}"
-	if ! tar -tjf "${output_file}" |
-		awk '/^\.\/usr\/share\/zoneinfo\/posix\/./ && !/\/$/ { found = 1 } END { exit !found }'; then
-		printf 'Package has no usable ./usr/share/zoneinfo/posix payload: %s\n' "${filename}" >&2
-		return 1
-	fi
 	"${PYTHON3}" - "${output_file}" <<'PY'
 import posixpath
 import sys
@@ -186,14 +198,30 @@ import tarfile
 
 archive = sys.argv[1]
 with tarfile.open(archive, "r:bz2") as package:
+    has_posix_timezone = False
     for member in package.getmembers():
         normalized_name = posixpath.normpath(member.name)
         if member.name.startswith("/") or normalized_name == ".." or normalized_name.startswith("../"):
             raise SystemExit(f"Unsafe archive member path: {member.name}")
-        if member.issym() or member.islnk():
+        if normalized_name.startswith("usr/share/zoneinfo/posix/") and not member.isdir():
+            if not member.name.startswith("./usr/share/zoneinfo/posix/"):
+                raise SystemExit(f"POSIX timezone lacks installer-required ./ prefix: {member.name}")
+            if not member.isfile():
+                raise SystemExit(f"POSIX timezone is not a regular file: {member.name}")
+            timezone = package.extractfile(member)
+            if timezone is None or timezone.read(4) != b"TZif":
+                raise SystemExit(f"POSIX timezone has invalid TZif data: {member.name}")
+            has_posix_timezone = True
+        if member.issym():
             link_path = posixpath.normpath(posixpath.join(posixpath.dirname(normalized_name), member.linkname))
-            if member.linkname.startswith("/") or link_path == ".." or link_path.startswith("../"):
-                raise SystemExit(f"Unsafe archive link: {member.name} -> {member.linkname}")
+        elif member.islnk():
+            link_path = posixpath.normpath(member.linkname)
+        else:
+            continue
+        if member.linkname.startswith("/") or link_path == ".." or link_path.startswith("../"):
+            raise SystemExit(f"Unsafe archive link: {member.name} -> {member.linkname}")
+    if not has_posix_timezone:
+        raise SystemExit(f"Package has no usable POSIX timezone payload: {archive}")
 PY
 	printf '%s\n' "${package_version}" >"${stage_dir}/version-${output_arch}"
 }
