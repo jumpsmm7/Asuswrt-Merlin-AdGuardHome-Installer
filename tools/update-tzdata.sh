@@ -10,18 +10,12 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "${0}")" && pwd)"
 OUT_DIR="${1:-.}"
 : "${CURL_CA_BUNDLE:?CURL_CA_BUNDLE is required}"
 : "${MIRROR_HOSTS:?MIRROR_HOSTS is required}"
-: "${PYTHON3:?PYTHON3 is required}"
 : "${SIGNING_KEY_FINGERPRINT:?SIGNING_KEY_FINGERPRINT is required}"
 
 if [ ! -r "${CURL_CA_BUNDLE}" ]; then
 	printf 'Certificate authority bundle is not readable: %s\n' "${CURL_CA_BUNDLE}" >&2
 	exit 1
 fi
-if [ "${PYTHON3}" != /usr/bin/python3 ] || [ ! -x "${PYTHON3}" ]; then
-	printf 'Trusted Python 3 interpreter is unavailable: %s\n' "${PYTHON3}" >&2
-	exit 1
-fi
-
 cd "${OUT_DIR}" || exit 1
 
 stage_dir="$(mktemp -d)"
@@ -146,6 +140,24 @@ recompress_xz_package() {
 	rm -f "${decompressed_file}"
 }
 
+recompress_zst_package() {
+	local decompressed_file output_file upstream_file
+	upstream_file="$1"
+	output_file="$2"
+	decompressed_file="${output_file}.tar"
+
+	rm -f "${decompressed_file}" "${output_file}"
+	if ! zstd --decompress --stdout "${upstream_file}" >"${decompressed_file}"; then
+		rm -f "${decompressed_file}" "${output_file}"
+		return 1
+	fi
+	if ! bzip2 -9 <"${decompressed_file}" >"${output_file}"; then
+		rm -f "${decompressed_file}" "${output_file}"
+		return 1
+	fi
+	rm -f "${decompressed_file}"
+}
+
 # download_package downloads, validates, and repackages the timezone package for an architecture.
 # The output architecture identifies the package filename and records the downloaded package version.
 download_package() {
@@ -190,45 +202,9 @@ download_package() {
 	case "${upstream_file}" in
 		*.bz2) cp "${upstream_file}" "${output_file}" ;;
 		*.xz) recompress_xz_package "${upstream_file}" "${output_file}" ;;
-		*.zst) zstd --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
+		*.zst) recompress_zst_package "${upstream_file}" "${output_file}" ;;
 	esac
 	tar -tjf "${output_file}" >/dev/null
-	"${PYTHON3}" - "${output_file}" <<'PY'
-import posixpath
-import sys
-import tarfile
-
-archive = sys.argv[1]
-with tarfile.open(archive, "r:bz2") as package:
-    has_posix_timezone = False
-    for member in package.getmembers():
-        normalized_name = posixpath.normpath(member.name)
-        if ".." in member.name.split("/"):
-            raise SystemExit(f"Unsafe archive member path: {member.name}")
-        if member.name.startswith("/") or normalized_name == ".." or normalized_name.startswith("../"):
-            raise SystemExit(f"Unsafe archive member path: {member.name}")
-        if normalized_name.startswith("usr/share/zoneinfo/posix/") and not member.isdir():
-            has_dot_prefix = member.name.startswith("./usr/share/zoneinfo/posix/")
-            has_plain_prefix = member.name.startswith("usr/share/zoneinfo/posix/")
-            if not has_dot_prefix and not has_plain_prefix:
-                raise SystemExit(f"POSIX timezone has an unsupported archive path: {member.name}")
-            if not member.isfile():
-                raise SystemExit(f"POSIX timezone is not a regular file: {member.name}")
-            timezone = package.extractfile(member)
-            if timezone is None or timezone.read(4) != b"TZif":
-                raise SystemExit(f"POSIX timezone has invalid TZif data: {member.name}")
-            has_posix_timezone = True
-        if member.issym():
-            link_path = posixpath.normpath(posixpath.join(posixpath.dirname(normalized_name), member.linkname))
-        elif member.islnk():
-            link_path = posixpath.normpath(member.linkname)
-        else:
-            continue
-        if member.linkname.startswith("/") or link_path == ".." or link_path.startswith("../"):
-            raise SystemExit(f"Unsafe archive link: {member.name} -> {member.linkname}")
-    if not has_posix_timezone:
-        raise SystemExit(f"Package has no usable POSIX timezone payload: {archive}")
-PY
 	printf '%s\n' "${package_version}" >"${stage_dir}/version-${output_arch}"
 }
 
