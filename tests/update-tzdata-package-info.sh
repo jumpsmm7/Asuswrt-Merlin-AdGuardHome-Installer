@@ -108,6 +108,14 @@ if ! "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
 fi
 grep -Fq '*) TZ_POSIX_DIR="usr/share/zoneinfo/posix" ;;' "${REPO_DIR}/installer" ||
 	fail 'Installer does not support unprefixed POSIX timezone paths'
+cat >"${TMP_DIR}/timezone-labels.txt" <<'EOF'
+./usr/share/zoneinfo/posix/America/Cordoba
+usr/share/zoneinfo/posix/America/Argentina/Cordoba
+EOF
+labels="$(awk -v INDEX=0 '{path=$0; sub("^\\./", "", path); sub("^usr/share/zoneinfo/posix/", "", path); ++INDEX; print path}' "${TMP_DIR}/timezone-labels.txt")"
+[ "${labels}" = 'America/Cordoba
+America/Argentina/Cordoba' ] ||
+	fail 'Timezone labels lost their region path components'
 mkdir -p "${TMP_DIR}/symlink-posix/usr/share/zoneinfo/posix"
 ln -s Etc/UTC "${TMP_DIR}/symlink-posix/usr/share/zoneinfo/posix/UTC"
 tar -cjf "${TMP_DIR}/symlink-posix.tar.bz2" -C "${TMP_DIR}/symlink-posix" .

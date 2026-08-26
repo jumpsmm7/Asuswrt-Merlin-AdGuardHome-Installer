@@ -6585,7 +6585,7 @@ set_timezone() {
 		return 1
 	}
 	PTXT "${INFO} Available timezones/locations:"
-	PTXT "${TZ_LIST}" | awk -F'/' '!/\/$/ && /\/posix\//' | sort | cut -d'/' -f2- | awk -v INDEX=0 -F'/' '!/\/$/ {++INDEX;printf "  " INDEX") ";for (i=5; i<NF; i++)  printf $i "/"; print $NF}' | /opt/bin/column
+	PTXT "${TZ_LIST}" | awk -F'/' '!/\/$/ && /\/posix\//' | sort | awk -v INDEX=0 '{path=$0; sub("^\\./", "", path); sub("^usr/share/zoneinfo/posix/", "", path); ++INDEX; printf "  " INDEX") %s\\n", path}' | /opt/bin/column
 	if ! read_input_num "Select your timezone/location" 1 "${INDEX}"; then
 		PTXT "${ERROR} Unable to select a timezone."
 		return 1
