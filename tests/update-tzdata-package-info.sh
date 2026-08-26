@@ -108,18 +108,19 @@ if ! "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
 fi
 grep -Fq '*) TZ_POSIX_DIR="usr/share/zoneinfo/posix" ;;' "${REPO_DIR}/installer" ||
 	fail 'Installer does not support unprefixed POSIX timezone paths'
-grep -Fq 'sub(/^.*\/posix\//, "", timezone)' "${REPO_DIR}/installer" ||
-	fail 'Installer does not preserve complete timezone names for both archive path styles'
-expected_timezone_names='America/Argentina/Cordoba
-America/Cordoba'
+awk 'found { print } /^format_timezone_menu\(\) \{/ { found = 1; print } found && /^}/ { exit }' \
+	"${REPO_DIR}/installer" >"${TMP_DIR}/format-timezone-menu.sh"
+. "${TMP_DIR}/format-timezone-menu.sh"
+expected_timezone_menu='  1) America/Argentina/Cordoba
+  2) America/Cordoba'
 for timezone_prefix in './usr/share/zoneinfo/posix/' 'usr/share/zoneinfo/posix/'; do
-	timezone_names="$(printf '%s\n' \
+	timezone_menu="$(printf '%s\n' \
 		"${timezone_prefix}America/Cordoba" \
-		"${timezone_prefix}America/Argentina/Cordoba" |
-		awk '!/\/$/ && /\/posix\// {timezone=$0; sub(/^.*\/posix\//, "", timezone); print timezone}' |
-		sort)"
-	if [ "${timezone_names}" != "${expected_timezone_names}" ]; then
-		fail "Installer timezone names are ambiguous for ${timezone_prefix} archive members"
+		"${timezone_prefix}America/Argentina/Cordoba" \
+		"prefix/${timezone_prefix}America/Cordoba" |
+		format_timezone_menu)"
+	if [ "${timezone_menu}" != "${expected_timezone_menu}" ]; then
+		fail "Installer timezone menu is ambiguous for ${timezone_prefix} archive members"
 	fi
 done
 mkdir -p "${TMP_DIR}/symlink-posix/usr/share/zoneinfo/posix"

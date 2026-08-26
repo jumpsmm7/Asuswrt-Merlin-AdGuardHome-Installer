@@ -6552,6 +6552,12 @@ inst_AdGuardHome() {
 	end_op_message 0 "$1"
 }
 
+format_timezone_menu() {
+	awk '!/\/$/ {timezone=$0; sub(/^\.\//, "", timezone); if (timezone ~ /^usr\/share\/zoneinfo\/posix\//) print $0}' |
+		sort |
+		awk -v INDEX=0 '{timezone=$0; sub(/^\.\//, "", timezone); sub(/^usr\/share\/zoneinfo\/posix\//, "", timezone); ++INDEX; printf "  %d) %s\n", INDEX, timezone}'
+}
+
 set_timezone() {
 	local TMP TZ_ARCH TZ_DATA INDEX TZ_FILE TZ_LIST TZ_POSIX_DIR
 	TMP="/root"
@@ -6579,18 +6585,18 @@ set_timezone() {
 		PTXT "${ERROR} Unable to read timezone archive ${TZ_DATA}."
 		return 1
 	}
-	INDEX="$(PTXT "${TZ_LIST}" | awk -F'/' '!/\/$/ && /\/posix\// {count++} END {print count + 0}')"
+	INDEX="$(PTXT "${TZ_LIST}" | awk '!/\/$/ {timezone=$0; sub(/^\.\//, "", timezone); if (timezone ~ /^usr\/share\/zoneinfo\/posix\//) count++} END {print count + 0}')"
 	[ "${INDEX}" -gt 0 ] || {
 		PTXT "${ERROR} No timezone files were found in ${TZ_DATA}."
 		return 1
 	}
 	PTXT "${INFO} Available timezones/locations:"
-	PTXT "${TZ_LIST}" | awk '!/\/$/ && /\/posix\// {timezone=$0; sub(/^.*\/posix\//, "", timezone); print timezone}' | sort | awk -v INDEX=0 '{++INDEX; printf "  %d) %s\n", INDEX, $0}' | /opt/bin/column
+	PTXT "${TZ_LIST}" | format_timezone_menu | /opt/bin/column
 	if ! read_input_num "Select your timezone/location" 1 "${INDEX}"; then
 		PTXT "${ERROR} Unable to select a timezone."
 		return 1
 	fi
-	TZ_FILE="$(PTXT "${TZ_LIST}" | awk -F'/' '!/\/$/ && /\/posix\//' | sort | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
+	TZ_FILE="$(PTXT "${TZ_LIST}" | awk '!/\/$/ {timezone=$0; sub(/^\.\//, "", timezone); if (timezone ~ /^usr\/share\/zoneinfo\/posix\//) print $0}' | sort | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
 	[ -n "${TZ_FILE}" ] || return 1
 	PTXT "${INFO} ${TZ_FILE##*/} selected"
 	case "${TZ_FILE}" in
