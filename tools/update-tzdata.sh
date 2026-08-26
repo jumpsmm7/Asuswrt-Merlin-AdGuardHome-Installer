@@ -204,6 +204,8 @@ with tarfile.open(archive, "r:bz2") as package:
         if member.name.startswith("/") or normalized_name == ".." or normalized_name.startswith("../"):
             raise SystemExit(f"Unsafe archive member path: {member.name}")
         if normalized_name.startswith("usr/share/zoneinfo/posix/") and not member.isdir():
+            if not member.name.startswith("./usr/share/zoneinfo/posix/"):
+                raise SystemExit(f"POSIX timezone lacks installer-required ./ prefix: {member.name}")
             if not member.isfile():
                 raise SystemExit(f"POSIX timezone is not a regular file: {member.name}")
             timezone = package.extractfile(member)

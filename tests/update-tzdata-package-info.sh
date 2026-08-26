@@ -91,6 +91,21 @@ if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
 	"${TMP_DIR}/without-posix.tar.bz2" >/dev/null 2>&1; then
 	fail 'Archive without a POSIX timezone payload unexpectedly passed validation'
 fi
+"${python3_cmd}" - "${TMP_DIR}/plain-prefix-posix.tar.bz2" <<'PY'
+import io
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1], "w:bz2") as package:
+    timezone = tarfile.TarInfo("usr/share/zoneinfo/posix/Etc/UTC")
+    payload = b"TZif POSIX test timezone\n"
+    timezone.size = len(payload)
+    package.addfile(timezone, io.BytesIO(payload))
+PY
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/plain-prefix-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive without the installer-required ./ POSIX prefix unexpectedly passed validation'
+fi
 mkdir -p "${TMP_DIR}/symlink-posix/usr/share/zoneinfo/posix"
 ln -s Etc/UTC "${TMP_DIR}/symlink-posix/usr/share/zoneinfo/posix/UTC"
 tar -cjf "${TMP_DIR}/symlink-posix.tar.bz2" -C "${TMP_DIR}/symlink-posix" .
