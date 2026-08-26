@@ -2131,6 +2131,9 @@ assert_original 'DNS readiness cleanup interruption'
 
 reset_case
 STUBBY_RUNNING=1
+# Leave one simulated second after the child-start handshake so a loaded runner
+# cannot expire this successful recovery before the lookup child is reaped.
+DNS_ENV_RECOVERY_TIMEOUT=2
 printf '%s\n' 'dnspriv_enable=0' 'dhcpd_dns_router=1' 'dhcp_dns1_x=' 'dhcp_dns2_x=' >"${NVRAM_FILE}" || fail 'could not seed prepared DNS state'
 FAIL_SERVICE_AT=1
 check_dns_environment 0 && fail 'recovered no-change dnsmasq retry was accepted as preparation success'
