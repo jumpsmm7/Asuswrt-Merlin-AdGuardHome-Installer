@@ -128,6 +128,24 @@ discover_package_filename() {
 	return 1
 }
 
+recompress_xz_package() {
+	local decompressed_file output_file upstream_file
+	upstream_file="$1"
+	output_file="$2"
+	decompressed_file="${output_file}.tar"
+
+	rm -f "${decompressed_file}" "${output_file}"
+	if ! xz -d -c "${upstream_file}" >"${decompressed_file}"; then
+		rm -f "${decompressed_file}" "${output_file}"
+		return 1
+	fi
+	if ! bzip2 -9 <"${decompressed_file}" >"${output_file}"; then
+		rm -f "${decompressed_file}" "${output_file}"
+		return 1
+	fi
+	rm -f "${decompressed_file}"
+}
+
 download_package() {
 	local architecture output_arch filename
 	local upstream_file package_info package_version package_arch output_file
@@ -169,7 +187,7 @@ download_package() {
 	output_file="${stage_dir}/tzdata-${package_version}-${output_arch}.pkg.tar.bz2"
 	case "${upstream_file}" in
 		*.bz2) cp "${upstream_file}" "${output_file}" ;;
-		*.xz) xz -d -c "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
+		*.xz) recompress_xz_package "${upstream_file}" "${output_file}" ;;
 		*.zst) zstd --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
 	esac
 	tar -tjf "${output_file}" >/dev/null
