@@ -5076,6 +5076,7 @@ adguard_install_abort_trap_disable() {
 	ADGUARD_RESTORE_STAGE_DIR=""
 	ADGUARD_RESTORE_TARG_DIR=""
 	ADGUARD_RESTORE_TARGET_INSTALLED="0"
+	ADGUARD_TIMEZONE_TMP=""
 }
 
 adguard_install_abort_trap_disable_preserve_defer() {
@@ -5102,7 +5103,7 @@ adguard_install_abort_trap_disable_preserve_defer() {
 
 adguard_install_abort_on_signal() {
 	END_OP_SIGNAL=1
-	local MIGRATION_ROLLED_BACK=0 MIGRATION_ROLLBACK_STATUS=0 OLD_BINARY REPLACE_ACTIVE RESTORE_ACTIVE RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARGET_INSTALLED RESTORE_TARG_DIR STAGE_DIR WAS_RUNNING
+	local MIGRATION_ROLLED_BACK=0 MIGRATION_ROLLBACK_STATUS=0 OLD_BINARY REPLACE_ACTIVE RESTORE_ACTIVE RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARGET_INSTALLED RESTORE_TARG_DIR STAGE_DIR TIMEZONE_TMP WAS_RUNNING
 	OLD_BINARY="${ADGUARD_INSTALL_OLD_BINARY:-}"
 	REPLACE_ACTIVE="${ADGUARD_INSTALL_REPLACE_ACTIVE:-0}"
 	STAGE_DIR="${ADGUARD_INSTALL_STAGE_DIR:-}"
@@ -5112,8 +5113,10 @@ adguard_install_abort_on_signal() {
 	RESTORE_STAGE_DIR="${ADGUARD_RESTORE_STAGE_DIR:-}"
 	RESTORE_TARG_DIR="${ADGUARD_RESTORE_TARG_DIR:-}"
 	RESTORE_TARGET_INSTALLED="${ADGUARD_RESTORE_TARGET_INSTALLED:-0}"
+	TIMEZONE_TMP="${ADGUARD_TIMEZONE_TMP:-}"
 	adguard_install_abort_trap_disable
 	[ -z "${STAGE_DIR}" ] || rm -rf "${STAGE_DIR}"
+	[ -z "${TIMEZONE_TMP}" ] || rm -f "${TIMEZONE_TMP}"
 	# Restore setup's pre-migration file journal before rolling back migration state.
 	# EXIT cleanup will then observe no journal and cannot republish migrated files.
 	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
@@ -6575,7 +6578,7 @@ format_timezone_menu() {
 }
 
 set_timezone() {
-	local TMP TZ_ARCH TZ_DATA INDEX TZ_FILE TZ_LIST TZ_POSIX_DIR
+	local TMP TZ_ARCH TZ_DATA INDEX TZ_FILE TZ_LIST TZ_LOCALTIME_TMP TZ_POSIX_DIR
 	TMP="/root"
 	TZ_ARCH="$(uname -m)"
 	case "${TZ_ARCH}" in
@@ -6620,16 +6623,34 @@ set_timezone() {
 		*) TZ_POSIX_DIR="usr/share/zoneinfo/posix" ;;
 	esac
 	tar xjf "${TMP}/${TZ_DATA}" -C "${TMP}" "${TZ_POSIX_DIR}" || return 1
-	# Copying dereferences upstream timezone aliases so localtime remains valid
-	# after the extracted package tree is removed.
-	if ! cp "${TMP}/${TZ_FILE}" "${ADDON_DIR}/localtime"; then
+	TZ_LOCALTIME_TMP="${ADDON_DIR}/.localtime.$$"
+	ADGUARD_TIMEZONE_TMP="${TZ_LOCALTIME_TMP}"
+	if [ -e "${TZ_LOCALTIME_TMP}" ] || [ -L "${TZ_LOCALTIME_TMP}" ] ||
+		! (umask 077 && set -C && : >"${TZ_LOCALTIME_TMP}"); then
+		ADGUARD_TIMEZONE_TMP=""
+		PTXT "${ERROR} Unable to create a temporary timezone file"
+		return 1
+	fi
+	# Copying into a fresh regular file dereferences upstream timezone aliases.
+	if ! cp "${TMP}/${TZ_FILE}" "${TZ_LOCALTIME_TMP}"; then
+		rm -f "${TZ_LOCALTIME_TMP}"
+		ADGUARD_TIMEZONE_TMP=""
 		PTXT "${ERROR} Unable to set your timezone file"
 		return 1
 	fi
-	if ! chmod 755 "${ADDON_DIR}" || ! chmod 644 "${ADDON_DIR}/localtime"; then
+	if ! chmod 755 "${ADDON_DIR}" || ! chmod 644 "${TZ_LOCALTIME_TMP}"; then
+		rm -f "${TZ_LOCALTIME_TMP}"
+		ADGUARD_TIMEZONE_TMP=""
 		PTXT "${ERROR} Unable to make the timezone data readable"
 		return 1
 	fi
+	if ! mv -f "${TZ_LOCALTIME_TMP}" "${ADDON_DIR}/localtime"; then
+		rm -f "${TZ_LOCALTIME_TMP}"
+		ADGUARD_TIMEZONE_TMP=""
+		PTXT "${ERROR} Unable to replace the timezone file"
+		return 1
+	fi
+	ADGUARD_TIMEZONE_TMP=""
 	rm -rf "${TMP:?}/${TZ_DATA}" "${TMP:?}/usr"
 }
 

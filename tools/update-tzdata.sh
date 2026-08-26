@@ -201,12 +201,17 @@ import tarfile
 archive = sys.argv[1]
 with tarfile.open(archive, "r:bz2") as package:
     has_posix_timezone = False
+    posix_prefix = "usr/share/zoneinfo/posix/"
+    members = {}
     for member in package.getmembers():
         normalized_name = posixpath.normpath(member.name)
         if ".." in member.name.split("/"):
             raise SystemExit(f"Unsafe archive member path: {member.name}")
         if member.name.startswith("/") or normalized_name == ".." or normalized_name.startswith("../"):
             raise SystemExit(f"Unsafe archive member path: {member.name}")
+        if normalized_name in members:
+            raise SystemExit(f"Duplicate archive member path: {member.name}")
+        members[normalized_name] = member
         if member.issym():
             link_path = posixpath.normpath(posixpath.join(posixpath.dirname(normalized_name), member.linkname))
         elif member.islnk():
@@ -217,14 +222,34 @@ with tarfile.open(archive, "r:bz2") as package:
             raise SystemExit(f"Unsafe archive link: {member.name} -> {member.linkname}")
     for member in package.getmembers():
         normalized_name = posixpath.normpath(member.name)
-        if normalized_name.startswith("usr/share/zoneinfo/posix/") and not member.isdir():
+        if normalized_name.startswith(posix_prefix) and not member.isdir():
             has_dot_prefix = member.name.startswith("./usr/share/zoneinfo/posix/")
             has_plain_prefix = member.name.startswith("usr/share/zoneinfo/posix/")
             if not has_dot_prefix and not has_plain_prefix:
                 raise SystemExit(f"POSIX timezone has an unsupported archive path: {member.name}")
             if not (member.isfile() or member.issym() or member.islnk()):
                 raise SystemExit(f"POSIX timezone is not a file or link: {member.name}")
-            timezone = package.extractfile(member)
+            resolved_member = member
+            resolved_name = normalized_name
+            visited = set()
+            while resolved_member.issym() or resolved_member.islnk():
+                if resolved_name in visited:
+                    raise SystemExit(f"POSIX timezone link cycle: {member.name}")
+                visited.add(resolved_name)
+                if resolved_member.issym():
+                    resolved_name = posixpath.normpath(
+                        posixpath.join(posixpath.dirname(resolved_name), resolved_member.linkname)
+                    )
+                else:
+                    resolved_name = posixpath.normpath(resolved_member.linkname)
+                if not resolved_name.startswith(posix_prefix):
+                    raise SystemExit(f"POSIX timezone link leaves extracted subtree: {member.name}")
+                resolved_member = members.get(resolved_name)
+                if resolved_member is None:
+                    raise SystemExit(f"POSIX timezone link target is missing: {member.name}")
+            if not resolved_member.isfile():
+                raise SystemExit(f"POSIX timezone link target is not a regular file: {member.name}")
+            timezone = package.extractfile(resolved_member)
             if timezone is None or timezone.read(4) != b"TZif":
                 raise SystemExit(f"POSIX timezone has invalid TZif data: {member.name}")
             has_posix_timezone = True

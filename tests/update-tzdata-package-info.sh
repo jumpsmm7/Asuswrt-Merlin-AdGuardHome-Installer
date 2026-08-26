@@ -174,8 +174,108 @@ if ! "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
 	"${TMP_DIR}/alias-posix.tar.bz2"; then
 	fail 'Archive with a safe POSIX timezone alias unexpectedly failed validation'
 fi
-grep -Fq 'cp "${TMP}/${TZ_FILE}" "${ADDON_DIR}/localtime"' "${REPO_DIR}/installer" ||
-	fail 'Installer does not dereference POSIX timezone aliases when installing localtime'
+"${python3_cmd}" - "${TMP_DIR}/alias-chain-posix.tar.bz2" <<'PY'
+import io
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1], "w:bz2") as package:
+    timezone = tarfile.TarInfo("usr/share/zoneinfo/posix/Etc/UTC")
+    payload = b"TZif POSIX test timezone\n"
+    timezone.size = len(payload)
+    package.addfile(timezone, io.BytesIO(payload))
+    for name, target in (
+        ("./usr/share/zoneinfo/posix/UTC", "Etc/UTC"),
+        ("usr/share/zoneinfo/posix/UTC-chain", "UTC"),
+    ):
+        alias = tarfile.TarInfo(name)
+        alias.type = tarfile.SYMTYPE
+        alias.linkname = target
+        package.addfile(alias)
+    hard_alias = tarfile.TarInfo("usr/share/zoneinfo/posix/UTC-hard")
+    hard_alias.type = tarfile.LNKTYPE
+    hard_alias.linkname = "./usr/share/zoneinfo/posix/UTC-chain"
+    package.addfile(hard_alias)
+PY
+if ! "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/alias-chain-posix.tar.bz2"; then
+	fail 'Archive with a safe dotted/plain POSIX alias chain unexpectedly failed validation'
+fi
+"${python3_cmd}" - "${TMP_DIR}/outside-alias-posix.tar.bz2" <<'PY'
+import io
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1], "w:bz2") as package:
+    timezone = tarfile.TarInfo("usr/share/zoneinfo/Etc/UTC")
+    payload = b"TZif POSIX test timezone\n"
+    timezone.size = len(payload)
+    package.addfile(timezone, io.BytesIO(payload))
+    alias = tarfile.TarInfo("usr/share/zoneinfo/posix/UTC")
+    alias.type = tarfile.SYMTYPE
+    alias.linkname = "../Etc/UTC"
+    package.addfile(alias)
+PY
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/outside-alias-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'POSIX alias targeting an unextracted timezone unexpectedly passed validation'
+fi
+grep -Fq 'TZ_LOCALTIME_TMP="${ADDON_DIR}/.localtime.$$"' "${REPO_DIR}/installer" ||
+	fail 'Installer does not stage localtime inside the destination directory'
+grep -Fq '! (umask 077 && set -C && : >"${TZ_LOCALTIME_TMP}")' "${REPO_DIR}/installer" ||
+	fail 'Installer does not require a fresh regular localtime staging file'
+grep -Fq 'cp "${TMP}/${TZ_FILE}" "${TZ_LOCALTIME_TMP}"' "${REPO_DIR}/installer" ||
+	fail 'Installer does not dereference POSIX timezone aliases into the staging file'
+grep -Fq 'mv -f "${TZ_LOCALTIME_TMP}" "${ADDON_DIR}/localtime"' "${REPO_DIR}/installer" ||
+	fail 'Installer does not atomically replace localtime from the staging file'
+grep -Fq '[ -z "${TIMEZONE_TMP}" ] || rm -f "${TIMEZONE_TMP}"' "${REPO_DIR}/installer" ||
+	fail 'Installer signal cleanup does not remove the localtime staging file'
+awk 'found { print } /^set_timezone\(\) \{/ { found = 1; print } found && /^}/ { exit }' \
+	"${REPO_DIR}/installer" |
+	sed 's|TMP="/root"|TMP="${TEST_ROOT}"|; s|/opt/bin/column|${COLUMN_CMD}|g' \
+	>"${TMP_DIR}/set-timezone.sh"
+. "${TMP_DIR}/set-timezone.sh"
+TEST_ROOT="${TMP_DIR}/installer-timezone"
+ADDON_DIR="${TEST_ROOT}/addon"
+COLUMN_CMD="${TEST_ROOT}/column"
+RURL='fixture:'
+ERROR='ERROR:'
+INFO='INFO:'
+CHOSEN=''
+mkdir -p "${ADDON_DIR}"
+cat >"${COLUMN_CMD}" <<'EOF'
+#!/bin/sh
+cat
+EOF
+chmod 755 "${COLUMN_CMD}"
+cp "${TMP_DIR}/alias-posix.tar.bz2" "${TEST_ROOT}/tzdata-2026c-1-aarch64.pkg.tar.bz2.fixture"
+printf '%s\n' 'must remain unchanged' >"${TEST_ROOT}/outside-localtime"
+ln -s "${TEST_ROOT}/outside-localtime" "${ADDON_DIR}/localtime"
+ensure_opkg_package() { return 0; }
+ai_have_cmd() { return 0; }
+PTXT() { printf '%s\n' "$1"; }
+uname() { printf '%s\n' 'aarch64'; }
+download_file() {
+	cp "${TEST_ROOT}/tzdata-2026c-1-aarch64.pkg.tar.bz2.fixture" "$1/tzdata-2026c-1-aarch64.pkg.tar.bz2"
+}
+read_input_num() {
+	CHOSEN=2
+}
+if ! set_timezone >/dev/null; then
+	fail 'Installer failed to atomically replace a dangling localtime alias'
+fi
+if [ -L "${ADDON_DIR}/localtime" ] || [ ! -f "${ADDON_DIR}/localtime" ]; then
+	fail 'Installer did not replace the dangling localtime alias with a regular file'
+fi
+if [ "$(cat "${ADDON_DIR}/localtime")" != 'TZif POSIX test timezone' ]; then
+	fail 'Installer did not install the dereferenced timezone payload'
+fi
+if [ "$(cat "${TEST_ROOT}/outside-localtime")" != 'must remain unchanged' ]; then
+	fail 'Installer followed the previous localtime destination alias'
+fi
+if find "${ADDON_DIR}" -name '.localtime.*' -print | grep -q .; then
+	fail 'Installer left a localtime staging file after successful replacement'
+fi
 mkdir -p "${TMP_DIR}/empty-posix/usr/share/zoneinfo/posix/Etc"
 : >"${TMP_DIR}/empty-posix/usr/share/zoneinfo/posix/Etc/UTC"
 tar -cjf "${TMP_DIR}/empty-posix.tar.bz2" -C "${TMP_DIR}/empty-posix" .
