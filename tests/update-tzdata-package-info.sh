@@ -106,6 +106,25 @@ if ! "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
 	"${TMP_DIR}/plain-prefix-posix.tar.bz2"; then
 	fail 'Archive with an unprefixed POSIX timezone payload unexpectedly failed validation'
 fi
+"${python3_cmd}" - "${TMP_DIR}/normalized-prefix-posix.tar.bz2" <<'PY'
+import io
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1], "w:bz2") as package:
+    payload = b"TZif POSIX test timezone\n"
+    for member_name in (
+        "usr/share/zoneinfo/posix/Etc/UTC",
+        "x/../usr/share/zoneinfo/posix/Etc/Unsafe",
+    ):
+        timezone = tarfile.TarInfo(member_name)
+        timezone.size = len(payload)
+        package.addfile(timezone, io.BytesIO(payload))
+PY
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/normalized-prefix-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive with a normalized-only POSIX timezone prefix unexpectedly passed validation'
+fi
 grep -Fq '*) TZ_POSIX_DIR="usr/share/zoneinfo/posix" ;;' "${REPO_DIR}/installer" ||
 	fail 'Installer does not support unprefixed POSIX timezone paths'
 awk 'found { print } /^format_timezone_menu\(\) \{/ { found = 1; print } found && /^}/ { exit }' \
