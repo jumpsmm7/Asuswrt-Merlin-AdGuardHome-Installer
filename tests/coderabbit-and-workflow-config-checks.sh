@@ -222,6 +222,15 @@ grep -Fq 'busybox ash tests/installer-dns-environment-failure.sh' "${SHELL_VALID
 	fail "${SHELL_VALIDATION_WORKFLOW}: expected the installer NVRAM transaction regression to run with BusyBox ash"
 grep -Fq 'busybox ash tests/update-tzdata-package-info.sh' "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: expected the tzdata conversion regression to run with BusyBox ash"
+grep -Fq "repository: \${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}" \
+	"${SHELL_VALIDATION_WORKFLOW}" ||
+	fail "${SHELL_VALIDATION_WORKFLOW}: checksum checkout must use the pull-request source repository"
+grep -Fq "ref: \${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}" \
+	"${SHELL_VALIDATION_WORKFLOW}" ||
+	fail "${SHELL_VALIDATION_WORKFLOW}: checksum checkout must use the immutable pull-request head SHA"
+grep -Fq "if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository" \
+	"${SHELL_VALIDATION_WORKFLOW}" ||
+	fail "${SHELL_VALIDATION_WORKFLOW}: checksum polling must skip pull requests from repositories the updater cannot write"
 grep -Fq '      - tests/update-tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
 	fail "${TZDATA_WORKFLOW}: tzdata regression changes must trigger the update workflow"
 grep -Fq '      - tools/tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
