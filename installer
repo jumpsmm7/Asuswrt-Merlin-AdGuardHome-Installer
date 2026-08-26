@@ -6620,7 +6620,9 @@ set_timezone() {
 		*) TZ_POSIX_DIR="usr/share/zoneinfo/posix" ;;
 	esac
 	tar xjf "${TMP}/${TZ_DATA}" -C "${TMP}" "${TZ_POSIX_DIR}" || return 1
-	if ! mv "${TMP}/${TZ_FILE}" "${ADDON_DIR}/localtime"; then
+	# Copying dereferences upstream timezone aliases so localtime remains valid
+	# after the extracted package tree is removed.
+	if ! cp "${TMP}/${TZ_FILE}" "${ADDON_DIR}/localtime"; then
 		PTXT "${ERROR} Unable to set your timezone file"
 		return 1
 	fi

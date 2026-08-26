@@ -170,10 +170,12 @@ mkdir -p "${TMP_DIR}/alias-posix/usr/share/zoneinfo/posix/Etc"
 printf 'TZif POSIX test timezone\n' >"${TMP_DIR}/alias-posix/usr/share/zoneinfo/posix/Etc/UTC"
 ln -s Etc/UTC "${TMP_DIR}/alias-posix/usr/share/zoneinfo/posix/UTC"
 tar -cjf "${TMP_DIR}/alias-posix.tar.bz2" -C "${TMP_DIR}/alias-posix" .
-if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
-	"${TMP_DIR}/alias-posix.tar.bz2" >/dev/null 2>&1; then
-	fail 'Archive with a selectable POSIX timezone alias unexpectedly passed validation'
+if ! "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/alias-posix.tar.bz2"; then
+	fail 'Archive with a safe POSIX timezone alias unexpectedly failed validation'
 fi
+grep -Fq 'cp "${TMP}/${TZ_FILE}" "${ADDON_DIR}/localtime"' "${REPO_DIR}/installer" ||
+	fail 'Installer does not dereference POSIX timezone aliases when installing localtime'
 mkdir -p "${TMP_DIR}/empty-posix/usr/share/zoneinfo/posix/Etc"
 : >"${TMP_DIR}/empty-posix/usr/share/zoneinfo/posix/Etc/UTC"
 tar -cjf "${TMP_DIR}/empty-posix.tar.bz2" -C "${TMP_DIR}/empty-posix" .

@@ -207,17 +207,6 @@ with tarfile.open(archive, "r:bz2") as package:
             raise SystemExit(f"Unsafe archive member path: {member.name}")
         if member.name.startswith("/") or normalized_name == ".." or normalized_name.startswith("../"):
             raise SystemExit(f"Unsafe archive member path: {member.name}")
-        if normalized_name.startswith("usr/share/zoneinfo/posix/") and not member.isdir():
-            has_dot_prefix = member.name.startswith("./usr/share/zoneinfo/posix/")
-            has_plain_prefix = member.name.startswith("usr/share/zoneinfo/posix/")
-            if not has_dot_prefix and not has_plain_prefix:
-                raise SystemExit(f"POSIX timezone has an unsupported archive path: {member.name}")
-            if not member.isfile():
-                raise SystemExit(f"POSIX timezone is not a regular file: {member.name}")
-            timezone = package.extractfile(member)
-            if timezone is None or timezone.read(4) != b"TZif":
-                raise SystemExit(f"POSIX timezone has invalid TZif data: {member.name}")
-            has_posix_timezone = True
         if member.issym():
             link_path = posixpath.normpath(posixpath.join(posixpath.dirname(normalized_name), member.linkname))
         elif member.islnk():
@@ -226,6 +215,19 @@ with tarfile.open(archive, "r:bz2") as package:
             continue
         if member.linkname.startswith("/") or link_path == ".." or link_path.startswith("../"):
             raise SystemExit(f"Unsafe archive link: {member.name} -> {member.linkname}")
+    for member in package.getmembers():
+        normalized_name = posixpath.normpath(member.name)
+        if normalized_name.startswith("usr/share/zoneinfo/posix/") and not member.isdir():
+            has_dot_prefix = member.name.startswith("./usr/share/zoneinfo/posix/")
+            has_plain_prefix = member.name.startswith("usr/share/zoneinfo/posix/")
+            if not has_dot_prefix and not has_plain_prefix:
+                raise SystemExit(f"POSIX timezone has an unsupported archive path: {member.name}")
+            if not (member.isfile() or member.issym() or member.islnk()):
+                raise SystemExit(f"POSIX timezone is not a file or link: {member.name}")
+            timezone = package.extractfile(member)
+            if timezone is None or timezone.read(4) != b"TZif":
+                raise SystemExit(f"POSIX timezone has invalid TZif data: {member.name}")
+            has_posix_timezone = True
     if not has_posix_timezone:
         raise SystemExit(f"Package has no usable POSIX timezone payload: {archive}")
 PY
