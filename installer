@@ -6578,7 +6578,7 @@ format_timezone_menu() {
 }
 
 set_timezone() {
-	local TMP TZ_ARCH TZ_DATA INDEX TZ_FILE TZ_LIST TZ_LOCALTIME_TMP TZ_POSIX_DIR
+	local TMP TZ_ARCH TZ_DATA INDEX TZ_FILE TZ_LIST TZ_LOCALTIME_TMP TZ_ZONEINFO_DIR
 	TMP="/root"
 	TZ_ARCH="$(uname -m)"
 	case "${TZ_ARCH}" in
@@ -6619,10 +6619,10 @@ set_timezone() {
 	[ -n "${TZ_FILE}" ] || return 1
 	PTXT "${INFO} ${TZ_FILE##*/} selected"
 	case "${TZ_FILE}" in
-		./*) TZ_POSIX_DIR="./usr/share/zoneinfo/posix" ;;
-		*) TZ_POSIX_DIR="usr/share/zoneinfo/posix" ;;
+		./*) TZ_ZONEINFO_DIR="./usr/share/zoneinfo" ;;
+		*) TZ_ZONEINFO_DIR="usr/share/zoneinfo" ;;
 	esac
-	tar xjf "${TMP}/${TZ_DATA}" -C "${TMP}" "${TZ_POSIX_DIR}" || return 1
+	tar xjf "${TMP}/${TZ_DATA}" -C "${TMP}" "${TZ_ZONEINFO_DIR}" || return 1
 	TZ_LOCALTIME_TMP="${ADDON_DIR}/.localtime.$$"
 	ADGUARD_TIMEZONE_TMP="${TZ_LOCALTIME_TMP}"
 	if [ -e "${TZ_LOCALTIME_TMP}" ] || [ -L "${TZ_LOCALTIME_TMP}" ] ||

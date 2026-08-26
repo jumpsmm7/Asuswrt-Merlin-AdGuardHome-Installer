@@ -84,7 +84,6 @@ jobs:
             nj.us.mirror.archlinuxarm.org
             fl.us.mirror.archlinuxarm.org
             mirror.archlinuxarm.org
-          PYTHON3: /usr/bin/python3
           SIGNING_KEY_FINGERPRINT: 68B3537F39A313B3E574D06777193F152BDBE6A6
         run: sh tools/update-tzdata.sh .
 
