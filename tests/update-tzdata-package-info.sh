@@ -109,7 +109,7 @@ awk 'found { print } /^format_timezone_menu\(\) \{/ { found = 1; print } found &
 awk 'found { print } /^set_timezone\(\) \{/ { found = 1; print } found && /^}/ { exit }' \
 	"${REPO_DIR}/installer" |
 	sed 's|TMP="/root"|TMP="${TEST_ROOT}"|; s|/opt/bin/column|${COLUMN_CMD}|g' \
-	>>"${TMP_DIR}/installer-timezone.sh"
+		>>"${TMP_DIR}/installer-timezone.sh"
 . "${TMP_DIR}/installer-timezone.sh"
 TEST_ROOT="${TMP_DIR}/installer"
 ADDON_DIR="${TEST_ROOT}/addon"
