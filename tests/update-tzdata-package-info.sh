@@ -106,7 +106,7 @@ if ! "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
 	"${TMP_DIR}/plain-prefix-posix.tar.bz2"; then
 	fail 'Archive with an unprefixed POSIX timezone payload unexpectedly failed validation'
 fi
-"${python3_cmd}" - "${TMP_DIR}/normalized-prefix-posix.tar.bz2" <<'PY'
+"${python3_cmd}" - "${TMP_DIR}/traversal-posix.tar.bz2" <<'PY'
 import io
 import sys
 import tarfile
@@ -115,27 +115,34 @@ with tarfile.open(sys.argv[1], "w:bz2") as package:
     payload = b"TZif POSIX test timezone\n"
     for member_name in (
         "usr/share/zoneinfo/posix/Etc/UTC",
-        "x/../usr/share/zoneinfo/posix/Etc/Unsafe",
+        "usr/share/zoneinfo/posix/Etc/../Unsafe",
     ):
         timezone = tarfile.TarInfo(member_name)
         timezone.size = len(payload)
         package.addfile(timezone, io.BytesIO(payload))
 PY
 if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
-	"${TMP_DIR}/normalized-prefix-posix.tar.bz2" >/dev/null 2>&1; then
-	fail 'Archive with a normalized-only POSIX timezone prefix unexpectedly passed validation'
+	"${TMP_DIR}/traversal-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive with a POSIX timezone traversal component unexpectedly passed validation'
 fi
 grep -Fq '*) TZ_POSIX_DIR="usr/share/zoneinfo/posix" ;;' "${REPO_DIR}/installer" ||
 	fail 'Installer does not support unprefixed POSIX timezone paths'
-awk 'found { print } /^format_timezone_menu\(\) \{/ { found = 1; print } found && /^}/ { exit }' \
+awk 'found { print } /^filter_timezone_members\(\) \{/ { found = 1; print } found && /^}/ { exit }' \
 	"${REPO_DIR}/installer" >"${TMP_DIR}/format-timezone-menu.sh"
+awk 'found { print } /^format_timezone_menu\(\) \{/ { found = 1; print } found && /^}/ { exit }' \
+	"${REPO_DIR}/installer" >>"${TMP_DIR}/format-timezone-menu.sh"
 . "${TMP_DIR}/format-timezone-menu.sh"
 expected_timezone_menu='  1) America/Argentina/Cordoba
   2) America/Cordoba'
 for timezone_prefix in './usr/share/zoneinfo/posix/' 'usr/share/zoneinfo/posix/'; do
+	traversal_timezone="${timezone_prefix}America/../Etc/Unsafe"
+	if printf '%s\n' "${traversal_timezone}" | filter_timezone_members | grep -q .; then
+		fail "Installer can select traversal timezone member ${traversal_timezone}"
+	fi
 	timezone_menu="$(printf '%s\n' \
 		"${timezone_prefix}America/Cordoba" \
 		"${timezone_prefix}America/Argentina/Cordoba" \
+		"${traversal_timezone}" \
 		"prefix/${timezone_prefix}America/Cordoba" |
 		format_timezone_menu)"
 	if [ "${timezone_menu}" != "${expected_timezone_menu}" ]; then

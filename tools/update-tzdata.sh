@@ -201,6 +201,8 @@ with tarfile.open(archive, "r:bz2") as package:
     has_posix_timezone = False
     for member in package.getmembers():
         normalized_name = posixpath.normpath(member.name)
+        if ".." in member.name.split("/"):
+            raise SystemExit(f"Unsafe archive member path: {member.name}")
         if member.name.startswith("/") or normalized_name == ".." or normalized_name.startswith("../"):
             raise SystemExit(f"Unsafe archive member path: {member.name}")
         if normalized_name.startswith("usr/share/zoneinfo/posix/") and not member.isdir():

@@ -6552,8 +6552,12 @@ inst_AdGuardHome() {
 	end_op_message 0 "$1"
 }
 
+filter_timezone_members() {
+	awk '!/\/$/ {timezone=$0; sub(/^\.\//, "", timezone); if (timezone ~ /^usr\/share\/zoneinfo\/posix\// && timezone !~ /(^|\/)\.\.(\/|$)/) print $0}'
+}
+
 format_timezone_menu() {
-	awk '!/\/$/ {timezone=$0; sub(/^\.\//, "", timezone); if (timezone ~ /^usr\/share\/zoneinfo\/posix\//) print $0}' |
+	filter_timezone_members |
 		sort |
 		awk -v INDEX=0 '{timezone=$0; sub(/^\.\//, "", timezone); sub(/^usr\/share\/zoneinfo\/posix\//, "", timezone); ++INDEX; printf "  %d) %s\n", INDEX, timezone}'
 }
@@ -6585,7 +6589,7 @@ set_timezone() {
 		PTXT "${ERROR} Unable to read timezone archive ${TZ_DATA}."
 		return 1
 	}
-	INDEX="$(PTXT "${TZ_LIST}" | awk '!/\/$/ {timezone=$0; sub(/^\.\//, "", timezone); if (timezone ~ /^usr\/share\/zoneinfo\/posix\//) count++} END {print count + 0}')"
+	INDEX="$(PTXT "${TZ_LIST}" | filter_timezone_members | awk 'END {print NR + 0}')"
 	[ "${INDEX}" -gt 0 ] || {
 		PTXT "${ERROR} No timezone files were found in ${TZ_DATA}."
 		return 1
@@ -6596,7 +6600,7 @@ set_timezone() {
 		PTXT "${ERROR} Unable to select a timezone."
 		return 1
 	fi
-	TZ_FILE="$(PTXT "${TZ_LIST}" | awk '!/\/$/ {timezone=$0; sub(/^\.\//, "", timezone); if (timezone ~ /^usr\/share\/zoneinfo\/posix\//) print $0}' | sort | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
+	TZ_FILE="$(PTXT "${TZ_LIST}" | filter_timezone_members | sort | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
 	[ -n "${TZ_FILE}" ] || return 1
 	PTXT "${INFO} ${TZ_FILE##*/} selected"
 	case "${TZ_FILE}" in
