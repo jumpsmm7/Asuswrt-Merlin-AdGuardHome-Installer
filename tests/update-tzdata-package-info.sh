@@ -64,7 +64,7 @@ if recompress_xz_package "${TMP_DIR}/malformed.pkg.tar.xz" \
 	"${TMP_DIR}/malformed.pkg.tar.bz2" >/dev/null 2>&1; then
 	fail 'Malformed trailing XZ data unexpectedly passed recompression'
 fi
-if [ -e "${TMP_DIR}/malformed.pkg.tar.bz2" ] ||
+if [ -e "${TMP_DIR}/malformed.pkg.tar.bz2" ] || \
 	[ -e "${TMP_DIR}/malformed.pkg.tar.bz2.tar" ]; then
 	fail 'Failed XZ decompression left conversion files behind'
 fi
