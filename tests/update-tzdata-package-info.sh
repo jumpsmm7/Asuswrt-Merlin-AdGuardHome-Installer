@@ -48,10 +48,25 @@ if ! cmp "${TMP_DIR}/tzdata.tar" "${TMP_DIR}/recompressed.tar"; then
 fi
 
 UPDATE_SCRIPT="${REPO_DIR}/tools/update-tzdata.sh"
-grep -Fq '*.xz) xz -d -c "${upstream_file}" | bzip2 -9 >"${output_file}" ;;' \
-	"${UPDATE_SCRIPT}" || fail 'Update script does not preserve the xz tar stream during recompression'
+grep -Fq '*.xz) recompress_xz_package "${upstream_file}" "${output_file}" ;;' \
+	"${UPDATE_SCRIPT}" || fail 'Update script does not verify xz decompression before recompression'
 if grep -Eq '(xz|bzip2) -dc([[:space:]]|$)' "${UPDATE_SCRIPT}" "${0}"; then
 	fail 'Combined decompression flags are incompatible with the BusyBox applets'
+fi
+awk 'found { print } /^recompress_xz_package\(\) \{/ { found = 1; print } found && /^}/ { exit }' \
+	"${UPDATE_SCRIPT}" >"${TMP_DIR}/recompress-xz-package.sh"
+. "${TMP_DIR}/recompress-xz-package.sh"
+cp "${TMP_DIR}/tzdata.pkg.tar.xz" "${TMP_DIR}/malformed.pkg.tar.xz"
+printf '\3757zXZ\000' >>"${TMP_DIR}/malformed.pkg.tar.xz"
+printf '%s\n' 'stale output' >"${TMP_DIR}/malformed.pkg.tar.bz2"
+printf '%s\n' 'stale temporary stream' >"${TMP_DIR}/malformed.pkg.tar.bz2.tar"
+if recompress_xz_package "${TMP_DIR}/malformed.pkg.tar.xz" \
+	"${TMP_DIR}/malformed.pkg.tar.bz2" >/dev/null 2>&1; then
+	fail 'Malformed trailing XZ data unexpectedly passed recompression'
+fi
+if [ -e "${TMP_DIR}/malformed.pkg.tar.bz2" ] || \
+	[ -e "${TMP_DIR}/malformed.pkg.tar.bz2.tar" ]; then
+	fail 'Failed XZ decompression left conversion files behind'
 fi
 grep -Fq 'download_package aarch64 aarch64' "${UPDATE_SCRIPT}" ||
 	fail 'Update script does not publish the aarch64 package'
@@ -83,12 +98,27 @@ if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
 	"${TMP_DIR}/symlink-posix.tar.bz2" >/dev/null 2>&1; then
 	fail 'Archive with only a safe POSIX timezone symbolic link unexpectedly passed validation'
 fi
+mkdir -p "${TMP_DIR}/alias-posix/usr/share/zoneinfo/posix/Etc"
+printf 'TZif POSIX test timezone\n' >"${TMP_DIR}/alias-posix/usr/share/zoneinfo/posix/Etc/UTC"
+ln -s Etc/UTC "${TMP_DIR}/alias-posix/usr/share/zoneinfo/posix/UTC"
+tar -cjf "${TMP_DIR}/alias-posix.tar.bz2" -C "${TMP_DIR}/alias-posix" .
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/alias-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive with a selectable POSIX timezone alias unexpectedly passed validation'
+fi
 mkdir -p "${TMP_DIR}/empty-posix/usr/share/zoneinfo/posix/Etc"
 : >"${TMP_DIR}/empty-posix/usr/share/zoneinfo/posix/Etc/UTC"
 tar -cjf "${TMP_DIR}/empty-posix.tar.bz2" -C "${TMP_DIR}/empty-posix" .
 if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
 	"${TMP_DIR}/empty-posix.tar.bz2" >/dev/null 2>&1; then
 	fail 'Archive with only an empty POSIX timezone file unexpectedly passed validation'
+fi
+mkdir -p "${TMP_DIR}/invalid-posix/usr/share/zoneinfo/posix/Etc"
+printf 'not timezone data\n' >"${TMP_DIR}/invalid-posix/usr/share/zoneinfo/posix/Etc/UTC"
+tar -cjf "${TMP_DIR}/invalid-posix.tar.bz2" -C "${TMP_DIR}/invalid-posix" .
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/invalid-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive with invalid POSIX timezone data unexpectedly passed validation'
 fi
 if ! "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
 	"${TMP_DIR}/tzdata.pkg.tar.bz2"; then

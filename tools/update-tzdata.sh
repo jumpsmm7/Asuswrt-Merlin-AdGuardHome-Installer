@@ -128,6 +128,24 @@ discover_package_filename() {
 	return 1
 }
 
+recompress_xz_package() {
+	local decompressed_file output_file upstream_file
+	upstream_file="$1"
+	output_file="$2"
+	decompressed_file="${output_file}.tar"
+
+	rm -f "${decompressed_file}" "${output_file}"
+	if ! xz -d -c "${upstream_file}" >"${decompressed_file}"; then
+		rm -f "${decompressed_file}" "${output_file}"
+		return 1
+	fi
+	if ! bzip2 -9 <"${decompressed_file}" >"${output_file}"; then
+		rm -f "${decompressed_file}" "${output_file}"
+		return 1
+	fi
+	rm -f "${decompressed_file}"
+}
+
 download_package() {
 	local architecture output_arch filename
 	local upstream_file package_info package_version package_arch output_file
@@ -169,7 +187,7 @@ download_package() {
 	output_file="${stage_dir}/tzdata-${package_version}-${output_arch}.pkg.tar.bz2"
 	case "${upstream_file}" in
 		*.bz2) cp "${upstream_file}" "${output_file}" ;;
-		*.xz) xz -d -c "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
+		*.xz) recompress_xz_package "${upstream_file}" "${output_file}" ;;
 		*.zst) zstd --decompress --stdout "${upstream_file}" | bzip2 -9 >"${output_file}" ;;
 	esac
 	tar -tjf "${output_file}" >/dev/null
@@ -185,8 +203,12 @@ with tarfile.open(archive, "r:bz2") as package:
         normalized_name = posixpath.normpath(member.name)
         if member.name.startswith("/") or normalized_name == ".." or normalized_name.startswith("../"):
             raise SystemExit(f"Unsafe archive member path: {member.name}")
-        if (member.isfile() and member.size > 0 and
-                normalized_name.startswith("usr/share/zoneinfo/posix/")):
+        if normalized_name.startswith("usr/share/zoneinfo/posix/") and not member.isdir():
+            if not member.isfile():
+                raise SystemExit(f"POSIX timezone is not a regular file: {member.name}")
+            timezone = package.extractfile(member)
+            if timezone is None or timezone.read(4) != b"TZif":
+                raise SystemExit(f"POSIX timezone has invalid TZif data: {member.name}")
             has_posix_timezone = True
         if member.issym():
             link_path = posixpath.normpath(posixpath.join(posixpath.dirname(normalized_name), member.linkname))
