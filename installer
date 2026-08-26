@@ -6553,7 +6553,7 @@ inst_AdGuardHome() {
 }
 
 set_timezone() {
-	local TMP TZ_ARCH TZ_DATA INDEX TZ_FILE TZ_LIST
+	local TMP TZ_ARCH TZ_DATA INDEX TZ_FILE TZ_LIST TZ_POSIX_DIR
 	TMP="/root"
 	TZ_ARCH="$(uname -m)"
 	case "${TZ_ARCH}" in
@@ -6593,7 +6593,11 @@ set_timezone() {
 	TZ_FILE="$(PTXT "${TZ_LIST}" | awk -F'/' '!/\/$/ && /\/posix\//' | sort | awk -v INDEX="$CHOSEN" '{++i}i==INDEX{print $0}')"
 	[ -n "${TZ_FILE}" ] || return 1
 	PTXT "${INFO} ${TZ_FILE##*/} selected"
-	tar xjf "${TMP}/${TZ_DATA}" -C "${TMP}" ./usr/share/zoneinfo/posix || return 1
+	case "${TZ_FILE}" in
+		./*) TZ_POSIX_DIR="./usr/share/zoneinfo/posix" ;;
+		*) TZ_POSIX_DIR="usr/share/zoneinfo/posix" ;;
+	esac
+	tar xjf "${TMP}/${TZ_DATA}" -C "${TMP}" "${TZ_POSIX_DIR}" || return 1
 	if ! mv "${TMP}/${TZ_FILE}" "${ADDON_DIR}/localtime"; then
 		PTXT "${ERROR} Unable to set your timezone file"
 		return 1

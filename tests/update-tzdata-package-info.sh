@@ -102,10 +102,12 @@ with tarfile.open(sys.argv[1], "w:bz2") as package:
     timezone.size = len(payload)
     package.addfile(timezone, io.BytesIO(payload))
 PY
-if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
-	"${TMP_DIR}/plain-prefix-posix.tar.bz2" >/dev/null 2>&1; then
-	fail 'Archive without the installer-required ./ POSIX prefix unexpectedly passed validation'
+if ! "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/plain-prefix-posix.tar.bz2"; then
+	fail 'Archive with an unprefixed POSIX timezone payload unexpectedly failed validation'
 fi
+grep -Fq '*) TZ_POSIX_DIR="usr/share/zoneinfo/posix" ;;' "${REPO_DIR}/installer" ||
+	fail 'Installer does not support unprefixed POSIX timezone paths'
 mkdir -p "${TMP_DIR}/symlink-posix/usr/share/zoneinfo/posix"
 ln -s Etc/UTC "${TMP_DIR}/symlink-posix/usr/share/zoneinfo/posix/UTC"
 tar -cjf "${TMP_DIR}/symlink-posix.tar.bz2" -C "${TMP_DIR}/symlink-posix" .
