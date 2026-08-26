@@ -17,6 +17,12 @@ trap 'rm -rf "${TMP_DIR}"' 0
 
 . "${REPO_DIR}/tools/tzdata-package-info.sh"
 
+for required_command in /usr/bin/xz bzip2 cmp zstd; do
+	if ! which "${required_command}" >/dev/null 2>&1; then
+		fail "Required validation-host command is unavailable: ${required_command}"
+	fi
+done
+
 mkdir "${TMP_DIR}/plain" "${TMP_DIR}/dotted"
 printf '%s\n' 'pkgver = 2026c-1' 'arch = aarch64' >"${TMP_DIR}/plain/.PKGINFO"
 cp "${TMP_DIR}/plain/.PKGINFO" "${TMP_DIR}/dotted/.PKGINFO"
@@ -73,18 +79,20 @@ if [ -e "${TMP_DIR}/malformed.pkg.tar.bz2" ] ||
 	fail 'Failed XZ recompression left conversion files behind'
 fi
 
-if which zstd >/dev/null 2>&1; then
-	zstd --quiet --stdout "${TMP_DIR}/tzdata.tar" >"${TMP_DIR}/tzdata.pkg.tar.zst"
-	recompress_zst_package "${TMP_DIR}/tzdata.pkg.tar.zst" "${TMP_DIR}/from-zst.pkg.tar.bz2"
-	bzip2 -d -c "${TMP_DIR}/from-zst.pkg.tar.bz2" >"${TMP_DIR}/from-zst.tar"
-	if ! cmp "${TMP_DIR}/tzdata.tar" "${TMP_DIR}/from-zst.tar"; then
-		fail 'Zstandard-to-bzip2 conversion changed the internal tar byte stream'
-	fi
-	printf '%s\n' 'not a zstd stream' >"${TMP_DIR}/malformed.pkg.tar.zst"
-	if recompress_zst_package "${TMP_DIR}/malformed.pkg.tar.zst" \
-		"${TMP_DIR}/malformed-zst.pkg.tar.bz2" >/dev/null 2>&1; then
-		fail 'Malformed Zstandard data unexpectedly passed recompression'
-	fi
+zstd --quiet --stdout "${TMP_DIR}/tzdata.tar" >"${TMP_DIR}/tzdata.pkg.tar.zst"
+recompress_zst_package "${TMP_DIR}/tzdata.pkg.tar.zst" "${TMP_DIR}/from-zst.pkg.tar.bz2"
+bzip2 -d -c "${TMP_DIR}/from-zst.pkg.tar.bz2" >"${TMP_DIR}/from-zst.tar"
+if ! cmp "${TMP_DIR}/tzdata.tar" "${TMP_DIR}/from-zst.tar"; then
+	fail 'Zstandard-to-bzip2 conversion changed the internal tar byte stream'
+fi
+printf '%s\n' 'not a zstd stream' >"${TMP_DIR}/malformed.pkg.tar.zst"
+if recompress_zst_package "${TMP_DIR}/malformed.pkg.tar.zst" \
+	"${TMP_DIR}/malformed-zst.pkg.tar.bz2" >/dev/null 2>&1; then
+	fail 'Malformed Zstandard data unexpectedly passed recompression'
+fi
+if [ -e "${TMP_DIR}/malformed-zst.pkg.tar.bz2" ] ||
+	[ -e "${TMP_DIR}/malformed-zst.pkg.tar.bz2.tar" ]; then
+	fail 'Failed Zstandard recompression left conversion files behind'
 fi
 
 grep -Fq 'download_package aarch64 aarch64' "${UPDATE_SCRIPT}" ||

@@ -145,7 +145,7 @@ review_checker_is_enforced "${REVIEW_WORKFLOW}" ||
 if grep -Eq 'shellcheck .*\|\| true|shfmt .*\|\| true|exit 0' "${REVIEW_WORKFLOW}"; then
 	fail "${REVIEW_WORKFLOW}: quality failures must propagate to the review job"
 fi
-grep -Fq 'sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq python3 coreutils' "${REVIEW_WORKFLOW}" ||
+grep -Fq 'sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq python3 coreutils bzip2 xz-utils zstd' "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: expected the same host-side dependencies as the blocking quality workflow"
 grep -Fq 'python3 --version' "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: expected the validation-host python3 prerequisite check"
@@ -237,6 +237,8 @@ grep -Fq '      - tools/tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
 	fail "${TZDATA_WORKFLOW}: tzdata helper changes must trigger the update workflow"
 grep -Fq '        run: sh tests/update-tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
 	fail "${TZDATA_WORKFLOW}: expected the tzdata conversion regression before package publication"
+grep -Fq 'sudo apt-get install -y bzip2 xz-utils zstd' "${TZDATA_WORKFLOW}" ||
+	fail "${TZDATA_WORKFLOW}: expected explicit tzdata conversion-tool installation"
 grep -Fq '      - name: Run tzdata package conversion regression' "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: expected the tzdata conversion regression before Sonar analysis"
 grep -Fq '        run: sh tests/update-tzdata-package-info.sh' "${REVIEW_WORKFLOW}" ||

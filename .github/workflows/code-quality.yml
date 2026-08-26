@@ -27,7 +27,7 @@ jobs:
       - name: Install shell tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq curl python3 coreutils
+          sudo apt-get install -y shellcheck shfmt ripgrep dnsmasq curl python3 coreutils bzip2 xz-utils zstd
           python3 --version
           /usr/bin/timeout --version
 

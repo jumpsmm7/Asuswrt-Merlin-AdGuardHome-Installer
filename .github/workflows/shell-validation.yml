@@ -25,7 +25,7 @@ jobs:
       - name: Install BusyBox
         run: |
           sudo apt-get update
-          sudo apt-get install -y busybox-static coreutils
+          sudo apt-get install -y busybox-static coreutils bzip2 xz-utils zstd
           /usr/bin/timeout --version
 
       - name: Check router-side syntax with BusyBox ash
