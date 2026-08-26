@@ -146,6 +146,8 @@ recompress_xz_package() {
 	rm -f "${decompressed_file}"
 }
 
+# download_package downloads, validates, and repackages the timezone package for an architecture.
+# The output architecture identifies the package filename and records the downloaded package version.
 download_package() {
 	local architecture output_arch filename
 	local upstream_file package_info package_version package_arch output_file
@@ -201,11 +203,15 @@ with tarfile.open(archive, "r:bz2") as package:
     has_posix_timezone = False
     for member in package.getmembers():
         normalized_name = posixpath.normpath(member.name)
+        if ".." in member.name.split("/"):
+            raise SystemExit(f"Unsafe archive member path: {member.name}")
         if member.name.startswith("/") or normalized_name == ".." or normalized_name.startswith("../"):
             raise SystemExit(f"Unsafe archive member path: {member.name}")
         if normalized_name.startswith("usr/share/zoneinfo/posix/") and not member.isdir():
-            if not member.name.startswith("./usr/share/zoneinfo/posix/"):
-                raise SystemExit(f"POSIX timezone lacks installer-required ./ prefix: {member.name}")
+            has_dot_prefix = member.name.startswith("./usr/share/zoneinfo/posix/")
+            has_plain_prefix = member.name.startswith("usr/share/zoneinfo/posix/")
+            if not has_dot_prefix and not has_plain_prefix:
+                raise SystemExit(f"POSIX timezone has an unsupported archive path: {member.name}")
             if not member.isfile():
                 raise SystemExit(f"POSIX timezone is not a regular file: {member.name}")
             timezone = package.extractfile(member)
