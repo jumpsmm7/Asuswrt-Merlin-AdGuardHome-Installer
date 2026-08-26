@@ -83,12 +83,27 @@ if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
 	"${TMP_DIR}/symlink-posix.tar.bz2" >/dev/null 2>&1; then
 	fail 'Archive with only a safe POSIX timezone symbolic link unexpectedly passed validation'
 fi
+mkdir -p "${TMP_DIR}/alias-posix/usr/share/zoneinfo/posix/Etc"
+printf 'TZif POSIX test timezone\n' >"${TMP_DIR}/alias-posix/usr/share/zoneinfo/posix/Etc/UTC"
+ln -s Etc/UTC "${TMP_DIR}/alias-posix/usr/share/zoneinfo/posix/UTC"
+tar -cjf "${TMP_DIR}/alias-posix.tar.bz2" -C "${TMP_DIR}/alias-posix" .
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/alias-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive with a selectable POSIX timezone alias unexpectedly passed validation'
+fi
 mkdir -p "${TMP_DIR}/empty-posix/usr/share/zoneinfo/posix/Etc"
 : >"${TMP_DIR}/empty-posix/usr/share/zoneinfo/posix/Etc/UTC"
 tar -cjf "${TMP_DIR}/empty-posix.tar.bz2" -C "${TMP_DIR}/empty-posix" .
 if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
 	"${TMP_DIR}/empty-posix.tar.bz2" >/dev/null 2>&1; then
 	fail 'Archive with only an empty POSIX timezone file unexpectedly passed validation'
+fi
+mkdir -p "${TMP_DIR}/invalid-posix/usr/share/zoneinfo/posix/Etc"
+printf 'not timezone data\n' >"${TMP_DIR}/invalid-posix/usr/share/zoneinfo/posix/Etc/UTC"
+tar -cjf "${TMP_DIR}/invalid-posix.tar.bz2" -C "${TMP_DIR}/invalid-posix" .
+if "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
+	"${TMP_DIR}/invalid-posix.tar.bz2" >/dev/null 2>&1; then
+	fail 'Archive with invalid POSIX timezone data unexpectedly passed validation'
 fi
 if ! "${python3_cmd}" "${TMP_DIR}/validate-package.py" \
 	"${TMP_DIR}/tzdata.pkg.tar.bz2"; then

@@ -185,8 +185,12 @@ with tarfile.open(archive, "r:bz2") as package:
         normalized_name = posixpath.normpath(member.name)
         if member.name.startswith("/") or normalized_name == ".." or normalized_name.startswith("../"):
             raise SystemExit(f"Unsafe archive member path: {member.name}")
-        if (member.isfile() and member.size > 0 and
-                normalized_name.startswith("usr/share/zoneinfo/posix/")):
+        if normalized_name.startswith("usr/share/zoneinfo/posix/") and not member.isdir():
+            if not member.isfile():
+                raise SystemExit(f"POSIX timezone is not a regular file: {member.name}")
+            timezone = package.extractfile(member)
+            if timezone is None or timezone.read(4) != b"TZif":
+                raise SystemExit(f"POSIX timezone has invalid TZif data: {member.name}")
             has_posix_timezone = True
         if member.issym():
             link_path = posixpath.normpath(posixpath.join(posixpath.dirname(normalized_name), member.linkname))
