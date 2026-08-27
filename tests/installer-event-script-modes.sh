@@ -8,7 +8,7 @@ TMP_FILE="${TMPDIR:-/tmp}/installer-event-script-modes.$$"
 
 # cleanup removes temporary extracted files created by the regression check.
 cleanup() {
-	rm -f "${TMP_FILE}" "${TMP_FILE}.wan" "${TMP_FILE}.lan" "${TMP_FILE}.wan-helper" "${TMP_FILE}.remove-helper"
+	rm -f "${TMP_FILE}" "${TMP_FILE}.wan" "${TMP_FILE}.lan" "${TMP_FILE}.wan-helper" "${TMP_FILE}.remove-helper" "${TMP_FILE}.add-helper"
 }
 
 # fail prints a failure message to standard error and exits with status 1.
@@ -76,21 +76,26 @@ sed -n '/^install_wan_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}
 sed -n '/^remove_dnsmasq_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.remove-helper" ||
 	fail 'could not extract dnsmasq event-script removal helper'
 [ -s "${TMP_FILE}.remove-helper" ] || fail 'dnsmasq event-script removal helper was not found'
+sed -n '/^add_dnsmasq_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.add-helper" ||
+	fail 'could not extract dnsmasq event-script addition helper'
+[ -s "${TMP_FILE}.add-helper" ] || fail 'dnsmasq event-script addition helper was not found'
 grep -q 'install_wan_event_scripts' "${TMP_FILE}.wan" ||
 	fail 'WAN branch does not invoke the shared event-script helper'
+grep -q 'add_dnsmasq_event_scripts || return 1' "${TMP_FILE}.wan-helper" ||
+	fail 'WAN branch does not synchronize dnsmasq hooks before publishing other hooks'
 grep -q 'write_manager_script /jffs/scripts/init-start "init-start &"' "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not install init-start'
 grep -q 'write_manager_script /jffs/scripts/services-stop "services-stop &"' "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not install services-stop'
-grep -q 'pidof dnsmasq >/dev/null 2>&1 && \[ -f /etc/dnsmasq.conf \]' "${TMP_FILE}.wan-helper" ||
+grep -q 'pidof dnsmasq >/dev/null 2>&1 || \[ ! -f /etc/dnsmasq.conf \]' "${TMP_FILE}.add-helper" ||
 	fail 'WAN branch does not require running dnsmasq and /etc/dnsmasq.conf'
-grep -q 'write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FILE}.wan-helper" ||
+grep -q 'write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FILE}.add-helper" ||
 	fail 'WAN branch does not install dnsmasq.postconf when dnsmasq is available'
 grep -q "write_manager_script /jffs/scripts/firewall-start 'firewall \"\$1\"'" "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not install firewall-start'
-grep -q "write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2'" "${TMP_FILE}.wan-helper" ||
+grep -q "write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2'" "${TMP_FILE}.add-helper" ||
 	fail 'WAN branch does not install dnsmasq-sdn.postconf when supported'
-grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"enabled\"'" "${TMP_FILE}.wan-helper" ||
+grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"enabled\"'" "${TMP_FILE}.add-helper" ||
 	fail 'WAN branch does not persist enabled dnsmasq mode'
 
 grep -q 'write_manager_script /jffs/scripts/init-start "init-start &"' "${TMP_FILE}.lan" ||
@@ -103,12 +108,8 @@ grep -q 'write_manager_script /jffs/scripts/firewall-start' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not install firewall-start for an active WAN IPTABLES state'
 grep -q 'del_jffs_script /jffs/scripts/firewall-start' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not remove the installer-managed firewall-start hook without WAN IPTABLES state'
-grep -q 'pidof dnsmasq >/dev/null 2>&1 && \[ -f /etc/dnsmasq.conf \]' "${TMP_FILE}.lan" ||
-	fail 'LAN branch does not require running dnsmasq and /etc/dnsmasq.conf'
-grep -q 'write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FILE}.lan" ||
-	fail 'LAN branch does not install dnsmasq.postconf when dnsmasq is running'
-grep -q "write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2'" "${TMP_FILE}.lan" ||
-	fail 'LAN branch does not install dnsmasq-sdn.postconf when needed and supported'
+grep -q 'add_dnsmasq_event_scripts' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not use the shared dnsmasq hook addition helper'
 grep -q 'remove_dnsmasq_event_scripts' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not remove only the installer-managed dnsmasq.postconf hook when dnsmasq is stopped'
 grep -q 'del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || return 1' "${TMP_FILE}.remove-helper" ||
@@ -118,7 +119,7 @@ grep -q 'del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf || return 1' "${TMP_
 if grep -q 'rc_support' "${TMP_FILE}.remove-helper"; then
 	fail 'dnsmasq hook cleanup still gates stale SDN hook removal on current firmware capability'
 fi
-wan_cleanup_line="$(grep -n 'remove_dnsmasq_event_scripts || return 1' "${TMP_FILE}.wan-helper" | head -n 1 | cut -d: -f1)"
+wan_cleanup_line="$(grep -n 'add_dnsmasq_event_scripts || return 1' "${TMP_FILE}.wan-helper" | head -n 1 | cut -d: -f1)"
 wan_publish_line="$(grep -n 'write_manager_script /jffs/scripts/init-start' "${TMP_FILE}.wan-helper" | head -n 1 | cut -d: -f1)"
 [ "${wan_cleanup_line}" -lt "${wan_publish_line}" ] || fail 'WAN branch publishes JFFS hooks before dnsmasq cleanup can fail'
 lan_cleanup_line="$(grep -n 'if ! remove_dnsmasq_event_scripts' "${TMP_FILE}.lan" | head -n 1 | cut -d: -f1)"
@@ -136,9 +137,9 @@ pid_line="$(grep -n 'pidof dnsmasq >/dev/null 2>&1' "${TMP_FILE}.lan" | head -n 
 [ "${disabled_line}" -lt "${pid_line}" ] || fail 'LAN branch checks runtime dnsmasq state before preserving disabled mode'
 grep -q 'ptxt_warn "dnsmasq is not running or /etc/dnsmasq.conf is unavailable; removing AdGuardHome dnsmasq event hooks."' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not report unavailable dnsmasq before removing hooks'
-grep -q 'write_conf ADGUARD_DNSMASQ_MODE "\\"enabled\\""' "${TMP_FILE}.lan" ||
-	fail 'LAN branch does not persist enabled dnsmasq mode'
-grep -q 'write_conf ADGUARD_DNSMASQ_MODE "\\"disabled\\""' "${TMP_FILE}.lan" ||
-	fail 'LAN branch does not persist disabled dnsmasq mode'
+grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"enabled\"'" "${TMP_FILE}.add-helper" ||
+	fail 'shared addition helper does not persist enabled dnsmasq mode'
+grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-helper" ||
+	fail 'shared removal helper does not persist disabled dnsmasq mode'
 
 printf '%s\n' 'PASS: installer event-script mode regression'
