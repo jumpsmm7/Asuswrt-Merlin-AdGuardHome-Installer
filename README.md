@@ -585,7 +585,7 @@ Each refresh scans active, non-commented dnsmasq `ipset=` directives from the co
 
 Guest Network Pro/SDN post-configuration also passes the matching `/etc/dnsmasq-<index>.conf` file to the refresh. Every refresh scans all existing numeric-index SDN dnsmasq configurations as well, so overlapping post-configuration callbacks retain mappings from the other active SDNs. These sources cover dnsmasq directives produced by the supported routing integrations; any compatible directive present in the scanned files is imported regardless of which add-on wrote it.
 
-The installer-managed `/jffs/scripts/dnsmasq-sdn.postconf` hook is a supported part of this SDN integration. Cleanup always removes the installer-owned hook entry, even if the router no longer reports the `mtlancfg` capability, while preserving unrelated commands in the shared script.
+The installer-managed `/jffs/scripts/dnsmasq-sdn.postconf` hook is a supported part of this SDN integration when `rc_support` advertises `mtlancfg`. The installer adds or removes its managed hook entry only when that capability is advertised, while preserving unrelated commands in the shared script.
 
 The collector imports mappings only. It does not execute another add-on, copy its firewall rules, infer missing set names, or create the target IPSET. Files outside the listed locations are not scanned automatically; copy persistent custom mappings into `ipset.user` instead.
 
