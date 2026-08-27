@@ -6,6 +6,7 @@ set -u
 SCRIPT_PATH="${1:-installer}"
 TMP_ROOT="${TMPDIR:-/tmp}/installer-single-arg-actions.$$"
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
+IPSET_STATE_PATTERN='check_ipset|ADGUARD_IPSET|IPSET_SELECTION|adguard_ipset_allowed|IPSet_[[:alnum:]_]+|(^|[[:space:];|&()])([^[:space:];|&()]*/)?ipset([[:space:]]|$)'
 
 cleanup() {
 	rm -rf "${TMP_ROOT}"
@@ -33,7 +34,7 @@ OPTION_NINE_BRANCH="$(sed -n '/^[[:space:]]*"9" | "blocklists" | "unusedblocklis
 [ -n "${OPTION_NINE_BRANCH}" ] || fail 'option 9 blocklist branch is missing'
 printf '%s\n' "${OPTION_NINE_BRANCH}" | grep -q 'cleanup_unused_blocklists' ||
 	fail 'option 9 no longer dispatches only to blocklist cleanup'
-if printf '%s\n' "${OPTION_NINE_BRANCH}" | grep -qE 'check_ipset|ADGUARD_IPSET|IPSET_SELECTION|adguard_ipset_allowed'; then
+if printf '%s\n' "${OPTION_NINE_BRANCH}" | grep -qE "${IPSET_STATE_PATTERN}"; then
 	fail 'option 9 can access or enable IPSET state'
 fi
 

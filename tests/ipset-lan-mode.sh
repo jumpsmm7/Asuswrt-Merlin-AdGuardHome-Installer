@@ -9,6 +9,7 @@ RC_FUNC_PATH="${3:-rc.func.AdGuardHome}"
 FUNCTION_FILE="${TMPDIR:-/tmp}/ipset-lan-functions.$$"
 CALLS_FILE="${TMPDIR:-/tmp}/ipset-lan-calls.$$"
 CONF_FILE="${TMPDIR:-/tmp}/ipset-lan-config.$$"
+IPSET_STATE_PATTERN='ADGUARD_IPSET|IPSet_[[:alnum:]_]+|(^|[[:space:];|&()])([^[:space:];|&()]*/)?ipset([[:space:]]|$)'
 
 # cleanup removes temporary test files.
 cleanup() {
@@ -28,10 +29,10 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${RC_FUNC_PATH}" ] || fail "rc.func service script not found: ${RC_FUNC_PATH}"
 grep -q '^\[ -z "${SCRIPT_LOC}" \] && \. /jffs/addons/AdGuardHome.d/AdGuardHome.sh$' "${S99_PATH}" ||
 	fail 'S99AdGuardHome no longer delegates lifecycle policy to AdGuardHome.sh'
-if grep -qE 'ADGUARD_IPSET|IPSet_(Enabled|Migrate|Refresh|Setup)' "${S99_PATH}"; then
+if grep -qE "${IPSET_STATE_PATTERN}" "${S99_PATH}"; then
 	fail 'S99AdGuardHome directly manages IPSET enablement instead of delegating to AdGuardHome.sh'
 fi
-if grep -qE 'ADGUARD_IPSET|IPSet_|ipset[[:space:]]+(add|create|destroy|flush)' "${RC_FUNC_PATH}"; then
+if grep -qE "${IPSET_STATE_PATTERN}" "${RC_FUNC_PATH}"; then
 	fail 'rc.func.AdGuardHome directly manages IPSET state'
 fi
 
