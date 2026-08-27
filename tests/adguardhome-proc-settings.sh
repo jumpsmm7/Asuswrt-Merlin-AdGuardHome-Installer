@@ -287,6 +287,10 @@ EOF
 		return "${START_RESULT:-0}"
 	}
 	cleanup_legacy_firewall() { :; }
+	remove_dnsmasq_event_scripts() { :; }
+	remove_firewall_event_scripts() { :; }
+	remove_init_event_scripts() { :; }
+	remove_services_event_scripts() { :; }
 	yaml_nvars_file_action() { :; }
 	yaml_nvars_delete() { :; }
 	del_jffs_script() { :; }

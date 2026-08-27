@@ -52,6 +52,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	ADDON_DIR="${TMP_ROOT}/addon"
 	AGH_FILE="${TMP_ROOT}/target/AdGuardHome"
 	BASE_DIR="${TMP_ROOT}/base"
+	CONF_FILE="${TMP_ROOT}/target/.config"
 	RURL='https://example.invalid'
 	SCRIPT_LOC="${TMP_ROOT}/missing-installer"
 	TARG_DIR="${TMP_ROOT}/target"
