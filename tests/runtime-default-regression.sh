@@ -82,6 +82,12 @@ adguard_install_feature_defaults >"${TMP_ROOT}/feature-wan-existing-no.out" || f
 grep -q '^ADGUARD_IPSET="NO"$' "${CONF_FILE}" || fail 'WAN feature defaults overwrote explicit IPSET disablement'
 grep -q '^ADGUARD_DNSMASQ_MODE="enabled"$' "${CONF_FILE}" || fail 'WAN existing feature defaults did not save enabled DNSMasq mode'
 
+CONF_FILE="${TMP_ROOT}/new-wan-disabled.config"
+printf '%s\n' 'ADGUARD_DNSMASQ_MODE="disabled"' >"${CONF_FILE}" || fail 'could not seed disabled WAN dnsmasq mode'
+ADGUARD_INSTALL_MODE="wan"
+configure_runtime_defaults new-install wan 0 >"${TMP_ROOT}/new-wan-disabled.out" || fail 'disabled WAN dnsmasq defaults failed'
+grep -q '^ADGUARD_DNSMASQ_MODE="disabled"$' "${CONF_FILE}" || fail 'fresh WAN defaults overwrote unavailable dnsmasq mode'
+
 CONF_FILE="${TMP_ROOT}/new-lan.config"
 # nvram returns the configured LAN gateway address for supported queries and fails for all other queries.
 nvram() {

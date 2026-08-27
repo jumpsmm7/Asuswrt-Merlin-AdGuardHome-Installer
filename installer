@@ -1955,12 +1955,16 @@ adguard_install_feature_defaults() {
 	case "${ADGUARD_INSTALL_MODE:-}" in
 		wan)
 			ipset_value="$(conf_value ADGUARD_IPSET)"
+			dnsmasq_mode="$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)"
 			case "${ipset_value}" in
 				NO) ;;
 				*) ipset_value="YES" ;;
 			esac
 			write_conf ADGUARD_IPSET "\"${ipset_value}\"" || return 1
-			write_conf ADGUARD_DNSMASQ_MODE "\"enabled\"" || return 1
+			case "${dnsmasq_mode}" in
+				disabled) ;;
+				*) write_conf ADGUARD_DNSMASQ_MODE "\"enabled\"" || return 1 ;;
+			esac
 			;;
 		lan)
 			ipset_value="$(conf_value ADGUARD_IPSET 2>/dev/null)"
