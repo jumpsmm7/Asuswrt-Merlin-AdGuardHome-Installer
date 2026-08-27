@@ -169,6 +169,8 @@ nvram_transaction_finalize_setup_pair() {
 }
 # nvram_transaction_setup_committed reports whether the setup commit marker exists.
 nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
+# nvram_transaction_lock_owned reports that this isolated setup fixture owns its transaction lock.
+nvram_transaction_lock_owned() { return 0; }
 # nvram_transaction_setup_files_begin creates a rollback journal containing snapshots of the YAML and configuration files, and records markers for files that are absent.
 nvram_transaction_setup_files_begin() {
 	local journal_root source target
