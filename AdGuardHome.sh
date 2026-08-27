@@ -3530,8 +3530,14 @@ IPSet_Refresh() {
 	local DNSMASQ_RESTART_SKIP RESTART_STATUS
 	if ! adguard_ipset_allowed; then
 		agh_log info IPSet_Refresh "state=refresh action=disable_managed_ipset result=required reason=topology_disallowed"
+		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
+		if [ "${IPSET_REFRESH_FROM_DNSMASQ:-}" = "1" ]; then
+			ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
+		fi
 		IPSet_Lock IPSet_Disable_Managed_For_Start_Locked
-		return $?
+		RESTART_STATUS="$?"
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART="${DNSMASQ_RESTART_SKIP}"
+		return "${RESTART_STATUS}"
 	fi
 	IPSet_Enabled || return 0
 	IPSet_Supported || return 0

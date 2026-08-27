@@ -204,12 +204,13 @@ reviews:
           cancellation, and repeated operations return the correct status.
         - Error messages identify the failed operation without exposing secrets.
 
-        Treat WAN and LAN event-hook orchestration as one transaction. Before
+        Treat WAN, LAN, and uninstall event-hook orchestration as one transaction. Before
         the first helper changes state, snapshot both dnsmasq hooks, init-start,
         services-stop, service-event-end, firewall-start, and the managed
         configuration. Require aggregate restoration after any later helper or
         preference-write failure, including same-mode operations where no
-        mode-migration rollback exists.
+        mode-migration rollback exists. Delete a recovery snapshot only after
+        restoration succeeds; otherwise require its retained path to be reported.
 
     - path: "**/S99AdGuardHome"
       instructions: |

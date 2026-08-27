@@ -264,6 +264,7 @@ run_uninstall_test() (
 	RESTORE_RESULT="$2"
 	START_RESULT="${3:-0}"
 	HELPER_MODE="${4:-usable}"
+	REMOVE_HOOK_STATUS="${5:-0}"
 	mkdir -p "${TARG_DIR}" "${BASE_DIR}" "${HOME}"
 	printf '%s\n' installer >"${TARG_DIR}/installer"
 	cat >"${TARG_DIR}/AdGuardHome.sh" <<'EOF'
@@ -287,10 +288,15 @@ EOF
 		return "${START_RESULT:-0}"
 	}
 	cleanup_legacy_firewall() { :; }
+	all_event_scripts_snapshot() { mkdir -p "$1"; }
+	all_event_scripts_rollback() {
+		printf '%s\n' rollback >>"${EVENTS_FILE}"
+		return 0
+	}
 	remove_dnsmasq_event_scripts() { :; }
 	remove_firewall_event_scripts() { :; }
 	remove_init_event_scripts() { :; }
-	remove_services_event_scripts() { :; }
+	remove_services_event_scripts() { return "${REMOVE_HOOK_STATUS}"; }
 	yaml_nvars_file_action() { :; }
 	yaml_nvars_delete() { :; }
 	del_jffs_script() { :; }
@@ -320,6 +326,9 @@ run_uninstall_test restart-failure 1 1 && fail 'restore and restart failures did
 [ -d "${TMP_ROOT}/uninstall-restart-failure" ] || fail 'restart failure removed retained installation path'
 [ "$(sed -n '3p' "${TMP_ROOT}/events-restart-failure")" = 'ERROR Unable to restore installer-managed kernel settings.' ] || fail 'restart failure obscured restoration error'
 [ "$(sed -n '4p' "${TMP_ROOT}/events-restart-failure")" = start ] || fail 'restart failure was not exercised'
+run_uninstall_test hook-failure 0 0 usable 1 && fail 'event-hook removal failure did not abort uninstall'
+[ -d "${TMP_ROOT}/uninstall-hook-failure" ] || fail 'event-hook removal failure removed the retained installation'
+grep -qx rollback "${TMP_ROOT}/events-hook-failure" || fail 'event-hook removal failure did not restore the aggregate hook snapshot'
 run_uninstall_test unusable-helper 0 0 unusable && fail 'unusable rollback helper did not abort uninstall'
 [ -d "${TMP_ROOT}/uninstall-unusable-helper" ] || fail 'unusable rollback helper removed retained installation path'
 [ "$(sed -n '2p' "${TMP_ROOT}/events-unusable-helper")" = 'ERROR Unable to restore installer-managed kernel settings.' ] || fail 'unusable rollback helper error was not reported'

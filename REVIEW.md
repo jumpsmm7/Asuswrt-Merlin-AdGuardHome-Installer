@@ -519,10 +519,11 @@ A rule insertion is incomplete unless corresponding cleanup and interrupted-setu
 
 Treat dnsmasq and installer event-hook publication as transactions. Runtime
 dnsmasq changes must remain staged until the topology-aware IPSET refresh
-succeeds. Installer WAN and LAN orchestration must snapshot every managed
+succeeds. Installer WAN, LAN, and uninstall orchestration must snapshot every managed
 dnsmasq, init, service, and firewall hook plus the managed configuration before
 the first helper, and restore the aggregate state after any later failure even
-when no mode migration is pending.
+when no mode migration is pending. A failed restoration must retain and report
+the recovery snapshot rather than deleting the only preserved copies.
 
 ## DNS, WAN, and VPN state
 

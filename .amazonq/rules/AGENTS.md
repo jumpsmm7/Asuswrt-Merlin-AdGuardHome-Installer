@@ -279,7 +279,7 @@ Installer event-hook policy is topology-aware and must remain consistent across 
 * Treat the installer-managed `dnsmasq-sdn.postconf` hook as supported, persistent SDN integration only when `rc_support` advertises `mtlancfg`. Add or remove its installer-managed content only on firmware advertising that capability; preserve unrelated user content.
 * LAN/AP/Bridge setup must continue from the informational IPSET-disabled notice into YAML configuration. Reuse only a valid setup journal owned by the current installer process; do not weaken rollback ownership or symlink checks.
 * Runtime dnsmasq updates must edit a same-filesystem staged copy, run topology-aware IPSET refresh against that staged content, and publish the live `/etc/dnsmasq*.conf` only after refresh succeeds. Refresh or publication failure must preserve the live file and remove staged artifacts.
-* WAN and LAN event-hook orchestration must snapshot `dnsmasq.postconf`, `dnsmasq-sdn.postconf`, `init-start`, `services-stop`, `service-event-end`, `firewall-start`, and the managed installer configuration before the first helper changes state. Any later helper or preference-write failure must restore that aggregate snapshot even when no mode-migration rollback is active.
+* WAN, LAN, and uninstall event-hook orchestration must snapshot `dnsmasq.postconf`, `dnsmasq-sdn.postconf`, `init-start`, `services-stop`, `service-event-end`, `firewall-start`, and the managed installer configuration before the first helper changes state. Any later helper or preference-write failure must restore that aggregate snapshot even when no mode-migration rollback is active. Remove the snapshot only after restoration succeeds; retain its path and report it when rollback fails.
 
 ## Performance guidance
 

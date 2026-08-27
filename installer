@@ -6131,8 +6131,7 @@ install_wan_event_scripts() {
 	[ "${failed}" -ne 0 ] || add_services_event_scripts || failed=1
 	[ "${failed}" -ne 0 ] || add_firewall_event_scripts || failed=1
 	if [ "${failed}" -ne 0 ]; then
-		all_event_scripts_restore "${SNAPSHOT_DIR}" || failed=1
-		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+		all_event_scripts_rollback "${SNAPSHOT_DIR}" || failed=1
 		return 1
 	fi
 	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
@@ -6210,6 +6209,17 @@ all_event_scripts_restore() {
 		/jffs/scripts/service-event-end \
 		/jffs/scripts/firewall-start \
 		"${CONF_FILE}"
+}
+
+all_event_scripts_rollback() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="$1"
+	if ! all_event_scripts_restore "${SNAPSHOT_DIR}"; then
+		PTXT "${ERROR} Event-script rollback failed; recovery snapshot retained at ${SNAPSHOT_DIR}."
+		return 1
+	fi
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
 }
 
 init_event_scripts_snapshot() {
@@ -6747,8 +6757,7 @@ inst_AdGuardHome() {
 			fi
 			if [ "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" = "disabled" ]; then
 				if ! remove_dnsmasq_event_scripts; then
-					all_event_scripts_restore "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
-					rm -rf "${EVENT_SCRIPTS_SNAPSHOT_DIR}" 2>/dev/null || true
+					all_event_scripts_rollback "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
 					PTXT "${ERROR} Required dnsmasq event scripts could not be removed."
 					if rollback_pending_mode_migration; then
 						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
@@ -6761,8 +6770,7 @@ inst_AdGuardHome() {
 					ptxt_warn "dnsmasq is not running or /etc/dnsmasq.conf is unavailable; removing AdGuardHome dnsmasq event hooks."
 				fi
 				if ! add_dnsmasq_event_scripts; then
-					all_event_scripts_restore "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
-					rm -rf "${EVENT_SCRIPTS_SNAPSHOT_DIR}" 2>/dev/null || true
+					all_event_scripts_rollback "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
 					PTXT "${ERROR} Required dnsmasq event scripts could not be configured."
 					if rollback_pending_mode_migration; then
 						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
@@ -6773,8 +6781,7 @@ inst_AdGuardHome() {
 			fi
 			if wan_iptables_state_active; then
 				if ! add_firewall_event_scripts; then
-					all_event_scripts_restore "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
-					rm -rf "${EVENT_SCRIPTS_SNAPSHOT_DIR}" 2>/dev/null || true
+					all_event_scripts_rollback "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
 					PTXT "${ERROR} Required firewall event script could not be configured for the active WAN IPTABLES state."
 					if rollback_pending_mode_migration; then
 						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
@@ -6784,8 +6791,7 @@ inst_AdGuardHome() {
 				fi
 			else
 				if ! remove_firewall_event_scripts; then
-					all_event_scripts_restore "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
-					rm -rf "${EVENT_SCRIPTS_SNAPSHOT_DIR}" 2>/dev/null || true
+					all_event_scripts_rollback "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
 					PTXT "${ERROR} Required firewall event script could not be removed for LAN mode."
 					if rollback_pending_mode_migration; then
 						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
@@ -6794,8 +6800,7 @@ inst_AdGuardHome() {
 					return 1
 				fi
 				if ! write_conf ADGUARD_IPSET '"NO"'; then
-					all_event_scripts_restore "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
-					rm -rf "${EVENT_SCRIPTS_SNAPSHOT_DIR}" 2>/dev/null || true
+					all_event_scripts_rollback "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
 					PTXT "${ERROR} IPSET could not be disabled after the qualifying WAN IPTABLES state was lost."
 					if rollback_pending_mode_migration; then
 						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
@@ -6805,8 +6810,7 @@ inst_AdGuardHome() {
 				fi
 			fi
 			if ! add_init_event_scripts || ! add_services_event_scripts; then
-				all_event_scripts_restore "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
-				rm -rf "${EVENT_SCRIPTS_SNAPSHOT_DIR}" 2>/dev/null || true
+				all_event_scripts_rollback "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
 				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
 				if rollback_pending_mode_migration; then
 					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
@@ -8343,6 +8347,7 @@ amtm_update_check() {
 }
 
 uninst_all() {
+	local EVENT_SCRIPTS_SNAPSHOT_DIR
 	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 		PTXT "${INFO} Old Backup Detected!"
 		read_yesno "Do you want to remove backup?(this will prevent restoring from backups later)"
@@ -8372,12 +8377,20 @@ uninst_all() {
 			return 1
 		fi
 	fi
+	EVENT_SCRIPTS_SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.uninstall-hooks.$$"
+	if ! all_event_scripts_snapshot "${EVENT_SCRIPTS_SNAPSHOT_DIR}"; then
+		PTXT "${ERROR} Existing Asuswrt-Merlin event scripts could not be protected for uninstall rollback."
+		agh_start || true
+		return 1
+	fi
 	if ! remove_dnsmasq_event_scripts || ! remove_init_event_scripts ||
 		! remove_services_event_scripts || ! remove_firewall_event_scripts; then
+		all_event_scripts_rollback "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
 		PTXT "${ERROR} Unable to remove installer-managed event scripts; uninstall was aborted."
 		agh_start || true
 		return 1
 	fi
+	rm -rf "${EVENT_SCRIPTS_SNAPSHOT_DIR}" 2>/dev/null || true
 	cleanup_legacy_firewall
 	mv "${TARG_DIR}/installer" "${HOME}/installer"
 	rm -rf "${TARG_DIR}" "${ROLLBACK_RESULT_FILE}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"

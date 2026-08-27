@@ -115,4 +115,15 @@ grep -qx 'original service-event-end' "${TMP_DIR}/jffs/scripts/service-event-end
 grep -qx 'original firewall' "${TMP_DIR}/jffs/scripts/firewall-start" || fail 'WAN rollback did not restore firewall-start'
 grep -qx 'ADGUARD_DNSMASQ_MODE="disabled"' "${CONF_FILE}" || fail 'WAN rollback did not restore dnsmasq configuration'
 
+FAILED_SNAPSHOT_DIR="${BASE_DIR}/failed-rollback"
+mkdir -p "${FAILED_SNAPSHOT_DIR}" || fail 'could not create failed rollback snapshot fixture'
+printf '%s\n' 'preserved recovery data' >"${FAILED_SNAPSHOT_DIR}/dnsmasq.postconf"
+ERROR=ERROR
+PTXT() { :; }
+all_event_scripts_restore() { return 1; }
+if all_event_scripts_rollback "${FAILED_SNAPSHOT_DIR}"; then
+	fail 'aggregate rollback hid a restoration failure'
+fi
+[ -f "${FAILED_SNAPSHOT_DIR}/dnsmasq.postconf" ] || fail 'failed rollback discarded the recovery snapshot'
+
 printf '%s\n' 'PASS: installer event-script transaction regression'

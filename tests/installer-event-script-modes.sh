@@ -107,7 +107,7 @@ grep -q 'add_init_event_scripts || failed=1' "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not transactionally install init-start'
 grep -q 'add_services_event_scripts || failed=1' "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not transactionally install service hooks'
-grep -q 'all_event_scripts_restore "${SNAPSHOT_DIR}"' "${TMP_FILE}.wan-helper" ||
+grep -q 'all_event_scripts_rollback "${SNAPSHOT_DIR}"' "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not restore the aggregate hook snapshot after failure'
 grep -q 'pidof dnsmasq >/dev/null 2>&1 || \[ ! -f /etc/dnsmasq.conf \]' "${TMP_FILE}.add-helper" ||
 	fail 'WAN branch does not require running dnsmasq and /etc/dnsmasq.conf'
@@ -128,7 +128,7 @@ grep -q 'add_init_event_scripts' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not transactionally install init-start'
 grep -q 'all_event_scripts_snapshot "${EVENT_SCRIPTS_SNAPSHOT_DIR}"' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not snapshot all managed hooks before publication'
-grep -q 'all_event_scripts_restore "${EVENT_SCRIPTS_SNAPSHOT_DIR}"' "${TMP_FILE}.lan" ||
+grep -q 'all_event_scripts_rollback "${EVENT_SCRIPTS_SNAPSHOT_DIR}"' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not restore the aggregate hook snapshot after failure'
 grep -q 'add_services_event_scripts' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not transactionally install service hooks'

@@ -57,7 +57,7 @@ IPSet_Disable_Managed() {
 
 # IPSet_Lock records its invocation and executes the supplied command.
 IPSet_Lock() {
-	printf '%s\n' IPSet_Lock >>"${CALLS_FILE}"
+	printf '%s\n' "IPSet_Lock skip_dnsmasq_restart=${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" >>"${CALLS_FILE}"
 	"$@"
 }
 
@@ -118,10 +118,13 @@ if IPSet_Enabled; then
 fi
 [ ! -s "${CALLS_FILE}" ] || fail 'IPSet_Enabled caused side effects in LAN mode'
 
+IPSET_REFRESH_FROM_DNSMASQ=1
+ADGUARDHOME_SKIP_DNSMASQ_RESTART='original'
 IPSet_Refresh || fail 'LAN refresh did not disable stale managed mappings'
+[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART}" = 'original' ] || fail 'LAN refresh did not restore the dnsmasq restart guard'
 ACTUAL="$(cat "${CALLS_FILE}")"
 case "${ACTUAL}" in
-	*IPSet_Lock*'lower_script stop'*IPSet_Disable_Managed*IPSet_Start_While_Locked*) : ;;
+	*'IPSet_Lock skip_dnsmasq_restart=1'*'lower_script stop'*IPSet_Disable_Managed*IPSet_Start_While_Locked*) : ;;
 	*) fail "LAN refresh did not use the locked managed-disable/restart path: ${ACTUAL}" ;;
 esac
 case "${ACTUAL}" in

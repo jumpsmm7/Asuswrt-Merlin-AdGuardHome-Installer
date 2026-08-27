@@ -174,7 +174,7 @@ require_text "${CANONICAL_AGENTS}" \
 	'Runtime dnsmasq updates must edit a same-filesystem staged copy' \
 	'canonical staged dnsmasq publication policy'
 require_text "${CANONICAL_AGENTS}" \
-	'WAN and LAN event-hook orchestration must snapshot `dnsmasq.postconf`' \
+	'WAN, LAN, and uninstall event-hook orchestration must snapshot `dnsmasq.postconf`' \
 	'canonical aggregate event-hook rollback policy'
 require_text "${QODO_REVIEW}" \
 	'A source selector' \
@@ -183,7 +183,7 @@ require_text "${QODO_REVIEW}" \
 	'Treat dnsmasq and installer event-hook publication as transactions.' \
 	'Qodo transactional publication review policy'
 require_text "${CODEX_PROMPT}" \
-	'Treat runtime dnsmasq publication and installer WAN/LAN event-hook' \
+	'Treat runtime dnsmasq publication and installer WAN/LAN/uninstall event-hook' \
 	'Codex transactional publication review policy'
 
 # --- PATH contract 1: the installer's inherited-PATH contract --------------
