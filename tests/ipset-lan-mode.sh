@@ -36,7 +36,7 @@ if grep -qE "${IPSET_STATE_PATTERN}" "${RC_FUNC_PATH}"; then
 	fail 'rc.func.AdGuardHome directly manages IPSET state'
 fi
 
-/bin/sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^load_operation_config() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^adguard_wan_iptables_state_active() {$/,/^}$/p; /^IPSet_Migrate() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p' "${SCRIPT_PATH}" |
+/bin/sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^load_operation_config() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^adguard_wan_iptables_state_active() {$/,/^}$/p; /^IPSet_Migrate() {$/,/^}$/p; /^IPSet_Disable_Managed_For_Start_Locked() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p' "${SCRIPT_PATH}" |
 	/bin/sed 's#/usr/sbin/iptables#iptables#g; s#/bin/nvram#nvram#g' >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 sed -n '/^DEFAULT_ADGUARD_[A-Z_]*=/p' "${SCRIPT_PATH}" >>"${FUNCTION_FILE}" || fail 'could not extract runtime defaults'
 [ -s "${FUNCTION_FILE}" ] || fail 'LAN IPSET functions were not found'
@@ -79,6 +79,12 @@ lower_script() {
 	return 0
 }
 
+# IPSet_Start_While_Locked records restoration of a running service and succeeds.
+IPSet_Start_While_Locked() {
+	printf '%s\n' IPSet_Start_While_Locked >>"${CALLS_FILE}"
+	return 0
+}
+
 # pidof prints a fixed process ID and succeeds.
 pidof() {
 	printf '%s\n' 1234
@@ -112,14 +118,15 @@ if IPSet_Enabled; then
 fi
 [ ! -s "${CALLS_FILE}" ] || fail 'IPSet_Enabled caused side effects in LAN mode'
 
-IPSet_Refresh || fail 'LAN refresh did not return success'
+IPSet_Refresh || fail 'LAN refresh did not disable stale managed mappings'
 ACTUAL="$(cat "${CALLS_FILE}")"
 case "${ACTUAL}" in
-	*IPSet_Lock* | *IPSet_Supported* | *lower_script*) fail "LAN refresh touched managed path: ${ACTUAL}" ;;
+	*IPSet_Lock*'lower_script stop'*IPSet_Disable_Managed*IPSet_Start_While_Locked*) : ;;
+	*) fail "LAN refresh did not use the locked managed-disable/restart path: ${ACTUAL}" ;;
 esac
 case "${ACTUAL}" in
-	*'reason=lan_mode'*) : ;;
-	*) fail 'LAN refresh did not log skip reason' ;;
+	*'reason=topology_disallowed'*) : ;;
+	*) fail 'LAN refresh did not log the topology transition' ;;
 esac
 
 : >"${CALLS_FILE}"

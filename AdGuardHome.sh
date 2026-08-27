@@ -3515,8 +3515,9 @@ IPSet_Enabled() {
 IPSet_Refresh() {
 	local DNSMASQ_RESTART_SKIP RESTART_STATUS
 	if ! adguard_ipset_allowed; then
-		agh_log info IPSet_Refresh "state=refresh action=refresh_ipset result=skipped reason=lan_mode"
-		return 0
+		agh_log info IPSet_Refresh "state=refresh action=disable_managed_ipset result=required reason=topology_disallowed"
+		IPSet_Lock IPSet_Disable_Managed_For_Start_Locked
+		return $?
 	fi
 	IPSet_Enabled || return 0
 	IPSet_Supported || return 0
