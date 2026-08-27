@@ -6787,7 +6787,7 @@ setup_files_begin_if_needed() {
 	# A mode-migration or earlier setup stage can create the shared journal
 	# before this setup_AdGuardHome_impl frame is entered.  Reuse it only while
 	# this installer process still owns the transaction lock.
-	if [ -n "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] &&
+	if nvram_transaction_lock_owned &&
 		[ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] &&
 		[ ! -L "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
 		SETUP_FILES_JOURNALED=1
