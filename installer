@@ -1937,7 +1937,10 @@ conf_has_key() {
 adguard_ipset_allowed() {
 	case "${ADGUARD_INSTALL_MODE:-$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)}" in
 		wan) return 0 ;;
-		lan) wan_iptables_state_active 2>/dev/null; return $? ;;
+		lan)
+			wan_iptables_state_active 2>/dev/null
+			return $?
+			;;
 	esac
 	return 1
 }
@@ -7250,7 +7253,7 @@ setup_sync_mode_dependent_yaml_and_snapshot() {
 			lan) if ! adguard_ipset_allowed && ! adguardhome_yaml_remove_ipset_file "${yaml_file_stage}"; then
 				rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
 				return 1
-				fi ;;
+			fi ;;
 		esac
 	fi
 	if [ -f "${YAML_ORI}" ]; then
@@ -7262,7 +7265,7 @@ setup_sync_mode_dependent_yaml_and_snapshot() {
 			lan) if ! adguard_ipset_allowed && ! adguardhome_yaml_remove_ipset_file "${yaml_ori_stage}"; then
 				rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
 				return 1
-				fi ;;
+			fi ;;
 		esac
 	fi
 	if [ -f "${yaml_file_stage}" ]; then

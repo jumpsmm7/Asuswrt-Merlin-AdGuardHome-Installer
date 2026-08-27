@@ -106,7 +106,10 @@ adguard_install_mode_detect() {
 adguard_ipset_allowed() {
 	case "${ADGUARD_INSTALL_MODE:-}" in
 		wan) return 0 ;;
-		lan) [ "${WAN_NAT_ACTIVE:-0}" -eq 1 ]; return $? ;;
+		lan)
+			[ "${WAN_NAT_ACTIVE:-0}" -eq 1 ]
+			return $?
+			;;
 	esac
 	return 1
 }
