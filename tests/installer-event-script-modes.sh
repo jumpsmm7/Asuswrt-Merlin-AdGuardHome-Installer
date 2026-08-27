@@ -122,12 +122,13 @@ grep -q 'add_dnsmasq_event_scripts' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not use the shared dnsmasq hook addition helper'
 grep -q 'remove_dnsmasq_event_scripts' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not remove only the installer-managed dnsmasq.postconf hook when dnsmasq is stopped'
-grep -q 'del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq >/dev/null || return 1' "${TMP_FILE}.remove-helper" ||
+grep -q '{ del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq >/dev/null 2>&1; } || failed=1' "${TMP_FILE}.remove-helper" ||
 	fail 'dnsmasq hook cleanup does not propagate primary hook removal failures'
-grep -q 'del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf >/dev/null || return 1' "${TMP_FILE}.remove-helper" ||
+grep -q "{ del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2' >/dev/null 2>&1; } || failed=1" "${TMP_FILE}.remove-helper" ||
 	fail 'LAN branch does not remove the installer-managed SDN dnsmasq hook when dnsmasq is stopped'
-grep -q "if nvram get rc_support | grep -q 'mtlancfg'; then" "${TMP_FILE}.remove-helper" ||
-	fail 'dnsmasq hook cleanup does not gate SDN hook removal on current firmware capability'
+if grep -q "nvram get rc_support.*mtlancfg" "${TMP_FILE}.remove-helper"; then
+	fail 'dnsmasq hook cleanup still gates SDN hook removal on current firmware capability'
+fi
 if grep -q 'else' "${TMP_FILE}.add-helper"; then
 	fail 'dnsmasq hook addition manages the SDN hook when current firmware lacks the capability'
 fi
@@ -156,14 +157,48 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"enabled\"'" "${TMP_FILE}.add-helper"
 grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-helper" ||
 	fail 'shared removal helper does not persist disabled dnsmasq mode'
 (
-	eval "$(cat "${TMP_FILE}.remove-helper")"
+	REMOVE_ROOT="${TMP_FILE}.remove"
+	mkdir -p "${REMOVE_ROOT}/jffs/scripts" "${REMOVE_ROOT}/base"
+	printf '%s\n' 'original primary hook' >"${REMOVE_ROOT}/jffs/scripts/dnsmasq.postconf"
+	printf '%s\n' 'original SDN hook' >"${REMOVE_ROOT}/jffs/scripts/dnsmasq-sdn.postconf"
+	printf '%s\n' 'ADGUARD_DNSMASQ_MODE="enabled"' >"${REMOVE_ROOT}/config"
+	cat "${TMP_FILE}.snapshot-helper" "${TMP_FILE}.restore-helper" "${TMP_FILE}.remove-helper" |
+		sed "s|/jffs/scripts|${REMOVE_ROOT}/jffs/scripts|g" >"${REMOVE_ROOT}/helpers"
+	. "${REMOVE_ROOT}/helpers"
+	BASE_DIR="${REMOVE_ROOT}/base"
+	CONF_FILE="${REMOVE_ROOT}/config"
+	remove_calls=0
+	del_jffs_script() {
+		remove_calls="$((remove_calls + 1))"
+		if [ "${remove_calls}" -eq 1 ]; then
+			printf '%s\n' 'changed primary hook' >"$1"
+			return 0
+		fi
+		return 1
+	}
+	write_conf() { fail 'disabled mode was written after a hook removal failed'; }
+	if remove_dnsmasq_event_scripts; then
+		fail 'dnsmasq hook cleanup hides SDN hook removal failures'
+	fi
+	[ "${remove_calls}" -eq 2 ] || fail 'dnsmasq hook cleanup did not attempt both hook removals'
+	grep -qx 'original primary hook' "${REMOVE_ROOT}/jffs/scripts/dnsmasq.postconf" ||
+		fail 'dnsmasq hook cleanup did not restore the primary hook after a removal failure'
+	grep -qx 'original SDN hook' "${REMOVE_ROOT}/jffs/scripts/dnsmasq-sdn.postconf" ||
+		fail 'dnsmasq hook cleanup did not restore the SDN hook after a removal failure'
+	grep -qx 'ADGUARD_DNSMASQ_MODE="enabled"' "${CONF_FILE}" ||
+		fail 'dnsmasq hook cleanup changed the mode after a removal failure'
 	del_jffs_script() { return 0; }
-	nvram() { return 1; }
 	write_conf() { return 1; }
 	if remove_dnsmasq_event_scripts; then
 		fail 'dnsmasq hook cleanup hides disabled-mode configuration write failures'
 	fi
-)
+	grep -qx 'original primary hook' "${REMOVE_ROOT}/jffs/scripts/dnsmasq.postconf" ||
+		fail 'dnsmasq hook cleanup did not restore the primary hook after a configuration failure'
+	grep -qx 'original SDN hook' "${REMOVE_ROOT}/jffs/scripts/dnsmasq-sdn.postconf" ||
+		fail 'dnsmasq hook cleanup did not restore the SDN hook after a configuration failure'
+	grep -qx 'ADGUARD_DNSMASQ_MODE="enabled"' "${CONF_FILE}" ||
+		fail 'dnsmasq hook cleanup did not restore the enabled mode after a configuration failure'
+) || fail 'dnsmasq hook removal rollback checks failed'
 
 (
 	ROLLBACK_ROOT="${TMP_FILE}.rollback"
