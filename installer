@@ -5957,7 +5957,7 @@ del_conf() {
 del_jffs_script() {
 	local TARG LINE_NUM LINE_ABOVE OP
 	TARG="$1"
-	[ -f "${TARG}" ] || return
+	[ -f "${TARG}" ] || return 0
 	if [ "${2:-}" ]; then
 		OP="$(printf '%.1s' "$2")"
 		if [ "$OP" = "!" ]; then
@@ -6132,9 +6132,15 @@ install_wan_event_scripts() {
 		fi
 		write_conf ADGUARD_DNSMASQ_MODE '"enabled"'
 	else
-		del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || return 1
-		if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf || return 1; fi
+		remove_dnsmasq_event_scripts || return 1
 		write_conf ADGUARD_DNSMASQ_MODE '"disabled"'
+	fi
+}
+
+remove_dnsmasq_event_scripts() {
+	del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || return 1
+	if nvram get rc_support | grep -q 'mtlancfg'; then
+		del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf || return 1
 	fi
 }
 
@@ -6449,7 +6455,14 @@ inst_AdGuardHome() {
 					return 1
 				fi
 			else
-				del_jffs_script /jffs/scripts/firewall-start 'firewall "$1"' || ptxt_warn "Unable to remove the AdGuardHome firewall-start hook; continuing LAN-mode setup."
+				if ! del_jffs_script /jffs/scripts/firewall-start 'firewall "$1"'; then
+					PTXT "${ERROR} Required firewall event script could not be removed for LAN mode."
+					if rollback_pending_mode_migration; then
+						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					fi
+					end_op_message 1 "$1"
+					return 1
+				fi
 			fi
 			if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
 				! write_manager_script /jffs/scripts/services-stop "services-stop &"; then
@@ -6461,8 +6474,14 @@ inst_AdGuardHome() {
 				return 1
 			fi
 			if [ "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" = "disabled" ]; then
-				del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || ptxt_warn "Unable to remove the AdGuardHome dnsmasq.postconf hook; continuing LAN-mode setup."
-				if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
+				if ! remove_dnsmasq_event_scripts; then
+					PTXT "${ERROR} Required dnsmasq event scripts could not be removed."
+					if rollback_pending_mode_migration; then
+						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					fi
+					end_op_message 1 "$1"
+					return 1
+				fi
 				if ! write_conf ADGUARD_DNSMASQ_MODE "\"disabled\""; then
 					PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
 					if rollback_pending_mode_migration; then
@@ -6499,8 +6518,14 @@ inst_AdGuardHome() {
 				fi
 			else
 				ptxt_warn "dnsmasq is not running or /etc/dnsmasq.conf is unavailable; removing AdGuardHome dnsmasq event hooks."
-				del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || ptxt_warn "Unable to remove the AdGuardHome dnsmasq.postconf hook; continuing LAN-mode setup."
-				if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
+				if ! remove_dnsmasq_event_scripts; then
+					PTXT "${ERROR} Required dnsmasq event scripts could not be removed."
+					if rollback_pending_mode_migration; then
+						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					fi
+					end_op_message 1 "$1"
+					return 1
+				fi
 				if ! write_conf ADGUARD_DNSMASQ_MODE "\"disabled\""; then
 					PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
 					if rollback_pending_mode_migration; then

@@ -8,7 +8,7 @@ TMP_FILE="${TMPDIR:-/tmp}/installer-event-script-modes.$$"
 
 # cleanup removes temporary extracted files created by the regression check.
 cleanup() {
-	rm -f "${TMP_FILE}" "${TMP_FILE}.wan" "${TMP_FILE}.lan" "${TMP_FILE}.wan-helper"
+	rm -f "${TMP_FILE}" "${TMP_FILE}.wan" "${TMP_FILE}.lan" "${TMP_FILE}.wan-helper" "${TMP_FILE}.remove-helper"
 }
 
 # fail prints a failure message to standard error and exits with status 1.
@@ -73,6 +73,9 @@ awk -v branch='lan)' '
 sed -n '/^install_wan_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.wan-helper" ||
 	fail 'could not extract WAN event-script helper'
 [ -s "${TMP_FILE}.wan-helper" ] || fail 'WAN event-script helper was not found'
+sed -n '/^remove_dnsmasq_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.remove-helper" ||
+	fail 'could not extract dnsmasq event-script removal helper'
+[ -s "${TMP_FILE}.remove-helper" ] || fail 'dnsmasq event-script removal helper was not found'
 grep -q 'install_wan_event_scripts' "${TMP_FILE}.wan" ||
 	fail 'WAN branch does not invoke the shared event-script helper'
 grep -q 'write_manager_script /jffs/scripts/init-start "init-start &"' "${TMP_FILE}.wan-helper" ||
@@ -106,10 +109,17 @@ grep -q 'write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FIL
 	fail 'LAN branch does not install dnsmasq.postconf when dnsmasq is running'
 grep -q "write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2'" "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not install dnsmasq-sdn.postconf when needed and supported'
-grep -q 'del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FILE}.lan" ||
+grep -q 'remove_dnsmasq_event_scripts' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not remove only the installer-managed dnsmasq.postconf hook when dnsmasq is stopped'
-grep -q 'del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf' "${TMP_FILE}.lan" ||
+grep -q 'del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || return 1' "${TMP_FILE}.remove-helper" ||
+	fail 'dnsmasq hook cleanup does not propagate primary hook removal failures'
+grep -q 'del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf || return 1' "${TMP_FILE}.remove-helper" ||
 	fail 'LAN branch does not remove the installer-managed SDN dnsmasq hook when dnsmasq is stopped'
+grep -q 'if ! del_jffs_script /jffs/scripts/firewall-start' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not abort when the installer-managed firewall hook cannot be removed'
+if grep -q 'Unable to remove.*continuing LAN-mode setup' "${TMP_FILE}.lan"; then
+	fail 'LAN branch still downgrades required hook-removal failures to warnings'
+fi
 grep -q '\[ "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" = "disabled" \]' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not preserve disabled dnsmasq mode before checking runtime state'
 disabled_line="$(grep -n '\[ "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" = "disabled" \]' "${TMP_FILE}.lan" | head -n 1 | cut -d: -f1)"
