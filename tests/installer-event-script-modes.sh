@@ -129,6 +129,8 @@ lan_publish_line="$(grep -n 'write_manager_script /jffs/scripts/firewall-start' 
 [ "${lan_cleanup_line}" -lt "${lan_publish_line}" ] || fail 'LAN branch publishes JFFS hooks before dnsmasq cleanup can fail'
 grep -q 'if ! del_jffs_script /jffs/scripts/firewall-start' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not abort when the installer-managed firewall hook cannot be removed'
+grep -q "if ! write_conf ADGUARD_IPSET '\"NO\"'" "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not persist disabled IPSET state after WAN IPTABLES state is lost'
 if grep -q 'Unable to remove.*continuing LAN-mode setup' "${TMP_FILE}.lan"; then
 	fail 'LAN branch still downgrades required hook-removal failures to warnings'
 fi

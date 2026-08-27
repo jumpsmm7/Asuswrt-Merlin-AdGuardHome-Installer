@@ -6493,6 +6493,14 @@ inst_AdGuardHome() {
 					end_op_message 1 "$1"
 					return 1
 				fi
+				if ! write_conf ADGUARD_IPSET '"NO"'; then
+					PTXT "${ERROR} IPSET could not be disabled after the qualifying WAN IPTABLES state was lost."
+					if rollback_pending_mode_migration; then
+						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					fi
+					end_op_message 1 "$1"
+					return 1
+				fi
 			fi
 			if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
 				! write_manager_script /jffs/scripts/services-stop "services-stop &"; then
