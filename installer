@@ -5920,7 +5920,7 @@ wan_iptables_state_active() {
 			case "${ifname}" in
 				"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-]*) continue ;;
 			esac
-			if printf '%s\n' "${nat_rules}" | /bin/grep -F -e "-o ${ifname} " | /bin/grep -qE -e '-j (MASQUERADE|SNAT)([[:space:]]|$)'; then
+			if printf '%s\n' "${nat_rules}" | /bin/grep -F -e "-o ${ifname} " | /bin/grep -F -v -e "! -o ${ifname} " | /bin/grep -qE -e '-j (MASQUERADE|SNAT)([[:space:]]|$)'; then
 				return 0
 			fi
 		done

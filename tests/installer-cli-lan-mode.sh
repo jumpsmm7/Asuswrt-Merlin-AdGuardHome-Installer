@@ -225,6 +225,10 @@ sed -n '/^wan_iptables_state_active() {$/,/^}$/p' "${SCRIPT_PATH}" |
 	wan_iptables_state_active || fail 'active WAN MASQUERADE state was not detected'
 	WAN_NAT_RULE='-A POSTROUTING -o eth0 -j SNAT --to-source 192.0.2.2'
 	wan_iptables_state_active || fail 'active WAN SNAT state was not detected'
+	WAN_NAT_RULE='-A POSTROUTING ! -o eth0 -j MASQUERADE'
+	if wan_iptables_state_active; then
+		fail 'negated WAN interface NAT state was detected as active WAN state'
+	fi
 	WAN_NAT_RULE='-A POSTROUTING -o br0 -j ACCEPT'
 	if wan_iptables_state_active; then
 		fail 'non-NAT LAN IPTABLES state was detected as active WAN state'

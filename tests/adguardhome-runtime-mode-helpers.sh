@@ -91,6 +91,8 @@ adguard_lan_mode || fail 'lan install mode was not detected'
 ! adguard_ipset_allowed || fail 'lan install mode should not allow IPSET'
 WAN_NAT_RULE='-A POSTROUTING -o eth0 -j MASQUERADE'
 adguard_ipset_allowed || fail 'LAN install mode with WAN NAT state should allow IPSET'
+WAN_NAT_RULE='-A POSTROUTING ! -o eth0 -j MASQUERADE'
+! adguard_ipset_allowed || fail 'LAN install mode with negated WAN NAT state should not allow IPSET'
 WAN_NAT_RULE=''
 
 if write_conf 'ADGUARD_INSTALL_MODE=unexpected'; then
