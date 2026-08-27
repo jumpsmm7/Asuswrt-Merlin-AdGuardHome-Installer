@@ -6132,9 +6132,9 @@ install_wan_event_scripts() {
 }
 
 remove_dnsmasq_event_scripts() {
-	del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || return 1
+	del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq >/dev/null || return 1
 	if nvram get rc_support | grep -q 'mtlancfg'; then
-		del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf || return 1
+		del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf >/dev/null || return 1
 	fi
 	write_conf ADGUARD_DNSMASQ_MODE '"disabled"'
 }
