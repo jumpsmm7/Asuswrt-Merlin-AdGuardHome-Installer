@@ -23,7 +23,7 @@ eval "${SETUP_FUNCTIONS}"
 # process instead of aborting LAN setup before YAML configuration begins.
 (
 	SETUP_FILES_JOURNALED=0
-	NVRAM_TRANSACTION_LOCK_MODE=mkdir
+	NVRAM_TRANSACTION_LOCK_MODE="mkdir"
 	BASE_DIR="${TMPDIR:-/tmp}/installer-ipset-existing-journal.$$"
 	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 	nvram_transaction_setup_files_begin() { fail 'attempted to replace the active setup journal'; }
