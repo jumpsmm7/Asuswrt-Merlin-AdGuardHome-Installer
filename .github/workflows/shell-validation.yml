@@ -76,6 +76,8 @@ jobs:
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-ipset-setup-save-failure.sh
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-ipset-save-failure.sh
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-ipset-allowed-mode-fallback.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/adguardhome-runtime-mode-helpers.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/dnsmasq-lan-mode.sh
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/ipset-lan-mode.sh
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-single-arg-actions.sh
 

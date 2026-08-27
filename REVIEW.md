@@ -477,6 +477,12 @@ Avoid introducing unbounded waits. Polling must have a defined limit and a usefu
 
 Review changed firewall and network code for both setup and cleanup behavior.
 
+For the topology-aware LAN/AP/Bridge exception, require `SNAT` or
+`MASQUERADE` on a validated `wan0`/`wan1` output interface. A source selector
+(`-s` or `--source`) is valid and must remain eligible. Reject negated output
+matches, input-interface-scoped rules (`-i` or `--in-interface`), and rules on
+unrelated bridge or VPN output interfaces.
+
 Requirements:
 
 * Use idempotent add and remove logic where practical.
@@ -510,6 +516,13 @@ Pay special attention to changes involving:
 * INPUT, OUTPUT, FORWARD, or custom chains
 
 A rule insertion is incomplete unless corresponding cleanup and interrupted-setup behavior are safe.
+
+Treat dnsmasq and installer event-hook publication as transactions. Runtime
+dnsmasq changes must remain staged until the topology-aware IPSET refresh
+succeeds. Installer WAN and LAN orchestration must snapshot every managed
+dnsmasq, init, service, and firewall hook plus the managed configuration before
+the first helper, and restore the aggregate state after any later failure even
+when no mode migration is pending.
 
 ## DNS, WAN, and VPN state
 

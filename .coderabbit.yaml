@@ -204,6 +204,13 @@ reviews:
           cancellation, and repeated operations return the correct status.
         - Error messages identify the failed operation without exposing secrets.
 
+        Treat WAN and LAN event-hook orchestration as one transaction. Before
+        the first helper changes state, snapshot both dnsmasq hooks, init-start,
+        services-stop, service-event-end, firewall-start, and the managed
+        configuration. Require aggregate restoration after any later helper or
+        preference-write failure, including same-mode operations where no
+        mode-migration rollback exists.
+
     - path: "**/S99AdGuardHome"
       instructions: |
         Review startup, shutdown, restart, reload, monitor, DNS handoff, and
@@ -347,6 +354,13 @@ reviews:
     - path: "**/AdGuardHome.sh"
       instructions: |
         Keep new helpers in the existing purpose-based, alpha-numerically sorted function groups. Preserve the manager's explicit dependency checks, quoted variable handling, captured return statuses, and dual flock/mkdir lock compatibility paths. Install and restore signal traps around critical sections without losing the original status.
+
+        WAN NAT qualification must accept `-s` and `--source` selectors while
+        still requiring SNAT or MASQUERADE on a validated WAN output interface;
+        reject negated output matches and `-i`/`--in-interface` scoped rules.
+        Keep dnsmasq configuration edits on a same-filesystem stage until the
+        topology-aware IPSET refresh succeeds, and remove the stage without
+        changing the live file on refresh or publication failure.
     - path: "tests/*.sh"
       instructions: |
         When adding a regression test, register it explicitly in `tools/code-quality.sh`; test files are not automatically discovered by the regression runner. Keep test names in kebab-case with a component/scenario prefix and retain the repository's `PASS:`/`FAIL:` result convention.

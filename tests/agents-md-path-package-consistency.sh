@@ -167,6 +167,24 @@ require_text "${CANONICAL_AGENTS}" \
 require_text "${CANONICAL_AGENTS}" \
 	'only WAN mode or LAN/AP/Bridge mode with qualifying WAN-interface NAT may write `ADGUARD_IPSET="YES"`' \
 	'canonical fail-closed IPSET enablement policy'
+require_text "${CANONICAL_AGENTS}" \
+	'Source selectors (`-s` or `--source`) are valid qualifiers and must not disqualify a rule' \
+	'canonical source-scoped WAN NAT policy'
+require_text "${CANONICAL_AGENTS}" \
+	'Runtime dnsmasq updates must edit a same-filesystem staged copy' \
+	'canonical staged dnsmasq publication policy'
+require_text "${CANONICAL_AGENTS}" \
+	'WAN and LAN event-hook orchestration must snapshot `dnsmasq.postconf`' \
+	'canonical aggregate event-hook rollback policy'
+require_text "${QODO_REVIEW}" \
+	'A source selector' \
+	'Qodo source-scoped WAN NAT review policy'
+require_text "${QODO_REVIEW}" \
+	'Treat dnsmasq and installer event-hook publication as transactions.' \
+	'Qodo transactional publication review policy'
+require_text "${CODEX_PROMPT}" \
+	'Treat runtime dnsmasq publication and installer WAN/LAN event-hook' \
+	'Codex transactional publication review policy'
 
 # --- PATH contract 1: the installer's inherited-PATH contract --------------
 INSTALLER_PATH_CONTRACT='export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"'

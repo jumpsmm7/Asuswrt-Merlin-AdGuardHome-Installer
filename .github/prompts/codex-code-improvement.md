@@ -28,6 +28,13 @@ Review scope:
   hints to preserve `--force-depends --force-overwrite --force-reinstall`,
   including for `jq-full`.
 - Consider whether changes remain compatible with constrained router environments.
+- Preserve the topology contract: source-scoped (`-s`/`--source`) SNAT or
+  MASQUERADE on a validated WAN output interface remains eligible, while
+  negated output matches and input-interface-scoped rules remain ineligible.
+- Treat runtime dnsmasq publication and installer WAN/LAN event-hook
+  orchestration as transactions. Require staged dnsmasq publication after a
+  successful IPSET refresh and aggregate hook/config restoration after any
+  later installer helper failure, even without a pending mode migration.
 
 Useful local checks:
 - `tools/code-quality.sh`

@@ -136,6 +136,14 @@ awk '
 # silently green while running nothing.
 grep -Fq 'sh tools/code-quality.sh' "${WORKFLOW}" || fail "${WORKFLOW}: expected the quality job to run 'sh tools/code-quality.sh'"
 [ -f 'tools/code-quality.sh' ] || fail "tools/code-quality.sh referenced by ${WORKFLOW} does not exist"
+grep -Fq 'snapshot both dnsmasq hooks, init-start,' "${CODERABBIT}" ||
+	fail "${CODERABBIT}: installer instructions must require aggregate event-hook snapshots"
+grep -Fq 'WAN NAT qualification must accept `-s` and `--source` selectors' "${CODERABBIT}" ||
+	fail "${CODERABBIT}: runtime instructions must preserve source-scoped WAN NAT eligibility"
+grep -Fq 'busybox ash tests/adguardhome-runtime-mode-helpers.sh' "${SHELL_VALIDATION_WORKFLOW}" ||
+	fail "${SHELL_VALIDATION_WORKFLOW}: runtime WAN NAT regression must run with BusyBox ash"
+grep -Fq 'busybox ash tests/dnsmasq-lan-mode.sh' "${SHELL_VALIDATION_WORKFLOW}" ||
+	fail "${SHELL_VALIDATION_WORKFLOW}: transactional dnsmasq regression must run with BusyBox ash"
 
 # --- The advisory review workflow must exercise the same orchestrator and
 # allow its status to fail the job. Keeping a second, best-effort list of
