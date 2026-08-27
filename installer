@@ -5943,7 +5943,7 @@ del_between_magic() {
 	local TARG MAGIC BOUNDS
 	TARG="$1"
 	MAGIC="$2"
-	[ -f "${TARG}" ] || return
+	[ -f "${TARG}" ] || return 0
 	BOUNDS="$(awk -v PATT="${MAGIC}" '($0 ~ PATT) {printf NR","}' "${TARG}")"
 	if [ "${BOUNDS}" ]; then
 		sed -i "${BOUNDS%,}d" "${TARG}"
@@ -6124,11 +6124,172 @@ installer_update_reexec() {
 
 install_wan_event_scripts() {
 	add_dnsmasq_event_scripts || return 1
-	if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
-		! write_manager_script /jffs/scripts/services-stop "services-stop &" ||
-		! write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'; then
+	add_init_event_scripts || return 1
+	add_services_event_scripts || return 1
+	add_firewall_event_scripts || return 1
+}
+
+event_scripts_snapshot() {
+	local SNAPSHOT_DIR SOURCE SNAPSHOT
+	SNAPSHOT_DIR="$1"
+	shift
+	[ ! -e "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
+	for SOURCE in "$@"; do
+		[ ! -L "${SOURCE}" ] || return 1
+	done
+	mkdir -p "${SNAPSHOT_DIR}" || return 1
+	chmod 700 "${SNAPSHOT_DIR}" || {
+		rm -rf "${SNAPSHOT_DIR}"
+		return 1
+	}
+	for SOURCE in "$@"; do
+		SNAPSHOT="${SOURCE##*/}"
+		if [ -f "${SOURCE}" ]; then
+			cp -p "${SOURCE}" "${SNAPSHOT_DIR}/${SNAPSHOT}" || {
+				rm -rf "${SNAPSHOT_DIR}"
+				return 1
+			}
+		else
+			: >"${SNAPSHOT_DIR}/${SNAPSHOT}.absent" || {
+				rm -rf "${SNAPSHOT_DIR}"
+				return 1
+			}
+		fi
+	done
+}
+
+event_scripts_restore() {
+	local RET SNAPSHOT_DIR SOURCE SNAPSHOT STAGE
+	SNAPSHOT_DIR="$1"
+	shift
+	RET=0
+	for SOURCE in "$@"; do
+		SNAPSHOT="${SOURCE##*/}"
+		if [ -f "${SNAPSHOT_DIR}/${SNAPSHOT}" ]; then
+			STAGE="${SOURCE}.restore.$$"
+			if ! cp -p "${SNAPSHOT_DIR}/${SNAPSHOT}" "${STAGE}" || ! mv -f "${STAGE}" "${SOURCE}"; then
+				rm -f "${STAGE}"
+				RET=1
+			fi
+		elif [ -f "${SNAPSHOT_DIR}/${SNAPSHOT}.absent" ]; then
+			rm -f "${SOURCE}" || RET=1
+		else
+			RET=1
+		fi
+	done
+	return "${RET}"
+}
+
+init_event_scripts_snapshot() {
+	event_scripts_snapshot "$1" /jffs/scripts/init-start
+}
+
+init_event_scripts_restore() {
+	event_scripts_restore "$1" /jffs/scripts/init-start
+}
+
+add_init_event_scripts() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.init-hooks.$$"
+	init_event_scripts_snapshot "${SNAPSHOT_DIR}" || return 1
+	if ! write_manager_script /jffs/scripts/init-start "init-start &"; then
+		init_event_scripts_restore "${SNAPSHOT_DIR}" || true
+		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
 		return 1
 	fi
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
+}
+
+remove_init_event_scripts() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.init-hooks-remove.$$"
+	init_event_scripts_snapshot "${SNAPSHOT_DIR}" || return 1
+	if ! del_jffs_script /jffs/scripts/init-start >/dev/null 2>&1; then
+		init_event_scripts_restore "${SNAPSHOT_DIR}" || true
+		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+		return 1
+	fi
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
+}
+
+services_event_scripts_snapshot() {
+	# Asuswrt-Merlin names the event-end hook service-event-end (singular).
+	event_scripts_snapshot "$1" /jffs/scripts/services-stop /jffs/scripts/service-event-end
+}
+
+services_event_scripts_restore() {
+	event_scripts_restore "$1" /jffs/scripts/services-stop /jffs/scripts/service-event-end
+}
+
+add_services_event_scripts() {
+	local failed=0 SNAPSHOT_DIR
+	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.services-hooks.$$"
+	services_event_scripts_snapshot "${SNAPSHOT_DIR}" || return 1
+	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer' || failed=1
+	if [ "${failed}" -eq 0 ]; then
+		write_manager_script /jffs/scripts/services-stop "services-stop &" || failed=1
+	fi
+	if [ "${failed}" -eq 0 ]; then
+		write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer' || failed=1
+	fi
+	if [ "${failed}" -ne 0 ]; then
+		services_event_scripts_restore "${SNAPSHOT_DIR}" || failed=1
+		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+		return 1
+	fi
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
+}
+
+remove_services_event_scripts() {
+	local failed=0 SNAPSHOT_DIR
+	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.services-hooks-remove.$$"
+	services_event_scripts_snapshot "${SNAPSHOT_DIR}" || return 1
+	{ del_jffs_script /jffs/scripts/services-stop >/dev/null 2>&1; } || failed=1
+	{ del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer' >/dev/null 2>&1; } || failed=1
+	if [ "${failed}" -ne 0 ]; then
+		services_event_scripts_restore "${SNAPSHOT_DIR}" || failed=1
+		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+		return 1
+	fi
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
+}
+
+firewall_event_scripts_snapshot() {
+	event_scripts_snapshot "$1" /jffs/scripts/firewall-start
+}
+
+firewall_event_scripts_restore() {
+	event_scripts_restore "$1" /jffs/scripts/firewall-start
+}
+
+add_firewall_event_scripts() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.firewall-hooks.$$"
+	firewall_event_scripts_snapshot "${SNAPSHOT_DIR}" || return 1
+	if ! write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'; then
+		firewall_event_scripts_restore "${SNAPSHOT_DIR}" || true
+		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+		return 1
+	fi
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
+}
+
+remove_firewall_event_scripts() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.firewall-hooks-remove.$$"
+	firewall_event_scripts_snapshot "${SNAPSHOT_DIR}" || return 1
+	if ! del_jffs_script /jffs/scripts/firewall-start 'firewall "$1"' >/dev/null 2>&1; then
+		firewall_event_scripts_restore "${SNAPSHOT_DIR}" || true
+		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+		return 1
+	fi
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
 }
 
 remove_dnsmasq_event_scripts() {
@@ -6566,7 +6727,7 @@ inst_AdGuardHome() {
 				fi
 			fi
 			if wan_iptables_state_active; then
-				if ! write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'; then
+				if ! add_firewall_event_scripts; then
 					PTXT "${ERROR} Required firewall event script could not be configured for the active WAN IPTABLES state."
 					if rollback_pending_mode_migration; then
 						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
@@ -6575,7 +6736,7 @@ inst_AdGuardHome() {
 					return 1
 				fi
 			else
-				if ! del_jffs_script /jffs/scripts/firewall-start 'firewall "$1"'; then
+				if ! remove_firewall_event_scripts; then
 					PTXT "${ERROR} Required firewall event script could not be removed for LAN mode."
 					if rollback_pending_mode_migration; then
 						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
@@ -6592,8 +6753,7 @@ inst_AdGuardHome() {
 					return 1
 				fi
 			fi
-			if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
-				! write_manager_script /jffs/scripts/services-stop "services-stop &"; then
+			if ! add_init_event_scripts || ! add_services_event_scripts; then
 				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
 				if rollback_pending_mode_migration; then
 					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
@@ -6612,15 +6772,6 @@ inst_AdGuardHome() {
 			return 1
 			;;
 	esac
-	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
-	if ! write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'; then
-		PTXT "${ERROR} Required service-event-end hook could not be configured."
-		if rollback_pending_mode_migration; then
-			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-		fi
-		end_op_message 1 "$1"
-		return 1
-	fi
 	if [ "${1:-update}" != "update" ]; then
 		ptxt_phase "Configuring AdGuardHome first-run settings."
 		if [ ! -f "${ADDON_DIR}/localtime" ]; then
@@ -8167,16 +8318,16 @@ uninst_all() {
 			return 1
 		fi
 	fi
+	if ! remove_dnsmasq_event_scripts || ! remove_init_event_scripts ||
+		! remove_services_event_scripts || ! remove_firewall_event_scripts; then
+		PTXT "${ERROR} Unable to remove installer-managed event scripts; uninstall was aborted."
+		agh_start || true
+		return 1
+	fi
 	cleanup_legacy_firewall
 	mv "${TARG_DIR}/installer" "${HOME}/installer"
 	rm -rf "${TARG_DIR}" "${ROLLBACK_RESULT_FILE}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"
 	yaml_nvars_file_action delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-	del_jffs_script /jffs/scripts/init-start
-	del_jffs_script /jffs/scripts/dnsmasq.postconf
-	del_jffs_script /jffs/scripts/firewall-start
-	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
-	del_jffs_script /jffs/scripts/services-stop
-	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
 	service restart_dnsmasq >/dev/null 2>&1
 	end_op_message 0
 }

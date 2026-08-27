@@ -240,12 +240,12 @@ awk '
 	END { exit(guarded ? 0 : 1) }
 ' "${TMP_ROOT}/install-path" || fail 'migration rollback failure does not block the previous installation restart'
 awk '
-	/Required service-event-end hook could not be configured/ { failure = 1; next }
+	/Required Asuswrt-Merlin event scripts could not be configured/ { failure = 1; next }
 	failure && /if rollback_pending_mode_migration; then/ { rollback = 1; next }
 	rollback && /adguard_restart_after_install_abort/ { verified = 1; exit }
 	failure && /return 1/ { exit 1 }
 	END { exit(verified ? 0 : 1) }
-' "${TMP_ROOT}/install-path" || fail 'service-event failure does not require successful rollback before restart'
+' "${TMP_ROOT}/install-path" || fail 'transactional event-script failure does not require successful rollback before restart'
 grep -q 'Unable to install the required WAN-mode event scripts' "${TMP_ROOT}/migration" ||
 	fail 'LAN-to-WAN migration does not abort when WAN event-script synchronization fails'
 grep -q 'wan:lan | lan:wan | :lan)' "${SCRIPT_PATH}" ||

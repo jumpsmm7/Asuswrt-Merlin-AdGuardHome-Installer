@@ -219,6 +219,7 @@ run_check 'Installer file failure safety regression' sh tests/installer-file-fai
 run_check 'Installer progress output regression' sh tests/installer-progress-output.sh
 run_check 'Installer legacy hook cleanup regression' sh tests/installer-legacy-hook-cleanup.sh
 run_check 'Installer event-script mode regression' sh tests/installer-event-script-modes.sh
+run_check 'Installer event-script transaction regression' sh tests/installer-event-script-transactions.sh
 run_check 'Installer upgrade runtime-default ordering regression' sh tests/installer-upgrade-runtime-defaults.sh
 run_check 'Installer post-replacement restart regression' sh tests/installer-post-replace-restart.sh
 run_check 'Installer update re-exec lock regression' sh tests/installer-update-reexec-lock.sh

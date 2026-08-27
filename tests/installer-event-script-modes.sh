@@ -8,7 +8,7 @@ TMP_FILE="${TMPDIR:-/tmp}/installer-event-script-modes.$$"
 
 # cleanup removes temporary extracted files created by the regression check.
 cleanup() {
-	rm -rf "${TMP_FILE}" "${TMP_FILE}.wan" "${TMP_FILE}.lan" "${TMP_FILE}.wan-helper" "${TMP_FILE}.remove-helper" "${TMP_FILE}.snapshot-helper" "${TMP_FILE}.restore-helper" "${TMP_FILE}.add-helper" "${TMP_FILE}.rollback"
+	rm -rf "${TMP_FILE}" "${TMP_FILE}.wan" "${TMP_FILE}.lan" "${TMP_FILE}.wan-helper" "${TMP_FILE}.remove-helper" "${TMP_FILE}.snapshot-helper" "${TMP_FILE}.restore-helper" "${TMP_FILE}.add-helper" "${TMP_FILE}.services-helper" "${TMP_FILE}.rollback"
 }
 
 # fail prints a failure message to standard error and exits with status 1.
@@ -85,20 +85,34 @@ sed -n '/^dnsmasq_event_scripts_restore() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_F
 sed -n '/^add_dnsmasq_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.add-helper" ||
 	fail 'could not extract dnsmasq event-script addition helper'
 [ -s "${TMP_FILE}.add-helper" ] || fail 'dnsmasq event-script addition helper was not found'
+for helper in \
+	add_init_event_scripts remove_init_event_scripts init_event_scripts_snapshot \
+	add_services_event_scripts remove_services_event_scripts services_event_scripts_snapshot \
+	add_firewall_event_scripts remove_firewall_event_scripts firewall_event_scripts_snapshot; do
+	grep -q "^${helper}() {$" "${SCRIPT_PATH}" || fail "event-script transaction helper was not found: ${helper}"
+done
+sed -n '/^add_services_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.services-helper" ||
+	fail 'could not extract services event-script addition helper'
+grep -q 'write_manager_script /jffs/scripts/services-stop "services-stop &"' "${TMP_FILE}.services-helper" ||
+	fail 'services transaction does not publish services-stop'
+grep -q 'write_command_script /jffs/scripts/service-event-end' "${TMP_FILE}.services-helper" ||
+	fail 'services transaction does not publish service-event-end'
+grep -q 'services_event_scripts_restore "${SNAPSHOT_DIR}"' "${TMP_FILE}.services-helper" ||
+	fail 'services transaction does not restore both hooks after publication failure'
 grep -q 'install_wan_event_scripts' "${TMP_FILE}.wan" ||
 	fail 'WAN branch does not invoke the shared event-script helper'
 grep -q 'add_dnsmasq_event_scripts || return 1' "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not synchronize dnsmasq hooks before publishing other hooks'
-grep -q 'write_manager_script /jffs/scripts/init-start "init-start &"' "${TMP_FILE}.wan-helper" ||
-	fail 'WAN branch does not install init-start'
-grep -q 'write_manager_script /jffs/scripts/services-stop "services-stop &"' "${TMP_FILE}.wan-helper" ||
-	fail 'WAN branch does not install services-stop'
+grep -q 'add_init_event_scripts || return 1' "${TMP_FILE}.wan-helper" ||
+	fail 'WAN branch does not transactionally install init-start'
+grep -q 'add_services_event_scripts || return 1' "${TMP_FILE}.wan-helper" ||
+	fail 'WAN branch does not transactionally install service hooks'
 grep -q 'pidof dnsmasq >/dev/null 2>&1 || \[ ! -f /etc/dnsmasq.conf \]' "${TMP_FILE}.add-helper" ||
 	fail 'WAN branch does not require running dnsmasq and /etc/dnsmasq.conf'
 grep -q 'write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FILE}.add-helper" ||
 	fail 'WAN branch does not install dnsmasq.postconf when dnsmasq is available'
-grep -q "write_manager_script /jffs/scripts/firewall-start 'firewall \"\$1\"'" "${TMP_FILE}.wan-helper" ||
-	fail 'WAN branch does not install firewall-start'
+grep -q 'add_firewall_event_scripts || return 1' "${TMP_FILE}.wan-helper" ||
+	fail 'WAN branch does not transactionally install firewall-start'
 grep -q "write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2'" "${TMP_FILE}.add-helper" ||
 	fail 'WAN branch does not install dnsmasq-sdn.postconf when supported'
 grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"enabled\"'" "${TMP_FILE}.add-helper" ||
@@ -108,16 +122,16 @@ grep -q 'dnsmasq_event_scripts_snapshot "${SNAPSHOT_DIR}" || {' "${TMP_FILE}.add
 grep -q 'dnsmasq_event_scripts_restore "${SNAPSHOT_DIR}"' "${TMP_FILE}.add-helper" ||
 	fail 'dnsmasq hook addition does not restore managed state after publication failure'
 
-grep -q 'write_manager_script /jffs/scripts/init-start "init-start &"' "${TMP_FILE}.lan" ||
-	fail 'LAN branch does not install init-start'
-grep -q 'write_manager_script /jffs/scripts/services-stop "services-stop &"' "${TMP_FILE}.lan" ||
-	fail 'LAN branch does not install services-stop'
+grep -q 'add_init_event_scripts' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not transactionally install init-start'
+grep -q 'add_services_event_scripts' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not transactionally install service hooks'
 grep -q 'if wan_iptables_state_active; then' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not gate firewall-start on active WAN IPTABLES state'
-grep -q 'write_manager_script /jffs/scripts/firewall-start' "${TMP_FILE}.lan" ||
-	fail 'LAN branch does not install firewall-start for an active WAN IPTABLES state'
-grep -q 'del_jffs_script /jffs/scripts/firewall-start' "${TMP_FILE}.lan" ||
-	fail 'LAN branch does not remove the installer-managed firewall-start hook without WAN IPTABLES state'
+grep -q 'add_firewall_event_scripts' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not transactionally install firewall-start for an active WAN IPTABLES state'
+grep -q 'remove_firewall_event_scripts' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not transactionally remove firewall-start without WAN IPTABLES state'
 grep -q 'add_dnsmasq_event_scripts' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not use the shared dnsmasq hook addition helper'
 grep -q 'remove_dnsmasq_event_scripts' "${TMP_FILE}.lan" ||
@@ -133,13 +147,13 @@ if grep -q 'else' "${TMP_FILE}.add-helper"; then
 	fail 'dnsmasq hook addition manages the SDN hook when current firmware lacks the capability'
 fi
 wan_cleanup_line="$(grep -n 'add_dnsmasq_event_scripts || return 1' "${TMP_FILE}.wan-helper" | head -n 1 | cut -d: -f1)"
-wan_publish_line="$(grep -n 'write_manager_script /jffs/scripts/init-start' "${TMP_FILE}.wan-helper" | head -n 1 | cut -d: -f1)"
+wan_publish_line="$(grep -n 'add_init_event_scripts' "${TMP_FILE}.wan-helper" | head -n 1 | cut -d: -f1)"
 [ "${wan_cleanup_line}" -lt "${wan_publish_line}" ] || fail 'WAN branch publishes JFFS hooks before dnsmasq cleanup can fail'
 lan_cleanup_line="$(grep -n 'if ! remove_dnsmasq_event_scripts' "${TMP_FILE}.lan" | head -n 1 | cut -d: -f1)"
-lan_publish_line="$(grep -n 'write_manager_script /jffs/scripts/firewall-start' "${TMP_FILE}.lan" | head -n 1 | cut -d: -f1)"
+lan_publish_line="$(grep -n 'add_firewall_event_scripts' "${TMP_FILE}.lan" | head -n 1 | cut -d: -f1)"
 [ "${lan_cleanup_line}" -lt "${lan_publish_line}" ] || fail 'LAN branch publishes JFFS hooks before dnsmasq cleanup can fail'
-grep -q 'if ! del_jffs_script /jffs/scripts/firewall-start' "${TMP_FILE}.lan" ||
-	fail 'LAN branch does not abort when the installer-managed firewall hook cannot be removed'
+grep -q 'if ! remove_firewall_event_scripts' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not abort when transactional firewall-hook removal fails'
 grep -q "if ! write_conf ADGUARD_IPSET '\"NO\"'" "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not persist disabled IPSET state after WAN IPTABLES state is lost'
 if grep -q 'Unable to remove.*continuing LAN-mode setup' "${TMP_FILE}.lan"; then

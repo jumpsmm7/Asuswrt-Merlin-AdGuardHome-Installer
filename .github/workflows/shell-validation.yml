@@ -71,6 +71,7 @@ jobs:
       - name: Run installer LAN topology and hook regressions
         run: |
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-modes.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-transactions.sh
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-cli-lan-mode.sh
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-ipset-setup-save-failure.sh
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-ipset-save-failure.sh
