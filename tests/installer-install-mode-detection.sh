@@ -349,6 +349,8 @@ AGH_STUB
 	}
 	# nvram_transaction_setup_committed reports whether the setup commit marker exists.
 	nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
+	# nvram_transaction_lock_owned reports that this isolated setup fixture owns its transaction lock.
+	nvram_transaction_lock_owned() { return 0; }
 	# nvram_transaction_setup_files_begin creates a setup journal and records the existing configuration or its absence for rollback.
 	nvram_transaction_setup_files_begin() {
 		printf '%s\n' 'nvram_transaction_setup_files_begin' >>"${CALLS_FILE}"

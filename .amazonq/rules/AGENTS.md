@@ -276,6 +276,7 @@ Installer event-hook policy is topology-aware and must remain consistent across 
 * The qualifying WAN-interface NAT state is the only LAN/AP/Bridge exception that permits both the `firewall-start` hook and IPSET integration. Without that state, IPSET remains disabled.
 * IPSET enablement is fail-closed: only WAN mode or LAN/AP/Bridge mode with qualifying WAN-interface NAT may write `ADGUARD_IPSET="YES"`. LAN/AP/Bridge without that state and unknown modes must force `ADGUARD_IPSET="NO"` at the final preference-write boundary as well as refusing setup, menu, CLI refresh, migration, and runtime paths.
 * In both WAN and LAN/AP/Bridge modes, configure `dnsmasq.postconf` and `dnsmasq-sdn.postconf` only when `dnsmasq` is running and `/etc/dnsmasq.conf` is present. Otherwise remove only the installer-managed dnsmasq hooks and persist disabled dnsmasq integration.
+* Treat the installer-managed `dnsmasq-sdn.postconf` hook as supported, persistent SDN integration. Remove stale installer-managed SDN hook content unconditionally during dnsmasq-hook cleanup, even when the current firmware no longer advertises `mtlancfg`; preserve unrelated user content.
 * LAN/AP/Bridge setup must continue from the informational IPSET-disabled notice into YAML configuration. Reuse only a valid setup journal owned by the current installer process; do not weaken rollback ownership or symlink checks.
 
 ## Performance guidance

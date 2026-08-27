@@ -210,12 +210,13 @@ adguard_dnsmasq_managed() {
 	adguard_dnsmasq_running
 }
 
-# adguard_ipset_allowed permits IPSet in WAN mode and in the LAN-mode double-NAT exception.
+# adguard_ipset_allowed permits IPSet in WAN mode and in LAN/AP/Bridge double-NAT exceptions.
 adguard_ipset_allowed() {
-	if ! adguard_lan_mode; then
-		return 0
-	fi
-	adguard_wan_iptables_state_active 2>/dev/null
+	case "${CONFIG_INSTALL_MODE:-}" in
+		wan) return 0 ;;
+		lan | ap | bridge) adguard_wan_iptables_state_active 2>/dev/null ;;
+		*) return 1 ;;
+	esac
 }
 
 # adguard_wan_iptables_state_active detects WAN-interface SNAT/MASQUERADE state used by double-NAT LAN installations.

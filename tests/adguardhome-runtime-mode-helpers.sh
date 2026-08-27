@@ -83,7 +83,7 @@ rm -f "${CONF_FILE}"
 load_operation_config action || fail 'missing config snapshot failed'
 [ "$(adguard_install_mode)" = 'wan' ] || fail 'missing config did not default install mode to wan'
 ! adguard_lan_mode || fail 'missing config should not be LAN mode'
-adguard_ipset_allowed || fail 'missing config should allow IPSET'
+adguard_ipset_allowed || fail 'missing config did not load the WAN default for IPSET'
 
 write_conf 'ADGUARD_INSTALL_MODE=lan'
 [ "$(adguard_install_mode)" = 'lan' ] || fail 'lan install mode was not returned'
@@ -94,6 +94,20 @@ adguard_ipset_allowed || fail 'LAN install mode with WAN NAT state should allow 
 WAN_NAT_RULE='-A POSTROUTING ! -o eth0 -j MASQUERADE'
 ! adguard_ipset_allowed || fail 'LAN install mode with negated WAN NAT state should not allow IPSET'
 WAN_NAT_RULE=''
+
+CONFIG_INSTALL_MODE='ap'
+! adguard_ipset_allowed || fail 'AP install mode without WAN NAT state should not allow IPSET'
+WAN_NAT_RULE='-A POSTROUTING -o eth0 -j SNAT --to-source 192.0.2.1'
+adguard_ipset_allowed || fail 'AP install mode with WAN NAT state should allow IPSET'
+CONFIG_INSTALL_MODE='bridge'
+adguard_ipset_allowed || fail 'bridge install mode with WAN NAT state should allow IPSET'
+WAN_NAT_RULE=''
+! adguard_ipset_allowed || fail 'bridge install mode without WAN NAT state should not allow IPSET'
+CONFIG_INSTALL_MODE='unexpected'
+! adguard_ipset_allowed || fail 'unsupported install mode should not allow IPSET'
+CONFIG_INSTALL_MODE=''
+! adguard_ipset_allowed || fail 'empty install mode should not allow IPSET'
+unset CONFIG_INSTALL_MODE
 
 if write_conf 'ADGUARD_INSTALL_MODE=unexpected'; then
 	fail 'invalid install mode was accepted'

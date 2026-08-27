@@ -115,6 +115,15 @@ grep -q 'del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || return 1' "${
 	fail 'dnsmasq hook cleanup does not propagate primary hook removal failures'
 grep -q 'del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf || return 1' "${TMP_FILE}.remove-helper" ||
 	fail 'LAN branch does not remove the installer-managed SDN dnsmasq hook when dnsmasq is stopped'
+if grep -q 'rc_support' "${TMP_FILE}.remove-helper"; then
+	fail 'dnsmasq hook cleanup still gates stale SDN hook removal on current firmware capability'
+fi
+wan_cleanup_line="$(grep -n 'remove_dnsmasq_event_scripts || return 1' "${TMP_FILE}.wan-helper" | head -n 1 | cut -d: -f1)"
+wan_publish_line="$(grep -n 'write_manager_script /jffs/scripts/init-start' "${TMP_FILE}.wan-helper" | head -n 1 | cut -d: -f1)"
+[ "${wan_cleanup_line}" -lt "${wan_publish_line}" ] || fail 'WAN branch publishes JFFS hooks before dnsmasq cleanup can fail'
+lan_cleanup_line="$(grep -n 'if ! remove_dnsmasq_event_scripts' "${TMP_FILE}.lan" | head -n 1 | cut -d: -f1)"
+lan_publish_line="$(grep -n 'write_manager_script /jffs/scripts/firewall-start' "${TMP_FILE}.lan" | head -n 1 | cut -d: -f1)"
+[ "${lan_cleanup_line}" -lt "${lan_publish_line}" ] || fail 'LAN branch publishes JFFS hooks before dnsmasq cleanup can fail'
 grep -q 'if ! del_jffs_script /jffs/scripts/firewall-start' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not abort when the installer-managed firewall hook cannot be removed'
 if grep -q 'Unable to remove.*continuing LAN-mode setup' "${TMP_FILE}.lan"; then
