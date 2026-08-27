@@ -41,6 +41,10 @@ adguard_lan_mode() {
 	[ "${INSTALL_MODE:-wan}" = "lan" ]
 }
 
+adguard_ipset_allowed() {
+	! adguard_lan_mode
+}
+
 # IPSet_Disable_Managed records that managed IP set handling was disabled for the test.
 IPSet_Disable_Managed() {
 	printf '%s\n' disabled >"${TEST_DIR}/disabled"

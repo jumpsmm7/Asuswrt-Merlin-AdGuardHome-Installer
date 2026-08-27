@@ -153,6 +153,21 @@ require_text "${CODEX_PROMPT}" \
 	'Prefer a minimal compatible correction over a broad refactor or style rewrite.' \
 	'Codex minimal-fix requirement'
 
+# Keep the topology-specific installer hook behavior visible to every agent
+# through the canonical guardrails (and the byte-identical Amazon Q mirror).
+require_text "${CANONICAL_AGENTS}" \
+	'LAN/AP/Bridge mode configures that `firewall-start` hook only when the router has active WAN-interface `SNAT` or `MASQUERADE` state' \
+	'canonical LAN firewall hook topology policy'
+require_text "${CANONICAL_AGENTS}" \
+	'configure `dnsmasq.postconf` and `dnsmasq-sdn.postconf` only when `dnsmasq` is running and `/etc/dnsmasq.conf` is present' \
+	'canonical dnsmasq hook availability policy'
+require_text "${CANONICAL_AGENTS}" \
+	'LAN/AP/Bridge setup must continue from the informational IPSET-disabled notice into YAML configuration' \
+	'canonical LAN IPSET-to-YAML continuation policy'
+require_text "${CANONICAL_AGENTS}" \
+	'only WAN mode or LAN/AP/Bridge mode with qualifying WAN-interface NAT may write `ADGUARD_IPSET="YES"`' \
+	'canonical fail-closed IPSET enablement policy'
+
 # --- PATH contract 1: the installer's inherited-PATH contract --------------
 INSTALLER_PATH_CONTRACT='export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"'
 require_text "${CANONICAL_AGENTS}" "${INSTALLER_PATH_CONTRACT}" 'canonical installer PATH contract'

@@ -79,8 +79,10 @@ grep -q 'write_manager_script /jffs/scripts/init-start "init-start &"' "${TMP_FI
 	fail 'WAN branch does not install init-start'
 grep -q 'write_manager_script /jffs/scripts/services-stop "services-stop &"' "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not install services-stop'
+grep -q 'pidof dnsmasq >/dev/null 2>&1 && \[ -f /etc/dnsmasq.conf \]' "${TMP_FILE}.wan-helper" ||
+	fail 'WAN branch does not require running dnsmasq and /etc/dnsmasq.conf'
 grep -q 'write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FILE}.wan-helper" ||
-	fail 'WAN branch does not install dnsmasq.postconf'
+	fail 'WAN branch does not install dnsmasq.postconf when dnsmasq is available'
 grep -q "write_manager_script /jffs/scripts/firewall-start 'firewall \"\$1\"'" "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not install firewall-start'
 grep -q "write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2'" "${TMP_FILE}.wan-helper" ||
@@ -92,11 +94,14 @@ grep -q 'write_manager_script /jffs/scripts/init-start "init-start &"' "${TMP_FI
 	fail 'LAN branch does not install init-start'
 grep -q 'write_manager_script /jffs/scripts/services-stop "services-stop &"' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not install services-stop'
-if grep -q 'write_manager_script /jffs/scripts/firewall-start' "${TMP_FILE}.lan"; then
-	fail 'LAN branch installs firewall-start'
-fi
-grep -q 'pidof dnsmasq >/dev/null 2>&1' "${TMP_FILE}.lan" ||
-	fail 'LAN branch does not check whether dnsmasq is running'
+grep -q 'if wan_iptables_state_active; then' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not gate firewall-start on active WAN IPTABLES state'
+grep -q 'write_manager_script /jffs/scripts/firewall-start' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not install firewall-start for an active WAN IPTABLES state'
+grep -q 'del_jffs_script /jffs/scripts/firewall-start' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not remove the installer-managed firewall-start hook without WAN IPTABLES state'
+grep -q 'pidof dnsmasq >/dev/null 2>&1 && \[ -f /etc/dnsmasq.conf \]' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not require running dnsmasq and /etc/dnsmasq.conf'
 grep -q 'write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not install dnsmasq.postconf when dnsmasq is running'
 grep -q "write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2'" "${TMP_FILE}.lan" ||
@@ -110,8 +115,8 @@ grep -q '\[ "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/nu
 disabled_line="$(grep -n '\[ "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" = "disabled" \]' "${TMP_FILE}.lan" | head -n 1 | cut -d: -f1)"
 pid_line="$(grep -n 'pidof dnsmasq >/dev/null 2>&1' "${TMP_FILE}.lan" | head -n 1 | cut -d: -f1)"
 [ "${disabled_line}" -lt "${pid_line}" ] || fail 'LAN branch checks runtime dnsmasq state before preserving disabled mode'
-grep -q 'ptxt_warn "dnsmasq is not running; preserving dnsmasq event hooks for LAN-mode startup."' "${TMP_FILE}.lan" ||
-	fail 'LAN branch extraction does not include transient stopped-dnsmasq path'
+grep -q 'ptxt_warn "dnsmasq is not running or /etc/dnsmasq.conf is unavailable; removing AdGuardHome dnsmasq event hooks."' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not report unavailable dnsmasq before removing hooks'
 grep -q 'write_conf ADGUARD_DNSMASQ_MODE "\\"enabled\\""' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not persist enabled dnsmasq mode'
 grep -q 'write_conf ADGUARD_DNSMASQ_MODE "\\"disabled\\""' "${TMP_FILE}.lan" ||

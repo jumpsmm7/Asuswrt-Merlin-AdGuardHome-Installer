@@ -187,6 +187,7 @@ assert_lan_yaml_reverse_upstreams() {
 : >"${YESNO_LOG}"
 : >"${IPSET_LOG}"
 IPSET_YESNO_STATUS=0
+ADGUARD_INSTALL_MODE=wan
 
 if ! setup_AdGuardHome_impl '' install; then
 	fail 'initial setup failed'

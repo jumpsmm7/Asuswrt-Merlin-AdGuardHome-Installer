@@ -210,9 +210,30 @@ adguard_dnsmasq_managed() {
 	adguard_dnsmasq_running
 }
 
-# adguard_ipset_allowed reports whether IPSet integration is allowed outside LAN mode.
+# adguard_ipset_allowed permits IPSet in WAN mode and in the LAN-mode double-NAT exception.
 adguard_ipset_allowed() {
-	! adguard_lan_mode
+	if ! adguard_lan_mode; then
+		return 0
+	fi
+	adguard_wan_iptables_state_active 2>/dev/null
+}
+
+# adguard_wan_iptables_state_active detects WAN-interface SNAT/MASQUERADE state used by double-NAT LAN installations.
+adguard_wan_iptables_state_active() {
+	local ifname key nat_rules unit
+	nat_rules="$(iptables -t nat -S POSTROUTING 2>/dev/null)" || return 1
+	for unit in 0 1; do
+		for key in ifname gw_ifname pppoe_ifname; do
+			ifname="$(nvram get "wan${unit}_${key}" 2>/dev/null)" || ifname=""
+			case "${ifname}" in
+				"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-]*) continue ;;
+			esac
+			if printf '%s\n' "${nat_rules}" | /bin/grep -F -e "-o ${ifname} " | /bin/grep -qE -e '-j (MASQUERADE|SNAT)([[:space:]]|$)'; then
+				return 0
+			fi
+		done
+	done
+	return 1
 }
 
 # adguard_restart_dnsmasq_if_managed restarts dnsmasq when it is managed by AdGuardHome.
@@ -2275,6 +2296,8 @@ start_adguardhome() {
 				return 1
 			fi
 		fi
+	fi
+	if ! adguard_ipset_allowed; then
 		if ! IPSet_Disable_Managed; then
 			agh_log error start_adguardhome "state=starting action=disable_managed_ipset result=failed reason=lan_mode_remove_failed"
 			SERVICE_WAIT_TERMINAL_FAILURE="1"
@@ -3220,7 +3243,7 @@ IPSet_Lock_Mkdir_Reap_Stale() {
 IPSet_Migrate() {
 	local CURRENT_FILE TEMP_FILE USER_TEMP_FILE
 	IPSET_MIGRATION_SKIPPED=""
-	if adguard_lan_mode; then
+	if ! adguard_ipset_allowed; then
 		if ! IPSet_Disable_Managed; then
 			agh_log warning IPSet_Migrate "state=migration action=disable_managed_ipset result=skipped reason=lan_mode_remove_failed"
 			return 1
@@ -3488,11 +3511,11 @@ IPSet_Enabled() {
 	[ "${CONFIG_IPSET:-YES}" != "NO" ]
 }
 
-# IPSet_Refresh refreshes AdGuardHome IPSet mappings in WAN mode and restarts AdGuardHome when mappings change; LAN mode is a no-op.
+# IPSet_Refresh refreshes mappings in WAN mode or the LAN double-NAT exception and otherwise returns without changes.
 # The optional argument specifies a dnsmasq configuration file to use for collecting mappings.
 IPSet_Refresh() {
 	local DNSMASQ_RESTART_SKIP RESTART_STATUS
-	if adguard_lan_mode; then
+	if ! adguard_ipset_allowed; then
 		agh_log info IPSet_Refresh "state=refresh action=refresh_ipset result=skipped reason=lan_mode"
 		return 0
 	fi
@@ -3626,7 +3649,7 @@ IPSet_Setup() {
 
 # IPSet_Setup_For_Start prepares IPSet configuration for AdGuardHome startup, disabling managed IPSet when LAN mode or unsupported settings require it.
 IPSet_Setup_For_Start() {
-	if adguard_lan_mode; then
+	if ! adguard_ipset_allowed; then
 		if ! IPSet_Disable_Managed; then
 			agh_log error IPSet_Setup_For_Start "state=starting action=disable_managed_ipset result=failed reason=lan_mode_remove_failed"
 			return 1

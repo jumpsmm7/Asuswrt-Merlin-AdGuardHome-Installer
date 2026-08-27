@@ -22,7 +22,7 @@ fail() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-/bin/sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^load_operation_config() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^IPSet_Migrate() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+/bin/sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^load_operation_config() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^adguard_wan_iptables_state_active() {$/,/^}$/p; /^IPSet_Migrate() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 sed -n '/^DEFAULT_ADGUARD_[A-Z_]*=/p' "${SCRIPT_PATH}" >>"${FUNCTION_FILE}" || fail 'could not extract runtime defaults'
 [ -s "${FUNCTION_FILE}" ] || fail 'LAN IPSET functions were not found'
 
@@ -68,6 +68,16 @@ lower_script() {
 pidof() {
 	printf '%s\n' 1234
 	return 0
+}
+
+iptables() {
+	printf '%s\n' "${WAN_NAT_RULE:-}"
+}
+
+nvram() {
+	case "$1:$2" in
+		get:wan0_ifname) printf '%s\n' 'eth0' ;;
+	esac
 }
 
 IPSET_FILE=/tmp/ipset.conf
@@ -125,6 +135,18 @@ case "${ACTUAL}" in
 	*IPSet_Lock* | *IPSet_Supported*) fail "LAN startup setup touched lock/support path: ${ACTUAL}" ;;
 esac
 
+WAN_NAT_RULE='-A POSTROUTING -o eth0 -j MASQUERADE'
+DISABLE_STATUS=0
+: >"${CALLS_FILE}"
+IPSet_Enabled || fail 'IPSet_Enabled returned false for LAN mode with qualifying WAN NAT state'
+IPSet_Refresh || fail 'LAN double-NAT refresh returned failure with supported IPSET'
+ACTUAL="$(cat "${CALLS_FILE}")"
+case "${ACTUAL}" in
+	*IPSet_Supported*IPSet_Lock*) : ;;
+	*) fail "LAN double-NAT refresh did not use the supported lock path: ${ACTUAL}" ;;
+esac
+WAN_NAT_RULE=''
+
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write WAN config'
 ADGUARD_INSTALL_MODE="wan"
 ADGUARD_IPSET="YES"
@@ -139,4 +161,4 @@ case "${ACTUAL}" in
 	*) fail "WAN refresh did not preserve supported lock path: ${ACTUAL}" ;;
 esac
 
-printf '%s\n' 'PASS: LAN mode skips IPSET locks, rewrites, and restarts while WAN mode remains unchanged'
+printf '%s\n' 'PASS: LAN mode gates IPSET on qualifying WAN NAT while WAN mode remains enabled'

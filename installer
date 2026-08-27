@@ -1936,9 +1936,10 @@ conf_has_key() {
 
 adguard_ipset_allowed() {
 	case "${ADGUARD_INSTALL_MODE:-$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)}" in
-		lan) return 1 ;;
+		wan) return 0 ;;
+		lan) wan_iptables_state_active 2>/dev/null; return $? ;;
 	esac
-	return 0
+	return 1
 }
 
 write_conf_if_absent() {
@@ -1959,7 +1960,12 @@ adguard_install_feature_defaults() {
 			write_conf ADGUARD_DNSMASQ_MODE "\"enabled\"" || return 1
 			;;
 		lan)
-			write_conf ADGUARD_IPSET "\"NO\"" || return 1
+			ipset_value="$(conf_value ADGUARD_IPSET 2>/dev/null)"
+			if adguard_ipset_allowed && [ "${ipset_value}" = "YES" ]; then
+				write_conf ADGUARD_IPSET "\"YES\"" || return 1
+			else
+				write_conf ADGUARD_IPSET "\"NO\"" || return 1
+			fi
 			dnsmasq_mode="$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)"
 			case "${dnsmasq_mode}" in
 				disabled) ;;
@@ -4471,8 +4477,13 @@ check_ipset() {
 			IPSET_ENABLED="NO"
 			;;
 		1)
-			IPSET_ENABLED="YES"
+			if adguard_ipset_allowed; then
+				IPSET_ENABLED="YES"
+			else
+				IPSET_ENABLED="NO"
+			fi
 			;;
+		*) return 1 ;;
 	esac
 	write_conf ADGUARD_IPSET "\"${IPSET_ENABLED}\""
 }
@@ -4594,6 +4605,9 @@ adguard_enforce_lan_ipset_disabled() {
 	esac
 	ADGUARD_INSTALL_MODE="lan"
 	write_conf ADGUARD_INSTALL_MODE "\"lan\"" || return 1
+	if adguard_ipset_allowed; then
+		return 0
+	fi
 	write_conf ADGUARD_IPSET "\"NO\"" || return 1
 	adguardhome_yaml_remove_ipset_file || return 1
 	PTXT "${INFO} IPSET is disabled in LAN/AP/Bridge mode because IPTABLES/IPSET rules are not manageable there."
@@ -5894,6 +5908,23 @@ legacy_firewall_cleanup_needed() {
 	return 1
 }
 
+wan_iptables_state_active() {
+	local ifname key nat_rules unit
+	nat_rules="$(iptables -t nat -S POSTROUTING 2>/dev/null)" || return 1
+	for unit in 0 1; do
+		for key in ifname gw_ifname pppoe_ifname; do
+			ifname="$(nvram get "wan${unit}_${key}" 2>/dev/null)" || ifname=""
+			case "${ifname}" in
+				"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-]*) continue ;;
+			esac
+			if printf '%s\n' "${nat_rules}" | /bin/grep -F -e "-o ${ifname} " | /bin/grep -qE -e '-j (MASQUERADE|SNAT)([[:space:]]|$)'; then
+				return 0
+			fi
+		done
+	done
+	return 1
+}
+
 create_dir() {
 	if ! mkdir -p "${1}"; then
 		PTXT "${ERROR} Unable to create ${1}!"
@@ -6087,15 +6118,21 @@ installer_update_reexec() {
 install_wan_event_scripts() {
 	if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
 		! write_manager_script /jffs/scripts/services-stop "services-stop &" ||
-		! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq ||
 		! write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'; then
 		return 1
 	fi
-	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
-	if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
-		return 1
+	if pidof dnsmasq >/dev/null 2>&1 && [ -f /etc/dnsmasq.conf ]; then
+		write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq || return 1
+		if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
+		if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
+			return 1
+		fi
+		write_conf ADGUARD_DNSMASQ_MODE '"enabled"'
+	else
+		del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || return 1
+		if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf || return 1; fi
+		write_conf ADGUARD_DNSMASQ_MODE '"disabled"'
 	fi
-	write_conf ADGUARD_DNSMASQ_MODE '"enabled"'
 }
 
 inst_AdGuardHome() {
@@ -6399,6 +6436,18 @@ inst_AdGuardHome() {
 			ptxt_ok "Asuswrt-Merlin event scripts configured."
 			;;
 		lan)
+			if wan_iptables_state_active; then
+				if ! write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'; then
+					PTXT "${ERROR} Required firewall event script could not be configured for the active WAN IPTABLES state."
+					if rollback_pending_mode_migration; then
+						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+					fi
+					end_op_message 1 "$1"
+					return 1
+				fi
+			else
+				del_jffs_script /jffs/scripts/firewall-start 'firewall "$1"' || ptxt_warn "Unable to remove the AdGuardHome firewall-start hook; continuing LAN-mode setup."
+			fi
 			if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
 				! write_manager_script /jffs/scripts/services-stop "services-stop &"; then
 				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
@@ -6419,7 +6468,7 @@ inst_AdGuardHome() {
 					end_op_message 1 "$1"
 					return 1
 				fi
-			elif pidof dnsmasq >/dev/null 2>&1; then
+			elif pidof dnsmasq >/dev/null 2>&1 && [ -f /etc/dnsmasq.conf ]; then
 				if ! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq; then
 					PTXT "${ERROR} Required dnsmasq event script could not be configured."
 					if rollback_pending_mode_migration; then
@@ -6446,25 +6495,10 @@ inst_AdGuardHome() {
 					return 1
 				fi
 			else
-				ptxt_warn "dnsmasq is not running; preserving dnsmasq event hooks for LAN-mode startup."
-				if ! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq; then
-					PTXT "${ERROR} Required dnsmasq event script could not be configured."
-					if rollback_pending_mode_migration; then
-						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-					fi
-					end_op_message 1 "$1"
-					return 1
-				fi
+				ptxt_warn "dnsmasq is not running or /etc/dnsmasq.conf is unavailable; removing AdGuardHome dnsmasq event hooks."
+				del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || ptxt_warn "Unable to remove the AdGuardHome dnsmasq.postconf hook; continuing LAN-mode setup."
 				if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
-				if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
-					PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
-					if rollback_pending_mode_migration; then
-						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-					fi
-					end_op_message 1 "$1"
-					return 1
-				fi
-				if ! write_conf ADGUARD_DNSMASQ_MODE "\"enabled\""; then
+				if ! write_conf ADGUARD_DNSMASQ_MODE "\"disabled\""; then
 					PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
 					if rollback_pending_mode_migration; then
 						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
@@ -6747,6 +6781,15 @@ setup_restore_nvram_journal() {
 # on the caller's SETUP_FILES_JOURNALED local variable.
 setup_files_begin_if_needed() {
 	[ "${SETUP_FILES_JOURNALED}" -eq 0 ] || return 0
+	# A mode-migration or earlier setup stage can create the shared journal
+	# before this setup_AdGuardHome_impl frame is entered.  Reuse it only while
+	# this installer process still owns the transaction lock.
+	if [ -n "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] &&
+		[ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] &&
+		[ ! -L "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
+		SETUP_FILES_JOURNALED=1
+		return 0
+	fi
 	nvram_transaction_setup_files_begin || return 1
 	SETUP_FILES_JOURNALED=1
 }
@@ -7204,10 +7247,10 @@ setup_sync_mode_dependent_yaml_and_snapshot() {
 			return 1
 		}
 		case "${ADGUARD_INSTALL_MODE:-}" in
-			lan) adguardhome_yaml_remove_ipset_file "${yaml_file_stage}" || {
+			lan) if ! adguard_ipset_allowed && ! adguardhome_yaml_remove_ipset_file "${yaml_file_stage}"; then
 				rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
 				return 1
-			} ;;
+				fi ;;
 		esac
 	fi
 	if [ -f "${YAML_ORI}" ]; then
@@ -7216,10 +7259,10 @@ setup_sync_mode_dependent_yaml_and_snapshot() {
 			return 1
 		}
 		case "${ADGUARD_INSTALL_MODE:-}" in
-			lan) adguardhome_yaml_remove_ipset_file "${yaml_ori_stage}" || {
+			lan) if ! adguard_ipset_allowed && ! adguardhome_yaml_remove_ipset_file "${yaml_ori_stage}"; then
 				rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
 				return 1
-			} ;;
+				fi ;;
 		esac
 	fi
 	if [ -f "${yaml_file_stage}" ]; then
@@ -7422,7 +7465,7 @@ adguard_migrate_detected_install_mode() {
 			if ! write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\"" ||
 				! adguard_install_feature_defaults ||
 				! write_conf ADGUARD_NETCHECK_MODE "\"${ADGUARD_INSTALL_MODE}\"" ||
-				{ [ "${ADGUARD_INSTALL_MODE}" = "lan" ] && ! adguardhome_yaml_remove_ipset_file; }; then
+				{ [ "${ADGUARD_INSTALL_MODE}" = "lan" ] && ! adguard_ipset_allowed && ! adguardhome_yaml_remove_ipset_file; }; then
 				rollback_pending_mode_migration || return 2
 				return 1
 			fi
@@ -8960,10 +9003,10 @@ cli_migrate_runtime_defaults() {
 	case "${install_mode}" in
 		lan)
 			netcheck_target="lan"
-			if [ "$(conf_value ADGUARD_IPSET)" != "NO" ] || awk '
+			if ! adguard_ipset_allowed && { [ "$(conf_value ADGUARD_IPSET)" != "NO" ] || awk '
 				/^[[:space:]]*(ipset|ipset_file|\047ipset\047|\047ipset_file\047|"ipset"|"ipset_file"):[[:space:]]*/ { found = 1 }
 				END { exit !found }
-			' "${YAML_FILE}" 2>/dev/null; then
+			' "${YAML_FILE}" 2>/dev/null; }; then
 				PTXT "${WARNING} LAN/AP/Bridge mode config has IPSET enabled; migration will disable it because IPTABLES/IPSET rules are not manageable there."
 				changes="1"
 				ipset_change="1"

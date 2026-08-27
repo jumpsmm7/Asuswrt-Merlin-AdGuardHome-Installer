@@ -19,6 +19,19 @@ SETUP_FUNCTIONS="$(sed -n '/^setup_AdGuardHome() {$/,/^setup_amtmupdate() {$/p' 
 eval "${RUNTIME_DEFAULT_FUNCTIONS}"
 eval "${SETUP_FUNCTIONS}"
 
+# setup_files_begin_if_needed reuses a journal already owned by this installer
+# process instead of aborting LAN setup before YAML configuration begins.
+(
+	SETUP_FILES_JOURNALED=0
+	NVRAM_TRANSACTION_LOCK_MODE=mkdir
+	BASE_DIR="${TMPDIR:-/tmp}/installer-ipset-existing-journal.$$"
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+	nvram_transaction_setup_files_begin() { fail 'attempted to replace the active setup journal'; }
+	setup_files_begin_if_needed || fail 'could not reuse the active setup journal'
+	[ "${SETUP_FILES_JOURNALED}" -eq 1 ] || fail 'active setup journal was not recorded in the current setup frame'
+	rm -rf "${BASE_DIR}"
+)
+
 rollback_result_write() { :; }
 rollback_result_notice() { :; }
 

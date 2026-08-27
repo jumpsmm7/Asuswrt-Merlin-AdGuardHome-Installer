@@ -268,6 +268,16 @@ The installer also manages Entware-backed paths under `/opt`, including `/opt/et
 * Prefer idempotent add/remove logic.
 * Check for duplicate rules, stale rules, and failure paths after partial setup.
 
+Installer event-hook policy is topology-aware and must remain consistent across implementation, reviews, documentation, and tests:
+
+* WAN mode configures the installer-managed `firewall-start` hook.
+* LAN/AP/Bridge mode configures that `firewall-start` hook only when the router has active WAN-interface `SNAT` or `MASQUERADE` state, such as a double-NAT topology. Match NAT state to the validated `wan0`/`wan1` interface values; unrelated bridge, VPN, or guest-network NAT must not qualify.
+* LAN/AP/Bridge mode removes the installer-managed `firewall-start` hook when no qualifying WAN NAT state exists. Preserve unrelated user content in shared JFFS scripts.
+* The qualifying WAN-interface NAT state is the only LAN/AP/Bridge exception that permits both the `firewall-start` hook and IPSET integration. Without that state, IPSET remains disabled.
+* IPSET enablement is fail-closed: only WAN mode or LAN/AP/Bridge mode with qualifying WAN-interface NAT may write `ADGUARD_IPSET="YES"`. LAN/AP/Bridge without that state and unknown modes must force `ADGUARD_IPSET="NO"` at the final preference-write boundary as well as refusing setup, menu, CLI refresh, migration, and runtime paths.
+* In both WAN and LAN/AP/Bridge modes, configure `dnsmasq.postconf` and `dnsmasq-sdn.postconf` only when `dnsmasq` is running and `/etc/dnsmasq.conf` is present. Otherwise remove only the installer-managed dnsmasq hooks and persist disabled dnsmasq integration.
+* LAN/AP/Bridge setup must continue from the informational IPSET-disabled notice into YAML configuration. Reuse only a valid setup journal owned by the current installer process; do not weaken rollback ownership or symlink checks.
+
 ## Performance guidance
 
 Routers are constrained systems. Prefer simple shell and applets over heavy pipelines.

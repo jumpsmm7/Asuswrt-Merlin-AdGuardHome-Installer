@@ -108,6 +108,8 @@ check_dns_filter() { :; }
 check_dns_local() { :; }
 # check_ipset is a no-op test stub for IP set validation.
 check_ipset() { :; }
+# wan_iptables_state_active reports no double-NAT exception for the baseline LAN startup cases.
+wan_iptables_state_active() { return 1; }
 # ai_have_cmd always reports that the requested command is unavailable.
 ai_have_cmd() { return 1; }
 # nvram simulates NVRAM reads and writes for installer tests.
