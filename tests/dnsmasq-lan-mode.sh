@@ -1,5 +1,5 @@
 #!/bin/sh
-# Verify dnsmasq postconf LAN-mode gating preserves handoff while skipping IPSET refreshes.
+# Verify dnsmasq postconf LAN-mode gating preserves handoff and topology-aware IPSET refreshes.
 
 set -u
 
@@ -169,8 +169,13 @@ sdn_bridge_for_index() {
 	printf '%s\n' 'br1'
 }
 
-# IPSet_Refresh records an IPSET refresh request for test verification.
+# IPSet_Refresh records an IPSET refresh request when the test topology permits managed IPSET integration.
 IPSet_Refresh() {
+	case "${ADGUARD_INSTALL_MODE:-}" in
+		wan) ;;
+		lan | ap | bridge) [ "${WAN_NAT_ACTIVE:-0}" = "1" ] || return 0 ;;
+		*) return 0 ;;
+	esac
 	printf '%s\n' "$1" >>"${IPSET_CALLS_FILE}"
 }
 
@@ -190,6 +195,7 @@ reset_case() {
 	printf '%s\n' '# sdn config' >"${DNSMASQ_SDN_CONF_FILE}" || fail 'could not reset sdn dnsmasq config'
 	DNS_HANDOFF_ACTIVE='0'
 	ADGUARD_INSTALL_MODE='wan'
+	WAN_NAT_ACTIVE='0'
 	DNSMASQ_RUNNING='0'
 	ADGUARD_RUNNING='1'
 	ADGUARD_DNSMASQ_MODE='auto'
@@ -287,21 +293,23 @@ assert_no_ipset_refresh 'LAN disabled handoff path'
 reset_case
 ADGUARD_INSTALL_MODE='lan'
 DNSMASQ_RUNNING='1'
+WAN_NAT_ACTIVE='1'
 ADGUARD_DNSMASQ_MODE='auto'
 CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
 dnsmasq_action_handler || fail 'LAN running dnsmasq base path failed'
 assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN running dnsmasq base path'
 assert_resolv_conf_not_unmounted 'LAN running dnsmasq base path'
-assert_no_ipset_refresh 'LAN running dnsmasq base path'
+grep -q "${DNSMASQ_CONF_FILE}" "${IPSET_CALLS_FILE}" || fail 'LAN double-NAT dnsmasq path did not refresh IPSET'
 
 reset_case
 ADGUARD_INSTALL_MODE='lan'
 DNSMASQ_RUNNING='1'
+WAN_NAT_ACTIVE='1'
 ADGUARD_DNSMASQ_MODE='auto'
 CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
 dnsmasq_action_handler 1 || fail 'LAN running dnsmasq SDN path failed'
 assert_dnsmasq_postconf_written "${DNSMASQ_SDN_CONF_FILE}" 'LAN running dnsmasq SDN path'
-assert_no_ipset_refresh 'LAN running dnsmasq SDN path'
+grep -q "${DNSMASQ_SDN_CONF_FILE}" "${IPSET_CALLS_FILE}" || fail 'LAN double-NAT dnsmasq SDN path did not refresh IPSET'
 
 reset_case
 ADGUARD_INSTALL_MODE='lan'

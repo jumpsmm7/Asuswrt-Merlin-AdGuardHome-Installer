@@ -1038,10 +1038,8 @@ dnsmasq_params() {
 	if { ! resolv_conf_uses_rom && [ "${CONFIG_LOCAL:-NO}" = "YES" ]; }; then {
 		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
 	}; fi
-	if ! adguard_lan_mode; then
-		IPSET_REFRESH_FROM_DNSMASQ="1"
-		IPSet_Refresh "${CONFIG}"
-	fi
+	IPSET_REFRESH_FROM_DNSMASQ="1"
+	IPSet_Refresh "${CONFIG}"
 }
 
 # dnsmasq_action_handler applies the requested dnsmasq configuration action, or skips it in LAN mode when dnsmasq is inactive and unmanaged.
