@@ -145,5 +145,14 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"enabled\"'" "${TMP_FILE}.add-helper"
 	fail 'shared addition helper does not persist enabled dnsmasq mode'
 grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-helper" ||
 	fail 'shared removal helper does not persist disabled dnsmasq mode'
+(
+	eval "$(cat "${TMP_FILE}.remove-helper")"
+	del_jffs_script() { return 0; }
+	nvram() { return 1; }
+	write_conf() { return 1; }
+	if remove_dnsmasq_event_scripts; then
+		fail 'dnsmasq hook cleanup hides disabled-mode configuration write failures'
+	fi
+)
 
 printf '%s\n' 'PASS: installer event-script mode regression'
