@@ -24,6 +24,8 @@ sed -n '/^event_scripts_snapshot() {$/,$ { /^remove_firewall_event_scripts() {$/
 	fail 'could not extract event-script transaction helpers'
 sed -n '/^remove_firewall_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${TMP_DIR}/helpers.part" ||
 	fail 'could not complete firewall transaction helper extraction'
+sed -n '/^install_wan_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${TMP_DIR}/helpers.part" ||
+	fail 'could not extract WAN event-script orchestration helper'
 sed "s|/jffs/scripts|${TMP_DIR}/jffs/scripts|g" "${TMP_DIR}/helpers.part" >"${TMP_DIR}/helpers"
 # shellcheck disable=SC1091
 . "${TMP_DIR}/helpers"
@@ -81,5 +83,36 @@ if add_firewall_event_scripts; then
 	fail 'firewall hook publication failure was hidden'
 fi
 grep -qx 'original firewall' "${TMP_DIR}/jffs/scripts/firewall-start" || fail 'firewall hook was not restored'
+
+printf '%s\n' 'original dnsmasq' >"${TMP_DIR}/jffs/scripts/dnsmasq.postconf"
+printf '%s\n' 'original dnsmasq SDN' >"${TMP_DIR}/jffs/scripts/dnsmasq-sdn.postconf"
+printf '%s\n' 'original init' >"${TMP_DIR}/jffs/scripts/init-start"
+printf '%s\n' 'original services-stop' >"${TMP_DIR}/jffs/scripts/services-stop"
+printf '%s\n' 'original service-event-end' >"${TMP_DIR}/jffs/scripts/service-event-end"
+printf '%s\n' 'original firewall' >"${TMP_DIR}/jffs/scripts/firewall-start"
+CONF_FILE="${TMP_DIR}/config"
+printf '%s\n' 'ADGUARD_DNSMASQ_MODE="disabled"' >"${CONF_FILE}"
+add_dnsmasq_event_scripts() {
+	printf '%s\n' 'changed dnsmasq' >"${TMP_DIR}/jffs/scripts/dnsmasq.postconf"
+	printf '%s\n' 'ADGUARD_DNSMASQ_MODE="enabled"' >"${CONF_FILE}"
+}
+add_init_event_scripts() {
+	printf '%s\n' 'changed init' >"${TMP_DIR}/jffs/scripts/init-start"
+}
+add_services_event_scripts() {
+	printf '%s\n' 'changed services-stop' >"${TMP_DIR}/jffs/scripts/services-stop"
+	return 1
+}
+add_firewall_event_scripts() { fail 'WAN orchestration continued after services failure'; }
+if install_wan_event_scripts; then
+	fail 'WAN orchestration hid a later helper failure'
+fi
+grep -qx 'original dnsmasq' "${TMP_DIR}/jffs/scripts/dnsmasq.postconf" || fail 'WAN rollback did not restore dnsmasq.postconf'
+grep -qx 'original dnsmasq SDN' "${TMP_DIR}/jffs/scripts/dnsmasq-sdn.postconf" || fail 'WAN rollback did not restore dnsmasq-sdn.postconf'
+grep -qx 'original init' "${TMP_DIR}/jffs/scripts/init-start" || fail 'WAN rollback did not restore init-start'
+grep -qx 'original services-stop' "${TMP_DIR}/jffs/scripts/services-stop" || fail 'WAN rollback did not restore services-stop'
+grep -qx 'original service-event-end' "${TMP_DIR}/jffs/scripts/service-event-end" || fail 'WAN rollback did not restore service-event-end'
+grep -qx 'original firewall' "${TMP_DIR}/jffs/scripts/firewall-start" || fail 'WAN rollback did not restore firewall-start'
+grep -qx 'ADGUARD_DNSMASQ_MODE="disabled"' "${CONF_FILE}" || fail 'WAN rollback did not restore dnsmasq configuration'
 
 printf '%s\n' 'PASS: installer event-script transaction regression'

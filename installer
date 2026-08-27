@@ -6123,10 +6123,20 @@ installer_update_reexec() {
 }
 
 install_wan_event_scripts() {
-	add_dnsmasq_event_scripts || return 1
-	add_init_event_scripts || return 1
-	add_services_event_scripts || return 1
-	add_firewall_event_scripts || return 1
+	local failed=0 SNAPSHOT_DIR
+	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.event-hooks.$$"
+	all_event_scripts_snapshot "${SNAPSHOT_DIR}" || return 1
+	add_dnsmasq_event_scripts || failed=1
+	[ "${failed}" -ne 0 ] || add_init_event_scripts || failed=1
+	[ "${failed}" -ne 0 ] || add_services_event_scripts || failed=1
+	[ "${failed}" -ne 0 ] || add_firewall_event_scripts || failed=1
+	if [ "${failed}" -ne 0 ]; then
+		all_event_scripts_restore "${SNAPSHOT_DIR}" || failed=1
+		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+		return 1
+	fi
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
 }
 
 event_scripts_snapshot() {
@@ -6178,6 +6188,28 @@ event_scripts_restore() {
 		fi
 	done
 	return "${RET}"
+}
+
+all_event_scripts_snapshot() {
+	event_scripts_snapshot "$1" \
+		/jffs/scripts/dnsmasq.postconf \
+		/jffs/scripts/dnsmasq-sdn.postconf \
+		/jffs/scripts/init-start \
+		/jffs/scripts/services-stop \
+		/jffs/scripts/service-event-end \
+		/jffs/scripts/firewall-start \
+		"${CONF_FILE}"
+}
+
+all_event_scripts_restore() {
+	event_scripts_restore "$1" \
+		/jffs/scripts/dnsmasq.postconf \
+		/jffs/scripts/dnsmasq-sdn.postconf \
+		/jffs/scripts/init-start \
+		/jffs/scripts/services-stop \
+		/jffs/scripts/service-event-end \
+		/jffs/scripts/firewall-start \
+		"${CONF_FILE}"
 }
 
 init_event_scripts_snapshot() {
@@ -6404,7 +6436,7 @@ add_dnsmasq_event_scripts() {
 }
 
 inst_AdGuardHome() {
-	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
+	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 EVENT_SCRIPTS_SNAPSHOT_DIR INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
 	if ! ensure_sha256sum_tool; then
@@ -6704,8 +6736,19 @@ inst_AdGuardHome() {
 			ptxt_ok "Asuswrt-Merlin event scripts configured."
 			;;
 		lan)
+			EVENT_SCRIPTS_SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.event-hooks.$$"
+			if ! all_event_scripts_snapshot "${EVENT_SCRIPTS_SNAPSHOT_DIR}"; then
+				PTXT "${ERROR} Existing Asuswrt-Merlin event scripts could not be protected for rollback."
+				if rollback_pending_mode_migration; then
+					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+				fi
+				end_op_message 1 "$1"
+				return 1
+			fi
 			if [ "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" = "disabled" ]; then
 				if ! remove_dnsmasq_event_scripts; then
+					all_event_scripts_restore "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
+					rm -rf "${EVENT_SCRIPTS_SNAPSHOT_DIR}" 2>/dev/null || true
 					PTXT "${ERROR} Required dnsmasq event scripts could not be removed."
 					if rollback_pending_mode_migration; then
 						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
@@ -6718,6 +6761,8 @@ inst_AdGuardHome() {
 					ptxt_warn "dnsmasq is not running or /etc/dnsmasq.conf is unavailable; removing AdGuardHome dnsmasq event hooks."
 				fi
 				if ! add_dnsmasq_event_scripts; then
+					all_event_scripts_restore "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
+					rm -rf "${EVENT_SCRIPTS_SNAPSHOT_DIR}" 2>/dev/null || true
 					PTXT "${ERROR} Required dnsmasq event scripts could not be configured."
 					if rollback_pending_mode_migration; then
 						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
@@ -6728,6 +6773,8 @@ inst_AdGuardHome() {
 			fi
 			if wan_iptables_state_active; then
 				if ! add_firewall_event_scripts; then
+					all_event_scripts_restore "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
+					rm -rf "${EVENT_SCRIPTS_SNAPSHOT_DIR}" 2>/dev/null || true
 					PTXT "${ERROR} Required firewall event script could not be configured for the active WAN IPTABLES state."
 					if rollback_pending_mode_migration; then
 						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
@@ -6737,6 +6784,8 @@ inst_AdGuardHome() {
 				fi
 			else
 				if ! remove_firewall_event_scripts; then
+					all_event_scripts_restore "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
+					rm -rf "${EVENT_SCRIPTS_SNAPSHOT_DIR}" 2>/dev/null || true
 					PTXT "${ERROR} Required firewall event script could not be removed for LAN mode."
 					if rollback_pending_mode_migration; then
 						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
@@ -6745,6 +6794,8 @@ inst_AdGuardHome() {
 					return 1
 				fi
 				if ! write_conf ADGUARD_IPSET '"NO"'; then
+					all_event_scripts_restore "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
+					rm -rf "${EVENT_SCRIPTS_SNAPSHOT_DIR}" 2>/dev/null || true
 					PTXT "${ERROR} IPSET could not be disabled after the qualifying WAN IPTABLES state was lost."
 					if rollback_pending_mode_migration; then
 						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
@@ -6754,6 +6805,8 @@ inst_AdGuardHome() {
 				fi
 			fi
 			if ! add_init_event_scripts || ! add_services_event_scripts; then
+				all_event_scripts_restore "${EVENT_SCRIPTS_SNAPSHOT_DIR}" || true
+				rm -rf "${EVENT_SCRIPTS_SNAPSHOT_DIR}" 2>/dev/null || true
 				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
 				if rollback_pending_mode_migration; then
 					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
@@ -6761,6 +6814,7 @@ inst_AdGuardHome() {
 				end_op_message 1 "$1"
 				return 1
 			fi
+			rm -rf "${EVENT_SCRIPTS_SNAPSHOT_DIR}" 2>/dev/null || true
 			ptxt_ok "Asuswrt-Merlin event scripts configured."
 			;;
 		*)
