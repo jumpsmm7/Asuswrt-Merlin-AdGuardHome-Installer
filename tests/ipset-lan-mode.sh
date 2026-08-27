@@ -4,6 +4,8 @@
 set -u
 
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
+S99_PATH="${2:-S99AdGuardHome}"
+RC_FUNC_PATH="${3:-rc.func.AdGuardHome}"
 FUNCTION_FILE="${TMPDIR:-/tmp}/ipset-lan-functions.$$"
 CALLS_FILE="${TMPDIR:-/tmp}/ipset-lan-calls.$$"
 CONF_FILE="${TMPDIR:-/tmp}/ipset-lan-config.$$"
@@ -21,6 +23,17 @@ fail() {
 
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
+
+[ -f "${S99_PATH}" ] || fail "S99 service script not found: ${S99_PATH}"
+[ -f "${RC_FUNC_PATH}" ] || fail "rc.func service script not found: ${RC_FUNC_PATH}"
+grep -q '^\[ -z "${SCRIPT_LOC}" \] && \. /jffs/addons/AdGuardHome.d/AdGuardHome.sh$' "${S99_PATH}" ||
+	fail 'S99AdGuardHome no longer delegates lifecycle policy to AdGuardHome.sh'
+if grep -qE 'ADGUARD_IPSET|IPSet_(Enabled|Migrate|Refresh|Setup)' "${S99_PATH}"; then
+	fail 'S99AdGuardHome directly manages IPSET enablement instead of delegating to AdGuardHome.sh'
+fi
+if grep -qE 'ADGUARD_IPSET|IPSet_|ipset[[:space:]]+(add|create|destroy|flush)' "${RC_FUNC_PATH}"; then
+	fail 'rc.func.AdGuardHome directly manages IPSET state'
+fi
 
 /bin/sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^load_operation_config() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^adguard_wan_iptables_state_active() {$/,/^}$/p; /^IPSet_Migrate() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 sed -n '/^DEFAULT_ADGUARD_[A-Z_]*=/p' "${SCRIPT_PATH}" >>"${FUNCTION_FILE}" || fail 'could not extract runtime defaults'

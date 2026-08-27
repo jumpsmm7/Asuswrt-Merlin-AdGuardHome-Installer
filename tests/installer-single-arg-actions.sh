@@ -28,6 +28,15 @@ sed -n '/^single_arg_menu_action() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FI
 	fail 'could not extract single-argument action helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'single-argument action helper extraction was empty'
 
+OPTION_NINE_BRANCH="$(sed -n '/^[[:space:]]*"9" | "blocklists" | "unusedblocklists")$/,/^[[:space:]]*;;$/p' "${SCRIPT_PATH}")" ||
+	fail 'could not extract option 9 blocklist branch'
+[ -n "${OPTION_NINE_BRANCH}" ] || fail 'option 9 blocklist branch is missing'
+printf '%s\n' "${OPTION_NINE_BRANCH}" | grep -q 'cleanup_unused_blocklists' ||
+	fail 'option 9 no longer dispatches only to blocklist cleanup'
+if printf '%s\n' "${OPTION_NINE_BRANCH}" | grep -qE 'check_ipset|ADGUARD_IPSET|IPSET_SELECTION|adguard_ipset_allowed'; then
+	fail 'option 9 can access or enable IPSET state'
+fi
+
 grep -q '\[ -z "${2:-}" \] && single_arg_menu_action "${1:-}"' "${SCRIPT_PATH}" ||
 	fail 'main argument parser does not guard unset action parameters before one-argument dispatch'
 grep -q 'set -- "${BRANCH}" "${CHOSEN}"' "${SCRIPT_PATH}" ||
