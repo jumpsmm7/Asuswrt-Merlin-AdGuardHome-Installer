@@ -952,7 +952,7 @@ dnsmasq_resolv_conf_cleanup() {
 
 # dnsmasq_params configures dnsmasq for the LAN or specified SDN interface, including DNS routing, reverse zones, and optional IPSet refresh.
 dnsmasq_params() {
-	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
+	local CONFIG CONFIG_FILE CONFIG_STAGE IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
 	if adguard_lan_mode && [ "${CONFIG_DNSMASQ_MODE:-auto}" = "disabled" ] && ! dns_handoff_is_active; then
 		agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_disabled"
 		return 0
@@ -1003,6 +1003,13 @@ dnsmasq_params() {
 			[ -n "${NET_ADDR}" ] || return 0
 			;;
 	esac
+	CONFIG_FILE="${CONFIG}"
+	CONFIG_STAGE="${CONFIG_FILE}.adguard.$$"
+	if ! cp -p "${CONFIG_FILE}" "${CONFIG_STAGE}"; then
+		rm -f "${CONFIG_STAGE}"
+		return 1
+	fi
+	CONFIG="${CONFIG_STAGE}"
 	dnsmasq_delete_matching \
 		"${CONFIG}" \
 		"add-subnet=" \
@@ -1039,7 +1046,14 @@ dnsmasq_params() {
 		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
 	}; fi
 	IPSET_REFRESH_FROM_DNSMASQ="1"
-	IPSet_Refresh "${CONFIG}"
+	if ! IPSet_Refresh "${CONFIG}"; then
+		rm -f "${CONFIG_STAGE}"
+		return 1
+	fi
+	if ! mv "${CONFIG_STAGE}" "${CONFIG_FILE}"; then
+		rm -f "${CONFIG_STAGE}"
+		return 1
+	fi
 }
 
 # dnsmasq_action_handler applies the requested dnsmasq configuration action, or skips it in LAN mode when dnsmasq is inactive and unmanaged.

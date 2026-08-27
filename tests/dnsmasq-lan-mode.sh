@@ -177,6 +177,7 @@ IPSet_Refresh() {
 		*) return 0 ;;
 	esac
 	printf '%s\n' "$1" >>"${IPSET_CALLS_FILE}"
+	[ "${IPSET_REFRESH_FAIL:-0}" != "1" ]
 }
 
 # private_ipv4_bridge_dns_options_with_fallbacks records the LAN interface it was called with and emits the configured bridge DNS pairs.
@@ -205,6 +206,7 @@ reset_case() {
 	unset NVRAM_RC_SUPPORT
 	NVRAM_LAN_IFNAME='br0'
 	BRIDGE_DNS_OPTIONS=''
+	IPSET_REFRESH_FAIL='0'
 }
 
 # assert_no_ipset_refresh verifies that no IPSET refresh calls were recorded for the test case.
@@ -300,6 +302,20 @@ dnsmasq_action_handler || fail 'LAN running dnsmasq base path failed'
 assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN running dnsmasq base path'
 assert_resolv_conf_not_unmounted 'LAN running dnsmasq base path'
 grep -q "${DNSMASQ_CONF_FILE}" "${IPSET_CALLS_FILE}" || fail 'LAN double-NAT dnsmasq path did not refresh IPSET'
+
+reset_case
+ADGUARD_INSTALL_MODE='wan'
+DNSMASQ_RUNNING='1'
+IPSET_REFRESH_FAIL='1'
+ORIGINAL_CONFIG="$(cat "${DNSMASQ_CONF_FILE}")"
+if dnsmasq_action_handler; then
+	fail 'failed IPSET refresh unexpectedly published dnsmasq configuration'
+fi
+[ "$(cat "${DNSMASQ_CONF_FILE}")" = "${ORIGINAL_CONFIG}" ] ||
+	fail 'failed IPSET refresh changed the live dnsmasq configuration'
+if find "${TEST_ROOT}" -name 'dnsmasq.conf.adguard.*' -print | grep -q .; then
+	fail 'failed IPSET refresh left a staged dnsmasq configuration'
+fi
 
 reset_case
 ADGUARD_INSTALL_MODE='lan'
