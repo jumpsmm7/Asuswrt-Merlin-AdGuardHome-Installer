@@ -207,7 +207,8 @@ sed -n '/^legacy_firewall_cleanup_needed() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_
 	legacy_firewall_cleanup_needed || fail 'failed firewall inspection did not require cleanup'
 ) || exit $?
 
-sed -n '/^wan_iptables_state_active() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_ROOT}/wan-iptables-check" ||
+sed -n '/^wan_iptables_state_active() {$/,/^}$/p' "${SCRIPT_PATH}" |
+	sed 's#/usr/sbin/iptables#iptables#g; s#/bin/nvram#nvram#g' >"${TMP_ROOT}/wan-iptables-check" ||
 	fail 'could not extract WAN IPTABLES state check'
 (
 	# shellcheck disable=SC1090
