@@ -1,4 +1,4 @@
 {
-  "API_KEY": "$QODO_API_KEY",
+  "API_KEY": "$GITHUB",
   "ENVIRONMENT_NAME": "production"
 }
