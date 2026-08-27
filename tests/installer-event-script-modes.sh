@@ -8,7 +8,7 @@ TMP_FILE="${TMPDIR:-/tmp}/installer-event-script-modes.$$"
 
 # cleanup removes temporary extracted files created by the regression check.
 cleanup() {
-	rm -f "${TMP_FILE}" "${TMP_FILE}.wan" "${TMP_FILE}.lan" "${TMP_FILE}.wan-helper" "${TMP_FILE}.remove-helper" "${TMP_FILE}.add-helper"
+	rm -rf "${TMP_FILE}" "${TMP_FILE}.wan" "${TMP_FILE}.lan" "${TMP_FILE}.wan-helper" "${TMP_FILE}.remove-helper" "${TMP_FILE}.snapshot-helper" "${TMP_FILE}.restore-helper" "${TMP_FILE}.add-helper" "${TMP_FILE}.rollback"
 }
 
 # fail prints a failure message to standard error and exits with status 1.
@@ -76,6 +76,12 @@ sed -n '/^install_wan_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}
 sed -n '/^remove_dnsmasq_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.remove-helper" ||
 	fail 'could not extract dnsmasq event-script removal helper'
 [ -s "${TMP_FILE}.remove-helper" ] || fail 'dnsmasq event-script removal helper was not found'
+sed -n '/^dnsmasq_event_scripts_snapshot() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.snapshot-helper" ||
+	fail 'could not extract dnsmasq event-script snapshot helper'
+[ -s "${TMP_FILE}.snapshot-helper" ] || fail 'dnsmasq event-script snapshot helper was not found'
+sed -n '/^dnsmasq_event_scripts_restore() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.restore-helper" ||
+	fail 'could not extract dnsmasq event-script restore helper'
+[ -s "${TMP_FILE}.restore-helper" ] || fail 'dnsmasq event-script restore helper was not found'
 sed -n '/^add_dnsmasq_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.add-helper" ||
 	fail 'could not extract dnsmasq event-script addition helper'
 [ -s "${TMP_FILE}.add-helper" ] || fail 'dnsmasq event-script addition helper was not found'
@@ -97,6 +103,10 @@ grep -q "write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$
 	fail 'WAN branch does not install dnsmasq-sdn.postconf when supported'
 grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"enabled\"'" "${TMP_FILE}.add-helper" ||
 	fail 'WAN branch does not persist enabled dnsmasq mode'
+grep -q 'dnsmasq_event_scripts_snapshot "${SNAPSHOT_DIR}" || {' "${TMP_FILE}.add-helper" ||
+	fail 'dnsmasq hook addition does not snapshot managed state before publication'
+grep -q 'dnsmasq_event_scripts_restore "${SNAPSHOT_DIR}"' "${TMP_FILE}.add-helper" ||
+	fail 'dnsmasq hook addition does not restore managed state after publication failure'
 
 grep -q 'write_manager_script /jffs/scripts/init-start "init-start &"' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not install init-start'
@@ -153,6 +163,56 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 	if remove_dnsmasq_event_scripts; then
 		fail 'dnsmasq hook cleanup hides disabled-mode configuration write failures'
 	fi
+)
+
+(
+	ROLLBACK_ROOT="${TMP_FILE}.rollback"
+	mkdir -p "${ROLLBACK_ROOT}/jffs/scripts" "${ROLLBACK_ROOT}/base"
+	printf '%s\n' 'original primary hook' >"${ROLLBACK_ROOT}/jffs/scripts/dnsmasq.postconf"
+	printf '%s\n' 'original SDN hook' >"${ROLLBACK_ROOT}/jffs/scripts/dnsmasq-sdn.postconf"
+	printf '%s\n' 'ADGUARD_DNSMASQ_MODE="disabled"' >"${ROLLBACK_ROOT}/config"
+	cat "${TMP_FILE}.snapshot-helper" "${TMP_FILE}.restore-helper" "${TMP_FILE}.add-helper" |
+		sed "s|/jffs/scripts|${ROLLBACK_ROOT}/jffs/scripts|g; s|/etc/dnsmasq.conf|${ROLLBACK_ROOT}/dnsmasq.conf|g" >"${ROLLBACK_ROOT}/helpers"
+	. "${ROLLBACK_ROOT}/helpers"
+	BASE_DIR="${ROLLBACK_ROOT}/base"
+	CONF_FILE="${ROLLBACK_ROOT}/config"
+	: >"${ROLLBACK_ROOT}/dnsmasq.conf"
+	pidof() { return 0; }
+	nvram() { printf '%s\n' 'mtlancfg'; }
+	write_manager_script() {
+		if [ "$1" = "${ROLLBACK_ROOT}/jffs/scripts/dnsmasq-sdn.postconf" ]; then
+			return 1
+		fi
+		printf '%s\n' 'changed primary hook' >"$1"
+	}
+	write_conf() {
+		printf '%s\n' 'ADGUARD_DNSMASQ_MODE="enabled"' >"${CONF_FILE}"
+	}
+	if add_dnsmasq_event_scripts; then
+		fail 'dnsmasq hook addition hides SDN publication failure'
+	fi
+	grep -qx 'original primary hook' "${ROLLBACK_ROOT}/jffs/scripts/dnsmasq.postconf" ||
+		fail 'dnsmasq hook addition did not restore the primary hook'
+	grep -qx 'original SDN hook' "${ROLLBACK_ROOT}/jffs/scripts/dnsmasq-sdn.postconf" ||
+		fail 'dnsmasq hook addition did not restore the SDN hook'
+	grep -qx 'ADGUARD_DNSMASQ_MODE="disabled"' "${CONF_FILE}" ||
+		fail 'dnsmasq hook addition did not restore the dnsmasq mode'
+	write_manager_script() {
+		printf '%s\n' 'changed managed hook' >"$1"
+	}
+	write_conf() {
+		printf '%s\n' 'ADGUARD_DNSMASQ_MODE="enabled"' >"${CONF_FILE}"
+		return 1
+	}
+	if add_dnsmasq_event_scripts; then
+		fail 'dnsmasq hook addition hides enabled-mode configuration write failure'
+	fi
+	grep -qx 'original primary hook' "${ROLLBACK_ROOT}/jffs/scripts/dnsmasq.postconf" ||
+		fail 'configuration write failure did not restore the primary hook'
+	grep -qx 'original SDN hook' "${ROLLBACK_ROOT}/jffs/scripts/dnsmasq-sdn.postconf" ||
+		fail 'configuration write failure did not restore the SDN hook'
+	grep -qx 'ADGUARD_DNSMASQ_MODE="disabled"' "${CONF_FILE}" ||
+		fail 'configuration write failure did not restore the dnsmasq mode'
 )
 
 printf '%s\n' 'PASS: installer event-script mode regression'
