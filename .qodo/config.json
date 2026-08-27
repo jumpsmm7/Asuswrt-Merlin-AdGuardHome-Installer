@@ -1,0 +1,4 @@
+{
+  "API_KEY": "$QODO_API_KEY",
+  "ENVIRONMENT_NAME": "production"
+}
