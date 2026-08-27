@@ -9,6 +9,7 @@ FUNCTIONS_FILE="${TEST_ROOT}/functions"
 BIN_DIR="${TEST_ROOT}/bin"
 LOG_FILE="${TEST_ROOT}/log"
 IPSET_CALLS_FILE="${TEST_ROOT}/ipset-calls"
+MANAGED_IPSET_FILE="${TEST_ROOT}/managed-ipset"
 UMOUNT_CALLS_FILE="${TEST_ROOT}/umount-calls"
 DNSMASQ_CONF_FILE="${TEST_ROOT}/dnsmasq.conf"
 DNSMASQ_SDN_CONF_FILE="${TEST_ROOT}/dnsmasq-1.conf"
@@ -169,14 +170,22 @@ sdn_bridge_for_index() {
 	printf '%s\n' 'br1'
 }
 
-# IPSet_Refresh records an IPSET refresh request when the test topology permits managed IPSET integration.
+# IPSet_Refresh records every refresh request and models managed-IPSET cleanup for rejected topologies.
 IPSet_Refresh() {
+	printf '%s\n' "$1" >>"${IPSET_CALLS_FILE}"
 	case "${ADGUARD_INSTALL_MODE:-}" in
 		wan) ;;
-		lan | ap | bridge) [ "${WAN_NAT_ACTIVE:-0}" = "1" ] || return 0 ;;
-		*) return 0 ;;
+		lan | ap | bridge)
+			if [ "${WAN_NAT_ACTIVE:-0}" != "1" ]; then
+				rm -f "${MANAGED_IPSET_FILE}"
+				return 0
+			fi
+			;;
+		*)
+			rm -f "${MANAGED_IPSET_FILE}"
+			return 0
+			;;
 	esac
-	printf '%s\n' "$1" >>"${IPSET_CALLS_FILE}"
 	[ "${IPSET_REFRESH_FAIL:-0}" != "1" ]
 }
 
@@ -192,6 +201,7 @@ reset_case() {
 	: >"${IPSET_CALLS_FILE}"
 	: >"${UMOUNT_CALLS_FILE}"
 	: >"${BRIDGE_FALLBACK_CALLS_FILE}"
+	rm -f "${MANAGED_IPSET_FILE}"
 	printf '%s\n' '# base config' >"${DNSMASQ_CONF_FILE}" || fail 'could not reset base dnsmasq config'
 	printf '%s\n' '# sdn config' >"${DNSMASQ_SDN_CONF_FILE}" || fail 'could not reset sdn dnsmasq config'
 	DNS_HANDOFF_ACTIVE='0'
@@ -286,11 +296,14 @@ ADGUARD_RUNNING='0'
 ADGUARD_DNSMASQ_MODE='disabled'
 CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
 DNS_HANDOFF_ACTIVE='1'
+touch "${MANAGED_IPSET_FILE}" || fail 'could not create disabled-handoff managed IPSET fixture'
 dnsmasq_action_handler || fail 'LAN disabled handoff path failed'
 ! grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
 	fail 'LAN disabled handoff path logged stopped dnsmasq skip reason'
 assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN disabled handoff path'
-assert_no_ipset_refresh 'LAN disabled handoff path'
+grep -q "${DNSMASQ_CONF_FILE}" "${IPSET_CALLS_FILE}" ||
+	fail 'LAN disabled handoff path did not invoke IPSET refresh cleanup'
+[ ! -e "${MANAGED_IPSET_FILE}" ] || fail 'LAN disabled handoff path did not disable managed IPSET state'
 
 reset_case
 ADGUARD_INSTALL_MODE='lan'
@@ -302,6 +315,17 @@ dnsmasq_action_handler || fail 'LAN running dnsmasq base path failed'
 assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN running dnsmasq base path'
 assert_resolv_conf_not_unmounted 'LAN running dnsmasq base path'
 grep -q "${DNSMASQ_CONF_FILE}" "${IPSET_CALLS_FILE}" || fail 'LAN double-NAT dnsmasq path did not refresh IPSET'
+
+reset_case
+ADGUARD_INSTALL_MODE='lan'
+DNSMASQ_RUNNING='1'
+WAN_NAT_ACTIVE='0'
+touch "${MANAGED_IPSET_FILE}" || fail 'could not create managed IPSET state fixture'
+dnsmasq_action_handler || fail 'LAN rejected-topology dnsmasq path failed'
+assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN rejected-topology dnsmasq path'
+grep -q "${DNSMASQ_CONF_FILE}" "${IPSET_CALLS_FILE}" ||
+	fail 'LAN rejected topology did not invoke IPSET refresh cleanup'
+[ ! -e "${MANAGED_IPSET_FILE}" ] || fail 'LAN rejected topology did not disable managed IPSET state'
 
 reset_case
 ADGUARD_INSTALL_MODE='wan'
@@ -366,7 +390,8 @@ dnsmasq_action_handler || fail 'LAN managed stopped dnsmasq startup path failed'
 ! grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
 	fail 'LAN managed stopped dnsmasq startup path logged stopped dnsmasq skip reason'
 assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN managed stopped dnsmasq startup path'
-assert_no_ipset_refresh 'LAN managed stopped dnsmasq startup path'
+grep -q "${DNSMASQ_CONF_FILE}" "${IPSET_CALLS_FILE}" ||
+	fail 'LAN managed stopped dnsmasq startup path did not invoke IPSET refresh cleanup'
 
 reset_case
 ADGUARD_INSTALL_MODE='lan'
@@ -379,7 +404,8 @@ dnsmasq_action_handler || fail 'LAN stopped dnsmasq handoff path failed'
 ! grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
 	fail 'LAN stopped dnsmasq handoff path logged stopped dnsmasq skip reason'
 assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN stopped dnsmasq handoff path'
-assert_no_ipset_refresh 'LAN stopped dnsmasq handoff path'
+grep -q "${DNSMASQ_CONF_FILE}" "${IPSET_CALLS_FILE}" ||
+	fail 'LAN stopped dnsmasq handoff path did not invoke IPSET refresh cleanup'
 
 # Base-config generation threads the resolved primary LAN interface into the
 # bridge DNS fallback helper and writes a dhcp-option line per discovered pair.
