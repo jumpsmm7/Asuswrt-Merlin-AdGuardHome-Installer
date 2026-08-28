@@ -7,9 +7,10 @@ SCRIPT_PATH="${1:-AdGuardHome.sh}"
 FUNCTION_FILE="${TMPDIR:-/tmp}/ipset-version-functions.$$"
 BINARY_FILE="${TMPDIR:-/tmp}/AdGuardHome-version-test.$$"
 CALLS_FILE="${TMPDIR:-/tmp}/ipset-version-calls.$$"
+IPSET_FILE="${TMPDIR:-/tmp}/ipset-version-managed.$$"
 
 cleanup() {
-	rm -f "${FUNCTION_FILE}" "${BINARY_FILE}" "${CALLS_FILE}"
+	rm -f "${FUNCTION_FILE}" "${BINARY_FILE}" "${CALLS_FILE}" "${IPSET_FILE}"
 }
 
 fail() {
@@ -47,6 +48,11 @@ adguard_lan_mode() {
 # adguard_ipset_allowed determines whether managed IPSET integration is allowed for the current installation mode.
 adguard_ipset_allowed() {
 	! adguard_lan_mode
+}
+
+# IPSet_Current_File reports that the fixture's managed IPSET file is active.
+IPSet_Current_File() {
+	printf '%s\n' "${IPSET_FILE}"
 }
 
 # IPSet_Disable_Managed records the managed IPSET disable operation and returns its configured status.
