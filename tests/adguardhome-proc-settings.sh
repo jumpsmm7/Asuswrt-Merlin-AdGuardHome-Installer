@@ -293,6 +293,20 @@ EOF
 		printf '%s\n' rollback >>"${EVENTS_FILE}"
 		return 0
 	}
+	all_event_scripts_transaction_begin() {
+		all_event_scripts_snapshot "$1" || return 1
+		EVENT_SCRIPTS_ACTIVE_SNAPSHOT="$1"
+	}
+	all_event_scripts_transaction_commit() {
+		[ -n "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] || return 0
+		rm -rf "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}"
+		EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
+	}
+	all_event_scripts_transaction_rollback() {
+		[ -n "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] || return 0
+		all_event_scripts_rollback "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}" || return 1
+		EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
+	}
 	remove_dnsmasq_event_scripts() { :; }
 	remove_firewall_event_scripts() { :; }
 	remove_init_event_scripts() { :; }
