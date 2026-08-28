@@ -6,7 +6,6 @@ set -u
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
 TEST_ROOT="${TMPDIR:-/tmp}/dnsmasq-lan-mode.$$"
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
-BIN_DIR="${TEST_ROOT}/bin"
 LOG_FILE="${TEST_ROOT}/log"
 IPSET_CALLS_FILE="${TEST_ROOT}/ipset-calls"
 MANAGED_IPSET_FILE="${TEST_ROOT}/managed-ipset"
@@ -30,7 +29,7 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 [ -f "${SCRIPT_PATH}" ] || fail "script not found: ${SCRIPT_PATH}"
-mkdir -p "${BIN_DIR}" || fail 'could not create test directory'
+mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n '/^dnsmasq_delete_matching() {$/,/^interface_ipv4_addr() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract dnsmasq helpers'
@@ -40,26 +39,6 @@ sed -i \
 	-e 's|CONFIG="/etc/dnsmasq.conf"|CONFIG="${DNSMASQ_CONF_FILE}"|' \
 	-e 's|CONFIG="/etc/dnsmasq-${1}.conf"|CONFIG="${DNSMASQ_SDN_CONF_FILE}"|' \
 	"${FUNCTIONS_FILE}" || fail 'could not sandbox dnsmasq config paths'
-
-cat >"${BIN_DIR}/pidof" <<'EOF_PIDOF' || fail 'could not write pidof stub'
-#!/bin/sh
-case "$1" in
-	dnsmasq)
-		[ "${DNSMASQ_RUNNING:-0}" = "1" ] && printf '%s\n' 111
-		;;
-	AdGuardHome)
-		[ "${ADGUARD_RUNNING:-0}" = "1" ] && printf '%s\n' 222
-		;;
-esac
-EOF_PIDOF
-chmod 700 "${BIN_DIR}/pidof" || fail 'could not make pidof stub executable'
-cat >"${BIN_DIR}/umount" <<'EOF_UMOUNT' || fail 'could not write umount stub'
-#!/bin/sh
-printf '%s\n' "$1" >>"${UMOUNT_CALLS_FILE}"
-EOF_UMOUNT
-chmod 700 "${BIN_DIR}/umount" || fail 'could not make umount stub executable'
-PATH="${BIN_DIR}:${PATH}"
-export PATH
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
@@ -73,7 +52,19 @@ ADGUARD_DNSMASQ_MODE='auto'
 CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
 RESOLV_CONF_USES_ROM='1'
 RESOLV_CONF_TMP_MOUNT='0'
-export DNSMASQ_RUNNING ADGUARD_RUNNING UMOUNT_CALLS_FILE
+
+# pidof reports fixture process state without relying on PATH interception.
+# BusyBox ash can execute an applet directly instead of a same-named test stub.
+pidof() {
+	case "$1" in
+		dnsmasq)
+			[ "${DNSMASQ_RUNNING:-0}" = "1" ] && printf '%s\n' 111
+			;;
+		AdGuardHome)
+			[ "${ADGUARD_RUNNING:-0}" = "1" ] && printf '%s\n' 222
+			;;
+	esac
+}
 
 # agh_log appends a colon-delimited log entry with a tag, timestamp, and message to the test log file.
 agh_log() {
@@ -107,6 +98,12 @@ resolv_conf_uses_rom() {
 # resolv_conf_is_tmp_mount determines whether resolv.conf is mounted from a temporary filesystem.
 resolv_conf_is_tmp_mount() {
 	[ "${RESOLV_CONF_TMP_MOUNT}" = '1' ]
+}
+
+# umount records cleanup requests without relying on PATH interception. BusyBox
+# ash can execute an applet directly instead of the same-named test stub.
+umount() {
+	printf '%s\n' "$1" >>"${UMOUNT_CALLS_FILE}"
 }
 
 # dns_handoff_is_active determines whether DNS handoff is active.
