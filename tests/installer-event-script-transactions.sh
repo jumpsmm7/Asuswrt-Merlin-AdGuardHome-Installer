@@ -104,9 +104,11 @@ add_services_event_scripts() {
 	return 1
 }
 add_firewall_event_scripts() { fail 'WAN orchestration continued after services failure'; }
+all_event_scripts_transaction_begin "${BASE_DIR}/wan-aggregate" || fail 'WAN aggregate snapshot failed'
 if install_wan_event_scripts; then
 	fail 'WAN orchestration hid a later helper failure'
 fi
+all_event_scripts_transaction_rollback || fail 'WAN aggregate rollback failed'
 grep -qx 'original dnsmasq' "${TMP_DIR}/jffs/scripts/dnsmasq.postconf" || fail 'WAN rollback did not restore dnsmasq.postconf'
 grep -qx 'original dnsmasq SDN' "${TMP_DIR}/jffs/scripts/dnsmasq-sdn.postconf" || fail 'WAN rollback did not restore dnsmasq-sdn.postconf'
 grep -qx 'original init' "${TMP_DIR}/jffs/scripts/init-start" || fail 'WAN rollback did not restore init-start'

@@ -322,12 +322,13 @@ retaining the old address.
 
 IPv6 discovery for secondary bridges is not needed because dnsmasq advertises
 their IPv4 address. Listener binding and firewall policy remain independent.
-LAN mode does not install firewall/IPTABLES rules; changing a bind address does
+LAN/AP/Bridge mode does not install firewall/IPTABLES rules; changing a bind address does
 not imply that traffic is allowed or blocked on an interface. When a LAN-mode
 router still has active WAN-interface SNAT/MASQUERADE state, as in a double-NAT
 topology, the installer retains its `firewall-start` lifecycle hook; otherwise
-that hook is removed. This qualifying WAN NAT state is also the only LAN-mode
-topology in which IPSET integration can be enabled. Validate reachability and
+that hook is removed. This qualifying WAN NAT state is also the only LAN, AP, or
+bridge topology in which IPSET integration can be enabled; without it, the
+installer disables IPSET. Validate reachability and
 firewall behavior separately for each router topology.
 
 ### DNS port-owner cleanup policy
@@ -585,7 +586,7 @@ Each refresh scans active, non-commented dnsmasq `ipset=` directives from the co
 
 Guest Network Pro/SDN post-configuration also passes the matching `/etc/dnsmasq-<index>.conf` file to the refresh. Every refresh scans all existing numeric-index SDN dnsmasq configurations as well, so overlapping post-configuration callbacks retain mappings from the other active SDNs. These sources cover dnsmasq directives produced by the supported routing integrations; any compatible directive present in the scanned files is imported regardless of which add-on wrote it.
 
-The installer-managed `/jffs/scripts/dnsmasq-sdn.postconf` hook is a supported part of this SDN integration when `rc_support` advertises `mtlancfg`. The installer adds or removes its managed hook entry only when that capability is advertised, while preserving unrelated commands in the shared script.
+The installer-managed `/jffs/scripts/dnsmasq-sdn.postconf` hook is a supported part of this SDN integration when `rc_support` advertises `mtlancfg`. That capability gates adding or retaining the managed hook entry. The installer removes its stale managed entry even when `mtlancfg` is no longer advertised, while preserving unrelated commands in the shared script.
 
 The collector imports mappings only. It does not execute another add-on, copy its firewall rules, infer missing set names, or create the target IPSET. Files outside the listed locations are not scanned automatically; copy persistent custom mappings into `ipset.user` instead.
 

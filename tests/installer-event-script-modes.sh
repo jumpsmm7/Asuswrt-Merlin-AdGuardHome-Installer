@@ -101,14 +101,14 @@ grep -q 'services_event_scripts_restore "${SNAPSHOT_DIR}"' "${TMP_FILE}.services
 	fail 'services transaction does not restore both hooks after publication failure'
 grep -q 'install_wan_event_scripts' "${TMP_FILE}.wan" ||
 	fail 'WAN branch does not invoke the shared event-script helper'
-grep -q 'all_event_scripts_snapshot "${SNAPSHOT_DIR}" || return 1' "${TMP_FILE}.wan-helper" ||
-	fail 'WAN branch does not snapshot all hooks before publication'
+grep -Fq 'all_event_scripts_transaction_begin "${BASE_DIR}/.AdGuardHome.event-hooks.$$"' "${SCRIPT_PATH}" ||
+	fail 'event-hook orchestration does not snapshot all hooks before legacy cleanup'
 grep -q 'add_init_event_scripts || failed=1' "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not transactionally install init-start'
 grep -q 'add_services_event_scripts || failed=1' "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not transactionally install service hooks'
-grep -q 'all_event_scripts_rollback "${SNAPSHOT_DIR}"' "${TMP_FILE}.wan-helper" ||
-	fail 'WAN branch does not restore the aggregate hook snapshot after failure'
+grep -q 'all_event_scripts_transaction_rollback' "${TMP_FILE}.lan" ||
+	fail 'event-hook orchestration does not restore the aggregate hook snapshot after failure'
 grep -q 'pidof dnsmasq >/dev/null 2>&1 || \[ ! -f /etc/dnsmasq.conf \]' "${TMP_FILE}.add-helper" ||
 	fail 'WAN branch does not require running dnsmasq and /etc/dnsmasq.conf'
 grep -q 'write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FILE}.add-helper" ||
@@ -126,9 +126,9 @@ grep -q 'dnsmasq_event_scripts_restore "${SNAPSHOT_DIR}"' "${TMP_FILE}.add-helpe
 
 grep -q 'add_init_event_scripts' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not transactionally install init-start'
-grep -q 'all_event_scripts_snapshot "${EVENT_SCRIPTS_SNAPSHOT_DIR}"' "${TMP_FILE}.lan" ||
+grep -Fq 'all_event_scripts_transaction_begin "${BASE_DIR}/.AdGuardHome.event-hooks.$$"' "${SCRIPT_PATH}" ||
 	fail 'LAN branch does not snapshot all managed hooks before publication'
-grep -q 'all_event_scripts_rollback "${EVENT_SCRIPTS_SNAPSHOT_DIR}"' "${TMP_FILE}.lan" ||
+grep -q 'all_event_scripts_transaction_rollback' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not restore the aggregate hook snapshot after failure'
 grep -q 'add_services_event_scripts' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not transactionally install service hooks'
@@ -142,16 +142,15 @@ grep -q 'add_dnsmasq_event_scripts' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not use the shared dnsmasq hook addition helper'
 grep -q 'remove_dnsmasq_event_scripts' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not remove only the installer-managed dnsmasq.postconf hook when dnsmasq is stopped'
-grep -q '{ del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq >/dev/null 2>&1; } || failed=1' "${TMP_FILE}.remove-helper" ||
+grep -q '{ del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq >/dev/null; } || failed=1' "${TMP_FILE}.remove-helper" ||
 	fail 'dnsmasq hook cleanup does not propagate primary hook removal failures'
-grep -q "{ del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2' >/dev/null 2>&1; } || failed=1" "${TMP_FILE}.remove-helper" ||
+grep -q "{ del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2' >/dev/null; } || failed=1" "${TMP_FILE}.remove-helper" ||
 	fail 'LAN branch does not remove the installer-managed SDN dnsmasq hook when dnsmasq is stopped'
 if grep -q "nvram get rc_support.*mtlancfg" "${TMP_FILE}.remove-helper"; then
 	fail 'dnsmasq hook cleanup still gates SDN hook removal on current firmware capability'
 fi
-if grep -q 'else' "${TMP_FILE}.add-helper"; then
-	fail 'dnsmasq hook addition manages the SDN hook when current firmware lacks the capability'
-fi
+grep -q "del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2' >/dev/null" "${TMP_FILE}.add-helper" ||
+	fail 'dnsmasq hook addition does not remove stale SDN content when firmware lacks the capability'
 wan_cleanup_line="$(grep -n 'add_dnsmasq_event_scripts || failed=1' "${TMP_FILE}.wan-helper" | head -n 1 | cut -d: -f1)"
 wan_publish_line="$(grep -n 'add_init_event_scripts' "${TMP_FILE}.wan-helper" | head -n 1 | cut -d: -f1)"
 [ "${wan_cleanup_line}" -lt "${wan_publish_line}" ] || fail 'WAN branch publishes JFFS hooks before dnsmasq cleanup can fail'
@@ -268,7 +267,7 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 		fail 'configuration write failure did not restore the SDN hook'
 	grep -qx 'ADGUARD_DNSMASQ_MODE="disabled"' "${CONF_FILE}" ||
 		fail 'configuration write failure did not restore the dnsmasq mode'
-)
+) || fail 'dnsmasq hook addition rollback checks failed'
 
 (
 	LAN_ROLLBACK_ROOT="${TMP_FILE}.lan-rollback"

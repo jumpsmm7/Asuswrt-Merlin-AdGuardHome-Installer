@@ -177,14 +177,23 @@ require_text "${CANONICAL_AGENTS}" \
 	'WAN, LAN, and uninstall event-hook orchestration must snapshot `dnsmasq.postconf`' \
 	'canonical aggregate event-hook rollback policy'
 require_text "${QODO_REVIEW}" \
-	'A source selector' \
+	'(`-s` or `--source`) is valid and must remain eligible.' \
 	'Qodo source-scoped WAN NAT review policy'
 require_text "${QODO_REVIEW}" \
-	'Treat dnsmasq and installer event-hook publication as transactions.' \
+	'Installer WAN, LAN, and uninstall orchestration must snapshot every managed' \
 	'Qodo transactional publication review policy'
+require_text "${QODO_REVIEW}" \
+	'dnsmasq, init, service, and firewall hook plus the managed configuration before' \
+	'Qodo aggregate event-hook snapshot scope'
+require_text "${CODEX_PROMPT}" \
+	'Preserve the topology contract: source-scoped (`-s`/`--source`) SNAT or' \
+	'Codex source-selector topology policy'
 require_text "${CODEX_PROMPT}" \
 	'Treat runtime dnsmasq publication and installer WAN/LAN/uninstall event-hook' \
 	'Codex transactional publication review policy'
+require_text "${CODEX_PROMPT}" \
+	'aggregate hook/config restoration after any' \
+	'Codex aggregate event-hook snapshot scope'
 
 # --- PATH contract 1: the installer's inherited-PATH contract --------------
 INSTALLER_PATH_CONTRACT='export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"'

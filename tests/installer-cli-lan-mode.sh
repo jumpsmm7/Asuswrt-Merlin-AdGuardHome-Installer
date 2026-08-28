@@ -60,7 +60,7 @@ awk '
 	guarded && /if ! cleanup_legacy_firewall; then/ { cleanup = 1; exit }
 	END { exit(guarded && cleanup ? 0 : 1) }
 ' "${SCRIPT_PATH}" || fail 'LAN-mode cleanup failure handling must run only when legacy firewall state exists'
-grep -q 'cleanup_legacy_firewall$' "${SCRIPT_PATH}" ||
+grep -q 'cleanup_legacy_firewall' "${SCRIPT_PATH}" ||
 	fail 'uninstall/WAN/LAN transition cleanup must still remove legacy firewall integration'
 grep -q 'cli_migrate_runtime_default ADGUARD_NETCHECK_MODE legacy "${netcheck_target}"' "${SCRIPT_PATH}" ||
 	fail 'runtime migration must use the install-mode netcheck target'
@@ -106,13 +106,26 @@ adguard_install_mode_detect() {
 adguard_ipset_allowed() {
 	case "${ADGUARD_INSTALL_MODE:-}" in
 		wan) return 0 ;;
-		lan)
+		lan | ap | bridge)
 			[ "${WAN_NAT_ACTIVE:-0}" -eq 1 ]
 			return $?
 			;;
 	esac
 	return 1
 }
+
+WAN_NAT_ACTIVE=1
+for supported_mode in lan ap bridge; do
+	ADGUARD_INSTALL_MODE="${supported_mode}"
+	adguard_ipset_allowed || fail "${supported_mode} mode rejected qualifying WAN NAT state"
+done
+WAN_NAT_ACTIVE=0
+for unsupported_topology in lan ap bridge; do
+	ADGUARD_INSTALL_MODE="${unsupported_topology}"
+	if adguard_ipset_allowed; then
+		fail "${unsupported_topology} mode accepted without qualifying WAN NAT state"
+	fi
+done
 
 # PTXT appends the provided text followed by a newline to the log file.
 PTXT() {
@@ -219,6 +232,7 @@ sed -n '/^wan_iptables_state_active() {$/,/^}$/p' "${SCRIPT_PATH}" |
 	nvram() {
 		case "$1:$2" in
 			get:wan0_ifname) printf '%s\n' 'eth0' ;;
+			get:wan1_ifname) printf '%s\n' 'eth1' ;;
 		esac
 	}
 	WAN_NAT_RULE='-A POSTROUTING -o eth0 -j MASQUERADE'
@@ -233,6 +247,16 @@ sed -n '/^wan_iptables_state_active() {$/,/^}$/p' "${SCRIPT_PATH}" |
 	wan_iptables_state_active || fail 'source-scoped WAN MASQUERADE state was not detected'
 	WAN_NAT_RULE='-A POSTROUTING --source 192.168.50.0/24 -o eth0 -j SNAT --to-source 192.0.2.2'
 	wan_iptables_state_active || fail 'long-form source-scoped WAN SNAT state was not detected'
+	WAN_NAT_RULE='-A POSTROUTING -o eth1 -j MASQUERADE'
+	wan_iptables_state_active || fail 'wan1 MASQUERADE state was not detected'
+	WAN_NAT_RULE='-A POSTROUTING -o eth2 -j MASQUERADE'
+	if wan_iptables_state_active; then
+		fail 'non-WAN eth2 NAT state was detected as active WAN state'
+	fi
+	WAN_NAT_RULE='-A POSTROUTING -m comment --comment "-o eth0 -j MASQUERADE" -o eth2 -j ACCEPT'
+	if wan_iptables_state_active; then
+		fail 'WAN NAT markers inside a comment were detected as active WAN state'
+	fi
 	WAN_NAT_RULE='-A POSTROUTING -i br1 -o eth0 -j MASQUERADE'
 	if wan_iptables_state_active; then
 		fail 'guest-network input-interface NAT state was detected as active WAN state'

@@ -129,7 +129,7 @@ service_install_line="$(grep -n 'ptxt_ok "AdGuardHome service files installed\."
 migration_line="$(grep -n 'adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE:-}"' "${SCRIPT_PATH}" | cut -d: -f1)"
 [ -n "${service_install_line}" ] && [ -n "${migration_line}" ] && [ "${migration_line}" -gt "${service_install_line}" ] ||
 	fail 'mode migration must run only after mode-aware service scripts are installed'
-firewall_cleanup_line="$(awk -v after="${service_install_line}" 'NR > after && /^[[:space:]]*cleanup_legacy_firewall$/ { print NR; exit }' "${SCRIPT_PATH}")"
+firewall_cleanup_line="$(awk -v after="${service_install_line}" 'NR > after && /cleanup_legacy_firewall/ { print NR; exit }' "${SCRIPT_PATH}")"
 event_cleanup_line="$(grep -n 'yaml_nvars_file_action delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf' "${SCRIPT_PATH}" | head -n 1 | cut -d: -f1)"
 [ -n "${firewall_cleanup_line}" ] && [ -n "${event_cleanup_line}" ] &&
 	[ "${migration_line}" -lt "${firewall_cleanup_line}" ] && [ "${migration_line}" -lt "${event_cleanup_line}" ] ||

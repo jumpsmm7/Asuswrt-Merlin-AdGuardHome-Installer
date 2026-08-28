@@ -229,7 +229,22 @@ adguard_wan_iptables_state_active() {
 			case "${ifname}" in
 				"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-]*) continue ;;
 			esac
-			if printf '%s\n' "${nat_rules}" | /bin/grep -F -e "-o ${ifname} " | /bin/grep -F -v -e "! -o ${ifname} " | /bin/grep -vE -e '(^|[[:space:]])(![[:space:]]+)?(-i|--in-interface)([[:space:]]|$)' | /bin/grep -qE -e '-j (MASQUERADE|SNAT)([[:space:]]|$)'; then
+			if printf '%s\n' "${nat_rules}" | /usr/bin/awk -v wan_if="${ifname}" '
+				{
+					output = target = input = negated = 0
+					for (i = 1; i <= NF; i++) {
+						if ($i == "--comment") { i++; if ($i ~ /^"/ && $i !~ /"$/) while (i <= NF && $i !~ /"$/) i++; continue }
+						if (($i == "-i" || $i == "--in-interface") && i < NF) input = 1
+						if (($i == "-o" || $i == "--out-interface") && i < NF) {
+							output = ($(i + 1) == wan_if)
+							negated = (i > 1 && $(i - 1) == "!")
+						}
+						if ($i == "-j" && i < NF && ($(i + 1) == "MASQUERADE" || $(i + 1) == "SNAT")) target = 1
+					}
+					if (output && target && !input && !negated) { found = 1; exit }
+				}
+				END { exit(found ? 0 : 1) }
+			'; then
 				return 0
 			fi
 		done
@@ -1010,26 +1025,32 @@ dnsmasq_params() {
 		return 1
 	fi
 	CONFIG="${CONFIG_STAGE}"
-	dnsmasq_delete_matching \
+	if ! dnsmasq_delete_matching \
 		"${CONFIG}" \
 		"add-subnet=" \
 		"port=" \
 		"add-mac" \
-		"dhcp-option=${DHCP_IF},6"
-	printf "%s\n" \
+		"dhcp-option=${DHCP_IF},6"; then
+		rm -f "${CONFIG_STAGE}"
+		return 1
+	fi
+	if ! printf "%s\n" \
 		"dhcp-option=${DHCP_IF},6,${NET_ADDR}" \
 		"local=/$(ipv4_reverse_zone "${NET_ADDR}")/" \
 		"local=/10.in-addr.arpa/" \
 		"local=//" \
 		"port=553" \
-		"add-mac" >>"${CONFIG}"
+		"add-mac" >>"${CONFIG}"; then
+		rm -f "${CONFIG_STAGE}"
+		return 1
+	fi
 	if [ -n "${NET_ADDR6}" ]; then
 		IPV6_REVERSE="$(ipv6_reverse_zone "${NET_ADDR6}")"
 		printf "%s\n" \
 			"add-subnet=32,128" \
-			"local=/${IPV6_REVERSE}/" >>"${CONFIG}"
+			"local=/${IPV6_REVERSE}/" >>"${CONFIG}" || { rm -f "${CONFIG_STAGE}"; return 1; }
 	else
-		printf "%s\n" "add-subnet=32" >>"${CONFIG}"
+		printf "%s\n" "add-subnet=32" >>"${CONFIG}" || { rm -f "${CONFIG_STAGE}"; return 1; }
 	fi
 	case "${1:-}:${RC_SUPPORT}" in
 		:*mtlancfg*)
@@ -1051,6 +1072,9 @@ dnsmasq_params() {
 		return 1
 	fi
 	if ! mv "${CONFIG_STAGE}" "${CONFIG_FILE}"; then
+		if ! IPSet_Refresh "${CONFIG_FILE}"; then
+			agh_log error dnsmasq_params "state=publication action=restore_ipset result=failed config=${CONFIG_FILE}"
+		fi
 		rm -f "${CONFIG_STAGE}"
 		return 1
 	fi
@@ -3530,6 +3554,7 @@ IPSet_Refresh() {
 	local DNSMASQ_RESTART_SKIP RESTART_STATUS
 	if ! adguard_ipset_allowed; then
 		agh_log info IPSet_Refresh "state=refresh action=disable_managed_ipset result=required reason=topology_disallowed"
+		[ "$(IPSet_Current_File 2>/dev/null)" = "${IPSET_FILE}" ] || return 0
 		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
 		if [ "${IPSET_REFRESH_FROM_DNSMASQ:-}" = "1" ]; then
 			ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"

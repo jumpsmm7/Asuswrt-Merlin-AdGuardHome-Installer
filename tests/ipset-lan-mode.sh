@@ -55,6 +55,10 @@ IPSet_Disable_Managed() {
 	return "${DISABLE_STATUS:-0}"
 }
 
+IPSet_Current_File() {
+	printf '%s\n' "${CURRENT_IPSET_FILE:-${IPSET_FILE}}"
+}
+
 # IPSet_Lock records its invocation and executes the supplied command.
 IPSet_Lock() {
 	printf '%s\n' "IPSet_Lock skip_dnsmasq_restart=${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" >>"${CALLS_FILE}"
