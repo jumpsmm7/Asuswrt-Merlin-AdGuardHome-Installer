@@ -53,11 +53,6 @@ case "$1" in
 esac
 EOF_PIDOF
 chmod 700 "${BIN_DIR}/pidof" || fail 'could not make pidof stub executable'
-cat >"${BIN_DIR}/umount" <<'EOF_UMOUNT' || fail 'could not write umount stub'
-#!/bin/sh
-printf '%s\n' "$1" >>"${UMOUNT_CALLS_FILE}"
-EOF_UMOUNT
-chmod 700 "${BIN_DIR}/umount" || fail 'could not make umount stub executable'
 PATH="${BIN_DIR}:${PATH}"
 export PATH
 
@@ -107,6 +102,12 @@ resolv_conf_uses_rom() {
 # resolv_conf_is_tmp_mount determines whether resolv.conf is mounted from a temporary filesystem.
 resolv_conf_is_tmp_mount() {
 	[ "${RESOLV_CONF_TMP_MOUNT}" = '1' ]
+}
+
+# umount records cleanup requests without relying on PATH interception. BusyBox
+# ash can execute an applet directly instead of the same-named test stub.
+umount() {
+	printf '%s\n' "$1" >>"${UMOUNT_CALLS_FILE}"
 }
 
 # dns_handoff_is_active determines whether DNS handoff is active.
