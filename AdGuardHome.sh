@@ -1048,9 +1048,15 @@ dnsmasq_params() {
 		IPV6_REVERSE="$(ipv6_reverse_zone "${NET_ADDR6}")"
 		printf "%s\n" \
 			"add-subnet=32,128" \
-			"local=/${IPV6_REVERSE}/" >>"${CONFIG}" || { rm -f "${CONFIG_STAGE}"; return 1; }
+			"local=/${IPV6_REVERSE}/" >>"${CONFIG}" || {
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		}
 	else
-		printf "%s\n" "add-subnet=32" >>"${CONFIG}" || { rm -f "${CONFIG_STAGE}"; return 1; }
+		printf "%s\n" "add-subnet=32" >>"${CONFIG}" || {
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		}
 	fi
 	case "${1:-}:${RC_SUPPORT}" in
 		:*mtlancfg*)
