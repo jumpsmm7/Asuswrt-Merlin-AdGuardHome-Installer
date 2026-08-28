@@ -30,12 +30,17 @@ Review scope:
 - Consider whether changes remain compatible with constrained router environments.
 - Preserve the topology contract: source-scoped (`-s`/`--source`) SNAT or
   MASQUERADE on a validated WAN output interface remains eligible, while
-  negated output matches and input-interface-scoped rules remain ineligible.
+  negated output matches, input-interface-scoped rules, and matching tokens
+  contained only in comments remain ineligible.
 - Treat runtime dnsmasq publication and installer WAN/LAN/uninstall event-hook
-  orchestration as transactions. Require staged dnsmasq publication after a
-  successful IPSET refresh and aggregate hook/config restoration after any
+  orchestration as transactions. Require every staged edit to propagate failure,
+  compensate IPSET from the unchanged live configuration when final publication
+  fails, and require aggregate hook/config restoration after any
   later installer helper failure, even without a pending mode migration. Retain
   and report the recovery snapshot if aggregate restoration fails.
+- Gate adding or retaining installer-managed `dnsmasq-sdn.postconf` content on
+  `rc_support` advertising `mtlancfg`, but require stale managed content to be
+  removed unconditionally while preserving unrelated shared-script commands.
 
 Useful local checks:
 - `tools/code-quality.sh`

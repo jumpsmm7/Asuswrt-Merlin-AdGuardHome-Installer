@@ -212,6 +212,15 @@ reviews:
         mode-migration rollback exists. Delete a recovery snapshot only after
         restoration succeeds; otherwise require its retained path to be reported.
 
+        Require every staged dnsmasq edit and append to propagate failure. If
+        final dnsmasq publication fails after IPSET refresh, compensate IPSET
+        from the unchanged live configuration before returning failure.
+
+        Gate adding or retaining installer-managed dnsmasq-sdn.postconf content
+        on rc_support advertising mtlancfg. Always remove stale managed SDN-hook
+        content when integration is disabled or unsupported, while preserving
+        unrelated commands in the shared script.
+
     - path: "**/S99AdGuardHome"
       instructions: |
         Review startup, shutdown, restart, reload, monitor, DNS handoff, and
@@ -358,10 +367,13 @@ reviews:
 
         WAN NAT qualification must accept `-s` and `--source` selectors while
         still requiring SNAT or MASQUERADE on a validated WAN output interface;
-        reject negated output matches and `-i`/`--in-interface` scoped rules.
+        reject negated output matches, `-i`/`--in-interface` scoped rules, and
+        matching tokens contained only in comments.
         Keep dnsmasq configuration edits on a same-filesystem stage until the
-        topology-aware IPSET refresh succeeds, and remove the stage without
-        changing the live file on refresh or publication failure.
+        topology-aware IPSET refresh succeeds. Require every staged edit and
+        append to propagate failure; remove the stage without changing the live
+        file on refresh failure, and compensate IPSET from the unchanged live
+        configuration if final publication fails after a successful refresh.
     - path: "tests/*.sh"
       instructions: |
         When adding a regression test, register it explicitly in `tools/code-quality.sh`; test files are not automatically discovered by the regression runner. Keep test names in kebab-case with a component/scenario prefix and retain the repository's `PASS:`/`FAIL:` result convention.

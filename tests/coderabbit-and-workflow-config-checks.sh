@@ -140,6 +140,12 @@ grep -Fq 'snapshot both dnsmasq hooks, init-start,' "${CODERABBIT}" ||
 	fail "${CODERABBIT}: installer instructions must require aggregate event-hook snapshots"
 grep -Fq 'WAN NAT qualification must accept `-s` and `--source` selectors' "${CODERABBIT}" ||
 	fail "${CODERABBIT}: runtime instructions must preserve source-scoped WAN NAT eligibility"
+grep -Fq 'matching tokens contained only in comments.' "${CODERABBIT}" ||
+	fail "${CODERABBIT}: runtime instructions must reject comment-only WAN NAT markers"
+grep -Fq 'Require every staged dnsmasq edit and append to propagate failure.' "${CODERABBIT}" ||
+	fail "${CODERABBIT}: runtime instructions must require staged edit failure propagation"
+grep -Fq 'Always remove stale managed SDN-hook' "${CODERABBIT}" ||
+	fail "${CODERABBIT}: installer instructions must require unconditional stale SDN cleanup"
 grep -Fq 'busybox ash tests/adguardhome-runtime-mode-helpers.sh' "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: runtime WAN NAT regression must run with BusyBox ash"
 grep -Fq 'busybox ash tests/dnsmasq-lan-mode.sh' "${SHELL_VALIDATION_WORKFLOW}" ||

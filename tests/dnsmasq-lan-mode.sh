@@ -192,6 +192,7 @@ IPSet_Refresh() {
 # private_ipv4_bridge_dns_options_with_fallbacks records the LAN interface it was called with and emits the configured bridge DNS pairs.
 private_ipv4_bridge_dns_options_with_fallbacks() {
 	printf '%s\n' "$1" >>"${BRIDGE_FALLBACK_CALLS_FILE}"
+	[ "${BRIDGE_DNS_FAIL:-0}" != "1" ] || return 1
 	[ -z "${BRIDGE_DNS_OPTIONS}" ] || printf '%s\n' "${BRIDGE_DNS_OPTIONS}"
 }
 
@@ -207,6 +208,7 @@ reset_case() {
 	DNS_HANDOFF_ACTIVE='0'
 	ADGUARD_INSTALL_MODE='wan'
 	WAN_NAT_ACTIVE='0'
+	BRIDGE_DNS_FAIL='0'
 	DNSMASQ_RUNNING='0'
 	ADGUARD_RUNNING='1'
 	ADGUARD_DNSMASQ_MODE='auto'
@@ -459,6 +461,25 @@ grep -q '^dhcp-option=br3,6,192\.168\.103\.1$' "${DNSMASQ_CONF_FILE}" ||
 	fail 'bridge DNS dhcp-option after the incomplete pair was not written'
 ! grep -q '^dhcp-option=br2,6,$' "${DNSMASQ_CONF_FILE}" ||
 	fail 'bridge DNS dhcp-option was written for an interface without an address'
+
+# A bridge discovery failure must discard staged edits and preserve the live dnsmasq file.
+reset_case
+ADGUARD_INSTALL_MODE='wan'
+DNSMASQ_RUNNING='0'
+ADGUARD_RUNNING='1'
+ADGUARD_DNSMASQ_MODE='auto'
+CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
+NVRAM_LAN_IFNAME='br0'
+NVRAM_RC_SUPPORT='other_feature'
+BRIDGE_DNS_FAIL='1'
+if dnsmasq_action_handler; then
+	fail 'bridge DNS discovery failure was hidden'
+fi
+grep -qx '# base config' "${DNSMASQ_CONF_FILE}" ||
+	fail 'bridge DNS discovery failure modified the live dnsmasq configuration'
+if find "${TEST_ROOT}" -name '*.bridge-options' -o -name '*.adguard.*' | grep -q .; then
+	fail 'bridge DNS discovery failure left staged artifacts'
+fi
 
 # The mtlancfg rc_support flag skips bridge DNS discovery entirely for the base config.
 reset_case

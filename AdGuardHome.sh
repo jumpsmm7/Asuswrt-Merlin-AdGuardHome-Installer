@@ -967,7 +967,7 @@ dnsmasq_resolv_conf_cleanup() {
 
 # dnsmasq_params configures dnsmasq for the LAN or specified SDN interface, including DNS routing, reverse zones, and optional IPSet refresh.
 dnsmasq_params() {
-	local CONFIG CONFIG_FILE CONFIG_STAGE IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
+	local BRIDGE_OPTIONS_STAGE CONFIG CONFIG_FILE CONFIG_STAGE IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
 	if adguard_lan_mode && [ "${CONFIG_DNSMASQ_MODE:-auto}" = "disabled" ] && ! dns_handoff_is_active; then
 		agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_disabled"
 		return 0
@@ -1057,10 +1057,19 @@ dnsmasq_params() {
 			:
 			;;
 		:*)
-			private_ipv4_bridge_dns_options_with_fallbacks "${LAN_IF}" | while read -r NIVARS NDVARS; do
+			BRIDGE_OPTIONS_STAGE="${CONFIG_STAGE}.bridge-options"
+			if ! private_ipv4_bridge_dns_options_with_fallbacks "${LAN_IF}" >"${BRIDGE_OPTIONS_STAGE}"; then
+				rm -f "${BRIDGE_OPTIONS_STAGE}" "${CONFIG_STAGE}"
+				return 1
+			fi
+			while read -r NIVARS NDVARS; do
 				[ -n "${NIVARS}" ] && [ -n "${NDVARS}" ] || continue
-				printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >>"${CONFIG}"
-			done
+				if ! printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >>"${CONFIG}"; then
+					rm -f "${BRIDGE_OPTIONS_STAGE}" "${CONFIG_STAGE}"
+					return 1
+				fi
+			done <"${BRIDGE_OPTIONS_STAGE}"
+			rm -f "${BRIDGE_OPTIONS_STAGE}"
 			;;
 	esac
 	if { ! resolv_conf_uses_rom && [ "${CONFIG_LOCAL:-NO}" = "YES" ]; }; then {
