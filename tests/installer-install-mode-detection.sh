@@ -240,12 +240,36 @@ awk '
 	END { exit(guarded ? 0 : 1) }
 ' "${TMP_ROOT}/install-path" || fail 'migration rollback failure does not block the previous installation restart'
 awk '
-	/Required Asuswrt-Merlin event scripts could not be configured/ { failure = 1; next }
-	failure && /if rollback_pending_mode_migration; then/ { rollback = 1; next }
-	rollback && /adguard_restart_after_install_abort/ { verified = 1; exit }
+	/Unable to clean the legacy dnsmasq event hook/ { failure = 1; next }
+	failure && /rollback_pending_mode_migration \|\| MODE_ROLLBACK_STATUS=1/ { rollback = 1; next }
+	rollback && /adguard_restart_after_install_abort .* \|\| RESTART_RECOVERY_STATUS=1/ { verified = 1; exit }
 	failure && /return 1/ { exit 1 }
 	END { exit(verified ? 0 : 1) }
-' "${TMP_ROOT}/install-path" || fail 'transactional event-script failure does not require successful rollback before restart'
+' "${TMP_ROOT}/install-path" || fail 'transactional event-script failure does not attempt service recovery independently of rollback'
+
+# Execute the recovery sequence with a forced mode-rollback failure and verify
+# that service recovery is still attempted for a previously running service.
+RECOVERY_SEQUENCE="${TMP_ROOT}/event-hook-recovery"
+{
+	printf '%s\n' 'event_hook_recovery() {'
+	awk '/MODE_ROLLBACK_STATUS=0/ { copying = 1 } copying { print } copying && /end_op_message 1 "\$1"/ { exit }' "${TMP_ROOT}/install-path"
+	printf '%s\n' '}'
+} >"${RECOVERY_SEQUENCE}" || fail 'could not extract event-hook recovery sequence'
+(
+	# shellcheck disable=SC1090
+	. "${RECOVERY_SEQUENCE}"
+	RESTART_AFTER_ABORT=1
+	ERROR='Error:'
+	CALLS_FILE="${TMP_ROOT}/event-hook-recovery-calls"
+	: >"${CALLS_FILE}"
+	rollback_pending_mode_migration() { printf '%s\n' rollback >>"${CALLS_FILE}"; return 1; }
+	adguard_restart_after_install_abort() { printf '%s\n' "restart:$1" >>"${CALLS_FILE}"; }
+	PTXT() { :; }
+	end_op_message() { :; }
+	event_hook_recovery install
+	[ "$(cat "${CALLS_FILE}")" = "$(printf '%s\n' rollback 'restart:1')" ] ||
+		fail 'mode rollback failure prevented AdGuardHome service recovery'
+) || fail 'event-hook rollback failure recovery regression failed'
 grep -q 'Unable to install the required WAN-mode event scripts' "${TMP_ROOT}/migration" ||
 	fail 'LAN-to-WAN migration does not abort when WAN event-script synchronization fails'
 grep -q 'wan:lan | lan:wan | :lan)' "${SCRIPT_PATH}" ||
