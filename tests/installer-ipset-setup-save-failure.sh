@@ -28,7 +28,7 @@ nvram_transaction_lock_owned() { return 0; }
 	NVRAM_TRANSACTION_LOCK_MODE="mkdir"
 	BASE_DIR="${TMPDIR:-/tmp}/installer-ipset-existing-journal.$$"
 	trap 'rm -rf "${BASE_DIR}"' 0
-	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create active-journal fixture directory'
 	nvram_transaction_setup_files_begin() { fail 'attempted to replace the active setup journal'; }
 	setup_files_begin_if_needed || fail 'could not reuse the active setup journal'
 	[ "${SETUP_FILES_JOURNALED}" -eq 1 ] || fail 'active setup journal was not recorded in the current setup frame'
@@ -41,7 +41,7 @@ nvram_transaction_lock_owned() { return 0; }
 	NVRAM_TRANSACTION_LOCK_MODE="mkdir"
 	BASE_DIR="${TMPDIR:-/tmp}/installer-ipset-stale-journal.$$"
 	trap 'rm -rf "${BASE_DIR}"' 0
-	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create stale-journal fixture directory'
 	nvram_transaction_lock_owned() { return 1; }
 	nvram_transaction_setup_files_begin() { return 1; }
 	if setup_files_begin_if_needed; then

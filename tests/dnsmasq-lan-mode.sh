@@ -232,6 +232,7 @@ reset_case() {
 	: >"${UMOUNT_CALLS_FILE}"
 	: >"${BRIDGE_FALLBACK_CALLS_FILE}"
 	rm -f "${MANAGED_IPSET_FILE}"
+	find "${TEST_ROOT}" -type d -name '.AdGuardHome.dnsmasq-ipset.*' -exec rm -rf {} \; || fail 'could not remove leaked IPSET recovery snapshots'
 	printf '%s\n' 'original yaml' >"${YAML_FILE}" || fail 'could not reset YAML fixture'
 	printf '%s\n' '# base config' >"${DNSMASQ_CONF_FILE}" || fail 'could not reset base dnsmasq config'
 	printf '%s\n' '# sdn config' >"${DNSMASQ_SDN_CONF_FILE}" || fail 'could not reset sdn dnsmasq config'

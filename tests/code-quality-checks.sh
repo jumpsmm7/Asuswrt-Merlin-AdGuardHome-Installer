@@ -79,6 +79,7 @@ GO_ENVIRONMENT_RAN_FILE="${TMP_ROOT}/go-environment.ran"
 LAN_BRIDGE_DOC_RAN_FILE="${TMP_ROOT}/lan-bridge-doc.ran"
 PRIVATE_IPV4_FALLBACK_RAN_FILE="${TMP_ROOT}/private-ipv4-fallback.ran"
 PROCESS_SIGNALING_RAN_FILE="${TMP_ROOT}/process-signaling.ran"
+EVENT_SCRIPT_TRANSACTIONS_RAN_FILE="${TMP_ROOT}/event-script-transactions.ran"
 JQ_HELPER_RAN_FILE="${TMP_ROOT}/jq-helper.ran"
 TZDATA_PACKAGE_INFO_RAN_FILE="${TMP_ROOT}/tzdata-package-info.ran"
 (
@@ -90,6 +91,10 @@ TZDATA_PACKAGE_INFO_RAN_FILE="${TMP_ROOT}/tzdata-package-info.ran"
 	# sh simulates regression-test commands and records their execution status.
 	sh() {
 		case "$1" in
+			tests/installer-event-script-transactions.sh)
+				: >"${EVENT_SCRIPT_TRANSACTIONS_RAN_FILE}"
+				return 0
+				;;
 			tests/update-tzdata-package-info.sh)
 				: >"${TZDATA_PACKAGE_INFO_RAN_FILE}"
 				return 0
@@ -142,6 +147,8 @@ TZDATA_PACKAGE_INFO_RAN_FILE="${TMP_ROOT}/tzdata-package-info.ran"
 	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
+	run_check 'Installer event-script transaction regression' sh tests/installer-event-script-transactions.sh || exit 1
+	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'tzdata package conversion regression' sh tests/update-tzdata-package-info.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'AdGuardHome optional database link regression' run_privileged_regression_check tests/optional-database-links.sh 'optional database link regression' >"${OPTIONAL_DATABASE_OUT_FILE}" 2>&1
@@ -159,6 +166,7 @@ TZDATA_PACKAGE_INFO_RAN_FILE="${TMP_ROOT}/tzdata-package-info.ran"
 [ -f "${PROCESS_SIGNALING_RAN_FILE}" ] || fail 'process signaling regression command was not invoked'
 [ -f "${LAN_BRIDGE_DOC_RAN_FILE}" ] || fail 'LAN bridge documentation regression command was not invoked'
 [ -f "${JQ_HELPER_RAN_FILE}" ] || fail 'installer jq helper regression command was not invoked'
+[ -f "${EVENT_SCRIPT_TRANSACTIONS_RAN_FILE}" ] || fail 'installer event-script transaction regression command was not invoked'
 [ -f "${TZDATA_PACKAGE_INFO_RAN_FILE}" ] || fail 'tzdata package conversion regression command was not invoked'
 [ -f "${OPTIONAL_DATABASE_RAN_FILE}" ] || fail 'optional database-link regression command was not invoked'
 grep -Fq 'PASS: optional database link tests passed' "${OPTIONAL_DATABASE_OUT_FILE}" ||
