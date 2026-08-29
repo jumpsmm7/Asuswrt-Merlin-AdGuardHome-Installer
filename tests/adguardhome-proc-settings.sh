@@ -261,11 +261,15 @@ run_uninstall_test() (
 	ADDON_DIR="${TMP_ROOT}/addon-$1"
 	ROLLBACK_RESULT_FILE="${TMP_ROOT}/rollback-$1"
 	EVENTS_FILE="${TMP_ROOT}/events-$1"
+	HOOK_DIR="${TMP_ROOT}/hooks-$1"
 	RESTORE_RESULT="$2"
 	START_RESULT="${3:-0}"
 	HELPER_MODE="${4:-usable}"
 	REMOVE_HOOK_STATUS="${5:-0}"
-	mkdir -p "${TARG_DIR}" "${BASE_DIR}" "${HOME}"
+	mkdir -p "${TARG_DIR}" "${BASE_DIR}" "${HOME}" "${HOOK_DIR}"
+	for hook in dnsmasq init services firewall; do
+		printf '%s\n' "original-${hook}" >"${HOOK_DIR}/${hook}"
+	done
 	printf '%s\n' installer >"${TARG_DIR}/installer"
 	cat >"${TARG_DIR}/AdGuardHome.sh" <<'EOF'
 #!/bin/sh
@@ -288,10 +292,13 @@ EOF
 		return "${START_RESULT:-0}"
 	}
 	cleanup_legacy_firewall() { :; }
-	all_event_scripts_snapshot() { mkdir -p "$1"; }
+	all_event_scripts_snapshot() {
+		mkdir -p "$1/hooks" || return 1
+		cp "${HOOK_DIR}"/* "$1/hooks/"
+	}
 	all_event_scripts_rollback() {
 		printf '%s\n' rollback >>"${EVENTS_FILE}"
-		return 0
+		cp "$1/hooks/"* "${HOOK_DIR}/"
 	}
 	all_event_scripts_transaction_begin() {
 		all_event_scripts_snapshot "$1" || return 1
@@ -307,10 +314,13 @@ EOF
 		all_event_scripts_rollback "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}" || return 1
 		EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
 	}
-	remove_dnsmasq_event_scripts() { :; }
-	remove_firewall_event_scripts() { :; }
-	remove_init_event_scripts() { :; }
-	remove_services_event_scripts() { return "${REMOVE_HOOK_STATUS}"; }
+	remove_dnsmasq_event_scripts() { printf '%s\n' removed >"${HOOK_DIR}/dnsmasq"; }
+	remove_firewall_event_scripts() { printf '%s\n' removed >"${HOOK_DIR}/firewall"; }
+	remove_init_event_scripts() { printf '%s\n' removed >"${HOOK_DIR}/init"; }
+	remove_services_event_scripts() {
+		printf '%s\n' removed >"${HOOK_DIR}/services"
+		return "${REMOVE_HOOK_STATUS}"
+	}
 	yaml_nvars_file_action() { :; }
 	yaml_nvars_delete() { :; }
 	del_jffs_script() { :; }
@@ -343,6 +353,10 @@ run_uninstall_test restart-failure 1 1 && fail 'restore and restart failures did
 run_uninstall_test hook-failure 0 0 usable 1 && fail 'event-hook removal failure did not abort uninstall'
 [ -d "${TMP_ROOT}/uninstall-hook-failure" ] || fail 'event-hook removal failure removed the retained installation'
 grep -qx rollback "${TMP_ROOT}/events-hook-failure" || fail 'event-hook removal failure did not restore the aggregate hook snapshot'
+for hook in dnsmasq init services firewall; do
+	grep -qx "original-${hook}" "${TMP_ROOT}/hooks-hook-failure/${hook}" ||
+		fail "event-hook removal failure did not restore the ${hook} hook content"
+done
 run_uninstall_test unusable-helper 0 0 unusable && fail 'unusable rollback helper did not abort uninstall'
 [ -d "${TMP_ROOT}/uninstall-unusable-helper" ] || fail 'unusable rollback helper removed retained installation path'
 [ "$(sed -n '2p' "${TMP_ROOT}/events-unusable-helper")" = 'ERROR Unable to restore installer-managed kernel settings.' ] || fail 'unusable rollback helper error was not reported'

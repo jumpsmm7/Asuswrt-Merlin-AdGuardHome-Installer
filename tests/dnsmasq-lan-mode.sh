@@ -4,11 +4,15 @@
 set -u
 
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
-TEST_ROOT="${TMPDIR:-/tmp}/dnsmasq-lan-mode.$$"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/dnsmasq-lan-mode.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive test directory' >&2
+	exit 1
+}
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 LOG_FILE="${TEST_ROOT}/log"
 IPSET_CALLS_FILE="${TEST_ROOT}/ipset-calls"
 MANAGED_IPSET_FILE="${TEST_ROOT}/managed-ipset"
+YAML_FILE="${TEST_ROOT}/AdGuardHome.yaml"
 UMOUNT_CALLS_FILE="${TEST_ROOT}/umount-calls"
 DNSMASQ_CONF_FILE="${TEST_ROOT}/dnsmasq.conf"
 DNSMASQ_SDN_CONF_FILE="${TEST_ROOT}/dnsmasq-1.conf"
@@ -29,7 +33,6 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 [ -f "${SCRIPT_PATH}" ] || fail "script not found: ${SCRIPT_PATH}"
-mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n '/^dnsmasq_delete_matching() {$/,/^interface_ipv4_addr() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract dnsmasq helpers'
@@ -50,6 +53,8 @@ DNSMASQ_RUNNING='0'
 ADGUARD_RUNNING='1'
 ADGUARD_DNSMASQ_MODE='auto'
 CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
+WORK_DIR="${TEST_ROOT}"
+IPSET_FILE="${MANAGED_IPSET_FILE}"
 RESOLV_CONF_USES_ROM='1'
 RESOLV_CONF_TMP_MOUNT='0'
 
@@ -170,6 +175,15 @@ sdn_bridge_for_index() {
 # IPSet_Refresh records every refresh request and models managed-IPSET cleanup for rejected topologies.
 IPSet_Refresh() {
 	printf '%s\n' "$1" >>"${IPSET_CALLS_FILE}"
+	if [ "${IPSET_REFRESH_FAIL:-0}" = "1" ]; then
+		printf '%s\n' refreshed >"${IPSET_FILE}"
+		printf '%s\n' refreshed >"${YAML_FILE}"
+		return 1
+	fi
+	if [ "${IPSET_REFRESH_CHANGE:-0}" = "1" ]; then
+		printf '%s\n' refreshed >"${IPSET_FILE}"
+		printf '%s\n' refreshed >"${YAML_FILE}"
+	fi
 	case "${ADGUARD_INSTALL_MODE:-}" in
 		wan) ;;
 		lan | ap | bridge)
@@ -183,7 +197,25 @@ IPSet_Refresh() {
 			return 0
 			;;
 	esac
-	[ "${IPSET_REFRESH_FAIL:-0}" != "1" ]
+	return 0
+}
+
+# lower_script records successful service reloads required after IPSET snapshot restoration.
+lower_script() { printf '%s\n' "$*" >>"${IPSET_CALLS_FILE}"; }
+
+# mv fails only the requested live dnsmasq publication and delegates snapshot restoration moves.
+mv() {
+	if [ "${RESTORE_FAIL:-0}" = "1" ]; then
+		case "${1:-}" in
+			"${IPSET_FILE}.dnsmasq-restore."*) return 1 ;;
+		esac
+	fi
+	if [ "${MV_PUBLISH_FAIL:-0}" = "1" ] && [ "${2:-}" = "${DNSMASQ_CONF_FILE}" ]; then
+		case "${1:-}" in
+			"${DNSMASQ_CONF_FILE}.adguard."*) return 1 ;;
+		esac
+	fi
+	command mv "$@"
 }
 
 # private_ipv4_bridge_dns_options_with_fallbacks records the LAN interface it was called with and emits the configured bridge DNS pairs.
@@ -200,6 +232,7 @@ reset_case() {
 	: >"${UMOUNT_CALLS_FILE}"
 	: >"${BRIDGE_FALLBACK_CALLS_FILE}"
 	rm -f "${MANAGED_IPSET_FILE}"
+	printf '%s\n' 'original yaml' >"${YAML_FILE}" || fail 'could not reset YAML fixture'
 	printf '%s\n' '# base config' >"${DNSMASQ_CONF_FILE}" || fail 'could not reset base dnsmasq config'
 	printf '%s\n' '# sdn config' >"${DNSMASQ_SDN_CONF_FILE}" || fail 'could not reset sdn dnsmasq config'
 	DNS_HANDOFF_ACTIVE='0'
@@ -216,6 +249,9 @@ reset_case() {
 	NVRAM_LAN_IFNAME='br0'
 	BRIDGE_DNS_OPTIONS=''
 	IPSET_REFRESH_FAIL='0'
+	IPSET_REFRESH_CHANGE='0'
+	MV_PUBLISH_FAIL='0'
+	RESTORE_FAIL='0'
 }
 
 # assert_no_ipset_refresh verifies that no IPSET refresh calls were recorded for the test case.
@@ -299,10 +335,9 @@ touch "${MANAGED_IPSET_FILE}" || fail 'could not create disabled-handoff managed
 dnsmasq_action_handler || fail 'LAN disabled handoff path failed'
 ! grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
 	fail 'LAN disabled handoff path logged stopped dnsmasq skip reason'
-assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN disabled handoff path'
-grep -q "${DNSMASQ_CONF_FILE}" "${IPSET_CALLS_FILE}" ||
-	fail 'LAN disabled handoff path did not invoke IPSET refresh cleanup'
-[ ! -e "${MANAGED_IPSET_FILE}" ] || fail 'LAN disabled handoff path did not disable managed IPSET state'
+assert_dnsmasq_postconf_not_written "${DNSMASQ_CONF_FILE}" 'LAN disabled handoff path'
+assert_no_ipset_refresh 'LAN disabled handoff path'
+[ -e "${MANAGED_IPSET_FILE}" ] || fail 'stopped dnsmasq path unexpectedly changed managed IPSET state'
 
 reset_case
 ADGUARD_INSTALL_MODE='lan'
@@ -330,15 +365,53 @@ reset_case
 ADGUARD_INSTALL_MODE='wan'
 DNSMASQ_RUNNING='1'
 IPSET_REFRESH_FAIL='1'
+printf '%s\n' 'original ipset' >"${IPSET_FILE}" || fail 'could not create IPSET rollback fixture'
 ORIGINAL_CONFIG="$(cat "${DNSMASQ_CONF_FILE}")"
 if dnsmasq_action_handler; then
 	fail 'failed IPSET refresh unexpectedly published dnsmasq configuration'
 fi
 [ "$(cat "${DNSMASQ_CONF_FILE}")" = "${ORIGINAL_CONFIG}" ] ||
 	fail 'failed IPSET refresh changed the live dnsmasq configuration'
+grep -qx 'original ipset' "${IPSET_FILE}" || fail 'failed IPSET refresh did not restore IPSET state'
+grep -qx 'original yaml' "${YAML_FILE}" || fail 'failed IPSET refresh did not restore YAML state'
 if find "${TEST_ROOT}" -name 'dnsmasq.conf.adguard.*' -print | grep -q .; then
 	fail 'failed IPSET refresh left a staged dnsmasq configuration'
 fi
+
+reset_case
+ADGUARD_INSTALL_MODE='wan'
+DNSMASQ_RUNNING='1'
+IPSET_REFRESH_CHANGE='1'
+MV_PUBLISH_FAIL='1'
+printf '%s\n' 'original ipset' >"${IPSET_FILE}" || fail 'could not create publication rollback fixture'
+ORIGINAL_CONFIG="$(cat "${DNSMASQ_CONF_FILE}")"
+if dnsmasq_action_handler; then
+	fail 'failed dnsmasq publication unexpectedly succeeded'
+fi
+[ "$(cat "${DNSMASQ_CONF_FILE}")" = "${ORIGINAL_CONFIG}" ] ||
+	fail 'failed dnsmasq publication changed the live configuration'
+grep -qx 'original ipset' "${IPSET_FILE}" || fail 'failed dnsmasq publication did not restore IPSET state'
+grep -qx 'original yaml' "${YAML_FILE}" || fail 'failed dnsmasq publication did not restore YAML state'
+if find "${TEST_ROOT}" -name '.AdGuardHome.dnsmasq-ipset.*' -print | grep -q .; then
+	fail 'successful publication compensation retained an IPSET recovery snapshot'
+fi
+
+reset_case
+ADGUARD_INSTALL_MODE='wan'
+DNSMASQ_RUNNING='1'
+IPSET_REFRESH_FAIL='1'
+RESTORE_FAIL='1'
+printf '%s\n' 'original ipset' >"${IPSET_FILE}" || fail 'could not create retained recovery fixture'
+if dnsmasq_action_handler; then
+	fail 'failed IPSET compensation unexpectedly succeeded'
+fi
+RECOVERY_SNAPSHOT="$(find "${TEST_ROOT}" -type d -name '.AdGuardHome.dnsmasq-ipset.*' -print | head -n 1)"
+[ -n "${RECOVERY_SNAPSHOT}" ] || fail 'failed IPSET compensation discarded its recovery snapshot'
+grep -qx 'original ipset' "${RECOVERY_SNAPSHOT}/ipset" ||
+	fail 'retained IPSET recovery snapshot did not preserve the original state'
+grep -q "result=failed snapshot=${RECOVERY_SNAPSHOT}" "${LOG_FILE}" ||
+	fail 'failed IPSET compensation did not report its recovery snapshot'
+rm -rf "${RECOVERY_SNAPSHOT}" || fail 'could not clear verified IPSET recovery snapshot'
 
 reset_case
 ADGUARD_INSTALL_MODE='lan'
@@ -367,8 +440,16 @@ DNSMASQ_RUNNING='0'
 ADGUARD_DNSMASQ_MODE='auto'
 CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
 dnsmasq_action_handler || fail 'WAN stopped dnsmasq path failed'
-assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'WAN stopped dnsmasq path'
-grep -q "${DNSMASQ_CONF_FILE}" "${IPSET_CALLS_FILE}" || fail 'WAN stopped dnsmasq path did not refresh IPSET'
+assert_dnsmasq_postconf_not_written "${DNSMASQ_CONF_FILE}" 'WAN stopped dnsmasq path'
+assert_no_ipset_refresh 'WAN stopped dnsmasq path'
+
+reset_case
+ADGUARD_INSTALL_MODE='wan'
+DNSMASQ_RUNNING='1'
+rm -f "${DNSMASQ_CONF_FILE}"
+dnsmasq_action_handler || fail 'missing dnsmasq configuration path failed'
+[ ! -e "${DNSMASQ_CONF_FILE}" ] || fail 'missing dnsmasq configuration was unexpectedly published'
+assert_no_ipset_refresh 'missing dnsmasq configuration path'
 
 reset_case
 ADGUARD_INSTALL_MODE='wan'
@@ -388,9 +469,8 @@ CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
 dnsmasq_action_handler || fail 'LAN managed stopped dnsmasq startup path failed'
 ! grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
 	fail 'LAN managed stopped dnsmasq startup path logged stopped dnsmasq skip reason'
-assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN managed stopped dnsmasq startup path'
-grep -q "${DNSMASQ_CONF_FILE}" "${IPSET_CALLS_FILE}" ||
-	fail 'LAN managed stopped dnsmasq startup path did not invoke IPSET refresh cleanup'
+assert_dnsmasq_postconf_not_written "${DNSMASQ_CONF_FILE}" 'LAN managed stopped dnsmasq startup path'
+assert_no_ipset_refresh 'LAN managed stopped dnsmasq startup path'
 
 reset_case
 ADGUARD_INSTALL_MODE='lan'
@@ -402,15 +482,14 @@ ADGUARD_RUNNING='0'
 dnsmasq_action_handler || fail 'LAN stopped dnsmasq handoff path failed'
 ! grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
 	fail 'LAN stopped dnsmasq handoff path logged stopped dnsmasq skip reason'
-assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN stopped dnsmasq handoff path'
-grep -q "${DNSMASQ_CONF_FILE}" "${IPSET_CALLS_FILE}" ||
-	fail 'LAN stopped dnsmasq handoff path did not invoke IPSET refresh cleanup'
+assert_dnsmasq_postconf_not_written "${DNSMASQ_CONF_FILE}" 'LAN stopped dnsmasq handoff path'
+assert_no_ipset_refresh 'LAN stopped dnsmasq handoff path'
 
 # Base-config generation threads the resolved primary LAN interface into the
 # bridge DNS fallback helper and writes a dhcp-option line per discovered pair.
 reset_case
 ADGUARD_INSTALL_MODE='wan'
-DNSMASQ_RUNNING='0'
+DNSMASQ_RUNNING='1'
 ADGUARD_RUNNING='1'
 ADGUARD_DNSMASQ_MODE='auto'
 CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
@@ -428,7 +507,7 @@ grep -q '^dhcp-option=br2,6,192\.168\.102\.1$' "${DNSMASQ_CONF_FILE}" ||
 # A different resolved LAN interface is threaded through unchanged.
 reset_case
 ADGUARD_INSTALL_MODE='wan'
-DNSMASQ_RUNNING='0'
+DNSMASQ_RUNNING='1'
 ADGUARD_RUNNING='1'
 ADGUARD_DNSMASQ_MODE='auto'
 CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
@@ -444,7 +523,7 @@ grep -q '^dhcp-option=br0,6,192\.168\.50\.254$' "${DNSMASQ_CONF_FILE}" ||
 # Incomplete interface/address pairs from the fallback helper are skipped without writing malformed options.
 reset_case
 ADGUARD_INSTALL_MODE='wan'
-DNSMASQ_RUNNING='0'
+DNSMASQ_RUNNING='1'
 ADGUARD_RUNNING='1'
 ADGUARD_DNSMASQ_MODE='auto'
 CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
@@ -462,7 +541,7 @@ grep -q '^dhcp-option=br3,6,192\.168\.103\.1$' "${DNSMASQ_CONF_FILE}" ||
 # A bridge discovery failure must discard staged edits and preserve the live dnsmasq file.
 reset_case
 ADGUARD_INSTALL_MODE='wan'
-DNSMASQ_RUNNING='0'
+DNSMASQ_RUNNING='1'
 ADGUARD_RUNNING='1'
 ADGUARD_DNSMASQ_MODE='auto'
 CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
@@ -481,7 +560,7 @@ fi
 # The mtlancfg rc_support flag skips bridge DNS discovery entirely for the base config.
 reset_case
 ADGUARD_INSTALL_MODE='wan'
-DNSMASQ_RUNNING='0'
+DNSMASQ_RUNNING='1'
 ADGUARD_RUNNING='1'
 ADGUARD_DNSMASQ_MODE='auto'
 CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
