@@ -280,8 +280,8 @@ assert_no_ipset_refresh() {
 wait_for_file() {
 	marker="$1"
 	count=0
-	while [ ! -f "${marker}" ] && [ "${count}" -lt 100 ]; do
-		sleep 0.01
+	while [ ! -f "${marker}" ] && [ "${count}" -lt 10 ]; do
+		sleep 1
 		count="$((count + 1))"
 	done
 	[ -f "${marker}" ]
@@ -613,8 +613,8 @@ dnsmasq_action_handler || fail 'committed dnsmasq state was reported as failed a
 grep -q 'action=bind_resolver result=failed' "${LOG_FILE}" || fail 'resolver bind failure was not reported'
 grep -q -- '-o bind /rom/etc/resolv.conf /tmp/resolv.conf' "${MOUNT_CALLS_FILE}" || fail 'resolver bind was not attempted'
 
-# Restoration must preserve a captured stopped state even if a process appears
-# while the transaction is rolling back.
+# Restoration must reload a process that appears after the captured stopped
+# state so it consumes the rolled-back files.
 reset_case
 STOPPED_SNAPSHOT="${TEST_ROOT}/stopped-service-snapshot"
 mkdir -m 700 "${STOPPED_SNAPSHOT}" || fail 'could not create stopped-service snapshot'
@@ -624,7 +624,7 @@ printf '%s\n' changed >"${IPSET_FILE}"
 printf '%s\n' changed >"${YAML_FILE}"
 ADGUARD_RUNNING='1'
 dnsmasq_ipset_state_restore "${STOPPED_SNAPSHOT}" 0 || fail 'stopped-service state restoration failed'
-! grep -q '^restart$' "${IPSET_CALLS_FILE}" || fail 'stopped-service rollback restarted a newly appearing process'
+grep -q '^restart$' "${IPSET_CALLS_FILE}" || fail 'stopped-service rollback did not reload a newly appearing process'
 rm -rf "${STOPPED_SNAPSHOT}" || fail 'could not clear stopped-service snapshot'
 
 # A nested IPSET lock signal handler must propagate to the outer dnsmasq
@@ -656,6 +656,36 @@ grep -qx 'original ipset' "${IPSET_FILE}" || fail 'nested lock signal did not re
 grep -qx 'original yaml' "${YAML_FILE}" || fail 'nested lock signal did not restore YAML state'
 [ ! -e "${CONFIG_STAGE}" ] || fail 'nested lock signal retained staged dnsmasq state'
 rm -rf "${IPSET_SNAPSHOT_DIR}" || fail 'could not clear nested signal snapshot'
+
+# A signal rollback failure must retain and report its recovery snapshot.
+reset_case
+SIGNAL_FAIL_MARKER="${TEST_ROOT}/signal-restore-fail-active"
+CONFIG_STAGE="${DNSMASQ_CONF_FILE}.signal-restore-fail"
+IPSET_SNAPSHOT_DIR="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.signal-restore-fail"
+RESTORE_FAIL='1'
+printf '%s\n' '# staged config' >"${CONFIG_STAGE}" || fail 'could not create failed signal restoration stage'
+printf '%s\n' 'original ipset' >"${IPSET_FILE}" || fail 'could not create failed signal restoration IPSET fixture'
+(
+	IPSet_Refresh() {
+		printf '%s\n' changed >"${IPSET_FILE}"
+		printf '%s\n' changed >"${YAML_FILE}"
+		read -r transaction_pid _ < /proc/self/stat
+		printf '%s\n' "${transaction_pid}" >"${SIGNAL_FAIL_MARKER}"
+		sleep 5
+	}
+	dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}"
+) &
+transaction_pid="$!"
+wait_for_file "${SIGNAL_FAIL_MARKER}" || fail 'failed signal restoration fixture did not enter refresh'
+kill -TERM "$(cat "${SIGNAL_FAIL_MARKER}")" || fail 'could not interrupt failed signal restoration fixture'
+if wait "${transaction_pid}"; then
+	fail 'failed signal restoration unexpectedly succeeded'
+fi
+[ -d "${IPSET_SNAPSHOT_DIR}" ] || fail 'failed signal restoration discarded its recovery snapshot'
+grep -q "state=signal action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}" "${LOG_FILE}" ||
+	fail 'failed signal restoration did not report its retained snapshot'
+[ ! -e "${CONFIG_STAGE}" ] || fail 'failed signal restoration retained staged dnsmasq state'
+rm -rf "${IPSET_SNAPSHOT_DIR}" || fail 'could not clear failed signal restoration snapshot'
 
 # A signal delivered during rollback must not re-enter IPSET restoration.
 reset_case

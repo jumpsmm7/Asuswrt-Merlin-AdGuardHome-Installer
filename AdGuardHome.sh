@@ -1057,7 +1057,9 @@ dnsmasq_publish_staged_config() (
 		fi
 		if [ "${TRANSACTION_ACTIVE:-0}" = "1" ] && [ "${SNAPSHOT_READY:-0}" = "1" ] && [ "${CONFIG_PUBLISHED:-0}" = "0" ] && [ "${ROLLBACK_ACTIVE:-0}" = "0" ]; then
 			ROLLBACK_ACTIVE="1"
-			dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}" || true
+			if ! dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
+				agh_log error dnsmasq_params "state=signal action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			fi
 			ROLLBACK_ACTIVE="0"
 		fi
 		[ "${CONFIG_PUBLISHED:-0}" = "1" ] || rm -f "${CONFIG_STAGE}"
@@ -1078,8 +1080,13 @@ dnsmasq_publish_staged_config() (
 		else
 			agh_log error dnsmasq_params "state=refresh action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 		fi
-		TRANSACTION_ACTIVE="0"
 		ROLLBACK_ACTIVE="0"
+		if [ "${TRANSACTION_SIGNAL_PENDING}" = "1" ]; then
+			TRANSACTION_SIGNAL_PENDING="0"
+			TRANSACTION_ACTIVE="0"
+			dnsmasq_publish_abort
+		fi
+		TRANSACTION_ACTIVE="0"
 		rm -f "${CONFIG_STAGE}"
 		return 1
 	fi
@@ -1090,8 +1097,13 @@ dnsmasq_publish_staged_config() (
 		else
 			agh_log error dnsmasq_params "state=publication action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 		fi
-		TRANSACTION_ACTIVE="0"
 		ROLLBACK_ACTIVE="0"
+		if [ "${TRANSACTION_SIGNAL_PENDING}" = "1" ]; then
+			TRANSACTION_SIGNAL_PENDING="0"
+			TRANSACTION_ACTIVE="0"
+			dnsmasq_publish_abort
+		fi
+		TRANSACTION_ACTIVE="0"
 		rm -f "${CONFIG_STAGE}"
 		return 1
 	fi
