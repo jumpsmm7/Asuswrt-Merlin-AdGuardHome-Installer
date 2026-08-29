@@ -266,6 +266,7 @@ run_uninstall_test() (
 	START_RESULT="${3:-0}"
 	HELPER_MODE="${4:-usable}"
 	REMOVE_HOOK_STATUS="${5:-0}"
+	INITIAL_RUNNING="${6:-1}"
 	mkdir -p "${TARG_DIR}" "${BASE_DIR}" "${HOME}" "${HOOK_DIR}"
 	for hook in dnsmasq init services firewall; do
 		printf '%s\n' "original-${hook}" >"${HOOK_DIR}/${hook}"
@@ -286,6 +287,7 @@ EOF
 	INFO=INFO ERROR=ERROR CONFIRM_STATUS=0
 	PTXT() { printf '%s\n' "$*" >>"${EVENTS_FILE}"; }
 	conf_value() { printf '%s\n' no; }
+	agh_is_running() { [ "${INITIAL_RUNNING}" = "1" ]; }
 	agh_stop() { printf '%s\n' stop >>"${EVENTS_FILE}"; }
 	agh_start() {
 		printf '%s\n' start >>"${EVENTS_FILE}"
@@ -350,6 +352,10 @@ run_uninstall_test restart-failure 1 1 && fail 'restore and restart failures did
 [ -d "${TMP_ROOT}/uninstall-restart-failure" ] || fail 'restart failure removed retained installation path'
 [ "$(sed -n '3p' "${TMP_ROOT}/events-restart-failure")" = 'ERROR Unable to restore installer-managed kernel settings.' ] || fail 'restart failure obscured restoration error'
 [ "$(sed -n '4p' "${TMP_ROOT}/events-restart-failure")" = start ] || fail 'restart failure was not exercised'
+run_uninstall_test stopped-hook-failure 0 0 usable 1 0 && fail 'stopped-service event-hook removal failure did not abort uninstall'
+! grep -qx start "${TMP_ROOT}/events-stopped-hook-failure" || fail 'stopped service was restarted after uninstall rollback'
+[ -d "${TMP_ROOT}/uninstall-stopped-hook-failure" ] || fail 'stopped-service rollback removed recoverable installation files'
+grep -qx 'original-dnsmasq' "${TMP_ROOT}/hooks-stopped-hook-failure/dnsmasq" || fail 'stopped-service rollback did not restore hook state'
 run_uninstall_test hook-failure 0 0 usable 1 && fail 'event-hook removal failure did not abort uninstall'
 [ -d "${TMP_ROOT}/uninstall-hook-failure" ] || fail 'event-hook removal failure removed the retained installation'
 grep -qx rollback "${TMP_ROOT}/events-hook-failure" || fail 'event-hook removal failure did not restore the aggregate hook snapshot'

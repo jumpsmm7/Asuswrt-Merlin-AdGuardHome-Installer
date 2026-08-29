@@ -287,6 +287,14 @@ wait_for_file() {
 	[ -f "${marker}" ]
 }
 
+# wait_for_release waits for the parent to release an asynchronous fixture.
+wait_for_release() {
+	release_marker="$1"
+	while [ ! -f "${release_marker}" ]; do
+		sleep 1
+	done
+}
+
 # assert_dnsmasq_postconf_written verifies that dnsmasq handoff settings were written to the specified configuration file.
 assert_dnsmasq_postconf_written() {
 	config_file="$1"
@@ -613,8 +621,8 @@ dnsmasq_action_handler || fail 'committed dnsmasq state was reported as failed a
 grep -q 'action=bind_resolver result=failed' "${LOG_FILE}" || fail 'resolver bind failure was not reported'
 grep -q -- '-o bind /rom/etc/resolv.conf /tmp/resolv.conf' "${MOUNT_CALLS_FILE}" || fail 'resolver bind was not attempted'
 
-# Restoration must reload a process that appears after the captured stopped
-# state so it consumes the rolled-back files.
+# Restoration must preserve the captured stopped state even if a process appears
+# before rollback completes.
 reset_case
 STOPPED_SNAPSHOT="${TEST_ROOT}/stopped-service-snapshot"
 mkdir -m 700 "${STOPPED_SNAPSHOT}" || fail 'could not create stopped-service snapshot'
@@ -624,13 +632,14 @@ printf '%s\n' changed >"${IPSET_FILE}"
 printf '%s\n' changed >"${YAML_FILE}"
 ADGUARD_RUNNING='1'
 dnsmasq_ipset_state_restore "${STOPPED_SNAPSHOT}" 0 || fail 'stopped-service state restoration failed'
-grep -q '^restart$' "${IPSET_CALLS_FILE}" || fail 'stopped-service rollback did not reload a newly appearing process'
+[ ! -s "${IPSET_CALLS_FILE}" ] || fail 'stopped-service rollback restarted a service that was initially stopped'
 rm -rf "${STOPPED_SNAPSHOT}" || fail 'could not clear stopped-service snapshot'
 
 # A nested IPSET lock signal handler must propagate to the outer dnsmasq
 # transaction so partially refreshed state is restored.
 reset_case
 NESTED_MARKER="${TEST_ROOT}/nested-refresh-active"
+NESTED_RELEASE="${TEST_ROOT}/nested-refresh-release"
 CONFIG_STAGE="${DNSMASQ_CONF_FILE}.signal-nested"
 IPSET_SNAPSHOT_DIR="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.signal-nested"
 printf '%s\n' '# staged config' >"${CONFIG_STAGE}" || fail 'could not create nested signal stage'
@@ -642,13 +651,14 @@ printf '%s\n' 'original ipset' >"${IPSET_FILE}" || fail 'could not create nested
 		trap 'IPSet_Lock_Interrupt_Propagate; exit 1' TERM
 		read -r transaction_pid _ </proc/self/stat
 		printf '%s\n' "${transaction_pid}" >"${NESTED_MARKER}"
-		sleep 5
+		wait_for_release "${NESTED_RELEASE}"
 	}
 	dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}"
 ) &
 transaction_pid="$!"
 wait_for_file "${NESTED_MARKER}" || fail 'nested signal fixture did not enter IPSET refresh'
 kill -TERM "$(cat "${NESTED_MARKER}")" || fail 'could not interrupt nested IPSET refresh'
+: >"${NESTED_RELEASE}" || fail 'could not release nested IPSET refresh fixture'
 if wait "${transaction_pid}"; then
 	fail 'nested IPSET refresh interruption unexpectedly succeeded'
 fi
@@ -660,6 +670,7 @@ rm -rf "${IPSET_SNAPSHOT_DIR}" || fail 'could not clear nested signal snapshot'
 # A signal rollback failure must retain and report its recovery snapshot.
 reset_case
 SIGNAL_FAIL_MARKER="${TEST_ROOT}/signal-restore-fail-active"
+SIGNAL_FAIL_RELEASE="${TEST_ROOT}/signal-restore-fail-release"
 CONFIG_STAGE="${DNSMASQ_CONF_FILE}.signal-restore-fail"
 IPSET_SNAPSHOT_DIR="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.signal-restore-fail"
 RESTORE_FAIL='1'
@@ -671,13 +682,14 @@ printf '%s\n' 'original ipset' >"${IPSET_FILE}" || fail 'could not create failed
 		printf '%s\n' changed >"${YAML_FILE}"
 		read -r transaction_pid _ </proc/self/stat
 		printf '%s\n' "${transaction_pid}" >"${SIGNAL_FAIL_MARKER}"
-		sleep 5
+		wait_for_release "${SIGNAL_FAIL_RELEASE}"
 	}
 	dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}"
 ) &
 transaction_pid="$!"
 wait_for_file "${SIGNAL_FAIL_MARKER}" || fail 'failed signal restoration fixture did not enter refresh'
 kill -TERM "$(cat "${SIGNAL_FAIL_MARKER}")" || fail 'could not interrupt failed signal restoration fixture'
+: >"${SIGNAL_FAIL_RELEASE}" || fail 'could not release failed signal restoration fixture'
 if wait "${transaction_pid}"; then
 	fail 'failed signal restoration unexpectedly succeeded'
 fi
@@ -690,6 +702,7 @@ rm -rf "${IPSET_SNAPSHOT_DIR}" || fail 'could not clear failed signal restoratio
 # A signal delivered during rollback must not re-enter IPSET restoration.
 reset_case
 RESTORE_MARKER="${TEST_ROOT}/restore-active"
+RESTORE_RELEASE="${TEST_ROOT}/restore-release"
 RESTORE_CALLS="${TEST_ROOT}/restore-calls"
 CONFIG_STAGE="${DNSMASQ_CONF_FILE}.signal-restore"
 IPSET_SNAPSHOT_DIR="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.signal-restore"
@@ -700,13 +713,14 @@ printf '%s\n' '# staged config' >"${CONFIG_STAGE}" || fail 'could not create sig
 		printf '%s\n' restore >>"${RESTORE_CALLS}"
 		read -r transaction_pid _ </proc/self/stat
 		printf '%s\n' "${transaction_pid}" >"${RESTORE_MARKER}"
-		sleep 5
+		wait_for_release "${RESTORE_RELEASE}"
 	}
 	dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}"
 ) &
 transaction_pid="$!"
 wait_for_file "${RESTORE_MARKER}" || fail 'signal restoration fixture did not enter rollback'
 kill -TERM "$(cat "${RESTORE_MARKER}")" || fail 'could not interrupt active IPSET restoration'
+: >"${RESTORE_RELEASE}" || fail 'could not release active IPSET restoration fixture'
 if wait "${transaction_pid}"; then
 	fail 'signal during IPSET restoration unexpectedly succeeded'
 fi
@@ -717,6 +731,7 @@ rm -rf "${IPSET_SNAPSHOT_DIR}" || fail 'could not clear signal restoration snaps
 # A signal after mv publishes the stage must not restore IPSET over published state.
 reset_case
 PUBLISH_MARKER="${TEST_ROOT}/publish-complete"
+PUBLISH_RELEASE="${TEST_ROOT}/publish-release"
 RESTORE_CALLS="${TEST_ROOT}/publish-restore-calls"
 CONFIG_STAGE="${DNSMASQ_CONF_FILE}.signal-publish"
 IPSET_SNAPSHOT_DIR="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.signal-publish"
@@ -728,7 +743,7 @@ printf '%s\n' '# published config' >"${CONFIG_STAGE}" || fail 'could not create 
 		if [ "$2" = "${DNSMASQ_CONF_FILE}" ]; then
 			read -r transaction_pid _ </proc/self/stat
 			printf '%s\n' "${transaction_pid}" >"${PUBLISH_MARKER}"
-			sleep 5
+			wait_for_release "${PUBLISH_RELEASE}"
 		fi
 	}
 	dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}"
@@ -736,6 +751,7 @@ printf '%s\n' '# published config' >"${CONFIG_STAGE}" || fail 'could not create 
 transaction_pid="$!"
 wait_for_file "${PUBLISH_MARKER}" || fail 'signal publication fixture did not publish the stage'
 kill -TERM "$(cat "${PUBLISH_MARKER}")" || fail 'could not interrupt after dnsmasq publication'
+: >"${PUBLISH_RELEASE}" || fail 'could not release published dnsmasq fixture'
 if wait "${transaction_pid}"; then
 	fail 'signal after dnsmasq publication unexpectedly succeeded'
 fi

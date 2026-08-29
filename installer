@@ -5106,8 +5106,10 @@ adguard_recover_after_uninstall_hook_abort() {
 	HOOK_ROLLBACK_STATUS=0
 	RESTART_RECOVERY_STATUS=0
 	all_event_scripts_transaction_rollback || HOOK_ROLLBACK_STATUS=1
-	# Restart the installed AdGuardHome service even when hook restoration fails.
-	agh_start || RESTART_RECOVERY_STATUS=1
+	# Restore the service only when it was running before the uninstall stopped it.
+	if [ "${1:-0}" = "1" ]; then
+		agh_start || RESTART_RECOVERY_STATUS=1
+	fi
 	[ "${HOOK_ROLLBACK_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore installer-managed event scripts after the uninstall abort."
 	[ "${RESTART_RECOVERY_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restart AdGuardHome after the uninstall abort."
 	[ "${HOOK_ROLLBACK_STATUS}" -eq 0 ] && [ "${RESTART_RECOVERY_STATUS}" -eq 0 ]
@@ -6512,10 +6514,15 @@ add_dnsmasq_event_scripts() {
 			PTXT "${ERROR} Unable to restore dnsmasq event scripts; recovery snapshot retained at ${SNAPSHOT_DIR}."
 			return 1
 		fi
-		rm -rf "${SNAPSHOT_DIR}" || return 1
+		if ! rm -rf "${SNAPSHOT_DIR}"; then
+			PTXT "${ERROR} Unable to remove the restored dnsmasq event-script snapshot; retained at ${SNAPSHOT_DIR}."
+		fi
 		return 1
 	fi
-	rm -rf "${SNAPSHOT_DIR}"
+	if ! rm -rf "${SNAPSHOT_DIR}"; then
+		PTXT "${ERROR} Unable to remove the dnsmasq event-script snapshot; retained at ${SNAPSHOT_DIR}."
+	fi
+	return 0
 }
 
 inst_AdGuardHome() {
@@ -8442,6 +8449,8 @@ amtm_update_check() {
 }
 
 uninst_all() {
+	local ADGUARD_WAS_RUNNING
+	ADGUARD_WAS_RUNNING="0"
 	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 		PTXT "${INFO} Old Backup Detected!"
 		read_yesno "Do you want to remove backup?(this will prevent restoring from backups later)"
@@ -8458,34 +8467,37 @@ uninst_all() {
 		PTXT "${ERROR} Unable to clear the installer-managed LAN domain setting; uninstall was aborted before stopping AdGuardHome."
 		return 1
 	fi
+	if agh_is_running; then
+		ADGUARD_WAS_RUNNING="1"
+	fi
 	agh_stop
 	if [ -d "${TARG_DIR}/proc-sys-state" ] && [ ! -x "${TARG_DIR}/AdGuardHome.sh" ]; then
 		PTXT "${ERROR} Unable to restore installer-managed kernel settings."
-		agh_start || true
+		[ "${ADGUARD_WAS_RUNNING}" = "0" ] || agh_start || true
 		return 1
 	fi
 	if [ -x "${TARG_DIR}/AdGuardHome.sh" ]; then
 		if ! "${TARG_DIR}/AdGuardHome.sh" proc-restore x; then
 			PTXT "${ERROR} Unable to restore installer-managed kernel settings."
-			agh_start || true
+			[ "${ADGUARD_WAS_RUNNING}" = "0" ] || agh_start || true
 			return 1
 		fi
 	fi
 	if ! all_event_scripts_transaction_begin "${BASE_DIR}/.AdGuardHome.uninstall-hooks.$$"; then
 		PTXT "${ERROR} Existing Asuswrt-Merlin event scripts could not be protected for uninstall rollback."
-		agh_start || true
+		[ "${ADGUARD_WAS_RUNNING}" = "0" ] || agh_start || true
 		return 1
 	fi
 	if ! remove_dnsmasq_event_scripts || ! remove_init_event_scripts ||
 		! remove_services_event_scripts || ! remove_firewall_event_scripts; then
 		PTXT "${ERROR} Unable to remove installer-managed event scripts; uninstall was aborted."
-		adguard_recover_after_uninstall_hook_abort
+		adguard_recover_after_uninstall_hook_abort "${ADGUARD_WAS_RUNNING}"
 		return 1
 	fi
 	if ! cleanup_legacy_firewall ||
 		! yaml_nvars_file_action delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf; then
 		PTXT "${ERROR} Unable to complete installer-managed event-hook cleanup; uninstall was aborted."
-		adguard_recover_after_uninstall_hook_abort
+		adguard_recover_after_uninstall_hook_abort "${ADGUARD_WAS_RUNNING}"
 		return 1
 	fi
 	all_event_scripts_transaction_commit

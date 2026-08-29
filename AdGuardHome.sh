@@ -1051,17 +1051,20 @@ dnsmasq_publish_staged_config() (
 			TRANSACTION_SIGNAL_PENDING="1"
 			return 0
 		fi
-		trap - HUP INT TERM
+		trap '' HUP INT TERM
 		if [ ! -e "${CONFIG_STAGE}" ]; then
 			CONFIG_PUBLISHED="1"
 		fi
 		if [ "${TRANSACTION_ACTIVE:-0}" = "1" ] && [ "${SNAPSHOT_READY:-0}" = "1" ] && [ "${CONFIG_PUBLISHED:-0}" = "0" ] && [ "${ROLLBACK_ACTIVE:-0}" = "0" ]; then
 			ROLLBACK_ACTIVE="1"
-			if ! dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
+			if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
+				rm -rf "${IPSET_SNAPSHOT_DIR}"
+			else
 				agh_log error dnsmasq_params "state=signal action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 			fi
 			ROLLBACK_ACTIVE="0"
 		fi
+		trap - HUP INT TERM
 		[ "${CONFIG_PUBLISHED:-0}" = "1" ] || rm -f "${CONFIG_STAGE}"
 		exit 1
 	}
