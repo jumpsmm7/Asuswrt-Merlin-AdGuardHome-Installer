@@ -1024,7 +1024,8 @@ dnsmasq_ipset_state_restore() {
 			return 1
 		}
 	fi
-	if [ "${RESTART_REQUIRED}" = "1" ] && [ "${ADGUARD_WAS_RUNNING}" = "1" ]; then
+	if [ "${RESTART_REQUIRED}" = "1" ] &&
+		{ [ "${ADGUARD_WAS_RUNNING}" = "1" ] || pidof "${PROCS}" >/dev/null 2>&1; }; then
 		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
 		ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
 		lower_script restart

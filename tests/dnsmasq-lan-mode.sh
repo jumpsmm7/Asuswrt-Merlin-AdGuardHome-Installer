@@ -621,8 +621,8 @@ dnsmasq_action_handler || fail 'committed dnsmasq state was reported as failed a
 grep -q 'action=bind_resolver result=failed' "${LOG_FILE}" || fail 'resolver bind failure was not reported'
 grep -q -- '-o bind /rom/etc/resolv.conf /tmp/resolv.conf' "${MOUNT_CALLS_FILE}" || fail 'resolver bind was not attempted'
 
-# Restoration must preserve the captured stopped state even if a process appears
-# before rollback completes.
+# Restoration must reload a process that appears after the captured stopped
+# state so it consumes the rolled-back files.
 reset_case
 STOPPED_SNAPSHOT="${TEST_ROOT}/stopped-service-snapshot"
 mkdir -m 700 "${STOPPED_SNAPSHOT}" || fail 'could not create stopped-service snapshot'
@@ -632,7 +632,7 @@ printf '%s\n' changed >"${IPSET_FILE}"
 printf '%s\n' changed >"${YAML_FILE}"
 ADGUARD_RUNNING='1'
 dnsmasq_ipset_state_restore "${STOPPED_SNAPSHOT}" 0 || fail 'stopped-service state restoration failed'
-[ ! -s "${IPSET_CALLS_FILE}" ] || fail 'stopped-service rollback restarted a service that was initially stopped'
+grep -q '^restart$' "${IPSET_CALLS_FILE}" || fail 'stopped-service rollback did not reload a newly appearing process'
 rm -rf "${STOPPED_SNAPSHOT}" || fail 'could not clear stopped-service snapshot'
 
 # A nested IPSET lock signal handler must propagate to the outer dnsmasq
