@@ -4,7 +4,10 @@
 set -u
 
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
-TEST_ROOT="${TMPDIR:-/tmp}/dnsmasq-lan-mode.$$"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/dnsmasq-lan-mode.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive test directory' >&2
+	exit 1
+}
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 LOG_FILE="${TEST_ROOT}/log"
 IPSET_CALLS_FILE="${TEST_ROOT}/ipset-calls"
@@ -29,7 +32,6 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 [ -f "${SCRIPT_PATH}" ] || fail "script not found: ${SCRIPT_PATH}"
-mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n '/^dnsmasq_delete_matching() {$/,/^interface_ipv4_addr() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract dnsmasq helpers'

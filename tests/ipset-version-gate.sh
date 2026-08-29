@@ -4,13 +4,17 @@
 set -u
 
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
-FUNCTION_FILE="${TMPDIR:-/tmp}/ipset-version-functions.$$"
-BINARY_FILE="${TMPDIR:-/tmp}/AdGuardHome-version-test.$$"
-CALLS_FILE="${TMPDIR:-/tmp}/ipset-version-calls.$$"
-IPSET_FILE="${TMPDIR:-/tmp}/ipset-version-managed.$$"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/ipset-version-gate.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive test directory' >&2
+	exit 1
+}
+FUNCTION_FILE="${TEST_ROOT}/functions"
+BINARY_FILE="${TEST_ROOT}/AdGuardHome"
+CALLS_FILE="${TEST_ROOT}/calls"
+IPSET_FILE="${TEST_ROOT}/managed-ipset"
 
 cleanup() {
-	rm -f "${FUNCTION_FILE}" "${BINARY_FILE}" "${CALLS_FILE}" "${IPSET_FILE}"
+	rm -rf "${TEST_ROOT}"
 }
 
 fail() {
