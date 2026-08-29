@@ -596,7 +596,7 @@ printf '%s\n' '# staged config' >"${CONFIG_STAGE}" || fail 'could not create sig
 	IPSet_Refresh() { return 1; }
 	dnsmasq_ipset_state_restore() {
 		printf '%s\n' restore >>"${RESTORE_CALLS}"
-		read -r transaction_pid _ < /proc/self/stat
+		read -r transaction_pid _ </proc/self/stat
 		printf '%s\n' "${transaction_pid}" >"${RESTORE_MARKER}"
 		sleep 5
 	}
@@ -624,7 +624,7 @@ printf '%s\n' '# published config' >"${CONFIG_STAGE}" || fail 'could not create 
 	mv() {
 		command mv "$@" || return 1
 		if [ "$2" = "${DNSMASQ_CONF_FILE}" ]; then
-			read -r transaction_pid _ < /proc/self/stat
+			read -r transaction_pid _ </proc/self/stat
 			printf '%s\n' "${transaction_pid}" >"${PUBLISH_MARKER}"
 			sleep 5
 		fi
