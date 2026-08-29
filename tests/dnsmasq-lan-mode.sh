@@ -640,7 +640,7 @@ printf '%s\n' 'original ipset' >"${IPSET_FILE}" || fail 'could not create nested
 		printf '%s\n' changed >"${IPSET_FILE}"
 		printf '%s\n' changed >"${YAML_FILE}"
 		trap 'IPSet_Lock_Interrupt_Propagate; exit 1' TERM
-		read -r transaction_pid _ < /proc/self/stat
+		read -r transaction_pid _ </proc/self/stat
 		printf '%s\n' "${transaction_pid}" >"${NESTED_MARKER}"
 		sleep 5
 	}
@@ -669,7 +669,7 @@ printf '%s\n' 'original ipset' >"${IPSET_FILE}" || fail 'could not create failed
 	IPSet_Refresh() {
 		printf '%s\n' changed >"${IPSET_FILE}"
 		printf '%s\n' changed >"${YAML_FILE}"
-		read -r transaction_pid _ < /proc/self/stat
+		read -r transaction_pid _ </proc/self/stat
 		printf '%s\n' "${transaction_pid}" >"${SIGNAL_FAIL_MARKER}"
 		sleep 5
 	}
@@ -698,7 +698,7 @@ printf '%s\n' '# staged config' >"${CONFIG_STAGE}" || fail 'could not create sig
 	IPSet_Refresh() { return 1; }
 	dnsmasq_ipset_state_restore() {
 		printf '%s\n' restore >>"${RESTORE_CALLS}"
-		read -r transaction_pid _ < /proc/self/stat
+		read -r transaction_pid _ </proc/self/stat
 		printf '%s\n' "${transaction_pid}" >"${RESTORE_MARKER}"
 		sleep 5
 	}
@@ -726,7 +726,7 @@ printf '%s\n' '# published config' >"${CONFIG_STAGE}" || fail 'could not create 
 	mv() {
 		command mv "$@" || return 1
 		if [ "$2" = "${DNSMASQ_CONF_FILE}" ]; then
-			read -r transaction_pid _ < /proc/self/stat
+			read -r transaction_pid _ </proc/self/stat
 			printf '%s\n' "${transaction_pid}" >"${PUBLISH_MARKER}"
 			sleep 5
 		fi

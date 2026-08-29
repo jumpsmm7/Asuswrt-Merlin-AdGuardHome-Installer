@@ -262,7 +262,10 @@ RECOVERY_SEQUENCE="${TMP_ROOT}/event-hook-recovery"
 	ERROR='Error:'
 	CALLS_FILE="${TMP_ROOT}/event-hook-recovery-calls"
 	: >"${CALLS_FILE}"
-	rollback_pending_mode_migration() { printf '%s\n' rollback >>"${CALLS_FILE}"; return 1; }
+	rollback_pending_mode_migration() {
+		printf '%s\n' rollback >>"${CALLS_FILE}"
+		return 1
+	}
 	adguard_restart_after_install_abort() { printf '%s\n' "restart:$1" >>"${CALLS_FILE}"; }
 	PTXT() { :; }
 	end_op_message() { :; }
