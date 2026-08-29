@@ -29,7 +29,7 @@ if which flock >/dev/null 2>&1 && (exec 9>"${TEST_ROOT}/flock-probe" && flock -n
 	HAS_FLOCK=1
 fi
 rm -f "${TEST_ROOT}/flock-probe"
-sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^adguard_restart_dnsmasq_if_managed() {$/,/^}$/p; /^IPSet_Current_UID() {$/,/^}$/p; /^IPSet_Directory_Metadata() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock() {$/,/^}$/p; /^IPSet_Lock_Flock() {$/,/^}$/p; /^IPSet_Lock_Flock_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Reap_Stale() {$/,/^}$/p; /^IPSet_Restore_Traps() {$/,/^}$/p; /^IPSet_Runtime_Prepare() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^adguard_restart_dnsmasq_if_managed() {$/,/^}$/p; /^IPSet_Current_UID() {$/,/^}$/p; /^IPSet_Directory_Metadata() {$/,/^}$/p; /^IPSet_Dnsmasq_Restart_After_Unlock() {$/,/^}$/p; /^IPSet_Lock_Interrupt_Propagate() {$/,/^}$/p; /^IPSet_Lock() {$/,/^}$/p; /^IPSet_Lock_Flock() {$/,/^}$/p; /^IPSet_Lock_Flock_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Cleanup() {$/,/^}$/p; /^IPSet_Lock_Mkdir_Reap_Stale() {$/,/^}$/p; /^IPSet_Restore_Traps() {$/,/^}$/p; /^IPSet_Runtime_Prepare() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'IPSET lock functions were not found'
 if ! grep -Eq '^IPSET_RUNTIME_DIR=.*AdGuardHome-ipset' "${SCRIPT_PATH}"; then
 	fail 'the private IPSET runtime directory default is not defined'
@@ -43,6 +43,8 @@ fi
 if ! grep -Fq 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps' "${SCRIPT_PATH}"; then
 	fail 'fallback interrupt cleanup does not restore AdGuardHome before releasing the lock'
 fi
+grep -Fq 'IPSet_Restore_Traps "${SAVED_TRAPS}"; IPSet_Lock_Interrupt_Propagate' "${SCRIPT_PATH}" ||
+	fail 'nested IPSET lock cleanup does not propagate signals to the outer transaction'
 if ! grep -Fq 'if have_cmd flock && flock_supports_fd; then' "${SCRIPT_PATH}"; then
 	fail 'IPSET locking does not prefer compatible flock with mkdir as fallback'
 fi
@@ -140,6 +142,11 @@ IPSet_Lock_Interrupt_Cleanup() {
 	printf '%s\n' held >"${TEST_ROOT}/${LOCK_MODE}-interrupt-held"
 }
 
+outer_transaction_cleanup() {
+	printf '%s\n' propagated >"${TEST_ROOT}/${LOCK_MODE}-interrupt-propagated"
+}
+IPSET_LOCK_INTERRUPT_CALLBACK='outer_transaction_cleanup'
+
 interrupt_action() {
 	kill -TERM "$$"
 	sleep 1
@@ -208,6 +215,7 @@ run_interrupt_test() {
 		fail "${LOCK_MODE} interrupt unexpectedly returned success"
 	fi
 	[ -f "${TEST_ROOT}/${LOCK_MODE}-interrupt-held" ] || fail "${LOCK_MODE} interrupt restored after releasing the lock"
+	[ -f "${TEST_ROOT}/${LOCK_MODE}-interrupt-propagated" ] || fail "${LOCK_MODE} interrupt did not propagate to the outer transaction"
 	[ ! -d "${TEST_ROOT}/${LOCK_MODE}-interrupt-runtime/mkdir" ] || fail "${LOCK_MODE} interrupt left the fallback lock behind"
 }
 

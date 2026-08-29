@@ -252,7 +252,7 @@ awk '
 RECOVERY_SEQUENCE="${TMP_ROOT}/event-hook-recovery"
 {
 	printf '%s\n' 'event_hook_recovery() {'
-	sed -n '/MODE_ROLLBACK_STATUS=0/,/end_op_message 1 "\$1"/p' "${TMP_ROOT}/install-path" | head -n 8
+	awk '/MODE_ROLLBACK_STATUS=0/ { copying = 1 } copying { print } copying && /end_op_message 1 "\$1"/ { exit }' "${TMP_ROOT}/install-path"
 	printf '%s\n' '}'
 } >"${RECOVERY_SEQUENCE}" || fail 'could not extract event-hook recovery sequence'
 (

@@ -273,6 +273,20 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 		fail 'configuration write failure did not restore the SDN hook'
 	grep -qx 'ADGUARD_DNSMASQ_MODE="disabled"' "${CONF_FILE}" ||
 		fail 'configuration write failure did not restore the dnsmasq mode'
+	printf '%s\n' 'original primary hook' >"${ROLLBACK_ROOT}/jffs/scripts/dnsmasq.postconf"
+	printf '%s\n' 'original SDN hook' >"${ROLLBACK_ROOT}/jffs/scripts/dnsmasq-sdn.postconf"
+	printf '%s\n' 'ADGUARD_DNSMASQ_MODE="disabled"' >"${CONF_FILE}"
+	ERROR='Error:'
+	PTXT() { printf '%s\n' "$*" >"${ROLLBACK_ROOT}/restore-error"; }
+	dnsmasq_event_scripts_restore() { return 1; }
+	if add_dnsmasq_event_scripts; then
+		fail 'dnsmasq hook addition hides restoration failure'
+	fi
+	RECOVERY_SNAPSHOT="${BASE_DIR}/.AdGuardHome.dnsmasq-hooks.$$"
+	[ -d "${RECOVERY_SNAPSHOT}" ] || fail 'dnsmasq hook restoration failure discarded its recovery snapshot'
+	grep -q "recovery snapshot retained at ${RECOVERY_SNAPSHOT}" "${ROLLBACK_ROOT}/restore-error" ||
+		fail 'dnsmasq hook restoration failure did not report its recovery snapshot'
+	rm -rf "${RECOVERY_SNAPSHOT}" || fail 'could not clear verified dnsmasq hook recovery snapshot'
 ) || fail 'dnsmasq hook addition rollback checks failed'
 
 (

@@ -728,7 +728,7 @@ adguardhome_run_flock() {
 		return 1
 	fi
 	saved_traps="$(trap)"
-	trap 'adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; IPSet_Lock_Interrupt_Propagate; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
 	trap 'status="$?"; adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit "${status}"' EXIT
 	rm -f "${pid_file}"
 	adguardhome_run_execute "${action}" "${pid_file}" "$$"
@@ -1024,7 +1024,7 @@ dnsmasq_ipset_state_restore() {
 			return 1
 		}
 	fi
-	if [ "${RESTART_REQUIRED}" = "1" ] && { [ "${ADGUARD_WAS_RUNNING}" = "1" ] || [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; }; then
+	if [ "${RESTART_REQUIRED}" = "1" ] && [ "${ADGUARD_WAS_RUNNING}" = "1" ]; then
 		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
 		ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
 		lower_script restart
@@ -1043,21 +1043,30 @@ dnsmasq_publish_staged_config() (
 	IPSET_SNAPSHOT_DIR="$3"
 	ROLLBACK_ACTIVE="0"
 	SNAPSHOT_READY="0"
+	TRANSACTION_SIGNAL_PENDING="0"
 	[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ] && ADGUARD_WAS_RUNNING="1"
 	TRANSACTION_ACTIVE="1"
-	trap '
+	dnsmasq_publish_abort() {
+		if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then
+			TRANSACTION_SIGNAL_PENDING="1"
+			return 0
+		fi
 		trap - HUP INT TERM
 		if [ ! -e "${CONFIG_STAGE}" ]; then
 			CONFIG_PUBLISHED="1"
 		fi
 		if [ "${TRANSACTION_ACTIVE:-0}" = "1" ] && [ "${SNAPSHOT_READY:-0}" = "1" ] && [ "${CONFIG_PUBLISHED:-0}" = "0" ] && [ "${ROLLBACK_ACTIVE:-0}" = "0" ]; then
 			ROLLBACK_ACTIVE="1"
-			dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}" || true
+			if ! dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
+				agh_log error dnsmasq_params "state=signal action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			fi
 			ROLLBACK_ACTIVE="0"
 		fi
 		[ "${CONFIG_PUBLISHED:-0}" = "1" ] || rm -f "${CONFIG_STAGE}"
 		exit 1
-	' HUP INT TERM
+	}
+	IPSET_LOCK_INTERRUPT_CALLBACK="dnsmasq_publish_abort"
+	trap 'dnsmasq_publish_abort' HUP INT TERM
 	if ! dnsmasq_ipset_state_snapshot "${IPSET_SNAPSHOT_DIR}"; then
 		TRANSACTION_ACTIVE="0"
 		rm -f "${CONFIG_STAGE}"
@@ -1071,8 +1080,13 @@ dnsmasq_publish_staged_config() (
 		else
 			agh_log error dnsmasq_params "state=refresh action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 		fi
-		TRANSACTION_ACTIVE="0"
 		ROLLBACK_ACTIVE="0"
+		if [ "${TRANSACTION_SIGNAL_PENDING}" = "1" ]; then
+			TRANSACTION_SIGNAL_PENDING="0"
+			TRANSACTION_ACTIVE="0"
+			dnsmasq_publish_abort
+		fi
+		TRANSACTION_ACTIVE="0"
 		rm -f "${CONFIG_STAGE}"
 		return 1
 	fi
@@ -1083,13 +1097,19 @@ dnsmasq_publish_staged_config() (
 		else
 			agh_log error dnsmasq_params "state=publication action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 		fi
-		TRANSACTION_ACTIVE="0"
 		ROLLBACK_ACTIVE="0"
+		if [ "${TRANSACTION_SIGNAL_PENDING}" = "1" ]; then
+			TRANSACTION_SIGNAL_PENDING="0"
+			TRANSACTION_ACTIVE="0"
+			dnsmasq_publish_abort
+		fi
+		TRANSACTION_ACTIVE="0"
 		rm -f "${CONFIG_STAGE}"
 		return 1
 	fi
 	CONFIG_PUBLISHED="1"
 	TRANSACTION_ACTIVE="0"
+	IPSET_LOCK_INTERRUPT_CALLBACK=""
 	trap - HUP INT TERM
 	rm -rf "${IPSET_SNAPSHOT_DIR}" 2>/dev/null || true
 	return 0
@@ -1209,8 +1229,11 @@ dnsmasq_params() {
 	IPSET_SNAPSHOT_DIR="${WORK_DIR}/.AdGuardHome.dnsmasq-ipset.$$"
 	dnsmasq_publish_staged_config "${CONFIG_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}" || return 1
 	if { ! resolv_conf_uses_rom && [ "${CONFIG_LOCAL:-NO}" = "YES" ]; }; then {
-		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
+		if ! mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; then
+			agh_log warning dnsmasq_params "state=committed action=bind_resolver result=failed source=/rom/etc/resolv.conf target=/tmp/resolv.conf"
+		fi
 	}; fi
+	return 0
 }
 
 # dnsmasq_action_handler applies the requested dnsmasq configuration action, or skips it in LAN mode when dnsmasq is inactive and unmanaged.
@@ -3235,6 +3258,12 @@ IPSet_Lock_Interrupt_Cleanup() {
 	fi
 }
 
+# IPSet_Lock_Interrupt_Propagate invokes an outer transaction's signal cleanup after releasing the IPSET lock.
+IPSet_Lock_Interrupt_Propagate() {
+	[ -n "${IPSET_LOCK_INTERRUPT_CALLBACK:-}" ] || return 0
+	"${IPSET_LOCK_INTERRUPT_CALLBACK}"
+}
+
 IPSet_Start_Restore() {
 	IPSET_START_STOPPED="0"
 	if IPSet_Start_While_Locked; then
@@ -3293,7 +3322,7 @@ IPSet_Lock_Flock() {
 		return 1
 	fi
 	# Restore a stopped service while this lock is still held; only then release it.
-	trap 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Flock_Cleanup; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Flock_Cleanup; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; IPSet_Lock_Interrupt_Propagate; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
 	trap 'STATUS="$?"; IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
 	"$@"
 	STATUS="$?"
@@ -3359,7 +3388,7 @@ IPSet_Lock_Mkdir() {
 	done <"${TRAP_STATE_FILE}"
 	rm -f "${TRAP_STATE_FILE}"
 	# Keep the fallback lock through restoration for the same lifecycle guarantee.
-	trap 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; IPSet_Lock_Interrupt_Propagate; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
 	trap 'STATUS="$?"; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
 	"$@"
 	STATUS="$?"

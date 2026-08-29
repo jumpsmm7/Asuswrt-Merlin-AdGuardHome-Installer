@@ -5089,6 +5089,30 @@ adguard_restart_after_install_abort() {
 	return 1
 }
 
+adguard_recover_after_event_hook_abort() {
+	local MODE_ROLLBACK_STATUS RESTART_RECOVERY_STATUS
+	MODE_ROLLBACK_STATUS=0
+	RESTART_RECOVERY_STATUS=0
+	rollback_pending_mode_migration || MODE_ROLLBACK_STATUS=1
+	# Restore the previously running AdGuardHome service even when mode rollback fails.
+	adguard_restart_after_install_abort "$1" || RESTART_RECOVERY_STATUS=1
+	[ "${MODE_ROLLBACK_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to roll back the pending mode migration."
+	[ "${RESTART_RECOVERY_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore the AdGuardHome service after the installation abort."
+	[ "${MODE_ROLLBACK_STATUS}" -eq 0 ] && [ "${RESTART_RECOVERY_STATUS}" -eq 0 ]
+}
+
+adguard_recover_after_uninstall_hook_abort() {
+	local HOOK_ROLLBACK_STATUS RESTART_RECOVERY_STATUS
+	HOOK_ROLLBACK_STATUS=0
+	RESTART_RECOVERY_STATUS=0
+	all_event_scripts_transaction_rollback || HOOK_ROLLBACK_STATUS=1
+	# Restart the installed AdGuardHome service even when hook restoration fails.
+	agh_start || RESTART_RECOVERY_STATUS=1
+	[ "${HOOK_ROLLBACK_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore installer-managed event scripts after the uninstall abort."
+	[ "${RESTART_RECOVERY_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restart AdGuardHome after the uninstall abort."
+	[ "${HOOK_ROLLBACK_STATUS}" -eq 0 ] && [ "${RESTART_RECOVERY_STATUS}" -eq 0 ]
+}
+
 adguard_install_abort_trap_disable() {
 	trap - HUP INT QUIT ABRT TERM
 	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
@@ -6484,9 +6508,12 @@ add_dnsmasq_event_scripts() {
 		write_conf ADGUARD_DNSMASQ_MODE '"enabled"' || RESTORE_STATUS=1
 	fi
 	if [ "${RESTORE_STATUS}" -ne 0 ]; then
-		dnsmasq_event_scripts_restore "${SNAPSHOT_DIR}" || RESTORE_STATUS=1
-		rm -rf "${SNAPSHOT_DIR}" || RESTORE_STATUS=1
-		return "${RESTORE_STATUS}"
+		if ! dnsmasq_event_scripts_restore "${SNAPSHOT_DIR}"; then
+			PTXT "${ERROR} Unable to restore dnsmasq event scripts; recovery snapshot retained at ${SNAPSHOT_DIR}."
+			return 1
+		fi
+		rm -rf "${SNAPSHOT_DIR}" || return 1
+		return 1
 	fi
 	rm -rf "${SNAPSHOT_DIR}"
 }
@@ -6771,6 +6798,7 @@ inst_AdGuardHome() {
 				MODE_ROLLBACK_STATUS=0
 				RESTART_RECOVERY_STATUS=0
 				rollback_pending_mode_migration || MODE_ROLLBACK_STATUS=1
+				# Restore the previously running AdGuardHome service even when mode rollback fails.
 				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}" || RESTART_RECOVERY_STATUS=1
 				[ "${MODE_ROLLBACK_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to roll back the pending mode migration."
 				[ "${RESTART_RECOVERY_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore the AdGuardHome service after the installation abort."
@@ -6783,9 +6811,7 @@ inst_AdGuardHome() {
 				if ! cleanup_legacy_firewall; then
 					all_event_scripts_transaction_rollback || true
 					PTXT "${ERROR} Unable to clear legacy firewall/IPTABLES state for LAN mode."
-					if rollback_pending_mode_migration; then
-						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-					fi
+					adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 					end_op_message 1 "$1"
 					return 1
 				fi
@@ -6801,6 +6827,7 @@ inst_AdGuardHome() {
 		MODE_ROLLBACK_STATUS=0
 		RESTART_RECOVERY_STATUS=0
 		rollback_pending_mode_migration || MODE_ROLLBACK_STATUS=1
+		# Restore the previously running AdGuardHome service even when mode rollback fails.
 		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}" || RESTART_RECOVERY_STATUS=1
 		[ "${MODE_ROLLBACK_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to roll back the pending mode migration."
 		[ "${RESTART_RECOVERY_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore the AdGuardHome service after the installation abort."
@@ -6815,6 +6842,7 @@ inst_AdGuardHome() {
 				MODE_ROLLBACK_STATUS=0
 				RESTART_RECOVERY_STATUS=0
 				rollback_pending_mode_migration || MODE_ROLLBACK_STATUS=1
+				# Restore the previously running AdGuardHome service even when mode rollback fails.
 				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}" || RESTART_RECOVERY_STATUS=1
 				[ "${MODE_ROLLBACK_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to roll back the pending mode migration."
 				[ "${RESTART_RECOVERY_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore the AdGuardHome service after the installation abort."
@@ -6828,9 +6856,7 @@ inst_AdGuardHome() {
 			if ! install_wan_event_scripts; then
 				all_event_scripts_transaction_rollback || true
 				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
-				if rollback_pending_mode_migration; then
-					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-				fi
+				adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 				end_op_message 1 "$1"
 				return 1
 			fi
@@ -6841,9 +6867,7 @@ inst_AdGuardHome() {
 				if ! remove_dnsmasq_event_scripts; then
 					all_event_scripts_transaction_rollback || true
 					PTXT "${ERROR} Required dnsmasq event scripts could not be removed."
-					if rollback_pending_mode_migration; then
-						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-					fi
+					adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 					end_op_message 1 "$1"
 					return 1
 				fi
@@ -6854,9 +6878,7 @@ inst_AdGuardHome() {
 				if ! add_dnsmasq_event_scripts; then
 					all_event_scripts_transaction_rollback || true
 					PTXT "${ERROR} Required dnsmasq event scripts could not be configured."
-					if rollback_pending_mode_migration; then
-						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-					fi
+					adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 					end_op_message 1 "$1"
 					return 1
 				fi
@@ -6865,9 +6887,7 @@ inst_AdGuardHome() {
 				if ! add_firewall_event_scripts; then
 					all_event_scripts_transaction_rollback || true
 					PTXT "${ERROR} Required firewall event script could not be configured for the active WAN IPTABLES state."
-					if rollback_pending_mode_migration; then
-						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-					fi
+					adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 					end_op_message 1 "$1"
 					return 1
 				fi
@@ -6875,18 +6895,14 @@ inst_AdGuardHome() {
 				if ! remove_firewall_event_scripts; then
 					all_event_scripts_transaction_rollback || true
 					PTXT "${ERROR} Required firewall event script could not be removed for LAN mode."
-					if rollback_pending_mode_migration; then
-						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-					fi
+					adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 					end_op_message 1 "$1"
 					return 1
 				fi
 				if ! write_conf ADGUARD_IPSET '"NO"'; then
 					all_event_scripts_transaction_rollback || true
 					PTXT "${ERROR} IPSET could not be disabled after the qualifying WAN IPTABLES state was lost."
-					if rollback_pending_mode_migration; then
-						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-					fi
+					adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 					end_op_message 1 "$1"
 					return 1
 				fi
@@ -6894,9 +6910,7 @@ inst_AdGuardHome() {
 			if ! add_init_event_scripts || ! add_services_event_scripts; then
 				all_event_scripts_transaction_rollback || true
 				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
-				if rollback_pending_mode_migration; then
-					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-				fi
+				adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 				end_op_message 1 "$1"
 				return 1
 			fi
@@ -6905,9 +6919,7 @@ inst_AdGuardHome() {
 		*)
 			all_event_scripts_transaction_rollback || true
 			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE:-}. Setup was aborted."
-			if rollback_pending_mode_migration; then
-				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-			fi
+			adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 			end_op_message 1 "$1"
 			return 1
 			;;
@@ -8466,16 +8478,14 @@ uninst_all() {
 	fi
 	if ! remove_dnsmasq_event_scripts || ! remove_init_event_scripts ||
 		! remove_services_event_scripts || ! remove_firewall_event_scripts; then
-		all_event_scripts_transaction_rollback || true
 		PTXT "${ERROR} Unable to remove installer-managed event scripts; uninstall was aborted."
-		agh_start || true
+		adguard_recover_after_uninstall_hook_abort
 		return 1
 	fi
 	if ! cleanup_legacy_firewall ||
 		! yaml_nvars_file_action delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf; then
-		all_event_scripts_transaction_rollback || true
 		PTXT "${ERROR} Unable to complete installer-managed event-hook cleanup; uninstall was aborted."
-		agh_start || true
+		adguard_recover_after_uninstall_hook_abort
 		return 1
 	fi
 	all_event_scripts_transaction_commit

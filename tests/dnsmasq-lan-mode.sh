@@ -17,6 +17,7 @@ UMOUNT_CALLS_FILE="${TEST_ROOT}/umount-calls"
 DNSMASQ_CONF_FILE="${TEST_ROOT}/dnsmasq.conf"
 DNSMASQ_SDN_CONF_FILE="${TEST_ROOT}/dnsmasq-1.conf"
 BRIDGE_FALLBACK_CALLS_FILE="${TEST_ROOT}/bridge-fallback-calls"
+MOUNT_CALLS_FILE="${TEST_ROOT}/mount-calls"
 
 # cleanup removes the test sandbox directory and its contents.
 cleanup() {
@@ -111,6 +112,12 @@ umount() {
 	printf '%s\n' "$1" >>"${UMOUNT_CALLS_FILE}"
 }
 
+# mount records resolver bind requests and optionally injects a bind failure.
+mount() {
+	printf '%s\n' "$*" >>"${MOUNT_CALLS_FILE}"
+	[ "${MOUNT_FAIL:-0}" != "1" ]
+}
+
 # dns_handoff_is_active determines whether DNS handoff is active.
 dns_handoff_is_active() {
 	[ "${DNS_HANDOFF_ACTIVE}" = '1' ]
@@ -203,6 +210,12 @@ IPSet_Refresh() {
 # lower_script records successful service reloads required after IPSET snapshot restoration.
 lower_script() { printf '%s\n' "$*" >>"${IPSET_CALLS_FILE}"; }
 
+# IPSet_Lock_Interrupt_Propagate models nested lock cleanup invoking the outer transaction callback.
+IPSet_Lock_Interrupt_Propagate() {
+	[ -n "${IPSET_LOCK_INTERRUPT_CALLBACK:-}" ] || return 0
+	"${IPSET_LOCK_INTERRUPT_CALLBACK}"
+}
+
 # mv fails only the requested live dnsmasq publication and delegates snapshot restoration moves.
 mv() {
 	if [ "${RESTORE_FAIL:-0}" = "1" ]; then
@@ -230,6 +243,7 @@ reset_case() {
 	: >"${LOG_FILE}"
 	: >"${IPSET_CALLS_FILE}"
 	: >"${UMOUNT_CALLS_FILE}"
+	: >"${MOUNT_CALLS_FILE}"
 	: >"${BRIDGE_FALLBACK_CALLS_FILE}"
 	rm -f "${MANAGED_IPSET_FILE}"
 	find "${TEST_ROOT}" -type d -name '.AdGuardHome.dnsmasq-ipset.*' -exec rm -rf {} \; || fail 'could not remove leaked IPSET recovery snapshots'
@@ -253,6 +267,8 @@ reset_case() {
 	IPSET_REFRESH_CHANGE='0'
 	MV_PUBLISH_FAIL='0'
 	RESTORE_FAIL='0'
+	MOUNT_FAIL='0'
+	CONFIG_LOCAL='NO'
 }
 
 # assert_no_ipset_refresh verifies that no IPSET refresh calls were recorded for the test case.
@@ -264,8 +280,8 @@ assert_no_ipset_refresh() {
 wait_for_file() {
 	marker="$1"
 	count=0
-	while [ ! -f "${marker}" ] && [ "${count}" -lt 100 ]; do
-		sleep 0.01
+	while [ ! -f "${marker}" ] && [ "${count}" -lt 10 ]; do
+		sleep 1
 		count="$((count + 1))"
 	done
 	[ -f "${marker}" ]
@@ -584,6 +600,92 @@ dnsmasq_action_handler || fail 'mtlancfg bridge DNS skip path failed'
 	fail 'mtlancfg rc_support unexpectedly invoked the bridge DNS fallback helper'
 ! grep -q '^dhcp-option=br1,6,192\.168\.101\.254$' "${DNSMASQ_CONF_FILE}" ||
 	fail 'mtlancfg rc_support unexpectedly wrote a secondary bridge dhcp-option'
+
+# A failed post-publication resolver bind is reported without changing the
+# successful dnsmasq/IPSET transaction result.
+reset_case
+ADGUARD_INSTALL_MODE='wan'
+DNSMASQ_RUNNING='1'
+CONFIG_LOCAL='YES'
+RESOLV_CONF_USES_ROM='0'
+MOUNT_FAIL='1'
+dnsmasq_action_handler || fail 'committed dnsmasq state was reported as failed after resolver bind failure'
+grep -q 'action=bind_resolver result=failed' "${LOG_FILE}" || fail 'resolver bind failure was not reported'
+grep -q -- '-o bind /rom/etc/resolv.conf /tmp/resolv.conf' "${MOUNT_CALLS_FILE}" || fail 'resolver bind was not attempted'
+
+# Restoration must reload a process that appears after the captured stopped
+# state so it consumes the rolled-back files.
+reset_case
+STOPPED_SNAPSHOT="${TEST_ROOT}/stopped-service-snapshot"
+mkdir -m 700 "${STOPPED_SNAPSHOT}" || fail 'could not create stopped-service snapshot'
+printf '%s\n' 'snapshot ipset' >"${STOPPED_SNAPSHOT}/ipset"
+printf '%s\n' 'snapshot yaml' >"${STOPPED_SNAPSHOT}/yaml"
+printf '%s\n' changed >"${IPSET_FILE}"
+printf '%s\n' changed >"${YAML_FILE}"
+ADGUARD_RUNNING='1'
+dnsmasq_ipset_state_restore "${STOPPED_SNAPSHOT}" 0 || fail 'stopped-service state restoration failed'
+grep -q '^restart$' "${IPSET_CALLS_FILE}" || fail 'stopped-service rollback did not reload a newly appearing process'
+rm -rf "${STOPPED_SNAPSHOT}" || fail 'could not clear stopped-service snapshot'
+
+# A nested IPSET lock signal handler must propagate to the outer dnsmasq
+# transaction so partially refreshed state is restored.
+reset_case
+NESTED_MARKER="${TEST_ROOT}/nested-refresh-active"
+CONFIG_STAGE="${DNSMASQ_CONF_FILE}.signal-nested"
+IPSET_SNAPSHOT_DIR="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.signal-nested"
+printf '%s\n' '# staged config' >"${CONFIG_STAGE}" || fail 'could not create nested signal stage'
+printf '%s\n' 'original ipset' >"${IPSET_FILE}" || fail 'could not create nested signal IPSET fixture'
+(
+	IPSet_Refresh() {
+		printf '%s\n' changed >"${IPSET_FILE}"
+		printf '%s\n' changed >"${YAML_FILE}"
+		trap 'IPSet_Lock_Interrupt_Propagate; exit 1' TERM
+		read -r transaction_pid _ </proc/self/stat
+		printf '%s\n' "${transaction_pid}" >"${NESTED_MARKER}"
+		sleep 5
+	}
+	dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}"
+) &
+transaction_pid="$!"
+wait_for_file "${NESTED_MARKER}" || fail 'nested signal fixture did not enter IPSET refresh'
+kill -TERM "$(cat "${NESTED_MARKER}")" || fail 'could not interrupt nested IPSET refresh'
+if wait "${transaction_pid}"; then
+	fail 'nested IPSET refresh interruption unexpectedly succeeded'
+fi
+grep -qx 'original ipset' "${IPSET_FILE}" || fail 'nested lock signal did not restore IPSET state'
+grep -qx 'original yaml' "${YAML_FILE}" || fail 'nested lock signal did not restore YAML state'
+[ ! -e "${CONFIG_STAGE}" ] || fail 'nested lock signal retained staged dnsmasq state'
+rm -rf "${IPSET_SNAPSHOT_DIR}" || fail 'could not clear nested signal snapshot'
+
+# A signal rollback failure must retain and report its recovery snapshot.
+reset_case
+SIGNAL_FAIL_MARKER="${TEST_ROOT}/signal-restore-fail-active"
+CONFIG_STAGE="${DNSMASQ_CONF_FILE}.signal-restore-fail"
+IPSET_SNAPSHOT_DIR="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.signal-restore-fail"
+RESTORE_FAIL='1'
+printf '%s\n' '# staged config' >"${CONFIG_STAGE}" || fail 'could not create failed signal restoration stage'
+printf '%s\n' 'original ipset' >"${IPSET_FILE}" || fail 'could not create failed signal restoration IPSET fixture'
+(
+	IPSet_Refresh() {
+		printf '%s\n' changed >"${IPSET_FILE}"
+		printf '%s\n' changed >"${YAML_FILE}"
+		read -r transaction_pid _ </proc/self/stat
+		printf '%s\n' "${transaction_pid}" >"${SIGNAL_FAIL_MARKER}"
+		sleep 5
+	}
+	dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}"
+) &
+transaction_pid="$!"
+wait_for_file "${SIGNAL_FAIL_MARKER}" || fail 'failed signal restoration fixture did not enter refresh'
+kill -TERM "$(cat "${SIGNAL_FAIL_MARKER}")" || fail 'could not interrupt failed signal restoration fixture'
+if wait "${transaction_pid}"; then
+	fail 'failed signal restoration unexpectedly succeeded'
+fi
+[ -d "${IPSET_SNAPSHOT_DIR}" ] || fail 'failed signal restoration discarded its recovery snapshot'
+grep -q "state=signal action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}" "${LOG_FILE}" ||
+	fail 'failed signal restoration did not report its retained snapshot'
+[ ! -e "${CONFIG_STAGE}" ] || fail 'failed signal restoration retained staged dnsmasq state'
+rm -rf "${IPSET_SNAPSHOT_DIR}" || fail 'could not clear failed signal restoration snapshot'
 
 # A signal delivered during rollback must not re-enter IPSET restoration.
 reset_case
