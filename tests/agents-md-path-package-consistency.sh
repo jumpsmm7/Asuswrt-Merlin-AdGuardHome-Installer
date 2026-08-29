@@ -213,7 +213,7 @@ require_text "${CODEX_PROMPT}" \
 	'aggregate hook/config restoration after any' \
 	'Codex aggregate event-hook snapshot scope'
 require_text "${CODEX_PROMPT}" \
-	'Require every staged edit to propagate failure' \
+	'Require every staged edit and append to propagate failure' \
 	'Codex staged dnsmasq edit failure policy'
 require_text "${CODEX_PROMPT}" \
 	'contained only in comments remain ineligible' \

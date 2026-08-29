@@ -63,8 +63,10 @@ sed -n '/^adguardhome_start_signal_abort() {$/,/^}$/p' "${RC_FUNCTION}" | grep -
 	fail 'rc.func does not block repeated signals during startup recovery'
 grep -q 'DNS_HANDOFF_DIR="/tmp/AdGuardHome.dns-handoff"' "${S99_PATH}" ||
 	fail 'service script does not use the private dnsmasq handoff directory'
-grep -q 'dns_handoff_is_active || return 0' "${MANAGER_PATH}" ||
-	fail 'dnsmasq postconf cannot run before AdGuardHome starts'
+grep -q 'adguard_dnsmasq_running || return 0' "${MANAGER_PATH}" ||
+	fail 'dnsmasq postconf does not require a running dnsmasq process'
+grep -q '\[ -f "${CONFIG_FILE}" \] || return 0' "${MANAGER_PATH}" ||
+	fail 'dnsmasq postconf does not require an existing dnsmasq configuration'
 if grep -q '${20' "${S99_PATH}"; then
 	fail 'service script uses a multi-digit positional parameter unsupported by older BusyBox ash'
 fi

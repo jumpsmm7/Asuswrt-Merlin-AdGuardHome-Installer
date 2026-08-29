@@ -33,7 +33,7 @@ Review scope:
   negated output matches, input-interface-scoped rules, and matching tokens
   contained only in comments remain ineligible.
 - Treat runtime dnsmasq publication and installer WAN/LAN/uninstall event-hook
-  orchestration as transactions. Require every staged edit to propagate failure,
+  orchestration as transactions. Require every staged edit and append to propagate failure,
   compensate IPSET from the unchanged live configuration when final publication
   fails, and require aggregate hook/config restoration after any
   later installer helper failure, even without a pending mode migration. Retain
