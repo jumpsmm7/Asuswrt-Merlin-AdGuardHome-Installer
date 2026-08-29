@@ -206,8 +206,14 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 		fail 'dnsmasq hook cleanup did not restore the SDN hook after a removal failure'
 	grep -qx 'ADGUARD_DNSMASQ_MODE="enabled"' "${CONF_FILE}" ||
 		fail 'dnsmasq hook cleanup changed the mode after a removal failure'
-	del_jffs_script() { return 0; }
-	write_conf() { return 1; }
+	del_jffs_script() {
+		printf '%s\n' 'changed hook' >"$1"
+		return 0
+	}
+	write_conf() {
+		printf '%s\n' 'ADGUARD_DNSMASQ_MODE="disabled"' >"${CONF_FILE}"
+		return 1
+	}
 	if remove_dnsmasq_event_scripts; then
 		fail 'dnsmasq hook cleanup hides disabled-mode configuration write failures'
 	fi

@@ -6,14 +6,18 @@ set -u
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
 S99_PATH="${2:-S99AdGuardHome}"
 RC_FUNC_PATH="${3:-rc.func.AdGuardHome}"
-FUNCTION_FILE="${TMPDIR:-/tmp}/ipset-lan-functions.$$"
-CALLS_FILE="${TMPDIR:-/tmp}/ipset-lan-calls.$$"
-CONF_FILE="${TMPDIR:-/tmp}/ipset-lan-config.$$"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/ipset-lan-mode.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive test directory' >&2
+	exit 1
+}
+FUNCTION_FILE="${TEST_ROOT}/functions"
+CALLS_FILE="${TEST_ROOT}/calls"
+CONF_FILE="${TEST_ROOT}/config"
 IPSET_STATE_PATTERN='ADGUARD_IPSET|IPSet_[[:alnum:]_]+|(^|[[:space:];|&()])([^[:space:];|&()]*/)?ipset([[:space:]]|$)'
 
 # cleanup removes temporary test files.
 cleanup() {
-	rm -f "${FUNCTION_FILE}" "${CALLS_FILE}" "${CONF_FILE}"
+	rm -rf "${TEST_ROOT}"
 }
 
 # fail prints a failure message to stderr and exits with status 1.

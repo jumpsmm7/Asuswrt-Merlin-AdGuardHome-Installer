@@ -60,6 +60,11 @@ iptables() {
 nvram() {
 	case "$1:$2" in
 		get:wan0_ifname) printf '%s\n' 'eth0' ;;
+		get:wan0_gw_ifname) printf '%s\n' 'eth1' ;;
+		get:wan0_pppoe_ifname) printf '%s\n' 'ppp0' ;;
+		get:wan1_ifname) printf '%s\n' 'eth2' ;;
+		get:wan1_gw_ifname) printf '%s\n' 'eth3' ;;
+		get:wan1_pppoe_ifname) printf '%s\n' 'ppp1' ;;
 	esac
 }
 
@@ -99,6 +104,18 @@ WAN_NAT_RULE='-A POSTROUTING --source 192.168.50.0/24 -o eth0 -j SNAT --to-sourc
 adguard_ipset_allowed || fail 'LAN install mode with long-form source-scoped WAN NAT state should allow IPSET'
 WAN_NAT_RULE='-A POSTROUTING -i br1 -o eth0 -j MASQUERADE'
 ! adguard_ipset_allowed || fail 'LAN install mode with guest-network input-interface NAT state should not allow IPSET'
+WAN_NAT_RULE='-A POSTROUTING -m comment --comment "-o eth0 -j MASQUERADE" -o br0 -j ACCEPT'
+! adguard_wan_iptables_state_active || fail 'WAN interface text inside a comment qualified as WAN NAT state'
+WAN_NAT_RULE='-A POSTROUTING -o eth1 -j MASQUERADE'
+adguard_wan_iptables_state_active || fail 'wan0 gateway interface did not qualify as WAN NAT state'
+WAN_NAT_RULE='-A POSTROUTING -o ppp0 -j MASQUERADE'
+adguard_wan_iptables_state_active || fail 'wan0 PPPoE interface did not qualify as WAN NAT state'
+WAN_NAT_RULE='-A POSTROUTING -o eth2 -j MASQUERADE'
+adguard_wan_iptables_state_active || fail 'wan1 interface did not qualify as WAN NAT state'
+WAN_NAT_RULE='-A POSTROUTING -o eth3 -j SNAT --to-source 192.0.2.1'
+adguard_wan_iptables_state_active || fail 'wan1 gateway interface did not qualify as WAN NAT state'
+WAN_NAT_RULE='-A POSTROUTING -o ppp1 -j MASQUERADE'
+adguard_wan_iptables_state_active || fail 'wan1 PPPoE interface did not qualify as WAN NAT state'
 WAN_NAT_RULE=''
 
 CONFIG_INSTALL_MODE='ap'

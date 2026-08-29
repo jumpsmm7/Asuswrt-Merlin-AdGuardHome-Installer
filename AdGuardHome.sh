@@ -996,8 +996,9 @@ dnsmasq_ipset_state_snapshot() {
 
 # dnsmasq_ipset_state_restore restores a pre-refresh snapshot and reloads AdGuardHome when it is running.
 dnsmasq_ipset_state_restore() {
-	local RESTART_REQUIRED RESTORE_STAGE SNAPSHOT_DIR
+	local ADGUARD_WAS_RUNNING DNSMASQ_RESTART_SKIP RESTART_REQUIRED RESTORE_STAGE SNAPSHOT_DIR
 	SNAPSHOT_DIR="$1"
+	ADGUARD_WAS_RUNNING="${2:-0}"
 	RESTART_REQUIRED="0"
 	if [ -f "${SNAPSHOT_DIR}/ipset.absent" ]; then
 		[ ! -e "${IPSET_FILE}" ] || RESTART_REQUIRED="1"
@@ -1023,10 +1024,61 @@ dnsmasq_ipset_state_restore() {
 			return 1
 		}
 	fi
-	if [ "${RESTART_REQUIRED}" = "1" ] && [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
-		lower_script restart || return 1
+	if [ "${RESTART_REQUIRED}" = "1" ] && { [ "${ADGUARD_WAS_RUNNING}" = "1" ] || [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; }; then
+		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
+		lower_script restart
+		RESTART_REQUIRED="$?"
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART="${DNSMASQ_RESTART_SKIP}"
+		[ "${RESTART_REQUIRED}" -eq 0 ] || return 1
 	fi
 }
+
+# dnsmasq_publish_staged_config refreshes IPSET state and atomically publishes a staged dnsmasq file.
+dnsmasq_publish_staged_config() (
+	ADGUARD_WAS_RUNNING="0"
+	CONFIG_FILE="$1"
+	CONFIG_STAGE="$2"
+	IPSET_SNAPSHOT_DIR="$3"
+	[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ] && ADGUARD_WAS_RUNNING="1"
+	TRANSACTION_ACTIVE="1"
+	trap '
+		if [ "${TRANSACTION_ACTIVE:-0}" = "1" ]; then
+			dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}" || true
+			rm -f "${CONFIG_STAGE}"
+		fi
+		exit 1
+	' HUP INT TERM
+	if ! dnsmasq_ipset_state_snapshot "${IPSET_SNAPSHOT_DIR}"; then
+		TRANSACTION_ACTIVE="0"
+		rm -f "${CONFIG_STAGE}"
+		return 1
+	fi
+	if ! IPSet_Refresh "${CONFIG_STAGE}"; then
+		TRANSACTION_ACTIVE="0"
+		if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
+			rm -rf "${IPSET_SNAPSHOT_DIR}"
+		else
+			agh_log error dnsmasq_params "state=refresh action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+		fi
+		rm -f "${CONFIG_STAGE}"
+		return 1
+	fi
+	if ! mv "${CONFIG_STAGE}" "${CONFIG_FILE}"; then
+		TRANSACTION_ACTIVE="0"
+		if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
+			rm -rf "${IPSET_SNAPSHOT_DIR}"
+		else
+			agh_log error dnsmasq_params "state=publication action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+		fi
+		rm -f "${CONFIG_STAGE}"
+		return 1
+	fi
+	TRANSACTION_ACTIVE="0"
+	trap - HUP INT TERM
+	rm -rf "${IPSET_SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
+)
 
 # dnsmasq_params configures dnsmasq for the LAN or specified SDN interface, including DNS routing, reverse zones, and optional IPSet refresh.
 dnsmasq_params() {
@@ -1076,6 +1128,9 @@ dnsmasq_params() {
 	CONFIG_FILE="${CONFIG}"
 	adguard_dnsmasq_running || return 0
 	[ -f "${CONFIG_FILE}" ] || return 0
+	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -eq 0 ] && ! dns_handoff_is_active; then
+		return 0
+	fi
 	CONFIG_STAGE="${CONFIG_FILE}.adguard.$$"
 	if ! cp -p "${CONFIG_FILE}" "${CONFIG_STAGE}"; then
 		rm -f "${CONFIG_STAGE}"
@@ -1135,34 +1190,12 @@ dnsmasq_params() {
 			rm -f "${BRIDGE_OPTIONS_STAGE}"
 			;;
 	esac
+	IPSET_REFRESH_FROM_DNSMASQ="1"
+	IPSET_SNAPSHOT_DIR="${WORK_DIR}/.AdGuardHome.dnsmasq-ipset.$$"
+	dnsmasq_publish_staged_config "${CONFIG_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}" || return 1
 	if { ! resolv_conf_uses_rom && [ "${CONFIG_LOCAL:-NO}" = "YES" ]; }; then {
 		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
 	}; fi
-	IPSET_REFRESH_FROM_DNSMASQ="1"
-	IPSET_SNAPSHOT_DIR="${WORK_DIR}/.AdGuardHome.dnsmasq-ipset.$$"
-	if ! dnsmasq_ipset_state_snapshot "${IPSET_SNAPSHOT_DIR}"; then
-		rm -f "${CONFIG_STAGE}"
-		return 1
-	fi
-	if ! IPSet_Refresh "${CONFIG}"; then
-		if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}"; then
-			rm -rf "${IPSET_SNAPSHOT_DIR}"
-		else
-			agh_log error dnsmasq_params "state=refresh action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
-		fi
-		rm -f "${CONFIG_STAGE}"
-		return 1
-	fi
-	if ! mv "${CONFIG_STAGE}" "${CONFIG_FILE}"; then
-		if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}"; then
-			rm -rf "${IPSET_SNAPSHOT_DIR}"
-		else
-			agh_log error dnsmasq_params "state=publication action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
-		fi
-		rm -f "${CONFIG_STAGE}"
-		return 1
-	fi
-	rm -rf "${IPSET_SNAPSHOT_DIR}" 2>/dev/null || true
 }
 
 # dnsmasq_action_handler applies the requested dnsmasq configuration action, or skips it in LAN mode when dnsmasq is inactive and unmanaged.
