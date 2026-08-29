@@ -260,6 +260,17 @@ assert_no_ipset_refresh() {
 	[ ! -s "${IPSET_CALLS_FILE}" ] || fail "$1: IPSET refresh should not run"
 }
 
+# wait_for_file waits briefly for an asynchronous interruption fixture marker.
+wait_for_file() {
+	marker="$1"
+	count=0
+	while [ ! -f "${marker}" ] && [ "${count}" -lt 100 ]; do
+		sleep 0.01
+		count="$((count + 1))"
+	done
+	[ -f "${marker}" ]
+}
+
 # assert_dnsmasq_postconf_written verifies that dnsmasq handoff settings were written to the specified configuration file.
 assert_dnsmasq_postconf_written() {
 	config_file="$1"
@@ -573,5 +584,61 @@ dnsmasq_action_handler || fail 'mtlancfg bridge DNS skip path failed'
 	fail 'mtlancfg rc_support unexpectedly invoked the bridge DNS fallback helper'
 ! grep -q '^dhcp-option=br1,6,192\.168\.101\.254$' "${DNSMASQ_CONF_FILE}" ||
 	fail 'mtlancfg rc_support unexpectedly wrote a secondary bridge dhcp-option'
+
+# A signal delivered during rollback must not re-enter IPSET restoration.
+reset_case
+RESTORE_MARKER="${TEST_ROOT}/restore-active"
+RESTORE_CALLS="${TEST_ROOT}/restore-calls"
+CONFIG_STAGE="${DNSMASQ_CONF_FILE}.signal-restore"
+IPSET_SNAPSHOT_DIR="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.signal-restore"
+printf '%s\n' '# staged config' >"${CONFIG_STAGE}" || fail 'could not create signal restoration stage'
+(
+	IPSet_Refresh() { return 1; }
+	dnsmasq_ipset_state_restore() {
+		printf '%s\n' restore >>"${RESTORE_CALLS}"
+		read -r transaction_pid _ < /proc/self/stat
+		printf '%s\n' "${transaction_pid}" >"${RESTORE_MARKER}"
+		sleep 5
+	}
+	dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}"
+) &
+transaction_pid="$!"
+wait_for_file "${RESTORE_MARKER}" || fail 'signal restoration fixture did not enter rollback'
+kill -TERM "$(cat "${RESTORE_MARKER}")" || fail 'could not interrupt active IPSET restoration'
+if wait "${transaction_pid}"; then
+	fail 'signal during IPSET restoration unexpectedly succeeded'
+fi
+[ "$(wc -l <"${RESTORE_CALLS}")" -eq 1 ] || fail 'signal cleanup re-entered active IPSET restoration'
+[ ! -e "${CONFIG_STAGE}" ] || fail 'signal during IPSET restoration retained the staged configuration'
+rm -rf "${IPSET_SNAPSHOT_DIR}" || fail 'could not clear signal restoration snapshot'
+
+# A signal after mv publishes the stage must not restore IPSET over published state.
+reset_case
+PUBLISH_MARKER="${TEST_ROOT}/publish-complete"
+RESTORE_CALLS="${TEST_ROOT}/publish-restore-calls"
+CONFIG_STAGE="${DNSMASQ_CONF_FILE}.signal-publish"
+IPSET_SNAPSHOT_DIR="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.signal-publish"
+printf '%s\n' '# published config' >"${CONFIG_STAGE}" || fail 'could not create signal publication stage'
+(
+	dnsmasq_ipset_state_restore() { printf '%s\n' restore >>"${RESTORE_CALLS}"; }
+	mv() {
+		command mv "$@" || return 1
+		if [ "$2" = "${DNSMASQ_CONF_FILE}" ]; then
+			read -r transaction_pid _ < /proc/self/stat
+			printf '%s\n' "${transaction_pid}" >"${PUBLISH_MARKER}"
+			sleep 5
+		fi
+	}
+	dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}"
+) &
+transaction_pid="$!"
+wait_for_file "${PUBLISH_MARKER}" || fail 'signal publication fixture did not publish the stage'
+kill -TERM "$(cat "${PUBLISH_MARKER}")" || fail 'could not interrupt after dnsmasq publication'
+if wait "${transaction_pid}"; then
+	fail 'signal after dnsmasq publication unexpectedly succeeded'
+fi
+grep -qx '# published config' "${DNSMASQ_CONF_FILE}" || fail 'signal cleanup replaced the published dnsmasq configuration'
+[ ! -e "${RESTORE_CALLS}" ] || fail 'signal cleanup restored IPSET after dnsmasq publication'
+rm -rf "${IPSET_SNAPSHOT_DIR}" || fail 'could not clear signal publication snapshot'
 
 printf '%s\n' 'dnsmasq LAN-mode tests passed.'

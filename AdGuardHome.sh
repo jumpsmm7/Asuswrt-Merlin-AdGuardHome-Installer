@@ -1037,16 +1037,25 @@ dnsmasq_ipset_state_restore() {
 # dnsmasq_publish_staged_config refreshes IPSET state and atomically publishes a staged dnsmasq file.
 dnsmasq_publish_staged_config() (
 	ADGUARD_WAS_RUNNING="0"
+	CONFIG_PUBLISHED="0"
 	CONFIG_FILE="$1"
 	CONFIG_STAGE="$2"
 	IPSET_SNAPSHOT_DIR="$3"
+	ROLLBACK_ACTIVE="0"
+	SNAPSHOT_READY="0"
 	[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ] && ADGUARD_WAS_RUNNING="1"
 	TRANSACTION_ACTIVE="1"
 	trap '
-		if [ "${TRANSACTION_ACTIVE:-0}" = "1" ]; then
-			dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}" || true
-			rm -f "${CONFIG_STAGE}"
+		trap - HUP INT TERM
+		if [ ! -e "${CONFIG_STAGE}" ]; then
+			CONFIG_PUBLISHED="1"
 		fi
+		if [ "${TRANSACTION_ACTIVE:-0}" = "1" ] && [ "${SNAPSHOT_READY:-0}" = "1" ] && [ "${CONFIG_PUBLISHED:-0}" = "0" ] && [ "${ROLLBACK_ACTIVE:-0}" = "0" ]; then
+			ROLLBACK_ACTIVE="1"
+			dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}" || true
+			ROLLBACK_ACTIVE="0"
+		fi
+		[ "${CONFIG_PUBLISHED:-0}" = "1" ] || rm -f "${CONFIG_STAGE}"
 		exit 1
 	' HUP INT TERM
 	if ! dnsmasq_ipset_state_snapshot "${IPSET_SNAPSHOT_DIR}"; then
@@ -1054,26 +1063,32 @@ dnsmasq_publish_staged_config() (
 		rm -f "${CONFIG_STAGE}"
 		return 1
 	fi
+	SNAPSHOT_READY="1"
 	if ! IPSet_Refresh "${CONFIG_STAGE}"; then
-		TRANSACTION_ACTIVE="0"
+		ROLLBACK_ACTIVE="1"
 		if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
 			rm -rf "${IPSET_SNAPSHOT_DIR}"
 		else
 			agh_log error dnsmasq_params "state=refresh action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 		fi
+		TRANSACTION_ACTIVE="0"
+		ROLLBACK_ACTIVE="0"
 		rm -f "${CONFIG_STAGE}"
 		return 1
 	fi
 	if ! mv "${CONFIG_STAGE}" "${CONFIG_FILE}"; then
-		TRANSACTION_ACTIVE="0"
+		ROLLBACK_ACTIVE="1"
 		if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
 			rm -rf "${IPSET_SNAPSHOT_DIR}"
 		else
 			agh_log error dnsmasq_params "state=publication action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 		fi
+		TRANSACTION_ACTIVE="0"
+		ROLLBACK_ACTIVE="0"
 		rm -f "${CONFIG_STAGE}"
 		return 1
 	fi
+	CONFIG_PUBLISHED="1"
 	TRANSACTION_ACTIVE="0"
 	trap - HUP INT TERM
 	rm -rf "${IPSET_SNAPSHOT_DIR}" 2>/dev/null || true
