@@ -57,6 +57,8 @@ WAN_NAT_RULE='-A POSTROUTING -o eth0 -j MASQUERADE'
 check_case 0
 WAN_NAT_RULE='-A POSTROUTING -s 192.168.50.0/24 -o ppp1 -j SNAT --to-source 192.0.2.1'
 check_case 0
+WAN_NAT_RULE='-A POSTROUTING --source 192.168.50.0/24 -o ppp1 -j SNAT --to-source 192.0.2.1'
+check_case 0
 WAN_NAT_RULE='-A POSTROUTING ! -o eth0 -j MASQUERADE'
 check_case 1
 WAN_NAT_RULE='-A POSTROUTING -i br1 -o eth0 -j MASQUERADE'

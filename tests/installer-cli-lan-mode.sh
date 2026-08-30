@@ -125,9 +125,7 @@ done
 WAN_NAT_ACTIVE=1
 for unsupported_mode in ap bridge; do
 	ADGUARD_INSTALL_MODE="${unsupported_mode}"
-	if adguard_ipset_allowed; then
-		fail "${unsupported_mode} mode bypassed the installer's supported-mode boundary"
-	fi
+	adguard_ipset_allowed || fail "${unsupported_mode} mode rejected qualifying WAN NAT state"
 done
 
 # PTXT appends the provided text followed by a newline to the log file.

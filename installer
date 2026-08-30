@@ -1940,7 +1940,7 @@ conf_has_key() {
 adguard_ipset_allowed() {
 	case "${ADGUARD_INSTALL_MODE:-$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)}" in
 		wan) return 0 ;;
-		lan)
+		lan | ap | bridge)
 			wan_iptables_state_active 2>/dev/null
 			return $?
 			;;
