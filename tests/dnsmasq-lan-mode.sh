@@ -714,7 +714,7 @@ IPSET_SNAPSHOT_DIR="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.signal-restore"
 printf '%s\n' '# staged config' >"${CONFIG_STAGE}" || fail 'could not create signal restoration stage'
 (
 	# IPSet_Refresh refreshes IPSET state and returns a status indicating whether the operation succeeded.
-IPSet_Refresh() { return 1; }
+	IPSet_Refresh() { return 1; }
 	# dnsmasq_ipset_state_restore records an IPSET state restoration request and waits for the restoration release signal.
 	dnsmasq_ipset_state_restore() {
 		printf '%s\n' restore >>"${RESTORE_CALLS}"
@@ -745,7 +745,7 @@ IPSET_SNAPSHOT_DIR="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.signal-publish"
 printf '%s\n' '# published config' >"${CONFIG_STAGE}" || fail 'could not create signal publication stage'
 (
 	# dnsmasq_ipset_state_restore records an IPSET state restoration request.
-dnsmasq_ipset_state_restore() { printf '%s\n' restore >>"${RESTORE_CALLS}"; }
+	dnsmasq_ipset_state_restore() { printf '%s\n' restore >>"${RESTORE_CALLS}"; }
 	# mv moves files and pauses publication of the dnsmasq configuration until the release marker is available.
 	mv() {
 		command mv "$@" || return 1
