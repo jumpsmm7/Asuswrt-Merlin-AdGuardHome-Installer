@@ -113,10 +113,8 @@ wan_iptables_state_active() {
 }
 
 WAN_NAT_ACTIVE=1
-for supported_mode in lan; do
-	ADGUARD_INSTALL_MODE="${supported_mode}"
-	adguard_ipset_allowed || fail "${supported_mode} mode rejected qualifying WAN NAT state"
-done
+ADGUARD_INSTALL_MODE="lan"
+adguard_ipset_allowed || fail 'lan mode rejected qualifying WAN NAT state'
 WAN_NAT_ACTIVE=0
 for unsupported_topology in lan ap bridge; do
 	ADGUARD_INSTALL_MODE="${unsupported_topology}"
