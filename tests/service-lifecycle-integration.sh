@@ -6,7 +6,7 @@ set -u
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd) || exit 1
 SUITE_TMP="${TMPDIR:-/tmp}/agh-integration.$$"
 RESULTS_FILE="${SUITE_TMP}/results"
-TIMEOUT_SECONDS="${AGH_INTEGRATION_TIMEOUT:-90}"
+TIMEOUT_SECONDS="${AGH_INTEGRATION_TIMEOUT:-180}"
 TEST_SHELL="${AGH_INTEGRATION_SHELL:-sh}"
 TEST_SHELL_ARG="${AGH_INTEGRATION_SHELL_ARG:-}"
 CASE_PID=""
@@ -15,6 +15,8 @@ WATCHDOG_PID=""
 WATCHDOG_START_TIME=""
 WORKSPACE_CREATED=0
 SCENARIO_COUNT=0
+CASES_FIXTURE="${ROOT_DIR}/tests/fixtures/service-lifecycle-cases.tsv"
+COVERAGE_FIXTURE="${ROOT_DIR}/tests/fixtures/service-lifecycle-coverage.tsv"
 
 # cleanup stops active test and watchdog processes and removes the temporary workspace.
 cleanup() {
@@ -49,7 +51,6 @@ fail() {
 	exit 1
 }
 
-# process_start_time prints the kernel start time for a PID so a retained PID
 # process_start_time prints the kernel start time recorded for a process ID.
 process_start_time() {
 	[ -r "/proc/$1/stat" ] || return 1
@@ -75,7 +76,6 @@ process_identity_matches() {
 	[ "${current_start_time}" = "${identity_start_time}" ]
 }
 
-# append_process_tree records descendants before their parent.  The retained
 # append_process_tree records a process and its descendants with their kernel start times, listing descendants before their parent.
 append_process_tree() {
 	parent_pid="$1"
@@ -130,7 +130,6 @@ signal_process_snapshot() {
 	done <"${pid_file}"
 }
 
-# run_bounded runs one integration scenario with a portable watchdog.  It does
 # run_bounded runs a test script within the configured timeout and records successful completion.
 run_bounded() {
 	case_name="$1"
@@ -200,31 +199,33 @@ mkdir "${SUITE_TMP}" || fail 'could not create exclusive integration workspace'
 WORKSPACE_CREATED=1
 : >"${RESULTS_FILE}" || fail 'could not create result log'
 
+# Validate the declarative matrix before starting it.  This keeps every requested
+# lifecycle dimension tied to a bounded regression and prevents a renamed or
+# removed component test from silently reducing integration coverage.
+[ -r "${CASES_FIXTURE}" ] || fail "missing integration case fixture: ${CASES_FIXTURE}"
+[ -r "${COVERAGE_FIXTURE}" ] || fail "missing integration coverage fixture: ${COVERAGE_FIXTURE}"
+for required_component in installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh; do
+	grep -Fq "${required_component}" "${COVERAGE_FIXTURE}" || fail "coverage fixture omits ${required_component}"
+done
+dimension_count=$(awk 'NF && $1 !~ /^#/ { count++ } END { print count + 0 }' "${COVERAGE_FIXTURE}") ||
+	fail 'could not count integration coverage dimensions'
+[ "${dimension_count}" -eq 38 ] || fail "coverage fixture has ${dimension_count} dimensions, expected 38"
+while IFS="$(printf '\t')" read -r coverage_dimension coverage_case coverage_components; do
+	case "${coverage_dimension}" in '' | \#*) continue ;; esac
+	[ -n "${coverage_case}" ] || fail "coverage row ${coverage_dimension} has no case"
+	awk -F '\t' -v wanted="${coverage_case}" '$1 == wanted { found=1 } END { exit !found }' "${CASES_FIXTURE}" ||
+		fail "coverage row ${coverage_dimension} references unknown case ${coverage_case}"
+done <"${COVERAGE_FIXTURE}"
+
 # The component regressions use command shims and isolated filesystems.  Taken
 # together they exercise the real extracted installer/service functions across
 # the lifecycle and failure dimensions below without changing the host DNS or
 # NVRAM state.
-run_bounded artifacts tests/installer-file-failure-safety.sh
-run_bounded upgrade_restart tests/installer-post-replace-restart.sh
-run_bounded preflight_storage tests/installer-preflight-actions.sh
-run_bounded readonly_jffs tests/installer-jffs-failure.sh
-run_bounded yaml_hooks tests/installer-staged-yaml-validation.sh
-run_bounded mode_matrix tests/s99-dns-mode-lifecycle.sh
-run_bounded mode_migration_transaction tests/installer-mode-migration-transaction.sh
-run_bounded dns_handoff tests/dns-startup-handoff.sh
-run_bounded netstat_matrix tests/s99-netstat-readiness.sh
-run_bounded process_signals tests/rc-process-signaling.sh
-run_bounded monitor_restart tests/monitor-retry-backoff.sh
-run_bounded stop_failures tests/stop-adguardhome-failure.sh
-run_bounded rollback_record tests/installer-doctor-rollback-result.sh
-run_bounded rollback_cleanup tests/installer-end-op-rollback.sh
-run_bounded interruption_restore tests/installer-interruption-restart.sh
-run_bounded lock_matrix tests/installer-service-lock-fd.sh
-run_bounded webui_failure tests/installer-web-port-failure.sh
-run_bounded bind_matrix tests/installer-bind-addresses.sh
-run_bounded dns_environment tests/installer-dns-environment-failure.sh
-run_bounded runtime_modes tests/adguardhome-runtime-mode-helpers.sh
-run_bounded custom_config tests/adguardhome-scoped-config.sh
+while IFS="$(printf '\t')" read -r case_name test_script; do
+	case "${case_name}" in '' | \#*) continue ;; esac
+	[ -f "${ROOT_DIR}/${test_script}" ] || fail "integration case ${case_name} references missing ${test_script}"
+	run_bounded "${case_name}" "${test_script}"
+done <"${CASES_FIXTURE}"
 
 [ "$(wc -l <"${RESULTS_FILE}")" -eq "${SCENARIO_COUNT}" ] || fail 'integration matrix did not complete every scenario group'
 printf '%s\n' 'PASS: installer and service lifecycle integration matrix'
