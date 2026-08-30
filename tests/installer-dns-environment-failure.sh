@@ -35,6 +35,7 @@ sed -n '/^check_jffs_enabled() {$/,/^check_version() {$/p' "${INSTALLER_PATH}" >
 sed -e '$d' -e 's|/bin/nvram|nvram|g' "${JFFS_FUNCTIONS_FILE}" >>"${FUNCTIONS_FILE}" || fail 'could not prepare JFFS helper'
 sed -n '/^on_installer_exit() {$/,/^python_bcrypt_available() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer exit handler'
 sed -n '/^end_op_message() {$/,/^menu() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer restart helper'
+sed -n '/^uninst_all() {$/,/^}$/p' "${INSTALLER_PATH}" >>"${FUNCTIONS_FILE}" || fail 'could not extract uninstall helper'
 SETUP_RESTORE_FUNCTION="$(/bin/sed -n '/^setup_restore_nvram_journal() {$/,/^}$/p' "${INSTALLER_PATH}")" || fail 'could not extract setup journal restore helper'
 [ -n "${SETUP_RESTORE_FUNCTION}" ] || fail 'setup journal restore helper was not found'
 printf '%s\n' "${SETUP_RESTORE_FUNCTION}" |
@@ -362,6 +363,65 @@ nvram_transaction_recover_pending || fail 'startup recovery did not process the 
 [ "$(nvram get lan_domain)" = '' ] || fail 'startup recovery did not restore the pending LAN domain transaction'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'startup recovery retained the restored LAN domain snapshot'
 [ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'startup recovery retained the NVRAM transaction lock'
+
+reset_case
+(
+	TARG_DIR="${TEST_ROOT}/uninstall-target"
+	ADDON_DIR="${TEST_ROOT}/uninstall-addon"
+	mkdir -p "${TARG_DIR}" "${ADDON_DIR}" || fail 'could not create uninstall transaction fixture'
+	printf '%s\n' installer >"${TARG_DIR}/installer" || fail 'could not create uninstall installer fixture'
+	printf '%s\n' 'lan_domain=router.example' >>"${NVRAM_FILE}" || fail 'could not seed the uninstall LAN domain'
+	# conf_value enables installer-managed LAN-domain cleanup for this uninstall fixture.
+	conf_value() { [ "$1" = ADGUARD_DOMAIN ] && printf '%s\n' yes; }
+	# agh_is_running reports that the fixture service is stopped.
+	agh_is_running() { return 1; }
+	# agh_stop stops the fixture service successfully.
+	agh_stop() { return 0; }
+	# agh_start restarts the fixture service successfully during rollback.
+	agh_start() { return 0; }
+	# Use the portable symlink lock so host-shell function redirections cannot reuse the transaction descriptor.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# Event-hook helpers succeed without changing host files in this isolated fixture.
+	all_event_scripts_transaction_begin() { return 0; }
+	all_event_scripts_transaction_commit() { return 0; }
+	all_event_scripts_transaction_rollback() { return 0; }
+	remove_dnsmasq_event_scripts() { return 0; }
+	remove_init_event_scripts() { return 0; }
+	remove_services_event_scripts() { return 0; }
+	remove_firewall_event_scripts() { return 0; }
+	cleanup_legacy_firewall() { return 0; }
+	yaml_nvars_file_action() { return 0; }
+	end_op_message() { return 0; }
+	# mv redirects the retained installer outside the real home directory.
+	mv() {
+		if [ "$#" -eq 2 ] && [ "$1" = "${TARG_DIR}/installer" ]; then
+			command mv "$1" "${TEST_ROOT}/uninstalled-installer"
+		else
+			command mv "$@"
+		fi
+	}
+	# rm keeps the uninstall fixture from touching host /opt paths.
+	rm() {
+		case " $* " in
+			*" /opt/etc/init.d/S99AdGuardHome "*) return 0 ;;
+		esac
+		command rm "$@"
+	}
+
+	uninst_all || fail 'LAN-domain uninstall transaction failed'
+	[ "$(nvram get lan_domain)" = '' ] || fail 'successful uninstall did not clear the LAN domain'
+	[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'successful uninstall retained its LAN-domain snapshot'
+	nvram_transaction_lock_release || fail 'successful uninstall retained an unreleasable transaction lock'
+	NVRAM_TRANSACTION_LOCK_MODE=''
+	NVRAM_TRANSACTION_DIR=''
+	NVRAM_TRANSACTION_CHANGED=0
+	commit_count_before_recovery="${COMMIT_COUNT}"
+	service_count_before_recovery="${SERVICE_COUNT}"
+	nvram_transaction_recover_pending || fail 'startup recovery failed after successful uninstall'
+	[ "$(nvram get lan_domain)" = '' ] || fail 'startup recovery restored the LAN domain after successful uninstall'
+	[ "${COMMIT_COUNT}" -eq "${commit_count_before_recovery}" ] || fail 'startup recovery committed a LAN-domain rollback after successful uninstall'
+	[ "${SERVICE_COUNT}" -eq "${service_count_before_recovery}" ] || fail 'startup recovery restarted dnsmasq after successful uninstall'
+)
 
 reset_case
 printf '%s\n' 'previous working yaml' >"${YAML_FILE}"
