@@ -187,6 +187,7 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 	BASE_DIR="${REMOVE_ROOT}/base"
 	CONF_FILE="${REMOVE_ROOT}/config"
 	remove_calls=0
+	# del_jffs_script increments the removal-call counter, records the first removal attempt, and fails subsequent attempts.
 	del_jffs_script() {
 		remove_calls="$((remove_calls + 1))"
 		if [ "${remove_calls}" -eq 1 ]; then
@@ -206,10 +207,12 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 		fail 'dnsmasq hook cleanup did not restore the SDN hook after a removal failure'
 	grep -qx 'ADGUARD_DNSMASQ_MODE="enabled"' "${CONF_FILE}" ||
 		fail 'dnsmasq hook cleanup changed the mode after a removal failure'
+	# del_jffs_script writes a hook-change marker to the specified file.
 	del_jffs_script() {
 		printf '%s\n' 'changed hook' >"$1"
 		return 0
 	}
+	# write_conf writes the disabled dnsmasq mode to the configuration file and returns failure.
 	write_conf() {
 		printf '%s\n' 'ADGUARD_DNSMASQ_MODE="disabled"' >"${CONF_FILE}"
 		return 1
@@ -237,14 +240,18 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 	BASE_DIR="${ROLLBACK_ROOT}/base"
 	CONF_FILE="${ROLLBACK_ROOT}/config"
 	: >"${ROLLBACK_ROOT}/dnsmasq.conf"
-	pidof() { return 0; }
-	nvram() { printf '%s\n' 'mtlancfg'; }
+	# pidof returns success without performing a process lookup.
+pidof() { return 0; }
+	# nvram prints the `mtlancfg` value.
+nvram() { printf '%s\n' 'mtlancfg'; }
+	# write_manager_script writes a change marker to the specified path, except for the SDN dnsmasq hook path where it fails.
 	write_manager_script() {
 		if [ "$1" = "${ROLLBACK_ROOT}/jffs/scripts/dnsmasq-sdn.postconf" ]; then
 			return 1
 		fi
 		printf '%s\n' 'changed primary hook' >"$1"
 	}
+	# write_conf writes the enabled dnsmasq mode to the configuration file.
 	write_conf() {
 		printf '%s\n' 'ADGUARD_DNSMASQ_MODE="enabled"' >"${CONF_FILE}"
 	}
@@ -257,9 +264,11 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 		fail 'dnsmasq hook addition did not restore the SDN hook'
 	grep -qx 'ADGUARD_DNSMASQ_MODE="disabled"' "${CONF_FILE}" ||
 		fail 'dnsmasq hook addition did not restore the dnsmasq mode'
+	# write_manager_script writes a managed hook marker to the specified file.
 	write_manager_script() {
 		printf '%s\n' 'changed managed hook' >"$1"
 	}
+	# write_conf writes an enabled dnsmasq mode configuration and reports failure.
 	write_conf() {
 		printf '%s\n' 'ADGUARD_DNSMASQ_MODE="enabled"' >"${CONF_FILE}"
 		return 1
@@ -277,8 +286,10 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 	printf '%s\n' 'original SDN hook' >"${ROLLBACK_ROOT}/jffs/scripts/dnsmasq-sdn.postconf"
 	printf '%s\n' 'ADGUARD_DNSMASQ_MODE="disabled"' >"${CONF_FILE}"
 	ERROR='Error:'
-	PTXT() { printf '%s\n' "$*" >"${ROLLBACK_ROOT}/restore-error"; }
-	dnsmasq_event_scripts_restore() { return 1; }
+	# PTXT writes a rollback restoration error message to the restore-error file.
+PTXT() { printf '%s\n' "$*" >"${ROLLBACK_ROOT}/restore-error"; }
+	# dnsmasq_event_scripts_restore reports that dnsmasq event-script restoration failed.
+dnsmasq_event_scripts_restore() { return 1; }
 	if add_dnsmasq_event_scripts; then
 		fail 'dnsmasq hook addition hides restoration failure'
 	fi

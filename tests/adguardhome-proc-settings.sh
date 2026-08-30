@@ -255,7 +255,8 @@ grep -q '^adguard_recover_after_uninstall_hook_abort() {$' "${UNINSTALL_FUNCTION
 grep -q '^uninst_all() {$' "${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall helper extraction failed'
 # shellcheck disable=SC1090
 . "${UNINSTALL_FUNCTION_FILE}"
-# run_uninstall_test creates an isolated uninstall scenario, invokes uninst_all, and records restoration, restart, and removal events. Restore and start results control simulated outcomes; helper mode controls rollback-helper usability.
+# run_uninstall_test simulates an isolated uninstall scenario and records restoration, service, hook, rollback, and removal events.
+# RESTORE_RESULT, START_RESULT, HELPER_MODE, REMOVE_HOOK_STATUS, and INITIAL_RUNNING control simulated restoration, startup, rollback-helper, hook-removal, and initial service-state outcomes.
 run_uninstall_test() (
 	TARG_DIR="${TMP_ROOT}/uninstall-$1"
 	BASE_DIR="${TMP_ROOT}/base-$1"
@@ -287,47 +288,65 @@ EOF
 	fi
 	export TARG_DIR EVENTS_FILE RESTORE_RESULT
 	INFO=INFO ERROR=ERROR CONFIRM_STATUS=0
-	PTXT() { printf '%s\n' "$*" >>"${EVENTS_FILE}"; }
-	conf_value() { printf '%s\n' no; }
-	agh_is_running() { [ "${INITIAL_RUNNING}" = "1" ]; }
-	agh_stop() { printf '%s\n' stop >>"${EVENTS_FILE}"; }
+	# PTXT writes its arguments as a line to the events file.
+PTXT() { printf '%s\n' "$*" >>"${EVENTS_FILE}"; }
+	# conf_value prints `no` as the configuration value.
+conf_value() { printf '%s\n' no; }
+	# agh_is_running reports whether the service was initially running.
+agh_is_running() { [ "${INITIAL_RUNNING}" = "1" ]; }
+	# agh_stop records a service stop event in the test event log.
+agh_stop() { printf '%s\n' stop >>"${EVENTS_FILE}"; }
+	# agh_start records a service start event and returns the configured start result.
 	agh_start() {
 		printf '%s\n' start >>"${EVENTS_FILE}"
 		return "${START_RESULT:-0}"
 	}
-	cleanup_legacy_firewall() { :; }
+	# cleanup_legacy_firewall does nothing.
+cleanup_legacy_firewall() { :; }
+	# all_event_scripts_snapshot creates a hooks directory under the specified destination and copies all event scripts into it.
 	all_event_scripts_snapshot() {
 		mkdir -p "$1/hooks" || return 1
 		cp "${HOOK_DIR}"/* "$1/hooks/"
 	}
+	# all_event_scripts_rollback restores event scripts from the specified installation directory and records the rollback event.
 	all_event_scripts_rollback() {
 		printf '%s\n' rollback >>"${EVENTS_FILE}"
 		cp "$1/hooks/"* "${HOOK_DIR}/"
 	}
+	# all_event_scripts_transaction_begin snapshots the event scripts for a transaction and records the active snapshot path.
 	all_event_scripts_transaction_begin() {
 		all_event_scripts_snapshot "$1" || return 1
 		EVENT_SCRIPTS_ACTIVE_SNAPSHOT="$1"
 	}
+	# all_event_scripts_transaction_commit commits the event-scripts transaction by removing the active snapshot.
 	all_event_scripts_transaction_commit() {
 		[ -n "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] || return 0
 		rm -rf "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}"
 		EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
 	}
+	# all_event_scripts_transaction_rollback restores event scripts from the active transaction snapshot and clears the snapshot after successful restoration.
 	all_event_scripts_transaction_rollback() {
 		[ -n "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] || return 0
 		all_event_scripts_rollback "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}" || return 1
 		EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
 	}
-	remove_dnsmasq_event_scripts() { printf '%s\n' removed >"${HOOK_DIR}/dnsmasq"; }
-	remove_firewall_event_scripts() { printf '%s\n' removed >"${HOOK_DIR}/firewall"; }
-	remove_init_event_scripts() { printf '%s\n' removed >"${HOOK_DIR}/init"; }
+	# remove_dnsmasq_event_scripts removes the dnsmasq event scripts from the configured hook directory.
+remove_dnsmasq_event_scripts() { printf '%s\n' removed >"${HOOK_DIR}/dnsmasq"; }
+	# remove_firewall_event_scripts removes the firewall event scripts from the configured hook directory.
+remove_firewall_event_scripts() { printf '%s\n' removed >"${HOOK_DIR}/firewall"; }
+	# remove_init_event_scripts removes the init event hook script.
+remove_init_event_scripts() { printf '%s\n' removed >"${HOOK_DIR}/init"; }
+	# remove_services_event_scripts removes the services event hook and returns the configured removal status.
 	remove_services_event_scripts() {
 		printf '%s\n' removed >"${HOOK_DIR}/services"
 		return "${REMOVE_HOOK_STATUS}"
 	}
-	yaml_nvars_file_action() { :; }
-	yaml_nvars_delete() { :; }
-	del_jffs_script() { :; }
+	# yaml_nvars_file_action performs no action.
+yaml_nvars_file_action() { :; }
+	# yaml_nvars_delete is a no-op placeholder for deleting NVRAM variables.
+yaml_nvars_delete() { :; }
+	# del_jffs_script removes the JFFS script.
+del_jffs_script() { :; }
 	del_between_magic() { :; }
 	nvram() { :; }
 	service() { :; }

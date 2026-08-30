@@ -27,9 +27,11 @@ eval "${MENU_FUNCTION}"
 # check_ipset is the final persistence guard and must not accept an enable
 # request unless the mode is WAN or LAN with qualifying WAN NAT state.
 CHECK_IPSET_LOG="${TMPDIR:-/tmp}/installer-ipset-check-guard.$$"
+# write_conf writes a configuration key and value to the IPSET check log.
 write_conf() {
 	printf '%s=%s\n' "$1" "$2" >"${CHECK_IPSET_LOG}"
 }
+# wan_iptables_state_active determines whether WAN NAT is active.
 wan_iptables_state_active() {
 	[ "${WAN_NAT_ACTIVE:-0}" -eq 1 ]
 }
@@ -41,6 +43,7 @@ WAN_NAT_ACTIVE=1
 check_ipset 1 || fail 'LAN double-NAT IPSET enable request failed'
 [ "$(cat "${CHECK_IPSET_LOG}")" = 'ADGUARD_IPSET="YES"' ] || fail 'LAN double-NAT check_ipset enable request was not preserved'
 unset ADGUARD_INSTALL_MODE
+# conf_value returns a failure status.
 conf_value() {
 	return 1
 }

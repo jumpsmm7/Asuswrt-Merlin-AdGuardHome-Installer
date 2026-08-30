@@ -45,6 +45,7 @@ INFO='[i]'
 WARNING='[w]'
 ERROR='[!]'
 
+# wan_iptables_state_active reports whether WAN NAT is active.
 wan_iptables_state_active() {
 	[ "${WAN_NAT_ACTIVE:-0}" -eq 1 ]
 }

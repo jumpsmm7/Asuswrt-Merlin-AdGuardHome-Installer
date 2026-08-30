@@ -41,6 +41,7 @@ adguard_lan_mode() {
 	[ "${INSTALL_MODE:-wan}" = "lan" ]
 }
 
+# adguard_ipset_allowed determines whether IPSet handling is permitted for the current installation mode and WAN NAT state.
 adguard_ipset_allowed() {
 	case "${INSTALL_MODE:-wan}" in
 		wan) return 0 ;;

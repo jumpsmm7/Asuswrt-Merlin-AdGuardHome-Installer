@@ -151,6 +151,7 @@ nvram() {
 DNS_PROMPTS=0
 LOCAL_CACHE_CALLS=0
 ADGUARD_INSTALL_MODE=wan
+# read_input_dns increments the DNS prompt count, optionally simulates a failed prompt, and sets the bootstrap DNS servers.
 read_input_dns() {
 	DNS_PROMPTS="$((DNS_PROMPTS + 1))"
 	[ "${DNS_PROMPTS}" -eq "${FAIL_PROMPT}" ] && return 1

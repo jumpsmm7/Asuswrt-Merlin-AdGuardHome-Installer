@@ -36,6 +36,7 @@ conf_value() {
 	esac
 }
 
+# wan_iptables_state_active reports whether WAN NAT is active based on WAN_NAT_ACTIVE.
 wan_iptables_state_active() {
 	[ "${WAN_NAT_ACTIVE:-0}" -eq 1 ]
 }

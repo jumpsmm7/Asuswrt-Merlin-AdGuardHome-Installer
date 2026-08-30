@@ -43,6 +43,7 @@ sed -n '/^DEFAULT_ADGUARD_[A-Z_]*=/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" || 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 
+# pidof reports a fixed process ID when simulated dnsmasq is running.
 pidof() {
 	case "${DNSMASQ_RUNNING:-0}" in
 		1)
@@ -53,10 +54,12 @@ pidof() {
 	esac
 }
 
+# iptables prints the configured simulated WAN NAT rule.
 iptables() {
 	printf '%s\n' "${WAN_NAT_RULE:-}"
 }
 
+# nvram supplies fixed WAN, gateway, and PPPoE interface names for the test environment.
 nvram() {
 	case "$1:$2" in
 		get:wan0_ifname) printf '%s\n' 'eth0' ;;

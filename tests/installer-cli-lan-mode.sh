@@ -103,6 +103,7 @@ adguard_install_mode_detect() {
 	return 0
 }
 
+# adguard_ipset_allowed determines whether AdGuard IP-set integration is permitted for the configured install mode and WAN NAT state.
 adguard_ipset_allowed() {
 	case "${ADGUARD_INSTALL_MODE:-}" in
 		wan) return 0 ;;
@@ -226,9 +227,11 @@ sed -n '/^wan_iptables_state_active() {$/,/^}$/p' "${SCRIPT_PATH}" |
 (
 	# shellcheck disable=SC1090
 	. "${TMP_ROOT}/wan-iptables-check"
+	# iptables prints the configured WAN NAT rule for test inspection.
 	iptables() {
 		printf '%s\n' "${WAN_NAT_RULE:-}"
 	}
+	# nvram returns predefined WAN interface names for supported get queries.
 	nvram() {
 		case "$1:$2" in
 			get:wan0_ifname) printf '%s\n' 'eth0' ;;

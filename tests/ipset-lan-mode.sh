@@ -59,6 +59,7 @@ IPSet_Disable_Managed() {
 	return "${DISABLE_STATUS:-0}"
 }
 
+# IPSet_Current_File prints the configured current IPSET file path.
 IPSet_Current_File() {
 	printf '%s\n' "${CURRENT_IPSET_FILE:-${IPSET_FILE}}"
 }
@@ -87,7 +88,7 @@ lower_script() {
 	return 0
 }
 
-# IPSet_Start_While_Locked records restoration of a running service and succeeds.
+# IPSet_Start_While_Locked records a service restoration call and succeeds.
 IPSet_Start_While_Locked() {
 	printf '%s\n' IPSet_Start_While_Locked >>"${CALLS_FILE}"
 	return 0
@@ -99,10 +100,12 @@ pidof() {
 	return 0
 }
 
+# iptables outputs the configured WAN NAT rule.
 iptables() {
 	printf '%s\n' "${WAN_NAT_RULE:-}"
 }
 
+# nvram returns the configured WAN interface name for the requested NVRAM key.
 nvram() {
 	case "$1:$2" in
 		get:wan0_ifname) printf '%s\n' 'eth0' ;;

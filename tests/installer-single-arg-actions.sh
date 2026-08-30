@@ -8,6 +8,7 @@ TMP_ROOT="${TMPDIR:-/tmp}/installer-single-arg-actions.$$"
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 IPSET_STATE_PATTERN='check_ipset|ADGUARD_IPSET|IPSET_SELECTION|adguard_ipset_allowed|IPSet_[[:alnum:]_]+|(^|[[:space:];|&()])([^[:space:];|&()]*/)?ipset([[:space:]]|$)'
 
+# cleanup removes the temporary test directory and its contents.
 cleanup() {
 	rm -rf "${TMP_ROOT}"
 }

@@ -88,7 +88,7 @@ TZDATA_PACKAGE_INFO_RAN_FILE="${TMP_ROOT}/tzdata-package-info.ran"
 	id() {
 		printf '%s\n' 0
 	}
-	# sh simulates regression-test commands and records their execution status.
+	# sh simulates regression-test commands, records their execution, and returns each test's configured status.
 	sh() {
 		case "$1" in
 			tests/installer-event-script-transactions.sh)

@@ -109,6 +109,7 @@ extract_function restore_mode_migration_yaml || fail 'could not extract mode mig
 extract_function rollback_pending_mode_migration || fail 'could not extract pending mode migration rollback helper'
 extract_function adguard_migrate_detected_install_mode || fail 'could not extract detected-mode migration helper'
 
+# wan_iptables_state_active determines whether WAN NAT activity is enabled.
 wan_iptables_state_active() {
 	[ "${WAN_NAT_ACTIVE:-0}" -eq 1 ]
 }

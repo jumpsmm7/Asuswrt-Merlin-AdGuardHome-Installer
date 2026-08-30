@@ -209,6 +209,7 @@ exit 0
 EOF
 chmod 700 "${TRAP_TEST_FILE}" || fail 'could not make caller trap test executable'
 
+# run_interrupt_test verifies interrupt cleanup and propagation for the selected lock mode.
 run_interrupt_test() {
 	LOCK_MODE="$1"
 	if "${INTERRUPT_TEST_FILE}" "${FUNCTION_FILE}" "${TEST_ROOT}" "${LOCK_MODE}"; then

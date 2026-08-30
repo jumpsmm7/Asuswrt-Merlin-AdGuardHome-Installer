@@ -210,7 +210,7 @@ adguard_dnsmasq_managed() {
 	adguard_dnsmasq_running
 }
 
-# adguard_ipset_allowed permits IPSet in WAN mode and in LAN/AP/Bridge double-NAT exceptions.
+# adguard_ipset_allowed allows IPSet in WAN mode or in LAN, AP, or bridge mode with qualifying WAN firewall state.
 adguard_ipset_allowed() {
 	case "${CONFIG_INSTALL_MODE:-}" in
 		wan) return 0 ;;
@@ -219,7 +219,7 @@ adguard_ipset_allowed() {
 	esac
 }
 
-# adguard_wan_iptables_state_active detects WAN-interface SNAT/MASQUERADE state used by double-NAT LAN installations.
+# adguard_wan_iptables_state_active reports whether a WAN interface has an active SNAT or MASQUERADE rule.
 adguard_wan_iptables_state_active() {
 	local ifname key nat_rules unit
 	nat_rules="$(/usr/sbin/iptables -t nat -S POSTROUTING 2>/dev/null)" || return 1
@@ -699,6 +699,7 @@ adguardhome_run_execute() {
 	return "${status}"
 }
 
+# adguardhome_run_flock serializes service operations with a file lock, allowing stop operations to wait and rejecting duplicate concurrent actions.
 adguardhome_run_flock() {
 	local action lock_dir lock_file owner pid_file saved_traps status
 	action="$1"
@@ -965,7 +966,7 @@ dnsmasq_resolv_conf_cleanup() {
 	}; fi
 }
 
-# dnsmasq_ipset_state_snapshot preserves the managed IPSET file and YAML before a staged dnsmasq refresh.
+# dnsmasq_ipset_state_snapshot preserves the managed IPSet file and YAML configuration, recording when either file is absent.
 dnsmasq_ipset_state_snapshot() {
 	local SNAPSHOT_DIR
 	SNAPSHOT_DIR="$1"
@@ -994,7 +995,7 @@ dnsmasq_ipset_state_snapshot() {
 	fi
 }
 
-# dnsmasq_ipset_state_restore restores a pre-refresh snapshot and reloads AdGuardHome when it is running.
+# dnsmasq_ipset_state_restore restores IPSet and YAML snapshots and restarts AdGuardHome when the restored state differs and the service is running.
 dnsmasq_ipset_state_restore() {
 	local ADGUARD_WAS_RUNNING DNSMASQ_RESTART_SKIP RESTART_REQUIRED RESTORE_STAGE SNAPSHOT_DIR
 	SNAPSHOT_DIR="$1"
@@ -1047,6 +1048,7 @@ dnsmasq_publish_staged_config() (
 	TRANSACTION_SIGNAL_PENDING="0"
 	[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ] && ADGUARD_WAS_RUNNING="1"
 	TRANSACTION_ACTIVE="1"
+	# dnsmasq_publish_abort aborts a staged dnsmasq configuration transaction, restoring its IPSet snapshot when necessary and exiting with failure.
 	dnsmasq_publish_abort() {
 		if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then
 			TRANSACTION_SIGNAL_PENDING="1"
@@ -3256,6 +3258,7 @@ IPSet_Directory_Metadata() {
 	'
 }
 
+# IPSet_Lock_Interrupt_Cleanup restores AdGuardHome after an interrupted IPSet operation when the service was stopped by that operation.
 IPSet_Lock_Interrupt_Cleanup() {
 	if [ "${IPSET_START_STOPPED:-0}" -eq 1 ]; then
 		IPSet_Start_Restore || true
@@ -3268,6 +3271,7 @@ IPSet_Lock_Interrupt_Propagate() {
 	"${IPSET_LOCK_INTERRUPT_CALLBACK}"
 }
 
+# IPSet_Start_Restore restores AdGuardHome after an IPSet setup rollback and reports whether restoration succeeded.
 IPSet_Start_Restore() {
 	IPSET_START_STOPPED="0"
 	if IPSet_Start_While_Locked; then
@@ -3309,6 +3313,7 @@ IPSet_Lock() {
 	return "${STATUS}"
 }
 
+# IPSet_Lock_Flock serializes an IPSet operation under a file lock and restores its signal handlers and cleanup state afterward.
 IPSet_Lock_Flock() {
 	local SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
 	TRAP_STATE_FILE="${IPSET_RUNTIME_DIR}/traps.$$"
@@ -3340,6 +3345,7 @@ IPSet_Lock_Flock_Cleanup() {
 	exec 8>&-
 }
 
+# IPSet_Lock_Mkdir serializes an IPSet operation using a validated directory lock and restores traps and lock state when it completes.
 IPSet_Lock_Mkdir() {
 	local ATTEMPTS LOCK_DIR LOCK_METADATA LOCK_OWNER OWNER OWNERLESS_ATTEMPTS SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
 	LOCK_DIR="${IPSET_RUNTIME_DIR}/mkdir"
@@ -3442,7 +3448,7 @@ IPSet_Lock_Mkdir_Reap_Stale() {
 	rm -rf "${LOCK_DIR}"
 }
 
-# IPSet_Migrate migrates legacy AdGuardHome IPSet mappings into the managed IPSet configuration and updates the YAML reference.
+# IPSet_Migrate migrates legacy AdGuardHome IPSet mappings into the managed IPSet file and updates the YAML reference when supported.
 IPSet_Migrate() {
 	local CURRENT_FILE TEMP_FILE USER_TEMP_FILE
 	IPSET_MIGRATION_SKIPPED=""
@@ -3715,7 +3721,7 @@ IPSet_Enabled() {
 }
 
 # IPSet_Refresh refreshes mappings in WAN mode or the LAN double-NAT exception and otherwise returns without changes.
-# The optional argument specifies a dnsmasq configuration file to use for collecting mappings.
+# IPSet_Refresh refreshes managed IPSet mappings from an optional dnsmasq configuration file and restarts AdGuardHome when the mappings change.
 IPSet_Refresh() {
 	local DNSMASQ_RESTART_SKIP RESTART_STATUS
 	if ! adguard_ipset_allowed; then
@@ -3858,7 +3864,7 @@ IPSet_Setup() {
 	IPSet_Lock IPSet_Setup_Locked
 }
 
-# IPSet_Setup_For_Start prepares IPSet configuration for AdGuardHome startup, disabling managed IPSet when LAN mode or unsupported settings require it.
+# IPSet_Setup_For_Start prepares IPSet configuration before AdGuardHome startup and disables managed IPSet settings when integration is unavailable, disabled, or unsupported.
 IPSet_Setup_For_Start() {
 	if ! adguard_ipset_allowed; then
 		if ! IPSet_Disable_Managed; then

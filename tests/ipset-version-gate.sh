@@ -13,10 +13,12 @@ BINARY_FILE="${TEST_ROOT}/AdGuardHome"
 CALLS_FILE="${TEST_ROOT}/calls"
 IPSET_FILE="${TEST_ROOT}/managed-ipset"
 
+# cleanup removes the temporary test directory and its contents.
 cleanup() {
 	rm -rf "${TEST_ROOT}"
 }
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -54,12 +56,12 @@ adguard_ipset_allowed() {
 	! adguard_lan_mode
 }
 
-# IPSet_Current_File reports that the fixture's managed IPSET file is active.
+# IPSet_Current_File reports the path of the active managed IPSET fixture file.
 IPSet_Current_File() {
 	printf '%s\n' "${IPSET_FILE}"
 }
 
-# IPSet_Disable_Managed records the managed IPSET disable operation and returns its configured status.
+# IPSet_Disable_Managed records the managed IPSET disable operation, removes its state file when successful, and returns the configured status.
 IPSet_Disable_Managed() {
 	printf '%s\n' IPSet_Disable_Managed >>"${CALLS_FILE}"
 	[ "${DISABLE_STATUS:-0}" -eq 0 ] && rm -f "${IPSET_FILE}"

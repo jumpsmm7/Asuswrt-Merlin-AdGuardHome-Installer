@@ -60,7 +60,7 @@ RESOLV_CONF_USES_ROM='1'
 RESOLV_CONF_TMP_MOUNT='0'
 
 # pidof reports fixture process state without relying on PATH interception.
-# BusyBox ash can execute an applet directly instead of a same-named test stub.
+# pidof reports fixture process IDs for dnsmasq and AdGuardHome based on their running-state flags.
 pidof() {
 	case "$1" in
 		dnsmasq)
@@ -107,12 +107,12 @@ resolv_conf_is_tmp_mount() {
 }
 
 # umount records cleanup requests without relying on PATH interception. BusyBox
-# ash can execute an applet directly instead of the same-named test stub.
+# umount records the path requested for unmounting.
 umount() {
 	printf '%s\n' "$1" >>"${UMOUNT_CALLS_FILE}"
 }
 
-# mount records resolver bind requests and optionally injects a bind failure.
+# mount records a resolver bind request and reports whether the simulated mount succeeds.
 mount() {
 	printf '%s\n' "$*" >>"${MOUNT_CALLS_FILE}"
 	[ "${MOUNT_FAIL:-0}" != "1" ]
@@ -173,13 +173,13 @@ ipv6_reverse_zone() {
 }
 
 # sdn_bridge_for_index prints the bridge name associated with a supported SDN index.
-# The index must be `1`; otherwise, the function returns failure.
+# sdn_bridge_for_index returns the bridge associated with SDN index 1 and fails for other indexes.
 sdn_bridge_for_index() {
 	[ "$1" = '1' ] || return 1
 	printf '%s\n' 'br1'
 }
 
-# IPSet_Refresh records every refresh request and models managed-IPSET cleanup for rejected topologies.
+# IPSet_Refresh records a refresh request, updates refresh state, and removes managed IPSET state when the topology does not support it.
 IPSet_Refresh() {
 	printf '%s\n' "$1" >>"${IPSET_CALLS_FILE}"
 	if [ "${IPSET_REFRESH_FAIL:-0}" = "1" ]; then
@@ -210,13 +210,13 @@ IPSet_Refresh() {
 # lower_script records successful service reloads required after IPSET snapshot restoration.
 lower_script() { printf '%s\n' "$*" >>"${IPSET_CALLS_FILE}"; }
 
-# IPSet_Lock_Interrupt_Propagate models nested lock cleanup invoking the outer transaction callback.
+# IPSet_Lock_Interrupt_Propagate invokes the registered outer transaction callback when nested lock cleanup is interrupted.
 IPSet_Lock_Interrupt_Propagate() {
 	[ -n "${IPSET_LOCK_INTERRUPT_CALLBACK:-}" ] || return 0
 	"${IPSET_LOCK_INTERRUPT_CALLBACK}"
 }
 
-# mv fails only the requested live dnsmasq publication and delegates snapshot restoration moves.
+# mv injects configured failures for dnsmasq publication or IPSET snapshot restoration moves, then delegates other operations to the system command.
 mv() {
 	if [ "${RESTORE_FAIL:-0}" = "1" ]; then
 		case "${1:-}" in
@@ -231,14 +231,14 @@ mv() {
 	command mv "$@"
 }
 
-# private_ipv4_bridge_dns_options_with_fallbacks records the LAN interface it was called with and emits the configured bridge DNS pairs.
+# private_ipv4_bridge_dns_options_with_fallbacks records the LAN interface and emits configured bridge DNS options, or fails when fallback generation is unavailable.
 private_ipv4_bridge_dns_options_with_fallbacks() {
 	printf '%s\n' "$1" >>"${BRIDGE_FALLBACK_CALLS_FILE}"
 	[ "${BRIDGE_DNS_FAIL:-0}" != "1" ] || return 1
 	[ -z "${BRIDGE_DNS_OPTIONS}" ] || printf '%s\n' "${BRIDGE_DNS_OPTIONS}"
 }
 
-# reset_case resets test logs, recorded calls, sandboxed dnsmasq configurations, and scenario state to their default values.
+# reset_case resets test logs, recorded calls, sandboxed dnsmasq configurations, and scenario state to default values.
 reset_case() {
 	: >"${LOG_FILE}"
 	: >"${IPSET_CALLS_FILE}"
@@ -276,7 +276,7 @@ assert_no_ipset_refresh() {
 	[ ! -s "${IPSET_CALLS_FILE}" ] || fail "$1: IPSET refresh should not run"
 }
 
-# wait_for_file waits briefly for an asynchronous interruption fixture marker.
+# wait_for_file waits up to 10 seconds for the specified marker file to appear and reports whether it exists.
 wait_for_file() {
 	marker="$1"
 	count=0
@@ -287,7 +287,7 @@ wait_for_file() {
 	[ -f "${marker}" ]
 }
 
-# wait_for_release waits for the parent to release an asynchronous fixture.
+# wait_for_release waits up to 10 seconds for the specified release marker file and returns whether it exists.
 wait_for_release() {
 	release_marker="$1"
 	release_count=0
@@ -648,6 +648,7 @@ IPSET_SNAPSHOT_DIR="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.signal-nested"
 printf '%s\n' '# staged config' >"${CONFIG_STAGE}" || fail 'could not create nested signal stage'
 printf '%s\n' 'original ipset' >"${IPSET_FILE}" || fail 'could not create nested signal IPSET fixture'
 (
+	# IPSet_Refresh marks IPSET and YAML state as changed and waits for the nested transaction lock to be released.
 	IPSet_Refresh() {
 		printf '%s\n' changed >"${IPSET_FILE}"
 		printf '%s\n' changed >"${YAML_FILE}"
@@ -680,6 +681,7 @@ RESTORE_FAIL='1'
 printf '%s\n' '# staged config' >"${CONFIG_STAGE}" || fail 'could not create failed signal restoration stage'
 printf '%s\n' 'original ipset' >"${IPSET_FILE}" || fail 'could not create failed signal restoration IPSET fixture'
 (
+	# IPSet_Refresh marks IPSET and YAML state as changed and waits for the refresh transaction to be released.
 	IPSet_Refresh() {
 		printf '%s\n' changed >"${IPSET_FILE}"
 		printf '%s\n' changed >"${YAML_FILE}"
@@ -711,7 +713,9 @@ CONFIG_STAGE="${DNSMASQ_CONF_FILE}.signal-restore"
 IPSET_SNAPSHOT_DIR="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.signal-restore"
 printf '%s\n' '# staged config' >"${CONFIG_STAGE}" || fail 'could not create signal restoration stage'
 (
-	IPSet_Refresh() { return 1; }
+	# IPSet_Refresh refreshes IPSET state and returns a status indicating whether the operation succeeded.
+IPSet_Refresh() { return 1; }
+	# dnsmasq_ipset_state_restore records an IPSET state restoration request and waits for the restoration release signal.
 	dnsmasq_ipset_state_restore() {
 		printf '%s\n' restore >>"${RESTORE_CALLS}"
 		read -r transaction_pid _ </proc/self/stat
@@ -740,7 +744,9 @@ CONFIG_STAGE="${DNSMASQ_CONF_FILE}.signal-publish"
 IPSET_SNAPSHOT_DIR="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.signal-publish"
 printf '%s\n' '# published config' >"${CONFIG_STAGE}" || fail 'could not create signal publication stage'
 (
-	dnsmasq_ipset_state_restore() { printf '%s\n' restore >>"${RESTORE_CALLS}"; }
+	# dnsmasq_ipset_state_restore records an IPSET state restoration request.
+dnsmasq_ipset_state_restore() { printf '%s\n' restore >>"${RESTORE_CALLS}"; }
+	# mv moves files and pauses publication of the dnsmasq configuration until the release marker is available.
 	mv() {
 		command mv "$@" || return 1
 		if [ "$2" = "${DNSMASQ_CONF_FILE}" ]; then
