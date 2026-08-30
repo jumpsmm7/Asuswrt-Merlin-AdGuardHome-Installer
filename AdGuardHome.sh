@@ -232,6 +232,7 @@ adguard_wan_iptables_state_active() {
 			esac
 			if printf '%s\n' "${nat_rules}" | /usr/bin/awk -v wan_if="${ifname}" '
 				function comment_ends(value, i, slashes) {
+					if (length(value) < 2) return 0
 					if (substr(value, length(value), 1) != "\"") return 0
 					for (i = length(value) - 1; i > 0 && substr(value, i, 1) == "\\"; i--) slashes++
 					return slashes % 2 == 0
@@ -999,6 +1000,41 @@ dnsmasq_ipset_state_snapshot() {
 			return 1
 		}
 	fi
+	: >"${SNAPSHOT_DIR}/restore.pending" || {
+		rm -rf "${SNAPSHOT_DIR}"
+		return 1
+	}
+}
+
+# dnsmasq_ipset_state_recover_pending restores safe installer-owned snapshots left by an interrupted dnsmasq transaction.
+dnsmasq_ipset_state_recover_pending() {
+	local SNAPSHOT_DIR SNAPSHOT_NAME
+	for SNAPSHOT_DIR in "${WORK_DIR}"/.AdGuardHome.dnsmasq-ipset.*; do
+		[ -d "${SNAPSHOT_DIR}" ] || continue
+		[ ! -L "${SNAPSHOT_DIR}" ] || return 1
+		SNAPSHOT_NAME="${SNAPSHOT_DIR##*/}"
+		case "${SNAPSHOT_NAME}" in
+			.AdGuardHome.dnsmasq-ipset.*) ;;
+			*) return 1 ;;
+		esac
+		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || continue
+		if { [ -f "${SNAPSHOT_DIR}/ipset" ] && [ ! -L "${SNAPSHOT_DIR}/ipset" ]; }; then
+			[ ! -e "${SNAPSHOT_DIR}/ipset.absent" ] || return 1
+		else
+			[ -f "${SNAPSHOT_DIR}/ipset.absent" ] && [ ! -L "${SNAPSHOT_DIR}/ipset.absent" ] || return 1
+		fi
+		if { [ -f "${SNAPSHOT_DIR}/yaml" ] && [ ! -L "${SNAPSHOT_DIR}/yaml" ]; }; then
+			[ ! -e "${SNAPSHOT_DIR}/yaml.absent" ] || return 1
+		else
+			[ -f "${SNAPSHOT_DIR}/yaml.absent" ] && [ ! -L "${SNAPSHOT_DIR}/yaml.absent" ] || return 1
+		fi
+		if dnsmasq_ipset_state_restore "${SNAPSHOT_DIR}"; then
+			rm -rf "${SNAPSHOT_DIR}" || return 1
+		else
+			agh_log error dnsmasq_params "state=recovery action=restore_ipset result=failed snapshot=${SNAPSHOT_DIR}"
+			return 1
+		fi
+	done
 }
 
 # dnsmasq_ipset_state_restore restores IPSet and YAML snapshots and restarts AdGuardHome when the restored state differs and the service is running.
@@ -1049,9 +1085,9 @@ dnsmasq_ipset_state_restore() {
 		rm -f "${YAML_FILE}" || {
 			rm -f "${YAML_RESTORE_STAGE}"
 			if [ "${IPSET_CURRENT_ABSENT}" = "1" ]; then
-				rm -f "${IPSET_FILE}"
+				rm -f "${IPSET_FILE}" || agh_log error dnsmasq_params "state=restore action=compensate_ipset result=failed snapshot=${SNAPSHOT_DIR}"
 			else
-				mv "${IPSET_CURRENT_STAGE}" "${IPSET_FILE}"
+				mv "${IPSET_CURRENT_STAGE}" "${IPSET_FILE}" || agh_log error dnsmasq_params "state=restore action=compensate_ipset result=failed snapshot=${SNAPSHOT_DIR}"
 			fi
 			return 1
 		}
@@ -1060,9 +1096,9 @@ dnsmasq_ipset_state_restore() {
 		mv "${YAML_RESTORE_STAGE}" "${YAML_FILE}" || {
 			rm -f "${YAML_RESTORE_STAGE}"
 			if [ "${IPSET_CURRENT_ABSENT}" = "1" ]; then
-				rm -f "${IPSET_FILE}"
+				rm -f "${IPSET_FILE}" || agh_log error dnsmasq_params "state=restore action=compensate_ipset result=failed snapshot=${SNAPSHOT_DIR}"
 			else
-				mv "${IPSET_CURRENT_STAGE}" "${IPSET_FILE}"
+				mv "${IPSET_CURRENT_STAGE}" "${IPSET_FILE}" || agh_log error dnsmasq_params "state=restore action=compensate_ipset result=failed snapshot=${SNAPSHOT_DIR}"
 			fi
 			return 1
 		}
@@ -1077,6 +1113,7 @@ dnsmasq_ipset_state_restore() {
 		ADGUARDHOME_SKIP_DNSMASQ_RESTART="${DNSMASQ_RESTART_SKIP}"
 		[ "${RESTART_REQUIRED}" -eq 0 ] || return 1
 	fi
+	rm -f "${SNAPSHOT_DIR}/restore.pending" || return 1
 }
 
 # dnsmasq_publish_staged_config refreshes IPSET state and atomically publishes a staged dnsmasq file.
@@ -1120,6 +1157,11 @@ dnsmasq_publish_staged_config() (
 	}
 	# dnsmasq_publish_locked snapshots, refreshes, publishes, and compensates while the shared IPSet lock is held.
 	dnsmasq_publish_locked() {
+		dnsmasq_ipset_state_recover_pending || {
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		}
 		if ! dnsmasq_ipset_state_snapshot "${IPSET_SNAPSHOT_DIR}"; then
 			TRANSACTION_ACTIVE="0"
 			rm -f "${CONFIG_STAGE}"

@@ -280,6 +280,11 @@ mv() {
 			"${YAML_FILE}.dnsmasq-restore."*) return 1 ;;
 		esac
 	fi
+	if [ "${RESTORE_COMPENSATE_FAIL:-0}" = "1" ] && [ "${2:-}" = "${IPSET_FILE}" ]; then
+		case "${1:-}" in
+			"${IPSET_FILE}.dnsmasq-current."*) return 1 ;;
+		esac
+	fi
 	if [ "${MV_PUBLISH_FAIL:-0}" = "1" ] && [ "${2:-}" = "${DNSMASQ_CONF_FILE}" ]; then
 		case "${1:-}" in
 			"${DNSMASQ_CONF_FILE}.adguard."*) return 1 ;;
@@ -326,6 +331,7 @@ reset_case() {
 	RESTORE_FAIL='0'
 	RESTORE_REQUIRE_YAML_STAGE='0'
 	RESTORE_YAML_FAIL='0'
+	RESTORE_COMPENSATE_FAIL='0'
 	MOUNT_FAIL='0'
 	CONFIG_LOCAL='NO'
 	[ -z "${SECOND_STARTED:-}" ] || rm -f "${SECOND_STARTED}"
@@ -721,6 +727,56 @@ ADGUARD_RUNNING='1'
 dnsmasq_ipset_state_restore "${STOPPED_SNAPSHOT}" 0 || fail 'stopped-service state restoration failed'
 grep -q '^restart$' "${IPSET_CALLS_FILE}" || fail 'stopped-service rollback did not reload a newly appearing process'
 rm -rf "${STOPPED_SNAPSHOT}" || fail 'could not clear stopped-service snapshot'
+
+# A pending restore journal left between IPSET and YAML publication is recovered
+# idempotently under the shared transaction lock before another transaction.
+reset_case
+RECOVERY_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.recovery"
+printf '%s\n' 'snapshot ipset' >"${IPSET_FILE}" || fail 'could not create recovery IPSET fixture'
+printf '%s\n' 'snapshot yaml' >"${YAML_FILE}" || fail 'could not create recovery YAML fixture'
+dnsmasq_ipset_state_snapshot "${RECOVERY_SNAPSHOT}" || fail 'could not create pending recovery snapshot'
+[ -f "${RECOVERY_SNAPSHOT}/restore.pending" ] || fail 'pending recovery snapshot lacks its durable marker'
+printf '%s\n' 'snapshot ipset' >"${IPSET_FILE}" || fail 'could not simulate partial IPSET restoration'
+printf '%s\n' 'current yaml' >"${YAML_FILE}" || fail 'could not simulate interrupted YAML restoration'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'pending recovery did not complete'
+grep -qx 'snapshot ipset' "${IPSET_FILE}" || fail 'pending recovery did not restore IPSET state'
+grep -qx 'snapshot yaml' "${YAML_FILE}" || fail 'pending recovery did not restore YAML state'
+[ ! -e "${RECOVERY_SNAPSHOT}" ] || fail 'completed recovery retained its snapshot'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'repeated recovery was not idempotent'
+
+# Unsafe or incomplete pending snapshots are rejected without changing live state.
+UNSAFE_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.incomplete"
+mkdir -m 700 "${UNSAFE_SNAPSHOT}" || fail 'could not create incomplete recovery snapshot'
+: >"${UNSAFE_SNAPSHOT}/restore.pending" || fail 'could not mark incomplete recovery snapshot'
+printf '%s\n' 'live ipset' >"${IPSET_FILE}" || fail 'could not create incomplete-recovery IPSET fixture'
+printf '%s\n' 'live yaml' >"${YAML_FILE}" || fail 'could not create incomplete-recovery YAML fixture'
+if IPSet_Lock dnsmasq_ipset_state_recover_pending; then
+	fail 'incomplete pending recovery snapshot was accepted'
+fi
+grep -qx 'live ipset' "${IPSET_FILE}" || fail 'incomplete recovery changed IPSET state'
+grep -qx 'live yaml' "${YAML_FILE}" || fail 'incomplete recovery changed YAML state'
+rm -rf "${UNSAFE_SNAPSHOT}" || fail 'could not clear incomplete recovery snapshot'
+
+# A YAML publication failure with failed IPSET compensation retains the durable
+# recovery journal instead of reporting a successful rollback.
+COMPENSATION_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.compensation"
+printf '%s\n' 'snapshot ipset' >"${IPSET_FILE}" || fail 'could not create compensation IPSET fixture'
+printf '%s\n' 'snapshot yaml' >"${YAML_FILE}" || fail 'could not create compensation YAML fixture'
+dnsmasq_ipset_state_snapshot "${COMPENSATION_SNAPSHOT}" || fail 'could not create compensation snapshot'
+printf '%s\n' 'current ipset' >"${IPSET_FILE}" || fail 'could not change compensation IPSET fixture'
+printf '%s\n' 'current yaml' >"${YAML_FILE}" || fail 'could not change compensation YAML fixture'
+RESTORE_YAML_FAIL='1'
+RESTORE_COMPENSATE_FAIL='1'
+if dnsmasq_ipset_state_restore "${COMPENSATION_SNAPSHOT}" 0; then
+	fail 'failed YAML restore and IPSET compensation reported success'
+fi
+[ -f "${COMPENSATION_SNAPSHOT}/restore.pending" ] || fail 'failed compensation discarded the pending marker'
+[ -d "${COMPENSATION_SNAPSHOT}" ] || fail 'failed compensation discarded its recovery snapshot'
+RESTORE_YAML_FAIL='0'
+RESTORE_COMPENSATE_FAIL='0'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'retained compensation snapshot could not recover'
+grep -qx 'snapshot ipset' "${IPSET_FILE}" || fail 'retained compensation recovery did not restore IPSET state'
+grep -qx 'snapshot yaml' "${YAML_FILE}" || fail 'retained compensation recovery did not restore YAML state'
 
 # Overlapping base and SDN callbacks must serialize snapshot, refresh,
 # publication, and compensation as one transaction.

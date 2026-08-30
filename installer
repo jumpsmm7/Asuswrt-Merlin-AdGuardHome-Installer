@@ -5970,6 +5970,7 @@ wan_iptables_state_active() {
 			esac
 			if printf '%s\n' "${nat_rules}" | /usr/bin/awk -v wan_if="${ifname}" '
 				function comment_ends(value, i, slashes) {
+					if (length(value) < 2) return 0
 					if (substr(value, length(value), 1) != "\"") return 0
 					for (i = length(value) - 1; i > 0 && substr(value, i, 1) == "\\"; i--) slashes++
 					return slashes % 2 == 0

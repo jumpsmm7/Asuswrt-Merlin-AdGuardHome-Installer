@@ -67,6 +67,8 @@ WAN_NAT_RULE='-A POSTROUTING -m comment --comment "-o eth0 -j MASQUERADE" -o br0
 check_case 1
 WAN_NAT_RULE='-A POSTROUTING -m comment --comment "escaped \" -o eth0 -j MASQUERADE trailing" -j RETURN'
 check_case 1
+WAN_NAT_RULE='-A POSTROUTING -m comment --comment " -o eth0 -j MASQUERADE trailing" -j RETURN'
+check_case 1
 WAN_NAT_RULE='-A POSTROUTING -o tun0 -j MASQUERADE'
 check_case 1
 IPTABLES_FAIL=1
