@@ -42,7 +42,11 @@ adguard_lan_mode() {
 }
 
 adguard_ipset_allowed() {
-	! adguard_lan_mode
+	case "${INSTALL_MODE:-wan}" in
+		wan) return 0 ;;
+		lan | ap | bridge) [ "${WAN_NAT_ACTIVE:-0}" -eq 1 ] ;;
+		*) return 1 ;;
+	esac
 }
 
 # IPSet_Disable_Managed records that managed IP set handling was disabled for the test.

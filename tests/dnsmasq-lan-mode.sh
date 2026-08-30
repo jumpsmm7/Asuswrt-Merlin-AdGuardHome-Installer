@@ -246,7 +246,7 @@ reset_case() {
 	: >"${MOUNT_CALLS_FILE}"
 	: >"${BRIDGE_FALLBACK_CALLS_FILE}"
 	rm -f "${MANAGED_IPSET_FILE}"
-	find "${TEST_ROOT}" -type d -name '.AdGuardHome.dnsmasq-ipset.*' -exec rm -rf {} \; || fail 'could not remove leaked IPSET recovery snapshots'
+	find "${TEST_ROOT}" -type d -name '.AdGuardHome.dnsmasq-ipset.*' -prune -exec rm -rf {} \; || fail 'could not remove leaked IPSET recovery snapshots'
 	printf '%s\n' 'original yaml' >"${YAML_FILE}" || fail 'could not reset YAML fixture'
 	printf '%s\n' '# base config' >"${DNSMASQ_CONF_FILE}" || fail 'could not reset base dnsmasq config'
 	printf '%s\n' '# sdn config' >"${DNSMASQ_SDN_CONF_FILE}" || fail 'could not reset sdn dnsmasq config'
@@ -290,9 +290,12 @@ wait_for_file() {
 # wait_for_release waits for the parent to release an asynchronous fixture.
 wait_for_release() {
 	release_marker="$1"
-	while [ ! -f "${release_marker}" ]; do
+	release_count=0
+	while [ ! -f "${release_marker}" ] && [ "${release_count}" -lt 10 ]; do
 		sleep 1
+		release_count="$((release_count + 1))"
 	done
+	[ -f "${release_marker}" ]
 }
 
 # assert_dnsmasq_postconf_written verifies that dnsmasq handoff settings were written to the specified configuration file.
@@ -651,7 +654,7 @@ printf '%s\n' 'original ipset' >"${IPSET_FILE}" || fail 'could not create nested
 		trap 'IPSet_Lock_Interrupt_Propagate; exit 1' TERM
 		read -r transaction_pid _ </proc/self/stat
 		printf '%s\n' "${transaction_pid}" >"${NESTED_MARKER}"
-		wait_for_release "${NESTED_RELEASE}"
+		wait_for_release "${NESTED_RELEASE}" || return 1
 	}
 	dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}"
 ) &
@@ -682,7 +685,7 @@ printf '%s\n' 'original ipset' >"${IPSET_FILE}" || fail 'could not create failed
 		printf '%s\n' changed >"${YAML_FILE}"
 		read -r transaction_pid _ </proc/self/stat
 		printf '%s\n' "${transaction_pid}" >"${SIGNAL_FAIL_MARKER}"
-		wait_for_release "${SIGNAL_FAIL_RELEASE}"
+		wait_for_release "${SIGNAL_FAIL_RELEASE}" || return 1
 	}
 	dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}"
 ) &
@@ -713,7 +716,7 @@ printf '%s\n' '# staged config' >"${CONFIG_STAGE}" || fail 'could not create sig
 		printf '%s\n' restore >>"${RESTORE_CALLS}"
 		read -r transaction_pid _ </proc/self/stat
 		printf '%s\n' "${transaction_pid}" >"${RESTORE_MARKER}"
-		wait_for_release "${RESTORE_RELEASE}"
+		wait_for_release "${RESTORE_RELEASE}" || return 1
 	}
 	dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}"
 ) &
@@ -743,7 +746,7 @@ printf '%s\n' '# published config' >"${CONFIG_STAGE}" || fail 'could not create 
 		if [ "$2" = "${DNSMASQ_CONF_FILE}" ]; then
 			read -r transaction_pid _ </proc/self/stat
 			printf '%s\n' "${transaction_pid}" >"${PUBLISH_MARKER}"
-			wait_for_release "${PUBLISH_RELEASE}"
+			wait_for_release "${PUBLISH_RELEASE}" || return 1
 		fi
 	}
 	dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}"

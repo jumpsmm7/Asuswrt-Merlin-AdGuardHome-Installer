@@ -43,10 +43,15 @@ nvram_transaction_lock_owned() { return 0; }
 	trap 'rm -rf "${BASE_DIR}"' 0
 	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create stale-journal fixture directory'
 	nvram_transaction_lock_owned() { return 1; }
-	nvram_transaction_setup_files_begin() { return 1; }
+	SETUP_FILES_BEGIN_CALLED=0
+	nvram_transaction_setup_files_begin() {
+		SETUP_FILES_BEGIN_CALLED=1
+		return 1
+	}
 	if setup_files_begin_if_needed; then
 		fail 'reused a setup journal without owning the transaction lock'
 	fi
+	[ "${SETUP_FILES_BEGIN_CALLED}" -eq 0 ] || fail 'attempted to replace the stale setup journal'
 	[ "${SETUP_FILES_JOURNALED}" -eq 0 ] || fail 'recorded an unowned setup journal in the current setup frame'
 )
 

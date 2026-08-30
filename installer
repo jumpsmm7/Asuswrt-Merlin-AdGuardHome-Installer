@@ -6526,7 +6526,7 @@ add_dnsmasq_event_scripts() {
 }
 
 inst_AdGuardHome() {
-	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD MIGRATE_STATUS MODE_ROLLBACK_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT RESTART_RECOVERY_STATUS SERVICE_REFRESH_ONLY
+	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
 	if ! ensure_sha256sum_tool; then
@@ -6802,13 +6802,7 @@ inst_AdGuardHome() {
 			if ! cleanup_legacy_firewall; then
 				all_event_scripts_transaction_rollback || true
 				PTXT "${ERROR} Unable to clear legacy firewall/IPTABLES state for WAN mode."
-				MODE_ROLLBACK_STATUS=0
-				RESTART_RECOVERY_STATUS=0
-				rollback_pending_mode_migration || MODE_ROLLBACK_STATUS=1
-				# Restore the previously running AdGuardHome service even when mode rollback fails.
-				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}" || RESTART_RECOVERY_STATUS=1
-				[ "${MODE_ROLLBACK_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to roll back the pending mode migration."
-				[ "${RESTART_RECOVERY_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore the AdGuardHome service after the installation abort."
+				adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 				end_op_message 1 "$1"
 				return 1
 			fi
@@ -6831,13 +6825,7 @@ inst_AdGuardHome() {
 	if ! yaml_nvars_file_action delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf; then
 		all_event_scripts_transaction_rollback || true
 		PTXT "${ERROR} Unable to clean the legacy dnsmasq event hook."
-		MODE_ROLLBACK_STATUS=0
-		RESTART_RECOVERY_STATUS=0
-		rollback_pending_mode_migration || MODE_ROLLBACK_STATUS=1
-		# Restore the previously running AdGuardHome service even when mode rollback fails.
-		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}" || RESTART_RECOVERY_STATUS=1
-		[ "${MODE_ROLLBACK_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to roll back the pending mode migration."
-		[ "${RESTART_RECOVERY_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore the AdGuardHome service after the installation abort."
+		adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 		end_op_message 1 "$1"
 		return 1
 	fi
@@ -6846,13 +6834,7 @@ inst_AdGuardHome() {
 			if ! del_jffs_script "/jffs/scripts/${i}"; then
 				all_event_scripts_transaction_rollback || true
 				PTXT "${ERROR} Unable to clean the legacy ${i} event hook."
-				MODE_ROLLBACK_STATUS=0
-				RESTART_RECOVERY_STATUS=0
-				rollback_pending_mode_migration || MODE_ROLLBACK_STATUS=1
-				# Restore the previously running AdGuardHome service even when mode rollback fails.
-				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}" || RESTART_RECOVERY_STATUS=1
-				[ "${MODE_ROLLBACK_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to roll back the pending mode migration."
-				[ "${RESTART_RECOVERY_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore the AdGuardHome service after the installation abort."
+				adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 				end_op_message 1 "$1"
 				return 1
 			fi
@@ -7189,9 +7171,9 @@ setup_files_begin_if_needed() {
 	# A mode-migration or earlier setup stage can create the shared journal
 	# before this setup_AdGuardHome_impl frame is entered.  Reuse it only while
 	# this installer process still owns the transaction lock.
-	if nvram_transaction_lock_owned &&
-		[ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] &&
+	if [ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] &&
 		[ ! -L "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
+		nvram_transaction_lock_owned || return 1
 		SETUP_FILES_JOURNALED=1
 		return 0
 	fi

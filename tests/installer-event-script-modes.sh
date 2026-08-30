@@ -8,7 +8,7 @@ TMP_FILE="${TMPDIR:-/tmp}/installer-event-script-modes.$$"
 
 # cleanup removes temporary extracted files created by the regression check.
 cleanup() {
-	rm -rf "${TMP_FILE}" "${TMP_FILE}.wan" "${TMP_FILE}.lan" "${TMP_FILE}.wan-helper" "${TMP_FILE}.remove-helper" "${TMP_FILE}.snapshot-helper" "${TMP_FILE}.restore-helper" "${TMP_FILE}.add-helper" "${TMP_FILE}.services-helper" "${TMP_FILE}.rollback"
+	rm -rf "${TMP_FILE}" "${TMP_FILE}.wan" "${TMP_FILE}.lan" "${TMP_FILE}.wan-helper" "${TMP_FILE}.remove-helper" "${TMP_FILE}.snapshot-helper" "${TMP_FILE}.restore-helper" "${TMP_FILE}.add-helper" "${TMP_FILE}.services-helper" "${TMP_FILE}.remove" "${TMP_FILE}.rollback" "${TMP_FILE}.lan-rollback"
 }
 
 # fail prints a failure message to standard error and exits with status 1.
@@ -301,6 +301,8 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 		sed '$d' >"${LAN_ROLLBACK_ROOT}/helpers.part"
 	sed "s|/jffs/scripts|${LAN_ROLLBACK_ROOT}/jffs/scripts|g" "${LAN_ROLLBACK_ROOT}/helpers.part" >"${LAN_ROLLBACK_ROOT}/helpers"
 	. "${LAN_ROLLBACK_ROOT}/helpers"
+	type all_event_scripts_snapshot >/dev/null 2>&1 || fail 'LAN aggregate snapshot helper extraction failed'
+	type all_event_scripts_restore >/dev/null 2>&1 || fail 'LAN aggregate restore helper extraction failed'
 	SNAPSHOT_DIR="${LAN_ROLLBACK_ROOT}/base/snapshot"
 	all_event_scripts_snapshot "${SNAPSHOT_DIR}" || fail 'LAN aggregate hook snapshot failed'
 	printf '%s\n' 'changed dnsmasq hook' >"${LAN_ROLLBACK_ROOT}/jffs/scripts/dnsmasq.postconf"

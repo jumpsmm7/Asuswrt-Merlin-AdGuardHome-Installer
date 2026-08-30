@@ -251,6 +251,8 @@ RM_FAIL_STATE=0
 # Uninstall must restore before removing the installation tree and retain it on failure.
 UNINSTALL_FUNCTION_FILE="${TMP_ROOT}/uninstall-function"
 sed -n '/^adguard_recover_after_uninstall_hook_abort() {$/,/^}$/p; /^uninst_all() {$/,/^}$/p' "${ROOT_DIR}/installer" >"${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall function extraction failed'
+grep -q '^adguard_recover_after_uninstall_hook_abort() {$' "${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall recovery helper extraction failed'
+grep -q '^uninst_all() {$' "${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall helper extraction failed'
 # shellcheck disable=SC1090
 . "${UNINSTALL_FUNCTION_FILE}"
 # run_uninstall_test creates an isolated uninstall scenario, invokes uninst_all, and records restoration, restart, and removal events. Restore and start results control simulated outcomes; helper mode controls rollback-helper usability.

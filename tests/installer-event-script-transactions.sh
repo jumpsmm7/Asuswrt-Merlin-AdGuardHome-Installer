@@ -26,9 +26,13 @@ sed -n '/^remove_firewall_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${TMP_
 	fail 'could not complete firewall transaction helper extraction'
 sed -n '/^install_wan_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${TMP_DIR}/helpers.part" ||
 	fail 'could not extract WAN event-script orchestration helper'
-sed "s|/jffs/scripts|${TMP_DIR}/jffs/scripts|g" "${TMP_DIR}/helpers.part" >"${TMP_DIR}/helpers"
+sed "s|/jffs/scripts|${TMP_DIR}/jffs/scripts|g" "${TMP_DIR}/helpers.part" >"${TMP_DIR}/helpers" ||
+	fail 'could not rewrite event-script transaction helpers'
 # shellcheck disable=SC1091
 . "${TMP_DIR}/helpers"
+for helper in add_init_event_scripts add_services_event_scripts remove_services_event_scripts add_firewall_event_scripts all_event_scripts_transaction_begin all_event_scripts_transaction_rollback all_event_scripts_rollback install_wan_event_scripts; do
+	type "${helper}" >/dev/null 2>&1 || fail "event-script transaction helper extraction failed: ${helper}"
+done
 
 BASE_DIR="${TMP_DIR}/base"
 
@@ -121,11 +125,12 @@ FAILED_SNAPSHOT_DIR="${BASE_DIR}/failed-rollback"
 mkdir -p "${FAILED_SNAPSHOT_DIR}" || fail 'could not create failed rollback snapshot fixture'
 printf '%s\n' 'preserved recovery data' >"${FAILED_SNAPSHOT_DIR}/dnsmasq.postconf"
 ERROR=ERROR
-PTXT() { :; }
+PTXT() { printf '%s\n' "$*" >>"${TMP_DIR}/rollback-report"; }
 all_event_scripts_restore() { return 1; }
 if all_event_scripts_rollback "${FAILED_SNAPSHOT_DIR}"; then
 	fail 'aggregate rollback hid a restoration failure'
 fi
 [ -f "${FAILED_SNAPSHOT_DIR}/dnsmasq.postconf" ] || fail 'failed rollback discarded the recovery snapshot'
+grep -q "${FAILED_SNAPSHOT_DIR}" "${TMP_DIR}/rollback-report" || fail 'failed rollback did not report the retained recovery snapshot path'
 
 printf '%s\n' 'PASS: installer event-script transaction regression'
