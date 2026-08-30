@@ -91,6 +91,9 @@ TZDATA_PACKAGE_INFO_RAN_FILE="${TMP_ROOT}/tzdata-package-info.ran"
 	# sh simulates regression-test commands, records their execution, and returns each test's configured status.
 	sh() {
 		case "$1" in
+			tests/wan-nat-predicate-parity.sh)
+				return 0
+				;;
 			tests/installer-event-script-transactions.sh)
 				: >"${EVENT_SCRIPT_TRANSACTIONS_RAN_FILE}"
 				return 0

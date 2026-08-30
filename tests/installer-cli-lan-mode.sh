@@ -103,20 +103,17 @@ adguard_install_mode_detect() {
 	return 0
 }
 
-# adguard_ipset_allowed determines whether AdGuard IP-set integration is permitted for the configured install mode and WAN NAT state.
-adguard_ipset_allowed() {
-	case "${ADGUARD_INSTALL_MODE:-}" in
-		wan) return 0 ;;
-		lan | ap | bridge)
-			[ "${WAN_NAT_ACTIVE:-0}" -eq 1 ]
-			return $?
-			;;
-	esac
-	return 1
+sed -n '/^adguard_ipset_allowed() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_ROOT}/ipset-allowed" ||
+	fail 'could not extract IPSET eligibility helper'
+[ -s "${TMP_ROOT}/ipset-allowed" ] || fail 'IPSET eligibility helper was not found'
+# shellcheck disable=SC1090
+. "${TMP_ROOT}/ipset-allowed"
+wan_iptables_state_active() {
+	[ "${WAN_NAT_ACTIVE:-0}" -eq 1 ]
 }
 
 WAN_NAT_ACTIVE=1
-for supported_mode in lan ap bridge; do
+for supported_mode in lan; do
 	ADGUARD_INSTALL_MODE="${supported_mode}"
 	adguard_ipset_allowed || fail "${supported_mode} mode rejected qualifying WAN NAT state"
 done
@@ -125,6 +122,13 @@ for unsupported_topology in lan ap bridge; do
 	ADGUARD_INSTALL_MODE="${unsupported_topology}"
 	if adguard_ipset_allowed; then
 		fail "${unsupported_topology} mode accepted without qualifying WAN NAT state"
+	fi
+done
+WAN_NAT_ACTIVE=1
+for unsupported_mode in ap bridge; do
+	ADGUARD_INSTALL_MODE="${unsupported_mode}"
+	if adguard_ipset_allowed; then
+		fail "${unsupported_mode} mode bypassed the installer's supported-mode boundary"
 	fi
 done
 

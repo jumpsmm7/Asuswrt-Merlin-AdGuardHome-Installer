@@ -102,6 +102,8 @@ pidof() {
 
 # iptables outputs the configured WAN NAT rule.
 iptables() {
+	[ "$*" = '-t nat -S POSTROUTING' ] || fail "unexpected iptables query: $*"
+	[ "${IPTABLES_FAIL:-0}" -eq 0 ] || return 1
 	printf '%s\n' "${WAN_NAT_RULE:-}"
 }
 
@@ -181,6 +183,11 @@ case "${ACTUAL}" in
 	*IPSet_Supported*IPSet_Lock*) : ;;
 	*) fail "LAN double-NAT refresh did not use the supported lock path: ${ACTUAL}" ;;
 esac
+IPTABLES_FAIL=1
+if IPSet_Enabled; then
+	fail 'IPSet_Enabled allowed LAN IPSET when iptables was unavailable'
+fi
+IPTABLES_FAIL=0
 WAN_NAT_RULE=''
 
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write WAN config'

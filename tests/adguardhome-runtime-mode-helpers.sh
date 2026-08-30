@@ -56,6 +56,8 @@ pidof() {
 
 # iptables prints the configured simulated WAN NAT rule.
 iptables() {
+	[ "$*" = '-t nat -S POSTROUTING' ] || fail "unexpected iptables query: $*"
+	[ "${IPTABLES_FAIL:-0}" -eq 0 ] || return 1
 	printf '%s\n' "${WAN_NAT_RULE:-}"
 }
 
@@ -120,6 +122,9 @@ adguard_wan_iptables_state_active || fail 'wan1 gateway interface did not qualif
 WAN_NAT_RULE='-A POSTROUTING -o ppp1 -j MASQUERADE'
 adguard_wan_iptables_state_active || fail 'wan1 PPPoE interface did not qualify as WAN NAT state'
 WAN_NAT_RULE=''
+IPTABLES_FAIL=1
+! adguard_ipset_allowed || fail 'LAN install mode allowed IPSET when iptables was unavailable'
+IPTABLES_FAIL=0
 
 CONFIG_INSTALL_MODE='ap'
 ! adguard_ipset_allowed || fail 'AP install mode without WAN NAT state should not allow IPSET'

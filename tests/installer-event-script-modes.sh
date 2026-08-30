@@ -76,12 +76,12 @@ sed -n '/^install_wan_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}
 sed -n '/^remove_dnsmasq_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.remove-helper" ||
 	fail 'could not extract dnsmasq event-script removal helper'
 [ -s "${TMP_FILE}.remove-helper" ] || fail 'dnsmasq event-script removal helper was not found'
-sed -n '/^dnsmasq_event_scripts_snapshot() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.snapshot-helper" ||
-	fail 'could not extract dnsmasq event-script snapshot helper'
-[ -s "${TMP_FILE}.snapshot-helper" ] || fail 'dnsmasq event-script snapshot helper was not found'
-sed -n '/^dnsmasq_event_scripts_restore() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.restore-helper" ||
-	fail 'could not extract dnsmasq event-script restore helper'
-[ -s "${TMP_FILE}.restore-helper" ] || fail 'dnsmasq event-script restore helper was not found'
+sed -n '/^event_scripts_snapshot() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.snapshot-helper" ||
+	fail 'could not extract generic event-script snapshot helper'
+[ -s "${TMP_FILE}.snapshot-helper" ] || fail 'generic event-script snapshot helper was not found'
+sed -n '/^event_scripts_restore() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.restore-helper" ||
+	fail 'could not extract generic event-script restore helper'
+[ -s "${TMP_FILE}.restore-helper" ] || fail 'generic event-script restore helper was not found'
 sed -n '/^add_dnsmasq_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.add-helper" ||
 	fail 'could not extract dnsmasq event-script addition helper'
 [ -s "${TMP_FILE}.add-helper" ] || fail 'dnsmasq event-script addition helper was not found'
@@ -119,9 +119,9 @@ grep -q "write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$
 	fail 'WAN branch does not install dnsmasq-sdn.postconf when supported'
 grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"enabled\"'" "${TMP_FILE}.add-helper" ||
 	fail 'WAN branch does not persist enabled dnsmasq mode'
-grep -q 'dnsmasq_event_scripts_snapshot "${SNAPSHOT_DIR}" || {' "${TMP_FILE}.add-helper" ||
+grep -q 'event_scripts_snapshot "${SNAPSHOT_DIR}" /jffs/scripts/dnsmasq.postconf /jffs/scripts/dnsmasq-sdn.postconf "${CONF_FILE}" || {' "${TMP_FILE}.add-helper" ||
 	fail 'dnsmasq hook addition does not snapshot managed state before publication'
-grep -q 'dnsmasq_event_scripts_restore "${SNAPSHOT_DIR}"' "${TMP_FILE}.add-helper" ||
+grep -q 'event_scripts_restore "${SNAPSHOT_DIR}" /jffs/scripts/dnsmasq.postconf /jffs/scripts/dnsmasq-sdn.postconf "${CONF_FILE}"' "${TMP_FILE}.add-helper" ||
 	fail 'dnsmasq hook addition does not restore managed state after publication failure'
 
 grep -q 'add_init_event_scripts' "${TMP_FILE}.lan" ||
@@ -288,8 +288,8 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 	ERROR='Error:'
 	# PTXT writes a rollback restoration error message to the restore-error file.
 	PTXT() { printf '%s\n' "$*" >"${ROLLBACK_ROOT}/restore-error"; }
-	# dnsmasq_event_scripts_restore reports that dnsmasq event-script restoration failed.
-	dnsmasq_event_scripts_restore() { return 1; }
+	# event_scripts_restore reports that dnsmasq event-script restoration failed.
+	event_scripts_restore() { return 1; }
 	if add_dnsmasq_event_scripts; then
 		fail 'dnsmasq hook addition hides restoration failure'
 	fi

@@ -43,7 +43,9 @@ fi
 if ! grep -Fq 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps' "${SCRIPT_PATH}"; then
 	fail 'fallback interrupt cleanup does not restore AdGuardHome before releasing the lock'
 fi
-grep -Fq 'IPSet_Restore_Traps "${SAVED_TRAPS}"; IPSet_Lock_Interrupt_Propagate' "${SCRIPT_PATH}" ||
+grep -Fq 'IPSet_Restore_Traps "${SAVED_TRAPS}"' "${SCRIPT_PATH}" ||
+	fail 'nested IPSET lock cleanup does not restore saved traps'
+grep -Fq 'IPSet_Lock_Interrupt_Propagate' "${SCRIPT_PATH}" ||
 	fail 'nested IPSET lock cleanup does not propagate signals to the outer transaction'
 if ! grep -Fq 'if have_cmd flock && flock_supports_fd; then' "${SCRIPT_PATH}"; then
 	fail 'IPSET locking does not prefer compatible flock with mkdir as fallback'

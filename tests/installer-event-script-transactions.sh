@@ -140,6 +140,7 @@ FAILED_SNAPSHOT_DIR="${BASE_DIR}/failed-rollback"
 mkdir -p "${FAILED_SNAPSHOT_DIR}" || fail 'could not create failed rollback snapshot fixture'
 printf '%s\n' 'preserved recovery data' >"${FAILED_SNAPSHOT_DIR}/dnsmasq.postconf"
 ERROR=ERROR
+INFO=INFO
 # PTXT appends the provided text to the rollback report.
 PTXT() { printf '%s\n' "$*" >>"${TMP_DIR}/rollback-report"; }
 # all_event_scripts_restore restores all event-script files and reports failure when restoration is unsuccessful.
@@ -154,13 +155,17 @@ MODE_ROLLBACK_SNAPSHOT="${BASE_DIR}/post-migration-aggregate"
 mkdir -p "${MODE_ROLLBACK_SNAPSHOT}" || fail 'could not create post-migration aggregate snapshot fixture'
 printf '%s\n' 'manual recovery data' >"${MODE_ROLLBACK_SNAPSHOT}/dnsmasq.postconf"
 EVENT_SCRIPTS_ACTIVE_SNAPSHOT="${MODE_ROLLBACK_SNAPSHOT}"
+# all_event_scripts_restore succeeds in this scenario so an unexpected replay cannot satisfy the retained-path assertion through an earlier failure.
+all_event_scripts_restore() { return 0; }
+: >"${TMP_DIR}/rollback-report"
 # rollback_pending_mode_migration simulates a successful restoration of the older mode snapshot.
 rollback_pending_mode_migration() { return 0; }
 # adguard_restart_after_install_abort simulates successful service recovery.
 adguard_restart_after_install_abort() { return 0; }
 adguard_recover_after_event_hook_abort 1 || fail 'successful mode rollback recovery reported failure'
 [ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}" ] || fail 'mode rollback left the newer aggregate snapshot active for EXIT replay'
-[ -f "${MODE_ROLLBACK_SNAPSHOT}/dnsmasq.postconf" ] || fail 'mode rollback discarded the newer aggregate snapshot needed for manual recovery'
-grep -q "${MODE_ROLLBACK_SNAPSHOT}" "${TMP_DIR}/rollback-report" || fail 'mode rollback did not report the detached aggregate snapshot path'
+[ ! -e "${MODE_ROLLBACK_SNAPSHOT}" ] || fail 'mode rollback retained a superseded aggregate snapshot'
+grep -q 'Superseded event-hook rollback snapshot removed after mode rollback' "${TMP_DIR}/rollback-report" ||
+	fail 'mode rollback did not report successful aggregate snapshot cleanup'
 
 printf '%s\n' 'PASS: installer event-script transaction regression'

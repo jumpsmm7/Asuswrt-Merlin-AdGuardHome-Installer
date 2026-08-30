@@ -1053,15 +1053,16 @@ dnsmasq_publish_staged_config() (
 		if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then
 			TRANSACTION_SIGNAL_PENDING="1"
 			return 0
-		if [ "${TRANSACTION_SIGNAL_PENDING:-0}" = "0" ]; then
-			trap 'TRANSACTION_SIGNAL_PENDING="1"' HUP INT TERM
 		fi
-		trap '' HUP INT TERM
+		if [ "${TRANSACTION_SIGNAL_PENDING:-0}" = "0" ]; then
+			trap 'TRANSACTION_SIGNAL_PENDING="1"' HUP INT QUIT ABRT TERM TSTP
+		fi
+		trap '' HUP INT QUIT ABRT TERM TSTP
 		if [ ! -e "${CONFIG_STAGE}" ]; then
 			CONFIG_PUBLISHED="1"
 		fi
 		if [ "${TRANSACTION_ACTIVE:-0}" = "1" ] && [ "${SNAPSHOT_READY:-0}" = "1" ] && [ "${CONFIG_PUBLISHED:-0}" = "0" ] && [ "${ROLLBACK_ACTIVE:-0}" = "0" ]; then
-			trap '' HUP INT TERM
+			trap '' HUP INT QUIT ABRT TERM TSTP
 			ROLLBACK_ACTIVE="1"
 			if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
 				rm -rf "${IPSET_SNAPSHOT_DIR}"
@@ -1069,13 +1070,13 @@ dnsmasq_publish_staged_config() (
 				agh_log error dnsmasq_params "state=signal action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 			fi
 			ROLLBACK_ACTIVE="0"
-			trap - HUP INT TERM
+			trap - HUP INT QUIT ABRT TERM TSTP
 		fi
 		[ "${CONFIG_PUBLISHED:-0}" = "1" ] || rm -f "${CONFIG_STAGE}"
 		exit 1
 	}
 	IPSET_LOCK_INTERRUPT_CALLBACK="dnsmasq_publish_abort"
-	trap 'dnsmasq_publish_abort' HUP INT TERM
+	trap 'dnsmasq_publish_abort' HUP INT QUIT ABRT TERM TSTP
 	if ! dnsmasq_ipset_state_snapshot "${IPSET_SNAPSHOT_DIR}"; then
 		TRANSACTION_ACTIVE="0"
 		rm -f "${CONFIG_STAGE}"
@@ -1119,7 +1120,7 @@ dnsmasq_publish_staged_config() (
 	CONFIG_PUBLISHED="1"
 	TRANSACTION_ACTIVE="0"
 	IPSET_LOCK_INTERRUPT_CALLBACK=""
-	trap - HUP INT TERM
+	trap - HUP INT QUIT ABRT TERM TSTP
 	rm -rf "${IPSET_SNAPSHOT_DIR}" 2>/dev/null || true
 	return 0
 )
@@ -3277,7 +3278,12 @@ IPSet_Lock_Interrupt_Propagate() {
 # IPSet_Start_Restore restores AdGuardHome after an IPSet setup rollback and reports whether restoration succeeded.
 IPSet_Start_Restore() {
 	IPSET_START_STOPPED="0"
-	IPSet_Start_While_Locked
+	if IPSet_Start_While_Locked; then
+		agh_log info IPSet_Start_Restore "state=rollback action=restore_adguardhome reason=ipset_setup_rollback result=restored"
+		return 0
+	fi
+	agh_log error IPSet_Start_Restore "state=rollback action=restore_adguardhome reason=ipset_setup_rollback result=failed"
+	return 1
 }
 
 # IPSet_Start_While_Locked starts AdGuardHome while deferring any managed dnsmasq restart until the IPSet lock is released.
@@ -3718,7 +3724,6 @@ IPSet_Enabled() {
 	[ "${CONFIG_IPSET:-YES}" != "NO" ]
 }
 
-# IPSet_Refresh refreshes mappings in WAN mode or the LAN double-NAT exception and otherwise returns without changes.
 # IPSet_Refresh refreshes managed IPSet mappings from an optional dnsmasq configuration file and restarts AdGuardHome when the mappings change.
 IPSet_Refresh() {
 	local DNSMASQ_RESTART_SKIP RESTART_STATUS
