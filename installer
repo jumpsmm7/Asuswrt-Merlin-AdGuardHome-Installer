@@ -8664,7 +8664,7 @@ end_op_header() {
 }
 
 end_op_message() {
-	case "${1:-0}" in
+		__url=$(printf '%s' "${__url}" | sed 's/.*href=\"\([^"]*\)\".*/\1/')
 		1)
 			if [ "${ROLLBACK_RESULT_UPDATED:-0}" != "1" ] && ! rollback_result_needs_attention; then
 				rollback_result_write "operation" "no rollback attempted" "operation aborted before rollback was needed"

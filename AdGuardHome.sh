@@ -3274,12 +3274,7 @@ IPSet_Lock_Interrupt_Propagate() {
 # IPSet_Start_Restore restores AdGuardHome after an IPSet setup rollback and reports whether restoration succeeded.
 IPSet_Start_Restore() {
 	IPSET_START_STOPPED="0"
-	if IPSet_Start_While_Locked; then
-		agh_log info IPSet_Start_Restore "state=rollback action=restore_adguardhome reason=ipset_setup_rollback result=restored"
-		return 0
-	fi
-	agh_log error IPSet_Start_Restore "state=rollback action=restore_adguardhome reason=ipset_setup_rollback result=failed"
-	return 1
+	IPSet_Start_While_Locked
 }
 
 # IPSet_Start_While_Locked starts AdGuardHome while deferring any managed dnsmasq restart until the IPSet lock is released.
