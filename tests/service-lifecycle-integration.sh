@@ -210,6 +210,46 @@ dimension_count=$(awk -F '\t' '
 		failed = 1
 		exit 1
 	}
+	BEGIN {
+		expected_dimensions["mode_wan"] = 1
+		expected_dimensions["mode_ap"] = 1
+		expected_dimensions["mode_repeater"] = 1
+		expected_dimensions["mode_bridge"] = 1
+		expected_dimensions["dnsmasq_running"] = 1
+		expected_dimensions["dnsmasq_stopped"] = 1
+		expected_dimensions["dnsmasq_missing"] = 1
+		expected_dimensions["dnsmasq_failing"] = 1
+		expected_dimensions["ipv4_only"] = 1
+		expected_dimensions["ipv6_only"] = 1
+		expected_dimensions["dual_stack"] = 1
+		expected_dimensions["netstat_owner_rich"] = 1
+		expected_dimensions["netstat_ownerless"] = 1
+		expected_dimensions["flock_missing"] = 1
+		expected_dimensions["flock_incapable"] = 1
+		expected_dimensions["flock_descriptor"] = 1
+		expected_dimensions["launch_failure"] = 1
+		expected_dimensions["bind_failure"] = 1
+		expected_dimensions["webui_failure"] = 1
+		expected_dimensions["duplicate_process"] = 1
+		expected_dimensions["early_exit"] = 1
+		expected_dimensions["hung_stop"] = 1
+		expected_dimensions["interrupt_every_transition"] = 1
+		expected_dimensions["offline_wan"] = 1
+		expected_dimensions["readonly_jffs"] = 1
+		expected_dimensions["opt_initially_unavailable"] = 1
+		expected_dimensions["opt_disappears"] = 1
+		expected_dimensions["constrained_tmp"] = 1
+		expected_dimensions["custom_yaml"] = 1
+		expected_dimensions["custom_hooks"] = 1
+		expected_dimensions["bounded_completion"] = 1
+		expected_dimensions["service_continuity"] = 1
+		expected_dimensions["exact_recovery"] = 1
+		expected_dimensions["no_nvram_commit"] = 1
+		expected_dimensions["child_reaping"] = 1
+		expected_dimensions["cleanup_trap"] = 1
+		expected_dimensions["no_stale_artifacts"] = 1
+		expected_dimensions["preserve_failed_rollback"] = 1
+	}
 	NR == FNR {
 		if (NF && $1 !~ /^#/) cases[$1] = 1
 		next
@@ -217,6 +257,7 @@ dimension_count=$(awk -F '\t' '
 	!NF || $1 ~ /^#/ { next }
 	NF != 3 { invalid("coverage row " FNR " must have exactly three tab-separated fields") }
 	$1 == "" { invalid("coverage row " FNR " has no dimension") }
+	!($1 in expected_dimensions) { invalid("coverage fixture has unexpected dimension " $1) }
 	seen_dimensions[$1]++ { invalid("coverage fixture repeats dimension " $1) }
 	$2 == "" { invalid("coverage row " $1 " has no case") }
 	!($2 in cases) { invalid("coverage row " $1 " references unknown case " $2) }
@@ -240,6 +281,9 @@ dimension_count=$(awk -F '\t' '
 	}
 	END {
 		if (failed) exit 1
+		for (dimension in expected_dimensions) {
+			if (!(dimension in seen_dimensions)) invalid("coverage fixture omits dimension " dimension)
+		}
 		required[1] = "installer"
 		required[2] = "S99AdGuardHome"
 		required[3] = "rc.func.AdGuardHome"
