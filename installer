@@ -6795,7 +6795,7 @@ inst_AdGuardHome() {
 		return 1
 	fi
 	for i in init-start services-stop; do
-		if ! grep -q "${ADDON_DIR}/AdGuardHome.sh $i &" "/jffs/scripts/${i}" && grep -q "${ADDON_DIR}/AdGuardHome.sh $i" "/jffs/scripts/${i}"; then
+		if ! /bin/grep -q "${ADDON_DIR}/AdGuardHome.sh $i &" "/jffs/scripts/${i}" && /bin/grep -q "${ADDON_DIR}/AdGuardHome.sh $i" "/jffs/scripts/${i}"; then
 			if ! del_jffs_script "/jffs/scripts/${i}"; then
 				all_event_scripts_transaction_rollback || true
 				PTXT "${ERROR} Unable to clean the legacy ${i} event hook."
