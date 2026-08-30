@@ -143,7 +143,7 @@ run_bounded() {
 			exec "${TEST_SHELL}" "${TEST_SHELL_ARG}" "${test_script}"
 		fi
 		exec "${TEST_SHELL}" "${test_script}"
-	) >"${case_output}" 2>&1 &
+	) </dev/null >"${case_output}" 2>&1 &
 	case_pid=$!
 	CASE_PID="${case_pid}"
 	case_start_time=$(process_start_time "${case_pid}") || case_start_time=""
@@ -227,5 +227,7 @@ while IFS="$(printf '\t')" read -r case_name test_script; do
 	run_bounded "${case_name}" "${test_script}"
 done <"${CASES_FIXTURE}"
 
+[ "${SCENARIO_COUNT}" -eq "$(awk 'NF && $1 !~ /^#/ { count++ } END { print count + 0 }' "${CASES_FIXTURE}")" ] ||
+	fail 'integration matrix skipped one or more declared cases'
 [ "$(wc -l <"${RESULTS_FILE}")" -eq "${SCENARIO_COUNT}" ] || fail 'integration matrix did not complete every scenario group'
 printf '%s\n' 'PASS: installer and service lifecycle integration matrix'

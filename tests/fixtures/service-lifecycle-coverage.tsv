@@ -25,7 +25,7 @@ interrupt_every_transition	interruption_restore	installer
 offline_wan	stop_failures	AdGuardHome.sh
 readonly_jffs	readonly_jffs	installer
 opt_initially_unavailable	preflight_storage	installer
-opt_disappears	service_status	installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+opt_disappears	opt_disappearance	installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
 constrained_tmp	runtime_paths	installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
 custom_yaml	custom_config	AdGuardHome.sh
 custom_hooks	yaml_hooks	installer
