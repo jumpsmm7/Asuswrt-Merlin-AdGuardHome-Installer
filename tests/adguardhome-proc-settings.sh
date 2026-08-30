@@ -303,6 +303,8 @@ EOF
 	}
 	# installer_lan_domain_restore records restoration of the pre-uninstall LAN domain.
 	installer_lan_domain_restore() { printf '%s\n' domain-restore >>"${EVENTS_FILE}"; }
+	# nvram_transaction_finalize_setup_pair completes the retained LAN-domain transaction.
+	nvram_transaction_finalize_setup_pair() { return 0; }
 	# agh_is_running reports whether the service was initially running.
 	agh_is_running() { [ "${INITIAL_RUNNING}" = "1" ]; }
 	# agh_stop records a service stop event in the test event log.
