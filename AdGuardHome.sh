@@ -3697,6 +3697,7 @@ IPSet_Migrate() {
 	fi
 }
 
+# IPSet_Disable_Managed removes the managed YAML file reference, or any configured file reference when requested by topology enforcement.
 IPSet_Disable_Managed() {
 	local CURRENT_FILE TEMP_FILE
 	IPSET_DISABLE_CHANGED=""
@@ -3704,7 +3705,8 @@ IPSet_Disable_Managed() {
 	if ! CURRENT_FILE="$(IPSet_Current_File)"; then
 		return 1
 	fi
-	if [ "${CURRENT_FILE}" != "${IPSET_FILE}" ]; then
+	[ -n "${CURRENT_FILE}" ] || return 0
+	if [ "${1:-}" != "configured" ] && [ "${CURRENT_FILE}" != "${IPSET_FILE}" ]; then
 		return 0
 	fi
 	TEMP_FILE="${YAML_FILE}.ipset-legacy.$$"
@@ -3762,7 +3764,7 @@ IPSet_Disable_Managed_For_Start_Locked() {
 			return 1
 		fi
 	fi
-	if ! IPSet_Disable_Managed; then
+	if ! IPSet_Disable_Managed "${1:-}"; then
 		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
 			IPSET_START_RESTARTED="1"
 		fi
@@ -3787,15 +3789,18 @@ IPSet_Enabled() {
 
 # IPSet_Refresh refreshes managed IPSet mappings from an optional dnsmasq configuration file and restarts AdGuardHome when the mappings change.
 IPSet_Refresh() {
-	local DNSMASQ_RESTART_SKIP RESTART_STATUS
+	local CURRENT_FILE DNSMASQ_RESTART_SKIP RESTART_STATUS
 	if ! adguard_ipset_allowed; then
-		[ "$(IPSet_Current_File 2>/dev/null)" = "${IPSET_FILE}" ] || return 0
+		if ! CURRENT_FILE="$(IPSet_Current_File 2>/dev/null)"; then
+			return 1
+		fi
+		[ -n "${CURRENT_FILE}" ] || return 0
 		agh_log info IPSet_Refresh "state=refresh action=disable_managed_ipset result=required reason=topology_disallowed"
 		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
 		if [ "${IPSET_REFRESH_FROM_DNSMASQ:-}" = "1" ]; then
 			ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
 		fi
-		IPSet_Lock IPSet_Disable_Managed_For_Start_Locked
+		IPSet_Lock IPSet_Disable_Managed_For_Start_Locked configured
 		RESTART_STATUS="$?"
 		ADGUARDHOME_SKIP_DNSMASQ_RESTART="${DNSMASQ_RESTART_SKIP}"
 		return "${RESTART_STATUS}"

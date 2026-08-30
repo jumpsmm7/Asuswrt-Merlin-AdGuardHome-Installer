@@ -55,7 +55,7 @@ agh_log() {
 
 # IPSet_Disable_Managed records its invocation and returns the configured disable status.
 IPSet_Disable_Managed() {
-	printf '%s\n' IPSet_Disable_Managed >>"${CALLS_FILE}"
+	printf '%s\n' "IPSet_Disable_Managed${1:+ $1}" >>"${CALLS_FILE}"
 	return "${DISABLE_STATUS:-0}"
 }
 
@@ -91,6 +91,12 @@ lower_script() {
 # IPSet_Start_While_Locked records a service restoration call and succeeds.
 IPSet_Start_While_Locked() {
 	printf '%s\n' IPSet_Start_While_Locked >>"${CALLS_FILE}"
+	return 0
+}
+
+# IPSet_Start_Restore records restoration after failed cleanup and succeeds.
+IPSet_Start_Restore() {
+	printf '%s\n' IPSet_Start_Restore >>"${CALLS_FILE}"
 	return 0
 }
 
@@ -144,6 +150,28 @@ case "${ACTUAL}" in
 	*'reason=topology_disallowed'*) : ;;
 	*) fail 'LAN refresh did not log the topology transition' ;;
 esac
+
+CURRENT_IPSET_FILE=/custom/ipset.conf
+: >"${CALLS_FILE}"
+IPSet_Refresh || fail 'LAN refresh did not disable a custom IPSET file reference'
+ACTUAL="$(cat "${CALLS_FILE}")"
+case "${ACTUAL}" in
+	*'IPSet_Lock skip_dnsmasq_restart=1'*'IPSet_Disable_Managed configured'*) : ;;
+	*) fail "LAN refresh did not request configured IPSET cleanup: ${ACTUAL}" ;;
+esac
+
+DISABLE_STATUS=1
+: >"${CALLS_FILE}"
+if IPSet_Refresh; then
+	fail 'LAN refresh ignored a failed custom IPSET cleanup'
+fi
+ACTUAL="$(cat "${CALLS_FILE}")"
+case "${ACTUAL}" in
+	*'IPSet_Disable_Managed configured'*IPSet_Start_Restore*) : ;;
+	*) fail "LAN refresh did not propagate custom IPSET cleanup failure: ${ACTUAL}" ;;
+esac
+CURRENT_IPSET_FILE=
+DISABLE_STATUS=0
 
 : >"${CALLS_FILE}"
 IPSet_Migrate || fail 'LAN migration did not return success'
