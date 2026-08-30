@@ -1053,6 +1053,8 @@ dnsmasq_publish_staged_config() (
 		if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then
 			TRANSACTION_SIGNAL_PENDING="1"
 			return 0
+		if [ "${TRANSACTION_SIGNAL_PENDING:-0}" = "0" ]; then
+			trap 'TRANSACTION_SIGNAL_PENDING="1"' HUP INT TERM
 		fi
 		trap '' HUP INT TERM
 		if [ ! -e "${CONFIG_STAGE}" ]; then
