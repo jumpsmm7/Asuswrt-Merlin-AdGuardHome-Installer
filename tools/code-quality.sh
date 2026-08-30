@@ -243,6 +243,7 @@ run_check 'Installer WebUI port synchronization regression' sh tests/installer-w
 run_check 'Installer end operation rollback regression' sh tests/installer-end-op-rollback.sh
 run_check 'Installer doctor fix safety regression' sh tests/installer-doctor-fix-safety.sh
 run_check 'Installer doctor rollback result regression' sh tests/installer-doctor-rollback-result.sh
+run_check 'Installer MD5 helper regression' sh tests/installer-md5-helper.sh
 run_check 'Installer SHA-256 helper regression' sh tests/installer-sha256-helper.sh
 run_check 'Installer checksum compatibility policy regression' sh tests/installer-checksum-compatibility-policy.sh
 run_check 'Installer secure transport fallback regression' sh tests/installer-secure-download-fallback.sh

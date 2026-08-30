@@ -65,6 +65,9 @@ jobs:
       - name: Run installer jq dependency regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-jq-helper.sh
 
+      - name: Run installer MD5 helper regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-md5-helper.sh
+
       - name: Run installer preflight action regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-preflight-actions.sh
 
