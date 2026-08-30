@@ -1,0 +1,39 @@
+# dimension	case_name	distributed_scripts
+mode_wan	mode_matrix	installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+mode_ap	mode_matrix	installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+mode_repeater	mode_matrix	installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+mode_bridge	mode_matrix	installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+dnsmasq_running	service_mode_matrix	S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+dnsmasq_stopped	service_mode_matrix	S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+dnsmasq_missing	dns_handoff	S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+dnsmasq_failing	dns_handoff	S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+ipv4_only	stop_failures	AdGuardHome.sh
+ipv6_only	stop_failures	AdGuardHome.sh
+dual_stack	dns_handoff	S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+netstat_owner_rich	netstat_matrix	S99AdGuardHome
+netstat_ownerless	netstat_matrix	S99AdGuardHome
+flock_missing	lock_matrix	installer AdGuardHome.sh
+flock_incapable	lock_matrix	installer AdGuardHome.sh
+flock_descriptor	lock_descriptor	installer
+launch_failure	dns_handoff	S99AdGuardHome rc.func.AdGuardHome
+bind_failure	bind_matrix	installer S99AdGuardHome
+webui_failure	webui_failure	installer S99AdGuardHome rc.func.AdGuardHome
+duplicate_process	process_signals	rc.func.AdGuardHome
+early_exit	dns_handoff	S99AdGuardHome rc.func.AdGuardHome
+hung_stop	stop_failures	rc.func.AdGuardHome AdGuardHome.sh
+interrupt_every_transition	interruption_restore	installer
+offline_wan	stop_failures	AdGuardHome.sh
+readonly_jffs	readonly_jffs	installer
+opt_initially_unavailable	preflight_storage	installer
+opt_disappears	service_status	installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+constrained_tmp	runtime_paths	installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+custom_yaml	custom_config	AdGuardHome.sh
+custom_hooks	yaml_hooks	installer
+bounded_completion	dns_handoff	installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+service_continuity	upgrade_restart	installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+exact_recovery	stop_failures	installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+no_nvram_commit	dns_environment	installer
+child_reaping	reaper	installer rc.func.AdGuardHome
+cleanup_trap	interruption_restore	installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+no_stale_artifacts	artifacts	installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh
+preserve_failed_rollback	rollback_record	installer
