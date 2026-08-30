@@ -19,9 +19,18 @@ DNSMASQ_CONF_FILE="${TEST_ROOT}/dnsmasq.conf"
 DNSMASQ_SDN_CONF_FILE="${TEST_ROOT}/dnsmasq-1.conf"
 BRIDGE_FALLBACK_CALLS_FILE="${TEST_ROOT}/bridge-fallback-calls"
 MOUNT_CALLS_FILE="${TEST_ROOT}/mount-calls"
+first_pid=""
+second_pid=""
 
-# cleanup removes the test sandbox directory and its contents.
+# cleanup stops background workers before removing the test sandbox.
 cleanup() {
+	for worker_pid in "${first_pid:-}" "${second_pid:-}"; do
+		[ -n "${worker_pid}" ] || continue
+		if kill -0 "${worker_pid}" 2>/dev/null; then
+			kill "${worker_pid}" 2>/dev/null || true
+		fi
+		wait "${worker_pid}" 2>/dev/null || true
+	done
 	rm -rf "${TEST_ROOT}"
 }
 
@@ -756,10 +765,16 @@ wait_for_file "${SECOND_STARTED}" || fail 'second concurrent transaction did not
 wait_for_file "${SECOND_WAITING}" || fail 'second concurrent transaction did not wait for the first lock holder'
 [ ! -e "${SECOND_MARKER}" ] || fail 'second callback refreshed state before the first transaction completed'
 : >"${FIRST_RELEASE}" || fail 'could not release first concurrent transaction'
-if wait "${first_pid}"; then
+first_status=0
+wait "${first_pid}" || first_status="$?"
+first_pid=""
+if [ "${first_status}" -eq 0 ]; then
 	fail 'first concurrent publication failure unexpectedly succeeded'
 fi
-wait "${second_pid}" || fail 'second concurrent transaction failed after waiting for the lock'
+second_status=0
+wait "${second_pid}" || second_status="$?"
+second_pid=""
+[ "${second_status}" -eq 0 ] || fail 'second concurrent transaction failed after waiting for the lock'
 grep -qx second "${IPSET_FILE}" || fail 'first compensation overwrote the second callback IPSET state'
 grep -qx second "${YAML_FILE}" || fail 'first compensation overwrote the second callback YAML state'
 grep -qx '# second staged config' "${DNSMASQ_SDN_CONF_FILE}" || fail 'second callback did not publish its dnsmasq state'
