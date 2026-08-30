@@ -241,9 +241,9 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 	CONF_FILE="${ROLLBACK_ROOT}/config"
 	: >"${ROLLBACK_ROOT}/dnsmasq.conf"
 	# pidof returns success without performing a process lookup.
-pidof() { return 0; }
+	pidof() { return 0; }
 	# nvram prints the `mtlancfg` value.
-nvram() { printf '%s\n' 'mtlancfg'; }
+	nvram() { printf '%s\n' 'mtlancfg'; }
 	# write_manager_script writes a change marker to the specified path, except for the SDN dnsmasq hook path where it fails.
 	write_manager_script() {
 		if [ "$1" = "${ROLLBACK_ROOT}/jffs/scripts/dnsmasq-sdn.postconf" ]; then
@@ -287,9 +287,9 @@ nvram() { printf '%s\n' 'mtlancfg'; }
 	printf '%s\n' 'ADGUARD_DNSMASQ_MODE="disabled"' >"${CONF_FILE}"
 	ERROR='Error:'
 	# PTXT writes a rollback restoration error message to the restore-error file.
-PTXT() { printf '%s\n' "$*" >"${ROLLBACK_ROOT}/restore-error"; }
+	PTXT() { printf '%s\n' "$*" >"${ROLLBACK_ROOT}/restore-error"; }
 	# dnsmasq_event_scripts_restore reports that dnsmasq event-script restoration failed.
-dnsmasq_event_scripts_restore() { return 1; }
+	dnsmasq_event_scripts_restore() { return 1; }
 	if add_dnsmasq_event_scripts; then
 		fail 'dnsmasq hook addition hides restoration failure'
 	fi

@@ -271,24 +271,24 @@ run_legacy_cleanup_failure() (
 	# shellcheck disable=SC1090
 	. "${TMP_ROOT}/install-path"
 	# ptxt_phase marks a test phase boundary.
-ptxt_phase() { :; }
+	ptxt_phase() { :; }
 	# ptxt_step provides a no-op progress-step hook.
-ptxt_step() { :; }
+	ptxt_step() { :; }
 	# ptxt_ok is a no-op placeholder function.
-ptxt_ok() { :; }
+	ptxt_ok() { :; }
 	# ptxt_warn accepts warning messages without producing output.
-ptxt_warn() { :; }
+	ptxt_warn() { :; }
 	PTXT() { :; }
 	# ensure_sha256sum_tool ensures the sha256sum tool is available.
-ensure_sha256sum_tool() { return 0; }
+	ensure_sha256sum_tool() { return 0; }
 	# adguard_remote_archive returns the name of the fixture archive.
-adguard_remote_archive() { printf '%s\n' 'fixture.tar.gz'; }
+	adguard_remote_archive() { printf '%s\n' 'fixture.tar.gz'; }
 	# adguard_remote_md5 computes the remote MD5 checksum for AdGuard.
-adguard_remote_md5() { :; }
+	adguard_remote_md5() { :; }
 	# adguard_remote_sha256 is a no-op placeholder for the remote SHA-256 value.
-adguard_remote_sha256() { :; }
+	adguard_remote_sha256() { :; }
 	# adguard_remote_url prints the remote URL for the AdGuard fixture archive.
-adguard_remote_url() { printf '%s\n' 'https://example.invalid/fixture.tar.gz'; }
+	adguard_remote_url() { printf '%s\n' 'https://example.invalid/fixture.tar.gz'; }
 	# download_file creates an empty fixture archive when the requested path is the base directory.
 	download_file() {
 		case "$1" in
@@ -296,11 +296,11 @@ adguard_remote_url() { printf '%s\n' 'https://example.invalid/fixture.tar.gz'; }
 		esac
 	}
 	# sha256_is_valid reports that the SHA-256 value is invalid.
-sha256_is_valid() { return 1; }
+	sha256_is_valid() { return 1; }
 	# md5_is_valid determines whether an MD5 checksum is valid and always reports failure.
-md5_is_valid() { return 1; }
+	md5_is_valid() { return 1; }
 	# agh_process_count prints the process count as 1.
-agh_process_count() { printf '%s\n' '1'; }
+	agh_process_count() { printf '%s\n' '1'; }
 	# install_adguard_archive creates an executable placeholder AdGuard Home archive script at `${AGH_FILE}`.
 	install_adguard_archive() {
 		cat >"${AGH_FILE}" <<'EOF'
@@ -310,7 +310,7 @@ EOF
 		chmod 755 "${AGH_FILE}"
 	}
 	# ln does nothing and always succeeds.
-ln() { return 0; }
+	ln() { return 0; }
 	# rm preserves /opt/sbin/AdGuardHome and delegates other removals to /bin/rm.
 	rm() {
 		case "$*" in
@@ -319,25 +319,25 @@ ln() { return 0; }
 		/bin/rm "$@"
 	}
 	# create_dir creates the specified directory and any missing parent directories.
-create_dir() { mkdir -p "$1"; }
+	create_dir() { mkdir -p "$1"; }
 	# configure_runtime_defaults configures default runtime settings.
-configure_runtime_defaults() { return 0; }
+	configure_runtime_defaults() { return 0; }
 	# adguard_install_mode_confirmed confirms that the AdGuard installation mode is known and valid.
-adguard_install_mode_confirmed() { return 0; }
+	adguard_install_mode_confirmed() { return 0; }
 	# adguard_migrate_detected_install_mode determines the detected installation mode for migration.
-adguard_migrate_detected_install_mode() { return 0; }
+	adguard_migrate_detected_install_mode() { return 0; }
 	# all_event_scripts_transaction_begin records the start of an event-script transaction.
-all_event_scripts_transaction_begin() { printf '%s\n' 'transaction:begin' >>"${CALLS_FILE}"; }
+	all_event_scripts_transaction_begin() { printf '%s\n' 'transaction:begin' >>"${CALLS_FILE}"; }
 	# all_event_scripts_transaction_rollback records an event-script transaction rollback.
-all_event_scripts_transaction_rollback() { printf '%s\n' 'transaction:rollback' >>"${CALLS_FILE}"; }
+	all_event_scripts_transaction_rollback() { printf '%s\n' 'transaction:rollback' >>"${CALLS_FILE}"; }
 	# rollback_pending_mode_migration records a pending mode migration rollback.
-rollback_pending_mode_migration() { printf '%s\n' 'mode:rollback' >>"${CALLS_FILE}"; }
+	rollback_pending_mode_migration() { printf '%s\n' 'mode:rollback' >>"${CALLS_FILE}"; }
 	# cleanup_legacy_firewall reports whether the legacy firewall cleanup failure case is active.
 	cleanup_legacy_firewall() {
 		[ "${FAILURE_CASE}" != "firewall" ]
 	}
 	# legacy_firewall_cleanup_needed determines whether legacy firewall cleanup is required.
-legacy_firewall_cleanup_needed() { return 0; }
+	legacy_firewall_cleanup_needed() { return 0; }
 	# yaml_nvars_file_action determines whether the YAML NVRAM file action should proceed based on the configured failure case.
 	yaml_nvars_file_action() {
 		[ "${FAILURE_CASE}" != "dnsmasq" ]
@@ -358,19 +358,19 @@ legacy_firewall_cleanup_needed() { return 0; }
 		return 1
 	}
 	# adguard_install_abort_trap_disable_preserve_defer provides a no-op hook for preserving deferred abort-trap handling.
-adguard_install_abort_trap_disable_preserve_defer() { :; }
+	adguard_install_abort_trap_disable_preserve_defer() { :; }
 	# agh_is_running reports that the service is not running.
-agh_is_running() { return 1; }
+	agh_is_running() { return 1; }
 	# agh_start restarts the service and monitor.
 	agh_start() {
 		printf '%s\n' 'service:restarted' 'monitor:restarted' >>"${CALLS_FILE}"
 	}
 	# rollback_result_write records a rollback result in the calls log.
-rollback_result_write() { printf '%s\n' "rollback-result:$*" >>"${CALLS_FILE}"; }
+	rollback_result_write() { printf '%s\n' "rollback-result:$*" >>"${CALLS_FILE}"; }
 	# rollback_result_notice performs no operation.
-rollback_result_notice() { :; }
+	rollback_result_notice() { :; }
 	# end_op_message records the operation status in the calls log.
-end_op_message() { printf '%s\n' "end-status:$1" >>"${CALLS_FILE}"; }
+	end_op_message() { printf '%s\n' "end-status:$1" >>"${CALLS_FILE}"; }
 	if inst_AdGuardHome update release; then
 		fail "${FAILURE_CASE}: cleanup failure returned success"
 	else
