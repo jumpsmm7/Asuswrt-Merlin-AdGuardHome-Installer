@@ -5093,10 +5093,12 @@ adguard_recover_after_event_hook_abort() {
 	local MODE_ROLLBACK_STATUS RESTART_RECOVERY_STATUS
 	MODE_ROLLBACK_STATUS=0
 	RESTART_RECOVERY_STATUS=0
-	if rollback_pending_mode_migration; then
-		all_event_scripts_transaction_detach_after_mode_rollback
-	else
-		MODE_ROLLBACK_STATUS=1
+	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
+		if rollback_pending_mode_migration; then
+			all_event_scripts_transaction_detach_after_mode_rollback
+		else
+			MODE_ROLLBACK_STATUS=1
+		fi
 	fi
 	# Restore the previously running AdGuardHome service even when mode rollback fails.
 	adguard_restart_after_install_abort "$1" || RESTART_RECOVERY_STATUS=1

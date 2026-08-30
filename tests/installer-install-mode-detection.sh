@@ -257,6 +257,7 @@ run_legacy_cleanup_failure() (
 	ADGUARD_ARCH="armv7"
 	ADGUARD_INSTALL_MODE="wan"
 	PREVIOUS_ADGUARD_INSTALL_MODE="wan"
+	MODE_MIGRATION_YAML_FILE_BACKUP="${BASE_DIR}/mode-migration-yaml"
 	SERVICE_REFRESH_ONLY=0
 	RURL="https://example.invalid"
 	URL_ARCH="https://example.invalid"
