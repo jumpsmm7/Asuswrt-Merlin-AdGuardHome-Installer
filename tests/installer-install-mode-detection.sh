@@ -190,6 +190,10 @@ awk '
 ' "${TMP_ROOT}/rollback-function" || fail 'mode migration rollback exposes partially deleted backups to signal cleanup'
 extract_function inst_AdGuardHome "${TMP_ROOT}/install-path" ||
 	fail 'could not extract install orchestration path'
+extract_function adguard_restart_after_install_abort "${TMP_ROOT}/install-abort-restart" ||
+	fail 'could not extract install-abort restart helper'
+extract_function adguard_recover_after_event_hook_abort "${TMP_ROOT}/event-hook-recovery" ||
+	fail 'could not extract event-hook recovery helper'
 grep -Fq 'if ! finalize_pending_mode_migration; then' "${TMP_ROOT}/install-path" ||
 	fail 'install orchestration must propagate mode migration finalization failures'
 awk '
@@ -239,14 +243,119 @@ awk '
 	status && /\[ "\$\{MIGRATE_STATUS\}" -eq 2 \] \|\| adguard_restart_after_install_abort/ { guarded = 1; exit }
 	END { exit(guarded ? 0 : 1) }
 ' "${TMP_ROOT}/install-path" || fail 'migration rollback failure does not block the previous installation restart'
-awk '
-	/Unable to clean the legacy dnsmasq event hook/ { failure = 1; next }
-	failure && /adguard_recover_after_event_hook_abort "\$\{RESTART_AFTER_ABORT\}"/ { verified = 1; exit }
-	failure && /return 1/ { exit 1 }
-	END { exit(verified ? 0 : 1) }
-' "${TMP_ROOT}/install-path" || fail 'transactional event-script failure does not attempt service recovery independently of rollback'
-[ "$(grep -c 'adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"' "${TMP_ROOT}/install-path")" -ge 3 ] ||
-	fail 'legacy event-hook cleanup failures do not use the shared recovery helper'
+# run_legacy_cleanup_failure executes one injected legacy-cleanup failure and
+# verifies aggregate rollback, mode rollback, service/monitor recovery, and status.
+run_legacy_cleanup_failure() (
+	FAILURE_CASE="$1"
+	CALLS_FILE="${TMP_ROOT}/legacy-cleanup-${FAILURE_CASE}"
+	BASE_DIR="${TMP_ROOT}/legacy-base-${FAILURE_CASE}"
+	TARG_DIR="${TMP_ROOT}/legacy-target-${FAILURE_CASE}"
+	ADDON_DIR="${TMP_ROOT}/legacy-addon-${FAILURE_CASE}"
+	AGH_FILE="${TARG_DIR}/AdGuardHome"
+	SCRIPT_LOC="${TMP_ROOT}/missing-installer"
+	CONF_FILE="${TMP_ROOT}/legacy-config-${FAILURE_CASE}"
+	ADGUARD_ARCH="armv7"
+	ADGUARD_INSTALL_MODE="wan"
+	PREVIOUS_ADGUARD_INSTALL_MODE="wan"
+	SERVICE_REFRESH_ONLY=0
+	RURL="https://example.invalid"
+	URL_ARCH="https://example.invalid"
+	ERROR='Error:'
+	INFO='Info:'
+	: >"${CALLS_FILE}"
+	mkdir -p "${BASE_DIR}" "${TARG_DIR}" || fail "${FAILURE_CASE}: could not create cleanup fixture"
+	# shellcheck disable=SC1090
+	. "${TMP_ROOT}/install-abort-restart"
+	# shellcheck disable=SC1090
+	. "${TMP_ROOT}/event-hook-recovery"
+	# shellcheck disable=SC1090
+	. "${TMP_ROOT}/install-path"
+	ptxt_phase() { :; }
+	ptxt_step() { :; }
+	ptxt_ok() { :; }
+	ptxt_warn() { :; }
+	PTXT() { :; }
+	ensure_sha256sum_tool() { return 0; }
+	adguard_remote_archive() { printf '%s\n' 'fixture.tar.gz'; }
+	adguard_remote_md5() { :; }
+	adguard_remote_sha256() { :; }
+	adguard_remote_url() { printf '%s\n' 'https://example.invalid/fixture.tar.gz'; }
+	download_file() {
+		case "$1" in
+			"${BASE_DIR}") : >"${BASE_DIR}/fixture.tar.gz" ;;
+		esac
+	}
+	sha256_is_valid() { return 1; }
+	md5_is_valid() { return 1; }
+	agh_process_count() { printf '%s\n' '1'; }
+	install_adguard_archive() {
+		cat >"${AGH_FILE}" <<'EOF'
+#!/bin/sh
+printf '%s\n' 'AdGuard Home version v0.0.0'
+EOF
+		chmod 755 "${AGH_FILE}"
+	}
+	ln() { return 0; }
+	rm() {
+		case "$*" in
+			*'/opt/sbin/AdGuardHome'*) return 0 ;;
+		esac
+		/bin/rm "$@"
+	}
+	create_dir() { mkdir -p "$1"; }
+	configure_runtime_defaults() { return 0; }
+	adguard_install_mode_confirmed() { return 0; }
+	adguard_migrate_detected_install_mode() { return 0; }
+	all_event_scripts_transaction_begin() { printf '%s\n' 'transaction:begin' >>"${CALLS_FILE}"; }
+	all_event_scripts_transaction_rollback() { printf '%s\n' 'transaction:rollback' >>"${CALLS_FILE}"; }
+	rollback_pending_mode_migration() { printf '%s\n' 'mode:rollback' >>"${CALLS_FILE}"; }
+	cleanup_legacy_firewall() {
+		[ "${FAILURE_CASE}" != "firewall" ]
+	}
+	legacy_firewall_cleanup_needed() { return 0; }
+	yaml_nvars_file_action() {
+		[ "${FAILURE_CASE}" != "dnsmasq" ]
+	}
+	grep() {
+		case "$*" in
+			*"/jffs/scripts/${FAILURE_CASE}"*)
+				case "$*" in *' &'*) return 1 ;; *) return 0 ;; esac
+				;;
+			*'/jffs/scripts/init-start'* | *'/jffs/scripts/services-stop'*) return 1 ;;
+		esac
+		/bin/grep "$@"
+	}
+	del_jffs_script() {
+		printf '%s\n' "hook-remove:$1" >>"${CALLS_FILE}"
+		return 1
+	}
+	adguard_install_abort_trap_disable_preserve_defer() { :; }
+	agh_is_running() { return 1; }
+	agh_start() {
+		printf '%s\n' 'service:restarted' 'monitor:restarted' >>"${CALLS_FILE}"
+	}
+	rollback_result_write() { printf '%s\n' "rollback-result:$*" >>"${CALLS_FILE}"; }
+	rollback_result_notice() { :; }
+	end_op_message() { printf '%s\n' "end-status:$1" >>"${CALLS_FILE}"; }
+	if inst_AdGuardHome update release; then
+		fail "${FAILURE_CASE}: cleanup failure returned success"
+	else
+		cleanup_status=$?
+	fi
+	[ "${cleanup_status}" -eq 1 ] || fail "${FAILURE_CASE}: unexpected cleanup exit status ${cleanup_status}"
+	grep -qx 'transaction:begin' "${CALLS_FILE}" || fail "${FAILURE_CASE}: transaction did not begin"
+	grep -qx 'transaction:rollback' "${CALLS_FILE}" || fail "${FAILURE_CASE}: aggregate rollback was not attempted"
+	grep -qx 'mode:rollback' "${CALLS_FILE}" || fail "${FAILURE_CASE}: mode rollback was not attempted"
+	grep -qx 'service:restarted' "${CALLS_FILE}" || fail "${FAILURE_CASE}: service recovery was not attempted"
+	grep -qx 'monitor:restarted' "${CALLS_FILE}" || fail "${FAILURE_CASE}: monitor recovery was not attempted"
+	grep -q '^rollback-result:install-abort rollback complete ' "${CALLS_FILE}" || fail "${FAILURE_CASE}: successful rollback result was not recorded"
+	grep -qx 'end-status:1' "${CALLS_FILE}" || fail "${FAILURE_CASE}: failure completion status was not reported"
+)
+
+for legacy_cleanup_failure in firewall dnsmasq init-start services-stop; do
+	run_legacy_cleanup_failure "${legacy_cleanup_failure}" ||
+		fail "${legacy_cleanup_failure}: legacy cleanup recovery scenario failed"
+done
 grep -q 'Unable to install the required WAN-mode event scripts' "${TMP_ROOT}/migration" ||
 	fail 'LAN-to-WAN migration does not abort when WAN event-script synchronization fails'
 grep -q 'wan:lan | lan:wan | :lan)' "${SCRIPT_PATH}" ||
