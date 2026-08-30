@@ -368,10 +368,9 @@ EOF
 	agh_wait_started() {
 		printf '%s\n' 'monitor:restarted' >>"${CALLS_FILE}"
 	}
-	# agh_start records service recovery and verifies the monitor recovery path separately.
+	# agh_start records service recovery without simulating monitor recovery.
 	agh_start() {
 		printf '%s\n' 'service:restarted' >>"${CALLS_FILE}"
-		agh_wait_started
 	}
 	# rollback_result_write records a rollback result in the calls log.
 	rollback_result_write() { printf '%s\n' "rollback-result:$*" >>"${CALLS_FILE}"; }
