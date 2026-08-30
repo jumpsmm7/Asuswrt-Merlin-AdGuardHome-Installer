@@ -8421,14 +8421,14 @@ uninst_all() {
 		[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
 		return 1
 	fi
-	if [ -d "${TARG_DIR}/proc-sys-state" ] && [ ! -x "${TARG_DIR}/AdGuardHome.sh" ]; then
+	if [ -d "${TARG_DIR}/proc-sys-state" ] && [ ! -x "${ADDON_DIR}/AdGuardHome.sh" ]; then
 		PTXT "${ERROR} Unable to restore installer-managed kernel settings."
 		[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
 		[ "${ADGUARD_WAS_RUNNING}" = "0" ] || agh_start || true
 		return 1
 	fi
-	if [ -x "${TARG_DIR}/AdGuardHome.sh" ]; then
-		if ! "${TARG_DIR}/AdGuardHome.sh" proc-restore x; then
+	if [ -x "${ADDON_DIR}/AdGuardHome.sh" ]; then
+		if ! "${ADDON_DIR}/AdGuardHome.sh" proc-restore x; then
 			PTXT "${ERROR} Unable to restore installer-managed kernel settings."
 			[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
 			[ "${ADGUARD_WAS_RUNNING}" = "0" ] || agh_start || true

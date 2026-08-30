@@ -27,6 +27,7 @@ eval "${MENU_FUNCTION}"
 # check_ipset is the final persistence guard and must not accept an enable
 # request unless the mode is WAN or LAN with qualifying WAN NAT state.
 CHECK_IPSET_LOG="${TMPDIR:-/tmp}/installer-ipset-check-guard.$$"
+trap 'rm -f "${CHECK_IPSET_LOG}"' EXIT HUP INT TERM
 # write_conf writes a configuration key and value to the IPSET check log.
 write_conf() {
 	printf '%s=%s\n' "$1" "$2" >"${CHECK_IPSET_LOG}"

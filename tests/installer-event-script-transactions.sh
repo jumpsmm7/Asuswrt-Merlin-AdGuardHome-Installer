@@ -163,7 +163,7 @@ rollback_pending_mode_migration() { return 0; }
 # adguard_restart_after_install_abort simulates successful service recovery.
 adguard_restart_after_install_abort() { return 0; }
 adguard_recover_after_event_hook_abort 1 || fail 'successful mode rollback recovery reported failure'
-[ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}" ] || fail 'mode rollback left the newer aggregate snapshot active for EXIT replay'
+[ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] || fail 'mode rollback left the newer aggregate snapshot active for EXIT replay'
 [ ! -e "${MODE_ROLLBACK_SNAPSHOT}" ] || fail 'mode rollback retained a superseded aggregate snapshot'
 grep -q 'Superseded event-hook rollback snapshot removed after mode rollback' "${TMP_DIR}/rollback-report" ||
 	fail 'mode rollback did not report successful aggregate snapshot cleanup'

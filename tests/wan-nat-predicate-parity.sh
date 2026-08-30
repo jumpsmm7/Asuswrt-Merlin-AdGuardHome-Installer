@@ -53,12 +53,20 @@ check_case() {
 	[ "${installer_status}" -eq "$1" ] || fail "unexpected predicate result for ${WAN_NAT_RULE:-iptables failure}"
 }
 
-WAN_NAT_RULE='-A POSTROUTING -o eth0 -j MASQUERADE'; check_case 0
-WAN_NAT_RULE='-A POSTROUTING -s 192.168.50.0/24 -o ppp1 -j SNAT --to-source 192.0.2.1'; check_case 0
-WAN_NAT_RULE='-A POSTROUTING ! -o eth0 -j MASQUERADE'; check_case 1
-WAN_NAT_RULE='-A POSTROUTING -i br1 -o eth0 -j MASQUERADE'; check_case 1
-WAN_NAT_RULE='-A POSTROUTING -m comment --comment "-o eth0 -j MASQUERADE" -o br0 -j ACCEPT'; check_case 1
-WAN_NAT_RULE='-A POSTROUTING -o tun0 -j MASQUERADE'; check_case 1
-IPTABLES_FAIL=1; WAN_NAT_RULE=''; check_case 1
+WAN_NAT_RULE='-A POSTROUTING -o eth0 -j MASQUERADE'
+check_case 0
+WAN_NAT_RULE='-A POSTROUTING -s 192.168.50.0/24 -o ppp1 -j SNAT --to-source 192.0.2.1'
+check_case 0
+WAN_NAT_RULE='-A POSTROUTING ! -o eth0 -j MASQUERADE'
+check_case 1
+WAN_NAT_RULE='-A POSTROUTING -i br1 -o eth0 -j MASQUERADE'
+check_case 1
+WAN_NAT_RULE='-A POSTROUTING -m comment --comment "-o eth0 -j MASQUERADE" -o br0 -j ACCEPT'
+check_case 1
+WAN_NAT_RULE='-A POSTROUTING -o tun0 -j MASQUERADE'
+check_case 1
+IPTABLES_FAIL=1
+WAN_NAT_RULE=''
+check_case 1
 
 printf '%s\n' 'PASS: installer and runtime WAN NAT predicates remain in parity'

@@ -363,9 +363,14 @@ EOF
 	adguard_install_abort_trap_disable_preserve_defer() { :; }
 	# agh_is_running reports that the service is not running.
 	agh_is_running() { return 1; }
-	# agh_start restarts the service and monitor.
+	# agh_wait_started records the independently observed monitor recovery.
+	agh_wait_started() {
+		printf '%s\n' 'monitor:restarted' >>"${CALLS_FILE}"
+	}
+	# agh_start records service recovery and verifies the monitor recovery path separately.
 	agh_start() {
-		printf '%s\n' 'service:restarted' 'monitor:restarted' >>"${CALLS_FILE}"
+		printf '%s\n' 'service:restarted' >>"${CALLS_FILE}"
+		agh_wait_started
 	}
 	# rollback_result_write records a rollback result in the calls log.
 	rollback_result_write() { printf '%s\n' "rollback-result:$*" >>"${CALLS_FILE}"; }

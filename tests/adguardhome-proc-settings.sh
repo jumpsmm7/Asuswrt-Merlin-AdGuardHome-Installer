@@ -272,20 +272,21 @@ run_uninstall_test() (
 	INITIAL_RUNNING="${6:-1}"
 	DOMAIN_ENABLED="${7:-0}"
 	SNAPSHOT_STATUS="${8:-0}"
-	mkdir -p "${TARG_DIR}" "${BASE_DIR}" "${HOME}" "${HOOK_DIR}"
+	mkdir -p "${TARG_DIR}" "${BASE_DIR}" "${HOME}" "${ADDON_DIR}" "${HOOK_DIR}" ||
+		fail 'could not create uninstall fixture directories'
 	for hook in dnsmasq init services firewall; do
 		printf '%s\n' "original-${hook}" >"${HOOK_DIR}/${hook}"
 	done
 	printf '%s\n' installer >"${TARG_DIR}/installer"
-	cat >"${TARG_DIR}/AdGuardHome.sh" <<'EOF'
+	cat >"${ADDON_DIR}/AdGuardHome.sh" <<'EOF'
 #!/bin/sh
 [ -d "${TARG_DIR}" ] || exit 9
 printf '%s\n' restore >>"${EVENTS_FILE}"
 exit "${RESTORE_RESULT}"
 EOF
-	chmod 755 "${TARG_DIR}/AdGuardHome.sh"
+	chmod 755 "${ADDON_DIR}/AdGuardHome.sh"
 	if [ "${HELPER_MODE}" = unusable ]; then
-		chmod 644 "${TARG_DIR}/AdGuardHome.sh"
+		chmod 644 "${ADDON_DIR}/AdGuardHome.sh"
 		mkdir "${TARG_DIR}/proc-sys-state"
 	fi
 	export TARG_DIR EVENTS_FILE RESTORE_RESULT
@@ -391,6 +392,7 @@ grep -qx 'original-dnsmasq' "${TMP_ROOT}/hooks-stopped-hook-failure/dnsmasq" || 
 run_uninstall_test hook-failure 0 0 usable 1 && fail 'event-hook removal failure did not abort uninstall'
 [ -d "${TMP_ROOT}/uninstall-hook-failure" ] || fail 'event-hook removal failure removed the retained installation'
 grep -qx rollback "${TMP_ROOT}/events-hook-failure" || fail 'event-hook removal failure did not restore the aggregate hook snapshot'
+grep -qx start "${TMP_ROOT}/events-hook-failure" || fail 'event-hook removal failure did not restart the retained installation'
 for hook in dnsmasq init services firewall; do
 	grep -qx "original-${hook}" "${TMP_ROOT}/hooks-hook-failure/${hook}" ||
 		fail "event-hook removal failure did not restore the ${hook} hook content"
@@ -403,6 +405,7 @@ run_uninstall_test domain-snapshot-failure 0 0 usable 0 1 1 1 && fail 'hook snap
 grep -qx 'domain-set::keep-1' "${TMP_ROOT}/events-domain-snapshot-failure" || fail 'domain-enabled uninstall did not retain its LAN-domain snapshot'
 grep -qx domain-restore "${TMP_ROOT}/events-domain-snapshot-failure" || fail 'hook snapshot failure did not restore the LAN domain'
 [ -d "${TMP_ROOT}/uninstall-domain-snapshot-failure" ] || fail 'hook snapshot failure removed the retained installation'
+grep -qx start "${TMP_ROOT}/events-domain-snapshot-failure" || fail 'hook snapshot failure did not restart the retained installation'
 
 # The mkdir fallback serializes complete proc transactions.
 LOCK_EVENTS="${TMP_ROOT}/lock-events"
