@@ -28,11 +28,13 @@ sed -n '/^remove_firewall_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${TMP_
 	fail 'could not complete firewall transaction helper extraction'
 sed -n '/^install_wan_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${TMP_DIR}/helpers.part" ||
 	fail 'could not extract WAN event-script orchestration helper'
+sed -n '/^adguard_recover_after_event_hook_abort() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${TMP_DIR}/helpers.part" ||
+	fail 'could not extract event-hook abort recovery helper'
 sed "s|/jffs/scripts|${TMP_DIR}/jffs/scripts|g" "${TMP_DIR}/helpers.part" >"${TMP_DIR}/helpers" ||
 	fail 'could not rewrite event-script transaction helpers'
 # shellcheck disable=SC1091
 . "${TMP_DIR}/helpers"
-for helper in add_init_event_scripts add_services_event_scripts remove_services_event_scripts add_firewall_event_scripts all_event_scripts_transaction_begin all_event_scripts_transaction_rollback all_event_scripts_rollback install_wan_event_scripts; do
+for helper in add_init_event_scripts add_services_event_scripts remove_services_event_scripts add_firewall_event_scripts all_event_scripts_transaction_begin all_event_scripts_transaction_detach_after_mode_rollback all_event_scripts_transaction_rollback all_event_scripts_rollback install_wan_event_scripts adguard_recover_after_event_hook_abort; do
 	type "${helper}" >/dev/null 2>&1 || fail "event-script transaction helper extraction failed: ${helper}"
 done
 
@@ -147,5 +149,18 @@ if all_event_scripts_rollback "${FAILED_SNAPSHOT_DIR}"; then
 fi
 [ -f "${FAILED_SNAPSHOT_DIR}/dnsmasq.postconf" ] || fail 'failed rollback discarded the recovery snapshot'
 grep -q "${FAILED_SNAPSHOT_DIR}" "${TMP_DIR}/rollback-report" || fail 'failed rollback did not report the retained recovery snapshot path'
+
+MODE_ROLLBACK_SNAPSHOT="${BASE_DIR}/post-migration-aggregate"
+mkdir -p "${MODE_ROLLBACK_SNAPSHOT}" || fail 'could not create post-migration aggregate snapshot fixture'
+printf '%s\n' 'manual recovery data' >"${MODE_ROLLBACK_SNAPSHOT}/dnsmasq.postconf"
+EVENT_SCRIPTS_ACTIVE_SNAPSHOT="${MODE_ROLLBACK_SNAPSHOT}"
+# rollback_pending_mode_migration simulates a successful restoration of the older mode snapshot.
+rollback_pending_mode_migration() { return 0; }
+# adguard_restart_after_install_abort simulates successful service recovery.
+adguard_restart_after_install_abort() { return 0; }
+adguard_recover_after_event_hook_abort 1 || fail 'successful mode rollback recovery reported failure'
+[ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}" ] || fail 'mode rollback left the newer aggregate snapshot active for EXIT replay'
+[ -f "${MODE_ROLLBACK_SNAPSHOT}/dnsmasq.postconf" ] || fail 'mode rollback discarded the newer aggregate snapshot needed for manual recovery'
+grep -q "${MODE_ROLLBACK_SNAPSHOT}" "${TMP_DIR}/rollback-report" || fail 'mode rollback did not report the detached aggregate snapshot path'
 
 printf '%s\n' 'PASS: installer event-script transaction regression'

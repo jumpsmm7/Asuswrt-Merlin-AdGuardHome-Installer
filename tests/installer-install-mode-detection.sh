@@ -328,6 +328,8 @@ EOF
 	adguard_migrate_detected_install_mode() { return 0; }
 	# all_event_scripts_transaction_begin records the start of an event-script transaction.
 	all_event_scripts_transaction_begin() { printf '%s\n' 'transaction:begin' >>"${CALLS_FILE}"; }
+	# all_event_scripts_transaction_detach_after_mode_rollback detaches a newer aggregate snapshot after restoring the prior mode.
+	all_event_scripts_transaction_detach_after_mode_rollback() { :; }
 	# all_event_scripts_transaction_rollback records an event-script transaction rollback.
 	all_event_scripts_transaction_rollback() { printf '%s\n' 'transaction:rollback' >>"${CALLS_FILE}"; }
 	# rollback_pending_mode_migration records a pending mode migration rollback.

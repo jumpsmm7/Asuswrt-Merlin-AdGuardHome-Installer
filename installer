@@ -5093,7 +5093,11 @@ adguard_recover_after_event_hook_abort() {
 	local MODE_ROLLBACK_STATUS RESTART_RECOVERY_STATUS
 	MODE_ROLLBACK_STATUS=0
 	RESTART_RECOVERY_STATUS=0
-	rollback_pending_mode_migration || MODE_ROLLBACK_STATUS=1
+	if rollback_pending_mode_migration; then
+		all_event_scripts_transaction_detach_after_mode_rollback
+	else
+		MODE_ROLLBACK_STATUS=1
+	fi
 	# Restore the previously running AdGuardHome service even when mode rollback fails.
 	adguard_restart_after_install_abort "$1" || RESTART_RECOVERY_STATUS=1
 	[ "${MODE_ROLLBACK_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to roll back the pending mode migration."
@@ -5102,17 +5106,22 @@ adguard_recover_after_event_hook_abort() {
 }
 
 adguard_recover_after_uninstall_hook_abort() {
-	local HOOK_ROLLBACK_STATUS RESTART_RECOVERY_STATUS
+	local DOMAIN_RESTORE_STATUS HOOK_ROLLBACK_STATUS RESTART_RECOVERY_STATUS
+	DOMAIN_RESTORE_STATUS=0
 	HOOK_ROLLBACK_STATUS=0
 	RESTART_RECOVERY_STATUS=0
 	all_event_scripts_transaction_rollback || HOOK_ROLLBACK_STATUS=1
+	if [ "${2:-0}" = "1" ]; then
+		installer_lan_domain_restore || DOMAIN_RESTORE_STATUS=1
+	fi
 	# Restore the service only when it was running before the uninstall stopped it.
 	if [ "${1:-0}" = "1" ]; then
 		agh_start || RESTART_RECOVERY_STATUS=1
 	fi
 	[ "${HOOK_ROLLBACK_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore installer-managed event scripts after the uninstall abort."
+	[ "${DOMAIN_RESTORE_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
 	[ "${RESTART_RECOVERY_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restart AdGuardHome after the uninstall abort."
-	[ "${HOOK_ROLLBACK_STATUS}" -eq 0 ] && [ "${RESTART_RECOVERY_STATUS}" -eq 0 ]
+	[ "${HOOK_ROLLBACK_STATUS}" -eq 0 ] && [ "${DOMAIN_RESTORE_STATUS}" -eq 0 ] && [ "${RESTART_RECOVERY_STATUS}" -eq 0 ]
 }
 
 adguard_install_abort_trap_disable() {
@@ -5178,6 +5187,7 @@ adguard_install_abort_on_signal() {
 			PTXT "${ERROR} Unable to restore the journaled installer configuration files."
 		elif rollback_pending_mode_migration; then
 			MIGRATION_ROLLED_BACK=1
+			all_event_scripts_transaction_detach_after_mode_rollback
 		else
 			MIGRATION_ROLLBACK_STATUS=1
 		fi
@@ -6279,6 +6289,15 @@ all_event_scripts_transaction_commit() {
 	rm -rf "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}" 2>/dev/null || true
 	EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
 	return 0
+}
+
+# all_event_scripts_transaction_detach_after_mode_rollback prevents EXIT cleanup from replaying a newer aggregate snapshot after the older mode snapshot has been restored.
+all_event_scripts_transaction_detach_after_mode_rollback() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}"
+	[ -n "${SNAPSHOT_DIR}" ] || return 0
+	EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
+	PTXT "${ERROR} Event-hook rollback snapshot retained for manual recovery at ${SNAPSHOT_DIR}; automatic restoration was detached after mode rollback."
 }
 
 all_event_scripts_transaction_rollback() {
@@ -8431,8 +8450,9 @@ amtm_update_check() {
 }
 
 uninst_all() {
-	local ADGUARD_WAS_RUNNING
+	local ADGUARD_WAS_RUNNING LAN_DOMAIN_CHANGED
 	ADGUARD_WAS_RUNNING="0"
+	LAN_DOMAIN_CHANGED="0"
 	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 		PTXT "${INFO} Old Backup Detected!"
 		read_yesno "Do you want to remove backup?(this will prevent restoring from backups later)"
@@ -8445,9 +8465,12 @@ uninst_all() {
 			return "${CONFIRM_STATUS}"
 		fi
 	fi
-	if [ "$(conf_value ADGUARD_DOMAIN)" = "yes" ] && ! installer_lan_domain_set ""; then
-		PTXT "${ERROR} Unable to clear the installer-managed LAN domain setting; uninstall was aborted before stopping AdGuardHome."
-		return 1
+	if [ "$(conf_value ADGUARD_DOMAIN)" = "yes" ]; then
+		if ! installer_lan_domain_set "" 1; then
+			PTXT "${ERROR} Unable to clear the installer-managed LAN domain setting; uninstall was aborted before stopping AdGuardHome."
+			return 1
+		fi
+		LAN_DOMAIN_CHANGED="1"
 	fi
 	if agh_is_running; then
 		ADGUARD_WAS_RUNNING="1"
@@ -8455,31 +8478,34 @@ uninst_all() {
 	agh_stop
 	if [ -d "${TARG_DIR}/proc-sys-state" ] && [ ! -x "${TARG_DIR}/AdGuardHome.sh" ]; then
 		PTXT "${ERROR} Unable to restore installer-managed kernel settings."
+		[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
 		[ "${ADGUARD_WAS_RUNNING}" = "0" ] || agh_start || true
 		return 1
 	fi
 	if [ -x "${TARG_DIR}/AdGuardHome.sh" ]; then
 		if ! "${TARG_DIR}/AdGuardHome.sh" proc-restore x; then
 			PTXT "${ERROR} Unable to restore installer-managed kernel settings."
+			[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
 			[ "${ADGUARD_WAS_RUNNING}" = "0" ] || agh_start || true
 			return 1
 		fi
 	fi
 	if ! all_event_scripts_transaction_begin "${BASE_DIR}/.AdGuardHome.uninstall-hooks.$$"; then
 		PTXT "${ERROR} Existing Asuswrt-Merlin event scripts could not be protected for uninstall rollback."
+		[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
 		[ "${ADGUARD_WAS_RUNNING}" = "0" ] || agh_start || true
 		return 1
 	fi
 	if ! remove_dnsmasq_event_scripts || ! remove_init_event_scripts ||
 		! remove_services_event_scripts || ! remove_firewall_event_scripts; then
 		PTXT "${ERROR} Unable to remove installer-managed event scripts; uninstall was aborted."
-		adguard_recover_after_uninstall_hook_abort "${ADGUARD_WAS_RUNNING}"
+		adguard_recover_after_uninstall_hook_abort "${ADGUARD_WAS_RUNNING}" "${LAN_DOMAIN_CHANGED}"
 		return 1
 	fi
 	if ! cleanup_legacy_firewall ||
 		! yaml_nvars_file_action delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf; then
 		PTXT "${ERROR} Unable to complete installer-managed event-hook cleanup; uninstall was aborted."
-		adguard_recover_after_uninstall_hook_abort "${ADGUARD_WAS_RUNNING}"
+		adguard_recover_after_uninstall_hook_abort "${ADGUARD_WAS_RUNNING}" "${LAN_DOMAIN_CHANGED}"
 		return 1
 	fi
 	all_event_scripts_transaction_commit

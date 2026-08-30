@@ -256,7 +256,7 @@ grep -q '^uninst_all() {$' "${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall helpe
 # shellcheck disable=SC1090
 . "${UNINSTALL_FUNCTION_FILE}"
 # run_uninstall_test simulates an isolated uninstall scenario and records restoration, service, hook, rollback, and removal events.
-# RESTORE_RESULT, START_RESULT, HELPER_MODE, REMOVE_HOOK_STATUS, and INITIAL_RUNNING control simulated restoration, startup, rollback-helper, hook-removal, and initial service-state outcomes.
+# RESTORE_RESULT, START_RESULT, HELPER_MODE, REMOVE_HOOK_STATUS, INITIAL_RUNNING, DOMAIN_ENABLED, and SNAPSHOT_STATUS control simulated restoration, startup, rollback-helper, hook-removal, initial service-state, LAN-domain, and hook-snapshot outcomes.
 run_uninstall_test() (
 	TARG_DIR="${TMP_ROOT}/uninstall-$1"
 	BASE_DIR="${TMP_ROOT}/base-$1"
@@ -270,6 +270,8 @@ run_uninstall_test() (
 	HELPER_MODE="${4:-usable}"
 	REMOVE_HOOK_STATUS="${5:-0}"
 	INITIAL_RUNNING="${6:-1}"
+	DOMAIN_ENABLED="${7:-0}"
+	SNAPSHOT_STATUS="${8:-0}"
 	mkdir -p "${TARG_DIR}" "${BASE_DIR}" "${HOME}" "${HOOK_DIR}"
 	for hook in dnsmasq init services firewall; do
 		printf '%s\n' "original-${hook}" >"${HOOK_DIR}/${hook}"
@@ -290,8 +292,16 @@ EOF
 	INFO=INFO ERROR=ERROR CONFIRM_STATUS=0
 	# PTXT writes its arguments as a line to the events file.
 	PTXT() { printf '%s\n' "$*" >>"${EVENTS_FILE}"; }
-	# conf_value prints `no` as the configuration value.
-	conf_value() { printf '%s\n' no; }
+	# conf_value reports whether the installer-managed LAN domain is enabled.
+	conf_value() {
+		[ "$1" = "ADGUARD_DOMAIN" ] && [ "${DOMAIN_ENABLED}" = "1" ] && printf '%s\n' yes || printf '%s\n' no
+	}
+	# installer_lan_domain_set records the retained LAN-domain transaction used during uninstall.
+	installer_lan_domain_set() {
+		printf '%s\n' "domain-set:$1:keep-${2:-0}" >>"${EVENTS_FILE}"
+	}
+	# installer_lan_domain_restore records restoration of the pre-uninstall LAN domain.
+	installer_lan_domain_restore() { printf '%s\n' domain-restore >>"${EVENTS_FILE}"; }
 	# agh_is_running reports whether the service was initially running.
 	agh_is_running() { [ "${INITIAL_RUNNING}" = "1" ]; }
 	# agh_stop records a service stop event in the test event log.
@@ -315,6 +325,7 @@ EOF
 	}
 	# all_event_scripts_transaction_begin snapshots the event scripts for a transaction and records the active snapshot path.
 	all_event_scripts_transaction_begin() {
+		[ "${SNAPSHOT_STATUS}" = "0" ] || return "${SNAPSHOT_STATUS}"
 		all_event_scripts_snapshot "$1" || return 1
 		EVENT_SCRIPTS_ACTIVE_SNAPSHOT="$1"
 	}
@@ -388,6 +399,10 @@ run_uninstall_test unusable-helper 0 0 unusable && fail 'unusable rollback helpe
 [ -d "${TMP_ROOT}/uninstall-unusable-helper" ] || fail 'unusable rollback helper removed retained installation path'
 [ "$(sed -n '2p' "${TMP_ROOT}/events-unusable-helper")" = 'ERROR Unable to restore installer-managed kernel settings.' ] || fail 'unusable rollback helper error was not reported'
 [ "$(sed -n '3p' "${TMP_ROOT}/events-unusable-helper")" = start ] || fail 'unusable rollback helper did not restart retained installation'
+run_uninstall_test domain-snapshot-failure 0 0 usable 0 1 1 1 && fail 'hook snapshot failure did not abort domain-enabled uninstall'
+grep -qx 'domain-set::keep-1' "${TMP_ROOT}/events-domain-snapshot-failure" || fail 'domain-enabled uninstall did not retain its LAN-domain snapshot'
+grep -qx domain-restore "${TMP_ROOT}/events-domain-snapshot-failure" || fail 'hook snapshot failure did not restore the LAN domain'
+[ -d "${TMP_ROOT}/uninstall-domain-snapshot-failure" ] || fail 'hook snapshot failure removed the retained installation'
 
 # The mkdir fallback serializes complete proc transactions.
 LOCK_EVENTS="${TMP_ROOT}/lock-events"
