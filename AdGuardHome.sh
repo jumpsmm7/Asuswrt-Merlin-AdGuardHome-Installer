@@ -14,6 +14,7 @@ MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 IPSET_FILE="/opt/etc/AdGuardHome/ipset.conf"
+IPSET_LOCK_ACTIVE="0"
 IPSET_RUNTIME_DIR="${IPSET_RUNTIME_DIR:-/opt/var/run/AdGuardHome-ipset}"
 IPSET_USER_FILE="/opt/etc/AdGuardHome/ipset.user"
 PROC_SYS_ROOT="${PROC_SYS_ROOT:-/proc/sys}"
@@ -1075,54 +1076,64 @@ dnsmasq_publish_staged_config() (
 		[ "${CONFIG_PUBLISHED:-0}" = "1" ] || rm -f "${CONFIG_STAGE}"
 		exit 1
 	}
+	# dnsmasq_publish_locked snapshots, refreshes, publishes, and compensates while the shared IPSet lock is held.
+	dnsmasq_publish_locked() {
+		if ! dnsmasq_ipset_state_snapshot "${IPSET_SNAPSHOT_DIR}"; then
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		fi
+		SNAPSHOT_READY="1"
+		if ! IPSet_Refresh "${CONFIG_STAGE}"; then
+			ROLLBACK_ACTIVE="1"
+			if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
+				rm -rf "${IPSET_SNAPSHOT_DIR}"
+			else
+				agh_log error dnsmasq_params "state=refresh action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			fi
+			ROLLBACK_ACTIVE="0"
+			if [ "${TRANSACTION_SIGNAL_PENDING}" = "1" ]; then
+				TRANSACTION_SIGNAL_PENDING="0"
+				TRANSACTION_ACTIVE="0"
+				dnsmasq_publish_abort
+			fi
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		fi
+		if ! mv "${CONFIG_STAGE}" "${CONFIG_FILE}"; then
+			ROLLBACK_ACTIVE="1"
+			if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
+				rm -rf "${IPSET_SNAPSHOT_DIR}"
+			else
+				agh_log error dnsmasq_params "state=publication action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			fi
+			ROLLBACK_ACTIVE="0"
+			if [ "${TRANSACTION_SIGNAL_PENDING}" = "1" ]; then
+				TRANSACTION_SIGNAL_PENDING="0"
+				TRANSACTION_ACTIVE="0"
+				dnsmasq_publish_abort
+			fi
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		fi
+		CONFIG_PUBLISHED="1"
+		TRANSACTION_ACTIVE="0"
+		rm -rf "${IPSET_SNAPSHOT_DIR}" 2>/dev/null || true
+		return 0
+	}
 	IPSET_LOCK_INTERRUPT_CALLBACK="dnsmasq_publish_abort"
 	trap 'dnsmasq_publish_abort' HUP INT QUIT ABRT TERM TSTP
-	if ! dnsmasq_ipset_state_snapshot "${IPSET_SNAPSHOT_DIR}"; then
-		TRANSACTION_ACTIVE="0"
-		rm -f "${CONFIG_STAGE}"
-		return 1
-	fi
-	SNAPSHOT_READY="1"
-	if ! IPSet_Refresh "${CONFIG_STAGE}"; then
-		ROLLBACK_ACTIVE="1"
-		if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
-			rm -rf "${IPSET_SNAPSHOT_DIR}"
-		else
-			agh_log error dnsmasq_params "state=refresh action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
-		fi
-		ROLLBACK_ACTIVE="0"
-		if [ "${TRANSACTION_SIGNAL_PENDING}" = "1" ]; then
-			TRANSACTION_SIGNAL_PENDING="0"
-			TRANSACTION_ACTIVE="0"
-			dnsmasq_publish_abort
-		fi
-		TRANSACTION_ACTIVE="0"
-		rm -f "${CONFIG_STAGE}"
-		return 1
-	fi
-	if ! mv "${CONFIG_STAGE}" "${CONFIG_FILE}"; then
-		ROLLBACK_ACTIVE="1"
-		if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
-			rm -rf "${IPSET_SNAPSHOT_DIR}"
-		else
-			agh_log error dnsmasq_params "state=publication action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
-		fi
-		ROLLBACK_ACTIVE="0"
-		if [ "${TRANSACTION_SIGNAL_PENDING}" = "1" ]; then
-			TRANSACTION_SIGNAL_PENDING="0"
-			TRANSACTION_ACTIVE="0"
-			dnsmasq_publish_abort
-		fi
-		TRANSACTION_ACTIVE="0"
-		rm -f "${CONFIG_STAGE}"
-		return 1
-	fi
-	CONFIG_PUBLISHED="1"
-	TRANSACTION_ACTIVE="0"
+	IPSet_Lock dnsmasq_publish_locked
+	STATUS="$?"
 	IPSET_LOCK_INTERRUPT_CALLBACK=""
 	trap - HUP INT QUIT ABRT TERM TSTP
-	rm -rf "${IPSET_SNAPSHOT_DIR}" 2>/dev/null || true
-	return 0
+	if [ "${STATUS}" -ne 0 ] && [ "${SNAPSHOT_READY}" = "0" ]; then
+		TRANSACTION_ACTIVE="0"
+		rm -f "${CONFIG_STAGE}"
+	fi
+	return "${STATUS}"
 )
 
 # dnsmasq_params configures dnsmasq for the LAN or specified SDN interface, including DNS routing, reverse zones, and optional IPSet refresh.
@@ -3269,7 +3280,7 @@ IPSet_Lock_Interrupt_Cleanup() {
 	fi
 }
 
-# IPSet_Lock_Interrupt_Propagate invokes an outer transaction's signal cleanup after releasing the IPSET lock.
+# IPSet_Lock_Interrupt_Propagate invokes an outer transaction's signal cleanup while the IPSET lock remains held.
 IPSet_Lock_Interrupt_Propagate() {
 	[ -n "${IPSET_LOCK_INTERRUPT_CALLBACK:-}" ] || return 0
 	"${IPSET_LOCK_INTERRUPT_CALLBACK}"
@@ -3304,6 +3315,10 @@ IPSet_Start_While_Locked() {
 
 IPSet_Lock() {
 	local STATUS
+	if [ "${IPSET_LOCK_ACTIVE:-0}" = "1" ]; then
+		"$@"
+		return "$?"
+	fi
 	IPSet_Runtime_Prepare || return 1
 	# Prefer flock on firmware that supports descriptor locking.  The private,
 	# ownership-validated mkdir lock remains the fallback for older firmware.
@@ -3335,10 +3350,12 @@ IPSet_Lock_Flock() {
 		return 1
 	fi
 	# Restore a stopped service while this lock is still held; only then release it.
-	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Flock_Cleanup; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; IPSet_Lock_Interrupt_Propagate; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
-	trap 'STATUS="$?"; IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
+	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Interrupt_Propagate; IPSet_Lock_Flock_Cleanup; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
+	trap 'STATUS="$?"; IPSet_Lock_Flock_Cleanup; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
+	IPSET_LOCK_ACTIVE="1"
 	"$@"
 	STATUS="$?"
+	IPSET_LOCK_ACTIVE="0"
 	IPSet_Lock_Flock_Cleanup
 	IPSet_Restore_Traps "${SAVED_TRAPS}"
 	return "${STATUS}"
@@ -3402,10 +3419,12 @@ IPSet_Lock_Mkdir() {
 	done <"${TRAP_STATE_FILE}"
 	rm -f "${TRAP_STATE_FILE}"
 	# Keep the fallback lock through restoration for the same lifecycle guarantee.
-	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; IPSet_Lock_Interrupt_Propagate; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
-	trap 'STATUS="$?"; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
+	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Interrupt_Propagate; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
+	trap 'STATUS="$?"; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
+	IPSET_LOCK_ACTIVE="1"
 	"$@"
 	STATUS="$?"
+	IPSET_LOCK_ACTIVE="0"
 	IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"
 	IPSet_Restore_Traps "${SAVED_TRAPS}"
 	return "${STATUS}"
