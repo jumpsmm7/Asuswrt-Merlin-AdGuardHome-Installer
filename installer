@@ -6135,7 +6135,10 @@ download_file() {
 			rm -f "${TMP_FILE}"
 			ptxt_fail "Unable to download ${BOLD}${URL}${NORM}."
 			RET="$((RET + 1))"
-			continue
+		if [ "${guest_nat}" = "0" ]; then
+			# Guest NAT is explicitly disabled
+			return 0
+		elif [ -z "${guest_interface_name}" ]; then
 		fi
 		if md5_is_valid "${MD5SUM_CURR}" && [ "${MD5SUM_CURR}" = "${MD5SUM_OLD}" ]; then
 			rm -f "${TMP_FILE}"
