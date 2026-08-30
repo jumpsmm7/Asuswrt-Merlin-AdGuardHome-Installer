@@ -204,18 +204,55 @@ WORKSPACE_CREATED=1
 # removed component test from silently reducing integration coverage.
 [ -r "${CASES_FIXTURE}" ] || fail "missing integration case fixture: ${CASES_FIXTURE}"
 [ -r "${COVERAGE_FIXTURE}" ] || fail "missing integration coverage fixture: ${COVERAGE_FIXTURE}"
-for required_component in installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh; do
-	grep -Fq "${required_component}" "${COVERAGE_FIXTURE}" || fail "coverage fixture omits ${required_component}"
-done
-dimension_count=$(awk 'NF && $1 !~ /^#/ { count++ } END { print count + 0 }' "${COVERAGE_FIXTURE}") ||
-	fail 'could not count integration coverage dimensions'
+dimension_count=$(awk -F '\t' '
+	function invalid(message) {
+		print message
+		failed = 1
+		exit 1
+	}
+	NR == FNR {
+		if (NF && $1 !~ /^#/) cases[$1] = 1
+		next
+	}
+	!NF || $1 ~ /^#/ { next }
+	NF != 3 { invalid("coverage row " FNR " must have exactly three tab-separated fields") }
+	$1 == "" { invalid("coverage row " FNR " has no dimension") }
+	seen_dimensions[$1]++ { invalid("coverage fixture repeats dimension " $1) }
+	$2 == "" { invalid("coverage row " $1 " has no case") }
+	!($2 in cases) { invalid("coverage row " $1 " references unknown case " $2) }
+	$3 == "" || $3 ~ /^ / || $3 ~ / $/ || $3 ~ /  / {
+		invalid("coverage row " $1 " has a malformed component list")
+	}
+	{
+		component_count = split($3, components, " ")
+		for (component_index = 1; component_index <= component_count; component_index++) {
+			component = components[component_index]
+			if (component != "installer" && component != "S99AdGuardHome" &&
+				component != "rc.func.AdGuardHome" && component != "AdGuardHome.sh") {
+				invalid("coverage row " $1 " has unknown component " component)
+			}
+			if (row_components[$1, component]++) {
+				invalid("coverage row " $1 " repeats component " component)
+			}
+			covered[component] = 1
+		}
+		dimension_count++
+	}
+	END {
+		if (failed) exit 1
+		required[1] = "installer"
+		required[2] = "S99AdGuardHome"
+		required[3] = "rc.func.AdGuardHome"
+		required[4] = "AdGuardHome.sh"
+		for (required_index = 1; required_index <= 4; required_index++) {
+			component = required[required_index]
+			if (!(component in covered)) invalid("coverage fixture omits " component)
+		}
+		print dimension_count + 0
+	}
+' "${CASES_FIXTURE}" "${COVERAGE_FIXTURE}") ||
+	fail "${dimension_count:-could not validate integration coverage fixture}"
 [ "${dimension_count}" -eq 38 ] || fail "coverage fixture has ${dimension_count} dimensions, expected 38"
-while IFS="$(printf '\t')" read -r coverage_dimension coverage_case coverage_components; do
-	case "${coverage_dimension}" in '' | \#*) continue ;; esac
-	[ -n "${coverage_case}" ] || fail "coverage row ${coverage_dimension} has no case"
-	awk -F '\t' -v wanted="${coverage_case}" '$1 == wanted { found=1 } END { exit !found }' "${CASES_FIXTURE}" ||
-		fail "coverage row ${coverage_dimension} references unknown case ${coverage_case}"
-done <"${COVERAGE_FIXTURE}"
 
 # The component regressions use command shims and isolated filesystems.  Taken
 # together they exercise the real extracted installer/service functions across
