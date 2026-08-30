@@ -151,10 +151,20 @@ fi
 [ -f "${FAILED_SNAPSHOT_DIR}/dnsmasq.postconf" ] || fail 'failed rollback discarded the recovery snapshot'
 grep -q "${FAILED_SNAPSHOT_DIR}" "${TMP_DIR}/rollback-report" || fail 'failed rollback did not report the retained recovery snapshot path'
 
+EVENT_SCRIPTS_ACTIVE_SNAPSHOT="${FAILED_SNAPSHOT_DIR}"
+# rollback_pending_mode_migration must not run when no mode-migration snapshot exists.
+rollback_pending_mode_migration() { fail 'event-hook recovery attempted a nonexistent mode rollback'; }
+# adguard_restart_after_install_abort simulates successful service recovery.
+adguard_restart_after_install_abort() { return 0; }
+adguard_recover_after_event_hook_abort 1 || fail 'event-hook recovery without a mode migration reported failure'
+[ "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}" = "${FAILED_SNAPSHOT_DIR}" ] || fail 'event-hook recovery detached a failed aggregate rollback without a mode migration'
+[ -f "${FAILED_SNAPSHOT_DIR}/dnsmasq.postconf" ] || fail 'event-hook recovery deleted a failed aggregate rollback snapshot without a mode migration'
+
 MODE_ROLLBACK_SNAPSHOT="${BASE_DIR}/post-migration-aggregate"
 mkdir -p "${MODE_ROLLBACK_SNAPSHOT}" || fail 'could not create post-migration aggregate snapshot fixture'
 printf '%s\n' 'manual recovery data' >"${MODE_ROLLBACK_SNAPSHOT}/dnsmasq.postconf"
 EVENT_SCRIPTS_ACTIVE_SNAPSHOT="${MODE_ROLLBACK_SNAPSHOT}"
+MODE_MIGRATION_YAML_FILE_BACKUP="${BASE_DIR}/mode-migration-yaml"
 # all_event_scripts_restore succeeds in this scenario so an unexpected replay cannot satisfy the retained-path assertion through an earlier failure.
 all_event_scripts_restore() { return 0; }
 : >"${TMP_DIR}/rollback-report"
