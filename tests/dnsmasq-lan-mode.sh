@@ -8,6 +8,7 @@ TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/dnsmasq-lan-mode.XXXXXX")" || {
 	printf '%s\n' 'FAIL: could not create exclusive test directory' >&2
 	exit 1
 }
+IPSET_TEST_LOCK_DIR="${TEST_ROOT}/ipset-transaction-lock"
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 LOG_FILE="${TEST_ROOT}/log"
 IPSET_CALLS_FILE="${TEST_ROOT}/ipset-calls"
@@ -181,6 +182,8 @@ sdn_bridge_for_index() {
 
 # IPSet_Refresh records a refresh request, updates refresh state, and removes managed IPSET state when the topology does not support it.
 IPSet_Refresh() {
+	[ "${IPSET_LOCK_ACTIVE:-0}" = "1" ] || fail 'IPSET refresh ran outside the transaction lock'
+	[ -d "${IPSET_SNAPSHOT_DIR:-}" ] || fail 'IPSET refresh ran before the transaction snapshot'
 	printf '%s\n' "$1" >>"${IPSET_CALLS_FILE}"
 	if [ "${IPSET_REFRESH_FAIL:-0}" = "1" ]; then
 		printf '%s\n' refreshed >"${IPSET_FILE}"
@@ -207,6 +210,36 @@ IPSet_Refresh() {
 	return 0
 }
 
+# IPSet_Lock marks the fixture transaction as locked while running its callback.
+IPSet_Lock() {
+	local cleanup_status lock_attempts status
+	if [ "${IPSET_LOCK_ACTIVE:-0}" = "1" ]; then
+		"$@"
+		return "$?"
+	fi
+	lock_attempts="0"
+	while ! mkdir "${IPSET_TEST_LOCK_DIR}" 2>/dev/null; do
+		[ -z "${IPSET_LOCK_WAIT_MARKER:-}" ] || : >"${IPSET_LOCK_WAIT_MARKER}" || return 1
+		lock_attempts="$((lock_attempts + 1))"
+		if [ "${lock_attempts}" -ge 10 ]; then
+			printf '%s\n' 'FAIL: fixture transaction lock was not released' >&2
+			return 1
+		fi
+		sleep 1
+	done
+	trap 'rmdir "${IPSET_TEST_LOCK_DIR}" 2>/dev/null' EXIT
+	IPSET_LOCK_ACTIVE="1"
+	"$@"
+	status="$?"
+	IPSET_LOCK_ACTIVE="0"
+	cleanup_status="0"
+	rmdir "${IPSET_TEST_LOCK_DIR}" || cleanup_status="1"
+	trap - EXIT
+	[ "${status}" -eq 0 ] || return "${status}"
+	[ "${cleanup_status}" -eq 0 ] || return "${cleanup_status}"
+	return "${status}"
+}
+
 # lower_script records successful service reloads required after IPSET snapshot restoration.
 lower_script() { printf '%s\n' "$*" >>"${IPSET_CALLS_FILE}"; }
 
@@ -218,6 +251,9 @@ IPSet_Lock_Interrupt_Propagate() {
 
 # mv injects configured failures for dnsmasq publication or IPSET snapshot restoration moves, then delegates other operations to the system command.
 mv() {
+	if [ "${TRANSACTION_ACTIVE:-0}" = "1" ]; then
+		[ "${IPSET_LOCK_ACTIVE:-0}" = "1" ] || fail 'dnsmasq publication or compensation ran outside the transaction lock'
+	fi
 	if [ "${RESTORE_FAIL:-0}" = "1" ]; then
 		case "${1:-}" in
 			"${IPSET_FILE}.dnsmasq-restore."*) return 1 ;;
@@ -269,6 +305,8 @@ reset_case() {
 	RESTORE_FAIL='0'
 	MOUNT_FAIL='0'
 	CONFIG_LOCAL='NO'
+	[ -z "${SECOND_STARTED:-}" ] || rm -f "${SECOND_STARTED}"
+	[ -z "${SECOND_WAITING:-}" ] || rm -f "${SECOND_WAITING}"
 }
 
 # assert_no_ipset_refresh verifies that no IPSET refresh calls were recorded for the test case.
@@ -637,6 +675,57 @@ ADGUARD_RUNNING='1'
 dnsmasq_ipset_state_restore "${STOPPED_SNAPSHOT}" 0 || fail 'stopped-service state restoration failed'
 grep -q '^restart$' "${IPSET_CALLS_FILE}" || fail 'stopped-service rollback did not reload a newly appearing process'
 rm -rf "${STOPPED_SNAPSHOT}" || fail 'could not clear stopped-service snapshot'
+
+# Overlapping base and SDN callbacks must serialize snapshot, refresh,
+# publication, and compensation as one transaction.
+reset_case
+FIRST_MARKER="${TEST_ROOT}/first-refresh-active"
+FIRST_RELEASE="${TEST_ROOT}/first-refresh-release"
+SECOND_MARKER="${TEST_ROOT}/second-refresh-active"
+SECOND_STARTED="${TEST_ROOT}/second-transaction-started"
+SECOND_WAITING="${TEST_ROOT}/second-transaction-waiting"
+FIRST_STAGE="${DNSMASQ_CONF_FILE}.adguard.first"
+SECOND_STAGE="${DNSMASQ_SDN_CONF_FILE}.adguard.second"
+FIRST_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.first"
+SECOND_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.second"
+printf '%s\n' '# first staged config' >"${FIRST_STAGE}" || fail 'could not create first concurrent stage'
+printf '%s\n' '# second staged config' >"${SECOND_STAGE}" || fail 'could not create second concurrent stage'
+printf '%s\n' 'original ipset' >"${IPSET_FILE}" || fail 'could not create concurrent IPSET fixture'
+(
+	IPSet_Refresh() {
+		printf '%s\n' first >"${IPSET_FILE}"
+		printf '%s\n' first >"${YAML_FILE}"
+		: >"${FIRST_MARKER}"
+		wait_for_release "${FIRST_RELEASE}"
+	}
+	MV_PUBLISH_FAIL='1'
+	dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${FIRST_STAGE}" "${FIRST_SNAPSHOT}"
+) &
+first_pid="$!"
+wait_for_file "${FIRST_MARKER}" || fail 'first concurrent transaction did not enter refresh'
+(
+	IPSet_Refresh() {
+		: >"${SECOND_MARKER}"
+		printf '%s\n' second >"${IPSET_FILE}"
+		printf '%s\n' second >"${YAML_FILE}"
+	}
+	MV_PUBLISH_FAIL='0'
+	IPSET_LOCK_WAIT_MARKER="${SECOND_WAITING}"
+	: >"${SECOND_STARTED}"
+	dnsmasq_publish_staged_config "${DNSMASQ_SDN_CONF_FILE}" "${SECOND_STAGE}" "${SECOND_SNAPSHOT}"
+) &
+second_pid="$!"
+wait_for_file "${SECOND_STARTED}" || fail 'second concurrent transaction did not start'
+wait_for_file "${SECOND_WAITING}" || fail 'second concurrent transaction did not wait for the first lock holder'
+[ ! -e "${SECOND_MARKER}" ] || fail 'second callback refreshed state before the first transaction completed'
+: >"${FIRST_RELEASE}" || fail 'could not release first concurrent transaction'
+if wait "${first_pid}"; then
+	fail 'first concurrent publication failure unexpectedly succeeded'
+fi
+wait "${second_pid}" || fail 'second concurrent transaction failed after waiting for the lock'
+grep -qx second "${IPSET_FILE}" || fail 'first compensation overwrote the second callback IPSET state'
+grep -qx second "${YAML_FILE}" || fail 'first compensation overwrote the second callback YAML state'
+grep -qx '# second staged config' "${DNSMASQ_SDN_CONF_FILE}" || fail 'second callback did not publish its dnsmasq state'
 
 # A nested IPSET lock signal handler must propagate to the outer dnsmasq
 # transaction so partially refreshed state is restored.

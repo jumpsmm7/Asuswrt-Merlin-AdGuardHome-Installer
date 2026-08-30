@@ -38,11 +38,11 @@ fi
 if grep -Eq 'IPSET_LOCK_ROOT|/tmp/AdGuardHome-ipset' "${SCRIPT_PATH}"; then
 	fail 'legacy IPSET lock paths remain in the installer'
 fi
-if ! grep -Fq 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Flock_Cleanup; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps' "${SCRIPT_PATH}"; then
-	fail 'flock interrupt cleanup does not restore AdGuardHome before releasing the lock'
+if ! grep -Fq 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Interrupt_Propagate; IPSet_Lock_Flock_Cleanup; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps' "${SCRIPT_PATH}"; then
+	fail 'flock interrupt cleanup does not compensate the outer transaction before releasing the lock'
 fi
-if ! grep -Fq 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps' "${SCRIPT_PATH}"; then
-	fail 'fallback interrupt cleanup does not restore AdGuardHome before releasing the lock'
+if ! grep -Fq 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Interrupt_Propagate; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps' "${SCRIPT_PATH}"; then
+	fail 'fallback interrupt cleanup does not compensate the outer transaction before releasing the lock'
 fi
 grep -Fq 'IPSet_Restore_Traps "${SAVED_TRAPS}"' "${SCRIPT_PATH}" ||
 	fail 'nested IPSET lock cleanup does not restore saved traps'
@@ -146,6 +146,16 @@ IPSet_Lock_Interrupt_Cleanup() {
 }
 
 outer_transaction_cleanup() {
+	case "${LOCK_MODE}" in
+		flock)
+			if (exec 9>"${IPSET_RUNTIME_DIR}/flock" && flock -n 9); then
+				exit 1
+			fi
+			;;
+		mkdir)
+			[ -d "${IPSET_RUNTIME_DIR}/mkdir" ] || exit 1
+			;;
+	esac
 	printf '%s\n' propagated >"${TEST_ROOT}/${LOCK_MODE}-interrupt-propagated"
 }
 IPSET_LOCK_INTERRUPT_CALLBACK='outer_transaction_cleanup'
@@ -234,6 +244,11 @@ lock_action() {
 	printf '%s\n' called >"${TEST_ROOT}/called"
 }
 
+# nested_lock_action verifies a lock callback can reuse the lock without blocking.
+nested_lock_action() {
+	IPSet_Lock lock_action
+}
+
 # lock_dnsmasq_action marks a dnsmasq restart as pending.
 lock_dnsmasq_action() {
 	IPSET_DNSMASQ_RESTART_PENDING="1"
@@ -298,6 +313,9 @@ USE_FLOCK=0
 IPSET_RUNTIME_DIR="${TEST_ROOT}/runtime"
 IPSet_Lock lock_action || fail 'could not acquire fallback lock in private runtime directory'
 [ "$(cat "${TEST_ROOT}/called")" = called ] || fail 'locked action did not run'
+rm -f "${TEST_ROOT}/called"
+IPSet_Lock nested_lock_action || fail 'nested IPSET lock reuse failed'
+[ "$(cat "${TEST_ROOT}/called")" = called ] || fail 'nested locked action did not run'
 [ "$(IPSet_Directory_Metadata "${IPSET_RUNTIME_DIR}")" = "$(IPSet_Current_UID) rwx------" ] || fail 'runtime directory is not mode 700'
 [ ! -e "${IPSET_RUNTIME_DIR}/mkdir" ] || fail 'fallback lock directory was not cleaned up'
 rm -f "${TEST_ROOT}/dnsmasq-restarted"
