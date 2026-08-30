@@ -5077,7 +5077,7 @@ adguard_restart_after_install_abort() {
 	if agh_is_running; then
 		return 0
 	fi
-	if agh_start; then
+	if agh_start && agh_wait_started; then
 		PTXT "${INFO} Restarted AdGuardHome after the installer aborted."
 		rollback_result_write "install-abort" "rollback complete" "AdGuardHome restarted after abort"
 		return 0
