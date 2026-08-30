@@ -256,19 +256,19 @@ mv() {
 	fi
 	if [ "${RESTORE_REQUIRE_YAML_STAGE:-0}" = "1" ]; then
 		case "${1:-}" in
-		"${IPSET_FILE}.dnsmasq-restore."*)
-			[ -f "${YAML_FILE}.dnsmasq-restore.$$" ] || fail 'IPSET restoration was published before YAML restoration was staged'
-			;;
+			"${IPSET_FILE}.dnsmasq-restore."*)
+				[ -f "${YAML_FILE}.dnsmasq-restore.$$" ] || fail 'IPSET restoration was published before YAML restoration was staged'
+				;;
 		esac
 	fi
 	if [ "${RESTORE_FAIL:-0}" = "1" ]; then
 		case "${1:-}" in
-		"${IPSET_FILE}.dnsmasq-restore."*) return 1 ;;
+			"${IPSET_FILE}.dnsmasq-restore."*) return 1 ;;
 		esac
 	fi
 	if [ "${RESTORE_YAML_FAIL:-0}" = "1" ]; then
 		case "${1:-}" in
-		"${YAML_FILE}.dnsmasq-restore."*) return 1 ;;
+			"${YAML_FILE}.dnsmasq-restore."*) return 1 ;;
 		esac
 	fi
 	if [ "${MV_PUBLISH_FAIL:-0}" = "1" ] && [ "${2:-}" = "${DNSMASQ_CONF_FILE}" ]; then
