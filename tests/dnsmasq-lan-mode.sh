@@ -254,9 +254,21 @@ mv() {
 	if [ "${TRANSACTION_ACTIVE:-0}" = "1" ]; then
 		[ "${IPSET_LOCK_ACTIVE:-0}" = "1" ] || fail 'dnsmasq publication or compensation ran outside the transaction lock'
 	fi
+	if [ "${RESTORE_REQUIRE_YAML_STAGE:-0}" = "1" ]; then
+		case "${1:-}" in
+		"${IPSET_FILE}.dnsmasq-restore."*)
+			[ -f "${YAML_FILE}.dnsmasq-restore.$$" ] || fail 'IPSET restoration was published before YAML restoration was staged'
+			;;
+		esac
+	fi
 	if [ "${RESTORE_FAIL:-0}" = "1" ]; then
 		case "${1:-}" in
-			"${IPSET_FILE}.dnsmasq-restore."*) return 1 ;;
+		"${IPSET_FILE}.dnsmasq-restore."*) return 1 ;;
+		esac
+	fi
+	if [ "${RESTORE_YAML_FAIL:-0}" = "1" ]; then
+		case "${1:-}" in
+		"${YAML_FILE}.dnsmasq-restore."*) return 1 ;;
 		esac
 	fi
 	if [ "${MV_PUBLISH_FAIL:-0}" = "1" ] && [ "${2:-}" = "${DNSMASQ_CONF_FILE}" ]; then
@@ -303,6 +315,8 @@ reset_case() {
 	IPSET_REFRESH_CHANGE='0'
 	MV_PUBLISH_FAIL='0'
 	RESTORE_FAIL='0'
+	RESTORE_REQUIRE_YAML_STAGE='0'
+	RESTORE_YAML_FAIL='0'
 	MOUNT_FAIL='0'
 	CONFIG_LOCAL='NO'
 	[ -z "${SECOND_STARTED:-}" ] || rm -f "${SECOND_STARTED}"
@@ -489,6 +503,29 @@ grep -qx 'original ipset' "${RECOVERY_SNAPSHOT}/ipset" ||
 grep -q "result=failed snapshot=${RECOVERY_SNAPSHOT}" "${LOG_FILE}" ||
 	fail 'failed IPSET compensation did not report its recovery snapshot'
 rm -rf "${RECOVERY_SNAPSHOT}" || fail 'could not clear verified IPSET recovery snapshot'
+
+reset_case
+ADGUARD_INSTALL_MODE='wan'
+DNSMASQ_RUNNING='1'
+IPSET_REFRESH_FAIL='1'
+RESTORE_REQUIRE_YAML_STAGE='1'
+RESTORE_YAML_FAIL='1'
+printf '%s\n' 'original ipset' >"${IPSET_FILE}" || fail 'could not create YAML restoration failure fixture'
+if dnsmasq_action_handler; then
+	fail 'failed YAML restoration unexpectedly succeeded'
+fi
+grep -qx refreshed "${IPSET_FILE}" || fail 'failed YAML restoration left partial IPSET state'
+grep -qx refreshed "${YAML_FILE}" || fail 'failed YAML restoration changed the current YAML state'
+RECOVERY_SNAPSHOT="$(find "${TEST_ROOT}" -type d -name '.AdGuardHome.dnsmasq-ipset.*' -print | head -n 1)"
+[ -n "${RECOVERY_SNAPSHOT}" ] || fail 'failed YAML restoration discarded its recovery snapshot'
+grep -qx 'original ipset' "${RECOVERY_SNAPSHOT}/ipset" ||
+	fail 'retained YAML failure snapshot did not preserve the original IPSET state'
+grep -qx 'original yaml' "${RECOVERY_SNAPSHOT}/yaml" ||
+	fail 'retained YAML failure snapshot did not preserve the original YAML state'
+if find "${TEST_ROOT}" -name '*.dnsmasq-current.*' -o -name '*.dnsmasq-restore.*' | grep -q .; then
+	fail 'failed YAML restoration left staged artifacts after recovering current state'
+fi
+rm -rf "${RECOVERY_SNAPSHOT}" || fail 'could not clear YAML failure recovery snapshot'
 
 reset_case
 ADGUARD_INSTALL_MODE='lan'

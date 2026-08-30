@@ -1003,34 +1003,71 @@ dnsmasq_ipset_state_snapshot() {
 
 # dnsmasq_ipset_state_restore restores IPSet and YAML snapshots and restarts AdGuardHome when the restored state differs and the service is running.
 dnsmasq_ipset_state_restore() {
-	local ADGUARD_WAS_RUNNING DNSMASQ_RESTART_SKIP RESTART_REQUIRED RESTORE_STAGE SNAPSHOT_DIR
+	local ADGUARD_WAS_RUNNING DNSMASQ_RESTART_SKIP IPSET_CURRENT_ABSENT IPSET_CURRENT_STAGE IPSET_RESTORE_STAGE RESTART_REQUIRED SNAPSHOT_DIR YAML_RESTORE_STAGE
 	SNAPSHOT_DIR="$1"
 	ADGUARD_WAS_RUNNING="${2:-0}"
 	RESTART_REQUIRED="0"
+	IPSET_CURRENT_ABSENT="0"
+	IPSET_CURRENT_STAGE="${IPSET_FILE}.dnsmasq-current.$$"
+	IPSET_RESTORE_STAGE="${IPSET_FILE}.dnsmasq-restore.$$"
+	YAML_RESTORE_STAGE="${YAML_FILE}.dnsmasq-restore.$$"
+	if [ ! -f "${SNAPSHOT_DIR}/ipset.absent" ]; then
+		cp -p "${SNAPSHOT_DIR}/ipset" "${IPSET_RESTORE_STAGE}" || {
+			rm -f "${IPSET_RESTORE_STAGE}" "${YAML_RESTORE_STAGE}" "${IPSET_CURRENT_STAGE}"
+			return 1
+		}
+	fi
+	if [ ! -f "${SNAPSHOT_DIR}/yaml.absent" ]; then
+		cp -p "${SNAPSHOT_DIR}/yaml" "${YAML_RESTORE_STAGE}" || {
+			rm -f "${IPSET_RESTORE_STAGE}" "${YAML_RESTORE_STAGE}" "${IPSET_CURRENT_STAGE}"
+			return 1
+		}
+	fi
+	if [ -e "${IPSET_FILE}" ]; then
+		cp -p "${IPSET_FILE}" "${IPSET_CURRENT_STAGE}" || {
+			rm -f "${IPSET_RESTORE_STAGE}" "${YAML_RESTORE_STAGE}" "${IPSET_CURRENT_STAGE}"
+			return 1
+		}
+	else
+		IPSET_CURRENT_ABSENT="1"
+	fi
 	if [ -f "${SNAPSHOT_DIR}/ipset.absent" ]; then
 		[ ! -e "${IPSET_FILE}" ] || RESTART_REQUIRED="1"
-		rm -f "${IPSET_FILE}" || return 1
+		rm -f "${IPSET_FILE}" || {
+			rm -f "${IPSET_RESTORE_STAGE}" "${YAML_RESTORE_STAGE}" "${IPSET_CURRENT_STAGE}"
+			return 1
+		}
 	else
 		cmp -s "${SNAPSHOT_DIR}/ipset" "${IPSET_FILE}" || RESTART_REQUIRED="1"
-		RESTORE_STAGE="${IPSET_FILE}.dnsmasq-restore.$$"
-		cp -p "${SNAPSHOT_DIR}/ipset" "${RESTORE_STAGE}" || return 1
-		mv "${RESTORE_STAGE}" "${IPSET_FILE}" || {
-			rm -f "${RESTORE_STAGE}"
+		mv "${IPSET_RESTORE_STAGE}" "${IPSET_FILE}" || {
+			rm -f "${IPSET_RESTORE_STAGE}" "${YAML_RESTORE_STAGE}" "${IPSET_CURRENT_STAGE}"
 			return 1
 		}
 	fi
 	if [ -f "${SNAPSHOT_DIR}/yaml.absent" ]; then
 		[ ! -e "${YAML_FILE}" ] || RESTART_REQUIRED="1"
-		rm -f "${YAML_FILE}" || return 1
+		rm -f "${YAML_FILE}" || {
+			rm -f "${YAML_RESTORE_STAGE}"
+			if [ "${IPSET_CURRENT_ABSENT}" = "1" ]; then
+				rm -f "${IPSET_FILE}"
+			else
+				mv "${IPSET_CURRENT_STAGE}" "${IPSET_FILE}"
+			fi
+			return 1
+		}
 	else
 		cmp -s "${SNAPSHOT_DIR}/yaml" "${YAML_FILE}" || RESTART_REQUIRED="1"
-		RESTORE_STAGE="${YAML_FILE}.dnsmasq-restore.$$"
-		cp -p "${SNAPSHOT_DIR}/yaml" "${RESTORE_STAGE}" || return 1
-		mv "${RESTORE_STAGE}" "${YAML_FILE}" || {
-			rm -f "${RESTORE_STAGE}"
+		mv "${YAML_RESTORE_STAGE}" "${YAML_FILE}" || {
+			rm -f "${YAML_RESTORE_STAGE}"
+			if [ "${IPSET_CURRENT_ABSENT}" = "1" ]; then
+				rm -f "${IPSET_FILE}"
+			else
+				mv "${IPSET_CURRENT_STAGE}" "${IPSET_FILE}"
+			fi
 			return 1
 		}
 	fi
+	rm -f "${IPSET_CURRENT_STAGE}" || return 1
 	if [ "${RESTART_REQUIRED}" = "1" ] &&
 		{ [ "${ADGUARD_WAS_RUNNING}" = "1" ] || pidof "${PROCS}" >/dev/null 2>&1; }; then
 		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
