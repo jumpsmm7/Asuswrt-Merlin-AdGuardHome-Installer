@@ -3,6 +3,7 @@ name: Code Quality Review
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
   workflow_dispatch:
 
 defaults:
@@ -21,7 +22,7 @@ jobs:
     name: Entware mount disappearance regression
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || github.event.pull_request.draft == false
     permissions:
       contents: read
     steps:
@@ -45,7 +46,7 @@ jobs:
     name: Local Code Quality Checks
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || github.event.pull_request.draft == false
     permissions:
       contents: read
     steps:
@@ -80,7 +81,7 @@ jobs:
     name: SonarQube Cloud Quality Gate
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)
     permissions:
       contents: read
     steps:

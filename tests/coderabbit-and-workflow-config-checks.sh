@@ -216,14 +216,28 @@ fi
 grep -Eq '^[[:space:]]*pull_request:' "${WORKFLOW}" || fail "${WORKFLOW}: expected an 'on: pull_request' trigger"
 grep -Eq '^[[:space:]]*push:' "${WORKFLOW}" || fail "${WORKFLOW}: expected an 'on: push' trigger"
 
-# --- OpenSSF Scorecard only supports push analysis for the repository's
-# default branch. Keep both push and pull-request filters off the development
-# branch so a development-branch event cannot start an unsupported analysis.
-[ "$(grep -Fc '    branches: [master, main]' "${SCORECARD_WORKFLOW}")" -eq 2 ] ||
-	fail "${SCORECARD_WORKFLOW}: push and pull_request must target only default-branch names"
-if grep -Eq '^[[:space:]]+branches:.*dev' "${SCORECARD_WORKFLOW}"; then
-	fail "${SCORECARD_WORKFLOW}: development branch must not trigger OpenSSF Scorecard"
-fi
+# --- Every pull-request check must accept all branches, participate in merge
+# queues, and remain manually dispatchable against a selected branch. Branch
+# filters under the event block would silently omit checks from some reviews.
+for check_workflow in \
+	"${REVIEW_WORKFLOW}" \
+	"${WORKFLOW}" \
+	"${SHELL_VALIDATION_WORKFLOW}" \
+	"${SCORECARD_WORKFLOW}" \
+	'.github/workflows/osv-scanner.yml' \
+	'.github/workflows/semgrep.yml'; do
+	grep -Eq '^  pull_request:' "${check_workflow}" ||
+		fail "${check_workflow}: expected an all-branch pull_request trigger"
+	grep -Eq '^  merge_group:' "${check_workflow}" ||
+		fail "${check_workflow}: expected a merge_group trigger"
+	grep -Eq '^  workflow_dispatch:' "${check_workflow}" ||
+		fail "${check_workflow}: expected a manual workflow_dispatch trigger"
+	awk '
+		/^on:$/ { in_events = 1; next }
+		in_events && /^[a-zA-Z]/ { exit }
+		in_events && /^[[:space:]]+branches:/ { exit 1 }
+	' "${check_workflow}" || fail "${check_workflow}: event branch filters must not exclude review branches"
+done
 
 # --- The Sonar parser cleanup must be idempotent. Pull-request validation must
 # use the immutable head SHA with a non-persistent read-only checkout and fail

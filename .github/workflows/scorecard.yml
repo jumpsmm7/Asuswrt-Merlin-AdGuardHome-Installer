@@ -2,9 +2,8 @@ name: OpenSSF Scorecard
 
 on:
   pull_request:
-    branches: [master, main]
+  merge_group:
   push:
-    branches: [master, main]
   schedule:
     - cron: '41 6 * * 1'
   workflow_dispatch:

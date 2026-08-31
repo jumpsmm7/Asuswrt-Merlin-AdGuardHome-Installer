@@ -2,11 +2,9 @@ name: Shell validation
 
 on:
   pull_request:
+  merge_group:
   workflow_dispatch:
   push:
-    branches:
-      - master
-      - 'dev/**'
 
 permissions:
   contents: read
