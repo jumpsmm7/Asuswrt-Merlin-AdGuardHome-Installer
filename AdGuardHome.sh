@@ -1006,7 +1006,29 @@ dnsmasq_ipset_state_snapshot() {
 	}
 }
 
-# dnsmasq_ipset_state_recover_pending restores safe installer-owned snapshots left by an interrupted dnsmasq transaction.
+# dnsmasq_ipset_state_mark_cleanup records that a committed or restored snapshot needs cleanup without making it eligible for rollback.
+dnsmasq_ipset_state_mark_cleanup() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="$1"
+	[ -d "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
+	if [ -e "${SNAPSHOT_DIR}/restore.pending" ]; then
+		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
+		[ ! -e "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
+		mv "${SNAPSHOT_DIR}/restore.pending" "${SNAPSHOT_DIR}/cleanup.pending" || return 1
+	elif [ -e "${SNAPSHOT_DIR}/cleanup.pending" ]; then
+		[ -f "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
+	fi
+}
+
+# dnsmasq_ipset_state_finalize marks a snapshot as committed before removing it so failed cleanup can be retried without rollback.
+dnsmasq_ipset_state_finalize() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="$1"
+	dnsmasq_ipset_state_mark_cleanup "${SNAPSHOT_DIR}" || return 1
+	rm -rf "${SNAPSHOT_DIR}"
+}
+
+# dnsmasq_ipset_state_recover_pending restores rollback-pending snapshots and removes cleanup-pending committed snapshots.
 dnsmasq_ipset_state_recover_pending() {
 	local SNAPSHOT_DIR SNAPSHOT_NAME
 	for SNAPSHOT_DIR in "${WORK_DIR}"/.AdGuardHome.dnsmasq-ipset.*; do
@@ -1017,6 +1039,12 @@ dnsmasq_ipset_state_recover_pending() {
 			.AdGuardHome.dnsmasq-ipset.*) ;;
 			*) return 1 ;;
 		esac
+		if [ -e "${SNAPSHOT_DIR}/cleanup.pending" ]; then
+			[ -f "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
+			[ ! -e "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
+			rm -rf "${SNAPSHOT_DIR}" || return 1
+			continue
+		fi
 		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || continue
 		if { [ -f "${SNAPSHOT_DIR}/ipset" ] && [ ! -L "${SNAPSHOT_DIR}/ipset" ]; }; then
 			[ ! -e "${SNAPSHOT_DIR}/ipset.absent" ] || return 1
@@ -1113,7 +1141,7 @@ dnsmasq_ipset_state_restore() {
 		ADGUARDHOME_SKIP_DNSMASQ_RESTART="${DNSMASQ_RESTART_SKIP}"
 		[ "${RESTART_REQUIRED}" -eq 0 ] || return 1
 	fi
-	rm -f "${SNAPSHOT_DIR}/restore.pending" || return 1
+	dnsmasq_ipset_state_mark_cleanup "${SNAPSHOT_DIR}" || return 1
 }
 
 # dnsmasq_publish_staged_config refreshes IPSET state and atomically publishes a staged dnsmasq file.
@@ -1142,10 +1170,7 @@ dnsmasq_publish_staged_config() (
 			CONFIG_PUBLISHED="1"
 		fi
 		if [ "${CONFIG_PUBLISHED:-0}" = "1" ] && [ "${SNAPSHOT_READY:-0}" = "1" ]; then
-			if rm -f "${IPSET_SNAPSHOT_DIR}/restore.pending"; then
-				rm -rf "${IPSET_SNAPSHOT_DIR}" 2>/dev/null ||
-					agh_log error dnsmasq_params "state=signal action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
-			else
+			if ! dnsmasq_ipset_state_finalize "${IPSET_SNAPSHOT_DIR}"; then
 				agh_log error dnsmasq_params "state=signal action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 			fi
 			SNAPSHOT_READY="0"
@@ -1213,10 +1238,7 @@ dnsmasq_publish_staged_config() (
 		fi
 		CONFIG_PUBLISHED="1"
 		TRANSACTION_ACTIVE="0"
-		if rm -f "${IPSET_SNAPSHOT_DIR}/restore.pending"; then
-			rm -rf "${IPSET_SNAPSHOT_DIR}" 2>/dev/null ||
-				agh_log error dnsmasq_params "state=publication action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
-		else
+		if ! dnsmasq_ipset_state_finalize "${IPSET_SNAPSHOT_DIR}"; then
 			agh_log error dnsmasq_params "state=publication action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 		fi
 		return 0
