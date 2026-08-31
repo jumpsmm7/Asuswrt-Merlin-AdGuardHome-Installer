@@ -1020,7 +1020,7 @@ dnsmasq_ipset_state_mark_cleanup() {
 	fi
 }
 
-# dnsmasq_ipset_state_finalize marks a snapshot for cleanup and removes it.
+# dnsmasq_ipset_state_finalize marks an IPSet state snapshot for cleanup and removes it.
 dnsmasq_ipset_state_finalize() {
 	local SNAPSHOT_DIR
 	SNAPSHOT_DIR="$1"
@@ -1217,7 +1217,7 @@ dnsmasq_publish_staged_config() (
 		[ "${CONFIG_PUBLISHED:-0}" = "1" ] || rm -f "${CONFIG_STAGE}"
 		exit 1
 	}
-	# dnsmasq_publish_locked snapshots, refreshes, publishes, and compensates IPSet state while the shared lock is held.
+	# dnsmasq_publish_locked snapshots and refreshes IPSet state, publishes the staged dnsmasq configuration, and restores state if refresh or publication fails.
 	dnsmasq_publish_locked() {
 		dnsmasq_ipset_state_recover_pending || {
 			TRANSACTION_ACTIVE="0"
