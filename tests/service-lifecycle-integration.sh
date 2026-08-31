@@ -130,7 +130,7 @@ signal_process_snapshot() {
 	done <"${pid_file}"
 }
 
-# run_bounded runs a test script within the configured timeout and records successful completion.
+# run_bounded runs a test script within the configured timeout, reports failures, and records successful completion.
 run_bounded() {
 	case_name="$1"
 	test_script="$2"

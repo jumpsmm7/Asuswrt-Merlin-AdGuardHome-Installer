@@ -9,10 +9,12 @@ OPT_ROOT="${TEST_ROOT}/opt"
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 CALLS_FILE="${TEST_ROOT}/calls"
 
+# cleanup removes the temporary test directory and its contents.
 cleanup() {
 	rm -rf "${TEST_ROOT}"
 }
 
+# fail reports a test failure with the specified message and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -50,10 +52,14 @@ WORK_DIR="${OPT_ROOT}/etc/AdGuardHome"
 PROCS='AdGuardHome'
 touch "${WORK_DIR}/AdGuardHome" || fail 'could not create simulated AdGuardHome binary'
 chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not make simulated AdGuardHome executable'
+# logger records the supplied message in the calls file.
 logger() { printf '%s\n' "$*" >>"${CALLS_FILE}"; }
+# adguardhome_owner_account prints the account that owns AdGuardHome files.
 adguardhome_owner_account() { printf '%s\n' root; }
+#adguardhome_yaml_ipset_file prints the path to the AdGuardHome YAML IP set configuration file.
 adguardhome_yaml_ipset_file() { printf '%s\n' "${WORK_DIR}/ipset.conf"; }
 chown() { return 0; }
+# chmod_regular_files_600 sets permissions on regular files to 600.
 chmod_regular_files_600() { return 0; }
 ensure_adguardhome_work_dir_permissions || fail 'S99 rejected the available work directory'
 mv "${OPT_ROOT}" "${OPT_ROOT}.gone" || fail 'could not remove Entware during S99 operation'
@@ -71,12 +77,15 @@ sed -n '/^service_state_file() {$/,/^service_status_line() {$/p' "${ROOT_DIR}/rc
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
 	PROC='AdGuardHome'
-	service_state_dir_is_private() { return 0; }
-	service_state_file_is_private() { return 0; }
+	# service_state_dir_is_private determines whether the service state directory has private permissions.
+service_state_dir_is_private() { return 0; }
+	# service_state_file_is_private reports that the service state file is private.
+service_state_file_is_private() { return 0; }
 	service_mark_transition starting
 	[ -f "${OPT_ROOT}/var/run/AdGuardHome/service-state" ] || fail 'rc helper did not publish initial state'
 	mv "${OPT_ROOT}" "${OPT_ROOT}.gone" || fail 'could not remove Entware during rc operation'
-	mkdir() { return 1; }
+	# mkdir simulates a failed directory-creation command.
+mkdir() { return 1; }
 	service_mark_transition stopping || fail 'rc helper propagated best-effort state failure'
 	[ ! -e "${OPT_ROOT}" ] || fail 'rc helper recreated the unavailable Entware mount'
 	[ ! -e "${OPT_ROOT}/var/run/AdGuardHome/service-state.$$" ] || fail 'rc helper left a live stage after mount loss'

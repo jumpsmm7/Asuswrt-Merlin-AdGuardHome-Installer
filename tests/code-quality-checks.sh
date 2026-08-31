@@ -89,7 +89,7 @@ SERVICE_OPT_DISAPPEARANCE_RAN_FILE="${TMP_ROOT}/service-opt-disappearance.ran"
 	id() {
 		printf '%s\n' 0
 	}
-	# sh simulates regression-test commands, records their execution, and returns each test's configured status.
+	# sh simulates supported regression-test commands, records their execution, and returns their configured status.
 	sh() {
 		case "$1" in
 			tests/wan-nat-predicate-parity.sh)
