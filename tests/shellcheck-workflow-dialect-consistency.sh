@@ -66,6 +66,12 @@ grep -Fq 'contents: read' "${WORKFLOW}" || fail "${WORKFLOW}: missing 'contents:
 for job in '  posix-syntax:' '  shellcheck:' '  checksums:' '  shfmt:'; do
 	grep -Fq "${job}" "${WORKFLOW}" || fail "${WORKFLOW}: missing expected job declaration '${job}'"
 done
+awk '
+	/^  posix-syntax:$/ { in_job = 1; next }
+	in_job && /^  [a-zA-Z0-9_-]+:$/ { exit }
+	in_job && /^    timeout-minutes: 120$/ { found = 1 }
+	END { exit !found }
+' "${WORKFLOW}" || fail "${WORKFLOW}: posix-syntax timeout must exceed the bounded lifecycle integration step"
 
 grep -Fq 'pull_request:' "${WORKFLOW}" || fail "${WORKFLOW}: missing the pull_request trigger"
 grep -Fq 'merge_group:' "${WORKFLOW}" || fail "${WORKFLOW}: missing the merge_group trigger"

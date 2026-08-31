@@ -5118,7 +5118,7 @@ adguard_recover_after_uninstall_hook_abort() {
 	RESTART_RECOVERY_STATUS=0
 	all_event_scripts_transaction_rollback || HOOK_ROLLBACK_STATUS=1
 	if [ "${2:-0}" = "1" ]; then
-		installer_lan_domain_restore || DOMAIN_RESTORE_STATUS=1
+		installer_lan_domain_restore_uninstall || DOMAIN_RESTORE_STATUS=1
 	fi
 	# Restore the service only when it was running before the uninstall stopped it.
 	if [ "${1:-0}" = "1" ]; then

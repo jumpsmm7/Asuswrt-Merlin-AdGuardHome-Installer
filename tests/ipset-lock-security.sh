@@ -38,8 +38,8 @@ fi
 if grep -Eq 'IPSET_LOCK_ROOT|/tmp/AdGuardHome-ipset' "${SCRIPT_PATH}"; then
 	fail 'legacy IPSET lock paths remain in the installer'
 fi
-FLOCK_TRAP=$(grep 'trap .*IPSet_Lock_Flock_Cleanup' "${SCRIPT_PATH}") || fail 'flock interrupt cleanup trap was not found'
-MKDIR_TRAP=$(grep 'trap .*IPSet_Lock_Mkdir_Cleanup' "${SCRIPT_PATH}") || fail 'fallback interrupt cleanup trap was not found'
+FLOCK_TRAP=$(grep 'trap .*IPSet_Lock_Flock_Cleanup.* HUP INT QUIT ABRT TERM TSTP$' "${SCRIPT_PATH}") || fail 'flock interrupt cleanup signal trap was not found'
+MKDIR_TRAP=$(grep 'trap .*IPSet_Lock_Mkdir_Cleanup.* HUP INT QUIT ABRT TERM TSTP$' "${SCRIPT_PATH}") || fail 'fallback interrupt cleanup signal trap was not found'
 for trap_helper in IPSet_Lock_Interrupt_Cleanup IPSet_Lock_Interrupt_Propagate IPSet_Dnsmasq_Restart_After_Unlock IPSet_Restore_Traps; do
 	printf '%s\n' "${FLOCK_TRAP}" | grep -Fq "${trap_helper}" || fail "flock interrupt cleanup omits ${trap_helper}"
 	printf '%s\n' "${MKDIR_TRAP}" | grep -Fq "${trap_helper}" || fail "fallback interrupt cleanup omits ${trap_helper}"
