@@ -152,11 +152,10 @@ jobs:
     name: Checksum validation
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Pull request runs can start before the separate checksum updater workflow
-    # has pushed its chore commit. This job waits for that branch update and
-    # validates the latest PR head. Non-bot push runs are skipped so they do not
-    # race the updater workflow.
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.actor == 'github-actions[bot]'
+    # Pull request and source push runs can start before the separate checksum
+    # updater workflow has pushed its chore commit. This job waits for that
+    # branch update, then validates the latest head. Other events validate the
+    # checked-out ref directly.
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -171,13 +170,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y busybox-static
 
-      - name: Wait for checksum chore commit on pull requests
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+      - name: Wait for checksum chore commit
+        if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.actor != 'github-actions[bot]')
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          TARGET_BRANCH: ${{ github.event.pull_request.head.ref }}
-          ORIGINAL_SHA: ${{ github.event.pull_request.head.sha }}
+          TARGET_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+          ORIGINAL_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
 

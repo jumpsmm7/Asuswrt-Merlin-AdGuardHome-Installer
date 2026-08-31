@@ -275,9 +275,9 @@ grep -Fq "repository: \${{ github.event_name == 'pull_request' && github.event.p
 grep -Fq "ref: \${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}" \
 	"${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: checksum checkout must use the immutable pull-request head SHA"
-grep -Fq "if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository" \
+grep -Fq "if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.actor != 'github-actions[bot]')" \
 	"${SHELL_VALIDATION_WORKFLOW}" ||
-	fail "${SHELL_VALIDATION_WORKFLOW}: checksum polling must skip pull requests from repositories the updater cannot write"
+	fail "${SHELL_VALIDATION_WORKFLOW}: checksum polling must cover writable pull-request and source-push branches"
 grep -Fq '      - tests/update-tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
 	fail "${TZDATA_WORKFLOW}: tzdata regression changes must trigger the update workflow"
 grep -Fq '      - tools/tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
@@ -300,8 +300,10 @@ grep -Fq "run_check 'Installer jq dependency regression' sh tests/installer-jq-h
 	fail "${LOCAL_QUALITY_TEST}: expected the installer jq dependency regression dispatch to be exercised"
 grep -Fq '[ -f "${JQ_HELPER_RAN_FILE}" ]' "${LOCAL_QUALITY_TEST}" ||
 	fail "${LOCAL_QUALITY_TEST}: expected an observable assertion that the installer jq regression ran"
-grep -Fq 'ref: ${{ github.event.pull_request.head.sha }}' "${WORKFLOW}" ||
-	fail "${WORKFLOW}: Sonar parser validation must check the immutable pull-request head SHA"
+grep -Fq "if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository" "${WORKFLOW}" ||
+	fail "${WORKFLOW}: Sonar parser validation must run on push, merge-group, manual, and trusted pull-request events"
+grep -Fq "ref: \${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}" "${WORKFLOW}" ||
+	fail "${WORKFLOW}: Sonar parser validation must select the immutable event SHA"
 grep -Fq 'persist-credentials: false' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: Sonar parser validation must not persist checkout credentials"
 if grep -Fq 'contents: write' "${WORKFLOW}"; then
@@ -312,6 +314,18 @@ if grep -Fq 'git push origin HEAD:v2.6.5' "${WORKFLOW}"; then
 fi
 grep -Fq 'git diff --exit-code -- AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHome.sh.sha256sum' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: Sonar parser validation must fail when generated artifacts differ"
+grep -Fq "if: github.event_name == 'pull_request' || github.event_name == 'push'" '.github/workflows/osv-scanner.yml' ||
+	fail '.github/workflows/osv-scanner.yml: differential scan must run for pull-request and push events'
+if grep -Fq "if: github.event_name != 'pull_request'" '.github/workflows/osv-scanner.yml'; then
+	fail '.github/workflows/osv-scanner.yml: full vulnerability scan must not skip pull-request events'
+fi
+if grep -Fq "if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.actor == 'github-actions[bot]'" \
+	"${SHELL_VALIDATION_WORKFLOW}"; then
+	fail "${SHELL_VALIDATION_WORKFLOW}: checksum validation must not skip source push or merge-group events"
+fi
+if grep -Eq '^[[:space:]]+branches:' '.github/workflows/update-checksums.yml'; then
+	fail '.github/workflows/update-checksums.yml: checksum updater must support source pushes on every branch'
+fi
 
 # --- Static archive publication creates both sidecars itself. The cache job
 # stages complete architecture directories so archive and digest changes stay
