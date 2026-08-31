@@ -74,7 +74,7 @@ grep -Eq '^  push:$' "${WORKFLOW}" || fail "${WORKFLOW}: missing the all-branch 
 if awk '
 	/^on:$/ { in_events = 1; next }
 	in_events && /^[a-zA-Z]/ { exit }
-	in_events && /^[[:space:]]+branches:/ { found = 1 }
+	in_events && /^[[:space:]]+branches(-ignore)?:/ { found = 1 }
 	END { exit !found }
 ' "${WORKFLOW}"; then
 	fail "${WORKFLOW}: push and review checks must not be restricted by branch filters"

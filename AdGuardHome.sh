@@ -1213,7 +1213,12 @@ dnsmasq_publish_staged_config() (
 		fi
 		CONFIG_PUBLISHED="1"
 		TRANSACTION_ACTIVE="0"
-		rm -rf "${IPSET_SNAPSHOT_DIR}" 2>/dev/null || true
+		if rm -f "${IPSET_SNAPSHOT_DIR}/restore.pending"; then
+			rm -rf "${IPSET_SNAPSHOT_DIR}" 2>/dev/null ||
+				agh_log error dnsmasq_params "state=publication action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+		else
+			agh_log error dnsmasq_params "state=publication action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+		fi
 		return 0
 	}
 	IPSET_LOCK_INTERRUPT_CALLBACK="dnsmasq_publish_abort"

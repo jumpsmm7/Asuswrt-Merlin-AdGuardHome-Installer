@@ -4,7 +4,7 @@
 set -u
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd) || exit 1
-TEST_ROOT="${TMPDIR:-/tmp}/service-opt-disappearance.$$"
+TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/service-opt-disappearance.XXXXXX") || exit 1
 OPT_ROOT="${TEST_ROOT}/opt"
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 CALLS_FILE="${TEST_ROOT}/calls"
