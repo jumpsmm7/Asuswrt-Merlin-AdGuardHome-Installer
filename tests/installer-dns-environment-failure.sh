@@ -101,7 +101,7 @@ installer_cleanup_tmp_file() { :; }
 rollback_pending_mode_migration() { return 0; }
 # sleep waits for each newly spawned DNS child to publish its start before
 # advancing the simulated clock. Each child is synchronized only once so
-# sleep advances simulated monotonic time while synchronizing with asynchronous DNS probe startup.
+# sleep advances simulated monotonic time, synchronizes DNS probe startup, and optionally yields to the scheduler.
 sleep() {
 	local current_lookup_count sync_wait_count
 

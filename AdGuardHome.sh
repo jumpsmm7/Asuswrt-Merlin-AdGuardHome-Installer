@@ -973,7 +973,7 @@ dnsmasq_resolv_conf_cleanup() {
 	}; fi
 }
 
-# dnsmasq_ipset_state_snapshot preserves the managed IPSet file and YAML configuration, recording when either file is absent.
+# dnsmasq_ipset_state_snapshot saves the managed IPSet file and YAML configuration, records absent files, and marks the snapshot for restoration.
 dnsmasq_ipset_state_snapshot() {
 	local SNAPSHOT_DIR
 	SNAPSHOT_DIR="$1"
@@ -1020,7 +1020,7 @@ dnsmasq_ipset_state_mark_cleanup() {
 	fi
 }
 
-# dnsmasq_ipset_state_finalize marks a snapshot as committed before removing it so failed cleanup can be retried without rollback.
+# dnsmasq_ipset_state_finalize marks a snapshot for cleanup and removes it.
 dnsmasq_ipset_state_finalize() {
 	local SNAPSHOT_DIR
 	SNAPSHOT_DIR="$1"
@@ -1065,7 +1065,7 @@ dnsmasq_ipset_state_recover_pending() {
 	done
 }
 
-# dnsmasq_ipset_state_restore restores IPSet and YAML snapshots and restarts AdGuardHome when the restored state differs and the service is running.
+# dnsmasq_ipset_state_restore restores the saved IPSet and YAML state, restarts AdGuardHome when necessary, and marks the snapshot for cleanup.
 dnsmasq_ipset_state_restore() {
 	local ADGUARD_WAS_RUNNING DNSMASQ_RESTART_SKIP IPSET_CURRENT_ABSENT IPSET_CURRENT_STAGE IPSET_RESTORE_STAGE RESTART_REQUIRED SNAPSHOT_DIR YAML_RESTORE_STAGE
 	SNAPSHOT_DIR="$1"
@@ -1144,7 +1144,7 @@ dnsmasq_ipset_state_restore() {
 	dnsmasq_ipset_state_mark_cleanup "${SNAPSHOT_DIR}" || return 1
 }
 
-# dnsmasq_publish_staged_config refreshes IPSET state and atomically publishes a staged dnsmasq file.
+# dnsmasq_publish_staged_config refreshes IPSET state and atomically publishes a staged dnsmasq configuration, restoring prior state if the transaction fails.
 dnsmasq_publish_staged_config() (
 	ADGUARD_WAS_RUNNING="0"
 	CONFIG_PUBLISHED="0"
@@ -1156,7 +1156,7 @@ dnsmasq_publish_staged_config() (
 	TRANSACTION_SIGNAL_PENDING="0"
 	[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ] && ADGUARD_WAS_RUNNING="1"
 	TRANSACTION_ACTIVE="1"
-	# dnsmasq_publish_abort aborts a staged dnsmasq configuration transaction, restoring its IPSet snapshot when necessary and exiting with failure.
+	# dnsmasq_publish_abort aborts a staged dnsmasq configuration transaction, restoring or finalizing its IPSet snapshot as appropriate and exiting with failure when the abort proceeds.
 	dnsmasq_publish_abort() {
 		if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then
 			TRANSACTION_SIGNAL_PENDING="1"
@@ -1189,7 +1189,7 @@ dnsmasq_publish_staged_config() (
 		[ "${CONFIG_PUBLISHED:-0}" = "1" ] || rm -f "${CONFIG_STAGE}"
 		exit 1
 	}
-	# dnsmasq_publish_locked snapshots, refreshes, publishes, and compensates while the shared IPSet lock is held.
+	# dnsmasq_publish_locked snapshots, refreshes, publishes, and compensates IPSet state while the shared lock is held.
 	dnsmasq_publish_locked() {
 		dnsmasq_ipset_state_recover_pending || {
 			TRANSACTION_ACTIVE="0"

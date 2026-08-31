@@ -219,7 +219,7 @@ IPSet_Refresh() {
 	return 0
 }
 
-# IPSet_Lock marks the fixture transaction as locked while running its callback.
+# IPSet_Lock serializes execution of its callback and returns its status, or a cleanup failure status.
 IPSet_Lock() {
 	local cleanup_status exit_trap_active lock_attempts status
 	if [ "${IPSET_LOCK_ACTIVE:-0}" = "1" ]; then
@@ -260,7 +260,7 @@ IPSet_Lock_Interrupt_Propagate() {
 	"${IPSET_LOCK_INTERRUPT_CALLBACK}"
 }
 
-# mv injects configured failures for dnsmasq publication or IPSET snapshot restoration moves, then delegates other operations to the system command.
+# mv injects configured failures for dnsmasq publication, IPSET restoration, YAML restoration, and compensation moves, then delegates other operations to the system command.
 mv() {
 	if [ "${TRANSACTION_ACTIVE:-0}" = "1" ]; then
 		[ "${IPSET_LOCK_ACTIVE:-0}" = "1" ] || fail 'dnsmasq publication or compensation ran outside the transaction lock'
@@ -303,7 +303,7 @@ rm() {
 	command rm "$@"
 }
 
-# private_ipv4_bridge_dns_options_with_fallbacks records the LAN interface and emits configured bridge DNS options, or fails when fallback generation is unavailable.
+# private_ipv4_bridge_dns_options_with_fallbacks records the LAN interface and emits configured bridge DNS options, failing when fallback generation is unavailable.
 private_ipv4_bridge_dns_options_with_fallbacks() {
 	printf '%s\n' "$1" >>"${BRIDGE_FALLBACK_CALLS_FILE}"
 	[ "${BRIDGE_DNS_FAIL:-0}" != "1" ] || return 1

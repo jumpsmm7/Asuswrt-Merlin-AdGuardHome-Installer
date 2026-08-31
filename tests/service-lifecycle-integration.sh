@@ -21,7 +21,7 @@ SCENARIO_COUNT=0
 CASES_FIXTURE="${ROOT_DIR}/tests/fixtures/service-lifecycle-cases.tsv"
 COVERAGE_FIXTURE="${ROOT_DIR}/tests/fixtures/service-lifecycle-coverage.tsv"
 
-# cleanup stops active test and watchdog processes and removes the temporary workspace.
+# cleanup stops active suite and case watchdogs and test processes, then removes the temporary workspace.
 cleanup() {
 	trap '' HUP INT TERM
 	if [ -n "${SUITE_WATCHDOG_PID:-}" ]; then

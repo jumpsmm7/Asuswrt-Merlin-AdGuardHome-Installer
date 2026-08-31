@@ -256,7 +256,7 @@ grep -q '^uninst_all() {$' "${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall helpe
 # shellcheck disable=SC1090
 . "${UNINSTALL_FUNCTION_FILE}"
 # run_uninstall_test simulates an isolated uninstall scenario and records restoration, service, hook, rollback, and removal events.
-# RESTORE_RESULT, START_RESULT, HELPER_MODE, REMOVE_HOOK_STATUS, INITIAL_RUNNING, DOMAIN_ENABLED, and SNAPSHOT_STATUS control simulated restoration, startup, rollback-helper, hook-removal, initial service-state, LAN-domain, and hook-snapshot outcomes.
+# run_uninstall_test creates and executes an isolated uninstall test fixture with configurable restoration, service, rollback, hook, and LAN-domain outcomes.
 run_uninstall_test() (
 	TARG_DIR="${TMP_ROOT}/uninstall-$1"
 	BASE_DIR="${TMP_ROOT}/base-$1"

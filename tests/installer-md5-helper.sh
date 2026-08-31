@@ -7,6 +7,7 @@ SCRIPT_PATH="${1:-installer}"
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/installer-md5-helper.XXXXXX") || exit 1
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 
+# cleanup removes the temporary test workspace.
 cleanup() {
 	rm -rf "${TMP_ROOT}"
 }
