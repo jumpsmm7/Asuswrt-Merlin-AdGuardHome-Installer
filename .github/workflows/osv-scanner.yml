@@ -85,7 +85,7 @@ jobs:
             --fail-on-vuln=true
 
       - name: Upload OSV SARIF artifact
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.differential-base.outputs.available == 'true' }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: OSV Scanner PR SARIF
@@ -93,7 +93,7 @@ jobs:
           retention-days: 5
 
       - name: Upload OSV results to code scanning
-        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ !cancelled() && steps.differential-base.outputs.available == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: results.sarif

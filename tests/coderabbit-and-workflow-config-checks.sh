@@ -52,6 +52,24 @@ review_checker_is_enforced() {
 	' "${_review_workflow}"
 }
 
+# osv_differential_uploads_are_guarded verifies that both differential SARIF
+# consumers require a successfully produced report.
+osv_differential_uploads_are_guarded() {
+	awk '
+		/^  scan-pr:$/ { in_scan_pr = 1; next }
+		in_scan_pr && /^  scan-full:$/ { exit }
+		in_scan_pr && /^      - name: Upload OSV SARIF artifact$/ { in_step = 1; artifact = 1; code_scanning = 0; next }
+		in_scan_pr && /^      - name: Upload OSV results to code scanning$/ { in_step = 1; artifact = 0; code_scanning = 1; next }
+		in_step && /^      - name:/ { in_step = 0 }
+		in_step && /if:.*steps\.differential-base\.outputs\.available == '\''true'\''/ {
+			if (artifact) artifact_guard = 1
+			if (code_scanning) code_scanning_guard = 1
+			in_step = 0
+		}
+		END { if (!artifact_guard || !code_scanning_guard) exit 1 }
+	' "$1"
+}
+
 for f in "${CODERABBIT}" "${CODEX_PROMPT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}" "${SHELL_VALIDATION_WORKFLOW}" "${TZDATA_WORKFLOW}" "${CACHE_WORKFLOW}" "${SCORECARD_WORKFLOW}" "${SONAR_REWRITE}" "${SEMGREP}" "${SONAR}" "${STATIC_DOWNLOADER}"; do
 	[ -f "${f}" ] || fail "expected config file not found: ${f}"
 done
@@ -330,6 +348,8 @@ grep -Fq "if: github.event_name != 'pull_request' || github.event.pull_request.h
 	fail '.github/workflows/osv-scanner.yml: full vulnerability scan must exclude fork pull requests'
 grep -Fq "git rev-parse --verify \"\${base_revision}^{commit}\"" '.github/workflows/osv-scanner.yml' ||
 	fail '.github/workflows/osv-scanner.yml: differential scan must verify that its predecessor is reachable'
+osv_differential_uploads_are_guarded '.github/workflows/osv-scanner.yml' ||
+	fail '.github/workflows/osv-scanner.yml: both differential SARIF uploads must require an available report'
 if grep -Fq "if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.actor == 'github-actions[bot]'" \
 	"${SHELL_VALIDATION_WORKFLOW}"; then
 	fail "${SHELL_VALIDATION_WORKFLOW}: checksum validation must not skip source push or merge-group events"
