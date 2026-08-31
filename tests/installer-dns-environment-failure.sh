@@ -2132,8 +2132,6 @@ check_dns_environment 0 && fail 'DNS apply failure after stopping stubby was acc
 [ "${STUBBY_RESTART_COUNT}" = 1 ] || fail 'DNS apply failure did not restore stubby'
 
 reset_case
-DNS_ENV_READY_TIMEOUT=invalid
-DNS_ENV_RECOVERY_TIMEOUT=invalid
 check_dns_environment 0 || fail 'DNS preparation for explicit restore failed'
 check_dns_environment 1 || fail 'successful DNS preparation could not restore its snapshot'
 assert_original 'successful preparation'

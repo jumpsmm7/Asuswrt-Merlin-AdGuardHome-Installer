@@ -52,6 +52,21 @@ review_checker_is_enforced() {
 	' "${_review_workflow}"
 }
 
+# osv_differential_uploads_are_guarded verifies that both differential SARIF
+# consumers require a successfully produced report.
+osv_differential_uploads_are_guarded() {
+	awk '
+		/^  scan-pr:$/ { in_scan_pr = 1; next }
+		in_scan_pr && /^  scan-full:$/ { exit }
+		in_scan_pr && /^      - name: Upload OSV SARIF artifact$/ { in_step = 1; artifact = 1; code_scanning = 0; next }
+		in_scan_pr && /^      - name: Upload OSV results to code scanning$/ { in_step = 1; artifact = 0; code_scanning = 1; next }
+		in_step && /^      - name:/ { in_step = 0; artifact = 0; code_scanning = 0 }
+		in_step && artifact && /^        if: \$\{\{ !cancelled\(\) && steps\.differential-base\.outputs\.available == '\''true'\'' \}\}$/ { artifact_guard = 1 }
+		in_step && code_scanning && /^        if: \$\{\{ !cancelled\(\) && steps\.differential-base\.outputs\.available == '\''true'\'' && \(github\.event_name != '\''pull_request'\'' \|\| github\.event\.pull_request\.head\.repo\.full_name == github\.repository\) \}\}$/ { code_scanning_guard = 1 }
+		END { if (!artifact_guard || !code_scanning_guard) exit 1 }
+	' "$1"
+}
+
 for f in "${CODERABBIT}" "${CODEX_PROMPT}" "${WORKFLOW}" "${REVIEW_WORKFLOW}" "${SHELL_VALIDATION_WORKFLOW}" "${TZDATA_WORKFLOW}" "${CACHE_WORKFLOW}" "${SCORECARD_WORKFLOW}" "${SONAR_REWRITE}" "${SEMGREP}" "${SONAR}" "${STATIC_DOWNLOADER}"; do
 	[ -f "${f}" ] || fail "expected config file not found: ${f}"
 done
@@ -245,6 +260,8 @@ done
 # report an explanatory successful check instead of failing in the action.
 grep -Fq "github.ref_name == github.event.repository.default_branch" "${SCORECARD_WORKFLOW}" ||
 	fail "${SCORECARD_WORKFLOW}: Scorecard execution must be limited to the default branch"
+grep -Fq "github.ref_type == 'branch'" "${SCORECARD_WORKFLOW}" ||
+	fail "${SCORECARD_WORKFLOW}: Scorecard execution must reject tags named after the default branch"
 grep -Fq "github.base_ref == github.event.repository.default_branch" "${SCORECARD_WORKFLOW}" ||
 	fail "${SCORECARD_WORKFLOW}: pull-request Scorecard execution must target the default branch"
 [ "$(grep -Fc "if: env.SCORECARD_SUPPORTED == 'true'" "${SCORECARD_WORKFLOW}")" -eq 3 ] ||
@@ -290,6 +307,14 @@ grep -Fq '      - name: Run tzdata package conversion regression' "${REVIEW_WORK
 	fail "${REVIEW_WORKFLOW}: expected the tzdata conversion regression before Sonar analysis"
 grep -Fq '        run: sh tests/update-tzdata-package-info.sh' "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: expected the tzdata conversion regression command before Sonar analysis"
+grep -Fq "if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)" "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: secret-bearing Sonar validation must exclude merge-group and fork code"
+grep -Fq '  merge-group-validation:' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: merge groups need a separate secret-free tzdata validation job"
+grep -Fq "if: github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || github.event.pull_request.draft == false" "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: secret-free tzdata validation must run for pull requests, merge groups, and manual checks"
+grep -Fq 'sudo apt-get install -y bzip2 xz-utils zstd' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: secret-free tzdata validation must install its conversion tools"
 grep -Fq "run_check 'tzdata package conversion regression' sh tests/update-tzdata-package-info.sh" "${LOCAL_QUALITY_RUNNER}" ||
 	fail "${LOCAL_QUALITY_RUNNER}: expected the tzdata conversion regression in the local and CI quality matrix"
 grep -Fq "run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh" "${LOCAL_QUALITY_RUNNER}" ||
@@ -316,9 +341,56 @@ grep -Fq 'git diff --exit-code -- AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHo
 	fail "${WORKFLOW}: Sonar parser validation must fail when generated artifacts differ"
 grep -Fq "if: github.event_name == 'pull_request' || github.event_name == 'push'" '.github/workflows/osv-scanner.yml' ||
 	fail '.github/workflows/osv-scanner.yml: differential scan must run for pull-request and push events'
-if grep -Fq "if: github.event_name != 'pull_request'" '.github/workflows/osv-scanner.yml'; then
-	fail '.github/workflows/osv-scanner.yml: full vulnerability scan must not skip pull-request events'
-fi
+grep -Fq "if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository" '.github/workflows/osv-scanner.yml' ||
+	fail '.github/workflows/osv-scanner.yml: full vulnerability scan must exclude fork pull requests'
+grep -Fq "git rev-parse --verify \"\${base_revision}^{commit}\"" '.github/workflows/osv-scanner.yml' ||
+	fail '.github/workflows/osv-scanner.yml: differential scan must verify that its predecessor is reachable'
+osv_differential_uploads_are_guarded '.github/workflows/osv-scanner.yml' ||
+	fail '.github/workflows/osv-scanner.yml: both differential SARIF uploads must require an available report'
+for mutation in artifact-missing artifact-or artifact-subsequent code-scanning-missing code-scanning-or code-scanning-subsequent; do
+	mutated_workflow="${TMP_ROOT}/osv-${mutation}.yml"
+	awk -v mutation="${mutation}" '
+		/^  scan-pr:$/ { in_scan_pr = 1 }
+		/^  scan-full:$/ {
+			if (mutation == "code-scanning-subsequent") {
+				print "      - name: Unrelated guarded step"
+				print "        if: ${{ !cancelled() && steps.differential-base.outputs.available == '\''true'\'' && (github.event_name != '\''pull_request'\'' || github.event.pull_request.head.repo.full_name == github.repository) }}"
+				print "        run: true"
+			}
+			in_scan_pr = 0; in_step = 0; artifact = 0; code_scanning = 0
+		}
+		in_scan_pr && /^      - name: Upload OSV SARIF artifact$/ { in_step = 1; artifact = 1; code_scanning = 0; print; next }
+		in_scan_pr && /^      - name: Upload OSV results to code scanning$/ {
+			if (mutation == "artifact-subsequent") {
+				print "      - name: Unrelated guarded step"
+				print "        if: ${{ !cancelled() && steps.differential-base.outputs.available == '\''true'\'' }}"
+				print "        run: true"
+			}
+			in_step = 1; artifact = 0; code_scanning = 1; print; next
+		}
+		in_step && /^      - name:/ { in_step = 0; artifact = 0; code_scanning = 0 }
+		in_step && artifact && /^        if:/ && (mutation == "artifact-missing" || mutation == "artifact-subsequent") { print "        if: ${{ !cancelled() }}"; artifact = 0; next }
+		in_step && artifact && /^        if:/ && mutation == "artifact-or" { sub(/ && steps\.differential-base/, " || steps.differential-base"); artifact = 0; print; next }
+		in_step && code_scanning && /^        if:/ && (mutation == "code-scanning-missing" || mutation == "code-scanning-subsequent") { sub(/steps\.differential-base\.outputs\.available == '\''true'\'' && /, ""); code_scanning = 0 }
+		in_step && code_scanning && /^        if:/ && mutation == "code-scanning-or" { sub(/ && steps\.differential-base/, " || steps.differential-base"); code_scanning = 0; print; next }
+		{ print }
+	' '.github/workflows/osv-scanner.yml' >"${mutated_workflow}" || fail "could not create ${mutation} OSV guard fixture"
+	case "${mutation}" in
+		artifact-or | code-scanning-or)
+			grep -Fq "if: \${{ !cancelled() || steps.differential-base.outputs.available == 'true'" "${mutated_workflow}" ||
+				fail ".github/workflows/osv-scanner.yml: ${mutation} fixture did not weaken the availability conjunction"
+			;;
+		code-scanning-subsequent)
+			grep -Fq '      - name: Unrelated guarded step' "${mutated_workflow}" ||
+				fail '.github/workflows/osv-scanner.yml: code-scanning displacement fixture omitted the subsequent guarded step'
+			grep -Fq "if: \${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}" "${mutated_workflow}" ||
+				fail '.github/workflows/osv-scanner.yml: code-scanning displacement fixture retained the upload availability guard'
+			;;
+	esac
+	if osv_differential_uploads_are_guarded "${mutated_workflow}"; then
+		fail ".github/workflows/osv-scanner.yml: ${mutation} mutation bypassed differential SARIF upload validation"
+	fi
+done
 if grep -Fq "if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.actor == 'github-actions[bot]'" \
 	"${SHELL_VALIDATION_WORKFLOW}"; then
 	fail "${SHELL_VALIDATION_WORKFLOW}: checksum validation must not skip source push or merge-group events"

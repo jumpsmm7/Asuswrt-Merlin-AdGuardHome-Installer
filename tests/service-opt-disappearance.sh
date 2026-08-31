@@ -89,6 +89,7 @@ sed -n '/^service_state_file() {$/,/^service_status_line() {$/p' "${ROOT_DIR}/rc
 	service_mark_transition stopping || fail 'rc helper propagated best-effort state failure'
 	[ ! -e "${OPT_ROOT}" ] || fail 'rc helper recreated the unavailable Entware mount'
 	[ ! -e "${OPT_ROOT}/var/run/AdGuardHome/service-state.$$" ] || fail 'rc helper left a live stage after mount loss'
+	[ ! -e "${OPT_ROOT}.gone/var/run/AdGuardHome/service-state.$$" ] || fail 'rc helper left a stage in the renamed mount'
 	mv "${OPT_ROOT}.gone" "${OPT_ROOT}" || fail 'could not restore Entware after rc check'
 ) || fail 'rc helper mount-disappearance checks failed'
 
