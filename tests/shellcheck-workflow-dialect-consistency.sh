@@ -114,7 +114,7 @@ grep -Fq 'run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-
 	fail "${WORKFLOW}: installer preflight regression does not run with bounded BusyBox ash"
 grep -Fq 'run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-dns-environment-failure.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: installer NVRAM transaction regression does not run with bounded BusyBox ash"
-grep -Fq 'run: sudo -n /usr/bin/timeout --kill-after=10 5130 env AGH_INTEGRATION_SHELL=busybox' "${WORKFLOW}" ||
+grep -Fq 'run: sudo -n /usr/bin/timeout --kill-after=10 5160 env AGH_INTEGRATION_SHELL=busybox' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: lifecycle timeout must run inside sudo"
 grep -Fq 'run: sudo -n /usr/bin/timeout --kill-after=10 180 busybox ash tests/optional-database-links.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: optional database timeout must run inside sudo"

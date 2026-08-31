@@ -1153,13 +1153,33 @@ dnsmasq_publish_staged_config() (
 	CONFIG_PUBLISHED="0"
 	CONFIG_FILE="$1"
 	CONFIG_STAGE="$2"
+	CONFIG_BACKUP="${CONFIG_STAGE}.previous"
+	CONFIG_BACKUP_RETAIN="0"
 	IPSET_SNAPSHOT_DIR="$3"
 	ROLLBACK_ACTIVE="0"
 	SNAPSHOT_READY="0"
 	TRANSACTION_SIGNAL_PENDING="0"
 	[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ] && ADGUARD_WAS_RUNNING="1"
 	TRANSACTION_ACTIVE="1"
-	# dnsmasq_publish_abort aborts a staged dnsmasq configuration transaction, finalizing published IPSet snapshots or restoring unpublished snapshots before exiting with failure.
+	# dnsmasq_publish_rollback_published restores the pre-publication dnsmasq and IPSet state after an unsafe publication.
+	dnsmasq_publish_rollback_published() {
+		local ROLLBACK_STATUS
+		ROLLBACK_STATUS="0"
+		ROLLBACK_ACTIVE="1"
+		if ! mv "${CONFIG_BACKUP}" "${CONFIG_FILE}"; then
+			agh_log error dnsmasq_params "state=publication action=restore_dnsmasq result=failed config=${CONFIG_FILE}"
+			CONFIG_BACKUP_RETAIN="1"
+			ROLLBACK_STATUS="1"
+		fi
+		if ! dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
+			agh_log error dnsmasq_params "state=publication action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			ROLLBACK_STATUS="1"
+		fi
+		ROLLBACK_ACTIVE="0"
+		CONFIG_PUBLISHED="0"
+		return "${ROLLBACK_STATUS}"
+	}
+	# dnsmasq_publish_abort aborts a staged dnsmasq configuration transaction, restoring or finalizing its IPSet snapshot as appropriate and exiting with failure when the abort proceeds.
 	dnsmasq_publish_abort() {
 		if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then
 			TRANSACTION_SIGNAL_PENDING="1"
@@ -1173,8 +1193,13 @@ dnsmasq_publish_staged_config() (
 			CONFIG_PUBLISHED="1"
 		fi
 		if [ "${CONFIG_PUBLISHED:-0}" = "1" ] && [ "${SNAPSHOT_READY:-0}" = "1" ]; then
-			if ! dnsmasq_ipset_state_finalize "${IPSET_SNAPSHOT_DIR}"; then
-				agh_log error dnsmasq_params "state=signal action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			if dnsmasq_ipset_state_mark_cleanup "${IPSET_SNAPSHOT_DIR}"; then
+				rm -rf "${IPSET_SNAPSHOT_DIR}" ||
+					agh_log error dnsmasq_params "state=signal action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			else
+				agh_log error dnsmasq_params "state=signal action=mark_cleanup result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				dnsmasq_publish_rollback_published ||
+					agh_log error dnsmasq_params "state=signal action=rollback_publication result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 			fi
 			SNAPSHOT_READY="0"
 		fi
@@ -1205,6 +1230,11 @@ dnsmasq_publish_staged_config() (
 			return 1
 		fi
 		SNAPSHOT_READY="1"
+		if ! cp -p "${CONFIG_FILE}" "${CONFIG_BACKUP}"; then
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		fi
 		if ! IPSet_Refresh "${CONFIG_STAGE}"; then
 			ROLLBACK_ACTIVE="1"
 			if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
@@ -1240,10 +1270,17 @@ dnsmasq_publish_staged_config() (
 			return 1
 		fi
 		CONFIG_PUBLISHED="1"
-		TRANSACTION_ACTIVE="0"
-		if ! dnsmasq_ipset_state_finalize "${IPSET_SNAPSHOT_DIR}"; then
-			agh_log error dnsmasq_params "state=publication action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+		if ! dnsmasq_ipset_state_mark_cleanup "${IPSET_SNAPSHOT_DIR}"; then
+			agh_log error dnsmasq_params "state=publication action=mark_cleanup result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			dnsmasq_publish_rollback_published ||
+				agh_log error dnsmasq_params "state=publication action=rollback_publication result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			TRANSACTION_ACTIVE="0"
+			return 1
 		fi
+		TRANSACTION_ACTIVE="0"
+		rm -f "${CONFIG_BACKUP}"
+		rm -rf "${IPSET_SNAPSHOT_DIR}" ||
+			agh_log error dnsmasq_params "state=publication action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 		return 0
 	}
 	IPSET_LOCK_INTERRUPT_CALLBACK="dnsmasq_publish_abort"
@@ -1252,6 +1289,7 @@ dnsmasq_publish_staged_config() (
 	STATUS="$?"
 	IPSET_LOCK_INTERRUPT_CALLBACK=""
 	trap - HUP INT QUIT ABRT TERM TSTP
+	[ "${CONFIG_BACKUP_RETAIN}" = "1" ] || rm -f "${CONFIG_BACKUP}"
 	if [ "${STATUS}" -ne 0 ] && [ "${SNAPSHOT_READY}" = "0" ]; then
 		TRANSACTION_ACTIVE="0"
 		rm -f "${CONFIG_STAGE}"
