@@ -1042,7 +1042,10 @@ dnsmasq_ipset_state_recover_pending() {
 		if [ -e "${SNAPSHOT_DIR}/cleanup.pending" ]; then
 			[ -f "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
 			[ ! -e "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
-			rm -rf "${SNAPSHOT_DIR}" || return 1
+			if ! rm -rf "${SNAPSHOT_DIR}"; then
+				agh_log error dnsmasq_params "state=recovery action=cleanup_snapshot result=failed snapshot=${SNAPSHOT_DIR}"
+				return 1
+			fi
 			continue
 		fi
 		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || continue

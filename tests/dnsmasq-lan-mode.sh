@@ -769,6 +769,11 @@ FINALIZE_REMOVE_FAIL='1'
 dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${FINALIZE_STAGE}" "${FINALIZE_SNAPSHOT}" || fail 'published transaction failed when only snapshot cleanup failed'
 [ -f "${FINALIZE_SNAPSHOT}/cleanup.pending" ] || fail 'failed snapshot cleanup did not retain its cleanup-only marker'
 [ ! -e "${FINALIZE_SNAPSHOT}/restore.pending" ] || fail 'committed snapshot remained eligible for rollback after cleanup failure'
+if IPSet_Lock dnsmasq_ipset_state_recover_pending; then
+	fail 'cleanup retry unexpectedly succeeded while snapshot removal was failing'
+fi
+grep -q "state=recovery action=cleanup_snapshot result=failed snapshot=${FINALIZE_SNAPSHOT}" "${LOG_FILE}" ||
+	fail 'failed cleanup retry did not identify the retained snapshot'
 FINALIZE_REMOVE_FAIL='0'
 IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'next transaction did not retry committed snapshot cleanup'
 [ ! -e "${FINALIZE_SNAPSHOT}" ] || fail 'retried committed snapshot cleanup retained its directory'

@@ -69,7 +69,7 @@ done
 awk '
 	/^  posix-syntax:$/ { in_job = 1; next }
 	in_job && /^  [a-zA-Z0-9_-]+:$/ { exit }
-	in_job && /^    timeout-minutes: 120$/ { found = 1 }
+	in_job && /^    timeout-minutes: 165$/ { found = 1 }
 	END { exit !found }
 ' "${WORKFLOW}" || fail "${WORKFLOW}: posix-syntax timeout must exceed the bounded lifecycle integration step"
 
