@@ -1476,7 +1476,10 @@ reset_case
 nvram set lan_domain=before-uninstall || fail 'could not initialize uninstall LAN domain fixture'
 installer_lan_domain_set "" 1 || fail 'uninstall LAN domain transaction apply failed'
 : >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed" || fail 'could not create committed setup marker for uninstall restore'
-installer_lan_domain_restore_uninstall || fail 'uninstall restore was blocked by the committed setup marker'
+FAIL_SERVICE_AT="$((SERVICE_COUNT + 1))"
+if installer_lan_domain_restore_uninstall; then
+	fail 'uninstall restore hid the injected uninstall restart failure'
+fi
 [ "$(nvram get lan_domain)" = before-uninstall ] || fail 'uninstall restore did not recover the saved LAN domain'
 
 reset_case

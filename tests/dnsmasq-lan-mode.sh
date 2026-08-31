@@ -292,6 +292,9 @@ mv() {
 			"${DNSMASQ_CONF_FILE}.adguard."*) return 1 ;;
 		esac
 	fi
+	if [ "${MARK_CLEANUP_FAIL:-0}" = "1" ] && [ "${1:-}" = "${MARK_CLEANUP_FAIL_SNAPSHOT:-}/restore.pending" ]; then
+		return 1
+	fi
 	command mv "$@"
 }
 
@@ -344,6 +347,8 @@ reset_case() {
 	RESTORE_COMPENSATE_FAIL='0'
 	FINALIZE_REMOVE_FAIL='0'
 	FINALIZE_FAIL_SNAPSHOT=''
+	MARK_CLEANUP_FAIL='0'
+	MARK_CLEANUP_FAIL_SNAPSHOT=''
 	MOUNT_FAIL='0'
 	CONFIG_LOCAL='NO'
 	[ -z "${SECOND_STARTED:-}" ] || rm -f "${SECOND_STARTED}"
@@ -780,6 +785,27 @@ IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'next transaction did not
 grep -qx 'committed ipset' "${IPSET_FILE}" || fail 'cleanup retry rolled back committed IPSET state'
 grep -qx 'committed yaml' "${YAML_FILE}" || fail 'cleanup retry rolled back committed YAML state'
 
+# A failed restore-to-cleanup marker transition makes publication unsafe and
+# rolls the dnsmasq, IPSet, and YAML state back while propagating failure.
+reset_case
+MARK_FAIL_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.mark-failure"
+MARK_FAIL_STAGE="${DNSMASQ_CONF_FILE}.adguard.mark-failure"
+printf '%s\n' '# unsafe publication' >"${MARK_FAIL_STAGE}" || fail 'could not stage marker-failure fixture'
+printf '%s\n' 'previous ipset' >"${IPSET_FILE}" || fail 'could not initialize marker-failure IPSET fixture'
+printf '%s\n' 'previous yaml' >"${YAML_FILE}" || fail 'could not initialize marker-failure YAML fixture'
+MARK_CLEANUP_FAIL='1'
+MARK_CLEANUP_FAIL_SNAPSHOT="${MARK_FAIL_SNAPSHOT}"
+if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${MARK_FAIL_STAGE}" "${MARK_FAIL_SNAPSHOT}"; then
+	fail 'cleanup-marker transition failure reported a successful publication'
+fi
+grep -qx '# base config' "${DNSMASQ_CONF_FILE}" || fail 'cleanup-marker transition failure did not restore dnsmasq'
+grep -qx 'previous ipset' "${IPSET_FILE}" || fail 'cleanup-marker transition failure did not restore IPSET state'
+grep -qx 'previous yaml' "${YAML_FILE}" || fail 'cleanup-marker transition failure did not restore YAML state'
+[ -f "${MARK_FAIL_SNAPSHOT}/restore.pending" ] || fail 'cleanup-marker transition failure lost its retryable restore marker'
+MARK_CLEANUP_FAIL='0'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'marker-failure rollback cleanup was not retryable'
+[ ! -e "${MARK_FAIL_SNAPSHOT}" ] || fail 'marker-failure cleanup retry retained its snapshot'
+
 # Unsafe or incomplete pending snapshots are rejected without changing live state.
 UNSAFE_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.incomplete"
 mkdir -m 700 "${UNSAFE_SNAPSHOT}" || fail 'could not create incomplete recovery snapshot'
@@ -976,15 +1002,19 @@ RESTORE_CALLS="${TEST_ROOT}/publish-restore-calls"
 CONFIG_STAGE="${DNSMASQ_CONF_FILE}.signal-publish"
 IPSET_SNAPSHOT_DIR="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.signal-publish"
 printf '%s\n' '# published config' >"${CONFIG_STAGE}" || fail 'could not create signal publication stage'
-FINALIZE_FAIL_SNAPSHOT="${IPSET_SNAPSHOT_DIR}"
-FINALIZE_REMOVE_FAIL='1'
 (
 	# dnsmasq_ipset_state_restore records an IPSET state restoration request.
-	dnsmasq_ipset_state_restore() { printf '%s\n' restore >>"${RESTORE_CALLS}"; }
+	dnsmasq_ipset_state_restore() {
+		printf '%s\n' restore >>"${RESTORE_CALLS}"
+		return 1
+	}
 	# mv moves files and pauses publication of the dnsmasq configuration until the release marker is available.
 	mv() {
+		if [ "${1:-}" = "${IPSET_SNAPSHOT_DIR}/restore.pending" ]; then
+			return 1
+		fi
 		command mv "$@" || return 1
-		if [ "$2" = "${DNSMASQ_CONF_FILE}" ]; then
+		if [ "$1" = "${CONFIG_STAGE}" ] && [ "$2" = "${DNSMASQ_CONF_FILE}" ]; then
 			read -r transaction_pid _ </proc/self/stat
 			printf '%s\n' "${transaction_pid}" >"${PUBLISH_MARKER}"
 			wait_for_release "${PUBLISH_RELEASE}" || return 1
@@ -999,12 +1029,10 @@ kill -TERM "$(cat "${PUBLISH_MARKER}")" || fail 'could not interrupt after dnsma
 if wait "${transaction_pid}"; then
 	fail 'signal after dnsmasq publication unexpectedly succeeded'
 fi
-grep -qx '# published config' "${DNSMASQ_CONF_FILE}" || fail 'signal cleanup replaced the published dnsmasq configuration'
-[ ! -e "${RESTORE_CALLS}" ] || fail 'signal cleanup restored IPSET after dnsmasq publication'
-[ ! -e "${IPSET_SNAPSHOT_DIR}/restore.pending" ] || fail 'signal cleanup left a published snapshot pending recovery'
-[ -f "${IPSET_SNAPSHOT_DIR}/cleanup.pending" ] || fail 'failed signal cleanup did not retain its cleanup-only marker'
-FINALIZE_REMOVE_FAIL='0'
-IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'next transaction did not retry signal snapshot cleanup'
-[ ! -e "${IPSET_SNAPSHOT_DIR}" ] || fail 'retried signal snapshot cleanup retained its directory'
+grep -qx '# base config' "${DNSMASQ_CONF_FILE}" || fail 'signal marker failure did not restore dnsmasq'
+grep -qx 'restore' "${RESTORE_CALLS}" || fail 'signal marker failure did not attempt IPSET rollback'
+[ -f "${IPSET_SNAPSHOT_DIR}/restore.pending" ] || fail 'signal marker failure lost its rollback marker'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'next transaction did not retry signal rollback cleanup'
+[ ! -e "${IPSET_SNAPSHOT_DIR}" ] || fail 'retried signal rollback cleanup retained its directory'
 
 printf '%s\n' 'dnsmasq LAN-mode tests passed.'
