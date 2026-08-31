@@ -78,14 +78,14 @@ sed -n '/^service_state_file() {$/,/^service_status_line() {$/p' "${ROOT_DIR}/rc
 	. "${FUNCTIONS_FILE}"
 	PROC='AdGuardHome'
 	# service_state_dir_is_private determines whether the service state directory has private permissions.
-service_state_dir_is_private() { return 0; }
+	service_state_dir_is_private() { return 0; }
 	# service_state_file_is_private reports that the service state file is private.
-service_state_file_is_private() { return 0; }
+	service_state_file_is_private() { return 0; }
 	service_mark_transition starting
 	[ -f "${OPT_ROOT}/var/run/AdGuardHome/service-state" ] || fail 'rc helper did not publish initial state'
 	mv "${OPT_ROOT}" "${OPT_ROOT}.gone" || fail 'could not remove Entware during rc operation'
 	# mkdir simulates a failed directory-creation command.
-mkdir() { return 1; }
+	mkdir() { return 1; }
 	service_mark_transition stopping || fail 'rc helper propagated best-effort state failure'
 	[ ! -e "${OPT_ROOT}" ] || fail 'rc helper recreated the unavailable Entware mount'
 	[ ! -e "${OPT_ROOT}/var/run/AdGuardHome/service-state.$$" ] || fail 'rc helper left a live stage after mount loss'
