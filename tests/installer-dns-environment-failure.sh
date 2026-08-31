@@ -144,6 +144,13 @@ sleep() {
 		done
 	fi
 	MONOTONIC_NOW="$((MONOTONIC_NOW + 1))"
+	if [ "${DNS_TEST_YIELD:-0}" = 1 ]; then
+		if [ -x /bin/usleep ]; then
+			/bin/usleep 1000
+		else
+			/bin/sleep 0.001
+		fi
+	fi
 }
 # monotonic_seconds outputs the simulated monotonic timestamp and fails on the configured call number when MONOTONIC_FAIL_AT is set.
 monotonic_seconds() {
@@ -327,6 +334,7 @@ EOF_NVRAM
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0 STUBBY_RESTART_COUNT=0
 	FAIL_SHOW=0 FAIL_SHOW_STATUS=0 FAIL_GET_KEY='' FAIL_GET_ABSENT_KEY='' FAIL_INVENTORY_GREP_STATUS=0 FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_SERVICE_AT_2=0 FAIL_SERVICE_AT_3=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
 	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 DNS_READY_AFTER_SERVICE=0 STUBBY_RUNNING=0 STUBBY_KILL_STUCK=0
+	DNS_TEST_YIELD=0
 	DNS_ENV_READY_TIMEOUT=2 DNS_ENV_RECOVERY_TIMEOUT=1
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
 	_DNS_STUBBY_STOPPED=0 _DNS_NVRAM_SAVED=0 _DNS_NVRAM_ROLLBACK_ATTEMPTED=0
@@ -2132,8 +2140,12 @@ check_dns_environment 0 && fail 'DNS apply failure after stopping stubby was acc
 [ "${STUBBY_RESTART_COUNT}" = 1 ] || fail 'DNS apply failure did not restore stubby'
 
 reset_case
-DNS_ENV_READY_TIMEOUT=invalid
-DNS_ENV_RECOVERY_TIMEOUT=invalid
+# Leave enough simulated time for both lookup children in this explicit restore
+# scenario to be scheduled on loaded BusyBox CI hosts. Invalid timeout fallback
+# behavior is covered independently above.
+DNS_ENV_READY_TIMEOUT=60
+DNS_ENV_RECOVERY_TIMEOUT=60
+DNS_TEST_YIELD=1
 check_dns_environment 0 || fail 'DNS preparation for explicit restore failed'
 check_dns_environment 1 || fail 'successful DNS preparation could not restore its snapshot'
 assert_original 'successful preparation'
