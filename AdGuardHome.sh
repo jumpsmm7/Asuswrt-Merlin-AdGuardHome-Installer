@@ -1191,26 +1191,25 @@ dnsmasq_publish_staged_config() (
 	TRANSACTION_SIGNAL_PENDING="0"
 	[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ] && ADGUARD_WAS_RUNNING="1"
 	TRANSACTION_ACTIVE="1"
-	# dnsmasq_publish_rollback_published restores the pre-publication dnsmasq and IPSet state after an unsafe publication.
-	dnsmasq_publish_rollback_published() {
+	# dnsmasq_config_association_create durably associates the dnsmasq backup with its pending IPSet snapshot before refresh or publication.
+	dnsmasq_config_association_create() {
 		local CONFIG_ASSOCIATION_STAGE
-		ROLLBACK_ACTIVE="1"
 		CONFIG_ASSOCIATION_STAGE="${IPSET_SNAPSHOT_DIR}/config.pending.$$"
 		{
 			printf '%s\n' "${CONFIG_BACKUP}"
 			printf '%s\n' "${CONFIG_FILE}"
 		} >"${CONFIG_ASSOCIATION_STAGE}" || {
 			rm -f "${CONFIG_ASSOCIATION_STAGE}"
-			CONFIG_BACKUP_RETAIN="1"
-			ROLLBACK_ACTIVE="0"
 			return 1
 		}
 		mv "${CONFIG_ASSOCIATION_STAGE}" "${IPSET_SNAPSHOT_DIR}/config.pending" || {
 			rm -f "${CONFIG_ASSOCIATION_STAGE}"
-			CONFIG_BACKUP_RETAIN="1"
-			ROLLBACK_ACTIVE="0"
 			return 1
 		}
+	}
+	# dnsmasq_publish_rollback_published restores the pre-publication dnsmasq and IPSet state after an unsafe publication.
+	dnsmasq_publish_rollback_published() {
+		ROLLBACK_ACTIVE="1"
 		if ! dnsmasq_ipset_state_recover_pending; then
 			agh_log error dnsmasq_params "state=publication action=rollback result=failed config=${CONFIG_FILE} snapshot=${IPSET_SNAPSHOT_DIR}"
 			CONFIG_BACKUP_RETAIN="1"
@@ -1279,6 +1278,12 @@ dnsmasq_publish_staged_config() (
 		if ! cp -p "${CONFIG_FILE}" "${CONFIG_BACKUP}"; then
 			TRANSACTION_ACTIVE="0"
 			rm -f "${CONFIG_STAGE}"
+			return 1
+		fi
+		if ! dnsmasq_config_association_create; then
+			TRANSACTION_ACTIVE="0"
+			rm -rf "${IPSET_SNAPSHOT_DIR}"
+			rm -f "${CONFIG_BACKUP}" "${CONFIG_STAGE}"
 			return 1
 		fi
 		if ! IPSet_Refresh "${CONFIG_STAGE}"; then

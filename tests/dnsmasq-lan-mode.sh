@@ -297,6 +297,11 @@ mv() {
 			"${DNSMASQ_CONF_FILE}.adguard-restore."*) return 1 ;;
 		esac
 	fi
+	if [ "${ASSOCIATION_CREATE_FAIL:-0}" = "1" ] && [ "${2:-}" = "${IPSET_SNAPSHOT_DIR:-}/config.pending" ]; then
+		case "${1:-}" in
+			"${IPSET_SNAPSHOT_DIR}/config.pending."*) return 1 ;;
+		esac
+	fi
 	if [ "${MARK_CLEANUP_FAIL:-0}" = "1" ] && [ "${1:-}" = "${MARK_CLEANUP_FAIL_SNAPSHOT:-}/restore.pending" ]; then
 		return 1
 	fi
@@ -347,6 +352,7 @@ reset_case() {
 	IPSET_REFRESH_CHANGE='0'
 	MV_PUBLISH_FAIL='0'
 	BACKUP_RESTORE_FAIL='0'
+	ASSOCIATION_CREATE_FAIL='0'
 	RESTORE_FAIL='0'
 	RESTORE_REQUIRE_YAML_STAGE='0'
 	RESTORE_YAML_FAIL='0'
@@ -811,6 +817,21 @@ grep -qx 'previous yaml' "${YAML_FILE}" || fail 'cleanup-marker transition failu
 MARK_CLEANUP_FAIL='0'
 IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'marker-failure rollback cleanup was not retryable'
 [ ! -e "${MARK_FAIL_SNAPSHOT}" ] || fail 'marker-failure cleanup retry retained its snapshot'
+
+# Association creation must complete before IPSet refresh or dnsmasq publication.
+reset_case
+ASSOCIATION_FAIL_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.association-failure"
+ASSOCIATION_FAIL_STAGE="${DNSMASQ_CONF_FILE}.adguard.association-failure"
+printf '%s\n' '# association failure' >"${ASSOCIATION_FAIL_STAGE}" || fail 'could not stage association-failure fixture'
+ASSOCIATION_CREATE_FAIL='1'
+if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${ASSOCIATION_FAIL_STAGE}" "${ASSOCIATION_FAIL_SNAPSHOT}"; then
+	fail 'config association creation failure reported success'
+fi
+[ ! -s "${IPSET_CALLS_FILE}" ] || fail 'config association creation failure allowed IPSet refresh'
+grep -qx '# base config' "${DNSMASQ_CONF_FILE}" || fail 'config association creation failure published dnsmasq configuration'
+[ ! -e "${ASSOCIATION_FAIL_STAGE}" ] || fail 'config association creation failure retained its staged configuration'
+[ ! -e "${ASSOCIATION_FAIL_STAGE}.previous" ] || fail 'config association creation failure retained its backup'
+[ ! -e "${ASSOCIATION_FAIL_SNAPSHOT}" ] || fail 'config association creation failure retained its snapshot'
 
 # A failed dnsmasq backup restore must retain the coupled backup and snapshot
 # without restoring IPSet or YAML over the still-published configuration.
