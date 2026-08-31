@@ -139,7 +139,7 @@ sleep() {
 			if [ -x /bin/usleep ]; then
 				/bin/usleep 1000
 			else
-				/bin/sleep 0.01
+				/bin/sleep 0
 			fi
 		done
 	fi
@@ -148,7 +148,7 @@ sleep() {
 		if [ -x /bin/usleep ]; then
 			/bin/usleep 1000
 		else
-			/bin/sleep 0.001
+			/bin/sleep 0
 		fi
 	fi
 }
