@@ -25,4 +25,5 @@ runtime_modes	tests/adguardhome-runtime-mode-helpers.sh
 custom_config	tests/adguardhome-scoped-config.sh
 runtime_paths	tests/runtime-writable-path-security.sh
 service_status	tests/installer-service-status-after-action.sh
+opt_disappearance	tests/service-opt-disappearance.sh
 reaper	tests/installer-reaper-owner-publication.sh

@@ -130,7 +130,7 @@ signal_process_snapshot() {
 	done <"${pid_file}"
 }
 
-# run_bounded runs a test script within the configured timeout and records successful completion.
+# run_bounded runs a test script within the configured timeout, reports failures, and records successful completion.
 run_bounded() {
 	case_name="$1"
 	test_script="$2"
@@ -143,7 +143,7 @@ run_bounded() {
 			exec "${TEST_SHELL}" "${TEST_SHELL_ARG}" "${test_script}"
 		fi
 		exec "${TEST_SHELL}" "${test_script}"
-	) >"${case_output}" 2>&1 &
+	) </dev/null >"${case_output}" 2>&1 &
 	case_pid=$!
 	CASE_PID="${case_pid}"
 	case_start_time=$(process_start_time "${case_pid}") || case_start_time=""
@@ -204,18 +204,99 @@ WORKSPACE_CREATED=1
 # removed component test from silently reducing integration coverage.
 [ -r "${CASES_FIXTURE}" ] || fail "missing integration case fixture: ${CASES_FIXTURE}"
 [ -r "${COVERAGE_FIXTURE}" ] || fail "missing integration coverage fixture: ${COVERAGE_FIXTURE}"
-for required_component in installer S99AdGuardHome rc.func.AdGuardHome AdGuardHome.sh; do
-	grep -Fq "${required_component}" "${COVERAGE_FIXTURE}" || fail "coverage fixture omits ${required_component}"
-done
-for required_dimension in mode_wan mode_ap mode_repeater mode_bridge dnsmasq_running dnsmasq_stopped dnsmasq_missing dnsmasq_failing ipv4_only ipv6_only dual_stack netstat_owner_rich netstat_ownerless flock_missing flock_incapable flock_descriptor launch_failure bind_failure webui_failure duplicate_process early_exit hung_stop interrupt_every_transition offline_wan readonly_jffs opt_initially_unavailable opt_disappears constrained_tmp custom_yaml custom_hooks bounded_completion service_continuity exact_recovery no_nvram_commit child_reaping cleanup_trap no_stale_artifacts preserve_failed_rollback; do
-	grep -q "^${required_dimension}[[:space:]]" "${COVERAGE_FIXTURE}" || fail "coverage fixture omits ${required_dimension}"
-done
-while IFS="$(printf '\t')" read -r coverage_dimension coverage_case coverage_components; do
-	case "${coverage_dimension}" in '' | \#*) continue ;; esac
-	[ -n "${coverage_case}" ] || fail "coverage row ${coverage_dimension} has no case"
-	awk -F '\t' -v wanted="${coverage_case}" '$1 == wanted { found=1 } END { exit !found }' "${CASES_FIXTURE}" ||
-		fail "coverage row ${coverage_dimension} references unknown case ${coverage_case}"
-done <"${COVERAGE_FIXTURE}"
+dimension_count=$(awk -F '\t' '
+	function invalid(message) {
+		print message
+		failed = 1
+		exit 1
+	}
+	BEGIN {
+		expected_dimensions["mode_wan"] = 1
+		expected_dimensions["mode_ap"] = 1
+		expected_dimensions["mode_repeater"] = 1
+		expected_dimensions["mode_bridge"] = 1
+		expected_dimensions["dnsmasq_running"] = 1
+		expected_dimensions["dnsmasq_stopped"] = 1
+		expected_dimensions["dnsmasq_missing"] = 1
+		expected_dimensions["dnsmasq_failing"] = 1
+		expected_dimensions["ipv4_only"] = 1
+		expected_dimensions["ipv6_only"] = 1
+		expected_dimensions["dual_stack"] = 1
+		expected_dimensions["netstat_owner_rich"] = 1
+		expected_dimensions["netstat_ownerless"] = 1
+		expected_dimensions["flock_missing"] = 1
+		expected_dimensions["flock_incapable"] = 1
+		expected_dimensions["flock_descriptor"] = 1
+		expected_dimensions["launch_failure"] = 1
+		expected_dimensions["bind_failure"] = 1
+		expected_dimensions["webui_failure"] = 1
+		expected_dimensions["duplicate_process"] = 1
+		expected_dimensions["early_exit"] = 1
+		expected_dimensions["hung_stop"] = 1
+		expected_dimensions["interrupt_every_transition"] = 1
+		expected_dimensions["offline_wan"] = 1
+		expected_dimensions["readonly_jffs"] = 1
+		expected_dimensions["opt_initially_unavailable"] = 1
+		expected_dimensions["opt_disappears"] = 1
+		expected_dimensions["constrained_tmp"] = 1
+		expected_dimensions["custom_yaml"] = 1
+		expected_dimensions["custom_hooks"] = 1
+		expected_dimensions["bounded_completion"] = 1
+		expected_dimensions["service_continuity"] = 1
+		expected_dimensions["exact_recovery"] = 1
+		expected_dimensions["no_nvram_commit"] = 1
+		expected_dimensions["child_reaping"] = 1
+		expected_dimensions["cleanup_trap"] = 1
+		expected_dimensions["no_stale_artifacts"] = 1
+		expected_dimensions["preserve_failed_rollback"] = 1
+	}
+	NR == FNR {
+		if (NF && $1 !~ /^#/) cases[$1] = 1
+		next
+	}
+	!NF || $1 ~ /^#/ { next }
+	NF != 3 { invalid("coverage row " FNR " must have exactly three tab-separated fields") }
+	$1 == "" { invalid("coverage row " FNR " has no dimension") }
+	!($1 in expected_dimensions) { invalid("coverage fixture has unexpected dimension " $1) }
+	seen_dimensions[$1]++ { invalid("coverage fixture repeats dimension " $1) }
+	$2 == "" { invalid("coverage row " $1 " has no case") }
+	!($2 in cases) { invalid("coverage row " $1 " references unknown case " $2) }
+	$3 == "" || $3 ~ /^ / || $3 ~ / $/ || $3 ~ /  / {
+		invalid("coverage row " $1 " has a malformed component list")
+	}
+	{
+		component_count = split($3, components, " ")
+		for (component_index = 1; component_index <= component_count; component_index++) {
+			component = components[component_index]
+			if (component != "installer" && component != "S99AdGuardHome" &&
+				component != "rc.func.AdGuardHome" && component != "AdGuardHome.sh") {
+				invalid("coverage row " $1 " has unknown component " component)
+			}
+			if (row_components[$1, component]++) {
+				invalid("coverage row " $1 " repeats component " component)
+			}
+			covered[component] = 1
+		}
+		dimension_count++
+	}
+	END {
+		if (failed) exit 1
+		for (dimension in expected_dimensions) {
+			if (!(dimension in seen_dimensions)) invalid("coverage fixture omits dimension " dimension)
+		}
+		required[1] = "installer"
+		required[2] = "S99AdGuardHome"
+		required[3] = "rc.func.AdGuardHome"
+		required[4] = "AdGuardHome.sh"
+		for (required_index = 1; required_index <= 4; required_index++) {
+			component = required[required_index]
+			if (!(component in covered)) invalid("coverage fixture omits " component)
+		}
+		print dimension_count + 0
+	}
+' "${CASES_FIXTURE}" "${COVERAGE_FIXTURE}") ||
+	fail "${dimension_count:-could not validate integration coverage fixture}"
+[ "${dimension_count}" -eq 38 ] || fail "coverage fixture has ${dimension_count} dimensions, expected 38"
 
 # The component regressions use command shims and isolated filesystems.  Taken
 # together they exercise the real extracted installer/service functions across
@@ -227,5 +308,7 @@ while IFS="$(printf '\t')" read -r case_name test_script; do
 	run_bounded "${case_name}" "${test_script}"
 done <"${CASES_FIXTURE}"
 
+[ "${SCENARIO_COUNT}" -eq "$(awk 'NF && $1 !~ /^#/ { count++ } END { print count + 0 }' "${CASES_FIXTURE}")" ] ||
+	fail 'integration matrix skipped one or more declared cases'
 [ "$(wc -l <"${RESULTS_FILE}")" -eq "${SCENARIO_COUNT}" ] || fail 'integration matrix did not complete every scenario group'
 printf '%s\n' 'PASS: installer and service lifecycle integration matrix'

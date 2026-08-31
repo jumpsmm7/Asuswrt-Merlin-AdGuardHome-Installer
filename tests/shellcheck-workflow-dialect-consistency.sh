@@ -68,9 +68,17 @@ for job in '  posix-syntax:' '  shellcheck:' '  checksums:' '  shfmt:'; do
 done
 
 grep -Fq 'pull_request:' "${WORKFLOW}" || fail "${WORKFLOW}: missing the pull_request trigger"
+grep -Fq 'merge_group:' "${WORKFLOW}" || fail "${WORKFLOW}: missing the merge_group trigger"
 grep -Fq 'workflow_dispatch:' "${WORKFLOW}" || fail "${WORKFLOW}: missing the workflow_dispatch trigger"
-grep -Fq '      - master' "${WORKFLOW}" || fail "${WORKFLOW}: missing the push trigger for the master branch"
-grep -Fq "      - 'dev/**'" "${WORKFLOW}" || fail "${WORKFLOW}: missing the push trigger for dev/** branches"
+grep -Eq '^  push:$' "${WORKFLOW}" || fail "${WORKFLOW}: missing the all-branch push trigger"
+if awk '
+	/^on:$/ { in_events = 1; next }
+	in_events && /^[a-zA-Z]/ { exit }
+	in_events && /^[[:space:]]+branches:/ { found = 1 }
+	END { exit !found }
+' "${WORKFLOW}"; then
+	fail "${WORKFLOW}: push and review checks must not be restricted by branch filters"
+fi
 
 grep -Fq 'tools/list-shell-scripts.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: posix-syntax/shellcheck/shfmt jobs must enumerate scripts via tools/list-shell-scripts.sh"
