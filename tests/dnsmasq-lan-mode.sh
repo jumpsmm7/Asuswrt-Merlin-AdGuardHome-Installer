@@ -292,8 +292,10 @@ mv() {
 			"${DNSMASQ_CONF_FILE}.adguard."*) return 1 ;;
 		esac
 	fi
-	if [ "${BACKUP_RESTORE_FAIL:-0}" = "1" ] && [ "${1:-}" = "${BACKUP_RESTORE_FAIL_FILE:-}" ] && [ "${2:-}" = "${DNSMASQ_CONF_FILE}" ]; then
-		return 1
+	if [ "${BACKUP_RESTORE_FAIL:-0}" = "1" ] && [ "${2:-}" = "${DNSMASQ_CONF_FILE}" ]; then
+		case "${1:-}" in
+			"${DNSMASQ_CONF_FILE}.adguard-restore."*) return 1 ;;
+		esac
 	fi
 	if [ "${MARK_CLEANUP_FAIL:-0}" = "1" ] && [ "${1:-}" = "${MARK_CLEANUP_FAIL_SNAPSHOT:-}/restore.pending" ]; then
 		return 1
@@ -345,7 +347,6 @@ reset_case() {
 	IPSET_REFRESH_CHANGE='0'
 	MV_PUBLISH_FAIL='0'
 	BACKUP_RESTORE_FAIL='0'
-	BACKUP_RESTORE_FAIL_FILE=''
 	RESTORE_FAIL='0'
 	RESTORE_REQUIRE_YAML_STAGE='0'
 	RESTORE_YAML_FAIL='0'
@@ -824,7 +825,6 @@ IPSET_REFRESH_CHANGE='1'
 MARK_CLEANUP_FAIL='1'
 MARK_CLEANUP_FAIL_SNAPSHOT="${BACKUP_FAIL_SNAPSHOT}"
 BACKUP_RESTORE_FAIL='1'
-BACKUP_RESTORE_FAIL_FILE="${BACKUP_FAIL_FILE}"
 if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${BACKUP_FAIL_STAGE}" "${BACKUP_FAIL_SNAPSHOT}"; then
 	fail 'failed dnsmasq backup restore reported a successful publication'
 fi
@@ -833,10 +833,15 @@ grep -qx refreshed "${IPSET_FILE}" || fail 'failed dnsmasq backup restore change
 grep -qx refreshed "${YAML_FILE}" || fail 'failed dnsmasq backup restore changed published YAML state'
 [ -f "${BACKUP_FAIL_FILE}" ] || fail 'failed dnsmasq backup restore discarded the configuration backup'
 [ -f "${BACKUP_FAIL_SNAPSHOT}/restore.pending" ] || fail 'failed dnsmasq backup restore discarded the coupled snapshot'
+[ -f "${BACKUP_FAIL_SNAPSHOT}/config.pending" ] || fail 'failed dnsmasq backup restore discarded its backup association'
 BACKUP_RESTORE_FAIL='0'
 MARK_CLEANUP_FAIL='0'
-mv "${BACKUP_FAIL_FILE}" "${DNSMASQ_CONF_FILE}" || fail 'retained dnsmasq backup was not recoverable'
-IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'retained coupled snapshot was not recoverable'
+BACKUP_RECOVERY_STAGE="${DNSMASQ_CONF_FILE}.adguard.backup-recovery"
+printf '%s\n' '# later transaction' >"${BACKUP_RECOVERY_STAGE}" || fail 'could not stage the later recovery transaction'
+IPSET_REFRESH_FAIL='1'
+if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${BACKUP_RECOVERY_STAGE}" "${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.backup-recovery"; then
+	fail 'later recovery transaction ignored its injected refresh failure'
+fi
 grep -qx '# base config' "${DNSMASQ_CONF_FILE}" || fail 'retained dnsmasq backup did not restore the previous configuration'
 grep -qx 'previous ipset' "${IPSET_FILE}" || fail 'retained coupled snapshot did not restore IPSet state'
 grep -qx 'previous yaml' "${YAML_FILE}" || fail 'retained coupled snapshot did not restore YAML state'

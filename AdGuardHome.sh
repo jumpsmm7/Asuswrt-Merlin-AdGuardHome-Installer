@@ -1030,7 +1030,7 @@ dnsmasq_ipset_state_finalize() {
 
 # dnsmasq_ipset_state_recover_pending restores rollback-pending snapshots and removes cleanup-pending committed snapshots.
 dnsmasq_ipset_state_recover_pending() {
-	local SNAPSHOT_DIR SNAPSHOT_NAME
+	local CONFIG_BACKUP_RECOVERY CONFIG_FILE_RECOVERY CONFIG_RESTORE_STAGE SNAPSHOT_DIR SNAPSHOT_NAME
 	for SNAPSHOT_DIR in "${WORK_DIR}"/.AdGuardHome.dnsmasq-ipset.*; do
 		[ -d "${SNAPSHOT_DIR}" ] || continue
 		[ ! -L "${SNAPSHOT_DIR}" ] || return 1
@@ -1049,6 +1049,36 @@ dnsmasq_ipset_state_recover_pending() {
 			continue
 		fi
 		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || continue
+		if [ -e "${SNAPSHOT_DIR}/config.pending" ] || [ -e "${SNAPSHOT_DIR}/config.restored" ]; then
+			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || { [ -f "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ]; } || return 1
+			[ ! -e "${SNAPSHOT_DIR}/config.restored" ] || { [ -f "${SNAPSHOT_DIR}/config.restored" ] && [ ! -L "${SNAPSHOT_DIR}/config.restored" ]; } || return 1
+			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || [ ! -e "${SNAPSHOT_DIR}/config.restored" ] || return 1
+			if [ -e "${SNAPSHOT_DIR}/config.pending" ]; then
+				{
+					IFS= read -r CONFIG_BACKUP_RECOVERY
+					IFS= read -r CONFIG_FILE_RECOVERY
+				} <"${SNAPSHOT_DIR}/config.pending" || return 1
+			else
+				{
+					IFS= read -r CONFIG_BACKUP_RECOVERY
+					IFS= read -r CONFIG_FILE_RECOVERY
+				} <"${SNAPSHOT_DIR}/config.restored" || return 1
+			fi
+			case "${CONFIG_BACKUP_RECOVERY}" in /*) ;; *) return 1 ;; esac
+			case "${CONFIG_FILE_RECOVERY}" in /*) ;; *) return 1 ;; esac
+			if [ -e "${SNAPSHOT_DIR}/config.pending" ]; then
+				[ -f "${CONFIG_BACKUP_RECOVERY}" ] && [ ! -L "${CONFIG_BACKUP_RECOVERY}" ] || return 1
+				CONFIG_RESTORE_STAGE="${CONFIG_FILE_RECOVERY}.adguard-restore.$$"
+				cp -p "${CONFIG_BACKUP_RECOVERY}" "${CONFIG_RESTORE_STAGE}" || return 1
+				if ! mv "${CONFIG_RESTORE_STAGE}" "${CONFIG_FILE_RECOVERY}"; then
+					rm -f "${CONFIG_RESTORE_STAGE}"
+					agh_log error dnsmasq_params "state=recovery action=restore_dnsmasq result=failed config=${CONFIG_FILE_RECOVERY} snapshot=${SNAPSHOT_DIR}"
+					return 1
+				fi
+				mv "${SNAPSHOT_DIR}/config.pending" "${SNAPSHOT_DIR}/config.restored" || return 1
+			fi
+			rm -f "${CONFIG_BACKUP_RECOVERY}" || return 1
+		fi
 		if { [ -f "${SNAPSHOT_DIR}/ipset" ] && [ ! -L "${SNAPSHOT_DIR}/ipset" ]; }; then
 			[ ! -e "${SNAPSHOT_DIR}/ipset.absent" ] || return 1
 		else
@@ -1163,22 +1193,33 @@ dnsmasq_publish_staged_config() (
 	TRANSACTION_ACTIVE="1"
 	# dnsmasq_publish_rollback_published restores the pre-publication dnsmasq and IPSet state after an unsafe publication.
 	dnsmasq_publish_rollback_published() {
-		local ROLLBACK_STATUS
-		ROLLBACK_STATUS="0"
+		local CONFIG_ASSOCIATION_STAGE
 		ROLLBACK_ACTIVE="1"
-		if ! mv "${CONFIG_BACKUP}" "${CONFIG_FILE}"; then
-			agh_log error dnsmasq_params "state=publication action=restore_dnsmasq result=failed config=${CONFIG_FILE}"
+		CONFIG_ASSOCIATION_STAGE="${IPSET_SNAPSHOT_DIR}/config.pending.$$"
+		{
+			printf '%s\n' "${CONFIG_BACKUP}"
+			printf '%s\n' "${CONFIG_FILE}"
+		} >"${CONFIG_ASSOCIATION_STAGE}" || {
+			rm -f "${CONFIG_ASSOCIATION_STAGE}"
+			CONFIG_BACKUP_RETAIN="1"
+			ROLLBACK_ACTIVE="0"
+			return 1
+		}
+		mv "${CONFIG_ASSOCIATION_STAGE}" "${IPSET_SNAPSHOT_DIR}/config.pending" || {
+			rm -f "${CONFIG_ASSOCIATION_STAGE}"
+			CONFIG_BACKUP_RETAIN="1"
+			ROLLBACK_ACTIVE="0"
+			return 1
+		}
+		if ! dnsmasq_ipset_state_recover_pending; then
+			agh_log error dnsmasq_params "state=publication action=rollback result=failed config=${CONFIG_FILE} snapshot=${IPSET_SNAPSHOT_DIR}"
 			CONFIG_BACKUP_RETAIN="1"
 			ROLLBACK_ACTIVE="0"
 			return 1
 		fi
 		CONFIG_PUBLISHED="0"
-		if ! dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
-			agh_log error dnsmasq_params "state=publication action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
-			ROLLBACK_STATUS="1"
-		fi
 		ROLLBACK_ACTIVE="0"
-		return "${ROLLBACK_STATUS}"
+		return 0
 	}
 	# dnsmasq_publish_abort aborts a staged dnsmasq configuration transaction, restoring or finalizing its IPSet snapshot as appropriate and exiting with failure when the abort proceeds.
 	dnsmasq_publish_abort() {
