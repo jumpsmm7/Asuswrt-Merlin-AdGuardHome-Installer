@@ -156,6 +156,12 @@ grep -Fq 'busybox ash tests/dnsmasq-lan-mode.sh' "${SHELL_VALIDATION_WORKFLOW}" 
 # linters or forcing exit 0 can hide a broken regression pathway.
 review_checker_is_enforced "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: shared checker failures must propagate from the review job"
+grep -Fq '  entware-mount-disappearance:' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: expected a visible Entware mount disappearance regression job"
+grep -Fq '    name: Entware mount disappearance regression' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: Entware regression job must publish a stable check name"
+grep -Fq '        run: sh tests/service-opt-disappearance.sh' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: visible Entware regression job does not run its test script"
 if grep -Eq 'shellcheck .*\|\| true|shfmt .*\|\| true|exit 0' "${REVIEW_WORKFLOW}"; then
 	fail "${REVIEW_WORKFLOW}: quality failures must propagate to the review job"
 fi
