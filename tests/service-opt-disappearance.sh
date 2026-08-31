@@ -53,6 +53,7 @@ chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not make simulated AdGuardHom
 logger() { printf '%s\n' "$*" >>"${CALLS_FILE}"; }
 adguardhome_owner_account() { printf '%s\n' root; }
 adguardhome_yaml_ipset_file() { printf '%s\n' "${WORK_DIR}/ipset.conf"; }
+chown() { return 0; }
 chmod_regular_files_600() { return 0; }
 ensure_adguardhome_work_dir_permissions || fail 'S99 rejected the available work directory'
 mv "${OPT_ROOT}" "${OPT_ROOT}.gone" || fail 'could not remove Entware during S99 operation'
