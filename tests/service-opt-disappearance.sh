@@ -71,6 +71,8 @@ sed -n '/^service_state_file() {$/,/^service_status_line() {$/p' "${ROOT_DIR}/rc
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
 	PROC='AdGuardHome'
+	service_state_dir_is_private() { return 0; }
+	service_state_file_is_private() { return 0; }
 	service_mark_transition starting
 	[ -f "${OPT_ROOT}/var/run/AdGuardHome/service-state" ] || fail 'rc helper did not publish initial state'
 	mv "${OPT_ROOT}" "${OPT_ROOT}.gone" || fail 'could not remove Entware during rc operation'
