@@ -292,6 +292,9 @@ mv() {
 			"${DNSMASQ_CONF_FILE}.adguard."*) return 1 ;;
 		esac
 	fi
+	if [ "${BACKUP_RESTORE_FAIL:-0}" = "1" ] && [ "${1:-}" = "${BACKUP_RESTORE_FAIL_FILE:-}" ] && [ "${2:-}" = "${DNSMASQ_CONF_FILE}" ]; then
+		return 1
+	fi
 	if [ "${MARK_CLEANUP_FAIL:-0}" = "1" ] && [ "${1:-}" = "${MARK_CLEANUP_FAIL_SNAPSHOT:-}/restore.pending" ]; then
 		return 1
 	fi
@@ -341,6 +344,8 @@ reset_case() {
 	IPSET_REFRESH_FAIL='0'
 	IPSET_REFRESH_CHANGE='0'
 	MV_PUBLISH_FAIL='0'
+	BACKUP_RESTORE_FAIL='0'
+	BACKUP_RESTORE_FAIL_FILE=''
 	RESTORE_FAIL='0'
 	RESTORE_REQUIRE_YAML_STAGE='0'
 	RESTORE_YAML_FAIL='0'
@@ -805,6 +810,37 @@ grep -qx 'previous yaml' "${YAML_FILE}" || fail 'cleanup-marker transition failu
 MARK_CLEANUP_FAIL='0'
 IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'marker-failure rollback cleanup was not retryable'
 [ ! -e "${MARK_FAIL_SNAPSHOT}" ] || fail 'marker-failure cleanup retry retained its snapshot'
+
+# A failed dnsmasq backup restore must retain the coupled backup and snapshot
+# without restoring IPSet or YAML over the still-published configuration.
+reset_case
+BACKUP_FAIL_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.backup-failure"
+BACKUP_FAIL_STAGE="${DNSMASQ_CONF_FILE}.adguard.backup-failure"
+BACKUP_FAIL_FILE="${BACKUP_FAIL_STAGE}.previous"
+printf '%s\n' '# published after failed rollback' >"${BACKUP_FAIL_STAGE}" || fail 'could not stage backup-restore-failure fixture'
+printf '%s\n' 'previous ipset' >"${IPSET_FILE}" || fail 'could not initialize backup-restore-failure IPSET fixture'
+printf '%s\n' 'previous yaml' >"${YAML_FILE}" || fail 'could not initialize backup-restore-failure YAML fixture'
+IPSET_REFRESH_CHANGE='1'
+MARK_CLEANUP_FAIL='1'
+MARK_CLEANUP_FAIL_SNAPSHOT="${BACKUP_FAIL_SNAPSHOT}"
+BACKUP_RESTORE_FAIL='1'
+BACKUP_RESTORE_FAIL_FILE="${BACKUP_FAIL_FILE}"
+if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${BACKUP_FAIL_STAGE}" "${BACKUP_FAIL_SNAPSHOT}"; then
+	fail 'failed dnsmasq backup restore reported a successful publication'
+fi
+grep -qx '# published after failed rollback' "${DNSMASQ_CONF_FILE}" || fail 'failed dnsmasq backup restore changed the published configuration'
+grep -qx refreshed "${IPSET_FILE}" || fail 'failed dnsmasq backup restore changed published IPSet state'
+grep -qx refreshed "${YAML_FILE}" || fail 'failed dnsmasq backup restore changed published YAML state'
+[ -f "${BACKUP_FAIL_FILE}" ] || fail 'failed dnsmasq backup restore discarded the configuration backup'
+[ -f "${BACKUP_FAIL_SNAPSHOT}/restore.pending" ] || fail 'failed dnsmasq backup restore discarded the coupled snapshot'
+BACKUP_RESTORE_FAIL='0'
+MARK_CLEANUP_FAIL='0'
+mv "${BACKUP_FAIL_FILE}" "${DNSMASQ_CONF_FILE}" || fail 'retained dnsmasq backup was not recoverable'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'retained coupled snapshot was not recoverable'
+grep -qx '# base config' "${DNSMASQ_CONF_FILE}" || fail 'retained dnsmasq backup did not restore the previous configuration'
+grep -qx 'previous ipset' "${IPSET_FILE}" || fail 'retained coupled snapshot did not restore IPSet state'
+grep -qx 'previous yaml' "${YAML_FILE}" || fail 'retained coupled snapshot did not restore YAML state'
+[ ! -e "${BACKUP_FAIL_SNAPSHOT}" ] || fail 'coupled recovery retained its snapshot'
 
 # Unsafe or incomplete pending snapshots are rejected without changing live state.
 UNSAFE_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.incomplete"

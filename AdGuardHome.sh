@@ -1169,14 +1169,15 @@ dnsmasq_publish_staged_config() (
 		if ! mv "${CONFIG_BACKUP}" "${CONFIG_FILE}"; then
 			agh_log error dnsmasq_params "state=publication action=restore_dnsmasq result=failed config=${CONFIG_FILE}"
 			CONFIG_BACKUP_RETAIN="1"
-			ROLLBACK_STATUS="1"
+			ROLLBACK_ACTIVE="0"
+			return 1
 		fi
+		CONFIG_PUBLISHED="0"
 		if ! dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
 			agh_log error dnsmasq_params "state=publication action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 			ROLLBACK_STATUS="1"
 		fi
 		ROLLBACK_ACTIVE="0"
-		CONFIG_PUBLISHED="0"
 		return "${ROLLBACK_STATUS}"
 	}
 	# dnsmasq_publish_abort aborts a staged dnsmasq configuration transaction, restoring or finalizing its IPSet snapshot as appropriate and exiting with failure when the abort proceeds.
@@ -1196,12 +1197,15 @@ dnsmasq_publish_staged_config() (
 			if dnsmasq_ipset_state_mark_cleanup "${IPSET_SNAPSHOT_DIR}"; then
 				rm -rf "${IPSET_SNAPSHOT_DIR}" ||
 					agh_log error dnsmasq_params "state=signal action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				SNAPSHOT_READY="0"
 			else
 				agh_log error dnsmasq_params "state=signal action=mark_cleanup result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
-				dnsmasq_publish_rollback_published ||
+				if dnsmasq_publish_rollback_published; then
+					SNAPSHOT_READY="0"
+				else
 					agh_log error dnsmasq_params "state=signal action=rollback_publication result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				fi
 			fi
-			SNAPSHOT_READY="0"
 		fi
 		if [ "${TRANSACTION_ACTIVE:-0}" = "1" ] && [ "${SNAPSHOT_READY:-0}" = "1" ] && [ "${CONFIG_PUBLISHED:-0}" = "0" ] && [ "${ROLLBACK_ACTIVE:-0}" = "0" ]; then
 			trap '' HUP INT QUIT ABRT TERM TSTP
@@ -1215,6 +1219,7 @@ dnsmasq_publish_staged_config() (
 			trap - HUP INT QUIT ABRT TERM TSTP
 		fi
 		[ "${CONFIG_PUBLISHED:-0}" = "1" ] || rm -f "${CONFIG_STAGE}"
+		[ "${CONFIG_BACKUP_RETAIN:-0}" = "1" ] || rm -f "${CONFIG_BACKUP}"
 		exit 1
 	}
 	# dnsmasq_publish_locked snapshots and refreshes IPSet state, publishes the staged dnsmasq configuration, and restores state if refresh or publication fails.
