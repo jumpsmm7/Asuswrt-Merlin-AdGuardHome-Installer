@@ -221,7 +221,7 @@ IPSet_Refresh() {
 
 # IPSet_Lock marks the fixture transaction as locked while running its callback.
 IPSet_Lock() {
-	local cleanup_status lock_attempts status
+	local cleanup_status exit_trap_active lock_attempts status
 	if [ "${IPSET_LOCK_ACTIVE:-0}" = "1" ]; then
 		"$@"
 		return "$?"
@@ -236,6 +236,7 @@ IPSet_Lock() {
 		fi
 		sleep 1
 	done
+	exit_trap_active=$(trap | sed -n '/ EXIT$/p')
 	trap 'rmdir "${IPSET_TEST_LOCK_DIR}" 2>/dev/null' EXIT
 	IPSET_LOCK_ACTIVE="1"
 	"$@"
@@ -244,6 +245,7 @@ IPSet_Lock() {
 	cleanup_status="0"
 	rmdir "${IPSET_TEST_LOCK_DIR}" || cleanup_status="1"
 	trap - EXIT
+	[ -z "${exit_trap_active}" ] || trap cleanup EXIT
 	[ "${status}" -eq 0 ] || return "${status}"
 	[ "${cleanup_status}" -eq 0 ] || return "${cleanup_status}"
 	return "${status}"
@@ -963,6 +965,7 @@ if wait "${transaction_pid}"; then
 fi
 grep -qx '# published config' "${DNSMASQ_CONF_FILE}" || fail 'signal cleanup replaced the published dnsmasq configuration'
 [ ! -e "${RESTORE_CALLS}" ] || fail 'signal cleanup restored IPSET after dnsmasq publication'
-rm -rf "${IPSET_SNAPSHOT_DIR}" || fail 'could not clear signal publication snapshot'
+[ ! -e "${IPSET_SNAPSHOT_DIR}/restore.pending" ] || fail 'signal cleanup left a published snapshot pending recovery'
+[ ! -e "${IPSET_SNAPSHOT_DIR}" ] || fail 'signal cleanup retained a finalized publication snapshot'
 
 printf '%s\n' 'dnsmasq LAN-mode tests passed.'

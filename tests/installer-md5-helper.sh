@@ -4,7 +4,7 @@
 set -u
 
 SCRIPT_PATH="${1:-installer}"
-TMP_ROOT="${TMPDIR:-/tmp}/installer-md5-helper.$$"
+TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/installer-md5-helper.XXXXXX") || exit 1
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
 
 cleanup() {
@@ -20,7 +20,6 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
-mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 sed -n \
 	-e '/^md5_is_valid() {$/,/^}/p' \
 	-e '/^sha256_is_valid() {$/,/^}/p' \
@@ -86,6 +85,7 @@ run_download_case() (
 				case "${case_name}:${attempt}" in
 					calculator-failure:*) return 1 ;;
 					stale-retry:1) printf '%s\n' 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' ;;
+					stale-retry:*) printf '%s\n' 'dddddddddddddddddddddddddddddddd' ;;
 					*) printf '%s\n' 'cccccccccccccccccccccccccccccccc' ;;
 				esac
 				;;
@@ -107,7 +107,7 @@ run_download_case() (
 						if [ "${attempt}" -eq 1 ]; then
 							printf '%s\n' 'dddddddddddddddddddddddddddddddd' >"${destination}"
 						else
-							printf '%s\n' 'cccccccccccccccccccccccccccccccc' >"${destination}"
+							return 1
 						fi
 						;;
 					valid-digest) printf '%s\n' 'cccccccccccccccccccccccccccccccc' >"${destination}" ;;
@@ -137,6 +137,6 @@ for failure_case in calculator-failure empty-metadata malformed-metadata missing
 	run_download_case "${failure_case}" 1 || fail "${failure_case} did not fail safely or preserve its target"
 done
 run_download_case valid-digest 0 || fail 'a valid MD5 digest was not accepted and installed'
-run_download_case stale-retry 0 || fail 'stale MD5 digest state survived between download retries'
+run_download_case stale-retry 1 || fail 'stale MD5 digest state survived between download retries'
 
 printf '%s\n' 'PASS: installer MD5 helper rejects invalid inputs, resets retry state, and preserves targets on failure'

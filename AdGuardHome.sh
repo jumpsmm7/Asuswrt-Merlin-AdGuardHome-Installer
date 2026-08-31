@@ -1141,6 +1141,15 @@ dnsmasq_publish_staged_config() (
 		if [ ! -e "${CONFIG_STAGE}" ]; then
 			CONFIG_PUBLISHED="1"
 		fi
+		if [ "${CONFIG_PUBLISHED:-0}" = "1" ] && [ "${SNAPSHOT_READY:-0}" = "1" ]; then
+			if rm -f "${IPSET_SNAPSHOT_DIR}/restore.pending"; then
+				rm -rf "${IPSET_SNAPSHOT_DIR}" 2>/dev/null ||
+					agh_log error dnsmasq_params "state=signal action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			else
+				agh_log error dnsmasq_params "state=signal action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			fi
+			SNAPSHOT_READY="0"
+		fi
 		if [ "${TRANSACTION_ACTIVE:-0}" = "1" ] && [ "${SNAPSHOT_READY:-0}" = "1" ] && [ "${CONFIG_PUBLISHED:-0}" = "0" ] && [ "${ROLLBACK_ACTIVE:-0}" = "0" ]; then
 			trap '' HUP INT QUIT ABRT TERM TSTP
 			ROLLBACK_ACTIVE="1"
@@ -1204,7 +1213,12 @@ dnsmasq_publish_staged_config() (
 		fi
 		CONFIG_PUBLISHED="1"
 		TRANSACTION_ACTIVE="0"
-		rm -rf "${IPSET_SNAPSHOT_DIR}" 2>/dev/null || true
+		if rm -f "${IPSET_SNAPSHOT_DIR}/restore.pending"; then
+			rm -rf "${IPSET_SNAPSHOT_DIR}" 2>/dev/null ||
+				agh_log error dnsmasq_params "state=publication action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+		else
+			agh_log error dnsmasq_params "state=publication action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+		fi
 		return 0
 	}
 	IPSET_LOCK_INTERRUPT_CALLBACK="dnsmasq_publish_abort"

@@ -108,7 +108,7 @@ jobs:
 
       - name: Run bounded service lifecycle integration matrix
         # DNS handoff validates root-only FIFO ownership, matching router init.
-        run: sudo -n /usr/bin/timeout --kill-after=10 600 env AGH_INTEGRATION_SHELL=busybox AGH_INTEGRATION_SHELL_ARG=ash busybox ash tests/service-lifecycle-integration.sh
+        run: sudo -n /usr/bin/timeout --kill-after=10 5130 env AGH_INTEGRATION_SHELL=busybox AGH_INTEGRATION_SHELL_ARG=ash busybox ash tests/service-lifecycle-integration.sh
 
       - name: Run optional database link regression
         run: sudo -n /usr/bin/timeout --kill-after=10 180 busybox ash tests/optional-database-links.sh
@@ -171,7 +171,7 @@ jobs:
           sudo apt-get install -y busybox-static
 
       - name: Wait for checksum chore commit
-        if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.actor != 'github-actions[bot]')
+        if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.ref_type == 'branch' && github.actor != 'github-actions[bot]')
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}

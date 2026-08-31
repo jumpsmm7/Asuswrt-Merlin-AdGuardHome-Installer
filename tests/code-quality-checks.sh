@@ -81,6 +81,7 @@ PRIVATE_IPV4_FALLBACK_RAN_FILE="${TMP_ROOT}/private-ipv4-fallback.ran"
 PROCESS_SIGNALING_RAN_FILE="${TMP_ROOT}/process-signaling.ran"
 EVENT_SCRIPT_TRANSACTIONS_RAN_FILE="${TMP_ROOT}/event-script-transactions.ran"
 JQ_HELPER_RAN_FILE="${TMP_ROOT}/jq-helper.ran"
+MD5_HELPER_RAN_FILE="${TMP_ROOT}/md5-helper.ran"
 TZDATA_PACKAGE_INFO_RAN_FILE="${TMP_ROOT}/tzdata-package-info.ran"
 SERVICE_OPT_DISAPPEARANCE_RAN_FILE="${TMP_ROOT}/service-opt-disappearance.ran"
 (
@@ -140,6 +141,10 @@ SERVICE_OPT_DISAPPEARANCE_RAN_FILE="${TMP_ROOT}/service-opt-disappearance.ran"
 				: >"${JQ_HELPER_RAN_FILE}"
 				return 0
 				;;
+			tests/installer-md5-helper.sh)
+				: >"${MD5_HELPER_RAN_FILE}"
+				return 0
+				;;
 		esac
 		return 1
 	}
@@ -154,6 +159,8 @@ SERVICE_OPT_DISAPPEARANCE_RAN_FILE="${TMP_ROOT}/service-opt-disappearance.ran"
 	run_check 'LAN bridge discovery documentation consistency regression' sh tests/lan-bridge-discovery-doc-consistency.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh || exit 1
+	[ "${FAILED}" -eq 0 ] || exit 1
+	run_check 'Installer MD5 helper regression' sh tests/installer-md5-helper.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'Installer event-script transaction regression' sh tests/installer-event-script-transactions.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
@@ -176,6 +183,7 @@ SERVICE_OPT_DISAPPEARANCE_RAN_FILE="${TMP_ROOT}/service-opt-disappearance.ran"
 [ -f "${PROCESS_SIGNALING_RAN_FILE}" ] || fail 'process signaling regression command was not invoked'
 [ -f "${LAN_BRIDGE_DOC_RAN_FILE}" ] || fail 'LAN bridge documentation regression command was not invoked'
 [ -f "${JQ_HELPER_RAN_FILE}" ] || fail 'installer jq helper regression command was not invoked'
+[ -f "${MD5_HELPER_RAN_FILE}" ] || fail 'installer MD5 helper regression command was not invoked'
 [ -f "${EVENT_SCRIPT_TRANSACTIONS_RAN_FILE}" ] || fail 'installer event-script transaction regression command was not invoked'
 [ -f "${TZDATA_PACKAGE_INFO_RAN_FILE}" ] || fail 'tzdata package conversion regression command was not invoked'
 [ -f "${SERVICE_OPT_DISAPPEARANCE_RAN_FILE}" ] || fail 'Entware mount disappearance regression command was not invoked'

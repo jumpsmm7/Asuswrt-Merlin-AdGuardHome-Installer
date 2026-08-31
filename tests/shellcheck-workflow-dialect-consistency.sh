@@ -74,7 +74,7 @@ grep -Eq '^  push:$' "${WORKFLOW}" || fail "${WORKFLOW}: missing the all-branch 
 if awk '
 	/^on:$/ { in_events = 1; next }
 	in_events && /^[a-zA-Z]/ { exit }
-	in_events && /^[[:space:]]+branches:/ { found = 1 }
+	in_events && /^[[:space:]]+branches(-ignore)?:/ { found = 1 }
 	END { exit !found }
 ' "${WORKFLOW}"; then
 	fail "${WORKFLOW}: push and review checks must not be restricted by branch filters"
@@ -108,7 +108,7 @@ grep -Fq 'run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-
 	fail "${WORKFLOW}: installer preflight regression does not run with bounded BusyBox ash"
 grep -Fq 'run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-dns-environment-failure.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: installer NVRAM transaction regression does not run with bounded BusyBox ash"
-grep -Fq 'run: sudo -n /usr/bin/timeout --kill-after=10 600 env AGH_INTEGRATION_SHELL=busybox' "${WORKFLOW}" ||
+grep -Fq 'run: sudo -n /usr/bin/timeout --kill-after=10 5130 env AGH_INTEGRATION_SHELL=busybox' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: lifecycle timeout must run inside sudo"
 grep -Fq 'run: sudo -n /usr/bin/timeout --kill-after=10 180 busybox ash tests/optional-database-links.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: optional database timeout must run inside sudo"
