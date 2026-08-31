@@ -296,6 +296,10 @@ grep -Fq "if: github.event_name == 'workflow_dispatch' || (github.event_name == 
 	fail "${REVIEW_WORKFLOW}: secret-bearing Sonar validation must exclude merge-group and fork code"
 grep -Fq '  merge-group-validation:' "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: merge groups need a separate secret-free tzdata validation job"
+grep -Fq "if: github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || github.event.pull_request.draft == false" "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: secret-free tzdata validation must run for pull requests, merge groups, and manual checks"
+grep -Fq 'sudo apt-get install -y bzip2 xz-utils zstd' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: secret-free tzdata validation must install its conversion tools"
 grep -Fq "run_check 'tzdata package conversion regression' sh tests/update-tzdata-package-info.sh" "${LOCAL_QUALITY_RUNNER}" ||
 	fail "${LOCAL_QUALITY_RUNNER}: expected the tzdata conversion regression in the local and CI quality matrix"
 grep -Fq "run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh" "${LOCAL_QUALITY_RUNNER}" ||

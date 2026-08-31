@@ -79,16 +79,21 @@ jobs:
 
   merge-group-validation:
     name: Merge-group tzdata validation
-    if: github.event_name == 'merge_group'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
     steps:
-      - name: Check out merge-group commit
+      - name: Check out selected commit
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+
+      - name: Install tzdata conversion tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bzip2 xz-utils zstd
 
       - name: Run tzdata package conversion regression
         run: sh tests/update-tzdata-package-info.sh
