@@ -239,6 +239,19 @@ for check_workflow in \
 	' "${check_workflow}" || fail "${check_workflow}: event branch filters must not exclude review branches"
 done
 
+# ossf/scorecard-action rejects push and manual events for non-default refs and
+# does not support merge_group events. Keep the workflow visible on every ref,
+# but gate checkout, analysis, and upload together so unsupported invocations
+# report an explanatory successful check instead of failing in the action.
+grep -Fq "github.ref_name == github.event.repository.default_branch" "${SCORECARD_WORKFLOW}" ||
+	fail "${SCORECARD_WORKFLOW}: Scorecard execution must be limited to the default branch"
+grep -Fq "github.base_ref == github.event.repository.default_branch" "${SCORECARD_WORKFLOW}" ||
+	fail "${SCORECARD_WORKFLOW}: pull-request Scorecard execution must target the default branch"
+[ "$(grep -Fc "if: env.SCORECARD_SUPPORTED == 'true'" "${SCORECARD_WORKFLOW}")" -eq 3 ] ||
+	fail "${SCORECARD_WORKFLOW}: checkout, Scorecard analysis, and SARIF upload must share the supported-ref gate"
+grep -Fq "if: env.SCORECARD_SUPPORTED != 'true'" "${SCORECARD_WORKFLOW}" ||
+	fail "${SCORECARD_WORKFLOW}: unsupported refs must publish an explanatory successful check"
+
 # --- The Sonar parser cleanup must be idempotent. Pull-request validation must
 # use the immutable head SHA with a non-persistent read-only checkout and fail
 # when the parser rewrite or checksum sidecars would change the committed tree.

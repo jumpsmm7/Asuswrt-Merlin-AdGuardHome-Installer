@@ -21,13 +21,20 @@ jobs:
       actions: read
       contents: read
       security-events: write
+    env:
+      SCORECARD_SUPPORTED: >-
+        ${{ github.event_name == 'schedule' ||
+            ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == github.event.repository.default_branch) ||
+            (github.event_name == 'pull_request' && github.base_ref == github.event.repository.default_branch) }}
     steps:
       - name: Check out repository
+        if: env.SCORECARD_SUPPORTED == 'true'
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
       - name: Run OpenSSF Scorecard
+        if: env.SCORECARD_SUPPORTED == 'true'
         uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
         with:
           results_file: results.sarif
@@ -35,7 +42,19 @@ jobs:
           publish_results: false
 
       - name: Upload Scorecard results
+        if: env.SCORECARD_SUPPORTED == 'true'
         uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: results.sarif
           category: openssf-scorecard
+
+      - name: Explain unsupported Scorecard ref
+        if: env.SCORECARD_SUPPORTED != 'true'
+        shell: sh
+        run: |
+          {
+            printf '%s\n' '## OpenSSF Scorecard'
+            printf '%s\n' ''
+            printf '%s\n' 'The Scorecard workflow was invoked, but ossf/scorecard-action supports analysis only for the repository default branch.'
+            printf '%s\n' 'This non-default ref is covered by the other merge checks; Scorecard analysis will run after the change reaches the default branch.'
+          } >> "${GITHUB_STEP_SUMMARY}"
