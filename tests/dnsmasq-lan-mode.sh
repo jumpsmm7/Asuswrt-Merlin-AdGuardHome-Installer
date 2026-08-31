@@ -963,6 +963,7 @@ if wait "${transaction_pid}"; then
 fi
 grep -qx '# published config' "${DNSMASQ_CONF_FILE}" || fail 'signal cleanup replaced the published dnsmasq configuration'
 [ ! -e "${RESTORE_CALLS}" ] || fail 'signal cleanup restored IPSET after dnsmasq publication'
-rm -rf "${IPSET_SNAPSHOT_DIR}" || fail 'could not clear signal publication snapshot'
+[ ! -e "${IPSET_SNAPSHOT_DIR}/restore.pending" ] || fail 'signal cleanup left a published snapshot pending recovery'
+[ ! -e "${IPSET_SNAPSHOT_DIR}" ] || fail 'signal cleanup retained a finalized publication snapshot'
 
 printf '%s\n' 'dnsmasq LAN-mode tests passed.'
