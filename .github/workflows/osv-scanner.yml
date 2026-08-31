@@ -29,6 +29,7 @@ jobs:
           persist-credentials: false
 
       - name: Check out target branch
+        id: differential-base
         env:
           BASE_REVISION: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
         run: |
@@ -36,9 +37,20 @@ jobs:
           case "${base_revision}" in
             0000000000000000000000000000000000000000) base_revision="${GITHUB_SHA}^" ;;
           esac
-          git checkout --detach "${base_revision}"
+          if ! git rev-parse --verify "${base_revision}^{commit}" >/dev/null 2>&1; then
+            git fetch --no-tags origin "${base_revision}" || true
+          fi
+          if git rev-parse --verify "${base_revision}^{commit}" >/dev/null 2>&1; then
+            git checkout --detach "${base_revision}"
+            printf '%s\n' 'available=true' >> "${GITHUB_OUTPUT}"
+          else
+            printf '%s\n' '{}' >old-results.json
+            printf '%s\n' 'available=false' >> "${GITHUB_OUTPUT}"
+            printf '%s\n' "Differential OSV scan skipped: predecessor ${base_revision} is unavailable."
+          fi
 
       - name: Scan existing code
+        if: steps.differential-base.outputs.available == 'true'
         uses: google/osv-scanner-action/osv-scanner-action@8dc09193bb540e09b23da07ad7e30bd33bf87018 # v2.3.8
         continue-on-error: true
         with:
@@ -62,6 +74,7 @@ jobs:
             ./
 
       - name: Report newly introduced vulnerabilities
+        if: steps.differential-base.outputs.available == 'true'
         uses: google/osv-scanner-action/osv-reporter-action@8dc09193bb540e09b23da07ad7e30bd33bf87018 # v2.3.8
         with:
           scan-args: |-
@@ -88,6 +101,7 @@ jobs:
 
   scan-full:
     name: OSV full vulnerability scan
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

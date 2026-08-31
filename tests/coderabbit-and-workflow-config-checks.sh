@@ -245,6 +245,8 @@ done
 # report an explanatory successful check instead of failing in the action.
 grep -Fq "github.ref_name == github.event.repository.default_branch" "${SCORECARD_WORKFLOW}" ||
 	fail "${SCORECARD_WORKFLOW}: Scorecard execution must be limited to the default branch"
+grep -Fq "github.ref_type == 'branch'" "${SCORECARD_WORKFLOW}" ||
+	fail "${SCORECARD_WORKFLOW}: Scorecard execution must reject tags named after the default branch"
 grep -Fq "github.base_ref == github.event.repository.default_branch" "${SCORECARD_WORKFLOW}" ||
 	fail "${SCORECARD_WORKFLOW}: pull-request Scorecard execution must target the default branch"
 [ "$(grep -Fc "if: env.SCORECARD_SUPPORTED == 'true'" "${SCORECARD_WORKFLOW}")" -eq 3 ] ||
@@ -290,6 +292,10 @@ grep -Fq '      - name: Run tzdata package conversion regression' "${REVIEW_WORK
 	fail "${REVIEW_WORKFLOW}: expected the tzdata conversion regression before Sonar analysis"
 grep -Fq '        run: sh tests/update-tzdata-package-info.sh' "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: expected the tzdata conversion regression command before Sonar analysis"
+grep -Fq "if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)" "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: secret-bearing Sonar validation must exclude merge-group and fork code"
+grep -Fq '  merge-group-validation:' "${REVIEW_WORKFLOW}" ||
+	fail "${REVIEW_WORKFLOW}: merge groups need a separate secret-free tzdata validation job"
 grep -Fq "run_check 'tzdata package conversion regression' sh tests/update-tzdata-package-info.sh" "${LOCAL_QUALITY_RUNNER}" ||
 	fail "${LOCAL_QUALITY_RUNNER}: expected the tzdata conversion regression in the local and CI quality matrix"
 grep -Fq "run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh" "${LOCAL_QUALITY_RUNNER}" ||
@@ -316,9 +322,10 @@ grep -Fq 'git diff --exit-code -- AdGuardHome.sh AdGuardHome.sh.md5sum AdGuardHo
 	fail "${WORKFLOW}: Sonar parser validation must fail when generated artifacts differ"
 grep -Fq "if: github.event_name == 'pull_request' || github.event_name == 'push'" '.github/workflows/osv-scanner.yml' ||
 	fail '.github/workflows/osv-scanner.yml: differential scan must run for pull-request and push events'
-if grep -Fq "if: github.event_name != 'pull_request'" '.github/workflows/osv-scanner.yml'; then
-	fail '.github/workflows/osv-scanner.yml: full vulnerability scan must not skip pull-request events'
-fi
+grep -Fq "if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository" '.github/workflows/osv-scanner.yml' ||
+	fail '.github/workflows/osv-scanner.yml: full vulnerability scan must exclude fork pull requests'
+grep -Fq "git rev-parse --verify \"\${base_revision}^{commit}\"" '.github/workflows/osv-scanner.yml' ||
+	fail '.github/workflows/osv-scanner.yml: differential scan must verify that its predecessor is reachable'
 if grep -Fq "if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.actor == 'github-actions[bot]'" \
 	"${SHELL_VALIDATION_WORKFLOW}"; then
 	fail "${SHELL_VALIDATION_WORKFLOW}: checksum validation must not skip source push or merge-group events"

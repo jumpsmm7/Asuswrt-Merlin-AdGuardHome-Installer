@@ -77,11 +77,27 @@ jobs:
           TEST_MAX_RUNTIME_SECONDS: 180
         run: sh tools/code-quality.sh
 
+  merge-group-validation:
+    name: Merge-group tzdata validation
+    if: github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Check out merge-group commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Run tzdata package conversion regression
+        run: sh tests/update-tzdata-package-info.sh
+
   sonarcloud:
     name: SonarQube Cloud Quality Gate
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)
     permissions:
       contents: read
     steps:
