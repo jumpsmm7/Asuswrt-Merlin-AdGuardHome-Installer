@@ -347,11 +347,18 @@ grep -Fq "git rev-parse --verify \"\${base_revision}^{commit}\"" '.github/workfl
 	fail '.github/workflows/osv-scanner.yml: differential scan must verify that its predecessor is reachable'
 osv_differential_uploads_are_guarded '.github/workflows/osv-scanner.yml' ||
 	fail '.github/workflows/osv-scanner.yml: both differential SARIF uploads must require an available report'
-for mutation in artifact-missing artifact-or artifact-subsequent code-scanning-missing code-scanning-or; do
+for mutation in artifact-missing artifact-or artifact-subsequent code-scanning-missing code-scanning-or code-scanning-subsequent; do
 	mutated_workflow="${TMP_ROOT}/osv-${mutation}.yml"
 	awk -v mutation="${mutation}" '
 		/^  scan-pr:$/ { in_scan_pr = 1 }
-		/^  scan-full:$/ { in_scan_pr = 0; in_step = 0; artifact = 0; code_scanning = 0 }
+		/^  scan-full:$/ {
+			if (mutation == "code-scanning-subsequent") {
+				print "      - name: Unrelated guarded step"
+				print "        if: ${{ !cancelled() && steps.differential-base.outputs.available == '\''true'\'' && (github.event_name != '\''pull_request'\'' || github.event.pull_request.head.repo.full_name == github.repository) }}"
+				print "        run: true"
+			}
+			in_scan_pr = 0; in_step = 0; artifact = 0; code_scanning = 0
+		}
 		in_scan_pr && /^      - name: Upload OSV SARIF artifact$/ { in_step = 1; artifact = 1; code_scanning = 0; print; next }
 		in_scan_pr && /^      - name: Upload OSV results to code scanning$/ {
 			if (mutation == "artifact-subsequent") {
@@ -363,11 +370,23 @@ for mutation in artifact-missing artifact-or artifact-subsequent code-scanning-m
 		}
 		in_step && /^      - name:/ { in_step = 0; artifact = 0; code_scanning = 0 }
 		in_step && artifact && /^        if:/ && (mutation == "artifact-missing" || mutation == "artifact-subsequent") { print "        if: ${{ !cancelled() }}"; artifact = 0; next }
-		in_step && artifact && /^        if:/ && mutation == "artifact-or" { sub(/ && steps\.differential-base/, " || steps.differential-base"); artifact = 0 }
-		in_step && code_scanning && /^        if:/ && mutation == "code-scanning-missing" { sub(/steps\.differential-base\.outputs\.available == '\''true'\'' && /, ""); code_scanning = 0 }
-		in_step && code_scanning && /^        if:/ && mutation == "code-scanning-or" { sub(/ && steps\.differential-base/, " || steps.differential-base"); code_scanning = 0 }
+		in_step && artifact && /^        if:/ && mutation == "artifact-or" { sub(/ && steps\.differential-base/, " || steps.differential-base"); artifact = 0; print; next }
+		in_step && code_scanning && /^        if:/ && (mutation == "code-scanning-missing" || mutation == "code-scanning-subsequent") { sub(/steps\.differential-base\.outputs\.available == '\''true'\'' && /, ""); code_scanning = 0 }
+		in_step && code_scanning && /^        if:/ && mutation == "code-scanning-or" { sub(/ && steps\.differential-base/, " || steps.differential-base"); code_scanning = 0; print; next }
 		{ print }
 	' '.github/workflows/osv-scanner.yml' >"${mutated_workflow}" || fail "could not create ${mutation} OSV guard fixture"
+	case "${mutation}" in
+		artifact-or | code-scanning-or)
+			grep -Fq "if: \${{ !cancelled() || steps.differential-base.outputs.available == 'true'" "${mutated_workflow}" ||
+				fail ".github/workflows/osv-scanner.yml: ${mutation} fixture did not weaken the availability conjunction"
+			;;
+		code-scanning-subsequent)
+			grep -Fq '      - name: Unrelated guarded step' "${mutated_workflow}" ||
+				fail '.github/workflows/osv-scanner.yml: code-scanning displacement fixture omitted the subsequent guarded step'
+			grep -Fq "if: \${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}" "${mutated_workflow}" ||
+				fail '.github/workflows/osv-scanner.yml: code-scanning displacement fixture retained the upload availability guard'
+			;;
+	esac
 	if osv_differential_uploads_are_guarded "${mutated_workflow}"; then
 		fail ".github/workflows/osv-scanner.yml: ${mutation} mutation bypassed differential SARIF upload validation"
 	fi
