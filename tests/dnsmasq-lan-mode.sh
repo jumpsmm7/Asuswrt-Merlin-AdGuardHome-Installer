@@ -219,7 +219,7 @@ IPSet_Refresh() {
 	return 0
 }
 
-# IPSet_Lock serializes execution of its callback and returns its status, or a cleanup failure status.
+# IPSet_Lock serializes callback execution with a filesystem lock and returns the callback status or cleanup failure status.
 IPSet_Lock() {
 	local cleanup_status exit_trap_active lock_attempts status
 	if [ "${IPSET_LOCK_ACTIVE:-0}" = "1" ]; then
@@ -260,7 +260,7 @@ IPSet_Lock_Interrupt_Propagate() {
 	"${IPSET_LOCK_INTERRUPT_CALLBACK}"
 }
 
-# mv injects configured failures for dnsmasq publication, IPSET restoration, YAML restoration, and compensation moves, then delegates other operations to the system command.
+# mv enforces transaction and restoration ordering checks, injects configured move failures, and delegates other moves to the system command.
 mv() {
 	if [ "${TRANSACTION_ACTIVE:-0}" = "1" ]; then
 		[ "${IPSET_LOCK_ACTIVE:-0}" = "1" ] || fail 'dnsmasq publication or compensation ran outside the transaction lock'
