@@ -61,11 +61,8 @@ osv_differential_uploads_are_guarded() {
 		in_scan_pr && /^      - name: Upload OSV SARIF artifact$/ { in_step = 1; artifact = 1; code_scanning = 0; next }
 		in_scan_pr && /^      - name: Upload OSV results to code scanning$/ { in_step = 1; artifact = 0; code_scanning = 1; next }
 		in_step && /^      - name:/ { in_step = 0 }
-		in_step && /if:.*steps\.differential-base\.outputs\.available == '\''true'\''/ {
-			if (artifact) artifact_guard = 1
-			if (code_scanning) code_scanning_guard = 1
-			in_step = 0
-		}
+		artifact && /^        if: \$\{\{ !cancelled\(\) && steps\.differential-base\.outputs\.available == '\''true'\'' \}\}$/ { artifact_guard = 1 }
+		code_scanning && /^        if: \$\{\{ !cancelled\(\) && steps\.differential-base\.outputs\.available == '\''true'\'' && \(github\.event_name != '\''pull_request'\'' \|\| github\.event\.pull_request\.head\.repo\.full_name == github\.repository\) \}\}$/ { code_scanning_guard = 1 }
 		END { if (!artifact_guard || !code_scanning_guard) exit 1 }
 	' "$1"
 }
@@ -350,6 +347,21 @@ grep -Fq "git rev-parse --verify \"\${base_revision}^{commit}\"" '.github/workfl
 	fail '.github/workflows/osv-scanner.yml: differential scan must verify that its predecessor is reachable'
 osv_differential_uploads_are_guarded '.github/workflows/osv-scanner.yml' ||
 	fail '.github/workflows/osv-scanner.yml: both differential SARIF uploads must require an available report'
+for mutation in artifact-missing artifact-or code-scanning-missing code-scanning-or; do
+	mutated_workflow="${TMP_ROOT}/osv-${mutation}.yml"
+	awk -v mutation="${mutation}" '
+		/^      - name: Upload OSV SARIF artifact$/ { artifact = 1; code_scanning = 0 }
+		/^      - name: Upload OSV results to code scanning$/ { artifact = 0; code_scanning = 1 }
+		artifact && /^        if:/ && mutation == "artifact-missing" { print "        if: ${{ !cancelled() }}"; artifact = 0; next }
+		artifact && /^        if:/ && mutation == "artifact-or" { sub(/ && steps\.differential-base/, " || steps.differential-base"); artifact = 0 }
+		code_scanning && /^        if:/ && mutation == "code-scanning-missing" { sub(/steps\.differential-base\.outputs\.available == '\''true'\'' && /, ""); code_scanning = 0 }
+		code_scanning && /^        if:/ && mutation == "code-scanning-or" { sub(/ && steps\.differential-base/, " || steps.differential-base"); code_scanning = 0 }
+		{ print }
+	' '.github/workflows/osv-scanner.yml' >"${mutated_workflow}" || fail "could not create ${mutation} OSV guard fixture"
+	if osv_differential_uploads_are_guarded "${mutated_workflow}"; then
+		fail ".github/workflows/osv-scanner.yml: ${mutation} mutation bypassed differential SARIF upload validation"
+	fi
+done
 if grep -Fq "if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.actor == 'github-actions[bot]'" \
 	"${SHELL_VALIDATION_WORKFLOW}"; then
 	fail "${SHELL_VALIDATION_WORKFLOW}: checksum validation must not skip source push or merge-group events"
