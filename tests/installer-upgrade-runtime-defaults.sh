@@ -84,6 +84,7 @@ run_update_path() {
 			return 0
 		}
 		agh_is_running() { [ "${RUNNING}" -eq 1 ]; }
+		agh_wait_started() { [ "${RUNNING}" -eq 1 ]; }
 		agh_start() {
 			printf '%s\n' 'start' >>"${CALLS_FILE}"
 			RUNNING=1
@@ -109,6 +110,7 @@ run_update_path() {
 			printf '%s\n' "end:$*" >>"${CALLS_FILE}"
 		}
 		rollback_result_write() { :; }
+		rollback_result_notice() { :; }
 		PTXT() { :; }
 		ptxt_phase() { PTXT "$1"; }
 		ptxt_step() { PTXT "$1"; }
