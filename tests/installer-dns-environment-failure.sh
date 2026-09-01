@@ -372,6 +372,10 @@ nvram_transaction_apply restart_dnsmasq 1 || fail 'stubby recovery transaction a
 _DNS_STUBBY_STOPPED=1
 _DNS_NVRAM_SAVED=1
 check_dns_environment 1 || fail 'DNS restore did not recover stopped stubby before restoring NVRAM'
+stubby_restart_line="$(grep -n '^service restart_stubby$' "${CALLS_FILE}" | cut -d: -f1)"
+dns_restore_line="$(grep -n '^set dnspriv_enable=1$' "${CALLS_FILE}" | cut -d: -f1)"
+[ -n "${stubby_restart_line}" ] && [ -n "${dns_restore_line}" ] && [ "${stubby_restart_line}" -lt "${dns_restore_line}" ] ||
+	fail 'DNS restore did not restart stubby before restoring dnspriv_enable'
 [ "${STUBBY_RESTART_COUNT}" -eq 1 ] || fail 'DNS restore did not restart stopped stubby exactly once'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful stubby and DNS recovery retained its snapshot'
 [ "$(nvram get dnspriv_enable)" = 1 ] || fail 'stubby recovery did not restore the saved DNS NVRAM value'
