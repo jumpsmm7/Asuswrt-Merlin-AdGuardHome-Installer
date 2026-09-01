@@ -311,7 +311,7 @@ grep -Fq "if: github.event_name == 'workflow_dispatch' || (github.event_name == 
 	fail "${REVIEW_WORKFLOW}: secret-bearing Sonar validation must exclude merge-group and fork code"
 grep -Fq '  merge-group-validation:' "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: merge groups need a separate secret-free tzdata validation job"
-	awk '
+awk '
 		/^  merge-group-validation:$/ { in_job = 1; next }
 		in_job && /^  [a-zA-Z0-9_-]+:$/ { exit }
 		in_job && $0 == "    if: github.event_name == '\''workflow_dispatch'\'' || github.event_name == '\''merge_group'\'' || github.event.pull_request.draft == false" { found = 1 }
