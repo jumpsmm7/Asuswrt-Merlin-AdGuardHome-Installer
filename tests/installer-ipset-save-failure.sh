@@ -51,9 +51,9 @@ conf_value() {
 check_ipset 1 || fail 'unknown-mode IPSET enable guard failed to persist the forced disabled state'
 [ "$(cat "${CHECK_IPSET_LOG}")" = 'ADGUARD_IPSET="NO"' ] || fail 'unknown-mode check_ipset enable request did not force ADGUARD_IPSET=NO'
 ADGUARD_INSTALL_MODE='wan'
+WAN_NAT_ACTIVE=0
 check_ipset 1 || fail 'WAN-mode IPSET enable request failed'
 [ "$(cat "${CHECK_IPSET_LOG}")" = 'ADGUARD_IPSET="YES"' ] || fail 'WAN-mode check_ipset enable request was not preserved'
-WAN_NAT_ACTIVE=0
 rm -f "${CHECK_IPSET_LOG}"
 
 INFO='Info:'

@@ -5107,6 +5107,9 @@ adguard_recover_after_event_hook_abort() {
 	MODE_ROLLBACK_STATUS=0
 	NVRAM_ROLLBACK_STATUS=0
 	RESTART_RECOVERY_STATUS=0
+	if [ "${2:-0}" = "1" ]; then
+		agh_stop || RESTART_RECOVERY_STATUS=1
+	fi
 	if nvram_transaction_lock_owned && ! nvram_transaction_setup_committed; then
 		setup_restore_nvram_journal || NVRAM_ROLLBACK_STATUS=1
 		installer_lan_domain_restore || NVRAM_ROLLBACK_STATUS=1
@@ -5121,9 +5124,6 @@ adguard_recover_after_event_hook_abort() {
 		else
 			MODE_ROLLBACK_STATUS=1
 		fi
-	fi
-	if [ "${2:-0}" = "1" ]; then
-		agh_stop || RESTART_RECOVERY_STATUS=1
 	fi
 	# Restore the previously running AdGuardHome service even when mode rollback fails.
 	adguard_restart_after_install_abort "$1" || RESTART_RECOVERY_STATUS=1
