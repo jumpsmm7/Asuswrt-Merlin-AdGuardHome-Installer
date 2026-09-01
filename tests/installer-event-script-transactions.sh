@@ -149,6 +149,8 @@ mkdir -p "${FAILED_SNAPSHOT_DIR}" || fail 'could not create failed rollback snap
 printf '%s\n' 'preserved recovery data' >"${FAILED_SNAPSHOT_DIR}/dnsmasq.postconf"
 ERROR=ERROR
 INFO=INFO
+# nvram_transaction_lock_owned reports no active setup transaction for the hook-only fixtures.
+nvram_transaction_lock_owned() { return 1; }
 # PTXT appends the provided text to the rollback report.
 PTXT() { printf '%s\n' "$*" >>"${TMP_DIR}/rollback-report"; }
 # all_event_scripts_restore restores all event-script files and reports failure when restoration is unsuccessful.
@@ -185,5 +187,17 @@ adguard_recover_after_event_hook_abort 1 || fail 'successful mode rollback recov
 [ ! -e "${MODE_ROLLBACK_SNAPSHOT}" ] || fail 'mode rollback retained a superseded aggregate snapshot'
 grep -q 'Superseded event-hook rollback snapshot removed after mode rollback' "${TMP_DIR}/rollback-report" ||
 	fail 'mode rollback did not report successful aggregate snapshot cleanup'
+
+MODE_MIGRATION_YAML_FILE_BACKUP=""
+EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
+stop_calls=0
+restart_calls=0
+# agh_stop records that the post-readiness daemon was stopped before recovery.
+agh_stop() { stop_calls="$((stop_calls + 1))"; }
+# adguard_restart_after_install_abort records service recovery after configuration rollback.
+adguard_restart_after_install_abort() { restart_calls="$((restart_calls + 1))"; }
+adguard_recover_after_event_hook_abort 1 1 || fail 'post-readiness service recovery reported failure'
+[ "${stop_calls}" -eq 1 ] || fail 'post-readiness recovery did not stop the daemon before loading restored configuration'
+[ "${restart_calls}" -eq 1 ] || fail 'post-readiness recovery did not restore the pre-install service state'
 
 printf '%s\n' 'PASS: installer event-script transaction regression'

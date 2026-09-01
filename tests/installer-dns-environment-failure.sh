@@ -2322,7 +2322,9 @@ assert_original 'retried rollback'
 
 grep -q 'check_dns_environment 0 || return 1' "${INSTALLER_PATH}" || fail 'CLI install does not propagate DNS preparation failure'
 grep -q 'check_dns_environment 0 || exit 1' "${INSTALLER_PATH}" || fail 'interactive install does not propagate DNS preparation failure'
-grep -q '^[[:space:]]*if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" \] && ! finalize_dns_environment; then$' "${INSTALLER_PATH}" || fail 'successful WAN installation does not finalize its DNS preparation snapshot'
+grep -q '^[[:space:]]*if ! finalize_dns_environment; then$' "${INSTALLER_PATH}" || fail 'successful WAN installation does not finalize its DNS preparation snapshot'
+grep -q '^[[:space:]]*if \[ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" \] && ! nvram_transaction_finalize_setup_pair; then$' "${INSTALLER_PATH}" ||
+	fail 'orchestrated setup does not defer its paired NVRAM commit until final DNS readiness'
 
 reset_case
 (
