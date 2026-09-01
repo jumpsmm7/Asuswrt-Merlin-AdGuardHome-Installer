@@ -36,6 +36,9 @@ printf '%s\n' 'AdGuard Home, version test'
 EOF_AGH
 chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuardHome executable'
 
+# run_update_path exercises the mocked upgrade path for the specified mode and runtime-default configuration result.
+# _mode selects a service-refresh-only or package upgrade.
+# _configure_result determines whether runtime-default configuration succeeds.
 run_update_path() {
 	_mode="$1"
 	_configure_result="$2"
@@ -84,6 +87,7 @@ run_update_path() {
 			return 0
 		}
 		agh_is_running() { [ "${RUNNING}" -eq 1 ]; }
+		agh_wait_started() { [ "${RUNNING}" -eq 1 ]; }
 		agh_start() {
 			printf '%s\n' 'start' >>"${CALLS_FILE}"
 			RUNNING=1
@@ -109,6 +113,7 @@ run_update_path() {
 			printf '%s\n' "end:$*" >>"${CALLS_FILE}"
 		}
 		rollback_result_write() { :; }
+		rollback_result_notice() { :; }
 		PTXT() { :; }
 		ptxt_phase() { PTXT "$1"; }
 		ptxt_step() { PTXT "$1"; }
