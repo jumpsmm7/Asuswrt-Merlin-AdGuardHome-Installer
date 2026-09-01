@@ -106,7 +106,11 @@ printf '%s\n' 'original services-stop' >"${TMP_DIR}/jffs/scripts/services-stop"
 printf '%s\n' 'original service-event-end' >"${TMP_DIR}/jffs/scripts/service-event-end"
 printf '%s\n' 'original firewall' >"${TMP_DIR}/jffs/scripts/firewall-start"
 CONF_FILE="${TMP_DIR}/config"
+YAML_FILE="${TMP_DIR}/AdGuardHome.yaml"
+YAML_ORI="${TMP_DIR}/AdGuardHome.yaml.original"
 printf '%s\n' 'ADGUARD_DNSMASQ_MODE="disabled"' >"${CONF_FILE}"
+printf '%s\n' 'original working YAML' >"${YAML_FILE}"
+printf '%s\n' 'original source YAML' >"${YAML_ORI}"
 # add_dnsmasq_event_scripts writes simulated DNSMasq event-script and configuration changes to the temporary fixture.
 add_dnsmasq_event_scripts() {
 	printf '%s\n' 'changed dnsmasq' >"${TMP_DIR}/jffs/scripts/dnsmasq.postconf"
@@ -124,6 +128,8 @@ add_services_event_scripts() {
 # add_firewall_event_scripts adds a test stub that reports an error if WAN orchestration reaches firewall processing after a services failure.
 add_firewall_event_scripts() { fail 'WAN orchestration continued after services failure'; }
 all_event_scripts_transaction_begin "${BASE_DIR}/wan-aggregate" || fail 'WAN aggregate snapshot failed'
+printf '%s\n' 'changed working YAML' >"${YAML_FILE}"
+printf '%s\n' 'changed source YAML' >"${YAML_ORI}"
 if install_wan_event_scripts; then
 	fail 'WAN orchestration hid a later helper failure'
 fi
@@ -135,6 +141,8 @@ grep -qx 'original services-stop' "${TMP_DIR}/jffs/scripts/services-stop" || fai
 grep -qx 'original service-event-end' "${TMP_DIR}/jffs/scripts/service-event-end" || fail 'WAN rollback did not restore service-event-end'
 grep -qx 'original firewall' "${TMP_DIR}/jffs/scripts/firewall-start" || fail 'WAN rollback did not restore firewall-start'
 grep -qx 'ADGUARD_DNSMASQ_MODE="disabled"' "${CONF_FILE}" || fail 'WAN rollback did not restore dnsmasq configuration'
+grep -qx 'original working YAML' "${YAML_FILE}" || fail 'WAN rollback did not restore the working YAML'
+grep -qx 'original source YAML' "${YAML_ORI}" || fail 'WAN rollback did not restore the source YAML'
 
 FAILED_SNAPSHOT_DIR="${BASE_DIR}/failed-rollback"
 mkdir -p "${FAILED_SNAPSHOT_DIR}" || fail 'could not create failed rollback snapshot fixture'

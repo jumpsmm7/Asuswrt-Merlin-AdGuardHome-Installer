@@ -410,13 +410,23 @@ reset_case
 	}
 	# rm keeps the uninstall fixture from touching host /opt paths.
 	rm() {
-		for rm_arg in "$@"; do
+		rm_arg_count="$#"
+		while [ "${rm_arg_count}" -gt 0 ]; do
+			rm_arg="$1"
+			shift
 			case "${rm_arg}" in
-				/opt/etc/init.d/S99AdGuardHome | /opt/etc/init.d/rc.func.AdGuardHome | /opt/sbin/AdGuardHome | /opt/bin/bcrypt-tool | /opt/var/log/AdGuardHome.log) return 0 ;;
+				/opt/etc/init.d/S99AdGuardHome | /opt/etc/init.d/rc.func.AdGuardHome | /opt/sbin/AdGuardHome | /opt/bin/bcrypt-tool | /opt/var/log/AdGuardHome.log) ;;
+				*) set -- "$@" "${rm_arg}" ;;
 			esac
+			rm_arg_count="$((rm_arg_count - 1))"
 		done
+		[ "$#" -gt 0 ] || return 0
 		command rm "$@"
 	}
+	EARLY_CLEANUP_FILE="${TEST_ROOT}/uninstall-early-cleanup"
+	: >"${EARLY_CLEANUP_FILE}" || fail 'could not create uninstall early-cleanup fixture'
+	rm -f /opt/sbin/AdGuardHome "${EARLY_CLEANUP_FILE}" || fail 'filtered uninstall cleanup failed'
+	[ ! -e "${EARLY_CLEANUP_FILE}" ] || fail 'filtered uninstall cleanup retained an unprotected temporary file'
 
 	uninst_all || fail 'LAN-domain uninstall transaction failed'
 	[ "$(nvram get lan_domain)" = '' ] || fail 'successful uninstall did not clear the LAN domain'

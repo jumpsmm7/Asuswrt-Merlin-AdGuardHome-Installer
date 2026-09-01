@@ -72,8 +72,9 @@ sed -n '/^dnsmasq_params() {$/,/^}$/p; /^dnsmasq_action_handler() {$/,/^}$/p' "$
 	fail 'could not extract manager dnsmasq functions'
 # shellcheck disable=SC1090
 . "${MANAGER_DNSMASQ_FUNCTIONS}"
+agh_log() { :; }
 adguard_lan_mode() { return 0; }
-adguard_dnsmasq_running() { return 0; }
+adguard_dnsmasq_running() { return 1; }
 dns_handoff_is_active() { return 1; }
 dnsmasq_resolv_conf_cleanup() { :; }
 nvram() {
@@ -86,7 +87,7 @@ nvram() {
 sdn_bridge_for_index() { printf '%s\n' 'br-test'; }
 interface_ipv4_addr() { printf '%s\n' '192.0.2.1'; }
 interface_ipv6_addr() { printf '%s\n' ''; }
-CONFIG_DNSMASQ_MODE='enabled'
+CONFIG_DNSMASQ_MODE='auto'
 missing_sdn="adguardhome-missing-$$"
 missing_config="/etc/dnsmasq-${missing_sdn}.conf"
 missing_stage="${missing_config}.adguard.$$"
@@ -94,6 +95,11 @@ missing_stage="${missing_config}.adguard.$$"
 dnsmasq_action_handler "${missing_sdn}" || fail 'missing dnsmasq configuration was not skipped successfully'
 [ ! -e "${missing_config}" ] || fail 'missing dnsmasq configuration was created'
 [ ! -e "${missing_stage}" ] || fail 'missing dnsmasq stage file was created'
+dnsmasq_fallback_called=0
+dnsmasq_params() { dnsmasq_fallback_called=1; }
+CONFIG_DNSMASQ_MODE='enabled'
+dnsmasq_action_handler "${missing_sdn}" || fail 'enabled dnsmasq mode fallback failed'
+[ "${dnsmasq_fallback_called}" -eq 1 ] || fail 'enabled dnsmasq mode did not fall back to dnsmasq_params'
 if grep -q '${20' "${S99_PATH}"; then
 	fail 'service script uses a multi-digit positional parameter unsupported by older BusyBox ash'
 fi
