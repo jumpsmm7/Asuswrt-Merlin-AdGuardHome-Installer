@@ -203,7 +203,7 @@ run_bounded() {
 
 # suite_timeout_seconds calculates the serial-suite watchdog limit and rejects values unsafe for the outer quality-check timeout.
 suite_timeout_seconds() {
-	calculated_timeout="$(( $1 * ($2 + 3) + 10 ))"
+	calculated_timeout="$(($1 * ($2 + 3) + 10))"
 	[ "${calculated_timeout}" -lt "$3" ] || return 1
 	printf '%s\n' "${calculated_timeout}"
 }
