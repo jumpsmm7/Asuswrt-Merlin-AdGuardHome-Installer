@@ -201,10 +201,10 @@ grep -Fq 'if ! finalize_pending_mode_migration; then' "${TMP_ROOT}/install-path"
 	fail 'install orchestration must propagate mode migration finalization failures'
 awk '
 	/if ! finalize_pending_mode_migration; then/ { failure = 1; next }
-	failure && /adguard_restart_after_install_abort "\$\{RESTART_AFTER_ABORT\}"/ { restarted = 1; next }
-	failure && /end_op_message 1 "\$1"/ { exit(restarted ? 0 : 1) }
-	END { if (!failure || !restarted) exit 1 }
-' "${TMP_ROOT}/install-path" || fail 'finalization failure does not restart the previous installation'
+	failure && /adguard_recover_after_event_hook_abort "\$\{RESTART_AFTER_ABORT\}" 1/ { recovered = 1; next }
+	failure && /end_op_message 1 "\$1"/ { exit(recovered ? 0 : 1) }
+	END { if (!failure || !recovered) exit 1 }
+' "${TMP_ROOT}/install-path" || fail 'finalization failure does not recover the previous installation'
 grep -Fq 'return "${MIGRATE_STATUS}"' "${TMP_ROOT}/install-path" ||
 	fail 'install orchestration does not preserve migration rollback failure status'
 awk '
@@ -220,20 +220,19 @@ awk '
 	END { exit(readiness && finalize > readiness ? 0 : 1) }
 ' "${TMP_ROOT}/install-path" || fail 'mode migration is finalized before post-install readiness succeeds'
 awk '
-	/if ! agh_complete_startup; then/ { readiness = 1; next }
-	readiness && /if ! rollback_pending_mode_migration; then/ { rollback = 1; next }
-	rollback && /agh_stop/ { stopped = NR; next }
-	rollback && /adguard_restart_after_install_abort "\$\{RESTART_AFTER_ABORT\}"/ {
+	/if \[ "\$\{2:-0\}" = "1" \]; then/ { readiness = 1; next }
+	readiness && /agh_stop/ { stopped = NR; next }
+	readiness && /adguard_restart_after_install_abort "\$1"/ {
 		restarted = NR
 		exit(stopped && stopped < restarted ? 0 : 1)
 	}
 	END { if (!stopped || !restarted) exit 1 }
-' "${TMP_ROOT}/install-path" || fail 'readiness rollback does not stop the migrated process before restoring the previous service state'
+' "${TMP_ROOT}/event-hook-recovery" || fail 'readiness rollback does not stop the migrated process before restoring the previous service state'
 awk '
 	/if ! set_timezone; then/ { failure = "timezone" }
 	/if ! setup_AdGuardHome "" "\$\{1:-install\}"; then/ { failure = "setup" }
 	/if ! agh_complete_startup; then/ { failure = "readiness" }
-	failure && /rollback_pending_mode_migration/ { rollback[failure] = 1 }
+	failure && /adguard_recover_after_event_hook_abort/ { rollback[failure] = 1 }
 	failure && /end_op_message 1/ {
 		if (!rollback[failure]) exit 1
 		failure = ""
@@ -241,11 +240,12 @@ awk '
 	END { exit(rollback["timezone"] && rollback["setup"] && rollback["readiness"] ? 0 : 1) }
 ' "${TMP_ROOT}/install-path" || fail 'post-migration failure paths can re-enter the menu before rollback'
 awk '
-	/adguard_migrate_detected_install_mode/ { migration = 1; next }
-	migration && /MIGRATE_STATUS=\$\?/ { status = 1; next }
-	status && /\[ "\$\{MIGRATE_STATUS\}" -eq 2 \] \|\| adguard_restart_after_install_abort/ { guarded = 1; exit }
-	END { exit(guarded ? 0 : 1) }
-' "${TMP_ROOT}/install-path" || fail 'migration rollback failure does not block the previous installation restart'
+	/if rollback_pending_mode_migration; then/ { rollback = 1; next }
+	rollback && /else/ { failure = 1; next }
+	failure && /MODE_ROLLBACK_STATUS=1/ { recorded = 1; next }
+	recorded && /adguard_restart_after_install_abort "\$1"/ { restarted = 1; exit }
+	END { exit(restarted ? 0 : 1) }
+' "${TMP_ROOT}/event-hook-recovery" || fail 'migration rollback failure blocks the previous installation restart'
 # run_legacy_cleanup_failure executes one injected legacy-cleanup failure and
 # run_legacy_cleanup_failure verifies aggregate rollback, mode rollback, service and monitor recovery, and failure status for legacy cleanup errors.
 run_legacy_cleanup_failure() (
@@ -336,6 +336,8 @@ EOF
 	all_event_scripts_transaction_detach_after_mode_rollback() { :; }
 	# all_event_scripts_transaction_rollback records an event-script transaction rollback.
 	all_event_scripts_transaction_rollback() { printf '%s\n' 'transaction:rollback' >>"${CALLS_FILE}"; }
+	# nvram_transaction_lock_owned reports that these hook-failure fixtures have no active NVRAM transaction.
+	nvram_transaction_lock_owned() { return 1; }
 	# install_wan_event_scripts reports successful WAN event-script synchronization.
 	install_wan_event_scripts() { return 0; }
 	# rollback_pending_mode_migration records a pending mode migration rollback.

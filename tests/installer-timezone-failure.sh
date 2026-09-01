@@ -24,6 +24,8 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}/base" "${TMP_ROOT}/target" "${TMP_ROOT}/addon" || fail 'could not create test directories'
 sed -n '/^adguard_restart_after_install_abort() {$/,/^}/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract restart helper'
+sed -n '/^adguard_recover_after_event_hook_abort() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract event-hook recovery helper'
 sed -n '/^adguard_migrate_detected_install_mode() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
 	fail 'could not extract install-mode migration helper'
 sed -n '/^adguard_install_mode_confirmed() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
@@ -102,6 +104,8 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	write_conf() { :; }
 	# nvram does nothing and returns success.
 	nvram() { :; }
+	# nvram_transaction_lock_owned reports that this fixture has no active NVRAM transaction.
+	nvram_transaction_lock_owned() { return 1; }
 	# grep always returns failure.
 	grep() { return 1; }
 	# tar is a no-op stub that suppresses archive command execution.
@@ -145,7 +149,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	fi
 ) || fail 'timezone failure regression subprocess failed'
 
-EXPECTED="$(printf '%s\n' 'timezone' 'rollback' 'restart' 'end:1 install')"
+EXPECTED="$(printf '%s\n' 'timezone' 'restart' 'end:1 install')"
 ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] || fail "installer continued after timezone failure: ${ACTUAL}"
 
