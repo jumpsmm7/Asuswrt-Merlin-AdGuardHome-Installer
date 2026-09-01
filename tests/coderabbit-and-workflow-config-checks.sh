@@ -307,7 +307,12 @@ grep -Fq '      - name: Run tzdata package conversion regression' "${REVIEW_WORK
 	fail "${REVIEW_WORKFLOW}: expected the tzdata conversion regression before Sonar analysis"
 grep -Fq '        run: sh tests/update-tzdata-package-info.sh' "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: expected the tzdata conversion regression command before Sonar analysis"
-grep -Fq "if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)" "${REVIEW_WORKFLOW}" ||
+awk '
+	/^  sonarcloud:$/ { in_job = 1; next }
+	in_job && /^  [a-zA-Z0-9_-]+:$/ { exit }
+	in_job && $0 == "    if: github.event_name == '\''workflow_dispatch'\'' || (github.event_name == '\''pull_request'\'' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)" { found = 1 }
+	END { exit !found }
+' "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: secret-bearing Sonar validation must exclude merge-group and fork code"
 grep -Fq '  merge-group-validation:' "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: merge groups need a separate secret-free tzdata validation job"
@@ -330,7 +335,12 @@ grep -Fq "run_check 'Installer jq dependency regression' sh tests/installer-jq-h
 	fail "${LOCAL_QUALITY_TEST}: expected the installer jq dependency regression dispatch to be exercised"
 grep -Fq '[ -f "${JQ_HELPER_RAN_FILE}" ]' "${LOCAL_QUALITY_TEST}" ||
 	fail "${LOCAL_QUALITY_TEST}: expected an observable assertion that the installer jq regression ran"
-grep -Fq "if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository" "${WORKFLOW}" ||
+awk '
+	/^  apply-sonar-parser-cleanup:$/ { in_job = 1; next }
+	in_job && /^  [a-zA-Z0-9_-]+:$/ { exit }
+	in_job && $0 == "    if: github.event_name != '\''pull_request'\'' || github.event.pull_request.head.repo.full_name == github.repository" { found = 1 }
+	END { exit !found }
+' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: Sonar parser validation must run on push, merge-group, manual, and trusted pull-request events"
 grep -Fq "ref: \${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}" "${WORKFLOW}" ||
 	fail "${WORKFLOW}: Sonar parser validation must select the immutable event SHA"

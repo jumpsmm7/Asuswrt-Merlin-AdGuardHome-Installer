@@ -109,7 +109,7 @@ WAN_NAT_RULE='-A POSTROUTING --source 192.168.50.0/24 -o eth0 -j SNAT --to-sourc
 adguard_ipset_allowed || fail 'LAN install mode with long-form source-scoped WAN NAT state should allow IPSET'
 WAN_NAT_RULE='-A POSTROUTING -i br1 -o eth0 -j MASQUERADE'
 ! adguard_ipset_allowed || fail 'LAN install mode with guest-network input-interface NAT state should not allow IPSET'
-WAN_NAT_RULE='-A POSTROUTING -m comment --comment "ignored -o eth0 -j MASQUERADE target sequence" -o br0 -j ACCEPT'
+WAN_NAT_RULE='-A POSTROUTING -o br0 -j ACCEPT -m comment --comment "ignored -o eth0 -j MASQUERADE target sequence"'
 ! adguard_wan_iptables_state_active || fail 'WAN interface text inside a comment qualified as WAN NAT state'
 WAN_NAT_RULE='-A POSTROUTING -o eth1 -j MASQUERADE'
 adguard_wan_iptables_state_active || fail 'wan0 gateway interface did not qualify as WAN NAT state'
