@@ -2174,6 +2174,11 @@ DNS_ENV_RECOVERY_TIMEOUT=1
 
 reset_case
 sed '/^dhcp_dns2_x=/d' "${NVRAM_FILE}" >"${NVRAM_FILE}.new" && mv "${NVRAM_FILE}.new" "${NVRAM_FILE}"
+# Yield after each readiness probe so loaded CI hosts can schedule both the
+# preparation and restore children before their bounded checks advance.
+DNS_ENV_READY_TIMEOUT=60
+DNS_ENV_RECOVERY_TIMEOUT=60
+DNS_TEST_YIELD=1
 check_dns_environment 0 || fail 'snapshot with an absent NVRAM key was rejected'
 check_dns_environment 1 || fail 'snapshot with an absent NVRAM key was not restored'
 if nvram_value dhcp_dns2_x >/dev/null 2>&1; then fail 'originally absent NVRAM key was restored as an empty key'; fi
