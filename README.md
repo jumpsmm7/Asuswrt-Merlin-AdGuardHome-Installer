@@ -323,8 +323,8 @@ retaining the old address.
 IPv6 discovery for secondary bridges is not needed because dnsmasq advertises
 their IPv4 address. Listener binding and firewall policy remain independent.
 LAN/AP/Bridge mode does not install firewall/IPTABLES rules; changing a bind address does
-not imply that traffic is allowed or blocked on an interface. When a LAN-mode
-router still has active WAN-interface SNAT/MASQUERADE state, as in a double-NAT
+not imply that traffic is allowed or blocked on an interface. When a LAN, AP, or bridge install
+still has active WAN-interface SNAT/MASQUERADE state, as in a double-NAT
 topology, the installer retains its `firewall-start` lifecycle hook; otherwise
 that hook is removed. This qualifying WAN NAT state is also the only LAN, AP, or
 bridge topology in which IPSET integration can be enabled; without it, the

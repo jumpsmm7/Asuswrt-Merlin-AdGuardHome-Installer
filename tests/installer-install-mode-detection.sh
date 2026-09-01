@@ -129,7 +129,7 @@ service_install_line="$(grep -n 'ptxt_ok "AdGuardHome service files installed\."
 migration_line="$(grep -n 'adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE:-}"' "${SCRIPT_PATH}" | cut -d: -f1)"
 [ -n "${service_install_line}" ] && [ -n "${migration_line}" ] && [ "${migration_line}" -gt "${service_install_line}" ] ||
 	fail 'mode migration must run only after mode-aware service scripts are installed'
-firewall_cleanup_line="$(awk -v after="${service_install_line}" 'NR > after && /cleanup_legacy_firewall/ { print NR; exit }' "${SCRIPT_PATH}")"
+firewall_cleanup_line="$(awk -v after="${service_install_line}" 'NR > after && /^[[:space:]]*(if[[:space:]]+![[:space:]]+)?cleanup_legacy_firewall([[:space:]]*;[[:space:]]*then)?[[:space:]]*$/ { print NR; exit }' "${SCRIPT_PATH}")"
 event_cleanup_line="$(grep -n 'yaml_nvars_file_action delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf' "${SCRIPT_PATH}" | head -n 1 | cut -d: -f1)"
 [ -n "${firewall_cleanup_line}" ] && [ -n "${event_cleanup_line}" ] &&
 	[ "${migration_line}" -lt "${firewall_cleanup_line}" ] && [ "${migration_line}" -lt "${event_cleanup_line}" ] ||
@@ -197,6 +197,12 @@ extract_function adguard_restart_after_install_abort "${TMP_ROOT}/install-abort-
 	fail 'could not extract install-abort restart helper'
 extract_function adguard_recover_after_event_hook_abort "${TMP_ROOT}/event-hook-recovery" ||
 	fail 'could not extract event-hook recovery helper'
+awk '
+	/agh_stop \|\| RESTART_RECOVERY_STATUS=1/ { stop = NR }
+	/check_dns_environment 1 \|\| NVRAM_ROLLBACK_STATUS=1/ { restore = NR }
+	END { exit(stop && restore > stop ? 0 : 1) }
+' "${TMP_ROOT}/event-hook-recovery" ||
+	fail 'event-hook abort recovery must stop AdGuardHome before restoring the DNS environment'
 grep -Fq 'return "${MIGRATE_STATUS}"' "${TMP_ROOT}/install-path" ||
 	fail 'install orchestration does not preserve migration rollback failure status'
 awk '
@@ -424,7 +430,7 @@ EOF
 	esac
 	case "${FAILURE_CASE}" in
 		finalization | readiness)
-			stop_line="$(grep -n '^service:stopped$' "${CALLS_FILE}" | cut -d: -f1)"
+			stop_line="$(grep -n '^service:stopped$' "${CALLS_FILE}" | head -n 1 | cut -d: -f1)"
 			[ -n "${stop_line}" ] && [ "${stop_line}" -lt "${restart_line}" ] ||
 				fail "${FAILURE_CASE}: replacement service was not stopped before previous service recovery"
 			;;

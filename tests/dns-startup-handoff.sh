@@ -88,6 +88,9 @@ sdn_bridge_for_index() { printf '%s\n' 'br-test'; }
 interface_ipv4_addr() { printf '%s\n' '192.0.2.1'; }
 interface_ipv6_addr() { printf '%s\n' ''; }
 CONFIG_DNSMASQ_MODE='auto'
+dnsmasq_action_handler || fail 'LAN-mode dnsmasq action was not skipped successfully'
+adguard_lan_mode() { return 1; }
+adguard_dnsmasq_running() { return 0; }
 missing_sdn="adguardhome-missing-$$"
 missing_config="/etc/dnsmasq-${missing_sdn}.conf"
 missing_stage="${missing_config}.adguard.$$"
