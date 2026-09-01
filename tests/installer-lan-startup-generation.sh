@@ -112,14 +112,6 @@ check_dns_local() { :; }
 check_ipset() { :; }
 # wan_iptables_state_active reports no active WAN iptables state.
 wan_iptables_state_active() { return 1; }
-# adguard_ipset_allowed determines whether AdGuard IP set access is allowed for the configured installation mode.
-adguard_ipset_allowed() {
-	case "${ADGUARD_INSTALL_MODE:-}" in
-		wan) return 0 ;;
-		lan | ap | bridge) wan_iptables_state_active ;;
-		*) return 1 ;;
-	esac
-}
 # ai_have_cmd always reports that the requested command is unavailable.
 ai_have_cmd() { return 1; }
 # nvram simulates NVRAM reads and writes for installer tests.

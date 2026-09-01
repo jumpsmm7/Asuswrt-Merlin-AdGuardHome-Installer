@@ -34,7 +34,7 @@ nvram_transaction_lock_owned() { return 0; }
 	nvram_transaction_setup_files_begin() { fail 'attempted to replace the active setup journal'; }
 	setup_files_begin_if_needed || fail 'could not reuse the active setup journal'
 	[ "${SETUP_FILES_JOURNALED}" -eq 1 ] || fail 'active setup journal was not recorded in the current setup frame'
-)
+) || fail 'active setup journal subshell failed'
 
 # A stale lock-mode value must not permit reuse when the current process no
 # longer owns the transaction lock.
@@ -57,7 +57,7 @@ nvram_transaction_lock_owned() { return 0; }
 	fi
 	[ "${SETUP_FILES_BEGIN_CALLED}" -eq 0 ] || fail 'attempted to replace the stale setup journal'
 	[ "${SETUP_FILES_JOURNALED}" -eq 0 ] || fail 'recorded an unowned setup journal in the current setup frame'
-)
+) || fail 'stale setup journal subshell failed'
 
 # rollback_result_write records the outcome of a rollback operation.
 rollback_result_write() { :; }

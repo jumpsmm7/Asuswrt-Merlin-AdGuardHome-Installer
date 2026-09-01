@@ -67,6 +67,33 @@ grep -q 'adguard_dnsmasq_running || return 0' "${MANAGER_PATH}" ||
 	fail 'dnsmasq postconf does not require a running dnsmasq process'
 grep -q '\[ -f "${CONFIG_FILE}" \] || return 0' "${MANAGER_PATH}" ||
 	fail 'dnsmasq postconf does not require an existing dnsmasq configuration'
+MANAGER_DNSMASQ_FUNCTIONS="${TEST_ROOT}/manager-dnsmasq-functions"
+sed -n '/^dnsmasq_params() {$/,/^}$/p; /^dnsmasq_action_handler() {$/,/^}$/p' "${MANAGER_PATH}" >"${MANAGER_DNSMASQ_FUNCTIONS}" ||
+	fail 'could not extract manager dnsmasq functions'
+# shellcheck disable=SC1090
+. "${MANAGER_DNSMASQ_FUNCTIONS}"
+adguard_lan_mode() { return 0; }
+adguard_dnsmasq_running() { return 0; }
+dns_handoff_is_active() { return 1; }
+dnsmasq_resolv_conf_cleanup() { :; }
+nvram() {
+	case "${1:-}:${2:-}" in
+		get:rc_support) printf '%s\n' 'mtlancfg' ;;
+		get:lan_ifname) printf '%s\n' 'br0' ;;
+		*) printf '%s\n' '' ;;
+	esac
+}
+sdn_bridge_for_index() { printf '%s\n' 'br-test'; }
+interface_ipv4_addr() { printf '%s\n' '192.0.2.1'; }
+interface_ipv6_addr() { printf '%s\n' ''; }
+CONFIG_DNSMASQ_MODE='enabled'
+missing_sdn="adguardhome-missing-$$"
+missing_config="/etc/dnsmasq-${missing_sdn}.conf"
+missing_stage="${missing_config}.adguard.$$"
+[ ! -e "${missing_config}" ] || fail 'missing-configuration fixture unexpectedly exists'
+dnsmasq_action_handler "${missing_sdn}" || fail 'missing dnsmasq configuration was not skipped successfully'
+[ ! -e "${missing_config}" ] || fail 'missing dnsmasq configuration was created'
+[ ! -e "${missing_stage}" ] || fail 'missing dnsmasq stage file was created'
 if grep -q '${20' "${S99_PATH}"; then
 	fail 'service script uses a multi-digit positional parameter unsupported by older BusyBox ash'
 fi

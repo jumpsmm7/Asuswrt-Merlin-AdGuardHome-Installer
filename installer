@@ -6860,7 +6860,7 @@ inst_AdGuardHome() {
 					end_op_message 1 "$1"
 					return 1
 				fi
-				if ! write_conf ADGUARD_IPSET '"NO"'; then
+				if ! write_conf ADGUARD_IPSET '"NO"' || ! adguardhome_yaml_remove_ipset_file; then
 					all_event_scripts_transaction_rollback || true
 					PTXT "${ERROR} IPSET could not be disabled after the qualifying WAN IPTABLES state was lost."
 					adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"

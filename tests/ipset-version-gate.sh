@@ -140,6 +140,7 @@ CONFIG_IPSET="${IPSET_CONFIG}"
 INSTALL_MODE=lan
 : >"${IPSET_FILE}" || fail 'could not create managed IPSET fixture'
 run_case 'AdGuard Home, version v0.107.48' 0 'lock IPSet_Disable_Managed_For_Start_Locked'
+: >"${IPSET_FILE}" || fail 'could not recreate managed IPSET fixture for startup'
 run_start_case 'AdGuard Home, version v0.107.48' 0 'IPSet_Disable_Managed'
 [ ! -e "${IPSET_FILE}" ] || fail 'rejected LAN setup retained managed IPSET state'
 : >"${IPSET_FILE}" || fail 'could not reset managed IPSET fixture'
