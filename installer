@@ -4389,9 +4389,13 @@ restore_stubby_after_dns_failure() {
 finalize_dns_environment() {
 	local snapshot_dir
 	snapshot_dir="${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
+	# Publish the shared setup commit point before removing the DNS preparation
+	# recovery marker.  Once this succeeds, startup recovery can finish all
+	# snapshot cleanup without rolling back either half of the setup.
+	nvram_transaction_finalize_setup_pair || return 1
 	if [ -e "${snapshot_dir}" ] || [ -L "${snapshot_dir}" ]; then
-		# Clearing dirty is the commit point; completed snapshot cleanup is best-effort.
-		rm -f "${snapshot_dir}/dirty" || return 1
+		# The shared marker is now the commit point; cleanup is best-effort.
+		rm -f "${snapshot_dir}/dirty" 2>/dev/null || true
 		rm -rf "${snapshot_dir}" 2>/dev/null || true
 	fi
 	# Do not discard the shared commit point while paired setup cleanup is
@@ -5094,9 +5098,18 @@ adguard_restart_after_install_abort() {
 }
 
 adguard_recover_after_event_hook_abort() {
-	local MODE_ROLLBACK_STATUS RESTART_RECOVERY_STATUS
+	local MODE_ROLLBACK_STATUS NVRAM_ROLLBACK_STATUS RESTART_RECOVERY_STATUS
 	MODE_ROLLBACK_STATUS=0
+	NVRAM_ROLLBACK_STATUS=0
 	RESTART_RECOVERY_STATUS=0
+	if nvram_transaction_lock_owned && ! nvram_transaction_setup_committed; then
+		setup_restore_nvram_journal || NVRAM_ROLLBACK_STATUS=1
+		installer_lan_domain_restore || NVRAM_ROLLBACK_STATUS=1
+		restore_dns_filter_settings || NVRAM_ROLLBACK_STATUS=1
+		if [ "${_DNS_NVRAM_SAVED:-0}" = "1" ]; then
+			check_dns_environment 1 || NVRAM_ROLLBACK_STATUS=1
+		fi
+	fi
 	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
 		if rollback_pending_mode_migration; then
 			all_event_scripts_transaction_detach_after_mode_rollback
@@ -5104,11 +5117,15 @@ adguard_recover_after_event_hook_abort() {
 			MODE_ROLLBACK_STATUS=1
 		fi
 	fi
+	if [ "${2:-0}" = "1" ]; then
+		agh_stop || RESTART_RECOVERY_STATUS=1
+	fi
 	# Restore the previously running AdGuardHome service even when mode rollback fails.
 	adguard_restart_after_install_abort "$1" || RESTART_RECOVERY_STATUS=1
 	[ "${MODE_ROLLBACK_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to roll back the pending mode migration."
+	[ "${NVRAM_ROLLBACK_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore the installer-managed NVRAM settings after the installation abort."
 	[ "${RESTART_RECOVERY_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore the AdGuardHome service after the installation abort."
-	[ "${MODE_ROLLBACK_STATUS}" -eq 0 ] && [ "${RESTART_RECOVERY_STATUS}" -eq 0 ]
+	[ "${MODE_ROLLBACK_STATUS}" -eq 0 ] && [ "${NVRAM_ROLLBACK_STATUS}" -eq 0 ] && [ "${RESTART_RECOVERY_STATUS}" -eq 0 ]
 }
 
 adguard_recover_after_uninstall_hook_abort() {
@@ -6898,10 +6915,8 @@ inst_AdGuardHome() {
 			if ! set_timezone; then
 				all_event_scripts_transaction_rollback || true
 				MIGRATE_STATUS=1
-				if ! rollback_pending_mode_migration; then
+				if ! adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"; then
 					MIGRATE_STATUS=2
-				else
-					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 				fi
 				end_op_message 1 "$1"
 				return "${MIGRATE_STATUS}"
@@ -6910,10 +6925,8 @@ inst_AdGuardHome() {
 		if ! setup_AdGuardHome "" "${1:-install}"; then
 			all_event_scripts_transaction_rollback || true
 			MIGRATE_STATUS=1
-			if ! rollback_pending_mode_migration; then
+			if ! adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"; then
 				MIGRATE_STATUS=2
-			else
-				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 			fi
 			end_op_message 1
 			return "${MIGRATE_STATUS}"
@@ -6925,32 +6938,36 @@ inst_AdGuardHome() {
 	if ! agh_complete_startup; then
 		all_event_scripts_transaction_rollback || true
 		MIGRATE_STATUS=1
-		if ! rollback_pending_mode_migration; then
+		if ! adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1; then
 			MIGRATE_STATUS=2
-		else
-			# Readiness can fail while the migrated process is still alive.  Stop it
-			# so the restored configuration is loaded before service recovery.
-			agh_stop
-			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 		fi
 		adguard_install_abort_trap_disable_preserve_defer
 		end_op_message 1 "$1"
 		return "${MIGRATE_STATUS}"
 	fi
+	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ]; then
+		if ! finalize_dns_environment; then
+			all_event_scripts_transaction_rollback || true
+			PTXT "${ERROR} Unable to commit the completed DNS and setup NVRAM transactions."
+			adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1
+			end_op_message 1 "$1"
+			return 1
+		fi
+	elif ! nvram_transaction_finalize_setup_pair; then
+		all_event_scripts_transaction_rollback || true
+		PTXT "${ERROR} Unable to commit the completed setup NVRAM transaction."
+		adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1
+		end_op_message 1 "$1"
+		return 1
+	fi
 	if [ "${1:-update}" != "RESTORE" ]; then
 		if ! finalize_pending_mode_migration; then
 			all_event_scripts_transaction_rollback || true
 			PTXT "${ERROR} Unable to remove completed mode-migration recovery backups."
-			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1
 			end_op_message 1 "$1"
 			return 1
 		fi
-	fi
-	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && ! finalize_dns_environment; then
-		all_event_scripts_transaction_rollback || true
-		PTXT "${ERROR} Unable to remove the completed DNS NVRAM recovery snapshot."
-		end_op_message 1 "$1"
-		return 1
 	fi
 	all_event_scripts_transaction_commit
 	adguard_install_abort_trap_disable_preserve_defer
@@ -7925,7 +7942,7 @@ setup_AdGuardHome_impl() {
 		read_yesno "Do you want to use this file without reconfiguring?"
 		CONFIRM_STATUS=$?
 		if [ "${CONFIRM_STATUS}" -eq 0 ]; then
-			if [ "${SETUP_FILES_JOURNALED}" -eq 1 ]; then
+			if [ "${SETUP_FILES_JOURNALED}" -eq 1 ] && [ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ]; then
 				if ! nvram_transaction_finalize_setup_pair; then
 					setup_restore_nvram_journal || true
 					PTXT "${ERROR} Unable to finalize the installer configuration updates."
@@ -8359,7 +8376,7 @@ setup_AdGuardHome_impl() {
 					return 1
 				fi
 				SETUP_YAML_TMP_FILE=""
-				if ! nvram_transaction_finalize_setup_pair; then
+				if [ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] && ! nvram_transaction_finalize_setup_pair; then
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
 						installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
