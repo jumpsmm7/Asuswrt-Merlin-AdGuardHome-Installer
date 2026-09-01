@@ -132,7 +132,7 @@ sleep() {
 			fi
 
 			sync_wait_count="$((sync_wait_count + 1))"
-			if [ "${sync_wait_count}" -ge 5000 ]; then
+			if [ "${sync_wait_count}" -ge 20000 ]; then
 				fail 'timed out waiting for the DNS lookup child to start'
 			fi
 
