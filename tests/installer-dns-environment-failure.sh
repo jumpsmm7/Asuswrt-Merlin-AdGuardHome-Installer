@@ -154,6 +154,13 @@ sleep() {
 }
 # monotonic_seconds outputs the simulated monotonic timestamp and fails on the configured call number when MONOTONIC_FAIL_AT is set.
 monotonic_seconds() {
+	if [ "${DNS_TEST_YIELD:-0}" = 1 ]; then
+		if [ -x /bin/usleep ]; then
+			/bin/usleep 1000
+		else
+			/bin/sleep 0
+		fi
+	fi
 	if [ "${MONOTONIC_FAIL_AT:-0}" != 0 ]; then
 		MONOTONIC_CALLS="$(cat "${TEST_ROOT}/monotonic-calls" 2>/dev/null || printf 0)"
 		MONOTONIC_CALLS="$((MONOTONIC_CALLS + 1))"
@@ -1500,9 +1507,10 @@ nvram_transaction_set dnspriv_enable 0 || fail 'DNS restore cleanup transaction 
 nvram_transaction_apply restart_dnsmasq 1 || fail 'DNS restore cleanup transaction apply failed'
 _DNS_NVRAM_SAVED=1
 FAIL_SNAPSHOT_REMOVE=1
-# Leave enough simulated readiness time for the background lookup to finish on
-# loaded CI hosts; this case exercises snapshot cleanup, not timeout handling.
+# Yield while polling the background lookup so loaded CI hosts can schedule the
+# fixture child; this case exercises snapshot cleanup, not timeout handling.
 DNS_ENV_RECOVERY_TIMEOUT=10
+DNS_TEST_YIELD=1
 check_dns_environment 1 || fail 'completed DNS restore failed because best-effort snapshot cleanup was interrupted'
 [ "${_DNS_NVRAM_SAVED}" = 0 ] || fail 'completed DNS restore retained the saved-state marker'
 [ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'DNS restore cleanup injection did not retain the inert snapshot'
