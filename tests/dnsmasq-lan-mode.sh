@@ -245,7 +245,7 @@ IPSet_Lock() {
 	cleanup_status="0"
 	rmdir "${IPSET_TEST_LOCK_DIR}" || cleanup_status="1"
 	trap - EXIT
-	[ -z "${exit_trap_active}" ] || trap cleanup EXIT
+	[ -z "${exit_trap_active}" ] || eval "${exit_trap_active}"
 	[ "${status}" -eq 0 ] || return "${status}"
 	[ "${cleanup_status}" -eq 0 ] || return "${cleanup_status}"
 	return "${status}"

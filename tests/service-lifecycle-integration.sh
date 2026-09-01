@@ -220,9 +220,10 @@ SUITE_START_TIME=$(process_start_time "$$") || fail 'could not record integratio
 declared_case_count=$(awk 'NF && $1 !~ /^#/ { count++ } END { print count + 0 }' "${CASES_FIXTURE}") ||
 	fail 'could not count integration cases'
 [ "${declared_case_count}" -gt 0 ] || fail 'integration case fixture contains no runnable cases'
-# Every case has its own timeout and may spend two additional seconds terminating
-# descendants. The suite watchdog covers the complete serial matrix plus setup.
-SUITE_TIMEOUT_SECONDS="$((declared_case_count * (TIMEOUT_SECONDS + 2) + 10))"
+# Every case has its own timeout, may spend one additional second in watchdog
+# polling, and may spend two additional seconds terminating descendants. The
+# suite watchdog covers the complete serial matrix plus setup.
+SUITE_TIMEOUT_SECONDS="$((declared_case_count * (TIMEOUT_SECONDS + 3) + 10))"
 (
 	sleep "${SUITE_TIMEOUT_SECONDS}"
 	process_identity_matches "$$" "${SUITE_START_TIME}" || exit 0
