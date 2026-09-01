@@ -250,7 +250,7 @@ for check_workflow in \
 	awk '
 		/^on:$/ { in_events = 1; next }
 		in_events && /^[a-zA-Z]/ { exit }
-		in_events && /^[[:space:]]+branches:/ { exit 1 }
+		in_events && /^[[:space:]]+branches(-ignore)?:/ { exit 1 }
 	' "${check_workflow}" || fail "${check_workflow}: event branch filters must not exclude review branches"
 done
 
@@ -292,7 +292,7 @@ grep -Fq "repository: \${{ github.event_name == 'pull_request' && github.event.p
 grep -Fq "ref: \${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}" \
 	"${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: checksum checkout must use the immutable pull-request head SHA"
-grep -Fq "if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.actor != 'github-actions[bot]')" \
+grep -Fq "if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.ref_type == 'branch' && github.actor != 'github-actions[bot]')" \
 	"${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: checksum polling must cover writable pull-request and source-push branches"
 grep -Fq '      - tests/update-tzdata-package-info.sh' "${TZDATA_WORKFLOW}" ||
@@ -395,7 +395,7 @@ if grep -Fq "if: github.event_name == 'pull_request' || github.event_name == 'wo
 	"${SHELL_VALIDATION_WORKFLOW}"; then
 	fail "${SHELL_VALIDATION_WORKFLOW}: checksum validation must not skip source push or merge-group events"
 fi
-if grep -Eq '^[[:space:]]+branches:' '.github/workflows/update-checksums.yml'; then
+if grep -Eq '^[[:space:]]+branches(-ignore)?:' '.github/workflows/update-checksums.yml'; then
 	fail '.github/workflows/update-checksums.yml: checksum updater must support source pushes on every branch'
 fi
 

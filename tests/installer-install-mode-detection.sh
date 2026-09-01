@@ -190,6 +190,9 @@ awk '
 ' "${TMP_ROOT}/rollback-function" || fail 'mode migration rollback exposes partially deleted backups to signal cleanup'
 extract_function inst_AdGuardHome "${TMP_ROOT}/install-path" ||
 	fail 'could not extract install orchestration path'
+sed 's|/bin/grep|grep|g' "${TMP_ROOT}/install-path" >"${TMP_ROOT}/install-path.fixture" &&
+	mv "${TMP_ROOT}/install-path.fixture" "${TMP_ROOT}/install-path" ||
+	fail 'could not route extracted install-path grep calls through the fixture'
 extract_function adguard_restart_after_install_abort "${TMP_ROOT}/install-abort-restart" ||
 	fail 'could not extract install-abort restart helper'
 extract_function adguard_recover_after_event_hook_abort "${TMP_ROOT}/event-hook-recovery" ||
@@ -333,6 +336,8 @@ EOF
 	all_event_scripts_transaction_detach_after_mode_rollback() { :; }
 	# all_event_scripts_transaction_rollback records an event-script transaction rollback.
 	all_event_scripts_transaction_rollback() { printf '%s\n' 'transaction:rollback' >>"${CALLS_FILE}"; }
+	# install_wan_event_scripts reports successful WAN event-script synchronization.
+	install_wan_event_scripts() { return 0; }
 	# rollback_pending_mode_migration records a pending mode migration rollback.
 	rollback_pending_mode_migration() { printf '%s\n' 'mode:rollback' >>"${CALLS_FILE}"; }
 	# cleanup_legacy_firewall reports whether the legacy firewall cleanup failure case is active.

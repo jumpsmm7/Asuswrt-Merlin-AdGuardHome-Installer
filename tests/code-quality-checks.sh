@@ -81,8 +81,10 @@ PRIVATE_IPV4_FALLBACK_RAN_FILE="${TMP_ROOT}/private-ipv4-fallback.ran"
 PROCESS_SIGNALING_RAN_FILE="${TMP_ROOT}/process-signaling.ran"
 EVENT_SCRIPT_TRANSACTIONS_RAN_FILE="${TMP_ROOT}/event-script-transactions.ran"
 JQ_HELPER_RAN_FILE="${TMP_ROOT}/jq-helper.ran"
+MD5_HELPER_RAN_FILE="${TMP_ROOT}/md5-helper.ran"
 TZDATA_PACKAGE_INFO_RAN_FILE="${TMP_ROOT}/tzdata-package-info.ran"
 SERVICE_OPT_DISAPPEARANCE_RAN_FILE="${TMP_ROOT}/service-opt-disappearance.ran"
+SERVICE_LIFECYCLE_SUITE_TIMEOUT_RAN_FILE="${TMP_ROOT}/service-lifecycle-suite-timeout.ran"
 (
 	OPTIONAL_DATABASE_STATUS=0
 	# id prints 0 to simulate a root user ID in privileged-command tests.
@@ -105,6 +107,10 @@ SERVICE_OPT_DISAPPEARANCE_RAN_FILE="${TMP_ROOT}/service-opt-disappearance.ran"
 				;;
 			tests/service-opt-disappearance.sh)
 				: >"${SERVICE_OPT_DISAPPEARANCE_RAN_FILE}"
+				return 0
+				;;
+			tests/service-lifecycle-suite-timeout.sh)
+				: >"${SERVICE_LIFECYCLE_SUITE_TIMEOUT_RAN_FILE}"
 				return 0
 				;;
 			tests/optional-database-links.sh)
@@ -140,6 +146,10 @@ SERVICE_OPT_DISAPPEARANCE_RAN_FILE="${TMP_ROOT}/service-opt-disappearance.ran"
 				: >"${JQ_HELPER_RAN_FILE}"
 				return 0
 				;;
+			tests/installer-md5-helper.sh)
+				: >"${MD5_HELPER_RAN_FILE}"
+				return 0
+				;;
 		esac
 		return 1
 	}
@@ -155,11 +165,15 @@ SERVICE_OPT_DISAPPEARANCE_RAN_FILE="${TMP_ROOT}/service-opt-disappearance.ran"
 	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
+	run_check 'Installer MD5 helper regression' sh tests/installer-md5-helper.sh || exit 1
+	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'Installer event-script transaction regression' sh tests/installer-event-script-transactions.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'tzdata package conversion regression' sh tests/update-tzdata-package-info.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'AdGuardHome Entware mount disappearance regression' sh tests/service-opt-disappearance.sh || exit 1
+	[ "${FAILED}" -eq 0 ] || exit 1
+	run_check 'AdGuardHome service lifecycle suite timeout regression' sh tests/service-lifecycle-suite-timeout.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'AdGuardHome optional database link regression' run_privileged_regression_check tests/optional-database-links.sh 'optional database link regression' >"${OPTIONAL_DATABASE_OUT_FILE}" 2>&1
 	[ "$?" -eq 0 ] || exit 1
@@ -176,9 +190,11 @@ SERVICE_OPT_DISAPPEARANCE_RAN_FILE="${TMP_ROOT}/service-opt-disappearance.ran"
 [ -f "${PROCESS_SIGNALING_RAN_FILE}" ] || fail 'process signaling regression command was not invoked'
 [ -f "${LAN_BRIDGE_DOC_RAN_FILE}" ] || fail 'LAN bridge documentation regression command was not invoked'
 [ -f "${JQ_HELPER_RAN_FILE}" ] || fail 'installer jq helper regression command was not invoked'
+[ -f "${MD5_HELPER_RAN_FILE}" ] || fail 'installer MD5 helper regression command was not invoked'
 [ -f "${EVENT_SCRIPT_TRANSACTIONS_RAN_FILE}" ] || fail 'installer event-script transaction regression command was not invoked'
 [ -f "${TZDATA_PACKAGE_INFO_RAN_FILE}" ] || fail 'tzdata package conversion regression command was not invoked'
 [ -f "${SERVICE_OPT_DISAPPEARANCE_RAN_FILE}" ] || fail 'Entware mount disappearance regression command was not invoked'
+[ -f "${SERVICE_LIFECYCLE_SUITE_TIMEOUT_RAN_FILE}" ] || fail 'service lifecycle suite timeout regression command was not invoked'
 [ -f "${OPTIONAL_DATABASE_RAN_FILE}" ] || fail 'optional database-link regression command was not invoked'
 grep -Fq 'PASS: optional database link tests passed' "${OPTIONAL_DATABASE_OUT_FILE}" ||
 	fail 'optional database-link regression output was not forwarded'

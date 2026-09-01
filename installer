@@ -1291,6 +1291,10 @@ installer_lan_domain_set() {
 
 installer_lan_domain_restore() {
 	! nvram_transaction_setup_committed || return 0
+	installer_lan_domain_restore_uninstall
+}
+
+installer_lan_domain_restore_uninstall() {
 	NVRAM_TRANSACTION_DIR="${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
 	export NVRAM_TRANSACTION_DIR
 	[ -d "${NVRAM_TRANSACTION_DIR}" ] || return 0
@@ -5114,7 +5118,7 @@ adguard_recover_after_uninstall_hook_abort() {
 	RESTART_RECOVERY_STATUS=0
 	all_event_scripts_transaction_rollback || HOOK_ROLLBACK_STATUS=1
 	if [ "${2:-0}" = "1" ]; then
-		installer_lan_domain_restore || DOMAIN_RESTORE_STATUS=1
+		installer_lan_domain_restore_uninstall || DOMAIN_RESTORE_STATUS=1
 	fi
 	# Restore the service only when it was running before the uninstall stopped it.
 	if [ "${1:-0}" = "1" ]; then
@@ -6798,7 +6802,7 @@ inst_AdGuardHome() {
 		return 1
 	fi
 	for i in init-start services-stop; do
-		if ! /bin/grep -q "${ADDON_DIR}/AdGuardHome.sh $i &" "/jffs/scripts/${i}" && /bin/grep -q "${ADDON_DIR}/AdGuardHome.sh $i" "/jffs/scripts/${i}"; then
+		if ! /bin/grep -q "${ADDON_DIR}/AdGuardHome.sh $i &" "/jffs/scripts/${i}" 2>/dev/null && /bin/grep -q "${ADDON_DIR}/AdGuardHome.sh $i" "/jffs/scripts/${i}" 2>/dev/null; then
 			if ! del_jffs_script "/jffs/scripts/${i}"; then
 				all_event_scripts_transaction_rollback || true
 				PTXT "${ERROR} Unable to clean the legacy ${i} event hook."
@@ -8426,26 +8430,26 @@ uninst_all() {
 	fi
 	if ! agh_stop; then
 		PTXT "${ERROR} Unable to stop AdGuardHome; uninstall was aborted before removing installed files."
-		[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
+		[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore_uninstall || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
 		return 1
 	fi
 	if [ -d "${TARG_DIR}/proc-sys-state" ] && [ ! -x "${ADDON_DIR}/AdGuardHome.sh" ]; then
 		PTXT "${ERROR} Unable to restore installer-managed kernel settings."
-		[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
+		[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore_uninstall || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
 		[ "${ADGUARD_WAS_RUNNING}" = "0" ] || agh_start || true
 		return 1
 	fi
 	if [ -x "${ADDON_DIR}/AdGuardHome.sh" ]; then
 		if ! "${ADDON_DIR}/AdGuardHome.sh" proc-restore x; then
 			PTXT "${ERROR} Unable to restore installer-managed kernel settings."
-			[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
+			[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore_uninstall || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
 			[ "${ADGUARD_WAS_RUNNING}" = "0" ] || agh_start || true
 			return 1
 		fi
 	fi
 	if ! all_event_scripts_transaction_begin "${BASE_DIR}/.AdGuardHome.uninstall-hooks.$$"; then
 		PTXT "${ERROR} Existing Asuswrt-Merlin event scripts could not be protected for uninstall rollback."
-		[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
+		[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore_uninstall || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
 		[ "${ADGUARD_WAS_RUNNING}" = "0" ] || agh_start || true
 		return 1
 	fi

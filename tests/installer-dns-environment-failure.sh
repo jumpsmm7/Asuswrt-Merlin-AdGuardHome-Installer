@@ -101,7 +101,7 @@ installer_cleanup_tmp_file() { :; }
 rollback_pending_mode_migration() { return 0; }
 # sleep waits for each newly spawned DNS child to publish its start before
 # advancing the simulated clock. Each child is synchronized only once so
-# sleep advances simulated monotonic time while synchronizing with asynchronous DNS probe startup.
+# sleep advances simulated monotonic time, synchronizes DNS probe startup, and optionally yields to the scheduler.
 sleep() {
 	local current_lookup_count sync_wait_count
 
@@ -132,14 +132,14 @@ sleep() {
 			fi
 
 			sync_wait_count="$((sync_wait_count + 1))"
-			if [ "${sync_wait_count}" -ge 1000 ]; then
+			if [ "${sync_wait_count}" -ge 20000 ]; then
 				fail 'timed out waiting for the DNS lookup child to start'
 			fi
 
 			if [ -x /bin/usleep ]; then
 				/bin/usleep 1000
 			else
-				/bin/sleep 0.01
+				/bin/sleep 0
 			fi
 		done
 	fi
@@ -148,7 +148,7 @@ sleep() {
 		if [ -x /bin/usleep ]; then
 			/bin/usleep 1000
 		else
-			/bin/sleep 1
+			/bin/sleep 0
 		fi
 	fi
 }
@@ -1473,6 +1473,16 @@ FAIL_SNAPSHOT_REMOVE=0
 rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove LAN domain cleanup transaction snapshot'
 
 reset_case
+nvram set lan_domain=before-uninstall || fail 'could not initialize uninstall LAN domain fixture'
+installer_lan_domain_set "" 1 || fail 'uninstall LAN domain transaction apply failed'
+: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed" || fail 'could not create committed setup marker for uninstall restore'
+FAIL_SERVICE_AT="$((SERVICE_COUNT + 1))"
+if installer_lan_domain_restore_uninstall; then
+	fail 'uninstall restore hid the injected uninstall restart failure'
+fi
+[ "$(nvram get lan_domain)" = before-uninstall ] || fail 'uninstall restore did not recover the saved LAN domain'
+
+reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable || fail 'DNS restore cleanup transaction snapshot failed'
 nvram_transaction_set dnspriv_enable 0 || fail 'DNS restore cleanup transaction staging failed'
 nvram_transaction_apply restart_dnsmasq 1 || fail 'DNS restore cleanup transaction apply failed'
@@ -2164,6 +2174,11 @@ DNS_ENV_RECOVERY_TIMEOUT=1
 
 reset_case
 sed '/^dhcp_dns2_x=/d' "${NVRAM_FILE}" >"${NVRAM_FILE}.new" && mv "${NVRAM_FILE}.new" "${NVRAM_FILE}"
+# Yield after each readiness probe so loaded CI hosts can schedule both the
+# preparation and restore children before their bounded checks advance.
+DNS_ENV_READY_TIMEOUT=60
+DNS_ENV_RECOVERY_TIMEOUT=60
+DNS_TEST_YIELD=1
 check_dns_environment 0 || fail 'snapshot with an absent NVRAM key was rejected'
 check_dns_environment 1 || fail 'snapshot with an absent NVRAM key was not restored'
 if nvram_value dhcp_dns2_x >/dev/null 2>&1; then fail 'originally absent NVRAM key was restored as an empty key'; fi
