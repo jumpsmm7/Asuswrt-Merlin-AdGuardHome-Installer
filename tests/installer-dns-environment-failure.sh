@@ -410,9 +410,11 @@ reset_case
 	}
 	# rm keeps the uninstall fixture from touching host /opt paths.
 	rm() {
-		case " $* " in
-			*" /opt/etc/init.d/S99AdGuardHome "*) return 0 ;;
-		esac
+		for rm_arg in "$@"; do
+			case "${rm_arg}" in
+				/opt/etc/init.d/S99AdGuardHome | /opt/etc/init.d/rc.func.AdGuardHome | /opt/sbin/AdGuardHome | /opt/bin/bcrypt-tool | /opt/var/log/AdGuardHome.log) return 0 ;;
+			esac
+		done
 		command rm "$@"
 	}
 

@@ -4,6 +4,7 @@
 set -u
 
 SCRIPT_PATH='tests/service-lifecycle-integration.sh'
+CASES_FIXTURE='tests/fixtures/service-lifecycle-cases.tsv'
 
 # fail prints a failure message containing the specified reason and exits with status 1.
 fail() {
@@ -24,9 +25,15 @@ sed -n '/^suite_timeout_seconds() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FIL
 . "${FUNCTIONS_FILE}"
 
 STUB_DECLARED_CASE_COUNT=28
+fixture_case_count=$(awk -F '\t' 'NF && $1 !~ /^#/ { count++ } END { print count + 0 }' "${CASES_FIXTURE}") ||
+	fail 'could not count service lifecycle fixture cases'
+[ "${STUB_DECLARED_CASE_COUNT}" -eq "${fixture_case_count}" ] ||
+	fail "declared case count does not match fixture: ${fixture_case_count}"
 OUTER_TIMEOUT_SECONDS=5160
 suite_timeout=$(suite_timeout_seconds "${STUB_DECLARED_CASE_COUNT}" 180 "${OUTER_TIMEOUT_SECONDS}") ||
 	fail '180-second per-case timeout was rejected'
+[ "${suite_timeout}" -lt "${OUTER_TIMEOUT_SECONDS}" ] ||
+	fail 'suite timeout is not below the outer timeout'
 [ "${suite_timeout}" -eq 5134 ] ||
 	fail "suite timeout did not include the three-second per-case allowance: ${suite_timeout}"
 [ "${suite_timeout}" -ne 5106 ] ||

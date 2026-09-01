@@ -73,9 +73,9 @@ awk '
 	END { exit !found }
 ' "${WORKFLOW}" || fail "${WORKFLOW}: posix-syntax timeout must exceed the bounded lifecycle integration step"
 
-grep -Fq 'pull_request:' "${WORKFLOW}" || fail "${WORKFLOW}: missing the pull_request trigger"
-grep -Fq 'merge_group:' "${WORKFLOW}" || fail "${WORKFLOW}: missing the merge_group trigger"
-grep -Fq 'workflow_dispatch:' "${WORKFLOW}" || fail "${WORKFLOW}: missing the workflow_dispatch trigger"
+grep -Eq '^  pull_request:$' "${WORKFLOW}" || fail "${WORKFLOW}: missing the pull_request trigger"
+grep -Eq '^  merge_group:$' "${WORKFLOW}" || fail "${WORKFLOW}: missing the merge_group trigger"
+grep -Eq '^  workflow_dispatch:$' "${WORKFLOW}" || fail "${WORKFLOW}: missing the workflow_dispatch trigger"
 grep -Eq '^  push:$' "${WORKFLOW}" || fail "${WORKFLOW}: missing the all-branch push trigger"
 if awk '
 	/^on:$/ { in_events = 1; next }
