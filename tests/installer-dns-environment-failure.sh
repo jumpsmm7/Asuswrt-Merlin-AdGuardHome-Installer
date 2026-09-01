@@ -24,6 +24,23 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test workspace'
 mkfifo "${TEST_ROOT}/block.fifo" || fail 'could not create blocking DNS query FIFO'
 
+CONFLICT_FUNCTIONS="${TEST_ROOT}/conflict-functions"
+sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PATH}" |
+	sed -e '$d' -e 's|/opt/etc/init.d/S61stubby|${TEST_ROOT}/S61stubby|' >"${CONFLICT_FUNCTIONS}" ||
+	fail 'could not prepare DNS restore conflict fixture'
+(
+	. "${CONFLICT_FUNCTIONS}"
+	BASE_DIR="${TEST_ROOT}/conflict-base"
+	DNS_ENV_READY_TIMEOUT=1
+	DNS_ENV_RECOVERY_TIMEOUT=1
+	ERROR='Error:'
+	ptxt_phase() { :; }
+	ptxt_ok() { :; }
+	mkdir -p "${BASE_DIR}" || exit 1
+	: >"${TEST_ROOT}/S61stubby" || exit 1
+	check_dns_environment 1 || exit 1
+) || fail 'restore mode ran the DNS preparation conflict preflight without a persisted snapshot'
+
 : >"${FUNCTIONS_FILE}" || fail 'could not create test functions file'
 sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" |
 	sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract NVRAM transaction helpers'
@@ -346,6 +363,18 @@ EOF_NVRAM
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
 	_DNS_STUBBY_STOPPED=0 _DNS_NVRAM_SAVED=0 _DNS_NVRAM_ROLLBACK_ATTEMPTED=0
 }
+
+reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'stubby recovery transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'stubby recovery transaction staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'stubby recovery transaction apply failed'
+: >"${NVRAM_TRANSACTION_DIR}/stubby-stopped" || fail 'could not persist the stopped stubby marker'
+_DNS_STUBBY_STOPPED=1
+_DNS_NVRAM_SAVED=1
+check_dns_environment 1 || fail 'DNS restore did not recover stopped stubby before restoring NVRAM'
+[ "${STUBBY_RESTART_COUNT}" -eq 1 ] || fail 'DNS restore did not restart stopped stubby exactly once'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful stubby and DNS recovery retained its snapshot'
+[ "$(nvram get dnspriv_enable)" = 1 ] || fail 'stubby recovery did not restore the saved DNS NVRAM value'
 
 reset_case
 SYMLINK_SNAPSHOT_TARGET="${TEST_ROOT}/symlink-snapshot-target"

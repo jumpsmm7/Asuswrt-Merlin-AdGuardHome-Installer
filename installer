@@ -4206,8 +4206,9 @@ check_connection() {
 
 check_dns_environment() {
 	local changed deadline lookup_pid maxwait mode now status stubby_recovery_attempted stubby_stopped
+	mode="$1"
 	ptxt_phase "Preparing DNS environment."
-	if [ -f "/opt/etc/init.d/S61stubby" ] || [ -f "/opt/sbin/stubby" ] || [ -f "/opt/bin/install_stubby" ] || [ -f "/jffs/scripts/install_stubby.sh" ] || [ -d "/jffs/dnscrypt" ] || [ -f "/opt/etc/init.d/S09dnscrypt-proxy" ]; then
+	if [ "${mode}" = "0" ] && { [ -f "/opt/etc/init.d/S61stubby" ] || [ -f "/opt/sbin/stubby" ] || [ -f "/opt/bin/install_stubby" ] || [ -f "/jffs/scripts/install_stubby.sh" ] || [ -d "/jffs/dnscrypt" ] || [ -f "/opt/etc/init.d/S09dnscrypt-proxy" ]; }; then
 		PTXT "${ERROR} Potential stubby or dnscrypt-proxy installation detected." \
 			"${ERROR} Please remove before attempting to continue." \
 			"${ERROR} Exiting..."
@@ -4244,7 +4245,6 @@ check_dns_environment() {
 	}
 	case "${DNS_ENV_READY_TIMEOUT}" in *[!0-9]* | "" | 0*) DNS_ENV_READY_TIMEOUT="60" ;; esac
 	case "${DNS_ENV_RECOVERY_TIMEOUT}" in *[!0-9]* | "" | 0*) DNS_ENV_RECOVERY_TIMEOUT="15" ;; esac
-	mode="$1"
 	case "${mode}" in
 		0)
 			stubby_stopped="0"
@@ -4353,6 +4353,11 @@ check_dns_environment() {
 				export _DNS_NVRAM_SAVED
 				ptxt_ok "No saved DNS NVRAM settings to restore."
 				return 0
+			fi
+			if [ -f "${NVRAM_TRANSACTION_DIR}/stubby-stopped" ] && ! restore_stubby_after_dns_failure; then
+				rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+				PTXT "${ERROR} Unable to restart stubby before restoring the saved DNS NVRAM settings."
+				return 1
 			fi
 			if ! nvram_transaction_restore restart_dnsmasq 1 || ! dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
 				if [ -d "${NVRAM_TRANSACTION_DIR}" ]; then
