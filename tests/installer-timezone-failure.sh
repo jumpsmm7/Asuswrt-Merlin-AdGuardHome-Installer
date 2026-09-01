@@ -104,8 +104,18 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	write_conf() { :; }
 	# nvram does nothing and returns success.
 	nvram() { :; }
-	# nvram_transaction_lock_owned reports that this fixture has no active NVRAM transaction.
-	nvram_transaction_lock_owned() { return 1; }
+	# nvram_transaction_lock_owned reports ownership of the fixture's active NVRAM transaction.
+	nvram_transaction_lock_owned() { return 0; }
+	# nvram_transaction_setup_committed reports that the fixture's NVRAM transaction is uncommitted.
+	nvram_transaction_setup_committed() { return 1; }
+	# setup_restore_nvram_journal records restoration of the setup-file NVRAM journal.
+	setup_restore_nvram_journal() { printf '%s\n' 'nvram:journal' >>"${CALLS_FILE}"; }
+	# installer_lan_domain_restore records restoration of the LAN-domain transaction.
+	installer_lan_domain_restore() { printf '%s\n' 'nvram:lan-domain' >>"${CALLS_FILE}"; }
+	# restore_dns_filter_settings records restoration of DNSFilter settings.
+	restore_dns_filter_settings() { printf '%s\n' 'nvram:dns-filter' >>"${CALLS_FILE}"; }
+	# all_event_scripts_transaction_rollback records the aggregate event-script rollback.
+	all_event_scripts_transaction_rollback() { printf '%s\n' 'event-hooks:rollback' >>"${CALLS_FILE}"; }
 	# grep always returns failure.
 	grep() { return 1; }
 	# tar is a no-op stub that suppresses archive command execution.
@@ -149,7 +159,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	fi
 ) || fail 'timezone failure regression subprocess failed'
 
-EXPECTED="$(printf '%s\n' 'timezone' 'restart' 'end:1 install')"
+EXPECTED="$(printf '%s\n' 'timezone' 'event-hooks:rollback' 'nvram:journal' 'nvram:lan-domain' 'nvram:dns-filter' 'restart' 'end:1 install')"
 ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] || fail "installer continued after timezone failure: ${ACTUAL}"
 
