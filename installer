@@ -5106,9 +5106,9 @@ adguard_recover_after_event_hook_abort() {
 		setup_restore_nvram_journal || NVRAM_ROLLBACK_STATUS=1
 		installer_lan_domain_restore || NVRAM_ROLLBACK_STATUS=1
 		restore_dns_filter_settings || NVRAM_ROLLBACK_STATUS=1
-		if [ "${_DNS_NVRAM_SAVED:-0}" = "1" ]; then
-			check_dns_environment 1 || NVRAM_ROLLBACK_STATUS=1
-		fi
+		# The persisted snapshot is authoritative if an earlier failure left the
+		# in-memory saved-state marker unset or stale.
+		check_dns_environment 1 || NVRAM_ROLLBACK_STATUS=1
 	fi
 	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
 		if rollback_pending_mode_migration; then

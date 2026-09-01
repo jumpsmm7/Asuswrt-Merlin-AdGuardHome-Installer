@@ -114,6 +114,8 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	installer_lan_domain_restore() { printf '%s\n' 'nvram:lan-domain' >>"${CALLS_FILE}"; }
 	# restore_dns_filter_settings records restoration of DNSFilter settings.
 	restore_dns_filter_settings() { printf '%s\n' 'nvram:dns-filter' >>"${CALLS_FILE}"; }
+	# check_dns_environment records restoration of the persisted DNS preparation snapshot.
+	check_dns_environment() { printf '%s\n' 'nvram:dns-environment' >>"${CALLS_FILE}"; }
 	# all_event_scripts_transaction_rollback records the aggregate event-script rollback.
 	all_event_scripts_transaction_rollback() { printf '%s\n' 'event-hooks:rollback' >>"${CALLS_FILE}"; }
 	# grep always returns failure.
@@ -159,7 +161,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	fi
 ) || fail 'timezone failure regression subprocess failed'
 
-EXPECTED="$(printf '%s\n' 'timezone' 'event-hooks:rollback' 'nvram:journal' 'nvram:lan-domain' 'nvram:dns-filter' 'restart' 'end:1 install')"
+EXPECTED="$(printf '%s\n' 'timezone' 'event-hooks:rollback' 'nvram:journal' 'nvram:lan-domain' 'nvram:dns-filter' 'nvram:dns-environment' 'restart' 'end:1 install')"
 ACTUAL="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL}" = "${EXPECTED}" ] || fail "installer continued after timezone failure: ${ACTUAL}"
 
