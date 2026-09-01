@@ -36,6 +36,9 @@ printf '%s\n' 'AdGuard Home, version test'
 EOF_AGH
 chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuardHome executable'
 
+# run_update_path exercises the mocked upgrade path for the specified mode and runtime-default configuration result.
+# _mode selects a service-refresh-only or package upgrade.
+# _configure_result determines whether runtime-default configuration succeeds.
 run_update_path() {
 	_mode="$1"
 	_configure_result="$2"

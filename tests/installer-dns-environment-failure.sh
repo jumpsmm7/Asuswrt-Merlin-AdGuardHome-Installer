@@ -34,8 +34,10 @@ sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PA
 	DNS_ENV_READY_TIMEOUT=1
 	DNS_ENV_RECOVERY_TIMEOUT=1
 	ERROR='Error:'
-	ptxt_phase() { :; }
-	ptxt_ok() { :; }
+	# ptxt_phase is a no-op placeholder for a transaction phase.
+ptxt_phase() { :; }
+	# ptxt_ok marks a test output condition as successful.
+ptxt_ok() { :; }
 	mkdir -p "${BASE_DIR}" || exit 1
 	: >"${TEST_ROOT}/S61stubby" || exit 1
 	check_dns_environment 1 || exit 1
