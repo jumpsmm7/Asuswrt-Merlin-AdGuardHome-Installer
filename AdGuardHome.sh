@@ -1020,14 +1020,6 @@ dnsmasq_ipset_state_mark_cleanup() {
 	fi
 }
 
-# dnsmasq_ipset_state_finalize marks an IPSet state snapshot for cleanup and removes it.
-dnsmasq_ipset_state_finalize() {
-	local SNAPSHOT_DIR
-	SNAPSHOT_DIR="$1"
-	dnsmasq_ipset_state_mark_cleanup "${SNAPSHOT_DIR}" || return 1
-	rm -rf "${SNAPSHOT_DIR}"
-}
-
 # dnsmasq_ipset_state_recover_pending restores rollback-pending snapshots and removes cleanup-pending committed snapshots.
 dnsmasq_ipset_state_recover_pending() {
 	local CONFIG_BACKUP_RECOVERY CONFIG_FILE_RECOVERY CONFIG_RESTORE_STAGE SNAPSHOT_DIR SNAPSHOT_NAME
