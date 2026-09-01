@@ -300,6 +300,7 @@ run_check 'AdGuardHome scoped configuration regression' sh tests/adguardhome-sco
 run_check 'AdGuardHome legacy netcheck regression' sh tests/netcheck-legacy.sh
 run_check 'AdGuardHome DNS startup handoff regression' run_privileged_regression_check tests/dns-startup-handoff.sh 'DNS startup handoff regression'
 run_check 'AdGuardHome required-handoff fallback regression' sh tests/rc-required-handoff-fallback.sh
+run_check 'AdGuardHome service lifecycle suite timeout regression' sh tests/service-lifecycle-suite-timeout.sh
 run_long_check 'AdGuardHome service lifecycle integration regression' "${SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS}" run_privileged_regression_check tests/service-lifecycle-integration.sh 'service lifecycle integration regression'
 run_check 'AdGuardHome Entware mount disappearance regression' sh tests/service-opt-disappearance.sh
 run_check 'Runtime writable-path security regression' run_privileged_regression_check tests/runtime-writable-path-security.sh 'runtime writable-path security regression'

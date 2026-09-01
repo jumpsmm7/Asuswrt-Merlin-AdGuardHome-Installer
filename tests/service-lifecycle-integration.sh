@@ -7,6 +7,7 @@ ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd) || exit 1
 SUITE_TMP="${TMPDIR:-/tmp}/agh-integration.$$"
 RESULTS_FILE="${SUITE_TMP}/results"
 TIMEOUT_SECONDS="${AGH_INTEGRATION_TIMEOUT:-180}"
+SUITE_OUTER_TIMEOUT_SECONDS=5160
 TEST_SHELL="${AGH_INTEGRATION_SHELL:-sh}"
 TEST_SHELL_ARG="${AGH_INTEGRATION_SHELL_ARG:-}"
 CASE_PID=""
@@ -200,6 +201,13 @@ run_bounded() {
 	printf '%s\n' "PASS ${case_name}"
 }
 
+# suite_timeout_seconds calculates the serial-suite watchdog limit and rejects values unsafe for the outer quality-check timeout.
+suite_timeout_seconds() {
+	calculated_timeout="$(( $1 * ($2 + 3) + 10 ))"
+	[ "${calculated_timeout}" -lt "$3" ] || return 1
+	printf '%s\n' "${calculated_timeout}"
+}
+
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 case "${TIMEOUT_SECONDS}" in
@@ -223,7 +231,8 @@ declared_case_count=$(awk 'NF && $1 !~ /^#/ { count++ } END { print count + 0 }'
 # Every case has its own timeout, may spend one additional second in watchdog
 # polling, and may spend two additional seconds terminating descendants. The
 # suite watchdog covers the complete serial matrix plus setup.
-SUITE_TIMEOUT_SECONDS="$((declared_case_count * (TIMEOUT_SECONDS + 3) + 10))"
+SUITE_TIMEOUT_SECONDS=$(suite_timeout_seconds "${declared_case_count}" "${TIMEOUT_SECONDS}" "${SUITE_OUTER_TIMEOUT_SECONDS}") ||
+	fail "AGH_INTEGRATION_TIMEOUT produces a suite timeout that is not below ${SUITE_OUTER_TIMEOUT_SECONDS}s"
 (
 	sleep "${SUITE_TIMEOUT_SECONDS}"
 	process_identity_matches "$$" "${SUITE_START_TIME}" || exit 0
