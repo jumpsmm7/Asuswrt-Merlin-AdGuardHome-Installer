@@ -197,14 +197,6 @@ extract_function adguard_restart_after_install_abort "${TMP_ROOT}/install-abort-
 	fail 'could not extract install-abort restart helper'
 extract_function adguard_recover_after_event_hook_abort "${TMP_ROOT}/event-hook-recovery" ||
 	fail 'could not extract event-hook recovery helper'
-grep -Fq 'if ! finalize_pending_mode_migration; then' "${TMP_ROOT}/install-path" ||
-	fail 'install orchestration must propagate mode migration finalization failures'
-awk '
-	/if ! finalize_pending_mode_migration; then/ { failure = 1; next }
-	failure && /adguard_recover_after_event_hook_abort "\$\{RESTART_AFTER_ABORT\}" 1/ { recovered = 1; next }
-	failure && /end_op_message 1 "\$1"/ { exit(recovered ? 0 : 1) }
-	END { if (!failure || !recovered) exit 1 }
-' "${TMP_ROOT}/install-path" || fail 'finalization failure does not recover the previous installation'
 grep -Fq 'return "${MIGRATE_STATUS}"' "${TMP_ROOT}/install-path" ||
 	fail 'install orchestration does not preserve migration rollback failure status'
 awk '
@@ -213,42 +205,8 @@ awk '
 	update_call { exit($0 ~ /^[[:space:]]*return \$\?[[:space:]]*$/ ? 0 : 1) }
 	END { if (!update_call) exit 1 }
 ' "${TMP_ROOT}/install-path" || fail 'recursive package update does not immediately propagate migration failure status'
-
-awk '
-	/if ! agh_complete_startup; then/ { readiness = NR }
-	/if ! finalize_pending_mode_migration; then/ { finalize = NR }
-	END { exit(readiness && finalize > readiness ? 0 : 1) }
-' "${TMP_ROOT}/install-path" || fail 'mode migration is finalized before post-install readiness succeeds'
-awk '
-	/if \[ "\$\{2:-0\}" = "1" \]; then/ { readiness = 1; next }
-	readiness && /agh_stop/ { stopped = NR; next }
-	readiness && /adguard_restart_after_install_abort "\$1"/ {
-		restarted = NR
-		exit(stopped && stopped < restarted ? 0 : 1)
-	}
-	END { if (!stopped || !restarted) exit 1 }
-' "${TMP_ROOT}/event-hook-recovery" || fail 'readiness rollback does not stop the migrated process before restoring the previous service state'
-awk '
-	/if ! set_timezone; then/ { failure = "timezone" }
-	/if ! setup_AdGuardHome "" "\$\{1:-install\}"; then/ { failure = "setup" }
-	/if ! agh_complete_startup; then/ { failure = "readiness" }
-	failure && /adguard_recover_after_event_hook_abort/ { rollback[failure] = 1 }
-	failure && /end_op_message 1/ {
-		if (!rollback[failure]) exit 1
-		failure = ""
-	}
-	END { exit(rollback["timezone"] && rollback["setup"] && rollback["readiness"] ? 0 : 1) }
-' "${TMP_ROOT}/install-path" || fail 'post-migration failure paths can re-enter the menu before rollback'
-awk '
-	/if rollback_pending_mode_migration; then/ { rollback = 1; next }
-	rollback && /else/ { failure = 1; next }
-	failure && /MODE_ROLLBACK_STATUS=1/ { recorded = 1; next }
-	recorded && /adguard_restart_after_install_abort "\$1"/ { restarted = 1; exit }
-	END { exit(restarted ? 0 : 1) }
-' "${TMP_ROOT}/event-hook-recovery" || fail 'migration rollback failure blocks the previous installation restart'
-# run_legacy_cleanup_failure executes one injected legacy-cleanup failure and
-# run_legacy_cleanup_failure verifies aggregate rollback, mode rollback, service and monitor recovery, and failure status for legacy cleanup errors.
-run_legacy_cleanup_failure() (
+# run_install_failure executes an injected cleanup or post-migration failure and verifies observable recovery behavior.
+run_install_failure() (
 	FAILURE_CASE="$1"
 	CALLS_FILE="${TMP_ROOT}/legacy-cleanup-${FAILURE_CASE}"
 	BASE_DIR="${TMP_ROOT}/legacy-base-${FAILURE_CASE}"
@@ -333,15 +291,22 @@ EOF
 	# all_event_scripts_transaction_begin records the start of an event-script transaction.
 	all_event_scripts_transaction_begin() { printf '%s\n' 'transaction:begin' >>"${CALLS_FILE}"; }
 	# all_event_scripts_transaction_detach_after_mode_rollback detaches a newer aggregate snapshot after restoring the prior mode.
-	all_event_scripts_transaction_detach_after_mode_rollback() { :; }
+	all_event_scripts_transaction_detach_after_mode_rollback() { printf '%s\n' 'transaction:detach' >>"${CALLS_FILE}"; }
 	# all_event_scripts_transaction_rollback records an event-script transaction rollback.
 	all_event_scripts_transaction_rollback() { printf '%s\n' 'transaction:rollback' >>"${CALLS_FILE}"; }
+	# all_event_scripts_transaction_commit records publication of the aggregate event-script transaction.
+	all_event_scripts_transaction_commit() { printf '%s\n' 'transaction:commit' >>"${CALLS_FILE}"; }
 	# nvram_transaction_lock_owned reports that these hook-failure fixtures have no active NVRAM transaction.
 	nvram_transaction_lock_owned() { return 1; }
 	# install_wan_event_scripts reports successful WAN event-script synchronization.
 	install_wan_event_scripts() { return 0; }
-	# rollback_pending_mode_migration records a pending mode migration rollback.
-	rollback_pending_mode_migration() { printf '%s\n' 'mode:rollback' >>"${CALLS_FILE}"; }
+	# rollback_pending_mode_migration records rollback and retains ownership only for the injected rollback failure.
+	rollback_pending_mode_migration() {
+		printf '%s\n' 'mode:rollback' >>"${CALLS_FILE}"
+		[ "${FAILURE_CASE}" != "rollback" ] || return 1
+		MODE_MIGRATION_YAML_FILE_BACKUP=""
+		return 0
+	}
 	# cleanup_legacy_firewall reports whether the legacy firewall cleanup failure case is active.
 	cleanup_legacy_firewall() {
 		[ "${FAILURE_CASE}" != "firewall" ]
@@ -383,14 +348,44 @@ EOF
 	rollback_result_write() { printf '%s\n' "rollback-result:$*" >>"${CALLS_FILE}"; }
 	# rollback_result_notice performs no operation.
 	rollback_result_notice() { :; }
+	# set_timezone injects the timezone failure or records successful timezone setup.
+	set_timezone() {
+		printf '%s\n' 'timezone' >>"${CALLS_FILE}"
+		[ "${FAILURE_CASE}" != "timezone" ] && [ "${FAILURE_CASE}" != "rollback" ]
+	}
+	# setup_AdGuardHome injects the first-run setup failure when requested.
+	setup_AdGuardHome() {
+		printf '%s\n' 'setup' >>"${CALLS_FILE}"
+		[ "${FAILURE_CASE}" != "setup" ]
+	}
+	# agh_complete_startup injects readiness failure after recording the check.
+	agh_complete_startup() {
+		printf '%s\n' 'readiness' >>"${CALLS_FILE}"
+		[ "${FAILURE_CASE}" != "readiness" ]
+	}
+	# agh_stop records removal of the newly started process before service restoration.
+	agh_stop() { printf '%s\n' 'service:stopped' >>"${CALLS_FILE}"; }
+	# finalize_dns_environment records finalization and injects its failure when requested.
+	finalize_dns_environment() {
+		printf '%s\n' 'dns:finalize' >>"${CALLS_FILE}"
+		[ "${FAILURE_CASE}" != "finalization" ]
+	}
+	# finalize_pending_mode_migration records successful post-readiness migration finalization.
+	finalize_pending_mode_migration() { printf '%s\n' 'mode:finalize' >>"${CALLS_FILE}"; }
 	# end_op_message records the operation status in the calls log.
 	end_op_message() { printf '%s\n' "end-status:$1" >>"${CALLS_FILE}"; }
-	if inst_AdGuardHome update release; then
-		fail "${FAILURE_CASE}: cleanup failure returned success"
+	install_action=update
+	case "${FAILURE_CASE}" in
+		timezone | setup | readiness | rollback) install_action=install ;;
+	esac
+	if inst_AdGuardHome "${install_action}" release; then
+		fail "${FAILURE_CASE}: injected installation failure returned success"
 	else
 		cleanup_status=$?
 	fi
-	[ "${cleanup_status}" -eq 1 ] || fail "${FAILURE_CASE}: unexpected cleanup exit status ${cleanup_status}"
+	expected_status=1
+	[ "${FAILURE_CASE}" != "rollback" ] || expected_status=2
+	[ "${cleanup_status}" -eq "${expected_status}" ] || fail "${FAILURE_CASE}: unexpected cleanup exit status ${cleanup_status}"
 	grep -qx 'transaction:begin' "${CALLS_FILE}" || fail "${FAILURE_CASE}: transaction did not begin"
 	grep -qx 'transaction:rollback' "${CALLS_FILE}" || fail "${FAILURE_CASE}: aggregate rollback was not attempted"
 	grep -qx 'mode:rollback' "${CALLS_FILE}" || fail "${FAILURE_CASE}: mode rollback was not attempted"
@@ -398,11 +393,59 @@ EOF
 	grep -qx 'monitor:restarted' "${CALLS_FILE}" || fail "${FAILURE_CASE}: monitor recovery was not attempted"
 	grep -q '^rollback-result:install-abort rollback complete ' "${CALLS_FILE}" || fail "${FAILURE_CASE}: successful rollback result was not recorded"
 	grep -qx 'end-status:1' "${CALLS_FILE}" || fail "${FAILURE_CASE}: failure completion status was not reported"
+	rollback_line="$(grep -n '^transaction:rollback$' "${CALLS_FILE}" | head -n 1 | cut -d: -f1)"
+	mode_line="$(grep -n '^mode:rollback$' "${CALLS_FILE}" | head -n 1 | cut -d: -f1)"
+	restart_line="$(grep -n '^service:restarted$' "${CALLS_FILE}" | head -n 1 | cut -d: -f1)"
+	end_line="$(grep -n '^end-status:1$' "${CALLS_FILE}" | head -n 1 | cut -d: -f1)"
+	[ "${rollback_line}" -lt "${mode_line}" ] && [ "${mode_line}" -lt "${restart_line}" ] && [ "${restart_line}" -lt "${end_line}" ] ||
+		fail "${FAILURE_CASE}: rollback and service recovery calls occurred out of order"
+	case "${FAILURE_CASE}" in
+		finalization)
+			grep -qx 'dns:finalize' "${CALLS_FILE}" || fail 'finalization: injected finalizer was not reached'
+			;;
+		readiness)
+			grep -qx 'readiness' "${CALLS_FILE}" || fail 'readiness: injected readiness check was not reached'
+			if grep -q '^dns:finalize$' "${CALLS_FILE}"; then
+				fail 'readiness: DNS finalization ran after readiness failed'
+			fi
+			;;
+		timezone)
+			grep -qx 'timezone' "${CALLS_FILE}" || fail 'timezone: injected timezone setup was not reached'
+			if grep -q '^setup$' "${CALLS_FILE}"; then
+				fail 'timezone: first-run setup ran after timezone setup failed'
+			fi
+			;;
+		setup)
+			grep -qx 'setup' "${CALLS_FILE}" || fail 'setup: injected first-run setup was not reached'
+			if grep -q '^readiness$' "${CALLS_FILE}"; then
+				fail 'setup: readiness ran after first-run setup failed'
+			fi
+			;;
+	esac
+	case "${FAILURE_CASE}" in
+		finalization | readiness)
+			stop_line="$(grep -n '^service:stopped$' "${CALLS_FILE}" | cut -d: -f1)"
+			[ -n "${stop_line}" ] && [ "${stop_line}" -lt "${restart_line}" ] ||
+				fail "${FAILURE_CASE}: replacement service was not stopped before previous service recovery"
+			;;
+	esac
+	case "${FAILURE_CASE}" in
+		firewall | dnsmasq | init-start | services-stop | finalization | timezone | setup | readiness)
+			[ -z "${MODE_MIGRATION_YAML_FILE_BACKUP}" ] || fail "${FAILURE_CASE}: successful rollback retained migration ownership"
+			;;
+		rollback)
+			[ -n "${MODE_MIGRATION_YAML_FILE_BACKUP}" ] || fail 'rollback: failed rollback discarded migration ownership'
+			;;
+	esac
 )
 
 for legacy_cleanup_failure in firewall dnsmasq init-start services-stop; do
-	run_legacy_cleanup_failure "${legacy_cleanup_failure}" ||
+	run_install_failure "${legacy_cleanup_failure}" ||
 		fail "${legacy_cleanup_failure}: legacy cleanup recovery scenario failed"
+done
+for recovery_failure in finalization readiness timezone setup rollback; do
+	run_install_failure "${recovery_failure}" ||
+		fail "${recovery_failure}: install recovery scenario failed"
 done
 grep -q 'Unable to install the required WAN-mode event scripts' "${TMP_ROOT}/migration" ||
 	fail 'LAN-to-WAN migration does not abort when WAN event-script synchronization fails'
