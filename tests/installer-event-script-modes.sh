@@ -159,8 +159,12 @@ lan_publish_line="$(grep -n 'add_firewall_event_scripts' "${TMP_FILE}.lan" | hea
 [ "${lan_cleanup_line}" -lt "${lan_publish_line}" ] || fail 'LAN branch publishes JFFS hooks before dnsmasq cleanup can fail'
 grep -q 'if ! remove_firewall_event_scripts' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not abort when transactional firewall-hook removal fails'
-grep -q "if ! write_conf ADGUARD_IPSET '\"NO\"'" "${TMP_FILE}.lan" ||
+grep -q "! write_conf ADGUARD_IPSET '\"NO\"'" "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not persist disabled IPSET state after WAN IPTABLES state is lost'
+grep -q '! adguardhome_yaml_remove_ipset_file "${YAML_FILE}"' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not remove disabled IPSET state from the working YAML'
+grep -q '! adguardhome_yaml_remove_ipset_file "${YAML_ORI}"' "${TMP_FILE}.lan" ||
+	fail 'LAN branch does not remove disabled IPSET state from the source YAML'
 if grep -q 'Unable to remove.*continuing LAN-mode setup' "${TMP_FILE}.lan"; then
 	fail 'LAN branch still downgrades required hook-removal failures to warnings'
 fi
@@ -307,7 +311,11 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 		printf '%s\n' "original ${hook}" >"${LAN_ROLLBACK_ROOT}/jffs/scripts/${hook}"
 	done
 	CONF_FILE="${LAN_ROLLBACK_ROOT}/config"
+	YAML_FILE="${LAN_ROLLBACK_ROOT}/AdGuardHome.yaml"
+	YAML_ORI="${LAN_ROLLBACK_ROOT}/AdGuardHome.yaml.original"
 	printf '%s\n' 'ADGUARD_DNSMASQ_MODE="disabled"' >"${CONF_FILE}"
+	printf '%s\n' 'original working YAML' >"${YAML_FILE}"
+	printf '%s\n' 'original source YAML' >"${YAML_ORI}"
 	sed -n '/^event_scripts_snapshot() {$/,/^init_event_scripts_snapshot() {$/p' "${SCRIPT_PATH}" |
 		sed '$d' >"${LAN_ROLLBACK_ROOT}/helpers.part"
 	sed "s|/jffs/scripts|${LAN_ROLLBACK_ROOT}/jffs/scripts|g" "${LAN_ROLLBACK_ROOT}/helpers.part" >"${LAN_ROLLBACK_ROOT}/helpers"
@@ -319,6 +327,8 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 	printf '%s\n' 'changed dnsmasq hook' >"${LAN_ROLLBACK_ROOT}/jffs/scripts/dnsmasq.postconf"
 	printf '%s\n' 'changed firewall hook' >"${LAN_ROLLBACK_ROOT}/jffs/scripts/firewall-start"
 	printf '%s\n' 'ADGUARD_DNSMASQ_MODE="enabled"' >"${CONF_FILE}"
+	printf '%s\n' 'changed working YAML' >"${YAML_FILE}"
+	printf '%s\n' 'changed source YAML' >"${YAML_ORI}"
 	all_event_scripts_restore "${SNAPSHOT_DIR}" || fail 'LAN aggregate hook rollback failed'
 	grep -qx 'original dnsmasq.postconf' "${LAN_ROLLBACK_ROOT}/jffs/scripts/dnsmasq.postconf" ||
 		fail 'LAN rollback did not restore an earlier dnsmasq publication'
@@ -326,6 +336,8 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 		fail 'LAN rollback did not restore the failed firewall publication'
 	grep -qx 'ADGUARD_DNSMASQ_MODE="disabled"' "${CONF_FILE}" ||
 		fail 'LAN rollback did not restore the dnsmasq configuration'
+	grep -qx 'original working YAML' "${YAML_FILE}" || fail 'LAN rollback did not restore the working YAML'
+	grep -qx 'original source YAML' "${YAML_ORI}" || fail 'LAN rollback did not restore the source YAML'
 ) || fail 'LAN aggregate hook rollback checks failed'
 
 printf '%s\n' 'PASS: installer event-script mode regression'

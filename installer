@@ -6262,7 +6262,9 @@ all_event_scripts_snapshot() {
 		/jffs/scripts/services-stop \
 		/jffs/scripts/service-event-end \
 		/jffs/scripts/firewall-start \
-		"${CONF_FILE}"
+		"${CONF_FILE}" \
+		"${YAML_FILE}" \
+		"${YAML_ORI}"
 }
 
 all_event_scripts_restore() {
@@ -6273,7 +6275,9 @@ all_event_scripts_restore() {
 		/jffs/scripts/services-stop \
 		/jffs/scripts/service-event-end \
 		/jffs/scripts/firewall-start \
-		"${CONF_FILE}"
+		"${CONF_FILE}" \
+		"${YAML_FILE}" \
+		"${YAML_ORI}"
 }
 
 all_event_scripts_rollback() {
@@ -6860,7 +6864,9 @@ inst_AdGuardHome() {
 					end_op_message 1 "$1"
 					return 1
 				fi
-				if ! write_conf ADGUARD_IPSET '"NO"' || ! adguardhome_yaml_remove_ipset_file; then
+				if ! adguardhome_yaml_remove_ipset_file "${YAML_FILE}" ||
+					! adguardhome_yaml_remove_ipset_file "${YAML_ORI}" ||
+					! write_conf ADGUARD_IPSET '"NO"'; then
 					all_event_scripts_transaction_rollback || true
 					PTXT "${ERROR} IPSET could not be disabled after the qualifying WAN IPTABLES state was lost."
 					adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
@@ -6885,12 +6891,12 @@ inst_AdGuardHome() {
 			return 1
 			;;
 	esac
-	all_event_scripts_transaction_commit
 	if [ "${1:-update}" != "update" ]; then
 		ptxt_phase "Configuring AdGuardHome first-run settings."
 		if [ ! -f "${ADDON_DIR}/localtime" ]; then
 			PTXT "${INFO} Before setting up AdGuardHome, please choose your right timezone!"
 			if ! set_timezone; then
+				all_event_scripts_transaction_rollback || true
 				MIGRATE_STATUS=1
 				if ! rollback_pending_mode_migration; then
 					MIGRATE_STATUS=2
@@ -6902,6 +6908,7 @@ inst_AdGuardHome() {
 			fi
 		fi
 		if ! setup_AdGuardHome "" "${1:-install}"; then
+			all_event_scripts_transaction_rollback || true
 			MIGRATE_STATUS=1
 			if ! rollback_pending_mode_migration; then
 				MIGRATE_STATUS=2
@@ -6916,6 +6923,7 @@ inst_AdGuardHome() {
 	ptxt_phase "Final readiness summary."
 	ptxt_step "Waiting for AdGuardHome post-install readiness checks."
 	if ! agh_complete_startup; then
+		all_event_scripts_transaction_rollback || true
 		MIGRATE_STATUS=1
 		if ! rollback_pending_mode_migration; then
 			MIGRATE_STATUS=2
@@ -6931,6 +6939,7 @@ inst_AdGuardHome() {
 	fi
 	if [ "${1:-update}" != "RESTORE" ]; then
 		if ! finalize_pending_mode_migration; then
+			all_event_scripts_transaction_rollback || true
 			PTXT "${ERROR} Unable to remove completed mode-migration recovery backups."
 			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 			end_op_message 1 "$1"
@@ -6938,10 +6947,12 @@ inst_AdGuardHome() {
 		fi
 	fi
 	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && ! finalize_dns_environment; then
+		all_event_scripts_transaction_rollback || true
 		PTXT "${ERROR} Unable to remove the completed DNS NVRAM recovery snapshot."
 		end_op_message 1 "$1"
 		return 1
 	fi
+	all_event_scripts_transaction_commit
 	adguard_install_abort_trap_disable_preserve_defer
 	ptxt_ok "AdGuardHome ${1:-install} orchestration complete."
 	ptxt_ok "Final readiness summary: service is installed, started, and ready."
