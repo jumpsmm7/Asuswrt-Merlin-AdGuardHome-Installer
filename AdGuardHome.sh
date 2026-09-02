@@ -1017,6 +1017,8 @@ dnsmasq_ipset_state_mark_cleanup() {
 		mv "${SNAPSHOT_DIR}/restore.pending" "${SNAPSHOT_DIR}/cleanup.pending" || return 1
 	elif [ -e "${SNAPSHOT_DIR}/cleanup.pending" ]; then
 		[ -f "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
+	else
+		return 1
 	fi
 }
 
@@ -1040,7 +1042,11 @@ dnsmasq_ipset_state_recover_pending() {
 			fi
 			continue
 		fi
-		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || continue
+		if [ ! -e "${SNAPSHOT_DIR}/restore.pending" ]; then
+			agh_log error dnsmasq_params "state=recovery action=validate_snapshot result=failed reason=missing_marker snapshot=${SNAPSHOT_DIR}"
+			return 1
+		fi
+		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
 		if [ -e "${SNAPSHOT_DIR}/config.pending" ] || [ -e "${SNAPSHOT_DIR}/config.restored" ]; then
 			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || { [ -f "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ]; } || return 1
 			[ ! -e "${SNAPSHOT_DIR}/config.restored" ] || { [ -f "${SNAPSHOT_DIR}/config.restored" ] && [ ! -L "${SNAPSHOT_DIR}/config.restored" ]; } || return 1
@@ -1275,6 +1281,10 @@ dnsmasq_publish_staged_config() (
 			else
 				agh_log error dnsmasq_params "state=backup action=mark_cleanup result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 				if rm -rf "${IPSET_SNAPSHOT_DIR}"; then
+					SNAPSHOT_READY="0"
+				elif dnsmasq_ipset_state_mark_cleanup "${IPSET_SNAPSHOT_DIR}" &&
+					[ -f "${IPSET_SNAPSHOT_DIR}/cleanup.pending" ] &&
+					[ ! -L "${IPSET_SNAPSHOT_DIR}/cleanup.pending" ]; then
 					SNAPSHOT_READY="0"
 				else
 					agh_log error dnsmasq_params "state=backup action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"

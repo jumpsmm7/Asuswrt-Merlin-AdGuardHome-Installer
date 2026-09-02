@@ -4354,10 +4354,14 @@ check_dns_environment() {
 				ptxt_ok "No saved DNS NVRAM settings to restore."
 				return 0
 			fi
-			if [ -f "${NVRAM_TRANSACTION_DIR}/stubby-stopped" ] && ! restore_stubby_after_dns_failure; then
-				rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
-				PTXT "${ERROR} Unable to restart stubby before restoring the saved DNS NVRAM settings."
-				return 1
+			if [ -f "${NVRAM_TRANSACTION_DIR}/stubby-stopped" ]; then
+				if restore_stubby_after_dns_failure; then
+					:
+				else
+					rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+					PTXT "${ERROR} Unable to restart stubby before restoring the saved DNS NVRAM settings."
+					return 1
+				fi
 			fi
 			if ! nvram_transaction_restore restart_dnsmasq 1 || ! dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
 				if [ -d "${NVRAM_TRANSACTION_DIR}" ]; then
