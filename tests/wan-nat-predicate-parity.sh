@@ -63,7 +63,7 @@ WAN_NAT_RULE='-A POSTROUTING ! -o eth0 -j MASQUERADE'
 check_case 1
 WAN_NAT_RULE='-A POSTROUTING -i br1 -o eth0 -j MASQUERADE'
 check_case 1
-WAN_NAT_RULE='-A POSTROUTING -o br0 -j ACCEPT -m comment --comment "-o eth0 -j MASQUERADE"'
+WAN_NAT_RULE='-A POSTROUTING -o br0 -j ACCEPT -m comment --comment "ignored -o eth0 -j MASQUERADE tail"'
 check_case 1
 WAN_NAT_RULE='-A POSTROUTING -m comment --comment "escaped \" -o eth0 -j MASQUERADE trailing" -j RETURN'
 check_case 1
