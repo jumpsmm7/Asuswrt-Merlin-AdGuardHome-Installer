@@ -1269,6 +1269,7 @@ dnsmasq_publish_staged_config() (
 		SNAPSHOT_READY="1"
 		if ! cp -p "${CONFIG_FILE}" "${CONFIG_BACKUP}"; then
 			TRANSACTION_ACTIVE="0"
+			rm -rf "${IPSET_SNAPSHOT_DIR}"
 			rm -f "${CONFIG_STAGE}"
 			return 1
 		fi
