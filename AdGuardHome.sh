@@ -1008,7 +1008,7 @@ dnsmasq_ipset_state_snapshot() {
 
 # dnsmasq_ipset_state_mark_cleanup records that a committed or restored snapshot needs cleanup without making it eligible for rollback.
 dnsmasq_ipset_state_mark_cleanup() {
-	local SNAPSHOT_DIR
+	local CLEANUP_STAGE SNAPSHOT_DIR
 	SNAPSHOT_DIR="$1"
 	[ -d "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
 	if [ -e "${SNAPSHOT_DIR}/restore.pending" ]; then
@@ -1017,6 +1017,16 @@ dnsmasq_ipset_state_mark_cleanup() {
 		mv "${SNAPSHOT_DIR}/restore.pending" "${SNAPSHOT_DIR}/cleanup.pending" || return 1
 	elif [ -e "${SNAPSHOT_DIR}/cleanup.pending" ]; then
 		[ -f "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
+	else
+		[ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
+		[ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
+		CLEANUP_STAGE="${SNAPSHOT_DIR}/cleanup.pending.$$"
+		[ ! -e "${CLEANUP_STAGE}" ] && [ ! -L "${CLEANUP_STAGE}" ] || return 1
+		(umask 077 && set -C && : >"${CLEANUP_STAGE}") || return 1
+		if ! mv "${CLEANUP_STAGE}" "${SNAPSHOT_DIR}/cleanup.pending"; then
+			rm -f "${CLEANUP_STAGE}"
+			return 1
+		fi
 	fi
 }
 

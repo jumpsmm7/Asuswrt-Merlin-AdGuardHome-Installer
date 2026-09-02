@@ -314,6 +314,10 @@ mv() {
 
 # rm injects snapshot-finalization cleanup failures and delegates all other removals to the system command.
 rm() {
+	if [ "${FINALIZE_REMOVE_PARTIAL_FAIL:-0}" = "1" ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${FINALIZE_FAIL_SNAPSHOT:-}" ]; then
+		command rm -f "${FINALIZE_FAIL_SNAPSHOT}/restore.pending"
+		return 1
+	fi
 	if [ "${FINALIZE_REMOVE_FAIL:-0}" = "1" ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${FINALIZE_FAIL_SNAPSHOT:-}" ]; then
 		return 1
 	fi
@@ -372,6 +376,7 @@ reset_case() {
 	RESTORE_YAML_FAIL='0'
 	RESTORE_COMPENSATE_FAIL='0'
 	FINALIZE_REMOVE_FAIL='0'
+	FINALIZE_REMOVE_PARTIAL_FAIL='0'
 	FINALIZE_FAIL_SNAPSHOT=''
 	MARK_CLEANUP_FAIL='0'
 	MARK_CLEANUP_FAIL_ONCE='0'
@@ -880,7 +885,7 @@ printf '%s\n' '# backup cleanup failure' >"${BACKUP_CLEANUP_STAGE}" || fail 'cou
 BACKUP_COPY_FAIL='1'
 MARK_CLEANUP_FAIL_ONCE='1'
 MARK_CLEANUP_FAIL_SNAPSHOT="${BACKUP_CLEANUP_SNAPSHOT}"
-FINALIZE_REMOVE_FAIL='1'
+FINALIZE_REMOVE_PARTIAL_FAIL='1'
 FINALIZE_FAIL_SNAPSHOT="${BACKUP_CLEANUP_SNAPSHOT}"
 if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${BACKUP_CLEANUP_STAGE}" "${BACKUP_CLEANUP_SNAPSHOT}"; then
 	fail 'failed dnsmasq backup cleanup reported a successful transaction'
@@ -889,7 +894,7 @@ fi
 [ ! -e "${BACKUP_CLEANUP_SNAPSHOT}/restore.pending" ] || fail 'backup cleanup retry retained a rollback-pending marker'
 printf '%s\n' 'later ipset' >"${IPSET_FILE}" || fail 'could not create later IPSet state after cleanup retry'
 printf '%s\n' 'later yaml' >"${YAML_FILE}" || fail 'could not create later YAML state after cleanup retry'
-FINALIZE_REMOVE_FAIL='0'
+FINALIZE_REMOVE_PARTIAL_FAIL='0'
 IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'cleanup retry snapshot recovery did not complete'
 grep -qx 'later ipset' "${IPSET_FILE}" || fail 'cleanup retry snapshot overwrote later IPSet state'
 grep -qx 'later yaml' "${YAML_FILE}" || fail 'cleanup retry snapshot overwrote later YAML state'
