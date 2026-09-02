@@ -198,11 +198,12 @@ extract_function adguard_restart_after_install_abort "${TMP_ROOT}/install-abort-
 extract_function adguard_recover_after_event_hook_abort "${TMP_ROOT}/event-hook-recovery" ||
 	fail 'could not extract event-hook recovery helper'
 awk '
-	/agh_stop \|\| RESTART_RECOVERY_STATUS=1/ { stop = NR }
+	/if ! agh_stop; then/ { stop = NR }
+	stop && /return 1/ { stop_failure = NR }
 	/check_dns_environment 1 \|\| NVRAM_ROLLBACK_STATUS=1/ { restore = NR }
-	END { exit(stop && restore > stop ? 0 : 1) }
+	END { exit(stop && stop_failure > stop && restore > stop_failure ? 0 : 1) }
 ' "${TMP_ROOT}/event-hook-recovery" ||
-	fail 'event-hook abort recovery must stop AdGuardHome before restoring the DNS environment'
+	fail 'event-hook abort recovery must stop AdGuardHome successfully before restoring the DNS environment'
 grep -Fq 'return "${MIGRATE_STATUS}"' "${TMP_ROOT}/install-path" ||
 	fail 'install orchestration does not preserve migration rollback failure status'
 awk '
