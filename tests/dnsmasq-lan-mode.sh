@@ -302,6 +302,10 @@ mv() {
 			"${IPSET_SNAPSHOT_DIR}/config.pending."*) return 1 ;;
 		esac
 	fi
+	if [ "${MARK_CLEANUP_FAIL_ONCE:-0}" = "1" ] && [ "${1:-}" = "${MARK_CLEANUP_FAIL_SNAPSHOT:-}/restore.pending" ]; then
+		MARK_CLEANUP_FAIL_ONCE='0'
+		return 1
+	fi
 	if [ "${MARK_CLEANUP_FAIL:-0}" = "1" ] && [ "${1:-}" = "${MARK_CLEANUP_FAIL_SNAPSHOT:-}/restore.pending" ]; then
 		return 1
 	fi
@@ -370,6 +374,7 @@ reset_case() {
 	FINALIZE_REMOVE_FAIL='0'
 	FINALIZE_FAIL_SNAPSHOT=''
 	MARK_CLEANUP_FAIL='0'
+	MARK_CLEANUP_FAIL_ONCE='0'
 	MARK_CLEANUP_FAIL_SNAPSHOT=''
 	MOUNT_FAIL='0'
 	CONFIG_LOCAL='NO'
@@ -863,6 +868,31 @@ BACKUP_COPY_FAIL='0'
 IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'cleanup after failed dnsmasq backup copy did not complete'
 grep -qx 'later ipset' "${IPSET_FILE}" || fail 'stale backup-copy snapshot overwrote later IPSet state'
 grep -qx 'later yaml' "${YAML_FILE}" || fail 'stale backup-copy snapshot overwrote later YAML state'
+
+# If the initial cleanup-marker transition and direct snapshot removal both
+# fail, retry the marker transition so recovery cannot treat the snapshot as
+# rollback-pending after the untouched backup-copy failure.
+reset_case
+BACKUP_CLEANUP_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.backup-cleanup-failure"
+BACKUP_CLEANUP_STAGE="${DNSMASQ_CONF_FILE}.adguard.backup-cleanup-failure"
+BACKUP_COPY_FAIL_FILE="${BACKUP_CLEANUP_STAGE}.previous"
+printf '%s\n' '# backup cleanup failure' >"${BACKUP_CLEANUP_STAGE}" || fail 'could not stage backup-cleanup-failure fixture'
+BACKUP_COPY_FAIL='1'
+MARK_CLEANUP_FAIL_ONCE='1'
+MARK_CLEANUP_FAIL_SNAPSHOT="${BACKUP_CLEANUP_SNAPSHOT}"
+FINALIZE_REMOVE_FAIL='1'
+FINALIZE_FAIL_SNAPSHOT="${BACKUP_CLEANUP_SNAPSHOT}"
+if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${BACKUP_CLEANUP_STAGE}" "${BACKUP_CLEANUP_SNAPSHOT}"; then
+	fail 'failed dnsmasq backup cleanup reported a successful transaction'
+fi
+[ -f "${BACKUP_CLEANUP_SNAPSHOT}/cleanup.pending" ] || fail 'backup cleanup retry did not retain a cleanup-only marker'
+[ ! -e "${BACKUP_CLEANUP_SNAPSHOT}/restore.pending" ] || fail 'backup cleanup retry retained a rollback-pending marker'
+printf '%s\n' 'later ipset' >"${IPSET_FILE}" || fail 'could not create later IPSet state after cleanup retry'
+printf '%s\n' 'later yaml' >"${YAML_FILE}" || fail 'could not create later YAML state after cleanup retry'
+FINALIZE_REMOVE_FAIL='0'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'cleanup retry snapshot recovery did not complete'
+grep -qx 'later ipset' "${IPSET_FILE}" || fail 'cleanup retry snapshot overwrote later IPSet state'
+grep -qx 'later yaml' "${YAML_FILE}" || fail 'cleanup retry snapshot overwrote later YAML state'
 
 # A failed dnsmasq backup restore must retain the coupled backup and snapshot
 # without restoring IPSet or YAML over the still-published configuration.

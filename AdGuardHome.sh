@@ -1276,6 +1276,8 @@ dnsmasq_publish_staged_config() (
 				agh_log error dnsmasq_params "state=backup action=mark_cleanup result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 				if rm -rf "${IPSET_SNAPSHOT_DIR}"; then
 					SNAPSHOT_READY="0"
+				elif dnsmasq_ipset_state_mark_cleanup "${IPSET_SNAPSHOT_DIR}"; then
+					SNAPSHOT_READY="0"
 				else
 					agh_log error dnsmasq_params "state=backup action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 				fi
