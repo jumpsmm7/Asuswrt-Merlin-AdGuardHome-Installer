@@ -316,6 +316,14 @@ rm() {
 	command rm "$@"
 }
 
+# cp injects dnsmasq backup-copy failures and delegates all other copies to the system command.
+cp() {
+	if [ "${BACKUP_COPY_FAIL:-0}" = "1" ] && [ "${3:-}" = "${BACKUP_COPY_FAIL_FILE:-}" ]; then
+		return 1
+	fi
+	command cp "$@"
+}
+
 # private_ipv4_bridge_dns_options_with_fallbacks records the LAN interface and emits configured bridge DNS options, failing when fallback generation is unavailable.
 private_ipv4_bridge_dns_options_with_fallbacks() {
 	printf '%s\n' "$1" >>"${BRIDGE_FALLBACK_CALLS_FILE}"
@@ -351,6 +359,8 @@ reset_case() {
 	IPSET_REFRESH_FAIL='0'
 	IPSET_REFRESH_CHANGE='0'
 	MV_PUBLISH_FAIL='0'
+	BACKUP_COPY_FAIL='0'
+	BACKUP_COPY_FAIL_FILE=''
 	BACKUP_RESTORE_FAIL='0'
 	ASSOCIATION_CREATE_FAIL='0'
 	RESTORE_FAIL='0'
@@ -832,6 +842,27 @@ grep -qx '# base config' "${DNSMASQ_CONF_FILE}" || fail 'config association crea
 [ ! -e "${ASSOCIATION_FAIL_STAGE}" ] || fail 'config association creation failure retained its staged configuration'
 [ ! -e "${ASSOCIATION_FAIL_STAGE}.previous" ] || fail 'config association creation failure retained its backup'
 [ ! -e "${ASSOCIATION_FAIL_SNAPSHOT}" ] || fail 'config association creation failure retained its snapshot'
+
+# A failed dnsmasq backup copy finalizes the untouched IPSet/YAML snapshot so
+# later transactions cannot restore it over newer state.
+reset_case
+BACKUP_COPY_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.backup-copy-failure"
+BACKUP_COPY_STAGE="${DNSMASQ_CONF_FILE}.adguard.backup-copy-failure"
+BACKUP_COPY_FAIL_FILE="${BACKUP_COPY_STAGE}.previous"
+printf '%s\n' '# backup copy failure' >"${BACKUP_COPY_STAGE}" || fail 'could not stage backup-copy-failure fixture'
+BACKUP_COPY_FAIL='1'
+if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${BACKUP_COPY_STAGE}" "${BACKUP_COPY_SNAPSHOT}"; then
+	fail 'failed dnsmasq backup copy reported a successful transaction'
+fi
+[ ! -s "${IPSET_CALLS_FILE}" ] || fail 'failed dnsmasq backup copy allowed IPSet refresh'
+[ ! -e "${BACKUP_COPY_STAGE}" ] || fail 'failed dnsmasq backup copy retained its staged configuration'
+[ ! -e "${BACKUP_COPY_SNAPSHOT}/restore.pending" ] || fail 'failed dnsmasq backup copy retained a rollback-pending snapshot'
+printf '%s\n' 'later ipset' >"${IPSET_FILE}" || fail 'could not create later IPSet state'
+printf '%s\n' 'later yaml' >"${YAML_FILE}" || fail 'could not create later YAML state'
+BACKUP_COPY_FAIL='0'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'cleanup after failed dnsmasq backup copy did not complete'
+grep -qx 'later ipset' "${IPSET_FILE}" || fail 'stale backup-copy snapshot overwrote later IPSet state'
+grep -qx 'later yaml' "${YAML_FILE}" || fail 'stale backup-copy snapshot overwrote later YAML state'
 
 # A failed dnsmasq backup restore must retain the coupled backup and snapshot
 # without restoring IPSet or YAML over the still-published configuration.
