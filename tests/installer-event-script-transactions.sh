@@ -188,10 +188,33 @@ adguard_recover_after_event_hook_abort 1 || fail 'successful mode rollback recov
 grep -q 'Superseded event-hook rollback snapshot removed after mode rollback' "${TMP_DIR}/rollback-report" ||
 	fail 'mode rollback did not report successful aggregate snapshot cleanup'
 
+STOP_FAILURE_SNAPSHOT="${BASE_DIR}/stop-failure-aggregate"
+mkdir -p "${STOP_FAILURE_SNAPSHOT}" || fail 'could not create stop-failure aggregate snapshot fixture'
+printf '%s\n' 'retained recovery data' >"${STOP_FAILURE_SNAPSHOT}/dnsmasq.postconf"
+EVENT_SCRIPTS_ACTIVE_SNAPSHOT="${STOP_FAILURE_SNAPSHOT}"
+MODE_MIGRATION_YAML_FILE_BACKUP=""
+dns_restore_calls=0
+# agh_stop reports that the running installation could not be stopped.
+agh_stop() { return 1; }
+# nvram_transaction_lock_owned exposes a pending DNS/NVRAM recovery snapshot.
+nvram_transaction_lock_owned() { return 0; }
+# nvram_transaction_setup_committed reports that DNS/NVRAM restoration remains pending.
+nvram_transaction_setup_committed() { return 1; }
+# check_dns_environment records any unsafe attempt to restore DNS/NVRAM while the daemon is still running.
+check_dns_environment() { dns_restore_calls="$((dns_restore_calls + 1))"; }
+if adguard_recover_after_event_hook_abort 1 1; then
+	fail 'failed post-readiness service stop was reported as recovered'
+fi
+[ "${dns_restore_calls}" -eq 0 ] || fail 'failed service stop restored DNS/NVRAM while the installation was still running'
+[ "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}" = "${STOP_FAILURE_SNAPSHOT}" ] || fail 'failed service stop detached the recovery snapshot'
+[ -f "${STOP_FAILURE_SNAPSHOT}/dnsmasq.postconf" ] || fail 'failed service stop discarded the recovery snapshot'
+
 MODE_MIGRATION_YAML_FILE_BACKUP=""
 EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
 stop_calls=0
 restart_calls=0
+# nvram_transaction_lock_owned reports no pending DNS/NVRAM transaction for successful service recovery.
+nvram_transaction_lock_owned() { return 1; }
 # agh_stop records that the post-readiness daemon was stopped before recovery.
 agh_stop() { stop_calls="$((stop_calls + 1))"; }
 # adguard_restart_after_install_abort records service recovery after configuration rollback.
