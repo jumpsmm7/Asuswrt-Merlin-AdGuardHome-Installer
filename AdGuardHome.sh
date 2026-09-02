@@ -1008,7 +1008,7 @@ dnsmasq_ipset_state_snapshot() {
 
 # dnsmasq_ipset_state_mark_cleanup records that a committed or restored snapshot needs cleanup without making it eligible for rollback.
 dnsmasq_ipset_state_mark_cleanup() {
-	local CLEANUP_STAGE SNAPSHOT_DIR
+	local SNAPSHOT_DIR
 	SNAPSHOT_DIR="$1"
 	[ -d "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
 	if [ -e "${SNAPSHOT_DIR}/restore.pending" ]; then
@@ -1018,15 +1018,7 @@ dnsmasq_ipset_state_mark_cleanup() {
 	elif [ -e "${SNAPSHOT_DIR}/cleanup.pending" ]; then
 		[ -f "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
 	else
-		[ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
-		[ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
-		CLEANUP_STAGE="${SNAPSHOT_DIR}/cleanup.pending.$$"
-		[ ! -e "${CLEANUP_STAGE}" ] && [ ! -L "${CLEANUP_STAGE}" ] || return 1
-		(umask 077 && set -C && : >"${CLEANUP_STAGE}") || return 1
-		if ! mv "${CLEANUP_STAGE}" "${SNAPSHOT_DIR}/cleanup.pending"; then
-			rm -f "${CLEANUP_STAGE}"
-			return 1
-		fi
+		return 1
 	fi
 }
 
@@ -1050,7 +1042,11 @@ dnsmasq_ipset_state_recover_pending() {
 			fi
 			continue
 		fi
-		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || continue
+		if [ ! -e "${SNAPSHOT_DIR}/restore.pending" ]; then
+			agh_log error dnsmasq_params "state=recovery action=validate_snapshot result=failed reason=missing_marker snapshot=${SNAPSHOT_DIR}"
+			return 1
+		fi
+		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
 		if [ -e "${SNAPSHOT_DIR}/config.pending" ] || [ -e "${SNAPSHOT_DIR}/config.restored" ]; then
 			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || { [ -f "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ]; } || return 1
 			[ ! -e "${SNAPSHOT_DIR}/config.restored" ] || { [ -f "${SNAPSHOT_DIR}/config.restored" ] && [ ! -L "${SNAPSHOT_DIR}/config.restored" ]; } || return 1
