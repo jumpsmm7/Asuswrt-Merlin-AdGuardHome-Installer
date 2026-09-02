@@ -19,6 +19,8 @@ DNSMASQ_CONF_FILE="${TEST_ROOT}/dnsmasq.conf"
 DNSMASQ_SDN_CONF_FILE="${TEST_ROOT}/dnsmasq-1.conf"
 BRIDGE_FALLBACK_CALLS_FILE="${TEST_ROOT}/bridge-fallback-calls"
 MOUNT_CALLS_FILE="${TEST_ROOT}/mount-calls"
+MARK_CLEANUP_CALLS_FILE="${TEST_ROOT}/mark-cleanup-calls"
+MARK_CLEANUP_STATE_FILE="${TEST_ROOT}/mark-cleanup-state"
 first_pid=""
 second_pid=""
 
@@ -302,9 +304,14 @@ mv() {
 			"${IPSET_SNAPSHOT_DIR}/config.pending."*) return 1 ;;
 		esac
 	fi
-	if [ "${MARK_CLEANUP_FAIL_ONCE:-0}" = "1" ] && [ "${1:-}" = "${MARK_CLEANUP_FAIL_SNAPSHOT:-}/restore.pending" ]; then
-		MARK_CLEANUP_FAIL_ONCE='0'
-		return 1
+	if [ "${1:-}" = "${MARK_CLEANUP_FAIL_SNAPSHOT:-}/restore.pending" ]; then
+		printf '%s\n' attempt >>"${MARK_CLEANUP_CALLS_FILE}"
+		if [ "${MARK_CLEANUP_FAIL_ONCE:-0}" = "1" ]; then
+			MARK_CLEANUP_FAIL_ONCE='0'
+			printf '%s\n' "${MARK_CLEANUP_FAIL_ONCE}" >"${MARK_CLEANUP_STATE_FILE}"
+			return 1
+		fi
+		printf '%s\n' "${MARK_CLEANUP_FAIL_ONCE:-0}" >"${MARK_CLEANUP_STATE_FILE}"
 	fi
 	if [ "${MARK_CLEANUP_FAIL:-0}" = "1" ] && [ "${1:-}" = "${MARK_CLEANUP_FAIL_SNAPSHOT:-}/restore.pending" ]; then
 		return 1
@@ -345,6 +352,8 @@ reset_case() {
 	: >"${IPSET_CALLS_FILE}"
 	: >"${UMOUNT_CALLS_FILE}"
 	: >"${MOUNT_CALLS_FILE}"
+	: >"${MARK_CLEANUP_CALLS_FILE}"
+	: >"${MARK_CLEANUP_STATE_FILE}"
 	: >"${BRIDGE_FALLBACK_CALLS_FILE}"
 	rm -f "${MANAGED_IPSET_FILE}"
 	find "${TEST_ROOT}" -type d -name '.AdGuardHome.dnsmasq-ipset.*' -prune -exec /bin/rm -rf {} \; || fail 'could not remove leaked IPSET recovery snapshots'
@@ -874,6 +883,33 @@ BACKUP_COPY_FAIL='0'
 IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'cleanup after failed dnsmasq backup copy did not complete'
 grep -qx 'later ipset' "${IPSET_FILE}" || fail 'stale backup-copy snapshot overwrote later IPSet state'
 grep -qx 'later yaml' "${YAML_FILE}" || fail 'stale backup-copy snapshot overwrote later YAML state'
+
+# A transient restore-to-cleanup marker failure is retried when direct snapshot
+# removal also fails without removing the restore marker.
+reset_case
+BACKUP_MARK_RETRY_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.backup-mark-retry"
+BACKUP_MARK_RETRY_STAGE="${DNSMASQ_CONF_FILE}.adguard.backup-mark-retry"
+BACKUP_COPY_FAIL_FILE="${BACKUP_MARK_RETRY_STAGE}.previous"
+printf '%s\n' '# backup marker retry' >"${BACKUP_MARK_RETRY_STAGE}" || fail 'could not stage backup-marker-retry fixture'
+BACKUP_COPY_FAIL='1'
+MARK_CLEANUP_FAIL_ONCE='1'
+MARK_CLEANUP_FAIL_SNAPSHOT="${BACKUP_MARK_RETRY_SNAPSHOT}"
+FINALIZE_REMOVE_FAIL='1'
+FINALIZE_FAIL_SNAPSHOT="${BACKUP_MARK_RETRY_SNAPSHOT}"
+if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${BACKUP_MARK_RETRY_STAGE}" "${BACKUP_MARK_RETRY_SNAPSHOT}"; then
+	fail 'failed dnsmasq backup marker retry reported a successful transaction'
+fi
+[ "$(wc -l <"${MARK_CLEANUP_CALLS_FILE}")" -eq 2 ] || fail 'backup cleanup marker transition was not retried once'
+[ "$(cat "${MARK_CLEANUP_STATE_FILE}")" = '0' ] || fail 'one-time cleanup marker failure was not consumed'
+[ -f "${BACKUP_MARK_RETRY_SNAPSHOT}/cleanup.pending" ] || fail 'backup cleanup marker retry did not create cleanup.pending'
+[ ! -e "${BACKUP_MARK_RETRY_SNAPSHOT}/restore.pending" ] || fail 'backup cleanup marker retry retained restore.pending'
+printf '%s\n' 'later ipset' >"${IPSET_FILE}" || fail 'could not create later IPSet state after marker retry'
+printf '%s\n' 'later yaml' >"${YAML_FILE}" || fail 'could not create later YAML state after marker retry'
+FINALIZE_REMOVE_FAIL='0'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'cleanup-only marker retry snapshot recovery did not complete'
+[ ! -e "${BACKUP_MARK_RETRY_SNAPSHOT}" ] || fail 'cleanup-only marker retry snapshot was not removed'
+grep -qx 'later ipset' "${IPSET_FILE}" || fail 'marker retry recovery restored stale IPSet state'
+grep -qx 'later yaml' "${YAML_FILE}" || fail 'marker retry recovery restored stale YAML state'
 
 # A partially removed backup-copy snapshot must remain visibly incomplete
 # rather than being finalized without a valid cleanup marker.
