@@ -109,6 +109,7 @@ adguard_dnsmasq_running() { return 1; }
 
 dnsmasq_fallback_called=0
 dnsmasq_params() { dnsmasq_fallback_called=1; }
+# adguard_lan_mode enables LAN mode so the explicit dnsmasq fallback path is exercised.
 adguard_lan_mode() { return 0; }
 CONFIG_DNSMASQ_MODE='enabled'
 dnsmasq_action_handler "${missing_sdn}" || fail 'enabled dnsmasq mode fallback failed'

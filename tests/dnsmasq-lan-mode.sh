@@ -304,6 +304,16 @@ mv() {
 			"${IPSET_SNAPSHOT_DIR}/config.pending."*) return 1 ;;
 		esac
 	fi
+	if [ "${ASSOCIATION_TRANSITION_FAIL:-0}" = "1" ] &&
+		[ "${1:-}" = "${IPSET_SNAPSHOT_DIR:-}/cleanup.only" ] &&
+		[ "${2:-}" = "${IPSET_SNAPSHOT_DIR:-}/restore.pending" ]; then
+		return 1
+	fi
+	if [ "${CLEANUP_ONLY_CREATE_FAIL:-0}" = "1" ] && [ "${2:-}" = "${IPSET_SNAPSHOT_DIR:-}/cleanup.only" ]; then
+		case "${1:-}" in
+			"${IPSET_SNAPSHOT_DIR}/cleanup.only."*) return 1 ;;
+		esac
+	fi
 	if [ "${1:-}" = "${MARK_CLEANUP_FAIL_SNAPSHOT:-}/restore.pending" ]; then
 		printf '%s\n' attempt >>"${MARK_CLEANUP_CALLS_FILE}"
 		if [ "${MARK_CLEANUP_FAIL_ONCE:-0}" = "1" ]; then
@@ -321,8 +331,13 @@ mv() {
 
 # rm injects snapshot-finalization cleanup failures and delegates all other removals to the system command.
 rm() {
+	if [ "${RESTORE_MARKER_REMOVE_FAIL:-0}" = "1" ] && [ "${1:-}" = -f ] &&
+		[ "${2:-}" = "${RESTORE_MARKER_REMOVE_FAIL_SNAPSHOT:-}/restore.pending" ]; then
+		return 1
+	fi
 	if [ "${FINALIZE_REMOVE_PARTIAL_FAIL:-0}" = "1" ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${FINALIZE_FAIL_SNAPSHOT:-}" ]; then
-		command rm -f "${FINALIZE_FAIL_SNAPSHOT}/restore.pending"
+		command rm -f "${FINALIZE_FAIL_SNAPSHOT}/restore.pending" "${FINALIZE_FAIL_SNAPSHOT}/cleanup.only" \
+			"${FINALIZE_FAIL_SNAPSHOT}/cleanup.pending" "${FINALIZE_FAIL_SNAPSHOT}/snapshot.version"
 		return 1
 	fi
 	if [ "${FINALIZE_REMOVE_FAIL:-0}" = "1" ] && [ "${1:-}" = -rf ] && [ "${2:-}" = "${FINALIZE_FAIL_SNAPSHOT:-}" ]; then
@@ -787,6 +802,32 @@ dnsmasq_ipset_state_restore "${STOPPED_SNAPSHOT}" 0 || fail 'stopped-service sta
 grep -q '^restart$' "${IPSET_CALLS_FILE}" || fail 'stopped-service rollback did not reload a newly appearing process'
 rm -rf "${STOPPED_SNAPSHOT}" || fail 'could not clear stopped-service snapshot'
 
+# An interruption while the private snapshot stage contains only version data
+# cannot expose a markerless final snapshot to recovery.
+reset_case
+INTERRUPTED_SNAPSHOT_STAGE="${TEST_ROOT}/.AdGuardHome.dnsmasq-stage.interrupted"
+mkdir -m 700 "${INTERRUPTED_SNAPSHOT_STAGE}" || fail 'could not create interrupted snapshot stage'
+printf '%s\n' '1:2' >"${INTERRUPTED_SNAPSHOT_STAGE}/snapshot.version" || fail 'could not create interrupted snapshot version'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'private interrupted snapshot stage blocked recovery'
+[ -d "${INTERRUPTED_SNAPSHOT_STAGE}" ] || fail 'recovery treated private snapshot stage as a published snapshot'
+/bin/rm -rf "${INTERRUPTED_SNAPSHOT_STAGE}" || fail 'could not clear interrupted snapshot stage'
+
+# A snapshot published before configuration association is explicitly
+# cleanup-only, so recovery removes it without rolling back newer state.
+reset_case
+PREASSOCIATION_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.preassociation"
+printf '%s\n' 'preassociation ipset' >"${IPSET_FILE}" || fail 'could not create preassociation IPSet fixture'
+printf '%s\n' 'preassociation yaml' >"${YAML_FILE}" || fail 'could not create preassociation YAML fixture'
+dnsmasq_ipset_state_snapshot "${PREASSOCIATION_SNAPSHOT}" || fail 'could not create preassociation snapshot'
+[ -f "${PREASSOCIATION_SNAPSHOT}/cleanup.only" ] || fail 'preassociation snapshot lacks cleanup-only marker'
+[ ! -e "${PREASSOCIATION_SNAPSHOT}/restore.pending" ] || fail 'preassociation snapshot is rollback-eligible'
+printf '%s\n' 'newer preassociation ipset' >"${IPSET_FILE}" || fail 'could not replace preassociation IPSet fixture'
+printf '%s\n' 'newer preassociation yaml' >"${YAML_FILE}" || fail 'could not replace preassociation YAML fixture'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'preassociation snapshot recovery failed'
+[ ! -e "${PREASSOCIATION_SNAPSHOT}" ] || fail 'preassociation recovery retained its snapshot'
+grep -qx 'newer preassociation ipset' "${IPSET_FILE}" || fail 'preassociation recovery restored stale IPSet state'
+grep -qx 'newer preassociation yaml' "${YAML_FILE}" || fail 'preassociation recovery restored stale YAML state'
+
 # A pending restore journal left between IPSET and YAML publication is recovered
 # idempotently under the shared transaction lock before another transaction.
 reset_case
@@ -794,6 +835,8 @@ RECOVERY_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.recovery"
 printf '%s\n' 'snapshot ipset' >"${IPSET_FILE}" || fail 'could not create recovery IPSET fixture'
 printf '%s\n' 'snapshot yaml' >"${YAML_FILE}" || fail 'could not create recovery YAML fixture'
 dnsmasq_ipset_state_snapshot "${RECOVERY_SNAPSHOT}" || fail 'could not create pending recovery snapshot'
+[ -f "${RECOVERY_SNAPSHOT}/cleanup.only" ] || fail 'new recovery snapshot lacks its pre-association marker'
+mv "${RECOVERY_SNAPSHOT}/cleanup.only" "${RECOVERY_SNAPSHOT}/restore.pending" || fail 'could not make recovery snapshot rollback-eligible'
 [ -f "${RECOVERY_SNAPSHOT}/restore.pending" ] || fail 'pending recovery snapshot lacks its durable marker'
 RECOVERY_BACKUP="${TEST_ROOT}/recovery-config.previous"
 printf '%s\n' '# recovery config backup' >"${RECOVERY_BACKUP}" || fail 'could not create recovery config backup fixture'
@@ -807,6 +850,57 @@ grep -qx 'snapshot yaml' "${YAML_FILE}" || fail 'pending recovery did not restor
 [ ! -e "${RECOVERY_SNAPSHOT}" ] || fail 'completed recovery retained its snapshot'
 IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'repeated recovery was not idempotent'
 
+# Legacy restore-only snapshots predate dnsmasq configuration associations and
+# must continue to restore their saved IPSET and YAML state.
+reset_case
+LEGACY_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.legacy"
+printf '%s\n' 'legacy ipset' >"${IPSET_FILE}" || fail 'could not create legacy IPSET fixture'
+printf '%s\n' 'legacy yaml' >"${YAML_FILE}" || fail 'could not create legacy YAML fixture'
+dnsmasq_ipset_state_snapshot "${LEGACY_SNAPSHOT}" || fail 'could not create legacy recovery snapshot'
+rm -f "${LEGACY_SNAPSHOT}/snapshot.version" || fail 'could not remove the unsupported legacy version marker'
+mv "${LEGACY_SNAPSHOT}/cleanup.only" "${LEGACY_SNAPSHOT}/restore.pending" || fail 'could not create legacy restore marker'
+printf '%s\n' 'current ipset' >"${IPSET_FILE}" || fail 'could not create current IPSET fixture'
+printf '%s\n' 'current yaml' >"${YAML_FILE}" || fail 'could not create current YAML fixture'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'legacy restore-only snapshot recovery failed'
+grep -qx 'legacy ipset' "${IPSET_FILE}" || fail 'legacy recovery did not restore IPSET state'
+grep -qx 'legacy yaml' "${YAML_FILE}" || fail 'legacy recovery did not restore YAML state'
+[ ! -e "${LEGACY_SNAPSHOT}" ] || fail 'legacy recovery retained its snapshot'
+
+# Version 1-to-2 snapshots use explicit association or cleanup-only markers, so a
+# restore-only combination is rejected rather than interpreted as legacy.
+reset_case
+VERSIONED_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.versioned-restore-only"
+printf '%s\n' 'versioned snapshot ipset' >"${IPSET_FILE}" || fail 'could not create versioned IPSET fixture'
+printf '%s\n' 'versioned snapshot yaml' >"${YAML_FILE}" || fail 'could not create versioned YAML fixture'
+dnsmasq_ipset_state_snapshot "${VERSIONED_SNAPSHOT}" || fail 'could not create versioned recovery snapshot'
+mv "${VERSIONED_SNAPSHOT}/cleanup.only" "${VERSIONED_SNAPSHOT}/restore.pending" || fail 'could not create versioned restore-only marker'
+printf '%s\n' 'current ipset' >"${IPSET_FILE}" || fail 'could not replace versioned IPSET fixture'
+printf '%s\n' 'current yaml' >"${YAML_FILE}" || fail 'could not replace versioned YAML fixture'
+if IPSet_Lock dnsmasq_ipset_state_recover_pending; then
+	fail 'versioned restore-only snapshot was accepted without an explicit marker'
+fi
+grep -qx 'current ipset' "${IPSET_FILE}" || fail 'rejected versioned snapshot restored IPSET state'
+grep -qx 'current yaml' "${YAML_FILE}" || fail 'rejected versioned snapshot restored YAML state'
+[ -d "${VERSIONED_SNAPSHOT}" ] || fail 'rejected versioned snapshot was discarded'
+/bin/rm -rf "${VERSIONED_SNAPSHOT}" || fail 'could not remove rejected versioned snapshot fixture'
+
+# Version metadata must contain exactly one newline-terminated 1:2 line.
+for malformed_version in second_line unterminated_second empty_second unterminated_first; do
+	MALFORMED_VERSION_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.version-${malformed_version}"
+	dnsmasq_ipset_state_snapshot "${MALFORMED_VERSION_SNAPSHOT}" || fail "could not create ${malformed_version} version snapshot"
+	case "${malformed_version}" in
+		second_line) printf '1:2\njunk\n' >"${MALFORMED_VERSION_SNAPSHOT}/snapshot.version" ;;
+		unterminated_second) printf '1:2\njunk' >"${MALFORMED_VERSION_SNAPSHOT}/snapshot.version" ;;
+		empty_second) printf '1:2\n\n' >"${MALFORMED_VERSION_SNAPSHOT}/snapshot.version" ;;
+		unterminated_first) printf '1:2' >"${MALFORMED_VERSION_SNAPSHOT}/snapshot.version" ;;
+	esac
+	if IPSet_Lock dnsmasq_ipset_state_recover_pending; then
+		fail "${malformed_version} snapshot version was accepted"
+	fi
+	[ -d "${MALFORMED_VERSION_SNAPSHOT}" ] || fail "${malformed_version} snapshot was deleted"
+	/bin/rm -rf "${MALFORMED_VERSION_SNAPSHOT}" || fail "could not remove ${malformed_version} version snapshot"
+done
+
 # A committed snapshot whose recursive cleanup fails is marked cleanup-only,
 # then removed by the next lock holder without rolling back published state.
 reset_case
@@ -816,7 +910,7 @@ printf '%s\n' '# committed config' >"${FINALIZE_STAGE}" || fail 'could not stage
 printf '%s\n' 'committed ipset' >"${IPSET_FILE}" || fail 'could not create cleanup-retry IPSET fixture'
 printf '%s\n' 'committed yaml' >"${YAML_FILE}" || fail 'could not create cleanup-retry YAML fixture'
 FINALIZE_FAIL_SNAPSHOT="${FINALIZE_SNAPSHOT}"
-FINALIZE_REMOVE_FAIL='1'
+FINALIZE_REMOVE_PARTIAL_FAIL='1'
 dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${FINALIZE_STAGE}" "${FINALIZE_SNAPSHOT}" || fail 'published transaction failed when only snapshot cleanup failed'
 [ -f "${FINALIZE_SNAPSHOT}/cleanup.pending" ] || fail 'failed snapshot cleanup did not retain its cleanup-only marker'
 [ ! -e "${FINALIZE_SNAPSHOT}/restore.pending" ] || fail 'committed snapshot remained eligible for rollback after cleanup failure'
@@ -825,7 +919,7 @@ if IPSet_Lock dnsmasq_ipset_state_recover_pending; then
 fi
 grep -q "state=recovery action=cleanup_snapshot result=failed snapshot=${FINALIZE_SNAPSHOT}" "${LOG_FILE}" ||
 	fail 'failed cleanup retry did not identify the retained snapshot'
-FINALIZE_REMOVE_FAIL='0'
+FINALIZE_REMOVE_PARTIAL_FAIL='0'
 IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'next transaction did not retry committed snapshot cleanup'
 [ ! -e "${FINALIZE_SNAPSHOT}" ] || fail 'retried committed snapshot cleanup retained its directory'
 grep -qx 'committed ipset' "${IPSET_FILE}" || fail 'cleanup retry rolled back committed IPSET state'
@@ -867,6 +961,27 @@ grep -qx '# base config' "${DNSMASQ_CONF_FILE}" || fail 'config association crea
 [ ! -e "${ASSOCIATION_FAIL_STAGE}.previous" ] || fail 'config association creation failure retained its backup'
 [ ! -e "${ASSOCIATION_FAIL_SNAPSHOT}" ] || fail 'config association creation failure retained its snapshot'
 
+# An interruption after config.pending publication but before rollback-marker
+# activation remains cleanup-only and never reaches IPSet refresh.
+reset_case
+ASSOCIATION_TRANSITION_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.association-transition"
+ASSOCIATION_TRANSITION_STAGE="${DNSMASQ_CONF_FILE}.adguard.association-transition"
+printf '%s\n' '# association transition failure' >"${ASSOCIATION_TRANSITION_STAGE}" || fail 'could not stage association-transition fixture'
+ASSOCIATION_TRANSITION_FAIL='1'
+FINALIZE_REMOVE_FAIL='1'
+FINALIZE_FAIL_SNAPSHOT="${ASSOCIATION_TRANSITION_SNAPSHOT}"
+if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${ASSOCIATION_TRANSITION_STAGE}" "${ASSOCIATION_TRANSITION_SNAPSHOT}"; then
+	fail 'association marker transition failure reported success'
+fi
+[ ! -s "${IPSET_CALLS_FILE}" ] || fail 'association marker transition failure allowed IPSet refresh'
+[ -f "${ASSOCIATION_TRANSITION_SNAPSHOT}/cleanup.only" ] || fail 'association transition failure lost cleanup-only marker'
+[ -f "${ASSOCIATION_TRANSITION_SNAPSHOT}/config.pending" ] || fail 'association transition failure lost its durable association'
+[ ! -e "${ASSOCIATION_TRANSITION_SNAPSHOT}/restore.pending" ] || fail 'association transition failure became rollback-eligible'
+ASSOCIATION_TRANSITION_FAIL='0'
+FINALIZE_REMOVE_FAIL='0'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'association transition snapshot recovery failed'
+[ ! -e "${ASSOCIATION_TRANSITION_SNAPSHOT}" ] || fail 'association transition recovery retained its snapshot'
+
 # A failed dnsmasq backup copy finalizes the untouched IPSet/YAML snapshot so
 # later transactions cannot restore it over newer state.
 reset_case
@@ -888,8 +1003,8 @@ IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'cleanup after failed dns
 grep -qx 'later ipset' "${IPSET_FILE}" || fail 'stale backup-copy snapshot overwrote later IPSet state'
 grep -qx 'later yaml' "${YAML_FILE}" || fail 'stale backup-copy snapshot overwrote later YAML state'
 
-# If backup-copy cleanup cannot mark or remove an untouched snapshot, later
-# recovery removes it without restoring stale IPSET or YAML state.
+# If backup-copy cleanup cannot remove an untouched snapshot, its explicit
+# cleanup-only marker prevents later recovery from restoring stale state.
 reset_case
 BACKUP_CLEANUP_ONLY_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.backup-cleanup-only"
 BACKUP_CLEANUP_ONLY_STAGE="${DNSMASQ_CONF_FILE}.adguard.backup-cleanup-only"
@@ -903,73 +1018,88 @@ FINALIZE_FAIL_SNAPSHOT="${BACKUP_CLEANUP_ONLY_SNAPSHOT}"
 if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${BACKUP_CLEANUP_ONLY_STAGE}" "${BACKUP_CLEANUP_ONLY_SNAPSHOT}"; then
 	fail 'failed dnsmasq backup cleanup-only transaction reported success'
 fi
-[ -f "${BACKUP_CLEANUP_ONLY_SNAPSHOT}/restore.pending" ] || fail 'failed backup cleanup did not retain its recovery marker'
+[ ! -e "${BACKUP_CLEANUP_ONLY_SNAPSHOT}/restore.pending" ] || fail 'failed backup cleanup retained its rollback marker'
+[ -f "${BACKUP_CLEANUP_ONLY_SNAPSHOT}/cleanup.only" ] || fail 'failed backup cleanup did not retain its cleanup-only marker'
+[ "$(cat "${BACKUP_CLEANUP_ONLY_SNAPSHOT}/snapshot.version")" = '1:2' ] || fail 'failed backup cleanup did not retain its version transition'
+[ ! -s "${MARK_CLEANUP_CALLS_FILE}" ] || fail 'versioned cleanup-only marker did not take priority over compatible cleanup handling'
 [ ! -e "${BACKUP_CLEANUP_ONLY_SNAPSHOT}/config.pending" ] || fail 'failed backup copy created a pending config association'
 [ ! -e "${BACKUP_CLEANUP_ONLY_SNAPSHOT}/config.restored" ] || fail 'failed backup copy created a restored config association'
 printf '%s\n' 'newer ipset' >"${IPSET_FILE}" || fail 'could not create newer IPSET state'
 printf '%s\n' 'newer yaml' >"${YAML_FILE}" || fail 'could not create newer YAML state'
 BACKUP_COPY_FAIL='0'
 MARK_CLEANUP_FAIL='0'
+if IPSet_Lock dnsmasq_ipset_state_recover_pending; then
+	fail 'cleanup-only snapshot recovery ignored a cleanup failure'
+fi
+[ -d "${BACKUP_CLEANUP_ONLY_SNAPSHOT}" ] || fail 'failed cleanup-only recovery discarded its snapshot'
+grep -qx 'newer ipset' "${IPSET_FILE}" || fail 'failed cleanup-only recovery overwrote newer IPSET state'
+grep -qx 'newer yaml' "${YAML_FILE}" || fail 'failed cleanup-only recovery overwrote newer YAML state'
 FINALIZE_REMOVE_FAIL='0'
 IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'cleanup-only restore marker recovery did not complete'
 [ ! -e "${BACKUP_CLEANUP_ONLY_SNAPSHOT}" ] || fail 'cleanup-only restore marker snapshot was retained'
 grep -qx 'newer ipset' "${IPSET_FILE}" || fail 'cleanup-only recovery overwrote newer IPSET state'
 grep -qx 'newer yaml' "${YAML_FILE}" || fail 'cleanup-only recovery overwrote newer YAML state'
 
-# A transient restore-to-cleanup marker failure is retried when direct snapshot
-# removal also fails without removing the restore marker.
+# A signal can transition restore.pending to cleanup.pending after cleanup.only
+# is published; recovery must treat both validated cleanup markers as cleanup.
 reset_case
-BACKUP_MARK_RETRY_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.backup-mark-retry"
-BACKUP_MARK_RETRY_STAGE="${DNSMASQ_CONF_FILE}.adguard.backup-mark-retry"
-BACKUP_COPY_FAIL_FILE="${BACKUP_MARK_RETRY_STAGE}.previous"
-printf '%s\n' '# backup marker retry' >"${BACKUP_MARK_RETRY_STAGE}" || fail 'could not stage backup-marker-retry fixture'
-BACKUP_COPY_FAIL='1'
-MARK_CLEANUP_FAIL_ONCE='1'
-MARK_CLEANUP_FAIL_SNAPSHOT="${BACKUP_MARK_RETRY_SNAPSHOT}"
+CONFLICTING_CLEANUP_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.conflicting-cleanup"
+dnsmasq_ipset_state_snapshot "${CONFLICTING_CLEANUP_SNAPSHOT}" || fail 'could not create conflicting cleanup snapshot'
+: >"${CONFLICTING_CLEANUP_SNAPSHOT}/restore.pending" || fail 'could not create signal-window restore marker'
+dnsmasq_ipset_state_mark_cleanup "${CONFLICTING_CLEANUP_SNAPSHOT}" || fail 'could not simulate signal cleanup transition'
+printf '%s\n' 'signal race ipset' >"${IPSET_FILE}" || fail 'could not create signal-race IPSet state'
+printf '%s\n' 'signal race yaml' >"${YAML_FILE}" || fail 'could not create signal-race YAML state'
 FINALIZE_REMOVE_FAIL='1'
-FINALIZE_FAIL_SNAPSHOT="${BACKUP_MARK_RETRY_SNAPSHOT}"
-if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${BACKUP_MARK_RETRY_STAGE}" "${BACKUP_MARK_RETRY_SNAPSHOT}"; then
-	fail 'failed dnsmasq backup marker retry reported a successful transaction'
+FINALIZE_FAIL_SNAPSHOT="${CONFLICTING_CLEANUP_SNAPSHOT}"
+if IPSet_Lock dnsmasq_ipset_state_recover_pending; then
+	fail 'conflicting cleanup marker recovery ignored a cleanup failure'
 fi
-[ "$(wc -l <"${MARK_CLEANUP_CALLS_FILE}")" -eq 2 ] || fail 'backup cleanup marker transition was not retried once'
-[ "$(cat "${MARK_CLEANUP_STATE_FILE}")" = '0' ] || fail 'one-time cleanup marker failure was not consumed'
-[ -f "${BACKUP_MARK_RETRY_SNAPSHOT}/cleanup.pending" ] || fail 'backup cleanup marker retry did not create cleanup.pending'
-[ ! -e "${BACKUP_MARK_RETRY_SNAPSHOT}/restore.pending" ] || fail 'backup cleanup marker retry retained restore.pending'
-printf '%s\n' 'later ipset' >"${IPSET_FILE}" || fail 'could not create later IPSet state after marker retry'
-printf '%s\n' 'later yaml' >"${YAML_FILE}" || fail 'could not create later YAML state after marker retry'
+[ -f "${CONFLICTING_CLEANUP_SNAPSHOT}/cleanup.only" ] || fail 'failed conflicting-marker cleanup discarded cleanup.only'
+[ -f "${CONFLICTING_CLEANUP_SNAPSHOT}/cleanup.pending" ] || fail 'failed conflicting-marker cleanup discarded cleanup.pending'
 FINALIZE_REMOVE_FAIL='0'
-IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'cleanup-only marker retry snapshot recovery did not complete'
-[ ! -e "${BACKUP_MARK_RETRY_SNAPSHOT}" ] || fail 'cleanup-only marker retry snapshot was not removed'
-grep -qx 'later ipset' "${IPSET_FILE}" || fail 'marker retry recovery restored stale IPSet state'
-grep -qx 'later yaml' "${YAML_FILE}" || fail 'marker retry recovery restored stale YAML state'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'conflicting cleanup marker recovery did not retry cleanup'
+[ ! -e "${CONFLICTING_CLEANUP_SNAPSHOT}" ] || fail 'conflicting cleanup marker snapshot was retained'
+grep -qx 'signal race ipset' "${IPSET_FILE}" || fail 'conflicting cleanup recovery overwrote newer IPSet state'
+grep -qx 'signal race yaml' "${YAML_FILE}" || fail 'conflicting cleanup recovery overwrote newer YAML state'
 
-# A partially removed backup-copy snapshot must remain visibly incomplete
-# rather than being finalized without a valid cleanup marker.
+# Publishing cleanup.only is not reported as a complete transition when
+# restore.pending removal fails; the retained markers remain cleanup-safe.
+reset_case
+REMOVE_MARKER_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.remove-marker-failure"
+dnsmasq_ipset_state_snapshot "${REMOVE_MARKER_SNAPSHOT}" || fail 'could not create marker-removal snapshot'
+: >"${REMOVE_MARKER_SNAPSHOT}/restore.pending" || fail 'could not create marker-removal restore marker'
+RESTORE_MARKER_REMOVE_FAIL='1'
+RESTORE_MARKER_REMOVE_FAIL_SNAPSHOT="${REMOVE_MARKER_SNAPSHOT}"
+if dnsmasq_ipset_state_mark_cleanup_only "${REMOVE_MARKER_SNAPSHOT}"; then
+	fail 'cleanup-only transition ignored restore marker removal failure'
+fi
+[ -f "${REMOVE_MARKER_SNAPSHOT}/cleanup.only" ] || fail 'failed marker removal lost cleanup-only marker'
+[ -f "${REMOVE_MARKER_SNAPSHOT}/restore.pending" ] || fail 'failed marker removal unexpectedly removed restore marker'
+RESTORE_MARKER_REMOVE_FAIL='0'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'marker-removal failure snapshot was not recoverable'
+[ ! -e "${REMOVE_MARKER_SNAPSHOT}" ] || fail 'marker-removal failure recovery retained its snapshot'
+
+# A partially removed backup-copy snapshot has its cleanup-only marker and
+# version recreated so the next recovery can retry without restoring state.
 reset_case
 BACKUP_CLEANUP_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.backup-cleanup-failure"
 BACKUP_CLEANUP_STAGE="${DNSMASQ_CONF_FILE}.adguard.backup-cleanup-failure"
 BACKUP_COPY_FAIL_FILE="${BACKUP_CLEANUP_STAGE}.previous"
 printf '%s\n' '# backup cleanup failure' >"${BACKUP_CLEANUP_STAGE}" || fail 'could not stage backup-cleanup-failure fixture'
 BACKUP_COPY_FAIL='1'
-MARK_CLEANUP_FAIL_ONCE='1'
-MARK_CLEANUP_FAIL_SNAPSHOT="${BACKUP_CLEANUP_SNAPSHOT}"
 FINALIZE_REMOVE_PARTIAL_FAIL='1'
 FINALIZE_FAIL_SNAPSHOT="${BACKUP_CLEANUP_SNAPSHOT}"
 if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${BACKUP_CLEANUP_STAGE}" "${BACKUP_CLEANUP_SNAPSHOT}"; then
 	fail 'failed dnsmasq backup cleanup reported a successful transaction'
 fi
 [ -d "${BACKUP_CLEANUP_SNAPSHOT}" ] || fail 'partial backup cleanup did not retain its incomplete snapshot'
-[ ! -e "${BACKUP_CLEANUP_SNAPSHOT}/cleanup.pending" ] || fail 'partial backup cleanup created a cleanup marker without a valid transition'
+[ -f "${BACKUP_CLEANUP_SNAPSHOT}/cleanup.only" ] || fail 'partial backup cleanup did not recreate cleanup.only'
+[ "$(cat "${BACKUP_CLEANUP_SNAPSHOT}/snapshot.version")" = '1:2' ] || fail 'partial backup cleanup did not recreate its version'
 [ ! -e "${BACKUP_CLEANUP_SNAPSHOT}/restore.pending" ] || fail 'partial backup cleanup retained its removed restore marker'
-if IPSet_Lock dnsmasq_ipset_state_recover_pending; then
-	fail 'recovery silently accepted a markerless snapshot'
-fi
-grep -q "state=recovery action=validate_snapshot result=failed reason=missing_marker snapshot=${BACKUP_CLEANUP_SNAPSHOT}" "${LOG_FILE}" ||
-	fail 'recovery did not identify the markerless snapshot'
 FINALIZE_REMOVE_PARTIAL_FAIL='0'
-/bin/rm -rf "${BACKUP_CLEANUP_SNAPSHOT}" || fail 'could not handle the incomplete snapshot'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'recovery did not remove the partially cleaned snapshot'
+[ ! -e "${BACKUP_CLEANUP_SNAPSHOT}" ] || fail 'partial cleanup recovery retained its snapshot'
 BACKUP_COPY_FAIL='0'
-MARK_CLEANUP_FAIL_ONCE='0'
 printf '%s\n' '# transaction after incomplete cleanup' >"${BACKUP_CLEANUP_STAGE}" || fail 'could not stage transaction after incomplete cleanup'
 dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${BACKUP_CLEANUP_STAGE}" "${BACKUP_CLEANUP_SNAPSHOT}" ||
 	fail 'transaction after handling incomplete snapshot did not succeed'
@@ -1033,6 +1163,7 @@ DANGLING_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.dangling-association"
 printf '%s\n' 'snapshot ipset' >"${IPSET_FILE}" || fail 'could not create dangling-association IPSET snapshot fixture'
 printf '%s\n' 'snapshot yaml' >"${YAML_FILE}" || fail 'could not create dangling-association YAML snapshot fixture'
 dnsmasq_ipset_state_snapshot "${DANGLING_SNAPSHOT}" || fail 'could not create dangling-association snapshot'
+mv "${DANGLING_SNAPSHOT}/cleanup.only" "${DANGLING_SNAPSHOT}/restore.pending" || fail 'could not make dangling snapshot rollback-eligible'
 ln -s "${TEST_ROOT}/missing-config-association" "${DANGLING_SNAPSHOT}/config.pending" ||
 	fail 'could not create dangling config.pending fixture'
 DANGLING_BACKUP="${TEST_ROOT}/dangling-config.previous"
@@ -1055,6 +1186,7 @@ DANGLING_RESTORED_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.dangling-res
 printf '%s\n' 'restored snapshot ipset' >"${IPSET_FILE}" || fail 'could not create dangling-restored IPSET snapshot fixture'
 printf '%s\n' 'restored snapshot yaml' >"${YAML_FILE}" || fail 'could not create dangling-restored YAML snapshot fixture'
 dnsmasq_ipset_state_snapshot "${DANGLING_RESTORED_SNAPSHOT}" || fail 'could not create dangling-restored snapshot'
+mv "${DANGLING_RESTORED_SNAPSHOT}/cleanup.only" "${DANGLING_RESTORED_SNAPSHOT}/restore.pending" || fail 'could not make dangling-restored snapshot rollback-eligible'
 ln -s "${TEST_ROOT}/missing-restored-config-association" "${DANGLING_RESTORED_SNAPSHOT}/config.restored" ||
 	fail 'could not create dangling config.restored fixture'
 printf '%s\n' 'restored live ipset' >"${IPSET_FILE}" || fail 'could not create dangling-restored live IPSET fixture'
@@ -1075,6 +1207,7 @@ COMPENSATION_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.compensation"
 printf '%s\n' 'snapshot ipset' >"${IPSET_FILE}" || fail 'could not create compensation IPSET fixture'
 printf '%s\n' 'snapshot yaml' >"${YAML_FILE}" || fail 'could not create compensation YAML fixture'
 dnsmasq_ipset_state_snapshot "${COMPENSATION_SNAPSHOT}" || fail 'could not create compensation snapshot'
+mv "${COMPENSATION_SNAPSHOT}/cleanup.only" "${COMPENSATION_SNAPSHOT}/restore.pending" || fail 'could not make compensation snapshot rollback-eligible'
 COMPENSATION_BACKUP="${TEST_ROOT}/compensation-config.previous"
 printf '%s\n' '# compensation config backup' >"${COMPENSATION_BACKUP}" || fail 'could not create compensation config backup'
 printf '%s\n%s\n' "${COMPENSATION_BACKUP}" "${DNSMASQ_CONF_FILE}" >"${COMPENSATION_SNAPSHOT}/config.restored" ||
