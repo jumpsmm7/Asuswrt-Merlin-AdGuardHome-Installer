@@ -316,8 +316,13 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 	printf '%s\n' 'ADGUARD_DNSMASQ_MODE="disabled"' >"${CONF_FILE}"
 	printf '%s\n' 'original working YAML' >"${YAML_FILE}"
 	printf '%s\n' 'original source YAML' >"${YAML_ORI}"
-	sed -n '/^event_scripts_snapshot() {$/,/^init_event_scripts_snapshot() {$/p' "${SCRIPT_PATH}" |
-		sed '$d' >"${LAN_ROLLBACK_ROOT}/helpers.part"
+	grep -q '^init_event_scripts_snapshot() {$' "${SCRIPT_PATH}" || fail 'LAN aggregate helper extraction boundary is missing'
+	sed -n '/^event_scripts_snapshot() {$/,/^init_event_scripts_snapshot() {$/p' "${SCRIPT_PATH}" >"${LAN_ROLLBACK_ROOT}/helpers.range" ||
+		fail 'LAN aggregate helper extraction failed'
+	tail -n 1 "${LAN_ROLLBACK_ROOT}/helpers.range" | grep -q '^init_event_scripts_snapshot() {$' ||
+		fail 'LAN aggregate helper extraction did not end at its boundary'
+	sed '$d' "${LAN_ROLLBACK_ROOT}/helpers.range" >"${LAN_ROLLBACK_ROOT}/helpers.part" ||
+		fail 'LAN aggregate helper boundary removal failed'
 	sed "s|/jffs/scripts|${LAN_ROLLBACK_ROOT}/jffs/scripts|g" "${LAN_ROLLBACK_ROOT}/helpers.part" >"${LAN_ROLLBACK_ROOT}/helpers"
 	. "${LAN_ROLLBACK_ROOT}/helpers"
 	type all_event_scripts_snapshot >/dev/null 2>&1 || fail 'LAN aggregate snapshot helper extraction failed'

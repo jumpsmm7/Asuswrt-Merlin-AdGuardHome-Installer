@@ -50,6 +50,20 @@ adguard_ipset_allowed || fail 'conf_value fallback should allow IPSET for persis
 WAN_NAT_ACTIVE=0
 
 unset ADGUARD_INSTALL_MODE
+TEST_CONF_INSTALL_MODE='ap'
+WAN_NAT_ACTIVE=1
+adguard_ipset_allowed || fail 'conf_value fallback should allow IPSET for persisted AP mode with WAN NAT state'
+WAN_NAT_ACTIVE=0
+! adguard_ipset_allowed || fail 'conf_value fallback should refuse IPSET for persisted AP mode without WAN NAT state'
+
+unset ADGUARD_INSTALL_MODE
+TEST_CONF_INSTALL_MODE='bridge'
+WAN_NAT_ACTIVE=1
+adguard_ipset_allowed || fail 'conf_value fallback should allow IPSET for persisted bridge mode with WAN NAT state'
+WAN_NAT_ACTIVE=0
+! adguard_ipset_allowed || fail 'conf_value fallback should refuse IPSET for persisted bridge mode without WAN NAT state'
+
+unset ADGUARD_INSTALL_MODE
 TEST_CONF_INSTALL_MODE='wan'
 adguard_ipset_allowed || fail 'conf_value fallback should allow IPSET when persisted mode is wan'
 

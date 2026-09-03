@@ -272,6 +272,7 @@ run_uninstall_test() (
 	INITIAL_RUNNING="${6:-1}"
 	DOMAIN_ENABLED="${7:-0}"
 	SNAPSHOT_STATUS="${8:-0}"
+	STOP_STATUS="${9:-0}"
 	mkdir -p "${TARG_DIR}" "${BASE_DIR}" "${HOME}" "${ADDON_DIR}" "${HOOK_DIR}" ||
 		fail 'could not create uninstall fixture directories'
 	for hook in dnsmasq init services firewall; do
@@ -309,8 +310,11 @@ EOF
 	nvram_transaction_finalize_setup_pair() { return 0; }
 	# agh_is_running reports whether the service was initially running.
 	agh_is_running() { [ "${INITIAL_RUNNING}" = "1" ]; }
-	# agh_stop records a service stop event in the test event log.
-	agh_stop() { printf '%s\n' stop >>"${EVENTS_FILE}"; }
+	# agh_stop records a service stop event and returns the configured stop result.
+	agh_stop() {
+		printf '%s\n' stop >>"${EVENTS_FILE}"
+		return "${STOP_STATUS}"
+	}
 	# agh_start records a service start event and returns the configured start result.
 	agh_start() {
 		printf '%s\n' start >>"${EVENTS_FILE}"
@@ -389,6 +393,11 @@ run_uninstall_test restart-failure 1 1 && fail 'restore and restart failures did
 [ -d "${TMP_ROOT}/uninstall-restart-failure" ] || fail 'restart failure removed retained installation path'
 [ "$(sed -n '3p' "${TMP_ROOT}/events-restart-failure")" = 'ERROR Unable to restore installer-managed kernel settings.' ] || fail 'restart failure obscured restoration error'
 [ "$(sed -n '4p' "${TMP_ROOT}/events-restart-failure")" = start ] || fail 'restart failure was not exercised'
+run_uninstall_test stop-failure 0 0 usable 0 1 1 0 1 && fail 'service stop failure did not abort uninstall'
+grep -qx stop "${TMP_ROOT}/events-stop-failure" || fail 'service stop failure was not exercised'
+[ -d "${TMP_ROOT}/uninstall-stop-failure" ] || fail 'service stop failure removed the installation path'
+! grep -qx remove "${TMP_ROOT}/events-stop-failure" || fail 'service stop failure removed installation files'
+grep -qx domain-restore "${TMP_ROOT}/events-stop-failure" || fail 'service stop failure did not restore the LAN domain'
 run_uninstall_test stopped-hook-failure 0 0 usable 1 0 && fail 'stopped-service event-hook removal failure did not abort uninstall'
 ! grep -qx start "${TMP_ROOT}/events-stopped-hook-failure" || fail 'stopped service was restarted after uninstall rollback'
 [ -d "${TMP_ROOT}/uninstall-stopped-hook-failure" ] || fail 'stopped-service rollback removed recoverable installation files'

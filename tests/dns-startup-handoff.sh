@@ -95,8 +95,8 @@ missing_sdn="adguardhome-missing-$$"
 missing_config="/etc/dnsmasq-${missing_sdn}.conf"
 missing_stage="${missing_config}.adguard.$$"
 [ ! -e "${missing_config}" ] || fail 'missing-configuration fixture unexpectedly exists'
-# The LAN skip branch returns before dnsmasq_params runs.
-dnsmasq_action_handler "${missing_sdn}" || fail 'LAN-mode dnsmasq action was not skipped successfully'
+# The non-LAN path reaches dnsmasq_params, where a missing configuration must be ignored safely.
+dnsmasq_action_handler "${missing_sdn}" || fail 'non-LAN missing dnsmasq configuration was not handled successfully'
 [ ! -e "${missing_config}" ] || fail 'missing dnsmasq configuration was created'
 [ ! -e "${missing_stage}" ] || fail 'missing dnsmasq stage file was created'
 
@@ -109,6 +109,8 @@ adguard_dnsmasq_running() { return 1; }
 
 dnsmasq_fallback_called=0
 dnsmasq_params() { dnsmasq_fallback_called=1; }
+# adguard_lan_mode enables LAN mode so the explicit dnsmasq fallback path is exercised.
+adguard_lan_mode() { return 0; }
 CONFIG_DNSMASQ_MODE='enabled'
 dnsmasq_action_handler "${missing_sdn}" || fail 'enabled dnsmasq mode fallback failed'
 [ "${dnsmasq_fallback_called}" -eq 1 ] || fail 'enabled dnsmasq mode did not fall back to dnsmasq_params'

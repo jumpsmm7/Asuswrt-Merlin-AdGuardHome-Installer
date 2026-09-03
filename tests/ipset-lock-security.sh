@@ -292,6 +292,9 @@ if [ "${HAS_FLOCK}" -eq 1 ]; then
 	IPSet_Lock lock_dnsmasq_skip_action || fail 'could not suppress deferred dnsmasq restart with flock'
 	[ ! -f "${TEST_ROOT}/dnsmasq-restarted" ] || fail 'flock path ignored dnsmasq restart suppression after unlock'
 	unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+	rm -f "${TEST_ROOT}/called"
+	IPSet_Lock nested_lock_action || fail 'nested flock IPSET lock reuse failed'
+	[ "$(cat "${TEST_ROOT}/called")" = called ] || fail 'nested flock locked action did not run'
 	run_interrupt_test flock
 	run_trap_test flock
 fi
