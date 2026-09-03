@@ -1000,6 +1000,10 @@ dnsmasq_ipset_state_snapshot() {
 			return 1
 		}
 	fi
+	printf '%s\n' '1:2' >"${SNAPSHOT_DIR}/snapshot.version" || {
+		rm -rf "${SNAPSHOT_DIR}"
+		return 1
+	}
 	: >"${SNAPSHOT_DIR}/restore.pending" || {
 		rm -rf "${SNAPSHOT_DIR}"
 		return 1
@@ -1022,9 +1026,27 @@ dnsmasq_ipset_state_mark_cleanup() {
 	fi
 }
 
+# dnsmasq_ipset_state_mark_cleanup_only marks a versioned, unassociated snapshot for cleanup without making it eligible for rollback.
+dnsmasq_ipset_state_mark_cleanup_only() {
+	local CLEANUP_ONLY_STAGE SNAPSHOT_DIR
+	SNAPSHOT_DIR="$1"
+	[ -d "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
+	[ -f "${SNAPSHOT_DIR}/snapshot.version" ] && [ ! -L "${SNAPSHOT_DIR}/snapshot.version" ] || return 1
+	[ "$(cat "${SNAPSHOT_DIR}/snapshot.version")" = "1:2" ] || return 1
+	[ ! -e "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ] || return 1
+	[ ! -e "${SNAPSHOT_DIR}/config.restored" ] && [ ! -L "${SNAPSHOT_DIR}/config.restored" ] || return 1
+	CLEANUP_ONLY_STAGE="${SNAPSHOT_DIR}/cleanup.only.$$"
+	: >"${CLEANUP_ONLY_STAGE}" || return 1
+	mv "${CLEANUP_ONLY_STAGE}" "${SNAPSHOT_DIR}/cleanup.only" || {
+		rm -f "${CLEANUP_ONLY_STAGE}"
+		return 1
+	}
+	rm -f "${SNAPSHOT_DIR}/restore.pending"
+}
+
 # dnsmasq_ipset_state_recover_pending restores rollback-pending snapshots and removes cleanup-pending committed snapshots.
 dnsmasq_ipset_state_recover_pending() {
-	local CONFIG_BACKUP_RECOVERY CONFIG_FILE_RECOVERY CONFIG_RESTORE_STAGE SNAPSHOT_DIR SNAPSHOT_NAME
+	local CONFIG_BACKUP_RECOVERY CONFIG_FILE_RECOVERY CONFIG_RESTORE_STAGE SNAPSHOT_DIR SNAPSHOT_NAME SNAPSHOT_VERSION SNAPSHOT_VERSION_EXTRA
 	for SNAPSHOT_DIR in "${WORK_DIR}"/.AdGuardHome.dnsmasq-ipset.*; do
 		[ -d "${SNAPSHOT_DIR}" ] || continue
 		[ ! -L "${SNAPSHOT_DIR}" ] || return 1
@@ -1033,9 +1055,32 @@ dnsmasq_ipset_state_recover_pending() {
 			.AdGuardHome.dnsmasq-ipset.*) ;;
 			*) return 1 ;;
 		esac
+		SNAPSHOT_VERSION=""
+		if [ -e "${SNAPSHOT_DIR}/snapshot.version" ] || [ -L "${SNAPSHOT_DIR}/snapshot.version" ]; then
+			[ -f "${SNAPSHOT_DIR}/snapshot.version" ] && [ ! -L "${SNAPSHOT_DIR}/snapshot.version" ] || return 1
+			{
+				IFS= read -r SNAPSHOT_VERSION
+				! IFS= read -r SNAPSHOT_VERSION_EXTRA
+			} <"${SNAPSHOT_DIR}/snapshot.version" || return 1
+			[ "${SNAPSHOT_VERSION}" = "1:2" ] || return 1
+		fi
 		if [ -e "${SNAPSHOT_DIR}/cleanup.pending" ]; then
 			[ -f "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
 			[ ! -e "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
+			[ ! -e "${SNAPSHOT_DIR}/cleanup.only" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.only" ] || return 1
+			if ! rm -rf "${SNAPSHOT_DIR}"; then
+				agh_log error dnsmasq_params "state=recovery action=cleanup_snapshot result=failed snapshot=${SNAPSHOT_DIR}"
+				return 1
+			fi
+			continue
+		fi
+		[ ! -L "${SNAPSHOT_DIR}/config.pending" ] || return 1
+		[ ! -L "${SNAPSHOT_DIR}/config.restored" ] || return 1
+		if [ -e "${SNAPSHOT_DIR}/cleanup.only" ] || [ -L "${SNAPSHOT_DIR}/cleanup.only" ]; then
+			[ "${SNAPSHOT_VERSION}" = "1:2" ] || return 1
+			[ -f "${SNAPSHOT_DIR}/cleanup.only" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.only" ] || return 1
+			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || return 1
+			[ ! -e "${SNAPSHOT_DIR}/config.restored" ] || return 1
 			if ! rm -rf "${SNAPSHOT_DIR}"; then
 				agh_log error dnsmasq_params "state=recovery action=cleanup_snapshot result=failed snapshot=${SNAPSHOT_DIR}"
 				return 1
@@ -1047,15 +1092,9 @@ dnsmasq_ipset_state_recover_pending() {
 			return 1
 		fi
 		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
-		[ ! -L "${SNAPSHOT_DIR}/config.pending" ] || return 1
-		[ ! -L "${SNAPSHOT_DIR}/config.restored" ] || return 1
-		if [ ! -e "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ] &&
-			[ ! -e "${SNAPSHOT_DIR}/config.restored" ] && [ ! -L "${SNAPSHOT_DIR}/config.restored" ]; then
-			if ! rm -rf "${SNAPSHOT_DIR}"; then
-				agh_log error dnsmasq_params "state=recovery action=cleanup_snapshot result=failed snapshot=${SNAPSHOT_DIR}"
-				return 1
-			fi
-			continue
+		if [ "${SNAPSHOT_VERSION}" = "1:2" ] && [ ! -e "${SNAPSHOT_DIR}/config.pending" ] &&
+			[ ! -e "${SNAPSHOT_DIR}/config.restored" ]; then
+			return 1
 		fi
 		if [ -e "${SNAPSHOT_DIR}/config.pending" ] || [ -e "${SNAPSHOT_DIR}/config.restored" ]; then
 			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || { [ -f "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ]; } || return 1
@@ -1284,20 +1323,32 @@ dnsmasq_publish_staged_config() (
 		fi
 		SNAPSHOT_READY="1"
 		if ! cp -p "${CONFIG_FILE}" "${CONFIG_BACKUP}"; then
-			if dnsmasq_ipset_state_mark_cleanup "${IPSET_SNAPSHOT_DIR}"; then
-				SNAPSHOT_READY="0"
-				rm -rf "${IPSET_SNAPSHOT_DIR}" ||
-					agh_log error dnsmasq_params "state=backup action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
-			else
-				agh_log error dnsmasq_params "state=backup action=mark_cleanup result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			if dnsmasq_ipset_state_mark_cleanup_only "${IPSET_SNAPSHOT_DIR}"; then
 				if rm -rf "${IPSET_SNAPSHOT_DIR}"; then
-					SNAPSHOT_READY="0"
-				elif dnsmasq_ipset_state_mark_cleanup "${IPSET_SNAPSHOT_DIR}" &&
-					[ -f "${IPSET_SNAPSHOT_DIR}/cleanup.pending" ] &&
-					[ ! -L "${IPSET_SNAPSHOT_DIR}/cleanup.pending" ]; then
 					SNAPSHOT_READY="0"
 				else
 					agh_log error dnsmasq_params "state=backup action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				fi
+			else
+				agh_log error dnsmasq_params "state=backup action=mark_cleanup_only result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				if [ -f "${IPSET_SNAPSHOT_DIR}/cleanup.only" ] && [ ! -L "${IPSET_SNAPSHOT_DIR}/cleanup.only" ]; then
+					rm -rf "${IPSET_SNAPSHOT_DIR}" ||
+						agh_log error dnsmasq_params "state=backup action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				elif dnsmasq_ipset_state_mark_cleanup "${IPSET_SNAPSHOT_DIR}"; then
+					SNAPSHOT_READY="0"
+					rm -rf "${IPSET_SNAPSHOT_DIR}" ||
+						agh_log error dnsmasq_params "state=backup action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				else
+					agh_log error dnsmasq_params "state=backup action=mark_cleanup result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+					if rm -rf "${IPSET_SNAPSHOT_DIR}"; then
+						SNAPSHOT_READY="0"
+					elif dnsmasq_ipset_state_mark_cleanup "${IPSET_SNAPSHOT_DIR}" &&
+						[ -f "${IPSET_SNAPSHOT_DIR}/cleanup.pending" ] &&
+						[ ! -L "${IPSET_SNAPSHOT_DIR}/cleanup.pending" ]; then
+						SNAPSHOT_READY="0"
+					else
+						agh_log error dnsmasq_params "state=backup action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+					fi
 				fi
 			fi
 			TRANSACTION_ACTIVE="0"
