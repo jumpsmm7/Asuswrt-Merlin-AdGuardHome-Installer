@@ -395,7 +395,11 @@ reset_case() {
 	BACKUP_COPY_FAIL_FILE=''
 	BACKUP_RESTORE_FAIL='0'
 	ASSOCIATION_CREATE_FAIL='0'
+	ASSOCIATION_TRANSITION_FAIL='0'
+	CLEANUP_ONLY_CREATE_FAIL='0'
 	RESTORE_FAIL='0'
+	RESTORE_MARKER_REMOVE_FAIL='0'
+	RESTORE_MARKER_REMOVE_FAIL_SNAPSHOT=''
 	RESTORE_REQUIRE_YAML_STAGE='0'
 	RESTORE_YAML_FAIL='0'
 	RESTORE_COMPENSATE_FAIL='0'
@@ -1078,6 +1082,40 @@ fi
 RESTORE_MARKER_REMOVE_FAIL='0'
 IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'marker-removal failure snapshot was not recoverable'
 [ ! -e "${REMOVE_MARKER_SNAPSHOT}" ] || fail 'marker-removal failure recovery retained its snapshot'
+
+# A failed staged cleanup.only publication retains the valid rollback-pending
+# association without refreshing or changing live state.
+reset_case
+CLEANUP_CREATE_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.cleanup-create-failure"
+CLEANUP_CREATE_BACKUP="${TEST_ROOT}/cleanup-create-config.previous"
+printf '%s\n' 'cleanup creation ipset' >"${IPSET_FILE}" || fail 'could not create cleanup-creation IPSet fixture'
+printf '%s\n' 'cleanup creation yaml' >"${YAML_FILE}" || fail 'could not create cleanup-creation YAML fixture'
+printf '%s\n' '# cleanup creation config' >"${DNSMASQ_CONF_FILE}" || fail 'could not create cleanup-creation dnsmasq fixture'
+dnsmasq_ipset_state_snapshot "${CLEANUP_CREATE_SNAPSHOT}" || fail 'could not create cleanup-creation snapshot'
+mv "${CLEANUP_CREATE_SNAPSHOT}/cleanup.only" "${CLEANUP_CREATE_SNAPSHOT}/restore.pending" ||
+	fail 'could not make cleanup-creation snapshot rollback-eligible'
+printf '%s\n' '# cleanup creation backup' >"${CLEANUP_CREATE_BACKUP}" || fail 'could not create cleanup-creation backup fixture'
+printf '%s\n%s\n' "${CLEANUP_CREATE_BACKUP}" "${DNSMASQ_CONF_FILE}" >"${CLEANUP_CREATE_SNAPSHOT}/config.pending" ||
+	fail 'could not associate cleanup-creation snapshot'
+IPSET_SNAPSHOT_DIR="${CLEANUP_CREATE_SNAPSHOT}"
+CLEANUP_ONLY_CREATE_FAIL='1'
+if dnsmasq_ipset_state_mark_cleanup_only "${CLEANUP_CREATE_SNAPSHOT}"; then
+	fail 'cleanup-only staged publication failure reported success'
+fi
+assert_no_ipset_refresh 'cleanup-only staged publication failure'
+grep -qx 'cleanup creation ipset' "${IPSET_FILE}" || fail 'cleanup-only staged publication failure changed IPSet state'
+grep -qx 'cleanup creation yaml' "${YAML_FILE}" || fail 'cleanup-only staged publication failure changed YAML state'
+grep -qx '# cleanup creation config' "${DNSMASQ_CONF_FILE}" || fail 'cleanup-only staged publication failure changed dnsmasq state'
+[ -f "${CLEANUP_CREATE_SNAPSHOT}/restore.pending" ] && [ ! -L "${CLEANUP_CREATE_SNAPSHOT}/restore.pending" ] ||
+	fail 'cleanup-only staged publication failure lost restore.pending'
+[ -f "${CLEANUP_CREATE_SNAPSHOT}/config.pending" ] && [ ! -L "${CLEANUP_CREATE_SNAPSHOT}/config.pending" ] ||
+	fail 'cleanup-only staged publication failure lost config.pending'
+[ ! -e "${CLEANUP_CREATE_SNAPSHOT}/cleanup.only" ] || fail 'cleanup-only staged publication failure published cleanup.only'
+if find "${CLEANUP_CREATE_SNAPSHOT}" -type f -name 'cleanup.only.*' | grep -q .; then
+	fail 'cleanup-only staged publication failure retained its stage'
+fi
+CLEANUP_ONLY_CREATE_FAIL='0'
+/bin/rm -rf "${CLEANUP_CREATE_SNAPSHOT}" || fail 'could not clear cleanup-creation snapshot fixture'
 
 # A partially removed backup-copy snapshot has its cleanup-only marker and
 # version recreated so the next recovery can retry without restoring state.
