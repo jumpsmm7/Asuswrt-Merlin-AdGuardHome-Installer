@@ -1049,6 +1049,26 @@ grep -qx '# live config' "${DNSMASQ_CONF_FILE}" || fail 'dangling association re
 grep -qx '# retained backup' "${DANGLING_BACKUP}" || fail 'dangling association recovery changed the dnsmasq backup'
 rm -rf "${DANGLING_SNAPSHOT}" || fail 'could not clear dangling-association snapshot'
 
+# A dangling restored configuration association is likewise rejected before
+# recovery changes live state or cleans up its snapshot.
+DANGLING_RESTORED_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.dangling-restored-association"
+printf '%s\n' 'restored snapshot ipset' >"${IPSET_FILE}" || fail 'could not create dangling-restored IPSET snapshot fixture'
+printf '%s\n' 'restored snapshot yaml' >"${YAML_FILE}" || fail 'could not create dangling-restored YAML snapshot fixture'
+dnsmasq_ipset_state_snapshot "${DANGLING_RESTORED_SNAPSHOT}" || fail 'could not create dangling-restored snapshot'
+ln -s "${TEST_ROOT}/missing-restored-config-association" "${DANGLING_RESTORED_SNAPSHOT}/config.restored" ||
+	fail 'could not create dangling config.restored fixture'
+printf '%s\n' 'restored live ipset' >"${IPSET_FILE}" || fail 'could not create dangling-restored live IPSET fixture'
+printf '%s\n' 'restored live yaml' >"${YAML_FILE}" || fail 'could not create dangling-restored live YAML fixture'
+printf '%s\n' '# restored live config' >"${DNSMASQ_CONF_FILE}" || fail 'could not create dangling-restored live dnsmasq fixture'
+if IPSet_Lock dnsmasq_ipset_state_recover_pending; then
+	fail 'dangling config.restored association was accepted'
+fi
+grep -qx 'restored live ipset' "${IPSET_FILE}" || fail 'dangling restored association recovery changed IPSET state'
+grep -qx 'restored live yaml' "${YAML_FILE}" || fail 'dangling restored association recovery changed YAML state'
+grep -qx '# restored live config' "${DNSMASQ_CONF_FILE}" || fail 'dangling restored association recovery changed dnsmasq state'
+[ -d "${DANGLING_RESTORED_SNAPSHOT}" ] || fail 'dangling restored association recovery removed its snapshot'
+rm -rf "${DANGLING_RESTORED_SNAPSHOT}" || fail 'could not clear dangling-restored-association snapshot'
+
 # A YAML publication failure with failed IPSET compensation retains the durable
 # recovery journal instead of reporting a successful rollback.
 COMPENSATION_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.compensation"
