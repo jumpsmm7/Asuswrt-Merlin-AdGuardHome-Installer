@@ -1047,6 +1047,16 @@ dnsmasq_ipset_state_recover_pending() {
 			return 1
 		fi
 		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
+		[ ! -L "${SNAPSHOT_DIR}/config.pending" ] || return 1
+		[ ! -L "${SNAPSHOT_DIR}/config.restored" ] || return 1
+		if [ ! -e "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ] &&
+			[ ! -e "${SNAPSHOT_DIR}/config.restored" ] && [ ! -L "${SNAPSHOT_DIR}/config.restored" ]; then
+			if ! rm -rf "${SNAPSHOT_DIR}"; then
+				agh_log error dnsmasq_params "state=recovery action=cleanup_snapshot result=failed snapshot=${SNAPSHOT_DIR}"
+				return 1
+			fi
+			continue
+		fi
 		if [ -e "${SNAPSHOT_DIR}/config.pending" ] || [ -e "${SNAPSHOT_DIR}/config.restored" ]; then
 			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || { [ -f "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ]; } || return 1
 			[ ! -e "${SNAPSHOT_DIR}/config.restored" ] || { [ -f "${SNAPSHOT_DIR}/config.restored" ] && [ ! -L "${SNAPSHOT_DIR}/config.restored" ]; } || return 1
@@ -3938,6 +3948,7 @@ IPSet_Disable_Managed() {
 IPSet_Disable_Managed_For_Start_Locked() {
 	local WAS_RUNNING
 	WAS_RUNNING="0"
+	IPSET_START_STOPPED="${IPSET_START_STOPPED:-0}"
 	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
 		WAS_RUNNING="1"
 	fi

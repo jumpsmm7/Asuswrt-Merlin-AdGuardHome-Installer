@@ -113,7 +113,7 @@ run_update_path() {
 			printf '%s\n' "end:$*" >>"${CALLS_FILE}"
 		}
 		rollback_result_write() { :; }
-		rollback_result_notice() { printf '%s\n' 'rollback_notice' >>"${CALLS_FILE}"; }
+		rollback_result_notice() { :; }
 		PTXT() { :; }
 		ptxt_phase() { PTXT "$1"; }
 		ptxt_step() { PTXT "$1"; }

@@ -100,8 +100,9 @@ IPSet_Start_Restore() {
 	return 0
 }
 
-# pidof prints a fixed process ID and succeeds.
+# pidof prints a fixed process ID when the fixture service is running.
 pidof() {
+	[ "${ADGUARD_RUNNING:-1}" = '1' ] || return 1
 	printf '%s\n' 1234
 	return 0
 }
@@ -159,6 +160,17 @@ case "${ACTUAL}" in
 	*'IPSet_Lock skip_dnsmasq_restart=1'*'IPSet_Disable_Managed configured'*) : ;;
 	*) fail "LAN refresh did not request configured IPSET cleanup: ${ACTUAL}" ;;
 esac
+
+ADGUARD_RUNNING=0
+IPSET_REFRESH_FROM_DNSMASQ=0
+unset IPSET_START_STOPPED
+: >"${CALLS_FILE}"
+IPSet_Refresh 2>"${TEST_ROOT}/stopped-refresh-error" || fail 'firewall refresh failed with a configured IPSET file and stopped service'
+[ ! -s "${TEST_ROOT}/stopped-refresh-error" ] || fail 'stopped-service firewall refresh reported a numeric-test error'
+[ "${IPSET_START_STOPPED}" -eq 0 ] || fail 'stopped-service firewall refresh left service restoration armed'
+! grep -q '^lower_script stop$' "${CALLS_FILE}" || fail 'stopped-service firewall refresh attempted to stop AdGuardHome'
+ADGUARD_RUNNING=1
+IPSET_REFRESH_FROM_DNSMASQ=1
 
 DISABLE_STATUS=1
 : >"${CALLS_FILE}"
