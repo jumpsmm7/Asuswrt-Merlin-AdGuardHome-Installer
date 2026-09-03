@@ -483,7 +483,7 @@ reset_case
 	[ "$(nvram get lan_domain)" = '' ] || fail 'startup recovery restored the LAN domain after successful uninstall'
 	[ "${COMMIT_COUNT}" -eq "${commit_count_before_recovery}" ] || fail 'startup recovery committed a LAN-domain rollback after successful uninstall'
 	[ "${SERVICE_COUNT}" -eq "${service_count_before_recovery}" ] || fail 'startup recovery restarted dnsmasq after successful uninstall'
-)
+) || fail 'uninstall transaction regression subprocess failed'
 
 reset_case
 printf '%s\n' 'previous working yaml' >"${YAML_FILE}"

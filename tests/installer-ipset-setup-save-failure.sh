@@ -27,7 +27,7 @@ nvram_transaction_lock_owned() { return 0; }
 (
 	SETUP_FILES_JOURNALED=0
 	NVRAM_TRANSACTION_LOCK_MODE="mkdir"
-	BASE_DIR="${TMPDIR:-/tmp}/installer-ipset-existing-journal.$$"
+	BASE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/installer-ipset-existing-journal.XXXXXX")" || fail 'could not create active-journal test directory'
 	trap 'rm -rf "${BASE_DIR}"' 0
 	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create active-journal fixture directory'
 	# nvram_transaction_setup_files_begin rejects attempts to replace the active setup journal.
@@ -41,7 +41,7 @@ nvram_transaction_lock_owned() { return 0; }
 (
 	SETUP_FILES_JOURNALED=0
 	NVRAM_TRANSACTION_LOCK_MODE="mkdir"
-	BASE_DIR="${TMPDIR:-/tmp}/installer-ipset-stale-journal.$$"
+	BASE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/installer-ipset-stale-journal.XXXXXX")" || fail 'could not create stale-journal test directory'
 	trap 'rm -rf "${BASE_DIR}"' 0
 	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create stale-journal fixture directory'
 	# nvram_transaction_lock_owned reports whether the current process owns the NVRAM transaction lock.

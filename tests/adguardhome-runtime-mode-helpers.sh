@@ -56,9 +56,15 @@ pidof() {
 
 # iptables prints the configured simulated WAN NAT rule.
 iptables() {
-	[ "$*" = '-t nat -S POSTROUTING' ] || fail "unexpected iptables query: $*"
+	printf '%s\n' "$*" >"${TEST_ROOT}/iptables-query"
 	[ "${IPTABLES_FAIL:-0}" -eq 0 ] || return 1
 	printf '%s\n' "${WAN_NAT_RULE:-}"
+}
+
+# assert_iptables_query verifies the production helper used the expected WAN NAT query.
+assert_iptables_query() {
+	[ "$(cat "${TEST_ROOT}/iptables-query")" = '-t nat -S POSTROUTING' ] ||
+		fail 'unexpected iptables query'
 }
 
 # nvram supplies fixed WAN, gateway, and PPPoE interface names for the test environment.
@@ -101,6 +107,7 @@ adguard_lan_mode || fail 'lan install mode was not detected'
 ! adguard_ipset_allowed || fail 'lan install mode should not allow IPSET'
 WAN_NAT_RULE='-A POSTROUTING -o eth0 -j MASQUERADE'
 adguard_ipset_allowed || fail 'LAN install mode with WAN NAT state should allow IPSET'
+assert_iptables_query
 WAN_NAT_RULE='-A POSTROUTING ! -o eth0 -j MASQUERADE'
 ! adguard_ipset_allowed || fail 'LAN install mode with negated WAN NAT state should not allow IPSET'
 WAN_NAT_RULE='-A POSTROUTING -s 192.168.50.0/24 -o eth0 -j MASQUERADE'

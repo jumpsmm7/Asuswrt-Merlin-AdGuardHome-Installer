@@ -795,6 +795,10 @@ printf '%s\n' 'snapshot ipset' >"${IPSET_FILE}" || fail 'could not create recove
 printf '%s\n' 'snapshot yaml' >"${YAML_FILE}" || fail 'could not create recovery YAML fixture'
 dnsmasq_ipset_state_snapshot "${RECOVERY_SNAPSHOT}" || fail 'could not create pending recovery snapshot'
 [ -f "${RECOVERY_SNAPSHOT}/restore.pending" ] || fail 'pending recovery snapshot lacks its durable marker'
+RECOVERY_BACKUP="${TEST_ROOT}/recovery-config.previous"
+printf '%s\n' '# recovery config backup' >"${RECOVERY_BACKUP}" || fail 'could not create recovery config backup fixture'
+printf '%s\n%s\n' "${RECOVERY_BACKUP}" "${DNSMASQ_CONF_FILE}" >"${RECOVERY_SNAPSHOT}/config.restored" ||
+	fail 'could not associate the restored recovery snapshot'
 printf '%s\n' 'snapshot ipset' >"${IPSET_FILE}" || fail 'could not simulate partial IPSET restoration'
 printf '%s\n' 'current yaml' >"${YAML_FILE}" || fail 'could not simulate interrupted YAML restoration'
 IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'pending recovery did not complete'
@@ -883,6 +887,34 @@ BACKUP_COPY_FAIL='0'
 IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'cleanup after failed dnsmasq backup copy did not complete'
 grep -qx 'later ipset' "${IPSET_FILE}" || fail 'stale backup-copy snapshot overwrote later IPSet state'
 grep -qx 'later yaml' "${YAML_FILE}" || fail 'stale backup-copy snapshot overwrote later YAML state'
+
+# If backup-copy cleanup cannot mark or remove an untouched snapshot, later
+# recovery removes it without restoring stale IPSET or YAML state.
+reset_case
+BACKUP_CLEANUP_ONLY_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.backup-cleanup-only"
+BACKUP_CLEANUP_ONLY_STAGE="${DNSMASQ_CONF_FILE}.adguard.backup-cleanup-only"
+BACKUP_COPY_FAIL_FILE="${BACKUP_CLEANUP_ONLY_STAGE}.previous"
+printf '%s\n' '# backup cleanup-only failure' >"${BACKUP_CLEANUP_ONLY_STAGE}" || fail 'could not stage backup cleanup-only fixture'
+BACKUP_COPY_FAIL='1'
+MARK_CLEANUP_FAIL='1'
+MARK_CLEANUP_FAIL_SNAPSHOT="${BACKUP_CLEANUP_ONLY_SNAPSHOT}"
+FINALIZE_REMOVE_FAIL='1'
+FINALIZE_FAIL_SNAPSHOT="${BACKUP_CLEANUP_ONLY_SNAPSHOT}"
+if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${BACKUP_CLEANUP_ONLY_STAGE}" "${BACKUP_CLEANUP_ONLY_SNAPSHOT}"; then
+	fail 'failed dnsmasq backup cleanup-only transaction reported success'
+fi
+[ -f "${BACKUP_CLEANUP_ONLY_SNAPSHOT}/restore.pending" ] || fail 'failed backup cleanup did not retain its recovery marker'
+[ ! -e "${BACKUP_CLEANUP_ONLY_SNAPSHOT}/config.pending" ] || fail 'failed backup copy created a pending config association'
+[ ! -e "${BACKUP_CLEANUP_ONLY_SNAPSHOT}/config.restored" ] || fail 'failed backup copy created a restored config association'
+printf '%s\n' 'newer ipset' >"${IPSET_FILE}" || fail 'could not create newer IPSET state'
+printf '%s\n' 'newer yaml' >"${YAML_FILE}" || fail 'could not create newer YAML state'
+BACKUP_COPY_FAIL='0'
+MARK_CLEANUP_FAIL='0'
+FINALIZE_REMOVE_FAIL='0'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'cleanup-only restore marker recovery did not complete'
+[ ! -e "${BACKUP_CLEANUP_ONLY_SNAPSHOT}" ] || fail 'cleanup-only restore marker snapshot was retained'
+grep -qx 'newer ipset' "${IPSET_FILE}" || fail 'cleanup-only recovery overwrote newer IPSET state'
+grep -qx 'newer yaml' "${YAML_FILE}" || fail 'cleanup-only recovery overwrote newer YAML state'
 
 # A transient restore-to-cleanup marker failure is retried when direct snapshot
 # removal also fails without removing the restore marker.
@@ -978,10 +1010,14 @@ grep -qx 'previous ipset' "${IPSET_FILE}" || fail 'retained coupled snapshot did
 grep -qx 'previous yaml' "${YAML_FILE}" || fail 'retained coupled snapshot did not restore YAML state'
 [ ! -e "${BACKUP_FAIL_SNAPSHOT}" ] || fail 'coupled recovery retained its snapshot'
 
-# Unsafe or incomplete pending snapshots are rejected without changing live state.
+# Unsafe or incomplete transaction snapshots are rejected without changing live state.
 UNSAFE_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.incomplete"
 mkdir -m 700 "${UNSAFE_SNAPSHOT}" || fail 'could not create incomplete recovery snapshot'
 : >"${UNSAFE_SNAPSHOT}/restore.pending" || fail 'could not mark incomplete recovery snapshot'
+UNSAFE_BACKUP="${TEST_ROOT}/unsafe-config.previous"
+printf '%s\n' '# unsafe backup' >"${UNSAFE_BACKUP}" || fail 'could not create incomplete recovery backup'
+printf '%s\n%s\n' "${UNSAFE_BACKUP}" "${DNSMASQ_CONF_FILE}" >"${UNSAFE_SNAPSHOT}/config.restored" ||
+	fail 'could not associate incomplete recovery snapshot'
 printf '%s\n' 'live ipset' >"${IPSET_FILE}" || fail 'could not create incomplete-recovery IPSET fixture'
 printf '%s\n' 'live yaml' >"${YAML_FILE}" || fail 'could not create incomplete-recovery YAML fixture'
 if IPSet_Lock dnsmasq_ipset_state_recover_pending; then
@@ -997,6 +1033,10 @@ COMPENSATION_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.compensation"
 printf '%s\n' 'snapshot ipset' >"${IPSET_FILE}" || fail 'could not create compensation IPSET fixture'
 printf '%s\n' 'snapshot yaml' >"${YAML_FILE}" || fail 'could not create compensation YAML fixture'
 dnsmasq_ipset_state_snapshot "${COMPENSATION_SNAPSHOT}" || fail 'could not create compensation snapshot'
+COMPENSATION_BACKUP="${TEST_ROOT}/compensation-config.previous"
+printf '%s\n' '# compensation config backup' >"${COMPENSATION_BACKUP}" || fail 'could not create compensation config backup'
+printf '%s\n%s\n' "${COMPENSATION_BACKUP}" "${DNSMASQ_CONF_FILE}" >"${COMPENSATION_SNAPSHOT}/config.restored" ||
+	fail 'could not associate compensation snapshot'
 printf '%s\n' 'current ipset' >"${IPSET_FILE}" || fail 'could not change compensation IPSET fixture'
 printf '%s\n' 'current yaml' >"${YAML_FILE}" || fail 'could not change compensation YAML fixture'
 RESTORE_YAML_FAIL='1'
