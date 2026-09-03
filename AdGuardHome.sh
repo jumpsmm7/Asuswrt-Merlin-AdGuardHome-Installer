@@ -1047,6 +1047,8 @@ dnsmasq_ipset_state_recover_pending() {
 			return 1
 		fi
 		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
+		[ ! -L "${SNAPSHOT_DIR}/config.pending" ] || return 1
+		[ ! -L "${SNAPSHOT_DIR}/config.restored" ] || return 1
 		if [ ! -e "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ] &&
 			[ ! -e "${SNAPSHOT_DIR}/config.restored" ] && [ ! -L "${SNAPSHOT_DIR}/config.restored" ]; then
 			if ! rm -rf "${SNAPSHOT_DIR}"; then

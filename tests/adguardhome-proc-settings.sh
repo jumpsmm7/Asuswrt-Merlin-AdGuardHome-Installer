@@ -394,6 +394,7 @@ run_uninstall_test restart-failure 1 1 && fail 'restore and restart failures did
 [ "$(sed -n '3p' "${TMP_ROOT}/events-restart-failure")" = 'ERROR Unable to restore installer-managed kernel settings.' ] || fail 'restart failure obscured restoration error'
 [ "$(sed -n '4p' "${TMP_ROOT}/events-restart-failure")" = start ] || fail 'restart failure was not exercised'
 run_uninstall_test stop-failure 0 0 usable 0 1 1 0 1 && fail 'service stop failure did not abort uninstall'
+grep -qx stop "${TMP_ROOT}/events-stop-failure" || fail 'service stop failure was not exercised'
 [ -d "${TMP_ROOT}/uninstall-stop-failure" ] || fail 'service stop failure removed the installation path'
 ! grep -qx remove "${TMP_ROOT}/events-stop-failure" || fail 'service stop failure removed installation files'
 grep -qx domain-restore "${TMP_ROOT}/events-stop-failure" || fail 'service stop failure did not restore the LAN domain'

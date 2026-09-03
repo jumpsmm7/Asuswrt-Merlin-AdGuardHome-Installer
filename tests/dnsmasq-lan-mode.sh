@@ -1027,6 +1027,48 @@ grep -qx 'live ipset' "${IPSET_FILE}" || fail 'incomplete recovery changed IPSET
 grep -qx 'live yaml' "${YAML_FILE}" || fail 'incomplete recovery changed YAML state'
 rm -rf "${UNSAFE_SNAPSHOT}" || fail 'could not clear incomplete recovery snapshot'
 
+# A dangling configuration-association marker is rejected before stale IPSET,
+# YAML, or dnsmasq state can be restored.
+DANGLING_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.dangling-association"
+printf '%s\n' 'snapshot ipset' >"${IPSET_FILE}" || fail 'could not create dangling-association IPSET snapshot fixture'
+printf '%s\n' 'snapshot yaml' >"${YAML_FILE}" || fail 'could not create dangling-association YAML snapshot fixture'
+dnsmasq_ipset_state_snapshot "${DANGLING_SNAPSHOT}" || fail 'could not create dangling-association snapshot'
+ln -s "${TEST_ROOT}/missing-config-association" "${DANGLING_SNAPSHOT}/config.pending" ||
+	fail 'could not create dangling config.pending fixture'
+DANGLING_BACKUP="${TEST_ROOT}/dangling-config.previous"
+printf '%s\n' '# retained backup' >"${DANGLING_BACKUP}" || fail 'could not create dangling-association backup fixture'
+printf '%s\n' 'live ipset' >"${IPSET_FILE}" || fail 'could not create dangling-association live IPSET fixture'
+printf '%s\n' 'live yaml' >"${YAML_FILE}" || fail 'could not create dangling-association live YAML fixture'
+printf '%s\n' '# live config' >"${DNSMASQ_CONF_FILE}" || fail 'could not create dangling-association live dnsmasq fixture'
+if IPSet_Lock dnsmasq_ipset_state_recover_pending; then
+	fail 'dangling config.pending association was accepted'
+fi
+grep -qx 'live ipset' "${IPSET_FILE}" || fail 'dangling association recovery changed IPSET state'
+grep -qx 'live yaml' "${YAML_FILE}" || fail 'dangling association recovery changed YAML state'
+grep -qx '# live config' "${DNSMASQ_CONF_FILE}" || fail 'dangling association recovery changed dnsmasq state'
+grep -qx '# retained backup' "${DANGLING_BACKUP}" || fail 'dangling association recovery changed the dnsmasq backup'
+rm -rf "${DANGLING_SNAPSHOT}" || fail 'could not clear dangling-association snapshot'
+
+# A dangling restored configuration association is likewise rejected before
+# recovery changes live state or cleans up its snapshot.
+DANGLING_RESTORED_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.dangling-restored-association"
+printf '%s\n' 'restored snapshot ipset' >"${IPSET_FILE}" || fail 'could not create dangling-restored IPSET snapshot fixture'
+printf '%s\n' 'restored snapshot yaml' >"${YAML_FILE}" || fail 'could not create dangling-restored YAML snapshot fixture'
+dnsmasq_ipset_state_snapshot "${DANGLING_RESTORED_SNAPSHOT}" || fail 'could not create dangling-restored snapshot'
+ln -s "${TEST_ROOT}/missing-restored-config-association" "${DANGLING_RESTORED_SNAPSHOT}/config.restored" ||
+	fail 'could not create dangling config.restored fixture'
+printf '%s\n' 'restored live ipset' >"${IPSET_FILE}" || fail 'could not create dangling-restored live IPSET fixture'
+printf '%s\n' 'restored live yaml' >"${YAML_FILE}" || fail 'could not create dangling-restored live YAML fixture'
+printf '%s\n' '# restored live config' >"${DNSMASQ_CONF_FILE}" || fail 'could not create dangling-restored live dnsmasq fixture'
+if IPSet_Lock dnsmasq_ipset_state_recover_pending; then
+	fail 'dangling config.restored association was accepted'
+fi
+grep -qx 'restored live ipset' "${IPSET_FILE}" || fail 'dangling restored association recovery changed IPSET state'
+grep -qx 'restored live yaml' "${YAML_FILE}" || fail 'dangling restored association recovery changed YAML state'
+grep -qx '# restored live config' "${DNSMASQ_CONF_FILE}" || fail 'dangling restored association recovery changed dnsmasq state'
+[ -d "${DANGLING_RESTORED_SNAPSHOT}" ] || fail 'dangling restored association recovery removed its snapshot'
+rm -rf "${DANGLING_RESTORED_SNAPSHOT}" || fail 'could not clear dangling-restored-association snapshot'
+
 # A YAML publication failure with failed IPSET compensation retains the durable
 # recovery journal instead of reporting a successful rollback.
 COMPENSATION_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.compensation"
