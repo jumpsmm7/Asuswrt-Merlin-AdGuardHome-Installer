@@ -35,9 +35,13 @@ sed -n '/^install_wan_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${TMP_DIR}
 	fail 'could not extract WAN event-script orchestration helper'
 sed -n '/^adguard_recover_after_event_hook_abort() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${TMP_DIR}/helpers.part" ||
 	fail 'could not extract event-hook abort recovery helper'
-if grep -q "^trap 'on_installer_exit' EXIT$" "${TMP_DIR}/helpers.part"; then
-	fail 'event-script transaction helper extraction included installer top-level flow'
-fi
+grep -q "^trap 'on_installer_exit' EXIT$" "${TMP_DIR}/helpers.part"
+grep_status="$?"
+case "${grep_status}" in
+	0) fail 'event-script transaction helper extraction included installer top-level flow' ;;
+	1) : ;;
+	*) fail 'could not inspect extracted event-script helpers' ;;
+esac
 sed "s|/jffs/scripts|${TMP_DIR}/jffs/scripts|g" "${TMP_DIR}/helpers.part" >"${TMP_DIR}/helpers" ||
 	fail 'could not rewrite event-script transaction helpers'
 # shellcheck disable=SC1091
