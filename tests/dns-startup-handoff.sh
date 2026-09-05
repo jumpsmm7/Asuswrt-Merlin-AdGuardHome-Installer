@@ -70,7 +70,8 @@ grep -q 'adguard_dnsmasq_running || return 0' "${MANAGER_PATH}" ||
 grep -q '\[ -f "${CONFIG_FILE}" \] || return 0' "${MANAGER_PATH}" ||
 	fail 'dnsmasq postconf does not require an existing dnsmasq configuration'
 MANAGER_DNSMASQ_FUNCTIONS="${TEST_ROOT}/manager-dnsmasq-functions"
-sed -n '/^dnsmasq_params() {$/,/^}$/p; /^dnsmasq_action_handler() {$/,/^}$/p' "${MANAGER_PATH}" >"${MANAGER_DNSMASQ_FUNCTIONS}" ||
+sed -e "s#/etc/dnsmasq-#${TEST_ROOT}/dnsmasq-#g" \
+	-n '/^dnsmasq_params() {$/,/^}$/p; /^dnsmasq_action_handler() {$/,/^}$/p' "${MANAGER_PATH}" >"${MANAGER_DNSMASQ_FUNCTIONS}" ||
 	fail 'could not extract manager dnsmasq functions'
 # shellcheck disable=SC1090
 . "${MANAGER_DNSMASQ_FUNCTIONS}"
@@ -93,7 +94,7 @@ CONFIG_DNSMASQ_MODE='auto'
 dnsmasq_action_handler || fail 'LAN-mode dnsmasq action was not skipped successfully'
 adguard_lan_mode() { return 1; }
 stopped_sdn="adguardhome-stopped-$$"
-STOPPED_DNSMASQ_CONFIG="/etc/dnsmasq-${stopped_sdn}.conf"
+STOPPED_DNSMASQ_CONFIG="${TEST_ROOT}/dnsmasq-${stopped_sdn}.conf"
 stopped_stage="${STOPPED_DNSMASQ_CONFIG}.adguard.$$"
 printf '%s\n' 'fixture configuration must remain unchanged' >"${STOPPED_DNSMASQ_CONFIG}" ||
 	fail 'could not create stopped dnsmasq configuration fixture'
@@ -107,7 +108,7 @@ STOPPED_DNSMASQ_CONFIG=""
 
 adguard_dnsmasq_running() { return 0; }
 missing_sdn="adguardhome-missing-$$"
-missing_config="/etc/dnsmasq-${missing_sdn}.conf"
+missing_config="${TEST_ROOT}/dnsmasq-${missing_sdn}.conf"
 missing_stage="${missing_config}.adguard.$$"
 [ ! -e "${missing_config}" ] || fail 'missing-configuration fixture unexpectedly exists'
 # The non-LAN path reaches dnsmasq_params, where a missing configuration must be ignored safely.
