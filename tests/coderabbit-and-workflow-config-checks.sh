@@ -86,7 +86,7 @@ workflow_concurrency_is_ref_scoped() {
 }
 
 # osv_differential_uploads_are_guarded verifies that both differential SARIF
-# consumers require a successfully produced report.
+# osv_differential_uploads_are_guarded verifies that OSV differential reports are available before artifact or code-scanning uploads proceed.
 osv_differential_uploads_are_guarded() {
 	awk '
 		/^  scan-pr:$/ { in_scan_pr = 1; next }

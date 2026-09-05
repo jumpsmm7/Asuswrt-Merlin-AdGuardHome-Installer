@@ -91,6 +91,7 @@ interface_ipv4_addr() { printf '%s\n' '192.0.2.1'; }
 interface_ipv6_addr() { printf '%s\n' ''; }
 CONFIG_DNSMASQ_MODE='auto'
 dnsmasq_action_handler || fail 'LAN-mode dnsmasq action was not skipped successfully'
+# adguard_lan_mode indicates that AdGuard Home is not operating in LAN mode.
 adguard_lan_mode() { return 1; }
 stopped_sdn="adguardhome-stopped-$$"
 STOPPED_DNSMASQ_CONFIG="${TEST_ROOT}/dnsmasq-${stopped_sdn}.conf"
@@ -99,6 +100,7 @@ printf '%s\n' 'fixture configuration must remain unchanged' 'second fixture line
 	fail 'could not create expected stopped dnsmasq configuration fixture'
 cp "${STOPPED_DNSMASQ_EXPECTED}" "${STOPPED_DNSMASQ_CONFIG}" ||
 	fail 'could not create stopped dnsmasq configuration fixture'
+# adguard_dnsmasq_running indicates that dnsmasq is not running.
 adguard_dnsmasq_running() { return 1; }
 dnsmasq_params "${stopped_sdn}" || fail 'dnsmasq_params did not skip a stopped dnsmasq service'
 cmp -s "${STOPPED_DNSMASQ_EXPECTED}" "${STOPPED_DNSMASQ_CONFIG}" ||
@@ -106,6 +108,7 @@ cmp -s "${STOPPED_DNSMASQ_EXPECTED}" "${STOPPED_DNSMASQ_CONFIG}" ||
 [ ! -e "${stopped_stage}" ] || fail 'stopped dnsmasq configuration created a stage file'
 rm -f "${STOPPED_DNSMASQ_CONFIG}" || fail 'could not remove stopped dnsmasq configuration fixture'
 
+# adguard_dnsmasq_running reports that dnsmasq is running.
 adguard_dnsmasq_running() { return 0; }
 missing_sdn="adguardhome-missing-$$"
 missing_config="${TEST_ROOT}/dnsmasq-${missing_sdn}.conf"

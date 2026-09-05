@@ -107,14 +107,14 @@ pidof() {
 	return 0
 }
 
-# iptables outputs the configured WAN NAT rule.
+# iptables outputs the configured WAN NAT rule and records the queried arguments.
 iptables() {
 	printf '%s\n' "$*" >"${TEST_ROOT}/iptables-query"
 	printf '%s\n' "${WAN_NAT_RULE:-}"
 	[ "${IPTABLES_FAIL:-0}" -eq 0 ] || return 1
 }
 
-# assert_iptables_query verifies the production predicate used the expected WAN NAT query.
+# assert_iptables_query verifies that the expected WAN NAT query was used.
 assert_iptables_query() {
 	[ "$(cat "${TEST_ROOT}/iptables-query")" = '-t nat -S POSTROUTING' ] ||
 		fail 'unexpected iptables query'
