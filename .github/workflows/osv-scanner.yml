@@ -41,7 +41,7 @@ jobs:
             git fetch --no-tags origin "${base_revision}" || true
           fi
           if git rev-parse --verify "${base_revision}^{commit}" >/dev/null 2>&1; then
-            git checkout --detach "${base_revision}"
+            git checkout --detach "${base_revision}" || exit 1
             printf '%s\n' 'available=true' >> "${GITHUB_OUTPUT}"
           else
             printf '%s\n' '{}' >old-results.json
