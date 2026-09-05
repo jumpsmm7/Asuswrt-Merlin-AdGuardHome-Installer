@@ -360,6 +360,8 @@ grep -Fq "if: github.event_name != 'pull_request' || github.event.pull_request.h
 	fail '.github/workflows/osv-scanner.yml: full vulnerability scan must exclude fork pull requests'
 grep -Fq "git rev-parse --verify \"\${base_revision}^{commit}\"" '.github/workflows/osv-scanner.yml' ||
 	fail '.github/workflows/osv-scanner.yml: differential scan must verify that its predecessor is reachable'
+grep -Fq 'git checkout --detach "${base_revision}" || exit 1' '.github/workflows/osv-scanner.yml' ||
+	fail '.github/workflows/osv-scanner.yml: differential scan must stop when predecessor checkout fails'
 osv_differential_uploads_are_guarded '.github/workflows/osv-scanner.yml' ||
 	fail '.github/workflows/osv-scanner.yml: both differential SARIF uploads must require an available report'
 for mutation in artifact-missing artifact-or artifact-subsequent code-scanning-missing code-scanning-or code-scanning-subsequent; do
