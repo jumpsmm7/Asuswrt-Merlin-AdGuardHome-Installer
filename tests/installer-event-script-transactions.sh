@@ -23,6 +23,8 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 mkdir -p "${TMP_DIR}/jffs/scripts" "${TMP_DIR}/base" || fail 'could not create transaction fixture'
 grep -q '^remove_firewall_event_scripts() {$' "${SCRIPT_PATH}" || fail 'firewall transaction helper extraction boundary is missing'
+grep -q '^install_wan_event_scripts() {$' "${SCRIPT_PATH}" || fail 'WAN event-script orchestration helper is missing'
+grep -q '^adguard_recover_after_event_hook_abort() {$' "${SCRIPT_PATH}" || fail 'event-hook abort recovery helper is missing'
 sed -n '/^event_scripts_snapshot() {$/,/^remove_firewall_event_scripts() {$/p' "${SCRIPT_PATH}" >"${TMP_DIR}/helpers.range" ||
 	fail 'could not extract event-script transaction helpers'
 tail -n 1 "${TMP_DIR}/helpers.range" | grep -q '^remove_firewall_event_scripts() {$' ||

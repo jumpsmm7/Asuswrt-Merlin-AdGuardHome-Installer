@@ -8,7 +8,7 @@ TMP_FILE="${TMPDIR:-/tmp}/installer-event-script-modes.$$"
 
 # cleanup removes temporary extracted files created by the regression check.
 cleanup() {
-	rm -rf "${TMP_FILE}" "${TMP_FILE}.wan" "${TMP_FILE}.lan" "${TMP_FILE}.wan-helper" "${TMP_FILE}.remove-helper" "${TMP_FILE}.snapshot-helper" "${TMP_FILE}.restore-helper" "${TMP_FILE}.add-helper" "${TMP_FILE}.services-helper" "${TMP_FILE}.remove" "${TMP_FILE}.rollback" "${TMP_FILE}.lan-rollback"
+	rm -rf "${TMP_FILE}" "${TMP_FILE}.wan" "${TMP_FILE}.lan" "${TMP_FILE}.wan-helper" "${TMP_FILE}.remove-helper" "${TMP_FILE}.snapshot-helper" "${TMP_FILE}.snapshot-runtime" "${TMP_FILE}.snapshot-source" "${TMP_FILE}.restore-helper" "${TMP_FILE}.add-helper" "${TMP_FILE}.services-helper" "${TMP_FILE}.remove" "${TMP_FILE}.rollback" "${TMP_FILE}.lan-rollback"
 }
 
 # fail prints a failure message to standard error and exits with status 1.
@@ -81,6 +81,13 @@ sed -n '/^event_scripts_snapshot() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.sn
 [ -s "${TMP_FILE}.snapshot-helper" ] || fail 'generic event-script snapshot helper was not found'
 grep -Fq '(umask 077 && mkdir -p "${SNAPSHOT_DIR}") || return 1' "${TMP_FILE}.snapshot-helper" ||
 	fail 'generic event-script snapshot directory is not private at creation'
+# shellcheck disable=SC1090
+. "${TMP_FILE}.snapshot-helper"
+printf '%s\n' 'snapshot source' >"${TMP_FILE}.snapshot-source" || fail 'could not create snapshot source fixture'
+(umask 000 && event_scripts_snapshot "${TMP_FILE}.snapshot-runtime" "${TMP_FILE}.snapshot-source") ||
+	fail 'generic event-script snapshot failed with a permissive caller umask'
+[ "$(stat -c '%a' "${TMP_FILE}.snapshot-runtime")" = '700' ] ||
+	fail 'generic event-script snapshot directory was not mode 700 at runtime'
 sed -n '/^event_scripts_restore() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.restore-helper" ||
 	fail 'could not extract generic event-script restore helper'
 [ -s "${TMP_FILE}.restore-helper" ] || fail 'generic event-script restore helper was not found'
