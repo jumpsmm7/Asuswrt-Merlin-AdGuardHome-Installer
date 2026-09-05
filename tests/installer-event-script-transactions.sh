@@ -22,14 +22,22 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 mkdir -p "${TMP_DIR}/jffs/scripts" "${TMP_DIR}/base" || fail 'could not create transaction fixture'
-sed -n '/^event_scripts_snapshot() {$/,$ { /^remove_firewall_event_scripts() {$/q; p; }' "${SCRIPT_PATH}" >"${TMP_DIR}/helpers.part" ||
+grep -q '^remove_firewall_event_scripts() {$' "${SCRIPT_PATH}" || fail 'firewall transaction helper extraction boundary is missing'
+sed -n '/^event_scripts_snapshot() {$/,/^remove_firewall_event_scripts() {$/p' "${SCRIPT_PATH}" >"${TMP_DIR}/helpers.range" ||
 	fail 'could not extract event-script transaction helpers'
+tail -n 1 "${TMP_DIR}/helpers.range" | grep -q '^remove_firewall_event_scripts() {$' ||
+	fail 'firewall transaction helper extraction did not end at its boundary'
+sed '$d' "${TMP_DIR}/helpers.range" >"${TMP_DIR}/helpers.part" ||
+	fail 'could not remove the firewall transaction helper extraction boundary'
 sed -n '/^remove_firewall_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${TMP_DIR}/helpers.part" ||
 	fail 'could not complete firewall transaction helper extraction'
 sed -n '/^install_wan_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${TMP_DIR}/helpers.part" ||
 	fail 'could not extract WAN event-script orchestration helper'
 sed -n '/^adguard_recover_after_event_hook_abort() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${TMP_DIR}/helpers.part" ||
 	fail 'could not extract event-hook abort recovery helper'
+if grep -q "^trap 'on_installer_exit' EXIT$" "${TMP_DIR}/helpers.part"; then
+	fail 'event-script transaction helper extraction included installer top-level flow'
+fi
 sed "s|/jffs/scripts|${TMP_DIR}/jffs/scripts|g" "${TMP_DIR}/helpers.part" >"${TMP_DIR}/helpers" ||
 	fail 'could not rewrite event-script transaction helpers'
 # shellcheck disable=SC1091
