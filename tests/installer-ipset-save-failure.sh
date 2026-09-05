@@ -24,6 +24,38 @@ eval "${IPSET_ALLOWED_FUNCTION}"
 eval "${CHECK_IPSET_FUNCTION}"
 eval "${MENU_FUNCTION}"
 
+# check_ipset is the final persistence guard and must not accept an enable
+# request unless the mode is WAN or LAN with qualifying WAN NAT state.
+CHECK_IPSET_LOG="${TMPDIR:-/tmp}/installer-ipset-check-guard.$$"
+trap 'rm -f "${CHECK_IPSET_LOG}"' EXIT HUP INT TERM
+# write_conf writes a configuration key and value to the IPSET check log.
+write_conf() {
+	printf '%s=%s\n' "$1" "$2" >"${CHECK_IPSET_LOG}"
+}
+# wan_iptables_state_active determines whether WAN NAT is active.
+wan_iptables_state_active() {
+	[ "${WAN_NAT_ACTIVE:-0}" -eq 1 ]
+}
+ADGUARD_INSTALL_MODE='lan'
+WAN_NAT_ACTIVE=0
+check_ipset 1 || fail 'LAN-mode IPSET enable guard failed to persist the forced disabled state'
+[ "$(cat "${CHECK_IPSET_LOG}")" = 'ADGUARD_IPSET="NO"' ] || fail 'LAN-mode check_ipset enable request did not force ADGUARD_IPSET=NO'
+WAN_NAT_ACTIVE=1
+check_ipset 1 || fail 'LAN double-NAT IPSET enable request failed'
+[ "$(cat "${CHECK_IPSET_LOG}")" = 'ADGUARD_IPSET="YES"' ] || fail 'LAN double-NAT check_ipset enable request was not preserved'
+unset ADGUARD_INSTALL_MODE
+# conf_value returns a failure status.
+conf_value() {
+	return 1
+}
+check_ipset 1 || fail 'unknown-mode IPSET enable guard failed to persist the forced disabled state'
+[ "$(cat "${CHECK_IPSET_LOG}")" = 'ADGUARD_IPSET="NO"' ] || fail 'unknown-mode check_ipset enable request did not force ADGUARD_IPSET=NO'
+ADGUARD_INSTALL_MODE='wan'
+WAN_NAT_ACTIVE=0
+check_ipset 1 || fail 'WAN-mode IPSET enable request failed'
+[ "$(cat "${CHECK_IPSET_LOG}")" = 'ADGUARD_IPSET="YES"' ] || fail 'WAN-mode check_ipset enable request was not preserved'
+rm -f "${CHECK_IPSET_LOG}"
+
 INFO='Info:'
 ERROR='Error:'
 TARG_DIR='/tmp/unused'

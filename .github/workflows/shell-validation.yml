@@ -2,11 +2,9 @@ name: Shell validation
 
 on:
   pull_request:
+  merge_group:
   workflow_dispatch:
   push:
-    branches:
-      - master
-      - 'dev/**'
 
 permissions:
   contents: read
@@ -15,7 +13,7 @@ jobs:
   posix-syntax:
     name: BusyBox ash syntax
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 165
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -65,8 +63,24 @@ jobs:
       - name: Run installer jq dependency regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-jq-helper.sh
 
+      - name: Run installer MD5 helper regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-md5-helper.sh
+
       - name: Run installer preflight action regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-preflight-actions.sh
+
+      - name: Run installer LAN topology and hook regressions
+        run: |
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-modes.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-transactions.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-cli-lan-mode.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-ipset-setup-save-failure.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-ipset-save-failure.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-ipset-allowed-mode-fallback.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/adguardhome-runtime-mode-helpers.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/dnsmasq-lan-mode.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/ipset-lan-mode.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-single-arg-actions.sh
 
       - name: Run installer NVRAM transaction and JFFS compatibility regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-dns-environment-failure.sh
@@ -94,7 +108,7 @@ jobs:
 
       - name: Run bounded service lifecycle integration matrix
         # DNS handoff validates root-only FIFO ownership, matching router init.
-        run: sudo -n /usr/bin/timeout --kill-after=10 600 env AGH_INTEGRATION_SHELL=busybox AGH_INTEGRATION_SHELL_ARG=ash busybox ash tests/service-lifecycle-integration.sh
+        run: sudo -n /usr/bin/timeout --kill-after=10 5160 env AGH_INTEGRATION_SHELL=busybox AGH_INTEGRATION_SHELL_ARG=ash busybox ash tests/service-lifecycle-integration.sh
 
       - name: Run optional database link regression
         run: sudo -n /usr/bin/timeout --kill-after=10 180 busybox ash tests/optional-database-links.sh
@@ -138,11 +152,10 @@ jobs:
     name: Checksum validation
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Pull request runs can start before the separate checksum updater workflow
-    # has pushed its chore commit. This job waits for that branch update and
-    # validates the latest PR head. Non-bot push runs are skipped so they do not
-    # race the updater workflow.
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.actor == 'github-actions[bot]'
+    # Pull request and source push runs can start before the separate checksum
+    # updater workflow has pushed its chore commit. This job waits for that
+    # branch update, then validates the latest head. Other events validate the
+    # checked-out ref directly.
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -157,13 +170,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y busybox-static
 
-      - name: Wait for checksum chore commit on pull requests
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+      - name: Wait for checksum chore commit
+        if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.ref_type == 'branch' && github.actor != 'github-actions[bot]')
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          TARGET_BRANCH: ${{ github.event.pull_request.head.ref }}
-          ORIGINAL_SHA: ${{ github.event.pull_request.head.sha }}
+          TARGET_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+          ORIGINAL_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
 

@@ -4,14 +4,21 @@
 set -u
 
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
-FUNCTION_FILE="${TMPDIR:-/tmp}/ipset-version-functions.$$"
-BINARY_FILE="${TMPDIR:-/tmp}/AdGuardHome-version-test.$$"
-CALLS_FILE="${TMPDIR:-/tmp}/ipset-version-calls.$$"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/ipset-version-gate.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive test directory' >&2
+	exit 1
+}
+FUNCTION_FILE="${TEST_ROOT}/functions"
+BINARY_FILE="${TEST_ROOT}/AdGuardHome"
+CALLS_FILE="${TEST_ROOT}/calls"
+IPSET_FILE="${TEST_ROOT}/managed-ipset"
 
+# cleanup removes the temporary test directory and its contents.
 cleanup() {
-	rm -f "${FUNCTION_FILE}" "${BINARY_FILE}" "${CALLS_FILE}"
+	rm -rf "${TEST_ROOT}"
 }
 
+# fail prints a failure message to standard error and exits with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -49,9 +56,15 @@ adguard_ipset_allowed() {
 	! adguard_lan_mode
 }
 
-# IPSet_Disable_Managed records the managed IPSET disable operation and returns its configured status.
+# IPSet_Current_File reports the path of the active managed IPSET fixture file.
+IPSet_Current_File() {
+	printf '%s\n' "${IPSET_FILE}"
+}
+
+# IPSet_Disable_Managed records the managed IPSET disable operation, removes its state file when successful, and returns the configured status.
 IPSet_Disable_Managed() {
 	printf '%s\n' IPSet_Disable_Managed >>"${CALLS_FILE}"
+	[ "${DISABLE_STATUS:-0}" -eq 0 ] && rm -f "${IPSET_FILE}"
 	return "${DISABLE_STATUS:-0}"
 }
 
@@ -125,10 +138,15 @@ run_start_case 'AdGuard Home, version v0.107.48' 0 'lock IPSet_Disable_Managed_F
 IPSET_CONFIG=YES
 CONFIG_IPSET="${IPSET_CONFIG}"
 INSTALL_MODE=lan
-run_case 'AdGuard Home, version v0.107.48' 0 ''
+: >"${IPSET_FILE}" || fail 'could not create managed IPSET fixture'
+run_case 'AdGuard Home, version v0.107.48' 0 'lock IPSet_Disable_Managed_For_Start_Locked'
+: >"${IPSET_FILE}" || fail 'could not recreate managed IPSET fixture for startup'
 run_start_case 'AdGuard Home, version v0.107.48' 0 'IPSet_Disable_Managed'
+[ ! -e "${IPSET_FILE}" ] || fail 'rejected LAN setup retained managed IPSET state'
+: >"${IPSET_FILE}" || fail 'could not reset managed IPSET fixture'
 DISABLE_STATUS=1
 run_start_case 'AdGuard Home, version v0.107.48' 0 'IPSet_Disable_Managed' 1
+[ -e "${IPSET_FILE}" ] || fail 'failed managed IPSET disable removed the fixture'
 DISABLE_STATUS=0
 INSTALL_MODE=wan
 

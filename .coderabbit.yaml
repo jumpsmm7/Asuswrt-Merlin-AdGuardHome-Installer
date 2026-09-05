@@ -204,6 +204,23 @@ reviews:
           cancellation, and repeated operations return the correct status.
         - Error messages identify the failed operation without exposing secrets.
 
+        Treat WAN, LAN, and uninstall event-hook orchestration as one transaction. Before
+        the first helper changes state, snapshot both dnsmasq hooks, init-start,
+        services-stop, service-event-end, firewall-start, and the managed
+        configuration. Require aggregate restoration after any later helper or
+        preference-write failure, including same-mode operations where no
+        mode-migration rollback exists. Delete a recovery snapshot only after
+        restoration succeeds; otherwise require its retained path to be reported.
+
+        Require every staged dnsmasq edit and append to propagate failure. If
+        final dnsmasq publication fails after IPSET refresh, compensate IPSET
+        from the unchanged live configuration before returning failure.
+
+        Gate adding or retaining installer-managed dnsmasq-sdn.postconf content
+        on rc_support advertising mtlancfg. Always remove stale managed SDN-hook
+        content when integration is disabled or unsupported, while preserving
+        unrelated commands in the shared script.
+
     - path: "**/S99AdGuardHome"
       instructions: |
         Review startup, shutdown, restart, reload, monitor, DNS handoff, and
@@ -347,6 +364,16 @@ reviews:
     - path: "**/AdGuardHome.sh"
       instructions: |
         Keep new helpers in the existing purpose-based, alpha-numerically sorted function groups. Preserve the manager's explicit dependency checks, quoted variable handling, captured return statuses, and dual flock/mkdir lock compatibility paths. Install and restore signal traps around critical sections without losing the original status.
+
+        WAN NAT qualification must accept `-s` and `--source` selectors while
+        still requiring SNAT or MASQUERADE on a validated WAN output interface;
+        reject negated output matches, `-i`/`--in-interface` scoped rules, and
+        matching tokens contained only in comments.
+        Keep dnsmasq configuration edits on a same-filesystem stage until the
+        topology-aware IPSET refresh succeeds. Require every staged edit and
+        append to propagate failure; remove the stage without changing the live
+        file on refresh failure, and compensate IPSET from the unchanged live
+        configuration if final publication fails after a successful refresh.
     - path: "tests/*.sh"
       instructions: |
         When adding a regression test, register it explicitly in `tools/code-quality.sh`; test files are not automatically discovered by the regression runner. Keep test names in kebab-case with a component/scenario prefix and retain the repository's `PASS:`/`FAIL:` result convention.

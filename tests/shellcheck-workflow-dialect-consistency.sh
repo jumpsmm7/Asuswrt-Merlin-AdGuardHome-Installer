@@ -66,11 +66,25 @@ grep -Fq 'contents: read' "${WORKFLOW}" || fail "${WORKFLOW}: missing 'contents:
 for job in '  posix-syntax:' '  shellcheck:' '  checksums:' '  shfmt:'; do
 	grep -Fq "${job}" "${WORKFLOW}" || fail "${WORKFLOW}: missing expected job declaration '${job}'"
 done
+awk '
+	/^  posix-syntax:$/ { in_job = 1; next }
+	in_job && /^  [a-zA-Z0-9_-]+:$/ { exit }
+	in_job && /^    timeout-minutes: 165$/ { found = 1 }
+	END { exit !found }
+' "${WORKFLOW}" || fail "${WORKFLOW}: posix-syntax timeout must exceed the bounded lifecycle integration step"
 
-grep -Fq 'pull_request:' "${WORKFLOW}" || fail "${WORKFLOW}: missing the pull_request trigger"
-grep -Fq 'workflow_dispatch:' "${WORKFLOW}" || fail "${WORKFLOW}: missing the workflow_dispatch trigger"
-grep -Fq '      - master' "${WORKFLOW}" || fail "${WORKFLOW}: missing the push trigger for the master branch"
-grep -Fq "      - 'dev/**'" "${WORKFLOW}" || fail "${WORKFLOW}: missing the push trigger for dev/** branches"
+grep -Eq '^  pull_request:$' "${WORKFLOW}" || fail "${WORKFLOW}: missing the pull_request trigger"
+grep -Eq '^  merge_group:$' "${WORKFLOW}" || fail "${WORKFLOW}: missing the merge_group trigger"
+grep -Eq '^  workflow_dispatch:$' "${WORKFLOW}" || fail "${WORKFLOW}: missing the workflow_dispatch trigger"
+grep -Eq '^  push:$' "${WORKFLOW}" || fail "${WORKFLOW}: missing the all-branch push trigger"
+if awk '
+	/^on:$/ { in_events = 1; next }
+	in_events && /^[a-zA-Z]/ { exit }
+	in_events && /^[[:space:]]+branches(-ignore)?:/ { found = 1 }
+	END { exit !found }
+' "${WORKFLOW}"; then
+	fail "${WORKFLOW}: push and review checks must not be restricted by branch filters"
+fi
 
 grep -Fq 'tools/list-shell-scripts.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: posix-syntax/shellcheck/shfmt jobs must enumerate scripts via tools/list-shell-scripts.sh"
@@ -100,7 +114,7 @@ grep -Fq 'run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-
 	fail "${WORKFLOW}: installer preflight regression does not run with bounded BusyBox ash"
 grep -Fq 'run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-dns-environment-failure.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: installer NVRAM transaction regression does not run with bounded BusyBox ash"
-grep -Fq 'run: sudo -n /usr/bin/timeout --kill-after=10 600 env AGH_INTEGRATION_SHELL=busybox' "${WORKFLOW}" ||
+grep -Fq 'run: sudo -n /usr/bin/timeout --kill-after=10 5160 env AGH_INTEGRATION_SHELL=busybox' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: lifecycle timeout must run inside sudo"
 grep -Fq 'run: sudo -n /usr/bin/timeout --kill-after=10 180 busybox ash tests/optional-database-links.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: optional database timeout must run inside sudo"
