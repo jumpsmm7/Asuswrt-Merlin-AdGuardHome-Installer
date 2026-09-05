@@ -3,8 +3,9 @@
 
 set -u
 
-SCRIPT_PATH='tests/service-lifecycle-integration.sh'
-CASES_FIXTURE='tests/fixtures/service-lifecycle-cases.tsv'
+ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd) || exit 1
+SCRIPT_PATH="${ROOT_DIR}/tests/service-lifecycle-integration.sh"
+CASES_FIXTURE="${ROOT_DIR}/tests/fixtures/service-lifecycle-cases.tsv"
 
 # fail prints a failure message containing the specified reason and exits with status 1.
 fail() {

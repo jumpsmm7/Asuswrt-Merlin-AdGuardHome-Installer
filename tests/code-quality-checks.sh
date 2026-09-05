@@ -85,6 +85,7 @@ MD5_HELPER_RAN_FILE="${TMP_ROOT}/md5-helper.ran"
 TZDATA_PACKAGE_INFO_RAN_FILE="${TMP_ROOT}/tzdata-package-info.ran"
 SERVICE_OPT_DISAPPEARANCE_RAN_FILE="${TMP_ROOT}/service-opt-disappearance.ran"
 SERVICE_LIFECYCLE_SUITE_TIMEOUT_RAN_FILE="${TMP_ROOT}/service-lifecycle-suite-timeout.ran"
+WAN_NAT_PREDICATE_RAN_FILE="${TMP_ROOT}/wan-nat-predicate-parity.ran"
 (
 	OPTIONAL_DATABASE_STATUS=0
 	# id prints 0 to simulate a root user ID in privileged-command tests.
@@ -95,6 +96,7 @@ SERVICE_LIFECYCLE_SUITE_TIMEOUT_RAN_FILE="${TMP_ROOT}/service-lifecycle-suite-ti
 	sh() {
 		case "$1" in
 			tests/wan-nat-predicate-parity.sh)
+				: >"${WAN_NAT_PREDICATE_RAN_FILE}"
 				return 0
 				;;
 			tests/installer-event-script-transactions.sh)
@@ -155,6 +157,8 @@ SERVICE_LIFECYCLE_SUITE_TIMEOUT_RAN_FILE="${TMP_ROOT}/service-lifecycle-suite-ti
 	}
 	run_privileged_regression_check tests/runtime-writable-path-security.sh 'runtime writable-path security regression' || exit 1
 	FAILED=0
+	run_check 'WAN NAT predicate parity regression' sh tests/wan-nat-predicate-parity.sh || exit 1
+	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'AdGuardHome Go runtime environment regression' sh tests/adguardhome-go-environment.sh || exit 1
 	[ "${FAILED}" -eq 0 ] || exit 1
 	run_check 'Private IPv4 DNS fallback chain regression' sh tests/private-ipv4-dns-fallback-chain.sh || exit 1
@@ -195,6 +199,7 @@ SERVICE_LIFECYCLE_SUITE_TIMEOUT_RAN_FILE="${TMP_ROOT}/service-lifecycle-suite-ti
 [ -f "${TZDATA_PACKAGE_INFO_RAN_FILE}" ] || fail 'tzdata package conversion regression command was not invoked'
 [ -f "${SERVICE_OPT_DISAPPEARANCE_RAN_FILE}" ] || fail 'Entware mount disappearance regression command was not invoked'
 [ -f "${SERVICE_LIFECYCLE_SUITE_TIMEOUT_RAN_FILE}" ] || fail 'service lifecycle suite timeout regression command was not invoked'
+[ -f "${WAN_NAT_PREDICATE_RAN_FILE}" ] || fail 'WAN NAT predicate parity regression command was not invoked'
 [ -f "${OPTIONAL_DATABASE_RAN_FILE}" ] || fail 'optional database-link regression command was not invoked'
 grep -Fq 'PASS: optional database link tests passed' "${OPTIONAL_DATABASE_OUT_FILE}" ||
 	fail 'optional database-link regression output was not forwarded'

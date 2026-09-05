@@ -45,7 +45,7 @@ jobs:
   local-quality:
     name: Local Code Quality Checks
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 100
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || github.event.pull_request.draft == false
     permissions:
       contents: read

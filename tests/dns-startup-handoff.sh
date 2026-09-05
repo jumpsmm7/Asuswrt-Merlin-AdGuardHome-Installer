@@ -16,9 +16,11 @@ CALLS_FILE="${TEST_ROOT}/calls"
 STARTED_FILE="${TEST_ROOT}/started"
 DNSMASQ_CONF_FILE="${TEST_ROOT}/dnsmasq.conf"
 NETSTAT_CALLS_FILE="${TEST_ROOT}/netstat-calls"
+STOPPED_DNSMASQ_CONFIG=""
 
 # cleanup removes the temporary test workspace and its contents.
 cleanup() {
+	[ -z "${STOPPED_DNSMASQ_CONFIG}" ] || rm -f "${STOPPED_DNSMASQ_CONFIG}" "${STOPPED_DNSMASQ_CONFIG}.adguard.$$"
 	rm -rf "${TEST_ROOT}"
 }
 
@@ -90,6 +92,19 @@ interface_ipv6_addr() { printf '%s\n' ''; }
 CONFIG_DNSMASQ_MODE='auto'
 dnsmasq_action_handler || fail 'LAN-mode dnsmasq action was not skipped successfully'
 adguard_lan_mode() { return 1; }
+stopped_sdn="adguardhome-stopped-$$"
+STOPPED_DNSMASQ_CONFIG="/etc/dnsmasq-${stopped_sdn}.conf"
+stopped_stage="${STOPPED_DNSMASQ_CONFIG}.adguard.$$"
+printf '%s\n' 'fixture configuration must remain unchanged' >"${STOPPED_DNSMASQ_CONFIG}" ||
+	fail 'could not create stopped dnsmasq configuration fixture'
+adguard_dnsmasq_running() { return 1; }
+dnsmasq_params "${stopped_sdn}" || fail 'dnsmasq_params did not skip a stopped dnsmasq service'
+grep -qx 'fixture configuration must remain unchanged' "${STOPPED_DNSMASQ_CONFIG}" ||
+	fail 'stopped dnsmasq configuration was changed'
+[ ! -e "${stopped_stage}" ] || fail 'stopped dnsmasq configuration created a stage file'
+rm -f "${STOPPED_DNSMASQ_CONFIG}" || fail 'could not remove stopped dnsmasq configuration fixture'
+STOPPED_DNSMASQ_CONFIG=""
+
 adguard_dnsmasq_running() { return 0; }
 missing_sdn="adguardhome-missing-$$"
 missing_config="/etc/dnsmasq-${missing_sdn}.conf"

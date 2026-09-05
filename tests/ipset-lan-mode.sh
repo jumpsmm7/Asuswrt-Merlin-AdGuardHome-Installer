@@ -109,9 +109,15 @@ pidof() {
 
 # iptables outputs the configured WAN NAT rule.
 iptables() {
-	[ "$*" = '-t nat -S POSTROUTING' ] || fail "unexpected iptables query: $*"
-	[ "${IPTABLES_FAIL:-0}" -eq 0 ] || return 1
+	printf '%s\n' "$*" >"${TEST_ROOT}/iptables-query"
 	printf '%s\n' "${WAN_NAT_RULE:-}"
+	[ "${IPTABLES_FAIL:-0}" -eq 0 ] || return 1
+}
+
+# assert_iptables_query verifies the production predicate used the expected WAN NAT query.
+assert_iptables_query() {
+	[ "$(cat "${TEST_ROOT}/iptables-query")" = '-t nat -S POSTROUTING' ] ||
+		fail 'unexpected iptables query'
 }
 
 # nvram returns the configured WAN interface name for the requested NVRAM key.
@@ -217,6 +223,7 @@ WAN_NAT_RULE='-A POSTROUTING -o eth0 -j MASQUERADE'
 DISABLE_STATUS=0
 : >"${CALLS_FILE}"
 IPSet_Enabled || fail 'IPSet_Enabled returned false for LAN mode with qualifying WAN NAT state'
+assert_iptables_query
 IPSet_Refresh || fail 'LAN double-NAT refresh returned failure with supported IPSET'
 ACTUAL="$(cat "${CALLS_FILE}")"
 case "${ACTUAL}" in
@@ -227,6 +234,7 @@ IPTABLES_FAIL=1
 if IPSet_Enabled; then
 	fail 'IPSet_Enabled allowed LAN IPSET when iptables was unavailable'
 fi
+assert_iptables_query
 IPTABLES_FAIL=0
 WAN_NAT_RULE=''
 

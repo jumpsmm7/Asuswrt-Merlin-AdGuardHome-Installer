@@ -79,6 +79,8 @@ sed -n '/^remove_dnsmasq_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FI
 sed -n '/^event_scripts_snapshot() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.snapshot-helper" ||
 	fail 'could not extract generic event-script snapshot helper'
 [ -s "${TMP_FILE}.snapshot-helper" ] || fail 'generic event-script snapshot helper was not found'
+grep -Fq '(umask 077 && mkdir -p "${SNAPSHOT_DIR}") || return 1' "${TMP_FILE}.snapshot-helper" ||
+	fail 'generic event-script snapshot directory is not private at creation'
 sed -n '/^event_scripts_restore() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_FILE}.restore-helper" ||
 	fail 'could not extract generic event-script restore helper'
 [ -s "${TMP_FILE}.restore-helper" ] || fail 'generic event-script restore helper was not found'
