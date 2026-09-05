@@ -52,8 +52,41 @@ review_checker_is_enforced() {
 	' "${_review_workflow}"
 }
 
+# scorecard_required_steps_are_gated verifies that each Scorecard action step carries its own supported-ref gate.
+scorecard_required_steps_are_gated() {
+	awk '
+		function finish_step() {
+			if (required && !gated) failed = 1
+			required = 0
+			gated = 0
+		}
+		/^  analysis:$/ { in_job = 1; next }
+		in_job && /^  [a-zA-Z0-9_-]+:$/ { finish_step(); in_job = 0 }
+		in_job && /^      - name:/ { finish_step(); in_step = 1; next }
+		in_job && in_step && /^        uses: actions\/checkout@/ { required = 1; checkout = 1 }
+		in_job && in_step && /^        uses: ossf\/scorecard-action@/ { required = 1; analysis = 1 }
+		in_job && in_step && /^        uses: github\/codeql-action\/upload-sarif@/ { required = 1; upload = 1 }
+		in_job && in_step && $0 == "        if: env.SCORECARD_SUPPORTED == '\''true'\''" { gated = 1 }
+		END {
+			finish_step()
+			if (failed || !checkout || !analysis || !upload) exit 1
+		}
+	' "$1"
+}
+
+# workflow_concurrency_is_ref_scoped verifies that superseded runs are cancelled per workflow and ref.
+workflow_concurrency_is_ref_scoped() {
+	awk '
+		/^concurrency:$/ { in_concurrency = 1; next }
+		in_concurrency && /^[^[:space:]]/ { in_concurrency = 0 }
+		in_concurrency && $0 == "  group: ${{ github.workflow }}-${{ github.ref }}" { group = 1 }
+		in_concurrency && $0 == "  cancel-in-progress: true" { cancel = 1 }
+		END { if (!group || !cancel) exit 1 }
+	' "$1"
+}
+
 # osv_differential_uploads_are_guarded verifies that both differential SARIF
-# consumers require a successfully produced report.
+# osv_differential_uploads_are_guarded verifies that OSV differential reports are available before artifact or code-scanning uploads proceed.
 osv_differential_uploads_are_guarded() {
 	awk '
 		/^  scan-pr:$/ { in_scan_pr = 1; next }
@@ -186,6 +219,17 @@ grep -Fq 'python3 --version' "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: expected the validation-host python3 prerequisite check"
 grep -Fq '/usr/bin/timeout --version' "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: expected the approved GNU timeout prerequisite check"
+local_quality_timeout_minutes="$(awk '
+	/^  local-quality:$/ { in_job = 1; next }
+	in_job && /^  [a-zA-Z0-9_-]+:$/ { exit }
+	in_job && /^    timeout-minutes: [0-9]+$/ { print $2; exit }
+' "${REVIEW_WORKFLOW}")"
+service_lifecycle_timeout_seconds="$(sed -n 's/^SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS="${SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS:-\([0-9][0-9]*\)}"$/\1/p' "${LOCAL_QUALITY_RUNNER}")"
+case "${local_quality_timeout_minutes}:${service_lifecycle_timeout_seconds}" in
+	*[!0-9:]* | :* | *:) fail "${REVIEW_WORKFLOW}: local quality and lifecycle timeouts must be numeric" ;;
+esac
+[ "$((service_lifecycle_timeout_seconds + 300))" -lt "$((local_quality_timeout_minutes * 60))" ] ||
+	fail "${REVIEW_WORKFLOW}: local-quality timeout must exceed the lifecycle limit by more than five minutes"
 [ "$(grep -Fc -- '--connect-timeout 10 --max-time 60' "${REVIEW_WORKFLOW}")" -eq 2 ] ||
 	fail "${REVIEW_WORKFLOW}: both Sonar requests must have bounded request-level timeouts"
 grep -Fq 'if not isinstance(payload, dict):' "${REVIEW_WORKFLOW}" ||
@@ -264,10 +308,44 @@ grep -Fq "github.ref_type == 'branch'" "${SCORECARD_WORKFLOW}" ||
 	fail "${SCORECARD_WORKFLOW}: Scorecard execution must reject tags named after the default branch"
 grep -Fq "github.base_ref == github.event.repository.default_branch" "${SCORECARD_WORKFLOW}" ||
 	fail "${SCORECARD_WORKFLOW}: pull-request Scorecard execution must target the default branch"
-[ "$(grep -Fc "if: env.SCORECARD_SUPPORTED == 'true'" "${SCORECARD_WORKFLOW}")" -eq 3 ] ||
+scorecard_required_steps_are_gated "${SCORECARD_WORKFLOW}" ||
 	fail "${SCORECARD_WORKFLOW}: checkout, Scorecard analysis, and SARIF upload must share the supported-ref gate"
 grep -Fq "if: env.SCORECARD_SUPPORTED != 'true'" "${SCORECARD_WORKFLOW}" ||
 	fail "${SCORECARD_WORKFLOW}: unsupported refs must publish an explanatory successful check"
+for scorecard_step in checkout analysis upload; do
+	awk -v target="${scorecard_step}" '
+		/^      - name: Check out repository$/ { step = "checkout" }
+		/^      - name: Run OpenSSF Scorecard$/ { step = "analysis" }
+		/^      - name: Upload Scorecard results$/ { step = "upload" }
+		/^      - name:/ && step != "" && $0 !~ /Check out repository|Run OpenSSF Scorecard|Upload Scorecard results/ { step = "" }
+		step == target && $0 == "        if: env.SCORECARD_SUPPORTED == '\''true'\''" { next }
+		{ print }
+	' "${SCORECARD_WORKFLOW}" >"${TMP_ROOT}/scorecard-${scorecard_step}-ungated.yml" ||
+		fail "could not create ungated Scorecard ${scorecard_step} fixture"
+	if scorecard_required_steps_are_gated "${TMP_ROOT}/scorecard-${scorecard_step}-ungated.yml"; then
+		fail "${SCORECARD_WORKFLOW}: missing ${scorecard_step} gate bypassed step validation"
+	fi
+done
+awk '
+	/^      - name: Upload Scorecard results$/ { upload = 1 }
+	upload && $0 == "        if: env.SCORECARD_SUPPORTED == '\''true'\''" { next }
+	/^      - name: Explain unsupported Scorecard ref$/ {
+		print "      - name: Unrelated supported step"
+		print "        if: env.SCORECARD_SUPPORTED == '\''true'\''"
+		print "        run: true"
+		upload = 0
+	}
+	{ print }
+' "${SCORECARD_WORKFLOW}" >"${TMP_ROOT}/scorecard-displaced-gate.yml" ||
+	fail 'could not create displaced Scorecard gate fixture'
+if scorecard_required_steps_are_gated "${TMP_ROOT}/scorecard-displaced-gate.yml"; then
+	fail "${SCORECARD_WORKFLOW}: unrelated duplicate gate replaced the SARIF upload gate"
+fi
+
+for sarif_workflow in '.github/workflows/osv-scanner.yml' "${SCORECARD_WORKFLOW}"; do
+	workflow_concurrency_is_ref_scoped "${sarif_workflow}" ||
+		fail "${sarif_workflow}: SARIF workflow concurrency must cancel superseded runs for the same ref"
+done
 
 # --- The Sonar parser cleanup must be idempotent. Pull-request validation must
 # use the immutable head SHA with a non-persistent read-only checkout and fail

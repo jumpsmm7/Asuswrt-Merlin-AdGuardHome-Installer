@@ -6240,7 +6240,7 @@ event_scripts_snapshot() {
 	for SOURCE in "$@"; do
 		[ ! -L "${SOURCE}" ] || return 1
 	done
-	mkdir -p "${SNAPSHOT_DIR}" || return 1
+	(umask 077 && mkdir -p "${SNAPSHOT_DIR}") || return 1
 	chmod 700 "${SNAPSHOT_DIR}" || {
 		rm -rf "${SNAPSHOT_DIR}"
 		return 1
