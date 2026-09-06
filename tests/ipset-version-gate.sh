@@ -27,7 +27,7 @@ fail() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Supported() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Refresh_After_Recovery() {$/,/^}$/p; /^IPSet_Setup() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Supported() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'IPSET version-gate functions were not found'
 
 cat >"${BINARY_FILE}" <<'BINARY'
@@ -70,9 +70,13 @@ IPSet_Disable_Managed() {
 
 # IPSet_Lock records a lock request for the specified IPSET operation.
 IPSet_Lock() {
-	if [ "$1" = "dnsmasq_ipset_state_recover_pending" ]; then
+	local lock_status
+	if [ "$1" = "IPSet_Refresh_After_Recovery" ]; then
+		IPSET_LOCK_ACTIVE=1
 		"$@"
-		return "$?"
+		lock_status="$?"
+		IPSET_LOCK_ACTIVE=0
+		return "${lock_status}"
 	fi
 	printf '%s\n' "lock $1" >>"${CALLS_FILE}"
 }

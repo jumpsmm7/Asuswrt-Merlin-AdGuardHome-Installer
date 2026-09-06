@@ -979,7 +979,7 @@ dnsmasq_ipset_state_cleanup_stage() {
 	SNAPSHOT_STAGE="${WORK_DIR}/.AdGuardHome.dnsmasq-stage.$$"
 	[ -e "${SNAPSHOT_STAGE}" ] || [ -L "${SNAPSHOT_STAGE}" ] || return 0
 	[ -d "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ] || return 1
-	rm -rf "${SNAPSHOT_STAGE}" || return 1
+	/bin/rm -rf "${SNAPSHOT_STAGE}" || return 1
 	[ ! -e "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ]
 }
 
@@ -1383,7 +1383,7 @@ dnsmasq_publish_staged_config() (
 		}
 		dnsmasq_ipset_state_cleanup_stage || {
 			TRANSACTION_ACTIVE="0"
-			rm -f "${CONFIG_STAGE}"
+			/bin/rm -f "${CONFIG_STAGE}"
 			return 1
 		}
 		if ! dnsmasq_ipset_state_snapshot "${IPSET_SNAPSHOT_DIR}"; then
@@ -4088,10 +4088,17 @@ IPSet_Enabled() {
 
 # IPSet_Refresh refreshes managed IPSet mappings from an optional dnsmasq configuration file and restarts AdGuardHome when the mappings change.
 IPSet_Refresh() {
-	local CURRENT_FILE DNSMASQ_RESTART_SKIP RESTART_STATUS
-	if [ "${TRANSACTION_ACTIVE:-0}" != "1" ] || [ "${IPSET_LOCK_ACTIVE:-0}" != "1" ]; then
-		IPSet_Lock dnsmasq_ipset_state_recover_pending || return 1
+	if [ "${TRANSACTION_ACTIVE:-0}" = "1" ] && [ "${IPSET_LOCK_ACTIVE:-0}" = "1" ]; then
+		IPSet_Refresh_After_Recovery "$@"
+	else
+		IPSet_Lock IPSet_Refresh_After_Recovery "$@"
 	fi
+}
+
+# IPSet_Refresh_After_Recovery recovers pending state and completes a non-transactional refresh without releasing the shared lock.
+IPSet_Refresh_After_Recovery() {
+	local CURRENT_FILE DNSMASQ_RESTART_SKIP RESTART_STATUS
+	[ "${TRANSACTION_ACTIVE:-0}" = "1" ] || dnsmasq_ipset_state_recover_pending || return 1
 	if ! adguard_ipset_allowed; then
 		if ! CURRENT_FILE="$(IPSet_Current_File 2>/dev/null)"; then
 			return 1
