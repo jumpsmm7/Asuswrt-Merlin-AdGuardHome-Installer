@@ -979,7 +979,7 @@ dnsmasq_ipset_state_cleanup_stage() {
 	SNAPSHOT_STAGE="${WORK_DIR}/.AdGuardHome.dnsmasq-stage.$$"
 	[ -e "${SNAPSHOT_STAGE}" ] || [ -L "${SNAPSHOT_STAGE}" ] || return 0
 	[ -d "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ] || return 1
-	/bin/rm -rf "${SNAPSHOT_STAGE}" || return 1
+	rm -rf "${SNAPSHOT_STAGE}" || return 1
 	[ ! -e "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ]
 }
 
@@ -1383,7 +1383,7 @@ dnsmasq_publish_staged_config() (
 		}
 		dnsmasq_ipset_state_cleanup_stage || {
 			TRANSACTION_ACTIVE="0"
-			/bin/rm -f "${CONFIG_STAGE}"
+			rm -f "${CONFIG_STAGE}"
 			return 1
 		}
 		if ! dnsmasq_ipset_state_snapshot "${IPSET_SNAPSHOT_DIR}"; then
