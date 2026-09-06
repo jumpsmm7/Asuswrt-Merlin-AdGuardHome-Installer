@@ -79,11 +79,27 @@ IPSet_Lock() {
 		IPSET_LOCK_ACTIVE="${lock_active}"
 		return "${lock_status}"
 	fi
+	if [ "$1" = "IPSet_Refresh_After_Recovery" ]; then
+		lock_active="${IPSET_LOCK_ACTIVE:-0}"
+		IPSET_LOCK_ACTIVE=1
+		"$@"
+		lock_status="$?"
+		IPSET_LOCK_ACTIVE="${lock_active}"
+		return "${lock_status}"
+	fi
 	printf '%s\n' "lock $1" >>"${CALLS_FILE}"
 }
 
 # dnsmasq_ipset_state_recover_pending provides successful pending-state recovery for version-gate cases.
-dnsmasq_ipset_state_recover_pending() { return 0; }
+dnsmasq_ipset_state_recover_pending() {
+	[ -z "${FAST_PATH_CALLS:-}" ] || printf '%s\n' "recovery lock=${IPSET_LOCK_ACTIVE:-0}" >>"${FAST_PATH_CALLS}"
+	return 0
+}
+
+# IPSet_Setup_Locked records transactional fast-path refresh work when requested.
+IPSet_Setup_Locked() {
+	[ -z "${FAST_PATH_CALLS:-}" ] || printf '%s\n' "setup lock=${IPSET_LOCK_ACTIVE:-0}" >>"${FAST_PATH_CALLS}"
+}
 
 logger() {
 	:

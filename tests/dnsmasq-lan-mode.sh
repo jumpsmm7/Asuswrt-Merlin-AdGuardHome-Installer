@@ -831,6 +831,15 @@ IPSet_Lock dnsmasq_ipset_state_cleanup_stages || fail 'validated orphaned snapsh
 NEXT_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.after-orphan"
 IPSet_Lock dnsmasq_ipset_state_snapshot "${NEXT_SNAPSHOT}" || fail 'next snapshot transaction failed after orphan cleanup'
 rm -rf "${NEXT_SNAPSHOT}" || fail 'could not clear post-orphan snapshot'
+for invalid_stage_suffix in backup 123backup ''; do
+	INVALID_SNAPSHOT_STAGE="${TEST_ROOT}/.AdGuardHome.dnsmasq-stage.${invalid_stage_suffix}"
+	mkdir -m 700 "${INVALID_SNAPSHOT_STAGE}" || fail 'could not create invalid-name snapshot stage'
+	if IPSet_Lock dnsmasq_ipset_state_cleanup_stages; then
+		fail "snapshot-stage sweep accepted invalid suffix: ${invalid_stage_suffix:-empty}"
+	fi
+	[ -d "${INVALID_SNAPSHOT_STAGE}" ] || fail "snapshot-stage sweep deleted invalid suffix: ${invalid_stage_suffix:-empty}"
+	rm -rf "${INVALID_SNAPSHOT_STAGE}" || fail 'could not clear invalid-name snapshot stage'
+done
 UNSAFE_STAGE_TARGET="${TEST_ROOT}/unsafe-stage-target"
 mkdir -m 700 "${UNSAFE_STAGE_TARGET}" || fail 'could not create unsafe stage target'
 ln -s "${UNSAFE_STAGE_TARGET}" "${EXPECTED_SNAPSHOT_STAGE}" || fail 'could not create unsafe stage symlink'
