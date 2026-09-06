@@ -5,6 +5,11 @@ set -u
 
 SCRIPT_PATH="${1:-installer}"
 
+# cleanup removes every temporary log that may have been initialized before an assertion exits.
+cleanup() {
+	rm -f "${CHECK_IPSET_LOG:-}" "${LOG:-}" "${SERVICE_LOG:-}" "${END_LOG:-}" "${CONF_LOG:-}"
+}
+
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -27,7 +32,8 @@ eval "${MENU_FUNCTION}"
 # check_ipset is the final persistence guard and must not accept an enable
 # request unless the mode is WAN or LAN with qualifying WAN NAT state.
 CHECK_IPSET_LOG="${TMPDIR:-/tmp}/installer-ipset-check-guard.$$"
-trap 'rm -f "${CHECK_IPSET_LOG}"' EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'cleanup; exit 1' HUP INT TERM
 # write_conf writes a configuration key and value to the IPSET check log.
 write_conf() {
 	printf '%s=%s\n' "$1" "$2" >"${CHECK_IPSET_LOG}"

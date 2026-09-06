@@ -106,6 +106,7 @@ grep -q '^ADGUARD_LAN_REVERSE_UPSTREAM="192.168.50.1"$' "${CONF_FILE}" || fail '
 
 CONF_FILE="${TMP_ROOT}/new-lan-double-nat.config"
 printf '%s\n' 'ADGUARD_IPSET="YES"' 'ADGUARD_DNSMASQ_MODE="enabled"' >"${CONF_FILE}" || fail 'could not seed double-NAT LAN feature config'
+ADGUARD_INSTALL_MODE="lan"
 WAN_NAT_ACTIVE=1
 adguard_install_feature_defaults >"${TMP_ROOT}/feature-lan-double-nat.out" || fail 'double-NAT LAN install feature defaults failed'
 grep -q '^ADGUARD_IPSET="YES"$' "${CONF_FILE}" || fail 'double-NAT LAN feature defaults disabled explicit IPSET integration'

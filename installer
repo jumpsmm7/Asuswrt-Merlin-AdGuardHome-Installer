@@ -6684,6 +6684,7 @@ inst_AdGuardHome() {
 		fi
 	else
 		if [ "${SERVICE_REFRESH_ONLY}" = "1" ]; then
+			if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
 			ptxt_phase "Refreshing AdGuardHome service integration."
 		else
 			ptxt_phase "Installing AdGuardHome package."

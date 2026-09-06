@@ -47,8 +47,10 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 [ -f "${SCRIPT_PATH}" ] || fail "script not found: ${SCRIPT_PATH}"
 
-sed -n '/^dnsmasq_delete_matching() {$/,/^interface_ipv4_addr() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
-	fail 'could not extract dnsmasq helpers'
+{
+	sed -n '/^dnsmasq_delete_matching() {$/,/^interface_ipv4_addr() {$/p' "${SCRIPT_PATH}" | sed '$d'
+	sed -n '/^IPSet_Current_UID() {$/,/^}$/p; /^IPSet_Directory_Metadata() {$/,/^}$/p' "${SCRIPT_PATH}"
+} >"${FUNCTIONS_FILE}" || fail 'could not extract dnsmasq helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'dnsmasq helper extraction was empty'
 # Keep the extracted postconf helper inside the test sandbox instead of touching router paths.
 sed -i \
@@ -815,6 +817,59 @@ printf '%s\n' '1:2' >"${INTERRUPTED_SNAPSHOT_STAGE}/snapshot.version" || fail 'c
 IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'private interrupted snapshot stage blocked recovery'
 [ -d "${INTERRUPTED_SNAPSHOT_STAGE}" ] || fail 'recovery treated private snapshot stage as a published snapshot'
 /bin/rm -rf "${INTERRUPTED_SNAPSHOT_STAGE}" || fail 'could not clear interrupted snapshot stage'
+
+# The next transaction removes only its exact orphaned private stage while the
+# shared lock is held, and rejects unsafe objects at that path.
+reset_case
+EXPECTED_SNAPSHOT_STAGE="${TEST_ROOT}/.AdGuardHome.dnsmasq-stage.$$"
+OLD_SNAPSHOT_STAGE="${TEST_ROOT}/.AdGuardHome.dnsmasq-stage.12345"
+mkdir -m 700 "${OLD_SNAPSHOT_STAGE}" || fail 'could not create old-PID orphaned snapshot stage'
+mkdir -m 700 "${EXPECTED_SNAPSHOT_STAGE}" || fail 'could not create expected orphaned snapshot stage'
+IPSet_Lock dnsmasq_ipset_state_cleanup_stages || fail 'validated orphaned snapshot stage sweep failed'
+[ ! -e "${OLD_SNAPSHOT_STAGE}" ] || fail 'old-PID orphaned snapshot stage was retained'
+[ ! -e "${EXPECTED_SNAPSHOT_STAGE}" ] || fail 'validated orphaned snapshot stage was retained'
+NEXT_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.after-orphan"
+IPSet_Lock dnsmasq_ipset_state_snapshot "${NEXT_SNAPSHOT}" || fail 'next snapshot transaction failed after orphan cleanup'
+rm -rf "${NEXT_SNAPSHOT}" || fail 'could not clear post-orphan snapshot'
+UNSAFE_STAGE_TARGET="${TEST_ROOT}/unsafe-stage-target"
+mkdir -m 700 "${UNSAFE_STAGE_TARGET}" || fail 'could not create unsafe stage target'
+ln -s "${UNSAFE_STAGE_TARGET}" "${EXPECTED_SNAPSHOT_STAGE}" || fail 'could not create unsafe stage symlink'
+if IPSet_Lock dnsmasq_ipset_state_cleanup_stage; then
+	fail 'snapshot-stage cleanup accepted a symlink'
+fi
+[ -L "${EXPECTED_SNAPSHOT_STAGE}" ] && [ -d "${UNSAFE_STAGE_TARGET}" ] || fail 'snapshot-stage cleanup deleted an unsafe symlink or its target'
+rm -f "${EXPECTED_SNAPSHOT_STAGE}" || fail 'could not clear unsafe stage symlink'
+: >"${EXPECTED_SNAPSHOT_STAGE}" || fail 'could not create unexpected stage object'
+if IPSet_Lock dnsmasq_ipset_state_cleanup_stage; then
+	fail 'snapshot-stage cleanup accepted a non-directory object'
+fi
+[ -f "${EXPECTED_SNAPSHOT_STAGE}" ] || fail 'snapshot-stage cleanup deleted a non-directory object'
+rm -f "${EXPECTED_SNAPSHOT_STAGE}" || fail 'could not clear unexpected stage object'
+mkdir -m 755 "${EXPECTED_SNAPSHOT_STAGE}" || fail 'could not create non-private stage directory'
+if IPSet_Lock dnsmasq_ipset_state_cleanup_stage; then
+	fail 'snapshot-stage cleanup accepted non-private permissions'
+fi
+[ -d "${EXPECTED_SNAPSHOT_STAGE}" ] || fail 'snapshot-stage cleanup deleted a non-private directory'
+chmod 700 "${EXPECTED_SNAPSHOT_STAGE}" || fail 'could not make stage directory private'
+if (
+	IPSet_Directory_Metadata() { printf '%s\n' '4294967294 rwx------'; }
+	IPSet_Lock dnsmasq_ipset_state_cleanup_stage
+); then
+	fail 'snapshot-stage cleanup accepted unexpected ownership'
+fi
+[ -d "${EXPECTED_SNAPSHOT_STAGE}" ] || fail 'snapshot-stage cleanup deleted a directory with unexpected ownership'
+chmod 755 "${EXPECTED_SNAPSHOT_STAGE}" || fail 'could not restore unsafe stage permissions'
+FAILED_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.unsafe-stage"
+# cleanup_then_snapshot models the locked publication sequence for a rejected stage candidate.
+cleanup_then_snapshot() {
+	dnsmasq_ipset_state_cleanup_stages || return 1
+	dnsmasq_ipset_state_snapshot "${FAILED_SNAPSHOT}"
+}
+if IPSet_Lock cleanup_then_snapshot; then
+	fail 'snapshot-stage sweep accepted the unsafe retained directory'
+fi
+[ ! -e "${FAILED_SNAPSHOT}" ] || fail 'cleanup failure allowed snapshot publication'
+rm -rf "${EXPECTED_SNAPSHOT_STAGE}" || fail 'could not clear rejected stage directory'
 
 # A snapshot published before configuration association is explicitly
 # cleanup-only, so recovery removes it without rolling back newer state.
