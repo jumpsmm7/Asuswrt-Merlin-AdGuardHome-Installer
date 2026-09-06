@@ -27,7 +27,7 @@ fail() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Supported() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Refresh_After_Recovery() {$/,/^}$/p; /^IPSet_Setup() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p; /^IPSet_Supported() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail 'IPSET version-gate functions were not found'
 
 cat >"${BINARY_FILE}" <<'BINARY'
@@ -70,15 +70,32 @@ IPSet_Disable_Managed() {
 
 # IPSet_Lock records a lock request for the specified IPSET operation.
 IPSet_Lock() {
-	if [ "$1" = "dnsmasq_ipset_state_recover_pending" ]; then
+	local lock_active lock_status
+	if [ "${TRANSACTION_ACTIVE:-0}" = "1" ] && [ "${IPSET_LOCK_ACTIVE:-0}" = "1" ]; then
 		"$@"
 		return "$?"
+	fi
+	if [ "$1" = "IPSet_Refresh_After_Recovery" ]; then
+		lock_active="${IPSET_LOCK_ACTIVE:-0}"
+		IPSET_LOCK_ACTIVE=1
+		"$@"
+		lock_status="$?"
+		IPSET_LOCK_ACTIVE="${lock_active}"
+		return "${lock_status}"
 	fi
 	printf '%s\n' "lock $1" >>"${CALLS_FILE}"
 }
 
 # dnsmasq_ipset_state_recover_pending provides successful pending-state recovery for version-gate cases.
-dnsmasq_ipset_state_recover_pending() { return 0; }
+dnsmasq_ipset_state_recover_pending() {
+	[ -z "${FAST_PATH_CALLS:-}" ] || printf '%s\n' "recovery lock=${IPSET_LOCK_ACTIVE:-0}" >>"${FAST_PATH_CALLS}"
+	return 0
+}
+
+# IPSet_Setup_Locked records transactional fast-path refresh work when requested.
+IPSet_Setup_Locked() {
+	[ -z "${FAST_PATH_CALLS:-}" ] || printf '%s\n' "setup lock=${IPSET_LOCK_ACTIVE:-0}" >>"${FAST_PATH_CALLS}"
+}
 
 logger() {
 	:
@@ -156,5 +173,24 @@ run_start_case 'AdGuard Home, version v0.107.48' 0 'IPSet_Disable_Managed' 1
 [ -e "${IPSET_FILE}" ] || fail 'failed managed IPSET disable removed the fixture'
 DISABLE_STATUS=0
 INSTALL_MODE=wan
+
+VERSION_OUTPUT='AdGuard Home, version v0.107.48'
+VERSION_STATUS=0
+export VERSION_OUTPUT VERSION_STATUS
+FAST_PATH_CALLS="${TEST_ROOT}/transaction-fast-path-calls"
+SAVED_IPSET_LOCK_ACTIVE="${IPSET_LOCK_ACTIVE:-0}"
+SAVED_TRANSACTION_ACTIVE="${TRANSACTION_ACTIVE:-0}"
+IPSET_LOCK_ACTIVE=1
+TRANSACTION_ACTIVE=1
+# The dnsmasq publisher recovers pending state before invoking the transactional refresh fast path.
+dnsmasq_ipset_state_recover_pending || fail 'transactional fast-path pending recovery failed'
+IPSet_Refresh || fail 'nested refresh failed while the outer IPSET lock was active'
+[ "$(cat "${FAST_PATH_CALLS}")" = 'recovery lock=1
+setup lock=1' ] || fail 'transactional fast path did not recover before locked refresh work'
+[ "${IPSET_LOCK_ACTIVE}" = "1" ] || fail 'nested refresh cleared the outer IPSET lock state'
+TRANSACTION_ACTIVE="${SAVED_TRANSACTION_ACTIVE}"
+IPSET_LOCK_ACTIVE="${SAVED_IPSET_LOCK_ACTIVE}"
+[ "${TRANSACTION_ACTIVE}" = "${SAVED_TRANSACTION_ACTIVE}" ] && [ "${IPSET_LOCK_ACTIVE}" = "${SAVED_IPSET_LOCK_ACTIVE}" ] ||
+	fail 'transactional fast-path fixture did not restore lock state'
 
 printf '%s\n' 'PASS: managed IPSET integration is gated on AdGuardHome v0.107.48 or later'

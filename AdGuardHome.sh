@@ -973,14 +973,50 @@ dnsmasq_resolv_conf_cleanup() {
 	}; fi
 }
 
-# dnsmasq_ipset_state_cleanup_stage removes the current process's validated orphaned private snapshot stage.
+# dnsmasq_ipset_state_cleanup_stage_path removes one ownership-validated private snapshot stage.
+dnsmasq_ipset_state_cleanup_stage_path() {
+	local CURRENT_UID PATH_METADATA SNAPSHOT_STAGE STAGE_MODE STAGE_OWNER
+	SNAPSHOT_STAGE="$1"
+	[ -d "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ] || return 1
+	CURRENT_UID="$(IPSet_Current_UID)" || return 1
+	PATH_METADATA="$(IPSet_Directory_Metadata "${SNAPSHOT_STAGE}")" || return 1
+	IFS=' ' read -r STAGE_OWNER STAGE_MODE <<EOF
+${PATH_METADATA}
+EOF
+	[ "${STAGE_OWNER}" = "${CURRENT_UID}" ] && [ "${STAGE_MODE}" = "rwx------" ] || return 1
+	[ -d "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ] || return 1
+	PATH_METADATA="$(IPSet_Directory_Metadata "${SNAPSHOT_STAGE}")" || return 1
+	IFS=' ' read -r STAGE_OWNER STAGE_MODE <<EOF
+${PATH_METADATA}
+EOF
+	[ "${STAGE_OWNER}" = "${CURRENT_UID}" ] && [ "${STAGE_MODE}" = "rwx------" ] || return 1
+	rm -rf "${SNAPSHOT_STAGE}" || return 1
+	[ ! -e "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ]
+}
+
+# dnsmasq_ipset_state_cleanup_stage removes the current process's private snapshot stage when it exists.
 dnsmasq_ipset_state_cleanup_stage() {
 	local SNAPSHOT_STAGE
 	SNAPSHOT_STAGE="${WORK_DIR}/.AdGuardHome.dnsmasq-stage.$$"
 	[ -e "${SNAPSHOT_STAGE}" ] || [ -L "${SNAPSHOT_STAGE}" ] || return 0
-	[ -d "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ] || return 1
-	rm -rf "${SNAPSHOT_STAGE}" || return 1
-	[ ! -e "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ]
+	dnsmasq_ipset_state_cleanup_stage_path "${SNAPSHOT_STAGE}"
+}
+
+# dnsmasq_ipset_state_cleanup_stages removes every validated orphaned private snapshot stage while the transaction lock is held.
+dnsmasq_ipset_state_cleanup_stages() {
+	local SNAPSHOT_NAME SNAPSHOT_STAGE SNAPSHOT_SUFFIX
+	for SNAPSHOT_STAGE in "${WORK_DIR}"/.AdGuardHome.dnsmasq-stage.*; do
+		[ -e "${SNAPSHOT_STAGE}" ] || [ -L "${SNAPSHOT_STAGE}" ] || continue
+		SNAPSHOT_NAME="${SNAPSHOT_STAGE##*/}"
+		case "${SNAPSHOT_NAME}" in
+			.AdGuardHome.dnsmasq-stage.*) SNAPSHOT_SUFFIX="${SNAPSHOT_NAME#.AdGuardHome.dnsmasq-stage.}" ;;
+			*) return 1 ;;
+		esac
+		case "${SNAPSHOT_SUFFIX}" in
+			"" | *[!0-9]*) return 1 ;;
+		esac
+		dnsmasq_ipset_state_cleanup_stage_path "${SNAPSHOT_STAGE}" || return 1
+	done
 }
 
 # dnsmasq_ipset_state_snapshot saves the managed IPSet file and YAML configuration in an atomically published cleanup-only snapshot.
@@ -1381,7 +1417,7 @@ dnsmasq_publish_staged_config() (
 			rm -f "${CONFIG_STAGE}"
 			return 1
 		}
-		dnsmasq_ipset_state_cleanup_stage || {
+		dnsmasq_ipset_state_cleanup_stages || {
 			TRANSACTION_ACTIVE="0"
 			rm -f "${CONFIG_STAGE}"
 			return 1
@@ -4088,10 +4124,17 @@ IPSet_Enabled() {
 
 # IPSet_Refresh refreshes managed IPSet mappings from an optional dnsmasq configuration file and restarts AdGuardHome when the mappings change.
 IPSet_Refresh() {
-	local CURRENT_FILE DNSMASQ_RESTART_SKIP RESTART_STATUS
-	if [ "${TRANSACTION_ACTIVE:-0}" != "1" ] || [ "${IPSET_LOCK_ACTIVE:-0}" != "1" ]; then
-		IPSet_Lock dnsmasq_ipset_state_recover_pending || return 1
+	if [ "${TRANSACTION_ACTIVE:-0}" = "1" ] && [ "${IPSET_LOCK_ACTIVE:-0}" = "1" ]; then
+		IPSet_Refresh_After_Recovery "$@"
+	else
+		IPSet_Lock IPSet_Refresh_After_Recovery "$@"
 	fi
+}
+
+# IPSet_Refresh_After_Recovery recovers pending state and completes a non-transactional refresh without releasing the shared lock.
+IPSet_Refresh_After_Recovery() {
+	local CURRENT_FILE DNSMASQ_RESTART_SKIP RESTART_STATUS
+	[ "${TRANSACTION_ACTIVE:-0}" = "1" ] || dnsmasq_ipset_state_recover_pending || return 1
 	if ! adguard_ipset_allowed; then
 		if ! CURRENT_FILE="$(IPSet_Current_File 2>/dev/null)"; then
 			return 1
