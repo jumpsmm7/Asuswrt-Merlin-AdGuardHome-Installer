@@ -85,12 +85,6 @@ dnsmasq_ipset_state_recover_pending() {
 	return "${RECOVERY_STATUS:-0}"
 }
 
-# dnsmasq_ipset_state_recover_pending records direct refresh recovery and returns its configured status.
-dnsmasq_ipset_state_recover_pending() {
-	printf '%s\n' dnsmasq_ipset_state_recover_pending >>"${CALLS_FILE}"
-	return "${RECOVERY_STATUS:-0}"
-}
-
 # IPSet_Setup_Locked records a locked IPSET setup call and succeeds.
 IPSet_Setup_Locked() {
 	printf '%s\n' IPSet_Setup_Locked >>"${CALLS_FILE}"
