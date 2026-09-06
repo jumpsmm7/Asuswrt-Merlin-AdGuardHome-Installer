@@ -6,19 +6,34 @@ set -u
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd) || exit 1
 SUITE_TMP="${TMPDIR:-/tmp}/agh-integration.$$"
 RESULTS_FILE="${SUITE_TMP}/results"
-TIMEOUT_SECONDS="${AGH_INTEGRATION_TIMEOUT:-90}"
+TIMEOUT_SECONDS="${AGH_INTEGRATION_TIMEOUT:-180}"
+SUITE_OUTER_TIMEOUT_SECONDS=5160
 TEST_SHELL="${AGH_INTEGRATION_SHELL:-sh}"
 TEST_SHELL_ARG="${AGH_INTEGRATION_SHELL_ARG:-}"
 CASE_PID=""
 CASE_START_TIME=""
 WATCHDOG_PID=""
 WATCHDOG_START_TIME=""
+SUITE_WATCHDOG_PID=""
+SUITE_WATCHDOG_START_TIME=""
+SUITE_START_TIME=""
 WORKSPACE_CREATED=0
 SCENARIO_COUNT=0
+CASES_FIXTURE="${ROOT_DIR}/tests/fixtures/service-lifecycle-cases.tsv"
+COVERAGE_FIXTURE="${ROOT_DIR}/tests/fixtures/service-lifecycle-coverage.tsv"
 
-# cleanup stops active test and watchdog processes and removes the temporary workspace.
+# cleanup stops active suite and case watchdogs and test processes, then removes the temporary workspace.
 cleanup() {
 	trap '' HUP INT TERM
+	if [ -n "${SUITE_WATCHDOG_PID:-}" ]; then
+		if [ -n "${SUITE_WATCHDOG_START_TIME:-}" ] && capture_process_tree "${SUITE_WATCHDOG_PID}" "${SUITE_TMP}/cleanup-suite-watchdog.pids" "${SUITE_WATCHDOG_START_TIME}"; then
+			signal_process_snapshot TERM "${SUITE_TMP}/cleanup-suite-watchdog.pids"
+			signal_process_snapshot KILL "${SUITE_TMP}/cleanup-suite-watchdog.pids"
+		fi
+		wait "${SUITE_WATCHDOG_PID}" 2>/dev/null || true
+		SUITE_WATCHDOG_PID=""
+		SUITE_WATCHDOG_START_TIME=""
+	fi
 	if [ -n "${WATCHDOG_PID:-}" ]; then
 		if [ -n "${WATCHDOG_START_TIME:-}" ] && capture_process_tree "${WATCHDOG_PID}" "${SUITE_TMP}/cleanup-watchdog.pids" "${WATCHDOG_START_TIME}"; then
 			signal_process_snapshot TERM "${SUITE_TMP}/cleanup-watchdog.pids"
@@ -49,7 +64,6 @@ fail() {
 	exit 1
 }
 
-# process_start_time prints the kernel start time for a PID so a retained PID
 # process_start_time prints the kernel start time recorded for a process ID.
 process_start_time() {
 	[ -r "/proc/$1/stat" ] || return 1
@@ -75,7 +89,6 @@ process_identity_matches() {
 	[ "${current_start_time}" = "${identity_start_time}" ]
 }
 
-# append_process_tree records descendants before their parent.  The retained
 # append_process_tree records a process and its descendants with their kernel start times, listing descendants before their parent.
 append_process_tree() {
 	parent_pid="$1"
@@ -130,8 +143,7 @@ signal_process_snapshot() {
 	done <"${pid_file}"
 }
 
-# run_bounded runs one integration scenario with a portable watchdog.  It does
-# run_bounded runs a test script within the configured timeout and records successful completion.
+# run_bounded runs a test script within the configured timeout, reports failures, and records successful completion.
 run_bounded() {
 	case_name="$1"
 	test_script="$2"
@@ -144,7 +156,7 @@ run_bounded() {
 			exec "${TEST_SHELL}" "${TEST_SHELL_ARG}" "${test_script}"
 		fi
 		exec "${TEST_SHELL}" "${test_script}"
-	) >"${case_output}" 2>&1 &
+	) </dev/null >"${case_output}" 2>&1 &
 	case_pid=$!
 	CASE_PID="${case_pid}"
 	case_start_time=$(process_start_time "${case_pid}") || case_start_time=""
@@ -189,6 +201,13 @@ run_bounded() {
 	printf '%s\n' "PASS ${case_name}"
 }
 
+# suite_timeout_seconds calculates the serial-suite watchdog limit and rejects values unsafe for the outer quality-check timeout.
+suite_timeout_seconds() {
+	calculated_timeout="$(($1 * ($2 + 3) + 10))"
+	[ "${calculated_timeout}" -lt "$3" ] || return 1
+	printf '%s\n' "${calculated_timeout}"
+}
+
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 case "${TIMEOUT_SECONDS}" in
@@ -198,33 +217,135 @@ esac
 umask 077
 mkdir "${SUITE_TMP}" || fail 'could not create exclusive integration workspace'
 WORKSPACE_CREATED=1
+SUITE_START_TIME=$(process_start_time "$$") || fail 'could not record integration suite process identity'
 : >"${RESULTS_FILE}" || fail 'could not create result log'
+
+# Validate the declarative matrix before starting it.  This keeps every requested
+# lifecycle dimension tied to a bounded regression and prevents a renamed or
+# removed component test from silently reducing integration coverage.
+[ -r "${CASES_FIXTURE}" ] || fail "missing integration case fixture: ${CASES_FIXTURE}"
+[ -r "${COVERAGE_FIXTURE}" ] || fail "missing integration coverage fixture: ${COVERAGE_FIXTURE}"
+declared_case_count=$(awk 'NF && $1 !~ /^#/ { count++ } END { print count + 0 }' "${CASES_FIXTURE}") ||
+	fail 'could not count integration cases'
+[ "${declared_case_count}" -gt 0 ] || fail 'integration case fixture contains no runnable cases'
+# Every case has its own timeout, may spend one additional second in watchdog
+# polling, and may spend two additional seconds terminating descendants. The
+# suite watchdog covers the complete serial matrix plus setup.
+SUITE_TIMEOUT_SECONDS=$(suite_timeout_seconds "${declared_case_count}" "${TIMEOUT_SECONDS}" "${SUITE_OUTER_TIMEOUT_SECONDS}") ||
+	fail "AGH_INTEGRATION_TIMEOUT produces a suite timeout that is not below ${SUITE_OUTER_TIMEOUT_SECONDS}s"
+(
+	sleep "${SUITE_TIMEOUT_SECONDS}"
+	process_identity_matches "$$" "${SUITE_START_TIME}" || exit 0
+	printf '%s\n' "FAIL: service lifecycle integration suite exceeded ${SUITE_TIMEOUT_SECONDS}s for ${declared_case_count} serial cases" >&2
+	kill -TERM "$$" 2>/dev/null || true
+) &
+SUITE_WATCHDOG_PID="$!"
+SUITE_WATCHDOG_START_TIME=$(process_start_time "${SUITE_WATCHDOG_PID}") || SUITE_WATCHDOG_START_TIME=""
+dimension_count=$(awk -F '\t' '
+	function invalid(message) {
+		print message
+		failed = 1
+		exit 1
+	}
+	BEGIN {
+		expected_dimensions["mode_wan"] = 1
+		expected_dimensions["mode_ap"] = 1
+		expected_dimensions["mode_repeater"] = 1
+		expected_dimensions["mode_bridge"] = 1
+		expected_dimensions["dnsmasq_running"] = 1
+		expected_dimensions["dnsmasq_stopped"] = 1
+		expected_dimensions["dnsmasq_missing"] = 1
+		expected_dimensions["dnsmasq_failing"] = 1
+		expected_dimensions["ipv4_only"] = 1
+		expected_dimensions["ipv6_only"] = 1
+		expected_dimensions["dual_stack"] = 1
+		expected_dimensions["netstat_owner_rich"] = 1
+		expected_dimensions["netstat_ownerless"] = 1
+		expected_dimensions["flock_missing"] = 1
+		expected_dimensions["flock_incapable"] = 1
+		expected_dimensions["flock_descriptor"] = 1
+		expected_dimensions["launch_failure"] = 1
+		expected_dimensions["bind_failure"] = 1
+		expected_dimensions["webui_failure"] = 1
+		expected_dimensions["duplicate_process"] = 1
+		expected_dimensions["early_exit"] = 1
+		expected_dimensions["hung_stop"] = 1
+		expected_dimensions["interrupt_every_transition"] = 1
+		expected_dimensions["offline_wan"] = 1
+		expected_dimensions["readonly_jffs"] = 1
+		expected_dimensions["opt_initially_unavailable"] = 1
+		expected_dimensions["opt_disappears"] = 1
+		expected_dimensions["constrained_tmp"] = 1
+		expected_dimensions["custom_yaml"] = 1
+		expected_dimensions["custom_hooks"] = 1
+		expected_dimensions["bounded_completion"] = 1
+		expected_dimensions["service_continuity"] = 1
+		expected_dimensions["exact_recovery"] = 1
+		expected_dimensions["no_nvram_commit"] = 1
+		expected_dimensions["child_reaping"] = 1
+		expected_dimensions["cleanup_trap"] = 1
+		expected_dimensions["no_stale_artifacts"] = 1
+		expected_dimensions["preserve_failed_rollback"] = 1
+	}
+	NR == FNR {
+		if (NF && $1 !~ /^#/) cases[$1] = 1
+		next
+	}
+	!NF || $1 ~ /^#/ { next }
+	NF != 3 { invalid("coverage row " FNR " must have exactly three tab-separated fields") }
+	$1 == "" { invalid("coverage row " FNR " has no dimension") }
+	!($1 in expected_dimensions) { invalid("coverage fixture has unexpected dimension " $1) }
+	seen_dimensions[$1]++ { invalid("coverage fixture repeats dimension " $1) }
+	$2 == "" { invalid("coverage row " $1 " has no case") }
+	!($2 in cases) { invalid("coverage row " $1 " references unknown case " $2) }
+	$3 == "" || $3 ~ /^ / || $3 ~ / $/ || $3 ~ /  / {
+		invalid("coverage row " $1 " has a malformed component list")
+	}
+	{
+		component_count = split($3, components, " ")
+		for (component_index = 1; component_index <= component_count; component_index++) {
+			component = components[component_index]
+			if (component != "installer" && component != "S99AdGuardHome" &&
+				component != "rc.func.AdGuardHome" && component != "AdGuardHome.sh") {
+				invalid("coverage row " $1 " has unknown component " component)
+			}
+			if (row_components[$1, component]++) {
+				invalid("coverage row " $1 " repeats component " component)
+			}
+			covered[component] = 1
+		}
+		dimension_count++
+	}
+	END {
+		if (failed) exit 1
+		for (dimension in expected_dimensions) {
+			if (!(dimension in seen_dimensions)) invalid("coverage fixture omits dimension " dimension)
+		}
+		required[1] = "installer"
+		required[2] = "S99AdGuardHome"
+		required[3] = "rc.func.AdGuardHome"
+		required[4] = "AdGuardHome.sh"
+		for (required_index = 1; required_index <= 4; required_index++) {
+			component = required[required_index]
+			if (!(component in covered)) invalid("coverage fixture omits " component)
+		}
+		print dimension_count + 0
+	}
+' "${CASES_FIXTURE}" "${COVERAGE_FIXTURE}") ||
+	fail "${dimension_count:-could not validate integration coverage fixture}"
+[ "${dimension_count}" -eq 38 ] || fail "coverage fixture has ${dimension_count} dimensions, expected 38"
 
 # The component regressions use command shims and isolated filesystems.  Taken
 # together they exercise the real extracted installer/service functions across
 # the lifecycle and failure dimensions below without changing the host DNS or
 # NVRAM state.
-run_bounded artifacts tests/installer-file-failure-safety.sh
-run_bounded upgrade_restart tests/installer-post-replace-restart.sh
-run_bounded preflight_storage tests/installer-preflight-actions.sh
-run_bounded readonly_jffs tests/installer-jffs-failure.sh
-run_bounded yaml_hooks tests/installer-staged-yaml-validation.sh
-run_bounded mode_matrix tests/s99-dns-mode-lifecycle.sh
-run_bounded mode_migration_transaction tests/installer-mode-migration-transaction.sh
-run_bounded dns_handoff tests/dns-startup-handoff.sh
-run_bounded netstat_matrix tests/s99-netstat-readiness.sh
-run_bounded process_signals tests/rc-process-signaling.sh
-run_bounded monitor_restart tests/monitor-retry-backoff.sh
-run_bounded stop_failures tests/stop-adguardhome-failure.sh
-run_bounded rollback_record tests/installer-doctor-rollback-result.sh
-run_bounded rollback_cleanup tests/installer-end-op-rollback.sh
-run_bounded interruption_restore tests/installer-interruption-restart.sh
-run_bounded lock_matrix tests/installer-service-lock-fd.sh
-run_bounded webui_failure tests/installer-web-port-failure.sh
-run_bounded bind_matrix tests/installer-bind-addresses.sh
-run_bounded dns_environment tests/installer-dns-environment-failure.sh
-run_bounded runtime_modes tests/adguardhome-runtime-mode-helpers.sh
-run_bounded custom_config tests/adguardhome-scoped-config.sh
+while IFS="$(printf '\t')" read -r case_name test_script; do
+	case "${case_name}" in '' | \#*) continue ;; esac
+	[ -f "${ROOT_DIR}/${test_script}" ] || fail "integration case ${case_name} references missing ${test_script}"
+	run_bounded "${case_name}" "${test_script}"
+done <"${CASES_FIXTURE}"
 
+[ "${SCENARIO_COUNT}" -eq "$(awk 'NF && $1 !~ /^#/ { count++ } END { print count + 0 }' "${CASES_FIXTURE}")" ] ||
+	fail 'integration matrix skipped one or more declared cases'
 [ "$(wc -l <"${RESULTS_FILE}")" -eq "${SCENARIO_COUNT}" ] || fail 'integration matrix did not complete every scenario group'
 printf '%s\n' 'PASS: installer and service lifecycle integration matrix'

@@ -1291,6 +1291,10 @@ installer_lan_domain_set() {
 
 installer_lan_domain_restore() {
 	! nvram_transaction_setup_committed || return 0
+	installer_lan_domain_restore_uninstall
+}
+
+installer_lan_domain_restore_uninstall() {
 	NVRAM_TRANSACTION_DIR="${BASE_DIR}/.AdGuardHome.nvram/lan-domain"
 	export NVRAM_TRANSACTION_DIR
 	[ -d "${NVRAM_TRANSACTION_DIR}" ] || return 0
@@ -1606,6 +1610,9 @@ installer_cleanup_tmp_file() {
 on_installer_exit() {
 	local setup_journal_restore_status
 	setup_journal_restore_status=0
+	if [ -n "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ]; then
+		all_event_scripts_transaction_rollback || setup_journal_restore_status=1
+	fi
 	if nvram_transaction_lock_owned; then
 		# Restore setup's pre-migration files before mode rollback restores the
 		# matching hooks and configuration. Reversing this order can republish
@@ -1936,9 +1943,13 @@ conf_has_key() {
 
 adguard_ipset_allowed() {
 	case "${ADGUARD_INSTALL_MODE:-$(conf_value ADGUARD_INSTALL_MODE 2>/dev/null)}" in
-		lan) return 1 ;;
+		wan) return 0 ;;
+		lan | ap | bridge)
+			wan_iptables_state_active 2>/dev/null
+			return $?
+			;;
 	esac
-	return 0
+	return 1
 }
 
 write_conf_if_absent() {
@@ -1951,15 +1962,24 @@ adguard_install_feature_defaults() {
 	case "${ADGUARD_INSTALL_MODE:-}" in
 		wan)
 			ipset_value="$(conf_value ADGUARD_IPSET)"
+			dnsmasq_mode="$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)"
 			case "${ipset_value}" in
 				NO) ;;
 				*) ipset_value="YES" ;;
 			esac
 			write_conf ADGUARD_IPSET "\"${ipset_value}\"" || return 1
-			write_conf ADGUARD_DNSMASQ_MODE "\"enabled\"" || return 1
+			case "${dnsmasq_mode}" in
+				disabled) ;;
+				*) write_conf ADGUARD_DNSMASQ_MODE "\"enabled\"" || return 1 ;;
+			esac
 			;;
 		lan)
-			write_conf ADGUARD_IPSET "\"NO\"" || return 1
+			ipset_value="$(conf_value ADGUARD_IPSET 2>/dev/null)"
+			if adguard_ipset_allowed && [ "${ipset_value}" = "YES" ]; then
+				write_conf ADGUARD_IPSET "\"YES\"" || return 1
+			else
+				write_conf ADGUARD_IPSET "\"NO\"" || return 1
+			fi
 			dnsmasq_mode="$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)"
 			case "${dnsmasq_mode}" in
 				disabled) ;;
@@ -4186,8 +4206,9 @@ check_connection() {
 
 check_dns_environment() {
 	local changed deadline lookup_pid maxwait mode now status stubby_recovery_attempted stubby_stopped
+	mode="$1"
 	ptxt_phase "Preparing DNS environment."
-	if [ -f "/opt/etc/init.d/S61stubby" ] || [ -f "/opt/sbin/stubby" ] || [ -f "/opt/bin/install_stubby" ] || [ -f "/jffs/scripts/install_stubby.sh" ] || [ -d "/jffs/dnscrypt" ] || [ -f "/opt/etc/init.d/S09dnscrypt-proxy" ]; then
+	if [ "${mode}" = "0" ] && { [ -f "/opt/etc/init.d/S61stubby" ] || [ -f "/opt/sbin/stubby" ] || [ -f "/opt/bin/install_stubby" ] || [ -f "/jffs/scripts/install_stubby.sh" ] || [ -d "/jffs/dnscrypt" ] || [ -f "/opt/etc/init.d/S09dnscrypt-proxy" ]; }; then
 		PTXT "${ERROR} Potential stubby or dnscrypt-proxy installation detected." \
 			"${ERROR} Please remove before attempting to continue." \
 			"${ERROR} Exiting..."
@@ -4224,7 +4245,6 @@ check_dns_environment() {
 	}
 	case "${DNS_ENV_READY_TIMEOUT}" in *[!0-9]* | "" | 0*) DNS_ENV_READY_TIMEOUT="60" ;; esac
 	case "${DNS_ENV_RECOVERY_TIMEOUT}" in *[!0-9]* | "" | 0*) DNS_ENV_RECOVERY_TIMEOUT="15" ;; esac
-	mode="$1"
 	case "${mode}" in
 		0)
 			stubby_stopped="0"
@@ -4334,6 +4354,15 @@ check_dns_environment() {
 				ptxt_ok "No saved DNS NVRAM settings to restore."
 				return 0
 			fi
+			if [ -f "${NVRAM_TRANSACTION_DIR}/stubby-stopped" ]; then
+				if restore_stubby_after_dns_failure; then
+					:
+				else
+					rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
+					PTXT "${ERROR} Unable to restart stubby before restoring the saved DNS NVRAM settings."
+					return 1
+				fi
+			fi
 			if ! nvram_transaction_restore restart_dnsmasq 1 || ! dns_env_local_ready "${DNS_ENV_RECOVERY_TIMEOUT}"; then
 				if [ -d "${NVRAM_TRANSACTION_DIR}" ]; then
 					rollback_result_write "DNS NVRAM transaction" "rollback partial" "snapshot preserved at ${NVRAM_TRANSACTION_DIR}"
@@ -4369,9 +4398,13 @@ restore_stubby_after_dns_failure() {
 finalize_dns_environment() {
 	local snapshot_dir
 	snapshot_dir="${BASE_DIR}/.AdGuardHome.nvram/dns-preparation"
+	# Publish the shared setup commit point before removing the DNS preparation
+	# recovery marker.  Once this succeeds, startup recovery can finish all
+	# snapshot cleanup without rolling back either half of the setup.
+	nvram_transaction_finalize_setup_pair || return 1
 	if [ -e "${snapshot_dir}" ] || [ -L "${snapshot_dir}" ]; then
-		# Clearing dirty is the commit point; completed snapshot cleanup is best-effort.
-		rm -f "${snapshot_dir}/dirty" || return 1
+		# The shared marker is now the commit point; cleanup is best-effort.
+		rm -f "${snapshot_dir}/dirty" 2>/dev/null || true
 		rm -rf "${snapshot_dir}" 2>/dev/null || true
 	fi
 	# Do not discard the shared commit point while paired setup cleanup is
@@ -4471,8 +4504,13 @@ check_ipset() {
 			IPSET_ENABLED="NO"
 			;;
 		1)
-			IPSET_ENABLED="YES"
+			if adguard_ipset_allowed; then
+				IPSET_ENABLED="YES"
+			else
+				IPSET_ENABLED="NO"
+			fi
 			;;
+		*) return 1 ;;
 	esac
 	write_conf ADGUARD_IPSET "\"${IPSET_ENABLED}\""
 }
@@ -4594,6 +4632,9 @@ adguard_enforce_lan_ipset_disabled() {
 	esac
 	ADGUARD_INSTALL_MODE="lan"
 	write_conf ADGUARD_INSTALL_MODE "\"lan\"" || return 1
+	if adguard_ipset_allowed; then
+		return 0
+	fi
 	write_conf ADGUARD_IPSET "\"NO\"" || return 1
 	adguardhome_yaml_remove_ipset_file || return 1
 	PTXT "${INFO} IPSET is disabled in LAN/AP/Bridge mode because IPTABLES/IPSET rules are not manageable there."
@@ -5053,7 +5094,7 @@ adguard_restart_after_install_abort() {
 	if agh_is_running; then
 		return 0
 	fi
-	if agh_start; then
+	if agh_start && agh_wait_started; then
 		PTXT "${INFO} Restarted AdGuardHome after the installer aborted."
 		rollback_result_write "install-abort" "rollback complete" "AdGuardHome restarted after abort"
 		return 0
@@ -5063,6 +5104,59 @@ adguard_restart_after_install_abort() {
 	PTXT "${ERROR} AdGuardHome could not be restarted after the installer aborted."
 	rollback_result_write "install-abort" "rollback partial" "AdGuardHome could not be restarted after abort"
 	return 1
+}
+
+adguard_recover_after_event_hook_abort() {
+	local MODE_ROLLBACK_STATUS NVRAM_ROLLBACK_STATUS RESTART_RECOVERY_STATUS
+	MODE_ROLLBACK_STATUS=0
+	NVRAM_ROLLBACK_STATUS=0
+	RESTART_RECOVERY_STATUS=0
+	if [ "${2:-0}" = "1" ]; then
+		if ! agh_stop; then
+			PTXT "${ERROR} Unable to stop AdGuardHome; retaining the recovery snapshot and current installation."
+			return 1
+		fi
+	fi
+	if nvram_transaction_lock_owned && ! nvram_transaction_setup_committed; then
+		setup_restore_nvram_journal || NVRAM_ROLLBACK_STATUS=1
+		installer_lan_domain_restore || NVRAM_ROLLBACK_STATUS=1
+		restore_dns_filter_settings || NVRAM_ROLLBACK_STATUS=1
+		# The persisted snapshot is authoritative if an earlier failure left the
+		# in-memory saved-state marker unset or stale.
+		check_dns_environment 1 || NVRAM_ROLLBACK_STATUS=1
+	fi
+	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
+		if rollback_pending_mode_migration; then
+			all_event_scripts_transaction_detach_after_mode_rollback
+		else
+			MODE_ROLLBACK_STATUS=1
+		fi
+	fi
+	# Restore the previously running AdGuardHome service even when mode rollback fails.
+	adguard_restart_after_install_abort "$1" || RESTART_RECOVERY_STATUS=1
+	[ "${MODE_ROLLBACK_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to roll back the pending mode migration."
+	[ "${NVRAM_ROLLBACK_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore the installer-managed NVRAM settings after the installation abort."
+	[ "${RESTART_RECOVERY_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore the AdGuardHome service after the installation abort."
+	[ "${MODE_ROLLBACK_STATUS}" -eq 0 ] && [ "${NVRAM_ROLLBACK_STATUS}" -eq 0 ] && [ "${RESTART_RECOVERY_STATUS}" -eq 0 ]
+}
+
+adguard_recover_after_uninstall_hook_abort() {
+	local DOMAIN_RESTORE_STATUS HOOK_ROLLBACK_STATUS RESTART_RECOVERY_STATUS
+	DOMAIN_RESTORE_STATUS=0
+	HOOK_ROLLBACK_STATUS=0
+	RESTART_RECOVERY_STATUS=0
+	all_event_scripts_transaction_rollback || HOOK_ROLLBACK_STATUS=1
+	if [ "${2:-0}" = "1" ]; then
+		installer_lan_domain_restore_uninstall || DOMAIN_RESTORE_STATUS=1
+	fi
+	# Restore the service only when it was running before the uninstall stopped it.
+	if [ "${1:-0}" = "1" ]; then
+		agh_start || RESTART_RECOVERY_STATUS=1
+	fi
+	[ "${HOOK_ROLLBACK_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore installer-managed event scripts after the uninstall abort."
+	[ "${DOMAIN_RESTORE_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
+	[ "${RESTART_RECOVERY_STATUS}" -eq 0 ] || PTXT "${ERROR} Unable to restart AdGuardHome after the uninstall abort."
+	[ "${HOOK_ROLLBACK_STATUS}" -eq 0 ] && [ "${DOMAIN_RESTORE_STATUS}" -eq 0 ] && [ "${RESTART_RECOVERY_STATUS}" -eq 0 ]
 }
 
 adguard_install_abort_trap_disable() {
@@ -5115,6 +5209,9 @@ adguard_install_abort_on_signal() {
 	RESTORE_TARGET_INSTALLED="${ADGUARD_RESTORE_TARGET_INSTALLED:-0}"
 	TIMEZONE_TMP="${ADGUARD_TIMEZONE_TMP:-}"
 	adguard_install_abort_trap_disable
+	if [ -n "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ]; then
+		all_event_scripts_transaction_rollback || PTXT "${ERROR} Unable to restore interrupted event-hook transaction; recovery snapshot retained at ${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}."
+	fi
 	[ -z "${STAGE_DIR}" ] || rm -rf "${STAGE_DIR}"
 	[ -z "${TIMEZONE_TMP}" ] || rm -f "${TIMEZONE_TMP}"
 	# Restore setup's pre-migration file journal before rolling back migration state.
@@ -5125,6 +5222,7 @@ adguard_install_abort_on_signal() {
 			PTXT "${ERROR} Unable to restore the journaled installer configuration files."
 		elif rollback_pending_mode_migration; then
 			MIGRATION_ROLLED_BACK=1
+			all_event_scripts_transaction_detach_after_mode_rollback
 		else
 			MIGRATION_ROLLBACK_STATUS=1
 		fi
@@ -5894,6 +5992,44 @@ legacy_firewall_cleanup_needed() {
 	return 1
 }
 
+wan_iptables_state_active() {
+	local ifname key nat_rules unit
+	nat_rules="$(/usr/sbin/iptables -t nat -S POSTROUTING 2>/dev/null)" || return 1
+	for unit in 0 1; do
+		for key in ifname gw_ifname pppoe_ifname; do
+			ifname="$(/bin/nvram get "wan${unit}_${key}" 2>/dev/null)" || ifname=""
+			case "${ifname}" in
+				"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-]*) continue ;;
+			esac
+			if printf '%s\n' "${nat_rules}" | /usr/bin/awk -v wan_if="${ifname}" '
+				function comment_ends(value, i, slashes) {
+					if (length(value) < 2) return 0
+					if (substr(value, length(value), 1) != "\"") return 0
+					for (i = length(value) - 1; i > 0 && substr(value, i, 1) == "\\"; i--) slashes++
+					return slashes % 2 == 0
+				}
+				{
+					output = target = input = negated = 0
+					for (i = 1; i <= NF; i++) {
+						if ($i == "--comment") { i++; if ($i ~ /^"/ && !comment_ends($i)) while (i <= NF && !comment_ends($i)) i++; continue }
+						if (($i == "-i" || $i == "--in-interface") && i < NF) input = 1
+						if (($i == "-o" || $i == "--out-interface") && i < NF) {
+							output = ($(i + 1) == wan_if)
+							negated = (i > 1 && $(i - 1) == "!")
+						}
+						if ($i == "-j" && i < NF && ($(i + 1) == "MASQUERADE" || $(i + 1) == "SNAT")) target = 1
+					}
+					if (output && target && !input && !negated) { found = 1; exit }
+				}
+				END { exit(found ? 0 : 1) }
+			'; then
+				return 0
+			fi
+		done
+	done
+	return 1
+}
+
 create_dir() {
 	if ! mkdir -p "${1}"; then
 		PTXT "${ERROR} Unable to create ${1}!"
@@ -5905,7 +6041,7 @@ del_between_magic() {
 	local TARG MAGIC BOUNDS
 	TARG="$1"
 	MAGIC="$2"
-	[ -f "${TARG}" ] || return
+	[ -f "${TARG}" ] || return 0
 	BOUNDS="$(awk -v PATT="${MAGIC}" '($0 ~ PATT) {printf NR","}' "${TARG}")"
 	if [ "${BOUNDS}" ]; then
 		sed -i "${BOUNDS%,}d" "${TARG}"
@@ -5923,7 +6059,7 @@ del_conf() {
 del_jffs_script() {
 	local TARG LINE_NUM LINE_ABOVE OP
 	TARG="$1"
-	[ -f "${TARG}" ] || return
+	[ -f "${TARG}" ] || return 0
 	if [ "${2:-}" ]; then
 		OP="$(printf '%.1s' "$2")"
 		if [ "$OP" = "!" ]; then
@@ -6085,17 +6221,313 @@ installer_update_reexec() {
 }
 
 install_wan_event_scripts() {
-	if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
-		! write_manager_script /jffs/scripts/services-stop "services-stop &" ||
-		! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq ||
-		! write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'; then
+	local failed=0
+	add_dnsmasq_event_scripts || failed=1
+	[ "${failed}" -ne 0 ] || add_init_event_scripts || failed=1
+	[ "${failed}" -ne 0 ] || add_services_event_scripts || failed=1
+	[ "${failed}" -ne 0 ] || add_firewall_event_scripts || failed=1
+	if [ "${failed}" -ne 0 ]; then
 		return 1
 	fi
-	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
-	if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
+	return 0
+}
+
+event_scripts_snapshot() {
+	local SNAPSHOT_DIR SOURCE SNAPSHOT
+	SNAPSHOT_DIR="$1"
+	shift
+	[ ! -e "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
+	for SOURCE in "$@"; do
+		[ ! -L "${SOURCE}" ] || return 1
+	done
+	(umask 077 && mkdir -p "${SNAPSHOT_DIR}") || return 1
+	chmod 700 "${SNAPSHOT_DIR}" || {
+		rm -rf "${SNAPSHOT_DIR}"
+		return 1
+	}
+	for SOURCE in "$@"; do
+		SNAPSHOT="${SOURCE##*/}"
+		if [ -f "${SOURCE}" ]; then
+			cp -p "${SOURCE}" "${SNAPSHOT_DIR}/${SNAPSHOT}" || {
+				rm -rf "${SNAPSHOT_DIR}"
+				return 1
+			}
+		else
+			: >"${SNAPSHOT_DIR}/${SNAPSHOT}.absent" || {
+				rm -rf "${SNAPSHOT_DIR}"
+				return 1
+			}
+		fi
+	done
+}
+
+event_scripts_restore() {
+	local RET SNAPSHOT_DIR SOURCE SNAPSHOT STAGE
+	SNAPSHOT_DIR="$1"
+	shift
+	RET=0
+	for SOURCE in "$@"; do
+		SNAPSHOT="${SOURCE##*/}"
+		if [ -f "${SNAPSHOT_DIR}/${SNAPSHOT}" ]; then
+			STAGE="${SOURCE}.restore.$$"
+			if ! cp -p "${SNAPSHOT_DIR}/${SNAPSHOT}" "${STAGE}" || ! mv -f "${STAGE}" "${SOURCE}"; then
+				rm -f "${STAGE}"
+				RET=1
+			fi
+		elif [ -f "${SNAPSHOT_DIR}/${SNAPSHOT}.absent" ]; then
+			rm -f "${SOURCE}" || RET=1
+		else
+			RET=1
+		fi
+	done
+	return "${RET}"
+}
+
+all_event_scripts_snapshot() {
+	event_scripts_snapshot "$1" \
+		/jffs/scripts/dnsmasq.postconf \
+		/jffs/scripts/dnsmasq-sdn.postconf \
+		/jffs/scripts/init-start \
+		/jffs/scripts/services-stop \
+		/jffs/scripts/service-event-end \
+		/jffs/scripts/firewall-start \
+		"${CONF_FILE}" \
+		"${YAML_FILE}" \
+		"${YAML_ORI}"
+}
+
+all_event_scripts_restore() {
+	event_scripts_restore "$1" \
+		/jffs/scripts/dnsmasq.postconf \
+		/jffs/scripts/dnsmasq-sdn.postconf \
+		/jffs/scripts/init-start \
+		/jffs/scripts/services-stop \
+		/jffs/scripts/service-event-end \
+		/jffs/scripts/firewall-start \
+		"${CONF_FILE}" \
+		"${YAML_FILE}" \
+		"${YAML_ORI}"
+}
+
+all_event_scripts_rollback() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="$1"
+	if ! all_event_scripts_restore "${SNAPSHOT_DIR}"; then
+		PTXT "${ERROR} Event-script rollback failed; recovery snapshot retained at ${SNAPSHOT_DIR}."
 		return 1
 	fi
-	write_conf ADGUARD_DNSMASQ_MODE '"enabled"'
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
+}
+
+all_event_scripts_transaction_begin() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="$1"
+	[ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] || return 1
+	all_event_scripts_snapshot "${SNAPSHOT_DIR}" || return 1
+	EVENT_SCRIPTS_ACTIVE_SNAPSHOT="${SNAPSHOT_DIR}"
+	return 0
+}
+
+all_event_scripts_transaction_commit() {
+	[ -n "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] || return 0
+	rm -rf "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}" 2>/dev/null || true
+	EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
+	return 0
+}
+
+# all_event_scripts_transaction_detach_after_mode_rollback prevents EXIT cleanup from replaying a newer aggregate snapshot after the older mode snapshot has been restored.
+all_event_scripts_transaction_detach_after_mode_rollback() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}"
+	[ -n "${SNAPSHOT_DIR}" ] || return 0
+	if ! rm -rf "${SNAPSHOT_DIR}"; then
+		PTXT "${WARNING} Superseded event-hook snapshot could not be removed; it remains at ${SNAPSHOT_DIR}."
+		return 1
+	fi
+	EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
+	PTXT "${INFO} Superseded event-hook rollback snapshot removed after mode rollback."
+}
+
+all_event_scripts_transaction_rollback() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}"
+	[ -n "${SNAPSHOT_DIR}" ] || return 0
+	if ! all_event_scripts_rollback "${SNAPSHOT_DIR}"; then
+		return 1
+	fi
+	EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
+	return 0
+}
+
+init_event_scripts_snapshot() {
+	event_scripts_snapshot "$1" /jffs/scripts/init-start
+}
+
+init_event_scripts_restore() {
+	event_scripts_restore "$1" /jffs/scripts/init-start
+}
+
+add_init_event_scripts() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.init-hooks.$$"
+	init_event_scripts_snapshot "${SNAPSHOT_DIR}" || return 1
+	if ! write_manager_script /jffs/scripts/init-start "init-start &"; then
+		init_event_scripts_restore "${SNAPSHOT_DIR}" || true
+		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+		return 1
+	fi
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
+}
+
+remove_init_event_scripts() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.init-hooks-remove.$$"
+	init_event_scripts_snapshot "${SNAPSHOT_DIR}" || return 1
+	if ! del_jffs_script /jffs/scripts/init-start >/dev/null 2>&1; then
+		init_event_scripts_restore "${SNAPSHOT_DIR}" || true
+		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+		return 1
+	fi
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
+}
+
+services_event_scripts_snapshot() {
+	# Asuswrt-Merlin names the event-end hook service-event-end (singular).
+	event_scripts_snapshot "$1" /jffs/scripts/services-stop /jffs/scripts/service-event-end
+}
+
+services_event_scripts_restore() {
+	event_scripts_restore "$1" /jffs/scripts/services-stop /jffs/scripts/service-event-end
+}
+
+add_services_event_scripts() {
+	local failed=0 SNAPSHOT_DIR
+	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.services-hooks.$$"
+	services_event_scripts_snapshot "${SNAPSHOT_DIR}" || return 1
+	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer' || failed=1
+	if [ "${failed}" -eq 0 ]; then
+		write_manager_script /jffs/scripts/services-stop "services-stop &" || failed=1
+	fi
+	if [ "${failed}" -eq 0 ]; then
+		write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer' || failed=1
+	fi
+	if [ "${failed}" -ne 0 ]; then
+		services_event_scripts_restore "${SNAPSHOT_DIR}" || failed=1
+		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+		return 1
+	fi
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
+}
+
+remove_services_event_scripts() {
+	local failed=0 SNAPSHOT_DIR
+	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.services-hooks-remove.$$"
+	services_event_scripts_snapshot "${SNAPSHOT_DIR}" || return 1
+	{ del_jffs_script /jffs/scripts/services-stop >/dev/null 2>&1; } || failed=1
+	{ del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer' >/dev/null 2>&1; } || failed=1
+	if [ "${failed}" -ne 0 ]; then
+		services_event_scripts_restore "${SNAPSHOT_DIR}" || failed=1
+		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+		return 1
+	fi
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
+}
+
+firewall_event_scripts_snapshot() {
+	event_scripts_snapshot "$1" /jffs/scripts/firewall-start
+}
+
+firewall_event_scripts_restore() {
+	event_scripts_restore "$1" /jffs/scripts/firewall-start
+}
+
+add_firewall_event_scripts() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.firewall-hooks.$$"
+	firewall_event_scripts_snapshot "${SNAPSHOT_DIR}" || return 1
+	if ! write_manager_script /jffs/scripts/firewall-start 'firewall "$1"'; then
+		firewall_event_scripts_restore "${SNAPSHOT_DIR}" || true
+		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+		return 1
+	fi
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
+}
+
+remove_firewall_event_scripts() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.firewall-hooks-remove.$$"
+	firewall_event_scripts_snapshot "${SNAPSHOT_DIR}" || return 1
+	if ! del_jffs_script /jffs/scripts/firewall-start 'firewall "$1"' >/dev/null 2>&1; then
+		firewall_event_scripts_restore "${SNAPSHOT_DIR}" || true
+		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+		return 1
+	fi
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
+}
+
+remove_dnsmasq_event_scripts() {
+	local failed=0 SNAPSHOT_DIR
+	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.dnsmasq-hooks-remove.$$"
+	event_scripts_snapshot "${SNAPSHOT_DIR}" /jffs/scripts/dnsmasq.postconf /jffs/scripts/dnsmasq-sdn.postconf "${CONF_FILE}" || {
+		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+		return 1
+	}
+	{ del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq >/dev/null; } || failed=1
+	{ del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2' >/dev/null; } || failed=1
+	if [ "${failed}" -eq 0 ]; then
+		write_conf ADGUARD_DNSMASQ_MODE '"disabled"' || failed=1
+	fi
+	if [ "${failed}" -ne 0 ]; then
+		event_scripts_restore "${SNAPSHOT_DIR}" /jffs/scripts/dnsmasq.postconf /jffs/scripts/dnsmasq-sdn.postconf "${CONF_FILE}" || failed=1
+		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+		return 1
+	fi
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
+	return 0
+}
+
+add_dnsmasq_event_scripts() {
+	local RESTORE_STATUS SNAPSHOT_DIR
+	if ! pidof dnsmasq >/dev/null 2>&1 || [ ! -f /etc/dnsmasq.conf ]; then
+		remove_dnsmasq_event_scripts || return 1
+		return 0
+	fi
+	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.dnsmasq-hooks.$$"
+	event_scripts_snapshot "${SNAPSHOT_DIR}" /jffs/scripts/dnsmasq.postconf /jffs/scripts/dnsmasq-sdn.postconf "${CONF_FILE}" || {
+		rm -rf "${SNAPSHOT_DIR}"
+		return 1
+	}
+	RESTORE_STATUS=0
+	write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq || RESTORE_STATUS=1
+	if [ "${RESTORE_STATUS}" -eq 0 ] && nvram get rc_support | grep -q 'mtlancfg'; then
+		write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2' || RESTORE_STATUS=1
+	elif [ "${RESTORE_STATUS}" -eq 0 ]; then
+		del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2' >/dev/null || RESTORE_STATUS=1
+	fi
+	if [ "${RESTORE_STATUS}" -eq 0 ]; then
+		write_conf ADGUARD_DNSMASQ_MODE '"enabled"' || RESTORE_STATUS=1
+	fi
+	if [ "${RESTORE_STATUS}" -ne 0 ]; then
+		if ! event_scripts_restore "${SNAPSHOT_DIR}" /jffs/scripts/dnsmasq.postconf /jffs/scripts/dnsmasq-sdn.postconf "${CONF_FILE}"; then
+			PTXT "${ERROR} Unable to restore dnsmasq event scripts; recovery snapshot retained at ${SNAPSHOT_DIR}."
+			return 1
+		fi
+		if ! rm -rf "${SNAPSHOT_DIR}"; then
+			PTXT "${ERROR} Unable to remove the restored dnsmasq event-script snapshot; retained at ${SNAPSHOT_DIR}."
+		fi
+		return 1
+	fi
+	if ! rm -rf "${SNAPSHOT_DIR}"; then
+		PTXT "${ERROR} Unable to remove the dnsmasq event-script snapshot; retained at ${SNAPSHOT_DIR}."
+	fi
+	return 0
 }
 
 inst_AdGuardHome() {
@@ -6252,6 +6684,7 @@ inst_AdGuardHome() {
 		fi
 	else
 		if [ "${SERVICE_REFRESH_ONLY}" = "1" ]; then
+			if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
 			ptxt_phase "Refreshing AdGuardHome service integration."
 		else
 			ptxt_phase "Installing AdGuardHome package."
@@ -6364,17 +6797,28 @@ inst_AdGuardHome() {
 		end_op_message 1 "$1"
 		return "${MIGRATE_STATUS}"
 	fi
+	if ! all_event_scripts_transaction_begin "${BASE_DIR}/.AdGuardHome.event-hooks.$$"; then
+		PTXT "${ERROR} Existing Asuswrt-Merlin event scripts could not be protected for rollback."
+		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+		end_op_message 1 "$1"
+		return 1
+	fi
 	case "${ADGUARD_INSTALL_MODE:-wan}" in
 		wan)
-			cleanup_legacy_firewall
+			if ! cleanup_legacy_firewall; then
+				all_event_scripts_transaction_rollback || true
+				PTXT "${ERROR} Unable to clear legacy firewall/IPTABLES state for WAN mode."
+				adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
+				end_op_message 1 "$1"
+				return 1
+			fi
 			;;
 		lan)
 			if legacy_firewall_cleanup_needed; then
 				if ! cleanup_legacy_firewall; then
+					all_event_scripts_transaction_rollback || true
 					PTXT "${ERROR} Unable to clear legacy firewall/IPTABLES state for LAN mode."
-					if rollback_pending_mode_migration; then
-						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-					fi
+					adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 					end_op_message 1 "$1"
 					return 1
 				fi
@@ -6384,136 +6828,118 @@ inst_AdGuardHome() {
 			fi
 			;;
 	esac
-	yaml_nvars_file_action delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-	for i in init-start services-stop; do { if { ! grep -q "${ADDON_DIR}/AdGuardHome.sh $i &" "/jffs/scripts/${i}" && grep -q "${ADDON_DIR}/AdGuardHome.sh $i" "/jffs/scripts/${i}"; }; then del_jffs_script "/jffs/scripts/${i}"; fi; }; done
+	if ! yaml_nvars_file_action delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf; then
+		all_event_scripts_transaction_rollback || true
+		PTXT "${ERROR} Unable to clean the legacy dnsmasq event hook."
+		adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
+		end_op_message 1 "$1"
+		return 1
+	fi
+	for i in init-start services-stop; do
+		if ! /bin/grep -q "${ADDON_DIR}/AdGuardHome.sh $i &" "/jffs/scripts/${i}" 2>/dev/null && /bin/grep -q "${ADDON_DIR}/AdGuardHome.sh $i" "/jffs/scripts/${i}" 2>/dev/null; then
+			if ! del_jffs_script "/jffs/scripts/${i}"; then
+				all_event_scripts_transaction_rollback || true
+				PTXT "${ERROR} Unable to clean the legacy ${i} event hook."
+				adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
+				end_op_message 1 "$1"
+				return 1
+			fi
+		fi
+	done
 	case "${ADGUARD_INSTALL_MODE:-wan}" in
 		wan)
 			if ! install_wan_event_scripts; then
+				all_event_scripts_transaction_rollback || true
 				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
-				if rollback_pending_mode_migration; then
-					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-				fi
+				adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 				end_op_message 1 "$1"
 				return 1
 			fi
 			ptxt_ok "Asuswrt-Merlin event scripts configured."
 			;;
 		lan)
-			if ! write_manager_script /jffs/scripts/init-start "init-start &" ||
-				! write_manager_script /jffs/scripts/services-stop "services-stop &"; then
-				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
-				if rollback_pending_mode_migration; then
-					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-				fi
-				end_op_message 1 "$1"
-				return 1
-			fi
 			if [ "${ADGUARD_DNSMASQ_MODE:-$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)}" = "disabled" ]; then
-				del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq || ptxt_warn "Unable to remove the AdGuardHome dnsmasq.postconf hook; continuing LAN-mode setup."
-				if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
-				if ! write_conf ADGUARD_DNSMASQ_MODE "\"disabled\""; then
-					PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
-					if rollback_pending_mode_migration; then
-						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-					fi
-					end_op_message 1 "$1"
-					return 1
-				fi
-			elif pidof dnsmasq >/dev/null 2>&1; then
-				if ! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq; then
-					PTXT "${ERROR} Required dnsmasq event script could not be configured."
-					if rollback_pending_mode_migration; then
-						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-					fi
-					end_op_message 1 "$1"
-					return 1
-				fi
-				if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
-				if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
-					PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
-					if rollback_pending_mode_migration; then
-						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-					fi
-					end_op_message 1 "$1"
-					return 1
-				fi
-				if ! write_conf ADGUARD_DNSMASQ_MODE "\"enabled\""; then
-					PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
-					if rollback_pending_mode_migration; then
-						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-					fi
+				if ! remove_dnsmasq_event_scripts; then
+					all_event_scripts_transaction_rollback || true
+					PTXT "${ERROR} Required dnsmasq event scripts could not be removed."
+					adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 					end_op_message 1 "$1"
 					return 1
 				fi
 			else
-				ptxt_warn "dnsmasq is not running; preserving dnsmasq event hooks for LAN-mode startup."
-				if ! write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq; then
-					PTXT "${ERROR} Required dnsmasq event script could not be configured."
-					if rollback_pending_mode_migration; then
-						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-					fi
+				if ! pidof dnsmasq >/dev/null 2>&1 || [ ! -f /etc/dnsmasq.conf ]; then
+					ptxt_warn "dnsmasq is not running or /etc/dnsmasq.conf is unavailable; removing AdGuardHome dnsmasq event hooks."
+				fi
+				if ! add_dnsmasq_event_scripts; then
+					all_event_scripts_transaction_rollback || true
+					PTXT "${ERROR} Required dnsmasq event scripts could not be configured."
+					adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 					end_op_message 1 "$1"
 					return 1
 				fi
-				if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
-				if nvram get rc_support | grep -q 'mtlancfg' && ! write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2'; then
-					PTXT "${ERROR} Required SDN dnsmasq event script could not be configured."
-					if rollback_pending_mode_migration; then
-						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-					fi
+			fi
+			if wan_iptables_state_active; then
+				if ! add_firewall_event_scripts; then
+					all_event_scripts_transaction_rollback || true
+					PTXT "${ERROR} Required firewall event script could not be configured for the active WAN IPTABLES state."
+					adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 					end_op_message 1 "$1"
 					return 1
 				fi
-				if ! write_conf ADGUARD_DNSMASQ_MODE "\"enabled\""; then
-					PTXT "${ERROR} Required AdGuardHome configuration could not be updated."
-					if rollback_pending_mode_migration; then
-						adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-					fi
+			else
+				if ! remove_firewall_event_scripts; then
+					all_event_scripts_transaction_rollback || true
+					PTXT "${ERROR} Required firewall event script could not be removed for LAN mode."
+					adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 					end_op_message 1 "$1"
 					return 1
 				fi
+				if ! adguardhome_yaml_remove_ipset_file "${YAML_FILE}" ||
+					! adguardhome_yaml_remove_ipset_file "${YAML_ORI}" ||
+					! write_conf ADGUARD_IPSET '"NO"'; then
+					all_event_scripts_transaction_rollback || true
+					PTXT "${ERROR} IPSET could not be disabled after the qualifying WAN IPTABLES state was lost."
+					adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
+					end_op_message 1 "$1"
+					return 1
+				fi
+			fi
+			if ! add_init_event_scripts || ! add_services_event_scripts; then
+				all_event_scripts_transaction_rollback || true
+				PTXT "${ERROR} Required Asuswrt-Merlin event scripts could not be configured."
+				adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
+				end_op_message 1 "$1"
+				return 1
 			fi
 			ptxt_ok "Asuswrt-Merlin event scripts configured."
 			;;
 		*)
+			all_event_scripts_transaction_rollback || true
 			PTXT "${ERROR} Unknown AdGuardHome install mode: ${ADGUARD_INSTALL_MODE:-}. Setup was aborted."
-			if rollback_pending_mode_migration; then
-				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-			fi
+			adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"
 			end_op_message 1 "$1"
 			return 1
 			;;
 	esac
-	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
-	if ! write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'; then
-		PTXT "${ERROR} Required service-event-end hook could not be configured."
-		if rollback_pending_mode_migration; then
-			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
-		fi
-		end_op_message 1 "$1"
-		return 1
-	fi
 	if [ "${1:-update}" != "update" ]; then
 		ptxt_phase "Configuring AdGuardHome first-run settings."
 		if [ ! -f "${ADDON_DIR}/localtime" ]; then
 			PTXT "${INFO} Before setting up AdGuardHome, please choose your right timezone!"
 			if ! set_timezone; then
+				all_event_scripts_transaction_rollback || true
 				MIGRATE_STATUS=1
-				if ! rollback_pending_mode_migration; then
+				if ! adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"; then
 					MIGRATE_STATUS=2
-				else
-					adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 				fi
 				end_op_message 1 "$1"
 				return "${MIGRATE_STATUS}"
 			fi
 		fi
 		if ! setup_AdGuardHome "" "${1:-install}"; then
+			all_event_scripts_transaction_rollback || true
 			MIGRATE_STATUS=1
-			if ! rollback_pending_mode_migration; then
+			if ! adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"; then
 				MIGRATE_STATUS=2
-			else
-				adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 			fi
 			end_op_message 1
 			return "${MIGRATE_STATUS}"
@@ -6523,32 +6949,40 @@ inst_AdGuardHome() {
 	ptxt_phase "Final readiness summary."
 	ptxt_step "Waiting for AdGuardHome post-install readiness checks."
 	if ! agh_complete_startup; then
+		all_event_scripts_transaction_rollback || true
 		MIGRATE_STATUS=1
-		if ! rollback_pending_mode_migration; then
+		if ! adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1; then
 			MIGRATE_STATUS=2
-		else
-			# Readiness can fail while the migrated process is still alive.  Stop it
-			# so the restored configuration is loaded before service recovery.
-			agh_stop
-			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 		fi
 		adguard_install_abort_trap_disable_preserve_defer
 		end_op_message 1 "$1"
 		return "${MIGRATE_STATUS}"
 	fi
+	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ]; then
+		if ! finalize_dns_environment; then
+			all_event_scripts_transaction_rollback || true
+			PTXT "${ERROR} Unable to commit the completed DNS and setup NVRAM transactions."
+			adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1
+			end_op_message 1 "$1"
+			return 1
+		fi
+	elif ! nvram_transaction_finalize_setup_pair; then
+		all_event_scripts_transaction_rollback || true
+		PTXT "${ERROR} Unable to commit the completed setup NVRAM transaction."
+		adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1
+		end_op_message 1 "$1"
+		return 1
+	fi
 	if [ "${1:-update}" != "RESTORE" ]; then
 		if ! finalize_pending_mode_migration; then
+			all_event_scripts_transaction_rollback || true
 			PTXT "${ERROR} Unable to remove completed mode-migration recovery backups."
-			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+			adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1
 			end_op_message 1 "$1"
 			return 1
 		fi
 	fi
-	if [ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" ] && ! finalize_dns_environment; then
-		PTXT "${ERROR} Unable to remove the completed DNS NVRAM recovery snapshot."
-		end_op_message 1 "$1"
-		return 1
-	fi
+	all_event_scripts_transaction_commit
 	adguard_install_abort_trap_disable_preserve_defer
 	ptxt_ok "AdGuardHome ${1:-install} orchestration complete."
 	ptxt_ok "Final readiness summary: service is installed, started, and ready."
@@ -6747,6 +7181,15 @@ setup_restore_nvram_journal() {
 # on the caller's SETUP_FILES_JOURNALED local variable.
 setup_files_begin_if_needed() {
 	[ "${SETUP_FILES_JOURNALED}" -eq 0 ] || return 0
+	# A mode-migration or earlier setup stage can create the shared journal
+	# before this setup_AdGuardHome_impl frame is entered.  Reuse it only while
+	# this installer process still owns the transaction lock.
+	if [ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] &&
+		[ ! -L "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
+		nvram_transaction_lock_owned || return 1
+		SETUP_FILES_JOURNALED=1
+		return 0
+	fi
 	nvram_transaction_setup_files_begin || return 1
 	SETUP_FILES_JOURNALED=1
 }
@@ -7204,10 +7647,10 @@ setup_sync_mode_dependent_yaml_and_snapshot() {
 			return 1
 		}
 		case "${ADGUARD_INSTALL_MODE:-}" in
-			lan) adguardhome_yaml_remove_ipset_file "${yaml_file_stage}" || {
+			lan) if ! adguard_ipset_allowed && ! adguardhome_yaml_remove_ipset_file "${yaml_file_stage}"; then
 				rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
 				return 1
-			} ;;
+			fi ;;
 		esac
 	fi
 	if [ -f "${YAML_ORI}" ]; then
@@ -7216,10 +7659,10 @@ setup_sync_mode_dependent_yaml_and_snapshot() {
 			return 1
 		}
 		case "${ADGUARD_INSTALL_MODE:-}" in
-			lan) adguardhome_yaml_remove_ipset_file "${yaml_ori_stage}" || {
+			lan) if ! adguard_ipset_allowed && ! adguardhome_yaml_remove_ipset_file "${yaml_ori_stage}"; then
 				rm -f "${yaml_file_stage}" "${yaml_ori_stage}" "${yaml_file_rollback}"
 				return 1
-			} ;;
+			fi ;;
 		esac
 	fi
 	if [ -f "${yaml_file_stage}" ]; then
@@ -7422,7 +7865,7 @@ adguard_migrate_detected_install_mode() {
 			if ! write_conf ADGUARD_INSTALL_MODE "\"${ADGUARD_INSTALL_MODE}\"" ||
 				! adguard_install_feature_defaults ||
 				! write_conf ADGUARD_NETCHECK_MODE "\"${ADGUARD_INSTALL_MODE}\"" ||
-				{ [ "${ADGUARD_INSTALL_MODE}" = "lan" ] && ! adguardhome_yaml_remove_ipset_file; }; then
+				{ [ "${ADGUARD_INSTALL_MODE}" = "lan" ] && ! adguard_ipset_allowed && ! adguardhome_yaml_remove_ipset_file; }; then
 				rollback_pending_mode_migration || return 2
 				return 1
 			fi
@@ -7512,7 +7955,7 @@ setup_AdGuardHome_impl() {
 		read_yesno "Do you want to use this file without reconfiguring?"
 		CONFIRM_STATUS=$?
 		if [ "${CONFIRM_STATUS}" -eq 0 ]; then
-			if [ "${SETUP_FILES_JOURNALED}" -eq 1 ]; then
+			if [ "${SETUP_FILES_JOURNALED}" -eq 1 ] && [ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ]; then
 				if ! nvram_transaction_finalize_setup_pair; then
 					setup_restore_nvram_journal || true
 					PTXT "${ERROR} Unable to finalize the installer configuration updates."
@@ -7946,7 +8389,7 @@ setup_AdGuardHome_impl() {
 					return 1
 				fi
 				SETUP_YAML_TMP_FILE=""
-				if ! nvram_transaction_finalize_setup_pair; then
+				if [ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] && ! nvram_transaction_finalize_setup_pair; then
 					[ -z "${CONFIG_ROLLBACK}" ] || restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 					if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
 						installer_lan_domain_restore || PTXT "${ERROR} Unable to restore the LAN domain NVRAM setting."
@@ -8001,6 +8444,9 @@ amtm_update_check() {
 }
 
 uninst_all() {
+	local ADGUARD_WAS_RUNNING LAN_DOMAIN_CHANGED
+	ADGUARD_WAS_RUNNING="0"
+	LAN_DOMAIN_CHANGED="0"
 	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 		PTXT "${INFO} Old Backup Detected!"
 		read_yesno "Do you want to remove backup?(this will prevent restoring from backups later)"
@@ -8013,33 +8459,61 @@ uninst_all() {
 			return "${CONFIRM_STATUS}"
 		fi
 	fi
-	if [ "$(conf_value ADGUARD_DOMAIN)" = "yes" ] && ! installer_lan_domain_set ""; then
-		PTXT "${ERROR} Unable to clear the installer-managed LAN domain setting; uninstall was aborted before stopping AdGuardHome."
+	if [ "$(conf_value ADGUARD_DOMAIN)" = "yes" ]; then
+		if ! installer_lan_domain_set "" 1; then
+			PTXT "${ERROR} Unable to clear the installer-managed LAN domain setting; uninstall was aborted before stopping AdGuardHome."
+			return 1
+		fi
+		LAN_DOMAIN_CHANGED="1"
+	fi
+	if agh_is_running; then
+		ADGUARD_WAS_RUNNING="1"
+	fi
+	if ! agh_stop; then
+		PTXT "${ERROR} Unable to stop AdGuardHome; uninstall was aborted before removing installed files."
+		[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore_uninstall || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
 		return 1
 	fi
-	agh_stop
-	if [ -d "${TARG_DIR}/proc-sys-state" ] && [ ! -x "${TARG_DIR}/AdGuardHome.sh" ]; then
+	if [ -d "${TARG_DIR}/proc-sys-state" ] && [ ! -x "${ADDON_DIR}/AdGuardHome.sh" ]; then
 		PTXT "${ERROR} Unable to restore installer-managed kernel settings."
-		agh_start || true
+		[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore_uninstall || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
+		[ "${ADGUARD_WAS_RUNNING}" = "0" ] || agh_start || true
 		return 1
 	fi
-	if [ -x "${TARG_DIR}/AdGuardHome.sh" ]; then
-		if ! "${TARG_DIR}/AdGuardHome.sh" proc-restore x; then
+	if [ -x "${ADDON_DIR}/AdGuardHome.sh" ]; then
+		if ! "${ADDON_DIR}/AdGuardHome.sh" proc-restore x; then
 			PTXT "${ERROR} Unable to restore installer-managed kernel settings."
-			agh_start || true
+			[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore_uninstall || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
+			[ "${ADGUARD_WAS_RUNNING}" = "0" ] || agh_start || true
 			return 1
 		fi
 	fi
-	cleanup_legacy_firewall
+	if ! all_event_scripts_transaction_begin "${BASE_DIR}/.AdGuardHome.uninstall-hooks.$$"; then
+		PTXT "${ERROR} Existing Asuswrt-Merlin event scripts could not be protected for uninstall rollback."
+		[ "${LAN_DOMAIN_CHANGED}" = "0" ] || installer_lan_domain_restore_uninstall || PTXT "${ERROR} Unable to restore the LAN domain after the uninstall abort."
+		[ "${ADGUARD_WAS_RUNNING}" = "0" ] || agh_start || true
+		return 1
+	fi
+	if ! remove_dnsmasq_event_scripts || ! remove_init_event_scripts ||
+		! remove_services_event_scripts || ! remove_firewall_event_scripts; then
+		PTXT "${ERROR} Unable to remove installer-managed event scripts; uninstall was aborted."
+		adguard_recover_after_uninstall_hook_abort "${ADGUARD_WAS_RUNNING}" "${LAN_DOMAIN_CHANGED}"
+		return 1
+	fi
+	if ! cleanup_legacy_firewall ||
+		! yaml_nvars_file_action delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf; then
+		PTXT "${ERROR} Unable to complete installer-managed event-hook cleanup; uninstall was aborted."
+		adguard_recover_after_uninstall_hook_abort "${ADGUARD_WAS_RUNNING}" "${LAN_DOMAIN_CHANGED}"
+		return 1
+	fi
+	if ! nvram_transaction_finalize_setup_pair; then
+		PTXT "${ERROR} Unable to finalize the installer-managed LAN domain cleanup; uninstall was aborted."
+		adguard_recover_after_uninstall_hook_abort "${ADGUARD_WAS_RUNNING}" "${LAN_DOMAIN_CHANGED}"
+		return 1
+	fi
+	all_event_scripts_transaction_commit
 	mv "${TARG_DIR}/installer" "${HOME}/installer"
 	rm -rf "${TARG_DIR}" "${ROLLBACK_RESULT_FILE}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"
-	yaml_nvars_file_action delete "#Asuswrt-Merlin AdGuardHome Installer" /jffs/scripts/dnsmasq.postconf
-	del_jffs_script /jffs/scripts/init-start
-	del_jffs_script /jffs/scripts/dnsmasq.postconf
-	del_jffs_script /jffs/scripts/firewall-start
-	if nvram get rc_support | grep -q 'mtlancfg'; then del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf; fi
-	del_jffs_script /jffs/scripts/services-stop
-	del_between_magic /jffs/scripts/service-event-end '# Asuswrt-Merlin-AdGuardHome-Installer'
 	service restart_dnsmasq >/dev/null 2>&1
 	end_op_message 0
 }
@@ -8960,10 +9434,10 @@ cli_migrate_runtime_defaults() {
 	case "${install_mode}" in
 		lan)
 			netcheck_target="lan"
-			if [ "$(conf_value ADGUARD_IPSET)" != "NO" ] || awk '
+			if ! adguard_ipset_allowed && { [ "$(conf_value ADGUARD_IPSET)" != "NO" ] || awk '
 				/^[[:space:]]*(ipset|ipset_file|\047ipset\047|\047ipset_file\047|"ipset"|"ipset_file"):[[:space:]]*/ { found = 1 }
 				END { exit !found }
-			' "${YAML_FILE}" 2>/dev/null; then
+			' "${YAML_FILE}" 2>/dev/null; }; then
 				PTXT "${WARNING} LAN/AP/Bridge mode config has IPSET enabled; migration will disable it because IPTABLES/IPSET rules are not manageable there."
 				changes="1"
 				ipset_change="1"

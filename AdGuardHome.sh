@@ -14,6 +14,7 @@ MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 IPSET_FILE="/opt/etc/AdGuardHome/ipset.conf"
+IPSET_LOCK_ACTIVE="0"
 IPSET_RUNTIME_DIR="${IPSET_RUNTIME_DIR:-/opt/var/run/AdGuardHome-ipset}"
 IPSET_USER_FILE="/opt/etc/AdGuardHome/ipset.user"
 PROC_SYS_ROOT="${PROC_SYS_ROOT:-/proc/sys}"
@@ -210,9 +211,52 @@ adguard_dnsmasq_managed() {
 	adguard_dnsmasq_running
 }
 
-# adguard_ipset_allowed reports whether IPSet integration is allowed outside LAN mode.
+# adguard_ipset_allowed allows IPSet in WAN mode or in LAN, AP, or bridge mode with qualifying WAN firewall state.
 adguard_ipset_allowed() {
-	! adguard_lan_mode
+	case "${CONFIG_INSTALL_MODE:-}" in
+		wan) return 0 ;;
+		lan | ap | bridge) adguard_wan_iptables_state_active 2>/dev/null ;;
+		*) return 1 ;;
+	esac
+}
+
+# adguard_wan_iptables_state_active reports whether a WAN interface has an active SNAT or MASQUERADE rule.
+adguard_wan_iptables_state_active() {
+	local ifname key nat_rules unit
+	nat_rules="$(/usr/sbin/iptables -t nat -S POSTROUTING 2>/dev/null)" || return 1
+	for unit in 0 1; do
+		for key in ifname gw_ifname pppoe_ifname; do
+			ifname="$(/bin/nvram get "wan${unit}_${key}" 2>/dev/null)" || ifname=""
+			case "${ifname}" in
+				"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-]*) continue ;;
+			esac
+			if printf '%s\n' "${nat_rules}" | /usr/bin/awk -v wan_if="${ifname}" '
+				function comment_ends(value, i, slashes) {
+					if (length(value) < 2) return 0
+					if (substr(value, length(value), 1) != "\"") return 0
+					for (i = length(value) - 1; i > 0 && substr(value, i, 1) == "\\"; i--) slashes++
+					return slashes % 2 == 0
+				}
+				{
+					output = target = input = negated = 0
+					for (i = 1; i <= NF; i++) {
+						if ($i == "--comment") { i++; if ($i ~ /^"/ && !comment_ends($i)) while (i <= NF && !comment_ends($i)) i++; continue }
+						if (($i == "-i" || $i == "--in-interface") && i < NF) input = 1
+						if (($i == "-o" || $i == "--out-interface") && i < NF) {
+							output = ($(i + 1) == wan_if)
+							negated = (i > 1 && $(i - 1) == "!")
+						}
+						if ($i == "-j" && i < NF && ($(i + 1) == "MASQUERADE" || $(i + 1) == "SNAT")) target = 1
+					}
+					if (output && target && !input && !negated) { found = 1; exit }
+				}
+				END { exit(found ? 0 : 1) }
+			'; then
+				return 0
+			fi
+		done
+	done
+	return 1
 }
 
 # adguard_restart_dnsmasq_if_managed restarts dnsmasq when it is managed by AdGuardHome.
@@ -662,6 +706,7 @@ adguardhome_run_execute() {
 	return "${status}"
 }
 
+# adguardhome_run_flock serializes service operations with a file lock, allowing stop operations to wait and rejecting duplicate concurrent actions.
 adguardhome_run_flock() {
 	local action lock_dir lock_file owner pid_file saved_traps status
 	action="$1"
@@ -691,7 +736,7 @@ adguardhome_run_flock() {
 		return 1
 	fi
 	saved_traps="$(trap)"
-	trap 'adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; IPSet_Lock_Interrupt_Propagate; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
 	trap 'status="$?"; adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit "${status}"' EXIT
 	rm -f "${pid_file}"
 	adguardhome_run_execute "${action}" "${pid_file}" "$$"
@@ -928,22 +973,553 @@ dnsmasq_resolv_conf_cleanup() {
 	}; fi
 }
 
+# dnsmasq_ipset_state_cleanup_stage_path removes one ownership-validated private snapshot stage.
+dnsmasq_ipset_state_cleanup_stage_path() {
+	local CURRENT_UID PATH_METADATA SNAPSHOT_STAGE STAGE_MODE STAGE_OWNER
+	SNAPSHOT_STAGE="$1"
+	[ -d "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ] || return 1
+	CURRENT_UID="$(IPSet_Current_UID)" || return 1
+	PATH_METADATA="$(IPSet_Directory_Metadata "${SNAPSHOT_STAGE}")" || return 1
+	IFS=' ' read -r STAGE_OWNER STAGE_MODE <<EOF
+${PATH_METADATA}
+EOF
+	[ "${STAGE_OWNER}" = "${CURRENT_UID}" ] && [ "${STAGE_MODE}" = "rwx------" ] || return 1
+	[ -d "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ] || return 1
+	PATH_METADATA="$(IPSet_Directory_Metadata "${SNAPSHOT_STAGE}")" || return 1
+	IFS=' ' read -r STAGE_OWNER STAGE_MODE <<EOF
+${PATH_METADATA}
+EOF
+	[ "${STAGE_OWNER}" = "${CURRENT_UID}" ] && [ "${STAGE_MODE}" = "rwx------" ] || return 1
+	rm -rf "${SNAPSHOT_STAGE}" || return 1
+	[ ! -e "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ]
+}
+
+# dnsmasq_ipset_state_cleanup_stage removes the current process's private snapshot stage when it exists.
+dnsmasq_ipset_state_cleanup_stage() {
+	local SNAPSHOT_STAGE
+	SNAPSHOT_STAGE="${WORK_DIR}/.AdGuardHome.dnsmasq-stage.$$"
+	[ -e "${SNAPSHOT_STAGE}" ] || [ -L "${SNAPSHOT_STAGE}" ] || return 0
+	dnsmasq_ipset_state_cleanup_stage_path "${SNAPSHOT_STAGE}"
+}
+
+# dnsmasq_ipset_state_cleanup_stages removes every validated orphaned private snapshot stage while the transaction lock is held.
+dnsmasq_ipset_state_cleanup_stages() {
+	local SNAPSHOT_NAME SNAPSHOT_STAGE SNAPSHOT_SUFFIX
+	for SNAPSHOT_STAGE in "${WORK_DIR}"/.AdGuardHome.dnsmasq-stage.*; do
+		[ -e "${SNAPSHOT_STAGE}" ] || [ -L "${SNAPSHOT_STAGE}" ] || continue
+		SNAPSHOT_NAME="${SNAPSHOT_STAGE##*/}"
+		case "${SNAPSHOT_NAME}" in
+			.AdGuardHome.dnsmasq-stage.*) SNAPSHOT_SUFFIX="${SNAPSHOT_NAME#.AdGuardHome.dnsmasq-stage.}" ;;
+			*) return 1 ;;
+		esac
+		case "${SNAPSHOT_SUFFIX}" in
+			"" | *[!0-9]*) return 1 ;;
+		esac
+		dnsmasq_ipset_state_cleanup_stage_path "${SNAPSHOT_STAGE}" || return 1
+	done
+}
+
+# dnsmasq_ipset_state_snapshot saves the managed IPSet file and YAML configuration in an atomically published cleanup-only snapshot.
+dnsmasq_ipset_state_snapshot() {
+	local SNAPSHOT_DIR SNAPSHOT_STAGE
+	SNAPSHOT_DIR="$1"
+	SNAPSHOT_STAGE="${WORK_DIR}/.AdGuardHome.dnsmasq-stage.$$"
+	[ ! -e "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
+	[ ! -e "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ] || return 1
+	mkdir -m 700 "${SNAPSHOT_STAGE}" || return 1
+	if [ -e "${IPSET_FILE}" ]; then
+		cp -p "${IPSET_FILE}" "${SNAPSHOT_STAGE}/ipset" || {
+			rm -rf "${SNAPSHOT_STAGE}"
+			return 1
+		}
+	else
+		: >"${SNAPSHOT_STAGE}/ipset.absent" || {
+			rm -rf "${SNAPSHOT_STAGE}"
+			return 1
+		}
+	fi
+	if [ -e "${YAML_FILE}" ]; then
+		cp -p "${YAML_FILE}" "${SNAPSHOT_STAGE}/yaml" || {
+			rm -rf "${SNAPSHOT_STAGE}"
+			return 1
+		}
+	else
+		: >"${SNAPSHOT_STAGE}/yaml.absent" || {
+			rm -rf "${SNAPSHOT_STAGE}"
+			return 1
+		}
+	fi
+	printf '%s\n' '1:2' >"${SNAPSHOT_STAGE}/snapshot.version" || {
+		rm -rf "${SNAPSHOT_STAGE}"
+		return 1
+	}
+	: >"${SNAPSHOT_STAGE}/cleanup.only" || {
+		rm -rf "${SNAPSHOT_STAGE}"
+		return 1
+	}
+	mv "${SNAPSHOT_STAGE}" "${SNAPSHOT_DIR}" || {
+		rm -rf "${SNAPSHOT_STAGE}"
+		return 1
+	}
+}
+
+# dnsmasq_ipset_state_mark_cleanup records that a committed or restored snapshot needs cleanup without making it eligible for rollback.
+dnsmasq_ipset_state_mark_cleanup() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="$1"
+	[ -d "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
+	if [ -e "${SNAPSHOT_DIR}/restore.pending" ]; then
+		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
+		[ ! -e "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
+		mv "${SNAPSHOT_DIR}/restore.pending" "${SNAPSHOT_DIR}/cleanup.pending" || return 1
+	elif [ -e "${SNAPSHOT_DIR}/cleanup.pending" ]; then
+		[ -f "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
+	else
+		return 1
+	fi
+}
+
+# dnsmasq_ipset_snapshot_version_valid accepts only the exact newline-terminated snapshot version record.
+dnsmasq_ipset_snapshot_version_valid() {
+	local SNAPSHOT_VERSION SNAPSHOT_VERSION_EXTRA VERSION_FILE
+	VERSION_FILE="$1"
+	[ -f "${VERSION_FILE}" ] && [ ! -L "${VERSION_FILE}" ] || return 1
+	{
+		IFS= read -r SNAPSHOT_VERSION || return 1
+		SNAPSHOT_VERSION_EXTRA=""
+		if IFS= read -r SNAPSHOT_VERSION_EXTRA || [ -n "${SNAPSHOT_VERSION_EXTRA}" ]; then
+			return 1
+		fi
+	} <"${VERSION_FILE}"
+	[ "${SNAPSHOT_VERSION}" = "1:2" ]
+}
+
+# dnsmasq_ipset_state_mark_cleanup_only marks a versioned snapshot that has not mutated live state for cleanup only.
+dnsmasq_ipset_state_mark_cleanup_only() {
+	local CLEANUP_ONLY_STAGE SNAPSHOT_DIR
+	SNAPSHOT_DIR="$1"
+	[ -d "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
+	dnsmasq_ipset_snapshot_version_valid "${SNAPSHOT_DIR}/snapshot.version" || return 1
+	[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || { [ -f "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ]; } || return 1
+	[ ! -e "${SNAPSHOT_DIR}/config.restored" ] && [ ! -L "${SNAPSHOT_DIR}/config.restored" ] || return 1
+	if [ ! -e "${SNAPSHOT_DIR}/cleanup.only" ]; then
+		CLEANUP_ONLY_STAGE="${SNAPSHOT_DIR}/cleanup.only.$$"
+		: >"${CLEANUP_ONLY_STAGE}" || return 1
+		mv "${CLEANUP_ONLY_STAGE}" "${SNAPSHOT_DIR}/cleanup.only" || {
+			rm -f "${CLEANUP_ONLY_STAGE}"
+			return 1
+		}
+	else
+		[ -f "${SNAPSHOT_DIR}/cleanup.only" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.only" ] || return 1
+	fi
+	rm -f "${SNAPSHOT_DIR}/restore.pending" || return 1
+	[ ! -e "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ]
+}
+
+# dnsmasq_ipset_state_finalize_cleanup removes a cleanup snapshot and recreates its durable marker when removal is partial.
+dnsmasq_ipset_state_finalize_cleanup() {
+	local CLEANUP_MARKER SNAPSHOT_DIR
+	SNAPSHOT_DIR="$1"
+	CLEANUP_MARKER="$2"
+	case "${CLEANUP_MARKER}" in cleanup.only | cleanup.pending) ;; *) return 1 ;; esac
+	if rm -rf "${SNAPSHOT_DIR}"; then
+		return 0
+	fi
+	[ ! -e "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] && return 0
+	[ -d "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
+	if [ "${CLEANUP_MARKER}" = "cleanup.only" ]; then
+		printf '%s\n' '1:2' >"${SNAPSHOT_DIR}/snapshot.version" || return 1
+	fi
+	: >"${SNAPSHOT_DIR}/${CLEANUP_MARKER}" || return 1
+	return 1
+}
+
+# dnsmasq_ipset_state_recover_pending restores rollback-pending snapshots and removes cleanup-pending committed snapshots.
+dnsmasq_ipset_state_recover_pending() {
+	local CONFIG_BACKUP_RECOVERY CONFIG_FILE_RECOVERY CONFIG_RESTORE_STAGE SNAPSHOT_DIR SNAPSHOT_NAME SNAPSHOT_VERSION
+	for SNAPSHOT_DIR in "${WORK_DIR}"/.AdGuardHome.dnsmasq-ipset.*; do
+		[ -d "${SNAPSHOT_DIR}" ] || continue
+		[ ! -L "${SNAPSHOT_DIR}" ] || return 1
+		SNAPSHOT_NAME="${SNAPSHOT_DIR##*/}"
+		case "${SNAPSHOT_NAME}" in
+			.AdGuardHome.dnsmasq-ipset.*) ;;
+			*) return 1 ;;
+		esac
+		SNAPSHOT_VERSION=""
+		if [ -e "${SNAPSHOT_DIR}/snapshot.version" ] || [ -L "${SNAPSHOT_DIR}/snapshot.version" ]; then
+			dnsmasq_ipset_snapshot_version_valid "${SNAPSHOT_DIR}/snapshot.version" || return 1
+			SNAPSHOT_VERSION="1:2"
+		fi
+		[ ! -L "${SNAPSHOT_DIR}/config.pending" ] || return 1
+		[ ! -L "${SNAPSHOT_DIR}/config.restored" ] || return 1
+		if [ -e "${SNAPSHOT_DIR}/cleanup.only" ] || [ -L "${SNAPSHOT_DIR}/cleanup.only" ]; then
+			[ "${SNAPSHOT_VERSION}" = "1:2" ] || return 1
+			[ -f "${SNAPSHOT_DIR}/cleanup.only" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.only" ] || return 1
+			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || { [ -f "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ]; } || return 1
+			[ ! -e "${SNAPSHOT_DIR}/config.restored" ] || return 1
+			[ ! -e "${SNAPSHOT_DIR}/cleanup.pending" ] || { [ -f "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ]; } || return 1
+			[ ! -e "${SNAPSHOT_DIR}/restore.pending" ] || { [ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ]; } || return 1
+			if [ -e "${SNAPSHOT_DIR}/config.pending" ] &&
+				{ [ -e "${SNAPSHOT_DIR}/cleanup.pending" ] || [ -e "${SNAPSHOT_DIR}/restore.pending" ]; }; then
+				return 1
+			fi
+			if ! dnsmasq_ipset_state_finalize_cleanup "${SNAPSHOT_DIR}" cleanup.only; then
+				agh_log error dnsmasq_params "state=recovery action=cleanup_snapshot result=failed snapshot=${SNAPSHOT_DIR}"
+				return 1
+			fi
+			continue
+		fi
+		if [ -e "${SNAPSHOT_DIR}/cleanup.pending" ]; then
+			[ -f "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
+			[ ! -e "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
+			if ! dnsmasq_ipset_state_finalize_cleanup "${SNAPSHOT_DIR}" cleanup.pending; then
+				agh_log error dnsmasq_params "state=recovery action=cleanup_snapshot result=failed snapshot=${SNAPSHOT_DIR}"
+				return 1
+			fi
+			continue
+		fi
+		if [ ! -e "${SNAPSHOT_DIR}/restore.pending" ]; then
+			agh_log error dnsmasq_params "state=recovery action=validate_snapshot result=failed reason=missing_marker snapshot=${SNAPSHOT_DIR}"
+			return 1
+		fi
+		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
+		if [ "${SNAPSHOT_VERSION}" = "1:2" ] && [ ! -e "${SNAPSHOT_DIR}/config.pending" ] &&
+			[ ! -e "${SNAPSHOT_DIR}/config.restored" ]; then
+			return 1
+		fi
+		if [ -e "${SNAPSHOT_DIR}/config.pending" ] || [ -e "${SNAPSHOT_DIR}/config.restored" ]; then
+			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || { [ -f "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ]; } || return 1
+			[ ! -e "${SNAPSHOT_DIR}/config.restored" ] || { [ -f "${SNAPSHOT_DIR}/config.restored" ] && [ ! -L "${SNAPSHOT_DIR}/config.restored" ]; } || return 1
+			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || [ ! -e "${SNAPSHOT_DIR}/config.restored" ] || return 1
+			if [ -e "${SNAPSHOT_DIR}/config.pending" ]; then
+				{
+					IFS= read -r CONFIG_BACKUP_RECOVERY
+					IFS= read -r CONFIG_FILE_RECOVERY
+				} <"${SNAPSHOT_DIR}/config.pending" || return 1
+			else
+				{
+					IFS= read -r CONFIG_BACKUP_RECOVERY
+					IFS= read -r CONFIG_FILE_RECOVERY
+				} <"${SNAPSHOT_DIR}/config.restored" || return 1
+			fi
+			case "${CONFIG_BACKUP_RECOVERY}" in /*) ;; *) return 1 ;; esac
+			case "${CONFIG_FILE_RECOVERY}" in /*) ;; *) return 1 ;; esac
+			if [ -e "${SNAPSHOT_DIR}/config.pending" ]; then
+				[ -f "${CONFIG_BACKUP_RECOVERY}" ] && [ ! -L "${CONFIG_BACKUP_RECOVERY}" ] || return 1
+				CONFIG_RESTORE_STAGE="${CONFIG_FILE_RECOVERY}.adguard-restore.$$"
+				cp -p "${CONFIG_BACKUP_RECOVERY}" "${CONFIG_RESTORE_STAGE}" || return 1
+				if ! mv "${CONFIG_RESTORE_STAGE}" "${CONFIG_FILE_RECOVERY}"; then
+					rm -f "${CONFIG_RESTORE_STAGE}"
+					agh_log error dnsmasq_params "state=recovery action=restore_dnsmasq result=failed config=${CONFIG_FILE_RECOVERY} snapshot=${SNAPSHOT_DIR}"
+					return 1
+				fi
+				mv "${SNAPSHOT_DIR}/config.pending" "${SNAPSHOT_DIR}/config.restored" || return 1
+			fi
+			rm -f "${CONFIG_BACKUP_RECOVERY}" || return 1
+		fi
+		if { [ -f "${SNAPSHOT_DIR}/ipset" ] && [ ! -L "${SNAPSHOT_DIR}/ipset" ]; }; then
+			[ ! -e "${SNAPSHOT_DIR}/ipset.absent" ] || return 1
+		else
+			[ -f "${SNAPSHOT_DIR}/ipset.absent" ] && [ ! -L "${SNAPSHOT_DIR}/ipset.absent" ] || return 1
+		fi
+		if { [ -f "${SNAPSHOT_DIR}/yaml" ] && [ ! -L "${SNAPSHOT_DIR}/yaml" ]; }; then
+			[ ! -e "${SNAPSHOT_DIR}/yaml.absent" ] || return 1
+		else
+			[ -f "${SNAPSHOT_DIR}/yaml.absent" ] && [ ! -L "${SNAPSHOT_DIR}/yaml.absent" ] || return 1
+		fi
+		if dnsmasq_ipset_state_restore "${SNAPSHOT_DIR}"; then
+			dnsmasq_ipset_state_finalize_cleanup "${SNAPSHOT_DIR}" cleanup.pending || return 1
+		else
+			agh_log error dnsmasq_params "state=recovery action=restore_ipset result=failed snapshot=${SNAPSHOT_DIR}"
+			return 1
+		fi
+	done
+}
+
+# dnsmasq_ipset_state_restore restores the saved IPSet and YAML state, restarts AdGuardHome when necessary, and marks the snapshot for cleanup.
+dnsmasq_ipset_state_restore() {
+	local ADGUARD_WAS_RUNNING DNSMASQ_RESTART_SKIP IPSET_CURRENT_ABSENT IPSET_CURRENT_STAGE IPSET_RESTORE_STAGE RESTART_REQUIRED SNAPSHOT_DIR YAML_RESTORE_STAGE
+	SNAPSHOT_DIR="$1"
+	ADGUARD_WAS_RUNNING="${2:-0}"
+	RESTART_REQUIRED="0"
+	IPSET_CURRENT_ABSENT="0"
+	IPSET_CURRENT_STAGE="${IPSET_FILE}.dnsmasq-current.$$"
+	IPSET_RESTORE_STAGE="${IPSET_FILE}.dnsmasq-restore.$$"
+	YAML_RESTORE_STAGE="${YAML_FILE}.dnsmasq-restore.$$"
+	if [ ! -f "${SNAPSHOT_DIR}/ipset.absent" ]; then
+		cp -p "${SNAPSHOT_DIR}/ipset" "${IPSET_RESTORE_STAGE}" || {
+			rm -f "${IPSET_RESTORE_STAGE}" "${YAML_RESTORE_STAGE}" "${IPSET_CURRENT_STAGE}"
+			return 1
+		}
+	fi
+	if [ ! -f "${SNAPSHOT_DIR}/yaml.absent" ]; then
+		cp -p "${SNAPSHOT_DIR}/yaml" "${YAML_RESTORE_STAGE}" || {
+			rm -f "${IPSET_RESTORE_STAGE}" "${YAML_RESTORE_STAGE}" "${IPSET_CURRENT_STAGE}"
+			return 1
+		}
+	fi
+	if [ -e "${IPSET_FILE}" ]; then
+		cp -p "${IPSET_FILE}" "${IPSET_CURRENT_STAGE}" || {
+			rm -f "${IPSET_RESTORE_STAGE}" "${YAML_RESTORE_STAGE}" "${IPSET_CURRENT_STAGE}"
+			return 1
+		}
+	else
+		IPSET_CURRENT_ABSENT="1"
+	fi
+	if [ -f "${SNAPSHOT_DIR}/ipset.absent" ]; then
+		[ ! -e "${IPSET_FILE}" ] || RESTART_REQUIRED="1"
+		rm -f "${IPSET_FILE}" || {
+			rm -f "${IPSET_RESTORE_STAGE}" "${YAML_RESTORE_STAGE}" "${IPSET_CURRENT_STAGE}"
+			return 1
+		}
+	else
+		cmp -s "${SNAPSHOT_DIR}/ipset" "${IPSET_FILE}" || RESTART_REQUIRED="1"
+		mv "${IPSET_RESTORE_STAGE}" "${IPSET_FILE}" || {
+			rm -f "${IPSET_RESTORE_STAGE}" "${YAML_RESTORE_STAGE}" "${IPSET_CURRENT_STAGE}"
+			return 1
+		}
+	fi
+	if [ -f "${SNAPSHOT_DIR}/yaml.absent" ]; then
+		[ ! -e "${YAML_FILE}" ] || RESTART_REQUIRED="1"
+		rm -f "${YAML_FILE}" || {
+			rm -f "${YAML_RESTORE_STAGE}"
+			if [ "${IPSET_CURRENT_ABSENT}" = "1" ]; then
+				rm -f "${IPSET_FILE}" || agh_log error dnsmasq_params "state=restore action=compensate_ipset result=failed snapshot=${SNAPSHOT_DIR}"
+			else
+				mv "${IPSET_CURRENT_STAGE}" "${IPSET_FILE}" || agh_log error dnsmasq_params "state=restore action=compensate_ipset result=failed snapshot=${SNAPSHOT_DIR}"
+			fi
+			return 1
+		}
+	else
+		cmp -s "${SNAPSHOT_DIR}/yaml" "${YAML_FILE}" || RESTART_REQUIRED="1"
+		mv "${YAML_RESTORE_STAGE}" "${YAML_FILE}" || {
+			rm -f "${YAML_RESTORE_STAGE}"
+			if [ "${IPSET_CURRENT_ABSENT}" = "1" ]; then
+				rm -f "${IPSET_FILE}" || agh_log error dnsmasq_params "state=restore action=compensate_ipset result=failed snapshot=${SNAPSHOT_DIR}"
+			else
+				mv "${IPSET_CURRENT_STAGE}" "${IPSET_FILE}" || agh_log error dnsmasq_params "state=restore action=compensate_ipset result=failed snapshot=${SNAPSHOT_DIR}"
+			fi
+			return 1
+		}
+	fi
+	rm -f "${IPSET_CURRENT_STAGE}" || return 1
+	if [ "${RESTART_REQUIRED}" = "1" ] &&
+		{ [ "${ADGUARD_WAS_RUNNING}" = "1" ] || pidof "${PROCS}" >/dev/null 2>&1; }; then
+		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
+		lower_script restart
+		RESTART_REQUIRED="$?"
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART="${DNSMASQ_RESTART_SKIP}"
+		[ "${RESTART_REQUIRED}" -eq 0 ] || return 1
+	fi
+	dnsmasq_ipset_state_mark_cleanup "${SNAPSHOT_DIR}" || return 1
+}
+
+# dnsmasq_publish_staged_config refreshes IPSET state and atomically publishes a staged dnsmasq configuration, restoring prior state if the transaction fails.
+dnsmasq_publish_staged_config() (
+	ADGUARD_WAS_RUNNING="0"
+	CONFIG_PUBLISHED="0"
+	CONFIG_FILE="$1"
+	CONFIG_STAGE="$2"
+	CONFIG_BACKUP="${CONFIG_STAGE}.previous"
+	CONFIG_BACKUP_RETAIN="0"
+	IPSET_SNAPSHOT_DIR="$3"
+	ROLLBACK_ACTIVE="0"
+	SNAPSHOT_READY="0"
+	TRANSACTION_SIGNAL_PENDING="0"
+	[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ] && ADGUARD_WAS_RUNNING="1"
+	TRANSACTION_ACTIVE="1"
+	# dnsmasq_config_association_create durably associates the dnsmasq backup with its pending IPSet snapshot before refresh or publication.
+	dnsmasq_config_association_create() {
+		local CONFIG_ASSOCIATION_STAGE
+		CONFIG_ASSOCIATION_STAGE="${IPSET_SNAPSHOT_DIR}/config.pending.$$"
+		{
+			printf '%s\n' "${CONFIG_BACKUP}"
+			printf '%s\n' "${CONFIG_FILE}"
+		} >"${CONFIG_ASSOCIATION_STAGE}" || {
+			rm -f "${CONFIG_ASSOCIATION_STAGE}"
+			return 1
+		}
+		mv "${CONFIG_ASSOCIATION_STAGE}" "${IPSET_SNAPSHOT_DIR}/config.pending" || {
+			rm -f "${CONFIG_ASSOCIATION_STAGE}"
+			return 1
+		}
+		[ -f "${IPSET_SNAPSHOT_DIR}/cleanup.only" ] && [ ! -L "${IPSET_SNAPSHOT_DIR}/cleanup.only" ] || return 1
+		[ ! -e "${IPSET_SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${IPSET_SNAPSHOT_DIR}/restore.pending" ] || return 1
+		mv "${IPSET_SNAPSHOT_DIR}/cleanup.only" "${IPSET_SNAPSHOT_DIR}/restore.pending" || return 1
+	}
+	# dnsmasq_publish_rollback_published restores the pre-publication dnsmasq and IPSet state after an unsafe publication.
+	dnsmasq_publish_rollback_published() {
+		ROLLBACK_ACTIVE="1"
+		if ! dnsmasq_ipset_state_recover_pending; then
+			agh_log error dnsmasq_params "state=publication action=rollback result=failed config=${CONFIG_FILE} snapshot=${IPSET_SNAPSHOT_DIR}"
+			CONFIG_BACKUP_RETAIN="1"
+			ROLLBACK_ACTIVE="0"
+			return 1
+		fi
+		CONFIG_PUBLISHED="0"
+		ROLLBACK_ACTIVE="0"
+		return 0
+	}
+	# dnsmasq_publish_abort aborts a staged dnsmasq configuration transaction, restoring or finalizing its IPSet snapshot as appropriate and exiting with failure when the abort proceeds.
+	dnsmasq_publish_abort() {
+		if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then
+			TRANSACTION_SIGNAL_PENDING="1"
+			return 0
+		fi
+		if [ "${TRANSACTION_SIGNAL_PENDING:-0}" = "0" ]; then
+			trap 'TRANSACTION_SIGNAL_PENDING="1"' HUP INT QUIT ABRT TERM TSTP
+		fi
+		trap '' HUP INT QUIT ABRT TERM TSTP
+		if [ ! -e "${CONFIG_STAGE}" ]; then
+			CONFIG_PUBLISHED="1"
+		fi
+		if [ "${CONFIG_PUBLISHED:-0}" = "1" ] && [ "${SNAPSHOT_READY:-0}" = "1" ]; then
+			if dnsmasq_ipset_state_mark_cleanup "${IPSET_SNAPSHOT_DIR}"; then
+				dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.pending ||
+					agh_log error dnsmasq_params "state=signal action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				SNAPSHOT_READY="0"
+			else
+				agh_log error dnsmasq_params "state=signal action=mark_cleanup result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				if dnsmasq_publish_rollback_published; then
+					SNAPSHOT_READY="0"
+				else
+					agh_log error dnsmasq_params "state=signal action=rollback_publication result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				fi
+			fi
+		fi
+		if [ "${TRANSACTION_ACTIVE:-0}" = "1" ] && [ "${SNAPSHOT_READY:-0}" = "1" ] && [ "${CONFIG_PUBLISHED:-0}" = "0" ] && [ "${ROLLBACK_ACTIVE:-0}" = "0" ]; then
+			trap '' HUP INT QUIT ABRT TERM TSTP
+			if [ -f "${IPSET_SNAPSHOT_DIR}/cleanup.only" ] && [ ! -L "${IPSET_SNAPSHOT_DIR}/cleanup.only" ] &&
+				dnsmasq_ipset_state_mark_cleanup_only "${IPSET_SNAPSHOT_DIR}"; then
+				dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.only ||
+					agh_log error dnsmasq_params "state=signal action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			else
+				ROLLBACK_ACTIVE="1"
+				if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
+					dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.pending ||
+						agh_log error dnsmasq_params "state=signal action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				else
+					agh_log error dnsmasq_params "state=signal action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				fi
+				ROLLBACK_ACTIVE="0"
+			fi
+			trap - HUP INT QUIT ABRT TERM TSTP
+		fi
+		[ "${CONFIG_PUBLISHED:-0}" = "1" ] || rm -f "${CONFIG_STAGE}"
+		[ "${CONFIG_BACKUP_RETAIN:-0}" = "1" ] || rm -f "${CONFIG_BACKUP}"
+		exit 1
+	}
+	# dnsmasq_publish_locked snapshots and refreshes IPSet state, publishes the staged dnsmasq configuration, and restores state if refresh or publication fails.
+	dnsmasq_publish_locked() {
+		dnsmasq_ipset_state_recover_pending || {
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		}
+		dnsmasq_ipset_state_cleanup_stages || {
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		}
+		if ! dnsmasq_ipset_state_snapshot "${IPSET_SNAPSHOT_DIR}"; then
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		fi
+		SNAPSHOT_READY="1"
+		if ! cp -p "${CONFIG_FILE}" "${CONFIG_BACKUP}"; then
+			if dnsmasq_ipset_state_mark_cleanup_only "${IPSET_SNAPSHOT_DIR}" &&
+				dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.only; then
+				SNAPSHOT_READY="0"
+			else
+				agh_log error dnsmasq_params "state=backup action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			fi
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		fi
+		if ! dnsmasq_config_association_create; then
+			TRANSACTION_ACTIVE="0"
+			if [ -f "${IPSET_SNAPSHOT_DIR}/cleanup.only" ] && [ ! -L "${IPSET_SNAPSHOT_DIR}/cleanup.only" ]; then
+				dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.only ||
+					agh_log error dnsmasq_params "state=association action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			fi
+			rm -f "${CONFIG_BACKUP}" "${CONFIG_STAGE}"
+			return 1
+		fi
+		if ! IPSet_Refresh "${CONFIG_STAGE}"; then
+			ROLLBACK_ACTIVE="1"
+			if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
+				dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.pending ||
+					agh_log error dnsmasq_params "state=refresh action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			else
+				agh_log error dnsmasq_params "state=refresh action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			fi
+			ROLLBACK_ACTIVE="0"
+			if [ "${TRANSACTION_SIGNAL_PENDING}" = "1" ]; then
+				TRANSACTION_SIGNAL_PENDING="0"
+				TRANSACTION_ACTIVE="0"
+				dnsmasq_publish_abort
+			fi
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		fi
+		if ! mv "${CONFIG_STAGE}" "${CONFIG_FILE}"; then
+			ROLLBACK_ACTIVE="1"
+			if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
+				dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.pending ||
+					agh_log error dnsmasq_params "state=publication action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			else
+				agh_log error dnsmasq_params "state=publication action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			fi
+			ROLLBACK_ACTIVE="0"
+			if [ "${TRANSACTION_SIGNAL_PENDING}" = "1" ]; then
+				TRANSACTION_SIGNAL_PENDING="0"
+				TRANSACTION_ACTIVE="0"
+				dnsmasq_publish_abort
+			fi
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		fi
+		CONFIG_PUBLISHED="1"
+		if ! dnsmasq_ipset_state_mark_cleanup "${IPSET_SNAPSHOT_DIR}"; then
+			agh_log error dnsmasq_params "state=publication action=mark_cleanup result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			dnsmasq_publish_rollback_published ||
+				agh_log error dnsmasq_params "state=publication action=rollback_publication result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			TRANSACTION_ACTIVE="0"
+			return 1
+		fi
+		TRANSACTION_ACTIVE="0"
+		rm -f "${CONFIG_BACKUP}"
+		dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.pending ||
+			agh_log error dnsmasq_params "state=publication action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+		return 0
+	}
+	IPSET_LOCK_INTERRUPT_CALLBACK="dnsmasq_publish_abort"
+	trap 'dnsmasq_publish_abort' HUP INT QUIT ABRT TERM TSTP
+	IPSet_Lock dnsmasq_publish_locked
+	STATUS="$?"
+	IPSET_LOCK_INTERRUPT_CALLBACK=""
+	trap - HUP INT QUIT ABRT TERM TSTP
+	[ "${CONFIG_BACKUP_RETAIN}" = "1" ] || rm -f "${CONFIG_BACKUP}"
+	if [ "${STATUS}" -ne 0 ] && [ "${SNAPSHOT_READY}" = "0" ]; then
+		TRANSACTION_ACTIVE="0"
+		rm -f "${CONFIG_STAGE}"
+	fi
+	return "${STATUS}"
+)
+
 # dnsmasq_params configures dnsmasq for the LAN or specified SDN interface, including DNS routing, reverse zones, and optional IPSet refresh.
 dnsmasq_params() {
-	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
+	local BRIDGE_OPTIONS_STAGE CONFIG CONFIG_FILE CONFIG_STAGE IPSET_SNAPSHOT_DIR IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
 	if adguard_lan_mode && [ "${CONFIG_DNSMASQ_MODE:-auto}" = "disabled" ] && ! dns_handoff_is_active; then
 		agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_disabled"
 		return 0
 	fi
 	dnsmasq_resolv_conf_cleanup
-	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
-		0)
-			dns_handoff_is_active || return 0
-			;;
-		*)
-			:
-			;;
-	esac
 	RC_SUPPORT="$(nvram get rc_support 2>/dev/null)"
 	LAN_IF="$(nvram get lan_ifname 2>/dev/null)"
 	case "${1:-}" in
@@ -981,45 +1557,80 @@ dnsmasq_params() {
 			[ -n "${NET_ADDR}" ] || return 0
 			;;
 	esac
-	dnsmasq_delete_matching \
+	CONFIG_FILE="${CONFIG}"
+	adguard_dnsmasq_running || return 0
+	[ -f "${CONFIG_FILE}" ] || return 0
+	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -eq 0 ] && ! dns_handoff_is_active; then
+		return 0
+	fi
+	CONFIG_STAGE="${CONFIG_FILE}.adguard.$$"
+	if ! cp -p "${CONFIG_FILE}" "${CONFIG_STAGE}"; then
+		rm -f "${CONFIG_STAGE}"
+		return 1
+	fi
+	CONFIG="${CONFIG_STAGE}"
+	if ! dnsmasq_delete_matching \
 		"${CONFIG}" \
 		"add-subnet=" \
 		"port=" \
 		"add-mac" \
-		"dhcp-option=${DHCP_IF},6"
-	printf "%s\n" \
+		"dhcp-option=${DHCP_IF},6"; then
+		rm -f "${CONFIG_STAGE}"
+		return 1
+	fi
+	if ! printf "%s\n" \
 		"dhcp-option=${DHCP_IF},6,${NET_ADDR}" \
 		"local=/$(ipv4_reverse_zone "${NET_ADDR}")/" \
 		"local=/10.in-addr.arpa/" \
 		"local=//" \
 		"port=553" \
-		"add-mac" >>"${CONFIG}"
+		"add-mac" >>"${CONFIG}"; then
+		rm -f "${CONFIG_STAGE}"
+		return 1
+	fi
 	if [ -n "${NET_ADDR6}" ]; then
 		IPV6_REVERSE="$(ipv6_reverse_zone "${NET_ADDR6}")"
 		printf "%s\n" \
 			"add-subnet=32,128" \
-			"local=/${IPV6_REVERSE}/" >>"${CONFIG}"
+			"local=/${IPV6_REVERSE}/" >>"${CONFIG}" || {
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		}
 	else
-		printf "%s\n" "add-subnet=32" >>"${CONFIG}"
+		printf "%s\n" "add-subnet=32" >>"${CONFIG}" || {
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		}
 	fi
 	case "${1:-}:${RC_SUPPORT}" in
 		:*mtlancfg*)
 			:
 			;;
 		:*)
-			private_ipv4_bridge_dns_options_with_fallbacks "${LAN_IF}" | while read -r NIVARS NDVARS; do
+			BRIDGE_OPTIONS_STAGE="${CONFIG_STAGE}.bridge-options"
+			if ! private_ipv4_bridge_dns_options_with_fallbacks "${LAN_IF}" >"${BRIDGE_OPTIONS_STAGE}"; then
+				rm -f "${BRIDGE_OPTIONS_STAGE}" "${CONFIG_STAGE}"
+				return 1
+			fi
+			while read -r NIVARS NDVARS; do
 				[ -n "${NIVARS}" ] && [ -n "${NDVARS}" ] || continue
-				printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >>"${CONFIG}"
-			done
+				if ! printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >>"${CONFIG}"; then
+					rm -f "${BRIDGE_OPTIONS_STAGE}" "${CONFIG_STAGE}"
+					return 1
+				fi
+			done <"${BRIDGE_OPTIONS_STAGE}"
+			rm -f "${BRIDGE_OPTIONS_STAGE}"
 			;;
 	esac
+	IPSET_REFRESH_FROM_DNSMASQ="1"
+	IPSET_SNAPSHOT_DIR="${WORK_DIR}/.AdGuardHome.dnsmasq-ipset.$$"
+	dnsmasq_publish_staged_config "${CONFIG_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}" || return 1
 	if { ! resolv_conf_uses_rom && [ "${CONFIG_LOCAL:-NO}" = "YES" ]; }; then {
-		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
+		if ! mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; then
+			agh_log warning dnsmasq_params "state=committed action=bind_resolver result=failed source=/rom/etc/resolv.conf target=/tmp/resolv.conf"
+		fi
 	}; fi
-	if ! adguard_lan_mode; then
-		IPSET_REFRESH_FROM_DNSMASQ="1"
-		IPSet_Refresh "${CONFIG}"
-	fi
+	return 0
 }
 
 # dnsmasq_action_handler applies the requested dnsmasq configuration action, or skips it in LAN mode when dnsmasq is inactive and unmanaged.
@@ -2275,6 +2886,8 @@ start_adguardhome() {
 				return 1
 			fi
 		fi
+	fi
+	if ! adguard_ipset_allowed; then
 		if ! IPSet_Disable_Managed; then
 			agh_log error start_adguardhome "state=starting action=disable_managed_ipset result=failed reason=lan_mode_remove_failed"
 			SERVICE_WAIT_TERMINAL_FAILURE="1"
@@ -3036,12 +3649,20 @@ IPSet_Directory_Metadata() {
 	'
 }
 
+# IPSet_Lock_Interrupt_Cleanup restores AdGuardHome after an interrupted IPSet operation when the service was stopped by that operation.
 IPSet_Lock_Interrupt_Cleanup() {
 	if [ "${IPSET_START_STOPPED:-0}" -eq 1 ]; then
 		IPSet_Start_Restore || true
 	fi
 }
 
+# IPSet_Lock_Interrupt_Propagate invokes an outer transaction's signal cleanup while the IPSET lock remains held.
+IPSet_Lock_Interrupt_Propagate() {
+	[ -n "${IPSET_LOCK_INTERRUPT_CALLBACK:-}" ] || return 0
+	"${IPSET_LOCK_INTERRUPT_CALLBACK}"
+}
+
+# IPSet_Start_Restore restores AdGuardHome after an IPSet setup rollback and reports whether restoration succeeded.
 IPSet_Start_Restore() {
 	IPSET_START_STOPPED="0"
 	if IPSet_Start_While_Locked; then
@@ -3070,6 +3691,10 @@ IPSet_Start_While_Locked() {
 
 IPSet_Lock() {
 	local STATUS
+	if [ "${IPSET_LOCK_ACTIVE:-0}" = "1" ]; then
+		"$@"
+		return "$?"
+	fi
 	IPSet_Runtime_Prepare || return 1
 	# Prefer flock on firmware that supports descriptor locking.  The private,
 	# ownership-validated mkdir lock remains the fallback for older firmware.
@@ -3083,6 +3708,7 @@ IPSet_Lock() {
 	return "${STATUS}"
 }
 
+# IPSet_Lock_Flock serializes an IPSet operation under a file lock and restores its signal handlers and cleanup state afterward.
 IPSet_Lock_Flock() {
 	local SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
 	TRAP_STATE_FILE="${IPSET_RUNTIME_DIR}/traps.$$"
@@ -3100,10 +3726,12 @@ IPSet_Lock_Flock() {
 		return 1
 	fi
 	# Restore a stopped service while this lock is still held; only then release it.
-	trap 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Flock_Cleanup; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
-	trap 'STATUS="$?"; IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
+	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Interrupt_Propagate; IPSet_Lock_Flock_Cleanup; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
+	trap 'STATUS="$?"; IPSet_Lock_Flock_Cleanup; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
+	IPSET_LOCK_ACTIVE="1"
 	"$@"
 	STATUS="$?"
+	IPSET_LOCK_ACTIVE="0"
 	IPSet_Lock_Flock_Cleanup
 	IPSet_Restore_Traps "${SAVED_TRAPS}"
 	return "${STATUS}"
@@ -3114,6 +3742,7 @@ IPSet_Lock_Flock_Cleanup() {
 	exec 8>&-
 }
 
+# IPSet_Lock_Mkdir serializes an IPSet operation using a validated directory lock and restores traps and lock state when it completes.
 IPSet_Lock_Mkdir() {
 	local ATTEMPTS LOCK_DIR LOCK_METADATA LOCK_OWNER OWNER OWNERLESS_ATTEMPTS SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
 	LOCK_DIR="${IPSET_RUNTIME_DIR}/mkdir"
@@ -3166,10 +3795,12 @@ IPSet_Lock_Mkdir() {
 	done <"${TRAP_STATE_FILE}"
 	rm -f "${TRAP_STATE_FILE}"
 	# Keep the fallback lock through restoration for the same lifecycle guarantee.
-	trap 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
-	trap 'STATUS="$?"; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
+	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Interrupt_Propagate; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
+	trap 'STATUS="$?"; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
+	IPSET_LOCK_ACTIVE="1"
 	"$@"
 	STATUS="$?"
+	IPSET_LOCK_ACTIVE="0"
 	IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"
 	IPSet_Restore_Traps "${SAVED_TRAPS}"
 	return "${STATUS}"
@@ -3216,11 +3847,11 @@ IPSet_Lock_Mkdir_Reap_Stale() {
 	rm -rf "${LOCK_DIR}"
 }
 
-# IPSet_Migrate migrates legacy AdGuardHome IPSet mappings into the managed IPSet configuration and updates the YAML reference.
+# IPSet_Migrate migrates legacy AdGuardHome IPSet mappings into the managed IPSet file and updates the YAML reference when supported.
 IPSet_Migrate() {
 	local CURRENT_FILE TEMP_FILE USER_TEMP_FILE
 	IPSET_MIGRATION_SKIPPED=""
-	if adguard_lan_mode; then
+	if ! adguard_ipset_allowed; then
 		if ! IPSet_Disable_Managed; then
 			agh_log warning IPSet_Migrate "state=migration action=disable_managed_ipset result=skipped reason=lan_mode_remove_failed"
 			return 1
@@ -3400,6 +4031,7 @@ IPSet_Migrate() {
 	fi
 }
 
+# IPSet_Disable_Managed removes the managed YAML file reference, or any configured file reference when requested by topology enforcement.
 IPSet_Disable_Managed() {
 	local CURRENT_FILE TEMP_FILE
 	IPSET_DISABLE_CHANGED=""
@@ -3407,7 +4039,8 @@ IPSet_Disable_Managed() {
 	if ! CURRENT_FILE="$(IPSet_Current_File)"; then
 		return 1
 	fi
-	if [ "${CURRENT_FILE}" != "${IPSET_FILE}" ]; then
+	[ -n "${CURRENT_FILE}" ] || return 0
+	if [ "${1:-}" != "configured" ] && [ "${CURRENT_FILE}" != "${IPSET_FILE}" ]; then
 		return 0
 	fi
 	TEMP_FILE="${YAML_FILE}.ipset-legacy.$$"
@@ -3455,6 +4088,7 @@ IPSet_Disable_Managed() {
 IPSet_Disable_Managed_For_Start_Locked() {
 	local WAS_RUNNING
 	WAS_RUNNING="0"
+	IPSET_START_STOPPED="${IPSET_START_STOPPED:-0}"
 	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
 		WAS_RUNNING="1"
 	fi
@@ -3465,7 +4099,7 @@ IPSet_Disable_Managed_For_Start_Locked() {
 			return 1
 		fi
 	fi
-	if ! IPSet_Disable_Managed; then
+	if ! IPSet_Disable_Managed "${1:-}"; then
 		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
 			IPSET_START_RESTARTED="1"
 		fi
@@ -3488,13 +4122,33 @@ IPSet_Enabled() {
 	[ "${CONFIG_IPSET:-YES}" != "NO" ]
 }
 
-# IPSet_Refresh refreshes AdGuardHome IPSet mappings in WAN mode and restarts AdGuardHome when mappings change; LAN mode is a no-op.
-# The optional argument specifies a dnsmasq configuration file to use for collecting mappings.
+# IPSet_Refresh refreshes managed IPSet mappings from an optional dnsmasq configuration file and restarts AdGuardHome when the mappings change.
 IPSet_Refresh() {
-	local DNSMASQ_RESTART_SKIP RESTART_STATUS
-	if adguard_lan_mode; then
-		agh_log info IPSet_Refresh "state=refresh action=refresh_ipset result=skipped reason=lan_mode"
-		return 0
+	if [ "${TRANSACTION_ACTIVE:-0}" = "1" ] && [ "${IPSET_LOCK_ACTIVE:-0}" = "1" ]; then
+		IPSet_Refresh_After_Recovery "$@"
+	else
+		IPSet_Lock IPSet_Refresh_After_Recovery "$@"
+	fi
+}
+
+# IPSet_Refresh_After_Recovery recovers pending state and completes a non-transactional refresh without releasing the shared lock.
+IPSet_Refresh_After_Recovery() {
+	local CURRENT_FILE DNSMASQ_RESTART_SKIP RESTART_STATUS
+	[ "${TRANSACTION_ACTIVE:-0}" = "1" ] || dnsmasq_ipset_state_recover_pending || return 1
+	if ! adguard_ipset_allowed; then
+		if ! CURRENT_FILE="$(IPSet_Current_File 2>/dev/null)"; then
+			return 1
+		fi
+		[ -n "${CURRENT_FILE}" ] || return 0
+		agh_log info IPSet_Refresh "state=refresh action=disable_managed_ipset result=required reason=topology_disallowed"
+		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
+		if [ "${IPSET_REFRESH_FROM_DNSMASQ:-}" = "1" ]; then
+			ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
+		fi
+		IPSet_Lock IPSet_Disable_Managed_For_Start_Locked configured
+		RESTART_STATUS="$?"
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART="${DNSMASQ_RESTART_SKIP}"
+		return "${RESTART_STATUS}"
 	fi
 	IPSet_Enabled || return 0
 	IPSet_Supported || return 0
@@ -3624,9 +4278,9 @@ IPSet_Setup() {
 	IPSet_Lock IPSet_Setup_Locked
 }
 
-# IPSet_Setup_For_Start prepares IPSet configuration for AdGuardHome startup, disabling managed IPSet when LAN mode or unsupported settings require it.
+# IPSet_Setup_For_Start prepares IPSet configuration before AdGuardHome startup and disables managed IPSet settings when integration is unavailable, disabled, or unsupported.
 IPSet_Setup_For_Start() {
-	if adguard_lan_mode; then
+	if ! adguard_ipset_allowed; then
 		if ! IPSet_Disable_Managed; then
 			agh_log error IPSet_Setup_For_Start "state=starting action=disable_managed_ipset result=failed reason=lan_mode_remove_failed"
 			return 1

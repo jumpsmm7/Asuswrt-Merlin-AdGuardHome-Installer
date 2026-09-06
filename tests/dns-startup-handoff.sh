@@ -16,6 +16,7 @@ CALLS_FILE="${TEST_ROOT}/calls"
 STARTED_FILE="${TEST_ROOT}/started"
 DNSMASQ_CONF_FILE="${TEST_ROOT}/dnsmasq.conf"
 NETSTAT_CALLS_FILE="${TEST_ROOT}/netstat-calls"
+STOPPED_DNSMASQ_EXPECTED="${TEST_ROOT}/dnsmasq-stopped.expected"
 
 # cleanup removes the temporary test workspace and its contents.
 cleanup() {
@@ -63,8 +64,75 @@ sed -n '/^adguardhome_start_signal_abort() {$/,/^}$/p' "${RC_FUNCTION}" | grep -
 	fail 'rc.func does not block repeated signals during startup recovery'
 grep -q 'DNS_HANDOFF_DIR="/tmp/AdGuardHome.dns-handoff"' "${S99_PATH}" ||
 	fail 'service script does not use the private dnsmasq handoff directory'
-grep -q 'dns_handoff_is_active || return 0' "${MANAGER_PATH}" ||
-	fail 'dnsmasq postconf cannot run before AdGuardHome starts'
+grep -q 'adguard_dnsmasq_running || return 0' "${MANAGER_PATH}" ||
+	fail 'dnsmasq postconf does not require a running dnsmasq process'
+grep -q '\[ -f "${CONFIG_FILE}" \] || return 0' "${MANAGER_PATH}" ||
+	fail 'dnsmasq postconf does not require an existing dnsmasq configuration'
+MANAGER_DNSMASQ_FUNCTIONS="${TEST_ROOT}/manager-dnsmasq-functions"
+sed -n '/^dnsmasq_params() {$/,/^}$/p; /^dnsmasq_action_handler() {$/,/^}$/p' "${MANAGER_PATH}" |
+	sed 's|CONFIG="/etc/dnsmasq-${1}.conf"|CONFIG="${TEST_ROOT}/dnsmasq-${1}.conf"|' >"${MANAGER_DNSMASQ_FUNCTIONS}" ||
+	fail 'could not extract manager dnsmasq functions'
+# shellcheck disable=SC1090
+. "${MANAGER_DNSMASQ_FUNCTIONS}"
+agh_log() { :; }
+adguard_lan_mode() { return 0; }
+adguard_dnsmasq_running() { return 1; }
+dns_handoff_is_active() { return 1; }
+dnsmasq_resolv_conf_cleanup() { :; }
+nvram() {
+	case "${1:-}:${2:-}" in
+		get:rc_support) printf '%s\n' 'mtlancfg' ;;
+		get:lan_ifname) printf '%s\n' 'br0' ;;
+		*) printf '%s\n' '' ;;
+	esac
+}
+sdn_bridge_for_index() { printf '%s\n' 'br-test'; }
+interface_ipv4_addr() { printf '%s\n' '192.0.2.1'; }
+interface_ipv6_addr() { printf '%s\n' ''; }
+CONFIG_DNSMASQ_MODE='auto'
+dnsmasq_action_handler || fail 'LAN-mode dnsmasq action was not skipped successfully'
+# adguard_lan_mode indicates that AdGuard Home is not operating in LAN mode.
+adguard_lan_mode() { return 1; }
+stopped_sdn="adguardhome-stopped-$$"
+STOPPED_DNSMASQ_CONFIG="${TEST_ROOT}/dnsmasq-${stopped_sdn}.conf"
+stopped_stage="${STOPPED_DNSMASQ_CONFIG}.adguard.$$"
+printf '%s\n' 'fixture configuration must remain unchanged' 'second fixture line' >"${STOPPED_DNSMASQ_EXPECTED}" ||
+	fail 'could not create expected stopped dnsmasq configuration fixture'
+cp "${STOPPED_DNSMASQ_EXPECTED}" "${STOPPED_DNSMASQ_CONFIG}" ||
+	fail 'could not create stopped dnsmasq configuration fixture'
+# adguard_dnsmasq_running indicates that dnsmasq is not running.
+adguard_dnsmasq_running() { return 1; }
+dnsmasq_params "${stopped_sdn}" || fail 'dnsmasq_params did not skip a stopped dnsmasq service'
+cmp -s "${STOPPED_DNSMASQ_EXPECTED}" "${STOPPED_DNSMASQ_CONFIG}" ||
+	fail 'stopped dnsmasq configuration was changed'
+[ ! -e "${stopped_stage}" ] || fail 'stopped dnsmasq configuration created a stage file'
+rm -f "${STOPPED_DNSMASQ_CONFIG}" || fail 'could not remove stopped dnsmasq configuration fixture'
+
+# adguard_dnsmasq_running reports that dnsmasq is running.
+adguard_dnsmasq_running() { return 0; }
+missing_sdn="adguardhome-missing-$$"
+missing_config="${TEST_ROOT}/dnsmasq-${missing_sdn}.conf"
+missing_stage="${missing_config}.adguard.$$"
+[ ! -e "${missing_config}" ] || fail 'missing-configuration fixture unexpectedly exists'
+# The non-LAN path reaches dnsmasq_params, where a missing configuration must be ignored safely.
+dnsmasq_action_handler "${missing_sdn}" || fail 'non-LAN missing dnsmasq configuration was not handled successfully'
+[ ! -e "${missing_config}" ] || fail 'missing dnsmasq configuration was created'
+[ ! -e "${missing_stage}" ] || fail 'missing dnsmasq stage file was created'
+
+# Reach dnsmasq_params itself so the missing-configuration guard executes.
+adguard_dnsmasq_running() { return 0; }
+dnsmasq_params "${missing_sdn}" || fail 'dnsmasq_params did not skip a missing configuration'
+[ ! -e "${missing_config}" ] || fail 'dnsmasq_params created a missing configuration'
+[ ! -e "${missing_stage}" ] || fail 'dnsmasq_params created a stage file for a missing configuration'
+adguard_dnsmasq_running() { return 1; }
+
+dnsmasq_fallback_called=0
+dnsmasq_params() { dnsmasq_fallback_called=1; }
+# adguard_lan_mode enables LAN mode so the explicit dnsmasq fallback path is exercised.
+adguard_lan_mode() { return 0; }
+CONFIG_DNSMASQ_MODE='enabled'
+dnsmasq_action_handler "${missing_sdn}" || fail 'enabled dnsmasq mode fallback failed'
+[ "${dnsmasq_fallback_called}" -eq 1 ] || fail 'enabled dnsmasq mode did not fall back to dnsmasq_params'
 if grep -q '${20' "${S99_PATH}"; then
 	fail 'service script uses a multi-digit positional parameter unsupported by older BusyBox ash'
 fi

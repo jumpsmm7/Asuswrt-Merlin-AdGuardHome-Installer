@@ -4,13 +4,20 @@
 set -u
 
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
-FUNCTION_FILE="${TMPDIR:-/tmp}/ipset-lan-functions.$$"
-CALLS_FILE="${TMPDIR:-/tmp}/ipset-lan-calls.$$"
-CONF_FILE="${TMPDIR:-/tmp}/ipset-lan-config.$$"
+S99_PATH="${2:-S99AdGuardHome}"
+RC_FUNC_PATH="${3:-rc.func.AdGuardHome}"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/ipset-lan-mode.XXXXXX")" || {
+	printf '%s\n' 'FAIL: could not create exclusive test directory' >&2
+	exit 1
+}
+FUNCTION_FILE="${TEST_ROOT}/functions"
+CALLS_FILE="${TEST_ROOT}/calls"
+CONF_FILE="${TEST_ROOT}/config"
+IPSET_STATE_PATTERN='ADGUARD_IPSET|IPSet_[[:alnum:]_]+|(^|[[:space:];|&()])([^[:space:];|&()]*/)?ipset([[:space:]]|$)'
 
 # cleanup removes temporary test files.
 cleanup() {
-	rm -f "${FUNCTION_FILE}" "${CALLS_FILE}" "${CONF_FILE}"
+	rm -rf "${TEST_ROOT}"
 }
 
 # fail prints a failure message to stderr and exits with status 1.
@@ -22,7 +29,19 @@ fail() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-/bin/sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^load_operation_config() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^IPSet_Migrate() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
+[ -f "${S99_PATH}" ] || fail "S99 service script not found: ${S99_PATH}"
+[ -f "${RC_FUNC_PATH}" ] || fail "rc.func service script not found: ${RC_FUNC_PATH}"
+grep -q '^\[ -z "${SCRIPT_LOC}" \] && \. /jffs/addons/AdGuardHome.d/AdGuardHome.sh$' "${S99_PATH}" ||
+	fail 'S99AdGuardHome no longer delegates lifecycle policy to AdGuardHome.sh'
+if grep -qE "${IPSET_STATE_PATTERN}" "${S99_PATH}"; then
+	fail 'S99AdGuardHome directly manages IPSET enablement instead of delegating to AdGuardHome.sh'
+fi
+if grep -qE "${IPSET_STATE_PATTERN}" "${RC_FUNC_PATH}"; then
+	fail 'rc.func.AdGuardHome directly manages IPSET state'
+fi
+
+/bin/sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^load_operation_config() {$/,/^}$/p; /^adguard_install_mode() {$/,/^}$/p; /^adguard_lan_mode() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^adguard_wan_iptables_state_active() {$/,/^}$/p; /^IPSet_Migrate() {$/,/^}$/p; /^IPSet_Disable_Managed_For_Start_Locked() {$/,/^}$/p; /^IPSet_Enabled() {$/,/^}$/p; /^IPSet_Refresh() {$/,/^}$/p; /^IPSet_Refresh_After_Recovery() {$/,/^}$/p; /^IPSet_Setup_For_Start() {$/,/^}$/p' "${SCRIPT_PATH}" |
+	/bin/sed 's#/usr/sbin/iptables#iptables#g; s#/bin/nvram#nvram#g' >"${FUNCTION_FILE}" || fail "could not read ${SCRIPT_PATH}"
 sed -n '/^DEFAULT_ADGUARD_[A-Z_]*=/p' "${SCRIPT_PATH}" >>"${FUNCTION_FILE}" || fail 'could not extract runtime defaults'
 [ -s "${FUNCTION_FILE}" ] || fail 'LAN IPSET functions were not found'
 
@@ -36,14 +55,40 @@ agh_log() {
 
 # IPSet_Disable_Managed records its invocation and returns the configured disable status.
 IPSet_Disable_Managed() {
-	printf '%s\n' IPSet_Disable_Managed >>"${CALLS_FILE}"
+	printf '%s\n' "IPSet_Disable_Managed${1:+ $1}" >>"${CALLS_FILE}"
 	return "${DISABLE_STATUS:-0}"
+}
+
+# IPSet_Current_File prints the configured current IPSET file path.
+IPSet_Current_File() {
+	printf '%s\n' "${CURRENT_IPSET_FILE:-${IPSET_FILE}}"
 }
 
 # IPSet_Lock records its invocation and executes the supplied command.
 IPSet_Lock() {
-	printf '%s\n' IPSet_Lock >>"${CALLS_FILE}"
+	local lock_status
+	if [ "${IPSET_LOCK_ACTIVE:-0}" = "1" ]; then
+		"$@"
+		return "$?"
+	fi
+	printf '%s\n' "IPSet_Lock skip_dnsmasq_restart=${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" >>"${CALLS_FILE}"
+	IPSET_LOCK_ACTIVE=1
 	"$@"
+	lock_status="$?"
+	IPSET_LOCK_ACTIVE=0
+	return "${lock_status}"
+}
+
+# dnsmasq_ipset_state_recover_pending records direct refresh recovery and returns its configured status.
+dnsmasq_ipset_state_recover_pending() {
+	printf '%s\n' dnsmasq_ipset_state_recover_pending >>"${CALLS_FILE}"
+	return "${RECOVERY_STATUS:-0}"
+}
+
+# dnsmasq_ipset_state_recover_pending records direct refresh recovery and returns its configured status.
+dnsmasq_ipset_state_recover_pending() {
+	printf '%s\n' dnsmasq_ipset_state_recover_pending >>"${CALLS_FILE}"
+	return "${RECOVERY_STATUS:-0}"
 }
 
 # IPSet_Setup_Locked records a locked IPSET setup call and succeeds.
@@ -64,10 +109,43 @@ lower_script() {
 	return 0
 }
 
-# pidof prints a fixed process ID and succeeds.
+# IPSet_Start_While_Locked records a service restoration call and succeeds.
+IPSet_Start_While_Locked() {
+	printf '%s\n' IPSet_Start_While_Locked >>"${CALLS_FILE}"
+	return 0
+}
+
+# IPSet_Start_Restore records restoration after failed cleanup and succeeds.
+IPSet_Start_Restore() {
+	printf '%s\n' IPSet_Start_Restore >>"${CALLS_FILE}"
+	return 0
+}
+
+# pidof prints a fixed process ID when the fixture service is running.
 pidof() {
+	[ "${ADGUARD_RUNNING:-1}" = '1' ] || return 1
 	printf '%s\n' 1234
 	return 0
+}
+
+# iptables outputs the configured WAN NAT rule and records the queried arguments.
+iptables() {
+	printf '%s\n' "$*" >"${TEST_ROOT}/iptables-query"
+	printf '%s\n' "${WAN_NAT_RULE:-}"
+	[ "${IPTABLES_FAIL:-0}" -eq 0 ] || return 1
+}
+
+# assert_iptables_query verifies that the expected WAN NAT query was used.
+assert_iptables_query() {
+	[ "$(cat "${TEST_ROOT}/iptables-query")" = '-t nat -S POSTROUTING' ] ||
+		fail 'unexpected iptables query'
+}
+
+# nvram returns the configured WAN interface name for the requested NVRAM key.
+nvram() {
+	case "$1:$2" in
+		get:wan0_ifname) printf '%s\n' 'eth0' ;;
+	esac
 }
 
 IPSET_FILE=/tmp/ipset.conf
@@ -87,15 +165,63 @@ if IPSet_Enabled; then
 fi
 [ ! -s "${CALLS_FILE}" ] || fail 'IPSet_Enabled caused side effects in LAN mode'
 
-IPSet_Refresh || fail 'LAN refresh did not return success'
+IPSET_REFRESH_FROM_DNSMASQ=1
+ADGUARDHOME_SKIP_DNSMASQ_RESTART='original'
+IPSet_Refresh || fail 'LAN refresh did not disable stale managed mappings'
+[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART}" = 'original' ] || fail 'LAN refresh did not restore the dnsmasq restart guard'
 ACTUAL="$(cat "${CALLS_FILE}")"
 case "${ACTUAL}" in
-	*IPSet_Lock* | *IPSet_Supported* | *lower_script*) fail "LAN refresh touched managed path: ${ACTUAL}" ;;
+	*'IPSet_Lock skip_dnsmasq_restart=original'*'lower_script stop'*IPSet_Disable_Managed*IPSet_Start_While_Locked*) : ;;
+	*) fail "LAN refresh did not use the locked managed-disable/restart path: ${ACTUAL}" ;;
 esac
 case "${ACTUAL}" in
-	*'reason=lan_mode'*) : ;;
-	*) fail 'LAN refresh did not log skip reason' ;;
+	*'reason=topology_disallowed'*) : ;;
+	*) fail 'LAN refresh did not log the topology transition' ;;
 esac
+
+CURRENT_IPSET_FILE=/custom/ipset.conf
+: >"${CALLS_FILE}"
+IPSet_Refresh || fail 'LAN refresh did not disable a custom IPSET file reference'
+ACTUAL="$(cat "${CALLS_FILE}")"
+case "${ACTUAL}" in
+	*'IPSet_Lock skip_dnsmasq_restart=original'*'IPSet_Disable_Managed configured'*) : ;;
+	*) fail "LAN refresh did not request configured IPSET cleanup: ${ACTUAL}" ;;
+esac
+
+ADGUARD_RUNNING=0
+IPSET_REFRESH_FROM_DNSMASQ=0
+unset IPSET_START_STOPPED
+: >"${CALLS_FILE}"
+IPSet_Refresh 2>"${TEST_ROOT}/stopped-refresh-error" || fail 'firewall refresh failed with a configured IPSET file and stopped service'
+[ ! -s "${TEST_ROOT}/stopped-refresh-error" ] || fail 'stopped-service firewall refresh reported a numeric-test error'
+[ "${IPSET_START_STOPPED}" -eq 0 ] || fail 'stopped-service firewall refresh left service restoration armed'
+grep -q '^dnsmasq_ipset_state_recover_pending$' "${CALLS_FILE}" || fail 'direct firewall refresh did not recover pending dnsmasq/IPSET state first'
+[ "$(grep -c '^IPSet_Lock ' "${CALLS_FILE}")" -eq 1 ] || fail 'direct firewall recovery and refresh did not share one lock scope'
+! grep -q '^lower_script stop$' "${CALLS_FILE}" || fail 'stopped-service firewall refresh attempted to stop AdGuardHome'
+
+RECOVERY_STATUS=1
+: >"${CALLS_FILE}"
+if IPSet_Refresh; then
+	fail 'direct firewall refresh ignored pending dnsmasq/IPSET recovery failure'
+fi
+[ "$(cat "${CALLS_FILE}")" = 'IPSet_Lock skip_dnsmasq_restart=original
+dnsmasq_ipset_state_recover_pending' ] || fail 'recovery failure allowed subsequent IPSET refresh activity'
+RECOVERY_STATUS=0
+ADGUARD_RUNNING=1
+IPSET_REFRESH_FROM_DNSMASQ=1
+
+DISABLE_STATUS=1
+: >"${CALLS_FILE}"
+if IPSet_Refresh; then
+	fail 'LAN refresh ignored a failed custom IPSET cleanup'
+fi
+ACTUAL="$(cat "${CALLS_FILE}")"
+case "${ACTUAL}" in
+	*'IPSet_Disable_Managed configured'*IPSet_Start_Restore*) : ;;
+	*) fail "LAN refresh did not propagate custom IPSET cleanup failure: ${ACTUAL}" ;;
+esac
+CURRENT_IPSET_FILE=
+DISABLE_STATUS=0
 
 : >"${CALLS_FILE}"
 IPSet_Migrate || fail 'LAN migration did not return success'
@@ -125,6 +251,25 @@ case "${ACTUAL}" in
 	*IPSet_Lock* | *IPSet_Supported*) fail "LAN startup setup touched lock/support path: ${ACTUAL}" ;;
 esac
 
+WAN_NAT_RULE='-A POSTROUTING -o eth0 -j MASQUERADE'
+DISABLE_STATUS=0
+: >"${CALLS_FILE}"
+IPSet_Enabled || fail 'IPSet_Enabled returned false for LAN mode with qualifying WAN NAT state'
+assert_iptables_query
+IPSet_Refresh || fail 'LAN double-NAT refresh returned failure with supported IPSET'
+ACTUAL="$(cat "${CALLS_FILE}")"
+case "${ACTUAL}" in
+	*IPSet_Lock*IPSet_Supported*IPSet_Setup_Locked*) : ;;
+	*) fail "LAN double-NAT refresh did not use the supported lock path: ${ACTUAL}" ;;
+esac
+IPTABLES_FAIL=1
+if IPSet_Enabled; then
+	fail 'IPSet_Enabled allowed LAN IPSET when iptables was unavailable'
+fi
+assert_iptables_query
+IPTABLES_FAIL=0
+WAN_NAT_RULE=''
+
 cat >"${CONF_FILE}" <<'EOF_CONF' || fail 'could not write WAN config'
 ADGUARD_INSTALL_MODE="wan"
 ADGUARD_IPSET="YES"
@@ -135,8 +280,8 @@ IPSet_Enabled || fail 'IPSet_Enabled returned false in WAN mode with IPSET enabl
 IPSet_Refresh || fail 'WAN refresh returned failure with supported IPSET'
 ACTUAL="$(cat "${CALLS_FILE}")"
 case "${ACTUAL}" in
-	*IPSet_Supported*IPSet_Lock*) : ;;
+	*IPSet_Lock*IPSet_Supported*IPSet_Setup_Locked*) : ;;
 	*) fail "WAN refresh did not preserve supported lock path: ${ACTUAL}" ;;
 esac
 
-printf '%s\n' 'PASS: LAN mode skips IPSET locks, rewrites, and restarts while WAN mode remains unchanged'
+printf '%s\n' 'PASS: LAN mode gates IPSET on qualifying WAN NAT while WAN mode remains enabled'
