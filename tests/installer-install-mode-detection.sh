@@ -227,6 +227,14 @@ run_install_failure() (
 	PREVIOUS_ADGUARD_INSTALL_MODE="wan"
 	MODE_MIGRATION_YAML_FILE_BACKUP="${BASE_DIR}/mode-migration-yaml"
 	SERVICE_REFRESH_ONLY=0
+	INITIAL_ADGUARD_RUNNING=1
+	case "${FAILURE_CASE}" in
+		service-readiness-running) SERVICE_REFRESH_ONLY=1 ;;
+		service-readiness-stopped)
+			SERVICE_REFRESH_ONLY=1
+			INITIAL_ADGUARD_RUNNING=0
+			;;
+	esac
 	RURL="https://example.invalid"
 	URL_ARCH="https://example.invalid"
 	ERROR='Error:'
@@ -268,8 +276,8 @@ run_install_failure() (
 	sha256_is_valid() { return 1; }
 	# md5_is_valid determines whether an MD5 checksum is valid and always reports failure.
 	md5_is_valid() { return 1; }
-	# agh_process_count prints the process count as 1.
-	agh_process_count() { printf '%s\n' '1'; }
+	# agh_process_count prints the fixture's initial AdGuardHome process count.
+	agh_process_count() { printf '%s\n' "${INITIAL_ADGUARD_RUNNING}"; }
 	# install_adguard_archive creates an executable placeholder AdGuard Home archive script at `${AGH_FILE}`.
 	install_adguard_archive() {
 		cat >"${AGH_FILE}" <<'EOF'
@@ -368,7 +376,10 @@ EOF
 	# agh_complete_startup injects readiness failure after recording the check.
 	agh_complete_startup() {
 		printf '%s\n' 'readiness' >>"${CALLS_FILE}"
-		[ "${FAILURE_CASE}" != "readiness" ]
+		case "${FAILURE_CASE}" in
+			readiness | service-readiness-running | service-readiness-stopped) return 1 ;;
+		esac
+		return 0
 	}
 	# agh_stop records removal of the newly started process before service restoration.
 	agh_stop() { printf '%s\n' 'service:stopped' >>"${CALLS_FILE}"; }
@@ -396,21 +407,33 @@ EOF
 	grep -qx 'transaction:begin' "${CALLS_FILE}" || fail "${FAILURE_CASE}: transaction did not begin"
 	grep -qx 'transaction:rollback' "${CALLS_FILE}" || fail "${FAILURE_CASE}: aggregate rollback was not attempted"
 	grep -qx 'mode:rollback' "${CALLS_FILE}" || fail "${FAILURE_CASE}: mode rollback was not attempted"
-	grep -qx 'service:restarted' "${CALLS_FILE}" || fail "${FAILURE_CASE}: service recovery was not attempted"
-	grep -qx 'monitor:restarted' "${CALLS_FILE}" || fail "${FAILURE_CASE}: monitor recovery was not attempted"
-	grep -q '^rollback-result:install-abort rollback complete ' "${CALLS_FILE}" || fail "${FAILURE_CASE}: successful rollback result was not recorded"
+	if [ "${INITIAL_ADGUARD_RUNNING}" -eq 1 ]; then
+		grep -qx 'service:restarted' "${CALLS_FILE}" || fail "${FAILURE_CASE}: service recovery was not attempted"
+		grep -qx 'monitor:restarted' "${CALLS_FILE}" || fail "${FAILURE_CASE}: monitor recovery was not attempted"
+	else
+		! grep -q '^service:restarted$' "${CALLS_FILE}" || fail "${FAILURE_CASE}: initially stopped service was started during recovery"
+		! grep -q '^monitor:restarted$' "${CALLS_FILE}" || fail "${FAILURE_CASE}: initially stopped monitor was started during recovery"
+	fi
+	if [ "${INITIAL_ADGUARD_RUNNING}" -eq 1 ]; then
+		grep -q '^rollback-result:install-abort rollback complete ' "${CALLS_FILE}" || fail "${FAILURE_CASE}: successful rollback result was not recorded"
+	fi
 	grep -qx 'end-status:1' "${CALLS_FILE}" || fail "${FAILURE_CASE}: failure completion status was not reported"
 	rollback_line="$(grep -n '^transaction:rollback$' "${CALLS_FILE}" | head -n 1 | cut -d: -f1)"
 	mode_line="$(grep -n '^mode:rollback$' "${CALLS_FILE}" | head -n 1 | cut -d: -f1)"
-	restart_line="$(grep -n '^service:restarted$' "${CALLS_FILE}" | head -n 1 | cut -d: -f1)"
 	end_line="$(grep -n '^end-status:1$' "${CALLS_FILE}" | head -n 1 | cut -d: -f1)"
-	[ "${rollback_line}" -lt "${mode_line}" ] && [ "${mode_line}" -lt "${restart_line}" ] && [ "${restart_line}" -lt "${end_line}" ] ||
-		fail "${FAILURE_CASE}: rollback and service recovery calls occurred out of order"
+	if [ "${INITIAL_ADGUARD_RUNNING}" -eq 1 ]; then
+		restart_line="$(grep -n '^service:restarted$' "${CALLS_FILE}" | head -n 1 | cut -d: -f1)"
+		[ "${rollback_line}" -lt "${mode_line}" ] && [ "${mode_line}" -lt "${restart_line}" ] && [ "${restart_line}" -lt "${end_line}" ] ||
+			fail "${FAILURE_CASE}: rollback and service recovery calls occurred out of order"
+	else
+		[ "${rollback_line}" -lt "${mode_line}" ] && [ "${mode_line}" -lt "${end_line}" ] ||
+			fail "${FAILURE_CASE}: rollback calls occurred out of order"
+	fi
 	case "${FAILURE_CASE}" in
 		finalization)
 			grep -qx 'dns:finalize' "${CALLS_FILE}" || fail 'finalization: injected finalizer was not reached'
 			;;
-		readiness)
+		readiness | service-readiness-running | service-readiness-stopped)
 			grep -qx 'readiness' "${CALLS_FILE}" || fail 'readiness: injected readiness check was not reached'
 			if grep -q '^dns:finalize$' "${CALLS_FILE}"; then
 				fail 'readiness: DNS finalization ran after readiness failed'
@@ -430,14 +453,16 @@ EOF
 			;;
 	esac
 	case "${FAILURE_CASE}" in
-		finalization | readiness)
-			stop_line="$(grep -n '^service:stopped$' "${CALLS_FILE}" | head -n 1 | cut -d: -f1)"
-			[ -n "${stop_line}" ] && [ "${stop_line}" -lt "${restart_line}" ] ||
-				fail "${FAILURE_CASE}: replacement service was not stopped before previous service recovery"
+		finalization | readiness | service-readiness-running | service-readiness-stopped)
+			if [ "${INITIAL_ADGUARD_RUNNING}" -eq 1 ]; then
+				stop_line="$(grep -n '^service:stopped$' "${CALLS_FILE}" | head -n 1 | cut -d: -f1)"
+				[ -n "${stop_line}" ] && [ "${stop_line}" -lt "${restart_line}" ] ||
+					fail "${FAILURE_CASE}: replacement service was not stopped before previous service recovery"
+			fi
 			;;
 	esac
 	case "${FAILURE_CASE}" in
-		firewall | dnsmasq | init-start | services-stop | finalization | timezone | setup | readiness)
+		firewall | dnsmasq | init-start | services-stop | finalization | timezone | setup | readiness | service-readiness-running | service-readiness-stopped)
 			[ -z "${MODE_MIGRATION_YAML_FILE_BACKUP}" ] || fail "${FAILURE_CASE}: successful rollback retained migration ownership"
 			;;
 		rollback)
@@ -450,7 +475,7 @@ for legacy_cleanup_failure in firewall dnsmasq init-start services-stop; do
 	run_install_failure "${legacy_cleanup_failure}" ||
 		fail "${legacy_cleanup_failure}: legacy cleanup recovery scenario failed"
 done
-for recovery_failure in finalization readiness timezone setup rollback; do
+for recovery_failure in finalization readiness service-readiness-running service-readiness-stopped timezone setup rollback; do
 	run_install_failure "${recovery_failure}" ||
 		fail "${recovery_failure}: install recovery scenario failed"
 done

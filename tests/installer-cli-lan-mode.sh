@@ -60,7 +60,7 @@ awk '
 	guarded && /if ! cleanup_legacy_firewall; then/ { cleanup = 1; exit }
 	END { exit(guarded && cleanup ? 0 : 1) }
 ' "${SCRIPT_PATH}" || fail 'LAN-mode cleanup failure handling must run only when legacy firewall state exists'
-grep -q 'cleanup_legacy_firewall' "${SCRIPT_PATH}" ||
+awk '/^[[:space:]]*(if[[:space:]]+![[:space:]]+)?cleanup_legacy_firewall([[:space:]]*;[[:space:]]*then)?[[:space:]]*$/ { found = 1 } END { exit(found ? 0 : 1) }' "${SCRIPT_PATH}" ||
 	fail 'uninstall/WAN/LAN transition cleanup must still remove legacy firewall integration'
 grep -q 'cli_migrate_runtime_default ADGUARD_NETCHECK_MODE legacy "${netcheck_target}"' "${SCRIPT_PATH}" ||
 	fail 'runtime migration must use the install-mode netcheck target'

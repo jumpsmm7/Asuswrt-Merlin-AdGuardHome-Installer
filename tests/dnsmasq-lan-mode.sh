@@ -816,6 +816,31 @@ IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'private interrupted snap
 [ -d "${INTERRUPTED_SNAPSHOT_STAGE}" ] || fail 'recovery treated private snapshot stage as a published snapshot'
 /bin/rm -rf "${INTERRUPTED_SNAPSHOT_STAGE}" || fail 'could not clear interrupted snapshot stage'
 
+# The next transaction removes only its exact orphaned private stage while the
+# shared lock is held, and rejects unsafe objects at that path.
+reset_case
+EXPECTED_SNAPSHOT_STAGE="${TEST_ROOT}/.AdGuardHome.dnsmasq-stage.$$"
+mkdir -m 700 "${EXPECTED_SNAPSHOT_STAGE}" || fail 'could not create expected orphaned snapshot stage'
+IPSet_Lock dnsmasq_ipset_state_cleanup_stage || fail 'validated orphaned snapshot stage cleanup failed'
+[ ! -e "${EXPECTED_SNAPSHOT_STAGE}" ] || fail 'validated orphaned snapshot stage was retained'
+NEXT_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.after-orphan"
+IPSet_Lock dnsmasq_ipset_state_snapshot "${NEXT_SNAPSHOT}" || fail 'next snapshot transaction failed after orphan cleanup'
+rm -rf "${NEXT_SNAPSHOT}" || fail 'could not clear post-orphan snapshot'
+UNSAFE_STAGE_TARGET="${TEST_ROOT}/unsafe-stage-target"
+mkdir -m 700 "${UNSAFE_STAGE_TARGET}" || fail 'could not create unsafe stage target'
+ln -s "${UNSAFE_STAGE_TARGET}" "${EXPECTED_SNAPSHOT_STAGE}" || fail 'could not create unsafe stage symlink'
+if IPSet_Lock dnsmasq_ipset_state_cleanup_stage; then
+	fail 'snapshot-stage cleanup accepted a symlink'
+fi
+[ -L "${EXPECTED_SNAPSHOT_STAGE}" ] && [ -d "${UNSAFE_STAGE_TARGET}" ] || fail 'snapshot-stage cleanup deleted an unsafe symlink or its target'
+rm -f "${EXPECTED_SNAPSHOT_STAGE}" || fail 'could not clear unsafe stage symlink'
+: >"${EXPECTED_SNAPSHOT_STAGE}" || fail 'could not create unexpected stage object'
+if IPSet_Lock dnsmasq_ipset_state_cleanup_stage; then
+	fail 'snapshot-stage cleanup accepted a non-directory object'
+fi
+[ -f "${EXPECTED_SNAPSHOT_STAGE}" ] || fail 'snapshot-stage cleanup deleted a non-directory object'
+rm -f "${EXPECTED_SNAPSHOT_STAGE}" || fail 'could not clear unexpected stage object'
+
 # A snapshot published before configuration association is explicitly
 # cleanup-only, so recovery removes it without rolling back newer state.
 reset_case
