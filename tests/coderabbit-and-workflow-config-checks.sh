@@ -225,8 +225,11 @@ local_quality_timeout_minutes="$(awk '
 	in_job && /^    timeout-minutes: [0-9]+$/ { print $2; exit }
 ' "${REVIEW_WORKFLOW}")"
 service_lifecycle_timeout_seconds="$(sed -n 's/^SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS="${SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS-\([0-9][0-9]*\)}"$/\1/p' "${LOCAL_QUALITY_RUNNER}")"
-case "${local_quality_timeout_minutes}:${service_lifecycle_timeout_seconds}" in
-	*[!0-9:]* | :* | *:) fail "${REVIEW_WORKFLOW}: local quality and lifecycle timeouts must be numeric" ;;
+case "${local_quality_timeout_minutes}" in
+	'' | *[!0-9]*) fail "${REVIEW_WORKFLOW}: local-quality timeout must be numeric" ;;
+esac
+case "${service_lifecycle_timeout_seconds}" in
+	'' | *[!0-9]*) fail "${LOCAL_QUALITY_RUNNER}: service lifecycle timeout must have a numeric unset-only default" ;;
 esac
 [ "$((service_lifecycle_timeout_seconds + 300))" -lt "$((local_quality_timeout_minutes * 60))" ] ||
 	fail "${REVIEW_WORKFLOW}: local-quality timeout must exceed the lifecycle limit by more than five minutes"
