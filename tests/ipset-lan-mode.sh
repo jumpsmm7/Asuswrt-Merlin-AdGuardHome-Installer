@@ -70,6 +70,12 @@ IPSet_Lock() {
 	"$@"
 }
 
+# dnsmasq_ipset_state_recover_pending records direct refresh recovery and returns its configured status.
+dnsmasq_ipset_state_recover_pending() {
+	printf '%s\n' dnsmasq_ipset_state_recover_pending >>"${CALLS_FILE}"
+	return "${RECOVERY_STATUS:-0}"
+}
+
 # IPSet_Setup_Locked records a locked IPSET setup call and succeeds.
 IPSet_Setup_Locked() {
 	printf '%s\n' IPSet_Setup_Locked >>"${CALLS_FILE}"
@@ -174,7 +180,17 @@ unset IPSET_START_STOPPED
 IPSet_Refresh 2>"${TEST_ROOT}/stopped-refresh-error" || fail 'firewall refresh failed with a configured IPSET file and stopped service'
 [ ! -s "${TEST_ROOT}/stopped-refresh-error" ] || fail 'stopped-service firewall refresh reported a numeric-test error'
 [ "${IPSET_START_STOPPED}" -eq 0 ] || fail 'stopped-service firewall refresh left service restoration armed'
+grep -q '^dnsmasq_ipset_state_recover_pending$' "${CALLS_FILE}" || fail 'direct firewall refresh did not recover pending dnsmasq/IPSET state first'
 ! grep -q '^lower_script stop$' "${CALLS_FILE}" || fail 'stopped-service firewall refresh attempted to stop AdGuardHome'
+
+RECOVERY_STATUS=1
+: >"${CALLS_FILE}"
+if IPSet_Refresh; then
+	fail 'direct firewall refresh ignored pending dnsmasq/IPSET recovery failure'
+fi
+[ "$(cat "${CALLS_FILE}")" = 'IPSet_Lock skip_dnsmasq_restart=original
+dnsmasq_ipset_state_recover_pending' ] || fail 'recovery failure allowed subsequent IPSET refresh activity'
+RECOVERY_STATUS=0
 ADGUARD_RUNNING=1
 IPSET_REFRESH_FROM_DNSMASQ=1
 

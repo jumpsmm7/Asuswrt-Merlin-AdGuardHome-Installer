@@ -70,8 +70,15 @@ IPSet_Disable_Managed() {
 
 # IPSet_Lock records a lock request for the specified IPSET operation.
 IPSet_Lock() {
+	if [ "$1" = "dnsmasq_ipset_state_recover_pending" ]; then
+		"$@"
+		return "$?"
+	fi
 	printf '%s\n' "lock $1" >>"${CALLS_FILE}"
 }
+
+# dnsmasq_ipset_state_recover_pending provides successful pending-state recovery for version-gate cases.
+dnsmasq_ipset_state_recover_pending() { return 0; }
 
 logger() {
 	:
