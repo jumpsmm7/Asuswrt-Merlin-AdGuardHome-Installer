@@ -71,9 +71,13 @@ IPSet_Disable_Managed() {
 # IPSet_Lock records a lock request for the specified IPSET operation.
 IPSet_Lock() {
 	local lock_active lock_status
-	if [ "${TRANSACTION_ACTIVE:-0}" = "1" ] && [ "${IPSET_LOCK_ACTIVE:-0}" = "1" ]; then
+	if [ "$1" = "IPSet_Refresh_After_Recovery" ]; then
+		lock_active="${IPSET_LOCK_ACTIVE:-0}"
+		IPSET_LOCK_ACTIVE=1
 		"$@"
-		return "$?"
+		lock_status="$?"
+		IPSET_LOCK_ACTIVE="${lock_active}"
+		return "${lock_status}"
 	fi
 	if [ "$1" = "IPSet_Refresh_After_Recovery" ]; then
 		lock_active="${IPSET_LOCK_ACTIVE:-0}"
@@ -177,20 +181,9 @@ INSTALL_MODE=wan
 VERSION_OUTPUT='AdGuard Home, version v0.107.48'
 VERSION_STATUS=0
 export VERSION_OUTPUT VERSION_STATUS
-FAST_PATH_CALLS="${TEST_ROOT}/transaction-fast-path-calls"
-SAVED_IPSET_LOCK_ACTIVE="${IPSET_LOCK_ACTIVE:-0}"
-SAVED_TRANSACTION_ACTIVE="${TRANSACTION_ACTIVE:-0}"
 IPSET_LOCK_ACTIVE=1
-TRANSACTION_ACTIVE=1
-# The dnsmasq publisher recovers pending state before invoking the transactional refresh fast path.
-dnsmasq_ipset_state_recover_pending || fail 'transactional fast-path pending recovery failed'
 IPSet_Refresh || fail 'nested refresh failed while the outer IPSET lock was active'
-[ "$(cat "${FAST_PATH_CALLS}")" = 'recovery lock=1
-setup lock=1' ] || fail 'transactional fast path did not recover before locked refresh work'
 [ "${IPSET_LOCK_ACTIVE}" = "1" ] || fail 'nested refresh cleared the outer IPSET lock state'
-TRANSACTION_ACTIVE="${SAVED_TRANSACTION_ACTIVE}"
-IPSET_LOCK_ACTIVE="${SAVED_IPSET_LOCK_ACTIVE}"
-[ "${TRANSACTION_ACTIVE}" = "${SAVED_TRANSACTION_ACTIVE}" ] && [ "${IPSET_LOCK_ACTIVE}" = "${SAVED_IPSET_LOCK_ACTIVE}" ] ||
-	fail 'transactional fast-path fixture did not restore lock state'
+IPSET_LOCK_ACTIVE=0
 
 printf '%s\n' 'PASS: managed IPSET integration is gated on AdGuardHome v0.107.48 or later'

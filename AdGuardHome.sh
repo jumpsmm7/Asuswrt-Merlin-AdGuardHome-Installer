@@ -1004,16 +1004,13 @@ dnsmasq_ipset_state_cleanup_stage() {
 
 # dnsmasq_ipset_state_cleanup_stages removes every validated orphaned private snapshot stage while the transaction lock is held.
 dnsmasq_ipset_state_cleanup_stages() {
-	local SNAPSHOT_NAME SNAPSHOT_STAGE SNAPSHOT_SUFFIX
+	local SNAPSHOT_NAME SNAPSHOT_STAGE
 	for SNAPSHOT_STAGE in "${WORK_DIR}"/.AdGuardHome.dnsmasq-stage.*; do
 		[ -e "${SNAPSHOT_STAGE}" ] || [ -L "${SNAPSHOT_STAGE}" ] || continue
 		SNAPSHOT_NAME="${SNAPSHOT_STAGE##*/}"
 		case "${SNAPSHOT_NAME}" in
-			.AdGuardHome.dnsmasq-stage.*) SNAPSHOT_SUFFIX="${SNAPSHOT_NAME#.AdGuardHome.dnsmasq-stage.}" ;;
+			.AdGuardHome.dnsmasq-stage.?*) ;;
 			*) return 1 ;;
-		esac
-		case "${SNAPSHOT_SUFFIX}" in
-			"" | *[!0-9]*) return 1 ;;
 		esac
 		dnsmasq_ipset_state_cleanup_stage_path "${SNAPSHOT_STAGE}" || return 1
 	done
