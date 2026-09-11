@@ -4145,7 +4145,7 @@ IPSet_Refresh_After_Recovery() {
 		if [ "${IPSET_REFRESH_FROM_DNSMASQ:-}" = "1" ]; then
 			ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
 		fi
-		IPSet_Lock IPSet_Disable_Managed_For_Start_Locked configured
+		IPSet_Disable_Managed_For_Start_Locked configured
 		RESTART_STATUS="$?"
 		ADGUARDHOME_SKIP_DNSMASQ_RESTART="${DNSMASQ_RESTART_SKIP}"
 		return "${RESTART_STATUS}"
@@ -4154,7 +4154,7 @@ IPSet_Refresh_After_Recovery() {
 	IPSet_Supported || return 0
 	IPSET_REFRESH_CHANGED=""
 	IPSET_REFRESH_CONFIG="${1:-}"
-	IPSet_Lock IPSet_Setup_Locked || return 1
+	IPSet_Setup_Locked || return 1
 	if [ "${IPSET_REFRESH_CHANGED}" = "1" ] && [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
 		agh_log info IPSet_Refresh "state=refresh action=restart_adguardhome reason=ipset_refresh result=restarting"
 		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
