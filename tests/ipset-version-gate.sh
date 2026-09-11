@@ -68,9 +68,17 @@ IPSet_Disable_Managed() {
 	return "${DISABLE_STATUS:-0}"
 }
 
+# IPSet_Disable_Managed_For_Start_Locked records locked topology cleanup and delegates the fixture removal.
+IPSet_Disable_Managed_For_Start_Locked() {
+	printf '%s\n' IPSet_Disable_Managed_For_Start_Locked >>"${CALLS_FILE}"
+	IPSet_Disable_Managed "$@"
+}
+
 # IPSet_Lock records a lock request for the specified IPSET operation.
 IPSet_Lock() {
 	local lock_active lock_status
+	LOCK_CALLS="${LOCK_CALLS:-0}"
+	LOCK_CALLS="$((LOCK_CALLS + 1))"
 	if [ "${TRANSACTION_ACTIVE:-0}" = "1" ] && [ "${IPSET_LOCK_ACTIVE:-0}" = "1" ]; then
 		"$@"
 		return "$?"
@@ -141,12 +149,9 @@ PROCS=AdGuardHome
 run_case 'AdGuard Home, version v0.107.12' 0 ''
 run_case 'AdGuard Home, version v0.107.13' 0 ''
 run_case 'AdGuard Home, version v0.107.47' 0 ''
-run_case 'AdGuard Home, version v0.107.48' 0 'lock IPSet_Setup_Locked
-lock IPSet_Setup_Locked'
-run_case 'AdGuard Home, version v0.107.76' 0 'lock IPSet_Setup_Locked
-lock IPSet_Setup_Locked'
-run_case 'AdGuard Home, version v0.108.0-b.5' 0 'lock IPSet_Setup_Locked
-lock IPSet_Setup_Locked'
+run_case 'AdGuard Home, version v0.107.48' 0 'lock IPSet_Setup_Locked'
+run_case 'AdGuard Home, version v0.107.76' 0 'lock IPSet_Setup_Locked'
+run_case 'AdGuard Home, version v0.108.0-b.5' 0 'lock IPSet_Setup_Locked'
 run_case 'unknown version' 0 ''
 run_case 'AdGuard Home unavailable' 1 ''
 
@@ -162,7 +167,8 @@ IPSET_CONFIG=YES
 CONFIG_IPSET="${IPSET_CONFIG}"
 INSTALL_MODE=lan
 : >"${IPSET_FILE}" || fail 'could not create managed IPSET fixture'
-run_case 'AdGuard Home, version v0.107.48' 0 'lock IPSet_Disable_Managed_For_Start_Locked'
+run_case 'AdGuard Home, version v0.107.48' 0 'IPSet_Disable_Managed_For_Start_Locked
+IPSet_Disable_Managed'
 : >"${IPSET_FILE}" || fail 'could not recreate managed IPSET fixture for startup'
 run_start_case 'AdGuard Home, version v0.107.48' 0 'IPSet_Disable_Managed'
 [ ! -e "${IPSET_FILE}" ] || fail 'rejected LAN setup retained managed IPSET state'
@@ -177,6 +183,7 @@ VERSION_OUTPUT='AdGuard Home, version v0.107.48'
 VERSION_STATUS=0
 export VERSION_OUTPUT VERSION_STATUS
 FAST_PATH_CALLS="${TEST_ROOT}/transaction-fast-path-calls"
+LOCK_CALLS=0
 SAVED_IPSET_LOCK_ACTIVE="${IPSET_LOCK_ACTIVE:-0}"
 SAVED_TRANSACTION_ACTIVE="${TRANSACTION_ACTIVE:-0}"
 IPSET_LOCK_ACTIVE=1
@@ -187,6 +194,7 @@ IPSet_Refresh || fail 'nested refresh failed while the outer IPSET lock was acti
 [ "$(cat "${FAST_PATH_CALLS}")" = 'recovery lock=1
 setup lock=1' ] || fail 'transactional fast path did not recover before locked refresh work'
 [ "${IPSET_LOCK_ACTIVE}" = "1" ] || fail 'nested refresh cleared the outer IPSET lock state'
+[ "${LOCK_CALLS}" -eq 0 ] || fail 'transactional fast path acquired a second IPSET lock'
 TRANSACTION_ACTIVE="${SAVED_TRANSACTION_ACTIVE}"
 IPSET_LOCK_ACTIVE="${SAVED_IPSET_LOCK_ACTIVE}"
 [ "${TRANSACTION_ACTIVE}" = "${SAVED_TRANSACTION_ACTIVE}" ] && [ "${IPSET_LOCK_ACTIVE}" = "${SAVED_IPSET_LOCK_ACTIVE}" ] ||

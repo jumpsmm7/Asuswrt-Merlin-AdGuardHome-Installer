@@ -66,16 +66,20 @@ IPSet_Current_File() {
 
 # IPSet_Lock records its invocation and executes the supplied command.
 IPSet_Lock() {
-	local lock_status
+	local lock_command lock_status
 	if [ "${IPSET_LOCK_ACTIVE:-0}" = "1" ]; then
 		"$@"
 		return "$?"
 	fi
+	lock_command="$1"
 	printf '%s\n' "IPSet_Lock skip_dnsmasq_restart=${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" >>"${CALLS_FILE}"
 	IPSET_LOCK_ACTIVE=1
 	"$@"
 	lock_status="$?"
 	IPSET_LOCK_ACTIVE=0
+	if [ "${MODEL_PENDING_AFTER_RECOVERY_UNLOCK:-0}" = "1" ] && [ "${lock_command}" = "dnsmasq_ipset_state_recover_pending" ]; then
+		: >"${PENDING_AFTER_RECOVERY_FILE}" || return 1
+	fi
 	return "${lock_status}"
 }
 
@@ -192,6 +196,17 @@ IPSet_Refresh 2>"${TEST_ROOT}/stopped-refresh-error" || fail 'firewall refresh f
 grep -q '^dnsmasq_ipset_state_recover_pending$' "${CALLS_FILE}" || fail 'direct firewall refresh did not recover pending dnsmasq/IPSET state first'
 [ "$(grep -c '^IPSet_Lock ' "${CALLS_FILE}")" -eq 1 ] || fail 'direct firewall recovery and refresh did not share one lock scope'
 ! grep -q '^lower_script stop$' "${CALLS_FILE}" || fail 'stopped-service firewall refresh attempted to stop AdGuardHome'
+
+# A pending snapshot cannot appear between recovery and refresh because both
+# operations remain inside the same outer lock invocation.
+PENDING_AFTER_RECOVERY_FILE="${TEST_ROOT}/pending-after-recovery-unlock"
+MODEL_PENDING_AFTER_RECOVERY_UNLOCK=1
+rm -f "${PENDING_AFTER_RECOVERY_FILE}"
+: >"${CALLS_FILE}"
+IPSet_Refresh || fail 'race-model refresh failed'
+[ ! -e "${PENDING_AFTER_RECOVERY_FILE}" ] || fail 'refresh released the IPSET lock between recovery and publication'
+[ "$(grep -c '^IPSet_Lock ' "${CALLS_FILE}")" -eq 1 ] || fail 'race-model refresh used separate recovery and publication locks'
+MODEL_PENDING_AFTER_RECOVERY_UNLOCK=0
 
 RECOVERY_STATUS=1
 : >"${CALLS_FILE}"
