@@ -48,7 +48,7 @@ sed "s|/jffs/scripts|${TMP_DIR}/jffs/scripts|g" "${TMP_DIR}/helpers.part" >"${TM
 	fail 'could not rewrite event-script transaction helpers'
 # shellcheck disable=SC1091
 . "${TMP_DIR}/helpers"
-for helper in add_init_event_scripts add_services_event_scripts remove_services_event_scripts add_firewall_event_scripts all_event_scripts_transaction_begin all_event_scripts_transaction_detach_after_mode_rollback all_event_scripts_transaction_rollback all_event_scripts_rollback install_wan_event_scripts adguard_recover_after_event_hook_abort; do
+for helper in add_init_event_scripts add_services_event_scripts remove_services_event_scripts add_firewall_event_scripts all_event_scripts_transaction_begin all_event_scripts_transaction_detach_after_mode_rollback all_event_scripts_transaction_rollback all_event_scripts_rollback all_event_scripts_recover_startup install_wan_event_scripts adguard_recover_after_event_hook_abort; do
 	type "${helper}" >/dev/null 2>&1 || fail "event-script transaction helper extraction failed: ${helper}"
 done
 
@@ -141,13 +141,15 @@ add_services_event_scripts() {
 }
 # add_firewall_event_scripts adds a test stub that reports an error if WAN orchestration reaches firewall processing after a services failure.
 add_firewall_event_scripts() { fail 'WAN orchestration continued after services failure'; }
-all_event_scripts_transaction_begin "${BASE_DIR}/wan-aggregate" || fail 'WAN aggregate snapshot failed'
+all_event_scripts_transaction_begin "${BASE_DIR}/.AdGuardHome.event-hooks.wan" || fail 'WAN aggregate snapshot failed'
+[ -f "${BASE_DIR}/.AdGuardHome.event-hooks-recovery" ] || fail 'WAN aggregate snapshot did not publish its recovery marker'
 printf '%s\n' 'changed working YAML' >"${YAML_FILE}"
 printf '%s\n' 'changed source YAML' >"${YAML_ORI}"
 if install_wan_event_scripts; then
 	fail 'WAN orchestration hid a later helper failure'
 fi
 all_event_scripts_transaction_rollback || fail 'WAN aggregate rollback failed'
+[ ! -e "${BASE_DIR}/.AdGuardHome.event-hooks-recovery" ] || fail 'WAN aggregate rollback retained its obsolete recovery marker'
 grep -qx 'original dnsmasq' "${TMP_DIR}/jffs/scripts/dnsmasq.postconf" || fail 'WAN rollback did not restore dnsmasq.postconf'
 grep -qx 'original dnsmasq SDN' "${TMP_DIR}/jffs/scripts/dnsmasq-sdn.postconf" || fail 'WAN rollback did not restore dnsmasq-sdn.postconf'
 grep -qx 'original init' "${TMP_DIR}/jffs/scripts/init-start" || fail 'WAN rollback did not restore init-start'
@@ -158,9 +160,20 @@ grep -qx 'ADGUARD_DNSMASQ_MODE="disabled"' "${CONF_FILE}" || fail 'WAN rollback 
 grep -qx 'original working YAML' "${YAML_FILE}" || fail 'WAN rollback did not restore the working YAML'
 grep -qx 'original source YAML' "${YAML_ORI}" || fail 'WAN rollback did not restore the source YAML'
 
-FAILED_SNAPSHOT_DIR="${BASE_DIR}/failed-rollback"
-mkdir -p "${FAILED_SNAPSHOT_DIR}" || fail 'could not create failed rollback snapshot fixture'
-printf '%s\n' 'preserved recovery data' >"${FAILED_SNAPSHOT_DIR}/dnsmasq.postconf"
+all_event_scripts_transaction_begin "${BASE_DIR}/.AdGuardHome.event-hooks.startup-retry" ||
+	fail 'startup-retry aggregate snapshot failed'
+printf '%s\n' 'interrupted dnsmasq change' >"${TMP_DIR}/jffs/scripts/dnsmasq.postconf"
+EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
+all_event_scripts_recover_startup || fail 'startup did not retry the retained aggregate rollback'
+grep -qx 'original dnsmasq' "${TMP_DIR}/jffs/scripts/dnsmasq.postconf" ||
+	fail 'startup recovery did not restore the retained dnsmasq hook'
+[ ! -e "${BASE_DIR}/.AdGuardHome.event-hooks-recovery" ] ||
+	fail 'successful startup recovery retained its obsolete marker'
+[ ! -e "${BASE_DIR}/.AdGuardHome.event-hooks.startup-retry" ] ||
+	fail 'successful startup recovery retained its obsolete snapshot'
+
+FAILED_SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.event-hooks.failed-rollback"
+all_event_scripts_transaction_begin "${FAILED_SNAPSHOT_DIR}" || fail 'could not create failed rollback snapshot fixture'
 ERROR=ERROR
 INFO=INFO
 # nvram_transaction_lock_owned reports no active setup transaction for the hook-only fixtures.
@@ -169,10 +182,11 @@ nvram_transaction_lock_owned() { return 1; }
 PTXT() { printf '%s\n' "$*" >>"${TMP_DIR}/rollback-report"; }
 # all_event_scripts_restore restores all event-script files and reports failure when restoration is unsuccessful.
 all_event_scripts_restore() { return 1; }
-if all_event_scripts_rollback "${FAILED_SNAPSHOT_DIR}"; then
+if all_event_scripts_transaction_rollback; then
 	fail 'aggregate rollback hid a restoration failure'
 fi
 [ -f "${FAILED_SNAPSHOT_DIR}/dnsmasq.postconf" ] || fail 'failed rollback discarded the recovery snapshot'
+[ -f "${BASE_DIR}/.AdGuardHome.event-hooks-recovery" ] || fail 'failed rollback discarded the durable recovery marker'
 grep -q "${FAILED_SNAPSHOT_DIR}" "${TMP_DIR}/rollback-report" || fail 'failed rollback did not report the retained recovery snapshot path'
 
 EVENT_SCRIPTS_ACTIVE_SNAPSHOT="${FAILED_SNAPSHOT_DIR}"

@@ -78,6 +78,7 @@ jobs:
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-modes.sh
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-transactions.sh
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-cli-lan-mode.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/wan-nat-predicate-parity.sh
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-ipset-setup-save-failure.sh
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-ipset-save-failure.sh
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-ipset-allowed-mode-fallback.sh
@@ -109,6 +110,11 @@ jobs:
 
       - name: Run deterministic startup signal recovery regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/rc-startup-signal-determinism.sh
+
+      - name: Run lifecycle and workflow timeout contract regressions
+        run: |
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/service-lifecycle-suite-timeout.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/shellcheck-workflow-dialect-consistency.sh
 
       - name: Run bounded service lifecycle integration matrix
         # DNS handoff validates root-only FIFO ownership, matching router init.

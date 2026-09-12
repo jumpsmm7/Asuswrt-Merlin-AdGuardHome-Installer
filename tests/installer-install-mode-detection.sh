@@ -301,8 +301,11 @@ EOF
 	configure_runtime_defaults() { return 0; }
 	# adguard_install_mode_confirmed confirms that the AdGuard installation mode is known and valid.
 	adguard_install_mode_confirmed() { return 0; }
-	# adguard_migrate_detected_install_mode determines the detected installation mode for migration.
-	adguard_migrate_detected_install_mode() { return 0; }
+	# adguard_migrate_detected_install_mode injects a retained-artifact rollback failure for the migration recovery case.
+	adguard_migrate_detected_install_mode() {
+		[ "${FAILURE_CASE}" != "migration" ] || return 2
+		return 0
+	}
 	# all_event_scripts_transaction_begin records the start of an event-script transaction.
 	all_event_scripts_transaction_begin() { printf '%s\n' 'transaction:begin' >>"${CALLS_FILE}"; }
 	# all_event_scripts_transaction_detach_after_mode_rollback detaches a newer aggregate snapshot after restoring the prior mode.
@@ -402,8 +405,19 @@ EOF
 		cleanup_status=$?
 	fi
 	expected_status=1
-	[ "${FAILURE_CASE}" != "rollback" ] || expected_status=2
+	case "${FAILURE_CASE}" in
+		migration | rollback) expected_status=2 ;;
+	esac
 	[ "${cleanup_status}" -eq "${expected_status}" ] || fail "${FAILURE_CASE}: unexpected cleanup exit status ${cleanup_status}"
+	if [ "${FAILURE_CASE}" = "migration" ]; then
+		grep -qx 'service:restarted' "${CALLS_FILE}" || fail 'migration: rollback failure did not restart the previously running service'
+		grep -qx 'monitor:restarted' "${CALLS_FILE}" || fail 'migration: rollback failure did not restore service monitoring'
+		grep -qx 'end-status:1' "${CALLS_FILE}" || fail 'migration: failure completion status was not reported'
+		if grep -q '^transaction:' "${CALLS_FILE}"; then
+			fail 'migration: event-hook transaction began after migration failed'
+		fi
+		return 0
+	fi
 	grep -qx 'transaction:begin' "${CALLS_FILE}" || fail "${FAILURE_CASE}: transaction did not begin"
 	grep -qx 'transaction:rollback' "${CALLS_FILE}" || fail "${FAILURE_CASE}: aggregate rollback was not attempted"
 	grep -qx 'mode:rollback' "${CALLS_FILE}" || fail "${FAILURE_CASE}: mode rollback was not attempted"
@@ -475,7 +489,7 @@ for legacy_cleanup_failure in firewall dnsmasq init-start services-stop; do
 	run_install_failure "${legacy_cleanup_failure}" ||
 		fail "${legacy_cleanup_failure}: legacy cleanup recovery scenario failed"
 done
-for recovery_failure in finalization readiness service-readiness-running service-readiness-stopped timezone setup rollback; do
+for recovery_failure in finalization readiness service-readiness-running service-readiness-stopped timezone setup migration rollback; do
 	run_install_failure "${recovery_failure}" ||
 		fail "${recovery_failure}: install recovery scenario failed"
 done

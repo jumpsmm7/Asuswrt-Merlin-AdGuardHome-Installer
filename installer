@@ -6320,19 +6320,66 @@ all_event_scripts_rollback() {
 	return 0
 }
 
+# event_scripts_recovery_marker_write durably records the aggregate snapshot that must be restored after interruption.
+event_scripts_recovery_marker_write() {
+	local MARKER_FILE MARKER_STAGE SNAPSHOT_DIR SNAPSHOT_NAME
+	SNAPSHOT_DIR="$1"
+	SNAPSHOT_NAME="${SNAPSHOT_DIR##*/}"
+	case "${SNAPSHOT_DIR}" in
+		"${BASE_DIR}"/.AdGuardHome.event-hooks.* | "${BASE_DIR}"/.AdGuardHome.uninstall-hooks.*) ;;
+		*) return 1 ;;
+	esac
+	[ -d "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
+	MARKER_FILE="${BASE_DIR}/.AdGuardHome.event-hooks-recovery"
+	MARKER_STAGE="${MARKER_FILE}.$$"
+	[ ! -e "${MARKER_FILE}" ] && [ ! -L "${MARKER_FILE}" ] || return 1
+	[ ! -e "${MARKER_STAGE}" ] && [ ! -L "${MARKER_STAGE}" ] || return 1
+	(umask 077 && set -C && printf '%s\n' "${SNAPSHOT_NAME}" >"${MARKER_STAGE}") &&
+		chmod 600 "${MARKER_STAGE}" && mv -f "${MARKER_STAGE}" "${MARKER_FILE}" || {
+		rm -f "${MARKER_STAGE}"
+		return 1
+	}
+}
+
+# event_scripts_recovery_marker_read validates and prints the aggregate snapshot retained for startup recovery.
+event_scripts_recovery_marker_read() {
+	local MARKER_FILE SNAPSHOT_DIR SNAPSHOT_NAME
+	MARKER_FILE="${BASE_DIR}/.AdGuardHome.event-hooks-recovery"
+	[ -f "${MARKER_FILE}" ] && [ ! -L "${MARKER_FILE}" ] || return 1
+	IFS= read -r SNAPSHOT_NAME <"${MARKER_FILE}" || return 1
+	if sed -n '2p' "${MARKER_FILE}" | grep -q .; then
+		return 1
+	fi
+	case "${SNAPSHOT_NAME}" in
+		.AdGuardHome.event-hooks.* | .AdGuardHome.uninstall-hooks.*) ;;
+		*) return 1 ;;
+	esac
+	SNAPSHOT_DIR="${BASE_DIR}/${SNAPSHOT_NAME}"
+	[ -d "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
+	printf '%s\n' "${SNAPSHOT_DIR}"
+}
+
 all_event_scripts_transaction_begin() {
 	local SNAPSHOT_DIR
 	SNAPSHOT_DIR="$1"
 	[ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] || return 1
 	all_event_scripts_snapshot "${SNAPSHOT_DIR}" || return 1
+	event_scripts_recovery_marker_write "${SNAPSHOT_DIR}" || {
+		rm -rf "${SNAPSHOT_DIR}"
+		return 1
+	}
 	EVENT_SCRIPTS_ACTIVE_SNAPSHOT="${SNAPSHOT_DIR}"
 	return 0
 }
 
 all_event_scripts_transaction_commit() {
+	local MARKER_FILE SNAPSHOT_DIR
 	[ -n "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] || return 0
-	rm -rf "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}" 2>/dev/null || true
+	MARKER_FILE="${BASE_DIR}/.AdGuardHome.event-hooks-recovery"
+	rm -f "${MARKER_FILE}" || return 1
+	SNAPSHOT_DIR="${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}"
 	EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
 	return 0
 }
 
@@ -6341,11 +6388,15 @@ all_event_scripts_transaction_detach_after_mode_rollback() {
 	local SNAPSHOT_DIR
 	SNAPSHOT_DIR="${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}"
 	[ -n "${SNAPSHOT_DIR}" ] || return 0
-	if ! rm -rf "${SNAPSHOT_DIR}"; then
+	if ! rm -f "${BASE_DIR}/.AdGuardHome.event-hooks-recovery"; then
 		PTXT "${WARNING} Superseded event-hook snapshot could not be removed; it remains at ${SNAPSHOT_DIR}."
 		return 1
 	fi
 	EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
+	if ! rm -rf "${SNAPSHOT_DIR}"; then
+		PTXT "${WARNING} Superseded event-hook snapshot could not be removed; it remains at ${SNAPSHOT_DIR}."
+		return 1
+	fi
 	PTXT "${INFO} Superseded event-hook rollback snapshot removed after mode rollback."
 }
 
@@ -6353,11 +6404,24 @@ all_event_scripts_transaction_rollback() {
 	local SNAPSHOT_DIR
 	SNAPSHOT_DIR="${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}"
 	[ -n "${SNAPSHOT_DIR}" ] || return 0
-	if ! all_event_scripts_rollback "${SNAPSHOT_DIR}"; then
+	if ! all_event_scripts_restore "${SNAPSHOT_DIR}"; then
+		PTXT "${ERROR} Event-script rollback failed; recovery snapshot retained at ${SNAPSHOT_DIR}."
 		return 1
 	fi
+	rm -f "${BASE_DIR}/.AdGuardHome.event-hooks-recovery" || return 1
 	EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
+	rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
 	return 0
+}
+
+# all_event_scripts_recover_startup retries a retained aggregate event-hook rollback before new installer work begins.
+all_event_scripts_recover_startup() {
+	local SNAPSHOT_DIR
+	[ ! -e "${BASE_DIR}/.AdGuardHome.event-hooks-recovery" ] || {
+		SNAPSHOT_DIR="$(event_scripts_recovery_marker_read)" || return 1
+		EVENT_SCRIPTS_ACTIVE_SNAPSHOT="${SNAPSHOT_DIR}"
+		all_event_scripts_transaction_rollback
+	}
 }
 
 init_event_scripts_snapshot() {
@@ -6793,7 +6857,7 @@ inst_AdGuardHome() {
 	adguard_migrate_detected_install_mode "${PREVIOUS_ADGUARD_INSTALL_MODE:-}"
 	MIGRATE_STATUS=$?
 	if [ "${MIGRATE_STATUS}" -ne 0 ]; then
-		[ "${MIGRATE_STATUS}" -eq 2 ] || adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
+		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 		end_op_message 1 "$1"
 		return "${MIGRATE_STATUS}"
 	fi
@@ -6982,7 +7046,12 @@ inst_AdGuardHome() {
 			return 1
 		fi
 	fi
-	all_event_scripts_transaction_commit
+	if ! all_event_scripts_transaction_commit; then
+		PTXT "${ERROR} Unable to finalize the event-hook recovery transaction."
+		adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1
+		end_op_message 1 "$1"
+		return 1
+	fi
 	adguard_install_abort_trap_disable_preserve_defer
 	ptxt_ok "AdGuardHome ${1:-install} orchestration complete."
 	ptxt_ok "Final readiness summary: service is installed, started, and ready."
@@ -8511,7 +8580,11 @@ uninst_all() {
 		adguard_recover_after_uninstall_hook_abort "${ADGUARD_WAS_RUNNING}" "${LAN_DOMAIN_CHANGED}"
 		return 1
 	fi
-	all_event_scripts_transaction_commit
+	if ! all_event_scripts_transaction_commit; then
+		PTXT "${ERROR} Unable to finalize the uninstall event-hook transaction."
+		adguard_recover_after_uninstall_hook_abort "${ADGUARD_WAS_RUNNING}" "${LAN_DOMAIN_CHANGED}"
+		return 1
+	fi
 	mv "${TARG_DIR}/installer" "${HOME}/installer"
 	rm -rf "${TARG_DIR}" "${ROLLBACK_RESULT_FILE}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"
 	service restart_dnsmasq >/dev/null 2>&1
@@ -9823,6 +9896,10 @@ cli_run() {
 
 nvram_transaction_recovery_dependencies_available || exit 1
 trap 'on_installer_exit' EXIT
+if ! all_event_scripts_recover_startup; then
+	PTXT "${ERROR} Unable to restore the retained event-hook recovery snapshot; aborting before new installer work."
+	exit 1
+fi
 if ! nvram_transaction_recover_startup; then
 	if [ "${NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE:-0}" = "1" ] && nvram_transaction_read_only_diagnostic_requested "$@"; then
 		PTXT "${WARNING} Unable to remove a completed installer-managed NVRAM snapshot; continuing with read-only diagnostics."
