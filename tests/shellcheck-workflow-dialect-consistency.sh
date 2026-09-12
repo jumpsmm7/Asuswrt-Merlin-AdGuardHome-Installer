@@ -91,7 +91,7 @@ esac
 # shellcheck disable=SC2086
 set -- ${POSIX_TIMEOUTS}
 [ "$#" -eq 2 ] || fail "${WORKFLOW}: could not read numeric posix-syntax and lifecycle integration timeouts"
-[ "$(( $1 * 60 ))" -gt "$2" ] ||
+[ "$(($1 * 60))" -gt "$2" ] ||
 	fail "${WORKFLOW}: posix-syntax timeout must exceed the bounded lifecycle integration timeout"
 
 grep -Eq '^  pull_request:$' "${WORKFLOW}" || fail "${WORKFLOW}: missing the pull_request trigger"
