@@ -19,6 +19,47 @@ SETUP_FUNCTIONS="$(sed -n '/^setup_AdGuardHome() {$/,/^setup_amtmupdate() {$/p' 
 eval "${RUNTIME_DEFAULT_FUNCTIONS}"
 eval "${SETUP_FUNCTIONS}"
 
+# nvram_transaction_lock_owned reports whether the current process owns the NVRAM transaction lock.
+nvram_transaction_lock_owned() { return 0; }
+
+# setup_files_begin_if_needed reuses a journal already owned by this installer
+# process instead of aborting LAN setup before YAML configuration begins.
+(
+	SETUP_FILES_JOURNALED=0
+	NVRAM_TRANSACTION_LOCK_MODE="mkdir"
+	BASE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/installer-ipset-existing-journal.XXXXXX")" || fail 'could not create active-journal test directory'
+	trap 'rm -rf "${BASE_DIR}"' 0
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create active-journal fixture directory'
+	# nvram_transaction_setup_files_begin rejects attempts to replace the active setup journal.
+	nvram_transaction_setup_files_begin() { fail 'attempted to replace the active setup journal'; }
+	setup_files_begin_if_needed || fail 'could not reuse the active setup journal'
+	[ "${SETUP_FILES_JOURNALED}" -eq 1 ] || fail 'active setup journal was not recorded in the current setup frame'
+) || fail 'active setup journal subshell failed'
+
+# A stale lock-mode value must not permit reuse when the current process no
+# longer owns the transaction lock.
+(
+	SETUP_FILES_JOURNALED=0
+	NVRAM_TRANSACTION_LOCK_MODE="mkdir"
+	BASE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/installer-ipset-stale-journal.XXXXXX")" || fail 'could not create stale-journal test directory'
+	trap 'rm -rf "${BASE_DIR}"' 0
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create stale-journal fixture directory'
+	# nvram_transaction_lock_owned reports whether the current process owns the NVRAM transaction lock.
+	nvram_transaction_lock_owned() { return 1; }
+	SETUP_FILES_BEGIN_CALLED=0
+	# nvram_transaction_setup_files_begin begins the NVRAM transaction for setup files and signals failure.
+	nvram_transaction_setup_files_begin() {
+		SETUP_FILES_BEGIN_CALLED=1
+		return 1
+	}
+	if setup_files_begin_if_needed; then
+		fail 'reused a setup journal without owning the transaction lock'
+	fi
+	[ "${SETUP_FILES_BEGIN_CALLED}" -eq 0 ] || fail 'attempted to replace the stale setup journal'
+	[ "${SETUP_FILES_JOURNALED}" -eq 0 ] || fail 'recorded an unowned setup journal in the current setup frame'
+) || fail 'stale setup journal subshell failed'
+
+# rollback_result_write records the outcome of a rollback operation.
 rollback_result_write() { :; }
 rollback_result_notice() { :; }
 

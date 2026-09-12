@@ -410,6 +410,10 @@ grep -q 'MD5 digest calculation failed' "${TMP_DIR}/md5_hash_failure.out" || fai
 		return 0
 	}
 
+	agh_wait_started() {
+		return 0
+	}
+
 	PTXT() {
 		return 0
 	}

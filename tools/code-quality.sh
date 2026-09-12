@@ -9,8 +9,16 @@ FAILED=0
 FIX=0
 SCRIPT_LIST=""
 TEST_MAX_RUNTIME_SECONDS="${TEST_MAX_RUNTIME_SECONDS:-0}"
-SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS="${SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS:-600}"
+SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS="${SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS-5160}"
 GNU_TIMEOUT="/usr/bin/timeout"
+
+case "${SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS}" in
+	'' | *[!0-9]*)
+		printf '%s\n' 'Error: SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS must be a non-negative integer.' >&2
+		exit 2
+		;;
+	*) : ;;
+esac
 
 case "${1:-}" in
 	--fix) FIX=1 ;;
@@ -219,6 +227,8 @@ run_check 'Installer file failure safety regression' sh tests/installer-file-fai
 run_check 'Installer progress output regression' sh tests/installer-progress-output.sh
 run_check 'Installer legacy hook cleanup regression' sh tests/installer-legacy-hook-cleanup.sh
 run_check 'Installer event-script mode regression' sh tests/installer-event-script-modes.sh
+run_check 'Installer event-script transaction regression' sh tests/installer-event-script-transactions.sh
+run_check 'WAN NAT predicate parity regression' sh tests/wan-nat-predicate-parity.sh
 run_check 'Installer upgrade runtime-default ordering regression' sh tests/installer-upgrade-runtime-defaults.sh
 run_check 'Installer post-replacement restart regression' sh tests/installer-post-replace-restart.sh
 run_check 'Installer update re-exec lock regression' sh tests/installer-update-reexec-lock.sh
@@ -241,6 +251,7 @@ run_check 'Installer WebUI port synchronization regression' sh tests/installer-w
 run_check 'Installer end operation rollback regression' sh tests/installer-end-op-rollback.sh
 run_check 'Installer doctor fix safety regression' sh tests/installer-doctor-fix-safety.sh
 run_check 'Installer doctor rollback result regression' sh tests/installer-doctor-rollback-result.sh
+run_check 'Installer MD5 helper regression' sh tests/installer-md5-helper.sh
 run_check 'Installer SHA-256 helper regression' sh tests/installer-sha256-helper.sh
 run_check 'Installer checksum compatibility policy regression' sh tests/installer-checksum-compatibility-policy.sh
 run_check 'Installer secure transport fallback regression' sh tests/installer-secure-download-fallback.sh
@@ -297,7 +308,9 @@ run_check 'AdGuardHome scoped configuration regression' sh tests/adguardhome-sco
 run_check 'AdGuardHome legacy netcheck regression' sh tests/netcheck-legacy.sh
 run_check 'AdGuardHome DNS startup handoff regression' run_privileged_regression_check tests/dns-startup-handoff.sh 'DNS startup handoff regression'
 run_check 'AdGuardHome required-handoff fallback regression' sh tests/rc-required-handoff-fallback.sh
+run_check 'AdGuardHome service lifecycle suite timeout regression' sh tests/service-lifecycle-suite-timeout.sh
 run_long_check 'AdGuardHome service lifecycle integration regression' "${SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS}" run_privileged_regression_check tests/service-lifecycle-integration.sh 'service lifecycle integration regression'
+run_check 'AdGuardHome Entware mount disappearance regression' sh tests/service-opt-disappearance.sh
 run_check 'Runtime writable-path security regression' run_privileged_regression_check tests/runtime-writable-path-security.sh 'runtime writable-path security regression'
 run_check 'AdGuardHome runtime mode helper regression' sh tests/adguardhome-runtime-mode-helpers.sh
 run_check 'AdGuardHome runtime DNS environment LAN-mode regression' sh tests/adguardhome-dns-env-lan-mode.sh

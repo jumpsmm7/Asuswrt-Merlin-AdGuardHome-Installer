@@ -36,9 +36,32 @@ conf_value() {
 	esac
 }
 
+# wan_iptables_state_active reports whether WAN NAT is active based on WAN_NAT_ACTIVE.
+wan_iptables_state_active() {
+	[ "${WAN_NAT_ACTIVE:-0}" -eq 1 ]
+}
+
 unset ADGUARD_INSTALL_MODE
 TEST_CONF_INSTALL_MODE='lan'
+WAN_NAT_ACTIVE=0
 ! adguard_ipset_allowed || fail 'conf_value fallback should refuse IPSET when persisted mode is lan'
+WAN_NAT_ACTIVE=1
+adguard_ipset_allowed || fail 'conf_value fallback should allow IPSET for persisted LAN mode with WAN NAT state'
+WAN_NAT_ACTIVE=0
+
+unset ADGUARD_INSTALL_MODE
+TEST_CONF_INSTALL_MODE='ap'
+WAN_NAT_ACTIVE=1
+adguard_ipset_allowed || fail 'conf_value fallback should allow IPSET for persisted AP mode with WAN NAT state'
+WAN_NAT_ACTIVE=0
+! adguard_ipset_allowed || fail 'conf_value fallback should refuse IPSET for persisted AP mode without WAN NAT state'
+
+unset ADGUARD_INSTALL_MODE
+TEST_CONF_INSTALL_MODE='bridge'
+WAN_NAT_ACTIVE=1
+adguard_ipset_allowed || fail 'conf_value fallback should allow IPSET for persisted bridge mode with WAN NAT state'
+WAN_NAT_ACTIVE=0
+! adguard_ipset_allowed || fail 'conf_value fallback should refuse IPSET for persisted bridge mode without WAN NAT state'
 
 unset ADGUARD_INSTALL_MODE
 TEST_CONF_INSTALL_MODE='wan'
@@ -46,7 +69,7 @@ adguard_ipset_allowed || fail 'conf_value fallback should allow IPSET when persi
 
 unset ADGUARD_INSTALL_MODE
 TEST_CONF_INSTALL_MODE=''
-adguard_ipset_allowed || fail 'conf_value fallback should allow IPSET when no mode is persisted'
+! adguard_ipset_allowed || fail 'conf_value fallback should refuse IPSET when no confirmed WAN mode is persisted'
 
 ADGUARD_INSTALL_MODE='lan'
 TEST_CONF_INSTALL_MODE='wan'

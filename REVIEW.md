@@ -477,6 +477,13 @@ Avoid introducing unbounded waits. Polling must have a defined limit and a usefu
 
 Review changed firewall and network code for both setup and cleanup behavior.
 
+For the topology-aware LAN/AP/Bridge exception, require `SNAT` or
+`MASQUERADE` on a validated `wan0`/`wan1` output interface. A source selector
+(`-s` or `--source`) is valid and must remain eligible. Reject negated output
+matches, input-interface-scoped rules (`-i` or `--in-interface`), and rules on
+unrelated bridge or VPN output interfaces. Tokens appearing only inside an
+iptables comment must not qualify the rule.
+
 Requirements:
 
 * Use idempotent add and remove logic where practical.
@@ -510,6 +517,21 @@ Pay special attention to changes involving:
 * INPUT, OUTPUT, FORWARD, or custom chains
 
 A rule insertion is incomplete unless corresponding cleanup and interrupted-setup behavior are safe.
+
+Treat dnsmasq and installer event-hook publication as transactions. Runtime
+dnsmasq changes must remain staged until the topology-aware IPSET refresh
+succeeds. Every staged edit and append must propagate failure, and a publication
+failure after IPSET refresh must compensate from the unchanged live dnsmasq
+configuration. Installer WAN, LAN, and uninstall orchestration must snapshot every managed
+dnsmasq, init, service, and firewall hook plus the managed configuration before
+the first helper, and restore the aggregate state after any later failure even
+when no mode migration is pending. A failed restoration must retain and report
+the recovery snapshot rather than deleting the only preserved copies.
+
+Treat `dnsmasq-sdn.postconf` installation and cleanup separately. Add or retain
+the installer-managed entry only when `rc_support` advertises `mtlancfg`, but
+always remove a stale managed entry when integration is disabled or unsupported,
+while preserving unrelated commands in the shared script.
 
 ## DNS, WAN, and VPN state
 

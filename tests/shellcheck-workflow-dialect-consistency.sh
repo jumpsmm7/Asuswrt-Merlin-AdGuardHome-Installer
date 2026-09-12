@@ -66,11 +66,46 @@ grep -Fq 'contents: read' "${WORKFLOW}" || fail "${WORKFLOW}: missing 'contents:
 for job in '  posix-syntax:' '  shellcheck:' '  checksums:' '  shfmt:'; do
 	grep -Fq "${job}" "${WORKFLOW}" || fail "${WORKFLOW}: missing expected job declaration '${job}'"
 done
+POSIX_TIMEOUTS=$(awk '
+	/^  posix-syntax:$/ { in_job = 1; next }
+	in_job && /^  [a-zA-Z0-9_-]+:$/ { exit }
+	in_job && /^    timeout-minutes: [0-9][0-9]*$/ {
+		job_timeout_minutes = $2
+	}
+	in_job && /tests\/service-lifecycle-integration\.sh$/ {
+		for (field = 1; field <= NF; field++) {
+			if ($field == "--kill-after=10" && (field + 1) <= NF) {
+				lifecycle_timeout_seconds = $(field + 1)
+			}
+		}
+	}
+	END {
+		if (job_timeout_minutes == "" || lifecycle_timeout_seconds == "") exit 1
+		print job_timeout_minutes, lifecycle_timeout_seconds
+	}
+' "${WORKFLOW}") || fail "${WORKFLOW}: could not read posix-syntax and lifecycle integration timeouts"
+case "${POSIX_TIMEOUTS}" in
+	'' | *[!0-9\ ]*) fail "${WORKFLOW}: could not read numeric posix-syntax and lifecycle integration timeouts" ;;
+esac
+# Intentional field splitting separates the two validated decimal timeout values.
+# shellcheck disable=SC2086
+set -- ${POSIX_TIMEOUTS}
+[ "$#" -eq 2 ] || fail "${WORKFLOW}: could not read numeric posix-syntax and lifecycle integration timeouts"
+[ "$(($1 * 60))" -gt "$2" ] ||
+	fail "${WORKFLOW}: posix-syntax timeout must exceed the bounded lifecycle integration timeout"
 
-grep -Fq 'pull_request:' "${WORKFLOW}" || fail "${WORKFLOW}: missing the pull_request trigger"
-grep -Fq 'workflow_dispatch:' "${WORKFLOW}" || fail "${WORKFLOW}: missing the workflow_dispatch trigger"
-grep -Fq '      - master' "${WORKFLOW}" || fail "${WORKFLOW}: missing the push trigger for the master branch"
-grep -Fq "      - 'dev/**'" "${WORKFLOW}" || fail "${WORKFLOW}: missing the push trigger for dev/** branches"
+grep -Eq '^  pull_request:$' "${WORKFLOW}" || fail "${WORKFLOW}: missing the pull_request trigger"
+grep -Eq '^  merge_group:$' "${WORKFLOW}" || fail "${WORKFLOW}: missing the merge_group trigger"
+grep -Eq '^  workflow_dispatch:$' "${WORKFLOW}" || fail "${WORKFLOW}: missing the workflow_dispatch trigger"
+grep -Eq '^  push:$' "${WORKFLOW}" || fail "${WORKFLOW}: missing the all-branch push trigger"
+if awk '
+	/^on:$/ { in_events = 1; next }
+	in_events && /^[a-zA-Z]/ { exit }
+	in_events && /^[[:space:]]+branches(-ignore)?:/ { found = 1 }
+	END { exit !found }
+' "${WORKFLOW}"; then
+	fail "${WORKFLOW}: push and review checks must not be restricted by branch filters"
+fi
 
 grep -Fq 'tools/list-shell-scripts.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: posix-syntax/shellcheck/shfmt jobs must enumerate scripts via tools/list-shell-scripts.sh"
@@ -100,7 +135,13 @@ grep -Fq 'run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-
 	fail "${WORKFLOW}: installer preflight regression does not run with bounded BusyBox ash"
 grep -Fq 'run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-dns-environment-failure.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: installer NVRAM transaction regression does not run with bounded BusyBox ash"
-grep -Fq 'run: sudo -n /usr/bin/timeout --kill-after=10 600 env AGH_INTEGRATION_SHELL=busybox' "${WORKFLOW}" ||
+grep -Fq '/usr/bin/timeout --kill-after=10 180 busybox ash tests/wan-nat-predicate-parity.sh' "${WORKFLOW}" ||
+	fail "${WORKFLOW}: WAN NAT predicate parity regression does not run with bounded BusyBox ash"
+grep -Fq '/usr/bin/timeout --kill-after=10 180 busybox ash tests/service-lifecycle-suite-timeout.sh' "${WORKFLOW}" ||
+	fail "${WORKFLOW}: lifecycle suite timeout regression does not run with bounded BusyBox ash"
+grep -Fq '/usr/bin/timeout --kill-after=10 180 busybox ash tests/shellcheck-workflow-dialect-consistency.sh' "${WORKFLOW}" ||
+	fail "${WORKFLOW}: workflow dialect consistency regression does not run with bounded BusyBox ash"
+grep -Fq 'run: sudo -n /usr/bin/timeout --kill-after=10 5160 env AGH_INTEGRATION_SHELL=busybox' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: lifecycle timeout must run inside sudo"
 grep -Fq 'run: sudo -n /usr/bin/timeout --kill-after=10 180 busybox ash tests/optional-database-links.sh' "${WORKFLOW}" ||
 	fail "${WORKFLOW}: optional database timeout must run inside sudo"

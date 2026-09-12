@@ -153,6 +153,84 @@ require_text "${CODEX_PROMPT}" \
 	'Prefer a minimal compatible correction over a broad refactor or style rewrite.' \
 	'Codex minimal-fix requirement'
 
+# Keep the topology-specific installer hook behavior visible to every agent
+# through the canonical guardrails (and the byte-identical Amazon Q mirror).
+require_text "${CANONICAL_AGENTS}" \
+	'LAN/AP/Bridge mode configures that `firewall-start` hook only when the router has active WAN-interface `SNAT` or `MASQUERADE` state' \
+	'canonical LAN firewall hook topology policy'
+require_text "${CANONICAL_AGENTS}" \
+	'configure `dnsmasq.postconf` and `dnsmasq-sdn.postconf` only when `dnsmasq` is running and `/etc/dnsmasq.conf` is present' \
+	'canonical dnsmasq hook availability policy'
+require_text "${CANONICAL_AGENTS}" \
+	'LAN/AP/Bridge setup must continue from the informational IPSET-disabled notice into YAML configuration' \
+	'canonical LAN IPSET-to-YAML continuation policy'
+require_text "${CANONICAL_AGENTS}" \
+	'only WAN mode or LAN/AP/Bridge mode with qualifying WAN-interface NAT may write `ADGUARD_IPSET="YES"`' \
+	'canonical fail-closed IPSET enablement policy'
+require_text "${CANONICAL_AGENTS}" \
+	'Source selectors (`-s` or `--source`) are valid qualifiers and must not disqualify a rule' \
+	'canonical source-scoped WAN NAT policy'
+require_text "${CANONICAL_AGENTS}" \
+	'matching text contained only in comments remain ineligible' \
+	'canonical comment-safe WAN NAT policy'
+require_text "${CANONICAL_AGENTS}" \
+	'Runtime dnsmasq updates must edit a same-filesystem staged copy' \
+	'canonical staged dnsmasq publication policy'
+require_text "${CANONICAL_AGENTS}" \
+	'propagate every edit and append failure' \
+	'canonical staged dnsmasq edit failure policy'
+require_text "${CANONICAL_AGENTS}" \
+	'must compensate IPSET from the unchanged live configuration' \
+	'canonical IPSET publication compensation policy'
+require_text "${CANONICAL_AGENTS}" \
+	'WAN, LAN, and uninstall event-hook orchestration must snapshot `dnsmasq.postconf`' \
+	'canonical aggregate event-hook rollback policy'
+require_text "${QODO_REVIEW}" \
+	'(`-s` or `--source`) is valid and must remain eligible.' \
+	'Qodo source-scoped WAN NAT review policy'
+require_text "${QODO_REVIEW}" \
+	'Installer WAN, LAN, and uninstall orchestration must snapshot every managed' \
+	'Qodo transactional publication review policy'
+require_text "${QODO_REVIEW}" \
+	'dnsmasq, init, service, and firewall hook plus the managed configuration before' \
+	'Qodo aggregate event-hook snapshot scope'
+require_text "${QODO_REVIEW}" \
+	'Every staged edit and append must propagate failure' \
+	'Qodo staged dnsmasq edit failure policy'
+require_text "${QODO_REVIEW}" \
+	'Tokens appearing only inside an' \
+	'Qodo comment-safe WAN NAT policy'
+require_text "${QODO_REVIEW}" \
+	'always remove a stale managed entry when integration is disabled or unsupported' \
+	'Qodo stale SDN hook cleanup policy'
+require_text "${CODEX_PROMPT}" \
+	'Preserve the topology contract: source-scoped (`-s`/`--source`) SNAT or' \
+	'Codex source-selector topology policy'
+require_text "${CODEX_PROMPT}" \
+	'Treat runtime dnsmasq publication and installer WAN/LAN/uninstall event-hook' \
+	'Codex transactional publication review policy'
+require_text "${CODEX_PROMPT}" \
+	'aggregate hook/config restoration after any' \
+	'Codex aggregate event-hook snapshot scope'
+require_text "${CODEX_PROMPT}" \
+	'Require every staged edit and append to propagate failure' \
+	'Codex staged dnsmasq edit failure policy'
+require_text "${CODEX_PROMPT}" \
+	'contained only in comments remain ineligible' \
+	'Codex comment-safe WAN NAT policy'
+require_text "${CODEX_PROMPT}" \
+	'removed unconditionally while preserving unrelated shared-script commands' \
+	'Codex stale SDN hook cleanup policy'
+require_text "${CODERABBIT}" \
+	'Require every staged dnsmasq edit and append to propagate failure.' \
+	'CodeRabbit staged dnsmasq edit failure policy'
+require_text "${CODERABBIT}" \
+	'matching tokens contained only in comments.' \
+	'CodeRabbit comment-safe WAN NAT policy'
+require_text "${CODERABBIT}" \
+	'Always remove stale managed SDN-hook' \
+	'CodeRabbit stale SDN hook cleanup policy'
+
 # --- PATH contract 1: the installer's inherited-PATH contract --------------
 INSTALLER_PATH_CONTRACT='export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"'
 require_text "${CANONICAL_AGENTS}" "${INSTALLER_PATH_CONTRACT}" 'canonical installer PATH contract'

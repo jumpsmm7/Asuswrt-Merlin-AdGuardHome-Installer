@@ -24,6 +24,25 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test workspace'
 mkfifo "${TEST_ROOT}/block.fifo" || fail 'could not create blocking DNS query FIFO'
 
+CONFLICT_FUNCTIONS="${TEST_ROOT}/conflict-functions"
+sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PATH}" |
+	sed -e '$d' -e 's|/opt/etc/init.d/S61stubby|${TEST_ROOT}/S61stubby|' >"${CONFLICT_FUNCTIONS}" ||
+	fail 'could not prepare DNS restore conflict fixture'
+(
+	. "${CONFLICT_FUNCTIONS}"
+	BASE_DIR="${TEST_ROOT}/conflict-base"
+	DNS_ENV_READY_TIMEOUT=1
+	DNS_ENV_RECOVERY_TIMEOUT=1
+	ERROR='Error:'
+	# ptxt_phase is a no-op placeholder for a transaction phase.
+	ptxt_phase() { :; }
+	# ptxt_ok marks a test output condition as successful.
+	ptxt_ok() { :; }
+	mkdir -p "${BASE_DIR}" || exit 1
+	: >"${TEST_ROOT}/S61stubby" || exit 1
+	check_dns_environment 1 || exit 1
+) || fail 'restore mode ran the DNS preparation conflict preflight without a persisted snapshot'
+
 : >"${FUNCTIONS_FILE}" || fail 'could not create test functions file'
 sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" |
 	sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract NVRAM transaction helpers'
@@ -35,6 +54,7 @@ sed -n '/^check_jffs_enabled() {$/,/^check_version() {$/p' "${INSTALLER_PATH}" >
 sed -e '$d' -e 's|/bin/nvram|nvram|g' "${JFFS_FUNCTIONS_FILE}" >>"${FUNCTIONS_FILE}" || fail 'could not prepare JFFS helper'
 sed -n '/^on_installer_exit() {$/,/^python_bcrypt_available() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer exit handler'
 sed -n '/^end_op_message() {$/,/^menu() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer restart helper'
+sed -n '/^uninst_all() {$/,/^}$/p' "${INSTALLER_PATH}" >>"${FUNCTIONS_FILE}" || fail 'could not extract uninstall helper'
 SETUP_RESTORE_FUNCTION="$(/bin/sed -n '/^setup_restore_nvram_journal() {$/,/^}$/p' "${INSTALLER_PATH}")" || fail 'could not extract setup journal restore helper'
 [ -n "${SETUP_RESTORE_FUNCTION}" ] || fail 'setup journal restore helper was not found'
 printf '%s\n' "${SETUP_RESTORE_FUNCTION}" |
@@ -100,7 +120,7 @@ installer_cleanup_tmp_file() { :; }
 rollback_pending_mode_migration() { return 0; }
 # sleep waits for each newly spawned DNS child to publish its start before
 # advancing the simulated clock. Each child is synchronized only once so
-# sleep advances simulated monotonic time while synchronizing with asynchronous DNS probe startup.
+# sleep advances simulated monotonic time, synchronizes DNS probe startup, and optionally yields to the scheduler.
 sleep() {
 	local current_lookup_count sync_wait_count
 
@@ -131,21 +151,35 @@ sleep() {
 			fi
 
 			sync_wait_count="$((sync_wait_count + 1))"
-			if [ "${sync_wait_count}" -ge 1000 ]; then
+			if [ "${sync_wait_count}" -ge 20000 ]; then
 				fail 'timed out waiting for the DNS lookup child to start'
 			fi
 
 			if [ -x /bin/usleep ]; then
 				/bin/usleep 1000
 			else
-				/bin/sleep 0.01
+				/bin/sleep 0
 			fi
 		done
 	fi
 	MONOTONIC_NOW="$((MONOTONIC_NOW + 1))"
+	if [ "${DNS_TEST_YIELD:-0}" = 1 ]; then
+		if [ -x /bin/usleep ]; then
+			/bin/usleep 1000
+		else
+			/bin/sleep 0
+		fi
+	fi
 }
 # monotonic_seconds outputs the simulated monotonic timestamp and fails on the configured call number when MONOTONIC_FAIL_AT is set.
 monotonic_seconds() {
+	if [ "${DNS_TEST_YIELD:-0}" = 1 ]; then
+		if [ -x /bin/usleep ]; then
+			/bin/usleep 1000
+		else
+			/bin/sleep 0
+		fi
+	fi
 	if [ "${MONOTONIC_FAIL_AT:-0}" != 0 ]; then
 		MONOTONIC_CALLS="$(cat "${TEST_ROOT}/monotonic-calls" 2>/dev/null || printf 0)"
 		MONOTONIC_CALLS="$((MONOTONIC_CALLS + 1))"
@@ -326,10 +360,27 @@ EOF_NVRAM
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0 STUBBY_RESTART_COUNT=0
 	FAIL_SHOW=0 FAIL_SHOW_STATUS=0 FAIL_GET_KEY='' FAIL_GET_ABSENT_KEY='' FAIL_INVENTORY_GREP_STATUS=0 FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_SERVICE_AT_2=0 FAIL_SERVICE_AT_3=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
 	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 DNS_READY_AFTER_SERVICE=0 STUBBY_RUNNING=0 STUBBY_KILL_STUCK=0
+	DNS_TEST_YIELD=0
 	DNS_ENV_READY_TIMEOUT=2 DNS_ENV_RECOVERY_TIMEOUT=1
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
 	_DNS_STUBBY_STOPPED=0 _DNS_NVRAM_SAVED=0 _DNS_NVRAM_ROLLBACK_ATTEMPTED=0
 }
+
+reset_case
+nvram_transaction_begin dns-preparation dnspriv_enable || fail 'stubby recovery transaction snapshot failed'
+nvram_transaction_set dnspriv_enable 0 || fail 'stubby recovery transaction staging failed'
+nvram_transaction_apply restart_dnsmasq 1 || fail 'stubby recovery transaction apply failed'
+: >"${NVRAM_TRANSACTION_DIR}/stubby-stopped" || fail 'could not persist the stopped stubby marker'
+_DNS_STUBBY_STOPPED=1
+_DNS_NVRAM_SAVED=1
+check_dns_environment 1 || fail 'DNS restore did not recover stopped stubby before restoring NVRAM'
+stubby_restart_line="$(grep -n '^service restart_stubby$' "${CALLS_FILE}" | cut -d: -f1)"
+dns_restore_line="$(grep -n '^set dnspriv_enable=1$' "${CALLS_FILE}" | cut -d: -f1)"
+[ -n "${stubby_restart_line}" ] && [ -n "${dns_restore_line}" ] && [ "${stubby_restart_line}" -lt "${dns_restore_line}" ] ||
+	fail 'DNS restore did not restart stubby before restoring dnspriv_enable'
+[ "${STUBBY_RESTART_COUNT}" -eq 1 ] || fail 'DNS restore did not restart stopped stubby exactly once'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'successful stubby and DNS recovery retained its snapshot'
+[ "$(nvram get dnspriv_enable)" = 1 ] || fail 'stubby recovery did not restore the saved DNS NVRAM value'
 
 reset_case
 SYMLINK_SNAPSHOT_TARGET="${TEST_ROOT}/symlink-snapshot-target"
@@ -362,6 +413,77 @@ nvram_transaction_recover_pending || fail 'startup recovery did not process the 
 [ "$(nvram get lan_domain)" = '' ] || fail 'startup recovery did not restore the pending LAN domain transaction'
 [ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'startup recovery retained the restored LAN domain snapshot'
 [ -z "${NVRAM_TRANSACTION_LOCK_MODE:-}" ] || fail 'startup recovery retained the NVRAM transaction lock'
+
+reset_case
+(
+	TARG_DIR="${TEST_ROOT}/uninstall-target"
+	ADDON_DIR="${TEST_ROOT}/uninstall-addon"
+	mkdir -p "${TARG_DIR}" "${ADDON_DIR}" || fail 'could not create uninstall transaction fixture'
+	printf '%s\n' installer >"${TARG_DIR}/installer" || fail 'could not create uninstall installer fixture'
+	printf '%s\n' 'lan_domain=router.example' >>"${NVRAM_FILE}" || fail 'could not seed the uninstall LAN domain'
+	# conf_value enables installer-managed LAN-domain cleanup for this uninstall fixture.
+	conf_value() { [ "$1" = ADGUARD_DOMAIN ] && printf '%s\n' yes; }
+	# agh_is_running reports that the fixture service is stopped.
+	agh_is_running() { return 1; }
+	# agh_stop stops the fixture service successfully.
+	agh_stop() { return 0; }
+	# agh_start restarts the fixture service successfully during rollback.
+	agh_start() { return 0; }
+	# Use the portable symlink lock so host-shell function redirections cannot reuse the transaction descriptor.
+	nvram_transaction_lock_flock_supports_fd() { return 1; }
+	# Event-hook helpers succeed without changing host files in this isolated fixture.
+	all_event_scripts_transaction_begin() { return 0; }
+	all_event_scripts_transaction_commit() { return 0; }
+	all_event_scripts_transaction_rollback() { return 0; }
+	remove_dnsmasq_event_scripts() { return 0; }
+	remove_init_event_scripts() { return 0; }
+	remove_services_event_scripts() { return 0; }
+	remove_firewall_event_scripts() { return 0; }
+	cleanup_legacy_firewall() { return 0; }
+	yaml_nvars_file_action() { return 0; }
+	end_op_message() { return 0; }
+	# mv redirects the retained installer outside the real home directory.
+	mv() {
+		if [ "$#" -eq 2 ] && [ "$1" = "${TARG_DIR}/installer" ]; then
+			command mv "$1" "${TEST_ROOT}/uninstalled-installer"
+		else
+			command mv "$@"
+		fi
+	}
+	# rm keeps the uninstall fixture from touching host /opt paths.
+	rm() {
+		rm_arg_count="$#"
+		while [ "${rm_arg_count}" -gt 0 ]; do
+			rm_arg="$1"
+			shift
+			case "${rm_arg}" in
+				/opt/etc/init.d/S99AdGuardHome | /opt/etc/init.d/rc.func.AdGuardHome | /opt/sbin/AdGuardHome | /opt/bin/bcrypt-tool | /opt/var/log/AdGuardHome.log) ;;
+				*) set -- "$@" "${rm_arg}" ;;
+			esac
+			rm_arg_count="$((rm_arg_count - 1))"
+		done
+		[ "$#" -gt 0 ] || return 0
+		command rm "$@"
+	}
+	EARLY_CLEANUP_FILE="${TEST_ROOT}/uninstall-early-cleanup"
+	: >"${EARLY_CLEANUP_FILE}" || fail 'could not create uninstall early-cleanup fixture'
+	rm -f /opt/sbin/AdGuardHome "${EARLY_CLEANUP_FILE}" || fail 'filtered uninstall cleanup failed'
+	[ ! -e "${EARLY_CLEANUP_FILE}" ] || fail 'filtered uninstall cleanup retained an unprotected temporary file'
+
+	uninst_all || fail 'LAN-domain uninstall transaction failed'
+	[ "$(nvram get lan_domain)" = '' ] || fail 'successful uninstall did not clear the LAN domain'
+	[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/lan-domain" ] || fail 'successful uninstall retained its LAN-domain snapshot'
+	nvram_transaction_lock_release || fail 'successful uninstall retained an unreleasable transaction lock'
+	NVRAM_TRANSACTION_LOCK_MODE=''
+	NVRAM_TRANSACTION_DIR=''
+	NVRAM_TRANSACTION_CHANGED=0
+	commit_count_before_recovery="${COMMIT_COUNT}"
+	service_count_before_recovery="${SERVICE_COUNT}"
+	nvram_transaction_recover_pending || fail 'startup recovery failed after successful uninstall'
+	[ "$(nvram get lan_domain)" = '' ] || fail 'startup recovery restored the LAN domain after successful uninstall'
+	[ "${COMMIT_COUNT}" -eq "${commit_count_before_recovery}" ] || fail 'startup recovery committed a LAN-domain rollback after successful uninstall'
+	[ "${SERVICE_COUNT}" -eq "${service_count_before_recovery}" ] || fail 'startup recovery restarted dnsmasq after successful uninstall'
+) || fail 'uninstall transaction regression subprocess failed'
 
 reset_case
 printf '%s\n' 'previous working yaml' >"${YAML_FILE}"
@@ -1405,14 +1527,25 @@ FAIL_SNAPSHOT_REMOVE=0
 rm -rf "${NVRAM_TRANSACTION_DIR}" || fail 'could not remove LAN domain cleanup transaction snapshot'
 
 reset_case
+nvram set lan_domain=before-uninstall || fail 'could not initialize uninstall LAN domain fixture'
+installer_lan_domain_set "" 1 || fail 'uninstall LAN domain transaction apply failed'
+: >"${BASE_DIR}/.AdGuardHome.nvram/setup-committed" || fail 'could not create committed setup marker for uninstall restore'
+FAIL_SERVICE_AT="$((SERVICE_COUNT + 1))"
+if installer_lan_domain_restore_uninstall; then
+	fail 'uninstall restore hid the injected uninstall restart failure'
+fi
+[ "$(nvram get lan_domain)" = before-uninstall ] || fail 'uninstall restore did not recover the saved LAN domain'
+
+reset_case
 nvram_transaction_begin dns-preparation dnspriv_enable || fail 'DNS restore cleanup transaction snapshot failed'
 nvram_transaction_set dnspriv_enable 0 || fail 'DNS restore cleanup transaction staging failed'
 nvram_transaction_apply restart_dnsmasq 1 || fail 'DNS restore cleanup transaction apply failed'
 _DNS_NVRAM_SAVED=1
 FAIL_SNAPSHOT_REMOVE=1
-# Leave enough simulated readiness time for the background lookup to finish on
-# loaded CI hosts; this case exercises snapshot cleanup, not timeout handling.
+# Yield while polling the background lookup so loaded CI hosts can schedule the
+# fixture child; this case exercises snapshot cleanup, not timeout handling.
 DNS_ENV_RECOVERY_TIMEOUT=10
+DNS_TEST_YIELD=1
 check_dns_environment 1 || fail 'completed DNS restore failed because best-effort snapshot cleanup was interrupted'
 [ "${_DNS_NVRAM_SAVED}" = 0 ] || fail 'completed DNS restore retained the saved-state marker'
 [ -d "${NVRAM_TRANSACTION_DIR}" ] || fail 'DNS restore cleanup injection did not retain the inert snapshot'
@@ -2072,8 +2205,12 @@ check_dns_environment 0 && fail 'DNS apply failure after stopping stubby was acc
 [ "${STUBBY_RESTART_COUNT}" = 1 ] || fail 'DNS apply failure did not restore stubby'
 
 reset_case
-DNS_ENV_READY_TIMEOUT=invalid
-DNS_ENV_RECOVERY_TIMEOUT=invalid
+# Leave enough simulated time for both lookup children in this explicit restore
+# scenario to be scheduled on loaded BusyBox CI hosts. Invalid timeout fallback
+# behavior is covered independently above.
+DNS_ENV_READY_TIMEOUT=60
+DNS_ENV_RECOVERY_TIMEOUT=60
+DNS_TEST_YIELD=1
 check_dns_environment 0 || fail 'DNS preparation for explicit restore failed'
 check_dns_environment 1 || fail 'successful DNS preparation could not restore its snapshot'
 assert_original 'successful preparation'
@@ -2092,6 +2229,11 @@ DNS_ENV_RECOVERY_TIMEOUT=1
 
 reset_case
 sed '/^dhcp_dns2_x=/d' "${NVRAM_FILE}" >"${NVRAM_FILE}.new" && mv "${NVRAM_FILE}.new" "${NVRAM_FILE}"
+# Yield after each readiness probe so loaded CI hosts can schedule both the
+# preparation and restore children before their bounded checks advance.
+DNS_ENV_READY_TIMEOUT=60
+DNS_ENV_RECOVERY_TIMEOUT=60
+DNS_TEST_YIELD=1
 check_dns_environment 0 || fail 'snapshot with an absent NVRAM key was rejected'
 check_dns_environment 1 || fail 'snapshot with an absent NVRAM key was not restored'
 if nvram_value dhcp_dns2_x >/dev/null 2>&1; then fail 'originally absent NVRAM key was restored as an empty key'; fi
@@ -2223,7 +2365,9 @@ assert_original 'retried rollback'
 
 grep -q 'check_dns_environment 0 || return 1' "${INSTALLER_PATH}" || fail 'CLI install does not propagate DNS preparation failure'
 grep -q 'check_dns_environment 0 || exit 1' "${INSTALLER_PATH}" || fail 'interactive install does not propagate DNS preparation failure'
-grep -q '^[[:space:]]*if \[ "${ADGUARD_INSTALL_MODE:-wan}" = "wan" \] && ! finalize_dns_environment; then$' "${INSTALLER_PATH}" || fail 'successful WAN installation does not finalize its DNS preparation snapshot'
+grep -q '^[[:space:]]*if ! finalize_dns_environment; then$' "${INSTALLER_PATH}" || fail 'successful WAN installation does not finalize its DNS preparation snapshot'
+grep -q '^[[:space:]]*if \[ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" \] && ! nvram_transaction_finalize_setup_pair; then$' "${INSTALLER_PATH}" ||
+	fail 'orchestrated setup does not defer its paired NVRAM commit until final DNS readiness'
 
 reset_case
 (

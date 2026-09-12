@@ -94,6 +94,8 @@ installer_lan_domain_set() { nvram set "lan_domain=$1"; }
 installer_lan_domain_restore() { :; }
 # nvram_transaction_finalize_setup_pair completes the simulated NVRAM setup transaction successfully.
 nvram_transaction_finalize_setup_pair() { return 0; }
+# nvram_transaction_lock_owned reports that this isolated setup fixture owns its transaction lock.
+nvram_transaction_lock_owned() { return 0; }
 # nvram_transaction_setup_committed reports whether the setup commit marker exists.
 nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
 # nvram_transaction_setup_files_begin starts an NVRAM setup-files transaction.
@@ -108,6 +110,8 @@ check_dns_filter() { :; }
 check_dns_local() { :; }
 # check_ipset is a no-op test stub for IP set validation.
 check_ipset() { :; }
+# wan_iptables_state_active reports no active WAN iptables state.
+wan_iptables_state_active() { return 1; }
 # ai_have_cmd always reports that the requested command is unavailable.
 ai_have_cmd() { return 1; }
 # nvram simulates NVRAM reads and writes for installer tests.

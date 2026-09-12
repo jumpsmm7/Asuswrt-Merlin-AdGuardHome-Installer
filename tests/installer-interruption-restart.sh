@@ -36,6 +36,7 @@ sed -n \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail 'could not extract interruption trap helpers'
 printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_ROOT}" >>"${FUNCTIONS_FILE}"
 printf '%s\n' 'setup_restore_nvram_journal() { return 0; }' >>"${FUNCTIONS_FILE}"
+printf '%s\n' 'all_event_scripts_transaction_detach_after_mode_rollback() { return 0; }' >>"${FUNCTIONS_FILE}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'interruption trap helper extraction was empty'
 : >"${CALLS_FILE}"
 
