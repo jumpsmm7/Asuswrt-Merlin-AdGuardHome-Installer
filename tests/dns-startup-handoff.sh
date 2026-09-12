@@ -72,13 +72,20 @@ MANAGER_DNSMASQ_FUNCTIONS="${TEST_ROOT}/manager-dnsmasq-functions"
 sed -n '/^dnsmasq_params() {$/,/^}$/p; /^dnsmasq_action_handler() {$/,/^}$/p' "${MANAGER_PATH}" |
 	sed 's|CONFIG="/etc/dnsmasq-${1}.conf"|CONFIG="${TEST_ROOT}/dnsmasq-${1}.conf"|' >"${MANAGER_DNSMASQ_FUNCTIONS}" ||
 	fail 'could not extract manager dnsmasq functions'
+[ "$(grep -c '^dnsmasq_params() {$' "${MANAGER_DNSMASQ_FUNCTIONS}")" -eq 1 ] || fail 'dnsmasq_params extraction boundary is missing'
+[ "$(grep -c '^dnsmasq_action_handler() {$' "${MANAGER_DNSMASQ_FUNCTIONS}")" -eq 1 ] || fail 'dnsmasq_action_handler extraction boundary is missing'
+[ "$(grep -c '^}$' "${MANAGER_DNSMASQ_FUNCTIONS}")" -eq 2 ] || fail 'manager dnsmasq helper end boundaries are missing'
+if grep -q "^trap 'on_installer_exit' EXIT$" "${MANAGER_DNSMASQ_FUNCTIONS}"; then
+	fail 'manager dnsmasq helper extraction included installer top-level execution'
+fi
 # shellcheck disable=SC1090
 . "${MANAGER_DNSMASQ_FUNCTIONS}"
 agh_log() { :; }
 adguard_lan_mode() { return 0; }
 adguard_dnsmasq_running() { return 1; }
 dns_handoff_is_active() { return 1; }
-dnsmasq_resolv_conf_cleanup() { :; }
+lan_skip_cleanup_called=0
+dnsmasq_resolv_conf_cleanup() { lan_skip_cleanup_called="$((lan_skip_cleanup_called + 1))"; }
 nvram() {
 	case "${1:-}:${2:-}" in
 		get:rc_support) printf '%s\n' 'mtlancfg' ;;
@@ -91,6 +98,7 @@ interface_ipv4_addr() { printf '%s\n' '192.0.2.1'; }
 interface_ipv6_addr() { printf '%s\n' ''; }
 CONFIG_DNSMASQ_MODE='auto'
 dnsmasq_action_handler || fail 'LAN-mode dnsmasq action was not skipped successfully'
+[ "${lan_skip_cleanup_called}" -eq 1 ] || fail 'LAN-mode dnsmasq action did not run resolv.conf cleanup exactly once'
 # adguard_lan_mode indicates that AdGuard Home is not operating in LAN mode.
 adguard_lan_mode() { return 1; }
 stopped_sdn="adguardhome-stopped-$$"

@@ -18,9 +18,14 @@ trap 'rm -rf "${TMP_ROOT}"' EXIT
 trap 'rm -rf "${TMP_ROOT}"; exit 1' HUP INT TERM
 
 FUNCTIONS_FILE="${TMP_ROOT}/functions.sh"
+[ "$(grep -c '^suite_timeout_seconds() {$' "${SCRIPT_PATH}")" -eq 1 ] || fail 'suite timeout helper start boundary is missing'
 sed -n '/^suite_timeout_seconds() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract suite timeout helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'suite timeout helper extraction was empty'
+tail -n 1 "${FUNCTIONS_FILE}" | grep -q '^}$' || fail 'suite timeout helper end boundary is missing'
+if grep -q "^trap 'on_installer_exit' EXIT$" "${FUNCTIONS_FILE}"; then
+	fail 'suite timeout helper extraction included installer top-level execution'
+fi
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
@@ -30,7 +35,11 @@ fixture_case_count=$(awk -F '\t' 'NF && $1 !~ /^#/ { count++ } END { print count
 	fail 'could not count service lifecycle fixture cases'
 [ "${STUB_DECLARED_CASE_COUNT}" -eq "${fixture_case_count}" ] ||
 	fail "declared case count does not match fixture: ${fixture_case_count}"
-OUTER_TIMEOUT_SECONDS=5160
+OUTER_TIMEOUT_SECONDS=$(sed -n 's/^SUITE_OUTER_TIMEOUT_SECONDS=\([0-9][0-9]*\)$/\1/p' "${SCRIPT_PATH}") ||
+	fail 'could not extract suite outer timeout'
+case "${OUTER_TIMEOUT_SECONDS}" in
+	'' | *[!0-9]*) fail 'could not extract suite outer timeout' ;;
+esac
 suite_timeout=$(suite_timeout_seconds "${STUB_DECLARED_CASE_COUNT}" 180 "${OUTER_TIMEOUT_SECONDS}") ||
 	fail '180-second per-case timeout was rejected'
 [ "${suite_timeout}" -lt "${OUTER_TIMEOUT_SECONDS}" ] ||
