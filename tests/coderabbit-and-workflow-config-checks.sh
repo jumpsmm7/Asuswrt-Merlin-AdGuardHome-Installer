@@ -95,7 +95,7 @@ grouped_shell_regression_step_is_aggregated() {
 		in_step && $0 == "          failed=0" { initialized++ }
 		in_step && $0 == "          exit \"${failed}\"" { final_status++; after_exit = 1 }
 		in_step {
-			if ($0 ~ /^          \/usr\/bin\/timeout[[:space:]]+([^[:space:]]+[[:space:]]+)*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh([[:space:]]|$)/) {
+			if ($0 ~ /^[[:space:]]*(\/usr\/bin\/timeout[[:space:]]+([^[:space:]]+[[:space:]]+)*)?busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh([[:space:]]|$)/) {
 				script = $0
 				sub(/^.*[[:space:]]busybox[[:space:]]+ash[[:space:]]+/, "", script)
 				sub(/[[:space:]].*$/, "", script)
@@ -398,7 +398,7 @@ for sarif_workflow in '.github/workflows/osv-scanner.yml' "${SCORECARD_WORKFLOW}
 done
 grouped_shell_regressions_are_aggregated "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: grouped regression steps must run every command and preserve a failing final status"
-for mutation in missing duplicate unguarded moved_named moved_unnamed after_exit unlisted_unguarded unlisted_altered_timeout; do
+for mutation in missing duplicate unguarded moved_named moved_unnamed after_exit unlisted_unguarded unlisted_altered_timeout unlisted_direct unlisted_extra_indent; do
 	mutated_workflow="${TMP_ROOT}/grouped-shell-${mutation}.yml"
 	awk -v mutation="${mutation}" '
 		BEGIN {
@@ -406,6 +406,8 @@ for mutation in missing duplicate unguarded moved_named moved_unnamed after_exit
 			duplicate = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-modes.sh || failed=1"
 			unlisted = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/unlisted-grouped-regression.sh"
 			unlisted_altered_timeout = "          /usr/bin/timeout --kill-after=5 180 busybox ash tests/unlisted-grouped-regression.sh || failed=1"
+			unlisted_direct = "          busybox ash tests/unregistered.sh"
+			unlisted_extra_indent = "            /usr/bin/timeout --kill-after=10 180 busybox ash tests/unregistered.sh || failed=1"
 		}
 		$0 == target {
 			if (mutation == "duplicate") print duplicate
@@ -413,6 +415,8 @@ for mutation in missing duplicate unguarded moved_named moved_unnamed after_exit
 			else if (mutation != "missing" && mutation != "moved_named" && mutation != "moved_unnamed" && mutation != "after_exit") print
 			if (mutation == "unlisted_unguarded") print unlisted
 			else if (mutation == "unlisted_altered_timeout") print unlisted_altered_timeout
+			else if (mutation == "unlisted_direct") print unlisted_direct
+			else if (mutation == "unlisted_extra_indent") print unlisted_extra_indent
 			next
 		}
 		$0 == "          exit \"${failed}\"" {
