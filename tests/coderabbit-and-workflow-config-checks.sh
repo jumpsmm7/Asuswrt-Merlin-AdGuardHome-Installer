@@ -91,18 +91,30 @@ grouped_shell_regression_step_is_aggregated() {
 	awk -v step_name="$2" -v expected_scripts="$3" '
 		BEGIN { expected_count = split(expected_scripts, expected, " ") }
 		$0 == "      - name: " step_name { in_step = 1; found++; next }
-		in_step && /^      - name:/ { in_step = 0 }
+		in_step && /^      - / { in_step = 0 }
 		in_step && $0 == "          failed=0" { initialized++ }
-		in_step && $0 == "          exit \"${failed}\"" { final_status++ }
+		in_step && $0 == "          exit \"${failed}\"" { final_status++; after_exit = 1 }
 		in_step {
+			if ($0 ~ /^          \/usr\/bin\/timeout --kill-after=10 180 busybox ash tests\/[^[:space:]]*\.sh([[:space:]]|$)/) {
+				script = $0
+				sub(/^          \/usr\/bin\/timeout --kill-after=10 180 busybox ash /, "", script)
+				sub(/[[:space:]].*$/, "", script)
+				registered = 0
+				for (i = 1; i <= expected_count; i++)
+					if (script == expected[i]) registered = 1
+				if (!registered) unregistered++
+			}
 			for (i = 1; i <= expected_count; i++) {
 				if (index($0, expected[i])) occurrences[i]++
 				required = "          /usr/bin/timeout --kill-after=10 180 busybox ash " expected[i] " || failed=1"
-				if ($0 == required) guarded[i]++
+				if ($0 == required) {
+					guarded[i]++
+					if (after_exit) command_after_exit++
+				}
 			}
 		}
 		END {
-			if (found != 1 || initialized != 1 || final_status != 1) exit 1
+			if (found != 1 || initialized != 1 || final_status != 1 || command_after_exit || unregistered) exit 1
 			for (i = 1; i <= expected_count; i++)
 				if (occurrences[i] != 1 || guarded[i] != 1) exit 1
 		}
@@ -386,21 +398,35 @@ for sarif_workflow in '.github/workflows/osv-scanner.yml' "${SCORECARD_WORKFLOW}
 done
 grouped_shell_regressions_are_aggregated "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: grouped regression steps must run every command and preserve a failing final status"
-for mutation in missing duplicate unguarded moved; do
+for mutation in missing duplicate unguarded moved_named moved_unnamed after_exit unlisted_unguarded; do
 	mutated_workflow="${TMP_ROOT}/grouped-shell-${mutation}.yml"
 	awk -v mutation="${mutation}" '
 		BEGIN {
 			target = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-transactions.sh || failed=1"
 			duplicate = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-modes.sh || failed=1"
+			unlisted = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/unlisted-grouped-regression.sh"
 		}
 		$0 == target {
 			if (mutation == "duplicate") print duplicate
 			else if (mutation == "unguarded") print "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-transactions.sh"
-			else if (mutation != "missing" && mutation != "moved") print
+			else if (mutation != "missing" && mutation != "moved_named" && mutation != "moved_unnamed" && mutation != "after_exit") print
+			if (mutation == "unlisted_unguarded") print unlisted
+			next
+		}
+		$0 == "          exit \"${failed}\"" {
+			print
+			if (mutation == "moved_unnamed" && !inserted) {
+				print "      - run: |"
+				print target
+				inserted = 1
+			} else if (mutation == "after_exit" && !inserted) {
+				print target
+				inserted = 1
+			}
 			next
 		}
 		{ print }
-		mutation == "moved" && $0 == "          failed=0" && lifecycle_step {
+		mutation == "moved_named" && $0 == "          failed=0" && lifecycle_step {
 			print target
 			lifecycle_step = 0
 		}
