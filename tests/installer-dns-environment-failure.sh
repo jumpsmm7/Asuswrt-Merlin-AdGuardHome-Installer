@@ -1544,7 +1544,7 @@ _DNS_NVRAM_SAVED=1
 FAIL_SNAPSHOT_REMOVE=1
 # Yield while polling the background lookup so loaded CI hosts can schedule the
 # fixture child; this case exercises snapshot cleanup, not timeout handling.
-DNS_ENV_RECOVERY_TIMEOUT=10
+DNS_ENV_RECOVERY_TIMEOUT=1000
 DNS_TEST_YIELD=1
 check_dns_environment 1 || fail 'completed DNS restore failed because best-effort snapshot cleanup was interrupted'
 [ "${_DNS_NVRAM_SAVED}" = 0 ] || fail 'completed DNS restore retained the saved-state marker'
