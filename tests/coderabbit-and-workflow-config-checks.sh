@@ -85,6 +85,27 @@ workflow_concurrency_is_ref_scoped() {
 	' "$1"
 }
 
+# grouped_shell_regressions_are_aggregated verifies that every command in a
+# multi-regression shell-validation step runs before the step reports failure.
+grouped_shell_regressions_are_aggregated() {
+	awk '
+		/^      - name: Run installer LAN topology and hook regressions$/ { in_step = 1; found = 1; next }
+		in_step && /^      - name:/ { exit }
+		in_step && $0 == "          failed=0" { initialized = 1 }
+		in_step && /busybox ash tests\/.*\.sh \|\| failed=1$/ { guarded++ }
+		in_step && $0 == "          exit \"${failed}\"" { final_status = 1 }
+		END { if (!found || !initialized || guarded != 11 || !final_status) exit 1 }
+	' "$1" || return 1
+	awk '
+		/^      - name: Run lifecycle and workflow timeout contract regressions$/ { in_step = 1; found = 1; next }
+		in_step && /^      - name:/ { exit }
+		in_step && $0 == "          failed=0" { initialized = 1 }
+		in_step && /busybox ash tests\/.*\.sh \|\| failed=1$/ { guarded++ }
+		in_step && $0 == "          exit \"${failed}\"" { final_status = 1 }
+		END { if (!found || !initialized || guarded != 2 || !final_status) exit 1 }
+	' "$1"
+}
+
 # osv_differential_uploads_are_guarded verifies that both differential SARIF
 # osv_differential_uploads_are_guarded verifies that OSV differential reports are available before artifact or code-scanning uploads proceed.
 osv_differential_uploads_are_guarded() {
@@ -349,6 +370,8 @@ for sarif_workflow in '.github/workflows/osv-scanner.yml' "${SCORECARD_WORKFLOW}
 	workflow_concurrency_is_ref_scoped "${sarif_workflow}" ||
 		fail "${sarif_workflow}: SARIF workflow concurrency must cancel superseded runs for the same ref"
 done
+grouped_shell_regressions_are_aggregated "${SHELL_VALIDATION_WORKFLOW}" ||
+	fail "${SHELL_VALIDATION_WORKFLOW}: grouped regression steps must run every command and preserve a failing final status"
 
 # --- The Sonar parser cleanup must be idempotent. Pull-request validation must
 # use the immutable head SHA with a non-persistent read-only checkout and fail
