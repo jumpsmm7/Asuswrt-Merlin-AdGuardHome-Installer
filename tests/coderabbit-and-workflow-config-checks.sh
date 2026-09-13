@@ -91,7 +91,7 @@ grouped_shell_regression_step_is_aggregated() {
 	awk -v step_name="$2" -v expected_scripts="$3" '
 		BEGIN { expected_count = split(expected_scripts, expected, " ") }
 		$0 == "      - name: " step_name { in_step = 1; found++; next }
-		in_step && /^      - name:/ { in_step = 0 }
+		in_step && /^      - / { in_step = 0 }
 		in_step && $0 == "          failed=0" { initialized++ }
 		in_step && $0 == "          exit \"${failed}\"" { final_status++ }
 		in_step {
@@ -399,12 +399,11 @@ for mutation in missing duplicate unguarded moved; do
 			else if (mutation != "missing" && mutation != "moved") print
 			next
 		}
-		{ print }
-		mutation == "moved" && $0 == "          failed=0" && lifecycle_step {
+		if (mutation == "moved" && $0 == "      - name: Run bounded service lifecycle integration matrix") {
+			print "      - run: |"
 			print target
-			lifecycle_step = 0
 		}
-		$0 == "      - name: Run lifecycle and workflow timeout contract regressions" { lifecycle_step = 1 }
+		{ print }
 	' "${SHELL_VALIDATION_WORKFLOW}" >"${mutated_workflow}" ||
 		fail "could not create grouped shell ${mutation} fixture"
 	if grouped_shell_regressions_are_aggregated "${mutated_workflow}"; then
