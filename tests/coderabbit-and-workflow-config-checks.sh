@@ -85,25 +85,39 @@ workflow_concurrency_is_ref_scoped() {
 	' "$1"
 }
 
-# grouped_shell_regressions_are_aggregated verifies that every command in a
-# multi-regression shell-validation step runs before the step reports failure.
-grouped_shell_regressions_are_aggregated() {
-	awk '
-		/^      - name: Run installer LAN topology and hook regressions$/ { in_step = 1; found = 1; next }
-		in_step && /^      - name:/ { exit }
-		in_step && $0 == "          failed=0" { initialized = 1 }
-		in_step && /busybox ash tests\/.*\.sh \|\| failed=1$/ { guarded++ }
-		in_step && $0 == "          exit \"${failed}\"" { final_status = 1 }
-		END { if (!found || !initialized || guarded != 11 || !final_status) exit 1 }
-	' "$1" || return 1
-	awk '
-		/^      - name: Run lifecycle and workflow timeout contract regressions$/ { in_step = 1; found = 1; next }
-		in_step && /^      - name:/ { exit }
-		in_step && $0 == "          failed=0" { initialized = 1 }
-		in_step && /busybox ash tests\/.*\.sh \|\| failed=1$/ { guarded++ }
-		in_step && $0 == "          exit \"${failed}\"" { final_status = 1 }
-		END { if (!found || !initialized || guarded != 2 || !final_status) exit 1 }
+# grouped_shell_regression_step_is_aggregated verifies the exact test commands
+# belonging to one named multi-regression shell-validation step.
+grouped_shell_regression_step_is_aggregated() {
+	awk -v step_name="$2" -v expected_scripts="$3" '
+		BEGIN { expected_count = split(expected_scripts, expected, " ") }
+		$0 == "      - name: " step_name { in_step = 1; found++; next }
+		in_step && /^      - name:/ { in_step = 0 }
+		in_step && $0 == "          failed=0" { initialized++ }
+		in_step && $0 == "          exit \"${failed}\"" { final_status++ }
+		in_step {
+			for (i = 1; i <= expected_count; i++) {
+				if (index($0, expected[i])) occurrences[i]++
+				required = "          /usr/bin/timeout --kill-after=10 180 busybox ash " expected[i] " || failed=1"
+				if ($0 == required) guarded[i]++
+			}
+		}
+		END {
+			if (found != 1 || initialized != 1 || final_status != 1) exit 1
+			for (i = 1; i <= expected_count; i++)
+				if (occurrences[i] != 1 || guarded[i] != 1) exit 1
+		}
 	' "$1"
+}
+
+# grouped_shell_regressions_are_aggregated verifies that every required command
+# in each grouped step runs before the step reports failure.
+grouped_shell_regressions_are_aggregated() {
+	grouped_shell_regression_step_is_aggregated "$1" \
+		'Run installer LAN topology and hook regressions' \
+		'tests/installer-event-script-modes.sh tests/installer-event-script-transactions.sh tests/installer-cli-lan-mode.sh tests/wan-nat-predicate-parity.sh tests/installer-ipset-setup-save-failure.sh tests/installer-ipset-save-failure.sh tests/installer-ipset-allowed-mode-fallback.sh tests/adguardhome-runtime-mode-helpers.sh tests/dnsmasq-lan-mode.sh tests/ipset-lan-mode.sh tests/installer-single-arg-actions.sh' || return 1
+	grouped_shell_regression_step_is_aggregated "$1" \
+		'Run lifecycle and workflow timeout contract regressions' \
+		'tests/service-lifecycle-suite-timeout.sh tests/shellcheck-workflow-dialect-consistency.sh'
 }
 
 # osv_differential_uploads_are_guarded verifies that both differential SARIF
@@ -372,6 +386,31 @@ for sarif_workflow in '.github/workflows/osv-scanner.yml' "${SCORECARD_WORKFLOW}
 done
 grouped_shell_regressions_are_aggregated "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: grouped regression steps must run every command and preserve a failing final status"
+for mutation in missing duplicate unguarded moved; do
+	mutated_workflow="${TMP_ROOT}/grouped-shell-${mutation}.yml"
+	awk -v mutation="${mutation}" '
+		BEGIN {
+			target = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-transactions.sh || failed=1"
+			duplicate = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-modes.sh || failed=1"
+		}
+		$0 == target {
+			if (mutation == "duplicate") print duplicate
+			else if (mutation == "unguarded") print "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-transactions.sh"
+			else if (mutation != "missing" && mutation != "moved") print
+			next
+		}
+		{ print }
+		mutation == "moved" && $0 == "          failed=0" && lifecycle_step {
+			print target
+			lifecycle_step = 0
+		}
+		$0 == "      - name: Run lifecycle and workflow timeout contract regressions" { lifecycle_step = 1 }
+	' "${SHELL_VALIDATION_WORKFLOW}" >"${mutated_workflow}" ||
+		fail "could not create grouped shell ${mutation} fixture"
+	if grouped_shell_regressions_are_aggregated "${mutated_workflow}"; then
+		fail "${SHELL_VALIDATION_WORKFLOW}: ${mutation} grouped shell mutation bypassed exact command validation"
+	fi
+done
 
 # --- The Sonar parser cleanup must be idempotent. Pull-request validation must
 # use the immutable head SHA with a non-persistent read-only checkout and fail
