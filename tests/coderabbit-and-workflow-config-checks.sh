@@ -117,6 +117,7 @@ grouped_shell_regression_step_is_aggregated() {
 		in_step {
 			normalized_line = normalize_quoted_fields($0)
 			if (normalized_line ~ /^[[:space:]]*(([a-zA-Z_][a-zA-Z0-9_]*=[^[:space:]]*|[^[:space:]#]+)[[:space:]]+)*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh([[:space:]]|$)/ ||
+				$0 ~ /busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\\[[:space:]].*\.sh/ ||
 				$0 ~ /busybox[[:space:]]+ash[[:space:]]+"tests\/[^"]*\.sh"/ ||
 				$0 ~ single_quoted_script ||
 				$0 ~ /[$][(].*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh/ ||
@@ -423,7 +424,7 @@ for sarif_workflow in '.github/workflows/osv-scanner.yml' "${SCORECARD_WORKFLOW}
 done
 grouped_shell_regressions_are_aggregated "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: grouped regression steps must run every command and preserve a failing final status"
-for mutation in missing duplicate unguarded moved_named moved_unnamed moved_bare after_exit unlisted_unguarded unlisted_altered_timeout unlisted_direct unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment unlisted_quoted_assignment unlisted_double_quoted_script unlisted_spaced_double_quoted_script unlisted_single_quoted_script unlisted_dollar_substitution unlisted_quoted_paren_substitution unlisted_backtick_substitution; do
+for mutation in missing duplicate unguarded moved_named moved_unnamed moved_bare after_exit unlisted_unguarded unlisted_altered_timeout unlisted_direct unlisted_escaped_script unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment unlisted_quoted_assignment unlisted_double_quoted_script unlisted_spaced_double_quoted_script unlisted_single_quoted_script unlisted_dollar_substitution unlisted_quoted_paren_substitution unlisted_backtick_substitution; do
 	mutated_workflow="${TMP_ROOT}/grouped-shell-${mutation}.yml"
 	awk -v mutation="${mutation}" '
 		BEGIN {
@@ -433,6 +434,7 @@ for mutation in missing duplicate unguarded moved_named moved_unnamed moved_bare
 			unlisted = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/unlisted-grouped-regression.sh"
 			unlisted_altered_timeout = "          /usr/bin/timeout --kill-after=5 180 busybox ash tests/unlisted-grouped-regression.sh || failed=1"
 			unlisted_direct = "          busybox ash tests/unregistered.sh"
+			unlisted_escaped_script = "          busybox ash tests/unregistered\\ file.sh"
 			unlisted_extra_indent = "            /usr/bin/timeout --kill-after=10 180 busybox ash tests/unregistered.sh || failed=1"
 			unlisted_command_prefix = "          command busybox ash tests/unregistered.sh"
 			unlisted_env_prefix = "          env busybox ash tests/unregistered.sh"
@@ -454,6 +456,7 @@ for mutation in missing duplicate unguarded moved_named moved_unnamed moved_bare
 			if (mutation == "unlisted_unguarded") print unlisted
 			else if (mutation == "unlisted_altered_timeout") print unlisted_altered_timeout
 			else if (mutation == "unlisted_direct") print unlisted_direct
+			else if (mutation == "unlisted_escaped_script") print unlisted_escaped_script
 			else if (mutation == "unlisted_extra_indent") print unlisted_extra_indent
 			else if (mutation == "unlisted_command_prefix") print unlisted_command_prefix
 			else if (mutation == "unlisted_env_prefix") print unlisted_env_prefix
