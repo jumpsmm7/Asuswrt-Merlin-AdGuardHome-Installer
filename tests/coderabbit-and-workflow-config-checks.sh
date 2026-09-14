@@ -95,7 +95,7 @@ grouped_shell_regression_step_is_aggregated() {
 		in_step && $0 == "          failed=0" { initialized++ }
 		in_step && $0 == "          exit \"${failed}\"" { final_status++; after_exit = 1 }
 		in_step {
-			if ($0 ~ /^[[:space:]]*([^[:space:]#]+[[:space:]]+)*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh([[:space:]]|$)/) {
+			if ($0 ~ /^[[:space:]]*(([a-zA-Z_][a-zA-Z0-9_]*=[^[:space:]]*|[^[:space:]#]+)[[:space:]]+)*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh([[:space:]]|$)/) {
 				script = $0
 				sub(/^.*[[:space:]]busybox[[:space:]]+ash[[:space:]]+/, "", script)
 				sub(/[[:space:]].*$/, "", script)
@@ -398,7 +398,7 @@ for sarif_workflow in '.github/workflows/osv-scanner.yml' "${SCORECARD_WORKFLOW}
 done
 grouped_shell_regressions_are_aggregated "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: grouped regression steps must run every command and preserve a failing final status"
-for mutation in missing duplicate unguarded moved_named moved_unnamed after_exit unlisted_unguarded unlisted_altered_timeout unlisted_direct unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment; do
+for mutation in missing duplicate unguarded moved_named moved_unnamed after_exit unlisted_unguarded unlisted_altered_timeout unlisted_direct unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment; do
 	mutated_workflow="${TMP_ROOT}/grouped-shell-${mutation}.yml"
 	awk -v mutation="${mutation}" '
 		BEGIN {
@@ -412,6 +412,7 @@ for mutation in missing duplicate unguarded moved_named moved_unnamed after_exit
 			unlisted_env_prefix = "          env busybox ash tests/unregistered.sh"
 			unlisted_env_assignment = "          env CI=1 busybox ash tests/unregistered.sh"
 			unlisted_assignment = "          CI=1 busybox ash tests/unregistered.sh"
+			unlisted_hash_assignment = "          X=# busybox ash tests/unregistered.sh"
 		}
 		$0 == target {
 			if (mutation == "duplicate") print duplicate
@@ -425,6 +426,7 @@ for mutation in missing duplicate unguarded moved_named moved_unnamed after_exit
 			else if (mutation == "unlisted_env_prefix") print unlisted_env_prefix
 			else if (mutation == "unlisted_env_assignment") print unlisted_env_assignment
 			else if (mutation == "unlisted_assignment") print unlisted_assignment
+			else if (mutation == "unlisted_hash_assignment") print unlisted_hash_assignment
 			next
 		}
 		$0 == "          exit \"${failed}\"" {
