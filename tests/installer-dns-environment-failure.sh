@@ -2152,6 +2152,9 @@ dhcp_dns2_x=
 EOF_NVRAM
 STUBBY_RUNNING=1
 FAIL_SERVICE_AT=1
+# This case validates successful recovery cleanup, not the timeout path.
+DNS_ENV_RECOVERY_TIMEOUT=1000
+DNS_TEST_YIELD=1
 check_dns_environment 0 && fail 'initial dnsmasq restart failure after stopping stubby was accepted'
 [ "${SERVICE_COUNT}" = 3 ] || fail 'dnsmasq restart failure was not retried before stubby recovery'
 [ "$(dns_check_count)" = 1 ] || fail 'recovered dnsmasq restart after stopping stubby was not checked'
