@@ -127,6 +127,7 @@ grouped_shell_regression_step_is_aggregated() {
 				inventory_line ~ /busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\\[[:space:]].*\.sh/ ||
 				inventory_line ~ /busybox[[:space:]]+ash[[:space:]]+"tests\/[^"]*\.sh"/ ||
 				inventory_line ~ single_quoted_script ||
+				inventory_line ~ /busybox[[:space:]]+ash[[:space:]]+"?[$]([a-zA-Z_]|[{][a-zA-Z_])/ ||
 				inventory_line ~ /[$][(].*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh/ ||
 				inventory_line ~ /`[^`]*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh/) {
 				script = inventory_line
@@ -432,7 +433,7 @@ for sarif_workflow in '.github/workflows/osv-scanner.yml' "${SCORECARD_WORKFLOW}
 done
 grouped_shell_regressions_are_aggregated "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: grouped regression steps must run every command and preserve a failing final status"
-for mutation in missing duplicate unguarded late_initialization moved_named moved_unnamed moved_bare after_exit unlisted_unguarded unlisted_continuation unlisted_operator unlisted_altered_timeout unlisted_direct unlisted_escaped_script unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment unlisted_quoted_assignment unlisted_double_quoted_script unlisted_spaced_double_quoted_script unlisted_single_quoted_script unlisted_dollar_substitution unlisted_quoted_paren_substitution unlisted_backtick_substitution; do
+for mutation in missing duplicate unguarded late_initialization moved_named moved_unnamed moved_bare after_exit unlisted_unguarded unlisted_continuation unlisted_operator unlisted_altered_timeout unlisted_direct unlisted_escaped_script unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment unlisted_quoted_assignment unlisted_double_quoted_script unlisted_spaced_double_quoted_script unlisted_single_quoted_script unlisted_variable_script unlisted_braced_variable_script unlisted_dollar_substitution unlisted_quoted_paren_substitution unlisted_backtick_substitution; do
 	mutated_workflow="${TMP_ROOT}/grouped-shell-${mutation}.yml"
 	awk -v mutation="${mutation}" '
 		BEGIN {
@@ -455,6 +456,8 @@ for mutation in missing duplicate unguarded late_initialization moved_named move
 			unlisted_double_quoted_script = "          busybox ash \"tests/unregistered.sh\""
 			unlisted_spaced_double_quoted_script = "          busybox ash \"tests/unregistered file.sh\""
 			unlisted_single_quoted_script = "          busybox ash " single_quote "tests/unregistered.sh" single_quote
+			unlisted_variable_script = "          busybox ash \"$script\""
+			unlisted_braced_variable_script = "          busybox ash \"${script}\""
 			unlisted_dollar_substitution = "          result=\"$(busybox ash tests/unregistered.sh)\""
 			unlisted_quoted_paren_substitution = "          result=\"$(printf " single_quote ")" single_quote "; busybox ash tests/unregistered.sh)\""
 			unlisted_backtick_substitution = "          result=\"`busybox ash tests/unregistered.sh`\""
@@ -482,6 +485,13 @@ for mutation in missing duplicate unguarded late_initialization moved_named move
 			else if (mutation == "unlisted_double_quoted_script") print unlisted_double_quoted_script
 			else if (mutation == "unlisted_spaced_double_quoted_script") print unlisted_spaced_double_quoted_script
 			else if (mutation == "unlisted_single_quoted_script") print unlisted_single_quoted_script
+			else if (mutation == "unlisted_variable_script") {
+				print "          script=tests/unregistered.sh"
+				print unlisted_variable_script
+			} else if (mutation == "unlisted_braced_variable_script") {
+				print "          script=tests/unregistered.sh"
+				print unlisted_braced_variable_script
+			}
 			else if (mutation == "unlisted_dollar_substitution") print unlisted_dollar_substitution
 			else if (mutation == "unlisted_quoted_paren_substitution") print unlisted_quoted_paren_substitution
 			else if (mutation == "unlisted_backtick_substitution") print unlisted_backtick_substitution
