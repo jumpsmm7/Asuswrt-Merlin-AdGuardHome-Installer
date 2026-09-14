@@ -105,7 +105,11 @@ grouped_shell_regression_step_is_aggregated() {
 			}
 			return normalized
 		}
-		BEGIN { single_quote = sprintf("%c", 39); expected_count = split(expected_scripts, expected, " ") }
+		BEGIN {
+			single_quote = sprintf("%c", 39)
+			single_quoted_script = "busybox[[:space:]]+ash[[:space:]]+" single_quote "tests/[^" single_quote "]*[.]sh" single_quote
+			expected_count = split(expected_scripts, expected, " ")
+		}
 		$0 == "      - name: " step_name { in_step = 1; found++; next }
 		in_step && /^      -([[:space:]]|$)/ { in_step = 0 }
 		in_step && $0 == "          failed=0" { initialized++ }
@@ -113,6 +117,8 @@ grouped_shell_regression_step_is_aggregated() {
 		in_step {
 			normalized_line = normalize_quoted_fields($0)
 			if (normalized_line ~ /^[[:space:]]*(([a-zA-Z_][a-zA-Z0-9_]*=[^[:space:]]*|[^[:space:]#]+)[[:space:]]+)*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh([[:space:]]|$)/ ||
+				$0 ~ /busybox[[:space:]]+ash[[:space:]]+"tests\/[^"[:space:]]*\.sh"/ ||
+				$0 ~ single_quoted_script ||
 				$0 ~ /[$][(].*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh/ ||
 				$0 ~ /`[^`]*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh/) {
 				script = $0
@@ -417,7 +423,7 @@ for sarif_workflow in '.github/workflows/osv-scanner.yml' "${SCORECARD_WORKFLOW}
 done
 grouped_shell_regressions_are_aggregated "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: grouped regression steps must run every command and preserve a failing final status"
-for mutation in missing duplicate unguarded moved_named moved_unnamed moved_bare after_exit unlisted_unguarded unlisted_altered_timeout unlisted_direct unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment unlisted_quoted_assignment unlisted_dollar_substitution unlisted_quoted_paren_substitution unlisted_backtick_substitution; do
+for mutation in missing duplicate unguarded moved_named moved_unnamed moved_bare after_exit unlisted_unguarded unlisted_altered_timeout unlisted_direct unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment unlisted_quoted_assignment unlisted_double_quoted_script unlisted_single_quoted_script unlisted_dollar_substitution unlisted_quoted_paren_substitution unlisted_backtick_substitution; do
 	mutated_workflow="${TMP_ROOT}/grouped-shell-${mutation}.yml"
 	awk -v mutation="${mutation}" '
 		BEGIN {
@@ -434,6 +440,8 @@ for mutation in missing duplicate unguarded moved_named moved_unnamed moved_bare
 			unlisted_assignment = "          CI=1 busybox ash tests/unregistered.sh"
 			unlisted_hash_assignment = "          X=# busybox ash tests/unregistered.sh"
 			unlisted_quoted_assignment = "          X=" single_quote "a # b" single_quote " busybox ash tests/unregistered.sh"
+			unlisted_double_quoted_script = "          busybox ash \"tests/unregistered.sh\""
+			unlisted_single_quoted_script = "          busybox ash " single_quote "tests/unregistered.sh" single_quote
 			unlisted_dollar_substitution = "          result=\"$(busybox ash tests/unregistered.sh)\""
 			unlisted_quoted_paren_substitution = "          result=\"$(printf " single_quote ")" single_quote "; busybox ash tests/unregistered.sh)\""
 			unlisted_backtick_substitution = "          result=\"`busybox ash tests/unregistered.sh`\""
@@ -452,6 +460,8 @@ for mutation in missing duplicate unguarded moved_named moved_unnamed moved_bare
 			else if (mutation == "unlisted_assignment") print unlisted_assignment
 			else if (mutation == "unlisted_hash_assignment") print unlisted_hash_assignment
 			else if (mutation == "unlisted_quoted_assignment") print unlisted_quoted_assignment
+			else if (mutation == "unlisted_double_quoted_script") print unlisted_double_quoted_script
+			else if (mutation == "unlisted_single_quoted_script") print unlisted_single_quoted_script
 			else if (mutation == "unlisted_dollar_substitution") print unlisted_dollar_substitution
 			else if (mutation == "unlisted_quoted_paren_substitution") print unlisted_quoted_paren_substitution
 			else if (mutation == "unlisted_backtick_substitution") print unlisted_backtick_substitution
