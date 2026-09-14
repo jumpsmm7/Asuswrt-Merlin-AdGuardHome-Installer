@@ -116,7 +116,7 @@ grouped_shell_regression_step_is_aggregated() {
 		in_step && $0 == "          exit \"${failed}\"" { final_status++; after_exit = 1 }
 		in_step {
 			normalized_line = normalize_quoted_fields($0)
-			if (normalized_line ~ /^[[:space:]]*(([a-zA-Z_][a-zA-Z0-9_]*=[^[:space:]]*|[^[:space:]#]+)[[:space:]]+)*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh([[:space:]]|$)/ ||
+			if (normalized_line ~ /^[[:space:]]*(([a-zA-Z_][a-zA-Z0-9_]*=[^[:space:]]*|[^[:space:]#]+)[[:space:]]+)*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh([[:space:];|&<>]|$)/ ||
 				$0 ~ /busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\\[[:space:]].*\.sh/ ||
 				$0 ~ /busybox[[:space:]]+ash[[:space:]]+"tests\/[^"]*\.sh"/ ||
 				$0 ~ single_quoted_script ||
@@ -124,7 +124,7 @@ grouped_shell_regression_step_is_aggregated() {
 				$0 ~ /`[^`]*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh/) {
 				script = $0
 				sub(/^.*[[:space:]]busybox[[:space:]]+ash[[:space:]]+/, "", script)
-				sub(/[[:space:]].*$/, "", script)
+				sub(/[[:space:];|&<>].*$/, "", script)
 				registered = 0
 				for (i = 1; i <= expected_count; i++)
 					if (script == expected[i]) registered = 1
@@ -424,7 +424,7 @@ for sarif_workflow in '.github/workflows/osv-scanner.yml' "${SCORECARD_WORKFLOW}
 done
 grouped_shell_regressions_are_aggregated "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: grouped regression steps must run every command and preserve a failing final status"
-for mutation in missing duplicate unguarded moved_named moved_unnamed moved_bare after_exit unlisted_unguarded unlisted_altered_timeout unlisted_direct unlisted_escaped_script unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment unlisted_quoted_assignment unlisted_double_quoted_script unlisted_spaced_double_quoted_script unlisted_single_quoted_script unlisted_dollar_substitution unlisted_quoted_paren_substitution unlisted_backtick_substitution; do
+for mutation in missing duplicate unguarded moved_named moved_unnamed moved_bare after_exit unlisted_unguarded unlisted_operator unlisted_altered_timeout unlisted_direct unlisted_escaped_script unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment unlisted_quoted_assignment unlisted_double_quoted_script unlisted_spaced_double_quoted_script unlisted_single_quoted_script unlisted_dollar_substitution unlisted_quoted_paren_substitution unlisted_backtick_substitution; do
 	mutated_workflow="${TMP_ROOT}/grouped-shell-${mutation}.yml"
 	awk -v mutation="${mutation}" '
 		BEGIN {
@@ -432,6 +432,7 @@ for mutation in missing duplicate unguarded moved_named moved_unnamed moved_bare
 			target = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-transactions.sh || failed=1"
 			duplicate = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-modes.sh || failed=1"
 			unlisted = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/unlisted-grouped-regression.sh"
+			unlisted_operator = "          busybox ash tests/unregistered.sh|| failed=1"
 			unlisted_altered_timeout = "          /usr/bin/timeout --kill-after=5 180 busybox ash tests/unlisted-grouped-regression.sh || failed=1"
 			unlisted_direct = "          busybox ash tests/unregistered.sh"
 			unlisted_escaped_script = "          busybox ash tests/unregistered\\ file.sh"
@@ -454,6 +455,7 @@ for mutation in missing duplicate unguarded moved_named moved_unnamed moved_bare
 			else if (mutation == "unguarded") print "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-transactions.sh"
 			else if (mutation != "missing" && mutation != "moved_named" && mutation != "moved_unnamed" && mutation != "moved_bare" && mutation != "after_exit") print
 			if (mutation == "unlisted_unguarded") print unlisted
+			else if (mutation == "unlisted_operator") print unlisted_operator
 			else if (mutation == "unlisted_altered_timeout") print unlisted_altered_timeout
 			else if (mutation == "unlisted_direct") print unlisted_direct
 			else if (mutation == "unlisted_escaped_script") print unlisted_escaped_script
