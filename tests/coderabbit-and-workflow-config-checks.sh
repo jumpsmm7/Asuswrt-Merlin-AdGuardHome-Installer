@@ -107,12 +107,14 @@ grouped_shell_regression_step_is_aggregated() {
 		}
 		BEGIN { single_quote = sprintf("%c", 39); expected_count = split(expected_scripts, expected, " ") }
 		$0 == "      - name: " step_name { in_step = 1; found++; next }
-		in_step && /^      - / { in_step = 0 }
+		in_step && /^      -([[:space:]]|$)/ { in_step = 0 }
 		in_step && $0 == "          failed=0" { initialized++ }
 		in_step && $0 == "          exit \"${failed}\"" { final_status++; after_exit = 1 }
 		in_step {
 			normalized_line = normalize_quoted_fields($0)
-			if (normalized_line ~ /^[[:space:]]*(([a-zA-Z_][a-zA-Z0-9_]*=[^[:space:]]*|[^[:space:]#]+)[[:space:]]+)*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh([[:space:]]|$)/) {
+			if (normalized_line ~ /^[[:space:]]*(([a-zA-Z_][a-zA-Z0-9_]*=[^[:space:]]*|[^[:space:]#]+)[[:space:]]+)*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh([[:space:]]|$)/ ||
+				$0 ~ /[$][(][^)]*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh/ ||
+				$0 ~ /`[^`]*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh/) {
 				script = $0
 				sub(/^.*[[:space:]]busybox[[:space:]]+ash[[:space:]]+/, "", script)
 				sub(/[[:space:]].*$/, "", script)
@@ -415,7 +417,7 @@ for sarif_workflow in '.github/workflows/osv-scanner.yml' "${SCORECARD_WORKFLOW}
 done
 grouped_shell_regressions_are_aggregated "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: grouped regression steps must run every command and preserve a failing final status"
-for mutation in missing duplicate unguarded moved_named moved_unnamed after_exit unlisted_unguarded unlisted_altered_timeout unlisted_direct unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment unlisted_quoted_assignment; do
+for mutation in missing duplicate unguarded moved_named moved_unnamed moved_bare after_exit unlisted_unguarded unlisted_altered_timeout unlisted_direct unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment unlisted_quoted_assignment unlisted_dollar_substitution unlisted_backtick_substitution; do
 	mutated_workflow="${TMP_ROOT}/grouped-shell-${mutation}.yml"
 	awk -v mutation="${mutation}" '
 		BEGIN {
@@ -432,11 +434,13 @@ for mutation in missing duplicate unguarded moved_named moved_unnamed after_exit
 			unlisted_assignment = "          CI=1 busybox ash tests/unregistered.sh"
 			unlisted_hash_assignment = "          X=# busybox ash tests/unregistered.sh"
 			unlisted_quoted_assignment = "          X=" single_quote "a # b" single_quote " busybox ash tests/unregistered.sh"
+			unlisted_dollar_substitution = "          result=\"$(busybox ash tests/unregistered.sh)\""
+			unlisted_backtick_substitution = "          result=\"`busybox ash tests/unregistered.sh`\""
 		}
 		$0 == target {
 			if (mutation == "duplicate") print duplicate
 			else if (mutation == "unguarded") print "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-transactions.sh"
-			else if (mutation != "missing" && mutation != "moved_named" && mutation != "moved_unnamed" && mutation != "after_exit") print
+			else if (mutation != "missing" && mutation != "moved_named" && mutation != "moved_unnamed" && mutation != "moved_bare" && mutation != "after_exit") print
 			if (mutation == "unlisted_unguarded") print unlisted
 			else if (mutation == "unlisted_altered_timeout") print unlisted_altered_timeout
 			else if (mutation == "unlisted_direct") print unlisted_direct
@@ -447,9 +451,19 @@ for mutation in missing duplicate unguarded moved_named moved_unnamed after_exit
 			else if (mutation == "unlisted_assignment") print unlisted_assignment
 			else if (mutation == "unlisted_hash_assignment") print unlisted_hash_assignment
 			else if (mutation == "unlisted_quoted_assignment") print unlisted_quoted_assignment
+			else if (mutation == "unlisted_dollar_substitution") print unlisted_dollar_substitution
+			else if (mutation == "unlisted_backtick_substitution") print unlisted_backtick_substitution
 			next
 		}
 		$0 == "          exit \"${failed}\"" {
+			if (mutation == "moved_bare" && !inserted) {
+				print "      -"
+				print "        run: |"
+				print target
+				print
+				inserted = 1
+				next
+			}
 			print
 			if (mutation == "moved_unnamed" && !inserted) {
 				print "      - run: |"
