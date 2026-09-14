@@ -89,13 +89,30 @@ workflow_concurrency_is_ref_scoped() {
 # belonging to one named multi-regression shell-validation step.
 grouped_shell_regression_step_is_aggregated() {
 	awk -v step_name="$2" -v expected_scripts="$3" '
-		BEGIN { expected_count = split(expected_scripts, expected, " ") }
+		function normalize_quoted_fields(line, c, escaped, i, normalized, quote) {
+			normalized = ""
+			for (i = 1; i <= length(line); i++) {
+				c = substr(line, i, 1)
+				if (quote != "") {
+					if (quote == "\"" && c == "\\" && !escaped) escaped = 1
+					else if (c == quote && !escaped) quote = ""
+					else escaped = 0
+					normalized = normalized "q"
+				} else if (c == "\"" || c == single_quote) {
+					quote = c
+					normalized = normalized "q"
+				} else normalized = normalized c
+			}
+			return normalized
+		}
+		BEGIN { single_quote = sprintf("%c", 39); expected_count = split(expected_scripts, expected, " ") }
 		$0 == "      - name: " step_name { in_step = 1; found++; next }
 		in_step && /^      - / { in_step = 0 }
 		in_step && $0 == "          failed=0" { initialized++ }
 		in_step && $0 == "          exit \"${failed}\"" { final_status++; after_exit = 1 }
 		in_step {
-			if ($0 ~ /^[[:space:]]*(([a-zA-Z_][a-zA-Z0-9_]*=[^[:space:]]*|[^[:space:]#]+)[[:space:]]+)*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh([[:space:]]|$)/) {
+			normalized_line = normalize_quoted_fields($0)
+			if (normalized_line ~ /^[[:space:]]*(([a-zA-Z_][a-zA-Z0-9_]*=[^[:space:]]*|[^[:space:]#]+)[[:space:]]+)*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh([[:space:]]|$)/) {
 				script = $0
 				sub(/^.*[[:space:]]busybox[[:space:]]+ash[[:space:]]+/, "", script)
 				sub(/[[:space:]].*$/, "", script)
@@ -398,10 +415,11 @@ for sarif_workflow in '.github/workflows/osv-scanner.yml' "${SCORECARD_WORKFLOW}
 done
 grouped_shell_regressions_are_aggregated "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: grouped regression steps must run every command and preserve a failing final status"
-for mutation in missing duplicate unguarded moved_named moved_unnamed after_exit unlisted_unguarded unlisted_altered_timeout unlisted_direct unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment; do
+for mutation in missing duplicate unguarded moved_named moved_unnamed after_exit unlisted_unguarded unlisted_altered_timeout unlisted_direct unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment unlisted_quoted_assignment; do
 	mutated_workflow="${TMP_ROOT}/grouped-shell-${mutation}.yml"
 	awk -v mutation="${mutation}" '
 		BEGIN {
+			single_quote = sprintf("%c", 39)
 			target = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-transactions.sh || failed=1"
 			duplicate = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-modes.sh || failed=1"
 			unlisted = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/unlisted-grouped-regression.sh"
@@ -413,6 +431,7 @@ for mutation in missing duplicate unguarded moved_named moved_unnamed after_exit
 			unlisted_env_assignment = "          env CI=1 busybox ash tests/unregistered.sh"
 			unlisted_assignment = "          CI=1 busybox ash tests/unregistered.sh"
 			unlisted_hash_assignment = "          X=# busybox ash tests/unregistered.sh"
+			unlisted_quoted_assignment = "          X=" single_quote "a # b" single_quote " busybox ash tests/unregistered.sh"
 		}
 		$0 == target {
 			if (mutation == "duplicate") print duplicate
@@ -427,6 +446,7 @@ for mutation in missing duplicate unguarded moved_named moved_unnamed after_exit
 			else if (mutation == "unlisted_env_assignment") print unlisted_env_assignment
 			else if (mutation == "unlisted_assignment") print unlisted_assignment
 			else if (mutation == "unlisted_hash_assignment") print unlisted_hash_assignment
+			else if (mutation == "unlisted_quoted_assignment") print unlisted_quoted_assignment
 			next
 		}
 		$0 == "          exit \"${failed}\"" {
