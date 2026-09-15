@@ -124,7 +124,8 @@ grouped_shell_regression_step_is_aggregated() {
 				next
 			}
 			normalized_line = normalize_quoted_fields(inventory_line)
-			if (normalized_line ~ /^[[:space:]]*(([a-zA-Z_][a-zA-Z0-9_]*=[^[:space:]]*|[^[:space:]#]+)[[:space:]]+)*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh([[:space:];|&<>]|$)/ ||
+			if (normalized_line ~ /(^|[[:space:];|&])eval([[:space:];|&]|$)/ ||
+				normalized_line ~ /^[[:space:]]*(([a-zA-Z_][a-zA-Z0-9_]*=[^[:space:]]*|[^[:space:]#]+)[[:space:]]+)*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh([[:space:];|&<>]|$)/ ||
 				inventory_line ~ /busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\\[[:space:]].*\.sh/ ||
 				inventory_line ~ /busybox[[:space:]]+ash[[:space:]]+"tests\/[^"]*\.sh"/ ||
 				inventory_line ~ single_quoted_script ||
@@ -440,7 +441,7 @@ for sarif_workflow in '.github/workflows/osv-scanner.yml' "${SCORECARD_WORKFLOW}
 done
 grouped_shell_regressions_are_aggregated "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: grouped regression steps must run every command and preserve a failing final status"
-for mutation in missing duplicate unguarded late_initialization moved_named moved_unnamed moved_bare after_exit unlisted_unguarded unlisted_continuation unlisted_operator unlisted_altered_timeout unlisted_direct unlisted_ash_option unlisted_ash_option_double_quoted unlisted_ash_option_single_quoted unlisted_ash_option_variable unlisted_ash_option_braced_variable unlisted_escaped_script unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment unlisted_quoted_assignment unlisted_double_quoted_script unlisted_spaced_double_quoted_script unlisted_single_quoted_script unlisted_variable_script unlisted_braced_variable_script unlisted_substituted_script unlisted_unquoted_substituted_script unlisted_substituted_ash unlisted_unquoted_substituted_ash unlisted_dollar_substitution unlisted_quoted_paren_substitution unlisted_backtick_substitution; do
+for mutation in missing duplicate unguarded late_initialization moved_named moved_unnamed moved_bare after_exit unlisted_unguarded unlisted_continuation unlisted_operator unlisted_altered_timeout unlisted_direct unlisted_ash_option unlisted_ash_option_double_quoted unlisted_ash_option_single_quoted unlisted_ash_option_variable unlisted_ash_option_braced_variable unlisted_escaped_script unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment unlisted_quoted_assignment unlisted_double_quoted_script unlisted_spaced_double_quoted_script unlisted_single_quoted_script unlisted_variable_script unlisted_braced_variable_script unlisted_substituted_script unlisted_unquoted_substituted_script unlisted_substituted_ash unlisted_unquoted_substituted_ash unlisted_dollar_substitution unlisted_quoted_paren_substitution unlisted_backtick_substitution unlisted_eval; do
 	mutated_workflow="${TMP_ROOT}/grouped-shell-${mutation}.yml"
 	awk -v mutation="${mutation}" '
 		BEGIN {
@@ -477,6 +478,7 @@ for mutation in missing duplicate unguarded late_initialization moved_named move
 			unlisted_dollar_substitution = "          result=\"$(busybox ash tests/unregistered.sh)\""
 			unlisted_quoted_paren_substitution = "          result=\"$(printf " single_quote ")" single_quote "; busybox ash tests/unregistered.sh)\""
 			unlisted_backtick_substitution = "          result=\"`busybox ash tests/unregistered.sh`\""
+			unlisted_eval = "          eval \"busybox ash tests/unregistered.sh\""
 		}
 		$0 == target {
 			if (mutation == "duplicate") print duplicate
@@ -525,6 +527,7 @@ for mutation in missing duplicate unguarded late_initialization moved_named move
 			else if (mutation == "unlisted_dollar_substitution") print unlisted_dollar_substitution
 			else if (mutation == "unlisted_quoted_paren_substitution") print unlisted_quoted_paren_substitution
 			else if (mutation == "unlisted_backtick_substitution") print unlisted_backtick_substitution
+			else if (mutation == "unlisted_eval") print unlisted_eval
 			if (mutation == "late_initialization") print "          failed=0"
 			next
 		}
