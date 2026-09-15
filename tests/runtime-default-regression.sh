@@ -29,7 +29,7 @@ grep -q '^DEFAULT_ADGUARD_PROC_PROFILE="aggressive"$' "${MANAGER_PATH}" || fail 
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^conf_has_key() {$/,/^}$/p; /^write_conf_if_absent() {$/,/^}$/p; /^ipv4_is_valid() {$/,/^}$/p; /^adguard_install_feature_defaults() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^configure_runtime_defaults() {$/,/^}$/p; /^cli_migrate_runtime_default() {$/,/^}$/p; /^cli_migrate_runtime_defaults() {$/,/^}$/p' \
+	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^conf_has_key() {$/,/^}$/p; /^adguard_ipset_allowed() {$/,/^}$/p; /^write_conf_if_absent() {$/,/^}$/p; /^ipv4_is_valid() {$/,/^}$/p; /^adguard_install_feature_defaults() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^configure_runtime_defaults() {$/,/^}$/p; /^cli_migrate_runtime_default() {$/,/^}$/p; /^cli_migrate_runtime_defaults() {$/,/^}$/p' \
 	"${INSTALLER_PATH}" >"${INSTALLER_FUNCTIONS}" || fail 'could not extract installer runtime helpers'
 grep -q '^adguard_install_feature_defaults() {$' "${INSTALLER_FUNCTIONS}" || fail 'install feature defaults helper missing'
 grep -q '^configure_runtime_defaults() {$' "${INSTALLER_FUNCTIONS}" || fail 'configure_runtime_defaults helper missing'
@@ -44,6 +44,11 @@ grep -q '^dns_port_unknown_refusal_enabled() {$' "${S99_FUNCTIONS}" || fail 'DNS
 INFO='[i]'
 WARNING='[w]'
 ERROR='[!]'
+
+# wan_iptables_state_active reports whether WAN NAT is active.
+wan_iptables_state_active() {
+	[ "${WAN_NAT_ACTIVE:-0}" -eq 1 ]
+}
 
 # adguard_install_mode_confirmed reports whether the configured installation mode is recognized as WAN or LAN.
 adguard_install_mode_confirmed() {
@@ -78,6 +83,12 @@ adguard_install_feature_defaults >"${TMP_ROOT}/feature-wan-existing-no.out" || f
 grep -q '^ADGUARD_IPSET="NO"$' "${CONF_FILE}" || fail 'WAN feature defaults overwrote explicit IPSET disablement'
 grep -q '^ADGUARD_DNSMASQ_MODE="enabled"$' "${CONF_FILE}" || fail 'WAN existing feature defaults did not save enabled DNSMasq mode'
 
+CONF_FILE="${TMP_ROOT}/new-wan-disabled.config"
+printf '%s\n' 'ADGUARD_DNSMASQ_MODE="disabled"' >"${CONF_FILE}" || fail 'could not seed disabled WAN dnsmasq mode'
+ADGUARD_INSTALL_MODE="wan"
+configure_runtime_defaults new-install wan 0 >"${TMP_ROOT}/new-wan-disabled.out" || fail 'disabled WAN dnsmasq defaults failed'
+grep -q '^ADGUARD_DNSMASQ_MODE="disabled"$' "${CONF_FILE}" || fail 'fresh WAN defaults overwrote unavailable dnsmasq mode'
+
 CONF_FILE="${TMP_ROOT}/new-lan.config"
 # nvram returns the configured LAN gateway address for supported queries and fails for all other queries.
 nvram() {
@@ -92,6 +103,14 @@ adguard_install_feature_defaults >"${TMP_ROOT}/feature-lan.out" || fail 'LAN ins
 grep -q '^ADGUARD_IPSET="NO"$' "${CONF_FILE}" || fail 'LAN feature defaults did not force IPSET disablement'
 grep -q '^ADGUARD_DNSMASQ_MODE="auto"$' "${CONF_FILE}" || fail 'LAN feature defaults did not force auto DNSMasq mode'
 grep -q '^ADGUARD_LAN_REVERSE_UPSTREAM="192.168.50.1"$' "${CONF_FILE}" || fail 'LAN feature defaults did not save detected gateway reverse upstream'
+
+CONF_FILE="${TMP_ROOT}/new-lan-double-nat.config"
+printf '%s\n' 'ADGUARD_IPSET="YES"' 'ADGUARD_DNSMASQ_MODE="enabled"' >"${CONF_FILE}" || fail 'could not seed double-NAT LAN feature config'
+ADGUARD_INSTALL_MODE="lan"
+WAN_NAT_ACTIVE=1
+adguard_install_feature_defaults >"${TMP_ROOT}/feature-lan-double-nat.out" || fail 'double-NAT LAN install feature defaults failed'
+grep -q '^ADGUARD_IPSET="YES"$' "${CONF_FILE}" || fail 'double-NAT LAN feature defaults disabled explicit IPSET integration'
+WAN_NAT_ACTIVE=0
 
 CONF_FILE="${TMP_ROOT}/new-lan-disabled.config"
 printf '%s\n' 'ADGUARD_DNSMASQ_MODE="disabled"' >"${CONF_FILE}" || fail 'could not seed disabled LAN dnsmasq mode'

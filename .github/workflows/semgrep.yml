@@ -2,12 +2,15 @@ name: Semgrep Security Scan
 
 on:
   pull_request:
-    branches: [dev]
+  merge_group:
   push:
-    branches: [dev, master, main]
   schedule:
     - cron: '17 6 * * 1'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

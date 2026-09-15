@@ -75,4 +75,9 @@ IPSet_Disable_Managed || fail 'custom external path was rejected'
 [ -z "${IPSET_DISABLE_CHANGED:-}" ] || fail 'unchanged custom path was reported as changed'
 cmp -s "${YAML_FILE}" "${YAML_FILE}.expected" >/dev/null 2>&1 || fail 'custom external path was modified'
 
-printf '%s\n' 'PASS: legacy setup disables only the managed ipset_file and preserves YAML metadata'
+IPSet_Disable_Managed configured || fail 'topology cleanup rejected a custom external path'
+[ "${IPSET_DISABLE_CHANGED:-}" = 1 ] || fail 'custom path removal was not reported as changed'
+! grep -Eq '^[[:space:]]*ipset_file:' "${YAML_FILE}" || fail 'topology cleanup retained a custom external path'
+grep -Eq '^[[:space:]]*- example.org/router$' "${YAML_FILE}" || fail 'topology cleanup removed inline IPSET metadata'
+
+printf '%s\n' 'PASS: IPSET cleanup scopes file removal and preserves YAML metadata'
