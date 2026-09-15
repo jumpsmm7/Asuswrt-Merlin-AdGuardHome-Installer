@@ -108,6 +108,7 @@ grouped_shell_regression_step_is_aggregated() {
 		BEGIN {
 			single_quote = sprintf("%c", 39)
 			single_quoted_script = "busybox[[:space:]]+ash[[:space:]]+" single_quote "tests/[^" single_quote "]*[.]sh" single_quote
+			single_quoted_option_script = "busybox[[:space:]]+ash[[:space:]]+-[^;|&<>]*[[:space:]]+" single_quote "tests/[^" single_quote "]*[.]sh" single_quote
 			expected_count = split(expected_scripts, expected, " ")
 		}
 		$0 == "      - name: " step_name { in_step = 1; found++; next }
@@ -129,6 +130,8 @@ grouped_shell_regression_step_is_aggregated() {
 				inventory_line ~ single_quoted_script ||
 				inventory_line ~ /busybox[[:space:]]+ash[[:space:]]+"?[$]([a-zA-Z_]|[{][a-zA-Z_])/ ||
 				inventory_line ~ /busybox[[:space:]]+ash[[:space:]]+-[^;|&<>]*[[:space:]]+tests\/[^[:space:]]*\.sh/ ||
+				inventory_line ~ /busybox[[:space:]]+ash[[:space:]]+-[^;|&<>]*[[:space:]]+"tests\/[^"]*\.sh"/ ||
+				inventory_line ~ single_quoted_option_script ||
 				inventory_line ~ /busybox[[:space:]]+"?[$][(].*[)]"?[[:space:]]+tests\/[^[:space:]]*\.sh/ ||
 				inventory_line ~ /[$][(].*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh/ ||
 				inventory_line ~ /`[^`]*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh/) {
@@ -435,7 +438,7 @@ for sarif_workflow in '.github/workflows/osv-scanner.yml' "${SCORECARD_WORKFLOW}
 done
 grouped_shell_regressions_are_aggregated "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: grouped regression steps must run every command and preserve a failing final status"
-for mutation in missing duplicate unguarded late_initialization moved_named moved_unnamed moved_bare after_exit unlisted_unguarded unlisted_continuation unlisted_operator unlisted_altered_timeout unlisted_direct unlisted_ash_option unlisted_escaped_script unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment unlisted_quoted_assignment unlisted_double_quoted_script unlisted_spaced_double_quoted_script unlisted_single_quoted_script unlisted_variable_script unlisted_braced_variable_script unlisted_substituted_ash unlisted_unquoted_substituted_ash unlisted_dollar_substitution unlisted_quoted_paren_substitution unlisted_backtick_substitution; do
+for mutation in missing duplicate unguarded late_initialization moved_named moved_unnamed moved_bare after_exit unlisted_unguarded unlisted_continuation unlisted_operator unlisted_altered_timeout unlisted_direct unlisted_ash_option unlisted_ash_option_double_quoted unlisted_ash_option_single_quoted unlisted_escaped_script unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment unlisted_quoted_assignment unlisted_double_quoted_script unlisted_spaced_double_quoted_script unlisted_single_quoted_script unlisted_variable_script unlisted_braced_variable_script unlisted_substituted_ash unlisted_unquoted_substituted_ash unlisted_dollar_substitution unlisted_quoted_paren_substitution unlisted_backtick_substitution; do
 	mutated_workflow="${TMP_ROOT}/grouped-shell-${mutation}.yml"
 	awk -v mutation="${mutation}" '
 		BEGIN {
@@ -448,6 +451,8 @@ for mutation in missing duplicate unguarded late_initialization moved_named move
 			unlisted_altered_timeout = "          /usr/bin/timeout --kill-after=5 180 busybox ash tests/unlisted-grouped-regression.sh || failed=1"
 			unlisted_direct = "          busybox ash tests/unregistered.sh"
 			unlisted_ash_option = "          busybox ash -e tests/unregistered.sh"
+			unlisted_ash_option_double_quoted = "          busybox ash -e \"tests/unregistered.sh\""
+			unlisted_ash_option_single_quoted = "          busybox ash -e " single_quote "tests/unregistered.sh" single_quote
 			unlisted_escaped_script = "          busybox ash tests/unregistered\\ file.sh"
 			unlisted_extra_indent = "            /usr/bin/timeout --kill-after=10 180 busybox ash tests/unregistered.sh || failed=1"
 			unlisted_command_prefix = "          command busybox ash tests/unregistered.sh"
@@ -480,6 +485,8 @@ for mutation in missing duplicate unguarded late_initialization moved_named move
 			else if (mutation == "unlisted_altered_timeout") print unlisted_altered_timeout
 			else if (mutation == "unlisted_direct") print unlisted_direct
 			else if (mutation == "unlisted_ash_option") print unlisted_ash_option
+			else if (mutation == "unlisted_ash_option_double_quoted") print unlisted_ash_option_double_quoted
+			else if (mutation == "unlisted_ash_option_single_quoted") print unlisted_ash_option_single_quoted
 			else if (mutation == "unlisted_escaped_script") print unlisted_escaped_script
 			else if (mutation == "unlisted_extra_indent") print unlisted_extra_indent
 			else if (mutation == "unlisted_command_prefix") print unlisted_command_prefix
