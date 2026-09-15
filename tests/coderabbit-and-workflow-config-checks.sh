@@ -85,25 +85,94 @@ workflow_concurrency_is_ref_scoped() {
 	' "$1"
 }
 
-# grouped_shell_regressions_are_aggregated verifies that every command in a
-# multi-regression shell-validation step runs before the step reports failure.
-grouped_shell_regressions_are_aggregated() {
-	awk '
-		/^      - name: Run installer LAN topology and hook regressions$/ { in_step = 1; found = 1; next }
-		in_step && /^      - name:/ { exit }
-		in_step && $0 == "          failed=0" { initialized = 1 }
-		in_step && /busybox ash tests\/.*\.sh \|\| failed=1$/ { guarded++ }
-		in_step && $0 == "          exit \"${failed}\"" { final_status = 1 }
-		END { if (!found || !initialized || guarded != 11 || !final_status) exit 1 }
-	' "$1" || return 1
-	awk '
-		/^      - name: Run lifecycle and workflow timeout contract regressions$/ { in_step = 1; found = 1; next }
-		in_step && /^      - name:/ { exit }
-		in_step && $0 == "          failed=0" { initialized = 1 }
-		in_step && /busybox ash tests\/.*\.sh \|\| failed=1$/ { guarded++ }
-		in_step && $0 == "          exit \"${failed}\"" { final_status = 1 }
-		END { if (!found || !initialized || guarded != 2 || !final_status) exit 1 }
+# grouped_shell_regression_step_is_aggregated verifies the exact test commands
+# belonging to one named multi-regression shell-validation step.
+grouped_shell_regression_step_is_aggregated() {
+	awk -v step_name="$2" -v expected_scripts="$3" '
+		function normalize_quoted_fields(line, c, escaped, i, normalized, quote) {
+			normalized = ""
+			for (i = 1; i <= length(line); i++) {
+				c = substr(line, i, 1)
+				if (quote != "") {
+					if (quote == "\"" && c == "\\" && !escaped) escaped = 1
+					else if (c == quote && !escaped) quote = ""
+					else escaped = 0
+					normalized = normalized "q"
+				} else if (c == "\"" || c == single_quote) {
+					quote = c
+					normalized = normalized "q"
+				} else normalized = normalized c
+			}
+			return normalized
+		}
+		BEGIN {
+			single_quote = sprintf("%c", 39)
+			single_quoted_script = "busybox[[:space:]]+ash[[:space:]]+" single_quote "tests/[^" single_quote "]*[.]sh" single_quote
+			single_quoted_option_script = "busybox[[:space:]]+ash[[:space:]]+-[^;|&<>]*[[:space:]]+" single_quote "tests/[^" single_quote "]*[.]sh" single_quote
+			expected_count = split(expected_scripts, expected, " ")
+		}
+		$0 == "      - name: " step_name { in_step = 1; found++; next }
+		in_step && /^      -([[:space:]]|$)/ { in_step = 0; continued_line = "" }
+		in_step && $0 == "          failed=0" { initialized++ }
+		in_step && $0 == "          exit \"${failed}\"" { final_status++; after_exit = 1 }
+		in_step {
+			inventory_line = continued_line $0
+			continued_line = ""
+			if (inventory_line ~ /\\[[:space:]]*$/) {
+				sub(/\\[[:space:]]*$/, "", inventory_line)
+				continued_line = inventory_line
+				next
+			}
+			normalized_line = normalize_quoted_fields(inventory_line)
+			if (normalized_line ~ /(^|[[:space:];|&])eval([[:space:];|&]|$)/ ||
+				normalized_line ~ /^[[:space:]]*(([a-zA-Z_][a-zA-Z0-9_]*=[^[:space:]]*|[^[:space:]#]+)[[:space:]]+)*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh([[:space:];|&<>]|$)/ ||
+				inventory_line ~ /busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\\[[:space:]].*\.sh/ ||
+				inventory_line ~ /busybox[[:space:]]+ash[[:space:]]+"tests\/[^"]*\.sh"/ ||
+				inventory_line ~ single_quoted_script ||
+				inventory_line ~ /busybox[[:space:]]+ash[[:space:]]+"?[$]([a-zA-Z_]|[{][a-zA-Z_])/ ||
+				inventory_line ~ /busybox[[:space:]]+ash[[:space:]]+-[^;|&<>]*[[:space:]]+tests\/[^[:space:]]*\.sh/ ||
+				inventory_line ~ /busybox[[:space:]]+ash[[:space:]]+-[^;|&<>]*[[:space:]]+"tests\/[^"]*\.sh"/ ||
+				inventory_line ~ single_quoted_option_script ||
+				inventory_line ~ /busybox[[:space:]]+ash[[:space:]]+-[^;|&<>]*[[:space:]]+"?[$]([a-zA-Z_]|[{][a-zA-Z_])/ ||
+				inventory_line ~ /busybox[[:space:]]+ash[[:space:]]+"?[$][(].*tests\/[^[:space:]]*\.sh.*[)]"?/ ||
+				inventory_line ~ /busybox[[:space:]]+"?[$][(].*[)]"?[[:space:]]+tests\/[^[:space:]]*\.sh/ ||
+				inventory_line ~ /[$][(].*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh/ ||
+				inventory_line ~ /`[^`]*busybox[[:space:]]+ash[[:space:]]+tests\/[^[:space:]]*\.sh/) {
+				script = inventory_line
+				sub(/^.*[[:space:]]busybox[[:space:]]+ash[[:space:]]+/, "", script)
+				sub(/[[:space:];|&<>].*$/, "", script)
+				registered = 0
+				for (i = 1; i <= expected_count; i++)
+					if (script == expected[i]) registered = 1
+				if (!registered) unregistered++
+			}
+			for (i = 1; i <= expected_count; i++) {
+				if (index($0, expected[i])) occurrences[i]++
+				required = "          /usr/bin/timeout --kill-after=10 180 busybox ash " expected[i] " || failed=1"
+				if ($0 == required) {
+					guarded[i]++
+					if (!initialized) command_before_init++
+					if (after_exit) command_after_exit++
+				}
+			}
+		}
+		END {
+			if (found != 1 || initialized != 1 || final_status != 1 || command_before_init || command_after_exit || unregistered) exit 1
+			for (i = 1; i <= expected_count; i++)
+				if (occurrences[i] != 1 || guarded[i] != 1) exit 1
+		}
 	' "$1"
+}
+
+# grouped_shell_regressions_are_aggregated verifies that every required command
+# in each grouped step runs before the step reports failure.
+grouped_shell_regressions_are_aggregated() {
+	grouped_shell_regression_step_is_aggregated "$1" \
+		'Run installer LAN topology and hook regressions' \
+		'tests/installer-event-script-modes.sh tests/installer-event-script-transactions.sh tests/installer-cli-lan-mode.sh tests/wan-nat-predicate-parity.sh tests/installer-ipset-setup-save-failure.sh tests/installer-ipset-save-failure.sh tests/installer-ipset-allowed-mode-fallback.sh tests/adguardhome-runtime-mode-helpers.sh tests/dnsmasq-lan-mode.sh tests/ipset-lan-mode.sh tests/installer-single-arg-actions.sh' || return 1
+	grouped_shell_regression_step_is_aggregated "$1" \
+		'Run lifecycle and workflow timeout contract regressions' \
+		'tests/service-lifecycle-suite-timeout.sh tests/shellcheck-workflow-dialect-consistency.sh'
 }
 
 # osv_differential_uploads_are_guarded verifies that both differential SARIF
@@ -372,6 +441,129 @@ for sarif_workflow in '.github/workflows/osv-scanner.yml' "${SCORECARD_WORKFLOW}
 done
 grouped_shell_regressions_are_aggregated "${SHELL_VALIDATION_WORKFLOW}" ||
 	fail "${SHELL_VALIDATION_WORKFLOW}: grouped regression steps must run every command and preserve a failing final status"
+for mutation in missing duplicate unguarded late_initialization moved_named moved_unnamed moved_bare after_exit unlisted_unguarded unlisted_continuation unlisted_operator unlisted_altered_timeout unlisted_direct unlisted_ash_option unlisted_ash_option_double_quoted unlisted_ash_option_single_quoted unlisted_ash_option_variable unlisted_ash_option_braced_variable unlisted_escaped_script unlisted_extra_indent unlisted_command_prefix unlisted_env_prefix unlisted_env_assignment unlisted_assignment unlisted_hash_assignment unlisted_quoted_assignment unlisted_double_quoted_script unlisted_spaced_double_quoted_script unlisted_single_quoted_script unlisted_variable_script unlisted_braced_variable_script unlisted_substituted_script unlisted_unquoted_substituted_script unlisted_substituted_ash unlisted_unquoted_substituted_ash unlisted_dollar_substitution unlisted_quoted_paren_substitution unlisted_backtick_substitution unlisted_eval; do
+	mutated_workflow="${TMP_ROOT}/grouped-shell-${mutation}.yml"
+	awk -v mutation="${mutation}" '
+		BEGIN {
+			single_quote = sprintf("%c", 39)
+			backslash = sprintf("%c", 92)
+			target = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-transactions.sh || failed=1"
+			duplicate = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-modes.sh || failed=1"
+			unlisted = "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/unlisted-grouped-regression.sh"
+			unlisted_operator = "          busybox ash tests/unregistered.sh|| failed=1"
+			unlisted_altered_timeout = "          /usr/bin/timeout --kill-after=5 180 busybox ash tests/unlisted-grouped-regression.sh || failed=1"
+			unlisted_direct = "          busybox ash tests/unregistered.sh"
+			unlisted_ash_option = "          busybox ash -e tests/unregistered.sh"
+			unlisted_ash_option_double_quoted = "          busybox ash -e \"tests/unregistered.sh\""
+			unlisted_ash_option_single_quoted = "          busybox ash -e " single_quote "tests/unregistered.sh" single_quote
+			unlisted_ash_option_variable = "          busybox ash -e \"$script\""
+			unlisted_ash_option_braced_variable = "          busybox ash -e \"${script}\""
+			unlisted_escaped_script = "          busybox ash tests/unregistered\\ file.sh"
+			unlisted_extra_indent = "            /usr/bin/timeout --kill-after=10 180 busybox ash tests/unregistered.sh || failed=1"
+			unlisted_command_prefix = "          command busybox ash tests/unregistered.sh"
+			unlisted_env_prefix = "          env busybox ash tests/unregistered.sh"
+			unlisted_env_assignment = "          env CI=1 busybox ash tests/unregistered.sh"
+			unlisted_assignment = "          CI=1 busybox ash tests/unregistered.sh"
+			unlisted_hash_assignment = "          X=# busybox ash tests/unregistered.sh"
+			unlisted_quoted_assignment = "          X=" single_quote "a # b" single_quote " busybox ash tests/unregistered.sh"
+			unlisted_double_quoted_script = "          busybox ash \"tests/unregistered.sh\""
+			unlisted_spaced_double_quoted_script = "          busybox ash \"tests/unregistered file.sh\""
+			unlisted_single_quoted_script = "          busybox ash " single_quote "tests/unregistered.sh" single_quote
+			unlisted_variable_script = "          busybox ash \"$script\""
+			unlisted_braced_variable_script = "          busybox ash \"${script}\""
+			unlisted_substituted_script = "          busybox ash \"$(printf tests/unregistered.sh)\""
+			unlisted_unquoted_substituted_script = "          busybox ash $(printf tests/unregistered.sh)"
+			unlisted_substituted_ash = "          busybox \"$(printf ash)\" tests/unregistered.sh"
+			unlisted_unquoted_substituted_ash = "          busybox $(printf ash) tests/unregistered.sh"
+			unlisted_dollar_substitution = "          result=\"$(busybox ash tests/unregistered.sh)\""
+			unlisted_quoted_paren_substitution = "          result=\"$(printf " single_quote ")" single_quote "; busybox ash tests/unregistered.sh)\""
+			unlisted_backtick_substitution = "          result=\"`busybox ash tests/unregistered.sh`\""
+			unlisted_eval = "          eval \"busybox ash tests/unregistered.sh\""
+		}
+		$0 == target {
+			if (mutation == "duplicate") print duplicate
+			else if (mutation == "unguarded") print "          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-transactions.sh"
+			else if (mutation != "missing" && mutation != "moved_named" && mutation != "moved_unnamed" && mutation != "moved_bare" && mutation != "after_exit") print
+			if (mutation == "unlisted_unguarded") print unlisted
+			else if (mutation == "unlisted_continuation") {
+				print "          busybox ash " backslash
+				print "            tests/unregistered.sh"
+			}
+			else if (mutation == "unlisted_operator") print unlisted_operator
+			else if (mutation == "unlisted_altered_timeout") print unlisted_altered_timeout
+			else if (mutation == "unlisted_direct") print unlisted_direct
+			else if (mutation == "unlisted_ash_option") print unlisted_ash_option
+			else if (mutation == "unlisted_ash_option_double_quoted") print unlisted_ash_option_double_quoted
+			else if (mutation == "unlisted_ash_option_single_quoted") print unlisted_ash_option_single_quoted
+			else if (mutation == "unlisted_ash_option_variable") {
+				print "          script=tests/unregistered.sh"
+				print unlisted_ash_option_variable
+			} else if (mutation == "unlisted_ash_option_braced_variable") {
+				print "          script=tests/unregistered.sh"
+				print unlisted_ash_option_braced_variable
+			}
+			else if (mutation == "unlisted_escaped_script") print unlisted_escaped_script
+			else if (mutation == "unlisted_extra_indent") print unlisted_extra_indent
+			else if (mutation == "unlisted_command_prefix") print unlisted_command_prefix
+			else if (mutation == "unlisted_env_prefix") print unlisted_env_prefix
+			else if (mutation == "unlisted_env_assignment") print unlisted_env_assignment
+			else if (mutation == "unlisted_assignment") print unlisted_assignment
+			else if (mutation == "unlisted_hash_assignment") print unlisted_hash_assignment
+			else if (mutation == "unlisted_quoted_assignment") print unlisted_quoted_assignment
+			else if (mutation == "unlisted_double_quoted_script") print unlisted_double_quoted_script
+			else if (mutation == "unlisted_spaced_double_quoted_script") print unlisted_spaced_double_quoted_script
+			else if (mutation == "unlisted_single_quoted_script") print unlisted_single_quoted_script
+			else if (mutation == "unlisted_variable_script") {
+				print "          script=tests/unregistered.sh"
+				print unlisted_variable_script
+			} else if (mutation == "unlisted_braced_variable_script") {
+				print "          script=tests/unregistered.sh"
+				print unlisted_braced_variable_script
+			}
+			else if (mutation == "unlisted_substituted_script") print unlisted_substituted_script
+			else if (mutation == "unlisted_unquoted_substituted_script") print unlisted_unquoted_substituted_script
+			else if (mutation == "unlisted_substituted_ash") print unlisted_substituted_ash
+			else if (mutation == "unlisted_unquoted_substituted_ash") print unlisted_unquoted_substituted_ash
+			else if (mutation == "unlisted_dollar_substitution") print unlisted_dollar_substitution
+			else if (mutation == "unlisted_quoted_paren_substitution") print unlisted_quoted_paren_substitution
+			else if (mutation == "unlisted_backtick_substitution") print unlisted_backtick_substitution
+			else if (mutation == "unlisted_eval") print unlisted_eval
+			if (mutation == "late_initialization") print "          failed=0"
+			next
+		}
+		mutation == "late_initialization" && $0 == "          failed=0" { next }
+		$0 == "          exit \"${failed}\"" {
+			if (mutation == "moved_bare" && !inserted) {
+				print "      -"
+				print "        run: |"
+				print target
+				print
+				inserted = 1
+				next
+			}
+			print
+			if (mutation == "moved_unnamed" && !inserted) {
+				print "      - run: |"
+				print target
+				inserted = 1
+			} else if (mutation == "after_exit" && !inserted) {
+				print target
+				inserted = 1
+			}
+			next
+		}
+		{ print }
+		mutation == "moved_named" && $0 == "          failed=0" && lifecycle_step {
+			print target
+			lifecycle_step = 0
+		}
+		$0 == "      - name: Run lifecycle and workflow timeout contract regressions" { lifecycle_step = 1 }
+	' "${SHELL_VALIDATION_WORKFLOW}" >"${mutated_workflow}" ||
+		fail "could not create grouped shell ${mutation} fixture"
+	if grouped_shell_regressions_are_aggregated "${mutated_workflow}"; then
+		fail "${SHELL_VALIDATION_WORKFLOW}: ${mutation} grouped shell mutation bypassed exact command validation"
+	fi
+done
 
 # --- The Sonar parser cleanup must be idempotent. Pull-request validation must
 # use the immutable head SHA with a non-persistent read-only checkout and fail
