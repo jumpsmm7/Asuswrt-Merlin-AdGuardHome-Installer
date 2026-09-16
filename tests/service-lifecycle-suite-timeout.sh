@@ -23,6 +23,8 @@ sed -n '/^suite_timeout_seconds() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FIL
 	fail 'could not extract suite timeout helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'suite timeout helper extraction was empty'
 tail -n 1 "${FUNCTIONS_FILE}" | grep -q '^}$' || fail 'suite timeout helper end boundary is missing'
+[ "$(awk '$0 == "suite_timeout_seconds() {" { helper = 1; next } helper && $0 == "}" { getline; print; exit }' "${SCRIPT_PATH}")" = 'trap cleanup 0' ] ||
+	fail 'suite timeout helper end boundary is not followed by trap cleanup 0'
 if grep -q "^trap 'on_installer_exit' EXIT$" "${FUNCTIONS_FILE}"; then
 	fail 'suite timeout helper extraction included installer top-level execution'
 fi

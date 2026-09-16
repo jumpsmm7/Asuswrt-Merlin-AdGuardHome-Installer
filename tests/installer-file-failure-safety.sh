@@ -502,6 +502,10 @@ EOF
 	printf '%s\n' "new binary" >"${AGH_FILE}"
 	printf '%s\n' "old binary" >"${OLD_BINARY}"
 
+	agh_is_running() {
+		return 1
+	}
+
 	agh_start() {
 		RESTART_CALLS="$((RESTART_CALLS + 1))"
 		return 0

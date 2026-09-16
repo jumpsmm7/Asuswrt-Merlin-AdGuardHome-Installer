@@ -207,7 +207,6 @@ suite_timeout_seconds() {
 	[ "${calculated_timeout}" -lt "$3" ] || return 1
 	printf '%s\n' "${calculated_timeout}"
 }
-
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 case "${TIMEOUT_SECONDS}" in
