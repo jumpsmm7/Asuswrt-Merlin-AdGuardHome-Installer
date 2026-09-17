@@ -29,6 +29,7 @@ sed -n \
 	-e '/^adguard_install_abort_trap_disable_preserve_defer() {$/,/^}/p' \
 	-e '/^adguard_install_abort_on_signal() {$/,/^}/p' \
 	-e '/^adguard_restore_after_failed_replace() {$/,/^}/p' \
+	-e '/^adguard_committed_binary_cleanup_finalize() {$/,/^}/p' \
 	"${SCRIPT_PATH}" >"${TEST_ROOT}/helpers" || fail 'could not extract binary rollback helpers'
 [ -s "${TEST_ROOT}/helpers" ] || fail 'binary rollback helper extraction was empty'
 # shellcheck disable=SC1090
@@ -157,5 +158,29 @@ adguard_install_abort_on_signal
 on_installer_exit || fail 'EXIT cleanup did not retry signal-driven binary rollback'
 [ "$(cat "${AGH_FILE}")" = old ] || fail 'EXIT cleanup did not restore the binary after signal stop failure'
 [ "${ADGUARD_INSTALL_REPLACE_ACTIVE}" = 0 ] || fail 'successful EXIT rollback retained replacement state'
+
+printf '%s\n' committed-new >"${AGH_FILE}"
+OLD_BINARY="${TARG_DIR}/.AdGuardHome.previous.404"
+printf '%s\n' committed-old >"${OLD_BINARY}"
+ADGUARD_INSTALL_REPLACE_ACTIVE=1
+ADGUARD_INSTALL_OLD_BINARY="${OLD_BINARY}"
+ADGUARD_INSTALL_COMMIT_PENDING=1
+ADGUARD_INSTALL_WAS_RUNNING=1
+EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
+MOVE_CALLS=0
+# adguard_committed_binary_cleanup_record_write retains a durable record for the committed backup.
+adguard_committed_binary_cleanup_record_write() {
+	printf '%s\n' "$1" >"${BASE_DIR}/.AdGuardHome.binary-cleanup"
+}
+# adguard_committed_binary_cleanup_retry simulates deletion remaining pending after the signal.
+adguard_committed_binary_cleanup_retry() { return 1; }
+# agh_is_running keeps signal recovery from restarting the committed service fixture.
+agh_is_running() { return 0; }
+adguard_install_abort_on_signal
+[ "$(cat "${AGH_FILE}")" = committed-new ] || fail 'post-commit signal restored the previous binary'
+[ "${MOVE_CALLS}" -eq 0 ] || fail 'post-commit signal invoked binary rollback'
+[ "${ADGUARD_INSTALL_REPLACE_ACTIVE}" = 0 ] || fail 'post-commit signal retained rollback eligibility'
+[ -f "${BASE_DIR}/.AdGuardHome.binary-cleanup" ] || fail 'post-commit signal failed to retain durable cleanup state'
+[ -f "${OLD_BINARY}" ] || fail 'post-commit signal lost the retained cleanup backup'
 
 printf '%s\n' 'PASS: binary rollback state survives stop and restart failures'

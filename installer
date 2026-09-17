@@ -1639,6 +1639,9 @@ on_installer_exit() {
 		adguard_restart_after_install_abort "${ADGUARD_INSTALL_WAS_RUNNING:-0}" ||
 			PTXT "${ERROR} Unable to restore the previous AdGuardHome installation during exit cleanup."
 	fi
+	if [ -n "${ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING:-}" ]; then
+		adguard_committed_binary_cleanup_finalize "${ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING}" || true
+	fi
 	adguard_committed_binary_cleanup_retry || true
 	cleanup_api_files
 	installer_cleanup_tmp_file setup "${SETUP_YAML_TMP_FILE:-}"
@@ -5158,7 +5161,9 @@ adguard_recover_after_event_hook_abort() {
 	fi
 	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
 		if rollback_pending_mode_migration; then
-			all_event_scripts_transaction_detach_after_mode_rollback
+			if [ "${3:-0}" != "1" ]; then
+				all_event_scripts_transaction_detach_after_mode_rollback
+			fi
 		else
 			MODE_ROLLBACK_STATUS=1
 		fi
@@ -5203,6 +5208,7 @@ adguard_install_abort_trap_disable() {
 	ADGUARD_INSTALL_STAGE_DIR=""
 	ADGUARD_INSTALL_WAS_RUNNING="0"
 	ADGUARD_INSTALL_RESTART_PENDING="0"
+	ADGUARD_INSTALL_COMMIT_PENDING="0"
 	ADGUARD_RESTORE_ACTIVE="0"
 	ADGUARD_RESTORE_ROLLBACK_DIR=""
 	ADGUARD_RESTORE_STAGE_DIR=""
@@ -5248,6 +5254,13 @@ adguard_install_abort_on_signal() {
 	RESTORE_TARGET_INSTALLED="${ADGUARD_RESTORE_TARGET_INSTALLED:-0}"
 	TIMEZONE_TMP="${ADGUARD_TIMEZONE_TMP:-}"
 	adguard_install_signal_traps_disable
+	if [ "${ADGUARD_INSTALL_COMMIT_PENDING:-0}" = "1" ] &&
+		[ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] &&
+		[ "${REPLACE_ACTIVE}" = "1" ] && [ -n "${OLD_BINARY}" ]; then
+		adguard_committed_binary_cleanup_finalize "${OLD_BINARY}" || true
+		REPLACE_ACTIVE=0
+		OLD_BINARY=""
+	fi
 	if [ -n "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ]; then
 		all_event_scripts_transaction_rollback || PTXT "${ERROR} Unable to restore interrupted event-hook transaction; recovery snapshot retained at ${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}."
 	fi
@@ -5293,6 +5306,7 @@ adguard_install_abort_trap_enable() {
 	ADGUARD_INSTALL_WAS_RUNNING="$1"
 	ADGUARD_INSTALL_STAGE_DIR="${2:-}"
 	ADGUARD_INSTALL_RESTART_PENDING="0"
+	ADGUARD_INSTALL_COMMIT_PENDING="0"
 	ADGUARD_RESTORE_ACTIVE="0"
 	trap 'adguard_install_abort_on_signal' HUP INT QUIT ABRT TERM
 }
@@ -5400,13 +5414,13 @@ adguard_committed_binary_cleanup_record_write() {
 adguard_committed_binary_cleanup_retry() {
 	local CLEANUP_MARKER CLEANUP_PATH
 	CLEANUP_MARKER="${BASE_DIR}/.AdGuardHome.binary-cleanup"
-	[ -e "${CLEANUP_MARKER}" ] || return 0
+	[ -e "${CLEANUP_MARKER}" ] || [ -L "${CLEANUP_MARKER}" ] || return 0
 	[ -f "${CLEANUP_MARKER}" ] && [ ! -L "${CLEANUP_MARKER}" ] || {
 		PTXT "${ERROR} Unsafe committed-binary cleanup record retained at ${CLEANUP_MARKER}."
 		return 1
 	}
 	IFS= read -r CLEANUP_PATH <"${CLEANUP_MARKER}" || CLEANUP_PATH=""
-	if sed -n '2p' "${CLEANUP_MARKER}" | grep -q . || ! adguard_committed_binary_cleanup_path_valid "${CLEANUP_PATH}"; then
+	if /bin/sed -n '2p' "${CLEANUP_MARKER}" | /bin/grep -q . || ! adguard_committed_binary_cleanup_path_valid "${CLEANUP_PATH}"; then
 		PTXT "${ERROR} Invalid committed-binary cleanup record retained at ${CLEANUP_MARKER}; no file was removed."
 		return 1
 	fi
@@ -5416,6 +5430,28 @@ adguard_committed_binary_cleanup_retry() {
 	fi
 	if ! rm -f "${CLEANUP_MARKER}"; then
 		PTXT "${ERROR} Removed committed binary backup ${CLEANUP_PATH}, but cleanup record removal failed at ${CLEANUP_MARKER}."
+		return 1
+	fi
+	return 0
+}
+
+# adguard_committed_binary_cleanup_finalize disarms rollback and removes or durably records the committed backup in $1.
+adguard_committed_binary_cleanup_finalize() {
+	local COMMITTED_OLD_BINARY
+	COMMITTED_OLD_BINARY="$1"
+	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
+	ADGUARD_INSTALL_OLD_BINARY=""
+	ADGUARD_INSTALL_COMMIT_PENDING="0"
+	adguard_install_signal_traps_disable
+	[ -n "${COMMITTED_OLD_BINARY}" ] || return 0
+	ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING="${COMMITTED_OLD_BINARY}"
+	if adguard_committed_binary_cleanup_record_write "${COMMITTED_OLD_BINARY}"; then
+		ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING=""
+		adguard_committed_binary_cleanup_retry || return 1
+	elif rm -f "${COMMITTED_OLD_BINARY}"; then
+		ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING=""
+	else
+		PTXT "${ERROR} Unable to create ${BASE_DIR}/.AdGuardHome.binary-cleanup or remove retained committed binary backup ${COMMITTED_OLD_BINARY}."
 		return 1
 	fi
 	return 0
@@ -6724,7 +6760,7 @@ add_dnsmasq_event_scripts() {
 
 # inst_AdGuardHome orchestrates the action in $1; an optional build channel in $2 enters package installation or service refresh directly instead of branch discovery.
 inst_AdGuardHome() {
-	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 COMMITTED_OLD_BINARY INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
+	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 COMMITTED_OLD_BINARY EVENT_HOOK_ROLLBACK_FAILED INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
 	if ! ensure_sha256sum_tool; then
@@ -6979,6 +7015,14 @@ inst_AdGuardHome() {
 	ptxt_ok "AdGuardHome service files installed."
 	if ! adguard_install_mode_confirmed; then
 		PTXT "${WARN:-WARNING:} Router mode remains unknown/unreadable (${ADGUARD_INSTALL_MODE_RAW:-unreadable}); retained ADGUARD_INSTALL_MODE=${ADGUARD_INSTALL_MODE} and deferred all mode-dependent migration."
+		if [ "${ADGUARD_INSTALL_REPLACE_ACTIVE:-0}" = "1" ]; then
+			COMMITTED_OLD_BINARY="${ADGUARD_INSTALL_OLD_BINARY}"
+			if ! adguard_committed_binary_cleanup_finalize "${COMMITTED_OLD_BINARY}"; then
+				end_op_message 1 "$1"
+				return 1
+			fi
+		fi
+		adguard_install_abort_trap_disable_preserve_defer
 		return 0
 	fi
 	# Run mode-dependent YAML migration before this orchestration changes
@@ -7147,7 +7191,9 @@ inst_AdGuardHome() {
 		if ! adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1; then
 			MIGRATE_STATUS=2
 		fi
-		adguard_install_abort_trap_disable_preserve_defer
+		if [ "${ADGUARD_INSTALL_RESTART_PENDING:-0}" != "1" ]; then
+			adguard_install_abort_trap_disable_preserve_defer
+		fi
 		end_op_message 1 "$1"
 		return "${MIGRATE_STATUS}"
 	fi
@@ -7175,26 +7221,22 @@ inst_AdGuardHome() {
 			return 1
 		fi
 	fi
+	ADGUARD_INSTALL_COMMIT_PENDING="1"
 	if ! all_event_scripts_transaction_commit; then
-		all_event_scripts_transaction_rollback || true
+		ADGUARD_INSTALL_COMMIT_PENDING="0"
+		EVENT_HOOK_ROLLBACK_FAILED=0
+		all_event_scripts_transaction_rollback || EVENT_HOOK_ROLLBACK_FAILED=1
 		PTXT "${ERROR} Unable to finalize the event-hook recovery transaction."
-		adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1
+		adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1 "${EVENT_HOOK_ROLLBACK_FAILED}"
 		end_op_message 1 "$1"
 		return 1
 	fi
 	if [ "${ADGUARD_INSTALL_REPLACE_ACTIVE:-0}" = "1" ]; then
 		COMMITTED_OLD_BINARY="${ADGUARD_INSTALL_OLD_BINARY}"
-		adguard_install_signal_traps_disable
-		ADGUARD_INSTALL_REPLACE_ACTIVE="0"
-		if adguard_committed_binary_cleanup_record_write "${COMMITTED_OLD_BINARY}"; then
-			adguard_committed_binary_cleanup_retry ||
-				PTXT "${WARNING} Unable to remove the committed AdGuardHome binary backup at ${COMMITTED_OLD_BINARY}."
-		elif rm -f "${COMMITTED_OLD_BINARY}"; then
-			:
-		else
-			PTXT "${ERROR} Unable to create ${BASE_DIR}/.AdGuardHome.binary-cleanup for retained committed binary backup ${COMMITTED_OLD_BINARY}."
+		if ! adguard_committed_binary_cleanup_finalize "${COMMITTED_OLD_BINARY}"; then
+			end_op_message 1 "$1"
+			return 1
 		fi
-		ADGUARD_INSTALL_OLD_BINARY=""
 	fi
 	adguard_install_abort_trap_disable_preserve_defer
 	ptxt_ok "AdGuardHome ${1:-install} orchestration complete."

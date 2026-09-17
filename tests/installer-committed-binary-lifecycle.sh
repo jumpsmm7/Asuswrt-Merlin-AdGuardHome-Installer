@@ -15,9 +15,9 @@ cleanup() {
 	rm -rf "${TEST_ROOT}"
 }
 
+(umask 077 && mkdir "${TEST_ROOT}") || fail 'could not create committed-binary lifecycle fixture'
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
-mkdir -p "${TEST_ROOT}" || fail 'could not create committed-binary lifecycle fixture'
 sed -n \
 	-e '/^on_installer_exit() {$/,/^}/p' \
 	-e '/^adguard_committed_binary_cleanup_path_valid() {$/,/^}/p' \

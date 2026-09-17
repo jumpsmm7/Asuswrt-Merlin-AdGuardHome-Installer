@@ -277,6 +277,41 @@ adguard_recover_after_event_hook_abort 1 || fail 'successful mode rollback recov
 grep -q 'Superseded event-hook rollback snapshot removed after mode rollback' "${TMP_DIR}/rollback-report" ||
 	fail 'mode rollback did not report successful aggregate snapshot cleanup'
 
+FAILED_COMMIT_SNAPSHOT="${BASE_DIR}/failed-commit-aggregate"
+mkdir -p "${FAILED_COMMIT_SNAPSHOT}" || fail 'could not create failed-commit aggregate snapshot fixture'
+printf '%s\n' 'retry recovery data' >"${FAILED_COMMIT_SNAPSHOT}/dnsmasq.postconf"
+printf '%s\n' "${FAILED_COMMIT_SNAPSHOT}" >"${BASE_DIR}/.AdGuardHome.event-hooks-recovery"
+EVENT_SCRIPTS_ACTIVE_SNAPSHOT="${FAILED_COMMIT_SNAPSHOT}"
+MODE_MIGRATION_YAML_FILE_BACKUP="${BASE_DIR}/failed-commit-mode-migration"
+restart_calls=0
+nvram_restore_calls=0
+# nvram_transaction_lock_owned exposes independent NVRAM recovery work.
+nvram_transaction_lock_owned() { return 0; }
+# nvram_transaction_setup_committed reports that the NVRAM transaction needs restoration.
+nvram_transaction_setup_committed() { return 1; }
+# setup_restore_nvram_journal records independent journal restoration.
+setup_restore_nvram_journal() { nvram_restore_calls="$((nvram_restore_calls + 1))"; }
+# installer_lan_domain_restore accepts fixture domain restoration.
+installer_lan_domain_restore() { :; }
+# restore_dns_filter_settings accepts fixture DNS-filter restoration.
+restore_dns_filter_settings() { :; }
+# check_dns_environment accepts fixture DNS-environment restoration.
+check_dns_environment() { :; }
+# adguard_restart_after_install_abort records independent service recovery.
+adguard_restart_after_install_abort() { restart_calls="$((restart_calls + 1))"; }
+adguard_recover_after_event_hook_abort 1 0 1 || fail 'failed event-hook rollback blocked independent abort recovery'
+[ "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}" = "${FAILED_COMMIT_SNAPSHOT}" ] ||
+	fail 'failed event-hook rollback detached its active recovery snapshot'
+[ -f "${BASE_DIR}/.AdGuardHome.event-hooks-recovery" ] || fail 'failed event-hook rollback removed its recovery marker'
+[ -f "${FAILED_COMMIT_SNAPSHOT}/dnsmasq.postconf" ] || fail 'failed event-hook rollback removed its recovery copy'
+[ "${nvram_restore_calls}" -gt 0 ] || fail 'failed event-hook rollback skipped independent NVRAM recovery'
+[ "${restart_calls}" -eq 1 ] || fail 'failed event-hook rollback skipped independent service recovery'
+MODE_MIGRATION_YAML_FILE_BACKUP=""
+all_event_scripts_transaction_rollback || fail 'startup-style event-hook rollback retry failed'
+[ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] || fail 'successful event-hook rollback retry retained active state'
+[ ! -e "${BASE_DIR}/.AdGuardHome.event-hooks-recovery" ] || fail 'successful event-hook rollback retry retained its marker'
+[ ! -e "${FAILED_COMMIT_SNAPSHOT}" ] || fail 'successful event-hook rollback retry retained its snapshot'
+
 STOP_FAILURE_SNAPSHOT="${BASE_DIR}/stop-failure-aggregate"
 mkdir -p "${STOP_FAILURE_SNAPSHOT}" || fail 'could not create stop-failure aggregate snapshot fixture'
 printf '%s\n' 'retained recovery data' >"${STOP_FAILURE_SNAPSHOT}/dnsmasq.postconf"
