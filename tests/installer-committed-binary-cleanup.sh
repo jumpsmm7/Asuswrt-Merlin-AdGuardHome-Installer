@@ -6,11 +6,13 @@ set -u
 SCRIPT_PATH="${1:-installer}"
 TEST_ROOT="${TMPDIR:-/tmp}/installer-binary-cleanup.$$"
 
+# fail reports a regression failure and exits the test.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
 
+# cleanup removes the committed-binary fixture.
 cleanup() {
 	rm -rf "${TEST_ROOT}"
 }
@@ -39,6 +41,7 @@ BASE_DIR="${TEST_ROOT}/base"
 TARG_DIR="${BASE_DIR}/AdGuardHome"
 ERROR='Error:'
 REPORT="${TEST_ROOT}/report"
+# PTXT records cleanup errors for later assertions.
 PTXT() { printf '%s\n' "$*" >>"${REPORT}"; }
 
 OLD_BINARY="${TARG_DIR}/.AdGuardHome.previous.123"
@@ -51,6 +54,7 @@ adguard_committed_binary_cleanup_retry || fail 'valid committed-binary cleanup f
 OLD_BINARY="${TARG_DIR}/.AdGuardHome.previous.456"
 printf '%s\n' old >"${OLD_BINARY}"
 adguard_committed_binary_cleanup_record_write "${OLD_BINARY}" || fail 'could not write retry cleanup record'
+# rm injects failure when the committed backup is first removed.
 rm() {
 	[ "$1" != '-f' ] || [ "$2" != "${OLD_BINARY}" ] || return 1
 	/bin/rm "$@"

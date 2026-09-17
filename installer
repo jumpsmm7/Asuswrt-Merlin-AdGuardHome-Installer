@@ -1607,6 +1607,7 @@ installer_cleanup_tmp_file() {
 	esac
 }
 
+# on_installer_exit runs best-effort recovery and cleanup, returning failure when an active event-hook or setup-file journal cannot be restored.
 on_installer_exit() {
 	local setup_journal_restore_status
 	setup_journal_restore_status=0
@@ -5084,6 +5085,7 @@ adguard_archive_is_safe() {
 	'
 }
 
+# adguard_restart_after_failed_replace restarts the prior service when $1 is 1 and leaves recovery state unchanged if startup fails.
 adguard_restart_after_failed_replace() {
 	[ "$1" = "1" ] || return 0
 	if agh_start; then
@@ -5100,6 +5102,7 @@ adguard_restart_after_failed_replace() {
 	return 1
 }
 
+# adguard_restart_after_install_abort restores any active binary replacement and restarts the service when $1 indicates it was previously running.
 adguard_restart_after_install_abort() {
 	local OLD_BINARY
 	if [ "${ADGUARD_INSTALL_RESTART_PENDING:-0}" = "1" ]; then
@@ -5187,10 +5190,12 @@ adguard_recover_after_uninstall_hook_abort() {
 	[ "${HOOK_ROLLBACK_STATUS}" -eq 0 ] && [ "${DOMAIN_RESTORE_STATUS}" -eq 0 ] && [ "${RESTART_RECOVERY_STATUS}" -eq 0 ]
 }
 
+# adguard_install_signal_traps_disable removes installation signal handlers without clearing recovery state.
 adguard_install_signal_traps_disable() {
 	trap - HUP INT QUIT ABRT TERM
 }
 
+# adguard_install_abort_trap_disable removes installation signal handlers and clears all tracked install and restore recovery state.
 adguard_install_abort_trap_disable() {
 	adguard_install_signal_traps_disable
 	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
@@ -5228,6 +5233,7 @@ adguard_install_abort_trap_disable_preserve_defer() {
 	fi
 }
 
+# adguard_install_abort_on_signal cleans staged files and attempts to restore interrupted event-hook, migration, install, or restore state.
 adguard_install_abort_on_signal() {
 	END_OP_SIGNAL=1
 	local MIGRATION_ROLLED_BACK=0 MIGRATION_ROLLBACK_STATUS=0 OLD_BINARY REPLACE_ACTIVE RESTORE_ACTIVE RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARGET_INSTALLED RESTORE_TARG_DIR STAGE_DIR TIMEZONE_TMP WAS_RUNNING
@@ -5280,6 +5286,7 @@ adguard_install_abort_on_signal() {
 	end_op_message 2
 }
 
+# adguard_install_abort_trap_enable records whether AdGuardHome was running in $1, tracks the optional staging directory in $2, and installs recovery handlers.
 adguard_install_abort_trap_enable() {
 	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
 	ADGUARD_INSTALL_OLD_BINARY=""
@@ -5290,6 +5297,7 @@ adguard_install_abort_trap_enable() {
 	trap 'adguard_install_abort_on_signal' HUP INT QUIT ABRT TERM
 }
 
+# adguard_restore_abort_trap_enable tracks the rollback, target, optional staging, and prior-running values from $1 through $4 and installs recovery handlers.
 adguard_restore_abort_trap_enable() {
 	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
 	ADGUARD_INSTALL_OLD_BINARY=""
@@ -5304,6 +5312,8 @@ adguard_restore_abort_trap_enable() {
 	trap 'adguard_install_abort_on_signal' HUP INT QUIT ABRT TERM
 }
 
+# adguard_restore_after_failed_replace stops the replacement, restores the backup at $1 when available, and restarts it when the prior-running flag in $2 is 1.
+# A failed stop or restart leaves the corresponding recovery state available for a later attempt.
 adguard_restore_after_failed_replace() {
 	local OLD_BINARY WAS_RUNNING
 	OLD_BINARY="$1"
@@ -5354,6 +5364,7 @@ adguard_restore_after_failed_replace() {
 	return 0
 }
 
+# adguard_committed_binary_cleanup_path_valid accepts only a numeric .AdGuardHome.previous suffix directly beneath TARG_DIR.
 adguard_committed_binary_cleanup_path_valid() {
 	local CLEANUP_PATH CLEANUP_SUFFIX
 	CLEANUP_PATH="$1"
@@ -5369,6 +5380,7 @@ adguard_committed_binary_cleanup_path_valid() {
 	esac
 }
 
+# adguard_committed_binary_cleanup_record_write atomically records the validated backup path in $1 for cleanup after commit.
 adguard_committed_binary_cleanup_record_write() {
 	local CLEANUP_MARKER CLEANUP_PATH CLEANUP_STAGE
 	CLEANUP_PATH="$1"
@@ -5384,6 +5396,7 @@ adguard_committed_binary_cleanup_record_write() {
 	}
 }
 
+# adguard_committed_binary_cleanup_retry validates a pending cleanup record, then removes its committed backup and the record.
 adguard_committed_binary_cleanup_retry() {
 	local CLEANUP_MARKER CLEANUP_PATH
 	CLEANUP_MARKER="${BASE_DIR}/.AdGuardHome.binary-cleanup"
@@ -5779,6 +5792,7 @@ create_backup_archive() {
 	return 0
 }
 
+# install_adguard_archive validates and installs the archive in $1 while preserving any previous binary and recovery state until final commit.
 install_adguard_archive() {
 	local ARCHIVE_FILE OLD_BINARY STAGE_BINARY STAGE_DIR WAS_RUNNING
 	ARCHIVE_FILE="$1"
@@ -6475,6 +6489,8 @@ all_event_scripts_transaction_begin() {
 	return 0
 }
 
+# all_event_scripts_transaction_commit removes the recovery marker before detaching the active snapshot; marker cleanup failure leaves rollback available.
+# Snapshot residue after marker removal is reported but does not make the committed transaction fail.
 all_event_scripts_transaction_commit() {
 	local MARKER_FILE SNAPSHOT_DIR
 	[ -n "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] || return 0
@@ -6508,6 +6524,7 @@ all_event_scripts_transaction_detach_after_mode_rollback() {
 	PTXT "${INFO} Superseded event-hook rollback snapshot removed after mode rollback."
 }
 
+# all_event_scripts_transaction_rollback restores the active snapshot and retains it for retry unless both restoration and marker removal succeed.
 all_event_scripts_transaction_rollback() {
 	local SNAPSHOT_DIR
 	SNAPSHOT_DIR="${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}"
@@ -6705,6 +6722,7 @@ add_dnsmasq_event_scripts() {
 	return 0
 }
 
+# inst_AdGuardHome orchestrates the action in $1; an optional build channel in $2 enters package installation or service refresh directly instead of branch discovery.
 inst_AdGuardHome() {
 	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 COMMITTED_OLD_BINARY INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
