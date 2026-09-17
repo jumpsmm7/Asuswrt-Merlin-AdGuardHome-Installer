@@ -23,6 +23,7 @@ sed -n \
 	-e '/^adguard_committed_binary_cleanup_path_valid() {$/,/^}/p' \
 	-e '/^adguard_committed_binary_cleanup_record_write() {$/,/^}/p' \
 	-e '/^adguard_committed_binary_cleanup_retry() {$/,/^}/p' \
+	-e '/^adguard_committed_binary_cleanup_finalize() {$/,/^}/p' \
 	"${SCRIPT_PATH}" >"${TEST_ROOT}/helpers" || fail 'could not extract committed-binary lifecycle helpers'
 sed -n '/^if ! adguard_committed_binary_cleanup_retry; then$/,/^fi$/p' "${SCRIPT_PATH}" >"${TEST_ROOT}/startup-preflight" ||
 	fail 'could not extract committed-binary startup preflight'
@@ -43,10 +44,45 @@ all_event_scripts_transaction_rollback() { :; }
 rollback_pending_mode_migration() { :; }
 adguard_restart_after_install_abort() { :; }
 adguard_restart_after_failed_replace() { :; }
+adguard_install_signal_traps_disable() { :; }
 MODE_MIGRATION_YAML_FILE_BACKUP=""
 EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
 ADGUARD_INSTALL_RESTART_PENDING=0
 ADGUARD_INSTALL_REPLACE_ACTIVE=0
+
+BASE_DIR="${TEST_ROOT}/pending-exit-base"
+TARG_DIR="${BASE_DIR}/AdGuardHome"
+BACKUP="${TARG_DIR}/.AdGuardHome.previous.77"
+mkdir -p "${TARG_DIR}" || fail 'could not create pending EXIT cleanup fixture'
+printf '%s\n' old >"${BACKUP}"
+ADGUARD_INSTALL_REPLACE_ACTIVE=1
+ADGUARD_INSTALL_OLD_BINARY="${BACKUP}"
+ADGUARD_INSTALL_COMMIT_PENDING=1
+ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING=""
+adguard_committed_binary_cleanup_record_write() { return 1; }
+rm() { return 1; }
+if adguard_committed_binary_cleanup_finalize "${BACKUP}"; then
+	fail 'initial double cleanup failure was reported as success'
+fi
+[ "${ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING}" = "${BACKUP}" ] || fail 'initial cleanup failure lost pending state'
+unset -f rm 2>/dev/null || true
+# Reload the real cleanup helpers so EXIT can publish the durable record.
+# shellcheck disable=SC1090
+. "${TEST_ROOT}/helpers"
+adguard_install_signal_traps_disable() { :; }
+rm() {
+	[ "$1" != '-f' ] || [ "$2" != "${BACKUP}" ] || return 1
+	/bin/rm "$@"
+}
+on_installer_exit || fail 'EXIT cleanup propagated retained-backup failure'
+[ -f "${BACKUP}" ] || fail 'failed EXIT cleanup removed the retained backup'
+[ -f "${BASE_DIR}/.AdGuardHome.binary-cleanup" ] || fail 'failed EXIT cleanup did not publish durable startup state'
+[ "$(cat "${BASE_DIR}/.AdGuardHome.binary-cleanup")" = "${BACKUP}" ] || fail 'EXIT cleanup recorded the wrong backup path'
+[ "${ADGUARD_INSTALL_REPLACE_ACTIVE}" = 0 ] || fail 'durable EXIT cleanup retained replacement rollback state'
+unset -f rm 2>/dev/null || true
+adguard_committed_binary_cleanup_retry || fail 'startup-style retry did not remove the retained backup'
+[ ! -e "${BACKUP}" ] || fail 'startup-style retry retained the committed backup'
+[ ! -e "${BASE_DIR}/.AdGuardHome.binary-cleanup" ] || fail 'startup-style retry retained the cleanup record'
 
 BASE_DIR="${TEST_ROOT}/exit-base"
 TARG_DIR="${BASE_DIR}/AdGuardHome"

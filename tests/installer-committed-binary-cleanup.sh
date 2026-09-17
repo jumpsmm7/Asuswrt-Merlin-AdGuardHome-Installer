@@ -29,11 +29,13 @@ sed -n \
 [ -s "${TEST_ROOT}/helpers" ] || fail 'committed-binary cleanup helper extraction was empty'
 awk '
 	/^adguard_committed_binary_cleanup_finalize\(\) \{/ { finalize = 1 }
+	finalize && /ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING="\$\{COMMITTED_OLD_BINARY\}"/ { pending = NR }
+	finalize && /adguard_committed_binary_cleanup_record_write/ { cleanup = NR }
 	finalize && /ADGUARD_INSTALL_REPLACE_ACTIVE="0"/ { disarmed = NR }
 	finalize && /ADGUARD_INSTALL_OLD_BINARY=""/ { cleared = NR }
-	finalize && /adguard_committed_binary_cleanup_record_write/ { cleanup = NR; exit }
-	END { exit(disarmed && cleared > disarmed && cleanup > cleared ? 0 : 1) }
-' "${SCRIPT_PATH}" || fail 'committed binary cleanup does not disarm rollback before deletion'
+	finalize && /adguard_install_signal_traps_disable/ { traps_disabled = NR; exit }
+	END { exit(pending && cleanup > pending && disarmed > cleanup && cleared >= disarmed && traps_disabled > cleared ? 0 : 1) }
+' "${SCRIPT_PATH}" || fail 'committed binary cleanup state is not published before rollback is disarmed'
 # shellcheck disable=SC1090
 . "${TEST_ROOT}/helpers"
 
@@ -43,8 +45,9 @@ ERROR='Error:'
 REPORT="${TEST_ROOT}/report"
 # PTXT records cleanup errors for later assertions.
 PTXT() { printf '%s\n' "$*" >>"${REPORT}"; }
-# adguard_install_signal_traps_disable avoids changing fixture signal handling.
-adguard_install_signal_traps_disable() { :; }
+TRAPS_DISABLED=0
+# adguard_install_signal_traps_disable records when cleanup makes interruption safe.
+adguard_install_signal_traps_disable() { TRAPS_DISABLED="$((TRAPS_DISABLED + 1))"; }
 
 OLD_BINARY="${TARG_DIR}/.AdGuardHome.previous.123"
 printf '%s\n' old >"${OLD_BINARY}"
@@ -95,19 +98,29 @@ printf '%s\n' old >"${OLD_BINARY}"
 ADGUARD_INSTALL_REPLACE_ACTIVE=1
 ADGUARD_INSTALL_OLD_BINARY="${OLD_BINARY}"
 ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING=""
-adguard_committed_binary_cleanup_record_write() { return 1; }
+adguard_committed_binary_cleanup_record_write() {
+	[ "${ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING}" = "${OLD_BINARY}" ] ||
+		fail 'cleanup record write ran before publishing the committed backup path'
+	[ "${ADGUARD_INSTALL_REPLACE_ACTIVE}" = 1 ] || fail 'cleanup record write ran after rollback state was cleared'
+	[ "${TRAPS_DISABLED}" -eq 0 ] || fail 'cleanup record write ran after signal traps were disabled'
+	return 1
+}
 rm() { return 1; }
 if adguard_committed_binary_cleanup_finalize "${OLD_BINARY}"; then
 	fail 'double committed-backup cleanup failure was reported as success'
 fi
-[ "${ADGUARD_INSTALL_REPLACE_ACTIVE}" = 0 ] || fail 'committed replacement remained rollback eligible'
-[ -z "${ADGUARD_INSTALL_OLD_BINARY}" ] || fail 'committed backup remained in rollback state'
+[ "${ADGUARD_INSTALL_REPLACE_ACTIVE}" = 1 ] || fail 'failed cleanup discarded the replacement recovery path'
+[ "${ADGUARD_INSTALL_OLD_BINARY}" = "${OLD_BINARY}" ] || fail 'failed cleanup discarded the old binary path'
+[ "${ADGUARD_INSTALL_COMMIT_PENDING}" = 1 ] || fail 'failed cleanup did not mark the replacement committed'
 [ "${ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING}" = "${OLD_BINARY}" ] ||
 	fail 'double cleanup failure forgot its in-memory retry path'
+[ "${TRAPS_DISABLED}" -eq 0 ] || fail 'double cleanup failure disabled signal recovery'
 unset -f rm 2>/dev/null || true
 adguard_committed_binary_cleanup_finalize "${ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING}" ||
 	fail 'later in-memory committed-backup cleanup retry failed'
 [ ! -e "${OLD_BINARY}" ] || fail 'later cleanup retry retained committed backup'
 [ -z "${ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING}" ] || fail 'successful retry retained in-memory cleanup state'
+[ "${ADGUARD_INSTALL_REPLACE_ACTIVE}" = 0 ] || fail 'successful retry retained replacement state'
+[ "${TRAPS_DISABLED}" -eq 1 ] || fail 'successful retry did not disable installation signal traps'
 
 printf '%s\n' 'PASS: committed binary cleanup is durable and path restricted'
