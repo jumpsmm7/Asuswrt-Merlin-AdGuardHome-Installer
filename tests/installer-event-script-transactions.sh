@@ -173,6 +173,7 @@ grep -qx 'original dnsmasq' "${TMP_DIR}/jffs/scripts/dnsmasq.postconf" ||
 	fail 'successful startup recovery retained its obsolete snapshot'
 
 ERROR=ERROR
+WARNING=WARNING
 # PTXT appends the provided text to the rollback report.
 PTXT() { printf '%s\n' "$*" >>"${TMP_DIR}/rollback-report"; }
 COMMIT_RETRY_SNAPSHOT="${BASE_DIR}/.AdGuardHome.event-hooks.commit-retry"
@@ -192,7 +193,27 @@ all_event_scripts_transaction_commit || fail 'event-hook commit did not retry ma
 [ ! -e "${COMMIT_RETRY_SNAPSHOT}" ] || fail 'successful event-hook commit retained its snapshot'
 unset -f rm 2>/dev/null || true
 
+PARTIAL_CLEANUP_SNAPSHOT="${BASE_DIR}/.AdGuardHome.event-hooks.partial-cleanup"
+all_event_scripts_transaction_begin "${PARTIAL_CLEANUP_SNAPSHOT}" || fail 'could not create partial cleanup snapshot fixture'
+printf '%s\n' 'committed dnsmasq' >"${TMP_DIR}/jffs/scripts/dnsmasq.postconf"
+# rm simulates a post-commit snapshot cleanup that deletes one entry before failing.
+rm() {
+	if [ "$*" = "-rf ${PARTIAL_CLEANUP_SNAPSHOT}" ]; then
+		/bin/rm -f "${PARTIAL_CLEANUP_SNAPSHOT}/dnsmasq.postconf"
+		return 1
+	fi
+	/bin/rm "$@"
+}
+all_event_scripts_transaction_commit || fail 'post-commit snapshot residue was treated as a rollback failure'
+[ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] || fail 'post-commit snapshot residue remained active for rollback'
+[ ! -e "${BASE_DIR}/.AdGuardHome.event-hooks-recovery" ] || fail 'partial snapshot cleanup recreated the recovery marker'
+all_event_scripts_recover_startup || fail 'startup rejected marker-free post-commit residue'
+grep -qx 'committed dnsmasq' "${TMP_DIR}/jffs/scripts/dnsmasq.postconf" || fail 'startup replayed a partially deleted snapshot'
+unset -f rm 2>/dev/null || true
+/bin/rm -rf "${PARTIAL_CLEANUP_SNAPSHOT}"
+
 COMMIT_FAILURE_SNAPSHOT="${BASE_DIR}/.AdGuardHome.event-hooks.commit-failure"
+printf '%s\n' 'original dnsmasq' >"${TMP_DIR}/jffs/scripts/dnsmasq.postconf"
 all_event_scripts_transaction_begin "${COMMIT_FAILURE_SNAPSHOT}" || fail 'could not create commit failure snapshot fixture'
 printf '%s\n' 'changed dnsmasq before failed commit' >"${TMP_DIR}/jffs/scripts/dnsmasq.postconf"
 # rm persistently rejects recovery-marker removal while allowing other cleanup.

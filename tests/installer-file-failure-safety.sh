@@ -75,6 +75,7 @@ awk '
 	/^adguard_archive_is_safe\(\)/,/^}/
 	/^adguard_restart_after_failed_replace\(\)/,/^}/
 	/^adguard_restart_after_install_abort\(\)/,/^}/
+	/^adguard_install_signal_traps_disable\(\)/,/^}/
 	/^adguard_install_abort_trap_disable\(\)/,/^}/
 	/^adguard_install_abort_trap_disable_preserve_defer\(\)/,/^}/
 	/^adguard_install_abort_on_signal\(\)/,/^}/
@@ -97,6 +98,7 @@ awk '
 	/^write_command_script\(\)/,/^}/
 	/^write_conf\(\)/,/^}/
 ' "${REPO_DIR}/installer" >"${FUNCTIONS_FILE}"
+printf '%s\n' 'adguard_committed_binary_cleanup_retry() { return 0; }' >>"${FUNCTIONS_FILE}"
 sed 's#/bin/nvram#nvram#g; s#/usr/bin/awk#awk#g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.test" || fail 'could not isolate stock account commands'
 mv "${FUNCTIONS_FILE}.test" "${FUNCTIONS_FILE}" || fail 'could not update isolated installer helpers'
 printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS_FILE}"
@@ -404,6 +406,9 @@ grep -q 'MD5 digest calculation failed' "${TMP_DIR}/md5_hash_failure.out" || fai
 	agh_is_running() {
 		return 1
 	}
+	agh_process_count() {
+		printf '%s\n' 0
+	}
 
 	agh_start() {
 		START_CALLED="1"
@@ -504,6 +509,10 @@ EOF
 
 	agh_is_running() {
 		return 1
+	}
+
+	agh_process_count() {
+		printf '%s\n' 0
 	}
 
 	agh_start() {
