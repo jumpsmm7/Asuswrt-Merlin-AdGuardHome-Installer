@@ -1634,7 +1634,7 @@ on_installer_exit() {
 			PTXT "${ERROR} Unable to restart the restored AdGuardHome installation during exit cleanup."
 	fi
 	# An interrupted replacement may have stopped AdGuardHome; active state means its backup remains available, so restore both the old binary and prior running state.
-	if [ "${ADGUARD_INSTALL_REPLACE_ACTIVE:-0}" = "1" ]; then
+	if [ "${ADGUARD_INSTALL_REPLACE_ACTIVE:-0}" = "1" ] && [ "${ADGUARD_INSTALL_COMMITTED:-0}" != "1" ]; then
 		adguard_restart_after_install_abort "${ADGUARD_INSTALL_WAS_RUNNING:-0}" ||
 			PTXT "${ERROR} Unable to restore the previous AdGuardHome installation during exit cleanup."
 	fi
@@ -5136,6 +5136,7 @@ adguard_restart_after_install_abort() {
 
 adguard_recover_after_event_hook_abort() {
 	local MODE_ROLLBACK_STATUS NVRAM_ROLLBACK_STATUS RESTART_RECOVERY_STATUS
+	local EVENT_HOOK_ROLLBACK_FAILED="${3:-0}"
 	MODE_ROLLBACK_STATUS=0
 	NVRAM_ROLLBACK_STATUS=0
 	RESTART_RECOVERY_STATUS=0
@@ -5155,7 +5156,11 @@ adguard_recover_after_event_hook_abort() {
 	fi
 	if [ -n "${MODE_MIGRATION_YAML_FILE_BACKUP:-}" ]; then
 		if rollback_pending_mode_migration; then
-			all_event_scripts_transaction_detach_after_mode_rollback
+			if [ "${EVENT_HOOK_ROLLBACK_FAILED}" -eq 0 ]; then
+				all_event_scripts_transaction_detach_after_mode_rollback
+			else
+				MODE_ROLLBACK_STATUS=1
+			fi
 		else
 			MODE_ROLLBACK_STATUS=1
 		fi
@@ -5194,6 +5199,7 @@ adguard_install_signal_traps_disable() {
 adguard_install_abort_trap_disable() {
 	adguard_install_signal_traps_disable
 	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
+	ADGUARD_INSTALL_COMMITTED="0"
 	ADGUARD_INSTALL_OLD_BINARY=""
 	ADGUARD_INSTALL_STAGE_DIR=""
 	ADGUARD_INSTALL_WAS_RUNNING="0"
@@ -6706,7 +6712,7 @@ add_dnsmasq_event_scripts() {
 }
 
 inst_AdGuardHome() {
-	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 COMMITTED_OLD_BINARY INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
+	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 COMMITTED_OLD_BINARY EVENT_HOOK_ROLLBACK_STATUS INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
 	if ! ensure_sha256sum_tool; then
@@ -7158,14 +7164,17 @@ inst_AdGuardHome() {
 		fi
 	fi
 	if ! all_event_scripts_transaction_commit; then
-		all_event_scripts_transaction_rollback || true
+		EVENT_HOOK_ROLLBACK_STATUS=0
+		all_event_scripts_transaction_rollback || EVENT_HOOK_ROLLBACK_STATUS=1
 		PTXT "${ERROR} Unable to finalize the event-hook recovery transaction."
-		adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1
+		adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1 "${EVENT_HOOK_ROLLBACK_STATUS}"
 		end_op_message 1 "$1"
 		return 1
 	fi
 	if [ "${ADGUARD_INSTALL_REPLACE_ACTIVE:-0}" = "1" ]; then
 		COMMITTED_OLD_BINARY="${ADGUARD_INSTALL_OLD_BINARY}"
+		# Configuration and router state are committed; signals must not roll back the binary.
+		ADGUARD_INSTALL_COMMITTED="1"
 		adguard_install_signal_traps_disable
 		ADGUARD_INSTALL_REPLACE_ACTIVE="0"
 		if adguard_committed_binary_cleanup_record_write "${COMMITTED_OLD_BINARY}"; then
