@@ -165,37 +165,26 @@ printf '%s\n' committed-old >"${OLD_BINARY}"
 ADGUARD_INSTALL_REPLACE_ACTIVE=1
 ADGUARD_INSTALL_OLD_BINARY="${OLD_BINARY}"
 ADGUARD_INSTALL_COMMIT_PENDING=1
+ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING=""
 ADGUARD_INSTALL_WAS_RUNNING=1
 EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
 MOVE_CALLS=0
-RECORD_WRITE_CALLS=0
-# adguard_committed_binary_cleanup_record_write injects a signal after pending cleanup state is visible.
+# adguard_committed_binary_cleanup_record_write verifies signal recovery publishes the cleanup path before writing its record.
 adguard_committed_binary_cleanup_record_write() {
-	RECORD_WRITE_CALLS="$((RECORD_WRITE_CALLS + 1))"
-	if [ "${RECORD_WRITE_CALLS}" -eq 1 ]; then
-		[ "${ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING}" = "${OLD_BINARY}" ] ||
-			fail 'cleanup state was not visible before the injected signal'
-		adguard_install_abort_on_signal
-		return 1
-	fi
+	[ "${ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING}" = "${OLD_BINARY}" ] ||
+		fail 'signal recovery did not publish committed cleanup state before writing its record'
 	printf '%s\n' "$1" >"${BASE_DIR}/.AdGuardHome.binary-cleanup"
 }
 # adguard_committed_binary_cleanup_retry simulates deletion remaining pending after the signal.
 adguard_committed_binary_cleanup_retry() { return 1; }
 # agh_is_running keeps signal recovery from restarting the committed service fixture.
 agh_is_running() { return 0; }
-rm() {
-	[ "$1" != '-f' ] || [ "$2" != "${OLD_BINARY}" ] || return 1
-	/bin/rm "$@"
-}
-if adguard_committed_binary_cleanup_finalize "${OLD_BINARY}"; then
-	fail 'interrupted committed-backup cleanup was reported as complete'
-fi
+# This state models a signal after the commit marker is set but before the pending cleanup path is assigned.
+adguard_install_abort_on_signal
 [ "$(cat "${AGH_FILE}")" = committed-new ] || fail 'post-commit signal restored the previous binary'
 [ "${MOVE_CALLS}" -eq 0 ] || fail 'post-commit signal invoked binary rollback'
 [ "${ADGUARD_INSTALL_REPLACE_ACTIVE}" = 0 ] || fail 'post-commit signal retained rollback eligibility'
 [ -f "${BASE_DIR}/.AdGuardHome.binary-cleanup" ] || fail 'post-commit signal failed to retain durable cleanup state'
 [ -f "${OLD_BINARY}" ] || fail 'post-commit signal lost the retained cleanup backup'
-unset -f rm 2>/dev/null || true
 
 printf '%s\n' 'PASS: binary rollback state survives stop and restart failures'

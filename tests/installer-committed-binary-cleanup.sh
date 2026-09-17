@@ -29,12 +29,13 @@ sed -n \
 [ -s "${TEST_ROOT}/helpers" ] || fail 'committed-binary cleanup helper extraction was empty'
 awk '
 	/^adguard_committed_binary_cleanup_finalize\(\) \{/ { finalize = 1 }
+	finalize && /ADGUARD_INSTALL_COMMIT_PENDING="1"/ { committed = NR }
 	finalize && /ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING="\$\{COMMITTED_OLD_BINARY\}"/ { pending = NR }
 	finalize && /adguard_committed_binary_cleanup_record_write/ { cleanup = NR }
 	finalize && /ADGUARD_INSTALL_REPLACE_ACTIVE="0"/ { disarmed = NR }
 	finalize && /ADGUARD_INSTALL_OLD_BINARY=""/ { cleared = NR }
 	finalize && /adguard_install_signal_traps_disable/ { traps_disabled = NR; exit }
-	END { exit(pending && cleanup > pending && disarmed > cleanup && cleared >= disarmed && traps_disabled > cleared ? 0 : 1) }
+	END { exit(committed && pending > committed && cleanup > pending && disarmed > cleanup && cleared >= disarmed && traps_disabled > cleared ? 0 : 1) }
 ' "${SCRIPT_PATH}" || fail 'committed binary cleanup state is not published before rollback is disarmed'
 # shellcheck disable=SC1090
 . "${TEST_ROOT}/helpers"
