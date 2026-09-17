@@ -23,8 +23,8 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 sed -n \
-		-e '/^adguard_install_abort_trap_disable() {$/,/^}/p' \
-		-e '/^adguard_install_signal_traps_disable() {$/,/^}/p' \
+	-e '/^adguard_install_abort_trap_disable() {$/,/^}/p' \
+	-e '/^adguard_install_signal_traps_disable() {$/,/^}/p' \
 	-e '/^adguard_install_abort_trap_disable_preserve_defer() {$/,/^}/p' \
 	-e '/^adguard_install_abort_on_signal() {$/,/^}/p' \
 	-e '/^adguard_install_abort_trap_enable() {$/,/^}/p' \
