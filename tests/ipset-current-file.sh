@@ -41,6 +41,15 @@ adguard_lan_mode() {
 	[ "${INSTALL_MODE:-wan}" = "lan" ]
 }
 
+# adguard_ipset_allowed determines whether IPSet handling is permitted for the current installation mode and WAN NAT state.
+adguard_ipset_allowed() {
+	case "${INSTALL_MODE:-wan}" in
+		wan) return 0 ;;
+		lan | ap | bridge) [ "${WAN_NAT_ACTIVE:-0}" -eq 1 ] ;;
+		*) return 1 ;;
+	esac
+}
+
 # IPSet_Disable_Managed records that managed IP set handling was disabled for the test.
 IPSet_Disable_Managed() {
 	printf '%s\n' disabled >"${TEST_DIR}/disabled"

@@ -250,10 +250,13 @@ RM_FAIL_STATE=0
 
 # Uninstall must restore before removing the installation tree and retain it on failure.
 UNINSTALL_FUNCTION_FILE="${TMP_ROOT}/uninstall-function"
-sed -n '/^uninst_all() {$/,/^}$/p' "${ROOT_DIR}/installer" >"${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall function extraction failed'
+sed -n '/^adguard_recover_after_uninstall_hook_abort() {$/,/^}$/p; /^uninst_all() {$/,/^}$/p' "${ROOT_DIR}/installer" >"${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall function extraction failed'
+grep -q '^adguard_recover_after_uninstall_hook_abort() {$' "${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall recovery helper extraction failed'
+grep -q '^uninst_all() {$' "${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall helper extraction failed'
 # shellcheck disable=SC1090
 . "${UNINSTALL_FUNCTION_FILE}"
-# run_uninstall_test creates an isolated uninstall scenario, invokes uninst_all, and records restoration, restart, and removal events. Restore and start results control simulated outcomes; helper mode controls rollback-helper usability.
+# run_uninstall_test simulates an isolated uninstall scenario and records restoration, service, hook, rollback, and removal events.
+# run_uninstall_test creates and executes an isolated uninstall test fixture with configurable restoration, service, rollback, hook, and LAN-domain outcomes.
 run_uninstall_test() (
 	TARG_DIR="${TMP_ROOT}/uninstall-$1"
 	BASE_DIR="${TMP_ROOT}/base-$1"
@@ -261,34 +264,108 @@ run_uninstall_test() (
 	ADDON_DIR="${TMP_ROOT}/addon-$1"
 	ROLLBACK_RESULT_FILE="${TMP_ROOT}/rollback-$1"
 	EVENTS_FILE="${TMP_ROOT}/events-$1"
+	HOOK_DIR="${TMP_ROOT}/hooks-$1"
 	RESTORE_RESULT="$2"
 	START_RESULT="${3:-0}"
 	HELPER_MODE="${4:-usable}"
-	mkdir -p "${TARG_DIR}" "${BASE_DIR}" "${HOME}"
+	REMOVE_HOOK_STATUS="${5:-0}"
+	INITIAL_RUNNING="${6:-1}"
+	DOMAIN_ENABLED="${7:-0}"
+	SNAPSHOT_STATUS="${8:-0}"
+	STOP_STATUS="${9:-0}"
+	mkdir -p "${TARG_DIR}" "${BASE_DIR}" "${HOME}" "${ADDON_DIR}" "${HOOK_DIR}" ||
+		fail 'could not create uninstall fixture directories'
+	for hook in dnsmasq init services firewall; do
+		printf '%s\n' "original-${hook}" >"${HOOK_DIR}/${hook}"
+	done
 	printf '%s\n' installer >"${TARG_DIR}/installer"
-	cat >"${TARG_DIR}/AdGuardHome.sh" <<'EOF'
+	cat >"${ADDON_DIR}/AdGuardHome.sh" <<'EOF'
 #!/bin/sh
 [ -d "${TARG_DIR}" ] || exit 9
 printf '%s\n' restore >>"${EVENTS_FILE}"
 exit "${RESTORE_RESULT}"
 EOF
-	chmod 755 "${TARG_DIR}/AdGuardHome.sh"
+	chmod 755 "${ADDON_DIR}/AdGuardHome.sh"
 	if [ "${HELPER_MODE}" = unusable ]; then
-		chmod 644 "${TARG_DIR}/AdGuardHome.sh"
+		chmod 644 "${ADDON_DIR}/AdGuardHome.sh"
 		mkdir "${TARG_DIR}/proc-sys-state"
 	fi
 	export TARG_DIR EVENTS_FILE RESTORE_RESULT
 	INFO=INFO ERROR=ERROR CONFIRM_STATUS=0
+	# PTXT writes its arguments as a line to the events file.
 	PTXT() { printf '%s\n' "$*" >>"${EVENTS_FILE}"; }
-	conf_value() { printf '%s\n' no; }
-	agh_stop() { printf '%s\n' stop >>"${EVENTS_FILE}"; }
+	# conf_value reports whether the installer-managed LAN domain is enabled.
+	conf_value() {
+		[ "$1" = "ADGUARD_DOMAIN" ] && [ "${DOMAIN_ENABLED}" = "1" ] && printf '%s\n' yes || printf '%s\n' no
+	}
+	# installer_lan_domain_set records the retained LAN-domain transaction used during uninstall.
+	installer_lan_domain_set() {
+		printf '%s\n' "domain-set:$1:keep-${2:-0}" >>"${EVENTS_FILE}"
+	}
+	# installer_lan_domain_restore records restoration of the pre-uninstall LAN domain.
+	installer_lan_domain_restore() { printf '%s\n' domain-restore-guarded >>"${EVENTS_FILE}"; }
+	# installer_lan_domain_restore_uninstall restores the retained domain snapshot even when setup is committed.
+	installer_lan_domain_restore_uninstall() { printf '%s\n' domain-restore >>"${EVENTS_FILE}"; }
+	# nvram_transaction_finalize_setup_pair completes the retained LAN-domain transaction.
+	nvram_transaction_finalize_setup_pair() { return 0; }
+	# agh_is_running reports whether the service was initially running.
+	agh_is_running() { [ "${INITIAL_RUNNING}" = "1" ]; }
+	# agh_stop records a service stop event and returns the configured stop result.
+	agh_stop() {
+		printf '%s\n' stop >>"${EVENTS_FILE}"
+		return "${STOP_STATUS}"
+	}
+	# agh_start records a service start event and returns the configured start result.
 	agh_start() {
 		printf '%s\n' start >>"${EVENTS_FILE}"
 		return "${START_RESULT:-0}"
 	}
+	# cleanup_legacy_firewall does nothing.
 	cleanup_legacy_firewall() { :; }
+	# all_event_scripts_snapshot creates a hooks directory under the specified destination and copies all event scripts into it.
+	all_event_scripts_snapshot() {
+		mkdir -p "$1/hooks" || return 1
+		cp "${HOOK_DIR}"/* "$1/hooks/"
+	}
+	# all_event_scripts_rollback restores event scripts from the specified installation directory and records the rollback event.
+	all_event_scripts_rollback() {
+		printf '%s\n' rollback >>"${EVENTS_FILE}"
+		cp "$1/hooks/"* "${HOOK_DIR}/"
+	}
+	# all_event_scripts_transaction_begin snapshots the event scripts for a transaction and records the active snapshot path.
+	all_event_scripts_transaction_begin() {
+		[ "${SNAPSHOT_STATUS}" = "0" ] || return "${SNAPSHOT_STATUS}"
+		all_event_scripts_snapshot "$1" || return 1
+		EVENT_SCRIPTS_ACTIVE_SNAPSHOT="$1"
+	}
+	# all_event_scripts_transaction_commit commits the event-scripts transaction by removing the active snapshot.
+	all_event_scripts_transaction_commit() {
+		[ -n "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] || return 0
+		rm -rf "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}"
+		EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
+	}
+	# all_event_scripts_transaction_rollback restores event scripts from the active transaction snapshot and clears the snapshot after successful restoration.
+	all_event_scripts_transaction_rollback() {
+		[ -n "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] || return 0
+		all_event_scripts_rollback "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}" || return 1
+		EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
+	}
+	# remove_dnsmasq_event_scripts removes the dnsmasq event scripts from the configured hook directory.
+	remove_dnsmasq_event_scripts() { printf '%s\n' removed >"${HOOK_DIR}/dnsmasq"; }
+	# remove_firewall_event_scripts removes the firewall event scripts from the configured hook directory.
+	remove_firewall_event_scripts() { printf '%s\n' removed >"${HOOK_DIR}/firewall"; }
+	# remove_init_event_scripts removes the init event hook script.
+	remove_init_event_scripts() { printf '%s\n' removed >"${HOOK_DIR}/init"; }
+	# remove_services_event_scripts removes the services event hook and returns the configured removal status.
+	remove_services_event_scripts() {
+		printf '%s\n' removed >"${HOOK_DIR}/services"
+		return "${REMOVE_HOOK_STATUS}"
+	}
+	# yaml_nvars_file_action performs no action.
 	yaml_nvars_file_action() { :; }
+	# yaml_nvars_delete is a no-op placeholder for deleting NVRAM variables.
 	yaml_nvars_delete() { :; }
+	# del_jffs_script removes the JFFS script.
 	del_jffs_script() { :; }
 	del_between_magic() { :; }
 	nvram() { :; }
@@ -316,10 +393,32 @@ run_uninstall_test restart-failure 1 1 && fail 'restore and restart failures did
 [ -d "${TMP_ROOT}/uninstall-restart-failure" ] || fail 'restart failure removed retained installation path'
 [ "$(sed -n '3p' "${TMP_ROOT}/events-restart-failure")" = 'ERROR Unable to restore installer-managed kernel settings.' ] || fail 'restart failure obscured restoration error'
 [ "$(sed -n '4p' "${TMP_ROOT}/events-restart-failure")" = start ] || fail 'restart failure was not exercised'
+run_uninstall_test stop-failure 0 0 usable 0 1 1 0 1 && fail 'service stop failure did not abort uninstall'
+grep -qx stop "${TMP_ROOT}/events-stop-failure" || fail 'service stop failure was not exercised'
+[ -d "${TMP_ROOT}/uninstall-stop-failure" ] || fail 'service stop failure removed the installation path'
+! grep -qx remove "${TMP_ROOT}/events-stop-failure" || fail 'service stop failure removed installation files'
+grep -qx domain-restore "${TMP_ROOT}/events-stop-failure" || fail 'service stop failure did not restore the LAN domain'
+run_uninstall_test stopped-hook-failure 0 0 usable 1 0 && fail 'stopped-service event-hook removal failure did not abort uninstall'
+! grep -qx start "${TMP_ROOT}/events-stopped-hook-failure" || fail 'stopped service was restarted after uninstall rollback'
+[ -d "${TMP_ROOT}/uninstall-stopped-hook-failure" ] || fail 'stopped-service rollback removed recoverable installation files'
+grep -qx 'original-dnsmasq' "${TMP_ROOT}/hooks-stopped-hook-failure/dnsmasq" || fail 'stopped-service rollback did not restore hook state'
+run_uninstall_test hook-failure 0 0 usable 1 && fail 'event-hook removal failure did not abort uninstall'
+[ -d "${TMP_ROOT}/uninstall-hook-failure" ] || fail 'event-hook removal failure removed the retained installation'
+grep -qx rollback "${TMP_ROOT}/events-hook-failure" || fail 'event-hook removal failure did not restore the aggregate hook snapshot'
+grep -qx start "${TMP_ROOT}/events-hook-failure" || fail 'event-hook removal failure did not restart the retained installation'
+for hook in dnsmasq init services firewall; do
+	grep -qx "original-${hook}" "${TMP_ROOT}/hooks-hook-failure/${hook}" ||
+		fail "event-hook removal failure did not restore the ${hook} hook content"
+done
 run_uninstall_test unusable-helper 0 0 unusable && fail 'unusable rollback helper did not abort uninstall'
 [ -d "${TMP_ROOT}/uninstall-unusable-helper" ] || fail 'unusable rollback helper removed retained installation path'
 [ "$(sed -n '2p' "${TMP_ROOT}/events-unusable-helper")" = 'ERROR Unable to restore installer-managed kernel settings.' ] || fail 'unusable rollback helper error was not reported'
 [ "$(sed -n '3p' "${TMP_ROOT}/events-unusable-helper")" = start ] || fail 'unusable rollback helper did not restart retained installation'
+run_uninstall_test domain-snapshot-failure 0 0 usable 0 1 1 1 && fail 'hook snapshot failure did not abort domain-enabled uninstall'
+grep -qx 'domain-set::keep-1' "${TMP_ROOT}/events-domain-snapshot-failure" || fail 'domain-enabled uninstall did not retain its LAN-domain snapshot'
+grep -qx domain-restore "${TMP_ROOT}/events-domain-snapshot-failure" || fail 'hook snapshot failure did not restore the LAN domain'
+[ -d "${TMP_ROOT}/uninstall-domain-snapshot-failure" ] || fail 'hook snapshot failure removed the retained installation'
+grep -qx start "${TMP_ROOT}/events-domain-snapshot-failure" || fail 'hook snapshot failure did not restart the retained installation'
 
 # The mkdir fallback serializes complete proc transactions.
 LOCK_EVENTS="${TMP_ROOT}/lock-events"
