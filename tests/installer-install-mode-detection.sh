@@ -241,6 +241,9 @@ run_install_failure() (
 	INFO='Info:'
 	: >"${CALLS_FILE}"
 	mkdir -p "${BASE_DIR}" "${TARG_DIR}" || fail "${FAILURE_CASE}: could not create cleanup fixture"
+	if [ "${FAILURE_CASE}" = "transaction-commit" ]; then
+		printf '%s\n' 'old binary' >"${AGH_FILE}" || fail 'transaction-commit: could not create previous binary fixture'
+	fi
 	# shellcheck disable=SC1090
 	. "${TMP_ROOT}/install-abort-restart"
 	# shellcheck disable=SC1090
@@ -280,11 +283,29 @@ run_install_failure() (
 	agh_process_count() { printf '%s\n' "${INITIAL_ADGUARD_RUNNING}"; }
 	# install_adguard_archive creates an executable placeholder AdGuard Home archive script at `${AGH_FILE}`.
 	install_adguard_archive() {
+		if [ "${FAILURE_CASE}" = "transaction-commit" ]; then
+			ADGUARD_INSTALL_OLD_BINARY="${TARG_DIR}/.AdGuardHome.previous.$$"
+			cp "${AGH_FILE}" "${ADGUARD_INSTALL_OLD_BINARY}" || return 1
+			ADGUARD_INSTALL_REPLACE_ACTIVE=1
+		fi
 		cat >"${AGH_FILE}" <<'EOF'
 #!/bin/sh
 printf '%s\n' 'AdGuard Home version v0.0.0'
 EOF
 		chmod 755 "${AGH_FILE}"
+	}
+	# adguard_restore_after_failed_replace restores the preserved binary and prior running state.
+	adguard_restore_after_failed_replace() {
+		mv "$1" "${AGH_FILE}" || return 1
+		ADGUARD_INSTALL_REPLACE_ACTIVE=0
+		ADGUARD_INSTALL_OLD_BINARY=""
+		printf '%s\n' 'binary:restored' >>"${CALLS_FILE}"
+		adguard_restart_after_failed_replace "$2"
+	}
+	# adguard_restart_after_failed_replace records restoration of the prior running service and monitor.
+	adguard_restart_after_failed_replace() {
+		printf '%s\n' 'service:restarted' >>"${CALLS_FILE}"
+		printf '%s\n' 'monitor:restarted' >>"${CALLS_FILE}"
 	}
 	# ln does nothing and always succeeds.
 	ln() { return 0; }
@@ -312,8 +333,11 @@ EOF
 	all_event_scripts_transaction_detach_after_mode_rollback() { printf '%s\n' 'transaction:detach' >>"${CALLS_FILE}"; }
 	# all_event_scripts_transaction_rollback records an event-script transaction rollback.
 	all_event_scripts_transaction_rollback() { printf '%s\n' 'transaction:rollback' >>"${CALLS_FILE}"; }
-	# all_event_scripts_transaction_commit records publication of the aggregate event-script transaction.
-	all_event_scripts_transaction_commit() { printf '%s\n' 'transaction:commit' >>"${CALLS_FILE}"; }
+	# all_event_scripts_transaction_commit records publication of the aggregate event-script transaction and injects its failure when requested.
+	all_event_scripts_transaction_commit() {
+		printf '%s\n' 'transaction:commit' >>"${CALLS_FILE}"
+		[ "${FAILURE_CASE}" != "transaction-commit" ]
+	}
 	# nvram_transaction_lock_owned reports that these hook-failure fixtures have no active NVRAM transaction.
 	nvram_transaction_lock_owned() { return 1; }
 	# install_wan_event_scripts reports successful WAN event-script synchronization.
@@ -428,7 +452,7 @@ EOF
 		! grep -q '^service:restarted$' "${CALLS_FILE}" || fail "${FAILURE_CASE}: initially stopped service was started during recovery"
 		! grep -q '^monitor:restarted$' "${CALLS_FILE}" || fail "${FAILURE_CASE}: initially stopped monitor was started during recovery"
 	fi
-	if [ "${INITIAL_ADGUARD_RUNNING}" -eq 1 ]; then
+	if [ "${INITIAL_ADGUARD_RUNNING}" -eq 1 ] && [ "${FAILURE_CASE}" != "transaction-commit" ]; then
 		grep -q '^rollback-result:install-abort rollback complete ' "${CALLS_FILE}" || fail "${FAILURE_CASE}: successful rollback result was not recorded"
 	fi
 	grep -qx 'end-status:1' "${CALLS_FILE}" || fail "${FAILURE_CASE}: failure completion status was not reported"
@@ -446,6 +470,11 @@ EOF
 	case "${FAILURE_CASE}" in
 		finalization)
 			grep -qx 'dns:finalize' "${CALLS_FILE}" || fail 'finalization: injected finalizer was not reached'
+			;;
+		transaction-commit)
+			grep -qx 'transaction:commit' "${CALLS_FILE}" || fail 'transaction-commit: injected transaction commit was not reached'
+			grep -qx 'binary:restored' "${CALLS_FILE}" || fail 'transaction-commit: previous binary was not restored'
+			grep -qx 'old binary' "${AGH_FILE}" || fail 'transaction-commit: new binary remained with restored configuration'
 			;;
 		readiness | service-readiness-running | service-readiness-stopped)
 			grep -qx 'readiness' "${CALLS_FILE}" || fail 'readiness: injected readiness check was not reached'
@@ -489,7 +518,7 @@ for legacy_cleanup_failure in firewall dnsmasq init-start services-stop; do
 	run_install_failure "${legacy_cleanup_failure}" ||
 		fail "${legacy_cleanup_failure}: legacy cleanup recovery scenario failed"
 done
-for recovery_failure in finalization readiness service-readiness-running service-readiness-stopped timezone setup migration rollback; do
+for recovery_failure in finalization transaction-commit readiness service-readiness-running service-readiness-stopped timezone setup migration rollback; do
 	run_install_failure "${recovery_failure}" ||
 		fail "${recovery_failure}: install recovery scenario failed"
 done

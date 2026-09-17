@@ -194,10 +194,9 @@ IPSet_Refresh || fail 'nested refresh failed while the outer IPSET lock was acti
 [ "$(cat "${FAST_PATH_CALLS}")" = 'recovery lock=1
 setup lock=1' ] || fail 'transactional fast path did not recover before locked refresh work'
 [ "${IPSET_LOCK_ACTIVE}" = "1" ] || fail 'nested refresh cleared the outer IPSET lock state'
+[ "${TRANSACTION_ACTIVE}" = "1" ] || fail 'nested refresh cleared the outer transaction state'
 [ "${LOCK_CALLS}" -eq 0 ] || fail 'transactional fast path acquired a second IPSET lock'
 TRANSACTION_ACTIVE="${SAVED_TRANSACTION_ACTIVE}"
 IPSET_LOCK_ACTIVE="${SAVED_IPSET_LOCK_ACTIVE}"
-[ "${TRANSACTION_ACTIVE}" = "${SAVED_TRANSACTION_ACTIVE}" ] && [ "${IPSET_LOCK_ACTIVE}" = "${SAVED_IPSET_LOCK_ACTIVE}" ] ||
-	fail 'transactional fast-path fixture did not restore lock state'
 
 printf '%s\n' 'PASS: managed IPSET integration is gated on AdGuardHome v0.107.48 or later'

@@ -48,7 +48,7 @@ sed "s|/jffs/scripts|${TMP_DIR}/jffs/scripts|g" "${TMP_DIR}/helpers.part" >"${TM
 	fail 'could not rewrite event-script transaction helpers'
 # shellcheck disable=SC1091
 . "${TMP_DIR}/helpers"
-for helper in add_init_event_scripts add_services_event_scripts remove_services_event_scripts add_firewall_event_scripts all_event_scripts_transaction_begin all_event_scripts_transaction_detach_after_mode_rollback all_event_scripts_transaction_rollback all_event_scripts_rollback all_event_scripts_recover_startup install_wan_event_scripts adguard_recover_after_event_hook_abort; do
+for helper in add_init_event_scripts add_services_event_scripts remove_services_event_scripts add_firewall_event_scripts all_event_scripts_transaction_begin all_event_scripts_transaction_commit all_event_scripts_transaction_detach_after_mode_rollback all_event_scripts_transaction_rollback all_event_scripts_rollback all_event_scripts_recover_startup install_wan_event_scripts adguard_recover_after_event_hook_abort; do
 	type "${helper}" >/dev/null 2>&1 || fail "event-script transaction helper extraction failed: ${helper}"
 done
 
@@ -172,14 +172,75 @@ grep -qx 'original dnsmasq' "${TMP_DIR}/jffs/scripts/dnsmasq.postconf" ||
 [ ! -e "${BASE_DIR}/.AdGuardHome.event-hooks.startup-retry" ] ||
 	fail 'successful startup recovery retained its obsolete snapshot'
 
+ERROR=ERROR
+WARNING=WARNING
+# PTXT appends the provided text to the rollback report.
+PTXT() { printf '%s\n' "$*" >>"${TMP_DIR}/rollback-report"; }
+COMMIT_RETRY_SNAPSHOT="${BASE_DIR}/.AdGuardHome.event-hooks.commit-retry"
+all_event_scripts_transaction_begin "${COMMIT_RETRY_SNAPSHOT}" || fail 'could not create commit retry snapshot fixture'
+marker_remove_calls=0
+# rm injects one recovery-marker removal failure before delegating to the real command.
+rm() {
+	if [ "$*" = "-f ${BASE_DIR}/.AdGuardHome.event-hooks-recovery" ]; then
+		marker_remove_calls="$((marker_remove_calls + 1))"
+		[ "${marker_remove_calls}" -gt 1 ] || return 1
+	fi
+	/bin/rm "$@"
+}
+all_event_scripts_transaction_commit || fail 'event-hook commit did not retry marker removal'
+[ "${marker_remove_calls}" -eq 2 ] || fail 'event-hook commit did not make exactly two marker-removal attempts'
+[ ! -e "${BASE_DIR}/.AdGuardHome.event-hooks-recovery" ] || fail 'successful event-hook commit retained its marker'
+[ ! -e "${COMMIT_RETRY_SNAPSHOT}" ] || fail 'successful event-hook commit retained its snapshot'
+unset -f rm 2>/dev/null || true
+
+PARTIAL_CLEANUP_SNAPSHOT="${BASE_DIR}/.AdGuardHome.event-hooks.partial-cleanup"
+all_event_scripts_transaction_begin "${PARTIAL_CLEANUP_SNAPSHOT}" || fail 'could not create partial cleanup snapshot fixture'
+printf '%s\n' 'committed dnsmasq' >"${TMP_DIR}/jffs/scripts/dnsmasq.postconf"
+# rm simulates a post-commit snapshot cleanup that deletes one entry before failing.
+rm() {
+	if [ "$*" = "-rf ${PARTIAL_CLEANUP_SNAPSHOT}" ]; then
+		/bin/rm -f "${PARTIAL_CLEANUP_SNAPSHOT}/dnsmasq.postconf"
+		return 1
+	fi
+	/bin/rm "$@"
+}
+all_event_scripts_transaction_commit || fail 'post-commit snapshot residue was treated as a rollback failure'
+[ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] || fail 'post-commit snapshot residue remained active for rollback'
+[ ! -e "${BASE_DIR}/.AdGuardHome.event-hooks-recovery" ] || fail 'partial snapshot cleanup recreated the recovery marker'
+all_event_scripts_recover_startup || fail 'startup rejected marker-free post-commit residue'
+grep -qx 'committed dnsmasq' "${TMP_DIR}/jffs/scripts/dnsmasq.postconf" || fail 'startup replayed a partially deleted snapshot'
+unset -f rm 2>/dev/null || true
+/bin/rm -rf "${PARTIAL_CLEANUP_SNAPSHOT}"
+
+COMMIT_FAILURE_SNAPSHOT="${BASE_DIR}/.AdGuardHome.event-hooks.commit-failure"
+printf '%s\n' 'original dnsmasq' >"${TMP_DIR}/jffs/scripts/dnsmasq.postconf"
+all_event_scripts_transaction_begin "${COMMIT_FAILURE_SNAPSHOT}" || fail 'could not create commit failure snapshot fixture'
+printf '%s\n' 'changed dnsmasq before failed commit' >"${TMP_DIR}/jffs/scripts/dnsmasq.postconf"
+# rm persistently rejects recovery-marker removal while allowing other cleanup.
+rm() {
+	[ "$*" != "-f ${BASE_DIR}/.AdGuardHome.event-hooks-recovery" ] || return 1
+	/bin/rm "$@"
+}
+if all_event_scripts_transaction_commit; then
+	fail 'event-hook commit hid persistent marker-removal failure'
+fi
+[ "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}" = "${COMMIT_FAILURE_SNAPSHOT}" ] || fail 'failed commit detached its active snapshot'
+[ -f "${BASE_DIR}/.AdGuardHome.event-hooks-recovery" ] || fail 'failed commit removed its recovery marker'
+[ -d "${COMMIT_FAILURE_SNAPSHOT}" ] || fail 'failed commit removed its recovery snapshot'
+if all_event_scripts_transaction_rollback; then
+	fail 'event-hook rollback hid persistent marker-removal failure'
+fi
+grep -qx 'original dnsmasq' "${TMP_DIR}/jffs/scripts/dnsmasq.postconf" || fail 'failed commit rollback did not restore prior configuration'
+[ "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT}" = "${COMMIT_FAILURE_SNAPSHOT}" ] || fail 'incomplete rollback detached its active snapshot'
+grep -q "${COMMIT_FAILURE_SNAPSHOT}" "${TMP_DIR}/rollback-report" || fail 'incomplete rollback did not report its retained snapshot'
+unset -f rm 2>/dev/null || true
+all_event_scripts_transaction_rollback || fail 'could not clean up retained commit-failure snapshot'
+
 FAILED_SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.event-hooks.failed-rollback"
 all_event_scripts_transaction_begin "${FAILED_SNAPSHOT_DIR}" || fail 'could not create failed rollback snapshot fixture'
-ERROR=ERROR
 INFO=INFO
 # nvram_transaction_lock_owned reports no active setup transaction for the hook-only fixtures.
 nvram_transaction_lock_owned() { return 1; }
-# PTXT appends the provided text to the rollback report.
-PTXT() { printf '%s\n' "$*" >>"${TMP_DIR}/rollback-report"; }
 # all_event_scripts_restore restores all event-script files and reports failure when restoration is unsuccessful.
 all_event_scripts_restore() { return 1; }
 if all_event_scripts_transaction_rollback; then
