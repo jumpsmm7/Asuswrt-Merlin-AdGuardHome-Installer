@@ -24,6 +24,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 sed -n \
 	-e '/^adguard_install_abort_trap_disable() {$/,/^}/p' \
+	-e '/^adguard_install_signal_traps_disable() {$/,/^}/p' \
 	-e '/^adguard_install_abort_trap_disable_preserve_defer() {$/,/^}/p' \
 	-e '/^adguard_install_abort_on_signal() {$/,/^}/p' \
 	-e '/^adguard_install_abort_trap_enable() {$/,/^}/p' \
@@ -37,6 +38,7 @@ sed -n \
 printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_ROOT}" >>"${FUNCTIONS_FILE}"
 printf '%s\n' 'setup_restore_nvram_journal() { return 0; }' >>"${FUNCTIONS_FILE}"
 printf '%s\n' 'all_event_scripts_transaction_detach_after_mode_rollback() { return 0; }' >>"${FUNCTIONS_FILE}"
+printf '%s\n' 'adguard_committed_binary_cleanup_retry() { return 0; }' >>"${FUNCTIONS_FILE}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'interruption trap helper extraction was empty'
 : >"${CALLS_FILE}"
 

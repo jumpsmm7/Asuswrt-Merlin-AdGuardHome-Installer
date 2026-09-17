@@ -31,9 +31,16 @@ extract_predicate adguard_wan_iptables_state_active runtime_predicate "${RUNTIME
 . "${TEST_ROOT}/runtime"
 
 test_iptables() {
-	[ "$*" = '-t nat -S POSTROUTING' ] || fail "unexpected iptables query: $*"
+	printf '%s\n' "$*" >>"${TEST_ROOT}/iptables-queries"
 	printf '%s\n' "${WAN_NAT_RULE:-}"
 	[ "${IPTABLES_FAIL:-0}" -eq 0 ]
+}
+
+assert_iptables_query() {
+	[ -s "${TEST_ROOT}/iptables-queries" ] || fail 'WAN NAT predicates did not query iptables'
+	while IFS= read -r query; do
+		[ "${query}" = '-t nat -S POSTROUTING' ] || fail "unexpected iptables query: ${query}"
+	done <"${TEST_ROOT}/iptables-queries"
 }
 
 test_nvram() {
@@ -74,5 +81,6 @@ check_case 1
 IPTABLES_FAIL=1
 WAN_NAT_RULE='-A POSTROUTING -o eth0 -j MASQUERADE'
 check_case 1
+assert_iptables_query
 
 printf '%s\n' 'PASS: installer and runtime WAN NAT predicates remain in parity'
