@@ -30,12 +30,14 @@ extract_predicate adguard_wan_iptables_state_active runtime_predicate "${RUNTIME
 . "${TEST_ROOT}/installer"
 . "${TEST_ROOT}/runtime"
 
+# test_iptables records each NAT-table query and returns the configured fixture result.
 test_iptables() {
 	printf '%s\n' "$*" >>"${TEST_ROOT}/iptables-queries"
 	printf '%s\n' "${WAN_NAT_RULE:-}"
 	[ "${IPTABLES_FAIL:-0}" -eq 0 ]
 }
 
+# assert_iptables_query verifies that every predicate used the expected NAT-table query.
 assert_iptables_query() {
 	[ -s "${TEST_ROOT}/iptables-queries" ] || fail 'WAN NAT predicates did not query iptables'
 	while IFS= read -r query; do
