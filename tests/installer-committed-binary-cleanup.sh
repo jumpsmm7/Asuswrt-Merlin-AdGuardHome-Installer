@@ -99,6 +99,7 @@ printf '%s\n' old >"${OLD_BINARY}"
 ADGUARD_INSTALL_REPLACE_ACTIVE=1
 ADGUARD_INSTALL_OLD_BINARY="${OLD_BINARY}"
 ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING=""
+# adguard_committed_binary_cleanup_record_write injects marker persistence failure after checking publication order.
 adguard_committed_binary_cleanup_record_write() {
 	[ "${ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING}" = "${OLD_BINARY}" ] ||
 		fail 'cleanup record write ran before publishing the committed backup path'
@@ -106,6 +107,7 @@ adguard_committed_binary_cleanup_record_write() {
 	[ "${TRAPS_DISABLED}" -eq 0 ] || fail 'cleanup record write ran after signal traps were disabled'
 	return 1
 }
+# rm injects failure for the direct committed-backup cleanup fallback.
 rm() { return 1; }
 if adguard_committed_binary_cleanup_finalize "${OLD_BINARY}"; then
 	fail 'double committed-backup cleanup failure was reported as success'

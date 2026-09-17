@@ -6,11 +6,13 @@ set -u
 SCRIPT_PATH="${1:-installer}"
 TEST_ROOT="${TMPDIR:-/tmp}/installer-binary-cleanup-lifecycle.$$"
 
+# fail reports a lifecycle regression and terminates the test.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
 
+# cleanup removes the isolated lifecycle fixture tree.
 cleanup() {
 	rm -rf "${TEST_ROOT}"
 }
@@ -35,15 +37,25 @@ sed -n '/^if ! adguard_committed_binary_cleanup_retry; then$/,/^fi$/p' "${SCRIPT
 ERROR='Error:'
 WARNING='Warning:'
 REPORT="${TEST_ROOT}/report"
+# PTXT records installer diagnostics for fixture assertions.
 PTXT() { printf '%s\n' "$*" >>"${REPORT}"; }
+# nvram_transaction_lock_owned reports that no NVRAM recovery lock is held.
 nvram_transaction_lock_owned() { return 1; }
+# nvram_transaction_lock_release accepts fixture lock cleanup.
 nvram_transaction_lock_release() { return 0; }
+# cleanup_api_files accepts fixture API cleanup.
 cleanup_api_files() { :; }
+# installer_cleanup_tmp_file accepts fixture temporary-file cleanup.
 installer_cleanup_tmp_file() { :; }
+# all_event_scripts_transaction_rollback accepts fixture event-hook rollback.
 all_event_scripts_transaction_rollback() { :; }
+# rollback_pending_mode_migration accepts fixture mode-migration rollback.
 rollback_pending_mode_migration() { :; }
+# adguard_restart_after_install_abort accepts fixture interrupted-install recovery.
 adguard_restart_after_install_abort() { :; }
+# adguard_restart_after_failed_replace accepts fixture replacement restart recovery.
 adguard_restart_after_failed_replace() { :; }
+# adguard_install_signal_traps_disable accepts fixture signal-trap cleanup.
 adguard_install_signal_traps_disable() { :; }
 MODE_MIGRATION_YAML_FILE_BACKUP=""
 EVENT_SCRIPTS_ACTIVE_SNAPSHOT=""
@@ -59,7 +71,9 @@ ADGUARD_INSTALL_REPLACE_ACTIVE=1
 ADGUARD_INSTALL_OLD_BINARY="${BACKUP}"
 ADGUARD_INSTALL_COMMIT_PENDING=1
 ADGUARD_COMMITTED_BINARY_CLEANUP_PENDING=""
+# adguard_committed_binary_cleanup_record_write injects initial marker persistence failure.
 adguard_committed_binary_cleanup_record_write() { return 1; }
+# rm injects initial direct backup-removal failure.
 rm() { return 1; }
 if adguard_committed_binary_cleanup_finalize "${BACKUP}"; then
 	fail 'initial double cleanup failure was reported as success'
@@ -69,7 +83,9 @@ unset -f rm 2>/dev/null || true
 # Reload the real cleanup helpers so EXIT can publish the durable record.
 # shellcheck disable=SC1090
 . "${TEST_ROOT}/helpers"
+# adguard_install_signal_traps_disable accepts fixture signal-trap cleanup after helper reload.
 adguard_install_signal_traps_disable() { :; }
+# rm preserves the pending backup while allowing other EXIT cleanup.
 rm() {
 	[ "$1" != '-f' ] || [ "$2" != "${BACKUP}" ] || return 1
 	/bin/rm "$@"
@@ -90,6 +106,7 @@ BACKUP="${TARG_DIR}/.AdGuardHome.previous.101"
 mkdir -p "${TARG_DIR}" || fail 'could not create EXIT cleanup fixture'
 printf '%s\n' old >"${BACKUP}"
 adguard_committed_binary_cleanup_record_write "${BACKUP}" || fail 'could not create EXIT cleanup record'
+# rm preserves the committed backup during the first EXIT retry.
 rm() {
 	[ "$1" != '-f' ] || [ "$2" != "${BACKUP}" ] || return 1
 	/bin/rm "$@"
@@ -109,6 +126,7 @@ DISPATCHED="${TEST_ROOT}/startup-dispatched"
 mkdir -p "${TARG_DIR}" || fail 'could not create startup cleanup fixture'
 printf '%s\n' old >"${BACKUP}"
 adguard_committed_binary_cleanup_record_write "${BACKUP}" || fail 'could not create startup cleanup record'
+# rm preserves the committed backup while startup cleanup is gated.
 rm() {
 	[ "$1" != '-f' ] || [ "$2" != "${BACKUP}" ] || return 1
 	/bin/rm "$@"
