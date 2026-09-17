@@ -236,6 +236,7 @@ run_check 'Installer reaper owner publication regression' sh tests/installer-rea
 run_check 'Installer interruption restart regression' sh tests/installer-interruption-restart.sh
 run_check 'Installer binary rollback-state regression' sh tests/installer-binary-rollback-state.sh
 run_check 'Installer committed binary cleanup regression' sh tests/installer-committed-binary-cleanup.sh
+run_check 'Installer committed binary lifecycle regression' sh tests/installer-committed-binary-lifecycle.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
 run_check 'Installer single-argument action regression' sh tests/installer-single-arg-actions.sh
 run_check 'Installer preflight action regression' sh tests/installer-preflight-actions.sh
