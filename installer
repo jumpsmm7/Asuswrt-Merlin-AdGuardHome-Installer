@@ -592,7 +592,10 @@ nvram_transaction_lock_acquire() {
 			NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
 			return 0
 			;;
-		1) [ -n "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] || nvram_transaction_lock_failure "operation=symlink-lock-acquire path=${lock_path}.symlink" || true; return 1 ;;
+		1)
+			[ -n "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] || nvram_transaction_lock_failure "operation=symlink-lock-acquire path=${lock_path}.symlink" || true
+			return 1
+			;;
 		2) ;;
 		*) return 1 ;;
 	esac
