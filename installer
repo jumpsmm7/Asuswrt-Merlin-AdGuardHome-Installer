@@ -508,10 +508,14 @@ nvram_transaction_lock_acquire() {
 	if nvram_transaction_lock_flock_supports_fd && nvram_transaction_lock_readlink /proc/$$/fd/0 >/dev/null 2>&1; then
 		[ ! -L "${lock_path}" ] || nvram_transaction_lock_failure "operation=validate-flock-path path=${lock_path} reason=symlink-not-allowed" || return 1
 		owner="$(nvram_transaction_lock_owner_current)" || nvram_transaction_lock_failure "operation=identify-current-process path=/proc/$$/stat" || return 1
-		nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" "${owner}" || nvram_transaction_lock_failure "operation=acquire-reaper path=${lock_path}.reaper" || return 1
+		nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" "${owner}" || {
+			[ -n "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] || nvram_transaction_lock_failure "operation=acquire-reaper path=${lock_path}.reaper" || true
+			return 1
+		}
 		lock_dir="${lock_path}.d"
 		if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
 			[ -d "${lock_dir}" ] && [ ! -L "${lock_dir}" ] || {
+				nvram_transaction_lock_failure "operation=validate-mkdir-lock path=${lock_dir} reason=unsafe-artifact" || true
 				nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
 				return 1
 			}
@@ -608,7 +612,10 @@ nvram_transaction_lock_acquire() {
 	esac
 	owner="$(nvram_transaction_lock_owner_current)" || nvram_transaction_lock_failure "operation=identify-current-process path=/proc/$$/stat" || return 1
 	lock_dir="${lock_path}.d"
-	nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" "${owner}" || nvram_transaction_lock_failure "operation=acquire-reaper path=${lock_path}.reaper" || return 1
+	nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" "${owner}" || {
+		[ -n "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] || nvram_transaction_lock_failure "operation=acquire-reaper path=${lock_path}.reaper" || true
+		return 1
+	}
 	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
 		[ -d "${lock_dir}" ] && [ ! -L "${lock_dir}" ] || {
 			nvram_transaction_lock_failure "operation=validate-mkdir-lock path=${lock_dir} reason=unsafe-artifact" || true
@@ -816,7 +823,10 @@ nvram_transaction_lock_reaper_acquire_impl() {
 			return 1
 		fi
 		if [ "${reaper_owner}" != "${owner}" ]; then
-			nvram_transaction_lock_owner_live "${reaper_owner}" && return 1
+			if nvram_transaction_lock_owner_live "${reaper_owner}"; then
+				nvram_transaction_lock_failure "operation=acquire-reaper path=${reaper_path} reason=live-owner owner=${reaper_owner}" || true
+				return 1
+			fi
 			[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${reaper_owner}" ] || return 1
 			rm -rf "${reaper_path}" || return 1
 			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
@@ -956,7 +966,7 @@ nvram_transaction_lock_reaper_acquire() {
 	local diagnostic_path
 	diagnostic_path="$1"
 	nvram_transaction_lock_reaper_acquire_impl "$@" && return 0
-	nvram_transaction_lock_failure "operation=acquire-reaper path=${diagnostic_path}" || true
+	[ -n "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] || nvram_transaction_lock_failure "operation=acquire-reaper path=${diagnostic_path}" || true
 	return 1
 }
 
@@ -1007,7 +1017,10 @@ nvram_transaction_lock_reaper_release_impl() {
 			fi
 			if [ -e "${reaper_path}.symlink" ] || [ -L "${reaper_path}.symlink" ]; then
 				[ "$(nvram_transaction_lock_readlink "${reaper_path}.symlink" 2>/dev/null)" = "${owner}" ] || {
-					[ -n "${NVRAM_TRANSACTION_REAPER_TEMP_PATH:-}" ] || return 1
+					[ -n "${NVRAM_TRANSACTION_REAPER_TEMP_PATH:-}" ] || {
+						nvram_transaction_lock_failure "operation=release-reaper path=${reaper_path}.symlink reason=owner-mismatch owner=${owner}" || true
+						return 1
+					}
 					nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}" || return 1
 					NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
 					NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
@@ -1026,7 +1039,10 @@ nvram_transaction_lock_reaper_release_impl() {
 			else
 				owner="$(nvram_transaction_lock_owner_current)" || return 1
 			fi
-			[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || return 1
+			[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || {
+				nvram_transaction_lock_failure "operation=release-reaper path=${reaper_path}/pid reason=owner-mismatch owner=${owner}" || true
+				return 1
+			}
 			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 			;;
 		*) return 1 ;;
@@ -1043,12 +1059,13 @@ nvram_transaction_lock_reaper_release_impl() {
 nvram_transaction_lock_reaper_release() {
 	local diagnostic_path primary_diagnostic
 	diagnostic_path="$1"
-	nvram_transaction_lock_reaper_release_impl "$@" && return 0
 	primary_diagnostic="${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}"
+	nvram_transaction_lock_reaper_release_impl "$@" && return 0
 	if [ -n "${primary_diagnostic}" ]; then
 		nvram_transaction_lock_failure "${primary_diagnostic} after-failed-operation=release-reaper:${diagnostic_path}" || true
 		return 1
 	fi
+	[ -n "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] && return 1
 	nvram_transaction_lock_failure "operation=release-reaper path=${diagnostic_path}" || true
 	return 1
 }
@@ -1094,9 +1111,13 @@ nvram_transaction_lock_symlink_acquire() {
 		fi
 		return 2
 	fi
-	nvram_transaction_lock_reaper_acquire "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || nvram_transaction_lock_failure "operation=acquire-reaper path=${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+	nvram_transaction_lock_reaper_acquire "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || {
+		[ -n "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] || nvram_transaction_lock_failure "operation=acquire-reaper path=${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || true
+		return 1
+	}
 	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
 		[ -d "${lock_dir}" ] && [ ! -L "${lock_dir}" ] || {
+			nvram_transaction_lock_failure "operation=validate-mkdir-lock path=${lock_dir} reason=unsafe-artifact" || true
 			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
 			return 1
 		}
@@ -1107,10 +1128,12 @@ nvram_transaction_lock_symlink_acquire() {
 			return 1
 		fi
 		[ "$(cat "${lock_dir}/pid" 2>/dev/null)" = "${lock_owner}" ] || {
+			nvram_transaction_lock_failure "operation=validate-stale-lock path=${lock_dir}/pid reason=owner-changed owner=${lock_owner}" || true
 			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
 			return 1
 		}
 		rm -rf "${lock_dir}" || {
+			nvram_transaction_lock_failure "operation=remove-stale-lock path=${lock_dir} reason=cleanup-failed" || true
 			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
 			return 1
 		}
@@ -1123,14 +1146,17 @@ nvram_transaction_lock_symlink_acquire() {
 			return 1
 		fi
 		[ "$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)" = "${lock_owner}" ] || {
+			nvram_transaction_lock_failure "operation=validate-stale-lock path=${lock_path} reason=owner-changed owner=${lock_owner}" || true
 			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
 			return 1
 		}
 		rm -f "${lock_path}" || {
+			nvram_transaction_lock_failure "operation=remove-stale-lock path=${lock_path} reason=cleanup-failed" || true
 			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
 			return 1
 		}
 	elif [ -e "${lock_path}" ]; then
+		nvram_transaction_lock_failure "operation=validate-symlink-lock path=${lock_path} reason=unsafe-artifact" || true
 		nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
 		return 1
 	fi

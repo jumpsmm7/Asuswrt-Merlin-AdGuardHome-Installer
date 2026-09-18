@@ -35,6 +35,18 @@ nvram_transaction_lock_acquire || fail "mkdir fallback failed: ${NVRAM_TRANSACTI
 nvram_transaction_lock_release || fail 'could not release mkdir fallback lock'
 unset -f ln 2>/dev/null || true
 
+# An unsafe mkdir-lock artifact is the terminal fallback failure and must not
+# be hidden by the optional flock capability miss.
+: >"${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not create unsafe lock artifact'
+if nvram_transaction_lock_acquire; then
+	fail 'acquisition succeeded with an unsafe mkdir-lock artifact'
+fi
+case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
+	*operation=validate-mkdir-lock*path="${BASE_DIR}/.AdGuardHome.nvram.lock.d"*reason=unsafe-artifact*) ;;
+	*) fail "unsafe fallback artifact lacked a diagnostic: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
+esac
+rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
+
 # A failed reaper acquisition must identify the operation and path.
 nvram_transaction_lock_symlink_acquire() { return 2; }
 nvram_transaction_lock_reaper_acquire() { return 1; }
@@ -80,6 +92,26 @@ case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
 	"operation=release-reaper path=${BASE_DIR}/standalone.reaper") ;;
 	*) fail "standalone reaper release diagnostic was incorrect: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
 esac
+
+# A release ownership mismatch reported by the implementation must remain
+# more specific than the wrapper's generic release failure.
+# shellcheck disable=SC1090
+. "${FUNCTIONS_FILE}"
+mkdir "${BASE_DIR}/mismatched.reaper" || fail 'could not create mismatched reaper'
+printf '%s\n' 'different-owner' >"${BASE_DIR}/mismatched.reaper/pid"
+NVRAM_TRANSACTION_REAPER_LOCK_MODE=mkdir
+NVRAM_TRANSACTION_REAPER_LOCK_PATH="${BASE_DIR}/mismatched.reaper"
+NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
+if nvram_transaction_lock_reaper_release "${BASE_DIR}/mismatched.reaper" "${owner}"; then
+	fail 'mismatched reaper release succeeded'
+fi
+case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
+	*operation=release-reaper*path="${BASE_DIR}/mismatched.reaper/pid"*reason=owner-mismatch*owner="${owner}"*) ;;
+	*) fail "reaper owner mismatch lacked a specific diagnostic: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
+esac
+rm -rf "${BASE_DIR}/mismatched.reaper"
+NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
+NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
 
 # A release failure after publication must retain both the failed operation
 # and the artifact that acquisition rolls back.
