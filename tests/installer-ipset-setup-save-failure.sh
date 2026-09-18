@@ -211,7 +211,10 @@ PREFLIGHT_INSTALL_MODE_DETECTED=0
 adguard_install_mode_detect_once
 [ "${ADGUARD_INSTALL_MODE}" = wan ] || fail 'router sw_mode was not detected as WAN mode'
 WAN_IPADDR="$(nvram get wan_ipaddr)"
-if (PTXT() { printf '%s\n' "$1"; }; ipv4_is_private "${WAN_IPADDR}"); then NAT_ENV="${WAN_IPADDR}"; else NAT_ENV=""; fi
+if (
+	PTXT() { printf '%s\n' "$1"; }
+	ipv4_is_private "${WAN_IPADDR}"
+); then NAT_ENV="${WAN_IPADDR}"; else NAT_ENV=""; fi
 [ "${NAT_ENV}" = "${WAN_IPADDR}" ] || fail 'private router WAN address was not classified as double NAT'
 ADGUARD_LAN_REVERSE_UPSTREAM=
 IPSET_SELECTION_LOG=
