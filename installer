@@ -575,7 +575,7 @@ nvram_transaction_lock_acquire() {
 		}
 		if /usr/bin/flock -n 8 >/dev/null 2>&1; then
 			nvram_transaction_lock_cross_reaper_release "${lock_path}" "${owner}" || {
-				nvram_transaction_lock_failure "operation=release-reaper path=${lock_path}.reaper rolled-back=${lock_path}.symlink" || true
+				[ -n "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] || nvram_transaction_lock_failure "operation=release-reaper path=${lock_path}.reaper rolled-back=${lock_path}.symlink" || true
 				/usr/bin/flock -u 8 >/dev/null 2>&1
 				exec 8>&-
 				rm -f "${lock_path}.symlink"
@@ -661,7 +661,7 @@ nvram_transaction_lock_acquire() {
 		return 1
 	}
 	nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}" || {
-		nvram_transaction_lock_failure "operation=release-reaper path=${lock_path}.reaper rolled-back=${lock_dir}" || true
+		[ -n "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] || nvram_transaction_lock_failure "operation=release-reaper path=${lock_path}.reaper rolled-back=${lock_dir}" || true
 		# Do not continue while the reaper remains active. Roll back only a
 		# transaction lock whose ownership can still be verified as ours.
 		if [ "$(cat "${lock_dir}/pid" 2>/dev/null)" = "${owner}" ]; then
@@ -863,7 +863,7 @@ nvram_transaction_lock_reaper_acquire_impl() {
 		nvram_transaction_lock_failure "operation=acquire-reaper path=${reaper_path}/pid reason=owner-changed owner=${owner}" || true
 		return 1
 	}
-	if nvram_transaction_lock_flock_supports_fd; then
+		if nvram_transaction_lock_flock_supports_fd; then
 		[ ! -L "${reaper_path}.lock" ] || {
 			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
 			return 1
@@ -892,10 +892,12 @@ nvram_transaction_lock_reaper_acquire_impl() {
 		fi
 		NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 		exec 9>&-
-		nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
-		return 1
-	fi
-	if nvram_transaction_lock_readlink; then
+			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+			return 1
+		fi
+		NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
+		export NVRAM_TRANSACTION_LOCK_DIAGNOSTIC
+		if nvram_transaction_lock_readlink; then
 		# Arm signal cleanup before publishing the capability marker. A signal
 		# may be delivered after ln completes but before the next shell command.
 		NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
@@ -1072,12 +1074,17 @@ nvram_transaction_lock_reaper_release_impl() {
 }
 
 nvram_transaction_lock_reaper_release() {
-	local diagnostic_path primary_diagnostic
+	local diagnostic_path primary_diagnostic release_diagnostic
 	diagnostic_path="$1"
 	primary_diagnostic="${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}"
 	nvram_transaction_lock_reaper_release_impl "$@" && return 0
 	if [ -n "${primary_diagnostic}" ]; then
-		nvram_transaction_lock_failure "${primary_diagnostic} after-failed-operation=release-reaper:${diagnostic_path}" || true
+		release_diagnostic="${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}"
+		if [ -n "${release_diagnostic}" ] && [ "${release_diagnostic}" != "${primary_diagnostic}" ]; then
+			nvram_transaction_lock_failure "${primary_diagnostic} after-failed-operation=release-reaper:${diagnostic_path} release-diagnostic=${release_diagnostic}" || true
+		else
+			nvram_transaction_lock_failure "${primary_diagnostic} after-failed-operation=release-reaper:${diagnostic_path}" || true
+		fi
 		return 1
 	fi
 	[ -n "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] && return 1
@@ -1187,7 +1194,7 @@ nvram_transaction_lock_symlink_acquire() {
 			return 1
 		fi
 		nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || {
-			nvram_transaction_lock_failure "operation=release-reaper path=${BASE_DIR}/.AdGuardHome.nvram.lock.reaper rolled-back=${lock_path}" || true
+			[ -n "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] || nvram_transaction_lock_failure "operation=release-reaper path=${BASE_DIR}/.AdGuardHome.nvram.lock.reaper rolled-back=${lock_path}" || true
 			if ! rm -f "${lock_path}" 2>/dev/null || [ -e "${lock_path}" ] || [ -L "${lock_path}" ]; then
 				printf '%s\n' "Error: unable to roll back owned NVRAM transaction lock ${lock_path}; stopping recovery." >&2
 				exit 1

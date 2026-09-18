@@ -166,6 +166,34 @@ wait "${TEST_LIVE_PID}" 2>/dev/null || true
 TEST_LIVE_PID=""
 rm -rf "${BASE_DIR}/live.reaper"
 
+# A failed flock probe is nonterminal inside reaper acquisition. If the later
+# portable fallback fails silently, the wrapper must report that terminal
+# acquisition failure rather than stale probe-cleanup context.
+# shellcheck disable=SC1090
+. "${FUNCTIONS_FILE}"
+probe_reaper_path="${BASE_DIR}/probe.reaper"
+nvram_transaction_lock_reaper_legacy_claim() {
+	mkdir "$1" || return 1
+	printf '%s\n' "$2" >"$1/pid"
+}
+nvram_transaction_lock_flock_supports_fd() {
+	nvram_transaction_lock_failure 'operation=flock-probe-cleanup path=stale-probe' || true
+	return 1
+}
+nvram_transaction_lock_readlink() {
+	NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+	return 127
+}
+NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
+if nvram_transaction_lock_reaper_acquire "${probe_reaper_path}" "${owner}"; then
+	fail 'reaper acquisition succeeded after injected portable fallback failure'
+fi
+case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
+	"operation=acquire-reaper path=${probe_reaper_path}") ;;
+	*) fail "reaper fallback retained stale flock probe context: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
+esac
+rm -rf "${probe_reaper_path}"
+
 # Losing stale-symlink reclamation must retain the observed contender, and a
 # failed legacy cleanup must be appended as secondary context.
 # shellcheck disable=SC1090
@@ -210,15 +238,19 @@ esac
 
 # A cleanup failure is secondary to the live-owner contention that made the
 # acquisition fail.
-nvram_transaction_lock_reaper_release_impl() { return 1; }
+nvram_transaction_lock_reaper_release_impl() {
+	nvram_transaction_lock_failure "operation=release-reaper path=$1 reason=cleanup-failed" || true
+	return 1
+}
 NVRAM_TRANSACTION_LOCK_DIAGNOSTIC="operation=validate-stale-lock path=${BASE_DIR}/.AdGuardHome.nvram.lock.symlink reason=live-owner owner=${owner}"
 if nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" "${owner}"; then
 	fail 'injected reaper release failure succeeded'
 fi
 case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
-	*operation=validate-stale-lock*path="${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"*reason=live-owner*owner="${owner}"*after-failed-operation="release-reaper:${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"*) ;;
+	*operation=validate-stale-lock*path="${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"*reason=live-owner*owner="${owner}"*after-failed-operation="release-reaper:${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"*release-diagnostic=operation=release-reaper*reason=cleanup-failed*) ;;
 	*) fail "reaper release replaced the primary diagnostic: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
 esac
+nvram_transaction_lock_reaper_release_impl() { return 1; }
 NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
 if nvram_transaction_lock_reaper_release "${BASE_DIR}/standalone.reaper" "${owner}"; then
 	fail 'standalone injected reaper release failure succeeded'
@@ -255,7 +287,10 @@ rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 . "${FUNCTIONS_FILE}"
 nvram_transaction_lock_flock_supports_fd() { return 1; }
 nvram_transaction_lock_reaper_acquire() { return 0; }
-nvram_transaction_lock_reaper_release_impl() { return 1; }
+nvram_transaction_lock_reaper_release_impl() {
+	nvram_transaction_lock_failure "operation=release-reaper path=$1 reason=cleanup-failed" || true
+	return 1
+}
 ln() {
 	command ln "$@" || return 1
 	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || return 1
@@ -265,7 +300,7 @@ if nvram_transaction_lock_acquire; then
 	fail 'acquisition succeeded after symlink validation and reaper release failures'
 fi
 case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
-	*operation=validate-symlink-publication*rolled-back="${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"*after-failed-operation="release-reaper:${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"*) ;;
+	*operation=validate-symlink-publication*rolled-back="${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"*after-failed-operation="release-reaper:${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"*release-diagnostic=operation=release-reaper*reason=cleanup-failed*) ;;
 	*) fail "reaper release replaced the symlink validation diagnostic: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
 esac
 rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
