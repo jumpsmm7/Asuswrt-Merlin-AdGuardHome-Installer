@@ -92,8 +92,16 @@ trap 'cleanup; exit 1' HUP INT TERM
 nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '1' ;;
+		get:lan_domain) printf '%s\n' '' ;;
+		get:lan_gateway | get:lan_ipaddr) printf '%s\n' '192.168.1.1' ;;
+		get:lan_ifname) printf '%s\n' 'br0' ;;
+		get:ipv6_rtr_addr) printf '%s\n' '' ;;
 	esac
 }
+# ai_have_cmd reports that optional router commands are unavailable in this fixture.
+ai_have_cmd() { return 1; }
+# ipv4_is_valid accepts the LAN address used by this fixture.
+ipv4_is_valid() { [ "$1" = '192.168.1.1' ]; }
 # check_dns_filter checks the current DNS filter settings.
 check_dns_filter() { :; }
 # save_dns_filter_settings creates the directory specified by its argument.
@@ -114,8 +122,11 @@ nvram_transaction_setup_files_restore() { return 0; }
 restore_dns_filter_settings() { rm -rf "$1"; }
 # check_dns_local is a test stub for the DNS locality check.
 check_dns_local() { :; }
-# check_ipset simulates a failed IPSET preference check.
-check_ipset() { return 1; }
+# check_ipset records an optional selection and simulates a preference-save failure.
+check_ipset() {
+	[ -z "${IPSET_SELECTION_LOG:-}" ] || printf '%s\n' "$1" >>"${IPSET_SELECTION_LOG}"
+	return 1
+}
 # check_AdGuardHome_yaml verifies that YAML validation is enabled for the test harness.
 check_AdGuardHome_yaml() {
 	[ "${ALLOW_YAML_VALIDATION:-0}" -eq 1 ] || fail 'unexpected YAML validation'
@@ -147,6 +158,36 @@ end_op_message() {
 
 ALLOW_INITIAL_CONFIG=1
 ALLOW_YAML_VALIDATION=1
+
+# Exercise the complete LAN install path with a setup journal created by an
+# earlier stage of the same installer process. The check_ipset boundary must
+# reuse that owned journal and continue through YAML generation.
+LOG="${TMP_ROOT}/install.lan-owned-journal.log"
+RESTART_LOG="${LOG}.restart"
+END_LOG="${LOG}.end"
+IPSET_SELECTION_LOG="${LOG}.ipset-selection"
+: >"${LOG}"
+: >"${RESTART_LOG}"
+: >"${END_LOG}"
+: >"${IPSET_SELECTION_LOG}"
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create installer-owned LAN setup journal'
+nvram_transaction_setup_files_begin() { fail 'LAN installation attempted to replace its owned setup journal'; }
+ADGUARD_INSTALL_MODE=lan
+ADGUARD_LAN_REVERSE_UPSTREAM=192.168.1.1
+BOOTSTRAP1=
+BOOTSTRAP2=
+setup_AdGuardHome '' install || fail 'LAN installation did not reuse its installer-owned setup journal'
+[ "$(cat "${IPSET_SELECTION_LOG}")" = 0 ] || fail 'LAN installation did not keep IPSET disabled'
+[ -f "${YAML_FILE}" ] || fail 'LAN installation did not proceed into YAML generation with its owned setup journal'
+if grep -q 'Unable to journal the current installer configuration before check_ipset' "${LOG}"; then
+	fail 'LAN installation rejected its installer-owned setup journal before check_ipset'
+fi
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram" "${YAML_FILE}" "${YAML_ORI}" "${YAML_BAK}"
+nvram_transaction_setup_files_begin() { return 0; }
+ADGUARD_INSTALL_MODE=wan
+ADGUARD_LAN_REVERSE_UPSTREAM=
+IPSET_SELECTION_LOG=
+
 for ANSWER in yes no; do
 	LOG="${TMP_ROOT}/install.${ANSWER}.log"
 	RESTART_LOG="${LOG}.restart"
