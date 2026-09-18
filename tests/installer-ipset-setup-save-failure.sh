@@ -13,10 +13,13 @@ fail() {
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 
 RUNTIME_DEFAULT_FUNCTIONS="$(sed -n '/^conf_value() {$/,/^md5_is_valid() {$/p' "${SCRIPT_PATH}" | sed '$d')"
+INSTALL_MODE_FUNCTIONS="$(sed -n '/^ipv4_is_valid() {$/,/^adguard_install_mode_detect_once() {$/p' "${SCRIPT_PATH}" | sed '$d')"
 SETUP_FUNCTIONS="$(sed -n '/^setup_AdGuardHome() {$/,/^setup_amtmupdate() {$/p' "${SCRIPT_PATH}" | sed '$d')"
 [ -n "${RUNTIME_DEFAULT_FUNCTIONS}" ] || fail 'could not extract runtime default functions'
+[ -n "${INSTALL_MODE_FUNCTIONS}" ] || fail 'could not extract install mode functions'
 [ -n "${SETUP_FUNCTIONS}" ] || fail 'could not extract setup functions'
 eval "${RUNTIME_DEFAULT_FUNCTIONS}"
+eval "${INSTALL_MODE_FUNCTIONS}"
 eval "${SETUP_FUNCTIONS}"
 
 # nvram_transaction_lock_owned reports whether the current process owns the NVRAM transaction lock.
@@ -92,6 +95,21 @@ trap 'cleanup; exit 1' HUP INT TERM
 nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '1' ;;
+		get:lan_domain) printf '%s\n' '' ;;
+		get:lan_gateway | get:lan_ipaddr) printf '%s\n' '192.168.1.1' ;;
+		get:lan_ifname) printf '%s\n' 'br0' ;;
+		get:ipv6_rtr_addr) printf '%s\n' '' ;;
+		get:sw_mode) printf '%s\n' "${TEST_SW_MODE:-1}" ;;
+		get:wan_ipaddr) printf '%s\n' '192.168.50.2' ;;
+	esac
+}
+# ai_have_cmd reports that optional router commands are unavailable in this fixture.
+ai_have_cmd() { return 1; }
+# ipv4_is_valid accepts the LAN and private WAN addresses used by this fixture.
+ipv4_is_valid() {
+	case "$1" in
+		192.168.1.1 | 192.168.50.2) return 0 ;;
+		*) return 1 ;;
 	esac
 }
 # check_dns_filter checks the current DNS filter settings.
@@ -147,6 +165,41 @@ end_op_message() {
 
 ALLOW_INITIAL_CONFIG=1
 ALLOW_YAML_VALIDATION=1
+
+# Exercise the complete LAN install path with a setup journal created by an
+# earlier stage of the same installer process. The check_ipset boundary must
+# reuse that owned journal and continue through YAML generation.
+LOG="${TMP_ROOT}/install.lan-owned-journal.log"
+RESTART_LOG="${LOG}.restart"
+END_LOG="${LOG}.end"
+: >"${LOG}"
+: >"${RESTART_LOG}"
+: >"${END_LOG}"
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create installer-owned LAN setup journal'
+nvram_transaction_setup_files_begin() { fail 'LAN installation attempted to replace its owned setup journal'; }
+TEST_SW_MODE=3
+ADGUARD_INSTALL_MODE=
+adguard_install_mode_detect || fail 'could not detect the LAN/AP/bridge fixture mode'
+[ "${ADGUARD_INSTALL_MODE}" = lan ] || fail 'non-router sw_mode was not detected as LAN/AP/bridge mode'
+ADGUARD_LAN_REVERSE_UPSTREAM=192.168.1.1
+BOOTSTRAP1=
+BOOTSTRAP2=
+setup_AdGuardHome '' install || fail 'LAN installation did not reuse its installer-owned setup journal'
+[ -f "${YAML_FILE}" ] || fail 'LAN installation did not proceed into YAML generation with its owned setup journal'
+if grep -q 'Unable to journal the current installer configuration before check_ipset' "${LOG}"; then
+	fail 'LAN installation rejected its installer-owned setup journal before check_ipset'
+fi
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram" "${YAML_FILE}" "${YAML_ORI}" "${YAML_BAK}"
+nvram_transaction_setup_files_begin() { return 0; }
+TEST_SW_MODE=1
+ADGUARD_INSTALL_MODE=
+adguard_install_mode_detect || fail 'could not detect the router fixture mode'
+[ "${ADGUARD_INSTALL_MODE}" = wan ] || fail 'router sw_mode was not detected as WAN mode'
+WAN_IPADDR="$(nvram get wan_ipaddr)"
+if ( PTXT() { printf '%s\n' "$1"; }; ipv4_is_private "${WAN_IPADDR}" ); then NAT_ENV="${WAN_IPADDR}"; else NAT_ENV=""; fi
+[ "${NAT_ENV}" = "${WAN_IPADDR}" ] || fail 'private router WAN address was not classified as double NAT'
+ADGUARD_LAN_REVERSE_UPSTREAM=
+
 for ANSWER in yes no; do
 	LOG="${TMP_ROOT}/install.${ANSWER}.log"
 	RESTART_LOG="${LOG}.restart"
