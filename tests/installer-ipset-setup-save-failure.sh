@@ -13,10 +13,13 @@ fail() {
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 
 RUNTIME_DEFAULT_FUNCTIONS="$(sed -n '/^conf_value() {$/,/^md5_is_valid() {$/p' "${SCRIPT_PATH}" | sed '$d')"
+INSTALL_MODE_FUNCTIONS="$(sed -n '/^ipv4_is_valid() {$/,/^adguard_install_mode_detect_once() {$/p' "${SCRIPT_PATH}" | sed '$d')"
 SETUP_FUNCTIONS="$(sed -n '/^setup_AdGuardHome() {$/,/^setup_amtmupdate() {$/p' "${SCRIPT_PATH}" | sed '$d')"
 [ -n "${RUNTIME_DEFAULT_FUNCTIONS}" ] || fail 'could not extract runtime default functions'
+[ -n "${INSTALL_MODE_FUNCTIONS}" ] || fail 'could not extract install mode functions'
 [ -n "${SETUP_FUNCTIONS}" ] || fail 'could not extract setup functions'
 eval "${RUNTIME_DEFAULT_FUNCTIONS}"
+eval "${INSTALL_MODE_FUNCTIONS}"
 eval "${SETUP_FUNCTIONS}"
 
 # nvram_transaction_lock_owned reports whether the current process owns the NVRAM transaction lock.
