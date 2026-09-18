@@ -185,7 +185,7 @@ IPSET_SELECTION_LOG="${LOG}.ipset-selection"
 mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create installer-owned LAN setup journal'
 mkdir -p "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not create installer-owned LAN lock directory'
 nvram_transaction_lock_owner_current >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record installer-owned LAN lock owner'
-NVRAM_TRANSACTION_LOCK_MODE=mkdir
+NVRAM_TRANSACTION_LOCK_MODE="mkdir"
 nvram_transaction_setup_files_begin() { fail 'LAN installation attempted to replace its owned setup journal'; }
 TEST_SW_MODE=3
 ADGUARD_INSTALL_MODE=
