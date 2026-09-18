@@ -234,6 +234,19 @@ nvram_transaction_setup_committed() {
 	[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]
 }
 
+nvram_transaction_setup_files_failure() {
+	local artifact operation path
+	operation="$1"
+	path="$2"
+	artifact="${3:-}"
+	if [ -n "${artifact}" ]; then
+		nvram_transaction_lock_failure "operation=${operation} path=${path} rolled-back=${artifact}" || true
+	else
+		nvram_transaction_lock_failure "operation=${operation} path=${path}" || true
+	fi
+	return 1
+}
+
 nvram_transaction_setup_files_begin() {
 	local journal_entry journal_root journal_tmp source
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
@@ -241,11 +254,12 @@ nvram_transaction_setup_files_begin() {
 	# Setup-file publication shares the NVRAM transaction lock so startup
 	# recovery cannot mistake an active journal for an interrupted operation.
 	nvram_transaction_lock_acquire || return 1
-	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram" ] || return 1
-	[ ! -e "${journal_root}" ] && [ ! -L "${journal_root}" ] || return 1
-	rm -rf "${journal_tmp}" || return 1
-	mkdir -p "${journal_tmp}" || return 1
+	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram" ] || nvram_transaction_setup_files_failure validate-journal-parent "${BASE_DIR}/.AdGuardHome.nvram" || return 1
+	[ ! -e "${journal_root}" ] && [ ! -L "${journal_root}" ] || nvram_transaction_setup_files_failure validate-journal-path "${journal_root}" || return 1
+	rm -rf "${journal_tmp}" || nvram_transaction_setup_files_failure remove-stale-journal "${journal_tmp}" || return 1
+	mkdir -p "${journal_tmp}" || nvram_transaction_setup_files_failure create-journal "${journal_tmp}" || return 1
 	chmod 700 "${journal_tmp}" || {
+		nvram_transaction_setup_files_failure chmod-journal "${journal_tmp}" "${journal_tmp}" || true
 		rm -rf "${journal_tmp}"
 		return 1
 	}
@@ -255,17 +269,20 @@ nvram_transaction_setup_files_begin() {
 			yaml-file)
 				if [ "${YAML_BACKED_UP:-0}" -eq 1 ] && [ -f "${YAML_BAK}" ]; then
 					cp -p "${YAML_BAK}" "${journal_entry}" || {
+						nvram_transaction_setup_files_failure copy-journal-entry "${journal_entry}" "${journal_tmp}" || true
 						rm -rf "${journal_tmp}"
 						return 1
 					}
 				elif [ -f "${YAML_FILE}" ]; then
 					cp -p "${YAML_FILE}" "${journal_entry}" || {
+						nvram_transaction_setup_files_failure copy-journal-entry "${journal_entry}" "${journal_tmp}" || true
 						rm -rf "${journal_tmp}"
 						return 1
 					}
 				else
 					journal_entry="${journal_entry}.absent"
 					: >"${journal_entry}" || {
+						nvram_transaction_setup_files_failure create-journal-entry "${journal_entry}" "${journal_tmp}" || true
 						rm -rf "${journal_tmp}"
 						return 1
 					}
@@ -274,12 +291,14 @@ nvram_transaction_setup_files_begin() {
 			yaml-original)
 				if [ -f "${YAML_ORI}" ]; then
 					cp -p "${YAML_ORI}" "${journal_entry}" || {
+						nvram_transaction_setup_files_failure copy-journal-entry "${journal_entry}" "${journal_tmp}" || true
 						rm -rf "${journal_tmp}"
 						return 1
 					}
 				else
 					journal_entry="${journal_entry}.absent"
 					: >"${journal_entry}" || {
+						nvram_transaction_setup_files_failure create-journal-entry "${journal_entry}" "${journal_tmp}" || true
 						rm -rf "${journal_tmp}"
 						return 1
 					}
@@ -288,12 +307,14 @@ nvram_transaction_setup_files_begin() {
 			config)
 				if [ -f "${CONF_FILE}" ]; then
 					cp -p "${CONF_FILE}" "${journal_entry}" || {
+						nvram_transaction_setup_files_failure copy-journal-entry "${journal_entry}" "${journal_tmp}" || true
 						rm -rf "${journal_tmp}"
 						return 1
 					}
 				else
 					journal_entry="${journal_entry}.absent"
 					: >"${journal_entry}" || {
+						nvram_transaction_setup_files_failure create-journal-entry "${journal_entry}" "${journal_tmp}" || true
 						rm -rf "${journal_tmp}"
 						return 1
 					}
@@ -301,11 +322,13 @@ nvram_transaction_setup_files_begin() {
 				;;
 		esac
 		chmod 600 "${journal_entry}" || {
+			nvram_transaction_setup_files_failure chmod-journal-entry "${journal_entry}" "${journal_tmp}" || true
 			rm -rf "${journal_tmp}"
 			return 1
 		}
 	done
 	mv "${journal_tmp}" "${journal_root}" || {
+		nvram_transaction_setup_files_failure publish-journal "${journal_root}" "${journal_tmp}" || true
 		rm -rf "${journal_tmp}"
 		return 1
 	}
@@ -459,9 +482,17 @@ nvram_transaction_lock_cross_reaper_release() {
 	nvram_transaction_lock_reaper_release "$1.reaper" "$2"
 }
 
+nvram_transaction_lock_failure() {
+	NVRAM_TRANSACTION_LOCK_DIAGNOSTIC="$1"
+	export NVRAM_TRANSACTION_LOCK_DIAGNOSTIC
+	return 1
+}
+
 nvram_transaction_lock_acquire() {
 	local lock_dir lock_owner lock_path owner status
 	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
+	NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
+	export NVRAM_TRANSACTION_LOCK_DIAGNOSTIC
 	case "${NVRAM_TRANSACTION_LOCK_MODE:-}" in
 		flock) nvram_transaction_lock_flock_owned "${lock_path}" && return 0 ;;
 		symlink)
@@ -475,9 +506,9 @@ nvram_transaction_lock_acquire() {
 	esac
 	NVRAM_TRANSACTION_LOCK_MODE=""
 	if nvram_transaction_lock_flock_supports_fd && nvram_transaction_lock_readlink /proc/$$/fd/0 >/dev/null 2>&1; then
-		[ ! -L "${lock_path}" ] || return 1
-		owner="$(nvram_transaction_lock_owner_current)" || return 1
-		nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" "${owner}" || return 1
+		[ ! -L "${lock_path}" ] || nvram_transaction_lock_failure "operation=validate-flock-path path=${lock_path} reason=symlink-not-allowed" || return 1
+		owner="$(nvram_transaction_lock_owner_current)" || nvram_transaction_lock_failure "operation=identify-current-process path=/proc/$$/stat" || return 1
+		nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" "${owner}" || nvram_transaction_lock_failure "operation=acquire-reaper path=${lock_path}.reaper" || return 1
 		lock_dir="${lock_path}.d"
 		if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
 			[ -d "${lock_dir}" ] && [ ! -L "${lock_dir}" ] || {
@@ -486,6 +517,7 @@ nvram_transaction_lock_acquire() {
 			}
 			lock_owner="$(cat "${lock_dir}/pid" 2>/dev/null)"
 			if nvram_transaction_lock_owner_live "${lock_owner}"; then
+				nvram_transaction_lock_failure "operation=validate-stale-lock path=${lock_dir}/pid reason=live-owner owner=${lock_owner}" || true
 				nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
 				return 1
 			fi
@@ -500,6 +532,7 @@ nvram_transaction_lock_acquire() {
 		if [ -L "${lock_path}.symlink" ]; then
 			lock_owner="$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)"
 			if [ -n "${lock_owner}" ] && nvram_transaction_lock_owner_live "${lock_owner}"; then
+				nvram_transaction_lock_failure "operation=validate-stale-lock path=${lock_path}.symlink reason=live-owner owner=${lock_owner}" || true
 				nvram_transaction_lock_cross_reaper_release "${lock_path}" "${owner}"
 				return 1
 			fi
@@ -513,10 +546,12 @@ nvram_transaction_lock_acquire() {
 			}
 		fi
 		ln -s "${owner}" "${lock_path}.symlink" 2>/dev/null || {
+			nvram_transaction_lock_failure "operation=publish-symlink path=${lock_path}.symlink" || true
 			nvram_transaction_lock_cross_reaper_release "${lock_path}" "${owner}"
 			return 1
 		}
 		: >>"${lock_path}" 2>/dev/null || {
+			nvram_transaction_lock_failure "operation=create-flock-file path=${lock_path} rolled-back=${lock_path}.symlink" || true
 			rm -f "${lock_path}.symlink"
 			nvram_transaction_lock_cross_reaper_release "${lock_path}" "${owner}"
 			return 1
@@ -533,14 +568,17 @@ nvram_transaction_lock_acquire() {
 		}
 		if /usr/bin/flock -n 8 >/dev/null 2>&1; then
 			nvram_transaction_lock_cross_reaper_release "${lock_path}" "${owner}" || {
+				nvram_transaction_lock_failure "operation=release-reaper path=${lock_path}.reaper rolled-back=${lock_path}.symlink" || true
 				/usr/bin/flock -u 8 >/dev/null 2>&1
 				exec 8>&-
 				rm -f "${lock_path}.symlink"
 				return 1
 			}
 			NVRAM_TRANSACTION_LOCK_MODE="flock"
+			NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
 			return 0
 		fi
+		nvram_transaction_lock_failure "operation=flock-acquire path=${lock_path} rolled-back=${lock_path}.symlink" || true
 		exec 8>&-
 		rm -f "${lock_path}.symlink"
 		nvram_transaction_lock_cross_reaper_release "${lock_path}" "${owner}"
@@ -551,15 +589,16 @@ nvram_transaction_lock_acquire() {
 	case "${status}" in
 		0)
 			NVRAM_TRANSACTION_LOCK_MODE="symlink"
+			NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
 			return 0
 			;;
-		1) return 1 ;;
+		1) [ -n "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] || nvram_transaction_lock_failure "operation=symlink-lock-acquire path=${lock_path}.symlink" || true; return 1 ;;
 		2) ;;
 		*) return 1 ;;
 	esac
-	owner="$(nvram_transaction_lock_owner_current)" || return 1
+	owner="$(nvram_transaction_lock_owner_current)" || nvram_transaction_lock_failure "operation=identify-current-process path=/proc/$$/stat" || return 1
 	lock_dir="${lock_path}.d"
-	nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" "${owner}" || return 1
+	nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" "${owner}" || nvram_transaction_lock_failure "operation=acquire-reaper path=${lock_path}.reaper" || return 1
 	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
 		[ -d "${lock_dir}" ] && [ ! -L "${lock_dir}" ] || {
 			nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
@@ -567,6 +606,7 @@ nvram_transaction_lock_acquire() {
 		}
 		lock_owner="$(cat "${lock_dir}/pid" 2>/dev/null)"
 		if nvram_transaction_lock_owner_live "${lock_owner}"; then
+			nvram_transaction_lock_failure "operation=validate-stale-lock path=${lock_dir}/pid reason=live-owner owner=${lock_owner}" || true
 			nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
 			return 1
 		fi
@@ -576,25 +616,30 @@ nvram_transaction_lock_acquire() {
 		}
 	fi
 	mkdir "${lock_dir}" 2>/dev/null || {
+		nvram_transaction_lock_failure "operation=mkdir-lock path=${lock_dir}" || true
 		nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
 		return 1
 	}
 	printf '%s\n' "${owner}" >"${lock_dir}/pid" || {
+		nvram_transaction_lock_failure "operation=publish-owner-file path=${lock_dir}/pid rolled-back=${lock_dir}" || true
 		rm -rf "${lock_dir}"
 		nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
 		return 1
 	}
 	chmod 700 "${lock_dir}" 2>/dev/null || {
+		nvram_transaction_lock_failure "operation=chmod-lock path=${lock_dir} rolled-back=${lock_dir}" || true
 		rm -rf "${lock_dir}"
 		nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
 		return 1
 	}
 	[ "$(cat "${lock_dir}/pid" 2>/dev/null)" = "${owner}" ] || {
+		nvram_transaction_lock_failure "operation=validate-owner-file path=${lock_dir}/pid rolled-back=${lock_dir}" || true
 		rm -rf "${lock_dir}"
 		nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
 		return 1
 	}
 	nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}" || {
+		nvram_transaction_lock_failure "operation=release-reaper path=${lock_path}.reaper rolled-back=${lock_dir}" || true
 		# Do not continue while the reaper remains active. Roll back only a
 		# transaction lock whose ownership can still be verified as ours.
 		if [ "$(cat "${lock_dir}/pid" 2>/dev/null)" = "${owner}" ]; then
@@ -606,6 +651,7 @@ nvram_transaction_lock_acquire() {
 		return 1
 	}
 	NVRAM_TRANSACTION_LOCK_MODE="mkdir"
+	NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
 }
 
 nvram_transaction_lock_owned() {
@@ -725,7 +771,7 @@ nvram_transaction_lock_reaper_legacy_claim() {
 	return 1
 }
 
-nvram_transaction_lock_reaper_acquire() {
+nvram_transaction_lock_reaper_acquire_impl() {
 	local claimed owner reaper_owner reaper_path
 	reaper_path="$1"
 	claimed=0
@@ -894,7 +940,15 @@ nvram_transaction_lock_reaper_acquire() {
 	return 1
 }
 
-nvram_transaction_lock_reaper_release() {
+nvram_transaction_lock_reaper_acquire() {
+	local diagnostic_path
+	diagnostic_path="$1"
+	nvram_transaction_lock_reaper_acquire_impl "$@" && return 0
+	nvram_transaction_lock_failure "operation=acquire-reaper path=${diagnostic_path}" || true
+	return 1
+}
+
+nvram_transaction_lock_reaper_release_impl() {
 	local owner reaper_path
 	reaper_path="$1"
 	case "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" in
@@ -974,6 +1028,14 @@ nvram_transaction_lock_reaper_release() {
 	NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
 }
 
+nvram_transaction_lock_reaper_release() {
+	local diagnostic_path
+	diagnostic_path="$1"
+	nvram_transaction_lock_reaper_release_impl "$@" && return 0
+	nvram_transaction_lock_failure "operation=release-reaper path=${diagnostic_path}" || true
+	return 1
+}
+
 nvram_transaction_lock_reaper_release_active() {
 	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] && return 0
 	[ -n "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || return 1
@@ -982,14 +1044,23 @@ nvram_transaction_lock_reaper_release_active() {
 
 nvram_transaction_lock_flock_supports_fd() {
 	local probe status
-	[ -x /usr/bin/flock ] || return 1
+	[ -x /usr/bin/flock ] || {
+		nvram_transaction_lock_failure "operation=flock-probe path=/usr/bin/flock reason=unavailable" || true
+		return 1
+	}
 	probe="${BASE_DIR}/.AdGuardHome.nvram.flock-probe.$$"
 	(
 		exec 9>"${probe}" || exit 1
 		/usr/bin/flock -n 9 >/dev/null 2>&1
 	)
 	status="$?"
-	rm -f "${probe}"
+	if [ "${status}" -ne 0 ]; then
+		nvram_transaction_lock_failure "operation=flock-probe path=${probe} rolled-back=${probe}" || true
+	fi
+	rm -f "${probe}" || {
+		nvram_transaction_lock_failure "operation=flock-probe-cleanup path=${probe}" || true
+		return 1
+	}
 	return "${status}"
 }
 
@@ -1003,15 +1074,16 @@ nvram_transaction_lock_symlink_acquire() {
 	local lock_dir lock_owner lock_path owner
 	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 	lock_dir="${BASE_DIR}/.AdGuardHome.nvram.lock.d"
-	owner="$(nvram_transaction_lock_owner_current)" || return 1
+	owner="$(nvram_transaction_lock_owner_current)" || nvram_transaction_lock_failure "operation=identify-current-process path=/proc/$$/stat" || return 1
 	if ! nvram_transaction_lock_readlink; then
 		if [ -L "${lock_path}" ]; then
+			nvram_transaction_lock_failure "operation=inspect-symlink-lock path=${lock_path} reason=readlink-unavailable" || true
 			printf '%s\n' "Error: cannot inspect NVRAM transaction lock ${lock_path}; readlink is unavailable." >&2
 			return 1
 		fi
 		return 2
 	fi
-	nvram_transaction_lock_reaper_acquire "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+	nvram_transaction_lock_reaper_acquire "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || nvram_transaction_lock_failure "operation=acquire-reaper path=${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
 	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
 		[ -d "${lock_dir}" ] && [ ! -L "${lock_dir}" ] || {
 			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
@@ -1019,6 +1091,7 @@ nvram_transaction_lock_symlink_acquire() {
 		}
 		lock_owner="$(cat "${lock_dir}/pid" 2>/dev/null)"
 		if nvram_transaction_lock_owner_live "${lock_owner}"; then
+			nvram_transaction_lock_failure "operation=validate-stale-lock path=${lock_dir}/pid reason=live-owner owner=${lock_owner}" || true
 			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
 			return 1
 		fi
@@ -1034,6 +1107,7 @@ nvram_transaction_lock_symlink_acquire() {
 	if [ -L "${lock_path}" ]; then
 		lock_owner="$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)"
 		if nvram_transaction_lock_owner_live "${lock_owner}"; then
+			nvram_transaction_lock_failure "operation=validate-stale-lock path=${lock_path} reason=live-owner owner=${lock_owner}" || true
 			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
 			return 1
 		fi
@@ -1051,10 +1125,12 @@ nvram_transaction_lock_symlink_acquire() {
 	fi
 	if ln -s "${owner}" "${lock_path}" 2>/dev/null; then
 		if [ "$(nvram_transaction_lock_readlink "${lock_path}" 2>/dev/null)" != "${owner}" ]; then
+			nvram_transaction_lock_failure "operation=validate-symlink-publication path=${lock_path} rolled-back=${lock_path}" || true
 			nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
 			return 1
 		fi
 		nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || {
+			nvram_transaction_lock_failure "operation=release-reaper path=${BASE_DIR}/.AdGuardHome.nvram.lock.reaper rolled-back=${lock_path}" || true
 			if ! rm -f "${lock_path}" 2>/dev/null || [ -e "${lock_path}" ] || [ -L "${lock_path}" ]; then
 				printf '%s\n' "Error: unable to roll back owned NVRAM transaction lock ${lock_path}; stopping recovery." >&2
 				exit 1
@@ -1063,7 +1139,11 @@ nvram_transaction_lock_symlink_acquire() {
 		}
 		return 0
 	fi
-	nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || return 1
+	nvram_transaction_lock_failure "operation=publish-symlink path=${lock_path}" || true
+	nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" || {
+		nvram_transaction_lock_failure "operation=release-reaper path=${BASE_DIR}/.AdGuardHome.nvram.lock.reaper after-failed-operation=publish-symlink:${lock_path}" || true
+		return 1
+	}
 	[ ! -e "${lock_path}" ] && [ ! -L "${lock_path}" ] || return 1
 	return 2
 }
@@ -7455,12 +7535,12 @@ setup_files_begin_if_needed() {
 }
 
 setup_files_journal_diagnostic() {
-	local artifact current_owner journal_root lock_owned
+	local artifact current_process_identity journal_root lock_owned
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
-	current_owner="$(nvram_transaction_lock_owner_current 2>/dev/null)" || current_owner="unavailable"
+	current_process_identity="$(nvram_transaction_lock_owner_current 2>/dev/null)" || current_process_identity="unavailable"
 	lock_owned="no"
 	nvram_transaction_lock_owned && lock_owned="yes"
-	PTXT "${WARNING} Setup journal diagnostic: path=${journal_root}, frame-journaled=${SETUP_FILES_JOURNALED:-0}, lock-mode=${NVRAM_TRANSACTION_LOCK_MODE:-unset}, lock-owned=${lock_owned}, current-owner=${current_owner}."
+	PTXT "${WARNING} Setup journal diagnostic: path=${journal_root}, frame-journaled=${SETUP_FILES_JOURNALED:-0}, lock-mode=${NVRAM_TRANSACTION_LOCK_MODE:-unset}, lock-owned=${lock_owned}, current-process-identity=${current_process_identity}, failure=${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-none}."
 	if [ -e "${journal_root}" ] || [ -L "${journal_root}" ]; then
 		PTXT "${WARNING} Setup journal state: $(ls -ld "${journal_root}" 2>/dev/null)."
 	else

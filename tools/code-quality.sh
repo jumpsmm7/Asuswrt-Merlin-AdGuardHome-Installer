@@ -267,6 +267,7 @@ run_check 'Installer YAML nvars file action regression' sh tests/installer-yaml-
 run_check 'Installer YAML validation rollback regression' sh tests/installer-yaml-validation-rollback.sh
 run_check 'Installer startup readiness regression' sh tests/installer-startup-readiness.sh
 run_check 'Installer DNS environment failure regression' sh tests/installer-dns-environment-failure.sh
+run_check 'Installer lock diagnostic regression' sh tests/installer-lock-diagnostics.sh
 run_check 'Installer service status wait regression' sh tests/installer-service-status-after-action.sh
 run_check 'Installer status reporting regression' sh tests/installer-status.sh
 run_check 'Installer service lock descriptor regression' sh tests/installer-service-lock-fd.sh
