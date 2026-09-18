@@ -7454,6 +7454,29 @@ setup_files_begin_if_needed() {
 	SETUP_FILES_JOURNALED=1
 }
 
+setup_files_journal_diagnostic() {
+	local artifact current_owner journal_root lock_owned
+	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
+	current_owner="$(nvram_transaction_lock_owner_current 2>/dev/null)" || current_owner="unavailable"
+	lock_owned="no"
+	nvram_transaction_lock_owned && lock_owned="yes"
+	PTXT "${WARNING} Setup journal diagnostic: path=${journal_root}, frame-journaled=${SETUP_FILES_JOURNALED:-0}, lock-mode=${NVRAM_TRANSACTION_LOCK_MODE:-unset}, lock-owned=${lock_owned}, current-owner=${current_owner}."
+	if [ -e "${journal_root}" ] || [ -L "${journal_root}" ]; then
+		PTXT "${WARNING} Setup journal state: $(ls -ld "${journal_root}" 2>/dev/null)."
+	else
+		PTXT "${WARNING} Setup journal state: absent."
+	fi
+	for artifact in "${BASE_DIR}/.AdGuardHome.nvram.lock"*; do
+		[ -e "${artifact}" ] || [ -L "${artifact}" ] || continue
+		PTXT "${WARNING} Setup journal lock artifact: $(ls -ld "${artifact}" 2>/dev/null)."
+		if [ -f "${artifact}/pid" ] && [ ! -L "${artifact}/pid" ]; then
+			PTXT "${WARNING} Setup journal lock owner file ${artifact}/pid: $(cat "${artifact}/pid" 2>/dev/null)."
+		elif [ -L "${artifact}" ]; then
+			PTXT "${WARNING} Setup journal lock target ${artifact}: $(nvram_transaction_lock_readlink "${artifact}" 2>/dev/null)."
+		fi
+	done
+}
+
 setup_resolve_lan_addresses() {
 	local LAN_IF NVRAM_ADDR4 NVRAM_ADDR6
 
@@ -8328,6 +8351,7 @@ setup_AdGuardHome_impl() {
 					fi
 					if [ "$2" != "reconfig" ]; then
 						if ! setup_files_begin_if_needed; then
+							setup_files_journal_diagnostic
 							setup_restore_previous_yaml || true
 							PTXT "${ERROR} Unable to journal the current installer configuration before check_ipset."
 							return 1
