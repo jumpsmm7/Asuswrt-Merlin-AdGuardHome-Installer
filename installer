@@ -584,6 +584,10 @@ nvram_transaction_lock_acquire() {
 		nvram_transaction_lock_cross_reaper_release "${lock_path}" "${owner}"
 		return 1
 	fi
+	# An unavailable descriptor lock is a capability miss, not the reason a
+	# later portable fallback failed.
+	NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
+	export NVRAM_TRANSACTION_LOCK_DIAGNOSTIC
 	nvram_transaction_lock_symlink_acquire
 	status="$?"
 	case "${status}" in
@@ -593,17 +597,21 @@ nvram_transaction_lock_acquire() {
 			return 0
 			;;
 		1)
-			[ -n "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] || nvram_transaction_lock_failure "operation=symlink-lock-acquire path=${lock_path}.symlink" || true
+			[ -n "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] || nvram_transaction_lock_failure "operation=symlink-lock-acquire path=${lock_path}.symlink reason=terminal-fallback-failure" || true
 			return 1
 			;;
 		2) ;;
-		*) return 1 ;;
+		*)
+			nvram_transaction_lock_failure "operation=symlink-lock-acquire path=${lock_path}.symlink reason=unexpected-status-${status}" || true
+			return 1
+			;;
 	esac
 	owner="$(nvram_transaction_lock_owner_current)" || nvram_transaction_lock_failure "operation=identify-current-process path=/proc/$$/stat" || return 1
 	lock_dir="${lock_path}.d"
 	nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" "${owner}" || nvram_transaction_lock_failure "operation=acquire-reaper path=${lock_path}.reaper" || return 1
 	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
 		[ -d "${lock_dir}" ] && [ ! -L "${lock_dir}" ] || {
+			nvram_transaction_lock_failure "operation=validate-mkdir-lock path=${lock_dir} reason=unsafe-artifact" || true
 			nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
 			return 1
 		}
@@ -614,12 +622,13 @@ nvram_transaction_lock_acquire() {
 			return 1
 		fi
 		rm -rf "${lock_dir}" || {
+			nvram_transaction_lock_failure "operation=remove-stale-lock path=${lock_dir} reason=cleanup-failed" || true
 			nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
 			return 1
 		}
 	fi
 	mkdir "${lock_dir}" 2>/dev/null || {
-		nvram_transaction_lock_failure "operation=mkdir-lock path=${lock_dir}" || true
+		nvram_transaction_lock_failure "operation=mkdir-lock path=${lock_dir} reason=publication-failed" || true
 		nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
 		return 1
 	}
@@ -1032,9 +1041,14 @@ nvram_transaction_lock_reaper_release_impl() {
 }
 
 nvram_transaction_lock_reaper_release() {
-	local diagnostic_path
+	local diagnostic_path primary_diagnostic
 	diagnostic_path="$1"
 	nvram_transaction_lock_reaper_release_impl "$@" && return 0
+	primary_diagnostic="${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}"
+	if [ -n "${primary_diagnostic}" ]; then
+		nvram_transaction_lock_failure "${primary_diagnostic} after-failed-operation=release-reaper:${diagnostic_path}" || true
+		return 1
+	fi
 	nvram_transaction_lock_failure "operation=release-reaper path=${diagnostic_path}" || true
 	return 1
 }
@@ -1047,19 +1061,13 @@ nvram_transaction_lock_reaper_release_active() {
 
 nvram_transaction_lock_flock_supports_fd() {
 	local probe status
-	[ -x /usr/bin/flock ] || {
-		nvram_transaction_lock_failure "operation=flock-probe path=/usr/bin/flock reason=unavailable" || true
-		return 1
-	}
+	[ -x /usr/bin/flock ] || return 1
 	probe="${BASE_DIR}/.AdGuardHome.nvram.flock-probe.$$"
 	(
 		exec 9>"${probe}" || exit 1
 		/usr/bin/flock -n 9 >/dev/null 2>&1
 	)
 	status="$?"
-	if [ "${status}" -ne 0 ]; then
-		nvram_transaction_lock_failure "operation=flock-probe path=${probe} rolled-back=${probe}" || true
-	fi
 	rm -f "${probe}" || {
 		nvram_transaction_lock_failure "operation=flock-probe-cleanup path=${probe}" || true
 		return 1
@@ -7529,7 +7537,10 @@ setup_files_begin_if_needed() {
 	# this installer process still owns the transaction lock.
 	if [ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] &&
 		[ ! -L "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
-		nvram_transaction_lock_owned || return 1
+		nvram_transaction_lock_owned || {
+			nvram_transaction_lock_failure "operation=journal-reuse path=${BASE_DIR}/.AdGuardHome.nvram/setup-files reason=lock-ownership-rejected" || true
+			return 1
+		}
 		SETUP_FILES_JOURNALED=1
 		return 0
 	fi
