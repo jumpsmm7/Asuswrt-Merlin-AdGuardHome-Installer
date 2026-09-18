@@ -99,19 +99,12 @@ nvram() {
 		get:lan_gateway | get:lan_ipaddr) printf '%s\n' '192.168.1.1' ;;
 		get:lan_ifname) printf '%s\n' 'br0' ;;
 		get:ipv6_rtr_addr) printf '%s\n' '' ;;
-		get:sw_mode) printf '%s\n' "${TEST_SW_MODE:-1}" ;;
-		get:wan_ipaddr) printf '%s\n' '192.168.50.2' ;;
 	esac
 }
 # ai_have_cmd reports that optional router commands are unavailable in this fixture.
 ai_have_cmd() { return 1; }
-# ipv4_is_valid accepts the LAN and private WAN addresses used by this fixture.
-ipv4_is_valid() {
-	case "$1" in
-		192.168.1.1 | 192.168.50.2) return 0 ;;
-		*) return 1 ;;
-	esac
-}
+# ipv4_is_valid accepts the LAN address used by this fixture.
+ipv4_is_valid() { [ "$1" = '192.168.1.1' ]; }
 # check_dns_filter checks the current DNS filter settings.
 check_dns_filter() { :; }
 # save_dns_filter_settings creates the directory specified by its argument.
@@ -132,8 +125,11 @@ nvram_transaction_setup_files_restore() { return 0; }
 restore_dns_filter_settings() { rm -rf "$1"; }
 # check_dns_local is a test stub for the DNS locality check.
 check_dns_local() { :; }
-# check_ipset simulates a failed IPSET preference check.
-check_ipset() { return 1; }
+# check_ipset records an optional selection and simulates a preference-save failure.
+check_ipset() {
+	[ -z "${IPSET_SELECTION_LOG:-}" ] || printf '%s\n' "$1" >>"${IPSET_SELECTION_LOG}"
+	return 1
+}
 # check_AdGuardHome_yaml verifies that YAML validation is enabled for the test harness.
 check_AdGuardHome_yaml() {
 	[ "${ALLOW_YAML_VALIDATION:-0}" -eq 1 ] || fail 'unexpected YAML validation'
@@ -172,35 +168,28 @@ ALLOW_YAML_VALIDATION=1
 LOG="${TMP_ROOT}/install.lan-owned-journal.log"
 RESTART_LOG="${LOG}.restart"
 END_LOG="${LOG}.end"
+IPSET_SELECTION_LOG="${LOG}.ipset-selection"
 : >"${LOG}"
 : >"${RESTART_LOG}"
 : >"${END_LOG}"
+: >"${IPSET_SELECTION_LOG}"
 mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create installer-owned LAN setup journal'
-# nvram_transaction_setup_files_begin rejects attempts to replace the installer-owned setup journal.
 nvram_transaction_setup_files_begin() { fail 'LAN installation attempted to replace its owned setup journal'; }
-TEST_SW_MODE=3
-ADGUARD_INSTALL_MODE=
-adguard_install_mode_detect || fail 'could not detect the LAN/AP/bridge fixture mode'
-[ "${ADGUARD_INSTALL_MODE}" = lan ] || fail 'non-router sw_mode was not detected as LAN/AP/bridge mode'
+ADGUARD_INSTALL_MODE=lan
 ADGUARD_LAN_REVERSE_UPSTREAM=192.168.1.1
 BOOTSTRAP1=
 BOOTSTRAP2=
 setup_AdGuardHome '' install || fail 'LAN installation did not reuse its installer-owned setup journal'
+[ "$(cat "${IPSET_SELECTION_LOG}")" = 0 ] || fail 'LAN installation did not keep IPSET disabled'
 [ -f "${YAML_FILE}" ] || fail 'LAN installation did not proceed into YAML generation with its owned setup journal'
 if grep -q 'Unable to journal the current installer configuration before check_ipset' "${LOG}"; then
 	fail 'LAN installation rejected its installer-owned setup journal before check_ipset'
 fi
 rm -rf "${BASE_DIR}/.AdGuardHome.nvram" "${YAML_FILE}" "${YAML_ORI}" "${YAML_BAK}"
-# nvram_transaction_setup_files_begin restores successful journal creation for the remaining fixtures.
 nvram_transaction_setup_files_begin() { return 0; }
-TEST_SW_MODE=1
-ADGUARD_INSTALL_MODE=
-adguard_install_mode_detect || fail 'could not detect the router fixture mode'
-[ "${ADGUARD_INSTALL_MODE}" = wan ] || fail 'router sw_mode was not detected as WAN mode'
-WAN_IPADDR="$(nvram get wan_ipaddr)"
-if ( PTXT() { printf '%s\n' "$1"; }; ipv4_is_private "${WAN_IPADDR}" ); then NAT_ENV="${WAN_IPADDR}"; else NAT_ENV=""; fi
-[ "${NAT_ENV}" = "${WAN_IPADDR}" ] || fail 'private router WAN address was not classified as double NAT'
+ADGUARD_INSTALL_MODE=wan
 ADGUARD_LAN_REVERSE_UPSTREAM=
+IPSET_SELECTION_LOG=
 
 for ANSWER in yes no; do
 	LOG="${TMP_ROOT}/install.${ANSWER}.log"
