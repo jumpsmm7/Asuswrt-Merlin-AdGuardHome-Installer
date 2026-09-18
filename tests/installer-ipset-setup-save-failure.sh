@@ -176,6 +176,7 @@ END_LOG="${LOG}.end"
 : >"${RESTART_LOG}"
 : >"${END_LOG}"
 mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create installer-owned LAN setup journal'
+# nvram_transaction_setup_files_begin rejects attempts to replace the installer-owned setup journal.
 nvram_transaction_setup_files_begin() { fail 'LAN installation attempted to replace its owned setup journal'; }
 TEST_SW_MODE=3
 ADGUARD_INSTALL_MODE=
@@ -190,6 +191,7 @@ if grep -q 'Unable to journal the current installer configuration before check_i
 	fail 'LAN installation rejected its installer-owned setup journal before check_ipset'
 fi
 rm -rf "${BASE_DIR}/.AdGuardHome.nvram" "${YAML_FILE}" "${YAML_ORI}" "${YAML_BAK}"
+# nvram_transaction_setup_files_begin restores successful journal creation for the remaining fixtures.
 nvram_transaction_setup_files_begin() { return 0; }
 TEST_SW_MODE=1
 ADGUARD_INSTALL_MODE=
