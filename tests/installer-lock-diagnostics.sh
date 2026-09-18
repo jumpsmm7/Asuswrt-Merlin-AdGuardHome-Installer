@@ -61,6 +61,26 @@ case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
 	*) fail "live-owner contention diagnostic was not preserved: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
 esac
 
+# A cleanup failure is secondary to the live-owner contention that made the
+# acquisition fail.
+nvram_transaction_lock_reaper_release_impl() { return 1; }
+NVRAM_TRANSACTION_LOCK_DIAGNOSTIC="operation=validate-stale-lock path=${BASE_DIR}/.AdGuardHome.nvram.lock.symlink reason=live-owner owner=${owner}"
+if nvram_transaction_lock_reaper_release "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" "${owner}"; then
+	fail 'injected reaper release failure succeeded'
+fi
+case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
+	*operation=validate-stale-lock*path="${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"*reason=live-owner*owner="${owner}"*after-failed-operation="release-reaper:${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"*) ;;
+	*) fail "reaper release replaced the primary diagnostic: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
+esac
+NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
+if nvram_transaction_lock_reaper_release "${BASE_DIR}/standalone.reaper" "${owner}"; then
+	fail 'standalone injected reaper release failure succeeded'
+fi
+case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
+	"operation=release-reaper path=${BASE_DIR}/standalone.reaper") ;;
+	*) fail "standalone reaper release diagnostic was incorrect: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
+esac
+
 # A release failure after publication must retain both the failed operation
 # and the artifact that acquisition rolls back.
 rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
@@ -71,6 +91,39 @@ fi
 case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
 	*operation=release-reaper*rolled-back="${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"*) ;;
 	*) fail "reaper release diagnostic omitted rollback artifact: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
+esac
+
+# An expected flock capability miss must not obscure the terminal portable
+# fallback failure.
+# shellcheck disable=SC1090
+. "${FUNCTIONS_FILE}"
+nvram_transaction_lock_flock_supports_fd() {
+	nvram_transaction_lock_failure 'operation=flock-probe path=/usr/bin/flock reason=unavailable' || true
+	return 1
+}
+nvram_transaction_lock_symlink_acquire() { return 1; }
+if nvram_transaction_lock_acquire; then
+	fail 'acquisition succeeded after injected terminal symlink failure'
+fi
+case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
+	*operation=symlink-lock-acquire*path="${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"*reason=terminal-fallback-failure*) ;;
+	*) fail "fallback failure retained the flock probe diagnostic: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
+esac
+
+# Existing setup journals require ownership by the current lock holder.
+sed -n '/^setup_files_begin_if_needed() {$/,/^setup_files_journal_diagnostic() {$/p' "${INSTALLER_PATH}" |
+	sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract setup journal helper'
+# shellcheck disable=SC1090
+. "${FUNCTIONS_FILE}"
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create existing setup journal'
+SETUP_FILES_JOURNALED=0
+nvram_transaction_lock_owned() { return 1; }
+if setup_files_begin_if_needed; then
+	fail 'existing setup journal was reused without lock ownership'
+fi
+case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
+	*operation=journal-reuse*path="${BASE_DIR}/.AdGuardHome.nvram/setup-files"*reason=lock-ownership-rejected*) ;;
+	*) fail "journal ownership rejection lacked a diagnostic: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
 esac
 
 printf '%s\n' 'PASS: installer lock fallbacks preserve actionable diagnostics'
