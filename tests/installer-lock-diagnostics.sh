@@ -99,7 +99,7 @@ esac
 . "${FUNCTIONS_FILE}"
 mkdir "${BASE_DIR}/mismatched.reaper" || fail 'could not create mismatched reaper'
 printf '%s\n' 'different-owner' >"${BASE_DIR}/mismatched.reaper/pid"
-NVRAM_TRANSACTION_REAPER_LOCK_MODE=mkdir
+NVRAM_TRANSACTION_REAPER_LOCK_MODE="mkdir"
 NVRAM_TRANSACTION_REAPER_LOCK_PATH="${BASE_DIR}/mismatched.reaper"
 NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
 if nvram_transaction_lock_reaper_release "${BASE_DIR}/mismatched.reaper" "${owner}"; then
