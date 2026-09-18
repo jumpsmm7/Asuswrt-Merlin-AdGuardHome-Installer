@@ -526,6 +526,7 @@ nvram_transaction_lock_acquire() {
 				return 1
 			fi
 			rm -rf "${lock_dir}" || {
+				nvram_transaction_lock_failure "operation=remove-stale-lock path=${lock_dir} reason=cleanup-failed" || true
 				nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}"
 				return 1
 			}
