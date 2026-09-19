@@ -236,15 +236,13 @@ nvram_transaction_lock_reaper_legacy_claim() {
 }
 # nvram_transaction_lock_reaper_legacy_release injects secondary cleanup failure.
 nvram_transaction_lock_reaper_legacy_release() { return 1; }
-# ln rejects nonportable temporary artifact names, but permits a colon in the
-# symlink target because the target remains the original owner identity.
-ln() {
-	local destination
-	for destination; do :; done
-	case "${destination}" in
+# The temporary-symlink call boundary rejects nonportable artifact names, but
+# permits a colon in the target because it remains the original owner identity.
+nvram_transaction_lock_reaper_temp_symlink_create() {
+	case "$2" in
 		*:*) return 1 ;;
 	esac
-	command ln "$@"
+	/bin/ln -s "$1" "$2"
 }
 # mv simulates losing ownership during stale-symlink reclamation.
 mv() {
@@ -266,7 +264,7 @@ case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
 esac
 [ ! -e "${reclaim_path}.symlink.66816.373949" ] && [ ! -L "${reclaim_path}.symlink.66816.373949" ] || fail 'failed reclaim left its filename-safe temporary symlink'
 unset -f mv 2>/dev/null || true
-unset -f ln 2>/dev/null || true
+unset -f nvram_transaction_lock_reaper_temp_symlink_create 2>/dev/null || true
 rm -rf "${reclaim_path}" "${reclaim_path}.symlink"
 
 # Restore helpers before the main lock-contention scenario.

@@ -25,6 +25,12 @@ eval "${INSTALL_MODE_FUNCTIONS}"
 eval "${LOCK_OWNER_FUNCTIONS}"
 eval "${SETUP_FUNCTIONS}"
 
+# nvram_transaction_lock_failure records the diagnostic emitted by the extracted setup-journal helper.
+nvram_transaction_lock_failure() {
+	NVRAM_TRANSACTION_LOCK_DIAGNOSTIC="$1"
+	return 1
+}
+
 # setup_files_begin_if_needed reuses a journal already owned by this installer
 # process instead of aborting LAN setup before YAML configuration begins.
 (
