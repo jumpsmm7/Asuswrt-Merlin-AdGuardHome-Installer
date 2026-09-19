@@ -764,6 +764,52 @@ nvram_transaction_lock_reaper_claim_mkdir() {
 	/bin/mkdir "$1"
 }
 
+# nvram_transaction_lock_reaper_claim_owner_write records the candidate owner.
+nvram_transaction_lock_reaper_claim_owner_write() {
+	printf '%s\n' "$2" >"$1/pid"
+}
+
+# nvram_transaction_lock_reaper_claim_owner_secure restricts the candidate owner record.
+nvram_transaction_lock_reaper_claim_owner_secure() {
+	/bin/chmod 600 "$1/pid"
+}
+
+# nvram_transaction_lock_reaper_claim_publish atomically publishes a prepared sibling directory.
+nvram_transaction_lock_reaper_claim_publish() {
+	/bin/mv "$1" "$2"
+}
+
+# nvram_transaction_lock_reaper_claim_remove removes a verified current-process candidate.
+nvram_transaction_lock_reaper_claim_remove() {
+	/bin/rm -rf "$1"
+}
+
+# nvram_transaction_lock_reaper_claim_cleanup removes every bounded candidate still owned by this process.
+nvram_transaction_lock_reaper_claim_cleanup() {
+	local cleanup_path owner owner_suffix reaper_path retry suffix
+	reaper_path="$1"
+	owner="$2"
+	owner_suffix="$(nvram_transaction_lock_owner_filename_suffix "${owner}")" || return 1
+	retry=0
+	while [ "${retry}" -lt 16 ]; do
+		if [ "${retry}" -eq 0 ]; then
+			suffix=""
+		else
+			suffix=".${retry}"
+		fi
+		cleanup_path="${reaper_path}.claim.${owner_suffix}${suffix}"
+		if [ -d "${cleanup_path}" ] && [ ! -L "${cleanup_path}" ] &&
+			[ -f "${cleanup_path}/pid" ] && [ ! -L "${cleanup_path}/pid" ] &&
+			[ "$(cat "${cleanup_path}/pid" 2>/dev/null)" = "${owner}" ]; then
+			nvram_transaction_lock_reaper_claim_remove "${cleanup_path}" || {
+				nvram_transaction_lock_failure "operation=cleanup-reaper-claim candidate=${cleanup_path} destination=${reaper_path} reason=remove-failed owner=${owner} after-failed-operation=$3" || true
+				return 1
+			}
+		fi
+		retry="$((retry + 1))"
+	done
+}
+
 # nvram_transaction_lock_reaper_temp_symlink_create creates a candidate reaper ownership symlink.
 nvram_transaction_lock_reaper_temp_symlink_create() {
 	/bin/ln -s "$1" "$2"
@@ -823,31 +869,93 @@ nvram_transaction_lock_reaper_legacy_release() {
 
 # nvram_transaction_lock_reaper_legacy_claim publishes a portable claim directory with its original owner identity.
 nvram_transaction_lock_reaper_legacy_claim() {
-	local claim_name claim_path owner owner_suffix reaper_path
+	local claim_name claim_path cleanup_path owner owner_suffix reaper_path retry slot suffix
 	reaper_path="$1"
 	owner="$2"
-	owner_suffix="$(nvram_transaction_lock_owner_filename_suffix "${owner}")" || return 1
-	claim_path="${reaper_path}.claim.${owner_suffix}"
-	if ! nvram_transaction_lock_reaper_claim_mkdir "${claim_path}" 2>/dev/null; then
-		[ -e "${claim_path}" ] || [ -L "${claim_path}" ] || return 1
-		claim_path="${reaper_path}.claim.${owner_suffix}.1"
-		nvram_transaction_lock_reaper_claim_mkdir "${claim_path}" 2>/dev/null || return 1
-	fi
-	claim_name="${claim_path##*/}"
-	printf '%s\n' "${owner}" >"${claim_path}/pid" || {
-		/bin/rm -rf "${claim_path}" 2>/dev/null
+	owner_suffix="$(nvram_transaction_lock_owner_filename_suffix "${owner}")" || {
+		nvram_transaction_lock_failure "operation=create-reaper-claim candidate=unavailable destination=${reaper_path} reason=invalid-owner owner=${owner}" || true
 		return 1
 	}
-	if command mv "${claim_path}" "${reaper_path}" 2>/dev/null; then
-		if [ -d "${reaper_path}/${claim_name}" ]; then
-			/bin/rm -rf "${reaper_path:?}/${claim_name:?}" 2>/dev/null
+	retry=0
+	claim_path=""
+	while [ "${retry}" -lt 32 ]; do
+		slot="$((retry % 16))"
+		if [ "${slot}" -eq 0 ]; then
+			suffix=""
+		else
+			suffix=".${slot}"
+		fi
+		claim_path="${reaper_path}.claim.${owner_suffix}${suffix}"
+		if nvram_transaction_lock_reaper_claim_mkdir "${claim_path}"; then
+			break
+		fi
+		if [ ! -e "${claim_path}" ] && [ ! -L "${claim_path}" ]; then
+			nvram_transaction_lock_failure "operation=create-reaper-claim candidate=${claim_path} destination=${reaper_path} reason=mkdir-failed" || true
+			nvram_transaction_lock_reaper_claim_cleanup "${reaper_path}" "${owner}" create-reaper-claim || true
 			return 1
 		fi
-		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] && return 0
+		if [ -d "${claim_path}" ] && [ ! -L "${claim_path}" ] &&
+			[ -f "${claim_path}/pid" ] && [ ! -L "${claim_path}/pid" ] &&
+			[ "$(cat "${claim_path}/pid" 2>/dev/null)" = "${owner}" ]; then
+			nvram_transaction_lock_reaper_claim_remove "${claim_path}" || {
+				nvram_transaction_lock_failure "operation=cleanup-reaper-claim candidate=${claim_path} destination=${reaper_path} reason=remove-failed owner=${owner}" || true
+				return 1
+			}
+		fi
+		retry="$((retry + 1))"
+	done
+	if [ "${retry}" -ge 32 ]; then
+		nvram_transaction_lock_failure "operation=create-reaper-claim candidate=${claim_path} destination=${reaper_path} reason=candidates-exhausted owner=${owner}" || true
+		nvram_transaction_lock_reaper_claim_cleanup "${reaper_path}" "${owner}" create-reaper-claim || true
+		return 1
 	fi
-	# When the destination already exists, portable mv may place the claim
-	# directory inside it instead of failing. It never owns the mutex there.
-	/bin/rm -rf "${claim_path}" "${reaper_path:?}/${claim_name:?}" 2>/dev/null
+	claim_name="${claim_path##*/}"
+	nvram_transaction_lock_reaper_claim_owner_write "${claim_path}" "${owner}" || {
+		nvram_transaction_lock_failure "operation=write-reaper-claim-owner candidate=${claim_path} destination=${reaper_path} path=${claim_path}/pid reason=write-failed owner=${owner}" || true
+		nvram_transaction_lock_reaper_claim_remove "${claim_path}" || {
+			nvram_transaction_lock_failure "operation=cleanup-reaper-claim candidate=${claim_path} destination=${reaper_path} reason=remove-failed owner=${owner} after-failed-operation=write-reaper-claim-owner" || true
+			return 1
+		}
+		nvram_transaction_lock_reaper_claim_cleanup "${reaper_path}" "${owner}" write-reaper-claim-owner || true
+		return 1
+	}
+	nvram_transaction_lock_reaper_claim_owner_secure "${claim_path}" || {
+		nvram_transaction_lock_failure "operation=secure-reaper-claim-owner candidate=${claim_path} destination=${reaper_path} path=${claim_path}/pid reason=permission-failed owner=${owner}" || true
+		nvram_transaction_lock_reaper_claim_cleanup "${reaper_path}" "${owner}" secure-reaper-claim-owner || true
+		return 1
+	}
+	if [ ! -f "${claim_path}/pid" ] || [ -L "${claim_path}/pid" ] ||
+		[ "$(cat "${claim_path}/pid" 2>/dev/null)" != "${owner}" ]; then
+		nvram_transaction_lock_failure "operation=verify-reaper-claim-owner candidate=${claim_path} destination=${reaper_path} path=${claim_path}/pid reason=owner-verification-failed owner=${owner}" || true
+		nvram_transaction_lock_reaper_claim_cleanup "${reaper_path}" "${owner}" verify-reaper-claim-owner || true
+		return 1
+	fi
+	if nvram_transaction_lock_reaper_claim_publish "${claim_path}" "${reaper_path}"; then
+		if [ ! -d "${reaper_path}/${claim_name}" ] && [ -f "${reaper_path}/pid" ] &&
+			[ ! -L "${reaper_path}/pid" ] && [ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ]; then
+			return 0
+		fi
+		nvram_transaction_lock_failure "operation=publish-reaper-claim candidate=${claim_path} destination=${reaper_path} reason=contender-published owner=${owner}" || true
+	else
+		if [ -e "${reaper_path}" ] || [ -L "${reaper_path}" ]; then
+			nvram_transaction_lock_failure "operation=publish-reaper-claim candidate=${claim_path} destination=${reaper_path} reason=contender-published owner=${owner}" || true
+		else
+			nvram_transaction_lock_failure "operation=publish-reaper-claim candidate=${claim_path} destination=${reaper_path} reason=rename-rejected owner=${owner}" || true
+		fi
+	fi
+	# A destination directory may cause mv to nest the candidate. Remove only
+	# artifacts whose non-symlink owner record still identifies this process.
+	for cleanup_path in "${claim_path}" "${reaper_path}/${claim_name}"; do
+		if [ -d "${cleanup_path}" ] && [ ! -L "${cleanup_path}" ] &&
+			[ -f "${cleanup_path}/pid" ] && [ ! -L "${cleanup_path}/pid" ] &&
+			[ "$(cat "${cleanup_path}/pid" 2>/dev/null)" = "${owner}" ]; then
+			nvram_transaction_lock_reaper_claim_remove "${cleanup_path}" || {
+				nvram_transaction_lock_failure "operation=cleanup-reaper-claim candidate=${cleanup_path} destination=${reaper_path} reason=remove-failed owner=${owner} after-failed-operation=publish-reaper-claim" || true
+				return 1
+			}
+		fi
+	done
+	nvram_transaction_lock_reaper_claim_cleanup "${reaper_path}" "${owner}" publish-reaper-claim || return 1
 	return 1
 }
 
@@ -879,7 +987,7 @@ nvram_transaction_lock_reaper_acquire_impl() {
 	else
 		NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
 		if [ ! -e "${reaper_path}" ] && [ ! -L "${reaper_path}" ]; then
-			nvram_transaction_lock_failure "operation=acquire-reaper path=${reaper_path} reason=publication-failed owner=${owner}" || true
+			[ -n "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] || nvram_transaction_lock_failure "operation=acquire-reaper path=${reaper_path} reason=publication-failed owner=${owner}" || true
 			NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
 			return 1
 		fi
@@ -900,7 +1008,7 @@ nvram_transaction_lock_reaper_acquire_impl() {
 			rm -rf "${reaper_path}" || nvram_transaction_lock_failure "operation=acquire-reaper path=${reaper_path} reason=cleanup-failed owner=${reaper_owner}" || return 1
 			NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 			nvram_transaction_lock_reaper_legacy_claim "${reaper_path}" "${owner}" || {
-				nvram_transaction_lock_failure "operation=acquire-reaper path=${reaper_path} reason=publication-failed owner=${owner}" || true
+				[ -n "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] || nvram_transaction_lock_failure "operation=acquire-reaper path=${reaper_path} reason=publication-failed owner=${owner}" || true
 				NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
 				NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
 				return 1
@@ -7680,7 +7788,7 @@ setup_files_begin_if_needed() {
 
 # setup_files_journal_diagnostic reports why setup journal reuse is unsafe.
 setup_files_journal_diagnostic() {
-	local artifact current_process_identity journal_root lock_owned
+	local artifact current_process_identity journal_root lock_owned publication_artifact
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 	current_process_identity="$(nvram_transaction_lock_owner_current 2>/dev/null)" || current_process_identity="unavailable"
 	lock_owned="no"
@@ -7698,6 +7806,16 @@ setup_files_journal_diagnostic() {
 			PTXT "${WARNING} Setup journal lock owner file ${artifact}/pid: $(cat "${artifact}/pid" 2>/dev/null)."
 		elif [ -L "${artifact}" ]; then
 			PTXT "${WARNING} Setup journal lock target ${artifact}: $(nvram_transaction_lock_readlink "${artifact}" 2>/dev/null)."
+		fi
+	done
+	for publication_artifact in "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper.claim."* "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper.symlink."*; do
+		[ -e "${publication_artifact}" ] || [ -L "${publication_artifact}" ] || continue
+		PTXT "${WARNING} Setup journal lock publication artifact: $(ls -ld "${publication_artifact}" 2>/dev/null)."
+		if [ -d "${publication_artifact}" ] && [ ! -L "${publication_artifact}" ] &&
+			[ -f "${publication_artifact}/pid" ] && [ ! -L "${publication_artifact}/pid" ]; then
+			PTXT "${WARNING} Setup journal lock publication owner file ${publication_artifact}/pid: $(cat "${publication_artifact}/pid" 2>/dev/null)."
+		elif [ -L "${publication_artifact}" ]; then
+			PTXT "${WARNING} Setup journal lock publication target ${publication_artifact}: $(nvram_transaction_lock_readlink "${publication_artifact}" 2>/dev/null)."
 		fi
 	done
 }

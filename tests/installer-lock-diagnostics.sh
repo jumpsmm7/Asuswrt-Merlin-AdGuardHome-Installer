@@ -188,6 +188,27 @@ wait "${TEST_LIVE_PID}" 2>/dev/null || true
 TEST_LIVE_PID=""
 rm -rf "${BASE_DIR}/live.reaper"
 
+# The outer acquisition layers must preserve a detailed claim-publication
+# failure rather than replacing it with operation=acquire-reaper.
+# shellcheck disable=SC1090
+. "${FUNCTIONS_FILE}"
+detailed_reaper_path="${BASE_DIR}/detailed.reaper"
+# nvram_transaction_lock_flock_supports_fd selects portable reaper acquisition.
+nvram_transaction_lock_flock_supports_fd() { return 1; }
+# nvram_transaction_lock_reaper_legacy_claim injects an absent-destination rename rejection.
+nvram_transaction_lock_reaper_legacy_claim() {
+	nvram_transaction_lock_failure "operation=publish-reaper-claim candidate=$1.claim.66816.373949 destination=$1 reason=rename-rejected owner=$2" || true
+	return 1
+}
+NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
+if nvram_transaction_lock_reaper_acquire "${detailed_reaper_path}" "${owner}"; then
+	fail 'reaper acquisition succeeded after detailed publication failure'
+fi
+case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
+	"operation=publish-reaper-claim candidate=${detailed_reaper_path}.claim.66816.373949 destination=${detailed_reaper_path} reason=rename-rejected owner=${owner}") ;;
+	*) fail "outer acquisition replaced the publication diagnostic: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
+esac
+
 # A failed flock probe is nonterminal inside reaper acquisition. If the later
 # portable fallback fails silently, the wrapper must report that terminal
 # acquisition failure rather than stale probe-cleanup context.
@@ -392,5 +413,31 @@ case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
 	*operation=journal-reuse*path="${BASE_DIR}/.AdGuardHome.nvram/setup-files"*reason=lock-ownership-rejected*) ;;
 	*) fail "journal ownership rejection lacked a diagnostic: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
 esac
+
+# Setup-journal reporting enumerates temporary claim and symlink publication
+# artifacts with safe owner or target details.
+DIAGNOSTIC_FUNCTIONS_FILE="${TEST_ROOT}/diagnostic-functions"
+sed -n '/^setup_files_journal_diagnostic() {$/,/^setup_resolve_lan_addresses() {$/p' "${INSTALLER_PATH}" |
+	sed '$d' >"${DIAGNOSTIC_FUNCTIONS_FILE}" || fail 'could not extract setup journal diagnostic helper'
+# shellcheck disable=SC1090
+. "${DIAGNOSTIC_FUNCTIONS_FILE}"
+diagnostic_claim="${BASE_DIR}/.AdGuardHome.nvram.lock.reaper.claim.66816.373949.7"
+diagnostic_symlink="${BASE_DIR}/.AdGuardHome.nvram.lock.reaper.symlink.66816.373949.8"
+mkdir "${diagnostic_claim}" || fail 'could not create diagnostic claim artifact'
+printf '%s\n' "${owner}" >"${diagnostic_claim}/pid" || fail 'could not write diagnostic claim owner'
+/bin/ln -s "${owner}" "${diagnostic_symlink}" || fail 'could not create diagnostic symlink artifact'
+DIAGNOSTIC_OUTPUT="${TEST_ROOT}/setup-journal-diagnostic.log"
+WARNING='warning:'
+SETUP_FILES_JOURNALED=0
+NVRAM_TRANSACTION_LOCK_MODE=""
+NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
+PTXT() { printf '%s\n' "$*" >>"${DIAGNOSTIC_OUTPUT}"; }
+nvram_transaction_lock_owned() { return 1; }
+nvram_transaction_lock_owner_current() { printf '%s\n' "${owner}"; }
+nvram_transaction_lock_readlink() { readlink "$1"; }
+setup_files_journal_diagnostic
+grep -Fq "Setup journal lock publication artifact: " "${DIAGNOSTIC_OUTPUT}" || fail 'setup journal diagnostic omitted publication artifacts'
+grep -Fq "Setup journal lock publication owner file ${diagnostic_claim}/pid: ${owner}." "${DIAGNOSTIC_OUTPUT}" || fail 'setup journal diagnostic omitted claim owner information'
+grep -Fq "Setup journal lock publication target ${diagnostic_symlink}: ${owner}." "${DIAGNOSTIC_OUTPUT}" || fail 'setup journal diagnostic omitted symlink target information'
 
 printf '%s\n' 'PASS: installer lock fallbacks preserve actionable diagnostics'
