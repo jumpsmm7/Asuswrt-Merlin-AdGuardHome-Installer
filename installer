@@ -756,11 +756,20 @@ nvram_transaction_lock_reaper_legacy_release() {
 		return 0
 	fi
 	if [ -f "${reaper_path}/pid" ]; then
-		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || return 1
-		rm -rf "${reaper_path}" || return 1
+		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] || {
+			nvram_transaction_lock_failure "operation=release-reaper path=${reaper_path}/pid reason=owner-mismatch owner=${owner}" || true
+			return 1
+		}
+		rm -rf "${reaper_path}" || {
+			nvram_transaction_lock_failure "operation=release-reaper path=${reaper_path} reason=remove-owned-reaper-failed owner=${owner}" || true
+			return 1
+		}
 	else
 		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "legacy" ] || return 1
-		rmdir "${reaper_path}" 2>/dev/null || return 1
+		rmdir "${reaper_path}" 2>/dev/null || {
+			nvram_transaction_lock_failure "operation=release-reaper path=${reaper_path} reason=remove-empty-reaper-failed" || true
+			return 1
+		}
 	fi
 	if [ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "legacy" ] &&
 		[ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" = "${reaper_path}" ]; then
@@ -863,7 +872,7 @@ nvram_transaction_lock_reaper_acquire_impl() {
 		nvram_transaction_lock_failure "operation=acquire-reaper path=${reaper_path}/pid reason=owner-changed owner=${owner}" || true
 		return 1
 	}
-		if nvram_transaction_lock_flock_supports_fd; then
+	if nvram_transaction_lock_flock_supports_fd; then
 		[ ! -L "${reaper_path}.lock" ] || {
 			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
 			return 1
@@ -892,12 +901,12 @@ nvram_transaction_lock_reaper_acquire_impl() {
 		fi
 		NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"
 		exec 9>&-
-			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
-			return 1
-		fi
-		NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
-		export NVRAM_TRANSACTION_LOCK_DIAGNOSTIC
-		if nvram_transaction_lock_readlink; then
+		nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+		return 1
+	fi
+	NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
+	export NVRAM_TRANSACTION_LOCK_DIAGNOSTIC
+	if nvram_transaction_lock_readlink; then
 		# Arm signal cleanup before publishing the capability marker. A signal
 		# may be delivered after ln completes but before the next shell command.
 		NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
