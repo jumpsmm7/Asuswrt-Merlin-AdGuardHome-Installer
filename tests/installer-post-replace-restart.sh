@@ -72,6 +72,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 		return 0
 	}
 	agh_is_running() { [ "${RUNNING}" -eq 1 ]; }
+	agh_wait_started() { agh_is_running; }
 	agh_start() {
 		printf '%s\n' 'start' >>"${CALLS_FILE}"
 		RUNNING=1

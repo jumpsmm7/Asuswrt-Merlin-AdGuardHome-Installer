@@ -1126,15 +1126,12 @@ for reentrant_mode in symlink mkdir; do
 		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "${reentrant_mode}" ] ||
 			fail "${reentrant_mode} reaper selected the wrong mode for reentrant release"
 		REENTRANT_RELEASES=0
-		# rm removes the reaper lock path and releases its active lock; other paths are removed with the system rm command.
-		rm() {
-			if [ "${1:-}" = -rf ] && [ "${2:-}" = "${reaper_path}" ]; then
-				command rm "$@" || return 1
-				REENTRANT_RELEASES=$((REENTRANT_RELEASES + 1))
-				nvram_transaction_lock_reaper_release_active || return 1
-				return 0
-			fi
-			command rm "$@"
+		# nvram_transaction_lock_reaper_remove_owned removes the mutex and injects a nested signal-style release.
+		nvram_transaction_lock_reaper_remove_owned() {
+			[ "$1" = "${reaper_path}" ] || return 1
+			/bin/rm -rf "$1" || return 1
+			REENTRANT_RELEASES=$((REENTRANT_RELEASES + 1))
+			nvram_transaction_lock_reaper_release_active || return 1
 		}
 		nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" ||
 			fail "${reentrant_mode} reaper release failed after deleting its mutex"
@@ -1207,15 +1204,12 @@ if nvram_transaction_lock_flock_supports_fd; then
 		nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" ||
 			fail 'flock reaper could not be acquired for reentrant release'
 		REENTRANT_RELEASES=0
-		# rm removes the reaper lock path and releases its active lock; other paths are removed with the system rm command.
-		rm() {
-			if [ "${1:-}" = -rf ] && [ "${2:-}" = "${reaper_path}" ]; then
-				command rm "$@" || return 1
-				REENTRANT_RELEASES=$((REENTRANT_RELEASES + 1))
-				nvram_transaction_lock_reaper_release_active || return 1
-				return 0
-			fi
-			command rm "$@"
+		# nvram_transaction_lock_reaper_remove_owned removes the mutex and injects a nested signal-style release.
+		nvram_transaction_lock_reaper_remove_owned() {
+			[ "$1" = "${reaper_path}" ] || return 1
+			/bin/rm -rf "$1" || return 1
+			REENTRANT_RELEASES=$((REENTRANT_RELEASES + 1))
+			nvram_transaction_lock_reaper_release_active || return 1
 		}
 		nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" ||
 			fail 'flock reaper release failed after deleting its mutex'
@@ -1230,13 +1224,12 @@ if nvram_transaction_lock_flock_supports_fd; then
 		nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail 'retryable flock reaper lock could not be acquired'
 		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = flock ] || fail 'retryable reaper did not select flock mode'
 		REMOVE_ATTEMPTS=0
-		# rm simulates a single failure when recursively removing the reaper path and delegates all other removals to the system `rm`.
-		rm() {
-			if [ "${1:-}" = -rf ] && [ "${2:-}" = "${reaper_path}" ]; then
-				REMOVE_ATTEMPTS=$((REMOVE_ATTEMPTS + 1))
-				[ "${REMOVE_ATTEMPTS}" -gt 1 ] || return 1
-			fi
-			command rm "$@"
+		# nvram_transaction_lock_reaper_remove_owned injects one mutex removal failure before delegating to stock rm.
+		nvram_transaction_lock_reaper_remove_owned() {
+			[ "$1" = "${reaper_path}" ] || return 1
+			REMOVE_ATTEMPTS=$((REMOVE_ATTEMPTS + 1))
+			[ "${REMOVE_ATTEMPTS}" -gt 1 ] || return 1
+			/bin/rm -rf "$1"
 		}
 		if nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}"; then
 			fail 'flock reaper release ignored a transient legacy mutex removal failure'
