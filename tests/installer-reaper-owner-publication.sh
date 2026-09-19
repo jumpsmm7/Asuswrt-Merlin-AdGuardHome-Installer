@@ -21,8 +21,10 @@ cleanup() { rm -rf "${TEST_ROOT}"; }
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
+sed -n '/^nvram_transaction_setup_files_failure() {$/,/^nvram_transaction_setup_files_restore() {$/p' "${INSTALLER_PATH}" |
+	sed '$d' >"${FUNCTIONS_FILE}" || fail 'could not extract setup journal helpers'
 sed -n '/^nvram_transaction_recover_startup() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" |
-	sed '$d' >"${FUNCTIONS_FILE}" || fail 'could not extract transaction lock helpers'
+	sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract transaction lock helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'transaction lock helper extraction was empty'
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
@@ -31,7 +33,16 @@ for reaper_fn in nvram_transaction_lock_reaper_acquire nvram_transaction_lock_re
 done
 
 reaper_path="${TEST_ROOT}/owner-publication.reaper"
-LOCK_OWNER="$$:1"
+LOCK_OWNER="66816:373949"
+
+# The claim-publication boundary rejects nonportable temporary artifact names
+# while allowing owner data containing a colon inside the published pid file.
+nvram_transaction_lock_reaper_claim_mkdir() {
+	case "$1" in
+		*:*) return 1 ;;
+	esac
+	/bin/mkdir "$1"
+}
 
 # nvram_transaction_lock_flock_supports_fd reports that file-descriptor locking is unavailable.
 nvram_transaction_lock_flock_supports_fd() { return 1; }
@@ -52,14 +63,78 @@ rm -rf "${reaper_path}"
 
 # Dead and PID-reused published owners remain safely reclaimable.
 printf '%s\n' 999999999 >"${reaper_path}.stale-owner"
+mkdir "${reaper_path}.claim.66816.373949" || fail 'could not create colliding claim artifact'
 mkdir "${reaper_path}" || fail 'could not create stale reaper fixture'
 mv "${reaper_path}.stale-owner" "${reaper_path}/pid" || fail 'could not publish stale reaper owner'
 nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail 'stale published owner was not reclaimed'
+[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'reclaimed reaper did not preserve the original owner identity'
 nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail 'stale reaper was not released'
+rm -rf "${reaper_path}.claim.66816.373949" || fail 'could not remove colliding claim fixture'
 
 mkdir "${reaper_path}" || fail 'could not create PID-reuse reaper fixture'
 printf '%s:0\n' "$$" >"${reaper_path}/pid" || fail 'could not publish PID-reuse owner'
 nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail 'PID-reused owner was not reclaimed'
 nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail 'PID-reused reaper was not released'
+
+# Exercise the stale-symlink replacement path with the same filename check.
+nvram_transaction_lock_readlink() {
+	[ "$#" -gt 0 ] || return 0
+	command readlink "$@"
+}
+nvram_transaction_lock_reaper_temp_symlink_create() {
+	case "$2" in
+		*:*) return 1 ;;
+	esac
+	/bin/ln -s "$1" "$2"
+}
+/bin/ln -s stale-owner "${reaper_path}.symlink" || fail 'could not create stale symlink fixture'
+/bin/ln -s "${LOCK_OWNER}" "${reaper_path}.symlink.66816.373949" || fail 'could not create colliding temporary symlink fixture'
+nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail 'stale symlink owner was not reclaimed with a filename-safe artifact'
+[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = symlink ] || fail 'stale symlink reclaim did not select symlink locking'
+[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'symlink reclaim changed the colon-delimited pid owner'
+nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail 'symlink-backed reaper was not released'
+rm -f "${reaper_path}.symlink.66816.373949" || fail 'could not remove colliding temporary symlink fixture'
+
+# Exercise successful descriptor locking when the validation host provides
+# flock. The optional router capability still falls back when flock is absent.
+if [ -x /usr/bin/flock ]; then
+	nvram_transaction_lock_flock_supports_fd() { return 0; }
+	mkdir "${reaper_path}.claim.66816.373949" || fail 'could not create flock claim collision fixture'
+	nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail 'flock-backed reaper did not bypass a colliding filename-safe claim'
+	[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = flock ] || fail 'descriptor-capable reaper did not select flock locking'
+	[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'flock-backed reaper changed the colon-delimited pid owner'
+	nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail 'flock-backed reaper was not released'
+	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || fail 'flock-backed release retained its lock mode'
+	rm -rf "${reaper_path}.claim.66816.373949" || fail 'could not remove flock claim collision fixture'
+fi
+
+# Reproduce the reported setup-journal boundary with the complete transaction
+# lock path. The simulated filesystem rejects the old colon-bearing claim name.
+BASE_DIR="${TEST_ROOT}/setup"
+YAML_FILE="${TEST_ROOT}/AdGuardHome.yaml"
+YAML_ORI="${TEST_ROOT}/AdGuardHome.yaml.original"
+YAML_BAK="${TEST_ROOT}/AdGuardHome.yaml.backup"
+CONF_FILE="${TEST_ROOT}/.config"
+mkdir -p "${BASE_DIR}" || fail 'could not create setup-journal base directory'
+mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper.claim.66816.373949" || fail 'could not create setup-journal claim collision fixture'
+nvram_transaction_lock_owner_current() {
+	case "${1:-66816}" in
+		66816) printf '%s\n' "${LOCK_OWNER}" ;;
+		*) return 1 ;;
+	esac
+}
+nvram_transaction_lock_readlink() { return 127; }
+nvram_transaction_setup_files_begin || fail "setup journal lock acquisition failed: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-missing diagnostic}"
+[ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'setup journal was not published after filename-safe reaper acquisition'
+[ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = mkdir ] || fail 'setup journal transaction did not select mkdir locking'
+[ "$(cat "${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'setup journal lock did not persist the colon-delimited owner identity'
+[ -z "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" ] || fail "successful setup journal acquisition retained a lock diagnostic: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC}"
+nvram_transaction_lock_release || fail 'setup journal transaction lock was not released'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram.lock.d" ] || fail 'setup journal transaction lock remained after release'
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper.claim.66816.373949" || fail 'could not remove setup-journal claim collision fixture'
+
+if find "${TEST_ROOT}" \( -name '*.claim.*' -o -name '*.symlink.*' \) -print | grep -q .; then
+	fail 'temporary reaper publication artifacts remained after release'
+fi
 
 printf '%s\n' 'PASS: mkdir reaper preserves paused legacy publishers and reclaims verified stale owners'
