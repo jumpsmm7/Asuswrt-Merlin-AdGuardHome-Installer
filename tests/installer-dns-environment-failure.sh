@@ -810,8 +810,10 @@ reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
 reaper_path="${BASE_DIR}/changed-owner-publication.reaper"
 (
-	# Simulate the published reaper owner changing during the post-publication
-	# cat outputs a replacement lock owner for ownership-check tests.
+	# Simulate the candidate owner changing during verification. The candidate
+	# is retained as recovery evidence because it no longer verifies as ours.
+	owner_suffix="$(nvram_transaction_lock_owner_filename_suffix "${LOCK_OWNER}")" || exit 1
+	claim_path="${reaper_path}.claim.${owner_suffix}"
 	cat() { printf '%s\n' 'replacement-owner'; }
 	if nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"; then
 		exit 1
@@ -821,8 +823,13 @@ reaper_path="${BASE_DIR}/changed-owner-publication.reaper"
 	fi
 	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] || exit 1
 	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || exit 1
-	[ -f "${reaper_path}/pid" ] || exit 1
-) || fail 'changed reaper owner publication retained active cleanup state or removed recovery evidence'
+	[ ! -e "${reaper_path}" ] && [ ! -L "${reaper_path}" ] || exit 1
+	[ -f "${claim_path}/pid" ] && [ ! -L "${claim_path}/pid" ] || exit 1
+	case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
+		*operation=verify-reaper-claim-owner*candidate="${claim_path}"*destination="${reaper_path}"*reason=owner-verification-failed*) ;;
+		*) exit 1 ;;
+	esac
+) || fail 'changed reaper candidate owner did not retain safe recovery evidence and diagnostics'
 
 reset_case
 LOCK_OWNER="$(nvram_transaction_lock_owner_current)" || fail 'could not restore the test process lock identity'
