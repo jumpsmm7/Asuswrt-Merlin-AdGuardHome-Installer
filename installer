@@ -759,6 +759,14 @@ nvram_transaction_lock_reaper_flock_acquire() {
 	/usr/bin/flock -n 9 >/dev/null 2>&1
 }
 
+nvram_transaction_lock_reaper_claim_mkdir() {
+	/bin/mkdir "$1"
+}
+
+nvram_transaction_lock_reaper_temp_symlink_create() {
+	/bin/ln -s "$1" "$2"
+}
+
 # nvram_transaction_lock_reaper_legacy_release releases a portable reaper lock.
 nvram_transaction_lock_reaper_legacy_release() {
 	local owner reaper_path
@@ -783,13 +791,13 @@ nvram_transaction_lock_reaper_legacy_release() {
 			nvram_transaction_lock_failure "operation=release-reaper path=${reaper_path}/pid reason=owner-mismatch owner=${owner}" || true
 			return 1
 		}
-		rm -rf "${reaper_path}" || {
+		/bin/rm -rf "${reaper_path}" || {
 			nvram_transaction_lock_failure "operation=release-reaper path=${reaper_path} reason=remove-owned-reaper-failed owner=${owner}" || true
 			return 1
 		}
 	else
 		[ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = "legacy" ] || return 1
-		rmdir "${reaper_path}" 2>/dev/null || {
+		/bin/rmdir "${reaper_path}" 2>/dev/null || {
 			nvram_transaction_lock_failure "operation=release-reaper path=${reaper_path} reason=remove-empty-reaper-failed" || true
 			return 1
 		}
@@ -809,7 +817,7 @@ nvram_transaction_lock_reaper_legacy_claim() {
 	owner_suffix="$(nvram_transaction_lock_owner_filename_suffix "${owner}")" || return 1
 	claim_attempt=0
 	claim_path="${reaper_path}.claim.${owner_suffix}"
-	while ! mkdir "${claim_path}" 2>/dev/null; do
+	while ! nvram_transaction_lock_reaper_claim_mkdir "${claim_path}" 2>/dev/null; do
 		[ -e "${claim_path}" ] || [ -L "${claim_path}" ] || return 1
 		claim_attempt="$((claim_attempt + 1))"
 		[ "${claim_attempt}" -le 100 ] || return 1
@@ -817,19 +825,19 @@ nvram_transaction_lock_reaper_legacy_claim() {
 	done
 	claim_name="${claim_path##*/}"
 	printf '%s\n' "${owner}" >"${claim_path}/pid" || {
-		rm -rf "${claim_path}" 2>/dev/null
+		/bin/rm -rf "${claim_path}" 2>/dev/null
 		return 1
 	}
 	if command mv "${claim_path}" "${reaper_path}" 2>/dev/null; then
 		if [ -d "${reaper_path}/${claim_name}" ]; then
-			rm -rf "${reaper_path:?}/${claim_name:?}" 2>/dev/null
+			/bin/rm -rf "${reaper_path:?}/${claim_name:?}" 2>/dev/null
 			return 1
 		fi
 		[ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${owner}" ] && return 0
 	fi
 	# When the destination already exists, portable mv may place the claim
 	# directory inside it instead of failing. It never owns the mutex there.
-	rm -rf "${claim_path}" "${reaper_path:?}/${claim_name:?}" 2>/dev/null
+	/bin/rm -rf "${claim_path}" "${reaper_path:?}/${claim_name:?}" 2>/dev/null
 	return 1
 }
 
@@ -975,7 +983,7 @@ nvram_transaction_lock_reaper_acquire_impl() {
 			NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
 			temp_attempt=0
 			NVRAM_TRANSACTION_REAPER_TEMP_PATH="${reaper_path}.symlink.${owner_suffix}"
-			while ! ln -s "${owner}" "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" 2>/dev/null; do
+			while ! nvram_transaction_lock_reaper_temp_symlink_create "${owner}" "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" 2>/dev/null; do
 				if [ ! -e "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" ] && [ ! -L "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" ]; then
 					NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
 					NVRAM_TRANSACTION_REAPER_LOCK_MODE="legacy"

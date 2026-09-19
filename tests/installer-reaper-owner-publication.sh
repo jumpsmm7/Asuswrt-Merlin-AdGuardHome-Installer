@@ -35,13 +35,13 @@ done
 reaper_path="${TEST_ROOT}/owner-publication.reaper"
 LOCK_OWNER="66816:373949"
 
-# mkdir rejects nonportable temporary artifact names while allowing owner data
-# containing a colon to remain inside the published pid file.
-mkdir() {
-	case "$*" in
+# The claim-publication boundary rejects nonportable temporary artifact names
+# while allowing owner data containing a colon inside the published pid file.
+nvram_transaction_lock_reaper_claim_mkdir() {
+	case "$1" in
 		*:*) return 1 ;;
 	esac
-	command mkdir "$@"
+	/bin/mkdir "$1"
 }
 
 # nvram_transaction_lock_flock_supports_fd reports that file-descriptor locking is unavailable.
@@ -83,17 +83,14 @@ nvram_transaction_lock_readlink() {
 	[ "$#" -gt 0 ] || return 0
 	command readlink "$@"
 }
-# ln rejects colon-bearing destination names while preserving colon-delimited symlink targets.
-ln() {
-	local destination
-	for destination; do :; done
-	case "${destination}" in
+nvram_transaction_lock_reaper_temp_symlink_create() {
+	case "$2" in
 		*:*) return 1 ;;
 	esac
-	command ln "$@"
+	/bin/ln -s "$1" "$2"
 }
-ln -s stale-owner "${reaper_path}.symlink" || fail 'could not create stale symlink fixture'
-ln -s "${LOCK_OWNER}" "${reaper_path}.symlink.66816.373949" || fail 'could not create colliding temporary symlink fixture'
+/bin/ln -s stale-owner "${reaper_path}.symlink" || fail 'could not create stale symlink fixture'
+/bin/ln -s "${LOCK_OWNER}" "${reaper_path}.symlink.66816.373949" || fail 'could not create colliding temporary symlink fixture'
 nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail 'stale symlink owner was not reclaimed with a filename-safe artifact'
 [ "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" = symlink ] || fail 'stale symlink reclaim did not select symlink locking'
 [ "$(cat "${reaper_path}/pid" 2>/dev/null)" = "${LOCK_OWNER}" ] || fail 'symlink reclaim changed the colon-delimited pid owner'
