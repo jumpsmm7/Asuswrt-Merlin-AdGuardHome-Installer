@@ -240,7 +240,7 @@ nvram_transaction_lock_reaper_legacy_release() { return 1; }
 # symlink target because the target remains the original owner identity.
 ln() {
 	local destination
-	for destination do :; done
+	for destination; do :; done
 	case "${destination}" in
 		*:*) return 1 ;;
 	esac
