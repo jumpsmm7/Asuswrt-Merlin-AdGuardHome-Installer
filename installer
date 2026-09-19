@@ -726,6 +726,7 @@ nvram_transaction_lock_owner_live() {
 	[ "${current}" = "${owner}" ]
 }
 
+# nvram_transaction_lock_owner_filename_suffix validates an owner identity and prints a filename-safe suffix.
 nvram_transaction_lock_owner_filename_suffix() {
 	local owner owner_pid owner_start
 	owner="$1"
@@ -808,6 +809,7 @@ nvram_transaction_lock_reaper_legacy_release() {
 	fi
 }
 
+# nvram_transaction_lock_reaper_legacy_claim publishes a portable claim directory with its original owner identity.
 nvram_transaction_lock_reaper_legacy_claim() {
 	local claim_attempt claim_name claim_path owner owner_suffix reaper_path
 	reaper_path="$1"
