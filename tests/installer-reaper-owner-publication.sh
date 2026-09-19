@@ -48,6 +48,7 @@ mkdir() {
 nvram_transaction_lock_flock_supports_fd() { return 1; }
 # nvram_transaction_lock_readlink returns 127 to indicate that symbolic-link support is unavailable.
 nvram_transaction_lock_readlink() { return 127; }
+# sleep skips acquisition backoff delays in this regression test.
 sleep() { :; }
 
 # This directory represents an older installer paused after mkdir and before
@@ -75,10 +76,12 @@ nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail '
 nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail 'PID-reused reaper was not released'
 
 # Exercise the stale-symlink replacement path with the same filename check.
+# nvram_transaction_lock_readlink delegates supported symbolic-link reads to the system command.
 nvram_transaction_lock_readlink() {
 	[ "$#" -gt 0 ] || return 0
 	command readlink "$@"
 }
+# ln rejects colon-bearing destination names while preserving colon-delimited symlink targets.
 ln() {
 	local destination
 	for destination; do :; done
@@ -100,12 +103,14 @@ YAML_ORI="${TEST_ROOT}/AdGuardHome.yaml.original"
 YAML_BAK="${TEST_ROOT}/AdGuardHome.yaml.backup"
 CONF_FILE="${TEST_ROOT}/.config"
 mkdir -p "${BASE_DIR}" || fail 'could not create setup-journal base directory'
+# nvram_transaction_lock_owner_current returns the fixed owner identity used by setup-journal assertions.
 nvram_transaction_lock_owner_current() {
 	case "${1:-66816}" in
 		66816) printf '%s\n' "${LOCK_OWNER}" ;;
 		*) return 1 ;;
 	esac
 }
+# nvram_transaction_lock_readlink disables symbolic-link support for the setup-journal boundary.
 nvram_transaction_lock_readlink() { return 127; }
 nvram_transaction_setup_files_begin || fail "setup journal lock acquisition failed: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-missing diagnostic}"
 [ -d "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ] || fail 'setup journal was not published after filename-safe reaper acquisition'
