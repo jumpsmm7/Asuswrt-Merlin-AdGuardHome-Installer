@@ -36,8 +36,8 @@ reaper_path="${TEST_ROOT}/owner-publication.reaper"
 LOCK_OWNER="66816:373949"
 CLAIM_MKDIR_CALLS=0
 
-# The claim-publication boundary rejects nonportable temporary artifact names
-# while allowing owner data containing a colon inside the published pid file.
+# nvram_transaction_lock_reaper_claim_mkdir rejects nonportable claim names while
+# allowing owner data containing a colon inside the published pid file.
 nvram_transaction_lock_reaper_claim_mkdir() {
 	CLAIM_MKDIR_CALLS="$((CLAIM_MKDIR_CALLS + 1))"
 	case "$1" in
@@ -88,6 +88,7 @@ nvram_transaction_lock_readlink() {
 	command readlink "$@"
 }
 TEMP_SYMLINK_CALLS=0
+# nvram_transaction_lock_reaper_temp_symlink_create rejects nonportable temporary symlink names.
 nvram_transaction_lock_reaper_temp_symlink_create() {
 	TEMP_SYMLINK_CALLS="$((TEMP_SYMLINK_CALLS + 1))"
 	case "$2" in
@@ -127,12 +128,14 @@ CONF_FILE="${TEST_ROOT}/.config"
 mkdir -p "${BASE_DIR}" || fail 'could not create setup-journal base directory'
 mkdir "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper.claim.66816.373949" || fail 'could not create setup-journal claim collision fixture'
 CLAIM_MKDIR_CALLS=0
+# nvram_transaction_lock_owner_current returns the deterministic owner identity used by this fixture.
 nvram_transaction_lock_owner_current() {
 	case "${1:-66816}" in
 		66816) printf '%s\n' "${LOCK_OWNER}" ;;
 		*) return 1 ;;
 	esac
 }
+# nvram_transaction_lock_readlink reports that symbolic-link inspection is unavailable for this fixture.
 nvram_transaction_lock_readlink() { return 127; }
 nvram_transaction_setup_files_begin || fail "setup journal lock acquisition failed: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-missing diagnostic}"
 [ "${CLAIM_MKDIR_CALLS}" -eq 2 ] || fail 'setup journal claim collision did not use exactly two directory creation attempts'

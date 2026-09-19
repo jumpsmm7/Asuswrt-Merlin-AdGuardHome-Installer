@@ -759,18 +759,22 @@ nvram_transaction_lock_reaper_flock_acquire() {
 	/usr/bin/flock -n 9 >/dev/null 2>&1
 }
 
+# nvram_transaction_lock_reaper_claim_mkdir creates a candidate reaper claim directory.
 nvram_transaction_lock_reaper_claim_mkdir() {
 	/bin/mkdir "$1"
 }
 
+# nvram_transaction_lock_reaper_temp_symlink_create creates a candidate reaper ownership symlink.
 nvram_transaction_lock_reaper_temp_symlink_create() {
 	/bin/ln -s "$1" "$2"
 }
 
+# nvram_transaction_lock_reaper_remove_owned removes a reaper directory after its owner is verified.
 nvram_transaction_lock_reaper_remove_owned() {
 	/bin/rm -rf "$1"
 }
 
+# nvram_transaction_lock_reaper_remove_empty removes an empty unowned reaper directory.
 nvram_transaction_lock_reaper_remove_empty() {
 	/bin/rmdir "$1"
 }
