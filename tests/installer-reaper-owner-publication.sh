@@ -50,6 +50,7 @@ nvram_transaction_lock_reaper_claim_mkdir() {
 nvram_transaction_lock_flock_supports_fd() { return 1; }
 # nvram_transaction_lock_readlink returns 127 to indicate that symbolic-link support is unavailable.
 nvram_transaction_lock_readlink() { return 127; }
+# sleep skips acquisition backoff delays in this regression test.
 sleep() { :; }
 
 # This directory represents an older installer paused after mkdir and before
@@ -81,6 +82,7 @@ nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}" || fail '
 nvram_transaction_lock_reaper_release "${reaper_path}" "${LOCK_OWNER}" || fail 'PID-reused reaper was not released'
 
 # Exercise the stale-symlink replacement path with the same filename check.
+# nvram_transaction_lock_readlink delegates supported symbolic-link reads to the system command.
 nvram_transaction_lock_readlink() {
 	[ "$#" -gt 0 ] || return 0
 	command readlink "$@"
