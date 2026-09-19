@@ -234,6 +234,7 @@ nvram_transaction_setup_committed() {
 	[ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]
 }
 
+# nvram_transaction_setup_files_failure records setup-file failure context.
 nvram_transaction_setup_files_failure() {
 	local artifact operation path
 	operation="$1"
@@ -247,6 +248,7 @@ nvram_transaction_setup_files_failure() {
 	return 1
 }
 
+# nvram_transaction_setup_files_begin snapshots setup files under the transaction lock.
 nvram_transaction_setup_files_begin() {
 	local journal_entry journal_root journal_tmp source
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
@@ -482,12 +484,14 @@ nvram_transaction_lock_cross_reaper_release() {
 	nvram_transaction_lock_reaper_release "$1.reaper" "$2"
 }
 
+# nvram_transaction_lock_failure publishes an actionable lock diagnostic.
 nvram_transaction_lock_failure() {
 	NVRAM_TRANSACTION_LOCK_DIAGNOSTIC="$1"
 	export NVRAM_TRANSACTION_LOCK_DIAGNOSTIC
 	return 1
 }
 
+# nvram_transaction_lock_acquire acquires a shared descriptor or portable lock.
 nvram_transaction_lock_acquire() {
 	local lock_dir lock_owner lock_path owner status
 	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
@@ -737,6 +741,7 @@ nvram_transaction_lock_reaper_flock_acquire() {
 	/usr/bin/flock -n 9 >/dev/null 2>&1
 }
 
+# nvram_transaction_lock_reaper_legacy_release releases a portable reaper lock.
 nvram_transaction_lock_reaper_legacy_release() {
 	local owner reaper_path
 	reaper_path="$1"
@@ -802,6 +807,7 @@ nvram_transaction_lock_reaper_legacy_claim() {
 	return 1
 }
 
+# nvram_transaction_lock_reaper_acquire_impl acquires the best supported reaper lock.
 nvram_transaction_lock_reaper_acquire_impl() {
 	local claimed contending_owner owner reaper_owner reaper_path
 	reaper_path="$1"
@@ -988,6 +994,7 @@ nvram_transaction_lock_reaper_acquire_impl() {
 	return 1
 }
 
+# nvram_transaction_lock_reaper_acquire adds a generic diagnostic when needed.
 nvram_transaction_lock_reaper_acquire() {
 	local diagnostic_path
 	diagnostic_path="$1"
@@ -996,6 +1003,7 @@ nvram_transaction_lock_reaper_acquire() {
 	return 1
 }
 
+# nvram_transaction_lock_reaper_release_impl releases the active reaper lock.
 nvram_transaction_lock_reaper_release_impl() {
 	local owner reaper_path
 	reaper_path="$1"
@@ -1082,6 +1090,7 @@ nvram_transaction_lock_reaper_release_impl() {
 	NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
 }
 
+# nvram_transaction_lock_reaper_release preserves primary failure context.
 nvram_transaction_lock_reaper_release() {
 	local diagnostic_path primary_diagnostic release_diagnostic
 	diagnostic_path="$1"
@@ -1107,6 +1116,7 @@ nvram_transaction_lock_reaper_release_active() {
 	nvram_transaction_lock_reaper_release "${NVRAM_TRANSACTION_REAPER_LOCK_PATH}"
 }
 
+# nvram_transaction_lock_flock_supports_fd probes descriptor-based flock support.
 nvram_transaction_lock_flock_supports_fd() {
 	local probe status
 	[ -x /usr/bin/flock ] || return 1
@@ -1123,6 +1133,7 @@ nvram_transaction_lock_flock_supports_fd() {
 	return "${status}"
 }
 
+# nvram_transaction_lock_flock_open_fd opens descriptor 8 for flock operations.
 nvram_transaction_lock_flock_open_fd() {
 	[ "$#" -eq 2 ] || return 1
 	exec 8<>"$2"
@@ -1134,6 +1145,7 @@ nvram_transaction_lock_readlink() {
 	readlink "$@"
 }
 
+# nvram_transaction_lock_symlink_acquire acquires or classifies the symlink lock.
 nvram_transaction_lock_symlink_acquire() {
 	local lock_dir lock_owner lock_path owner
 	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
@@ -7609,6 +7621,7 @@ setup_files_begin_if_needed() {
 	SETUP_FILES_JOURNALED=1
 }
 
+# setup_files_journal_diagnostic reports why setup journal reuse is unsafe.
 setup_files_journal_diagnostic() {
 	local artifact current_process_identity journal_root lock_owned
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"

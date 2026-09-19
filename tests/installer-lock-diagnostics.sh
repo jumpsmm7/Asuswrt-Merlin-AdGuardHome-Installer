@@ -8,11 +8,13 @@ TEST_ROOT="${TMPDIR:-/tmp}/installer-lock-diagnostics.$$"
 (umask 077 && mkdir "${TEST_ROOT}") || exit 1
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 
+# fail reports a regression failure and terminates the test.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
 
+# cleanup stops any live helper process and removes test artifacts.
 cleanup() {
 	[ -z "${TEST_LIVE_PID:-}" ] || kill "${TEST_LIVE_PID}" 2>/dev/null || true
 	rm -rf "${TEST_ROOT}"
@@ -30,9 +32,13 @@ mkdir -p "${BASE_DIR}" || fail 'could not create simulated /opt/etc'
 
 # Both descriptor-open failures must identify the lock file and the symlink
 # that acquisition rolls back.
+# nvram_transaction_lock_flock_supports_fd enables descriptor locking for the probe case.
 nvram_transaction_lock_flock_supports_fd() { return 0; }
+# nvram_transaction_lock_reaper_acquire permits reaper acquisition for the probe case.
 nvram_transaction_lock_reaper_acquire() { return 0; }
+# nvram_transaction_lock_cross_reaper_release permits probe-case cleanup.
 nvram_transaction_lock_cross_reaper_release() { return 0; }
+# nvram_transaction_lock_flock_open_fd rejects the descriptor probe operation.
 nvram_transaction_lock_flock_open_fd() {
 	[ "$1" != probe ]
 }
@@ -46,9 +52,13 @@ esac
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+# nvram_transaction_lock_flock_supports_fd enables descriptor locking for the acquire case.
 nvram_transaction_lock_flock_supports_fd() { return 0; }
+# nvram_transaction_lock_reaper_acquire permits reaper acquisition for the acquire case.
 nvram_transaction_lock_reaper_acquire() { return 0; }
+# nvram_transaction_lock_cross_reaper_release permits acquire-case cleanup.
 nvram_transaction_lock_cross_reaper_release() { return 0; }
+# nvram_transaction_lock_flock_open_fd rejects the descriptor acquisition operation.
 nvram_transaction_lock_flock_open_fd() {
 	[ "$1" != acquire ]
 }
@@ -66,7 +76,9 @@ esac
 
 # Exercise acquisition without /usr/bin/flock and force symlink publication to
 # fail on the simulated filesystem while retaining the mkdir fallback.
+# nvram_transaction_lock_flock_supports_fd forces portable lock fallback.
 nvram_transaction_lock_flock_supports_fd() { return 1; }
+# ln injects a symlink publication failure.
 ln() { return 1; }
 nvram_transaction_lock_acquire || fail "mkdir fallback failed: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-missing diagnostic}"
 [ "${NVRAM_TRANSACTION_LOCK_MODE:-}" = mkdir ] || fail 'symlink failure did not select mkdir locking'
@@ -78,13 +90,17 @@ unset -f ln 2>/dev/null || true
 # mkdir fallback must report its own reaper failure rather than stale context.
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+# nvram_transaction_lock_flock_supports_fd forces the portable fallback path.
 nvram_transaction_lock_flock_supports_fd() { return 1; }
 reaper_acquire_count=0
+# nvram_transaction_lock_reaper_acquire fails the second acquisition attempt.
 nvram_transaction_lock_reaper_acquire() {
 	reaper_acquire_count=$((reaper_acquire_count + 1))
 	[ "${reaper_acquire_count}" -eq 1 ]
 }
+# nvram_transaction_lock_reaper_release permits cleanup after publication failure.
 nvram_transaction_lock_reaper_release() { return 0; }
+# ln injects the nonterminal symlink publication failure.
 ln() { return 1; }
 if nvram_transaction_lock_acquire; then
 	fail 'acquisition succeeded after injected mkdir reaper failure'
@@ -103,8 +119,11 @@ unset -f ln 2>/dev/null || true
 # primary terminal diagnostic.
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+# nvram_transaction_lock_reaper_acquire permits the injected publication attempt.
 nvram_transaction_lock_reaper_acquire() { return 0; }
+# nvram_transaction_lock_reaper_release injects cleanup failure.
 nvram_transaction_lock_reaper_release() { return 1; }
+# ln injects the primary symlink publication failure.
 ln() { return 1; }
 if nvram_transaction_lock_symlink_acquire; then
 	fail 'symlink acquisition succeeded after publication and cleanup failures'
@@ -128,7 +147,9 @@ esac
 rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.d"
 
 # A failed reaper acquisition must identify the operation and path.
+# nvram_transaction_lock_symlink_acquire advances acquisition to the mkdir fallback.
 nvram_transaction_lock_symlink_acquire() { return 2; }
+# nvram_transaction_lock_reaper_acquire injects the terminal reaper failure.
 nvram_transaction_lock_reaper_acquire() { return 1; }
 if nvram_transaction_lock_acquire; then
 	fail 'acquisition succeeded after injected reaper acquisition failure'
@@ -142,6 +163,7 @@ esac
 # that contention reports the recorded owner rather than calling it current.
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+# nvram_transaction_lock_flock_supports_fd forces portable reaper acquisition.
 nvram_transaction_lock_flock_supports_fd() { return 1; }
 owner="$(nvram_transaction_lock_owner_current)" || fail 'could not determine test process identity'
 
@@ -172,14 +194,17 @@ rm -rf "${BASE_DIR}/live.reaper"
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 probe_reaper_path="${BASE_DIR}/probe.reaper"
+# nvram_transaction_lock_reaper_legacy_claim publishes the fallback owner record.
 nvram_transaction_lock_reaper_legacy_claim() {
 	mkdir "$1" || return 1
 	printf '%s\n' "$2" >"$1/pid"
 }
+# nvram_transaction_lock_flock_supports_fd injects a noisy capability miss.
 nvram_transaction_lock_flock_supports_fd() {
 	nvram_transaction_lock_failure 'operation=flock-probe-cleanup path=stale-probe' || true
 	return 1
 }
+# nvram_transaction_lock_readlink makes the portable fallback fail silently.
 nvram_transaction_lock_readlink() {
 	NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
 	return 127
@@ -199,13 +224,18 @@ rm -rf "${probe_reaper_path}"
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 reclaim_path="${BASE_DIR}/reclaim.reaper"
+# nvram_transaction_lock_flock_supports_fd selects legacy reaper locking.
 nvram_transaction_lock_flock_supports_fd() { return 1; }
+# nvram_transaction_lock_owner_live marks the observed owner as stale.
 nvram_transaction_lock_owner_live() { return 1; }
+# nvram_transaction_lock_reaper_legacy_claim publishes a competing owner record.
 nvram_transaction_lock_reaper_legacy_claim() {
 	mkdir "$1" || return 1
 	printf '%s\n' "$2" >"$1/pid"
 }
+# nvram_transaction_lock_reaper_legacy_release injects secondary cleanup failure.
 nvram_transaction_lock_reaper_legacy_release() { return 1; }
+# mv simulates losing ownership during stale-symlink reclamation.
 mv() {
 	command mv "$@" || return 1
 	rm -f "${reclaim_path}.symlink" || return 1
@@ -226,6 +256,7 @@ rm -rf "${reclaim_path}" "${reclaim_path}.symlink"
 # Restore helpers before the main lock-contention scenario.
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+# nvram_transaction_lock_flock_supports_fd selects portable contention handling.
 nvram_transaction_lock_flock_supports_fd() { return 1; }
 ln -s "${owner}" "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || fail 'could not publish live contender'
 if nvram_transaction_lock_acquire; then
@@ -238,6 +269,7 @@ esac
 
 # A cleanup failure is secondary to the live-owner contention that made the
 # acquisition fail.
+# nvram_transaction_lock_reaper_release_impl injects a detailed cleanup failure.
 nvram_transaction_lock_reaper_release_impl() {
 	nvram_transaction_lock_failure "operation=release-reaper path=$1 reason=cleanup-failed" || true
 	return 1
@@ -250,6 +282,7 @@ case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
 	*operation=validate-stale-lock*path="${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"*reason=live-owner*owner="${owner}"*after-failed-operation="release-reaper:${BASE_DIR}/.AdGuardHome.nvram.lock.reaper"*release-diagnostic=operation=release-reaper*reason=cleanup-failed*) ;;
 	*) fail "reaper release replaced the primary diagnostic: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
 esac
+# nvram_transaction_lock_reaper_release_impl injects a silent standalone failure.
 nvram_transaction_lock_reaper_release_impl() { return 1; }
 NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
 if nvram_transaction_lock_reaper_release "${BASE_DIR}/standalone.reaper" "${owner}"; then
@@ -285,12 +318,16 @@ NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
 rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink"
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+# nvram_transaction_lock_flock_supports_fd selects portable publication validation.
 nvram_transaction_lock_flock_supports_fd() { return 1; }
+# nvram_transaction_lock_reaper_acquire permits publication validation to run.
 nvram_transaction_lock_reaper_acquire() { return 0; }
+# nvram_transaction_lock_reaper_release_impl injects detailed validation cleanup failure.
 nvram_transaction_lock_reaper_release_impl() {
 	nvram_transaction_lock_failure "operation=release-reaper path=$1 reason=cleanup-failed" || true
 	return 1
 }
+# ln replaces the published owner to simulate validation loss.
 ln() {
 	command ln "$@" || return 1
 	rm -f "${BASE_DIR}/.AdGuardHome.nvram.lock.symlink" || return 1
@@ -310,10 +347,12 @@ unset -f ln 2>/dev/null || true
 # fallback failure.
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+# nvram_transaction_lock_flock_supports_fd injects an expected capability miss.
 nvram_transaction_lock_flock_supports_fd() {
 	nvram_transaction_lock_failure 'operation=flock-probe path=/usr/bin/flock reason=unavailable' || true
 	return 1
 }
+# nvram_transaction_lock_symlink_acquire injects terminal portable fallback failure.
 nvram_transaction_lock_symlink_acquire() { return 1; }
 if nvram_transaction_lock_acquire; then
 	fail 'acquisition succeeded after injected terminal symlink failure'
@@ -330,6 +369,7 @@ sed -n '/^setup_files_begin_if_needed() {$/,/^setup_files_journal_diagnostic() {
 . "${FUNCTIONS_FILE}"
 mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create existing setup journal'
 SETUP_FILES_JOURNALED=0
+# nvram_transaction_lock_owned rejects reuse by a nonowner.
 nvram_transaction_lock_owned() { return 1; }
 if setup_files_begin_if_needed; then
 	fail 'existing setup journal was reused without lock ownership'
