@@ -114,6 +114,8 @@ killall() {
 }
 # cleanup_api_files performs no operation.
 cleanup_api_files() { :; }
+# adguard_committed_binary_cleanup_retry is outside this DNS fixture's scope.
+adguard_committed_binary_cleanup_retry() { :; }
 # installer_cleanup_tmp_file cleans up the installer's temporary file.
 installer_cleanup_tmp_file() { :; }
 # rollback_pending_mode_migration rolls back any pending mode migration.

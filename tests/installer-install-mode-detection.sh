@@ -653,7 +653,7 @@ AGH_STUB
 	# check_dns_local checks local DNS availability.
 	check_dns_local() { :; }
 	# check_ipset checks whether the required ipset functionality is available.
-	check_ipset() { :; }
+	check_ipset() { printf '%s\n' "check_ipset:$1" >>"${CALLS_FILE}"; }
 	# adguard_ipset_allowed checks whether ipset functionality is permitted for the current install mode.
 	adguard_ipset_allowed() {
 		printf '%s\n' 'adguard_ipset_allowed' >>"${CALLS_FILE}"
@@ -699,6 +699,7 @@ AGH_STUB
 
 	# Assert that nvram_transaction_setup_files_begin was called (journal creation)
 	assert_count '^nvram_transaction_setup_files_begin$' 1 'nvram transaction journal creation call count mismatch'
+	assert_count '^check_ipset:0$' 1 'LAN setup must continue to YAML configuration with IPSET_SELECTION=0'
 
 	# Verify journal directory was removed after successful finalization
 	if [ -e "${BASE_DIR}/.AdGuardHome.nvram/setup-files" ]; then
