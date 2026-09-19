@@ -224,6 +224,7 @@ rm -rf "${probe_reaper_path}"
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 reclaim_path="${BASE_DIR}/reclaim.reaper"
+filename_safe_owner="66816:373949"
 # nvram_transaction_lock_flock_supports_fd selects legacy reaper locking.
 nvram_transaction_lock_flock_supports_fd() { return 1; }
 # nvram_transaction_lock_owner_live marks the observed owner as stale.
@@ -235,22 +236,37 @@ nvram_transaction_lock_reaper_legacy_claim() {
 }
 # nvram_transaction_lock_reaper_legacy_release injects secondary cleanup failure.
 nvram_transaction_lock_reaper_legacy_release() { return 1; }
+# ln rejects nonportable temporary artifact names, but permits a colon in the
+# symlink target because the target remains the original owner identity.
+ln() {
+	local destination
+	for destination; do :; done
+	case "${destination}" in
+		*:*) return 1 ;;
+	esac
+	command ln "$@"
+}
 # mv simulates losing ownership during stale-symlink reclamation.
 mv() {
+	case "$1" in
+		*:*) return 1 ;;
+	esac
 	command mv "$@" || return 1
 	rm -f "${reclaim_path}.symlink" || return 1
 	command ln -s winning-owner "${reclaim_path}.symlink"
 }
 ln -s stale-owner "${reclaim_path}.symlink" || fail 'could not create stale reaper symlink'
 NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
-if nvram_transaction_lock_reaper_acquire "${reclaim_path}" "${owner}"; then
+if nvram_transaction_lock_reaper_acquire "${reclaim_path}" "${filename_safe_owner}"; then
 	fail 'reaper acquisition succeeded after losing stale-symlink reclamation'
 fi
 case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
 	*operation=acquire-reaper*path="${reclaim_path}.symlink"*reason=ownership-lost*owner=winning-owner*after-failed-operation="release-reaper:${reclaim_path}"*) ;;
 	*) fail "reaper ownership-loss cleanup diagnostic was incomplete: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
 esac
+[ ! -e "${reclaim_path}.symlink.66816.373949" ] && [ ! -L "${reclaim_path}.symlink.66816.373949" ] || fail 'failed reclaim left its filename-safe temporary symlink'
 unset -f mv 2>/dev/null || true
+unset -f ln 2>/dev/null || true
 rm -rf "${reclaim_path}" "${reclaim_path}.symlink"
 
 # Restore helpers before the main lock-contention scenario.

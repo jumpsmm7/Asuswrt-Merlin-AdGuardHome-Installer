@@ -726,6 +726,24 @@ nvram_transaction_lock_owner_live() {
 	[ "${current}" = "${owner}" ]
 }
 
+# nvram_transaction_lock_owner_filename_suffix validates an owner identity and prints a filename-safe suffix.
+nvram_transaction_lock_owner_filename_suffix() {
+	local owner owner_pid owner_start
+	owner="$1"
+	case "${owner}" in
+		*:*:*) return 1 ;;
+		*:*) ;;
+		*) return 1 ;;
+	esac
+	owner_pid="${owner%%:*}"
+	owner_start="${owner#*:}"
+	[ -n "${owner_pid}" ] && [ -n "${owner_start}" ] || return 1
+	case "${owner_pid}:${owner_start}" in
+		*[!0123456789:]*) return 1 ;;
+	esac
+	printf '%s.%s\n' "${owner_pid}" "${owner_start}"
+}
+
 nvram_transaction_lock_flock_owned() {
 	local descriptor_path lock_path owner resolved_lock_path
 	lock_path="$1"
@@ -783,11 +801,13 @@ nvram_transaction_lock_reaper_legacy_release() {
 	fi
 }
 
+# nvram_transaction_lock_reaper_legacy_claim publishes a portable claim directory with its original owner identity.
 nvram_transaction_lock_reaper_legacy_claim() {
-	local claim_name claim_path owner reaper_path
+	local claim_name claim_path owner owner_suffix reaper_path
 	reaper_path="$1"
 	owner="$2"
-	claim_path="${reaper_path}.claim.${owner}"
+	owner_suffix="$(nvram_transaction_lock_owner_filename_suffix "${owner}")" || return 1
+	claim_path="${reaper_path}.claim.${owner_suffix}"
 	claim_name="${claim_path##*/}"
 	mkdir "${claim_path}" 2>/dev/null || return 1
 	printf '%s\n' "${owner}" >"${claim_path}/pid" || {
@@ -809,7 +829,7 @@ nvram_transaction_lock_reaper_legacy_claim() {
 
 # nvram_transaction_lock_reaper_acquire_impl acquires the best supported reaper lock.
 nvram_transaction_lock_reaper_acquire_impl() {
-	local claimed contending_owner owner reaper_owner reaper_path
+	local claimed contending_owner owner owner_suffix reaper_owner reaper_path
 	reaper_path="$1"
 	claimed=0
 	NVRAM_TRANSACTION_REAPER_LOCK_MODE=""
@@ -820,6 +840,11 @@ nvram_transaction_lock_reaper_acquire_impl() {
 	else
 		owner="$(nvram_transaction_lock_owner_current)" || nvram_transaction_lock_failure "operation=acquire-reaper path=${reaper_path} reason=current-owner-unavailable" || return 1
 	fi
+	owner_suffix="$(nvram_transaction_lock_owner_filename_suffix "${owner}")" || {
+		nvram_transaction_lock_failure "operation=acquire-reaper path=${reaper_path} reason=invalid-owner owner=${owner}" || true
+		NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
+		return 1
+	}
 	# Publish the directory and its owner together. A prepared sibling is
 	# renamed into place so SIGKILL cannot leave a new ownerless mutex behind.
 	# Arm cleanup before the rename because a returning signal trap may run
@@ -941,7 +966,7 @@ nvram_transaction_lock_reaper_acquire_impl() {
 			# Atomically reclaim stale symlink: create temp symlink, rename, verify ownership
 			# Arm cleanup before either artifact can identify this process. This also
 			# covers a signal delivered after mv publishes the replacement.
-			NVRAM_TRANSACTION_REAPER_TEMP_PATH="${reaper_path}.symlink.${owner}"
+			NVRAM_TRANSACTION_REAPER_TEMP_PATH="${reaper_path}.symlink.${owner_suffix}"
 			NVRAM_TRANSACTION_REAPER_LOCK_MODE="symlink"
 			ln -s "${owner}" "${NVRAM_TRANSACTION_REAPER_TEMP_PATH}" 2>/dev/null || {
 				NVRAM_TRANSACTION_REAPER_TEMP_PATH=""
