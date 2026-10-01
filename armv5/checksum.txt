@@ -2,4 +2,4 @@
 # file	channel	version	md5	sha256
 AdGuardHome_stable_linux_armv5.tar.gz	stable	version=v0.107.79	987da4e8111dc0063eb8fbb5e646ff56	b709eaffc2b1cd1236a4dfdc90a00f174ddee5a1ad6a389e8a75918fb450e27c
 AdGuardHome_beta_linux_armv5.tar.gz	beta	version=v0.108.0-b.90	40930278fcbc857915ad1c1ddfd81050	6570936a0b0d6d01df657984a514426558b3e3169986c5bc231c880f9872ac54
-AdGuardHome_edge_linux_armv5.tar.gz	edge	version=v1.0.0-a.42+5c113ec4	650b28cd31fd120ad72da744938a2fa1	1af421f9af0f83c537b376de0cb871e999690ab73d2c4510e3ae369b6668696c
+AdGuardHome_edge_linux_armv5.tar.gz	edge	version=v1.0.0-a.42+5c113ec4	b1b839fbd3f7d14eb585ed396ab594f8	95e2e087bf9b0b23df4496c50dffa82e5268c905a116a7a0ed12654fa60925cd
