@@ -7794,7 +7794,7 @@ setup_files_begin_if_needed() {
 
 # setup_files_journal_diagnostic reports why setup journal reuse is unsafe.
 setup_files_journal_diagnostic() {
-	local artifact current_process_identity journal_root lock_owned publication_artifact publication_listing publication_listings publication_owner
+	local artifact current_process_identity journal_root lock_owned publication_artifact publication_listing publication_owner
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 	current_process_identity="$(nvram_transaction_lock_owner_current 2>/dev/null)" || current_process_identity="unavailable"
 	lock_owned="no"
@@ -7814,13 +7814,9 @@ setup_files_journal_diagnostic() {
 			PTXT "${WARNING} Setup journal lock target ${artifact}: $(nvram_transaction_lock_readlink "${artifact}" 2>/dev/null)."
 		fi
 	done
-	publication_listings="$(ls -ld "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper.claim."* "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper.symlink."* 2>/dev/null)"
-	exec 7<<EOF
-${publication_listings}
-EOF
 	for publication_artifact in "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper.claim."* "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper.symlink."*; do
 		[ -e "${publication_artifact}" ] || [ -L "${publication_artifact}" ] || continue
-		IFS= read -r publication_listing <&7 || publication_listing=""
+		publication_listing="$(ls -ld "${publication_artifact}" 2>/dev/null)"
 		PTXT "${WARNING} Setup journal lock publication artifact: ${publication_listing}."
 		if [ -d "${publication_artifact}" ] && [ ! -L "${publication_artifact}" ] &&
 			[ -f "${publication_artifact}/pid" ] && [ ! -L "${publication_artifact}/pid" ]; then
@@ -7831,7 +7827,6 @@ EOF
 			PTXT "${WARNING} Setup journal lock publication target ${publication_artifact}: $(nvram_transaction_lock_readlink "${publication_artifact}" 2>/dev/null)."
 		fi
 	done
-	exec 7<&-
 }
 
 setup_resolve_lan_addresses() {

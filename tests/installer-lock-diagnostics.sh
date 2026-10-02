@@ -446,6 +446,20 @@ grep -Fq "Setup journal lock publication artifact: " "${DIAGNOSTIC_OUTPUT}" || f
 grep -Fq "Setup journal lock publication owner file ${diagnostic_claim}/pid: ${owner}." "${DIAGNOSTIC_OUTPUT}" || fail 'setup journal diagnostic omitted claim owner information'
 grep -Fq "Setup journal lock publication target ${diagnostic_symlink}: ${owner}." "${DIAGNOSTIC_OUTPUT}" || fail 'setup journal diagnostic omitted symlink target information'
 unset -f cat 2>/dev/null || true
+
+# A publication removed while a multi-path listing is captured must not shift
+# another artifact onto the removed artifact's listing.
+: >"${DIAGNOSTIC_OUTPUT}"
+# ls removes the claim after emulating the former multi-path snapshot race.
+ls() {
+	/bin/ls "$@"
+	[ "$#" -le 2 ] || rm -rf "${diagnostic_claim}"
+}
+setup_files_journal_diagnostic
+unset -f ls 2>/dev/null || true
+grep -F "Setup journal lock publication artifact: " "${DIAGNOSTIC_OUTPUT}" |
+	grep -Fq "${diagnostic_symlink}" || fail 'setup journal diagnostic paired an artifact with another publication listing'
+
 rm -rf "${diagnostic_claim}" "${diagnostic_symlink}"
 : >"${DIAGNOSTIC_OUTPUT}"
 setup_files_journal_diagnostic
