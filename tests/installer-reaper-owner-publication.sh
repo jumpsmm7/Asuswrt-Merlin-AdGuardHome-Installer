@@ -142,7 +142,7 @@ esac
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 verification_failure_path="${TEST_ROOT}/verification-failure.reaper"
-# nvram_transaction_lock_reaper_claim_owner_secure replaces the owner after chmod to force verification failure.
+# nvram_transaction_lock_reaper_claim_owner_secure changes the owner in $1/pid after chmod to simulate failed ownership verification.
 nvram_transaction_lock_reaper_claim_owner_secure() {
 	/bin/chmod 600 "$1/pid" || return 1
 	printf '%s\n' '999999999:1' >"$1/pid"
@@ -158,21 +158,21 @@ esac
 [ "$(cat "${verification_failure_path}.claim.66816.373949/pid" 2>/dev/null)" = '999999999:1' ] || fail 'verification failure reclaimed a candidate whose owner changed'
 rm -rf "${verification_failure_path}.claim.66816.373949"
 
-# Cleanup failures are terminal and identify the candidate, destination, and
-# failed operation instead of retaining the preceding owner-write diagnostic.
+# Cleanup failures are terminal and retain both the preceding owner-write
+# diagnostic and the candidate cleanup failure context.
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 cleanup_failure_path="${TEST_ROOT}/cleanup-failure.reaper"
 # nvram_transaction_lock_reaper_claim_owner_write injects candidate owner-file write failure.
 nvram_transaction_lock_reaper_claim_owner_write() { return 1; }
-# nvram_transaction_lock_reaper_claim_remove injects cleanup failure after an owner-file write failure.
+# nvram_transaction_lock_reaper_claim_remove returns failure without removing $1 to exercise cleanup diagnostics after an owner-write failure.
 nvram_transaction_lock_reaper_claim_remove() { return 1; }
 NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
 if nvram_transaction_lock_reaper_legacy_claim "${cleanup_failure_path}" "${LOCK_OWNER}"; then
 	fail 'claim succeeded after injected cleanup failure'
 fi
 case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
-	"operation=cleanup-reaper-claim candidate=${cleanup_failure_path}.claim.66816.373949 destination=${cleanup_failure_path} reason=remove-failed owner=${LOCK_OWNER} after-failed-operation=write-reaper-claim-owner") ;;
+	"operation=write-reaper-claim-owner candidate=${cleanup_failure_path}.claim.66816.373949 destination=${cleanup_failure_path} path=${cleanup_failure_path}.claim.66816.373949/pid reason=write-failed owner=${LOCK_OWNER} after-failed-operation=write-reaper-claim-owner cleanup-diagnostic=operation=cleanup-reaper-claim candidate=${cleanup_failure_path}.claim.66816.373949 destination=${cleanup_failure_path} reason=remove-failed owner=${LOCK_OWNER} after-failed-operation=write-reaper-claim-owner") ;;
 	*) fail "candidate cleanup failure diagnostic was imprecise: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
 esac
 rm -rf "${cleanup_failure_path}.claim.66816.373949"
@@ -226,7 +226,7 @@ nvram_transaction_lock_flock_supports_fd() { return 1; }
 nvram_transaction_lock_readlink() { return 127; }
 # sleep skips acquisition backoff delays in this regression test.
 sleep() { :; }
-# nvram_transaction_lock_reaper_claim_mkdir counts creation attempts and rejects colon-bearing paths.
+# nvram_transaction_lock_reaper_claim_mkdir counts attempts, rejects colon-containing paths, and returns mkdir's status for $1.
 nvram_transaction_lock_reaper_claim_mkdir() {
 	CLAIM_MKDIR_CALLS="$((CLAIM_MKDIR_CALLS + 1))"
 	case "$1" in
@@ -237,8 +237,9 @@ nvram_transaction_lock_reaper_claim_mkdir() {
 
 # A colliding candidate owned by another live process is never reclaimed; the
 # bounded suffix loop must publish through another filename instead.
-sleep 30 &
+/bin/sleep 30 &
 TEST_LIVE_PID=$!
+[ -d "/proc/${TEST_LIVE_PID}" ] && kill -0 "${TEST_LIVE_PID}" 2>/dev/null || fail 'external sleep process was not live for candidate ownership test'
 live_start="$(awk '{ print $22 }' "/proc/${TEST_LIVE_PID}/stat")" || fail 'could not read live candidate owner identity'
 live_candidate_owner="${TEST_LIVE_PID}:${live_start}"
 live_candidate_path="${TEST_ROOT}/live-candidate.reaper"
@@ -251,6 +252,51 @@ rm -rf "${live_candidate_path}" "${live_candidate_path}.claim.66816.373949"
 kill "${TEST_LIVE_PID}" 2>/dev/null || true
 wait "${TEST_LIVE_PID}" 2>/dev/null || true
 TEST_LIVE_PID=""
+
+# A successful retry after reclaiming a stale destination must discard the
+# expected contender diagnostic before a later flock setup failure is reported.
+stale_reclaim_path="${TEST_ROOT}/stale-reclaim.reaper"
+mkdir "${stale_reclaim_path}" || fail 'could not create stale reaper fixture'
+printf '%s\n' '999999999:1' >"${stale_reclaim_path}/pid"
+/bin/ln -s unsafe-target "${stale_reclaim_path}.lock" || fail 'could not create unsafe reaper flock path'
+# nvram_transaction_lock_flock_supports_fd enables the flock setup path to test rejection of a symlink lock file.
+nvram_transaction_lock_flock_supports_fd() { return 0; }
+NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
+if nvram_transaction_lock_reaper_acquire "${stale_reclaim_path}" "${LOCK_OWNER}"; then
+	fail 'reaper acquisition succeeded with an unsafe flock path'
+fi
+case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
+	"operation=open-reaper-flock-file path=${stale_reclaim_path}.lock reason=symlink-not-allowed") ;;
+	*) fail "stale reclaim retained an obsolete publication diagnostic: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
+esac
+case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
+	*reason=contender-published*) fail 'stale reclaim retained the expected contender diagnostic' ;;
+esac
+rm -f "${stale_reclaim_path}.lock"
+# nvram_transaction_lock_flock_supports_fd restores the portable fallback for subsequent reaper acquisition scenarios.
+nvram_transaction_lock_flock_supports_fd() { return 1; }
+
+# A cleanup failure after rejecting an unsafe flock symlink must retain both
+# the unsafe-path cause and the release failure context.
+symlink_cleanup_path="${TEST_ROOT}/symlink-cleanup.reaper"
+/bin/ln -s unsafe-target "${symlink_cleanup_path}.lock" || fail 'could not create cleanup-failure flock symlink fixture'
+# nvram_transaction_lock_flock_supports_fd enables flock setup to exercise unsafe-symlink cleanup failure.
+nvram_transaction_lock_flock_supports_fd() { return 0; }
+# nvram_transaction_lock_reaper_remove_owned leaves $1 in place and returns failure to test release diagnostics.
+nvram_transaction_lock_reaper_remove_owned() { return 1; }
+NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
+if nvram_transaction_lock_reaper_acquire "${symlink_cleanup_path}" "${LOCK_OWNER}"; then
+	fail 'reaper acquisition succeeded when unsafe-symlink cleanup failed'
+fi
+case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
+	"operation=open-reaper-flock-file path=${symlink_cleanup_path}.lock reason=symlink-not-allowed after-failed-operation=release-reaper:${symlink_cleanup_path} release-diagnostic=operation=release-reaper path=${symlink_cleanup_path} reason=remove-owned-reaper-failed owner=${LOCK_OWNER}") ;;
+	*) fail "unsafe flock symlink diagnostic lost cleanup failure context: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
+esac
+rm -rf "${symlink_cleanup_path}" "${symlink_cleanup_path}.lock"
+# nvram_transaction_lock_reaper_remove_owned restores removal of $1 and returns rm's status for subsequent scenarios.
+nvram_transaction_lock_reaper_remove_owned() { /bin/rm -rf "$1"; }
+# nvram_transaction_lock_flock_supports_fd restores the portable fallback for subsequent reaper acquisition scenarios.
+nvram_transaction_lock_flock_supports_fd() { return 1; }
 
 # This directory represents an older installer paused after mkdir and before
 # writing pid. A new installer must not steal its directory while it can resume.

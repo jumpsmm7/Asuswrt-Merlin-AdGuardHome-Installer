@@ -869,7 +869,7 @@ nvram_transaction_lock_reaper_legacy_release() {
 
 # nvram_transaction_lock_reaper_legacy_claim publishes a portable claim directory with its original owner identity.
 nvram_transaction_lock_reaper_legacy_claim() {
-	local claim_name claim_path cleanup_path owner owner_suffix reaper_path retry slot suffix
+	local claim_name claim_path cleanup_diagnostic cleanup_path owner owner_suffix primary_diagnostic reaper_path retry slot suffix
 	reaper_path="$1"
 	owner="$2"
 	owner_suffix="$(nvram_transaction_lock_owner_filename_suffix "${owner}")" || {
@@ -912,8 +912,11 @@ nvram_transaction_lock_reaper_legacy_claim() {
 	claim_name="${claim_path##*/}"
 	nvram_transaction_lock_reaper_claim_owner_write "${claim_path}" "${owner}" || {
 		nvram_transaction_lock_failure "operation=write-reaper-claim-owner candidate=${claim_path} destination=${reaper_path} path=${claim_path}/pid reason=write-failed owner=${owner}" || true
+		primary_diagnostic="${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}"
 		nvram_transaction_lock_reaper_claim_remove "${claim_path}" || {
 			nvram_transaction_lock_failure "operation=cleanup-reaper-claim candidate=${claim_path} destination=${reaper_path} reason=remove-failed owner=${owner} after-failed-operation=write-reaper-claim-owner" || true
+			cleanup_diagnostic="${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}"
+			nvram_transaction_lock_failure "${primary_diagnostic} after-failed-operation=write-reaper-claim-owner cleanup-diagnostic=${cleanup_diagnostic}" || true
 			return 1
 		}
 		nvram_transaction_lock_reaper_claim_cleanup "${reaper_path}" "${owner}" write-reaper-claim-owner || true
@@ -1013,6 +1016,8 @@ nvram_transaction_lock_reaper_acquire_impl() {
 				NVRAM_TRANSACTION_REAPER_LOCK_PATH=""
 				return 1
 			}
+			NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
+			export NVRAM_TRANSACTION_LOCK_DIAGNOSTIC
 			claimed=1
 		fi
 	fi
@@ -1037,7 +1042,8 @@ nvram_transaction_lock_reaper_acquire_impl() {
 	}
 	if nvram_transaction_lock_flock_supports_fd; then
 		[ ! -L "${reaper_path}.lock" ] || {
-			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+			nvram_transaction_lock_failure "operation=open-reaper-flock-file path=${reaper_path}.lock reason=symlink-not-allowed" || true
+			nvram_transaction_lock_reaper_release "${reaper_path}" "${owner}"
 			return 1
 		}
 		: >>"${reaper_path}.lock" 2>/dev/null || {
@@ -7788,7 +7794,7 @@ setup_files_begin_if_needed() {
 
 # setup_files_journal_diagnostic reports why setup journal reuse is unsafe.
 setup_files_journal_diagnostic() {
-	local artifact current_process_identity journal_root lock_owned publication_artifact
+	local artifact current_process_identity journal_root lock_owned publication_artifact publication_listing publication_owner
 	journal_root="${BASE_DIR}/.AdGuardHome.nvram/setup-files"
 	current_process_identity="$(nvram_transaction_lock_owner_current 2>/dev/null)" || current_process_identity="unavailable"
 	lock_owned="no"
@@ -7810,10 +7816,13 @@ setup_files_journal_diagnostic() {
 	done
 	for publication_artifact in "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper.claim."* "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper.symlink."*; do
 		[ -e "${publication_artifact}" ] || [ -L "${publication_artifact}" ] || continue
-		PTXT "${WARNING} Setup journal lock publication artifact: $(ls -ld "${publication_artifact}" 2>/dev/null)."
+		publication_listing="$(ls -ld "${publication_artifact}" 2>/dev/null)"
+		PTXT "${WARNING} Setup journal lock publication artifact: ${publication_listing}."
 		if [ -d "${publication_artifact}" ] && [ ! -L "${publication_artifact}" ] &&
 			[ -f "${publication_artifact}/pid" ] && [ ! -L "${publication_artifact}/pid" ]; then
-			PTXT "${WARNING} Setup journal lock publication owner file ${publication_artifact}/pid: $(cat "${publication_artifact}/pid" 2>/dev/null)."
+			publication_owner=""
+			IFS= read -r publication_owner <"${publication_artifact}/pid" || true
+			PTXT "${WARNING} Setup journal lock publication owner file ${publication_artifact}/pid: ${publication_owner}."
 		elif [ -L "${publication_artifact}" ]; then
 			PTXT "${WARNING} Setup journal lock publication target ${publication_artifact}: $(nvram_transaction_lock_readlink "${publication_artifact}" 2>/dev/null)."
 		fi
