@@ -154,8 +154,8 @@ esac
 [ "$(cat "${verification_failure_path}.claim.66816.373949/pid" 2>/dev/null)" = '999999999:1' ] || fail 'verification failure reclaimed a candidate whose owner changed'
 rm -rf "${verification_failure_path}.claim.66816.373949"
 
-# Cleanup failures are terminal and identify the candidate, destination, and
-# failed operation instead of retaining the preceding owner-write diagnostic.
+# Cleanup failures are terminal and retain both the preceding owner-write
+# diagnostic and the candidate cleanup failure context.
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 cleanup_failure_path="${TEST_ROOT}/cleanup-failure.reaper"
@@ -166,7 +166,7 @@ if nvram_transaction_lock_reaper_legacy_claim "${cleanup_failure_path}" "${LOCK_
 	fail 'claim succeeded after injected cleanup failure'
 fi
 case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
-	"operation=cleanup-reaper-claim candidate=${cleanup_failure_path}.claim.66816.373949 destination=${cleanup_failure_path} reason=remove-failed owner=${LOCK_OWNER} after-failed-operation=write-reaper-claim-owner") ;;
+	"operation=write-reaper-claim-owner candidate=${cleanup_failure_path}.claim.66816.373949 destination=${cleanup_failure_path} path=${cleanup_failure_path}.claim.66816.373949/pid reason=write-failed owner=${LOCK_OWNER} after-failed-operation=write-reaper-claim-owner cleanup-diagnostic=operation=cleanup-reaper-claim candidate=${cleanup_failure_path}.claim.66816.373949 destination=${cleanup_failure_path} reason=remove-failed owner=${LOCK_OWNER} after-failed-operation=write-reaper-claim-owner") ;;
 	*) fail "candidate cleanup failure diagnostic was imprecise: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
 esac
 rm -rf "${cleanup_failure_path}.claim.66816.373949"
@@ -225,8 +225,9 @@ nvram_transaction_lock_reaper_claim_mkdir() {
 
 # A colliding candidate owned by another live process is never reclaimed; the
 # bounded suffix loop must publish through another filename instead.
-sleep 30 &
+/bin/sleep 30 &
 TEST_LIVE_PID=$!
+[ -d "/proc/${TEST_LIVE_PID}" ] && kill -0 "${TEST_LIVE_PID}" 2>/dev/null || fail 'external sleep process was not live for candidate ownership test'
 live_start="$(awk '{ print $22 }' "/proc/${TEST_LIVE_PID}/stat")" || fail 'could not read live candidate owner identity'
 live_candidate_owner="${TEST_LIVE_PID}:${live_start}"
 live_candidate_path="${TEST_ROOT}/live-candidate.reaper"
@@ -239,6 +240,27 @@ rm -rf "${live_candidate_path}" "${live_candidate_path}.claim.66816.373949"
 kill "${TEST_LIVE_PID}" 2>/dev/null || true
 wait "${TEST_LIVE_PID}" 2>/dev/null || true
 TEST_LIVE_PID=""
+
+# A successful retry after reclaiming a stale destination must discard the
+# expected contender diagnostic before a later flock setup failure is reported.
+stale_reclaim_path="${TEST_ROOT}/stale-reclaim.reaper"
+mkdir "${stale_reclaim_path}" || fail 'could not create stale reaper fixture'
+printf '%s\n' '999999999:1' >"${stale_reclaim_path}/pid"
+/bin/ln -s unsafe-target "${stale_reclaim_path}.lock" || fail 'could not create unsafe reaper flock path'
+nvram_transaction_lock_flock_supports_fd() { return 0; }
+NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
+if nvram_transaction_lock_reaper_acquire "${stale_reclaim_path}" "${LOCK_OWNER}"; then
+	fail 'reaper acquisition succeeded with an unsafe flock path'
+fi
+case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
+	"operation=open-reaper-flock-file path=${stale_reclaim_path}.lock reason=symlink-not-allowed") ;;
+	*) fail "stale reclaim retained an obsolete publication diagnostic: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
+esac
+case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
+	*reason=contender-published*) fail 'stale reclaim retained the expected contender diagnostic' ;;
+esac
+rm -f "${stale_reclaim_path}.lock"
+nvram_transaction_lock_flock_supports_fd() { return 1; }
 
 # This directory represents an older installer paused after mkdir and before
 # writing pid. A new installer must not steal its directory while it can resume.

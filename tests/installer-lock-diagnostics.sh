@@ -435,9 +435,17 @@ PTXT() { printf '%s\n' "$*" >>"${DIAGNOSTIC_OUTPUT}"; }
 nvram_transaction_lock_owned() { return 1; }
 nvram_transaction_lock_owner_current() { printf '%s\n' "${owner}"; }
 nvram_transaction_lock_readlink() { readlink "$1"; }
+cat() { return 1; }
 setup_files_journal_diagnostic
 grep -Fq "Setup journal lock publication artifact: " "${DIAGNOSTIC_OUTPUT}" || fail 'setup journal diagnostic omitted publication artifacts'
 grep -Fq "Setup journal lock publication owner file ${diagnostic_claim}/pid: ${owner}." "${DIAGNOSTIC_OUTPUT}" || fail 'setup journal diagnostic omitted claim owner information'
 grep -Fq "Setup journal lock publication target ${diagnostic_symlink}: ${owner}." "${DIAGNOSTIC_OUTPUT}" || fail 'setup journal diagnostic omitted symlink target information'
+unset -f cat 2>/dev/null || true
+rm -rf "${diagnostic_claim}" "${diagnostic_symlink}"
+: >"${DIAGNOSTIC_OUTPUT}"
+setup_files_journal_diagnostic
+if grep -Fq "Setup journal lock publication artifact: " "${DIAGNOSTIC_OUTPUT}"; then
+	fail 'setup journal diagnostic reported an unmatched publication glob'
+fi
 
 printf '%s\n' 'PASS: installer lock fallbacks preserve actionable diagnostics'
