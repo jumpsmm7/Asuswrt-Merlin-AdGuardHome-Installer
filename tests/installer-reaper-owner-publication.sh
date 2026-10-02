@@ -280,7 +280,9 @@ nvram_transaction_lock_flock_supports_fd() { return 1; }
 # the unsafe-path cause and the release failure context.
 symlink_cleanup_path="${TEST_ROOT}/symlink-cleanup.reaper"
 /bin/ln -s unsafe-target "${symlink_cleanup_path}.lock" || fail 'could not create cleanup-failure flock symlink fixture'
+# nvram_transaction_lock_flock_supports_fd enables flock setup to exercise unsafe-symlink cleanup failure.
 nvram_transaction_lock_flock_supports_fd() { return 0; }
+# nvram_transaction_lock_reaper_remove_owned leaves $1 in place and returns failure to test release diagnostics.
 nvram_transaction_lock_reaper_remove_owned() { return 1; }
 NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
 if nvram_transaction_lock_reaper_acquire "${symlink_cleanup_path}" "${LOCK_OWNER}"; then
@@ -291,7 +293,9 @@ case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
 	*) fail "unsafe flock symlink diagnostic lost cleanup failure context: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
 esac
 rm -rf "${symlink_cleanup_path}" "${symlink_cleanup_path}.lock"
+# nvram_transaction_lock_reaper_remove_owned restores removal of $1 and returns rm's status for subsequent scenarios.
 nvram_transaction_lock_reaper_remove_owned() { /bin/rm -rf "$1"; }
+# nvram_transaction_lock_flock_supports_fd restores the portable fallback for subsequent reaper acquisition scenarios.
 nvram_transaction_lock_flock_supports_fd() { return 1; }
 
 # This directory represents an older installer paused after mkdir and before
