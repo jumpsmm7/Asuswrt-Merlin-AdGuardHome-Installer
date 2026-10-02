@@ -262,6 +262,24 @@ esac
 rm -f "${stale_reclaim_path}.lock"
 nvram_transaction_lock_flock_supports_fd() { return 1; }
 
+# A cleanup failure after rejecting an unsafe flock symlink must retain both
+# the unsafe-path cause and the release failure context.
+symlink_cleanup_path="${TEST_ROOT}/symlink-cleanup.reaper"
+/bin/ln -s unsafe-target "${symlink_cleanup_path}.lock" || fail 'could not create cleanup-failure flock symlink fixture'
+nvram_transaction_lock_flock_supports_fd() { return 0; }
+nvram_transaction_lock_reaper_remove_owned() { return 1; }
+NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
+if nvram_transaction_lock_reaper_acquire "${symlink_cleanup_path}" "${LOCK_OWNER}"; then
+	fail 'reaper acquisition succeeded when unsafe-symlink cleanup failed'
+fi
+case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
+	"operation=open-reaper-flock-file path=${symlink_cleanup_path}.lock reason=symlink-not-allowed after-failed-operation=release-reaper:${symlink_cleanup_path} release-diagnostic=operation=release-reaper path=${symlink_cleanup_path} reason=remove-owned-reaper-failed owner=${LOCK_OWNER}") ;;
+	*) fail "unsafe flock symlink diagnostic lost cleanup failure context: ${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-unset}" ;;
+esac
+rm -rf "${symlink_cleanup_path}" "${symlink_cleanup_path}.lock"
+nvram_transaction_lock_reaper_remove_owned() { /bin/rm -rf "$1"; }
+nvram_transaction_lock_flock_supports_fd() { return 1; }
+
 # This directory represents an older installer paused after mkdir and before
 # writing pid. A new installer must not steal its directory while it can resume.
 mkdir "${reaper_path}" || fail 'could not create ownerless reaper directory'

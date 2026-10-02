@@ -1043,7 +1043,7 @@ nvram_transaction_lock_reaper_acquire_impl() {
 	if nvram_transaction_lock_flock_supports_fd; then
 		[ ! -L "${reaper_path}.lock" ] || {
 			nvram_transaction_lock_failure "operation=open-reaper-flock-file path=${reaper_path}.lock reason=symlink-not-allowed" || true
-			nvram_transaction_lock_reaper_legacy_release "${reaper_path}" "${owner}"
+			nvram_transaction_lock_reaper_release "${reaper_path}" "${owner}"
 			return 1
 		}
 		: >>"${reaper_path}.lock" 2>/dev/null || {
