@@ -453,10 +453,13 @@ unset -f cat 2>/dev/null || true
 # ls removes the claim after emulating the former multi-path snapshot race.
 ls() {
 	/bin/ls "$@"
-	[ "$#" -le 2 ] || rm -rf "${diagnostic_claim}"
+	if [ "$#" -eq 2 ] && [ "$2" = "${diagnostic_claim}" ]; then
+		rm -rf "${diagnostic_claim}"
+	fi
 }
 setup_files_journal_diagnostic
 unset -f ls 2>/dev/null || true
+[ ! -e "${diagnostic_claim}" ] || fail 'listing-race setup did not remove the claim'
 grep -F "Setup journal lock publication artifact: " "${DIAGNOSTIC_OUTPUT}" |
 	grep -Fq "${diagnostic_symlink}" || fail 'setup journal diagnostic paired an artifact with another publication listing'
 
