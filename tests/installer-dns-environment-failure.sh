@@ -814,6 +814,7 @@ reaper_path="${BASE_DIR}/changed-owner-publication.reaper"
 	# is retained as recovery evidence because it no longer verifies as ours.
 	owner_suffix="$(nvram_transaction_lock_owner_filename_suffix "${LOCK_OWNER}")" || exit 1
 	claim_path="${reaper_path}.claim.${owner_suffix}"
+	# cat returns a different owner to simulate replacement before candidate verification.
 	cat() { printf '%s\n' 'replacement-owner'; }
 	if nvram_transaction_lock_reaper_acquire "${reaper_path}" "${LOCK_OWNER}"; then
 		exit 1
