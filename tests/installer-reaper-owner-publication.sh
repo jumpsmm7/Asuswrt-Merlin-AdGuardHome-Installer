@@ -93,6 +93,7 @@ rm -rf "${candidate_test_path}"
 
 # A mkdir failure without a colliding artifact is a candidate-creation error.
 mkdir_failure_path="${TEST_ROOT}/mkdir-failure.reaper"
+# nvram_transaction_lock_reaper_claim_mkdir injects candidate-directory creation failure.
 nvram_transaction_lock_reaper_claim_mkdir() { return 1; }
 NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
 if nvram_transaction_lock_reaper_legacy_claim "${mkdir_failure_path}" "${LOCK_OWNER}"; then
@@ -107,6 +108,7 @@ esac
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 write_failure_path="${TEST_ROOT}/write-failure.reaper"
+# nvram_transaction_lock_reaper_claim_owner_write injects candidate owner-file write failure.
 nvram_transaction_lock_reaper_claim_owner_write() { return 1; }
 NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
 if nvram_transaction_lock_reaper_legacy_claim "${write_failure_path}" "${LOCK_OWNER}"; then
@@ -123,6 +125,7 @@ esac
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 permission_failure_path="${TEST_ROOT}/permission-failure.reaper"
+# nvram_transaction_lock_reaper_claim_owner_secure injects owner-file permission failure.
 nvram_transaction_lock_reaper_claim_owner_secure() { return 1; }
 NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
 if nvram_transaction_lock_reaper_legacy_claim "${permission_failure_path}" "${LOCK_OWNER}"; then
@@ -160,6 +163,7 @@ rm -rf "${verification_failure_path}.claim.66816.373949"
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 cleanup_failure_path="${TEST_ROOT}/cleanup-failure.reaper"
+# nvram_transaction_lock_reaper_claim_owner_write injects candidate owner-file write failure.
 nvram_transaction_lock_reaper_claim_owner_write() { return 1; }
 # nvram_transaction_lock_reaper_claim_remove returns failure without removing $1 to exercise cleanup diagnostics after an owner-write failure.
 nvram_transaction_lock_reaper_claim_remove() { return 1; }
@@ -178,6 +182,7 @@ rm -rf "${cleanup_failure_path}.claim.66816.373949"
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 publish_failure_path="${TEST_ROOT}/publish-failure.reaper"
+# nvram_transaction_lock_reaper_claim_publish rejects the rename without creating a destination.
 nvram_transaction_lock_reaper_claim_publish() { return 1; }
 NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
 if nvram_transaction_lock_reaper_legacy_claim "${publish_failure_path}" "${LOCK_OWNER}"; then
@@ -194,6 +199,7 @@ esac
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 contender_path="${TEST_ROOT}/contender.reaper"
+# nvram_transaction_lock_reaper_claim_publish creates a competing owner at the destination and rejects publication.
 nvram_transaction_lock_reaper_claim_publish() {
 	mkdir "$2" || return 1
 	printf '%s\n' '999999999:1' >"$2/pid" || return 1
@@ -214,8 +220,11 @@ rm -rf "${contender_path}"
 # Restore the production helper boundaries for the acquisition scenarios.
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
+# nvram_transaction_lock_flock_supports_fd forces portable reaper acquisition.
 nvram_transaction_lock_flock_supports_fd() { return 1; }
+# nvram_transaction_lock_readlink simulates unavailable symbolic-link inspection.
 nvram_transaction_lock_readlink() { return 127; }
+# sleep skips acquisition backoff delays in this regression test.
 sleep() { :; }
 # nvram_transaction_lock_reaper_claim_mkdir counts attempts, rejects colon-containing paths, and returns mkdir's status for $1.
 nvram_transaction_lock_reaper_claim_mkdir() {

@@ -431,9 +431,13 @@ WARNING='warning:'
 SETUP_FILES_JOURNALED=0
 NVRAM_TRANSACTION_LOCK_MODE=""
 NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
+# PTXT appends setup-journal messages to the diagnostic capture file.
 PTXT() { printf '%s\n' "$*" >>"${DIAGNOSTIC_OUTPUT}"; }
+# nvram_transaction_lock_owned simulates a journal lock not owned by this process.
 nvram_transaction_lock_owned() { return 1; }
+# nvram_transaction_lock_owner_current returns the fixture owner for diagnostic reporting.
 nvram_transaction_lock_owner_current() { printf '%s\n' "${owner}"; }
+# nvram_transaction_lock_readlink reads publication symlink targets for diagnostic reporting.
 nvram_transaction_lock_readlink() { readlink "$1"; }
 # cat fails so journal diagnostics must read publication owners without it.
 cat() { return 1; }
