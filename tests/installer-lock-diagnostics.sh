@@ -435,6 +435,7 @@ PTXT() { printf '%s\n' "$*" >>"${DIAGNOSTIC_OUTPUT}"; }
 nvram_transaction_lock_owned() { return 1; }
 nvram_transaction_lock_owner_current() { printf '%s\n' "${owner}"; }
 nvram_transaction_lock_readlink() { readlink "$1"; }
+# cat fails so journal diagnostics must read publication owners without it.
 cat() { return 1; }
 setup_files_journal_diagnostic
 grep -Fq "Setup journal lock publication artifact: " "${DIAGNOSTIC_OUTPUT}" || fail 'setup journal diagnostic omitted publication artifacts'

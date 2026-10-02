@@ -139,6 +139,7 @@ esac
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 verification_failure_path="${TEST_ROOT}/verification-failure.reaper"
+# nvram_transaction_lock_reaper_claim_owner_secure changes the owner in $1/pid after chmod to simulate failed ownership verification.
 nvram_transaction_lock_reaper_claim_owner_secure() {
 	/bin/chmod 600 "$1/pid" || return 1
 	printf '%s\n' '999999999:1' >"$1/pid"
@@ -160,6 +161,7 @@ rm -rf "${verification_failure_path}.claim.66816.373949"
 . "${FUNCTIONS_FILE}"
 cleanup_failure_path="${TEST_ROOT}/cleanup-failure.reaper"
 nvram_transaction_lock_reaper_claim_owner_write() { return 1; }
+# nvram_transaction_lock_reaper_claim_remove returns failure without removing $1 to exercise cleanup diagnostics after an owner-write failure.
 nvram_transaction_lock_reaper_claim_remove() { return 1; }
 NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
 if nvram_transaction_lock_reaper_legacy_claim "${cleanup_failure_path}" "${LOCK_OWNER}"; then
@@ -215,6 +217,7 @@ rm -rf "${contender_path}"
 nvram_transaction_lock_flock_supports_fd() { return 1; }
 nvram_transaction_lock_readlink() { return 127; }
 sleep() { :; }
+# nvram_transaction_lock_reaper_claim_mkdir counts attempts, rejects colon-containing paths, and returns mkdir's status for $1.
 nvram_transaction_lock_reaper_claim_mkdir() {
 	CLAIM_MKDIR_CALLS="$((CLAIM_MKDIR_CALLS + 1))"
 	case "$1" in
@@ -247,6 +250,7 @@ stale_reclaim_path="${TEST_ROOT}/stale-reclaim.reaper"
 mkdir "${stale_reclaim_path}" || fail 'could not create stale reaper fixture'
 printf '%s\n' '999999999:1' >"${stale_reclaim_path}/pid"
 /bin/ln -s unsafe-target "${stale_reclaim_path}.lock" || fail 'could not create unsafe reaper flock path'
+# nvram_transaction_lock_flock_supports_fd enables the flock setup path to test rejection of a symlink lock file.
 nvram_transaction_lock_flock_supports_fd() { return 0; }
 NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
 if nvram_transaction_lock_reaper_acquire "${stale_reclaim_path}" "${LOCK_OWNER}"; then
@@ -260,6 +264,7 @@ case "${NVRAM_TRANSACTION_LOCK_DIAGNOSTIC:-}" in
 	*reason=contender-published*) fail 'stale reclaim retained the expected contender diagnostic' ;;
 esac
 rm -f "${stale_reclaim_path}.lock"
+# nvram_transaction_lock_flock_supports_fd restores the portable fallback for subsequent reaper acquisition scenarios.
 nvram_transaction_lock_flock_supports_fd() { return 1; }
 
 # A cleanup failure after rejecting an unsafe flock symlink must retain both
