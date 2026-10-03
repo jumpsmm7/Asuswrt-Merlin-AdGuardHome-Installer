@@ -9450,10 +9450,11 @@ menu() {
 				"  1) Install/Update AdGuardHome" \
 				"  2) Uninstall"
 			if { [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; }; then
-				PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  6) Enable/Disable AdGuardHome Local Cache" "  7) Switch AdGuardHome Branch" "  8) Enable/Disable AdGuardHome IPSET Integration" "  m) Migrate Runtime Defaults"
+				PTXT "  3) Change Username/Password" "  4) Reconfigure" "  5) Enable/Disable AMTM updates" "  6) Enable/Disable AdGuardHome Local Cache" "  7) Switch AdGuardHome Branch" "  8) Enable/Disable AdGuardHome IPSET Integration"
 				if [ -n "${BLOCKLIST_ANALYZER_SHA256}" ]; then
 					PTXT "  9) Analyze and remove unused blocklists"
 				fi
+				PTXT "  m) Migrate Runtime Defaults"
 				PTXT "  b) Backup"
 			fi
 			if { [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; }; then { PTXT "  r) Restore"; }; fi
