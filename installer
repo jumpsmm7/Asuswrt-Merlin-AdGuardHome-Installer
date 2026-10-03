@@ -3325,12 +3325,6 @@ agh_complete_startup() {
 		[ "${ADGUARDHOME_START_FAILURE_LOGGED:-}" = "1" ] || agh_start_error
 		return 1
 	fi
-	ptxt_step "Waiting for AdGuardHome readiness check to complete."
-	ADGUARDHOME_START_FAILURE_LOGGED=
-	if ! agh_restart; then
-		[ "${ADGUARDHOME_START_FAILURE_LOGGED:-}" = "1" ] || agh_start_error
-		return 1
-	fi
 	ptxt_ok "AdGuardHome setup is complete."
 	return 0
 }
@@ -3783,6 +3777,39 @@ agh_request_restart() {
 	adguard_service_status_after_action restart "${old_pids}"
 }
 
+# agh_request_stop escalates from the asynchronous firmware event to the init
+# script and its kill action when a successful command leaves the daemon or its
+# monitor alive.  Each transition is verified before the next action runs.
+agh_request_stop() {
+	if adguard_service_without_nvram_lock_fd service stop_AdGuardHome >/dev/null 2>&1; then
+		if adguard_service_status_after_action stop; then
+			return 0
+		fi
+		[ "$(agh_process_count)" -eq 0 ] && return 0
+		ptxt_step "Firmware service stop did not finish; trying the init script directly."
+	fi
+	if adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome stop; then
+		if adguard_service_status_after_action stop; then
+			return 0
+		fi
+		[ "$(agh_process_count)" -eq 0 ] && return 0
+	fi
+	if adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome kill; then
+		if adguard_service_status_after_action kill; then
+			return 0
+		fi
+		[ "$(agh_process_count)" -eq 0 ] && return 0
+	fi
+	if ai_have_cmd killall; then
+		killall -q -9 AdGuardHome 2>/dev/null
+		rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null
+		adguard_service_status_after_action kill || true
+	else
+		PTXT "${ERROR} Unable to force-stop AdGuardHome because killall is unavailable."
+	fi
+	[ "$(agh_process_count)" -eq 0 ]
+}
+
 agh_restart() {
 	local old_pids
 	if agh_is_running; then
@@ -3843,22 +3870,7 @@ agh_stop() {
 		else
 			ptxt_step "Stopping the lingering AdGuardHome monitor after the daemon exited."
 		fi
-		if service stop_AdGuardHome >/dev/null 2>&1; then
-			adguard_service_status_after_action stop || true
-		elif /opt/etc/init.d/S99AdGuardHome stop; then
-			adguard_service_status_after_action stop || true
-		elif /opt/etc/init.d/S99AdGuardHome kill; then
-			adguard_service_status_after_action kill || true
-		else
-			if ai_have_cmd killall; then
-				killall -q -9 AdGuardHome 2>/dev/null
-			else
-				PTXT "${ERROR} Unable to force-stop AdGuardHome because killall is unavailable."
-				return 1
-			fi
-			rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null
-			adguard_service_status_after_action kill || true
-		fi
+		agh_request_stop || true
 	fi
 	sleep 1s
 	if ! agh_wait_stopped "${ADGUARDHOME_WAIT_TIMEOUT}"; then

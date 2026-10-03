@@ -165,6 +165,11 @@ adguard_service_without_nvram_lock_fd() {
 			PROCESS_COUNT='1'
 			CURRENT_PIDS='333'
 			;;
+		/opt/etc/init.d/S99AdGuardHome\ stop)
+			PROCESS_STATE='stopped'
+			PROCESS_COUNT='0'
+			CURRENT_PIDS=''
+			;;
 		*) ;;
 	esac
 	return 0
@@ -191,5 +196,16 @@ grep -q '^service restart_AdGuardHome$' "${CALLS_FILE}" || fail 'restart request
 grep -q '^/opt/etc/init.d/S99AdGuardHome restart$' "${CALLS_FILE}" ||
 	fail 'restart request did not fall back to the direct init script'
 [ "${CURRENT_PIDS}" = '333' ] || fail 'direct restart fallback did not produce a replacement daemon'
+
+: >"${CALLS_FILE}"
+PROCESS_STATE='running'
+PROCESS_COUNT='2'
+CURRENT_PIDS='333'
+SLEEP_CALLS=0
+agh_request_stop || fail 'stop request did not recover from an uncompleted firmware service event'
+grep -q '^service stop_AdGuardHome$' "${CALLS_FILE}" || fail 'stop request did not try the firmware service event'
+grep -q '^/opt/etc/init.d/S99AdGuardHome stop$' "${CALLS_FILE}" ||
+	fail 'stop request did not fall back to the direct init script'
+[ "${PROCESS_COUNT}" = '0' ] || fail 'direct stop fallback left the service or monitor running'
 
 printf '%s\n' 'PASS: installer service status helper waits through transitional states'

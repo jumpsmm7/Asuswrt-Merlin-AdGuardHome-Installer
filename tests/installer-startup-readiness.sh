@@ -140,8 +140,9 @@ SLEEP_CALLS=0
 agh_startup_ready || fail 'startup readiness rejected a valid low YAML WebUI port'
 [ "${SLEEP_CALLS}" -eq 0 ] || fail 'startup readiness retried despite low YAML WebUI port being ready'
 
-# Complete startup must never start over an unconfirmed stop, and a failed
-# initial start must not proceed into the restart validation phase.
+# Complete startup must never start over an unconfirmed stop.  Once the start
+# passes its own readiness checks, completion must not disrupt it with a second
+# restart request.
 STARTUP_SEQUENCE_FILE="${TEST_ROOT}/startup-sequence"
 ptxt_phase() { :; }
 ptxt_step() { :; }
@@ -164,7 +165,6 @@ agh_start_error() { printf '%s\n' start-error >>"${STARTUP_SEQUENCE_FILE}"; }
 : >"${STARTUP_SEQUENCE_FILE}"
 STOP_STATUS=1
 START_STATUS=0
-RESTART_STATUS=0
 if agh_complete_startup; then
 	fail 'complete startup ignored an unconfirmed stopped state'
 fi
@@ -181,9 +181,8 @@ fi
 
 : >"${STARTUP_SEQUENCE_FILE}"
 START_STATUS=0
-RESTART_STATUS=0
-agh_complete_startup || fail 'complete startup rejected a successful stop/start/restart lifecycle'
-[ "$(cat "${STARTUP_SEQUENCE_FILE}")" = "$(printf '%s\n' stop start restart)" ] ||
-	fail 'complete startup did not preserve the stop/start/restart lifecycle order'
+agh_complete_startup || fail 'complete startup rejected a successful stop/start lifecycle'
+[ "$(cat "${STARTUP_SEQUENCE_FILE}")" = "$(printf '%s\n' stop start)" ] ||
+	fail 'complete startup disrupted a successful start with a redundant restart'
 
 printf '%s\n' 'PASS: installer startup readiness and lifecycle checks are fail-closed'
