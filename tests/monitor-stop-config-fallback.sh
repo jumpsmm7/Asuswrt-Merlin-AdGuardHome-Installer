@@ -39,7 +39,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 umask 077
 mkdir "${TEST_ROOT}" || fail 'could not create test workspace'
 
-sed -n '/^set_operation_config_defaults() {$/,/^}$/p; /^start_monitor() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
+sed -n '/^set_operation_config_defaults() {$/,/^}$/p; /^start_monitor() {$/,/^}$/p; /^monitor_process_matches() {$/,/^}$/p; /^stop_monitor() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract monitor configuration helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'monitor configuration helper extraction was empty'
 [ "$(grep -c 'CONFIG_DNSMASQ_MODE="enabled"' "${FUNCTIONS_FILE}")" -eq 2 ] ||
@@ -97,5 +97,32 @@ MONITOR_TEST_PID=""
 
 [ "$(cat "${MODE_FILE}")" = enabled ] ||
 	fail 'malformed monitor stop configuration did not force dnsmasq restoration'
+
+# stop_monitor must wait for the monitor and escalate only while the recorded
+# PID still identifies the monitor process.
+MON_PID=12345
+MONITOR_ACTIVE=1
+MONITOR_STUBBORN=0
+SIGNAL_FILE="${TEST_ROOT}/signals"
+: >"${SIGNAL_FILE}"
+monitor_process_matches() { [ "${MONITOR_ACTIVE}" -eq 1 ] && [ "$1" = "${MON_PID}" ]; }
+kill() {
+	printf '%s\n' "$*" >>"${SIGNAL_FILE}"
+	case "$*" in
+		'-s USR1 '*) [ "${MONITOR_STUBBORN}" -eq 1 ] || MONITOR_ACTIVE=0 ;;
+		*-KILL*) MONITOR_ACTIVE=0 ;;
+	esac
+	return 0
+}
+sleep() { :; }
+stop_monitor "$$" || fail 'graceful monitor shutdown failed'
+[ "$(cat "${SIGNAL_FILE}")" = "-s USR1 ${MON_PID}" ] || fail 'graceful monitor shutdown sent unexpected signals'
+
+MONITOR_ACTIVE=1
+MONITOR_STUBBORN=1
+: >"${SIGNAL_FILE}"
+stop_monitor "$$" || fail 'stuck monitor escalation failed'
+[ "$(cat "${SIGNAL_FILE}")" = "$(printf '%s\n' "-s USR1 ${MON_PID}" "-TERM ${MON_PID}" "-KILL ${MON_PID}")" ] ||
+	fail 'stuck monitor did not receive bounded USR1, TERM, and KILL escalation'
 
 printf '%s\n' 'PASS: malformed monitor stop configuration forces dnsmasq restoration'

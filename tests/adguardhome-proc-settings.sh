@@ -553,6 +553,32 @@ fi
 [ "$(sed -n '2p' "${LOCK_EVENTS}")" = first-end ] || fail 'lock waiter overlapped holder'
 [ "$(sed -n '3p' "${LOCK_EVENTS}")" = second ] || fail 'lock waiter did not run after holder'
 
+# Descriptor locking must fail within a bounded retry budget if an orphaned
+# holder keeps the persistent lock inode busy after a service transition.
+(
+	PROC_LOCK_FORCE_MKDIR=0
+	FLOCK_ATTEMPTS_FILE="${TMP_ROOT}/flock-attempts"
+	: >"${FLOCK_ATTEMPTS_FILE}"
+	have_cmd() { [ "$1" = flock ]; }
+	flock_supports_fd() { return 0; }
+	which() { return 1; }
+	sleep() { :; }
+	flock() {
+		case "$1" in
+			-n)
+				printf '%s\n' attempt >>"${FLOCK_ATTEMPTS_FILE}"
+				return 1
+				;;
+			-u) return 0 ;;
+		esac
+		return 1
+	}
+	if proc_lock_run true; then
+		exit 1
+	fi
+	[ "$(wc -l <"${FLOCK_ATTEMPTS_FILE}")" -eq 5 ]
+) || fail 'descriptor proc lock did not fail after its bounded retry budget'
+
 # Cleanup failure must not replace a guarded command's existing nonzero status.
 (
 	PROC_LOCK_DIR="${TMP_ROOT}/status-lock"

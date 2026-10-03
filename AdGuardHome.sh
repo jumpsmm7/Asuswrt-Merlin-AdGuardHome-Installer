@@ -2586,15 +2586,42 @@ proc_lock_mkdir_cleanup() {
 	proc_lock_claim_release "${current_start}"
 }
 
-# proc_lock_run serializes a command using an available file lock or a process-validated directory lock.
+# proc_lock_run serializes procfs changes without allowing an orphaned flock
+# holder to block service shutdown indefinitely.  Descriptor locking uses the
+# same bounded retry budget as the process-validated mkdir fallback.
 proc_lock_run() {
 	local attempts current_start has_usleep owner owner_start reaper self_start status
 	if [ "${PROC_LOCK_FORCE_MKDIR:-0}" != 1 ] && have_cmd flock && flock_supports_fd; then
 		(
 			mkdir -p "${WORK_DIR}" 2>/dev/null || exit 1
 			exec 6>"${PROC_LOCK_FILE}" || exit 1
-			flock 6 || exit 1
+			attempts=0
+			if which usleep >/dev/null 2>&1; then
+				has_usleep=1
+			else
+				has_usleep=0
+			fi
+			while ! flock -n 6; do
+				attempts="$((attempts + 1))"
+				if [ "${has_usleep}" -eq 1 ]; then
+					if [ "${attempts}" -ge 50 ]; then
+						agh_log warning proc_lock_run "state=proc_optimize action=acquire_lock reason=flock_timeout result=failed attempts=${attempts}"
+						exit 1
+					fi
+					usleep 100000
+				else
+					if [ "${attempts}" -ge 5 ]; then
+						agh_log warning proc_lock_run "state=proc_optimize action=acquire_lock reason=flock_timeout result=failed attempts=${attempts}"
+						exit 1
+					fi
+					sleep 1
+				fi
+			done
 			"$@"
+			status="$?"
+			flock -u 6 >/dev/null 2>&1 || [ "${status}" -ne 0 ] || status=1
+			exec 6>&-
+			exit "${status}"
 		)
 		return $?
 	fi
@@ -3254,17 +3281,57 @@ stop_adguardhome() {
 	return "${STOP_STATUS}"
 }
 
+# monitor_process_matches verifies that a PID still belongs to this add-on's
+# monitor before a stop escalation signal is sent.
+monitor_process_matches() {
+	local PID
+	PID="$1"
+	case "${PID}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	[ -r "/proc/${PID}/cmdline" ] || return 1
+	awk '{ print }' "/proc/${PID}/cmdline" 2>/dev/null | grep -q 'monitor-start'
+}
+
+# stop_monitor requests the monitor's normal USR1 shutdown, waits for procfs
+# restoration to finish, and uses identity-checked TERM/KILL escalation so a
+# stuck monitor cannot keep installer updates in a permanent stopping state.
 stop_monitor() {
-	local SIGNAL
+	local ATTEMPTS MONITOR_PID SIGNAL
 	case "$1" in
 		"${MON_PID}")
 			SIGNAL="USR2"
+			MONITOR_PID="${MON_PID}"
 			;;
 		"$$")
 			if [ -n "${MON_PID}" ]; then SIGNAL="USR1"; else { adguardhome_run stop_adguardhome; }; fi
 			;;
 	esac
-	[ -n "${SIGNAL}" ] && { kill -s "${SIGNAL}" "${MON_PID}" 2>/dev/null; }
+	[ -n "${SIGNAL}" ] || return 0
+	MONITOR_PID="${MONITOR_PID:-${MON_PID}}"
+	monitor_process_matches "${MONITOR_PID}" || return 0
+	kill -s "${SIGNAL}" "${MONITOR_PID}" 2>/dev/null || return 1
+	[ "${SIGNAL}" = "USR1" ] || return 0
+	ATTEMPTS=0
+	while monitor_process_matches "${MONITOR_PID}" && [ "${ATTEMPTS}" -lt 10 ]; do
+		sleep 1
+		ATTEMPTS="$((ATTEMPTS + 1))"
+	done
+	monitor_process_matches "${MONITOR_PID}" || return 0
+	kill -TERM "${MONITOR_PID}" 2>/dev/null || return 1
+	ATTEMPTS=0
+	while monitor_process_matches "${MONITOR_PID}" && [ "${ATTEMPTS}" -lt 5 ]; do
+		sleep 1
+		ATTEMPTS="$((ATTEMPTS + 1))"
+	done
+	monitor_process_matches "${MONITOR_PID}" || return 0
+	kill -KILL "${MONITOR_PID}" 2>/dev/null || return 1
+	ATTEMPTS=0
+	while monitor_process_matches "${MONITOR_PID}" && [ "${ATTEMPTS}" -lt 3 ]; do
+		sleep 1
+		ATTEMPTS="$((ATTEMPTS + 1))"
+	done
+	! monitor_process_matches "${MONITOR_PID}"
 }
 
 timezone() {
