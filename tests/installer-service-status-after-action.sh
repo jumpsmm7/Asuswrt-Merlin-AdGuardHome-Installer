@@ -23,6 +23,8 @@ mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n '/^adguard_pid_list_has_new_pid() {$/,/^valid_adguardhome_username() {$/p' "${SCRIPT_PATH}" | sed '$d' >"${FUNCTIONS_FILE}" ||
 	fail "could not read ${SCRIPT_PATH}"
+sed -n '/^adguard_service_without_nvram_lock_fd() {$/,/^agh_restart() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
+	fail "could not read service request helpers from ${SCRIPT_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'service status helper was not found'
 
 # shellcheck disable=SC1090
@@ -145,5 +147,49 @@ fi
 grep -q 'Stopping\.\.\.' "${CALLS_FILE}" || fail 'stop helper did not report the transitional stopping state'
 [ "${SLEEP_CALLS}" -eq 5 ] || fail 'stop helper did not cap the short poll at five seconds'
 ! grep -q '^check$' "${CALLS_FILE}" || fail 'stop helper printed final status before the process stopped'
+
+ptxt_step() {
+	printf '%s\n' "$*" >>"${CALLS_FILE}"
+}
+
+adguard_service_without_nvram_lock_fd() {
+	printf '%s\n' "$*" >>"${CALLS_FILE}"
+	case "$*" in
+		/opt/etc/init.d/S99AdGuardHome\ start)
+			PROCESS_STATE='running'
+			PROCESS_COUNT='1'
+			CURRENT_PIDS='222'
+			;;
+		/opt/etc/init.d/S99AdGuardHome\ restart)
+			PROCESS_STATE='running'
+			PROCESS_COUNT='1'
+			CURRENT_PIDS='333'
+			;;
+		*) ;;
+	esac
+	return 0
+}
+
+: >"${CALLS_FILE}"
+PROCESS_STATE='stopped'
+PROCESS_COUNT='0'
+CURRENT_PIDS=''
+SLEEP_CALLS=0
+agh_request_start || fail 'start request did not recover from an uncompleted firmware service event'
+grep -q '^service start_AdGuardHome$' "${CALLS_FILE}" || fail 'start request did not try the firmware service event'
+grep -q '^/opt/etc/init.d/S99AdGuardHome start$' "${CALLS_FILE}" ||
+	fail 'start request did not fall back to the direct init script'
+[ "${CURRENT_PIDS}" = '222' ] || fail 'direct start fallback did not produce the replacement daemon'
+
+: >"${CALLS_FILE}"
+PROCESS_STATE='running'
+PROCESS_COUNT='1'
+CURRENT_PIDS='111'
+SLEEP_CALLS=0
+agh_request_restart '111' || fail 'restart request did not recover from an uncompleted firmware service event'
+grep -q '^service restart_AdGuardHome$' "${CALLS_FILE}" || fail 'restart request did not try the firmware service event'
+grep -q '^/opt/etc/init.d/S99AdGuardHome restart$' "${CALLS_FILE}" ||
+	fail 'restart request did not fall back to the direct init script'
+[ "${CURRENT_PIDS}" = '333' ] || fail 'direct restart fallback did not produce a replacement daemon'
 
 printf '%s\n' 'PASS: installer service status helper waits through transitional states'
