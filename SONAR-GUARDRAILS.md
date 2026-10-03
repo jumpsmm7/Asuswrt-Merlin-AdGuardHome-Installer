@@ -31,6 +31,18 @@ A Sonar parser diagnostic alone does not prove a defect. A construct that fails 
 - Rule suppressions must identify an exact rule, use the smallest practical path, include a rationale in `sonar-project.properties`, and retain independent validation when behavior-sensitive.
 - Test-only maintainability suppressions may remain scoped to `tests/**`; security and reliability rules remain active unless separately justified.
 
+## Coverage accounting
+
+SonarQube Cloud does not import execution coverage for POSIX shell. Shell
+entry points and the host-side validation helpers are therefore excluded from
+the Sonar coverage denominator, but not from source analysis. Their executable
+coverage is enforced by the repository's required regression workflows and by
+the orphaned-test check in `tests/code-quality-checks.sh`.
+
+Do not replace the explicit coverage-exclusion list with a blanket `*` or `**`
+pattern. Adding a language with supported coverage reporting requires adding
+its report to CI rather than extending the exclusion.
+
 ## Review rule
 
 Automated reviewers must treat Sonar parser output as a signal to verify, not as authority to rewrite router code. A Sonar-only parser complaint is not actionable until it is checked against BusyBox/POSIX compatibility and the relevant repository validation. Conversely, confirmed target-shell incompatibility remains actionable even when Sonar does not report it.
@@ -42,6 +54,7 @@ Automated reviewers must treat Sonar parser output as a signal to verify, not as
 - required Sonar Shell file scope;
 - no broad runtime-shell exclusions;
 - no blanket Shell rule suppression;
+- explicit coverage exclusions only for shell and host validation helpers;
 - continued alignment with the canonical BusyBox `ash` target documented in `AGENTS.md`, `.amazonq/rules/AGENTS.md`, and `REVIEW.md`.
 
 New Sonar parser diagnostics still require investigation. CI does not silently allowlist parser errors.
