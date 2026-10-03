@@ -11,7 +11,10 @@ CALLS_FILE="${TMP_ROOT}/calls"
 ERROR_FILE="${TMP_ROOT}/errors"
 
 cleanup() { rm -rf "${TMP_ROOT}"; }
-fail() { printf '%s\n' "FAIL: $*" >&2; exit 1; }
+fail() {
+	printf '%s\n' "FAIL: $*" >&2
+	exit 1
+}
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
@@ -33,11 +36,18 @@ curl() {
 	_out=
 	_next=0
 	for _arg in "$@"; do
-		if [ "${_next}" -eq 1 ]; then _out="${_arg}"; _next=0; continue; fi
+		if [ "${_next}" -eq 1 ]; then
+			_out="${_arg}"
+			_next=0
+			continue
+		fi
 		[ "${_arg}" = -o ] && _next=1
 	done
 	[ -n "${_out}" ] || return 2
-	if [ "${DOWNLOAD_STATUS}" -eq 0 ]; then printf '%s\n' verified >"${_out}"; return 0; fi
+	if [ "${DOWNLOAD_STATUS}" -eq 0 ]; then
+		printf '%s\n' verified >"${_out}"
+		return 0
+	fi
 	printf '%s\n' 'curl: (60) certificate verification failed' >&2
 	printf '%s\n' partial >"${_out}"
 	return "${DOWNLOAD_STATUS}"
@@ -48,11 +58,18 @@ wget() {
 	_out=
 	_next=0
 	for _arg in "$@"; do
-		if [ "${_next}" -eq 1 ]; then _out="${_arg}"; _next=0; continue; fi
+		if [ "${_next}" -eq 1 ]; then
+			_out="${_arg}"
+			_next=0
+			continue
+		fi
 		[ "${_arg}" = -O ] && _next=1
 	done
 	[ -n "${_out}" ] || return 2
-	if [ "${DOWNLOAD_STATUS}" -eq 0 ]; then printf '%s\n' verified >"${_out}"; return 0; fi
+	if [ "${DOWNLOAD_STATUS}" -eq 0 ]; then
+		printf '%s\n' verified >"${_out}"
+		return 0
+	fi
 	printf '%s\n' 'wget: certificate verification failed' >&2
 	printf '%s\n' partial >"${_out}"
 	return "${DOWNLOAD_STATUS}"
@@ -105,7 +122,10 @@ ADGUARD_METADATA_DIR_OWNED=0
 URL_ARCH='https://example.invalid/channel'
 METADATA_CALLS_FILE="${TMP_ROOT}/metadata-calls"
 : >"${METADATA_CALLS_FILE}"
-metadata_workspace_create() { mkdir -p "${ADGUARD_METADATA_DIR}"; ADGUARD_METADATA_DIR_OWNED=1; }
+metadata_workspace_create() {
+	mkdir -p "${ADGUARD_METADATA_DIR}"
+	ADGUARD_METADATA_DIR_OWNED=1
+}
 metadata_workspace_is_private() { return 0; }
 cleanup_api_files() { :; }
 ptxt_phase() { :; }
@@ -113,7 +133,10 @@ ptxt_warn() { :; }
 ptxt_ok() { :; }
 PTXT() { :; }
 sleep() { :; }
-http_get_file() { printf '%s\n' "$1" >>"${METADATA_CALLS_FILE}"; return 60; }
+http_get_file() {
+	printf '%s\n' "$1" >>"${METADATA_CALLS_FILE}"
+	return 60
+}
 if (init_remote_adguard_metadata); then
 	fail 'metadata initialization accepted certificate-verification failures'
 fi

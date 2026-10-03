@@ -9,7 +9,10 @@ FUNCTIONS_FILE="${TMP_ROOT}/functions"
 CALLS_FILE="${TMP_ROOT}/calls"
 
 cleanup() { rm -rf "${TMP_ROOT}"; }
-fail() { printf '%s\n' "FAIL: $*" >&2; exit 1; }
+fail() {
+	printf '%s\n' "FAIL: $*" >&2
+	exit 1
+}
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
@@ -39,7 +42,11 @@ curl() {
 	_out=
 	_next=0
 	for _arg in "$@"; do
-		if [ "${_next}" -eq 1 ]; then _out="${_arg}"; _next=0; continue; fi
+		if [ "${_next}" -eq 1 ]; then
+			_out="${_arg}"
+			_next=0
+			continue
+		fi
 		[ "${_arg}" = --output ] && _next=1
 		case "${_arg}" in https://*) _url="${_arg}" ;; esac
 	done

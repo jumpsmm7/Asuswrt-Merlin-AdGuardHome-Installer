@@ -107,16 +107,16 @@ download_verified_pair() {
 		rm -f "${output_file}" "${signature_file}"
 		printf 'Downloading %s from %s\n' "${relative_path}" "${mirror_url}"
 		if curl --fail --location --silent --show-error \
+			--cacert "${CURL_CA_BUNDLE}" \
+			--proto '=https' --proto-redir '=https' \
+			--connect-timeout 15 --max-time "${max_time}" \
+			"${mirror_url}/${relative_path}" --output "${output_file}" &&
+			curl --fail --location --silent --show-error \
 				--cacert "${CURL_CA_BUNDLE}" \
 				--proto '=https' --proto-redir '=https' \
-				--connect-timeout 15 --max-time "${max_time}" \
-				"${mirror_url}/${relative_path}" --output "${output_file}" &&
-				curl --fail --location --silent --show-error \
-					--cacert "${CURL_CA_BUNDLE}" \
-					--proto '=https' --proto-redir '=https' \
-					--connect-timeout 15 --max-time 120 \
-					"${mirror_url}/${relative_path}.sig" --output "${signature_file}" &&
-				verify_signature "${output_file}" "${signature_file}"; then
+				--connect-timeout 15 --max-time 120 \
+				"${mirror_url}/${relative_path}.sig" --output "${signature_file}" &&
+			verify_signature "${output_file}" "${signature_file}"; then
 			return 0
 		fi
 		printf 'Mirror failed verification or download: %s\n' "${mirror_url}" >&2
@@ -138,10 +138,10 @@ discover_package_filename() {
 	for mirror_host in ${MIRROR_HOSTS}; do
 		mirror_url="https://${mirror_host}"
 		if ! curl --fail --location --silent --show-error \
-				--cacert "${CURL_CA_BUNDLE}" \
-				--proto '=https' --proto-redir '=https' \
-				--connect-timeout 15 --max-time 120 \
-				"${mirror_url}/${architecture}/core/" --output "${package_listing}"; then
+			--cacert "${CURL_CA_BUNDLE}" \
+			--proto '=https' --proto-redir '=https' \
+			--connect-timeout 15 --max-time 120 \
+			"${mirror_url}/${architecture}/core/" --output "${package_listing}"; then
 			printf 'Failed to download package listing from %s\n' "${mirror_url}" >&2
 			continue
 		fi
