@@ -209,15 +209,37 @@ printf '%s\n' 4194304 >"${PROC_SYS_ROOT}/net/core/rmem_max"
 proc_restore
 [ "$(cat "${PROC_SYS_ROOT}/net/core/rmem_max")" = 524288 ] || fail 'interrupted application was not restored'
 
-# An unavailable boot ID falls back to current-value ownership during restore.
+# An unavailable current boot ID retains valid state for a later retry.
 mkdir -p "${PROC_STATE_DIR}"
 printf '%s\n' '524288 4194304 boot-one' >"${PROC_STATE_DIR}/rmem_max"
 printf '%s\n' 4194304 >"${PROC_SYS_ROOT}/net/core/rmem_max"
 rm -f "${PROC_BOOT_ID_FILE}"
-proc_restore_one rmem_max || fail 'restore failed when boot ID was unavailable'
-[ "$(cat "${PROC_SYS_ROOT}/net/core/rmem_max")" = 524288 ] || fail 'unavailable boot ID prevented owned restoration'
-[ ! -e "${PROC_STATE_DIR}/rmem_max" ] || fail 'unavailable boot ID left restored ownership state'
+proc_restore_one rmem_max && fail 'restore succeeded when the current boot ID was unavailable'
+[ "$(cat "${PROC_SYS_ROOT}/net/core/rmem_max")" = 4194304 ] || fail 'unavailable boot ID changed procfs'
+[ -e "${PROC_STATE_DIR}/rmem_max" ] || fail 'unavailable boot ID discarded valid ownership state'
 printf '%s\n' boot-one >"${PROC_BOOT_ID_FILE}"
+
+# A missing boot identity is discarded without restoring the previous value.
+printf '%s\n' '524288 4194304' >"${PROC_STATE_DIR}/rmem_max"
+printf '%s\n' 4194304 >"${PROC_SYS_ROOT}/net/core/rmem_max"
+proc_restore_one rmem_max || fail 'invalid bootless state could not be discarded'
+[ "$(cat "${PROC_SYS_ROOT}/net/core/rmem_max")" = 4194304 ] || fail 'bootless state changed procfs'
+[ ! -e "${PROC_STATE_DIR}/rmem_max" ] || fail 'bootless state was retained'
+
+# Boot-ID capture failure prevents a new write and state publication.
+rm -f "${PROC_BOOT_ID_FILE}"
+printf '%s\n' 524288 >"${PROC_SYS_ROOT}/net/core/rmem_max"
+proc_write rmem_max 4194304 262144 16777216 && fail 'write succeeded without a current boot ID'
+[ "$(cat "${PROC_SYS_ROOT}/net/core/rmem_max")" = 524288 ] || fail 'boot-ID failure changed procfs'
+[ ! -e "${PROC_STATE_DIR}/rmem_max" ] || fail 'boot-ID failure published rollback state'
+printf '%s\n' boot-one >"${PROC_BOOT_ID_FILE}"
+
+# A cross-boot record is discarded without restoring its original value.
+printf '%s\n' '262144 4194304 boot-old' >"${PROC_STATE_DIR}/rmem_max"
+printf '%s\n' 4194304 >"${PROC_SYS_ROOT}/net/core/rmem_max"
+proc_restore_one rmem_max || fail 'cross-boot state could not be discarded'
+[ "$(cat "${PROC_SYS_ROOT}/net/core/rmem_max")" = 4194304 ] || fail 'cross-boot restore wrote a stale original value'
+[ ! -e "${PROC_STATE_DIR}/rmem_max" ] || fail 'cross-boot state remained after discard'
 
 # A failed procfs read retains ownership state for a later restoration attempt.
 rm -f "${PROC_SYS_ROOT}/net/core/rmem_max"

@@ -1,146 +1,125 @@
 #!/bin/sh
-# Verify installer downloads use certificate verification before any insecure fallback.
+# Verify installer downloads never disable TLS certificate verification.
 set -u
 
 INSTALLER="${1:-installer}"
 README_PATH="${2:-README.md}"
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/installer-secure-download.XXXXXX")" || exit 1
 FUNCTIONS_FILE="${TMP_ROOT}/functions"
+METADATA_FUNCTIONS_FILE="${TMP_ROOT}/metadata-functions"
 CALLS_FILE="${TMP_ROOT}/calls"
-WARN_FILE="${TMP_ROOT}/warnings"
+ERROR_FILE="${TMP_ROOT}/errors"
 
 cleanup() { rm -rf "${TMP_ROOT}"; }
-fail() {
-	printf '%s\n' "FAIL: $*" >&2
-	exit 1
-}
+fail() { printf '%s\n' "FAIL: $*" >&2; exit 1; }
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 sed -n '/^http_get_file() {$/,/^}$/p' "${INSTALLER}" >"${FUNCTIONS_FILE}" || fail 'could not extract http_get_file'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'http_get_file extraction was empty'
-[ -f "${README_PATH}" ] || fail "download policy documentation was not found: ${README_PATH}"
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 
-ptxt_warn() { printf '%s\n' "$*" >>"${WARN_FILE}"; }
-curl_common_args() { :; }
-curl_insecure_arg() { printf '%s' ' -k'; }
-wget_common_args() { :; }
-wget_insecure_arg() { printf '%s' ' --no-check-certificate'; }
+curl_common_args() { printf '%s' '--retry 5 --max-time 125'; }
+wget_common_args() { printf '%s' '--tries=5 --timeout=25'; }
 wget_has_option() { [ "$1" = '--server-response' ]; }
 
-DOWNLOADER='curl'
-SECURE_STATUS=0
+DOWNLOADER=curl
+DOWNLOAD_STATUS=0
 ai_have_cmd() { [ "$1" = "${DOWNLOADER}" ]; }
 
 curl() {
 	printf '%s\n' "curl $*" >>"${CALLS_FILE}"
-	_out=''
+	_out=
 	_next=0
 	for _arg in "$@"; do
-		if [ "${_next}" -eq 1 ]; then
-			_out="${_arg}"
-			_next=0
-			continue
-		fi
-		[ "${_arg}" = '-o' ] && _next=1
+		if [ "${_next}" -eq 1 ]; then _out="${_arg}"; _next=0; continue; fi
+		[ "${_arg}" = -o ] && _next=1
 	done
-	if [ -z "${_out}" ]; then
-		printf '%s\n' 'curl stub did not receive a recognized -o output path' >&2
-		return 2
-	fi
-	case " $* " in
-		*' -k '*)
-			printf '%s\n' fallback >"${_out}"
-			return 0
-			;;
-	esac
-	[ "${SECURE_STATUS}" -eq 0 ] && {
-		printf '%s\n' secure >"${_out}"
-		return 0
-	}
+	[ -n "${_out}" ] || return 2
+	if [ "${DOWNLOAD_STATUS}" -eq 0 ]; then printf '%s\n' verified >"${_out}"; return 0; fi
+	printf '%s\n' 'curl: (60) certificate verification failed' >&2
 	printf '%s\n' partial >"${_out}"
-	return "${SECURE_STATUS}"
+	return "${DOWNLOAD_STATUS}"
 }
 
 wget() {
 	printf '%s\n' "wget $*" >>"${CALLS_FILE}"
-	_out=''
+	_out=
 	_next=0
 	for _arg in "$@"; do
-		if [ "${_next}" -eq 1 ]; then
-			_out="${_arg}"
-			_next=0
-			continue
-		fi
-		[ "${_arg}" = '-O' ] && _next=1
+		if [ "${_next}" -eq 1 ]; then _out="${_arg}"; _next=0; continue; fi
+		[ "${_arg}" = -O ] && _next=1
 	done
-	if [ -z "${_out}" ]; then
-		printf '%s\n' 'wget stub did not receive a recognized -O output path' >&2
-		return 2
-	fi
-	case " $* " in
-		*' --no-check-certificate '*)
-			printf '%s\n' fallback >"${_out}"
-			return 0
-			;;
-	esac
-	[ "${SECURE_STATUS}" -eq 0 ] && {
-		printf '%s\n' secure >"${_out}"
-		return 0
-	}
+	[ -n "${_out}" ] || return 2
+	if [ "${DOWNLOAD_STATUS}" -eq 0 ]; then printf '%s\n' verified >"${_out}"; return 0; fi
+	printf '%s\n' 'wget: certificate verification failed' >&2
 	printf '%s\n' partial >"${_out}"
-	return "${SECURE_STATUS}"
+	return "${DOWNLOAD_STATUS}"
 }
 
-: >"${CALLS_FILE}"
-: >"${WARN_FILE}"
-SECURE_STATUS=0
-http_get_file 'https://example.invalid/component' "${TMP_ROOT}/out" '' insecure || fail 'secure curl request failed'
-[ "$(wc -l <"${CALLS_FILE}")" -eq 1 ] || fail 'secure curl success retried unnecessarily'
-! grep -q ' -k ' "${CALLS_FILE}" || fail 'secure curl success used -k'
-[ "$(cat "${TMP_ROOT}/out")" = secure ] || fail 'secure curl output was not published'
+run_success() {
+	DOWNLOADER="$1"
+	DOWNLOAD_STATUS=0
+	: >"${CALLS_FILE}"
+	http_get_file 'https://example.invalid/component' "${TMP_ROOT}/out" '' insecure 2>"${ERROR_FILE}" ||
+		fail "verified ${DOWNLOADER} request failed"
+	[ "$(wc -l <"${CALLS_FILE}")" -eq 1 ] || fail "${DOWNLOADER} success retried"
+	[ "$(cat "${TMP_ROOT}/out")" = verified ] || fail "${DOWNLOADER} success output was not retained"
+}
 
-: >"${CALLS_FILE}"
-: >"${WARN_FILE}"
-SECURE_STATUS=60
-http_get_file 'https://example.invalid/component' "${TMP_ROOT}/out" '' insecure || fail 'curl insecure fallback did not recover certificate failure'
-[ "$(wc -l <"${CALLS_FILE}")" -eq 2 ] || fail 'curl fallback did not make exactly two attempts'
-! sed -n '1p' "${CALLS_FILE}" | grep -q ' -k ' || fail 'first curl attempt disabled certificate verification'
-sed -n '2p' "${CALLS_FILE}" | grep -q ' -k ' || fail 'second curl attempt did not use -k fallback'
-grep -q 'certificate verification disabled' "${WARN_FILE}" || fail 'curl insecure fallback was not logged'
-[ "$(cat "${TMP_ROOT}/out")" = fallback ] || fail 'curl insecure fallback did not publish fallback output'
+run_failure() {
+	DOWNLOADER="$1"
+	case "${DOWNLOADER}" in curl) DOWNLOAD_STATUS=60 ;; wget) DOWNLOAD_STATUS=5 ;; esac
+	: >"${CALLS_FILE}"
+	if http_get_file 'https://example.invalid/component' "${TMP_ROOT}/out" '' insecure 2>"${ERROR_FILE}"; then
+		fail "${DOWNLOADER} certificate failure returned success"
+	fi
+	[ "$(wc -l <"${CALLS_FILE}")" -eq 1 ] || fail "${DOWNLOADER} certificate failure retried insecurely"
+	grep -q 'certificate verification failed' "${ERROR_FILE}" || fail "${DOWNLOADER} certificate error was suppressed"
+}
 
-: >"${CALLS_FILE}"
-if http_get_file 'http://example.invalid/component' "${TMP_ROOT}/out" '' insecure; then
-	fail 'plain HTTP failure incorrectly used insecure fallback'
+run_success curl
+run_failure curl
+run_success wget
+run_failure wget
+
+if grep -E -- '(^|[[:space:]])(-k|--insecure|--no-check-certificate)([[:space:]]|$)' "${CALLS_FILE}" >/dev/null 2>&1; then
+	fail 'a downloader used a certificate-verification bypass flag'
 fi
-[ "$(wc -l <"${CALLS_FILE}")" -eq 1 ] || fail 'plain HTTP failure retried with insecure mode'
+if grep -qE 'curl_insecure_arg|wget_insecure_arg|ALLOW_INSECURE|certificate verification disabled' "${INSTALLER}"; then
+	fail 'installer retains certificate-verification fallback logic'
+fi
+if grep -E 'http_get_file .* insecure' "${INSTALLER}" >/dev/null 2>&1; then
+	fail 'installer retains an insecure http_get_file caller'
+fi
 
-DOWNLOADER='wget'
-: >"${CALLS_FILE}"
-: >"${WARN_FILE}"
-SECURE_STATUS=0
-http_get_file 'https://example.invalid/component' "${TMP_ROOT}/out" '' insecure || fail 'secure wget request failed'
-[ "$(wc -l <"${CALLS_FILE}")" -eq 1 ] || fail 'secure wget success retried unnecessarily'
-! grep -q -e '--no-check-certificate' "${CALLS_FILE}" || fail 'secure wget success disabled certificate verification'
+sed -n '/^init_adguard_metadata_defaults() {$/,/^}$/p; /^init_remote_adguard_metadata() {$/,/^}$/p; /^init_upstream_adguard_metadata() {$/,/^}$/p' "${INSTALLER}" >"${METADATA_FUNCTIONS_FILE}" ||
+	fail 'could not extract metadata download helpers'
+# shellcheck disable=SC1090
+. "${METADATA_FUNCTIONS_FILE}"
+ADGUARD_ARCH=arm64
+ADGUARD_METADATA_DIR="${TMP_ROOT}/metadata"
+ADGUARD_METADATA_FILE="${ADGUARD_METADATA_DIR}/checksum.txt"
+ADGUARD_METADATA_DIR_OWNED=0
+URL_ARCH='https://example.invalid/channel'
+METADATA_CALLS_FILE="${TMP_ROOT}/metadata-calls"
+: >"${METADATA_CALLS_FILE}"
+metadata_workspace_create() { mkdir -p "${ADGUARD_METADATA_DIR}"; ADGUARD_METADATA_DIR_OWNED=1; }
+metadata_workspace_is_private() { return 0; }
+cleanup_api_files() { :; }
+ptxt_phase() { :; }
+ptxt_warn() { :; }
+ptxt_ok() { :; }
+PTXT() { :; }
+sleep() { :; }
+http_get_file() { printf '%s\n' "$1" >>"${METADATA_CALLS_FILE}"; return 60; }
+if (init_remote_adguard_metadata); then
+	fail 'metadata initialization accepted certificate-verification failures'
+fi
+[ "$(wc -l <"${METADATA_CALLS_FILE}")" -eq 6 ] || fail 'metadata failure did not preserve three bounded channel and upstream attempts'
 
-: >"${CALLS_FILE}"
-: >"${WARN_FILE}"
-SECURE_STATUS=5
-http_get_file 'https://example.invalid/component' "${TMP_ROOT}/out" '' insecure || fail 'wget insecure fallback did not recover certificate failure'
-[ "$(wc -l <"${CALLS_FILE}")" -eq 2 ] || fail 'wget fallback did not make exactly two attempts'
-! sed -n '1p' "${CALLS_FILE}" | grep -q -e '--no-check-certificate' || fail 'first wget attempt disabled certificate verification'
-sed -n '2p' "${CALLS_FILE}" | grep -q -e '--no-check-certificate' || fail 'second wget attempt did not use certificate fallback'
-grep -q 'certificate verification disabled' "${WARN_FILE}" || fail 'wget insecure fallback was not logged'
-[ "$(cat "${TMP_ROOT}/out")" = fallback ] || fail 'wget insecure fallback did not publish fallback output'
+grep -Fq 'never retries with `curl --insecure`/`-k` or `wget --no-check-certificate`' "${README_PATH}" ||
+	fail 'download policy does not prohibit certificate-verification bypasses'
 
-grep -Fq 'always attempts a certificate-verified HTTPS request first' "${README_PATH}" ||
-	fail 'download policy does not document secure-first transport behavior'
-grep -Fq 'Checksum verification remains mandatory after that transport fallback' "${README_PATH}" ||
-	fail 'download policy does not document the post-fallback checksum gate'
-grep -Fq 'does not authenticate a download when an active attacker can replace both the artifact and checksum metadata' "${README_PATH}" ||
-	fail 'download policy overstates the protection provided by checksum metadata'
-
-printf '%s\n' 'PASS: installer secure-first transport fallback'
+printf '%s\n' 'PASS: installer downloads retain TLS certificate verification'

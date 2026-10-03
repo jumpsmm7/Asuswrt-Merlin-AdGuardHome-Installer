@@ -755,6 +755,10 @@ nvram_transaction_lock_flock_owned() {
 	[ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "${owner}" ]
 }
 
+nvram_transaction_lock_flock_unlock() {
+	/usr/bin/flock -u 8 >/dev/null 2>&1
+}
+
 nvram_transaction_lock_reaper_flock_acquire() {
 	/usr/bin/flock -n 9 >/dev/null 2>&1
 }
@@ -1404,18 +1408,45 @@ nvram_transaction_lock_symlink_acquire() {
 }
 
 nvram_transaction_lock_release() {
-	local lock_path owner
+	local lock_path owner release_phase
 	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
 	case "${NVRAM_TRANSACTION_LOCK_MODE:-}" in
 		flock)
-			nvram_transaction_lock_flock_owned "${lock_path}" || return 1
-			owner="$(nvram_transaction_lock_owner_current)" || return 1
-			[ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "${owner}" ] || return 1
-			nvram_transaction_lock_reaper_acquire "${lock_path}.symlink.reaper" "${owner}" || return 1
-			/usr/bin/flock -u 8 >/dev/null 2>&1 || return 1
-			exec 8>&-
-			rm -f "${lock_path}.symlink" || return 1
-			nvram_transaction_lock_reaper_release "${lock_path}.symlink.reaper" "${owner}" || return 1
+			release_phase="${NVRAM_TRANSACTION_LOCK_RELEASE_PHASE:-}"
+			if [ -z "${release_phase}" ]; then
+				nvram_transaction_lock_flock_owned "${lock_path}" || return 1
+				owner="$(nvram_transaction_lock_owner_current)" || return 1
+				[ "$(nvram_transaction_lock_readlink "${lock_path}.symlink" 2>/dev/null)" = "${owner}" ] || return 1
+				nvram_transaction_lock_reaper_acquire "${lock_path}.reaper" "${owner}" || return 1
+				NVRAM_TRANSACTION_LOCK_RELEASE_OWNER="${owner}"
+				NVRAM_TRANSACTION_LOCK_RELEASE_PHASE="reaper"
+				release_phase="reaper"
+			else
+				owner="${NVRAM_TRANSACTION_LOCK_RELEASE_OWNER:-}"
+				[ -n "${owner}" ] || return 1
+			fi
+			if [ "${release_phase}" = "reaper" ]; then
+				if ! rm -f "${lock_path}.symlink"; then
+					nvram_transaction_lock_failure "operation=release-flock-lock path=${lock_path}.symlink reason=remove-owner-failed owner=${owner}" || true
+					nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}" || return 1
+					NVRAM_TRANSACTION_LOCK_RELEASE_OWNER=""
+					NVRAM_TRANSACTION_LOCK_RELEASE_PHASE=""
+					return 1
+				fi
+				NVRAM_TRANSACTION_LOCK_RELEASE_PHASE="symlink-removed"
+				release_phase="symlink-removed"
+			fi
+			if [ "${release_phase}" = "symlink-removed" ]; then
+				nvram_transaction_lock_flock_unlock || {
+					nvram_transaction_lock_failure "operation=release-flock-lock path=${lock_path} reason=unlock-failed owner=${owner}" || true
+					return 1
+				}
+				exec 8>&- || return 1
+				NVRAM_TRANSACTION_LOCK_RELEASE_PHASE="unlocked"
+			fi
+			nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}" || return 1
+			NVRAM_TRANSACTION_LOCK_RELEASE_OWNER=""
+			NVRAM_TRANSACTION_LOCK_RELEASE_PHASE=""
 			;;
 		symlink)
 			owner="$(nvram_transaction_lock_owner_current)" || return 1
@@ -2056,78 +2087,25 @@ curl_help() {
 	PTXT "${CURL_HELP_CACHE}"
 }
 
-curl_insecure_arg() {
-	if [ -z "${CURL_INSECURE_ARG_SET:-}" ]; then
-		CURL_INSECURE_ARG=""
-		curl_has_option '--insecure' && CURL_INSECURE_ARG=" -k"
-		CURL_INSECURE_ARG_SET="1"
-	fi
-	PTXT -n "${CURL_INSECURE_ARG}"
-}
-
 http_get_file() {
-	local URL OUT HEADERS ALLOW_INSECURE CURL_ARGS WGET_ARGS FALLBACK_ARG SECURE_STATUS
+	local URL OUT HEADERS CURL_ARGS WGET_ARGS
 	URL="$1"
 	OUT="$2"
 	HEADERS="${3:-}"
-	ALLOW_INSECURE="${4:-}"
 	if ai_have_cmd curl; then
 		CURL_ARGS="$(curl_common_args)"
 		if [ -n "${HEADERS}" ]; then
-			curl ${CURL_ARGS} -D "${HEADERS}" -f -sL "${URL}" -o "${OUT}"
-			SECURE_STATUS="$?"
+			curl ${CURL_ARGS} -D "${HEADERS}" -fL "${URL}" -o "${OUT}"
 		else
-			curl ${CURL_ARGS} -f -sL "${URL}" -o "${OUT}"
-			SECURE_STATUS="$?"
-		fi
-		[ "${SECURE_STATUS}" -eq 0 ] && return 0
-		[ "${ALLOW_INSECURE}" = "insecure" ] || return "${SECURE_STATUS}"
-		case "${URL}" in
-			https://*) ;;
-			*) return "${SECURE_STATUS}" ;;
-		esac
-		FALLBACK_ARG="$(curl_insecure_arg)"
-		[ -n "${FALLBACK_ARG}" ] || return "${SECURE_STATUS}"
-		ptxt_warn "Certificate-verified download failed for ${URL}; retrying with certificate verification disabled."
-		rm -f "${OUT}" || return "${SECURE_STATUS}"
-		if [ -n "${HEADERS}" ]; then
-			: >"${HEADERS}" || return "${SECURE_STATUS}"
-		fi
-		CURL_ARGS="${CURL_ARGS}${FALLBACK_ARG}"
-		if [ -n "${HEADERS}" ]; then
-			curl ${CURL_ARGS} -D "${HEADERS}" -f -sL "${URL}" -o "${OUT}"
-		else
-			curl ${CURL_ARGS} -f -sL "${URL}" -o "${OUT}"
+			curl ${CURL_ARGS} -fL "${URL}" -o "${OUT}"
 		fi
 	elif ai_have_cmd wget; then
 		WGET_ARGS="$(wget_common_args)"
 		if [ -n "${HEADERS}" ] && wget_has_option '--server-response'; then
-			wget ${WGET_ARGS} --server-response -q -O "${OUT}" "${URL}" 2>"${HEADERS}"
-			SECURE_STATUS="$?"
+			wget ${WGET_ARGS} --server-response -O "${OUT}" "${URL}" 2>"${HEADERS}"
 		else
 			[ -n "${HEADERS}" ] && : >"${HEADERS}"
-			wget ${WGET_ARGS} -q -O "${OUT}" "${URL}"
-			SECURE_STATUS="$?"
-		fi
-		[ "${SECURE_STATUS}" -eq 0 ] && return 0
-		[ "${ALLOW_INSECURE}" = "insecure" ] || return "${SECURE_STATUS}"
-		case "${URL}" in
-			https://*) ;;
-			*) return "${SECURE_STATUS}" ;;
-		esac
-		FALLBACK_ARG="$(wget_insecure_arg)"
-		[ -n "${FALLBACK_ARG}" ] || return "${SECURE_STATUS}"
-		ptxt_warn "Certificate-verified download failed for ${URL}; retrying with certificate verification disabled."
-		rm -f "${OUT}" || return "${SECURE_STATUS}"
-		if [ -n "${HEADERS}" ]; then
-			: >"${HEADERS}" || return "${SECURE_STATUS}"
-		fi
-		WGET_ARGS="${WGET_ARGS}${FALLBACK_ARG}"
-		if [ -n "${HEADERS}" ] && wget_has_option '--server-response'; then
-			wget ${WGET_ARGS} --server-response -q -O "${OUT}" "${URL}" 2>"${HEADERS}"
-		else
-			[ -n "${HEADERS}" ] && : >"${HEADERS}"
-			wget ${WGET_ARGS} -q -O "${OUT}" "${URL}"
+			wget ${WGET_ARGS} -O "${OUT}" "${URL}"
 		fi
 	else
 		return 127
@@ -2201,15 +2179,6 @@ wget_help() {
 		WGET_HELP_CACHE_SET="1"
 	fi
 	PTXT "${WGET_HELP_CACHE}"
-}
-
-wget_insecure_arg() {
-	if [ -z "${WGET_INSECURE_ARG_SET:-}" ]; then
-		WGET_INSECURE_ARG=""
-		wget_has_option '--no-check-certificate' && WGET_INSECURE_ARG=" --no-check-certificate"
-		WGET_INSECURE_ARG_SET="1"
-	fi
-	PTXT -n "${WGET_INSECURE_ARG}"
 }
 
 # Console and config helpers
@@ -4002,7 +3971,7 @@ init_remote_adguard_metadata() {
 	ptxt_phase "Fetching AdGuardHome metadata from ${CHANNEL_FILE}."
 	while [ "${COUNT}" -lt 3 ]; do
 		rm -f "${ADGUARD_METADATA_FILE}"
-		if http_get_file "${CHANNEL_FILE}" "${ADGUARD_METADATA_FILE}" "" insecure && [ -s "${ADGUARD_METADATA_FILE}" ]; then
+		if http_get_file "${CHANNEL_FILE}" "${ADGUARD_METADATA_FILE}" && [ -s "${ADGUARD_METADATA_FILE}" ]; then
 			REMOTE_VER="$(awk '$1 !~ /^#/ && $2 == "stable" {VERSION = $3; sub(/^version=/, "", VERSION); print VERSION; exit}' "${ADGUARD_METADATA_FILE}")"
 			REMOTE_BETA="$(awk '$1 !~ /^#/ && $2 == "beta" {VERSION = $3; sub(/^version=/, "", VERSION); print VERSION; exit}' "${ADGUARD_METADATA_FILE}")"
 			REMOTE_EDGE="$(awk '$1 !~ /^#/ && $2 == "edge" {VERSION = $3; sub(/^version=/, "", VERSION); print VERSION; exit}' "${ADGUARD_METADATA_FILE}")"
@@ -4043,9 +4012,9 @@ init_upstream_adguard_metadata() {
 	ptxt_phase "Fetching upstream AdGuardHome version metadata."
 	while [ "${COUNT}" -lt 3 ]; do
 		rm -f "${RELEASE_VERSION_FILE}" "${BETA_VERSION_FILE}" "${EDGE_VERSION_FILE}"
-		if http_get_file "https://static.adguard.com/adguardhome/release/version.txt" "${RELEASE_VERSION_FILE}" "" insecure && [ -s "${RELEASE_VERSION_FILE}" ] &&
-			http_get_file "https://static.adguard.com/adguardhome/beta/version.txt" "${BETA_VERSION_FILE}" "" insecure && [ -s "${BETA_VERSION_FILE}" ] &&
-			http_get_file "https://static.adguard.com/adguardhome/edge/version.txt" "${EDGE_VERSION_FILE}" "" insecure && [ -s "${EDGE_VERSION_FILE}" ]; then
+		if http_get_file "https://static.adguard.com/adguardhome/release/version.txt" "${RELEASE_VERSION_FILE}" && [ -s "${RELEASE_VERSION_FILE}" ] &&
+			http_get_file "https://static.adguard.com/adguardhome/beta/version.txt" "${BETA_VERSION_FILE}" && [ -s "${BETA_VERSION_FILE}" ] &&
+			http_get_file "https://static.adguard.com/adguardhome/edge/version.txt" "${EDGE_VERSION_FILE}" && [ -s "${EDGE_VERSION_FILE}" ]; then
 			REMOTE_VER="$(awk 'NF {VERSION = $1; sub(/^version=/, "", VERSION); print VERSION; exit}' "${RELEASE_VERSION_FILE}")"
 			REMOTE_BETA="$(awk 'NF {VERSION = $1; sub(/^version=/, "", VERSION); print VERSION; exit}' "${BETA_VERSION_FILE}")"
 			REMOTE_EDGE="$(awk 'NF {VERSION = $1; sub(/^version=/, "", VERSION); print VERSION; exit}' "${EDGE_VERSION_FILE}")"
@@ -6611,7 +6580,7 @@ download_file() {
 			SHA256_AVAILABLE="1"
 			ptxt_step "Downloading ${FILENAME} to ${TARG}/${FILENAME}."
 			rm -f "${TMP_FILE}" "${TMP_MD5}" "${TMP_SHA256}"
-			if http_get_file "${URL}" "${TMP_FILE}" "" insecure && [ -s "${TMP_FILE}" ]; then
+			if http_get_file "${URL}" "${TMP_FILE}" && [ -s "${TMP_FILE}" ]; then
 				ptxt_ok "Downloaded ${FILENAME}."
 				if ! chmod 600 "${TMP_FILE}"; then
 					ptxt_warn "Unable to secure the staged ${FILENAME}; retrying download."
@@ -6620,7 +6589,7 @@ download_file() {
 					continue
 				fi
 				ptxt_step "Checking remote checksum metadata for ${FILENAME}."
-				if ! http_get_file "${URL}.sha256sum" "${TMP_SHA256}" "" insecure; then
+				if ! http_get_file "${URL}.sha256sum" "${TMP_SHA256}"; then
 					SHA256_AVAILABLE="0"
 					ptxt_warn "SHA-256 metadata is unavailable for ${FILENAME}; using the intentional legacy-compatible MD5 verification path."
 				elif ! SHA256SUM_EXPECTED="$(sha256_manifest_digest "${TMP_SHA256}")"; then
@@ -6641,7 +6610,7 @@ download_file() {
 					break
 				fi
 				if [ "${SHA256_AVAILABLE}" = "0" ]; then
-					if ! http_get_file "${URL}.md5sum" "${TMP_MD5}" "" insecure; then
+					if ! http_get_file "${URL}.md5sum" "${TMP_MD5}"; then
 						ptxt_warn "MD5 metadata is missing or unavailable for ${FILENAME}; retrying download."
 					elif ! MD5SUM_EXPECTED="$(md5_manifest_digest "${TMP_MD5}")"; then
 						ptxt_warn "MD5 metadata is empty or invalid for ${FILENAME}; retrying download."

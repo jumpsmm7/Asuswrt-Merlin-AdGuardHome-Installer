@@ -61,6 +61,8 @@ IPSet_Disable_Managed() {
 
 # IPSet_Current_File prints the configured current IPSET file path.
 IPSet_Current_File() {
+	[ "${CURRENT_FILE_STATUS:-0}" -eq 0 ] || return "${CURRENT_FILE_STATUS}"
+	[ "${CURRENT_IPSET_FILE:-}" != "__EMPTY__" ] || return 0
 	printf '%s\n' "${CURRENT_IPSET_FILE:-${IPSET_FILE}}"
 }
 
@@ -179,12 +181,29 @@ esac
 
 CURRENT_IPSET_FILE=/custom/ipset.conf
 : >"${CALLS_FILE}"
-IPSet_Refresh || fail 'LAN refresh did not disable a custom IPSET file reference'
-ACTUAL="$(cat "${CALLS_FILE}")"
-case "${ACTUAL}" in
-	*'IPSet_Lock skip_dnsmasq_restart=original'*'IPSet_Disable_Managed configured'*) : ;;
-	*) fail "LAN refresh did not request configured IPSET cleanup: ${ACTUAL}" ;;
-esac
+IPSet_Refresh || fail 'LAN refresh failed while preserving a custom IPSET file reference'
+if grep -Eq 'IPSet_Disable_Managed|lower_script|IPSet_Start_' "${CALLS_FILE}"; then
+	fail 'LAN refresh mutated or restarted service for an external IPSET file'
+fi
+
+CURRENT_IPSET_FILE=__EMPTY__
+: >"${CALLS_FILE}"
+IPSet_Refresh || fail 'LAN refresh failed without an IPSET file reference'
+if grep -Eq 'IPSet_Disable_Managed|lower_script|IPSet_Start_' "${CALLS_FILE}"; then
+	fail 'LAN refresh mutated or restarted service without an IPSET file reference'
+fi
+
+CURRENT_FILE_STATUS=1
+: >"${CALLS_FILE}"
+if IPSet_Refresh; then
+	fail 'LAN refresh ignored an IPSET configuration parse failure'
+fi
+if grep -Eq 'IPSet_Disable_Managed|lower_script|IPSet_Start_' "${CALLS_FILE}"; then
+	fail 'LAN refresh performed service operations after an IPSET parse failure'
+fi
+CURRENT_FILE_STATUS=0
+
+CURRENT_IPSET_FILE="${IPSET_FILE}"
 
 ADGUARD_RUNNING=0
 IPSET_REFRESH_FROM_DNSMASQ=0
@@ -222,12 +241,12 @@ IPSET_REFRESH_FROM_DNSMASQ=1
 DISABLE_STATUS=1
 : >"${CALLS_FILE}"
 if IPSet_Refresh; then
-	fail 'LAN refresh ignored a failed custom IPSET cleanup'
+	fail 'LAN refresh ignored a failed managed IPSET cleanup'
 fi
 ACTUAL="$(cat "${CALLS_FILE}")"
 case "${ACTUAL}" in
-	*'IPSet_Disable_Managed configured'*IPSet_Start_Restore*) : ;;
-	*) fail "LAN refresh did not propagate custom IPSET cleanup failure: ${ACTUAL}" ;;
+	*IPSet_Disable_Managed*IPSet_Start_Restore*) : ;;
+	*) fail "LAN refresh did not propagate managed IPSET cleanup failure: ${ACTUAL}" ;;
 esac
 CURRENT_IPSET_FILE=
 DISABLE_STATUS=0
