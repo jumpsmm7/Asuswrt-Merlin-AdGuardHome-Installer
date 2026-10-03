@@ -162,6 +162,21 @@ agh_conf_value() {
 	' "${WORK_DIR}/.config"
 }
 
+adguardhome_readiness_timeout() {
+	_readiness_timeout="${1:-}"
+	_readiness_legacy_key="$2"
+	if [ -z "${_readiness_timeout}" ]; then
+		_readiness_timeout="$(agh_conf_value "${_readiness_legacy_key}" 2>/dev/null)"
+	fi
+	if [ -z "${_readiness_timeout}" ]; then
+		_readiness_timeout="${ADGUARDHOME_READY_TIMEOUT:-}"
+	fi
+	if [ -z "${_readiness_timeout}" ]; then
+		_readiness_timeout="$(agh_conf_value ADGUARDHOME_READY_TIMEOUT 2>/dev/null)"
+	fi
+	dns_retry_limit "${_readiness_timeout}" 180
+}
+
 agh_install_mode() {
 	_agh_mode="$(agh_conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
 	case "${_agh_mode}" in
@@ -722,7 +737,7 @@ wait_for_adguardhome_startup_checks_failure_reason() {
 
 wait_for_adguardhome_startup_checks() {
 	_startup_check_elapsed="0"
-	_startup_check_timeout="$(dns_retry_limit "${ADGUARDHOME_READY_TIMEOUT:-}" 180)"
+	_startup_check_timeout="$(adguardhome_readiness_timeout "${ADGUARDHOME_STARTUP_CHECK_RETRIES:-}" ADGUARDHOME_STARTUP_CHECK_RETRIES)"
 	agh_log INFO wait_for_adguardhome_startup_checks "Waiting up to ${_startup_check_timeout} second(s) for DNS/WebUI readiness checks."
 	while :; do
 		adguardhome_startup_checks_ready
@@ -1325,33 +1340,44 @@ log_adguardhome_dns_wait_failure() {
 }
 
 wait_for_adguardhome_dns() {
-	_dns_wait_attempts="0"
-	_dns_wait_limit="$(dns_retry_limit "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" 30)"
-	agh_log INFO wait_for_adguardhome_dns "Waiting for AdGuardHome to bind DNS port 53."
-	while [ "${_dns_wait_attempts}" -lt "${_dns_wait_limit}" ]; do
+	_dns_wait_elapsed="0"
+	_dns_wait_timeout="$(adguardhome_readiness_timeout "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" ADGUARDHOME_DNS_WAIT_RETRIES)"
+	_dns_wait_failure_reason="readiness deadline expired while the process remained running; large filter lists can increase startup time"
+	agh_log INFO wait_for_adguardhome_dns "Waiting up to ${_dns_wait_timeout} second(s) for AdGuardHome to bind DNS port 53."
+	while :; do
 		dns_socket_snapshot || {
-			adguardhome_single_process_running || break
-			_dns_wait_attempts="$((_dns_wait_attempts + 1))"
+			if ! adguardhome_single_process_running; then
+				_dns_wait_failure_reason="process exited before DNS readiness completed"
+				break
+			fi
+			[ "${_dns_wait_elapsed}" -ge "${_dns_wait_timeout}" ] && break
+			_dns_wait_elapsed="$((_dns_wait_elapsed + 1))"
 			sleep 1s
 			continue
 		}
 		adguardhome_owns_dns "${ADGUARDHOME_DNS_BIND_SCOPE:-global}" "${DNS_SOCKET_SNAPSHOT}"
 		_dns_wait_status="$?"
 		if [ "${_dns_wait_status}" -eq 0 ]; then
-			agh_log INFO wait_for_adguardhome_dns "AdGuardHome owns DNS port 53 after ${_dns_wait_attempts} attempt(s)."
+			agh_log INFO wait_for_adguardhome_dns "AdGuardHome owns DNS port 53 after ${_dns_wait_elapsed} second(s)."
 			return 0
 		fi
-		[ "${_dns_wait_status}" -eq 2 ] && break
-		_dns_wait_attempts="$((_dns_wait_attempts + 1))"
-		if [ "${_dns_wait_attempts}" = "5" ] || [ "${_dns_wait_attempts}" = "15" ]; then
-			agh_log INFO wait_for_adguardhome_dns "Still waiting for DNS port 53 after ${_dns_wait_attempts} attempt(s)."
+		if [ "${_dns_wait_status}" -eq 2 ]; then
+			_dns_wait_failure_reason="process exited before DNS readiness completed"
+			break
+		fi
+		if dns_port_has_foreign_owner "${ADGUARDHOME_DNS_BIND_SCOPE:-global}" "${DNS_SOCKET_SNAPSHOT}" 1; then
+			_dns_wait_failure_reason="port 53 is owned by another process"
+			break
+		fi
+		[ "${_dns_wait_elapsed}" -ge "${_dns_wait_timeout}" ] && break
+		_dns_wait_elapsed="$((_dns_wait_elapsed + 1))"
+		if [ "${_dns_wait_elapsed}" = "5" ] || [ "${_dns_wait_elapsed}" = "30" ] ||
+			[ "${_dns_wait_elapsed}" = "120" ]; then
+			agh_log INFO wait_for_adguardhome_dns "Still waiting for DNS port 53 after ${_dns_wait_elapsed} second(s)."
 		fi
 		sleep 1s
 	done
-	if dns_socket_snapshot && adguardhome_owns_dns "${ADGUARDHOME_DNS_BIND_SCOPE:-global}" "${DNS_SOCKET_SNAPSHOT}"; then
-		agh_log INFO wait_for_adguardhome_dns "AdGuardHome owns DNS port 53 on final check."
-		return 0
-	fi
+	agh_log ERROR wait_for_adguardhome_dns "DNS readiness failed after ${_dns_wait_elapsed} second(s): ${_dns_wait_failure_reason}."
 	log_adguardhome_dns_wait_failure
 	return 1
 }
