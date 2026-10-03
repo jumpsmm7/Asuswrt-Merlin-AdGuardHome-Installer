@@ -59,13 +59,13 @@ publication_state_valid() {
 	while IFS=' ' read -r presence name; do
 		case "${presence}:${name}" in
 			present:tzdata-*-aarch64.pkg.tar.bz2 | present:tzdata-*-aarch64.pkg.tar.bz2.md5sum | present:tzdata-*-aarch64.pkg.tar.bz2.sha256sum | \
-			present:tzdata-*-arm.pkg.tar.bz2 | present:tzdata-*-arm.pkg.tar.bz2.md5sum | present:tzdata-*-arm.pkg.tar.bz2.sha256sum | \
-			present:installer | present:installer.md5sum | present:installer.sha256sum)
+				present:tzdata-*-arm.pkg.tar.bz2 | present:tzdata-*-arm.pkg.tar.bz2.md5sum | present:tzdata-*-arm.pkg.tar.bz2.sha256sum | \
+				present:installer | present:installer.md5sum | present:installer.sha256sum)
 				[ -f "${backup_dir}/${name}" ] && [ ! -L "${backup_dir}/${name}" ] || return 1
 				;;
 			absent:tzdata-*-aarch64.pkg.tar.bz2 | absent:tzdata-*-aarch64.pkg.tar.bz2.md5sum | absent:tzdata-*-aarch64.pkg.tar.bz2.sha256sum | \
-			absent:tzdata-*-arm.pkg.tar.bz2 | absent:tzdata-*-arm.pkg.tar.bz2.md5sum | absent:tzdata-*-arm.pkg.tar.bz2.sha256sum | \
-			absent:installer | absent:installer.md5sum | absent:installer.sha256sum) continue ;;
+				absent:tzdata-*-arm.pkg.tar.bz2 | absent:tzdata-*-arm.pkg.tar.bz2.md5sum | absent:tzdata-*-arm.pkg.tar.bz2.sha256sum | \
+				absent:installer | absent:installer.md5sum | absent:installer.sha256sum) continue ;;
 			*) return 1 ;;
 		esac
 	done <"${transaction_dir}/original.list"
