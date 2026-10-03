@@ -11,6 +11,7 @@ OUT_DIR="${1:-.}"
 : "${CURL_CA_BUNDLE:?CURL_CA_BUNDLE is required}"
 : "${MIRROR_HOSTS:?MIRROR_HOSTS is required}"
 : "${SIGNING_KEY_FINGERPRINT:?SIGNING_KEY_FINGERPRINT is required}"
+readonly HTTPS_PROTOCOLS="=https"
 
 if [ ! -r "${CURL_CA_BUNDLE}" ]; then
 	printf 'Certificate authority bundle is not readable: %s\n' "${CURL_CA_BUNDLE}" >&2
@@ -30,9 +31,9 @@ if ! mkdir "${lock_dir}" 2>/dev/null; then
 	if [ -d "${lock_dir}" ] && [ ! -L "${lock_dir}" ] &&
 		[ -f "${lock_dir}/pid" ] && [ ! -L "${lock_dir}/pid" ]; then
 		lock_pid="$(cat "${lock_dir}/pid")"
-		case "${lock_pid}" in
-			'' | *[!0-9]*) lock_pid= ;;
-		esac
+		if ! printf '%s\n' "${lock_pid}" | grep -Eq '^[0-9]+$'; then
+			lock_pid=
+		fi
 		if [ -n "${lock_pid}" ] && ! kill -0 "${lock_pid}" 2>/dev/null; then
 			rm -rf "${lock_dir}" || exit 1
 			mkdir "${lock_dir}" || exit 1
@@ -209,12 +210,12 @@ download_verified_pair() {
 		printf 'Downloading %s from %s\n' "${relative_path}" "${mirror_url}"
 		if curl --fail --location --silent --show-error \
 			--cacert "${CURL_CA_BUNDLE}" \
-			--proto '=https' --proto-redir '=https' \
+			--proto "${HTTPS_PROTOCOLS}" --proto-redir "${HTTPS_PROTOCOLS}" \
 			--connect-timeout 15 --max-time "${max_time}" \
 			"${mirror_url}/${relative_path}" --output "${output_file}" &&
 			curl --fail --location --silent --show-error \
 				--cacert "${CURL_CA_BUNDLE}" \
-				--proto '=https' --proto-redir '=https' \
+				--proto "${HTTPS_PROTOCOLS}" --proto-redir "${HTTPS_PROTOCOLS}" \
 				--connect-timeout 15 --max-time 120 \
 				"${mirror_url}/${relative_path}.sig" --output "${signature_file}" &&
 			verify_signature "${output_file}" "${signature_file}"; then
@@ -240,7 +241,7 @@ discover_package_filename() {
 		mirror_url="https://${mirror_host}"
 		if ! curl --fail --location --silent --show-error \
 			--cacert "${CURL_CA_BUNDLE}" \
-			--proto '=https' --proto-redir '=https' \
+			--proto "${HTTPS_PROTOCOLS}" --proto-redir "${HTTPS_PROTOCOLS}" \
 			--connect-timeout 15 --max-time 120 \
 			"${mirror_url}/${architecture}/core/" --output "${package_listing}"; then
 			printf 'Failed to download package listing from %s\n' "${mirror_url}" >&2

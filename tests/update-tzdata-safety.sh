@@ -19,7 +19,8 @@ trap 'cleanup; exit 1' HUP INT TERM
 if grep -Eq 'for protocol in https http|http://|--proto ['"'"']?=http['"'"']?([[:space:]]|$)|--proto-redir ['"'"']?=http['"'"']?([[:space:]]|$)' "${SCRIPT_PATH}"; then
 	fail 'tzdata updater retains plaintext HTTP transport'
 fi
-[ "$(grep -c -- "--proto '=https' --proto-redir '=https'" "${SCRIPT_PATH}")" -eq 3 ] ||
+grep -Fq 'readonly HTTPS_PROTOCOLS="=https"' "${SCRIPT_PATH}" || fail 'HTTPS protocol policy constant is missing'
+[ "$(grep -c -- '--proto "${HTTPS_PROTOCOLS}" --proto-redir "${HTTPS_PROTOCOLS}"' "${SCRIPT_PATH}")" -eq 3 ] ||
 	fail 'every tzdata request must restrict requests and redirects to HTTPS'
 grep -Fq "trap 'exit 129' HUP" "${SCRIPT_PATH}" || fail 'HUP publication rollback trap is missing'
 grep -Fq "trap 'exit 130' INT" "${SCRIPT_PATH}" || fail 'INT publication rollback trap is missing'
@@ -33,6 +34,7 @@ sed -n '/^download_verified_pair() {$/,/^}$/p; /^discover_package_filename() {$/
 stage_dir="${TMP_ROOT}/stage"
 mkdir "${stage_dir}"
 MIRROR_HOSTS='first.invalid second.invalid'
+HTTPS_PROTOCOLS='=https'
 CURL_CA_BUNDLE="${TMP_ROOT}/ca.pem"
 : >"${CURL_CA_BUNDLE}"
 CURL_MODE=valid

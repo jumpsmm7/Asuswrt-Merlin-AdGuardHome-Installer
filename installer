@@ -3316,7 +3316,10 @@ agh_startup_ready() {
 
 agh_complete_startup() {
 	ptxt_phase "Starting AdGuardHome service."
-	agh_stop
+	if ! agh_stop; then
+		ptxt_fail "Unable to establish a stopped service state before startup."
+		return 1
+	fi
 	ADGUARDHOME_START_FAILURE_LOGGED=
 	if ! agh_start; then
 		[ "${ADGUARDHOME_START_FAILURE_LOGGED:-}" = "1" ] || agh_start_error
@@ -3790,9 +3793,18 @@ agh_start_error() {
 		"${ERROR} Please send WebUI System Log to dev."
 }
 
+# agh_stop stops both the daemon and its monitor, distinguishes a lingering
+# monitor from a live daemon, and verifies that neither remains before return.
 agh_stop() {
-	if [ "$(agh_process_count)" -ge "1" ]; then
-		ptxt_step "Stopping AdGuardHome service."
+	local daemon_count monitor_count
+	daemon_count="$(pidof AdGuardHome 2>/dev/null | wc -w)"
+	monitor_count="$(agh_monitor_count)"
+	if [ "${daemon_count}" -ge 1 ] || [ "${monitor_count}" -ge 1 ]; then
+		if [ "${daemon_count}" -ge 1 ]; then
+			ptxt_step "Stopping AdGuardHome service."
+		else
+			ptxt_step "Stopping the lingering AdGuardHome monitor after the daemon exited."
+		fi
 		if service stop_AdGuardHome >/dev/null 2>&1; then
 			adguard_service_status_after_action stop || true
 		elif /opt/etc/init.d/S99AdGuardHome stop; then
