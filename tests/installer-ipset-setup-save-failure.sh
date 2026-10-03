@@ -13,12 +13,64 @@ fail() {
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 
 RUNTIME_DEFAULT_FUNCTIONS="$(sed -n '/^conf_value() {$/,/^md5_is_valid() {$/p' "${SCRIPT_PATH}" | sed '$d')"
+INSTALL_MODE_FUNCTIONS="$(sed -n '/^ipv4_is_valid() {$/,/^preflight_action_requires_firewall_tools() {$/p' "${SCRIPT_PATH}" | sed '$d')"
+LOCK_OWNER_FUNCTIONS="$(sed -n '/^nvram_transaction_lock_owned() {$/,/^nvram_transaction_lock_owner_live() {$/p' "${SCRIPT_PATH}" | sed '$d')"
 SETUP_FUNCTIONS="$(sed -n '/^setup_AdGuardHome() {$/,/^setup_amtmupdate() {$/p' "${SCRIPT_PATH}" | sed '$d')"
 [ -n "${RUNTIME_DEFAULT_FUNCTIONS}" ] || fail 'could not extract runtime default functions'
+[ -n "${INSTALL_MODE_FUNCTIONS}" ] || fail 'could not extract install mode functions'
+[ -n "${LOCK_OWNER_FUNCTIONS}" ] || fail 'could not extract transaction lock ownership functions'
 [ -n "${SETUP_FUNCTIONS}" ] || fail 'could not extract setup functions'
 eval "${RUNTIME_DEFAULT_FUNCTIONS}"
+eval "${INSTALL_MODE_FUNCTIONS}"
+eval "${LOCK_OWNER_FUNCTIONS}"
 eval "${SETUP_FUNCTIONS}"
 
+# nvram_transaction_lock_failure records the diagnostic emitted by the extracted setup-journal helper.
+nvram_transaction_lock_failure() {
+	NVRAM_TRANSACTION_LOCK_DIAGNOSTIC="$1"
+	return 1
+}
+
+# setup_files_begin_if_needed reuses a journal already owned by this installer
+# process instead of aborting LAN setup before YAML configuration begins.
+(
+	SETUP_FILES_JOURNALED=0
+	NVRAM_TRANSACTION_LOCK_MODE="mkdir"
+	BASE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/installer-ipset-existing-journal.XXXXXX")" || fail 'could not create active-journal test directory'
+	trap 'rm -rf "${BASE_DIR}"' 0
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create active-journal fixture directory'
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not create active lock fixture directory'
+	nvram_transaction_lock_owner_current >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record active lock owner'
+	# nvram_transaction_setup_files_begin rejects attempts to replace the active setup journal.
+	nvram_transaction_setup_files_begin() { fail 'attempted to replace the active setup journal'; }
+	setup_files_begin_if_needed || fail 'could not reuse the active setup journal'
+	[ "${SETUP_FILES_JOURNALED}" -eq 1 ] || fail 'active setup journal was not recorded in the current setup frame'
+) || fail 'active setup journal subshell failed'
+
+# A stale lock-mode value must not permit reuse when the current process no
+# longer owns the transaction lock.
+(
+	SETUP_FILES_JOURNALED=0
+	NVRAM_TRANSACTION_LOCK_MODE="mkdir"
+	BASE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/installer-ipset-stale-journal.XXXXXX")" || fail 'could not create stale-journal test directory'
+	trap 'rm -rf "${BASE_DIR}"' 0
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create stale-journal fixture directory'
+	mkdir -p "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not create stale lock fixture directory'
+	printf '%s\n' '1:1' >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record stale lock owner'
+	SETUP_FILES_BEGIN_CALLED=0
+	# nvram_transaction_setup_files_begin begins the NVRAM transaction for setup files and signals failure.
+	nvram_transaction_setup_files_begin() {
+		SETUP_FILES_BEGIN_CALLED=1
+		return 1
+	}
+	if setup_files_begin_if_needed; then
+		fail 'reused a setup journal without owning the transaction lock'
+	fi
+	[ "${SETUP_FILES_BEGIN_CALLED}" -eq 0 ] || fail 'attempted to replace the stale setup journal'
+	[ "${SETUP_FILES_JOURNALED}" -eq 0 ] || fail 'recorded an unowned setup journal in the current setup frame'
+) || fail 'stale setup journal subshell failed'
+
+# rollback_result_write records the outcome of a rollback operation.
 rollback_result_write() { :; }
 rollback_result_notice() { :; }
 
@@ -26,6 +78,7 @@ INFO='Info:'
 ERROR='Error:'
 WARNING='Warning:'
 TMP_ROOT="${TMPDIR:-/tmp}/installer-ipset-setup-save-failure.$$"
+BASE_DIR="${TMP_ROOT}/base"
 TARG_DIR="${TMP_ROOT}/target"
 AGH_FILE="${TARG_DIR}/AdGuardHome"
 YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
@@ -46,16 +99,53 @@ cleanup() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
+# nvram prints `1` for `get:dns_local_cache` requests and produces no output for other requests.
 nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '1' ;;
+		get:lan_domain) printf '%s\n' '' ;;
+		get:lan_gateway | get:lan_ipaddr) printf '%s\n' '192.168.1.1' ;;
+		get:lan_ifname) printf '%s\n' 'br0' ;;
+		get:ipv6_rtr_addr) printf '%s\n' '' ;;
+		get:sw_mode) printf '%s\n' "${TEST_SW_MODE:-1}" ;;
+		get:wan_ipaddr) printf '%s\n' '192.168.50.2' ;;
 	esac
 }
+# ai_have_cmd reports that optional router commands are unavailable in this fixture.
+ai_have_cmd() { return 1; }
+# ipv4_is_valid accepts the LAN and private WAN addresses used by this fixture.
+ipv4_is_valid() {
+	case "$1" in
+		192.168.1.1 | 192.168.50.2) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+# check_dns_filter checks the current DNS filter settings.
 check_dns_filter() { :; }
+# save_dns_filter_settings creates the directory specified by its argument.
 save_dns_filter_settings() { mkdir -p "$1"; }
+# installer_lan_domain_set writes the specified LAN domain to NVRAM.
+installer_lan_domain_set() { nvram set "lan_domain=$1"; }
+# installer_lan_domain_restore preserves the installer LAN domain setting.
+installer_lan_domain_restore() { :; }
+# nvram_transaction_finalize_setup_pair finalizes the NVRAM setup transaction successfully.
+nvram_transaction_finalize_setup_pair() { return 0; }
+# nvram_transaction_setup_committed reports whether the setup commit marker exists.
+nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }
+# nvram_transaction_setup_files_begin begins the NVRAM setup-file transaction successfully.
+nvram_transaction_setup_files_begin() { return 0; }
+# nvram_transaction_setup_files_restore restores setup transaction files successfully in the test harness.
+nvram_transaction_setup_files_restore() { return 0; }
+# restore_dns_filter_settings removes the specified DNS filter settings directory and its contents.
 restore_dns_filter_settings() { rm -rf "$1"; }
+# check_dns_local is a test stub for the DNS locality check.
 check_dns_local() { :; }
-check_ipset() { return 1; }
+# check_ipset records an optional selection and simulates a preference-save failure.
+check_ipset() {
+	[ -z "${IPSET_SELECTION_LOG:-}" ] || printf '%s\n' "$1" >>"${IPSET_SELECTION_LOG}"
+	return 1
+}
+# check_AdGuardHome_yaml verifies that YAML validation is enabled for the test harness.
 check_AdGuardHome_yaml() {
 	[ "${ALLOW_YAML_VALIDATION:-0}" -eq 1 ] || fail 'unexpected YAML validation'
 }
@@ -86,6 +176,55 @@ end_op_message() {
 
 ALLOW_INITIAL_CONFIG=1
 ALLOW_YAML_VALIDATION=1
+
+# Exercise the complete LAN install path with a setup journal created by an
+# earlier stage of the same installer process. The check_ipset boundary must
+# reuse that owned journal and continue through YAML generation.
+LOG="${TMP_ROOT}/install.lan-owned-journal.log"
+RESTART_LOG="${LOG}.restart"
+END_LOG="${LOG}.end"
+IPSET_SELECTION_LOG="${LOG}.ipset-selection"
+: >"${LOG}"
+: >"${RESTART_LOG}"
+: >"${END_LOG}"
+: >"${IPSET_SELECTION_LOG}"
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram/setup-files" || fail 'could not create installer-owned LAN setup journal'
+mkdir -p "${BASE_DIR}/.AdGuardHome.nvram.lock.d" || fail 'could not create installer-owned LAN lock directory'
+nvram_transaction_lock_owner_current >"${BASE_DIR}/.AdGuardHome.nvram.lock.d/pid" || fail 'could not record installer-owned LAN lock owner'
+NVRAM_TRANSACTION_LOCK_MODE="mkdir"
+nvram_transaction_setup_files_begin() { fail 'LAN installation attempted to replace its owned setup journal'; }
+TEST_SW_MODE=3
+ADGUARD_INSTALL_MODE=
+PREFLIGHT_INSTALL_MODE_DETECTED=0
+adguard_install_mode_detect_once
+[ "${ADGUARD_INSTALL_MODE}" = lan ] || fail 'non-router sw_mode was not detected as LAN/AP/bridge mode'
+ADGUARD_LAN_REVERSE_UPSTREAM=192.168.1.1
+BOOTSTRAP1=
+BOOTSTRAP2=
+setup_AdGuardHome '' install || fail 'LAN installation did not reuse its installer-owned setup journal'
+[ "$(cat "${IPSET_SELECTION_LOG}")" = 0 ] || fail 'LAN installation did not keep IPSET disabled'
+grep -q 'Unable to save the optional AdGuardHome IPSET integration setting' "${LOG}" || fail 'LAN installation did not exercise the optional IPSET preference failure'
+grep -q 'Continuing setup with the previous or default IPSET preference' "${LOG}" || fail 'LAN installation did not continue after the optional IPSET preference failure'
+[ -f "${YAML_FILE}" ] || fail 'LAN installation did not proceed into YAML generation with its owned setup journal'
+if grep -q 'Unable to journal the current installer configuration before check_ipset' "${LOG}"; then
+	fail 'LAN installation rejected its installer-owned setup journal before check_ipset'
+fi
+rm -rf "${BASE_DIR}/.AdGuardHome.nvram" "${YAML_FILE}" "${YAML_ORI}" "${YAML_BAK}"
+nvram_transaction_setup_files_begin() { return 0; }
+TEST_SW_MODE=1
+ADGUARD_INSTALL_MODE=
+PREFLIGHT_INSTALL_MODE_DETECTED=0
+adguard_install_mode_detect_once
+[ "${ADGUARD_INSTALL_MODE}" = wan ] || fail 'router sw_mode was not detected as WAN mode'
+WAN_IPADDR="$(nvram get wan_ipaddr)"
+if (
+	PTXT() { printf '%s\n' "$1"; }
+	ipv4_is_private "${WAN_IPADDR}"
+); then NAT_ENV="${WAN_IPADDR}"; else NAT_ENV=""; fi
+[ "${NAT_ENV}" = "${WAN_IPADDR}" ] || fail 'private router WAN address was not classified as double NAT'
+ADGUARD_LAN_REVERSE_UPSTREAM=
+IPSET_SELECTION_LOG=
+
 for ANSWER in yes no; do
 	LOG="${TMP_ROOT}/install.${ANSWER}.log"
 	RESTART_LOG="${LOG}.restart"

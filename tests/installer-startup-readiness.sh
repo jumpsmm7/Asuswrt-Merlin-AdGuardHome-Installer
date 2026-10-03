@@ -22,7 +22,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^port_is_valid() {$/,/^}$/p; /^runtime_port_is_valid() {$/,/^}$/p; /^web_port_in_use() {$/,/^}$/p; /^web_port_owned_by_agh() {$/,/^}$/p; /^agh_config_valid() {$/,/^}$/p; /^agh_dns_bound() {$/,/^}$/p; /^agh_web_port() {$/,/^}$/p; /^agh_web_bound() {$/,/^}$/p; /^agh_log_start_failure() {$/,/^}$/p; /^agh_startup_check() {$/,/^}$/p; /^agh_startup_ready() {$/,/^}$/p; /^agh_is_running() {$/,/^}$/p' \
+	'/^port_is_valid() {$/,/^}$/p; /^runtime_port_is_valid() {$/,/^}$/p; /^web_port_in_use() {$/,/^}$/p; /^web_port_owned_by_agh() {$/,/^}$/p; /^agh_config_valid() {$/,/^}$/p; /^agh_dns_bound() {$/,/^}$/p; /^agh_web_port() {$/,/^}$/p; /^agh_web_bound() {$/,/^}$/p; /^agh_log_start_failure() {$/,/^}$/p; /^agh_startup_check() {$/,/^}$/p; /^agh_startup_ready() {$/,/^}$/p; /^agh_complete_startup() {$/,/^}$/p; /^agh_is_running() {$/,/^}$/p' \
 	"${INSTALLER_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${INSTALLER_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'installer startup functions were not found'
 
@@ -139,3 +139,50 @@ ADGUARDHOME_READY_TIMEOUT=1
 SLEEP_CALLS=0
 agh_startup_ready || fail 'startup readiness rejected a valid low YAML WebUI port'
 [ "${SLEEP_CALLS}" -eq 0 ] || fail 'startup readiness retried despite low YAML WebUI port being ready'
+
+# Complete startup must never start over an unconfirmed stop.  Once the start
+# passes its own readiness checks, completion must not disrupt it with a second
+# restart request.
+STARTUP_SEQUENCE_FILE="${TEST_ROOT}/startup-sequence"
+ptxt_phase() { :; }
+ptxt_step() { :; }
+ptxt_ok() { :; }
+ptxt_fail() { printf '%s\n' "$*" >>"${STARTUP_SEQUENCE_FILE}"; }
+agh_stop() {
+	printf '%s\n' stop >>"${STARTUP_SEQUENCE_FILE}"
+	return "${STOP_STATUS:-0}"
+}
+agh_start() {
+	printf '%s\n' start >>"${STARTUP_SEQUENCE_FILE}"
+	return "${START_STATUS:-0}"
+}
+agh_restart() {
+	printf '%s\n' restart >>"${STARTUP_SEQUENCE_FILE}"
+	return "${RESTART_STATUS:-0}"
+}
+agh_start_error() { printf '%s\n' start-error >>"${STARTUP_SEQUENCE_FILE}"; }
+
+: >"${STARTUP_SEQUENCE_FILE}"
+STOP_STATUS=1
+START_STATUS=0
+if agh_complete_startup; then
+	fail 'complete startup ignored an unconfirmed stopped state'
+fi
+[ "$(sed -n '1p' "${STARTUP_SEQUENCE_FILE}")" = stop ] || fail 'complete startup did not attempt its initial stop'
+[ "$(wc -l <"${STARTUP_SEQUENCE_FILE}")" -eq 2 ] || fail 'complete startup continued after the initial stop failed'
+
+: >"${STARTUP_SEQUENCE_FILE}"
+STOP_STATUS=0
+START_STATUS=1
+if agh_complete_startup; then
+	fail 'complete startup ignored initial start failure'
+fi
+[ "$(grep -c '^restart$' "${STARTUP_SEQUENCE_FILE}")" -eq 0 ] || fail 'complete startup restarted after the initial start failed'
+
+: >"${STARTUP_SEQUENCE_FILE}"
+START_STATUS=0
+agh_complete_startup || fail 'complete startup rejected a successful stop/start lifecycle'
+[ "$(cat "${STARTUP_SEQUENCE_FILE}")" = "$(printf '%s\n' stop start)" ] ||
+	fail 'complete startup disrupted a successful start with a redundant restart'
+
+printf '%s\n' 'PASS: installer startup readiness and lifecycle checks are fail-closed'

@@ -4,7 +4,10 @@
 set -u
 
 S99_PATH="${1:-S99AdGuardHome}"
-TEST_ROOT="${TMPDIR:-/tmp}/s99-netstat-readiness.$$"
+TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/s99-netstat-readiness.XXXXXX") || {
+	printf '%s\n' 'FAIL: could not create test directory' >&2
+	exit 1
+}
 FUNCTIONS_FILE="${TEST_ROOT}/s99-functions"
 
 cleanup() {
@@ -18,10 +21,9 @@ fail() {
 
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
-mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_owned_status() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^dns_port_has_foreign_owner() {$/,/^}$/p; /^dns_port_needs_release() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p' \
+	'/^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_owned_status() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^dns_socket_snapshot() {$/,/^}$/p; /^dns_socket_snapshot_value() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^adguardhome_dns_bind_scope() {$/,/^}$/p; /^dns_port_owner_command() {$/,/^}$/p; /^dns_port_owner_process_name() {$/,/^}$/p; /^dns_port_unknown_refusal_enabled() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^dns_port_has_foreign_owner() {$/,/^}$/p; /^dns_port_needs_release() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p' \
 	"${S99_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${S99_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'S99 netstat readiness functions were not found'
 grep -q '^adguardhome_single_process_running() {$' "${FUNCTIONS_FILE}" || fail 'single-process fallback helper was not found'
@@ -32,10 +34,48 @@ grep -q '^adguardhome_single_process_running() {$' "${FUNCTIONS_FILE}" || fail '
 PROCS='AdGuardHome'
 WORK_DIR="${TEST_ROOT}/AdGuardHome"
 CALLS_FILE="${TEST_ROOT}/calls"
+NETSTAT_CALLS_FILE="${TEST_ROOT}/netstat-calls"
 mkdir -p "${WORK_DIR}" || fail 'could not create AdGuardHome work directory'
 printf '%s\n' 'http:' '  address: 0.0.0.0:3000' >"${WORK_DIR}/AdGuardHome.yaml" || fail 'could not create YAML stub'
 : >"${CALLS_FILE}" || fail 'could not create calls file'
+: >"${NETSTAT_CALLS_FILE}" || fail 'could not create netstat calls file'
 
+# agh_lan_mode reports whether LAN mode is enabled.
+agh_lan_mode() {
+	return 0
+}
+
+# which returns `nvram` when queried for that command; otherwise, it fails.
+which() {
+	[ "${1:-}" = nvram ] || return 1
+	printf '%s\n' nvram
+}
+
+# nvram returns the configured LAN IP address for a supported query.
+nvram() {
+	[ "${1:-}" = get ] && [ "${2:-}" = lan_ipaddr ] || return 1
+	printf '%s\n' '192.168.50.1'
+}
+
+cat >"${WORK_DIR}/AdGuardHome.yaml" <<'EOF' || fail 'could not write inline bind-host YAML'
+dns:
+  bind_hosts: [127.0.0.1, 192.168.50.1]
+http:
+  address: 0.0.0.0:3000
+EOF
+[ "$(adguardhome_dns_bind_scope)" = '127.0.0.1 192.168.50.1' ] || fail 'inline DNS bind hosts fell back to global scope'
+
+cat >"${WORK_DIR}/AdGuardHome.yaml" <<'EOF' || fail 'could not write block bind-host YAML'
+dns:
+  bind_hosts:
+    - 127.0.0.1
+    - 192.168.50.1
+http:
+  address: 0.0.0.0:3000
+EOF
+[ "$(adguardhome_dns_bind_scope)" = '127.0.0.1 192.168.50.1' ] || fail 'block DNS bind-host parsing regressed'
+
+# agh_log records a log message in the calls file.
 agh_log() {
 	printf '%s\n' "$*" >>"${CALLS_FILE}"
 }
@@ -50,7 +90,9 @@ pidof() {
 	esac
 }
 
+# netstat emits simulated socket listings selected by NETSTAT_STATE for readiness and ownership tests.
 netstat() {
+	printf '%s\n' netstat >>"${NETSTAT_CALLS_FILE}"
 	case "${NETSTAT_STATE:-owned}" in
 		owned)
 			printf '%s\n' \
@@ -76,6 +118,28 @@ netstat() {
 				'udp 0 0 0.0.0.0:53 0.0.0.0:*' \
 				'tcp 0 0 0.0.0.0:3000 0.0.0.0:* LISTEN 88/httpd'
 			;;
+		unknown_other_lan_ip)
+			printf '%s\n' \
+				'tcp 0 0 192.168.50.2:53 0.0.0.0:* LISTEN 77/customdns' \
+				'udp 0 0 192.168.50.2:53 0.0.0.0:* 77/customdns'
+			;;
+		unknown_configured_lan_ip)
+			printf '%s\n' \
+				'tcp 0 0 192.168.50.1:53 0.0.0.0:* LISTEN 77/customdns' \
+				'udp 0 0 192.168.50.1:53 0.0.0.0:* 77/customdns'
+			;;
+		loopback_only_dns)
+			printf '%s\n' \
+				'tcp 0 0 127.0.0.1:53 0.0.0.0:* LISTEN 123/AdGuardHome' \
+				'udp 0 0 127.0.0.1:53 0.0.0.0:* 123/AdGuardHome'
+			;;
+		scoped_loopback_lan_dns)
+			printf '%s\n' \
+				'tcp 0 0 127.0.0.1:53 0.0.0.0:* LISTEN 123/AdGuardHome' \
+				'udp 0 0 127.0.0.1:53 0.0.0.0:* 123/AdGuardHome' \
+				'tcp 0 0 192.168.50.1:53 0.0.0.0:* LISTEN 123/AdGuardHome' \
+				'udp 0 0 192.168.50.1:53 0.0.0.0:* 123/AdGuardHome'
+			;;
 		missing_udp)
 			printf '%s\n' \
 				'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN' \
@@ -87,6 +151,12 @@ netstat() {
 				'tcp 0 0 0.0.0.0:3000 0.0.0.0:* LISTEN'
 			;;
 	esac
+}
+
+# kill records the requested signal and process identifiers in the calls log.
+kill() {
+	printf '%s\n' "kill $*" >>"${CALLS_FILE}"
+	return 0
 }
 
 PIDOF_STATE=one
@@ -101,16 +171,33 @@ if dns_port_needs_release; then
 	fail 'release check reported AdGuardHome as needing release'
 fi
 
+: >"${NETSTAT_CALLS_FILE}"
+dns_socket_snapshot || fail 'could not collect a shared DNS socket snapshot'
+adguardhome_owns_dns global "${DNS_SOCKET_SNAPSHOT}" || fail 'shared snapshot rejected AdGuardHome ownership'
+dns_port_available global "${DNS_SOCKET_SNAPSHOT}" || fail 'shared snapshot rejected DNS availability'
+if dns_port_has_foreign_owner global "${DNS_SOCKET_SNAPSHOT}"; then
+	fail 'shared snapshot reported an AdGuardHome socket as foreign'
+fi
+if dns_port_needs_release global "${DNS_SOCKET_SNAPSHOT}"; then
+	fail 'shared snapshot reported an AdGuardHome socket as needing release'
+fi
+[ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -eq 1 ] || fail 'DNS helpers recollected netstat instead of sharing one snapshot'
+NETSTAT_STATE=foreign_dnsmasq
+dns_port_available global "${DNS_SOCKET_SNAPSHOT}" || fail 'snapshot changed before an explicit refresh'
+dns_socket_snapshot || fail 'could not refresh the changed DNS socket state'
+if dns_port_available global "${DNS_SOCKET_SNAPSHOT}"; then
+	fail 'refreshed snapshot did not expose changed DNS socket ownership'
+fi
+[ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -eq 2 ] || fail 'changed DNS state was not collected exactly once per snapshot'
+
 NETSTAT_STATE=no_owner
-adguardhome_owns_dns || fail 'DNS fallback rejected bound TCP/UDP port 53 without PID/program ownership'
+adguardhome_owns_dns || fail 'DNS fallback rejected ownerless sockets with one AdGuardHome process'
 adguardhome_web_port_available || fail 'WebUI fallback rejected bound port without PID/program ownership'
-dns_port_available || fail 'DNS port availability rejected bound ownerless port 53 with one AdGuardHome process'
-if dns_port_has_foreign_owner; then
-	fail 'ownerless DNS port was treated as an explicit foreign owner'
+if dns_port_available; then
+	fail 'DNS port availability accepted bound ownerless port 53'
 fi
-if dns_port_needs_release; then
-	fail 'release check rejected ownerless DNS port with one AdGuardHome process'
-fi
+dns_port_has_foreign_owner || fail 'ownerless DNS port was not treated as unsafe ownership'
+dns_port_needs_release || fail 'release check missed bound ownerless port 53'
 
 PIDOF_STATE=two
 if adguardhome_owns_dns; then
@@ -123,6 +210,14 @@ if ! dns_port_needs_release; then
 	fail 'release check missed ownerless DNS port with multiple AdGuardHome processes'
 fi
 PIDOF_STATE=one
+
+NETSTAT_STATE=loopback_only_dns
+if adguardhome_owns_dns '127.0.0.1 192.168.50.1'; then
+	fail 'scoped LAN DNS readiness accepted loopback-only ownership'
+fi
+
+NETSTAT_STATE=scoped_loopback_lan_dns
+adguardhome_owns_dns '127.0.0.1 192.168.50.1' || fail 'scoped LAN DNS readiness rejected ownership on every bind address'
 
 NETSTAT_STATE=foreign_dnsmasq
 if adguardhome_owns_dns; then
@@ -138,6 +233,22 @@ NETSTAT_STATE=foreign_web
 if adguardhome_web_port_available; then
 	fail 'WebUI readiness accepted explicit foreign ownership'
 fi
+
+NETSTAT_STATE=unknown_other_lan_ip
+ADGUARDHOME_FORCE_DNS_PORT_KILL=1
+if ! kill_dns_port_owners 192.168.50.1; then
+	fail 'scoped release rejected unrelated unknown owner on a different LAN IP'
+fi
+[ ! -s "${CALLS_FILE}" ] || fail 'scoped release logged or killed unrelated unknown owner on a different LAN IP'
+
+NETSTAT_STATE=unknown_configured_lan_ip
+: >"${CALLS_FILE}"
+if ! kill_dns_port_owners 192.168.50.1; then
+	fail 'scoped forced release rejected unknown owner on configured LAN IP'
+fi
+grep -q '^kill -s 9 77$' "${CALLS_FILE}" || fail 'scoped forced release did not kill unknown owner on configured LAN IP'
+
+unset ADGUARDHOME_FORCE_DNS_PORT_KILL
 
 NETSTAT_STATE=missing_udp
 if adguardhome_owns_dns; then
