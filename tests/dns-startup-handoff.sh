@@ -397,6 +397,9 @@ sleep() {
 	if [ "${SLEEP_WEB_BOUND_AFTER:-0}" -gt 0 ] && [ "${SLEEP_CALLS}" -ge "${SLEEP_WEB_BOUND_AFTER}" ]; then
 		WEB_STATE=bound
 	fi
+	if [ "${SLEEP_PROCESS_EXITS_AFTER:-0}" -gt 0 ] && [ "${SLEEP_CALLS}" -ge "${SLEEP_PROCESS_EXITS_AFTER}" ]; then
+		DNS_STATE=missing
+	fi
 	:
 }
 
@@ -1307,26 +1310,48 @@ grep -q 'AdGuardHome startup failed: process is running but DNS is not bound' "$
 : >"${CALLS_FILE}"
 DNS_STATE=owned
 WEB_STATE=missing
-ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
+SLEEP_CALLS=0
+ADGUARDHOME_READY_TIMEOUT=3
+mark_dns_handoff_active
 if post_start_adguardhome; then
 	fail 'post-start succeeded with an unavailable WebUI port'
 fi
 grep -q 'AdGuardHome startup failed: WebUI port is unavailable' "${CALLS_FILE}" || fail 'WebUI startup failure did not log the concise WebUI message'
+grep -q 'failed after 3 second(s): readiness deadline expired' "${CALLS_FILE}" || fail 'WebUI readiness deadline did not log elapsed time and its final reason'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'expired WebUI readiness did not run failure recovery'
+clear_dns_handoff_active
+WEB_STATE=bound
+unset ADGUARDHOME_READY_TIMEOUT
+
+: >"${CALLS_FILE}"
+DNS_STATE=owned
+WEB_STATE=missing
+SLEEP_CALLS=0
+SLEEP_WEB_BOUND_AFTER=31
+ADGUARDHOME_READY_TIMEOUT=40
+mark_dns_handoff_active
+post_start_adguardhome || fail 'post-start did not wait past the former 30-second WebUI readiness boundary'
+[ "${SLEEP_CALLS}" -eq 31 ] || fail 'post-start did not retry WebUI readiness until it became available after 30 seconds'
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'delayed WebUI readiness did not complete the DNS handoff'
+! grep -q 'Running AdGuardHome startup failure recovery' "${CALLS_FILE}" || fail 'delayed WebUI readiness incorrectly ran failure recovery'
+clear_dns_handoff_active
+unset ADGUARDHOME_READY_TIMEOUT
+SLEEP_WEB_BOUND_AFTER=0
 WEB_STATE=bound
 
 : >"${CALLS_FILE}"
 DNS_STATE=owned
 WEB_STATE=missing
 SLEEP_CALLS=0
-SLEEP_WEB_BOUND_AFTER=2
-ADGUARDHOME_STARTUP_CHECK_RETRIES=5
-ADGUARDHOME_SKIP_DNSMASQ_RESTART=1
-post_start_adguardhome || fail 'post-start did not wait for delayed WebUI readiness'
-[ "${SLEEP_CALLS}" -eq 2 ] || fail 'post-start did not retry WebUI readiness until it became available'
-! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'post-start ignored restart suppression after delayed WebUI readiness'
-unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
-unset ADGUARDHOME_STARTUP_CHECK_RETRIES
-SLEEP_WEB_BOUND_AFTER=0
+SLEEP_PROCESS_EXITS_AFTER=2
+ADGUARDHOME_READY_TIMEOUT=10
+if post_start_adguardhome; then
+	fail 'post-start succeeded after AdGuardHome exited during WebUI readiness'
+fi
+[ "${SLEEP_CALLS}" -eq 2 ] || fail 'post-start did not fail immediately when AdGuardHome exited during WebUI readiness'
+grep -q 'failed after 2 second(s): process exited before readiness completed' "${CALLS_FILE}" || fail 'process exit did not log elapsed time and its final reason'
+unset ADGUARDHOME_READY_TIMEOUT SLEEP_PROCESS_EXITS_AFTER
+DNS_STATE=owned
 WEB_STATE=bound
 
 : >"${CALLS_FILE}"
