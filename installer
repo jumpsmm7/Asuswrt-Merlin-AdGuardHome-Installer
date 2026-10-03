@@ -2070,6 +2070,19 @@ remove_conflicting_apache() {
 
 # HTTP/download helpers
 
+# http_url_with_cache_token gives each integrity-check attempt a distinct URL.
+# This prevents independently cached GitHub raw payloads and sidecars from
+# repeatedly returning different revisions while preserving HTTPS validation.
+http_url_with_cache_token() {
+	local token url
+	url="$1"
+	token="$2"
+	case "${url}" in
+		*\?*) printf '%s&installer_check=%s\n' "${url}" "${token}" ;;
+		*) printf '%s?installer_check=%s\n' "${url}" "${token}" ;;
+	esac
+}
+
 curl_common_args() {
 	if [ -z "${CURL_COMMON_ARGS_SET:-}" ]; then
 		CURL_COMMON_ARGS=""
@@ -5105,7 +5118,7 @@ check_jffs_enabled() {
 }
 
 check_version() {
-	local RMNSTALL LINSTALL MD5SUM_L MD5SUM_R MD5SUM_EXPECTED REMOTE_INSTALLER REMOTE_INSTALLER_MD5 ADGUARD_BRANCH ADGUARD_VER ADGUARD_WEB_URL REMOTE_ADGUARD_VER varcnt
+	local RMNSTALL LINSTALL MD5SUM_L MD5SUM_R MD5SUM_EXPECTED REMOTE_INSTALLER REMOTE_INSTALLER_MD5 REMOTE_INSTALLER_URL REMOTE_INSTALLER_MD5_URL REMOTE_CACHE_TOKEN ADGUARD_BRANCH ADGUARD_VER ADGUARD_WEB_URL REMOTE_ADGUARD_VER varcnt
 	if [ -f "${TARG_DIR}/installer" ] && [ -f "${AGH_FILE}" ] && [ -z "$2" ]; then
 		if [ -n "$1" ] || { check_connection; }; then
 			REMOTE_INSTALLER="${TARG_DIR}/.installer.remote.$$"
@@ -5116,11 +5129,14 @@ check_version() {
 				if [ -z "${MD5SUM_L}" ]; then MD5SUM_L="$(file_md5 "${TARG_DIR}/installer" 2>/dev/null)"; fi
 				if [ -z "${RMNSTALL}" ] || [ -z "${MD5SUM_R}" ]; then
 					rm -f "${REMOTE_INSTALLER}" "${REMOTE_INSTALLER_MD5}"
-					if http_get_file "${RURL}/installer" "${REMOTE_INSTALLER}" && [ -s "${REMOTE_INSTALLER}" ]; then
+					REMOTE_CACHE_TOKEN="$$-${varcnt}"
+					REMOTE_INSTALLER_URL="$(http_url_with_cache_token "${RURL}/installer" "${REMOTE_CACHE_TOKEN}")"
+					REMOTE_INSTALLER_MD5_URL="$(http_url_with_cache_token "${RURL}/installer.md5sum" "${REMOTE_CACHE_TOKEN}")"
+					if http_get_file "${REMOTE_INSTALLER_URL}" "${REMOTE_INSTALLER}" && [ -s "${REMOTE_INSTALLER}" ]; then
 						RMNSTALL="$(awk -F= '/^AI_VERSION=/ { gsub(/"/, "", $2); sub(/^v/, "", $2); if ($2 ~ /^[0-9]{1,2}(\.[0-9]{1,2}){2}$/) print $2; exit }' "${REMOTE_INSTALLER}")"
 						MD5SUM_R="$(file_md5 "${REMOTE_INSTALLER}" 2>/dev/null)"
 						MD5SUM_EXPECTED=""
-						if http_get_file "${RURL}/installer.md5sum" "${REMOTE_INSTALLER_MD5}" && [ -s "${REMOTE_INSTALLER_MD5}" ]; then
+						if http_get_file "${REMOTE_INSTALLER_MD5_URL}" "${REMOTE_INSTALLER_MD5}" && [ -s "${REMOTE_INSTALLER_MD5}" ]; then
 							MD5SUM_EXPECTED="$(awk 'NR == 1 {print $1; exit}' "${REMOTE_INSTALLER_MD5}")"
 						fi
 						if md5_is_valid "${MD5SUM_EXPECTED}" && [ "${MD5SUM_R}" != "${MD5SUM_EXPECTED}" ]; then

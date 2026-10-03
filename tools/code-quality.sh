@@ -239,6 +239,7 @@ run_check 'Installer binary rollback-state regression' sh tests/installer-binary
 run_check 'Installer committed binary cleanup regression' sh tests/installer-committed-binary-cleanup.sh
 run_check 'Installer committed binary lifecycle regression' sh tests/installer-committed-binary-lifecycle.sh
 run_check 'Installer menu range regression' sh tests/installer-menu-range.sh
+run_check 'Installer version cache-busting regression' sh tests/installer-version-cache-busting.sh
 run_check 'Installer single-argument action regression' sh tests/installer-single-arg-actions.sh
 run_check 'Installer preflight action regression' sh tests/installer-preflight-actions.sh
 run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh
