@@ -2694,11 +2694,28 @@ proc_write() {
 	fi
 	case "${old_value}" in "" | *[!0-9]*) return 1 ;; esac
 	current_value="${old_value}"
+	if ! boot_id="$(proc_boot_id 2>/dev/null)" || [ -z "${boot_id}" ]; then
+		agh_log warning proc_write "state=proc_optimize action=write target=${target} new_value=${value} reason=boot_id_unavailable result=failed"
+		return 1
+	fi
 	if [ -f "${state_file}" ]; then
 		IFS=' ' read -r old_value applied state_boot_id <"${state_file}" || return 1
+		case "${old_value}:${applied}" in
+			*[!0-9:]* | *::* | :* | *:)
+				rm -f "${state_file}" || return 1
+				proc_write "${id}" "${value}" "${minimum}" "${maximum}"
+				return $?
+				;;
+		esac
+		case "${state_boot_id}" in
+			"" | *[!A-Za-z0-9-]*)
+				rm -f "${state_file}" || return 1
+				proc_write "${id}" "${value}" "${minimum}" "${maximum}"
+				return $?
+				;;
+		esac
 		[ "${applied}" = "${value}" ] || return 1
-		boot_id="$(proc_boot_id 2>/dev/null)"
-		if [ -n "${state_boot_id}" ] && [ -n "${boot_id}" ] && [ "${state_boot_id}" != "${boot_id}" ]; then
+		if [ "${state_boot_id}" != "${boot_id}" ]; then
 			rm -f "${state_file}" || return 1
 			# procfs reset after reboot; claim nothing if the boot default already
 			# matches, otherwise preserve this boot's value before reapplying.
@@ -2723,7 +2740,6 @@ proc_write() {
 	mkdir -p "${PROC_STATE_DIR}" 2>/dev/null || return 1
 	# Publish the rollback record before changing procfs so interruption is safe.
 	state_tmp="${state_file}.tmp.$$"
-	boot_id="$(proc_boot_id 2>/dev/null)"
 	if ! printf '%s %s %s\n' "${old_value}" "${value}" "${boot_id}" >"${state_tmp}" ||
 		! mv -f "${state_tmp}" "${state_file}"; then
 		rm -f "${state_tmp}"
@@ -2746,8 +2762,17 @@ proc_restore_one() {
 	state_file="${PROC_STATE_DIR}/${id}"
 	[ -f "${state_file}" ] || return 0
 	IFS=' ' read -r old_value applied state_boot_id <"${state_file}" || return 1
-	boot_id="$(proc_boot_id 2>/dev/null)"
-	if [ -n "${state_boot_id}" ] && [ -n "${boot_id}" ] && [ "${state_boot_id}" != "${boot_id}" ]; then
+	case "${state_boot_id}" in
+		"" | *[!A-Za-z0-9-]*)
+			rm -f "${state_file}"
+			return $?
+			;;
+	esac
+	if ! boot_id="$(proc_boot_id 2>/dev/null)" || [ -z "${boot_id}" ]; then
+		agh_log warning proc_restore "state=proc_optimize action=restore target=${PROC_TARGET} reason=boot_id_unavailable result=failed"
+		return 1
+	fi
+	if [ "${state_boot_id}" != "${boot_id}" ]; then
 		rm -f "${state_file}"
 		return 0
 	fi
@@ -4139,13 +4164,13 @@ IPSet_Refresh_After_Recovery() {
 		if ! CURRENT_FILE="$(IPSet_Current_File 2>/dev/null)"; then
 			return 1
 		fi
-		[ -n "${CURRENT_FILE}" ] || return 0
+		[ "${CURRENT_FILE}" = "${IPSET_FILE}" ] || return 0
 		agh_log info IPSet_Refresh "state=refresh action=disable_managed_ipset result=required reason=topology_disallowed"
 		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
 		if [ "${IPSET_REFRESH_FROM_DNSMASQ:-}" = "1" ]; then
 			ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
 		fi
-		IPSet_Disable_Managed_For_Start_Locked configured
+		IPSet_Disable_Managed_For_Start_Locked
 		RESTART_STATUS="$?"
 		ADGUARDHOME_SKIP_DNSMASQ_RESTART="${DNSMASQ_RESTART_SKIP}"
 		return "${RESTART_STATUS}"

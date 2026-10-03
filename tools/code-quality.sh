@@ -228,6 +228,7 @@ run_check 'Installer progress output regression' sh tests/installer-progress-out
 run_check 'Installer legacy hook cleanup regression' sh tests/installer-legacy-hook-cleanup.sh
 run_check 'Installer event-script mode regression' sh tests/installer-event-script-modes.sh
 run_check 'Installer event-script transaction regression' sh tests/installer-event-script-transactions.sh
+run_check 'Installer lock-release retry regression' sh tests/installer-lock-release-retry.sh
 run_check 'WAN NAT predicate parity regression' sh tests/wan-nat-predicate-parity.sh
 run_check 'Installer upgrade runtime-default ordering regression' sh tests/installer-upgrade-runtime-defaults.sh
 run_check 'Installer post-replacement restart regression' sh tests/installer-post-replace-restart.sh
@@ -276,6 +277,7 @@ run_check 'Installer DNS input failure regression' sh tests/installer-dns-input-
 run_check 'Installer WebUI port failure regression' sh tests/installer-web-port-failure.sh
 run_check 'Installer timezone failure regression' sh tests/installer-timezone-failure.sh
 run_check 'tzdata package conversion regression' sh tests/update-tzdata-package-info.sh
+run_check 'tzdata transport and publication safety regression' sh tests/update-tzdata-safety.sh
 run_check 'Installer branch switch cancellation regression' sh tests/installer-branch-switch-cancel.sh
 run_check 'Installer setting confirmation failure regression' sh tests/installer-setting-confirmation-failure.sh
 run_check 'Installer confirmation failure propagation regression' sh tests/installer-confirmation-failure-propagation.sh

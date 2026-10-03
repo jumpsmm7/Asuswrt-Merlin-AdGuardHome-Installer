@@ -19,7 +19,54 @@ fi
 cd "${OUT_DIR}" || exit 1
 
 stage_dir="$(mktemp -d)"
-trap 'rm -rf "${stage_dir}"' 0
+backup_dir=""
+publication_active=0
+publication_complete=0
+backup_retain=0
+
+publication_targets_remove() {
+	rm -f tzdata-*-aarch64.pkg.tar.bz2 tzdata-*-aarch64.pkg.tar.bz2.md5sum tzdata-*-aarch64.pkg.tar.bz2.sha256sum \
+		tzdata-*-arm.pkg.tar.bz2 tzdata-*-arm.pkg.tar.bz2.md5sum tzdata-*-arm.pkg.tar.bz2.sha256sum \
+		installer installer.md5sum installer.sha256sum
+}
+
+publication_rollback() {
+	local backup_file
+	publication_targets_remove || {
+		printf 'Rollback could not remove partially published files; backups retained at %s\n' "${backup_dir}" >&2
+		backup_retain=1
+		return 1
+	}
+	for backup_file in "${backup_dir}"/*; do
+		[ -f "${backup_file}" ] || continue
+		cp -p "${backup_file}" "${backup_file##*/}" || {
+			printf 'Rollback could not restore %s; backups retained at %s\n' "${backup_file##*/}" "${backup_dir}" >&2
+			backup_retain=1
+			return 1
+		}
+	done
+	publication_active=0
+	return 0
+}
+
+cleanup() {
+	local status
+	status="$?"
+	trap - 0 HUP INT TERM
+	if [ "${publication_active}" -eq 1 ] && [ "${publication_complete}" -ne 1 ]; then
+		publication_rollback || status=1
+	fi
+	rm -rf "${stage_dir}"
+	if [ -n "${backup_dir}" ] && [ "${backup_retain}" -ne 1 ]; then
+		rm -rf "${backup_dir}"
+	fi
+	exit "${status}"
+}
+
+trap cleanup 0
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 export GNUPGHOME="${stage_dir}/gnupg"
 mkdir -m 700 "${GNUPGHOME}"
 
@@ -47,37 +94,32 @@ verify_signature() {
 }
 
 download_verified_pair() {
-	local max_time mirror_host mirror_url output_file protocol redirect_protocols relative_path signature_file
+	local max_time mirror_host mirror_url output_file relative_path signature_file
 	relative_path="$1"
 	output_file="$2"
 	max_time="$3"
 	signature_file="${output_file}.sig"
 
-	# MIRROR_HOSTS is a trusted, whitespace-separated workflow setting. Try all
-	# TLS endpoints before the signed HTTP fallback, and authenticate every pair
-	# before consuming it.
-	for protocol in https http; do
-		redirect_protocols="=${protocol}"
-		[ "${protocol}" != http ] || redirect_protocols='=http,https'
-		for mirror_host in ${MIRROR_HOSTS}; do
-			mirror_url="${protocol}://${mirror_host}"
-			rm -f "${output_file}" "${signature_file}"
-			printf 'Downloading %s from %s\n' "${relative_path}" "${mirror_url}"
-			if curl --fail --location --silent --show-error \
+	# MIRROR_HOSTS is a trusted, whitespace-separated workflow setting. Try each
+	# HTTPS endpoint and authenticate every package/signature pair before use.
+	for mirror_host in ${MIRROR_HOSTS}; do
+		mirror_url="https://${mirror_host}"
+		rm -f "${output_file}" "${signature_file}"
+		printf 'Downloading %s from %s\n' "${relative_path}" "${mirror_url}"
+		if curl --fail --location --silent --show-error \
 				--cacert "${CURL_CA_BUNDLE}" \
-				--proto "=${protocol}" --proto-redir "${redirect_protocols}" \
+				--proto '=https' --proto-redir '=https' \
 				--connect-timeout 15 --max-time "${max_time}" \
 				"${mirror_url}/${relative_path}" --output "${output_file}" &&
 				curl --fail --location --silent --show-error \
 					--cacert "${CURL_CA_BUNDLE}" \
-					--proto "=${protocol}" --proto-redir "${redirect_protocols}" \
+					--proto '=https' --proto-redir '=https' \
 					--connect-timeout 15 --max-time 120 \
 					"${mirror_url}/${relative_path}.sig" --output "${signature_file}" &&
 				verify_signature "${output_file}" "${signature_file}"; then
-				return 0
-			fi
-			printf 'Mirror failed verification or download: %s\n' "${mirror_url}" >&2
-		done
+			return 0
+		fi
+		printf 'Mirror failed verification or download: %s\n' "${mirror_url}" >&2
 	done
 
 	rm -f "${output_file}" "${signature_file}"
@@ -86,36 +128,33 @@ download_verified_pair() {
 }
 
 discover_package_filename() {
-	local architecture filename mirror_host mirror_url package_listing protocol redirect_protocols
+	local architecture filename mirror_host mirror_url package_listing
 	architecture="$1"
 	package_listing="${stage_dir}/package-${architecture}.html"
 
 	# Discover the filename from the same mirrors that serve the package.  The
 	# public package-index pages are not a stable API and may return 404 even
 	# while the repository remains available.
-	for protocol in https http; do
-		redirect_protocols="=${protocol}"
-		[ "${protocol}" != http ] || redirect_protocols='=http,https'
-		for mirror_host in ${MIRROR_HOSTS}; do
-			mirror_url="${protocol}://${mirror_host}"
-			if ! curl --fail --location --silent --show-error \
+	for mirror_host in ${MIRROR_HOSTS}; do
+		mirror_url="https://${mirror_host}"
+		if ! curl --fail --location --silent --show-error \
 				--cacert "${CURL_CA_BUNDLE}" \
-				--proto "=${protocol}" --proto-redir "${redirect_protocols}" \
+				--proto '=https' --proto-redir '=https' \
 				--connect-timeout 15 --max-time 120 \
 				"${mirror_url}/${architecture}/core/" --output "${package_listing}"; then
-				printf 'Failed to download package listing from %s\n' "${mirror_url}" >&2
-				continue
-			fi
-			filename="$(grep -Eo "tzdata-[A-Za-z0-9._+-]+-(any|${architecture})\\.pkg\\.tar\\.(bz2|xz|zst)" "${package_listing}" |
-				head -n 1)"
-			case "${filename}" in
-				tzdata-*-any.pkg.tar.bz2 | tzdata-*-any.pkg.tar.xz | tzdata-*-any.pkg.tar.zst | tzdata-*-${architecture}.pkg.tar.bz2 | tzdata-*-${architecture}.pkg.tar.xz | tzdata-*-${architecture}.pkg.tar.zst)
-					printf '%s\n' "${filename}"
-					return 0
-					;;
-			esac
-			printf 'No valid tzdata filename in package listing from %s\n' "${mirror_url}" >&2
-		done
+			printf 'Failed to download package listing from %s\n' "${mirror_url}" >&2
+			continue
+		fi
+		filename="$(grep -Eo "tzdata-[A-Za-z0-9._+-]+-(any|${architecture})\\.pkg\\.tar\\.(bz2|xz|zst)" "${package_listing}" |
+			head -n 1)"
+		case "${filename}" in
+			tzdata-*-any.pkg.tar.bz2 | tzdata-*-any.pkg.tar.xz | tzdata-*-any.pkg.tar.zst | tzdata-*-${architecture}.pkg.tar.bz2 | tzdata-*-${architecture}.pkg.tar.xz | tzdata-*-${architecture}.pkg.tar.zst)
+				printf '%s\n' "${filename}"
+				return 0
+				;;
+			*) : ;;
+		esac
+		printf 'No valid tzdata filename in package listing from %s\n' "${mirror_url}" >&2
 	done
 
 	printf 'Failed to discover package filename for %s from all mirrors\n' "${architecture}" >&2
@@ -189,6 +228,7 @@ download_package() {
 	fi
 	case "${package_version}" in
 		'' | *[!A-Za-z0-9._+-]*) return 1 ;;
+		*) : ;;
 	esac
 	case "${package_arch}:${architecture}" in
 		aarch64:aarch64 | armv7h:armv7h | any:*) ;;
@@ -203,6 +243,10 @@ download_package() {
 		*.bz2) cp "${upstream_file}" "${output_file}" ;;
 		*.xz) recompress_xz_package "${upstream_file}" "${output_file}" ;;
 		*.zst) recompress_zst_package "${upstream_file}" "${output_file}" ;;
+		*)
+			printf 'Unsupported package compression: %s\n' "${upstream_file}" >&2
+			return 1
+			;;
 	esac
 	tar -tjf "${output_file}" >/dev/null
 	printf '%s\n' "${package_version}" >"${stage_dir}/version-${output_arch}"
@@ -218,12 +262,11 @@ if [ "${aarch64_version}" != "${arm_version}" ]; then
 	exit 1
 fi
 
-publish_package() {
-	local output_arch package_version published_file staged_file
+stage_package_sidecars() {
+	local output_arch package_version staged_file
 	output_arch="$1"
 	package_version="$2"
-	published_file="tzdata-${package_version}-${output_arch}.pkg.tar.bz2"
-	staged_file="${stage_dir}/${published_file}"
+	staged_file="${stage_dir}/tzdata-${package_version}-${output_arch}.pkg.tar.bz2"
 
 	if [ ! -f "${staged_file}" ]; then
 		printf '%s package file not found: %s\n' "${output_arch}" "${staged_file}" >&2
@@ -233,34 +276,48 @@ publish_package() {
 		printf 'Invalid bzip2 package archive: %s\n' "${staged_file}" >&2
 		return 1
 	fi
-	mv "${staged_file}" "${published_file}"
-	if [ ! -f "${published_file}" ]; then
-		printf 'Failed to publish package file: %s\n' "${published_file}" >&2
-		return 1
-	fi
-	if ! sh tools/update-checksums.sh "${published_file}" ||
-		[ ! -f "${published_file}.md5sum" ] ||
-		[ ! -f "${published_file}.sha256sum" ]; then
-		printf 'Failed to publish package checksums: %s\n' "${published_file}" >&2
-		rm -f "${published_file}" "${published_file}.md5sum" "${published_file}.sha256sum"
+	if ! sh "${SCRIPT_DIR}/update-checksums.sh" "${staged_file}" ||
+		[ ! -f "${staged_file}.md5sum" ] ||
+		[ ! -f "${staged_file}.sha256sum" ]; then
+		printf 'Failed to stage package checksums: %s\n' "${staged_file}" >&2
 		return 1
 	fi
 }
 
-# These globs intentionally remove every superseded package and sidecar.
-rm -f tzdata-*-aarch64.pkg.tar.bz2 tzdata-*-aarch64.pkg.tar.bz2.md5sum tzdata-*-aarch64.pkg.tar.bz2.sha256sum
-rm -f tzdata-*-arm.pkg.tar.bz2 tzdata-*-arm.pkg.tar.bz2.md5sum tzdata-*-arm.pkg.tar.bz2.sha256sum
-publish_package aarch64 "${aarch64_version}"
-publish_package arm "${arm_version}"
+stage_package_sidecars aarch64 "${aarch64_version}"
+stage_package_sidecars arm "${arm_version}"
 
 if ! grep -Eq '^[[:space:]]*TZ_DATA="tzdata-[^"]*-\$\{TZ_ARCH\}\.pkg\.tar\.bz2"$' installer; then
 	printf 'Expected TZ_DATA assignment not found in installer\n' >&2
 	exit 1
 fi
-sed -i "s/TZ_DATA=\"tzdata-[^\"]*-\${TZ_ARCH}\.pkg\.tar\.bz2\"/TZ_DATA=\"tzdata-${aarch64_version}-\${TZ_ARCH}.pkg.tar.bz2\"/" installer
-if ! grep -Fq "TZ_DATA=\"tzdata-${aarch64_version}-\${TZ_ARCH}.pkg.tar.bz2\"" installer; then
+cp -p installer "${stage_dir}/installer"
+sed -i "s/TZ_DATA=\"tzdata-[^\"]*-\${TZ_ARCH}\.pkg\.tar\.bz2\"/TZ_DATA=\"tzdata-${aarch64_version}-\${TZ_ARCH}.pkg.tar.bz2\"/" "${stage_dir}/installer"
+if ! grep -Fq "TZ_DATA=\"tzdata-${aarch64_version}-\${TZ_ARCH}.pkg.tar.bz2\"" "${stage_dir}/installer"; then
 	printf 'Failed to update TZ_DATA in installer\n' >&2
 	exit 1
 fi
-sh tools/update-checksums.sh \
-	installer
+sh "${SCRIPT_DIR}/update-checksums.sh" "${stage_dir}/installer"
+
+backup_dir="$(mktemp -d "${PWD}/.tzdata-update-backup.XXXXXX")"
+for published_file in tzdata-*-aarch64.pkg.tar.bz2 tzdata-*-aarch64.pkg.tar.bz2.md5sum tzdata-*-aarch64.pkg.tar.bz2.sha256sum \
+	tzdata-*-arm.pkg.tar.bz2 tzdata-*-arm.pkg.tar.bz2.md5sum tzdata-*-arm.pkg.tar.bz2.sha256sum \
+	installer installer.md5sum installer.sha256sum; do
+	[ -f "${published_file}" ] || continue
+	cp -p "${published_file}" "${backup_dir}/${published_file##*/}" || exit 1
+done
+
+publication_active=1
+publication_targets_remove
+for staged_file in \
+	"${stage_dir}/tzdata-${aarch64_version}-aarch64.pkg.tar.bz2" \
+	"${stage_dir}/tzdata-${aarch64_version}-aarch64.pkg.tar.bz2.md5sum" \
+	"${stage_dir}/tzdata-${aarch64_version}-aarch64.pkg.tar.bz2.sha256sum" \
+	"${stage_dir}/tzdata-${arm_version}-arm.pkg.tar.bz2" \
+	"${stage_dir}/tzdata-${arm_version}-arm.pkg.tar.bz2.md5sum" \
+	"${stage_dir}/tzdata-${arm_version}-arm.pkg.tar.bz2.sha256sum" \
+	"${stage_dir}/installer" "${stage_dir}/installer.md5sum" "${stage_dir}/installer.sha256sum"; do
+	cp -p "${staged_file}" "${staged_file##*/}" || exit 1
+done
+publication_complete=1
+publication_active=0
