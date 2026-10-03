@@ -113,6 +113,7 @@ discover_package_filename() {
 					printf '%s\n' "${filename}"
 					return 0
 					;;
+				*) : ;;
 			esac
 			printf 'No valid tzdata filename in package listing from %s\n' "${mirror_url}" >&2
 		done
@@ -189,6 +190,7 @@ download_package() {
 	fi
 	case "${package_version}" in
 		'' | *[!A-Za-z0-9._+-]*) return 1 ;;
+		*) : ;;
 	esac
 	case "${package_arch}:${architecture}" in
 		aarch64:aarch64 | armv7h:armv7h | any:*) ;;
@@ -203,6 +205,10 @@ download_package() {
 		*.bz2) cp "${upstream_file}" "${output_file}" ;;
 		*.xz) recompress_xz_package "${upstream_file}" "${output_file}" ;;
 		*.zst) recompress_zst_package "${upstream_file}" "${output_file}" ;;
+		*)
+			printf 'Unsupported package compression: %s\n' "${upstream_file}" >&2
+			return 1
+			;;
 	esac
 	tar -tjf "${output_file}" >/dev/null
 	printf '%s\n' "${package_version}" >"${stage_dir}/version-${output_arch}"
