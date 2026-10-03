@@ -202,7 +202,7 @@ adguardhome_monotonic_ticks() {
 adguardhome_config_valid() {
 	_config_check_calls="$(cat "${CONFIG_CHECK_CALLS_FILE}")"
 	printf '%s\n' "$((_config_check_calls + 1))" >"${CONFIG_CHECK_CALLS_FILE}"
-	advance_monotonic_ticks "${CONFIG_CHECK_ADVANCE_TICKS:-0}"
+	[ "${CONFIG_CHECK_ADVANCE_TICKS:-0}" -eq 0 ] || advance_monotonic_ticks "${CONFIG_CHECK_ADVANCE_TICKS}"
 	[ -x "${WORK_DIR}/AdGuardHome" ] || return 1
 	[ -f "${WORK_DIR}/AdGuardHome.yaml" ] || return 1
 	"${WORK_DIR}/AdGuardHome" --check-config -c "${WORK_DIR}/AdGuardHome.yaml" --no-check-update -l /dev/null >/dev/null 2>&1
@@ -323,7 +323,7 @@ pidof() {
 }
 # netstat simulates network socket listings for configured DNS and WebUI ownership states and can produce transient or persistent failures for test scenarios.
 netstat() {
-	advance_monotonic_ticks "${NETSTAT_ADVANCE_TICKS:-0}"
+	[ "${NETSTAT_ADVANCE_TICKS:-0}" -eq 0 ] || advance_monotonic_ticks "${NETSTAT_ADVANCE_TICKS}"
 	printf '%s\n' netstat >>"${NETSTAT_CALLS_FILE}"
 	_netstat_call_count="$(wc -l <"${NETSTAT_CALLS_FILE}")"
 	case ",${NETSTAT_FAIL_CALLS:-}," in
@@ -415,7 +415,7 @@ kill() {
 # sleep records a simulated delay and updates configured DNS and web readiness states.
 sleep() {
 	SLEEP_CALLS="$((SLEEP_CALLS + 1))"
-	advance_monotonic_ticks 100
+	[ "${READINESS_CLOCK_ACTIVE:-0}" -eq 0 ] || advance_monotonic_ticks 100
 	if [ "${DNS_GUARD_FIFO_TEST_MODE:-}" = "fail" ] && [ -n "${DNS_GUARD_FIFO_FALLBACK_MARKER:-}" ]; then
 		: >"${DNS_GUARD_FIFO_FALLBACK_MARKER}"
 	fi
@@ -1284,6 +1284,7 @@ fi
 [ -z "${ADGUARDHOME_DNS_GUARD_PID:-}" ] || fail 'DNS guard PID was not cleared after cleanup'
 grep -q "^kill ${_guard_pid}$" "${CALLS_FILE}" || fail 'DNS guard was not explicitly terminated'
 SLEEP_SETS_OWNED=0
+READINESS_CLOCK_ACTIVE=1
 
 : >"${CALLS_FILE}"
 DNS_STATE=free
@@ -1549,6 +1550,7 @@ grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'config startup fail
 clear_dns_handoff_active
 printf '%s\n' '#!/bin/sh' 'exit 0' >"${WORK_DIR}/AdGuardHome" || fail 'could not restore AdGuardHome binary'
 chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod restored AdGuardHome binary'
+READINESS_CLOCK_ACTIVE=0
 
 : >"${CALLS_FILE}"
 DNS_STATE=owned
