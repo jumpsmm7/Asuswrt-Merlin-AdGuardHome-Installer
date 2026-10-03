@@ -147,9 +147,18 @@ ptxt_phase() { :; }
 ptxt_step() { :; }
 ptxt_ok() { :; }
 ptxt_fail() { printf '%s\n' "$*" >>"${STARTUP_SEQUENCE_FILE}"; }
-agh_stop() { printf '%s\n' stop >>"${STARTUP_SEQUENCE_FILE}"; return "${STOP_STATUS:-0}"; }
-agh_start() { printf '%s\n' start >>"${STARTUP_SEQUENCE_FILE}"; return "${START_STATUS:-0}"; }
-agh_restart() { printf '%s\n' restart >>"${STARTUP_SEQUENCE_FILE}"; return "${RESTART_STATUS:-0}"; }
+agh_stop() {
+	printf '%s\n' stop >>"${STARTUP_SEQUENCE_FILE}"
+	return "${STOP_STATUS:-0}"
+}
+agh_start() {
+	printf '%s\n' start >>"${STARTUP_SEQUENCE_FILE}"
+	return "${START_STATUS:-0}"
+}
+agh_restart() {
+	printf '%s\n' restart >>"${STARTUP_SEQUENCE_FILE}"
+	return "${RESTART_STATUS:-0}"
+}
 agh_start_error() { printf '%s\n' start-error >>"${STARTUP_SEQUENCE_FILE}"; }
 
 : >"${STARTUP_SEQUENCE_FILE}"
