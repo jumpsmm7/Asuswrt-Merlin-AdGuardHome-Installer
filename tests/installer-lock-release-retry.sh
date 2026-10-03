@@ -7,7 +7,8 @@ TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/installer-lock-release.XXXXXX")" || exit
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 
 cleanup() {
-	exec 8>&- 2>/dev/null || true
+	exec 8>/dev/null
+	exec 8>&-
 	rm -rf "${TEST_ROOT}"
 }
 fail() {
@@ -61,7 +62,8 @@ rm() {
 }
 
 reset_case() {
-	exec 8>&- 2>/dev/null || true
+	exec 8>/dev/null
+	exec 8>&-
 	: >"${LOCK_PATH}"
 	exec 8>"${LOCK_PATH}" || fail 'could not open lock descriptor'
 	command rm -f "${LOCK_PATH}.symlink"
@@ -81,7 +83,7 @@ RM_FAIL=1
 nvram_transaction_lock_release && fail 'owner-symlink removal failure returned success'
 [ -e "/proc/$$/fd/8" ] || fail 'owner removal failure closed the flock descriptor'
 [ -L "${LOCK_PATH}.symlink" ] || fail 'owner removal failure lost the ownership artifact'
-[ "${REAPER_ACTIVE}" -eq 0 ] || fail 'owner removal failure retained the reaper unnecessarily'
+[ "${REAPER_ACTIVE}" -eq 1 ] || fail 'owner removal failure lost the reaper needed for retry'
 RM_FAIL=0
 nvram_transaction_lock_release || fail 'owner removal retry failed'
 [ "${NVRAM_TRANSACTION_LOCK_MODE}" = '' ] || fail 'successful retry retained lock mode'

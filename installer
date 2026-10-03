@@ -497,6 +497,9 @@ nvram_transaction_lock_acquire() {
 	lock_path="${BASE_DIR}/.AdGuardHome.nvram.lock"
 	NVRAM_TRANSACTION_LOCK_DIAGNOSTIC=""
 	export NVRAM_TRANSACTION_LOCK_DIAGNOSTIC
+	if [ -n "${NVRAM_TRANSACTION_LOCK_RELEASE_PHASE:-}" ]; then
+		nvram_transaction_lock_release || return 1
+	fi
 	case "${NVRAM_TRANSACTION_LOCK_MODE:-}" in
 		flock) nvram_transaction_lock_flock_owned "${lock_path}" && return 0 ;;
 		symlink)
@@ -1288,6 +1291,10 @@ nvram_transaction_lock_reaper_release() {
 nvram_transaction_lock_reaper_release_active() {
 	[ -z "${NVRAM_TRANSACTION_REAPER_LOCK_MODE:-}" ] && return 0
 	[ -n "${NVRAM_TRANSACTION_REAPER_LOCK_PATH:-}" ] || return 1
+	if [ -n "${NVRAM_TRANSACTION_LOCK_RELEASE_PHASE:-}" ] &&
+		[ "${NVRAM_TRANSACTION_REAPER_LOCK_PATH}" = "${BASE_DIR}/.AdGuardHome.nvram.lock.reaper" ]; then
+		return 0
+	fi
 	nvram_transaction_lock_reaper_release "${NVRAM_TRANSACTION_REAPER_LOCK_PATH}"
 }
 
@@ -1424,13 +1431,14 @@ nvram_transaction_lock_release() {
 			else
 				owner="${NVRAM_TRANSACTION_LOCK_RELEASE_OWNER:-}"
 				[ -n "${owner}" ] || return 1
+				[ "$(nvram_transaction_lock_owner_current)" = "${owner}" ] || {
+					nvram_transaction_lock_failure "operation=resume-flock-release path=${lock_path} reason=owner-mismatch owner=${owner}" || true
+					return 1
+				}
 			fi
 			if [ "${release_phase}" = "reaper" ]; then
 				if ! rm -f "${lock_path}.symlink"; then
 					nvram_transaction_lock_failure "operation=release-flock-lock path=${lock_path}.symlink reason=remove-owner-failed owner=${owner}" || true
-					nvram_transaction_lock_reaper_release "${lock_path}.reaper" "${owner}" || return 1
-					NVRAM_TRANSACTION_LOCK_RELEASE_OWNER=""
-					NVRAM_TRANSACTION_LOCK_RELEASE_PHASE=""
 					return 1
 				fi
 				NVRAM_TRANSACTION_LOCK_RELEASE_PHASE="symlink-removed"
@@ -2095,12 +2103,13 @@ http_get_file() {
 	if ai_have_cmd curl; then
 		CURL_ARGS="$(curl_common_args)"
 		if [ -n "${HEADERS}" ]; then
-			curl ${CURL_ARGS} -D "${HEADERS}" -fL "${URL}" -o "${OUT}"
+			curl ${CURL_ARGS} -D "${HEADERS}" -fsSL "${URL}" -o "${OUT}"
 		else
-			curl ${CURL_ARGS} -fL "${URL}" -o "${OUT}"
+			curl ${CURL_ARGS} -fsSL "${URL}" -o "${OUT}"
 		fi
 	elif ai_have_cmd wget; then
 		WGET_ARGS="$(wget_common_args)"
+		wget_has_option '-nv' && WGET_ARGS="${WGET_ARGS} -nv"
 		if [ -n "${HEADERS}" ] && wget_has_option '--server-response'; then
 			wget ${WGET_ARGS} --server-response -O "${OUT}" "${URL}" 2>"${HEADERS}"
 		else

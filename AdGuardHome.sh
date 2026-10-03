@@ -4164,13 +4164,13 @@ IPSet_Refresh_After_Recovery() {
 		if ! CURRENT_FILE="$(IPSet_Current_File 2>/dev/null)"; then
 			return 1
 		fi
-		[ "${CURRENT_FILE}" = "${IPSET_FILE}" ] || return 0
-		agh_log info IPSet_Refresh "state=refresh action=disable_managed_ipset result=required reason=topology_disallowed"
+		[ -n "${CURRENT_FILE}" ] || return 0
+		agh_log info IPSet_Refresh "state=refresh action=disable_configured_ipset result=required reason=topology_disallowed file=${CURRENT_FILE}"
 		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
 		if [ "${IPSET_REFRESH_FROM_DNSMASQ:-}" = "1" ]; then
 			ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
 		fi
-		IPSet_Disable_Managed_For_Start_Locked
+		IPSet_Disable_Managed_For_Start_Locked configured
 		RESTART_STATUS="$?"
 		ADGUARDHOME_SKIP_DNSMASQ_RESTART="${DNSMASQ_RESTART_SKIP}"
 		return "${RESTART_STATUS}"

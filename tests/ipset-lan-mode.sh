@@ -181,10 +181,12 @@ esac
 
 CURRENT_IPSET_FILE=/custom/ipset.conf
 : >"${CALLS_FILE}"
-IPSet_Refresh || fail 'LAN refresh failed while preserving a custom IPSET file reference'
-if grep -Eq 'IPSet_Disable_Managed|lower_script|IPSet_Start_' "${CALLS_FILE}"; then
-	fail 'LAN refresh mutated or restarted service for an external IPSET file'
-fi
+IPSet_Refresh || fail 'LAN refresh failed while disabling a custom IPSET file reference'
+ACTUAL="$(cat "${CALLS_FILE}")"
+case "${ACTUAL}" in
+	*'lower_script stop'*'IPSet_Disable_Managed configured'*IPSet_Start_While_Locked*) : ;;
+	*) fail "LAN refresh did not remove the disallowed custom IPSET reference: ${ACTUAL}" ;;
+esac
 
 CURRENT_IPSET_FILE=__EMPTY__
 : >"${CALLS_FILE}"

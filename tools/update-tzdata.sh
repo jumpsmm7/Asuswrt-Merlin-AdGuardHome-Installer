@@ -18,11 +18,34 @@ if [ ! -r "${CURL_CA_BUNDLE}" ]; then
 fi
 cd "${OUT_DIR}" || exit 1
 
-stage_dir="$(mktemp -d)"
-backup_dir=""
+transaction_dir="${PWD}/.tzdata-update-transaction"
+lock_dir="${PWD}/.tzdata-update.lock"
+stage_dir=""
+backup_dir="${transaction_dir}/backup"
 publication_active=0
 publication_complete=0
 backup_retain=0
+
+if ! mkdir "${lock_dir}" 2>/dev/null; then
+	if [ -d "${lock_dir}" ] && [ ! -L "${lock_dir}" ] &&
+		[ -f "${lock_dir}/pid" ] && [ ! -L "${lock_dir}/pid" ]; then
+		lock_pid="$(cat "${lock_dir}/pid")"
+		case "${lock_pid}" in
+			'' | *[!0-9]*) lock_pid= ;;
+		esac
+		if [ -n "${lock_pid}" ] && ! kill -0 "${lock_pid}" 2>/dev/null; then
+			rm -rf "${lock_dir}" || exit 1
+			mkdir "${lock_dir}" || exit 1
+		else
+			printf 'Another tzdata update or recovery is active: %s\n' "${lock_dir}" >&2
+			exit 1
+		fi
+	else
+		printf 'Unsafe tzdata update lock state: %s\n' "${lock_dir}" >&2
+		exit 1
+	fi
+fi
+printf '%s\n' "$$" >"${lock_dir}/pid" || exit 1
 
 publication_targets_remove() {
 	rm -f tzdata-*-aarch64.pkg.tar.bz2 tzdata-*-aarch64.pkg.tar.bz2.md5sum tzdata-*-aarch64.pkg.tar.bz2.sha256sum \
@@ -30,43 +53,121 @@ publication_targets_remove() {
 		installer installer.md5sum installer.sha256sum
 }
 
+publication_state_valid() {
+	local backup_file name presence
+	[ -f "${transaction_dir}/original.list" ] || return 1
+	while IFS=' ' read -r presence name; do
+		case "${presence}:${name}" in
+			present:tzdata-*-aarch64.pkg.tar.bz2 | present:tzdata-*-aarch64.pkg.tar.bz2.md5sum | present:tzdata-*-aarch64.pkg.tar.bz2.sha256sum | \
+			present:tzdata-*-arm.pkg.tar.bz2 | present:tzdata-*-arm.pkg.tar.bz2.md5sum | present:tzdata-*-arm.pkg.tar.bz2.sha256sum | \
+			present:installer | present:installer.md5sum | present:installer.sha256sum)
+				[ -f "${backup_dir}/${name}" ] && [ ! -L "${backup_dir}/${name}" ] || return 1
+				;;
+			absent:tzdata-*-aarch64.pkg.tar.bz2 | absent:tzdata-*-aarch64.pkg.tar.bz2.md5sum | absent:tzdata-*-aarch64.pkg.tar.bz2.sha256sum | \
+			absent:tzdata-*-arm.pkg.tar.bz2 | absent:tzdata-*-arm.pkg.tar.bz2.md5sum | absent:tzdata-*-arm.pkg.tar.bz2.sha256sum | \
+			absent:installer | absent:installer.md5sum | absent:installer.sha256sum) : ;;
+			*) return 1 ;;
+		esac
+	done <"${transaction_dir}/original.list"
+	for backup_file in "${backup_dir}"/*; do
+		[ -e "${backup_file}" ] || continue
+		[ -f "${backup_file}" ] && [ ! -L "${backup_file}" ] || return 1
+		name="${backup_file##*/}"
+		grep -Fqx "present ${name}" "${transaction_dir}/original.list" || return 1
+	done
+}
+
 publication_rollback() {
-	local backup_file
-	publication_targets_remove || {
-		printf 'Rollback could not remove partially published files; backups retained at %s\n' "${backup_dir}" >&2
-		backup_retain=1
-		return 1
-	}
+	local backup_file rollback_status restore_stage
+	rollback_status=0
+	if ! publication_targets_remove; then
+		printf 'Rollback could not remove every partially published file.\n' >&2
+		rollback_status=1
+	fi
 	for backup_file in "${backup_dir}"/*; do
 		[ -f "${backup_file}" ] || continue
-		cp -p "${backup_file}" "${backup_file##*/}" || {
+		restore_stage=".${backup_file##*/}.tzdata-restore.$$"
+		if ! cp -p "${backup_file}" "${restore_stage}" || ! mv -f "${restore_stage}" "${backup_file##*/}"; then
+			rm -f "${restore_stage}" || true
 			printf 'Rollback could not restore %s; backups retained at %s\n' "${backup_file##*/}" "${backup_dir}" >&2
-			backup_retain=1
-			return 1
-		}
+			rollback_status=1
+		fi
 	done
+	if [ "${rollback_status}" -ne 0 ]; then
+		backup_retain=1
+		return 1
+	fi
 	publication_active=0
 	return 0
 }
 
 cleanup() {
 	local status
-	status="$?"
+	status="$1"
 	trap - 0 HUP INT TERM
 	if [ "${publication_active}" -eq 1 ] && [ "${publication_complete}" -ne 1 ]; then
 		publication_rollback || status=1
 	fi
-	rm -rf "${stage_dir}"
-	if [ -n "${backup_dir}" ] && [ "${backup_retain}" -ne 1 ]; then
-		rm -rf "${backup_dir}"
+	[ -z "${stage_dir}" ] || rm -rf "${stage_dir}"
+	if [ "${backup_retain}" -ne 1 ]; then
+		if [ "${publication_complete}" -eq 1 ] || [ "${publication_active}" -eq 0 ]; then
+			rm -rf "${transaction_dir}"
+		fi
+		rm -f "${lock_dir}/pid" || true
+		rmdir "${lock_dir}" 2>/dev/null || true
+	else
+		printf 'Recovery data retained at %s\n' "${transaction_dir}" >&2
 	fi
 	exit "${status}"
 }
 
-trap cleanup 0
+trap 'cleanup "$?"' 0
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+# Recover an interrupted per-file publication before downloads or new backup
+# preparation.  This is restartable process-interruption recovery; without
+# filesystem fsync support it does not claim power-loss durability.
+if [ -e "${transaction_dir}" ] || [ -L "${transaction_dir}" ]; then
+	if [ ! -d "${transaction_dir}" ] || [ -L "${transaction_dir}" ] ||
+		[ ! -f "${transaction_dir}/state" ] || [ -L "${transaction_dir}/state" ]; then
+		printf 'Invalid tzdata transaction state; refusing destructive recovery: %s\n' "${transaction_dir}" >&2
+		backup_retain=1
+		exit 1
+	fi
+	case "$(cat "${transaction_dir}/state")" in
+		preparing) : ;;
+		active)
+			if [ ! -d "${backup_dir}" ] || [ -L "${backup_dir}" ] || ! publication_state_valid; then
+				printf 'Invalid active tzdata recovery data: %s\n' "${transaction_dir}" >&2
+				backup_retain=1
+				exit 1
+			fi
+			publication_active=1
+			if ! publication_rollback; then
+				printf 'Interrupted tzdata publication recovery failed: %s\n' "${transaction_dir}" >&2
+				publication_active=0
+				exit 1
+			fi
+			;;
+		committed) publication_complete=1 ;;
+		*)
+			printf 'Invalid tzdata transaction state value: %s\n' "${transaction_dir}/state" >&2
+			backup_retain=1
+			exit 1
+			;;
+	esac
+	rm -rf "${transaction_dir}" || {
+		backup_retain=1
+		printf 'Could not clean completed tzdata transaction: %s\n' "${transaction_dir}" >&2
+		exit 1
+	}
+	publication_active=0
+	publication_complete=0
+fi
+
+stage_dir="$(mktemp -d "${PWD}/.tzdata-update-stage.XXXXXX")"
 export GNUPGHOME="${stage_dir}/gnupg"
 mkdir -m 700 "${GNUPGHOME}"
 
@@ -299,14 +400,31 @@ if ! grep -Fq "TZ_DATA=\"tzdata-${aarch64_version}-\${TZ_ARCH}.pkg.tar.bz2\"" "$
 fi
 sh "${SCRIPT_DIR}/update-checksums.sh" "${stage_dir}/installer"
 
-backup_dir="$(mktemp -d "${PWD}/.tzdata-update-backup.XXXXXX")"
+mkdir "${transaction_dir}" || exit 1
+mkdir "${backup_dir}" || exit 1
+printf '%s\n' preparing >"${transaction_dir}/state" || exit 1
+: >"${transaction_dir}/original.list" || exit 1
 for published_file in tzdata-*-aarch64.pkg.tar.bz2 tzdata-*-aarch64.pkg.tar.bz2.md5sum tzdata-*-aarch64.pkg.tar.bz2.sha256sum \
 	tzdata-*-arm.pkg.tar.bz2 tzdata-*-arm.pkg.tar.bz2.md5sum tzdata-*-arm.pkg.tar.bz2.sha256sum \
 	installer installer.md5sum installer.sha256sum; do
 	[ -f "${published_file}" ] || continue
 	cp -p "${published_file}" "${backup_dir}/${published_file##*/}" || exit 1
+	printf 'present %s\n' "${published_file##*/}" >>"${transaction_dir}/original.list" || exit 1
+done
+for staged_file in \
+	"${stage_dir}/tzdata-${aarch64_version}-aarch64.pkg.tar.bz2" \
+	"${stage_dir}/tzdata-${aarch64_version}-aarch64.pkg.tar.bz2.md5sum" \
+	"${stage_dir}/tzdata-${aarch64_version}-aarch64.pkg.tar.bz2.sha256sum" \
+	"${stage_dir}/tzdata-${arm_version}-arm.pkg.tar.bz2" \
+	"${stage_dir}/tzdata-${arm_version}-arm.pkg.tar.bz2.md5sum" \
+	"${stage_dir}/tzdata-${arm_version}-arm.pkg.tar.bz2.sha256sum" \
+	"${stage_dir}/installer" "${stage_dir}/installer.md5sum" "${stage_dir}/installer.sha256sum"; do
+	published_file="${staged_file##*/}"
+	[ -e "${published_file}" ] || printf 'absent %s\n' "${published_file}" >>"${transaction_dir}/original.list" || exit 1
 done
 
+printf '%s\n' active >"${transaction_dir}/state.tmp" || exit 1
+mv -f "${transaction_dir}/state.tmp" "${transaction_dir}/state" || exit 1
 publication_active=1
 publication_targets_remove
 for staged_file in \
@@ -317,7 +435,9 @@ for staged_file in \
 	"${stage_dir}/tzdata-${arm_version}-arm.pkg.tar.bz2.md5sum" \
 	"${stage_dir}/tzdata-${arm_version}-arm.pkg.tar.bz2.sha256sum" \
 	"${stage_dir}/installer" "${stage_dir}/installer.md5sum" "${stage_dir}/installer.sha256sum"; do
-	cp -p "${staged_file}" "${staged_file##*/}" || exit 1
+	mv -f "${staged_file}" "${staged_file##*/}" || exit 1
 done
+printf '%s\n' committed >"${transaction_dir}/state.tmp" || exit 1
+mv -f "${transaction_dir}/state.tmp" "${transaction_dir}/state" || exit 1
 publication_complete=1
 publication_active=0
