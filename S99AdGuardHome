@@ -177,6 +177,45 @@ adguardhome_readiness_timeout() {
 	dns_retry_limit "${_readiness_timeout}" 180
 }
 
+adguardhome_monotonic_ticks() {
+	# /proc/uptime provides monotonic centisecond precision on the target.  A
+	# deadline prevents another probe, but cannot interrupt one already running.
+	_monotonic_uptime=""
+	read -r _monotonic_uptime _ </proc/uptime || return 1
+	case "${_monotonic_uptime}" in
+		*.*)
+			_monotonic_seconds="${_monotonic_uptime%%.*}"
+			_monotonic_fraction="${_monotonic_uptime#*.}"
+			;;
+		*) return 1 ;;
+	esac
+	case "${_monotonic_seconds}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	case "${_monotonic_fraction}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	_monotonic_fraction="${_monotonic_fraction}00"
+	_monotonic_remainder="${_monotonic_fraction#??}"
+	_monotonic_fraction="${_monotonic_fraction%"${_monotonic_remainder}"}"
+	_monotonic_fraction="${_monotonic_fraction#0}"
+	[ -n "${_monotonic_fraction}" ] || _monotonic_fraction="0"
+	printf '%s\n' "$((_monotonic_seconds * 100 + _monotonic_fraction))"
+}
+
+adguardhome_monotonic_now() {
+	_monotonic_now="$(adguardhome_monotonic_ticks)" || return 1
+	case "${_monotonic_now}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	printf '%s\n' "${_monotonic_now}"
+}
+
+adguardhome_readiness_elapsed() {
+	_readiness_elapsed_ticks="$1"
+	printf '%s.%02d second(s)\n' "$((_readiness_elapsed_ticks / 100))" "$((_readiness_elapsed_ticks % 100))"
+}
+
 agh_install_mode() {
 	_agh_mode="$(agh_conf_value ADGUARD_INSTALL_MODE 2>/dev/null)"
 	case "${_agh_mode}" in
@@ -714,7 +753,6 @@ adguardhome_web_port_available() {
 
 adguardhome_startup_checks_ready() {
 	pidof "${PROCS}" >/dev/null 2>&1 || return 2
-	adguardhome_config_valid || return 4
 	adguardhome_web_port_owned_status
 	_web_status="$?"
 	if [ "${_web_status}" -eq 2 ]; then
@@ -731,34 +769,92 @@ wait_for_adguardhome_startup_checks_failure_reason() {
 		2) printf '%s\n' "process exited before readiness completed" ;;
 		3) printf '%s\n' "WebUI port is not owned by AdGuardHome" ;;
 		4) printf '%s\n' "configuration validation failed" ;;
+		5) printf '%s\n' "monotonic readiness clock is unavailable" ;;
 		*) printf '%s\n' "readiness deadline expired" ;;
 	esac
 }
 
 wait_for_adguardhome_startup_checks() {
-	_startup_check_elapsed="0"
 	_startup_check_timeout="$(adguardhome_readiness_timeout "${ADGUARDHOME_STARTUP_CHECK_RETRIES:-}" ADGUARDHOME_STARTUP_CHECK_RETRIES)"
 	agh_log INFO wait_for_adguardhome_startup_checks "Waiting up to ${_startup_check_timeout} second(s) for DNS/WebUI readiness checks."
+	_startup_check_status="1"
+	_startup_check_elapsed_ticks="0"
+	_startup_check_progress_5="0"
+	_startup_check_progress_30="0"
+	_startup_check_progress_120="0"
+	if ! pidof "${PROCS}" >/dev/null 2>&1; then
+		_startup_check_status="2"
+	elif ! _startup_check_start="$(adguardhome_monotonic_now)"; then
+		_startup_check_status="5"
+	else
+		_startup_check_deadline="$((_startup_check_start + _startup_check_timeout * 100))"
+		if ! adguardhome_config_valid; then
+			_startup_check_status="4"
+		fi
+		if ! _startup_check_now="$(adguardhome_monotonic_now)"; then
+			[ "${_startup_check_status}" -eq 4 ] || _startup_check_status="5"
+		else
+			_startup_check_elapsed_ticks="$((_startup_check_now - _startup_check_start))"
+			[ "${_startup_check_elapsed_ticks}" -ge 0 ] || _startup_check_status="5"
+		fi
+	fi
+	if [ "${_startup_check_status}" -eq 2 ] || [ "${_startup_check_status}" -eq 4 ] ||
+		[ "${_startup_check_status}" -eq 5 ]; then
+		_startup_check_failure_reason="$(wait_for_adguardhome_startup_checks_failure_reason "${_startup_check_status}")"
+		agh_log ERROR wait_for_adguardhome_startup_checks "DNS/WebUI readiness checks failed after $(adguardhome_readiness_elapsed "${_startup_check_elapsed_ticks}"): ${_startup_check_failure_reason}."
+		return 1
+	fi
+	_startup_check_initial="1"
 	while :; do
+		if [ "${_startup_check_initial:-0}" != "1" ]; then
+			if ! _startup_check_now="$(adguardhome_monotonic_now)"; then
+				_startup_check_status="5"
+				break
+			fi
+			_startup_check_elapsed_ticks="$((_startup_check_now - _startup_check_start))"
+			if [ "${_startup_check_elapsed_ticks}" -lt 0 ]; then
+				_startup_check_status="5"
+				break
+			fi
+			[ "${_startup_check_now}" -lt "${_startup_check_deadline}" ] || break
+		fi
+		_startup_check_initial="0"
 		adguardhome_startup_checks_ready
 		_startup_check_status="$?"
-		if [ "${_startup_check_status}" -eq 0 ]; then
-			agh_log INFO wait_for_adguardhome_startup_checks "DNS/WebUI readiness checks passed after ${_startup_check_elapsed} second(s)."
+		if ! _startup_check_now="$(adguardhome_monotonic_now)"; then
+			_startup_check_status="5"
+			break
+		fi
+		_startup_check_elapsed_ticks="$((_startup_check_now - _startup_check_start))"
+		if [ "${_startup_check_elapsed_ticks}" -lt 0 ]; then
+			_startup_check_status="5"
+			break
+		fi
+		if [ "${_startup_check_status}" -eq 0 ] && [ "${_startup_check_now}" -le "${_startup_check_deadline}" ]; then
+			agh_log INFO wait_for_adguardhome_startup_checks "DNS/WebUI readiness checks passed after $(adguardhome_readiness_elapsed "${_startup_check_elapsed_ticks}")."
 			return 0
 		fi
+		[ "${_startup_check_status}" -eq 0 ] && _startup_check_status="1"
 		case "${_startup_check_status}" in
 			2 | 3 | 4) break ;;
 		esac
-		[ "${_startup_check_elapsed}" -ge "${_startup_check_timeout}" ] && break
-		_startup_check_elapsed="$((_startup_check_elapsed + 1))"
-		if [ "${_startup_check_elapsed}" = "5" ] || [ "${_startup_check_elapsed}" = "30" ] ||
-			[ "${_startup_check_elapsed}" = "120" ]; then
-			agh_log INFO wait_for_adguardhome_startup_checks "Still waiting for DNS/WebUI readiness after ${_startup_check_elapsed} second(s)."
+		if [ "${_startup_check_elapsed_ticks}" -ge 500 ] && [ "${_startup_check_progress_5}" = "0" ]; then
+			agh_log INFO wait_for_adguardhome_startup_checks "Still waiting for DNS/WebUI readiness after $(adguardhome_readiness_elapsed "${_startup_check_elapsed_ticks}")."
+			_startup_check_progress_5="1"
 		fi
+		if [ "${_startup_check_elapsed_ticks}" -ge 3000 ] && [ "${_startup_check_progress_30}" = "0" ]; then
+			agh_log INFO wait_for_adguardhome_startup_checks "Still waiting for DNS/WebUI readiness after $(adguardhome_readiness_elapsed "${_startup_check_elapsed_ticks}")."
+			_startup_check_progress_30="1"
+		fi
+		if [ "${_startup_check_elapsed_ticks}" -ge 12000 ] && [ "${_startup_check_progress_120}" = "0" ]; then
+			agh_log INFO wait_for_adguardhome_startup_checks "Still waiting for DNS/WebUI readiness after $(adguardhome_readiness_elapsed "${_startup_check_elapsed_ticks}")."
+			_startup_check_progress_120="1"
+		fi
+		[ "${_startup_check_now}" -lt "${_startup_check_deadline}" ] || break
 		sleep 1s
 	done
 	_startup_check_failure_reason="$(wait_for_adguardhome_startup_checks_failure_reason "${_startup_check_status}")"
-	agh_log ERROR wait_for_adguardhome_startup_checks "DNS/WebUI readiness checks failed after ${_startup_check_elapsed} second(s): ${_startup_check_failure_reason}."
+	agh_log ERROR wait_for_adguardhome_startup_checks "DNS/WebUI readiness checks failed after $(adguardhome_readiness_elapsed "${_startup_check_elapsed_ticks}"): ${_startup_check_failure_reason}."
 	return 1
 }
 
@@ -1340,44 +1436,82 @@ log_adguardhome_dns_wait_failure() {
 }
 
 wait_for_adguardhome_dns() {
-	_dns_wait_elapsed="0"
 	_dns_wait_timeout="$(adguardhome_readiness_timeout "${ADGUARDHOME_DNS_WAIT_RETRIES:-}" ADGUARDHOME_DNS_WAIT_RETRIES)"
 	_dns_wait_failure_reason="readiness deadline expired while the process remained running; large filter lists can increase startup time"
 	agh_log INFO wait_for_adguardhome_dns "Waiting up to ${_dns_wait_timeout} second(s) for AdGuardHome to bind DNS port 53."
+	_dns_wait_elapsed_ticks="0"
+	_dns_wait_progress_5="0"
+	_dns_wait_progress_30="0"
+	_dns_wait_progress_120="0"
+	if ! _dns_wait_start="$(adguardhome_monotonic_now)"; then
+		agh_log ERROR wait_for_adguardhome_dns "DNS readiness failed after $(adguardhome_readiness_elapsed "${_dns_wait_elapsed_ticks}"): monotonic readiness clock is unavailable."
+		return 1
+	fi
+	_dns_wait_deadline="$((_dns_wait_start + _dns_wait_timeout * 100))"
+	_dns_wait_initial="1"
 	while :; do
-		dns_socket_snapshot || {
-			if ! adguardhome_single_process_running; then
-				_dns_wait_failure_reason="process exited before DNS readiness completed"
+		if [ "${_dns_wait_initial}" != "1" ]; then
+			if ! _dns_wait_now="$(adguardhome_monotonic_now)"; then
+				_dns_wait_failure_reason="monotonic readiness clock is unavailable"
 				break
 			fi
-			[ "${_dns_wait_elapsed}" -ge "${_dns_wait_timeout}" ] && break
-			_dns_wait_elapsed="$((_dns_wait_elapsed + 1))"
-			sleep 1s
-			continue
-		}
-		adguardhome_owns_dns "${ADGUARDHOME_DNS_BIND_SCOPE:-global}" "${DNS_SOCKET_SNAPSHOT}"
-		_dns_wait_status="$?"
-		if [ "${_dns_wait_status}" -eq 0 ]; then
-			agh_log INFO wait_for_adguardhome_dns "AdGuardHome owns DNS port 53 after ${_dns_wait_elapsed} second(s)."
+			_dns_wait_elapsed_ticks="$((_dns_wait_now - _dns_wait_start))"
+			if [ "${_dns_wait_elapsed_ticks}" -lt 0 ]; then
+				_dns_wait_failure_reason="monotonic readiness clock is unavailable"
+				break
+			fi
+			[ "${_dns_wait_now}" -lt "${_dns_wait_deadline}" ] || break
+		fi
+		_dns_wait_initial="0"
+		_dns_wait_status="1"
+		if dns_socket_snapshot; then
+			adguardhome_owns_dns "${ADGUARDHOME_DNS_BIND_SCOPE:-global}" "${DNS_SOCKET_SNAPSHOT}"
+			_dns_wait_status="$?"
+			if [ "${_dns_wait_status}" -eq 2 ]; then
+				_dns_wait_failure_reason="process exited before DNS readiness completed"
+			elif [ "${_dns_wait_status}" -ne 0 ] &&
+				dns_port_has_foreign_owner "${ADGUARDHOME_DNS_BIND_SCOPE:-global}" "${DNS_SOCKET_SNAPSHOT}" 1; then
+				_dns_wait_failure_reason="port 53 is owned by another process"
+				_dns_wait_status="3"
+			fi
+		else
+			if ! adguardhome_single_process_running; then
+				_dns_wait_failure_reason="process exited before DNS readiness completed"
+				_dns_wait_status="2"
+			fi
+		fi
+		if ! _dns_wait_now="$(adguardhome_monotonic_now)"; then
+			_dns_wait_failure_reason="monotonic readiness clock is unavailable"
+			break
+		fi
+		_dns_wait_elapsed_ticks="$((_dns_wait_now - _dns_wait_start))"
+		if [ "${_dns_wait_elapsed_ticks}" -lt 0 ]; then
+			_dns_wait_failure_reason="monotonic readiness clock is unavailable"
+			break
+		fi
+		if [ "${_dns_wait_status}" -eq 0 ] && [ "${_dns_wait_now}" -le "${_dns_wait_deadline}" ]; then
+			agh_log INFO wait_for_adguardhome_dns "AdGuardHome owns DNS port 53 after $(adguardhome_readiness_elapsed "${_dns_wait_elapsed_ticks}")."
 			return 0
 		fi
-		if [ "${_dns_wait_status}" -eq 2 ]; then
-			_dns_wait_failure_reason="process exited before DNS readiness completed"
-			break
+		case "${_dns_wait_status}" in
+			2 | 3) break ;;
+		esac
+		if [ "${_dns_wait_elapsed_ticks}" -ge 500 ] && [ "${_dns_wait_progress_5}" = "0" ]; then
+			agh_log INFO wait_for_adguardhome_dns "Still waiting for DNS port 53 after $(adguardhome_readiness_elapsed "${_dns_wait_elapsed_ticks}")."
+			_dns_wait_progress_5="1"
 		fi
-		if dns_port_has_foreign_owner "${ADGUARDHOME_DNS_BIND_SCOPE:-global}" "${DNS_SOCKET_SNAPSHOT}" 1; then
-			_dns_wait_failure_reason="port 53 is owned by another process"
-			break
+		if [ "${_dns_wait_elapsed_ticks}" -ge 3000 ] && [ "${_dns_wait_progress_30}" = "0" ]; then
+			agh_log INFO wait_for_adguardhome_dns "Still waiting for DNS port 53 after $(adguardhome_readiness_elapsed "${_dns_wait_elapsed_ticks}")."
+			_dns_wait_progress_30="1"
 		fi
-		[ "${_dns_wait_elapsed}" -ge "${_dns_wait_timeout}" ] && break
-		_dns_wait_elapsed="$((_dns_wait_elapsed + 1))"
-		if [ "${_dns_wait_elapsed}" = "5" ] || [ "${_dns_wait_elapsed}" = "30" ] ||
-			[ "${_dns_wait_elapsed}" = "120" ]; then
-			agh_log INFO wait_for_adguardhome_dns "Still waiting for DNS port 53 after ${_dns_wait_elapsed} second(s)."
+		if [ "${_dns_wait_elapsed_ticks}" -ge 12000 ] && [ "${_dns_wait_progress_120}" = "0" ]; then
+			agh_log INFO wait_for_adguardhome_dns "Still waiting for DNS port 53 after $(adguardhome_readiness_elapsed "${_dns_wait_elapsed_ticks}")."
+			_dns_wait_progress_120="1"
 		fi
+		[ "${_dns_wait_now}" -lt "${_dns_wait_deadline}" ] || break
 		sleep 1s
 	done
-	agh_log ERROR wait_for_adguardhome_dns "DNS readiness failed after ${_dns_wait_elapsed} second(s): ${_dns_wait_failure_reason}."
+	agh_log ERROR wait_for_adguardhome_dns "DNS readiness failed after $(adguardhome_readiness_elapsed "${_dns_wait_elapsed_ticks}"): ${_dns_wait_failure_reason}."
 	log_adguardhome_dns_wait_failure
 	return 1
 }

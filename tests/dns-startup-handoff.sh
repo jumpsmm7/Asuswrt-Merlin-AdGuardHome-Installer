@@ -50,7 +50,7 @@ export PATH
 : >"${NETSTAT_CALLS_FILE}" || fail 'could not create netstat calls file'
 
 sed -n \
-	'/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^agh_conf_value() {$/,/^}$/p; /^adguardhome_readiness_timeout() {$/,/^}$/p; /^agh_install_mode() {$/,/^}$/p; /^agh_lan_mode() {$/,/^}$/p; /^agh_dnsmasq_running() {$/,/^}$/p; /^agh_dnsmasq_managed() {$/,/^}$/p; /^agh_dns_handoff_required() {$/,/^}$/p; /^adguardhome_yaml_ipset_file() {$/,/^}$/p; /^chmod_regular_files_600() {$/,/^}$/p; /^adguardhome_owner_account() {$/,/^}$/p; /^ensure_adguardhome_work_dir_permissions() {$/,/^}$/p; /^dns_guard_wait_for_stop() {$/,/^}$/p; /^initialize_dns_guard_wait() {$/,/^}$/p; /^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_path_has_owner_mode() {$/,/^}$/p; /^dns_handoff_directory_is_private() {$/,/^}$/p; /^dns_handoff_marker_is_private() {$/,/^}$/p; /^dns_guard_readiness_is_private() {$/,/^}$/p; /^dns_guard_fifo_is_private() {$/,/^}$/p; /^remove_dns_guard_fifo() {$/,/^}$/p; /^dns_guard_readiness_matches_identity() {$/,/^}$/p; /^dns_handoff_marker_matches_identity() {$/,/^}$/p; /^remove_current_dns_guard_readiness() {$/,/^}$/p; /^dns_handoff_process_is_root() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_set_current_identity() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^remove_inactive_dns_handoff_marker() {$/,/^}$/p; /^dns_handoff_lock_file_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^watchdog_pids() {$/,/^}$/p; /^pid_nice() {$/,/^}$/p; /^save_watchdog_nice() {$/,/^}$/p; /^restore_watchdog_nice() {$/,/^}$/p; /^reap_the_watch_dog() {$/,/^}$/p; /^resume_dns_watchdog() {$/,/^}$/p; /^restore_dns_watchdog_traps() {$/,/^}$/p; /^save_dns_watchdog_traps() {$/,/^}$/p; /^suspend_dns_watchdog() {$/,/^}$/p; /^reclaim_stale_dns_handoff_lock() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^prepare_dns_handoff_marker() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^adguardhome_config_valid() {$/,/^}$/p; /^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_owned_status() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^adguardhome_startup_checks_ready() {$/,/^}$/p; /^wait_for_adguardhome_startup_checks_failure_reason() {$/,/^}$/p; /^wait_for_adguardhome_startup_checks() {$/,/^}$/p; /^log_adguardhome_start_failure() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^dns_socket_snapshot() {$/,/^}$/p; /^dns_socket_snapshot_value() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^dns_port_owner_command() {$/,/^}$/p; /^dns_port_owner_process_name() {$/,/^}$/p; /^adguardhome_dns_bind_scope() {$/,/^}$/p; /^dns_port_unknown_refusal_enabled() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^release_dns_port_from_dnsmasq() {$/,/^}$/p; /^dns_port_has_foreign_owner() {$/,/^}$/p; /^dns_port_needs_release() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^start_dns_port_guard() {$/,/^}$/p; /^launch_dns_port_guard() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
+	'/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^agh_conf_value() {$/,/^}$/p; /^adguardhome_readiness_timeout() {$/,/^}$/p; /^adguardhome_monotonic_ticks() {$/,/^}$/p; /^adguardhome_monotonic_now() {$/,/^}$/p; /^adguardhome_readiness_elapsed() {$/,/^}$/p; /^agh_install_mode() {$/,/^}$/p; /^agh_lan_mode() {$/,/^}$/p; /^agh_dnsmasq_running() {$/,/^}$/p; /^agh_dnsmasq_managed() {$/,/^}$/p; /^agh_dns_handoff_required() {$/,/^}$/p; /^adguardhome_yaml_ipset_file() {$/,/^}$/p; /^chmod_regular_files_600() {$/,/^}$/p; /^adguardhome_owner_account() {$/,/^}$/p; /^ensure_adguardhome_work_dir_permissions() {$/,/^}$/p; /^dns_guard_wait_for_stop() {$/,/^}$/p; /^initialize_dns_guard_wait() {$/,/^}$/p; /^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_path_has_owner_mode() {$/,/^}$/p; /^dns_handoff_directory_is_private() {$/,/^}$/p; /^dns_handoff_marker_is_private() {$/,/^}$/p; /^dns_guard_readiness_is_private() {$/,/^}$/p; /^dns_guard_fifo_is_private() {$/,/^}$/p; /^remove_dns_guard_fifo() {$/,/^}$/p; /^dns_guard_readiness_matches_identity() {$/,/^}$/p; /^dns_handoff_marker_matches_identity() {$/,/^}$/p; /^remove_current_dns_guard_readiness() {$/,/^}$/p; /^dns_handoff_process_is_root() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_set_current_identity() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^remove_inactive_dns_handoff_marker() {$/,/^}$/p; /^dns_handoff_lock_file_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^watchdog_pids() {$/,/^}$/p; /^pid_nice() {$/,/^}$/p; /^save_watchdog_nice() {$/,/^}$/p; /^restore_watchdog_nice() {$/,/^}$/p; /^reap_the_watch_dog() {$/,/^}$/p; /^resume_dns_watchdog() {$/,/^}$/p; /^restore_dns_watchdog_traps() {$/,/^}$/p; /^save_dns_watchdog_traps() {$/,/^}$/p; /^suspend_dns_watchdog() {$/,/^}$/p; /^reclaim_stale_dns_handoff_lock() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^prepare_dns_handoff_marker() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^adguardhome_config_valid() {$/,/^}$/p; /^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_owned_status() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^adguardhome_startup_checks_ready() {$/,/^}$/p; /^wait_for_adguardhome_startup_checks_failure_reason() {$/,/^}$/p; /^wait_for_adguardhome_startup_checks() {$/,/^}$/p; /^log_adguardhome_start_failure() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^dns_socket_snapshot() {$/,/^}$/p; /^dns_socket_snapshot_value() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^dns_port_owner_command() {$/,/^}$/p; /^dns_port_owner_process_name() {$/,/^}$/p; /^adguardhome_dns_bind_scope() {$/,/^}$/p; /^dns_port_unknown_refusal_enabled() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^release_dns_port_from_dnsmasq() {$/,/^}$/p; /^dns_port_has_foreign_owner() {$/,/^}$/p; /^dns_port_needs_release() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^start_dns_port_guard() {$/,/^}$/p; /^launch_dns_port_guard() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed 's#/bin/nvram#nvram#g; s#/usr/bin/awk#awk#g' "${S99_FUNCTIONS}" >"${S99_FUNCTIONS}.test" || fail 'could not isolate stock account commands'
 mv "${S99_FUNCTIONS}.test" "${S99_FUNCTIONS}" || fail 'could not update isolated service helpers'
@@ -177,6 +177,36 @@ printf '%s\n' 'ADGUARD_WEBUI_PORT="3000"' >"${WORK_DIR}/.config" || fail 'could 
 printf '%s\n' 'bind_host: 0.0.0.0' 'bind_port: 3000' >"${WORK_DIR}/AdGuardHome.yaml" || fail 'could not create AdGuardHome yaml'
 printf '%s\n' '#!/bin/sh' 'exit 0' >"${WORK_DIR}/AdGuardHome" || fail 'could not create AdGuardHome binary'
 chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod AdGuardHome binary'
+MONOTONIC_TICKS_FILE="${TEST_ROOT}/monotonic-ticks"
+CONFIG_CHECK_CALLS_FILE="${TEST_ROOT}/config-check-calls"
+printf '%s\n' 0 >"${MONOTONIC_TICKS_FILE}" || fail 'could not initialize the monotonic clock fixture'
+printf '%s\n' 0 >"${CONFIG_CHECK_CALLS_FILE}" || fail 'could not initialize the configuration check counter'
+
+# advance_monotonic_ticks advances the deterministic centisecond clock used by readiness tests.
+advance_monotonic_ticks() {
+	_clock_ticks="$(cat "${MONOTONIC_TICKS_FILE}")"
+	printf '%s\n' "$((_clock_ticks + $1))" >"${MONOTONIC_TICKS_FILE}"
+}
+
+# adguardhome_monotonic_ticks replaces /proc/uptime with a deterministic test clock.
+adguardhome_monotonic_ticks() {
+	[ "${MONOTONIC_CLOCK_FAIL:-0}" -eq 0 ] || return 1
+	if [ -n "${MONOTONIC_CLOCK_VALUE:-}" ]; then
+		printf '%s\n' "${MONOTONIC_CLOCK_VALUE}"
+		return 0
+	fi
+	cat "${MONOTONIC_TICKS_FILE}"
+}
+
+# adguardhome_config_valid counts each real --check-config invocation and can advance the test clock.
+adguardhome_config_valid() {
+	_config_check_calls="$(cat "${CONFIG_CHECK_CALLS_FILE}")"
+	printf '%s\n' "$((_config_check_calls + 1))" >"${CONFIG_CHECK_CALLS_FILE}"
+	advance_monotonic_ticks "${CONFIG_CHECK_ADVANCE_TICKS:-0}"
+	[ -x "${WORK_DIR}/AdGuardHome" ] || return 1
+	[ -f "${WORK_DIR}/AdGuardHome.yaml" ] || return 1
+	"${WORK_DIR}/AdGuardHome" --check-config -c "${WORK_DIR}/AdGuardHome.yaml" --no-check-update -l /dev/null >/dev/null 2>&1
+}
 DNS_HANDOFF_DIR="${TEST_ROOT}/dns-handoff"
 DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
 DNS_HANDOFF_LOCK="${DNS_HANDOFF_DIR}/lock"
@@ -293,6 +323,7 @@ pidof() {
 }
 # netstat simulates network socket listings for configured DNS and WebUI ownership states and can produce transient or persistent failures for test scenarios.
 netstat() {
+	advance_monotonic_ticks "${NETSTAT_ADVANCE_TICKS:-0}"
 	printf '%s\n' netstat >>"${NETSTAT_CALLS_FILE}"
 	_netstat_call_count="$(wc -l <"${NETSTAT_CALLS_FILE}")"
 	case ",${NETSTAT_FAIL_CALLS:-}," in
@@ -384,6 +415,7 @@ kill() {
 # sleep records a simulated delay and updates configured DNS and web readiness states.
 sleep() {
 	SLEEP_CALLS="$((SLEEP_CALLS + 1))"
+	advance_monotonic_ticks 100
 	if [ "${DNS_GUARD_FIFO_TEST_MODE:-}" = "fail" ] && [ -n "${DNS_GUARD_FIFO_FALLBACK_MARKER:-}" ]; then
 		: >"${DNS_GUARD_FIFO_FALLBACK_MARKER}"
 	fi
@@ -1309,11 +1341,140 @@ if post_start_adguardhome; then
 	fail 'post-start succeeded before AdGuardHome owned port 53'
 fi
 [ "${SLEEP_CALLS}" -eq 0 ] || fail 'post-start waited after detecting a foreign DNS port owner'
-grep -q 'DNS readiness failed after 0 second(s): port 53 is owned by another process' "${CALLS_FILE}" || fail 'foreign DNS owner failure did not log its terminal reason'
+grep -q 'DNS readiness failed after 0.00 second(s): port 53 is owned by another process' "${CALLS_FILE}" || fail 'foreign DNS owner failure did not log its terminal reason'
 ! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'post-start restarted dnsmasq before AdGuardHome owned DNS'
 grep -q 'AdGuardHome startup failed: process is running but DNS is not bound' "${CALLS_FILE}" || fail 'DNS startup failure did not log the concise DNS-bound message'
 
 : >"${CALLS_FILE}"
+DNS_STATE=owned
+NETSTAT_ADVANCE_TICKS=300
+ADGUARDHOME_DNS_WAIT_RETRIES=3
+wait_for_adguardhome_dns || fail 'DNS readiness observed exactly at the deadline was rejected'
+NETSTAT_ADVANCE_TICKS=301
+if wait_for_adguardhome_dns; then
+	fail 'DNS readiness first observed after the deadline was accepted'
+fi
+grep -q 'DNS readiness failed after 3.01 second(s)' "${CALLS_FILE}" || fail 'late DNS readiness did not report measured elapsed time'
+
+: >"${CALLS_FILE}"
+DNS_STATE=free
+NETSTAT_FAIL=1
+NETSTAT_ADVANCE_TICKS=400
+SLEEP_CALLS=0
+if wait_for_adguardhome_dns; then
+	fail 'slow failed DNS snapshot outlived the readiness deadline'
+fi
+[ "${SLEEP_CALLS}" -eq 0 ] || fail 'slow failed DNS snapshot slept or started another poll after the deadline'
+grep -q 'DNS readiness failed after 4.00 second(s)' "${CALLS_FILE}" || fail 'slow failed DNS snapshot did not report measured elapsed time'
+NETSTAT_FAIL=0
+unset NETSTAT_ADVANCE_TICKS ADGUARDHOME_DNS_WAIT_RETRIES
+
+: >"${CALLS_FILE}"
+MONOTONIC_CLOCK_FAIL=1
+if wait_for_adguardhome_dns; then
+	fail 'DNS readiness accepted an unavailable monotonic clock'
+fi
+grep -q 'monotonic readiness clock is unavailable' "${CALLS_FILE}" || fail 'DNS readiness did not report clock failure'
+unset MONOTONIC_CLOCK_FAIL
+
+# Exercise readiness timing directly so pre-start validation and post-failure diagnostics do not affect validation counts.
+: >"${CALLS_FILE}"
+printf '%s\n' 0 >"${CONFIG_CHECK_CALLS_FILE}"
+DNS_STATE=owned
+WEB_STATE=missing
+SLEEP_CALLS=0
+NETSTAT_ADVANCE_TICKS=160
+ADGUARDHOME_READY_TIMEOUT=3
+if wait_for_adguardhome_startup_checks; then
+	fail 'slow WebUI probes succeeded after exhausting the measured readiness deadline'
+fi
+[ "$(cat "${CONFIG_CHECK_CALLS_FILE}")" -eq 1 ] || fail 'slow WebUI polling repeated configuration validation'
+[ "${SLEEP_CALLS}" -eq 1 ] || fail 'slow WebUI probes slept or polled again after crossing the deadline'
+grep -q 'failed after 4.20 second(s): readiness deadline expired' "${CALLS_FILE}" || fail 'slow WebUI probes did not report measured elapsed time'
+unset NETSTAT_ADVANCE_TICKS ADGUARDHOME_READY_TIMEOUT
+
+: >"${CALLS_FILE}"
+printf '%s\n' 0 >"${CONFIG_CHECK_CALLS_FILE}"
+printf '%s\n' '#!/bin/sh' 'exit 1' >"${WORK_DIR}/AdGuardHome" || fail 'could not replace AdGuardHome binary for direct validation failure'
+chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod direct validation failure binary'
+SLEEP_CALLS=0
+if wait_for_adguardhome_startup_checks; then
+	fail 'readiness wait accepted an invalid configuration'
+fi
+[ "$(cat "${CONFIG_CHECK_CALLS_FILE}")" -eq 1 ] || fail 'invalid configuration was not validated exactly once'
+[ "${SLEEP_CALLS}" -eq 0 ] || fail 'invalid configuration entered WebUI polling'
+grep -q 'configuration validation failed' "${CALLS_FILE}" || fail 'invalid configuration did not retain its failure reason'
+printf '%s\n' '#!/bin/sh' 'exit 0' >"${WORK_DIR}/AdGuardHome" || fail 'could not restore AdGuardHome binary after direct validation failure'
+chmod 755 "${WORK_DIR}/AdGuardHome" || fail 'could not chmod restored AdGuardHome binary after direct validation failure'
+
+: >"${CALLS_FILE}"
+printf '%s\n' 0 >"${CONFIG_CHECK_CALLS_FILE}"
+DNS_STATE=missing
+if wait_for_adguardhome_startup_checks; then
+	fail 'readiness wait accepted an initially absent process'
+fi
+[ "$(cat "${CONFIG_CHECK_CALLS_FILE}")" -eq 0 ] || fail 'initially absent process triggered configuration validation'
+grep -q 'process exited before readiness completed' "${CALLS_FILE}" || fail 'initially absent process lost its failure reason'
+DNS_STATE=owned
+WEB_STATE=bound
+
+printf '%s\n' 0 >"${CONFIG_CHECK_CALLS_FILE}"
+wait_for_adguardhome_startup_checks || fail 'first independent readiness wait failed'
+wait_for_adguardhome_startup_checks || fail 'second independent readiness wait failed'
+[ "$(cat "${CONFIG_CHECK_CALLS_FILE}")" -eq 2 ] || fail 'separate readiness waits did not validate independently'
+
+: >"${CALLS_FILE}"
+printf '%s\n' 0 >"${CONFIG_CHECK_CALLS_FILE}"
+MONOTONIC_CLOCK_FAIL=1
+SLEEP_CALLS=0
+if wait_for_adguardhome_startup_checks; then
+	fail 'readiness wait accepted an unavailable monotonic clock'
+fi
+[ "$(cat "${CONFIG_CHECK_CALLS_FILE}")" -eq 0 ] || fail 'unavailable clock triggered configuration validation'
+[ "${SLEEP_CALLS}" -eq 0 ] || fail 'unavailable clock entered readiness polling'
+grep -q 'monotonic readiness clock is unavailable' "${CALLS_FILE}" || fail 'unavailable clock did not report its failure reason'
+unset MONOTONIC_CLOCK_FAIL
+
+: >"${CALLS_FILE}"
+MONOTONIC_CLOCK_VALUE=invalid
+if wait_for_adguardhome_startup_checks; then
+	fail 'readiness wait accepted malformed monotonic clock data'
+fi
+grep -q 'monotonic readiness clock is unavailable' "${CALLS_FILE}" || fail 'malformed clock data did not report its failure reason'
+unset MONOTONIC_CLOCK_VALUE
+
+: >"${CALLS_FILE}"
+WEB_STATE=missing
+NETSTAT_ADVANCE_TICKS=12000
+ADGUARDHOME_READY_TIMEOUT=120
+if wait_for_adguardhome_startup_checks; then
+	fail 'readiness wait accepted an unavailable WebUI at the deadline'
+fi
+[ "$(grep -c 'Still waiting for DNS/WebUI readiness after 120.00 second(s)' "${CALLS_FILE}")" -eq 3 ] ||
+	fail 'slow readiness probe did not log each crossed progress threshold exactly once'
+unset NETSTAT_ADVANCE_TICKS ADGUARDHOME_READY_TIMEOUT
+
+WEB_STATE=bound
+NETSTAT_ADVANCE_TICKS=300
+ADGUARDHOME_READY_TIMEOUT=3
+wait_for_adguardhome_startup_checks || fail 'readiness observed exactly at the deadline was rejected'
+NETSTAT_ADVANCE_TICKS=301
+if wait_for_adguardhome_startup_checks; then
+	fail 'readiness first observed after the deadline was accepted'
+fi
+NETSTAT_ADVANCE_TICKS=0
+ADGUARDHOME_READY_TIMEOUT=0
+wait_for_adguardhome_startup_checks || fail 'zero-timeout readiness rejected immediate success'
+WEB_STATE=missing
+SLEEP_CALLS=0
+if wait_for_adguardhome_startup_checks; then
+	fail 'zero-timeout readiness accepted an unavailable WebUI'
+fi
+[ "${SLEEP_CALLS}" -eq 0 ] || fail 'zero-timeout readiness slept or started another poll'
+unset NETSTAT_ADVANCE_TICKS ADGUARDHOME_READY_TIMEOUT
+
+: >"${CALLS_FILE}"
+printf '%s\n' 0 >"${CONFIG_CHECK_CALLS_FILE}"
 DNS_STATE=owned
 WEB_STATE=missing
 SLEEP_CALLS=0
@@ -1322,8 +1483,9 @@ mark_dns_handoff_active
 if post_start_adguardhome; then
 	fail 'post-start succeeded with an unavailable WebUI port'
 fi
+[ "$(cat "${CONFIG_CHECK_CALLS_FILE}")" -eq 1 ] || fail 'WebUI readiness timeout repeated configuration validation'
 grep -q 'AdGuardHome startup failed: WebUI port is unavailable' "${CALLS_FILE}" || fail 'WebUI startup failure did not log the concise WebUI message'
-grep -q 'failed after 3 second(s): readiness deadline expired' "${CALLS_FILE}" || fail 'WebUI readiness deadline did not log elapsed time and its final reason'
+grep -q 'failed after 3.00 second(s): readiness deadline expired' "${CALLS_FILE}" || fail 'WebUI readiness deadline did not log elapsed time and its final reason'
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'expired WebUI readiness did not run failure recovery'
 clear_dns_handoff_active
 WEB_STATE=bound
@@ -1334,10 +1496,12 @@ DNS_STATE=owned
 WEB_STATE=missing
 SLEEP_CALLS=0
 SLEEP_WEB_BOUND_AFTER=31
+printf '%s\n' 0 >"${CONFIG_CHECK_CALLS_FILE}"
 cp "${WORK_DIR}/.config" "${WORK_DIR}/.config.before-startup-readiness" || fail 'could not preserve runtime config before startup readiness override test'
 printf '%s\n' 'ADGUARDHOME_STARTUP_CHECK_RETRIES="40"' >>"${WORK_DIR}/.config" || fail 'could not persist startup readiness override'
 mark_dns_handoff_active
 post_start_adguardhome || fail 'post-start did not wait past the former 30-second WebUI readiness boundary'
+[ "$(cat "${CONFIG_CHECK_CALLS_FILE}")" -eq 1 ] || fail 'delayed WebUI readiness repeated configuration validation'
 [ "${SLEEP_CALLS}" -eq 31 ] || fail 'post-start did not retry WebUI readiness until it became available after 30 seconds'
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'delayed WebUI readiness did not complete the DNS handoff'
 ! grep -q 'Running AdGuardHome startup failure recovery' "${CALLS_FILE}" || fail 'delayed WebUI readiness incorrectly ran failure recovery'
@@ -1356,7 +1520,7 @@ if post_start_adguardhome; then
 	fail 'post-start succeeded after AdGuardHome exited during WebUI readiness'
 fi
 [ "${SLEEP_CALLS}" -eq 2 ] || fail 'post-start did not fail immediately when AdGuardHome exited during WebUI readiness'
-grep -q 'failed after 2 second(s): process exited before readiness completed' "${CALLS_FILE}" || fail 'process exit did not log elapsed time and its final reason'
+grep -q 'failed after 2.00 second(s): process exited before readiness completed' "${CALLS_FILE}" || fail 'process exit did not log elapsed time and its final reason'
 unset ADGUARDHOME_READY_TIMEOUT SLEEP_PROCESS_EXITS_AFTER
 DNS_STATE=owned
 WEB_STATE=bound
