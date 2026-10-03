@@ -6,8 +6,14 @@ INSTALLER_PATH="${1:-installer}"
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/installer-lock-release.XXXXXX")" || exit 1
 FUNCTIONS_FILE="${TEST_ROOT}/functions"
 
-cleanup() { exec 8>&- 2>/dev/null || true; rm -rf "${TEST_ROOT}"; }
-fail() { printf '%s\n' "FAIL: $*" >&2; exit 1; }
+cleanup() {
+	exec 8>&- 2>/dev/null || true
+	rm -rf "${TEST_ROOT}"
+}
+fail() {
+	printf '%s\n' "FAIL: $*" >&2
+	exit 1
+}
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
@@ -26,11 +32,17 @@ REAPER_ACTIVE=0
 
 nvram_transaction_lock_owner_current() { printf '%s\n' "${OWNER}"; }
 nvram_transaction_lock_readlink() { readlink "$@"; }
-nvram_transaction_lock_failure() { NVRAM_TRANSACTION_LOCK_DIAGNOSTIC="$1"; return 1; }
+nvram_transaction_lock_failure() {
+	NVRAM_TRANSACTION_LOCK_DIAGNOSTIC="$1"
+	return 1
+}
 nvram_transaction_lock_flock_owned() {
 	[ -e "/proc/$$/fd/8" ] && [ "$(readlink "${LOCK_PATH}.symlink" 2>/dev/null)" = "${OWNER}" ]
 }
-nvram_transaction_lock_reaper_acquire() { REAPER_ACTIVE=1; return 0; }
+nvram_transaction_lock_reaper_acquire() {
+	REAPER_ACTIVE=1
+	return 0
+}
 nvram_transaction_lock_reaper_release() {
 	[ "${REAPER_ACTIVE}" -eq 1 ] || return 1
 	[ "${REAPER_RELEASE_FAIL}" -eq 0 ] || return 1
