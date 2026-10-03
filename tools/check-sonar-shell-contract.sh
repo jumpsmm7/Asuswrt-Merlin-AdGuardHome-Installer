@@ -41,9 +41,10 @@ require_text "${CONFIG_FILE}" 'sonar.coverage.exclusions=**/*.sh,installer,S99Ad
 require_text "${CONFIG_FILE}" 'SONAR-GUARDRAILS.md and tools/check-sonar-shell-contract.sh'
 
 coverage_exclusions="$(sed -n 's/^sonar\.coverage\.exclusions=//p' "${CONFIG_FILE}")"
-case "${coverage_exclusions}" in
-	"" | "*" | "**" | "*/*" | "**/*") fail 'blanket or empty Sonar coverage exclusions are not allowed' ;;
-esac
+if [ -z "${coverage_exclusions}" ] ||
+	printf '%s\n' "${coverage_exclusions}" | grep -Eq '^(\*|\*\*|\*/\*|\*\*/\*)$'; then
+	fail 'blanket or empty Sonar coverage exclusions are not allowed'
+fi
 
 sonar_exclusions="$(sed -n 's/^sonar\.exclusions=//p' "${CONFIG_FILE}")"
 sonar_exclusion_entries="$(printf '%s\n' "${sonar_exclusions}" | tr ',' '\n')"
