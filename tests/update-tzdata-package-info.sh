@@ -121,7 +121,10 @@ CHOSEN=''
 mkdir -p "${ADDON_DIR}"
 printf '%s\n' '#!/bin/sh' 'cat' >"${COLUMN_CMD}"
 chmod 755 "${COLUMN_CMD}"
-cp "${TMP_DIR}/from-xz.pkg.tar.bz2" "${TEST_ROOT}/tzdata-2026c-1-aarch64.pkg.tar.bz2.fixture"
+TZ_PACKAGE="$(sed -n 's/^[[:space:]]*TZ_DATA="\(tzdata-[^"]*-\${TZ_ARCH}\.pkg\.tar\.bz2\)"$/\1/p' "${REPO_DIR}/installer" | head -n 1)"
+[ -n "${TZ_PACKAGE}" ] || fail 'Could not discover the installer timezone package name'
+TZ_PACKAGE="$(printf '%s\n' "${TZ_PACKAGE}" | sed 's/${TZ_ARCH}/aarch64/')"
+cp "${TMP_DIR}/from-xz.pkg.tar.bz2" "${TEST_ROOT}/${TZ_PACKAGE}.fixture"
 printf '%s\n' 'must remain unchanged' >"${TEST_ROOT}/outside-localtime"
 ln -s "${TEST_ROOT}/outside-localtime" "${ADDON_DIR}/localtime"
 ensure_opkg_package() { return 0; }
@@ -129,7 +132,7 @@ ai_have_cmd() { return 0; }
 PTXT() { printf '%s\n' "$1"; }
 uname() { printf '%s\n' 'aarch64'; }
 download_file() {
-	cp "${TEST_ROOT}/tzdata-2026c-1-aarch64.pkg.tar.bz2.fixture" "$1/tzdata-2026c-1-aarch64.pkg.tar.bz2"
+	cp "${TEST_ROOT}/${TZ_PACKAGE}.fixture" "$1/${TZ_PACKAGE}"
 }
 read_input_num() { CHOSEN=1; }
 if ! set_timezone >/dev/null; then

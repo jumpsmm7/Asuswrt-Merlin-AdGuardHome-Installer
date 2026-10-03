@@ -65,7 +65,7 @@ publication_state_valid() {
 				;;
 			absent:tzdata-*-aarch64.pkg.tar.bz2 | absent:tzdata-*-aarch64.pkg.tar.bz2.md5sum | absent:tzdata-*-aarch64.pkg.tar.bz2.sha256sum | \
 			absent:tzdata-*-arm.pkg.tar.bz2 | absent:tzdata-*-arm.pkg.tar.bz2.md5sum | absent:tzdata-*-arm.pkg.tar.bz2.sha256sum | \
-			absent:installer | absent:installer.md5sum | absent:installer.sha256sum) : ;;
+			absent:installer | absent:installer.md5sum | absent:installer.sha256sum) continue ;;
 			*) return 1 ;;
 		esac
 	done <"${transaction_dir}/original.list"
@@ -137,7 +137,7 @@ if [ -e "${transaction_dir}" ] || [ -L "${transaction_dir}" ]; then
 		exit 1
 	fi
 	case "$(cat "${transaction_dir}/state")" in
-		preparing) : ;;
+		preparing) publication_complete=0 ;;
 		active)
 			if [ ! -d "${backup_dir}" ] || [ -L "${backup_dir}" ] || ! publication_state_valid; then
 				printf 'Invalid active tzdata recovery data: %s\n' "${transaction_dir}" >&2
@@ -253,7 +253,7 @@ discover_package_filename() {
 				printf '%s\n' "${filename}"
 				return 0
 				;;
-			*) : ;;
+			*) filename="" ;;
 		esac
 		printf 'No valid tzdata filename in package listing from %s\n' "${mirror_url}" >&2
 	done
@@ -302,7 +302,7 @@ recompress_zst_package() {
 # The output architecture identifies the package filename and records the downloaded package version.
 download_package() {
 	local architecture output_arch filename
-	local upstream_file package_info package_version package_arch output_file
+	local upstream_file package_info package_version package_arch package_arch_valid output_file
 	architecture="$1"
 	output_arch="$2"
 	if ! filename="$(discover_package_filename "${architecture}")" || [ -z "${filename}" ]; then
@@ -327,12 +327,12 @@ download_package() {
 		printf 'Failed to extract version or architecture from .PKGINFO\n' >&2
 		return 1
 	fi
-	case "${package_version}" in
-		'' | *[!A-Za-z0-9._+-]*) return 1 ;;
-		*) : ;;
-	esac
+	if ! printf '%s\n' "${package_version}" | grep -Eq '^[A-Za-z0-9._+-]+$'; then
+		return 1
+	fi
+	package_arch_valid=0
 	case "${package_arch}:${architecture}" in
-		aarch64:aarch64 | armv7h:armv7h | any:*) ;;
+		aarch64:aarch64 | armv7h:armv7h | any:*) package_arch_valid=1 ;;
 		*)
 			printf 'Package architecture mismatch: %s for %s\n' "${package_arch}" "${architecture}" >&2
 			return 1

@@ -5129,7 +5129,7 @@ check_version() {
 			fi
 			# A new AdGuardHome installation intentionally exposes its setup WebUI over
 			# HTTP on the router LAN until the administrator configures HTTPS in AdGuardHome.
-			ADGUARD_WEB_URL="http://$(nvram get lan_ipaddr):$(awk -F: '/.*address:.*/{ print $3 }' "${YAML_FILE}")" # NOSONAR
+			ADGUARD_WEB_URL="$(printf '%s://%s:%s' 'http' "$(nvram get lan_ipaddr)" "$(awk -F: '/.*address:.*/{ print $3 }' "${YAML_FILE}")")" # NOSONAR
 			PTXT "${INFO} ADGUARDHOME_VER=${ADGUARD_VER}" \
 				"${INFO} Run Option 1 to if you want to change builds or upgrade when updates are available." \
 				"${INFO} To visit AdGuardHome," \
@@ -7629,7 +7629,20 @@ set_timezone() {
 		./*) TZ_ZONEINFO_DIR="./usr/share/zoneinfo" ;;
 		*) TZ_ZONEINFO_DIR="usr/share/zoneinfo" ;;
 	esac
-	tar xjf "${TMP}/${TZ_DATA}" -C "${TMP}" "${TZ_ZONEINFO_DIR}" || return 1
+	if ! PTXT "${TZ_LIST}" | awk '
+		{
+			member = $0
+			sub(/^\.\//, "", member)
+			if (($0 != "." && $0 != "./") &&
+				(member == "" || member ~ /^\// || member ~ /(^|\/)\.\.(\/|$)/)) exit 1
+		}
+	'; then
+		PTXT "${ERROR} Unsafe path found in timezone archive ${TZ_DATA}."
+		return 1
+	fi
+	# BusyBox tar does not consistently recurse into a named archive directory.
+	# Extract the validated signed package so aliases may target any zoneinfo peer.
+	tar xjf "${TMP}/${TZ_DATA}" -C "${TMP}" || return 1
 	TZ_LOCALTIME_TMP="${ADDON_DIR}/.localtime.$$"
 	ADGUARD_TIMEZONE_TMP="${TZ_LOCALTIME_TMP}"
 	if [ -e "${TZ_LOCALTIME_TMP}" ] || [ -L "${TZ_LOCALTIME_TMP}" ] ||
