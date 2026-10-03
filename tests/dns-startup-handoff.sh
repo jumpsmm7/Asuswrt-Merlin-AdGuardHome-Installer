@@ -437,6 +437,9 @@ sleep() {
 
 [ "$(dns_retry_limit invalid 7)" = 7 ] || fail 'invalid DNS retry limit was not replaced with the default'
 [ "$(dns_retry_limit 0 7)" = 0 ] || fail 'zero DNS retry limit was not preserved'
+[ "$(adguardhome_readiness_timeout 010 ADGUARDHOME_DNS_WAIT_RETRIES)" = 10 ] || fail 'leading-zero decimal readiness timeout was not normalized'
+[ "$(adguardhome_readiness_timeout 08 ADGUARDHOME_DNS_WAIT_RETRIES)" = 8 ] || fail 'leading-zero readiness timeout containing 8 was not normalized'
+[ "$(adguardhome_readiness_timeout 000 ADGUARDHOME_DNS_WAIT_RETRIES)" = 0 ] || fail 'all-zero readiness timeout was not reduced to one zero'
 
 : >"${NETSTAT_CALLS_FILE}"
 DNS_STATE=busy_alt

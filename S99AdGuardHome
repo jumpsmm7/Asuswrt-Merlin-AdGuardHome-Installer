@@ -174,6 +174,15 @@ adguardhome_readiness_timeout() {
 	if [ -z "${_readiness_timeout}" ]; then
 		_readiness_timeout="$(agh_conf_value ADGUARDHOME_READY_TIMEOUT 2>/dev/null)"
 	fi
+	case "${_readiness_timeout}" in
+		"" | *[!0-9]*) ;;
+		*)
+			while [ "${_readiness_timeout#0}" != "${_readiness_timeout}" ] &&
+				[ "${_readiness_timeout}" != "0" ]; do
+				_readiness_timeout="${_readiness_timeout#0}"
+			done
+			;;
+	esac
 	dns_retry_limit "${_readiness_timeout}" 180
 }
 
