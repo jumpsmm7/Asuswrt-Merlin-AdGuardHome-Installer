@@ -68,6 +68,9 @@ grep -Fq 'if [ -z "${2:-}" ] && single_arg_menu_action "${1:-}"; then' "${SCRIPT
 grep -Fq 'menu "$2"' "${SCRIPT_PATH}" ||
 	fail 'branch-qualified CLI actions no longer enter menu dispatch'
 
+# run_cleanup_pause_case runs cleanup with mocked dependencies and checks its status.
+# Arguments: case name, interactive flag (yes/no), analyzer status, expected status.
+# Captures output and end-operation calls in per-case files under TMP_ROOT.
 run_cleanup_pause_case() {
 	case_name="$1"
 	interactive="$2"
@@ -84,6 +87,7 @@ run_cleanup_pause_case() {
 		ERROR='Error:'
 		TARG_DIR="${TMP_ROOT}/${case_name}"
 		mkdir -p "${TARG_DIR}" || exit 1
+		# PTXT prints plain text, honoring -n so pause prompt ordering is observable.
 		PTXT() {
 			if [ "${1:-}" = "-n" ]; then
 				shift
@@ -92,9 +96,14 @@ run_cleanup_pause_case() {
 				printf '%s\n' "$*"
 			fi
 		}
+		# ptxt_warn forwards warning text to the captured output without formatting.
 		ptxt_warn() { PTXT "$*"; }
+		# stty simulates terminal detection using the case's interactive flag.
 		stty() { [ "${interactive}" = "yes" ]; }
+		# install_blocklist_analyzer simulates successful installation without downloads.
 		install_blocklist_analyzer() { return 0; }
+		# run_blocklist_analyzer emits a diagnostic and returns the configured status,
+		# creating the expected temporary files on success.
 		run_blocklist_analyzer() {
 			PTXT 'analyzer result or diagnostic'
 			if [ "${analyzer_status}" -eq 0 ]; then
@@ -105,12 +114,15 @@ run_cleanup_pause_case() {
 			fi
 			return "${analyzer_status}"
 		}
+		# select_unused_blocklists_for_removal creates a selection file and succeeds.
 		select_unused_blocklists_for_removal() {
 			BLOCKLIST_ANALYZER_SELECTED_IDS_FILE="${TARG_DIR}/selected"
 			: >"${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE}"
 			return 0
 		}
+		# remove_unused_blocklists_from_yaml reports success without editing YAML.
 		remove_unused_blocklists_from_yaml() { PTXT 'cleanup succeeded'; return 0; }
+		# end_op_message records its status argument and emits an ordering marker.
 		end_op_message() {
 			printf 'end:%s\n' "$1" >>"${call_file}"
 			PTXT "end:$1"
