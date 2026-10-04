@@ -262,7 +262,10 @@ DISPATCH_FILE="${TEST_ROOT}/dispatch.sh"
 INIT_FILE="${TEST_ROOT}/S99AdGuardHome"
 STATE_FILE="${TEST_ROOT}/state"
 MONITOR_STATE_FILE="${TEST_ROOT}/monitor-state"
-sed -n '/^case "${1:-}" in$/,$p' "${RUNTIME_PATH}" >"${DISPATCH_FILE}" ||
+STOPPED_MONITORS_FILE="${TEST_ROOT}/stopped-monitors"
+sed -n '/^adguard_monitor_pids() {$/,/^}$/p; /^stop_all_monitors() {$/,/^}$/p' "${RUNTIME_PATH}" >"${DISPATCH_FILE}" ||
+	fail 'could not extract runtime monitor helpers'
+sed -n '/^case "${1:-}" in$/,$p' "${RUNTIME_PATH}" >>"${DISPATCH_FILE}" ||
 	fail 'could not extract runtime action dispatcher'
 grep -q 'service "${1}"_AdGuardHome' "${DISPATCH_FILE}" ||
 	fail 'runtime action dispatcher extraction omitted firmware delegation'
@@ -278,8 +281,28 @@ export DIRECT_ACTION
 load_operation_config() { return 0; }
 manager_dependencies_available() { return 0; }
 canonical_path() { printf '%s\n' "$1"; }
-pidof() { return 1; }
-adguard_monitor_pids() { pidof "S99${PROCS}" "AdGuardHome.sh" "rc.func.${PROCS}"; }
+pidof() {
+	[ "${DISCOVER_MONITORS:-0}" = 1 ] || return 1
+	[ "$*" = "S99${PROCS} AdGuardHome.sh rc.func.${PROCS}" ] || return 1
+	cat "${MONITOR_STATE_FILE}"
+	[ -z "${EXTRA_MONITOR_PID:-}" ] || printf '%s\n' "${EXTRA_MONITOR_PID}"
+}
+monitor_process_matches() {
+	for monitor_pid in $(cat "${MONITOR_STATE_FILE}"); do
+		[ "${monitor_pid}" = "${1:-}" ] && return 0
+	done
+	return 1
+}
+awk() {
+	case "${2:-}" in
+		/proc/*/cmdline)
+			monitor_pid="${2#/proc/}"
+			monitor_pid="${monitor_pid%/cmdline}"
+			monitor_process_matches "${monitor_pid}" && printf '%s\n' monitor-start
+			;;
+		*) return 1 ;;
+	esac
+}
 timezone() { :; }
 proc_optimizations() { :; }
 proc_restore() { :; }
@@ -293,14 +316,23 @@ start_monitor() {
 }
 stop_monitor() {
 	[ "${FAIL_DIRECT_STOP:-0}:${DIRECT_ACTION}" != '1:stop' ] || return 1
+	printf '%s\n' "${MON_PID}" >>"${STOPPED_MONITORS_FILE}"
+	remaining_pids=""
+	for monitor_pid in $(cat "${MONITOR_STATE_FILE}"); do
+		[ "${monitor_pid}" = "${MON_PID}" ] || remaining_pids="${remaining_pids}${remaining_pids:+ }${monitor_pid}"
+	done
 	: >"${STATE_FILE}"
-	: >"${MONITOR_STATE_FILE}"
+	printf '%s\n' "${remaining_pids}" >"${MONITOR_STATE_FILE}"
+}
+adguardhome_run() {
+	printf '%s\n' "adguardhome_run $*" >>"${CALLS_FILE}"
+	: >"${STATE_FILE}"
 }
 # shellcheck disable=SC1090
 . "${DISPATCH_FILE}"
 EOF
 chmod 700 "${INIT_FILE}" || fail 'could not prepare simulated init entry point'
-export TEST_ROOT DISPATCH_FILE CALLS_FILE STATE_FILE MONITOR_STATE_FILE
+export TEST_ROOT DISPATCH_FILE CALLS_FILE STATE_FILE MONITOR_STATE_FILE STOPPED_MONITORS_FILE
 
 # Log firmware requests and route direct init arguments through the real dispatcher;
 # return its status, or fail the test for an unexpected command.
@@ -337,8 +369,11 @@ grep -qx 'service start_AdGuardHome' "${CALLS_FILE}" ||
 
 for action in start restart stop kill; do
 	: >"${CALLS_FILE}"
+	: >"${STOPPED_MONITORS_FILE}"
 	FAIL_DIRECT_STOP=0
-	export FAIL_DIRECT_STOP
+	DISCOVER_MONITORS=0
+	EXTRA_MONITOR_PID=""
+	export FAIL_DIRECT_STOP DISCOVER_MONITORS EXTRA_MONITOR_PID
 	case "${action}" in
 		start)
 			: >"${STATE_FILE}"
@@ -352,16 +387,22 @@ for action in start restart stop kill; do
 			;;
 		stop | kill)
 			[ "${action}" != kill ] || FAIL_DIRECT_STOP=1
+			DISCOVER_MONITORS=1
+			EXTRA_MONITOR_PID=999
 			if [ "${action}" = stop ]; then
 				# A stopped daemon still has a live monitor that can respawn it.
 				: >"${STATE_FILE}"
 			else
 				printf '%s\n' 111 >"${STATE_FILE}"
 			fi
-			printf '%s\n' 444 >"${MONITOR_STATE_FILE}"
+			printf '%s\n' '456 457 458' >"${MONITOR_STATE_FILE}"
 			agh_request_stop || fail "direct ${action} fallback did not reach runtime shutdown"
 			[ ! -s "${STATE_FILE}" ] || fail "direct ${action} left the daemon running"
-			[ ! -s "${MONITOR_STATE_FILE}" ] || fail "direct ${action} left the monitor running"
+			[ -z "$(cat "${MONITOR_STATE_FILE}")" ] || fail "direct ${action} left a monitor running"
+			[ "$(wc -l <"${STOPPED_MONITORS_FILE}")" -eq 3 ] || fail "direct ${action} did not stop every monitor"
+			for monitor_pid in 456 457 458; do
+				grep -qx "${monitor_pid}" "${STOPPED_MONITORS_FILE}" || fail "direct ${action} skipped monitor ${monitor_pid}"
+			done
 			;;
 	esac
 	[ "$(grep -c '^service ' "${CALLS_FILE}")" -eq 1 ] ||
@@ -369,5 +410,17 @@ for action in start restart stop kill; do
 	grep -qx "/opt/etc/init.d/S99AdGuardHome ${action} x" "${CALLS_FILE}" ||
 		fail "direct ${action} fallback did not pass the runtime bypass argument"
 done
+
+# With no monitor present, the direct stop still runs the daemon cleanup.
+: >"${CALLS_FILE}"
+: >"${MONITOR_STATE_FILE}"
+printf '%s\n' 111 >"${STATE_FILE}"
+DISCOVER_MONITORS=1
+EXTRA_MONITOR_PID=""
+export DISCOVER_MONITORS EXTRA_MONITOR_PID
+"${INIT_FILE}" stop x || fail 'direct stop without a monitor failed'
+grep -qx 'adguardhome_run stop_adguardhome' "${CALLS_FILE}" ||
+	fail 'direct stop without a monitor skipped daemon cleanup'
+[ ! -s "${STATE_FILE}" ] || fail 'direct stop without a monitor left the daemon running'
 
 printf '%s\n' 'PASS: installer service status helper waits through transitional states'

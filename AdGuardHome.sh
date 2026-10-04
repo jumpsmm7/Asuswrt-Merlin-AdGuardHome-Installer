@@ -3305,6 +3305,23 @@ adguard_monitor_pids() {
 	pidof "S99${PROCS}" "AdGuardHome.sh" "rc.func.${PROCS}" 2>/dev/null
 }
 
+# Stop every matching monitor left by an earlier service entry point.  A
+# single stop request must not leave another monitor able to respawn the daemon.
+stop_all_monitors() {
+	local FOUND PID STOP_STATUS
+	FOUND=0
+	STOP_STATUS=0
+	for PID in $(adguard_monitor_pids); do
+		[ "${PID}" != "$$" ] || continue
+		monitor_process_matches "${PID}" || continue
+		FOUND=1
+		MON_PID="${PID}"
+		stop_monitor "$$" || STOP_STATUS=1
+	done
+	[ "${FOUND}" -eq 1 ] || adguardhome_run stop_adguardhome || STOP_STATUS=1
+	return "${STOP_STATUS}"
+}
+
 # stop_monitor requests the monitor's normal USR1 shutdown, waits for procfs
 # restoration to finish, and uses identity-checked TERM/KILL escalation so a
 # stuck monitor cannot keep installer updates in a permanent stopping state.
@@ -4622,7 +4639,7 @@ case "$1" in
 				;;
 			"services-stop")
 				proc_restore
-				{ stop_monitor "$$"; }
+				{ stop_all_monitors; }
 				;;
 		esac
 		;;
