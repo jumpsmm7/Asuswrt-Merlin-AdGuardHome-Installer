@@ -1983,25 +1983,30 @@ opkg_clean_env() {
 	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin" /opt/bin/opkg "$@"
 }
 
+# installer_cleanup_tmp_file removes the temporary path in $2 only when it
+# matches the setup/blocklist filename or a registered blocklist-analysis path
+# for the cleanup kind in $1. Other paths are left untouched.
 installer_cleanup_tmp_file() {
 	case "$1:$2" in
 		setup:"${YAML_ORI}.new.$$" | blocklist:"${YAML_FILE}.blocklists.$$.tmp" | \
 			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.candidates" | \
 			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.configured.ids" | \
 			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.orphaned.ids" | \
-			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.selected")
+			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.selected" | \
+			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.out" | \
+			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.ids")
 			rm -f "$2" 2>/dev/null
 			;;
 		blocklist-analysis:*)
-			[ -n "${TARG_DIR:-}" ] || return 0
-			case "$2" in
-				"${TARG_DIR}/blocklist_analyzer.$$.candidates" | \
-					"${TARG_DIR}/blocklist_analyzer.$$.configured.ids" | \
-					"${TARG_DIR}/blocklist_analyzer.$$.orphaned.ids" | \
-					"${TARG_DIR}/blocklist_analyzer.$$.selected")
-					rm -f "$2" 2>/dev/null
-					;;
-			esac
+			[ -n "$2" ] || return 0
+			if [ "$2" = "${BLOCKLIST_ANALYZER_CANDIDATES_FILE:-}" ] ||
+				[ "$2" = "${BLOCKLIST_ANALYZER_CONFIGURED_IDS_FILE:-}" ] ||
+				[ "$2" = "${BLOCKLIST_ANALYZER_ORPHANED_IDS_FILE:-}" ] ||
+				[ "$2" = "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}" ] ||
+				[ "$2" = "${BLOCKLIST_ANALYZER_OUTPUT_FILE:-}" ] ||
+				[ "$2" = "${BLOCKLIST_ANALYZER_IDS_FILE:-}" ]; then
+				rm -f "$2" 2>/dev/null
+			fi
 			;;
 	esac
 }
@@ -2049,6 +2054,8 @@ on_installer_exit() {
 	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_CONFIGURED_IDS_FILE:-}"
 	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_ORPHANED_IDS_FILE:-}"
 	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}"
+	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_OUTPUT_FILE:-}"
+	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_IDS_FILE:-}"
 	if [ "${_DNS_STUBBY_STOPPED:-0}" = "1" ] && ! restore_stubby_after_dns_failure; then
 		PTXT "${ERROR} Unable to restart stubby after interrupted DNS preparation."
 	fi
@@ -4364,6 +4371,12 @@ blocklist_yaml_candidates() {
 	' "${yaml_target}"
 }
 
+# select_unused_blocklists_for_removal reads analyzer IDs from $1 and prompts
+# only for entries configured in YAML_FILE, reporting stale cache IDs separately.
+# Registers temporary paths for exit cleanup and leaves confirmed IDs in
+# BLOCKLIST_ANALYZER_SELECTED_IDS_FILE. Returns 0 for a selection, 3 when no
+# configured candidates exist, 1 on file errors or an empty selection, or the
+# prompt's non-yes/no status when input is interrupted.
 select_unused_blocklists_for_removal() {
 	local ids_file candidates_file configured_ids_file orphaned_ids_file selected_file id name url list_label choice_status
 	ids_file="$1"
@@ -4394,7 +4407,7 @@ select_unused_blocklists_for_removal() {
 	if [ ! -s "${candidates_file}" ]; then
 		rm -f "${candidates_file}" "${configured_ids_file}" "${orphaned_ids_file}" "${selected_file}"
 		ptxt_ok "No configured unused blocklists were found."
-		return 2
+		return 3
 	fi
 	PTXT "${INFO} Configured unused blocklists found in AdGuardHome.yaml:"
 	while IFS='|' read -r id name url; do
@@ -4583,6 +4596,12 @@ remove_unused_blocklists_from_yaml() {
 	fi
 }
 
+# cleanup_unused_blocklists runs the analyzer, selects configured unused lists,
+# and removes confirmed entries from YAML through the removal helper. Takes no
+# arguments; uses the installer paths and analyzer file globals. Cleans analyzer
+# results and reports completion, treating no unused/configured lists as success
+# and cancellation or analyzer/removal errors as failure. Leaves stale cache
+# files untouched.
 cleanup_unused_blocklists() {
 	install_blocklist_analyzer || {
 		blocklist_analyzer_pause
@@ -4606,7 +4625,7 @@ cleanup_unused_blocklists() {
 	select_unused_blocklists_for_removal "${BLOCKLIST_ANALYZER_IDS_FILE}"
 	case "$?" in
 		0) ;;
-		2)
+		3)
 			rm -f "${BLOCKLIST_ANALYZER_IDS_FILE:-}" "${BLOCKLIST_ANALYZER_OUTPUT_FILE:-}" "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}"
 			blocklist_analyzer_pause
 			end_op_message 0
