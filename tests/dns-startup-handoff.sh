@@ -172,12 +172,21 @@ adguard_dnsmasq_running() { return 1; }
 		fi
 		case "${scenario}" in
 			wan_running) POSTCONF_AGH_RUNNING=1 ;;
-			lan_handoff) POSTCONF_MODE=lan; CONFIG_DNSMASQ_MODE=disabled ;;
-			lan_auto) POSTCONF_MODE=lan; POSTCONF_AGH_RUNNING=1 ;;
+			lan_handoff)
+				POSTCONF_MODE=lan
+				CONFIG_DNSMASQ_MODE=disabled
+				;;
+			lan_auto)
+				POSTCONF_MODE=lan
+				POSTCONF_AGH_RUNNING=1
+				;;
 			stale) printf '%s\n' "${owner_pid}" >"${DNS_HANDOFF_FILE}" ;;
 			insecure_dir) chmod 777 "${DNS_HANDOFF_DIR}" ;;
 			insecure_file) chmod 666 "${DNS_HANDOFF_FILE}" ;;
-			symlink) mv "${DNS_HANDOFF_FILE}" "${DNS_HANDOFF_DIR}/target"; ln -s target "${DNS_HANDOFF_FILE}" ;;
+			symlink)
+				mv "${DNS_HANDOFF_FILE}" "${DNS_HANDOFF_DIR}/target"
+				ln -s target "${DNS_HANDOFF_FILE}"
+				;;
 			dead_owner) printf '%s\n' '999999 1' >"${DNS_HANDOFF_FILE}" ;;
 			reused_pid) printf '%s %s\n' "${owner_pid}" "$((owner_start + 1))" >"${DNS_HANDOFF_FILE}" ;;
 		esac
