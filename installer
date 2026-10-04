@@ -3107,8 +3107,11 @@ adguard_service_status_after_action() {
 	action="${1:-restart}"
 	old_pids="${2:-}"
 	elapsed="0"
-	maxwait="${ADGUARDHOME_WAIT_TIMEOUT}"
-	[ "${maxwait}" -le "5" ] || maxwait="5"
+	maxwait="${3:-${ADGUARDHOME_WAIT_TIMEOUT}}"
+	# Firmware requests get a short probe; direct startup still runs asynchronously.
+	if [ -z "${3:-}" ]; then
+		[ "${maxwait}" -le "5" ] || maxwait="5"
+	fi
 	case "${action}" in
 		stop | kill)
 			status_message="Waiting for AdGuardHome to stop cleanly..."
@@ -3799,7 +3802,8 @@ agh_restart_transition_complete() {
 
 # agh_request_start falls back to the init script when firmware accepts a
 # service event but no daemon appears.  A successful command alone is not proof
-# that the asynchronous router service action completed.
+# that the asynchronous router service action completed.  The x argument keeps
+# direct init actions from dispatching another firmware event.
 agh_request_start() {
 	if adguard_service_without_nvram_lock_fd service start_AdGuardHome >/dev/null 2>&1; then
 		if adguard_service_status_after_action start; then
@@ -3808,8 +3812,8 @@ agh_request_start() {
 		agh_is_running && return 0
 		ptxt_step "Firmware service start did not create the daemon; trying the init script directly."
 	fi
-	adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome start || return 1
-	adguard_service_status_after_action start
+	adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome start x || return 1
+	adguard_service_status_after_action start "" "${ADGUARDHOME_WAIT_TIMEOUT}"
 }
 
 # agh_request_restart applies the same completion check to firmware restart
@@ -3825,8 +3829,8 @@ agh_request_restart() {
 		agh_restart_transition_complete "${old_pids}" && return 0
 		ptxt_step "Firmware service restart did not replace the daemon; trying the init script directly."
 	fi
-	adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome restart || return 1
-	adguard_service_status_after_action restart "${old_pids}"
+	adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome restart x || return 1
+	adguard_service_status_after_action restart "${old_pids}" "${ADGUARDHOME_WAIT_TIMEOUT}"
 }
 
 # agh_request_stop escalates from the asynchronous firmware event to the init
@@ -3840,13 +3844,13 @@ agh_request_stop() {
 		[ "$(agh_process_count)" -eq 0 ] && return 0
 		ptxt_step "Firmware service stop did not finish; trying the init script directly."
 	fi
-	if adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome stop; then
+	if adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome stop x; then
 		if adguard_service_status_after_action stop; then
 			return 0
 		fi
 		[ "$(agh_process_count)" -eq 0 ] && return 0
 	fi
-	if adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome kill; then
+	if adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome kill x; then
 		if adguard_service_status_after_action kill; then
 			return 0
 		fi
