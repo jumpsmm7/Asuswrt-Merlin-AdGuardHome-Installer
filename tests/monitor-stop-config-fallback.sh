@@ -75,6 +75,8 @@ adguardhome_run() {
 	esac
 	return 0
 }
+# Return fixed daemon or monitor PIDs for the expected process-name queries;
+# fail for any other query so the test detects incorrect discovery arguments.
 pidof() {
 	case "$*" in
 		"AdGuardHome") printf '%s\n' 123 ;;

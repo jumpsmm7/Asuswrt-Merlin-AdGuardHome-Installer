@@ -281,18 +281,23 @@ export DIRECT_ACTION
 load_operation_config() { return 0; }
 manager_dependencies_available() { return 0; }
 canonical_path() { printf '%s\n' "$1"; }
+# Return simulated monitor candidates for the managed entry-point names when
+# discovery is enabled, including an optional unrelated PID for filtering checks.
 pidof() {
 	[ "${DISCOVER_MONITORS:-0}" = 1 ] || return 1
 	[ "$*" = "S99${PROCS} AdGuardHome.sh rc.func.${PROCS}" ] || return 1
 	cat "${MONITOR_STATE_FILE}"
 	[ -z "${EXTRA_MONITOR_PID:-}" ] || printf '%s\n' "${EXTRA_MONITOR_PID}"
 }
+# Succeed only when the supplied PID belongs to a simulated active monitor.
 monitor_process_matches() {
 	for monitor_pid in $(cat "${MONITOR_STATE_FILE}"); do
 		[ "${monitor_pid}" = "${1:-}" ] && return 0
 	done
 	return 1
 }
+# Simulate reading /proc/<pid>/cmdline: emit monitor-start for active monitor
+# PIDs and fail for unrelated PIDs or unsupported paths.
 awk() {
 	case "${2:-}" in
 		/proc/*/cmdline)
@@ -314,6 +319,8 @@ start_monitor() {
 		*) printf '%s\n' 222 >"${STATE_FILE}" ;;
 	esac
 }
+# Stop the monitor selected by MON_PID and clear the simulated daemon state;
+# record each stopped PID, or fail when direct-stop failure is requested.
 stop_monitor() {
 	[ "${FAIL_DIRECT_STOP:-0}:${DIRECT_ACTION}" != '1:stop' ] || return 1
 	printf '%s\n' "${MON_PID}" >>"${STOPPED_MONITORS_FILE}"
@@ -324,6 +331,7 @@ stop_monitor() {
 	: >"${STATE_FILE}"
 	printf '%s\n' "${remaining_pids}" >"${MONITOR_STATE_FILE}"
 }
+# Record the requested daemon action and simulate cleanup by clearing its state.
 adguardhome_run() {
 	printf '%s\n' "adguardhome_run $*" >>"${CALLS_FILE}"
 	: >"${STATE_FILE}"
