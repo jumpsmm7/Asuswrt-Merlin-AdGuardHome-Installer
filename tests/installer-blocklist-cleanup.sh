@@ -417,12 +417,60 @@ EOF_GHOST_IDS
 		return 1
 	}
 	select_unused_blocklists_for_removal "${TMP_ROOT}/ghost.ids" >"${TMP_ROOT}/ghost.out" 2>&1
-	[ "$?" -eq 2 ] || exit 1
+	[ "$?" -eq 3 ] || exit 1
 ) || fail 'all-ghost selection did not return the successful no-configured result'
 grep -q 'No configured unused blocklists were found' "${TMP_ROOT}/ghost.out" ||
 	fail 'all-ghost result did not report that no configured unused blocklists were found'
 [ ! -s "${TMP_ROOT}/ghost.prompts" ] || fail 'all-ghost result displayed a removal prompt'
 [ -f "${TMP_ROOT}/data/filters/999.txt" ] || fail 'all-ghost result automatically deleted the stale cache file'
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	INPUT='Input:'
+	INFO='Info:'
+	WARNING='Warning:'
+	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
+	TARG_DIR="${TMP_ROOT}"
+	# read_yesno returns input-failure status 2 to test selection error propagation.
+	read_yesno() { return 2; }
+	if select_unused_blocklists_for_removal "${TMP_ROOT}/ids.actual" >/dev/null 2>&1; then
+		exit 1
+	else
+		[ "$?" -eq 2 ] || exit 1
+	fi
+) || fail 'confirmation input failure did not retain its failure status'
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	INPUT='Input:'
+	INFO='Info:'
+	WARNING='Warning:'
+	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
+	TARG_DIR="${TMP_ROOT}"
+	cp "${TMP_ROOT}/ids.actual" "${TMP_ROOT}/confirmation.ids" || exit 1
+	BLOCKLIST_ANALYZER_IDS_FILE="${TMP_ROOT}/confirmation.ids"
+	BLOCKLIST_ANALYZER_OUTPUT_FILE="${TMP_ROOT}/confirmation-analyzer.out"
+	: >"${BLOCKLIST_ANALYZER_OUTPUT_FILE}"
+	# install_blocklist_analyzer simulates successful installation without downloads.
+	install_blocklist_analyzer() { return 0; }
+	# run_blocklist_analyzer succeeds using the prepared confirmation ID fixture.
+	run_blocklist_analyzer() { return 0; }
+	# read_yesno returns input-failure status 2 to test cleanup error handling.
+	read_yesno() { return 2; }
+	# blocklist_analyzer_pause suppresses interactive waiting in this test.
+	blocklist_analyzer_pause() { :; }
+	# end_op_message prints its status argument for the failure assertion.
+	end_op_message() { printf '%s\n' "end:$1"; }
+	if cleanup_unused_blocklists >"${TMP_ROOT}/confirmation-cleanup.out" 2>&1; then
+		exit 1
+	else
+		[ "$?" -eq 1 ] || exit 1
+	fi
+) || fail 'confirmation input failure did not fail cleanup'
+grep -q '^end:1$' "${TMP_ROOT}/confirmation-cleanup.out" ||
+	fail 'confirmation input failure did not report cleanup failure'
 
 (
 	# shellcheck disable=SC1090

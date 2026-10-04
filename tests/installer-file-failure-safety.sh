@@ -122,10 +122,19 @@ printf '%s\n' 'setup_restore_nvram_journal() { return 0; }' >>"${FUNCTIONS_FILE}
 	YAML_ORI="${TMP_DIR}/exit-cleanup/.AdGuardHome.yaml.ori"
 	SETUP_YAML_TMP_FILE="${YAML_ORI}.new.$$"
 	BLOCKLIST_YAML_TMP_FILE="${YAML_FILE}.blocklists.$$.tmp"
+	BLOCKLIST_ANALYZER_CANDIDATES_FILE="${TMP_DIR}/exit-cleanup/blocklist-analyzer.candidates"
+	BLOCKLIST_ANALYZER_CONFIGURED_IDS_FILE=""
+	BLOCKLIST_ANALYZER_ORPHANED_IDS_FILE=""
+	BLOCKLIST_ANALYZER_SELECTED_IDS_FILE=""
+	BLOCKLIST_ANALYZER_OUTPUT_FILE="${TMP_DIR}/exit-cleanup/blocklist-analyzer.out"
+	BLOCKLIST_ANALYZER_IDS_FILE="${TMP_DIR}/exit-cleanup/blocklist-analyzer.ids"
 	ROLLBACK_RESULT_FILE="${TMP_DIR}/exit-cleanup/rollback-result"
 	mkdir -p "${TMP_DIR}/exit-cleanup" || exit 1
 	printf '%s\n' setup >"${SETUP_YAML_TMP_FILE}" || exit 1
 	printf '%s\n' blocklist >"${BLOCKLIST_YAML_TMP_FILE}" || exit 1
+	printf '%s\n' candidates >"${BLOCKLIST_ANALYZER_CANDIDATES_FILE}" || exit 1
+	printf '%s\n' output >"${BLOCKLIST_ANALYZER_OUTPUT_FILE}" || exit 1
+	printf '%s\n' ids >"${BLOCKLIST_ANALYZER_IDS_FILE}" || exit 1
 	printf '%s\n' \
 		'time=2026-07-12 00:00:00' \
 		'context=package install' \
@@ -142,6 +151,12 @@ printf '%s\n' 'setup_restore_nvram_journal() { return 0; }' >>"${FUNCTIONS_FILE}
 		fail "installer exit cleanup left setup YAML temp file"
 	[ ! -e "${BLOCKLIST_YAML_TMP_FILE}" ] ||
 		fail "installer exit cleanup left blocklist YAML temp file"
+	[ ! -e "${BLOCKLIST_ANALYZER_CANDIDATES_FILE}" ] ||
+		fail "installer exit cleanup left the registered blocklist analyzer temp file"
+	[ ! -e "${BLOCKLIST_ANALYZER_OUTPUT_FILE}" ] ||
+		fail "installer exit cleanup left the blocklist analyzer output file"
+	[ ! -e "${BLOCKLIST_ANALYZER_IDS_FILE}" ] ||
+		fail "installer exit cleanup left the blocklist analyzer ID file"
 	grep -q '^result=rollback unavailable$' "${ROLLBACK_RESULT_FILE}" ||
 		fail "installer exit cleanup changed the rollback marker"
 ) || exit 1
