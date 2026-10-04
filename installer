@@ -1984,8 +1984,11 @@ opkg_clean_env() {
 }
 
 # installer_cleanup_tmp_file removes the temporary path in $2 only when it
-# matches the setup/blocklist filename or a registered blocklist-analysis path
-# for the cleanup kind in $1. Other paths are left untouched.
+# matches the setup/blocklist filename, a current-process analyzer staging
+# filename, or a registered blocklist-analysis path for the cleanup kind in $1.
+# Fixed current-process analyzer paths and registered analyzer paths are allowed.
+# Unmatched paths are left untouched and return 0. When removal is attempted,
+# returns the rm exit status, including failures, with error output suppressed.
 installer_cleanup_tmp_file() {
 	case "$1:$2" in
 		setup:"${YAML_ORI}.new.$$" | blocklist:"${YAML_FILE}.blocklists.$$.tmp" | \
