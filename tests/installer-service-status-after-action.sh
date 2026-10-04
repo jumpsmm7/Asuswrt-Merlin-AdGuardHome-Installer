@@ -153,6 +153,40 @@ ptxt_step() {
 	printf '%s\n' "$*" >>"${CALLS_FILE}"
 }
 
+# A firmware stop that outlasts its grace period must switch to a separately
+# labelled direct-init poll with the full fallback timeout.
+(
+	STOP_PHASE=firmware
+	STOP_POLLS=0
+	: >"${CALLS_FILE}"
+	adguard_service_without_nvram_lock_fd() {
+		case "$*" in
+			service\ stop_AdGuardHome)
+				STOP_PHASE=firmware
+				;;
+			/opt/etc/init.d/S99AdGuardHome\ stop\ x)
+				STOP_PHASE=fallback
+				STOP_POLLS=0
+				;;
+			*) fail "unexpected stop command: $*" ;;
+		esac
+		return 0
+	}
+	agh_process_count() {
+		if [ "${STOP_PHASE}" = fallback ] && [ "${STOP_POLLS}" -ge 16 ]; then
+			printf '%s\n' 0
+		else
+			printf '%s\n' 1
+		fi
+	}
+	sleep() { STOP_POLLS="$((STOP_POLLS + 1))"; }
+	agh_request_stop || fail 'direct stop fallback did not finish after the firmware grace period'
+	grep -q 'Waiting for AdGuardHome to stop cleanly (firmware service)' "${CALLS_FILE}" ||
+		fail 'firmware stop poll was not labelled'
+	grep -q 'Waiting for AdGuardHome to stop cleanly (direct init fallback)' "${CALLS_FILE}" ||
+		fail 'direct stop fallback poll was not labelled'
+) || fail 'firmware and fallback stop polling regression failed'
+
 # Log command arguments and simulate immediate state changes for direct init actions.
 adguard_service_without_nvram_lock_fd() {
 	printf '%s\n' "$*" >>"${CALLS_FILE}"
