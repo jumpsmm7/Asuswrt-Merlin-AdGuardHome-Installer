@@ -4154,10 +4154,13 @@ check_AdGuardHome_yaml() {
 # Blocklist analyzer helpers
 
 blocklist_analyzer_pause() {
-	local pause_input
+	local pause_input pause_status
 	if stty -a >/dev/null 2>&1; then
+		(IFS= read -r -t 0 pause_input) 2>/dev/null
+		pause_status="$?"
+		[ "${pause_status}" -le 1 ] || return 0
 		PTXT -n "${INPUT} Press Enter to continue: "
-		IFS= read -r pause_input || :
+		IFS= read -r -t 30 pause_input || :
 	fi
 }
 

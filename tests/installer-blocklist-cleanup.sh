@@ -100,6 +100,25 @@ run_cleanup_pause_case() {
 		ptxt_warn() { PTXT "$*"; }
 		# stty simulates terminal detection using the case's interactive flag.
 		stty() { [ "${interactive}" = "yes" ]; }
+		# read simulates BusyBox ash timed-read support while leaving the test
+		# runner's POSIX shell free to consume the supplied Enter key normally.
+		read() {
+			read_timeout=''
+			read_name=''
+			while [ "$#" -gt 0 ]; do
+				case "$1" in
+					-t)
+						shift
+						read_timeout="${1:-}"
+						;;
+					*) read_name="$1" ;;
+				esac
+				shift
+			done
+			[ "${TIMED_READ_SUPPORTED:-yes}" = "yes" ] || return 2
+			[ "${read_timeout}" != "0" ] || return 1
+			command read -r "${read_name}"
+		}
 		# install_blocklist_analyzer simulates successful installation without downloads.
 		install_blocklist_analyzer() { return 0; }
 		# run_blocklist_analyzer emits a diagnostic and returns the configured status,
@@ -153,6 +172,12 @@ run_cleanup_pause_case 'cli-redirected-success' no 0 0 </dev/null ||
 	fail 'redirected CLI cleanup waited for input or failed'
 if grep -q 'Press Enter to continue' "${TMP_ROOT}/pause-cli-redirected-success.out"; then
 	fail 'redirected CLI cleanup displayed an interactive pause prompt'
+fi
+
+TIMED_READ_SUPPORTED=no run_cleanup_pause_case 'timed-read-unavailable' yes 0 0 </dev/null ||
+	fail 'cleanup failed when timed read was unavailable'
+if grep -q 'Press Enter to continue' "${TMP_ROOT}/pause-timed-read-unavailable.out"; then
+	fail 'cleanup prompted when timed read was unavailable'
 fi
 
 (
