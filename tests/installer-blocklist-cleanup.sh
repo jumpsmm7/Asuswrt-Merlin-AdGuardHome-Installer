@@ -152,7 +152,10 @@ run_cleanup_pause_case() {
 			return 0
 		}
 		# remove_unused_blocklists_from_yaml reports success without editing YAML.
-		remove_unused_blocklists_from_yaml() { PTXT 'cleanup succeeded'; return 0; }
+		remove_unused_blocklists_from_yaml() {
+			PTXT 'cleanup succeeded'
+			return 0
+		}
 		# end_op_message records its status argument and emits an ordering marker.
 		end_op_message() {
 			printf 'end:%s\n' "$1" >>"${call_file}"
