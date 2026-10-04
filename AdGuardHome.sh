@@ -4591,7 +4591,14 @@ if [ -f "${UPPER_SCRIPT}" ]; then { if { [ "$(canonical_path "${UPPER_SCRIPT}" 2
 	exec "${UPPER_SCRIPT}" "$@"
 	exit
 }; fi; }; else { if [ -z "${PROCS}" ]; then exit; fi; }; fi
-{ for PID in $(adguard_monitor_pids); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "${PID}" != "$$" ]; then { MON_PID="${PID}"; }; fi; done; }
+MON_PID=""
+MON_PIDS=""
+for PID in $(adguard_monitor_pids); do
+	if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "${PID}" != "$$" ]; then
+		MON_PID="${PID}"
+		MON_PIDS="${MON_PIDS}${MON_PIDS:+ }${PID}"
+	fi
+done
 
 unset TZ
 case "$1" in
@@ -4622,7 +4629,13 @@ case "$1" in
 				;;
 			"services-stop")
 				proc_restore
-				{ stop_monitor "$$"; }
+				if [ -n "${MON_PIDS}" ]; then
+					for MON_PID in ${MON_PIDS}; do
+						{ stop_monitor "$$"; }
+					done
+				else
+					{ stop_monitor "$$"; }
+				fi
 				;;
 		esac
 		;;
