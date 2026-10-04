@@ -12,6 +12,7 @@ cleanup() {
 	rm -rf "${TEST_ROOT}"
 }
 
+# Print the supplied failure message to stderr and exit the test with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -25,6 +26,8 @@ sed -n '/^adguard_pid_list_has_new_pid() {$/,/^valid_adguardhome_username() {$/p
 	fail "could not read ${SCRIPT_PATH}"
 sed -n '/^adguard_service_without_nvram_lock_fd() {$/,/^agh_restart() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
 	fail "could not read service request helpers from ${SCRIPT_PATH}"
+sed -n '/^agh_start_transition_active() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
+	fail "could not read start transition helper from ${SCRIPT_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'service status helper was not found'
 
 # shellcheck disable=SC1090
@@ -36,6 +39,7 @@ ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT=15
 PROCESS_STATE='stopped'
 PROCESS_COUNT='0'
 CURRENT_PIDS=''
+MONITOR_COUNT='0'
 SLEEP_CALLS=0
 
 PTXT() {
@@ -60,20 +64,45 @@ sleep() {
 	fi
 }
 
+# Print the simulated daemon PIDs when $1 is AdGuardHome; otherwise emit nothing.
 pidof() {
 	if [ "${1:-}" = 'AdGuardHome' ]; then
 		printf '%s\n' "${CURRENT_PIDS}"
 	fi
 }
 
+# Succeed when the simulated daemon state is running.
 agh_is_running() {
 	[ "${PROCESS_STATE}" = 'running' ]
 }
 
+# Poll the simulated daemon for $1 seconds (default ADGUARDHOME_WAIT_TIMEOUT);
+# return success when running, or failure when the simulated wait expires.
+agh_wait_started() {
+	local elapsed maxwait
+	elapsed=0
+	maxwait="${1:-${ADGUARDHOME_WAIT_TIMEOUT}}"
+	while ! agh_is_running; do
+		if [ "${elapsed}" -ge "${maxwait}" ]; then
+			return 1
+		fi
+		sleep 1s
+		elapsed="$((elapsed + 1))"
+	done
+	return 0
+}
+
+# Print the simulated process count used by service status checks.
 agh_process_count() {
 	printf '%s\n' "${PROCESS_COUNT}"
 }
 
+# Print the simulated managed-monitor count used by the start transition check.
+agh_monitor_count() {
+	printf '%s\n' "${MONITOR_COUNT}"
+}
+
+# Record that the installer requested a final service status report.
 agh_check() {
 	printf '%s\n' 'check' >>"${CALLS_FILE}"
 }
@@ -221,6 +250,41 @@ grep -q '^service start_AdGuardHome$' "${CALLS_FILE}" || fail 'start request did
 grep -q '^/opt/etc/init.d/S99AdGuardHome start x$' "${CALLS_FILE}" ||
 	fail 'start request did not fall back to the direct init script'
 [ "${CURRENT_PIDS}" = '222' ] || fail 'direct start fallback did not produce the replacement daemon'
+
+: >"${CALLS_FILE}"
+PROCESS_STATE='stopped'
+PROCESS_COUNT='0'
+CURRENT_PIDS=''
+MONITOR_COUNT='1'
+START_AFTER_SLEEP="$((ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT + ADGUARDHOME_WAIT_TIMEOUT))"
+SLEEP_CALLS=0
+agh_request_start || fail 'start request rejected an active firmware monitor'
+! grep -q '^/opt/etc/init.d/S99AdGuardHome start x$' "${CALLS_FILE}" ||
+	fail 'start request duplicated an active firmware monitor with direct init'
+grep -q 'Firmware service start is still in progress' "${CALLS_FILE}" ||
+	fail 'start request did not report the active firmware monitor'
+[ "${SLEEP_CALLS}" -eq "$((ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT + ADGUARDHOME_WAIT_TIMEOUT))" ] ||
+	fail 'start request did not wait through the managed monitor startup budget'
+MONITOR_COUNT='0'
+
+# A managed monitor that never creates the daemon must still fall back after
+# the bounded managed-start wait expires.
+(
+	ADGUARDHOME_WAIT_TIMEOUT=3
+	: >"${CALLS_FILE}"
+	PROCESS_STATE='stopped'
+	PROCESS_COUNT='0'
+	CURRENT_PIDS=''
+	MONITOR_COUNT='1'
+	START_AFTER_SLEEP=0
+	SLEEP_CALLS=0
+	agh_request_start || fail 'start request did not recover after the managed monitor wait expired'
+	grep -q '^/opt/etc/init.d/S99AdGuardHome start x$' "${CALLS_FILE}" ||
+		fail 'start request did not fall back after the managed monitor wait expired'
+	[ "${SLEEP_CALLS}" -eq "$((ADGUARDHOME_WAIT_TIMEOUT * 2))" ] ||
+		fail 'start request did not enforce the managed monitor startup budget'
+) || fail 'managed monitor startup timeout regression failed'
+START_AFTER_SLEEP=0
 
 : >"${CALLS_FILE}"
 PROCESS_STATE='running'
