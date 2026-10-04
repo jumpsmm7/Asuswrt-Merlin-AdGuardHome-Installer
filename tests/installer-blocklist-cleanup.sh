@@ -129,7 +129,10 @@ run_cleanup_pause_case() {
 			command read -r "${read_name}"
 		}
 		# install_blocklist_analyzer simulates successful installation without downloads.
-		install_blocklist_analyzer() { return 0; }
+		install_blocklist_analyzer() {
+			printf '%s\n' 'cleanup-entered' >>"${call_file}"
+			return 0
+		}
 		# run_blocklist_analyzer emits a diagnostic and returns the configured status,
 		# creating the expected temporary files on success.
 		run_blocklist_analyzer() {
@@ -178,6 +181,9 @@ for dispatch_kind in menu cli; do
 		fail "${dispatch_kind} analyzer failure pause regression failed"
 	for result_kind in success no-unused failure; do
 		output_file="${TMP_ROOT}/pause-${dispatch_kind}-${result_kind}.out"
+		call_file="${TMP_ROOT}/pause-${dispatch_kind}-${result_kind}.calls"
+		grep -q '^cleanup-entered$' "${call_file}" ||
+			fail "${dispatch_kind} ${result_kind} dispatch did not enter blocklist cleanup"
 		grep -q 'Press Enter to continue' "${output_file}" ||
 			fail "${dispatch_kind} ${result_kind} result did not pause interactively"
 		awk 'index($0, "Press Enter to continue") && index($0, "end:") && index($0, "Press Enter to continue") < index($0, "end:") { found = 1 } END { exit(found ? 0 : 1) }' "${output_file}" ||
