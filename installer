@@ -3398,6 +3398,15 @@ agh_is_running() {
 	[ -n "$(pidof AdGuardHome)" ]
 }
 
+agh_start_transition_active() {
+	local monitor_count
+	monitor_count="$(agh_monitor_count 2>/dev/null)"
+	case "${monitor_count}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	[ "${monitor_count}" -ge "1" ]
+}
+
 agh_prepare_binary_replace() {
 	if { [ -f "${AGH_FILE}" ] || [ -e "/opt/sbin/AdGuardHome" ]; } && [ "$(agh_process_count)" -ge "1" ]; then
 		ptxt_step "Stopping AdGuardHome service before replacing ${AGH_FILE}."
@@ -3820,6 +3829,10 @@ agh_request_start() {
 			return 0
 		fi
 		agh_is_running && return 0
+		if agh_start_transition_active; then
+			ptxt_step "Firmware service start is still in progress; waiting for the managed monitor to launch the daemon."
+			return 0
+		fi
 		ptxt_step "Firmware service start did not create the daemon; trying the init script directly."
 	fi
 	adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome start x || return 1
