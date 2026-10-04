@@ -3112,7 +3112,10 @@ adguard_service_status_after_action() {
 	phase="${4:-firmware}"
 	case "${phase}" in
 		fallback) phase_label=" (direct init fallback)" ;;
-		*) phase="firmware"; phase_label=" (firmware service)" ;;
+		*)
+			phase="firmware"
+			phase_label=" (firmware service)"
+			;;
 	esac
 	# Firmware requests run asynchronously; allow the RC hook time to complete
 	# its monitor and DNS preflight before falling back to the init script.
