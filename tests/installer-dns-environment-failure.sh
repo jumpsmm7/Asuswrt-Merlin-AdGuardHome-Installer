@@ -43,7 +43,10 @@ sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PA
 	check_dns_environment 1 || exit 1
 ) || fail 'restore mode ran the DNS preparation conflict preflight without a persisted snapshot'
 
-: >"${FUNCTIONS_FILE}" || fail 'could not create test functions file'
+# Define out-of-scope exit-cleanup dependencies before appending extracted
+# helpers so even an early source failure leaves the exit handler callable.
+printf '%s\n' 'adguard_committed_binary_cleanup_retry() { :; }' >"${FUNCTIONS_FILE}" ||
+	fail 'could not create test functions file'
 sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" |
 	sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract NVRAM transaction helpers'
 sed -n '/^installer_lan_domain_set() {$/,/^rollback_result_write() {$/p' "${INSTALLER_PATH}" | sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract LAN-domain transaction helpers'
