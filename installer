@@ -30,6 +30,7 @@ readonly ADGUARD_METADATA_DIR="/tmp/AGH_STATIC_METADATA_$$.d"
 readonly ADGUARD_METADATA_FILE="${ADGUARD_METADATA_DIR}/channels.txt"
 ADGUARD_METADATA_DIR_OWNED=0
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
+readonly ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT="15"
 readonly ADGUARDHOME_READY_TIMEOUT="180"
 DNS_ENV_READY_TIMEOUT="${DNS_ENV_READY_TIMEOUT:-60}"
 DNS_ENV_RECOVERY_TIMEOUT="${DNS_ENV_RECOVERY_TIMEOUT:-15}"
@@ -3108,9 +3109,10 @@ adguard_service_status_after_action() {
 	old_pids="${2:-}"
 	elapsed="0"
 	maxwait="${3:-${ADGUARDHOME_WAIT_TIMEOUT}}"
-	# Firmware requests get a short probe; direct startup still runs asynchronously.
+	# Firmware requests run asynchronously; allow the RC hook time to complete
+	# its monitor and DNS preflight before falling back to the init script.
 	if [ -z "${3:-}" ]; then
-		[ "${maxwait}" -le "5" ] || maxwait="5"
+		[ "${maxwait}" -le "${ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT}" ] || maxwait="${ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT}"
 	fi
 	case "${action}" in
 		stop | kill)
