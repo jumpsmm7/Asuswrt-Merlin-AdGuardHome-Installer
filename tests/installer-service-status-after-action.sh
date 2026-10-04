@@ -279,6 +279,7 @@ load_operation_config() { return 0; }
 manager_dependencies_available() { return 0; }
 canonical_path() { printf '%s\n' "$1"; }
 pidof() { return 1; }
+adguard_monitor_pids() { pidof "S99${PROCS}" "AdGuardHome.sh" "rc.func.${PROCS}"; }
 timezone() { :; }
 proc_optimizations() { :; }
 proc_restore() { :; }
