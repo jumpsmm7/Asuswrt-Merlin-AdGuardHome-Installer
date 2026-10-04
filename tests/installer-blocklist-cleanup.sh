@@ -417,12 +417,28 @@ EOF_GHOST_IDS
 		return 1
 	}
 	select_unused_blocklists_for_removal "${TMP_ROOT}/ghost.ids" >"${TMP_ROOT}/ghost.out" 2>&1
-	[ "$?" -eq 2 ] || exit 1
+	[ "$?" -eq 3 ] || exit 1
 ) || fail 'all-ghost selection did not return the successful no-configured result'
 grep -q 'No configured unused blocklists were found' "${TMP_ROOT}/ghost.out" ||
 	fail 'all-ghost result did not report that no configured unused blocklists were found'
 [ ! -s "${TMP_ROOT}/ghost.prompts" ] || fail 'all-ghost result displayed a removal prompt'
 [ -f "${TMP_ROOT}/data/filters/999.txt" ] || fail 'all-ghost result automatically deleted the stale cache file'
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	INPUT='Input:'
+	INFO='Info:'
+	WARNING='Warning:'
+	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
+	TARG_DIR="${TMP_ROOT}"
+	read_yesno() { return 2; }
+	if select_unused_blocklists_for_removal "${TMP_ROOT}/ids.actual" >/dev/null 2>&1; then
+		exit 1
+	else
+		[ "$?" -eq 2 ] || exit 1
+	fi
+) || fail 'confirmation input failure did not retain its failure status'
 
 (
 	# shellcheck disable=SC1090
