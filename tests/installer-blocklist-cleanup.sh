@@ -432,6 +432,7 @@ grep -q 'No configured unused blocklists were found' "${TMP_ROOT}/ghost.out" ||
 	WARNING='Warning:'
 	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 	TARG_DIR="${TMP_ROOT}"
+	# read_yesno returns input-failure status 2 to test selection error propagation.
 	read_yesno() { return 2; }
 	if select_unused_blocklists_for_removal "${TMP_ROOT}/ids.actual" >/dev/null 2>&1; then
 		exit 1
@@ -452,10 +453,15 @@ grep -q 'No configured unused blocklists were found' "${TMP_ROOT}/ghost.out" ||
 	BLOCKLIST_ANALYZER_IDS_FILE="${TMP_ROOT}/confirmation.ids"
 	BLOCKLIST_ANALYZER_OUTPUT_FILE="${TMP_ROOT}/confirmation-analyzer.out"
 	: >"${BLOCKLIST_ANALYZER_OUTPUT_FILE}"
+	# install_blocklist_analyzer simulates successful installation without downloads.
 	install_blocklist_analyzer() { return 0; }
+	# run_blocklist_analyzer succeeds using the prepared confirmation ID fixture.
 	run_blocklist_analyzer() { return 0; }
+	# read_yesno returns input-failure status 2 to test cleanup error handling.
 	read_yesno() { return 2; }
+	# blocklist_analyzer_pause suppresses interactive waiting in this test.
 	blocklist_analyzer_pause() { :; }
+	# end_op_message prints its status argument for the failure assertion.
 	end_op_message() { printf '%s\n' "end:$1"; }
 	if cleanup_unused_blocklists >"${TMP_ROOT}/confirmation-cleanup.out" 2>&1; then
 		exit 1
