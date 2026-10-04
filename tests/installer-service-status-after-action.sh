@@ -73,6 +73,20 @@ agh_is_running() {
 	[ "${PROCESS_STATE}" = 'running' ]
 }
 
+agh_wait_started() {
+	local elapsed maxwait
+	elapsed=0
+	maxwait="${1:-${ADGUARDHOME_WAIT_TIMEOUT}}"
+	while ! agh_is_running; do
+		if [ "${elapsed}" -ge "${maxwait}" ]; then
+			return 1
+		fi
+		sleep 1s
+		elapsed="$((elapsed + 1))"
+	done
+	return 0
+}
+
 agh_process_count() {
 	printf '%s\n' "${PROCESS_COUNT}"
 }
@@ -234,13 +248,35 @@ PROCESS_STATE='stopped'
 PROCESS_COUNT='0'
 CURRENT_PIDS=''
 MONITOR_COUNT='1'
+START_AFTER_SLEEP="$((ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT + ADGUARDHOME_WAIT_TIMEOUT))"
 SLEEP_CALLS=0
 agh_request_start || fail 'start request rejected an active firmware monitor'
 ! grep -q '^/opt/etc/init.d/S99AdGuardHome start x$' "${CALLS_FILE}" ||
 	fail 'start request duplicated an active firmware monitor with direct init'
 grep -q 'Firmware service start is still in progress' "${CALLS_FILE}" ||
 	fail 'start request did not report the active firmware monitor'
+[ "${SLEEP_CALLS}" -eq "$((ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT + ADGUARDHOME_WAIT_TIMEOUT))" ] ||
+	fail 'start request did not wait through the managed monitor startup budget'
 MONITOR_COUNT='0'
+
+# A managed monitor that never creates the daemon must still fall back after
+# the bounded managed-start wait expires.
+(
+	ADGUARDHOME_WAIT_TIMEOUT=3
+	: >"${CALLS_FILE}"
+	PROCESS_STATE='stopped'
+	PROCESS_COUNT='0'
+	CURRENT_PIDS=''
+	MONITOR_COUNT='1'
+	START_AFTER_SLEEP=0
+	SLEEP_CALLS=0
+	agh_request_start || fail 'start request did not recover after the managed monitor wait expired'
+	grep -q '^/opt/etc/init.d/S99AdGuardHome start x$' "${CALLS_FILE}" ||
+		fail 'start request did not fall back after the managed monitor wait expired'
+	[ "${SLEEP_CALLS}" -eq "$((ADGUARDHOME_WAIT_TIMEOUT * 2))" ] ||
+		fail 'start request did not enforce the managed monitor startup budget'
+) || fail 'managed monitor startup timeout regression failed'
+START_AFTER_SLEEP=0
 
 : >"${CALLS_FILE}"
 PROCESS_STATE='running'
