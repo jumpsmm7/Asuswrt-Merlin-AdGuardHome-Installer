@@ -167,6 +167,23 @@ sleep() {
 			fi
 		done
 	fi
+	# Startup publication does not mean the child has returned its result yet.
+	# Let finite mock lookups finish before consuming a simulated deadline tick;
+	# blocking probes must remain live so the real timeout/reaping path is tested.
+	if [ -n "${lookup_pid:-}" ] && [ "${BLOCKING_QUERY:-0}" = 0 ]; then
+		sync_wait_count=0
+		while kill -0 "${lookup_pid}" 2>/dev/null; do
+			sync_wait_count="$((sync_wait_count + 1))"
+			if [ "${sync_wait_count}" -ge 20000 ]; then
+				fail 'timed out waiting for the finite DNS lookup child to finish'
+			fi
+			if [ -x /bin/usleep ]; then
+				/bin/usleep 1000
+			else
+				/bin/sleep 0
+			fi
+		done
+	fi
 	MONOTONIC_NOW="$((MONOTONIC_NOW + 1))"
 	if [ "${DNS_TEST_YIELD:-0}" = 1 ]; then
 		if [ -x /bin/usleep ]; then
@@ -326,6 +343,8 @@ nslookup() {
 	lookup_start_count=$(cat "${TEST_ROOT}/lookup-start-count" 2>/dev/null || printf 0)
 	printf '%s\n' "$((lookup_start_count + 1))" >"${TEST_ROOT}/lookup-start-count" || return 1
 	printf '%s\n' "nslookup $*" >>"${CALLS_FILE}"
+	# Force a scheduling gap after the startup handshake when testing retries.
+	[ "${DELAY_LOOKUP_RESULT:-0}" = 0 ] || /bin/sleep 1
 	if [ "${TRACK_LOOKUP:-0}" = 1 ]; then
 		trap 'printf "%s\n" reaped >"${TEST_ROOT}/lookup-reaped"; exit 1' TERM
 	fi
@@ -364,7 +383,7 @@ EOF_NVRAM
 	: >"${CALLS_FILE}"
 	SET_COUNT=0 COMMIT_COUNT=0 SERVICE_COUNT=0 DNS_CHECK_COUNT=0 PUBLIC_CHECK_COUNT=0 STUBBY_KILL_COUNT=0 STUBBY_RESTART_COUNT=0
 	FAIL_SHOW=0 FAIL_SHOW_STATUS=0 FAIL_GET_KEY='' FAIL_GET_ABSENT_KEY='' FAIL_INVENTORY_GREP_STATUS=0 FAIL_ALL_SETS=0 FAIL_SET_AT=0 FAIL_COMMIT_AT=0 FAIL_SERVICE_AT=0 FAIL_SERVICE_AT_2=0 FAIL_SERVICE_AT_3=0 FAIL_ALL_SERVICES=0 DNS_READY=1 PUBLIC_NETWORK_AVAILABLE=0 PUBLIC_NETWORK_RECOVER_AT=0
-	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 DNS_READY_AFTER_SERVICE=0 STUBBY_RUNNING=0 STUBBY_KILL_STUCK=0
+	BLOCKING_QUERY=0 TRACK_LOOKUP=0 MONOTONIC_NOW=0 MONOTONIC_FAIL_AT=0 DNS_READY_AFTER_SERVICE=0 STUBBY_RUNNING=0 STUBBY_KILL_STUCK=0 DELAY_LOOKUP_RESULT=0
 	DNS_TEST_YIELD=0
 	DNS_ENV_READY_TIMEOUT=2 DNS_ENV_RECOVERY_TIMEOUT=1
 	rm -f "${TEST_ROOT}/monotonic-calls" "${TEST_ROOT}/lookup-reaped"
@@ -2367,10 +2386,15 @@ reset_case
 FAIL_COMMIT_AT=2
 DNS_READY=0
 check_dns_environment 0 && fail 'rollback retry setup was unexpectedly accepted'
+[ -f "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation/dirty" ] || fail 'incomplete automatic rollback discarded its retryable snapshot'
 FAIL_COMMIT_AT=0
 DNS_READY=1
+DELAY_LOOKUP_RESULT=1
 check_dns_environment 1 || fail 'incomplete automatic rollback could not be retried'
 assert_original 'retried rollback'
+[ "${COMMIT_COUNT}" -eq 3 ] || fail 'retried rollback did not retry the failed commit'
+[ "${SERVICE_COUNT}" -eq 3 ] || fail 'retried rollback did not restart dnsmasq'
+[ ! -e "${BASE_DIR}/.AdGuardHome.nvram/dns-preparation" ] || fail 'retried rollback retained its completed snapshot'
 
 grep -q 'check_dns_environment 0 || return 1' "${INSTALLER_PATH}" || fail 'CLI install does not propagate DNS preparation failure'
 grep -q 'check_dns_environment 0 || exit 1' "${INSTALLER_PATH}" || fail 'interactive install does not propagate DNS preparation failure'

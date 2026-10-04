@@ -448,6 +448,32 @@ grep -q 'No configured unused blocklists were found' "${TMP_ROOT}/ghost.out" ||
 	WARNING='Warning:'
 	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 	TARG_DIR="${TMP_ROOT}"
+	cp "${TMP_ROOT}/ids.actual" "${TMP_ROOT}/confirmation.ids" || exit 1
+	BLOCKLIST_ANALYZER_IDS_FILE="${TMP_ROOT}/confirmation.ids"
+	BLOCKLIST_ANALYZER_OUTPUT_FILE="${TMP_ROOT}/confirmation-analyzer.out"
+	: >"${BLOCKLIST_ANALYZER_OUTPUT_FILE}"
+	install_blocklist_analyzer() { return 0; }
+	run_blocklist_analyzer() { return 0; }
+	read_yesno() { return 2; }
+	blocklist_analyzer_pause() { :; }
+	end_op_message() { printf '%s\n' "end:$1"; }
+	if cleanup_unused_blocklists >"${TMP_ROOT}/confirmation-cleanup.out" 2>&1; then
+		exit 1
+	else
+		[ "$?" -eq 1 ] || exit 1
+	fi
+) || fail 'confirmation input failure did not fail cleanup'
+grep -q '^end:1$' "${TMP_ROOT}/confirmation-cleanup.out" ||
+	fail 'confirmation input failure did not report cleanup failure'
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	INPUT='Input:'
+	INFO='Info:'
+	WARNING='Warning:'
+	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
+	TARG_DIR="${TMP_ROOT}"
 	BLOCKLIST_ANALYZER_IDS_FILE="${TMP_ROOT}/ghost.ids"
 	BLOCKLIST_ANALYZER_OUTPUT_FILE="${TMP_ROOT}/ghost-analyzer.out"
 	: >"${BLOCKLIST_ANALYZER_OUTPUT_FILE}"

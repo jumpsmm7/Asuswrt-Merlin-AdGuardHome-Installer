@@ -1992,7 +1992,9 @@ installer_cleanup_tmp_file() {
 			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.candidates" | \
 			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.configured.ids" | \
 			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.orphaned.ids" | \
-			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.selected")
+			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.selected" | \
+			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.out" | \
+			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.ids")
 			rm -f "$2" 2>/dev/null
 			;;
 		blocklist-analysis:*)
@@ -2000,7 +2002,9 @@ installer_cleanup_tmp_file() {
 			if [ "$2" = "${BLOCKLIST_ANALYZER_CANDIDATES_FILE:-}" ] ||
 				[ "$2" = "${BLOCKLIST_ANALYZER_CONFIGURED_IDS_FILE:-}" ] ||
 				[ "$2" = "${BLOCKLIST_ANALYZER_ORPHANED_IDS_FILE:-}" ] ||
-				[ "$2" = "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}" ]; then
+				[ "$2" = "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}" ] ||
+				[ "$2" = "${BLOCKLIST_ANALYZER_OUTPUT_FILE:-}" ] ||
+				[ "$2" = "${BLOCKLIST_ANALYZER_IDS_FILE:-}" ]; then
 				rm -f "$2" 2>/dev/null
 			fi
 			;;
@@ -2050,6 +2054,8 @@ on_installer_exit() {
 	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_CONFIGURED_IDS_FILE:-}"
 	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_ORPHANED_IDS_FILE:-}"
 	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}"
+	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_OUTPUT_FILE:-}"
+	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_IDS_FILE:-}"
 	if [ "${_DNS_STUBBY_STOPPED:-0}" = "1" ] && ! restore_stubby_after_dns_failure; then
 		PTXT "${ERROR} Unable to restart stubby after interrupted DNS preparation."
 	fi
