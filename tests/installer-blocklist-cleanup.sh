@@ -125,7 +125,7 @@ run_cleanup_pause_case() {
 				shift
 			done
 			[ "${TIMED_READ_SUPPORTED:-yes}" = "yes" ] || return 2
-			[ "${read_timeout}" != "0" ] || return 1
+			printf 'read-timeout:%s\n' "${read_timeout}" >>"${call_file}"
 			command read -r "${read_name}"
 		}
 		# install_blocklist_analyzer simulates successful installation without downloads.
@@ -193,8 +193,18 @@ fi
 
 TIMED_READ_SUPPORTED=no run_cleanup_pause_case 'timed-read-unavailable' yes 0 0 </dev/null ||
 	fail 'cleanup failed when timed read was unavailable'
-if grep -q 'Press Enter to continue' "${TMP_ROOT}/pause-timed-read-unavailable.out"; then
-	fail 'cleanup prompted when timed read was unavailable'
+grep -q 'Press Enter to continue' "${TMP_ROOT}/pause-timed-read-unavailable.out" ||
+	fail 'cleanup did not display the pause prompt before an unsupported timed read returned'
+
+if grep -q 'read-timeout:0' "${TMP_ROOT}"/pause-*.calls; then
+	fail 'cleanup used a potentially blocking zero-timeout read probe'
+fi
+
+AI_ASSUME_YES=1 run_cleanup_pause_case 'assume-yes' yes 0 0 </dev/null ||
+	fail 'assume-yes cleanup failed'
+if grep -q 'Press Enter to continue' "${TMP_ROOT}/pause-assume-yes.out" ||
+	grep -q 'read-timeout:' "${TMP_ROOT}/pause-assume-yes.calls"; then
+	fail 'assume-yes cleanup prompted for or read interactive input'
 fi
 
 (
