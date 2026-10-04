@@ -1983,6 +1983,9 @@ opkg_clean_env() {
 	env -i LC_ALL="${LC_ALL:-C}" PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin" /opt/bin/opkg "$@"
 }
 
+# installer_cleanup_tmp_file removes the temporary path in $2 only when it
+# matches the setup/blocklist filename or a registered blocklist-analysis path
+# for the cleanup kind in $1. Other paths are left untouched.
 installer_cleanup_tmp_file() {
 	case "$1:$2" in
 		setup:"${YAML_ORI}.new.$$" | blocklist:"${YAML_FILE}.blocklists.$$.tmp")
@@ -4358,6 +4361,12 @@ blocklist_yaml_candidates() {
 	' "${yaml_target}"
 }
 
+# select_unused_blocklists_for_removal reads analyzer IDs from $1 and prompts
+# only for entries configured in YAML_FILE, reporting stale cache IDs separately.
+# Registers temporary paths for exit cleanup and leaves confirmed IDs in
+# BLOCKLIST_ANALYZER_SELECTED_IDS_FILE. Returns 0 for a selection, 2 when no
+# configured candidates exist, 1 on file errors or an empty selection, or the
+# prompt's non-yes/no status when input is interrupted.
 select_unused_blocklists_for_removal() {
 	local ids_file candidates_file configured_ids_file orphaned_ids_file selected_file id name url list_label choice_status
 	ids_file="$1"
@@ -4577,6 +4586,12 @@ remove_unused_blocklists_from_yaml() {
 	fi
 }
 
+# cleanup_unused_blocklists runs the analyzer, selects configured unused lists,
+# and removes confirmed entries from YAML through the removal helper. Takes no
+# arguments; uses the installer paths and analyzer file globals. Cleans analyzer
+# results and reports completion, treating no unused/configured lists as success
+# and cancellation or analyzer/removal errors as failure. Leaves stale cache
+# files untouched.
 cleanup_unused_blocklists() {
 	install_blocklist_analyzer || {
 		blocklist_analyzer_pause
