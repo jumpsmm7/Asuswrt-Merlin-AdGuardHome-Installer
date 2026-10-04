@@ -50,6 +50,12 @@ BLOCKLIST_ANALYZER_SHA256=""
 SCRIPT_LOC=""
 SETUP_YAML_TMP_FILE=""
 BLOCKLIST_YAML_TMP_FILE=""
+if [ -r /proc/sys/kernel/random/uuid ]; then
+	INSTALLER_CACHE_NONCE="$(cat /proc/sys/kernel/random/uuid 2>/dev/null)"
+fi
+[ -n "${INSTALLER_CACHE_NONCE:-}" ] || INSTALLER_CACHE_NONCE="$(date +%s)-$(sed 's/^.*) //' "/proc/$$/stat" 2>/dev/null | awk '{ print $20; exit }')-$$"
+readonly INSTALLER_CACHE_NONCE
+DOWNLOAD_CACHE_SEQUENCE=0
 
 BOLD="$(printf "\033[1m")" || true
 readonly BOLD
@@ -5144,7 +5150,7 @@ check_version() {
 				if [ -z "${MD5SUM_L}" ]; then MD5SUM_L="$(file_md5 "${TARG_DIR}/installer" 2>/dev/null)"; fi
 				if [ -z "${RMNSTALL}" ] || [ -z "${MD5SUM_R}" ]; then
 					rm -f "${REMOTE_INSTALLER}" "${REMOTE_INSTALLER_MD5}"
-					REMOTE_CACHE_TOKEN="$$-${varcnt}"
+					REMOTE_CACHE_TOKEN="${INSTALLER_CACHE_NONCE}-version-${varcnt}"
 					REMOTE_INSTALLER_URL="$(http_url_with_cache_token "${RURL}/installer" "${REMOTE_CACHE_TOKEN}")"
 					REMOTE_INSTALLER_MD5_URL="$(http_url_with_cache_token "${RURL}/installer.md5sum" "${REMOTE_CACHE_TOKEN}")"
 					if http_get_file "${REMOTE_INSTALLER_URL}" "${REMOTE_INSTALLER}" && [ -s "${REMOTE_INSTALLER}" ]; then
@@ -6655,15 +6661,26 @@ del_jffs_script() {
 }
 
 download_file() {
-	local TARG PERM URL RET FILENAME TMP_FILE TMP_MD5 TMP_SHA256 MD5SUM_OLD MD5SUM_CURR MD5SUM_EXPECTED SHA256SUM_CURR SHA256SUM_EXPECTED SHA256_AVAILABLE COUNT
+	local TARG PERM URL URL_BASE URL_QUERY RET FILENAME TMP_FILE TMP_MD5 TMP_SHA256 MD5SUM_OLD MD5SUM_CURR MD5SUM_EXPECTED SHA256SUM_CURR SHA256SUM_EXPECTED SHA256_AVAILABLE COUNT CACHE_TOKEN PAYLOAD_URL MD5_URL SHA256_URL
 	TARG="$1"
 	shift
 	PERM="$1"
 	shift
 	RET="0"
+	DOWNLOAD_CACHE_SEQUENCE="$((${DOWNLOAD_CACHE_SEQUENCE:-0} + 1))"
 	ptxt_phase "Downloading and verifying files."
 	for URL in "$@"; do
-		FILENAME="${URL##*/}"
+		case "${URL}" in
+			*\?*)
+				URL_BASE="${URL%%\?*}"
+				URL_QUERY="?${URL#*\?}"
+				;;
+			*)
+				URL_BASE="${URL}"
+				URL_QUERY=""
+				;;
+		esac
+		FILENAME="${URL_BASE##*/}"
 		TMP_FILE="${TARG}/.${FILENAME}.$$"
 		TMP_MD5="${TMP_FILE}.md5sum"
 		TMP_SHA256="${TMP_FILE}.sha256sum"
@@ -6675,6 +6692,10 @@ download_file() {
 		COUNT="0"
 		[ -f "${TARG}/${FILENAME}" ] && MD5SUM_OLD="$(file_md5 "${TARG}/${FILENAME}" 2>/dev/null)"
 		while [ "${COUNT}" -lt 3 ]; do
+			CACHE_TOKEN="${INSTALLER_CACHE_NONCE:-$$}-download-${DOWNLOAD_CACHE_SEQUENCE}-${COUNT}"
+			PAYLOAD_URL="$(http_url_with_cache_token "${URL}" "${CACHE_TOKEN}")"
+			SHA256_URL="$(http_url_with_cache_token "${URL_BASE}.sha256sum${URL_QUERY}" "${CACHE_TOKEN}")"
+			MD5_URL="$(http_url_with_cache_token "${URL_BASE}.md5sum${URL_QUERY}" "${CACHE_TOKEN}")"
 			MD5SUM_CURR=""
 			MD5SUM_EXPECTED=""
 			SHA256SUM_CURR=""
@@ -6682,7 +6703,7 @@ download_file() {
 			SHA256_AVAILABLE="1"
 			ptxt_step "Downloading ${FILENAME} to ${TARG}/${FILENAME}."
 			rm -f "${TMP_FILE}" "${TMP_MD5}" "${TMP_SHA256}"
-			if http_get_file "${URL}" "${TMP_FILE}" && [ -s "${TMP_FILE}" ]; then
+			if http_get_file "${PAYLOAD_URL}" "${TMP_FILE}" && [ -s "${TMP_FILE}" ]; then
 				ptxt_ok "Downloaded ${FILENAME}."
 				if ! chmod 600 "${TMP_FILE}"; then
 					ptxt_warn "Unable to secure the staged ${FILENAME}; retrying download."
@@ -6691,7 +6712,7 @@ download_file() {
 					continue
 				fi
 				ptxt_step "Checking remote checksum metadata for ${FILENAME}."
-				if ! http_get_file "${URL}.sha256sum" "${TMP_SHA256}"; then
+				if ! http_get_file "${SHA256_URL}" "${TMP_SHA256}"; then
 					SHA256_AVAILABLE="0"
 					ptxt_warn "SHA-256 metadata is unavailable for ${FILENAME}; using the intentional legacy-compatible MD5 verification path."
 				elif ! SHA256SUM_EXPECTED="$(sha256_manifest_digest "${TMP_SHA256}")"; then
@@ -6712,7 +6733,7 @@ download_file() {
 					break
 				fi
 				if [ "${SHA256_AVAILABLE}" = "0" ]; then
-					if ! http_get_file "${URL}.md5sum" "${TMP_MD5}"; then
+					if ! http_get_file "${MD5_URL}" "${TMP_MD5}"; then
 						ptxt_warn "MD5 metadata is missing or unavailable for ${FILENAME}; retrying download."
 					elif ! MD5SUM_EXPECTED="$(md5_manifest_digest "${TMP_MD5}")"; then
 						ptxt_warn "MD5 metadata is empty or invalid for ${FILENAME}; retrying download."

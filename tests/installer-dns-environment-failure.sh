@@ -43,7 +43,10 @@ sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PA
 	check_dns_environment 1 || exit 1
 ) || fail 'restore mode ran the DNS preparation conflict preflight without a persisted snapshot'
 
-: >"${FUNCTIONS_FILE}" || fail 'could not create test functions file'
+# Define out-of-scope exit-cleanup dependencies before appending extracted
+# helpers so even an early source failure leaves the exit handler callable.
+printf '%s\n' 'adguard_committed_binary_cleanup_retry() { :; }' >"${FUNCTIONS_FILE}" ||
+	fail 'could not create test functions file'
 sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" |
 	sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract NVRAM transaction helpers'
 sed -n '/^installer_lan_domain_set() {$/,/^rollback_result_write() {$/p' "${INSTALLER_PATH}" | sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract LAN-domain transaction helpers'
@@ -67,6 +70,8 @@ setup_restore_nvram_journal() {
 }
 EOF_SETUP_RESTORE_WRAPPER
 printf '%s\n' 'nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }' >>"${FUNCTIONS_FILE}"
+# adguard_committed_binary_cleanup_retry is outside this DNS fixture's scope.
+printf '%s\n' 'adguard_committed_binary_cleanup_retry() { :; }' >>"${FUNCTIONS_FILE}"
 [ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/nvram (show|get|set|unset|commit)([[:space:];]|$)')" -eq 8 ] || fail 'NVRAM transaction helpers do not consistently use /bin/nvram'
 [ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/grep -q ')" -eq 2 ] || fail 'NVRAM transaction helpers do not use /bin/grep for inventory matching'
 LOCK_OWNER_FUNC_BODY="$(sed -n '/^nvram_transaction_lock_owner_current() {$/,/^nvram_transaction_lock_owner_live() {$/p' "${INSTALLER_PATH}")" || fail 'could not extract nvram_transaction_lock_owner_current function'
@@ -114,8 +119,6 @@ killall() {
 }
 # cleanup_api_files performs no operation.
 cleanup_api_files() { :; }
-# adguard_committed_binary_cleanup_retry is outside this DNS fixture's scope.
-adguard_committed_binary_cleanup_retry() { :; }
 # installer_cleanup_tmp_file cleans up the installer's temporary file.
 installer_cleanup_tmp_file() { :; }
 # rollback_pending_mode_migration rolls back any pending mode migration.

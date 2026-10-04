@@ -24,6 +24,7 @@ sed -n \
 	-e '/^sha256_is_valid() {$/,/^}$/p' \
 	-e '/^sha256_manifest_digest() {$/,/^}$/p' \
 	-e '/^md5_manifest_digest() {$/,/^}$/p' \
+	-e '/^http_url_with_cache_token() {$/,/^}$/p' \
 	-e '/^download_file() {$/,/^}$/p' \
 	"${INSTALLER}" >"${FUNCTIONS_FILE}" || fail 'could not extract checksum decision helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'checksum decision helper extraction was empty'
@@ -35,6 +36,7 @@ NORM=''
 TARGET_DIR="${TEST_ROOT}/target"
 PAYLOAD_FILE="${TEST_ROOT}/payload"
 WARNINGS_FILE="${TEST_ROOT}/warnings"
+REQUESTS_FILE="${TEST_ROOT}/requests"
 mkdir "${TARGET_DIR}" || fail 'could not create target directory'
 printf '%s\n' 'verified payload' >"${PAYLOAD_FILE}" || fail 'could not create payload fixture'
 PAYLOAD_SHA256="$(sha256sum "${PAYLOAD_FILE}" | awk '{ print $1 }')" || fail 'could not calculate fixture SHA-256'
@@ -67,6 +69,7 @@ reset_case() {
 	FINAL_CHMOD_REQUESTS=0
 	MV_REQUESTS=0
 	: >"${WARNINGS_FILE}"
+	: >"${REQUESTS_FILE}"
 	printf '%s\n' 'installed target' >"${TARGET_DIR}/component" || fail "${SCENARIO}: could not reset installed target"
 	command chmod 640 "${TARGET_DIR}/component" || fail "${SCENARIO}: could not reset installed target permissions"
 	rm -f "${TARGET_DIR}/.component.$$" "${TARGET_DIR}/.component.$$.md5sum" "${TARGET_DIR}/.component.$$.sha256sum"
@@ -74,7 +77,9 @@ reset_case() {
 
 # http_get_file supplies scenario-specific payloads and checksum sidecars.
 http_get_file() {
-	case "$1" in
+	printf '%s\n' "$1" >>"${REQUESTS_FILE}"
+	REQUEST_PATH="${1%%\?*}"
+	case "${REQUEST_PATH}" in
 		*.sha256sum)
 			SHA_REQUESTS="$((SHA_REQUESTS + 1))"
 			case "${SCENARIO}" in
@@ -184,5 +189,24 @@ for failure_case in md5_invalid md5_mismatch both_sidecars_missing checksum_calc
 done
 expect_failure retry_state
 [ "${PAYLOAD_REQUESTS}" -eq 3 ] || fail 'retry state scenario did not exhaust bounded retries'
+RETRY_PAYLOAD_URL_1="$(sed -n '1p' "${REQUESTS_FILE}")"
+RETRY_SHA_URL_1="$(sed -n '2p' "${REQUESTS_FILE}")"
+RETRY_MD5_URL_1="$(sed -n '3p' "${REQUESTS_FILE}")"
+RETRY_PAYLOAD_URL_2="$(sed -n '4p' "${REQUESTS_FILE}")"
+RETRY_TOKEN_1="${RETRY_PAYLOAD_URL_1##*installer_check=}"
+RETRY_TOKEN_2="${RETRY_PAYLOAD_URL_2##*installer_check=}"
+[ "${RETRY_SHA_URL_1##*installer_check=}" = "${RETRY_TOKEN_1}" ] || fail 'payload and SHA-256 sidecar did not share the first-attempt cache token'
+[ "${RETRY_MD5_URL_1##*installer_check=}" = "${RETRY_TOKEN_1}" ] || fail 'payload and MD5 sidecar did not share the first-attempt cache token'
+[ "${RETRY_TOKEN_1}" != "${RETRY_TOKEN_2}" ] || fail 'cache token did not change between download retries'
+
+reset_case sha_match
+download_file "${TARGET_DIR}" 755 'https://example.invalid/component' >/dev/null 2>&1 || fail 'second download call was rejected'
+SECOND_CALL_TOKEN="$(sed -n '1{s/^.*installer_check=//;p;}' "${REQUESTS_FILE}")"
+[ "${SECOND_CALL_TOKEN}" != "${RETRY_TOKEN_1}" ] || fail 'separate download calls reused a cache token'
+
+reset_case sha_match
+download_file "${TARGET_DIR}" 755 'https://example.invalid/component?ref=test' >/dev/null 2>&1 || fail 'URL with an existing query was rejected'
+grep -q 'component?ref=test&installer_check=' "${REQUESTS_FILE}" || fail 'payload request did not preserve its existing query string'
+grep -q 'component.sha256sum?ref=test&installer_check=' "${REQUESTS_FILE}" || fail 'checksum request did not preserve its existing query string'
 
 printf '%s\n' 'PASS: installer checksum compatibility policy preserves SHA-256 preference and bounded MD5 fallback'

@@ -27,9 +27,10 @@ sed -n \
 	-e '/^file_md5() {$/,/^}/p' \
 	-e '/^sha256_manifest_digest() {$/,/^}/p' \
 	-e '/^md5_manifest_digest() {$/,/^}/p' \
+	-e '/^http_url_with_cache_token() {$/,/^}/p' \
 	-e '/^download_file() {$/,/^}/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail 'could not extract MD5 helper functions'
-for function_name in md5_is_valid file_md5 md5_manifest_digest download_file; do
+for function_name in md5_is_valid file_md5 md5_manifest_digest http_url_with_cache_token download_file; do
 	grep -q "^${function_name}()" "${FUNCTIONS_FILE}" || fail "MD5 helper extraction is missing ${function_name}"
 done
 
@@ -95,7 +96,8 @@ run_download_case() (
 	http_get_file() {
 		url="$1"
 		destination="$2"
-		case "${url}" in
+		request_path="${url%%\?*}"
+		case "${request_path}" in
 			*.sha256sum) return 1 ;;
 			*.md5sum)
 				case "${case_name}" in
