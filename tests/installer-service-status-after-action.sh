@@ -69,10 +69,13 @@ pidof() {
 	fi
 }
 
+# Succeed when the simulated daemon state is running.
 agh_is_running() {
 	[ "${PROCESS_STATE}" = 'running' ]
 }
 
+# Poll the simulated daemon for $1 seconds (default ADGUARDHOME_WAIT_TIMEOUT);
+# return success when running, or failure when the simulated wait expires.
 agh_wait_started() {
 	local elapsed maxwait
 	elapsed=0
@@ -87,14 +90,17 @@ agh_wait_started() {
 	return 0
 }
 
+# Print the simulated process count used by service status checks.
 agh_process_count() {
 	printf '%s\n' "${PROCESS_COUNT}"
 }
 
+# Print the simulated managed-monitor count used by the start transition check.
 agh_monitor_count() {
 	printf '%s\n' "${MONITOR_COUNT}"
 }
 
+# Record that the installer requested a final service status report.
 agh_check() {
 	printf '%s\n' 'check' >>"${CALLS_FILE}"
 }
