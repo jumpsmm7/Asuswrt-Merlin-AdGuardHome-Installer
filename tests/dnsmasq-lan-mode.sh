@@ -509,7 +509,10 @@ for failure in none staging editing refresh publication; do
 		}
 		case "${failure}" in
 			refresh) IPSET_REFRESH_FAIL=1 ;;
-			publication) MV_PUBLISH_FAIL=1; IPSET_REFRESH_CHANGE=1 ;;
+			publication)
+				MV_PUBLISH_FAIL=1
+				IPSET_REFRESH_CHANGE=1
+				;;
 		esac
 		printf '%s\n' 'original ipset' >"${IPSET_FILE}"
 		if dnsmasq_action_handler /etc/dnsmasq.conf; then
