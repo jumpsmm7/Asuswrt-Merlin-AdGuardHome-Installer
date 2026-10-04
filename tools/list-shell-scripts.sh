@@ -31,6 +31,10 @@ is_shell_script() {
 
 find . -type f ! -path './.git/*' ! -path './.github/*' -print | sort | while IFS= read -r file; do
 	path="${file#./}"
+	case "${path}" in
+		tests/fixtures/portability/fail/*) continue ;;
+		*) : ;;
+	esac
 	if is_shell_script "${path}"; then
 		printf '%s\n' "${path}"
 	fi

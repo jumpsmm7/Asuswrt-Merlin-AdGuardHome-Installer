@@ -5,9 +5,12 @@
 set -u
 
 BASE_URL="https://static.adguard.com/adguardhome"
+HTTPS_PROTOCOL="=https"
 OUT_DIR="${1:-.}"
 FAILED=0
 ACTIVE_DOWNLOAD_TMP=""
+ACTIVE_DOWNLOAD_MD5_TMP=""
+ACTIVE_DOWNLOAD_SHA256_TMP=""
 ACTIVE_PUBLICATION_ARCHIVE=""
 
 # Functions are sorted alpha-numerically for readability.
@@ -22,6 +25,14 @@ cleanup_download_tmp() {
 	if [ -n "${ACTIVE_DOWNLOAD_TMP:-}" ]; then
 		rm -f "${ACTIVE_DOWNLOAD_TMP}"
 		ACTIVE_DOWNLOAD_TMP=""
+	fi
+	if [ -n "${ACTIVE_DOWNLOAD_MD5_TMP:-}" ]; then
+		rm -f "${ACTIVE_DOWNLOAD_MD5_TMP}"
+		ACTIVE_DOWNLOAD_MD5_TMP=""
+	fi
+	if [ -n "${ACTIVE_DOWNLOAD_SHA256_TMP:-}" ]; then
+		rm -f "${ACTIVE_DOWNLOAD_SHA256_TMP}"
+		ACTIVE_DOWNLOAD_SHA256_TMP=""
 	fi
 }
 
@@ -99,6 +110,7 @@ acquire_metadata_publication_lock() {
 	rm -f "${_lock_tmp}"
 }
 
+# reclaim_stale_metadata_publication_lock removes a metadata publication lock after confirming its owner is inactive and the lock has not changed.
 reclaim_stale_metadata_publication_lock() {
 	_lock_file="$1"
 	_stale_candidate="${_lock_file}.stale.$$"
@@ -128,15 +140,26 @@ reclaim_stale_metadata_publication_lock() {
 	rm -f "${_stale_candidate}"
 }
 
+# calc_sum computes and prints the hexadecimal checksum for a file using the specified checksum command.
 calc_sum() {
 	_sum_cmd="$1"
 	_file="$2"
 	_sum_output=""
 
 	_sum_output="$("${_sum_cmd}" "${_file}")" || return 1
-	printf '%s\n' "${_sum_output}" | awk 'NF {print $1; found = 1; exit} END {if (!found) exit 1}'
+	_sum_value="$(printf '%s\n' "${_sum_output}" | awk 'NF {print $1; found = 1; exit} END {if (!found) exit 1}')" || return 1
+	case "${_sum_cmd}:${_sum_value}" in
+		md5sum:???????????????????????????????? | sha256sum:????????????????????????????????????????????????????????????????) ;;
+		*) return 1 ;;
+	esac
+	case "${_sum_value}" in
+		*[!0123456789abcdefABCDEF]*) return 1 ;;
+		*) : ;;
+	esac
+	printf '%s\n' "${_sum_value}"
 }
 
+# download_arch downloads stable, beta, and edge archives for an architecture and publishes their metadata in the corresponding output directory.
 download_arch() {
 	_folder="$1"
 	_adguard_arch="$2"
@@ -212,7 +235,7 @@ download_one() {
 	_sha256=""
 
 	printf '%s\n' "Downloading ${_version_url}"
-	_version_response="$(curl -fsL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 120 "${_version_url}")" || {
+	_version_response="$(curl -fsL --proto "${HTTPS_PROTOCOL}" --proto-redir "${HTTPS_PROTOCOL}" --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 120 "${_version_url}")" || {
 		printf '%s\n' "Error: failed to download ${_version_url}" >&2
 		FAILED=1
 		return 1
@@ -236,7 +259,7 @@ download_one() {
 	esac
 	printf '%s\n' "Downloading ${_url} -> ${_dest_file}"
 	ACTIVE_DOWNLOAD_TMP="${_tmp_file}"
-	if ! curl -fL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 -o "${_tmp_file}" "${_url}"; then
+	if ! curl -fL --proto "${HTTPS_PROTOCOL}" --proto-redir "${HTTPS_PROTOCOL}" --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 -o "${_tmp_file}" "${_url}"; then
 		cleanup_download_tmp
 		printf '%s\n' "Error: failed to download ${_url}" >&2
 		FAILED=1
@@ -449,6 +472,8 @@ publish_archive_with_checksums() {
 	_sha256_file="${_archive_file}.sha256sum"
 	_md5_tmp="${_md5_file}.tmp.$$"
 	_sha256_tmp="${_sha256_file}.tmp.$$"
+	ACTIVE_DOWNLOAD_MD5_TMP="${_md5_tmp}"
+	ACTIVE_DOWNLOAD_SHA256_TMP="${_sha256_tmp}"
 	_publish_state="${_archive_file}.publish-in-progress"
 	_publish_state_tmp="${_publish_state}.tmp.$$"
 	_archive_backup="${_archive_file}.previous"
@@ -557,6 +582,8 @@ publish_archive_with_checksums() {
 			return 1
 		fi
 		ACTIVE_PUBLICATION_ARCHIVE=""
+		ACTIVE_DOWNLOAD_MD5_TMP=""
+		ACTIVE_DOWNLOAD_SHA256_TMP=""
 		return 0
 	fi
 
@@ -566,6 +593,8 @@ publish_archive_with_checksums() {
 		printf '%s\n' "Error: recovery failed; inspect ${_archive_backup}, ${_md5_backup}, and ${_sha256_backup}" >&2
 	fi
 	ACTIVE_PUBLICATION_ARCHIVE=""
+	ACTIVE_DOWNLOAD_MD5_TMP=""
+	ACTIVE_DOWNLOAD_SHA256_TMP=""
 	FAILED=1
 	return 1
 }
@@ -786,13 +815,16 @@ write_md5sum_file() {
 	_md5="$2"
 	_md5_file="${_archive_file}.md5sum"
 	_md5_tmp="${_md5_file}.tmp.$$"
+	ACTIVE_DOWNLOAD_MD5_TMP="${_md5_tmp}"
 
 	if ! printf '%s\n' "${_md5}" >"${_md5_tmp}" || ! chmod 644 "${_md5_tmp}" || ! mv "${_md5_tmp}" "${_md5_file}"; then
 		rm -f "${_md5_tmp}"
+		ACTIVE_DOWNLOAD_MD5_TMP=""
 		printf '%s\n' "Error: could not update ${_md5_file}" >&2
 		FAILED=1
 		return 1
 	fi
+	ACTIVE_DOWNLOAD_MD5_TMP=""
 }
 
 write_sha256sum_file() {
@@ -800,13 +832,16 @@ write_sha256sum_file() {
 	_sha256="$2"
 	_sha256_file="${_archive_file}.sha256sum"
 	_sha256_tmp="${_sha256_file}.tmp.$$"
+	ACTIVE_DOWNLOAD_SHA256_TMP="${_sha256_tmp}"
 
 	if ! printf '%s\n' "${_sha256}" >"${_sha256_tmp}" || ! chmod 644 "${_sha256_tmp}" || ! mv "${_sha256_tmp}" "${_sha256_file}"; then
 		rm -f "${_sha256_tmp}"
+		ACTIVE_DOWNLOAD_SHA256_TMP=""
 		printf '%s\n' "Error: could not update ${_sha256_file}" >&2
 		FAILED=1
 		return 1
 	fi
+	ACTIVE_DOWNLOAD_SHA256_TMP=""
 }
 
 require_cmd awk

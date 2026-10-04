@@ -1,0 +1,62 @@
+rules:
+  - id: asuswrt-no-direct-insecure-curl
+    message: Direct curl certificate bypass is forbidden; use the reviewed secure-first downloader helper.
+    languages: [generic]
+    severity: ERROR
+    paths:
+      include:
+        - installer
+        - AdGuardHome.sh
+        - S99AdGuardHome
+        - rc.func.AdGuardHome
+        - tools/*.sh
+    pattern-regex: '(?m)^[ \t]*(?:command[ \t]+)?(?:/[^ \t\n]*/)?curl[^\n#]*(?:[ \t]-[A-Za-z]*k[A-Za-z]*(?:[ \t]|$)|[ \t]--insecure(?:[ \t]|$))'
+
+  - id: asuswrt-no-direct-insecure-wget
+    message: Direct wget certificate bypass is forbidden; use the reviewed secure-first downloader helper.
+    languages: [generic]
+    severity: ERROR
+    paths:
+      include:
+        - installer
+        - AdGuardHome.sh
+        - S99AdGuardHome
+        - rc.func.AdGuardHome
+        - tools/*.sh
+    pattern-regex: '(?m)^[ \t]*(?:command[ \t]+)?(?:/[^ \t\n]*/)?wget[^\n#]*[ \t]--no-check-certificate(?:[ \t]|$)'
+
+  - id: asuswrt-no-world-writable-chmod
+    message: Production router paths must not be made world-writable with chmod numeric modes that grant other-write access or symbolic clauses that grant write access to other/all users.
+    languages: [generic]
+    severity: ERROR
+    paths:
+      include:
+        - installer
+        - AdGuardHome.sh
+        - S99AdGuardHome
+        - rc.func.AdGuardHome
+        - tools/*.sh
+    pattern-regex: '(?m)^[ \t]*(?:command[ \t]+)?chmod[^\n#]*[ \t](?:[0-7]*[2367]|(?:[ugoa]*[-+=][rwxXstugo]*,)*[ugoa]*[oa][ugoa]*[+=][rwxXstugo]*w[rwxXstugo]*(?:,[ugoa]*[-+=][rwxXstugo]*)*)(?:[ \t]|$)'
+
+  - id: asuswrt-service-path-must-be-fixed
+    message: Service scripts must use the fixed trusted PATH and must not inherit caller PATH entries.
+    languages: [generic]
+    severity: ERROR
+    paths:
+      include:
+        - AdGuardHome.sh
+        - S99AdGuardHome
+        - rc.func.AdGuardHome
+    pattern-regex: '(?m)^[ \t]*(?:export[ \t]+)?PATH=[^\n#]*(?:\$PATH|\$\{PATH\}|\$\{PATH:\+\$PATH\})'
+
+  - id: asuswrt-no-gnu-timeout-in-runtime
+    message: Router runtime code must not depend on GNU /usr/bin/timeout; CI-only tooling may use it.
+    languages: [generic]
+    severity: ERROR
+    paths:
+      include:
+        - installer
+        - AdGuardHome.sh
+        - S99AdGuardHome
+        - rc.func.AdGuardHome
+    pattern-regex: '(?m)^[ \t]*[^#\n]*/usr/bin/timeout(?:[ \t]|$)'

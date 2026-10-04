@@ -2,18 +2,27 @@
 
 export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin"
+umask 077
 
 SCRIPT_LOC=""
 ADGUARDHOME_BINARY="/opt/sbin/AdGuardHome"
 CONF_FILE="/opt/etc/AdGuardHome/.config"
+WORK_DIR="${CONF_FILE%/*}"
 DNS_HANDOFF_DIR="${DNS_HANDOFF_DIR:-/tmp/AdGuardHome.dns-handoff}"
 DNS_HANDOFF_FILE="${DNS_HANDOFF_FILE:-${DNS_HANDOFF_DIR}/active}"
 MID_SCRIPT="/jffs/addons/AdGuardHome.d/AdGuardHome.sh"
 UPPER_SCRIPT="/opt/etc/init.d/S99AdGuardHome"
 LOWER_SCRIPT="/opt/etc/init.d/rc.func.AdGuardHome"
 IPSET_FILE="/opt/etc/AdGuardHome/ipset.conf"
+IPSET_LOCK_ACTIVE="0"
 IPSET_RUNTIME_DIR="${IPSET_RUNTIME_DIR:-/opt/var/run/AdGuardHome-ipset}"
 IPSET_USER_FILE="/opt/etc/AdGuardHome/ipset.user"
+PROC_SYS_ROOT="${PROC_SYS_ROOT:-/proc/sys}"
+PROC_SWAPS_FILE="${PROC_SWAPS_FILE:-/proc/swaps}"
+PROC_BOOT_ID_FILE="${PROC_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}"
+PROC_STATE_DIR="${PROC_STATE_DIR:-${WORK_DIR}/proc-sys-state}"
+PROC_LOCK_DIR="${PROC_LOCK_DIR:-${WORK_DIR}/proc-sys-lock}"
+PROC_LOCK_FILE="${PROC_LOCK_FILE:-${WORK_DIR}/proc-sys.lock}"
 YAML_FILE="/opt/etc/AdGuardHome/AdGuardHome.yaml"
 DEFAULT_ADGUARD_NETCHECK_HOSTS="google.com github.com snbforums.com"
 DEFAULT_ADGUARD_NETCHECK_DNS="127.0.0.1"
@@ -21,7 +30,7 @@ DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP="NO"
 DEFAULT_ADGUARD_NETCHECK_TIMEOUT="300"
 DEFAULT_ADGUARD_NETCHECK_MODE="wan"
 DEFAULT_ADGUARD_PROC_OPTIMIZE="NO"
-DEFAULT_ADGUARD_PROC_PROFILE="balanced"
+DEFAULT_ADGUARD_PROC_PROFILE="aggressive"
 INSTALLER_SCRIPT="/opt/etc/AdGuardHome/installer"
 ADGUARD_NETCHECK_HOSTS_SET="${ADGUARD_NETCHECK_HOSTS:+x}"
 ADGUARD_NETCHECK_DNS_SET="${ADGUARD_NETCHECK_DNS:+x}"
@@ -48,6 +57,7 @@ agh_timestamp() {
 	date '+%Y/%m/%d %H:%M:%S'
 }
 
+# agh_log records a timestamped AdGuardHome message in the system log.
 agh_log() {
 	local _level _func
 	_level="$1"
@@ -56,18 +66,275 @@ agh_log() {
 	logger -st "${NAME}" "$(agh_timestamp) [${_level}] ${_func}: $*"
 }
 
-conf_value() {
-	[ -f "${CONF_FILE}" ] || return 1
-	awk -v KEY="$1" '
-		index($0, KEY "=") == 1 {
-			VALUE = substr($0, length(KEY) + 2)
-			gsub(/^"|"$/, "", VALUE)
-			print VALUE
-			exit
-		}
-	' "${CONF_FILE}"
+# load_operation_config takes one immutable snapshot of the keys needed by an
+# set_operation_config_defaults sets default values for the operation configuration snapshot.
+set_operation_config_defaults() {
+	CONFIG_INSTALL_MODE="wan"
+	CONFIG_DNSMASQ_MODE="auto"
+	CONFIG_LOCAL="NO"
+	CONFIG_IPSET="YES"
+	CONFIG_WEBUI_PORT=""
+	CONFIG_INSTALLER_BRANCH=""
+	CONFIG_NETCHECK_HOSTS="${DEFAULT_ADGUARD_NETCHECK_HOSTS}"
+	CONFIG_NETCHECK_DNS="${DEFAULT_ADGUARD_NETCHECK_DNS}"
+	CONFIG_NETCHECK_REQUIRE_HTTP="${DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP}"
+	CONFIG_NETCHECK_TIMEOUT="${DEFAULT_ADGUARD_NETCHECK_TIMEOUT}"
+	CONFIG_NETCHECK_MODE="${DEFAULT_ADGUARD_NETCHECK_MODE}"
+	CONFIG_PROC_OPTIMIZE="${DEFAULT_ADGUARD_PROC_OPTIMIZE}"
+	CONFIG_PROC_PROFILE="${DEFAULT_ADGUARD_PROC_PROFILE}"
 }
 
+# load_operation_config loads and validates the configuration for the requested scope, applies defaults and environment overrides, and stores the resulting values in scoped CONFIG_* variables.
+load_operation_config() {
+	local config_dnsmasq_mode config_install_mode config_installer_branch config_ipset config_local config_netcheck_dns config_netcheck_hosts config_netcheck_mode config_netcheck_require_http config_netcheck_timeout config_proc_optimize config_proc_profile config_row config_status config_webui_port old_ifs overridden scope
+	scope="$1"
+	overridden=""
+	[ -n "${ADGUARD_NETCHECK_HOSTS_SET:-}" ] && [ -n "${ADGUARD_NETCHECK_HOSTS:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_HOSTS"
+	[ -n "${ADGUARD_NETCHECK_DNS_SET:-}" ] && [ -n "${ADGUARD_NETCHECK_DNS:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_DNS"
+	[ -n "${ADGUARD_NETCHECK_REQUIRE_HTTP_SET:-}" ] && [ -n "${ADGUARD_NETCHECK_REQUIRE_HTTP:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_REQUIRE_HTTP"
+	[ -n "${ADGUARD_NETCHECK_TIMEOUT_SET:-}" ] && [ -n "${ADGUARD_NETCHECK_TIMEOUT:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_TIMEOUT"
+	[ -n "${ADGUARD_NETCHECK_MODE_SET:-}" ] && [ -n "${ADGUARD_NETCHECK_MODE:-}" ] && overridden="${overridden} ADGUARD_NETCHECK_MODE"
+	[ -n "${ADGUARD_PROC_OPTIMIZE_SET:-}" ] && [ -n "${ADGUARD_PROC_OPTIMIZE:-}" ] && overridden="${overridden} ADGUARD_PROC_OPTIMIZE"
+	[ -n "${ADGUARD_PROC_PROFILE_SET:-}" ] && [ -n "${ADGUARD_PROC_PROFILE:-}" ] && overridden="${overridden} ADGUARD_PROC_PROFILE"
+	if [ -f "${CONF_FILE}" ]; then
+		config_row="$(/usr/bin/awk -v OVERRIDDEN="${overridden} " -v SCOPE="${scope}" '
+		BEGIN {
+			sep = "|"
+			key_list = "ADGUARD_INSTALL_MODE,ADGUARD_DNSMASQ_MODE,ADGUARD_LOCAL,ADGUARD_IPSET,ADGUARD_WEBUI_PORT,INSTALLER_BRANCH,ADGUARD_NETCHECK_HOSTS,ADGUARD_NETCHECK_DNS,ADGUARD_NETCHECK_REQUIRE_HTTP,ADGUARD_NETCHECK_TIMEOUT,ADGUARD_NETCHECK_MODE,ADGUARD_PROC_OPTIMIZE,ADGUARD_PROC_PROFILE"
+			keys = " " key_list " "
+			gsub(/,/, " ", keys)
+			if (SCOPE == "status") wanted = " ADGUARD_WEBUI_PORT INSTALLER_BRANCH "
+			else if (SCOPE == "stop") wanted = " ADGUARD_INSTALL_MODE ADGUARD_DNSMASQ_MODE "
+			else if (SCOPE == "dnsmasq") wanted = " ADGUARD_INSTALL_MODE ADGUARD_DNSMASQ_MODE ADGUARD_LOCAL ADGUARD_IPSET "
+			else if (SCOPE == "firewall") wanted = " ADGUARD_INSTALL_MODE ADGUARD_IPSET "
+			else wanted = " ADGUARD_INSTALL_MODE ADGUARD_DNSMASQ_MODE ADGUARD_LOCAL ADGUARD_IPSET ADGUARD_NETCHECK_HOSTS ADGUARD_NETCHECK_DNS ADGUARD_NETCHECK_REQUIRE_HTTP ADGUARD_NETCHECK_TIMEOUT ADGUARD_NETCHECK_MODE ADGUARD_PROC_OPTIMIZE ADGUARD_PROC_PROFILE "
+		}
+		/^[A-Z][A-Z0-9_]*[[:space:]]+=/ {
+			key = $0
+			sub(/[[:space:]]+=.*/, "", key)
+			if (index(wanted, " " key " ") == 0) next
+			if (index(OVERRIDDEN, " " key " ") != 0) next
+			exit 3
+		}
+		/^[A-Z][A-Z0-9_]*=/ {
+			key = $0
+			sub(/=.*/, "", key)
+			if (index(wanted, " " key " ") == 0) next
+			if (index(OVERRIDDEN, " " key " ") != 0) next
+			if (++seen[key] > 1) exit 2
+			value = substr($0, length(key) + 2)
+			if (value ~ /^"[^"]*"$/) value = substr(value, 2, length(value) - 2)
+			else if (value ~ /["[:cntrl:]]/) exit 3
+			if (value == "") {
+				if (key == "ADGUARD_WEBUI_PORT" || key == "INSTALLER_BRANCH") next
+				exit 3
+			}
+			if (value ~ /[|[:cntrl:]]/) exit 3
+			values[key] = value
+		}
+		END {
+			count = split(key_list, ordered, ",")
+			for (i = 1; i <= count; i++) {
+				if (i > 1) printf "%s", sep
+				printf "%s", (ordered[i] in values ? values[ordered[i]] : "-")
+			}
+			printf "\n"
+		}
+		' "${CONF_FILE}" 2>/dev/null)"
+		config_status="$?"
+		if [ "${config_status}" -ne 0 ]; then
+			printf '%s\n' "${NAME}: invalid or duplicate configuration value in ${CONF_FILE}" >&2
+			return 1
+		fi
+	else
+		config_row='-|-|-|-|-|-|-|-|-|-|-|-|-'
+	fi
+	old_ifs="${IFS}"
+	IFS='|' read -r config_install_mode config_dnsmasq_mode config_local config_ipset config_webui_port config_installer_branch config_netcheck_hosts config_netcheck_dns config_netcheck_require_http config_netcheck_timeout config_netcheck_mode config_proc_optimize config_proc_profile <<EOF
+${config_row}
+EOF
+	IFS="${old_ifs}"
+
+	case "${config_install_mode}" in -) config_install_mode="wan" ;; wan | lan) ;; *) return 1 ;; esac
+	case "${config_dnsmasq_mode}" in -) config_dnsmasq_mode="auto" ;; auto | enabled | disabled) ;; *) return 1 ;; esac
+	case "${config_local}" in -) config_local="NO" ;; YES | NO) ;; *) return 1 ;; esac
+	case "${config_ipset}" in -) config_ipset="YES" ;; YES | NO) ;; *) return 1 ;; esac
+	case "${config_webui_port}" in -) config_webui_port="" ;; *[!0-9]*) return 1 ;; *) [ "${config_webui_port}" -gt 0 ] && [ "${config_webui_port}" -le 65535 ] || return 1 ;; esac
+	case "${config_installer_branch}" in -) config_installer_branch="" ;; *[!A-Za-z0-9._/-]*) return 1 ;; esac
+	case "${config_netcheck_hosts}" in -) config_netcheck_hosts="${DEFAULT_ADGUARD_NETCHECK_HOSTS}" ;; *[!A-Za-z0-9._:[:space:]-]*) return 1 ;; esac
+	case "${config_netcheck_dns}" in -) config_netcheck_dns="${DEFAULT_ADGUARD_NETCHECK_DNS}" ;; *[!A-Za-z0-9._:-]*) return 1 ;; esac
+	case "${config_netcheck_require_http}" in -) config_netcheck_require_http="${DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP}" ;; YES | NO) ;; *) return 1 ;; esac
+	case "${config_netcheck_timeout}" in -) config_netcheck_timeout="${DEFAULT_ADGUARD_NETCHECK_TIMEOUT}" ;; *[!0-9]*) return 1 ;; *) [ "${config_netcheck_timeout}" -gt 0 ] || return 1 ;; esac
+	case "${config_netcheck_mode}" in -) config_netcheck_mode="${DEFAULT_ADGUARD_NETCHECK_MODE}" ;; wan | lan | legacy | WAN | LAN | LEGACY) ;; *) return 1 ;; esac
+	case "${config_proc_optimize}" in -) config_proc_optimize="${DEFAULT_ADGUARD_PROC_OPTIMIZE}" ;; YES | NO | yes | no | Yes | No | ON | OFF | on | off | On | Off | TRUE | FALSE | true | false | True | False | 0 | 1) ;; *) return 1 ;; esac
+	case "${config_proc_profile}" in -) config_proc_profile="${DEFAULT_ADGUARD_PROC_PROFILE}" ;; off | safe | balanced | aggressive) ;; *) return 1 ;; esac
+	CONFIG_INSTALL_MODE="${config_install_mode}"
+	CONFIG_DNSMASQ_MODE="${config_dnsmasq_mode}"
+	CONFIG_LOCAL="${config_local}"
+	CONFIG_IPSET="${config_ipset}"
+	CONFIG_WEBUI_PORT="${config_webui_port}"
+	CONFIG_INSTALLER_BRANCH="${config_installer_branch}"
+	CONFIG_NETCHECK_HOSTS="${config_netcheck_hosts}"
+	CONFIG_NETCHECK_DNS="${config_netcheck_dns}"
+	CONFIG_NETCHECK_REQUIRE_HTTP="${config_netcheck_require_http}"
+	CONFIG_NETCHECK_TIMEOUT="${config_netcheck_timeout}"
+	CONFIG_NETCHECK_MODE="${config_netcheck_mode}"
+	CONFIG_PROC_OPTIMIZE="${config_proc_optimize}"
+	CONFIG_PROC_PROFILE="${config_proc_profile}"
+	CONFIG_SCOPE="${scope}"
+}
+
+# adguard_install_mode prints the configured AdGuardHome installation mode, defaulting to `wan` for invalid or missing values.
+adguard_install_mode() {
+	printf '%s\n' "${CONFIG_INSTALL_MODE:-wan}"
+}
+
+# adguard_lan_mode reports whether AdGuardHome is configured for LAN mode.
+adguard_lan_mode() {
+	[ "$(adguard_install_mode)" = "lan" ]
+}
+
+# adguard_dnsmasq_running reports whether a dnsmasq process is running.
+adguard_dnsmasq_running() {
+	pidof dnsmasq >/dev/null 2>&1
+}
+
+# adguard_dnsmasq_managed determines whether dnsmasq is managed by AdGuardHome under the current installation and configuration settings.
+adguard_dnsmasq_managed() {
+	if adguard_lan_mode && ! adguard_dnsmasq_running; then
+		return 1
+	fi
+	case "${CONFIG_DNSMASQ_MODE:-auto}" in
+		disabled) return 1 ;;
+		enabled) return 0 ;;
+	esac
+	adguard_dnsmasq_running
+}
+
+# adguard_ipset_allowed allows IPSet in WAN mode or in LAN, AP, or bridge mode with qualifying WAN firewall state.
+adguard_ipset_allowed() {
+	case "${CONFIG_INSTALL_MODE:-}" in
+		wan) return 0 ;;
+		lan | ap | bridge) adguard_wan_iptables_state_active 2>/dev/null ;;
+		*) return 1 ;;
+	esac
+}
+
+# adguard_wan_iptables_state_active reports whether a WAN interface has an active SNAT or MASQUERADE rule.
+adguard_wan_iptables_state_active() {
+	local ifname key nat_rules unit
+	nat_rules="$(/usr/sbin/iptables -t nat -S POSTROUTING 2>/dev/null)" || return 1
+	for unit in 0 1; do
+		for key in ifname gw_ifname pppoe_ifname; do
+			ifname="$(/bin/nvram get "wan${unit}_${key}" 2>/dev/null)" || ifname=""
+			case "${ifname}" in
+				"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-]*) continue ;;
+			esac
+			if printf '%s\n' "${nat_rules}" | /usr/bin/awk -v wan_if="${ifname}" '
+				function comment_ends(value, i, slashes) {
+					if (length(value) < 2) return 0
+					if (substr(value, length(value), 1) != "\"") return 0
+					for (i = length(value) - 1; i > 0 && substr(value, i, 1) == "\\"; i--) slashes++
+					return slashes % 2 == 0
+				}
+				{
+					output = target = input = negated = 0
+					for (i = 1; i <= NF; i++) {
+						if ($i == "--comment") { i++; if ($i ~ /^"/ && !comment_ends($i)) while (i <= NF && !comment_ends($i)) i++; continue }
+						if (($i == "-i" || $i == "--in-interface") && i < NF) input = 1
+						if (($i == "-o" || $i == "--out-interface") && i < NF) {
+							output = ($(i + 1) == wan_if)
+							negated = (i > 1 && $(i - 1) == "!")
+						}
+						if ($i == "-j" && i < NF && ($(i + 1) == "MASQUERADE" || $(i + 1) == "SNAT")) target = 1
+					}
+					if (output && target && !input && !negated) { found = 1; exit }
+				}
+				END { exit(found ? 0 : 1) }
+			'; then
+				return 0
+			fi
+		done
+	done
+	return 1
+}
+
+# adguard_restart_dnsmasq_if_managed restarts dnsmasq when it is managed by AdGuardHome.
+adguard_restart_dnsmasq_if_managed() {
+	adguard_dnsmasq_managed || return 0
+	service restart_dnsmasq >/dev/null 2>&1
+}
+
+# database_link_matches_expected verifies that a symlink owned by the current user resolves to the expected database path.
+database_link_matches_expected() {
+	local EXPECTED_CANONICAL EXPECTED_PATH LINK_CANONICAL LINK_PATH
+	LINK_PATH="$1"
+	EXPECTED_PATH="$2"
+	[ -L "${LINK_PATH}" ] || return 1
+	database_link_owned_by_current_user "${LINK_PATH}" || return 1
+	LINK_CANONICAL="$(canonical_path "${LINK_PATH}" 2>/dev/null)" || return 1
+	[ -n "${LINK_CANONICAL}" ] || return 1
+	EXPECTED_CANONICAL="$(canonical_path "${EXPECTED_PATH}" 2>/dev/null)" || return 1
+	[ -n "${EXPECTED_CANONICAL}" ] || return 1
+	[ "${LINK_CANONICAL}" = "${EXPECTED_CANONICAL}" ]
+}
+
+# database_link_owned_by_current_user reports whether the specified path is owned by the current user.
+database_link_owned_by_current_user() {
+	local CURRENT_UID LINK_UID
+	CURRENT_UID="$(/usr/bin/awk '$1 == "Uid:" { print $3; exit }' /proc/self/status 2>/dev/null)" || return 1
+	case "${CURRENT_UID}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	LINK_UID="$(LC_ALL=C ls -ldn "$1" 2>/dev/null | /usr/bin/awk 'NR == 1 { print $3; exit }')" || return 1
+	case "${LINK_UID}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	[ "${LINK_UID}" = "${CURRENT_UID}" ]
+}
+
+# database_link_object_type reports the filesystem object type at the specified path, including dangling symbolic links.
+database_link_object_type() {
+	if [ -L "$1" ]; then
+		printf '%s\n' symlink
+	elif [ -f "$1" ]; then
+		printf '%s\n' regular-file
+	elif [ -d "$1" ]; then
+		printf '%s\n' directory
+	elif [ -e "$1" ]; then
+		printf '%s\n' other
+	else
+		printf '%s\n' missing
+	fi
+}
+
+# ensure_database_link creates the expected database symlink when the destination is missing, preserves unexpected objects, and treats creation failures as non-fatal.
+ensure_database_link() {
+	local EXPECTED_PATH LINK_PATH OBJECT_TYPE
+	LINK_PATH="$1"
+	EXPECTED_PATH="$2"
+	if database_link_matches_expected "${LINK_PATH}" "${EXPECTED_PATH}"; then
+		return 0
+	fi
+	OBJECT_TYPE="$(database_link_object_type "${LINK_PATH}")"
+	if [ "${OBJECT_TYPE}" != missing ]; then
+		agh_log warning ensure_database_link "state=starting action=create_database_link result=skipped reason=unexpected_object object_type=${OBJECT_TYPE} path=${LINK_PATH}"
+		return 0
+	fi
+	if ! ln -s "${EXPECTED_PATH}" "${LINK_PATH}" >/dev/null 2>&1; then
+		agh_log warning ensure_database_link "state=starting action=create_database_link result=failed reason=link_create_failed object_type=${OBJECT_TYPE} path=${LINK_PATH} optional=1"
+	fi
+	return 0
+}
+
+# remove_database_link removes the specified database link when it points to the expected target.
+remove_database_link() {
+	if database_link_matches_expected "$1" "$2"; then
+		rm "$1" >/dev/null 2>&1 || true
+	fi
+}
+
+# have_cmd checks whether the specified command is available.
 have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
@@ -142,7 +409,7 @@ manager_dependencies_available() {
 	return 0
 }
 
-# Status helpers
+# agh_web_port determines the configured AdGuardHome WebUI port and prints it when valid.
 
 agh_web_port() {
 	local CONF_PORT YAML_PORT
@@ -151,7 +418,7 @@ agh_web_port() {
 		"" | *[!0-9]*) ;;
 		*) [ "${YAML_PORT}" -gt 0 ] && [ "${YAML_PORT}" -le 65535 ] && printf '%s\n' "${YAML_PORT}" && return 0 ;;
 	esac
-	CONF_PORT="$(conf_value ADGUARD_WEBUI_PORT 2>/dev/null)"
+	CONF_PORT="${CONFIG_WEBUI_PORT:-}"
 	case "${CONF_PORT}" in
 		"" | *[!0-9]*) ;;
 		*) [ "${CONF_PORT}" -gt 0 ] && [ "${CONF_PORT}" -le 65535 ] && printf '%s\n' "${CONF_PORT}" && return 0 ;;
@@ -167,17 +434,22 @@ status_adguardhome_version() {
 	fi
 }
 
+# status_dnsmasq_handoff_state reports whether DNS handoff marker files are present and lists their paths.
 status_dnsmasq_handoff_state() {
 	local marker markers state
 	state="inactive"
 	markers=""
 	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock "${DNS_HANDOFF_FILE}" "${DNS_HANDOFF_DIR}/lock"; do
-		if [ -e "${marker}" ]; then
+		if [ -e "${marker}" ] || [ -L "${marker}" ]; then
 			state="active/stale marker present"
 			markers="${markers}${markers:+, }${marker}"
 		fi
 	done
-	printf '%s\n' "${state}${markers:+ (${markers})}"
+	if [ -n "${markers}" ]; then
+		printf '%s\n' "${state} (${markers})"
+	else
+		printf '%s\n' "${state}"
+	fi
 }
 
 status_installer_version() {
@@ -247,9 +519,10 @@ status_port53_ownership() {
 	'
 }
 
+# status_selected_branch reports the configured installer branch or `unknown` when no branch is selected.
 status_selected_branch() {
 	local branch
-	branch="$(conf_value INSTALLER_BRANCH 2>/dev/null)"
+	branch="${CONFIG_INSTALLER_BRANCH:-}"
 	printf '%s\n' "${branch:-unknown}"
 }
 
@@ -433,6 +706,7 @@ adguardhome_run_execute() {
 	return "${status}"
 }
 
+# adguardhome_run_flock serializes service operations with a file lock, allowing stop operations to wait and rejecting duplicate concurrent actions.
 adguardhome_run_flock() {
 	local action lock_dir lock_file owner pid_file saved_traps status
 	action="$1"
@@ -462,7 +736,7 @@ adguardhome_run_flock() {
 		return 1
 	fi
 	saved_traps="$(trap)"
-	trap 'adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; IPSet_Lock_Interrupt_Propagate; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
 	trap 'status="$?"; adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit "${status}"' EXIT
 	rm -f "${pid_file}"
 	adguardhome_run_execute "${action}" "${pid_file}" "$$"
@@ -553,10 +827,12 @@ flock_supports_fd() {
 	return "${status}"
 }
 
-# DNS and network helpers
+# check_dns_environment applies or restores DNS-related NVRAM settings in WAN mode; LAN-mode running requests make no changes.
+# @param MODE The lifecycle state: `running` applies the WAN AdGuard-managed DNS profile, while `stop` restores saved settings.
 
 check_dns_environment() {
 	local MODE NVCHECK
+	# dns_env_set_nvram updates an NVRAM variable when its current value differs from the expected value.
 	dns_env_set_nvram() {
 		local key expected cur changed
 		key="$1"
@@ -569,8 +845,12 @@ check_dns_environment() {
 		changed="1"
 		return 0
 	}
+	# dns_env_apply_profile applies the AdGuard-managed DNS profile and returns success when any DNS setting changes.
 	dns_env_apply_profile() {
 		local changed
+		if adguard_lan_mode; then
+			return 1
+		fi
 		changed="0"
 		if dns_env_set_nvram "dnspriv_enable" "0"; then changed="$((changed + 1))"; fi
 		if dns_env_set_nvram "dhcpd_dns_router" "1"; then changed="$((changed + 1))"; fi
@@ -600,13 +880,16 @@ check_dns_environment() {
 	NVCHECK="0"
 	case "${MODE}" in
 		running)
-			# Save original values only once.
-			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
-				save_dns_nvram_environment
+			if adguard_lan_mode; then
+				return 0
 			fi
 			if [ "$(pidof stubby | wc -w)" -gt "0" ]; then
 				{ killall -q -9 stubby 2>/dev/null; }
 				NVCHECK="$((NVCHECK + 1))"
+			fi
+			# Save original values only once.
+			if [ "${_DNS_NVRAM_SAVED:-0}" != "1" ]; then
+				save_dns_nvram_environment
 			fi
 			if dns_env_apply_profile; then NVCHECK="$((NVCHECK + 1))"; fi
 			;;
@@ -625,7 +908,7 @@ check_dns_environment() {
 	if [ "$NVCHECK" != "0" ]; then
 		{ nvram commit; }
 		if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
-			{ service restart_dnsmasq >/dev/null 2>&1; }
+			{ adguard_restart_dnsmasq_if_managed; }
 		fi
 		{ service_wait netcheck 150; }
 	fi
@@ -644,6 +927,7 @@ dnsmasq_delete_matching() {
 	sed -i "${SED_SCRIPT}" "${CONFIG}"
 }
 
+# dns_handoff_is_active verifies that the DNS handoff belongs to a running process with matching ownership and start time.
 dns_handoff_is_active() {
 	local HANDOFF_PID HANDOFF_START_TIME PATH_DETAILS PROCESS_START_TIME
 	[ -d "${DNS_HANDOFF_DIR}" ] && [ ! -L "${DNS_HANDOFF_DIR}" ] || return 1
@@ -682,23 +966,564 @@ dns_handoff_is_active() {
 	[ "${PROCESS_START_TIME}" = "${HANDOFF_START_TIME}" ]
 }
 
-dnsmasq_params() {
-	local CONFIG IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
+# dnsmasq_resolv_conf_cleanup removes the temporary `/tmp/resolv.conf` mount when `/etc/resolv.conf` does not use the ROM-backed file.
+dnsmasq_resolv_conf_cleanup() {
 	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then {
 		umount /tmp/resolv.conf 2>/dev/null
 	}; fi
-	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
-		0)
-			dns_handoff_is_active || return 0
-			;;
-		*)
-			:
-			;;
-	esac
+}
+
+# dnsmasq_ipset_state_cleanup_stage_path removes one ownership-validated private snapshot stage.
+dnsmasq_ipset_state_cleanup_stage_path() {
+	local CURRENT_UID PATH_METADATA SNAPSHOT_STAGE STAGE_MODE STAGE_OWNER
+	SNAPSHOT_STAGE="$1"
+	[ -d "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ] || return 1
+	CURRENT_UID="$(IPSet_Current_UID)" || return 1
+	PATH_METADATA="$(IPSet_Directory_Metadata "${SNAPSHOT_STAGE}")" || return 1
+	IFS=' ' read -r STAGE_OWNER STAGE_MODE <<EOF
+${PATH_METADATA}
+EOF
+	[ "${STAGE_OWNER}" = "${CURRENT_UID}" ] && [ "${STAGE_MODE}" = "rwx------" ] || return 1
+	[ -d "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ] || return 1
+	PATH_METADATA="$(IPSet_Directory_Metadata "${SNAPSHOT_STAGE}")" || return 1
+	IFS=' ' read -r STAGE_OWNER STAGE_MODE <<EOF
+${PATH_METADATA}
+EOF
+	[ "${STAGE_OWNER}" = "${CURRENT_UID}" ] && [ "${STAGE_MODE}" = "rwx------" ] || return 1
+	rm -rf "${SNAPSHOT_STAGE}" || return 1
+	[ ! -e "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ]
+}
+
+# dnsmasq_ipset_state_cleanup_stage removes the current process's private snapshot stage when it exists.
+dnsmasq_ipset_state_cleanup_stage() {
+	local SNAPSHOT_STAGE
+	SNAPSHOT_STAGE="${WORK_DIR}/.AdGuardHome.dnsmasq-stage.$$"
+	[ -e "${SNAPSHOT_STAGE}" ] || [ -L "${SNAPSHOT_STAGE}" ] || return 0
+	dnsmasq_ipset_state_cleanup_stage_path "${SNAPSHOT_STAGE}"
+}
+
+# dnsmasq_ipset_state_cleanup_stages removes every validated orphaned private snapshot stage while the transaction lock is held.
+dnsmasq_ipset_state_cleanup_stages() {
+	local SNAPSHOT_NAME SNAPSHOT_STAGE SNAPSHOT_SUFFIX
+	for SNAPSHOT_STAGE in "${WORK_DIR}"/.AdGuardHome.dnsmasq-stage.*; do
+		[ -e "${SNAPSHOT_STAGE}" ] || [ -L "${SNAPSHOT_STAGE}" ] || continue
+		SNAPSHOT_NAME="${SNAPSHOT_STAGE##*/}"
+		case "${SNAPSHOT_NAME}" in
+			.AdGuardHome.dnsmasq-stage.*) SNAPSHOT_SUFFIX="${SNAPSHOT_NAME#.AdGuardHome.dnsmasq-stage.}" ;;
+			*) return 1 ;;
+		esac
+		case "${SNAPSHOT_SUFFIX}" in
+			"" | *[!0-9]*) return 1 ;;
+		esac
+		dnsmasq_ipset_state_cleanup_stage_path "${SNAPSHOT_STAGE}" || return 1
+	done
+}
+
+# dnsmasq_ipset_state_snapshot saves the managed IPSet file and YAML configuration in an atomically published cleanup-only snapshot.
+dnsmasq_ipset_state_snapshot() {
+	local SNAPSHOT_DIR SNAPSHOT_STAGE
+	SNAPSHOT_DIR="$1"
+	SNAPSHOT_STAGE="${WORK_DIR}/.AdGuardHome.dnsmasq-stage.$$"
+	[ ! -e "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
+	[ ! -e "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ] || return 1
+	mkdir -m 700 "${SNAPSHOT_STAGE}" || return 1
+	if [ -e "${IPSET_FILE}" ]; then
+		cp -p "${IPSET_FILE}" "${SNAPSHOT_STAGE}/ipset" || {
+			rm -rf "${SNAPSHOT_STAGE}"
+			return 1
+		}
+	else
+		: >"${SNAPSHOT_STAGE}/ipset.absent" || {
+			rm -rf "${SNAPSHOT_STAGE}"
+			return 1
+		}
+	fi
+	if [ -e "${YAML_FILE}" ]; then
+		cp -p "${YAML_FILE}" "${SNAPSHOT_STAGE}/yaml" || {
+			rm -rf "${SNAPSHOT_STAGE}"
+			return 1
+		}
+	else
+		: >"${SNAPSHOT_STAGE}/yaml.absent" || {
+			rm -rf "${SNAPSHOT_STAGE}"
+			return 1
+		}
+	fi
+	printf '%s\n' '1:2' >"${SNAPSHOT_STAGE}/snapshot.version" || {
+		rm -rf "${SNAPSHOT_STAGE}"
+		return 1
+	}
+	: >"${SNAPSHOT_STAGE}/cleanup.only" || {
+		rm -rf "${SNAPSHOT_STAGE}"
+		return 1
+	}
+	mv "${SNAPSHOT_STAGE}" "${SNAPSHOT_DIR}" || {
+		rm -rf "${SNAPSHOT_STAGE}"
+		return 1
+	}
+}
+
+# dnsmasq_ipset_state_mark_cleanup records that a committed or restored snapshot needs cleanup without making it eligible for rollback.
+dnsmasq_ipset_state_mark_cleanup() {
+	local SNAPSHOT_DIR
+	SNAPSHOT_DIR="$1"
+	[ -d "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
+	if [ -e "${SNAPSHOT_DIR}/restore.pending" ]; then
+		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
+		[ ! -e "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
+		mv "${SNAPSHOT_DIR}/restore.pending" "${SNAPSHOT_DIR}/cleanup.pending" || return 1
+	elif [ -e "${SNAPSHOT_DIR}/cleanup.pending" ]; then
+		[ -f "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
+	else
+		return 1
+	fi
+}
+
+# dnsmasq_ipset_snapshot_version_valid accepts only the exact newline-terminated snapshot version record.
+dnsmasq_ipset_snapshot_version_valid() {
+	local SNAPSHOT_VERSION SNAPSHOT_VERSION_EXTRA VERSION_FILE
+	VERSION_FILE="$1"
+	[ -f "${VERSION_FILE}" ] && [ ! -L "${VERSION_FILE}" ] || return 1
+	{
+		IFS= read -r SNAPSHOT_VERSION || return 1
+		SNAPSHOT_VERSION_EXTRA=""
+		if IFS= read -r SNAPSHOT_VERSION_EXTRA || [ -n "${SNAPSHOT_VERSION_EXTRA}" ]; then
+			return 1
+		fi
+	} <"${VERSION_FILE}"
+	[ "${SNAPSHOT_VERSION}" = "1:2" ]
+}
+
+# dnsmasq_ipset_state_mark_cleanup_only marks a versioned snapshot that has not mutated live state for cleanup only.
+dnsmasq_ipset_state_mark_cleanup_only() {
+	local CLEANUP_ONLY_STAGE SNAPSHOT_DIR
+	SNAPSHOT_DIR="$1"
+	[ -d "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
+	dnsmasq_ipset_snapshot_version_valid "${SNAPSHOT_DIR}/snapshot.version" || return 1
+	[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || { [ -f "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ]; } || return 1
+	[ ! -e "${SNAPSHOT_DIR}/config.restored" ] && [ ! -L "${SNAPSHOT_DIR}/config.restored" ] || return 1
+	if [ ! -e "${SNAPSHOT_DIR}/cleanup.only" ]; then
+		CLEANUP_ONLY_STAGE="${SNAPSHOT_DIR}/cleanup.only.$$"
+		: >"${CLEANUP_ONLY_STAGE}" || return 1
+		mv "${CLEANUP_ONLY_STAGE}" "${SNAPSHOT_DIR}/cleanup.only" || {
+			rm -f "${CLEANUP_ONLY_STAGE}"
+			return 1
+		}
+	else
+		[ -f "${SNAPSHOT_DIR}/cleanup.only" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.only" ] || return 1
+	fi
+	rm -f "${SNAPSHOT_DIR}/restore.pending" || return 1
+	[ ! -e "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ]
+}
+
+# dnsmasq_ipset_state_finalize_cleanup removes a cleanup snapshot and recreates its durable marker when removal is partial.
+dnsmasq_ipset_state_finalize_cleanup() {
+	local CLEANUP_MARKER SNAPSHOT_DIR
+	SNAPSHOT_DIR="$1"
+	CLEANUP_MARKER="$2"
+	case "${CLEANUP_MARKER}" in cleanup.only | cleanup.pending) ;; *) return 1 ;; esac
+	if rm -rf "${SNAPSHOT_DIR}"; then
+		return 0
+	fi
+	[ ! -e "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] && return 0
+	[ -d "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
+	if [ "${CLEANUP_MARKER}" = "cleanup.only" ]; then
+		printf '%s\n' '1:2' >"${SNAPSHOT_DIR}/snapshot.version" || return 1
+	fi
+	: >"${SNAPSHOT_DIR}/${CLEANUP_MARKER}" || return 1
+	return 1
+}
+
+# dnsmasq_ipset_state_recover_pending restores rollback-pending snapshots and removes cleanup-pending committed snapshots.
+dnsmasq_ipset_state_recover_pending() {
+	local CONFIG_BACKUP_RECOVERY CONFIG_FILE_RECOVERY CONFIG_RESTORE_STAGE SNAPSHOT_DIR SNAPSHOT_NAME SNAPSHOT_VERSION
+	for SNAPSHOT_DIR in "${WORK_DIR}"/.AdGuardHome.dnsmasq-ipset.*; do
+		[ -d "${SNAPSHOT_DIR}" ] || continue
+		[ ! -L "${SNAPSHOT_DIR}" ] || return 1
+		SNAPSHOT_NAME="${SNAPSHOT_DIR##*/}"
+		case "${SNAPSHOT_NAME}" in
+			.AdGuardHome.dnsmasq-ipset.*) ;;
+			*) return 1 ;;
+		esac
+		SNAPSHOT_VERSION=""
+		if [ -e "${SNAPSHOT_DIR}/snapshot.version" ] || [ -L "${SNAPSHOT_DIR}/snapshot.version" ]; then
+			dnsmasq_ipset_snapshot_version_valid "${SNAPSHOT_DIR}/snapshot.version" || return 1
+			SNAPSHOT_VERSION="1:2"
+		fi
+		[ ! -L "${SNAPSHOT_DIR}/config.pending" ] || return 1
+		[ ! -L "${SNAPSHOT_DIR}/config.restored" ] || return 1
+		if [ -e "${SNAPSHOT_DIR}/cleanup.only" ] || [ -L "${SNAPSHOT_DIR}/cleanup.only" ]; then
+			[ "${SNAPSHOT_VERSION}" = "1:2" ] || return 1
+			[ -f "${SNAPSHOT_DIR}/cleanup.only" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.only" ] || return 1
+			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || { [ -f "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ]; } || return 1
+			[ ! -e "${SNAPSHOT_DIR}/config.restored" ] || return 1
+			[ ! -e "${SNAPSHOT_DIR}/cleanup.pending" ] || { [ -f "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ]; } || return 1
+			[ ! -e "${SNAPSHOT_DIR}/restore.pending" ] || { [ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ]; } || return 1
+			if [ -e "${SNAPSHOT_DIR}/config.pending" ] &&
+				{ [ -e "${SNAPSHOT_DIR}/cleanup.pending" ] || [ -e "${SNAPSHOT_DIR}/restore.pending" ]; }; then
+				return 1
+			fi
+			if ! dnsmasq_ipset_state_finalize_cleanup "${SNAPSHOT_DIR}" cleanup.only; then
+				agh_log error dnsmasq_params "state=recovery action=cleanup_snapshot result=failed snapshot=${SNAPSHOT_DIR}"
+				return 1
+			fi
+			continue
+		fi
+		if [ -e "${SNAPSHOT_DIR}/cleanup.pending" ]; then
+			[ -f "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
+			[ ! -e "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
+			if ! dnsmasq_ipset_state_finalize_cleanup "${SNAPSHOT_DIR}" cleanup.pending; then
+				agh_log error dnsmasq_params "state=recovery action=cleanup_snapshot result=failed snapshot=${SNAPSHOT_DIR}"
+				return 1
+			fi
+			continue
+		fi
+		if [ ! -e "${SNAPSHOT_DIR}/restore.pending" ]; then
+			agh_log error dnsmasq_params "state=recovery action=validate_snapshot result=failed reason=missing_marker snapshot=${SNAPSHOT_DIR}"
+			return 1
+		fi
+		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
+		if [ "${SNAPSHOT_VERSION}" = "1:2" ] && [ ! -e "${SNAPSHOT_DIR}/config.pending" ] &&
+			[ ! -e "${SNAPSHOT_DIR}/config.restored" ]; then
+			return 1
+		fi
+		if [ -e "${SNAPSHOT_DIR}/config.pending" ] || [ -e "${SNAPSHOT_DIR}/config.restored" ]; then
+			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || { [ -f "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ]; } || return 1
+			[ ! -e "${SNAPSHOT_DIR}/config.restored" ] || { [ -f "${SNAPSHOT_DIR}/config.restored" ] && [ ! -L "${SNAPSHOT_DIR}/config.restored" ]; } || return 1
+			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || [ ! -e "${SNAPSHOT_DIR}/config.restored" ] || return 1
+			if [ -e "${SNAPSHOT_DIR}/config.pending" ]; then
+				{
+					IFS= read -r CONFIG_BACKUP_RECOVERY
+					IFS= read -r CONFIG_FILE_RECOVERY
+				} <"${SNAPSHOT_DIR}/config.pending" || return 1
+			else
+				{
+					IFS= read -r CONFIG_BACKUP_RECOVERY
+					IFS= read -r CONFIG_FILE_RECOVERY
+				} <"${SNAPSHOT_DIR}/config.restored" || return 1
+			fi
+			case "${CONFIG_BACKUP_RECOVERY}" in /*) ;; *) return 1 ;; esac
+			case "${CONFIG_FILE_RECOVERY}" in /*) ;; *) return 1 ;; esac
+			if [ -e "${SNAPSHOT_DIR}/config.pending" ]; then
+				[ -f "${CONFIG_BACKUP_RECOVERY}" ] && [ ! -L "${CONFIG_BACKUP_RECOVERY}" ] || return 1
+				CONFIG_RESTORE_STAGE="${CONFIG_FILE_RECOVERY}.adguard-restore.$$"
+				cp -p "${CONFIG_BACKUP_RECOVERY}" "${CONFIG_RESTORE_STAGE}" || return 1
+				if ! mv "${CONFIG_RESTORE_STAGE}" "${CONFIG_FILE_RECOVERY}"; then
+					rm -f "${CONFIG_RESTORE_STAGE}"
+					agh_log error dnsmasq_params "state=recovery action=restore_dnsmasq result=failed config=${CONFIG_FILE_RECOVERY} snapshot=${SNAPSHOT_DIR}"
+					return 1
+				fi
+				mv "${SNAPSHOT_DIR}/config.pending" "${SNAPSHOT_DIR}/config.restored" || return 1
+			fi
+			rm -f "${CONFIG_BACKUP_RECOVERY}" || return 1
+		fi
+		if { [ -f "${SNAPSHOT_DIR}/ipset" ] && [ ! -L "${SNAPSHOT_DIR}/ipset" ]; }; then
+			[ ! -e "${SNAPSHOT_DIR}/ipset.absent" ] || return 1
+		else
+			[ -f "${SNAPSHOT_DIR}/ipset.absent" ] && [ ! -L "${SNAPSHOT_DIR}/ipset.absent" ] || return 1
+		fi
+		if { [ -f "${SNAPSHOT_DIR}/yaml" ] && [ ! -L "${SNAPSHOT_DIR}/yaml" ]; }; then
+			[ ! -e "${SNAPSHOT_DIR}/yaml.absent" ] || return 1
+		else
+			[ -f "${SNAPSHOT_DIR}/yaml.absent" ] && [ ! -L "${SNAPSHOT_DIR}/yaml.absent" ] || return 1
+		fi
+		if dnsmasq_ipset_state_restore "${SNAPSHOT_DIR}"; then
+			dnsmasq_ipset_state_finalize_cleanup "${SNAPSHOT_DIR}" cleanup.pending || return 1
+		else
+			agh_log error dnsmasq_params "state=recovery action=restore_ipset result=failed snapshot=${SNAPSHOT_DIR}"
+			return 1
+		fi
+	done
+}
+
+# dnsmasq_ipset_state_restore restores the saved IPSet and YAML state, restarts AdGuardHome when necessary, and marks the snapshot for cleanup.
+dnsmasq_ipset_state_restore() {
+	local ADGUARD_WAS_RUNNING DNSMASQ_RESTART_SKIP IPSET_CURRENT_ABSENT IPSET_CURRENT_STAGE IPSET_RESTORE_STAGE RESTART_REQUIRED SNAPSHOT_DIR YAML_RESTORE_STAGE
+	SNAPSHOT_DIR="$1"
+	ADGUARD_WAS_RUNNING="${2:-0}"
+	RESTART_REQUIRED="0"
+	IPSET_CURRENT_ABSENT="0"
+	IPSET_CURRENT_STAGE="${IPSET_FILE}.dnsmasq-current.$$"
+	IPSET_RESTORE_STAGE="${IPSET_FILE}.dnsmasq-restore.$$"
+	YAML_RESTORE_STAGE="${YAML_FILE}.dnsmasq-restore.$$"
+	if [ ! -f "${SNAPSHOT_DIR}/ipset.absent" ]; then
+		cp -p "${SNAPSHOT_DIR}/ipset" "${IPSET_RESTORE_STAGE}" || {
+			rm -f "${IPSET_RESTORE_STAGE}" "${YAML_RESTORE_STAGE}" "${IPSET_CURRENT_STAGE}"
+			return 1
+		}
+	fi
+	if [ ! -f "${SNAPSHOT_DIR}/yaml.absent" ]; then
+		cp -p "${SNAPSHOT_DIR}/yaml" "${YAML_RESTORE_STAGE}" || {
+			rm -f "${IPSET_RESTORE_STAGE}" "${YAML_RESTORE_STAGE}" "${IPSET_CURRENT_STAGE}"
+			return 1
+		}
+	fi
+	if [ -e "${IPSET_FILE}" ]; then
+		cp -p "${IPSET_FILE}" "${IPSET_CURRENT_STAGE}" || {
+			rm -f "${IPSET_RESTORE_STAGE}" "${YAML_RESTORE_STAGE}" "${IPSET_CURRENT_STAGE}"
+			return 1
+		}
+	else
+		IPSET_CURRENT_ABSENT="1"
+	fi
+	if [ -f "${SNAPSHOT_DIR}/ipset.absent" ]; then
+		[ ! -e "${IPSET_FILE}" ] || RESTART_REQUIRED="1"
+		rm -f "${IPSET_FILE}" || {
+			rm -f "${IPSET_RESTORE_STAGE}" "${YAML_RESTORE_STAGE}" "${IPSET_CURRENT_STAGE}"
+			return 1
+		}
+	else
+		cmp -s "${SNAPSHOT_DIR}/ipset" "${IPSET_FILE}" || RESTART_REQUIRED="1"
+		mv "${IPSET_RESTORE_STAGE}" "${IPSET_FILE}" || {
+			rm -f "${IPSET_RESTORE_STAGE}" "${YAML_RESTORE_STAGE}" "${IPSET_CURRENT_STAGE}"
+			return 1
+		}
+	fi
+	if [ -f "${SNAPSHOT_DIR}/yaml.absent" ]; then
+		[ ! -e "${YAML_FILE}" ] || RESTART_REQUIRED="1"
+		rm -f "${YAML_FILE}" || {
+			rm -f "${YAML_RESTORE_STAGE}"
+			if [ "${IPSET_CURRENT_ABSENT}" = "1" ]; then
+				rm -f "${IPSET_FILE}" || agh_log error dnsmasq_params "state=restore action=compensate_ipset result=failed snapshot=${SNAPSHOT_DIR}"
+			else
+				mv "${IPSET_CURRENT_STAGE}" "${IPSET_FILE}" || agh_log error dnsmasq_params "state=restore action=compensate_ipset result=failed snapshot=${SNAPSHOT_DIR}"
+			fi
+			return 1
+		}
+	else
+		cmp -s "${SNAPSHOT_DIR}/yaml" "${YAML_FILE}" || RESTART_REQUIRED="1"
+		mv "${YAML_RESTORE_STAGE}" "${YAML_FILE}" || {
+			rm -f "${YAML_RESTORE_STAGE}"
+			if [ "${IPSET_CURRENT_ABSENT}" = "1" ]; then
+				rm -f "${IPSET_FILE}" || agh_log error dnsmasq_params "state=restore action=compensate_ipset result=failed snapshot=${SNAPSHOT_DIR}"
+			else
+				mv "${IPSET_CURRENT_STAGE}" "${IPSET_FILE}" || agh_log error dnsmasq_params "state=restore action=compensate_ipset result=failed snapshot=${SNAPSHOT_DIR}"
+			fi
+			return 1
+		}
+	fi
+	rm -f "${IPSET_CURRENT_STAGE}" || return 1
+	if [ "${RESTART_REQUIRED}" = "1" ] &&
+		{ [ "${ADGUARD_WAS_RUNNING}" = "1" ] || pidof "${PROCS}" >/dev/null 2>&1; }; then
+		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
+		lower_script restart
+		RESTART_REQUIRED="$?"
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART="${DNSMASQ_RESTART_SKIP}"
+		[ "${RESTART_REQUIRED}" -eq 0 ] || return 1
+	fi
+	dnsmasq_ipset_state_mark_cleanup "${SNAPSHOT_DIR}" || return 1
+}
+
+# dnsmasq_publish_staged_config refreshes IPSET state and atomically publishes a staged dnsmasq configuration, restoring prior state if the transaction fails.
+dnsmasq_publish_staged_config() (
+	ADGUARD_WAS_RUNNING="0"
+	CONFIG_PUBLISHED="0"
+	CONFIG_FILE="$1"
+	CONFIG_STAGE="$2"
+	CONFIG_BACKUP="${CONFIG_STAGE}.previous"
+	CONFIG_BACKUP_RETAIN="0"
+	IPSET_SNAPSHOT_DIR="$3"
+	ROLLBACK_ACTIVE="0"
+	SNAPSHOT_READY="0"
+	TRANSACTION_SIGNAL_PENDING="0"
+	[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ] && ADGUARD_WAS_RUNNING="1"
+	TRANSACTION_ACTIVE="1"
+	# dnsmasq_config_association_create durably associates the dnsmasq backup with its pending IPSet snapshot before refresh or publication.
+	dnsmasq_config_association_create() {
+		local CONFIG_ASSOCIATION_STAGE
+		CONFIG_ASSOCIATION_STAGE="${IPSET_SNAPSHOT_DIR}/config.pending.$$"
+		{
+			printf '%s\n' "${CONFIG_BACKUP}"
+			printf '%s\n' "${CONFIG_FILE}"
+		} >"${CONFIG_ASSOCIATION_STAGE}" || {
+			rm -f "${CONFIG_ASSOCIATION_STAGE}"
+			return 1
+		}
+		mv "${CONFIG_ASSOCIATION_STAGE}" "${IPSET_SNAPSHOT_DIR}/config.pending" || {
+			rm -f "${CONFIG_ASSOCIATION_STAGE}"
+			return 1
+		}
+		[ -f "${IPSET_SNAPSHOT_DIR}/cleanup.only" ] && [ ! -L "${IPSET_SNAPSHOT_DIR}/cleanup.only" ] || return 1
+		[ ! -e "${IPSET_SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${IPSET_SNAPSHOT_DIR}/restore.pending" ] || return 1
+		mv "${IPSET_SNAPSHOT_DIR}/cleanup.only" "${IPSET_SNAPSHOT_DIR}/restore.pending" || return 1
+	}
+	# dnsmasq_publish_rollback_published restores the pre-publication dnsmasq and IPSet state after an unsafe publication.
+	dnsmasq_publish_rollback_published() {
+		ROLLBACK_ACTIVE="1"
+		if ! dnsmasq_ipset_state_recover_pending; then
+			agh_log error dnsmasq_params "state=publication action=rollback result=failed config=${CONFIG_FILE} snapshot=${IPSET_SNAPSHOT_DIR}"
+			CONFIG_BACKUP_RETAIN="1"
+			ROLLBACK_ACTIVE="0"
+			return 1
+		fi
+		CONFIG_PUBLISHED="0"
+		ROLLBACK_ACTIVE="0"
+		return 0
+	}
+	# dnsmasq_publish_abort aborts a staged dnsmasq configuration transaction, restoring or finalizing its IPSet snapshot as appropriate and exiting with failure when the abort proceeds.
+	dnsmasq_publish_abort() {
+		if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then
+			TRANSACTION_SIGNAL_PENDING="1"
+			return 0
+		fi
+		if [ "${TRANSACTION_SIGNAL_PENDING:-0}" = "0" ]; then
+			trap 'TRANSACTION_SIGNAL_PENDING="1"' HUP INT QUIT ABRT TERM TSTP
+		fi
+		trap '' HUP INT QUIT ABRT TERM TSTP
+		if [ ! -e "${CONFIG_STAGE}" ]; then
+			CONFIG_PUBLISHED="1"
+		fi
+		if [ "${CONFIG_PUBLISHED:-0}" = "1" ] && [ "${SNAPSHOT_READY:-0}" = "1" ]; then
+			if dnsmasq_ipset_state_mark_cleanup "${IPSET_SNAPSHOT_DIR}"; then
+				dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.pending ||
+					agh_log error dnsmasq_params "state=signal action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				SNAPSHOT_READY="0"
+			else
+				agh_log error dnsmasq_params "state=signal action=mark_cleanup result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				if dnsmasq_publish_rollback_published; then
+					SNAPSHOT_READY="0"
+				else
+					agh_log error dnsmasq_params "state=signal action=rollback_publication result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				fi
+			fi
+		fi
+		if [ "${TRANSACTION_ACTIVE:-0}" = "1" ] && [ "${SNAPSHOT_READY:-0}" = "1" ] && [ "${CONFIG_PUBLISHED:-0}" = "0" ] && [ "${ROLLBACK_ACTIVE:-0}" = "0" ]; then
+			trap '' HUP INT QUIT ABRT TERM TSTP
+			if [ -f "${IPSET_SNAPSHOT_DIR}/cleanup.only" ] && [ ! -L "${IPSET_SNAPSHOT_DIR}/cleanup.only" ] &&
+				dnsmasq_ipset_state_mark_cleanup_only "${IPSET_SNAPSHOT_DIR}"; then
+				dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.only ||
+					agh_log error dnsmasq_params "state=signal action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			else
+				ROLLBACK_ACTIVE="1"
+				if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
+					dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.pending ||
+						agh_log error dnsmasq_params "state=signal action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				else
+					agh_log error dnsmasq_params "state=signal action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+				fi
+				ROLLBACK_ACTIVE="0"
+			fi
+			trap - HUP INT QUIT ABRT TERM TSTP
+		fi
+		[ "${CONFIG_PUBLISHED:-0}" = "1" ] || rm -f "${CONFIG_STAGE}"
+		[ "${CONFIG_BACKUP_RETAIN:-0}" = "1" ] || rm -f "${CONFIG_BACKUP}"
+		exit 1
+	}
+	# dnsmasq_publish_locked snapshots and refreshes IPSet state, publishes the staged dnsmasq configuration, and restores state if refresh or publication fails.
+	dnsmasq_publish_locked() {
+		dnsmasq_ipset_state_recover_pending || {
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		}
+		dnsmasq_ipset_state_cleanup_stages || {
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		}
+		if ! dnsmasq_ipset_state_snapshot "${IPSET_SNAPSHOT_DIR}"; then
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		fi
+		SNAPSHOT_READY="1"
+		if ! cp -p "${CONFIG_FILE}" "${CONFIG_BACKUP}"; then
+			if dnsmasq_ipset_state_mark_cleanup_only "${IPSET_SNAPSHOT_DIR}" &&
+				dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.only; then
+				SNAPSHOT_READY="0"
+			else
+				agh_log error dnsmasq_params "state=backup action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			fi
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		fi
+		if ! dnsmasq_config_association_create; then
+			TRANSACTION_ACTIVE="0"
+			if [ -f "${IPSET_SNAPSHOT_DIR}/cleanup.only" ] && [ ! -L "${IPSET_SNAPSHOT_DIR}/cleanup.only" ]; then
+				dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.only ||
+					agh_log error dnsmasq_params "state=association action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			fi
+			rm -f "${CONFIG_BACKUP}" "${CONFIG_STAGE}"
+			return 1
+		fi
+		if ! IPSet_Refresh "${CONFIG_STAGE}"; then
+			ROLLBACK_ACTIVE="1"
+			if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
+				dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.pending ||
+					agh_log error dnsmasq_params "state=refresh action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			else
+				agh_log error dnsmasq_params "state=refresh action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			fi
+			ROLLBACK_ACTIVE="0"
+			if [ "${TRANSACTION_SIGNAL_PENDING}" = "1" ]; then
+				TRANSACTION_SIGNAL_PENDING="0"
+				TRANSACTION_ACTIVE="0"
+				dnsmasq_publish_abort
+			fi
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		fi
+		if ! mv "${CONFIG_STAGE}" "${CONFIG_FILE}"; then
+			ROLLBACK_ACTIVE="1"
+			if dnsmasq_ipset_state_restore "${IPSET_SNAPSHOT_DIR}" "${ADGUARD_WAS_RUNNING}"; then
+				dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.pending ||
+					agh_log error dnsmasq_params "state=publication action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			else
+				agh_log error dnsmasq_params "state=publication action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			fi
+			ROLLBACK_ACTIVE="0"
+			if [ "${TRANSACTION_SIGNAL_PENDING}" = "1" ]; then
+				TRANSACTION_SIGNAL_PENDING="0"
+				TRANSACTION_ACTIVE="0"
+				dnsmasq_publish_abort
+			fi
+			TRANSACTION_ACTIVE="0"
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		fi
+		CONFIG_PUBLISHED="1"
+		if ! dnsmasq_ipset_state_mark_cleanup "${IPSET_SNAPSHOT_DIR}"; then
+			agh_log error dnsmasq_params "state=publication action=mark_cleanup result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			dnsmasq_publish_rollback_published ||
+				agh_log error dnsmasq_params "state=publication action=rollback_publication result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+			TRANSACTION_ACTIVE="0"
+			return 1
+		fi
+		TRANSACTION_ACTIVE="0"
+		rm -f "${CONFIG_BACKUP}"
+		dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.pending ||
+			agh_log error dnsmasq_params "state=publication action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
+		return 0
+	}
+	IPSET_LOCK_INTERRUPT_CALLBACK="dnsmasq_publish_abort"
+	trap 'dnsmasq_publish_abort' HUP INT QUIT ABRT TERM TSTP
+	IPSet_Lock dnsmasq_publish_locked
+	STATUS="$?"
+	IPSET_LOCK_INTERRUPT_CALLBACK=""
+	trap - HUP INT QUIT ABRT TERM TSTP
+	[ "${CONFIG_BACKUP_RETAIN}" = "1" ] || rm -f "${CONFIG_BACKUP}"
+	if [ "${STATUS}" -ne 0 ] && [ "${SNAPSHOT_READY}" = "0" ]; then
+		TRANSACTION_ACTIVE="0"
+		rm -f "${CONFIG_STAGE}"
+	fi
+	return "${STATUS}"
+)
+
+# dnsmasq_params configures dnsmasq for the LAN or specified SDN interface, including DNS routing, reverse zones, and optional IPSet refresh.
+dnsmasq_params() {
+	local BRIDGE_OPTIONS_STAGE CONFIG CONFIG_FILE CONFIG_STAGE IPSET_SNAPSHOT_DIR IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
+	if adguard_lan_mode && [ "${CONFIG_DNSMASQ_MODE:-auto}" = "disabled" ] && ! dns_handoff_is_active; then
+		agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_disabled"
+		return 0
+	fi
+	dnsmasq_resolv_conf_cleanup
 	RC_SUPPORT="$(nvram get rc_support 2>/dev/null)"
 	LAN_IF="$(nvram get lan_ifname 2>/dev/null)"
 	case "${1:-}" in
-		"")
+		"" | /etc/dnsmasq.conf)
 			CONFIG="/etc/dnsmasq.conf"
 			DHCP_IF="lan"
 			if [ -n "${LAN_IF}" ]; then
@@ -732,61 +1557,401 @@ dnsmasq_params() {
 			[ -n "${NET_ADDR}" ] || return 0
 			;;
 	esac
-	dnsmasq_delete_matching \
+	CONFIG_FILE="${CONFIG}"
+	[ -f "${CONFIG_FILE}" ] || return 0
+	[ ! -L "${CONFIG_FILE}" ] || return 1
+	# Firmware invokes postconf before starting the replacement dnsmasq process.
+	if adguard_lan_mode && ! adguard_dnsmasq_running &&
+		[ "${CONFIG_DNSMASQ_MODE:-auto}" != "enabled" ] && ! dns_handoff_is_active; then
+		return 0
+	fi
+	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -eq 0 ] && ! dns_handoff_is_active; then
+		return 0
+	fi
+	CONFIG_STAGE="${CONFIG_FILE}.adguard.$$"
+	if ! cp -p "${CONFIG_FILE}" "${CONFIG_STAGE}"; then
+		rm -f "${CONFIG_STAGE}"
+		return 1
+	fi
+	CONFIG="${CONFIG_STAGE}"
+	if ! dnsmasq_delete_matching \
 		"${CONFIG}" \
 		"add-subnet=" \
 		"port=" \
 		"add-mac" \
-		"dhcp-option=${DHCP_IF},6"
-	printf "%s\n" \
+		"dhcp-option=${DHCP_IF},6"; then
+		rm -f "${CONFIG_STAGE}"
+		return 1
+	fi
+	if ! printf "%s\n" \
 		"dhcp-option=${DHCP_IF},6,${NET_ADDR}" \
 		"local=/$(ipv4_reverse_zone "${NET_ADDR}")/" \
 		"local=/10.in-addr.arpa/" \
 		"local=//" \
 		"port=553" \
-		"add-mac" >>"${CONFIG}"
+		"add-mac" >>"${CONFIG}"; then
+		rm -f "${CONFIG_STAGE}"
+		return 1
+	fi
 	if [ -n "${NET_ADDR6}" ]; then
 		IPV6_REVERSE="$(ipv6_reverse_zone "${NET_ADDR6}")"
 		printf "%s\n" \
 			"add-subnet=32,128" \
-			"local=/${IPV6_REVERSE}/" >>"${CONFIG}"
+			"local=/${IPV6_REVERSE}/" >>"${CONFIG}" || {
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		}
 	else
-		printf "%s\n" "add-subnet=32" >>"${CONFIG}"
+		printf "%s\n" "add-subnet=32" >>"${CONFIG}" || {
+			rm -f "${CONFIG_STAGE}"
+			return 1
+		}
 	fi
-	case "${1:-}:${RC_SUPPORT}" in
-		:*mtlancfg*)
+	case "${DHCP_IF}:${RC_SUPPORT}" in
+		lan:*mtlancfg*)
 			:
 			;;
-		:*)
-			private_ipv4_bridge_dns_options_with_fallbacks | while read -r NIVARS NDVARS; do
+		lan:*)
+			BRIDGE_OPTIONS_STAGE="${CONFIG_STAGE}.bridge-options"
+			if ! private_ipv4_bridge_dns_options_with_fallbacks "${LAN_IF}" >"${BRIDGE_OPTIONS_STAGE}"; then
+				rm -f "${BRIDGE_OPTIONS_STAGE}" "${CONFIG_STAGE}"
+				return 1
+			fi
+			while read -r NIVARS NDVARS; do
 				[ -n "${NIVARS}" ] && [ -n "${NDVARS}" ] || continue
-				printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >>"${CONFIG}"
-			done
+				if ! printf "%s\n" "dhcp-option=${NIVARS},6,${NDVARS}" >>"${CONFIG}"; then
+					rm -f "${BRIDGE_OPTIONS_STAGE}" "${CONFIG_STAGE}"
+					return 1
+				fi
+			done <"${BRIDGE_OPTIONS_STAGE}"
+			rm -f "${BRIDGE_OPTIONS_STAGE}"
 			;;
 	esac
-	if { ! resolv_conf_uses_rom && [ "$(conf_value ADGUARD_LOCAL)" = "YES" ]; }; then {
-		mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf
-	}; fi
 	IPSET_REFRESH_FROM_DNSMASQ="1"
-	IPSet_Refresh "${CONFIG}"
+	IPSET_SNAPSHOT_DIR="${WORK_DIR}/.AdGuardHome.dnsmasq-ipset.$$"
+	dnsmasq_publish_staged_config "${CONFIG_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}" || return 1
+	if { ! resolv_conf_uses_rom && [ "${CONFIG_LOCAL:-NO}" = "YES" ]; }; then {
+		if ! mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; then
+			agh_log warning dnsmasq_params "state=committed action=bind_resolver result=failed source=/rom/etc/resolv.conf target=/tmp/resolv.conf"
+		fi
+	}; fi
+	return 0
 }
 
+# dnsmasq_action_handler applies the requested dnsmasq configuration action, or skips it in LAN mode when dnsmasq is inactive and unmanaged.
+dnsmasq_action_handler() {
+	if adguard_lan_mode && ! adguard_dnsmasq_running && ! dns_handoff_is_active; then
+		case "${CONFIG_DNSMASQ_MODE:-auto}" in
+			enabled) ;;
+			*)
+				dnsmasq_resolv_conf_cleanup
+				agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_not_running"
+				return 0
+				;;
+		esac
+	fi
+	if [ -n "${1:-}" ]; then
+		dnsmasq_params "${1}"
+	else
+		dnsmasq_params
+	fi
+}
+
+# interface_ipv4_addr prints the first usable global IPv4 address assigned to the specified network interface.
 interface_ipv4_addr() {
 	local IFACE
 	IFACE="$1"
 	[ -n "${IFACE}" ] || return 1
 	have_cmd ip || return 1
-	ip -o -4 addr list "${IFACE}" 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1]; exit }'
+	ip -o -4 addr list "${IFACE}" scope global 2>/dev/null | /usr/bin/awk '
+		$0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
+			split($4, ip_addr, "/")
+			if (!seen[ip_addr[1]]++) { print ip_addr[1]; exit }
+		}'
 }
 
+# interface_ipv6_addr prints the first usable global IPv6 address assigned to the specified interface.
 interface_ipv6_addr() {
 	local IFACE
 	IFACE="$1"
 	[ -n "${IFACE}" ] || return 1
 	have_cmd ip || return 1
-	ip -o -6 addr list "${IFACE}" scope global 2>/dev/null | awk 'NR==1{ split($4, ip_addr, "/"); print ip_addr[1]; exit }'
+	ip -o -6 addr list "${IFACE}" scope global 2>/dev/null | /usr/bin/awk '
+		$0 !~ /(^|[[:space:]])(tentative|deprecated|dadfailed|temporary)([[:space:]]|$)/ {
+			split($4, ip_addr, "/")
+			if (!seen[ip_addr[1]]++) { print ip_addr[1]; exit }
+		}'
 }
 
+# ipv4_is_usable_unicast validates that an IPv4 address is a usable unicast address.
+ipv4_is_usable_unicast() {
+	printf '%s\n' "$1" | awk -F. '
+		NF != 4 { exit 1 }
+		{
+			for (i = 1; i <= 4; i++) {
+				if ($i !~ /^[0-9][0-9]*$/ || $i < 0 || $i > 255) exit 1
+			}
+			if ($1 == 0 || $1 == 127 || $1 >= 224) exit 1
+		}
+	'
+}
+
+# adguard_refresh_lan_bind_addresses updates AdGuardHome's LAN WebUI address and DNS bind hosts in the YAML configuration, preserving the active configuration when staging or validation fails.
+adguard_refresh_lan_bind_addresses() {
+	local ACTIVE_MD5 BIND_HOSTS LAN_ADDR LAN_ADDR6 LAN_IF NVRAM_ADDR6 REWRITE_FILE SAVED_TRAPS STAGED_MD5 TEMP_FILE WEB_PORT YAML_DIR
+	LAN_BIND_ADDRESSES_CHANGED="0"
+	LAN_BIND_REFRESH_FAILURE_REASON=""
+	adguard_lan_mode || return 0
+	YAML_DIR="${YAML_FILE%/*}"
+	[ "${YAML_DIR}" != "${YAML_FILE}" ] || YAML_DIR="."
+	if [ "${YAML_FILE}" != "${YAML_DIR}/AdGuardHome.yaml" ] || [ ! -f "${YAML_FILE}" ] || [ -L "${YAML_FILE}" ]; then
+		LAN_BIND_REFRESH_FAILURE_REASON="active_yaml_not_regular"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=active_yaml_not_regular config_preserved=1"
+		return 1
+	fi
+	LAN_IF="$(nvram get lan_ifname 2>/dev/null)"
+	if [ -n "${LAN_IF}" ]; then
+		LAN_ADDR="$(interface_ipv4_addr "${LAN_IF}")"
+		LAN_ADDR6="$(interface_ipv6_addr "${LAN_IF}")"
+	fi
+	if ! ipv4_is_usable_unicast "${LAN_ADDR:-}"; then
+		LAN_BIND_REFRESH_FAILURE_REASON="lan_ipv4_unavailable"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=lan_ipv4_unavailable config_preserved=1"
+		return 1
+	fi
+	if [ -z "${LAN_ADDR6:-}" ] && [ -n "${LAN_IF}" ] && have_cmd ip; then
+		NVRAM_ADDR6="$(nvram get ipv6_rtr_addr 2>/dev/null)"
+		case "${NVRAM_ADDR6}" in
+			"" | ::) ;;
+			*:*)
+				LAN_ADDR6="$(ip -o -6 addr list "${LAN_IF}" scope global 2>/dev/null | /usr/bin/awk -v candidate="${NVRAM_ADDR6}" '
+					$0 !~ /(^|[[:space:]])(tentative|deprecated|dadfailed|temporary)([[:space:]]|$)/ {
+						split($4, ip_addr, "/")
+						if (ip_addr[1] == candidate) { print candidate; exit }
+					}')"
+				;;
+		esac
+	fi
+	# Keep every discovered bridge address bound because dnsmasq advertises each
+	# bridge's own address to clients on that network.
+	BIND_HOSTS="$({
+		printf '%s\n' 127.0.0.1 "${LAN_ADDR}" "${LAN_ADDR6:-}"
+		private_ipv4_bridge_dns_options_with_fallbacks "${LAN_IF}" | /usr/bin/awk 'NF > 1 { print $2 }'
+	} | /usr/bin/awk 'NF && !seen[$0]++ { print }')"
+	WEB_PORT="$(awk '
+		function yaml_key_is(line, expected, text, separator, key) {
+			text = line
+			sub(/^[[:space:]]*/, "", text)
+			separator = index(text, ":")
+			if (!separator)
+				return 0
+			key = substr(text, 1, separator - 1)
+			sub(/[[:space:]]*$/, "", key)
+			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
+		}
+		function yaml_mapping_header_is(line, expected, text, separator, value) {
+			if (!yaml_key_is(line, expected))
+				return 0
+			text = line
+			separator = index(text, ":")
+			value = substr(text, separator + 1)
+			sub(/^[[:space:]]*/, "", value)
+			return value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/
+		}
+		/^[^[:space:]]/ && yaml_mapping_header_is($0, "http") { in_http = 1; next }
+		in_http && /^[^[:space:]]/ { exit }
+		in_http && yaml_key_is($0, "address") {
+			value = $0
+			value = substr(value, index(value, ":") + 1)
+			sub(/[[:space:]]+#.*$/, "", value)
+			gsub(/[[:space:]"'"'"']/, "", value)
+			count = split(value, components, ":")
+			print components[count]
+			exit
+		}
+	' "${YAML_FILE}")"
+	case "${WEB_PORT}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	[ "${WEB_PORT}" -gt 0 ] && [ "${WEB_PORT}" -le 65535 ] || return 1
+	TEMP_FILE="${YAML_DIR}/.AdGuardHome.yaml.lan-bind.$$"
+	REWRITE_FILE="${TEMP_FILE}.rewrite"
+	SAVED_TRAPS="$(trap)"
+	trap 'rm -f "${TEMP_FILE}" "${REWRITE_FILE}"; trap - HUP INT QUIT ABRT TERM TSTP; [ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
+	(umask 077 && cp -p "${YAML_FILE}" "${TEMP_FILE}") || {
+		rm -f "${TEMP_FILE}"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_copy_failed config_preserved=1"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
+		return 1
+	}
+	(umask 077 && awk -v bind_hosts="${BIND_HOSTS}" -v web_address="${LAN_ADDR}:${WEB_PORT}" '
+		function indentation(line) { match(line, /^[[:space:]]*/); return RLENGTH }
+		function yaml_key_is(line, expected, text, separator, key) {
+			text = line
+			sub(/^[[:space:]]*/, "", text)
+			separator = index(text, ":")
+			if (!separator)
+				return 0
+			key = substr(text, 1, separator - 1)
+			sub(/[[:space:]]*$/, "", key)
+			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
+		}
+		function yaml_mapping_header_is(line, expected, text, separator, value) {
+			if (!yaml_key_is(line, expected))
+				return 0
+			text = line
+			separator = index(text, ":")
+			value = substr(text, separator + 1)
+			sub(/^[[:space:]]*/, "", value)
+			return value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/
+		}
+		/^[^[:space:]]/ && yaml_mapping_header_is($0, "http") { in_http = 1; print; next }
+		in_http && /^[^[:space:]]/ { in_http = 0 }
+		in_http && yaml_key_is($0, "address") {
+			separator = index($0, ":")
+			print substr($0, 1, separator) " " web_address
+			web_updated = 1
+			next
+		}
+		/^[^[:space:]]/ && yaml_mapping_header_is($0, "dns") { in_dns = 1; print; next }
+		in_dns && /^[^[:space:]]/ { in_dns = 0; in_binds = 0 }
+		in_dns && yaml_key_is($0, "bind_hosts") {
+			bind_indent = indentation($0)
+			separator = index($0, ":")
+			print substr($0, 1, separator)
+			count = split(bind_hosts, hosts, "\n")
+			for (host = 1; host <= count; host++)
+				if (hosts[host] != "") print substr($0, 1, bind_indent) "  - " hosts[host]
+			in_binds = 1
+			binds_updated = 1
+			next
+		}
+		in_binds && $0 ~ /^[[:space:]]*($|#)/ { next }
+		in_binds && indentation($0) >= bind_indent && $0 ~ /^[[:space:]]*-[[:space:]]/ { next }
+		in_binds && indentation($0) > bind_indent { next }
+		in_binds { in_binds = 0 }
+		{ print }
+		END { exit(web_updated && binds_updated ? 0 : 1) }
+	' "${TEMP_FILE}" >"${REWRITE_FILE}") || {
+		rm -f "${TEMP_FILE}" "${REWRITE_FILE}"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_rewrite_failed config_preserved=1"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
+		return 1
+	}
+	# Rewrite the preserved copy in place so the active YAML owner and mode survive
+	# the eventual atomic replacement.  The rewrite file is created under umask 077.
+	if ! cat "${REWRITE_FILE}" >"${TEMP_FILE}"; then
+		rm -f "${TEMP_FILE}" "${REWRITE_FILE}"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_rewrite_failed config_preserved=1"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
+		return 1
+	fi
+	rm -f "${REWRITE_FILE}"
+	ACTIVE_MD5="$(md5sum "${YAML_FILE}")" || {
+		rm -f "${TEMP_FILE}"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
+		return 1
+	}
+	STAGED_MD5="$(md5sum "${TEMP_FILE}")" || {
+		rm -f "${TEMP_FILE}"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
+		return 1
+	}
+	ACTIVE_MD5="${ACTIVE_MD5%%[[:space:]]*}"
+	STAGED_MD5="${STAGED_MD5%%[[:space:]]*}"
+	case "${ACTIVE_MD5}:${STAGED_MD5}" in
+		????????????????????????????????:????????????????????????????????)
+			case "${ACTIVE_MD5}${STAGED_MD5}" in
+				*[!0123456789abcdefABCDEF]*)
+					rm -f "${TEMP_FILE}"
+					agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
+					trap - HUP INT QUIT ABRT TERM TSTP
+					[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
+					return 1
+					;;
+			esac
+			;;
+		*)
+			rm -f "${TEMP_FILE}"
+			agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=stage_compare_failed config_preserved=1"
+			trap - HUP INT QUIT ABRT TERM TSTP
+			[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
+			return 1
+			;;
+	esac
+	# The monitor calls this refresh periodically.  Avoid starting a second
+	# AdGuardHome process to validate content that is byte-for-byte unchanged.
+	if [ "${ACTIVE_MD5}" = "${STAGED_MD5}" ]; then
+		rm -f "${TEMP_FILE}"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
+		return 0
+	fi
+	if [ ! -x "${ADGUARDHOME_BINARY}" ] ||
+		! "${ADGUARDHOME_BINARY}" --check-config -c "${TEMP_FILE}" --no-check-update -l /dev/null >/dev/null 2>&1; then
+		rm -f "${TEMP_FILE}"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=adguard_config_validation_failed config_preserved=1"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
+		return 1
+	fi
+	if ! awk '
+		function indentation(line) { match(line, /^[[:space:]]*/); return RLENGTH }
+		function yaml_key_is(line, expected, text, separator, key) {
+			text = line; sub(/^[[:space:]]*/, "", text); separator = index(text, ":")
+			if (!separator) return 0
+			key = substr(text, 1, separator - 1); sub(/[[:space:]]*$/, "", key)
+			return key == expected || key == "\"" expected "\"" || key == sprintf("%c%s%c", 39, expected, 39)
+		}
+		function mapping_header_is(line, expected, text, separator, value) {
+			if (!yaml_key_is(line, expected)) return 0
+			text = line; separator = index(text, ":"); value = substr(text, separator + 1)
+			sub(/^[[:space:]]*/, "", value)
+			return value == "" || value ~ /^#/ || value ~ /^&[^][{},[:space:]]+([[:space:]]*#.*)?$/
+		}
+		/^[^[:space:]]/ {
+			in_http = in_dns = in_binds = 0
+			if (mapping_header_is($0, "http")) { http_maps++; in_http = 1 }
+			else if (mapping_header_is($0, "dns")) { dns_maps++; in_dns = 1 }
+			next
+		}
+		in_http && yaml_key_is($0, "address") {
+			value = substr($0, index($0, ":") + 1); sub(/[[:space:]]+#.*$/, "", value); gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			if (value != "" && value != "~" && value !~ /^(null|Null|NULL)$/ && value !~ /^\*/) usable_addresses++
+			address_keys++
+		}
+		in_dns && yaml_key_is($0, "bind_hosts") { bind_keys++; bind_indent = indentation($0); in_binds = 1; next }
+		in_binds && indentation($0) > bind_indent && $0 ~ /^[[:space:]]*-[[:space:]]*[^#[:space:]][^#]*([[:space:]]+#.*)?$/ { usable_binds++; next }
+		in_binds && $0 !~ /^[[:space:]]*($|#)/ { in_binds = 0 }
+		END { exit(http_maps == 1 && dns_maps == 1 && address_keys == 1 && usable_addresses == 1 && bind_keys == 1 && usable_binds > 0 ? 0 : 1) }
+	' "${TEMP_FILE}"; then
+		rm -f "${TEMP_FILE}"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=staged_bind_structure_invalid config_preserved=1"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
+		return 1
+	fi
+	if ! mv -f "${TEMP_FILE}" "${YAML_FILE}"; then
+		rm -f "${TEMP_FILE}"
+		agh_log warning adguard_refresh_lan_bind_addresses "state=config_refresh result=failed reason=atomic_replace_failed config_preserved=1"
+		trap - HUP INT QUIT ABRT TERM TSTP
+		[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
+		return 1
+	fi
+	LAN_BIND_ADDRESSES_CHANGED="1"
+	trap - HUP INT QUIT ABRT TERM TSTP
+	[ -n "${SAVED_TRAPS}" ] && eval "${SAVED_TRAPS}"
+	return 0
+}
+
+# ipv4_reverse_zone converts an IPv4 address to its reverse DNS zone name.
 ipv4_reverse_zone() {
 	printf "%s\n" "$1" | awk 'BEGIN{FS="."}{print $2"."$1".in-addr.arpa"}'
 }
@@ -795,6 +1960,7 @@ ipv6_reverse_zone() {
 	printf "%s\n" "$1" | sed 's/.$//' | awk -F: '{for(i=1;i<=NF;i++)x=x""sprintf (":%4s", $i);gsub(/ /,"0",x);print x}' | cut -c 2- | cut -c 1-20 | sed 's/://g;s/^.*$/\n&\n/;tx;:x;s/\(\n.\)\(.*\)\(.\n\)/\3\2\1/;tx;s/\n//g;s/\(.\)/\1./g;s/$/ip6.arpa/'
 }
 
+# netcheck_config prints the explicitly set network-check value, the scoped configuration value, or the supplied default.
 netcheck_config() {
 	local is_set value
 	eval "is_set=\${$1_SET:-}"
@@ -803,14 +1969,11 @@ netcheck_config() {
 		printf '%s\n' "${value}"
 		return 0
 	fi
-	value="$(conf_value "$1")"
-	if [ -n "${value}" ]; then
-		printf '%s\n' "${value}"
-		return 0
-	fi
-	printf '%s\n' "$2"
+	eval "value=\${CONFIG_${1#ADGUARD_}:-}"
+	printf '%s\n' "${value:-$2}"
 }
 
+# netcheck_dns_ok checks whether any provided hostname resolves through the specified DNS server.
 netcheck_dns_ok() {
 	local dns_server host
 	dns_server="$1"
@@ -835,6 +1998,7 @@ netcheck_http_ok() {
 	return 1
 }
 
+# netcheck_ping_ok checks whether any provided host responds to a single ping within three seconds.
 netcheck_ping_ok() {
 	local host
 	for host in "$@"; do
@@ -846,6 +2010,7 @@ netcheck_ping_ok() {
 	return 1
 }
 
+# netcheck_legacy waits for system time and verifies connectivity through local DNS, ping, and HTTP checks against configured hosts.
 netcheck_legacy() {
 	local host livecheck timewait
 	livecheck="0"
@@ -881,6 +2046,7 @@ netcheck_legacy() {
 	done
 }
 
+# netcheck verifies system time and configured network connectivity, including optional DNS, ping, and HTTP checks. In LAN mode, it waits for system time and skips public network probes. Returns success when the required checks pass.
 netcheck() {
 	local dns_ok dns_server hosts http_required mode ping_ok timeout waited
 	mode="$(netcheck_config ADGUARD_NETCHECK_MODE "${DEFAULT_ADGUARD_NETCHECK_MODE}")"
@@ -946,41 +2112,119 @@ netcheck() {
 	return 1
 }
 
+# private_ipv4_bridge_dns_options prints usable global IPv4 addresses assigned to bridge interfaces other than the LAN interface.
 private_ipv4_bridge_dns_options() {
+	local ADDRESS_OUTPUT BRIDGE_ADDR BRIDGE_IF LAN_IF OPTIONS
+	LAN_IF="${1:-}"
+	[ -n "${LAN_IF}" ] || return 1
 	if have_cmd ip; then
-		ip -o -4 addr show scope global 2>/dev/null | awk '
-			function private_ip(ip) {
-				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+		if ADDRESS_OUTPUT="$(ip -o -4 addr show scope global 2>/dev/null)"; then
+			OPTIONS="$(printf '%s\n' "${ADDRESS_OUTPUT}" | /usr/bin/awk -v lan_if="${LAN_IF}" '
+			function usable_ip(ip, broadcast, octets) {
+				split(ip, octets, ".")
+				return ip != broadcast && ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && (octets[1] == 10 || (octets[1] == 172 && octets[2] >= 16 && octets[2] <= 31) || (octets[1] == 192 && octets[2] == 168)) && octets[3] <= 255 && octets[4] <= 255
 			}
-			$2 ~ /^br/ && $2 != "br0" {
+			$2 ~ /^br/ && $2 != lan_if && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
+				broadcast = ""
+				for (i = 1; i < NF; i++) if ($i == "brd") broadcast = $(i + 1)
 				for (i = 1; i <= NF; i++) {
 					if ($i == "inet") {
 						split($(i + 1), ip_addr, "/")
-						if (private_ip(ip_addr[1]) && !seen[$2]++) { print $2 " " ip_addr[1] }
+						if (usable_ip(ip_addr[1], broadcast) && !seen[$2, ip_addr[1]]++) { print $2 " " ip_addr[1] }
 					}
 				}
 			}
+			')"
+		elif ADDRESS_OUTPUT="$(ip -4 addr show scope global 2>/dev/null)"; then
+			OPTIONS="$(printf '%s\n' "${ADDRESS_OUTPUT}" | /usr/bin/awk -v lan_if="${LAN_IF}" '
+				function usable_ip(ip, broadcast, octets) {
+					split(ip, octets, ".")
+					return ip != broadcast && ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && (octets[1] == 10 || (octets[1] == 172 && octets[2] >= 16 && octets[2] <= 31) || (octets[1] == 192 && octets[2] == 168)) && octets[3] <= 255 && octets[4] <= 255
+				}
+				/^[0-9]+: / {
+					iface = $2
+					sub(/:$/, "", iface)
+				}
+				$1 == "inet" && iface ~ /^br/ && iface != lan_if && $0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
+					split($2, ip_addr, "/")
+					broadcast = ""
+					for (i = 1; i < NF; i++) if ($i == "brd") broadcast = $(i + 1)
+					if (usable_ip(ip_addr[1], broadcast) && !seen[iface, ip_addr[1]]++) { print iface " " ip_addr[1] }
+				}
+				')"
+		else
+			return 1
+		fi
+		printf '%s\n' "${OPTIONS}" | while read -r BRIDGE_IF BRIDGE_ADDR; do
+			[ -n "${BRIDGE_IF}" ] && [ -n "${BRIDGE_ADDR}" ] || continue
+			agh_log info bridge_discovery "state=discovered family=ipv4 interface=${BRIDGE_IF} address=${BRIDGE_ADDR}"
+		done
+		printf '%s\n' "${OPTIONS}"
+		return
+	fi
+	return 1
+}
+
+# private_ipv4_bridge_address_is_assigned verifies that the specified IPv4 address is assigned to the bridge interface.
+private_ipv4_bridge_address_is_assigned() {
+	local BRIDGE_ADDR BRIDGE_IF
+	BRIDGE_IF="${1:-}"
+	BRIDGE_ADDR="${2:-}"
+	[ -n "${BRIDGE_IF}" ] && [ -n "${BRIDGE_ADDR}" ] || return 1
+	if have_cmd ip; then
+		if ip -o -4 addr show dev "${BRIDGE_IF}" scope global 2>/dev/null | /usr/bin/awk -v expected="${BRIDGE_ADDR}" '
+			{ for (i = 1; i < NF; i++) if ($i == "inet") { split($(i + 1), address, "/"); if (address[1] == expected) found = 1 } }
+			END { exit(found ? 0 : 1) }
+		'; then
+			return 0
+		fi
+	fi
+	if have_cmd ifconfig; then
+		ifconfig "${BRIDGE_IF}" 2>/dev/null | /usr/bin/awk -v expected="${BRIDGE_ADDR}" '
+			{
+				for (i = 1; i <= NF; i++) {
+					address = $i
+					sub(/^addr:/, "", address)
+					if ((address == expected && $(i - 1) == "inet") || ($i ~ /^addr:/ && address == expected)) found = 1
+				}
+			}
+			END { exit(found ? 0 : 1) }
 		'
 		return
 	fi
 	return 1
 }
 
+# private_ipv4_bridge_dns_options_with_fallbacks selects IPv4 bridge DNS options for the specified LAN interface, using route-based and legacy fallbacks when needed.
 private_ipv4_bridge_dns_options_with_fallbacks() {
-	local OPTIONS
-	OPTIONS="$(private_ipv4_bridge_dns_options)"
-	if [ -z "${OPTIONS}" ]; then
-		OPTIONS="$(private_ipv4_route_dns_options)"
+	local BRIDGE_ADDR BRIDGE_IF LAN_IF OPTIONS
+	LAN_IF="${1:-}"
+	[ -n "${LAN_IF}" ] || return 1
+	if OPTIONS="$(private_ipv4_bridge_dns_options "${LAN_IF}")"; then
+		printf "%s\n" "${OPTIONS}"
+		return 0
 	fi
+	OPTIONS="$(private_ipv4_route_dns_options "${LAN_IF}")"
 	if [ -z "${OPTIONS}" ]; then
-		OPTIONS="$(private_ipv4_legacy_route_dns_options)"
+		OPTIONS="$(private_ipv4_legacy_route_dns_options "${LAN_IF}")"
 	fi
-	printf "%s\n" "${OPTIONS}"
+	printf '%s\n' "${OPTIONS}" | while read -r BRIDGE_IF BRIDGE_ADDR; do
+		[ -n "${BRIDGE_IF}" ] && [ -n "${BRIDGE_ADDR}" ] || continue
+		case "${BRIDGE_ADDR}" in
+			169.254.*) continue ;;
+		esac
+		private_ipv4_bridge_address_is_assigned "${BRIDGE_IF}" "${BRIDGE_ADDR}" || continue
+		printf '%s %s\n' "${BRIDGE_IF}" "${BRIDGE_ADDR}"
+	done
 }
 
+# private_ipv4_legacy_route_dns_options identifies private IPv4 router addresses for bridge interfaces other than the specified LAN interface and outputs interface-address pairs.
 private_ipv4_legacy_route_dns_options() {
+	local LAN_IF
+	LAN_IF="${1:-}"
+	[ -n "${LAN_IF}" ] || return 1
 	have_cmd route || return 1
-	route 2>/dev/null | awk '
+	route 2>/dev/null | awk -v lan_if="${LAN_IF}" '
 		function private_ip(ip) {
 			return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
 		}
@@ -991,7 +2235,7 @@ private_ipv4_legacy_route_dns_options() {
 		}
 		{
 			iface = $NF
-			if (iface ~ /^br/ && iface != "br0" && private_ip($1) && !seen[iface]++) {
+			if (iface ~ /^br/ && iface != lan_if && private_ip($1) && !seen[iface]++) {
 				dns_ip = router_ip($1)
 				if (dns_ip != "") { print iface " " dns_ip }
 			}
@@ -999,9 +2243,13 @@ private_ipv4_legacy_route_dns_options() {
 	'
 }
 
+# private_ipv4_route_dns_options lists non-LAN bridge interfaces and their private IPv4 DNS source addresses from the routing table.
 private_ipv4_route_dns_options() {
+	local LAN_IF
+	LAN_IF="${1:-}"
+	[ -n "${LAN_IF}" ] || return 1
 	if have_cmd ip; then
-		ip route show 2>/dev/null | awk '
+		ip route show 2>/dev/null | awk -v lan_if="${LAN_IF}" '
 			function private_ip(ip) {
 				return ip ~ /^(10|127)\./ || ip ~ /^192\.168\./ || ip ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./
 			}
@@ -1019,7 +2267,7 @@ private_ipv4_route_dns_options() {
 					if ($i == "dev") { iface = $(i + 1) }
 					if ($i == "src") { src = $(i + 1) }
 				}
-				if (iface ~ /^br/ && iface != "br0" && private_ip(dst) && !seen[iface]++) {
+				if (iface ~ /^br/ && iface != lan_if && private_ip(dst) && !seen[iface]++) {
 					if (!private_ip(src)) { src = router_ip(dst) }
 					if (src != "") { print iface " " src }
 				}
@@ -1100,7 +2348,7 @@ system_time_ready() {
 	[ "${now}" -ge "${script_time}" ]
 }
 
-# Process tuning helpers
+# proc_config resolves a process-tuning value from an explicit setting, operation configuration, or fallback default.
 
 proc_config() {
 	local is_set value
@@ -1110,43 +2358,38 @@ proc_config() {
 		printf '%s\n' "${value}"
 		return 0
 	fi
-	value="$(conf_value "$1")"
-	if [ -n "${value}" ]; then
-		printf '%s\n' "${value}"
-		return 0
-	fi
-	printf '%s\n' "$2"
+	eval "value=\${CONFIG_${1#ADGUARD_}:-}"
+	printf '%s\n' "${value:-$2}"
 }
 
-proc_optimizations() {
+# proc_optimizations_locked applies the configured process and network kernel optimizations while holding the process-optimization lock, or restores managed settings when optimization is disabled.
+proc_optimizations_locked() {
 	local enabled profile
 	enabled="$(proc_config ADGUARD_PROC_OPTIMIZE "${DEFAULT_ADGUARD_PROC_OPTIMIZE}")"
 	profile="$(proc_config ADGUARD_PROC_PROFILE "${DEFAULT_ADGUARD_PROC_PROFILE}")"
 	case "${enabled}" in
 		YES | yes | Yes | ON | on | On | TRUE | true | True | 1) ;;
 		*)
-			agh_log info proc_optimizations "state=proc_optimize action=skip reason=disabled result=skipped enabled=${enabled} profile=${profile}"
+			proc_restore_locked
 			return 0
 			;;
 	esac
 
-	# Profile documentation:
-	# off: no proc/sysctl values are changed.
-	# safe: /proc/sys/net/core/rmem_max=4194304, /proc/sys/net/core/wmem_max=1048576.
-	# balanced: safe values plus /proc/sys/net/netfilter/nf_conntrack_tcp_timeout_max_retrans=240.
-	# aggressive: balanced values plus /proc/sys/kernel/pid_max=4194304,
-	#   /proc/sys/vm/overcommit_memory=2, /proc/sys/vm/swappiness=60,
-	#   /proc/sys/vm/overcommit_ratio=50, /proc/sys/net/ipv4/icmp_ratelimit=0,
-	#   /proc/sys/net/ipv4/neigh/default/gc_thresh1=256,
-	#   /proc/sys/net/ipv4/neigh/default/gc_thresh2=1024,
-	#   /proc/sys/net/ipv4/neigh/default/gc_thresh3=2048, and when IPv6 is
-	#   configured, /proc/sys/net/ipv6/icmp/ratelimit=0,
-	#   /proc/sys/net/ipv6/neigh/default/gc_thresh1=256,
-	#   /proc/sys/net/ipv6/neigh/default/gc_thresh2=1024,
-	#   /proc/sys/net/ipv6/neigh/default/gc_thresh3=2048.
+	# safe: socket buffer ceilings prevent high-volume UDP DNS traffic from being
+	# dropped because AdGuard Home's requested per-socket buffers are capped.
+	# balanced: safe plus a shorter maximum-retransmit conntrack lifetime, which
+	# releases stalled TCP DNS connection state sooner on memory-limited routers.
+	# aggressive: balanced plus, when swap is active, strict virtual-memory
+	# commitment and normal swap reclaim.  These retain a system-wide memory
+	# reserve instead of allowing unrelated allocations to exhaust memory and kill
+	# DNS.  Higher neighbour-cache thresholds avoid cache reclamation during large
+	# client bursts, while unrestricted ICMP control replies keep path/error feedback
+	# available to AdGuard Home's upstream traffic.  A larger PID space is applied
+	# by every enabled profile to reduce PID collisions with concurrent NVRAM/user
+	# scripts on long-running routers.
 	case "${profile}" in
 		off)
-			agh_log info proc_optimizations "state=proc_optimize action=skip reason=profile_off result=skipped profile=${profile}"
+			proc_restore_locked
 			return 0
 			;;
 		safe | balanced | aggressive) ;;
@@ -1156,52 +2399,450 @@ proc_optimizations() {
 			;;
 	esac
 
-	proc_write "4194304" "/proc/sys/net/core/rmem_max"
-	proc_write "1048576" "/proc/sys/net/core/wmem_max"
+	proc_write rmem_max "4194304" "262144" "16777216"
+	proc_write wmem_max "1048576" "262144" "16777216"
+	proc_write pid_max "4194304" "300" "4194304"
 	case "${profile}" in
 		balanced | aggressive)
-			proc_write "240" "/proc/sys/net/netfilter/nf_conntrack_tcp_timeout_max_retrans"
+			proc_write conntrack_tcp_timeout_max_retrans "240" "1" "86400"
 			;;
+		*) proc_restore_one conntrack_tcp_timeout_max_retrans ;;
 	esac
 	case "${profile}" in
 		aggressive)
-			proc_write "4194304" "/proc/sys/kernel/pid_max"
-			proc_write "2" "/proc/sys/vm/overcommit_memory"
-			proc_write "60" "/proc/sys/vm/swappiness"
-			proc_write "50" "/proc/sys/vm/overcommit_ratio"
-			proc_write "0" "/proc/sys/net/ipv4/icmp_ratelimit"
-			proc_write "256" "/proc/sys/net/ipv4/neigh/default/gc_thresh1"
-			proc_write "1024" "/proc/sys/net/ipv4/neigh/default/gc_thresh2"
-			proc_write "2048" "/proc/sys/net/ipv4/neigh/default/gc_thresh3"
-			if [ -n "$(nvram get ipv6_service 2>/dev/null)" ]; then
-				proc_write "0" "/proc/sys/net/ipv6/icmp/ratelimit"
-				proc_write "256" "/proc/sys/net/ipv6/neigh/default/gc_thresh1"
-				proc_write "1024" "/proc/sys/net/ipv6/neigh/default/gc_thresh2"
-				proc_write "2048" "/proc/sys/net/ipv6/neigh/default/gc_thresh3"
+			if proc_swap_active; then
+				proc_write vm_overcommit_memory "2" "0" "2"
+				proc_write vm_swappiness "60" "0" "200"
+				proc_write vm_overcommit_ratio "50" "0" "100"
+			else
+				proc_restore_one vm_overcommit_memory
+				proc_restore_one vm_swappiness
+				proc_restore_one vm_overcommit_ratio
 			fi
+			proc_write ipv4_icmp_ratelimit "0" "0" "100000"
+			proc_write ipv4_neigh_gc_thresh1 "256" "1" "1048576"
+			proc_write ipv4_neigh_gc_thresh2 "1024" "1" "1048576"
+			proc_write ipv4_neigh_gc_thresh3 "2048" "1" "1048576"
+			if [ -n "$(nvram get ipv6_service 2>/dev/null)" ]; then
+				proc_write ipv6_icmp_ratelimit "0" "0" "100000"
+				proc_write ipv6_neigh_gc_thresh1 "256" "1" "1048576"
+				proc_write ipv6_neigh_gc_thresh2 "1024" "1" "1048576"
+				proc_write ipv6_neigh_gc_thresh3 "2048" "1" "1048576"
+			else
+				proc_restore_ipv6
+			fi
+			;;
+		*)
+			proc_restore_one vm_overcommit_memory
+			proc_restore_one vm_swappiness
+			proc_restore_one vm_overcommit_ratio
+			proc_restore_one ipv4_icmp_ratelimit
+			proc_restore_one ipv4_neigh_gc_thresh1
+			proc_restore_one ipv4_neigh_gc_thresh2
+			proc_restore_one ipv4_neigh_gc_thresh3
+			proc_restore_ipv6
 			;;
 	esac
 	return 0
 }
 
+# proc_optimizations applies configured process and kernel optimizations under a serialized lock.
+proc_optimizations() {
+	proc_lock_run proc_optimizations_locked
+}
+
+# proc_swap_active reports whether the system has an active swap device.
+proc_swap_active() {
+	local device remainder
+	[ -r "${PROC_SWAPS_FILE}" ] || return 1
+	while read -r device remainder; do
+		case "${device}" in "" | Filename) continue ;; esac
+		return 0
+	done <"${PROC_SWAPS_FILE}"
+	return 1
+}
+
+# proc_target maps a process setting identifier to its corresponding procfs path and fails for unsupported identifiers.
+proc_target() {
+	case "$1" in
+		rmem_max) PROC_TARGET="${PROC_SYS_ROOT}/net/core/rmem_max" ;;
+		wmem_max) PROC_TARGET="${PROC_SYS_ROOT}/net/core/wmem_max" ;;
+		conntrack_tcp_timeout_max_retrans) PROC_TARGET="${PROC_SYS_ROOT}/net/netfilter/nf_conntrack_tcp_timeout_max_retrans" ;;
+		pid_max) PROC_TARGET="${PROC_SYS_ROOT}/kernel/pid_max" ;;
+		vm_overcommit_memory) PROC_TARGET="${PROC_SYS_ROOT}/vm/overcommit_memory" ;;
+		vm_swappiness) PROC_TARGET="${PROC_SYS_ROOT}/vm/swappiness" ;;
+		vm_overcommit_ratio) PROC_TARGET="${PROC_SYS_ROOT}/vm/overcommit_ratio" ;;
+		ipv4_icmp_ratelimit) PROC_TARGET="${PROC_SYS_ROOT}/net/ipv4/icmp_ratelimit" ;;
+		ipv4_neigh_gc_thresh1) PROC_TARGET="${PROC_SYS_ROOT}/net/ipv4/neigh/default/gc_thresh1" ;;
+		ipv4_neigh_gc_thresh2) PROC_TARGET="${PROC_SYS_ROOT}/net/ipv4/neigh/default/gc_thresh2" ;;
+		ipv4_neigh_gc_thresh3) PROC_TARGET="${PROC_SYS_ROOT}/net/ipv4/neigh/default/gc_thresh3" ;;
+		ipv6_icmp_ratelimit) PROC_TARGET="${PROC_SYS_ROOT}/net/ipv6/icmp/ratelimit" ;;
+		ipv6_neigh_gc_thresh1) PROC_TARGET="${PROC_SYS_ROOT}/net/ipv6/neigh/default/gc_thresh1" ;;
+		ipv6_neigh_gc_thresh2) PROC_TARGET="${PROC_SYS_ROOT}/net/ipv6/neigh/default/gc_thresh2" ;;
+		ipv6_neigh_gc_thresh3) PROC_TARGET="${PROC_SYS_ROOT}/net/ipv6/neigh/default/gc_thresh3" ;;
+		*) return 1 ;;
+	esac
+}
+
+# proc_boot_id reads and prints the validated system boot identifier, returning failure when it is unavailable or invalid.
+proc_boot_id() {
+	local boot_id
+	[ -r "${PROC_BOOT_ID_FILE}" ] || return 1
+	IFS= read -r boot_id <"${PROC_BOOT_ID_FILE}" || return 1
+	case "${boot_id}" in "" | *[!A-Za-z0-9-]*) return 1 ;; esac
+	printf '%s\n' "${boot_id}"
+}
+
+# proc_process_start_time prints the process start time in clock ticks for a given PID.
+proc_process_start_time() {
+	local fields stat
+	[ -r "/proc/$1/stat" ] || return 1
+	IFS= read -r stat <"/proc/$1/stat" || return 1
+	fields="${stat##*) }"
+	# Intentional word splitting: /proc/<pid>/stat is a space-delimited record.
+	set -- ${fields}
+	shift 19
+	case "${1:-}" in "" | *[!0-9]*) return 1 ;; esac
+	printf '%s\n' "$1"
+}
+
+# proc_lock_claim_matches verifies that the publication claim still belongs to the specified process identity.
+proc_lock_claim_matches() {
+	local claim_owner
+	[ -L "${PROC_LOCK_DIR}.claim" ] || return 1
+	claim_owner="$(readlink "${PROC_LOCK_DIR}.claim" 2>/dev/null)" || return 1
+	[ "${claim_owner}" = "$1 $2" ]
+}
+
+# proc_lock_claim_acquire serializes fallback-lock publication and stale-lock reaping.
+proc_lock_claim_acquire() {
+	local attempts claim_owner claim_pid claim_start current_start reaper self_start
+	self_start="$1"
+	reaper="${PROC_LOCK_DIR}.claim.reap.$$"
+	rm -f "${reaper}"
+	attempts=0
+	while ! ln -s "$$ ${self_start}" "${PROC_LOCK_DIR}.claim" 2>/dev/null; do
+		claim_owner="$(readlink "${PROC_LOCK_DIR}.claim" 2>/dev/null)" || claim_owner=""
+		claim_pid="${claim_owner%% *}"
+		claim_start="${claim_owner#* }"
+		case "${claim_pid}:${claim_start}" in
+			*[!0-9:]* | :* | *:) current_start="" ;;
+			*) current_start="$(proc_process_start_time "${claim_pid}" 2>/dev/null)" ;;
+		esac
+		if [ -z "${current_start}" ] || [ "${current_start}" != "${claim_start}" ]; then
+			if mv "${PROC_LOCK_DIR}.claim" "${reaper}" 2>/dev/null; then
+				claim_owner="$(readlink "${reaper}" 2>/dev/null)" || claim_owner=""
+				claim_pid="${claim_owner%% *}"
+				claim_start="${claim_owner#* }"
+				current_start="$(proc_process_start_time "${claim_pid}" 2>/dev/null)"
+				if [ -n "${current_start}" ] && [ "${current_start}" = "${claim_start}" ]; then
+					mv "${reaper}" "${PROC_LOCK_DIR}.claim" 2>/dev/null || return 1
+				else
+					rm -f "${reaper}"
+				fi
+			fi
+		fi
+		attempts="$((attempts + 1))"
+		[ "${attempts}" -lt 100 ] || return 1
+		if which usleep >/dev/null 2>&1; then usleep 100000; else sleep 1; fi
+	done
+	proc_lock_claim_matches "$$" "${self_start}"
+}
+
+# proc_lock_claim_release removes the publication claim only while it still belongs to this process.
+proc_lock_claim_release() {
+	proc_lock_claim_matches "$$" "$1" || return 1
+	rm -f "${PROC_LOCK_DIR}.claim"
+}
+
+# proc_lock_mkdir_cleanup removes the procfs lock directory when it is owned by the current process.
+proc_lock_mkdir_cleanup() {
+	local current_start owner owner_start
+	current_start="$(proc_process_start_time "$$")" || return 1
+	proc_lock_claim_matches "$$" "${current_start}" || proc_lock_claim_acquire "${current_start}" || return 1
+	if [ ! -d "${PROC_LOCK_DIR}" ] || [ -L "${PROC_LOCK_DIR}" ]; then
+		proc_lock_claim_release "${current_start}" 2>/dev/null
+		return 1
+	fi
+	if [ ! -f "${PROC_LOCK_DIR}/pid" ] || [ -L "${PROC_LOCK_DIR}/pid" ]; then
+		rm -f "${PROC_LOCK_DIR}/pid" 2>/dev/null
+		rmdir "${PROC_LOCK_DIR}" 2>/dev/null
+		proc_lock_claim_release "${current_start}" 2>/dev/null
+		return 1
+	fi
+	IFS=' ' read -r owner owner_start 2>/dev/null <"${PROC_LOCK_DIR}/pid" || {
+		rm -f "${PROC_LOCK_DIR}/pid" 2>/dev/null
+		rmdir "${PROC_LOCK_DIR}" 2>/dev/null
+		proc_lock_claim_release "${current_start}" 2>/dev/null
+		return 1
+	}
+	if [ "${owner}" != "$$" ] || [ "${owner_start}" != "${current_start}" ]; then
+		proc_lock_claim_release "${current_start}" 2>/dev/null
+		return 1
+	fi
+	rm -f "${PROC_LOCK_DIR}/pid" || {
+		proc_lock_claim_release "${current_start}" 2>/dev/null
+		return 1
+	}
+	rmdir "${PROC_LOCK_DIR}" || {
+		proc_lock_claim_release "${current_start}" 2>/dev/null
+		return 1
+	}
+	proc_lock_claim_release "${current_start}"
+}
+
+# proc_lock_run serializes procfs changes without allowing an orphaned flock
+# holder to block service shutdown indefinitely.  Descriptor locking uses the
+# same bounded retry budget as the process-validated mkdir fallback.
+proc_lock_run() {
+	local attempts current_start has_usleep owner owner_start reaper self_start status
+	if [ "${PROC_LOCK_FORCE_MKDIR:-0}" != 1 ] && have_cmd flock && flock_supports_fd; then
+		(
+			mkdir -p "${WORK_DIR}" 2>/dev/null || exit 1
+			exec 6>"${PROC_LOCK_FILE}" || exit 1
+			attempts=0
+			if which usleep >/dev/null 2>&1; then
+				has_usleep=1
+			else
+				has_usleep=0
+			fi
+			while ! flock -n 6; do
+				attempts="$((attempts + 1))"
+				if [ "${has_usleep}" -eq 1 ]; then
+					if [ "${attempts}" -ge 50 ]; then
+						agh_log warning proc_lock_run "state=proc_optimize action=acquire_lock reason=flock_timeout result=failed attempts=${attempts}"
+						exit 1
+					fi
+					usleep 100000
+				else
+					if [ "${attempts}" -ge 5 ]; then
+						agh_log warning proc_lock_run "state=proc_optimize action=acquire_lock reason=flock_timeout result=failed attempts=${attempts}"
+						exit 1
+					fi
+					sleep 1
+				fi
+			done
+			"$@"
+			status="$?"
+			flock -u 6 >/dev/null 2>&1 || [ "${status}" -ne 0 ] || status=1
+			exec 6>&-
+			exit "${status}"
+		)
+		return $?
+	fi
+	(
+		attempts=0
+		if which usleep >/dev/null 2>&1; then has_usleep=1; else has_usleep=0; fi
+		reaper="${PROC_LOCK_DIR}.reap.$$"
+		rm -rf "${reaper}"
+		self_start="$(proc_process_start_time "$$")" || exit 1
+		while :; do
+			proc_lock_claim_acquire "${self_start}" || exit 1
+			if mkdir "${PROC_LOCK_DIR}" 2>/dev/null; then
+				trap 'proc_lock_mkdir_cleanup; exit 1' HUP INT QUIT ABRT TERM TSTP
+				proc_lock_claim_matches "$$" "${self_start}" || {
+					proc_lock_mkdir_cleanup
+					exit 1
+				}
+				printf '%s %s\n' "$$" "${self_start}" >"${PROC_LOCK_DIR}/pid" || {
+					proc_lock_mkdir_cleanup
+					exit 1
+				}
+				proc_lock_claim_matches "$$" "${self_start}" || {
+					proc_lock_mkdir_cleanup
+					exit 1
+				}
+				proc_lock_claim_release "${self_start}" || {
+					proc_lock_mkdir_cleanup
+					exit 1
+				}
+				break
+			fi
+			[ -d "${PROC_LOCK_DIR}" ] && [ ! -L "${PROC_LOCK_DIR}" ] || exit 1
+			owner=""
+			owner_start=""
+			IFS=' ' read -r owner owner_start 2>/dev/null <"${PROC_LOCK_DIR}/pid" || owner=""
+			case "${owner}" in
+				"" | *[!0-9]*)
+					if mv "${PROC_LOCK_DIR}" "${reaper}" 2>/dev/null; then
+						rm -rf "${reaper}"
+						proc_lock_claim_release "${self_start}" || exit 1
+						continue
+					fi
+					;;
+				*)
+					current_start="$(proc_process_start_time "${owner}" 2>/dev/null)"
+					if [ -z "${owner_start}" ] || [ "${current_start}" != "${owner_start}" ]; then
+						if mv "${PROC_LOCK_DIR}" "${reaper}" 2>/dev/null; then
+							rm -rf "${reaper}"
+							proc_lock_claim_release "${self_start}" || exit 1
+							continue
+						fi
+					fi
+					;;
+			esac
+			proc_lock_claim_release "${self_start}" || exit 1
+			attempts="$((attempts + 1))"
+			[ "${attempts}" -lt 100 ] || exit 1
+			if [ "${has_usleep}" -eq 1 ]; then usleep 100000; else sleep 1; fi
+		done
+		"$@"
+		status="$?"
+		if ! proc_lock_mkdir_cleanup && [ "${status}" -eq 0 ]; then
+			status=1
+		fi
+		trap - HUP INT QUIT ABRT TERM TSTP
+		exit "${status}"
+	)
+}
+
+# proc_restore_ipv6 restores managed IPv6 procfs settings to their recorded original values.
+proc_restore_ipv6() {
+	local id
+	for id in ipv6_icmp_ratelimit ipv6_neigh_gc_thresh1 ipv6_neigh_gc_thresh2 ipv6_neigh_gc_thresh3; do
+		proc_restore_one "${id}"
+	done
+}
+
+# proc_write applies a validated procfs value and records state needed to restore the original setting safely.
 proc_write() {
-	local old_value target value
-	value="$1"
-	target="$2"
+	local applied boot_id current_value id maximum minimum old_value state_boot_id state_file state_tmp target value
+	id="$1"
+	value="$2"
+	minimum="$3"
+	maximum="$4"
+	proc_target "${id}" || return 1
+	target="${PROC_TARGET}"
+	state_file="${PROC_STATE_DIR}/${id}"
+	case "${value}:${minimum}:${maximum}" in *[!0-9:]*) return 1 ;; esac
+	[ "${value}" -ge "${minimum}" ] && [ "${value}" -le "${maximum}" ] || return 1
 	if [ ! -e "${target}" ]; then
 		agh_log warning proc_write "state=proc_optimize action=write target=${target} new_value=${value} reason=missing result=failed"
-		return 0
+		return 1
 	fi
 	if ! IFS= read -r old_value <"${target}"; then
-		old_value=""
 		agh_log warning proc_write "state=proc_optimize action=read target=${target} new_value=${value} reason=read_failed result=failed"
+		return 1
 	fi
-	agh_log info proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value}"
-	if ! printf '%s' "${value}" >"${target}" 2>/dev/null; then
+	case "${old_value}" in "" | *[!0-9]*) return 1 ;; esac
+	current_value="${old_value}"
+	if ! boot_id="$(proc_boot_id 2>/dev/null)" || [ -z "${boot_id}" ]; then
+		agh_log warning proc_write "state=proc_optimize action=write target=${target} new_value=${value} reason=boot_id_unavailable result=failed"
+		return 1
+	fi
+	if [ -f "${state_file}" ]; then
+		IFS=' ' read -r old_value applied state_boot_id <"${state_file}" || return 1
+		case "${old_value}:${applied}" in
+			*[!0-9:]* | *::* | :* | *:)
+				rm -f "${state_file}" || return 1
+				proc_write "${id}" "${value}" "${minimum}" "${maximum}"
+				return $?
+				;;
+		esac
+		case "${state_boot_id}" in
+			"" | *[!A-Za-z0-9-]*)
+				rm -f "${state_file}" || return 1
+				proc_write "${id}" "${value}" "${minimum}" "${maximum}"
+				return $?
+				;;
+		esac
+		[ "${applied}" = "${value}" ] || return 1
+		if [ "${state_boot_id}" != "${boot_id}" ]; then
+			rm -f "${state_file}" || return 1
+			# procfs reset after reboot; claim nothing if the boot default already
+			# matches, otherwise preserve this boot's value before reapplying.
+			[ "${current_value}" = "${value}" ] && return 0
+			proc_write "${id}" "${value}" "${minimum}" "${maximum}"
+			return $?
+		fi
+		[ "${current_value}" = "${value}" ] && return 0
+		if [ "${current_value}" = "${old_value}" ]; then
+			if ! printf '%s\n' "${value}" >"${target}" 2>/dev/null; then
+				agh_log warning proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value} result=failed"
+				return 1
+			fi
+			agh_log info proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value} result=changed"
+			return 0
+		fi
+		# An administrator changed the setting after application; relinquish it.
+		rm -f "${state_file}"
+		return 0
+	fi
+	[ "${old_value}" = "${value}" ] && return 0
+	mkdir -p "${PROC_STATE_DIR}" 2>/dev/null || return 1
+	# Publish the rollback record before changing procfs so interruption is safe.
+	state_tmp="${state_file}.tmp.$$"
+	if ! printf '%s %s %s\n' "${old_value}" "${value}" "${boot_id}" >"${state_tmp}" ||
+		! mv -f "${state_tmp}" "${state_file}"; then
+		rm -f "${state_tmp}"
+		return 1
+	fi
+	if ! printf '%s\n' "${value}" >"${target}" 2>/dev/null; then
 		agh_log warning proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value} result=failed"
+		rm -f "${state_file}"
+		return 1
 	fi
+	agh_log info proc_write "state=proc_optimize action=write target=${target} old_value=${old_value} new_value=${value} result=changed"
 	return 0
 }
+
+# proc_restore_one restores one managed procfs setting when its current value still matches the value previously applied by the script.
+proc_restore_one() {
+	local applied boot_id current_value id old_value state_boot_id state_file target
+	id="$1"
+	proc_target "${id}" || return 1
+	state_file="${PROC_STATE_DIR}/${id}"
+	[ -f "${state_file}" ] || return 0
+	IFS=' ' read -r old_value applied state_boot_id <"${state_file}" || return 1
+	case "${state_boot_id}" in
+		"" | *[!A-Za-z0-9-]*)
+			rm -f "${state_file}"
+			return $?
+			;;
+	esac
+	if ! boot_id="$(proc_boot_id 2>/dev/null)" || [ -z "${boot_id}" ]; then
+		agh_log warning proc_restore "state=proc_optimize action=restore target=${PROC_TARGET} reason=boot_id_unavailable result=failed"
+		return 1
+	fi
+	if [ "${state_boot_id}" != "${boot_id}" ]; then
+		rm -f "${state_file}"
+		return 0
+	fi
+	target="${PROC_TARGET}"
+	if ! { IFS= read -r current_value <"${target}"; } 2>/dev/null; then
+		agh_log warning proc_restore "state=proc_optimize action=read target=${target} reason=read_failed result=failed"
+		return 1
+	fi
+	if [ "${current_value}" = "${applied}" ]; then
+		if printf '%s\n' "${old_value}" >"${target}" 2>/dev/null; then
+			agh_log info proc_restore "state=proc_optimize action=restore target=${target} old_value=${applied} new_value=${old_value} result=changed"
+			rm -f "${state_file}"
+		else
+			agh_log warning proc_restore "state=proc_optimize action=restore target=${target} old_value=${applied} new_value=${old_value} result=failed"
+			return 1
+		fi
+	else
+		# Preserve an administrator's later value and discard our ownership record.
+		rm -f "${state_file}"
+	fi
+}
+
+# proc_restore_locked restores managed procfs settings while holding the process-settings lock and reports whether all restorations succeeded.
+proc_restore_locked() {
+	local failed id
+	failed=0
+	for id in rmem_max wmem_max pid_max conntrack_tcp_timeout_max_retrans vm_overcommit_memory vm_swappiness vm_overcommit_ratio ipv4_icmp_ratelimit ipv4_neigh_gc_thresh1 ipv4_neigh_gc_thresh2 ipv4_neigh_gc_thresh3 ipv6_icmp_ratelimit ipv6_neigh_gc_thresh1 ipv6_neigh_gc_thresh2 ipv6_neigh_gc_thresh3; do
+		proc_restore_one "${id}" || failed=1
+	done
+	rmdir "${PROC_STATE_DIR}" 2>/dev/null || true
+	[ "${failed}" -eq 0 ]
+}
+
+# proc_restore restores managed procfs settings to their original values.
+proc_restore() {
+	proc_lock_run proc_restore_locked
+}
+# netcheck_lan_dns checks whether the local AdGuardHome listener resolves localhost successfully in LAN mode.
 netcheck_lan_dns() {
 	# Ignore public DNS overrides in LAN mode; this probe is only for the
 	# local AdGuardHome listener after the process has started.
@@ -1212,7 +2853,7 @@ netcheck_lan_dns() {
 	return 0
 }
 
-# Service lifecycle helpers
+# lower_script delegates a service command to the lower-level service script.
 
 lower_script() {
 	case "$1" in
@@ -1222,6 +2863,7 @@ lower_script() {
 	esac
 }
 
+# service_wait waits for a service readiness check to succeed, a terminal failure to occur, or the configured timeout to elapse.
 service_wait() {
 	umask 022
 	local maxwait
@@ -1283,13 +2925,32 @@ service_wait() {
 	return "$?"
 }
 
+# start_adguardhome prepares AdGuardHome for startup, launches or restarts it, and verifies network readiness.
+# start_adguardhome prepares DNS integration, starts or restarts AdGuardHome, and verifies network readiness, returning failure when required preparation, startup, or validation fails.
 start_adguardhome() {
-	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LOWER_SCRIPT_STATUS
+	local IPSET_START_FAILURE_SAFE IPSET_START_RESTARTED IPSET_START_STOPPED LAN_BIND_REFRESH_FAILED LOWER_SCRIPT_STATUS db
 	IPSET_START_FAILURE_SAFE="0"
 	IPSET_START_RESTARTED="0"
 	IPSET_START_STOPPED="0"
+	LAN_BIND_REFRESH_FAILED="0"
 	SERVICE_WAIT_TERMINAL_FAILURE="0"
-	if ! IPSet_Setup_For_Start; then
+	if adguard_lan_mode; then
+		if ! adguard_refresh_lan_bind_addresses; then
+			LAN_BIND_REFRESH_FAILED="1"
+			agh_log warning start_adguardhome "state=starting action=refresh_lan_bind_addresses result=failed reason=config_refresh_failed config_preserved=1 service_health=pending"
+			if [ "${LAN_BIND_REFRESH_FAILURE_REASON:-}" = "active_yaml_not_regular" ]; then
+				SERVICE_WAIT_TERMINAL_FAILURE="1"
+				return 1
+			fi
+		fi
+	fi
+	if ! adguard_ipset_allowed; then
+		if ! IPSet_Disable_Managed; then
+			agh_log error start_adguardhome "state=starting action=disable_managed_ipset result=failed reason=lan_mode_remove_failed"
+			SERVICE_WAIT_TERMINAL_FAILURE="1"
+			return 1
+		fi
+	elif ! IPSet_Setup_For_Start; then
 		if [ "${IPSET_START_FAILURE_SAFE}" -ne 1 ]; then
 			agh_log error start_adguardhome "state=starting action=prepare_ipset reason=stale_mapping_risk result=failed failure_safe=0"
 			if [ "${IPSET_START_STOPPED}" -eq 1 ]; then
@@ -1310,8 +2971,12 @@ start_adguardhome() {
 				LOWER_SCRIPT_STATUS="$?"
 				;;
 			*)
-				lower_script restart
-				LOWER_SCRIPT_STATUS="$?"
+				if [ "${LAN_BIND_REFRESH_FAILED}" -eq 1 ] && [ "${1:-}" != "restart" ]; then
+					LOWER_SCRIPT_STATUS="0"
+				else
+					lower_script restart
+					LOWER_SCRIPT_STATUS="$?"
+				fi
 				;;
 		esac
 		if [ "${LOWER_SCRIPT_STATUS}" -ne 0 ]; then
@@ -1319,11 +2984,9 @@ start_adguardhome() {
 			return "${LOWER_SCRIPT_STATUS}"
 		fi
 	fi
-	for db in stats.db sessions.db; do {
-		if [ "$(canonical_path "/tmp/${db}" 2>/dev/null)" != "$(canonical_path "${WORK_DIR}/data/${db}" 2>/dev/null)" ]; then {
-			ln -s "${WORK_DIR}/data/${db}" "/tmp/${db}" >/dev/null 2>&1
-		}; fi
-	}; done
+	for db in stats.db sessions.db; do
+		ensure_database_link "/tmp/${db}" "${WORK_DIR}/data/${db}"
+	done
 	if { service_wait netcheck; }; then
 		return "0"
 	else
@@ -1331,8 +2994,14 @@ start_adguardhome() {
 	fi
 }
 
+# restart_adguardhome preserves an explicit restart request through the service lock.
+restart_adguardhome() {
+	start_adguardhome restart
+}
+
+# start_monitor supervises AdGuardHome, restarting it when requested or when health checks detect a failure, and stopping it on request.
 start_monitor() {
-	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_RECOVERY_RETRY_INTERVAL MONITOR_SLEEP_INTERVAL MONITOR_STATE
+	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_RECOVERY_RETRY_INTERVAL MONITOR_SLEEP_INTERVAL MONITOR_START_ACTION MONITOR_STATE
 	MONITOR_BINARY_RETRY_INTERVAL="10"
 	MONITOR_HEALTHCHECK_INTERVAL="300"
 	MONITOR_HEALTHCHECK_TIMEOUT="150"
@@ -1354,6 +3023,13 @@ start_monitor() {
 				check_dns_environment "running"
 				;;
 		esac
+		if [ "${MONITOR_STATE}" = "stop" ]; then
+			if ! load_operation_config stop; then
+				set_operation_config_defaults
+				CONFIG_DNSMASQ_MODE="enabled"
+				agh_log warning start_monitor "state=stop action=load_config reason=invalid_snapshot result=using_defaults"
+			fi
+		fi
 		if [ "${MONITOR_STATE}" = "stop" ]; then # A place to exit early if needed, or if binary becomes unavailable before service-stop.
 			agh_log info start_monitor "state=stop action=stop_monitor reason=signal_USR1 result=stopping"
 			trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
@@ -1378,7 +3054,8 @@ start_monitor() {
 				case "${MONITOR_ELAPSED}" in
 					"")
 						MONITOR_ELAPSED="0"
-						{ adguardhome_run start_adguardhome; }
+						{ adguardhome_run "${MONITOR_START_ACTION:-start_adguardhome}"; }
+						unset MONITOR_START_ACTION
 						;;
 				esac
 				case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
@@ -1390,6 +3067,21 @@ start_monitor() {
 					1)
 						if [ "${MONITOR_ELAPSED}" -ge "${MONITOR_HEALTHCHECK_INTERVAL}" ]; then
 							MONITOR_ELAPSED="0"
+							# An atomic .config replacement becomes visible as one snapshot here;
+							# failed validation retains the preceding healthcheck snapshot.
+							if ! load_operation_config monitor-healthcheck; then
+								agh_log warning start_monitor "state=running action=load_config reason=invalid_snapshot result=retained"
+							fi
+							if adguard_lan_mode; then
+								if ! adguard_refresh_lan_bind_addresses; then
+									agh_log warning start_monitor "state=running action=refresh_lan_bind_addresses reason=periodic_sync result=failed"
+								elif [ "${LAN_BIND_ADDRESSES_CHANGED:-0}" -eq 1 ]; then
+									agh_log info start_monitor "state=running action=refresh_lan_bind_addresses reason=address_changed result=restarting"
+									unset MONITOR_ELAPSED
+									{ adguardhome_run start_adguardhome; }
+									continue
+								fi
+							fi
 							case "$(netcheck_config ADGUARD_NETCHECK_MODE "${DEFAULT_ADGUARD_NETCHECK_MODE}")" in
 								lan | LAN)
 									if { ! service_wait netcheck_lan_dns "${MONITOR_HEALTHCHECK_TIMEOUT}"; }; then
@@ -1418,22 +3110,124 @@ start_monitor() {
 				;;
 			"stop")
 				agh_log info start_monitor "state=stop action=stop_monitor reason=signal_USR1 result=stopping"
+				if ! load_operation_config stop; then
+					set_operation_config_defaults
+					CONFIG_DNSMASQ_MODE="enabled"
+					agh_log warning start_monitor "state=stop action=load_config reason=invalid_snapshot result=using_defaults"
+				fi
 				trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
 				{ adguardhome_run stop_adguardhome; }
 				break
 				;;
 			"restart")
 				agh_log info start_monitor "state=restart action=restart_adguardhome reason=signal_USR2 result=restarting"
+				if ! load_operation_config action; then
+					agh_log warning start_monitor "state=restart action=load_config reason=invalid_snapshot result=retained"
+				fi
 				unset MONITOR_ELAPSED
+				MONITOR_START_ACTION="restart_adguardhome"
 				MONITOR_STATE="running"
 				;;
 		esac
 	done
 }
 
+# post_stop_process_ready verifies that AdGuardHome has no running process.
+post_stop_process_ready() {
+	[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -eq 0 ]
+}
+
+# post_stop_handoff_cleared verifies that no installer-owned DNS handoff marker remains.
+post_stop_handoff_cleared() {
+	local marker
+	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock "${DNS_HANDOFF_FILE}" "${DNS_HANDOFF_DIR}/lock"; do
+		[ ! -e "${marker}" ] && [ ! -L "${marker}" ] || return 1
+	done
+	return 0
+}
+
+# monotonic_seconds returns integer seconds from the kernel monotonic uptime clock.
+monotonic_seconds() {
+	local UPTIME_REST UPTIME_SECONDS UPTIME_VALUE
+	[ -r /proc/uptime ] || return 1
+	IFS=' ' read -r UPTIME_VALUE UPTIME_REST </proc/uptime || return 1
+	UPTIME_SECONDS="${UPTIME_VALUE%%.*}"
+	case "${UPTIME_SECONDS}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	printf '%s\n' "${UPTIME_SECONDS}"
+}
+
+# post_stop_dnsmasq_timeout returns the bounded local-DNS recovery budget in seconds.
+post_stop_dnsmasq_timeout() {
+	local CONFIGURED RESTART_SECONDS TIMEOUT
+	CONFIGURED="${ADGUARDHOME_DNSMASQ_READY_TIMEOUT:-}"
+	case "${CONFIGURED}" in
+		"" | *[!0-9]*) ;;
+		*)
+			if [ "${CONFIGURED}" -ge 5 ] && [ "${CONFIGURED}" -le 120 ]; then
+				printf '%s\n' "${CONFIGURED}"
+				return 0
+			fi
+			;;
+	esac
+	RESTART_SECONDS="${1:-0}"
+	case "${RESTART_SECONDS}" in
+		"" | *[!0-9]*) RESTART_SECONDS="0" ;;
+	esac
+	TIMEOUT="$((RESTART_SECONDS * 3 + 10))"
+	[ "${TIMEOUT}" -ge 15 ] || TIMEOUT="15"
+	[ "${TIMEOUT}" -le 60 ] || TIMEOUT="60"
+	printf '%s\n' "${TIMEOUT}"
+}
+
+# post_stop_dnsmasq_ready verifies that dnsmasq owns local port 53 and resolves localhost through an available DNS server.
+post_stop_dnsmasq_ready() {
+	local dns_server dns_servers lan_addr
+	adguard_dnsmasq_running || return 1
+	dns_servers="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ {
+		owner = ""
+		for (i = NF; i >= 1; i--) if ($i ~ /^[0-9]+\/[^[:space:]]+$/) { owner = $i; break }
+		if (owner != "" && owner !~ /\/dnsmasq$/) bad_owner = 1
+		if ($1 ~ /^tcp6?$/) tcp = 1
+		if ($1 ~ /^udp6?$/) {
+			udp = 1
+			server = $4
+			sub(/:53$/, "", server)
+			gsub(/^\[|\]$/, "", server)
+			if (!seen[server]++) {
+				servers[server] = 1
+			}
+		}
+	}
+		END {
+			if (bad_owner || !tcp || !udp) exit 1
+			for (server in servers) print server
+		}
+	')" || return 1
+	[ -n "${dns_servers}" ] || return 1
+	lan_addr="$(nvram get lan_ipaddr 2>/dev/null)"
+	for dns_server in ${dns_servers}; do
+		case "${dns_server}" in
+			0.0.0.0) dns_server="${lan_addr:-127.0.0.1}" ;;
+			:: | \*) dns_server="::1" ;;
+		esac
+		if nslookup localhost "${dns_server}" >/dev/null 2>&1; then
+			return 0
+		fi
+	done
+	return 1
+}
+
+# stop_adguardhome stops AdGuardHome, restores managed dnsmasq, verifies shutdown and local DNS recovery, and removes expected database links.
 stop_adguardhome() {
-	local STOP_STATUS
+	local DNSMASQ_READY_ATTEMPTS DNSMASQ_READY_TIMEOUT DNSMASQ_RESTART_ELAPSED DNSMASQ_RESTART_END DNSMASQ_RESTART_START DNSMASQ_WAS_MANAGED STOP_STATUS db
 	STOP_STATUS="0"
+	DNSMASQ_WAS_MANAGED="0"
+	DNSMASQ_RESTART_ELAPSED="0"
+	if adguard_dnsmasq_managed; then
+		DNSMASQ_WAS_MANAGED="1"
+	fi
 	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 		0)
 			:
@@ -1444,38 +3238,105 @@ stop_adguardhome() {
 			fi
 			;;
 	esac
-	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -ne 0 ]; then
+	if ! post_stop_process_ready; then
 		agh_log error stop_adguardhome "state=stopping action=stop_process reason=process_still_active result=active process=${PROCS}"
 		STOP_STATUS="1"
 	fi
-	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ]; then
+	if [ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ] && [ "${DNSMASQ_WAS_MANAGED}" -eq 1 ]; then
+		DNSMASQ_RESTART_START="$(monotonic_seconds 2>/dev/null)" || DNSMASQ_RESTART_START=""
 		if ! service restart_dnsmasq >/dev/null 2>&1; then
 			agh_log error stop_adguardhome "state=stopping action=restart_dnsmasq reason=service_restart_failed result=failed process=${PROCS}"
 			STOP_STATUS="1"
 		fi
+		DNSMASQ_RESTART_END="$(monotonic_seconds 2>/dev/null)" || DNSMASQ_RESTART_END=""
+		case "${DNSMASQ_RESTART_START}:${DNSMASQ_RESTART_END}" in
+			*[!0-9:]* | :* | *:)
+				DNSMASQ_RESTART_ELAPSED="0"
+				;;
+			*)
+				if [ "${DNSMASQ_RESTART_END}" -ge "${DNSMASQ_RESTART_START}" ]; then
+					DNSMASQ_RESTART_ELAPSED="$((DNSMASQ_RESTART_END - DNSMASQ_RESTART_START))"
+				fi
+				;;
+		esac
 	fi
-	for db in stats.db sessions.db; do {
-		if [ "$(canonical_path "/tmp/${db}" 2>/dev/null)" = "$(canonical_path "${WORK_DIR}/data/${db}" 2>/dev/null)" ]; then {
-			rm "/tmp/${db}" >/dev/null 2>&1
-		}; fi
-	}; done
-	if ! service_wait netcheck; then
+	if [ "${DNSMASQ_WAS_MANAGED}" -eq 1 ]; then
+		DNSMASQ_READY_TIMEOUT="$(post_stop_dnsmasq_timeout "${DNSMASQ_RESTART_ELAPSED}")"
+		DNSMASQ_READY_ATTEMPTS="0"
+		until post_stop_dnsmasq_ready; do
+			DNSMASQ_READY_ATTEMPTS="$((DNSMASQ_READY_ATTEMPTS + 1))"
+			if [ "${DNSMASQ_READY_ATTEMPTS}" -ge "${DNSMASQ_READY_TIMEOUT}" ]; then
+				agh_log error stop_adguardhome "state=stopping action=verify_local_dns reason=dnsmasq_not_ready result=failed attempts=${DNSMASQ_READY_ATTEMPTS} restart_elapsed=${DNSMASQ_RESTART_ELAPSED} timeout=${DNSMASQ_READY_TIMEOUT}"
+				STOP_STATUS="1"
+				break
+			fi
+			sleep 1
+		done
+		if [ "${DNSMASQ_READY_ATTEMPTS}" -lt "${DNSMASQ_READY_TIMEOUT}" ]; then
+			agh_log info stop_adguardhome "state=stopping action=verify_local_dns result=ready attempts=${DNSMASQ_READY_ATTEMPTS} restart_elapsed=${DNSMASQ_RESTART_ELAPSED} timeout=${DNSMASQ_READY_TIMEOUT}"
+		fi
+	fi
+	if ! post_stop_handoff_cleared; then
+		agh_log error stop_adguardhome "state=stopping action=verify_handoff reason=installer_marker_remains result=failed"
 		STOP_STATUS="1"
 	fi
+	for db in stats.db sessions.db; do
+		remove_database_link "/tmp/${db}" "${WORK_DIR}/data/${db}"
+	done
 	return "${STOP_STATUS}"
 }
 
+# monitor_process_matches verifies that a PID still belongs to this add-on's
+# monitor before a stop escalation signal is sent.
+monitor_process_matches() {
+	local PID
+	PID="$1"
+	case "${PID}" in
+		"" | *[!0-9]*) return 1 ;;
+	esac
+	[ -r "/proc/${PID}/cmdline" ] || return 1
+	awk '{ print }' "/proc/${PID}/cmdline" 2>/dev/null | grep -q 'monitor-start'
+}
+
+# stop_monitor requests the monitor's normal USR1 shutdown, waits for procfs
+# restoration to finish, and uses identity-checked TERM/KILL escalation so a
+# stuck monitor cannot keep installer updates in a permanent stopping state.
 stop_monitor() {
-	local SIGNAL
+	local ATTEMPTS MONITOR_PID SIGNAL
 	case "$1" in
 		"${MON_PID}")
 			SIGNAL="USR2"
+			MONITOR_PID="${MON_PID}"
 			;;
 		"$$")
 			if [ -n "${MON_PID}" ]; then SIGNAL="USR1"; else { adguardhome_run stop_adguardhome; }; fi
 			;;
 	esac
-	[ -n "${SIGNAL}" ] && { kill -s "${SIGNAL}" "${MON_PID}" 2>/dev/null; }
+	[ -n "${SIGNAL}" ] || return 0
+	MONITOR_PID="${MONITOR_PID:-${MON_PID}}"
+	monitor_process_matches "${MONITOR_PID}" || return 0
+	kill -s "${SIGNAL}" "${MONITOR_PID}" 2>/dev/null || return 1
+	[ "${SIGNAL}" = "USR1" ] || return 0
+	ATTEMPTS=0
+	while monitor_process_matches "${MONITOR_PID}" && [ "${ATTEMPTS}" -lt 10 ]; do
+		sleep 1
+		ATTEMPTS="$((ATTEMPTS + 1))"
+	done
+	monitor_process_matches "${MONITOR_PID}" || return 0
+	kill -TERM "${MONITOR_PID}" 2>/dev/null || return 1
+	ATTEMPTS=0
+	while monitor_process_matches "${MONITOR_PID}" && [ "${ATTEMPTS}" -lt 5 ]; do
+		sleep 1
+		ATTEMPTS="$((ATTEMPTS + 1))"
+	done
+	monitor_process_matches "${MONITOR_PID}" || return 0
+	kill -KILL "${MONITOR_PID}" 2>/dev/null || return 1
+	ATTEMPTS=0
+	while monitor_process_matches "${MONITOR_PID}" && [ "${ATTEMPTS}" -lt 3 ]; do
+		sleep 1
+		ATTEMPTS="$((ATTEMPTS + 1))"
+	done
+	! monitor_process_matches "${MONITOR_PID}"
 }
 
 timezone() {
@@ -1853,12 +3714,15 @@ IPSet_Current_File() {
 	' "${YAML_FILE}"
 }
 
+# IPSet_Dnsmasq_Restart_After_Unlock restarts managed dnsmasq after releasing the IPSet lock when a restart is pending.
 IPSet_Dnsmasq_Restart_After_Unlock() {
 	[ "${IPSET_DNSMASQ_RESTART_PENDING:-0}" -eq 1 ] || return 0
 	IPSET_DNSMASQ_RESTART_PENDING="0"
-	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" = "1" ] || service restart_dnsmasq >/dev/null 2>&1
+	[ "${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}" != "1" ] || return 0
+	service restart_dnsmasq >/dev/null 2>&1
 }
 
+# IPSet_Current_UID prints the current process's effective user ID.
 IPSet_Current_UID() {
 	awk '
 		$1 == "Uid:" && $3 ~ /^[0-9][0-9]*$/ {
@@ -1882,12 +3746,20 @@ IPSet_Directory_Metadata() {
 	'
 }
 
+# IPSet_Lock_Interrupt_Cleanup restores AdGuardHome after an interrupted IPSet operation when the service was stopped by that operation.
 IPSet_Lock_Interrupt_Cleanup() {
 	if [ "${IPSET_START_STOPPED:-0}" -eq 1 ]; then
 		IPSet_Start_Restore || true
 	fi
 }
 
+# IPSet_Lock_Interrupt_Propagate invokes an outer transaction's signal cleanup while the IPSET lock remains held.
+IPSet_Lock_Interrupt_Propagate() {
+	[ -n "${IPSET_LOCK_INTERRUPT_CALLBACK:-}" ] || return 0
+	"${IPSET_LOCK_INTERRUPT_CALLBACK}"
+}
+
+# IPSet_Start_Restore restores AdGuardHome after an IPSet setup rollback and reports whether restoration succeeded.
 IPSet_Start_Restore() {
 	IPSET_START_STOPPED="0"
 	if IPSet_Start_While_Locked; then
@@ -1898,10 +3770,15 @@ IPSet_Start_Restore() {
 	return 1
 }
 
+# IPSet_Start_While_Locked starts AdGuardHome while deferring any managed dnsmasq restart until the IPSet lock is released.
 IPSet_Start_While_Locked() {
 	local DNSMASQ_RESTART_SKIP STATUS
 	DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
-	IPSET_DNSMASQ_RESTART_PENDING="1"
+	if adguard_dnsmasq_managed; then
+		IPSET_DNSMASQ_RESTART_PENDING="1"
+	else
+		IPSET_DNSMASQ_RESTART_PENDING="0"
+	fi
 	ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
 	lower_script start
 	STATUS="$?"
@@ -1911,6 +3788,10 @@ IPSet_Start_While_Locked() {
 
 IPSet_Lock() {
 	local STATUS
+	if [ "${IPSET_LOCK_ACTIVE:-0}" = "1" ]; then
+		"$@"
+		return "$?"
+	fi
 	IPSet_Runtime_Prepare || return 1
 	# Prefer flock on firmware that supports descriptor locking.  The private,
 	# ownership-validated mkdir lock remains the fallback for older firmware.
@@ -1924,6 +3805,7 @@ IPSet_Lock() {
 	return "${STATUS}"
 }
 
+# IPSet_Lock_Flock serializes an IPSet operation under a file lock and restores its signal handlers and cleanup state afterward.
 IPSet_Lock_Flock() {
 	local SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
 	TRAP_STATE_FILE="${IPSET_RUNTIME_DIR}/traps.$$"
@@ -1941,10 +3823,12 @@ IPSet_Lock_Flock() {
 		return 1
 	fi
 	# Restore a stopped service while this lock is still held; only then release it.
-	trap 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Flock_Cleanup; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
-	trap 'STATUS="$?"; IPSet_Lock_Flock_Cleanup; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
+	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Interrupt_Propagate; IPSet_Lock_Flock_Cleanup; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
+	trap 'STATUS="$?"; IPSet_Lock_Flock_Cleanup; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
+	IPSET_LOCK_ACTIVE="1"
 	"$@"
 	STATUS="$?"
+	IPSET_LOCK_ACTIVE="0"
 	IPSet_Lock_Flock_Cleanup
 	IPSet_Restore_Traps "${SAVED_TRAPS}"
 	return "${STATUS}"
@@ -1955,6 +3839,7 @@ IPSet_Lock_Flock_Cleanup() {
 	exec 8>&-
 }
 
+# IPSet_Lock_Mkdir serializes an IPSet operation using a validated directory lock and restores traps and lock state when it completes.
 IPSet_Lock_Mkdir() {
 	local ATTEMPTS LOCK_DIR LOCK_METADATA LOCK_OWNER OWNER OWNERLESS_ATTEMPTS SAVED_TRAPS STATUS TRAP_LINE TRAP_STATE_FILE
 	LOCK_DIR="${IPSET_RUNTIME_DIR}/mkdir"
@@ -2007,10 +3892,12 @@ IPSet_Lock_Mkdir() {
 	done <"${TRAP_STATE_FILE}"
 	rm -f "${TRAP_STATE_FILE}"
 	# Keep the fallback lock through restoration for the same lifecycle guarantee.
-	trap 'IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1' HUP INT QUIT ABRT TERM TSTP
-	trap 'STATUS="$?"; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
+	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else IPSet_Lock_Interrupt_Cleanup; IPSet_Lock_Interrupt_Propagate; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
+	trap 'STATUS="$?"; IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"; IPSet_Dnsmasq_Restart_After_Unlock; IPSet_Restore_Traps "${SAVED_TRAPS}"; exit "${STATUS}"' EXIT
+	IPSET_LOCK_ACTIVE="1"
 	"$@"
 	STATUS="$?"
+	IPSET_LOCK_ACTIVE="0"
 	IPSet_Lock_Mkdir_Cleanup "${LOCK_DIR}"
 	IPSet_Restore_Traps "${SAVED_TRAPS}"
 	return "${STATUS}"
@@ -2057,9 +3944,18 @@ IPSet_Lock_Mkdir_Reap_Stale() {
 	rm -rf "${LOCK_DIR}"
 }
 
+# IPSet_Migrate migrates legacy AdGuardHome IPSet mappings into the managed IPSet file and updates the YAML reference when supported.
 IPSet_Migrate() {
 	local CURRENT_FILE TEMP_FILE USER_TEMP_FILE
 	IPSET_MIGRATION_SKIPPED=""
+	if ! adguard_ipset_allowed; then
+		if ! IPSet_Disable_Managed; then
+			agh_log warning IPSet_Migrate "state=migration action=disable_managed_ipset result=skipped reason=lan_mode_remove_failed"
+			return 1
+		fi
+		IPSET_MIGRATION_SKIPPED="1"
+		return 0
+	fi
 	[ -f "${YAML_FILE}" ] || return 0
 	if ! CURRENT_FILE="$(IPSet_Current_File)"; then
 		return 1
@@ -2232,6 +4128,7 @@ IPSet_Migrate() {
 	fi
 }
 
+# IPSet_Disable_Managed removes the managed YAML file reference, or any configured file reference when requested by topology enforcement.
 IPSet_Disable_Managed() {
 	local CURRENT_FILE TEMP_FILE
 	IPSET_DISABLE_CHANGED=""
@@ -2239,7 +4136,8 @@ IPSet_Disable_Managed() {
 	if ! CURRENT_FILE="$(IPSet_Current_File)"; then
 		return 1
 	fi
-	if [ "${CURRENT_FILE}" != "${IPSET_FILE}" ]; then
+	[ -n "${CURRENT_FILE}" ] || return 0
+	if [ "${1:-}" != "configured" ] && [ "${CURRENT_FILE}" != "${IPSET_FILE}" ]; then
 		return 0
 	fi
 	TEMP_FILE="${YAML_FILE}.ipset-legacy.$$"
@@ -2283,9 +4181,11 @@ IPSet_Disable_Managed() {
 	agh_log info IPSet_Disable_Managed "state=configuration action=disable_managed_ipset result=disabled reason=unsupported_version"
 }
 
+# IPSet_Disable_Managed_For_Start_Locked stops AdGuardHome to disable managed IPSet configuration, then restores or restarts the service as needed.
 IPSet_Disable_Managed_For_Start_Locked() {
 	local WAS_RUNNING
 	WAS_RUNNING="0"
+	IPSET_START_STOPPED="${IPSET_START_STOPPED:-0}"
 	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
 		WAS_RUNNING="1"
 	fi
@@ -2296,7 +4196,7 @@ IPSet_Disable_Managed_For_Start_Locked() {
 			return 1
 		fi
 	fi
-	if ! IPSet_Disable_Managed; then
+	if ! IPSet_Disable_Managed "${1:-}"; then
 		if [ "${IPSET_START_STOPPED}" -eq 1 ] && IPSet_Start_Restore; then
 			IPSET_START_RESTARTED="1"
 		fi
@@ -2313,17 +4213,45 @@ IPSet_Disable_Managed_For_Start_Locked() {
 	return 0
 }
 
+# IPSet_Enabled reports whether IPSet integration is enabled for the current installation mode and configuration.
 IPSet_Enabled() {
-	[ "$(conf_value ADGUARD_IPSET)" != "NO" ]
+	adguard_ipset_allowed || return 1
+	[ "${CONFIG_IPSET:-YES}" != "NO" ]
 }
 
+# IPSet_Refresh refreshes managed IPSet mappings from an optional dnsmasq configuration file and restarts AdGuardHome when the mappings change.
 IPSet_Refresh() {
-	local DNSMASQ_RESTART_SKIP RESTART_STATUS
+	if [ "${TRANSACTION_ACTIVE:-0}" = "1" ] && [ "${IPSET_LOCK_ACTIVE:-0}" = "1" ]; then
+		IPSet_Refresh_After_Recovery "$@"
+	else
+		IPSet_Lock IPSet_Refresh_After_Recovery "$@"
+	fi
+}
+
+# IPSet_Refresh_After_Recovery recovers pending state and completes a non-transactional refresh without releasing the shared lock.
+IPSet_Refresh_After_Recovery() {
+	local CURRENT_FILE DNSMASQ_RESTART_SKIP RESTART_STATUS
+	[ "${TRANSACTION_ACTIVE:-0}" = "1" ] || dnsmasq_ipset_state_recover_pending || return 1
+	if ! adguard_ipset_allowed; then
+		if ! CURRENT_FILE="$(IPSet_Current_File 2>/dev/null)"; then
+			return 1
+		fi
+		[ -n "${CURRENT_FILE}" ] || return 0
+		agh_log info IPSet_Refresh "state=refresh action=disable_configured_ipset result=required reason=topology_disallowed file=${CURRENT_FILE}"
+		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
+		if [ "${IPSET_REFRESH_FROM_DNSMASQ:-}" = "1" ]; then
+			ADGUARDHOME_SKIP_DNSMASQ_RESTART="1"
+		fi
+		IPSet_Disable_Managed_For_Start_Locked configured
+		RESTART_STATUS="$?"
+		ADGUARDHOME_SKIP_DNSMASQ_RESTART="${DNSMASQ_RESTART_SKIP}"
+		return "${RESTART_STATUS}"
+	fi
 	IPSet_Enabled || return 0
 	IPSet_Supported || return 0
 	IPSET_REFRESH_CHANGED=""
 	IPSET_REFRESH_CONFIG="${1:-}"
-	IPSet_Lock IPSet_Setup_Locked || return 1
+	IPSet_Setup_Locked || return 1
 	if [ "${IPSET_REFRESH_CHANGED}" = "1" ] && [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -gt 0 ]; then
 		agh_log info IPSet_Refresh "state=refresh action=restart_adguardhome reason=ipset_refresh result=restarting"
 		DNSMASQ_RESTART_SKIP="${ADGUARDHOME_SKIP_DNSMASQ_RESTART:-}"
@@ -2439,6 +4367,7 @@ IPSet_Runtime_Prepare() {
 	fi
 }
 
+# IPSet_Setup initializes IPSet configuration and mappings when IPSet is enabled and supported.
 IPSet_Setup() {
 	IPSet_Enabled || return 0
 	IPSet_Supported || return 0
@@ -2446,7 +4375,15 @@ IPSet_Setup() {
 	IPSet_Lock IPSet_Setup_Locked
 }
 
+# IPSet_Setup_For_Start prepares IPSet configuration before AdGuardHome startup and disables managed IPSet settings when integration is unavailable, disabled, or unsupported.
 IPSet_Setup_For_Start() {
+	if ! adguard_ipset_allowed; then
+		if ! IPSet_Disable_Managed; then
+			agh_log error IPSet_Setup_For_Start "state=starting action=disable_managed_ipset result=failed reason=lan_mode_remove_failed"
+			return 1
+		fi
+		return 0
+	fi
 	if ! IPSet_Enabled; then
 		IPSet_Lock IPSet_Disable_Managed_For_Start_Locked
 		return $?
@@ -2570,6 +4507,7 @@ IPSet_Setup_Locked() {
 	return "${REFRESH_STATUS}"
 }
 
+# IPSet_Supported determines whether the installed AdGuardHome version supports IPSet configuration and records legacy-version status.
 IPSet_Supported() {
 	local VERSION_CLASS VERSION_OUTPUT
 	IPSET_LEGACY_VERSION=""
@@ -2611,6 +4549,24 @@ IPSet_Supported() {
 	return 1
 }
 
+case "${1:-}" in
+	status) CONFIG_LOAD_SCOPE="status" ;;
+	stop | kill | services-stop | proc-restore) CONFIG_LOAD_SCOPE="stop" ;;
+	dnsmasq | dnsmasq-sdn) CONFIG_LOAD_SCOPE="dnsmasq" ;;
+	firewall) CONFIG_LOAD_SCOPE="firewall" ;;
+	*) CONFIG_LOAD_SCOPE="action" ;;
+esac
+if ! load_operation_config "${CONFIG_LOAD_SCOPE}"; then
+	case "${CONFIG_LOAD_SCOPE}" in
+		stop)
+			set_operation_config_defaults
+			CONFIG_DNSMASQ_MODE="enabled"
+			printf '%s\n' "${NAME}: continuing stop with conservative configuration defaults" >&2
+			;;
+		*) return 1 2>/dev/null || exit 1 ;;
+	esac
+fi
+
 if [ "${1:-}" = "status" ]; then
 	status
 	exit "$?"
@@ -2635,6 +4591,9 @@ case "$1" in
 	"monitor-start")
 		if [ -n "${MON_PID}" ]; then { stop_monitor "${MON_PID}"; }; else { start_monitor & } fi
 		;;
+	"proc-restore")
+		proc_restore
+		;;
 	"start" | "restart")
 		{ "${SCRIPT_LOC}" init-start >/dev/null 2>&1; }
 		;;
@@ -2642,7 +4601,7 @@ case "$1" in
 		{ "${SCRIPT_LOC}" services-stop >/dev/null 2>&1; }
 		;;
 	"dnsmasq" | "dnsmasq-sdn")
-		if [ -n "${2}" ]; then { dnsmasq_params "${2}"; }; else { dnsmasq_params; }; fi
+		dnsmasq_action_handler "${2:-}"
 		;;
 	"firewall")
 		IPSet_Refresh
@@ -2655,6 +4614,7 @@ case "$1" in
 				{ "${SCRIPT_LOC}" monitor-start; }
 				;;
 			"services-stop")
+				proc_restore
 				{ stop_monitor "$$"; }
 				;;
 		esac

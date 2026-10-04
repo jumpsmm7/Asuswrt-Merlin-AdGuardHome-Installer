@@ -76,7 +76,6 @@ adguardhome_startup_checks_ready
 PIDOF_STATE=one
 NETSTAT_STATE=owned
 chmod 644 "${WORK_DIR}/AdGuardHome" || fail 'could not remove AdGuardHome executable bit'
-adguardhome_startup_checks_ready
-[ "$?" -eq 4 ] || fail 'S99 startup readiness did not return 4 for config validation failure'
+adguardhome_startup_checks_ready || fail 'S99 per-poll readiness unexpectedly repeated configuration validation'
 [ "$(wait_for_adguardhome_startup_checks_failure_reason 4)" = 'configuration validation failed' ] ||
 	fail 'S99 startup readiness did not explain configuration validation failure'

@@ -24,8 +24,10 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}/base" "${TMP_ROOT}/target" "${TMP_ROOT}/addon" || fail 'could not create test directories'
 sed -n '/^adguard_restart_after_install_abort() {$/,/^}/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract restart helper'
-sed -n '/^inst_AdGuardHome() {$/,/^set_timezone() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
-	fail 'could not extract installer function'
+sed -n '/^finalize_pending_mode_migration() {$/,/^}/p; /^rollback_pending_mode_migration() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract pending mode-migration helpers'
+sed -n '/^install_wan_event_scripts() {$/,/^set_timezone() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract installer functions'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'installer function extraction was empty'
 
 cat >"${TMP_ROOT}/target/AdGuardHome" <<'EOF_AGH'
@@ -69,7 +71,10 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 		RUNNING=0
 		return 0
 	}
+	# agh_is_running reports whether the simulated service is running.
 	agh_is_running() { [ "${RUNNING}" -eq 1 ]; }
+	# agh_wait_started reports whether the simulated service has restarted.
+	agh_wait_started() { agh_is_running; }
 	agh_start() {
 		printf '%s\n' 'start' >>"${CALLS_FILE}"
 		RUNNING=1
