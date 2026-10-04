@@ -47,6 +47,10 @@ readonly BLOCKLIST_ANALYZER_FILE="${TARG_DIR}/blocklist_analyzer.py"
 readonly BLOCKLIST_ANALYZER_URL="https://gist.githubusercontent.com/jumpsmm7/da69039cbee6eadd3b1d483c07c4bf19/raw/a4be7655095d6ff880c2f3748964b825d7c45bd2/blocklilst_analyzer.py"
 readonly BLOCKLIST_ANALYZER_SHA256_DEFAULT="77c21b6faeb7fea86b0729996dec5cc20d2d309fe8c6946c7371dd64134a6e5f"
 BLOCKLIST_ANALYZER_SHA256=""
+BLOCKLIST_ANALYZER_CANDIDATES_FILE=""
+BLOCKLIST_ANALYZER_CONFIGURED_IDS_FILE=""
+BLOCKLIST_ANALYZER_ORPHANED_IDS_FILE=""
+BLOCKLIST_ANALYZER_SELECTED_IDS_FILE=""
 SCRIPT_LOC=""
 SETUP_YAML_TMP_FILE=""
 BLOCKLIST_YAML_TMP_FILE=""
@@ -1984,6 +1988,17 @@ installer_cleanup_tmp_file() {
 		setup:"${YAML_ORI}.new.$$" | blocklist:"${YAML_FILE}.blocklists.$$.tmp")
 			rm -f "$2" 2>/dev/null
 			;;
+		blocklist-analysis:*)
+			[ -n "${TARG_DIR:-}" ] || return 0
+			case "$2" in
+				"${TARG_DIR}/blocklist_analyzer.$$.candidates" | \
+					"${TARG_DIR}/blocklist_analyzer.$$.configured.ids" | \
+					"${TARG_DIR}/blocklist_analyzer.$$.orphaned.ids" | \
+					"${TARG_DIR}/blocklist_analyzer.$$.selected")
+					rm -f "$2" 2>/dev/null
+					;;
+			esac
+			;;
 	esac
 }
 
@@ -2026,6 +2041,10 @@ on_installer_exit() {
 	cleanup_api_files
 	installer_cleanup_tmp_file setup "${SETUP_YAML_TMP_FILE:-}"
 	installer_cleanup_tmp_file blocklist "${BLOCKLIST_YAML_TMP_FILE:-}"
+	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_CANDIDATES_FILE:-}"
+	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_CONFIGURED_IDS_FILE:-}"
+	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_ORPHANED_IDS_FILE:-}"
+	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}"
 	if [ "${_DNS_STUBBY_STOPPED:-0}" = "1" ] && ! restore_stubby_after_dns_failure; then
 		PTXT "${ERROR} Unable to restart stubby after interrupted DNS preparation."
 	fi
@@ -4342,17 +4361,38 @@ blocklist_yaml_candidates() {
 }
 
 select_unused_blocklists_for_removal() {
-	local ids_file candidates_file selected_file id name url list_label choice_status
+	local ids_file candidates_file configured_ids_file orphaned_ids_file selected_file id name url list_label choice_status
 	ids_file="$1"
 	candidates_file="${TARG_DIR}/blocklist_analyzer.$$.candidates"
+	configured_ids_file="${TARG_DIR}/blocklist_analyzer.$$.configured.ids"
+	orphaned_ids_file="${TARG_DIR}/blocklist_analyzer.$$.orphaned.ids"
 	selected_file="${TARG_DIR}/blocklist_analyzer.$$.selected"
-	blocklist_yaml_candidates "${ids_file}" >"${candidates_file}"
-	if [ ! -s "${candidates_file}" ]; then
-		rm -f "${candidates_file}" "${selected_file}"
-		ptxt_warn "No matching unused IDs were found under the AdGuardHome filters section."
+	BLOCKLIST_ANALYZER_CANDIDATES_FILE="${candidates_file}"
+	BLOCKLIST_ANALYZER_CONFIGURED_IDS_FILE="${configured_ids_file}"
+	BLOCKLIST_ANALYZER_ORPHANED_IDS_FILE="${orphaned_ids_file}"
+	BLOCKLIST_ANALYZER_SELECTED_IDS_FILE="${selected_file}"
+	if ! blocklist_yaml_candidates "${ids_file}" >"${candidates_file}" ||
+		! awk -F'|' '{ print $1 }' "${candidates_file}" >"${configured_ids_file}" ||
+		! awk -v configuredfile="${configured_ids_file}" '
+		BEGIN { while ((getline id < configuredfile) > 0) configured[id] = 1; close(configuredfile) }
+		!configured[$0] { print }
+	' "${ids_file}" >"${orphaned_ids_file}"; then
+		rm -f "${candidates_file}" "${configured_ids_file}" "${orphaned_ids_file}" "${selected_file}"
 		return 1
 	fi
-	PTXT "${INFO} Matching unused blocklists found in AdGuardHome.yaml:"
+	if [ -s "${orphaned_ids_file}" ]; then
+		PTXT "${WARNING} Stale or historical filter-cache IDs were reported by the analyzer:"
+		while IFS= read -r id; do
+			PTXT "  id=${id} cache=${TARG_DIR}/data/filters/${id}.txt"
+		done <"${orphaned_ids_file}"
+		PTXT "${WARNING} These IDs have no current YAML blocklist to remove; AdGuard Home remains responsible for its filter cache."
+	fi
+	if [ ! -s "${candidates_file}" ]; then
+		rm -f "${candidates_file}" "${configured_ids_file}" "${orphaned_ids_file}" "${selected_file}"
+		ptxt_ok "No configured unused blocklists were found."
+		return 2
+	fi
+	PTXT "${INFO} Configured unused blocklists found in AdGuardHome.yaml:"
 	while IFS='|' read -r id name url; do
 		PTXT "  id=${id} name=${name} url=${url}"
 	done <"${candidates_file}"
@@ -4360,19 +4400,22 @@ select_unused_blocklists_for_removal() {
 		"${WARNING} Review these lists before removal." \
 		"${WARNING} Unused means the list did not uniquely block anything in the analyzed query log period."
 	if read_yesno "Do you want to remove all matching unused blocklists?"; then
-		awk -F'|' '{ print $1 }' "${candidates_file}" >"${selected_file}"
-		rm -f "${candidates_file}"
+		if ! cp "${configured_ids_file}" "${selected_file}"; then
+			rm -f "${candidates_file}" "${configured_ids_file}" "${orphaned_ids_file}" "${selected_file}"
+			return 1
+		fi
+		rm -f "${candidates_file}" "${configured_ids_file}" "${orphaned_ids_file}"
 		BLOCKLIST_ANALYZER_SELECTED_IDS_FILE="${selected_file}"
 		return 0
 	else
 		choice_status="$?"
 	fi
 	if [ "${choice_status}" -ne 1 ]; then
-		rm -f "${candidates_file}" "${selected_file}"
+		rm -f "${candidates_file}" "${configured_ids_file}" "${orphaned_ids_file}" "${selected_file}"
 		return "${choice_status}"
 	fi
 	: >"${selected_file}" || {
-		rm -f "${candidates_file}"
+		rm -f "${candidates_file}" "${configured_ids_file}" "${orphaned_ids_file}"
 		return 1
 	}
 	while IFS='|' read -r id name url; do
@@ -4384,12 +4427,12 @@ select_unused_blocklists_for_removal() {
 			0) PTXT "${id}" >>"${selected_file}" ;;
 			1) ptxt_ok "Keeping blocklist id ${id}." ;;
 			*)
-				rm -f "${candidates_file}" "${selected_file}"
+				rm -f "${candidates_file}" "${configured_ids_file}" "${orphaned_ids_file}" "${selected_file}"
 				return "${choice_status}"
 				;;
 		esac
 	done <"${candidates_file}"
-	rm -f "${candidates_file}"
+	rm -f "${candidates_file}" "${configured_ids_file}" "${orphaned_ids_file}"
 	if [ ! -s "${selected_file}" ]; then
 		rm -f "${selected_file}"
 		ptxt_warn "No unused blocklists were selected for removal."
@@ -4556,13 +4599,23 @@ cleanup_unused_blocklists() {
 			return 1
 			;;
 	esac
-	if ! select_unused_blocklists_for_removal "${BLOCKLIST_ANALYZER_IDS_FILE}"; then
-		rm -f "${BLOCKLIST_ANALYZER_IDS_FILE:-}" "${BLOCKLIST_ANALYZER_OUTPUT_FILE:-}" "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}"
-		ptxt_warn "Blocklist cleanup cancelled or nothing was selected."
-		blocklist_analyzer_pause
-		end_op_message 1
-		return 1
-	fi
+	select_unused_blocklists_for_removal "${BLOCKLIST_ANALYZER_IDS_FILE}"
+	case "$?" in
+		0) ;;
+		2)
+			rm -f "${BLOCKLIST_ANALYZER_IDS_FILE:-}" "${BLOCKLIST_ANALYZER_OUTPUT_FILE:-}" "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}"
+			blocklist_analyzer_pause
+			end_op_message 0
+			return 0
+			;;
+		*)
+			rm -f "${BLOCKLIST_ANALYZER_IDS_FILE:-}" "${BLOCKLIST_ANALYZER_OUTPUT_FILE:-}" "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}"
+			ptxt_warn "Blocklist cleanup cancelled or nothing was selected."
+			blocklist_analyzer_pause
+			end_op_message 1
+			return 1
+			;;
+	esac
 	if remove_unused_blocklists_from_yaml "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE}"; then
 		rm -f "${BLOCKLIST_ANALYZER_IDS_FILE:-}" "${BLOCKLIST_ANALYZER_OUTPUT_FILE:-}" "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}"
 		blocklist_analyzer_pause
