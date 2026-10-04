@@ -64,8 +64,6 @@ sed -n '/^adguardhome_start_signal_abort() {$/,/^}$/p' "${RC_FUNCTION}" | grep -
 	fail 'rc.func does not block repeated signals during startup recovery'
 grep -q 'DNS_HANDOFF_DIR="/tmp/AdGuardHome.dns-handoff"' "${S99_PATH}" ||
 	fail 'service script does not use the private dnsmasq handoff directory'
-grep -q 'adguard_dnsmasq_running || return 0' "${MANAGER_PATH}" ||
-	fail 'dnsmasq postconf does not require a running dnsmasq process'
 grep -q '\[ -f "${CONFIG_FILE}" \] || return 0' "${MANAGER_PATH}" ||
 	fail 'dnsmasq postconf does not require an existing dnsmasq configuration'
 MANAGER_DNSMASQ_FUNCTIONS="${TEST_ROOT}/manager-dnsmasq-functions"
@@ -80,6 +78,8 @@ if grep -q "^trap 'on_installer_exit' EXIT$" "${MANAGER_DNSMASQ_FUNCTIONS}"; the
 fi
 # shellcheck disable=SC1090
 . "${MANAGER_DNSMASQ_FUNCTIONS}"
+PROCS=AdGuardHome
+pidof() { return 1; }
 agh_log() { :; }
 adguard_lan_mode() { return 0; }
 adguard_dnsmasq_running() { return 1; }
@@ -133,6 +133,66 @@ dnsmasq_params "${missing_sdn}" || fail 'dnsmasq_params did not skip a missing c
 [ ! -e "${missing_config}" ] || fail 'dnsmasq_params created a missing configuration'
 [ ! -e "${missing_stage}" ] || fail 'dnsmasq_params created a stage file for a missing configuration'
 adguard_dnsmasq_running() { return 1; }
+
+# Exercise the real handler, process gate, editor and authenticated marker helper.
+# Only firmware paths and external service/publication dependencies are isolated.
+(
+	sed -n '/^dns_handoff_is_active() {$/,/^}$/p; /^dnsmasq_delete_matching() {$/,/^}$/p' "${MANAGER_PATH}" >"${TEST_ROOT}/postconf-helpers"
+	. "${TEST_ROOT}/postconf-helpers"
+	sed 's|CONFIG="/etc/dnsmasq.conf"|CONFIG="${DNSMASQ_CONF_FILE}"|' "${MANAGER_DNSMASQ_FUNCTIONS}" >"${TEST_ROOT}/postconf-runtime"
+	. "${TEST_ROOT}/postconf-runtime"
+	WORK_DIR="${TEST_ROOT}"
+	DNS_HANDOFF_DIR="${TEST_ROOT}/postconf-handoff"
+	DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
+	mkdir -m 700 "${DNS_HANDOFF_DIR}" || fail 'could not create postconf handoff directory'
+	owner_pid="$$"
+	owner_start="$(awk '{sub(/^.*\) /, ""); print $20}' "/proc/${owner_pid}/stat")"
+	pidof() { [ "${POSTCONF_AGH_RUNNING}" = 1 ] && printf '%s\n' 321; }
+	adguard_lan_mode() { [ "${POSTCONF_MODE}" = lan ]; }
+	adguard_dnsmasq_running() { return 1; }
+	resolv_conf_uses_rom() { return 0; }
+	ipv4_reverse_zone() { printf '%s\n' 2.0.192.in-addr.arpa; }
+	# Publication transaction failures are exercised in dnsmasq-lan-mode.sh.
+	dnsmasq_publish_staged_config() {
+		[ "$2" = "$1.adguard.$$" ] || fail 'stage is not beside the live config'
+		[ "$(grep -c '^port=553$' "$2")" -eq 1 ] || fail 'stage must contain exactly one handoff port'
+		mv "$2" "$1"
+	}
+	for scenario in wan_running wan_handoff lan_handoff lan_auto inactive stale insecure_dir insecure_file symlink dead_owner reused_pid; do
+		POSTCONF_MODE=wan
+		POSTCONF_AGH_RUNNING=0
+		CONFIG_DNSMASQ_MODE=auto
+		rm -f "${DNS_HANDOFF_FILE}"
+		chmod 700 "${DNS_HANDOFF_DIR}"
+		printf '%s\n' '# firmware configuration' 'port=53' >"${DNSMASQ_CONF_FILE}"
+		cp "${DNSMASQ_CONF_FILE}" "${TEST_ROOT}/postconf-original"
+		if [ "${scenario}" != wan_running ] && [ "${scenario}" != lan_auto ] && [ "${scenario}" != inactive ]; then
+			printf '%s %s\n' "${owner_pid}" "${owner_start}" >"${DNS_HANDOFF_FILE}"
+			chmod 600 "${DNS_HANDOFF_FILE}"
+		fi
+		case "${scenario}" in
+			wan_running) POSTCONF_AGH_RUNNING=1 ;;
+			lan_handoff) POSTCONF_MODE=lan; CONFIG_DNSMASQ_MODE=disabled ;;
+			lan_auto) POSTCONF_MODE=lan; POSTCONF_AGH_RUNNING=1 ;;
+			stale) printf '%s\n' "${owner_pid}" >"${DNS_HANDOFF_FILE}" ;;
+			insecure_dir) chmod 777 "${DNS_HANDOFF_DIR}" ;;
+			insecure_file) chmod 666 "${DNS_HANDOFF_FILE}" ;;
+			symlink) mv "${DNS_HANDOFF_FILE}" "${DNS_HANDOFF_DIR}/target"; ln -s target "${DNS_HANDOFF_FILE}" ;;
+			dead_owner) printf '%s\n' '999999 1' >"${DNS_HANDOFF_FILE}" ;;
+			reused_pid) printf '%s %s\n' "${owner_pid}" "$((owner_start + 1))" >"${DNS_HANDOFF_FILE}" ;;
+		esac
+		# Repeated watchdog-triggered postconf calls must stay idempotent.
+		for attempt in 1 2 3; do
+			dnsmasq_action_handler /etc/dnsmasq.conf || fail "postconf failed: ${scenario}"
+			case "${scenario}" in
+				wan_running | wan_handoff | lan_handoff)
+					[ "$(grep -c '^port=553$' "${DNSMASQ_CONF_FILE}")" -eq 1 ] || fail "missing or duplicate port: ${scenario}"
+					;;
+				*) cmp -s "${DNSMASQ_CONF_FILE}" "${TEST_ROOT}/postconf-original" || fail "unauthorized postconf edit: ${scenario}" ;;
+			esac
+		done
+	done
+) || fail 'runtime postconf lifecycle cases failed'
 
 dnsmasq_fallback_called=0
 dnsmasq_params() { dnsmasq_fallback_called=1; }

@@ -472,6 +472,59 @@ assert_resolv_conf_not_unmounted() {
 	[ ! -s "${UMOUNT_CALLS_FILE}" ] || fail "${case_name}: /tmp/resolv.conf was unmounted"
 }
 
+# A supplied config must exist and must not resolve through a symlink.
+for target_kind in missing directory symlink; do
+	reset_case
+	rm -f "${DNSMASQ_CONF_FILE}"
+	case "${target_kind}" in
+		directory) mkdir "${DNSMASQ_CONF_FILE}" || fail 'could not create directory fixture' ;;
+		symlink) ln -s "${DNSMASQ_SDN_CONF_FILE}" "${DNSMASQ_CONF_FILE}" || fail 'could not create config symlink' ;;
+	esac
+	if dnsmasq_action_handler /etc/dnsmasq.conf; then
+		[ "${target_kind}" != symlink ] || fail 'postconf accepted a config symlink'
+	else
+		[ "${target_kind}" = symlink ] || fail "postconf failed to skip ${target_kind} config"
+	fi
+	assert_no_ipset_refresh "${target_kind} config"
+	[ ! -e "${DNSMASQ_CONF_FILE}.adguard.$$" ] || fail "${target_kind} config created a stage"
+	grep -qx '# sdn config' "${DNSMASQ_SDN_CONF_FILE}" || fail 'symlink target changed'
+	case "${target_kind}" in
+		directory) rmdir "${DNSMASQ_CONF_FILE}" ;;
+		symlink) rm -f "${DNSMASQ_CONF_FILE}" ;;
+		missing) [ ! -e "${DNSMASQ_CONF_FILE}" ] || fail 'missing config was created' ;;
+	esac
+done
+
+# Firmware postconf runs before the replacement dnsmasq process exists.
+for failure in none staging editing refresh publication; do
+	reset_case
+	(
+		cp() {
+			[ "${failure}" != staging ] || return 1
+			command cp "$@"
+		}
+		sed() {
+			if [ "${failure}" = editing ] && [ "${1:-}" = -i ]; then return 1; fi
+			command sed "$@"
+		}
+		case "${failure}" in
+			refresh) IPSET_REFRESH_FAIL=1 ;;
+			publication) MV_PUBLISH_FAIL=1; IPSET_REFRESH_CHANGE=1 ;;
+		esac
+		printf '%s\n' 'original ipset' >"${IPSET_FILE}"
+		if dnsmasq_action_handler /etc/dnsmasq.conf; then
+			[ "${failure}" = none ] || fail "postconf hid ${failure} failure"
+			[ "$(grep -c '^port=553$' "${DNSMASQ_CONF_FILE}")" -eq 1 ] || fail 'postconf port missing or duplicated'
+		else
+			[ "${failure}" != none ] || fail 'postconf rejected absent dnsmasq'
+			grep -qx '# base config' "${DNSMASQ_CONF_FILE}" || fail "${failure} changed live config"
+			grep -qx 'original ipset' "${IPSET_FILE}" || fail "${failure} did not compensate IPSET"
+			grep -qx 'original yaml' "${YAML_FILE}" || fail "${failure} did not compensate YAML"
+		fi
+		[ ! -e "${DNSMASQ_CONF_FILE}.adguard.$$" ] || fail "${failure} left a config stage"
+	) || fail "runtime postconf case failed: ${failure}"
+done
+
 reset_case
 ADGUARD_INSTALL_MODE='lan'
 DNSMASQ_RUNNING='0'
@@ -520,9 +573,8 @@ touch "${MANAGED_IPSET_FILE}" || fail 'could not create disabled-handoff managed
 dnsmasq_action_handler || fail 'LAN disabled handoff path failed'
 ! grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
 	fail 'LAN disabled handoff path logged stopped dnsmasq skip reason'
-assert_dnsmasq_postconf_not_written "${DNSMASQ_CONF_FILE}" 'LAN disabled handoff path'
-assert_no_ipset_refresh 'LAN disabled handoff path'
-[ -e "${MANAGED_IPSET_FILE}" ] || fail 'stopped dnsmasq path unexpectedly changed managed IPSET state'
+assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN disabled handoff path'
+[ ! -e "${MANAGED_IPSET_FILE}" ] || fail 'handoff did not clean up unsupported topology IPSET state'
 
 reset_case
 ADGUARD_INSTALL_MODE='lan'
@@ -648,8 +700,8 @@ DNSMASQ_RUNNING='0'
 ADGUARD_DNSMASQ_MODE='auto'
 CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
 dnsmasq_action_handler || fail 'WAN stopped dnsmasq path failed'
-assert_dnsmasq_postconf_not_written "${DNSMASQ_CONF_FILE}" 'WAN stopped dnsmasq path'
-assert_no_ipset_refresh 'WAN stopped dnsmasq path'
+assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'WAN stopped dnsmasq path'
+grep -q "${DNSMASQ_CONF_FILE}" "${IPSET_CALLS_FILE}" || fail 'missing topology refresh: WAN stopped dnsmasq path'
 
 reset_case
 ADGUARD_INSTALL_MODE='wan'
@@ -677,8 +729,8 @@ CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
 dnsmasq_action_handler || fail 'LAN managed stopped dnsmasq startup path failed'
 ! grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
 	fail 'LAN managed stopped dnsmasq startup path logged stopped dnsmasq skip reason'
-assert_dnsmasq_postconf_not_written "${DNSMASQ_CONF_FILE}" 'LAN managed stopped dnsmasq startup path'
-assert_no_ipset_refresh 'LAN managed stopped dnsmasq startup path'
+assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN managed stopped dnsmasq startup path'
+grep -q "${DNSMASQ_CONF_FILE}" "${IPSET_CALLS_FILE}" || fail 'missing topology refresh: LAN managed stopped dnsmasq startup path'
 
 reset_case
 ADGUARD_INSTALL_MODE='lan'
@@ -690,8 +742,8 @@ ADGUARD_RUNNING='0'
 dnsmasq_action_handler || fail 'LAN stopped dnsmasq handoff path failed'
 ! grep -q 'state=skip reason=lan_mode_dnsmasq_not_running' "${LOG_FILE}" ||
 	fail 'LAN stopped dnsmasq handoff path logged stopped dnsmasq skip reason'
-assert_dnsmasq_postconf_not_written "${DNSMASQ_CONF_FILE}" 'LAN stopped dnsmasq handoff path'
-assert_no_ipset_refresh 'LAN stopped dnsmasq handoff path'
+assert_dnsmasq_postconf_written "${DNSMASQ_CONF_FILE}" 'LAN stopped dnsmasq handoff path'
+grep -q "${DNSMASQ_CONF_FILE}" "${IPSET_CALLS_FILE}" || fail 'missing topology refresh: LAN stopped dnsmasq handoff path'
 
 # Base-config generation threads the resolved primary LAN interface into the
 # bridge DNS fallback helper and writes a dhcp-option line per discovered pair.

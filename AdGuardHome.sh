@@ -1523,7 +1523,7 @@ dnsmasq_params() {
 	RC_SUPPORT="$(nvram get rc_support 2>/dev/null)"
 	LAN_IF="$(nvram get lan_ifname 2>/dev/null)"
 	case "${1:-}" in
-		"")
+		"" | /etc/dnsmasq.conf)
 			CONFIG="/etc/dnsmasq.conf"
 			DHCP_IF="lan"
 			if [ -n "${LAN_IF}" ]; then
@@ -1558,8 +1558,13 @@ dnsmasq_params() {
 			;;
 	esac
 	CONFIG_FILE="${CONFIG}"
-	adguard_dnsmasq_running || return 0
 	[ -f "${CONFIG_FILE}" ] || return 0
+	[ ! -L "${CONFIG_FILE}" ] || return 1
+	# Firmware invokes postconf before starting the replacement dnsmasq process.
+	if adguard_lan_mode && ! adguard_dnsmasq_running &&
+		[ "${CONFIG_DNSMASQ_MODE:-auto}" != "enabled" ] && ! dns_handoff_is_active; then
+		return 0
+	fi
 	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -eq 0 ] && ! dns_handoff_is_active; then
 		return 0
 	fi
@@ -1602,11 +1607,11 @@ dnsmasq_params() {
 			return 1
 		}
 	fi
-	case "${1:-}:${RC_SUPPORT}" in
-		:*mtlancfg*)
+	case "${DHCP_IF}:${RC_SUPPORT}" in
+		lan:*mtlancfg*)
 			:
 			;;
-		:*)
+		lan:*)
 			BRIDGE_OPTIONS_STAGE="${CONFIG_STAGE}.bridge-options"
 			if ! private_ipv4_bridge_dns_options_with_fallbacks "${LAN_IF}" >"${BRIDGE_OPTIONS_STAGE}"; then
 				rm -f "${BRIDGE_OPTIONS_STAGE}" "${CONFIG_STAGE}"
