@@ -188,6 +188,7 @@ ptxt_step() {
 	STOP_PHASE=firmware
 	STOP_POLLS=0
 	: >"${CALLS_FILE}"
+	# Accept stop requests and reset the poll counter when direct init takes over.
 	adguard_service_without_nvram_lock_fd() {
 		case "$*" in
 			service\ stop_AdGuardHome)
@@ -201,6 +202,7 @@ ptxt_step() {
 		esac
 		return 0
 	}
+	# Report one process until the direct-init phase has completed 16 polls.
 	agh_process_count() {
 		if [ "${STOP_PHASE}" = fallback ] && [ "${STOP_POLLS}" -ge 16 ]; then
 			printf '%s\n' 0
@@ -208,6 +210,7 @@ ptxt_step() {
 			printf '%s\n' 1
 		fi
 	}
+	# Advance the stop poll counter without waiting in real time.
 	sleep() { STOP_POLLS="$((STOP_POLLS + 1))"; }
 	agh_request_stop || fail 'direct stop fallback did not finish after the firmware grace period'
 	grep -q 'Waiting for AdGuardHome to stop cleanly (firmware service)' "${CALLS_FILE}" ||
@@ -378,8 +381,11 @@ PROCS=AdGuardHome
 MON_PID=""
 DIRECT_ACTION="${DIRECT_ACTION:-${1:-}}"
 export DIRECT_ACTION
+# Accept configuration loading without reading router files.
 load_operation_config() { return 0; }
+# Report dependencies available so dispatch can run in the fixture.
 manager_dependencies_available() { return 0; }
+# Echo $1 unchanged; fixture paths are already suitable for identity checks.
 canonical_path() { printf '%s\n' "$1"; }
 # Return simulated monitor candidates for the managed entry-point names when
 # discovery is enabled, including an optional unrelated PID for filtering checks.
@@ -413,10 +419,15 @@ awk() {
 		*) return 1 ;;
 	esac
 }
+# Accept timezone setup without changing the host environment.
 timezone() { :; }
+# Accept process tuning without changing host procfs settings.
 proc_optimizations() { :; }
+# Accept process restoration without changing host procfs settings.
 proc_restore() { :; }
+# Log firmware service requests without dispatching real router actions.
 service() { printf '%s\n' "service $*" >>"${CALLS_FILE}"; }
+# Record a monitor PID and a daemon PID selected by the requested start/restart.
 start_monitor() {
 	printf '%s\n' 444 >"${MONITOR_STATE_FILE}"
 	case "${DIRECT_ACTION}" in

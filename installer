@@ -3103,6 +3103,11 @@ adguard_pid_list_has_new_pid() {
 	return 1
 }
 
+# Poll for completion of $1 (default restart), using $2 as the old PID list.
+# $3 overrides the wait in seconds; otherwise use ADGUARDHOME_WAIT_TIMEOUT,
+# capped by ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT for $4's default firmware phase.
+# The fallback phase uses the full wait. Return 0 and report final status when
+# complete, or print the transitional state and return 1 when the wait expires.
 adguard_service_status_after_action() {
 	local action elapsed maxwait old_pids phase phase_label status_message transition_message
 	action="${1:-restart}"
