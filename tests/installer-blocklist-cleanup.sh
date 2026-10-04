@@ -317,10 +317,11 @@ USED BLOCKLISTS (1)
 -------------------
 123.txt  some used list
 
- UNUSED BLOCKLISTS (2)
+ UNUSED BLOCKLISTS (3)
 ---------------------
 1769441874.txt  https://example.invalid/a.txt
 200.txt         https://example.invalid/b.txt
+999.txt         stale cache entry
 
 OTHER SECTION
 -------------
@@ -330,6 +331,7 @@ EOF_ANALYZER
 cat >"${TMP_ROOT}/ids.expected" <<'EOF_IDS'
 1769441874
 200
+999
 EOF_IDS
 
 cat >"${TMP_ROOT}/AdGuardHome.yaml" <<'EOF_YAML'
@@ -359,6 +361,10 @@ cat >"${TMP_ROOT}/candidates.expected" <<'EOF_CANDIDATES'
 200|List B|https://example.invalid/b.txt
 EOF_CANDIDATES
 
+mkdir -p "${TMP_ROOT}/data/filters" || fail 'could not create filter cache fixture'
+printf '%s\n' 'configured filter cache' >"${TMP_ROOT}/data/filters/1769441874.txt" || fail 'could not create configured cache fixture'
+printf '%s\n' 'stale filter cache' >"${TMP_ROOT}/data/filters/999.txt" || fail 'could not create stale cache fixture'
+
 (
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
@@ -366,13 +372,14 @@ EOF_CANDIDATES
 	WARNING='Warning:'
 	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 	TARG_DIR="${TMP_ROOT}"
+	# read_yesno records prompt text ($1) in prompts.actual and returns 1 (no).
 	read_yesno() {
 		printf '%s\n' "$1" >>"${TMP_ROOT}/prompts.actual"
 		return 1
 	}
 	blocklist_analyzer_ids "${TMP_ROOT}/analyzer.out" >"${TMP_ROOT}/ids.actual"
 	blocklist_yaml_candidates "${TMP_ROOT}/ids.actual" "${TMP_ROOT}/AdGuardHome.yaml" >"${TMP_ROOT}/candidates.actual"
-	select_unused_blocklists_for_removal "${TMP_ROOT}/ids.actual" >/dev/null 2>&1 || true
+	select_unused_blocklists_for_removal "${TMP_ROOT}/ids.actual" >"${TMP_ROOT}/selection.actual" 2>&1 || true
 ) || fail 'blocklist helper subprocess failed'
 
 cmp -s "${TMP_ROOT}/ids.expected" "${TMP_ROOT}/ids.actual" ||
@@ -383,6 +390,65 @@ grep -q 'Remove blocklist List A from AdGuardHome.yaml?' "${TMP_ROOT}/prompts.ac
 	fail 'one-by-one prompt does not include the first blocklist name'
 grep -q 'Remove blocklist List B from AdGuardHome.yaml?' "${TMP_ROOT}/prompts.actual" ||
 	fail 'one-by-one prompt does not include the second blocklist name'
+if grep -q '999' "${TMP_ROOT}/prompts.actual"; then
+	fail 'mixed configured/ghost result prompted for the stale cache ID'
+fi
+grep -q 'Stale or historical filter-cache IDs' "${TMP_ROOT}/selection.actual" ||
+	fail 'mixed configured/ghost result did not report stale cache IDs separately'
+grep -q 'no current YAML blocklist to remove' "${TMP_ROOT}/selection.actual" ||
+	fail 'stale cache notice did not explain that no YAML blocklist can be removed'
+[ -f "${TMP_ROOT}/data/filters/999.txt" ] || fail 'mixed result automatically deleted the stale cache file'
+
+cat >"${TMP_ROOT}/ghost.ids" <<'EOF_GHOST_IDS'
+999
+EOF_GHOST_IDS
+: >"${TMP_ROOT}/ghost.prompts"
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	INPUT='Input:'
+	INFO='Info:'
+	WARNING='Warning:'
+	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
+	TARG_DIR="${TMP_ROOT}"
+	# read_yesno records unexpected prompt text ($1) in ghost.prompts and returns 1 (no).
+	read_yesno() {
+		printf '%s\n' "$1" >>"${TMP_ROOT}/ghost.prompts"
+		return 1
+	}
+	select_unused_blocklists_for_removal "${TMP_ROOT}/ghost.ids" >"${TMP_ROOT}/ghost.out" 2>&1
+	[ "$?" -eq 2 ] || exit 1
+) || fail 'all-ghost selection did not return the successful no-configured result'
+grep -q 'No configured unused blocklists were found' "${TMP_ROOT}/ghost.out" ||
+	fail 'all-ghost result did not report that no configured unused blocklists were found'
+[ ! -s "${TMP_ROOT}/ghost.prompts" ] || fail 'all-ghost result displayed a removal prompt'
+[ -f "${TMP_ROOT}/data/filters/999.txt" ] || fail 'all-ghost result automatically deleted the stale cache file'
+
+(
+	# shellcheck disable=SC1090
+	. "${FUNCTIONS_FILE}"
+	INPUT='Input:'
+	INFO='Info:'
+	WARNING='Warning:'
+	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
+	TARG_DIR="${TMP_ROOT}"
+	BLOCKLIST_ANALYZER_IDS_FILE="${TMP_ROOT}/ghost.ids"
+	BLOCKLIST_ANALYZER_OUTPUT_FILE="${TMP_ROOT}/ghost-analyzer.out"
+	: >"${BLOCKLIST_ANALYZER_OUTPUT_FILE}"
+	# install_blocklist_analyzer reports success without downloading the analyzer.
+	install_blocklist_analyzer() { return 0; }
+	# run_blocklist_analyzer reports success using the preconfigured ghost ID fixture.
+	run_blocklist_analyzer() { return 0; }
+	# read_yesno fails the subprocess if stale-only cleanup requests confirmation.
+	read_yesno() { exit 1; }
+	# blocklist_analyzer_pause skips interactive waiting and returns success.
+	blocklist_analyzer_pause() { :; }
+	# end_op_message prints the completion status ($1) for the success assertion.
+	end_op_message() { printf '%s\n' "end:$1"; }
+	cleanup_unused_blocklists >"${TMP_ROOT}/ghost-cleanup.out" 2>&1
+) || fail 'all-ghost cleanup did not exit successfully'
+grep -q '^end:0$' "${TMP_ROOT}/ghost-cleanup.out" || fail 'all-ghost cleanup did not report successful completion'
+[ -f "${TMP_ROOT}/data/filters/999.txt" ] || fail 'all-ghost cleanup automatically deleted the stale cache file'
 
 cat >"${TMP_ROOT}/ids.selected" <<'EOF_SELECTED'
 1769441874
