@@ -3831,6 +3831,9 @@ agh_request_start() {
 		agh_is_running && return 0
 		if agh_start_transition_active; then
 			ptxt_step "Firmware service start is still in progress; waiting for the managed monitor to launch the daemon."
+			# Preserve the bounded daemon wait that direct fallback would have
+			# provided, without dispatching a second start action.
+			agh_wait_started "${ADGUARDHOME_WAIT_TIMEOUT}" || true
 			return 0
 		fi
 		ptxt_step "Firmware service start did not create the daemon; trying the init script directly."

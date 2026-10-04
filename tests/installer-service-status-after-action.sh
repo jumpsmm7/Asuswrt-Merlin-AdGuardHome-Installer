@@ -25,7 +25,7 @@ sed -n '/^adguard_pid_list_has_new_pid() {$/,/^valid_adguardhome_username() {$/p
 	fail "could not read ${SCRIPT_PATH}"
 sed -n '/^adguard_service_without_nvram_lock_fd() {$/,/^agh_restart() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
 	fail "could not read service request helpers from ${SCRIPT_PATH}"
-sed -n '/^agh_start_transition_active() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
+sed -n '/^agh_start_transition_active() {$/,/^}$/p; /^agh_wait_started() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
 	fail "could not read start transition helper from ${SCRIPT_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'service status helper was not found'
 
@@ -234,13 +234,17 @@ PROCESS_STATE='stopped'
 PROCESS_COUNT='0'
 CURRENT_PIDS=''
 MONITOR_COUNT='1'
+START_AFTER_SLEEP=61
 SLEEP_CALLS=0
 agh_request_start || fail 'start request rejected an active firmware monitor'
 ! grep -q '^/opt/etc/init.d/S99AdGuardHome start x$' "${CALLS_FILE}" ||
 	fail 'start request duplicated an active firmware monitor with direct init'
 grep -q 'Firmware service start is still in progress' "${CALLS_FILE}" ||
 	fail 'start request did not report the active firmware monitor'
+[ "${SLEEP_CALLS}" -eq "${ADGUARDHOME_WAIT_TIMEOUT}" ] ||
+	fail 'managed monitor start did not preserve the direct fallback daemon wait'
 MONITOR_COUNT='0'
+START_AFTER_SLEEP=0
 
 : >"${CALLS_FILE}"
 PROCESS_STATE='running'
