@@ -12,6 +12,7 @@ cleanup() {
 	rm -rf "${TEST_ROOT}"
 }
 
+# Print the supplied failure message to stderr and exit the test with status 1.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -63,6 +64,7 @@ sleep() {
 	fi
 }
 
+# Print the simulated daemon PIDs when $1 is AdGuardHome; otherwise emit nothing.
 pidof() {
 	if [ "${1:-}" = 'AdGuardHome' ]; then
 		printf '%s\n' "${CURRENT_PIDS}"
