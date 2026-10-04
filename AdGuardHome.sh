@@ -4608,7 +4608,7 @@ if [ -f "${UPPER_SCRIPT}" ]; then { if { [ "$(canonical_path "${UPPER_SCRIPT}" 2
 	exec "${UPPER_SCRIPT}" "$@"
 	exit
 }; fi; }; else { if [ -z "${PROCS}" ]; then exit; fi; }; fi
-{ for PID in $(adguard_monitor_pids); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "${PID}" != "$$" ]; then { MON_PID="${PID}"; }; fi; done; }
+{ for PID in $(adguard_monitor_pids); do if monitor_process_matches "${PID}" && [ "${PID}" != "$$" ]; then { MON_PID="${PID}"; }; fi; done; }
 
 unset TZ
 case "$1" in

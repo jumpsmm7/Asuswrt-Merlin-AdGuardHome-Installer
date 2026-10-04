@@ -263,7 +263,8 @@ INIT_FILE="${TEST_ROOT}/S99AdGuardHome"
 STATE_FILE="${TEST_ROOT}/state"
 MONITOR_STATE_FILE="${TEST_ROOT}/monitor-state"
 STOPPED_MONITORS_FILE="${TEST_ROOT}/stopped-monitors"
-sed -n '/^adguard_monitor_pids() {$/,/^}$/p; /^stop_all_monitors() {$/,/^}$/p' "${RUNTIME_PATH}" >"${DISPATCH_FILE}" ||
+DISPATCH_STDERR="${TEST_ROOT}/dispatch-stderr"
+sed -n '/^adguard_monitor_pids() {$/,/^}$/p; /^stop_all_monitors() {$/,/^}$/p; /^[{] for PID in \$(adguard_monitor_pids); do/p' "${RUNTIME_PATH}" >"${DISPATCH_FILE}" ||
 	fail 'could not extract runtime monitor helpers'
 sed -n '/^case "${1:-}" in$/,$p' "${RUNTIME_PATH}" >>"${DISPATCH_FILE}" ||
 	fail 'could not extract runtime action dispatcher'
@@ -303,7 +304,12 @@ awk() {
 		/proc/*/cmdline)
 			monitor_pid="${2#/proc/}"
 			monitor_pid="${monitor_pid%/cmdline}"
-			monitor_process_matches "${monitor_pid}" && printf '%s\n' monitor-start
+			if monitor_process_matches "${monitor_pid}"; then
+				printf '%s\n' monitor-start
+			else
+				printf '%s\n' "awk: /proc/${monitor_pid}/cmdline: No such file or directory" >&2
+				return 1
+			fi
 			;;
 		*) return 1 ;;
 	esac
@@ -404,7 +410,9 @@ for action in start restart stop kill; do
 				printf '%s\n' 111 >"${STATE_FILE}"
 			fi
 			printf '%s\n' '456 457 458' >"${MONITOR_STATE_FILE}"
-			agh_request_stop || fail "direct ${action} fallback did not reach runtime shutdown"
+			: >"${DISPATCH_STDERR}"
+			agh_request_stop 2>"${DISPATCH_STDERR}" || fail "direct ${action} fallback did not reach runtime shutdown"
+			[ ! -s "${DISPATCH_STDERR}" ] || fail "direct ${action} leaked procfs discovery diagnostics"
 			[ ! -s "${STATE_FILE}" ] || fail "direct ${action} left the daemon running"
 			[ -z "$(cat "${MONITOR_STATE_FILE}")" ] || fail "direct ${action} left a monitor running"
 			[ "$(wc -l <"${STOPPED_MONITORS_FILE}")" -eq 3 ] || fail "direct ${action} did not stop every monitor"
