@@ -3318,7 +3318,9 @@ stop_all_monitors() {
 		MON_PID="${PID}"
 		stop_monitor "$$" || STOP_STATUS=1
 	done
-	[ "${FOUND}" -eq 1 ] || adguardhome_run stop_adguardhome || STOP_STATUS=1
+	if [ "${FOUND}" -eq 0 ] || [ "${STOP_STATUS}" -ne 0 ]; then
+		adguardhome_run stop_adguardhome || STOP_STATUS=1
+	fi
 	return "${STOP_STATUS}"
 }
 
