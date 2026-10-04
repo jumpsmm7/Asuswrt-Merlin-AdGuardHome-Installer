@@ -372,6 +372,7 @@ printf '%s\n' 'stale filter cache' >"${TMP_ROOT}/data/filters/999.txt" || fail '
 	WARNING='Warning:'
 	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 	TARG_DIR="${TMP_ROOT}"
+	# read_yesno records each mixed-result prompt and returns 1 to decline removal.
 	read_yesno() {
 		printf '%s\n' "$1" >>"${TMP_ROOT}/prompts.actual"
 		return 1
@@ -410,6 +411,7 @@ EOF_GHOST_IDS
 	WARNING='Warning:'
 	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 	TARG_DIR="${TMP_ROOT}"
+	# read_yesno records unexpected orphan-only prompts and returns 1 to decline.
 	read_yesno() {
 		printf '%s\n' "$1" >>"${TMP_ROOT}/ghost.prompts"
 		return 1
@@ -433,10 +435,15 @@ grep -q 'No configured unused blocklists were found' "${TMP_ROOT}/ghost.out" ||
 	BLOCKLIST_ANALYZER_IDS_FILE="${TMP_ROOT}/ghost.ids"
 	BLOCKLIST_ANALYZER_OUTPUT_FILE="${TMP_ROOT}/ghost-analyzer.out"
 	: >"${BLOCKLIST_ANALYZER_OUTPUT_FILE}"
+	# install_blocklist_analyzer simulates successful installation for this fixture.
 	install_blocklist_analyzer() { return 0; }
+	# run_blocklist_analyzer succeeds using the pre-created orphan-only ID file.
 	run_blocklist_analyzer() { return 0; }
+	# read_yesno fails the subprocess if orphan-only cleanup requests confirmation.
 	read_yesno() { exit 1; }
+	# blocklist_analyzer_pause skips interactive waiting in this cleanup status test.
 	blocklist_analyzer_pause() { :; }
+	# end_op_message prints its status argument for the successful-completion assertion.
 	end_op_message() { printf '%s\n' "end:$1"; }
 	cleanup_unused_blocklists >"${TMP_ROOT}/ghost-cleanup.out" 2>&1
 ) || fail 'all-ghost cleanup did not exit successfully'
