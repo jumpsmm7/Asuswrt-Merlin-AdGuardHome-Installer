@@ -34,7 +34,7 @@ jobs:
         run: |
           set -eu
           python3 -m venv "${RUNNER_TEMP}/semgrep-venv"
-          "${RUNNER_TEMP}/semgrep-venv/bin/pip" install --disable-pip-version-check 'semgrep==1.172.0'
+          "${RUNNER_TEMP}/semgrep-venv/bin/pip" install --disable-pip-version-check --require-hashes -r requirements-semgrep.txt
           printf '%s\n' "${RUNNER_TEMP}/semgrep-venv/bin" >> "${GITHUB_PATH}"
 
       - name: Verify insecure downloader fixtures
