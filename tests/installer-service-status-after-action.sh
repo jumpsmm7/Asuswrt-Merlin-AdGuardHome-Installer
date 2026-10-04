@@ -32,6 +32,7 @@ sed -n '/^adguard_service_without_nvram_lock_fd() {$/,/^agh_restart() {$/p' "${S
 
 INFO='Info:'
 ADGUARDHOME_WAIT_TIMEOUT=60
+ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT=15
 PROCESS_STATE='stopped'
 PROCESS_COUNT='0'
 CURRENT_PIDS=''
@@ -118,7 +119,7 @@ fi
 grep -q 'Waiting for AdGuardHome to report running state after start' "${CALLS_FILE}" ||
 	fail 'start helper did not print the start wait message'
 grep -q 'Restarting\.\.\.' "${CALLS_FILE}" || fail 'start helper did not report the transitional restart state'
-[ "${SLEEP_CALLS}" -eq 5 ] || fail 'start helper did not cap the short poll at five seconds'
+[ "${SLEEP_CALLS}" -eq "${ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT}" ] || fail 'start helper did not cap the firmware poll at its configured grace period'
 ! grep -q '^check$' "${CALLS_FILE}" || fail 'start helper printed final status before the process settled'
 
 : >"${CALLS_FILE}"
@@ -145,12 +146,46 @@ if adguard_service_status_after_action stop; then
 	fail 'stop helper succeeded while the process remained active'
 fi
 grep -q 'Stopping\.\.\.' "${CALLS_FILE}" || fail 'stop helper did not report the transitional stopping state'
-[ "${SLEEP_CALLS}" -eq 5 ] || fail 'stop helper did not cap the short poll at five seconds'
+[ "${SLEEP_CALLS}" -eq "${ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT}" ] || fail 'stop helper did not cap the firmware poll at its configured grace period'
 ! grep -q '^check$' "${CALLS_FILE}" || fail 'stop helper printed final status before the process stopped'
 
 ptxt_step() {
 	printf '%s\n' "$*" >>"${CALLS_FILE}"
 }
+
+# A firmware stop that outlasts its grace period must switch to a separately
+# labelled direct-init poll with the full fallback timeout.
+(
+	STOP_PHASE=firmware
+	STOP_POLLS=0
+	: >"${CALLS_FILE}"
+	adguard_service_without_nvram_lock_fd() {
+		case "$*" in
+			service\ stop_AdGuardHome)
+				STOP_PHASE=firmware
+				;;
+			/opt/etc/init.d/S99AdGuardHome\ stop\ x)
+				STOP_PHASE=fallback
+				STOP_POLLS=0
+				;;
+			*) fail "unexpected stop command: $*" ;;
+		esac
+		return 0
+	}
+	agh_process_count() {
+		if [ "${STOP_PHASE}" = fallback ] && [ "${STOP_POLLS}" -ge 16 ]; then
+			printf '%s\n' 0
+		else
+			printf '%s\n' 1
+		fi
+	}
+	sleep() { STOP_POLLS="$((STOP_POLLS + 1))"; }
+	agh_request_stop || fail 'direct stop fallback did not finish after the firmware grace period'
+	grep -q 'Waiting for AdGuardHome to stop cleanly (firmware service)' "${CALLS_FILE}" ||
+		fail 'firmware stop poll was not labelled'
+	grep -q 'Waiting for AdGuardHome to stop cleanly (direct init fallback)' "${CALLS_FILE}" ||
+		fail 'direct stop fallback poll was not labelled'
+) || fail 'firmware and fallback stop polling regression failed'
 
 # Log command arguments and simulate immediate state changes for direct init actions.
 adguard_service_without_nvram_lock_fd() {
@@ -209,8 +244,8 @@ grep -q '^/opt/etc/init.d/S99AdGuardHome stop x$' "${CALLS_FILE}" ||
 	fail 'stop request did not fall back to the direct init script'
 [ "${PROCESS_COUNT}" = '0' ] || fail 'direct stop fallback left the service or monitor running'
 
-# Direct dispatch queues monitor work. Startup may outlast both short probes,
-# and restart must wait for a replacement PID rather than the original daemon.
+# Direct dispatch queues monitor work. Startup may outlast the firmware grace
+# period, and restart must wait for a replacement PID rather than the original daemon.
 for requested_action in start restart; do
 	(
 		# Accept and log queued actions; the sleep stub controls their completion.
@@ -232,11 +267,11 @@ for requested_action in start restart; do
 		"agh_request_${requested_action}" 111 || fail "${requested_action} abandoned delayed monitor startup"
 		[ "${SLEEP_CALLS}" -eq 13 ] || fail "${requested_action} did not wait for monitor completion"
 		[ "${CURRENT_PIDS}" = 222 ] || fail "${requested_action} accepted the old daemon"
-		grep -qx "/opt/etc/init.d/S99AdGuardHome ${requested_action} x" "${CALLS_FILE}" ||
-			fail "${requested_action} did not dispatch the direct fallback"
+		! grep -qx "/opt/etc/init.d/S99AdGuardHome ${requested_action} x" "${CALLS_FILE}" ||
+			fail "${requested_action} fell back before the firmware grace period elapsed"
 
 		# A queued action that never creates a replacement must still fail within
-		# the initial five-second probe plus the bounded direct-start budget.
+		# the firmware grace period plus the bounded direct-start budget.
 		NEW_PID_AFTER_SLEEP=0
 		SLEEP_CALLS=0
 		CURRENT_PIDS=''
@@ -248,7 +283,7 @@ for requested_action in start restart; do
 		if "agh_request_${requested_action}" 111; then
 			fail "${requested_action} succeeded without a replacement daemon"
 		fi
-		[ "${SLEEP_CALLS}" -eq "$((5 + ADGUARDHOME_WAIT_TIMEOUT))" ] ||
+		[ "${SLEEP_CALLS}" -eq "$((ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT + ADGUARDHOME_WAIT_TIMEOUT))" ] ||
 			fail "${requested_action} did not enforce its completion timeout"
 	) || fail "delayed ${requested_action} regression failed"
 done

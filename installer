@@ -30,6 +30,7 @@ readonly ADGUARD_METADATA_DIR="/tmp/AGH_STATIC_METADATA_$$.d"
 readonly ADGUARD_METADATA_FILE="${ADGUARD_METADATA_DIR}/channels.txt"
 ADGUARD_METADATA_DIR_OWNED=0
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
+readonly ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT="15"
 readonly ADGUARDHOME_READY_TIMEOUT="180"
 DNS_ENV_READY_TIMEOUT="${DNS_ENV_READY_TIMEOUT:-60}"
 DNS_ENV_RECOVERY_TIMEOUT="${DNS_ENV_RECOVERY_TIMEOUT:-15}"
@@ -3103,26 +3104,32 @@ adguard_pid_list_has_new_pid() {
 }
 
 adguard_service_status_after_action() {
-	local action elapsed maxwait old_pids status_message transition_message
+	local action elapsed maxwait old_pids phase phase_label status_message transition_message
 	action="${1:-restart}"
 	old_pids="${2:-}"
 	elapsed="0"
 	maxwait="${3:-${ADGUARDHOME_WAIT_TIMEOUT}}"
-	# Firmware requests get a short probe; direct startup still runs asynchronously.
-	if [ -z "${3:-}" ]; then
-		[ "${maxwait}" -le "5" ] || maxwait="5"
+	phase="${4:-firmware}"
+	case "${phase}" in
+		fallback) phase_label=" (direct init fallback)" ;;
+		*) phase="firmware"; phase_label=" (firmware service)" ;;
+	esac
+	# Firmware requests run asynchronously; allow the RC hook time to complete
+	# its monitor and DNS preflight before falling back to the init script.
+	if [ "${phase}" = "firmware" ] && [ -z "${3:-}" ]; then
+		[ "${maxwait}" -le "${ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT}" ] || maxwait="${ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT}"
 	fi
 	case "${action}" in
 		stop | kill)
-			status_message="Waiting for AdGuardHome to stop cleanly..."
+			status_message="Waiting for AdGuardHome to stop cleanly${phase_label}..."
 			transition_message="Stopping..."
 			;;
 		start)
-			status_message="Waiting for AdGuardHome to report running state after start..."
+			status_message="Waiting for AdGuardHome to report running state after start${phase_label}..."
 			transition_message="Restarting..."
 			;;
 		restart | *)
-			status_message="Waiting for AdGuardHome to report running state after restart..."
+			status_message="Waiting for AdGuardHome to report running state after restart${phase_label}..."
 			transition_message="Restarting..."
 			;;
 	esac
@@ -3813,7 +3820,7 @@ agh_request_start() {
 		ptxt_step "Firmware service start did not create the daemon; trying the init script directly."
 	fi
 	adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome start x || return 1
-	adguard_service_status_after_action start "" "${ADGUARDHOME_WAIT_TIMEOUT}"
+	adguard_service_status_after_action start "" "${ADGUARDHOME_WAIT_TIMEOUT}" fallback
 }
 
 # agh_request_restart applies the same completion check to firmware restart
@@ -3830,7 +3837,7 @@ agh_request_restart() {
 		ptxt_step "Firmware service restart did not replace the daemon; trying the init script directly."
 	fi
 	adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome restart x || return 1
-	adguard_service_status_after_action restart "${old_pids}" "${ADGUARDHOME_WAIT_TIMEOUT}"
+	adguard_service_status_after_action restart "${old_pids}" "${ADGUARDHOME_WAIT_TIMEOUT}" fallback
 }
 
 # agh_request_stop escalates from the asynchronous firmware event to the init
@@ -3845,13 +3852,13 @@ agh_request_stop() {
 		ptxt_step "Firmware service stop did not finish; trying the init script directly."
 	fi
 	if adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome stop x; then
-		if adguard_service_status_after_action stop; then
+		if adguard_service_status_after_action stop "" "${ADGUARDHOME_WAIT_TIMEOUT}" fallback; then
 			return 0
 		fi
 		[ "$(agh_process_count)" -eq 0 ] && return 0
 	fi
 	if adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome kill x; then
-		if adguard_service_status_after_action kill; then
+		if adguard_service_status_after_action kill "" "${ADGUARDHOME_WAIT_TIMEOUT}" fallback; then
 			return 0
 		fi
 		[ "$(agh_process_count)" -eq 0 ] && return 0
@@ -3859,7 +3866,7 @@ agh_request_stop() {
 	if ai_have_cmd killall; then
 		killall -q -9 AdGuardHome 2>/dev/null
 		rm -rf /opt/var/run/AdGuardHome.pid 2>/dev/null
-		adguard_service_status_after_action kill || true
+		adguard_service_status_after_action kill "" "${ADGUARDHOME_WAIT_TIMEOUT}" fallback || true
 	else
 		PTXT "${ERROR} Unable to force-stop AdGuardHome because killall is unavailable."
 	fi
