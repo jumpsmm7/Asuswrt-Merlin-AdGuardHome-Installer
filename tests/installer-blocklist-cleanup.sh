@@ -41,6 +41,7 @@ sed -n \
 	-e '/^rollback_result_notice() {$/,/^}/p' \
 	-e '/^adguardhome_owner_account() {$/,/^}/p' \
 	-e '/^adguardhome_yaml_secure_file() {$/,/^}/p' \
+	-e '/^blocklist_analyzer_pause() {$/,/^}/p' \
 	-e '/^blocklist_analyzer_ids() {$/,/^}/p' \
 	-e '/^run_blocklist_analyzer() {$/,/^}/p' \
 	-e '/^blocklist_yaml_candidates() {$/,/^}/p' \
@@ -50,6 +51,8 @@ sed -n '/^select_unused_blocklists_for_removal() {$/,/^remove_unused_blocklists_
 	fail 'could not extract blocklist selection function'
 sed -n '/^remove_unused_blocklists_from_yaml() {$/,/^cleanup_unused_blocklists() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
 	fail 'could not extract blocklist removal function'
+sed -n '/^cleanup_unused_blocklists() {$/,/^########################Modified Version/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract blocklist cleanup function'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'blocklist helper extraction was empty'
 sed 's#/opt/bin/python3#${PYTHON3_BIN:-/opt/bin/python3}#g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" ||
 	fail 'could not make Entware python3 path mockable'
@@ -57,6 +60,88 @@ mv "${FUNCTIONS_FILE}.tmp" "${FUNCTIONS_FILE}" || fail 'could not update extract
 for helper in adguardhome_owner_account adguardhome_yaml_secure_file; do
 	grep -Fq "${helper}() {" "${FUNCTIONS_FILE}" || fail "blocklist helper extraction is missing ${helper}"
 done
+
+grep -Fq '"9" | "blocklists" | "unusedblocklists")' "${SCRIPT_PATH}" ||
+	fail 'menu dispatch no longer routes all blocklist cleanup aliases'
+grep -Fq 'if [ -z "${2:-}" ] && single_arg_menu_action "${1:-}"; then' "${SCRIPT_PATH}" ||
+	fail 'redirected single-argument CLI actions no longer enter menu dispatch'
+grep -Fq 'menu "$2"' "${SCRIPT_PATH}" ||
+	fail 'branch-qualified CLI actions no longer enter menu dispatch'
+
+run_cleanup_pause_case() {
+	case_name="$1"
+	interactive="$2"
+	analyzer_status="$3"
+	expected_status="$4"
+	output_file="${TMP_ROOT}/pause-${case_name}.out"
+	call_file="${TMP_ROOT}/pause-${case_name}.calls"
+	(
+		# shellcheck disable=SC1090
+		. "${FUNCTIONS_FILE}"
+		INPUT='Input:'
+		INFO='Info:'
+		WARNING='Warning:'
+		ERROR='Error:'
+		TARG_DIR="${TMP_ROOT}/${case_name}"
+		mkdir -p "${TARG_DIR}" || exit 1
+		PTXT() {
+			if [ "${1:-}" = "-n" ]; then
+				shift
+				printf '%s' "$*"
+			else
+				printf '%s\n' "$*"
+			fi
+		}
+		ptxt_warn() { PTXT "$*"; }
+		stty() { [ "${interactive}" = "yes" ]; }
+		install_blocklist_analyzer() { return 0; }
+		run_blocklist_analyzer() {
+			PTXT 'analyzer result or diagnostic'
+			if [ "${analyzer_status}" -eq 0 ]; then
+				BLOCKLIST_ANALYZER_IDS_FILE="${TARG_DIR}/ids"
+				BLOCKLIST_ANALYZER_OUTPUT_FILE="${TARG_DIR}/output"
+				: >"${BLOCKLIST_ANALYZER_IDS_FILE}"
+				: >"${BLOCKLIST_ANALYZER_OUTPUT_FILE}"
+			fi
+			return "${analyzer_status}"
+		}
+		select_unused_blocklists_for_removal() {
+			BLOCKLIST_ANALYZER_SELECTED_IDS_FILE="${TARG_DIR}/selected"
+			: >"${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE}"
+			return 0
+		}
+		remove_unused_blocklists_from_yaml() { PTXT 'cleanup succeeded'; return 0; }
+		end_op_message() {
+			printf 'end:%s\n' "$1" >>"${call_file}"
+			PTXT "end:$1"
+		}
+		cleanup_unused_blocklists
+		status="$?"
+		[ "${status}" -eq "${expected_status}" ] || exit 1
+	) >"${output_file}" 2>&1
+}
+
+for dispatch_kind in menu cli; do
+	printf '\n' | run_cleanup_pause_case "${dispatch_kind}-success" yes 0 0 ||
+		fail "${dispatch_kind} successful cleanup pause regression failed"
+	printf '\n' | run_cleanup_pause_case "${dispatch_kind}-no-unused" yes 2 0 ||
+		fail "${dispatch_kind} no-unused cleanup pause regression failed"
+	printf '\n' | run_cleanup_pause_case "${dispatch_kind}-failure" yes 1 1 ||
+		fail "${dispatch_kind} analyzer failure pause regression failed"
+	for result_kind in success no-unused failure; do
+		output_file="${TMP_ROOT}/pause-${dispatch_kind}-${result_kind}.out"
+		grep -q 'Press Enter to continue' "${output_file}" ||
+			fail "${dispatch_kind} ${result_kind} result did not pause interactively"
+		awk 'index($0, "Press Enter to continue") && index($0, "end:") && index($0, "Press Enter to continue") < index($0, "end:") { found = 1 } END { exit(found ? 0 : 1) }' "${output_file}" ||
+			fail "${dispatch_kind} ${result_kind} pause did not precede end_op_message"
+	done
+done
+
+run_cleanup_pause_case 'cli-redirected-success' no 0 0 </dev/null ||
+	fail 'redirected CLI cleanup waited for input or failed'
+if grep -q 'Press Enter to continue' "${TMP_ROOT}/pause-cli-redirected-success.out"; then
+	fail 'redirected CLI cleanup displayed an interactive pause prompt'
+fi
 
 (
 	# shellcheck disable=SC1090

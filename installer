@@ -4153,6 +4153,14 @@ check_AdGuardHome_yaml() {
 
 # Blocklist analyzer helpers
 
+blocklist_analyzer_pause() {
+	local pause_input
+	if stty -a >/dev/null 2>&1; then
+		PTXT -n "${INPUT} Press Enter to continue: "
+		IFS= read -r pause_input || :
+	fi
+}
+
 blocklist_analyzer_ids() {
 	awk '
 		/^[[:space:]]*UNUSED BLOCKLISTS[[:space:]]*\(/ { in_unused = 1; next }
@@ -4523,6 +4531,7 @@ remove_unused_blocklists_from_yaml() {
 
 cleanup_unused_blocklists() {
 	install_blocklist_analyzer || {
+		blocklist_analyzer_pause
 		end_op_message 1
 		return 1
 	}
@@ -4530,10 +4539,12 @@ cleanup_unused_blocklists() {
 	case "$?" in
 		0) ;;
 		2)
+			blocklist_analyzer_pause
 			end_op_message 0
 			return 0
 			;;
 		*)
+			blocklist_analyzer_pause
 			end_op_message 1
 			return 1
 			;;
@@ -4541,14 +4552,17 @@ cleanup_unused_blocklists() {
 	if ! select_unused_blocklists_for_removal "${BLOCKLIST_ANALYZER_IDS_FILE}"; then
 		rm -f "${BLOCKLIST_ANALYZER_IDS_FILE:-}" "${BLOCKLIST_ANALYZER_OUTPUT_FILE:-}" "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}"
 		ptxt_warn "Blocklist cleanup cancelled or nothing was selected."
+		blocklist_analyzer_pause
 		end_op_message 1
 		return 1
 	fi
 	if remove_unused_blocklists_from_yaml "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE}"; then
 		rm -f "${BLOCKLIST_ANALYZER_IDS_FILE:-}" "${BLOCKLIST_ANALYZER_OUTPUT_FILE:-}" "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}"
+		blocklist_analyzer_pause
 		end_op_message 0
 	else
 		rm -f "${BLOCKLIST_ANALYZER_IDS_FILE:-}" "${BLOCKLIST_ANALYZER_OUTPUT_FILE:-}" "${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE:-}"
+		blocklist_analyzer_pause
 		end_op_message 1
 		return 1
 	fi
